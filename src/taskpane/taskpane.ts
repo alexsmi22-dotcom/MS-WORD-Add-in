@@ -1,6 +1,6 @@
 /* global Office, Word, document, HTMLInputElement, HTMLButtonElement, HTMLElement, Image, TextEncoder, btoa */
 
-import { Segment } from "../lib/segments";
+import { Segment, segmentsToHtml } from "../lib/segments";
 import { parseChemical } from "../lib/chemParser";
 import { parseMath } from "../lib/mathFormat";
 import { mathToOoxml } from "../lib/mathOmml";
@@ -86,20 +86,8 @@ function onInputChanged(): void {
 /** Renders the parsed segments into the live HTML text preview. */
 function updateTextPreview(): void {
   const segments = parse(inputEl.value, currentMode());
-  previewEl.replaceChildren();
-  for (const seg of segments) {
-    let node: HTMLElement | Text;
-    if (seg.type === "sub") {
-      node = document.createElement("sub");
-      node.textContent = seg.text;
-    } else if (seg.type === "sup") {
-      node = document.createElement("sup");
-      node.textContent = seg.text;
-    } else {
-      node = document.createTextNode(seg.text);
-    }
-    previewEl.appendChild(node);
-  }
+  // Same HTML used for insertion (see insertFormattedText) so preview == insert.
+  previewEl.innerHTML = segmentsToHtml(segments);
 }
 
 /** Attempts to render a 2D structure for the current input and shows it (or a hint). */
@@ -162,25 +150,21 @@ async function insertFormula(): Promise<void> {
   await insertFormattedText(text);
 }
 
-/** Inserts the parsed segments as Word text runs with sub/superscript formatting. */
+/**
+ * Inserts the formula as formatted text by inserting the exact same <sub>/<sup>
+ * HTML shown in the preview. Using insertHtml (rather than building runs
+ * imperatively) keeps run boundaries and formatting deterministic, so the
+ * inserted result always matches the preview.
+ */
 async function insertFormattedText(text: string): Promise<void> {
-  const segments = parse(text, currentMode());
+  const html = segmentsToHtml(parse(text, currentMode()));
   insertBtn.disabled = true;
 
   try {
     await Word.run(async (context) => {
-      let range: Word.Range = context.document.getSelection();
-      segments.forEach((seg, index) => {
-        // First segment replaces the selection (or inserts at the cursor);
-        // the rest are appended after the previously inserted run so order
-        // and formatting are preserved.
-        const location = index === 0 ? Word.InsertLocation.replace : Word.InsertLocation.after;
-        const inserted = range.insertText(seg.text, location);
-        inserted.font.subscript = seg.type === "sub";
-        inserted.font.superscript = seg.type === "sup";
-        range = inserted;
-      });
-      range.select(Word.SelectionMode.end);
+      const range = context.document.getSelection();
+      const inserted = range.insertHtml(html, Word.InsertLocation.replace);
+      inserted.select(Word.SelectionMode.end);
       await context.sync();
     });
     setStatus("Inserted.", "success");

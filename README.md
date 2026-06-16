@@ -114,10 +114,15 @@ Rendering is fully offline via [OpenChemLib](https://github.com/cheminfo/openche
 Because a 2D structure needs connectivity (not just an atom count), the input is
 resolved in this order:
 
-1. **Common name** — e.g. `aspirin`, `caffeine`, `water`, `ethanol`.
-2. **Known formula** — e.g. `H2O`, `C6H6`, `CO2` (from a curated dictionary in
-   `src/lib/compounds.ts`).
+1. **Common name** — e.g. `aspirin`, `caffeine`, `water`, `ethanol`, `glucose`,
+   `ibuprofen`. ~250 common compounds are built in (drugs, amino acids, acids,
+   salts, solvents, aromatics, sugars, nucleobases, …).
+2. **Known formula** — e.g. `H2O`, `C6H6`, `CO2`, `C9H8O4`.
 3. **SMILES string** — any valid SMILES, e.g. `CC(=O)O`, `c1ccccc1`.
+
+The dictionary lives in `src/lib/compounds.json`. Every SMILES is checked
+against OpenChemLib by `npm run validate:compounds`, so no entry silently fails
+to render. To add a compound, add a `"name": "SMILES"` line and re-run that.
 
 If the input isn't a known name/formula and isn't valid SMILES, the preview
 shows a hint instead of a structure. Ambiguous formulas (e.g. `C2H6O`, which

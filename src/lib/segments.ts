@@ -26,3 +26,24 @@ export function pushSegment(segments: Segment[], text: string, type: SegmentType
     segments.push({ text, type });
   }
 }
+
+/** Escapes text for safe inclusion in HTML. */
+export function escapeHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+/**
+ * Renders segments to an HTML fragment using <sub>/<sup>. Both the live preview
+ * and the Word insertion use this single function, so what you see in the
+ * preview is exactly what gets inserted into the document.
+ */
+export function segmentsToHtml(segments: Segment[]): string {
+  return segments
+    .map((seg) => {
+      const text = escapeHtml(seg.text);
+      if (seg.type === "sub") return `<sub>${text}</sub>`;
+      if (seg.type === "sup") return `<sup>${text}</sup>`;
+      return text;
+    })
+    .join("");
+}

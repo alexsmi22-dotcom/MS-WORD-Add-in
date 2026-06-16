@@ -97,6 +97,7 @@ word-chem-formula/
       ├─ mathFormat.ts       # Math expression -> segments
       ├─ compounds.ts        # name/formula -> SMILES dictionaries
       ├─ structures.ts       # SMILES -> 2D structure SVG (OpenChemLib)
+      ├─ mathOmml.ts         # math expression -> OMML Word equation
       └─ __tests__/          # Standalone parser sanity check
 ```
 
@@ -125,12 +126,30 @@ shows a hint instead of a structure. Ambiguous formulas (e.g. `C2H6O`, which
 could be ethanol or dimethyl ether) map to the most common compound; add or
 adjust entries in `compounds.ts` to taste, or type the SMILES directly.
 
+## Native Word equations (math mode)
+
+In **Math** mode, leave **"Insert as a native Word equation"** checked to insert
+a real Word equation object (OMML) instead of inline-formatted text. This gives
+true stacked fractions, radicals, and combined sub/superscripts:
+
+| You type    | As equation        |
+| ----------- | ------------------ |
+| `a/b`       | stacked fraction   |
+| `sqrt(x+1)` | radical over x+1   |
+| `x^{n+1}`   | x raised to n+1    |
+| `a_n^2`     | combined sub + sup |
+| `(a+b)/2`   | (a+b) over 2       |
+
+The converter (`src/lib/mathOmml.ts`) parses the linear expression and emits
+OMML wrapped in a flat-OPC package for `Range.insertOoxml`. If an expression
+can't be parsed as an equation, the add-in automatically falls back to inline
+sub/superscript formatting. Uncheck the box to always use inline formatting.
+
 ## Roadmap
 
 - [x] **Offline 2D chemical structures** (OpenChemLib) — name/formula/SMILES.
-- [ ] **Native Word equations for math.** Insert real OMML equation objects via
-      `insertOoxml` so stacked fractions, radicals, and matrices render as
-      true Word equations rather than inline superscripts/subscripts.
+- [x] **Native Word equations for math** (OMML via `insertOoxml`).
+- [ ] More equation constructs: summation, integral, matrices, n-th roots.
 - [ ] Formula history / favorites.
 - [ ] Distribution beyond local sideload (org catalog or AppSource).
 

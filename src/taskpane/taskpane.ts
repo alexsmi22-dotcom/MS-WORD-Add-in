@@ -3,6 +3,7 @@
 import { Segment } from "../lib/segments";
 import { parseChemical } from "../lib/chemParser";
 import { parseMath } from "../lib/mathFormat";
+import { mathToOoxml } from "../lib/mathOmml";
 import { renderStructure } from "../lib/structures";
 
 type Mode = "chemical" | "math";
@@ -17,6 +18,8 @@ let insertBtn: HTMLButtonElement;
 let structureSection: HTMLElement;
 let structurePreviewEl: HTMLElement;
 let insertStructureBtn: HTMLButtonElement;
+let ommlOption: HTMLElement;
+let ommlCheckbox: HTMLInputElement;
 
 /** The SVG currently shown in the structure preview, or null when none. */
 let currentStructureSvg: string | null = null;
@@ -33,6 +36,8 @@ Office.onReady((info) => {
   structureSection = document.getElementById("structure-section") as HTMLElement;
   structurePreviewEl = document.getElementById("structure-preview") as HTMLElement;
   insertStructureBtn = document.getElementById("insert-structure-btn") as HTMLButtonElement;
+  ommlOption = document.getElementById("omml-option") as HTMLElement;
+  ommlCheckbox = document.getElementById("omml-checkbox") as HTMLInputElement;
 
   inputEl.addEventListener("input", onInputChanged);
   inputEl.addEventListener("keydown", (e) => {
@@ -65,11 +70,12 @@ function updatePlaceholder(): void {
     currentMode() === "chemical" ? "e.g. H2O, Ca(OH)2, aspirin" : "e.g. x^2 + y^2, a_n, sqrt(x)";
 }
 
-/** Refreshes everything that depends on the input: text preview and (chemical only) structure. */
+/** Refreshes everything that depends on the input: text preview and mode-specific UI. */
 function onInputChanged(): void {
   updateTextPreview();
   const chemical = currentMode() === "chemical";
   structureSection.style.display = chemical ? "block" : "none";
+  ommlOption.style.display = chemical ? "none" : "block";
   if (chemical) {
     updateStructurePreview();
   } else {
@@ -137,7 +143,7 @@ function setStatus(message: string, kind: "" | "error" | "success" = ""): void {
   statusEl.className = kind ? `status ${kind}` : "status";
 }
 
-/** Inserts the formatted formula text into the Word document at the selection. */
+/** Inserts the formula at the selection — as a native equation, or as formatted text. */
 async function insertFormula(): Promise<void> {
   const text = inputEl.value.trim();
   if (!text) {
@@ -145,9 +151,21 @@ async function insertFormula(): Promise<void> {
     return;
   }
 
+  // Math mode with the equation option checked: try OMML first, then fall back
+  // to inline formatting if the expression can't be parsed into an equation.
+  if (currentMode() === "math" && ommlCheckbox.checked) {
+    const inserted = await insertEquation(text);
+    if (inserted) return;
+    setStatus("Couldn't build an equation from that — inserted as formatted text instead.", "error");
+  }
+
+  await insertFormattedText(text);
+}
+
+/** Inserts the parsed segments as Word text runs with sub/superscript formatting. */
+async function insertFormattedText(text: string): Promise<void> {
   const segments = parse(text, currentMode());
   insertBtn.disabled = true;
-  setStatus("Inserting…");
 
   try {
     await Word.run(async (context) => {
@@ -168,6 +186,37 @@ async function insertFormula(): Promise<void> {
     setStatus("Inserted.", "success");
   } catch (error) {
     setStatus(`Could not insert: ${(error as Error).message}`, "error");
+  } finally {
+    insertBtn.disabled = false;
+  }
+}
+
+/**
+ * Builds OMML from the input and inserts it as a native Word equation.
+ * Returns true on success, false if the expression couldn't be parsed (so the
+ * caller can fall back to formatted text).
+ */
+async function insertEquation(text: string): Promise<boolean> {
+  let ooxml: string;
+  try {
+    ooxml = mathToOoxml(text);
+  } catch {
+    return false; // parse error — caller falls back
+  }
+
+  insertBtn.disabled = true;
+  setStatus("Inserting equation…");
+  try {
+    await Word.run(async (context) => {
+      const range = context.document.getSelection();
+      range.insertOoxml(ooxml, Word.InsertLocation.replace);
+      await context.sync();
+    });
+    setStatus("Equation inserted.", "success");
+    return true;
+  } catch (error) {
+    setStatus(`Could not insert equation: ${(error as Error).message}`, "error");
+    return true; // a Word/runtime error is not a parse failure; don't double-insert
   } finally {
     insertBtn.disabled = false;
   }

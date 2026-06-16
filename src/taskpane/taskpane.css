@@ -46,6 +46,15 @@ h1 {
   user-select: none;
 }
 
+.omml-option {
+  display: block;
+  margin: -4px 0 14px;
+  font-size: 12.5px;
+  color: var(--muted);
+  cursor: pointer;
+  user-select: none;
+}
+
 .field-label,
 .preview-label {
   display: block;

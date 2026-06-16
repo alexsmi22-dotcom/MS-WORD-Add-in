@@ -151,20 +151,39 @@ an inline image, same as Chemical-mode structures.
 ## Native Word equations (math mode)
 
 In **Math** mode, leave **"Insert as a native Word equation"** checked to insert
-a real Word equation object (OMML) instead of inline-formatted text. This gives
-true stacked fractions, radicals, and combined sub/superscripts:
+a real Word equation object (OMML) instead of inline-formatted text. The live
+preview uses a structured HTML renderer (`src/lib/mathHtml.ts`) that mirrors the
+inserted equation, so what you see is what you get.
 
-| You type    | As equation        |
-| ----------- | ------------------ |
-| `a/b`       | stacked fraction   |
-| `sqrt(x+1)` | radical over x+1   |
-| `x^{n+1}`   | x raised to n+1    |
-| `a_n^2`     | combined sub + sup |
-| `(a+b)/2`   | (a+b) over 2       |
+### Formula library
 
-The converter (`src/lib/mathOmml.ts`) parses the linear expression and emits
-OMML wrapped in a flat-OPC package for `Range.insertOoxml`. If an expression
-can't be parsed as an equation, the add-in automatically falls back to inline
+The **Formula library** picker (Math mode) offers ready-made formulas across
+**Statistics, Geometry, Algebra, Trigonometry, and Calculus** (mean, variance,
+quadratic formula, Pythagorean theorem, law of cosines, derivative/integral,
+geometric series, …). Pick a category and a formula and it loads into the input,
+previews, and inserts as a native Word equation. Defined in
+`src/lib/formulaLibrary.ts`.
+
+### Typed-math syntax
+
+The engine (`src/lib/mathParse.ts` → `mathOmml.ts`) understands:
+
+| You type            | Renders as                  |
+| ------------------- | --------------------------- |
+| `a/b`               | stacked fraction            |
+| `x^2`, `a_n`, `a_n^2` | super/subscripts (combined) |
+| `sqrt(x+1)`, `root(3, x)` | square / n-th root      |
+| `sum(i=1, n, x_i)`  | summation Σ with limits     |
+| `int(a, b, f(x))`   | integral ∫ with limits      |
+| `prod(i=1, n, i)`   | product ∏                   |
+| `lim(x -> 0, …)`    | limit                       |
+| `abs(x)` or `\|x\|`  | absolute value              |
+| `bar(x)`, `hat(x)`, `vec(x)` | accents              |
+| `sin(x)`, `log(x)`, `ln(x)` | upright function names |
+| `2x`, `2(x+1)`, `a b` | implicit multiplication   |
+| `n!`, `+-`, `pi`, `theta` | factorial, ±, Greek     |
+
+If an expression can't be parsed as an equation, the add-in falls back to inline
 sub/superscript formatting. Uncheck the box to always use inline formatting.
 
 ## Roadmap
@@ -172,7 +191,10 @@ sub/superscript formatting. Uncheck the box to always use inline formatting.
 - [x] **Offline 2D chemical structures** (OpenChemLib) — name/formula/SMILES.
 - [x] **Native Word equations for math** (OMML via `insertOoxml`).
 - [x] **Build mode** — render a structure from a molfile or atom/bond list.
-- [ ] More equation constructs: summation, integral, matrices, n-th roots.
+- [x] **Formula library + extended math engine** — Σ, ∫, ∏, roots, functions,
+      |x|, limits, accents, factorials; categorized presets for stats/geometry/
+      algebra/trig/calculus.
+- [ ] Matrices and piecewise/cases in the math engine.
 - [ ] Formula history / favorites.
 - [ ] Distribution beyond local sideload (org catalog or AppSource).
 

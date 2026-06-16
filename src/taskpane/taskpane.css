@@ -55,6 +55,74 @@ h1 {
   user-select: none;
 }
 
+.library-row {
+  margin-bottom: 14px;
+}
+
+.library-selects {
+  display: flex;
+  gap: 8px;
+}
+
+.lib-select {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 8px;
+  font-size: 13px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: #fff;
+}
+
+/* Math preview rendering (mirrors mathHtml.ts) */
+.m-op {
+  margin: 0 0.25em;
+}
+.m-fn {
+  font-style: normal;
+  margin-right: 0.05em;
+}
+.m-frac {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  vertical-align: middle;
+  margin: 0 0.15em;
+}
+.m-frac-n {
+  border-bottom: 1px solid currentColor;
+  padding: 0 0.3em;
+}
+.m-frac-d {
+  padding: 0 0.3em;
+}
+.m-sqrt {
+  margin-right: -0.1em;
+}
+.m-rad {
+  border-top: 1px solid currentColor;
+  padding: 0 0.15em;
+}
+.m-deg {
+  font-size: 0.6em;
+}
+.m-nary {
+  display: inline-flex;
+  align-items: center;
+  vertical-align: middle;
+}
+.m-nary-op {
+  font-size: 1.6em;
+  line-height: 1;
+}
+.m-nary-lim {
+  display: inline-flex;
+  flex-direction: column;
+  font-size: 0.6em;
+  line-height: 1.1;
+  text-align: center;
+}
+
 .field-label,
 .preview-label {
   display: block;

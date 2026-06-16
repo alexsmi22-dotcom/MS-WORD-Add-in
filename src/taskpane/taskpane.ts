@@ -4,8 +4,10 @@ import { Segment, segmentsToHtml } from "../lib/segments";
 import { parseChemical } from "../lib/chemParser";
 import { parseMath } from "../lib/mathFormat";
 import { mathToOoxml } from "../lib/mathOmml";
+import { mathToHtml } from "../lib/mathHtml";
 import { renderStructure } from "../lib/structures";
 import { build, BuildFormat } from "../lib/builder";
+import { FORMULA_LIBRARY } from "../lib/formulaLibrary";
 
 type Mode = "chemical" | "math" | "build";
 
@@ -21,6 +23,9 @@ let structurePreviewEl: HTMLElement;
 let insertStructureBtn: HTMLButtonElement;
 let ommlOption: HTMLElement;
 let ommlCheckbox: HTMLInputElement;
+let libraryRow: HTMLElement;
+let libCategorySelect: HTMLSelectElement;
+let libFormulaSelect: HTMLSelectElement;
 let formatSection: HTMLElement;
 let buildSection: HTMLElement;
 let buildFormatSelect: HTMLSelectElement;
@@ -49,6 +54,9 @@ Office.onReady((info) => {
   insertStructureBtn = document.getElementById("insert-structure-btn") as HTMLButtonElement;
   ommlOption = document.getElementById("omml-option") as HTMLElement;
   ommlCheckbox = document.getElementById("omml-checkbox") as HTMLInputElement;
+  libraryRow = document.getElementById("library-row") as HTMLElement;
+  libCategorySelect = document.getElementById("lib-category") as HTMLSelectElement;
+  libFormulaSelect = document.getElementById("lib-formula") as HTMLSelectElement;
   formatSection = document.getElementById("format-section") as HTMLElement;
   buildSection = document.getElementById("build-section") as HTMLElement;
   buildFormatSelect = document.getElementById("build-format") as HTMLSelectElement;
@@ -74,9 +82,51 @@ Office.onReady((info) => {
   buildFormatSelect.addEventListener("change", updateBuildPreview);
   insertBuildBtn.addEventListener("click", insertBuild);
 
+  populateLibraryCategories();
+  libCategorySelect.addEventListener("change", populateLibraryFormulas);
+  libFormulaSelect.addEventListener("change", onLibraryFormulaChosen);
+
   updatePlaceholder();
   onInputChanged();
 });
+
+/** Fills the category dropdown and the formulas for the first category. */
+function populateLibraryCategories(): void {
+  libCategorySelect.replaceChildren();
+  FORMULA_LIBRARY.forEach((cat, i) => {
+    const opt = document.createElement("option");
+    opt.value = String(i);
+    opt.textContent = cat.name;
+    libCategorySelect.appendChild(opt);
+  });
+  populateLibraryFormulas();
+}
+
+/** Fills the formula dropdown for the currently selected category. */
+function populateLibraryFormulas(): void {
+  const cat = FORMULA_LIBRARY[Number(libCategorySelect.value)];
+  libFormulaSelect.replaceChildren();
+  const placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = "Choose a formula…";
+  libFormulaSelect.appendChild(placeholder);
+  cat?.formulas.forEach((f, i) => {
+    const opt = document.createElement("option");
+    opt.value = String(i);
+    opt.textContent = f.label;
+    libFormulaSelect.appendChild(opt);
+  });
+}
+
+/** When a library formula is picked, load its expression into the input. */
+function onLibraryFormulaChosen(): void {
+  const cat = FORMULA_LIBRARY[Number(libCategorySelect.value)];
+  const idx = libFormulaSelect.value;
+  if (!cat || idx === "") return;
+  inputEl.value = cat.formulas[Number(idx)].expr;
+  onInputChanged();
+  inputEl.focus();
+}
 
 function currentMode(): Mode {
   const checked = document.querySelector<HTMLInputElement>('input[name="mode"]:checked');
@@ -112,6 +162,7 @@ function onInputChanged(): void {
   updateTextPreview();
   structureSection.style.display = chemical ? "block" : "none";
   ommlOption.style.display = chemical ? "none" : "block";
+  libraryRow.style.display = mode === "math" ? "block" : "none";
   if (chemical) {
     updateStructurePreview();
   } else {
@@ -119,11 +170,16 @@ function onInputChanged(): void {
   }
 }
 
-/** Renders the parsed segments into the live HTML text preview. */
+/** Renders the live HTML preview for the current input and mode. */
 function updateTextPreview(): void {
-  const segments = parse(inputEl.value, currentMode());
-  // Same HTML used for insertion (see insertFormattedText) so preview == insert.
-  previewEl.innerHTML = segmentsToHtml(segments);
+  if (currentMode() === "math") {
+    // Structured math renderer (fractions, roots, Σ, ∫ …) mirrors the OMML
+    // that gets inserted; falls back to inline formatting on partial input.
+    previewEl.innerHTML = mathToHtml(inputEl.value);
+  } else {
+    // Same HTML used for insertion (see insertFormattedText) so preview == insert.
+    previewEl.innerHTML = segmentsToHtml(parseChemical(inputEl.value));
+  }
 }
 
 /** Attempts to render a 2D structure for the current input and shows it (or a hint). */

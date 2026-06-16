@@ -155,6 +155,19 @@ a real Word equation object (OMML) instead of inline-formatted text. The live
 preview uses a structured HTML renderer (`src/lib/mathHtml.ts`) that mirrors the
 inserted equation, so what you see is what you get.
 
+### Clickable palette
+
+Below the input is a **palette** of buttons that insert at the cursor — no
+syntax to memorize. It's mode-aware:
+
+- **Math:** fraction, root, exponent/subscript, |x|, overbar; Σ ∫ ∏ lim;
+  sin/cos/tan/log/ln; Greek letters; operators (± × ≤ ≥ ≠ →). Template buttons
+  drop the cursor in the first slot to fill.
+- **Chemical:** parentheses, charge (`^`, ⁺, ⁻, ²⁻, ³⁺), hydrate dot, and common
+  groups/ions (OH, H₂O, NH₄, SO₄, NO₃, CO₃, PO₄, CH₃).
+
+Defined in `src/lib/palettes.ts`.
+
 ### Formula library
 
 The **Formula library** picker (Math mode) offers ready-made formulas across

@@ -59,6 +59,50 @@ h1 {
   margin-bottom: 14px;
 }
 
+.palette {
+  margin: 8px 0 14px;
+}
+
+.palette-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+
+.palette-group-label {
+  width: 100%;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  margin: 4px 0 1px;
+}
+
+.palette-btn {
+  min-width: 30px;
+  padding: 4px 7px;
+  font-size: 14px;
+  font-family: "Cambria Math", "Segoe UI", serif;
+  color: var(--text);
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+  line-height: 1.2;
+}
+
+.palette-btn:hover {
+  background: var(--bg-soft);
+  border-color: var(--accent);
+}
+
+.palette-btn:active {
+  background: #e6eef8;
+}
+
 .library-selects {
   display: flex;
   gap: 8px;

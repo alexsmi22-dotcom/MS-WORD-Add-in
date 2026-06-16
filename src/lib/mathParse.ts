@@ -54,7 +54,10 @@ function isDigit(ch: string): boolean {
   return ch >= "0" && ch <= "9";
 }
 function isAlpha(ch: string): boolean {
-  return (ch >= "a" && ch <= "z") || (ch >= "A" && ch <= "Z");
+  if ((ch >= "a" && ch <= "z") || (ch >= "A" && ch <= "Z")) return true;
+  // Greek letters (Α–Ω, α–ω) so literal glyphs from the palette parse as atoms.
+  const c = ch.charCodeAt(0);
+  return c >= 0x0391 && c <= 0x03c9;
 }
 
 function tokenize(input: string): Token[] {

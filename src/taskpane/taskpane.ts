@@ -8,6 +8,7 @@ import { mathToHtml } from "../lib/mathHtml";
 import { renderStructure } from "../lib/structures";
 import { build, BuildFormat } from "../lib/builder";
 import { FORMULA_LIBRARY } from "../lib/formulaLibrary";
+import { MATH_PALETTE, CHEM_PALETTE, PaletteGroup } from "../lib/palettes";
 
 type Mode = "chemical" | "math" | "build";
 
@@ -26,6 +27,7 @@ let ommlCheckbox: HTMLInputElement;
 let libraryRow: HTMLElement;
 let libCategorySelect: HTMLSelectElement;
 let libFormulaSelect: HTMLSelectElement;
+let paletteEl: HTMLElement;
 let formatSection: HTMLElement;
 let buildSection: HTMLElement;
 let buildFormatSelect: HTMLSelectElement;
@@ -57,6 +59,7 @@ Office.onReady((info) => {
   libraryRow = document.getElementById("library-row") as HTMLElement;
   libCategorySelect = document.getElementById("lib-category") as HTMLSelectElement;
   libFormulaSelect = document.getElementById("lib-formula") as HTMLSelectElement;
+  paletteEl = document.getElementById("palette") as HTMLElement;
   formatSection = document.getElementById("format-section") as HTMLElement;
   buildSection = document.getElementById("build-section") as HTMLElement;
   buildFormatSelect = document.getElementById("build-format") as HTMLSelectElement;
@@ -73,6 +76,7 @@ Office.onReady((info) => {
   document.querySelectorAll<HTMLInputElement>('input[name="mode"]').forEach((radio) => {
     radio.addEventListener("change", () => {
       updatePlaceholder();
+      renderPalette();
       onInputChanged();
     });
   });
@@ -86,9 +90,48 @@ Office.onReady((info) => {
   libCategorySelect.addEventListener("change", populateLibraryFormulas);
   libFormulaSelect.addEventListener("change", onLibraryFormulaChosen);
 
+  renderPalette();
   updatePlaceholder();
   onInputChanged();
 });
+
+/** Renders the palette buttons for the current mode (math vs chemical). */
+function renderPalette(): void {
+  const mode = currentMode();
+  const groups: PaletteGroup[] = mode === "math" ? MATH_PALETTE : mode === "chemical" ? CHEM_PALETTE : [];
+  paletteEl.replaceChildren();
+  for (const group of groups) {
+    const wrap = document.createElement("div");
+    wrap.className = "palette-group";
+    const label = document.createElement("span");
+    label.className = "palette-group-label";
+    label.textContent = group.name;
+    wrap.appendChild(label);
+    for (const item of group.items) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "palette-btn";
+      btn.textContent = item.label;
+      if (item.title) btn.title = item.title;
+      // Keep focus/selection in the input so the snippet lands at the caret.
+      btn.addEventListener("mousedown", (e) => e.preventDefault());
+      btn.addEventListener("click", () => insertAtCursor(item.snippet, item.caret));
+      wrap.appendChild(btn);
+    }
+    paletteEl.appendChild(wrap);
+  }
+}
+
+/** Inserts a snippet at the input's caret and positions the cursor within it. */
+function insertAtCursor(snippet: string, caret?: number): void {
+  const start = inputEl.selectionStart ?? inputEl.value.length;
+  const end = inputEl.selectionEnd ?? inputEl.value.length;
+  inputEl.value = inputEl.value.slice(0, start) + snippet + inputEl.value.slice(end);
+  const pos = start + (caret ?? snippet.length);
+  inputEl.focus();
+  inputEl.setSelectionRange(pos, pos);
+  onInputChanged();
+}
 
 /** Fills the category dropdown and the formulas for the first category. */
 function populateLibraryCategories(): void {
@@ -153,6 +196,7 @@ function onInputChanged(): void {
 
   formatSection.style.display = build ? "none" : "block";
   buildSection.style.display = build ? "block" : "none";
+  paletteEl.style.display = build ? "none" : "block";
 
   if (build) {
     updateBuildPreview();

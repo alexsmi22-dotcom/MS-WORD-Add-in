@@ -192,8 +192,9 @@ syntax to memorize. It's mode-aware:
 - **Math:** fraction, root, exponent/subscript, |x|, overbar; Σ ∫ ∏ lim;
   sin/cos/tan/log/ln; Greek letters; operators (± × ≤ ≥ ≠ →). Template buttons
   drop the cursor in the first slot to fill.
-- **Chemical:** parentheses, charge (`^`, ⁺, ⁻, ²⁻, ³⁺), hydrate dot, and common
-  groups/ions (OH, H₂O, NH₄, SO₄, NO₃, CO₃, PO₄, CH₃).
+- **Chemical:** parentheses, charge (`^`, ⁺, ⁻, ²⁻, ³⁺), hydrate dot, bonds
+  (single `–`, double `=`, triple `≡`, undefined `~`) for condensed structural
+  formulas, and common groups/ions (OH, H₂O, NH₄, SO₄, NO₃, CO₃, PO₄, CH₃).
 
 Defined in `src/lib/palettes.ts`.
 

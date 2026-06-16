@@ -112,6 +112,10 @@ export const CHEM_PALETTE: PaletteGroup[] = [
       { label: "²⁻", snippet: "^2-", caret: 3, title: "2− charge" },
       { label: "³⁺", snippet: "^3+", caret: 3, title: "3+ charge" },
       { label: "·", snippet: "·", title: "Hydrate dot" },
+      { label: "–", snippet: "–", title: "Single bond" },
+      { label: "=", snippet: "=", title: "Double bond" },
+      { label: "≡", snippet: "≡", title: "Triple bond" },
+      { label: "~", snippet: "~", title: "Undefined bond" },
     ],
   },
   {

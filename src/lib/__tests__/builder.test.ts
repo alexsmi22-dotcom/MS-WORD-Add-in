@@ -43,6 +43,33 @@ describe("builder — generic / Markush", () => {
   });
 });
 
+describe("builder — stereo & extended Markush", () => {
+  it("accepts a wedge bond without becoming generic", () => {
+    const r = build("atoms: C F Cl Br\nbonds: 1-2 1>3 1-4", "auto");
+    expect(r.generic).toBe(false);
+    expect(r.formula).toBe("CHBrClF");
+  });
+
+  it("accepts a hash bond", () => {
+    expect(() => build("atoms: C F Cl Br\nbonds: 1-2 1<3 1-4", "auto")).not.toThrow();
+  });
+
+  it("treats R1 as an R-group (generic)", () => {
+    const r = build("atoms: R1 C C O\nbonds: 1-2 2-3 3-4", "auto");
+    expect(r.generic).toBe(true);
+  });
+
+  it("treats A (any atom) and Q (heteroatom) as generic", () => {
+    expect(build("atoms: A C\nbonds: 1-2", "auto").generic).toBe(true);
+    expect(build("atoms: Q C\nbonds: 1-2", "auto").generic).toBe(true);
+  });
+
+  it("does not mistake R-prefixed elements (Ru, Rb) for an R-group", () => {
+    expect(build("atoms: Ru", "auto").generic).toBe(false);
+    expect(build("atoms: Rb", "auto").generic).toBe(false);
+  });
+});
+
 describe("builder — errors", () => {
   it("rejects an unknown element", () => {
     expect(() => buildFromAtomBondList("atoms: C Zz\nbonds: 1-2")).toThrow(/Unknown element/);

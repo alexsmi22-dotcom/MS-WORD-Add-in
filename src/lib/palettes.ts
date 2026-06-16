@@ -107,7 +107,18 @@ export const BUILD_BONDS: PaletteItem[] = [
   { label: "– single", snippet: "-", title: "Single bond (i-j)" },
   { label: "= double", snippet: "=", title: "Double bond (i=j)" },
   { label: "≡ triple", snippet: "#", title: "Triple bond (i#j)" },
+  { label: "▲ wedge", snippet: ">", title: "Wedge / up stereo bond (i>j)" },
+  { label: "⊣ hash", snippet: "<", title: "Hash / down stereo bond (i<j)" },
   { label: "~ undefined", snippet: "~", title: "Undefined / any bond (i~j) — makes a generic structure" },
+];
+
+/** Markush / query atom tokens for the Build atoms line (insert at cursor). */
+export const BUILD_MARKUSH: PaletteItem[] = [
+  { label: "[C,N]", snippet: "[C,N]", title: "Variable atom (any listed element)" },
+  { label: "X", snippet: "X", title: "Halogen (F/Cl/Br/I)" },
+  { label: "A", snippet: "A", title: "Any atom" },
+  { label: "Q", snippet: "Q", title: "Any heteroatom (not carbon)" },
+  { label: "R1", snippet: "R1", title: "R-group / substituent attachment point" },
 ];
 
 export const CHEM_PALETTE: PaletteGroup[] = [

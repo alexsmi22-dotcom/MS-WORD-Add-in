@@ -5,7 +5,12 @@ All notable changes to Formula Inserter. Dates are release/pilot dates.
 ## [Unreleased] — internal pilot prep
 
 ### Added
-- **Automated test suite** (Jest + ts-jest): 440 tests over parsers, OMML
+- **Stereochemistry**: isomeric SMILES (Chemical mode) renders wedge/hash bonds;
+  Build mode adds wedge (`>`) and hash (`<`) stereo bonds.
+- **Richer Markush atoms** in Build: `A` (any atom), `Q` (any heteroatom),
+  `R`/`R1`/`R2`… (R-group attachment points), plus the existing `[C,N]` lists and
+  `X` halogen — with a "Markush / query atoms" button row.
+- **Automated test suite** (Jest + ts-jest): 445 tests over parsers, OMML
   emitter, formula library, builder, and the full compound dictionary. Run with
   `npm test`.
 - **CI** (`.github/workflows/ci.yml`): type-check, tests, dictionary validation,
@@ -29,9 +34,10 @@ All notable changes to Formula Inserter. Dates are release/pilot dates.
   `manifest.prod.xml` template.
 
 ### Notes / known gaps (tracked for next iterations)
-- Stereochemistry (wedge/hash, R/S, E/Z) not yet supported in Build.
-- Richer Markush (R-group legends, "optionally substituted", variable counts /
-  C1–C6 ranges) not yet supported.
+- Build wedge/hash bonds are indicative; for exact, parity-defined stereo prefer
+  isomeric SMILES in Chemical mode.
+- R-group *legends/definitions tables*, "optionally substituted" shorthands, and
+  variable counts / C1–C6 alkyl ranges are not yet generated automatically.
 - Sequence listings (WIPO ST.26) out of scope.
 - Compound dictionary SMILES are validated to **parse**; a chemist should
   spot-verify chemical correctness before claim-critical use.

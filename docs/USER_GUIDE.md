@@ -28,6 +28,8 @@ Type a formula; it formats subscripts/superscripts automatically:
 - The **2D structure** box (below) shows a structure for known names/formulas or
   any SMILES, with its **formula, MW, and SMILES**. **Insert 2D structure** adds
   the image; its alt-text stores the SMILES + OCL-ID for provenance.
+- **Stereochemistry:** enter an **isomeric SMILES** (e.g. L-alanine
+  `C[C@@H](N)C(=O)O`, or E/Z with `/` and `\`) — it's drawn with wedge/hash bonds.
 - The **palette** inserts parentheses, charges, lone pair, and common groups.
 
 ## Math mode
@@ -58,13 +60,20 @@ Make a 2D structure from a description and insert it as an image.
   atoms: C C O
   bonds: 1-2 2-3
   ```
-  Bond buttons insert `-` single, `=` double, `#` triple, `~` undefined.
-- **Generic (Markush) structures:** a bracketed list `[C,N]` is a variable atom,
-  `X` is a halogen, and `~` is an any-bond. Example — the genus over benzene and
+  Bond buttons insert `-` single, `=` double, `#` triple, `~` undefined,
+  `>` wedge (up), `<` hash (down).
+- **Generic (Markush) structures** (buttons in the "Markush / query atoms" row):
+  `[C,N]` variable atom · `X` halogen · `A` any atom · `Q` any heteroatom ·
+  `R1` R-group attachment · `~` any-bond. Example — the genus over benzene and
   pyridine:
   ```
   atoms: [C,N] C C C C C
   bonds: 1=2 2-3 3=4 4-5 5=6 6-1
+  ```
+  Example — a para-substituted ring with an R-group and a halogen:
+  ```
+  atoms: C C C C C C R1 X
+  bonds: 1=2 2-3 3=4 4-5 5=6 6-1 1-7 4-8
   ```
 - **Molfile:** paste an MDL molfile to import it.
 

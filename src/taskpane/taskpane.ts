@@ -8,7 +8,15 @@ import { mathToHtml } from "../lib/mathHtml";
 import { renderStructure, StructureResult } from "../lib/structures";
 import { build, BuildFormat, BuildResult } from "../lib/builder";
 import { FORMULA_LIBRARY } from "../lib/formulaLibrary";
-import { MATH_PALETTE, CHEM_PALETTE, BUILD_TEMPLATES, BUILD_BONDS, PaletteGroup } from "../lib/palettes";
+import {
+  MATH_PALETTE,
+  CHEM_PALETTE,
+  BUILD_TEMPLATES,
+  BUILD_BONDS,
+  BUILD_MARKUSH,
+  PaletteGroup,
+  PaletteItem,
+} from "../lib/palettes";
 import { NAME_TO_SMILES } from "../lib/compounds";
 import {
   HistoryEntry,
@@ -50,6 +58,7 @@ let searchResults: HTMLElement;
 let historyEl: HTMLElement;
 let buildTemplatesEl: HTMLElement;
 let buildBondsEl: HTMLElement;
+let buildMarkushEl: HTMLElement;
 let formatSection: HTMLElement;
 let buildSection: HTMLElement;
 let buildFormatSelect: HTMLSelectElement;
@@ -92,6 +101,7 @@ Office.onReady((info) => {
   historyEl = document.getElementById("history") as HTMLElement;
   buildTemplatesEl = document.getElementById("build-templates") as HTMLElement;
   buildBondsEl = document.getElementById("build-bonds") as HTMLElement;
+  buildMarkushEl = document.getElementById("build-markush") as HTMLElement;
   formatSection = document.getElementById("format-section") as HTMLElement;
   buildSection = document.getElementById("build-section") as HTMLElement;
   buildFormatSelect = document.getElementById("build-format") as HTMLSelectElement;
@@ -133,7 +143,8 @@ Office.onReady((info) => {
   searchInput.addEventListener("blur", () => window.setTimeout(closeSearch, 150));
 
   renderBuildTemplates();
-  renderBuildBonds();
+  renderBuildButtons(buildBondsEl, BUILD_BONDS);
+  renderBuildButtons(buildMarkushEl, BUILD_MARKUSH);
 
   renderPalette();
   renderHistory();
@@ -265,10 +276,10 @@ function renderBuildTemplates(): void {
   }
 }
 
-/** Renders the Build bond buttons; clicking inserts the bond operator at the cursor. */
-function renderBuildBonds(): void {
-  buildBondsEl.replaceChildren();
-  for (const item of BUILD_BONDS) {
+/** Renders a row of Build buttons; clicking inserts its snippet at the cursor. */
+function renderBuildButtons(el: HTMLElement, items: PaletteItem[]): void {
+  el.replaceChildren();
+  for (const item of items) {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "palette-btn";
@@ -276,7 +287,7 @@ function renderBuildBonds(): void {
     if (item.title) btn.title = item.title;
     btn.addEventListener("mousedown", (e) => e.preventDefault());
     btn.addEventListener("click", () => insertBuildSnippet(item.snippet));
-    buildBondsEl.appendChild(btn);
+    el.appendChild(btn);
   }
 }
 

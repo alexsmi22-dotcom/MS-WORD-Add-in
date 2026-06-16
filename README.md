@@ -149,9 +149,10 @@ it. Two input formats (auto-detected, or pick one):
   atoms: C O O
   bonds: 1=2 1=3
   ```
-  Bonds: `-` single, `=` double, `#` triple, `~` undefined/any (→ generic).
-  Atoms may carry a charge (`N+`, `O-`, `Fe2+`). Hydrogens are filled in
-  automatically from valence. Bond buttons under the input insert these for you.
+  Bonds: `-` single, `=` double, `#` triple, `~` undefined/any (→ generic),
+  `>` wedge, `<` hash (stereo). Atoms may carry a charge (`N+`, `O-`, `Fe2+`).
+  Hydrogens are filled in automatically from valence. Bond and Markush buttons
+  under the input insert these for you.
 - **Molfile (MDL)** — paste any standard V2000/V3000 molfile (e.g. exported
   from another tool) to import and render it.
 
@@ -168,6 +169,14 @@ bonds: 1=2 2-3 3=4 4-5 5=6 6-1
 The **Genus [C,N] ring** button under "Common structures" loads exactly this.
 Generic structures show "generic structure" instead of a molecular formula and
 insert into Word as an image like any other.
+
+Variable-position tokens (the "Markush / query atoms" buttons): `[C,N]` atom
+list · `X` halogen · `A` any atom · `Q` any heteroatom · `R1`/`R2`… R-group
+attachment points.
+
+**Stereochemistry.** In Chemical mode, an isomeric SMILES
+(`C[C@@H](N)C(=O)O`, or E/Z via `/`…`\`) renders with wedge/hash bonds. In Build
+mode, `>` and `<` add wedge and hash stereo bonds.
 
 Implemented in `src/lib/builder.ts` (OpenChemLib). The structure is inserted as
 an inline image, same as Chemical-mode structures.
@@ -254,9 +263,10 @@ sub/superscript formatting. Uncheck the box to always use inline formatting.
       `X` halogen shorthand.
 - [x] **Equation numbering** (I, II, …) and **structure provenance**
       (formula/MW/SMILES/OCL-ID in alt-text).
-- [x] **Test suite** (Jest, 440 tests) + **CI**; distribution/security docs.
-- [ ] Stereochemistry (wedge/hash, R/S, E/Z) in Build.
-- [ ] Richer Markush: R-group legends, "optionally substituted", C1–C6 ranges.
+- [x] **Test suite** (Jest, 445 tests) + **CI**; distribution/security docs.
+- [x] **Stereochemistry** — isomeric SMILES (wedges) + Build wedge/hash bonds.
+- [x] **Richer Markush atoms** — `A` any, `Q` heteroatom, `R1` R-group (+ `[C,N]`, `X`).
+- [ ] R-group legend/definition tables and "optionally substituted" shorthands.
 - [ ] Matrices and piecewise/cases in the math engine.
 - [ ] Sequence listings (WIPO ST.26) — separate workstream.
 - [ ] Formula history / favorites.

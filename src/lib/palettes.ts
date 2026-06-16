@@ -120,7 +120,7 @@ export const CHEM_PALETTE: PaletteGroup[] = [
       { label: "⁻", snippet: "^-", caret: 2, title: "Negative charge" },
       { label: "²⁻", snippet: "^2-", caret: 3, title: "2− charge" },
       { label: "³⁺", snippet: "^3+", caret: 3, title: "3+ charge" },
-      { label: "·", snippet: "·", title: "Hydrate dot" },
+      { label: ":", snippet: ":", title: "Lone pair" },
     ],
   },
   {

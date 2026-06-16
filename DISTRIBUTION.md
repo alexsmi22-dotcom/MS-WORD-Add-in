@@ -33,6 +33,14 @@ from **Insert → My Add-ins → Shared Folder**. Word-on-the-web users just use
 **Verify the dictionary first (optional):** `npm run review-sheet` writes
 `review-sheet.html` — every compound rendered for a chemist to sign off.
 
+### No server? Host free on GitHub Pages
+
+If you don't have an internal HTTPS host, **`packaging/GITHUB-PAGES.md`** walks
+through hosting the web files free on GitHub Pages (~10 min, no admin). An
+included GitHub Action (`.github/workflows/pages.yml`) builds and publishes
+automatically on push; your add-in URL becomes
+`https://<user>.github.io/<repo>/`. Then run `package.ps1` with that URL.
+
 ---
 
 ## Manual / advanced deployment

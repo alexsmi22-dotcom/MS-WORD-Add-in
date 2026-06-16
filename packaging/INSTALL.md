@@ -1,51 +1,38 @@
 # Install Formula Inserter in Word
 
-This add-in adds an **Insert Formula** button to Word for chemical formulas, math
+This adds an **Insert Formula** button/pane to Word for chemical formulas, math
 equations, and 2D chemical structures. It runs entirely on your machine — nothing
-you type is sent anywhere.
+you type is sent anywhere. No administrator rights are needed.
 
-Pick the method for how you use Word.
+## Install (Word desktop on Windows)
 
----
+1. Keep **`manifest.xml`** and **`install.ps1`** together in the same folder.
+2. **Right-click `install.ps1` → Run with PowerShell.**
+   - If nothing happens when you double-click, that's normal — you must use
+     **Run with PowerShell** (double-clicking just opens it in Notepad).
+   - If it's blocked, open PowerShell and run:
+     `powershell -ExecutionPolicy Bypass -File install.ps1`
+   - You'll see "Formula Inserter installed for your user account."
+3. **Fully close and reopen Word** (all windows).
+4. **Insert** tab → **Add-ins** → under **Developer Add-ins**, click
+   **Formula Inserter**. The pane opens on the right.
 
-## Word on the web (easiest — no script)
+That's it. (First open may take a second while it loads.)
 
-1. Open a document at **word.office.com**.
-2. **Insert** tab → **Add-ins** → **Upload My Add-in**.
-3. Browse to **`manifest.xml`** (from this package) → **Upload**.
-4. The **Insert Formula** button appears on the Home tab.
+### Quick test
+In the pane, with **Chemical** selected, type `H2O` and click
+**Insert formatted text** — you should get H₂O in your document.
 
-## Word desktop on Windows
+## Uninstall
 
-1. Make sure **`manifest.xml`** and **`install.ps1`** are in the same folder.
-2. Right-click **`install.ps1`** → **Run with PowerShell**.
-   (If blocked, open PowerShell and run:
-   `powershell -ExecutionPolicy Bypass -File install.ps1`)
-3. **Fully close and reopen Word.**
-4. **Insert** tab → **Add-ins** (or **My Add-ins**) → **SHARED FOLDER** tab →
-   choose **Formula Inserter** → **Add**.
+Run **`uninstall.ps1`** the same way (Run with PowerShell), then restart Word.
 
-No administrator rights are needed — it installs for your user only.
+## Troubleshooting
 
-To remove it later: run **`uninstall.ps1`**, then restart Word.
-
-## Word desktop on Mac
-
-1. Copy **`manifest.xml`** to:
-   `~/Library/Containers/com.microsoft.Word/Data/Documents/wef`
-   (create the `wef` folder if it doesn't exist).
-2. Restart Word → **Insert** → **Add-ins** → **My Add-ins** → choose it.
-
----
-
-### Troubleshooting
-
-- **"Shared Folder" tab is empty / add-in not listed:** restart Word completely
-  (check Task Manager for lingering WINWORD). If it still doesn't appear, your
-  Office build may require a network-share catalog — see `HOST-SETUP.md` for the
-  share option, or use Word on the web.
-- **Add-in pane is blank or won't load:** the web files may not be hosted yet, or
-  the hosting URL in the manifest is wrong — see `HOST-SETUP.md` (this is a
-  one-time setup by whoever hosts the files).
-- **"This add-in could not be started" / compatibility:** requires Microsoft 365
-  Word (modern build). Very old Office versions are not supported.
+- **Double-clicking does nothing:** use **right-click → Run with PowerShell**.
+- **Not under Developer Add-ins after install:** make sure Word was *fully* closed
+  (no lingering WINWORD in Task Manager), then reopen.
+- **Pane is blank:** you need an internet connection the first time it loads (the
+  add-in's code is served over HTTPS). After that it works offline.
+- **"Could not be started" / compatibility:** requires Microsoft 365 Word (modern
+  build). Very old Office versions aren't supported.

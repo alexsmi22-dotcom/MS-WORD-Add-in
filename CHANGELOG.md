@@ -1,0 +1,43 @@
+# Changelog
+
+All notable changes to Formula Inserter. Dates are release/pilot dates.
+
+## [Unreleased] — internal pilot prep
+
+### Added
+- **Automated test suite** (Jest + ts-jest): 440 tests over parsers, OMML
+  emitter, formula library, builder, and the full compound dictionary. Run with
+  `npm test`.
+- **CI** (`.github/workflows/ci.yml`): type-check, tests, dictionary validation,
+  production build, manifest validation.
+- **Equation numbering** — optional right-aligned **(I), (II), …** with a
+  persistent counter and reset.
+- **Structure provenance** — inserted structures carry molecular formula, MW,
+  canonical SMILES, and OpenChemLib ID code in the image alt-text; the pane shows
+  formula / MW / SMILES.
+- **Markush / generic structures** in Build mode — `[C,N]` atom lists, `~`
+  undefined/any bonds, and the `X` halogen shorthand.
+- **Clickable palettes** (math + chemical), **Build bond buttons**, and **Build
+  common-structure templates**.
+- **Search** across formulas and compounds; **recents & favorites** (with a
+  **Clear** control for confidentiality).
+- **Formula library** (Statistics / Geometry / Algebra / Trigonometry / Calculus)
+  and an extended math engine (Σ, ∫, ∏, roots, functions, |x|, limits, accents,
+  factorials, implicit multiplication, literal Greek).
+- **Confidentiality disclaimer** in the pane.
+- Distribution, security, third-party-license, and user-guide docs;
+  `manifest.prod.xml` template.
+
+### Notes / known gaps (tracked for next iterations)
+- Stereochemistry (wedge/hash, R/S, E/Z) not yet supported in Build.
+- Richer Markush (R-group legends, "optionally substituted", variable counts /
+  C1–C6 ranges) not yet supported.
+- Sequence listings (WIPO ST.26) out of scope.
+- Compound dictionary SMILES are validated to **parse**; a chemist should
+  spot-verify chemical correctness before claim-critical use.
+- Cross-platform (Mac / Word on the web) and a Content-Security-Policy need
+  validation in-host during the pilot (see `SECURITY.md`).
+
+## [0.1.0] — initial scaffold
+- Office.js Word add-in: chemical & math formatting, 2D structures, native Word
+  equations, Build mode.

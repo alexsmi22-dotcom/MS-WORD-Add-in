@@ -75,14 +75,26 @@ const PKG_NS = "http://schemas.microsoft.com/office/2006/xmlPackage";
 const REL_NS = "http://schemas.openxmlformats.org/package/2006/relationships";
 const OFFICE_DOC_REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument";
 
+export interface MathOoxmlOptions {
+  /** When set, appends a right-aligned label (e.g. "(I)") — patent-style equation numbering. */
+  number?: string;
+}
+
 /**
  * Wraps an `<m:oMath>` body in a minimal flat-OPC package that
- * Word.Range.insertOoxml() accepts. The equation is placed inline in a paragraph.
+ * Word.Range.insertOoxml() accepts. The equation is placed inline in a paragraph;
+ * when `options.number` is given, a right-aligned number label is appended.
  */
-export function buildMathOoxml(ommlBody: string): string {
+export function buildMathOoxml(ommlBody: string, options: MathOoxmlOptions = {}): string {
+  const number = options.number;
+  // Right tab stop near the page margin so the number flushes right, patent-style.
+  const pPr = number ? `<w:pPr><w:tabs><w:tab w:val="right" w:pos="9360"/></w:tabs></w:pPr>` : "";
+  const numberRuns = number
+    ? `<w:r><w:tab/></w:r><w:r><w:t xml:space="preserve">${escapeXml(number)}</w:t></w:r>`
+    : "";
   const documentXml =
     `<w:document xmlns:w="${W_NS}" xmlns:m="${M_NS}">` +
-    `<w:body><w:p>${ommlBody}</w:p></w:body></w:document>`;
+    `<w:body><w:p>${pPr}${ommlBody}${numberRuns}</w:p></w:body></w:document>`;
 
   const relsXml =
     `<Relationships xmlns="${REL_NS}">` +
@@ -102,6 +114,6 @@ export function buildMathOoxml(ommlBody: string): string {
 }
 
 /** Convenience: parse linear math and return the full insertable OOXML package. */
-export function mathToOoxml(input: string): string {
-  return buildMathOoxml(mathToOmml(input));
+export function mathToOoxml(input: string, options: MathOoxmlOptions = {}): string {
+  return buildMathOoxml(mathToOmml(input), options);
 }

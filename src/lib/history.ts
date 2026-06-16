@@ -57,6 +57,16 @@ export function isFavorite(entry: HistoryEntry): boolean {
   return load(FAVS_KEY).some((e) => keyOf(e) === keyOf(entry));
 }
 
+/** Clears all recents and favorites (e.g. on a shared machine, for confidentiality). */
+export function clearHistory(): void {
+  try {
+    localStorage.removeItem(RECENTS_KEY);
+    localStorage.removeItem(FAVS_KEY);
+  } catch {
+    // best-effort
+  }
+}
+
 /** Toggles favorite status; returns true if it is now a favorite. */
 export function toggleFavorite(entry: HistoryEntry): boolean {
   const list = load(FAVS_KEY);

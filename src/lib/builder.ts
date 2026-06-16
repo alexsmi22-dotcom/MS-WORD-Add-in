@@ -30,7 +30,16 @@ export interface BuildResult {
   formula: string;
   /** True when the structure is generic (contains a query/atom-list position). */
   generic: boolean;
+  /** OpenChemLib canonical ID code — a deterministic structure fingerprint for provenance. */
+  idcode: string;
+  /** Relative molecular weight (0 for generic structures). */
+  mw: number;
 }
+
+/** Single-letter Markush shorthands that expand to an atom list. */
+const SHORTHANDS: Record<string, string[]> = {
+  X: ["F", "Cl", "Br", "I"], // halogen
+};
 
 export type BuildFormat = "auto" | "atombond" | "molfile";
 
@@ -94,6 +103,8 @@ function parseAtomToken(token: string): ParsedAtom {
   }
   const m = /^([A-Z][a-z]?)(.*)$/.exec(token);
   if (!m) throw new Error(`Could not parse atom "${token}".`);
+  const shorthand = SHORTHANDS[m[1]];
+  if (shorthand) return { symbols: shorthand, charge: parseCharge(m[2]) };
   return { symbols: [m[1]], charge: parseCharge(m[2]) };
 }
 
@@ -158,23 +169,36 @@ function finish(mol: Molecule, width: number, height: number, needCoords: boolea
   const svg = mol.toSVG(width, height);
   const generic = mol.isFragment();
   let smiles = "";
-  let formula = "";
   try {
-    smiles = mol.toSmiles();
+    smiles = mol.toIsomericSmiles();
   } catch {
-    /* leave blank */
-  }
-  if (generic) {
-    // A molecular formula isn't well-defined for a generic structure.
-    formula = "generic structure";
-  } else {
     try {
-      formula = mol.getMolecularFormula().formula;
+      smiles = mol.toSmiles();
     } catch {
       /* leave blank */
     }
   }
-  return { svg, smiles, formula, generic };
+  let idcode = "";
+  try {
+    idcode = mol.getIDCode();
+  } catch {
+    /* leave blank */
+  }
+  let formula = "";
+  let mw = 0;
+  if (generic) {
+    // A molecular formula / weight isn't well-defined for a generic structure.
+    formula = "generic structure";
+  } else {
+    try {
+      const mf = mol.getMolecularFormula();
+      formula = mf.formula;
+      mw = Math.round(mf.relativeWeight * 100) / 100;
+    } catch {
+      /* leave blank */
+    }
+  }
+  return { svg, smiles, formula, generic, idcode, mw };
 }
 
 /** Heuristic: does this text look like an MDL molfile rather than an atom/bond list? */

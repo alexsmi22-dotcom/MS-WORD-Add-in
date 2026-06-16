@@ -5,12 +5,22 @@ import { parseChemical } from "../lib/chemParser";
 import { parseMath } from "../lib/mathFormat";
 import { mathToOoxml } from "../lib/mathOmml";
 import { mathToHtml } from "../lib/mathHtml";
-import { renderStructure } from "../lib/structures";
-import { build, BuildFormat } from "../lib/builder";
+import { renderStructure, StructureResult } from "../lib/structures";
+import { build, BuildFormat, BuildResult } from "../lib/builder";
 import { FORMULA_LIBRARY } from "../lib/formulaLibrary";
 import { MATH_PALETTE, CHEM_PALETTE, BUILD_TEMPLATES, BUILD_BONDS, PaletteGroup } from "../lib/palettes";
 import { NAME_TO_SMILES } from "../lib/compounds";
-import { HistoryEntry, HistoryKind, addRecent, getRecents, getFavorites, isFavorite, toggleFavorite } from "../lib/history";
+import {
+  HistoryEntry,
+  HistoryKind,
+  addRecent,
+  getRecents,
+  getFavorites,
+  isFavorite,
+  toggleFavorite,
+  clearHistory,
+} from "../lib/history";
+import { toRoman, peekFormulaNumber, nextFormulaNumber, resetFormulaNumbering } from "../lib/numbering";
 
 type Mode = "chemical" | "math" | "build";
 
@@ -26,6 +36,11 @@ let structurePreviewEl: HTMLElement;
 let insertStructureBtn: HTMLButtonElement;
 let ommlOption: HTMLElement;
 let ommlCheckbox: HTMLInputElement;
+let numberOption: HTMLElement;
+let numberCheckbox: HTMLInputElement;
+let numberNext: HTMLElement;
+let numberReset: HTMLButtonElement;
+let structureInfo: HTMLElement;
 let libraryRow: HTMLElement;
 let libCategorySelect: HTMLSelectElement;
 let libFormulaSelect: HTMLSelectElement;
@@ -44,10 +59,10 @@ let buildSmilesEl: HTMLElement;
 let buildPreviewEl: HTMLElement;
 let insertBuildBtn: HTMLButtonElement;
 
-/** The SVG currently shown in the structure preview, or null when none. */
-let currentStructureSvg: string | null = null;
-/** The SVG currently shown in the Build preview, or null when none. */
-let currentBuildSvg: string | null = null;
+/** The structure currently shown in the Chemical structure preview, or null. */
+let currentStructure: StructureResult | null = null;
+/** The molecule currently shown in the Build preview, or null. */
+let currentBuild: BuildResult | null = null;
 
 Office.onReady((info) => {
   if (info.host !== Office.HostType.Word) {
@@ -63,6 +78,11 @@ Office.onReady((info) => {
   insertStructureBtn = document.getElementById("insert-structure-btn") as HTMLButtonElement;
   ommlOption = document.getElementById("omml-option") as HTMLElement;
   ommlCheckbox = document.getElementById("omml-checkbox") as HTMLInputElement;
+  numberOption = document.getElementById("number-option") as HTMLElement;
+  numberCheckbox = document.getElementById("number-checkbox") as HTMLInputElement;
+  numberNext = document.getElementById("number-next") as HTMLElement;
+  numberReset = document.getElementById("number-reset") as HTMLButtonElement;
+  structureInfo = document.getElementById("structure-info") as HTMLElement;
   libraryRow = document.getElementById("library-row") as HTMLElement;
   libCategorySelect = document.getElementById("lib-category") as HTMLSelectElement;
   libFormulaSelect = document.getElementById("lib-formula") as HTMLSelectElement;
@@ -94,6 +114,11 @@ Office.onReady((info) => {
   });
   insertBtn.addEventListener("click", insertFormula);
   insertStructureBtn.addEventListener("click", insertStructure);
+  numberCheckbox.addEventListener("change", updateNumberLabel);
+  numberReset.addEventListener("click", () => {
+    resetFormulaNumbering();
+    updateNumberLabel();
+  });
   buildInput.addEventListener("input", updateBuildPreview);
   buildFormatSelect.addEventListener("change", updateBuildPreview);
   insertBuildBtn.addEventListener("click", insertBuild);
@@ -112,9 +137,15 @@ Office.onReady((info) => {
 
   renderPalette();
   renderHistory();
+  updateNumberLabel();
   updatePlaceholder();
   onInputChanged();
 });
+
+/** Shows the next equation number "(I)" next to the numbering checkbox. */
+function updateNumberLabel(): void {
+  numberNext.textContent = numberCheckbox.checked ? `(${toRoman(peekFormulaNumber())})` : "";
+}
 
 /** Switches mode programmatically (e.g. from search or history) and refreshes UI. */
 function setMode(mode: Mode): void {
@@ -270,6 +301,19 @@ function renderHistory(): void {
   const recents = getRecents();
   if (favorites.length) historyEl.appendChild(historyGroup("★ Saved", favorites, true));
   if (recents.length) historyEl.appendChild(historyGroup("Recent", recents, false));
+  if (favorites.length || recents.length) {
+    const clear = document.createElement("button");
+    clear.type = "button";
+    clear.className = "linklike";
+    clear.style.marginLeft = "0";
+    clear.textContent = "Clear recents & favorites";
+    clear.title = "Remove all stored history from this machine";
+    clear.addEventListener("click", () => {
+      clearHistory();
+      renderHistory();
+    });
+    historyEl.appendChild(clear);
+  }
 }
 
 function historyGroup(title: string, entries: HistoryEntry[], favorited: boolean): HTMLElement {
@@ -439,11 +483,12 @@ function onInputChanged(): void {
   updateTextPreview();
   structureSection.style.display = chemical ? "block" : "none";
   ommlOption.style.display = chemical ? "none" : "block";
+  numberOption.style.display = mode === "math" ? "block" : "none";
   libraryRow.style.display = mode === "math" ? "block" : "none";
   if (chemical) {
     updateStructurePreview();
   } else {
-    currentStructureSvg = null;
+    currentStructure = null;
   }
 }
 
@@ -462,7 +507,7 @@ function updateTextPreview(): void {
 /** Attempts to render a 2D structure for the current input and shows it (or a hint). */
 function updateStructurePreview(): void {
   const text = inputEl.value.trim();
-  currentStructureSvg = null;
+  currentStructure = null;
 
   if (!text) {
     showStructureHint("Type a name, formula, or SMILES to see its structure.");
@@ -481,9 +526,24 @@ function updateStructurePreview(): void {
     return;
   }
 
-  currentStructureSvg = result.svg;
+  currentStructure = result;
   structurePreviewEl.innerHTML = result.svg;
+  renderStructureInfo(result.formula, result.mw, result.smiles);
   insertStructureBtn.disabled = false;
+}
+
+/** Shows formula / MW / SMILES under the structure preview (provenance at a glance). */
+function renderStructureInfo(formula: string, mw: number, smiles: string): void {
+  structureInfo.replaceChildren();
+  const bits: string[] = [];
+  if (formula) bits.push(`Formula: ${formula}`);
+  if (mw) bits.push(`MW: ${mw}`);
+  if (smiles) bits.push(`SMILES: ${smiles}`);
+  for (const b of bits) {
+    const span = document.createElement("span");
+    span.textContent = b;
+    structureInfo.appendChild(span);
+  }
 }
 
 function showStructureHint(message: string): void {
@@ -492,12 +552,23 @@ function showStructureHint(message: string): void {
   hint.className = "hint";
   hint.textContent = message;
   structurePreviewEl.appendChild(hint);
+  structureInfo.replaceChildren();
   insertStructureBtn.disabled = true;
 }
 
 function setStatus(message: string, kind: "" | "error" | "success" = ""): void {
   statusEl.textContent = message;
   statusEl.className = kind ? `status ${kind}` : "status";
+}
+
+/** Builds machine-readable provenance for a structure's image alt-text. */
+function provenanceAltText(label: string, formula: string, mw: number, smiles: string, idcode: string): string {
+  const meta: string[] = [];
+  if (formula) meta.push(formula);
+  if (mw) meta.push(`MW ${mw}`);
+  if (smiles) meta.push(`SMILES ${smiles}`);
+  if (idcode) meta.push(`OCL-ID ${idcode}`);
+  return meta.length ? `${label} — ${meta.join("; ")}` : label;
 }
 
 /** Inserts the formula at the selection — as a native equation, or as formatted text. */
@@ -551,9 +622,12 @@ async function insertFormattedText(text: string): Promise<void> {
  * caller can fall back to formatted text).
  */
 async function insertEquation(text: string): Promise<boolean> {
+  // Reserve a number only if this expression actually parses (avoid gaps on failure).
+  const numbered = numberCheckbox.checked;
   let ooxml: string;
   try {
-    ooxml = mathToOoxml(text);
+    const label = numbered ? `(${toRoman(peekFormulaNumber())})` : undefined;
+    ooxml = mathToOoxml(text, { number: label });
   } catch {
     return false; // parse error — caller falls back
   }
@@ -566,6 +640,10 @@ async function insertEquation(text: string): Promise<boolean> {
       range.insertOoxml(ooxml, Word.InsertLocation.replace);
       await context.sync();
     });
+    if (numbered) {
+      nextFormulaNumber(); // consume the number now that it's placed
+      updateNumberLabel();
+    }
     setStatus("Equation inserted.", "success");
     recordInsert("math", text, text);
     return true;
@@ -579,7 +657,8 @@ async function insertEquation(text: string): Promise<boolean> {
 
 /** Rasterizes the current structure SVG to a PNG and inserts it as an inline picture. */
 async function insertStructure(): Promise<void> {
-  if (!currentStructureSvg) {
+  const structure = currentStructure;
+  if (!structure) {
     setStatus("No structure to insert.", "error");
     return;
   }
@@ -588,12 +667,19 @@ async function insertStructure(): Promise<void> {
   setStatus("Inserting structure…");
 
   try {
-    const base64 = await svgToPngBase64(currentStructureSvg, STRUCTURE_W, STRUCTURE_H);
+    const base64 = await svgToPngBase64(structure.svg, STRUCTURE_W, STRUCTURE_H);
     const label = inputEl.value.trim();
+    const alt = provenanceAltText(
+      `2D structure of ${label}`,
+      structure.formula,
+      structure.mw,
+      structure.smiles,
+      structure.idcode,
+    );
     await Word.run(async (context) => {
       const range = context.document.getSelection();
       const picture = range.insertInlinePictureFromBase64(base64, Word.InsertLocation.after);
-      picture.altTextDescription = `2D structure of ${label}`;
+      picture.altTextDescription = alt;
       range.select(Word.SelectionMode.end);
       await context.sync();
     });
@@ -609,7 +695,7 @@ async function insertStructure(): Promise<void> {
 /** Builds a molecule from the Build textarea and shows its structure, formula, and SMILES. */
 function updateBuildPreview(): void {
   const text = buildInput.value;
-  currentBuildSvg = null;
+  currentBuild = null;
   insertBuildBtn.disabled = true;
 
   if (!text.trim()) {
@@ -627,9 +713,9 @@ function updateBuildPreview(): void {
   try {
     const format = buildFormatSelect.value as BuildFormat;
     const result = build(text, format, STRUCTURE_W, STRUCTURE_H);
-    currentBuildSvg = result.svg;
+    currentBuild = result;
     buildPreviewEl.innerHTML = result.svg;
-    buildFormulaEl.textContent = result.formula || "—";
+    buildFormulaEl.textContent = result.formula + (result.mw ? ` (MW ${result.mw})` : "");
     buildSmilesEl.textContent = result.smiles || "—";
     insertBuildBtn.disabled = false;
     setStatus("");
@@ -646,7 +732,8 @@ function updateBuildPreview(): void {
 
 /** Inserts the built molecule's structure as an inline picture. */
 async function insertBuild(): Promise<void> {
-  if (!currentBuildSvg) {
+  const molecule = currentBuild;
+  if (!molecule) {
     setStatus("Nothing built to insert.", "error");
     return;
   }
@@ -655,12 +742,13 @@ async function insertBuild(): Promise<void> {
   setStatus("Inserting structure…");
 
   try {
-    const base64 = await svgToPngBase64(currentBuildSvg, STRUCTURE_W, STRUCTURE_H);
-    const label = buildFormulaEl.textContent || "molecule";
+    const base64 = await svgToPngBase64(molecule.svg, STRUCTURE_W, STRUCTURE_H);
+    const label = molecule.formula || "molecule";
+    const alt = provenanceAltText(`2D structure (${label})`, molecule.formula, molecule.mw, molecule.smiles, molecule.idcode);
     await Word.run(async (context) => {
       const range = context.document.getSelection();
       const picture = range.insertInlinePictureFromBase64(base64, Word.InsertLocation.after);
-      picture.altTextDescription = `2D structure (${label})`;
+      picture.altTextDescription = alt;
       range.select(Word.SelectionMode.end);
       await context.sync();
     });

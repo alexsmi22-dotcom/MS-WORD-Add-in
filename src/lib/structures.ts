@@ -15,6 +15,10 @@ export interface StructureResult {
   smiles: string;
   /** How the input was interpreted — useful for messaging in the UI. */
   source: "name" | "formula" | "smiles";
+  /** Molecular formula, OCL canonical ID code, and relative molecular weight (provenance). */
+  formula: string;
+  idcode: string;
+  mw: number;
 }
 
 /** Looks up a SMILES for a known name or formula. Returns null if not in the dictionaries. */
@@ -72,5 +76,29 @@ export function renderStructure(input: string, width = 280, height = 220): Struc
   }
 
   const svg = mol.toSVG(width, height);
-  return { svg, smiles, source };
+
+  // Provenance: canonical SMILES, OCL ID code, formula, and molecular weight.
+  let canonicalSmiles = smiles;
+  let idcode = "";
+  let formula = "";
+  let mw = 0;
+  try {
+    canonicalSmiles = mol.toIsomericSmiles();
+  } catch {
+    /* keep input smiles */
+  }
+  try {
+    idcode = mol.getIDCode();
+  } catch {
+    /* ignore */
+  }
+  try {
+    const mf = mol.getMolecularFormula();
+    formula = mf.formula;
+    mw = Math.round(mf.relativeWeight * 100) / 100;
+  } catch {
+    /* ignore */
+  }
+
+  return { svg, smiles: canonicalSmiles, source, formula, idcode, mw };
 }

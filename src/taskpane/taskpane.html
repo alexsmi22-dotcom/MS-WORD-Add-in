@@ -41,6 +41,12 @@
           Insert as a native Word equation (true fractions, radicals)
         </label>
 
+        <label id="number-option" class="omml-option">
+          <input type="checkbox" id="number-checkbox" />
+          Number this equation <span id="number-next" class="number-next"></span>
+          <button type="button" id="number-reset" class="linklike">reset</button>
+        </label>
+
         <div id="library-row" class="library-row">
           <label for="lib-category" class="field-label">Formula library</label>
           <div class="library-selects">
@@ -71,6 +77,7 @@
         <section id="structure-section" class="structure-section">
           <span class="preview-label">2D structure</span>
           <div id="structure-preview" class="structure-preview" aria-live="polite"></div>
+          <div id="structure-info" class="build-readout"></div>
           <button id="insert-structure-btn" class="insert-btn secondary" type="button" disabled>
             Insert 2D structure
           </button>
@@ -137,11 +144,16 @@
           <br /><code>bonds: 1=2 1=3</code> &rarr; CO<sub>2</sub>.
           Bonds: <code>-</code> single, <code>=</code> double,
           <code>#</code> triple, <code>~</code> undefined. Atoms can carry a charge (<code>N+</code>,
-          <code>O-</code>). Hydrogens are added automatically. A bracketed list
-          like <code>[C,N]</code> is a variable position &rarr; a generic
-          (Markush) structure.
+          <code>O-</code>). Hydrogens are added automatically. For generic
+          (Markush) structures: <code>[C,N]</code> is a variable atom,
+          <code>X</code> is a halogen, and <code>~</code> is an any-bond.
         </p>
       </details>
+
+      <p class="disclaimer">
+        Drafting aid only — verify all structures and formulas before filing.
+        Runs entirely on your machine; no document content is sent anywhere.
+      </p>
     </main>
   </body>
 </html>

@@ -11,14 +11,18 @@
     "stop": "office-addin-debugging stop manifest.xml",
     "validate": "office-addin-manifest validate manifest.xml",
     "validate:compounds": "node src/lib/__tests__/validate-compounds.mjs",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "test": "jest"
   },
   "dependencies": {
     "core-js": "^3.36.0",
     "openchemlib": "^8.0.0"
   },
   "devDependencies": {
+    "@types/jest": "^29.5.12",
     "@types/office-js": "^1.0.377",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.1.2",
     "copy-webpack-plugin": "^12.0.2",
     "html-loader": "^5.0.0",
     "html-webpack-plugin": "^5.6.0",

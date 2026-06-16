@@ -18,13 +18,22 @@ aspirin  ->  (inserts the 2D structure as an image)
 
 ---
 
+## Documentation
+
+- [User Guide](docs/USER_GUIDE.md) — for drafters
+- [Distribution & Deployment](DISTRIBUTION.md) — for IT
+- [Security & Confidentiality](SECURITY.md) — data-flow, CSP, localStorage
+- [Third-Party Licenses](THIRD_PARTY_LICENSES.md) · [Changelog](CHANGELOG.md)
+
 ## Prerequisites
 
 1. **Node.js 18+ (LTS)** — installed and verified (built with Node 24, npm 11).
-2. **Microsoft Word** — desktop (Windows or Mac) or Word on the web.
+2. **Microsoft Word** — Microsoft 365 desktop (Windows or Mac) or Word on the web
+   (modern WebView2/Edge runtime; legacy IE-based webviews are not supported).
 
-> Verified: `npm run lint` (type-check), `npm run build` (production bundle),
-> and `office-addin-manifest validate` all pass.
+> Verified: `npm run lint` (type-check), `npm test` (440 unit tests),
+> `npm run build` (production bundle), `npm run validate:compounds`, and
+> `office-addin-manifest validate` all pass.
 
 ## Setup
 
@@ -241,7 +250,15 @@ sub/superscript formatting. Uncheck the box to always use inline formatting.
       algebra/trig/calculus.
 - [x] **Search** (formulas + compounds), **recents & favorites**, **clickable
       palette**, and **Build templates** for an intuitive, low-typing workflow.
+- [x] **Markush/generic structures** — `[C,N]` atom lists, `~` any-bonds,
+      `X` halogen shorthand.
+- [x] **Equation numbering** (I, II, …) and **structure provenance**
+      (formula/MW/SMILES/OCL-ID in alt-text).
+- [x] **Test suite** (Jest, 440 tests) + **CI**; distribution/security docs.
+- [ ] Stereochemistry (wedge/hash, R/S, E/Z) in Build.
+- [ ] Richer Markush: R-group legends, "optionally substituted", C1–C6 ranges.
 - [ ] Matrices and piecewise/cases in the math engine.
+- [ ] Sequence listings (WIPO ST.26) — separate workstream.
 - [ ] Formula history / favorites.
 - [ ] Distribution beyond local sideload (org catalog or AppSource).
 

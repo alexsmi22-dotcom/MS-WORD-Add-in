@@ -8,7 +8,9 @@ import { mathToHtml } from "../lib/mathHtml";
 import { renderStructure } from "../lib/structures";
 import { build, BuildFormat } from "../lib/builder";
 import { FORMULA_LIBRARY } from "../lib/formulaLibrary";
-import { MATH_PALETTE, CHEM_PALETTE, PaletteGroup } from "../lib/palettes";
+import { MATH_PALETTE, CHEM_PALETTE, BUILD_TEMPLATES, PaletteGroup } from "../lib/palettes";
+import { NAME_TO_SMILES } from "../lib/compounds";
+import { HistoryEntry, HistoryKind, addRecent, getRecents, getFavorites, isFavorite, toggleFavorite } from "../lib/history";
 
 type Mode = "chemical" | "math" | "build";
 
@@ -28,6 +30,10 @@ let libraryRow: HTMLElement;
 let libCategorySelect: HTMLSelectElement;
 let libFormulaSelect: HTMLSelectElement;
 let paletteEl: HTMLElement;
+let searchInput: HTMLInputElement;
+let searchResults: HTMLElement;
+let historyEl: HTMLElement;
+let buildTemplatesEl: HTMLElement;
 let formatSection: HTMLElement;
 let buildSection: HTMLElement;
 let buildFormatSelect: HTMLSelectElement;
@@ -60,6 +66,10 @@ Office.onReady((info) => {
   libCategorySelect = document.getElementById("lib-category") as HTMLSelectElement;
   libFormulaSelect = document.getElementById("lib-formula") as HTMLSelectElement;
   paletteEl = document.getElementById("palette") as HTMLElement;
+  searchInput = document.getElementById("search") as HTMLInputElement;
+  searchResults = document.getElementById("search-results") as HTMLElement;
+  historyEl = document.getElementById("history") as HTMLElement;
+  buildTemplatesEl = document.getElementById("build-templates") as HTMLElement;
   formatSection = document.getElementById("format-section") as HTMLElement;
   buildSection = document.getElementById("build-section") as HTMLElement;
   buildFormatSelect = document.getElementById("build-format") as HTMLSelectElement;
@@ -90,10 +100,204 @@ Office.onReady((info) => {
   libCategorySelect.addEventListener("change", populateLibraryFormulas);
   libFormulaSelect.addEventListener("change", onLibraryFormulaChosen);
 
+  buildSearchIndex();
+  searchInput.addEventListener("input", updateSearchResults);
+  searchInput.addEventListener("focus", updateSearchResults);
+  searchInput.addEventListener("blur", () => window.setTimeout(closeSearch, 150));
+
+  renderBuildTemplates();
+
   renderPalette();
+  renderHistory();
   updatePlaceholder();
   onInputChanged();
 });
+
+/** Switches mode programmatically (e.g. from search or history) and refreshes UI. */
+function setMode(mode: Mode): void {
+  const radio = document.querySelector<HTMLInputElement>(`input[name="mode"][value="${mode}"]`);
+  if (radio) radio.checked = true;
+  updatePlaceholder();
+  renderPalette();
+  onInputChanged();
+}
+
+// ---------------------------------------------------------------------------
+// Search (formulas + compounds)
+// ---------------------------------------------------------------------------
+
+interface SearchEntry {
+  type: "formula" | "compound";
+  label: string;
+  sub: string;
+  value: string;
+  mode: Mode;
+}
+
+let searchIndex: SearchEntry[] = [];
+
+function buildSearchIndex(): void {
+  const entries: SearchEntry[] = [];
+  for (const cat of FORMULA_LIBRARY) {
+    for (const f of cat.formulas) {
+      entries.push({ type: "formula", label: f.label, sub: cat.name, value: f.expr, mode: "math" });
+    }
+  }
+  for (const name of Object.keys(NAME_TO_SMILES)) {
+    entries.push({ type: "compound", label: name, sub: "compound", value: name, mode: "chemical" });
+  }
+  searchIndex = entries;
+}
+
+function updateSearchResults(): void {
+  const q = searchInput.value.trim().toLowerCase();
+  if (!q) {
+    closeSearch();
+    return;
+  }
+  const scored = searchIndex
+    .map((e) => ({ e, score: matchScore(e.label.toLowerCase(), q) }))
+    .filter((x) => x.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 12);
+
+  searchResults.replaceChildren();
+  if (scored.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "search-empty";
+    empty.textContent = "No matches.";
+    searchResults.appendChild(empty);
+  } else {
+    for (const { e } of scored) {
+      const item = document.createElement("div");
+      item.className = "search-item";
+      item.setAttribute("role", "option");
+      const text = document.createElement("span");
+      text.textContent = e.label;
+      const badge = document.createElement("span");
+      badge.className = `search-item-type ${e.type === "compound" ? "compound" : ""}`.trim();
+      badge.textContent = e.type === "compound" ? "compound" : e.sub;
+      item.append(text, badge);
+      item.addEventListener("mousedown", (ev) => {
+        ev.preventDefault(); // keep blur from firing before click
+        applySearchEntry(e);
+      });
+      searchResults.appendChild(item);
+    }
+  }
+  searchResults.classList.add("open");
+}
+
+/** Substring match scoring: prefix matches rank highest, then earlier matches. */
+function matchScore(haystack: string, needle: string): number {
+  const idx = haystack.indexOf(needle);
+  if (idx < 0) return 0;
+  if (idx === 0) return 100 - haystack.length * 0.01;
+  return 50 - idx;
+}
+
+function applySearchEntry(entry: SearchEntry): void {
+  setMode(entry.mode);
+  inputEl.value = entry.value;
+  onInputChanged();
+  searchInput.value = "";
+  closeSearch();
+  inputEl.focus();
+}
+
+function closeSearch(): void {
+  searchResults.classList.remove("open");
+  searchResults.replaceChildren();
+}
+
+// ---------------------------------------------------------------------------
+// Build templates (common structures)
+// ---------------------------------------------------------------------------
+
+function renderBuildTemplates(): void {
+  buildTemplatesEl.replaceChildren();
+  for (const tpl of BUILD_TEMPLATES) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "palette-btn";
+    btn.textContent = tpl.label;
+    if (tpl.title) btn.title = tpl.title;
+    btn.addEventListener("click", () => {
+      buildInput.value = tpl.snippet;
+      updateBuildPreview();
+      buildInput.focus();
+    });
+    buildTemplatesEl.appendChild(btn);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Recents & favorites
+// ---------------------------------------------------------------------------
+
+function renderHistory(): void {
+  historyEl.replaceChildren();
+  const favorites = getFavorites();
+  const recents = getRecents();
+  if (favorites.length) historyEl.appendChild(historyGroup("★ Saved", favorites, true));
+  if (recents.length) historyEl.appendChild(historyGroup("Recent", recents, false));
+}
+
+function historyGroup(title: string, entries: HistoryEntry[], favorited: boolean): HTMLElement {
+  const wrap = document.createElement("div");
+  const label = document.createElement("div");
+  label.className = "history-group-label";
+  label.textContent = title;
+  wrap.appendChild(label);
+
+  const row = document.createElement("div");
+  row.className = "history-row";
+  for (const entry of entries) {
+    const chip = document.createElement("span");
+    chip.className = "chip";
+
+    const loadBtn = document.createElement("button");
+    loadBtn.type = "button";
+    loadBtn.className = "chip-load";
+    loadBtn.textContent = entry.label;
+    loadBtn.title = `Load: ${entry.value}`;
+    loadBtn.addEventListener("click", () => loadHistoryEntry(entry));
+
+    const star = document.createElement("button");
+    star.type = "button";
+    star.className = "chip-star";
+    star.textContent = favorited || isFavorite(entry) ? "★" : "☆";
+    star.title = "Toggle favorite";
+    star.addEventListener("click", () => {
+      toggleFavorite(entry);
+      renderHistory();
+    });
+
+    chip.append(loadBtn, star);
+    row.appendChild(chip);
+  }
+  wrap.appendChild(row);
+  return wrap;
+}
+
+function loadHistoryEntry(entry: HistoryEntry): void {
+  setMode(entry.kind);
+  if (entry.kind === "build") {
+    buildInput.value = entry.value;
+    updateBuildPreview();
+    buildInput.focus();
+  } else {
+    inputEl.value = entry.value;
+    onInputChanged();
+    inputEl.focus();
+  }
+}
+
+/** Records an insert in recents and refreshes the history UI. */
+function recordInsert(kind: HistoryKind, value: string, label: string): void {
+  addRecent({ kind, value, label });
+  renderHistory();
+}
 
 /** Renders the palette buttons for the current mode (math vs chemical). */
 function renderPalette(): void {
@@ -304,6 +508,7 @@ async function insertFormattedText(text: string): Promise<void> {
       await context.sync();
     });
     setStatus("Inserted.", "success");
+    recordInsert(currentMode() as HistoryKind, text, text);
   } catch (error) {
     setStatus(`Could not insert: ${(error as Error).message}`, "error");
   } finally {
@@ -333,6 +538,7 @@ async function insertEquation(text: string): Promise<boolean> {
       await context.sync();
     });
     setStatus("Equation inserted.", "success");
+    recordInsert("math", text, text);
     return true;
   } catch (error) {
     setStatus(`Could not insert equation: ${(error as Error).message}`, "error");
@@ -363,6 +569,7 @@ async function insertStructure(): Promise<void> {
       await context.sync();
     });
     setStatus("Structure inserted.", "success");
+    if (label) recordInsert("chemical", label, label);
   } catch (error) {
     setStatus(`Could not insert structure: ${(error as Error).message}`, "error");
   } finally {
@@ -429,6 +636,7 @@ async function insertBuild(): Promise<void> {
       await context.sync();
     });
     setStatus("Structure inserted.", "success");
+    recordInsert("build", buildInput.value, label);
   } catch (error) {
     setStatus(`Could not insert structure: ${(error as Error).message}`, "error");
   } finally {

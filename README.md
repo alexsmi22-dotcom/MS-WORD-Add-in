@@ -155,6 +155,21 @@ a real Word equation object (OMML) instead of inline-formatted text. The live
 preview uses a structured HTML renderer (`src/lib/mathHtml.ts`) that mirrors the
 inserted equation, so what you see is what you get.
 
+### Search, recents & favorites
+
+- **Search box** (top of the pane) finds any library formula or known compound
+  by name — type `quadratic`, `std dev`, `benzene`, or `aspirin` and click a
+  result to load it (it switches to the right mode automatically).
+- **Recent** chips show your last inserts for one-click reuse; **★ Saved** chips
+  are favorites. Click a chip to reload it; click its star to (un)favorite.
+  Persisted in `localStorage` (`src/lib/history.ts`).
+
+### Build templates
+
+Build mode shows a **Common structures** row (benzene, cyclohexane, water,
+ethanol, acetic acid, acetone, carboxyl, methylamine, …). Click one to load its
+atom/bond list — use it as-is or edit it. Defined in `src/lib/palettes.ts`.
+
 ### Clickable palette
 
 Below the input is a **palette** of buttons that insert at the cursor — no
@@ -207,6 +222,8 @@ sub/superscript formatting. Uncheck the box to always use inline formatting.
 - [x] **Formula library + extended math engine** — Σ, ∫, ∏, roots, functions,
       |x|, limits, accents, factorials; categorized presets for stats/geometry/
       algebra/trig/calculus.
+- [x] **Search** (formulas + compounds), **recents & favorites**, **clickable
+      palette**, and **Build templates** for an intuitive, low-typing workflow.
 - [ ] Matrices and piecewise/cases in the math engine.
 - [ ] Formula history / favorites.
 - [ ] Distribution beyond local sideload (org catalog or AppSource).

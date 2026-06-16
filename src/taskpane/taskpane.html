@@ -15,11 +15,24 @@
       <h1>Formula Inserter</h1>
       <p class="subtitle">Type a formula, choose a mode, and insert it at the cursor.</p>
 
+      <div class="search-wrap">
+        <input
+          id="search"
+          type="text"
+          class="search-input"
+          placeholder="🔎  Search formulas &amp; compounds — e.g. quadratic, benzene"
+          autocomplete="off"
+        />
+        <div id="search-results" class="search-results" role="listbox"></div>
+      </div>
+
       <div class="mode-row" role="radiogroup" aria-label="Mode">
         <label class="mode"><input type="radio" name="mode" value="chemical" checked /> Chemical</label>
         <label class="mode"><input type="radio" name="mode" value="math" /> Math</label>
         <label class="mode"><input type="radio" name="mode" value="build" /> Build</label>
       </div>
+
+      <div id="history" class="history"></div>
 
       <!-- Chemical / Math formatting -->
       <section id="format-section">
@@ -66,6 +79,9 @@
 
       <!-- Build a molecule from a molfile or atom/bond list -->
       <section id="build-section">
+        <span class="palette-group-label">Common structures</span>
+        <div id="build-templates" class="palette-group"></div>
+
         <div class="build-format-row">
           <label for="build-format" class="field-label">Input</label>
           <select id="build-format" class="build-format">

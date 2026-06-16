@@ -81,6 +81,21 @@ export const MATH_PALETTE: PaletteGroup[] = [
   },
 ];
 
+/** Common-structure starter templates for Build mode. Clicking loads the snippet
+ *  into the Build input (replacing its contents). Each is a complete atom/bond
+ *  list the user can use as-is or edit. */
+export const BUILD_TEMPLATES: PaletteItem[] = [
+  { label: "Benzene", snippet: "atoms: C C C C C C\nbonds: 1=2 2-3 3=4 4-5 5=6 6-1" },
+  { label: "Cyclohexane", snippet: "atoms: C C C C C C\nbonds: 1-2 2-3 3-4 4-5 5-6 6-1" },
+  { label: "Cyclopentane", snippet: "atoms: C C C C C\nbonds: 1-2 2-3 3-4 4-5 5-1" },
+  { label: "Water", snippet: "atoms: O" },
+  { label: "Ethanol", snippet: "atoms: C C O\nbonds: 1-2 2-3" },
+  { label: "Acetic acid", snippet: "atoms: C C O O\nbonds: 1-2 2=3 2-4" },
+  { label: "Acetone", snippet: "atoms: C C C O\nbonds: 1-2 2-3 2=4" },
+  { label: "Carboxyl (–COOH)", snippet: "atoms: C O O\nbonds: 1=2 1-3" },
+  { label: "Methylamine", snippet: "atoms: C N\nbonds: 1-2" },
+];
+
 export const CHEM_PALETTE: PaletteGroup[] = [
   {
     name: "Charges & groups",

@@ -6,18 +6,21 @@ you type is sent anywhere. No administrator rights are needed.
 
 ## Install (Word desktop on Windows)
 
-1. Keep **`manifest.xml`** and **`install.ps1`** together in the same folder.
-2. **Right-click `install.ps1` → Run with PowerShell.**
-   - If nothing happens when you double-click, that's normal — you must use
-     **Run with PowerShell** (double-clicking just opens it in Notepad).
-   - If it's blocked, open PowerShell and run:
-     `powershell -ExecutionPolicy Bypass -File install.ps1`
-   - You'll see "Formula Inserter installed for your user account."
+Nothing to install first — Windows already has everything needed.
+
+1. **Extract** all the files from the zip into a folder (keep them together).
+2. **Double-click `install.bat`.**
+   - If Windows shows a blue "Windows protected your PC" box, click
+     **More info → Run anyway** (it's just because the file was downloaded).
+   - A window says "Formula Inserter installed…" — press a key to close it.
 3. **Fully close and reopen Word** (all windows).
 4. **Insert** tab → **Add-ins** → under **Developer Add-ins**, click
    **Formula Inserter**. The pane opens on the right.
 
 That's it. (First open may take a second while it loads.)
+
+> Prefer PowerShell? `install.ps1` does the same thing — right-click it →
+> **Run with PowerShell** (don't double-click — that just opens Notepad).
 
 ### Quick test
 In the pane, with **Chemical** selected, type `H2O` and click
@@ -25,7 +28,7 @@ In the pane, with **Chemical** selected, type `H2O` and click
 
 ## Uninstall
 
-Run **`uninstall.ps1`** the same way (Run with PowerShell), then restart Word.
+Double-click **`uninstall.bat`**, then restart Word.
 
 ## Troubleshooting
 

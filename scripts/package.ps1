@@ -39,6 +39,8 @@ Write-Host "4/5 Validating manifest..." -ForegroundColor Cyan
 npx office-addin-manifest validate (Join-Path $stage "manifest.xml")
 if ($LASTEXITCODE -ne 0) { throw "Manifest validation failed." }
 
+Copy-Item (Join-Path $root "packaging\install.bat")   $stage -Force
+Copy-Item (Join-Path $root "packaging\uninstall.bat") $stage -Force
 Copy-Item (Join-Path $root "packaging\install.ps1")   $stage -Force
 Copy-Item (Join-Path $root "packaging\uninstall.ps1") $stage -Force
 Copy-Item (Join-Path $root "packaging\INSTALL.md")    $stage -Force

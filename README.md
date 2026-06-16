@@ -10,10 +10,11 @@ Ca(OH)2  ->  Ca(OH)₂
 SO4^2-   ->  SO₄²⁻
 Na+      ->  Na⁺
 x^2 + y^2 ->  x² + y²        (math mode)
+aspirin  ->  (inserts the 2D structure as an image)
 ```
 
-> **Status:** working scaffold + formatting. Offline 2D chemical structure
-> rendering is the next milestone (see [Roadmap](#roadmap)).
+> **Status:** working scaffold, chemical/math formatting, and offline 2D
+> structure rendering. See the [Roadmap](#roadmap) for what's next.
 
 ---
 
@@ -94,6 +95,8 @@ word-chem-formula/
       ├─ segments.ts         # Shared Segment type (normal | sub | sup)
       ├─ chemParser.ts       # Chemical formula -> segments
       ├─ mathFormat.ts       # Math expression -> segments
+      ├─ compounds.ts        # name/formula -> SMILES dictionaries
+      ├─ structures.ts       # SMILES -> 2D structure SVG (OpenChemLib)
       └─ __tests__/          # Standalone parser sanity check
 ```
 
@@ -103,13 +106,28 @@ Quick logic check without building (after Node is installed):
 node src/lib/__tests__/parsers.sanity.mjs
 ```
 
+## 2D chemical structures
+
+In **Chemical** mode the pane shows a live 2D structure preview and an
+**Insert 2D structure** button that inserts the structure as an inline image.
+Rendering is fully offline via [OpenChemLib](https://github.com/cheminfo/openchemlib-js).
+
+Because a 2D structure needs connectivity (not just an atom count), the input is
+resolved in this order:
+
+1. **Common name** — e.g. `aspirin`, `caffeine`, `water`, `ethanol`.
+2. **Known formula** — e.g. `H2O`, `C6H6`, `CO2` (from a curated dictionary in
+   `src/lib/compounds.ts`).
+3. **SMILES string** — any valid SMILES, e.g. `CC(=O)O`, `c1ccccc1`.
+
+If the input isn't a known name/formula and isn't valid SMILES, the preview
+shows a hint instead of a structure. Ambiguous formulas (e.g. `C2H6O`, which
+could be ethanol or dimethyl ether) map to the most common compound; add or
+adjust entries in `compounds.ts` to taste, or type the SMILES directly.
+
 ## Roadmap
 
-- [ ] **Offline 2D chemical structures.** Bundle a JS chem engine
-      (OpenChemLib / SmilesDrawer) and insert a generated SVG/PNG of the
-      structure alongside the formula. Structures are derived from **SMILES**,
-      so this will ship with a small built-in name/formula → SMILES dictionary
-      for common compounds, plus direct SMILES input.
+- [x] **Offline 2D chemical structures** (OpenChemLib) — name/formula/SMILES.
 - [ ] **Native Word equations for math.** Insert real OMML equation objects via
       `insertOoxml` so stacked fractions, radicals, and matrices render as
       true Word equations rather than inline superscripts/subscripts.

@@ -35,7 +35,15 @@
         <div id="preview" class="preview" aria-live="polite"></div>
       </div>
 
-      <button id="insert-btn" class="insert-btn" type="button">Insert into document</button>
+      <button id="insert-btn" class="insert-btn" type="button">Insert formatted text</button>
+
+      <section id="structure-section" class="structure-section">
+        <span class="preview-label">2D structure</span>
+        <div id="structure-preview" class="structure-preview" aria-live="polite"></div>
+        <button id="insert-structure-btn" class="insert-btn secondary" type="button" disabled>
+          Insert 2D structure
+        </button>
+      </section>
 
       <p id="status" class="status" role="status" aria-live="polite"></p>
 
@@ -49,6 +57,12 @@
           <li><code>x^2 + y^2</code> &rarr; x<sup>2</sup> + y<sup>2</sup> (math mode)</li>
           <li><code>a_n</code>, <code>x^{n+1}</code>, <code>sqrt(x)</code>, <code>pi</code> (math mode)</li>
         </ul>
+        <p class="examples-note">
+          <strong>2D structures</strong> work for common names (e.g.
+          <code>aspirin</code>, <code>water</code>), known formulas
+          (<code>C6H6</code>), or any <code>SMILES</code> string
+          (<code>CC(=O)O</code>).
+        </p>
       </details>
     </main>
 

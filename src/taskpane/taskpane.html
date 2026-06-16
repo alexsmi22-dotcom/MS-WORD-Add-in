@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=Edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Chemical &amp; Math Formulas</title>
+
+    <script type="text/javascript" src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+    <link rel="stylesheet" href="taskpane.css" />
+  </head>
+
+  <body>
+    <main class="container">
+      <h1>Formula Inserter</h1>
+      <p class="subtitle">Type a formula, choose a mode, and insert it at the cursor.</p>
+
+      <div class="mode-row" role="radiogroup" aria-label="Formula type">
+        <label class="mode"><input type="radio" name="mode" value="chemical" checked /> Chemical</label>
+        <label class="mode"><input type="radio" name="mode" value="math" /> Math</label>
+      </div>
+
+      <label for="formula-input" class="field-label">Formula</label>
+      <input
+        id="formula-input"
+        type="text"
+        class="formula-input"
+        placeholder="e.g. H2O, Ca(OH)2, SO4^2-"
+        autocomplete="off"
+        spellcheck="false"
+      />
+
+      <div class="preview-wrap">
+        <span class="preview-label">Preview</span>
+        <div id="preview" class="preview" aria-live="polite"></div>
+      </div>
+
+      <button id="insert-btn" class="insert-btn" type="button">Insert into document</button>
+
+      <p id="status" class="status" role="status" aria-live="polite"></p>
+
+      <details class="examples">
+        <summary>Examples &amp; syntax</summary>
+        <ul>
+          <li><code>H2O</code> &rarr; H<sub>2</sub>O</li>
+          <li><code>Ca(OH)2</code> &rarr; Ca(OH)<sub>2</sub></li>
+          <li><code>SO4^2-</code> &rarr; SO<sub>4</sub><sup>2&minus;</sup></li>
+          <li><code>Na+</code> &rarr; Na<sup>+</sup></li>
+          <li><code>x^2 + y^2</code> &rarr; x<sup>2</sup> + y<sup>2</sup> (math mode)</li>
+          <li><code>a_n</code>, <code>x^{n+1}</code>, <code>sqrt(x)</code>, <code>pi</code> (math mode)</li>
+        </ul>
+      </details>
+    </main>
+
+    <script type="text/javascript" src="taskpane.js"></script>
+  </body>
+</html>

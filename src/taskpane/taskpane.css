@@ -1,0 +1,154 @@
+:root {
+  --accent: #005a9e;
+  --accent-hover: #004578;
+  --border: #d0d0d0;
+  --text: #201f1e;
+  --muted: #605e5c;
+  --bg-soft: #f3f6fb;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+  color: var(--text);
+  background: #ffffff;
+}
+
+.container {
+  padding: 16px 18px 24px;
+  max-width: 480px;
+}
+
+h1 {
+  font-size: 18px;
+  margin: 0 0 2px;
+}
+
+.subtitle {
+  margin: 0 0 16px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.mode-row {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.mode {
+  font-size: 13px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.field-label,
+.preview-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
+.formula-input {
+  width: 100%;
+  padding: 8px 10px;
+  font-size: 14px;
+  font-family: "Cascadia Code", "Consolas", monospace;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  outline: none;
+}
+
+.formula-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.preview-wrap {
+  margin: 14px 0;
+}
+
+.preview {
+  min-height: 38px;
+  padding: 8px 10px;
+  font-size: 18px;
+  background: var(--bg-soft);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  word-break: break-word;
+}
+
+.preview sub,
+.preview sup {
+  font-size: 0.7em;
+}
+
+.insert-btn {
+  width: 100%;
+  padding: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #fff;
+  background: var(--accent);
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.insert-btn:hover {
+  background: var(--accent-hover);
+}
+
+.insert-btn:disabled {
+  background: #a6a6a6;
+  cursor: default;
+}
+
+.status {
+  min-height: 16px;
+  margin: 10px 0 0;
+  font-size: 12.5px;
+}
+
+.status.error {
+  color: #a4262c;
+}
+
+.status.success {
+  color: #107c10;
+}
+
+.examples {
+  margin-top: 20px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.examples summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.examples ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+}
+
+.examples li {
+  margin-bottom: 4px;
+}
+
+.examples code {
+  font-family: "Cascadia Code", "Consolas", monospace;
+  background: var(--bg-soft);
+  padding: 1px 4px;
+  border-radius: 3px;
+}

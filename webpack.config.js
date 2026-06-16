@@ -28,6 +28,11 @@ module.exports = async (env, options) => {
     resolve: {
       extensions: [".ts", ".js", ".html"],
     },
+    // The OpenChemLib core bundle is large but is served locally to the add-in,
+    // so the default web-performance size budget doesn't apply here.
+    performance: {
+      hints: false,
+    },
     module: {
       rules: [
         {

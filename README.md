@@ -20,13 +20,11 @@ aspirin  ->  (inserts the 2D structure as an image)
 
 ## Prerequisites
 
-1. **Node.js 18+ (LTS)** — not currently installed on this machine.
-   Install from <https://nodejs.org> or via winget:
-   ```powershell
-   winget install OpenJS.NodeJS.LTS
-   ```
-   Close and reopen your terminal afterward so `node` / `npm` are on PATH.
+1. **Node.js 18+ (LTS)** — installed and verified (built with Node 24, npm 11).
 2. **Microsoft Word** — desktop (Windows or Mac) or Word on the web.
+
+> Verified: `npm run lint` (type-check), `npm run build` (production bundle),
+> and `office-addin-manifest validate` all pass.
 
 ## Setup
 

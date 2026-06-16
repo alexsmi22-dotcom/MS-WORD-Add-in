@@ -436,6 +436,49 @@ h1 {
   font-family: "Cascadia Code", "Consolas", monospace;
 }
 
+.build-rgroups {
+  margin: 8px 0 4px;
+}
+
+.build-rgroups:not(:empty) {
+  padding: 8px 10px;
+  background: var(--bg-soft);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.rgroup-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 5px;
+}
+
+.rgroup-row:last-child {
+  margin-bottom: 0;
+}
+
+.rgroup-label {
+  min-width: 36px;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.rgroup-input {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 8px;
+  font-size: 13px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  outline: none;
+}
+
+.rgroup-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
 .structure-preview {
   display: flex;
   align-items: center;

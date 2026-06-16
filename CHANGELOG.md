@@ -5,6 +5,9 @@ All notable changes to Formula Inserter. Dates are release/pilot dates.
 ## [Unreleased] — internal pilot prep
 
 ### Added
+- **R-group legend** — when a built structure has R-groups, a definition box
+  collects `R1 = …`, `R2 = …`, and insertion adds a "where R1 = …; R2 = …" line
+  beneath the structure.
 - **Stereochemistry**: isomeric SMILES (Chemical mode) renders wedge/hash bonds;
   Build mode adds wedge (`>`) and hash (`<`) stereo bonds.
 - **Richer Markush atoms** in Build: `A` (any atom), `Q` (any heteroatom),
@@ -36,8 +39,9 @@ All notable changes to Formula Inserter. Dates are release/pilot dates.
 ### Notes / known gaps (tracked for next iterations)
 - Build wedge/hash bonds are indicative; for exact, parity-defined stereo prefer
   isomeric SMILES in Chemical mode.
-- R-group *legends/definitions tables*, "optionally substituted" shorthands, and
-  variable counts / C1–C6 alkyl ranges are not yet generated automatically.
+- "Optionally substituted" shorthands and variable counts / C1–C6 alkyl ranges
+  are not yet generated automatically. R-group legends are free-text (not yet a
+  structured Markush table with sub-generic definitions).
 - Sequence listings (WIPO ST.26) out of scope.
 - Compound dictionary SMILES are validated to **parse**; a chemist should
   spot-verify chemical correctness before claim-critical use.

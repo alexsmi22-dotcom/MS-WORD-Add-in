@@ -172,7 +172,8 @@ insert into Word as an image like any other.
 
 Variable-position tokens (the "Markush / query atoms" buttons): `[C,N]` atom
 list · `X` halogen · `A` any atom · `Q` any heteroatom · `R1`/`R2`… R-group
-attachment points.
+attachment points. When R-groups are present, a definition box appears; filling
+in `R1 = …` inserts a **"where R1 = …"** legend line beneath the structure.
 
 **Stereochemistry.** In Chemical mode, an isomeric SMILES
 (`C[C@@H](N)C(=O)O`, or E/Z via `/`…`\`) renders with wedge/hash bonds. In Build
@@ -266,7 +267,8 @@ sub/superscript formatting. Uncheck the box to always use inline formatting.
 - [x] **Test suite** (Jest, 445 tests) + **CI**; distribution/security docs.
 - [x] **Stereochemistry** — isomeric SMILES (wedges) + Build wedge/hash bonds.
 - [x] **Richer Markush atoms** — `A` any, `Q` heteroatom, `R1` R-group (+ `[C,N]`, `X`).
-- [ ] R-group legend/definition tables and "optionally substituted" shorthands.
+- [x] **R-group legends** — define `R1 = …` and insert a "where R1 = …" line.
+- [ ] "Optionally substituted" / C1–C6 range shorthands; structured Markush tables.
 - [ ] Matrices and piecewise/cases in the math engine.
 - [ ] Sequence listings (WIPO ST.26) — separate workstream.
 - [ ] Formula history / favorites.

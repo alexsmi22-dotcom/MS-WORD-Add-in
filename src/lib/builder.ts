@@ -41,6 +41,8 @@ export interface BuildResult {
   idcode: string;
   /** Relative molecular weight (0 for generic structures). */
   mw: number;
+  /** Distinct R-group labels present (e.g. ["R1","R2"]), for a definition legend. */
+  rgroups: string[];
 }
 
 /** Single-letter Markush shorthands that expand to an atom list. */
@@ -186,17 +188,24 @@ export function buildFromAtomBondList(text: string, width = 300, height = 230): 
     }
   }
 
-  return finish(mol, width, height, true);
+  const rgroups = uniqueSorted(atoms.map((a) => a.rlabel).filter((l): l is string => !!l));
+  return finish(mol, width, height, true, rgroups);
+}
+
+function uniqueSorted(values: string[]): string[] {
+  const set: Record<string, true> = {};
+  for (const v of values) set[v] = true;
+  return Object.keys(set).sort();
 }
 
 export function buildFromMolfile(molfile: string, width = 300, height = 230): BuildResult {
   const mol = Molecule.fromMolfile(molfile);
   if (mol.getAllAtoms() === 0) throw new Error("Molfile contains no atoms.");
   // Molfiles carry their own coordinates, so don't reinvent them.
-  return finish(mol, width, height, false);
+  return finish(mol, width, height, false, []);
 }
 
-function finish(mol: Molecule, width: number, height: number, needCoords: boolean): BuildResult {
+function finish(mol: Molecule, width: number, height: number, needCoords: boolean, rgroups: string[]): BuildResult {
   if (needCoords) {
     try {
       mol.inventCoordinates();
@@ -236,7 +245,7 @@ function finish(mol: Molecule, width: number, height: number, needCoords: boolea
       /* leave blank */
     }
   }
-  return { svg, smiles, formula, generic, idcode, mw };
+  return { svg, smiles, formula, generic, idcode, mw, rgroups };
 }
 
 /** Heuristic: does this text look like an MDL molfile rather than an atom/bond list? */

@@ -54,9 +54,19 @@ describe("builder — stereo & extended Markush", () => {
     expect(() => build("atoms: C F Cl Br\nbonds: 1-2 1<3 1-4", "auto")).not.toThrow();
   });
 
-  it("treats R1 as an R-group (generic)", () => {
+  it("treats R1 as an R-group (generic) and reports it", () => {
     const r = build("atoms: R1 C C O\nbonds: 1-2 2-3 3-4", "auto");
     expect(r.generic).toBe(true);
+    expect(r.rgroups).toEqual(["R1"]);
+  });
+
+  it("reports multiple distinct R-groups sorted", () => {
+    const r = build("atoms: R2 C R1 O\nbonds: 1-2 2-3 3-4", "auto");
+    expect(r.rgroups).toEqual(["R1", "R2"]);
+  });
+
+  it("reports no R-groups for a concrete molecule", () => {
+    expect(build("atoms: C C O\nbonds: 1-2 2-3", "auto").rgroups).toEqual([]);
   });
 
   it("treats A (any atom) and Q (heteroatom) as generic", () => {

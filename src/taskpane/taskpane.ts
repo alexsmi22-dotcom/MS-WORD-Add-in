@@ -66,7 +66,11 @@ let buildInput: HTMLTextAreaElement;
 let buildFormulaEl: HTMLElement;
 let buildSmilesEl: HTMLElement;
 let buildPreviewEl: HTMLElement;
+let buildRgroupsEl: HTMLElement;
 let insertBuildBtn: HTMLButtonElement;
+
+/** R-group label -> user-entered definition (e.g. "R1" -> "methyl, ethyl"). */
+const rgroupValues: Record<string, string> = {};
 
 /** The structure currently shown in the Chemical structure preview, or null. */
 let currentStructure: StructureResult | null = null;
@@ -109,6 +113,7 @@ Office.onReady((info) => {
   buildFormulaEl = document.getElementById("build-formula") as HTMLElement;
   buildSmilesEl = document.getElementById("build-smiles") as HTMLElement;
   buildPreviewEl = document.getElementById("build-preview") as HTMLElement;
+  buildRgroupsEl = document.getElementById("build-rgroups") as HTMLElement;
   insertBuildBtn = document.getElementById("insert-build-btn") as HTMLButtonElement;
 
   inputEl.addEventListener("input", onInputChanged);
@@ -717,6 +722,7 @@ function updateBuildPreview(): void {
     buildPreviewEl.appendChild(hint);
     buildFormulaEl.textContent = "—";
     buildSmilesEl.textContent = "—";
+    renderRgroupInputs([]);
     setStatus("");
     return;
   }
@@ -728,6 +734,7 @@ function updateBuildPreview(): void {
     buildPreviewEl.innerHTML = result.svg;
     buildFormulaEl.textContent = result.formula + (result.mw ? ` (MW ${result.mw})` : "");
     buildSmilesEl.textContent = result.smiles || "—";
+    renderRgroupInputs(result.rgroups);
     insertBuildBtn.disabled = false;
     setStatus("");
   } catch (error) {
@@ -738,10 +745,44 @@ function updateBuildPreview(): void {
     buildPreviewEl.appendChild(hint);
     buildFormulaEl.textContent = "—";
     buildSmilesEl.textContent = "—";
+    renderRgroupInputs([]);
   }
 }
 
-/** Inserts the built molecule's structure as an inline picture. */
+/** Renders one definition input per R-group present in the built structure. */
+function renderRgroupInputs(rgroups: string[]): void {
+  buildRgroupsEl.replaceChildren();
+  // Drop values for R-groups no longer present.
+  for (const key of Object.keys(rgroupValues)) {
+    if (rgroups.indexOf(key) < 0) delete rgroupValues[key];
+  }
+  for (const label of rgroups) {
+    const row = document.createElement("div");
+    row.className = "rgroup-row";
+    const lab = document.createElement("span");
+    lab.className = "rgroup-label";
+    lab.textContent = `${label} =`;
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "rgroup-input";
+    input.placeholder = "e.g. H, methyl, halogen, …";
+    input.value = rgroupValues[label] || "";
+    input.addEventListener("input", () => {
+      rgroupValues[label] = input.value;
+    });
+    row.append(lab, input);
+    buildRgroupsEl.appendChild(row);
+  }
+}
+
+/** Builds a "where R1 = …; R2 = …" legend from defined R-groups (empty if none defined). */
+function buildRgroupLegend(rgroups: string[]): string {
+  const filled = rgroups.filter((r) => (rgroupValues[r] || "").trim().length > 0);
+  if (!filled.length) return "";
+  return "where " + filled.map((r) => `${r} = ${rgroupValues[r].trim()}`).join("; ");
+}
+
+/** Inserts the built molecule's structure as an inline picture, plus an R-group legend if defined. */
 async function insertBuild(): Promise<void> {
   const molecule = currentBuild;
   if (!molecule) {
@@ -756,14 +797,19 @@ async function insertBuild(): Promise<void> {
     const base64 = await svgToPngBase64(molecule.svg, STRUCTURE_W, STRUCTURE_H);
     const label = molecule.formula || "molecule";
     const alt = provenanceAltText(`2D structure (${label})`, molecule.formula, molecule.mw, molecule.smiles, molecule.idcode);
+    const legend = buildRgroupLegend(molecule.rgroups);
     await Word.run(async (context) => {
       const range = context.document.getSelection();
       const picture = range.insertInlinePictureFromBase64(base64, Word.InsertLocation.after);
       picture.altTextDescription = alt;
-      range.select(Word.SelectionMode.end);
+      let tail = picture.getRange(Word.RangeLocation.end);
+      if (legend) {
+        tail = tail.insertParagraph(legend, Word.InsertLocation.after).getRange();
+      }
+      tail.select(Word.SelectionMode.end);
       await context.sync();
     });
-    setStatus("Structure inserted.", "success");
+    setStatus(legend ? "Structure + R-group legend inserted." : "Structure inserted.", "success");
     recordInsert("build", buildInput.value, label);
   } catch (error) {
     setStatus(`Could not insert structure: ${(error as Error).message}`, "error");

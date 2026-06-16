@@ -75,6 +75,9 @@ Make a 2D structure from a description and insert it as an image.
   atoms: C C C C C C R1 X
   bonds: 1=2 2-3 3=4 4-5 5=6 6-1 1-7 4-8
   ```
+- **R-group definitions:** when the structure has R-groups, a definition box
+  appears (e.g. `R1 =`). Fill them in and the insert adds a **"where R1 = …"**
+  legend line under the structure.
 - **Molfile:** paste an MDL molfile to import it.
 
 The Build preview shows the **formula, MW, and SMILES**; the inserted image's

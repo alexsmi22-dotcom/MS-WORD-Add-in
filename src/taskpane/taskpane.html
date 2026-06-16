@@ -15,37 +15,70 @@
       <h1>Formula Inserter</h1>
       <p class="subtitle">Type a formula, choose a mode, and insert it at the cursor.</p>
 
-      <div class="mode-row" role="radiogroup" aria-label="Formula type">
+      <div class="mode-row" role="radiogroup" aria-label="Mode">
         <label class="mode"><input type="radio" name="mode" value="chemical" checked /> Chemical</label>
         <label class="mode"><input type="radio" name="mode" value="math" /> Math</label>
+        <label class="mode"><input type="radio" name="mode" value="build" /> Build</label>
       </div>
 
-      <label id="omml-option" class="omml-option">
-        <input type="checkbox" id="omml-checkbox" checked />
-        Insert as a native Word equation (true fractions, radicals)
-      </label>
+      <!-- Chemical / Math formatting -->
+      <section id="format-section">
+        <label id="omml-option" class="omml-option">
+          <input type="checkbox" id="omml-checkbox" checked />
+          Insert as a native Word equation (true fractions, radicals)
+        </label>
 
-      <label for="formula-input" class="field-label">Formula</label>
-      <input
-        id="formula-input"
-        type="text"
-        class="formula-input"
-        placeholder="e.g. H2O, Ca(OH)2, SO4^2-"
-        autocomplete="off"
-        spellcheck="false"
-      />
+        <label for="formula-input" class="field-label">Formula</label>
+        <input
+          id="formula-input"
+          type="text"
+          class="formula-input"
+          placeholder="e.g. H2O, Ca(OH)2, SO4^2-"
+          autocomplete="off"
+          spellcheck="false"
+        />
 
-      <div class="preview-wrap">
-        <span class="preview-label">Preview</span>
-        <div id="preview" class="preview" aria-live="polite"></div>
-      </div>
+        <div class="preview-wrap">
+          <span class="preview-label">Preview</span>
+          <div id="preview" class="preview" aria-live="polite"></div>
+        </div>
 
-      <button id="insert-btn" class="insert-btn" type="button">Insert formatted text</button>
+        <button id="insert-btn" class="insert-btn" type="button">Insert formatted text</button>
 
-      <section id="structure-section" class="structure-section">
-        <span class="preview-label">2D structure</span>
-        <div id="structure-preview" class="structure-preview" aria-live="polite"></div>
-        <button id="insert-structure-btn" class="insert-btn secondary" type="button" disabled>
+        <section id="structure-section" class="structure-section">
+          <span class="preview-label">2D structure</span>
+          <div id="structure-preview" class="structure-preview" aria-live="polite"></div>
+          <button id="insert-structure-btn" class="insert-btn secondary" type="button" disabled>
+            Insert 2D structure
+          </button>
+        </section>
+      </section>
+
+      <!-- Build a molecule from a molfile or atom/bond list -->
+      <section id="build-section">
+        <div class="build-format-row">
+          <label for="build-format" class="field-label">Input</label>
+          <select id="build-format" class="build-format">
+            <option value="auto">Auto-detect</option>
+            <option value="atombond">Atom / bond list</option>
+            <option value="molfile">Molfile (MDL)</option>
+          </select>
+        </div>
+        <textarea
+          id="build-input"
+          class="build-input"
+          rows="7"
+          spellcheck="false"
+          placeholder="atoms: C O O&#10;bonds: 1=2 1=3&#10;&#10;…or paste an MDL molfile here"
+        ></textarea>
+
+        <div class="build-readout">
+          <span><strong>Formula:</strong> <span id="build-formula">—</span></span>
+          <span><strong>SMILES:</strong> <span id="build-smiles">—</span></span>
+        </div>
+
+        <div id="build-preview" class="structure-preview" aria-live="polite"></div>
+        <button id="insert-build-btn" class="insert-btn" type="button" disabled>
           Insert 2D structure
         </button>
       </section>
@@ -63,10 +96,19 @@
           <li><code>a_n</code>, <code>x^{n+1}</code>, <code>sqrt(x)</code>, <code>pi</code> (math mode)</li>
         </ul>
         <p class="examples-note">
-          <strong>2D structures</strong> work for common names (e.g.
-          <code>aspirin</code>, <code>water</code>), known formulas
+          <strong>2D structures</strong> (Chemical mode) work for common names
+          (e.g. <code>aspirin</code>, <code>water</code>), known formulas
           (<code>C6H6</code>), or any <code>SMILES</code> string
           (<code>CC(=O)O</code>).
+        </p>
+        <p class="examples-note">
+          <strong>Build mode</strong> renders a structure from a typed atom/bond
+          list or a pasted molfile. Atom/bond example:
+          <br /><code>atoms: C O O</code>
+          <br /><code>bonds: 1=2 1=3</code> &rarr; CO<sub>2</sub>.
+          Bonds: <code>-</code> single, <code>=</code> double,
+          <code>#</code> triple. Atoms can carry a charge (<code>N+</code>,
+          <code>O-</code>). Hydrogens are added automatically.
         </p>
       </details>
     </main>

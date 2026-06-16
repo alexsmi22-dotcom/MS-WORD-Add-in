@@ -144,6 +144,56 @@ h1 {
   border-top: 1px solid var(--border);
 }
 
+.build-format-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.build-format-row .field-label {
+  margin-bottom: 0;
+}
+
+.build-format {
+  padding: 5px 8px;
+  font-size: 13px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: #fff;
+}
+
+.build-input {
+  width: 100%;
+  padding: 8px 10px;
+  font-size: 13px;
+  font-family: "Cascadia Code", "Consolas", monospace;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  outline: none;
+  resize: vertical;
+}
+
+.build-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.build-readout {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 10px 0 6px;
+  font-size: 12.5px;
+  color: var(--muted);
+  word-break: break-all;
+}
+
+.build-readout code,
+.build-readout #build-smiles {
+  font-family: "Cascadia Code", "Consolas", monospace;
+}
+
 .structure-preview {
   display: flex;
   align-items: center;

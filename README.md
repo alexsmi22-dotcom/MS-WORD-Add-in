@@ -129,6 +129,25 @@ shows a hint instead of a structure. Ambiguous formulas (e.g. `C2H6O`, which
 could be ethanol or dimethyl ether) map to the most common compound; add or
 adjust entries in `compounds.ts` to taste, or type the SMILES directly.
 
+## Build mode (molfile / atom-bond list)
+
+**Build** mode renders a 2D structure from a structure you specify directly —
+no drawing canvas — and shows its molecular formula and SMILES before you insert
+it. Two input formats (auto-detected, or pick one):
+
+- **Atom / bond list** — list heavy atoms, then bonds between them (1-indexed):
+  ```
+  atoms: C O O
+  bonds: 1=2 1=3
+  ```
+  Bonds: `-` single, `=` double, `#` triple. Atoms may carry a charge
+  (`N+`, `O-`, `Fe2+`). Hydrogens are filled in automatically from valence.
+- **Molfile (MDL)** — paste any standard V2000/V3000 molfile (e.g. exported
+  from another tool) to import and render it.
+
+Implemented in `src/lib/builder.ts` (OpenChemLib). The structure is inserted as
+an inline image, same as Chemical-mode structures.
+
 ## Native Word equations (math mode)
 
 In **Math** mode, leave **"Insert as a native Word equation"** checked to insert
@@ -152,6 +171,7 @@ sub/superscript formatting. Uncheck the box to always use inline formatting.
 
 - [x] **Offline 2D chemical structures** (OpenChemLib) — name/formula/SMILES.
 - [x] **Native Word equations for math** (OMML via `insertOoxml`).
+- [x] **Build mode** — render a structure from a molfile or atom/bond list.
 - [ ] More equation constructs: summation, integral, matrices, n-th roots.
 - [ ] Formula history / favorites.
 - [ ] Distribution beyond local sideload (org catalog or AppSource).

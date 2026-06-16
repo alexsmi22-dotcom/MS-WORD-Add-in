@@ -1,12 +1,13 @@
-/* global Office, Word, document, HTMLInputElement, HTMLButtonElement, HTMLElement, Image, TextEncoder, btoa */
+/* global Office, Word, document, HTMLInputElement, HTMLButtonElement, HTMLSelectElement, HTMLTextAreaElement, HTMLElement, Image, TextEncoder, btoa */
 
 import { Segment, segmentsToHtml } from "../lib/segments";
 import { parseChemical } from "../lib/chemParser";
 import { parseMath } from "../lib/mathFormat";
 import { mathToOoxml } from "../lib/mathOmml";
 import { renderStructure } from "../lib/structures";
+import { build, BuildFormat } from "../lib/builder";
 
-type Mode = "chemical" | "math";
+type Mode = "chemical" | "math" | "build";
 
 const STRUCTURE_W = 300;
 const STRUCTURE_H = 230;
@@ -20,9 +21,19 @@ let structurePreviewEl: HTMLElement;
 let insertStructureBtn: HTMLButtonElement;
 let ommlOption: HTMLElement;
 let ommlCheckbox: HTMLInputElement;
+let formatSection: HTMLElement;
+let buildSection: HTMLElement;
+let buildFormatSelect: HTMLSelectElement;
+let buildInput: HTMLTextAreaElement;
+let buildFormulaEl: HTMLElement;
+let buildSmilesEl: HTMLElement;
+let buildPreviewEl: HTMLElement;
+let insertBuildBtn: HTMLButtonElement;
 
 /** The SVG currently shown in the structure preview, or null when none. */
 let currentStructureSvg: string | null = null;
+/** The SVG currently shown in the Build preview, or null when none. */
+let currentBuildSvg: string | null = null;
 
 Office.onReady((info) => {
   if (info.host !== Office.HostType.Word) {
@@ -38,6 +49,14 @@ Office.onReady((info) => {
   insertStructureBtn = document.getElementById("insert-structure-btn") as HTMLButtonElement;
   ommlOption = document.getElementById("omml-option") as HTMLElement;
   ommlCheckbox = document.getElementById("omml-checkbox") as HTMLInputElement;
+  formatSection = document.getElementById("format-section") as HTMLElement;
+  buildSection = document.getElementById("build-section") as HTMLElement;
+  buildFormatSelect = document.getElementById("build-format") as HTMLSelectElement;
+  buildInput = document.getElementById("build-input") as HTMLTextAreaElement;
+  buildFormulaEl = document.getElementById("build-formula") as HTMLElement;
+  buildSmilesEl = document.getElementById("build-smiles") as HTMLElement;
+  buildPreviewEl = document.getElementById("build-preview") as HTMLElement;
+  insertBuildBtn = document.getElementById("insert-build-btn") as HTMLButtonElement;
 
   inputEl.addEventListener("input", onInputChanged);
   inputEl.addEventListener("keydown", (e) => {
@@ -51,6 +70,9 @@ Office.onReady((info) => {
   });
   insertBtn.addEventListener("click", insertFormula);
   insertStructureBtn.addEventListener("click", insertStructure);
+  buildInput.addEventListener("input", updateBuildPreview);
+  buildFormatSelect.addEventListener("change", updateBuildPreview);
+  insertBuildBtn.addEventListener("click", insertBuild);
 
   updatePlaceholder();
   onInputChanged();
@@ -66,14 +88,28 @@ function parse(text: string, mode: Mode): Segment[] {
 }
 
 function updatePlaceholder(): void {
-  inputEl.placeholder =
-    currentMode() === "chemical" ? "e.g. H2O, Ca(OH)2, aspirin" : "e.g. x^2 + y^2, a_n, sqrt(x)";
+  if (currentMode() === "math") {
+    inputEl.placeholder = "e.g. x^2 + y^2, a_n, sqrt(x)";
+  } else {
+    inputEl.placeholder = "e.g. H2O, Ca(OH)2, aspirin";
+  }
 }
 
-/** Refreshes everything that depends on the input: text preview and mode-specific UI. */
+/** Refreshes everything that depends on the input: section visibility and previews. */
 function onInputChanged(): void {
+  const mode = currentMode();
+  const build = mode === "build";
+  const chemical = mode === "chemical";
+
+  formatSection.style.display = build ? "none" : "block";
+  buildSection.style.display = build ? "block" : "none";
+
+  if (build) {
+    updateBuildPreview();
+    return;
+  }
+
   updateTextPreview();
-  const chemical = currentMode() === "chemical";
   structureSection.style.display = chemical ? "block" : "none";
   ommlOption.style.display = chemical ? "none" : "block";
   if (chemical) {
@@ -231,6 +267,72 @@ async function insertStructure(): Promise<void> {
     setStatus(`Could not insert structure: ${(error as Error).message}`, "error");
   } finally {
     insertStructureBtn.disabled = false;
+  }
+}
+
+/** Builds a molecule from the Build textarea and shows its structure, formula, and SMILES. */
+function updateBuildPreview(): void {
+  const text = buildInput.value;
+  currentBuildSvg = null;
+  insertBuildBtn.disabled = true;
+
+  if (!text.trim()) {
+    buildPreviewEl.replaceChildren();
+    const hint = document.createElement("span");
+    hint.className = "hint";
+    hint.textContent = "Enter an atom/bond list or paste a molfile to build a structure.";
+    buildPreviewEl.appendChild(hint);
+    buildFormulaEl.textContent = "—";
+    buildSmilesEl.textContent = "—";
+    setStatus("");
+    return;
+  }
+
+  try {
+    const format = buildFormatSelect.value as BuildFormat;
+    const result = build(text, format, STRUCTURE_W, STRUCTURE_H);
+    currentBuildSvg = result.svg;
+    buildPreviewEl.innerHTML = result.svg;
+    buildFormulaEl.textContent = result.formula || "—";
+    buildSmilesEl.textContent = result.smiles || "—";
+    insertBuildBtn.disabled = false;
+    setStatus("");
+  } catch (error) {
+    buildPreviewEl.replaceChildren();
+    const hint = document.createElement("span");
+    hint.className = "hint";
+    hint.textContent = (error as Error).message;
+    buildPreviewEl.appendChild(hint);
+    buildFormulaEl.textContent = "—";
+    buildSmilesEl.textContent = "—";
+  }
+}
+
+/** Inserts the built molecule's structure as an inline picture. */
+async function insertBuild(): Promise<void> {
+  if (!currentBuildSvg) {
+    setStatus("Nothing built to insert.", "error");
+    return;
+  }
+
+  insertBuildBtn.disabled = true;
+  setStatus("Inserting structure…");
+
+  try {
+    const base64 = await svgToPngBase64(currentBuildSvg, STRUCTURE_W, STRUCTURE_H);
+    const label = buildFormulaEl.textContent || "molecule";
+    await Word.run(async (context) => {
+      const range = context.document.getSelection();
+      const picture = range.insertInlinePictureFromBase64(base64, Word.InsertLocation.after);
+      picture.altTextDescription = `2D structure (${label})`;
+      range.select(Word.SelectionMode.end);
+      await context.sync();
+    });
+    setStatus("Structure inserted.", "success");
+  } catch (error) {
+    setStatus(`Could not insert structure: ${(error as Error).message}`, "error");
+  } finally {
+    insertBuildBtn.disabled = false;
   }
 }
 

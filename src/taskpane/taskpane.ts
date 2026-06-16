@@ -8,7 +8,7 @@ import { mathToHtml } from "../lib/mathHtml";
 import { renderStructure } from "../lib/structures";
 import { build, BuildFormat } from "../lib/builder";
 import { FORMULA_LIBRARY } from "../lib/formulaLibrary";
-import { MATH_PALETTE, CHEM_PALETTE, BUILD_TEMPLATES, PaletteGroup } from "../lib/palettes";
+import { MATH_PALETTE, CHEM_PALETTE, BUILD_TEMPLATES, BUILD_BONDS, PaletteGroup } from "../lib/palettes";
 import { NAME_TO_SMILES } from "../lib/compounds";
 import { HistoryEntry, HistoryKind, addRecent, getRecents, getFavorites, isFavorite, toggleFavorite } from "../lib/history";
 
@@ -34,6 +34,7 @@ let searchInput: HTMLInputElement;
 let searchResults: HTMLElement;
 let historyEl: HTMLElement;
 let buildTemplatesEl: HTMLElement;
+let buildBondsEl: HTMLElement;
 let formatSection: HTMLElement;
 let buildSection: HTMLElement;
 let buildFormatSelect: HTMLSelectElement;
@@ -70,6 +71,7 @@ Office.onReady((info) => {
   searchResults = document.getElementById("search-results") as HTMLElement;
   historyEl = document.getElementById("history") as HTMLElement;
   buildTemplatesEl = document.getElementById("build-templates") as HTMLElement;
+  buildBondsEl = document.getElementById("build-bonds") as HTMLElement;
   formatSection = document.getElementById("format-section") as HTMLElement;
   buildSection = document.getElementById("build-section") as HTMLElement;
   buildFormatSelect = document.getElementById("build-format") as HTMLSelectElement;
@@ -106,6 +108,7 @@ Office.onReady((info) => {
   searchInput.addEventListener("blur", () => window.setTimeout(closeSearch, 150));
 
   renderBuildTemplates();
+  renderBuildBonds();
 
   renderPalette();
   renderHistory();
@@ -229,6 +232,32 @@ function renderBuildTemplates(): void {
     });
     buildTemplatesEl.appendChild(btn);
   }
+}
+
+/** Renders the Build bond buttons; clicking inserts the bond operator at the cursor. */
+function renderBuildBonds(): void {
+  buildBondsEl.replaceChildren();
+  for (const item of BUILD_BONDS) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "palette-btn";
+    btn.textContent = item.label;
+    if (item.title) btn.title = item.title;
+    btn.addEventListener("mousedown", (e) => e.preventDefault());
+    btn.addEventListener("click", () => insertBuildSnippet(item.snippet));
+    buildBondsEl.appendChild(btn);
+  }
+}
+
+/** Inserts a snippet at the cursor in the Build input. */
+function insertBuildSnippet(snippet: string): void {
+  const start = buildInput.selectionStart ?? buildInput.value.length;
+  const end = buildInput.selectionEnd ?? buildInput.value.length;
+  buildInput.value = buildInput.value.slice(0, start) + snippet + buildInput.value.slice(end);
+  const pos = start + snippet.length;
+  buildInput.focus();
+  buildInput.setSelectionRange(pos, pos);
+  updateBuildPreview();
 }
 
 // ---------------------------------------------------------------------------

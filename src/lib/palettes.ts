@@ -101,6 +101,15 @@ export const BUILD_TEMPLATES: PaletteItem[] = [
   },
 ];
 
+/** Bond-type buttons for Build mode. They insert the bond operator at the cursor
+ *  in the build input; bonds are written as `i<op>j` (e.g. 1-2, 2=3, 1#2, 1~2). */
+export const BUILD_BONDS: PaletteItem[] = [
+  { label: "– single", snippet: "-", title: "Single bond (i-j)" },
+  { label: "= double", snippet: "=", title: "Double bond (i=j)" },
+  { label: "≡ triple", snippet: "#", title: "Triple bond (i#j)" },
+  { label: "~ undefined", snippet: "~", title: "Undefined / any bond (i~j) — makes a generic structure" },
+];
+
 export const CHEM_PALETTE: PaletteGroup[] = [
   {
     name: "Charges & groups",
@@ -112,10 +121,6 @@ export const CHEM_PALETTE: PaletteGroup[] = [
       { label: "²⁻", snippet: "^2-", caret: 3, title: "2− charge" },
       { label: "³⁺", snippet: "^3+", caret: 3, title: "3+ charge" },
       { label: "·", snippet: "·", title: "Hydrate dot" },
-      { label: "–", snippet: "–", title: "Single bond" },
-      { label: "=", snippet: "=", title: "Double bond" },
-      { label: "≡", snippet: "≡", title: "Triple bond" },
-      { label: "~", snippet: "~", title: "Undefined bond" },
     ],
   },
   {

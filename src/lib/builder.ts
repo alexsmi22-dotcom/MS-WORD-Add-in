@@ -6,7 +6,7 @@
 // Atom/bond list format (case-insensitive keywords):
 //
 //   atoms: C C O          # element symbols, 1-indexed in listed order
-//   bonds: 1-2 2=3        # i-j single, i=j double, i#j triple
+//   bonds: 1-2 2=3        # i-j single, i=j double, i#j triple, i~j undefined/any
 //
 // Atoms may carry a charge: e.g. `N+`, `O-`, `Fe2+`, `O2-`. Implicit hydrogens
 // are filled in automatically from valence, so you usually only list heavy atoms.
@@ -44,6 +44,7 @@ interface ParsedBond {
   a: number;
   b: number;
   order: number;
+  any?: boolean; // undefined/any bond (~) — makes a generic query structure
 }
 
 /** Parses the atom/bond list DSL into atoms and bonds. Throws on malformed input. */
@@ -62,14 +63,18 @@ export function parseAtomBondList(text: string): { atoms: ParsedAtom[]; bonds: P
   if (bondsMatch) {
     const bondTokens = bondsMatch[1].trim().split(/[\s,]+/).filter(Boolean);
     for (const token of bondTokens) {
-      const m = /^(\d+)([-=#])(\d+)$/.exec(token);
-      if (!m) throw new Error(`Could not parse bond "${token}" — use e.g. 1-2, 2=3, 1#2.`);
+      const m = /^(\d+)([-=#~])(\d+)$/.exec(token);
+      if (!m) throw new Error(`Could not parse bond "${token}" — use e.g. 1-2, 2=3, 1#2, 1~2.`);
       const a = parseInt(m[1], 10);
       const b = parseInt(m[3], 10);
       if (a < 1 || a > atoms.length || b < 1 || b > atoms.length) {
         throw new Error(`Bond "${token}" refers to an atom number outside 1–${atoms.length}.`);
       }
-      bonds.push({ a, b, order: BOND_ORDER[m[2]] });
+      if (m[2] === "~") {
+        bonds.push({ a, b, order: 1, any: true });
+      } else {
+        bonds.push({ a, b, order: BOND_ORDER[m[2]] });
+      }
     }
   }
   return { atoms, bonds };
@@ -106,8 +111,8 @@ export function buildFromAtomBondList(text: string, width = 300, height = 230): 
   const { atoms, bonds } = parseAtomBondList(text);
   const mol = new Molecule(atoms.length, bonds.length);
 
-  // Any atom list makes this a generic (query) structure.
-  const hasQuery = atoms.some((a) => a.symbols.length > 1);
+  // An atom list or an undefined bond makes this a generic (query) structure.
+  const hasQuery = atoms.some((a) => a.symbols.length > 1) || bonds.some((b) => b.any);
   if (hasQuery) mol.setFragment(true);
 
   const indices = atoms.map((atom) => {
@@ -124,7 +129,12 @@ export function buildFromAtomBondList(text: string, width = 300, height = 230): 
 
   for (const bond of bonds) {
     const b = mol.addBond(indices[bond.a - 1], indices[bond.b - 1]);
-    mol.setBondOrder(b, bond.order);
+    if (bond.any) {
+      // Allow any bond type → an undefined/query bond.
+      mol.setBondQueryFeature(b, Molecule.cBondQFBondTypes, true);
+    } else {
+      mol.setBondOrder(b, bond.order);
+    }
   }
 
   return finish(mol, width, height, true);

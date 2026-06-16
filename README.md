@@ -140,8 +140,9 @@ it. Two input formats (auto-detected, or pick one):
   atoms: C O O
   bonds: 1=2 1=3
   ```
-  Bonds: `-` single, `=` double, `#` triple. Atoms may carry a charge
-  (`N+`, `O-`, `Fe2+`). Hydrogens are filled in automatically from valence.
+  Bonds: `-` single, `=` double, `#` triple, `~` undefined/any (→ generic).
+  Atoms may carry a charge (`N+`, `O-`, `Fe2+`). Hydrogens are filled in
+  automatically from valence. Bond buttons under the input insert these for you.
 - **Molfile (MDL)** — paste any standard V2000/V3000 molfile (e.g. exported
   from another tool) to import and render it.
 
@@ -192,9 +193,10 @@ syntax to memorize. It's mode-aware:
 - **Math:** fraction, root, exponent/subscript, |x|, overbar; Σ ∫ ∏ lim;
   sin/cos/tan/log/ln; Greek letters; operators (± × ≤ ≥ ≠ →). Template buttons
   drop the cursor in the first slot to fill.
-- **Chemical:** parentheses, charge (`^`, ⁺, ⁻, ²⁻, ³⁺), hydrate dot, bonds
-  (single `–`, double `=`, triple `≡`, undefined `~`) for condensed structural
-  formulas, and common groups/ions (OH, H₂O, NH₄, SO₄, NO₃, CO₃, PO₄, CH₃).
+- **Chemical:** parentheses, charge (`^`, ⁺, ⁻, ²⁻, ³⁺), hydrate dot, and common
+  groups/ions (OH, H₂O, NH₄, SO₄, NO₃, CO₃, PO₄, CH₃).
+- **Build:** common-structure templates and **bond buttons** (single `-`,
+  double `=`, triple `#`, undefined `~`) that insert into the build input.
 
 Defined in `src/lib/palettes.ts`.
 

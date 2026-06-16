@@ -11,6 +11,7 @@
     "stop": "office-addin-debugging stop manifest.xml",
     "validate": "office-addin-manifest validate manifest.xml",
     "validate:compounds": "node src/lib/__tests__/validate-compounds.mjs",
+    "review-sheet": "node scripts/review-sheet.js",
     "lint": "tsc --noEmit",
     "test": "jest"
   },

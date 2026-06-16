@@ -7,3 +7,7 @@ dist/
 tmp_build/
 genus.*
 make-genus.js
+
+# packaged release output
+release/
+review-sheet.html

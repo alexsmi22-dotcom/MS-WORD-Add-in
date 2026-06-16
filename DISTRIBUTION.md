@@ -2,7 +2,43 @@
 
 This Office Add-in is a static web app (HTML/JS/CSS) plus a manifest. There is no
 server-side component and no database. Deployment = host the built files on an
-internal HTTPS endpoint and push the manifest to users.
+internal HTTPS endpoint and have users register the manifest.
+
+> **Note:** Office add-ins cannot be a double-click `.exe`. The web files must be
+> HTTPS-hosted, and each user registers the small `manifest.xml`. The package
+> below makes that an email-and-run flow with **no admin rights** required.
+
+## Quick path: build an emailable package
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\package.ps1 -HostUrl https://your-host/formula-inserter
+```
+
+This builds the bundle, stamps the manifest with your host URL, validates it, and
+produces `release\formula-inserter\` (and `.zip`) containing:
+
+| Item | What to do with it |
+| --- | --- |
+| `web\` | Upload to `https://your-host/formula-inserter` (one-time) |
+| `manifest.xml` | Email/share with users (registers the add-in) |
+| `install.ps1` / `uninstall.ps1` | Users run once — registers a per-user trusted catalog, **no admin** |
+| `INSTALL.md` | End-user instructions (incl. Word-on-the-web "Upload My Add-in") |
+| `HOST-SETUP.md` | One-time hosting instructions |
+
+So: run the script → upload `web\` → email `manifest.xml` + `install.ps1` +
+`INSTALL.md`. Users run `install.ps1`, restart Word, and pick **Formula Inserter**
+from **Insert → My Add-ins → Shared Folder**. Word-on-the-web users just use
+**Upload My Add-in** with the manifest.
+
+**Verify the dictionary first (optional):** `npm run review-sheet` writes
+`review-sheet.html` — every compound rendered for a chemist to sign off.
+
+---
+
+## Manual / advanced deployment
+
+The steps below are the underlying mechanics (and the centralized-deployment
+alternative) if you don't use the package script.
 
 ## 1. Build the production bundle
 

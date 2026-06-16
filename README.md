@@ -145,6 +145,20 @@ it. Two input formats (auto-detected, or pick one):
 - **Molfile (MDL)** — paste any standard V2000/V3000 molfile (e.g. exported
   from another tool) to import and render it.
 
+**Generic / Markush structures.** A bracketed atom list marks a variable
+position, producing a generic structure. For example, a six-membered aromatic
+ring with one `[C,N]` atom is the *genus* that encompasses benzene (C) and
+pyridine (N):
+
+```
+atoms: [C,N] C C C C C
+bonds: 1=2 2-3 3=4 4-5 5=6 6-1
+```
+
+The **Genus [C,N] ring** button under "Common structures" loads exactly this.
+Generic structures show "generic structure" instead of a molecular formula and
+insert into Word as an image like any other.
+
 Implemented in `src/lib/builder.ts` (OpenChemLib). The structure is inserted as
 an inline image, same as Chemical-mode structures.
 

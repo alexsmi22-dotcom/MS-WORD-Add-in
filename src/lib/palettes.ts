@@ -94,6 +94,11 @@ export const BUILD_TEMPLATES: PaletteItem[] = [
   { label: "Acetone", snippet: "atoms: C C C O\nbonds: 1-2 2-3 2=4" },
   { label: "Carboxyl (–COOH)", snippet: "atoms: C O O\nbonds: 1=2 1-3" },
   { label: "Methylamine", snippet: "atoms: C N\nbonds: 1-2" },
+  {
+    label: "Genus [C,N] ring",
+    snippet: "atoms: [C,N] C C C C C\nbonds: 1=2 2-3 3=4 4-5 5=6 6-1",
+    title: "Generic ring encompassing benzene and pyridine",
+  },
 ];
 
 export const CHEM_PALETTE: PaletteGroup[] = [

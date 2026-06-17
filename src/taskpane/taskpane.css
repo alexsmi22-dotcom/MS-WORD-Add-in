@@ -479,6 +479,20 @@ h1 {
   box-shadow: 0 0 0 1px var(--accent);
 }
 
+.legend-format {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.legend-format-label {
+  margin-right: 6px;
+  font-size: 13px;
+}
+
 .structure-preview {
   display: flex;
   align-items: center;

@@ -29,6 +29,7 @@ import {
   clearHistory,
 } from "../lib/history";
 import { toRoman, peekFormulaNumber, nextFormulaNumber, resetFormulaNumbering } from "../lib/numbering";
+import { LegendEntry, buildLegendText, buildLegendTableHtml } from "../lib/markush";
 
 type Mode = "chemical" | "math" | "build";
 
@@ -71,6 +72,8 @@ let insertBuildBtn: HTMLButtonElement;
 
 /** R-group label -> user-entered definition (e.g. "R1" -> "methyl, ethyl"). */
 const rgroupValues: Record<string, string> = {};
+/** How the R-group legend is inserted: an inline line or a structured table. */
+let legendFormat: "line" | "table" = "line";
 
 /** The structure currently shown in the Chemical structure preview, or null. */
 let currentStructure: StructureResult | null = null;
@@ -756,6 +759,8 @@ function renderRgroupInputs(rgroups: string[]): void {
   for (const key of Object.keys(rgroupValues)) {
     if (rgroups.indexOf(key) < 0) delete rgroupValues[key];
   }
+  if (!rgroups.length) return;
+
   for (const label of rgroups) {
     const row = document.createElement("div");
     row.className = "rgroup-row";
@@ -765,7 +770,7 @@ function renderRgroupInputs(rgroups: string[]): void {
     const input = document.createElement("input");
     input.type = "text";
     input.className = "rgroup-input";
-    input.placeholder = "e.g. H, methyl, halogen, …";
+    input.placeholder = "e.g. H, methyl, C1-6 alkyl, halogen, …";
     input.value = rgroupValues[label] || "";
     input.addEventListener("input", () => {
       rgroupValues[label] = input.value;
@@ -773,13 +778,39 @@ function renderRgroupInputs(rgroups: string[]): void {
     row.append(lab, input);
     buildRgroupsEl.appendChild(row);
   }
+
+  // Legend insertion format: an inline "where R1 = …" line or a structured table.
+  const fmtRow = document.createElement("div");
+  fmtRow.className = "legend-format";
+  const fmtLab = document.createElement("span");
+  fmtLab.className = "rgroup-label";
+  fmtLab.textContent = "Insert as";
+  fmtRow.appendChild(fmtLab);
+  for (const [value, text] of [
+    ["line", "Line"],
+    ["table", "Table"],
+  ] as const) {
+    const id = `legend-fmt-${value}`;
+    const radio = document.createElement("input");
+    radio.type = "radio";
+    radio.name = "legend-format";
+    radio.id = id;
+    radio.checked = legendFormat === value;
+    radio.addEventListener("change", () => {
+      if (radio.checked) legendFormat = value;
+    });
+    const radioLab = document.createElement("label");
+    radioLab.className = "legend-format-label";
+    radioLab.htmlFor = id;
+    radioLab.textContent = text;
+    fmtRow.append(radio, radioLab);
+  }
+  buildRgroupsEl.appendChild(fmtRow);
 }
 
-/** Builds a "where R1 = …; R2 = …" legend from defined R-groups (empty if none defined). */
-function buildRgroupLegend(rgroups: string[]): string {
-  const filled = rgroups.filter((r) => (rgroupValues[r] || "").trim().length > 0);
-  if (!filled.length) return "";
-  return "where " + filled.map((r) => `${r} = ${rgroupValues[r].trim()}`).join("; ");
+/** Collects the current R-group definitions (raw text) into legend entries. */
+function currentLegendEntries(rgroups: string[]): LegendEntry[] {
+  return rgroups.map((label) => ({ label, definition: rgroupValues[label] || "" }));
 }
 
 /** Inserts the built molecule's structure as an inline picture, plus an R-group legend if defined. */
@@ -797,19 +828,26 @@ async function insertBuild(): Promise<void> {
     const base64 = await svgToPngBase64(molecule.svg, STRUCTURE_W, STRUCTURE_H);
     const label = molecule.formula || "molecule";
     const alt = provenanceAltText(`2D structure (${label})`, molecule.formula, molecule.mw, molecule.smiles, molecule.idcode);
-    const legend = buildRgroupLegend(molecule.rgroups);
+    const entries = currentLegendEntries(molecule.rgroups);
+    const legendLine = buildLegendText(entries);
+    const legendTable = legendFormat === "table" ? buildLegendTableHtml(entries) : "";
+    const hasLegend = legendFormat === "table" ? !!legendTable : !!legendLine;
     await Word.run(async (context) => {
       const range = context.document.getSelection();
       const picture = range.insertInlinePictureFromBase64(base64, Word.InsertLocation.after);
       picture.altTextDescription = alt;
-      let tail = picture.getRange(Word.RangeLocation.end);
-      if (legend) {
-        tail = tail.insertParagraph(legend, Word.InsertLocation.after).getRange();
+      const tail = picture.getRange(Word.RangeLocation.end);
+      if (legendFormat === "table" && legendTable) {
+        const para = tail.insertParagraph("", Word.InsertLocation.after);
+        para.getRange().insertHtml(legendTable, Word.InsertLocation.replace);
+      } else if (legendLine) {
+        tail.insertParagraph(legendLine, Word.InsertLocation.after).getRange().select(Word.SelectionMode.end);
+      } else {
+        tail.select(Word.SelectionMode.end);
       }
-      tail.select(Word.SelectionMode.end);
       await context.sync();
     });
-    setStatus(legend ? "Structure + R-group legend inserted." : "Structure inserted.", "success");
+    setStatus(hasLegend ? "Structure + R-group legend inserted." : "Structure inserted.", "success");
     recordInsert("build", buildInput.value, label);
   } catch (error) {
     setStatus(`Could not insert structure: ${(error as Error).message}`, "error");

@@ -5,6 +5,12 @@ All notable changes to Formula Inserter. Dates are release/pilot dates.
 ## [Unreleased] — internal pilot prep
 
 ### Added
+- **Carbon-range shorthands** in R-group definitions — typing `C1-6 alkyl` or
+  `C1-C6 alkyl` expands to `C₁–C₆ alkyl` (subscript counts, en-dash) on insertion;
+  ordinary formulas like `C2H5` are left untouched.
+- **Structured Markush tables** — R-group definitions can be inserted as a
+  two-column **R-group | Definition** table (toggle "Insert as: Line / Table" in
+  the Build pane) in addition to the inline "where R1 = …" line.
 - **R-group legend** — when a built structure has R-groups, a definition box
   collects `R1 = …`, `R2 = …`, and insertion adds a "where R1 = …; R2 = …" line
   beneath the structure.

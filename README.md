@@ -268,7 +268,10 @@ sub/superscript formatting. Uncheck the box to always use inline formatting.
 - [x] **Stereochemistry** — isomeric SMILES (wedges) + Build wedge/hash bonds.
 - [x] **Richer Markush atoms** — `A` any, `Q` heteroatom, `R1` R-group (+ `[C,N]`, `X`).
 - [x] **R-group legends** — define `R1 = …` and insert a "where R1 = …" line.
-- [ ] "Optionally substituted" / C1–C6 range shorthands; structured Markush tables.
+- [x] **C1–C6 carbon-range shorthands** (`C1-6 alkyl` → C₁–C₆ alkyl) and
+      **structured Markush tables** (R-group | definition, line-or-table toggle).
+- [ ] "Optionally substituted" shorthands; variable counts (n = 1–3); sub-generic
+      Markush definitions.
 - [ ] Matrices and piecewise/cases in the math engine.
 - [ ] Sequence listings (WIPO ST.26) — separate workstream.
 - [ ] Formula history / favorites.

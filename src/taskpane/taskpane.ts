@@ -29,7 +29,7 @@ import {
   clearHistory,
 } from "../lib/history";
 import { toRoman, peekFormulaNumber, nextFormulaNumber, resetFormulaNumbering } from "../lib/numbering";
-import { LegendEntry, buildLegendText, buildLegendTableHtml } from "../lib/markush";
+import { LegendEntry, buildLegendText, buildLegendTableHtml, referencedRGroups } from "../lib/markush";
 
 type Mode = "chemical" | "math" | "build";
 
@@ -74,6 +74,10 @@ let insertBuildBtn: HTMLButtonElement;
 const rgroupValues: Record<string, string> = {};
 /** How the R-group legend is inserted: an inline line or a structured table. */
 let legendFormat: "line" | "table" = "line";
+/** R-group labels present in the current structure (main groups, from the build). */
+let mainRgroups: string[] = [];
+/** Container for dynamically-added sub-generic R-group inputs (e.g. R1a), or null. */
+let subGroupWrap: HTMLElement | null = null;
 
 /** The structure currently shown in the Chemical structure preview, or null. */
 let currentStructure: StructureResult | null = null;
@@ -752,32 +756,99 @@ function updateBuildPreview(): void {
   }
 }
 
+/** Builds one R-group definition row (main or nested sub-generic). */
+function makeRgroupRow(label: string, isSub: boolean): HTMLElement {
+  const row = document.createElement("div");
+  row.className = isSub ? "rgroup-row rgroup-sub" : "rgroup-row";
+  row.dataset.label = label;
+  const lab = document.createElement("span");
+  lab.className = "rgroup-label";
+  lab.textContent = `${label} =`;
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "rgroup-input";
+  input.placeholder = isSub
+    ? "sub-group definition, e.g. halogen, hydroxy"
+    : "e.g. H, C1-6 alkyl, opt sub phenyl, substituted with R1a, …";
+  input.value = rgroupValues[label] || "";
+  input.addEventListener("input", () => {
+    rgroupValues[label] = input.value;
+    syncSubGroups();
+  });
+  row.append(lab, input);
+  return row;
+}
+
+/** Sub-generic R-group labels referenced (transitively) from the main definitions. */
+function collectSubGroups(): string[] {
+  const known: Record<string, true> = {};
+  for (const l of mainRgroups) known[l] = true;
+  const subs: string[] = [];
+  let frontier = mainRgroups.slice();
+  // Bounded depth guards against a definition that references itself in a cycle.
+  for (let depth = 0; depth < 5 && frontier.length; depth++) {
+    const next: string[] = [];
+    for (const label of frontier) {
+      for (const ref of referencedRGroups(rgroupValues[label] || "")) {
+        if (!known[ref]) {
+          known[ref] = true;
+          subs.push(ref);
+          next.push(ref);
+        }
+      }
+    }
+    frontier = next;
+  }
+  return subs;
+}
+
+/** Reconciles the sub-group input rows with the labels currently referenced,
+ *  adding/removing rows in place so focus and caret are preserved while typing. */
+function syncSubGroups(): void {
+  if (!subGroupWrap) return;
+  const subs = collectSubGroups();
+  // Prune stored values that are neither a current main group nor a live sub-group.
+  const valid: Record<string, true> = {};
+  for (const l of mainRgroups) valid[l] = true;
+  for (const l of subs) valid[l] = true;
+  for (const key of Object.keys(rgroupValues)) {
+    if (!valid[key]) delete rgroupValues[key];
+  }
+  const existing: Record<string, HTMLElement> = {};
+  for (const child of Array.from(subGroupWrap.children)) {
+    const el = child as HTMLElement;
+    if (el.dataset.label) existing[el.dataset.label] = el;
+  }
+  for (const label of Object.keys(existing)) {
+    if (subs.indexOf(label) < 0) {
+      subGroupWrap.removeChild(existing[label]);
+      delete existing[label];
+    }
+  }
+  for (const label of subs) {
+    if (!existing[label]) subGroupWrap.appendChild(makeRgroupRow(label, true));
+  }
+}
+
 /** Renders one definition input per R-group present in the built structure. */
 function renderRgroupInputs(rgroups: string[]): void {
   buildRgroupsEl.replaceChildren();
-  // Drop values for R-groups no longer present.
-  for (const key of Object.keys(rgroupValues)) {
-    if (rgroups.indexOf(key) < 0) delete rgroupValues[key];
+  mainRgroups = rgroups.slice();
+  subGroupWrap = null;
+  if (!rgroups.length) {
+    // No R-groups: drop every stored definition (sub-groups exist only via mains).
+    for (const key of Object.keys(rgroupValues)) delete rgroupValues[key];
+    return;
   }
-  if (!rgroups.length) return;
-
+  // Drop values for main R-groups no longer present (keep referenced sub-groups).
   for (const label of rgroups) {
-    const row = document.createElement("div");
-    row.className = "rgroup-row";
-    const lab = document.createElement("span");
-    lab.className = "rgroup-label";
-    lab.textContent = `${label} =`;
-    const input = document.createElement("input");
-    input.type = "text";
-    input.className = "rgroup-input";
-    input.placeholder = "e.g. H, C1-6 alkyl, opt sub phenyl, halogen, …";
-    input.value = rgroupValues[label] || "";
-    input.addEventListener("input", () => {
-      rgroupValues[label] = input.value;
-    });
-    row.append(lab, input);
-    buildRgroupsEl.appendChild(row);
+    buildRgroupsEl.appendChild(makeRgroupRow(label, false));
   }
+
+  subGroupWrap = document.createElement("div");
+  subGroupWrap.className = "rgroup-subs";
+  buildRgroupsEl.appendChild(subGroupWrap);
+  syncSubGroups();
 
   // Legend insertion format: an inline "where R1 = …" line or a structured table.
   const fmtRow = document.createElement("div");
@@ -808,9 +879,11 @@ function renderRgroupInputs(rgroups: string[]): void {
   buildRgroupsEl.appendChild(fmtRow);
 }
 
-/** Collects the current R-group definitions (raw text) into legend entries. */
-function currentLegendEntries(rgroups: string[]): LegendEntry[] {
-  return rgroups.map((label) => ({ label, definition: rgroupValues[label] || "" }));
+/** Collects the current R-group definitions (main groups first, then nested
+ *  sub-groups in reference order) as raw legend entries. */
+function currentLegendEntries(): LegendEntry[] {
+  const labels = [...mainRgroups, ...collectSubGroups()];
+  return labels.map((label) => ({ label, definition: rgroupValues[label] || "" }));
 }
 
 /** Inserts the built molecule's structure as an inline picture, plus an R-group legend if defined. */
@@ -828,7 +901,7 @@ async function insertBuild(): Promise<void> {
     const base64 = await svgToPngBase64(molecule.svg, STRUCTURE_W, STRUCTURE_H);
     const label = molecule.formula || "molecule";
     const alt = provenanceAltText(`2D structure (${label})`, molecule.formula, molecule.mw, molecule.smiles, molecule.idcode);
-    const entries = currentLegendEntries(molecule.rgroups);
+    const entries = currentLegendEntries();
     const legendLine = buildLegendText(entries);
     const legendTable = legendFormat === "table" ? buildLegendTableHtml(entries) : "";
     const hasLegend = legendFormat === "table" ? !!legendTable : !!legendLine;

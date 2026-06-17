@@ -1,4 +1,10 @@
-import { expandDefinition, buildLegendText, buildLegendTableHtml, LegendEntry } from "../markush";
+import {
+  expandDefinition,
+  buildLegendText,
+  buildLegendTableHtml,
+  referencedRGroups,
+  LegendEntry,
+} from "../markush";
 
 describe("expandDefinition — carbon-range shorthands", () => {
   it("expands the dash-range form C1-6 alkyl", () => {
@@ -71,6 +77,26 @@ describe("expandDefinition — variable-count ranges", () => {
   });
 });
 
+describe("referencedRGroups — sub-generic detection", () => {
+  it("finds a nested sub-group reference", () => {
+    expect(referencedRGroups("C1-6 alkyl optionally substituted with R1a")).toEqual(["R1a"]);
+  });
+
+  it("finds single-letter and multiple references in order", () => {
+    expect(referencedRGroups("Ra or Rb")).toEqual(["Ra", "Rb"]);
+    expect(referencedRGroups("R1 and R2")).toEqual(["R1", "R2"]);
+  });
+
+  it("dedupes repeated references", () => {
+    expect(referencedRGroups("R1a or R1a")).toEqual(["R1a"]);
+  });
+
+  it("does not treat ordinary words as references", () => {
+    expect(referencedRGroups("Red phosphorus or a Ring")).toEqual([]);
+    expect(referencedRGroups("halogen, hydroxy")).toEqual([]);
+  });
+});
+
 describe("buildLegendText", () => {
   const entries: LegendEntry[] = [
     { label: "R1", definition: "H" },
@@ -89,6 +115,16 @@ describe("buildLegendText", () => {
 
   it("returns empty string when nothing is defined", () => {
     expect(buildLegendText([{ label: "R1", definition: "" }])).toBe("");
+  });
+
+  it("renders a nested sub-generic legend with shorthands expanded", () => {
+    const entries: LegendEntry[] = [
+      { label: "R1", definition: "C1-6 alkyl opt sub with R1a" },
+      { label: "R1a", definition: "halogen or hydroxy" },
+    ];
+    expect(buildLegendText(entries)).toBe(
+      "where R1 = C₁–C₆ alkyl optionally substituted with R1a; R1a = halogen or hydroxy",
+    );
   });
 });
 

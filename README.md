@@ -272,7 +272,8 @@ sub/superscript formatting. Uncheck the box to always use inline formatting.
       **structured Markush tables** (R-group | definition, line-or-table toggle).
 - [x] **"Optionally substituted" shorthand** (`opt sub` → optionally substituted)
       and **variable-count ranges** (`n=1-3` → n = 1–3).
-- [ ] Sub-generic Markush definitions (nested R-groups with their own legends).
+- [x] **Sub-generic Markush definitions** — nested R-groups (`R1a`) auto-detected
+      from definitions and added to the legend (line or table).
 - [ ] Matrices and piecewise/cases in the math engine.
 - [ ] Sequence listings (WIPO ST.26) — separate workstream.
 - [ ] Formula history / favorites.

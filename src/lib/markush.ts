@@ -63,6 +63,31 @@ export function expandDefinition(input: string): string {
   return s;
 }
 
+// An R-group-style label referenced inside a definition: "R" + digits (with
+// optional trailing sub-letters/primes, e.g. R1a, R1'), or "R" + a single letter
+// (Ra). The digit/single-letter requirement keeps ordinary words like "Red" or
+// "Ring" from being mistaken for sub-group references.
+const RGROUP_REF = /\bR(?:\d+[a-z']*|[a-z])\b/g;
+
+/**
+ * Distinct R-group labels referenced inside a definition string, in order of
+ * first appearance. e.g. "C1-6 alkyl substituted with R1a or Ra" → ["R1a", "Ra"].
+ * Used to surface nested (sub-generic) R-group definitions.
+ */
+export function referencedRGroups(text: string): string[] {
+  const out: string[] = [];
+  const seen: Record<string, true> = {};
+  let m: RegExpExecArray | null;
+  RGROUP_REF.lastIndex = 0;
+  while ((m = RGROUP_REF.exec(text)) !== null) {
+    if (!seen[m[0]]) {
+      seen[m[0]] = true;
+      out.push(m[0]);
+    }
+  }
+  return out;
+}
+
 /** Expands definitions and drops entries whose definition is blank. */
 function expandEntries(entries: LegendEntry[]): LegendEntry[] {
   return entries

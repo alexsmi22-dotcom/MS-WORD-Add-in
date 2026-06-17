@@ -458,6 +458,17 @@ h1 {
   margin-bottom: 0;
 }
 
+.rgroup-subs:not(:empty) {
+  margin-top: 6px;
+  padding-left: 10px;
+  border-left: 2px solid var(--border);
+}
+
+.rgroup-sub .rgroup-label {
+  font-weight: 500;
+  opacity: 0.85;
+}
+
 .rgroup-label {
   min-width: 36px;
   font-weight: 600;

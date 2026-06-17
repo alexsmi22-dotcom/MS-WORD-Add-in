@@ -12,6 +12,10 @@ All notable changes to Formula Inserter. Dates are release/pilot dates.
   substituted …"; variable-count ranges like `n=1-3` → `n = 1–3`, and plain
   integer ranges (`4-6 membered`) get an en-dash. Substituent locants such as
   `indazol-3-yl` are left alone.
+- **Sub-generic Markush definitions** — when an R-group definition references a
+  nested label (e.g. `R1 = C1-6 alkyl substituted with R1a`), an input for the
+  sub-group (`R1a`) appears automatically and is included in the inserted legend
+  (line or table). Detection is transitive and ignores ordinary words.
 - **Structured Markush tables** — R-group definitions can be inserted as a
   two-column **R-group | Definition** table (toggle "Insert as: Line / Table" in
   the Build pane) in addition to the inline "where R1 = …" line.

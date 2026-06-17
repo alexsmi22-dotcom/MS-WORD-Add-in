@@ -38,13 +38,14 @@ Email users the small files — **`manifest.xml`**, **`install.ps1`**,
 **`uninstall.ps1`**, and **`INSTALL.md`** — or put them on a download page. Users
 run `install.ps1` once (no admin).
 
-## Optional: network-share catalog (instead of the local-folder script)
+## Optional: network-share catalog (not recommended)
 
-If your Office build requires a network-share catalog, put `manifest.xml` on an
-SMB share (e.g. `\\fileserver\AddIns\FormulaInserter\`), then each user adds it
-once: **File > Options > Trust Center > Trust Center Settings > Trusted Add-in
-Catalogs**, paste the share URL, check **Show in Menu**, OK, restart Word. The
-add-in then appears under **Insert > My Add-ins > Shared Folder**.
+A network-share **Trusted Add-in Catalog** (`manifest.xml` on an SMB share, added
+under File > Options > Trust Center > Trusted Add-in Catalogs, then Insert > My
+Add-ins > Shared Folder) is possible in principle, but it **did not surface the
+add-in on the target Office build** — use the per-user installer (`install.bat` /
+`install.ps1`, Insert > Add-ins > Developer Add-ins) or, for IT-managed rollout,
+the Microsoft 365 admin center (see `CENTRALIZED-DEPLOY.md`).
 
 ## Updating
 

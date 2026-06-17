@@ -5,6 +5,13 @@ All notable changes to Formula Inserter. Dates are release/pilot dates.
 ## [Unreleased] — internal pilot prep
 
 ### Added
+- **Centralized-deployment guide** (`packaging/CENTRALIZED-DEPLOY.md`) for IT
+  admins to push the add-in via the Microsoft 365 admin center (Integrated Apps)
+  instead of the per-user installer. Corrected `DISTRIBUTION.md` to describe the
+  actual per-user **Developer Add-ins** install (the network-share Trusted Catalog
+  method, which did not work on the target build, is no longer presented as the
+  flow). The package script's stamped `manifest.xml` doubles as the validated
+  deploy manifest.
 - **Matrices & piecewise/cases** in the math engine — `matrix(a, b; c, d)` (rows
   separated by `;`, columns by `,`), with `pmatrix` / `bmatrix` / `vmatrix` for
   `( )`, `[ ]` and `| |` (determinant) delimiters, and `cases(x, if x>0; -x,

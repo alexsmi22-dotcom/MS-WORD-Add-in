@@ -280,7 +280,9 @@ sub/superscript formatting. Uncheck the box to always use inline formatting.
       `pmatrix`/`bmatrix`/`vmatrix`, `cases(…)`).
 - [ ] Sequence listings (WIPO ST.26) — separate workstream.
 - [ ] Formula history / favorites.
-- [ ] Distribution beyond local sideload (org catalog or AppSource).
+- [x] **Centralized-deployment path documented** — validated deploy manifest +
+      IT admin guide (`packaging/CENTRALIZED-DEPLOY.md`) for Microsoft 365
+      Integrated Apps. (AppSource intentionally not used — internal tool.)
 
 ## Notes
 

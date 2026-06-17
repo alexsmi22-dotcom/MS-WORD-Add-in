@@ -21,14 +21,24 @@ produces `release\formula-inserter\` (and `.zip`) containing:
 | --- | --- |
 | `web\` | Upload to `https://your-host/formula-inserter` (one-time) |
 | `manifest.xml` | Email/share with users (registers the add-in) |
-| `install.ps1` / `uninstall.ps1` | Users run once — registers a per-user trusted catalog, **no admin** |
-| `INSTALL.md` | End-user instructions (incl. Word-on-the-web "Upload My Add-in") |
+| `install.ps1` / `uninstall.ps1` (and `.bat`) | Users run once — registers the add-in **per-user** (no admin) |
+| `INSTALL.md` | End-user instructions |
 | `HOST-SETUP.md` | One-time hosting instructions |
 
-So: run the script → upload `web\` → email `manifest.xml` + `install.ps1` +
-`INSTALL.md`. Users run `install.ps1`, restart Word, and pick **Formula Inserter**
-from **Insert → My Add-ins → Shared Folder**. Word-on-the-web users just use
-**Upload My Add-in** with the manifest.
+So: run the script → upload `web\` → email `manifest.xml` + `install.bat`
+(or `install.ps1`) + `INSTALL.md`. Users run the installer, restart Word, and
+pick **Formula Inserter** from **Insert → Add-ins → Developer Add-ins**.
+
+> **How the per-user install works:** `install.ps1` copies `manifest.xml` to
+> `%LOCALAPPDATA%\FormulaInserter` and registers it under
+> `HKCU\…\WEF\Developer` (a per-user "developer add-in"). This is what works on
+> desktop Word with no admin rights. The older local-folder **Trusted Catalog**
+> ("Shared Folder") method is **not** used — it did not surface the add-in on the
+> target Office build.
+
+**Ready for IT-managed rollout instead?** See
+[`packaging/CENTRALIZED-DEPLOY.md`](packaging/CENTRALIZED-DEPLOY.md) for pushing
+the add-in to users via the Microsoft 365 admin center (no per-user installer).
 
 **Verify the dictionary first (optional):** `npm run review-sheet` writes
 `review-sheet.html` — every compound rendered for a chemist to sign off.
@@ -102,9 +112,15 @@ pilot group, then org-wide. This is preferred over manual sideloading:
 - Admin controls who gets it; users don't touch developer settings.
 - Updates propagate by re-uploading a manifest with a higher `<Version>`.
 
-Alternative for a small pilot: a **trusted add-in catalog** on a network share
-(File → Options → Trust Center → Trusted Add-in Catalogs), then
-Insert → My Add-ins → Shared Folder.
+**Step-by-step admin instructions are in
+[`packaging/CENTRALIZED-DEPLOY.md`](packaging/CENTRALIZED-DEPLOY.md)** — roles
+required, the upload flow, pilot assignment, propagation time, updates, and
+rollback.
+
+> Not recommended here: a **trusted add-in catalog** on a network share
+> (File → Options → Trust Center → Trusted Add-in Catalogs → Insert → My Add-ins
+> → Shared Folder). It did **not** surface the add-in on the target Office build,
+> so use the per-user installer or Integrated Apps instead.
 
 ## 5. Updates & versioning
 

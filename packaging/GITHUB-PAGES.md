@@ -56,9 +56,8 @@ Email or share these three small files (from `release\formula-inserter\`):
 - `install.ps1`
 - `INSTALL.md`
 
-Users run `install.ps1` once (no admin), restart Word, and pick **Formula
-Inserter** from **Insert → My Add-ins → Shared Folder** — or, on Word for the web,
-use **Upload My Add-in** with `manifest.xml`.
+Users run `install.bat` (or `install.ps1`) once — no admin — restart Word, and
+pick **Formula Inserter** from **Insert → Add-ins → Developer Add-ins**.
 
 ## Updating later
 

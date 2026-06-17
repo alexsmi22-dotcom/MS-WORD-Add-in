@@ -34,7 +34,7 @@ export interface SequenceListingMeta {
 // Allowed residue alphabets (lowercase for nucleotides, uppercase for amino acids).
 const DNA = "acgtryswkmbdhvn";
 const RNA = "acguryswkmbdhvn";
-const AA = "ABCDEFGHIKLMNPQRSTVWYZXUO"; // 20 + ambiguity (B,Z,X) + U(Sec) + O(Pyl)
+const AA = "ABCDEFGHIJKLMNPQRSTVWYZXUO"; // 20 + ambiguity (B,Z,J,X) + U(Sec) + O(Pyl)
 
 const ALPHABET: Record<MolType, string> = { DNA, RNA, AA };
 
@@ -68,6 +68,9 @@ const MOL_TYPE_QUAL: Record<MolType, string> = {
 
 function escapeXml(s: string): string {
   return s
+    // Drop characters not permitted in XML 1.0 so free-text fields can't make the
+    // document ill-formed (residues are already cleaned to letters).
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")

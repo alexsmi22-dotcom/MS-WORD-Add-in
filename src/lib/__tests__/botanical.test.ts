@@ -40,6 +40,12 @@ describe("formatBotanicalNameHtml", () => {
   it("returns empty string for empty input", () => {
     expect(formatBotanicalNameHtml("   ")).toBe("");
   });
+
+  it("does not crash on a lone hybrid marker", () => {
+    expect(() => formatBotanicalNameHtml("×")).not.toThrow();
+    expect(() => formatBotanicalNameHtml("x")).not.toThrow();
+    expect(formatBotanicalNameHtml("×")).toBe("×");
+  });
 });
 
 describe("formatTraitTableHtml", () => {

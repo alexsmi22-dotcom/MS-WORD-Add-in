@@ -13,9 +13,11 @@ export interface Substituent {
   input: string;
 }
 
-// A label is a simple token (R1a, Ra, X, R1') so a label-less SMILES that
-// contains "=" (a double bond, e.g. "CC(=O)O") is NOT mistaken for "label=value".
-const LABELLED = /^([A-Za-z][A-Za-z0-9'’]*)\s*[=:]\s*(\S.*)$/;
+// A label is a simple token (R1a, Ra, X, R1') followed by "="/":" with whitespace
+// on at least one side. SMILES never has whitespace around a bond "=", so a
+// label-less SMILES — including "O=C=O" or "CC(=O)O" — is NOT mistaken for a
+// "label = value" line.
+const LABELLED = /^([A-Za-z][A-Za-z0-9'’]*)(?:\s+[=:]\s*|\s*[=:]\s+)(\S.*)$/;
 
 /** Parses gallery lines into substituents; blank lines are dropped. */
 export function parseSubstituents(text: string): Substituent[] {

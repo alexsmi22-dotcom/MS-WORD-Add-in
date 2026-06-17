@@ -23,6 +23,22 @@ describe("cleanResidues", () => {
     expect(cleanResidues("DNA", "acgtn").invalid).toEqual([]);
     expect(cleanResidues("RNA", "acgun").invalid).toEqual([]);
   });
+
+  it("accepts amino-acid J (Leu/Ile) and other ambiguity codes", () => {
+    expect(cleanResidues("AA", "MKLJBZXUO").invalid).toEqual([]);
+  });
+});
+
+describe("buildSt26Xml — XML safety", () => {
+  it("strips XML-illegal control characters from free-text fields", () => {
+    const bell = String.fromCharCode(7); // U+0007, illegal in XML 1.0
+    const xml = buildSt26Xml(
+      { applicantName: "Acme Corp", inventionTitle: "Wid" + bell + "get", productionDate: "2026-06-17" },
+      [{ moltype: "DNA", residues: "acgt" }],
+    );
+    expect(xml).toContain("Widget");
+    expect(xml).not.toContain(bell);
+  });
 });
 
 describe("buildSt26Xml", () => {

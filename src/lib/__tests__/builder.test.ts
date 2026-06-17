@@ -69,6 +69,14 @@ describe("builder — query features (Markush genus constraints)", () => {
     expect(() => build("atoms: C{bogus} C\nbonds: 1-2", "auto")).toThrow(/query feature/i);
   });
 
+  it("rejects a second/stray query block instead of silently dropping it", () => {
+    expect(() => build("atoms: C{ar}{bogus} C\nbonds: 1-2", "auto")).toThrow();
+  });
+
+  it("accepts multiple features in one block", () => {
+    expect(() => build("atoms: C{ar,nosub,r6} C\nbonds: 1-2", "auto")).not.toThrow();
+  });
+
   it("does not treat a charge-only atom as a query feature", () => {
     expect(build("atoms: N+", "auto").generic).toBe(false);
   });

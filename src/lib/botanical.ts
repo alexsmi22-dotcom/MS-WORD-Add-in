@@ -19,7 +19,7 @@ function escapeHtml(s: string): string {
 }
 
 function isEpithet(t: string): boolean {
-  return /^[a-zà-ÿ][a-zà-ÿ-]*$/.test(t);
+  return /^\p{Ll}[\p{Ll}-]*$/u.test(t);
 }
 
 function capitalize(s: string): string {
@@ -56,11 +56,13 @@ export function parseBotanicalName(input: string): NamePart[] {
   if (tokens[0] === "×" || tokens[0].toLowerCase() === "x") {
     parts.push({ text: "×", italic: false });
     start = 1;
-  } else if (tokens[0].startsWith("×")) {
+  } else if (tokens[0].startsWith("×") && tokens[0].length > 1) {
     parts.push({ text: "×", italic: false });
     tokens[0] = tokens[0].slice(1);
   }
 
+  // A lone hybrid marker (or nothing left after it) has no genus to format.
+  if (start >= tokens.length || !tokens[start]) return parts;
   parts.push({ text: capitalize(tokens[start]), italic: true }); // genus
 
   let epithetNext = false; // the next token is an italic epithet

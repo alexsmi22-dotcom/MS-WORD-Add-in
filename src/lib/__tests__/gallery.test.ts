@@ -20,6 +20,11 @@ describe("parseSubstituents", () => {
     expect(parseSubstituents("CC(=O)O")).toEqual([{ label: "", input: "CC(=O)O" }]);
   });
 
+  it("does NOT split a SMILES whose first atom precedes '=' (O=C=O)", () => {
+    expect(parseSubstituents("O=C=O")).toEqual([{ label: "", input: "O=C=O" }]);
+    expect(parseSubstituents("N=C=S")).toEqual([{ label: "", input: "N=C=S" }]);
+  });
+
   it("treats a bare structure (no separator) as input with no label", () => {
     expect(parseSubstituents("c1ccccc1")).toEqual([{ label: "", input: "c1ccccc1" }]);
   });

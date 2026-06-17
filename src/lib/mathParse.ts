@@ -98,7 +98,9 @@ const UPRIGHT_WORDS = new Set(["mod", "argmax", "argmin", "lcm", "gcd", "Pr"]);
 // Single-char glyphs that act as operands / prefixes (not infix operators), so a
 // pasted "∀ x", "¬ p", "∂", "ℤ" or "90°" parses. Binary glyphs (∈ ∪ ⊕ ≡ …) are
 // left as operators by the tokenizer's default case.
-const ATOM_GLYPHS = new Set(["∀", "∃", "¬", "∂", "∇", "∅", "°", "∞", "ℤ", "ℝ", "ℕ", "ℚ", "ℂ", "ℙ"]);
+const ATOM_GLYPHS = new Set([
+  "∀", "∃", "¬", "∂", "∇", "∅", "°", "∞", "ℤ", "ℝ", "ℕ", "ℚ", "ℂ", "ℙ", "ℏ", "ℒ", "ℱ",
+]);
 
 const ACCENTS: Record<string, string> = { bar: "̄", hat: "̂", vec: "⃗" };
 
@@ -293,8 +295,14 @@ class Parser {
 
     if (t.t === "lbrack") {
       this.next();
-      const inner = this.parseExpr();
+      const items: Node[] = [this.parseExpr()];
+      while (this.peek()?.t === "comma") {
+        this.next();
+        items.push({ k: "text", v: ", ", plain: true });
+        items.push(this.parseExpr());
+      }
       this.expect("rbrack");
+      const inner = items.length === 1 ? items[0] : { k: "row" as const, items };
       return { k: "delim", inner, open: "[", close: "]" };
     }
 

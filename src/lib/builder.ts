@@ -141,7 +141,11 @@ function extractQuery(token: string, kind: "atom" | "bond"): { rest: string; que
       throw new Error(`Unknown ${kind} query feature "${f}" in "${token}".`);
     }
   }
-  return { rest: token.replace(/\{[^}]*\}/, ""), query: feats.map((f) => f.toLowerCase()) };
+  const rest = token.replace(/\{[^}]*\}/, "");
+  if (/[{}]/.test(rest)) {
+    throw new Error(`Malformed query block in "${token}" — use a single {…} with comma-separated features.`);
+  }
+  return { rest, query: feats.map((f) => f.toLowerCase()) };
 }
 
 /** Parses the atom/bond list DSL into atoms and bonds. Throws on malformed input. */

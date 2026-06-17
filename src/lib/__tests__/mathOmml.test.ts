@@ -74,6 +74,16 @@ describe("mathToOmml", () => {
     expect(omml).toContain("<m:f>"); // the fraction
   });
 
+  it("parses a comma-separated bracket list [a, b]", () => {
+    expect(() => mathToOmml("[a, b]")).not.toThrow();
+    expect(() => mathToOmml("x in [0, 1]")).not.toThrow();
+  });
+
+  it("parses pasted letterlike glyphs (ℏ, ℒ, ℱ)", () => {
+    expect(() => mathToOmml("E = ℏ ω")).not.toThrow();
+    expect(() => mathToOmml("ℒ f")).not.toThrow();
+  });
+
   it("maps named symbols and number sets to glyphs", () => {
     expect(mathToOmml("forall x in ZZ")).toContain("∀");
     expect(mathToOmml("forall x in ZZ")).toContain("ℤ");

@@ -42,6 +42,8 @@ interface Token {
     | "rparen"
     | "lbrace"
     | "rbrace"
+    | "lbrack"
+    | "rbrack"
     | "caret"
     | "underscore"
     | "comma"
@@ -63,7 +65,32 @@ const GREEK: Record<string, string> = {
 const KNOWN_FUNCS = new Set([
   "sin", "cos", "tan", "cot", "sec", "csc", "sinh", "cosh", "tanh",
   "arcsin", "arccos", "arctan", "log", "ln", "exp", "det", "dim", "max", "min", "gcd", "mod",
+  "argmax", "argmin", "lcm", "softmax", "sigmoid", "relu",
 ]);
+
+// Named operators/symbols typed as words → glyphs (logic, set theory, calculus,
+// blackboard-bold number sets). Checked after Greek; the tokenizer also routes the
+// glyphs themselves to atoms so palette-inserted symbols parse too.
+const SYMBOLS: Record<string, string> = {
+  forall: "∀", exists: "∃", in: "∈", notin: "∉",
+  subset: "⊂", subseteq: "⊆", supset: "⊃", supseteq: "⊇",
+  union: "∪", cup: "∪", cap: "∩", intersect: "∩", emptyset: "∅",
+  and: "∧", land: "∧", or: "∨", lor: "∨", not: "¬", lnot: "¬",
+  xor: "⊕", oplus: "⊕", otimes: "⊗", times: "×", cdot: "·",
+  iff: "⇔", implies: "⇒", to: "→", mapsto: "↦",
+  equiv: "≡", approx: "≈", cong: "≅", propto: "∝", parallel: "∥", neq: "≠",
+  partial: "∂", nabla: "∇", grad: "∇", degree: "°", deg: "°",
+  ZZ: "ℤ", RR: "ℝ", NN: "ℕ", QQ: "ℚ", CC: "ℂ", PP: "ℙ", EE: "𝔼", FF: "𝔽",
+};
+
+// Words that should render upright even when used without parentheses (e.g.
+// "a mod n", "argmax_x f(x)", "Pr[A]").
+const UPRIGHT_WORDS = new Set(["mod", "argmax", "argmin", "lcm", "gcd", "Pr"]);
+
+// Single-char glyphs that act as operands / prefixes (not infix operators), so a
+// pasted "∀ x", "¬ p", "∂", "ℤ" or "90°" parses. Binary glyphs (∈ ∪ ⊕ ≡ …) are
+// left as operators by the tokenizer's default case.
+const ATOM_GLYPHS = new Set(["∀", "∃", "¬", "∂", "∇", "∅", "°", "∞", "ℤ", "ℝ", "ℕ", "ℚ", "ℂ", "ℙ"]);
 
 const ACCENTS: Record<string, string> = { bar: "̄", hat: "̂", vec: "⃗" };
 
@@ -118,11 +145,20 @@ function tokenize(input: string): Token[] {
       continue;
     }
 
+    // Operand/prefix glyphs (∀, ¬, ∂, ℤ, °, …) parse as atoms, not operators.
+    if (ATOM_GLYPHS.has(ch)) {
+      tokens.push({ t: "id", v: ch });
+      i++;
+      continue;
+    }
+
     switch (ch) {
       case "(": tokens.push({ t: "lparen", v: ch }); break;
       case ")": tokens.push({ t: "rparen", v: ch }); break;
       case "{": tokens.push({ t: "lbrace", v: ch }); break;
       case "}": tokens.push({ t: "rbrace", v: ch }); break;
+      case "[": tokens.push({ t: "lbrack", v: ch }); break;
+      case "]": tokens.push({ t: "rbrack", v: ch }); break;
       case "^": tokens.push({ t: "caret", v: ch }); break;
       case "_": tokens.push({ t: "underscore", v: ch }); break;
       case ",": tokens.push({ t: "comma", v: ch }); break;
@@ -200,7 +236,7 @@ class Parser {
     // `bar` (|) is intentionally excluded: a "|" is ambiguous between opening and
     // closing an absolute value, so allowing it as an implicit-multiplication
     // start would let a closing "|" be misread as a new |…| group.
-    return !!t && (t.t === "num" || t.t === "id" || t.t === "lparen" || t.t === "lbrace");
+    return !!t && (t.t === "num" || t.t === "id" || t.t === "lparen" || t.t === "lbrace" || t.t === "lbrack");
   }
 
   // factor := base ( ^base | _base )* '!'*
@@ -240,6 +276,13 @@ class Parser {
     if (t.t === "id") {
       this.next();
       return this.parseIdentifier(t.v);
+    }
+
+    if (t.t === "lbrack") {
+      this.next();
+      const inner = this.parseExpr();
+      this.expect("rbrack");
+      return { k: "delim", inner, open: "[", close: "]" };
     }
 
     if (t.t === "lparen") {
@@ -292,6 +335,18 @@ class Parser {
       const [inner] = this.parseArgs(1);
       return { k: "delim", inner, open: "|", close: "|" };
     }
+    if (lower === "floor") {
+      const [inner] = this.parseArgs(1);
+      return { k: "delim", inner, open: "⌊", close: "⌋" };
+    }
+    if (lower === "ceil") {
+      const [inner] = this.parseArgs(1);
+      return { k: "delim", inner, open: "⌈", close: "⌉" };
+    }
+    if (lower === "norm") {
+      const [inner] = this.parseArgs(1);
+      return { k: "delim", inner, open: "‖", close: "‖" };
+    }
     if (ACCENTS[lower]) {
       const [base] = this.parseArgs(1);
       return { k: "acc", chr: ACCENTS[lower], base };
@@ -319,8 +374,13 @@ class Parser {
       return { k: "func", name: id, arg, known: KNOWN_FUNCS.has(lower) };
     }
 
+    // Words that stay upright without parentheses (e.g. "a mod n", "Pr[A]").
+    if (UPRIGHT_WORDS.has(id) || UPRIGHT_WORDS.has(lower)) return { k: "text", v: id, plain: true };
+
     if (GREEK[id]) return { k: "text", v: GREEK[id] };
     if (GREEK[lower]) return { k: "text", v: GREEK[lower] };
+    if (SYMBOLS[id]) return { k: "text", v: SYMBOLS[id] };
+    if (SYMBOLS[lower]) return { k: "text", v: SYMBOLS[lower] };
     return { k: "text", v: id };
   }
 

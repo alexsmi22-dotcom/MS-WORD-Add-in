@@ -5,6 +5,14 @@ All notable changes to Formula Inserter. Dates are release/pilot dates.
 ## [Unreleased] — internal pilot prep
 
 ### Added
+- **Domain notation & formula libraries** for non-chemistry practice areas —
+  logic/set-theory/quantifier symbols (∀ ∃ ∈ ∉ ⊆ ∪ ∩ ∅ ∧ ∨ ¬ ⊕ ⇒ ⇔), blackboard-
+  bold number sets (ℤ ℝ ℕ ℚ ℂ 𝔽 𝔼), `floor`/`ceil`/`norm` (⌊⌋ ⌈⌉ ‖‖), `partial`
+  (∂), `nabla` (∇), upright `mod`, degree (°), and square-bracket grouping (e.g.
+  `[S]` concentrations) — all typeable as words or inserted from new **Logic &
+  sets / Number sets / Advanced** palette groups. Added formula-library categories
+  for **Cryptography**, **Computer science / ML**, **Mechanical engineering**, and
+  **Biology / assays**.
 - **Centralized-deployment guide** (`packaging/CENTRALIZED-DEPLOY.md`) for IT
   admins to push the add-in via the Microsoft 365 admin center (Integrated Apps)
   instead of the per-user installer. Corrected `DISTRIBUTION.md` to describe the

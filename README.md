@@ -246,6 +246,11 @@ The engine (`src/lib/mathParse.ts` → `mathOmml.ts`) understands:
 | `sin(x)`, `log(x)`, `ln(x)` | upright function names |
 | `matrix(a, b; c, d)` | matrix (rows `;`, cols `,`); `pmatrix`/`vmatrix` for `( )` / `\| \|` |
 | `cases(x, if x>0; -x, otherwise)` | piecewise / cases |
+| `floor(x)`, `ceil(x)`, `norm(v)` | ⌊x⌋, ⌈x⌉, ‖v‖ |
+| `forall`, `exists`, `in`, `subseteq`, `union`, `emptyset` | ∀ ∃ ∈ ⊆ ∪ ∅ (logic & set theory) |
+| `and`, `or`, `not`, `xor`, `implies`, `iff` | ∧ ∨ ¬ ⊕ ⇒ ⇔ |
+| `ZZ`, `RR`, `NN`, `QQ`, `CC`, `FF`, `EE` | ℤ ℝ ℕ ℚ ℂ 𝔽 𝔼 (blackboard-bold sets) |
+| `partial`, `nabla`, `a mod n`, `[S]`, `90 degree` | ∂, ∇, upright mod, brackets, ° |
 | `2x`, `2(x+1)`, `a b` | implicit multiplication   |
 | `n!`, `+-`, `pi`, `theta` | factorial, ±, Greek     |
 

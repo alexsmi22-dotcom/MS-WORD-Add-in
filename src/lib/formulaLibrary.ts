@@ -85,4 +85,52 @@ export const FORMULA_LIBRARY: FormulaCategory[] = [
       { label: "Definition of e", expr: "e = lim(n -> infinity, (1 + 1/n)^n)" },
     ],
   },
+  {
+    name: "Cryptography",
+    formulas: [
+      { label: "RSA encryption", expr: "c = m^e mod n" },
+      { label: "RSA decryption", expr: "m = c^d mod n" },
+      { label: "Euler's totient (RSA modulus)", expr: "φ(n) = (p - 1)(q - 1)" },
+      { label: "Modular exponentiation", expr: "y = g^x mod p" },
+      { label: "Diffie–Hellman shared secret", expr: "K = B^a mod p" },
+      { label: "Congruence (mod n)", expr: "a ≡ b (mod n)" },
+      { label: "Birthday bound", expr: "p ≈ 1 - e^(-(k^2)/(2 N))" },
+    ],
+  },
+  {
+    name: "Computer science / ML",
+    formulas: [
+      { label: "Shannon entropy", expr: "H(X) = -sum(i=1, n, p_i log(p_i))" },
+      { label: "Cross-entropy", expr: "H(p, q) = -sum(i=1, n, p_i log(q_i))" },
+      { label: "Sigmoid", expr: "σ(x) = 1/(1 + e^(-x))" },
+      { label: "Softmax", expr: "softmax(x_i) = e^(x_i)/sum(j=1, n, e^(x_j))" },
+      { label: "Gradient-descent update", expr: "θ = θ - α ∇J(θ)" },
+      { label: "Mean squared error", expr: "MSE = (1/n) sum(i=1, n, (y_i - hat(y)_i)^2)" },
+      { label: "Asymptotic bound", expr: "T(n) = O(n log(n))" },
+    ],
+  },
+  {
+    name: "Mechanical engineering",
+    formulas: [
+      { label: "Normal stress", expr: "σ = F/A" },
+      { label: "Strain", expr: "ε = (Δ L)/L" },
+      { label: "Hooke's law", expr: "σ = E ε" },
+      { label: "Newton's second law", expr: "F = m a" },
+      { label: "Torque", expr: "τ = r × F" },
+      { label: "Kinetic energy", expr: "E_k = (1/2) m v^2" },
+      { label: "Beam bending stress", expr: "σ = (M c)/I" },
+      { label: "Reynolds number", expr: "Re = (ρ v L)/μ" },
+    ],
+  },
+  {
+    name: "Biology / assays",
+    formulas: [
+      { label: "Michaelis–Menten", expr: "v = (V_max [S])/(K_m + [S])" },
+      { label: "Hill equation", expr: "θ = [L]^n/(K_d^n + [L]^n)" },
+      { label: "Hardy–Weinberg", expr: "p^2 + 2 p q + q^2 = 1" },
+      { label: "PCR amplification", expr: "N = N_0 2^n" },
+      { label: "Beer–Lambert law", expr: "A = ε l c" },
+      { label: "Gibbs free energy", expr: "Δ G = Δ H - T Δ S" },
+    ],
+  },
 ];

@@ -8,7 +8,11 @@ import { Node, parseMathAst } from "./mathParse";
 import { escapeHtml, segmentsToHtml } from "./segments";
 import { parseMath } from "./mathFormat";
 
-const OPERATORS = new Set(["+", "-", "=", "<", ">", "×", "·", "±", "→", "≤", "≥", "≠"]);
+const OPERATORS = new Set([
+  "+", "-", "=", "<", ">", "×", "·", "±", "→", "≤", "≥", "≠",
+  "∈", "∉", "⊂", "⊆", "⊃", "⊇", "∪", "∩", "∧", "∨", "⊕", "⊗",
+  "≡", "≈", "≅", "∝", "∥", "⇒", "⇔", "↦",
+]);
 
 function leaf(node: { v: string }): string {
   const html = escapeHtml(node.v);

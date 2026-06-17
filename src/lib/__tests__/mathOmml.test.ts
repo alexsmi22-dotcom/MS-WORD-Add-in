@@ -61,6 +61,35 @@ describe("mathToOmml", () => {
   it("rejects a case with too many parts", () => {
     expect(() => mathToOmml("cases(x, a, b)")).toThrow(/value and an optional condition/);
   });
+
+  it("emits floor, ceil, and norm as delimiters", () => {
+    expect(mathToOmml("floor(x)")).toContain('<m:begChr m:val="⌊"/>');
+    expect(mathToOmml("ceil(x)")).toContain('<m:begChr m:val="⌈"/>');
+    expect(mathToOmml("norm(v)")).toContain('<m:begChr m:val="‖"/>');
+  });
+
+  it("parses square brackets (e.g. bio concentrations)", () => {
+    const omml = mathToOmml("v = (V_max [S])/(K_m + [S])");
+    expect(omml).toContain('<m:begChr m:val="["/>');
+    expect(omml).toContain("<m:f>"); // the fraction
+  });
+
+  it("maps named symbols and number sets to glyphs", () => {
+    expect(mathToOmml("forall x in ZZ")).toContain("∀");
+    expect(mathToOmml("forall x in ZZ")).toContain("ℤ");
+    expect(mathToOmml("a xor b")).toContain("⊕");
+    expect(mathToOmml("partial f")).toContain("∂");
+  });
+
+  it("parses pasted prefix/operand glyphs", () => {
+    expect(() => mathToOmml("∀ x ∈ ℤ")).not.toThrow();
+    expect(() => mathToOmml("¬ p ∨ q")).not.toThrow();
+    expect(() => mathToOmml("90°")).not.toThrow();
+  });
+
+  it("renders mod upright when used infix", () => {
+    expect(mathToOmml("a mod n")).toContain('<m:sty m:val="p"/>');
+  });
 });
 
 describe("formula library", () => {

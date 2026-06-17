@@ -45,6 +45,7 @@ Copy-Item (Join-Path $root "packaging\install.ps1")   $stage -Force
 Copy-Item (Join-Path $root "packaging\uninstall.ps1") $stage -Force
 Copy-Item (Join-Path $root "packaging\INSTALL.md")    $stage -Force
 Copy-Item (Join-Path $root "packaging\HOST-SETUP.md") $stage -Force
+Copy-Item (Join-Path $root "FEATURES.md")             $stage -Force
 
 Write-Host "5/5 Zipping..." -ForegroundColor Cyan
 $zip = Join-Path (Join-Path $root $OutDir) "formula-inserter.zip"

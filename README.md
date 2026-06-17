@@ -244,6 +244,7 @@ The engine (`src/lib/mathParse.ts` → `mathOmml.ts`) understands:
 | `abs(x)` or `\|x\|`  | absolute value              |
 | `bar(x)`, `hat(x)`, `vec(x)` | accents              |
 | `sin(x)`, `log(x)`, `ln(x)` | upright function names |
+| `sech`, `arctanh`, `erf`, `Γ`, `ζ`, `sgn`, `C(n,k)` | trig/hyperbolic/special/discrete functions (see palette groups & library "Functions") |
 | `matrix(a, b; c, d)` | matrix (rows `;`, cols `,`); `pmatrix`/`vmatrix` for `( )` / `\| \|` |
 | `cases(x, if x>0; -x, otherwise)` | piecewise / cases |
 | `floor(x)`, `ceil(x)`, `norm(v)` | ⌊x⌋, ⌈x⌉, ‖v‖ |

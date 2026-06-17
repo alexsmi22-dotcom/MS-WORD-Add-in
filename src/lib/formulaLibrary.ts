@@ -150,6 +150,61 @@ export const FORMULA_LIBRARY: FormulaCategory[] = [
     ],
   },
   {
+    name: "Trig functions",
+    formulas: [
+      { label: "Sine", expr: "sin(x)" },
+      { label: "Cosine", expr: "cos(x)" },
+      { label: "Tangent", expr: "tan(x) = sin(x)/cos(x)" },
+      { label: "Cotangent", expr: "cot(x) = cos(x)/sin(x)" },
+      { label: "Secant", expr: "sec(x) = 1/cos(x)" },
+      { label: "Cosecant", expr: "csc(x) = 1/sin(x)" },
+      { label: "Inverse sine", expr: "arcsin(x)" },
+      { label: "Inverse tangent", expr: "arctan(x)" },
+    ],
+  },
+  {
+    name: "Hyperbolic functions",
+    formulas: [
+      { label: "Sinh", expr: "sinh(x) = (e^x - e^(-x))/2" },
+      { label: "Cosh", expr: "cosh(x) = (e^x + e^(-x))/2" },
+      { label: "Tanh", expr: "tanh(x) = sinh(x)/cosh(x)" },
+      { label: "Sech", expr: "sech(x) = 1/cosh(x)" },
+      { label: "Inverse sinh", expr: "arsinh(x) = ln(x + sqrt(x^2 + 1))" },
+    ],
+  },
+  {
+    name: "Log & exponential",
+    formulas: [
+      { label: "Natural log", expr: "ln(x)" },
+      { label: "Common log", expr: "log(x)" },
+      { label: "Exponential", expr: "exp(x) = e^x" },
+      { label: "Change of base", expr: "log_b(x) = ln(x)/ln(b)" },
+      { label: "Log of a power", expr: "log(x^n) = n log(x)" },
+      { label: "Logistic / sigmoid", expr: "σ(x) = 1/(1 + e^(-x))" },
+    ],
+  },
+  {
+    name: "Special functions",
+    formulas: [
+      { label: "Gamma function", expr: "Γ(n) = (n - 1)!" },
+      { label: "Error function", expr: "erf(x) = (2/sqrt(π)) int(0, x, e^(-t^2))" },
+      { label: "Riemann zeta", expr: "ζ(s) = sum(n=1, infinity, 1/n^s)" },
+      { label: "Sign function", expr: "sgn(x)" },
+      { label: "Factorial", expr: "n! = prod(k=1, n, k)" },
+    ],
+  },
+  {
+    name: "Discrete & combinatorics",
+    formulas: [
+      { label: "Combinations (n choose k)", expr: "C(n, k) = n!/(k!(n - k)!)" },
+      { label: "Permutations", expr: "P(n, k) = n!/(n - k)!" },
+      { label: "Binomial theorem", expr: "(x + y)^n = sum(k=0, n, C(n, k) x^(n - k) y^k)" },
+      { label: "GCD / LCM relation", expr: "gcd(a, b) lcm(a, b) = a b" },
+      { label: "Modulo", expr: "a mod n" },
+      { label: "Floor & ceiling", expr: "floor(x) <= x <= ceil(x)" },
+    ],
+  },
+  {
     name: "Physics",
     formulas: [
       { label: "Mass–energy equivalence", expr: "E = m c^2" },

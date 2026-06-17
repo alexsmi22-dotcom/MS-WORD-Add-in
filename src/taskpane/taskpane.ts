@@ -466,6 +466,16 @@ function insertAtCursor(snippet: string, caret?: number): void {
 const LIBRARY_GROUPS: Array<{ label: string; categories: string[] }> = [
   { label: "Mathematics", categories: ["Statistics", "Geometry", "Algebra", "Trigonometry", "Calculus"] },
   {
+    label: "Functions",
+    categories: [
+      "Trig functions",
+      "Hyperbolic functions",
+      "Log & exponential",
+      "Special functions",
+      "Discrete & combinatorics",
+    ],
+  },
+  {
     label: "Science & engineering",
     categories: [
       "Cryptography",

@@ -109,6 +109,12 @@ describe("mathToOmml", () => {
     expect(mathToOmml("E = hbar ω")).toContain("ℏ");
     expect(mathToOmml("laplace f")).toContain("ℒ");
   });
+
+  it("renders the expanded function set upright", () => {
+    for (const fn of ["sech", "erf", "arctanh", "sgn", "var"]) {
+      expect(mathToOmml(`${fn}(x)`)).toContain('<m:sty m:val="p"/>');
+    }
+  });
 });
 
 describe("formula library", () => {

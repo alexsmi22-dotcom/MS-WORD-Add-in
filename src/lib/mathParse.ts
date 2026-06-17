@@ -66,6 +66,12 @@ const KNOWN_FUNCS = new Set([
   "sin", "cos", "tan", "cot", "sec", "csc", "sinh", "cosh", "tanh",
   "arcsin", "arccos", "arctan", "log", "ln", "exp", "det", "dim", "max", "min", "gcd", "mod",
   "argmax", "argmin", "lcm", "softmax", "sigmoid", "relu", "re", "im",
+  // Reciprocal & inverse trig / hyperbolic
+  "sech", "csch", "coth", "arcsec", "arccsc", "arccot",
+  "arcsinh", "arccosh", "arctanh", "arsinh", "arcosh", "artanh",
+  // Logarithmic, special, statistical, and linear-algebra functions
+  "lg", "erf", "erfc", "sgn", "sign", "arg", "tr", "trace", "rank", "adj",
+  "var", "cov", "std", "ker", "deg", "lerp", "clamp",
 ]);
 
 // Named operators/symbols typed as words → glyphs (logic, set theory, calculus,

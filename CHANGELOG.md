@@ -5,6 +5,13 @@ All notable changes to Formula Inserter. Dates are release/pilot dates.
 ## [Unreleased] — internal pilot prep
 
 ### Added
+- **Popular-functions section** — palette groups and matching formula-library
+  categories for the most-used functions by family: **Trig** (sin/cos/tan, recip,
+  inverse), **Hyperbolic** (sinh…coth), **Log & exponential** (ln/log/lg/exp/log_b),
+  **Special** (Γ, ζ, erf/erfc, sgn, sigmoid), and **Discrete & combinatorics**
+  (C(n,k), P(n,k), factorial, gcd/lcm, mod, floor/ceil). ~30 more function names
+  now render upright (sech, csch, coth, arsinh/arcosh/artanh, erf, sgn, Var, Cov,
+  Tr, rank, …).
 - **Collapsible palette groups** — the Math symbol palette is now an accordion
   (groups expand/collapse, state remembered per mode), so it stays clean as the
   symbol set grows; the formula-library dropdown is grouped into "Mathematics" and

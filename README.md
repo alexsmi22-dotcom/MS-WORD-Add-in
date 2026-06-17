@@ -251,6 +251,9 @@ The engine (`src/lib/mathParse.ts` → `mathOmml.ts`) understands:
 | `and`, `or`, `not`, `xor`, `implies`, `iff` | ∧ ∨ ¬ ⊕ ⇒ ⇔ |
 | `ZZ`, `RR`, `NN`, `QQ`, `CC`, `FF`, `EE` | ℤ ℝ ℕ ℚ ℂ 𝔽 𝔼 (blackboard-bold sets) |
 | `partial`, `nabla`, `a mod n`, `[S]`, `90 degree` | ∂, ∇, upright mod, brackets, ° |
+| `oint`, `iint`, `iiint` | ∮ ∬ ∭ (contour / multiple integrals) |
+| `bra(ψ)`, `ket(ψ)`, `braket(φ, ψ)` | ⟨ψ\|, \|ψ⟩, ⟨φ\|ψ⟩ (Dirac notation) |
+| `angle`, `hbar`, `ohm`, `laplace`, `fourier` | ∠ ℏ Ω ℒ ℱ (EE / physics); `Re(z)`, `Im(z)` |
 | `2x`, `2(x+1)`, `a b` | implicit multiplication   |
 | `n!`, `+-`, `pi`, `theta` | factorial, ±, Greek     |
 

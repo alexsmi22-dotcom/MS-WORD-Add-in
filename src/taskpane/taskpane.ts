@@ -1,4 +1,4 @@
-/* global Office, Word, document, HTMLInputElement, HTMLButtonElement, HTMLSelectElement, HTMLTextAreaElement, HTMLElement, Image, TextEncoder, btoa */
+/* global Office, Word, document, localStorage, HTMLInputElement, HTMLButtonElement, HTMLSelectElement, HTMLTextAreaElement, HTMLElement, Image, TextEncoder, btoa */
 
 import { Segment, segmentsToHtml } from "../lib/segments";
 import { parseChemical } from "../lib/chemParser";
@@ -396,17 +396,45 @@ function recordInsert(kind: HistoryKind, value: string, label: string): void {
 }
 
 /** Renders the palette buttons for the current mode (math vs chemical). */
+/** Whether a palette group is expanded — remembered per mode/group; the first two
+ *  groups default to open so common symbols are visible without a click. */
+function paletteGroupOpen(mode: string, name: string, index: number): boolean {
+  try {
+    const v = localStorage.getItem(`formula-inserter.palette.${mode}.${name}`);
+    if (v === "1") return true;
+    if (v === "0") return false;
+  } catch {
+    /* localStorage best-effort */
+  }
+  return index < 2;
+}
+
+function setPaletteGroupOpen(mode: string, name: string, open: boolean): void {
+  try {
+    localStorage.setItem(`formula-inserter.palette.${mode}.${name}`, open ? "1" : "0");
+  } catch {
+    /* localStorage best-effort */
+  }
+}
+
 function renderPalette(): void {
   const mode = currentMode();
   const groups: PaletteGroup[] = mode === "math" ? MATH_PALETTE : mode === "chemical" ? CHEM_PALETTE : [];
   paletteEl.replaceChildren();
-  for (const group of groups) {
-    const wrap = document.createElement("div");
-    wrap.className = "palette-group";
-    const label = document.createElement("span");
-    label.className = "palette-group-label";
-    label.textContent = group.name;
-    wrap.appendChild(label);
+  groups.forEach((group, index) => {
+    // Collapsible group so the palette stays clean as the symbol set grows.
+    const details = document.createElement("details");
+    details.className = "palette-acc";
+    details.open = paletteGroupOpen(mode, group.name, index);
+    details.addEventListener("toggle", () => setPaletteGroupOpen(mode, group.name, details.open));
+
+    const summary = document.createElement("summary");
+    summary.className = "palette-group-label";
+    summary.textContent = group.name;
+    details.appendChild(summary);
+
+    const items = document.createElement("div");
+    items.className = "palette-group";
     for (const item of group.items) {
       const btn = document.createElement("button");
       btn.type = "button";
@@ -416,10 +444,11 @@ function renderPalette(): void {
       // Keep focus/selection in the input so the snippet lands at the caret.
       btn.addEventListener("mousedown", (e) => e.preventDefault());
       btn.addEventListener("click", () => insertAtCursor(item.snippet, item.caret));
-      wrap.appendChild(btn);
+      items.appendChild(btn);
     }
-    paletteEl.appendChild(wrap);
-  }
+    details.appendChild(items);
+    paletteEl.appendChild(details);
+  });
 }
 
 /** Inserts a snippet at the input's caret and positions the cursor within it. */
@@ -433,15 +462,52 @@ function insertAtCursor(snippet: string, caret?: number): void {
   onInputChanged();
 }
 
-/** Fills the category dropdown and the formulas for the first category. */
+/** Groups the library categories under optgroups for a scannable dropdown. */
+const LIBRARY_GROUPS: Array<{ label: string; categories: string[] }> = [
+  { label: "Mathematics", categories: ["Statistics", "Geometry", "Algebra", "Trigonometry", "Calculus"] },
+  {
+    label: "Science & engineering",
+    categories: [
+      "Cryptography",
+      "Computer science / ML",
+      "Mechanical engineering",
+      "Electrical engineering",
+      "Physics",
+      "Biology / assays",
+    ],
+  },
+];
+
+/** Fills the category dropdown (grouped) and the formulas for the first category. */
 function populateLibraryCategories(): void {
   libCategorySelect.replaceChildren();
+  const indexByName: Record<string, number> = {};
+  FORMULA_LIBRARY.forEach((cat, i) => (indexByName[cat.name] = i));
+  const placed: Record<string, true> = {};
+
+  for (const grp of LIBRARY_GROUPS) {
+    const og = document.createElement("optgroup");
+    og.label = grp.label;
+    for (const name of grp.categories) {
+      const i = indexByName[name];
+      if (i === undefined) continue;
+      const opt = document.createElement("option");
+      opt.value = String(i);
+      opt.textContent = name;
+      og.appendChild(opt);
+      placed[name] = true;
+    }
+    if (og.children.length) libCategorySelect.appendChild(og);
+  }
+  // Safety net: any category not assigned to a group is appended ungrouped.
   FORMULA_LIBRARY.forEach((cat, i) => {
+    if (placed[cat.name]) return;
     const opt = document.createElement("option");
     opt.value = String(i);
     opt.textContent = cat.name;
     libCategorySelect.appendChild(opt);
   });
+
   populateLibraryFormulas();
 }
 

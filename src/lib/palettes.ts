@@ -96,6 +96,20 @@ export const MATH_PALETTE: PaletteGroup[] = [
     ],
   },
   {
+    name: "Engineering & physics",
+    items: [
+      { label: "∠", snippet: "∠", title: "Phasor angle (V∠θ)" },
+      { label: "ℏ", snippet: "hbar", title: "Reduced Planck constant ℏ" },
+      { label: "Ω", snippet: "ohm", title: "Ohm" },
+      { label: "⟨ψ|", snippet: "bra()", caret: 4, title: "Bra ⟨ψ|" },
+      { label: "|ψ⟩", snippet: "ket()", caret: 4, title: "Ket |ψ⟩" },
+      { label: "⟨φ|ψ⟩", snippet: "braket(, )", caret: 7, title: "Inner product ⟨φ|ψ⟩" },
+      { label: "∮", snippet: "oint(, , )", caret: 5, title: "Contour integral" },
+      { label: "ℒ", snippet: "laplace ", title: "Laplace transform" },
+      { label: "ℱ", snippet: "fourier ", title: "Fourier transform" },
+    ],
+  },
+  {
     name: "Functions",
     items: [
       { label: "sin", snippet: "sin()", caret: 4 },

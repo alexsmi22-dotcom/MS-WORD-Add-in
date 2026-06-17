@@ -65,7 +65,7 @@ const GREEK: Record<string, string> = {
 const KNOWN_FUNCS = new Set([
   "sin", "cos", "tan", "cot", "sec", "csc", "sinh", "cosh", "tanh",
   "arcsin", "arccos", "arctan", "log", "ln", "exp", "det", "dim", "max", "min", "gcd", "mod",
-  "argmax", "argmin", "lcm", "softmax", "sigmoid", "relu",
+  "argmax", "argmin", "lcm", "softmax", "sigmoid", "relu", "re", "im",
 ]);
 
 // Named operators/symbols typed as words → glyphs (logic, set theory, calculus,
@@ -81,6 +81,8 @@ const SYMBOLS: Record<string, string> = {
   equiv: "≡", approx: "≈", cong: "≅", propto: "∝", parallel: "∥", neq: "≠",
   partial: "∂", nabla: "∇", grad: "∇", degree: "°", deg: "°",
   ZZ: "ℤ", RR: "ℝ", NN: "ℕ", QQ: "ℚ", CC: "ℂ", PP: "ℙ", EE: "𝔼", FF: "𝔽",
+  // Electrical engineering & physics
+  angle: "∠", laplace: "ℒ", fourier: "ℱ", ohm: "Ω", hbar: "ℏ",
 };
 
 // Words that should render upright even when used without parentheses (e.g.
@@ -93,6 +95,11 @@ const UPRIGHT_WORDS = new Set(["mod", "argmax", "argmin", "lcm", "gcd", "Pr"]);
 const ATOM_GLYPHS = new Set(["∀", "∃", "¬", "∂", "∇", "∅", "°", "∞", "ℤ", "ℝ", "ℕ", "ℚ", "ℂ", "ℙ"]);
 
 const ACCENTS: Record<string, string> = { bar: "̄", hat: "̂", vec: "⃗" };
+
+// N-ary operator keywords → big-operator glyph (sum/prod sit limits under/over).
+const NARY_CHR: Record<string, string> = {
+  sum: "∑", prod: "∏", int: "∫", oint: "∮", iint: "∬", iiint: "∭",
+};
 
 // Matrix keywords → [open, close] delimiter pair.
 const MATRIX_DELIMS: Record<string, [string, string]> = {
@@ -322,10 +329,9 @@ class Parser {
       const [degree, radicand] = this.parseArgs(2);
       return { k: "rad", radicand, degree };
     }
-    if (lower === "sum" || lower === "prod" || lower === "int") {
+    if (NARY_CHR[lower]) {
       const [sub, sup, body] = this.parseArgs(3);
-      const chr = lower === "sum" ? "∑" : lower === "prod" ? "∏" : "∫";
-      return { k: "nary", chr, sub, sup, body, underOver: lower !== "int" };
+      return { k: "nary", chr: NARY_CHR[lower], sub, sup, body, underOver: lower === "sum" || lower === "prod" };
     }
     if (lower === "lim") {
       const [sub, body] = this.parseArgs(2);
@@ -346,6 +352,24 @@ class Parser {
     if (lower === "norm") {
       const [inner] = this.parseArgs(1);
       return { k: "delim", inner, open: "‖", close: "‖" };
+    }
+    // Dirac notation: bra ⟨ψ|, ket |ψ⟩, inner product ⟨φ|ψ⟩, expectation ⟨A⟩.
+    if (lower === "bra") {
+      const [inner] = this.parseArgs(1);
+      return { k: "delim", inner, open: "⟨", close: "|" };
+    }
+    if (lower === "ket") {
+      const [inner] = this.parseArgs(1);
+      return { k: "delim", inner, open: "|", close: "⟩" };
+    }
+    if (lower === "braket" || lower === "ip") {
+      const [a, b] = this.parseArgs(2);
+      const inner: Node = { k: "row", items: [a, { k: "text", v: "|", plain: true }, b] };
+      return { k: "delim", inner, open: "⟨", close: "⟩" };
+    }
+    if (lower === "expval" || lower === "avg") {
+      const [inner] = this.parseArgs(1);
+      return { k: "delim", inner, open: "⟨", close: "⟩" };
     }
     if (ACCENTS[lower]) {
       const [base] = this.parseArgs(1);

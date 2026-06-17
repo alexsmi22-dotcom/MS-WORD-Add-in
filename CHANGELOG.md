@@ -5,6 +5,16 @@ All notable changes to Formula Inserter. Dates are release/pilot dates.
 ## [Unreleased] — internal pilot prep
 
 ### Added
+- **Collapsible palette groups** — the Math symbol palette is now an accordion
+  (groups expand/collapse, state remembered per mode), so it stays clean as the
+  symbol set grows; the formula-library dropdown is grouped into "Mathematics" and
+  "Science & engineering".
+- **Electrical-engineering & physics support** — new formula-library categories
+  (Ohm/impedance/reactance/resonance/dB/phasors; E=mc², Schrödinger, Planck,
+  de Broglie, uncertainty, Coulomb, gravitation, ideal gas) plus notation:
+  **Dirac bra-ket** (`bra`/`ket`/`braket`), contour/multiple integrals
+  (`oint`/`iint`/`iiint`), phasor `∠`, `ℏ`, `Ω`, Laplace `ℒ` / Fourier `ℱ`
+  transforms, and `Re`/`Im` parts.
 - **Domain notation & formula libraries** for non-chemistry practice areas —
   logic/set-theory/quantifier symbols (∀ ∃ ∈ ∉ ⊆ ∪ ∩ ∅ ∧ ∨ ¬ ⊕ ⇒ ⇔), blackboard-
   bold number sets (ℤ ℝ ℕ ℚ ℂ 𝔽 𝔼), `floor`/`ceil`/`norm` (⌊⌋ ⌈⌉ ‖‖), `partial`

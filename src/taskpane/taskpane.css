@@ -211,6 +211,36 @@ h1 {
   margin: 4px 0 1px;
 }
 
+/* Collapsible palette groups (accordion) — keeps the symbol set tidy. */
+.palette-acc {
+  margin-bottom: 2px;
+}
+.palette-acc > summary {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+.palette-acc > summary::-webkit-details-marker {
+  display: none;
+}
+.palette-acc > summary::before {
+  content: "▸";
+  font-size: 9px;
+  line-height: 1;
+}
+.palette-acc[open] > summary::before {
+  content: "▾";
+}
+.palette-acc > summary:hover {
+  color: var(--text);
+}
+.palette-acc > .palette-group {
+  margin: 2px 0 4px;
+}
+
 .palette-btn {
   min-width: 30px;
   padding: 4px 7px;

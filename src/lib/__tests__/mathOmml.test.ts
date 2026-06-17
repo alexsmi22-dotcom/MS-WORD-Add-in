@@ -90,6 +90,25 @@ describe("mathToOmml", () => {
   it("renders mod upright when used infix", () => {
     expect(mathToOmml("a mod n")).toContain('<m:sty m:val="p"/>');
   });
+
+  it("emits Dirac bra-ket notation as delimiters", () => {
+    expect(mathToOmml("bra(psi)")).toContain('<m:begChr m:val="⟨"/>');
+    expect(mathToOmml("ket(psi)")).toContain('<m:endChr m:val="⟩"/>');
+    const ip = mathToOmml("braket(φ, ψ)");
+    expect(ip).toContain('<m:begChr m:val="⟨"/>');
+    expect(ip).toContain('<m:endChr m:val="⟩"/>');
+  });
+
+  it("emits contour and multiple integrals", () => {
+    expect(mathToOmml("oint(a, b, f)")).toContain("∮");
+    expect(mathToOmml("iint(a, b, f)")).toContain("∬");
+  });
+
+  it("maps EE/physics symbols (angle, hbar, Laplace)", () => {
+    expect(mathToOmml("V angle θ")).toContain("∠");
+    expect(mathToOmml("E = hbar ω")).toContain("ℏ");
+    expect(mathToOmml("laplace f")).toContain("ℒ");
+  });
 });
 
 describe("formula library", () => {

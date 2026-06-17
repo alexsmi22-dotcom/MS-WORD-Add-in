@@ -1,4 +1,4 @@
-/* global Office, Word, document, localStorage, HTMLInputElement, HTMLButtonElement, HTMLSelectElement, HTMLTextAreaElement, HTMLElement, Image, TextEncoder, btoa */
+/* global Office, Word, document, localStorage, navigator, URL, Blob, HTMLInputElement, HTMLButtonElement, HTMLSelectElement, HTMLTextAreaElement, HTMLElement, Image, TextEncoder, btoa */
 
 import { Segment, segmentsToHtml } from "../lib/segments";
 import { parseChemical } from "../lib/chemParser";
@@ -8,6 +8,7 @@ import { mathToHtml } from "../lib/mathHtml";
 import { renderStructure, StructureResult } from "../lib/structures";
 import { build, BuildFormat, BuildResult } from "../lib/builder";
 import { formatCodeBlock, CodeStyle } from "../lib/codeblock";
+import { buildSt26Xml, cleanResidues, MolType, SequenceEntry, SequenceListingMeta } from "../lib/sequence";
 import { FORMULA_LIBRARY } from "../lib/formulaLibrary";
 import {
   MATH_PALETTE,
@@ -77,6 +78,16 @@ let codeLineNumsCheckbox: HTMLInputElement;
 let codeInput: HTMLTextAreaElement;
 let codePreviewEl: HTMLElement;
 let insertCodeBtn: HTMLButtonElement;
+let sequenceSection: HTMLElement;
+let seqListEl: HTMLElement;
+let seqOutput: HTMLTextAreaElement;
+let seqWarningsEl: HTMLElement;
+let seqAddBtn: HTMLButtonElement;
+let seqGenerateBtn: HTMLButtonElement;
+let seqDownloadBtn: HTMLButtonElement;
+let seqCopyBtn: HTMLButtonElement;
+/** The most recently generated ST.26 XML, for download/copy. */
+let seqXml = "";
 
 /** R-group label -> user-entered definition (e.g. "R1" -> "methyl, ethyl"). */
 const rgroupValues: Record<string, string> = {};
@@ -137,6 +148,14 @@ Office.onReady((info) => {
   codeInput = document.getElementById("code-input") as HTMLTextAreaElement;
   codePreviewEl = document.getElementById("code-preview") as HTMLElement;
   insertCodeBtn = document.getElementById("insert-code-btn") as HTMLButtonElement;
+  sequenceSection = document.getElementById("sequence-section") as HTMLElement;
+  seqListEl = document.getElementById("seq-list") as HTMLElement;
+  seqOutput = document.getElementById("seq-output") as HTMLTextAreaElement;
+  seqWarningsEl = document.getElementById("seq-warnings") as HTMLElement;
+  seqAddBtn = document.getElementById("seq-add-btn") as HTMLButtonElement;
+  seqGenerateBtn = document.getElementById("seq-generate-btn") as HTMLButtonElement;
+  seqDownloadBtn = document.getElementById("seq-download-btn") as HTMLButtonElement;
+  seqCopyBtn = document.getElementById("seq-copy-btn") as HTMLButtonElement;
 
   inputEl.addEventListener("input", onInputChanged);
   inputEl.addEventListener("keydown", (e) => {
@@ -165,6 +184,12 @@ Office.onReady((info) => {
   codeTitleInput.addEventListener("input", updateCodePreview);
   codeLineNumsCheckbox.addEventListener("change", updateCodePreview);
   insertCodeBtn.addEventListener("click", insertCodeBlock);
+
+  seqAddBtn.addEventListener("click", () => addSequenceCard());
+  seqGenerateBtn.addEventListener("click", generateSequenceXml);
+  seqDownloadBtn.addEventListener("click", downloadSequenceXml);
+  seqCopyBtn.addEventListener("click", copySequenceXml);
+  addSequenceCard();
 
   populateLibraryCategories();
   libCategorySelect.addEventListener("change", populateLibraryFormulas);
@@ -593,6 +618,7 @@ function onInputChanged(): void {
   formatSection.style.display = formatting ? "block" : "none";
   buildSection.style.display = mode === "build" ? "block" : "none";
   codeSection.style.display = mode === "code" ? "block" : "none";
+  sequenceSection.style.display = mode === "sequence" ? "block" : "none";
 
   if (mode === "build") {
     updateBuildPreview();
@@ -601,6 +627,9 @@ function onInputChanged(): void {
   if (mode === "code") {
     updateCodePreview();
     return;
+  }
+  if (mode === "sequence") {
+    return; // sequence UI is self-contained (no input-driven preview)
   }
 
   updateTextPreview();
@@ -672,6 +701,159 @@ async function insertCodeBlock(): Promise<void> {
     setStatus(`Could not insert: ${(error as Error).message}`, "error");
   } finally {
     insertCodeBtn.disabled = false;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// ST.26 sequence listings
+// ---------------------------------------------------------------------------
+
+/** Appends an editable sequence card (molecule type, organism, residues + readout). */
+function addSequenceCard(): void {
+  const card = document.createElement("div");
+  card.className = "seq-card";
+
+  const head = document.createElement("div");
+  head.className = "seq-card-head";
+
+  const moltype = document.createElement("select");
+  moltype.className = "lib-select seq-moltype";
+  for (const [val, text] of [
+    ["DNA", "DNA"],
+    ["RNA", "RNA"],
+    ["AA", "Protein (AA)"],
+  ] as const) {
+    const opt = document.createElement("option");
+    opt.value = val;
+    opt.textContent = text;
+    moltype.appendChild(opt);
+  }
+
+  const organism = document.createElement("input");
+  organism.type = "text";
+  organism.className = "formula-input seq-organism";
+  organism.placeholder = "Organism (e.g. Homo sapiens; blank = synthetic construct)";
+
+  const remove = document.createElement("button");
+  remove.type = "button";
+  remove.className = "linklike seq-remove";
+  remove.textContent = "remove";
+  remove.addEventListener("click", () => {
+    if (seqListEl.querySelectorAll(".seq-card").length > 1) card.remove();
+  });
+  head.append(moltype, organism, remove);
+
+  const residues = document.createElement("textarea");
+  residues.className = "build-input seq-residues";
+  residues.rows = 3;
+  residues.spellcheck = false;
+  residues.placeholder = "Paste residues (whitespace and numbering are ignored)";
+
+  const readout = document.createElement("div");
+  readout.className = "seq-readout hint";
+  const refresh = () => {
+    const { length, invalid } = cleanResidues(moltype.value as MolType, residues.value);
+    readout.textContent = length
+      ? `${length} residues${invalid.length ? ` · ignored invalid: ${invalid.join(" ")}` : ""}`
+      : "";
+  };
+  residues.addEventListener("input", refresh);
+  moltype.addEventListener("change", refresh);
+
+  card.append(head, residues, readout);
+  seqListEl.appendChild(card);
+}
+
+/** Reads the sequence cards into ST.26 entries. */
+function readSequenceEntries(): SequenceEntry[] {
+  const entries: SequenceEntry[] = [];
+  seqListEl.querySelectorAll<HTMLElement>(".seq-card").forEach((card) => {
+    const moltype = (card.querySelector(".seq-moltype") as HTMLSelectElement).value as MolType;
+    const organism = (card.querySelector(".seq-organism") as HTMLInputElement).value;
+    const residues = (card.querySelector(".seq-residues") as HTMLTextAreaElement).value;
+    if (residues.trim()) entries.push({ moltype, residues, organism });
+  });
+  return entries;
+}
+
+function val(id: string): string {
+  return (document.getElementById(id) as HTMLInputElement).value.trim();
+}
+
+/** Today's date as YYYY-MM-DD (lib stays Date-free; the UI supplies it). */
+function todayIso(): string {
+  // eslint-disable-next-line no-restricted-globals
+  return new Date().toISOString().slice(0, 10);
+}
+
+/** Validates inputs, builds the ST.26 XML, and shows it with any warnings. */
+function generateSequenceXml(): void {
+  const applicantName = val("seq-applicant");
+  const inventionTitle = val("seq-title");
+  const entries = readSequenceEntries();
+
+  const errors: string[] = [];
+  if (!applicantName) errors.push("Applicant name is required.");
+  if (!inventionTitle) errors.push("Invention title is required.");
+  if (!entries.length) errors.push("Add at least one sequence with residues.");
+
+  if (errors.length) {
+    seqWarningsEl.className = "seq-warnings error";
+    seqWarningsEl.textContent = errors.join(" ");
+    return;
+  }
+
+  // Soft warnings: ST.26 excludes short sequences and flags invalid residues.
+  const warnings: string[] = [];
+  entries.forEach((e, i) => {
+    const { length, invalid } = cleanResidues(e.moltype, e.residues);
+    const min = e.moltype === "AA" ? 4 : 10;
+    if (length < min) warnings.push(`SEQ ${i + 1}: only ${length} residues (ST.26 lists ≥ ${min}).`);
+    if (invalid.length) warnings.push(`SEQ ${i + 1}: ignored invalid residues (${invalid.join(" ")}).`);
+  });
+
+  const meta: SequenceListingMeta = {
+    applicantName,
+    inventionTitle,
+    applicantFileReference: val("seq-fileref") || undefined,
+    ipOfficeCode: val("seq-office") || undefined,
+    applicationNumber: val("seq-appnum") || undefined,
+    filingDate: val("seq-filing") || undefined,
+    productionDate: todayIso(),
+  };
+
+  seqXml = buildSt26Xml(meta, entries);
+  seqOutput.value = seqXml;
+  seqDownloadBtn.disabled = false;
+  seqCopyBtn.disabled = false;
+  seqWarningsEl.className = warnings.length ? "seq-warnings warn" : "seq-warnings";
+  seqWarningsEl.textContent = warnings.length
+    ? "Generated with warnings — " + warnings.join(" ")
+    : `Generated ST.26 XML for ${entries.length} sequence(s). Validate in WIPO Sequence before filing.`;
+}
+
+/** Downloads the generated XML as a file. */
+function downloadSequenceXml(): void {
+  if (!seqXml) return;
+  const blob = new Blob([seqXml], { type: "application/xml" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "sequence-listing.xml";
+  a.click();
+  URL.revokeObjectURL(url);
+  setStatus("Sequence listing downloaded.", "success");
+}
+
+/** Copies the generated XML to the clipboard. */
+async function copySequenceXml(): Promise<void> {
+  if (!seqXml) return;
+  try {
+    await navigator.clipboard.writeText(seqXml);
+    setStatus("ST.26 XML copied to clipboard.", "success");
+  } catch {
+    seqOutput.select();
+    setStatus("Press Ctrl+C to copy the selected XML.", "");
   }
 }
 

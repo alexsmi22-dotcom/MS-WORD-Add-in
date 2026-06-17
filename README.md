@@ -289,7 +289,9 @@ sub/superscript formatting. Uncheck the box to always use inline formatting.
       `pmatrix`/`bmatrix`/`vmatrix`, `cases(…)`).
 - [x] **Code / algorithm blocks** — pseudocode (bold keywords, numbered) and
       verbatim code listings, inserted as monospace blocks.
-- [ ] Sequence listings (WIPO ST.26) — separate workstream.
+- [x] **Sequence listings (WIPO ST.26)** — generate a draft ST.26 XML from
+      entered nucleotide/protein sequences (download or copy; validate in WIPO
+      Sequence before filing).
 - [ ] Formula history / favorites.
 - [x] **Centralized-deployment path documented** — validated deploy manifest +
       IT admin guide (`packaging/CENTRALIZED-DEPLOY.md`) for Microsoft 365

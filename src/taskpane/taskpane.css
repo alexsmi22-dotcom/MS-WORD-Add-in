@@ -184,6 +184,70 @@ h1 {
   overflow-x: auto;
 }
 
+/* Sequence (ST.26) mode */
+.seq-disclaimer {
+  font-size: 12.5px;
+  color: var(--muted);
+  margin: 0 0 12px;
+}
+.seq-appdetails {
+  margin: 10px 0;
+}
+.seq-appdetails > summary {
+  cursor: pointer;
+}
+.seq-appgrid {
+  display: flex;
+  gap: 8px;
+}
+.seq-appgrid > div {
+  flex: 1;
+  min-width: 0;
+}
+.seq-card {
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  background: var(--bg-soft);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+.seq-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.seq-moltype {
+  flex: 0 0 auto;
+}
+.seq-organism {
+  flex: 1;
+  min-width: 0;
+}
+.seq-remove {
+  flex: 0 0 auto;
+}
+.seq-readout {
+  margin-top: 4px;
+}
+.seq-warnings {
+  margin: 8px 0;
+  font-size: 12.5px;
+}
+.seq-warnings.error {
+  color: var(--error, #b00020);
+}
+.seq-warnings.warn {
+  color: #8a6d00;
+}
+.seq-actions {
+  display: flex;
+  gap: 8px;
+}
+.seq-actions .insert-btn {
+  flex: 1;
+}
+
 .mode {
   font-size: 13px;
   cursor: pointer;

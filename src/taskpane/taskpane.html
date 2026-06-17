@@ -31,6 +31,7 @@
         <label class="mode"><input type="radio" name="mode" value="math" /> Math</label>
         <label class="mode"><input type="radio" name="mode" value="build" /> Build</label>
         <label class="mode"><input type="radio" name="mode" value="code" /> Code</label>
+        <label class="mode"><input type="radio" name="mode" value="sequence" /> Sequence</label>
       </div>
 
       <div id="history" class="history"></div>
@@ -149,6 +150,53 @@
           <div id="code-preview" class="preview code-preview" aria-live="polite"></div>
         </div>
         <button id="insert-code-btn" class="insert-btn" type="button">Insert block</button>
+      </section>
+
+      <!-- WIPO ST.26 sequence listings -->
+      <section id="sequence-section">
+        <p class="seq-disclaimer">
+          Draft <strong>ST.26</strong> listing — validate in the WIPO Sequence tool before filing.
+        </p>
+        <label class="field-label" for="seq-applicant">Applicant name</label>
+        <input id="seq-applicant" class="formula-input" type="text" placeholder="e.g. Caldwell &amp; Co." />
+        <label class="field-label" for="seq-title">Invention title</label>
+        <input id="seq-title" class="formula-input" type="text" placeholder="e.g. Engineered antibody" />
+        <details class="seq-appdetails">
+          <summary class="palette-group-label">Application details (optional)</summary>
+          <label class="field-label" for="seq-fileref">Applicant file reference</label>
+          <input id="seq-fileref" class="formula-input" type="text" />
+          <div class="seq-appgrid">
+            <div>
+              <label class="field-label" for="seq-office">IP office</label>
+              <input id="seq-office" class="formula-input" type="text" value="US" />
+            </div>
+            <div>
+              <label class="field-label" for="seq-appnum">Application no.</label>
+              <input id="seq-appnum" class="formula-input" type="text" />
+            </div>
+            <div>
+              <label class="field-label" for="seq-filing">Filing date</label>
+              <input id="seq-filing" class="formula-input" type="text" placeholder="YYYY-MM-DD" />
+            </div>
+          </div>
+        </details>
+        <span class="palette-group-label">Sequences</span>
+        <div id="seq-list"></div>
+        <button id="seq-add-btn" class="insert-btn secondary" type="button">+ Add sequence</button>
+        <button id="seq-generate-btn" class="insert-btn" type="button">Generate ST.26 XML</button>
+        <div id="seq-warnings" class="seq-warnings" aria-live="polite"></div>
+        <textarea
+          id="seq-output"
+          class="build-input"
+          rows="8"
+          readonly
+          spellcheck="false"
+          placeholder="Generated ST.26 XML appears here…"
+        ></textarea>
+        <div class="seq-actions">
+          <button id="seq-download-btn" class="insert-btn secondary" type="button" disabled>Download .xml</button>
+          <button id="seq-copy-btn" class="insert-btn secondary" type="button" disabled>Copy XML</button>
+        </div>
       </section>
 
       <p id="status" class="status" role="status" aria-live="polite"></p>

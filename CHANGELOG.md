@@ -5,6 +5,13 @@ All notable changes to Formula Inserter. Dates are release/pilot dates.
 ## [Unreleased] — internal pilot prep
 
 ### Added
+- **Sequence mode (WIPO ST.26)** — generate a draft ST.26 sequence-listing XML
+  from entered nucleotide (DNA/RNA) or protein (AA) sequences: per-sequence
+  molecule type and organism, residue cleanup/validation (whitespace & numbering
+  stripped, IUPAC ambiguity codes accepted, invalid residues flagged), applicant/
+  title/application metadata, and a generated source feature with mol_type +
+  organism qualifiers. Output can be downloaded as `.xml` or copied. Marked a
+  drafting aid — validate in the WIPO Sequence tool before filing.
 - **Code mode** — a new mode for **pseudocode/algorithm blocks** (bold control-flow
   keywords, optional line numbers, optional caption like "Algorithm 1: KeyGen") and
   **verbatim code listings** (monospace, whitespace-preserving, optional line

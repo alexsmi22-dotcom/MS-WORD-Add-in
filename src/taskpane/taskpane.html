@@ -30,6 +30,7 @@
         <label class="mode"><input type="radio" name="mode" value="chemical" checked /> Chemical</label>
         <label class="mode"><input type="radio" name="mode" value="math" /> Math</label>
         <label class="mode"><input type="radio" name="mode" value="build" /> Build</label>
+        <label class="mode"><input type="radio" name="mode" value="code" /> Code</label>
       </div>
 
       <div id="history" class="history"></div>
@@ -123,6 +124,31 @@
         <button id="insert-build-btn" class="insert-btn" type="button" disabled>
           Insert 2D structure
         </button>
+      </section>
+
+      <!-- Pseudocode / algorithm blocks and verbatim code listings -->
+      <section id="code-section">
+        <div class="code-options">
+          <label class="field-label" for="code-style">Type</label>
+          <select id="code-style" class="lib-select">
+            <option value="algorithm">Algorithm (pseudocode — bold keywords)</option>
+            <option value="code">Code listing (verbatim)</option>
+          </select>
+          <input id="code-title" type="text" class="formula-input" placeholder="Caption (optional), e.g. Algorithm 1: KeyGen" />
+          <label class="omml-option"><input type="checkbox" id="code-linenums" checked /> Line numbers</label>
+        </div>
+        <textarea
+          id="code-input"
+          class="build-input"
+          rows="9"
+          spellcheck="false"
+          placeholder="function KeyGen(λ)&#10;  sample sk ← ZZ_q&#10;  pk ← g^sk mod p&#10;  return (pk, sk)"
+        ></textarea>
+        <div class="preview-wrap">
+          <span class="preview-label">Preview</span>
+          <div id="code-preview" class="preview code-preview" aria-live="polite"></div>
+        </div>
+        <button id="insert-code-btn" class="insert-btn" type="button">Insert block</button>
       </section>
 
       <p id="status" class="status" role="status" aria-live="polite"></p>

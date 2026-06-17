@@ -7,6 +7,7 @@ import { mathToOoxml } from "../lib/mathOmml";
 import { mathToHtml } from "../lib/mathHtml";
 import { renderStructure, StructureResult } from "../lib/structures";
 import { build, BuildFormat, BuildResult } from "../lib/builder";
+import { formatCodeBlock, CodeStyle } from "../lib/codeblock";
 import { FORMULA_LIBRARY } from "../lib/formulaLibrary";
 import {
   MATH_PALETTE,
@@ -31,7 +32,7 @@ import {
 import { toRoman, peekFormulaNumber, nextFormulaNumber, resetFormulaNumbering } from "../lib/numbering";
 import { LegendEntry, buildLegendText, buildLegendTableHtml, referencedRGroups } from "../lib/markush";
 
-type Mode = "chemical" | "math" | "build";
+type Mode = "chemical" | "math" | "build" | "code" | "sequence";
 
 const STRUCTURE_W = 300;
 const STRUCTURE_H = 230;
@@ -69,6 +70,13 @@ let buildSmilesEl: HTMLElement;
 let buildPreviewEl: HTMLElement;
 let buildRgroupsEl: HTMLElement;
 let insertBuildBtn: HTMLButtonElement;
+let codeSection: HTMLElement;
+let codeStyleSelect: HTMLSelectElement;
+let codeTitleInput: HTMLInputElement;
+let codeLineNumsCheckbox: HTMLInputElement;
+let codeInput: HTMLTextAreaElement;
+let codePreviewEl: HTMLElement;
+let insertCodeBtn: HTMLButtonElement;
 
 /** R-group label -> user-entered definition (e.g. "R1" -> "methyl, ethyl"). */
 const rgroupValues: Record<string, string> = {};
@@ -122,6 +130,13 @@ Office.onReady((info) => {
   buildPreviewEl = document.getElementById("build-preview") as HTMLElement;
   buildRgroupsEl = document.getElementById("build-rgroups") as HTMLElement;
   insertBuildBtn = document.getElementById("insert-build-btn") as HTMLButtonElement;
+  codeSection = document.getElementById("code-section") as HTMLElement;
+  codeStyleSelect = document.getElementById("code-style") as HTMLSelectElement;
+  codeTitleInput = document.getElementById("code-title") as HTMLInputElement;
+  codeLineNumsCheckbox = document.getElementById("code-linenums") as HTMLInputElement;
+  codeInput = document.getElementById("code-input") as HTMLTextAreaElement;
+  codePreviewEl = document.getElementById("code-preview") as HTMLElement;
+  insertCodeBtn = document.getElementById("insert-code-btn") as HTMLButtonElement;
 
   inputEl.addEventListener("input", onInputChanged);
   inputEl.addEventListener("keydown", (e) => {
@@ -144,6 +159,12 @@ Office.onReady((info) => {
   buildInput.addEventListener("input", updateBuildPreview);
   buildFormatSelect.addEventListener("change", updateBuildPreview);
   insertBuildBtn.addEventListener("click", insertBuild);
+
+  codeInput.addEventListener("input", updateCodePreview);
+  codeStyleSelect.addEventListener("change", updateCodePreview);
+  codeTitleInput.addEventListener("input", updateCodePreview);
+  codeLineNumsCheckbox.addEventListener("change", updateCodePreview);
+  insertCodeBtn.addEventListener("click", insertCodeBlock);
 
   populateLibraryCategories();
   libCategorySelect.addEventListener("change", populateLibraryFormulas);
@@ -567,19 +588,23 @@ function updatePlaceholder(): void {
 /** Refreshes everything that depends on the input: section visibility and previews. */
 function onInputChanged(): void {
   const mode = currentMode();
-  const build = mode === "build";
-  const chemical = mode === "chemical";
+  const formatting = mode === "chemical" || mode === "math";
 
-  formatSection.style.display = build ? "none" : "block";
-  buildSection.style.display = build ? "block" : "none";
-  paletteEl.style.display = build ? "none" : "block";
+  formatSection.style.display = formatting ? "block" : "none";
+  buildSection.style.display = mode === "build" ? "block" : "none";
+  codeSection.style.display = mode === "code" ? "block" : "none";
 
-  if (build) {
+  if (mode === "build") {
     updateBuildPreview();
+    return;
+  }
+  if (mode === "code") {
+    updateCodePreview();
     return;
   }
 
   updateTextPreview();
+  const chemical = mode === "chemical";
   structureSection.style.display = chemical ? "block" : "none";
   ommlOption.style.display = chemical ? "none" : "block";
   numberOption.style.display = mode === "math" ? "block" : "none";
@@ -600,6 +625,53 @@ function updateTextPreview(): void {
   } else {
     // Same HTML used for insertion (see insertFormattedText) so preview == insert.
     previewEl.innerHTML = segmentsToHtml(parseChemical(inputEl.value));
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Code / algorithm blocks
+// ---------------------------------------------------------------------------
+
+function codeOptions(): { style: CodeStyle; title: string; lineNumbers: boolean } {
+  return {
+    style: codeStyleSelect.value as CodeStyle,
+    title: codeTitleInput.value,
+    lineNumbers: codeLineNumsCheckbox.checked,
+  };
+}
+
+/** Live preview of the formatted code/algorithm block (mirrors what gets inserted). */
+function updateCodePreview(): void {
+  if (!codeInput.value.trim()) {
+    codePreviewEl.innerHTML = '<span class="hint">Type pseudocode or paste code to format it as a block.</span>';
+    insertCodeBtn.disabled = true;
+    return;
+  }
+  codePreviewEl.innerHTML = formatCodeBlock(codeInput.value, codeOptions());
+  insertCodeBtn.disabled = false;
+}
+
+/** Inserts the formatted code/algorithm block at the selection. */
+async function insertCodeBlock(): Promise<void> {
+  if (!codeInput.value.trim()) {
+    setStatus("Type some code or pseudocode first.", "error");
+    return;
+  }
+  const html = formatCodeBlock(codeInput.value, codeOptions());
+  insertCodeBtn.disabled = true;
+  setStatus("Inserting block…");
+  try {
+    await Word.run(async (context) => {
+      const range = context.document.getSelection();
+      const inserted = range.insertHtml(html, Word.InsertLocation.replace);
+      inserted.select(Word.SelectionMode.end);
+      await context.sync();
+    });
+    setStatus("Block inserted.", "success");
+  } catch (error) {
+    setStatus(`Could not insert: ${(error as Error).message}`, "error");
+  } finally {
+    insertCodeBtn.disabled = false;
   }
 }
 

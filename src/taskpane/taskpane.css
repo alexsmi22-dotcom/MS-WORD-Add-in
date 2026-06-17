@@ -166,8 +166,22 @@ h1 {
 
 .mode-row {
   display: flex;
-  gap: 16px;
+  flex-wrap: wrap;
+  gap: 8px 16px;
   margin-bottom: 14px;
+}
+
+.code-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.code-options .omml-option {
+  margin: 0;
+}
+.code-preview {
+  overflow-x: auto;
 }
 
 .mode {

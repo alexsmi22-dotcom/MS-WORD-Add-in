@@ -287,6 +287,8 @@ sub/superscript formatting. Uncheck the box to always use inline formatting.
       from definitions and added to the legend (line or table).
 - [x] **Matrices and piecewise/cases** in the math engine (`matrix(…)`,
       `pmatrix`/`bmatrix`/`vmatrix`, `cases(…)`).
+- [x] **Code / algorithm blocks** — pseudocode (bold keywords, numbered) and
+      verbatim code listings, inserted as monospace blocks.
 - [ ] Sequence listings (WIPO ST.26) — separate workstream.
 - [ ] Formula history / favorites.
 - [x] **Centralized-deployment path documented** — validated deploy manifest +

@@ -5,6 +5,10 @@ All notable changes to Formula Inserter. Dates are release/pilot dates.
 ## [Unreleased] — internal pilot prep
 
 ### Added
+- **Code mode** — a new mode for **pseudocode/algorithm blocks** (bold control-flow
+  keywords, optional line numbers, optional caption like "Algorithm 1: KeyGen") and
+  **verbatim code listings** (monospace, whitespace-preserving, optional line
+  numbers). Inserts as a clean monospace block with a live preview.
 - **Popular-functions section** — palette groups and matching formula-library
   categories for the most-used functions by family: **Trig** (sin/cos/tan, recip,
   inverse), **Hyperbolic** (sinh…coth), **Log & exponential** (ln/log/lg/exp/log_b),

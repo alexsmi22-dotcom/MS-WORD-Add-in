@@ -22,6 +22,15 @@
 //   atoms: [C,N] C C C C C
 //   bonds: 1=2 2-3 3=4 4-5 5=6 6-1
 //
+// Query features (a trailing `{…}` block) constrain a position for a rigorous
+// Markush genus — atoms: `{ar}` aromatic, `{!ar}` aliphatic, `{har}` hetero-
+// aromatic, `{ring}` in-ring, `{!ring}`/`{chain}` not-in-ring, `{r5}`/`{r6}`…
+// ring size (list several for "5 or 6"), `{sub}` bears a further substituent,
+// `{nosub}` no further substitution. Bonds: `{ring}`, `{chain}`, `{ar}`.
+// e.g. a benzene ring whose position 1 must stay aromatic and unsubstituted:
+//   atoms: C{ar,nosub} C C C C C
+//   bonds: 1=2 2-3 3=4 4-5 5=6 6-1
+//
 // Stereo bonds in a build: `i>j` wedge (up), `i<j` hash (down). For precise
 // stereochemistry, prefer entering an isomeric SMILES in Chemical mode (@/@@,
 // /\), which is depicted with wedges automatically.
@@ -54,12 +63,41 @@ export type BuildFormat = "auto" | "atombond" | "molfile";
 
 const BOND_ORDER: Record<string, number> = { "-": 1, "=": 2, "#": 3 };
 
+// Atom query-feature tokens (in a trailing `{…}` block) → OpenChemLib constant
+// name. These encode a rigorous Markush genus: aromaticity, ring membership,
+// ring size, and open/closed substitution at a position.
+const ATOM_QF: Record<string, string> = {
+  ar: "cAtomQFAromatic", // aromatic
+  "!ar": "cAtomQFNotAromatic", // aliphatic (non-aromatic)
+  al: "cAtomQFNotAromatic",
+  har: "cAtomQFHeteroAromatic", // hetero-aromatic
+  ring: "cAtomQFNotChain", // must be in a ring
+  "!ring": "cAtomQFRingSize0", // must not be in any ring (chain)
+  chain: "cAtomQFRingSize0",
+  sub: "cAtomQFMoreNeighbours", // bears at least one further substituent
+  nosub: "cAtomQFNoMoreNeighbours", // no further substitution (closed position)
+  r3: "cAtomQFRingSize3",
+  r4: "cAtomQFRingSize4",
+  r5: "cAtomQFRingSize5",
+  r6: "cAtomQFRingSize6",
+  r7: "cAtomQFRingSize7",
+};
+
+// Bond query-feature tokens → OpenChemLib constant name.
+const BOND_QF: Record<string, string> = {
+  ring: "cBondQFRing",
+  chain: "cBondQFNotRing",
+  ar: "cBondQFAromatic",
+  "!ar": "cBondQFNotAromatic",
+};
+
 interface ParsedAtom {
   symbols: string[]; // one element, or several for a query atom list ([C,N])
   charge: number;
   any?: boolean; // A — any atom
   excludeC?: boolean; // Q — any heteroatom (not carbon)
   rlabel?: string; // R / R1 / R2 … — R-group label
+  query?: string[]; // query-feature tokens from a {…} block (ar, ring, r6, nosub…)
 }
 interface ParsedBond {
   a: number;
@@ -67,6 +105,43 @@ interface ParsedBond {
   order: number;
   any?: boolean; // undefined/any bond (~) — makes a generic query structure
   stereo?: "up" | "down"; // wedge (>) or hash (<)
+  query?: string[]; // bond query-feature tokens (ring, chain, ar)
+}
+
+/** Splits an atoms line on whitespace/commas, but not inside [...] or {...}. */
+function splitAtomTokens(s: string): string[] {
+  const out: string[] = [];
+  let cur = "";
+  let brack = 0;
+  let brace = 0;
+  for (const ch of s) {
+    if (ch === "[") brack++;
+    else if (ch === "]") brack = Math.max(0, brack - 1);
+    else if (ch === "{") brace++;
+    else if (ch === "}") brace = Math.max(0, brace - 1);
+    if ((ch === " " || ch === "\t" || ch === "\n" || ch === "\r" || ch === ",") && brack === 0 && brace === 0) {
+      if (cur) out.push(cur);
+      cur = "";
+      continue;
+    }
+    cur += ch;
+  }
+  if (cur) out.push(cur);
+  return out;
+}
+
+/** Pulls a trailing `{a,b,c}` query block off a token, returning the rest + features. */
+function extractQuery(token: string, kind: "atom" | "bond"): { rest: string; query?: string[] } {
+  const m = /\{([^}]*)\}/.exec(token);
+  if (!m) return { rest: token };
+  const feats = m[1].split(/[,\s]+/).filter(Boolean);
+  const table = kind === "atom" ? ATOM_QF : BOND_QF;
+  for (const f of feats) {
+    if (!table[f.toLowerCase()]) {
+      throw new Error(`Unknown ${kind} query feature "${f}" in "${token}".`);
+    }
+  }
+  return { rest: token.replace(/\{[^}]*\}/, ""), query: feats.map((f) => f.toLowerCase()) };
 }
 
 /** Parses the atom/bond list DSL into atoms and bonds. Throws on malformed input. */
@@ -74,9 +149,9 @@ export function parseAtomBondList(text: string): { atoms: ParsedAtom[]; bonds: P
   const atomsMatch = /atoms?\s*:\s*([\s\S]*?)(?:bonds?\s*:|$)/i.exec(text);
   if (!atomsMatch) throw new Error('Expected an "atoms:" line, e.g. "atoms: C C O".');
 
-  // Tokenize atoms, keeping bracketed lists like [C,N] together (commas inside
-  // brackets must not split the token).
-  const atomTokens = atomsMatch[1].trim().match(/\[[^\]]*\][^\s,]*|[^\s,]+/g) ?? [];
+  // Tokenize atoms, keeping bracketed lists like [C,N] and query blocks like
+  // C{ar,r6} together (commas inside [] or {} must not split the token).
+  const atomTokens = splitAtomTokens(atomsMatch[1].trim());
   if (atomTokens.length === 0) throw new Error("No atoms listed after \"atoms:\".");
   const atoms = atomTokens.map(parseAtomToken);
 
@@ -85,7 +160,8 @@ export function parseAtomBondList(text: string): { atoms: ParsedAtom[]; bonds: P
   if (bondsMatch) {
     const bondTokens = bondsMatch[1].trim().split(/[\s,]+/).filter(Boolean);
     for (const token of bondTokens) {
-      const m = /^(\d+)([-=#~><])(\d+)$/.exec(token);
+      const { rest, query } = extractQuery(token, "bond");
+      const m = /^(\d+)([-=#~><])(\d+)$/.exec(rest);
       if (!m) throw new Error(`Could not parse bond "${token}" — use e.g. 1-2, 2=3, 1#2, 1~2, 1>2, 1<2.`);
       const a = parseInt(m[1], 10);
       const b = parseInt(m[3], 10);
@@ -94,45 +170,48 @@ export function parseAtomBondList(text: string): { atoms: ParsedAtom[]; bonds: P
       }
       const op = m[2];
       if (op === "~") {
-        bonds.push({ a, b, order: 1, any: true });
+        bonds.push({ a, b, order: 1, any: true, query });
       } else if (op === ">") {
-        bonds.push({ a, b, order: 1, stereo: "up" });
+        bonds.push({ a, b, order: 1, stereo: "up", query });
       } else if (op === "<") {
-        bonds.push({ a, b, order: 1, stereo: "down" });
+        bonds.push({ a, b, order: 1, stereo: "down", query });
       } else {
-        bonds.push({ a, b, order: BOND_ORDER[op] });
+        bonds.push({ a, b, order: BOND_ORDER[op], query });
       }
     }
   }
   return { atoms, bonds };
 }
 
-function parseAtomToken(token: string): ParsedAtom {
+function parseAtomToken(rawToken: string): ParsedAtom {
+  // Pull off any trailing {…} query block first, then parse the element part.
+  const { rest: token, query } = extractQuery(rawToken, "atom");
+
   // Query atom list: [C,N] or [N,O,S] with optional trailing charge.
   if (token.startsWith("[")) {
     const m = /^\[([^\]]*)\](.*)$/.exec(token);
-    if (!m) throw new Error(`Could not parse atom list "${token}" — use e.g. [C,N].`);
+    if (!m) throw new Error(`Could not parse atom list "${rawToken}" — use e.g. [C,N].`);
     const symbols = m[1].split(/[,\s]+/).filter(Boolean);
-    if (symbols.length === 0) throw new Error(`Empty atom list "${token}".`);
+    if (symbols.length === 0) throw new Error(`Empty atom list "${rawToken}".`);
     for (const s of symbols) {
-      if (!/^[A-Z][a-z]?$/.test(s)) throw new Error(`Invalid element "${s}" in "${token}".`);
+      if (!/^[A-Z][a-z]?$/.test(s)) throw new Error(`Invalid element "${s}" in "${rawToken}".`);
     }
-    return { symbols, charge: parseCharge(m[2]) };
+    return { symbols, charge: parseCharge(m[2]), query };
   }
   const m = /^([A-Z][a-z]?)(.*)$/.exec(token);
-  if (!m) throw new Error(`Could not parse atom "${token}".`);
+  if (!m) throw new Error(`Could not parse atom "${rawToken}".`);
   const head = m[1];
   const rest = m[2];
 
   // Markush shorthands (only when the token is exactly the shorthand, so real
   // elements like Ar, Al, Rb, Ru are unaffected).
-  if (head === "R") return { symbols: ["C"], charge: 0, rlabel: "R" + rest }; // R, R1, R2…
-  if (token === "A") return { symbols: ["C"], charge: 0, any: true }; // any atom
-  if (token === "Q") return { symbols: ["N"], charge: 0, excludeC: true }; // any heteroatom
+  if (head === "R") return { symbols: ["C"], charge: 0, rlabel: "R" + rest, query }; // R, R1, R2…
+  if (token === "A") return { symbols: ["C"], charge: 0, any: true, query }; // any atom
+  if (token === "Q") return { symbols: ["N"], charge: 0, excludeC: true, query }; // any heteroatom
   const shorthand = SHORTHANDS[head];
-  if (shorthand) return { symbols: shorthand, charge: parseCharge(rest) }; // X = halogen
+  if (shorthand) return { symbols: shorthand, charge: parseCharge(rest), query }; // X = halogen
 
-  return { symbols: [head], charge: parseCharge(rest) };
+  return { symbols: [head], charge: parseCharge(rest), query };
 }
 
 /** Parses a trailing charge such as "+", "--", "2+", "+2", "2-". */
@@ -145,14 +224,22 @@ function parseCharge(s: string): number {
   return num ? sign * parseInt(num[0], 10) : sign * signs.length;
 }
 
+/** Resolves an OpenChemLib query-feature constant by name (throws if absent). */
+function qfFlag(constName: string): number {
+  const v = (Molecule as unknown as Record<string, unknown>)[constName];
+  if (typeof v !== "number") throw new Error(`Query feature ${constName} is not supported by this OpenChemLib build.`);
+  return v;
+}
+
 export function buildFromAtomBondList(text: string, width = 300, height = 230): BuildResult {
   const { atoms, bonds } = parseAtomBondList(text);
   const mol = new Molecule(atoms.length, bonds.length);
 
-  // Atom lists, query atoms (A/Q), R-groups, or an undefined bond make this a
-  // generic (query) structure.
+  // Atom lists, query atoms (A/Q), R-groups, query features, or an undefined/
+  // query bond make this a generic (query) structure.
   const hasQuery =
-    atoms.some((a) => a.symbols.length > 1 || a.any || a.excludeC || a.rlabel) || bonds.some((b) => b.any);
+    atoms.some((a) => a.symbols.length > 1 || a.any || a.excludeC || a.rlabel || a.query?.length) ||
+    bonds.some((b) => b.any || b.query?.length);
   if (hasQuery) mol.setFragment(true);
 
   const indices = atoms.map((atom) => {
@@ -172,6 +259,9 @@ export function buildFromAtomBondList(text: string, width = 300, height = 230): 
     } else if (nums.length > 1) {
       mol.setAtomList(idx, nums, false); // [C,N] / X — inclusion list
     }
+    for (const f of atom.query ?? []) {
+      mol.setAtomQueryFeature(idx, qfFlag(ATOM_QF[f]), true);
+    }
     return idx;
   });
 
@@ -185,6 +275,9 @@ export function buildFromAtomBondList(text: string, width = 300, height = 230): 
       mol.setBondType(b, Molecule.cBondTypeDown); // hash
     } else {
       mol.setBondOrder(b, bond.order);
+    }
+    for (const f of bond.query ?? []) {
+      mol.setBondQueryFeature(b, qfFlag(BOND_QF[f]), true);
     }
   }
 

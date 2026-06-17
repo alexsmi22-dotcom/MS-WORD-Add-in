@@ -239,6 +239,11 @@ export const BUILD_MARKUSH: PaletteItem[] = [
   { label: "A", snippet: "A", title: "Any atom" },
   { label: "Q", snippet: "Q", title: "Any heteroatom (not carbon)" },
   { label: "R1", snippet: "R1", title: "R-group / substituent attachment point" },
+  { label: "{ar}", snippet: "{ar}", title: "Query: aromatic position" },
+  { label: "{ring}", snippet: "{ring}", title: "Query: must be in a ring" },
+  { label: "{r6}", snippet: "{r6}", title: "Query: ring size 6 (also r3–r7; list several for 5 or 6)" },
+  { label: "{nosub}", snippet: "{nosub}", title: "Query: no further substitution (closed position)" },
+  { label: "{sub}", snippet: "{sub}", title: "Query: bears a further substituent" },
 ];
 
 export const CHEM_PALETTE: PaletteGroup[] = [

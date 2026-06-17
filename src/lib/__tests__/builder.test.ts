@@ -43,6 +43,37 @@ describe("builder — generic / Markush", () => {
   });
 });
 
+describe("builder — query features (Markush genus constraints)", () => {
+  it("treats an atom query feature as generic and still builds", () => {
+    const r = build("atoms: C{ar,nosub} C C C C C\nbonds: 1=2 2-3 3=4 4-5 5=6 6-1", "auto");
+    expect(r.generic).toBe(true);
+    expect(r.idcode).toBeTruthy();
+  });
+
+  it("accepts ring-size constraints (e.g. r5 / r6)", () => {
+    expect(() => build("atoms: C{r6} C C C C C\nbonds: 1=2 2-3 3=4 4-5 5=6 6-1", "auto")).not.toThrow();
+    expect(build("atoms: C{r5} C C C C\nbonds: 1-2 2-3 3-4 4-5 5-1", "auto").generic).toBe(true);
+  });
+
+  it("accepts query features on a query atom list and on R-groups", () => {
+    expect(() => build("atoms: [C,N]{ar} C C C C C\nbonds: 1=2 2-3 3=4 4-5 5=6 6-1", "auto")).not.toThrow();
+    expect(() => build("atoms: R1{sub} C\nbonds: 1-2", "auto")).not.toThrow();
+  });
+
+  it("accepts a bond query feature (ring / chain / ar)", () => {
+    const r = build("atoms: C C\nbonds: 1-2{ring}", "auto");
+    expect(r.generic).toBe(true);
+  });
+
+  it("rejects an unknown query feature with a clear error", () => {
+    expect(() => build("atoms: C{bogus} C\nbonds: 1-2", "auto")).toThrow(/query feature/i);
+  });
+
+  it("does not treat a charge-only atom as a query feature", () => {
+    expect(build("atoms: N+", "auto").generic).toBe(false);
+  });
+});
+
 describe("builder — stereo & extended Markush", () => {
   it("accepts a wedge bond without becoming generic", () => {
     const r = build("atoms: C F Cl Br\nbonds: 1-2 1>3 1-4", "auto");

@@ -5,6 +5,13 @@ All notable changes to Formula Inserter. Dates are release/pilot dates.
 ## [Unreleased] — internal pilot prep
 
 ### Added
+- **Markush query features (genus rigor)** in Build mode — a trailing `{…}` block
+  constrains a position for a rigorous generic structure: `{ar}` aromatic, `{!ar}`
+  aliphatic, `{har}` hetero-aromatic, `{ring}` in-ring, `{!ring}`/`{chain}` chain,
+  `{r3}`–`{r7}` ring size (list several for "5 or 6"), `{sub}` bears a further
+  substituent, `{nosub}` no further substitution; bonds take `{ring}`/`{chain}`/
+  `{ar}`. These set the corresponding OpenChemLib atom/bond query features so the
+  inserted structure is a real query genus. New Markush palette buttons.
 - **Sequence mode (WIPO ST.26)** — generate a draft ST.26 sequence-listing XML
   from entered nucleotide (DNA/RNA) or protein (AA) sequences: per-sequence
   molecule type and organism, residue cleanup/validation (whitespace & numbering

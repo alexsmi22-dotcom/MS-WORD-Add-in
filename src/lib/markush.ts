@@ -36,14 +36,17 @@ function toSubscript(digits: string): string {
 const CARBON_GROUP = "alk|cycloalk|aryl|heteroaryl|acyl";
 
 /**
- * Expands carbon-range alkyl shorthands in a definition string:
- *   "C1-6 alkyl"  /  "C1-C6 alkyl"  →  "C₁–C₆ alkyl"
- *   "C6 alkyl"                       →  "C₆ alkyl"   (single count before a group word)
+ * Normalizes common Markush shorthands in a definition string:
+ *   "C1-6 alkyl" / "C1-C6 alkyl"  →  "C₁–C₆ alkyl"   (subscript counts, en-dash)
+ *   "C6 alkyl"                     →  "C₆ alkyl"       (single count before a group word)
+ *   "opt sub phenyl"               →  "optionally substituted phenyl"
+ *   "n=1-3" / "n = 1-3"            →  "n = 1–3"        (variable-count range)
+ *   "4-6 membered"                 →  "4–6 membered"   (plain integer range → en-dash)
  * Everything else is left untouched. Idempotent.
  */
 export function expandDefinition(input: string): string {
   let s = input;
-  // Range form first: "C1-6", "C1-C6" (optional spaces) → "C₁–C₆".
+  // Carbon ranges first: "C1-6", "C1-C6" (optional spaces) → "C₁–C₆".
   s = s.replace(
     /\bC\s*(\d+)\s*-\s*C?\s*(\d+)\b/gi,
     (_m, a: string, b: string) => `C${toSubscript(a)}–C${toSubscript(b)}`,
@@ -51,6 +54,12 @@ export function expandDefinition(input: string): string {
   // Single count immediately before a carbon-group keyword: "C6 alkyl" → "C₆ alkyl".
   // (Subscripts produced above are no longer \d, so ranges are not re-touched.)
   s = s.replace(new RegExp(`\\bC(\\d+)(?=\\s*(?:${CARBON_GROUP}))`, "gi"), (_m, n: string) => `C${toSubscript(n)}`);
+  // "Optionally substituted" abbreviations: "opt sub", "opt. subst.", "opt substituted".
+  s = s.replace(/\bopt\.?\s+sub(?:st(?:ituted)?)?\.?(?![a-z])/gi, "optionally substituted");
+  // Variable-count ranges: "n=1-3" → "n = 1–3" (single-letter variable, spaced equals).
+  s = s.replace(/\b([a-z])\s*=\s*(\d+)\s*-\s*(\d+)\b/gi, (_m, v: string, a: string, b: string) => `${v} = ${a}–${b}`);
+  // Remaining plain integer ranges → en-dash, e.g. "4-6 membered" → "4–6 membered".
+  s = s.replace(/\b(\d+)\s*-\s*(\d+)\b/g, (_m, a: string, b: string) => `${a}–${b}`);
   return s;
 }
 

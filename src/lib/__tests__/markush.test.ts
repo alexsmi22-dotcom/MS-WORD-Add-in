@@ -38,6 +38,39 @@ describe("expandDefinition — carbon-range shorthands", () => {
   });
 });
 
+describe("expandDefinition — optionally substituted", () => {
+  it("expands the 'opt sub' abbreviation", () => {
+    expect(expandDefinition("opt sub phenyl")).toBe("optionally substituted phenyl");
+  });
+
+  it("expands dotted and longer abbreviations", () => {
+    expect(expandDefinition("opt. subst. naphthyl")).toBe("optionally substituted naphthyl");
+    expect(expandDefinition("opt substituted aryl")).toBe("optionally substituted aryl");
+  });
+
+  it("leaves the canonical phrase unchanged (idempotent)", () => {
+    expect(expandDefinition("optionally substituted phenyl")).toBe("optionally substituted phenyl");
+  });
+});
+
+describe("expandDefinition — variable-count ranges", () => {
+  it("normalizes a tight variable-count range", () => {
+    expect(expandDefinition("n=1-3")).toBe("n = 1–3");
+  });
+
+  it("normalizes a spaced variable-count range", () => {
+    expect(expandDefinition("m = 0 - 2")).toBe("m = 0–2");
+  });
+
+  it("en-dashes a plain integer range", () => {
+    expect(expandDefinition("4-6 membered ring")).toBe("4–6 membered ring");
+  });
+
+  it("does not touch substituent locants like indazol-3-yl", () => {
+    expect(expandDefinition("1H-indazol-3-yl")).toBe("1H-indazol-3-yl");
+  });
+});
+
 describe("buildLegendText", () => {
   const entries: LegendEntry[] = [
     { label: "R1", definition: "H" },

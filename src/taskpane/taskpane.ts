@@ -770,7 +770,7 @@ function renderRgroupInputs(rgroups: string[]): void {
     const input = document.createElement("input");
     input.type = "text";
     input.className = "rgroup-input";
-    input.placeholder = "e.g. H, methyl, C1-6 alkyl, halogen, …";
+    input.placeholder = "e.g. H, C1-6 alkyl, opt sub phenyl, halogen, …";
     input.value = rgroupValues[label] || "";
     input.addEventListener("input", () => {
       rgroupValues[label] = input.value;

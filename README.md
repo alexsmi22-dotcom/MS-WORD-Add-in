@@ -270,8 +270,9 @@ sub/superscript formatting. Uncheck the box to always use inline formatting.
 - [x] **R-group legends** — define `R1 = …` and insert a "where R1 = …" line.
 - [x] **C1–C6 carbon-range shorthands** (`C1-6 alkyl` → C₁–C₆ alkyl) and
       **structured Markush tables** (R-group | definition, line-or-table toggle).
-- [ ] "Optionally substituted" shorthands; variable counts (n = 1–3); sub-generic
-      Markush definitions.
+- [x] **"Optionally substituted" shorthand** (`opt sub` → optionally substituted)
+      and **variable-count ranges** (`n=1-3` → n = 1–3).
+- [ ] Sub-generic Markush definitions (nested R-groups with their own legends).
 - [ ] Matrices and piecewise/cases in the math engine.
 - [ ] Sequence listings (WIPO ST.26) — separate workstream.
 - [ ] Formula history / favorites.

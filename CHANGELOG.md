@@ -8,6 +8,10 @@ All notable changes to Formula Inserter. Dates are release/pilot dates.
 - **Carbon-range shorthands** in R-group definitions — typing `C1-6 alkyl` or
   `C1-C6 alkyl` expands to `C₁–C₆ alkyl` (subscript counts, en-dash) on insertion;
   ordinary formulas like `C2H5` are left untouched.
+- **More definition shorthands** — `opt sub` / `opt. subst.` → "optionally
+  substituted …"; variable-count ranges like `n=1-3` → `n = 1–3`, and plain
+  integer ranges (`4-6 membered`) get an en-dash. Substituent locants such as
+  `indazol-3-yl` are left alone.
 - **Structured Markush tables** — R-group definitions can be inserted as a
   two-column **R-group | Definition** table (toggle "Insert as: Line / Table" in
   the Build pane) in addition to the inline "where R1 = …" line.

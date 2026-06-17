@@ -184,6 +184,33 @@ h1 {
   overflow-x: auto;
 }
 
+/* Substituent gallery (drawn R-group alternatives) */
+.gallery-preview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 6px 0 10px;
+}
+.gallery-preview:not(:empty) {
+  padding: 6px;
+}
+.gallery-card {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 6px;
+  background: #fff;
+  text-align: center;
+}
+.gallery-card svg {
+  max-width: 170px;
+  height: auto;
+}
+.gallery-label {
+  font-weight: 600;
+  font-size: 13px;
+  margin-bottom: 2px;
+}
+
 /* Sequence (ST.26) mode */
 .seq-disclaimer {
   font-size: 12.5px;

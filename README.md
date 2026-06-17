@@ -294,6 +294,8 @@ sub/superscript formatting. Uncheck the box to always use inline formatting.
       Sequence before filing).
 - [x] **Markush query features** — `{ar}`, `{ring}`, `{r5}`/`{r6}`, `{sub}`,
       `{nosub}` (and bond `{ring}`/`{ar}`) for rigorous genus structures.
+- [x] **Substituent gallery** — depict R-group alternatives (`R1a = SMILES`) as
+      drawn 2D structures inserted beneath the genus.
 - [x] **Botanical mode** (plant patents) — scientific-name typesetting (italics
       per ICN/ICNCP) and varietal characteristics tables.
 - [ ] Formula history / favorites.

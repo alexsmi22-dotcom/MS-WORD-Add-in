@@ -126,6 +126,19 @@
         <button id="insert-build-btn" class="insert-btn" type="button" disabled>
           Insert 2D structure
         </button>
+
+        <span class="palette-group-label">Substituent gallery (drawn R-group alternatives)</span>
+        <textarea
+          id="gallery-input"
+          class="build-input"
+          rows="4"
+          spellcheck="false"
+          placeholder="One per line — label = SMILES/name&#10;R1a = c1ccccc1&#10;R1b = c1ccncc1&#10;R1c = CC(=O)O"
+        ></textarea>
+        <div id="gallery-preview" class="gallery-preview" aria-live="polite"></div>
+        <button id="insert-gallery-btn" class="insert-btn secondary" type="button" disabled>
+          Insert substituent gallery
+        </button>
       </section>
 
       <!-- Pseudocode / algorithm blocks and verbatim code listings -->

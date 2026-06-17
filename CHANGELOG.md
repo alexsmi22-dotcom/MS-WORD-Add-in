@@ -5,6 +5,10 @@ All notable changes to Formula Inserter. Dates are release/pilot dates.
 ## [Unreleased] — internal pilot prep
 
 ### Added
+- **Substituent gallery** (Build mode) — depict R-group alternatives as drawn
+  structures: list `label = SMILES/name` lines (e.g. `R1a = c1ccccc1`) and insert
+  each rendered 2D substituent with its label beneath the genus. Closes the last
+  Markush "depicted alternatives" gap.
 - **Botanical mode** (plant patents) — typeset a scientific name with correct
   nomenclature italics (genus/species/infraspecific epithets italic; rank
   connectors `subsp.`/`var.`/`f.`, authors, hybrid `×`, and cultivars `'…'` roman),

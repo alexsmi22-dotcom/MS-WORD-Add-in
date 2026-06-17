@@ -10,6 +10,7 @@ import { build, BuildFormat, BuildResult } from "../lib/builder";
 import { formatCodeBlock, CodeStyle } from "../lib/codeblock";
 import { buildSt26Xml, cleanResidues, MolType, SequenceEntry, SequenceListingMeta } from "../lib/sequence";
 import { formatBotanicalNameHtml, formatTraitTableHtml } from "../lib/botanical";
+import { parseSubstituents } from "../lib/gallery";
 import { FORMULA_LIBRARY } from "../lib/formulaLibrary";
 import {
   MATH_PALETTE,
@@ -38,6 +39,8 @@ type Mode = "chemical" | "math" | "build" | "code" | "sequence" | "botanical";
 
 const STRUCTURE_W = 300;
 const STRUCTURE_H = 230;
+const GALLERY_W = 170;
+const GALLERY_H = 140;
 
 let inputEl: HTMLInputElement;
 let previewEl: HTMLElement;
@@ -79,6 +82,9 @@ let codeLineNumsCheckbox: HTMLInputElement;
 let codeInput: HTMLTextAreaElement;
 let codePreviewEl: HTMLElement;
 let insertCodeBtn: HTMLButtonElement;
+let galleryInput: HTMLTextAreaElement;
+let galleryPreviewEl: HTMLElement;
+let insertGalleryBtn: HTMLButtonElement;
 let sequenceSection: HTMLElement;
 let seqListEl: HTMLElement;
 let seqOutput: HTMLTextAreaElement;
@@ -156,6 +162,9 @@ Office.onReady((info) => {
   codeInput = document.getElementById("code-input") as HTMLTextAreaElement;
   codePreviewEl = document.getElementById("code-preview") as HTMLElement;
   insertCodeBtn = document.getElementById("insert-code-btn") as HTMLButtonElement;
+  galleryInput = document.getElementById("gallery-input") as HTMLTextAreaElement;
+  galleryPreviewEl = document.getElementById("gallery-preview") as HTMLElement;
+  insertGalleryBtn = document.getElementById("insert-gallery-btn") as HTMLButtonElement;
   sequenceSection = document.getElementById("sequence-section") as HTMLElement;
   seqListEl = document.getElementById("seq-list") as HTMLElement;
   seqOutput = document.getElementById("seq-output") as HTMLTextAreaElement;
@@ -199,6 +208,9 @@ Office.onReady((info) => {
   codeTitleInput.addEventListener("input", updateCodePreview);
   codeLineNumsCheckbox.addEventListener("change", updateCodePreview);
   insertCodeBtn.addEventListener("click", insertCodeBlock);
+
+  galleryInput.addEventListener("input", updateGalleryPreview);
+  insertGalleryBtn.addEventListener("click", insertGallery);
 
   seqAddBtn.addEventListener("click", () => addSequenceCard());
   seqGenerateBtn.addEventListener("click", generateSequenceXml);
@@ -643,6 +655,7 @@ function onInputChanged(): void {
 
   if (mode === "build") {
     updateBuildPreview();
+    updateGalleryPreview();
     return;
   }
   if (mode === "code") {
@@ -727,6 +740,86 @@ async function insertCodeBlock(): Promise<void> {
     setStatus(`Could not insert: ${(error as Error).message}`, "error");
   } finally {
     insertCodeBtn.disabled = false;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Substituent gallery — drawn R-group alternatives for a Markush genus
+// ---------------------------------------------------------------------------
+
+/** Live preview of each drawn substituent (label + 2D structure). */
+function updateGalleryPreview(): void {
+  const items = parseSubstituents(galleryInput.value);
+  galleryPreviewEl.replaceChildren();
+  if (!items.length) {
+    const hint = document.createElement("span");
+    hint.className = "hint";
+    hint.textContent = "List drawn alternatives (label = SMILES/name) to depict them.";
+    galleryPreviewEl.appendChild(hint);
+    insertGalleryBtn.disabled = true;
+    return;
+  }
+  let any = false;
+  for (const it of items) {
+    const card = document.createElement("div");
+    card.className = "gallery-card";
+    if (it.label) {
+      const lab = document.createElement("div");
+      lab.className = "gallery-label";
+      lab.textContent = `${it.label} =`;
+      card.appendChild(lab);
+    }
+    const r = renderStructure(it.input, GALLERY_W, GALLERY_H);
+    if (r) {
+      const fig = document.createElement("div");
+      fig.innerHTML = r.svg;
+      card.appendChild(fig);
+      any = true;
+    } else {
+      const bad = document.createElement("span");
+      bad.className = "hint";
+      bad.textContent = `couldn't render "${it.input}"`;
+      card.appendChild(bad);
+    }
+    galleryPreviewEl.appendChild(card);
+  }
+  insertGalleryBtn.disabled = !any;
+}
+
+/** Inserts each drawn substituent (label + structure image) as its own paragraph. */
+async function insertGallery(): Promise<void> {
+  const items = parseSubstituents(galleryInput.value);
+  const rendered: { label: string; base64: string; alt: string }[] = [];
+  for (const it of items) {
+    const r = renderStructure(it.input, GALLERY_W, GALLERY_H);
+    if (!r) continue;
+    const base64 = await svgToPngBase64(r.svg, GALLERY_W, GALLERY_H);
+    const label = it.label ? `substituent ${it.label}` : "substituent";
+    rendered.push({ label: it.label, base64, alt: provenanceAltText(label, r.formula, r.mw, r.smiles, r.idcode) });
+  }
+  if (!rendered.length) {
+    setStatus("No drawable substituents — check the SMILES/names.", "error");
+    return;
+  }
+  insertGalleryBtn.disabled = true;
+  setStatus("Inserting substituent gallery…");
+  try {
+    await Word.run(async (context) => {
+      let anchor: Word.Range = context.document.getSelection();
+      for (const item of rendered) {
+        const para = anchor.insertParagraph(item.label ? `${item.label} = ` : "", Word.InsertLocation.after);
+        const pic = para.insertInlinePictureFromBase64(item.base64, Word.InsertLocation.end);
+        pic.altTextDescription = item.alt;
+        anchor = para.getRange(Word.RangeLocation.end);
+      }
+      anchor.select(Word.SelectionMode.end);
+      await context.sync();
+    });
+    setStatus(`Inserted ${rendered.length} substituent(s).`, "success");
+  } catch (error) {
+    setStatus(`Could not insert: ${(error as Error).message}`, "error");
+  } finally {
+    insertGalleryBtn.disabled = false;
   }
 }
 

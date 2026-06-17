@@ -5,6 +5,11 @@ All notable changes to Formula Inserter. Dates are release/pilot dates.
 ## [Unreleased] — internal pilot prep
 
 ### Added
+- **Matrices & piecewise/cases** in the math engine — `matrix(a, b; c, d)` (rows
+  separated by `;`, columns by `,`), with `pmatrix` / `bmatrix` / `vmatrix` for
+  `( )`, `[ ]` and `| |` (determinant) delimiters, and `cases(x, if x>0; -x,
+  otherwise)` for piecewise functions. All emit real Word equation objects (OMML)
+  and render in the live preview; new palette "Matrices" group.
 - **Carbon-range shorthands** in R-group definitions — typing `C1-6 alkyl` or
   `C1-C6 alkyl` expands to `C₁–C₆ alkyl` (subscript counts, en-dash) on insertion;
   ordinary formulas like `C2H5` are left untouched.

@@ -297,6 +297,26 @@ h1 {
   text-align: center;
 }
 
+.m-matrix,
+.m-cases {
+  display: inline-grid;
+  gap: 2px 12px;
+  vertical-align: middle;
+  text-align: center;
+}
+.m-cases {
+  grid-template-columns: auto auto;
+  text-align: left;
+}
+.m-case-cond {
+  color: var(--muted);
+}
+.m-cases-brace {
+  font-size: 1.8em;
+  line-height: 1;
+  vertical-align: middle;
+}
+
 .field-label,
 .preview-label {
   display: block;

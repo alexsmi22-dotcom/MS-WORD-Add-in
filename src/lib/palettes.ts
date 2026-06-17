@@ -40,6 +40,15 @@ export const MATH_PALETTE: PaletteGroup[] = [
     ],
   },
   {
+    name: "Matrices",
+    items: [
+      { label: "[matrix]", snippet: "matrix(a, b; c, d)", caret: 7, title: "Matrix (rows ';', columns ',')" },
+      { label: "(matrix)", snippet: "pmatrix(a, b; c, d)", caret: 8, title: "Matrix with parentheses" },
+      { label: "|det|", snippet: "vmatrix(a, b; c, d)", caret: 8, title: "Determinant (vertical bars)" },
+      { label: "{cases", snippet: "cases(x, if x > 0; -x, otherwise)", caret: 6, title: "Piecewise / cases" },
+    ],
+  },
+  {
     name: "Functions",
     items: [
       { label: "sin", snippet: "sin()", caret: 4 },

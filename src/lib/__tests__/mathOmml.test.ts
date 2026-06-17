@@ -26,6 +26,41 @@ describe("mathToOmml", () => {
   it("throws on unparseable input", () => {
     expect(() => mathToOmml("(")).toThrow();
   });
+
+  it("emits a matrix with the right column count and bracket delimiters", () => {
+    const omml = mathToOmml("matrix(a, b; c, d)");
+    expect(omml).toContain("<m:m>");
+    expect(omml).toContain('<m:count m:val="2"/>');
+    expect(omml).toContain('<m:begChr m:val="["/>');
+    expect(omml).toContain('<m:endChr m:val="]"/>');
+    // two rows
+    expect(omml.match(/<m:mr>/g)).toHaveLength(2);
+  });
+
+  it("uses parentheses for pmatrix and bars for vmatrix", () => {
+    expect(mathToOmml("pmatrix(1; 2)")).toContain('<m:begChr m:val="("/>');
+    expect(mathToOmml("vmatrix(a, b; c, d)")).toContain('<m:begChr m:val="|"/>');
+  });
+
+  it("rejects a ragged matrix", () => {
+    expect(() => mathToOmml("matrix(a, b; c)")).toThrow(/same number/);
+  });
+
+  it("emits piecewise cases with a left brace and 2-column left-aligned matrix", () => {
+    const omml = mathToOmml("cases(x, if x > 0; -x, otherwise)");
+    expect(omml).toContain('<m:begChr m:val="{"/>');
+    expect(omml).toContain('<m:endChr m:val=""/>');
+    expect(omml).toContain('<m:mcJc m:val="left"/>');
+    expect(omml).toContain('<m:count m:val="2"/>');
+  });
+
+  it("allows a case with no condition", () => {
+    expect(() => mathToOmml("cases(0; 1, otherwise)")).not.toThrow();
+  });
+
+  it("rejects a case with too many parts", () => {
+    expect(() => mathToOmml("cases(x, a, b)")).toThrow(/value and an optional condition/);
+  });
 });
 
 describe("formula library", () => {

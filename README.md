@@ -244,6 +244,8 @@ The engine (`src/lib/mathParse.ts` → `mathOmml.ts`) understands:
 | `abs(x)` or `\|x\|`  | absolute value              |
 | `bar(x)`, `hat(x)`, `vec(x)` | accents              |
 | `sin(x)`, `log(x)`, `ln(x)` | upright function names |
+| `matrix(a, b; c, d)` | matrix (rows `;`, cols `,`); `pmatrix`/`vmatrix` for `( )` / `\| \|` |
+| `cases(x, if x>0; -x, otherwise)` | piecewise / cases |
 | `2x`, `2(x+1)`, `a b` | implicit multiplication   |
 | `n!`, `+-`, `pi`, `theta` | factorial, ±, Greek     |
 
@@ -274,7 +276,8 @@ sub/superscript formatting. Uncheck the box to always use inline formatting.
       and **variable-count ranges** (`n=1-3` → n = 1–3).
 - [x] **Sub-generic Markush definitions** — nested R-groups (`R1a`) auto-detected
       from definitions and added to the legend (line or table).
-- [ ] Matrices and piecewise/cases in the math engine.
+- [x] **Matrices and piecewise/cases** in the math engine (`matrix(…)`,
+      `pmatrix`/`bmatrix`/`vmatrix`, `cases(…)`).
 - [ ] Sequence listings (WIPO ST.26) — separate workstream.
 - [ ] Formula history / favorites.
 - [ ] Distribution beyond local sideload (org catalog or AppSource).

@@ -51,6 +51,26 @@ function astToHtml(node: Node): string {
     case "acc":
       // Combining accent character renders over the preceding base text.
       return `${astToHtml(node.base)}${node.chr}`;
+    case "matrix": {
+      const cols = node.rows[0].length;
+      const cells = node.rows
+        .map((row) => row.map((cell) => `<span class="m-mcell">${astToHtml(cell)}</span>`).join(""))
+        .join("");
+      return (
+        `${escapeHtml(node.open)}<span class="m-matrix" style="grid-template-columns:repeat(${cols},auto)">` +
+        `${cells}</span>${escapeHtml(node.close)}`
+      );
+    }
+    case "cases": {
+      const cells = node.rows
+        .map((row) => {
+          const value = `<span class="m-mcell m-case-val">${astToHtml(row[0])}</span>`;
+          const cond = `<span class="m-mcell m-case-cond">${row[1] ? astToHtml(row[1]) : ""}</span>`;
+          return value + cond;
+        })
+        .join("");
+      return `<span class="m-cases-brace">{</span><span class="m-cases">${cells}</span>`;
+    }
   }
 }
 

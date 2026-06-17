@@ -10,6 +10,9 @@
 //   prod(i=1, n, e)  product (∏)           lim(x->0, e)     limit
 //   sin(x) cos(x)…   named functions       bar(x) hat(x) vec(x)  accents
 //   2x  ab  2(x+1)   implicit multiplication
+//   matrix(a,b; c,d) matrix (rows by ';', columns by ','); pmatrix/bmatrix/vmatrix
+//                    choose ( ), [ ] or | | delimiters
+//   cases(x, if x>0; -x, otherwise)        piecewise / cases (brace)
 //   + - * / = < >    operators (* → ×, <= >= != -> → ≤ ≥ ≠ →); pi, theta… → symbols
 //
 // Anything it can't parse throws, so callers can fall back to plain formatting.
@@ -26,10 +29,24 @@ export type Node =
   | { k: "nary"; chr: string; sub: Node; sup: Node; body: Node; underOver: boolean }
   | { k: "func"; name: string; arg: Node; known: boolean }
   | { k: "lim"; sub: Node; body: Node }
-  | { k: "acc"; chr: string; base: Node };
+  | { k: "acc"; chr: string; base: Node }
+  | { k: "matrix"; rows: Node[][]; open: string; close: string }
+  | { k: "cases"; rows: Node[][] };
 
 interface Token {
-  t: "num" | "id" | "op" | "lparen" | "rparen" | "lbrace" | "rbrace" | "caret" | "underscore" | "comma" | "bar";
+  t:
+    | "num"
+    | "id"
+    | "op"
+    | "lparen"
+    | "rparen"
+    | "lbrace"
+    | "rbrace"
+    | "caret"
+    | "underscore"
+    | "comma"
+    | "semi"
+    | "bar";
   v: string;
 }
 
@@ -49,6 +66,14 @@ const KNOWN_FUNCS = new Set([
 ]);
 
 const ACCENTS: Record<string, string> = { bar: "̄", hat: "̂", vec: "⃗" };
+
+// Matrix keywords → [open, close] delimiter pair.
+const MATRIX_DELIMS: Record<string, [string, string]> = {
+  matrix: ["[", "]"],
+  bmatrix: ["[", "]"],
+  pmatrix: ["(", ")"],
+  vmatrix: ["|", "|"],
+};
 
 function isDigit(ch: string): boolean {
   return ch >= "0" && ch <= "9";
@@ -101,6 +126,7 @@ function tokenize(input: string): Token[] {
       case "^": tokens.push({ t: "caret", v: ch }); break;
       case "_": tokens.push({ t: "underscore", v: ch }); break;
       case ",": tokens.push({ t: "comma", v: ch }); break;
+      case ";": tokens.push({ t: "semi", v: ch }); break;
       case "|": tokens.push({ t: "bar", v: ch }); break;
       case "*": tokens.push({ t: "op", v: "×" }); break;
       case "+": case "-": case "=": case "<": case ">":
@@ -270,6 +296,22 @@ class Parser {
       const [base] = this.parseArgs(1);
       return { k: "acc", chr: ACCENTS[lower], base };
     }
+    if (MATRIX_DELIMS[lower]) {
+      const rows = this.parseRows();
+      const cols = rows[0].length;
+      if (rows.some((r) => r.length !== cols)) {
+        throw new Error("Matrix rows must all have the same number of entries.");
+      }
+      const [open, close] = MATRIX_DELIMS[lower];
+      return { k: "matrix", rows, open, close };
+    }
+    if (lower === "cases" || lower === "piecewise") {
+      const rows = this.parseRows();
+      if (rows.some((r) => r.length > 2)) {
+        throw new Error("Each case takes a value and an optional condition.");
+      }
+      return { k: "cases", rows };
+    }
 
     // Function application: an identifier immediately followed by "(".
     if (this.peek()?.t === "lparen") {
@@ -295,6 +337,30 @@ class Parser {
       throw new Error(`Expected ${count} argument(s) but got ${args.length}.`);
     }
     return args;
+  }
+
+  /** Parses parenthesized rows for matrices/cases: comma-separated cells per row,
+   *  rows separated by ';'. e.g. "(a, b; c, d)" → [[a,b],[c,d]]. */
+  private parseRows(): Node[][] {
+    this.expect("lparen");
+    const rows: Node[][] = [];
+    let row: Node[] = [this.parseExpr()];
+    for (;;) {
+      const t = this.peek();
+      if (t?.t === "comma") {
+        this.next();
+        row.push(this.parseExpr());
+      } else if (t?.t === "semi") {
+        this.next();
+        rows.push(row);
+        row = [this.parseExpr()];
+      } else {
+        break;
+      }
+    }
+    rows.push(row);
+    this.expect("rparen");
+    return rows;
   }
 
   /** Parses a parenthesized group, preserving commas as visible separators. */

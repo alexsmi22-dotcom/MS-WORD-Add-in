@@ -60,7 +60,28 @@ function emit(node: Node): string {
       );
     case "acc":
       return `<m:acc><m:accPr><m:chr m:val="${node.chr}"/></m:accPr><m:e>${emit(node.base)}</m:e></m:acc>`;
+    case "matrix": {
+      const cols = node.rows[0].length;
+      const core = matrixCore(node.rows, cols, "center");
+      return (
+        `<m:d><m:dPr><m:begChr m:val="${escapeXml(node.open)}"/>` +
+        `<m:endChr m:val="${escapeXml(node.close)}"/></m:dPr><m:e>${core}</m:e></m:d>`
+      );
+    }
+    case "cases": {
+      // Piecewise: a left brace with a 2-column, left-aligned matrix (value | condition).
+      const padded = node.rows.map((r) => [r[0], r[1] ?? { k: "row" as const, items: [] }]);
+      const core = matrixCore(padded, 2, "left");
+      return `<m:d><m:dPr><m:begChr m:val="{"/><m:endChr m:val=""/></m:dPr><m:e>${core}</m:e></m:d>`;
+    }
   }
+}
+
+/** Emits an `<m:m>` matrix body with `cols` columns justified `jc`. */
+function matrixCore(rows: Node[][], cols: number, jc: "center" | "left"): string {
+  const mcPr = `<m:mcs><m:mc><m:mcPr><m:count m:val="${cols}"/><m:mcJc m:val="${jc}"/></m:mcPr></m:mc></m:mcs>`;
+  const body = rows.map((row) => `<m:mr>${row.map((cell) => `<m:e>${emit(cell)}</m:e>`).join("")}</m:mr>`).join("");
+  return `<m:m><m:mPr>${mcPr}</m:mPr>${body}</m:m>`;
 }
 
 /** Parses `input` and returns the `<m:oMath>…</m:oMath>` body. Throws on parse errors. */

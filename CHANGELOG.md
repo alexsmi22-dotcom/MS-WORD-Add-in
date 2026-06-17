@@ -5,6 +5,11 @@ All notable changes to Formula Inserter. Dates are release/pilot dates.
 ## [Unreleased] — internal pilot prep
 
 ### Added
+- **Botanical mode** (plant patents) — typeset a scientific name with correct
+  nomenclature italics (genus/species/infraspecific epithets italic; rank
+  connectors `subsp.`/`var.`/`f.`, authors, hybrid `×`, and cultivars `'…'` roman),
+  with quote normalization and genus capitalization; plus a varietal
+  **characteristics table** built from "Label: value" lines. Both insert into Word.
 - **Markush query features (genus rigor)** in Build mode — a trailing `{…}` block
   constrains a position for a rigorous generic structure: `{ar}` aromatic, `{!ar}`
   aliphatic, `{har}` hetero-aromatic, `{ring}` in-ring, `{!ring}`/`{chain}` chain,

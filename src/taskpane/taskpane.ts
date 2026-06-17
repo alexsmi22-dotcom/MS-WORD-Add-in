@@ -9,6 +9,7 @@ import { renderStructure, StructureResult } from "../lib/structures";
 import { build, BuildFormat, BuildResult } from "../lib/builder";
 import { formatCodeBlock, CodeStyle } from "../lib/codeblock";
 import { buildSt26Xml, cleanResidues, MolType, SequenceEntry, SequenceListingMeta } from "../lib/sequence";
+import { formatBotanicalNameHtml, formatTraitTableHtml } from "../lib/botanical";
 import { FORMULA_LIBRARY } from "../lib/formulaLibrary";
 import {
   MATH_PALETTE,
@@ -33,7 +34,7 @@ import {
 import { toRoman, peekFormulaNumber, nextFormulaNumber, resetFormulaNumbering } from "../lib/numbering";
 import { LegendEntry, buildLegendText, buildLegendTableHtml, referencedRGroups } from "../lib/markush";
 
-type Mode = "chemical" | "math" | "build" | "code" | "sequence";
+type Mode = "chemical" | "math" | "build" | "code" | "sequence" | "botanical";
 
 const STRUCTURE_W = 300;
 const STRUCTURE_H = 230;
@@ -88,6 +89,13 @@ let seqDownloadBtn: HTMLButtonElement;
 let seqCopyBtn: HTMLButtonElement;
 /** The most recently generated ST.26 XML, for download/copy. */
 let seqXml = "";
+let botanicalSection: HTMLElement;
+let botNameInput: HTMLInputElement;
+let botNamePreview: HTMLElement;
+let botNameInsert: HTMLButtonElement;
+let botTraitsInput: HTMLTextAreaElement;
+let botTraitsPreview: HTMLElement;
+let botTraitsInsert: HTMLButtonElement;
 
 /** R-group label -> user-entered definition (e.g. "R1" -> "methyl, ethyl"). */
 const rgroupValues: Record<string, string> = {};
@@ -156,6 +164,13 @@ Office.onReady((info) => {
   seqGenerateBtn = document.getElementById("seq-generate-btn") as HTMLButtonElement;
   seqDownloadBtn = document.getElementById("seq-download-btn") as HTMLButtonElement;
   seqCopyBtn = document.getElementById("seq-copy-btn") as HTMLButtonElement;
+  botanicalSection = document.getElementById("botanical-section") as HTMLElement;
+  botNameInput = document.getElementById("bot-name") as HTMLInputElement;
+  botNamePreview = document.getElementById("bot-name-preview") as HTMLElement;
+  botNameInsert = document.getElementById("bot-name-insert") as HTMLButtonElement;
+  botTraitsInput = document.getElementById("bot-traits") as HTMLTextAreaElement;
+  botTraitsPreview = document.getElementById("bot-traits-preview") as HTMLElement;
+  botTraitsInsert = document.getElementById("bot-traits-insert") as HTMLButtonElement;
 
   inputEl.addEventListener("input", onInputChanged);
   inputEl.addEventListener("keydown", (e) => {
@@ -190,6 +205,11 @@ Office.onReady((info) => {
   seqDownloadBtn.addEventListener("click", downloadSequenceXml);
   seqCopyBtn.addEventListener("click", copySequenceXml);
   addSequenceCard();
+
+  botNameInput.addEventListener("input", updateBotanicalName);
+  botNameInsert.addEventListener("click", insertBotanicalName);
+  botTraitsInput.addEventListener("input", updateTraitTable);
+  botTraitsInsert.addEventListener("click", insertTraitTable);
 
   populateLibraryCategories();
   libCategorySelect.addEventListener("change", populateLibraryFormulas);
@@ -619,6 +639,7 @@ function onInputChanged(): void {
   buildSection.style.display = mode === "build" ? "block" : "none";
   codeSection.style.display = mode === "code" ? "block" : "none";
   sequenceSection.style.display = mode === "sequence" ? "block" : "none";
+  botanicalSection.style.display = mode === "botanical" ? "block" : "none";
 
   if (mode === "build") {
     updateBuildPreview();
@@ -630,6 +651,11 @@ function onInputChanged(): void {
   }
   if (mode === "sequence") {
     return; // sequence UI is self-contained (no input-driven preview)
+  }
+  if (mode === "botanical") {
+    updateBotanicalName();
+    updateTraitTable();
+    return;
   }
 
   updateTextPreview();
@@ -854,6 +880,64 @@ async function copySequenceXml(): Promise<void> {
   } catch {
     seqOutput.select();
     setStatus("Press Ctrl+C to copy the selected XML.", "");
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Botanical / plant
+// ---------------------------------------------------------------------------
+
+/** Live preview of the typeset scientific name. */
+function updateBotanicalName(): void {
+  const html = formatBotanicalNameHtml(botNameInput.value);
+  botNamePreview.innerHTML = html || '<span class="hint">Type a scientific name to typeset its italics.</span>';
+  botNameInsert.disabled = !html;
+}
+
+/** Inserts the typeset scientific name (with italics) at the selection. */
+async function insertBotanicalName(): Promise<void> {
+  const html = formatBotanicalNameHtml(botNameInput.value);
+  if (!html) return;
+  botNameInsert.disabled = true;
+  setStatus("Inserting name…");
+  try {
+    await Word.run(async (context) => {
+      const range = context.document.getSelection();
+      range.insertHtml(html, Word.InsertLocation.replace).select(Word.SelectionMode.end);
+      await context.sync();
+    });
+    setStatus("Name inserted.", "success");
+  } catch (error) {
+    setStatus(`Could not insert: ${(error as Error).message}`, "error");
+  } finally {
+    botNameInsert.disabled = false;
+  }
+}
+
+/** Live preview of the varietal characteristics table. */
+function updateTraitTable(): void {
+  const html = formatTraitTableHtml(botTraitsInput.value);
+  botTraitsPreview.innerHTML = html || '<span class="hint">One "Label: value" per line builds a table.</span>';
+  botTraitsInsert.disabled = !html;
+}
+
+/** Inserts the varietal characteristics table at the selection. */
+async function insertTraitTable(): Promise<void> {
+  const html = formatTraitTableHtml(botTraitsInput.value);
+  if (!html) return;
+  botTraitsInsert.disabled = true;
+  setStatus("Inserting table…");
+  try {
+    await Word.run(async (context) => {
+      const range = context.document.getSelection();
+      range.insertHtml(html, Word.InsertLocation.replace).select(Word.SelectionMode.end);
+      await context.sync();
+    });
+    setStatus("Characteristics table inserted.", "success");
+  } catch (error) {
+    setStatus(`Could not insert: ${(error as Error).message}`, "error");
+  } finally {
+    botTraitsInsert.disabled = false;
   }
 }
 

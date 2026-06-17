@@ -32,6 +32,7 @@
         <label class="mode"><input type="radio" name="mode" value="build" /> Build</label>
         <label class="mode"><input type="radio" name="mode" value="code" /> Code</label>
         <label class="mode"><input type="radio" name="mode" value="sequence" /> Sequence</label>
+        <label class="mode"><input type="radio" name="mode" value="botanical" /> Botanical</label>
       </div>
 
       <div id="history" class="history"></div>
@@ -197,6 +198,48 @@
           <button id="seq-download-btn" class="insert-btn secondary" type="button" disabled>Download .xml</button>
           <button id="seq-copy-btn" class="insert-btn secondary" type="button" disabled>Copy XML</button>
         </div>
+      </section>
+
+      <!-- Plant / botanical: scientific-name typesetting + varietal traits -->
+      <section id="botanical-section">
+        <label class="field-label" for="bot-name">Scientific name</label>
+        <input
+          id="bot-name"
+          class="formula-input"
+          type="text"
+          placeholder="e.g. Rosa × hybrida 'Peace' or Quercus robur subsp. robur"
+          autocomplete="off"
+          spellcheck="false"
+        />
+        <div class="preview-wrap">
+          <span class="preview-label">Preview</span>
+          <div id="bot-name-preview" class="preview" aria-live="polite"></div>
+        </div>
+        <button id="bot-name-insert" class="insert-btn" type="button" disabled>Insert name</button>
+        <details class="seq-appdetails">
+          <summary class="palette-group-label">Rank abbreviations</summary>
+          <p class="examples-note">
+            <code>subsp.</code>/<code>ssp.</code> subspecies · <code>var.</code> variety ·
+            <code>f.</code> forma · <code>cv.</code> / <code>'…'</code> cultivar ·
+            <code>×</code> hybrid · <code>sp.</code>/<code>spp.</code> species (unspecified).
+            Genus, species, and infraspecific epithets are italicized; ranks, authors,
+            hybrid signs, and cultivars stay roman.
+          </p>
+        </details>
+
+        <span class="palette-group-label">Varietal characteristics</span>
+        <textarea
+          id="bot-traits"
+          class="build-input"
+          rows="6"
+          spellcheck="false"
+          placeholder="One per line — Label: value&#10;Plant height: 1.2 m&#10;Flower color: RHS 46A&#10;Growth habit: upright"
+        ></textarea>
+        <div class="preview-wrap">
+          <span class="preview-label">Preview</span>
+          <div id="bot-traits-preview" class="preview" aria-live="polite"></div>
+        </div>
+        <button id="bot-traits-insert" class="insert-btn secondary" type="button" disabled>Insert table</button>
       </section>
 
       <p id="status" class="status" role="status" aria-live="polite"></p>

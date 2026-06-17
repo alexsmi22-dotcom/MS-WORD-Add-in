@@ -292,6 +292,10 @@ sub/superscript formatting. Uncheck the box to always use inline formatting.
 - [x] **Sequence listings (WIPO ST.26)** — generate a draft ST.26 XML from
       entered nucleotide/protein sequences (download or copy; validate in WIPO
       Sequence before filing).
+- [x] **Markush query features** — `{ar}`, `{ring}`, `{r5}`/`{r6}`, `{sub}`,
+      `{nosub}` (and bond `{ring}`/`{ar}`) for rigorous genus structures.
+- [x] **Botanical mode** (plant patents) — scientific-name typesetting (italics
+      per ICN/ICNCP) and varietal characteristics tables.
 - [ ] Formula history / favorites.
 - [x] **Centralized-deployment path documented** — validated deploy manifest +
       IT admin guide (`packaging/CENTRALIZED-DEPLOY.md`) for Microsoft 365

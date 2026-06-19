@@ -15,26 +15,35 @@ powershell -ExecutionPolicy Bypass -File scripts\package.ps1 -HostUrl https://yo
 ```
 
 This builds the bundle, stamps the manifest with your host URL, validates it, and
-produces `release\formula-inserter\` (and `.zip`) containing:
+produces **three separate, labeled outputs** under `release\`:
 
-| Item | What to do with it |
-| --- | --- |
-| `web\` | Upload to `https://your-host/formula-inserter` (one-time) |
-| `manifest.xml` | Email/share with users (registers the add-in) |
-| `install.ps1` / `uninstall.ps1` (and `.bat`) | Users run once — registers the add-in **per-user** (no admin) |
-| `INSTALL.md` | End-user instructions |
-| `HOST-SETUP.md` | One-time hosting instructions |
+| Output | Audience | What to do with it |
+| --- | --- | --- |
+| `formula-inserter-host\` (`web\`, `manifest.xml`, `HOST-SETUP.md`) | IT (once) | Upload `web\` to `https://your-host/formula-inserter` |
+| `formula-inserter-windows.zip` | **Windows** users | Email it — they run `install.bat`/`install.ps1` (per-user, no admin) |
+| `formula-inserter-mac.zip` | **macOS** users | Email it — they run `install.command` (per-user, no admin) |
 
-So: run the script → upload `web\` → email `manifest.xml` + `install.bat`
-(or `install.ps1`) + `INSTALL.md`. Users run the installer, restart Word, and
-pick **Formula Inserter** from **Insert → Add-ins → Developer Add-ins**.
+Each install pack is self-contained: it carries its own copy of the stamped
+`manifest.xml`, the OS-specific installer/uninstaller, the matching INSTALL doc,
+and `FEATURES.md`. So: run the script → upload `formula-inserter-host\web` once →
+send each person the **one zip for their OS**. Users run the installer, restart
+Word, and pick **Formula Inserter** from **Insert → Add-ins**.
 
-> **How the per-user install works:** `install.ps1` copies `manifest.xml` to
-> `%LOCALAPPDATA%\FormulaInserter` and registers it under
-> `HKCU\…\WEF\Developer` (a per-user "developer add-in"). This is what works on
-> desktop Word with no admin rights. The older local-folder **Trusted Catalog**
-> ("Shared Folder") method is **not** used — it did not surface the add-in on the
-> target Office build.
+> **How the per-user install works:**
+> - **Windows:** `install.ps1` copies `manifest.xml` to
+>   `%LOCALAPPDATA%\FormulaInserter` and registers it under
+>   `HKCU\…\WEF\Developer` (a per-user "developer add-in"). The older local-folder
+>   **Trusted Catalog** ("Shared Folder") method is **not** used — it did not
+>   surface the add-in on the target Office build.
+> - **macOS:** Mac Word has no registry; `install.command` copies `manifest.xml`
+>   into Word's per-user sideload folder
+>   `~/Library/Containers/com.microsoft.Word/Data/Documents/wef/`. The add-in then
+>   appears under **Insert → Add-ins**. (Tip: prefer `bash install.command` — a
+>   zip built on Windows strips the Unix executable bit, so a Finder double-click
+>   may fail with "permission denied".)
+>
+> The same hosted `web\` files and the same stamped `manifest.xml` serve both
+> platforms — only the per-user install step differs.
 
 **Ready for IT-managed rollout instead?** See
 [`packaging/CENTRALIZED-DEPLOY.md`](packaging/CENTRALIZED-DEPLOY.md) for pushing

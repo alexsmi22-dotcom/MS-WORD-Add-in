@@ -1,0 +1,5 @@
+# Normalize line endings. Shell scripts MUST stay LF or they break on macOS
+# (a CR makes bash fail with "\r: command not found" / "no such file").
+* text=auto
+*.command text eol=lf
+*.sh      text eol=lf

@@ -3,6 +3,9 @@ dist/
 *.log
 .DS_Store
 
+# Office/Word temporary lock files (e.g. ~$ARCHITECTURE.html)
+~$*
+
 # scratch / one-off artifacts
 tmp_build/
 genus.*

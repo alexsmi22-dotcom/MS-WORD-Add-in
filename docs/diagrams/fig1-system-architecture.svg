@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="600" font-family="Calibri, Segoe UI, sans-serif">
+  <defs>
+    <marker id="arr" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#2e74b5"/>
+    </marker>
+    <marker id="arrg" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#2e7d32"/>
+    </marker>
+  </defs>
+  <rect x="1" y="1" width="638" height="598" fill="#ffffff" stroke="#ffffff"/>
+
+  <!-- Word host -->
+  <rect x="10" y="10" width="500" height="545" rx="8" fill="#f7f9fc" stroke="#1f3864" stroke-width="2"/>
+  <text x="24" y="34" font-size="15" font-weight="bold" fill="#1f3864">Microsoft Word — desktop, Windows</text>
+
+  <!-- Ribbon button -->
+  <rect x="24" y="46" width="210" height="30" rx="5" fill="#dbe7f5" stroke="#2e74b5"/>
+  <text x="34" y="65" font-size="12" fill="#1f3864">Ribbon button "Insert Formula"</text>
+  <text x="250" y="65" font-size="11" fill="#6b7280">ShowTaskpane &#8594;</text>
+
+  <!-- WebView -->
+  <rect x="24" y="88" width="472" height="300" rx="6" fill="#eef4fb" stroke="#2e74b5" stroke-width="1.5"/>
+  <text x="36" y="108" font-size="12" font-weight="bold" fill="#1f4e79">Office Add-in Runtime (Edge WebView2)</text>
+
+  <!-- Task pane -->
+  <rect x="40" y="120" width="440" height="96" rx="5" fill="#ffffff" stroke="#2e74b5"/>
+  <text x="52" y="140" font-size="12" font-weight="bold" fill="#1f3864">TASK PANE  (taskpane.html / .ts / .css)</text>
+  <text x="52" y="158" font-size="11" fill="#333">UI controller &#183; 6 modes &#183; live preview</text>
+  <text x="52" y="174" font-size="11" fill="#333">search &#183; palettes &#183; history &#183; Office.js glue</text>
+  <text x="52" y="200" font-size="10.5" font-style="italic" fill="#2e7d32">imports &amp; orchestrates &#8595;</text>
+
+  <!-- Engine -->
+  <rect x="40" y="224" width="440" height="150" rx="5" fill="#f3f9f3" stroke="#2e7d32"/>
+  <text x="52" y="244" font-size="12" font-weight="bold" fill="#1b5e20">ENGINE  (src/lib/*) — pure, no Office.js</text>
+  <text x="52" y="263" font-size="10.5" fill="#333">chem parser &#183; math parser &#8594; OMML / HTML</text>
+  <text x="52" y="280" font-size="10.5" fill="#333">OpenChemLib: 2D structures &amp; query/Markush builder</text>
+  <text x="52" y="297" font-size="10.5" fill="#333">markush legends &#183; ST.26 sequences &#183; botanical names</text>
+  <text x="52" y="314" font-size="10.5" fill="#333">code blocks &#183; palettes &#183; formula library</text>
+  <text x="52" y="331" font-size="10.5" fill="#333">history &#183; equation numbering</text>
+  <text x="52" y="356" font-size="10.5" font-style="italic" fill="#6b7280">100% client-side &#183; deterministic &#183; unit-tested</text>
+
+  <!-- arrow taskpane -> engine -->
+  <line x1="260" y1="216" x2="260" y2="224" stroke="#2e7d32" stroke-width="1.6" marker-end="url(#arrg)"/>
+
+  <!-- arrow engine -> document -->
+  <line x1="260" y1="388" x2="260" y2="430" stroke="#2e74b5" stroke-width="1.8" marker-end="url(#arr)"/>
+  <text x="270" y="410" font-size="10" fill="#2e74b5">Word.run(): insertHtml / insertOoxml / insertImage</text>
+
+  <!-- document -->
+  <rect x="40" y="432" width="440" height="56" rx="5" fill="#fff7e6" stroke="#b7791f"/>
+  <text x="52" y="455" font-size="12" font-weight="bold" fill="#7a4f00">The user's Word document</text>
+  <text x="52" y="475" font-size="10.5" fill="#7a4f00">formatted text &#183; native equations &#183; 2D structure images &#183; tables</text>
+
+  <!-- privacy note -->
+  <text x="24" y="520" font-size="11" font-weight="bold" fill="#b00020">Document content never leaves the machine.</text>
+  <text x="24" y="538" font-size="10" fill="#6b7280">Only static UI code is fetched over HTTPS; no backend, no telemetry.</text>
+
+  <!-- GitHub Pages -->
+  <rect x="522" y="120" width="108" height="120" rx="8" fill="#eaf0e9" stroke="#2e7d32" stroke-dasharray="4 3"/>
+  <text x="576" y="142" font-size="11" font-weight="bold" fill="#1b5e20" text-anchor="middle">GitHub</text>
+  <text x="576" y="158" font-size="11" font-weight="bold" fill="#1b5e20" text-anchor="middle">Pages</text>
+  <text x="576" y="180" font-size="9.5" fill="#333" text-anchor="middle">static UI files</text>
+  <text x="576" y="194" font-size="9.5" fill="#333" text-anchor="middle">over HTTPS</text>
+  <text x="576" y="216" font-size="9" fill="#6b7280" text-anchor="middle">(no document</text>
+  <text x="576" y="228" font-size="9" fill="#6b7280" text-anchor="middle">data)</text>
+  <line x1="522" y1="170" x2="497" y2="150" stroke="#2e7d32" stroke-width="1.5" marker-end="url(#arrg)"/>
+  <text x="430" y="120" font-size="9" fill="#2e7d32">loads UI</text>
+</svg>

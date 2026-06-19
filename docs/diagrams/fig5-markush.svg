@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="340" font-family="Calibri, Segoe UI, sans-serif">
+  <defs>
+    <marker id="a" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#2e74b5"/>
+    </marker>
+  </defs>
+  <rect x="1" y="1" width="638" height="338" fill="#ffffff" stroke="#ffffff"/>
+  <text x="16" y="26" font-size="15" font-weight="bold" fill="#1f3864">Markush legend automation (patent claim language)</text>
+
+  <!-- structure -->
+  <rect x="16" y="56" width="150" height="70" rx="6" fill="#dbe7f5" stroke="#1f3864"/>
+  <text x="91" y="80" font-size="11" font-weight="bold" fill="#1f3864" text-anchor="middle">Generic structure</text>
+  <text x="91" y="98" font-size="9" fill="#333" text-anchor="middle">atom/bond DSL or molfile</text>
+  <text x="91" y="113" font-size="9" fill="#333" text-anchor="middle">with R, R1, [C,N], X, A, Q</text>
+
+  <!-- referenced rgroups -->
+  <rect x="196" y="56" width="180" height="70" rx="6" fill="#eef4fb" stroke="#2e74b5"/>
+  <text x="286" y="78" font-size="10.5" font-weight="bold" fill="#1f3864" text-anchor="middle">referencedRGroups()</text>
+  <text x="208" y="98" font-size="9" fill="#333">finds R1, R1a, R1', Ra ...</text>
+  <text x="208" y="113" font-size="9" fill="#333">no false hits on "Ring"/"Red"</text>
+  <line x1="166" y1="91" x2="194" y2="91" stroke="#2e74b5" stroke-width="1.6" marker-end="url(#a)"/>
+
+  <!-- BFS -->
+  <rect x="406" y="46" width="218" height="90" rx="6" fill="#f3f9f3" stroke="#2e7d32"/>
+  <text x="515" y="66" font-size="10.5" font-weight="bold" fill="#1b5e20" text-anchor="middle">Bounded BFS over cross-references</text>
+  <text x="418" y="86" font-size="9" fill="#333">a definition of R1 may reference R1a;</text>
+  <text x="418" y="100" font-size="9" fill="#333">R1a may reference R1b ... (depth &lt; 5)</text>
+  <text x="418" y="114" font-size="9" fill="#333">cycle-guarded; auto-discovers the full</text>
+  <text x="418" y="128" font-size="9" fill="#333">sub-generic R-group hierarchy</text>
+  <line x1="376" y1="91" x2="404" y2="91" stroke="#2e74b5" stroke-width="1.6" marker-end="url(#a)"/>
+
+  <!-- expand -->
+  <rect x="120" y="166" width="400" height="62" rx="6" fill="#eef4fb" stroke="#2e74b5"/>
+  <text x="320" y="186" font-size="10.5" font-weight="bold" fill="#1f3864" text-anchor="middle">expandDefinition() &#8212; idempotent shorthand typesetting</text>
+  <text x="320" y="205" font-size="9.5" fill="#333" text-anchor="middle">"C1-6 alkyl" &#8594; "C&#8321;&#8211;C&#8326; alkyl"   &#183;   "opt sub" &#8594; "optionally substituted"</text>
+  <text x="320" y="219" font-size="9" fill="#6b7280" text-anchor="middle">keyword-gated so real formulas (C2H5, CO2H) are left untouched</text>
+  <line x1="515" y1="136" x2="430" y2="164" stroke="#2e74b5" stroke-width="1.5" marker-end="url(#a)"/>
+
+  <!-- outputs -->
+  <line x1="320" y1="228" x2="320" y2="250" stroke="#2e74b5" stroke-width="1.6"/>
+  <line x1="180" y1="250" x2="460" y2="250" stroke="#2e74b5" stroke-width="1.6"/>
+  <line x1="180" y1="250" x2="180" y2="268" stroke="#2e74b5" stroke-width="1.6" marker-end="url(#a)"/>
+  <line x1="460" y1="250" x2="460" y2="268" stroke="#2e74b5" stroke-width="1.6" marker-end="url(#a)"/>
+
+  <rect x="60" y="270" width="240" height="44" rx="6" fill="#fff7e6" stroke="#b7791f"/>
+  <text x="180" y="290" font-size="10" font-weight="bold" fill="#7a4f00" text-anchor="middle">Inline legend (insertHtml)</text>
+  <text x="180" y="306" font-size="8.5" fill="#7a4f00" text-anchor="middle">"where R1 = ...; R2 = ..."</text>
+
+  <rect x="340" y="270" width="240" height="44" rx="6" fill="#fff7e6" stroke="#b7791f"/>
+  <text x="460" y="290" font-size="10" font-weight="bold" fill="#7a4f00" text-anchor="middle">Two-column table (insertHtml)</text>
+  <text x="460" y="306" font-size="8.5" fill="#7a4f00" text-anchor="middle">R-group | Definition</text>
+</svg>

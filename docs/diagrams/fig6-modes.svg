@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" font-family="Calibri, Segoe UI, sans-serif">
+  <defs>
+    <marker id="a" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#2e74b5"/>
+    </marker>
+  </defs>
+  <rect x="1" y="1" width="638" height="358" fill="#ffffff" stroke="#ffffff"/>
+  <text x="16" y="26" font-size="15" font-weight="bold" fill="#1f3864">Six modes, one shared engine and insertion layer</text>
+
+  <!-- six mode chips -->
+  <g font-size="10" fill="#1f3864" text-anchor="middle">
+    <rect x="16"  y="48" width="96" height="38" rx="6" fill="#dbe7f5" stroke="#1f3864"/><text x="64"  y="71">Chemical</text>
+    <rect x="120" y="48" width="96" height="38" rx="6" fill="#dbe7f5" stroke="#1f3864"/><text x="168" y="71">Math</text>
+    <rect x="224" y="48" width="96" height="38" rx="6" fill="#dbe7f5" stroke="#1f3864"/><text x="272" y="71">Build</text>
+    <rect x="328" y="48" width="96" height="38" rx="6" fill="#dbe7f5" stroke="#1f3864"/><text x="376" y="71">Code</text>
+    <rect x="432" y="48" width="96" height="38" rx="6" fill="#dbe7f5" stroke="#1f3864"/><text x="480" y="71">Sequence</text>
+    <rect x="536" y="48" width="92" height="38" rx="6" fill="#dbe7f5" stroke="#1f3864"/><text x="582" y="71">Botanical</text>
+  </g>
+
+  <!-- engine band -->
+  <rect x="16" y="116" width="612" height="96" rx="6" fill="#f3f9f3" stroke="#2e7d32"/>
+  <text x="28" y="136" font-size="11.5" font-weight="bold" fill="#1b5e20">Shared engine (pure src/lib)</text>
+  <g font-size="9" fill="#333">
+    <text x="28" y="156">chemParser</text><text x="120" y="156">mathParse</text><text x="210" y="156">mathOmml</text><text x="300" y="156">mathHtml</text><text x="390" y="156">structures</text><text x="480" y="156">builder</text><text x="556" y="156">gallery</text>
+    <text x="28" y="174">markush</text><text x="120" y="174">botanical</text><text x="210" y="174">sequence</text><text x="300" y="174">codeblock</text><text x="390" y="174">numbering</text><text x="480" y="174">history</text><text x="556" y="174">palettes</text>
+    <text x="28" y="192">segments</text><text x="120" y="192">compounds</text><text x="210" y="192">formulaLibrary</text>
+    <text x="390" y="192" font-style="italic" fill="#6b7280">OpenChemLib used only by structures + builder</text>
+  </g>
+
+  <!-- arrows modes -> engine -->
+  <g stroke="#2e74b5" stroke-width="1.3" marker-end="url(#a)">
+    <line x1="64"  y1="86" x2="64"  y2="114"/>
+    <line x1="168" y1="86" x2="168" y2="114"/>
+    <line x1="272" y1="86" x2="272" y2="114"/>
+    <line x1="376" y1="86" x2="376" y2="114"/>
+    <line x1="480" y1="86" x2="480" y2="114"/>
+    <line x1="582" y1="86" x2="582" y2="114"/>
+  </g>
+
+  <!-- insertion band -->
+  <line x1="320" y1="212" x2="320" y2="238" stroke="#2e74b5" stroke-width="1.6" marker-end="url(#a)"/>
+  <rect x="16" y="240" width="612" height="70" rx="6" fill="#fff7e6" stroke="#b7791f"/>
+  <text x="28" y="260" font-size="11.5" font-weight="bold" fill="#7a4f00">Shared insertion layer (Word.run, taskpane.ts)</text>
+  <g font-size="10" fill="#7a4f00">
+    <text x="40" y="286">(a) insertHtml &#8212; text, code, tables, names</text>
+    <text x="300" y="286">(b) insertOoxml &#8212; native equation</text>
+    <text x="40" y="302">(c) insertInlinePictureFromBase64 &#8212; 2D structures</text>
+    <text x="300" y="302" font-style="italic" fill="#6b7280">preview HTML == inserted HTML (WYSIWYG invariant)</text>
+  </g>
+
+  <text x="16" y="340" font-size="10" fill="#6b7280">Adding a mode = a new pure engine module + a section in the task pane; the insertion layer and WYSIWYG invariant are reused unchanged.</text>
+</svg>

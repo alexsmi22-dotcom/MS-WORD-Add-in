@@ -13,7 +13,7 @@ machine. The repo is public, but it only contains the tool's code.
   **Create repository**. Don't add a README (the project already has files).
 - Note your **username** and the **repo name**. Your add-in URL will be:
   **`https://<username>.github.io/<repo>/`**
-  (e.g. `https://asmith.github.io/formula-inserter/`).
+  (e.g. `https://alexsmi22-dotcom.github.io/MS-WORD-Add-in/`).
 
 ### 2. Push this project to the repo
 

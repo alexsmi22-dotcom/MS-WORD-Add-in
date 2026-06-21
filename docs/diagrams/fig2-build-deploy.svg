@@ -46,7 +46,7 @@
   <rect x="20" y="170" width="290" height="100" rx="6" fill="#eaf0e9" stroke="#2e7d32"/>
   <text x="34" y="190" font-size="11.5" font-weight="bold" fill="#1b5e20">A &#183; Host the web files</text>
   <text x="34" y="210" font-size="10" fill="#333">pages.yml publishes dist/ to GitHub Pages</text>
-  <text x="34" y="226" font-size="9.5" fill="#2e74b5">https://a-smith-caldwell.github.io/formula-inserter/</text>
+  <text x="34" y="226" font-size="9.5" fill="#2e74b5">https://alexsmi22-dotcom.github.io/MS-WORD-Add-in/</text>
   <text x="34" y="246" font-size="9.5" fill="#333">Push to main &#8594; auto rebuild &amp; republish.</text>
   <text x="34" y="261" font-size="9.5" fill="#333">Clients refresh on next pane open (no re-send).</text>
 

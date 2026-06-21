@@ -18,7 +18,7 @@ and nothing installed on the machine. Centralized deployment distributes the
 small `manifest.xml`; the web files are loaded from your host at runtime.
 
 - **Web files:** already hosted (e.g. GitHub Pages at
-  `https://a-smith-caldwell.github.io/formula-inserter/`, or your internal HTTPS
+  `https://alexsmi22-dotcom.github.io/MS-WORD-Add-in/`, or your internal HTTPS
   host). See [`HOST-SETUP.md`](HOST-SETUP.md) / [`GITHUB-PAGES.md`](GITHUB-PAGES.md).
 - **Manifest:** `release\formula-inserter\manifest.xml`, produced and validated by
   `scripts\package.ps1 -HostUrl <your-host>`. This same file is what you upload

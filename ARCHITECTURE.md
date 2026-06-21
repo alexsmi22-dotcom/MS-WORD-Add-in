@@ -5,7 +5,7 @@
 **Version:** 0.1.0
 **Date of this document:** 2026-06-19
 **Add-in Id:** `5674364b-9410-41a5-a938-12c1155aeb7e`
-**Hosted at:** `https://a-smith-caldwell.github.io/formula-inserter/`
+**Hosted at:** `https://alexsmi22-dotcom.github.io/MS-WORD-Add-in/`
 
 ---
 
@@ -208,7 +208,7 @@ A TaskPaneApp manifest (schema 1.1 + TaskPane VersionOverrides). Key values:
 
 **Ribbon (VersionOverrides V1_0):** a single group `FormulaGroup` ("Formulas") on `TabHome`, containing one button `OpenTaskpaneButton` ("Insert Formula") whose `Action xsi:type="ShowTaskpane"` opens the task pane. There are **no execute-function commands** yet.
 
-The dev manifest points all URLs at `https://localhost:3000`; the prod template uses `https://ADDIN-HOST.example.com`; the shipped release manifest is stamped to `https://a-smith-caldwell.github.io/formula-inserter`.
+The dev manifest points all URLs at `https://localhost:3000`; the prod template uses `https://ADDIN-HOST.example.com`; the shipped release manifest is stamped to `https://alexsmi22-dotcom.github.io/MS-WORD-Add-in`.
 
 ### 6.2 Entry points
 
@@ -473,7 +473,7 @@ An Office add-in = a small `manifest.xml` + HTTPS-hosted static web files. Nothi
 
 ### 12.2 CI/CD (GitHub Actions)
 - **`ci.yml`** (push/PR, Node 20): `npm ci` → `npm run lint` (tsc) → `npm test` (jest) → `npm run validate:compounds` → `npm run build` → `office-addin-manifest validate`. All three test layers gate every change.
-- **`pages.yml`** (push to main + manual): `npm ci` → `npm run build` → `upload-pages-artifact path: dist` → `deploy-pages`, publishing `dist/` to `https://a-smith-caldwell.github.io/formula-inserter/`.
+- **`pages.yml`** (push to main + manual): `npm ci` → `npm run build` → `upload-pages-artifact path: dist` → `deploy-pages`, publishing `dist/` to `https://alexsmi22-dotcom.github.io/MS-WORD-Add-in/`.
 
 ### 12.3 `scripts/package.ps1` — the emailable kit
 `package.ps1 -HostUrl https://<host>/formula-inserter`:

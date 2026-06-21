@@ -14,8 +14,12 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
 - [ ] Build is current (`npm run build`) and the add-in is loaded:
   - **Dev:** dev server running (`npm run dev-server`), manifest sideloaded.
   - **Prod:** installed from the per-OS pack; web files hosted on GitHub Pages.
-- [ ] Open a blank Word document. Open the task pane (**Home → Insert Formula**,
-  or **Insert → Add-ins**).
+- [ ] For most modes, a **blank** Word document is fine. For **Audit** (§14) — and
+  optionally **Numerals** (§10) and **Refs** (§11) — open the ready-made
+  **`docs/Formula-Inserter-Test.docx`**, which already contains planted issues
+  (orphan numeral `(99)`, `SEQ ID NO: 5`, figure-number gaps, and a dangling
+  `Fig. 7`). Regenerate it any time with `powershell -File scripts\make-test-doc.ps1`.
+- [ ] Open the task pane (**Home → Insert Formula**, or **Insert → Add-ins**).
 - [ ] The pane loads with the mode row showing 14 modes:
   **Chemical · Math · Units · Plot · Finance · Build · Code · Sequence · Botanical · Numerals · Refs · DNA · Reaction · Audit.**
 - [ ] **Offline check:** after first load, disconnect the network — the pane and

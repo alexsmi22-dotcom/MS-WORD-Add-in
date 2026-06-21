@@ -1,28 +1,45 @@
 # Formula Inserter — Word Add-in
 
-A Microsoft Word add-in (Office.js / TypeScript) that turns typed chemical and
-math formulas into properly formatted text — correct subscripts, superscripts,
-and charges — and inserts them at the cursor.
+A Microsoft Word add-in (Office.js / TypeScript) for **STEM authoring**. It turns
+what you type into correctly formatted content — formulas, equations, structures,
+units, plots, sequences, and more — and inserts it at the cursor. Everything runs
+**entirely on your machine; no document content is sent anywhere.**
+
+Pick a mode in the task pane — **14 modes** in v1.0.0:
+
+| Mode | What it does |
+|---|---|
+| **Chemical** | formulas (`H2O`→H₂O, `SO4^2-`→SO₄²⁻), 2D structures from name/formula/SMILES, structure→name lookup |
+| **Math** | native Word equations, matrices/cases, **LaTeX import/export**, multi-line aligned equations, a formula library |
+| **Units** | SI typesetting (±, ×10ⁿ, µ/Ω/°), significant figures, unit conversion incl. compound units (`km/h → m/s`) |
+| **Plot** | offline function & data charts (multiple series + legend, error bars) |
+| **Finance** | TVM / loan / NPV / IRR / Black–Scholes / bond calculators, plus a finance equation library |
+| **Build** | molecules from atom/bond lists or molfiles; Markush/R-group genus + substituent gallery |
+| **Code** | algorithm (bold-keyword) and verbatim code listings |
+| **Sequence** | WIPO **ST.26** biological sequence listings (DNA/RNA/protein) |
+| **Botanical** | plant-patent scientific-name typesetting + varietal trait tables |
+| **Numerals** | reference-numeral management (callouts, collision/gap/orphan checks, list) |
+| **Refs** | auto-numbered figure/table captions and cross-references |
+| **DNA** | reverse complement, transcription, six-frame translation, ORF finder, primer Tm, protein MW/pI/GRAVY, restriction sites |
+| **Reaction** | multi-step reaction schemes with conditions over the arrow |
+| **Audit** | one-pass whole-document consistency check (numerals, SEQ ID NO, figures, cross-references) |
 
 ```
-H2O      ->  H₂O
-Ca(OH)2  ->  Ca(OH)₂
-SO4^2-   ->  SO₄²⁻
-Na+      ->  Na⁺
-x^2 + y^2 ->  x² + y²        (math mode)
-aspirin  ->  (inserts the 2D structure as an image)
+H2O → H₂O   ·   paste \frac{-b±√(b²-4ac)}{2a} (LaTeX) → a Word equation   ·   aspirin → 2D structure
 ```
 
-> **Status:** working scaffold, chemical/math formatting, and offline 2D
-> structure rendering. See the [Roadmap](#roadmap) for what's next.
+> **Status:** v1.0.0 — production. Word on **Windows & macOS**, 100% client-side.
+> Install packs: [`install/`](install/) · feature list: [`FEATURES.md`](FEATURES.md).
 
 ---
 
 ## Documentation
 
-- [User Guide](docs/USER_GUIDE.md) — for drafters
+- [Features](FEATURES.md) — what every mode does
+- [Install (Windows & macOS)](install/README.md) — for end users
+- [Manual test script](docs/TEST-SCRIPT.md) — in-Word QA checklist
 - [Distribution & Deployment](DISTRIBUTION.md) — for IT
-- [Security & Confidentiality](SECURITY.md) — data-flow, CSP, localStorage
+- [Architecture](ARCHITECTURE.md) · [Security & Confidentiality](SECURITY.md)
 - [Third-Party Licenses](THIRD_PARTY_LICENSES.md) · [Changelog](CHANGELOG.md)
 
 ## Prerequisites
@@ -31,9 +48,9 @@ aspirin  ->  (inserts the 2D structure as an image)
 2. **Microsoft Word** — Microsoft 365 desktop (Windows or Mac) or Word on the web
    (modern WebView2/Edge runtime; legacy IE-based webviews are not supported).
 
-> Verified: `npm run lint` (type-check), `npm test` (440 unit tests),
-> `npm run build` (production bundle), `npm run validate:compounds`, and
-> `office-addin-manifest validate` all pass.
+> Verified by the QC gate (`npm run qc`): `npm run lint` (type-check),
+> `npm test` (**793 unit tests**), `npm run build` (production bundle),
+> `office-addin-manifest validate`, and the task-pane id-wiring audit — all pass.
 
 ## Setup
 

@@ -8,8 +8,9 @@
 #   formula-inserter-windows\ (.zip) -> emailed to Windows users
 #     manifest.xml, install.ps1/.bat, uninstall.ps1/.bat, INSTALL.md, FEATURES.md
 #   formula-inserter-mac\ (.zip)     -> emailed to macOS users
-#     manifest.xml, INSTALL-MAC.md, FEATURES.md  (no script: installs via a
-#     copy-paste Terminal command — see INSTALL-MAC.md / DISTRIBUTION.md)
+#     manifest.xml, START HERE - Install on Mac.txt, INSTALL-MAC.md, FEATURES.md
+#     (no script: installs via a copy-paste Terminal command — Gatekeeper flags
+#     unsigned .command files as malware. See the START HERE txt / DISTRIBUTION.md)
 #
 # The same stamped manifest.xml serves both OSes; only the per-user installer differs.
 
@@ -68,6 +69,7 @@ Copy-Item (Join-Path $root "FEATURES.md")             $winPack -Force
 # script: macOS Gatekeeper flags an unsigned downloaded *.command as malware, so
 # INSTALL-MAC.md installs via a copy-paste Terminal command instead.
 Copy-Item $manifest $macPack -Force
+Copy-Item (Join-Path $root "packaging\START HERE - Install on Mac.txt") $macPack -Force
 Copy-Item (Join-Path $root "packaging\INSTALL-MAC.md")    $macPack -Force
 Copy-Item (Join-Path $root "FEATURES.md")                 $macPack -Force
 

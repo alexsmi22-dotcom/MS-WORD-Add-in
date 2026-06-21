@@ -1,0 +1,52 @@
+==========================================================
+  INSTALL FORMULA INSERTER IN WORD  (macOS)
+==========================================================
+
+There is NO installer to double-click on purpose: macOS would block an
+unsigned downloaded installer with a scary "cannot verify it is free of
+malware" warning. Instead you run ONE command that simply copies a file
+into Word's add-in folder. It takes about a minute.
+
+(You only need to do this once. Launch Word at least once before you
+start, so it creates its add-in folder.)
+
+----------------------------------------------------------
+STEP 1.  Open Terminal.
+         Press  Command-Spacebar , type  Terminal , press Return.
+
+STEP 2.  Tell Terminal to look in this folder.
+         Type  cd  followed by ONE space, then DRAG this folder from
+         Finder onto the Terminal window, and press Return.
+
+STEP 3.  Copy the whole line below, paste it into Terminal (Command-V),
+         and press Return:
+
+mkdir -p ~/Library/Containers/com.microsoft.Word/Data/Documents/wef && cp manifest.xml ~/Library/Containers/com.microsoft.Word/Data/Documents/wef/formula-inserter.manifest.xml && echo "Formula Inserter installed."
+
+         When it prints   Formula Inserter installed.   it worked.
+
+STEP 4.  Quit Word completely ( Command-Q , not just the red dot ),
+         then reopen it.
+
+STEP 5.  Insert tab  >  Add-ins (My Add-ins)  >  Formula Inserter.
+         The pane opens on the side.
+
+----------------------------------------------------------
+QUICK TEST
+  In the pane, with "Chemical" selected, type  H2O  and click
+  "Insert formatted text" -- you should get H subscript-2 O.
+
+TROUBLE?
+  - "No such file or directory": Step 2 didn't put you in this folder.
+    Redo Step 2 (drag the folder onto Terminal), then redo Step 3.
+  - Not listed under Add-ins: make sure you FULLY quit Word with
+    Command-Q, then reopened it.
+  - Pane is blank: you need internet the first time it loads; after
+    that it works offline.
+  See INSTALL-MAC.md in this folder for more detail.
+
+TO UNINSTALL
+  Open Terminal, paste this line, press Return, then restart Word:
+
+rm -f ~/Library/Containers/com.microsoft.Word/Data/Documents/wef/formula-inserter.manifest.xml
+==========================================================

@@ -43,7 +43,7 @@ describe("buildSt26Xml — XML safety", () => {
 
 describe("buildSt26Xml", () => {
   const meta: SequenceListingMeta = {
-    applicantName: "Caldwell & Co.",
+    applicantName: "Acme & Co.",
     inventionTitle: "Novel <Construct>",
     applicantFileReference: "ABC-123",
     ipOfficeCode: "US",
@@ -64,7 +64,7 @@ describe("buildSt26Xml", () => {
   });
 
   it("includes applicant, title, and total quantity", () => {
-    expect(xml).toContain("Caldwell &amp; Co.");
+    expect(xml).toContain("Acme &amp; Co.");
     expect(xml).toContain("Novel &lt;Construct&gt;");
     expect(xml).toContain("<SequenceTotalQuantity>2</SequenceTotalQuantity>");
   });

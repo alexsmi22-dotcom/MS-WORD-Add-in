@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Formula Inserter — Word Add-in for STEM Authoring</title>
+  <meta name="description" content="A free Microsoft Word add-in for STEM authoring: chemistry & 2D structures, math/LaTeX equations, units, plotting, finance, DNA/sequences, and patent-drafting tools. 100% offline. Windows & Mac." />
+  <style>
+    :root { --blue:#2e74b5; --ink:#1b1b1f; --muted:#5b5b66; --bg:#f6f8fb; --card:#fff; --line:#e4e8ef; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; color:var(--ink); background:var(--bg); line-height:1.55; }
+    .wrap { max-width:860px; margin:0 auto; padding:0 20px; }
+    header { background:linear-gradient(135deg,#2e74b5,#1f4e79); color:#fff; padding:56px 0 48px; }
+    header .wrap { text-align:center; }
+    h1 { font-size:2.4rem; margin:0 0 8px; }
+    .tag { font-size:1.15rem; opacity:.95; margin:0 auto; max-width:620px; }
+    .pills { margin:22px 0 4px; }
+    .pill { display:inline-block; background:rgba(255,255,255,.16); border:1px solid rgba(255,255,255,.25); border-radius:999px; padding:5px 12px; margin:4px; font-size:.85rem; }
+    .cta { margin-top:26px; }
+    .btn { display:inline-block; background:#fff; color:var(--blue); font-weight:700; text-decoration:none; padding:12px 22px; border-radius:8px; margin:6px; box-shadow:0 2px 8px rgba(0,0,0,.15); }
+    .btn.alt { background:transparent; color:#fff; border:1.5px solid rgba(255,255,255,.7); }
+    section { padding:40px 0; }
+    h2 { color:var(--blue); font-size:1.4rem; margin:0 0 16px; }
+    .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); gap:14px; }
+    .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px 16px; }
+    .card b { display:block; margin-bottom:3px; }
+    .card span { color:var(--muted); font-size:.92rem; }
+    .note { background:#eef4fb; border:1px solid #d6e3f3; border-radius:10px; padding:16px 18px; color:#234; }
+    code { background:#eef1f6; padding:1px 6px; border-radius:5px; font-size:.9em; }
+    footer { text-align:center; color:var(--muted); font-size:.9rem; padding:28px 0 48px; }
+    a { color:var(--blue); }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap">
+      <h1>Formula Inserter</h1>
+      <p class="tag">A free Microsoft Word add-in for STEM authoring — formulas, equations, structures, units, plots, finance, and more. <strong>14 modes, 100% offline.</strong></p>
+      <div class="pills">
+        <span class="pill">🧪 Chemistry</span>
+        <span class="pill">∑ Math / LaTeX</span>
+        <span class="pill">📏 Units</span>
+        <span class="pill">📈 Plotting</span>
+        <span class="pill">💵 Finance</span>
+        <span class="pill">🧬 DNA / Sequences</span>
+        <span class="pill">⚗️ Reactions</span>
+      </div>
+      <div class="cta">
+        <a class="btn" href="https://github.com/alexsmi22-dotcom/MS-WORD-Add-in">View on GitHub</a>
+        <a class="btn alt" href="https://github.com/alexsmi22-dotcom/MS-WORD-Add-in/tree/main/install">Install (Windows &amp; Mac)</a>
+      </div>
+    </div>
+  </header>
+
+  <section class="wrap">
+    <h2>What it does</h2>
+    <div class="grid">
+      <div class="card"><b>🧪 Chemical</b><span>Formatted formulas, 2D structures from name/SMILES, name lookup</span></div>
+      <div class="card"><b>∑ Math</b><span>Native Word equations, LaTeX import/export, aligned equations</span></div>
+      <div class="card"><b>📏 Units</b><span>SI typesetting + conversion (incl. km/h → m/s)</span></div>
+      <div class="card"><b>📈 Plot</b><span>Offline function &amp; data charts with legends</span></div>
+      <div class="card"><b>💵 Finance</b><span>TVM, loan, NPV/IRR, Black–Scholes, bond calculators</span></div>
+      <div class="card"><b>🔬 Build</b><span>Structures from atom/bond lists; Markush genus</span></div>
+      <div class="card"><b>💻 Code</b><span>Algorithm &amp; code listings</span></div>
+      <div class="card"><b>🧬 Sequence</b><span>WIPO ST.26 biological sequence listings</span></div>
+      <div class="card"><b>🌿 Botanical</b><span>Plant-nomenclature typesetting</span></div>
+      <div class="card"><b>🔢 Numerals / 🔖 Refs</b><span>Reference numerals, captions &amp; cross-references</span></div>
+      <div class="card"><b>🧬 DNA</b><span>Reverse complement, translation, ORFs, primer Tm, restriction sites</span></div>
+      <div class="card"><b>✅ Audit</b><span>Whole-document consistency check</span></div>
+    </div>
+  </section>
+
+  <section class="wrap">
+    <div class="note">
+      <strong>Private by design.</strong> Everything runs on your machine — nothing you type ever leaves your computer. Works on Word for <strong>Windows &amp; macOS</strong> (Microsoft 365 / 2019+).
+    </div>
+  </section>
+
+  <section class="wrap">
+    <h2>Get it</h2>
+    <p>Download the install pack for your OS from the <a href="https://github.com/alexsmi22-dotcom/MS-WORD-Add-in/tree/main/install">install folder</a>, unzip, and run the installer (full steps in the install guide). Then open Word → <code>Insert → Add-ins → Formula Inserter</code>.</p>
+  </section>
+
+  <footer>
+    Free &amp; open-source (MIT). &nbsp;·&nbsp; <a href="https://github.com/alexsmi22-dotcom/MS-WORD-Add-in">github.com/alexsmi22-dotcom/MS-WORD-Add-in</a>
+  </footer>
+</body>
+</html>

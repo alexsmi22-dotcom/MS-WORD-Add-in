@@ -75,7 +75,11 @@ $winZip = Join-Path $release "formula-inserter-windows.zip"
 $macZip = Join-Path $release "formula-inserter-mac.zip"
 foreach ($z in @($winZip, $macZip)) { if (Test-Path $z) { Remove-Item -Force $z } }
 Compress-Archive -Path (Join-Path $winPack "*") -DestinationPath $winZip
-Compress-Archive -Path (Join-Path $macPack "*") -DestinationPath $macZip
+# Mac zip is built by a Node zipper that preserves Unix exec bits — Compress-Archive
+# writes a DOS zip with no permission bits, so install.command would extract as
+# non-executable and a Finder double-click would fail.
+node (Join-Path $root "scripts\zip-mac.mjs") $macPack $macZip
+if ($LASTEXITCODE -ne 0) { throw "Mac zip build failed." }
 
 Write-Host ""
 Write-Host "Done." -ForegroundColor Green

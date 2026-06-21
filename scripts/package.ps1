@@ -8,7 +8,8 @@
 #   formula-inserter-windows\ (.zip) -> emailed to Windows users
 #     manifest.xml, install.ps1/.bat, uninstall.ps1/.bat, INSTALL.md, FEATURES.md
 #   formula-inserter-mac\ (.zip)     -> emailed to macOS users
-#     manifest.xml, install.command, uninstall.command, INSTALL-MAC.md, FEATURES.md
+#     manifest.xml, INSTALL-MAC.md, FEATURES.md  (no script: installs via a
+#     copy-paste Terminal command — see INSTALL-MAC.md / DISTRIBUTION.md)
 #
 # The same stamped manifest.xml serves both OSes; only the per-user installer differs.
 
@@ -63,10 +64,10 @@ Copy-Item (Join-Path $root "packaging\uninstall.ps1") $winPack -Force
 Copy-Item (Join-Path $root "packaging\INSTALL.md")    $winPack -Force
 Copy-Item (Join-Path $root "FEATURES.md")             $winPack -Force
 
-# macOS install pack
+# macOS install pack — manifest + docs only. We deliberately ship NO runnable
+# script: macOS Gatekeeper flags an unsigned downloaded *.command as malware, so
+# INSTALL-MAC.md installs via a copy-paste Terminal command instead.
 Copy-Item $manifest $macPack -Force
-Copy-Item (Join-Path $root "packaging\install.command")   $macPack -Force
-Copy-Item (Join-Path $root "packaging\uninstall.command") $macPack -Force
 Copy-Item (Join-Path $root "packaging\INSTALL-MAC.md")    $macPack -Force
 Copy-Item (Join-Path $root "FEATURES.md")                 $macPack -Force
 
@@ -75,11 +76,8 @@ $winZip = Join-Path $release "formula-inserter-windows.zip"
 $macZip = Join-Path $release "formula-inserter-mac.zip"
 foreach ($z in @($winZip, $macZip)) { if (Test-Path $z) { Remove-Item -Force $z } }
 Compress-Archive -Path (Join-Path $winPack "*") -DestinationPath $winZip
-# Mac zip is built by a Node zipper that preserves Unix exec bits — Compress-Archive
-# writes a DOS zip with no permission bits, so install.command would extract as
-# non-executable and a Finder double-click would fail.
-node (Join-Path $root "scripts\zip-mac.mjs") $macPack $macZip
-if ($LASTEXITCODE -ne 0) { throw "Mac zip build failed." }
+# Mac pack contains no executable script, so a plain zip is fine.
+Compress-Archive -Path (Join-Path $macPack "*") -DestinationPath $macZip
 
 Write-Host ""
 Write-Host "Done." -ForegroundColor Green

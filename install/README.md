@@ -10,7 +10,7 @@ Pick your operating system below.
 | Your OS | Download | Quick steps |
 | --- | --- | --- |
 | **Windows** | **[formula-inserter-windows.zip](formula-inserter-windows.zip)** | Unzip → right-click **`install.ps1` → Run with PowerShell** → restart Word |
-| **macOS** | **[formula-inserter-mac.zip](formula-inserter-mac.zip)** | Unzip → double-click **`install.command`** (or use the Terminal step below) → restart Word |
+| **macOS** | **[formula-inserter-mac.zip](formula-inserter-mac.zip)** | Unzip → paste one **Terminal** command (see macOS steps below) → restart Word |
 
 After installing, open Word → **Insert** tab → **Add-ins** → **Formula Inserter**
 (or the **Insert Formula** button on the Home tab). The pane opens on the side.
@@ -37,25 +37,23 @@ After installing, open Word → **Insert** tab → **Add-ins** → **Formula Ins
 
 You need modern Word (Microsoft 365 / Office 2019+). Launch Word **once** before installing so it creates its add-in folder.
 
+Installing is one copy-paste Terminal command. (There's no double-click
+installer for Mac on purpose — macOS blocks unsigned downloaded scripts with a
+*"cannot verify it is free of malware"* warning; copying one file avoids that.)
+
 1. **Download** `formula-inserter-mac.zip` and **unzip** it.
-2. **Run the installer.** Double-click **`install.command`** — a message says
-   **"Formula Inserter installed…"**; press any key to close. (If macOS says
-   *"unidentified developer,"* right-click it → **Open** → **Open**.)
+2. Open **Terminal** (press **⌘-Space**, type `Terminal`, press **Return**).
+3. Type `cd ` (with a trailing space), drag the unzipped
+   **formula-inserter-mac** folder onto the Terminal window, press **Return**.
+4. Paste this one line and press **Return**:
+   ```bash
+   mkdir -p ~/Library/Containers/com.microsoft.Word/Data/Documents/wef && cp manifest.xml ~/Library/Containers/com.microsoft.Word/Data/Documents/wef/formula-inserter.manifest.xml && echo "Formula Inserter installed."
+   ```
+   When it prints **"Formula Inserter installed."** the file is in place.
+5. **Fully quit Word** (**⌘Q**, not just the red dot), then reopen it.
+6. **Insert** tab → **Add-ins** (the *My Add-ins* dropdown) → **Formula Inserter**.
 
-   **If the double-click does nothing, opens TextEdit, or says "permission
-   denied"** (an older download whose executable flag was stripped), use the
-   foolproof Terminal method instead:
-   - Open **Terminal** (Spotlight → type "Terminal").
-   - Type `cd ` (with a trailing space), drag the unzipped
-     **formula-inserter-mac** folder onto the Terminal window, press **Return**.
-   - Paste this one line and press **Return**:
-     ```bash
-     mkdir -p ~/Library/Containers/com.microsoft.Word/Data/Documents/wef && cp manifest.xml ~/Library/Containers/com.microsoft.Word/Data/Documents/wef/formula-inserter.manifest.xml && echo "Formula Inserter installed."
-     ```
-3. **Fully quit Word** (**⌘Q**, not just the red dot), then reopen it.
-4. **Insert** tab → **Add-ins** (the *My Add-ins* dropdown) → **Formula Inserter**.
-
-**Uninstall:** double-click `uninstall.command`, or in Terminal paste
+**Uninstall:** in Terminal paste
 `rm -f ~/Library/Containers/com.microsoft.Word/Data/Documents/wef/formula-inserter.manifest.xml`, then restart Word.
 
 ---
@@ -69,10 +67,9 @@ text** — you should get H₂O in your document.
   first time it loads (code is served over HTTPS). After that it works offline.
 - **Not listed under Add-ins after installing:** make sure Word was *fully* closed
   (Windows) / quit with ⌘Q (Mac), then reopen.
-- **macOS installer won't run / opens TextEdit / "permission denied" /
-  "unidentified developer":** the download's executable flag was stripped — use
-  the **Terminal one-liner** in the macOS section above. It needs no executable
-  flag and bypasses Gatekeeper.
+- **macOS "No such file or directory" when pasting the install command:** you
+  weren't in the unzipped folder — redo step 3 (drag the folder onto Terminal so
+  it `cd`s there; `ls` should show `manifest.xml`), then rerun the command.
 - **"Could not be started" / compatibility:** requires a modern Microsoft 365 build
   of Word. Very old Office versions aren't supported.
 

@@ -31,6 +31,18 @@ H2O → H₂O   ·   paste \frac{-b±√(b²-4ac)}{2a} (LaTeX) → a Word equati
 > **Status:** v1.0.0 — production. Word on **Windows & macOS**, 100% client-side.
 > Install packs: [`install/`](install/) · feature list: [`FEATURES.md`](FEATURES.md).
 
+## Screenshots
+
+<!-- Capture a few shots of the pane in Word (Win+Shift+S), save them in
+     docs/screenshots/, and uncomment the lines below. See docs/screenshots/README.md. -->
+<!--
+![Chemical mode — H₂O and a 2D structure](docs/screenshots/chemical.png)
+![Math mode — LaTeX import to a Word equation](docs/screenshots/math.png)
+![Plot mode — function chart with legend](docs/screenshots/plot.png)
+-->
+
+_Screenshots coming soon — see [`docs/screenshots/`](docs/screenshots/) for the shot list._
+
 ---
 
 ## Documentation

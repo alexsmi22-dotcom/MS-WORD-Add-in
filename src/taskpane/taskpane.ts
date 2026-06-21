@@ -5,7 +5,23 @@ import { parseChemical } from "../lib/chemParser";
 import { parseMath } from "../lib/mathFormat";
 import { mathToOoxml } from "../lib/mathOmml";
 import { mathToHtml } from "../lib/mathHtml";
-import { renderStructure, StructureResult } from "../lib/structures";
+import { parseMathAst } from "../lib/mathParse";
+import { latexToDsl, astToLatex } from "../lib/latex";
+import { formatQuantityHtml, convert, formatSig } from "../lib/units";
+import { RefKind, formatCaption, formatRef, formatEqRef, checkCaptions } from "../lib/refs";
+import { Series, samplePlot, parseData, buildPlotSvg } from "../lib/plot";
+import {
+  futureValue,
+  presentValue,
+  compoundInterest,
+  loanPayment,
+  npv,
+  irr,
+  blackScholes,
+  bondPrice,
+  OptionType,
+} from "../lib/finance";
+import { renderStructure, nameForIdcode, StructureResult } from "../lib/structures";
 import { build, BuildFormat, BuildResult } from "../lib/builder";
 import { formatCodeBlock, CodeStyle } from "../lib/codeblock";
 import { buildSt26Xml, cleanResidues, MolType, SequenceEntry, SequenceListingMeta } from "../lib/sequence";
@@ -34,8 +50,49 @@ import {
 } from "../lib/history";
 import { toRoman, peekFormulaNumber, nextFormulaNumber, resetFormulaNumbering } from "../lib/numbering";
 import { LegendEntry, buildLegendText, buildLegendTableHtml, referencedRGroups } from "../lib/markush";
+import {
+  NumeralEntry,
+  extractNumerals,
+  reconcileNumerals,
+  suggestNextNumeral,
+  formatCallout,
+  buildNumeralListHtml,
+  NUMERAL_LIST_HEADING,
+} from "../lib/numerals";
+import { MODE_EXAMPLES, ExampleMode } from "../lib/examples";
+import {
+  Orf,
+  cleanDna,
+  reverseComplement,
+  transcribe,
+  translate,
+  baseStats,
+  findOrfs,
+  buildOrfTableHtml,
+  primerTm,
+  restrictionSites,
+  proteinProperties,
+} from "../lib/dna";
+import { auditDocument, AuditReport } from "../lib/audit";
+import { parseReaction, composeReactionScheme, Rendered } from "../lib/reactions";
+import { formatSeqIdRef } from "../lib/seqid";
+import { getPrefs, setPref } from "../lib/prefs";
 
-type Mode = "chemical" | "math" | "build" | "code" | "sequence" | "botanical";
+type Mode =
+  | "chemical"
+  | "math"
+  | "units"
+  | "plot"
+  | "finance"
+  | "build"
+  | "code"
+  | "sequence"
+  | "botanical"
+  | "numerals"
+  | "dna"
+  | "reaction"
+  | "audit"
+  | "refs";
 
 const STRUCTURE_W = 300;
 const STRUCTURE_H = 230;
@@ -49,6 +106,10 @@ let insertBtn: HTMLButtonElement;
 let structureSection: HTMLElement;
 let structurePreviewEl: HTMLElement;
 let insertStructureBtn: HTMLButtonElement;
+let structureNameEl: HTMLElement;
+let insertNameBtn: HTMLButtonElement;
+/** The recognized compound name for the current structure, or "". */
+let currentStructureName = "";
 let ommlOption: HTMLElement;
 let ommlCheckbox: HTMLInputElement;
 let numberOption: HTMLElement;
@@ -59,6 +120,10 @@ let structureInfo: HTMLElement;
 let libraryRow: HTMLElement;
 let libCategorySelect: HTMLSelectElement;
 let libFormulaSelect: HTMLSelectElement;
+let latexRow: HTMLElement;
+let latexInput: HTMLTextAreaElement;
+let latexConvertBtn: HTMLButtonElement;
+let latexCopyBtn: HTMLButtonElement;
 let paletteEl: HTMLElement;
 let searchInput: HTMLInputElement;
 let searchResults: HTMLElement;
@@ -102,6 +167,94 @@ let botNameInsert: HTMLButtonElement;
 let botTraitsInput: HTMLTextAreaElement;
 let botTraitsPreview: HTMLElement;
 let botTraitsInsert: HTMLButtonElement;
+let numeralsSection: HTMLElement;
+let numListEl: HTMLElement;
+let numAddBtn: HTMLButtonElement;
+let numParensCheckbox: HTMLInputElement;
+let numScanBtn: HTMLButtonElement;
+let numInsertListBtn: HTMLButtonElement;
+let numFindingsEl: HTMLElement;
+let examplesBody: HTMLElement;
+let dnaSection: HTMLElement;
+let dnaInput: HTMLTextAreaElement;
+let dnaReadout: HTMLElement;
+let dnaStats: HTMLElement;
+let dnaRevcompEl: HTMLElement;
+let dnaRevcompInsert: HTMLButtonElement;
+let dnaMrnaEl: HTMLElement;
+let dnaMrnaInsert: HTMLButtonElement;
+let dnaFrameSelect: HTMLSelectElement;
+let dnaStopCheckbox: HTMLInputElement;
+let dnaProteinEl: HTMLElement;
+let dnaProteinInsert: HTMLButtonElement;
+let dnaOrfMin: HTMLInputElement;
+let dnaOrfBtn: HTMLButtonElement;
+let dnaOrfResults: HTMLElement;
+let dnaOrfInsert: HTMLButtonElement;
+let dnaTm: HTMLElement;
+let dnaProteinProps: HTMLElement;
+let dnaRestrictBtn: HTMLButtonElement;
+let dnaRestrictResults: HTMLElement;
+let reactionSection: HTMLElement;
+let reactionInput: HTMLTextAreaElement;
+let reactionPreviewEl: HTMLElement;
+let reactionInsertBtn: HTMLButtonElement;
+let auditSection: HTMLElement;
+let auditRunBtn: HTMLButtonElement;
+let auditResults: HTMLElement;
+let unitsSection: HTMLElement;
+let unitInput: HTMLInputElement;
+let unitPreview: HTMLElement;
+let unitInsertBtn: HTMLButtonElement;
+let convValue: HTMLInputElement;
+let convFrom: HTMLInputElement;
+let convTo: HTMLInputElement;
+let convBtn: HTMLButtonElement;
+let convResult: HTMLElement;
+let convInsertBtn: HTMLButtonElement;
+/** HTML of the most recent conversion result, for insertion. */
+let currentConvHtml = "";
+let refsSection: HTMLElement;
+let refKind: HTMLSelectElement;
+let refNext: HTMLElement;
+let refReset: HTMLButtonElement;
+let refCaptionText: HTMLInputElement;
+let refInsertCaption: HTMLButtonElement;
+let refXrefKind: HTMLSelectElement;
+let refXrefNum: HTMLInputElement;
+let refInsertXref: HTMLButtonElement;
+let refCheck: HTMLButtonElement;
+let refFindings: HTMLElement;
+/** Per-document caption counters (persisted in document settings). */
+let refCounters: { figure: number; table: number } = { figure: 1, table: 1 };
+let plotSection: HTMLElement;
+let plotFn: HTMLInputElement;
+let plotXmin: HTMLInputElement;
+let plotXmax: HTMLInputElement;
+let plotData: HTMLTextAreaElement;
+let plotTitle: HTMLInputElement;
+let plotXlabel: HTMLInputElement;
+let plotYlabel: HTMLInputElement;
+let plotPreview: HTMLElement;
+let plotInsertBtn: HTMLButtonElement;
+/** The plot SVG from the most recent preview, for insertion. */
+let currentPlotSvg = "";
+let financeSection: HTMLElement;
+let finCalcSelect: HTMLSelectElement;
+let finInputs: HTMLElement;
+let finResult: HTMLElement;
+let finInsertBtn: HTMLButtonElement;
+/** The finance result text from the most recent computation, for insertion. */
+let currentFinText = "";
+let seqRefNum: HTMLInputElement;
+let seqRefInsert: HTMLButtonElement;
+
+/** Reference-numeral table for the active document (persisted in document settings). */
+let numeralEntries: NumeralEntry[] = [];
+/** ORFs from the most recent Find ORFs run, for table insertion. */
+let currentOrfs: Orf[] = [];
+/** The reaction-scheme SVG from the most recent preview, for insertion. */
+let currentReactionSvg: { svg: string; width: number; height: number } | null = null;
 
 /** R-group label -> user-entered definition (e.g. "R1" -> "methyl, ethyl"). */
 const rgroupValues: Record<string, string> = {};
@@ -129,6 +282,8 @@ Office.onReady((info) => {
   structureSection = document.getElementById("structure-section") as HTMLElement;
   structurePreviewEl = document.getElementById("structure-preview") as HTMLElement;
   insertStructureBtn = document.getElementById("insert-structure-btn") as HTMLButtonElement;
+  structureNameEl = document.getElementById("structure-name") as HTMLElement;
+  insertNameBtn = document.getElementById("insert-name-btn") as HTMLButtonElement;
   ommlOption = document.getElementById("omml-option") as HTMLElement;
   ommlCheckbox = document.getElementById("omml-checkbox") as HTMLInputElement;
   numberOption = document.getElementById("number-option") as HTMLElement;
@@ -139,6 +294,10 @@ Office.onReady((info) => {
   libraryRow = document.getElementById("library-row") as HTMLElement;
   libCategorySelect = document.getElementById("lib-category") as HTMLSelectElement;
   libFormulaSelect = document.getElementById("lib-formula") as HTMLSelectElement;
+  latexRow = document.getElementById("latex-row") as HTMLElement;
+  latexInput = document.getElementById("latex-input") as HTMLTextAreaElement;
+  latexConvertBtn = document.getElementById("latex-convert") as HTMLButtonElement;
+  latexCopyBtn = document.getElementById("latex-copy") as HTMLButtonElement;
   paletteEl = document.getElementById("palette") as HTMLElement;
   searchInput = document.getElementById("search") as HTMLInputElement;
   searchResults = document.getElementById("search-results") as HTMLElement;
@@ -180,6 +339,79 @@ Office.onReady((info) => {
   botTraitsInput = document.getElementById("bot-traits") as HTMLTextAreaElement;
   botTraitsPreview = document.getElementById("bot-traits-preview") as HTMLElement;
   botTraitsInsert = document.getElementById("bot-traits-insert") as HTMLButtonElement;
+  numeralsSection = document.getElementById("numerals-section") as HTMLElement;
+  numListEl = document.getElementById("num-list") as HTMLElement;
+  numAddBtn = document.getElementById("num-add-btn") as HTMLButtonElement;
+  numParensCheckbox = document.getElementById("num-parens") as HTMLInputElement;
+  numScanBtn = document.getElementById("num-scan-btn") as HTMLButtonElement;
+  numInsertListBtn = document.getElementById("num-insert-list-btn") as HTMLButtonElement;
+  numFindingsEl = document.getElementById("num-findings") as HTMLElement;
+  examplesBody = document.getElementById("examples-body") as HTMLElement;
+  dnaSection = document.getElementById("dna-section") as HTMLElement;
+  dnaInput = document.getElementById("dna-input") as HTMLTextAreaElement;
+  dnaReadout = document.getElementById("dna-readout") as HTMLElement;
+  dnaStats = document.getElementById("dna-stats") as HTMLElement;
+  dnaRevcompEl = document.getElementById("dna-revcomp") as HTMLElement;
+  dnaRevcompInsert = document.getElementById("dna-revcomp-insert") as HTMLButtonElement;
+  dnaMrnaEl = document.getElementById("dna-mrna") as HTMLElement;
+  dnaMrnaInsert = document.getElementById("dna-mrna-insert") as HTMLButtonElement;
+  dnaFrameSelect = document.getElementById("dna-frame") as HTMLSelectElement;
+  dnaStopCheckbox = document.getElementById("dna-stopstop") as HTMLInputElement;
+  dnaProteinEl = document.getElementById("dna-protein") as HTMLElement;
+  dnaProteinInsert = document.getElementById("dna-protein-insert") as HTMLButtonElement;
+  dnaOrfMin = document.getElementById("dna-orf-min") as HTMLInputElement;
+  dnaOrfBtn = document.getElementById("dna-orf-btn") as HTMLButtonElement;
+  dnaOrfResults = document.getElementById("dna-orf-results") as HTMLElement;
+  dnaOrfInsert = document.getElementById("dna-orf-insert") as HTMLButtonElement;
+  dnaTm = document.getElementById("dna-tm") as HTMLElement;
+  dnaProteinProps = document.getElementById("dna-protein-props") as HTMLElement;
+  dnaRestrictBtn = document.getElementById("dna-restrict-btn") as HTMLButtonElement;
+  dnaRestrictResults = document.getElementById("dna-restrict-results") as HTMLElement;
+  reactionSection = document.getElementById("reaction-section") as HTMLElement;
+  reactionInput = document.getElementById("reaction-input") as HTMLTextAreaElement;
+  reactionPreviewEl = document.getElementById("reaction-preview") as HTMLElement;
+  reactionInsertBtn = document.getElementById("reaction-insert-btn") as HTMLButtonElement;
+  auditSection = document.getElementById("audit-section") as HTMLElement;
+  auditRunBtn = document.getElementById("audit-run-btn") as HTMLButtonElement;
+  auditResults = document.getElementById("audit-results") as HTMLElement;
+  unitsSection = document.getElementById("units-section") as HTMLElement;
+  unitInput = document.getElementById("unit-input") as HTMLInputElement;
+  unitPreview = document.getElementById("unit-preview") as HTMLElement;
+  unitInsertBtn = document.getElementById("unit-insert") as HTMLButtonElement;
+  convValue = document.getElementById("conv-value") as HTMLInputElement;
+  convFrom = document.getElementById("conv-from") as HTMLInputElement;
+  convTo = document.getElementById("conv-to") as HTMLInputElement;
+  convBtn = document.getElementById("conv-btn") as HTMLButtonElement;
+  convResult = document.getElementById("conv-result") as HTMLElement;
+  convInsertBtn = document.getElementById("conv-insert") as HTMLButtonElement;
+  refsSection = document.getElementById("refs-section") as HTMLElement;
+  refKind = document.getElementById("ref-kind") as HTMLSelectElement;
+  refNext = document.getElementById("ref-next") as HTMLElement;
+  refReset = document.getElementById("ref-reset") as HTMLButtonElement;
+  refCaptionText = document.getElementById("ref-caption-text") as HTMLInputElement;
+  refInsertCaption = document.getElementById("ref-insert-caption") as HTMLButtonElement;
+  refXrefKind = document.getElementById("ref-xref-kind") as HTMLSelectElement;
+  refXrefNum = document.getElementById("ref-xref-num") as HTMLInputElement;
+  refInsertXref = document.getElementById("ref-insert-xref") as HTMLButtonElement;
+  refCheck = document.getElementById("ref-check") as HTMLButtonElement;
+  refFindings = document.getElementById("ref-findings") as HTMLElement;
+  plotSection = document.getElementById("plot-section") as HTMLElement;
+  plotFn = document.getElementById("plot-fn") as HTMLInputElement;
+  plotXmin = document.getElementById("plot-xmin") as HTMLInputElement;
+  plotXmax = document.getElementById("plot-xmax") as HTMLInputElement;
+  plotData = document.getElementById("plot-data") as HTMLTextAreaElement;
+  plotTitle = document.getElementById("plot-title") as HTMLInputElement;
+  plotXlabel = document.getElementById("plot-xlabel") as HTMLInputElement;
+  plotYlabel = document.getElementById("plot-ylabel") as HTMLInputElement;
+  plotPreview = document.getElementById("plot-preview") as HTMLElement;
+  plotInsertBtn = document.getElementById("plot-insert") as HTMLButtonElement;
+  financeSection = document.getElementById("finance-section") as HTMLElement;
+  finCalcSelect = document.getElementById("fin-calc") as HTMLSelectElement;
+  finInputs = document.getElementById("fin-inputs") as HTMLElement;
+  finResult = document.getElementById("fin-result") as HTMLElement;
+  finInsertBtn = document.getElementById("fin-insert") as HTMLButtonElement;
+  seqRefNum = document.getElementById("seq-ref-num") as HTMLInputElement;
+  seqRefInsert = document.getElementById("seq-ref-insert") as HTMLButtonElement;
 
   inputEl.addEventListener("input", onInputChanged);
   inputEl.addEventListener("keydown", (e) => {
@@ -188,12 +420,14 @@ Office.onReady((info) => {
   document.querySelectorAll<HTMLInputElement>('input[name="mode"]').forEach((radio) => {
     radio.addEventListener("change", () => {
       updatePlaceholder();
+      updateExamples();
       renderPalette();
       onInputChanged();
     });
   });
   insertBtn.addEventListener("click", insertFormula);
   insertStructureBtn.addEventListener("click", insertStructure);
+  insertNameBtn.addEventListener("click", () => insertDnaText(currentStructureName, "Name"));
   numberCheckbox.addEventListener("change", updateNumberLabel);
   numberReset.addEventListener("click", () => {
     resetFormulaNumbering();
@@ -223,6 +457,60 @@ Office.onReady((info) => {
   botTraitsInput.addEventListener("input", updateTraitTable);
   botTraitsInsert.addEventListener("click", insertTraitTable);
 
+  numAddBtn.addEventListener("click", addNumeral);
+  numScanBtn.addEventListener("click", scanDocumentNumerals);
+  numInsertListBtn.addEventListener("click", insertNumeralList);
+  loadNumerals();
+  renderNumeralRows();
+
+  dnaInput.addEventListener("input", updateDnaPreview);
+  dnaFrameSelect.addEventListener("change", updateDnaPreview);
+  dnaStopCheckbox.addEventListener("change", updateDnaPreview);
+  dnaRevcompInsert.addEventListener("click", () => insertDnaText(dnaRevcompEl.textContent || "", "Reverse complement"));
+  dnaMrnaInsert.addEventListener("click", () => insertDnaText(dnaMrnaEl.textContent || "", "mRNA"));
+  dnaProteinInsert.addEventListener("click", () => insertDnaText(dnaProteinEl.textContent || "", "Protein"));
+  dnaOrfBtn.addEventListener("click", findOrfsHandler);
+  dnaOrfInsert.addEventListener("click", insertOrfTable);
+  dnaRestrictBtn.addEventListener("click", findRestrictionSites);
+
+  reactionInput.addEventListener("input", updateReactionPreview);
+  reactionInsertBtn.addEventListener("click", insertReaction);
+
+  auditRunBtn.addEventListener("click", runAudit);
+
+  seqRefInsert.addEventListener("click", insertSeqIdRef);
+
+  latexConvertBtn.addEventListener("click", convertLatex);
+  latexCopyBtn.addEventListener("click", copyAsLatex);
+
+  unitInput.addEventListener("input", updateUnitPreview);
+  unitInsertBtn.addEventListener("click", insertQuantity);
+  convBtn.addEventListener("click", doConvert);
+  convInsertBtn.addEventListener("click", insertConversion);
+
+  refKind.addEventListener("change", updateRefNext);
+  refReset.addEventListener("click", resetRefCounter);
+  refInsertCaption.addEventListener("click", insertCaption);
+  refInsertXref.addEventListener("click", insertCrossRef);
+  refCheck.addEventListener("click", checkCaptionsHandler);
+  loadRefCounters();
+
+  for (const el of [plotFn, plotXmin, plotXmax, plotData, plotTitle, plotXlabel, plotYlabel]) {
+    el.addEventListener("input", updatePlotPreview);
+  }
+  plotInsertBtn.addEventListener("click", insertPlot);
+
+  populateFinanceCalcs();
+  finCalcSelect.addEventListener("change", renderFinanceInputs);
+  finInsertBtn.addEventListener("click", () => insertDnaText(currentFinText, "Result"));
+
+  // Apply persisted preferences to the relevant controls, and save on change.
+  const prefs = getPrefs();
+  numParensCheckbox.checked = prefs.calloutParens;
+  numParensCheckbox.addEventListener("change", () => setPref("calloutParens", numParensCheckbox.checked));
+  dnaFrameSelect.value = String(prefs.dnaFrame);
+  dnaFrameSelect.addEventListener("change", () => setPref("dnaFrame", parseInt(dnaFrameSelect.value, 10)));
+
   populateLibraryCategories();
   libCategorySelect.addEventListener("change", populateLibraryFormulas);
   libFormulaSelect.addEventListener("change", onLibraryFormulaChosen);
@@ -240,8 +528,14 @@ Office.onReady((info) => {
   renderHistory();
   updateNumberLabel();
   updatePlaceholder();
+  updateExamples();
   onInputChanged();
 });
+
+/** Swaps the "Examples & syntax" panel to the help for the current mode. */
+function updateExamples(): void {
+  examplesBody.innerHTML = MODE_EXAMPLES[currentMode() as ExampleMode] ?? "";
+}
 
 /** Shows the next equation number "(I)" next to the numbering checkbox. */
 function updateNumberLabel(): void {
@@ -253,6 +547,7 @@ function setMode(mode: Mode): void {
   const radio = document.querySelector<HTMLInputElement>(`input[name="mode"][value="${mode}"]`);
   if (radio) radio.checked = true;
   updatePlaceholder();
+  updateExamples();
   renderPalette();
   onInputChanged();
 }
@@ -642,6 +937,49 @@ function updatePlaceholder(): void {
   }
 }
 
+/** Converts pasted LaTeX into the editor (Math mode) and refreshes the preview. */
+function convertLatex(): void {
+  const src = latexInput.value.trim();
+  if (!src) {
+    setStatus("Paste some LaTeX first.", "error");
+    return;
+  }
+  const dsl = latexToDsl(src);
+  if (!dsl) {
+    setStatus("Couldn't read that LaTeX.", "error");
+    return;
+  }
+  setMode("math");
+  inputEl.value = dsl;
+  ommlCheckbox.checked = true;
+  onInputChanged();
+  inputEl.focus();
+  setStatus("LaTeX converted — review the preview, then Insert.", "success");
+}
+
+/** Copies the current equation as LaTeX to the clipboard. */
+async function copyAsLatex(): Promise<void> {
+  const src = inputEl.value.trim();
+  if (!src) {
+    setStatus("Enter a formula first.", "error");
+    return;
+  }
+  let latex: string;
+  try {
+    latex = astToLatex(parseMathAst(src));
+  } catch {
+    setStatus("Couldn't convert this expression to LaTeX.", "error");
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(latex);
+    setStatus("Copied as LaTeX.", "success");
+  } catch {
+    latexInput.value = latex;
+    setStatus("LaTeX placed in the import box (clipboard unavailable) — copy from there.", "");
+  }
+}
+
 /** Refreshes everything that depends on the input: section visibility and previews. */
 function onInputChanged(): void {
   const mode = currentMode();
@@ -652,7 +990,45 @@ function onInputChanged(): void {
   codeSection.style.display = mode === "code" ? "block" : "none";
   sequenceSection.style.display = mode === "sequence" ? "block" : "none";
   botanicalSection.style.display = mode === "botanical" ? "block" : "none";
+  numeralsSection.style.display = mode === "numerals" ? "block" : "none";
+  dnaSection.style.display = mode === "dna" ? "block" : "none";
+  reactionSection.style.display = mode === "reaction" ? "block" : "none";
+  auditSection.style.display = mode === "audit" ? "block" : "none";
+  unitsSection.style.display = mode === "units" ? "block" : "none";
+  refsSection.style.display = mode === "refs" ? "block" : "none";
+  plotSection.style.display = mode === "plot" ? "block" : "none";
+  financeSection.style.display = mode === "finance" ? "block" : "none";
 
+  if (mode === "units") {
+    updateUnitPreview();
+    return;
+  }
+  if (mode === "refs") {
+    updateRefNext();
+    return;
+  }
+  if (mode === "plot") {
+    updatePlotPreview();
+    return;
+  }
+  if (mode === "finance") {
+    if (!finInputs.children.length) renderFinanceInputs();
+    return;
+  }
+  if (mode === "numerals") {
+    return; // numeral UI is self-contained (table + scan + insert)
+  }
+  if (mode === "dna") {
+    updateDnaPreview();
+    return;
+  }
+  if (mode === "reaction") {
+    updateReactionPreview();
+    return;
+  }
+  if (mode === "audit") {
+    return; // audit runs on demand via the button
+  }
   if (mode === "build") {
     updateBuildPreview();
     updateGalleryPreview();
@@ -677,6 +1053,7 @@ function onInputChanged(): void {
   ommlOption.style.display = chemical ? "none" : "block";
   numberOption.style.display = mode === "math" ? "block" : "none";
   libraryRow.style.display = mode === "math" ? "block" : "none";
+  latexRow.style.display = mode === "math" ? "block" : "none";
   if (chemical) {
     updateStructurePreview();
   } else {
@@ -793,7 +1170,8 @@ async function insertGallery(): Promise<void> {
   for (const it of items) {
     const r = renderStructure(it.input, GALLERY_W, GALLERY_H);
     if (!r) continue;
-    const base64 = await svgToPngBase64(r.svg, GALLERY_W, GALLERY_H);
+    const d = readSvgDims(r.svg, GALLERY_W, GALLERY_H);
+    const base64 = await svgToPngBase64(r.svg, d.w, d.h);
     const label = it.label ? `substituent ${it.label}` : "substituent";
     rendered.push({ label: it.label, base64, alt: provenanceAltText(label, r.formula, r.mw, r.smiles, r.idcode) });
   }
@@ -1060,6 +1438,11 @@ function updateStructurePreview(): void {
   structurePreviewEl.innerHTML = result.svg;
   renderStructureInfo(result.formula, result.mw, result.smiles);
   insertStructureBtn.disabled = false;
+
+  // Dictionary name lookup (recognized compounds only).
+  currentStructureName = nameForIdcode(result.idcode) ?? "";
+  structureNameEl.textContent = currentStructureName ? `Name: ${currentStructureName}` : "";
+  insertNameBtn.disabled = !currentStructureName;
 }
 
 /** Shows formula / MW / SMILES under the structure preview (provenance at a glance). */
@@ -1083,6 +1466,9 @@ function showStructureHint(message: string): void {
   hint.textContent = message;
   structurePreviewEl.appendChild(hint);
   structureInfo.replaceChildren();
+  structureNameEl.textContent = "";
+  currentStructureName = "";
+  insertNameBtn.disabled = true;
   insertStructureBtn.disabled = true;
 }
 
@@ -1167,8 +1553,9 @@ async function insertEquation(text: string): Promise<boolean> {
   try {
     await Word.run(async (context) => {
       const range = context.document.getSelection();
-      range.insertOoxml(ooxml, Word.InsertLocation.replace);
+      const inserted = range.insertOoxml(ooxml, Word.InsertLocation.replace);
       await context.sync();
+      await tagInserted(context, inserted, "formula-inserter:equation");
     });
     if (numbered) {
       nextFormulaNumber(); // consume the number now that it's placed
@@ -1197,7 +1584,8 @@ async function insertStructure(): Promise<void> {
   setStatus("Inserting structure…");
 
   try {
-    const base64 = await svgToPngBase64(structure.svg, STRUCTURE_W, STRUCTURE_H);
+    const d = readSvgDims(structure.svg, STRUCTURE_W, STRUCTURE_H);
+    const base64 = await svgToPngBase64(structure.svg, d.w, d.h);
     const label = inputEl.value.trim();
     const alt = provenanceAltText(
       `2D structure of ${label}`,
@@ -1212,6 +1600,7 @@ async function insertStructure(): Promise<void> {
       picture.altTextDescription = alt;
       range.select(Word.SelectionMode.end);
       await context.sync();
+      await tagInserted(context, picture.getRange(), "formula-inserter:structure");
     });
     setStatus("Structure inserted.", "success");
     if (label) recordInsert("chemical", label, label);
@@ -1405,7 +1794,8 @@ async function insertBuild(): Promise<void> {
   setStatus("Inserting structure…");
 
   try {
-    const base64 = await svgToPngBase64(molecule.svg, STRUCTURE_W, STRUCTURE_H);
+    const d = readSvgDims(molecule.svg, STRUCTURE_W, STRUCTURE_H);
+    const base64 = await svgToPngBase64(molecule.svg, d.w, d.h);
     const label = molecule.formula || "molecule";
     const alt = provenanceAltText(`2D structure (${label})`, molecule.formula, molecule.mw, molecule.smiles, molecule.idcode);
     const entries = currentLegendEntries();
@@ -1426,6 +1816,7 @@ async function insertBuild(): Promise<void> {
         tail.select(Word.SelectionMode.end);
       }
       await context.sync();
+      await tagInserted(context, picture.getRange(), "formula-inserter:structure");
     });
     setStatus(hasLegend ? "Structure + R-group legend inserted." : "Structure inserted.", "success");
     recordInsert("build", buildInput.value, label);
@@ -1434,6 +1825,1048 @@ async function insertBuild(): Promise<void> {
   } finally {
     insertBuildBtn.disabled = false;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Reference-numeral management
+// ---------------------------------------------------------------------------
+
+const NUMERALS_SETTING = "formula-inserter.numerals";
+
+/** Loads the numeral table from this document's settings (best-effort). */
+function loadNumerals(): void {
+  try {
+    const raw = Office.context.document.settings.get(NUMERALS_SETTING) as string | null;
+    const parsed = raw ? JSON.parse(raw) : [];
+    numeralEntries = Array.isArray(parsed)
+      ? parsed
+          .filter((e) => e && Number.isFinite(e.numeral) && typeof e.element === "string")
+          .map((e) => ({ numeral: Math.floor(e.numeral), element: e.element }))
+      : [];
+  } catch {
+    numeralEntries = [];
+  }
+}
+
+/** Persists the numeral table into this document's settings (best-effort). */
+function saveNumerals(): void {
+  try {
+    Office.context.document.settings.set(NUMERALS_SETTING, JSON.stringify(numeralEntries));
+    Office.context.document.settings.saveAsync();
+  } catch {
+    // Settings unavailable (e.g. unsupported host) — table stays in memory only.
+  }
+}
+
+/** Builds one editable numeral row: numeral input, element input, insert + remove. */
+function makeNumeralRow(entry: NumeralEntry, idx: number): HTMLElement {
+  const row = document.createElement("div");
+  row.className = "num-row";
+
+  const numInput = document.createElement("input");
+  numInput.type = "number";
+  numInput.min = "1";
+  numInput.className = "rgroup-input num-numeral";
+  numInput.value = String(entry.numeral);
+  numInput.setAttribute("aria-label", "Reference numeral");
+  numInput.addEventListener("input", () => {
+    const n = parseInt(numInput.value, 10);
+    numeralEntries[idx].numeral = Number.isFinite(n) ? n : 0;
+    saveNumerals();
+  });
+
+  const eltInput = document.createElement("input");
+  eltInput.type = "text";
+  eltInput.className = "rgroup-input";
+  eltInput.placeholder = "element name, e.g. housing";
+  eltInput.value = entry.element;
+  eltInput.setAttribute("aria-label", "Element name");
+  eltInput.addEventListener("input", () => {
+    numeralEntries[idx].element = eltInput.value;
+    saveNumerals();
+  });
+
+  const insertBtn = document.createElement("button");
+  insertBtn.type = "button";
+  insertBtn.className = "num-callout-btn";
+  insertBtn.textContent = "Insert";
+  insertBtn.title = "Insert this callout at the cursor";
+  insertBtn.addEventListener("click", () => insertCallout(idx));
+
+  const removeBtn = document.createElement("button");
+  removeBtn.type = "button";
+  removeBtn.className = "num-remove-btn";
+  removeBtn.textContent = "×";
+  removeBtn.title = "Remove this numeral";
+  removeBtn.setAttribute("aria-label", "Remove numeral");
+  removeBtn.addEventListener("click", () => {
+    numeralEntries.splice(idx, 1);
+    renderNumeralRows();
+    saveNumerals();
+  });
+
+  row.append(numInput, eltInput, insertBtn, removeBtn);
+  return row;
+}
+
+/** Re-renders all numeral rows from the in-memory table. */
+function renderNumeralRows(): void {
+  numListEl.replaceChildren();
+  if (!numeralEntries.length) {
+    const hint = document.createElement("span");
+    hint.className = "hint";
+    hint.textContent = "No reference numerals yet. Add one to start the table.";
+    numListEl.appendChild(hint);
+    return;
+  }
+  numeralEntries.forEach((entry, idx) => numListEl.appendChild(makeNumeralRow(entry, idx)));
+}
+
+/** Appends a new numeral row with a suggested next number and focuses it. */
+function addNumeral(): void {
+  numeralEntries.push({ numeral: suggestNextNumeral(numeralEntries), element: "" });
+  renderNumeralRows();
+  saveNumerals();
+  const last = numListEl.querySelector<HTMLInputElement>(".num-row:last-child .rgroup-input:not(.num-numeral)");
+  last?.focus();
+}
+
+/** Inserts a single "element (numeral)" callout at the selection. */
+async function insertCallout(idx: number): Promise<void> {
+  const entry = numeralEntries[idx];
+  if (!entry || !entry.numeral) {
+    setStatus("Give this row a numeral first.", "error");
+    return;
+  }
+  const text = formatCallout(entry.element, entry.numeral, numParensCheckbox.checked);
+  try {
+    await Word.run(async (context) => {
+      const range = context.document.getSelection();
+      const inserted = range.insertText(text, Word.InsertLocation.replace);
+      inserted.select(Word.SelectionMode.end);
+      await context.sync();
+      await tagInserted(context, inserted, `formula-inserter:callout:${entry.numeral}`);
+    });
+    setStatus(`Inserted “${text}”.`, "success");
+  } catch (error) {
+    setStatus(`Could not insert callout: ${(error as Error).message}`, "error");
+  }
+}
+
+/** Reads the document body, reconciles it with the table, and shows findings. */
+async function scanDocumentNumerals(): Promise<void> {
+  numScanBtn.disabled = true;
+  setStatus("Scanning document…");
+  try {
+    await Word.run(async (context) => {
+      const body = context.document.body;
+      body.load("text");
+      await context.sync();
+      const docNumerals = extractNumerals(body.text);
+      renderNumeralFindings(reconcileNumerals(numeralEntries, docNumerals), docNumerals.length);
+    });
+    setStatus("Scan complete.", "success");
+  } catch (error) {
+    setStatus(`Could not scan the document: ${(error as Error).message}`, "error");
+  } finally {
+    numScanBtn.disabled = false;
+  }
+}
+
+/** Renders the reconciliation report into the findings panel. */
+function renderNumeralFindings(
+  findings: ReturnType<typeof reconcileNumerals>,
+  calloutCount: number,
+): void {
+  numFindingsEl.classList.remove("ok", "error");
+  if (findings.ok) {
+    numFindingsEl.classList.add("ok");
+    numFindingsEl.textContent = `✓ No issues. ${calloutCount} parenthesized callout${
+      calloutCount === 1 ? "" : "s"
+    } found, all consistent with the table.`;
+    return;
+  }
+  const items: string[] = [];
+  for (const c of findings.collisions) {
+    items.push(`Numeral (${c.numeral}) is reused for: ${c.elements.map(esc).join(", ")}`);
+  }
+  if (findings.gaps.length) {
+    items.push(`Skipped numeral${findings.gaps.length === 1 ? "" : "s"}: ${findings.gaps.join(", ")}`);
+  }
+  if (findings.orphans.length) {
+    items.push(
+      `Called out but not defined: ${findings.orphans.map((n) => `(${n})`).join(", ")}`,
+    );
+  }
+  if (findings.unused.length) {
+    items.push(
+      `Defined but never called out: ${findings.unused
+        .map((e) => `(${e.numeral})${e.element ? " " + esc(e.element) : ""}`)
+        .join(", ")}`,
+    );
+  }
+  numFindingsEl.classList.add("error");
+  numFindingsEl.innerHTML =
+    `<strong>${items.length} issue${items.length === 1 ? "" : "s"} found</strong>` +
+    `<ul>${items.map((t) => `<li>${t}</li>`).join("")}</ul>`;
+}
+
+/** Inserts a "List of Reference Numerals" heading + table at the selection. */
+async function insertNumeralList(): Promise<void> {
+  const html = buildNumeralListHtml(numeralEntries);
+  if (!html) {
+    setStatus("Define at least one numeral (with an element name) first.", "error");
+    return;
+  }
+  numInsertListBtn.disabled = true;
+  setStatus("Inserting list…");
+  try {
+    await Word.run(async (context) => {
+      const sel = context.document.getSelection();
+      const heading = sel.insertParagraph(NUMERAL_LIST_HEADING, Word.InsertLocation.before);
+      try {
+        heading.styleBuiltIn = Word.BuiltInStyleName.heading2;
+      } catch {
+        // Style not available on this build — leave default paragraph styling.
+      }
+      const tablePara = sel.insertParagraph("", Word.InsertLocation.before);
+      const tableRange = tablePara.getRange().insertHtml(html, Word.InsertLocation.replace);
+      await context.sync();
+      await tagInserted(context, tableRange, "formula-inserter:numeral-list");
+    });
+    setStatus("List of Reference Numerals inserted.", "success");
+  } catch (error) {
+    setStatus(`Could not insert the list: ${(error as Error).message}`, "error");
+  } finally {
+    numInsertListBtn.disabled = false;
+  }
+}
+
+/** Minimal HTML escape for findings text. */
+function esc(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+// ---------------------------------------------------------------------------
+// DNA / RNA analysis
+// ---------------------------------------------------------------------------
+
+/** Recomputes the live DNA readouts (stats, strands, translation) from the input. */
+function updateDnaPreview(): void {
+  const { seq, invalid } = cleanDna(dnaInput.value);
+
+  if (!seq) {
+    dnaReadout.textContent = invalid.length ? `Ignored invalid: ${invalid.join(" ")}` : "";
+    dnaStats.replaceChildren();
+    dnaRevcompEl.textContent = "";
+    dnaMrnaEl.textContent = "";
+    dnaProteinEl.textContent = "";
+    dnaTm.textContent = "";
+    dnaProteinProps.textContent = "";
+    dnaRevcompInsert.disabled = true;
+    dnaMrnaInsert.disabled = true;
+    dnaProteinInsert.disabled = true;
+    return;
+  }
+
+  const stats = baseStats(seq);
+  dnaReadout.textContent = `${stats.length} nt${invalid.length ? ` · ignored invalid: ${invalid.join(" ")}` : ""}`;
+  dnaStats.innerHTML =
+    `<span><strong>GC:</strong> ${stats.gcPercent.toFixed(1)}%</span>` +
+    `<span><strong>A</strong> ${stats.a} · <strong>C</strong> ${stats.c} · <strong>G</strong> ${stats.g} · <strong>T/U</strong> ${stats.t}` +
+    `${stats.other ? ` · <strong>other</strong> ${stats.other}` : ""}</span>`;
+
+  dnaRevcompEl.textContent = reverseComplement(seq);
+  dnaMrnaEl.textContent = transcribe(seq);
+
+  // Translation honors the chosen frame; negative frames use the reverse strand.
+  const raw = parseInt(dnaFrameSelect.value, 10);
+  const reverse = raw < 0;
+  const frame = (Math.abs(raw) as 1 | 2 | 3) || 1;
+  const source = reverse ? reverseComplement(seq) : seq;
+  const protein = translate(source, { frame, stopAtStop: dnaStopCheckbox.checked });
+  dnaProteinEl.textContent = protein || "(no residues in this frame)";
+
+  // Tools readouts: primer Tm of the input, and properties of the translated protein.
+  const tm = primerTm(seq);
+  dnaTm.textContent = `Primer Tm ≈ ${tm.tm.toFixed(1)} °C · ${tm.gcPercent.toFixed(0)}% GC · ${tm.length} nt`;
+  const props = proteinProperties(protein);
+  dnaProteinProps.textContent = props.length
+    ? `Protein (this frame): ${props.length} aa · MW ${props.mw.toLocaleString("en-US")} Da · pI ${props.pI} · GRAVY ${props.gravy.toFixed(2)}`
+    : "";
+
+  dnaRevcompInsert.disabled = false;
+  dnaMrnaInsert.disabled = false;
+  dnaProteinInsert.disabled = !protein;
+}
+
+/** Scans the sequence for common restriction sites and renders them. */
+function findRestrictionSites(): void {
+  const { seq } = cleanDna(dnaInput.value);
+  if (!seq) {
+    setStatus("Enter a DNA sequence first.", "error");
+    return;
+  }
+  const hits = restrictionSites(seq);
+  if (!hits.length) {
+    dnaRestrictResults.innerHTML = '<span class="hint">No common restriction sites found.</span>';
+    return;
+  }
+  const cell = 'style="border:1px solid #000;padding:2px 8px;"';
+  const rows = hits
+    .map((h) => `<tr><td ${cell}>${esc(h.enzyme)}</td><td ${cell}>${h.site}</td><td ${cell}>${h.positions.join(", ")}</td></tr>`)
+    .join("");
+  dnaRestrictResults.innerHTML =
+    '<table style="border-collapse:collapse;"><tr>' +
+    `<td ${cell}><strong>Enzyme</strong></td><td ${cell}><strong>Site</strong></td><td ${cell}><strong>Positions</strong></td></tr>` +
+    rows +
+    "</table>";
+  setStatus(`Found ${hits.length} enzyme${hits.length === 1 ? "" : "s"} with sites.`, "success");
+}
+
+/** Inserts a plain-text DNA result (reverse complement, mRNA, or protein). */
+async function insertDnaText(text: string, label: string): Promise<void> {
+  if (!text.trim()) {
+    setStatus(`Nothing to insert for ${label.toLowerCase()}.`, "error");
+    return;
+  }
+  try {
+    await Word.run(async (context) => {
+      const range = context.document.getSelection();
+      range.insertText(text, Word.InsertLocation.replace);
+      range.select(Word.SelectionMode.end);
+      await context.sync();
+    });
+    setStatus(`${label} inserted.`, "success");
+  } catch (error) {
+    setStatus(`Could not insert ${label.toLowerCase()}: ${(error as Error).message}`, "error");
+  }
+}
+
+/** Runs the six-frame ORF finder and renders the results table. */
+function findOrfsHandler(): void {
+  const { seq } = cleanDna(dnaInput.value);
+  if (!seq) {
+    setStatus("Enter a DNA/RNA sequence first.", "error");
+    return;
+  }
+  const minAa = Math.max(1, parseInt(dnaOrfMin.value, 10) || 1);
+  currentOrfs = findOrfs(seq, { minAa });
+  if (!currentOrfs.length) {
+    dnaOrfResults.innerHTML = `<span class="hint">No ORFs ≥ ${minAa} aa found in any of the six frames.</span>`;
+    dnaOrfInsert.disabled = true;
+    return;
+  }
+  dnaOrfResults.innerHTML = buildOrfTableHtml(currentOrfs);
+  dnaOrfInsert.disabled = false;
+  setStatus(`Found ${currentOrfs.length} ORF${currentOrfs.length === 1 ? "" : "s"}.`, "success");
+}
+
+/** Inserts the most recent ORF results as a Word table. */
+async function insertOrfTable(): Promise<void> {
+  const html = buildOrfTableHtml(currentOrfs);
+  if (!html) {
+    setStatus("Run Find ORFs first.", "error");
+    return;
+  }
+  dnaOrfInsert.disabled = true;
+  setStatus("Inserting ORF table…");
+  try {
+    await Word.run(async (context) => {
+      const range = context.document.getSelection();
+      const inserted = range.insertHtml(html, Word.InsertLocation.replace);
+      inserted.select(Word.SelectionMode.end);
+      await context.sync();
+      await tagInserted(context, inserted, "formula-inserter:orf-table");
+    });
+    setStatus("ORF table inserted.", "success");
+  } catch (error) {
+    setStatus(`Could not insert the ORF table: ${(error as Error).message}`, "error");
+  } finally {
+    dnaOrfInsert.disabled = false;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Reaction schemes
+// ---------------------------------------------------------------------------
+
+const REACTION_CW = 130;
+const REACTION_CH = 110;
+
+/** Renders each component and composes the live reaction-scheme preview. */
+function updateReactionPreview(): void {
+  currentReactionSvg = null;
+  reactionInsertBtn.disabled = true;
+  const text = reactionInput.value.trim();
+  if (!text) {
+    reactionPreviewEl.replaceChildren();
+    const hint = document.createElement("span");
+    hint.className = "hint";
+    hint.textContent = "Enter a reaction, e.g. CCO + CC(=O)O >> CC(=O)OCC ; H2SO4 ; reflux";
+    reactionPreviewEl.appendChild(hint);
+    return;
+  }
+  const spec = parseReaction(text);
+  if (!spec.stages.length) {
+    reactionPreviewEl.innerHTML = '<span class="hint">Add at least one component.</span>';
+    return;
+  }
+  const failed: string[] = [];
+  const render = (src: string): Rendered | null => {
+    const r = renderStructure(src, REACTION_CW, REACTION_CH);
+    if (!r) {
+      failed.push(src);
+      return null;
+    }
+    const d = readSvgDims(r.svg, REACTION_CW, REACTION_CH);
+    return { svg: r.svg, width: d.w, height: d.h };
+  };
+  const stages: Rendered[][] = spec.stages.map((stage) =>
+    stage.map(render).filter((x): x is Rendered => x !== null),
+  );
+  if (failed.length) {
+    reactionPreviewEl.innerHTML = `<span class="hint">Couldn't draw: ${esc(failed.join(", "))}. Use a name or SMILES.</span>`;
+    return;
+  }
+  const svg = composeReactionScheme(stages, { over: spec.over, under: spec.under });
+  const dims = svg.match(/width="(\d+)" height="(\d+)"/);
+  reactionPreviewEl.innerHTML = svg;
+  currentReactionSvg = {
+    svg,
+    width: dims ? parseInt(dims[1], 10) : 400,
+    height: dims ? parseInt(dims[2], 10) : 120,
+  };
+  reactionInsertBtn.disabled = false;
+}
+
+/** Rasterizes the reaction scheme and inserts it as an inline picture. */
+async function insertReaction(): Promise<void> {
+  if (!currentReactionSvg) {
+    setStatus("Nothing to insert.", "error");
+    return;
+  }
+  reactionInsertBtn.disabled = true;
+  setStatus("Inserting reaction scheme…");
+  try {
+    const { svg, width, height } = currentReactionSvg;
+    const base64 = await svgToPngBase64(svg, width, height);
+    await Word.run(async (context) => {
+      const range = context.document.getSelection();
+      const picture = range.insertInlinePictureFromBase64(base64, Word.InsertLocation.after);
+      picture.altTextDescription = `Reaction scheme: ${reactionInput.value.trim()}`;
+      range.select(Word.SelectionMode.end);
+      await context.sync();
+      await tagInserted(context, picture.getRange(), "formula-inserter:reaction");
+    });
+    setStatus("Reaction scheme inserted.", "success");
+  } catch (error) {
+    setStatus(`Could not insert reaction scheme: ${(error as Error).message}`, "error");
+  } finally {
+    reactionInsertBtn.disabled = false;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Document audit + SEQ ID references
+// ---------------------------------------------------------------------------
+
+/** Reads the document and runs the full consistency audit. */
+async function runAudit(): Promise<void> {
+  auditRunBtn.disabled = true;
+  setStatus("Checking the application…");
+  try {
+    await Word.run(async (context) => {
+      const body = context.document.body;
+      body.load("text");
+      await context.sync();
+      const report = auditDocument({
+        documentText: body.text,
+        numerals: numeralEntries,
+        listingCount: readSequenceEntries().length,
+      });
+      renderAuditReport(report);
+    });
+    setStatus("Audit complete.", "success");
+  } catch (error) {
+    setStatus(`Could not run the audit: ${(error as Error).message}`, "error");
+  } finally {
+    auditRunBtn.disabled = false;
+  }
+}
+
+/** Renders the audit report grouped by section. */
+function renderAuditReport(report: AuditReport): void {
+  const blocks = report.sections.map((s) => {
+    if (!s.issues.length) {
+      return `<div class="audit-block ok"><strong>✓ ${esc(s.title)}</strong></div>`;
+    }
+    return (
+      `<div class="audit-block error"><strong>${esc(s.title)} — ${s.issues.length} issue${
+        s.issues.length === 1 ? "" : "s"
+      }</strong><ul>${s.issues.map((i) => `<li>${esc(i)}</li>`).join("")}</ul></div>`
+    );
+  });
+  const header = report.ok
+    ? '<div class="audit-summary ok">✓ No issues found.</div>'
+    : `<div class="audit-summary error">${report.issueCount} issue${report.issueCount === 1 ? "" : "s"} across ${report.sections.filter((s) => s.issues.length).length} area(s).</div>`;
+  auditResults.innerHTML = header + blocks.join("");
+}
+
+/** Inserts a canonical "SEQ ID NO: N" reference at the selection. */
+async function insertSeqIdRef(): Promise<void> {
+  const n = parseInt(seqRefNum.value, 10);
+  if (!Number.isFinite(n) || n < 1) {
+    setStatus("Enter a SEQ ID number ≥ 1.", "error");
+    return;
+  }
+  await insertDnaText(formatSeqIdRef(n), "SEQ ID reference");
+}
+
+// ---------------------------------------------------------------------------
+// Units & quantities
+// ---------------------------------------------------------------------------
+
+/** Live-typesets the quantity input. */
+function updateUnitPreview(): void {
+  const html = formatQuantityHtml(unitInput.value);
+  if (!html) {
+    unitPreview.innerHTML = '<span class="hint">Type a quantity, e.g. 9.81 m/s^2 or 5.0 +- 0.2 kg.</span>';
+    unitInsertBtn.disabled = true;
+    return;
+  }
+  unitPreview.innerHTML = html;
+  unitInsertBtn.disabled = false;
+}
+
+/** Inserts the typeset quantity at the selection. */
+async function insertQuantity(): Promise<void> {
+  const html = formatQuantityHtml(unitInput.value);
+  if (!html) {
+    setStatus("Enter a quantity first.", "error");
+    return;
+  }
+  unitInsertBtn.disabled = true;
+  setStatus("Inserting quantity…");
+  try {
+    await Word.run(async (context) => {
+      const range = context.document.getSelection();
+      const inserted = range.insertHtml(html, Word.InsertLocation.replace);
+      inserted.select(Word.SelectionMode.end);
+      await context.sync();
+      await tagInserted(context, inserted, "formula-inserter:quantity");
+    });
+    setStatus("Quantity inserted.", "success");
+  } catch (error) {
+    setStatus(`Could not insert quantity: ${(error as Error).message}`, "error");
+  } finally {
+    unitInsertBtn.disabled = false;
+  }
+}
+
+/** Converts the value between the two units and shows the result. */
+function doConvert(): void {
+  currentConvHtml = "";
+  convInsertBtn.disabled = true;
+  const value = parseFloat(convValue.value);
+  if (!Number.isFinite(value)) {
+    convResult.textContent = "Enter a numeric value.";
+    return;
+  }
+  const from = convFrom.value.trim();
+  const to = convTo.value.trim();
+  if (!from || !to) {
+    convResult.textContent = "Enter both units.";
+    return;
+  }
+  const r = convert(value, from, to);
+  if (r === null) {
+    convResult.textContent = `Can't convert ${from} → ${to} (unknown or incompatible units).`;
+    return;
+  }
+  currentConvHtml = formatQuantityHtml(`${formatSig(r)} ${to}`);
+  convResult.innerHTML = `${formatQuantityHtml(`${value} ${from}`)} = <strong>${currentConvHtml}</strong>`;
+  convInsertBtn.disabled = false;
+}
+
+/** Inserts the conversion result at the selection. */
+async function insertConversion(): Promise<void> {
+  if (!currentConvHtml) {
+    setStatus("Run a conversion first.", "error");
+    return;
+  }
+  convInsertBtn.disabled = true;
+  setStatus("Inserting result…");
+  try {
+    await Word.run(async (context) => {
+      const range = context.document.getSelection();
+      const inserted = range.insertHtml(currentConvHtml, Word.InsertLocation.replace);
+      inserted.select(Word.SelectionMode.end);
+      await context.sync();
+      await tagInserted(context, inserted, "formula-inserter:quantity");
+    });
+    setStatus("Result inserted.", "success");
+  } catch (error) {
+    setStatus(`Could not insert result: ${(error as Error).message}`, "error");
+  } finally {
+    convInsertBtn.disabled = false;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Captions & cross-references
+// ---------------------------------------------------------------------------
+
+const REFS_SETTING = "formula-inserter.refs";
+
+/** Loads per-document caption counters (best-effort). */
+function loadRefCounters(): void {
+  try {
+    const raw = Office.context.document.settings.get(REFS_SETTING) as string | null;
+    const p = raw ? JSON.parse(raw) : {};
+    refCounters = {
+      figure: Number.isFinite(p?.figure) && p.figure > 0 ? Math.floor(p.figure) : 1,
+      table: Number.isFinite(p?.table) && p.table > 0 ? Math.floor(p.table) : 1,
+    };
+  } catch {
+    refCounters = { figure: 1, table: 1 };
+  }
+}
+
+/** Persists caption counters into document settings (best-effort). */
+function saveRefCounters(): void {
+  try {
+    Office.context.document.settings.set(REFS_SETTING, JSON.stringify(refCounters));
+    Office.context.document.settings.saveAsync();
+  } catch {
+    // best-effort
+  }
+}
+
+/** Shows the next caption number for the selected kind. */
+function updateRefNext(): void {
+  const kind = refKind.value as RefKind;
+  refNext.textContent = `next: ${formatCaption(kind, refCounters[kind])}`;
+}
+
+/** Resets the selected caption counter to 1. */
+function resetRefCounter(): void {
+  refCounters[refKind.value as RefKind] = 1;
+  saveRefCounters();
+  updateRefNext();
+}
+
+/** Inserts an auto-numbered caption paragraph and advances the counter. */
+async function insertCaption(): Promise<void> {
+  const kind = refKind.value as RefKind;
+  const n = refCounters[kind];
+  const text = formatCaption(kind, n, refCaptionText.value);
+  refInsertCaption.disabled = true;
+  setStatus("Inserting caption…");
+  try {
+    await Word.run(async (context) => {
+      const sel = context.document.getSelection();
+      const para = sel.insertParagraph(text, Word.InsertLocation.after);
+      try {
+        para.styleBuiltIn = Word.BuiltInStyleName.caption;
+      } catch {
+        // Caption style unavailable on this build — leave default styling.
+      }
+      para.getRange().select(Word.SelectionMode.end);
+      await context.sync();
+      await tagInserted(context, para.getRange(), `formula-inserter:caption:${kind}`);
+    });
+    refCounters[kind] = n + 1;
+    saveRefCounters();
+    updateRefNext();
+    refCaptionText.value = "";
+    setStatus(`Inserted "${formatCaption(kind, n)}".`, "success");
+  } catch (error) {
+    setStatus(`Could not insert caption: ${(error as Error).message}`, "error");
+  } finally {
+    refInsertCaption.disabled = false;
+  }
+}
+
+/** Inserts an in-text cross-reference (Fig. / Table / Eq.). */
+async function insertCrossRef(): Promise<void> {
+  const kind = refXrefKind.value;
+  const n = parseInt(refXrefNum.value, 10);
+  if (!Number.isFinite(n) || n < 1) {
+    setStatus("Enter a reference number ≥ 1.", "error");
+    return;
+  }
+  const text = kind === "equation" ? formatEqRef(n) : formatRef(kind as RefKind, n);
+  await insertDnaText(text, "Cross-reference");
+}
+
+/** Scans the document and reports caption-numbering issues. */
+async function checkCaptionsHandler(): Promise<void> {
+  refCheck.disabled = true;
+  setStatus("Checking captions…");
+  try {
+    await Word.run(async (context) => {
+      const body = context.document.body;
+      body.load("text");
+      await context.sync();
+      renderRefFindings(checkCaptions(body.text, "figure"), checkCaptions(body.text, "table"));
+    });
+    setStatus("Check complete.", "success");
+  } catch (error) {
+    setStatus(`Could not check captions: ${(error as Error).message}`, "error");
+  } finally {
+    refCheck.disabled = false;
+  }
+}
+
+/** Renders the caption-check findings. */
+function renderRefFindings(
+  fig: ReturnType<typeof checkCaptions>,
+  tab: ReturnType<typeof checkCaptions>,
+): void {
+  const items: string[] = [];
+  const add = (label: string, f: ReturnType<typeof checkCaptions>): void => {
+    if (f.gaps.length) items.push(`${label}: missing ${f.gaps.join(", ")}`);
+    if (f.duplicates.length) items.push(`${label}: duplicated ${f.duplicates.join(", ")}`);
+  };
+  add("Figures", fig);
+  add("Tables", tab);
+  refFindings.classList.remove("ok", "error");
+  if (!items.length) {
+    refFindings.classList.add("ok");
+    refFindings.textContent = "✓ Caption numbering is consistent.";
+    return;
+  }
+  refFindings.classList.add("error");
+  refFindings.innerHTML =
+    `<strong>${items.length} issue${items.length === 1 ? "" : "s"}</strong>` +
+    `<ul>${items.map((t) => `<li>${esc(t)}</li>`).join("")}</ul>`;
+}
+
+// ---------------------------------------------------------------------------
+// Plotting
+// ---------------------------------------------------------------------------
+
+/** Builds plot series from the function and/or data inputs. */
+function buildPlotSeries(): { series: Series[]; error: string } {
+  const series: Series[] = [];
+  let error = "";
+  const fnText = plotFn.value.trim();
+  if (fnText) {
+    const xmin = parseFloat(plotXmin.value);
+    const xmax = parseFloat(plotXmax.value);
+    if (!Number.isFinite(xmin) || !Number.isFinite(xmax) || xmax <= xmin) {
+      error = "Set a valid x-range (from < to).";
+    } else {
+      // Multiple functions, separated by ";", each become a labeled line series.
+      const fns = fnText.split(";").map((s) => s.trim()).filter(Boolean);
+      for (const fn of fns) {
+        try {
+          series.push({ points: samplePlot(fn, xmin, xmax, 240), type: "line", label: fns.length > 1 ? fn : undefined });
+        } catch {
+          error = `Couldn't evaluate "${fn}" — check the expression.`;
+        }
+      }
+    }
+  }
+  const data = parseData(plotData.value);
+  if (data.length) series.push({ points: data, type: "scatter", label: series.length ? "data" : undefined });
+  return { series, error };
+}
+
+/** Live-renders the plot preview. */
+function updatePlotPreview(): void {
+  currentPlotSvg = "";
+  plotInsertBtn.disabled = true;
+  const { series, error } = buildPlotSeries();
+  if (error) {
+    plotPreview.innerHTML = `<span class="hint">${esc(error)}</span>`;
+    return;
+  }
+  if (!series.length) {
+    plotPreview.innerHTML = '<span class="hint">Enter a function (e.g. sin(x)/x) or data points to plot.</span>';
+    return;
+  }
+  const svg = buildPlotSvg(series, {
+    title: plotTitle.value.trim(),
+    xlabel: plotXlabel.value.trim(),
+    ylabel: plotYlabel.value.trim(),
+  });
+  plotPreview.innerHTML = svg;
+  currentPlotSvg = svg;
+  plotInsertBtn.disabled = false;
+}
+
+/** Rasterizes the plot and inserts it as an inline picture. */
+async function insertPlot(): Promise<void> {
+  if (!currentPlotSvg) {
+    setStatus("Nothing to plot yet.", "error");
+    return;
+  }
+  plotInsertBtn.disabled = true;
+  setStatus("Inserting plot…");
+  try {
+    const base64 = await svgToPngBase64(currentPlotSvg, 380, 270);
+    await Word.run(async (context) => {
+      const range = context.document.getSelection();
+      const picture = range.insertInlinePictureFromBase64(base64, Word.InsertLocation.after);
+      picture.altTextDescription = `Plot: ${plotFn.value.trim() || "data"}`;
+      range.select(Word.SelectionMode.end);
+      await context.sync();
+      await tagInserted(context, picture.getRange(), "formula-inserter:plot");
+    });
+    setStatus("Plot inserted.", "success");
+  } catch (error) {
+    setStatus(`Could not insert plot: ${(error as Error).message}`, "error");
+  } finally {
+    plotInsertBtn.disabled = false;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Finance calculators
+// ---------------------------------------------------------------------------
+
+interface FinField {
+  key: string;
+  label: string;
+  default: string;
+  kind?: "number" | "select" | "list";
+  options?: { value: string; label: string }[];
+}
+interface FinCalc {
+  id: string;
+  name: string;
+  fields: FinField[];
+  compute: (read: (k: string) => string) => string;
+}
+
+function finMoney(x: number): string {
+  if (!Number.isFinite(x)) return "—";
+  return x.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+function finPct(x: number): string {
+  return (x * 100).toFixed(2) + "%";
+}
+function finList(s: string): number[] {
+  return s
+    .split(/[\s,;]+/)
+    .filter(Boolean)
+    .map(Number)
+    .filter((n) => !Number.isNaN(n));
+}
+
+const FIN_CALCS: FinCalc[] = [
+  {
+    id: "fv",
+    name: "Future value (TVM)",
+    fields: [
+      { key: "pv", label: "Present value", default: "1000" },
+      { key: "rate", label: "Rate % per period", default: "5" },
+      { key: "n", label: "Number of periods", default: "10" },
+    ],
+    compute: (r) => `FV = ${finMoney(futureValue(+r("pv"), +r("rate") / 100, +r("n")))}`,
+  },
+  {
+    id: "pv",
+    name: "Present value (TVM)",
+    fields: [
+      { key: "fv", label: "Future value", default: "1000" },
+      { key: "rate", label: "Rate % per period", default: "5" },
+      { key: "n", label: "Number of periods", default: "10" },
+    ],
+    compute: (r) => `PV = ${finMoney(presentValue(+r("fv"), +r("rate") / 100, +r("n")))}`,
+  },
+  {
+    id: "compound",
+    name: "Compound interest",
+    fields: [
+      { key: "p", label: "Principal", default: "1000" },
+      { key: "rate", label: "Annual rate %", default: "5" },
+      { key: "m", label: "Compounds / year", default: "12" },
+      { key: "t", label: "Years", default: "10" },
+    ],
+    compute: (r) => `Amount = ${finMoney(compoundInterest(+r("p"), +r("rate") / 100, +r("m"), +r("t")))}`,
+  },
+  {
+    id: "loan",
+    name: "Loan payment",
+    fields: [
+      { key: "p", label: "Loan amount", default: "200000" },
+      { key: "rate", label: "Annual rate %", default: "5" },
+      { key: "t", label: "Years", default: "30" },
+      { key: "m", label: "Payments / year", default: "12" },
+    ],
+    compute: (r) => {
+      const m = +r("m");
+      return `Payment = ${finMoney(loanPayment(+r("p"), +r("rate") / 100 / m, +r("t") * m))} per period`;
+    },
+  },
+  {
+    id: "npv",
+    name: "Net present value",
+    fields: [
+      { key: "rate", label: "Discount rate % per period", default: "10" },
+      { key: "cf", label: "Cash flows (t=0 first)", default: "-1000, 500, 500, 500", kind: "list" },
+    ],
+    compute: (r) => `NPV = ${finMoney(npv(+r("rate") / 100, finList(r("cf"))))}`,
+  },
+  {
+    id: "irr",
+    name: "Internal rate of return",
+    fields: [{ key: "cf", label: "Cash flows (t=0 first)", default: "-1000, 500, 500, 500", kind: "list" }],
+    compute: (r) => {
+      const v = irr(finList(r("cf")));
+      return v === null ? "IRR = no solution" : `IRR = ${finPct(v)}`;
+    },
+  },
+  {
+    id: "bs",
+    name: "Black–Scholes option",
+    fields: [
+      {
+        key: "type",
+        label: "Type",
+        default: "call",
+        kind: "select",
+        options: [
+          { value: "call", label: "Call" },
+          { value: "put", label: "Put" },
+        ],
+      },
+      { key: "s", label: "Spot price S", default: "100" },
+      { key: "k", label: "Strike K", default: "100" },
+      { key: "t", label: "Time to expiry (years)", default: "1" },
+      { key: "r", label: "Risk-free rate %", default: "5" },
+      { key: "sig", label: "Volatility % (annual)", default: "20" },
+    ],
+    compute: (r) =>
+      `Price = ${finMoney(blackScholes(r("type") as OptionType, +r("s"), +r("k"), +r("t"), +r("r") / 100, +r("sig") / 100))}`,
+  },
+  {
+    id: "bond",
+    name: "Bond price",
+    fields: [
+      { key: "face", label: "Face value", default: "1000" },
+      { key: "coupon", label: "Coupon rate % (annual)", default: "5" },
+      { key: "ytm", label: "Yield to maturity %", default: "6" },
+      { key: "years", label: "Years to maturity", default: "10" },
+      { key: "freq", label: "Coupons / year", default: "2" },
+    ],
+    compute: (r) =>
+      `Price = ${finMoney(bondPrice(+r("face"), +r("coupon") / 100, +r("ytm") / 100, +r("years"), +r("freq")))}`,
+  },
+];
+
+/** Fills the calculator dropdown. */
+function populateFinanceCalcs(): void {
+  finCalcSelect.replaceChildren();
+  for (const c of FIN_CALCS) {
+    const opt = document.createElement("option");
+    opt.value = c.id;
+    opt.textContent = c.name;
+    finCalcSelect.appendChild(opt);
+  }
+}
+
+/** Builds the inputs for the selected calculator and wires live computation. */
+function renderFinanceInputs(): void {
+  const calc = FIN_CALCS.find((c) => c.id === finCalcSelect.value) ?? FIN_CALCS[0];
+  finInputs.replaceChildren();
+  for (const f of calc.fields) {
+    const row = document.createElement("div");
+    row.className = "dna-controls";
+    const label = document.createElement("label");
+    label.className = "field-label";
+    label.textContent = f.label;
+    label.htmlFor = `fin-f-${f.key}`;
+
+    let input: HTMLInputElement | HTMLSelectElement;
+    if (f.kind === "select") {
+      const sel = document.createElement("select");
+      sel.className = "lib-select";
+      for (const o of f.options ?? []) {
+        const opt = document.createElement("option");
+        opt.value = o.value;
+        opt.textContent = o.label;
+        sel.appendChild(opt);
+      }
+      sel.value = f.default;
+      input = sel;
+    } else {
+      const text = document.createElement("input");
+      text.type = "text";
+      text.className = f.kind === "list" ? "rgroup-input" : "rgroup-input num-numeral";
+      text.value = f.default;
+      input = text;
+    }
+    input.id = `fin-f-${f.key}`;
+    input.dataset.key = f.key;
+    input.addEventListener("input", updateFinancePreview);
+    input.addEventListener("change", updateFinancePreview);
+    row.append(label, input);
+    finInputs.appendChild(row);
+  }
+  updateFinancePreview();
+}
+
+/** Computes and shows the result for the current calculator inputs. */
+function updateFinancePreview(): void {
+  const calc = FIN_CALCS.find((c) => c.id === finCalcSelect.value) ?? FIN_CALCS[0];
+  const read = (k: string): string => {
+    const el = finInputs.querySelector<HTMLInputElement | HTMLSelectElement>(`[data-key="${k}"]`);
+    return el ? el.value : "";
+  };
+  // A blank number/list field would coerce to 0 and produce a misleading result —
+  // require all non-select inputs to be filled before computing.
+  if (calc.fields.some((f) => f.kind !== "select" && read(f.key).trim() === "")) {
+    finResult.innerHTML = '<span class="hint">Enter all values to compute.</span>';
+    finInsertBtn.disabled = true;
+    currentFinText = "";
+    return;
+  }
+  let text = "";
+  try {
+    text = calc.compute(read);
+  } catch {
+    text = "";
+  }
+  const insertable = !!text && !text.includes("—") && !text.includes("no solution");
+  if (!text) {
+    finResult.innerHTML = '<span class="hint">Enter values to compute.</span>';
+  } else {
+    finResult.textContent = text;
+  }
+  currentFinText = insertable ? text : "";
+  finInsertBtn.disabled = !insertable;
+}
+
+/**
+ * Wraps an already-inserted, already-synced range in a hidden, tagged content
+ * control so the artifact can be re-found and updated later (e.g. renumbering
+ * callouts, refreshing a list). Best-effort and isolated in its own sync: if
+ * content controls aren't supported on this build, the inserted content is left
+ * exactly as-is. The "hidden" appearance keeps the document visually unchanged.
+ */
+async function tagInserted(context: Word.RequestContext, range: Word.Range, tag: string): Promise<void> {
+  try {
+    const cc = range.insertContentControl();
+    cc.tag = tag;
+    cc.title = "Formula Inserter";
+    cc.appearance = Word.ContentControlAppearance.hidden;
+    await context.sync();
+  } catch {
+    // Content controls unsupported here — the inserted content remains in place.
+  }
+}
+
+/** Reads an SVG's intrinsic width/height (px), falling back to the given box. */
+function readSvgDims(svg: string, fallbackW: number, fallbackH: number): { w: number; h: number } {
+  const wm = svg.match(/\bwidth="([\d.]+)/);
+  const hm = svg.match(/\bheight="([\d.]+)/);
+  const w = wm ? parseFloat(wm[1]) : NaN;
+  const h = hm ? parseFloat(hm[1]) : NaN;
+  return { w: w > 0 ? w : fallbackW, h: h > 0 ? h : fallbackH };
 }
 
 /**

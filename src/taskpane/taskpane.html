@@ -29,10 +29,18 @@
       <div class="mode-row" role="radiogroup" aria-label="Mode">
         <label class="mode"><input type="radio" name="mode" value="chemical" checked /> Chemical</label>
         <label class="mode"><input type="radio" name="mode" value="math" /> Math</label>
+        <label class="mode"><input type="radio" name="mode" value="units" /> Units</label>
+        <label class="mode"><input type="radio" name="mode" value="plot" /> Plot</label>
+        <label class="mode"><input type="radio" name="mode" value="finance" /> Finance</label>
         <label class="mode"><input type="radio" name="mode" value="build" /> Build</label>
         <label class="mode"><input type="radio" name="mode" value="code" /> Code</label>
         <label class="mode"><input type="radio" name="mode" value="sequence" /> Sequence</label>
         <label class="mode"><input type="radio" name="mode" value="botanical" /> Botanical</label>
+        <label class="mode"><input type="radio" name="mode" value="numerals" /> Numerals</label>
+        <label class="mode"><input type="radio" name="mode" value="refs" /> Refs</label>
+        <label class="mode"><input type="radio" name="mode" value="dna" /> DNA</label>
+        <label class="mode"><input type="radio" name="mode" value="reaction" /> Reaction</label>
+        <label class="mode"><input type="radio" name="mode" value="audit" /> Audit</label>
       </div>
 
       <div id="history" class="history"></div>
@@ -58,6 +66,21 @@
           </div>
         </div>
 
+        <details id="latex-row" class="latex-row">
+          <summary class="palette-group-label">Import / export LaTeX</summary>
+          <textarea
+            id="latex-input"
+            class="build-input"
+            rows="3"
+            spellcheck="false"
+            placeholder="Paste LaTeX — e.g. \frac{-b \pm \sqrt{b^2-4ac}}{2a}"
+          ></textarea>
+          <div class="seq-actions">
+            <button id="latex-convert" class="insert-btn secondary" type="button">Convert to equation</button>
+            <button id="latex-copy" class="insert-btn secondary" type="button">Copy current as LaTeX</button>
+          </div>
+        </details>
+
         <label for="formula-input" class="field-label">Formula</label>
         <input
           id="formula-input"
@@ -81,8 +104,12 @@
           <span class="preview-label">2D structure</span>
           <div id="structure-preview" class="structure-preview" aria-live="polite"></div>
           <div id="structure-info" class="build-readout"></div>
+          <div id="structure-name" class="build-readout"></div>
           <button id="insert-structure-btn" class="insert-btn secondary" type="button" disabled>
             Insert 2D structure
+          </button>
+          <button id="insert-name-btn" class="insert-btn secondary" type="button" disabled>
+            Insert name
           </button>
         </section>
       </section>
@@ -211,6 +238,13 @@
           <button id="seq-download-btn" class="insert-btn secondary" type="button" disabled>Download .xml</button>
           <button id="seq-copy-btn" class="insert-btn secondary" type="button" disabled>Copy XML</button>
         </div>
+
+        <span class="palette-group-label">In-text reference</span>
+        <div class="dna-controls">
+          <label class="field-label" for="seq-ref-num">SEQ ID NO:</label>
+          <input id="seq-ref-num" type="number" class="rgroup-input num-numeral" value="1" min="1" />
+          <button id="seq-ref-insert" class="insert-btn secondary" type="button">Insert reference</button>
+        </div>
       </section>
 
       <!-- Plant / botanical: scientific-name typesetting + varietal traits -->
@@ -255,43 +289,243 @@
         <button id="bot-traits-insert" class="insert-btn secondary" type="button" disabled>Insert table</button>
       </section>
 
+      <!-- Reference-numeral management: element callouts + consistency checks -->
+      <section id="numerals-section">
+        <p class="seq-disclaimer">
+          Maintain a <strong>numeral&nbsp;→&nbsp;element</strong> table for this document — insert
+          callouts, scan for collisions/gaps/orphans, and emit the <em>List of Reference
+          Numerals</em>. The table is saved inside this document. Advisory: the document scan
+          detects the parenthesized callout form, e.g. <code>(12)</code>.
+        </p>
+
+        <span class="palette-group-label">Reference numerals</span>
+        <div id="num-list"></div>
+        <button id="num-add-btn" class="insert-btn secondary" type="button">+ Add numeral</button>
+
+        <label class="omml-option">
+          <input type="checkbox" id="num-parens" checked />
+          Parenthesize inserted callouts, e.g. housing&nbsp;(12)
+        </label>
+
+        <div class="seq-actions">
+          <button id="num-scan-btn" class="insert-btn secondary" type="button">Scan document</button>
+          <button id="num-insert-list-btn" class="insert-btn" type="button">Insert List of Reference Numerals</button>
+        </div>
+        <div id="num-findings" class="seq-warnings" aria-live="polite"></div>
+      </section>
+
+      <!-- DNA / RNA analysis: strands, transcription, translation, GC, ORFs -->
+      <section id="dna-section">
+        <p class="seq-disclaimer">
+          DNA/RNA analysis — complementary strand, transcription, translation, GC/length
+          stats, and a six-frame ORF finder. IUPAC ambiguity codes and whitespace are
+          accepted. Drafting aid — verify downstream.
+        </p>
+
+        <label class="field-label" for="dna-input">DNA / RNA sequence</label>
+        <textarea
+          id="dna-input"
+          class="build-input"
+          rows="4"
+          spellcheck="false"
+          placeholder="Paste a sequence — e.g. ATGGCCAAGCTTGATTAA"
+        ></textarea>
+        <div id="dna-readout" class="seq-readout hint"></div>
+
+        <div id="dna-stats" class="build-readout"></div>
+
+        <div class="dna-result">
+          <span class="preview-label">Reverse complement</span>
+          <div id="dna-revcomp" class="dna-mono" aria-live="polite"></div>
+          <button id="dna-revcomp-insert" class="insert-btn secondary" type="button" disabled>
+            Insert reverse complement
+          </button>
+        </div>
+
+        <div class="dna-result">
+          <span class="preview-label">mRNA (transcribe, T→U)</span>
+          <div id="dna-mrna" class="dna-mono" aria-live="polite"></div>
+          <button id="dna-mrna-insert" class="insert-btn secondary" type="button" disabled>
+            Insert mRNA
+          </button>
+        </div>
+
+        <span class="palette-group-label">Translation</span>
+        <div class="dna-controls">
+          <label class="field-label" for="dna-frame">Frame</label>
+          <select id="dna-frame" class="lib-select">
+            <option value="1">+1</option>
+            <option value="2">+2</option>
+            <option value="3">+3</option>
+            <option value="-1">−1 (reverse)</option>
+            <option value="-2">−2 (reverse)</option>
+            <option value="-3">−3 (reverse)</option>
+          </select>
+          <label class="omml-option"><input type="checkbox" id="dna-stopstop" /> Stop at first stop</label>
+        </div>
+        <div id="dna-protein" class="dna-mono" aria-live="polite"></div>
+        <button id="dna-protein-insert" class="insert-btn secondary" type="button" disabled>
+          Insert protein
+        </button>
+
+        <span class="palette-group-label">Tools</span>
+        <div id="dna-tm" class="seq-readout hint" aria-live="polite"></div>
+        <div id="dna-protein-props" class="seq-readout hint" aria-live="polite"></div>
+        <button id="dna-restrict-btn" class="insert-btn secondary" type="button">Find restriction sites</button>
+        <div id="dna-restrict-results" class="dna-orf-results" aria-live="polite"></div>
+
+        <span class="palette-group-label">Open reading frames (6-frame)</span>
+        <div class="dna-controls">
+          <label class="field-label" for="dna-orf-min">Min length (aa)</label>
+          <input id="dna-orf-min" type="number" class="rgroup-input num-numeral" value="20" min="1" />
+          <button id="dna-orf-btn" class="insert-btn secondary" type="button">Find ORFs</button>
+        </div>
+        <div id="dna-orf-results" class="dna-orf-results" aria-live="polite"></div>
+        <button id="dna-orf-insert" class="insert-btn" type="button" disabled>Insert ORF table</button>
+      </section>
+
+      <!-- Reaction schemes: reactants → products with conditions over the arrow -->
+      <section id="reaction-section">
+        <p class="seq-disclaimer">
+          Reactants <code>+</code> reactants <code>&gt;&gt;</code> products, with optional
+          <code>; over ; under</code> conditions. Each component is a name or SMILES.
+          Drafting aid — verify before filing.
+        </p>
+        <label class="field-label" for="reaction-input">Reaction</label>
+        <textarea
+          id="reaction-input"
+          class="build-input"
+          rows="3"
+          spellcheck="false"
+          placeholder="CCO + CC(=O)O >> CC(=O)OCC ; H2SO4 ; reflux"
+        ></textarea>
+        <div id="reaction-preview" class="structure-preview" aria-live="polite"></div>
+        <button id="reaction-insert-btn" class="insert-btn" type="button" disabled>Insert reaction scheme</button>
+      </section>
+
+      <!-- Plotting: function + data charts -->
+      <section id="plot-section">
+        <p class="seq-disclaimer">
+          Plot a function or data as a chart, inserted as an image. Runs offline; nothing
+          you enter leaves your machine.
+        </p>
+        <label class="field-label" for="plot-fn">Function y = f(x) (separate multiple with ;)</label>
+        <input id="plot-fn" class="formula-input" type="text" placeholder="e.g. sin(x)/x ; x^2 ; exp(-x^2)" autocomplete="off" spellcheck="false" />
+        <div class="dna-controls">
+          <label class="field-label" for="plot-xmin">x from</label>
+          <input id="plot-xmin" type="text" class="rgroup-input num-numeral" value="-10" aria-label="x minimum" />
+          <label class="field-label" for="plot-xmax">to</label>
+          <input id="plot-xmax" type="text" class="rgroup-input num-numeral" value="10" aria-label="x maximum" />
+        </div>
+        <label class="field-label" for="plot-data">Data (x y [err] per line)</label>
+        <textarea id="plot-data" class="build-input" rows="4" spellcheck="false" placeholder="0 1&#10;1 2 0.1&#10;2 4"></textarea>
+        <input id="plot-title" class="formula-input" type="text" placeholder="Title (optional)" />
+        <div class="dna-controls">
+          <input id="plot-xlabel" class="formula-input" type="text" placeholder="x-axis label" />
+          <input id="plot-ylabel" class="formula-input" type="text" placeholder="y-axis label" />
+        </div>
+        <div id="plot-preview" class="structure-preview" aria-live="polite"></div>
+        <button id="plot-insert" class="insert-btn" type="button" disabled>Insert plot</button>
+      </section>
+
+      <!-- Finance: calculators (TVM, NPV/IRR, Black-Scholes, bonds) -->
+      <section id="finance-section">
+        <p class="seq-disclaimer">
+          Financial calculators — pick one, fill the inputs, and the result computes live.
+          Rates are percentages; values are currency-neutral (prefix your own symbol).
+        </p>
+        <label class="field-label" for="fin-calc">Calculator</label>
+        <select id="fin-calc" class="lib-select"></select>
+        <div id="fin-inputs"></div>
+        <div class="preview-wrap">
+          <span class="preview-label">Result</span>
+          <div id="fin-result" class="preview" aria-live="polite"></div>
+        </div>
+        <button id="fin-insert" class="insert-btn" type="button" disabled>Insert result</button>
+      </section>
+
+      <!-- Captions & cross-references -->
+      <section id="refs-section">
+        <p class="seq-disclaimer">
+          Auto-numbered figure/table captions and cross-references (Fig. 3, Table 2, Eq. (1)).
+          Counters are saved in this document. The check is advisory.
+        </p>
+        <div class="dna-controls">
+          <label class="field-label" for="ref-kind">Caption</label>
+          <select id="ref-kind" class="lib-select">
+            <option value="figure">Figure</option>
+            <option value="table">Table</option>
+          </select>
+          <span id="ref-next" class="number-next"></span>
+          <button id="ref-reset" class="linklike" type="button">reset</button>
+        </div>
+        <input id="ref-caption-text" class="formula-input" type="text" placeholder="Caption text (optional)" />
+        <button id="ref-insert-caption" class="insert-btn" type="button">Insert caption</button>
+
+        <span class="palette-group-label">Cross-reference</span>
+        <div class="dna-controls">
+          <select id="ref-xref-kind" class="lib-select">
+            <option value="figure">Fig.</option>
+            <option value="table">Table</option>
+            <option value="equation">Eq.</option>
+          </select>
+          <input id="ref-xref-num" type="number" class="rgroup-input num-numeral" value="1" min="1" aria-label="Reference number" />
+          <button id="ref-insert-xref" class="insert-btn secondary" type="button">Insert reference</button>
+        </div>
+
+        <button id="ref-check" class="insert-btn secondary" type="button">Check captions</button>
+        <div id="ref-findings" class="seq-warnings" aria-live="polite"></div>
+      </section>
+
+      <!-- Units & quantities: typesetting + conversion -->
+      <section id="units-section">
+        <p class="seq-disclaimer">
+          Typeset physical quantities (SI symbols, ± uncertainty, ×10ⁿ) and convert between
+          units. Inserts formatted text at the cursor.
+        </p>
+        <label class="field-label" for="unit-input">Quantity</label>
+        <input
+          id="unit-input"
+          class="formula-input"
+          type="text"
+          placeholder="e.g. 5.0 +- 0.2 kg, 9.81 m/s^2, 1.2e-3 mol/L"
+          autocomplete="off"
+          spellcheck="false"
+        />
+        <div class="preview-wrap">
+          <span class="preview-label">Preview</span>
+          <div id="unit-preview" class="preview" aria-live="polite"></div>
+        </div>
+        <button id="unit-insert" class="insert-btn" type="button" disabled>Insert quantity</button>
+
+        <span class="palette-group-label">Convert</span>
+        <div class="dna-controls">
+          <input id="conv-value" type="text" class="rgroup-input num-numeral" value="1" aria-label="Value" />
+          <input id="conv-from" type="text" class="rgroup-input" placeholder="from — e.g. km/h" aria-label="From unit" />
+          <span aria-hidden="true">→</span>
+          <input id="conv-to" type="text" class="rgroup-input" placeholder="to — e.g. m/s" aria-label="To unit" />
+          <button id="conv-btn" class="insert-btn secondary" type="button">Convert</button>
+        </div>
+        <div id="conv-result" class="build-readout" aria-live="polite"></div>
+        <button id="conv-insert" class="insert-btn secondary" type="button" disabled>Insert result</button>
+      </section>
+
+      <!-- Document audit: run every consistency check at once -->
+      <section id="audit-section">
+        <p class="seq-disclaimer">
+          <strong>Check this application</strong> scans the whole document for consistency:
+          reference numerals, SEQ ID NO references, and figure continuity. Advisory —
+          every check is heuristic.
+        </p>
+        <button id="audit-run-btn" class="insert-btn" type="button">Check this application</button>
+        <div id="audit-results" class="audit-results" aria-live="polite"></div>
+      </section>
+
       <p id="status" class="status" role="status" aria-live="polite"></p>
 
       <details class="examples">
         <summary>Examples &amp; syntax</summary>
-        <ul>
-          <li><code>H2O</code> &rarr; H<sub>2</sub>O</li>
-          <li><code>Ca(OH)2</code> &rarr; Ca(OH)<sub>2</sub></li>
-          <li><code>SO4^2-</code> &rarr; SO<sub>4</sub><sup>2&minus;</sup></li>
-          <li><code>Na+</code> &rarr; Na<sup>+</sup></li>
-          <li><code>x^2 + y^2</code> &rarr; x<sup>2</sup> + y<sup>2</sup> (math mode)</li>
-          <li><code>a_n</code>, <code>x^{n+1}</code>, <code>sqrt(x)</code>, <code>pi</code> (math mode)</li>
-        </ul>
-        <p class="examples-note">
-          <strong>2D structures</strong> (Chemical mode) work for common names
-          (e.g. <code>aspirin</code>, <code>water</code>), known formulas
-          (<code>C6H6</code>), or any <code>SMILES</code> string
-          (<code>CC(=O)O</code>). For <strong>stereochemistry</strong>, enter an
-          isomeric SMILES (<code>C[C@@H](N)C(=O)O</code>) — it's drawn with
-          wedges.
-        </p>
-        <p class="examples-note">
-          <strong>Build mode</strong> renders a structure from a typed atom/bond
-          list or a pasted molfile. Atom/bond example:
-          <br /><code>atoms: C O O</code>
-          <br /><code>bonds: 1=2 1=3</code> &rarr; CO<sub>2</sub>.
-          Bonds: <code>-</code> single, <code>=</code> double,
-          <code>#</code> triple, <code>~</code> undefined. Atoms can carry a charge (<code>N+</code>,
-          <code>O-</code>). Hydrogens are added automatically. Stereo bonds:
-          <code>&gt;</code> wedge, <code>&lt;</code> hash. For generic (Markush)
-          structures: <code>[C,N]</code> variable atom, <code>X</code> halogen,
-          <code>A</code> any atom, <code>Q</code> heteroatom, <code>R1</code>
-          R-group, <code>~</code> any-bond. <strong>Query constraints</strong> in a
-          trailing <code>{…}</code>: <code>{ar}</code> aromatic, <code>{ring}</code>
-          in-ring, <code>{r5}</code>/<code>{r6}</code> ring size, <code>{nosub}</code>
-          no further substitution, <code>{sub}</code> bears a substituent (e.g.
-          <code>C{ar,nosub}</code>).
-        </p>
+        <div id="examples-body"></div>
       </details>
 
       <p class="disclaimer">

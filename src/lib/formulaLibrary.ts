@@ -221,4 +221,42 @@ export const FORMULA_LIBRARY: FormulaCategory[] = [
       { label: "Wave speed", expr: "v = f lambda" },
     ],
   },
+  {
+    name: "Finance — time value",
+    formulas: [
+      { label: "Future value", expr: "FV = PV(1 + r)^n" },
+      { label: "Present value", expr: "PV = FV/(1 + r)^n" },
+      { label: "Compound interest", expr: "A = P(1 + r/n)^{n t}" },
+      { label: "Continuous compounding", expr: "A = P e^{r t}" },
+      { label: "Present value of annuity", expr: "PV = PMT (1 - (1 + r)^{-n})/r" },
+      { label: "Future value of annuity", expr: "FV = PMT ((1 + r)^n - 1)/r" },
+      { label: "Perpetuity", expr: "PV = C/r" },
+      { label: "Loan payment", expr: "PMT = (P r)/(1 - (1 + r)^{-n})" },
+      { label: "CAGR", expr: "CAGR = (V_f/V_i)^{1/n} - 1" },
+    ],
+  },
+  {
+    name: "Finance — valuation & options",
+    formulas: [
+      { label: "Net present value", expr: "NPV = sum(t=0, n, C_t/(1 + r)^t)" },
+      { label: "Gordon growth (DDM)", expr: "P_0 = D_1/(r - g)" },
+      { label: "WACC", expr: "WACC = (E/V) r_e + (D/V) r_d (1 - T)" },
+      { label: "Black–Scholes call", expr: "C = S_0 N(d_1) - K e^{-r t} N(d_2)" },
+      { label: "Black–Scholes d₁", expr: "d_1 = (ln(S_0/K) + (r + sigma^2/2) t)/(sigma sqrt(t))" },
+      { label: "Black–Scholes d₂", expr: "d_2 = d_1 - sigma sqrt(t)" },
+      { label: "Put–call parity", expr: "C - P = S_0 - K e^{-r t}" },
+    ],
+  },
+  {
+    name: "Finance — portfolio & bonds",
+    formulas: [
+      { label: "CAPM", expr: "E(R_i) = R_f + beta_i (E(R_m) - R_f)" },
+      { label: "Sharpe ratio", expr: "S = (R_p - R_f)/sigma_p" },
+      { label: "Portfolio variance (2-asset)", expr: "sigma_p^2 = w_1^2 sigma_1^2 + w_2^2 sigma_2^2 + 2 w_1 w_2 rho sigma_1 sigma_2" },
+      { label: "Beta", expr: "beta = Cov(R_i, R_m)/Var(R_m)" },
+      { label: "Bond price", expr: "P = sum(t=1, n, C/(1 + y)^t) + F/(1 + y)^n" },
+      { label: "Current yield", expr: "Y = C/P_0" },
+      { label: "Macaulay duration", expr: "D = (1/P) sum(t=1, n, (t C_t)/(1 + y)^t)" },
+    ],
+  },
 ];

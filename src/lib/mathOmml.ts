@@ -74,6 +74,9 @@ function emit(node: Node): string {
       const core = matrixCore(padded, 2, "left");
       return `<m:d><m:dPr><m:begChr m:val="{"/><m:endChr m:val=""/></m:dPr><m:e>${core}</m:e></m:d>`;
     }
+    case "stack":
+      // Stacked equations as an equation array (Word aligns at the relation).
+      return `<m:eqArr>${node.rows.map((r) => `<m:e>${emit(r)}</m:e>`).join("")}</m:eqArr>`;
   }
 }
 

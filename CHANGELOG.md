@@ -2,6 +2,34 @@
 
 All notable changes to Formula Inserter. Dates are release/pilot dates.
 
+## [1.0.0] — 2026-06-21
+
+First production release. The add-in is now a broad STEM authoring suite (14 modes)
+on top of one shared, unit-tested engine (793 tests), entirely client-side.
+
+### Added
+- **Units** mode — SI-correct quantity typesetting (±, ×10ⁿ, µ/Ω/°), significant
+  figures, and unit conversion including compound units (`km/h → m/s`).
+- **Plot** mode — offline pure-SVG function & data charts (multiple series with a
+  legend, error bars) via a safe expression evaluator (no `eval`).
+- **Finance** mode + library — TVM, loan, NPV/IRR, Black–Scholes, and bond
+  calculators, plus typeset finance equations in the Math library.
+- **DNA** mode — reverse complement, transcription, six-frame translation, GC,
+  ORF finder, plus primer Tm, protein MW/pI/GRAVY, and restriction-site scan.
+- **Numerals**, **Refs**, and **Audit** modes — reference-numeral management,
+  figure/table captions & cross-references, and a whole-document consistency audit
+  (numerals, SEQ ID NO, figures, cross-reference validity).
+- **Reaction** mode — multi-step reaction schemes with conditions over the arrow.
+- **Math** — LaTeX import/export and multi-line aligned equations (`align(…)`).
+- **Chemical** — dictionary-based structure→name lookup; tighter (cropped) 2D
+  structure images.
+- **macOS install pack** and split per-OS packaging.
+
+### Notes
+- All inserts run locally; no document content leaves the machine.
+- Tagged content controls on key inserts (equations, structures, callouts, …) for
+  later re-finding/updating.
+
 ## [Unreleased] — internal pilot prep
 
 ### Added

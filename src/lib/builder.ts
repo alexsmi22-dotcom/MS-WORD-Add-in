@@ -310,7 +310,9 @@ function finish(mol: Molecule, width: number, height: number, needCoords: boolea
       // ignore — depiction will still attempt layout
     }
   }
-  const svg = mol.toSVG(width, height);
+  // autoCrop removes OpenChemLib's wide empty margins, keeping the structure at
+  // its natural drawn size with the surrounding whitespace trimmed.
+  const svg = mol.toSVG(width, height, undefined, { autoCrop: true, autoCropMargin: 8 });
   const generic = mol.isFragment();
   let smiles = "";
   try {

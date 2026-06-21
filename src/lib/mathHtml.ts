@@ -75,6 +75,8 @@ function astToHtml(node: Node): string {
         .join("");
       return `<span class="m-cases-brace">{</span><span class="m-cases">${cells}</span>`;
     }
+    case "stack":
+      return `<span class="m-stack">${node.rows.map((r) => `<span class="m-stack-row">${astToHtml(r)}</span>`).join("")}</span>`;
   }
 }
 

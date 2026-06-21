@@ -4,8 +4,9 @@ A Microsoft Word add-in for patent drafting. It runs **entirely on your machine*
 nothing you type is sent anywhere — and inserts cleanly formatted chemistry, math,
 structures, code, sequences, and botanical names directly at the cursor.
 
-Pick a **mode** at the top of the pane: **Chemical · Math · Build · Code · Sequence · Botanical.**
-Everything shows a live preview that matches exactly what gets inserted.
+Pick a **mode** at the top of the pane: **Chemical · Math · Units · Plot · Finance · Build · Code · Sequence · Botanical · Numerals · Refs · DNA · Reaction · Audit.**
+Everything shows a live preview that matches exactly what gets inserted, and the
+**Examples & syntax** panel updates to match the selected mode.
 
 > Drafting aid — always verify structures, formulas, and listings before filing.
 
@@ -21,6 +22,7 @@ Everything shows a live preview that matches exactly what gets inserted.
 - Format formulas with correct sub/superscripts: `H2O` → H₂O, `SO4^2-` → SO₄²⁻, `Na+` → Na⁺, `Ca(OH)2` → Ca(OH)₂.
 - Charge, lone-pair, and common group/ion palette (OH, NH₄, SO₄, CH₃, …).
 - **2D structures**, offline, from a **name** (`aspirin`), **formula** (`C6H6`), or **SMILES** (`CC(=O)O`).
+- **Name lookup** — recognized compounds show their name (dictionary-based), which you can insert.
 - **Stereochemistry** — isomeric SMILES (`C[C@@H](N)C(=O)O`) drawn with wedges.
 - Each inserted structure carries provenance (formula / MW / canonical SMILES / OCL ID) in its alt-text.
 
@@ -32,8 +34,31 @@ Everything shows a live preview that matches exactly what gets inserted.
 - **Engineering & physics** — Dirac bra-ket (`bra`/`ket`/`braket`), contour/multiple integrals `∮ ∬ ∭`, phasor `∠`, `ℏ`, `Ω`, Laplace `ℒ` / Fourier `ℱ`, `Re`/`Im`.
 - **Function families** (palette + library) — trig, inverse-trig, hyperbolic, log/exp, special (`Γ`, `ζ`, `erf`, `sgn`), discrete (`C(n,k)`, `P(n,k)`, …).
 - **Equation numbering** — optional right-aligned (I), (II), … with a counter and reset.
+- **Import / export LaTeX** — paste LaTeX (`\frac{-b\pm\sqrt{b^2-4ac}}{2a}`) to turn it into a native Word equation, or copy the current formula out as LaTeX.
+- **Multi-line aligned equations** — `align(a = b; c = d)` (or paste a LaTeX `align`/`aligned` block) → a stacked Word equation array.
 - **Formula library** grouped into *Mathematics* (statistics, geometry, algebra, trig, calculus), *Functions*, and *Science & engineering* (**Cryptography, Computer science/ML, Mechanical engineering, Electrical engineering, Physics, Biology/assays**).
 - Symbol palette is collapsible; its open/closed state is remembered.
+
+## 📏 Units — quantities & conversion
+- **Typeset quantities** with SI conventions: `9.81 m/s^2` → 9.81 m/s², `5.0 +- 0.2 kg` → 5.0 ± 0.2 kg, `1.2e-3 mol/L` → 1.2 × 10⁻³ mol/L (thin space, superscripts, ±, ×10ⁿ).
+- **Symbol fixes** — `ohm` → Ω, `degC` → °C, `umol` → µmol, `*`/spaces → ·.
+- **Convert** across length, mass, time, temperature (affine), volume, pressure, energy, amount, and angle — e.g. `1 km → mi`, `100 °C → °F` — including **compound units** (`km/h → m/s`, `g/mol → kg/mol`), with significant-figure rounding. Insert the typeset quantity or conversion result.
+
+## 📈 Plot — function & data charts
+- Plot a **function** `y = f(x)` (`sin(x)/x`, `x^2`, `exp(-x^2)`; sin/cos/tan/exp/log/sqrt/abs…, constants pi/e) over an x-range.
+- Plot **data** points (`x y` per line, optional `err` for error bars) as scatter — combine with a function on the same axes.
+- **Multiple functions** at once (separate with `;`) with a labeled **legend**.
+- Axes, ticks, gridlines, optional title and axis labels. Rendered offline as an image; nothing leaves your machine.
+
+## 🔖 Refs — captions & cross-references
+- **Auto-numbered captions** — "Figure 1.", "Table 2." with per-document running counters (saved in the file).
+- **Cross-references** — insert "Fig. 3", "Table 2", or "Eq. (1)".
+- **Check captions** — flags skipped or duplicated figure/table numbers. (For live auto-renumbering, Word's own cross-reference fields remain the authority.)
+
+## 💵 Finance — calculators & formulas
+- **Calculators** (compute & insert the result): time value of money (future/present value), compound interest, **loan payment**, **NPV** and **IRR** from a cash-flow list, **Black–Scholes** option price, and **bond pricing**. Pick a calculator, fill the inputs, and the result computes live.
+- **Finance formula library** — typeset equations in **Math** mode's *Formula library*: time-value-of-money, valuation & options (NPV, Gordon growth, WACC, Black–Scholes, put–call parity), and portfolio & bonds (CAPM, Sharpe ratio, portfolio variance, beta, bond price, duration).
+- Rates entered as percentages; values are currency-neutral. Runs entirely offline.
 
 ## 🔬 Build — structures & Markush genus
 - Build a 2D structure from a typed **atom/bond list** or a pasted **MDL molfile**.
@@ -58,6 +83,35 @@ Everything shows a live preview that matches exactly what gets inserted.
 ## 🌿 Botanical — plant patents
 - **Scientific-name typesetting** with correct nomenclature italics — genus, species, and infraspecific epithets italic; rank connectors (`subsp.`/`var.`/`f.`), author citations, hybrid `×`, and cultivars (`'Peace'`) roman; quotes normalized, genus capitalized.
 - **Varietal characteristics table** from `Label: value` lines (plant height, flower color/RHS, habit, …).
+
+## 🧬 DNA — sequence analysis
+- **Reverse complement** / complementary strand (IUPAC ambiguity codes accepted).
+- **Transcription** — coding strand → mRNA (T → U).
+- **Translation** — to protein in any reading frame (**+1/+2/+3** and reverse **−1/−2/−3**); stop codons shown as `*`; degenerate codons resolved when unambiguous (e.g. `GCN` → Ala); optional "stop at first stop".
+- **GC content & base composition** — length, A/C/G/T counts, GC%.
+- **Six-frame ORF finder** — ATG → in-frame stop across all six frames, with a minimum-length (aa) filter; results as a Strand/Frame/Location/Length/Protein table you can insert.
+- **Bench tools** — primer **Tm** (Wallace / GC%), **protein properties** (MW, pI, GRAVY) of the translation, and a **restriction-site** scan (common type-II enzymes).
+- Live as you type; insert any result (strand, mRNA, protein, ORF table) at the cursor. Companion to **Sequence** mode (which produces the ST.26 listing). Drafting aid — verify downstream.
+
+## 🔢 Numerals — reference-numeral management
+- Maintain a **numeral → element table** (widget 10, housing 12, fastener 14, …) **saved inside the document**, so each case keeps its own list.
+- **One-click callout insertion** at the cursor — `housing (12)` (or no-parens `housing 12`); next numeral is auto-suggested (10, 12, 14 …).
+- **Scan document** to flag **collisions** (one numeral reused for two elements), **gaps** (skipped numbers), **orphans** (a callout with no table entry), and **unused** entries (defined but never called out).
+- **Insert the "List of Reference Numerals"** section — a heading plus a sorted Numeral | Element table.
+- Advisory, in the house style: the scan detects the parenthesized callout form, e.g. `(12)` — verify before filing.
+
+## ⚗️ Reaction — reaction schemes
+- Compose `reactants + reactants >> products` with optional conditions over/under the arrow (`; over ; under`).
+- **Multi-step** schemes too — `A -> B -> C` draws an arrow between each stage.
+- Each component is a name or SMILES (formal charges like `[N+]` are kept intact), drawn with OpenChemLib; the scheme inserts as one image with provenance alt-text.
+
+## ✅ Audit — check this application
+- One pass over the whole document runs every consistency check at once: **reference numerals** (uses your Numerals table), **SEQ ID NO** references vs. the listing, **figure-number** continuity, and **cross-reference validity** (every "Fig. N"/"Table N" has a matching caption).
+- Grouped report with a ✓ per clean area. Advisory — every check is heuristic; verify before filing.
+
+## Preferences & polish
+- Your **callout-parenthesis** and **default DNA frame** choices are remembered between sessions.
+- In **Sequence** mode, insert a canonical **SEQ ID NO: N** in-text reference.
 
 ---
 

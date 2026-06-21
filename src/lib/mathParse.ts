@@ -31,7 +31,8 @@ export type Node =
   | { k: "lim"; sub: Node; body: Node }
   | { k: "acc"; chr: string; base: Node }
   | { k: "matrix"; rows: Node[][]; open: string; close: string }
-  | { k: "cases"; rows: Node[][] };
+  | { k: "cases"; rows: Node[][] }
+  | { k: "stack"; rows: Node[] }; // stacked equations (equation array), e.g. align(...)
 
 interface Token {
   t:
@@ -405,6 +406,9 @@ class Parser {
       }
       return { k: "cases", rows };
     }
+    if (lower === "align" || lower === "aligned" || lower === "stack") {
+      return { k: "stack", rows: this.parseStackRows() };
+    }
 
     // Function application: an identifier immediately followed by "(".
     if (this.peek()?.t === "lparen") {
@@ -457,6 +461,19 @@ class Parser {
       }
     }
     rows.push(row);
+    this.expect("rparen");
+    return rows;
+  }
+
+  /** Parses parenthesized rows for stacked equations: one expression per row,
+   *  rows separated by ';'. e.g. "(a = b; c = d)" → [a=b, c=d]. */
+  private parseStackRows(): Node[] {
+    this.expect("lparen");
+    const rows: Node[] = [this.parseExpr()];
+    while (this.peek()?.t === "semi") {
+      this.next();
+      rows.push(this.parseExpr());
+    }
     this.expect("rparen");
     return rows;
   }

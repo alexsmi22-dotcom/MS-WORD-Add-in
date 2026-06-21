@@ -1,6 +1,6 @@
 import { Molecule } from "openchemlib";
 import { NAME_TO_SMILES, FORMULA_TO_SMILES } from "../compounds";
-import { renderStructure } from "../structures";
+import { renderStructure, nameForStructure } from "../structures";
 
 const nameEntries = Object.entries(NAME_TO_SMILES);
 const formulaEntries = Object.entries(FORMULA_TO_SMILES);
@@ -32,5 +32,18 @@ describe("renderStructure provenance", () => {
 
   it("returns null for an unknown, unparseable input", () => {
     expect(renderStructure("not_a_compound_xyz", 200, 160)).toBeNull();
+  });
+});
+
+describe("nameForStructure (dictionary name lookup)", () => {
+  it("recognizes a known compound from its SMILES and from its name", () => {
+    // aspirin is in the dictionary; its SMILES should resolve back to a name.
+    expect(nameForStructure("CC(=O)Oc1ccccc1C(=O)O")).toBeTruthy();
+    expect(nameForStructure("aspirin")).toBeTruthy();
+  });
+
+  it("returns null for an unrecognized or invalid structure", () => {
+    expect(nameForStructure("")).toBeNull();
+    expect(nameForStructure("not a molecule!!")).toBeNull();
   });
 });

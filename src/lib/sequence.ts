@@ -119,7 +119,7 @@ export function buildSt26Xml(meta: SequenceListingMeta, entries: SequenceEntry[]
     `originalFreeTextLanguageCode="en" dtdVersion="${DTD_VERSION}"` +
     ` fileName="${escapeXml(meta.fileName || "sequence-listing.xml")}"` +
     ` softwareName="${escapeXml(meta.softwareName || "Formula Inserter")}"` +
-    ` softwareVersion="${escapeXml(meta.softwareVersion || "0.1.0")}"` +
+    ` softwareVersion="${escapeXml(meta.softwareVersion || "1.0.0")}"` +
     ` productionDate="${escapeXml(meta.productionDate)}"`;
 
   const appId =

@@ -298,7 +298,29 @@ sub/superscript formatting. Uncheck the box to always use inline formatting.
       drawn 2D structures inserted beneath the genus.
 - [x] **Botanical mode** (plant patents) — scientific-name typesetting (italics
       per ICN/ICNCP) and varietal characteristics tables.
+- [x] **Reference-numeral management** (Numerals mode) — per-document
+      numeral→element table (saved in the doc), one-click callout insertion,
+      collision/gap/orphan/unused checks via a document scan, and an inserted
+      "List of Reference Numerals" table.
+- [x] **DNA analysis** (DNA mode) — reverse complement, transcription (mRNA),
+      six-frame translation (degenerate-codon aware), GC/base composition, and a
+      six-frame ORF finder with an insertable results table.
+- [x] **Reaction schemes** (Reaction mode) — reactants → products with conditions
+      over/under the arrow, composed from OpenChemLib structures.
+- [x] **Document audit** (Audit mode) — one "check this application" pass:
+      numerals, SEQ ID NO references, figures.
+- [x] **SEQ ID NO references** — canonical in-text references (Sequence mode).
+- [x] **Persisted preferences** — callout-parens and default DNA frame.
+- [x] **LaTeX import/export** — paste LaTeX → native Word equation; copy current as LaTeX.
+- [x] **Units & quantities** (Units mode) — SI typesetting, ± uncertainty, ×10ⁿ, and unit conversion.
+- [x] **Captions & cross-references** (Refs mode) — auto-numbered figure/table
+      captions, Fig./Table/Eq. references, and a caption gap/duplicate check.
+- [x] **Quick plotting** (Plot mode) — offline pure-SVG function and data charts
+      (axes, error bars) with a safe expression evaluator.
+- [x] **Finance** (Finance mode + library) — TVM, loan, NPV/IRR, Black–Scholes,
+      bond calculators, plus typeset finance equations in the Math library.
 - [ ] Formula history / favorites.
+- [ ] IUPAC name insertion (needs a dedicated naming library).
 - [x] **Centralized-deployment path documented** — validated deploy manifest +
       IT admin guide (`packaging/CENTRALIZED-DEPLOY.md`) for Microsoft 365
       Integrated Apps. (AppSource intentionally not used — internal tool.)

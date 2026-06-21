@@ -40,7 +40,7 @@ H2O → H₂O   ·   paste \frac{-b±√(b²-4ac)}{2a} (LaTeX) → a Word equati
 - [Manual test script](docs/TEST-SCRIPT.md) — in-Word QA checklist
 - [Distribution & Deployment](DISTRIBUTION.md) — for IT
 - [Architecture](ARCHITECTURE.md) · [Security & Confidentiality](SECURITY.md)
-- [Third-Party Licenses](THIRD_PARTY_LICENSES.md) · [Changelog](CHANGELOG.md)
+- [License (MIT)](LICENSE) · [Third-Party Licenses](THIRD_PARTY_LICENSES.md) · [Changelog](CHANGELOG.md)
 
 ## Prerequisites
 

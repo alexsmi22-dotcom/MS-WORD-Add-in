@@ -42,14 +42,16 @@ you confirm you trust an installer it didn't deliver itself. After that, it's a
 normal double-click.
 
 1. **Download** `formula-inserter-mac.zip` and **unzip** it.
-2. **Right-click** (Control-click) **`install.command`** → **Open**.
-3. A box says macOS *can't verify the developer* — click **Open**. (Safe; it only
-   copies one file into Word's add-in folder.)
-   - *No "Open" button on newer macOS?* **Apple menu → System Settings → Privacy &
-     Security**, scroll down, click **Open Anyway**, then redo step 2.
-4. Terminal prints **"Formula Inserter installed."** — press any key to close.
-5. **Fully quit Word** (**⌘Q**, not just the red dot), then reopen it.
-6. **Insert** tab → **Add-ins** (the *My Add-ins* dropdown) → **Formula Inserter**.
+2. **Right-click** (Control-click) **`install.command`** → **Open**. You'll get
+   one of two boxes:
+   - **Has an "Open" button** → click **Open**, skip to step 4.
+   - **Says "Apple could not verify … malware"** (current macOS, only *Move to
+     Trash* / *Done*): click **Done**, then **Apple menu → System Settings →
+     Privacy & Security**, scroll down to **"install.command" was blocked** →
+     **Open Anyway** → password/Touch ID → **Open Anyway** again.
+3. Terminal prints **"Formula Inserter installed."** — press any key to close.
+4. **Fully quit Word** (**⌘Q**, not just the red dot), then reopen it.
+5. **Insert** tab → **Add-ins** (the *My Add-ins* dropdown) → **Formula Inserter**.
 
 From now on a plain **double-click** of `install.command` works — the approval is
 first-time only. (Stuck? `START HERE - Install on Mac.txt` in the zip has a

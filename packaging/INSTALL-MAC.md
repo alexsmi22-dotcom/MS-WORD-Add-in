@@ -21,14 +21,20 @@ before installing so it creates its add-in folder.
 
 1. **Unzip** the download and keep the files together in one folder.
 2. **Right-click** (or Control-click) **`install.command`** and choose **Open**.
-3. A box says macOS *can't verify the developer*. Click **Open**. (Safe — the
-   installer only copies one file into Word's add-in folder.)
-   - **No "Open" button (newer macOS)?** Go to **Apple menu → System Settings →
-     Privacy & Security**, scroll down, click **Open Anyway**, then repeat step 2.
-4. A Terminal window runs and prints **"Formula Inserter installed."** — press any
+   You'll get **one of two** security boxes:
+   - **If it has an "Open" button** → click **Open**, and skip to step 4.
+   - **If it says "Apple could not verify … malware"** with only *Move to Trash* /
+     *Done* (current macOS): click **Done** (not *Move to Trash*), then
+     **Apple menu → System Settings → Privacy & Security**, **scroll down** to the
+     *Security* section where it says **"install.command" was blocked**, click
+     **Open Anyway**, enter your password / Touch ID, and click **Open Anyway**
+     once more.
+   - *(Safe either way — the installer only copies one file into Word's add-in
+     folder. Apple just makes you confirm it the first time.)*
+3. A Terminal window runs and prints **"Formula Inserter installed."** — press any
    key to close it.
-5. **Fully quit Word** (**⌘-Q**, not just the red dot), then reopen it.
-6. **Insert** tab → **Add-ins** (the *My Add-ins* dropdown) → click
+4. **Fully quit Word** (**⌘-Q**, not just the red dot), then reopen it.
+5. **Insert** tab → **Add-ins** (the *My Add-ins* dropdown) → click
    **Formula Inserter**. The pane opens on the side.
 
 From now on you can simply **double-click `install.command`** — the approval only

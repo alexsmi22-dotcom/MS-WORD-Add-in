@@ -2,51 +2,58 @@
   INSTALL FORMULA INSERTER IN WORD  (macOS)
 ==========================================================
 
-There is NO installer to double-click on purpose: macOS would block an
-unsigned downloaded installer with a scary "cannot verify it is free of
-malware" warning. Instead you run ONE command that simply copies a file
-into Word's add-in folder. It takes about a minute.
+It works just like the Windows installer, with ONE extra click the
+first time -- Apple requires you to confirm you trust the installer.
+After that first time, it's a normal double-click.
 
-(You only need to do this once. Launch Word at least once before you
-start, so it creates its add-in folder.)
+(Launch Word at least once before installing, so it creates its
+add-in folder.)
 
 ----------------------------------------------------------
-STEP 1.  Open Terminal.
-         Press  Command-Spacebar , type  Terminal , press Return.
+INSTALL  (do this once)
 
-STEP 2.  Tell Terminal to look in this folder.
-         Type  cd  followed by ONE space, then DRAG this folder from
-         Finder onto the Terminal window, and press Return.
+STEP 1.  Unzip this download (double-click the .zip if you haven't).
 
-STEP 3.  Copy the whole line below, paste it into Terminal (Command-V),
-         and press Return:
+STEP 2.  RIGHT-CLICK (or Control-click)  install.command  and choose
+         Open  from the menu.
 
-mkdir -p ~/Library/Containers/com.microsoft.Word/Data/Documents/wef && cp manifest.xml ~/Library/Containers/com.microsoft.Word/Data/Documents/wef/formula-inserter.manifest.xml && echo "Formula Inserter installed."
+STEP 3.  A box says it can't verify the developer. Click  Open
+         (this is the one Apple confirmation -- it's safe; the
+         installer only copies one file into Word's add-in folder).
 
-         When it prints   Formula Inserter installed.   it worked.
+           --> If you DON'T see an Open button (newer macOS):
+               Apple menu > System Settings > Privacy & Security,
+               scroll down, and click  Open Anyway , then repeat
+               Step 2.
 
-STEP 4.  Quit Word completely ( Command-Q , not just the red dot ),
+STEP 4.  A Terminal window runs and says
+           "Formula Inserter installed."
+         Press any key to close it.
+
+STEP 5.  Quit Word completely ( Command-Q , not just the red dot ),
          then reopen it.
 
-STEP 5.  Insert tab  >  Add-ins (My Add-ins)  >  Formula Inserter.
+STEP 6.  Insert tab  >  Add-ins (My Add-ins)  >  Formula Inserter.
          The pane opens on the side.
+
+After this first time, you can just DOUBLE-CLICK install.command.
 
 ----------------------------------------------------------
 QUICK TEST
   In the pane, with "Chemical" selected, type  H2O  and click
   "Insert formatted text" -- you should get H subscript-2 O.
 
-TROUBLE?
-  - "No such file or directory": Step 2 didn't put you in this folder.
-    Redo Step 2 (drag the folder onto Terminal), then redo Step 3.
-  - Not listed under Add-ins: make sure you FULLY quit Word with
-    Command-Q, then reopened it.
-  - Pane is blank: you need internet the first time it loads; after
-    that it works offline.
-  See INSTALL-MAC.md in this folder for more detail.
+----------------------------------------------------------
+IF THE INSTALLER STILL WON'T OPEN  (rare)
+  You can install without the script by copying one file yourself:
+  1. Open Terminal (Command-Spacebar, type Terminal, Return).
+  2. Type  cd  and a space, drag this folder onto the window, Return.
+  3. Paste this line and press Return:
 
+mkdir -p ~/Library/Containers/com.microsoft.Word/Data/Documents/wef && cp manifest.xml ~/Library/Containers/com.microsoft.Word/Data/Documents/wef/formula-inserter.manifest.xml && echo "Formula Inserter installed."
+
+----------------------------------------------------------
 TO UNINSTALL
-  Open Terminal, paste this line, press Return, then restart Word:
-
-rm -f ~/Library/Containers/com.microsoft.Word/Data/Documents/wef/formula-inserter.manifest.xml
+  Right-click  uninstall.command  >  Open  (same as Step 2-3),
+  then restart Word.
 ==========================================================

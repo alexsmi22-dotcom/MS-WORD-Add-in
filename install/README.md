@@ -10,7 +10,7 @@ Pick your operating system below.
 | Your OS | Download | Quick steps |
 | --- | --- | --- |
 | **Windows** | **[formula-inserter-windows.zip](formula-inserter-windows.zip)** | Unzip → right-click **`install.ps1` → Run with PowerShell** → restart Word |
-| **macOS** | **[formula-inserter-mac.zip](formula-inserter-mac.zip)** | Unzip → paste one **Terminal** command (see macOS steps below) → restart Word |
+| **macOS** | **[formula-inserter-mac.zip](formula-inserter-mac.zip)** | Unzip → **right-click `install.command` → Open → Open** → restart Word |
 
 After installing, open Word → **Insert** tab → **Add-ins** → **Formula Inserter**
 (or the **Insert Formula** button on the Home tab). The pane opens on the side.
@@ -37,24 +37,25 @@ After installing, open Word → **Insert** tab → **Add-ins** → **Formula Ins
 
 You need modern Word (Microsoft 365 / Office 2019+). Launch Word **once** before installing so it creates its add-in folder.
 
-Installing is one copy-paste Terminal command. (There's no double-click
-installer for Mac on purpose — macOS blocks unsigned downloaded scripts with a
-*"cannot verify it is free of malware"* warning; copying one file avoids that.)
+Like the Windows installer, with **one extra click the first time** — macOS makes
+you confirm you trust an installer it didn't deliver itself. After that, it's a
+normal double-click.
 
 1. **Download** `formula-inserter-mac.zip` and **unzip** it.
-2. Open **Terminal** (press **⌘-Space**, type `Terminal`, press **Return**).
-3. Type `cd ` (with a trailing space), drag the unzipped
-   **formula-inserter-mac** folder onto the Terminal window, press **Return**.
-4. Paste this one line and press **Return**:
-   ```bash
-   mkdir -p ~/Library/Containers/com.microsoft.Word/Data/Documents/wef && cp manifest.xml ~/Library/Containers/com.microsoft.Word/Data/Documents/wef/formula-inserter.manifest.xml && echo "Formula Inserter installed."
-   ```
-   When it prints **"Formula Inserter installed."** the file is in place.
+2. **Right-click** (Control-click) **`install.command`** → **Open**.
+3. A box says macOS *can't verify the developer* — click **Open**. (Safe; it only
+   copies one file into Word's add-in folder.)
+   - *No "Open" button on newer macOS?* **Apple menu → System Settings → Privacy &
+     Security**, scroll down, click **Open Anyway**, then redo step 2.
+4. Terminal prints **"Formula Inserter installed."** — press any key to close.
 5. **Fully quit Word** (**⌘Q**, not just the red dot), then reopen it.
 6. **Insert** tab → **Add-ins** (the *My Add-ins* dropdown) → **Formula Inserter**.
 
-**Uninstall:** in Terminal paste
-`rm -f ~/Library/Containers/com.microsoft.Word/Data/Documents/wef/formula-inserter.manifest.xml`, then restart Word.
+From now on a plain **double-click** of `install.command` works — the approval is
+first-time only. (Stuck? `START HERE - Install on Mac.txt` in the zip has a
+no-script copy-paste fallback.)
+
+**Uninstall:** right-click `uninstall.command` → **Open**, then restart Word.
 
 ---
 
@@ -67,9 +68,11 @@ text** — you should get H₂O in your document.
   first time it loads (code is served over HTTPS). After that it works offline.
 - **Not listed under Add-ins after installing:** make sure Word was *fully* closed
   (Windows) / quit with ⌘Q (Mac), then reopen.
-- **macOS "No such file or directory" when pasting the install command:** you
-  weren't in the unzipped folder — redo step 3 (drag the folder onto Terminal so
-  it `cd`s there; `ls` should show `manifest.xml`), then rerun the command.
+- **macOS "can't be opened" / no Open button:** right-click → **Open** (not a
+  plain double-click) the first time; on newer macOS use **System Settings →
+  Privacy & Security → Open Anyway**. If it says **"permission denied,"**
+  re-download the zip (the current build keeps the file runnable) or use the
+  copy-paste fallback in `START HERE - Install on Mac.txt`.
 - **"Could not be started" / compatibility:** requires a modern Microsoft 365 build
   of Word. Very old Office versions aren't supported.
 

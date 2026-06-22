@@ -8,9 +8,13 @@
 #   formula-inserter-windows\ (.zip) -> emailed to Windows users
 #     manifest.xml, install.ps1/.bat, uninstall.ps1/.bat, INSTALL.md, FEATURES.md
 #   formula-inserter-mac\ (.zip)     -> emailed to macOS users
-#     manifest.xml, START HERE - Install on Mac.txt, INSTALL-MAC.md, FEATURES.md
-#     (no script: installs via a copy-paste Terminal command — Gatekeeper flags
-#     unsigned .command files as malware. See the START HERE txt / DISTRIBUTION.md)
+#     manifest.xml, install.command, uninstall.command,
+#     START HERE - Install on Mac.txt, INSTALL-MAC.md, FEATURES.md
+#     Double-click install: user right-clicks install.command > Open the FIRST
+#     time (Gatekeeper allows unsigned scripts only via right-click > Open; a
+#     plain double-click is blocked). zip-mac.mjs preserves the exec bit so it
+#     can run at all. START HERE txt also documents a no-script copy-paste
+#     fallback for anyone the script still won't run for.
 #
 # The same stamped manifest.xml serves both OSes; only the per-user installer differs.
 
@@ -69,6 +73,8 @@ Copy-Item (Join-Path $root "FEATURES.md")             $winPack -Force
 # script: macOS Gatekeeper flags an unsigned downloaded *.command as malware, so
 # INSTALL-MAC.md installs via a copy-paste Terminal command instead.
 Copy-Item $manifest $macPack -Force
+Copy-Item (Join-Path $root "packaging\install.command")   $macPack -Force
+Copy-Item (Join-Path $root "packaging\uninstall.command") $macPack -Force
 Copy-Item (Join-Path $root "packaging\START HERE - Install on Mac.txt") $macPack -Force
 Copy-Item (Join-Path $root "packaging\INSTALL-MAC.md")    $macPack -Force
 Copy-Item (Join-Path $root "FEATURES.md")                 $macPack -Force
@@ -78,8 +84,11 @@ $winZip = Join-Path $release "formula-inserter-windows.zip"
 $macZip = Join-Path $release "formula-inserter-mac.zip"
 foreach ($z in @($winZip, $macZip)) { if (Test-Path $z) { Remove-Item -Force $z } }
 Compress-Archive -Path (Join-Path $winPack "*") -DestinationPath $winZip
-# Mac pack contains no executable script, so a plain zip is fine.
-Compress-Archive -Path (Join-Path $macPack "*") -DestinationPath $macZip
+# Mac zip is built by a Node zipper that preserves the Unix executable bit on the
+# .command files — Compress-Archive writes a DOS zip with no permission bits, so
+# install.command would extract non-executable and fail before macOS even prompts.
+node (Join-Path $root "scripts\zip-mac.mjs") $macPack $macZip
+if ($LASTEXITCODE -ne 0) { throw "Mac zip build failed." }
 
 Write-Host ""
 Write-Host "Done." -ForegroundColor Green

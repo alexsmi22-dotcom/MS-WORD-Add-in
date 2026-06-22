@@ -21,13 +21,12 @@ produces **three separate, labeled outputs** under `release\`:
 | --- | --- | --- |
 | `formula-inserter-host\` (`web\`, `manifest.xml`, `HOST-SETUP.md`) | IT (once) | Upload `web\` to `https://your-host/formula-inserter` |
 | `formula-inserter-windows.zip` | **Windows** users | Email it — they run `install.bat`/`install.ps1` (per-user, no admin) |
-| `formula-inserter-mac.zip` | **macOS** users | Email it — they paste one Terminal command from `INSTALL-MAC.md` (per-user, no admin) |
+| `formula-inserter-mac.zip` | **macOS** users | Email it — they **right-click `install.command` → Open** (per-user, no admin) |
 
 Each install pack is self-contained: it carries its own copy of the stamped
-`manifest.xml`, the matching INSTALL doc, and `FEATURES.md` (Windows also gets the
-`install`/`uninstall` scripts; macOS installs via a copy-paste command — see
-below). So: run the script → upload `formula-inserter-host\web` once → send each
-person the **one zip for their OS**. They follow the INSTALL doc, restart Word,
+`manifest.xml`, the OS installer/uninstaller, the matching INSTALL doc, and
+`FEATURES.md`. So: run the script → upload `formula-inserter-host\web` once → send
+each person the **one zip for their OS**. They run the installer, restart Word,
 and pick **Formula Inserter** from **Insert → Add-ins**.
 
 > **How the per-user install works:**
@@ -36,13 +35,16 @@ and pick **Formula Inserter** from **Insert → Add-ins**.
 >   `HKCU\…\WEF\Developer` (a per-user "developer add-in"). The older local-folder
 >   **Trusted Catalog** ("Shared Folder") method is **not** used — it did not
 >   surface the add-in on the target Office build.
-> - **macOS:** Mac Word has no registry; the user pastes one Terminal command
->   (in `INSTALL-MAC.md`) that copies `manifest.xml` into Word's per-user sideload
->   folder `~/Library/Containers/com.microsoft.Word/Data/Documents/wef/`. The
->   add-in then appears under **Insert → Add-ins**. (We intentionally ship **no**
->   `.command` script: macOS Gatekeeper flags an unsigned, downloaded script as
->   malware, and a Windows-built zip also strips its executable bit — the
->   copy-paste command sidesteps both.)
+> - **macOS:** Mac Word has no registry; `install.command` copies `manifest.xml`
+>   into Word's per-user sideload folder
+>   `~/Library/Containers/com.microsoft.Word/Data/Documents/wef/`. The add-in then
+>   appears under **Insert → Add-ins**. GOTCHAS handled: (1) the Mac zip is built
+>   by `scripts/zip-mac.mjs`, which preserves the Unix exec bit (a Windows
+>   `Compress-Archive` zip strips it → "permission denied"); (2) Gatekeeper blocks
+>   a *plain double-click* of an unsigned downloaded script, so users **right-click
+>   → Open** the first time (newer macOS: System Settings → Privacy & Security →
+>   Open Anyway). A no-script copy-paste fallback is in `START HERE` / `INSTALL-MAC.md`
+>   for anyone the script still won't run for.
 >
 > The same hosted `web\` files and the same stamped `manifest.xml` serve both
 > platforms — only the per-user install step differs.

@@ -159,7 +159,7 @@ export interface PlotOptions {
   ylabel?: string;
 }
 
-function niceStep(range: number, target: number): number {
+export function niceStep(range: number, target: number): number {
   const raw = range / Math.max(1, target);
   const mag = Math.pow(10, Math.floor(Math.log10(raw)));
   const norm = raw / mag;
@@ -167,7 +167,7 @@ function niceStep(range: number, target: number): number {
   return step * mag;
 }
 
-function fmtTick(v: number): string {
+export function fmtTick(v: number): string {
   if (v === 0) return "0";
   if (Math.abs(v) >= 1e4 || Math.abs(v) < 1e-3) return v.toExponential(1);
   return String(Math.round(v * 1000) / 1000);

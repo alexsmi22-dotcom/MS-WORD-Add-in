@@ -1,5 +1,6 @@
 /* eslint-disable no-undef */
 const path = require("path");
+const webpack = require("webpack");
 const HtmlWebpackPlugin = require("html-webpack-plugin");
 const CopyWebpackPlugin = require("copy-webpack-plugin");
 const devCerts = require("office-addin-dev-certs");
@@ -27,6 +28,9 @@ module.exports = async (env, options) => {
     },
     resolve: {
       extensions: [".ts", ".js", ".html"],
+      // PptxGenJS references Node builtins on its (unused) Node code paths;
+      // stub them out for the browser bundle.
+      fallback: { fs: false, https: false, os: false, path: false },
     },
     // The OpenChemLib core bundle is large but is served locally to the add-in,
     // so the default web-performance size budget doesn't apply here.
@@ -52,6 +56,11 @@ module.exports = async (env, options) => {
       ],
     },
     plugins: [
+      // Webpack doesn't resolve the "node:" URI scheme for web targets — strip
+      // it so the imports above hit the resolve.fallback stubs instead.
+      new webpack.NormalModuleReplacementPlugin(/^node:/, (resource) => {
+        resource.request = resource.request.replace(/^node:/, "");
+      }),
       new HtmlWebpackPlugin({
         filename: "taskpane.html",
         template: "./src/taskpane/taskpane.html",

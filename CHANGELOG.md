@@ -2,6 +2,15 @@
 
 All notable changes to Formula Inserter. Dates are release/pilot dates.
 
+## [1.1.0] — 2026-07-04
+
+### Added
+- **Table → PPT** mode — export the Word table at the cursor as a **PowerPoint
+  (.pptx) download** containing a native, fully editable chart (column, bar,
+  line, area, pie, or doughnut) plus, optionally, the source table on a second
+  slide. Live SVG preview in the pane; tolerant number parsing ($, %, commas,
+  units, parenthesized negatives); powered by PptxGenJS, entirely client-side.
+
 ## [1.0.0] — 2026-06-21
 
 First production release. The add-in is now a broad STEM authoring suite (14 modes)

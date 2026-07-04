@@ -4,7 +4,7 @@ A Microsoft Word add-in for patent drafting. It runs **entirely on your machine*
 nothing you type is sent anywhere — and inserts cleanly formatted chemistry, math,
 structures, code, sequences, and botanical names directly at the cursor.
 
-Pick a **mode** at the top of the pane: **Chemical · Math · Units · Plot · Finance · Build · Code · Sequence · Botanical · Numerals · Refs · DNA · Reaction · Audit.**
+Pick a **mode** at the top of the pane: **Chemical · Math · Units · Plot · Table → PPT · Finance · Build · Code · Sequence · Botanical · Numerals · Refs · DNA · Reaction · Audit.**
 Everything shows a live preview that matches exactly what gets inserted, and the
 **Examples & syntax** panel updates to match the selected mode.
 
@@ -49,6 +49,14 @@ Everything shows a live preview that matches exactly what gets inserted, and the
 - Plot **data** points (`x y` per line, optional `err` for error bars) as scatter — combine with a function on the same axes.
 - **Multiple functions** at once (separate with `;`) with a labeled **legend**.
 - Axes, ticks, gridlines, optional title and axis labels. Rendered offline as an image; nothing leaves your machine.
+
+## 📊 Table → PPT — export a Word table as a PowerPoint chart
+- Click anywhere **inside a table** in your document, press **Read selected table**, and get a **.pptx download** with the data charted.
+- **Chart types** — column, bar (horizontal), line, area, pie, doughnut — with a live preview in the pane.
+- The chart is a **native, fully editable PowerPoint chart** (not a picture): colors, labels, and the underlying data can all be changed in PowerPoint.
+- **Smart table reading** — first column = category labels, first row = series names (when it's text); numbers may include `$`/`€`/`£`, `%`, thousands commas, units (`12 kg`), and accountant-style `(1,200)` negatives. Cells that aren't numbers are reported, not silently charted.
+- Optional **chart title**, and the **source table reproduced on a second slide** for reference.
+- Generated entirely on your machine — the document never leaves Word.
 
 ## 🔖 Refs — captions & cross-references
 - **Auto-numbered captions** — "Figure 1.", "Table 2." with per-document running counters (saved in the file).

@@ -77,12 +77,14 @@ import { auditDocument, AuditReport } from "../lib/audit";
 import { parseReaction, composeReactionScheme, Rendered } from "../lib/reactions";
 import { formatSeqIdRef } from "../lib/seqid";
 import { getPrefs, setPref } from "../lib/prefs";
+import { parseTableData, buildChartPreviewSvg, TableChart, ChartKind } from "../lib/tablechart";
 
 type Mode =
   | "chemical"
   | "math"
   | "units"
   | "plot"
+  | "ppt"
   | "finance"
   | "build"
   | "code"
@@ -244,6 +246,17 @@ let finCalcSelect: HTMLSelectElement;
 let finInputs: HTMLElement;
 let finResult: HTMLElement;
 let finInsertBtn: HTMLButtonElement;
+let pptSection: HTMLElement;
+let pptLoadBtn: HTMLButtonElement;
+let pptInfo: HTMLElement;
+let pptKindSelect: HTMLSelectElement;
+let pptTitleInput: HTMLInputElement;
+let pptIncludeTable: HTMLInputElement;
+let pptPreview: HTMLElement;
+let pptWarnings: HTMLElement;
+let pptDownloadBtn: HTMLButtonElement;
+/** Parsed data from the most recently read table, for the chart preview + export. */
+let currentTableChart: TableChart | null = null;
 /** The finance result text from the most recent computation, for insertion. */
 let currentFinText = "";
 let seqRefNum: HTMLInputElement;
@@ -412,6 +425,15 @@ Office.onReady((info) => {
   finInsertBtn = document.getElementById("fin-insert") as HTMLButtonElement;
   seqRefNum = document.getElementById("seq-ref-num") as HTMLInputElement;
   seqRefInsert = document.getElementById("seq-ref-insert") as HTMLButtonElement;
+  pptSection = document.getElementById("ppt-section") as HTMLElement;
+  pptLoadBtn = document.getElementById("ppt-load") as HTMLButtonElement;
+  pptInfo = document.getElementById("ppt-info") as HTMLElement;
+  pptKindSelect = document.getElementById("ppt-kind") as HTMLSelectElement;
+  pptTitleInput = document.getElementById("ppt-title") as HTMLInputElement;
+  pptIncludeTable = document.getElementById("ppt-include-table") as HTMLInputElement;
+  pptPreview = document.getElementById("ppt-preview") as HTMLElement;
+  pptWarnings = document.getElementById("ppt-warnings") as HTMLElement;
+  pptDownloadBtn = document.getElementById("ppt-download") as HTMLButtonElement;
 
   inputEl.addEventListener("input", onInputChanged);
   inputEl.addEventListener("keydown", (e) => {
@@ -503,6 +525,11 @@ Office.onReady((info) => {
   populateFinanceCalcs();
   finCalcSelect.addEventListener("change", renderFinanceInputs);
   finInsertBtn.addEventListener("click", () => insertDnaText(currentFinText, "Result"));
+
+  pptLoadBtn.addEventListener("click", loadSelectedTable);
+  pptKindSelect.addEventListener("change", updatePptPreview);
+  pptTitleInput.addEventListener("input", updatePptPreview);
+  pptDownloadBtn.addEventListener("click", downloadPptx);
 
   // Apply persisted preferences to the relevant controls, and save on change.
   const prefs = getPrefs();
@@ -998,6 +1025,7 @@ function onInputChanged(): void {
   refsSection.style.display = mode === "refs" ? "block" : "none";
   plotSection.style.display = mode === "plot" ? "block" : "none";
   financeSection.style.display = mode === "finance" ? "block" : "none";
+  pptSection.style.display = mode === "ppt" ? "block" : "none";
 
   if (mode === "units") {
     updateUnitPreview();
@@ -1009,6 +1037,10 @@ function onInputChanged(): void {
   }
   if (mode === "plot") {
     updatePlotPreview();
+    return;
+  }
+  if (mode === "ppt") {
+    updatePptPreview();
     return;
   }
   if (mode === "finance") {
@@ -1352,6 +1384,108 @@ async function copySequenceXml(): Promise<void> {
     seqOutput.select();
     setStatus("Press Ctrl+C to copy the selected XML.", "");
   }
+}
+
+// ---------------------------------------------------------------------------
+// Table → PPT (export a Word table as a PowerPoint chart)
+// ---------------------------------------------------------------------------
+
+/** Reads the table the cursor / selection sits in and parses it into chart data. */
+async function loadSelectedTable(): Promise<void> {
+  pptLoadBtn.disabled = true;
+  try {
+    await Word.run(async (context) => {
+      const selection = context.document.getSelection();
+      const tables = selection.tables;
+      tables.load("items");
+      const parent = selection.parentTableOrNullObject;
+      parent.load("isNullObject");
+      await context.sync();
+
+      // A collapsed cursor inside a table reports no tables in the range but
+      // does have a parent table; a dragged selection reports the former.
+      let table: Word.Table | null = tables.items.length ? tables.items[0] : null;
+      if (!table && !parent.isNullObject) table = parent;
+      if (!table) {
+        currentTableChart = null;
+        updatePptPreview();
+        setStatus("Click anywhere inside a table in your document first, then press “Read selected table”.", "error");
+        return;
+      }
+
+      table.load("values");
+      await context.sync();
+      currentTableChart = parseTableData(table.values);
+      updatePptPreview();
+      setStatus(
+        `Table read — ${currentTableChart.categories.length} categor${currentTableChart.categories.length === 1 ? "y" : "ies"}, ${currentTableChart.series.length} data series.`,
+        "success"
+      );
+    });
+  } catch (e) {
+    currentTableChart = null;
+    updatePptPreview();
+    setStatus(e instanceof Error ? e.message : "Couldn't read the selected table.", "error");
+  } finally {
+    pptLoadBtn.disabled = false;
+  }
+}
+
+/** Refreshes the chart preview, info line, and warnings for the loaded table. */
+function updatePptPreview(): void {
+  const chart = currentTableChart;
+  if (!chart) {
+    pptInfo.textContent = "";
+    pptPreview.innerHTML = "";
+    pptWarnings.textContent = "";
+    pptWarnings.className = "seq-warnings";
+    pptDownloadBtn.disabled = true;
+    return;
+  }
+  const names = chart.series.map((s) => s.name).join(", ");
+  pptInfo.textContent = `${chart.series.length} series (${names}) × ${chart.categories.length} categories`;
+  pptPreview.innerHTML = buildChartPreviewSvg(chart, pptKindSelect.value as ChartKind, pptTitleInput.value.trim());
+  pptWarnings.className = chart.warnings.length ? "seq-warnings warn" : "seq-warnings";
+  pptWarnings.textContent = chart.warnings.join(" ");
+  pptDownloadBtn.disabled = false;
+}
+
+/** Builds the .pptx (native chart + optional source-table slide) and downloads it. */
+async function downloadPptx(): Promise<void> {
+  const chart = currentTableChart;
+  if (!chart) return;
+  pptDownloadBtn.disabled = true;
+  setStatus("Building the PowerPoint file…", "");
+  try {
+    // Lazy-loaded so PptxGenJS stays out of the main task-pane bundle.
+    const { buildTablePptx } = await import(/* webpackChunkName: "ppt" */ "../lib/ppt");
+    const blob = await buildTablePptx(chart, pptKindSelect.value as ChartKind, {
+      title: pptTitleInput.value,
+      includeTable: pptIncludeTable.checked,
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = suggestPptFileName(pptTitleInput.value);
+    a.click();
+    URL.revokeObjectURL(url);
+    setStatus("PowerPoint downloaded — check your Downloads folder.", "success");
+  } catch (e) {
+    setStatus(e instanceof Error ? e.message : "Couldn't build the PowerPoint file.", "error");
+  } finally {
+    pptDownloadBtn.disabled = false;
+  }
+}
+
+/** "Q3 Sales!" → "q3-sales.pptx"; falls back to a generic name. */
+function suggestPptFileName(title: string): string {
+  const base = title
+    .trim()
+    .replace(/[^\w\- ]+/g, "")
+    .trim()
+    .replace(/\s+/g, "-")
+    .toLowerCase();
+  return (base || "table-chart") + ".pptx";
 }
 
 // ---------------------------------------------------------------------------

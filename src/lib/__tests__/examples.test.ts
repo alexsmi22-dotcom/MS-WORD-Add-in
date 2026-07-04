@@ -14,6 +14,7 @@ const MODES: ExampleMode[] = [
   "units",
   "refs",
   "plot",
+  "ppt",
   "finance",
 ];
 
@@ -44,6 +45,7 @@ describe("MODE_EXAMPLES", () => {
     expect(MODE_EXAMPLES.units).toContain("convert");
     expect(MODE_EXAMPLES.refs).toContain("caption");
     expect(MODE_EXAMPLES.plot).toContain("Function");
+    expect(MODE_EXAMPLES.ppt).toContain("PowerPoint");
     expect(MODE_EXAMPLES.finance).toContain("IRR");
   });
 });

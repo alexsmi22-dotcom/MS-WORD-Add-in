@@ -1,0 +1,99 @@
+// Builds a PowerPoint (.pptx) file from parsed table data using PptxGenJS.
+// The chart is a native PowerPoint chart (fully editable after export), with
+// the source table optionally reproduced on a second slide. Everything runs
+// locally in the task pane; the caller downloads the returned Blob.
+//
+// This module is loaded lazily (dynamic import) so PptxGenJS stays out of the
+// main task-pane bundle.
+
+import pptxgen from "pptxgenjs";
+import { ChartKind, TableChart, CHART_PALETTE } from "./tablechart";
+
+export interface TablePptOptions {
+  /** Slide + chart title; omitted when blank. */
+  title?: string;
+  /** Reproduce the source table on a second slide (default true). */
+  includeTable?: boolean;
+}
+
+/** PptxGenJS wants hex colors without the leading "#". */
+const PPT_COLORS = CHART_PALETTE.map((c) => c.replace("#", "").toUpperCase());
+
+export async function buildTablePptx(chart: TableChart, kind: ChartKind, opts: TablePptOptions = {}): Promise<Blob> {
+  const pptx = new pptxgen();
+  pptx.layout = "LAYOUT_16x9";
+  const title = (opts.title ?? "").trim();
+  if (title) pptx.title = title;
+
+  const slide = pptx.addSlide();
+  if (title) {
+    slide.addText(title, { x: 0.4, y: 0.2, w: 9.2, h: 0.6, fontSize: 20, bold: true, color: "222222" });
+  }
+
+  const pie = kind === "pie" || kind === "doughnut";
+  // Pie/doughnut charts show a single series — the first data column.
+  const source = pie ? chart.series.slice(0, 1) : chart.series;
+  const data = source.map((s) => ({
+    name: s.name,
+    labels: chart.categories,
+    values: s.values.map((v) => v ?? 0),
+  }));
+
+  const typeMap: Record<ChartKind, pptxgen.CHART_NAME> = {
+    column: pptx.ChartType.bar,
+    bar: pptx.ChartType.bar,
+    line: pptx.ChartType.line,
+    area: pptx.ChartType.area,
+    pie: pptx.ChartType.pie,
+    doughnut: pptx.ChartType.doughnut,
+  };
+
+  slide.addChart(typeMap[kind], data, {
+    x: 0.4,
+    y: title ? 0.9 : 0.4,
+    w: 9.2,
+    h: title ? 4.3 : 4.8,
+    barDir: kind === "bar" ? "bar" : "col",
+    chartColors: PPT_COLORS,
+    showLegend: pie || chart.series.length > 1,
+    legendPos: "b",
+    showTitle: false,
+    ...(chart.categoryLabel && !pie
+      ? { showCatAxisTitle: true, catAxisTitle: chart.categoryLabel }
+      : {}),
+    ...(pie ? { showPercent: true } : {}),
+  });
+
+  if (opts.includeTable !== false && chart.rows.length) {
+    const tableSlide = pptx.addSlide();
+    tableSlide.addText(title ? `${title} — data` : "Source table", {
+      x: 0.4,
+      y: 0.2,
+      w: 9.2,
+      h: 0.5,
+      fontSize: 16,
+      bold: true,
+      color: "222222",
+    });
+    const tableRows: pptxgen.TableRow[] = chart.rows.map((r, i) =>
+      r.map((c) => ({
+        text: c,
+        options:
+          chart.hasHeader && i === 0
+            ? { bold: true, fill: { color: "1F77B4" }, color: "FFFFFF" }
+            : { color: "333333" },
+      }))
+    );
+    tableSlide.addTable(tableRows, {
+      x: 0.4,
+      y: 0.9,
+      w: 9.2,
+      fontSize: 12,
+      border: { type: "solid", pt: 0.5, color: "BBBBBB" },
+      autoPage: true,
+      autoPageRepeatHeader: chart.hasHeader,
+    });
+  }
+
+  return (await pptx.write({ outputType: "blob" })) as Blob;
+}

@@ -20,6 +20,7 @@ export type ExampleMode =
   | "units"
   | "refs"
   | "plot"
+  | "ppt"
   | "finance";
 
 /** HTML help fragment shown in the "Examples & syntax" panel for each mode. */
@@ -223,6 +224,19 @@ export const MODE_EXAMPLES: Record<ExampleMode, string> = {
       <li>Functions: sin, cos, tan, exp, log/ln, sqrt, abs, …; constants pi, e.</li>
     </ul>
     <p class="examples-note">Optional title and axis labels. You can plot a function and data together.</p>`,
+
+  ppt: `
+    <p class="examples-note">
+      Export a Word <strong>table</strong> as a <strong>PowerPoint chart</strong> (.pptx download).
+      The chart is native PowerPoint — colors, labels, and data stay editable.
+    </p>
+    <ul>
+      <li>Click anywhere <strong>inside the table</strong> in your document, then <em>Read selected table</em>.</li>
+      <li><strong>First column</strong> = category labels (x-axis / slices); <strong>first row</strong> = series names (if it's text).</li>
+      <li>Numbers may include <code>$</code>, <code>%</code>, commas, units (<code>12 kg</code>), and <code>(1,200)</code> for negatives.</li>
+      <li>Chart types: column, bar, line, area, pie, doughnut (pie/doughnut use the first data column).</li>
+    </ul>
+    <p class="examples-note">The source table can be reproduced on a second slide for reference.</p>`,
 
   finance: `
     <p class="examples-note">

@@ -31,6 +31,7 @@
         <label class="mode"><input type="radio" name="mode" value="math" /> Math</label>
         <label class="mode"><input type="radio" name="mode" value="units" /> Units</label>
         <label class="mode"><input type="radio" name="mode" value="plot" /> Plot</label>
+        <label class="mode"><input type="radio" name="mode" value="ppt" /> Table&nbsp;→&nbsp;PPT</label>
         <label class="mode"><input type="radio" name="mode" value="finance" /> Finance</label>
         <label class="mode"><input type="radio" name="mode" value="build" /> Build</label>
         <label class="mode"><input type="radio" name="mode" value="code" /> Code</label>
@@ -426,6 +427,40 @@
         </div>
         <div id="plot-preview" class="structure-preview" aria-live="polite"></div>
         <button id="plot-insert" class="insert-btn" type="button" disabled>Insert plot</button>
+      </section>
+
+      <!-- Table → PPT: export a Word table as a PowerPoint chart -->
+      <section id="ppt-section">
+        <p class="seq-disclaimer">
+          Turn a Word table into a <strong>PowerPoint chart</strong>: click anywhere inside
+          the table in your document, press <em>Read selected table</em>, pick a chart type,
+          and download the .pptx. The chart is a native, fully editable PowerPoint chart.
+          Runs offline; nothing leaves your machine.
+        </p>
+        <button id="ppt-load" class="insert-btn secondary" type="button">Read selected table</button>
+        <div id="ppt-info" class="build-readout" aria-live="polite"></div>
+        <div class="dna-controls">
+          <label class="field-label" for="ppt-kind">Chart type</label>
+          <select id="ppt-kind" class="lib-select">
+            <option value="column">Column</option>
+            <option value="bar">Bar (horizontal)</option>
+            <option value="line">Line</option>
+            <option value="area">Area</option>
+            <option value="pie">Pie</option>
+            <option value="doughnut">Doughnut</option>
+          </select>
+        </div>
+        <input id="ppt-title" class="formula-input" type="text" placeholder="Chart title (optional)" />
+        <label class="omml-option">
+          <input type="checkbox" id="ppt-include-table" checked />
+          Include the source table on a second slide
+        </label>
+        <div class="preview-wrap">
+          <span class="preview-label">Preview</span>
+          <div id="ppt-preview" class="structure-preview" aria-live="polite"></div>
+        </div>
+        <div id="ppt-warnings" class="seq-warnings" aria-live="polite"></div>
+        <button id="ppt-download" class="insert-btn" type="button" disabled>Download PowerPoint (.pptx)</button>
       </section>
 
       <!-- Finance: calculators (TVM, NPV/IRR, Black-Scholes, bonds) -->

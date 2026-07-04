@@ -29,6 +29,33 @@ describe("buildTableFigureSvg", () => {
     expect(svg).toContain("Demographics");
   });
 
+  test("a redundant blank section column is dropped (no dead left column)", () => {
+    // Sections appear only on band rows; the leading column is blank in every
+    // data row, so it should be removed and the bands carry the section names.
+    const { svg } = buildTableFigureSvg(characteristics);
+    // After dropping, the header is Characteristic | Overall | GLP-switcher —
+    // three columns, so three header-fill cells.
+    expect(count(svg, 'fill="#eef3f8"')).toBe(3);
+    // The band still shows its section text.
+    expect(svg).toContain("Demographics");
+    // The "Section" header label is gone (it was the dropped column).
+    expect(svg).not.toContain(">Section<");
+  });
+
+  test("a section column with a value on every row is kept and merged", () => {
+    // Merged-cell style: the section repeats down column 0 (no band rows).
+    const merged = [
+      ["Section", "Item", "n"],
+      ["Cohort", "Total", "100"],
+      ["Cohort", "Female", "75"],
+      ["Outcome", "Responders", "40"],
+    ];
+    const { svg } = buildTableFigureSvg(merged);
+    expect(svg).toContain(">Section<");
+    expect(svg).toContain("Cohort");
+    expect(svg).toContain("Outcome");
+  });
+
   test("header row is shaded and bold", () => {
     const { svg } = buildTableFigureSvg(characteristics);
     expect(svg).toContain('fill="#eef3f8"'); // header fill (color style)

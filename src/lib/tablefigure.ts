@@ -62,15 +62,39 @@ export function buildTableFigureSvg(rows: string[][], title = "", style: ChartSt
     warnings.push(`Only the first ${MAX_ROWS} of ${rows.length} rows are drawn.`);
     body = rows.slice(0, MAX_ROWS);
   }
-  const ncols = Math.max(...body.map((r) => r.length));
-  const grid = body.map((r) => (r.length < ncols ? r.concat(Array(ncols - r.length).fill("")) : r));
+  let ncols = Math.max(...body.map((r) => r.length));
+  let grid = body.map((r) => (r.length < ncols ? r.concat(Array(ncols - r.length).fill("")) : r));
 
-  const hasHeader = detectHeader(grid);
-  const kinds: RowKind[] = grid.map((r, i) => {
+  let hasHeader = detectHeader(grid);
+  let kinds: RowKind[] = grid.map((r, i) => {
     if (i === 0 && hasHeader) return "header";
     const filled = r.filter((c) => c !== "").length;
     return filled === 1 && ncols >= 2 ? "band" : "data";
   });
+
+  // The band text (a section header on its own row) lives in that row's single
+  // filled cell — capture it before any column is dropped.
+  const bandText: string[] = grid.map((r, i) => (kinds[i] === "band" ? (r.find((c) => c !== "") ?? "") : ""));
+
+  // Drop a leading "section" column that only ever carries the band text: with
+  // the sections rendered as full-width bands, that column is empty in every
+  // data row and would otherwise render as a dead column down the left edge.
+  if (
+    ncols >= 2 &&
+    kinds.some((k) => k === "band") &&
+    grid.every((r, i) => kinds[i] !== "data" || r[0] === "")
+  ) {
+    grid = grid.map((r) => r.slice(1));
+    ncols -= 1;
+    hasHeader = detectHeader(grid);
+    kinds = grid.map((r, i) => {
+      if (i === 0 && hasHeader) return "header";
+      // A band row is now all-empty in the grid; it's still a band (bandText).
+      if (bandText[i]) return "band";
+      const filled = r.filter((c) => c !== "").length;
+      return filled === 1 && ncols >= 2 ? "band" : "data";
+    });
+  }
 
   // Column widths from the widest cell in each column (bands span all columns,
   // so they don't drive column width).
@@ -92,7 +116,7 @@ export function buildTableFigureSvg(rows: string[][], title = "", style: ChartSt
   const maxCharsFor = (w: number): number => Math.max(4, Math.floor((w - 2 * H_PAD) / CHAR_W));
   const wrapped: string[][][] = grid.map((r, i) => {
     if (kinds[i] === "band") {
-      const only = r.find((c) => c !== "") ?? "";
+      const only = bandText[i] || (r.find((c) => c !== "") ?? "");
       return [wrapText(only, maxCharsFor(totalW), 2)];
     }
     return r.map((c, j) => (c ? wrapText(c, maxCharsFor(colW[j]), MAX_LINES) : [""]));

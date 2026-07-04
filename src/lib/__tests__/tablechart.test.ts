@@ -37,12 +37,61 @@ describe("parseNumberCell", () => {
     expect(parseNumberCell("9.81 m/s^2")).toBe(9.81);
   });
 
+  test("a bare percentage in parens is positive, not an accountant negative", () => {
+    expect(parseNumberCell("(75.0%)")).toBe(75);
+    expect(parseNumberCell("(12%)")).toBe(12);
+    expect(parseNumberCell("(1,200)")).toBe(-1200); // still negative without %
+  });
+
+  test("count-with-percent cells read as the leading count", () => {
+    expect(parseNumberCell("8,408 (75.0%)")).toBe(8408);
+    expect(parseNumberCell("52.3 (14.6)")).toBe(52.3);
+  });
+
   test("non-numbers are null", () => {
     expect(parseNumberCell("")).toBeNull();
     expect(parseNumberCell("—")).toBeNull();
     expect(parseNumberCell("n/a")).toBeNull();
     expect(parseNumberCell("abc")).toBeNull();
     expect(parseNumberCell("kg 12")).toBeNull();
+  });
+});
+
+describe("parseTableData — real patent-table shapes", () => {
+  test("row-index first column is skipped; the text column becomes labels", () => {
+    const c = parseTableData([
+      ["Row", "Cell Type", "Expression", "% Expressing"],
+      ["1", "atrial myocyte", "1.83", "1.36"],
+      ["2", "cardiac muscle cell", "1.77", "1.11"],
+      ["3", "muscle cell", "1.77", "1.05"],
+    ]);
+    expect(c.categories).toEqual(["atrial myocyte", "cardiac muscle cell", "muscle cell"]);
+    expect(c.series.map((s) => s.name)).toEqual(["Expression", "% Expressing"]);
+    expect(c.series[0].values).toEqual([1.83, 1.77, 1.77]);
+    expect(c.categoryLabel).toBe("Cell Type");
+  });
+
+  test("a mostly-blank section column groups the label column", () => {
+    const c = parseTableData([
+      ["Section", "Characteristic", "Overall", "GLP-switcher"],
+      ["Demographics", "", "", ""],
+      ["", "Female", "8,408 (75.0%)", "3,669 (74.4%)"],
+      ["", "Male", "2,803 (25.0%)", "1,263 (25.6%)"],
+    ]);
+    // Section is forward-filled into the labels; the "Characteristic" column
+    // is used, not skipped as before.
+    expect(c.categories).toContain("Demographics — Female");
+    expect(c.categories).toContain("Demographics — Male");
+    expect(c.series.map((s) => s.name)).toEqual(["Overall", "GLP-switcher"]);
+    // The "Demographics" band row carries no data → null in every series.
+    expect(c.series[0].values).toEqual([null, 8408, 2803]);
+    expect(c.categoryLabel).toBe("Characteristic");
+  });
+
+  test("dense tables get a 'table figure may read better' warning", () => {
+    const rows = [["Cell Type", "Expression"], ...Array.from({ length: 30 }, (_, i) => [`type ${i}`, String(i)])];
+    const c = parseTableData(rows);
+    expect(c.warnings.some((w) => w.includes("Table figure"))).toBe(true);
   });
 });
 

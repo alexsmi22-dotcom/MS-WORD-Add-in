@@ -2,6 +2,25 @@
 
 All notable changes to Formula Inserter. Dates are release/pilot dates.
 
+## [1.4.0] — 2026-07-04
+
+### Added
+- **Table figure** representation in Table → Chart — draws the table *itself*
+  as a clean figure (not a chart), for characteristics/reference tables where
+  the table is the exhibit. Preserves section grouping (group-header rows
+  become bands; a blank leading "section" column merges down), bolds the
+  header, word-wraps cells, scales wide tables to the pane, and honors the
+  patent B&W style + "FIG. N" label. Non-numeric tables now fall back to a
+  table figure instead of erroring.
+
+### Changed
+- **Smarter chart column detection** for real-world tables: a leading numeric
+  **row-index** column or a mostly-blank **section** column is detected and
+  skipped so the true text column is used for labels (the section groups
+  them). `8,408 (75.0%)` reads as the leading count; a bare `(75.0%)` is now
+  +75, not −75 (accountant-negative parentheses no longer apply to bare
+  percentages). Dense tables (>24 rows) suggest the table-figure view.
+
 ## [1.3.0] — 2026-07-04
 
 ### Added

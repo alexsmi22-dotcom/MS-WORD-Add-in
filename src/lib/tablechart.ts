@@ -53,9 +53,13 @@ export function parseNumberCell(raw: string): number | null {
   let s = raw.replace(/\s+/g, "");
   if (!s) return null;
   let negative = false;
+  // Accountant-style negative parentheses — but NOT a bare percentage like
+  // "(75.0%)", which in patent/clinical tables means +75%, not −75.
   const paren = /^\((.+)\)$/.exec(s);
-  if (paren) {
+  if (paren && !paren[1].endsWith("%")) {
     negative = true;
+    s = paren[1];
+  } else if (paren) {
     s = paren[1];
   }
   s = s.replace(/^[$€£¥]/, "").replace(/,/g, "").replace(/^[−–]/, "-");
@@ -158,11 +162,49 @@ export function parseTableData(values: string[][]): TableChart {
   const headers = hasHeader ? rows[0] : rows[0].map(() => "");
   const dataRows = hasHeader ? rows.slice(1) : rows;
 
-  const categories = dataRows.map((r, i) => r[0] || `Row ${i + 1}`);
+  // Pick the label (category) column. Real tables often lead with a row-index
+  // (1,2,3…) or a mostly-blank "section" grouping column; the useful labels sit
+  // in the first *text* column that isn't one of those.
+  const isTextCol = (j: number): boolean => {
+    const nonEmpty = dataRows.filter((r) => r[j] !== "");
+    if (!nonEmpty.length) return false;
+    return nonEmpty.filter((r) => parseNumberCell(r[j]) === null).length / nonEmpty.length >= 0.5;
+  };
+  const isRowIndexCol = (j: number): boolean =>
+    dataRows.every((r, i) => r[j].trim() === "" || parseNumberCell(r[j]) === i + 1 || parseNumberCell(r[j]) === i);
+  const blankFraction = (j: number): number => dataRows.filter((r) => r[j] === "").length / Math.max(1, dataRows.length);
+
+  let labelCol = 0;
+  let sectionCol = -1; // a grouping column forward-filled into the labels
+  const skipCols = new Set<number>(); // columns that are neither labels nor series
+  if (cols >= 2 && isRowIndexCol(0) && isTextCol(1)) {
+    // Leading numeric row-index column — use the text column for labels, and
+    // drop the index entirely (it isn't a grouping or a data series).
+    labelCol = 1;
+    skipCols.add(0);
+  } else if (cols >= 2 && blankFraction(0) >= 0.4 && isTextCol(1)) {
+    // Leading mostly-blank "section" column — group the label column by it.
+    labelCol = 1;
+    sectionCol = 0;
+  }
+  let lastSection = "";
+  const categories = dataRows.map((r, i) => {
+    if (sectionCol >= 0 && r[sectionCol]) lastSection = r[sectionCol];
+    const base = r[labelCol] || `Row ${i + 1}`;
+    return sectionCol >= 0 && lastSection && r[labelCol] ? `${lastSection} — ${base}` : base;
+  });
+  if (labelCol === 1) {
+    warnings.push(
+      isRowIndexCol(0)
+        ? `Used the “${headers[1] || "second"}” column for labels (the first column looks like a row index).`
+        : `Grouped by the “${headers[0] || "first"}” column; labels come from “${headers[1] || "the second column"}”.`
+    );
+  }
 
   const series: ChartSeries[] = [];
   let skippedCells = 0;
-  for (let j = 1; j < cols; j++) {
+  for (let j = 0; j < cols; j++) {
+    if (j === labelCol || j === sectionCol || skipCols.has(j)) continue;
     const name = headers[j] || `Series ${j}`;
     const vals = dataRows.map((r) => parseNumberCell(r[j]));
     const numeric = vals.filter((v) => v !== null).length;
@@ -182,11 +224,14 @@ export function parseTableData(values: string[][]): TableChart {
       `${skippedCells} cell${skippedCells === 1 ? "" : "s"} couldn't be read as a number and will be blank in the chart.`
     );
   }
+  if (categories.length > 24) {
+    warnings.push(`${categories.length} rows — a chart will be dense; the “Table figure” view may read better.`);
+  }
 
   return {
     categories,
     series,
-    categoryLabel: hasHeader ? headers[0] : "",
+    categoryLabel: hasHeader ? headers[labelCol] : "",
     hasHeader,
     rows,
     warnings,

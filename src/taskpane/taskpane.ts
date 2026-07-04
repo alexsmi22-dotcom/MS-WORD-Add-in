@@ -79,6 +79,7 @@ import { formatSeqIdRef } from "../lib/seqid";
 import { getPrefs, setPref } from "../lib/prefs";
 import { parseTableData, cleanTableRows, buildChartPreviewSvg, TableChart, ChartKind, ChartStyle } from "../lib/tablechart";
 import { buildDiagramSvg, DiagramKind } from "../lib/tablediagram";
+import { buildTableFigureSvg } from "../lib/tablefigure";
 
 type Mode =
   | "chemical"
@@ -1404,11 +1405,17 @@ async function copySequenceXml(): Promise<void> {
 // Table → PPT (export a Word table as a PowerPoint chart)
 // ---------------------------------------------------------------------------
 
-/** The chart kinds plus the diagram kinds selectable in the "Show as" list. */
-type RenderKind = ChartKind | DiagramKind;
+/** Everything selectable in the "Show as" list: charts, diagrams, table figure. */
+type RenderKind = ChartKind | DiagramKind | "tablefigure";
 
-function isDiagramKind(kind: RenderKind): kind is DiagramKind {
-  return kind === "flowchart" || kind === "hierarchy";
+/** Kinds that render straight from the raw rows (no numeric parse needed). */
+function isRowKind(kind: RenderKind): kind is DiagramKind | "tablefigure" {
+  return kind === "flowchart" || kind === "hierarchy" || kind === "tablefigure";
+}
+
+/** Kinds exported to PowerPoint as a picture rather than a native chart. */
+function isPictureKind(kind: RenderKind): boolean {
+  return isRowKind(kind);
 }
 
 /** Reads the table the cursor / selection sits in and parses it. */
@@ -1454,10 +1461,10 @@ async function loadSelectedTable(): Promise<void> {
         currentTableChartError = parseError instanceof Error ? parseError.message : "This table can't be charted.";
       }
 
-      // A table with no numbers can't be a chart — show it as a flowchart.
-      if (!currentTableChart && !isDiagramKind(pptKindSelect.value as RenderKind)) {
-        pptKindSelect.value = "flowchart";
-        setStatus("No numeric data — showing the table as a flowchart. Pick “Block diagram” for component hierarchies.", "");
+      // A table with no numbers can't be a chart — fall back to a table figure.
+      if (!currentTableChart && !isRowKind(pptKindSelect.value as RenderKind)) {
+        pptKindSelect.value = "tablefigure";
+        setStatus("No numeric data — showing it as a table figure. Pick Flowchart or Block diagram for step/component tables.", "");
       } else if (currentTableChart) {
         setStatus(
           `Table read — ${currentTableChart.categories.length} categor${currentTableChart.categories.length === 1 ? "y" : "ies"}, ${currentTableChart.series.length} data series.`,
@@ -1494,7 +1501,11 @@ function renderTableGraphic(): { svg: string; warnings: string[] } | { svg: null
   const kind = pptKindSelect.value as RenderKind;
   const title = pptTitleInput.value.trim();
   const style = currentChartStyle();
-  if (isDiagramKind(kind)) {
+  if (kind === "tablefigure") {
+    if (!currentTableRows) return { svg: null, error: "" };
+    return buildTableFigureSvg(currentTableRows, title, style);
+  }
+  if (isRowKind(kind)) {
     if (!currentTableRows) return { svg: null, error: "" };
     return buildDiagramSvg(kind, currentTableRows, title, style);
   }
@@ -1549,7 +1560,8 @@ async function insertTableFigure(): Promise<void> {
     // Rasterize at 2× and set the picture back to natural size (points =
     // px × 0.75) so the figure prints crisply.
     const base64 = await svgToPngBase64(rendered.svg, d.w * 2, d.h * 2);
-    const alt = `${style.figLabel ? style.figLabel + " — " : ""}${kind} of table (${currentTableRows?.length ?? 0} rows)${style.patent ? ", patent line-art style" : ""}`;
+    const kindLabel = kind === "tablefigure" ? "table figure" : kind;
+    const alt = `${style.figLabel ? style.figLabel + " — " : ""}${kindLabel} of table (${currentTableRows?.length ?? 0} rows)${style.patent ? ", patent line-art style" : ""}`;
     await Word.run(async (context) => {
       const range = context.document.getSelection();
       const picture = range.insertInlinePictureFromBase64(base64, Word.InsertLocation.after);
@@ -1579,17 +1591,17 @@ async function downloadPptx(): Promise<void> {
     const { buildTablePptx } = await import(/* webpackChunkName: "ppt" */ "../lib/ppt");
     const style = currentChartStyle();
     const kind = pptKindSelect.value as RenderKind;
-    const diagram = isDiagramKind(kind);
-    // Diagrams and the patent style ship as a picture of the same rendering
-    // shown in the preview (PowerPoint's native charts can't draw hatching,
-    // and it has no native flowchart/diagram object).
+    const picture = isPictureKind(kind);
+    // Diagrams, table figures, and the patent style ship as a picture of the
+    // same rendering shown in the preview (PowerPoint's native charts can't
+    // draw hatching, and it has no native flowchart/table-figure object).
     let chartImage: { dataUrl: string; wPx: number; hPx: number } | undefined;
-    if (diagram || style.patent) {
+    if (picture || style.patent) {
       const d = readSvgDims(rendered.svg, 380, 260);
       const base64 = await svgToPngBase64(rendered.svg, d.w * 3, d.h * 3);
       chartImage = { dataUrl: `data:image/png;base64,${base64}`, wPx: d.w, hPx: d.h };
     }
-    // For diagram kinds the chart parse may not exist — the slide only needs
+    // For picture kinds the chart parse may not exist — the slide only needs
     // the picture plus the raw rows for the optional table slide.
     const chart: TableChart = currentTableChart ?? {
       categories: [],
@@ -1599,7 +1611,7 @@ async function downloadPptx(): Promise<void> {
       rows: currentTableRows,
       warnings: [],
     };
-    const blob = await buildTablePptx(chart, diagram ? "column" : (kind as ChartKind), {
+    const blob = await buildTablePptx(chart, picture ? "column" : (kind as ChartKind), {
       title: pptTitleInput.value,
       includeTable: pptIncludeTable.checked,
       chartImage,

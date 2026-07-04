@@ -241,6 +241,9 @@ export const MODE_EXAMPLES: Record<ExampleMode, string> = {
         ending in <code>?</code> is drawn as a decision diamond; Start/End rows get rounded boxes.</li>
       <li><strong>Block diagram</strong>: each row is a path — e.g. <code>System | Subsystem | Component</code> —
         merged into connected boxes. Leave a cell blank to repeat the value above it.</li>
+      <li><strong>Table figure</strong>: draws the table <em>itself</em> as a clean figure — for
+        characteristics/reference tables where the table is the exhibit. Keeps section grouping
+        (a group-header row becomes a band; a blank “section” column merges down), bolds the header.</li>
       <li><strong>Patent style</strong> — pure black-&amp;-white line art: hatched bars/slices, dashed
         lines with distinct markers, and an optional <code>FIG. 1</code> label (37 CFR 1.84-friendly).</li>
     </ul>

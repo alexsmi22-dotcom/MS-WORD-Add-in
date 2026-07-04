@@ -1,0 +1,74 @@
+import { buildTableFigureSvg } from "../tablefigure";
+
+const count = (svg: string, needle: string): number => svg.split(needle).length - 1;
+
+// A grouped "baseline characteristics" table like those in a real patent spec:
+// a Section column with a group-header band row + blank continuation cells.
+const characteristics = [
+  ["Section", "Characteristic", "Overall", "GLP-switcher"],
+  ["Demographics", "", "", ""],
+  ["", "Age at index, years", "52.3 (14.6)", "52.1 (14.4)"],
+  ["", "Female", "8,408 (75.0%)", "3,669 (74.4%)"],
+  ["", "Male", "2,803 (25.0%)", "1,263 (25.6%)"],
+];
+
+describe("buildTableFigureSvg", () => {
+  test("renders scalable SVG with the header, cells, and content", () => {
+    const { svg } = buildTableFigureSvg(characteristics);
+    expect(svg.startsWith("<svg")).toBe(true);
+    expect(svg.endsWith("</svg>")).toBe(true);
+    expect(svg).toContain("viewBox");
+    expect(svg).toContain("Characteristic");
+    expect(svg).toContain("8,408 (75.0%)".replace(/&/g, "&amp;"));
+  });
+
+  test("a group-header row (only first cell filled) becomes a full-width band", () => {
+    const { svg } = buildTableFigureSvg(characteristics);
+    // The band rect spans the full table width; the pane is 380 wide.
+    expect(svg).toMatch(/<rect x="0" y="[\d.]+" width="[\d.]+" height="[\d.]+" fill="#dfe8f2"/);
+    expect(svg).toContain("Demographics");
+  });
+
+  test("header row is shaded and bold", () => {
+    const { svg } = buildTableFigureSvg(characteristics);
+    expect(svg).toContain('fill="#eef3f8"'); // header fill (color style)
+    expect(svg).toContain('font-weight="bold"');
+  });
+
+  test("patent style is pure black & white and shows the FIG. label", () => {
+    const { svg } = buildTableFigureSvg(characteristics, "", { patent: true, figLabel: "FIG. 5" });
+    expect(svg).toContain("FIG. 5");
+    for (const c of ["#eef3f8", "#dfe8f2", "#c4c4c4", "#1f77b4"]) expect(svg).not.toContain(c);
+  });
+
+  test("caps very long tables with a warning", () => {
+    const rows = [["Row", "Value"], ...Array.from({ length: 60 }, (_, i) => [String(i + 1), String(i)])];
+    const { warnings } = buildTableFigureSvg(rows);
+    expect(warnings.some((w) => w.includes("first 40"))).toBe(true);
+  });
+
+  test("wide tables scale down to the pane width", () => {
+    const wide = [Array.from({ length: 9 }, (_, j) => `Column heading ${j + 1}`), Array.from({ length: 9 }, (_, j) => `v${j}`)];
+    const { svg } = buildTableFigureSvg(wide);
+    expect(svg).toMatch(/width="380"/);
+  });
+
+  test("escapes markup in cells", () => {
+    const { svg } = buildTableFigureSvg([
+      ["A", "B"],
+      ["x<y & z", "1"],
+    ]);
+    expect(svg).toContain("x&lt;y &amp; z");
+    expect(svg).not.toContain("x<y");
+  });
+
+  test("single-column table renders", () => {
+    const { svg } = buildTableFigureSvg([["Step"], ["Mix"], ["Heat"]]);
+    expect(count(svg, "<rect")).toBeGreaterThan(3);
+  });
+
+  test("empty input is handled", () => {
+    const { svg } = buildTableFigureSvg([]);
+    expect(svg).toContain("Empty table");
+  });
+});

@@ -51,12 +51,13 @@ Everything shows a live preview that matches exactly what gets inserted, and the
 - Axes, ticks, gridlines, optional title and axis labels. Rendered offline as an image; nothing leaves your machine.
 
 ## 📊 Table → Chart — patent figures & PowerPoint from a Word table
-- Click anywhere **inside a table** in your document, press **Read selected table**, and chart the data — with a live preview in the pane.
-- **Insert as a figure** at the cursor — the chart goes straight into your document as an image.
-- **Patent figure style** — pure **black-&-white line art** for patent drawings (37 CFR 1.84-friendly): series distinguished by **hatching** (bars, pie/doughnut) or **dash patterns + marker shapes** (line charts), all-black ink, no color or gray shading, plus an optional **“FIG. N” label** beneath the chart.
-- **Chart types** — column, bar (horizontal), line, area, pie, doughnut.
-- **PowerPoint export** — download a .pptx where the chart is **native and fully editable** (colors, labels, and data can be changed in PowerPoint); with patent style on, the slide carries the same B&W figure. Optional **source table on a second slide**.
-- **Smart table reading** — first column = category labels, first row = series names (when it's text); numbers may include `$`/`€`/`£`, `%`, thousands commas, units (`12 kg`), and accountant-style `(1,200)` negatives. Cells that aren't numbers are reported, not silently charted.
+- Click anywhere **inside a table** in your document, press **Read selected table**, and pick how to show it — with a live preview in the pane.
+- **Charts** (numeric tables) — column, bar (horizontal), line, area, pie, doughnut. First column = category labels, first row = series names (when it's text); numbers may include `$`/`€`/`£`, `%`, thousands commas, units (`12 kg`), and accountant-style `(1,200)` negatives. Cells that aren't numbers are reported, not silently charted.
+- **Flowchart** (text tables) — each row is a step, drawn top-to-bottom with arrows: a first column like `S101` becomes the step's **reference numeral** (with a lead line, patent-style); a step ending in `?` is drawn as a **decision diamond**; Start/End rows get rounded terminators; a `Step | Description` header row is skipped automatically. Ideal for **method-claim figures**.
+- **Block diagram** (hierarchy) — each row is a path, e.g. `System 10 | Controller 20 | CPU 22`; shared parents merge into one **connected box tree** with orthogonal connectors. Leave a cell blank to repeat the value above (merged cells work). Ideal for **apparatus figures**.
+- **Insert as a figure** at the cursor — the graphic goes straight into your document as an image. Tables with no numbers switch to flowchart automatically.
+- **Patent figure style** — pure **black-&-white line art** for patent drawings (37 CFR 1.84-friendly): hatched bars/slices, dash patterns + marker shapes for line charts, white boxes with black outlines for diagrams, all-black ink, plus an optional **“FIG. N” label** beneath the graphic.
+- **PowerPoint export** — download a .pptx where a color chart is **native and fully editable**; diagrams and patent-style charts ship as the same B&W picture. Optional **source table on a second slide**.
 - Generated entirely on your machine — the document never leaves Word.
 
 ## 🔖 Refs — captions & cross-references

@@ -227,21 +227,26 @@ export const MODE_EXAMPLES: Record<ExampleMode, string> = {
 
   ppt: `
     <p class="examples-note">
-      Chart a Word <strong>table</strong>: insert it into the document as a
+      Turn a Word <strong>table</strong> into a graphic: insert it into the document as a
       <strong>figure</strong> — including a black-&amp;-white <strong>patent figure</strong>
-      style — or export it as a <strong>PowerPoint chart</strong> (.pptx download).
+      style — or export it to <strong>PowerPoint</strong> (.pptx download).
     </p>
     <ul>
       <li>Click anywhere <strong>inside the table</strong> in your document, then <em>Read selected table</em>.</li>
-      <li><strong>First column</strong> = category labels (x-axis / slices); <strong>first row</strong> = series names (if it's text).</li>
-      <li>Numbers may include <code>$</code>, <code>%</code>, commas, units (<code>12 kg</code>), and <code>(1,200)</code> for negatives.</li>
-      <li>Chart types: column, bar, line, area, pie, doughnut (pie/doughnut use the first data column).</li>
+      <li><strong>Charts</strong> (numeric tables): column, bar, line, area, pie, doughnut.
+        First column = category labels; first row = series names (if it's text). Numbers may
+        include <code>$</code>, <code>%</code>, commas, units (<code>12 kg</code>), and <code>(1,200)</code> negatives.</li>
+      <li><strong>Flowchart</strong> (text tables): each row is a step, drawn top-to-bottom with
+        arrows. A first column like <code>S101</code> becomes the step's reference numeral; a step
+        ending in <code>?</code> is drawn as a decision diamond; Start/End rows get rounded boxes.</li>
+      <li><strong>Block diagram</strong>: each row is a path — e.g. <code>System | Subsystem | Component</code> —
+        merged into connected boxes. Leave a cell blank to repeat the value above it.</li>
       <li><strong>Patent style</strong> — pure black-&amp;-white line art: hatched bars/slices, dashed
         lines with distinct markers, and an optional <code>FIG. 1</code> label (37 CFR 1.84-friendly).</li>
     </ul>
     <p class="examples-note">
-      The PowerPoint chart is native and fully editable (with patent style on, it ships as the
-      same B&amp;W picture). The source table can be reproduced on a second slide.</p>`,
+      The PowerPoint chart is native and fully editable; diagrams and patent-style charts ship as
+      the same B&amp;W picture. The source table can be reproduced on a second slide.</p>`,
 
   finance: `
     <p class="examples-note">

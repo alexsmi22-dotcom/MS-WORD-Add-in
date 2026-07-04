@@ -2,6 +2,22 @@
 
 All notable changes to Formula Inserter. Dates are release/pilot dates.
 
+## [1.3.0] — 2026-07-04
+
+### Added
+- **Diagrams in Table → Chart** — not every table is numeric, so the "Show as"
+  list now offers, besides the six chart types:
+  - **Flowchart** — rows become steps drawn top-to-bottom with arrows; a
+    first column like `S101` becomes the step's reference numeral, `?` steps
+    render as decision diamonds, Start/End rows get rounded terminators, and
+    a `Step | Description` header row is skipped automatically.
+  - **Block diagram** — rows are paths (`System 10 | Controller 20 | CPU 22`)
+    merged into a connected box hierarchy with orthogonal connectors; blank
+    cells repeat the value above (merged cells work).
+  - Both honor the patent B&W style and the "FIG. N" label, insert as
+    figures, and export to PowerPoint (as pictures). Tables with no numeric
+    data now auto-switch to flowchart instead of failing.
+
 ## [1.2.0] — 2026-07-04
 
 ### Added

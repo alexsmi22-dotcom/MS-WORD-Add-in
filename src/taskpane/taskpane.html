@@ -432,23 +432,31 @@
       <!-- Table → Chart: chart a Word table — insert as a (patent) figure or export to PowerPoint -->
       <section id="ppt-section">
         <p class="seq-disclaimer">
-          Turn a Word table into a <strong>chart</strong>: click anywhere inside the table
-          in your document and press <em>Read selected table</em>. Insert the chart into
-          the document as a <strong>figure</strong> (black-&amp;-white patent style
-          available), or download it as a <strong>PowerPoint</strong> file with a fully
-          editable chart. Runs offline; nothing leaves your machine.
+          Turn a Word table into a <strong>graphic</strong>: click anywhere inside the
+          table in your document and press <em>Read selected table</em>. Numeric tables
+          become <strong>charts</strong>; step lists become <strong>flowcharts</strong>;
+          component tables become <strong>block diagrams</strong>. Insert it into the
+          document as a <strong>figure</strong> (black-&amp;-white patent style available)
+          or download a <strong>PowerPoint</strong>. Runs offline; nothing leaves your
+          machine.
         </p>
         <button id="ppt-load" class="insert-btn secondary" type="button">Read selected table</button>
         <div id="ppt-info" class="build-readout" aria-live="polite"></div>
         <div class="dna-controls">
-          <label class="field-label" for="ppt-kind">Chart type</label>
+          <label class="field-label" for="ppt-kind">Show as</label>
           <select id="ppt-kind" class="lib-select">
-            <option value="column">Column</option>
-            <option value="bar">Bar (horizontal)</option>
-            <option value="line">Line</option>
-            <option value="area">Area</option>
-            <option value="pie">Pie</option>
-            <option value="doughnut">Doughnut</option>
+            <optgroup label="Charts (numeric tables)">
+              <option value="column">Column chart</option>
+              <option value="bar">Bar chart (horizontal)</option>
+              <option value="line">Line chart</option>
+              <option value="area">Area chart</option>
+              <option value="pie">Pie chart</option>
+              <option value="doughnut">Doughnut chart</option>
+            </optgroup>
+            <optgroup label="Diagrams (text tables)">
+              <option value="flowchart">Flowchart — rows are steps</option>
+              <option value="hierarchy">Block diagram — rows are System | Part | Subpart</option>
+            </optgroup>
           </select>
         </div>
         <input id="ppt-title" class="formula-input" type="text" placeholder="Chart title (optional)" />

@@ -76,13 +76,11 @@ function cleanCell(raw: string): string {
 }
 
 /**
- * Interprets a table as chart data. Conventions: the first column holds the
- * category labels; the first row is treated as a header (series names) when it
- * is mostly non-numeric. Every other column becomes a series. Throws with a
- * user-facing message when no chart can be made.
+ * Cleans raw Table.values: strips control characters, pads ragged rows, and
+ * drops fully empty rows/columns. Shared by the chart parser and the diagram
+ * renderers (tablediagram.ts).
  */
-export function parseTableData(values: string[][]): TableChart {
-  // Clean cells, then drop fully empty rows and columns.
+export function cleanTableRows(values: string[][]): string[][] {
   let rows = values.map((r) => r.map(cleanCell));
   const width = Math.max(0, ...rows.map((r) => r.length));
   rows = rows
@@ -92,7 +90,17 @@ export function parseTableData(values: string[][]): TableChart {
   for (let j = 0; j < width; j++) {
     if (rows.some((r) => r[j] !== "")) keepCols.push(j);
   }
-  rows = rows.map((r) => keepCols.map((j) => r[j]));
+  return rows.map((r) => keepCols.map((j) => r[j]));
+}
+
+/**
+ * Interprets a table as chart data. Conventions: the first column holds the
+ * category labels; the first row is treated as a header (series names) when it
+ * is mostly non-numeric. Every other column becomes a series. Throws with a
+ * user-facing message when no chart can be made.
+ */
+export function parseTableData(values: string[][]): TableChart {
+  const rows = cleanTableRows(values);
 
   if (!rows.length || !rows[0].length) {
     throw new Error("The selected table is empty.");

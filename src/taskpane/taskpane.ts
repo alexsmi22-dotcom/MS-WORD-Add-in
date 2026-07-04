@@ -77,7 +77,8 @@ import { auditDocument, AuditReport } from "../lib/audit";
 import { parseReaction, composeReactionScheme, Rendered } from "../lib/reactions";
 import { formatSeqIdRef } from "../lib/seqid";
 import { getPrefs, setPref } from "../lib/prefs";
-import { parseTableData, buildChartPreviewSvg, TableChart, ChartKind, ChartStyle } from "../lib/tablechart";
+import { parseTableData, cleanTableRows, buildChartPreviewSvg, TableChart, ChartKind, ChartStyle } from "../lib/tablechart";
+import { buildDiagramSvg, DiagramKind } from "../lib/tablediagram";
 
 type Mode =
   | "chemical"
@@ -258,8 +259,12 @@ let pptPreview: HTMLElement;
 let pptWarnings: HTMLElement;
 let pptInsertFigBtn: HTMLButtonElement;
 let pptDownloadBtn: HTMLButtonElement;
-/** Parsed data from the most recently read table, for the chart preview + export. */
+/** Cleaned rows of the most recently read table (charts and diagrams). */
+let currentTableRows: string[][] | null = null;
+/** Chart-ready parse of those rows, or null when the table isn't numeric. */
 let currentTableChart: TableChart | null = null;
+/** Why the chart parse failed (shown when a chart kind is selected). */
+let currentTableChartError = "";
 /** The finance result text from the most recent computation, for insertion. */
 let currentFinText = "";
 let seqRefNum: HTMLInputElement;
@@ -1399,7 +1404,14 @@ async function copySequenceXml(): Promise<void> {
 // Table → PPT (export a Word table as a PowerPoint chart)
 // ---------------------------------------------------------------------------
 
-/** Reads the table the cursor / selection sits in and parses it into chart data. */
+/** The chart kinds plus the diagram kinds selectable in the "Show as" list. */
+type RenderKind = ChartKind | DiagramKind;
+
+function isDiagramKind(kind: RenderKind): kind is DiagramKind {
+  return kind === "flowchart" || kind === "hierarchy";
+}
+
+/** Reads the table the cursor / selection sits in and parses it. */
 async function loadSelectedTable(): Promise<void> {
   pptLoadBtn.disabled = true;
   try {
@@ -1416,6 +1428,7 @@ async function loadSelectedTable(): Promise<void> {
       let table: Word.Table | null = tables.items.length ? tables.items[0] : null;
       if (!table && !parent.isNullObject) table = parent;
       if (!table) {
+        currentTableRows = null;
         currentTableChart = null;
         updatePptPreview();
         setStatus("Click anywhere inside a table in your document first, then press “Read selected table”.", "error");
@@ -1424,14 +1437,39 @@ async function loadSelectedTable(): Promise<void> {
 
       table.load("values");
       await context.sync();
-      currentTableChart = parseTableData(table.values);
+      const rows = cleanTableRows(table.values);
+      if (!rows.length || !rows[0].length) {
+        currentTableRows = null;
+        currentTableChart = null;
+        updatePptPreview();
+        setStatus("The selected table is empty.", "error");
+        return;
+      }
+      currentTableRows = rows;
+      currentTableChart = null;
+      currentTableChartError = "";
+      try {
+        currentTableChart = parseTableData(rows);
+      } catch (parseError) {
+        currentTableChartError = parseError instanceof Error ? parseError.message : "This table can't be charted.";
+      }
+
+      // A table with no numbers can't be a chart — show it as a flowchart.
+      if (!currentTableChart && !isDiagramKind(pptKindSelect.value as RenderKind)) {
+        pptKindSelect.value = "flowchart";
+        setStatus("No numeric data — showing the table as a flowchart. Pick “Block diagram” for component hierarchies.", "");
+      } else if (currentTableChart) {
+        setStatus(
+          `Table read — ${currentTableChart.categories.length} categor${currentTableChart.categories.length === 1 ? "y" : "ies"}, ${currentTableChart.series.length} data series.`,
+          "success"
+        );
+      } else {
+        setStatus(`Table read — ${rows.length} row(s) × ${rows[0].length} column(s).`, "success");
+      }
       updatePptPreview();
-      setStatus(
-        `Table read — ${currentTableChart.categories.length} categor${currentTableChart.categories.length === 1 ? "y" : "ies"}, ${currentTableChart.series.length} data series.`,
-        "success"
-      );
     });
   } catch (e) {
+    currentTableRows = null;
     currentTableChart = null;
     updatePptPreview();
     setStatus(e instanceof Error ? e.message : "Couldn't read the selected table.", "error");
@@ -1448,10 +1486,27 @@ function currentChartStyle(): ChartStyle {
   };
 }
 
-/** Refreshes the chart preview, info line, and warnings for the loaded table. */
+/**
+ * Renders the currently selected representation (chart or diagram) as SVG.
+ * Returns null — with a reason in `error` — when it can't be drawn.
+ */
+function renderTableGraphic(): { svg: string; warnings: string[] } | { svg: null; error: string } {
+  const kind = pptKindSelect.value as RenderKind;
+  const title = pptTitleInput.value.trim();
+  const style = currentChartStyle();
+  if (isDiagramKind(kind)) {
+    if (!currentTableRows) return { svg: null, error: "" };
+    return buildDiagramSvg(kind, currentTableRows, title, style);
+  }
+  if (!currentTableChart) {
+    return { svg: null, error: currentTableChartError || "" };
+  }
+  return { svg: buildChartPreviewSvg(currentTableChart, kind, title, style), warnings: currentTableChart.warnings };
+}
+
+/** Refreshes the preview, info line, and warnings for the loaded table. */
 function updatePptPreview(): void {
-  const chart = currentTableChart;
-  if (!chart) {
+  if (!currentTableRows) {
     pptInfo.textContent = "";
     pptPreview.innerHTML = "";
     pptWarnings.textContent = "";
@@ -1460,29 +1515,41 @@ function updatePptPreview(): void {
     pptDownloadBtn.disabled = true;
     return;
   }
-  const names = chart.series.map((s) => s.name).join(", ");
-  pptInfo.textContent = `${chart.series.length} series (${names}) × ${chart.categories.length} categories`;
-  pptPreview.innerHTML = buildChartPreviewSvg(chart, pptKindSelect.value as ChartKind, pptTitleInput.value.trim(), currentChartStyle());
-  pptWarnings.className = chart.warnings.length ? "seq-warnings warn" : "seq-warnings";
-  pptWarnings.textContent = chart.warnings.join(" ");
+  const chart = currentTableChart;
+  pptInfo.textContent = chart
+    ? `${chart.series.length} series (${chart.series.map((s) => s.name).join(", ")}) × ${chart.categories.length} categories`
+    : `${currentTableRows.length} row(s) × ${currentTableRows[0].length} column(s)`;
+
+  const rendered = renderTableGraphic();
+  if (rendered.svg === null) {
+    pptPreview.innerHTML = "";
+    pptWarnings.className = "seq-warnings warn";
+    pptWarnings.textContent = `${rendered.error} Switch “Show as” to Flowchart or Block diagram for text tables.`.trim();
+    pptInsertFigBtn.disabled = true;
+    pptDownloadBtn.disabled = true;
+    return;
+  }
+  pptPreview.innerHTML = rendered.svg;
+  pptWarnings.className = rendered.warnings.length ? "seq-warnings warn" : "seq-warnings";
+  pptWarnings.textContent = rendered.warnings.join(" ");
   pptInsertFigBtn.disabled = false;
   pptDownloadBtn.disabled = false;
 }
 
-/** Inserts the previewed chart into the document as a figure at the cursor. */
+/** Inserts the previewed graphic into the document as a figure at the cursor. */
 async function insertTableFigure(): Promise<void> {
-  const chart = currentTableChart;
-  if (!chart) return;
+  const rendered = renderTableGraphic();
+  if (rendered.svg === null) return;
   pptInsertFigBtn.disabled = true;
   setStatus("Inserting figure…");
   try {
     const style = currentChartStyle();
-    const svg = buildChartPreviewSvg(chart, pptKindSelect.value as ChartKind, pptTitleInput.value.trim(), style);
-    const d = readSvgDims(svg, 380, 260);
+    const kind = pptKindSelect.value as RenderKind;
+    const d = readSvgDims(rendered.svg, 380, 260);
     // Rasterize at 2× and set the picture back to natural size (points =
     // px × 0.75) so the figure prints crisply.
-    const base64 = await svgToPngBase64(svg, d.w * 2, d.h * 2);
-    const alt = `${style.figLabel ? style.figLabel + " — " : ""}${pptKindSelect.value} chart of table (${chart.series.length} series × ${chart.categories.length} categories)${style.patent ? ", patent line-art style" : ""}`;
+    const base64 = await svgToPngBase64(rendered.svg, d.w * 2, d.h * 2);
+    const alt = `${style.figLabel ? style.figLabel + " — " : ""}${kind} of table (${currentTableRows?.length ?? 0} rows)${style.patent ? ", patent line-art style" : ""}`;
     await Word.run(async (context) => {
       const range = context.document.getSelection();
       const picture = range.insertInlinePictureFromBase64(base64, Word.InsertLocation.after);
@@ -1501,26 +1568,38 @@ async function insertTableFigure(): Promise<void> {
   }
 }
 
-/** Builds the .pptx (native chart + optional source-table slide) and downloads it. */
+/** Builds the .pptx (native chart or graphic + optional table slide) and downloads it. */
 async function downloadPptx(): Promise<void> {
-  const chart = currentTableChart;
-  if (!chart) return;
+  const rendered = renderTableGraphic();
+  if (rendered.svg === null || !currentTableRows) return;
   pptDownloadBtn.disabled = true;
   setStatus("Building the PowerPoint file…", "");
   try {
     // Lazy-loaded so PptxGenJS stays out of the main task-pane bundle.
     const { buildTablePptx } = await import(/* webpackChunkName: "ppt" */ "../lib/ppt");
     const style = currentChartStyle();
-    // PowerPoint's native charts can't draw hatching, so the patent style
-    // ships as a picture of the same rendering shown in the preview.
+    const kind = pptKindSelect.value as RenderKind;
+    const diagram = isDiagramKind(kind);
+    // Diagrams and the patent style ship as a picture of the same rendering
+    // shown in the preview (PowerPoint's native charts can't draw hatching,
+    // and it has no native flowchart/diagram object).
     let chartImage: { dataUrl: string; wPx: number; hPx: number } | undefined;
-    if (style.patent) {
-      const svg = buildChartPreviewSvg(chart, pptKindSelect.value as ChartKind, pptTitleInput.value.trim(), style);
-      const d = readSvgDims(svg, 380, 260);
-      const base64 = await svgToPngBase64(svg, d.w * 3, d.h * 3);
+    if (diagram || style.patent) {
+      const d = readSvgDims(rendered.svg, 380, 260);
+      const base64 = await svgToPngBase64(rendered.svg, d.w * 3, d.h * 3);
       chartImage = { dataUrl: `data:image/png;base64,${base64}`, wPx: d.w, hPx: d.h };
     }
-    const blob = await buildTablePptx(chart, pptKindSelect.value as ChartKind, {
+    // For diagram kinds the chart parse may not exist — the slide only needs
+    // the picture plus the raw rows for the optional table slide.
+    const chart: TableChart = currentTableChart ?? {
+      categories: [],
+      series: [],
+      categoryLabel: "",
+      hasHeader: false,
+      rows: currentTableRows,
+      warnings: [],
+    };
+    const blob = await buildTablePptx(chart, diagram ? "column" : (kind as ChartKind), {
       title: pptTitleInput.value,
       includeTable: pptIncludeTable.checked,
       chartImage,

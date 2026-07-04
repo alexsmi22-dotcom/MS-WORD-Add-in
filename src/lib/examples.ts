@@ -227,16 +227,21 @@ export const MODE_EXAMPLES: Record<ExampleMode, string> = {
 
   ppt: `
     <p class="examples-note">
-      Export a Word <strong>table</strong> as a <strong>PowerPoint chart</strong> (.pptx download).
-      The chart is native PowerPoint — colors, labels, and data stay editable.
+      Chart a Word <strong>table</strong>: insert it into the document as a
+      <strong>figure</strong> — including a black-&amp;-white <strong>patent figure</strong>
+      style — or export it as a <strong>PowerPoint chart</strong> (.pptx download).
     </p>
     <ul>
       <li>Click anywhere <strong>inside the table</strong> in your document, then <em>Read selected table</em>.</li>
       <li><strong>First column</strong> = category labels (x-axis / slices); <strong>first row</strong> = series names (if it's text).</li>
       <li>Numbers may include <code>$</code>, <code>%</code>, commas, units (<code>12 kg</code>), and <code>(1,200)</code> for negatives.</li>
       <li>Chart types: column, bar, line, area, pie, doughnut (pie/doughnut use the first data column).</li>
+      <li><strong>Patent style</strong> — pure black-&amp;-white line art: hatched bars/slices, dashed
+        lines with distinct markers, and an optional <code>FIG. 1</code> label (37 CFR 1.84-friendly).</li>
     </ul>
-    <p class="examples-note">The source table can be reproduced on a second slide for reference.</p>`,
+    <p class="examples-note">
+      The PowerPoint chart is native and fully editable (with patent style on, it ships as the
+      same B&amp;W picture). The source table can be reproduced on a second slide.</p>`,
 
   finance: `
     <p class="examples-note">

@@ -2,6 +2,19 @@
 
 All notable changes to Formula Inserter. Dates are release/pilot dates.
 
+## [1.2.0] — 2026-07-04
+
+### Added
+- **Patent-figure charts** in the (renamed) **Table → Chart** mode:
+  - **Insert figure at cursor** — the chart is inserted into the Word document
+    as an image (rasterized at 2× for print quality).
+  - **Patent figure style** — black-&-white line art for patent drawings:
+    hatched bars/slices, dashed lines with distinct marker shapes, all-black
+    ink (no color/gray), and an optional **"FIG. N" label** under the chart.
+  - The PowerPoint export honors the style: patent mode ships the same B&W
+    figure as a picture (native charts can't draw hatching); color mode keeps
+    the fully editable native chart.
+
 ## [1.1.0] — 2026-07-04
 
 ### Added

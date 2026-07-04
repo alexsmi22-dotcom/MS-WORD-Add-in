@@ -197,6 +197,35 @@ describe("buildChartPreviewSvg", () => {
     expect(svg).toContain("first data column only");
   });
 
+  test("patent style is pure black & white with hatching and a FIG. label", () => {
+    const kinds: ChartKind[] = ["column", "bar", "pie", "doughnut", "area"];
+    for (const kind of kinds) {
+      const svg = buildChartPreviewSvg(chart, kind, "", { patent: true, figLabel: "FIG. 2" });
+      expect(svg).toContain("<pattern");
+      expect(svg).toContain("FIG. 2");
+      for (const color of ["#1f77b4", "#d62728", "#2ca02c"]) {
+        expect(svg).not.toContain(color);
+      }
+    }
+  });
+
+  test("patent line charts use dashes and marker shapes instead of color", () => {
+    const svg = buildChartPreviewSvg(chart, "line", "", { patent: true });
+    expect(svg).toContain("stroke-dasharray");
+    expect(svg).toContain("<circle"); // series-1 markers
+    expect(svg).not.toContain("#1f77b4");
+    // Both polylines are black.
+    expect((svg.match(/<polyline [^>]*stroke="#000"/g) || []).length).toBe(2);
+  });
+
+  test("FIG. label extends the canvas height", () => {
+    const plain = buildChartPreviewSvg(chart, "column");
+    const labeled = buildChartPreviewSvg(chart, "column", "", { figLabel: "FIG. 3" });
+    expect(plain).toContain('height="260"');
+    expect(labeled).toContain('height="286"');
+    expect(labeled).toContain("FIG. 3");
+  });
+
   test("labels are XML-escaped", () => {
     const c = parseTableData([
       ["Year", "P&L", "R&D"],

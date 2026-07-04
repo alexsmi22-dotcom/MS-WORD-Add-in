@@ -31,7 +31,7 @@
         <label class="mode"><input type="radio" name="mode" value="math" /> Math</label>
         <label class="mode"><input type="radio" name="mode" value="units" /> Units</label>
         <label class="mode"><input type="radio" name="mode" value="plot" /> Plot</label>
-        <label class="mode"><input type="radio" name="mode" value="ppt" /> Table&nbsp;→&nbsp;PPT</label>
+        <label class="mode"><input type="radio" name="mode" value="ppt" /> Table&nbsp;→&nbsp;Chart</label>
         <label class="mode"><input type="radio" name="mode" value="finance" /> Finance</label>
         <label class="mode"><input type="radio" name="mode" value="build" /> Build</label>
         <label class="mode"><input type="radio" name="mode" value="code" /> Code</label>
@@ -429,13 +429,14 @@
         <button id="plot-insert" class="insert-btn" type="button" disabled>Insert plot</button>
       </section>
 
-      <!-- Table → PPT: export a Word table as a PowerPoint chart -->
+      <!-- Table → Chart: chart a Word table — insert as a (patent) figure or export to PowerPoint -->
       <section id="ppt-section">
         <p class="seq-disclaimer">
-          Turn a Word table into a <strong>PowerPoint chart</strong>: click anywhere inside
-          the table in your document, press <em>Read selected table</em>, pick a chart type,
-          and download the .pptx. The chart is a native, fully editable PowerPoint chart.
-          Runs offline; nothing leaves your machine.
+          Turn a Word table into a <strong>chart</strong>: click anywhere inside the table
+          in your document and press <em>Read selected table</em>. Insert the chart into
+          the document as a <strong>figure</strong> (black-&amp;-white patent style
+          available), or download it as a <strong>PowerPoint</strong> file with a fully
+          editable chart. Runs offline; nothing leaves your machine.
         </p>
         <button id="ppt-load" class="insert-btn secondary" type="button">Read selected table</button>
         <div id="ppt-info" class="build-readout" aria-live="polite"></div>
@@ -452,15 +453,21 @@
         </div>
         <input id="ppt-title" class="formula-input" type="text" placeholder="Chart title (optional)" />
         <label class="omml-option">
-          <input type="checkbox" id="ppt-include-table" checked />
-          Include the source table on a second slide
+          <input type="checkbox" id="ppt-patent" />
+          Patent figure style — black &amp; white line art (hatching, dashed lines, markers)
         </label>
+        <input id="ppt-figlabel" class="formula-input" type="text" placeholder="Figure label (optional), e.g. FIG. 1" />
         <div class="preview-wrap">
           <span class="preview-label">Preview</span>
           <div id="ppt-preview" class="structure-preview" aria-live="polite"></div>
         </div>
         <div id="ppt-warnings" class="seq-warnings" aria-live="polite"></div>
-        <button id="ppt-download" class="insert-btn" type="button" disabled>Download PowerPoint (.pptx)</button>
+        <button id="ppt-insert-fig" class="insert-btn" type="button" disabled>Insert figure at cursor</button>
+        <label class="omml-option">
+          <input type="checkbox" id="ppt-include-table" checked />
+          PowerPoint: include the source table on a second slide
+        </label>
+        <button id="ppt-download" class="insert-btn secondary" type="button" disabled>Download PowerPoint (.pptx)</button>
       </section>
 
       <!-- Finance: calculators (TVM, NPV/IRR, Black-Scholes, bonds) -->

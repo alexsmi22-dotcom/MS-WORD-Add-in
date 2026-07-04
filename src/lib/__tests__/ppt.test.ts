@@ -56,6 +56,19 @@ describe("buildTablePptx", () => {
     expect(chartXml).toContain("lineChart");
   });
 
+  test("chartImage replaces the native chart with a picture (patent style)", async () => {
+    // 1×1 transparent PNG.
+    const png =
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+    const blob = await buildTablePptx(chart, "column", {
+      chartImage: { dataUrl: png, wPx: 380, hPx: 286 },
+      includeTable: false,
+    });
+    const zip = await unzip(blob);
+    expect(zip.file(/ppt\/charts\/chart\d*\.xml/).length).toBe(0);
+    expect(zip.file(/ppt\/media\/image[\d-]*\.png/).length).toBeGreaterThan(0);
+  });
+
   test("pie chart exports only the first series", async () => {
     const blob = await buildTablePptx(chart, "pie", {});
     const zip = await unzip(blob);

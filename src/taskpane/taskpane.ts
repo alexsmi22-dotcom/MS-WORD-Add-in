@@ -77,7 +77,7 @@ import { auditDocument, AuditReport } from "../lib/audit";
 import { parseReaction, composeReactionScheme, Rendered } from "../lib/reactions";
 import { formatSeqIdRef } from "../lib/seqid";
 import { getPrefs, setPref } from "../lib/prefs";
-import { parseTableData, buildChartPreviewSvg, TableChart, ChartKind } from "../lib/tablechart";
+import { parseTableData, buildChartPreviewSvg, TableChart, ChartKind, ChartStyle } from "../lib/tablechart";
 
 type Mode =
   | "chemical"
@@ -251,9 +251,12 @@ let pptLoadBtn: HTMLButtonElement;
 let pptInfo: HTMLElement;
 let pptKindSelect: HTMLSelectElement;
 let pptTitleInput: HTMLInputElement;
+let pptPatentCheckbox: HTMLInputElement;
+let pptFigLabelInput: HTMLInputElement;
 let pptIncludeTable: HTMLInputElement;
 let pptPreview: HTMLElement;
 let pptWarnings: HTMLElement;
+let pptInsertFigBtn: HTMLButtonElement;
 let pptDownloadBtn: HTMLButtonElement;
 /** Parsed data from the most recently read table, for the chart preview + export. */
 let currentTableChart: TableChart | null = null;
@@ -430,9 +433,12 @@ Office.onReady((info) => {
   pptInfo = document.getElementById("ppt-info") as HTMLElement;
   pptKindSelect = document.getElementById("ppt-kind") as HTMLSelectElement;
   pptTitleInput = document.getElementById("ppt-title") as HTMLInputElement;
+  pptPatentCheckbox = document.getElementById("ppt-patent") as HTMLInputElement;
+  pptFigLabelInput = document.getElementById("ppt-figlabel") as HTMLInputElement;
   pptIncludeTable = document.getElementById("ppt-include-table") as HTMLInputElement;
   pptPreview = document.getElementById("ppt-preview") as HTMLElement;
   pptWarnings = document.getElementById("ppt-warnings") as HTMLElement;
+  pptInsertFigBtn = document.getElementById("ppt-insert-fig") as HTMLButtonElement;
   pptDownloadBtn = document.getElementById("ppt-download") as HTMLButtonElement;
 
   inputEl.addEventListener("input", onInputChanged);
@@ -529,6 +535,9 @@ Office.onReady((info) => {
   pptLoadBtn.addEventListener("click", loadSelectedTable);
   pptKindSelect.addEventListener("change", updatePptPreview);
   pptTitleInput.addEventListener("input", updatePptPreview);
+  pptPatentCheckbox.addEventListener("change", updatePptPreview);
+  pptFigLabelInput.addEventListener("input", updatePptPreview);
+  pptInsertFigBtn.addEventListener("click", insertTableFigure);
   pptDownloadBtn.addEventListener("click", downloadPptx);
 
   // Apply persisted preferences to the relevant controls, and save on change.
@@ -1431,6 +1440,14 @@ async function loadSelectedTable(): Promise<void> {
   }
 }
 
+/** The chart style currently selected in the pane. */
+function currentChartStyle(): ChartStyle {
+  return {
+    patent: pptPatentCheckbox.checked,
+    figLabel: pptFigLabelInput.value.trim(),
+  };
+}
+
 /** Refreshes the chart preview, info line, and warnings for the loaded table. */
 function updatePptPreview(): void {
   const chart = currentTableChart;
@@ -1439,15 +1456,49 @@ function updatePptPreview(): void {
     pptPreview.innerHTML = "";
     pptWarnings.textContent = "";
     pptWarnings.className = "seq-warnings";
+    pptInsertFigBtn.disabled = true;
     pptDownloadBtn.disabled = true;
     return;
   }
   const names = chart.series.map((s) => s.name).join(", ");
   pptInfo.textContent = `${chart.series.length} series (${names}) × ${chart.categories.length} categories`;
-  pptPreview.innerHTML = buildChartPreviewSvg(chart, pptKindSelect.value as ChartKind, pptTitleInput.value.trim());
+  pptPreview.innerHTML = buildChartPreviewSvg(chart, pptKindSelect.value as ChartKind, pptTitleInput.value.trim(), currentChartStyle());
   pptWarnings.className = chart.warnings.length ? "seq-warnings warn" : "seq-warnings";
   pptWarnings.textContent = chart.warnings.join(" ");
+  pptInsertFigBtn.disabled = false;
   pptDownloadBtn.disabled = false;
+}
+
+/** Inserts the previewed chart into the document as a figure at the cursor. */
+async function insertTableFigure(): Promise<void> {
+  const chart = currentTableChart;
+  if (!chart) return;
+  pptInsertFigBtn.disabled = true;
+  setStatus("Inserting figure…");
+  try {
+    const style = currentChartStyle();
+    const svg = buildChartPreviewSvg(chart, pptKindSelect.value as ChartKind, pptTitleInput.value.trim(), style);
+    const d = readSvgDims(svg, 380, 260);
+    // Rasterize at 2× and set the picture back to natural size (points =
+    // px × 0.75) so the figure prints crisply.
+    const base64 = await svgToPngBase64(svg, d.w * 2, d.h * 2);
+    const alt = `${style.figLabel ? style.figLabel + " — " : ""}${pptKindSelect.value} chart of table (${chart.series.length} series × ${chart.categories.length} categories)${style.patent ? ", patent line-art style" : ""}`;
+    await Word.run(async (context) => {
+      const range = context.document.getSelection();
+      const picture = range.insertInlinePictureFromBase64(base64, Word.InsertLocation.after);
+      picture.altTextDescription = alt;
+      picture.width = d.w * 0.75;
+      picture.height = d.h * 0.75;
+      range.select(Word.SelectionMode.end);
+      await context.sync();
+      await tagInserted(context, picture.getRange(), "formula-inserter:tablechart");
+    });
+    setStatus("Figure inserted.", "success");
+  } catch (error) {
+    setStatus(`Could not insert the figure: ${(error as Error).message}`, "error");
+  } finally {
+    pptInsertFigBtn.disabled = false;
+  }
 }
 
 /** Builds the .pptx (native chart + optional source-table slide) and downloads it. */
@@ -1459,9 +1510,20 @@ async function downloadPptx(): Promise<void> {
   try {
     // Lazy-loaded so PptxGenJS stays out of the main task-pane bundle.
     const { buildTablePptx } = await import(/* webpackChunkName: "ppt" */ "../lib/ppt");
+    const style = currentChartStyle();
+    // PowerPoint's native charts can't draw hatching, so the patent style
+    // ships as a picture of the same rendering shown in the preview.
+    let chartImage: { dataUrl: string; wPx: number; hPx: number } | undefined;
+    if (style.patent) {
+      const svg = buildChartPreviewSvg(chart, pptKindSelect.value as ChartKind, pptTitleInput.value.trim(), style);
+      const d = readSvgDims(svg, 380, 260);
+      const base64 = await svgToPngBase64(svg, d.w * 3, d.h * 3);
+      chartImage = { dataUrl: `data:image/png;base64,${base64}`, wPx: d.w, hPx: d.h };
+    }
     const blob = await buildTablePptx(chart, pptKindSelect.value as ChartKind, {
       title: pptTitleInput.value,
       includeTable: pptIncludeTable.checked,
+      chartImage,
     });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");

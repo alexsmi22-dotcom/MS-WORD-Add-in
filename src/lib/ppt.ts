@@ -14,6 +14,12 @@ export interface TablePptOptions {
   title?: string;
   /** Reproduce the source table on a second slide (default true). */
   includeTable?: boolean;
+  /**
+   * Pre-rendered chart image (PNG data URL + pixel size). When set — used for
+   * the patent (B&W) style, which PowerPoint's native charts can't draw
+   * (no hatch patterns) — the slide gets this picture instead of a chart.
+   */
+  chartImage?: { dataUrl: string; wPx: number; hPx: number };
 }
 
 /** PptxGenJS wants hex colors without the leading "#". */
@@ -30,39 +36,58 @@ export async function buildTablePptx(chart: TableChart, kind: ChartKind, opts: T
     slide.addText(title, { x: 0.4, y: 0.2, w: 9.2, h: 0.6, fontSize: 20, bold: true, color: "222222" });
   }
 
-  const pie = kind === "pie" || kind === "doughnut";
-  // Pie/doughnut charts show a single series — the first data column.
-  const source = pie ? chart.series.slice(0, 1) : chart.series;
-  const data = source.map((s) => ({
-    name: s.name,
-    labels: chart.categories,
-    values: s.values.map((v) => v ?? 0),
-  }));
+  const areaY = title ? 0.9 : 0.4;
+  const areaH = title ? 4.3 : 4.8;
 
-  const typeMap: Record<ChartKind, pptxgen.CHART_NAME> = {
-    column: pptx.ChartType.bar,
-    bar: pptx.ChartType.bar,
-    line: pptx.ChartType.line,
-    area: pptx.ChartType.area,
-    pie: pptx.ChartType.pie,
-    doughnut: pptx.ChartType.doughnut,
-  };
+  if (opts.chartImage) {
+    // Fit the pre-rendered figure inside the chart area, preserving aspect.
+    const wIn = opts.chartImage.wPx / 96;
+    const hIn = opts.chartImage.hPx / 96;
+    const scale = Math.min(9.2 / wIn, areaH / hIn);
+    const w = wIn * scale;
+    const h = hIn * scale;
+    slide.addImage({
+      data: opts.chartImage.dataUrl,
+      x: 0.4 + (9.2 - w) / 2,
+      y: areaY + (areaH - h) / 2,
+      w,
+      h,
+    });
+  } else {
+    const pie = kind === "pie" || kind === "doughnut";
+    // Pie/doughnut charts show a single series — the first data column.
+    const source = pie ? chart.series.slice(0, 1) : chart.series;
+    const data = source.map((s) => ({
+      name: s.name,
+      labels: chart.categories,
+      values: s.values.map((v) => v ?? 0),
+    }));
 
-  slide.addChart(typeMap[kind], data, {
-    x: 0.4,
-    y: title ? 0.9 : 0.4,
-    w: 9.2,
-    h: title ? 4.3 : 4.8,
-    barDir: kind === "bar" ? "bar" : "col",
-    chartColors: PPT_COLORS,
-    showLegend: pie || chart.series.length > 1,
-    legendPos: "b",
-    showTitle: false,
-    ...(chart.categoryLabel && !pie
-      ? { showCatAxisTitle: true, catAxisTitle: chart.categoryLabel }
-      : {}),
-    ...(pie ? { showPercent: true } : {}),
-  });
+    const typeMap: Record<ChartKind, pptxgen.CHART_NAME> = {
+      column: pptx.ChartType.bar,
+      bar: pptx.ChartType.bar,
+      line: pptx.ChartType.line,
+      area: pptx.ChartType.area,
+      pie: pptx.ChartType.pie,
+      doughnut: pptx.ChartType.doughnut,
+    };
+
+    slide.addChart(typeMap[kind], data, {
+      x: 0.4,
+      y: areaY,
+      w: 9.2,
+      h: areaH,
+      barDir: kind === "bar" ? "bar" : "col",
+      chartColors: PPT_COLORS,
+      showLegend: pie || chart.series.length > 1,
+      legendPos: "b",
+      showTitle: false,
+      ...(chart.categoryLabel && !pie
+        ? { showCatAxisTitle: true, catAxisTitle: chart.categoryLabel }
+        : {}),
+      ...(pie ? { showPercent: true } : {}),
+    });
+  }
 
   if (opts.includeTable !== false && chart.rows.length) {
     const tableSlide = pptx.addSlide();

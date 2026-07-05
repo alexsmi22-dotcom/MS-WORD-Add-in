@@ -20,6 +20,8 @@ export interface ChartStyle {
   patent?: boolean;
   /** Optional figure label (e.g. "FIG. 1") rendered beneath the chart. */
   figLabel?: string;
+  /** Add patent-style reference numerals to figure elements (diagrams/table figure). */
+  numerals?: boolean;
 }
 
 export interface ChartSeries {

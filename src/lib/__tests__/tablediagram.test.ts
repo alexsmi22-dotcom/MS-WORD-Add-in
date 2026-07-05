@@ -77,6 +77,11 @@ describe("buildFlowchartSvg", () => {
     const { svg } = buildFlowchartSvg(steps, "Method <100>");
     expect(svg).toContain("Method &lt;100&gt;");
   });
+
+  test("reference numerals auto-number steps that have no id", () => {
+    const { svg } = buildFlowchartSvg([["Mix reagents"], ["Heat"], ["Cool"]], "", { numerals: true });
+    for (const n of ["102", "104", "106"]) expect(svg).toContain(`>${n}</text>`);
+  });
 });
 
 describe("buildHierarchySvg", () => {
@@ -126,6 +131,13 @@ describe("buildHierarchySvg", () => {
     const { svg } = buildHierarchySvg(rows, "", { patent: true, figLabel: "FIG. 1" });
     expect(svg).toContain("FIG. 1");
     for (const c of ["#1f77b4", "#eaf2fb", "#fdf1dc", "#555"]) expect(svg).not.toContain(c);
+  });
+
+  test("reference numerals number boxes hierarchically (100 / 110 / 112)", () => {
+    const { svg } = buildHierarchySvg(rows, "", { numerals: true });
+    expect(svg).toContain("100"); // root System 10
+    expect(svg).toContain("110"); // first child Controller 20
+    expect(svg).toContain("112"); // grandchild CPU 22
   });
 });
 

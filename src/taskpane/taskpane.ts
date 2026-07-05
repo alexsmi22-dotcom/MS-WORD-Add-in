@@ -80,6 +80,7 @@ import { getPrefs, setPref } from "../lib/prefs";
 import { parseTableData, cleanTableRows, buildChartPreviewSvg, TableChart, ChartKind, ChartStyle } from "../lib/tablechart";
 import { buildDiagramSvg, DiagramKind } from "../lib/tablediagram";
 import { buildTableFigureSvg } from "../lib/tablefigure";
+import { classifyTable } from "../lib/tableclassify";
 
 type Mode =
   | "chemical"
@@ -254,6 +255,7 @@ let pptInfo: HTMLElement;
 let pptKindSelect: HTMLSelectElement;
 let pptTitleInput: HTMLInputElement;
 let pptPatentCheckbox: HTMLInputElement;
+let pptNumeralsCheckbox: HTMLInputElement;
 let pptFigLabelInput: HTMLInputElement;
 let pptIncludeTable: HTMLInputElement;
 let pptPreview: HTMLElement;
@@ -440,6 +442,7 @@ Office.onReady((info) => {
   pptKindSelect = document.getElementById("ppt-kind") as HTMLSelectElement;
   pptTitleInput = document.getElementById("ppt-title") as HTMLInputElement;
   pptPatentCheckbox = document.getElementById("ppt-patent") as HTMLInputElement;
+  pptNumeralsCheckbox = document.getElementById("ppt-numerals") as HTMLInputElement;
   pptFigLabelInput = document.getElementById("ppt-figlabel") as HTMLInputElement;
   pptIncludeTable = document.getElementById("ppt-include-table") as HTMLInputElement;
   pptPreview = document.getElementById("ppt-preview") as HTMLElement;
@@ -542,6 +545,7 @@ Office.onReady((info) => {
   pptKindSelect.addEventListener("change", updatePptPreview);
   pptTitleInput.addEventListener("input", updatePptPreview);
   pptPatentCheckbox.addEventListener("change", updatePptPreview);
+  pptNumeralsCheckbox.addEventListener("change", updatePptPreview);
   pptFigLabelInput.addEventListener("input", updatePptPreview);
   pptInsertFigBtn.addEventListener("click", insertTableFigure);
   pptDownloadBtn.addEventListener("click", downloadPptx);
@@ -1461,18 +1465,11 @@ async function loadSelectedTable(): Promise<void> {
         currentTableChartError = parseError instanceof Error ? parseError.message : "This table can't be charted.";
       }
 
-      // A table with no numbers can't be a chart — fall back to a table figure.
-      if (!currentTableChart && !isRowKind(pptKindSelect.value as RenderKind)) {
-        pptKindSelect.value = "tablefigure";
-        setStatus("No numeric data — showing it as a table figure. Pick Flowchart or Block diagram for step/component tables.", "");
-      } else if (currentTableChart) {
-        setStatus(
-          `Table read — ${currentTableChart.categories.length} categor${currentTableChart.categories.length === 1 ? "y" : "ies"}, ${currentTableChart.series.length} data series.`,
-          "success"
-        );
-      } else {
-        setStatus(`Table read — ${rows.length} row(s) × ${rows[0].length} column(s).`, "success");
-      }
+      // Auto-pick the representation that best fits the table's shape; the user
+      // can still override via the "Show as" dropdown.
+      const rec = classifyTable(rows);
+      pptKindSelect.value = rec.kind;
+      setStatus(rec.reason, "success");
       updatePptPreview();
     });
   } catch (e) {
@@ -1489,6 +1486,7 @@ async function loadSelectedTable(): Promise<void> {
 function currentChartStyle(): ChartStyle {
   return {
     patent: pptPatentCheckbox.checked,
+    numerals: pptNumeralsCheckbox.checked,
     figLabel: pptFigLabelInput.value.trim(),
   };
 }

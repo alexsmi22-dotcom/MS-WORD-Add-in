@@ -8,7 +8,7 @@
 //
 // Pure logic — no Office.js — fully unit-testable.
 
-import { ChartStyle } from "./tablechart";
+import { ChartStyle, parseNumberCell } from "./tablechart";
 import { wrapText } from "./tablediagram";
 
 export interface TableFigureResult {
@@ -96,28 +96,40 @@ export function buildTableFigureSvg(rows: string[][], title = "", style: ChartSt
     });
   }
 
+  // Which columns are numeric — they get tighter widths and right alignment.
+  const numericCol = Array.from({ length: ncols }, (_, j) => {
+    const cells = grid.filter((_, i) => kinds[i] === "data").map((r) => r[j]).filter((c) => c !== "");
+    return cells.length > 0 && cells.filter((c) => parseNumberCell(c) !== null).length / cells.length >= 0.6;
+  });
+
   // Column widths from the widest cell in each column (bands span all columns,
-  // so they don't drive column width).
+  // so they don't drive column width). Numeric columns are capped tighter.
   const colW: number[] = [];
   for (let j = 0; j < ncols; j++) {
     let maxChars = 0;
     grid.forEach((r, i) => {
       if (kinds[i] === "band") return;
       for (const word of r[j].split(/\s+/)) maxChars = Math.max(maxChars, word.length);
-      maxChars = Math.max(maxChars, Math.min(r[j].length, 26));
+      maxChars = Math.max(maxChars, Math.min(r[j].length, numericCol[j] ? 14 : 26));
     });
-    colW.push(Math.max(MIN_COL, Math.min(MAX_COL, maxChars * CHAR_W + 2 * H_PAD)));
+    const cap = numericCol[j] ? 96 : MAX_COL;
+    colW.push(Math.max(MIN_COL, Math.min(cap, maxChars * CHAR_W + 2 * H_PAD)));
   }
-  const totalW = colW.reduce((a, b) => a + b, 0);
-  const colX: number[] = [0];
+
+  // Optional leading reference-numeral rail (patent callouts).
+  const numerals = !!style.numerals;
+  const numW = numerals ? 38 : 0;
+  const totalW = numW + colW.reduce((a, b) => a + b, 0);
+  const colX: number[] = [numW];
   for (let j = 0; j < ncols; j++) colX.push(colX[j] + colW[j]);
 
   // Wrap every cell and compute row heights.
+  const bandW = totalW - numW;
   const maxCharsFor = (w: number): number => Math.max(4, Math.floor((w - 2 * H_PAD) / CHAR_W));
   const wrapped: string[][][] = grid.map((r, i) => {
     if (kinds[i] === "band") {
       const only = bandText[i] || (r.find((c) => c !== "") ?? "");
-      return [wrapText(only, maxCharsFor(totalW), 2)];
+      return [wrapText(only, maxCharsFor(bandW), 2)];
     }
     return r.map((c, j) => (c ? wrapText(c, maxCharsFor(colW[j]), MAX_LINES) : [""]));
   });
@@ -157,9 +169,36 @@ export function buildTableFigureSvg(rows: string[][], title = "", style: ChartSt
   const patent = !!style.patent;
   const ink = patent ? "#000" : "#222";
   const line = patent ? "#000" : "#c4c4c4";
-  const headFill = patent ? "#fff" : "#eef3f8";
-  const bandFill = patent ? "#f0f0f0" : "#dfe8f2";
+  const headFill = patent ? "#fff" : "#e7eef6";
+  const bandFill = patent ? "#efefef" : "#dbe6f2";
+  const zebraFill = patent ? "#fff" : "#f6f9fc";
   const figLabel = (style.figLabel ?? "").trim();
+  const bandsExist = kinds.some((k) => k === "band");
+
+  // Reference numerals: sections number by hundreds; rows step by two within a
+  // section (100 → 102, 104…). Flat tables number rows 102, 104, …
+  const numeral: string[] = [];
+  {
+    let section = 0;
+    let inSection = 0;
+    let flat = 100;
+    for (let i = 0; i < grid.length; i++) {
+      if (kinds[i] === "header") {
+        numeral.push("");
+      } else if (kinds[i] === "band") {
+        section += 100;
+        inSection = 0;
+        numeral.push(String(section));
+      } else if (bandsExist) {
+        if (section === 0) section = 100;
+        inSection += 2;
+        numeral.push(String(section + inSection));
+      } else {
+        flat += 2;
+        numeral.push(String(flat));
+      }
+    }
+  }
 
   const top = title ? 26 : 8;
   const tableH = rowY[grid.length];
@@ -173,7 +212,7 @@ export function buildTableFigureSvg(rows: string[][], title = "", style: ChartSt
     );
   }
 
-  const cellText = (lines: string[], cx: number, cyTop: number, h: number, anchor: "start" | "middle", bold: boolean): string => {
+  const cellText = (lines: string[], cx: number, cyTop: number, h: number, anchor: "start" | "middle" | "end", bold: boolean): string => {
     const y0 = cyTop + h / 2 - ((lines.length - 1) * LINE_H) / 2 + 3.5;
     return lines
       .map(
@@ -183,31 +222,54 @@ export function buildTableFigureSvg(rows: string[][], title = "", style: ChartSt
       .join("");
   };
 
+  let headerBottom = -1;
+  let zebraToggle = 0;
   grid.forEach((r, i) => {
     const y = top + rowY[i];
     const h = rowH[i];
+    if (kinds[i] === "header") headerBottom = y + h;
     if (kinds[i] === "band") {
-      parts.push(`<rect x="0" y="${y.toFixed(1)}" width="${LW.toFixed(1)}" height="${h.toFixed(1)}" fill="${bandFill}" stroke="${line}" stroke-width="1"/>`);
-      parts.push(cellText(wrapped[i][0], H_PAD + 2, y, h, "start", true));
+      if (numerals) {
+        parts.push(`<rect x="0" y="${y.toFixed(1)}" width="${numW}" height="${h.toFixed(1)}" fill="${bandFill}" stroke="${line}" stroke-width="1"/>`);
+        parts.push(cellText([numeral[i]], numW / 2, y, h, "middle", true));
+      }
+      parts.push(`<rect x="${numW}" y="${y.toFixed(1)}" width="${bandW.toFixed(1)}" height="${h.toFixed(1)}" fill="${bandFill}" stroke="${line}" stroke-width="1"/>`);
+      parts.push(cellText(wrapped[i][0], numW + H_PAD + 2, y, h, "start", true));
+      zebraToggle = 0;
       return;
     }
+    const isHeader = kinds[i] === "header";
+    // Numeral rail cell.
+    if (numerals) {
+      const nf = isHeader ? headFill : "#fff";
+      parts.push(`<rect x="0" y="${y.toFixed(1)}" width="${numW}" height="${h.toFixed(1)}" fill="${nf}" stroke="${line}" stroke-width="1"/>`);
+      if (!isHeader) parts.push(cellText([numeral[i]], numW / 2, y, h, "middle", false));
+    }
+    const zebra = !isHeader && !sectionMerged && zebraFill !== "#fff" && zebraToggle % 2 === 1;
+    if (!isHeader) zebraToggle++;
     for (let j = 0; j < ncols; j++) {
       if (j === 0 && contCol0[i]) continue; // absorbed into the span above
-      const isHeader = kinds[i] === "header";
       const ch = j === 0 ? spanH[i] : h;
-      const fill = isHeader ? headFill : "#fff";
+      const fill = isHeader ? headFill : zebra ? zebraFill : "#fff";
       parts.push(
         `<rect x="${colX[j].toFixed(1)}" y="${y.toFixed(1)}" width="${colW[j].toFixed(1)}" height="${ch.toFixed(1)}" fill="${fill}" stroke="${line}" stroke-width="1"/>`
       );
       const lines = wrapped[i][j];
       if (lines.length && lines[0]) {
-        parts.push(cellText(lines, colX[j] + H_PAD, y, ch, "start", isHeader || (j === 0 && sectionMerged)));
+        const rightAlign = numericCol[j] && !isHeader;
+        const anchor = rightAlign ? "end" : "start";
+        const tx = rightAlign ? colX[j + 1] - H_PAD : colX[j] + H_PAD;
+        parts.push(cellText(lines, tx, y, ch, anchor, isHeader || (j === 0 && sectionMerged)));
       }
     }
   });
 
+  // Heavier rule under the header row.
+  if (headerBottom > 0) {
+    parts.push(`<line x1="0" y1="${headerBottom.toFixed(1)}" x2="${LW.toFixed(1)}" y2="${headerBottom.toFixed(1)}" stroke="${patent ? "#000" : "#8aa4c0"}" stroke-width="1.4"/>`);
+  }
   // Outer border a touch heavier for a crisp figure edge.
-  parts.push(`<rect x="0.5" y="${(top + 0.5).toFixed(1)}" width="${(LW - 1).toFixed(1)}" height="${(tableH - 1).toFixed(1)}" fill="none" stroke="${patent ? "#000" : "#999"}" stroke-width="1.2"/>`);
+  parts.push(`<rect x="0.5" y="${(top + 0.5).toFixed(1)}" width="${(LW - 1).toFixed(1)}" height="${(tableH - 1).toFixed(1)}" fill="none" stroke="${patent ? "#000" : "#7f97b3"}" stroke-width="1.3"/>`);
 
   if (figLabel) {
     parts.push(`<text x="${LW / 2}" y="${(LH - 9).toFixed(1)}" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#000">${esc(figLabel)}</text>`);

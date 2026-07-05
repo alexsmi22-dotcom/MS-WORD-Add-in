@@ -246,10 +246,14 @@ export const MODE_EXAMPLES: Record<ExampleMode, string> = {
         (a group-header row becomes a band; a blank “section” column merges down), bolds the header.</li>
       <li><strong>Patent style</strong> — pure black-&amp;-white line art: hatched bars/slices, dashed
         lines with distinct markers, and an optional <code>FIG. 1</code> label (37 CFR 1.84-friendly).</li>
+      <li><strong>Reference numerals</strong> — number figure elements for callouts: boxes in a block
+        diagram get hierarchical numbers (100, 110, 112…), flowchart steps get 102, 104…, and table
+        rows/sections get a numeral rail — so the spec text can refer to them.</li>
     </ul>
     <p class="examples-note">
-      The PowerPoint chart is native and fully editable; diagrams and patent-style charts ship as
-      the same B&amp;W picture. The source table can be reproduced on a second slide.</p>`,
+      When you read a table, the tool <strong>auto-picks</strong> the best view (chart, flowchart,
+      block diagram, or table figure) — change it any time in “Show as”. The PowerPoint chart is
+      native and fully editable; diagrams and patent-style charts ship as the same B&amp;W picture.</p>`,
 
   finance: `
     <p class="examples-note">

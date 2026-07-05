@@ -25,7 +25,7 @@ describe("buildTableFigureSvg", () => {
   test("a group-header row (only first cell filled) becomes a full-width band", () => {
     const { svg } = buildTableFigureSvg(characteristics);
     // The band rect spans the full table width; the pane is 380 wide.
-    expect(svg).toMatch(/<rect x="0" y="[\d.]+" width="[\d.]+" height="[\d.]+" fill="#dfe8f2"/);
+    expect(svg).toMatch(/<rect x="0" y="[\d.]+" width="[\d.]+" height="[\d.]+" fill="#dbe6f2"/);
     expect(svg).toContain("Demographics");
   });
 
@@ -35,7 +35,7 @@ describe("buildTableFigureSvg", () => {
     const { svg } = buildTableFigureSvg(characteristics);
     // After dropping, the header is Characteristic | Overall | GLP-switcher —
     // three columns, so three header-fill cells.
-    expect(count(svg, 'fill="#eef3f8"')).toBe(3);
+    expect(count(svg, 'fill="#e7eef6"')).toBe(3);
     // The band still shows its section text.
     expect(svg).toContain("Demographics");
     // The "Section" header label is gone (it was the dropped column).
@@ -58,14 +58,14 @@ describe("buildTableFigureSvg", () => {
 
   test("header row is shaded and bold", () => {
     const { svg } = buildTableFigureSvg(characteristics);
-    expect(svg).toContain('fill="#eef3f8"'); // header fill (color style)
+    expect(svg).toContain('fill="#e7eef6"'); // header fill (color style)
     expect(svg).toContain('font-weight="bold"');
   });
 
   test("patent style is pure black & white and shows the FIG. label", () => {
     const { svg } = buildTableFigureSvg(characteristics, "", { patent: true, figLabel: "FIG. 5" });
     expect(svg).toContain("FIG. 5");
-    for (const c of ["#eef3f8", "#dfe8f2", "#c4c4c4", "#1f77b4"]) expect(svg).not.toContain(c);
+    for (const c of ["#e7eef6", "#dbe6f2", "#c4c4c4", "#1f77b4"]) expect(svg).not.toContain(c);
   });
 
   test("caps very long tables with a warning", () => {
@@ -87,6 +87,22 @@ describe("buildTableFigureSvg", () => {
     ]);
     expect(svg).toContain("x&lt;y &amp; z");
     expect(svg).not.toContain("x<y");
+  });
+
+  test("reference numerals add a numeral rail with section/row numbers", () => {
+    const { svg } = buildTableFigureSvg(characteristics, "", { numerals: true });
+    expect(svg).toContain(">100<"); // Demographics section
+    expect(svg).toContain(">102<"); // first row in the section
+    expect(svg).toContain(">104<");
+  });
+
+  test("numeric columns are right-aligned", () => {
+    const { svg } = buildTableFigureSvg([
+      ["Item", "Count"],
+      ["A", "1,234"],
+      ["B", "56"],
+    ]);
+    expect(svg).toContain('text-anchor="end"');
   });
 
   test("single-column table renders", () => {

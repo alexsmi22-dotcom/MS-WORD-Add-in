@@ -185,10 +185,13 @@ export function buildFlowchartSvg(rows: string[][], title = "", style: ChartStyl
         `<text x="${cx}" y="${(y0 + li * 13).toFixed(1)}" text-anchor="middle" font-family="sans-serif" font-size="10.5" fill="${p.ink}">${esc(line)}</text>`
       );
     });
-    if (s.id) {
+    // Reference numeral: the step's own id, or an auto callout (102, 104, …)
+    // when the patent numeral option is on and the row had no id.
+    const refId = s.id || (style.numerals ? String(102 + i * 2) : "");
+    if (refId) {
       parts.push(
         `<line x1="${cx + boxW / 2}" y1="${midY.toFixed(1)}" x2="${cx + boxW / 2 + 10}" y2="${midY.toFixed(1)}" stroke="${p.edge}" stroke-width="0.9"/>` +
-          `<text x="${cx + boxW / 2 + 13}" y="${(midY + 3.5).toFixed(1)}" font-family="sans-serif" font-size="10.5" fill="${p.ink}">${esc(s.id)}</text>`
+          `<text x="${cx + boxW / 2 + 13}" y="${(midY + 3.5).toFixed(1)}" font-family="sans-serif" font-size="10.5" fill="${p.ink}">${esc(refId)}</text>`
       );
     }
     if (i < placed.length - 1) {
@@ -204,6 +207,20 @@ export function buildFlowchartSvg(rows: string[][], title = "", style: ChartStyl
 interface TreeNode {
   label: string;
   children: TreeNode[];
+  /** Assigned reference numeral, when the patent numeral option is on. */
+  num?: string;
+}
+
+/**
+ * Patent-style hierarchical numbering: roots 100, 200, …; first-level children
+ * step by 10 (110, 120, …); deeper levels step by 2 (112, 114, …).
+ */
+function numberTree(roots: TreeNode[]): void {
+  const walk = (node: TreeNode, num: number, level: number): void => {
+    node.num = String(num);
+    node.children.forEach((c, i) => walk(c, level === 0 ? num + 10 * (i + 1) : num + 2 * (i + 1), level + 1));
+  };
+  roots.forEach((r, i) => walk(r, 100 * (i + 1), 0));
 }
 
 /**
@@ -259,6 +276,7 @@ export function buildHierarchySvg(rows: string[][], title = "", style: ChartStyl
   }
   leaves = Math.max(1, leaves);
   const depth = Math.max(...roots.map(depthOf));
+  if (style.numerals) numberTree(roots);
 
   const p = palette(style);
   const figLabel = (style.figLabel ?? "").trim();
@@ -292,7 +310,8 @@ export function buildHierarchySvg(rows: string[][], title = "", style: ChartStyl
       }
     }
     const bw = Math.min(slotW * Math.max(1, countLeaves(node)) - 10, 150);
-    const lines = wrapText(node.label, Math.max(10, Math.floor(bw / 6)), 2);
+    const boxLabel = node.num ? `${node.num} ${node.label}` : node.label;
+    const lines = wrapText(boxLabel, Math.max(10, Math.floor(bw / 6)), 2);
     parts.push(
       `<rect class="fi-box" x="${(cx - bw / 2).toFixed(1)}" y="${y}" width="${bw.toFixed(1)}" height="${boxH}" fill="${level === 0 ? p.accentFill : p.fill}" stroke="${p.stroke}" stroke-width="1.2"/>`
     );

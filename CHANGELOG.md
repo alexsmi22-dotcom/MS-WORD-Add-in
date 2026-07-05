@@ -2,6 +2,25 @@
 
 All notable changes to Formula Inserter. Dates are release/pilot dates.
 
+## [1.5.0] — 2026-07-04
+
+### Added
+- **Auto-pick representation** — reading a table now classifies its shape and
+  preselects the best view (chart / flowchart / block diagram / table figure),
+  showing the reason. Numeric data charts; grouped or dense tables become a
+  table figure; step lists become flowcharts; short hierarchies become block
+  diagrams. Fully overridable in "Show as".
+- **Reference numerals** — a toggle to number figure elements as patent
+  callouts: hierarchical box numbers in block diagrams (100, 110, 112…),
+  auto-numbered flowchart steps (102, 104…), and a numeral rail on the table
+  figure (sections 100/200, rows 102/104…).
+
+### Changed
+- **Table figure polish** — numeric columns are right-aligned, the header is
+  shaded with a rule beneath it, a redundant blank section column is dropped
+  (no dead left column), light zebra striping in color mode, and a crisper
+  outer border.
+
 ## [1.4.0] — 2026-07-04
 
 ### Added

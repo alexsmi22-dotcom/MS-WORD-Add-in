@@ -337,24 +337,43 @@ export interface TreeNode {
 }
 
 /**
- * Patent-style reference numbering: each root starts a new hundred (100, 200,
- * …) and every element in that root's subtree gets the next even number in
- * depth-first order (100, 102, 104, …). This keeps each apparatus in its own
- * hundred while guaranteeing the numerals are unique — the earlier
- * level-stride scheme (100/110/112) could collide (a node with ≥5 children ran
- * into the next sibling's number).
+ * Patent-style hierarchical reference numbering: roots at 100, 200, …; their
+ * children step by tens (110, 120, …); deeper elements by twos (112, 114, …) —
+ * the familiar apparatus-figure look. Strides are computed from the actual
+ * fan-out at each level and widened only when a branch is dense enough that the
+ * default spacing would run into the next sibling, so the numerals are always
+ * unique (the old fixed 10/2 strides collided once a node had ≥5 children).
  */
 export function numberTree(roots: TreeNode[]): void {
-  let counter = 100;
-  const walk = (node: TreeNode): void => {
-    node.num = String(counter);
-    counter += 2;
-    node.children.forEach(walk);
+  // Max number of children among the nodes at each depth level.
+  const maxChildAtLevel: number[] = [];
+  const scan = (node: TreeNode, level: number): void => {
+    maxChildAtLevel[level] = Math.max(maxChildAtLevel[level] ?? 0, node.children.length);
+    node.children.forEach((c) => scan(c, level + 1));
   };
-  roots.forEach((r, i) => {
-    counter = 100 * (i + 1);
-    walk(r);
-  });
+  roots.forEach((r) => scan(r, 0));
+  const maxLevel = maxChildAtLevel.length - 1;
+
+  const LADDER = [2, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000];
+  const niceStride = (x: number): number => LADDER.find((v) => v >= x) ?? Math.ceil(x / 1000) * 1000;
+
+  // childStride[L] = spacing between the children of a node at level L;
+  // childWidth[L] = numeric span one node's whole subtree needs at level L.
+  const childStride: number[] = [];
+  const childWidth: number[] = [];
+  childWidth[maxLevel] = 2;
+  for (let L = maxLevel - 1; L >= 0; L--) {
+    childStride[L] = niceStride(childWidth[L + 1]);
+    childWidth[L] = childStride[L] * ((maxChildAtLevel[L] ?? 0) + 1);
+  }
+  const rootStride = Math.max(100, Math.ceil((childWidth[0] ?? 2) / 100) * 100);
+
+  const assign = (node: TreeNode, value: number, level: number): void => {
+    node.num = String(value);
+    const stride = childStride[level] ?? 2;
+    node.children.forEach((c, i) => assign(c, value + stride * (i + 1), level + 1));
+  };
+  roots.forEach((r, i) => assign(r, 100 + rootStride * i, 0));
 }
 
 /**

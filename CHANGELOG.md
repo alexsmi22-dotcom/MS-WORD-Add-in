@@ -2,6 +2,17 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
+## [1.12.3] — 2026-07-04
+
+### Changed
+- **Block-diagram numbering keeps the grouped look *and* stays unique.** The
+  1.12.2 fix made numbering sequential (100, 102, 104…) to guarantee
+  uniqueness. This restores the familiar grouped style — roots at 100/200,
+  subsystems at 110/120/130, parts at 112/114 — by computing the stride at
+  each level from the actual fan-out and widening it (e.g. to twenties) only
+  when a branch is dense enough that the default spacing would collide. Best
+  of both: typical figures look classic, dense ones remain collision-free.
+
 ## [1.12.2] — 2026-07-04
 
 ### Fixed

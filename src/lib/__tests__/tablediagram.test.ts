@@ -140,22 +140,23 @@ describe("buildHierarchySvg", () => {
     for (const c of ["#1f77b4", "#eaf2fb", "#fdf1dc", "#555"]) expect(svg).not.toContain(c);
   });
 
-  test("reference numerals number boxes in DFS order with lead lines (100, 102, 104…)", () => {
+  test("reference numerals keep the grouped look with lead lines (100 / 110 / 112)", () => {
     const { svg } = buildHierarchySvg(rows, "", { numerals: true });
     expect(svg).toContain(">100</text>"); // root System 10
-    expect(svg).toContain(">102</text>"); // Controller 20
-    expect(svg).toContain(">104</text>"); // CPU 22
+    expect(svg).toContain(">110</text>"); // Controller 20 (first child, tens)
+    expect(svg).toContain(">112</text>"); // CPU 22 (grandchild, twos)
     expect(svg).toContain('class="fi-lead"'); // lead lines to the boxes
   });
 
   test("reference numerals are unique even on a dense tree (no collisions)", () => {
-    // A subsystem with 6 parts plus a second subsystem — the old level-stride
-    // scheme collided (part 6 == subsystem 2). Numbers must all be distinct.
+    // A subsystem with 6 parts plus a second subsystem — the old fixed 10/2
+    // strides collided (part 6 == subsystem 2). Strides now widen so numbers
+    // stay distinct.
     const dense: string[][] = [];
     for (let i = 1; i <= 6; i++) dense.push(["System", "Controller", `Part ${i}`]);
     dense.push(["System", "Sensor", "Element"]);
     const { svg } = buildHierarchySvg(dense, "", { numerals: true });
-    const nums = (svg.match(/>(\d{3})<\/text>/g) || []).map((m) => m.replace(/\D/g, ""));
+    const nums = (svg.match(/>(\d{2,4})<\/text>/g) || []).map((m) => m.replace(/\D/g, ""));
     expect(nums.length).toBeGreaterThan(5);
     expect(new Set(nums).size).toBe(nums.length); // all unique
   });

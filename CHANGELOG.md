@@ -2,6 +2,19 @@
 
 All notable changes to Formula Inserter. Dates are release/pilot dates.
 
+## [1.6.0] — 2026-07-04
+
+### Changed
+- **Reference numerals now use lead lines** (37 CFR 1.84(q)), replacing the
+  columnar rail and the inside-the-box numbers:
+  - Block diagram: numeral sits outside each box's top-left corner with a
+    straight lead line to the box (no longer prefixed into the label).
+  - Flowchart: numerals alternate left/right of the steps with angled lead
+    lines, instead of stacking in a right-hand column.
+  - Table figure: free-standing margin numerals, each with a lead line to its
+    row/section, staggered across two lanes (rail removed).
+  Placement is auto — a starting point the drafter repositions.
+
 ## [1.5.0] — 2026-07-04
 
 ### Added

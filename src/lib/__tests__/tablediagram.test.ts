@@ -133,11 +133,12 @@ describe("buildHierarchySvg", () => {
     for (const c of ["#1f77b4", "#eaf2fb", "#fdf1dc", "#555"]) expect(svg).not.toContain(c);
   });
 
-  test("reference numerals number boxes hierarchically (100 / 110 / 112)", () => {
+  test("reference numerals number boxes hierarchically with lead lines (100 / 110 / 112)", () => {
     const { svg } = buildHierarchySvg(rows, "", { numerals: true });
-    expect(svg).toContain("100"); // root System 10
-    expect(svg).toContain("110"); // first child Controller 20
-    expect(svg).toContain("112"); // grandchild CPU 22
+    expect(svg).toContain(">100</text>"); // root System 10
+    expect(svg).toContain(">110</text>"); // first child Controller 20
+    expect(svg).toContain(">112</text>"); // grandchild CPU 22
+    expect(svg).toContain('class="fi-lead"'); // lead lines to the boxes
   });
 });
 

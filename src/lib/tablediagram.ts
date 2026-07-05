@@ -186,12 +186,19 @@ export function buildFlowchartSvg(rows: string[][], title = "", style: ChartStyl
       );
     });
     // Reference numeral: the step's own id, or an auto callout (102, 104, …)
-    // when the patent numeral option is on and the row had no id.
+    // when the patent numeral option is on and the row had no id. Drawn
+    // free-standing with a straight lead line to the box edge, alternating
+    // sides so the numbers don't stack into a column (37 CFR 1.84(q)).
     const refId = s.id || (style.numerals ? String(102 + i * 2) : "");
     if (refId) {
+      const ext = s.decision ? boxW / 2 - 24 : boxW / 2;
+      const right = i % 2 === 0;
+      const edgeX = cx + (right ? ext : -ext);
+      const numX = cx + (right ? ext + 24 : -ext - 24);
+      const numY = midY - 11; // lift the number so the lead line is angled
       parts.push(
-        `<line x1="${cx + boxW / 2}" y1="${midY.toFixed(1)}" x2="${cx + boxW / 2 + 10}" y2="${midY.toFixed(1)}" stroke="${p.edge}" stroke-width="0.9"/>` +
-          `<text x="${cx + boxW / 2 + 13}" y="${(midY + 3.5).toFixed(1)}" font-family="sans-serif" font-size="10.5" fill="${p.ink}">${esc(refId)}</text>`
+        `<line x1="${(numX + (right ? -3 : 3)).toFixed(1)}" y1="${(numY + 2).toFixed(1)}" x2="${edgeX.toFixed(1)}" y2="${midY.toFixed(1)}" stroke="${p.edge}" stroke-width="0.9"/>` +
+          `<text x="${numX.toFixed(1)}" y="${numY.toFixed(1)}" text-anchor="${right ? "start" : "end"}" font-family="sans-serif" font-size="10.5" fill="${p.ink}">${esc(refId)}</text>`
       );
     }
     if (i < placed.length - 1) {
@@ -310,8 +317,7 @@ export function buildHierarchySvg(rows: string[][], title = "", style: ChartStyl
       }
     }
     const bw = Math.min(slotW * Math.max(1, countLeaves(node)) - 10, 150);
-    const boxLabel = node.num ? `${node.num} ${node.label}` : node.label;
-    const lines = wrapText(boxLabel, Math.max(10, Math.floor(bw / 6)), 2);
+    const lines = wrapText(node.label, Math.max(10, Math.floor(bw / 6)), 2);
     parts.push(
       `<rect class="fi-box" x="${(cx - bw / 2).toFixed(1)}" y="${y}" width="${bw.toFixed(1)}" height="${boxH}" fill="${level === 0 ? p.accentFill : p.fill}" stroke="${p.stroke}" stroke-width="1.2"/>`
     );
@@ -321,6 +327,17 @@ export function buildHierarchySvg(rows: string[][], title = "", style: ChartStyl
         `<text x="${cx.toFixed(1)}" y="${(ty + li * 11).toFixed(1)}" text-anchor="middle" font-family="sans-serif" font-size="9.5" fill="${p.ink}">${esc(line)}</text>`
       );
     });
+    // Reference numeral: free-standing above the top-left corner with a short
+    // straight lead line to the box (not inside the box, not in a column).
+    if (node.num) {
+      const cornerX = cx - bw / 2;
+      const numX = cornerX - 7;
+      const numY = y - 5;
+      parts.push(
+        `<line class="fi-lead" x1="${(numX + 2).toFixed(1)}" y1="${(numY + 1).toFixed(1)}" x2="${(cornerX + 4).toFixed(1)}" y2="${(y + 2).toFixed(1)}" stroke="${p.edge}" stroke-width="0.9"/>` +
+          `<text x="${numX.toFixed(1)}" y="${numY.toFixed(1)}" text-anchor="end" font-family="sans-serif" font-size="10" fill="${p.ink}">${esc(node.num)}</text>`
+      );
+    }
     return { cx };
   };
   for (const root of roots) layout(root, 0);

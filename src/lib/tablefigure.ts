@@ -116,9 +116,10 @@ export function buildTableFigureSvg(rows: string[][], title = "", style: ChartSt
     colW.push(Math.max(MIN_COL, Math.min(cap, maxChars * CHAR_W + 2 * H_PAD)));
   }
 
-  // Optional leading reference-numeral rail (patent callouts).
+  // Optional left margin holding free-standing reference numerals + lead lines
+  // (patent callouts). The table body starts after the margin.
   const numerals = !!style.numerals;
-  const numW = numerals ? 38 : 0;
+  const numW = numerals ? 46 : 0;
   const totalW = numW + colW.reduce((a, b) => a + b, 0);
   const colX: number[] = [numW];
   for (let j = 0; j < ncols; j++) colX.push(colX[j] + colW[j]);
@@ -224,27 +225,22 @@ export function buildTableFigureSvg(rows: string[][], title = "", style: ChartSt
 
   let headerBottom = -1;
   let zebraToggle = 0;
+  // Reference numerals are collected and drawn after the grid so the lead lines
+  // sit on top; { text, y } per numbered row.
+  const numeralHits: { text: string; cy: number }[] = [];
   grid.forEach((r, i) => {
     const y = top + rowY[i];
     const h = rowH[i];
     if (kinds[i] === "header") headerBottom = y + h;
     if (kinds[i] === "band") {
-      if (numerals) {
-        parts.push(`<rect x="0" y="${y.toFixed(1)}" width="${numW}" height="${h.toFixed(1)}" fill="${bandFill}" stroke="${line}" stroke-width="1"/>`);
-        parts.push(cellText([numeral[i]], numW / 2, y, h, "middle", true));
-      }
       parts.push(`<rect x="${numW}" y="${y.toFixed(1)}" width="${bandW.toFixed(1)}" height="${h.toFixed(1)}" fill="${bandFill}" stroke="${line}" stroke-width="1"/>`);
       parts.push(cellText(wrapped[i][0], numW + H_PAD + 2, y, h, "start", true));
+      if (numerals && numeral[i]) numeralHits.push({ text: numeral[i], cy: y + h / 2 });
       zebraToggle = 0;
       return;
     }
     const isHeader = kinds[i] === "header";
-    // Numeral rail cell.
-    if (numerals) {
-      const nf = isHeader ? headFill : "#fff";
-      parts.push(`<rect x="0" y="${y.toFixed(1)}" width="${numW}" height="${h.toFixed(1)}" fill="${nf}" stroke="${line}" stroke-width="1"/>`);
-      if (!isHeader) parts.push(cellText([numeral[i]], numW / 2, y, h, "middle", false));
-    }
+    if (numerals && !isHeader && numeral[i]) numeralHits.push({ text: numeral[i], cy: y + h / 2 });
     const zebra = !isHeader && !sectionMerged && zebraFill !== "#fff" && zebraToggle % 2 === 1;
     if (!isHeader) zebraToggle++;
     for (let j = 0; j < ncols; j++) {
@@ -264,12 +260,26 @@ export function buildTableFigureSvg(rows: string[][], title = "", style: ChartSt
     }
   });
 
-  // Heavier rule under the header row.
+  // Heavier rule under the header row (table body only).
   if (headerBottom > 0) {
-    parts.push(`<line x1="0" y1="${headerBottom.toFixed(1)}" x2="${LW.toFixed(1)}" y2="${headerBottom.toFixed(1)}" stroke="${patent ? "#000" : "#8aa4c0"}" stroke-width="1.4"/>`);
+    parts.push(`<line x1="${numW}" y1="${headerBottom.toFixed(1)}" x2="${LW.toFixed(1)}" y2="${headerBottom.toFixed(1)}" stroke="${patent ? "#000" : "#8aa4c0"}" stroke-width="1.4"/>`);
   }
-  // Outer border a touch heavier for a crisp figure edge.
-  parts.push(`<rect x="0.5" y="${(top + 0.5).toFixed(1)}" width="${(LW - 1).toFixed(1)}" height="${(tableH - 1).toFixed(1)}" fill="none" stroke="${patent ? "#000" : "#7f97b3"}" stroke-width="1.3"/>`);
+  // Outer border a touch heavier for a crisp figure edge (around the table body).
+  parts.push(`<rect x="${(numW + 0.5).toFixed(1)}" y="${(top + 0.5).toFixed(1)}" width="${(bandW - 1).toFixed(1)}" height="${(tableH - 1).toFixed(1)}" fill="none" stroke="${patent ? "#000" : "#7f97b3"}" stroke-width="1.3"/>`);
+
+  // Free-standing reference numerals in the left margin, each with a straight
+  // lead line to the row's left edge. Two lanes stagger the numbers so they
+  // don't line up in a rigid column (37 CFR 1.84(q)). Auto-placed — a starting
+  // point the drafter can reposition.
+  numeralHits.forEach((hit, k) => {
+    const lane = k % 2;
+    const numX = lane === 0 ? 5 : 21;
+    const textW = hit.text.length * 5.6;
+    parts.push(
+      `<line class="fi-lead" x1="${(numX + textW + 2).toFixed(1)}" y1="${hit.cy.toFixed(1)}" x2="${numW.toFixed(1)}" y2="${hit.cy.toFixed(1)}" stroke="${patent ? "#000" : "#8aa4c0"}" stroke-width="0.9"/>` +
+        `<text x="${numX}" y="${(hit.cy + 3.5).toFixed(1)}" text-anchor="start" font-family="sans-serif" font-size="10" fill="${ink}">${esc(hit.text)}</text>`
+    );
+  });
 
   if (figLabel) {
     parts.push(`<text x="${LW / 2}" y="${(LH - 9).toFixed(1)}" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#000">${esc(figLabel)}</text>`);

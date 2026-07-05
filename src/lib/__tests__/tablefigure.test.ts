@@ -89,11 +89,15 @@ describe("buildTableFigureSvg", () => {
     expect(svg).not.toContain("x<y");
   });
 
-  test("reference numerals add a numeral rail with section/row numbers", () => {
+  test("reference numerals are free-standing with lead lines (not a boxed rail)", () => {
     const { svg } = buildTableFigureSvg(characteristics, "", { numerals: true });
     expect(svg).toContain(">100<"); // Demographics section
     expect(svg).toContain(">102<"); // first row in the section
     expect(svg).toContain(">104<");
+    // Lead lines present…
+    expect(svg).toContain('class="fi-lead"');
+    // …and no full-height numeral rail cell drawn at the left edge (x="0").
+    expect(svg).not.toMatch(/<rect x="0" y="[\d.]+" width="46"/);
   });
 
   test("numeric columns are right-aligned", () => {

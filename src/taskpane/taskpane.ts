@@ -1699,6 +1699,23 @@ async function downloadPptx(): Promise<void> {
     const style = currentChartStyle();
     const kind = pptKindSelect.value as RenderKind;
 
+    // Flowcharts and block diagrams export as NATIVE, editable PowerPoint
+    // shapes (boxes + connectors) so the labels stay editable.
+    if (kind === "flowchart" || kind === "hierarchy") {
+      const blob = await buildTablePptx(
+        { categories: [], series: [], categoryLabel: "", hasHeader: false, rows: currentTableRows, warnings: [] },
+        "column",
+        {
+          title: pptTitleInput.value,
+          includeTable: false,
+          diagramShapes: { kind, rows: currentTableRows, numerals: style.numerals ?? false, patent: style.patent ?? false },
+        }
+      );
+      triggerDownload(blob, suggestPptFileName(pptTitleInput.value));
+      setStatus("PowerPoint downloaded — the diagram is editable shapes.", "success");
+      return;
+    }
+
     // The table figure exports as a NATIVE, editable PowerPoint table (not a
     // picture), so the text stays editable.
     if (kind === "tablefigure") {

@@ -98,15 +98,15 @@ function isStepId(cell: string): boolean {
   return /^(?:[sS]-?\d{1,4}|\d{1,4}|step\s*\d{1,4})$/i.test(cell.trim());
 }
 
-interface Step {
+export interface Step {
   id: string;
   text: string;
   decision: boolean;
   terminator: boolean;
 }
 
-/** Rows → steps: optional header skipped, optional id column, "?" = decision. */
-function parseSteps(rows: string[][]): { steps: Step[]; warnings: string[] } {
+/** Rows → steps: optional header skipped, optional id column, "?" = decision. Exported for the PPT shape builder. */
+export function parseSteps(rows: string[][]): { steps: Step[]; warnings: string[] } {
   const warnings: string[] = [];
   let body = rows;
   if (rows.length >= 2) {
@@ -211,7 +211,7 @@ export function buildFlowchartSvg(rows: string[][], title = "", style: ChartStyl
 
 // --- Block diagram (hierarchy) -----------------------------------------------
 
-interface TreeNode {
+export interface TreeNode {
   label: string;
   children: TreeNode[];
   /** Assigned reference numeral, when the patent numeral option is on. */
@@ -222,7 +222,7 @@ interface TreeNode {
  * Patent-style hierarchical numbering: roots 100, 200, …; first-level children
  * step by 10 (110, 120, …); deeper levels step by 2 (112, 114, …).
  */
-function numberTree(roots: TreeNode[]): void {
+export function numberTree(roots: TreeNode[]): void {
   const walk = (node: TreeNode, num: number, level: number): void => {
     node.num = String(num);
     node.children.forEach((c, i) => walk(c, level === 0 ? num + 10 * (i + 1) : num + 2 * (i + 1), level + 1));
@@ -235,7 +235,7 @@ function numberTree(roots: TreeNode[]): void {
  * cell inherits from the row above only when the row has content further
  * right (merged / hand-repeated parents); trailing blanks end the path.
  */
-function buildTree(rows: string[][]): { roots: TreeNode[]; warnings: string[] } {
+export function buildTree(rows: string[][]): { roots: TreeNode[]; warnings: string[] } {
   const warnings: string[] = [];
   const roots: TreeNode[] = [];
   let prev: string[] = [];
@@ -263,11 +263,11 @@ function buildTree(rows: string[][]): { roots: TreeNode[]; warnings: string[] } 
   return { roots, warnings: [...new Set(warnings)] };
 }
 
-function countLeaves(n: TreeNode): number {
+export function countLeaves(n: TreeNode): number {
   return n.children.length ? n.children.reduce((acc, c) => acc + countLeaves(c), 0) : 1;
 }
 
-function depthOf(n: TreeNode): number {
+export function depthOf(n: TreeNode): number {
   return 1 + (n.children.length ? Math.max(...n.children.map(depthOf)) : 0);
 }
 

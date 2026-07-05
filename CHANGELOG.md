@@ -2,6 +2,16 @@
 
 All notable changes to Formula Inserter. Dates are release/pilot dates.
 
+## [1.8.0] — 2026-07-04
+
+### Added
+- **Flowcharts and block diagrams export to PowerPoint as native, editable
+  shapes** (rectangles, decision diamonds, rounded terminators, connector
+  lines with arrowheads) instead of a flat picture — so the labels and
+  reference numerals are editable in PowerPoint. Honors the patent B&W style.
+  (In Word, diagrams remain images; editable movable shapes there would need
+  OOXML DrawingML, still to come.)
+
 ## [1.7.1] — 2026-07-04
 
 ### Fixed

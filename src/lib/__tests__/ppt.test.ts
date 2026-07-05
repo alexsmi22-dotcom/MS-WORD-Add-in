@@ -92,6 +92,46 @@ describe("buildTablePptx", () => {
     expect(slide1).toContain('gridSpan="3"'); // section band spans the row
   });
 
+  test("flowchart exports as native editable shapes with editable text", async () => {
+    const rows = [
+      ["Receive the input signal"],
+      ["Filter the signal"],
+      ["Signal above threshold?"],
+      ["Store the result"],
+    ];
+    const blob = await buildTablePptx(
+      { categories: [], series: [], categoryLabel: "", hasHeader: false, rows, warnings: [] },
+      "column",
+      { title: "Method", diagramShapes: { kind: "flowchart", rows, numerals: true, patent: true } }
+    );
+    const zip = await unzip(blob);
+    const slide1 = await zip.file("ppt/slides/slide1.xml")!.async("string");
+    expect(slide1).toContain("<p:sp>"); // native shapes
+    expect(slide1).toContain("Filter the signal"); // editable text run
+    expect(slide1).toContain('prst="diamond"'); // decision step is a diamond
+    expect(slide1).toContain(">102<"); // reference numeral
+    expect(zip.file(/ppt\/media\/image[\d-]*\.png/).length).toBe(0); // not a picture
+    expect(zip.file(/ppt\/charts\/chart\d*\.xml/).length).toBe(0);
+  });
+
+  test("block diagram exports as native editable shapes", async () => {
+    const rows = [
+      ["System", "Controller", "CPU"],
+      ["System", "Controller", "Memory"],
+      ["System", "Sensor", ""],
+    ];
+    const blob = await buildTablePptx(
+      { categories: [], series: [], categoryLabel: "", hasHeader: false, rows, warnings: [] },
+      "column",
+      { diagramShapes: { kind: "hierarchy", rows, numerals: false, patent: false } }
+    );
+    const zip = await unzip(blob);
+    const slide1 = await zip.file("ppt/slides/slide1.xml")!.async("string");
+    expect(slide1).toContain("<p:sp>");
+    expect(slide1).toContain("Controller");
+    expect(zip.file(/ppt\/media\/image[\d-]*\.png/).length).toBe(0);
+  });
+
   test("pie chart exports only the first series", async () => {
     const blob = await buildTablePptx(chart, "pie", {});
     const zip = await unzip(blob);

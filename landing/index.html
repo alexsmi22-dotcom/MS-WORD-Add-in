@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>JurisLab — Word Add-in for STEM &amp; Legal Authoring</title>
-  <meta name="description" content="A free Microsoft Word add-in for STEM authoring: chemistry & 2D structures, math/LaTeX equations, units, plotting, finance, DNA/sequences, and patent-drafting tools. 100% offline. Windows & Mac." />
+  <meta name="description" content="A free Microsoft Word add-in for STEM authoring and patent/legal drafting: chemistry & 2D structures, math/LaTeX equations, units, plotting, finance modeling, DNA & ST.26 sequences, Bluebook citations & Table of Authorities. 100% offline. Windows & Mac." />
   <style>
     :root { --blue:#2e74b5; --ink:#1b1b1f; --muted:#5b5b66; --bg:#f6f8fb; --card:#fff; --line:#e4e8ef; }
     * { box-sizing: border-box; }
@@ -13,7 +13,7 @@
     header { background:linear-gradient(135deg,#2e74b5,#1f4e79); color:#fff; padding:56px 0 48px; }
     header .wrap { text-align:center; }
     h1 { font-size:2.4rem; margin:0 0 8px; }
-    .tag { font-size:1.15rem; opacity:.95; margin:0 auto; max-width:620px; }
+    .tag { font-size:1.15rem; opacity:.95; margin:0 auto; max-width:640px; }
     .pills { margin:22px 0 4px; }
     .pill { display:inline-block; background:rgba(255,255,255,.16); border:1px solid rgba(255,255,255,.25); border-radius:999px; padding:5px 12px; margin:4px; font-size:.85rem; }
     .cta { margin-top:26px; }
@@ -25,6 +25,11 @@
     .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px 16px; }
     .card b { display:block; margin-bottom:3px; }
     .card span { color:var(--muted); font-size:.92rem; }
+    .new, .upd { display:inline-block; font-size:.6rem; font-weight:800; text-transform:uppercase; letter-spacing:.05em; padding:2px 6px; border-radius:999px; vertical-align:middle; margin-left:6px; }
+    .new { background:#e7f7ec; color:#1a7f37; border:1px solid #b7e4c3; }
+    .upd { background:#fff4e5; color:#9a6700; border:1px solid #f2d9a8; }
+    .whatsnew .grid { grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); }
+    .whatsnew .card { border-color:#cfe6d6; background:#fbfefc; }
     .note { background:#eef4fb; border:1px solid #d6e3f3; border-radius:10px; padding:16px 18px; color:#234; }
     code { background:#eef1f6; padding:1px 6px; border-radius:5px; font-size:.9em; }
     footer { text-align:center; color:var(--muted); font-size:.9rem; padding:28px 0 48px; }
@@ -35,7 +40,7 @@
   <header>
     <div class="wrap">
       <h1><img src="assets/icon-64.png" alt="" width="40" height="40" style="vertical-align:-9px;margin-right:10px" />JurisLab</h1>
-      <p class="tag">A free Microsoft Word add-in fusing <strong>STEM authoring</strong> and <strong>patent &amp; legal drafting</strong> — formulas, equations, structures, units, plots, finance, Bluebook citations, and more. <strong>16 tools, 100% offline.</strong></p>
+      <p class="tag">A free Microsoft Word add-in fusing <strong>STEM authoring</strong> and <strong>patent &amp; legal drafting</strong> — formulas, equations, structures, units, plots, finance modeling, Bluebook citations &amp; Table of Authorities, and more. <strong>16 tools, 100% offline.</strong></p>
       <div class="pills">
         <span class="pill">🧪 Chemistry</span>
         <span class="pill">∑ Math / LaTeX</span>
@@ -45,7 +50,7 @@
         <span class="pill">💵 Finance</span>
         <span class="pill">🧬 DNA / Sequences</span>
         <span class="pill">⚗️ Reactions</span>
-        <span class="pill">⚖️ Legal citations</span>
+        <span class="pill">⚖️ Citations &amp; Authorities</span>
       </div>
       <div class="cta">
         <a class="btn" href="https://github.com/alexsmi22-dotcom/MS-WORD-Add-in">View on GitHub</a>
@@ -54,24 +59,36 @@
     </div>
   </header>
 
-  <section class="wrap">
-    <h2>What it does — all 16 modes</h2>
+  <section class="wrap whatsnew">
+    <h2>New in this release</h2>
     <div class="grid">
-      <div class="card"><b>🧪 Chemical</b><span>Formatted formulas, 2D structures from name/SMILES, name lookup</span></div>
-      <div class="card"><b>∑ Math</b><span>Native Word equations, LaTeX import/export, aligned equations</span></div>
-      <div class="card"><b>📏 Units</b><span>SI typesetting + conversion (incl. km/h → m/s)</span></div>
-      <div class="card"><b>📈 Plot</b><span>Offline function &amp; data charts with legends</span></div>
-      <div class="card"><b>📊 Table → Chart</b><span>Charts, flowcharts, block diagrams &amp; clean table figures from a Word table — B&amp;W patent figures or PowerPoint (.pptx)</span></div>
-      <div class="card"><b>💵 Finance</b><span>TVM, loan, NPV/IRR, Black–Scholes, bond calculators</span></div>
+      <div class="card"><b>⚖️ Table of Authorities <span class="new">New</span></b><span>Scan a brief and build a grouped, alphabetized authorities table — a static list, or live Word fields with real page numbers.</span></div>
+      <div class="card"><b>🧬 Sequence CDS annotation <span class="new">New</span></b><span>Annotate CDS / gene features on ST.26 listings — a CDS auto-generates <code>/translation</code> from the coding region.</span></div>
+      <div class="card"><b>💵 Finance modeling <span class="new">New</span></b><span>DCF with terminal value, XIRR, bond YTM / duration / convexity, option Greeks &amp; implied volatility, amortization &amp; depreciation schedules.</span></div>
+      <div class="card"><b>🧪 Chemical-formula validator <span class="new">New</span></b><span>Checks every element symbol against the real 118-element periodic table and reports molecular weight and net charge.</span></div>
+      <div class="card"><b>📊 Stacked charts <span class="new">New</span></b><span>Stacked column, bar &amp; area (plus scatter) — with matching PowerPoint export.</span></div>
+      <div class="card"><b>⚖️ Citation styles &amp; parallel cites <span class="new">New</span></b><span>Practitioner / academic typefaces, Table T6 &amp; T10 case-name abbreviation, id./supra helpers, and parallel citations.</span></div>
+    </div>
+  </section>
+
+  <section class="wrap">
+    <h2>All 16 tools</h2>
+    <div class="grid">
+      <div class="card"><b>🧪 Chemical <span class="upd">Updated</span></b><span>Formatted formulas, 2D structures from name/SMILES, name lookup, and a formula validator (real elements, molecular weight, charge)</span></div>
+      <div class="card"><b>∑ Math <span class="upd">Updated</span></b><span>Native Word equations, LaTeX import/export, aligned equations, Greek letters &amp; ∑ ∫ ∂ operators</span></div>
+      <div class="card"><b>📏 Units <span class="upd">Updated</span></b><span>SI typesetting + conversion — length, mass, time, electrical (V/A/W/Ω/F), chemistry (M, Da, ppm) &amp; more</span></div>
+      <div class="card"><b>📈 Plot <span class="upd">Updated</span></b><span>Offline function &amp; data charts with legends; multi-argument functions (atan2, hypot, min/max)</span></div>
+      <div class="card"><b>📊 Table → Chart <span class="upd">Updated</span></b><span>Charts — column, bar, line, area, scatter &amp; stacked — plus flowcharts, block diagrams &amp; clean table figures; B&amp;W patent figures or PowerPoint (.pptx)</span></div>
+      <div class="card"><b>💵 Finance <span class="upd">Updated</span></b><span>18 calculators — TVM, DCF, amortization, bonds (price/YTM/duration/convexity), options + Greeks, implied vol, depreciation, return stats</span></div>
       <div class="card"><b>🔬 Build</b><span>Structures from atom/bond lists; Markush genus</span></div>
       <div class="card"><b>💻 Code</b><span>Algorithm &amp; code listings</span></div>
-      <div class="card"><b>🧬 Sequence</b><span>WIPO ST.26 biological sequence listings</span></div>
+      <div class="card"><b>🧬 Sequence <span class="upd">Updated</span></b><span>WIPO ST.26 listings — mandatory source feature plus CDS/gene annotations with auto <code>/translation</code> and full mol_type vocabulary</span></div>
       <div class="card"><b>🌿 Botanical</b><span>Plant-nomenclature typesetting</span></div>
-      <div class="card"><b>🔢 Numerals</b><span>Reference-numeral management — callouts, gap/orphan checks, numeral list</span></div>
+      <div class="card"><b>🔢 Numerals <span class="upd">Updated</span></b><span>Reference-numeral management — parenthesized &amp; “element 12” callouts, gap/orphan/collision checks, numeral list</span></div>
       <div class="card"><b>🔖 Refs</b><span>Auto-numbered figure/table captions &amp; cross-references</span></div>
-      <div class="card"><b>⚖️ Citations</b><span>Bluebook legal citations — cases, statutes, patents, Fed. Reg., MPEP, articles</span></div>
-      <div class="card"><b>🧬 DNA</b><span>Reverse complement, translation, ORFs, primer Tm, restriction sites</span></div>
-      <div class="card"><b>⚗️ Reaction</b><span>Multi-step reaction schemes with conditions over the arrow</span></div>
+      <div class="card"><b>⚖️ Citations <span class="upd">Updated</span></b><span>Bluebook citations — cases, statutes, patents, Fed. Reg., MPEP, articles; practitioner/academic styles, T6/T10 abbreviation, id./supra &amp; parallel cites, paste-and-fix, and a Table of Authorities</span></div>
+      <div class="card"><b>🧬 DNA <span class="upd">Updated</span></b><span>Reverse complement, translation, ORFs, primer Tm, restriction sites (48 enzymes), EMBOSS isoelectric point</span></div>
+      <div class="card"><b>⚗️ Reaction <span class="upd">Updated</span></b><span>Multi-step reaction schemes with conditions over the arrow; forward, reversible (⇌) &amp; retrosynthetic arrows</span></div>
       <div class="card"><b>✅ Audit</b><span>Whole-document consistency check</span></div>
     </div>
   </section>

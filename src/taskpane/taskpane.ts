@@ -881,7 +881,9 @@ function matchScore(haystack: string, needle: string): number {
   const idx = haystack.indexOf(needle);
   if (idx < 0) return 0;
   if (idx === 0) return 100 - haystack.length * 0.01;
-  return 50 - idx;
+  // Stay strictly positive so a genuine match late in a long label isn't
+  // filtered out (callers keep score > 0).
+  return Math.max(1, 50 - idx);
 }
 
 function applySearchEntry(entry: SearchEntry): void {
@@ -3269,9 +3271,11 @@ function renderRefFindings(
 // ---------------------------------------------------------------------------
 
 /** Builds plot series from the function and/or data inputs. */
-function buildPlotSeries(): { series: Series[]; error: string } {
+function buildPlotSeries(): { series: Series[]; error: string; warning: string } {
   const series: Series[] = [];
   let error = "";
+  let warning = "";
+  const failed: string[] = [];
   const fnText = plotFn.value.trim();
   if (fnText) {
     const xmin = parseFloat(plotXmin.value);
@@ -3285,21 +3289,28 @@ function buildPlotSeries(): { series: Series[]; error: string } {
         try {
           series.push({ points: samplePlot(fn, xmin, xmax, 240), type: "line", label: fns.length > 1 ? fn : undefined });
         } catch {
-          error = `Couldn't evaluate "${fn}" — check the expression.`;
+          failed.push(fn);
         }
       }
     }
   }
   const data = parseData(plotData.value);
   if (data.length) series.push({ points: data, type: "scatter", label: series.length ? "data" : undefined });
-  return { series, error };
+  // A failed function only blocks when nothing else can be drawn; otherwise the
+  // valid functions/data still render and the bad one is a soft warning.
+  if (failed.length) {
+    const list = failed.map((f) => `"${f}"`).join(", ");
+    if (series.length) warning = `Skipped ${list} — check the expression.`;
+    else if (!error) error = `Couldn't evaluate ${list} — check the expression.`;
+  }
+  return { series, error, warning };
 }
 
 /** Live-renders the plot preview. */
 function updatePlotPreview(): void {
   currentPlotSvg = "";
   plotInsertBtn.disabled = true;
-  const { series, error } = buildPlotSeries();
+  const { series, error, warning } = buildPlotSeries();
   if (error) {
     plotPreview.innerHTML = `<span class="hint">${esc(error)}</span>`;
     return;
@@ -3313,7 +3324,7 @@ function updatePlotPreview(): void {
     xlabel: plotXlabel.value.trim(),
     ylabel: plotYlabel.value.trim(),
   });
-  plotPreview.innerHTML = svg;
+  plotPreview.innerHTML = warning ? `${svg}<div class="hint" style="margin-top:4px">${esc(warning)}</div>` : svg;
   currentPlotSvg = svg;
   plotInsertBtn.disabled = false;
 }

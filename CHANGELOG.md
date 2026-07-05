@@ -2,6 +2,16 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
+## [1.25.1] — 2026-07-05
+
+### Fixed (low-severity bug-hunt cleanups)
+- **Plot: one bad function no longer blanks the whole plot.** With several
+  `;`-separated functions, a single un-evaluable one is now skipped with a soft
+  "Skipped …" note while the valid functions and data still render (it only
+  errors when nothing at all can be drawn).
+- **Search: late matches aren't dropped.** The match score stays positive, so a
+  keyword that appears past character 50 in a long label still shows up.
+
 ## [1.25.0] — 2026-07-05
 
 ### Added / Fixed (Tier-1 finalization)

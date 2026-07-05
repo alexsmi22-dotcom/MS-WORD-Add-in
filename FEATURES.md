@@ -26,6 +26,7 @@ inserted, and the **Examples & syntax** panel updates to match the selected tool
 - Charge, lone-pair, and common group/ion palette (OH, NH₄, SO₄, CH₃, …).
 - **2D structures**, offline, from a **name** (`aspirin`), **formula** (`C6H6`), or **SMILES** (`CC(=O)O`).
 - **Name lookup** — recognized compounds show their name (dictionary-based), which you can insert.
+- **Formula validator** — checks every element symbol against the real 118-element periodic table (flags typos like `Xy`), balances parentheses/hydrates, and reports **molecular weight** and **net charge** (polyatomic ions handled, e.g. `NH4+`, `Ca(OH)2`).
 - **Stereochemistry** — isomeric SMILES (`C[C@@H](N)C(=O)O`) drawn with wedges.
 - Each inserted structure carries provenance (formula / MW / canonical SMILES / OCL ID) in its alt-text.
 
@@ -55,7 +56,7 @@ inserted, and the **Examples & syntax** panel updates to match the selected tool
 
 ## 📊 Table → Chart — patent figures & PowerPoint from a Word table
 - Click anywhere **inside a table** in your document, press **Read selected table** — the add-in **auto-picks** the representation that fits its shape (chart, flowchart, block diagram, or table figure) and tells you why. Change it any time in **Show as**.
-- **Charts** (numeric tables) — column, bar (horizontal), line, area, pie, doughnut. First column = category labels, first row = series names (when it's text); numbers may include `$`/`€`/`£`, `%`, thousands commas, units (`12 kg`), and accountant-style `(1,200)` negatives. Cells that aren't numbers are reported, not silently charted.
+- **Charts** (numeric tables) — column, bar (horizontal), line, area, **scatter**, **stacked column / bar / area**, pie, doughnut. First column = category labels, first row = series names (when it's text); numbers may include `$`/`€`/`£`, `%`, thousands commas, units (`12 kg`), and accountant-style `(1,200)` negatives. Cells that aren't numbers are reported, not silently charted.
 - **Flowchart** (text tables) — each row is a step, drawn top-to-bottom with arrows: a first column like `S101` becomes the step's **reference numeral** (with a lead line, patent-style); a step ending in `?` is drawn as a **decision diamond**; Start/End rows get rounded terminators; a `Step | Description` header row is skipped automatically. Ideal for **method-claim figures**.
 - **Block diagram** (hierarchy) — each row is a path, e.g. `System 10 | Controller 20 | CPU 22`; shared parents merge into one **connected box tree** with orthogonal connectors. Leave a cell blank to repeat the value above (merged cells work). Ideal for **apparatus figures**.
 - **Table figure** — draw the **table itself** as a clean figure, for characteristics/reference tables where the table *is* the exhibit. Preserves **section grouping** (a group-header row becomes a band; a blank "section" column merges down and is dropped if redundant), bolds/rules the header, **right-aligns numeric columns**, word-wraps cells, and scales wide tables to fit. Handles the dense clinical-style tables (`Section | Characteristic | n (%)`) common in specs.
@@ -69,7 +70,7 @@ inserted, and the **Examples & syntax** panel updates to match the selected tool
 
 ## ⚖️ Citations — Bluebook legal citations
 - Format citations from labeled fields, with the correct **italics** applied on insert (case names, article/book titles, signals).
-- **Cases** — full (`Alice Corp. v. CLS Bank Int'l, 573 U.S. 208, 216 (2014)`) and short form (`Alice, 573 U.S. at 217`); court omitted for the U.S. Supreme Court, included for lower courts.
+- **Cases** — full (`Alice Corp. v. CLS Bank Int'l, 573 U.S. 208, 216 (2014)`) and short form (`Alice, 573 U.S. at 217`); court omitted for the U.S. Supreme Court, included for lower courts. Optional **parallel citations** (Rule 10.3.1) sit after the primary reporter (`… 573 U.S. 208, 134 S. Ct. 2347, 189 L. Ed. 2d 296 (2014)`). **T6/T10 abbreviation** of case names on request; an **unrecognized reporter is flagged** so a typo isn't inserted unnoticed.
 - **Statutes & regulations** — `35 U.S.C. § 101`, `37 C.F.R. § 1.84`; multiple sections auto-switch to `§§`; optional subsection and year.
 - **Patents** — `U.S. Patent No. 10,123,456` (digits auto-grouped, `D`/`RE` prefixes kept) with optional pincite and issue date; **application publications** `U.S. Patent Application Publication No. 2020/0123456 A1`.
 - **Agency & secondary** — Federal Register (`85 Fed. Reg. 12,345 (Mar. 1, 2020)`), **MPEP** sections, **law-review articles**, and **treatises** (e.g. Chisum on Patents).
@@ -87,7 +88,7 @@ inserted, and the **Examples & syntax** panel updates to match the selected tool
 - **Check captions** — flags skipped or duplicated figure/table numbers. (For live auto-renumbering, Word's own cross-reference fields remain the authority.)
 
 ## 💵 Finance — calculators & formulas
-- **Calculators** (compute & insert the result): time value of money (future/present value), compound interest, **loan payment**, **NPV** and **IRR** from a cash-flow list, **Black–Scholes** option price, and **bond pricing**. Pick a calculator, fill the inputs, and the result computes live.
+- **18 calculators** (compute & insert the result) spanning: **time value of money** (future/present value, annuities, growing annuities), compound interest & **effective annual rate**, **loan payment** and **amortization schedule**, **NPV/IRR** and date-aware **XNPV/XIRR** from a cash-flow list, **DCF valuation** with a Gordon-growth terminal value, **bond analytics** (price, **YTM**, **Macaulay/modified duration**, **convexity**), **Black–Scholes** option price with **Greeks** (Δ Γ Θ ν ρ) and **implied volatility**, **depreciation** (straight-line/declining-balance), and **return statistics**. Pick a calculator, fill the inputs, and the result computes live (robust root-finding under the hood).
 - **Finance formula library** — typeset equations in **Math** mode's *Formula library*: time-value-of-money, valuation & options (NPV, Gordon growth, WACC, Black–Scholes, put–call parity), and portfolio & bonds (CAPM, Sharpe ratio, portfolio variance, beta, bond price, duration).
 - Rates entered as percentages; values are currency-neutral. Runs entirely offline.
 
@@ -107,7 +108,8 @@ inserted, and the **Examples & syntax** panel updates to match the selected tool
 
 ## 🧬 Sequence — WIPO ST.26
 - Generate a **draft ST.26 sequence-listing XML** from DNA/RNA/protein sequences.
-- Per-sequence molecule type and organism; residues are cleaned (whitespace/numbering stripped, case normalized, IUPAC ambiguity codes accepted, invalid residues flagged).
+- Per-sequence molecule type and organism; the source **mol_type** picks from the full ST.26 controlled vocabulary (genomic DNA/RNA, **mRNA, tRNA, rRNA**, other/transcribed/viral RNA, …). Residues are cleaned (whitespace/numbering stripped, case normalized, IUPAC ambiguity codes accepted, invalid residues flagged).
+- **Feature annotation** — add **CDS / gene / mRNA / misc_feature** features with a location (`1..300`) and the common qualifiers (`/gene`, `/product`, `/note`). A **CDS auto-generates `/translation`** from the coding region using the verified genetic code (plus `/codon_start`), and flags a reading-frame warning if the length isn't a multiple of 3.
 - Applicant / invention-title / application metadata; **download `.xml`** or **copy**.
 - *Always validate the output in the WIPO Sequence tool before filing.*
 
@@ -129,7 +131,7 @@ inserted, and the **Examples & syntax** panel updates to match the selected tool
 - **One-click callout insertion** at the cursor — `housing (12)` (or no-parens `housing 12`); next numeral is auto-suggested (10, 12, 14 …).
 - **Scan document** to flag **collisions** (one numeral reused for two elements), **gaps** (skipped numbers), **orphans** (a callout with no table entry), and **unused** entries (defined but never called out).
 - **Insert the "List of Reference Numerals"** section — a heading plus a sorted Numeral | Element table.
-- Advisory, in the house style: the scan detects the parenthesized callout form, e.g. `(12)` — verify before filing.
+- Advisory, in the house style: the scan detects both the parenthesized callout form `(12)` and the non-parenthesized `element 12` form (matched to your table's element names) — verify before filing.
 
 ## ⚗️ Reaction — reaction schemes
 - Compose `reactants + reactants >> products` with optional conditions over/under the arrow (`; over ; under`).

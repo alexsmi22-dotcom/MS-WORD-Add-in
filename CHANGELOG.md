@@ -2,6 +2,14 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
+## [1.12.4] — 2026-07-04
+
+### Changed
+- **Tool navigation is now a dropdown, not a 16-tab strip.** Once you're in a
+  tool, a compact "Tool" dropdown (grouped by category, with a Home option to
+  return) replaces the crowded row of tabs. Home still shows only the grouped
+  cards. Less clutter on every screen.
+
 ## [1.12.3] — 2026-07-04
 
 ### Changed

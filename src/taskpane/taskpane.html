@@ -26,24 +26,39 @@
         <div id="search-results" class="search-results" role="listbox"></div>
       </div>
 
-      <div class="mode-row" role="radiogroup" aria-label="Mode">
-        <label class="mode"><input type="radio" name="mode" value="home" checked /> 🏠 Home</label>
-        <label class="mode"><input type="radio" name="mode" value="chemical" /> Chemical</label>
-        <label class="mode"><input type="radio" name="mode" value="math" /> Math</label>
-        <label class="mode"><input type="radio" name="mode" value="units" /> Units</label>
-        <label class="mode"><input type="radio" name="mode" value="plot" /> Plot</label>
-        <label class="mode"><input type="radio" name="mode" value="ppt" /> Table&nbsp;→&nbsp;Chart</label>
-        <label class="mode"><input type="radio" name="mode" value="finance" /> Finance</label>
-        <label class="mode"><input type="radio" name="mode" value="build" /> Build</label>
-        <label class="mode"><input type="radio" name="mode" value="code" /> Code</label>
-        <label class="mode"><input type="radio" name="mode" value="sequence" /> Sequence</label>
-        <label class="mode"><input type="radio" name="mode" value="botanical" /> Botanical</label>
-        <label class="mode"><input type="radio" name="mode" value="numerals" /> Numerals</label>
-        <label class="mode"><input type="radio" name="mode" value="refs" /> Refs</label>
-        <label class="mode"><input type="radio" name="mode" value="citations" /> Citations</label>
-        <label class="mode"><input type="radio" name="mode" value="dna" /> DNA</label>
-        <label class="mode"><input type="radio" name="mode" value="reaction" /> Reaction</label>
-        <label class="mode"><input type="radio" name="mode" value="audit" /> Audit</label>
+      <div class="mode-select-wrap" id="mode-select-wrap">
+        <label class="field-label" for="mode-select">Tool</label>
+        <select id="mode-select" class="lib-select mode-select" aria-label="Tool">
+          <option value="home">🏠 Home</option>
+          <optgroup label="Chemistry &amp; structures">
+            <option value="chemical">Chemical</option>
+            <option value="build">Build</option>
+            <option value="reaction">Reaction</option>
+          </optgroup>
+          <optgroup label="Math &amp; units">
+            <option value="math">Math</option>
+            <option value="units">Units</option>
+            <option value="plot">Plot</option>
+          </optgroup>
+          <optgroup label="Data &amp; figures">
+            <option value="ppt">Table → Chart</option>
+            <option value="finance">Finance</option>
+          </optgroup>
+          <optgroup label="Biology">
+            <option value="sequence">Sequence</option>
+            <option value="dna">DNA</option>
+            <option value="botanical">Botanical</option>
+          </optgroup>
+          <optgroup label="Patent drafting">
+            <option value="numerals">Numerals</option>
+            <option value="refs">Refs</option>
+            <option value="code">Code</option>
+            <option value="audit">Audit</option>
+          </optgroup>
+          <optgroup label="Legal citations">
+            <option value="citations">Citations</option>
+          </optgroup>
+        </select>
       </div>
 
       <div id="history" class="history"></div>

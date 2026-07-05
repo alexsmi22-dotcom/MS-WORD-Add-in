@@ -110,7 +110,8 @@ const GALLERY_H = 140;
 let homeSection: HTMLElement;
 let homeGroups: HTMLElement;
 let searchWrap: HTMLElement | null;
-let modeRow: HTMLElement | null;
+let modeSelectWrap: HTMLElement | null;
+let modeSelect: HTMLSelectElement;
 let examplesPanel: HTMLElement | null;
 let bottomDisclaimer: HTMLElement | null;
 let inputEl: HTMLInputElement;
@@ -325,7 +326,8 @@ Office.onReady((info) => {
   homeSection = document.getElementById("home-section") as HTMLElement;
   homeGroups = document.getElementById("home-groups") as HTMLElement;
   searchWrap = document.querySelector(".search-wrap");
-  modeRow = document.querySelector(".mode-row");
+  modeSelectWrap = document.getElementById("mode-select-wrap");
+  modeSelect = document.getElementById("mode-select") as HTMLSelectElement;
   examplesPanel = document.querySelector(".examples");
   bottomDisclaimer = document.querySelector(".container > .disclaimer");
   inputEl = document.getElementById("formula-input") as HTMLInputElement;
@@ -495,13 +497,11 @@ Office.onReady((info) => {
   inputEl.addEventListener("keydown", (e) => {
     if (e.key === "Enter") insertFormula();
   });
-  document.querySelectorAll<HTMLInputElement>('input[name="mode"]').forEach((radio) => {
-    radio.addEventListener("change", () => {
-      updatePlaceholder();
-      updateExamples();
-      renderPalette();
-      onInputChanged();
-    });
+  modeSelect.addEventListener("change", () => {
+    updatePlaceholder();
+    updateExamples();
+    renderPalette();
+    onInputChanged();
   });
   insertBtn.addEventListener("click", insertFormula);
   insertStructureBtn.addEventListener("click", insertStructure);
@@ -739,8 +739,7 @@ function updateNumberLabel(): void {
 
 /** Switches mode programmatically (e.g. from search or history) and refreshes UI. */
 function setMode(mode: Mode): void {
-  const radio = document.querySelector<HTMLInputElement>(`input[name="mode"][value="${mode}"]`);
-  if (radio) radio.checked = true;
+  modeSelect.value = mode;
   updatePlaceholder();
   updateExamples();
   renderPalette();
@@ -1116,8 +1115,7 @@ function onLibraryFormulaChosen(): void {
 }
 
 function currentMode(): Mode {
-  const checked = document.querySelector<HTMLInputElement>('input[name="mode"]:checked');
-  return (checked?.value as Mode) ?? "chemical";
+  return (modeSelect.value as Mode) ?? "home";
 }
 
 function parse(text: string, mode: Mode): Segment[] {
@@ -1185,7 +1183,7 @@ function onInputChanged(): void {
   const isHome = mode === "home";
   homeSection.style.display = isHome ? "block" : "none";
   if (searchWrap) searchWrap.style.display = isHome ? "none" : "";
-  if (modeRow) modeRow.style.display = isHome ? "none" : "";
+  if (modeSelectWrap) modeSelectWrap.style.display = isHome ? "none" : "";
   historyEl.style.display = isHome ? "none" : "";
   if (examplesPanel) examplesPanel.style.display = isHome ? "none" : "";
   if (bottomDisclaimer) bottomDisclaimer.style.display = isHome ? "none" : "";

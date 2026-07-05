@@ -171,6 +171,21 @@ h1 {
   margin-bottom: 14px;
 }
 
+.mode-select-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.mode-select-wrap .field-label {
+  margin: 0;
+  flex: 0 0 auto;
+}
+.mode-select {
+  flex: 1 1 auto;
+  font-weight: 600;
+}
+
 .code-options {
   display: flex;
   flex-direction: column;

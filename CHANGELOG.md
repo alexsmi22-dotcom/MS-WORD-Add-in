@@ -2,6 +2,15 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
+## [1.22.1] — 2026-07-05
+
+### Fixed
+- **Protein pI now uses the EMBOSS pKa set** (as used by EMBOSS iep/pepstats),
+  so the estimate matches that authoritative reference. Corrected N-term
+  9.0→8.6, C-term 3.1→3.6, Cys 8.3→8.5, His 6.0→6.5, Lys 10.5→10.8 (Asp, Glu,
+  Arg, Tyr already matched). A peptide with no ionizable side chains now gives
+  pI = 6.10 = mean of the terminal pKa, exactly as EMBOSS does.
+
 ## [1.22.0] — 2026-07-05
 
 ### Added / Changed (STEM tools)

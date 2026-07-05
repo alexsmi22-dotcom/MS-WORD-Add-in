@@ -182,6 +182,10 @@ describe("proteinProperties", () => {
     expect(proteinProperties("KKKK").pI).toBeGreaterThan(9.5);
     expect(proteinProperties("DDDD").pI).toBeLessThan(4.5);
   });
+  it("uses the EMBOSS pKa set", () => {
+    // No ionizable side chains ⇒ pI = mean of the EMBOSS terminal pKa (8.6, 3.6).
+    expect(proteinProperties("GAG").pI).toBeCloseTo((8.6 + 3.6) / 2, 2); // 6.10
+  });
   it("computes GRAVY (hydrophobic positive, hydrophilic negative)", () => {
     expect(proteinProperties("IIII").gravy).toBeCloseTo(4.5, 6);
     expect(proteinProperties("DDDD").gravy).toBeCloseTo(-3.5, 6);

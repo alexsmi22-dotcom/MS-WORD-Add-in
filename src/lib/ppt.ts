@@ -244,6 +244,9 @@ export async function buildTablePptx(chart: TableChart, kind: ChartKind, opts: T
       bar: pptx.ChartType.bar,
       line: pptx.ChartType.line,
       area: pptx.ChartType.area,
+      // Our scatter is a categorical marker chart; PPT native charts have no
+      // categorical scatter, so export it as a line (closest fit).
+      scatter: pptx.ChartType.line,
       pie: pptx.ChartType.pie,
       doughnut: pptx.ChartType.doughnut,
     };

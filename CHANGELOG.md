@@ -2,6 +2,22 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
+## [1.21.0] — 2026-07-05
+
+### Added / Changed (STEM tools)
+- **Units — many more units.** Added electrical & EM units (Hz/kHz/MHz/GHz,
+  A/mA/µA, V/mV/kV, W/mW/kW/MW/hp, Ω/kΩ/MΩ, F/µF/nF/pF, C, H, S, T/mT), chemistry
+  units (M/mM/µM/nM/pM molarity, Da/kDa/MDa, %, ppm/ppb/ppt), and more SI prefixes
+  (pm, ns/ps, ng/pg, nL) — with spelled-out aliases (volt, ohm, molar, dalton…).
+  The compound-unit parser now handles multiple slashes (`mol/L/s`).
+- **Plots — more functions & colors.** The expression evaluator now supports
+  multi-argument functions (`atan2`, `min`, `max`, `hypot`, `mod`, `pow`) plus
+  `cbrt`, `factorial`/`fact`, and `trunc`, with argument-count validation. The
+  series palette grew from 5 to 10 distinct colors.
+- **Table → Chart — scatter + K/M/B.** New **Scatter (points)** chart type;
+  cell parsing now understands magnitude suffixes (`1.2K` → 1200, `3M`, `2bn`),
+  while real unit letters (`12kg`) are left alone.
+
 ## [1.20.0] — 2026-07-05
 
 ### Added

@@ -44,6 +44,17 @@ describe("parseNumberCell", () => {
     expect(parseNumberCell("9.81 m/s^2")).toBe(9.81);
   });
 
+  test("magnitude suffixes (K/M/B) but not unit letters", () => {
+    expect(parseNumberCell("1.2K")).toBe(1200);
+    expect(parseNumberCell("3M")).toBe(3_000_000);
+    expect(parseNumberCell("2bn")).toBe(2_000_000_000);
+    expect(parseNumberCell("$1.5B")).toBe(1_500_000_000);
+    expect(parseNumberCell("10k")).toBe(10_000);
+    // A real unit is NOT a multiplier: "12kg" stays 12, "1.5 m" stays 1.5.
+    expect(parseNumberCell("12kg")).toBe(12);
+    expect(parseNumberCell("1.5 m")).toBe(1.5);
+  });
+
   test("a bare percentage in parens is positive, not an accountant negative", () => {
     expect(parseNumberCell("(75.0%)")).toBe(75);
     expect(parseNumberCell("(12%)")).toBe(12);
@@ -225,13 +236,19 @@ describe("buildChartPreviewSvg", () => {
     ["2024", "-30", "95"],
   ]);
 
-  const kinds: ChartKind[] = ["column", "bar", "line", "area", "pie", "doughnut"];
+  const kinds: ChartKind[] = ["column", "bar", "line", "area", "scatter", "pie", "doughnut"];
 
   test.each(kinds)("%s renders valid-looking SVG", (kind) => {
     const svg = buildChartPreviewSvg(chart, kind, "My chart");
     expect(svg.startsWith("<svg")).toBe(true);
     expect(svg.endsWith("</svg>")).toBe(true);
     expect(svg).toContain("My chart");
+  });
+
+  test("scatter draws markers but no connecting lines", () => {
+    const svg = buildChartPreviewSvg(chart, "scatter");
+    expect((svg.match(/<polyline /g) || []).length).toBe(0);
+    expect((svg.match(/<circle /g) || []).length).toBeGreaterThan(0);
   });
 
   test("column chart draws one rect per numeric cell (plus frame and legend)", () => {

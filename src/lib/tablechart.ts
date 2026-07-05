@@ -13,7 +13,7 @@
 
 import { niceStep, fmtTick } from "./plot";
 
-export type ChartKind = "column" | "bar" | "line" | "area" | "pie" | "doughnut";
+export type ChartKind = "column" | "bar" | "line" | "area" | "scatter" | "pie" | "doughnut";
 
 export interface ChartStyle {
   /** Black-&-white patent-drawing rendering (hatching, dashed lines, markers). */
@@ -73,10 +73,20 @@ export function parseNumberCell(raw: string): number | null {
   if (s.endsWith("%")) s = s.slice(0, -1);
   const m = /^[-+]?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?/.exec(s);
   if (!m) return null;
-  const v = parseFloat(m[0]);
+  let v = parseFloat(m[0]);
   if (!Number.isFinite(v)) return null;
+  // Magnitude suffix, but ONLY when it's the whole remainder — so "1.2K" → 1200
+  // while a unit like "12kg" stays 12 (the "kg" is not a lone multiplier).
+  const rest = s.slice(m[0].length);
+  if (rest && MULTIPLIER[rest] !== undefined) v *= MULTIPLIER[rest];
   return negative ? -v : v;
 }
+
+// Standalone magnitude suffixes. Lowercase "m" is intentionally excluded
+// (ambiguous with metres); million requires "M"/"MM"/"mn".
+const MULTIPLIER: Record<string, number> = {
+  k: 1e3, K: 1e3, M: 1e6, MM: 1e6, mn: 1e6, b: 1e9, B: 1e9, bn: 1e9, BN: 1e9,
+};
 
 /** Strips control characters Word can leave in cell text (\x07 cell marks, \r, \n) and trims. */
 function cleanCell(raw: string): string {
@@ -497,11 +507,14 @@ function buildAxisSvg(chart: TableChart, kind: ChartKind, title: string, style: 
         const opacity = patent ? "" : ` fill-opacity="0.25"`;
         parts.push(`<path d="M${coords[0].x.toFixed(1)},${y0} L${pts.join(" L")} L${coords[coords.length - 1].x.toFixed(1)},${y0} Z" fill="${fill}"${opacity} stroke="none"/>`);
       }
-      parts.push(`<polyline points="${pts.join(" ")}" fill="none" stroke="${color}" stroke-width="1.8"${dash ? ` stroke-dasharray="${dash}"` : ""}/>`);
-      // Patent lines need markers to stay distinguishable; the color style
-      // only dots sparse series.
-      if (patent || coords.length <= 30) {
-        const every = Math.ceil(coords.length / 30);
+      // Scatter shows markers only — no connecting line.
+      if (kind !== "scatter") {
+        parts.push(`<polyline points="${pts.join(" ")}" fill="none" stroke="${color}" stroke-width="1.8"${dash ? ` stroke-dasharray="${dash}"` : ""}/>`);
+      }
+      // Patent lines need markers to stay distinguishable; the color style dots
+      // sparse series; scatter always dots every point.
+      if (patent || kind === "scatter" || coords.length <= 30) {
+        const every = kind === "scatter" ? 1 : Math.ceil(coords.length / 30);
         coords.forEach((p, i) => {
           if (i % every) return;
           parts.push(patent ? markerSvg(si, p.x, p.y) : `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="2.4" fill="${color}"/>`);

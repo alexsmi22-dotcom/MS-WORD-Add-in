@@ -19,6 +19,23 @@ describe("evalExpr", () => {
     expect(() => evalExpr("2 +", 0)).toThrow();
     expect(() => evalExpr("frobnicate(2)", 0)).toThrow();
   });
+  it("supports multi-argument functions", () => {
+    expect(evalExpr("atan2(1, 1)", 0)).toBeCloseTo(Math.PI / 4, 10);
+    expect(evalExpr("hypot(3, 4)", 0)).toBe(5);
+    expect(evalExpr("min(3, 1, 2)", 0)).toBe(1);
+    expect(evalExpr("max(3, 1, 2)", 0)).toBe(3);
+    expect(evalExpr("mod(7, 3)", 0)).toBe(1);
+    expect(evalExpr("pow(2, 10)", 0)).toBe(1024);
+  });
+  it("supports cbrt and factorial", () => {
+    expect(evalExpr("cbrt(27)", 0)).toBeCloseTo(3, 10);
+    expect(evalExpr("factorial(5)", 0)).toBe(120);
+    expect(evalExpr("fact(0)", 0)).toBe(1);
+  });
+  it("validates function arity", () => {
+    expect(() => evalExpr("atan2(1)", 0)).toThrow(); // needs 2
+    expect(() => evalExpr("sin(1, 2)", 0)).toThrow(); // takes 1
+  });
 });
 
 describe("samplePlot", () => {

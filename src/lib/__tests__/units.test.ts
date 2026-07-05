@@ -76,6 +76,37 @@ describe("convert", () => {
     expect(convert(1, "m/s", "kg")).toBeNull(); // incompatible dimensions
     expect(convert(5, "m/", "m")).toBeNull(); // malformed trailing slash
   });
+
+  it("converts multi-level compound units (all '/' are denominators)", () => {
+    // mol/L/s === mol·L⁻¹·s⁻¹; 1 mol/L/s = 0.001 mol/mL/s
+    expect(convert(1, "mol/L/s", "mol/mL/s")).toBeCloseTo(0.001, 9);
+    expect(convert(5, "m/s/s", "m/s^2")).toBeCloseTo(5, 9); // acceleration two ways
+  });
+
+  it("converts the new electrical / EM units", () => {
+    expect(convert(1000, "mV", "V")).toBeCloseTo(1, 9);
+    expect(convert(2, "kHz", "Hz")).toBeCloseTo(2000, 6);
+    expect(convert(1, "kΩ", "Ω")).toBeCloseTo(1000, 6);
+    expect(convert(1, "µF", "nF")).toBeCloseTo(1000, 6);
+    expect(convert(1, "hp", "W")).toBeCloseTo(745.699872, 3);
+    expect(convert(1, "volt", "mV")).toBeCloseTo(1000, 6); // spelled-out alias
+    expect(convert(1, "ohm", "Ω")).toBeCloseTo(1, 9);
+  });
+
+  it("converts chemistry units (molarity, daltons, fractions)", () => {
+    expect(convert(1, "M", "mM")).toBeCloseTo(1000, 6);
+    expect(convert(1, "µM", "nM")).toBeCloseTo(1000, 6);
+    expect(convert(50, "kDa", "Da")).toBeCloseTo(50000, 6);
+    expect(convert(5, "%", "ppm")).toBeCloseTo(50000, 3);
+    expect(convert(1, "ppm", "ppb")).toBeCloseTo(1000, 6);
+    expect(convert(1, "molar", "µM")).toBeCloseTo(1e6, 3); // alias
+  });
+
+  it("keeps distinct dimensions incompatible", () => {
+    expect(convert(1, "V", "A")).toBeNull();
+    expect(convert(1, "Hz", "s")).toBeNull();
+    expect(convert(1, "M", "mol")).toBeNull();
+  });
 });
 
 describe("significant figures", () => {

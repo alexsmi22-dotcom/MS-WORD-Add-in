@@ -110,16 +110,22 @@ const UNITS: Record<string, UnitDef> = {
   m: { dim: "length", factor: 1 }, km: { dim: "length", factor: 1000 },
   cm: { dim: "length", factor: 0.01 }, mm: { dim: "length", factor: 0.001 },
   µm: { dim: "length", factor: 1e-6 }, nm: { dim: "length", factor: 1e-9 },
+  pm: { dim: "length", factor: 1e-12 },
   in: { dim: "length", factor: 0.0254 }, ft: { dim: "length", factor: 0.3048 },
   yd: { dim: "length", factor: 0.9144 }, mi: { dim: "length", factor: 1609.344 },
   Å: { dim: "length", factor: 1e-10 },
   // mass (base kg)
   kg: { dim: "mass", factor: 1 }, g: { dim: "mass", factor: 0.001 },
   mg: { dim: "mass", factor: 1e-6 }, µg: { dim: "mass", factor: 1e-9 },
+  ng: { dim: "mass", factor: 1e-12 }, pg: { dim: "mass", factor: 1e-15 },
   lb: { dim: "mass", factor: 0.45359237 }, oz: { dim: "mass", factor: 0.028349523 },
+  // molecular mass (daltons, base kg)
+  Da: { dim: "mass", factor: 1.66053906660e-27 }, kDa: { dim: "mass", factor: 1.66053906660e-24 },
+  MDa: { dim: "mass", factor: 1.66053906660e-21 },
   // time (base s)
   s: { dim: "time", factor: 1 }, ms: { dim: "time", factor: 0.001 },
-  µs: { dim: "time", factor: 1e-6 }, min: { dim: "time", factor: 60 },
+  µs: { dim: "time", factor: 1e-6 }, ns: { dim: "time", factor: 1e-9 }, ps: { dim: "time", factor: 1e-12 },
+  min: { dim: "time", factor: 60 },
   h: { dim: "time", factor: 3600 }, day: { dim: "time", factor: 86400 },
   // temperature (base K, affine)
   K: { dim: "temp", factor: 1, offset: 0 },
@@ -127,7 +133,7 @@ const UNITS: Record<string, UnitDef> = {
   "°F": { dim: "temp", factor: 5 / 9, offset: (459.67 * 5) / 9 },
   // volume (base m^3)
   L: { dim: "volume", factor: 0.001 }, mL: { dim: "volume", factor: 1e-6 },
-  µL: { dim: "volume", factor: 1e-9 }, "m^3": { dim: "volume", factor: 1 },
+  µL: { dim: "volume", factor: 1e-9 }, nL: { dim: "volume", factor: 1e-12 }, "m^3": { dim: "volume", factor: 1 },
   // pressure (base Pa)
   Pa: { dim: "pressure", factor: 1 }, kPa: { dim: "pressure", factor: 1000 },
   bar: { dim: "pressure", factor: 1e5 }, atm: { dim: "pressure", factor: 101325 },
@@ -141,6 +147,42 @@ const UNITS: Record<string, UnitDef> = {
   µmol: { dim: "amount", factor: 1e-6 }, nmol: { dim: "amount", factor: 1e-9 },
   // angle (base rad)
   rad: { dim: "angle", factor: 1 }, "°": { dim: "angle", factor: Math.PI / 180 },
+  mrad: { dim: "angle", factor: 1e-3 },
+  // frequency (base Hz)
+  Hz: { dim: "frequency", factor: 1 }, kHz: { dim: "frequency", factor: 1e3 },
+  MHz: { dim: "frequency", factor: 1e6 }, GHz: { dim: "frequency", factor: 1e9 }, THz: { dim: "frequency", factor: 1e12 },
+  // electric current (base A)
+  A: { dim: "current", factor: 1 }, mA: { dim: "current", factor: 1e-3 },
+  µA: { dim: "current", factor: 1e-6 }, nA: { dim: "current", factor: 1e-9 }, kA: { dim: "current", factor: 1e3 },
+  // voltage (base V)
+  V: { dim: "voltage", factor: 1 }, mV: { dim: "voltage", factor: 1e-3 },
+  µV: { dim: "voltage", factor: 1e-6 }, kV: { dim: "voltage", factor: 1e3 }, MV: { dim: "voltage", factor: 1e6 },
+  // power (base W)
+  W: { dim: "power", factor: 1 }, mW: { dim: "power", factor: 1e-3 }, µW: { dim: "power", factor: 1e-6 },
+  kW: { dim: "power", factor: 1e3 }, MW: { dim: "power", factor: 1e6 }, GW: { dim: "power", factor: 1e9 },
+  hp: { dim: "power", factor: 745.699872 },
+  // resistance (base Ω)
+  Ω: { dim: "resistance", factor: 1 }, mΩ: { dim: "resistance", factor: 1e-3 },
+  kΩ: { dim: "resistance", factor: 1e3 }, MΩ: { dim: "resistance", factor: 1e6 },
+  // capacitance (base F)
+  F: { dim: "capacitance", factor: 1 }, mF: { dim: "capacitance", factor: 1e-3 },
+  µF: { dim: "capacitance", factor: 1e-6 }, nF: { dim: "capacitance", factor: 1e-9 }, pF: { dim: "capacitance", factor: 1e-12 },
+  // charge (base C)
+  C: { dim: "charge", factor: 1 }, mC: { dim: "charge", factor: 1e-3 },
+  µC: { dim: "charge", factor: 1e-6 }, nC: { dim: "charge", factor: 1e-9 },
+  // inductance (base H)
+  H: { dim: "inductance", factor: 1 }, mH: { dim: "inductance", factor: 1e-3 }, µH: { dim: "inductance", factor: 1e-6 },
+  // conductance (base S)
+  S: { dim: "conductance", factor: 1 }, mS: { dim: "conductance", factor: 1e-3 }, µS: { dim: "conductance", factor: 1e-6 },
+  // magnetic flux density (base T)
+  T: { dim: "bfield", factor: 1 }, mT: { dim: "bfield", factor: 1e-3 }, µT: { dim: "bfield", factor: 1e-6 },
+  G: { dim: "bfield", factor: 1e-4 },
+  // molarity (base M = mol/L)
+  M: { dim: "molarity", factor: 1 }, mM: { dim: "molarity", factor: 1e-3 },
+  µM: { dim: "molarity", factor: 1e-6 }, nM: { dim: "molarity", factor: 1e-9 }, pM: { dim: "molarity", factor: 1e-12 },
+  // dimensionless fraction (base = ratio)
+  "%": { dim: "fraction", factor: 0.01 }, ppm: { dim: "fraction", factor: 1e-6 },
+  ppb: { dim: "fraction", factor: 1e-9 }, ppt: { dim: "fraction", factor: 1e-12 },
 };
 
 const ALIASES: Record<string, string> = {
@@ -152,6 +194,21 @@ const ALIASES: Record<string, string> = {
   litre: "L", liter: "L", l: "L", ml: "mL", ul: "µL", microliter: "µL",
   atmosphere: "atm", deg: "°", degree: "°", degrees: "°", radian: "rad", radians: "rad",
   millimol: "mmol", millimole: "mmol", micromol: "µmol", umol: "µmol",
+  nanometer: "nm", nanometre: "nm", picometer: "pm", picometre: "pm",
+  nanosecond: "ns", nanoseconds: "ns", picosecond: "ps", picoseconds: "ps",
+  nanogram: "ng", nanograms: "ng", picogram: "pg", picograms: "pg", nanoliter: "nL", nanolitre: "nL",
+  dalton: "Da", daltons: "Da", kilodalton: "kDa", kilodaltons: "kDa", megadalton: "MDa",
+  // electrical / EM spelled-out names
+  hertz: "Hz", kilohertz: "kHz", megahertz: "MHz", gigahertz: "GHz",
+  amp: "A", amps: "A", ampere: "A", amperes: "A", milliamp: "mA", milliamps: "mA", milliampere: "mA",
+  volt: "V", volts: "V", millivolt: "mV", millivolts: "mV", kilovolt: "kV",
+  watt: "W", watts: "W", milliwatt: "mW", kilowatt: "kW", megawatt: "MW", horsepower: "hp",
+  ohm: "Ω", ohms: "Ω", kilohm: "kΩ", kiloohm: "kΩ", megohm: "MΩ", megaohm: "MΩ",
+  farad: "F", farads: "F", microfarad: "µF", uf: "µF", nanofarad: "nF", picofarad: "pF",
+  coulomb: "C", coulombs: "C", henry: "H", henries: "H", siemens: "S",
+  tesla: "T", teslas: "T", gauss: "G",
+  molar: "M", millimolar: "mM", micromolar: "µM", um_molar: "µM", nanomolar: "nM", picomolar: "pM",
+  percent: "%", pct: "%",
 };
 
 function lookup(unit: string): UnitDef | null {
@@ -184,14 +241,17 @@ function accumulateFactors(part: string, sign: 1 | -1, out: CompoundUnit): boole
   return true;
 }
 
-/** Parses a compound unit like "km/h", "kg*m/s^2", "g/mol" → dimensions + factor. */
+/**
+ * Parses a compound unit like "km/h", "kg*m/s^2", "g/mol", "mol/L/s" → dimensions
+ * + factor. Multiple "/" are all denominators: "a/b/c" ≡ a·b⁻¹·c⁻¹.
+ */
 export function parseCompoundUnit(expr: string): CompoundUnit | null {
   const parts = expr.trim().split("/");
-  if (parts.length > 2 || !parts[0].trim()) return null;
-  if (parts[1] !== undefined && !parts[1].trim()) return null; // reject trailing "/"
+  if (!parts[0].trim()) return null;
+  for (let i = 1; i < parts.length; i++) if (!parts[i].trim()) return null; // reject empty denominator / trailing "/"
   const out: CompoundUnit = { dims: {}, factor: 1 };
   if (!accumulateFactors(parts[0], 1, out)) return null;
-  if (parts[1] !== undefined && !accumulateFactors(parts[1], -1, out)) return null;
+  for (let i = 1; i < parts.length; i++) if (!accumulateFactors(parts[i], -1, out)) return null;
   return out;
 }
 

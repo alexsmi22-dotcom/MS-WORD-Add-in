@@ -7,11 +7,30 @@
 
 // --- Expression evaluator ----------------------------------------------------
 
+/** Factorial for non-negative integers (else NaN). */
+function factorial(n: number): number {
+  if (n < 0 || !Number.isInteger(n)) return NaN;
+  let r = 1;
+  for (let k = 2; k <= n; k++) r *= k;
+  return r;
+}
+
 const FUNCS: Record<string, (x: number) => number> = {
   sin: Math.sin, cos: Math.cos, tan: Math.tan, asin: Math.asin, acos: Math.acos, atan: Math.atan,
-  sinh: Math.sinh, cosh: Math.cosh, tanh: Math.tanh, exp: Math.exp, sqrt: Math.sqrt, abs: Math.abs,
+  sinh: Math.sinh, cosh: Math.cosh, tanh: Math.tanh, exp: Math.exp, sqrt: Math.sqrt, cbrt: Math.cbrt, abs: Math.abs,
   log: Math.log, ln: Math.log, log10: Math.log10, log2: Math.log2, sign: Math.sign,
-  floor: Math.floor, ceil: Math.ceil, round: Math.round,
+  floor: Math.floor, ceil: Math.ceil, round: Math.round, trunc: Math.trunc,
+  fact: factorial, factorial,
+};
+
+/** Multi-argument functions. Arity is validated in the evaluator. */
+const FUNCS_N: Record<string, { arity: number | "var"; fn: (a: number[]) => number }> = {
+  atan2: { arity: 2, fn: (a) => Math.atan2(a[0], a[1]) },
+  mod: { arity: 2, fn: (a) => a[0] % a[1] },
+  pow: { arity: 2, fn: (a) => Math.pow(a[0], a[1]) },
+  hypot: { arity: "var", fn: (a) => Math.hypot(...a) },
+  min: { arity: "var", fn: (a) => Math.min(...a) },
+  max: { arity: "var", fn: (a) => Math.max(...a) },
 };
 const CONSTS: Record<string, number> = { pi: Math.PI, e: Math.E, tau: Math.PI * 2 };
 
@@ -83,12 +102,25 @@ export function evalExpr(expr: string, x: number): number {
       i += id.length;
       if (s[i] === "(") {
         i++;
-        const arg = parseExpr();
+        const args = [parseExpr()];
+        while (s[i] === ",") {
+          i++;
+          args.push(parseExpr());
+        }
         if (s[i] !== ")") throw new Error("Missing ')'");
         i++;
-        const fn = FUNCS[id.toLowerCase()];
-        if (!fn) throw new Error(`Unknown function ${id}`);
-        return fn(arg);
+        const key = id.toLowerCase();
+        if (FUNCS[key]) {
+          if (args.length !== 1) throw new Error(`${id} takes 1 argument`);
+          return FUNCS[key](args[0]);
+        }
+        const nf = FUNCS_N[key];
+        if (nf) {
+          if (nf.arity !== "var" && args.length !== nf.arity) throw new Error(`${id} takes ${nf.arity} arguments`);
+          if (nf.arity === "var" && args.length < 1) throw new Error(`${id} needs an argument`);
+          return nf.fn(args);
+        }
+        throw new Error(`Unknown function ${id}`);
       }
       if (id === "x") return x;
       if (id.toLowerCase() in CONSTS) return CONSTS[id.toLowerCase()];
@@ -234,7 +266,8 @@ export function buildPlotSvg(series: Series[], options: PlotOptions = {}): strin
   }
 
   // Series.
-  const palette = ["#1f77b4", "#d62728", "#2ca02c", "#9467bd", "#ff7f0e"];
+  // 10 distinct colors (matplotlib "tab10") so series stay distinguishable.
+  const palette = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf"];
   series.forEach((sObj, idx) => {
     const color = sObj.color ?? palette[idx % palette.length];
     const pts = sObj.points.filter((p) => Number.isFinite(p.y));

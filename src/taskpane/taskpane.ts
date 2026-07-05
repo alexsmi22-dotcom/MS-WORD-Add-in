@@ -81,7 +81,7 @@ import { parseTableData, cleanTableRows, buildChartPreviewSvg, TableChart, Chart
 import { buildDiagramSvg, DiagramKind } from "../lib/tablediagram";
 import { buildTableFigureSvg, prepareTableFigure } from "../lib/tablefigure";
 import { classifyTable } from "../lib/tableclassify";
-import { CITATIONS, SIGNALS, citationById, applySignal, parseCitation, CitationResult } from "../lib/citations";
+import { CITATIONS, SIGNALS, citationById, applySignal, parseCitation, CitationResult, CitationStyle } from "../lib/citations";
 
 type Mode =
   | "home"
@@ -231,6 +231,7 @@ let convInsertBtn: HTMLButtonElement;
 let currentConvHtml = "";
 let citationsSection: HTMLElement;
 let citeTypeSelect: HTMLSelectElement;
+let citeStyleSelect: HTMLSelectElement;
 let citeSignalSelect: HTMLSelectElement;
 let citeInputs: HTMLElement;
 let citePreview: HTMLElement;
@@ -441,6 +442,7 @@ Office.onReady((info) => {
   convInsertBtn = document.getElementById("conv-insert") as HTMLButtonElement;
   citationsSection = document.getElementById("citations-section") as HTMLElement;
   citeTypeSelect = document.getElementById("cite-type") as HTMLSelectElement;
+  citeStyleSelect = document.getElementById("cite-style") as HTMLSelectElement;
   citeSignalSelect = document.getElementById("cite-signal") as HTMLSelectElement;
   citeInputs = document.getElementById("cite-inputs") as HTMLElement;
   citePreview = document.getElementById("cite-preview") as HTMLElement;
@@ -584,6 +586,7 @@ Office.onReady((info) => {
 
   populateCitationTypes();
   citeTypeSelect.addEventListener("change", renderCitationInputs);
+  citeStyleSelect.addEventListener("change", updateCitationPreview);
   citeSignalSelect.addEventListener("change", updateCitationPreview);
   citeInsertBtn.addEventListener("click", insertCitation);
   citeCopyBtn.addEventListener("click", copyCitation);
@@ -3540,7 +3543,7 @@ function updateCitationPreview(): void {
     return;
   }
   try {
-    currentCitation = applySignal(citeSignalSelect.value, type.format(read));
+    currentCitation = applySignal(citeSignalSelect.value, type.format(read, citeStyleSelect.value as CitationStyle));
   } catch {
     citePreview.innerHTML = '<span class="hint">Couldn’t format this citation — check the fields.</span>';
     return;

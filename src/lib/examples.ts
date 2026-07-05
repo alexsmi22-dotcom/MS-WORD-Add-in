@@ -272,7 +272,13 @@ export const MODE_EXAMPLES: Record<ExampleMode, string> = {
       <li><strong>Signals</strong> — optional italicized <em>See</em>, <em>Cf.</em>, <em>But see</em>, … prepended.</li>
       <li><strong>Paste &amp; fix</strong> — paste a messy citation (<code>35 usc 101</code>, <code>alice corp v cls bank, 573 us 208 (2014)</code>) and it detects the type and fills the fields to review.</li>
     </ul>
-    <p class="examples-note">Dates like <code>2014-06-19</code> or <code>3/1/2020</code> become Bluebook month form. Drafting aid — verify against the current Bluebook.</p>`,
+    <p class="examples-note">
+      Pick a <strong>Style</strong> — <em>Practitioner</em> (briefs/office actions) or <em>Academic</em>
+      (law-review footnotes); they differ in case-name italics and small-caps for authors/journals.
+      Reporters and courts auto-correct (<code>f3d</code>→F.3d, <code>fed cir</code>→Fed. Cir.).
+      Dates like <code>2014-06-19</code> or <code>3/1/2020</code> become Bluebook month form.
+      Drafting aid — <strong>verify against the current Bluebook</strong>; this applies common
+      conventions, not the full manual.</p>`,
 
   finance: `
     <p class="examples-note">

@@ -25,9 +25,17 @@ export interface CitationType {
   id: string;
   name: string;
   fields: CitationField[];
-  /** `get(key)` returns the trimmed field value ("" if absent). */
-  format: (get: (key: string) => string) => CitationResult;
+  /**
+   * `get(key)` returns the trimmed field value ("" if absent). `style` selects
+   * practitioner (briefs/office actions — the default) vs academic (law-review
+   * footnote) typography, which differ mainly in case-name italics and the use
+   * of large-and-small caps for authors/journals.
+   */
+  format: (get: (key: string) => string, style?: CitationStyle) => CitationResult;
 }
+
+/** Bluebook typeface convention. */
+export type CitationStyle = "practitioner" | "academic";
 
 // --- helpers -----------------------------------------------------------------
 
@@ -38,6 +46,11 @@ function esc(s: string): string {
 /** An italic run for the HTML form. */
 function it(s: string): string {
   return `<i>${esc(s)}</i>`;
+}
+
+/** A large-and-small-caps run (academic style for authors, titles, journals). */
+function sc(s: string): string {
+  return `<span style="font-variant: small-caps">${esc(s)}</span>`;
 }
 
 const MONTHS = ["Jan.", "Feb.", "Mar.", "Apr.", "May", "June", "July", "Aug.", "Sept.", "Oct.", "Nov.", "Dec."];
@@ -95,6 +108,63 @@ function join(parts: string[], sep = " "): string {
   return parts.filter((p) => p !== "").join(sep);
 }
 
+// --- reporter & court abbreviations ------------------------------------------
+
+/** Canonical reporter spellings, keyed by their despaced/lowercased form. */
+const REPORTERS: Record<string, string> = {};
+for (const r of [
+  "U.S.", "S. Ct.", "L. Ed.", "L. Ed. 2d",
+  "F.", "F.2d", "F.3d", "F.4th", "F. Supp.", "F. Supp. 2d", "F. Supp. 3d", "F. App'x", "Fed. Cl.", "Fed. Appx.",
+  "U.S.P.Q.", "U.S.P.Q.2d",
+  "A.", "A.2d", "A.3d", "P.", "P.2d", "P.3d", "N.E.", "N.E.2d", "N.E.3d", "N.W.", "N.W.2d",
+  "S.E.", "S.E.2d", "S.W.", "S.W.2d", "S.W.3d", "So.", "So. 2d", "So. 3d", "Cal.", "N.Y.", "N.Y.2d", "N.Y.3d",
+]) {
+  REPORTERS[r.replace(/[\s.]/g, "").toLowerCase()] = r;
+}
+
+/** Normalizes a captured reporter to its canonical Bluebook form when known. */
+export function normalizeReporter(raw: string): string {
+  const key = raw.replace(/[\s.]/g, "").toLowerCase();
+  if (REPORTERS[key]) return REPORTERS[key];
+  return raw.trim().replace(/\s+/g, " ");
+}
+
+/** Canonical court abbreviations + a few aliases (CAFC → Fed. Cir.). */
+const COURTS: Record<string, string> = {};
+for (const c of [
+  "Fed. Cir.", "D.C. Cir.", "Fed. Cl.",
+  "S.D.N.Y.", "E.D.N.Y.", "N.D. Cal.", "C.D. Cal.", "S.D. Cal.", "E.D. Va.", "N.D. Ill.", "E.D. Tex.",
+  "W.D. Tex.", "N.D. Tex.", "D. Del.", "D. Mass.", "W.D. Wis.", "D.N.J.", "E.D. Pa.", "D. Colo.", "D. Minn.",
+]) {
+  COURTS[c.replace(/[\s.]/g, "").toLowerCase()] = c;
+}
+COURTS["cafc"] = "Fed. Cir.";
+
+const CIRCUIT_WORDS: Record<string, number> = {
+  first: 1, second: 2, third: 3, fourth: 4, fifth: 5, sixth: 6, seventh: 7, eighth: 8, ninth: 9, tenth: 10, eleventh: 11,
+};
+
+/** Normalizes a court to its Bluebook abbreviation (e.g. "9th cir" → "9th Cir."). */
+export function normalizeCourt(raw: string): string {
+  const t = raw.trim().replace(/\s+/g, " ");
+  if (!t) return "";
+  const key = t.replace(/[\s.]/g, "").toLowerCase();
+  if (COURTS[key]) return COURTS[key];
+  // Numbered federal circuits: "9th cir", "9 Cir.", "ninth circuit".
+  let n = 0;
+  const num = /^(\d{1,2})(?:st|nd|rd|th)?\s*cir/i.exec(t);
+  if (num) n = parseInt(num[1], 10);
+  else {
+    const word = /^([a-z]+)\s*cir/i.exec(t);
+    if (word) n = CIRCUIT_WORDS[word[1].toLowerCase()] ?? 0;
+  }
+  if (n >= 1 && n <= 11) {
+    const suffix = n === 1 ? "st" : n === 2 ? "nd" : n === 3 ? "rd" : "th";
+    return `${n}${suffix} Cir.`;
+  }
+  return t;
+}
+
 // --- Bluebook introductory signals (italicized) ------------------------------
 
 export const SIGNALS: { value: string; label: string }[] = [
@@ -133,13 +203,17 @@ export const CITATIONS: CitationType[] = [
       { key: "court", label: "Court", placeholder: "Fed. Cir. (omit for U.S. Sup. Ct.)", optional: true },
       { key: "year", label: "Year", placeholder: "2014" },
     ],
-    format: (g) => {
-      const loc = join([g("vol"), g("reporter"), g("page")]);
+    format: (g, style) => {
+      const reporter = normalizeReporter(g("reporter"));
+      const court = normalizeCourt(g("court"));
+      const loc = join([g("vol"), reporter, g("page")]);
       const withPin = g("pin") ? `${loc}, ${g("pin")}` : loc;
-      const paren = `(${join([g("court"), g("year")])})`;
+      const paren = `(${join([court, g("year")])})`;
+      // Practitioner italicizes the case name; academic full citations set it roman.
+      const nameHtml = style === "academic" ? esc(g("name")) : it(g("name"));
       return {
         plain: `${g("name")}, ${withPin} ${paren}`,
-        html: `${it(g("name"))}, ${esc(withPin)} ${esc(paren)}`,
+        html: `${nameHtml}, ${esc(withPin)} ${esc(paren)}`,
       };
     },
   },
@@ -152,8 +226,9 @@ export const CITATIONS: CitationType[] = [
       { key: "reporter", label: "Reporter", placeholder: "U.S." },
       { key: "pin", label: "Pincite", placeholder: "217" },
     ],
+    // Short-form case names are italicized in both styles.
     format: (g) => {
-      const tail = `${join([g("vol"), g("reporter")])} at ${g("pin")}`;
+      const tail = `${join([g("vol"), normalizeReporter(g("reporter"))])} at ${g("pin")}`;
       return { plain: `${g("name")}, ${tail}`, html: `${it(g("name"))}, ${esc(tail)}` };
     },
   },
@@ -256,12 +331,17 @@ export const CITATIONS: CitationType[] = [
       { key: "pin", label: "Pincite", placeholder: "912", optional: true },
       { key: "year", label: "Year", placeholder: "2013" },
     ],
-    format: (g) => {
+    format: (g, style) => {
       const loc = join([g("vol"), g("journal"), g("page")]);
       const withPin = g("pin") ? `${loc}, ${g("pin")}` : loc;
+      // Academic sets the journal in large-and-small caps; practitioner roman.
+      const locHtml =
+        style === "academic"
+          ? join([esc(g("vol")), sc(g("journal")), esc(g("page"))]) + (g("pin") ? `, ${esc(g("pin"))}` : "")
+          : esc(withPin);
       return {
         plain: `${g("author")}, ${g("title")}, ${withPin} (${g("year")})`,
-        html: `${esc(g("author"))}, ${it(g("title"))}, ${esc(withPin)} (${esc(g("year"))})`,
+        html: `${esc(g("author"))}, ${it(g("title"))}, ${locHtml} (${esc(g("year"))})`,
       };
     },
   },
@@ -275,13 +355,18 @@ export const CITATIONS: CitationType[] = [
       { key: "edition", label: "Edition", placeholder: "2020 ed.", optional: true },
       { key: "year", label: "Year", placeholder: "2020" },
     ],
-    format: (g) => {
-      const head = `${g("author")}, ${g("title")}`;
-      const withPin = g("pin") ? `${head} ${g("pin")}` : head;
+    format: (g, style) => {
+      const withPin = g("pin") ? `${g("author")}, ${g("title")} ${g("pin")}` : `${g("author")}, ${g("title")}`;
       const paren = `(${join([g("edition"), g("year")])})`;
+      // Academic sets the author and title in large-and-small caps; practitioner
+      // uses roman author + italic title.
+      const bodyHtml =
+        style === "academic"
+          ? `${sc(g("author"))}, ${sc(g("title"))}${g("pin") ? " " + esc(g("pin")) : ""}`
+          : `${esc(g("author"))}, ${it(g("title"))}${g("pin") ? " " + esc(g("pin")) : ""}`;
       return {
         plain: `${withPin} ${paren}`,
-        html: `${esc(g("author"))}, ${it(g("title"))}${g("pin") ? " " + esc(g("pin")) : ""} ${esc(paren)}`,
+        html: `${bodyHtml} ${esc(paren)}`,
       };
     },
   },
@@ -298,37 +383,6 @@ export interface ParsedCitation {
   typeId: string;
   fields: Record<string, string>;
   signal: string;
-}
-
-/** Canonical reporter spellings, keyed by their despaced/lowercased form. */
-const REPORTERS: Record<string, string> = {};
-for (const r of [
-  "U.S.",
-  "S. Ct.",
-  "L. Ed.",
-  "L. Ed. 2d",
-  "F.",
-  "F.2d",
-  "F.3d",
-  "F.4th",
-  "F. Supp.",
-  "F. Supp. 2d",
-  "F. Supp. 3d",
-  "F. App'x",
-  "Fed. Cl.",
-  "Fed. Appx.",
-  "U.S.P.Q.",
-  "U.S.P.Q.2d",
-]) {
-  REPORTERS[r.replace(/[\s.]/g, "").toLowerCase()] = r;
-}
-
-/** Normalizes a captured reporter to its canonical Bluebook form when known. */
-function normalizeReporter(raw: string): string {
-  const key = raw.replace(/[\s.]/g, "").toLowerCase();
-  if (REPORTERS[key]) return REPORTERS[key];
-  // Title-case an unknown reporter and tidy spacing.
-  return raw.trim().replace(/\s+/g, " ");
 }
 
 const CASE_NAME_SIGNAL = /(\bv\.\s)|(^in re\b)|(^ex parte\b)|(^matter of\b)|(^in the matter of\b)/i;

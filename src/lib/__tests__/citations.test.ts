@@ -6,8 +6,17 @@ import {
   formatPatentNumber,
   formatPublicationNumber,
   parseCitation,
+  normalizeReporter,
+  normalizeCourt,
   CitationType,
+  CitationStyle,
 } from "../citations";
+
+/** Formats a citation type from a plain field map (practitioner unless given). */
+function fmtS(id: string, fields: Record<string, string>, style?: CitationStyle) {
+  const type = citationById(id) as CitationType;
+  return type.format((k) => (fields[k] ?? "").trim(), style);
+}
 
 /** Parses a messy citation, then reformats it via the matched type. */
 function roundtrip(raw: string): { typeId: string; plain: string; signal: string } {
@@ -215,6 +224,55 @@ describe("paste-and-fix parser", () => {
   test("returns null on unrecognizable input", () => {
     expect(parseCitation("just some random prose here")).toBeNull();
     expect(parseCitation("")).toBeNull();
+  });
+});
+
+describe("reporter & court normalization", () => {
+  test("reporters auto-correct to canonical Bluebook form", () => {
+    expect(normalizeReporter("f3d")).toBe("F.3d");
+    expect(normalizeReporter("F. 3d")).toBe("F.3d");
+    expect(normalizeReporter("f supp 2d")).toBe("F. Supp. 2d");
+    expect(normalizeReporter("us")).toBe("U.S.");
+    expect(normalizeReporter("Widget Reporter")).toBe("Widget Reporter"); // unknown → tidied
+  });
+  test("courts auto-correct, including numbered circuits and CAFC", () => {
+    expect(normalizeCourt("fed cir")).toBe("Fed. Cir.");
+    expect(normalizeCourt("cafc")).toBe("Fed. Cir.");
+    expect(normalizeCourt("9th cir")).toBe("9th Cir.");
+    expect(normalizeCourt("ninth circuit")).toBe("9th Cir.");
+    expect(normalizeCourt("sdny")).toBe("S.D.N.Y.");
+    expect(normalizeCourt("")).toBe("");
+  });
+  test("a case with messy reporter/court is cleaned up in the citation", () => {
+    const r = fmt("case", { name: "In re Bilski", vol: "545", reporter: "f3d", page: "943", court: "fed cir", year: "2008" });
+    expect(r.plain).toBe("In re Bilski, 545 F.3d 943 (Fed. Cir. 2008)");
+  });
+});
+
+describe("practitioner vs academic style", () => {
+  const caseFields = { name: "Alice Corp. v. CLS Bank Int’l", vol: "573", reporter: "U.S.", page: "208", year: "2014" };
+
+  test("case name is italic for practitioners, roman in an academic full cite", () => {
+    expect(fmtS("case", caseFields, "practitioner").html).toContain("<i>Alice Corp. v. CLS Bank Int’l</i>");
+    const academic = fmtS("case", caseFields, "academic");
+    expect(academic.html).not.toContain("<i>");
+    expect(academic.plain).toBe("Alice Corp. v. CLS Bank Int’l, 573 U.S. 208 (2014)"); // plain unchanged
+  });
+
+  test("book uses italic title (practitioner) vs small caps (academic)", () => {
+    const f = { author: "Donald S. Chisum", title: "Chisum on Patents", pin: "§ 5.04", year: "2020" };
+    expect(fmtS("book", f, "practitioner").html).toContain("<i>Chisum on Patents</i>");
+    const academic = fmtS("book", f, "academic");
+    expect(academic.html).toContain("small-caps");
+    expect(academic.html).not.toContain("<i>");
+  });
+
+  test("article journal is roman (practitioner) vs small caps (academic)", () => {
+    const f = { author: "Mark A. Lemley", title: "Software Patents", vol: "2013", journal: "Wis. L. Rev.", page: "905", year: "2013" };
+    expect(fmtS("article", f, "practitioner").html).not.toContain("small-caps");
+    expect(fmtS("article", f, "academic").html).toContain("small-caps");
+    // The title stays italic in both.
+    expect(fmtS("article", f, "academic").html).toContain("<i>Software Patents</i>");
   });
 });
 

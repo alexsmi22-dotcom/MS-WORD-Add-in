@@ -2,6 +2,23 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
+## [1.13.0] — 2026-07-04
+
+### Added
+- **Citations: practitioner / academic style toggle.** The two Bluebook
+  typeface systems now render correctly — *Practitioner* (briefs/office
+  actions) italicizes case names and book titles; *Academic* (law-review
+  footnotes) sets full-citation case names roman and authors/journals in
+  large-and-small caps.
+- **Citations: reporter & court auto-correct.** Reporters and courts normalize
+  to canonical Bluebook abbreviations (`f3d`→F.3d, `f supp 2d`→F. Supp. 2d,
+  `fed cir`→Fed. Cir., `9th cir`/`ninth circuit`→9th Cir., `cafc`→Fed. Cir.,
+  `sdny`→S.D.N.Y.), applied both in the paste-parser and when formatting.
+
+### Notes
+- Still a drafting aid — it applies common Bluebook conventions (not the full
+  manual). Verify against the current Bluebook before filing.
+
 ## [1.12.4] — 2026-07-04
 
 ### Changed

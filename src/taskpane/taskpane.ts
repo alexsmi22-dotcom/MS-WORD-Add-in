@@ -92,7 +92,14 @@ import {
   CitationResult,
   CitationStyle,
 } from "../lib/citations";
-import { buildTableOfAuthorities, toaToHtml, findPrecedingAuthority } from "../lib/toa";
+import {
+  buildTableOfAuthorities,
+  toaToHtml,
+  findPrecedingAuthority,
+  authoritiesForToa,
+  taFieldOoxml,
+  toaFieldsOoxml,
+} from "../lib/toa";
 
 type Mode =
   | "home"
@@ -255,6 +262,7 @@ let citePasteInput: HTMLTextAreaElement;
 let citeParseBtn: HTMLButtonElement;
 let citeParseMsg: HTMLElement;
 let toaBuildBtn: HTMLButtonElement;
+let toaNativeBtn: HTMLButtonElement;
 let toaMsg: HTMLElement;
 let citeIdDetectBtn: HTMLButtonElement;
 let citeIdDetectMsg: HTMLElement;
@@ -473,6 +481,7 @@ Office.onReady((info) => {
   citeParseBtn = document.getElementById("cite-parse") as HTMLButtonElement;
   citeParseMsg = document.getElementById("cite-parse-msg") as HTMLElement;
   toaBuildBtn = document.getElementById("toa-build") as HTMLButtonElement;
+  toaNativeBtn = document.getElementById("toa-native") as HTMLButtonElement;
   toaMsg = document.getElementById("toa-msg") as HTMLElement;
   citeIdDetectBtn = document.getElementById("cite-iddetect") as HTMLButtonElement;
   citeIdDetectMsg = document.getElementById("cite-iddetect-msg") as HTMLElement;
@@ -619,6 +628,7 @@ Office.onReady((info) => {
   citeParseBtn.addEventListener("click", parseAndFillCitation);
   citeShortFormBtn.addEventListener("click", makeCaseShortForm);
   toaBuildBtn.addEventListener("click", buildToaHandler);
+  toaNativeBtn.addEventListener("click", buildNativeToaHandler);
   citeIdDetectBtn.addEventListener("click", insertIdForPreceding);
 
   pptLoadBtn.addEventListener("click", loadSelectedTable);
@@ -3663,6 +3673,56 @@ async function insertIdForPreceding(): Promise<void> {
     setStatus(`Could not insert Id.: ${(error as Error).message}`, "error");
   } finally {
     citeIdDetectBtn.disabled = false;
+  }
+}
+
+/**
+ * Builds a native Word Table of Authorities: marks each citation with a hidden
+ * TA field, then inserts TOA fields at the cursor. The user presses F9 to
+ * populate page numbers.
+ */
+async function buildNativeToaHandler(): Promise<void> {
+  toaNativeBtn.disabled = true;
+  toaMsg.className = "build-readout";
+  setStatus("Marking citations for Word’s Table of Authorities…");
+  try {
+    await Word.run(async (context) => {
+      const body = context.document.body;
+      body.load("text");
+      await context.sync();
+      const marks = authoritiesForToa(body.text);
+      if (!marks.length) {
+        toaMsg.textContent = "No citations found to build a Table of Authorities.";
+        setStatus("No citations found.", "");
+        return;
+      }
+      // Mark the first occurrence of each authority with a hidden TA field.
+      let marked = 0;
+      const categoryNums = new Set<number>();
+      for (const mark of marks) {
+        const results = body.search(mark.locator, { matchCase: false });
+        results.load("items");
+        await context.sync();
+        if (results.items.length) {
+          results.items[0].insertOoxml(taFieldOoxml(mark.long, mark.categoryNum), Word.InsertLocation.before);
+          categoryNums.add(mark.categoryNum);
+          marked++;
+        }
+      }
+      await context.sync();
+      // Insert the TOA fields (one per marked category) at the cursor.
+      const selection = context.document.getSelection();
+      selection.insertOoxml(toaFieldsOoxml([...categoryNums]), Word.InsertLocation.replace);
+      await context.sync();
+      toaMsg.textContent =
+        `Marked ${marked} of ${marks.length} authorit${marks.length === 1 ? "y" : "ies"} and inserted the table. ` +
+        "Select all (Ctrl/⌘+A) and press F9 to fill in the page numbers.";
+      setStatus("Table of Authorities (fields) inserted — press F9 to update.", "success");
+    });
+  } catch (error) {
+    setStatus(`Could not build the field-based Table of Authorities: ${(error as Error).message}`, "error");
+  } finally {
+    toaNativeBtn.disabled = false;
   }
 }
 

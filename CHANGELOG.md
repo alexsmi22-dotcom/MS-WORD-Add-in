@@ -2,6 +2,19 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
+## [1.18.0] — 2026-07-05
+
+### Added
+- **Table of Authorities with real page numbers (Word fields).** A second TOA
+  option, "Insert with page numbers (Word fields)", marks each citation with a
+  hidden Word **TA** field and inserts **TOA** fields at the cursor; selecting
+  all and pressing **F9** compiles the table with page numbers that update as
+  the document changes. The original page-number-free "static list" remains.
+  New pure `authoritiesForToa()`, `taFieldOoxml()`, `toaFieldsOoxml()` emitting
+  flat-OPC OOXML (validated well-formed). Patents share Word's "Other
+  Authorities" category (Word has no Patents category). Marks the first
+  occurrence of each authority; review the result in Word.
+
 ## [1.17.0] — 2026-07-05
 
 ### Added

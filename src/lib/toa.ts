@@ -75,6 +75,8 @@ interface Raw {
   sortKey: string;
   plain: string;
   html: string;
+  /** A verbatim substring to search for when marking the cite in the document. */
+  locator: string;
 }
 
 /** Collects every recognized authority from the text (with duplicates). */
@@ -97,6 +99,7 @@ function collect(text: string): Raw[] {
       sortKey: name.toLowerCase().replace(/^(in re|ex parte|in the matter of)\s+/, ""),
       plain: `${name}, ${cite}`,
       html: `<i>${esc(name)}</i>, ${esc(cite)}`,
+      locator: cite, // "573 U.S. 208" — appears verbatim even when the name is styled
     });
   }
 
@@ -105,7 +108,7 @@ function collect(text: string): Raw[] {
     let mm: RegExpExecArray | null;
     while ((mm = re.exec(text))) {
       const { text: t, sortKey } = build(mm);
-      out.push({ category, sortKey, plain: t, html: esc(t) });
+      out.push({ category, sortKey, plain: t, html: esc(t), locator: t });
     }
   };
 
@@ -217,4 +220,99 @@ export function findPrecedingAuthority(text: string): PrecedingAuthority | null 
   scan(FEDREG_RE, "other", (mm) => `${mm[1]} Fed. Reg. ${mm[2]}`);
   scan(MPEP_RE, "other", (mm) => `MPEP § ${trimSection(mm[1])}`);
   return best;
+}
+
+// --- native Word Table of Authorities (TA/TOA fields, real page numbers) ------
+
+/**
+ * Word's built-in Table of Authorities category numbers. Word has no native
+ * "Patents" category, so patents share "Other Authorities" (3) with Fed. Reg.
+ * and MPEP.
+ */
+const CATEGORY_NUM: Record<ToaCategory, number> = {
+  cases: 1,
+  statutes: 2,
+  regulations: 6,
+  patents: 3,
+  other: 3,
+};
+
+/** The category headings/numbers to emit TOA fields for, in Bluebook order. */
+export const TOA_FIELD_CATEGORIES: { num: number; heading: string }[] = [
+  { num: 1, heading: "Cases" },
+  { num: 2, heading: "Statutes" },
+  { num: 6, heading: "Regulations" },
+  { num: 3, heading: "Other Authorities" },
+];
+
+export interface ToaMark {
+  /** Long-form entry text that Word lists in the table (the `\l` value). */
+  long: string;
+  category: ToaCategory;
+  categoryNum: number;
+  /** Verbatim substring to search the document for, to place the TA field. */
+  locator: string;
+}
+
+/** De-duplicated authorities to mark for a native Word Table of Authorities. */
+export function authoritiesForToa(text: string): ToaMark[] {
+  const seen = new Set<string>();
+  const out: ToaMark[] = [];
+  for (const r of collect(text)) {
+    const key = r.category + "|" + r.plain.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ long: r.plain, category: r.category, categoryNum: CATEGORY_NUM[r.category], locator: r.locator });
+  }
+  return out;
+}
+
+/** Wraps WordprocessingML body content in a flat-OPC package for insertOoxml. */
+function wrapOoxml(body: string): string {
+  return (
+    '<?xml version="1.0" standalone="yes"?>' +
+    '<?mso-application progid="Word.Document"?>' +
+    '<pkg:package xmlns:pkg="http://schemas.microsoft.com/office/2006/xmlPackage">' +
+    '<pkg:part pkg:name="/_rels/.rels" pkg:contentType="application/vnd.openxmlformats-package.relationships+xml">' +
+    "<pkg:xmlData>" +
+    '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+    '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>' +
+    "</Relationships></pkg:xmlData></pkg:part>" +
+    '<pkg:part pkg:name="/word/document.xml" pkg:contentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml">' +
+    "<pkg:xmlData>" +
+    '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">' +
+    `<w:body>${body}</w:body></w:document>` +
+    "</pkg:xmlData></pkg:part></pkg:package>"
+  );
+}
+
+/** Escapes a field-instruction value: XML-escape, and swap `"` for `'`. */
+function escField(s: string): string {
+  return esc(s).replace(/"/g, "'");
+}
+
+const FLD_BEGIN = '<w:r><w:fldChar w:fldCharType="begin"/></w:r>';
+const FLD_END = '<w:r><w:fldChar w:fldCharType="end"/></w:r>';
+const FLD_SEP = '<w:r><w:fldChar w:fldCharType="separate"/></w:r>';
+
+/** OOXML package for one TA (Table of Authorities Entry) marker field. */
+export function taFieldOoxml(long: string, categoryNum: number): string {
+  const instr = `<w:r><w:instrText xml:space="preserve"> TA \\l "${escField(long)}" \\c ${categoryNum} </w:instrText></w:r>`;
+  return wrapOoxml(`<w:p>${FLD_BEGIN}${instr}${FLD_END}</w:p>`);
+}
+
+/** OOXML package for the Table of Authorities heading + one TOA field per category. */
+export function toaFieldsOoxml(categoryNums: number[]): string {
+  const wanted = TOA_FIELD_CATEGORIES.filter((c) => categoryNums.includes(c.num));
+  const title = '<w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:rPr><w:b/></w:rPr><w:t>TABLE OF AUTHORITIES</w:t></w:r></w:p>';
+  const blocks = wanted
+    .map((c) => {
+      const heading = `<w:p><w:r><w:rPr><w:b/></w:rPr><w:t>${esc(c.heading)}</w:t></w:r></w:p>`;
+      const instr = `<w:r><w:instrText xml:space="preserve"> TOA \\c "${c.num}" \\p </w:instrText></w:r>`;
+      const placeholder = '<w:r><w:t>Update field (select all, press F9) to build.</w:t></w:r>';
+      const field = `<w:p>${FLD_BEGIN}${instr}${FLD_SEP}${placeholder}${FLD_END}</w:p>`;
+      return heading + field;
+    })
+    .join("");
+  return wrapOoxml(title + blocks);
 }

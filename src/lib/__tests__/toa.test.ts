@@ -1,4 +1,12 @@
-import { buildTableOfAuthorities, toaToHtml, findPrecedingAuthority, ToaCategory } from "../toa";
+import {
+  buildTableOfAuthorities,
+  toaToHtml,
+  findPrecedingAuthority,
+  authoritiesForToa,
+  taFieldOoxml,
+  toaFieldsOoxml,
+  ToaCategory,
+} from "../toa";
 
 /** A short brief-like paragraph exercising each authority type. */
 const BRIEF = `
@@ -95,6 +103,45 @@ describe("findPrecedingAuthority", () => {
 
   test("returns null when there is no preceding authority", () => {
     expect(findPrecedingAuthority("This paragraph cites nothing at all.")).toBeNull();
+  });
+});
+
+describe("native Word TOA (TA/TOA fields)", () => {
+  const marks = authoritiesForToa(
+    "Alice Corp. v. CLS Bank Int'l, 573 U.S. 208 (2014); 35 U.S.C. § 101; 37 C.F.R. § 1.84; U.S. Patent No. 10,123,456."
+  );
+
+  test("authoritiesForToa returns marks with a category number and a verbatim locator", () => {
+    const alice = marks.find((mk) => mk.long.startsWith("Alice"));
+    expect(alice).toMatchObject({ category: "cases", categoryNum: 1, locator: "573 U.S. 208" });
+    expect(marks.find((mk) => mk.long === "35 U.S.C. § 101")).toMatchObject({ categoryNum: 2, locator: "35 U.S.C. § 101" });
+    // Patents share Word's "Other Authorities" category (3).
+    expect(marks.find((mk) => mk.long.startsWith("U.S. Patent"))).toMatchObject({ category: "patents", categoryNum: 3 });
+  });
+
+  test("taFieldOoxml emits a TA field with the long text and category", () => {
+    const xml = taFieldOoxml("Alice Corp. v. CLS Bank Int'l, 573 U.S. 208", 1);
+    expect(xml).toContain('<pkg:package');
+    expect(xml).toContain('fldCharType="begin"');
+    expect(xml).toContain(" TA \\l \"Alice Corp. v. CLS Bank Int'l, 573 U.S. 208\" \\c 1 ");
+  });
+
+  test("taFieldOoxml swaps inner double-quotes and escapes ampersands", () => {
+    const xml = taFieldOoxml('Smith & Co. v. Jones, 100 F.3d 1', 1);
+    expect(xml).toContain("Smith &amp; Co. v. Jones, 100 F.3d 1");
+  });
+
+  test("toaFieldsOoxml emits a TOA field per present category, in Bluebook order", () => {
+    const xml = toaFieldsOoxml([2, 1, 3]); // statutes, cases, other
+    expect(xml).toContain("<w:t>TABLE OF AUTHORITIES</w:t>");
+    // Cases (1) before Statutes (2) before Other (3); Regulations (6) omitted.
+    const iCases = xml.indexOf('TOA \\c "1"');
+    const iStat = xml.indexOf('TOA \\c "2"');
+    const iOther = xml.indexOf('TOA \\c "3"');
+    expect(iCases).toBeGreaterThan(-1);
+    expect(iStat).toBeGreaterThan(iCases);
+    expect(iOther).toBeGreaterThan(iStat);
+    expect(xml).not.toContain('TOA \\c "6"');
   });
 });
 

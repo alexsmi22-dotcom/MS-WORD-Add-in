@@ -21,6 +21,19 @@ import {
   blackScholes,
   bondPrice,
   OptionType,
+  effectiveAnnualRate,
+  growingAnnuityPV,
+  amortizationSchedule,
+  dcf,
+  xirr,
+  bondYTM,
+  bondAnalytics,
+  blackScholesGreeks,
+  impliedVolatility,
+  decliningBalanceSchedule,
+  annualizedReturn,
+  annualizedVolatility,
+  sharpeRatio,
 } from "../lib/finance";
 import { renderStructure, nameForIdcode, StructureResult } from "../lib/structures";
 import { build, BuildFormat, BuildResult } from "../lib/builder";
@@ -715,7 +728,7 @@ const HOME_GROUPS: HomeGroup[] = [
     title: "Data & figures",
     items: [
       { mode: "ppt", icon: "📊", label: "Table → Chart", desc: "Charts, diagrams, table figures, PPT" },
-      { mode: "finance", icon: "💵", label: "Finance", desc: "TVM, NPV/IRR, options, bonds" },
+      { mode: "finance", icon: "💵", label: "Finance", desc: "TVM, DCF, bonds, options + Greeks, amortization" },
     ],
   },
   {
@@ -3437,6 +3450,197 @@ const FIN_CALCS: FinCalc[] = [
     ],
     compute: (r) =>
       `Price = ${finMoney(bondPrice(+r("face"), +r("coupon") / 100, +r("ytm") / 100, +r("years"), +r("freq")))}`,
+  },
+  {
+    id: "ear",
+    name: "Effective annual rate",
+    fields: [
+      { key: "nom", label: "Nominal annual rate %", default: "12" },
+      { key: "m", label: "Compounds / year", default: "12" },
+    ],
+    compute: (r) => `Effective annual rate = ${finPct(effectiveAnnualRate(+r("nom") / 100, +r("m")))}`,
+  },
+  {
+    id: "amort",
+    name: "Loan amortization (summary)",
+    fields: [
+      { key: "p", label: "Loan amount", default: "200000" },
+      { key: "rate", label: "Annual rate %", default: "5" },
+      { key: "t", label: "Years", default: "30" },
+      { key: "m", label: "Payments / year", default: "12" },
+    ],
+    compute: (r) => {
+      const m = +r("m");
+      const rows = amortizationSchedule(+r("p"), +r("rate") / 100 / m, +r("t") * m);
+      if (!rows.length) return "—";
+      const interest = rows.reduce((a, x) => a + x.interest, 0);
+      const paid = rows.reduce((a, x) => a + x.payment, 0);
+      return [
+        `Payment        ${finMoney(rows[0].payment)} / period`,
+        `Total interest ${finMoney(interest)}`,
+        `Total paid     ${finMoney(paid)}`,
+      ].join("\n");
+    },
+  },
+  {
+    id: "gann",
+    name: "Growing annuity PV",
+    fields: [
+      { key: "pmt", label: "First payment", default: "1000" },
+      { key: "rate", label: "Discount rate % / period", default: "10" },
+      { key: "g", label: "Growth rate % / period", default: "5" },
+      { key: "n", label: "Number of periods", default: "10" },
+    ],
+    compute: (r) => `PV = ${finMoney(growingAnnuityPV(+r("pmt"), +r("rate") / 100, +r("g") / 100, +r("n")))}`,
+  },
+  {
+    id: "dcf",
+    name: "DCF valuation (Gordon terminal)",
+    fields: [
+      { key: "rate", label: "Discount rate % / period", default: "10" },
+      { key: "cf", label: "Cash flows (t=1 first)", default: "100, 110, 121", kind: "list" },
+      { key: "g", label: "Terminal growth % / period", default: "3" },
+    ],
+    compute: (r) => {
+      const v = dcf(+r("rate") / 100, finList(r("cf")), +r("g") / 100);
+      return Number.isFinite(v) ? `Value = ${finMoney(v)}` : "Value = — (need rate > terminal growth)";
+    },
+  },
+  {
+    id: "xirr",
+    name: "XIRR (dated cash flows)",
+    fields: [
+      { key: "cf", label: "Cash flows", default: "-1000, 300, 400, 500", kind: "list" },
+      { key: "days", label: "Days from first flow", default: "0, 180, 300, 450", kind: "list" },
+    ],
+    compute: (r) => {
+      const v = xirr(finList(r("cf")), finList(r("days")));
+      return v === null ? "XIRR = no solution" : `XIRR = ${finPct(v)} / year`;
+    },
+  },
+  {
+    id: "ytm",
+    name: "Bond yield to maturity",
+    fields: [
+      { key: "price", label: "Price", default: "950" },
+      { key: "face", label: "Face value", default: "1000" },
+      { key: "coupon", label: "Coupon rate %", default: "5" },
+      { key: "years", label: "Years to maturity", default: "10" },
+      { key: "freq", label: "Coupons / year", default: "2" },
+    ],
+    compute: (r) => {
+      const y = bondYTM(+r("price"), +r("face"), +r("coupon") / 100, +r("years"), +r("freq"));
+      return y === null ? "YTM = no solution" : `YTM = ${finPct(y)}`;
+    },
+  },
+  {
+    id: "bondrisk",
+    name: "Bond duration & convexity",
+    fields: [
+      { key: "face", label: "Face value", default: "1000" },
+      { key: "coupon", label: "Coupon rate %", default: "5" },
+      { key: "ytm", label: "Yield to maturity %", default: "6" },
+      { key: "years", label: "Years to maturity", default: "10" },
+      { key: "freq", label: "Coupons / year", default: "2" },
+    ],
+    compute: (r) => {
+      const a = bondAnalytics(+r("face"), +r("coupon") / 100, +r("ytm") / 100, +r("years"), +r("freq"));
+      return [
+        `Price      ${finMoney(a.price)}`,
+        `Macaulay   ${a.macaulay.toFixed(3)} yrs`,
+        `Modified   ${a.modified.toFixed(3)} yrs`,
+        `Convexity  ${a.convexity.toFixed(2)}`,
+      ].join("\n");
+    },
+  },
+  {
+    id: "greeks",
+    name: "Option Greeks (Black–Scholes)",
+    fields: [
+      {
+        key: "type",
+        label: "Type",
+        default: "call",
+        kind: "select",
+        options: [
+          { value: "call", label: "Call" },
+          { value: "put", label: "Put" },
+        ],
+      },
+      { key: "s", label: "Spot S", default: "100" },
+      { key: "k", label: "Strike K", default: "100" },
+      { key: "t", label: "Time to expiry (yrs)", default: "1" },
+      { key: "r", label: "Risk-free rate %", default: "5" },
+      { key: "sig", label: "Volatility % (annual)", default: "20" },
+    ],
+    compute: (r) => {
+      const g = blackScholesGreeks(r("type") as OptionType, +r("s"), +r("k"), +r("t"), +r("r") / 100, +r("sig") / 100);
+      return [
+        `Delta  ${g.delta.toFixed(4)}`,
+        `Gamma  ${g.gamma.toFixed(5)}`,
+        `Vega   ${finMoney(g.vega / 100)} per 1% vol`,
+        `Theta  ${finMoney(g.theta / 365)} per day`,
+        `Rho    ${finMoney(g.rho / 100)} per 1% rate`,
+      ].join("\n");
+    },
+  },
+  {
+    id: "iv",
+    name: "Implied volatility",
+    fields: [
+      {
+        key: "type",
+        label: "Type",
+        default: "call",
+        kind: "select",
+        options: [
+          { value: "call", label: "Call" },
+          { value: "put", label: "Put" },
+        ],
+      },
+      { key: "price", label: "Option price", default: "10.45" },
+      { key: "s", label: "Spot S", default: "100" },
+      { key: "k", label: "Strike K", default: "100" },
+      { key: "t", label: "Time to expiry (yrs)", default: "1" },
+      { key: "r", label: "Risk-free rate %", default: "5" },
+    ],
+    compute: (r) => {
+      const v = impliedVolatility(r("type") as OptionType, +r("price"), +r("s"), +r("k"), +r("t"), +r("r") / 100);
+      return v === null ? "Implied vol = no solution" : `Implied vol = ${finPct(v)}`;
+    },
+  },
+  {
+    id: "depr",
+    name: "Depreciation (declining balance)",
+    fields: [
+      { key: "cost", label: "Cost", default: "10000" },
+      { key: "salvage", label: "Salvage value", default: "1000" },
+      { key: "life", label: "Useful life (years)", default: "5" },
+      { key: "factor", label: "Factor (2 = double)", default: "2" },
+    ],
+    compute: (r) => {
+      const rows = decliningBalanceSchedule(+r("cost"), +r("salvage"), +r("life"), +r("factor"));
+      if (!rows.length) return "—";
+      return rows.map((x) => `Year ${x.year}:  dep ${finMoney(x.depreciation)}   book ${finMoney(x.bookValue)}`).join("\n");
+    },
+  },
+  {
+    id: "returns",
+    name: "Return stats (annualized)",
+    fields: [
+      { key: "rets", label: "Per-period returns %", default: "2, 1, 3, -1, 2, 1.5", kind: "list" },
+      { key: "ppy", label: "Periods / year", default: "12" },
+      { key: "rf", label: "Risk-free % / period", default: "0.1" },
+    ],
+    compute: (r) => {
+      const rets = finList(r("rets")).map((x) => x / 100);
+      const ppy = +r("ppy");
+      return [
+        `Annualized return  ${finPct(annualizedReturn(rets, ppy))}`,
+        `Annualized vol     ${finPct(annualizedVolatility(rets, ppy))}`,
+        `Sharpe ratio       ${sharpeRatio(rets, +r("rf") / 100, ppy).toFixed(3)}`,
+      ].join("\n");
+    },
   },
 ];
 

@@ -2,6 +2,23 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
+## [1.23.0] — 2026-07-05
+
+### Added (Finance — robust modeling)
+- **The Finance calculator gained a full modeling toolkit** (8 → 18
+  calculators), all verified against known closed-form values:
+  effective annual rate; growing-annuity PV; **loan amortization** (payment,
+  total interest, total paid); **DCF valuation** with a Gordon terminal value;
+  **XIRR** for dated cash flows; **bond yield-to-maturity**; **bond duration &
+  convexity** (Macaulay + modified); **option Greeks** (Δ Γ vega θ ρ);
+  **implied volatility**; **declining-balance depreciation** schedule; and
+  **annualized return / volatility / Sharpe** statistics.
+- Engine additions in `finance.ts` (+17 tests): a shared robust root-finder
+  (scan-for-sign-change + bisection) powers the YTM, implied-vol, and XIRR
+  solvers so they don't need a good initial guess. Existing formulas
+  (TVM, NPV/IRR, Black–Scholes, bond pricing) re-verified against reference
+  values.
+
 ## [1.22.4] — 2026-07-05
 
 ### Verified

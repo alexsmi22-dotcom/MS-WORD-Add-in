@@ -1,4 +1,4 @@
-# Formula Inserter — Word Add-in
+# JurisLab — Word Add-in (formerly Formula Inserter)
 
 A Microsoft Word add-in (Office.js / TypeScript) for **STEM authoring**. It turns
 what you type into correctly formatted content — formulas, equations, structures,

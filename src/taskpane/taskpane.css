@@ -879,3 +879,74 @@ h1 {
   margin: 3px 0 0;
   padding-left: 18px;
 }
+
+/* Home / intro page */
+#home-section {
+  display: none;
+}
+.home-intro {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text);
+  margin: 2px 0 16px;
+}
+.home-group {
+  margin-bottom: 16px;
+}
+.home-group-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0 0 7px;
+}
+.home-cards {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+.home-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  text-align: left;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: #fff;
+  cursor: pointer;
+  font: inherit;
+  color: var(--text);
+  transition: border-color 0.12s, background 0.12s, box-shadow 0.12s;
+}
+.home-card:hover {
+  border-color: var(--accent);
+  background: var(--bg-soft);
+  box-shadow: 0 1px 4px rgba(0, 90, 158, 0.12);
+}
+.home-card:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.home-card-icon {
+  font-size: 17px;
+  line-height: 1.15;
+  flex: 0 0 auto;
+}
+.home-card-body {
+  display: block;
+  min-width: 0;
+}
+.home-card-title {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 600;
+  margin: 0 0 2px;
+}
+.home-card-desc {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.35;
+}

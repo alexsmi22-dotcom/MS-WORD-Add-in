@@ -7,11 +7,11 @@
   xsi:type="TaskPaneApp">
 
   <Id>5674364b-9410-41a5-a938-12c1155aeb7e</Id>
-  <Version>1.11.0.0</Version>
+  <Version>1.12.0.0</Version>
   <ProviderName>AlexanderSmith</ProviderName>
   <DefaultLocale>en-US</DefaultLocale>
-  <DisplayName DefaultValue="Formula Inserter" />
-  <Description DefaultValue="Format chemical and math formulas with proper subscripts and superscripts, and insert them into your document." />
+  <DisplayName DefaultValue="JurisLab" />
+  <Description DefaultValue="STEM &amp; legal authoring for Word — chemical &amp; math formulas, 2D structures, plots, tables → figures, sequences, patent-drafting aids, and Bluebook legal citations." />
   <IconUrl DefaultValue="https://localhost:3000/assets/icon-32.png" />
   <HighResolutionIconUrl DefaultValue="https://localhost:3000/assets/icon-80.png" />
   <SupportUrl DefaultValue="https://localhost:3000/" />
@@ -92,13 +92,13 @@
         <bt:Url id="GetStarted.LearnMoreUrl" DefaultValue="https://learn.microsoft.com/office/dev/add-ins/" />
       </bt:Urls>
       <bt:ShortStrings>
-        <bt:String id="GetStarted.Title" DefaultValue="Formula Inserter is ready" />
-        <bt:String id="Group.Label" DefaultValue="Formulas" />
-        <bt:String id="TaskpaneButton.Label" DefaultValue="Insert Formula" />
+        <bt:String id="GetStarted.Title" DefaultValue="JurisLab is ready" />
+        <bt:String id="Group.Label" DefaultValue="JurisLab" />
+        <bt:String id="TaskpaneButton.Label" DefaultValue="JurisLab" />
       </bt:ShortStrings>
       <bt:LongStrings>
-        <bt:String id="GetStarted.Description" DefaultValue="Open the Insert Formula pane on the Home tab to format chemical and math formulas." />
-        <bt:String id="TaskpaneButton.Tooltip" DefaultValue="Open the pane to format and insert chemical and math formulas." />
+        <bt:String id="GetStarted.Description" DefaultValue="Pick a tool from the top of the pane — chemistry, math, figures, patent drafting, or legal citations." />
+        <bt:String id="TaskpaneButton.Tooltip" DefaultValue="Open the JurisLab pane: STEM authoring and legal-citation tools for Word." />
       </bt:LongStrings>
     </Resources>
   </VersionOverrides>

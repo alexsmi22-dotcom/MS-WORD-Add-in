@@ -118,7 +118,7 @@ export function buildSt26Xml(meta: SequenceListingMeta, entries: SequenceEntry[]
   const rootAttrs =
     `originalFreeTextLanguageCode="en" dtdVersion="${DTD_VERSION}"` +
     ` fileName="${escapeXml(meta.fileName || "sequence-listing.xml")}"` +
-    ` softwareName="${escapeXml(meta.softwareName || "Formula Inserter")}"` +
+    ` softwareName="${escapeXml(meta.softwareName || "JurisLab")}"` +
     ` softwareVersion="${escapeXml(meta.softwareVersion || "1.0.0")}"` +
     ` productionDate="${escapeXml(meta.productionDate)}"`;
 

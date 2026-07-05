@@ -84,6 +84,7 @@ import { classifyTable } from "../lib/tableclassify";
 import { CITATIONS, SIGNALS, citationById, applySignal, parseCitation, CitationResult } from "../lib/citations";
 
 type Mode =
+  | "home"
   | "chemical"
   | "math"
   | "units"
@@ -106,6 +107,10 @@ const STRUCTURE_H = 230;
 const GALLERY_W = 170;
 const GALLERY_H = 140;
 
+let homeSection: HTMLElement;
+let homeGroups: HTMLElement;
+let examplesPanel: HTMLElement | null;
+let bottomDisclaimer: HTMLElement | null;
 let inputEl: HTMLInputElement;
 let previewEl: HTMLElement;
 let statusEl: HTMLElement;
@@ -315,6 +320,10 @@ Office.onReady((info) => {
     return;
   }
 
+  homeSection = document.getElementById("home-section") as HTMLElement;
+  homeGroups = document.getElementById("home-groups") as HTMLElement;
+  examplesPanel = document.querySelector(".examples");
+  bottomDisclaimer = document.querySelector(".container > .disclaimer");
   inputEl = document.getElementById("formula-input") as HTMLInputElement;
   previewEl = document.getElementById("preview") as HTMLElement;
   statusEl = document.getElementById("status") as HTMLElement;
@@ -606,6 +615,7 @@ Office.onReady((info) => {
   renderBuildButtons(buildBondsEl, BUILD_BONDS);
   renderBuildButtons(buildMarkushEl, BUILD_MARKUSH);
 
+  renderHome();
   renderPalette();
   renderHistory();
   updateNumberLabel();
@@ -613,6 +623,105 @@ Office.onReady((info) => {
   updateExamples();
   onInputChanged();
 });
+
+// ---------------------------------------------------------------------------
+// Home / intro page
+// ---------------------------------------------------------------------------
+
+interface HomeItem {
+  mode: Mode;
+  icon: string;
+  label: string;
+  desc: string;
+}
+interface HomeGroup {
+  title: string;
+  items: HomeItem[];
+}
+
+const HOME_GROUPS: HomeGroup[] = [
+  {
+    title: "Chemistry & structures",
+    items: [
+      { mode: "chemical", icon: "🧪", label: "Chemical", desc: "Formulas & 2D structures" },
+      { mode: "build", icon: "🔬", label: "Build", desc: "Structures from atoms/bonds; Markush" },
+      { mode: "reaction", icon: "⚗️", label: "Reaction", desc: "Reaction schemes" },
+    ],
+  },
+  {
+    title: "Math & units",
+    items: [
+      { mode: "math", icon: "∑", label: "Math", desc: "Native equations, LaTeX" },
+      { mode: "units", icon: "📏", label: "Units", desc: "SI typesetting & conversion" },
+      { mode: "plot", icon: "📈", label: "Plot", desc: "Function & data charts" },
+    ],
+  },
+  {
+    title: "Data & figures",
+    items: [
+      { mode: "ppt", icon: "📊", label: "Table → Chart", desc: "Charts, diagrams, table figures, PPT" },
+      { mode: "finance", icon: "💵", label: "Finance", desc: "TVM, NPV/IRR, options, bonds" },
+    ],
+  },
+  {
+    title: "Biology",
+    items: [
+      { mode: "sequence", icon: "🧬", label: "Sequence", desc: "WIPO ST.26 listings" },
+      { mode: "dna", icon: "🧬", label: "DNA", desc: "Rev-comp, translation, ORFs" },
+      { mode: "botanical", icon: "🌿", label: "Botanical", desc: "Plant nomenclature" },
+    ],
+  },
+  {
+    title: "Patent drafting",
+    items: [
+      { mode: "numerals", icon: "🔢", label: "Numerals", desc: "Reference-numeral management" },
+      { mode: "refs", icon: "🔖", label: "Refs", desc: "Captions & cross-references" },
+      { mode: "code", icon: "💻", label: "Code", desc: "Algorithm & code listings" },
+      { mode: "audit", icon: "✅", label: "Audit", desc: "Whole-document consistency" },
+    ],
+  },
+  {
+    title: "Legal citations",
+    items: [{ mode: "citations", icon: "⚖️", label: "Citations", desc: "Bluebook — cases, statutes, patents" }],
+  },
+];
+
+/** Builds the grouped tool cards on the home page. */
+function renderHome(): void {
+  homeGroups.replaceChildren();
+  for (const g of HOME_GROUPS) {
+    const group = document.createElement("div");
+    group.className = "home-group";
+    const title = document.createElement("div");
+    title.className = "home-group-title";
+    title.textContent = g.title;
+    const cards = document.createElement("div");
+    cards.className = "home-cards";
+    for (const item of g.items) {
+      const card = document.createElement("button");
+      card.type = "button";
+      card.className = "home-card";
+      card.dataset.mode = item.mode;
+      const icon = document.createElement("span");
+      icon.className = "home-card-icon";
+      icon.textContent = item.icon;
+      const body = document.createElement("span");
+      body.className = "home-card-body";
+      const t = document.createElement("span");
+      t.className = "home-card-title";
+      t.textContent = item.label;
+      const d = document.createElement("span");
+      d.className = "home-card-desc";
+      d.textContent = item.desc;
+      body.append(t, d);
+      card.append(icon, body);
+      card.addEventListener("click", () => setMode(item.mode));
+      cards.appendChild(card);
+    }
+    group.append(title, cards);
+    homeGroups.appendChild(group);
+  }
+}
 
 /** Swaps the "Examples & syntax" panel to the help for the current mode. */
 function updateExamples(): void {
@@ -1065,6 +1174,24 @@ async function copyAsLatex(): Promise<void> {
 /** Refreshes everything that depends on the input: section visibility and previews. */
 function onInputChanged(): void {
   const mode = currentMode();
+
+  // Home: show only the intro; hide the tools, history, examples, and footer.
+  const isHome = mode === "home";
+  homeSection.style.display = isHome ? "block" : "none";
+  historyEl.style.display = isHome ? "none" : "";
+  if (examplesPanel) examplesPanel.style.display = isHome ? "none" : "";
+  if (bottomDisclaimer) bottomDisclaimer.style.display = isHome ? "none" : "";
+  if (isHome) {
+    for (const s of [
+      formatSection, buildSection, codeSection, sequenceSection, botanicalSection, numeralsSection,
+      dnaSection, reactionSection, auditSection, unitsSection, refsSection, citationsSection,
+      plotSection, financeSection, pptSection,
+    ]) {
+      s.style.display = "none";
+    }
+    return;
+  }
+
   const formatting = mode === "chemical" || mode === "math";
 
   formatSection.style.display = formatting ? "block" : "none";
@@ -3461,7 +3588,7 @@ async function tagInserted(context: Word.RequestContext, range: Word.Range, tag:
   try {
     const cc = range.insertContentControl();
     cc.tag = tag;
-    cc.title = "Formula Inserter";
+    cc.title = "JurisLab";
     cc.appearance = Word.ContentControlAppearance.hidden;
     await context.sync();
   } catch {

@@ -1,12 +1,15 @@
-# Formula Inserter — What it can do
+# JurisLab — What it can do
 
-A Microsoft Word add-in for patent drafting. It runs **entirely on your machine** —
-nothing you type is sent anywhere — and inserts cleanly formatted chemistry, math,
-structures, code, sequences, and botanical names directly at the cursor.
+A Microsoft Word add-in fusing **STEM authoring** and **patent & legal drafting**. It
+runs **entirely on your machine** — nothing you type is sent anywhere — and inserts
+cleanly formatted chemistry, math, structures, figures, sequences, citations, and more
+directly at the cursor.
 
-Pick a **mode** at the top of the pane: **Chemical · Math · Units · Plot · Table → Chart · Finance · Build · Code · Sequence · Botanical · Numerals · Refs · Citations · DNA · Reaction · Audit.**
-Everything shows a live preview that matches exactly what gets inserted, and the
-**Examples & syntax** panel updates to match the selected mode.
+Opening the pane shows a **Home** page with the tools grouped by category — click a card
+(or a tab at the top) to open a tool: **Chemical · Math · Units · Plot · Table → Chart ·
+Finance · Build · Code · Sequence · Botanical · Numerals · Refs · Citations · DNA ·
+Reaction · Audit.** Everything shows a live preview that matches exactly what gets
+inserted, and the **Examples & syntax** panel updates to match the selected tool.
 
 > Drafting aid — always verify structures, formulas, and listings before filing.
 

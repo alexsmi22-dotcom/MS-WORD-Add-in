@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta http-equiv="X-UA-Compatible" content="IE=Edge" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Chemical &amp; Math Formulas</title>
+    <title>JurisLab</title>
 
     <script type="text/javascript" src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
     <link rel="stylesheet" href="taskpane.css" />
@@ -12,8 +12,8 @@
 
   <body>
     <main class="container">
-      <h1>Formula Inserter</h1>
-      <p class="subtitle">Type a formula, choose a mode, and insert it at the cursor.</p>
+      <h1>JurisLab</h1>
+      <p class="subtitle">STEM &amp; legal authoring for Word — pick a tab for what you need.</p>
 
       <div class="search-wrap">
         <input
@@ -27,7 +27,8 @@
       </div>
 
       <div class="mode-row" role="radiogroup" aria-label="Mode">
-        <label class="mode"><input type="radio" name="mode" value="chemical" checked /> Chemical</label>
+        <label class="mode"><input type="radio" name="mode" value="home" checked /> 🏠 Home</label>
+        <label class="mode"><input type="radio" name="mode" value="chemical" /> Chemical</label>
         <label class="mode"><input type="radio" name="mode" value="math" /> Math</label>
         <label class="mode"><input type="radio" name="mode" value="units" /> Units</label>
         <label class="mode"><input type="radio" name="mode" value="plot" /> Plot</label>
@@ -46,6 +47,20 @@
       </div>
 
       <div id="history" class="history"></div>
+
+      <!-- Home / intro -->
+      <section id="home-section">
+        <p class="home-intro">
+          One Word add-in for <strong>STEM authoring</strong> and <strong>patent &amp; legal
+          drafting</strong> — everything runs on your machine. Choose a tool below (or use the
+          tabs above).
+        </p>
+        <div id="home-groups"></div>
+        <p class="disclaimer">
+          Drafting aid — verify all output before filing. Runs entirely on your machine; no
+          document content is sent anywhere.
+        </p>
+      </section>
 
       <!-- Chemical / Math formatting -->
       <section id="format-section">

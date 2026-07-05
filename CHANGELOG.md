@@ -2,6 +2,15 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
+## [1.22.3] — 2026-07-05
+
+### Fixed
+- **pI N-terminal pKa now matches EMBOSS iep's data file** (`Epk.dat`): N-term
+  8.6 → **7.5**. Verifying against the actual iep data file (not the older
+  "EMBOSS scale" of 8.6 reproduced in some tools) showed the shipped value is
+  7.5; the other eight values already matched. A side-chain-free peptide now
+  gives pI = (7.5 + 3.6)/2 = 5.55, as iep does.
+
 ## [1.22.2] — 2026-07-05
 
 ### Changed

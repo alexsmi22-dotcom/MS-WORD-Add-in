@@ -77,6 +77,8 @@ inserted, and the **Examples & syntax** panel updates to match the selected tool
 - **Reporter & court auto-correct** — messy input is normalized to canonical Bluebook forms (`f3d` → F.3d, `f supp 2d` → F. Supp. 2d, `fed cir` → Fed. Cir., `9th cir`/`ninth circuit` → 9th Cir., `cafc` → Fed. Cir., `sdny` → S.D.N.Y.).
 - **Signals** — optional italicized *See*, *See also*, *Cf.*, *But see*, *Contra*, … prepended. Dates like `2014-06-19` or `3/1/2020` become `June 19, 2014` / `Mar. 1, 2020`.
 - **Paste & fix** — paste a messy citation (`35 usc 101`, `alice corp v cls bank, 573 us 208 (2014)`, `US Pat No 10123456`) and it detects the type and fills the fields for you to review, then reformats it. Best-effort — verify the result.
+- **Id. / supra short forms** — `Id.` / `Id. at 217` for the immediately preceding authority; `<name>, supra note 15, at 912` for an earlier source; plus a one-click "→ Short form of this case".
+- **Table of Authorities** — scan the whole document for citations and insert a grouped, alphabetized authorities list (Cases · Statutes · Regulations · Patents · Other Authorities), de-duplicated, with case names italicized. Page numbers aren't included — add them or use Word's TA/TOA fields for automatic pages.
 - **Copy** the plain text or **insert** the formatted citation. Drafting aid — verify against the current Bluebook.
 
 ## 🔖 Refs — captions & cross-references

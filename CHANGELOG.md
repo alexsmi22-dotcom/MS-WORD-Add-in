@@ -2,6 +2,18 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
+## [1.15.0] — 2026-07-05
+
+### Added
+- **Table of Authorities builder.** In Citations mode, scan the whole document
+  for citations and insert a grouped, alphabetized authorities list — Cases,
+  Statutes, Regulations, Patents, and Other Authorities (Fed. Reg., MPEP) —
+  de-duplicated, with case names italicized. The scanner recognizes case names
+  (including "In re"/"Ex parte" and corporate suffixes like ", Inc."), U.S.C.,
+  C.F.R., patents & publications, the Federal Register, and MPEP. Page numbers
+  are not included (a text scan can't recover them) — add them, or use Word's
+  native TA/TOA fields for automatic pages. New pure `toa.ts` (+11 tests).
+
 ## [1.14.0] — 2026-07-05
 
 ### Added

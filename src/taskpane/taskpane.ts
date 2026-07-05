@@ -82,6 +82,7 @@ import { buildDiagramSvg, DiagramKind } from "../lib/tablediagram";
 import { buildTableFigureSvg, prepareTableFigure } from "../lib/tablefigure";
 import { classifyTable } from "../lib/tableclassify";
 import { CITATIONS, SIGNALS, citationById, applySignal, parseCitation, caseShortForm, CitationResult, CitationStyle } from "../lib/citations";
+import { buildTableOfAuthorities, toaToHtml } from "../lib/toa";
 
 type Mode =
   | "home"
@@ -241,6 +242,8 @@ let citeShortFormBtn: HTMLButtonElement;
 let citePasteInput: HTMLTextAreaElement;
 let citeParseBtn: HTMLButtonElement;
 let citeParseMsg: HTMLElement;
+let toaBuildBtn: HTMLButtonElement;
+let toaMsg: HTMLElement;
 /** The most recently formatted citation, for insert/copy. */
 let currentCitation: CitationResult | null = null;
 let refsSection: HTMLElement;
@@ -453,6 +456,8 @@ Office.onReady((info) => {
   citePasteInput = document.getElementById("cite-paste") as HTMLTextAreaElement;
   citeParseBtn = document.getElementById("cite-parse") as HTMLButtonElement;
   citeParseMsg = document.getElementById("cite-parse-msg") as HTMLElement;
+  toaBuildBtn = document.getElementById("toa-build") as HTMLButtonElement;
+  toaMsg = document.getElementById("toa-msg") as HTMLElement;
   refsSection = document.getElementById("refs-section") as HTMLElement;
   refKind = document.getElementById("ref-kind") as HTMLSelectElement;
   refNext = document.getElementById("ref-next") as HTMLElement;
@@ -594,6 +599,7 @@ Office.onReady((info) => {
   citeCopyBtn.addEventListener("click", copyCitation);
   citeParseBtn.addEventListener("click", parseAndFillCitation);
   citeShortFormBtn.addEventListener("click", makeCaseShortForm);
+  toaBuildBtn.addEventListener("click", buildToaHandler);
 
   pptLoadBtn.addEventListener("click", loadSelectedTable);
   pptKindSelect.addEventListener("change", updatePptPreview);
@@ -3593,6 +3599,38 @@ async function insertCitation(): Promise<void> {
     setStatus(`Could not insert citation: ${(error as Error).message}`, "error");
   } finally {
     citeInsertBtn.disabled = false;
+  }
+}
+
+/** Scans the document for citations and inserts a grouped Table of Authorities. */
+async function buildToaHandler(): Promise<void> {
+  toaBuildBtn.disabled = true;
+  toaMsg.className = "build-readout";
+  setStatus("Scanning document for citations…");
+  try {
+    await Word.run(async (context) => {
+      const body = context.document.body;
+      body.load("text");
+      await context.sync();
+      const toa = buildTableOfAuthorities(body.text);
+      if (!toa.total) {
+        toaMsg.textContent = "No citations found to build a Table of Authorities.";
+        setStatus("No citations found.", "");
+        return;
+      }
+      const range = context.document.getSelection();
+      const inserted = range.insertHtml(toaToHtml(toa), Word.InsertLocation.replace);
+      inserted.select(Word.SelectionMode.end);
+      await context.sync();
+      await tagInserted(context, inserted, "formula-inserter:toa");
+      const summary = toa.groups.map((g) => `${g.entries.length} ${g.heading.toLowerCase()}`).join(", ");
+      toaMsg.textContent = `Inserted ${toa.total} authorit${toa.total === 1 ? "y" : "ies"} (${summary}). Add page numbers before filing.`;
+      setStatus("Table of Authorities inserted.", "success");
+    });
+  } catch (error) {
+    setStatus(`Could not build the Table of Authorities: ${(error as Error).message}`, "error");
+  } finally {
+    toaBuildBtn.disabled = false;
   }
 }
 

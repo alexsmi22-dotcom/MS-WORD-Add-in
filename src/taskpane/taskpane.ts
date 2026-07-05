@@ -99,6 +99,7 @@ import {
   authoritiesForToa,
   taFieldOoxml,
   toaFieldsOoxml,
+  findPrecedingSecondarySource,
 } from "../lib/toa";
 
 type Mode =
@@ -266,6 +267,8 @@ let toaNativeBtn: HTMLButtonElement;
 let toaMsg: HTMLElement;
 let citeIdDetectBtn: HTMLButtonElement;
 let citeIdDetectMsg: HTMLElement;
+let citeSupraDetectBtn: HTMLButtonElement;
+let citeSupraDetectMsg: HTMLElement;
 /** The most recently formatted citation, for insert/copy. */
 let currentCitation: CitationResult | null = null;
 let refsSection: HTMLElement;
@@ -485,6 +488,8 @@ Office.onReady((info) => {
   toaMsg = document.getElementById("toa-msg") as HTMLElement;
   citeIdDetectBtn = document.getElementById("cite-iddetect") as HTMLButtonElement;
   citeIdDetectMsg = document.getElementById("cite-iddetect-msg") as HTMLElement;
+  citeSupraDetectBtn = document.getElementById("cite-supradetect") as HTMLButtonElement;
+  citeSupraDetectMsg = document.getElementById("cite-supradetect-msg") as HTMLElement;
   refsSection = document.getElementById("refs-section") as HTMLElement;
   refKind = document.getElementById("ref-kind") as HTMLSelectElement;
   refNext = document.getElementById("ref-next") as HTMLElement;
@@ -630,6 +635,7 @@ Office.onReady((info) => {
   toaBuildBtn.addEventListener("click", buildToaHandler);
   toaNativeBtn.addEventListener("click", buildNativeToaHandler);
   citeIdDetectBtn.addEventListener("click", insertIdForPreceding);
+  citeSupraDetectBtn.addEventListener("click", detectSupraSource);
 
   pptLoadBtn.addEventListener("click", loadSelectedTable);
   pptKindSelect.addEventListener("change", updatePptPreview);
@@ -3543,6 +3549,9 @@ function renderCitationInputs(): void {
   // The "Id." preceding-authority helper only applies to the Id. type.
   citeIdDetectBtn.style.display = type.id === "id" ? "block" : "none";
   if (type.id !== "id") citeIdDetectMsg.textContent = "";
+  // The supra source-detection helper only applies to the supra type.
+  citeSupraDetectBtn.style.display = type.id === "supra" ? "block" : "none";
+  if (type.id !== "supra") citeSupraDetectMsg.textContent = "";
   updateCitationPreview();
 }
 
@@ -3673,6 +3682,38 @@ async function insertIdForPreceding(): Promise<void> {
     setStatus(`Could not insert Id.: ${(error as Error).message}`, "error");
   } finally {
     citeIdDetectBtn.disabled = false;
+  }
+}
+
+/** Scans above the cursor for an earlier law-review article and fills the supra author. */
+async function detectSupraSource(): Promise<void> {
+  citeSupraDetectBtn.disabled = true;
+  citeSupraDetectMsg.className = "build-readout";
+  setStatus("Looking for an earlier source above the cursor…");
+  try {
+    await Word.run(async (context) => {
+      const selection = context.document.getSelection();
+      const before = context.document.body.getRange(Word.RangeLocation.start).expandTo(selection);
+      before.load("text");
+      await context.sync();
+      const source = findPrecedingSecondarySource(before.text);
+      if (!source) {
+        citeSupraDetectMsg.className = "build-readout warn";
+        citeSupraDetectMsg.textContent = "No earlier law-review article found above the cursor — enter the author manually.";
+        setStatus("No earlier source found.", "");
+        return;
+      }
+      const nameEl = citeInputs.querySelector<HTMLInputElement>('[data-key="name"]');
+      if (nameEl) nameEl.value = source.short;
+      updateCitationPreview();
+      citeSupraDetectMsg.className = "build-readout";
+      citeSupraDetectMsg.textContent = `Found ${source.plain} — filled “${source.short}”. Add the footnote no. / pincite.`;
+      setStatus("Earlier source detected.", "success");
+    });
+  } catch (error) {
+    setStatus(`Could not detect an earlier source: ${(error as Error).message}`, "error");
+  } finally {
+    citeSupraDetectBtn.disabled = false;
   }
 }
 

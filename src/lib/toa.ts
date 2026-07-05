@@ -222,6 +222,55 @@ export function findPrecedingAuthority(text: string): PrecedingAuthority | null 
   return best;
 }
 
+// --- supra: detect an earlier secondary source (law-review article) ----------
+
+// "Author, Title, VOL JOURNAL PAGE (YEAR)". The journal must carry a law-journal
+// marker (L. Rev. / L.J. / Rev. / J. …) so a case reporter isn't mistaken for one.
+const AUTHOR = "[A-Z][A-Za-z.'’-]+(?:\\s+[A-Z][A-Za-z.'’-]*){1,3}";
+const ARTICLE_RE = new RegExp(
+  `(${AUTHOR}(?:\\s+&\\s+${AUTHOR})?),\\s+[A-Z][^,]{2,180}?,\\s+\\d+\\s+` +
+    `(?:[A-Z][A-Za-z.'’&]*\\s+){0,4}(?:L\\.\\s?Rev\\.|L\\.\\s?J\\.|Rev\\.|J\\.(?:\\s?[A-Z][A-Za-z.'’&]*)*)\\s+` +
+    `\\d+(?:,\\s*\\d+)?\\s*\\((?:19|20)\\d{2}\\)`,
+  "g"
+);
+
+export interface SecondarySource {
+  /** The author(s) as written, e.g. "Mark A. Lemley". */
+  author: string;
+  /** The Bluebook supra short form — surname(s), e.g. "Lemley" or "Lemley & O'Brien". */
+  short: string;
+  /** The full matched citation. */
+  plain: string;
+}
+
+/** Author surname(s) for a supra short form: "Mark A. Lemley" → "Lemley". */
+function supraShort(author: string): string {
+  return author
+    .split(/\s*&\s*/)
+    .map((a) => a.trim().split(/\s+/).slice(-1)[0])
+    .join(" & ");
+}
+
+/**
+ * Finds the last law-review article cited in `text` — for building a `supra`
+ * reference back to it (Rule 4.2 limits supra to secondary sources). Returns
+ * null if none is found. Treatises/books are too ambiguous to detect reliably.
+ */
+export function findPrecedingSecondarySource(text: string): SecondarySource | null {
+  let best: SecondarySource | null = null;
+  let bestIdx = -1;
+  ARTICLE_RE.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = ARTICLE_RE.exec(text))) {
+    if (m.index > bestIdx) {
+      bestIdx = m.index;
+      const author = m[1].replace(/\s+/g, " ").trim();
+      best = { author, short: supraShort(author), plain: m[0].replace(/\s+/g, " ").trim() };
+    }
+  }
+  return best;
+}
+
 // --- native Word Table of Authorities (TA/TOA fields, real page numbers) ------
 
 /**

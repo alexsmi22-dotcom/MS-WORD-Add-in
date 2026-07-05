@@ -2,6 +2,17 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
+## [1.20.0] — 2026-07-05
+
+### Added
+- **Supra source auto-detection.** On the Supra type, "Detect earlier source"
+  scans the document above the cursor for a prior **law-review article**, and
+  fills the author with its Bluebook supra short form — surname(s), e.g.
+  *Lemley* or *Lemley & O'Brien* — for you to finish with the footnote number /
+  pincite. New pure `findPrecedingSecondarySource()`. (Treatises/books are too
+  ambiguous to detect from prose, so they remain manual; supra is limited to
+  secondary sources per Rule 4.2.)
+
 ## [1.19.0] — 2026-07-05
 
 ### Changed

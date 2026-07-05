@@ -5,6 +5,7 @@ import {
   authoritiesForToa,
   taFieldOoxml,
   toaFieldsOoxml,
+  findPrecedingSecondarySource,
   ToaCategory,
 } from "../toa";
 
@@ -142,6 +143,33 @@ describe("native Word TOA (TA/TOA fields)", () => {
     expect(iStat).toBeGreaterThan(iCases);
     expect(iOther).toBeGreaterThan(iStat);
     expect(xml).not.toContain('TOA \\c "6"');
+  });
+});
+
+describe("findPrecedingSecondarySource (supra)", () => {
+  test("detects a law-review article and derives the supra short form", () => {
+    const src = findPrecedingSecondarySource(
+      "As one scholar put it, Mark A. Lemley, Software Patents and the Return of Functional Claiming, 2013 Wis. L. Rev. 905, 912 (2013), the doctrine shifted."
+    );
+    expect(src?.short).toBe("Lemley");
+    expect(src?.author).toBe("Mark A. Lemley");
+  });
+
+  test("returns the last article when several appear", () => {
+    const src = findPrecedingSecondarySource(
+      "See John Doe, First Piece, 100 Harv. L. Rev. 1 (2019); Jane P. Roe, Second Piece, 55 Stan. L. Rev. 200 (2021)."
+    );
+    expect(src?.short).toBe("Roe");
+  });
+
+  test("handles two authors joined by &", () => {
+    const src = findPrecedingSecondarySource("A. B. Smith & C. D. Jones, A Study, 90 Yale L.J. 10 (2018).");
+    expect(src?.short).toBe("Smith & Jones");
+  });
+
+  test("does not treat a case citation as a secondary source", () => {
+    expect(findPrecedingSecondarySource("Alice Corp. v. CLS Bank Int'l, 573 U.S. 208 (2014)")).toBeNull();
+    expect(findPrecedingSecondarySource("The statute, 35 U.S.C. § 101, controls.")).toBeNull();
   });
 });
 

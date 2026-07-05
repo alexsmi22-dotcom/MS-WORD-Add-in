@@ -2,6 +2,13 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
+## [1.13.3] — 2026-07-05
+
+### Changed
+- **Logo now fuses STEM + legal.** The balance scale's pans are hexagonal
+  molecular rings — law (scale) meets STEM (chemistry) in one mark. Regenerated
+  at all icon sizes; still legible at 16 px.
+
 ## [1.13.2] — 2026-07-05
 
 ### Changed

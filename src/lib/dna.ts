@@ -261,8 +261,10 @@ export interface PrimerTm {
 }
 
 /**
- * Estimated melting temperature of a primer/oligo. Wallace rule (2·AT + 4·GC) for
- * short oligos (<14 nt); the GC% formula 64.9 + 41·(GC − 16.4)/N for longer ones.
+ * Estimated melting temperature of a primer/oligo — the basic method used by
+ * OligoCalc: the Wallace rule (2·AT + 4·GC) for short oligos (<14 nt) and the
+ * GC% formula 64.9 + 41·(GC − 16.4)/N for longer ones. It is a quick estimate,
+ * not a salt-corrected nearest-neighbor Tm.
  */
 export function primerTm(seq: string): PrimerTm {
   const s = seq.toUpperCase().replace(/[^ACGTU]/g, "").replace(/U/g, "T");

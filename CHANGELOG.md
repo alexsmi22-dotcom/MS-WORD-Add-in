@@ -2,6 +2,18 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
+## [1.22.4] — 2026-07-05
+
+### Verified
+- **Full reference-data audit against current authoritative standards.** Every
+  hardcoded scientific dataset was checked against its primary source and found
+  correct (only the pKa N-term, fixed in 1.22.3, needed a change):
+  periodic table → IUPAC/CIAAW; restriction sites → REBASE; unit factors →
+  SI/CODATA; genetic code → NCBI table 1; residue masses → Expasy FindMod;
+  hydropathy → Kyte & Doolittle; pKa → EMBOSS iep (`Epk.dat`); primer Tm →
+  OligoCalc; 360 compound SMILES → all valid (OpenChemLib); WIPO ST.26 DTD →
+  V1_3 (still current); botanical ranks → ICN/ICNCP. Documented the Tm source.
+
 ## [1.22.3] — 2026-07-05
 
 ### Fixed

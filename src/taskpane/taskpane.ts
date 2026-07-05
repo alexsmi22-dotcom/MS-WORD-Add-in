@@ -3696,18 +3696,21 @@ async function buildNativeToaHandler(): Promise<void> {
         setStatus("No citations found.", "");
         return;
       }
-      // Mark the first occurrence of each authority with a hidden TA field.
-      let marked = 0;
+      // Mark every occurrence of each authority with a hidden TA field, so the
+      // table shows the full page range (Word aggregates pages by the \l text).
+      let authoritiesMarked = 0;
+      let occurrences = 0;
       const categoryNums = new Set<number>();
       for (const mark of marks) {
         const results = body.search(mark.locator, { matchCase: false });
         results.load("items");
         await context.sync();
-        if (results.items.length) {
-          results.items[0].insertOoxml(taFieldOoxml(mark.long, mark.categoryNum), Word.InsertLocation.before);
-          categoryNums.add(mark.categoryNum);
-          marked++;
-        }
+        if (!results.items.length) continue;
+        const ooxml = taFieldOoxml(mark.long, mark.categoryNum);
+        for (const hit of results.items) hit.insertOoxml(ooxml, Word.InsertLocation.before);
+        categoryNums.add(mark.categoryNum);
+        authoritiesMarked++;
+        occurrences += results.items.length;
       }
       await context.sync();
       // Insert the TOA fields (one per marked category) at the cursor.
@@ -3715,7 +3718,8 @@ async function buildNativeToaHandler(): Promise<void> {
       selection.insertOoxml(toaFieldsOoxml([...categoryNums]), Word.InsertLocation.replace);
       await context.sync();
       toaMsg.textContent =
-        `Marked ${marked} of ${marks.length} authorit${marks.length === 1 ? "y" : "ies"} and inserted the table. ` +
+        `Marked ${authoritiesMarked} of ${marks.length} authorit${marks.length === 1 ? "y" : "ies"} ` +
+        `(${occurrences} citation${occurrences === 1 ? "" : "s"}) and inserted the table. ` +
         "Select all (Ctrl/⌘+A) and press F9 to fill in the page numbers.";
       setStatus("Table of Authorities (fields) inserted — press F9 to update.", "success");
     });

@@ -2,6 +2,14 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
+## [1.19.0] — 2026-07-05
+
+### Changed
+- **Field-based Table of Authorities now marks every occurrence** of each
+  authority (not just the first), so the compiled table shows the full page
+  range for each cite. The status line reports both the authority count and the
+  total citations marked.
+
 ## [1.18.0] — 2026-07-05
 
 ### Added

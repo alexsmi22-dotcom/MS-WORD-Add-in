@@ -8,6 +8,7 @@ import {
   parseCitation,
   normalizeReporter,
   normalizeCourt,
+  caseShortForm,
   CitationType,
   CitationStyle,
 } from "../citations";
@@ -326,6 +327,30 @@ describe("canonical Bluebook example forms", () => {
     expect(fmt("book", { vol: "1", author: "Donald S. Chisum", title: "Chisum on Patents", pin: "§ 3.02", year: "2023" }).plain).toBe(
       "1 Donald S. Chisum, Chisum on Patents § 3.02 (2023)"
     );
+  });
+});
+
+describe("id. / supra short forms", () => {
+  test("id. — bare and with a pincite", () => {
+    expect(fmt("id", {}).plain).toBe("Id.");
+    expect(fmt("id", {}).html).toBe("<i>Id.</i>");
+    expect(fmt("id", { pin: "217" }).plain).toBe("Id. at 217");
+    expect(fmt("id", { pin: "217" }).html).toBe("<i>Id.</i> at 217");
+  });
+  test("supra — academic (with footnote) and practitioner (without)", () => {
+    expect(fmt("supra", { name: "Lemley", note: "15", pin: "912" }).plain).toBe("Lemley, supra note 15, at 912");
+    expect(fmt("supra", { name: "Chisum", pin: "45" }).plain).toBe("Chisum, supra, at 45");
+    expect(fmt("supra", { name: "Lemley", note: "15" }).html).toContain("<i>supra</i>");
+  });
+  test("caseShortForm derives the first party + reporter/pincite", () => {
+    expect(caseShortForm({ name: "Alice Corp. v. CLS Bank Int’l", vol: "573", reporter: "U.S.", pin: "217" })).toEqual({
+      name: "Alice Corp.",
+      vol: "573",
+      reporter: "U.S.",
+      pin: "217",
+    });
+    // In re / Ex parte keep the whole name.
+    expect(caseShortForm({ name: "In re Bilski", vol: "545", reporter: "F.3d", pin: "950" }).name).toBe("In re Bilski");
   });
 });
 

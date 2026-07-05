@@ -81,7 +81,7 @@ import { parseTableData, cleanTableRows, buildChartPreviewSvg, TableChart, Chart
 import { buildDiagramSvg, DiagramKind } from "../lib/tablediagram";
 import { buildTableFigureSvg, prepareTableFigure } from "../lib/tablefigure";
 import { classifyTable } from "../lib/tableclassify";
-import { CITATIONS, SIGNALS, citationById, applySignal, parseCitation, CitationResult, CitationStyle } from "../lib/citations";
+import { CITATIONS, SIGNALS, citationById, applySignal, parseCitation, caseShortForm, CitationResult, CitationStyle } from "../lib/citations";
 
 type Mode =
   | "home"
@@ -237,6 +237,7 @@ let citeInputs: HTMLElement;
 let citePreview: HTMLElement;
 let citeInsertBtn: HTMLButtonElement;
 let citeCopyBtn: HTMLButtonElement;
+let citeShortFormBtn: HTMLButtonElement;
 let citePasteInput: HTMLTextAreaElement;
 let citeParseBtn: HTMLButtonElement;
 let citeParseMsg: HTMLElement;
@@ -448,6 +449,7 @@ Office.onReady((info) => {
   citePreview = document.getElementById("cite-preview") as HTMLElement;
   citeInsertBtn = document.getElementById("cite-insert") as HTMLButtonElement;
   citeCopyBtn = document.getElementById("cite-copy") as HTMLButtonElement;
+  citeShortFormBtn = document.getElementById("cite-shortform") as HTMLButtonElement;
   citePasteInput = document.getElementById("cite-paste") as HTMLTextAreaElement;
   citeParseBtn = document.getElementById("cite-parse") as HTMLButtonElement;
   citeParseMsg = document.getElementById("cite-parse-msg") as HTMLElement;
@@ -591,6 +593,7 @@ Office.onReady((info) => {
   citeInsertBtn.addEventListener("click", insertCitation);
   citeCopyBtn.addEventListener("click", copyCitation);
   citeParseBtn.addEventListener("click", parseAndFillCitation);
+  citeShortFormBtn.addEventListener("click", makeCaseShortForm);
 
   pptLoadBtn.addEventListener("click", loadSelectedTable);
   pptKindSelect.addEventListener("change", updatePptPreview);
@@ -3496,6 +3499,24 @@ function renderCitationInputs(): void {
     input.addEventListener("input", updateCitationPreview);
 
     citeInputs.append(label, input);
+  }
+  // The "→ Short form" helper only applies to a full case citation.
+  citeShortFormBtn.style.display = type.id === "case" ? "block" : "none";
+  updateCitationPreview();
+}
+
+/** Turns the current full-case fields into a case short-form citation. */
+function makeCaseShortForm(): void {
+  const read = (k: string): string => {
+    const el = citeInputs.querySelector<HTMLInputElement>(`[data-key="${k}"]`);
+    return el ? el.value.trim() : "";
+  };
+  const short = caseShortForm({ name: read("name"), vol: read("vol"), reporter: read("reporter"), pin: read("pin") });
+  citeTypeSelect.value = "case-short";
+  renderCitationInputs(); // rebuild fields for the short form
+  for (const [key, value] of Object.entries(short)) {
+    const el = citeInputs.querySelector<HTMLInputElement>(`[data-key="${key}"]`);
+    if (el) el.value = value;
   }
   updateCitationPreview();
 }

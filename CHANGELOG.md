@@ -2,6 +2,15 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
+## [1.14.0] — 2026-07-05
+
+### Added
+- **Citations: id. / supra short forms.** New `Id.` type (`Id.` or `Id. at 217`,
+  italic) for the immediately preceding authority, and a `Supra` type
+  (`Lemley, supra note 15, at 912`) for an earlier source. Plus a one-click
+  **“→ Short form of this case”** helper that turns a full case citation into
+  its short form (first party + reporter + pincite) for you to review.
+
 ## [1.13.3] — 2026-07-05
 
 ### Changed

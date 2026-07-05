@@ -233,6 +233,39 @@ export const CITATIONS: CitationType[] = [
     },
   },
   {
+    id: "id",
+    name: "Id. (same as previous cite)",
+    fields: [{ key: "pin", label: "Pincite", placeholder: "217", optional: true }],
+    // "Id." (italic, including the period) refers to the immediately preceding
+    // authority; add a pincite when the page differs. Rule 4.1.
+    format: (g) => {
+      const pin = g("pin");
+      return {
+        plain: pin ? `Id. at ${pin}` : "Id.",
+        html: pin ? `<i>Id.</i> at ${esc(pin)}` : "<i>Id.</i>",
+      };
+    },
+  },
+  {
+    id: "supra",
+    name: "Supra (earlier source)",
+    fields: [
+      { key: "name", label: "Author / short title", placeholder: "Lemley" },
+      { key: "note", label: "Footnote no. (academic)", placeholder: "15", optional: true },
+      { key: "pin", label: "Pincite", placeholder: "912", optional: true },
+    ],
+    // "supra" (italic) points back to an earlier source. Rule 4.2 limits it to
+    // secondary sources (books, articles, …) — not cases, statutes, or regs.
+    format: (g) => {
+      const note = g("note") ? ` note ${g("note")}` : "";
+      const pin = g("pin") ? `, at ${g("pin")}` : "";
+      return {
+        plain: `${g("name")}, supra${note}${pin}`,
+        html: `${esc(g("name"))}, <i>supra</i>${esc(note)}${esc(pin)}`,
+      };
+    },
+  },
+  {
     id: "usc",
     name: "Statute (U.S.C.)",
     fields: [
@@ -379,6 +412,18 @@ export const CITATIONS: CitationType[] = [
 /** Looks up a citation type by id. */
 export function citationById(id: string): CitationType | undefined {
   return CITATIONS.find((c) => c.id === id);
+}
+
+/**
+ * Derives the case short-form fields from a full-case field map: the short name
+ * is the first party (before " v. "), or the whole name for "In re"/"Ex parte".
+ * The drafter reviews/adjusts (Rule 10.9 lets you pick the more distinctive
+ * party). Reporter/volume/pincite carry over.
+ */
+export function caseShortForm(fields: Record<string, string>): Record<string, string> {
+  const name = (fields.name ?? "").trim();
+  const first = /\sv\.\s/i.test(name) ? name.split(/\s+v\.\s+/i)[0].trim() : name;
+  return { name: first, vol: (fields.vol ?? "").trim(), reporter: (fields.reporter ?? "").trim(), pin: (fields.pin ?? "").trim() };
 }
 
 // --- paste-and-fix parser ----------------------------------------------------

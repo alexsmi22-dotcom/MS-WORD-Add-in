@@ -2,6 +2,18 @@
 
 All notable changes to Formula Inserter. Dates are release/pilot dates.
 
+## [1.7.1] — 2026-07-04
+
+### Fixed
+- **Inserted Word tables no longer pick up list numbering.** When the cursor
+  sat in (or after) a numbered list, every inserted table cell showed a "1."
+  etc. The inserted table's cell paragraphs are now reset to Normal and
+  detached from any list.
+- **Table figure exports to PowerPoint as a native, editable table** instead
+  of a picture — the "table figure" representation now uses a real PowerPoint
+  table (shaded/bold header, shaded full-width section bands via colspan,
+  right-aligned numeric columns), so the text stays editable in PowerPoint too.
+
 ## [1.7.0] — 2026-07-04
 
 ### Added

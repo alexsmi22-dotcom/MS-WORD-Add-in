@@ -1578,13 +1578,15 @@ async function insertTableFigure(): Promise<void> {
       // Optionally follow the image with an editable Word table of the data,
       // so the text is editable even though the figure itself is an image.
       let tail = picture.getRange(Word.RangeLocation.end);
+      let dataTable: Word.Table | null = null;
       if (alsoText) {
         const para = tail.insertParagraph("", Word.InsertLocation.after);
-        const table = insertFormattedWordTable(para.getRange(Word.RangeLocation.after), currentTableRows as string[][]);
-        tail = table.getRange(Word.RangeLocation.after);
+        dataTable = insertFormattedWordTable(para.getRange(Word.RangeLocation.after), currentTableRows as string[][]);
+        tail = dataTable.getRange(Word.RangeLocation.after);
       }
       tail.select(Word.SelectionMode.end);
       await context.sync();
+      if (dataTable) await clearTableListFormatting(context, dataTable);
       await tagInserted(context, picture.getRange(), "formula-inserter:tablechart");
     });
     setStatus(alsoText ? "Figure + editable table inserted." : "Figure inserted.", "success");
@@ -1628,6 +1630,34 @@ function insertFormattedWordTable(anchor: Word.Range, rows: string[][]): Word.Ta
   return table;
 }
 
+/**
+ * Removes any list/auto-numbering the inserted table cells inherited from the
+ * surrounding paragraph (e.g. when the cursor sat in a numbered list), which
+ * otherwise shows a "1." etc. in every cell. Sets each cell paragraph to
+ * Normal and detaches it from any list.
+ */
+async function clearTableListFormatting(context: Word.RequestContext, table: Word.Table): Promise<void> {
+  const paras = table.getRange().paragraphs;
+  paras.load("items");
+  await context.sync();
+  for (const p of paras.items) p.styleBuiltIn = Word.BuiltInStyleName.normal;
+  await context.sync();
+  const listFlags = paras.items.map((p) => {
+    const li = p.listItemOrNullObject;
+    li.load("isNullObject");
+    return li;
+  });
+  await context.sync();
+  let detached = false;
+  paras.items.forEach((p, i) => {
+    if (!listFlags[i].isNullObject) {
+      p.detachFromList();
+      detached = true;
+    }
+  });
+  if (detached) await context.sync();
+}
+
 /** Inserts the read table as a native, fully-editable Word table at the cursor. */
 async function insertEditableWordTable(): Promise<void> {
   if (!currentTableRows) return;
@@ -1642,10 +1672,12 @@ async function insertEditableWordTable(): Promise<void> {
       if (figLabel) {
         const cap = tail.insertParagraph(figLabel, Word.InsertLocation.after);
         cap.alignment = Word.Alignment.centered;
+        cap.styleBuiltIn = Word.BuiltInStyleName.normal;
         tail = cap.getRange(Word.RangeLocation.after);
       }
       tail.select(Word.SelectionMode.end);
       await context.sync();
+      await clearTableListFormatting(context, table);
     });
     setStatus("Editable Word table inserted — the text can be edited normally.", "success");
   } catch (error) {
@@ -1666,10 +1698,29 @@ async function downloadPptx(): Promise<void> {
     const { buildTablePptx } = await import(/* webpackChunkName: "ppt" */ "../lib/ppt");
     const style = currentChartStyle();
     const kind = pptKindSelect.value as RenderKind;
+
+    // The table figure exports as a NATIVE, editable PowerPoint table (not a
+    // picture), so the text stays editable.
+    if (kind === "tablefigure") {
+      const prepared = prepareTableFigure(currentTableRows);
+      const blob = await buildTablePptx(
+        { categories: [], series: [], categoryLabel: "", hasHeader: prepared.hasHeader, rows: currentTableRows, warnings: [] },
+        "column",
+        {
+          title: pptTitleInput.value,
+          includeTable: false,
+          mainTable: { grid: prepared.grid, kinds: prepared.kinds, numericCol: prepared.numericCol },
+        }
+      );
+      triggerDownload(blob, suggestPptFileName(pptTitleInput.value));
+      setStatus("PowerPoint downloaded — the table is native and editable.", "success");
+      return;
+    }
+
     const picture = isPictureKind(kind);
-    // Diagrams, table figures, and the patent style ship as a picture of the
-    // same rendering shown in the preview (PowerPoint's native charts can't
-    // draw hatching, and it has no native flowchart/table-figure object).
+    // Diagrams and the patent style ship as a picture of the same rendering
+    // shown in the preview (PowerPoint has no native flowchart object, and its
+    // charts can't draw hatching).
     let chartImage: { dataUrl: string; wPx: number; hPx: number } | undefined;
     if (picture || style.patent) {
       const d = readSvgDims(rendered.svg, 380, 260);
@@ -1703,6 +1754,16 @@ async function downloadPptx(): Promise<void> {
   } finally {
     pptDownloadBtn.disabled = false;
   }
+}
+
+/** Downloads a Blob under the given filename via a temporary link. */
+function triggerDownload(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 /** "Q3 Sales!" → "q3-sales.pptx"; falls back to a generic name. */

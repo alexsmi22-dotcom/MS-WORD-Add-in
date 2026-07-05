@@ -20,6 +20,13 @@ export interface TablePptOptions {
    * (no hatch patterns) — the slide gets this picture instead of a chart.
    */
   chartImage?: { dataUrl: string; wPx: number; hPx: number };
+  /**
+   * When set, the main slide is a native, editable PowerPoint TABLE (not a
+   * chart or picture) — used for the "table figure" representation, so the
+   * text stays editable. Overrides chartImage/chart. `kinds` mark header/band
+   * rows for shading; `numericCol` right-aligns numeric columns.
+   */
+  mainTable?: { grid: string[][]; kinds: ("header" | "band" | "data")[]; numericCol: boolean[] };
 }
 
 /** PptxGenJS wants hex colors without the leading "#". */
@@ -38,6 +45,38 @@ export async function buildTablePptx(chart: TableChart, kind: ChartKind, opts: T
 
   const areaY = title ? 0.9 : 0.4;
   const areaH = title ? 4.3 : 4.8;
+
+  if (opts.mainTable) {
+    // Native, editable PowerPoint table (the "table figure" representation).
+    const { grid, kinds, numericCol } = opts.mainTable;
+    const rows: pptxgen.TableRow[] = grid.map((r, i) => {
+      const kind = kinds[i];
+      if (kind === "band") {
+        const label = r.find((c) => c !== "") ?? "";
+        // A section band spans the whole row (colspan on the first cell).
+        return [
+          { text: label, options: { bold: true, fill: { color: "DBE6F2" }, color: "222222", colspan: Math.max(1, r.length) } },
+        ];
+      }
+      return r.map((c, j) => ({
+        text: c,
+        options:
+          kind === "header"
+            ? { bold: true, fill: { color: "E7EEF6" }, color: "222222", align: "left" as const }
+            : { color: "333333", align: (numericCol[j] ? "right" : "left") as "right" | "left" },
+      }));
+    });
+    slide.addTable(rows, {
+      x: 0.4,
+      y: areaY,
+      w: 9.2,
+      fontSize: 12,
+      border: { type: "solid", pt: 0.5, color: "BBBBBB" },
+      autoPage: true,
+      autoPageRepeatHeader: kinds[0] === "header",
+    });
+    return (await pptx.write({ outputType: "blob" })) as Blob;
+  }
 
   if (opts.chartImage) {
     // Fit the pre-rendered figure inside the chart area, preserving aspect.

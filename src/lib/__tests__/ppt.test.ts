@@ -11,6 +11,7 @@
 import JSZip from "jszip";
 import { buildTablePptx } from "../ppt";
 import { parseTableData } from "../tablechart";
+import { prepareTableFigure } from "../tablefigure";
 
 const chart = parseTableData([
   ["Year", "Sales", "Costs"],
@@ -67,6 +68,28 @@ describe("buildTablePptx", () => {
     const zip = await unzip(blob);
     expect(zip.file(/ppt\/charts\/chart\d*\.xml/).length).toBe(0);
     expect(zip.file(/ppt\/media\/image[\d-]*\.png/).length).toBeGreaterThan(0);
+  });
+
+  test("mainTable exports a native editable PowerPoint table, not a chart or picture", async () => {
+    const prepared = prepareTableFigure([
+      ["Section", "Characteristic", "n", "Percent"],
+      ["Demographics", "", "", ""],
+      ["", "Female", "8,408", "75.0%"],
+      ["", "Male", "2,803", "25.0%"],
+    ]);
+    const blob = await buildTablePptx(
+      { categories: [], series: [], categoryLabel: "", hasHeader: true, rows: [], warnings: [] },
+      "column",
+      { title: "Baseline", mainTable: { grid: prepared.grid, kinds: prepared.kinds, numericCol: prepared.numericCol } }
+    );
+    const zip = await unzip(blob);
+    const slide1 = await zip.file("ppt/slides/slide1.xml")!.async("string");
+    expect(slide1).toContain("<a:tbl>"); // a real table on the main slide
+    expect(slide1).toContain("Female");
+    expect(zip.file(/ppt\/charts\/chart\d*\.xml/).length).toBe(0); // no chart
+    expect(zip.file(/ppt\/media\/image[\d-]*\.png/).length).toBe(0); // no picture
+    expect(zip.file("ppt/slides/slide2.xml")).toBeNull(); // no redundant data slide
+    expect(slide1).toContain('gridSpan="3"'); // section band spans the row
   });
 
   test("pie chart exports only the first series", async () => {

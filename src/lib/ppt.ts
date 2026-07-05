@@ -8,7 +8,7 @@
 
 import pptxgen from "pptxgenjs";
 import { ChartKind, TableChart, CHART_PALETTE } from "./tablechart";
-import { parseSteps, buildTree, numberTree, countLeaves, depthOf, TreeNode } from "./tablediagram";
+import { layoutDiagram, DiagramLayout } from "./tablediagram";
 
 export interface TablePptOptions {
   /** Slide + chart title; omitted when blank. */
@@ -44,161 +44,88 @@ interface DiagramArea {
   h: number;
 }
 
-/** Caps a label so a paragraph-long table cell can't drown a small shape. */
-function truncateLabel(s: string, max: number): string {
-  return s.length > max ? s.slice(0, max - 1) + "…" : s;
-}
-
-/** Draws a flowchart from native, editable PowerPoint shapes. */
-function addFlowchartShapes(
-  pptx: pptxgen,
-  slide: pptxgen.Slide,
-  rows: string[][],
-  area: DiagramArea,
-  numerals: boolean,
-  patent: boolean
-): void {
-  const { steps } = parseSteps(rows);
-  if (!steps.length) return;
+/**
+ * Renders a DiagramLayout (the exact geometry shown in the task-pane preview)
+ * as native, editable PowerPoint shapes — scaled from layout px into the slide
+ * area, preserving every position, so the slide matches the preview.
+ */
+function addDiagramFromLayout(pptx: pptxgen, slide: pptxgen.Slide, layout: DiagramLayout, area: DiagramArea, patent: boolean): void {
+  if (!layout.boxes.length) return;
   const boxFill = patent ? "FFFFFF" : "EAF2FB";
-  const decisionFill = patent ? "FFFFFF" : "FDF1DC";
+  const accentFill = patent ? "FFFFFF" : "FDF1DC";
   const lineColor = patent ? "000000" : "1F77B4";
   const edgeColor = patent ? "000000" : "555555";
   const ink = patent ? "000000" : "222222";
 
-  const n = steps.length;
-  const gap = 0.22;
-  const boxW = Math.min(3.6, area.w * 0.55);
-  const cx = area.x + area.w / 2;
-  // Height per box from wrapped line estimate; scale to fit the area.
-  const linesFor = (t: string): number => Math.max(1, Math.ceil(t.length / 34));
-  const rawH = steps.map((s) => Math.max(0.5, linesFor(s.text) * 0.22 + 0.18));
-  const totalRaw = rawH.reduce((a, b) => a + b, 0) + gap * (n - 1);
-  const scale = totalRaw > area.h ? area.h / totalRaw : 1;
-  const h = rawH.map((v) => v * scale);
-  const g = gap * scale;
+  // px → inches, uniformly scaled to fit (and fill) the slide area.
+  const wIn = layout.W / 96;
+  const hIn = layout.H / 96;
+  const s = Math.min(area.w / wIn, area.h / hIn, 2.2);
+  const ox = area.x + (area.w - wIn * s) / 2;
+  const oy = area.y + (area.h - hIn * s) / 2;
+  const X = (v: number): number => ox + (v / 96) * s;
+  const Y = (v: number): number => oy + (v / 96) * s;
+  const D = (v: number): number => (v / 96) * s;
+  const F = (px: number): number => Math.max(6, Math.round(px * 0.75 * s * 10) / 10); // px → pt, scaled
 
-  let y = area.y;
-  const centers: number[] = [];
-  steps.forEach((s, i) => {
-    const shape = s.decision ? pptx.ShapeType.diamond : s.terminator ? pptx.ShapeType.roundRect : pptx.ShapeType.rect;
-    slide.addText(truncateLabel(s.text, 140), {
+  for (const b of layout.boxes) {
+    const shape = b.kind === "diamond" ? pptx.ShapeType.diamond : b.kind === "round" ? pptx.ShapeType.roundRect : pptx.ShapeType.rect;
+    slide.addText(b.lines.join("\n"), {
       shape,
-      x: cx - boxW / 2,
-      y,
-      w: boxW,
-      h: h[i],
-      fill: { color: s.decision ? decisionFill : boxFill },
-      line: { color: lineColor, width: 1 },
+      x: X(b.x),
+      y: Y(b.y),
+      w: D(b.w),
+      h: D(b.h),
+      fill: { color: b.accent ? accentFill : boxFill },
+      line: { color: lineColor, width: Math.max(0.75, s) },
       align: "center",
       valign: "middle",
-      fontSize: 11,
+      fontSize: F(b.fontPx),
       color: ink,
-      fit: "shrink", // PowerPoint shrinks the text to stay inside the shape
-      margin: 3,
-    });
-    centers.push(y + h[i] / 2);
-    // Reference numeral with a lead line, alternating sides.
-    const refId = s.id || (numerals ? String(102 + i * 2) : "");
-    if (refId) {
-      const right = i % 2 === 0;
-      const edgeX = cx + (right ? boxW / 2 : -boxW / 2);
-      const numX = cx + (right ? boxW / 2 + 0.5 : -boxW / 2 - 0.5);
-      slide.addShape(pptx.ShapeType.line, {
-        x: Math.min(edgeX, numX),
-        y: y + h[i] / 2,
-        w: Math.abs(numX - edgeX),
-        h: 0,
-        line: { color: edgeColor, width: 0.75 },
-      });
-      slide.addText(refId, {
-        x: right ? numX : numX - 0.5,
-        y: y + h[i] / 2 - 0.15,
-        w: 0.5,
-        h: 0.3,
-        align: right ? "left" : "right",
-        fontSize: 10,
-        color: ink,
-      });
-    }
-    if (i < n - 1) {
-      const arrowY = y + h[i];
-      slide.addShape(pptx.ShapeType.line, {
-        x: cx,
-        y: arrowY,
-        w: 0,
-        h: g,
-        line: { color: edgeColor, width: 1.25, endArrowType: "triangle" },
-      });
-    }
-    y += h[i] + g;
-  });
-}
-
-/** Draws a block-diagram hierarchy from native, editable PowerPoint shapes. */
-function addHierarchyShapes(
-  pptx: pptxgen,
-  slide: pptxgen.Slide,
-  rows: string[][],
-  area: DiagramArea,
-  numerals: boolean,
-  patent: boolean
-): void {
-  const { roots } = buildTree(rows);
-  if (!roots.length) return;
-  if (numerals) numberTree(roots);
-  const leaves = Math.max(1, roots.reduce((acc, r) => acc + countLeaves(r), 0));
-  const depth = Math.max(...roots.map(depthOf));
-
-  const boxFill = patent ? "FFFFFF" : "EAF2FB";
-  const rootFill = patent ? "FFFFFF" : "FDF1DC";
-  const lineColor = patent ? "000000" : "1F77B4";
-  const edgeColor = patent ? "000000" : "555555";
-  const ink = patent ? "000000" : "222222";
-
-  const slotW = area.w / leaves;
-  const boxW = Math.min(slotW * 0.92, 2.6);
-  const levelH = area.h / Math.max(1, depth);
-  const boxH = Math.min(0.9, levelH * 0.55);
-
-  let cursor = area.x;
-  const layout = (node: TreeNode, level: number): number => {
-    const y = area.y + level * levelH;
-    let cx: number;
-    if (!node.children.length) {
-      cx = cursor + slotW / 2;
-      cursor += slotW;
-    } else {
-      const centers = node.children.map((c) => layout(c, level + 1));
-      cx = (centers[0] + centers[centers.length - 1]) / 2;
-      const busY = y + boxH + (levelH - boxH) / 2;
-      slide.addShape(pptx.ShapeType.line, { x: cx, y: y + boxH, w: 0, h: busY - (y + boxH), line: { color: edgeColor, width: 1 } });
-      if (centers.length > 1) {
-        slide.addShape(pptx.ShapeType.line, { x: Math.min(...centers), y: busY, w: Math.abs(centers[centers.length - 1] - centers[0]), h: 0, line: { color: edgeColor, width: 1 } });
-      }
-      for (const ccx of centers) {
-        slide.addShape(pptx.ShapeType.line, { x: ccx, y: busY, w: 0, h: y + levelH - busY, line: { color: edgeColor, width: 1 } });
-      }
-    }
-    const label = node.num ? `${node.num} ${node.label}` : node.label;
-    slide.addText(truncateLabel(label, 70), {
-      shape: pptx.ShapeType.rect,
-      x: cx - boxW / 2,
-      y,
-      w: boxW,
-      h: boxH,
-      fill: { color: level === 0 ? rootFill : boxFill },
-      line: { color: lineColor, width: 1 },
-      align: "center",
-      valign: "middle",
-      fontSize: 10,
-      color: ink,
-      fit: "shrink", // PowerPoint shrinks the text to stay inside the box
+      fit: "shrink",
       margin: 2,
     });
-    return cx;
-  };
-  roots.forEach((r) => layout(r, 0));
+  }
+
+  for (const l of layout.lines) {
+    // pptxgen draws a line across its bounding box, top-left → bottom-right;
+    // flip when the segment runs the other way.
+    const x = Math.min(l.x1, l.x2);
+    const y = Math.min(l.y1, l.y2);
+    const w = Math.abs(l.x2 - l.x1);
+    const h = Math.abs(l.y2 - l.y1);
+    const backwardX = l.x2 < l.x1;
+    const backwardY = l.y2 < l.y1;
+    slide.addShape(pptx.ShapeType.line, {
+      x: X(x),
+      y: Y(y),
+      w: D(w),
+      h: D(h),
+      flipH: backwardX !== backwardY ? true : undefined,
+      line: {
+        color: edgeColor,
+        width: l.lead ? 0.75 : 1.25,
+        ...(l.arrow ? { endArrowType: "triangle" as const } : {}),
+      },
+    });
+  }
+
+  for (const t of layout.texts) {
+    const boxWpx = Math.max(30, t.text.length * t.fontPx * 0.62);
+    const xPx = t.anchor === "start" ? t.x : t.anchor === "end" ? t.x - boxWpx : t.x - boxWpx / 2;
+    slide.addText(t.text, {
+      x: X(xPx),
+      y: Y(t.y - t.fontPx), // SVG y is the baseline; the text frame starts above it
+      w: D(boxWpx),
+      h: D(t.fontPx * 1.6),
+      align: t.anchor === "start" ? "left" : t.anchor === "end" ? "right" : "center",
+      valign: "middle",
+      fontSize: F(t.fontPx),
+      bold: !!t.bold,
+      color: ink,
+      margin: 0,
+    });
+  }
 }
 
 /** PptxGenJS wants hex colors without the leading "#". */
@@ -219,11 +146,12 @@ export async function buildTablePptx(chart: TableChart, kind: ChartKind, opts: T
   const areaH = title ? 4.3 : 4.8;
 
   if (opts.diagramShapes) {
-    // Native, editable diagram (flowchart / block diagram) as PowerPoint shapes.
+    // Native, editable diagram (flowchart / block diagram) as PowerPoint
+    // shapes, laid out from the same geometry as the task-pane preview.
     const area: DiagramArea = { x: 0.4, y: areaY, w: 9.2, h: areaH };
     const { kind, rows, numerals, patent } = opts.diagramShapes;
-    if (kind === "flowchart") addFlowchartShapes(pptx, slide, rows, area, numerals, patent);
-    else addHierarchyShapes(pptx, slide, rows, area, numerals, patent);
+    const layout = layoutDiagram(kind, rows, "", { numerals, patent });
+    addDiagramFromLayout(pptx, slide, layout, area, patent);
     return (await pptx.write({ outputType: "blob" })) as Blob;
   }
 

@@ -4,6 +4,11 @@
 // | Component — apparatus figures). Both honor the patent (B&W line-art)
 // style and the optional "FIG. N" label, matching tablechart.ts.
 //
+// The geometry is computed ONCE (layoutFlowchart / layoutHierarchy) and then
+// rendered twice from the same coordinates: to SVG for the task-pane preview /
+// Word figure, and to native PowerPoint shapes (ppt.ts) — so what you preview
+// is exactly what lands on the slide.
+//
 // Pure logic — no Office.js — fully unit-testable.
 
 import { ChartStyle } from "./tablechart";
@@ -12,6 +17,50 @@ export type DiagramKind = "flowchart" | "hierarchy";
 
 export interface DiagramResult {
   svg: string;
+  warnings: string[];
+}
+
+// --- Shared geometry model ----------------------------------------------------
+
+export interface LayoutBox {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  /** Pre-wrapped text lines shown inside the box. */
+  lines: string[];
+  kind: "rect" | "round" | "diamond";
+  /** Accented boxes (decision diamonds, hierarchy roots) get the accent fill. */
+  accent: boolean;
+  fontPx: number;
+}
+
+export interface LayoutLine {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  /** Connector arrowhead at (x2, y2). */
+  arrow?: boolean;
+  /** Reference-numeral lead line (thinner). */
+  lead?: boolean;
+}
+
+export interface LayoutText {
+  x: number;
+  y: number; // baseline, like SVG
+  text: string;
+  anchor: "start" | "middle" | "end";
+  fontPx: number;
+  bold?: boolean;
+}
+
+export interface DiagramLayout {
+  W: number;
+  H: number;
+  boxes: LayoutBox[];
+  lines: LayoutLine[];
+  texts: LayoutText[];
   warnings: string[];
 }
 
@@ -64,32 +113,7 @@ function palette(style: ChartStyle): Palette {
     : { stroke: "#1f77b4", fill: "#eaf2fb", accentFill: "#fdf1dc", edge: "#555", ink: "#222" };
 }
 
-function titleSvg(title: string, ink: string): string {
-  return title
-    ? `<text x="${W / 2}" y="17" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="bold" fill="${ink}">${esc(title.length > 48 ? title.slice(0, 47) + "…" : title)}</text>`
-    : "";
-}
-
-function figLabelSvg(figLabel: string, H: number): string {
-  return figLabel
-    ? `<text x="${W / 2}" y="${H - 9}" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#000">${esc(figLabel)}</text>`
-    : "";
-}
-
-function shell(H: number, inner: string): string {
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"><rect width="${W}" height="${H}" fill="#fff"/>${inner}</svg>`;
-}
-
-/** Downward arrow from (x, y1) to (x, y2): shaft + solid triangular head. */
-function arrow(x: number, y1: number, y2: number, color: string): string {
-  const tip = y2;
-  return (
-    `<line class="fi-edge" x1="${x}" y1="${y1.toFixed(1)}" x2="${x}" y2="${(tip - 6).toFixed(1)}" stroke="${color}" stroke-width="1.3"/>` +
-    `<polygon class="fi-arrow" points="${x - 3.6},${(tip - 6.5).toFixed(1)} ${x + 3.6},${(tip - 6.5).toFixed(1)} ${x},${tip.toFixed(1)}" fill="${color}"/>`
-  );
-}
-
-// --- Flowchart ---------------------------------------------------------------
+// --- Flowchart parsing ---------------------------------------------------------
 
 const HEADER_WORDS = new Set(["step", "steps", "stage", "no", "no.", "#", "operation", "action", "task", "phase"]);
 
@@ -105,7 +129,7 @@ export interface Step {
   terminator: boolean;
 }
 
-/** Rows → steps: optional header skipped, optional id column, "?" = decision. Exported for the PPT shape builder. */
+/** Rows → steps: optional header skipped, optional id column, "?" = decision. */
 export function parseSteps(rows: string[][]): { steps: Step[]; warnings: string[] } {
   const warnings: string[] = [];
   let body = rows;
@@ -137,25 +161,29 @@ export function parseSteps(rows: string[][]): { steps: Step[]; warnings: string[
   return { steps, warnings };
 }
 
-/** Renders the table rows as a top-to-bottom flowchart. */
-export function buildFlowchartSvg(rows: string[][], title = "", style: ChartStyle = {}): DiagramResult {
+// --- Flowchart layout ----------------------------------------------------------
+
+/** Computes the flowchart geometry (px). SVG and PPT render from this. */
+export function layoutFlowchart(rows: string[][], title = "", style: ChartStyle = {}): DiagramLayout {
   const { steps, warnings } = parseSteps(rows);
-  if (!steps.length) {
-    return { svg: shell(120, `<text x="${W / 2}" y="60" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#999">No steps to draw</text>`), warnings };
-  }
-  const p = palette(style);
+  const layout: DiagramLayout = { W, H: 120, boxes: [], lines: [], texts: [], warnings };
+  if (!steps.length) return layout;
+
   const figLabel = (style.figLabel ?? "").trim();
   const cx = W / 2;
   const boxW = 216;
   const gap = 26;
 
-  // Measure first so the canvas height is exact.
+  if (title) {
+    layout.texts.push({ x: W / 2, y: 17, text: title.length > 48 ? title.slice(0, 47) + "…" : title, anchor: "middle", fontPx: 13, bold: true });
+  }
+
+  let y = title ? 34 : 16;
   interface Placed extends Step {
     y: number;
     h: number;
     lines: string[];
   }
-  let y = title ? 34 : 16;
   const placed: Placed[] = steps.map((s, i) => {
     const lines = s.decision ? wrapText(s.text, 18, 3) : wrapText(s.text, 30, 4);
     const h = s.decision ? Math.max(46, lines.length * 13 + 26) : lines.length * 13 + 14;
@@ -163,53 +191,46 @@ export function buildFlowchartSvg(rows: string[][], title = "", style: ChartStyl
     y += h + (i < steps.length - 1 ? gap : 0);
     return box;
   });
-  const H = y + (figLabel ? 34 : 14);
+  layout.H = y + (figLabel ? 34 : 14);
 
-  const parts: string[] = [titleSvg(title, p.ink)];
   placed.forEach((s, i) => {
     const midY = s.y + s.h / 2;
     if (s.decision) {
       const halfW = boxW / 2 - 24;
-      const halfH = s.h / 2 + 4;
-      parts.push(
-        `<polygon class="fi-box" points="${cx},${s.y - 4} ${cx + halfW},${midY} ${cx},${s.y + s.h + 4} ${cx - halfW},${midY}" fill="${p.accentFill}" stroke="${p.stroke}" stroke-width="1.2"/>`
-      );
+      layout.boxes.push({ x: cx - halfW, y: s.y - 4, w: halfW * 2, h: s.h + 8, lines: s.lines, kind: "diamond", accent: true, fontPx: 10.5 });
     } else {
-      parts.push(
-        `<rect class="fi-box" x="${cx - boxW / 2}" y="${s.y}" width="${boxW}" height="${s.h}" rx="${s.terminator ? 14 : 0}" fill="${p.fill}" stroke="${p.stroke}" stroke-width="1.2"/>`
-      );
+      layout.boxes.push({ x: cx - boxW / 2, y: s.y, w: boxW, h: s.h, lines: s.lines, kind: s.terminator ? "round" : "rect", accent: false, fontPx: 10.5 });
     }
-    const y0 = midY - ((s.lines.length - 1) * 13) / 2 + 3.5;
-    s.lines.forEach((line, li) => {
-      parts.push(
-        `<text x="${cx}" y="${(y0 + li * 13).toFixed(1)}" text-anchor="middle" font-family="sans-serif" font-size="10.5" fill="${p.ink}">${esc(line)}</text>`
-      );
-    });
     // Reference numeral: the step's own id, or an auto callout (102, 104, …)
-    // when the patent numeral option is on and the row had no id. Drawn
-    // free-standing with a straight lead line to the box edge, alternating
-    // sides so the numbers don't stack into a column (37 CFR 1.84(q)).
+    // when the patent numeral option is on and the row had no id. Free-standing
+    // with a straight lead line to the box edge, alternating sides.
     const refId = s.id || (style.numerals ? String(102 + i * 2) : "");
     if (refId) {
       const ext = s.decision ? boxW / 2 - 24 : boxW / 2;
       const right = i % 2 === 0;
       const edgeX = cx + (right ? ext : -ext);
       const numX = cx + (right ? ext + 24 : -ext - 24);
-      const numY = midY - 11; // lift the number so the lead line is angled
-      parts.push(
-        `<line x1="${(numX + (right ? -3 : 3)).toFixed(1)}" y1="${(numY + 2).toFixed(1)}" x2="${edgeX.toFixed(1)}" y2="${midY.toFixed(1)}" stroke="${p.edge}" stroke-width="0.9"/>` +
-          `<text x="${numX.toFixed(1)}" y="${numY.toFixed(1)}" text-anchor="${right ? "start" : "end"}" font-family="sans-serif" font-size="10.5" fill="${p.ink}">${esc(refId)}</text>`
-      );
+      const numY = midY - 11;
+      layout.lines.push({ x1: numX + (right ? -3 : 3), y1: numY + 2, x2: edgeX, y2: midY, lead: true });
+      layout.texts.push({ x: numX, y: numY, text: refId, anchor: right ? "start" : "end", fontPx: 10.5 });
     }
     if (i < placed.length - 1) {
-      parts.push(arrow(cx, s.y + s.h + (s.decision ? 4 : 0), placed[i + 1].y - (placed[i + 1].decision ? 4 : 0), p.edge));
+      layout.lines.push({
+        x1: cx,
+        y1: s.y + s.h + (s.decision ? 4 : 0),
+        x2: cx,
+        y2: placed[i + 1].y - (placed[i + 1].decision ? 4 : 0),
+        arrow: true,
+      });
     }
   });
-  parts.push(figLabelSvg(figLabel, H));
-  return { svg: shell(H, parts.join("")), warnings };
+  if (figLabel) {
+    layout.texts.push({ x: W / 2, y: layout.H - 9, text: figLabel.length > 24 ? figLabel.slice(0, 23) + "…" : figLabel, anchor: "middle", fontPx: 14 });
+  }
+  return layout;
 }
 
-// --- Block diagram (hierarchy) -----------------------------------------------
+// --- Block diagram (hierarchy) ---------------------------------------------------
 
 export interface TreeNode {
   label: string;
@@ -271,12 +292,12 @@ export function depthOf(n: TreeNode): number {
   return 1 + (n.children.length ? Math.max(...n.children.map(depthOf)) : 0);
 }
 
-/** Renders the table rows as a connected-boxes hierarchy (block diagram). */
-export function buildHierarchySvg(rows: string[][], title = "", style: ChartStyle = {}): DiagramResult {
+/** Computes the block-diagram geometry (px). SVG and PPT render from this. */
+export function layoutHierarchy(rows: string[][], title = "", style: ChartStyle = {}): DiagramLayout {
   const { roots, warnings } = buildTree(rows);
-  if (!roots.length) {
-    return { svg: shell(120, `<text x="${W / 2}" y="60" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#999">No hierarchy to draw</text>`), warnings };
-  }
+  const layout: DiagramLayout = { W, H: 120, boxes: [], lines: [], texts: [], warnings };
+  if (!roots.length) return layout;
+
   let leaves = roots.reduce((acc, r) => acc + countLeaves(r), 0);
   if (leaves > MAX_LEAVES) {
     warnings.push(`The diagram is dense (${leaves} end boxes) — labels may be small.`);
@@ -285,79 +306,139 @@ export function buildHierarchySvg(rows: string[][], title = "", style: ChartStyl
   const depth = Math.max(...roots.map(depthOf));
   if (style.numerals) numberTree(roots);
 
-  const p = palette(style);
   const figLabel = (style.figLabel ?? "").trim();
   const slotW = 96;
   const levelH = 62;
   const boxH = 30;
   const LW = Math.max(W, leaves * slotW + 20);
   const top = title ? 36 : 18;
-  const LH = top + depth * levelH - (levelH - boxH) + (figLabel ? 36 : 16);
+  layout.W = LW;
+  layout.H = top + depth * levelH - (levelH - boxH) + (figLabel ? 36 : 16);
 
-  const parts: string[] = [];
+  if (title) {
+    layout.texts.push({ x: LW / 2, y: 19, text: title.length > 48 ? title.slice(0, 47) + "…" : title, anchor: "middle", fontPx: 13, bold: true });
+  }
+
   let cursor = 10 + (LW - leaves * slotW - 20) / 2 + 10;
-
-  const layout = (node: TreeNode, level: number): { cx: number } => {
+  const walk = (node: TreeNode, level: number): { cx: number } => {
     const y = top + level * levelH;
     let cx: number;
     if (!node.children.length) {
       cx = cursor + slotW / 2;
       cursor += slotW;
     } else {
-      const centers = node.children.map((c) => layout(c, level + 1).cx);
+      const centers = node.children.map((c) => walk(c, level + 1).cx);
       cx = (centers[0] + centers[centers.length - 1]) / 2;
       // Orthogonal connectors: down from parent, across, down into each child.
       const busY = y + boxH + (levelH - boxH) / 2;
-      parts.push(`<line class="fi-edge" x1="${cx.toFixed(1)}" y1="${y + boxH}" x2="${cx.toFixed(1)}" y2="${busY}" stroke="${p.edge}" stroke-width="1.1"/>`);
+      layout.lines.push({ x1: cx, y1: y + boxH, x2: cx, y2: busY });
       if (centers.length > 1) {
-        parts.push(`<line class="fi-edge" x1="${centers[0].toFixed(1)}" y1="${busY}" x2="${centers[centers.length - 1].toFixed(1)}" y2="${busY}" stroke="${p.edge}" stroke-width="1.1"/>`);
+        layout.lines.push({ x1: centers[0], y1: busY, x2: centers[centers.length - 1], y2: busY });
       }
       for (const ccx of centers) {
-        parts.push(`<line class="fi-edge" x1="${ccx.toFixed(1)}" y1="${busY}" x2="${ccx.toFixed(1)}" y2="${y + levelH}" stroke="${p.edge}" stroke-width="1.1"/>`);
+        layout.lines.push({ x1: ccx, y1: busY, x2: ccx, y2: y + levelH });
       }
     }
     const bw = Math.min(slotW * Math.max(1, countLeaves(node)) - 10, 150);
     const lines = wrapText(node.label, Math.max(10, Math.floor(bw / 6)), 2);
-    parts.push(
-      `<rect class="fi-box" x="${(cx - bw / 2).toFixed(1)}" y="${y}" width="${bw.toFixed(1)}" height="${boxH}" fill="${level === 0 ? p.accentFill : p.fill}" stroke="${p.stroke}" stroke-width="1.2"/>`
-    );
-    const ty = y + boxH / 2 - ((lines.length - 1) * 11) / 2 + 3.5;
-    lines.forEach((line, li) => {
-      parts.push(
-        `<text x="${cx.toFixed(1)}" y="${(ty + li * 11).toFixed(1)}" text-anchor="middle" font-family="sans-serif" font-size="9.5" fill="${p.ink}">${esc(line)}</text>`
-      );
-    });
+    layout.boxes.push({ x: cx - bw / 2, y, w: bw, h: boxH, lines, kind: "rect", accent: level === 0, fontPx: 9.5 });
     // Reference numeral: free-standing above the top-left corner with a short
     // straight lead line to the box (not inside the box, not in a column).
     if (node.num) {
       const cornerX = cx - bw / 2;
-      const numX = cornerX - 7;
-      const numY = y - 5;
-      parts.push(
-        `<line class="fi-lead" x1="${(numX + 2).toFixed(1)}" y1="${(numY + 1).toFixed(1)}" x2="${(cornerX + 4).toFixed(1)}" y2="${(y + 2).toFixed(1)}" stroke="${p.edge}" stroke-width="0.9"/>` +
-          `<text x="${numX.toFixed(1)}" y="${numY.toFixed(1)}" text-anchor="end" font-family="sans-serif" font-size="10" fill="${p.ink}">${esc(node.num)}</text>`
-      );
+      layout.lines.push({ x1: cornerX - 5, y1: y - 4, x2: cornerX + 4, y2: y + 2, lead: true });
+      layout.texts.push({ x: cornerX - 7, y: y - 5, text: node.num, anchor: "end", fontPx: 10 });
     }
     return { cx };
   };
-  for (const root of roots) layout(root, 0);
+  for (const root of roots) walk(root, 0);
 
-  // Title / FIG. label are placed in layout coordinates, then the whole canvas
-  // is scaled to the 380px pane width when the tree is wider.
-  const head = title
-    ? `<text x="${LW / 2}" y="19" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="bold" fill="${p.ink}">${esc(title.length > 48 ? title.slice(0, 47) + "…" : title)}</text>`
-    : "";
-  const foot = figLabel
-    ? `<text x="${LW / 2}" y="${LH - 10}" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#000">${esc(figLabel)}</text>`
-    : "";
+  if (figLabel) {
+    layout.texts.push({ x: LW / 2, y: layout.H - 10, text: figLabel, anchor: "middle", fontPx: 14 });
+  }
+  return layout;
+}
+
+// --- SVG renderer ---------------------------------------------------------------
+
+/** Renders a DiagramLayout to SVG, scaled into the 380px pane when wider. */
+function renderLayoutSvg(layout: DiagramLayout, style: ChartStyle, emptyMessage: string): string {
+  const p = palette(style);
+  const { W: LW, H: LH } = layout;
+  if (!layout.boxes.length) {
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="120" viewBox="0 0 ${W} 120"><rect width="${W}" height="120" fill="#fff"/><text x="${W / 2}" y="60" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#999">${esc(emptyMessage)}</text></svg>`;
+  }
+  const parts: string[] = [];
+
+  for (const b of layout.boxes) {
+    const fill = b.accent ? p.accentFill : p.fill;
+    if (b.kind === "diamond") {
+      const cx = b.x + b.w / 2;
+      const cy = b.y + b.h / 2;
+      parts.push(
+        `<polygon class="fi-box" points="${cx},${b.y} ${(b.x + b.w).toFixed(1)},${cy.toFixed(1)} ${cx},${(b.y + b.h).toFixed(1)} ${b.x.toFixed(1)},${cy.toFixed(1)}" fill="${fill}" stroke="${p.stroke}" stroke-width="1.2"/>`
+      );
+    } else {
+      parts.push(
+        `<rect class="fi-box" x="${b.x.toFixed(1)}" y="${b.y.toFixed(1)}" width="${b.w.toFixed(1)}" height="${b.h.toFixed(1)}" rx="${b.kind === "round" ? 14 : 0}" fill="${fill}" stroke="${p.stroke}" stroke-width="1.2"/>`
+      );
+    }
+    const lh = b.fontPx + 2.5;
+    const y0 = b.y + b.h / 2 - ((b.lines.length - 1) * lh) / 2 + 3.5;
+    b.lines.forEach((line, li) => {
+      parts.push(
+        `<text x="${(b.x + b.w / 2).toFixed(1)}" y="${(y0 + li * lh).toFixed(1)}" text-anchor="middle" font-family="sans-serif" font-size="${b.fontPx}" fill="${p.ink}">${esc(line)}</text>`
+      );
+    });
+  }
+
+  for (const l of layout.lines) {
+    if (l.arrow) {
+      // Shaft stops short of the tip; solid triangular head at the end.
+      parts.push(
+        `<line class="fi-edge" x1="${l.x1}" y1="${l.y1.toFixed(1)}" x2="${l.x2}" y2="${(l.y2 - 6).toFixed(1)}" stroke="${p.edge}" stroke-width="1.3"/>` +
+          `<polygon class="fi-arrow" points="${l.x2 - 3.6},${(l.y2 - 6.5).toFixed(1)} ${l.x2 + 3.6},${(l.y2 - 6.5).toFixed(1)} ${l.x2},${l.y2.toFixed(1)}" fill="${p.edge}"/>`
+      );
+    } else {
+      const cls = l.lead ? "fi-lead" : "fi-edge";
+      const width = l.lead ? 0.9 : 1.1;
+      parts.push(
+        `<line class="${cls}" x1="${l.x1.toFixed(1)}" y1="${l.y1.toFixed(1)}" x2="${l.x2.toFixed(1)}" y2="${l.y2.toFixed(1)}" stroke="${p.edge}" stroke-width="${width}"/>`
+      );
+    }
+  }
+
+  for (const t of layout.texts) {
+    parts.push(
+      `<text x="${t.x.toFixed(1)}" y="${t.y.toFixed(1)}" text-anchor="${t.anchor}" font-family="sans-serif" font-size="${t.fontPx}"${t.bold ? ' font-weight="bold"' : ""} fill="${t.fontPx >= 14 ? "#000" : p.ink}">${esc(t.text)}</text>`
+    );
+  }
+
   const scale = LW > W ? W / LW : 1;
-  const svg =
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${Math.round(LW * scale)}" height="${Math.round(LH * scale)}" viewBox="0 0 ${LW} ${LH}">` +
-    `<rect width="${LW}" height="${LH}" fill="#fff"/>${head}${parts.join("")}${foot}</svg>`;
-  return { svg, warnings };
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${Math.round(LW * scale)}" height="${Math.round(LH * scale)}" viewBox="0 0 ${Math.round(LW)} ${Math.round(LH)}">` +
+    `<rect width="${Math.round(LW)}" height="${Math.round(LH)}" fill="#fff"/>${parts.join("")}</svg>`
+  );
+}
+
+/** Renders the table rows as a top-to-bottom flowchart. */
+export function buildFlowchartSvg(rows: string[][], title = "", style: ChartStyle = {}): DiagramResult {
+  const layout = layoutFlowchart(rows, title, style);
+  return { svg: renderLayoutSvg(layout, style, "No steps to draw"), warnings: layout.warnings };
+}
+
+/** Renders the table rows as a connected-boxes hierarchy (block diagram). */
+export function buildHierarchySvg(rows: string[][], title = "", style: ChartStyle = {}): DiagramResult {
+  const layout = layoutHierarchy(rows, title, style);
+  return { svg: renderLayoutSvg(layout, style, "No hierarchy to draw"), warnings: layout.warnings };
 }
 
 /** Dispatch helper used by the task pane. */
 export function buildDiagramSvg(kind: DiagramKind, rows: string[][], title = "", style: ChartStyle = {}): DiagramResult {
   return kind === "flowchart" ? buildFlowchartSvg(rows, title, style) : buildHierarchySvg(rows, title, style);
+}
+
+/** Layout dispatch used by the PPT shape renderer. */
+export function layoutDiagram(kind: DiagramKind, rows: string[][], title = "", style: ChartStyle = {}): DiagramLayout {
+  return kind === "flowchart" ? layoutFlowchart(rows, title, style) : layoutHierarchy(rows, title, style);
 }

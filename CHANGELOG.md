@@ -2,6 +2,16 @@
 
 All notable changes to Formula Inserter. Dates are release/pilot dates.
 
+## [1.8.2] — 2026-07-04
+
+### Fixed
+- **PowerPoint diagrams now match the preview exactly.** The preview and the
+  PPT shape export used two different layout engines, so slides came out
+  scrambled. The diagram geometry (boxes, connectors, numerals, wrapped text)
+  is now computed once and rendered identically to SVG (preview / Word) and
+  to native PowerPoint shapes — verified by rendering the generated slides in
+  PowerPoint itself. Shapes remain fully editable.
+
 ## [1.8.1] — 2026-07-04
 
 ### Fixed

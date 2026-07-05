@@ -272,6 +272,27 @@ h1 {
 .seq-readout {
   margin-top: 4px;
 }
+.seq-features {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 4px;
+}
+.seq-feature-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+.seq-feature-row .lib-select,
+.seq-feature-row .formula-input {
+  flex: 1 1 70px;
+  min-width: 60px;
+  font-size: 12px;
+}
+.seq-feat-remove {
+  flex: 0 0 auto;
+}
 .seq-warnings {
   margin: 8px 0;
   font-size: 12.5px;

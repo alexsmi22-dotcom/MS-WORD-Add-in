@@ -7,7 +7,23 @@
 // Sequence tool before filing. Pure string logic — no Office.js, no Date — so it
 // is fully unit-testable; the caller supplies the production date.
 
+import { resolveCodon } from "./dna";
+
 export type MolType = "DNA" | "RNA" | "AA";
+
+export interface St26Qualifier {
+  name: string;
+  value: string;
+}
+
+/** An ST.26 feature to annotate on a sequence (beyond the mandatory `source`). */
+export interface St26Feature {
+  /** INSDC feature key: "CDS", "gene", "mRNA", "misc_feature", … */
+  key: string;
+  /** ST.26 location, e.g. "1..300" (1-based, inclusive). */
+  location: string;
+  qualifiers: St26Qualifier[];
+}
 
 export interface SequenceEntry {
   moltype: MolType;
@@ -21,6 +37,8 @@ export interface SequenceEntry {
    * absent or invalid.
    */
   sourceMolType?: string;
+  /** Optional annotated features (CDS, gene, …) beyond the source feature. */
+  features?: St26Feature[];
 }
 
 /** ST.26 controlled vocabulary for the source-feature `mol_type` qualifier. */
@@ -94,34 +112,108 @@ function el(tag: string, value: string): string {
   return `<${tag}>${escapeXml(value)}</${tag}>`;
 }
 
-function sourceFeature(moltype: MolType, length: number, organism: string, sourceMolType?: string): string {
+/** One `<INSDQualifier>` element (id unique within its feature). */
+function qual(id: number, name: string, value: string): string {
+  return (
+    `<INSDQualifier id="q${id}">` +
+    el("INSDQualifier_name", name) +
+    el("INSDQualifier_value", value) +
+    "</INSDQualifier>"
+  );
+}
+
+function sourceFeatureInner(moltype: MolType, length: number, organism: string, sourceMolType?: string): string {
   const org = organism.trim() || "synthetic construct";
   // Use the caller's mol_type only if it's valid for this molecule; else default.
   const molType =
     sourceMolType && MOL_TYPE_OPTIONS[moltype].indexOf(sourceMolType) >= 0 ? sourceMolType : MOL_TYPE_QUAL[moltype];
   return (
-    "<INSDSeq_feature-table><INSDFeature>" +
-    "<INSDFeature_key>source</INSDFeature_key>" +
+    "<INSDFeature>" +
+    el("INSDFeature_key", "source") +
     el("INSDFeature_location", `1..${length}`) +
     "<INSDFeature_quals>" +
-    `<INSDQualifier id="q1"><INSDQualifier_name>mol_type</INSDQualifier_name>` +
-    el("INSDQualifier_value", molType) +
-    "</INSDQualifier>" +
-    `<INSDQualifier id="q2"><INSDQualifier_name>organism</INSDQualifier_name>` +
-    el("INSDQualifier_value", org) +
-    "</INSDQualifier>" +
-    "</INSDFeature_quals></INSDFeature></INSDSeq_feature-table>"
+    qual(1, "mol_type", molType) +
+    qual(2, "organism", org) +
+    "</INSDFeature_quals></INSDFeature>"
   );
+}
+
+/** Translates a coding nucleotide string to protein, stopping at the first stop codon. */
+export function translateCds(nucleotides: string): string {
+  const s = nucleotides.toUpperCase().replace(/U/g, "T");
+  let protein = "";
+  for (let i = 0; i + 3 <= s.length; i += 3) {
+    const aa = resolveCodon(s.substring(i, i + 3));
+    if (aa === "*") break;
+    protein += aa;
+  }
+  return protein;
+}
+
+/** The residues a simple "start..end" (1-based) CDS location covers, or null. */
+function cdsRegion(location: string, residues: string): string | null {
+  const loc = location.trim();
+  if (!loc) return residues;
+  const m = /^(\d+)\.\.(\d+)$/.exec(loc);
+  if (m) {
+    const start = parseInt(m[1], 10);
+    const end = parseInt(m[2], 10);
+    if (start >= 1 && end <= residues.length && start <= end) return residues.slice(start - 1, end);
+  }
+  return null; // out of range / single position / join()/complement() — user supplies /translation
+}
+
+function featureInner(feature: St26Feature, moltype: MolType, residues: string): string {
+  const key = feature.key.trim() || "misc_feature";
+  const location = feature.location.trim() || `1..${residues.length}`;
+  const quals = feature.qualifiers.filter((q) => q.name.trim() && q.value.trim()).map((q) => ({ name: q.name.trim(), value: q.value.trim() }));
+  // Auto-generate /translation (and /codon_start) for a CDS on a nucleotide
+  // sequence when the drafter hasn't supplied one and the location is simple.
+  if (key.toUpperCase() === "CDS" && moltype !== "AA") {
+    const has = (n: string): boolean => quals.some((q) => q.name.toLowerCase() === n);
+    const region = cdsRegion(location, residues);
+    if (region !== null && !has("translation")) {
+      const protein = translateCds(region);
+      if (protein) {
+        if (!has("codon_start")) quals.push({ name: "codon_start", value: "1" });
+        quals.push({ name: "translation", value: protein });
+      }
+    }
+  }
+  const qualsXml = quals.length
+    ? "<INSDFeature_quals>" + quals.map((q, i) => qual(i + 1, q.name, q.value)).join("") + "</INSDFeature_quals>"
+    : "";
+  return "<INSDFeature>" + el("INSDFeature_key", key) + el("INSDFeature_location", location) + qualsXml + "</INSDFeature>";
+}
+
+/** Advisory warnings for a sequence's features (frame/location sanity). */
+export function featureWarnings(entry: SequenceEntry): string[] {
+  const warnings: string[] = [];
+  const { residues } = cleanResidues(entry.moltype, entry.residues);
+  for (const f of entry.features ?? []) {
+    if (f.key.trim().toUpperCase() !== "CDS" || entry.moltype === "AA") continue;
+    const region = cdsRegion(f.location, residues);
+    if (region === null) {
+      warnings.push(`CDS location "${f.location}" isn't a simple start..end range — add /translation manually and verify in WIPO Sequence.`);
+    } else if (region.length % 3 !== 0) {
+      warnings.push(`CDS (${f.location || "whole"}) length ${region.length} is not a multiple of 3 — check the reading frame.`);
+    }
+  }
+  return warnings;
 }
 
 function sequenceData(entry: SequenceEntry, idNumber: number): string {
   const { residues, length } = cleanResidues(entry.moltype, entry.residues);
+  const features = (entry.features ?? []).map((f) => featureInner(f, entry.moltype, residues)).join("");
   return (
     `<SequenceData sequenceIDNumber="${idNumber}"><INSDSeq>` +
     el("INSDSeq_length", String(length)) +
     el("INSDSeq_moltype", entry.moltype) +
     el("INSDSeq_division", "PAT") +
-    sourceFeature(entry.moltype, length, entry.organism ?? "", entry.sourceMolType) +
+    "<INSDSeq_feature-table>" +
+    sourceFeatureInner(entry.moltype, length, entry.organism ?? "", entry.sourceMolType) +
+    features +
+    "</INSDSeq_feature-table>" +
     el("INSDSeq_sequence", residues) +
     "</INSDSeq></SequenceData>"
   );

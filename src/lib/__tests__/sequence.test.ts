@@ -1,4 +1,12 @@
-import { cleanResidues, buildSt26Xml, SequenceListingMeta, SequenceEntry } from "../sequence";
+/** @jest-environment jsdom */
+import {
+  cleanResidues,
+  buildSt26Xml,
+  translateCds,
+  featureWarnings,
+  SequenceListingMeta,
+  SequenceEntry,
+} from "../sequence";
 
 describe("cleanResidues", () => {
   it("strips whitespace/numbers and lowercases nucleotides", () => {
@@ -105,5 +113,54 @@ describe("buildSt26Xml", () => {
     );
     expect(slim).not.toContain("<ApplicationIdentification>");
     expect(slim).toContain("<SequenceTotalQuantity>1</SequenceTotalQuantity>");
+  });
+});
+
+describe("translateCds", () => {
+  it("translates DNA and RNA, stopping at the first stop codon", () => {
+    expect(translateCds("atgggttaa")).toBe("MG"); // ATG GGT TAA → M G stop
+    expect(translateCds("AUGGGCUAA")).toBe("MG"); // RNA (U→T) → M G stop
+    expect(translateCds("atggga")).toBe("MG"); // no stop → translate to end
+  });
+});
+
+describe("ST.26 features (CDS / annotation)", () => {
+  const meta: SequenceListingMeta = { applicantName: "A", inventionTitle: "B", productionDate: "2026-07-05" };
+
+  it("auto-generates /translation and /codon_start for a CDS", () => {
+    const xml = buildSt26Xml(meta, [
+      { moltype: "DNA", residues: "atgggttaa", features: [{ key: "CDS", location: "1..9", qualifiers: [{ name: "gene", value: "abc" }] }] },
+    ]);
+    expect(xml).toContain("<INSDFeature_key>CDS</INSDFeature_key>");
+    expect(xml).toContain("<INSDFeature_location>1..9</INSDFeature_location>");
+    expect(xml).toContain("<INSDQualifier_name>gene</INSDQualifier_name><INSDQualifier_value>abc</INSDQualifier_value>");
+    expect(xml).toContain("<INSDQualifier_name>translation</INSDQualifier_name><INSDQualifier_value>MG</INSDQualifier_value>");
+    expect(xml).toContain("<INSDQualifier_name>codon_start</INSDQualifier_name><INSDQualifier_value>1</INSDQualifier_value>");
+    // The mandatory source feature is still present alongside the CDS.
+    expect(xml).toContain("<INSDFeature_key>source</INSDFeature_key>");
+  });
+
+  it("does not override a drafter-supplied /translation", () => {
+    const xml = buildSt26Xml(meta, [
+      { moltype: "DNA", residues: "atgggttaa", features: [{ key: "CDS", location: "1..9", qualifiers: [{ name: "translation", value: "XY" }] }] },
+    ]);
+    expect(xml).toContain("<INSDQualifier_value>XY</INSDQualifier_value>");
+    expect(xml).not.toContain("<INSDQualifier_value>MG</INSDQualifier_value>");
+  });
+
+  it("emits well-formed XML with features", () => {
+    const xml = buildSt26Xml(meta, [
+      { moltype: "DNA", residues: "atgggttaa", features: [{ key: "CDS", location: "1..9", qualifiers: [{ name: "product", value: "P & Q <x>" }] }] },
+    ]);
+    // Strip the DOCTYPE (external DTD) so the parser doesn't try to fetch it.
+    const doc = new DOMParser().parseFromString(xml.replace(/<!DOCTYPE[^>]*>/, ""), "application/xml");
+    expect(doc.getElementsByTagName("parsererror").length).toBe(0);
+    expect(xml).toContain("P &amp; Q &lt;x&gt;"); // qualifier value is escaped
+  });
+
+  it("warns on a CDS whose length is not a multiple of 3", () => {
+    expect(featureWarnings({ moltype: "DNA", residues: "atgggttaa", features: [{ key: "CDS", location: "1..8", qualifiers: [] }] }))
+      .toEqual([expect.stringContaining("not a multiple of 3")]);
+    expect(featureWarnings({ moltype: "DNA", residues: "atgggttaa", features: [{ key: "CDS", location: "1..9", qualifiers: [] }] })).toEqual([]);
   });
 });

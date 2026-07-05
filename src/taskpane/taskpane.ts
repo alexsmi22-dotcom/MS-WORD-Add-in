@@ -38,7 +38,16 @@ import {
 import { renderStructure, nameForIdcode, StructureResult } from "../lib/structures";
 import { build, BuildFormat, BuildResult } from "../lib/builder";
 import { formatCodeBlock, CodeStyle } from "../lib/codeblock";
-import { buildSt26Xml, cleanResidues, MolType, MOL_TYPE_OPTIONS, SequenceEntry, SequenceListingMeta } from "../lib/sequence";
+import {
+  buildSt26Xml,
+  cleanResidues,
+  featureWarnings,
+  MolType,
+  MOL_TYPE_OPTIONS,
+  St26Feature,
+  SequenceEntry,
+  SequenceListingMeta,
+} from "../lib/sequence";
 import { formatBotanicalNameHtml, formatTraitTableHtml } from "../lib/botanical";
 import { parseSubstituents } from "../lib/gallery";
 import { FORMULA_LIBRARY } from "../lib/formulaLibrary";
@@ -1588,8 +1597,53 @@ function addSequenceCard(): void {
   residues.addEventListener("input", refresh);
   moltype.addEventListener("change", refresh);
 
-  card.append(head, residues, readout);
+  // Optional feature annotations (CDS/gene/…). A CDS auto-gets /translation.
+  const featuresBox = document.createElement("div");
+  featuresBox.className = "seq-features";
+  const addFeat = document.createElement("button");
+  addFeat.type = "button";
+  addFeat.className = "linklike seq-add-feature";
+  addFeat.textContent = "+ annotate feature (CDS / gene)";
+  addFeat.addEventListener("click", () => featuresBox.appendChild(makeSequenceFeatureRow()));
+
+  card.append(head, residues, readout, featuresBox, addFeat);
   seqListEl.appendChild(card);
+}
+
+/** A feature-annotation row: key, location, and the common qualifiers. */
+function makeSequenceFeatureRow(): HTMLElement {
+  const row = document.createElement("div");
+  row.className = "seq-feature-row";
+  const key = document.createElement("select");
+  key.className = "lib-select seq-feat-key";
+  for (const k of ["CDS", "gene", "mRNA", "misc_feature", "sig_peptide", "mat_peptide"]) {
+    const o = document.createElement("option");
+    o.value = k;
+    o.textContent = k;
+    key.appendChild(o);
+  }
+  const mk = (cls: string, ph: string): HTMLInputElement => {
+    const inp = document.createElement("input");
+    inp.type = "text";
+    inp.className = `formula-input ${cls}`;
+    inp.placeholder = ph;
+    return inp;
+  };
+  const rm = document.createElement("button");
+  rm.type = "button";
+  rm.className = "linklike seq-feat-remove";
+  rm.textContent = "×";
+  rm.title = "Remove feature";
+  rm.addEventListener("click", () => row.remove());
+  row.append(
+    key,
+    mk("seq-feat-loc", "Location (e.g. 1..300)"),
+    mk("seq-feat-gene", "/gene"),
+    mk("seq-feat-product", "/product"),
+    mk("seq-feat-note", "/note"),
+    rm
+  );
+  return row;
 }
 
 /** Reads the sequence cards into ST.26 entries. */
@@ -1600,7 +1654,22 @@ function readSequenceEntries(): SequenceEntry[] {
     const organism = (card.querySelector(".seq-organism") as HTMLInputElement).value;
     const residues = (card.querySelector(".seq-residues") as HTMLTextAreaElement).value;
     const sourceMolType = (card.querySelector(".seq-source-moltype") as HTMLSelectElement | null)?.value;
-    if (residues.trim()) entries.push({ moltype, residues, organism, sourceMolType });
+    const features: St26Feature[] = [];
+    card.querySelectorAll<HTMLElement>(".seq-feature-row").forEach((fr) => {
+      const key = (fr.querySelector(".seq-feat-key") as HTMLSelectElement).value;
+      const location = (fr.querySelector(".seq-feat-loc") as HTMLInputElement).value.trim();
+      const qualifiers: { name: string; value: string }[] = [];
+      for (const [cls, name] of [
+        [".seq-feat-gene", "gene"],
+        [".seq-feat-product", "product"],
+        [".seq-feat-note", "note"],
+      ] as const) {
+        const v = (fr.querySelector(cls) as HTMLInputElement).value.trim();
+        if (v) qualifiers.push({ name, value: v });
+      }
+      if (location || qualifiers.length) features.push({ key, location, qualifiers });
+    });
+    if (residues.trim()) entries.push({ moltype, residues, organism, sourceMolType, features });
   });
   return entries;
 }
@@ -1639,6 +1708,7 @@ function generateSequenceXml(): void {
     const min = e.moltype === "AA" ? 4 : 10;
     if (length < min) warnings.push(`SEQ ${i + 1}: only ${length} residues (ST.26 lists ≥ ${min}).`);
     if (invalid.length) warnings.push(`SEQ ${i + 1}: ignored invalid residues (${invalid.join(" ")}).`);
+    for (const w of featureWarnings(e)) warnings.push(`SEQ ${i + 1}: ${w}`);
   });
 
   const meta: SequenceListingMeta = {

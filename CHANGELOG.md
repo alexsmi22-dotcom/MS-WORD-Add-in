@@ -2,6 +2,22 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
+## [1.28.0] — 2026-07-05
+
+### Added (ST.26 feature annotation)
+- **Annotate CDS / gene features on sequences.** Each sequence can now carry
+  features beyond the mandatory source feature — pick a key (CDS, gene, mRNA,
+  misc_feature, sig_peptide, mat_peptide), a location (e.g. `1..300`), and the
+  common qualifiers (`/gene`, `/product`, `/note`).
+- **CDS `/translation` is auto-generated** from the coding region using the
+  verified NCBI genetic code (stops at the first stop codon), with `/codon_start`
+  — unless you supply your own. A CDS whose length isn't a multiple of 3, or with
+  a non-simple location, is flagged with a reading-frame warning.
+- The generated XML stays well-formed (verified) and everything is still labeled
+  a drafting aid — **validate in the WIPO Sequence tool before filing** (the
+  authoritative validator). Plain sequences without features work exactly as
+  before.
+
 ## [1.27.0] — 2026-07-05
 
 ### Added

@@ -109,6 +109,8 @@ const GALLERY_H = 140;
 
 let homeSection: HTMLElement;
 let homeGroups: HTMLElement;
+let searchWrap: HTMLElement | null;
+let modeRow: HTMLElement | null;
 let examplesPanel: HTMLElement | null;
 let bottomDisclaimer: HTMLElement | null;
 let inputEl: HTMLInputElement;
@@ -322,6 +324,8 @@ Office.onReady((info) => {
 
   homeSection = document.getElementById("home-section") as HTMLElement;
   homeGroups = document.getElementById("home-groups") as HTMLElement;
+  searchWrap = document.querySelector(".search-wrap");
+  modeRow = document.querySelector(".mode-row");
   examplesPanel = document.querySelector(".examples");
   bottomDisclaimer = document.querySelector(".container > .disclaimer");
   inputEl = document.getElementById("formula-input") as HTMLInputElement;
@@ -1175,9 +1179,13 @@ async function copyAsLatex(): Promise<void> {
 function onInputChanged(): void {
   const mode = currentMode();
 
-  // Home: show only the intro; hide the tools, history, examples, and footer.
+  // Home: show only the header + tool cards. Hide the search bar and the tab
+  // strip (the cards are the navigation) plus the tools, history, examples, and
+  // footer. Search + tabs reappear once a tool is open (Home tab returns here).
   const isHome = mode === "home";
   homeSection.style.display = isHome ? "block" : "none";
+  if (searchWrap) searchWrap.style.display = isHome ? "none" : "";
+  if (modeRow) modeRow.style.display = isHome ? "none" : "";
   historyEl.style.display = isHome ? "none" : "";
   if (examplesPanel) examplesPanel.style.display = isHome ? "none" : "";
   if (bottomDisclaimer) bottomDisclaimer.style.display = isHome ? "none" : "";

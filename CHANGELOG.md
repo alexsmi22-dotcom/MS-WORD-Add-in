@@ -2,6 +2,14 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
+## [1.12.1] — 2026-07-04
+
+### Changed
+- **Tighter Home page** — the Home view now shows only the header and the
+  grouped tool cards; the search bar and the 16-tab strip are hidden there
+  (the cards are the navigation). Both reappear once a tool is open, with the
+  Home tab to return.
+
 ## [1.12.0] — 2026-07-04
 
 ### Changed

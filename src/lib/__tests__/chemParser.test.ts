@@ -36,6 +36,12 @@ describe("parseChemical", () => {
     expect(html("H2O")).toBe("H<sub>2</sub>O");
   });
 
+  it("keeps a subscript on a polyatomic ion, with a separate ± charge", () => {
+    expect(html("NH4+")).toBe("NH<sub>4</sub><sup>+</sup>"); // ammonium: 4 H, charge +1
+    expect(html("NO3-")).toBe("NO<sub>3</sub><sup>-</sup>");
+    expect(html("HCO3-")).toBe("HCO<sub>3</sub><sup>-</sup>");
+  });
+
   it("keeps bond glyphs and lone pairs inline (normal size)", () => {
     expect(html("CH2=CH2")).toBe("CH<sub>2</sub>=CH<sub>2</sub>");
     expect(html(":O:")).toBe(":O:");

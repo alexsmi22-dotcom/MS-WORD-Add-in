@@ -4077,7 +4077,14 @@ function readSvgDims(svg: string, fallbackW: number, fallbackH: number): { w: nu
  */
 function svgToPngBase64(svg: string, width: number, height: number): Promise<string> {
   return new Promise((resolve, reject) => {
-    const svgBase64 = btoa(String.fromCharCode(...new TextEncoder().encode(svg)));
+    // Encode in chunks: spreading a large byte array into String.fromCharCode(...)
+    // overflows the argument/stack limit for big figures (flowcharts, dense plots).
+    const bytes = new TextEncoder().encode(svg);
+    let binary = "";
+    for (let k = 0; k < bytes.length; k += 8192) {
+      binary += String.fromCharCode(...bytes.subarray(k, k + 8192));
+    }
+    const svgBase64 = btoa(binary);
     const img = new Image();
     img.onload = () => {
       try {

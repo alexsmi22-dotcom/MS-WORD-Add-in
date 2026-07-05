@@ -24,6 +24,9 @@ export function parseChemical(input: string): Segment[] {
   const segments: Segment[] = [];
   let i = 0;
   const n = input.length;
+  // A monatomic ion ("Ca2+", "Fe3+") renders the digit as the charge; polyatomic
+  // ions ("NH4+", "NO3-") keep the digit as a subscript with a separate ± charge.
+  const isMonatomic = /^[A-Z][a-z]?\d+[+-]$/.test(input);
 
   while (i < n) {
     const ch = input[i];
@@ -42,11 +45,16 @@ export function parseChemical(input: string): Segment[] {
     // it is a stoichiometric coefficient and stays normal size; otherwise it is
     // a subscript count belonging to the preceding element or group.
     if (isDigit(ch)) {
+      const startIdx = i;
       let num = "";
       while (i < n && isDigit(input[i])) num += input[i++];
-      // A digit run immediately followed by a sign is a charge, not a count
-      // (Ca2+ → Ca²⁺; [Fe(CN)6]3- → the "3-" is the ion charge).
-      if (i < n && (input[i] === "+" || input[i] === "-")) {
+      const nextIsSign = i < n && (input[i] === "+" || input[i] === "-");
+      const prevChar = input[startIdx - 1] ?? "";
+      const afterGroup = prevChar === ")" || prevChar === "]" || prevChar === "}";
+      // A digit run before a sign is the ion charge only for a group charge
+      // ([Fe(CN)6]3-) or a monatomic ion (Ca2+); otherwise the digit is a
+      // subscript and the following sign is a separate ± charge (NH4+ → NH₄⁺).
+      if (nextIsSign && (afterGroup || isMonatomic)) {
         pushSegment(segments, num + input[i++], "sup");
         continue;
       }

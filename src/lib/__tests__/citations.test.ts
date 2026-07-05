@@ -402,3 +402,20 @@ describe("config integrity", () => {
     expect(r.html).toContain("<i>X &amp; Y</i>");
   });
 });
+
+describe("bug-check regressions", () => {
+  test("single section with subsections stays § (not §§); multiple sections → §§", () => {
+    expect(fmt("cfr", { title: "37", section: "1.84(a), (b)" }).plain).toBe("37 C.F.R. § 1.84(a), (b)");
+    expect(fmt("usc", { title: "35", section: "101, 102" }).plain).toBe("35 U.S.C. §§ 101, 102");
+    expect(fmt("usc", { title: "35", section: "101-103" }).plain).toBe("35 U.S.C. §§ 101-103");
+  });
+  test("patent pincite keeps the line range (not truncated to col.)", () => {
+    const p = parseCitation("U.S. Patent No. 10,123,456 col. 3 ll. 15–20 (issued May 14, 2019)");
+    expect(p?.fields.pin).toBe("col. 3 ll. 15–20");
+  });
+  test("a case with an em-dash pincite range still parses", () => {
+    const c = parseCitation("Foo v. Bar, 573 U.S. 208, 208—216 (2014)");
+    expect(c?.typeId).toBe("case");
+    expect(c?.fields.pin).toBe("208—216");
+  });
+});

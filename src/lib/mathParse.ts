@@ -262,8 +262,11 @@ class Parser {
     let sup: Node | null = null;
     while (this.peek()?.t === "caret" || this.peek()?.t === "underscore") {
       const tok = this.next();
-      if (tok.t === "caret") sup = this.parseBase();
-      else sub = this.parseBase();
+      const s = this.parseBase();
+      // A repeated script nests right-associatively (x^2^3 → x^(2^3)) instead of
+      // silently overwriting the earlier one.
+      if (tok.t === "caret") sup = sup ? { k: "sup", base: sup, sup: s } : s;
+      else sub = sub ? { k: "sub", base: sub, sub: s } : s;
     }
 
     let node: Node;

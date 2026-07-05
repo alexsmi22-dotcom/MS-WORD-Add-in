@@ -125,6 +125,12 @@ describe("mathToOmml", () => {
       expect(mathToOmml(`${fn}(x)`)).toContain('<m:sty m:val="p"/>');
     }
   });
+
+  it("keeps both exponents in a repeated superscript (x^2^3), not just the last", () => {
+    const omml = mathToOmml("x^2^3");
+    expect(omml).toContain(">2<");
+    expect(omml).toContain(">3<");
+  });
 });
 
 describe("formula library", () => {

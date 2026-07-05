@@ -5,7 +5,7 @@ what you type into correctly formatted content — formulas, equations, structur
 units, plots, sequences, and more — and inserts it at the cursor. Everything runs
 **entirely on your machine; no document content is sent anywhere.**
 
-Pick a mode in the task pane — **14 modes** in v1.0.0:
+Pick a tool from the home screen — **16 tools** (grouped STEM + legal):
 
 | Mode | What it does |
 |---|---|
@@ -28,7 +28,7 @@ Pick a mode in the task pane — **14 modes** in v1.0.0:
 H2O → H₂O   ·   paste \frac{-b±√(b²-4ac)}{2a} (LaTeX) → a Word equation   ·   aspirin → 2D structure
 ```
 
-> **Status:** v1.0.0 — production. Word on **Windows & macOS**, 100% client-side.
+> **Status:** v1.23.0 — production. Word on **Windows & macOS**, 100% client-side.
 > Install packs: [`install/`](install/) · feature list: [`FEATURES.md`](FEATURES.md).
 
 ## Screenshots
@@ -61,7 +61,7 @@ _Screenshots coming soon — see [`docs/screenshots/`](docs/screenshots/) for th
    (modern WebView2/Edge runtime; legacy IE-based webviews are not supported).
 
 > Verified by the QC gate (`npm run qc`): `npm run lint` (type-check),
-> `npm test` (**793 unit tests**), `npm run build` (production bundle),
+> `npm test` (**1,028 unit tests**), `npm run build` (production bundle),
 > `office-addin-manifest validate`, and the task-pane id-wiring audit — all pass.
 
 ## Setup
@@ -304,7 +304,7 @@ sub/superscript formatting. Uncheck the box to always use inline formatting.
       `X` halogen shorthand.
 - [x] **Equation numbering** (I, II, …) and **structure provenance**
       (formula/MW/SMILES/OCL-ID in alt-text).
-- [x] **Test suite** (Jest, 445 tests) + **CI**; distribution/security docs.
+- [x] **Test suite** (Jest, 1,028 tests) + **CI**; distribution/security docs.
 - [x] **Stereochemistry** — isomeric SMILES (wedges) + Build wedge/hash bonds.
 - [x] **Richer Markush atoms** — `A` any, `Q` heteroatom, `R1` R-group (+ `[C,N]`, `X`).
 - [x] **R-group legends** — define `R1 = …` and insert a "where R1 = …" line.
@@ -348,7 +348,7 @@ sub/superscript formatting. Uncheck the box to always use inline formatting.
       (axes, error bars) with a safe expression evaluator.
 - [x] **Finance** (Finance mode + library) — TVM, loan, NPV/IRR, Black–Scholes,
       bond calculators, plus typeset finance equations in the Math library.
-- [ ] Formula history / favorites.
+- [x] Formula history / favorites.
 - [ ] IUPAC name insertion (needs a dedicated naming library).
 - [x] **Centralized-deployment path documented** — validated deploy manifest +
       IT admin guide (`packaging/CENTRALIZED-DEPLOY.md`) for Microsoft 365
@@ -358,5 +358,6 @@ sub/superscript formatting. Uncheck the box to always use inline formatting.
 
 - The dev manifest points at `https://localhost:3000`. For real distribution,
   host the built `dist/` somewhere and update the URLs in `manifest.xml`.
-- Math mode currently produces inline formatting (superscript/subscript), not a
-  native Word equation object — see the roadmap.
+- Math mode inserts a **native Word equation** (OMML) by default — fractions,
+  radicals, Σ/∫, matrices, etc. Uncheck "native equation" to fall back to inline
+  superscript/subscript formatting.

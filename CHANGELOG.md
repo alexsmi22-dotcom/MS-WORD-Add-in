@@ -2,6 +2,26 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
+## [1.24.0] — 2026-07-05
+
+### Fixed (comprehensive bug-check pass)
+- **Chemistry: polyatomic ions were mis-parsed.** `NH4+` reported N:1 H:1 charge
+  +4 (mass 15); now correctly H:4, charge +1, mass 18.04. Fixed across the
+  validator (molecular weight/charge) and the formula renderer: a subscript
+  count before a bare sign (NH4+, NO3⁻, HCO3⁻, H2PO4⁻, H3O⁺) keeps the count and
+  takes a ±1 charge, while a monatomic metal cation (Ca²⁺, Fe³⁺) still reads the
+  digit as the charge.
+- **Citations:** the patent pincite no longer truncates (`col. 3 ll. 15–20` was
+  becoming `col. 3`); a case with an **em-dash** pincite range (`208—216`) now
+  parses instead of failing; and `§` vs `§§` is smarter — `1.84(a), (b)` (one
+  section, two subsections) stays `§`, while `101, 102` uses `§§`.
+- **Math:** a repeated superscript/subscript (`x^2^3`) no longer silently drops
+  the earlier one — it nests right-associatively.
+- **Figures:** `svgToPngBase64` encodes in chunks, so large flowcharts/diagrams
+  no longer risk a stack-overflow during rasterization.
+- **Docs:** corrected stale README (version, tool count, test count, and the
+  outdated "math is inline-only" note that contradicted the OMML feature).
+
 ## [1.23.0] — 2026-07-05
 
 ### Added (Finance — robust modeling)

@@ -52,6 +52,24 @@ describe("validateFormula — valid formulas", () => {
   });
 });
 
+describe("validateFormula — polyatomic ions (bare charge sign)", () => {
+  test("ammonium NH4+ keeps the subscript and takes charge +1", () => {
+    expect(validateFormula("NH4+")).toMatchObject({ valid: true, counts: { N: 1, H: 4 }, charge: 1 });
+    expect(validateFormula("NH4+").mass).toBeCloseTo(18.04, 2);
+  });
+  test("nitrate, bicarbonate, dihydrogen phosphate", () => {
+    expect(validateFormula("NO3-")).toMatchObject({ counts: { N: 1, O: 3 }, charge: -1 });
+    expect(validateFormula("HCO3-")).toMatchObject({ counts: { H: 1, C: 1, O: 3 }, charge: -1 });
+    expect(validateFormula("H2PO4-")).toMatchObject({ counts: { H: 2, P: 1, O: 4 }, charge: -1 });
+    expect(validateFormula("H3O+")).toMatchObject({ counts: { H: 3, O: 1 }, charge: 1 });
+  });
+  test("monatomic metal cations still read the digit as the charge", () => {
+    expect(validateFormula("Ca2+")).toMatchObject({ counts: { Ca: 1 }, charge: 2 });
+    expect(validateFormula("Fe3+")).toMatchObject({ counts: { Fe: 1 }, charge: 3 });
+    expect(validateFormula("Na+")).toMatchObject({ counts: { Na: 1 }, charge: 1 });
+  });
+});
+
 describe("validateFormula — invalid formulas", () => {
   test("flags a fake element symbol", () => {
     const r = validateFormula("H2G");

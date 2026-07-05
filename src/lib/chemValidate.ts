@@ -88,13 +88,11 @@ function parseSegment(body: string): SegmentResult {
       while (i < n && isLower(body[i])) sym += body[i++];
       if (!isElement(sym)) errors.push(`Unknown element “${sym}”`);
       const { num, sign } = readCount();
-      if (sign) {
-        // digits before a sign are a charge (Ca2+), so the atom count is 1
-        charge += sign * (num ? parseInt(num, 10) : 1);
-        add(top(), sym, 1);
-      } else {
-        add(top(), sym, num ? parseInt(num, 10) : 1);
-      }
+      // Digits after an atom are its subscript count; a bare trailing sign is a
+      // ±1 charge (NH4+ → H:4, charge +1; NO3- → O:3, charge −1). A monatomic
+      // metal cation like "Ca2+" (digit = charge) is handled in validateFormula.
+      add(top(), sym, num ? parseInt(num, 10) : 1);
+      if (sign) charge += sign;
       continue;
     }
     if (ch === "(" || ch === "[" || ch === "{") {
@@ -161,6 +159,15 @@ export function validateFormula(input: string): FormulaValidation {
 
   if (!src) {
     return { valid: false, errors: ["Enter a formula."], counts, charge: 0, mass: null, hill: "" };
+  }
+
+  // Monatomic ion (e.g. "Ca2+", "Fe3+"): the digit is the charge, not a count —
+  // one atom, charge = ±digits. (Polyatomic ions like NH4+ parse normally.)
+  const mono = /^([A-Z][a-z]?)(\d+)([+-])$/.exec(src);
+  if (mono && isElement(mono[1])) {
+    const el = mono[1];
+    const q = (mono[3] === "-" ? -1 : 1) * parseInt(mono[2], 10);
+    return { valid: true, errors: [], counts: { [el]: 1 }, charge: q, mass: PERIODIC[el], hill: el };
   }
 
   // Split on hydrate dots ("·" or "."); each part may carry a leading coefficient.

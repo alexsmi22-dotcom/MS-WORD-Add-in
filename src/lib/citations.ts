@@ -100,7 +100,10 @@ export function formatPublicationNumber(input: string): string {
  * sides of the dash.
  */
 function sectionSymbol(section: string): string {
-  return /[,&]|\bto\b|\band\b|\d\s*[-–—]\s*\d/.test(section) ? "§§" : "§";
+  // Plural §§ for multiple *sections* — a comma/ampersand/"and"/"to" followed by
+  // another section number, or a number range. A comma before a subsection like
+  // "1.84(a), (b)" is one section, so it stays singular §.
+  return /,\s*\d|&\s*\d|\s(?:to|and)\s+\d|\d\s*[-–—]\s*\d/.test(section) ? "§§" : "§";
 }
 
 /** Joins non-empty pieces with a separator. */
@@ -672,7 +675,7 @@ const detectPatentApp: Detector = (t) => {
 const detectPatent: Detector = (t) => {
   const m = /(?:u\.?\s*s\.?\s*)?pat(?:ent)?\.?\s*(?:no\.?|#)?\s*([A-Za-z]{0,2}[\d,]{5,})/i.exec(t);
   if (!m) return null;
-  const pin = /\b(col(?:umn)?\.?\s*\d+.*?(?:ll?\.?\s*[\d–\-, ]+)?)/i.exec(t.replace(m[0], ""));
+  const pin = /\b(col(?:umn)?\.?\s*\d+(?:\s*ll?\.?\s*[\d–—\-, ]+)?)/i.exec(t.replace(m[0], ""));
   const date = /\(\s*(?:issued\s*)?([A-Za-z0-9.,/\s-]+?)\s*\)\s*\.?$/i.exec(t);
   return {
     typeId: "patent",
@@ -680,7 +683,7 @@ const detectPatent: Detector = (t) => {
   };
 };
 
-const CITE_TAIL = /,\s*(\d+)\s+([A-Za-z0-9.'’ ]+?)\s+(\d+)(?:,\s*(\d+(?:[–-]\d+)?))?\s*\(([^)]*)\)\s*\.?$/;
+const CITE_TAIL = /,\s*(\d+)\s+([A-Za-z0-9.'’ ]+?)\s+(\d+)(?:,\s*(\d+(?:[–—-]\d+)?))?\s*\(([^)]*)\)\s*\.?$/;
 
 const detectCase: Detector = (t) => {
   const m = CITE_TAIL.exec(t);

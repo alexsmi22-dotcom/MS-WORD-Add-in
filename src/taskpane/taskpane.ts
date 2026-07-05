@@ -81,7 +81,17 @@ import { parseTableData, cleanTableRows, buildChartPreviewSvg, TableChart, Chart
 import { buildDiagramSvg, DiagramKind } from "../lib/tablediagram";
 import { buildTableFigureSvg, prepareTableFigure } from "../lib/tablefigure";
 import { classifyTable } from "../lib/tableclassify";
-import { CITATIONS, SIGNALS, citationById, applySignal, parseCitation, caseShortForm, CitationResult, CitationStyle } from "../lib/citations";
+import {
+  CITATIONS,
+  SIGNALS,
+  citationById,
+  applySignal,
+  parseCitation,
+  caseShortForm,
+  abbreviateCaseName,
+  CitationResult,
+  CitationStyle,
+} from "../lib/citations";
 import { buildTableOfAuthorities, toaToHtml } from "../lib/toa";
 
 type Mode =
@@ -234,6 +244,8 @@ let citationsSection: HTMLElement;
 let citeTypeSelect: HTMLSelectElement;
 let citeStyleSelect: HTMLSelectElement;
 let citeSignalSelect: HTMLSelectElement;
+let citeAbbrevCheckbox: HTMLInputElement;
+let citeAbbrevWrap: HTMLElement;
 let citeInputs: HTMLElement;
 let citePreview: HTMLElement;
 let citeInsertBtn: HTMLButtonElement;
@@ -448,6 +460,8 @@ Office.onReady((info) => {
   citeTypeSelect = document.getElementById("cite-type") as HTMLSelectElement;
   citeStyleSelect = document.getElementById("cite-style") as HTMLSelectElement;
   citeSignalSelect = document.getElementById("cite-signal") as HTMLSelectElement;
+  citeAbbrevCheckbox = document.getElementById("cite-abbrev") as HTMLInputElement;
+  citeAbbrevWrap = document.getElementById("cite-abbrev-wrap") as HTMLElement;
   citeInputs = document.getElementById("cite-inputs") as HTMLElement;
   citePreview = document.getElementById("cite-preview") as HTMLElement;
   citeInsertBtn = document.getElementById("cite-insert") as HTMLButtonElement;
@@ -595,6 +609,7 @@ Office.onReady((info) => {
   citeTypeSelect.addEventListener("change", renderCitationInputs);
   citeStyleSelect.addEventListener("change", updateCitationPreview);
   citeSignalSelect.addEventListener("change", updateCitationPreview);
+  citeAbbrevCheckbox.addEventListener("change", updateCitationPreview);
   citeInsertBtn.addEventListener("click", insertCitation);
   citeCopyBtn.addEventListener("click", copyCitation);
   citeParseBtn.addEventListener("click", parseAndFillCitation);
@@ -3508,6 +3523,8 @@ function renderCitationInputs(): void {
   }
   // The "→ Short form" helper only applies to a full case citation.
   citeShortFormBtn.style.display = type.id === "case" ? "block" : "none";
+  // The T6 abbreviation toggle applies to case citations.
+  citeAbbrevWrap.style.display = type.id === "case" || type.id === "case-short" ? "flex" : "none";
   updateCitationPreview();
 }
 
@@ -3556,9 +3573,13 @@ function parseAndFillCitation(): void {
 /** Formats and previews the citation for the current inputs. */
 function updateCitationPreview(): void {
   const type = citationById(citeTypeSelect.value) ?? CITATIONS[0];
+  const isCase = type.id === "case" || type.id === "case-short";
+  const abbreviate = isCase && citeAbbrevCheckbox.checked;
   const read = (k: string): string => {
     const el = citeInputs.querySelector<HTMLInputElement>(`[data-key="${k}"]`);
-    return el ? el.value.trim() : "";
+    const value = el ? el.value.trim() : "";
+    // Apply Table T6 to the case name when the toggle is on.
+    return k === "name" && abbreviate ? abbreviateCaseName(value) : value;
   };
   currentCitation = null;
   citeInsertBtn.disabled = true;

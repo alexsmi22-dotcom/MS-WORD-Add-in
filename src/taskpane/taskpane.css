@@ -858,6 +858,19 @@ h1 {
 .dna-controls .field-label {
   margin: 0;
 }
+.cite-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 8px 0;
+  font-size: 12px;
+  line-height: 1.35;
+  cursor: pointer;
+}
+.cite-check input {
+  margin-top: 2px;
+  flex: 0 0 auto;
+}
 .dna-orf-results {
   margin: 6px 0;
   overflow-x: auto;

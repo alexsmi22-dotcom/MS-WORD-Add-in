@@ -418,6 +418,121 @@ export function citationById(id: string): CitationType | undefined {
 }
 
 /**
+ * Bluebook Table T6 — the common words abbreviated in case names (Rule 10.2.2).
+ * Singular and frequent plural forms; values are the canonical abbreviations.
+ */
+const T6: Record<string, string> = {
+  and: "&",
+  academy: "Acad.",
+  administration: "Admin.",
+  administrative: "Admin.",
+  agricultural: "Agric.",
+  agriculture: "Agric.",
+  america: "Am.",
+  american: "Am.",
+  associate: "Assoc.",
+  associates: "Assocs.",
+  association: "Ass'n",
+  associations: "Ass'ns",
+  authority: "Auth.",
+  automobile: "Auto.",
+  board: "Bd.",
+  brothers: "Bros.",
+  building: "Bldg.",
+  business: "Bus.",
+  center: "Ctr.",
+  central: "Cent.",
+  committee: "Comm.",
+  company: "Co.",
+  companies: "Cos.",
+  corporation: "Corp.",
+  department: "Dep't",
+  development: "Dev.",
+  distribution: "Distrib.",
+  district: "Dist.",
+  division: "Div.",
+  education: "Educ.",
+  electric: "Elec.",
+  electronic: "Elec.",
+  electronics: "Elecs.",
+  engineering: "Eng'g",
+  enterprise: "Enter.",
+  enterprises: "Enters.",
+  environment: "Env't",
+  environmental: "Envtl.",
+  equipment: "Equip.",
+  federal: "Fed.",
+  finance: "Fin.",
+  financial: "Fin.",
+  foundation: "Found.",
+  general: "Gen.",
+  government: "Gov't",
+  group: "Grp.",
+  hospital: "Hosp.",
+  incorporated: "Inc.",
+  industries: "Indus.",
+  industry: "Indus.",
+  institute: "Inst.",
+  institution: "Inst.",
+  insurance: "Ins.",
+  international: "Int'l",
+  laboratory: "Lab.",
+  laboratories: "Labs.",
+  limited: "Ltd.",
+  machine: "Mach.",
+  machines: "Machs.",
+  machinery: "Mach.",
+  management: "Mgmt.",
+  manufacturer: "Mfr.",
+  manufacturers: "Mfrs.",
+  manufacturing: "Mfg.",
+  medical: "Med.",
+  medicine: "Med.",
+  national: "Nat'l",
+  number: "No.",
+  organization: "Org.",
+  pharmaceutical: "Pharm.",
+  pharmaceuticals: "Pharm.",
+  products: "Prods.",
+  public: "Pub.",
+  publishing: "Publ'g",
+  research: "Rsch.",
+  resources: "Res.",
+  savings: "Sav.",
+  science: "Sci.",
+  scientific: "Sci.",
+  securities: "Sec.",
+  security: "Sec.",
+  service: "Serv.",
+  services: "Servs.",
+  society: "Soc'y",
+  system: "Sys.",
+  systems: "Sys.",
+  technology: "Tech.",
+  technologies: "Techs.",
+  telecommunications: "Telecomm.",
+  telephone: "Tel.",
+  transportation: "Transp.",
+  university: "Univ.",
+  utility: "Util.",
+};
+
+/**
+ * Abbreviates the words in a case name per Bluebook Table T6 (Rule 10.2.2) —
+ * Corporation → Corp., International → Int'l, and → &, etc. "United States" is
+ * left intact (it isn't abbreviated as a party name).
+ */
+export function abbreviateCaseName(name: string): string {
+  return name
+    .replace(/United States/g, " US ") // protect the party name
+    .replace(/[A-Za-z][A-Za-z'’]*/g, (word) => {
+      const key = word.toLowerCase().replace(/’/g, "'");
+      return T6[key] ?? word;
+    })
+    .replace(/ US /g, "United States");
+}
+
+/**
  * Derives the case short-form fields from a full-case field map: the short name
  * is the first party (before " v. "), or the whole name for "In re"/"Ex parte".
  * The drafter reviews/adjusts (Rule 10.9 lets you pick the more distinctive

@@ -9,6 +9,7 @@ import {
   normalizeReporter,
   normalizeCourt,
   caseShortForm,
+  abbreviateCaseName,
   CitationType,
   CitationStyle,
 } from "../citations";
@@ -327,6 +328,23 @@ describe("canonical Bluebook example forms", () => {
     expect(fmt("book", { vol: "1", author: "Donald S. Chisum", title: "Chisum on Patents", pin: "§ 3.02", year: "2023" }).plain).toBe(
       "1 Donald S. Chisum, Chisum on Patents § 3.02 (2023)"
     );
+  });
+});
+
+describe("abbreviateCaseName (Table T6)", () => {
+  test("abbreviates common organizational words", () => {
+    expect(abbreviateCaseName("Alice Corporation v. CLS Bank International")).toBe("Alice Corp. v. CLS Bank Int'l");
+    expect(abbreviateCaseName("National Association of Manufacturers")).toBe("Nat'l Ass'n of Mfrs.");
+    expect(abbreviateCaseName("International Business Machines Corporation")).toBe("Int'l Bus. Machs. Corp.");
+  });
+  test("converts 'and' to '&'", () => {
+    expect(abbreviateCaseName("Standard Oil Company of New Jersey and Sons")).toBe("Standard Oil Co. of New Jersey & Sons");
+  });
+  test("leaves 'United States' intact as a party", () => {
+    expect(abbreviateCaseName("United States v. Microsoft Corporation")).toBe("United States v. Microsoft Corp.");
+  });
+  test("leaves non-T6 and already-abbreviated names unchanged", () => {
+    expect(abbreviateCaseName("Alice Corp. v. CLS Bank Int'l")).toBe("Alice Corp. v. CLS Bank Int'l");
   });
 });
 

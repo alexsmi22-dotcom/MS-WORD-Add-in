@@ -2,6 +2,17 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
+## [1.16.0] — 2026-07-05
+
+### Added
+- **Case-name auto-abbreviation (Bluebook Table T6).** Type the full party names
+  and the tool abbreviates them per Rule 10.2.2 — Corporation → Corp.,
+  International → Int’l, Association → Ass’n, National → Nat’l, Manufacturing →
+  Mfg., `and` → `&`, and ~90 more (with common plurals). "United States" is left
+  intact as a party. A checkbox on the case / case short-form types (on by
+  default) applies it live in the preview so you can review or turn it off.
+  New pure `abbreviateCaseName()` (+4 tests).
+
 ## [1.15.0] — 2026-07-05
 
 ### Added

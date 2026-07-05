@@ -13,7 +13,17 @@
 
 import { niceStep, fmtTick } from "./plot";
 
-export type ChartKind = "column" | "bar" | "line" | "area" | "scatter" | "pie" | "doughnut";
+export type ChartKind =
+  | "column"
+  | "bar"
+  | "line"
+  | "area"
+  | "scatter"
+  | "stacked-column"
+  | "stacked-bar"
+  | "stacked-area"
+  | "pie"
+  | "doughnut";
 
 export interface ChartStyle {
   /** Black-&-white patent-drawing rendering (hatching, dashed lines, markers). */
@@ -400,6 +410,7 @@ function buildAxisSvg(chart: TableChart, kind: ChartKind, title: string, style: 
   const pw = W - ml - mr;
   const ph = H - mt - mb;
 
+  const stacked = kind === "stacked-column" || kind === "stacked-bar" || kind === "stacked-area";
   const nums: number[] = [];
   for (const s of chart.series) for (const v of s.values) if (v !== null) nums.push(v);
   if (!nums.length) {
@@ -410,8 +421,31 @@ function buildAxisSvg(chart: TableChart, kind: ChartKind, title: string, style: 
       `<text x="${W / 2}" y="${H / 2}" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#999">No data to chart</text>`
     );
   }
-  let vmin = Math.min(0, ...nums);
-  let vmax = Math.max(0, ...nums);
+  let vmin: number;
+  let vmax: number;
+  if (stacked) {
+    // The value axis spans the per-category cumulative sums (positive stack up,
+    // negative stack down), so the tallest stacked bar fits.
+    let maxPos = 0;
+    let minNeg = 0;
+    for (let i = 0; i < chart.categories.length; i++) {
+      let pos = 0;
+      let neg = 0;
+      for (const s of chart.series) {
+        const v = s.values[i];
+        if (v === null) continue;
+        if (v >= 0) pos += v;
+        else neg += v;
+      }
+      maxPos = Math.max(maxPos, pos);
+      minNeg = Math.min(minNeg, neg);
+    }
+    vmin = minNeg;
+    vmax = maxPos;
+  } else {
+    vmin = Math.min(0, ...nums);
+    vmax = Math.max(0, ...nums);
+  }
   if (vmin === vmax) {
     vmin -= 1;
     vmax += 1;
@@ -421,7 +455,7 @@ function buildAxisSvg(chart: TableChart, kind: ChartKind, title: string, style: 
   if (vmin < 0) vmin -= pad;
 
   const n = chart.categories.length;
-  const horizontal = kind === "bar";
+  const horizontal = kind === "bar" || kind === "stacked-bar";
   // Value axis maps to y for column/line/area and to x for horizontal bars.
   const vLen = horizontal ? pw : ph;
   const cLen = horizontal ? ph : pw;
@@ -472,23 +506,73 @@ function buildAxisSvg(chart: TableChart, kind: ChartKind, title: string, style: 
 
   const zero = vPos(Math.max(vmin, Math.min(vmax, 0)));
 
-  if (kind === "column" || kind === "bar") {
-    const groupW = slot * 0.72;
-    const barW = groupW / chart.series.length;
-    chart.series.forEach((s, si) => {
-      const fill = patent ? PATENT_FILLS[si % PATENT_FILLS.length] : CHART_PALETTE[si % CHART_PALETTE.length];
-      const outline = patent ? ` stroke="#000" stroke-width="1"` : "";
-      s.values.forEach((v, i) => {
-        if (v === null) return;
-        const c0 = slot * (i + 0.5) - groupW / 2 + si * barW;
-        const a = Math.min(vPos(v), zero);
-        const b = Math.max(vPos(v), zero);
-        if (horizontal) {
-          parts.push(`<rect x="${(ml + a).toFixed(1)}" y="${(mt + c0).toFixed(1)}" width="${(b - a).toFixed(1)}" height="${Math.max(1, barW - 1).toFixed(1)}" fill="${fill}"${outline}/>`);
-        } else {
-          parts.push(`<rect x="${(ml + c0).toFixed(1)}" y="${(mt + ph - b).toFixed(1)}" width="${Math.max(1, barW - 1).toFixed(1)}" height="${(b - a).toFixed(1)}" fill="${fill}"${outline}/>`);
-        }
+  if (kind === "column" || kind === "bar" || kind === "stacked-column" || kind === "stacked-bar") {
+    if (stacked) {
+      // Segments stack from the zero line: positives up (or right), negatives down.
+      const barW = slot * 0.72;
+      const posOff = new Array<number>(n).fill(0);
+      const negOff = new Array<number>(n).fill(0);
+      chart.series.forEach((s, si) => {
+        const fill = patent ? PATENT_FILLS[si % PATENT_FILLS.length] : CHART_PALETTE[si % CHART_PALETTE.length];
+        const outline = patent ? ` stroke="#000" stroke-width="1"` : "";
+        s.values.forEach((v, i) => {
+          if (v === null || v === 0) return;
+          let start: number;
+          let end: number;
+          if (v >= 0) {
+            start = posOff[i];
+            end = (posOff[i] += v);
+          } else {
+            end = negOff[i];
+            start = (negOff[i] += v);
+          }
+          const lo = Math.min(vPos(start), vPos(end));
+          const hi = Math.max(vPos(start), vPos(end));
+          const c0 = slot * (i + 0.5) - barW / 2;
+          if (horizontal) {
+            parts.push(`<rect x="${(ml + lo).toFixed(1)}" y="${(mt + c0).toFixed(1)}" width="${Math.max(1, hi - lo).toFixed(1)}" height="${Math.max(1, barW - 1).toFixed(1)}" fill="${fill}"${outline}/>`);
+          } else {
+            parts.push(`<rect x="${(ml + c0).toFixed(1)}" y="${(mt + ph - hi).toFixed(1)}" width="${Math.max(1, barW - 1).toFixed(1)}" height="${Math.max(1, hi - lo).toFixed(1)}" fill="${fill}"${outline}/>`);
+          }
+        });
       });
+    } else {
+      const groupW = slot * 0.72;
+      const barW = groupW / chart.series.length;
+      chart.series.forEach((s, si) => {
+        const fill = patent ? PATENT_FILLS[si % PATENT_FILLS.length] : CHART_PALETTE[si % CHART_PALETTE.length];
+        const outline = patent ? ` stroke="#000" stroke-width="1"` : "";
+        s.values.forEach((v, i) => {
+          if (v === null) return;
+          const c0 = slot * (i + 0.5) - groupW / 2 + si * barW;
+          const a = Math.min(vPos(v), zero);
+          const b = Math.max(vPos(v), zero);
+          if (horizontal) {
+            parts.push(`<rect x="${(ml + a).toFixed(1)}" y="${(mt + c0).toFixed(1)}" width="${(b - a).toFixed(1)}" height="${Math.max(1, barW - 1).toFixed(1)}" fill="${fill}"${outline}/>`);
+          } else {
+            parts.push(`<rect x="${(ml + c0).toFixed(1)}" y="${(mt + ph - b).toFixed(1)}" width="${Math.max(1, barW - 1).toFixed(1)}" height="${(b - a).toFixed(1)}" fill="${fill}"${outline}/>`);
+          }
+        });
+      });
+    }
+  } else if (kind === "stacked-area") {
+    // Each series' band sits on the running cumulative (nulls treated as 0).
+    const cum = new Array<number>(n).fill(0);
+    chart.series.forEach((s, si) => {
+      const color = patent ? "#000" : CHART_PALETTE[si % CHART_PALETTE.length];
+      const fill = patent ? PATENT_FILLS[(si + 2) % PATENT_FILLS.length] : color;
+      const opacity = patent ? "" : ` fill-opacity="0.35"`;
+      const upper: string[] = [];
+      const lower: string[] = [];
+      for (let i = 0; i < n; i++) {
+        const x = ml + slot * (i + 0.5);
+        const base = cum[i];
+        const top = base + (s.values[i] ?? 0);
+        lower.push(`${x.toFixed(1)},${(mt + ph - vPos(base)).toFixed(1)}`);
+        upper.push(`${x.toFixed(1)},${(mt + ph - vPos(top)).toFixed(1)}`);
+        cum[i] = top;
+      }
+      parts.push(`<path d="M${upper.join(" L")} L${lower.reverse().join(" L")} Z" fill="${fill}"${opacity} stroke="${color}" stroke-width="1"/>`);
     });
   } else {
     // line / area (vertical orientation only — kind "bar" handled above).

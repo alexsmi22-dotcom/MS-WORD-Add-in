@@ -38,7 +38,7 @@ import {
 import { renderStructure, nameForIdcode, StructureResult } from "../lib/structures";
 import { build, BuildFormat, BuildResult } from "../lib/builder";
 import { formatCodeBlock, CodeStyle } from "../lib/codeblock";
-import { buildSt26Xml, cleanResidues, MolType, SequenceEntry, SequenceListingMeta } from "../lib/sequence";
+import { buildSt26Xml, cleanResidues, MolType, MOL_TYPE_OPTIONS, SequenceEntry, SequenceListingMeta } from "../lib/sequence";
 import { formatBotanicalNameHtml, formatTraitTableHtml } from "../lib/botanical";
 import { parseSubstituents } from "../lib/gallery";
 import { FORMULA_LIBRARY } from "../lib/formulaLibrary";
@@ -1539,6 +1539,23 @@ function addSequenceCard(): void {
     moltype.appendChild(opt);
   }
 
+  // Source-feature mol_type qualifier (ST.26 controlled vocabulary), whose
+  // options depend on the molecule type.
+  const sourceMol = document.createElement("select");
+  sourceMol.className = "lib-select seq-source-moltype";
+  sourceMol.title = "ST.26 mol_type qualifier";
+  const fillSourceMol = (): void => {
+    sourceMol.replaceChildren();
+    for (const v of MOL_TYPE_OPTIONS[moltype.value as MolType]) {
+      const opt = document.createElement("option");
+      opt.value = v;
+      opt.textContent = v;
+      sourceMol.appendChild(opt);
+    }
+  };
+  fillSourceMol();
+  moltype.addEventListener("change", fillSourceMol);
+
   const organism = document.createElement("input");
   organism.type = "text";
   organism.className = "formula-input seq-organism";
@@ -1551,7 +1568,7 @@ function addSequenceCard(): void {
   remove.addEventListener("click", () => {
     if (seqListEl.querySelectorAll(".seq-card").length > 1) card.remove();
   });
-  head.append(moltype, organism, remove);
+  head.append(moltype, sourceMol, organism, remove);
 
   const residues = document.createElement("textarea");
   residues.className = "build-input seq-residues";
@@ -1581,7 +1598,8 @@ function readSequenceEntries(): SequenceEntry[] {
     const moltype = (card.querySelector(".seq-moltype") as HTMLSelectElement).value as MolType;
     const organism = (card.querySelector(".seq-organism") as HTMLInputElement).value;
     const residues = (card.querySelector(".seq-residues") as HTMLTextAreaElement).value;
-    if (residues.trim()) entries.push({ moltype, residues, organism });
+    const sourceMolType = (card.querySelector(".seq-source-moltype") as HTMLSelectElement | null)?.value;
+    if (residues.trim()) entries.push({ moltype, residues, organism, sourceMolType });
   });
   return entries;
 }

@@ -2,6 +2,23 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
+## [1.26.0] — 2026-07-05
+
+### Added (Tier-2 features)
+- **Stacked charts.** Table → Chart adds **stacked column**, **stacked bar**, and
+  **stacked area** — the value axis spans the per-category total (handling mixed
+  positive/negative), with matching stacked PowerPoint export.
+- **Parallel citations.** The case citation type has an optional "Parallel
+  cite(s)" field, placed after the primary reporter and before the year per
+  Bluebook Rule 10.3.1 (e.g. *… 573 U.S. 208, 134 S. Ct. 2347, 189 L. Ed. 2d 296
+  (2014)*).
+- **ST.26 mol_type vocabulary.** Each sequence can now pick the correct source
+  `mol_type` from the full ST.26 controlled vocabulary — genomic DNA / other DNA
+  for DNA; genomic RNA / **mRNA / tRNA / rRNA** / other RNA / transcribed RNA /
+  viral cRNA for RNA — instead of always "genomic". Clarified that the tool
+  emits the mandatory source feature (valid for plain sequences); CDS/gene
+  annotation is done in WIPO Sequence.
+
 ## [1.25.1] — 2026-07-05
 
 ### Fixed (low-severity bug-hunt cleanups)

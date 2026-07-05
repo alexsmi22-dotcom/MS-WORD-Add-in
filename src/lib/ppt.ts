@@ -247,16 +247,21 @@ export async function buildTablePptx(chart: TableChart, kind: ChartKind, opts: T
       // Our scatter is a categorical marker chart; PPT native charts have no
       // categorical scatter, so export it as a line (closest fit).
       scatter: pptx.ChartType.line,
+      "stacked-column": pptx.ChartType.bar,
+      "stacked-bar": pptx.ChartType.bar,
+      "stacked-area": pptx.ChartType.area,
       pie: pptx.ChartType.pie,
       doughnut: pptx.ChartType.doughnut,
     };
+    const isStacked = kind === "stacked-column" || kind === "stacked-bar" || kind === "stacked-area";
 
     slide.addChart(typeMap[kind], data, {
       x: 0.4,
       y: areaY,
       w: 9.2,
       h: areaH,
-      barDir: kind === "bar" ? "bar" : "col",
+      barDir: kind === "bar" || kind === "stacked-bar" ? "bar" : "col",
+      ...(isStacked ? { barGrouping: "stacked" as const } : {}),
       chartColors: PPT_COLORS,
       showLegend: pie || chart.series.length > 1,
       legendPos: "b",

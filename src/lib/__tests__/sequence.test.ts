@@ -88,6 +88,16 @@ describe("buildSt26Xml", () => {
     expect(xml).toContain("<INSDQualifier_value>synthetic construct</INSDQualifier_value>");
   });
 
+  it("uses a chosen ST.26 mol_type (mRNA) and rejects an invalid one", () => {
+    const m: SequenceListingMeta = { applicantName: "A", inventionTitle: "B", productionDate: "2026-06-17" };
+    const mrna = buildSt26Xml(m, [{ moltype: "RNA", residues: "acgu", sourceMolType: "mRNA" }]);
+    expect(mrna).toContain("<INSDQualifier_value>mRNA</INSDQualifier_value>");
+    // An invalid value for the molecule falls back to the default.
+    const bad = buildSt26Xml(m, [{ moltype: "DNA", residues: "acgt", sourceMolType: "mRNA" }]);
+    expect(bad).toContain("<INSDQualifier_value>genomic DNA</INSDQualifier_value>");
+    expect(bad).not.toContain(">mRNA<");
+  });
+
   it("omits ApplicationIdentification when no office/number/date given", () => {
     const slim = buildSt26Xml(
       { applicantName: "A", inventionTitle: "B", productionDate: "2026-06-17" },

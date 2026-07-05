@@ -15,7 +15,20 @@ export interface SequenceEntry {
   residues: string;
   /** Source organism; defaults to "synthetic construct" when blank. */
   organism?: string;
+  /**
+   * The ST.26 source `mol_type` qualifier value (e.g. "mRNA", "tRNA"). Must be
+   * one of MOL_TYPE_OPTIONS for the moltype; falls back to the default when
+   * absent or invalid.
+   */
+  sourceMolType?: string;
 }
+
+/** ST.26 controlled vocabulary for the source-feature `mol_type` qualifier. */
+export const MOL_TYPE_OPTIONS: Record<MolType, string[]> = {
+  DNA: ["genomic DNA", "other DNA", "unassigned DNA"],
+  RNA: ["genomic RNA", "mRNA", "tRNA", "rRNA", "other RNA", "transcribed RNA", "viral cRNA", "unassigned RNA"],
+  AA: ["protein"],
+};
 
 export interface SequenceListingMeta {
   applicantName: string;
@@ -81,15 +94,18 @@ function el(tag: string, value: string): string {
   return `<${tag}>${escapeXml(value)}</${tag}>`;
 }
 
-function sourceFeature(moltype: MolType, length: number, organism: string): string {
+function sourceFeature(moltype: MolType, length: number, organism: string, sourceMolType?: string): string {
   const org = organism.trim() || "synthetic construct";
+  // Use the caller's mol_type only if it's valid for this molecule; else default.
+  const molType =
+    sourceMolType && MOL_TYPE_OPTIONS[moltype].indexOf(sourceMolType) >= 0 ? sourceMolType : MOL_TYPE_QUAL[moltype];
   return (
     "<INSDSeq_feature-table><INSDFeature>" +
     "<INSDFeature_key>source</INSDFeature_key>" +
     el("INSDFeature_location", `1..${length}`) +
     "<INSDFeature_quals>" +
     `<INSDQualifier id="q1"><INSDQualifier_name>mol_type</INSDQualifier_name>` +
-    el("INSDQualifier_value", MOL_TYPE_QUAL[moltype]) +
+    el("INSDQualifier_value", molType) +
     "</INSDQualifier>" +
     `<INSDQualifier id="q2"><INSDQualifier_name>organism</INSDQualifier_name>` +
     el("INSDQualifier_value", org) +
@@ -105,7 +121,7 @@ function sequenceData(entry: SequenceEntry, idNumber: number): string {
     el("INSDSeq_length", String(length)) +
     el("INSDSeq_moltype", entry.moltype) +
     el("INSDSeq_division", "PAT") +
-    sourceFeature(entry.moltype, length, entry.organism ?? "") +
+    sourceFeature(entry.moltype, length, entry.organism ?? "", entry.sourceMolType) +
     el("INSDSeq_sequence", residues) +
     "</INSDSeq></SequenceData>"
   );

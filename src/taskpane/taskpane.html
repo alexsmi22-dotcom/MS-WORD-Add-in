@@ -228,7 +228,10 @@
       <!-- WIPO ST.26 sequence listings -->
       <section id="sequence-section">
         <p class="seq-disclaimer">
-          Draft <strong>ST.26</strong> listing — validate in the WIPO Sequence tool before filing.
+          Draft <strong>ST.26</strong> listing with the mandatory <em>source</em> feature (mol_type +
+          organism) per sequence — valid for plain sequences (primers, probes, etc.). For CDS/gene
+          feature annotation (e.g. <code>/translation</code>), add those in the WIPO Sequence tool.
+          Always validate there before filing.
         </p>
         <label class="field-label" for="seq-applicant">Applicant name</label>
         <input id="seq-applicant" class="formula-input" type="text" placeholder="e.g. Acme &amp; Co." />
@@ -482,6 +485,9 @@
               <option value="line">Line chart</option>
               <option value="area">Area chart</option>
               <option value="scatter">Scatter (points)</option>
+              <option value="stacked-column">Stacked column</option>
+              <option value="stacked-bar">Stacked bar (horizontal)</option>
+              <option value="stacked-area">Stacked area</option>
               <option value="pie">Pie chart</option>
               <option value="doughnut">Doughnut chart</option>
             </optgroup>

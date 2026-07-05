@@ -78,6 +78,18 @@ describe("case", () => {
     expect(r.plain).toBe("Alice, 573 U.S. at 217");
     expect(r.html).toContain("<i>Alice</i>");
   });
+
+  test("parallel citations follow the primary cite, before the year", () => {
+    const r = fmt("case", {
+      name: "Alice Corp. v. CLS Bank Int’l",
+      vol: "573",
+      reporter: "U.S.",
+      page: "208",
+      parallel: "134 S. Ct. 2347, 189 L. Ed. 2d 296",
+      year: "2014",
+    });
+    expect(r.plain).toBe("Alice Corp. v. CLS Bank Int’l, 573 U.S. 208, 134 S. Ct. 2347, 189 L. Ed. 2d 296 (2014)");
+  });
 });
 
 describe("statutes & regs", () => {

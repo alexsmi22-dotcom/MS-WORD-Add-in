@@ -236,13 +236,31 @@ describe("buildChartPreviewSvg", () => {
     ["2024", "-30", "95"],
   ]);
 
-  const kinds: ChartKind[] = ["column", "bar", "line", "area", "scatter", "pie", "doughnut"];
+  const kinds: ChartKind[] = [
+    "column", "bar", "line", "area", "scatter",
+    "stacked-column", "stacked-bar", "stacked-area", "pie", "doughnut",
+  ];
 
   test.each(kinds)("%s renders valid-looking SVG", (kind) => {
     const svg = buildChartPreviewSvg(chart, kind, "My chart");
     expect(svg.startsWith("<svg")).toBe(true);
     expect(svg.endsWith("</svg>")).toBe(true);
     expect(svg).toContain("My chart");
+  });
+
+  test("stacked column axis spans the per-category sum, not the max single value", () => {
+    // 2022: Sales 100 + Costs 80 = 180 → a tick label of 180 (or higher) must appear,
+    // which a grouped chart (max 150) would never show.
+    const c = parseTableData([
+      ["Year", "Sales", "Costs"],
+      ["2022", "100", "80"],
+      ["2023", "150", "90"],
+    ]);
+    const svg = buildChartPreviewSvg(c, "stacked-column");
+    expect(svg).toMatch(/>2[0-9][0-9]</); // an axis tick ≥ 200 (sum 240) — impossible when grouped
+    // Two series × two categories = 4 stacked segments.
+    const rects = svg.match(/<rect /g) || [];
+    expect(rects.length).toBeGreaterThanOrEqual(4 + 2); // segments + bg/frame
   });
 
   test("scatter draws markers but no connecting lines", () => {

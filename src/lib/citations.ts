@@ -206,6 +206,7 @@ export const CITATIONS: CitationType[] = [
       { key: "reporter", label: "Reporter", placeholder: "U.S." },
       { key: "page", label: "First page", placeholder: "208" },
       { key: "pin", label: "Pincite", placeholder: "216", optional: true },
+      { key: "parallel", label: "Parallel cite(s)", placeholder: "134 S. Ct. 2347, 189 L. Ed. 2d 296", optional: true },
       { key: "court", label: "Court", placeholder: "Fed. Cir. (omit for U.S. Sup. Ct.)", optional: true },
       { key: "year", label: "Year", placeholder: "2014" },
     ],
@@ -214,12 +215,14 @@ export const CITATIONS: CitationType[] = [
       const court = normalizeCourt(g("court"));
       const loc = join([g("vol"), reporter, g("page")]);
       const withPin = g("pin") ? `${loc}, ${g("pin")}` : loc;
+      // Parallel reporters (Rule 10.3.1) follow the primary cite, before the year.
+      const withParallel = g("parallel") ? `${withPin}, ${g("parallel")}` : withPin;
       const paren = `(${join([court, g("year")])})`;
       // Practitioner italicizes the case name; academic full citations set it roman.
       const nameHtml = style === "academic" ? esc(g("name")) : it(g("name"));
       return {
-        plain: `${g("name")}, ${withPin} ${paren}`,
-        html: `${nameHtml}, ${esc(withPin)} ${esc(paren)}`,
+        plain: `${g("name")}, ${withParallel} ${paren}`,
+        html: `${nameHtml}, ${esc(withParallel)} ${esc(paren)}`,
       };
     },
   },

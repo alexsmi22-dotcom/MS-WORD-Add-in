@@ -57,7 +57,7 @@ Email or share these three small files (from `release\formula-inserter\`):
 - `INSTALL.md`
 
 Users run `install.bat` (or `install.ps1`) once — no admin — restart Word, and
-pick **Formula Inserter** from **Insert → Add-ins → Developer Add-ins**.
+pick **JurisLab** from **Insert → Add-ins → Developer Add-ins**.
 
 ## Updating later
 

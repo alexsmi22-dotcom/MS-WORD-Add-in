@@ -1,4 +1,4 @@
-# Install Formula Inserter in Word (macOS)
+# Install JurisLab in Word (macOS)
 
 This adds an **Insert Formula** button/pane to Word for chemical formulas, math
 equations, and 2D chemical structures. It runs entirely on your machine — nothing
@@ -31,11 +31,11 @@ before installing so it creates its add-in folder.
      once more.
    - *(Safe either way — the installer only copies one file into Word's add-in
      folder. Apple just makes you confirm it the first time.)*
-3. A Terminal window runs and prints **"Formula Inserter installed."** — press any
+3. A Terminal window runs and prints **"JurisLab installed."** — press any
    key to close it.
 4. **Fully quit Word** (**⌘-Q**, not just the red dot), then reopen it.
 5. **Insert** tab → **Add-ins** (the *My Add-ins* dropdown) → click
-   **Formula Inserter**. The pane opens on the side.
+   **JurisLab**. The pane opens on the side.
 
 From now on you can simply **double-click `install.command`** — the approval only
 happens the first time.
@@ -54,7 +54,7 @@ You can install without the script by copying one file yourself:
 2. Type `cd ` (with a space), drag this folder onto the window, press Return.
 3. Paste this line and press Return:
    ```bash
-   mkdir -p ~/Library/Containers/com.microsoft.Word/Data/Documents/wef && cp manifest.xml ~/Library/Containers/com.microsoft.Word/Data/Documents/wef/formula-inserter.manifest.xml && echo "Formula Inserter installed."
+   mkdir -p ~/Library/Containers/com.microsoft.Word/Data/Documents/wef && cp manifest.xml ~/Library/Containers/com.microsoft.Word/Data/Documents/wef/formula-inserter.manifest.xml && echo "JurisLab installed."
    ```
 
 ## Troubleshooting

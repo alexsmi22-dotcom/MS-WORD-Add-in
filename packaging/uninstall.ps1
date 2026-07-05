@@ -1,4 +1,4 @@
-# Formula Inserter — per-user uninstaller. Removes the registration and local
+# JurisLab — per-user uninstaller. Removes the registration and local
 # files. No admin required. Restart Word afterwards to complete removal.
 
 $ErrorActionPreference = "SilentlyContinue"
@@ -14,4 +14,4 @@ Remove-Item -Path "HKCU:\Software\Microsoft\Office\16.0\WEF\TrustedCatalogs\7f3c
 
 Remove-Item -Path $dir -Recurse -Force
 
-Write-Host "Formula Inserter removed. Restart Word to complete removal." -ForegroundColor Green
+Write-Host "JurisLab removed. Restart Word to complete removal." -ForegroundColor Green

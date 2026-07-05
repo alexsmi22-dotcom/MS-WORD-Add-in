@@ -1,4 +1,4 @@
-# Builds distributable Formula Inserter packages (separate per OS).
+# Builds distributable JurisLab packages (separate per OS).
 #
 #   powershell -ExecutionPolicy Bypass -File scripts\package.ps1 -HostUrl https://your-host/formula-inserter
 #

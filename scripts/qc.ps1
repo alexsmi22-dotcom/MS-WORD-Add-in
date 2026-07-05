@@ -1,4 +1,4 @@
-# Formula Inserter — automated QC gate.
+# JurisLab — automated QC gate.
 #
 # Runs everything that can be verified WITHOUT the Word host, in one command:
 #   1. Type-check (tsc)         3. Production build (webpack)   5. Task-pane id wiring audit

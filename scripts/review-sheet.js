@@ -58,7 +58,7 @@ const html = `<!doctype html><html><head><meta charset="utf-8"><title>Compound d
  .errmsg{color:#a4262c;font-size:11px;}
  @media print{.card{break-inside:avoid;}}
 </style></head><body>
-<h1>Formula Inserter — compound dictionary review</h1>
+<h1>JurisLab — compound dictionary review</h1>
 <p class="note">Verify each structure matches the name. Tick / annotate as needed.
  Entries that fail to parse are highlighted red. Source: <code>src/lib/compounds.json</code>.</p>
 ${section("Names", data.names)}

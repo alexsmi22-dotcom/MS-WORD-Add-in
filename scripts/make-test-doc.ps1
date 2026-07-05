@@ -15,7 +15,7 @@ $outPath = Join-Path $root "docs\Formula-Inserter-Test.docx"
 #    (→ figure-number gap, and dangling Fig. 3 / Fig. 7 with no caption)
 #  - SEQ ID NO: 5 (out of range when the listing is empty)
 $paras = @(
-  "Formula Inserter - Audit Test Document",
+  "JurisLab - Audit Test Document",
   "",
   "A widget (10) is connected to a housing (12) by a fastener (99).",
   "",

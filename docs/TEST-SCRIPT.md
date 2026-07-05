@@ -1,4 +1,4 @@
-# Formula Inserter — Manual Test Script (v1.0.0)
+# JurisLab — Manual Test Script (v1.0.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 793 automated unit tests; this script verifies the parts

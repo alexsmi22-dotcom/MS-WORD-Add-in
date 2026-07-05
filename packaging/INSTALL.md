@@ -1,4 +1,4 @@
-# Install Formula Inserter in Word
+# Install JurisLab in Word
 
 This adds an **Insert Formula** button/pane to Word for chemical formulas, math
 equations, and 2D chemical structures. It runs entirely on your machine — nothing
@@ -12,10 +12,10 @@ Nothing to install first — Windows already has everything needed.
 2. **Double-click `install.bat`.**
    - If Windows shows a blue "Windows protected your PC" box, click
      **More info → Run anyway** (it's just because the file was downloaded).
-   - A window says "Formula Inserter installed…" — press a key to close it.
+   - A window says "JurisLab installed…" — press a key to close it.
 3. **Fully close and reopen Word** (all windows).
 4. **Insert** tab → **Add-ins** → under **Developer Add-ins**, click
-   **Formula Inserter**. The pane opens on the right.
+   **JurisLab**. The pane opens on the right.
 
 That's it. (First open may take a second while it loads.)
 

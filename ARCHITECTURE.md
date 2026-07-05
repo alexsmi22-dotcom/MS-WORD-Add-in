@@ -1,6 +1,6 @@
-# Formula Inserter — Architecture Paper
+# JurisLab — Architecture Paper
 
-**Project:** `word-chem-formula` (product name: *Formula Inserter*)
+**Project:** `word-chem-formula` (product name: *JurisLab*)
 **Type:** Microsoft Word task-pane add-in (Office.js)
 **Version:** 0.1.0
 **Date of this document:** 2026-06-19
@@ -39,7 +39,7 @@
 
 ## 1. Executive Summary
 
-Formula Inserter is a **client-side Word add-in** that helps authors — chemists and patent drafters in particular — insert correctly typeset content into Word documents: chemical formulas (with subscripts/superscripts), native Word math equations (OMML), rasterized 2D chemical structures, Markush/R-group legends, WIPO ST.26 biological sequence listings, botanical (plant) nomenclature, and formatted code/algorithm blocks.
+JurisLab is a **client-side Word add-in** that helps authors — chemists and patent drafters in particular — insert correctly typeset content into Word documents: chemical formulas (with subscripts/superscripts), native Word math equations (OMML), rasterized 2D chemical structures, Markush/R-group legends, WIPO ST.26 biological sequence listings, botanical (plant) nomenclature, and formatted code/algorithm blocks.
 
 The application is **100% browser/JavaScript** — there is no server backend and no document content ever leaves the user's machine. The chemistry intelligence is provided by the bundled **OpenChemLib** library; everything else is hand-written TypeScript. The codebase is organized around a strict separation between a **pure, unit-testable engine** (`src/lib/*`, no Office.js) and a **thin UI/Office glue layer** (`src/taskpane/taskpane.ts`).
 
@@ -200,7 +200,7 @@ devtool: "source-map",
 A TaskPaneApp manifest (schema 1.1 + TaskPane VersionOverrides). Key values:
 
 - **Id:** `5674364b-9410-41a5-a938-12c1155aeb7e` (identical across dev/prod — same logical add-in).
-- **Version:** `1.0.0.0`; **ProviderName:** `AlexanderSmith`; **DefaultLocale:** `en-US`; **DisplayName:** "Formula Inserter".
+- **Version:** `1.0.0.0`; **ProviderName:** `AlexanderSmith`; **DefaultLocale:** `en-US`; **DisplayName:** "JurisLab".
 - **Host:** `<Host Name="Document" />` → Word.
 - **Requirement set:** `WordApi` `DefaultMinVersion="1.3"`.
 - **Permissions:** `ReadWriteDocument`.
@@ -490,7 +490,7 @@ An Office add-in = a small `manifest.xml` + HTTPS-hosted static web files. Nothi
    $dev = "HKCU:\Software\Microsoft\Office\16.0\WEF\Developer"
    New-ItemProperty -Path $dev -Name $manifest -Value $manifest -PropertyType String -Force
    ```
-   After a full Word restart the add-in appears under **Insert → Add-ins → Developer Add-ins → Formula Inserter**. `uninstall.ps1` removes the value, cleans a legacy TrustedCatalogs entry, and deletes the local folder. (`install.bat` is the double-click `reg add` equivalent.)
+   After a full Word restart the add-in appears under **Insert → Add-ins → Developer Add-ins → JurisLab**. `uninstall.ps1` removes the value, cleans a legacy TrustedCatalogs entry, and deletes the local folder. (`install.bat` is the double-click `reg add` equivalent.)
 
 > **Note:** the local-folder **TrustedCatalogs** ("Shared Folder") method did *not* surface on this team's Office build and is not used. The Developer-registry method is the supported path.
 

@@ -1,6 +1,6 @@
-# Install Formula Inserter (Word) — Windows & macOS
+# Install JurisLab (Word) — Windows & macOS
 
-Formula Inserter is a Microsoft Word add-in for STEM authoring (chemistry, math,
+JurisLab is a Microsoft Word add-in for STEM authoring (chemistry, math,
 units, plotting, finance, DNA/sequence tools, and patent-drafting aids). It runs
 **entirely on your machine** — nothing you type is sent anywhere — and needs **no
 administrator rights**.
@@ -12,7 +12,7 @@ Pick your operating system below.
 | **Windows** | **[formula-inserter-windows.zip](formula-inserter-windows.zip)** | Unzip → right-click **`install.ps1` → Run with PowerShell** → restart Word |
 | **macOS** | **[formula-inserter-mac.zip](formula-inserter-mac.zip)** | Unzip → **right-click `install.command` → Open → Open** → restart Word |
 
-After installing, open Word → **Insert** tab → **Add-ins** → **Formula Inserter**
+After installing, open Word → **Insert** tab → **Add-ins** → **JurisLab**
 (or the **Insert Formula** button on the Home tab). The pane opens on the side.
 
 > First open needs an internet connection (the add-in's code is served over HTTPS).
@@ -25,9 +25,9 @@ After installing, open Word → **Insert** tab → **Add-ins** → **Formula Ins
 1. **Download** `formula-inserter-windows.zip` and **unzip** it (keep the files together in one folder).
 2. **Right-click `install.ps1` → Run with PowerShell.** (Don't double-click — that just opens Notepad. Or double-click `install.bat`.)
    - If Windows shows a blue **"Windows protected your PC"** box, click **More info → Run anyway** (it's only because the file was downloaded).
-   - A window says **"Formula Inserter installed…"** — press a key to close it.
+   - A window says **"JurisLab installed…"** — press a key to close it.
 3. **Fully close and reopen Word** (all windows; no lingering WINWORD in Task Manager).
-4. **Insert** tab → **Add-ins** → **Formula Inserter**.
+4. **Insert** tab → **Add-ins** → **JurisLab**.
 
 **Uninstall:** double-click `uninstall.bat` (or run `uninstall.ps1`), then restart Word.
 
@@ -49,9 +49,9 @@ normal double-click.
      Trash* / *Done*): click **Done**, then **Apple menu → System Settings →
      Privacy & Security**, scroll down to **"install.command" was blocked** →
      **Open Anyway** → password/Touch ID → **Open Anyway** again.
-3. Terminal prints **"Formula Inserter installed."** — press any key to close.
+3. Terminal prints **"JurisLab installed."** — press any key to close.
 4. **Fully quit Word** (**⌘Q**, not just the red dot), then reopen it.
-5. **Insert** tab → **Add-ins** (the *My Add-ins* dropdown) → **Formula Inserter**.
+5. **Insert** tab → **Add-ins** (the *My Add-ins* dropdown) → **JurisLab**.
 
 From now on a plain **double-click** of `install.command` works — the approval is
 first-time only. (Stuck? `START HERE - Install on Mac.txt` in the zip has a

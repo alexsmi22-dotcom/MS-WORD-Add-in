@@ -1,10 +1,10 @@
 #!/bin/bash
-# Formula Inserter — per-user installer for Word on macOS (no admin required).
+# JurisLab — per-user installer for Word on macOS (no admin required).
 #
 # Word on the Mac has no registry. Instead it loads sideloaded add-ins from a
 # per-user "wef" folder inside its app container. This script copies the
 # manifest there. After running, restart Word and find it under:
-#   Insert > Add-ins > (your add-ins) > Formula Inserter
+#   Insert > Add-ins > (your add-ins) > JurisLab
 #
 # Run it: double-click install.command in Finder. If macOS blocks it with
 # "unidentified developer", right-click it > Open > Open, or run in Terminal:
@@ -26,11 +26,11 @@ mkdir -p "$WEF"
 cp "$SRC" "$WEF/formula-inserter.manifest.xml"
 
 echo ""
-echo "Formula Inserter installed for your user account."
+echo "JurisLab installed for your user account."
 echo ""
 echo "Next steps:"
 echo "  1. Fully quit Word (Cmd-Q), then reopen it."
-echo "  2. Insert tab > Add-ins (My Add-ins) > Formula Inserter."
+echo "  2. Insert tab > Add-ins (My Add-ins) > JurisLab."
 echo ""
 echo "To remove it later, run uninstall.command."
 

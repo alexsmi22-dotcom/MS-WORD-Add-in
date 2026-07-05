@@ -27,7 +27,7 @@ Each install pack is self-contained: it carries its own copy of the stamped
 `manifest.xml`, the OS installer/uninstaller, the matching INSTALL doc, and
 `FEATURES.md`. So: run the script → upload `formula-inserter-host\web` once → send
 each person the **one zip for their OS**. They run the installer, restart Word,
-and pick **Formula Inserter** from **Insert → Add-ins**.
+and pick **JurisLab** from **Insert → Add-ins**.
 
 > **How the per-user install works:**
 > - **Windows:** `install.ps1` copies `manifest.xml` to

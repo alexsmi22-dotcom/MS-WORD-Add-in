@@ -1,6 +1,6 @@
-# Formula Inserter — Capabilities Overview
+# JurisLab — Capabilities Overview
 
-**Formula Inserter** is a Microsoft Word add-in that turns what you type into
+**JurisLab** is a Microsoft Word add-in that turns what you type into
 correctly formatted, ready-to-insert content across science, math, and technical
 writing. One task pane, **14 modes**, **one shared engine** — and it runs
 **entirely on your machine**: nothing you type ever leaves your computer.

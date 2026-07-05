@@ -1,8 +1,8 @@
-# Formula Inserter — per-user installer for Word on Windows (no admin required).
+# JurisLab — per-user installer for Word on Windows (no admin required).
 #
 # Registers the add-in for your user account so Word loads it from its hosted
 # location. After running, restart Word and find it under:
-#   Insert > Add-ins > Developer Add-ins > Formula Inserter
+#   Insert > Add-ins > Developer Add-ins > JurisLab
 #
 # Run it: right-click install.ps1 > "Run with PowerShell", or in a terminal:
 #   powershell -ExecutionPolicy Bypass -File install.ps1
@@ -24,10 +24,10 @@ New-Item -Path $dev -Force | Out-Null
 New-ItemProperty -Path $dev -Name $manifest -Value $manifest -PropertyType String -Force | Out-Null
 
 Write-Host ""
-Write-Host "Formula Inserter installed for your user account." -ForegroundColor Green
+Write-Host "JurisLab installed for your user account." -ForegroundColor Green
 Write-Host ""
 Write-Host "Next steps:" -ForegroundColor Cyan
 Write-Host "  1. Fully close and reopen Word (all windows)."
-Write-Host "  2. Insert tab > Add-ins > Developer Add-ins > Formula Inserter."
+Write-Host "  2. Insert tab > Add-ins > Developer Add-ins > JurisLab."
 Write-Host ""
 Write-Host "To remove it later, run uninstall.ps1."

@@ -1,4 +1,4 @@
-# Formula Inserter — User Guide
+# JurisLab — User Guide
 
 Open the task pane from the **Home** tab → **Insert Formula**. Put your cursor
 where you want content, then use one of the three modes.

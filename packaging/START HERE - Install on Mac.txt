@@ -1,5 +1,5 @@
 ==========================================================
-  INSTALL FORMULA INSERTER IN WORD  (macOS)
+  INSTALL JurisLab IN WORD  (macOS)
 ==========================================================
 
 It works just like the Windows installer, with ONE extra click the
@@ -35,13 +35,13 @@ STEP 2.  RIGHT-CLICK (or Control-click)  install.command  and choose
          Word's add-in folder. Apple just makes you confirm it.)
 
 STEP 3.  A Terminal window runs and says
-           "Formula Inserter installed."
+           "JurisLab installed."
          Press any key to close it.
 
 STEP 4.  Quit Word completely ( Command-Q , not just the red dot ),
          then reopen it.
 
-STEP 5.  Insert tab  >  Add-ins (My Add-ins)  >  Formula Inserter.
+STEP 5.  Insert tab  >  Add-ins (My Add-ins)  >  JurisLab.
          The pane opens on the side.
 
 After this first time, you can just DOUBLE-CLICK install.command.
@@ -58,7 +58,7 @@ IF THE INSTALLER STILL WON'T OPEN  (rare)
   2. Type  cd  and a space, drag this folder onto the window, Return.
   3. Paste this line and press Return:
 
-mkdir -p ~/Library/Containers/com.microsoft.Word/Data/Documents/wef && cp manifest.xml ~/Library/Containers/com.microsoft.Word/Data/Documents/wef/formula-inserter.manifest.xml && echo "Formula Inserter installed."
+mkdir -p ~/Library/Containers/com.microsoft.Word/Data/Documents/wef && cp manifest.xml ~/Library/Containers/com.microsoft.Word/Data/Documents/wef/formula-inserter.manifest.xml && echo "JurisLab installed."
 
 ----------------------------------------------------------
 TO UNINSTALL

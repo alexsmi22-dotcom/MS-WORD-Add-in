@@ -1,12 +1,13 @@
 # Changelog
 
-All notable changes to Formula Inserter. Dates are release/pilot dates.
+All notable changes to JurisLab. Dates are release/pilot dates.
 
 ## [1.12.0] — 2026-07-04
 
 ### Changed
-- **Renamed to JurisLab** — the add-in now fuses STEM authoring and patent &
-  legal drafting, so the "Formula Inserter" name no longer fit. Display name,
+- **Renamed to JurisLab** (formerly Formula Inserter) — the add-in now fuses
+  STEM authoring and patent & legal drafting, so the old name no longer fit.
+  Display name,
   pane title, ribbon button, landing page, and docs updated. (The GitHub repo,
   hosting URL, install paths, and content-control tags are unchanged, so
   existing installs and tagged content keep working.)

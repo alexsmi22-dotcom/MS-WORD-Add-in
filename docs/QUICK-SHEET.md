@@ -1,10 +1,10 @@
-# Formula Inserter — Quick Sheet
+# JurisLab — Quick Sheet
 
 **A Word add-in for inserting chemical formulas, math equations, and 2D chemical
 structures** — fast, consistent, and intuitive. Everything runs on your own
 machine; nothing you type is ever sent anywhere.
 
-Open it from **Insert → Add-ins → Developer Add-ins → Formula Inserter**. It has a
+Open it from **Insert → Add-ins → Developer Add-ins → JurisLab**. It has a
 **Search** box at the top and three modes: **Chemical**, **Math**, **Build**.
 
 ---
@@ -63,4 +63,4 @@ works offline.)
 
 ## Install (Windows desktop Word, no admin)
 Download the install zip → extract → **double-click `install.bat`** → restart
-Word → **Insert → Add-ins → Developer Add-ins → Formula Inserter**.
+Word → **Insert → Add-ins → Developer Add-ins → JurisLab**.

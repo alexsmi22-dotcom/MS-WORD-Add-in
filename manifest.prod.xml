@@ -7,7 +7,7 @@
   xsi:type="TaskPaneApp">
 
   <Id>5674364b-9410-41a5-a938-12c1155aeb7e</Id>
-  <Version>1.16.0.0</Version>
+  <Version>1.17.0.0</Version>
   <ProviderName>AlexanderSmith</ProviderName>
   <DefaultLocale>en-US</DefaultLocale>
   <DisplayName DefaultValue="JurisLab" />

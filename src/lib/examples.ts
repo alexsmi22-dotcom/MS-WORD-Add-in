@@ -265,8 +265,8 @@ export const MODE_EXAMPLES: Record<ExampleMode, string> = {
       italics (case names, article/book titles, signals) are applied on insert.
     </p>
     <ul>
-      <li><strong>Cases</strong> — <em>Alice Corp. v. CLS Bank Int'l</em>, 573 U.S. 208, 216 (2014); short form uses <code>at</code> (or <em>“→ Short form of this case”</em>). Type full party names — <em>Table T6</em> auto-abbreviates them (Corporation → Corp., International → Int’l).</li>
-      <li><strong>Id. / supra</strong> — <em>Id.</em> at 217 for the immediately preceding cite; <em>supra</em> note 15, at 912 for an earlier source.</li>
+      <li><strong>Cases</strong> — <em>Alice Corp. v. CLS Bank Int'l</em>, 573 U.S. 208, 216 (2014); short form uses <code>at</code> (or <em>“→ Short form of this case”</em>). Type full party names — <em>Tables T6 &amp; T10</em> auto-abbreviate them (Corporation → Corp., International → Int’l, California → Cal.).</li>
+      <li><strong>Id. / supra</strong> — <em>Id.</em> at 217 for the immediately preceding cite (or <em>“Insert Id. for the preceding authority”</em>, which scans the document above the cursor); <em>supra</em> note 15, at 912 for an earlier source.</li>
       <li><strong>Statutes / regs</strong> — 35 U.S.C. § 101; 37 C.F.R. § 1.84 (multiple sections auto-use §§).</li>
       <li><strong>Patents</strong> — U.S. Patent No. 10,123,456; App. Pub. No. 2020/0123456 A1 (numbers auto-grouped).</li>
       <li><strong>Agency &amp; secondary</strong> — Fed. Reg., MPEP §, law-review articles, and treatises.</li>

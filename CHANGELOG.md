@@ -2,6 +2,24 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
+## [1.17.0] — 2026-07-05
+
+### Added
+- **Case-name geographic abbreviation (Bluebook Table T10).** The case-name
+  abbreviator now also applies U.S. state abbreviations (California → Cal.,
+  Massachusetts → Mass., New York → N.Y., …), honoring the named-party
+  exception (Rule 10.2.1(f)) — a bare state party (*California v. Texas*) or a
+  "State of X" / "City of X" government party stays unabbreviated, while a state
+  inside a larger name (*University of California* → *Univ. of Cal.*) abbreviates.
+- **Id. preceding-authority detection.** On the Id. type, "Insert Id. for the
+  preceding authority" scans the document above the cursor, confirms what the
+  Id. refers to, and inserts it (with your pincite). New pure
+  `findPrecedingAuthority()`.
+
+### Fixed
+- Repaired stray NULL bytes accidentally introduced into `abbreviateCaseName`
+  in an earlier edit (output was unaffected; source is now clean).
+
 ## [1.16.0] — 2026-07-05
 
 ### Added

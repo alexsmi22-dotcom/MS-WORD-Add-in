@@ -331,20 +331,33 @@ describe("canonical Bluebook example forms", () => {
   });
 });
 
-describe("abbreviateCaseName (Table T6)", () => {
-  test("abbreviates common organizational words", () => {
+describe("abbreviateCaseName (Tables T6 & T10)", () => {
+  test("T6: abbreviates common organizational words", () => {
     expect(abbreviateCaseName("Alice Corporation v. CLS Bank International")).toBe("Alice Corp. v. CLS Bank Int'l");
     expect(abbreviateCaseName("National Association of Manufacturers")).toBe("Nat'l Ass'n of Mfrs.");
     expect(abbreviateCaseName("International Business Machines Corporation")).toBe("Int'l Bus. Machs. Corp.");
   });
-  test("converts 'and' to '&'", () => {
-    expect(abbreviateCaseName("Standard Oil Company of New Jersey and Sons")).toBe("Standard Oil Co. of New Jersey & Sons");
+  test("T6: converts 'and' to '&'", () => {
+    expect(abbreviateCaseName("Smith and Wesson Corporation")).toBe("Smith & Wesson Corp.");
   });
-  test("leaves 'United States' intact as a party", () => {
+  test("T6: leaves 'United States' intact as a party", () => {
     expect(abbreviateCaseName("United States v. Microsoft Corporation")).toBe("United States v. Microsoft Corp.");
   });
-  test("leaves non-T6 and already-abbreviated names unchanged", () => {
+  test("T6: leaves non-T6 and already-abbreviated names unchanged", () => {
     expect(abbreviateCaseName("Alice Corp. v. CLS Bank Int'l")).toBe("Alice Corp. v. CLS Bank Int'l");
+  });
+  test("T10: abbreviates a state inside a larger party name", () => {
+    expect(abbreviateCaseName("University of California v. Bakke")).toBe("Univ. of Cal. v. Bakke");
+    expect(abbreviateCaseName("New York Times Company v. Sullivan")).toBe("N.Y. Times Co. v. Sullivan");
+  });
+  test("T10: named-party exception — a bare state party is not abbreviated", () => {
+    expect(abbreviateCaseName("California v. Texas")).toBe("California v. Texas");
+  });
+  test("T10: named-party exception — 'State of X' / 'City of X' stay intact", () => {
+    expect(abbreviateCaseName("State of New York v. United States")).toBe("State of New York v. United States");
+    expect(abbreviateCaseName("City of New York v. Federal Communications Commission")).toBe(
+      "City of New York v. Fed. Commc'ns Comm'n"
+    );
   });
 });
 

@@ -172,3 +172,49 @@ export function toaToHtml(toa: TableOfAuthorities): string {
   }
   return parts.join("");
 }
+
+export interface PrecedingAuthority {
+  plain: string;
+  category: ToaCategory;
+}
+
+/**
+ * Finds the last authority cited in `text` — used to confirm what an "Id."
+ * would refer to (the immediately preceding authority, Rule 4.1). Returns the
+ * citation with the greatest position, or null if the text has none.
+ */
+export function findPrecedingAuthority(text: string): PrecedingAuthority | null {
+  let best: PrecedingAuthority | null = null;
+  let bestIdx = -1;
+  const consider = (idx: number, value: PrecedingAuthority): void => {
+    if (idx > bestIdx) {
+      bestIdx = idx;
+      best = value;
+    }
+  };
+
+  let m: RegExpExecArray | null;
+  CASE_RE.lastIndex = 0;
+  while ((m = CASE_RE.exec(text))) {
+    const name = m[1]
+      .replace(/\s+/g, " ")
+      .replace(/^(?:See|Cf\.|Compare|Accord|Contra|E\.g\.)\s+/, "")
+      .trim();
+    consider(m.index, { plain: `${name}, ${m[2]} ${normalizeReporter(m[3])} ${m[4]}`, category: "cases" });
+  }
+  const scan = (re: RegExp, category: ToaCategory, build: (mm: RegExpExecArray) => string): void => {
+    re.lastIndex = 0;
+    let mm: RegExpExecArray | null;
+    while ((mm = re.exec(text))) consider(mm.index, { plain: build(mm), category });
+  };
+  scan(STATUTE_RE, "statutes", (mm) => `${mm[1]} U.S.C. § ${trimSection(mm[2])}`);
+  scan(CFR_RE, "regulations", (mm) => `${mm[1]} C.F.R. § ${trimSection(mm[2])}`);
+  scan(PATENT_RE, "patents", (mm) => {
+    const isApp = /Application\s+Publication/.test(mm[0]);
+    const label = isApp ? "U.S. Patent Application Publication No." : "U.S. Patent No.";
+    return `${label} ${mm[1]}${mm[2] ? ` ${mm[2]}` : ""}`;
+  });
+  scan(FEDREG_RE, "other", (mm) => `${mm[1]} Fed. Reg. ${mm[2]}`);
+  scan(MPEP_RE, "other", (mm) => `MPEP § ${trimSection(mm[1])}`);
+  return best;
+}

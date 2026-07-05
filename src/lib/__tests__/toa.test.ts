@@ -1,4 +1,4 @@
-import { buildTableOfAuthorities, toaToHtml, ToaCategory } from "../toa";
+import { buildTableOfAuthorities, toaToHtml, findPrecedingAuthority, ToaCategory } from "../toa";
 
 /** A short brief-like paragraph exercising each authority type. */
 const BRIEF = `
@@ -77,6 +77,24 @@ describe("buildTableOfAuthorities", () => {
       "See Ass'n for Molecular Pathology v. Myriad Genetics, Inc., 569 U.S. 576, 580 (2013)."
     );
     expect(g.cases).toEqual(["Ass'n for Molecular Pathology v. Myriad Genetics, Inc., 569 U.S. 576"]);
+  });
+});
+
+describe("findPrecedingAuthority", () => {
+  test("returns the last authority cited in the text (for Id.)", () => {
+    const auth = findPrecedingAuthority(
+      "We rely on Alice Corp. v. CLS Bank Int'l, 573 U.S. 208 (2014), and later on 35 U.S.C. § 101."
+    );
+    expect(auth).toEqual({ plain: "35 U.S.C. § 101", category: "statutes" });
+  });
+
+  test("picks the closest preceding case when it comes last", () => {
+    const auth = findPrecedingAuthority("35 U.S.C. § 101; see Mayo v. Prometheus, 566 U.S. 66 (2012)");
+    expect(auth).toEqual({ plain: "Mayo v. Prometheus, 566 U.S. 66", category: "cases" });
+  });
+
+  test("returns null when there is no preceding authority", () => {
+    expect(findPrecedingAuthority("This paragraph cites nothing at all.")).toBeNull();
   });
 });
 

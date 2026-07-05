@@ -92,7 +92,7 @@ import {
   CitationResult,
   CitationStyle,
 } from "../lib/citations";
-import { buildTableOfAuthorities, toaToHtml } from "../lib/toa";
+import { buildTableOfAuthorities, toaToHtml, findPrecedingAuthority } from "../lib/toa";
 
 type Mode =
   | "home"
@@ -256,6 +256,8 @@ let citeParseBtn: HTMLButtonElement;
 let citeParseMsg: HTMLElement;
 let toaBuildBtn: HTMLButtonElement;
 let toaMsg: HTMLElement;
+let citeIdDetectBtn: HTMLButtonElement;
+let citeIdDetectMsg: HTMLElement;
 /** The most recently formatted citation, for insert/copy. */
 let currentCitation: CitationResult | null = null;
 let refsSection: HTMLElement;
@@ -472,6 +474,8 @@ Office.onReady((info) => {
   citeParseMsg = document.getElementById("cite-parse-msg") as HTMLElement;
   toaBuildBtn = document.getElementById("toa-build") as HTMLButtonElement;
   toaMsg = document.getElementById("toa-msg") as HTMLElement;
+  citeIdDetectBtn = document.getElementById("cite-iddetect") as HTMLButtonElement;
+  citeIdDetectMsg = document.getElementById("cite-iddetect-msg") as HTMLElement;
   refsSection = document.getElementById("refs-section") as HTMLElement;
   refKind = document.getElementById("ref-kind") as HTMLSelectElement;
   refNext = document.getElementById("ref-next") as HTMLElement;
@@ -615,6 +619,7 @@ Office.onReady((info) => {
   citeParseBtn.addEventListener("click", parseAndFillCitation);
   citeShortFormBtn.addEventListener("click", makeCaseShortForm);
   toaBuildBtn.addEventListener("click", buildToaHandler);
+  citeIdDetectBtn.addEventListener("click", insertIdForPreceding);
 
   pptLoadBtn.addEventListener("click", loadSelectedTable);
   pptKindSelect.addEventListener("change", updatePptPreview);
@@ -3525,6 +3530,9 @@ function renderCitationInputs(): void {
   citeShortFormBtn.style.display = type.id === "case" ? "block" : "none";
   // The T6 abbreviation toggle applies to case citations.
   citeAbbrevWrap.style.display = type.id === "case" || type.id === "case-short" ? "flex" : "none";
+  // The "Id." preceding-authority helper only applies to the Id. type.
+  citeIdDetectBtn.style.display = type.id === "id" ? "block" : "none";
+  if (type.id !== "id") citeIdDetectMsg.textContent = "";
   updateCitationPreview();
 }
 
@@ -3620,6 +3628,41 @@ async function insertCitation(): Promise<void> {
     setStatus(`Could not insert citation: ${(error as Error).message}`, "error");
   } finally {
     citeInsertBtn.disabled = false;
+  }
+}
+
+/** Finds the authority preceding the cursor and inserts an "Id." referring to it. */
+async function insertIdForPreceding(): Promise<void> {
+  citeIdDetectBtn.disabled = true;
+  citeIdDetectMsg.className = "build-readout";
+  setStatus("Finding the preceding authority…");
+  try {
+    await Word.run(async (context) => {
+      const selection = context.document.getSelection();
+      const before = context.document.body.getRange(Word.RangeLocation.start).expandTo(selection);
+      before.load("text");
+      await context.sync();
+      const authority = findPrecedingAuthority(before.text);
+      if (!authority) {
+        citeIdDetectMsg.className = "build-readout warn";
+        citeIdDetectMsg.textContent = "No preceding authority found above the cursor — “Id.” needs one.";
+        setStatus("No preceding authority found.", "");
+        return;
+      }
+      const pin = (citeInputs.querySelector<HTMLInputElement>('[data-key="pin"]')?.value ?? "").trim();
+      const html = pin ? `<i>Id.</i> at ${esc(pin)}` : "<i>Id.</i>";
+      const inserted = selection.insertHtml(html, Word.InsertLocation.replace);
+      inserted.select(Word.SelectionMode.end);
+      await context.sync();
+      await tagInserted(context, inserted, "formula-inserter:citation");
+      citeIdDetectMsg.className = "build-readout";
+      citeIdDetectMsg.textContent = `Inserted “Id.” — refers to ${authority.plain}.`;
+      setStatus("Id. inserted.", "success");
+    });
+  } catch (error) {
+    setStatus(`Could not insert Id.: ${(error as Error).message}`, "error");
+  } finally {
+    citeIdDetectBtn.disabled = false;
   }
 }
 

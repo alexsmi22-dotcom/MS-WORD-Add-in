@@ -442,7 +442,10 @@ const T6: Record<string, string> = {
   business: "Bus.",
   center: "Ctr.",
   central: "Cent.",
+  commission: "Comm'n",
   committee: "Comm.",
+  communication: "Commc'n",
+  communications: "Commc'ns",
   company: "Co.",
   companies: "Cos.",
   corporation: "Corp.",
@@ -522,14 +525,61 @@ const T6: Record<string, string> = {
  * Corporation → Corp., International → Int'l, and → &, etc. "United States" is
  * left intact (it isn't abbreviated as a party name).
  */
-export function abbreviateCaseName(name: string): string {
+/** Bluebook Table T10 — multi-word U.S. state abbreviations (matched first). */
+const T10_MULTI: [string, string][] = [
+  ["New Hampshire", "N.H."], ["New Jersey", "N.J."], ["New Mexico", "N.M."], ["New York", "N.Y."],
+  ["North Carolina", "N.C."], ["North Dakota", "N.D."], ["Rhode Island", "R.I."],
+  ["South Carolina", "S.C."], ["South Dakota", "S.D."], ["West Virginia", "W. Va."],
+];
+/** Bluebook Table T10 — single-word U.S. state abbreviations. */
+const T10_SINGLE: [string, string][] = [
+  ["Alabama", "Ala."], ["Arizona", "Ariz."], ["Arkansas", "Ark."], ["California", "Cal."], ["Colorado", "Colo."],
+  ["Connecticut", "Conn."], ["Delaware", "Del."], ["Florida", "Fla."], ["Georgia", "Ga."], ["Illinois", "Ill."],
+  ["Indiana", "Ind."], ["Kansas", "Kan."], ["Kentucky", "Ky."], ["Louisiana", "La."], ["Maine", "Me."],
+  ["Maryland", "Md."], ["Massachusetts", "Mass."], ["Michigan", "Mich."], ["Minnesota", "Minn."], ["Mississippi", "Miss."],
+  ["Missouri", "Mo."], ["Montana", "Mont."], ["Nebraska", "Neb."], ["Nevada", "Nev."], ["Oklahoma", "Okla."],
+  ["Oregon", "Or."], ["Pennsylvania", "Pa."], ["Tennessee", "Tenn."], ["Texas", "Tex."], ["Vermont", "Vt."],
+  ["Virginia", "Va."], ["Washington", "Wash."], ["Wisconsin", "Wis."], ["Wyoming", "Wyo."],
+];
+/** Full state names (incl. the never-abbreviated ones) for the named-party test. */
+const STATE_NAMES = new Set(
+  [...T10_MULTI, ...T10_SINGLE]
+    .map(([full]) => full.toLowerCase())
+    .concat(["alaska", "hawaii", "idaho", "iowa", "ohio", "utah"])
+);
+const GEO_PARTY_PREFIX = /^(?:State|Commonwealth|People|City|County|Town|Village|Borough|Parish|Township)\s+of\b/i;
+
+/**
+ * Applies Table T10 state abbreviations with the named-party exception
+ * (Rule 10.2.1(f)): a geographic unit that is itself a party — a bare state
+ * name, or a "State of X" / "City of X" government party — stays unabbreviated.
+ */
+function applyT10Geographic(name: string): string {
   return name
-    .replace(/United States/g, " US ") // protect the party name
-    .replace(/[A-Za-z][A-Za-z'’]*/g, (word) => {
-      const key = word.toLowerCase().replace(/’/g, "'");
-      return T6[key] ?? word;
+    .split(/(\s+v\.\s+)/)
+    .map((seg) => {
+      if (/^\s+v\.\s+$/.test(seg)) return seg;
+      const core = seg.replace(/^(?:In re|Ex parte|In the Matter of)\s+/i, "").trim();
+      if (STATE_NAMES.has(core.toLowerCase()) || GEO_PARTY_PREFIX.test(core)) return seg;
+      let out = seg;
+      for (const [full, abbr] of T10_MULTI) out = out.replace(new RegExp(`\\b${full}\\b`, "g"), abbr);
+      for (const [full, abbr] of T10_SINGLE) out = out.replace(new RegExp(`\\b${full}\\b`, "g"), abbr);
+      return out;
     })
-    .replace(/ US /g, "United States");
+    .join("");
+}
+
+/**
+ * Abbreviates a case name per Bluebook Tables T6 (organizational words —
+ * Corporation → Corp., and → &) and T10 (U.S. states — California → Cal.),
+ * honoring the T10 named-party exception. "United States" stays intact.
+ */
+export function abbreviateCaseName(name: string): string {
+  const t6ed = name.replace(/[A-Za-z][A-Za-z'’]*/g, (word) => {
+    const key = word.toLowerCase().replace(/’/g, "'");
+    return T6[key] ?? word;
+  });
+  return applyT10Geographic(t6ed);
 }
 
 /**

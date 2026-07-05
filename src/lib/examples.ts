@@ -254,8 +254,9 @@ export const MODE_EXAMPLES: Record<ExampleMode, string> = {
     </ul>
     <p class="examples-note">
       When you read a table, the tool <strong>auto-picks</strong> the best view (chart, flowchart,
-      block diagram, or table figure) — change it any time in “Show as”. The PowerPoint chart is
-      native and fully editable; diagrams and patent-style charts ship as the same B&amp;W picture.</p>`,
+      block diagram, or table figure) — change it any time in “Show as”. Figures insert as images;
+      use <strong>Insert as editable Word table</strong> (or tick <em>Also insert the data…</em>) when
+      you need the text to stay editable. The PowerPoint chart is native and fully editable.</p>`,
 
   finance: `
     <p class="examples-note">

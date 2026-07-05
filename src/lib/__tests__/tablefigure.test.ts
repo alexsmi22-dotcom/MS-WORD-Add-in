@@ -1,4 +1,4 @@
-import { buildTableFigureSvg } from "../tablefigure";
+import { buildTableFigureSvg, prepareTableFigure } from "../tablefigure";
 
 const count = (svg: string, needle: string): number => svg.split(needle).length - 1;
 
@@ -11,6 +11,34 @@ const characteristics = [
   ["", "Female", "8,408 (75.0%)", "3,669 (74.4%)"],
   ["", "Male", "2,803 (25.0%)", "1,263 (25.6%)"],
 ];
+
+describe("prepareTableFigure (shared by the SVG figure and the editable Word table)", () => {
+  test("drops the section column, classifies rows, flags numeric columns", () => {
+    const p = prepareTableFigure(characteristics);
+    expect(p.grid[0]).toEqual(["Characteristic", "Overall", "GLP-switcher"]); // Section col dropped
+    expect(p.kinds).toEqual(["header", "band", "data", "data", "data"]);
+    expect(p.bandText[1]).toBe("Demographics");
+    expect(p.numericCol).toEqual([false, true, true]);
+    expect(p.hasHeader).toBe(true);
+  });
+
+  test("keeps a section column that has a value on every row (merged style)", () => {
+    const p = prepareTableFigure([
+      ["Section", "Item", "n"],
+      ["Cohort", "Total", "100"],
+      ["Cohort", "Female", "75"],
+    ]);
+    expect(p.grid[0]).toEqual(["Section", "Item", "n"]);
+    expect(p.kinds).toEqual(["header", "data", "data"]);
+  });
+
+  test("caps very long tables with a warning", () => {
+    const rows = [["A", "B"], ...Array.from({ length: 60 }, (_, i) => [`r${i}`, String(i)])];
+    const p = prepareTableFigure(rows);
+    expect(p.grid.length).toBe(40); // capped to 40 rows total
+    expect(p.warnings.some((w) => w.includes("first 40"))).toBe(true);
+  });
+});
 
 describe("buildTableFigureSvg", () => {
   test("renders scalable SVG with the header, cells, and content", () => {

@@ -42,27 +42,35 @@ function detectHeader(rows: string[][]): boolean {
   return text >= Math.min(2, r0.filter((c) => c).length);
 }
 
-type RowKind = "header" | "band" | "data";
+export type RowKind = "header" | "band" | "data";
+
+export interface PreparedTable {
+  /** The display grid after row-capping and dropping a redundant section column. */
+  grid: string[][];
+  /** Per-row classification: header / section band / data. */
+  kinds: RowKind[];
+  /** Section text for band rows (their single filled cell), "" otherwise. */
+  bandText: string[];
+  /** Per-column: is this column numeric (right-aligned, tighter width)? */
+  numericCol: boolean[];
+  hasHeader: boolean;
+  warnings: string[];
+}
 
 /**
- * Renders the table as a figure. `rows` must be pre-cleaned
+ * Shared preparation for the table figure and the editable Word table: caps
+ * rows, detects the header, classifies section-band rows, drops a redundant
+ * leading section column, and flags numeric columns. `rows` must be pre-cleaned
  * (tablechart.cleanTableRows).
  */
-export function buildTableFigureSvg(rows: string[][], title = "", style: ChartStyle = {}): TableFigureResult {
+export function prepareTableFigure(rows: string[][]): PreparedTable {
   const warnings: string[] = [];
-  if (!rows.length || !rows[0].length) {
-    return {
-      svg: `<svg xmlns="http://www.w3.org/2000/svg" width="${PANE_W}" height="80"><rect width="${PANE_W}" height="80" fill="#fff"/><text x="${PANE_W / 2}" y="44" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#999">Empty table</text></svg>`,
-      warnings,
-    };
-  }
-
   let body = rows;
   if (rows.length > MAX_ROWS) {
-    warnings.push(`Only the first ${MAX_ROWS} of ${rows.length} rows are drawn.`);
+    warnings.push(`Only the first ${MAX_ROWS} of ${rows.length} rows are shown.`);
     body = rows.slice(0, MAX_ROWS);
   }
-  let ncols = Math.max(...body.map((r) => r.length));
+  let ncols = Math.max(0, ...body.map((r) => r.length));
   let grid = body.map((r) => (r.length < ncols ? r.concat(Array(ncols - r.length).fill("")) : r));
 
   let hasHeader = detectHeader(grid);
@@ -79,28 +87,47 @@ export function buildTableFigureSvg(rows: string[][], title = "", style: ChartSt
   // Drop a leading "section" column that only ever carries the band text: with
   // the sections rendered as full-width bands, that column is empty in every
   // data row and would otherwise render as a dead column down the left edge.
-  if (
-    ncols >= 2 &&
-    kinds.some((k) => k === "band") &&
-    grid.every((r, i) => kinds[i] !== "data" || r[0] === "")
-  ) {
+  if (ncols >= 2 && kinds.some((k) => k === "band") && grid.every((r, i) => kinds[i] !== "data" || r[0] === "")) {
     grid = grid.map((r) => r.slice(1));
     ncols -= 1;
     hasHeader = detectHeader(grid);
     kinds = grid.map((r, i) => {
       if (i === 0 && hasHeader) return "header";
-      // A band row is now all-empty in the grid; it's still a band (bandText).
-      if (bandText[i]) return "band";
+      if (bandText[i]) return "band"; // now all-empty in the grid, still a band
       const filled = r.filter((c) => c !== "").length;
       return filled === 1 && ncols >= 2 ? "band" : "data";
     });
   }
 
-  // Which columns are numeric — they get tighter widths and right alignment.
   const numericCol = Array.from({ length: ncols }, (_, j) => {
     const cells = grid.filter((_, i) => kinds[i] === "data").map((r) => r[j]).filter((c) => c !== "");
     return cells.length > 0 && cells.filter((c) => parseNumberCell(c) !== null).length / cells.length >= 0.6;
   });
+
+  return { grid, kinds, bandText, numericCol, hasHeader, warnings };
+}
+
+type RowKindInternal = RowKind;
+
+/**
+ * Renders the table as a figure. `rows` must be pre-cleaned
+ * (tablechart.cleanTableRows).
+ */
+export function buildTableFigureSvg(rows: string[][], title = "", style: ChartStyle = {}): TableFigureResult {
+  if (!rows.length || !rows[0].length) {
+    return {
+      svg: `<svg xmlns="http://www.w3.org/2000/svg" width="${PANE_W}" height="80"><rect width="${PANE_W}" height="80" fill="#fff"/><text x="${PANE_W / 2}" y="44" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#999">Empty table</text></svg>`,
+      warnings: [],
+    };
+  }
+
+  const prepared = prepareTableFigure(rows);
+  const warnings = prepared.warnings;
+  const grid = prepared.grid;
+  const ncols = grid[0].length;
+  const kinds: RowKindInternal[] = prepared.kinds;
+  const bandText = prepared.bandText;
+  const numericCol = prepared.numericCol;
 
   // Column widths from the widest cell in each column (bands span all columns,
   // so they don't drive column width). Numeric columns are capped tighter.

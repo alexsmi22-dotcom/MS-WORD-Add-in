@@ -79,7 +79,7 @@ import { formatSeqIdRef } from "../lib/seqid";
 import { getPrefs, setPref } from "../lib/prefs";
 import { parseTableData, cleanTableRows, buildChartPreviewSvg, TableChart, ChartKind, ChartStyle } from "../lib/tablechart";
 import { buildDiagramSvg, DiagramKind } from "../lib/tablediagram";
-import { buildTableFigureSvg } from "../lib/tablefigure";
+import { buildTableFigureSvg, prepareTableFigure } from "../lib/tablefigure";
 import { classifyTable } from "../lib/tableclassify";
 
 type Mode =
@@ -261,6 +261,8 @@ let pptIncludeTable: HTMLInputElement;
 let pptPreview: HTMLElement;
 let pptWarnings: HTMLElement;
 let pptInsertFigBtn: HTMLButtonElement;
+let pptInsertTableBtn: HTMLButtonElement;
+let pptWithTextCheckbox: HTMLInputElement;
 let pptDownloadBtn: HTMLButtonElement;
 /** Cleaned rows of the most recently read table (charts and diagrams). */
 let currentTableRows: string[][] | null = null;
@@ -448,6 +450,8 @@ Office.onReady((info) => {
   pptPreview = document.getElementById("ppt-preview") as HTMLElement;
   pptWarnings = document.getElementById("ppt-warnings") as HTMLElement;
   pptInsertFigBtn = document.getElementById("ppt-insert-fig") as HTMLButtonElement;
+  pptInsertTableBtn = document.getElementById("ppt-insert-table") as HTMLButtonElement;
+  pptWithTextCheckbox = document.getElementById("ppt-with-text") as HTMLInputElement;
   pptDownloadBtn = document.getElementById("ppt-download") as HTMLButtonElement;
 
   inputEl.addEventListener("input", onInputChanged);
@@ -548,6 +552,7 @@ Office.onReady((info) => {
   pptNumeralsCheckbox.addEventListener("change", updatePptPreview);
   pptFigLabelInput.addEventListener("input", updatePptPreview);
   pptInsertFigBtn.addEventListener("click", insertTableFigure);
+  pptInsertTableBtn.addEventListener("click", insertEditableWordTable);
   pptDownloadBtn.addEventListener("click", downloadPptx);
 
   // Apply persisted preferences to the relevant controls, and save on change.
@@ -1521,9 +1526,12 @@ function updatePptPreview(): void {
     pptWarnings.textContent = "";
     pptWarnings.className = "seq-warnings";
     pptInsertFigBtn.disabled = true;
+    pptInsertTableBtn.disabled = true;
     pptDownloadBtn.disabled = true;
     return;
   }
+  // A Word table can always be inserted once a table has been read.
+  pptInsertTableBtn.disabled = false;
   const chart = currentTableChart;
   pptInfo.textContent = chart
     ? `${chart.series.length} series (${chart.series.map((s) => s.name).join(", ")}) × ${chart.categories.length} categories`
@@ -1560,21 +1568,90 @@ async function insertTableFigure(): Promise<void> {
     const base64 = await svgToPngBase64(rendered.svg, d.w * 2, d.h * 2);
     const kindLabel = kind === "tablefigure" ? "table figure" : kind;
     const alt = `${style.figLabel ? style.figLabel + " — " : ""}${kindLabel} of table (${currentTableRows?.length ?? 0} rows)${style.patent ? ", patent line-art style" : ""}`;
+    const alsoText = pptWithTextCheckbox.checked && !!currentTableRows;
     await Word.run(async (context) => {
       const range = context.document.getSelection();
       const picture = range.insertInlinePictureFromBase64(base64, Word.InsertLocation.after);
       picture.altTextDescription = alt;
       picture.width = d.w * 0.75;
       picture.height = d.h * 0.75;
-      range.select(Word.SelectionMode.end);
+      // Optionally follow the image with an editable Word table of the data,
+      // so the text is editable even though the figure itself is an image.
+      let tail = picture.getRange(Word.RangeLocation.end);
+      if (alsoText) {
+        const para = tail.insertParagraph("", Word.InsertLocation.after);
+        const table = insertFormattedWordTable(para.getRange(Word.RangeLocation.after), currentTableRows as string[][]);
+        tail = table.getRange(Word.RangeLocation.after);
+      }
+      tail.select(Word.SelectionMode.end);
       await context.sync();
       await tagInserted(context, picture.getRange(), "formula-inserter:tablechart");
     });
-    setStatus("Figure inserted.", "success");
+    setStatus(alsoText ? "Figure + editable table inserted." : "Figure inserted.", "success");
   } catch (error) {
     setStatus(`Could not insert the figure: ${(error as Error).message}`, "error");
   } finally {
     pptInsertFigBtn.disabled = false;
+  }
+}
+
+/**
+ * Inserts a formatted, editable Word table after `anchor` and returns it —
+ * header row and section-band rows bolded and shaded, numeric columns
+ * right-aligned. Only queues operations; the caller syncs.
+ */
+function insertFormattedWordTable(anchor: Word.Range, rows: string[][]): Word.Table {
+  const prepared = prepareTableFigure(rows);
+  const grid = prepared.grid;
+  const nRows = grid.length;
+  const nCols = nRows ? grid[0].length : 0;
+  if (!nRows || !nCols) throw new Error("The table is empty.");
+  // Band rows are all-empty in the prepared grid (the section text lives in
+  // bandText) — put the section text back into the first cell for insertion.
+  const insertGrid = grid.map((r, i) => (prepared.kinds[i] === "band" ? [prepared.bandText[i], ...r.slice(1)] : r));
+  const table = anchor.insertTable(nRows, nCols, Word.InsertLocation.after, insertGrid);
+  for (let i = 0; i < nRows; i++) {
+    const kind = prepared.kinds[i];
+    for (let j = 0; j < nCols; j++) {
+      const cell = table.getCell(i, j);
+      if (kind === "header") {
+        cell.body.font.bold = true;
+        cell.shadingColor = "#E7EEF6";
+      } else if (kind === "band") {
+        cell.body.font.bold = true;
+        cell.shadingColor = "#DBE6F2";
+      } else if (prepared.numericCol[j]) {
+        cell.body.paragraphs.getFirst().alignment = Word.Alignment.right;
+      }
+    }
+  }
+  return table;
+}
+
+/** Inserts the read table as a native, fully-editable Word table at the cursor. */
+async function insertEditableWordTable(): Promise<void> {
+  if (!currentTableRows) return;
+  pptInsertTableBtn.disabled = true;
+  setStatus("Inserting editable table…");
+  try {
+    const figLabel = pptFigLabelInput.value.trim();
+    await Word.run(async (context) => {
+      const range = context.document.getSelection();
+      const table = insertFormattedWordTable(range, currentTableRows as string[][]);
+      let tail = table.getRange(Word.RangeLocation.after);
+      if (figLabel) {
+        const cap = tail.insertParagraph(figLabel, Word.InsertLocation.after);
+        cap.alignment = Word.Alignment.centered;
+        tail = cap.getRange(Word.RangeLocation.after);
+      }
+      tail.select(Word.SelectionMode.end);
+      await context.sync();
+    });
+    setStatus("Editable Word table inserted — the text can be edited normally.", "success");
+  } catch (error) {
+    setStatus(`Could not insert the table: ${(error as Error).message}`, "error");
+  } finally {
+    pptInsertTableBtn.disabled = false;
   }
 }
 

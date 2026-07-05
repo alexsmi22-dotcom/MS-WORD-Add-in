@@ -2,6 +2,21 @@
 
 All notable changes to Formula Inserter. Dates are release/pilot dates.
 
+## [1.7.0] — 2026-07-04
+
+### Added
+- **Editable output for converted tables.** Figures insert as images (text
+  baked in); now you can also get editable text:
+  - **Insert as an editable Word table** — inserts the table figure as a
+    native Word table (bold/shaded header, shaded section rows, right-aligned
+    numeric columns) with fully editable text, instead of a picture.
+  - **Also insert the data as an editable table below the figure** — a
+    checkbox that follows any inserted figure image with an editable Word
+    table of the underlying data, so the text is editable even for charts and
+    patent line-art.
+  - Shared `prepareTableFigure` logic drives both the image and the Word
+    table so they stay consistent.
+
 ## [1.6.0] — 2026-07-04
 
 ### Changed

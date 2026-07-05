@@ -26,6 +26,13 @@ describe("parseNumberCell", () => {
     expect(parseNumberCell("($300)")).toBe(-300);
   });
 
+  test("a minus sign before or after a currency symbol both parse", () => {
+    expect(parseNumberCell("-$300")).toBe(-300);
+    expect(parseNumberCell("$-300")).toBe(-300);
+    expect(parseNumberCell("−$1,234.5")).toBe(-1234.5); // Unicode minus + currency
+    expect(parseNumberCell("-£50")).toBe(-50);
+  });
+
   test("scientific notation", () => {
     expect(parseNumberCell("1.2e3")).toBe(1200);
     expect(parseNumberCell("5E-2")).toBe(0.05);

@@ -1898,7 +1898,7 @@ async function downloadPptx(): Promise<void> {
         {
           title: pptTitleInput.value,
           includeTable: false,
-          mainTable: { grid: prepared.grid, kinds: prepared.kinds, numericCol: prepared.numericCol },
+          mainTable: { grid: prepared.grid, kinds: prepared.kinds, numericCol: prepared.numericCol, bandText: prepared.bandText },
         }
       );
       triggerDownload(blob, suggestPptFileName(pptTitleInput.value));

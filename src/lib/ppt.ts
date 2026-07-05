@@ -27,7 +27,7 @@ export interface TablePptOptions {
    * text stays editable. Overrides chartImage/chart. `kinds` mark header/band
    * rows for shading; `numericCol` right-aligns numeric columns.
    */
-  mainTable?: { grid: string[][]; kinds: ("header" | "band" | "data")[]; numericCol: boolean[] };
+  mainTable?: { grid: string[][]; kinds: ("header" | "band" | "data")[]; numericCol: boolean[]; bandText: string[] };
   /**
    * When set, the main slide is a diagram drawn from NATIVE PowerPoint shapes
    * (rectangles/diamonds + connectors) with editable text — used for the
@@ -183,11 +183,13 @@ export async function buildTablePptx(chart: TableChart, kind: ChartKind, opts: T
 
   if (opts.mainTable) {
     // Native, editable PowerPoint table (the "table figure" representation).
-    const { grid, kinds, numericCol } = opts.mainTable;
+    const { grid, kinds, numericCol, bandText } = opts.mainTable;
     const rows: pptxgen.TableRow[] = grid.map((r, i) => {
       const kind = kinds[i];
       if (kind === "band") {
-        const label = r.find((c) => c !== "") ?? "";
+        // Band rows are all-empty in the prepared grid — the section text lives
+        // in bandText (the leading section column was dropped).
+        const label = bandText[i] || r.find((c) => c !== "") || "";
         // A section band spans the whole row (colspan on the first cell).
         return [
           { text: label, options: { bold: true, fill: { color: "DBE6F2" }, color: "222222", colspan: Math.max(1, r.length) } },

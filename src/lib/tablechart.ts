@@ -64,7 +64,12 @@ export function parseNumberCell(raw: string): number | null {
   } else if (paren) {
     s = paren[1];
   }
-  s = s.replace(/^[$€£¥]/, "").replace(/,/g, "").replace(/^[−–]/, "-");
+  // Normalize a Unicode minus, then drop a currency symbol whether it comes
+  // before or after the sign ("-$300", "$-300", "£300" all work).
+  s = s
+    .replace(/^[−–]/, "-")
+    .replace(/^([-+]?)[$€£¥]/, "$1")
+    .replace(/,/g, "");
   if (s.endsWith("%")) s = s.slice(0, -1);
   const m = /^[-+]?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?/.exec(s);
   if (!m) return null;

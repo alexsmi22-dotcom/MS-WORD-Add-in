@@ -80,9 +80,14 @@ export function formatPublicationNumber(input: string): string {
   return t;
 }
 
-/** "§" or "§§" depending on whether the section string names more than one. */
+/**
+ * "§" or "§§" depending on whether the section string names more than one.
+ * A digit–dash–digit range (101-103, 101–103) is plural; a hyphen inside a
+ * single section number (e.g. 2000e-2) is not, so we require digits on both
+ * sides of the dash.
+ */
 function sectionSymbol(section: string): string {
-  return /[,&]|\bto\b|\band\b/.test(section) ? "§§" : "§";
+  return /[,&]|\bto\b|\band\b|\d\s*[-–—]\s*\d/.test(section) ? "§§" : "§";
 }
 
 /** Joins non-empty pieces with a separator. */
@@ -338,8 +343,9 @@ function splitParen(paren: string): { court: string; year: string } {
 
 /** Strips a leading Bluebook signal, returning it (canonical) and the rest. */
 function extractSignal(t: string): { signal: string; rest: string } {
-  for (const s of SIGNALS) {
-    if (!s.value) continue;
+  // Longest signal first so "See also" / "See, e.g.," win over "See".
+  const ordered = SIGNALS.filter((s) => s.value).sort((a, b) => b.value.length - a.value.length);
+  for (const s of ordered) {
     const re = new RegExp("^" + s.value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\s+", "i");
     if (re.test(t)) return { signal: s.value, rest: t.replace(re, "") };
   }

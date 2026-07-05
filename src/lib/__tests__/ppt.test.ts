@@ -80,12 +80,16 @@ describe("buildTablePptx", () => {
     const blob = await buildTablePptx(
       { categories: [], series: [], categoryLabel: "", hasHeader: true, rows: [], warnings: [] },
       "column",
-      { title: "Baseline", mainTable: { grid: prepared.grid, kinds: prepared.kinds, numericCol: prepared.numericCol } }
+      {
+        title: "Baseline",
+        mainTable: { grid: prepared.grid, kinds: prepared.kinds, numericCol: prepared.numericCol, bandText: prepared.bandText },
+      }
     );
     const zip = await unzip(blob);
     const slide1 = await zip.file("ppt/slides/slide1.xml")!.async("string");
     expect(slide1).toContain("<a:tbl>"); // a real table on the main slide
     expect(slide1).toContain("Female");
+    expect(slide1).toContain("Demographics"); // section band label is NOT dropped
     expect(zip.file(/ppt\/charts\/chart\d*\.xml/).length).toBe(0); // no chart
     expect(zip.file(/ppt\/media\/image[\d-]*\.png/).length).toBe(0); // no picture
     expect(zip.file("ppt/slides/slide2.xml")).toBeNull(); // no redundant data slide

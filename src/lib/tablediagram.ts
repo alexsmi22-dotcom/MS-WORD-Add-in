@@ -306,7 +306,9 @@ export function layoutFlowchartPages(rows: string[][], style: ChartStyle = {}): 
 
   let index = 0;
   const pages = chunks.map((chunk, ci) => {
-    const letter = (k: number): string => String.fromCharCode(65 + k);
+    // A, B … Z, then AA, AB … so connectors stay letters past 26 pages.
+    const letter = (k: number): string =>
+      k < 26 ? String.fromCharCode(65 + k) : String.fromCharCode(65 + Math.floor(k / 26) - 1) + String.fromCharCode(65 + (k % 26));
     const page = layoutSteps(
       chunk,
       "",
@@ -335,15 +337,24 @@ export interface TreeNode {
 }
 
 /**
- * Patent-style hierarchical numbering: roots 100, 200, …; first-level children
- * step by 10 (110, 120, …); deeper levels step by 2 (112, 114, …).
+ * Patent-style reference numbering: each root starts a new hundred (100, 200,
+ * …) and every element in that root's subtree gets the next even number in
+ * depth-first order (100, 102, 104, …). This keeps each apparatus in its own
+ * hundred while guaranteeing the numerals are unique — the earlier
+ * level-stride scheme (100/110/112) could collide (a node with ≥5 children ran
+ * into the next sibling's number).
  */
 export function numberTree(roots: TreeNode[]): void {
-  const walk = (node: TreeNode, num: number, level: number): void => {
-    node.num = String(num);
-    node.children.forEach((c, i) => walk(c, level === 0 ? num + 10 * (i + 1) : num + 2 * (i + 1), level + 1));
+  let counter = 100;
+  const walk = (node: TreeNode): void => {
+    node.num = String(counter);
+    counter += 2;
+    node.children.forEach(walk);
   };
-  roots.forEach((r, i) => walk(r, 100 * (i + 1), 0));
+  roots.forEach((r, i) => {
+    counter = 100 * (i + 1);
+    walk(r);
+  });
 }
 
 /**

@@ -132,6 +132,27 @@ describe("signals", () => {
     const base = fmt("cfr", { title: "37", section: "1.84" });
     expect(applySignal("", base)).toEqual(base);
   });
+
+  test("'See also' is detected as a whole (not swallowed by 'See')", () => {
+    const p = parseCitation("See also Mayo v. Prometheus, 566 U.S. 66 (2012)");
+    expect(p?.signal).toBe("See also");
+    expect(p?.fields.name).toBe("Mayo v. Prometheus"); // no leftover "also"
+    expect(parseCitation("But see Alice Corp. v. CLS Bank, 573 U.S. 208 (2014)")?.signal).toBe("But see");
+  });
+});
+
+describe("section ranges", () => {
+  test("a dash/en-dash range of sections uses §§", () => {
+    expect(fmt("usc", { title: "35", section: "101-103" }).plain).toBe("35 U.S.C. §§ 101-103");
+    expect(fmt("usc", { title: "35", section: "101–103" }).plain).toBe("35 U.S.C. §§ 101–103");
+    expect(fmt("cfr", { title: "37", section: "1.821 to 1.825" }).plain).toBe("37 C.F.R. §§ 1.821 to 1.825");
+  });
+  test("a single section with a hyphen in its number stays §", () => {
+    expect(fmt("usc", { title: "42", section: "2000e-2" }).plain).toBe("42 U.S.C. § 2000e-2");
+  });
+  test("parser preserves §§ for a pasted range", () => {
+    expect(roundtrip("35 U.S.C. §§ 101–103").plain).toBe("35 U.S.C. §§ 101–103");
+  });
 });
 
 describe("paste-and-fix parser", () => {

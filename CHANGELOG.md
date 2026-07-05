@@ -2,6 +2,25 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
+## [1.12.2] — 2026-07-04
+
+### Fixed
+Comprehensive bug-review pass (parallel subsystem reviews). Verified fixes:
+- **Duplicate reference numerals** on dense block diagrams — a subsystem with
+  ≥5 parts could reuse the next subsystem's number. Numbering now walks each
+  root's subtree in depth-first order (100, 102, 104…), guaranteeing unique
+  callouts (was 100/110/112, which collided).
+- **Section band labels dropped** in the Table-figure → PowerPoint export — the
+  downloaded .pptx showed empty shaded band rows; the section text is now
+  carried through (Word-table and on-screen figure were already correct).
+- **"See also" / "See, e.g.," mis-parsed as "See"** in Citations paste-and-fix,
+  leaking the leftover word into the case name — signals now match longest-first.
+- **Section ranges kept singular** — `35 U.S.C. 101-103` / `101–103` now use
+  `§§`; a hyphen inside one section number (`42 U.S.C. § 2000e-2`) stays `§`.
+- **Negative currency `-$300`** (sign before the symbol) parsed as blank in
+  table cells — now reads −300.
+- Defensive: off-page flowchart connectors continue past 26 pages (AA, AB…).
+
 ## [1.12.1] — 2026-07-04
 
 ### Changed

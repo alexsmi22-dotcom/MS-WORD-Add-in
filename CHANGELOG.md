@@ -2,6 +2,19 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
+## [1.27.0] — 2026-07-05
+
+### Added
+- **Numerals: non-parenthesized callouts.** The reference-numeral audit now also
+  recognizes the "housing 12" / "housing (12)" house style — matched against a
+  table entry's own element name, so a numeral written without parentheses is no
+  longer falsely reported "unused" (and it can't turn arbitrary prose numbers
+  into false orphans).
+- **Citations: unknown-reporter advisory.** When a case's reporter isn't a
+  recognized abbreviation, the preview shows a "not a recognized reporter — check
+  the Bluebook (Table T1)" note, so a typo'd or wrong-form reporter isn't
+  inserted unnoticed.
+
 ## [1.26.0] — 2026-07-05
 
 ### Added (Tier-2 features)

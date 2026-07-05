@@ -8,6 +8,7 @@ import {
   parseCitation,
   normalizeReporter,
   normalizeCourt,
+  isKnownReporter,
   caseShortForm,
   abbreviateCaseName,
   CitationType,
@@ -412,6 +413,16 @@ describe("config integrity", () => {
     const r = fmt("book", { author: "A & B", title: "X & Y", year: "2020" });
     expect(r.html).toContain("A &amp; B");
     expect(r.html).toContain("<i>X &amp; Y</i>");
+  });
+});
+
+describe("isKnownReporter", () => {
+  test("recognizes real reporters (any spacing/casing), flags unknown ones", () => {
+    expect(isKnownReporter("U.S.")).toBe(true);
+    expect(isKnownReporter("f3d")).toBe(true);
+    expect(isKnownReporter("F. Supp. 2d")).toBe(true);
+    expect(isKnownReporter("Made Up Rptr.")).toBe(false);
+    expect(isKnownReporter("U.X.")).toBe(false);
   });
 });
 

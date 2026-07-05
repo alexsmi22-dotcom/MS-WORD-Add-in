@@ -38,6 +38,17 @@ describe("reconcileNumerals", () => {
     { numeral: 14, element: "fastener" },
   ];
 
+  it("counts a non-parenthesized 'element 12' callout as used (via its element name)", () => {
+    // No parenthesized callouts, but the element names appear with their numbers.
+    const text = "The widget 10 supports a housing 12, and a fastener 14 holds it.";
+    const f = reconcileNumerals(clean, [], text);
+    expect(f.unused).toEqual([]); // all three recognized despite no parens
+    // Without the text, they'd all be reported unused.
+    expect(reconcileNumerals(clean, []).unused.length).toBe(3);
+    // A prose number is NOT turned into a false orphan.
+    expect(reconcileNumerals(clean, [], "It weighs about 50 grams.").orphans).toEqual([]);
+  });
+
   it("reports ok for a consistent, fully-used table", () => {
     const f = reconcileNumerals(clean, [10, 12, 14]);
     expect(f.ok).toBe(true);

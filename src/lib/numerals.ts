@@ -67,8 +67,17 @@ function tableNumerals(entries: NumeralEntry[]): number[] {
  *   is even (the common 10/12/14 patent convention), otherwise 1.
  * - orphans: numerals called out in the document with no table entry.
  * - unused: table entries never called out in the document.
+ *
+ * `documentText` is optional: when provided, a table numeral also counts as used
+ * if it appears in the non-parenthesized "element 12" / "element (12)" house
+ * style near ITS OWN element name — matched against known element words only, so
+ * it never turns arbitrary prose numbers into false orphans.
  */
-export function reconcileNumerals(entries: NumeralEntry[], documentNumerals: number[]): NumeralFindings {
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+export function reconcileNumerals(entries: NumeralEntry[], documentNumerals: number[], documentText = ""): NumeralFindings {
   // A numeral with a blank element name is an incomplete row — treat it as "not
   // defined" everywhere (consistent with buildNumeralListHtml, which drops it),
   // so gaps/unused don't disagree with the rendered list.
@@ -110,10 +119,22 @@ export function reconcileNumerals(entries: NumeralEntry[], documentNumerals: num
   const orphans = Array.from(docSet)
     .filter((n) => !tableSet.has(n))
     .sort((a, b) => a - b);
-  const unusedNumerals = nums.filter((n) => !docSet.has(n));
   const firstByNumeral = new Map<number, NumeralEntry>();
   for (const e of defined) if (!firstByNumeral.has(e.numeral)) firstByNumeral.set(e.numeral, e);
-  const unused = unusedNumerals.map((n) => firstByNumeral.get(n)!).filter(Boolean);
+  // A numeral is "used" if it's a parenthesized callout, or (when text is given)
+  // its own element name is followed by the number: "housing 12" / "housing (12)".
+  const usedInText = (numeral: number, element: string): boolean => {
+    if (docSet.has(numeral)) return true;
+    if (!documentText || !element) return false;
+    return new RegExp("\\b" + escapeRegExp(element) + "\\s*\\(?\\s*" + numeral + "\\b", "i").test(documentText);
+  };
+  const unused = nums
+    .filter((n) => {
+      const e = firstByNumeral.get(n);
+      return e ? !usedInText(n, e.element) : !docSet.has(n);
+    })
+    .map((n) => firstByNumeral.get(n)!)
+    .filter(Boolean);
 
   return {
     collisions,

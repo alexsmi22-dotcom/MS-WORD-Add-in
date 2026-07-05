@@ -135,6 +135,11 @@ export function normalizeReporter(raw: string): string {
   return raw.trim().replace(/\s+/g, " ");
 }
 
+/** True if `raw` matches a known reporter abbreviation (any spacing/casing). */
+export function isKnownReporter(raw: string): boolean {
+  return REPORTERS[raw.replace(/[\s.]/g, "").toLowerCase()] !== undefined;
+}
+
 /** Canonical court abbreviations + a few aliases (CAFC → Fed. Cir.). */
 const COURTS: Record<string, string> = {};
 for (const c of [

@@ -103,6 +103,7 @@ import {
   parseCitation,
   caseShortForm,
   abbreviateCaseName,
+  isKnownReporter,
   CitationResult,
   CitationStyle,
 } from "../lib/citations";
@@ -2704,7 +2705,7 @@ async function scanDocumentNumerals(): Promise<void> {
       body.load("text");
       await context.sync();
       const docNumerals = extractNumerals(body.text);
-      renderNumeralFindings(reconcileNumerals(numeralEntries, docNumerals), docNumerals.length);
+      renderNumeralFindings(reconcileNumerals(numeralEntries, docNumerals, body.text), docNumerals.length);
     });
     setStatus("Scan complete.", "success");
   } catch (error) {
@@ -3907,6 +3908,12 @@ function updateCitationPreview(): void {
     return;
   }
   citePreview.innerHTML = currentCitation.html;
+  // Advisory: flag a reporter we don't recognize so a typo'd/wrong-form reporter
+  // isn't inserted unnoticed.
+  const rep = read("reporter");
+  if (isCase && rep && !isKnownReporter(rep)) {
+    citePreview.innerHTML += `<div class="hint" style="margin-top:4px">⚠ “${esc(rep)}” isn’t a recognized reporter — check the Bluebook abbreviation (Table T1).</div>`;
+  }
   citeInsertBtn.disabled = false;
   citeCopyBtn.disabled = false;
 }

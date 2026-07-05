@@ -2,6 +2,15 @@
 
 All notable changes to Formula Inserter. Dates are release/pilot dates.
 
+## [1.8.1] — 2026-07-04
+
+### Fixed
+- **Block-diagram (and flowchart) shape text no longer overflows in
+  PowerPoint.** Long table-cell labels spilled out of the small boxes. Shape
+  text now auto-shrinks to fit (PowerPoint normAutofit), paragraph-long
+  labels are truncated with an ellipsis, and hierarchy boxes are sized more
+  generously.
+
 ## [1.8.0] — 2026-07-04
 
 ### Added

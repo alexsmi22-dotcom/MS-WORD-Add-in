@@ -114,11 +114,13 @@ describe("buildTablePptx", () => {
     expect(zip.file(/ppt\/charts\/chart\d*\.xml/).length).toBe(0);
   });
 
-  test("block diagram exports as native editable shapes", async () => {
+  test("block diagram exports as native editable shapes with shrink-to-fit text", async () => {
+    const longLabel =
+      "Most recent prior GLP-1 within 365 days including oral Wegovy initiators and all other switchers in the cohort";
     const rows = [
       ["System", "Controller", "CPU"],
       ["System", "Controller", "Memory"],
-      ["System", "Sensor", ""],
+      ["System", longLabel, ""],
     ];
     const blob = await buildTablePptx(
       { categories: [], series: [], categoryLabel: "", hasHeader: false, rows, warnings: [] },
@@ -129,6 +131,11 @@ describe("buildTablePptx", () => {
     const slide1 = await zip.file("ppt/slides/slide1.xml")!.async("string");
     expect(slide1).toContain("<p:sp>");
     expect(slide1).toContain("Controller");
+    // Text auto-shrinks to stay inside the box…
+    expect(slide1).toContain("<a:normAutofit");
+    // …and paragraph-long labels are truncated with an ellipsis.
+    expect(slide1).toContain("…");
+    expect(slide1).not.toContain("switchers in the cohort");
     expect(zip.file(/ppt\/media\/image[\d-]*\.png/).length).toBe(0);
   });
 

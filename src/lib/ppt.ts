@@ -44,6 +44,11 @@ interface DiagramArea {
   h: number;
 }
 
+/** Caps a label so a paragraph-long table cell can't drown a small shape. */
+function truncateLabel(s: string, max: number): string {
+  return s.length > max ? s.slice(0, max - 1) + "…" : s;
+}
+
 /** Draws a flowchart from native, editable PowerPoint shapes. */
 function addFlowchartShapes(
   pptx: pptxgen,
@@ -77,7 +82,7 @@ function addFlowchartShapes(
   const centers: number[] = [];
   steps.forEach((s, i) => {
     const shape = s.decision ? pptx.ShapeType.diamond : s.terminator ? pptx.ShapeType.roundRect : pptx.ShapeType.rect;
-    slide.addText(s.text, {
+    slide.addText(truncateLabel(s.text, 140), {
       shape,
       x: cx - boxW / 2,
       y,
@@ -89,6 +94,8 @@ function addFlowchartShapes(
       valign: "middle",
       fontSize: 11,
       color: ink,
+      fit: "shrink", // PowerPoint shrinks the text to stay inside the shape
+      margin: 3,
     });
     centers.push(y + h[i] / 2);
     // Reference numeral with a lead line, alternating sides.
@@ -150,9 +157,9 @@ function addHierarchyShapes(
   const ink = patent ? "000000" : "222222";
 
   const slotW = area.w / leaves;
-  const boxW = Math.min(slotW * 0.86, 1.9);
+  const boxW = Math.min(slotW * 0.92, 2.6);
   const levelH = area.h / Math.max(1, depth);
-  const boxH = Math.min(0.5, levelH * 0.5);
+  const boxH = Math.min(0.9, levelH * 0.55);
 
   let cursor = area.x;
   const layout = (node: TreeNode, level: number): number => {
@@ -174,7 +181,7 @@ function addHierarchyShapes(
       }
     }
     const label = node.num ? `${node.num} ${node.label}` : node.label;
-    slide.addText(label, {
+    slide.addText(truncateLabel(label, 70), {
       shape: pptx.ShapeType.rect,
       x: cx - boxW / 2,
       y,
@@ -184,8 +191,10 @@ function addHierarchyShapes(
       line: { color: lineColor, width: 1 },
       align: "center",
       valign: "middle",
-      fontSize: 9,
+      fontSize: 10,
       color: ink,
+      fit: "shrink", // PowerPoint shrinks the text to stay inside the box
+      margin: 2,
     });
     return cx;
   };

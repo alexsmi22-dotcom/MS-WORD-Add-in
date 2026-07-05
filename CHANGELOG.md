@@ -2,6 +2,21 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
+## [1.13.1] — 2026-07-04
+
+### Changed
+- **Citations cross-checked against canonical Bluebook example forms.** Each
+  type's output was compared to the standard example the Bluebook publishes for
+  its rule (R.10 cases, R.12 statutes, R.14 regs/patents/Fed. Reg., R.15/3.2
+  treatises, R.16 articles); those canonical forms are now pinned as tests.
+  Result: the formats match for the common types. One gap fixed — the
+  book/treatise type gained an optional **Volume** field so multi-volume works
+  cite the volume before the author (`1 Donald S. Chisum, Chisum on Patents
+  § 3.02 (2023)`).
+  - Known limitation (documented, not a format error): case names are not
+    auto-abbreviated per Table T6 — enter the abbreviated party name. Still a
+    drafting aid; verify against the current Bluebook.
+
 ## [1.13.0] — 2026-07-04
 
 ### Added

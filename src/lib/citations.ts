@@ -349,21 +349,25 @@ export const CITATIONS: CitationType[] = [
     id: "book",
     name: "Book / treatise",
     fields: [
+      { key: "vol", label: "Volume", placeholder: "1 (for a multi-volume treatise)", optional: true },
       { key: "author", label: "Author", placeholder: "Donald S. Chisum" },
       { key: "title", label: "Title", placeholder: "Chisum on Patents" },
-      { key: "pin", label: "Section / page", placeholder: "§ 5.04 or at 45", optional: true },
+      { key: "pin", label: "Section / page", placeholder: "§ 3.02 or at 45", optional: true },
       { key: "edition", label: "Edition", placeholder: "2020 ed.", optional: true },
-      { key: "year", label: "Year", placeholder: "2020" },
+      { key: "year", label: "Year", placeholder: "2023" },
     ],
     format: (g, style) => {
-      const withPin = g("pin") ? `${g("author")}, ${g("title")} ${g("pin")}` : `${g("author")}, ${g("title")}`;
+      // A multi-volume work cites the volume before the author (Rule 3.2).
+      const volPrefix = g("vol") ? `${g("vol")} ` : "";
+      const withPin = g("pin") ? `${volPrefix}${g("author")}, ${g("title")} ${g("pin")}` : `${volPrefix}${g("author")}, ${g("title")}`;
       const paren = `(${join([g("edition"), g("year")])})`;
       // Academic sets the author and title in large-and-small caps; practitioner
-      // uses roman author + italic title.
+      // uses roman author + italic title. The volume number stays roman in both.
+      const pinHtml = g("pin") ? " " + esc(g("pin")) : "";
       const bodyHtml =
         style === "academic"
-          ? `${sc(g("author"))}, ${sc(g("title"))}${g("pin") ? " " + esc(g("pin")) : ""}`
-          : `${esc(g("author"))}, ${it(g("title"))}${g("pin") ? " " + esc(g("pin")) : ""}`;
+          ? `${esc(volPrefix)}${sc(g("author"))}, ${sc(g("title"))}${pinHtml}`
+          : `${esc(volPrefix)}${esc(g("author"))}, ${it(g("title"))}${pinHtml}`;
       return {
         plain: `${withPin} ${paren}`,
         html: `${bodyHtml} ${esc(paren)}`,

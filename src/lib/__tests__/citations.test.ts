@@ -276,6 +276,59 @@ describe("practitioner vs academic style", () => {
   });
 });
 
+// Cross-check: each expected string is the canonical example form the Bluebook
+// publishes for that rule (practitioner style). These pin the formatter to the
+// manual's example forms rather than to arbitrary strings.
+describe("canonical Bluebook example forms", () => {
+  test("R.10 case — U.S. Supreme Court (no court in the parenthetical)", () => {
+    expect(
+      fmt("case", { name: "Alice Corp. v. CLS Bank Int’l", vol: "573", reporter: "U.S.", page: "208", pin: "216", year: "2014" }).plain
+    ).toBe("Alice Corp. v. CLS Bank Int’l, 573 U.S. 208, 216 (2014)");
+  });
+  test("R.10 case — lower court (court in the parenthetical)", () => {
+    expect(fmt("case", { name: "In re Bilski", vol: "545", reporter: "F.3d", page: "943", court: "Fed. Cir.", year: "2008" }).plain).toBe(
+      "In re Bilski, 545 F.3d 943 (Fed. Cir. 2008)"
+    );
+  });
+  test("R.10.9 short form", () => {
+    expect(fmt("case-short", { name: "Alice", vol: "573", reporter: "U.S.", pin: "217" }).plain).toBe("Alice, 573 U.S. at 217");
+  });
+  test("R.12 statute (U.S.C.) with subsection", () => {
+    expect(fmt("usc", { title: "35", section: "271", sub: "a", year: "2018" }).plain).toBe("35 U.S.C. § 271(a) (2018)");
+  });
+  test("R.14 regulation (C.F.R.)", () => {
+    expect(fmt("cfr", { title: "37", section: "1.84", year: "2023" }).plain).toBe("37 C.F.R. § 1.84 (2023)");
+  });
+  test("R.14.10 patent", () => {
+    expect(fmt("patent", { number: "7123456", date: "2003-08-12" }).plain).toBe("U.S. Patent No. 7,123,456 (issued Aug. 12, 2003)");
+  });
+  test("patent application publication", () => {
+    expect(fmt("patent-app", { number: "2020/0123456", kind: "A1" }).plain).toBe(
+      "U.S. Patent Application Publication No. 2020/0123456 A1"
+    );
+  });
+  test("R.14 Federal Register", () => {
+    expect(fmt("fedreg", { vol: "85", page: "12345", date: "2020-03-01" }).plain).toBe("85 Fed. Reg. 12,345 (Mar. 1, 2020)");
+  });
+  test("R.16 law review article", () => {
+    expect(
+      fmt("article", {
+        author: "Mark A. Lemley",
+        title: "Software Patents and the Return of Functional Claiming",
+        vol: "2013",
+        journal: "Wis. L. Rev.",
+        page: "905",
+        year: "2013",
+      }).plain
+    ).toBe("Mark A. Lemley, Software Patents and the Return of Functional Claiming, 2013 Wis. L. Rev. 905 (2013)");
+  });
+  test("R.15 / R.3.2 multi-volume treatise (volume before author)", () => {
+    expect(fmt("book", { vol: "1", author: "Donald S. Chisum", title: "Chisum on Patents", pin: "§ 3.02", year: "2023" }).plain).toBe(
+      "1 Donald S. Chisum, Chisum on Patents § 3.02 (2023)"
+    );
+  });
+});
+
 describe("config integrity", () => {
   test("every type has a unique id, a name, and fields", () => {
     const ids = new Set<string>();

@@ -2,6 +2,22 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
+## [1.25.0] — 2026-07-05
+
+### Added / Fixed (Tier-1 finalization)
+- **Graceful capability detection.** Native-equation and field-based Table-of-
+  Authorities inserts (which need Word's OOXML API, WordApi 1.3) now check
+  support first: on an older Word or a host that lacks it, they fall back with a
+  clear message (equations → formatted text; TOA → use the static list) instead
+  of throwing a raw error.
+- **Reference numerals: sub-part callouts.** `(12a)`, `(12b)`, `(12')` are now
+  recognized as base numeral 12, so sub-part callouts aren't reported as
+  orphans. The "next numeral" suggestion also ignores incomplete (blank-element)
+  rows.
+- **Figure insert echoes truncation warnings.** When a table figure/flowchart/
+  block diagram exceeds its size limit, the insert confirmation now repeats the
+  "only the first N …" warning so a truncated figure isn't inserted unnoticed.
+
 ## [1.24.0] — 2026-07-05
 
 ### Fixed (comprehensive bug-check pass)

@@ -1844,7 +1844,14 @@ async function insertTableFigure(): Promise<void> {
       if (dataTable) await clearTableListFormatting(context, dataTable);
       await tagInserted(context, picture.getRange(), "formula-inserter:tablechart");
     });
-    setStatus(alsoText ? "Figure + editable table inserted." : "Figure inserted.", "success");
+    // Surface any truncation warning on insert so it isn't missed — a filed
+    // figure that silently omits rows/steps/branches would be a drafting error.
+    const base = alsoText ? "Figure + editable table inserted." : "Figure inserted.";
+    if (rendered.warnings.length) {
+      setStatus(`${base} Note: ${rendered.warnings.join(" ")}`, "");
+    } else {
+      setStatus(base, "success");
+    }
   } catch (error) {
     setStatus(`Could not insert the figure: ${(error as Error).message}`, "error");
   } finally {
@@ -2182,6 +2189,20 @@ function provenanceAltText(label: string, formula: string, mw: number, smiles: s
   return meta.length ? `${label} — ${meta.join("; ")}` : label;
 }
 
+/**
+ * True if a WordApi requirement-set version is available on this host. Used to
+ * gate the OOXML/OMML inserts that older Word (or some web/Mac hosts) lack, so
+ * they degrade gracefully instead of throwing a raw exception. Optimistic if the
+ * capability can't be determined.
+ */
+function wordApiSupported(version: string): boolean {
+  try {
+    return Office.context.requirements.isSetSupported("WordApi", version);
+  } catch {
+    return true;
+  }
+}
+
 /** Inserts the formula at the selection — as a native equation, or as formatted text. */
 async function insertFormula(): Promise<void> {
   const text = inputEl.value.trim();
@@ -2191,11 +2212,16 @@ async function insertFormula(): Promise<void> {
   }
 
   // Math mode with the equation option checked: try OMML first, then fall back
-  // to inline formatting if the expression can't be parsed into an equation.
+  // to inline formatting if the expression can't be parsed into an equation, or
+  // if this host doesn't support native-equation (OOXML) insertion.
   if (currentMode() === "math" && ommlCheckbox.checked) {
-    const inserted = await insertEquation(text);
-    if (inserted) return;
-    setStatus("Couldn't build an equation from that — inserted as formatted text instead.", "error");
+    if (!wordApiSupported("1.3")) {
+      setStatus("Native equations aren’t supported in this version of Word — inserted as formatted text.", "");
+    } else {
+      const inserted = await insertEquation(text);
+      if (inserted) return;
+      setStatus("Couldn't build an equation from that — inserted as formatted text instead.", "error");
+    }
   }
 
   await insertFormattedText(text);
@@ -3952,6 +3978,14 @@ async function detectSupraSource(): Promise<void> {
  */
 async function buildNativeToaHandler(): Promise<void> {
   toaNativeBtn.disabled = true;
+  // Field marking uses OOXML insertion (WordApi 1.3); fall back gracefully.
+  if (!wordApiSupported("1.3")) {
+    toaMsg.className = "build-readout warn";
+    toaMsg.textContent =
+      "This version of Word doesn’t support the field-based table — use “Insert static list” instead (no auto page numbers).";
+    toaNativeBtn.disabled = false;
+    return;
+  }
   toaMsg.className = "build-readout";
   setStatus("Marking citations for Word’s Table of Authorities…");
   try {

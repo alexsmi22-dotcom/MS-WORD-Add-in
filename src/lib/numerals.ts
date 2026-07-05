@@ -31,12 +31,16 @@ export interface NumeralFindings {
   ok: boolean;
 }
 
-/** Parenthesized reference callout, the figure/spec convention: "(12)". */
-const CALLOUT_RE = /\((\d+)\)/g;
+/**
+ * Parenthesized reference callout, the figure/spec convention: "(12)". An
+ * optional trailing sub-part letter or prime — "(12a)", "(12')" — is captured
+ * as the base numeral 12, so sub-part callouts aren't reported as orphans.
+ */
+const CALLOUT_RE = /\((\d+)[A-Za-z']?\)/g;
 
 /** Distinct reference numerals called out in a block of document text, ascending.
- *  Detection relies on the parenthesized convention "(12)"; bare numerals are not
- *  matched (they collide with quantities, dates, claim numbers, etc.). */
+ *  Detection relies on the parenthesized convention "(12)"/"(12a)"; bare numerals
+ *  are not matched (they collide with quantities, dates, claim numbers, etc.). */
 export function extractNumerals(documentText: string): number[] {
   const seen = new Set<number>();
   let m: RegExpExecArray | null;
@@ -125,7 +129,8 @@ export function reconcileNumerals(entries: NumeralEntry[], documentNumerals: num
  * numeral). Otherwise max + 2 when every existing numeral is even, else max + 1.
  */
 export function suggestNextNumeral(entries: NumeralEntry[]): number {
-  const nums = tableNumerals(entries);
+  // Ignore incomplete (blank-element) rows, consistent with reconcileNumerals.
+  const nums = tableNumerals(entries.filter((e) => e.element.trim() !== ""));
   if (!nums.length) return 10;
   const max = nums[nums.length - 1];
   const allEven = nums.every((n) => n % 2 === 0);

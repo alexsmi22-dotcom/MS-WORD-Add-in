@@ -24,6 +24,11 @@ describe("extractNumerals", () => {
   it("handles numerals of any length (not just ≤4 digits)", () => {
     expect(extractNumerals("the widget (10234) and (5)")).toEqual([5, 10234]);
   });
+
+  it("treats a sub-part callout (12a)/(12') as the base numeral 12", () => {
+    expect(extractNumerals("the arm (12) has fingers (12a) and (12b)")).toEqual([12]);
+    expect(extractNumerals("the shaft (14') mirrors the shaft (14)")).toEqual([14]);
+  });
 });
 
 describe("reconcileNumerals", () => {
@@ -112,6 +117,17 @@ describe("suggestNextNumeral", () => {
 
   it("adds 1 when numerals are mixed parity", () => {
     expect(suggestNextNumeral([{ numeral: 11, element: "a" }])).toBe(12);
+  });
+
+  it("ignores incomplete (blank-element) rows when suggesting", () => {
+    // The blank row 99 must not skew the suggestion — should be 14, not 101.
+    expect(
+      suggestNextNumeral([
+        { numeral: 10, element: "widget" },
+        { numeral: 12, element: "housing" },
+        { numeral: 99, element: "  " },
+      ])
+    ).toBe(14);
   });
 });
 

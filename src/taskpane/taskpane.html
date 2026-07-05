@@ -39,6 +39,7 @@
         <label class="mode"><input type="radio" name="mode" value="botanical" /> Botanical</label>
         <label class="mode"><input type="radio" name="mode" value="numerals" /> Numerals</label>
         <label class="mode"><input type="radio" name="mode" value="refs" /> Refs</label>
+        <label class="mode"><input type="radio" name="mode" value="citations" /> Citations</label>
         <label class="mode"><input type="radio" name="mode" value="dna" /> DNA</label>
         <label class="mode"><input type="radio" name="mode" value="reaction" /> Reaction</label>
         <label class="mode"><input type="radio" name="mode" value="audit" /> Audit</label>
@@ -539,6 +540,29 @@
 
         <button id="ref-check" class="insert-btn secondary" type="button">Check captions</button>
         <div id="ref-findings" class="seq-warnings" aria-live="polite"></div>
+      </section>
+
+      <!-- Legal citations (Bluebook) -->
+      <section id="citations-section">
+        <p class="seq-disclaimer">
+          Format <strong>Bluebook</strong> legal citations — cases, statutes, regulations,
+          patents, the Federal Register, MPEP, and secondary sources. Fill the fields; the
+          citation (with correct italics) inserts at the cursor. Drafting aid — verify against
+          the current Bluebook and court rules.
+        </p>
+        <label class="field-label" for="cite-type">Citation type</label>
+        <select id="cite-type" class="lib-select"></select>
+        <div class="dna-controls">
+          <label class="field-label" for="cite-signal">Signal</label>
+          <select id="cite-signal" class="lib-select"></select>
+        </div>
+        <div id="cite-inputs"></div>
+        <div class="preview-wrap">
+          <span class="preview-label">Preview</span>
+          <div id="cite-preview" class="preview" aria-live="polite"></div>
+        </div>
+        <button id="cite-insert" class="insert-btn" type="button" disabled>Insert citation</button>
+        <button id="cite-copy" class="insert-btn secondary" type="button" disabled>Copy citation</button>
       </section>
 
       <!-- Units & quantities: typesetting + conversion -->

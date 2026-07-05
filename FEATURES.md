@@ -4,7 +4,7 @@ A Microsoft Word add-in for patent drafting. It runs **entirely on your machine*
 nothing you type is sent anywhere — and inserts cleanly formatted chemistry, math,
 structures, code, sequences, and botanical names directly at the cursor.
 
-Pick a **mode** at the top of the pane: **Chemical · Math · Units · Plot · Table → Chart · Finance · Build · Code · Sequence · Botanical · Numerals · Refs · DNA · Reaction · Audit.**
+Pick a **mode** at the top of the pane: **Chemical · Math · Units · Plot · Table → Chart · Finance · Build · Code · Sequence · Botanical · Numerals · Refs · Citations · DNA · Reaction · Audit.**
 Everything shows a live preview that matches exactly what gets inserted, and the
 **Examples & syntax** panel updates to match the selected mode.
 
@@ -63,6 +63,14 @@ Everything shows a live preview that matches exactly what gets inserted, and the
 - **Patent figure style** — pure **black-&-white line art** for patent drawings (37 CFR 1.84-friendly): hatched bars/slices, dash patterns + marker shapes for line charts, white boxes with black outlines for diagrams, all-black ink, plus an optional **“FIG. N” label** beneath the graphic.
 - **PowerPoint export** — download a .pptx that stays **editable**: a color chart exports as a native chart, a **table figure** as a native editable **table**, and a **flowchart / block diagram** as native editable **shapes** (boxes, diamonds, connectors — labels editable). Big diagrams **paginate across slides** — flowcharts continue via off-page connector circles (A, B, …) with numerals continuing, block diagrams split by branch with the parent repeated — so nothing gets crushed onto one slide. Only patent-hatched charts ship as a picture. Optional **source table on a second slide**.
 - Generated entirely on your machine — the document never leaves Word.
+
+## ⚖️ Citations — Bluebook legal citations
+- Format citations from labeled fields, with the correct **italics** applied on insert (case names, article/book titles, signals).
+- **Cases** — full (`Alice Corp. v. CLS Bank Int'l, 573 U.S. 208, 216 (2014)`) and short form (`Alice, 573 U.S. at 217`); court omitted for the U.S. Supreme Court, included for lower courts.
+- **Statutes & regulations** — `35 U.S.C. § 101`, `37 C.F.R. § 1.84`; multiple sections auto-switch to `§§`; optional subsection and year.
+- **Patents** — `U.S. Patent No. 10,123,456` (digits auto-grouped, `D`/`RE` prefixes kept) with optional pincite and issue date; **application publications** `U.S. Patent Application Publication No. 2020/0123456 A1`.
+- **Agency & secondary** — Federal Register (`85 Fed. Reg. 12,345 (Mar. 1, 2020)`), **MPEP** sections, **law-review articles**, and **treatises** (e.g. Chisum on Patents).
+- **Signals** — optional italicized *See*, *See also*, *Cf.*, *But see*, *Contra*, … prepended. Dates like `2014-06-19` become `June 19, 2014`. **Copy** the plain text or **insert** the formatted citation. Drafting aid — verify against the current Bluebook.
 
 ## 🔖 Refs — captions & cross-references
 - **Auto-numbered captions** — "Figure 1.", "Table 2." with per-document running counters (saved in the file).

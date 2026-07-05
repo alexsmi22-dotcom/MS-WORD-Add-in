@@ -81,6 +81,7 @@ import { parseTableData, cleanTableRows, buildChartPreviewSvg, TableChart, Chart
 import { buildDiagramSvg, DiagramKind } from "../lib/tablediagram";
 import { buildTableFigureSvg, prepareTableFigure } from "../lib/tablefigure";
 import { classifyTable } from "../lib/tableclassify";
+import { CITATIONS, SIGNALS, citationById, applySignal, CitationResult } from "../lib/citations";
 
 type Mode =
   | "chemical"
@@ -97,7 +98,8 @@ type Mode =
   | "dna"
   | "reaction"
   | "audit"
-  | "refs";
+  | "refs"
+  | "citations";
 
 const STRUCTURE_W = 300;
 const STRUCTURE_H = 230;
@@ -219,6 +221,15 @@ let convResult: HTMLElement;
 let convInsertBtn: HTMLButtonElement;
 /** HTML of the most recent conversion result, for insertion. */
 let currentConvHtml = "";
+let citationsSection: HTMLElement;
+let citeTypeSelect: HTMLSelectElement;
+let citeSignalSelect: HTMLSelectElement;
+let citeInputs: HTMLElement;
+let citePreview: HTMLElement;
+let citeInsertBtn: HTMLButtonElement;
+let citeCopyBtn: HTMLButtonElement;
+/** The most recently formatted citation, for insert/copy. */
+let currentCitation: CitationResult | null = null;
 let refsSection: HTMLElement;
 let refKind: HTMLSelectElement;
 let refNext: HTMLElement;
@@ -410,6 +421,13 @@ Office.onReady((info) => {
   convBtn = document.getElementById("conv-btn") as HTMLButtonElement;
   convResult = document.getElementById("conv-result") as HTMLElement;
   convInsertBtn = document.getElementById("conv-insert") as HTMLButtonElement;
+  citationsSection = document.getElementById("citations-section") as HTMLElement;
+  citeTypeSelect = document.getElementById("cite-type") as HTMLSelectElement;
+  citeSignalSelect = document.getElementById("cite-signal") as HTMLSelectElement;
+  citeInputs = document.getElementById("cite-inputs") as HTMLElement;
+  citePreview = document.getElementById("cite-preview") as HTMLElement;
+  citeInsertBtn = document.getElementById("cite-insert") as HTMLButtonElement;
+  citeCopyBtn = document.getElementById("cite-copy") as HTMLButtonElement;
   refsSection = document.getElementById("refs-section") as HTMLElement;
   refKind = document.getElementById("ref-kind") as HTMLSelectElement;
   refNext = document.getElementById("ref-next") as HTMLElement;
@@ -544,6 +562,12 @@ Office.onReady((info) => {
   populateFinanceCalcs();
   finCalcSelect.addEventListener("change", renderFinanceInputs);
   finInsertBtn.addEventListener("click", () => insertDnaText(currentFinText, "Result"));
+
+  populateCitationTypes();
+  citeTypeSelect.addEventListener("change", renderCitationInputs);
+  citeSignalSelect.addEventListener("change", updateCitationPreview);
+  citeInsertBtn.addEventListener("click", insertCitation);
+  citeCopyBtn.addEventListener("click", copyCitation);
 
   pptLoadBtn.addEventListener("click", loadSelectedTable);
   pptKindSelect.addEventListener("change", updatePptPreview);
@@ -1047,6 +1071,7 @@ function onInputChanged(): void {
   auditSection.style.display = mode === "audit" ? "block" : "none";
   unitsSection.style.display = mode === "units" ? "block" : "none";
   refsSection.style.display = mode === "refs" ? "block" : "none";
+  citationsSection.style.display = mode === "citations" ? "block" : "none";
   plotSection.style.display = mode === "plot" ? "block" : "none";
   financeSection.style.display = mode === "finance" ? "block" : "none";
   pptSection.style.display = mode === "ppt" ? "block" : "none";
@@ -1057,6 +1082,11 @@ function onInputChanged(): void {
   }
   if (mode === "refs") {
     updateRefNext();
+    return;
+  }
+  if (mode === "citations") {
+    if (!citeInputs.children.length) renderCitationInputs();
+    else updateCitationPreview();
     return;
   }
   if (mode === "plot") {
@@ -3279,6 +3309,112 @@ function updateFinancePreview(): void {
   }
   currentFinText = insertable ? text : "";
   finInsertBtn.disabled = !insertable;
+}
+
+// ---------------------------------------------------------------------------
+// Legal citations (Bluebook)
+// ---------------------------------------------------------------------------
+
+/** Fills the citation-type and signal dropdowns. */
+function populateCitationTypes(): void {
+  citeTypeSelect.replaceChildren();
+  for (const c of CITATIONS) {
+    const opt = document.createElement("option");
+    opt.value = c.id;
+    opt.textContent = c.name;
+    citeTypeSelect.appendChild(opt);
+  }
+  citeSignalSelect.replaceChildren();
+  for (const s of SIGNALS) {
+    const opt = document.createElement("option");
+    opt.value = s.value;
+    opt.textContent = s.label;
+    citeSignalSelect.appendChild(opt);
+  }
+}
+
+/** Builds the input fields for the selected citation type. */
+function renderCitationInputs(): void {
+  const type = citationById(citeTypeSelect.value) ?? CITATIONS[0];
+  citeInputs.replaceChildren();
+  for (const f of type.fields) {
+    const label = document.createElement("label");
+    label.className = "field-label";
+    label.textContent = f.optional ? `${f.label} (optional)` : f.label;
+    label.htmlFor = `cite-f-${f.key}`;
+
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "formula-input";
+    input.id = `cite-f-${f.key}`;
+    input.dataset.key = f.key;
+    if (f.placeholder) input.placeholder = f.placeholder;
+    input.autocomplete = "off";
+    input.addEventListener("input", updateCitationPreview);
+
+    citeInputs.append(label, input);
+  }
+  updateCitationPreview();
+}
+
+/** Formats and previews the citation for the current inputs. */
+function updateCitationPreview(): void {
+  const type = citationById(citeTypeSelect.value) ?? CITATIONS[0];
+  const read = (k: string): string => {
+    const el = citeInputs.querySelector<HTMLInputElement>(`[data-key="${k}"]`);
+    return el ? el.value.trim() : "";
+  };
+  currentCitation = null;
+  citeInsertBtn.disabled = true;
+  citeCopyBtn.disabled = true;
+
+  const missing = type.fields.filter((f) => !f.optional && !read(f.key));
+  if (missing.length) {
+    citePreview.innerHTML = `<span class="hint">Fill in: ${missing.map((f) => esc(f.label)).join(", ")}.</span>`;
+    return;
+  }
+  try {
+    currentCitation = applySignal(citeSignalSelect.value, type.format(read));
+  } catch {
+    citePreview.innerHTML = '<span class="hint">Couldn’t format this citation — check the fields.</span>';
+    return;
+  }
+  citePreview.innerHTML = currentCitation.html;
+  citeInsertBtn.disabled = false;
+  citeCopyBtn.disabled = false;
+}
+
+/** Inserts the formatted citation (with italics) at the selection. */
+async function insertCitation(): Promise<void> {
+  if (!currentCitation) return;
+  const html = currentCitation.html;
+  citeInsertBtn.disabled = true;
+  setStatus("Inserting citation…");
+  try {
+    await Word.run(async (context) => {
+      const range = context.document.getSelection();
+      const inserted = range.insertHtml(html, Word.InsertLocation.replace);
+      inserted.select(Word.SelectionMode.end);
+      await context.sync();
+      await tagInserted(context, inserted, "formula-inserter:citation");
+    });
+    setStatus("Citation inserted.", "success");
+  } catch (error) {
+    setStatus(`Could not insert citation: ${(error as Error).message}`, "error");
+  } finally {
+    citeInsertBtn.disabled = false;
+  }
+}
+
+/** Copies the plain-text citation to the clipboard. */
+async function copyCitation(): Promise<void> {
+  if (!currentCitation) return;
+  try {
+    await navigator.clipboard.writeText(currentCitation.plain);
+    setStatus("Citation copied to clipboard.", "success");
+  } catch {
+    setStatus("Clipboard unavailable — select the preview text to copy.", "");
+  }
 }
 
 /**

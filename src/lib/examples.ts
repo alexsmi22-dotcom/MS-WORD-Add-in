@@ -21,6 +21,7 @@ export type ExampleMode =
   | "refs"
   | "plot"
   | "ppt"
+  | "citations"
   | "finance";
 
 /** HTML help fragment shown in the "Examples & syntax" panel for each mode. */
@@ -257,6 +258,20 @@ export const MODE_EXAMPLES: Record<ExampleMode, string> = {
       block diagram, or table figure) — change it any time in “Show as”. Figures insert as images;
       use <strong>Insert as editable Word table</strong> (or tick <em>Also insert the data…</em>) when
       you need the text to stay editable. The PowerPoint chart is native and fully editable.</p>`,
+
+  citations: `
+    <p class="examples-note">
+      Format <strong>Bluebook</strong> legal citations from labeled fields — the correct
+      italics (case names, article/book titles, signals) are applied on insert.
+    </p>
+    <ul>
+      <li><strong>Cases</strong> — <em>Alice Corp. v. CLS Bank Int'l</em>, 573 U.S. 208, 216 (2014); short form uses <code>at</code>.</li>
+      <li><strong>Statutes / regs</strong> — 35 U.S.C. § 101; 37 C.F.R. § 1.84 (multiple sections auto-use §§).</li>
+      <li><strong>Patents</strong> — U.S. Patent No. 10,123,456; App. Pub. No. 2020/0123456 A1 (numbers auto-grouped).</li>
+      <li><strong>Agency &amp; secondary</strong> — Fed. Reg., MPEP §, law-review articles, and treatises.</li>
+      <li><strong>Signals</strong> — optional italicized <em>See</em>, <em>Cf.</em>, <em>But see</em>, … prepended.</li>
+    </ul>
+    <p class="examples-note">Dates like <code>2014-06-19</code> become <code>June 19, 2014</code>. Drafting aid — verify against the current Bluebook.</p>`,
 
   finance: `
     <p class="examples-note">

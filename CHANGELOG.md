@@ -2,6 +2,19 @@
 
 All notable changes to Formula Inserter. Dates are release/pilot dates.
 
+## [1.10.0] — 2026-07-04
+
+### Added
+- **Citations mode (16th mode) — Bluebook legal citations.** Form-field driven,
+  covering cases (full + short), statutes (U.S.C.) and regulations (C.F.R.),
+  U.S. patents and application publications, the Federal Register, MPEP
+  sections, law-review articles, and treatises. Correct italics (case names,
+  titles, signals) are applied on insert; patent numbers auto-group, ISO dates
+  become Bluebook month form, multiple sections use §§, and optional
+  introductory signals (See, Cf., But see, …) are prepended. Insert the
+  formatted citation or copy the plain text. New pure `citations.ts` engine
+  (+20 tests). Drafting aid — verify against the current Bluebook.
+
 ## [1.9.0] — 2026-07-04
 
 ### Added

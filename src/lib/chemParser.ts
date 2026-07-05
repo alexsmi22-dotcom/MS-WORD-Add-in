@@ -8,10 +8,13 @@
 //   SO4^2-       -> SO₄ then ²⁻        (^ introduces a superscript charge)
 //   Fe^3+        -> Fe then ³⁺
 //   Na+ / Cl-    -> Na⁺ / Cl⁻          (a trailing +/- is a superscript charge)
+//   Ca2+         -> Ca then ²⁺          (a digit run before a sign is a charge)
+//   [Fe(CN)6]3-  -> [Fe(CN)₆] then ³⁻   (subscript count, then a charge)
 //
-// This is intentionally a pragmatic parser, not a full chemistry validator. It
-// does not check that element symbols are real — it only decides what should be
-// rendered normal, as a subscript, or as a superscript.
+// This module only decides what renders normal / subscript / superscript. To
+// check that a formula is chemically well-formed — real element symbols,
+// balanced brackets, atom counts, charge, and molecular weight — use
+// validateFormula() in ./chemValidate.
 
 import { Segment, pushSegment } from "./segments";
 
@@ -41,6 +44,12 @@ export function parseChemical(input: string): Segment[] {
     if (isDigit(ch)) {
       let num = "";
       while (i < n && isDigit(input[i])) num += input[i++];
+      // A digit run immediately followed by a sign is a charge, not a count
+      // (Ca2+ → Ca²⁺; [Fe(CN)6]3- → the "3-" is the ion charge).
+      if (i < n && (input[i] === "+" || input[i] === "-")) {
+        pushSegment(segments, num + input[i++], "sup");
+        continue;
+      }
       const prev = segments[segments.length - 1];
       const isCoefficient = !prev || prev.text.endsWith(" ");
       pushSegment(segments, num, isCoefficient ? "normal" : "sub");

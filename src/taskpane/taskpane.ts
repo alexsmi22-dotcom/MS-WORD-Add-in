@@ -2,6 +2,7 @@
 
 import { Segment, segmentsToHtml } from "../lib/segments";
 import { parseChemical } from "../lib/chemParser";
+import { validateFormula } from "../lib/chemValidate";
 import { parseMath } from "../lib/mathFormat";
 import { mathToOoxml } from "../lib/mathOmml";
 import { mathToHtml } from "../lib/mathHtml";
@@ -135,6 +136,7 @@ let examplesPanel: HTMLElement | null;
 let bottomDisclaimer: HTMLElement | null;
 let inputEl: HTMLInputElement;
 let previewEl: HTMLElement;
+let chemValidateEl: HTMLElement;
 let statusEl: HTMLElement;
 let insertBtn: HTMLButtonElement;
 let structureSection: HTMLElement;
@@ -362,6 +364,7 @@ Office.onReady((info) => {
   bottomDisclaimer = document.querySelector(".container > .disclaimer");
   inputEl = document.getElementById("formula-input") as HTMLInputElement;
   previewEl = document.getElementById("preview") as HTMLElement;
+  chemValidateEl = document.getElementById("chem-validate") as HTMLElement;
   statusEl = document.getElementById("status") as HTMLElement;
   insertBtn = document.getElementById("insert-btn") as HTMLButtonElement;
   structureSection = document.getElementById("structure-section") as HTMLElement;
@@ -1341,9 +1344,30 @@ function updateTextPreview(): void {
     // Structured math renderer (fractions, roots, Σ, ∫ …) mirrors the OMML
     // that gets inserted; falls back to inline formatting on partial input.
     previewEl.innerHTML = mathToHtml(inputEl.value);
+    chemValidateEl.style.display = "none";
   } else {
     // Same HTML used for insertion (see insertFormattedText) so preview == insert.
     previewEl.innerHTML = segmentsToHtml(parseChemical(inputEl.value));
+    updateChemValidation();
+  }
+}
+
+/** Validates the chemical formula against the real periodic table and reports it. */
+function updateChemValidation(): void {
+  const raw = inputEl.value.trim();
+  if (!raw) {
+    chemValidateEl.style.display = "none";
+    return;
+  }
+  const v = validateFormula(raw);
+  chemValidateEl.style.display = "block";
+  if (v.valid) {
+    const charge = v.charge ? `, charge ${v.charge > 0 ? "+" + v.charge : v.charge}` : "";
+    chemValidateEl.className = "build-readout";
+    chemValidateEl.textContent = `✓ Valid — ${v.hill}, M = ${v.mass!.toFixed(3)} g/mol${charge}`;
+  } else {
+    chemValidateEl.className = "build-readout warn";
+    chemValidateEl.textContent = `⚠ ${v.errors.join("; ")}`;
   }
 }
 
@@ -2887,7 +2911,7 @@ function updateReactionPreview(): void {
     reactionPreviewEl.innerHTML = `<span class="hint">Couldn't draw: ${esc(failed.join(", "))}. Use a name or SMILES.</span>`;
     return;
   }
-  const svg = composeReactionScheme(stages, { over: spec.over, under: spec.under });
+  const svg = composeReactionScheme(stages, { over: spec.over, under: spec.under, arrows: spec.arrows });
   const dims = svg.match(/width="(\d+)" height="(\d+)"/);
   reactionPreviewEl.innerHTML = svg;
   currentReactionSvg = {

@@ -2,6 +2,28 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
+## [1.22.0] — 2026-07-05
+
+### Added / Changed (STEM tools)
+- **Full chemical-formula validator.** New `chemValidate.ts` with the real
+  118-element periodic table (IUPAC standard atomic weights): the Chemical
+  formula tool now validates live — flags **unknown element symbols** (case-
+  sensitive: Co ≠ CO) and unbalanced brackets, and for a valid formula shows the
+  Hill formula, **molecular weight**, and net charge. Handles nested groups
+  (`K4[Fe(CN)6]`), charges (`Ca2+`, `SO4^2-`), and hydrates (`CuSO4·5H2O`).
+- **Inline math symbols.** Greek letters by name (`alpha`→α … `Omega`→Ω) plus
+  `sum`/`int`/`prod`/`partial`/`nabla`, more relations/arrows (`<=>`, `<->`,
+  `=>`, `approx`, `times`), on top of the existing set.
+- **Chemical formulas: charges after a count.** `Ca2+`→Ca²⁺ and `[Fe(CN)6]3-`
+  now render the trailing sign as a charge (not a subscript).
+- **Reaction schemes: reversible & retro arrows.** `<=>` / `⇌` draw an
+  equilibrium arrow; `<-` / `←` draw a retrosynthetic arrow.
+- **DNA: more restriction enzymes.** The type-II enzyme set grew from 19 to ~48
+  (unambiguous sites), e.g. AatII, AflII, AgeI, AscI, DraI, FseI, PacI, PmeI,
+  SbfI, SwaI. Also replaced deprecated `String.substr`.
+- All added data (atomic weights, enzyme recognition sites, unit factors) are
+  real reference values, not placeholders.
+
 ## [1.21.0] — 2026-07-05
 
 ### Added / Changed (STEM tools)

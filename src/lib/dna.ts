@@ -119,7 +119,7 @@ export function translate(seq: string, options: TranslateOptions = {}): string {
   const s = seq.toUpperCase().replace(/U/g, "T");
   let out = "";
   for (let i = frame - 1; i + 3 <= s.length; i += 3) {
-    const aa = resolveCodon(s.substr(i, 3));
+    const aa = resolveCodon(s.substring(i, i + 3));
     if (aa === "*") {
       if (options.stopAtStop) break;
       out += "*";
@@ -214,7 +214,7 @@ export function findOrfs(seq: string, options: OrfOptions = {}): Orf[] {
     for (let f = 0; f < 3; f++) {
       let startIdx = -1;
       for (let i = f; i + 3 <= str.length; i += 3) {
-        const codon = str.substr(i, 3);
+        const codon = str.substring(i, i + 3);
         if (startIdx < 0) {
           if (codon === "ATG") startIdx = i;
         } else if (resolveCodon(codon) === "*") {
@@ -279,12 +279,22 @@ export function primerTm(seq: string): PrimerTm {
 
 // --- Restriction sites ------------------------------------------------------
 
-/** Common type-II restriction enzymes → recognition sequence (5'→3'). */
+/**
+ * Common type-II restriction enzymes → recognition sequence (5'→3'). Only
+ * enzymes with unambiguous A/C/G/T sites are listed (the finder matches
+ * literally; IUPAC-degenerate sites like AccI's GTMKAC are omitted).
+ */
 export const RESTRICTION_ENZYMES: Record<string, string> = {
   EcoRI: "GAATTC", BamHI: "GGATCC", HindIII: "AAGCTT", NotI: "GCGGCCGC", XhoI: "CTCGAG",
   PstI: "CTGCAG", SmaI: "CCCGGG", KpnI: "GGTACC", SacI: "GAGCTC", SalI: "GTCGAC",
   XbaI: "TCTAGA", NcoI: "CCATGG", NdeI: "CATATG", EcoRV: "GATATC", BglII: "AGATCT",
   SpeI: "ACTAGT", NheI: "GCTAGC", ApaI: "GGGCCC", ClaI: "ATCGAT", HpaI: "GTTAAC",
+  AatII: "GACGTC", AflII: "CTTAAG", AgeI: "ACCGGT", AscI: "GGCGCGCC", AvrII: "CCTAGG",
+  BclI: "TGATCA", BspEI: "TCCGGA", BsrGI: "TGTACA", BstBI: "TTCGAA", DraI: "TTTAAA",
+  EagI: "CGGCCG", FseI: "GGCCGGCC", HaeIII: "GGCC", HhaI: "GCGC", MfeI: "CAATTG",
+  MluI: "ACGCGT", MscI: "TGGCCA", NaeI: "GCCGGC", NsiI: "ATGCAT", PacI: "TTAATTAA",
+  PmeI: "GTTTAAAC", PvuII: "CAGCTG", RsaI: "GTAC", SbfI: "CCTGCAGG", ScaI: "AGTACT",
+  SnaBI: "TACGTA", SspI: "AATATT", StuI: "AGGCCT", SwaI: "ATTTAAAT",
 };
 
 export interface RestrictionHit {

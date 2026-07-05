@@ -22,6 +22,15 @@ describe("parseReaction", () => {
     const r = parseReaction("C[N+](C)(C)C + [Cl-] >> X");
     expect(r.stages).toEqual([["C[N+](C)(C)C", "[Cl-]"], ["X"]]);
   });
+
+  it("records arrow types (forward / reversible / retro)", () => {
+    expect(parseReaction("A >> B").arrows).toEqual(["forward"]);
+    expect(parseReaction("A <=> B").arrows).toEqual(["reversible"]);
+    expect(parseReaction("A ⇌ B").arrows).toEqual(["reversible"]);
+    expect(parseReaction("A <- B").arrows).toEqual(["retro"]);
+    expect(parseReaction("A -> B <=> C").stages).toEqual([["A"], ["B"], ["C"]]);
+    expect(parseReaction("A -> B <=> C").arrows).toEqual(["forward", "reversible"]);
+  });
 });
 
 describe("composeReactionScheme", () => {

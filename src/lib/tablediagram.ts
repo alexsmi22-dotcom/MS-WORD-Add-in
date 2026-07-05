@@ -29,7 +29,8 @@ export interface LayoutBox {
   h: number;
   /** Pre-wrapped text lines shown inside the box. */
   lines: string[];
-  kind: "rect" | "round" | "diamond";
+  /** "circle" is the off-page connector carrying flow between pages. */
+  kind: "rect" | "round" | "diamond" | "circle";
   /** Accented boxes (decision diamonds, hierarchy roots) get the accent fill. */
   accent: boolean;
   fontPx: number;
@@ -163,9 +164,26 @@ export function parseSteps(rows: string[][]): { steps: Step[]; warnings: string[
 
 // --- Flowchart layout ----------------------------------------------------------
 
-/** Computes the flowchart geometry (px). SVG and PPT render from this. */
-export function layoutFlowchart(rows: string[][], title = "", style: ChartStyle = {}): DiagramLayout {
-  const { steps, warnings } = parseSteps(rows);
+/** Estimated drawn height of one step (excluding the inter-step gap). */
+function stepHeight(s: Step): number {
+  const lines = s.decision ? wrapText(s.text, 18, 3) : wrapText(s.text, 30, 4);
+  const h = s.decision ? Math.max(46, lines.length * 13 + 26) : lines.length * 13 + 14;
+  return h + (s.decision ? 8 : 0); // diamonds extend ±4
+}
+
+interface StepLayoutOpts {
+  /** Auto-numeral for the first step on this page (continues across pages). */
+  numeralStart: number;
+  /** Global index of the first step, so numeral sides keep alternating. */
+  sideStart: number;
+  /** Off-page connector letter feeding INTO this page ("" = none). */
+  contIn: string;
+  /** Off-page connector letter leading OUT of this page ("" = none). */
+  contOut: string;
+}
+
+/** Lays out a run of steps (one page of a flowchart). */
+function layoutSteps(steps: Step[], title: string, style: ChartStyle, opts: StepLayoutOpts, warnings: string[]): DiagramLayout {
   const layout: DiagramLayout = { W, H: 120, boxes: [], lines: [], texts: [], warnings };
   if (!steps.length) return layout;
 
@@ -173,12 +191,22 @@ export function layoutFlowchart(rows: string[][], title = "", style: ChartStyle 
   const cx = W / 2;
   const boxW = 216;
   const gap = 26;
+  const connR = 10;
 
   if (title) {
     layout.texts.push({ x: W / 2, y: 17, text: title.length > 48 ? title.slice(0, 47) + "…" : title, anchor: "middle", fontPx: 13, bold: true });
   }
 
   let y = title ? 34 : 16;
+  if (opts.contIn) {
+    // Connector circle from the previous page, arrow into the first box.
+    layout.boxes.push({ x: cx - connR, y, w: connR * 2, h: connR * 2, lines: [opts.contIn], kind: "circle", accent: false, fontPx: 10.5 });
+    y += connR * 2;
+    const firstIsDecision = steps[0].decision;
+    layout.lines.push({ x1: cx, y1: y, x2: cx, y2: y + gap - (firstIsDecision ? 4 : 0), arrow: true });
+    y += gap;
+  }
+
   interface Placed extends Step {
     y: number;
     h: number;
@@ -191,7 +219,6 @@ export function layoutFlowchart(rows: string[][], title = "", style: ChartStyle 
     y += h + (i < steps.length - 1 ? gap : 0);
     return box;
   });
-  layout.H = y + (figLabel ? 34 : 14);
 
   placed.forEach((s, i) => {
     const midY = s.y + s.h / 2;
@@ -204,10 +231,10 @@ export function layoutFlowchart(rows: string[][], title = "", style: ChartStyle 
     // Reference numeral: the step's own id, or an auto callout (102, 104, …)
     // when the patent numeral option is on and the row had no id. Free-standing
     // with a straight lead line to the box edge, alternating sides.
-    const refId = s.id || (style.numerals ? String(102 + i * 2) : "");
+    const refId = s.id || (style.numerals ? String(opts.numeralStart + i * 2) : "");
     if (refId) {
       const ext = s.decision ? boxW / 2 - 24 : boxW / 2;
-      const right = i % 2 === 0;
+      const right = (opts.sideStart + i) % 2 === 0;
       const edgeX = cx + (right ? ext : -ext);
       const numX = cx + (right ? ext + 24 : -ext - 24);
       const numY = midY - 11;
@@ -224,10 +251,78 @@ export function layoutFlowchart(rows: string[][], title = "", style: ChartStyle 
       });
     }
   });
+
+  if (opts.contOut) {
+    // Arrow out of the last box into a connector circle for the next page.
+    const last = placed[placed.length - 1];
+    const from = last.y + last.h + (last.decision ? 4 : 0);
+    layout.lines.push({ x1: cx, y1: from, x2: cx, y2: from + gap, arrow: true });
+    layout.boxes.push({ x: cx - connR, y: from + gap, w: connR * 2, h: connR * 2, lines: [opts.contOut], kind: "circle", accent: false, fontPx: 10.5 });
+    y = from + gap + connR * 2;
+  }
+
+  layout.H = y + (figLabel ? 34 : 14);
   if (figLabel) {
     layout.texts.push({ x: W / 2, y: layout.H - 9, text: figLabel.length > 24 ? figLabel.slice(0, 23) + "…" : figLabel, anchor: "middle", fontPx: 14 });
   }
   return layout;
+}
+
+/** Computes the flowchart geometry (px), one continuous page. */
+export function layoutFlowchart(rows: string[][], title = "", style: ChartStyle = {}): DiagramLayout {
+  const { steps, warnings } = parseSteps(rows);
+  return layoutSteps(steps, title, style, { numeralStart: 102, sideStart: 0, contIn: "", contOut: "" }, warnings);
+}
+
+/** Content height (px) of steps that fits one PPT slide near natural size. */
+const PAGE_CONTENT_H = 400;
+
+/**
+ * Splits a long flowchart into slide-sized pages joined by off-page connector
+ * circles (A, B, …), patent-drawing style. Auto reference numerals continue
+ * across pages.
+ */
+export function layoutFlowchartPages(rows: string[][], style: ChartStyle = {}): { pages: DiagramLayout[]; warnings: string[] } {
+  const { steps, warnings } = parseSteps(rows);
+  if (!steps.length) {
+    return { pages: [layoutSteps(steps, "", style, { numeralStart: 102, sideStart: 0, contIn: "", contOut: "" }, warnings)], warnings };
+  }
+  const gap = 26;
+  const connOverhead = 72; // connector circle + arrows on a continued page
+  const chunks: Step[][] = [];
+  let current: Step[] = [];
+  let used = 0;
+  for (const s of steps) {
+    const h = stepHeight(s) + (current.length ? gap : 0);
+    if (current.length && used + h > PAGE_CONTENT_H - connOverhead) {
+      chunks.push(current);
+      current = [];
+      used = 0;
+    }
+    used += stepHeight(s) + (current.length ? gap : 0);
+    current.push(s);
+  }
+  if (current.length) chunks.push(current);
+
+  let index = 0;
+  const pages = chunks.map((chunk, ci) => {
+    const letter = (k: number): string => String.fromCharCode(65 + k);
+    const page = layoutSteps(
+      chunk,
+      "",
+      style,
+      {
+        numeralStart: 102 + index * 2,
+        sideStart: index,
+        contIn: ci > 0 ? letter(ci - 1) : "",
+        contOut: ci < chunks.length - 1 ? letter(ci) : "",
+      },
+      ci === 0 ? warnings : []
+    );
+    index += chunk.length;
+    return page;
+  });
+  return { pages, warnings };
 }
 
 // --- Block diagram (hierarchy) ---------------------------------------------------
@@ -292,19 +387,14 @@ export function depthOf(n: TreeNode): number {
   return 1 + (n.children.length ? Math.max(...n.children.map(depthOf)) : 0);
 }
 
-/** Computes the block-diagram geometry (px). SVG and PPT render from this. */
-export function layoutHierarchy(rows: string[][], title = "", style: ChartStyle = {}): DiagramLayout {
-  const { roots, warnings } = buildTree(rows);
+/** Lays out an already-built (and already-numbered) tree. */
+function layoutTree(roots: TreeNode[], title: string, style: ChartStyle, warnings: string[]): DiagramLayout {
   const layout: DiagramLayout = { W, H: 120, boxes: [], lines: [], texts: [], warnings };
   if (!roots.length) return layout;
 
   let leaves = roots.reduce((acc, r) => acc + countLeaves(r), 0);
-  if (leaves > MAX_LEAVES) {
-    warnings.push(`The diagram is dense (${leaves} end boxes) — labels may be small.`);
-  }
   leaves = Math.max(1, leaves);
   const depth = Math.max(...roots.map(depthOf));
-  if (style.numerals) numberTree(roots);
 
   const figLabel = (style.figLabel ?? "").trim();
   const slotW = 96;
@@ -359,6 +449,74 @@ export function layoutHierarchy(rows: string[][], title = "", style: ChartStyle 
   return layout;
 }
 
+/** Computes the block-diagram geometry (px), one continuous page. */
+export function layoutHierarchy(rows: string[][], title = "", style: ChartStyle = {}): DiagramLayout {
+  const { roots, warnings } = buildTree(rows);
+  if (!roots.length) return { W, H: 120, boxes: [], lines: [], texts: [], warnings };
+  const leaves = roots.reduce((acc, r) => acc + countLeaves(r), 0);
+  if (leaves > MAX_LEAVES) {
+    warnings.push(`The diagram is dense (${leaves} end boxes) — labels may be small.`);
+  }
+  if (style.numerals) numberTree(roots);
+  return layoutTree(roots, title, style, warnings);
+}
+
+/** Leaves that fit one PPT slide near natural size. */
+const PAGE_LEAVES = 8;
+
+/**
+ * Splits a wide block diagram into slide-sized pages by branch — the parent
+ * (root) box is repeated on each page with its next group of children.
+ * Reference numerals are assigned on the FULL tree first, so they stay
+ * consistent across pages.
+ */
+export function layoutHierarchyPages(rows: string[][], style: ChartStyle = {}): { pages: DiagramLayout[]; warnings: string[] } {
+  const { roots, warnings } = buildTree(rows);
+  if (!roots.length) {
+    return { pages: [layoutTree(roots, "", style, warnings)], warnings };
+  }
+  if (style.numerals) numberTree(roots);
+
+  const total = roots.reduce((acc, r) => acc + countLeaves(r), 0);
+  if (total <= PAGE_LEAVES) {
+    return { pages: [layoutTree(roots, "", style, warnings)], warnings };
+  }
+
+  // Chunk units: a single root splits by its children (root repeated per
+  // page); multiple roots split by root.
+  const single = roots.length === 1;
+  const units: TreeNode[] = single ? roots[0].children : roots;
+  const chunks: TreeNode[][] = [];
+  let current: TreeNode[] = [];
+  let used = 0;
+  for (const u of units) {
+    const l = countLeaves(u);
+    if (current.length && used + l > PAGE_LEAVES) {
+      chunks.push(current);
+      current = [];
+      used = 0;
+    }
+    current.push(u);
+    used += l;
+  }
+  if (current.length) chunks.push(current);
+
+  const pages = chunks.map((chunk, ci) => {
+    const pageRoots: TreeNode[] = single ? [{ ...roots[0], children: chunk }] : chunk;
+    const page = layoutTree(pageRoots, "", style, ci === 0 ? warnings : []);
+    if (ci > 0) {
+      page.texts.push({ x: page.W - 8, y: 12, text: "(continued)", anchor: "end", fontPx: 9 });
+    }
+    return page;
+  });
+  return { pages, warnings };
+}
+
+/** Page-split dispatch used by the PPT shape renderer. */
+export function layoutDiagramPages(kind: DiagramKind, rows: string[][], style: ChartStyle = {}): { pages: DiagramLayout[]; warnings: string[] } {
+  return kind === "flowchart" ? layoutFlowchartPages(rows, style) : layoutHierarchyPages(rows, style);
+}
+
 // --- SVG renderer ---------------------------------------------------------------
 
 /** Renders a DiagramLayout to SVG, scaled into the 380px pane when wider. */
@@ -377,6 +535,10 @@ function renderLayoutSvg(layout: DiagramLayout, style: ChartStyle, emptyMessage:
       const cy = b.y + b.h / 2;
       parts.push(
         `<polygon class="fi-box" points="${cx},${b.y} ${(b.x + b.w).toFixed(1)},${cy.toFixed(1)} ${cx},${(b.y + b.h).toFixed(1)} ${b.x.toFixed(1)},${cy.toFixed(1)}" fill="${fill}" stroke="${p.stroke}" stroke-width="1.2"/>`
+      );
+    } else if (b.kind === "circle") {
+      parts.push(
+        `<circle class="fi-conn" cx="${(b.x + b.w / 2).toFixed(1)}" cy="${(b.y + b.h / 2).toFixed(1)}" r="${(b.w / 2).toFixed(1)}" fill="#fff" stroke="${p.stroke}" stroke-width="1.2"/>`
       );
     } else {
       parts.push(

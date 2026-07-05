@@ -8,7 +8,7 @@
 
 import pptxgen from "pptxgenjs";
 import { ChartKind, TableChart, CHART_PALETTE } from "./tablechart";
-import { layoutDiagram, DiagramLayout } from "./tablediagram";
+import { layoutDiagramPages, DiagramLayout } from "./tablediagram";
 
 export interface TablePptOptions {
   /** Slide + chart title; omitted when blank. */
@@ -57,10 +57,12 @@ function addDiagramFromLayout(pptx: pptxgen, slide: pptxgen.Slide, layout: Diagr
   const edgeColor = patent ? "000000" : "555555";
   const ink = patent ? "000000" : "222222";
 
-  // px → inches, uniformly scaled to fit (and fill) the slide area.
+  // px → inches, uniformly scaled to fit the slide area. The upscale cap keeps
+  // sparse pages (e.g. the last page of a paginated flowchart) from ballooning,
+  // so consecutive slides stay visually consistent.
   const wIn = layout.W / 96;
   const hIn = layout.H / 96;
-  const s = Math.min(area.w / wIn, area.h / hIn, 2.2);
+  const s = Math.min(area.w / wIn, area.h / hIn, 1.4);
   const ox = area.x + (area.w - wIn * s) / 2;
   const oy = area.y + (area.h - hIn * s) / 2;
   const X = (v: number): number => ox + (v / 96) * s;
@@ -69,7 +71,14 @@ function addDiagramFromLayout(pptx: pptxgen, slide: pptxgen.Slide, layout: Diagr
   const F = (px: number): number => Math.max(6, Math.round(px * 0.75 * s * 10) / 10); // px → pt, scaled
 
   for (const b of layout.boxes) {
-    const shape = b.kind === "diamond" ? pptx.ShapeType.diamond : b.kind === "round" ? pptx.ShapeType.roundRect : pptx.ShapeType.rect;
+    const shape =
+      b.kind === "diamond"
+        ? pptx.ShapeType.diamond
+        : b.kind === "round"
+          ? pptx.ShapeType.roundRect
+          : b.kind === "circle"
+            ? pptx.ShapeType.ellipse
+            : pptx.ShapeType.rect;
     slide.addText(b.lines.join("\n"), {
       shape,
       x: X(b.x),
@@ -148,10 +157,27 @@ export async function buildTablePptx(chart: TableChart, kind: ChartKind, opts: T
   if (opts.diagramShapes) {
     // Native, editable diagram (flowchart / block diagram) as PowerPoint
     // shapes, laid out from the same geometry as the task-pane preview.
-    const area: DiagramArea = { x: 0.4, y: areaY, w: 9.2, h: areaH };
+    // Long/wide diagrams paginate across slides (off-page connector circles
+    // for flowcharts; the parent repeated per page for block diagrams) so
+    // every slide stays near natural size.
     const { kind, rows, numerals, patent } = opts.diagramShapes;
-    const layout = layoutDiagram(kind, rows, "", { numerals, patent });
-    addDiagramFromLayout(pptx, slide, layout, area, patent);
+    const { pages } = layoutDiagramPages(kind, rows, { numerals, patent });
+    pages.forEach((page, i) => {
+      const target = i === 0 ? slide : pptx.addSlide();
+      let y = areaY;
+      let h = areaH;
+      if (i > 0) {
+        if (title) {
+          target.addText(`${title} (cont.)`, { x: 0.4, y: 0.2, w: 9.2, h: 0.5, fontSize: 16, bold: true, color: "222222" });
+          y = 0.8;
+          h = 4.4;
+        } else {
+          y = 0.4;
+          h = 4.8;
+        }
+      }
+      addDiagramFromLayout(pptx, target, page, { x: 0.4, y, w: 9.2, h }, patent);
+    });
     return (await pptx.write({ outputType: "blob" })) as Blob;
   }
 

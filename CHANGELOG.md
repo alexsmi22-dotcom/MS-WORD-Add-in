@@ -2,6 +2,21 @@
 
 All notable changes to Formula Inserter. Dates are release/pilot dates.
 
+## [1.9.0] — 2026-07-04
+
+### Added
+- **Diagrams paginate across PowerPoint slides.** Big diagrams no longer get
+  crushed onto one slide:
+  - **Flowcharts** split into slide-sized runs of steps joined by patent-style
+    **off-page connector circles** (A, B, …); auto reference numerals continue
+    across slides (S101…S105 → S106…).
+  - **Block diagrams** split by branch, with the **parent box repeated** on
+    each continuation slide; numbering is assigned on the full tree first so
+    it stays consistent (110/120/130 on slide 1, 140/150 on slide 2).
+  - Continuation slides are titled "… (cont.)"; every slide renders near
+    natural size with readable text. Verified by rendering the generated
+    slides in PowerPoint itself.
+
 ## [1.8.2] — 2026-07-04
 
 ### Fixed

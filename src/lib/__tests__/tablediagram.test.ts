@@ -1,4 +1,11 @@
-import { buildFlowchartSvg, buildHierarchySvg, buildDiagramSvg, wrapText } from "../tablediagram";
+import {
+  buildFlowchartSvg,
+  buildHierarchySvg,
+  buildDiagramSvg,
+  wrapText,
+  layoutFlowchartPages,
+  layoutHierarchyPages,
+} from "../tablediagram";
 
 const count = (svg: string, needle: string): number => svg.split(needle).length - 1;
 
@@ -139,6 +146,53 @@ describe("buildHierarchySvg", () => {
     expect(svg).toContain(">110</text>"); // first child Controller 20
     expect(svg).toContain(">112</text>"); // grandchild CPU 22
     expect(svg).toContain('class="fi-lead"'); // lead lines to the boxes
+  });
+});
+
+describe("pagination for PPT slides", () => {
+  test("long flowcharts split into pages joined by connector circles", () => {
+    const rows = Array.from({ length: 12 }, (_, i) => [`Do processing step number ${i + 1} of the method`]);
+    const { pages } = layoutFlowchartPages(rows, { numerals: true });
+    expect(pages.length).toBeGreaterThan(1);
+    // Page 1 ends in connector "A"; page 2 starts with connector "A".
+    expect(pages[0].boxes.some((b) => b.kind === "circle" && b.lines[0] === "A")).toBe(true);
+    expect(pages[1].boxes.some((b) => b.kind === "circle" && b.lines[0] === "A")).toBe(true);
+    // Auto reference numerals continue across pages instead of restarting.
+    const page1Steps = pages[0].boxes.filter((b) => b.kind !== "circle").length;
+    const firstNumeralPage2 = pages[1].texts.find((t) => /^\d+$/.test(t.text));
+    expect(firstNumeralPage2?.text).toBe(String(102 + page1Steps * 2));
+    // Every page fits a slide-sized canvas.
+    for (const p of pages) expect(p.H).toBeLessThan(620);
+  });
+
+  test("short flowcharts stay on one page with no connectors", () => {
+    const { pages } = layoutFlowchartPages([["Start"], ["Do work"], ["End"]], {});
+    expect(pages).toHaveLength(1);
+    expect(pages[0].boxes.every((b) => b.kind !== "circle")).toBe(true);
+  });
+
+  test("wide hierarchies split by branch with the root repeated and numbering intact", () => {
+    const rows: string[][] = [];
+    for (let b = 1; b <= 6; b++) {
+      rows.push(["System", `Branch ${b}`, `Part ${b}a`]);
+      rows.push(["System", `Branch ${b}`, `Part ${b}b`]);
+    }
+    const { pages } = layoutHierarchyPages(rows, { numerals: true });
+    expect(pages.length).toBeGreaterThan(1);
+    // The root box appears on every page.
+    for (const p of pages) {
+      expect(p.boxes.some((b) => b.lines.join(" ").includes("System"))).toBe(true);
+    }
+    // Numbering is assigned on the full tree: page 2's first branch is NOT 110.
+    const page2Numerals = pages[1].texts.filter((t) => /^\d+$/.test(t.text)).map((t) => t.text);
+    expect(page2Numerals).toContain("100"); // repeated root
+    expect(page2Numerals).not.toContain("110"); // branch 1 lives on page 1
+    expect(pages[1].texts.some((t) => t.text === "(continued)")).toBe(true);
+  });
+
+  test("narrow hierarchies stay on one page", () => {
+    const { pages } = layoutHierarchyPages([["A", "B"], ["A", "C"]], {});
+    expect(pages).toHaveLength(1);
   });
 });
 

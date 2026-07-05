@@ -323,12 +323,15 @@ export function restrictionSites(seq: string, enzymes: Record<string, string> = 
 
 // --- Protein properties -----------------------------------------------------
 
-// Average residue masses (Da); protein MW = Σ residues + one water (18.02).
+// Average residue masses (Da), from Expasy FindMod; protein MW = Σ residues +
+// one water (18.01524, the Expasy average water mass), matching Expasy ProtParam.
+// Sec (U) and Pyl (O) aren't in Expasy's table — computed from the periodic table.
 const RESIDUE_MASS: Record<string, number> = {
-  G: 57.05, A: 71.08, S: 87.08, P: 97.12, V: 99.13, T: 101.1, C: 103.14, L: 113.16,
-  I: 113.16, N: 114.1, D: 115.09, Q: 128.13, K: 128.17, E: 129.12, M: 131.19, H: 137.14,
-  F: 147.18, R: 156.19, Y: 163.18, W: 186.21, U: 150.04, O: 237.3,
+  G: 57.0519, A: 71.0788, S: 87.0782, P: 97.1167, V: 99.1326, T: 101.1051, C: 103.1388, L: 113.1594,
+  I: 113.1594, N: 114.1038, D: 115.0886, Q: 128.1307, K: 128.1741, E: 129.1155, M: 131.1926, H: 137.1411,
+  F: 147.1766, R: 156.1875, Y: 163.176, W: 186.2132, U: 150.05, O: 237.303,
 };
+const WATER_MASS = 18.01524;
 // Kyte–Doolittle hydropathy.
 const HYDROPATHY: Record<string, number> = {
   I: 4.5, V: 4.2, L: 3.8, F: 2.8, C: 2.5, M: 1.9, A: 1.8, G: -0.4, T: -0.7, S: -0.8,
@@ -366,7 +369,7 @@ function netCharge(counts: Record<string, number>, pH: number): number {
 /** Molecular weight, isoelectric point, and GRAVY for a one-letter protein sequence. */
 export function proteinProperties(aa: string): ProteinProperties {
   const seq = aa.toUpperCase().replace(/[^A-Z]/g, "");
-  let mw = 18.02;
+  let mw = WATER_MASS;
   let gravy = 0;
   let gravyN = 0;
   let n = 0;

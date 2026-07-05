@@ -175,8 +175,9 @@ describe("restrictionSites", () => {
 });
 
 describe("proteinProperties", () => {
-  it("computes MW (glycine ≈ 75.07)", () => {
-    expect(proteinProperties("G").mw).toBeCloseTo(75.07, 2);
+  it("computes MW with Expasy average masses", () => {
+    expect(proteinProperties("G").mw).toBeCloseTo(75.07, 2); // Gly + water
+    expect(proteinProperties("AAAA").mw).toBeCloseTo(302.33, 2); // matches Expasy ProtParam
   });
   it("gives a high pI for basic and low pI for acidic peptides", () => {
     expect(proteinProperties("KKKK").pI).toBeGreaterThan(9.5);

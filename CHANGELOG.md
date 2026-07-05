@@ -2,6 +2,16 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
+## [1.22.2] — 2026-07-05
+
+### Changed
+- **Protein residue masses aligned to Expasy.** Adopted Expasy FindMod's
+  full-precision average residue masses (were 2-decimal — Thr was 101.1 vs
+  Expasy 101.1051) and Expasy's average water mass (18.02 → 18.01524), so
+  protein molecular weight now matches Expasy ProtParam exactly (e.g. AAAA →
+  302.33). Selenocysteine recomputed from the verified periodic table
+  (150.04 → 150.05, current Se).
+
 ## [1.22.1] — 2026-07-05
 
 ### Fixed

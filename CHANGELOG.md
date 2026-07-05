@@ -2,6 +2,16 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
+## [1.13.2] — 2026-07-05
+
+### Changed
+- **New JurisLab logo.** Replaced the ribbon/add-in icon with a balance-scale
+  mark in the brand blue, rendered at 16/32/64/80/128 px (source in
+  `assets/logo.svg`). Because the icons load from the hosted site, the new logo
+  appears in Word without a reinstall (after Office refreshes its icon cache).
+  The add-in name was already "JurisLab" (since 1.12.0); the ribbon name updates
+  on the next manifest reinstall. Logo also added to the landing page header.
+
 ## [1.13.1] — 2026-07-04
 
 ### Changed

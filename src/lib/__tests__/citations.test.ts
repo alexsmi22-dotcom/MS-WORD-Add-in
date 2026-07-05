@@ -5,8 +5,19 @@ import {
   formatDate,
   formatPatentNumber,
   formatPublicationNumber,
+  parseCitation,
   CitationType,
 } from "../citations";
+
+/** Parses a messy citation, then reformats it via the matched type. */
+function roundtrip(raw: string): { typeId: string; plain: string; signal: string } {
+  const p = parseCitation(raw);
+  if (!p) throw new Error(`no parse for: ${raw}`);
+  const type = citationById(p.typeId) as CitationType;
+  const base = type.format((k) => (p.fields[k] ?? "").trim());
+  const withSignal = applySignal(p.signal, base);
+  return { typeId: p.typeId, plain: withSignal.plain, signal: p.signal };
+}
 
 /** Formats a citation type from a plain field map. */
 function fmt(id: string, fields: Record<string, string>) {
@@ -120,6 +131,69 @@ describe("signals", () => {
   test("empty signal is a no-op", () => {
     const base = fmt("cfr", { title: "37", section: "1.84" });
     expect(applySignal("", base)).toEqual(base);
+  });
+});
+
+describe("paste-and-fix parser", () => {
+  test("messy U.S.C. variants", () => {
+    expect(roundtrip("35 usc 101").plain).toBe("35 U.S.C. § 101");
+    expect(roundtrip("35 U.S.C. § 112(b) (2018)").plain).toBe("35 U.S.C. § 112(b) (2018)");
+    expect(roundtrip("35 U.S.C.A. sec 103").plain).toBe("35 U.S.C. § 103");
+    expect(roundtrip("35 USC §§ 101, 102").plain).toBe("35 U.S.C. §§ 101, 102");
+  });
+
+  test("messy C.F.R.", () => {
+    expect(roundtrip("37 cfr 1.84").plain).toBe("37 C.F.R. § 1.84");
+    expect(roundtrip("37 C.F.R. § 1.84 (2023)").plain).toBe("37 C.F.R. § 1.84 (2023)");
+  });
+
+  test("patents (with and without commas / keywords)", () => {
+    expect(roundtrip("US Patent No. 10123456").plain).toBe("U.S. Patent No. 10,123,456");
+    expect(roundtrip("U.S. Pat. No. 7,123,456").plain).toBe("U.S. Patent No. 7,123,456");
+    expect(roundtrip("patent 8,987,654 (issued 3/1/2015)").plain).toBe("U.S. Patent No. 8,987,654 (issued Mar. 1, 2015)");
+  });
+
+  test("application publication", () => {
+    expect(roundtrip("US Pub. No. 2020/0123456 A1").plain).toBe("U.S. Patent Application Publication No. 2020/0123456 A1");
+    expect(roundtrip("Publication No. 20200123456").typeId).toBe("patent-app");
+  });
+
+  test("Federal Register", () => {
+    expect(roundtrip("85 Fed. Reg. 12345 (Mar. 1, 2020)").plain).toBe("85 Fed. Reg. 12,345 (Mar. 1, 2020)");
+    expect(roundtrip("85 fed reg 12,345 (March 1, 2020)").typeId).toBe("fedreg");
+  });
+
+  test("MPEP", () => {
+    expect(roundtrip("MPEP 2106.05(a)").plain).toBe("MPEP § 2106.05(a)");
+    expect(roundtrip("mpep § 2111").plain).toBe("MPEP § 2111");
+  });
+
+  test("cases — full, lower court, and In re", () => {
+    expect(roundtrip("Alice Corp. v. CLS Bank Int'l, 573 U.S. 208, 216 (2014)").plain).toBe(
+      "Alice Corp. v. CLS Bank Int'l, 573 U.S. 208, 216 (2014)"
+    );
+    expect(roundtrip("in re bilski, 545 f.3d 943 (fed. cir. 2008)").typeId).toBe("case");
+    const c = roundtrip("Mayo v. Prometheus, 566 U.S. 66 (2012)");
+    expect(c.typeId).toBe("case");
+    expect(c.plain).toBe("Mayo v. Prometheus, 566 U.S. 66 (2012)");
+  });
+
+  test("distinguishes a law-review article from a case", () => {
+    const r = roundtrip("Mark A. Lemley, Software Patents, 2013 Wis. L. Rev. 905 (2013)");
+    expect(r.typeId).toBe("article");
+    expect(r.plain).toBe("Mark A. Lemley, Software Patents, 2013 Wis. L. Rev. 905 (2013)");
+  });
+
+  test("strips and re-applies a leading signal", () => {
+    const r = roundtrip("See 35 U.S.C. § 101 (2018)");
+    expect(r.signal).toBe("See");
+    expect(r.plain).toBe("See 35 U.S.C. § 101 (2018)");
+    expect(roundtrip("But see Alice Corp. v. CLS Bank, 573 U.S. 208 (2014)").signal).toBe("But see");
+  });
+
+  test("returns null on unrecognizable input", () => {
+    expect(parseCitation("just some random prose here")).toBeNull();
+    expect(parseCitation("")).toBeNull();
   });
 });
 

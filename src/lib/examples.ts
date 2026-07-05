@@ -270,8 +270,9 @@ export const MODE_EXAMPLES: Record<ExampleMode, string> = {
       <li><strong>Patents</strong> — U.S. Patent No. 10,123,456; App. Pub. No. 2020/0123456 A1 (numbers auto-grouped).</li>
       <li><strong>Agency &amp; secondary</strong> — Fed. Reg., MPEP §, law-review articles, and treatises.</li>
       <li><strong>Signals</strong> — optional italicized <em>See</em>, <em>Cf.</em>, <em>But see</em>, … prepended.</li>
+      <li><strong>Paste &amp; fix</strong> — paste a messy citation (<code>35 usc 101</code>, <code>alice corp v cls bank, 573 us 208 (2014)</code>) and it detects the type and fills the fields to review.</li>
     </ul>
-    <p class="examples-note">Dates like <code>2014-06-19</code> become <code>June 19, 2014</code>. Drafting aid — verify against the current Bluebook.</p>`,
+    <p class="examples-note">Dates like <code>2014-06-19</code> or <code>3/1/2020</code> become Bluebook month form. Drafting aid — verify against the current Bluebook.</p>`,
 
   finance: `
     <p class="examples-note">

@@ -70,7 +70,9 @@ Everything shows a live preview that matches exactly what gets inserted, and the
 - **Statutes & regulations** — `35 U.S.C. § 101`, `37 C.F.R. § 1.84`; multiple sections auto-switch to `§§`; optional subsection and year.
 - **Patents** — `U.S. Patent No. 10,123,456` (digits auto-grouped, `D`/`RE` prefixes kept) with optional pincite and issue date; **application publications** `U.S. Patent Application Publication No. 2020/0123456 A1`.
 - **Agency & secondary** — Federal Register (`85 Fed. Reg. 12,345 (Mar. 1, 2020)`), **MPEP** sections, **law-review articles**, and **treatises** (e.g. Chisum on Patents).
-- **Signals** — optional italicized *See*, *See also*, *Cf.*, *But see*, *Contra*, … prepended. Dates like `2014-06-19` become `June 19, 2014`. **Copy** the plain text or **insert** the formatted citation. Drafting aid — verify against the current Bluebook.
+- **Signals** — optional italicized *See*, *See also*, *Cf.*, *But see*, *Contra*, … prepended. Dates like `2014-06-19` or `3/1/2020` become `June 19, 2014` / `Mar. 1, 2020`.
+- **Paste & fix** — paste a messy citation (`35 usc 101`, `alice corp v cls bank, 573 us 208 (2014)`, `US Pat No 10123456`) and it detects the type and fills the fields for you to review, then reformats it. Best-effort — verify the result.
+- **Copy** the plain text or **insert** the formatted citation. Drafting aid — verify against the current Bluebook.
 
 ## 🔖 Refs — captions & cross-references
 - **Auto-numbered captions** — "Figure 1.", "Table 2." with per-document running counters (saved in the file).

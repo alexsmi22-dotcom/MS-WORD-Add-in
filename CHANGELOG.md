@@ -2,6 +2,18 @@
 
 All notable changes to Formula Inserter. Dates are release/pilot dates.
 
+## [1.11.0] — 2026-07-04
+
+### Added
+- **Paste & fix in Citations.** Paste a messy citation and the add-in detects
+  its type and fills the form fields to review — covering U.S.C., C.F.R.,
+  patents and application publications, the Federal Register, MPEP, cases
+  (distinguished from law-review articles by the case name), and a leading
+  Bluebook signal. Then it reformats via the normal formatter (auto-grouped
+  patent numbers, §§ for multiple sections, Bluebook dates, correct italics).
+  Best-effort/heuristic — the filled fields are shown for review before insert.
+  New pure `parseCitation` (+10 parser tests).
+
 ## [1.10.0] — 2026-07-04
 
 ### Added

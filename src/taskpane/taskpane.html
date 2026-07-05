@@ -550,6 +550,21 @@
           citation (with correct italics) inserts at the cursor. Drafting aid — verify against
           the current Bluebook and court rules.
         </p>
+        <details id="cite-paste-row" class="latex-row">
+          <summary class="palette-group-label">Paste &amp; fix a messy citation</summary>
+          <textarea
+            id="cite-paste"
+            class="build-input"
+            rows="2"
+            spellcheck="false"
+            placeholder="Paste a citation — e.g. alice corp v cls bank, 573 us 208 (2014)  ·  35 usc 101  ·  US Pat No 10123456"
+          ></textarea>
+          <div class="seq-actions">
+            <button id="cite-parse" class="insert-btn secondary" type="button">Parse &amp; fill fields</button>
+          </div>
+          <div id="cite-parse-msg" class="build-readout" aria-live="polite"></div>
+        </details>
+
         <label class="field-label" for="cite-type">Citation type</label>
         <select id="cite-type" class="lib-select"></select>
         <div class="dna-controls">

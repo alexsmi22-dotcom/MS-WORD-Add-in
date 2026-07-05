@@ -42,13 +42,18 @@ function it(s: string): string {
 
 const MONTHS = ["Jan.", "Feb.", "Mar.", "Apr.", "May", "June", "July", "Aug.", "Sept.", "Oct.", "Nov.", "Dec."];
 
-/** "2014-06-19" → "June 19, 2014"; already-formatted or year-only passes through. */
+/** "2014-06-19" or "6/19/2014" → "June 19, 2014"; other forms pass through. */
 export function formatDate(input: string): string {
   const t = input.trim();
   const iso = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(t);
   if (iso) {
     const m = Math.min(12, Math.max(1, parseInt(iso[2], 10)));
     return `${MONTHS[m - 1]} ${parseInt(iso[3], 10)}, ${iso[1]}`;
+  }
+  const us = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(t);
+  if (us) {
+    const m = Math.min(12, Math.max(1, parseInt(us[1], 10)));
+    return `${MONTHS[m - 1]} ${parseInt(us[2], 10)}, ${us[3]}`;
   }
   return t;
 }
@@ -280,4 +285,175 @@ export const CITATIONS: CitationType[] = [
 /** Looks up a citation type by id. */
 export function citationById(id: string): CitationType | undefined {
   return CITATIONS.find((c) => c.id === id);
+}
+
+// --- paste-and-fix parser ----------------------------------------------------
+
+export interface ParsedCitation {
+  typeId: string;
+  fields: Record<string, string>;
+  signal: string;
+}
+
+/** Canonical reporter spellings, keyed by their despaced/lowercased form. */
+const REPORTERS: Record<string, string> = {};
+for (const r of [
+  "U.S.",
+  "S. Ct.",
+  "L. Ed.",
+  "L. Ed. 2d",
+  "F.",
+  "F.2d",
+  "F.3d",
+  "F.4th",
+  "F. Supp.",
+  "F. Supp. 2d",
+  "F. Supp. 3d",
+  "F. App'x",
+  "Fed. Cl.",
+  "Fed. Appx.",
+  "U.S.P.Q.",
+  "U.S.P.Q.2d",
+]) {
+  REPORTERS[r.replace(/[\s.]/g, "").toLowerCase()] = r;
+}
+
+/** Normalizes a captured reporter to its canonical Bluebook form when known. */
+function normalizeReporter(raw: string): string {
+  const key = raw.replace(/[\s.]/g, "").toLowerCase();
+  if (REPORTERS[key]) return REPORTERS[key];
+  // Title-case an unknown reporter and tidy spacing.
+  return raw.trim().replace(/\s+/g, " ");
+}
+
+const CASE_NAME_SIGNAL = /(\bv\.\s)|(^in re\b)|(^ex parte\b)|(^matter of\b)|(^in the matter of\b)/i;
+
+/** Splits a case/patent parenthetical into court (may be "") and year. */
+function splitParen(paren: string): { court: string; year: string } {
+  const y = /\b(\d{4})\b\s*$/.exec(paren.trim());
+  const year = y ? y[1] : "";
+  const court = year ? paren.trim().replace(/\s*\b\d{4}\b\s*$/, "").trim() : paren.trim();
+  return { court, year };
+}
+
+/** Strips a leading Bluebook signal, returning it (canonical) and the rest. */
+function extractSignal(t: string): { signal: string; rest: string } {
+  for (const s of SIGNALS) {
+    if (!s.value) continue;
+    const re = new RegExp("^" + s.value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\s+", "i");
+    if (re.test(t)) return { signal: s.value, rest: t.replace(re, "") };
+  }
+  return { signal: "", rest: t };
+}
+
+type Detector = (t: string) => Omit<ParsedCitation, "signal"> | null;
+
+const detectStatute: Detector = (t) => {
+  const m = /(\d+)\s*u\.?\s*s\.?\s*c\.?(?:a\.?)?\s*(?:§{1,2}|sec(?:tion|s)?\.?\s*)?\s*(.+?)\s*(?:\((\d{4}[^)]*)\))?\s*\.?$/i.exec(t);
+  if (!m) return null;
+  const section = m[2].replace(/\s+/g, " ").trim();
+  if (!section) return null;
+  return { typeId: "usc", fields: { title: m[1], section, sub: "", year: (m[3] || "").trim() } };
+};
+
+const detectCFR: Detector = (t) => {
+  const m = /(\d+)\s*c\.?\s*f\.?\s*r\.?\s*(?:§{1,2}|sec(?:tion|s)?\.?\s*)?\s*(.+?)\s*(?:\((\d{4}[^)]*)\))?\s*\.?$/i.exec(t);
+  if (!m) return null;
+  const section = m[2].replace(/\s+/g, " ").trim();
+  if (!section) return null;
+  return { typeId: "cfr", fields: { title: m[1], section, year: (m[3] || "").trim() } };
+};
+
+const detectFedReg: Detector = (t) => {
+  const m = /(\d+)\s*fed\.?\s*reg\.?\s*([\d,]+)\s*\(([^)]*)\)/i.exec(t);
+  if (!m) return null;
+  let date = m[3].trim();
+  let codified = "";
+  const cod = /to be codified at\s+(.+)$/i.exec(t);
+  if (cod) codified = cod[1].replace(/[).]+$/, "").trim();
+  date = date.replace(/\s*\(?to be codified.*$/i, "").trim();
+  return { typeId: "fedreg", fields: { vol: m[1], page: m[2], date, codified } };
+};
+
+const detectMPEP: Detector = (t) => {
+  const m = /\bmpep\b\s*(?:§{1,2}|sec(?:tion)?\.?\s*)?\s*([\dA-Za-z.()\-]+)\s*(?:\(([^)]*)\))?/i.exec(t);
+  if (!m) return null;
+  return { typeId: "mpep", fields: { section: m[1], edition: (m[2] || "").trim() } };
+};
+
+const detectPatentApp: Detector = (t) => {
+  const m = /((?:\d{4}\/\d{5,7})|\b\d{11}\b)\s*(A\d|B\d)?/i.exec(t);
+  if (!m) return null;
+  if (!/pub|application|\d{4}\/\d/i.test(t)) return null; // avoid matching plain patent numbers
+  const date = /\(\s*(?:published\s*)?([A-Za-z0-9.,/\s-]+?)\s*\)\s*\.?$/.exec(t);
+  return {
+    typeId: "patent-app",
+    fields: { number: formatPublicationNumber(m[1]), kind: (m[2] || "").toUpperCase(), date: date ? date[1].trim() : "" },
+  };
+};
+
+const detectPatent: Detector = (t) => {
+  const m = /(?:u\.?\s*s\.?\s*)?pat(?:ent)?\.?\s*(?:no\.?|#)?\s*([A-Za-z]{0,2}[\d,]{5,})/i.exec(t);
+  if (!m) return null;
+  const pin = /\b(col(?:umn)?\.?\s*\d+.*?(?:ll?\.?\s*[\d–\-, ]+)?)/i.exec(t.replace(m[0], ""));
+  const date = /\(\s*(?:issued\s*)?([A-Za-z0-9.,/\s-]+?)\s*\)\s*\.?$/i.exec(t);
+  return {
+    typeId: "patent",
+    fields: { number: formatPatentNumber(m[1]), pin: pin ? pin[1].trim() : "", date: date ? date[1].trim() : "" },
+  };
+};
+
+const CITE_TAIL = /,\s*(\d+)\s+([A-Za-z0-9.'’ ]+?)\s+(\d+)(?:,\s*(\d+(?:[–-]\d+)?))?\s*\(([^)]*)\)\s*\.?$/;
+
+const detectCase: Detector = (t) => {
+  const m = CITE_TAIL.exec(t);
+  if (!m) return null;
+  const name = t.slice(0, m.index).trim();
+  const reporter = normalizeReporter(m[2]);
+  const known = REPORTERS[m[2].replace(/[\s.]/g, "").toLowerCase()] !== undefined;
+  if (!CASE_NAME_SIGNAL.test(name) && !known) return null; // probably an article
+  const { court, year } = splitParen(m[5]);
+  return {
+    typeId: "case",
+    fields: { name, vol: m[1], reporter, page: m[3], pin: m[4] || "", court, year },
+  };
+};
+
+const detectArticle: Detector = (t) => {
+  const m = CITE_TAIL.exec(t);
+  if (!m) return null;
+  const head = t.slice(0, m.index).trim();
+  const comma = head.indexOf(",");
+  if (comma < 0) return null; // need "Author, Title"
+  const { year } = splitParen(m[5]);
+  return {
+    typeId: "article",
+    fields: {
+      author: head.slice(0, comma).trim(),
+      title: head.slice(comma + 1).trim(),
+      vol: m[1],
+      journal: normalizeReporter(m[2]).replace(/\s+/g, " "),
+      page: m[3],
+      pin: m[4] || "",
+      year,
+    },
+  };
+};
+
+const DETECTORS: Detector[] = [detectStatute, detectCFR, detectFedReg, detectMPEP, detectPatentApp, detectPatent, detectCase, detectArticle];
+
+/**
+ * Best-effort parse of a messy pasted citation into a type + field values that
+ * the existing formatters can clean up. Returns null when nothing matches.
+ * This is heuristic — the user reviews the filled form before inserting.
+ */
+export function parseCitation(raw: string): ParsedCitation | null {
+  const collapsed = raw.replace(/\s+/g, " ").trim();
+  if (!collapsed) return null;
+  const { signal, rest } = extractSignal(collapsed);
+  for (const d of DETECTORS) {
+    const hit = d(rest);
+    if (hit) return { ...hit, signal };
+  }
+  return null;
 }

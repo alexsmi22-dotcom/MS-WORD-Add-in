@@ -81,7 +81,7 @@ import { parseTableData, cleanTableRows, buildChartPreviewSvg, TableChart, Chart
 import { buildDiagramSvg, DiagramKind } from "../lib/tablediagram";
 import { buildTableFigureSvg, prepareTableFigure } from "../lib/tablefigure";
 import { classifyTable } from "../lib/tableclassify";
-import { CITATIONS, SIGNALS, citationById, applySignal, CitationResult } from "../lib/citations";
+import { CITATIONS, SIGNALS, citationById, applySignal, parseCitation, CitationResult } from "../lib/citations";
 
 type Mode =
   | "chemical"
@@ -228,6 +228,9 @@ let citeInputs: HTMLElement;
 let citePreview: HTMLElement;
 let citeInsertBtn: HTMLButtonElement;
 let citeCopyBtn: HTMLButtonElement;
+let citePasteInput: HTMLTextAreaElement;
+let citeParseBtn: HTMLButtonElement;
+let citeParseMsg: HTMLElement;
 /** The most recently formatted citation, for insert/copy. */
 let currentCitation: CitationResult | null = null;
 let refsSection: HTMLElement;
@@ -428,6 +431,9 @@ Office.onReady((info) => {
   citePreview = document.getElementById("cite-preview") as HTMLElement;
   citeInsertBtn = document.getElementById("cite-insert") as HTMLButtonElement;
   citeCopyBtn = document.getElementById("cite-copy") as HTMLButtonElement;
+  citePasteInput = document.getElementById("cite-paste") as HTMLTextAreaElement;
+  citeParseBtn = document.getElementById("cite-parse") as HTMLButtonElement;
+  citeParseMsg = document.getElementById("cite-parse-msg") as HTMLElement;
   refsSection = document.getElementById("refs-section") as HTMLElement;
   refKind = document.getElementById("ref-kind") as HTMLSelectElement;
   refNext = document.getElementById("ref-next") as HTMLElement;
@@ -568,6 +574,7 @@ Office.onReady((info) => {
   citeSignalSelect.addEventListener("change", updateCitationPreview);
   citeInsertBtn.addEventListener("click", insertCitation);
   citeCopyBtn.addEventListener("click", copyCitation);
+  citeParseBtn.addEventListener("click", parseAndFillCitation);
 
   pptLoadBtn.addEventListener("click", loadSelectedTable);
   pptKindSelect.addEventListener("change", updatePptPreview);
@@ -3355,6 +3362,32 @@ function renderCitationInputs(): void {
     citeInputs.append(label, input);
   }
   updateCitationPreview();
+}
+
+/** Parses a pasted messy citation and fills the form fields for review. */
+function parseAndFillCitation(): void {
+  const raw = citePasteInput.value.trim();
+  if (!raw) {
+    citeParseMsg.textContent = "Paste a citation first.";
+    return;
+  }
+  const parsed = parseCitation(raw);
+  if (!parsed) {
+    citeParseMsg.className = "build-readout warn";
+    citeParseMsg.textContent = "Couldn’t recognize that citation — pick a type below and fill it in manually.";
+    return;
+  }
+  const type = citationById(parsed.typeId);
+  citeTypeSelect.value = parsed.typeId;
+  citeSignalSelect.value = parsed.signal;
+  renderCitationInputs(); // rebuild fields for the detected type
+  for (const [key, value] of Object.entries(parsed.fields)) {
+    const el = citeInputs.querySelector<HTMLInputElement>(`[data-key="${key}"]`);
+    if (el) el.value = value;
+  }
+  updateCitationPreview();
+  citeParseMsg.className = "build-readout";
+  citeParseMsg.textContent = `Detected: ${type?.name ?? parsed.typeId}. Review the fields, then insert.`;
 }
 
 /** Formats and previews the citation for the current inputs. */

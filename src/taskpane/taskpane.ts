@@ -123,6 +123,7 @@ import {
   authoritiesForToa,
   taFieldOoxml,
   toaFieldsOoxml,
+  tocFieldOoxml,
   findPrecedingSecondarySource,
 } from "../lib/toa";
 
@@ -289,6 +290,7 @@ let citeParseBtn: HTMLButtonElement;
 let citeParseMsg: HTMLElement;
 let toaBuildBtn: HTMLButtonElement;
 let toaNativeBtn: HTMLButtonElement;
+let tocBuildBtn: HTMLButtonElement;
 let toaMsg: HTMLElement;
 let citeIdDetectBtn: HTMLButtonElement;
 let citeIdDetectMsg: HTMLElement;
@@ -511,6 +513,7 @@ Office.onReady((info) => {
   citeParseMsg = document.getElementById("cite-parse-msg") as HTMLElement;
   toaBuildBtn = document.getElementById("toa-build") as HTMLButtonElement;
   toaNativeBtn = document.getElementById("toa-native") as HTMLButtonElement;
+  tocBuildBtn = document.getElementById("toc-build") as HTMLButtonElement;
   toaMsg = document.getElementById("toa-msg") as HTMLElement;
   citeIdDetectBtn = document.getElementById("cite-iddetect") as HTMLButtonElement;
   citeIdDetectMsg = document.getElementById("cite-iddetect-msg") as HTMLElement;
@@ -660,6 +663,7 @@ Office.onReady((info) => {
   citeShortFormBtn.addEventListener("click", makeCaseShortForm);
   toaBuildBtn.addEventListener("click", buildToaHandler);
   toaNativeBtn.addEventListener("click", buildNativeToaHandler);
+  tocBuildBtn.addEventListener("click", buildTocHandler);
   citeIdDetectBtn.addEventListener("click", insertIdForPreceding);
   citeSupraDetectBtn.addEventListener("click", detectSupraSource);
 
@@ -4136,6 +4140,39 @@ async function buildNativeToaHandler(): Promise<void> {
     setStatus(`Could not build the field-based Table of Authorities: ${(error as Error).message}`, "error");
   } finally {
     toaNativeBtn.disabled = false;
+  }
+}
+
+/**
+ * Inserts a native Word Table of Contents field (built from heading styles) at
+ * the cursor. Real page numbers appear when the user presses F9 (FRAP 28(a)(2)).
+ */
+async function buildTocHandler(): Promise<void> {
+  tocBuildBtn.disabled = true;
+  toaMsg.className = "build-readout";
+  if (!wordApiSupported("1.3")) {
+    toaMsg.className = "build-readout warn";
+    toaMsg.textContent =
+      "This version of Word doesn’t support field insertion — use Word’s References ▸ Table of Contents instead.";
+    tocBuildBtn.disabled = false;
+    return;
+  }
+  setStatus("Inserting a Table of Contents field…");
+  try {
+    await Word.run(async (context) => {
+      const selection = context.document.getSelection();
+      selection.insertOoxml(tocFieldOoxml(3), Word.InsertLocation.replace);
+      await context.sync();
+      toaMsg.textContent =
+        "Table of Contents inserted from your heading styles (Heading 1–3). " +
+        "Select all (Ctrl/⌘+A) and press F9 to fill in the page numbers. " +
+        "Make sure your section titles use Word’s Heading styles so they appear.";
+      setStatus("Table of Contents (field) inserted — press F9 to update.", "success");
+    });
+  } catch (error) {
+    setStatus(`Could not insert the Table of Contents: ${(error as Error).message}`, "error");
+  } finally {
+    tocBuildBtn.disabled = false;
   }
 }
 

@@ -635,10 +635,24 @@
         </button>
         <div id="cite-supradetect-msg" class="build-readout" aria-live="polite"></div>
 
+        <span class="palette-group-label">Table of Contents</span>
+        <p class="examples-note">
+          Insert a Table of Contents built from your Heading 1–3 styles, with page references
+          (FRAP 28(a)(2)). Put the cursor where the TOC should go first.
+        </p>
+        <button id="toc-build" class="insert-btn secondary" type="button">
+          Insert Table of Contents (Word field)
+        </button>
+        <p class="examples-note">
+          After it runs, <strong>select all (Ctrl/⌘+A) and press F9</strong> to fill in page
+          numbers. Section titles must use Word’s Heading styles to appear.
+        </p>
+
         <span class="palette-group-label">Table of Authorities</span>
         <p class="examples-note">
           Scan the whole document for citations and build a grouped, alphabetized authorities
-          list (Cases · Statutes · Regulations · Patents · Other).
+          list (Cases · Statutes · Rules · Regulations · Patents · Other) — FRAP 28(a)(3).
+          Unpublished (WL / LEXIS) decisions and Fed. R. Civ. P. rules are included.
         </p>
         <button id="toa-build" class="insert-btn secondary" type="button">
           Insert static list (no page numbers)
@@ -651,6 +665,10 @@
           fields at the cursor. After it runs, <strong>select all (Ctrl/⌘+A) and press F9</strong>
           to populate the page numbers. Patents appear under “Other Authorities” (Word has no
           Patents category). Review the result.
+        </p>
+        <p class="examples-note">
+          Note: under FRAP 32(f) the Table of Contents and Table of Authorities are excluded
+          from the brief’s word/length count.
         </p>
         <div id="toa-msg" class="build-readout" aria-live="polite"></div>
       </section>

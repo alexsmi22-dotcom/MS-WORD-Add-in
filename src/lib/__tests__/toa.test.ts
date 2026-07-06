@@ -5,6 +5,7 @@ import {
   authoritiesForToa,
   taFieldOoxml,
   toaFieldsOoxml,
+  tocFieldOoxml,
   findPrecedingSecondarySource,
   ToaCategory,
 } from "../toa";
@@ -86,6 +87,82 @@ describe("buildTableOfAuthorities", () => {
       "See Ass'n for Molecular Pathology v. Myriad Genetics, Inc., 569 U.S. 576, 580 (2013)."
     );
     expect(g.cases).toEqual(["Ass'n for Molecular Pathology v. Myriad Genetics, Inc., 569 U.S. 576"]);
+  });
+});
+
+describe("FRAP 28(a)(3) completeness — rules and unpublished cases", () => {
+  test("captures unpublished Westlaw and LEXIS decisions as cases", () => {
+    const g = grouped(
+      "See BlueRadios, Inc. v. Kopin Corp., Inc., No. 16-CV-2052-JLK, 2017 WL 11546716, at *3 (D. Colo. 2017); " +
+        "Hilton v. Kerry, No. 13-11710-TSH, 2013 U.S. Dist. LEXIS 169661, at *2 (D. Mass. 2013)."
+    );
+    expect(g.cases).toContain("BlueRadios, Inc. v. Kopin Corp., Inc., 2017 WL 11546716");
+    expect(g.cases).toContain("Hilton v. Kerry, 2013 U.S. Dist. LEXIS 169661");
+  });
+
+  test("captures the F.R.D. reporter", () => {
+    const g = grouped("Windsurfing Int'l, Inc. v. Ostermann, 100 F.R.D. 82, 84 (S.D.N.Y. 1983).");
+    expect(g.cases).toContain("Windsurfing Int'l, Inc. v. Ostermann, 100 F.R.D. 82");
+  });
+
+  test("gathers Fed. R. Civ. P. rules (qualified + bare, collapsed to base rule)", () => {
+    const g = grouped(
+      "Dismissal under Rule 12(b)(7) is improper. Fed. R. Civ. P. 19(a)(1) governs joinder; " +
+        "see also Fed. R. Civ. P. 19(b)."
+    );
+    expect(g.rules).toEqual(["Fed. R. Civ. P. 12", "Fed. R. Civ. P. 19"]);
+  });
+
+  test("does not treat a bare 'Rule 56' as FRCP when no qualified Fed. R. Civ. P. is present", () => {
+    const toa = buildTableOfAuthorities("The panel applied Rule 56 to the record.");
+    expect(toa.groups.find((x) => x.category === "rules")).toBeUndefined();
+  });
+
+  test("Rules sort after Statutes and before Regulations/Other", () => {
+    const cats = buildTableOfAuthorities(
+      "35 U.S.C. § 101; Fed. R. Civ. P. 19; 37 C.F.R. § 1.84; 85 Fed. Reg. 100."
+    ).groups.map((x) => x.category);
+    expect(cats).toEqual(["statutes", "rules", "regulations", "other"]);
+  });
+});
+
+describe("case-name robustness (diacritics, en-dash, foreign/firm parties)", () => {
+  test("keeps diacritics in a party name", () => {
+    const g = grouped("Bacardi Int'l Ltd. v. V. Suárez & Co., 719 F.3d 1, 11 (1st Cir. 2013).");
+    expect(g.cases).toContain("Bacardi Int'l Ltd. v. V. Suárez & Co., 719 F.3d 1");
+  });
+
+  test("does not truncate a leading multi-word name across an en-dash", () => {
+    const g = grouped("See Israel Bio–Eng'g Project v. Amgen Inc., 475 F.3d 1256, 1267 (Fed. Cir. 2007).");
+    expect(g.cases).toContain("Israel Bio–Eng'g Project v. Amgen Inc., 475 F.3d 1256");
+  });
+
+  test("keeps a leading foreign corporate designator (Televisa, S.A. de C.V.)", () => {
+    const g = grouped("Televisa, S.A. de C.V. v. Koch Lorber Films, 382 F. Supp. 2d 631 (S.D.N.Y. 2005).");
+    expect(g.cases).toContain("Televisa, S.A. de C.V. v. Koch Lorber Films, 382 F. Supp. 2d 631");
+  });
+
+  test("keeps a comma-separated law-firm party name", () => {
+    const g = grouped(
+      "BlueRadios, Inc. v. Hamilton, Brook, Smith & Reynolds, P.C., 166 F.4th 197, 205 (1st Cir. 2026)."
+    );
+    expect(g.cases).toContain("BlueRadios, Inc. v. Hamilton, Brook, Smith & Reynolds, P.C., 166 F.4th 197");
+  });
+});
+
+describe("tocFieldOoxml", () => {
+  test("emits a centered heading and a TOC field over heading levels 1–3", () => {
+    const xml = tocFieldOoxml(3);
+    expect(xml).toContain("<pkg:package");
+    expect(xml).toContain("<w:t>TABLE OF CONTENTS</w:t>");
+    expect(xml).toContain(' TOC \\o "1-3" \\h \\z \\u ');
+    expect(xml).toContain('fldCharType="begin"');
+  });
+
+  test("clamps the level count into 1–9", () => {
+    expect(tocFieldOoxml(0)).toContain('TOC \\o "1-1"');
+    expect(tocFieldOoxml(42)).toContain('TOC \\o "1-9"');
+    expect(tocFieldOoxml()).toContain('TOC \\o "1-3"');
   });
 });
 

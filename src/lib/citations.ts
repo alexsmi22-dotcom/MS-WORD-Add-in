@@ -116,7 +116,7 @@ function join(parts: string[], sep = " "): string {
 /** Canonical reporter spellings (federal + regional series). */
 export const REPORTER_NAMES: string[] = [
   "U.S.", "S. Ct.", "L. Ed.", "L. Ed. 2d",
-  "F.", "F.2d", "F.3d", "F.4th", "F. Supp.", "F. Supp. 2d", "F. Supp. 3d", "F. App'x", "Fed. Cl.", "Fed. Appx.",
+  "F.", "F.2d", "F.3d", "F.4th", "F. Supp.", "F. Supp. 2d", "F. Supp. 3d", "F. App'x", "Fed. Cl.", "Fed. Appx.", "F.R.D.",
   "U.S.P.Q.", "U.S.P.Q.2d",
   "A.", "A.2d", "A.3d", "P.", "P.2d", "P.3d", "N.E.", "N.E.2d", "N.E.3d", "N.W.", "N.W.2d",
   "S.E.", "S.E.2d", "S.W.", "S.W.2d", "S.W.3d", "So.", "So. 2d", "So. 3d", "Cal.", "N.Y.", "N.Y.2d", "N.Y.3d",

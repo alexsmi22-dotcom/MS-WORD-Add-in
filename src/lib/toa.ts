@@ -9,7 +9,7 @@
 
 import { REPORTER_NAMES, normalizeReporter } from "./citations";
 
-export type ToaCategory = "cases" | "statutes" | "regulations" | "patents" | "other";
+export type ToaCategory = "cases" | "statutes" | "rules" | "regulations" | "patents" | "other";
 
 export interface ToaEntry {
   /** Plain-text entry (case name + reporter cite; no pincite). */
@@ -32,12 +32,15 @@ export interface TableOfAuthorities {
 const HEADINGS: Record<ToaCategory, string> = {
   cases: "Cases",
   statutes: "Statutes",
+  rules: "Rules",
   regulations: "Regulations",
   patents: "Patents",
   other: "Other Authorities",
 };
 
-const ORDER: ToaCategory[] = ["cases", "statutes", "regulations", "patents", "other"];
+// FRAP 28(a)(3) order: cases, statutes, and other authorities. Rules follow
+// statutes; patents fold in just before the catch-all "Other Authorities".
+const ORDER: ToaCategory[] = ["cases", "statutes", "rules", "regulations", "patents", "other"];
 
 function esc(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -52,18 +55,54 @@ const REPORTER_ALT = REPORTER_NAMES.slice()
 // A party name: a capitalized first word, then more words that are either
 // capitalized or a small set of name-internal connectors — so the pattern can't
 // swallow preceding prose ("See also", "The court in …") before the real name.
-const NAMEWORD = "(?:[A-Z][A-Za-z0-9.'’&()\\-]*|of|the|and|for|&|de|la|van|von|et|al\\.)";
-// An optional trailing corporate suffix set off by a comma (", Inc.", ", LLC").
-const CORP = "(?:,\\s+(?:Inc|LLC|L\\.L\\.C|Co|Corp|Ltd|L\\.P|N\\.A|LLP|PLLC)\\.?)?";
-const PARTY = `[A-Z][A-Za-z0-9.'’&()\\-]*(?:\\s+${NAMEWORD}){0,7}${CORP}`;
+// Letter classes include common Latin-1 diacritics (á, é, ñ, ü, …) and an en/em
+// dash so names like "Suárez" or "Israel Bio–Eng'g" aren't truncated mid-name.
+const UP = "A-ZÀ-ÖØ-Þ";
+const WORDCH = "[A-Za-zÀ-ÖØ-öø-ÿ0-9.'’&()\\-–—]";
+const NAMEWORD = `(?:[${UP}]${WORDCH}*|of|the|and|for|&|de|la|van|von|et|al\\.)`;
+// A trailing corporate/firm designator set off by a comma. US forms plus a few
+// common foreign ones (S.A. de C.V., N.V., A.G., GmbH, S.p.A.) and P.C./P.A.
+const CORP =
+  "(?:,\\s+(?:Inc|LLC|L\\.L\\.C|Co|Corp|Ltd|L\\.P|N\\.A|LLP|PLLC|P\\.C|P\\.A|S\\.A\\. de C\\.V|S\\.A|S\\. de R\\.L|N\\.V|A\\.G|GmbH|S\\.p\\.A|Ltda|Pty\\. Ltd)\\.?)?";
+// A firm name whose parts are comma-separated ("Hamilton, Brook, Smith &
+// Reynolds, P.C."): after the main party, allow comma-separated capitalized
+// segments (each may itself be "X & Y"). A comma-then-capital boundary can't be
+// reached by the space-delimited NAMEWORD repeat, so the two never overlap (no
+// catastrophic backtracking).
+const FIRMSEG = `[${UP}]${WORDCH}*(?:\\s+(?:&|[${UP}]${WORDCH}*)){0,3}`;
+// A firm segment may not sit immediately before " v." — otherwise a leading
+// transition word ("Likewise, Smith v. Jones") is mis-read as part of the first
+// party. A genuine firm-name plaintiff ends in a corp form (P.C., LLP), which
+// the CORP branch still captures.
+const FIRMTAIL = `(?:,\\s+${FIRMSEG}(?!\\s+v\\.)){0,4}`;
+const PARTY = `[${UP}]${WORDCH}*(?:\\s+${NAMEWORD}){0,7}${FIRMTAIL}${CORP}`;
 const CASE_NAME = `(?:${PARTY}\\s+v\\.\\s+${PARTY}|(?:In re|Ex parte|In the Matter of)\\s+${PARTY})`;
 const CASE_RE = new RegExp(`(${CASE_NAME}),\\s+(\\d+)\\s+(${REPORTER_ALT})\\s+(\\d+)`, "g");
+
+// Unpublished decisions: "Name, [No. …,] YEAR <db> NUMBER" where <db> is a
+// commercial database (Westlaw / LexisNexis). These carry no reporter, so they
+// are matched separately but classified as cases.
+const UNPUB_DB = "WL|U\\.S\\. Dist\\. LEXIS|U\\.S\\. App\\. LEXIS|U\\.S\\. LEXIS|Fed\\. App'x LEXIS|WESTLAW";
+const UNPUB_RE = new RegExp(
+  `(${CASE_NAME}),\\s+(?:No\\.\\s+[^,]+,\\s+)?(\\d{4})\\s+(${UNPUB_DB})\\s+(\\d+)`,
+  "g"
+);
 
 const STATUTE_RE = /\b(\d+)\s+U\.S\.C\.(?:A\.)?\s+§{1,2}\s*([\w.()–—\-]+)/g;
 const CFR_RE = /\b(\d+)\s+C\.F\.R\.\s+§{1,2}\s*([\w.()–—\-]+)/g;
 const PATENT_RE = /U\.S\.\s+Patent(?:\s+Application\s+Publication)?\s+No\.\s+([\d,\/]+)(?:\s+([A-Z]\d))?/g;
 const FEDREG_RE = /\b(\d+)\s+Fed\.\s+Reg\.\s+([\d,]+)/g;
 const MPEP_RE = /\bMPEP\s+§{1,2}\s*([\w.()–—\-]+)/g;
+
+// Federal rules in the qualified form ("Fed. R. Civ. P. 19(a)"). The base rule
+// number (19) is what the table lists; subsections collapse into it.
+const RULE_ABBR: Record<string, string> = { Civ: "Civ.", App: "App.", Evid: "Evid.", Crim: "Crim.", Bankr: "Bankr." };
+const RULE_RE = /\bFed\.\s+R\.\s+(Civ|App|Evid|Crim|Bankr)\.\s+P\.\s+(\d+)(?:\([\w'.]+\))*/g;
+// Bare "Rule 12(b)(7)" references. Only trusted when the document also uses the
+// qualified "Fed. R. Civ. P." form (so we know the ruleset) — then a bare rule
+// in a federal civil brief is treated as Fed. R. Civ. P.
+const HAS_FRCP_RE = /\bFed\.\s+R\.\s+Civ\.\s+P\./;
+const BARE_RULE_RE = /\bRules?\s+(\d+)(?:\([\w)(]+\))?/g;
 
 /** Trims a trailing sentence period from a captured section number. */
 function trimSection(s: string): string {
@@ -103,6 +142,23 @@ function collect(text: string): Raw[] {
     });
   }
 
+  // Unpublished decisions (Westlaw / LexisNexis) — no reporter, still cases.
+  UNPUB_RE.lastIndex = 0;
+  while ((m = UNPUB_RE.exec(text))) {
+    const name = m[1]
+      .replace(/\s+/g, " ")
+      .replace(/^(?:See|Cf\.|Compare|Accord|Contra|E\.g\.)\s+/, "")
+      .trim();
+    const cite = `${m[2]} ${m[3]} ${m[4]}`;
+    out.push({
+      category: "cases",
+      sortKey: name.toLowerCase().replace(/^(in re|ex parte|in the matter of)\s+/, ""),
+      plain: `${name}, ${cite}`,
+      html: `<i>${esc(name)}</i>, ${esc(cite)}`,
+      locator: cite, // "2017 WL 11546716" — appears verbatim regardless of name styling
+    });
+  }
+
   const pushPlain = (re: RegExp, category: ToaCategory, build: (mm: RegExpExecArray) => { text: string; sortKey: string }): void => {
     re.lastIndex = 0;
     let mm: RegExpExecArray | null;
@@ -134,6 +190,18 @@ function collect(text: string): Raw[] {
     const sec = trimSection(mm[1]);
     return { text: `MPEP § ${sec}`, sortKey: `mpep ${sec}` };
   });
+
+  // Federal rules — qualified "Fed. R. Civ. P. 19" form (authoritative).
+  const ruleText = (abbr: string, num: string): { text: string; sortKey: string } => ({
+    text: `Fed. R. ${RULE_ABBR[abbr]} P. ${num}`,
+    sortKey: `${abbr.toLowerCase()} ${num.padStart(4, "0")}`,
+  });
+  pushPlain(RULE_RE, "rules", (mm) => ruleText(mm[1], mm[2]));
+  // Bare "Rule 12(b)(7)" — trusted only in a document that also uses the
+  // qualified Fed. R. Civ. P. form; then treated as a civil rule.
+  if (HAS_FRCP_RE.test(text)) {
+    pushPlain(BARE_RULE_RE, "rules", (mm) => ruleText("Civ", mm[1]));
+  }
 
   return out;
 }
@@ -210,8 +278,17 @@ export function findPrecedingAuthority(text: string): PrecedingAuthority | null 
     let mm: RegExpExecArray | null;
     while ((mm = re.exec(text))) consider(mm.index, { plain: build(mm), category });
   };
+  UNPUB_RE.lastIndex = 0;
+  while ((m = UNPUB_RE.exec(text))) {
+    const name = m[1]
+      .replace(/\s+/g, " ")
+      .replace(/^(?:See|Cf\.|Compare|Accord|Contra|E\.g\.)\s+/, "")
+      .trim();
+    consider(m.index, { plain: `${name}, ${m[2]} ${m[3]} ${m[4]}`, category: "cases" });
+  }
   scan(STATUTE_RE, "statutes", (mm) => `${mm[1]} U.S.C. § ${trimSection(mm[2])}`);
   scan(CFR_RE, "regulations", (mm) => `${mm[1]} C.F.R. § ${trimSection(mm[2])}`);
+  scan(RULE_RE, "rules", (mm) => `Fed. R. ${RULE_ABBR[mm[1]]} P. ${mm[2]}`);
   scan(PATENT_RE, "patents", (mm) => {
     const isApp = /Application\s+Publication/.test(mm[0]);
     const label = isApp ? "U.S. Patent Application Publication No." : "U.S. Patent No.";
@@ -274,13 +351,14 @@ export function findPrecedingSecondarySource(text: string): SecondarySource | nu
 // --- native Word Table of Authorities (TA/TOA fields, real page numbers) ------
 
 /**
- * Word's built-in Table of Authorities category numbers. Word has no native
- * "Patents" category, so patents share "Other Authorities" (3) with Fed. Reg.
- * and MPEP.
+ * Word's built-in Table of Authorities category numbers (1 Cases, 2 Statutes,
+ * 3 Other Authorities, 4 Rules, 6 Regulations). Word has no native "Patents"
+ * category, so patents share "Other Authorities" (3) with Fed. Reg. and MPEP.
  */
 const CATEGORY_NUM: Record<ToaCategory, number> = {
   cases: 1,
   statutes: 2,
+  rules: 4,
   regulations: 6,
   patents: 3,
   other: 3,
@@ -290,6 +368,7 @@ const CATEGORY_NUM: Record<ToaCategory, number> = {
 export const TOA_FIELD_CATEGORIES: { num: number; heading: string }[] = [
   { num: 1, heading: "Cases" },
   { num: 2, heading: "Statutes" },
+  { num: 4, heading: "Rules" },
   { num: 6, heading: "Regulations" },
   { num: 3, heading: "Other Authorities" },
 ];
@@ -364,4 +443,24 @@ export function toaFieldsOoxml(categoryNums: number[]): string {
     })
     .join("");
   return wrapOoxml(title + blocks);
+}
+
+// --- native Word Table of Contents (TOC field, real page numbers) -------------
+
+/**
+ * OOXML package for a "TABLE OF CONTENTS" heading + a native Word TOC field
+ * built from the document's heading styles (FRAP 28(a)(2): a table of contents
+ * with page references). Field switches: `\o "1-N"` builds from Heading 1..N,
+ * `\h` makes entries clickable, `\z` hides the leader/page number in web view,
+ * `\u` uses the paragraph outline level. The user presses F9 to populate it.
+ *
+ * @param levels how many heading levels to include (1–9); defaults to 3.
+ */
+export function tocFieldOoxml(levels = 3): string {
+  const n = Math.min(9, Math.max(1, Math.floor(levels)));
+  const title = '<w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:rPr><w:b/></w:rPr><w:t>TABLE OF CONTENTS</w:t></w:r></w:p>';
+  const instr = `<w:r><w:instrText xml:space="preserve"> TOC \\o "1-${n}" \\h \\z \\u </w:instrText></w:r>`;
+  const placeholder = '<w:r><w:t>Update field (select all, press F9) to build the table of contents.</w:t></w:r>';
+  const field = `<w:p>${FLD_BEGIN}${instr}${FLD_SEP}${placeholder}${FLD_END}</w:p>`;
+  return wrapOoxml(title + field);
 }

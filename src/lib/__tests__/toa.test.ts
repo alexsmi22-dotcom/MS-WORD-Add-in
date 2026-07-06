@@ -217,9 +217,17 @@ describe("tocFieldOoxml", () => {
   test("emits a centered heading and a TOC field over heading levels 1–3", () => {
     const xml = tocFieldOoxml(3);
     expect(xml).toContain("<pkg:package");
-    expect(xml).toContain("<w:t>TABLE OF CONTENTS</w:t>");
+    expect(xml).toContain("<w:t xml:space=\"preserve\">TABLE OF CONTENTS</w:t>");
     expect(xml).toContain(' TOC \\o "1-3" \\h \\z \\u ');
     expect(xml).toContain('fldCharType="begin"');
+  });
+
+  test("title is Times New Roman, bold, underlined, centered", () => {
+    const xml = tocFieldOoxml();
+    expect(xml).toContain('w:ascii="Times New Roman"');
+    expect(xml).toContain('<w:u w:val="single"/>');
+    expect(xml).toContain('<w:jc w:val="center"/>');
+    expect(xml).toContain('<w:sz w:val="24"/>');
   });
 
   test("clamps the level count into 1–9", () => {
@@ -274,7 +282,8 @@ describe("native Word TOA (TA/TOA fields)", () => {
 
   test("toaFieldsOoxml emits a TOA field per present category, in Bluebook order", () => {
     const xml = toaFieldsOoxml([2, 1, 3]); // statutes, cases, other
-    expect(xml).toContain("<w:t>TABLE OF AUTHORITIES</w:t>");
+    expect(xml).toContain("TABLE OF AUTHORITIES");
+    expect(xml).toContain('<w:u w:val="single"/>'); // title underlined
     // Cases (1) before Statutes (2) before Other (3); Regulations (6) omitted.
     const iCases = xml.indexOf('TOA \\c "1"');
     const iStat = xml.indexOf('TOA \\c "2"');
@@ -316,7 +325,8 @@ describe("findPrecedingSecondarySource (supra)", () => {
 describe("toaToHtml", () => {
   test("renders a heading, group sub-headings, and italic case names", () => {
     const html = toaToHtml(buildTableOfAuthorities(BRIEF));
-    expect(html).toContain("<b>TABLE OF AUTHORITIES</b>");
+    expect(html).toContain("<b><u>TABLE OF AUTHORITIES</u></b>");
+    expect(html).toContain("Times New Roman");
     expect(html).toContain("<b>Cases</b>");
     expect(html).toContain("<i>Alice Corp. v. CLS Bank Int'l</i>, 573 U.S. 208");
     expect(html).toContain("<b>Statutes</b>");

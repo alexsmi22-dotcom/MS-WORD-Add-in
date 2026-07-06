@@ -316,10 +316,13 @@ export function parseToaPages(text: string): Map<string, string> {
 
 /** Renders the Table of Authorities as HTML for insertion (case names italic). */
 export function toaToHtml(toa: TableOfAuthorities): string {
-  const parts: string[] = [`<p style="text-align:center"><b>TABLE OF AUTHORITIES</b></p>`];
+  // Court-brief convention (matches a standard legal template): Times New Roman
+  // 12 pt; the title centered, bold, and underlined; category headings bold.
+  const font = "font-family:'Times New Roman',serif;font-size:12pt";
+  const parts: string[] = [`<p style="text-align:center;${font}"><b><u>TABLE OF AUTHORITIES</u></b></p>`];
   for (const g of toa.groups) {
-    parts.push(`<p><b>${esc(g.heading)}</b></p>`);
-    for (const e of g.entries) parts.push(`<p>${e.html}</p>`);
+    parts.push(`<p style="${font}"><b>${esc(g.heading)}</b></p>`);
+    for (const e of g.entries) parts.push(`<p style="${font}">${e.html}</p>`);
   }
   return parts.join("");
 }
@@ -503,6 +506,17 @@ const FLD_BEGIN = '<w:r><w:fldChar w:fldCharType="begin"/></w:r>';
 const FLD_END = '<w:r><w:fldChar w:fldCharType="end"/></w:r>';
 const FLD_SEP = '<w:r><w:fldChar w:fldCharType="separate"/></w:r>';
 
+// Court-brief run properties: Times New Roman 12 pt (matches a standard legal
+// template). Titles add bold + single underline; category headings add bold.
+const RPR_BASE = '<w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/><w:sz w:val="24"/><w:szCs w:val="24"/>';
+const RPR_TITLE = `${RPR_BASE}<w:b/><w:bCs/><w:u w:val="single"/>`;
+const RPR_HEADING = `${RPR_BASE}<w:b/><w:bCs/>`;
+
+/** A centered, bold, underlined Times New Roman title paragraph. */
+function titlePara(text: string): string {
+  return `<w:p><w:pPr><w:jc w:val="center"/><w:rPr>${RPR_TITLE}</w:rPr></w:pPr><w:r><w:rPr>${RPR_TITLE}</w:rPr><w:t xml:space="preserve">${esc(text)}</w:t></w:r></w:p>`;
+}
+
 /** OOXML package for one TA (Table of Authorities Entry) marker field. */
 export function taFieldOoxml(long: string, categoryNum: number): string {
   const instr = `<w:r><w:instrText xml:space="preserve"> TA \\l "${escField(long)}" \\c ${categoryNum} </w:instrText></w:r>`;
@@ -512,13 +526,13 @@ export function taFieldOoxml(long: string, categoryNum: number): string {
 /** OOXML package for the Table of Authorities heading + one TOA field per category. */
 export function toaFieldsOoxml(categoryNums: number[]): string {
   const wanted = TOA_FIELD_CATEGORIES.filter((c) => categoryNums.includes(c.num));
-  const title = '<w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:rPr><w:b/></w:rPr><w:t>TABLE OF AUTHORITIES</w:t></w:r></w:p>';
+  const title = titlePara("TABLE OF AUTHORITIES");
   const blocks = wanted
     .map((c) => {
-      const heading = `<w:p><w:r><w:rPr><w:b/></w:rPr><w:t>${esc(c.heading)}</w:t></w:r></w:p>`;
-      const instr = `<w:r><w:instrText xml:space="preserve"> TOA \\c "${c.num}" \\p </w:instrText></w:r>`;
-      const placeholder = '<w:r><w:t>Update field (select all, press F9) to build.</w:t></w:r>';
-      const field = `<w:p>${FLD_BEGIN}${instr}${FLD_SEP}${placeholder}${FLD_END}</w:p>`;
+      const heading = `<w:p><w:pPr><w:rPr>${RPR_HEADING}</w:rPr></w:pPr><w:r><w:rPr>${RPR_HEADING}</w:rPr><w:t xml:space="preserve">${esc(c.heading)}</w:t></w:r></w:p>`;
+      const instr = `<w:r><w:rPr>${RPR_BASE}</w:rPr><w:instrText xml:space="preserve"> TOA \\c "${c.num}" \\p </w:instrText></w:r>`;
+      const placeholder = `<w:r><w:rPr>${RPR_BASE}</w:rPr><w:t>Update field (select all, press F9) to build.</w:t></w:r>`;
+      const field = `<w:p><w:pPr><w:rPr>${RPR_BASE}</w:rPr></w:pPr>${FLD_BEGIN}${instr}${FLD_SEP}${placeholder}${FLD_END}</w:p>`;
       return heading + field;
     })
     .join("");
@@ -538,9 +552,9 @@ export function toaFieldsOoxml(categoryNums: number[]): string {
  */
 export function tocFieldOoxml(levels = 3): string {
   const n = Math.min(9, Math.max(1, Math.floor(levels)));
-  const title = '<w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:rPr><w:b/></w:rPr><w:t>TABLE OF CONTENTS</w:t></w:r></w:p>';
-  const instr = `<w:r><w:instrText xml:space="preserve"> TOC \\o "1-${n}" \\h \\z \\u </w:instrText></w:r>`;
-  const placeholder = '<w:r><w:t>Update field (select all, press F9) to build the table of contents.</w:t></w:r>';
-  const field = `<w:p>${FLD_BEGIN}${instr}${FLD_SEP}${placeholder}${FLD_END}</w:p>`;
+  const title = titlePara("TABLE OF CONTENTS");
+  const instr = `<w:r><w:rPr>${RPR_BASE}</w:rPr><w:instrText xml:space="preserve"> TOC \\o "1-${n}" \\h \\z \\u </w:instrText></w:r>`;
+  const placeholder = `<w:r><w:rPr>${RPR_BASE}</w:rPr><w:t>Update field (select all, press F9) to build the table of contents.</w:t></w:r>`;
+  const field = `<w:p><w:pPr><w:rPr>${RPR_BASE}</w:rPr></w:pPr>${FLD_BEGIN}${instr}${FLD_SEP}${placeholder}${FLD_END}</w:p>`;
   return wrapOoxml(title + field);
 }

@@ -526,6 +526,15 @@ export function isTaFieldCode(code: string | null | undefined): boolean {
   return /^\s*TA\s/i.test(code || "");
 }
 
+/**
+ * True if a Word field instruction is a generated table — a Table of Contents
+ * ("TOC …") or Table of Authorities ("TOA …") field. Used to clear the tables
+ * themselves for a full reset (distinct from the per-citation TA marks).
+ */
+export function isTableFieldCode(code: string | null | undefined): boolean {
+  return /^\s*TO[AC]\b/i.test(code || "");
+}
+
 /** OOXML package for one TA (Table of Authorities Entry) marker field. */
 export function taFieldOoxml(long: string, categoryNum: number): string {
   const instr = `<w:r><w:instrText xml:space="preserve"> TA \\l "${escField(long)}" \\c ${categoryNum} </w:instrText></w:r>`;

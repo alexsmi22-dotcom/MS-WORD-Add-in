@@ -10,6 +10,7 @@ import {
   parseToaPages,
   toaEntryKey,
   isTaFieldCode,
+  isTableFieldCode,
   findPrecedingSecondarySource,
   ToaCategory,
 } from "../toa";
@@ -223,6 +224,16 @@ describe("isTaFieldCode", () => {
     expect(isTaFieldCode(" TOC \\o \"1-3\" \\h ")).toBe(false);
     expect(isTaFieldCode("")).toBe(false);
     expect(isTaFieldCode(null)).toBe(false);
+  });
+});
+
+describe("isTableFieldCode", () => {
+  test("matches TOC and TOA table fields, not TA marks or others", () => {
+    expect(isTableFieldCode(' TOA \\c "1" \\p ')).toBe(true);
+    expect(isTableFieldCode(' TOC \\o "1-3" \\h \\z \\u ')).toBe(true);
+    expect(isTableFieldCode(' TA \\l "X" \\c 1 ')).toBe(false); // a citation mark, not a table
+    expect(isTableFieldCode(' DATE \\@ "MMMM d, yyyy" ')).toBe(false);
+    expect(isTableFieldCode(null)).toBe(false);
   });
 });
 

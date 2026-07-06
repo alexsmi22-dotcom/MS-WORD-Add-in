@@ -129,6 +129,7 @@ import {
   parseToaPages,
   toaEntryKey,
   isTaFieldCode,
+  isTableFieldCode,
   findPrecedingSecondarySource,
 } from "../lib/toa";
 
@@ -296,6 +297,7 @@ let citeParseMsg: HTMLElement;
 let toaBuildBtn: HTMLButtonElement;
 let toaNativeBtn: HTMLButtonElement;
 let toaClearMarksBtn: HTMLButtonElement;
+let toaClearTablesBtn: HTMLButtonElement;
 let tocBuildBtn: HTMLButtonElement;
 let toaFindBtn: HTMLButtonElement;
 let toaCopyRegisterBtn: HTMLButtonElement;
@@ -524,6 +526,7 @@ Office.onReady((info) => {
   toaBuildBtn = document.getElementById("toa-build") as HTMLButtonElement;
   toaNativeBtn = document.getElementById("toa-native") as HTMLButtonElement;
   toaClearMarksBtn = document.getElementById("toa-clearmarks") as HTMLButtonElement;
+  toaClearTablesBtn = document.getElementById("toa-cleartables") as HTMLButtonElement;
   tocBuildBtn = document.getElementById("toc-build") as HTMLButtonElement;
   toaFindBtn = document.getElementById("toa-find") as HTMLButtonElement;
   toaCopyRegisterBtn = document.getElementById("toa-copy-register") as HTMLButtonElement;
@@ -678,6 +681,7 @@ Office.onReady((info) => {
   toaBuildBtn.addEventListener("click", buildToaHandler);
   toaNativeBtn.addEventListener("click", buildNativeToaHandler);
   toaClearMarksBtn.addEventListener("click", clearCitationMarksHandler);
+  toaClearTablesBtn.addEventListener("click", clearTablesHandler);
   tocBuildBtn.addEventListener("click", buildTocHandler);
   toaFindBtn.addEventListener("click", findCitationsHandler);
   toaCopyRegisterBtn.addEventListener("click", copyRegister);
@@ -4310,6 +4314,47 @@ async function clearCitationMarksHandler(): Promise<void> {
     setStatus(`Could not remove citation marks: ${(error as Error).message}`, "error");
   } finally {
     toaClearMarksBtn.disabled = false;
+  }
+}
+
+/**
+ * Removes generated table fields — the Table of Contents (TOC) and Table of
+ * Authorities (TOA) — from the document body. Paired with "Remove all citation
+ * marks", this fully resets the tables so they can be rebuilt. Leaves the TA
+ * marks and other fields untouched. Undoable with Word's Undo (Ctrl/⌘+Z).
+ */
+async function clearTablesHandler(): Promise<void> {
+  if (!wordApiSupported("1.4")) {
+    toaMsg.className = "build-readout warn";
+    toaMsg.textContent =
+      "This version of Word can’t remove fields automatically — select the table and delete it by hand.";
+    return;
+  }
+  toaClearTablesBtn.disabled = true;
+  toaMsg.className = "build-readout";
+  setStatus("Removing Table of Contents / Authorities fields…");
+  try {
+    await Word.run(async (context) => {
+      const fields = context.document.body.fields;
+      fields.load("items/code");
+      await context.sync();
+      const tables = fields.items.filter((f) => isTableFieldCode(f.code));
+      if (!tables.length) {
+        toaMsg.textContent = "No Table of Contents or Table of Authorities fields found.";
+        setStatus("No table fields found.", "");
+        return;
+      }
+      for (const f of tables) f.delete();
+      await context.sync();
+      toaMsg.textContent =
+        `Removed ${tables.length} table field${tables.length === 1 ? "" : "s"} (TOC/TOA). ` +
+        "Re-insert with the buttons above. (Ctrl/⌘+Z undoes this.)";
+      setStatus(`Removed ${tables.length} table fields.`, "success");
+    });
+  } catch (error) {
+    setStatus(`Could not remove the table fields: ${(error as Error).message}`, "error");
+  } finally {
+    toaClearTablesBtn.disabled = false;
   }
 }
 

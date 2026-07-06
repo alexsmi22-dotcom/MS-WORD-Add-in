@@ -305,6 +305,9 @@ let toaCopyRegisterBtn: HTMLButtonElement;
 let toaRegister: HTMLElement;
 let lastRegisterText = "";
 let toaMsg: HTMLElement;
+/** Tag on the content control that wraps the field-based TOA, so the formatted
+ *  list can find it, copy its F9'd page numbers, and replace it in one step. */
+const TOA_FIELD_CC_TAG = "jurislab:toafield";
 let citeIdDetectBtn: HTMLButtonElement;
 let citeIdDetectMsg: HTMLElement;
 let citeSupraDetectBtn: HTMLButtonElement;
@@ -4158,17 +4161,27 @@ async function buildNativeToaHandler(): Promise<void> {
         occurrences += results.items.length;
       }
       await context.sync();
-      // Insert the TOA fields (one per marked category) at the cursor.
+      // Insert the TOA fields (one per marked category) at the cursor, wrapped in
+      // a tagged content control so the "formatted list" button can find this
+      // exact block, copy its F9'd page numbers, and replace it cleanly.
       const selection = context.document.getSelection();
-      selection.insertOoxml(toaFieldsOoxml([...categoryNums]), Word.InsertLocation.replace);
+      const toaRange = selection.insertOoxml(toaFieldsOoxml([...categoryNums]), Word.InsertLocation.replace);
       await context.sync();
+      try {
+        const cc = toaRange.insertContentControl();
+        cc.tag = TOA_FIELD_CC_TAG;
+        cc.title = "JurisLab TOA (field — will be replaced)";
+        await context.sync();
+      } catch {
+        // Content controls unsupported here — the field table is still usable.
+      }
       // Make Word's generated entries Times New Roman 12 (court-brief template).
       await setTableStylesToTimesNewRoman(context, ["Table of Authorities"]);
       toaMsg.textContent =
         `Marked ${authoritiesMarked} of ${marks.length} authorit${marks.length === 1 ? "y" : "ies"} ` +
-        `(${occurrences} citation${occurrences === 1 ? "" : "s"}) and inserted the table. ` +
-        "Select all (Ctrl/⌘+A) and press F9 to fill in the page numbers.";
-      setStatus("Table of Authorities (fields) inserted — press F9 to update.", "success");
+        `(${occurrences} citation${occurrences === 1 ? "" : "s"}). ` +
+        "Now: select all (Ctrl/⌘+A), press F9 to fill page numbers, then click “Insert formatted list”.";
+      setStatus("Field table inserted — press F9, then click “Insert formatted list”.", "success");
     });
   } catch (error) {
     setStatus(`Could not build the field-based Table of Authorities: ${(error as Error).message}`, "error");
@@ -4387,23 +4400,47 @@ async function buildToaHandler(): Promise<void> {
       }
       // Pull page numbers from an existing built field-TOA, if present.
       const pages = parseToaPages(body.text);
-      const range = context.document.getSelection();
-      // Prefer precise OOXML (two-line entries, italic names, dot leaders); fall
-      // back to HTML on hosts without OOXML insertion (WordApi 1.3).
-      const inserted = wordApiSupported("1.3")
-        ? range.insertOoxml(toaStaticOoxml(toa, pages), Word.InsertLocation.replace)
-        : range.insertHtml(toaToHtml(toa), Word.InsertLocation.replace);
-      inserted.select(Word.SelectionMode.end);
+      const ooxml = wordApiSupported("1.3") ? toaStaticOoxml(toa, pages) : null;
+
+      // If a field table from "Insert with live page numbers" is present, replace
+      // that exact block (its title, headings, and fields) with the formatted
+      // list — so nothing is left behind to clean up.
+      let replacedField = false;
+      const ccs = context.document.contentControls.getByTag(TOA_FIELD_CC_TAG);
+      ccs.load("items");
       await context.sync();
-      await tagInserted(context, inserted, "formula-inserter:toa");
+      const fieldCc = ccs.items[0];
+
+      let inserted: Word.Range;
+      if (fieldCc && ooxml) {
+        inserted = fieldCc.insertOoxml(ooxml, Word.InsertLocation.replace);
+        await context.sync();
+        try {
+          fieldCc.delete(true); // remove the wrapper, keep the new formatted content
+          await context.sync();
+        } catch {
+          /* wrapper removal best-effort */
+        }
+        replacedField = true;
+      } else {
+        const range = context.document.getSelection();
+        inserted = ooxml
+          ? range.insertOoxml(ooxml, Word.InsertLocation.replace)
+          : range.insertHtml(toaToHtml(toa), Word.InsertLocation.replace);
+        inserted.select(Word.SelectionMode.end);
+        await context.sync();
+        await tagInserted(context, inserted, "formula-inserter:toa");
+      }
+
       const summary = toa.groups.map((g) => `${g.entries.length} ${g.heading.toLowerCase()}`).join(", ");
-      const pageNote = pages.size
-        ? `Page numbers filled from your field table (${pages.size} found).`
-        : "Page slots are blank — Word can only compute pages via a field. To fill them: " +
-          "click “Insert with live page numbers”, select all (Ctrl/⌘+A) and press F9, then click " +
-          "“Insert formatted list” again — it will copy the pages in.";
+      let pageNote: string;
+      if (pages.size) pageNote = `Page numbers filled in (${pages.size}).` + (replacedField ? " The field table was replaced." : "");
+      else
+        pageNote =
+          "Page slots are blank — Word can only compute pages through a field. To fill them: click " +
+          "“Insert with live page numbers”, select all (Ctrl/⌘+A) and press F9, then click “Insert formatted list”.";
       toaMsg.textContent = `Inserted ${toa.total} authorit${toa.total === 1 ? "y" : "ies"} (${summary}), Times New Roman, italic names. ${pageNote}`;
-      setStatus("Table of Authorities inserted.", pages.size ? "success" : "");
+      setStatus("Formatted Table of Authorities inserted.", pages.size ? "success" : "");
     });
   } catch (error) {
     setStatus(`Could not build the Table of Authorities: ${(error as Error).message}`, "error");

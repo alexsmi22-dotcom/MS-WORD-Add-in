@@ -4143,6 +4143,8 @@ async function buildNativeToaHandler(): Promise<void> {
       const selection = context.document.getSelection();
       selection.insertOoxml(toaFieldsOoxml([...categoryNums]), Word.InsertLocation.replace);
       await context.sync();
+      // Make Word's generated entries Times New Roman 12 (court-brief template).
+      await setTableStylesToTimesNewRoman(context, ["Table of Authorities"]);
       toaMsg.textContent =
         `Marked ${authoritiesMarked} of ${marks.length} authorit${marks.length === 1 ? "y" : "ies"} ` +
         `(${occurrences} citation${occurrences === 1 ? "" : "s"}) and inserted the table. ` +
@@ -4176,6 +4178,8 @@ async function buildTocHandler(): Promise<void> {
       const selection = context.document.getSelection();
       selection.insertOoxml(tocFieldOoxml(3), Word.InsertLocation.replace);
       await context.sync();
+      // Make Word's generated TOC entries Times New Roman 12 (court-brief template).
+      await setTableStylesToTimesNewRoman(context, ["TOC 1", "TOC 2", "TOC 3"]);
       toaMsg.textContent =
         "Table of Contents inserted from your heading styles (Heading 1–3). " +
         "Select all (Ctrl/⌘+A) and press F9 to fill in the page numbers. " +
@@ -4322,6 +4326,33 @@ async function tagInserted(context: Word.RequestContext, range: Word.Range, tag:
     await context.sync();
   } catch {
     // Content controls unsupported here — the inserted content remains in place.
+  }
+}
+
+/**
+ * Best-effort: set the given built-in style names to Times New Roman 12 pt so
+ * Word's generated TOC/TOA entries match the court-brief template. Word builds
+ * field entries with these styles, so direct formatting on the field alone
+ * won't reach them — the style font must be set. Isolated + guarded: if styles
+ * aren't accessible on this build, the tables are left in the default font.
+ */
+async function setTableStylesToTimesNewRoman(context: Word.RequestContext, styleNames: string[]): Promise<void> {
+  if (!wordApiSupported("1.5")) return;
+  try {
+    const styles = context.document.getStyles();
+    styles.load("items/nameLocal");
+    await context.sync();
+    let changed = false;
+    for (const name of styleNames) {
+      const style = styles.items.find((s) => s.nameLocal === name);
+      if (!style) continue;
+      style.font.name = "Times New Roman";
+      style.font.size = 12;
+      changed = true;
+    }
+    if (changed) await context.sync();
+  } catch {
+    // Styles not accessible here — leave the tables in the default font.
   }
 }
 

@@ -345,11 +345,17 @@ export function parseToaPages(text: string): Map<string, string> {
 export function toaToHtml(toa: TableOfAuthorities): string {
   // Court-brief convention (matches a standard legal template): Times New Roman
   // 12 pt; the title centered, bold, and underlined; category headings bold.
+  // Each case entry is two lines — the italic name ending in a comma, then the
+  // reporter + (court year) on an indented second line (hanging indent).
   const font = "font-family:'Times New Roman',serif;font-size:12pt";
   const parts: string[] = [`<p style="text-align:center;${font}"><b><u>TABLE OF AUTHORITIES</u></b></p>`];
   for (const g of toa.groups) {
     parts.push(`<p style="${font}"><b>${esc(g.heading)}</b></p>`);
-    for (const e of g.entries) parts.push(`<p style="${font}">${e.html}</p>`);
+    for (const e of g.entries) {
+      const m = e.html.match(/^<i>([\s\S]*?)<\/i>,\s*([\s\S]*)$/);
+      const style = `${font};margin-left:0.5in;text-indent:-0.5in`;
+      parts.push(m ? `<p style="${style}"><i>${m[1]}</i>,<br>${m[2]}</p>` : `<p style="${style}">${e.html}</p>`);
+    }
   }
   return parts.join("");
 }

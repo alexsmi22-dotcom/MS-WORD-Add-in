@@ -360,7 +360,8 @@ describe("toaToHtml", () => {
     expect(html).toContain("<b><u>TABLE OF AUTHORITIES</u></b>");
     expect(html).toContain("Times New Roman");
     expect(html).toContain("<b>Cases</b>");
-    expect(html).toContain("<i>Alice Corp. v. CLS Bank Int'l</i>, 573 U.S. 208");
+    // Two-line entry: italic name + comma, then a break, then reporter (court year).
+    expect(html).toContain("<i>Alice Corp. v. CLS Bank Int'l</i>,<br>573 U.S. 208 (2014)");
     expect(html).toContain("<b>Statutes</b>");
     expect(html).toContain("35 U.S.C. § 101");
   });

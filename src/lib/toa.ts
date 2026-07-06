@@ -517,6 +517,15 @@ function titlePara(text: string): string {
   return `<w:p><w:pPr><w:jc w:val="center"/><w:rPr>${RPR_TITLE}</w:rPr></w:pPr><w:r><w:rPr>${RPR_TITLE}</w:rPr><w:t xml:space="preserve">${esc(text)}</w:t></w:r></w:p>`;
 }
 
+/**
+ * True if a Word field instruction is a TA (Table of Authorities Entry) mark.
+ * The instruction begins with "TA " (a TOA field begins with "TOA " and is
+ * excluded). Used to clear existing citation marks before rebuilding.
+ */
+export function isTaFieldCode(code: string | null | undefined): boolean {
+  return /^\s*TA\s/i.test(code || "");
+}
+
 /** OOXML package for one TA (Table of Authorities Entry) marker field. */
 export function taFieldOoxml(long: string, categoryNum: number): string {
   const instr = `<w:r><w:instrText xml:space="preserve"> TA \\l "${escField(long)}" \\c ${categoryNum} </w:instrText></w:r>`;

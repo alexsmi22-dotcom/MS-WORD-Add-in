@@ -9,6 +9,7 @@ import {
   citationRegister,
   parseToaPages,
   toaEntryKey,
+  isTaFieldCode,
   findPrecedingSecondarySource,
   ToaCategory,
 } from "../toa";
@@ -210,6 +211,18 @@ describe("parseToaPages", () => {
 
   test("ignores prose lines with no tab-delimited page list", () => {
     expect(parseToaPages("Some ordinary sentence with a 42 in it.\nAnother line.").size).toBe(0);
+  });
+});
+
+describe("isTaFieldCode", () => {
+  test("matches TA (citation) field instructions, not TOA or others", () => {
+    expect(isTaFieldCode(' TA \\l "Alice Corp. v. CLS Bank Int\'l, 573 U.S. 208" \\c 1 ')).toBe(true);
+    expect(isTaFieldCode("TA \\l \"X\" \\c 2")).toBe(true);
+    expect(isTaFieldCode(' TOA \\c "1" \\p ')).toBe(false); // the table field itself
+    expect(isTaFieldCode(' DATE \\@ "MMMM d, yyyy" ')).toBe(false);
+    expect(isTaFieldCode(" TOC \\o \"1-3\" \\h ")).toBe(false);
+    expect(isTaFieldCode("")).toBe(false);
+    expect(isTaFieldCode(null)).toBe(false);
   });
 });
 

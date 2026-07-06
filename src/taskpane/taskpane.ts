@@ -128,6 +128,7 @@ import {
   CitationRegister,
   parseToaPages,
   toaEntryKey,
+  isTaFieldCode,
   findPrecedingSecondarySource,
 } from "../lib/toa";
 
@@ -294,6 +295,7 @@ let citeParseBtn: HTMLButtonElement;
 let citeParseMsg: HTMLElement;
 let toaBuildBtn: HTMLButtonElement;
 let toaNativeBtn: HTMLButtonElement;
+let toaClearMarksBtn: HTMLButtonElement;
 let tocBuildBtn: HTMLButtonElement;
 let toaFindBtn: HTMLButtonElement;
 let toaCopyRegisterBtn: HTMLButtonElement;
@@ -521,6 +523,7 @@ Office.onReady((info) => {
   citeParseMsg = document.getElementById("cite-parse-msg") as HTMLElement;
   toaBuildBtn = document.getElementById("toa-build") as HTMLButtonElement;
   toaNativeBtn = document.getElementById("toa-native") as HTMLButtonElement;
+  toaClearMarksBtn = document.getElementById("toa-clearmarks") as HTMLButtonElement;
   tocBuildBtn = document.getElementById("toc-build") as HTMLButtonElement;
   toaFindBtn = document.getElementById("toa-find") as HTMLButtonElement;
   toaCopyRegisterBtn = document.getElementById("toa-copy-register") as HTMLButtonElement;
@@ -674,6 +677,7 @@ Office.onReady((info) => {
   citeShortFormBtn.addEventListener("click", makeCaseShortForm);
   toaBuildBtn.addEventListener("click", buildToaHandler);
   toaNativeBtn.addEventListener("click", buildNativeToaHandler);
+  toaClearMarksBtn.addEventListener("click", clearCitationMarksHandler);
   tocBuildBtn.addEventListener("click", buildTocHandler);
   toaFindBtn.addEventListener("click", findCitationsHandler);
   toaCopyRegisterBtn.addEventListener("click", copyRegister);
@@ -4264,6 +4268,48 @@ async function copyRegister(): Promise<void> {
     setStatus("Citation register copied to clipboard.", "success");
   } catch {
     setStatus("Clipboard unavailable — select the register text to copy.", "");
+  }
+}
+
+/**
+ * Removes every hidden TA (citation) field from the document body, so a
+ * malformed or duplicated Table of Authorities can be rebuilt from a clean
+ * slate. Leaves the TOA field, DATE fields, and all other fields untouched.
+ * Undoable with Word's Undo (Ctrl/⌘+Z).
+ */
+async function clearCitationMarksHandler(): Promise<void> {
+  if (!wordApiSupported("1.4")) {
+    toaMsg.className = "build-readout warn";
+    toaMsg.textContent =
+      "This version of Word can’t remove fields automatically — turn on ¶ (Show/Hide) and delete the TA fields by hand.";
+    return;
+  }
+  toaClearMarksBtn.disabled = true;
+  toaMsg.className = "build-readout";
+  setStatus("Removing citation (TA) marks…");
+  try {
+    await Word.run(async (context) => {
+      const fields = context.document.body.fields;
+      fields.load("items/code");
+      await context.sync();
+      const taFields = fields.items.filter((f) => isTaFieldCode(f.code));
+      if (!taFields.length) {
+        toaMsg.textContent = "No citation (TA) marks found in the document.";
+        setStatus("No citation marks found.", "");
+        return;
+      }
+      for (const f of taFields) f.delete();
+      await context.sync();
+      toaMsg.textContent =
+        `Removed ${taFields.length} citation mark${taFields.length === 1 ? "" : "s"}. ` +
+        "Rebuild with “Insert with page numbers”, then select all (Ctrl/⌘+A) and press F9. " +
+        "(Ctrl/⌘+Z undoes this.)";
+      setStatus(`Removed ${taFields.length} citation marks.`, "success");
+    });
+  } catch (error) {
+    setStatus(`Could not remove citation marks: ${(error as Error).message}`, "error");
+  } finally {
+    toaClearMarksBtn.disabled = false;
   }
 }
 

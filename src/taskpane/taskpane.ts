@@ -4130,6 +4130,16 @@ async function buildNativeToaHandler(): Promise<void> {
         setStatus("No citations found.", "");
         return;
       }
+      // Clear any existing TA marks first, so stale/malformed marks (e.g. a
+      // corrupted "CONCLUSION…" entry) can't survive into the rebuilt table.
+      if (wordApiSupported("1.4")) {
+        const existing = body.fields;
+        existing.load("items/code");
+        await context.sync();
+        const stale = existing.items.filter((f) => isTaFieldCode(f.code));
+        for (const f of stale) f.delete();
+        if (stale.length) await context.sync();
+      }
       // Mark every occurrence of each authority with a hidden TA field, so the
       // table shows the full page range (Word aggregates pages by the \l text).
       let authoritiesMarked = 0;
@@ -4140,7 +4150,7 @@ async function buildNativeToaHandler(): Promise<void> {
         results.load("items");
         await context.sync();
         if (!results.items.length) continue;
-        const ooxml = taFieldOoxml(mark.long, mark.categoryNum);
+        const ooxml = taFieldOoxml(mark.name, mark.rest, mark.categoryNum);
         for (const hit of results.items) hit.insertOoxml(ooxml, Word.InsertLocation.before);
         categoryNums.add(mark.categoryNum);
         authoritiesMarked++;

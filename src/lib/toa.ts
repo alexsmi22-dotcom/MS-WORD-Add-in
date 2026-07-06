@@ -77,14 +77,20 @@ const FIRMSEG = `[${UP}]${WORDCH}*(?:\\s+(?:&|[${UP}]${WORDCH}*)){0,3}`;
 const FIRMTAIL = `(?:,\\s+${FIRMSEG}(?!\\s+v\\.)){0,4}`;
 const PARTY = `[${UP}]${WORDCH}*(?:\\s+${NAMEWORD}){0,7}${FIRMTAIL}${CORP}`;
 const CASE_NAME = `(?:${PARTY}\\s+v\\.\\s+${PARTY}|(?:In re|Ex parte|In the Matter of)\\s+${PARTY})`;
-const CASE_RE = new RegExp(`(${CASE_NAME}),\\s+(\\d+)\\s+(${REPORTER_ALT})\\s+(\\d+)`, "g");
+// An optional pincite ("573 U.S. 208, 216" or "…, 205–09 n.4") that may sit
+// between the first-page cite and the "(court year)" parenthetical.
+const PINCITE = "(?:,\\s*\\d+(?:[–—-]\\d+)?(?:\\s*n\\.\\s*\\d+)?)*";
+// The "(court year)" parenthetical that closes a full citation, e.g. "(2014)",
+// "(Fed. Cir. 2008)", "(D. Mass. 2025)". Captured so the TOA entry is complete.
+const YEAR_PAREN = `(?:${PINCITE}\\s*\\(([^)]{0,45}(?:19|20)\\d{2}[a-z]?)\\))?`;
+const CASE_RE = new RegExp(`(${CASE_NAME}),\\s+(\\d+)\\s+(${REPORTER_ALT})\\s+(\\d+)${YEAR_PAREN}`, "g");
 
 // Unpublished decisions: "Name, [No. …,] YEAR <db> NUMBER" where <db> is a
 // commercial database (Westlaw / LexisNexis). These carry no reporter, so they
 // are matched separately but classified as cases.
 const UNPUB_DB = "WL|U\\.S\\. Dist\\. LEXIS|U\\.S\\. App\\. LEXIS|U\\.S\\. LEXIS|Fed\\. App'x LEXIS|WESTLAW";
 const UNPUB_RE = new RegExp(
-  `(${CASE_NAME}),\\s+(?:No\\.\\s+[^,]+,\\s+)?(\\d{4})\\s+(${UNPUB_DB})\\s+(\\d+)`,
+  `(${CASE_NAME}),\\s+(?:No\\.\\s+[^,]+,\\s+)?(\\d{4})\\s+(${UNPUB_DB})\\s+(\\d+)(?:,?\\s*(?:at\\s*\\*\\d+\\s*)?\\(([^)]{0,45}(?:19|20)\\d{2})\\))?`,
   "g"
 );
 
@@ -112,10 +118,38 @@ function trimSection(s: string): string {
 interface Raw {
   category: ToaCategory;
   sortKey: string;
+  /** Italic portion of the entry (the case name); "" for non-cases. */
+  name: string;
+  /** Roman remainder after the name (", reporter page (court year)"); for a
+   *  non-case this is the whole entry and `name` is "". */
+  rest: string;
+  /** Full plain-text entry (`name` + `rest`). */
   plain: string;
   html: string;
   /** A verbatim substring to search for when marking the cite in the document. */
   locator: string;
+  /** Dedup key that ignores the court/year parenthetical (name + core cite). */
+  dedupe: string;
+}
+
+/** Builds a case Raw, splitting the italic name from the roman cite + (court year). */
+function caseRaw(rawName: string, coreCite: string, courtYear: string | undefined): Raw {
+  const name = rawName
+    .replace(/\s+/g, " ")
+    .replace(/^(?:See|Cf\.|Compare|Accord|Contra|E\.g\.)\s+/, "")
+    .trim();
+  const cy = courtYear ? courtYear.replace(/\s+/g, " ").trim() : "";
+  const rest = `, ${coreCite}${cy ? ` (${cy})` : ""}`;
+  return {
+    category: "cases",
+    sortKey: name.toLowerCase().replace(/^(in re|ex parte|in the matter of)\s+/, ""),
+    name,
+    rest,
+    plain: `${name}${rest}`,
+    html: `<i>${esc(name)}</i>, ${esc(coreCite)}${cy ? ` (${esc(cy)})` : ""}`,
+    locator: coreCite, // "573 U.S. 208" — appears verbatim even when the name is styled
+    dedupe: `cases|${name.toLowerCase()}|${coreCite.toLowerCase()}`,
+  };
 }
 
 /** Collects every recognized authority from the text (with duplicates). */
@@ -125,38 +159,13 @@ function collect(text: string): Raw[] {
 
   CASE_RE.lastIndex = 0;
   while ((m = CASE_RE.exec(text))) {
-    // Strip a capitalized leading signal the pattern may have absorbed
-    // ("See Ass'n …" → "Ass'n …"). Multi-word signals like "But see" and
-    // "See also" are already excluded by the lowercase second word.
-    const name = m[1]
-      .replace(/\s+/g, " ")
-      .replace(/^(?:See|Cf\.|Compare|Accord|Contra|E\.g\.)\s+/, "")
-      .trim();
-    const cite = `${m[2]} ${normalizeReporter(m[3])} ${m[4]}`;
-    out.push({
-      category: "cases",
-      sortKey: name.toLowerCase().replace(/^(in re|ex parte|in the matter of)\s+/, ""),
-      plain: `${name}, ${cite}`,
-      html: `<i>${esc(name)}</i>, ${esc(cite)}`,
-      locator: cite, // "573 U.S. 208" — appears verbatim even when the name is styled
-    });
+    out.push(caseRaw(m[1], `${m[2]} ${normalizeReporter(m[3])} ${m[4]}`, m[5]));
   }
 
   // Unpublished decisions (Westlaw / LexisNexis) — no reporter, still cases.
   UNPUB_RE.lastIndex = 0;
   while ((m = UNPUB_RE.exec(text))) {
-    const name = m[1]
-      .replace(/\s+/g, " ")
-      .replace(/^(?:See|Cf\.|Compare|Accord|Contra|E\.g\.)\s+/, "")
-      .trim();
-    const cite = `${m[2]} ${m[3]} ${m[4]}`;
-    out.push({
-      category: "cases",
-      sortKey: name.toLowerCase().replace(/^(in re|ex parte|in the matter of)\s+/, ""),
-      plain: `${name}, ${cite}`,
-      html: `<i>${esc(name)}</i>, ${esc(cite)}`,
-      locator: cite, // "2017 WL 11546716" — appears verbatim regardless of name styling
-    });
+    out.push(caseRaw(m[1], `${m[2]} ${m[3]} ${m[4]}`, m[5]));
   }
 
   const pushPlain = (re: RegExp, category: ToaCategory, build: (mm: RegExpExecArray) => { text: string; sortKey: string }): void => {
@@ -164,7 +173,7 @@ function collect(text: string): Raw[] {
     let mm: RegExpExecArray | null;
     while ((mm = re.exec(text))) {
       const { text: t, sortKey } = build(mm);
-      out.push({ category, sortKey, plain: t, html: esc(t), locator: t });
+      out.push({ category, sortKey, name: "", rest: t, plain: t, html: esc(t), locator: t, dedupe: `${category}|${t.toLowerCase()}` });
     }
   };
 
@@ -207,17 +216,32 @@ function collect(text: string): Raw[] {
 }
 
 /**
+ * De-duplicates raws by their court/year-insensitive key, keeping the richest
+ * occurrence (the one that carries the (court year) parenthetical), in first-
+ * seen order.
+ */
+function dedupeBest(raws: Raw[]): Raw[] {
+  const best = new Map<string, Raw>();
+  const order: string[] = [];
+  for (const r of raws) {
+    const cur = best.get(r.dedupe);
+    if (!cur) {
+      best.set(r.dedupe, r);
+      order.push(r.dedupe);
+    } else if (r.plain.length > cur.plain.length) {
+      best.set(r.dedupe, r);
+    }
+  }
+  return order.map((k) => best.get(k)!);
+}
+
+/**
  * Builds a Table of Authorities from document text: extract, de-duplicate
  * (by displayed text), sort within each category, and group.
  */
 export function buildTableOfAuthorities(text: string): TableOfAuthorities {
-  const raws = collect(text);
-  const seen = new Set<string>();
   const byCat = new Map<ToaCategory, Raw[]>();
-  for (const r of raws) {
-    const key = r.category + "|" + r.plain.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
+  for (const r of dedupeBest(collect(text))) {
     if (!byCat.has(r.category)) byCat.set(r.category, []);
     byCat.get(r.category)!.push(r);
   }
@@ -268,10 +292,13 @@ export function citationRegister(text: string): CitationRegister {
   let citations = 0;
   for (const r of collect(text)) {
     citations++;
-    const key = r.category + "|" + r.plain.toLowerCase();
-    const existing = map.get(key);
-    if (existing) existing.count++;
-    else map.set(key, { plain: r.plain, category: r.category, heading: HEADINGS[r.category], count: 1, sortKey: r.sortKey });
+    const existing = map.get(r.dedupe);
+    if (existing) {
+      existing.count++;
+      if (r.plain.length > existing.plain.length) existing.plain = r.plain; // keep the (court year) form
+    } else {
+      map.set(r.dedupe, { plain: r.plain, category: r.category, heading: HEADINGS[r.category], count: 1, sortKey: r.sortKey });
+    }
   }
   const rank = (c: ToaCategory): number => ORDER.indexOf(c);
   const entries = [...map.values()]
@@ -459,6 +486,10 @@ export const TOA_FIELD_CATEGORIES: { num: number; heading: string }[] = [
 export interface ToaMark {
   /** Long-form entry text that Word lists in the table (the `\l` value). */
   long: string;
+  /** Italic portion of the entry (the case name); "" for non-cases. */
+  name: string;
+  /** Roman remainder after the name (", reporter (court year)"). */
+  rest: string;
   category: ToaCategory;
   categoryNum: number;
   /** Verbatim substring to search the document for, to place the TA field. */
@@ -467,15 +498,14 @@ export interface ToaMark {
 
 /** De-duplicated authorities to mark for a native Word Table of Authorities. */
 export function authoritiesForToa(text: string): ToaMark[] {
-  const seen = new Set<string>();
-  const out: ToaMark[] = [];
-  for (const r of collect(text)) {
-    const key = r.category + "|" + r.plain.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push({ long: r.plain, category: r.category, categoryNum: CATEGORY_NUM[r.category], locator: r.locator });
-  }
-  return out;
+  return dedupeBest(collect(text)).map((r) => ({
+    long: r.plain,
+    name: r.name,
+    rest: r.rest,
+    category: r.category,
+    categoryNum: CATEGORY_NUM[r.category],
+    locator: r.locator,
+  }));
 }
 
 /** Wraps WordprocessingML body content in a flat-OPC package for insertOoxml. */
@@ -535,10 +565,27 @@ export function isTableFieldCode(code: string | null | undefined): boolean {
   return /^\s*TO[AC]\b/i.test(code || "");
 }
 
-/** OOXML package for one TA (Table of Authorities Entry) marker field. */
-export function taFieldOoxml(long: string, categoryNum: number): string {
-  const instr = `<w:r><w:instrText xml:space="preserve"> TA \\l "${escField(long)}" \\c ${categoryNum} </w:instrText></w:r>`;
-  return wrapOoxml(`<w:p>${FLD_BEGIN}${instr}${FLD_END}</w:p>`);
+/**
+ * OOXML package for one TA (Table of Authorities Entry) marker field.
+ *
+ * When `name` is given (a case), the long-citation value is split across
+ * instrText runs so the case-name portion carries italic run properties — this
+ * is how Word's "Keep original formatting" preserves an italicized case name in
+ * the generated table. `rest` (", reporter (court year)") stays roman. For a
+ * non-case, pass name = "" and the whole entry in `rest`.
+ */
+export function taFieldOoxml(name: string, rest: string, categoryNum: number): string {
+  const q = '<w:instrText xml:space="preserve">';
+  let runs: string;
+  if (name) {
+    runs =
+      `<w:r>${q} TA \\l "</w:instrText></w:r>` +
+      `<w:r><w:rPr><w:i/><w:iCs/></w:rPr>${q}${escField(name)}</w:instrText></w:r>` +
+      `<w:r>${q}${escField(rest)}" \\c ${categoryNum} </w:instrText></w:r>`;
+  } else {
+    runs = `<w:r>${q} TA \\l "${escField(rest)}" \\c ${categoryNum} </w:instrText></w:r>`;
+  }
+  return wrapOoxml(`<w:p>${FLD_BEGIN}${runs}${FLD_END}</w:p>`);
 }
 
 /** OOXML package for the Table of Authorities heading + one TOA field per category. */

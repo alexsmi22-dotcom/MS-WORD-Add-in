@@ -37,10 +37,10 @@ function grouped(text: string): Record<string, string[]> {
 describe("buildTableOfAuthorities", () => {
   const g = grouped(BRIEF);
 
-  test("finds and groups cases (deduped, name preserved)", () => {
-    expect(g.cases).toContain("Alice Corp. v. CLS Bank Int'l, 573 U.S. 208");
-    expect(g.cases).toContain("Mayo v. Prometheus, 566 U.S. 66");
-    expect(g.cases).toContain("In re Bilski, 545 F.3d 943");
+  test("finds and groups cases (deduped, name preserved, with court/year)", () => {
+    expect(g.cases).toContain("Alice Corp. v. CLS Bank Int'l, 573 U.S. 208 (2014)");
+    expect(g.cases).toContain("Mayo v. Prometheus, 566 U.S. 66 (2012)");
+    expect(g.cases).toContain("In re Bilski, 545 F.3d 943 (Fed. Cir. 2008)");
     // The Alice case is cited twice (different pincites) but appears once.
     expect(g.cases.filter((c) => c.startsWith("Alice Corp.")).length).toBe(1);
   });
@@ -48,9 +48,9 @@ describe("buildTableOfAuthorities", () => {
   test("cases are alphabetized (ignoring a leading 'In re')", () => {
     // Alice, Bilski (In re → sorts as 'bilski'), Mayo
     expect(g.cases).toEqual([
-      "Alice Corp. v. CLS Bank Int'l, 573 U.S. 208",
-      "In re Bilski, 545 F.3d 943",
-      "Mayo v. Prometheus, 566 U.S. 66",
+      "Alice Corp. v. CLS Bank Int'l, 573 U.S. 208 (2014)",
+      "In re Bilski, 545 F.3d 943 (Fed. Cir. 2008)",
+      "Mayo v. Prometheus, 566 U.S. 66 (2012)",
     ]);
   });
 
@@ -91,7 +91,7 @@ describe("buildTableOfAuthorities", () => {
     const g = grouped(
       "See Ass'n for Molecular Pathology v. Myriad Genetics, Inc., 569 U.S. 576, 580 (2013)."
     );
-    expect(g.cases).toEqual(["Ass'n for Molecular Pathology v. Myriad Genetics, Inc., 569 U.S. 576"]);
+    expect(g.cases).toEqual(["Ass'n for Molecular Pathology v. Myriad Genetics, Inc., 569 U.S. 576 (2013)"]);
   });
 });
 
@@ -101,13 +101,13 @@ describe("FRAP 28(a)(3) completeness — rules and unpublished cases", () => {
       "See BlueRadios, Inc. v. Kopin Corp., Inc., No. 16-CV-2052-JLK, 2017 WL 11546716, at *3 (D. Colo. 2017); " +
         "Hilton v. Kerry, No. 13-11710-TSH, 2013 U.S. Dist. LEXIS 169661, at *2 (D. Mass. 2013)."
     );
-    expect(g.cases).toContain("BlueRadios, Inc. v. Kopin Corp., Inc., 2017 WL 11546716");
-    expect(g.cases).toContain("Hilton v. Kerry, 2013 U.S. Dist. LEXIS 169661");
+    expect(g.cases).toContain("BlueRadios, Inc. v. Kopin Corp., Inc., 2017 WL 11546716 (D. Colo. 2017)");
+    expect(g.cases).toContain("Hilton v. Kerry, 2013 U.S. Dist. LEXIS 169661 (D. Mass. 2013)");
   });
 
   test("captures the F.R.D. reporter", () => {
     const g = grouped("Windsurfing Int'l, Inc. v. Ostermann, 100 F.R.D. 82, 84 (S.D.N.Y. 1983).");
-    expect(g.cases).toContain("Windsurfing Int'l, Inc. v. Ostermann, 100 F.R.D. 82");
+    expect(g.cases).toContain("Windsurfing Int'l, Inc. v. Ostermann, 100 F.R.D. 82 (S.D.N.Y. 1983)");
   });
 
   test("gathers Fed. R. Civ. P. rules (qualified + bare, collapsed to base rule)", () => {
@@ -134,24 +134,24 @@ describe("FRAP 28(a)(3) completeness — rules and unpublished cases", () => {
 describe("case-name robustness (diacritics, en-dash, foreign/firm parties)", () => {
   test("keeps diacritics in a party name", () => {
     const g = grouped("Bacardi Int'l Ltd. v. V. Suárez & Co., 719 F.3d 1, 11 (1st Cir. 2013).");
-    expect(g.cases).toContain("Bacardi Int'l Ltd. v. V. Suárez & Co., 719 F.3d 1");
+    expect(g.cases).toContain("Bacardi Int'l Ltd. v. V. Suárez & Co., 719 F.3d 1 (1st Cir. 2013)");
   });
 
   test("does not truncate a leading multi-word name across an en-dash", () => {
     const g = grouped("See Israel Bio–Eng'g Project v. Amgen Inc., 475 F.3d 1256, 1267 (Fed. Cir. 2007).");
-    expect(g.cases).toContain("Israel Bio–Eng'g Project v. Amgen Inc., 475 F.3d 1256");
+    expect(g.cases).toContain("Israel Bio–Eng'g Project v. Amgen Inc., 475 F.3d 1256 (Fed. Cir. 2007)");
   });
 
   test("keeps a leading foreign corporate designator (Televisa, S.A. de C.V.)", () => {
     const g = grouped("Televisa, S.A. de C.V. v. Koch Lorber Films, 382 F. Supp. 2d 631 (S.D.N.Y. 2005).");
-    expect(g.cases).toContain("Televisa, S.A. de C.V. v. Koch Lorber Films, 382 F. Supp. 2d 631");
+    expect(g.cases).toContain("Televisa, S.A. de C.V. v. Koch Lorber Films, 382 F. Supp. 2d 631 (S.D.N.Y. 2005)");
   });
 
   test("keeps a comma-separated law-firm party name", () => {
     const g = grouped(
       "BlueRadios, Inc. v. Hamilton, Brook, Smith & Reynolds, P.C., 166 F.4th 197, 205 (1st Cir. 2026)."
     );
-    expect(g.cases).toContain("BlueRadios, Inc. v. Hamilton, Brook, Smith & Reynolds, P.C., 166 F.4th 197");
+    expect(g.cases).toContain("BlueRadios, Inc. v. Hamilton, Brook, Smith & Reynolds, P.C., 166 F.4th 197 (1st Cir. 2026)");
   });
 });
 
@@ -166,7 +166,7 @@ describe("citationRegister", () => {
     const alice = reg.entries.find((e) => e.plain.startsWith("Alice"));
     expect(alice?.count).toBe(2);
     expect(reg.repeated.map((e) => e.plain)).toEqual([
-      "Alice Corp. v. CLS Bank Int'l, 573 U.S. 208",
+      "Alice Corp. v. CLS Bank Int'l, 573 U.S. 208 (2014)",
       "35 U.S.C. § 101",
     ]);
   });
@@ -174,7 +174,7 @@ describe("citationRegister", () => {
   test("orders entries by category then alphabetically, with headings", () => {
     const reg = citationRegister("Fed. R. Civ. P. 19; Mayo v. Prometheus, 566 U.S. 66 (2012); 35 U.S.C. § 101.");
     expect(reg.entries.map((e) => [e.heading, e.plain])).toEqual([
-      ["Cases", "Mayo v. Prometheus, 566 U.S. 66"],
+      ["Cases", "Mayo v. Prometheus, 566 U.S. 66 (2012)"],
       ["Statutes", "35 U.S.C. § 101"],
       ["Rules", "Fed. R. Civ. P. 19"],
     ]);
@@ -292,16 +292,24 @@ describe("native Word TOA (TA/TOA fields)", () => {
     expect(marks.find((mk) => mk.long.startsWith("U.S. Patent"))).toMatchObject({ category: "patents", categoryNum: 3 });
   });
 
-  test("taFieldOoxml emits a TA field with the long text and category", () => {
-    const xml = taFieldOoxml("Alice Corp. v. CLS Bank Int'l, 573 U.S. 208", 1);
+  test("taFieldOoxml emits a TA field with the case name in an italic run", () => {
+    const xml = taFieldOoxml("Alice Corp. v. CLS Bank Int'l", ", 573 U.S. 208 (2014)", 1);
     expect(xml).toContain('<pkg:package');
     expect(xml).toContain('fldCharType="begin"');
-    expect(xml).toContain(" TA \\l \"Alice Corp. v. CLS Bank Int'l, 573 U.S. 208\" \\c 1 ");
+    expect(xml).toContain(' TA \\l "'); // opening of the \l value
+    expect(xml).toContain("<w:rPr><w:i/><w:iCs/></w:rPr><w:instrText xml:space=\"preserve\">Alice Corp. v. CLS Bank Int'l</w:instrText>");
+    expect(xml).toContain(', 573 U.S. 208 (2014)" \\c 1 ');
   });
 
   test("taFieldOoxml swaps inner double-quotes and escapes ampersands", () => {
-    const xml = taFieldOoxml('Smith & Co. v. Jones, 100 F.3d 1', 1);
-    expect(xml).toContain("Smith &amp; Co. v. Jones, 100 F.3d 1");
+    const xml = taFieldOoxml("Smith & Co. v. Jones", ", 100 F.3d 1", 1);
+    expect(xml).toContain("Smith &amp; Co. v. Jones");
+  });
+
+  test("taFieldOoxml with no name (statute) emits a plain roman \\l value", () => {
+    const xml = taFieldOoxml("", "35 U.S.C. § 101", 2);
+    expect(xml).toContain(' TA \\l "35 U.S.C. § 101" \\c 2 ');
+    expect(xml).not.toContain("<w:i/>");
   });
 
   test("toaFieldsOoxml emits a TOA field per present category, in Bluebook order", () => {

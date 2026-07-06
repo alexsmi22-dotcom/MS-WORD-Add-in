@@ -669,16 +669,21 @@
         </button>
 
         <button id="toa-build" class="insert-btn secondary" type="button">
-          Insert static list (no page numbers)
+          Insert formatted list (two-line, italic) — matches a brief template
         </button>
         <button id="toa-native" class="insert-btn secondary" type="button">
-          Insert with page numbers (Word fields)
+          Insert with live page numbers (Word field)
         </button>
         <p class="examples-note">
-          “With page numbers” marks each citation with a hidden Word TA field and inserts TOA
-          fields at the cursor. After it runs, <strong>select all (Ctrl/⌘+A) and press F9</strong>
-          to populate the page numbers. Patents appear under “Other Authorities” (Word has no
-          Patents category). Review the result.
+          <strong>Formatted list</strong> writes the table directly — Times New Roman, italic case
+          names, each entry on two lines (name, then the reporter + (court year) indented with a
+          dot leader), matching a standard court-brief TOA. If you’ve already built the field table
+          below and pressed F9, it fills in the page numbers automatically; otherwise add them.
+          <br><br>
+          <strong>Live page numbers</strong> uses a Word TOA field that auto-updates on F9 — but a
+          Word field controls its own layout, so entries are <em>single-line</em> (no two-line
+          split). Use it when you want auto-updating pages; use the formatted list for the template
+          look. Patents appear under “Other Authorities” (Word has no Patents category).
         </p>
         <button id="toa-clearmarks" class="insert-btn secondary" type="button">
           Remove all citation marks

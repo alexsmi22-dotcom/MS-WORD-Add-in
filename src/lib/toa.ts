@@ -16,6 +16,10 @@ export interface ToaEntry {
   plain: string;
   /** HTML entry (case names italicized). */
   html: string;
+  /** Italic portion (case name); "" for non-cases. */
+  name: string;
+  /** Roman remainder after the name (", reporter (court year)"). */
+  rest: string;
 }
 
 export interface ToaGroup {
@@ -252,7 +256,7 @@ export function buildTableOfAuthorities(text: string): TableOfAuthorities {
     const list = byCat.get(category);
     if (!list || !list.length) continue;
     list.sort((a, b) => a.sortKey.localeCompare(b.sortKey, "en", { numeric: true }));
-    groups.push({ category, heading: HEADINGS[category], entries: list.map((r) => ({ plain: r.plain, html: r.html })) });
+    groups.push({ category, heading: HEADINGS[category], entries: list.map((r) => ({ plain: r.plain, html: r.html, name: r.name, rest: r.rest })) });
     total += list.length;
   }
   return { groups, total };
@@ -358,6 +362,46 @@ export function toaToHtml(toa: TableOfAuthorities): string {
     }
   }
   return parts.join("");
+}
+
+/**
+ * Builds a fully-formatted **static** Table of Authorities as OOXML (not a Word
+ * field), so the add-in controls every detail: Times New Roman 12, centered
+ * bold-underlined title, bold category headings, and each case as two lines —
+ * the italic name ending in a comma, then the reporter + (court year) on an
+ * indented second line with a dot-leader right tab out to the page list. Word
+ * fields can't produce this layout; OOXML renders it exactly.
+ *
+ * @param pages optional map (from {@link parseToaPages}) of authority → page list.
+ */
+export function toaStaticOoxml(toa: TableOfAuthorities, pages?: Map<string, string>): string {
+  const TAB = '<w:tabs><w:tab w:val="right" w:leader="dot" w:pos="9360"/></w:tabs>';
+  const pageOf = (e: ToaEntry): string => {
+    if (!pages) return "";
+    return pages.get(toaEntryKey(e.plain)) ?? pages.get(toaEntryKey(e.plain.replace(/\s*\([^)]*\)\s*$/, ""))) ?? "";
+  };
+  const t = (s: string): string => `<w:t xml:space="preserve">${esc(s)}</w:t>`;
+  const run = (rpr: string, inner: string): string => `<w:r><w:rPr>${rpr}</w:rPr>${inner}</w:r>`;
+
+  const heading = (h: string): string =>
+    `<w:p><w:pPr><w:spacing w:before="120" w:after="60"/><w:rPr>${RPR_HEADING}</w:rPr></w:pPr>${run(RPR_HEADING, t(h))}</w:p>`;
+
+  const entryPara = (e: ToaEntry): string => {
+    const pPr = `<w:pPr><w:ind w:left="720" w:hanging="720"/>${TAB}<w:spacing w:after="120"/><w:rPr>${RPR_BASE}</w:rPr></w:pPr>`;
+    const pageRun = run(RPR_BASE, `<w:tab/>${t(pageOf(e))}`);
+    if (e.name) {
+      const cite = e.rest.replace(/^,\s*/, "");
+      return `<w:p>${pPr}${run(`${RPR_BASE}<w:i/><w:iCs/>`, t(`${e.name},`))}${run(RPR_BASE, `<w:br/>${t(cite)}`)}${pageRun}</w:p>`;
+    }
+    return `<w:p>${pPr}${run(RPR_BASE, t(e.plain))}${pageRun}</w:p>`;
+  };
+
+  const body = [titlePara("TABLE OF AUTHORITIES")];
+  for (const g of toa.groups) {
+    body.push(heading(g.category === "patents" ? "Other Authorities" : g.heading));
+    for (const e of g.entries) body.push(entryPara(e));
+  }
+  return wrapOoxml(body.join(""));
 }
 
 export interface PrecedingAuthority {

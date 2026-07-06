@@ -1,6 +1,7 @@
 import {
   buildTableOfAuthorities,
   toaToHtml,
+  toaStaticOoxml,
   findPrecedingAuthority,
   authoritiesForToa,
   taFieldOoxml,
@@ -369,5 +370,32 @@ describe("toaToHtml", () => {
   test("escapes ampersands in an authority", () => {
     const html = toaToHtml(buildTableOfAuthorities("See Smith & Co. v. Jones & Sons, 100 F.3d 1 (Fed. Cir. 2000)."));
     expect(html).toContain("Smith &amp; Co. v. Jones &amp; Sons");
+  });
+});
+
+describe("toaStaticOoxml", () => {
+  const toa = buildTableOfAuthorities("Mayo v. Prometheus, 566 U.S. 66, 70 (2012). Also 35 U.S.C. § 101.");
+
+  test("emits a two-line case entry: italic name, break, then cite (court year)", () => {
+    const xml = toaStaticOoxml(toa);
+    expect(xml).toContain("<pkg:package");
+    // Times New Roman + underlined centered title
+    expect(xml).toContain('w:ascii="Times New Roman"');
+    expect(xml).toContain("TABLE OF AUTHORITIES");
+    // italic name run ending with a comma, then a line break, then the cite
+    expect(xml).toContain('<w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/><w:sz w:val="24"/><w:szCs w:val="24"/><w:i/><w:iCs/></w:rPr><w:t xml:space="preserve">Mayo v. Prometheus,</w:t>');
+    expect(xml).toContain("<w:br/>");
+    expect(xml).toContain('<w:t xml:space="preserve">566 U.S. 66 (2012)</w:t>');
+    // hanging indent + dot-leader right tab
+    expect(xml).toContain('<w:ind w:left="720" w:hanging="720"/>');
+    expect(xml).toContain('<w:tab w:val="right" w:leader="dot" w:pos="9360"/>');
+  });
+
+  test("fills page numbers from a supplied map; non-cases stay single-line roman", () => {
+    const pages = new Map([[toaEntryKey("Mayo v. Prometheus, 566 U.S. 66 (2012)"), "4, 7"]]);
+    const xml = toaStaticOoxml(toa, pages);
+    expect(xml).toContain('<w:t xml:space="preserve">4, 7</w:t>');
+    // statute has no italic name run
+    expect(xml).toContain('<w:t xml:space="preserve">35 U.S.C. § 101</w:t>');
   });
 });

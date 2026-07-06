@@ -119,6 +119,7 @@ import {
 import {
   buildTableOfAuthorities,
   toaToHtml,
+  toaStaticOoxml,
   findPrecedingAuthority,
   authoritiesForToa,
   taFieldOoxml,
@@ -4384,13 +4385,20 @@ async function buildToaHandler(): Promise<void> {
         setStatus("No citations found.", "");
         return;
       }
+      // Pull page numbers from an existing built field-TOA, if present.
+      const pages = parseToaPages(body.text);
       const range = context.document.getSelection();
-      const inserted = range.insertHtml(toaToHtml(toa), Word.InsertLocation.replace);
+      // Prefer precise OOXML (two-line entries, italic names, dot leaders); fall
+      // back to HTML on hosts without OOXML insertion (WordApi 1.3).
+      const inserted = wordApiSupported("1.3")
+        ? range.insertOoxml(toaStaticOoxml(toa, pages), Word.InsertLocation.replace)
+        : range.insertHtml(toaToHtml(toa), Word.InsertLocation.replace);
       inserted.select(Word.SelectionMode.end);
       await context.sync();
       await tagInserted(context, inserted, "formula-inserter:toa");
       const summary = toa.groups.map((g) => `${g.entries.length} ${g.heading.toLowerCase()}`).join(", ");
-      toaMsg.textContent = `Inserted ${toa.total} authorit${toa.total === 1 ? "y" : "ies"} (${summary}). Add page numbers before filing.`;
+      const pageNote = pages.size ? "Page numbers filled from your built table." : "Add page numbers (or build the field table first to fill them).";
+      toaMsg.textContent = `Inserted ${toa.total} authorit${toa.total === 1 ? "y" : "ies"} (${summary}), Times New Roman, italic names. ${pageNote}`;
       setStatus("Table of Authorities inserted.", "success");
     });
   } catch (error) {

@@ -4397,9 +4397,13 @@ async function buildToaHandler(): Promise<void> {
       await context.sync();
       await tagInserted(context, inserted, "formula-inserter:toa");
       const summary = toa.groups.map((g) => `${g.entries.length} ${g.heading.toLowerCase()}`).join(", ");
-      const pageNote = pages.size ? "Page numbers filled from your built table." : "Add page numbers (or build the field table first to fill them).";
+      const pageNote = pages.size
+        ? `Page numbers filled from your field table (${pages.size} found).`
+        : "Page slots are blank — Word can only compute pages via a field. To fill them: " +
+          "click “Insert with live page numbers”, select all (Ctrl/⌘+A) and press F9, then click " +
+          "“Insert formatted list” again — it will copy the pages in.";
       toaMsg.textContent = `Inserted ${toa.total} authorit${toa.total === 1 ? "y" : "ies"} (${summary}), Times New Roman, italic names. ${pageNote}`;
-      setStatus("Table of Authorities inserted.", "success");
+      setStatus("Table of Authorities inserted.", pages.size ? "success" : "");
     });
   } catch (error) {
     setStatus(`Could not build the Table of Authorities: ${(error as Error).message}`, "error");

@@ -234,6 +234,52 @@ export function buildTableOfAuthorities(text: string): TableOfAuthorities {
   return { groups, total };
 }
 
+export interface RegisterEntry {
+  /** The authority as it will read in the table. */
+  plain: string;
+  category: ToaCategory;
+  heading: string;
+  /** How many times the authority is cited in full form (see note below). */
+  count: number;
+}
+
+export interface CitationRegister {
+  /** All distinct authorities, in Table-of-Authorities order (category, then A–Z). */
+  entries: RegisterEntry[];
+  /** Distinct authority count. */
+  authorities: number;
+  /** Total full-form citations detected. */
+  citations: number;
+  /** The subset cited more than once. */
+  repeated: RegisterEntry[];
+}
+
+/**
+ * Scans text and returns a citation register: every distinct authority with a
+ * usage count, so repeated authorities are visible before the table is built.
+ *
+ * The count reflects full-form citations (name + reporter, or a statute/rule/
+ * patent as written). Short forms — "Id.", "supra", and "…, 925 F.3d at 1237" —
+ * are not counted, since they carry no reporter+page to key on; the same is true
+ * of Word's own citation marking.
+ */
+export function citationRegister(text: string): CitationRegister {
+  const map = new Map<string, RegisterEntry & { sortKey: string }>();
+  let citations = 0;
+  for (const r of collect(text)) {
+    citations++;
+    const key = r.category + "|" + r.plain.toLowerCase();
+    const existing = map.get(key);
+    if (existing) existing.count++;
+    else map.set(key, { plain: r.plain, category: r.category, heading: HEADINGS[r.category], count: 1, sortKey: r.sortKey });
+  }
+  const rank = (c: ToaCategory): number => ORDER.indexOf(c);
+  const entries = [...map.values()]
+    .sort((a, b) => rank(a.category) - rank(b.category) || a.sortKey.localeCompare(b.sortKey, "en", { numeric: true }))
+    .map(({ plain, category, heading, count }) => ({ plain, category, heading, count }));
+  return { entries, authorities: entries.length, citations, repeated: entries.filter((e) => e.count > 1) };
+}
+
 /** Renders the Table of Authorities as HTML for insertion (case names italic). */
 export function toaToHtml(toa: TableOfAuthorities): string {
   const parts: string[] = [`<p style="text-align:center"><b>TABLE OF AUTHORITIES</b></p>`];

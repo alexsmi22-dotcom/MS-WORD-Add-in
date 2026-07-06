@@ -6,6 +6,7 @@ import {
   taFieldOoxml,
   toaFieldsOoxml,
   tocFieldOoxml,
+  citationRegister,
   findPrecedingSecondarySource,
   ToaCategory,
 } from "../toa";
@@ -147,6 +148,37 @@ describe("case-name robustness (diacritics, en-dash, foreign/firm parties)", () 
       "BlueRadios, Inc. v. Hamilton, Brook, Smith & Reynolds, P.C., 166 F.4th 197, 205 (1st Cir. 2026)."
     );
     expect(g.cases).toContain("BlueRadios, Inc. v. Hamilton, Brook, Smith & Reynolds, P.C., 166 F.4th 197");
+  });
+});
+
+describe("citationRegister", () => {
+  test("counts repeated full-form citations and flags them", () => {
+    const reg = citationRegister(
+      "Alice Corp. v. CLS Bank Int'l, 573 U.S. 208, 216 (2014); later Alice Corp. v. CLS Bank Int'l, " +
+        "573 U.S. 208, 217 (2014); and Mayo v. Prometheus, 566 U.S. 66 (2012). Also 35 U.S.C. § 101; 35 U.S.C. § 101."
+    );
+    expect(reg.authorities).toBe(3); // Alice, Mayo, § 101
+    expect(reg.citations).toBe(5); // 2 Alice + 1 Mayo + 2 statute
+    const alice = reg.entries.find((e) => e.plain.startsWith("Alice"));
+    expect(alice?.count).toBe(2);
+    expect(reg.repeated.map((e) => e.plain)).toEqual([
+      "Alice Corp. v. CLS Bank Int'l, 573 U.S. 208",
+      "35 U.S.C. § 101",
+    ]);
+  });
+
+  test("orders entries by category then alphabetically, with headings", () => {
+    const reg = citationRegister("Fed. R. Civ. P. 19; Mayo v. Prometheus, 566 U.S. 66 (2012); 35 U.S.C. § 101.");
+    expect(reg.entries.map((e) => [e.heading, e.plain])).toEqual([
+      ["Cases", "Mayo v. Prometheus, 566 U.S. 66"],
+      ["Statutes", "35 U.S.C. § 101"],
+      ["Rules", "Fed. R. Civ. P. 19"],
+    ]);
+  });
+
+  test("empty text yields an empty register", () => {
+    const reg = citationRegister("No citations here at all.");
+    expect(reg).toEqual({ entries: [], authorities: 0, citations: 0, repeated: [] });
   });
 });
 

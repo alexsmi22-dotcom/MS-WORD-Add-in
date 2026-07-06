@@ -124,6 +124,8 @@ import {
   taFieldOoxml,
   toaFieldsOoxml,
   tocFieldOoxml,
+  citationRegister,
+  CitationRegister,
   findPrecedingSecondarySource,
 } from "../lib/toa";
 
@@ -291,6 +293,10 @@ let citeParseMsg: HTMLElement;
 let toaBuildBtn: HTMLButtonElement;
 let toaNativeBtn: HTMLButtonElement;
 let tocBuildBtn: HTMLButtonElement;
+let toaFindBtn: HTMLButtonElement;
+let toaCopyRegisterBtn: HTMLButtonElement;
+let toaRegister: HTMLElement;
+let lastRegisterText = "";
 let toaMsg: HTMLElement;
 let citeIdDetectBtn: HTMLButtonElement;
 let citeIdDetectMsg: HTMLElement;
@@ -514,6 +520,9 @@ Office.onReady((info) => {
   toaBuildBtn = document.getElementById("toa-build") as HTMLButtonElement;
   toaNativeBtn = document.getElementById("toa-native") as HTMLButtonElement;
   tocBuildBtn = document.getElementById("toc-build") as HTMLButtonElement;
+  toaFindBtn = document.getElementById("toa-find") as HTMLButtonElement;
+  toaCopyRegisterBtn = document.getElementById("toa-copy-register") as HTMLButtonElement;
+  toaRegister = document.getElementById("toa-register") as HTMLElement;
   toaMsg = document.getElementById("toa-msg") as HTMLElement;
   citeIdDetectBtn = document.getElementById("cite-iddetect") as HTMLButtonElement;
   citeIdDetectMsg = document.getElementById("cite-iddetect-msg") as HTMLElement;
@@ -664,6 +673,8 @@ Office.onReady((info) => {
   toaBuildBtn.addEventListener("click", buildToaHandler);
   toaNativeBtn.addEventListener("click", buildNativeToaHandler);
   tocBuildBtn.addEventListener("click", buildTocHandler);
+  toaFindBtn.addEventListener("click", findCitationsHandler);
+  toaCopyRegisterBtn.addEventListener("click", copyRegister);
   citeIdDetectBtn.addEventListener("click", insertIdForPreceding);
   citeSupraDetectBtn.addEventListener("click", detectSupraSource);
 
@@ -4173,6 +4184,73 @@ async function buildTocHandler(): Promise<void> {
     setStatus(`Could not insert the Table of Contents: ${(error as Error).message}`, "error");
   } finally {
     tocBuildBtn.disabled = false;
+  }
+}
+
+/** Plain-text rendering of a citation register (for display and copying). */
+function registerToText(reg: CitationRegister): string {
+  const lines = [`Found ${reg.authorities} authorit${reg.authorities === 1 ? "y" : "ies"} in ${reg.citations} citation${reg.citations === 1 ? "" : "s"}.`];
+  if (reg.repeated.length) {
+    lines.push("", `Cited more than once (${reg.repeated.length}):`);
+    for (const e of reg.repeated) lines.push(`  ${e.plain}  ×${e.count}`);
+  }
+  let lastHeading = "";
+  lines.push("", "All authorities:");
+  for (const e of reg.entries) {
+    if (e.heading !== lastHeading) {
+      lines.push(`— ${e.heading} —`);
+      lastHeading = e.heading;
+    }
+    lines.push(`  ${e.plain}  ×${e.count}`);
+  }
+  return lines.join("\n");
+}
+
+/**
+ * Scans the whole document and shows a citation register in the task pane:
+ * every distinct authority with a usage count, repeated authorities flagged.
+ * Nothing is written to the document; it always reflects the current text.
+ */
+async function findCitationsHandler(): Promise<void> {
+  toaFindBtn.disabled = true;
+  setStatus("Scanning document for citations…");
+  try {
+    await Word.run(async (context) => {
+      const body = context.document.body;
+      body.load("text");
+      await context.sync();
+      const reg = citationRegister(body.text);
+      if (!reg.authorities) {
+        toaRegister.textContent = "No citations found in the document.";
+        toaCopyRegisterBtn.style.display = "none";
+        setStatus("No citations found.", "");
+        return;
+      }
+      lastRegisterText = registerToText(reg);
+      toaRegister.textContent = lastRegisterText;
+      toaCopyRegisterBtn.style.display = "";
+      const rep = reg.repeated.length;
+      setStatus(
+        `Found ${reg.authorities} authorities in ${reg.citations} citations` +
+          (rep ? `; ${rep} cited more than once.` : "."),
+        "success"
+      );
+    });
+  } catch (error) {
+    setStatus(`Could not scan for citations: ${(error as Error).message}`, "error");
+  } finally {
+    toaFindBtn.disabled = false;
+  }
+}
+
+/** Copies the current citation register to the clipboard. */
+async function copyRegister(): Promise<void> {
+  if (!lastRegisterText) return;
+  try {
+    await navigator.clipboard.writeText(lastRegisterText);
+    setStatus("Citation register copied to clipboard.", "success");
+  } catch {
+    setStatus("Clipboard unavailable — select the register text to copy.", "");
   }
 }
 

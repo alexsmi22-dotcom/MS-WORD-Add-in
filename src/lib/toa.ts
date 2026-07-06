@@ -280,6 +280,40 @@ export function citationRegister(text: string): CitationRegister {
   return { entries, authorities: entries.length, citations, repeated: entries.filter((e) => e.count > 1) };
 }
 
+/** Normalizes an authority name for matching between a scan and a built table. */
+export function toaEntryKey(name: string): string {
+  return name
+    .replace(/[’‘]/g, "'")
+    .replace(/[“”]/g, '"')
+    .replace(/\s+/g, " ")
+    .replace(/[.,;\s]+$/, "")
+    .trim()
+    .toLowerCase();
+}
+
+/** A page list: arabic and/or roman numerals separated by commas ("6, 8", "iv, 13"). */
+const PAGE_LIST_RE = /^[ivxlcdm\d]+(?:\s*[,–—-]\s*[ivxlcdm\d]+)*$/i;
+
+/**
+ * Parses page references out of a built Table of Authorities. Word renders each
+ * TOA entry as "Authority Name<tab>p1, p2, …", so this reads the visible text
+ * and returns a map from authority (via {@link toaEntryKey}) to its page string.
+ * Only meaningful after the native TOA has been inserted and updated (F9);
+ * returns an empty map otherwise.
+ */
+export function parseToaPages(text: string): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const line of text.split(/[\r\n\v]+/)) {
+    const ti = line.lastIndexOf("\t");
+    if (ti < 1) continue;
+    const name = line.slice(0, ti).replace(/[\t.\s]+$/, "");
+    const pages = line.slice(ti + 1).trim();
+    if (!name || !PAGE_LIST_RE.test(pages)) continue;
+    out.set(toaEntryKey(name), pages);
+  }
+  return out;
+}
+
 /** Renders the Table of Authorities as HTML for insertion (case names italic). */
 export function toaToHtml(toa: TableOfAuthorities): string {
   const parts: string[] = [`<p style="text-align:center"><b>TABLE OF AUTHORITIES</b></p>`];

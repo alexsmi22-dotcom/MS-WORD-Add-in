@@ -126,6 +126,8 @@ import {
   tocFieldOoxml,
   citationRegister,
   CitationRegister,
+  parseToaPages,
+  toaEntryKey,
   findPrecedingSecondarySource,
 } from "../lib/toa";
 
@@ -4188,11 +4190,16 @@ async function buildTocHandler(): Promise<void> {
 }
 
 /** Plain-text rendering of a citation register (for display and copying). */
-function registerToText(reg: CitationRegister): string {
-  const lines = [`Found ${reg.authorities} authorit${reg.authorities === 1 ? "y" : "ies"} in ${reg.citations} citation${reg.citations === 1 ? "" : "s"}.`];
+function registerToText(reg: CitationRegister, pages: Map<string, string>): string {
+  const pg = (plain: string): string => {
+    const p = pages.get(toaEntryKey(plain));
+    return p ? `  — p. ${p}` : "";
+  };
+  const head = `Found ${reg.authorities} authorit${reg.authorities === 1 ? "y" : "ies"} in ${reg.citations} citation${reg.citations === 1 ? "" : "s"}.`;
+  const lines = [pages.size ? head : head + " (build the field-based TOA and press F9, then Find again to see pages)"];
   if (reg.repeated.length) {
     lines.push("", `Cited more than once (${reg.repeated.length}):`);
-    for (const e of reg.repeated) lines.push(`  ${e.plain}  ×${e.count}`);
+    for (const e of reg.repeated) lines.push(`  ${e.plain}  ×${e.count}${pg(e.plain)}`);
   }
   let lastHeading = "";
   lines.push("", "All authorities:");
@@ -4201,7 +4208,7 @@ function registerToText(reg: CitationRegister): string {
       lines.push(`— ${e.heading} —`);
       lastHeading = e.heading;
     }
-    lines.push(`  ${e.plain}  ×${e.count}`);
+    lines.push(`  ${e.plain}  ×${e.count}${pg(e.plain)}`);
   }
   return lines.join("\n");
 }
@@ -4226,7 +4233,9 @@ async function findCitationsHandler(): Promise<void> {
         setStatus("No citations found.", "");
         return;
       }
-      lastRegisterText = registerToText(reg);
+      // Page numbers, if a native TOA has already been built and updated (F9).
+      const pages = parseToaPages(body.text);
+      lastRegisterText = registerToText(reg, pages);
       toaRegister.textContent = lastRegisterText;
       toaCopyRegisterBtn.style.display = "";
       const rep = reg.repeated.length;

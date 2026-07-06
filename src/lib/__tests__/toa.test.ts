@@ -7,6 +7,8 @@ import {
   toaFieldsOoxml,
   tocFieldOoxml,
   citationRegister,
+  parseToaPages,
+  toaEntryKey,
   findPrecedingSecondarySource,
   ToaCategory,
 } from "../toa";
@@ -179,6 +181,35 @@ describe("citationRegister", () => {
   test("empty text yields an empty register", () => {
     const reg = citationRegister("No citations here at all.");
     expect(reg).toEqual({ entries: [], authorities: 0, citations: 0, repeated: [] });
+  });
+});
+
+describe("parseToaPages", () => {
+  // A built TOA renders each entry as "Name<tab>pages" (dot leader is visual only).
+  const BUILT_TOA =
+    "TABLE OF AUTHORITIES\n" +
+    "Cases\n" +
+    "Alice Corp. v. CLS Bank Int'l, 573 U.S. 208\t6, 8\n" +
+    "Mayo v. Prometheus, 566 U.S. 66\t13\n" +
+    "Statutes\n" +
+    "35 U.S.C. § 101\t2, 5, 9\n";
+
+  test("maps each authority to its page list", () => {
+    const pages = parseToaPages(BUILT_TOA);
+    expect(pages.get(toaEntryKey("Alice Corp. v. CLS Bank Int'l, 573 U.S. 208"))).toBe("6, 8");
+    expect(pages.get(toaEntryKey("Mayo v. Prometheus, 566 U.S. 66"))).toBe("13");
+    expect(pages.get(toaEntryKey("35 U.S.C. § 101"))).toBe("2, 5, 9");
+    // Category headings and the title carry no tab+pages and are ignored.
+    expect(pages.has(toaEntryKey("Cases"))).toBe(false);
+  });
+
+  test("matches keys despite curly/straight quotes and trailing punctuation", () => {
+    const pages = parseToaPages("Bacardi Int’l Ltd. v. V. Suárez & Co., 719 F.3d 1\tiv, 13\n");
+    expect(pages.get(toaEntryKey("Bacardi Int'l Ltd. v. V. Suárez & Co., 719 F.3d 1."))).toBe("iv, 13");
+  });
+
+  test("ignores prose lines with no tab-delimited page list", () => {
+    expect(parseToaPages("Some ordinary sentence with a 42 in it.\nAnother line.").size).toBe(0);
   });
 });
 

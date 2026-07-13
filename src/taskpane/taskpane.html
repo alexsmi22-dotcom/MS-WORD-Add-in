@@ -545,6 +545,25 @@
         <button id="fin-insert" class="insert-btn" type="button" disabled>Insert result</button>
       </section>
 
+      <!-- Bio / Assay: kinetics, dose-response, binding, lab math -->
+      <section id="assay-section">
+        <p class="seq-disclaimer">
+          Quantitative assay tools — enzyme kinetics, dose–response (IC50/EC50), binding, and
+          everyday lab calculators. Fits run entirely on your machine; nothing leaves Word.
+          Analysis aid — verify before publishing.
+        </p>
+        <label class="field-label" for="assay-calc">Calculator</label>
+        <select id="assay-calc" class="lib-select"></select>
+        <div id="assay-inputs"></div>
+        <div class="preview-wrap">
+          <span class="preview-label">Result</span>
+          <div id="assay-result" class="preview" aria-live="polite"></div>
+        </div>
+        <div id="assay-preview" class="structure-preview" aria-live="polite"></div>
+        <button id="assay-insert" class="insert-btn" type="button" disabled>Insert result</button>
+        <button id="assay-insert-plot" class="insert-btn" type="button" disabled>Insert fit plot</button>
+      </section>
+
       <!-- Captions & cross-references -->
       <section id="refs-section">
         <p class="seq-disclaimer">

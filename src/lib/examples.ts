@@ -22,7 +22,8 @@ export type ExampleMode =
   | "plot"
   | "ppt"
   | "citations"
-  | "finance";
+  | "finance"
+  | "assay";
 
 /** HTML help fragment shown in the "Examples & syntax" panel for each mode. */
 export const MODE_EXAMPLES: Record<ExampleMode, string> = {
@@ -295,5 +296,20 @@ export const MODE_EXAMPLES: Record<ExampleMode, string> = {
     <p class="examples-note">
       Rates are entered as percentages. For the matching typeset equations, see the
       <strong>Finance</strong> categories in the Math <em>Formula library</em>.
+    </p>`,
+  assay: `
+    <p class="examples-note">
+      Quantitative <strong>assay</strong> tools — pick a calculator, paste your data, and the
+      fit or result computes live on your machine; insert the result (and the fitted plot).
+    </p>
+    <ul>
+      <li><strong>Enzyme kinetics</strong> — Michaelis–Menten &amp; Hill fits (V<sub>max</sub>, K<sub>m</sub>, n) with standard errors and R²</li>
+      <li><strong>Dose–response</strong> — 4-parameter logistic → <strong>IC50 / EC50</strong>, Hill slope, pEC50; Cheng–Prusoff K<sub>i</sub></li>
+      <li><strong>Binding</strong> — one-site saturation (B<sub>max</sub>, K<sub>d</sub>)</li>
+      <li><strong>Lab math</strong> — Henderson–Hasselbalch, Beer–Lambert, dilutions, A260/A280 quantitation</li>
+    </ul>
+    <p class="examples-note">
+      For fits, enter two equal-length lists (e.g. [S] and v), one value per number, separated
+      by commas or spaces. Concentrations are linear (not log). Analysis aid — verify before publishing.
     </p>`,
 };

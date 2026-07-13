@@ -2,6 +2,25 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
+## [1.42.0] — 2026-07-13
+
+### Added (Bio/Assay mode — quantitative life-science tools)
+- **New Bio/Assay task-pane mode** bringing offline curve fitting into Word — the
+  first step of the chem/math push for life-science PhDs. A Levenberg–Marquardt
+  nonlinear-least-squares engine (`src/lib/assay.ts`, pure/Office-free) fits data
+  entirely client-side, reports parameters with **standard errors** and **R²**,
+  and overlays the **fitted curve on the data** as an insertable plot.
+- **Enzyme kinetics** — Michaelis–Menten and Hill fits, k_cat and catalytic
+  efficiency, plus the Lineweaver–Burk / Eadie–Hofstee / Hanes–Woolf
+  linearizations (which also seed the nonlinear fit).
+- **Dose–response** — 4-parameter logistic → **IC50 / EC50**, Hill slope, pEC50
+  (agonist and inhibition curves share one model); **Cheng–Prusoff** K_i.
+- **Binding** — one-site saturation (B_max, K_d).
+- **Lab calculators** — Henderson–Hasselbalch, Beer–Lambert, dilution / serial
+  dilution, and A260 / A280 nucleic-acid and protein quantitation.
+- 15 tests validate parameter recovery from noise-free and noisy synthetic data
+  (total suite 1182). Analysis aid — verify before publishing.
+
 ## [1.41.0] — 2026-07-13
 
 ### Added (compound library — large & complex structures)

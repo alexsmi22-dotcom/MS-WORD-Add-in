@@ -94,6 +94,14 @@ inserted, and the **Examples & syntax** panel updates to match the selected tool
 - **Finance formula library** — typeset equations in **Math** mode's *Formula library*: time-value-of-money, valuation & options (NPV, Gordon growth, WACC, Black–Scholes, put–call parity), and portfolio & bonds (CAPM, Sharpe ratio, portfolio variance, beta, bond price, duration).
 - Rates entered as percentages; values are currency-neutral. Runs entirely offline.
 
+## 🧫 Bio/Assay — quantitative life-science tools
+- **Curve fitting, offline.** Paste your data and the fit runs entirely on your machine (Levenberg–Marquardt nonlinear least squares) — no server, no GraphPad round-trip. Each fit reports the parameters with **standard errors** and **R²**, and draws the **fitted curve over your data points** as a plot you can insert.
+- **Enzyme kinetics** — **Michaelis–Menten** (V_max, K_m) and **Hill** (V_max, K, cooperativity coefficient *n*) fits; **catalytic efficiency** (k_cat, k_cat/K_m). The classic Lineweaver–Burk / Eadie–Hofstee / Hanes–Woolf linearizations seed the fit so no starting guess is needed.
+- **Dose–response** — a **4-parameter logistic** returns **IC50 / EC50**, Hill slope, plateaus, and **pEC50** (agonist and inhibition curves both fit the same model); **Cheng–Prusoff** converts an IC50 to the true K_i.
+- **Receptor binding** — one-site **saturation binding** (B_max, K_d).
+- **Everyday lab math** — **Henderson–Hasselbalch** buffer pH, **Beer–Lambert** concentration from absorbance, **dilution** (C₁V₁ = C₂V₂) and **serial-dilution** planning, and **A260 / A280** nucleic-acid and protein quantitation.
+- Insert the result as text and, for the fits, the fitted-curve figure. Analysis aid — verify before publishing.
+
 ## 🔬 Build — structures & Markush genus
 - Build a 2D structure from a typed **atom/bond list** or a pasted **MDL molfile**.
 - Bonds: single `-`, double `=`, triple `#`, undefined `~`, stereo wedge `>` / hash `<`; atom charges; hydrogens filled automatically.

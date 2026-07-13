@@ -17,6 +17,7 @@ const MODES: ExampleMode[] = [
   "ppt",
   "citations",
   "finance",
+  "assay",
 ];
 
 describe("MODE_EXAMPLES", () => {
@@ -49,5 +50,6 @@ describe("MODE_EXAMPLES", () => {
     expect(MODE_EXAMPLES.ppt).toContain("PowerPoint");
     expect(MODE_EXAMPLES.citations).toContain("Bluebook");
     expect(MODE_EXAMPLES.finance).toContain("IRR");
+    expect(MODE_EXAMPLES.assay).toContain("IC50");
   });
 });

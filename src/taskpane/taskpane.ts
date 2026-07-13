@@ -10,7 +10,23 @@ import { parseMathAst } from "../lib/mathParse";
 import { latexToDsl, astToLatex } from "../lib/latex";
 import { formatQuantityHtml, convert, formatSig } from "../lib/units";
 import { RefKind, formatCaption, formatRef, formatEqRef, checkCaptions } from "../lib/refs";
-import { Series, samplePlot, parseData, buildPlotSvg } from "../lib/plot";
+import { Series, Point, samplePlot, parseData, buildPlotSvg } from "../lib/plot";
+import {
+  fitMichaelisMenten,
+  fitHill,
+  fitDoseResponse,
+  fitSaturationBinding,
+  chengPrusoff,
+  catalyticEfficiency,
+  kcat,
+  hendersonHasselbalch,
+  beerLambert,
+  stockVolumeNeeded,
+  serialDilution,
+  nucleicAcidConc,
+  proteinConcFromA280,
+  NucleicAcidKind,
+} from "../lib/assay";
 import {
   futureValue,
   presentValue,
@@ -142,6 +158,7 @@ type Mode =
   | "plot"
   | "ppt"
   | "finance"
+  | "assay"
   | "build"
   | "code"
   | "sequence"
@@ -344,6 +361,13 @@ let finCalcSelect: HTMLSelectElement;
 let finInputs: HTMLElement;
 let finResult: HTMLElement;
 let finInsertBtn: HTMLButtonElement;
+let assaySection: HTMLElement;
+let assayCalcSelect: HTMLSelectElement;
+let assayInputs: HTMLElement;
+let assayResult: HTMLElement;
+let assayPreview: HTMLElement;
+let assayInsertBtn: HTMLButtonElement;
+let assayInsertPlotBtn: HTMLButtonElement;
 let pptSection: HTMLElement;
 let pptLoadBtn: HTMLButtonElement;
 let pptInfo: HTMLElement;
@@ -367,6 +391,9 @@ let currentTableChart: TableChart | null = null;
 let currentTableChartError = "";
 /** The finance result text from the most recent computation, for insertion. */
 let currentFinText = "";
+/** The assay result text and fitted-curve SVG from the most recent computation. */
+let currentAssayText = "";
+let currentAssayPlotSvg = "";
 let seqRefNum: HTMLInputElement;
 let seqRefInsert: HTMLButtonElement;
 
@@ -566,6 +593,13 @@ Office.onReady((info) => {
   finInputs = document.getElementById("fin-inputs") as HTMLElement;
   finResult = document.getElementById("fin-result") as HTMLElement;
   finInsertBtn = document.getElementById("fin-insert") as HTMLButtonElement;
+  assaySection = document.getElementById("assay-section") as HTMLElement;
+  assayCalcSelect = document.getElementById("assay-calc") as HTMLSelectElement;
+  assayInputs = document.getElementById("assay-inputs") as HTMLElement;
+  assayResult = document.getElementById("assay-result") as HTMLElement;
+  assayPreview = document.getElementById("assay-preview") as HTMLElement;
+  assayInsertBtn = document.getElementById("assay-insert") as HTMLButtonElement;
+  assayInsertPlotBtn = document.getElementById("assay-insert-plot") as HTMLButtonElement;
   seqRefNum = document.getElementById("seq-ref-num") as HTMLInputElement;
   seqRefInsert = document.getElementById("seq-ref-insert") as HTMLButtonElement;
   pptSection = document.getElementById("ppt-section") as HTMLElement;
@@ -673,6 +707,11 @@ Office.onReady((info) => {
   finCalcSelect.addEventListener("change", renderFinanceInputs);
   finInsertBtn.addEventListener("click", () => insertDnaText(currentFinText, "Result"));
 
+  populateAssayCalcs();
+  assayCalcSelect.addEventListener("change", renderAssayInputs);
+  assayInsertBtn.addEventListener("click", () => insertDnaText(currentAssayText, "Assay result"));
+  assayInsertPlotBtn.addEventListener("click", insertAssayPlot);
+
   populateCitationTypes();
   citeTypeSelect.addEventListener("change", renderCitationInputs);
   citeStyleSelect.addEventListener("change", updateCitationPreview);
@@ -775,6 +814,7 @@ const HOME_GROUPS: HomeGroup[] = [
     items: [
       { mode: "sequence", icon: "🧬", label: "Sequence", desc: "WIPO ST.26 listings" },
       { mode: "dna", icon: "🧬", label: "DNA", desc: "Rev-comp, translation, ORFs" },
+      { mode: "assay", icon: "🧫", label: "Bio/Assay", desc: "Kinetics, IC50/EC50, binding, lab math" },
       { mode: "botanical", icon: "🌿", label: "Botanical", desc: "Plant nomenclature" },
     ],
   },
@@ -1296,7 +1336,7 @@ function onInputChanged(): void {
     for (const s of [
       formatSection, buildSection, codeSection, sequenceSection, botanicalSection, numeralsSection,
       dnaSection, reactionSection, auditSection, unitsSection, refsSection, citationsSection,
-      plotSection, financeSection, pptSection,
+      plotSection, financeSection, assaySection, pptSection,
     ]) {
       s.style.display = "none";
     }
@@ -1319,6 +1359,7 @@ function onInputChanged(): void {
   citationsSection.style.display = mode === "citations" ? "block" : "none";
   plotSection.style.display = mode === "plot" ? "block" : "none";
   financeSection.style.display = mode === "finance" ? "block" : "none";
+  assaySection.style.display = mode === "assay" ? "block" : "none";
   pptSection.style.display = mode === "ppt" ? "block" : "none";
 
   if (mode === "units") {
@@ -1344,6 +1385,10 @@ function onInputChanged(): void {
   }
   if (mode === "finance") {
     if (!finInputs.children.length) renderFinanceInputs();
+    return;
+  }
+  if (mode === "assay") {
+    if (!assayInputs.children.length) renderAssayInputs();
     return;
   }
   if (mode === "numerals") {
@@ -3880,6 +3925,395 @@ function updateFinancePreview(): void {
   }
   currentFinText = insertable ? text : "";
   finInsertBtn.disabled = !insertable;
+}
+
+// ---------------------------------------------------------------------------
+// Bio / Assay calculators (enzyme kinetics, dose-response, binding, lab math)
+// ---------------------------------------------------------------------------
+
+interface AssayField {
+  key: string;
+  label: string;
+  default: string;
+  kind?: "number" | "list" | "select";
+  options?: { value: string; label: string }[];
+}
+/** A fitted curve to overlay on the Plot engine: the data plus a predictor. */
+interface AssayPlot {
+  data: Point[];
+  predict: (x: number) => number;
+  xlabel: string;
+  ylabel: string;
+}
+interface AssayOutput {
+  text: string;
+  plot?: AssayPlot;
+  /** False for a validation message (blocks insertion). Defaults to true. */
+  ok?: boolean;
+}
+interface AssayCalc {
+  id: string;
+  name: string;
+  fields: AssayField[];
+  compute: (read: (k: string) => string) => AssayOutput;
+}
+
+/** Parses a whitespace/comma/semicolon-separated list of numbers. */
+function assayList(s: string): number[] {
+  return s
+    .split(/[\s,;]+/)
+    .filter(Boolean)
+    .map(Number)
+    .filter((n) => !Number.isNaN(n));
+}
+/** Formats to `sig` significant figures without trailing-zero noise. */
+function assaySig(x: number, sig = 4): string {
+  if (!Number.isFinite(x)) return "—";
+  if (x === 0) return "0";
+  return Number(x.toPrecision(sig)).toString();
+}
+/** "value ± se", dropping the ± part when the standard error is unavailable. */
+function assayValSE(val: number, se: number): string {
+  return Number.isFinite(se) ? `${assaySig(val)} ± ${assaySig(se, 2)}` : assaySig(val);
+}
+/** Pairs two equal-length lists into plot points, or null if they can't fit. */
+function assayPairXY(xs: number[], ys: number[], minPts: number): Point[] | null {
+  if (xs.length < minPts || xs.length !== ys.length) return null;
+  return xs.map((x, i) => ({ x, y: ys[i] }));
+}
+
+const ASSAY_CALCS: AssayCalc[] = [
+  {
+    id: "mm",
+    name: "Michaelis–Menten (enzyme kinetics)",
+    fields: [
+      { key: "s", label: "[S] substrate (one per value)", default: "1, 2, 5, 10, 20, 50", kind: "list" },
+      { key: "v", label: "v velocity (matching [S])", default: "1.333, 2.4, 4.615, 6.667, 8.571, 10.345", kind: "list" },
+    ],
+    compute: (r) => {
+      const s = assayList(r("s"));
+      const v = assayList(r("v"));
+      const pts = assayPairXY(s, v, 3);
+      if (!pts) return { text: "Enter equal-length [S] and v lists (≥ 3 points).", ok: false };
+      const fit = fitMichaelisMenten(s, v);
+      if (!fit.converged || !(fit.vmax > 0) || !(fit.km > 0))
+        return { text: "Fit did not converge — check that the data follow saturation kinetics.", ok: false };
+      const text =
+        `Michaelis–Menten fit\n` +
+        `Vmax = ${assayValSE(fit.vmax, fit.vmaxSE)}\n` +
+        `Km = ${assayValSE(fit.km, fit.kmSE)}\n` +
+        `R² = ${assaySig(fit.rsquared, 4)}`;
+      return { text, plot: { data: pts, predict: fit.predict, xlabel: "[S]", ylabel: "v" } };
+    },
+  },
+  {
+    id: "hill",
+    name: "Hill equation (cooperativity)",
+    fields: [
+      { key: "s", label: "[S] or [ligand]", default: "1, 2, 5, 10, 20, 50", kind: "list" },
+      { key: "v", label: "response (matching [S])", default: "0.27, 1.0, 4.098, 7.353, 9.174, 9.858", kind: "list" },
+    ],
+    compute: (r) => {
+      const s = assayList(r("s"));
+      const v = assayList(r("v"));
+      const pts = assayPairXY(s, v, 4);
+      if (!pts) return { text: "Enter equal-length lists (≥ 4 points).", ok: false };
+      const fit = fitHill(s, v);
+      if (!fit.converged || !(fit.vmax > 0) || !(fit.k > 0))
+        return { text: "Fit did not converge — check the data.", ok: false };
+      const text =
+        `Hill fit\n` +
+        `Vmax = ${assaySig(fit.vmax)}\n` +
+        `K (half-saturation) = ${assaySig(fit.k)}\n` +
+        `Hill coefficient n = ${assaySig(fit.hill, 3)}\n` +
+        `R² = ${assaySig(fit.rsquared, 4)}`;
+      return { text, plot: { data: pts, predict: fit.predict, xlabel: "[S]", ylabel: "response" } };
+    },
+  },
+  {
+    id: "dose",
+    name: "Dose–response 4PL (IC50 / EC50)",
+    fields: [
+      { key: "c", label: "Concentration (linear, not log)", default: "0.01, 0.1, 0.3, 1, 3, 10, 100", kind: "list" },
+      { key: "y", label: "Response (matching concentration)", default: "0.5, 4.76, 13.04, 33.33, 60, 83.33, 98.04", kind: "list" },
+    ],
+    compute: (r) => {
+      const c = assayList(r("c"));
+      const y = assayList(r("y"));
+      const pts = assayPairXY(c, y, 4);
+      if (!pts) return { text: "Enter equal-length concentration and response lists (≥ 4 points).", ok: false };
+      const fit = fitDoseResponse(c, y);
+      if (!fit.converged || !(fit.ec50 > 0))
+        return { text: "Fit did not converge — check the data span both plateaus.", ok: false };
+      const label = fit.top >= fit.bottom ? "EC50" : "IC50";
+      const text =
+        `Dose–response (4-parameter logistic)\n` +
+        `${label} = ${assaySig(fit.ec50)}\n` +
+        `pEC50 = ${assaySig(fit.pEC50, 3)}\n` +
+        `Hill slope = ${assaySig(fit.hill, 3)}\n` +
+        `Bottom = ${assaySig(fit.bottom, 3)}, Top = ${assaySig(fit.top, 3)}\n` +
+        `R² = ${assaySig(fit.rsquared, 4)}`;
+      return { text, plot: { data: pts, predict: fit.predict, xlabel: "concentration", ylabel: "response" } };
+    },
+  },
+  {
+    id: "binding",
+    name: "Saturation binding (one-site, Bmax/Kd)",
+    fields: [
+      { key: "l", label: "[Ligand] (one per value)", default: "1, 2, 5, 10, 25, 50, 100", kind: "list" },
+      { key: "b", label: "Bound (matching [Ligand])", default: "38.46, 71.43, 147.06, 227.27, 337.84, 403.23, 446.43", kind: "list" },
+    ],
+    compute: (r) => {
+      const l = assayList(r("l"));
+      const b = assayList(r("b"));
+      const pts = assayPairXY(l, b, 3);
+      if (!pts) return { text: "Enter equal-length [Ligand] and Bound lists (≥ 3 points).", ok: false };
+      const fit = fitSaturationBinding(l, b);
+      if (!fit.converged || !(fit.bmax > 0) || !(fit.kd > 0))
+        return { text: "Fit did not converge — check the data.", ok: false };
+      const text =
+        `One-site saturation binding\n` +
+        `Bmax = ${assayValSE(fit.bmax, fit.bmaxSE)}\n` +
+        `Kd = ${assayValSE(fit.kd, fit.kdSE)}\n` +
+        `R² = ${assaySig(fit.rsquared, 4)}`;
+      return { text, plot: { data: pts, predict: fit.predict, xlabel: "[Ligand]", ylabel: "Bound" } };
+    },
+  },
+  {
+    id: "chengprusoff",
+    name: "Cheng–Prusoff (Ki from IC50)",
+    fields: [
+      { key: "ic50", label: "IC50", default: "100" },
+      { key: "s", label: "[Substrate] (or [ligand])", default: "8" },
+      { key: "km", label: "Km (or Kd)", default: "8" },
+    ],
+    compute: (r) => ({ text: `Ki = ${assaySig(chengPrusoff(+r("ic50"), +r("s"), +r("km")))}` }),
+  },
+  {
+    id: "efficiency",
+    name: "Catalytic efficiency (kcat, kcat/Km)",
+    fields: [
+      { key: "vmax", label: "Vmax", default: "12" },
+      { key: "e", label: "[Enzyme] total", default: "0.001" },
+      { key: "km", label: "Km", default: "8" },
+    ],
+    compute: (r) => {
+      const kc = kcat(+r("vmax"), +r("e"));
+      return { text: `kcat = ${assaySig(kc)}\nkcat/Km = ${assaySig(catalyticEfficiency(kc, +r("km")))}` };
+    },
+  },
+  {
+    id: "hh",
+    name: "Henderson–Hasselbalch (buffer pH)",
+    fields: [
+      { key: "pka", label: "pKa", default: "4.76" },
+      { key: "base", label: "[A⁻] conjugate base", default: "0.1" },
+      { key: "acid", label: "[HA] acid", default: "0.1" },
+    ],
+    compute: (r) => ({ text: `pH = ${assaySig(hendersonHasselbalch(+r("pka"), +r("base"), +r("acid")), 4)}` }),
+  },
+  {
+    id: "beer",
+    name: "Beer–Lambert (concentration from A)",
+    fields: [
+      { key: "a", label: "Absorbance A", default: "0.65" },
+      { key: "eps", label: "ε (M⁻¹cm⁻¹)", default: "6500" },
+      { key: "l", label: "Path length l (cm)", default: "1" },
+    ],
+    compute: (r) => ({ text: `c = ${assaySig(beerLambert({ a: +r("a"), epsilon: +r("eps"), l: +r("l") }))} M` }),
+  },
+  {
+    id: "dilution",
+    name: "Dilution (C1·V1 = C2·V2)",
+    fields: [
+      { key: "c1", label: "Stock concentration C1", default: "1" },
+      { key: "c2", label: "Final concentration C2", default: "0.1" },
+      { key: "v2", label: "Final volume V2", default: "10" },
+    ],
+    compute: (r) => {
+      const v1 = stockVolumeNeeded(+r("c1"), +r("c2"), +r("v2"));
+      return { text: `V1 (stock) = ${assaySig(v1)}\nDiluent to add = ${assaySig(+r("v2") - v1)}` };
+    },
+  },
+  {
+    id: "serial",
+    name: "Serial dilution plan",
+    fields: [
+      { key: "start", label: "Starting concentration", default: "100" },
+      { key: "fold", label: "Fold per step", default: "10" },
+      { key: "n", label: "Number of steps", default: "6" },
+    ],
+    compute: (r) => {
+      const steps = serialDilution(+r("start"), +r("fold"), Math.max(1, Math.floor(+r("n"))));
+      return { text: "Serial dilution\n" + steps.map((s) => `Step ${s.step}: ${assaySig(s.concentration)}`).join("\n") };
+    },
+  },
+  {
+    id: "na260",
+    name: "Nucleic-acid conc. (A260)",
+    fields: [
+      { key: "a260", label: "A260", default: "1" },
+      {
+        key: "kind",
+        label: "Type",
+        default: "dsDNA",
+        kind: "select",
+        options: [
+          { value: "dsDNA", label: "dsDNA (×50)" },
+          { value: "ssDNA", label: "ssDNA (×33)" },
+          { value: "RNA", label: "RNA (×40)" },
+        ],
+      },
+      { key: "dil", label: "Dilution factor", default: "1" },
+    ],
+    compute: (r) => ({
+      text: `Concentration = ${assaySig(nucleicAcidConc(+r("a260"), r("kind") as NucleicAcidKind, +r("dil")))} µg/mL`,
+    }),
+  },
+  {
+    id: "protein280",
+    name: "Protein conc. (A280)",
+    fields: [
+      { key: "a280", label: "A280", default: "1" },
+      { key: "eps", label: "ε molar (M⁻¹cm⁻¹)", default: "43824" },
+      { key: "l", label: "Path length l (cm)", default: "1" },
+    ],
+    compute: (r) => ({ text: `Concentration = ${assaySig(proteinConcFromA280(+r("a280"), +r("eps"), +r("l")))} M` }),
+  },
+];
+
+function populateAssayCalcs(): void {
+  assayCalcSelect.replaceChildren();
+  for (const c of ASSAY_CALCS) {
+    const opt = document.createElement("option");
+    opt.value = c.id;
+    opt.textContent = c.name;
+    assayCalcSelect.appendChild(opt);
+  }
+}
+
+/** Builds the inputs for the selected assay calculator and wires live compute. */
+function renderAssayInputs(): void {
+  const calc = ASSAY_CALCS.find((c) => c.id === assayCalcSelect.value) ?? ASSAY_CALCS[0];
+  assayInputs.replaceChildren();
+  for (const f of calc.fields) {
+    const row = document.createElement("div");
+    row.className = "dna-controls";
+    const label = document.createElement("label");
+    label.className = "field-label";
+    label.textContent = f.label;
+    label.htmlFor = `assay-f-${f.key}`;
+
+    let input: HTMLInputElement | HTMLSelectElement;
+    if (f.kind === "select") {
+      const sel = document.createElement("select");
+      sel.className = "lib-select";
+      for (const o of f.options ?? []) {
+        const opt = document.createElement("option");
+        opt.value = o.value;
+        opt.textContent = o.label;
+        sel.appendChild(opt);
+      }
+      sel.value = f.default;
+      input = sel;
+    } else {
+      const text = document.createElement("input");
+      text.type = "text";
+      text.className = f.kind === "list" ? "rgroup-input" : "rgroup-input num-numeral";
+      text.value = f.default;
+      input = text;
+    }
+    input.id = `assay-f-${f.key}`;
+    input.dataset.key = f.key;
+    input.addEventListener("input", updateAssayPreview);
+    input.addEventListener("change", updateAssayPreview);
+    row.append(label, input);
+    assayInputs.appendChild(row);
+  }
+  updateAssayPreview();
+}
+
+/** Computes and shows the result (and any fitted-curve plot) for the current inputs. */
+function updateAssayPreview(): void {
+  const calc = ASSAY_CALCS.find((c) => c.id === assayCalcSelect.value) ?? ASSAY_CALCS[0];
+  const read = (k: string): string => {
+    const el = assayInputs.querySelector<HTMLInputElement | HTMLSelectElement>(`[data-key="${k}"]`);
+    return el ? el.value : "";
+  };
+  if (calc.fields.some((f) => f.kind !== "select" && read(f.key).trim() === "")) {
+    assayResult.innerHTML = '<span class="hint">Enter all values to compute.</span>';
+    assayPreview.innerHTML = "";
+    currentAssayText = "";
+    currentAssayPlotSvg = "";
+    assayInsertBtn.disabled = true;
+    assayInsertPlotBtn.disabled = true;
+    return;
+  }
+
+  let out: AssayOutput;
+  try {
+    out = calc.compute(read);
+  } catch {
+    out = { text: "Could not compute — check the inputs.", ok: false };
+  }
+  const insertable = out.ok !== false && !!out.text;
+  assayResult.innerHTML = esc(out.text).replace(/\n/g, "<br>");
+
+  // Draw the fitted curve over the raw data when the calculator produced one.
+  if (out.plot && insertable) {
+    const { data, predict, xlabel, ylabel } = out.plot;
+    const xs = data.map((p) => p.x);
+    const xmin = Math.min(...xs);
+    const xmax = Math.max(...xs);
+    const fitPts: Point[] = [];
+    const N = 120;
+    for (let i = 0; i <= N; i++) {
+      const x = xmin + ((xmax - xmin) * i) / N;
+      fitPts.push({ x, y: predict(x) });
+    }
+    const series: Series[] = [
+      { points: data, type: "scatter", label: "data" },
+      { points: fitPts, type: "line", label: "fit" },
+    ];
+    const svg = buildPlotSvg(series, { xlabel, ylabel });
+    assayPreview.innerHTML = svg;
+    currentAssayPlotSvg = svg;
+    assayInsertPlotBtn.disabled = false;
+  } else {
+    assayPreview.innerHTML = "";
+    currentAssayPlotSvg = "";
+    assayInsertPlotBtn.disabled = true;
+  }
+
+  currentAssayText = insertable ? out.text : "";
+  assayInsertBtn.disabled = !insertable;
+}
+
+/** Rasterizes the fitted-curve plot and inserts it as an inline picture. */
+async function insertAssayPlot(): Promise<void> {
+  if (!currentAssayPlotSvg) {
+    setStatus("No fitted plot to insert.", "error");
+    return;
+  }
+  assayInsertPlotBtn.disabled = true;
+  setStatus("Inserting fit plot…");
+  try {
+    const base64 = await svgToPngBase64(currentAssayPlotSvg, 380, 270);
+    await Word.run(async (context) => {
+      const range = context.document.getSelection();
+      const picture = range.insertInlinePictureFromBase64(base64, Word.InsertLocation.after);
+      const calc = ASSAY_CALCS.find((c) => c.id === assayCalcSelect.value);
+      picture.altTextDescription = `Assay fit: ${calc?.name ?? "curve"}`;
+      range.select(Word.SelectionMode.end);
+      await context.sync();
+      await tagInserted(context, picture.getRange(), "formula-inserter:assay");
+    });
+    setStatus("Fit plot inserted.", "success");
+  } catch (error) {
+    setStatus(`Could not insert fit plot: ${(error as Error).message}`, "error");
+  } finally {
+    assayInsertPlotBtn.disabled = false;
+  }
 }
 
 // ---------------------------------------------------------------------------

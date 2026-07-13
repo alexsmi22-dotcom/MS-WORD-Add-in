@@ -1,35 +1,44 @@
 # JurisLab — Word Add-in (formerly Formula Inserter)
 
-A Microsoft Word add-in (Office.js / TypeScript) for **STEM authoring**. It turns
-what you type into correctly formatted content — formulas, equations, structures,
-units, plots, sequences, and more — and inserts it at the cursor. Everything runs
-**entirely on your machine; no document content is sent anywhere.**
+A Microsoft Word add-in (Office.js / TypeScript) for **STEM authoring and patent &
+legal drafting**, with a strong **life-science** toolset. It turns what you type
+into correctly formatted content — formulas, structures, mass spectra, kinetics
+fits, peptides, statistics, equations, plots, sequences, citations, and more — and
+inserts it at the cursor. Everything runs **entirely on your machine; no document
+content is sent anywhere** (the one exception is the strictly opt-in online
+name→structure lookup, which prompts before sending).
 
-Pick a tool from the home screen — **16 tools** (grouped STEM + legal):
+Pick a tool from the home screen — **20 tools** (grouped STEM + legal):
 
 | Mode | What it does |
 |---|---|
-| **Chemical** | formulas (`H2O`→H₂O, `SO4^2-`→SO₄²⁻), 2D structures from name/formula/SMILES, structure→name lookup |
+| **Chemical** | formulas (`H2O`→H₂O, `SO4^2-`→SO₄²⁻), 2D structures from name/formula/SMILES, structure→name lookup, **physicochemical properties & druglikeness** (cLogP, tPSA, Lipinski/Veber), opt-in **online IUPAC name→structure** (OPSIN) |
+| **Mass Spec** | **NEW** — monoisotopic & average mass, theoretical **isotope pattern**, and common **adduct m/z** ([M+H]⁺, [M+Na]⁺, [M+2H]²⁺, [M−H]⁻…) |
+| **Bio/Assay** | **NEW** — offline curve fitting: **enzyme kinetics** (Michaelis–Menten, Hill), **dose–response** (IC50/EC50, 4PL), **binding** (Kd/Bmax), plus lab calculators (Cheng–Prusoff, Henderson–Hasselbalch, Beer–Lambert, dilutions, A260/A280) |
+| **Peptide** | **NEW** — 2D structure from a one- or three-letter amino-acid sequence, with formula & MW |
+| **Stats** | **NEW** — descriptive stats, **t-tests** (Welch/Student/paired), **ANOVA**, regression with p-values, and **uncertainty propagation** |
 | **Math** | native Word equations, matrices/cases, **LaTeX import/export**, multi-line aligned equations, a formula library |
 | **Units** | SI typesetting (±, ×10ⁿ, µ/Ω/°), significant figures, unit conversion incl. compound units (`km/h → m/s`) |
 | **Plot** | offline function & data charts (multiple series + legend, error bars) |
-| **Finance** | TVM / loan / NPV / IRR / Black–Scholes / bond calculators, plus a finance equation library |
+| **Table → Chart** | charts (column/bar/line/area/scatter/stacked), flowcharts, block diagrams, table figures; B&W patent figures or editable PowerPoint |
+| **Finance** | 18 calculators — TVM / loan / NPV / IRR / DCF / Black–Scholes + Greeks / bond analytics, plus a finance equation library |
 | **Build** | molecules from atom/bond lists or molfiles; Markush/R-group genus + substituent gallery |
 | **Code** | algorithm (bold-keyword) and verbatim code listings |
-| **Sequence** | WIPO **ST.26** biological sequence listings (DNA/RNA/protein) |
+| **Sequence** | WIPO **ST.26** biological sequence listings (DNA/RNA/protein) with CDS/gene annotation |
 | **Botanical** | plant-patent scientific-name typesetting + varietal trait tables |
 | **Numerals** | reference-numeral management (callouts, collision/gap/orphan checks, list) |
 | **Refs** | auto-numbered figure/table captions and cross-references |
-| **DNA** | reverse complement, transcription, six-frame translation, ORF finder, primer Tm, protein MW/pI/GRAVY, restriction sites |
+| **DNA** | reverse complement (RNA-aware), transcription, six-frame translation, ORF finder, primer Tm, protein MW/pI/GRAVY, restriction sites |
 | **Reaction** | multi-step reaction schemes with conditions over the arrow |
+| **Citations** | Bluebook citations (cases/statutes/patents/Fed. Reg./MPEP), practitioner/academic styles, T6/T10 abbreviation, **Table of Contents**, **Table of Authorities**, citation register |
 | **Audit** | one-pass whole-document consistency check (numerals, SEQ ID NO, figures, cross-references) |
 
 ```
 H2O → H₂O   ·   paste \frac{-b±√(b²-4ac)}{2a} (LaTeX) → a Word equation   ·   aspirin → 2D structure
 ```
 
-> **Status:** v1.23.0 — production. Word on **Windows & macOS**, 100% client-side.
-> Install packs: [`install/`](install/) · feature list: [`FEATURES.md`](FEATURES.md).
+> **Status:** v1.48.0 — production (life-science release). Word on **Windows & macOS**,
+> 100% client-side. Install packs: [`install/`](install/) · feature list: [`FEATURES.md`](FEATURES.md).
 
 ## Screenshots
 
@@ -61,7 +70,7 @@ _Screenshots coming soon — see [`docs/screenshots/`](docs/screenshots/) for th
    (modern WebView2/Edge runtime; legacy IE-based webviews are not supported).
 
 > Verified by the QC gate (`npm run qc`): `npm run lint` (type-check),
-> `npm test` (**1,028 unit tests**), `npm run build` (production bundle),
+> `npm test` (**1,262 unit tests**), `npm run build` (production bundle),
 > `office-addin-manifest validate`, and the task-pane id-wiring audit — all pass.
 
 ## Setup
@@ -153,8 +162,11 @@ Because a 2D structure needs connectivity (not just an atom count), the input is
 resolved in this order:
 
 1. **Common name** — e.g. `aspirin`, `caffeine`, `water`, `ethanol`, `glucose`,
-   `ibuprofen`. ~250 common compounds are built in (drugs, amino acids, acids,
-   salts, solvents, aromatics, sugars, nucleobases, …).
+   `ibuprofen`, `violacein`, `morphine`, `paclitaxel`. **359 compounds** are built
+   in (drugs, amino acids, acids, salts, solvents, aromatics, sugars, nucleobases,
+   steroids, alkaloids, vitamins, and large natural products). For a systematic
+   IUPAC name the dictionary doesn't know, the opt-in **online lookup** (OPSIN)
+   resolves it.
 2. **Known formula** — e.g. `H2O`, `C6H6`, `CO2`, `C9H8O4`.
 3. **SMILES string** — any valid SMILES, e.g. `CC(=O)O`, `c1ccccc1`.
 
@@ -304,7 +316,7 @@ sub/superscript formatting. Uncheck the box to always use inline formatting.
       `X` halogen shorthand.
 - [x] **Equation numbering** (I, II, …) and **structure provenance**
       (formula/MW/SMILES/OCL-ID in alt-text).
-- [x] **Test suite** (Jest, 1,028 tests) + **CI**; distribution/security docs.
+- [x] **Test suite** (Jest, 1,262 tests) + **CI**; distribution/security docs.
 - [x] **Stereochemistry** — isomeric SMILES (wedges) + Build wedge/hash bonds.
 - [x] **Richer Markush atoms** — `A` any, `Q` heteroatom, `R1` R-group (+ `[C,N]`, `X`).
 - [x] **R-group legends** — define `R1 = …` and insert a "where R1 = …" line.
@@ -349,7 +361,19 @@ sub/superscript formatting. Uncheck the box to always use inline formatting.
 - [x] **Finance** (Finance mode + library) — TVM, loan, NPV/IRR, Black–Scholes,
       bond calculators, plus typeset finance equations in the Math library.
 - [x] Formula history / favorites.
-- [ ] IUPAC name insertion (needs a dedicated naming library).
+- [x] **Physicochemical properties & druglikeness** (Chemical mode) — cLogP, logS,
+      tPSA, H-bond donors/acceptors, rotatable bonds, Lipinski Rule of Five & Veber.
+- [x] **Bio/Assay mode** — offline curve fitting (Michaelis–Menten, Hill, 4PL
+      dose–response for IC50/EC50, one-site binding) with parameters ± SE and R²,
+      plus lab calculators (Cheng–Prusoff, Henderson–Hasselbalch, Beer–Lambert,
+      dilutions, A260/A280 quantitation).
+- [x] **Mass Spec mode** — monoisotopic & average mass, theoretical isotope
+      pattern, and common adduct m/z.
+- [x] **Peptide mode** — 2D structure from a one-/three-letter amino-acid sequence.
+- [x] **Stats mode** — descriptive statistics, t-tests, one-way ANOVA, linear
+      regression (with p-values), and uncertainty propagation.
+- [x] **IUPAC name→structure** — opt-in online resolution via the OPSIN web
+      service (consented; everything else stays offline).
 - [x] **Centralized-deployment path documented** — validated deploy manifest +
       IT admin guide (`packaging/CENTRALIZED-DEPLOY.md`) for Microsoft 365
       Integrated Apps. (AppSource intentionally not used — internal tool.)

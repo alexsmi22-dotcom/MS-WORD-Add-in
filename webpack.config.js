@@ -24,7 +24,12 @@ module.exports = async (env, options) => {
     output: {
       clean: true,
       path: path.resolve(__dirname, "dist"),
-      filename: "[name].js",
+      // Content-hash the emitted JS in production so every deploy is a new URL
+      // Office/WebView2 has never cached — otherwise the aggressively-cached
+      // `taskpane.js` keeps serving a stale bundle after an update. The HTML
+      // filenames stay fixed (the manifest points at them); HtmlWebpackPlugin
+      // injects the hashed script names into them automatically.
+      filename: dev ? "[name].js" : "[name].[contenthash].js",
     },
     resolve: {
       extensions: [".ts", ".js", ".html"],

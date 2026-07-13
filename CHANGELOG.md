@@ -2,6 +2,16 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
+## [1.42.1] — 2026-07-13
+
+### Fixed (updates now reach installed clients)
+- **Content-hashed the bundle filenames** (`taskpane.[hash].js`, dynamic chunks,
+  commands) so each deploy is a URL Office/WebView2 has never cached. Previously
+  the fixed `taskpane.js` name meant Word kept serving a **stale cached bundle**
+  after an update (e.g. the Bio/Assay mode wouldn't appear until the Office web
+  cache was manually cleared). The manifest still points at the fixed
+  `taskpane.html`, whose script reference now updates every release.
+
 ## [1.42.0] — 2026-07-13
 
 ### Added (Bio/Assay mode — quantitative life-science tools)

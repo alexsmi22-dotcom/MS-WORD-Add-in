@@ -2,6 +2,15 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
+## [1.48.1] — 2026-07-13 — Fix OPSIN "HTTP 404" on unrecognized names
+
+- **Chemical mode (online name→structure):** OPSIN answers HTTP 404 with a
+  `FAILURE` JSON body for any name it can't parse — a typo, trade name, or
+  non-systematic name. The lookup treated every non-200 as a service outage and
+  showed the alarming "OPSIN service error (HTTP 404)". It now reads the 404 body
+  and surfaces OPSIN's own explanation (e.g. "… was uninterpretable"); genuine
+  outages (5xx / non-JSON) still report an HTTP-status error. +4 regression tests.
+
 ## [1.48.0] — 2026-07-13 — Life-science release
 
 Release milestone rolling up the life-science expansion (20 tools total):

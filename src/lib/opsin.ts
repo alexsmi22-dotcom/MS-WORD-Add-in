@@ -57,11 +57,16 @@ export async function resolveNameOnline(name: string): Promise<OpsinOutcome> {
   } catch {
     return { ok: false, message: "Couldn't reach the OPSIN service — check your internet connection." };
   }
-  if (!res.ok) return { ok: false, message: `OPSIN service error (HTTP ${res.status}).` };
+  // OPSIN returns HTTP 404 with a `{status:"FAILURE", message}` JSON body for any
+  // name it can't parse — that's "name not recognized," not a service outage. So
+  // read the body first and let parseOpsinResponse surface OPSIN's own message;
+  // only fall back to an HTTP-status error when there is no usable JSON body
+  // (a genuine 5xx / HTML error page).
   let json: unknown;
   try {
     json = await res.json();
   } catch {
+    if (!res.ok) return { ok: false, message: `OPSIN service error (HTTP ${res.status}).` };
     return { ok: false, message: "Unexpected response from the OPSIN service." };
   }
   return parseOpsinResponse(json);

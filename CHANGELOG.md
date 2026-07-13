@@ -2,6 +2,28 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
+## [1.41.0] — 2026-07-13
+
+### Added (compound library — large & complex structures)
+- **100 new named compounds** in the structure dictionary (259 → 359), covering
+  the large/complex molecules the library previously lacked: natural-product
+  pigments and metabolites (**violacein**, indigo, curcumin, resveratrol,
+  quercetin, capsaicin, β-carotene, lycopene, chlorophyll a, genistein,
+  catechin, tannic acid), steroids and hormones (cholesterol, testosterone,
+  estradiol, progesterone, cortisol, prednisone, dexamethasone, aldosterone,
+  cholic acid), alkaloids (morphine, codeine, quinine, atropine, cocaine,
+  strychnine, berberine, reserpine, mescaline, psilocybin), larger drugs
+  (paclitaxel, amoxicillin, penicillin V, tetracycline, warfarin, sildenafil,
+  atorvastatin, omeprazole), and vitamins/cofactors (retinol, cholecalciferol,
+  tocopherol, folic acid, biotin, riboflavin, thiamine, ATP/ADP/AMP/GTP, NAD,
+  FAD, glutathione, heme b).
+- Common **synonym aliases** so users can type the name that comes to mind
+  (e.g. taxol → paclitaxel, l-dopa → levodopa, vitamin A/D/E/B-series letters,
+  heme → heme b, adenosine triphosphate → ATP).
+- Every SMILES is sourced from **PubChem** and validated against OpenChemLib;
+  molecular formulas match PubChem exactly, including the metal-containing
+  chlorophyll a (C55H72MgN4O5) and heme b (C34H32FeN4O4).
+
 ## [1.28.0] — 2026-07-05
 
 ### Added (ST.26 feature annotation)

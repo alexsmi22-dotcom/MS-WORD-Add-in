@@ -4466,7 +4466,9 @@ function updateStatsPreview(): void {
   } catch {
     out = { text: "Could not compute — check the inputs.", ok: false };
   }
-  const insertable = out.ok !== false && !!out.text;
+  // Exclude the "—" no-value sentinel (from a non-finite computation) so a
+  // dash placeholder is never inserted into the document.
+  const insertable = out.ok !== false && !!out.text && !out.text.includes("—");
   statsResult.innerHTML = esc(out.text).replace(/\n/g, "<br>");
   currentStatsText = insertable ? out.text : "";
   statsInsertBtn.disabled = !insertable;
@@ -4907,8 +4909,15 @@ const ASSAY_CALCS: AssayCalc[] = [
       { key: "n", label: "Number of steps", default: "6" },
     ],
     compute: (r) => {
-      const steps = serialDilution(+r("start"), +r("fold"), Math.max(1, Math.floor(+r("n"))));
-      return { text: "Serial dilution\n" + steps.map((s) => `Step ${s.step}: ${assaySig(s.concentration)}`).join("\n") };
+      const start = +r("start");
+      const fold = +r("fold");
+      const n = Math.floor(+r("n"));
+      if (!Number.isFinite(start) || !Number.isFinite(fold) || !Number.isFinite(n) || n < 1) {
+        return { text: "Enter a numeric starting concentration, fold, and step count.", ok: false };
+      }
+      const steps = serialDilution(start, fold, Math.min(n, 50)); // cap to keep the readout sane
+      const note = n > 50 ? `\n(showing first 50 of ${n} steps)` : "";
+      return { text: "Serial dilution\n" + steps.map((s) => `Step ${s.step}: ${assaySig(s.concentration)}`).join("\n") + note };
     },
   },
   {
@@ -5019,7 +5028,9 @@ function updateAssayPreview(): void {
   } catch {
     out = { text: "Could not compute — check the inputs.", ok: false };
   }
-  const insertable = out.ok !== false && !!out.text;
+  // Exclude the "—" no-value sentinel (from a non-finite computation) so a
+  // dash placeholder is never inserted into the document.
+  const insertable = out.ok !== false && !!out.text && !out.text.includes("—");
   assayResult.innerHTML = esc(out.text).replace(/\n/g, "<br>");
 
   // Draw the fitted curve over the raw data when the calculator produced one.

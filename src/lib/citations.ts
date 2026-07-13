@@ -58,15 +58,22 @@ const MONTHS = ["Jan.", "Feb.", "Mar.", "Apr.", "May", "June", "July", "Aug.", "
 /** "2014-06-19" or "6/19/2014" → "June 19, 2014"; other forms pass through. */
 export function formatDate(input: string): string {
   const t = input.trim();
+  // Pass an out-of-range month/day through unchanged rather than fabricating a
+  // date ("2014-13-40" is not silently coerced to "Dec. 40, 2014").
+  const valid = (mo: number, day: number): boolean => mo >= 1 && mo <= 12 && day >= 1 && day <= 31;
   const iso = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(t);
   if (iso) {
-    const m = Math.min(12, Math.max(1, parseInt(iso[2], 10)));
-    return `${MONTHS[m - 1]} ${parseInt(iso[3], 10)}, ${iso[1]}`;
+    const m = parseInt(iso[2], 10);
+    const d = parseInt(iso[3], 10);
+    if (valid(m, d)) return `${MONTHS[m - 1]} ${d}, ${iso[1]}`;
+    return t;
   }
   const us = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(t);
   if (us) {
-    const m = Math.min(12, Math.max(1, parseInt(us[1], 10)));
-    return `${MONTHS[m - 1]} ${parseInt(us[2], 10)}, ${us[3]}`;
+    const m = parseInt(us[1], 10);
+    const d = parseInt(us[2], 10);
+    if (valid(m, d)) return `${MONTHS[m - 1]} ${d}, ${us[3]}`;
+    return t;
   }
   return t;
 }
@@ -573,8 +580,13 @@ function applyT10Geographic(name: string): string {
       const core = seg.replace(/^(?:In re|Ex parte|In the Matter of)\s+/i, "").trim();
       if (STATE_NAMES.has(core.toLowerCase()) || GEO_PARTY_PREFIX.test(core)) return seg;
       let out = seg;
-      for (const [full, abbr] of T10_MULTI) out = out.replace(new RegExp(`\\b${full}\\b`, "g"), abbr);
-      for (const [full, abbr] of T10_SINGLE) out = out.replace(new RegExp(`\\b${full}\\b`, "g"), abbr);
+      // Don't abbreviate a state name that is the first half of a hyphenated
+      // compound proper name (e.g. "Georgia-Pacific", "Roussel-UCLAF") — the
+      // `(?!-)` guard keeps those intact. (A state used as an adjective in a
+      // spaced company name, e.g. "Washington Mutual", is a harder case left
+      // as-is to avoid wrongly suppressing government units like "Mass. Bd.".)
+      for (const [full, abbr] of T10_MULTI) out = out.replace(new RegExp(`\\b${full}\\b(?!-)`, "g"), abbr);
+      for (const [full, abbr] of T10_SINGLE) out = out.replace(new RegExp(`\\b${full}\\b(?!-)`, "g"), abbr);
       return out;
     })
     .join("");

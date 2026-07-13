@@ -180,7 +180,7 @@ export const ADDUCTS: Adduct[] = [
   { name: "[M+H]+", charge: 1, massShift: 1.0078250319 - ELECTRON },
   { name: "[M+Na]+", charge: 1, massShift: 22.98976928 - ELECTRON },
   { name: "[M+K]+", charge: 1, massShift: 38.9637069 - ELECTRON },
-  { name: "[M+NH4]+", charge: 1, massShift: 18.0338254 - ELECTRON },
+  { name: "[M+NH4]+", charge: 1, massShift: 18.0343741 - ELECTRON },
   { name: "[M+2H]2+", charge: 2, massShift: 2 * (1.0078250319 - ELECTRON) },
   { name: "[M-H]-", charge: 1, massShift: -(1.0078250319 - ELECTRON) },
   { name: "[M+Cl]-", charge: 1, massShift: 34.96885271 + ELECTRON },
@@ -222,7 +222,15 @@ export function computeMassSpec(input: string): MassSpecResult | null {
   const monoisotopicMass = mf.absoluteWeight;
   const averageMass = mf.relativeWeight;
   const counts = parseFormula(mf.formula);
-  const { peaks, unsupported } = isotopePattern(counts);
+  const { peaks: rawPeaks, unsupported } = isotopePattern(counts);
+  // The convolution only sums tabled elements, so anchor the peak masses to the
+  // OCL monoisotopic mass (which includes every element) — the M peak lands at
+  // the true mass and each M+n keeps its exact nucleon spacing. Also covers the
+  // all-untabled case, where the raw M peak would otherwise report mass 0.
+  const base = rawPeaks.length ? rawPeaks[0].mass : 0;
+  const peaks = rawPeaks.length
+    ? rawPeaks.map((p) => ({ ...p, mass: monoisotopicMass + (p.mass - base) }))
+    : [{ offset: 0, mass: monoisotopicMass, intensity: 100 }];
   const adducts = ADDUCTS.map((a) => ({ name: a.name, mz: adductMz(monoisotopicMass, a), charge: a.charge }));
 
   return {

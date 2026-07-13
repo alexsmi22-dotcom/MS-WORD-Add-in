@@ -301,6 +301,7 @@ export interface BondRisk {
 /** Price, Macaulay/modified duration, and convexity of a coupon bond. */
 export function bondAnalytics(face: number, couponRate: number, ytm: number, years: number, freq = 2): BondRisk {
   const periods = Math.round(years * freq);
+  if (periods < 1) return { price: NaN, macaulay: NaN, modified: NaN, convexity: NaN };
   const coupon = (face * couponRate) / freq;
   const y = ytm / freq;
   let price = 0;

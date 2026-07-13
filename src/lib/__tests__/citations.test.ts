@@ -442,3 +442,14 @@ describe("bug-check regressions", () => {
     expect(c?.fields.pin).toBe("208—216");
   });
 });
+
+describe("T10 / date fixes", () => {
+  test("a hyphenated compound party keeps its state name (Georgia-Pacific, not Ga.-Pacific)", () => {
+    expect(abbreviateCaseName("Georgia-Pacific Corp. v. United States")).toContain("Georgia-Pacific");
+  });
+  test("formatDate passes impossible dates through unchanged", () => {
+    expect(formatDate("2014-13-40")).toBe("2014-13-40");
+    expect(formatDate("2014-00-00")).toBe("2014-00-00");
+    expect(formatDate("2014-06-19")).toBe("June 19, 2014");
+  });
+});

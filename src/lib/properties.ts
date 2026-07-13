@@ -86,10 +86,12 @@ export function computeProperties(input: string): PhysChemProperties | null {
     /* keep the resolved SMILES */
   }
 
+  // Rule thresholds compare the UNrounded values so a true tPSA of 140.03 or
+  // cLogP of 5.004 isn't rounded down to a pass.
   // Lipinski Rule of Five — poor oral absorption is likely when ≥ 2 fail.
   const lipViolations: string[] = [];
-  if (mw > 500) lipViolations.push("MW > 500");
-  if (logP > 5) lipViolations.push("cLogP > 5");
+  if (mf.relativeWeight > 500) lipViolations.push("MW > 500");
+  if (mp.logP > 5) lipViolations.push("cLogP > 5");
   if (hbd > 5) lipViolations.push("H-bond donors > 5");
   if (hba > 10) lipViolations.push("H-bond acceptors > 10");
   const lipinski: RuleResult = { pass: lipViolations.length <= 1, violations: lipViolations };
@@ -97,7 +99,7 @@ export function computeProperties(input: string): PhysChemProperties | null {
   // Veber — both must hold for good oral bioavailability.
   const veberViolations: string[] = [];
   if (rotatableBonds > 10) veberViolations.push("rotatable bonds > 10");
-  if (tpsa > 140) veberViolations.push("tPSA > 140 Å²");
+  if (mp.polarSurfaceArea > 140) veberViolations.push("tPSA > 140 Å²");
   const veber: RuleResult = { pass: veberViolations.length === 0, violations: veberViolations };
 
   return { smiles, formula: mf.formula, mw, heavyAtoms, logP, logS, tpsa, hbd, hba, rotatableBonds, lipinski, veber };

@@ -102,6 +102,22 @@ describe("evalFormula", () => {
   it("throws on unknown names", () => {
     expect(() => evalFormula("a+z", { a: 1 })).toThrow();
   });
+  it("user variables named e or pi are NOT shadowed by the constants", () => {
+    expect(evalFormula("e", { e: 5 })).toBe(5);
+    expect(evalFormula("pi*2", { pi: 10 })).toBe(20);
+    // With no such variable, the constant is still available.
+    expect(evalFormula("e", {})).toBeCloseTo(Math.E, 6);
+  });
+});
+
+describe("describe edge cases", () => {
+  it("empty input yields all-NaN, not Infinity min/max", () => {
+    const d = describeStats([]);
+    expect(d.n).toBe(0);
+    expect(Number.isNaN(d.min)).toBe(true);
+    expect(Number.isNaN(d.max)).toBe(true);
+    expect(Number.isNaN(d.mean)).toBe(true);
+  });
 });
 
 describe("propagateUncertainty", () => {

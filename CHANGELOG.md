@@ -2,6 +2,31 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
+## [1.47.1] — 2026-07-13
+
+### Fixed (bug sweep — 4-agent adversarial review)
+- **stats: user variables named e or pi were silently shadowed** by the math
+  constants in the uncertainty-propagation evaluator, giving wrong values and a
+  zero error contribution. Variables now win over constants.
+- **massspec: [M+NH4]+ m/z** subtracted the electron mass twice (~0.55 mDa low);
+  and the isotope pattern now anchors peak masses to the true monoisotopic mass
+  so molecules with an untabled element (Fe, Mg…) no longer show an m/z-0 base
+  peak or masses short by that element.
+- **properties: Lipinski/Veber** now test the unrounded values (a true tPSA of
+  140.03 no longer rounds down to a Veber pass).
+- **finance: bondAnalytics** guards maturity < 1 period (was returning NaN via 0/0).
+- **assay/stats: Insert** is disabled when the result is a non-value dash, so a
+  bare em-dash is never inserted; serial-dilution guards non-numeric/huge counts.
+- **peptide: hyphen/space one-letter input** (AC-DE) is read as one-letter codes
+  instead of being dropped as invalid three-letter tokens.
+- **toa: patents + other authorities** no longer emit two consecutive
+  "Other Authorities" headings (both renderers).
+- **citations: hyphenated compound parties** keep their state name
+  (Georgia-Pacific no longer becomes Ga.-Pacific); formatDate passes impossible
+  dates through unchanged.
+- **dna: reverseComplement** keeps RNA as RNA (complement of A is U, not T).
+- 11 regression tests added (1257 total).
+
 ## [1.47.0] — 2026-07-13
 
 ### Added (Stats mode — roadmap #6)

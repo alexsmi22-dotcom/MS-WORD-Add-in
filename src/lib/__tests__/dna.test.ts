@@ -195,3 +195,10 @@ describe("proteinProperties", () => {
     expect(proteinProperties("G*XG").length).toBe(2);
   });
 });
+
+describe("reverseComplement RNA-awareness", () => {
+  test("RNA input stays RNA (complement of A is U, not T)", () => {
+    expect(reverseComplement("AUG")).toBe("CAU");
+    expect(reverseComplement("ATG")).toBe("CAT"); // DNA is unchanged
+  });
+});

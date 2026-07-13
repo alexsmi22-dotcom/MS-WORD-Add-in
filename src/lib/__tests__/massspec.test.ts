@@ -70,6 +70,21 @@ describe("computeMassSpec", () => {
   it("returns null for unresolvable input", () => {
     expect(computeMassSpec("not_a_compound_zzz")).toBeNull();
   });
+
+  it("[M+NH4]+ is one proton/electron correct (no double electron subtraction)", () => {
+    const s = computeMassSpec("aspirin")!;
+    const nh4 = s.adducts.find((a) => a.name === "[M+NH4]+")!;
+    // 180.0423 + (18.0343741 − electron) = 198.0761.
+    expect(nh4.mz).toBeCloseTo(198.0761, 3);
+  });
+
+  it("an all-untabled formula still anchors the M peak to the real mass (no m/z 0)", () => {
+    const s = computeMassSpec("[Fe]")!; // Fe not in the isotope table
+    expect(s.pattern[0].offset).toBe(0);
+    expect(s.pattern[0].mass).toBeCloseTo(s.monoisotopicMass, 3);
+    expect(s.pattern[0].mass).toBeGreaterThan(50);
+    expect(s.unsupportedInPattern).toContain("Fe");
+  });
 });
 
 describe("adductMz", () => {

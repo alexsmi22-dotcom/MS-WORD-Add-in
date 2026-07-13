@@ -399,3 +399,15 @@ describe("toaStaticOoxml", () => {
     expect(xml).toContain('<w:t xml:space="preserve">35 U.S.C. § 101</w:t>');
   });
 });
+
+describe("patents fold into a single Other Authorities heading", () => {
+  const toa = buildTableOfAuthorities(BRIEF);
+  test("static OOXML emits Other Authorities once, not twice", () => {
+    const xml = toaStaticOoxml(toa);
+    expect((xml.match(/Other Authorities/g) || []).length).toBe(1);
+  });
+  test("HTML register emits Other Authorities once", () => {
+    const html = toaToHtml(toa);
+    expect((html.match(/Other Authorities/g) || []).length).toBe(1);
+  });
+});

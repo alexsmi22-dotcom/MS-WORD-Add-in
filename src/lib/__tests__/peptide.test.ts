@@ -68,6 +68,11 @@ describe("parseSequence", () => {
     expect(parseSequence("AXG").invalid).toEqual(["X"]);
     expect(parseSequence("Ala-Xyz").invalid).toEqual(["Xyz"]);
   });
+  it("hyphen/space-separated one-letter codes are read as one-letter, not dropped", () => {
+    expect(parseSequence("AC-DE").codes).toEqual(["A", "C", "D", "E"]);
+    expect(parseSequence("A-C-G").codes).toEqual(["A", "C", "G"]);
+    expect(buildPeptide("AC-DE")!.sequence).toBe("ACDE");
+  });
 });
 
 describe("buildPeptide", () => {

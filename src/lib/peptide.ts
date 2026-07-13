@@ -87,10 +87,12 @@ export function parseSequence(input: string): ParsedSequence {
     return { codes, invalid };
   }
 
-  // Multiple tokens: single-character tokens are a spaced one-letter sequence
-  // ("A C G"); anything longer is three-letter codes ("Ala Gly Ser").
-  if (tokens.every((t) => t.length === 1)) tokens.forEach(pushOne);
-  else tokens.forEach(pushThree);
+  // Multiple tokens: three-letter mode only if some token is a recognized
+  // three-letter code ("Ala Gly Ser"); otherwise it's a spaced or hyphenated
+  // one-letter sequence ("A C G", "AC-DE"), so expand each token per character.
+  const anyThree = tokens.some((t) => t.length === 3 && BY_THREE[t.toUpperCase()]);
+  if (anyThree) tokens.forEach(pushThree);
+  else for (const t of tokens) for (const ch of t) pushOne(ch);
   return { codes, invalid };
 }
 

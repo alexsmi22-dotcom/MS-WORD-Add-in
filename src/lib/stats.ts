@@ -50,6 +50,9 @@ export interface Descriptive {
 /** Full descriptive summary of a sample. */
 export function describe(xs: number[]): Descriptive {
   const n = xs.length;
+  if (n === 0) {
+    return { n: 0, mean: NaN, sd: NaN, sem: NaN, variance: NaN, median: NaN, min: NaN, max: NaN, cv: NaN, ci95: [NaN, NaN] };
+  }
   const m = mean(xs);
   const sd = stdev(xs);
   const sem = sd / Math.sqrt(n);
@@ -352,10 +355,12 @@ export function evalFormula(expr: string, vars: Record<string, number>): number 
         if (!fn) throw new Error(`Unknown function "${name}".`);
         return fn(arg);
       }
+      // User variables win over the built-in constants, so a quantity named
+      // "e" (elementary charge, eccentricity) or "pi" isn't silently shadowed.
+      if (name in vars) return vars[name];
       if (name === "pi") return Math.PI;
       if (name === "e") return Math.E;
-      if (!(name in vars)) throw new Error(`Unknown variable "${name}".`);
-      return vars[name];
+      throw new Error(`Unknown variable "${name}".`);
     }
     const num = /^\d*\.?\d+(?:[eE][+-]?\d+)?/.exec(s.slice(i));
     if (num) {

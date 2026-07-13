@@ -221,3 +221,12 @@ describe("return statistics", () => {
     expect(Number.isFinite(s)).toBe(true);
   });
 });
+
+describe("bondAnalytics degenerate maturity", () => {
+  test("periods < 1 returns a NaN struct instead of dividing by zero", () => {
+    const r = bondAnalytics(1000, 0.05, 0.05, 0, 2);
+    expect(Number.isNaN(r.macaulay)).toBe(true);
+    expect(Number.isNaN(r.modified)).toBe(true);
+    expect(Number.isNaN(r.convexity)).toBe(true);
+  });
+});

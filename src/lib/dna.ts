@@ -55,9 +55,12 @@ export function complement(seq: string): string {
     .join("");
 }
 
-/** Reverse complement — the opposite strand read 5'→3'. */
+/** Reverse complement — the opposite strand read 5'→3'. Keeps RNA as RNA (the
+ *  complement of A in an RNA sequence is U, not T). */
 export function reverseComplement(seq: string): string {
-  return complement(seq).split("").reverse().join("");
+  const isRna = /U/i.test(seq) && !/T/i.test(seq);
+  const rc = complement(seq).split("").reverse().join("");
+  return isRna ? rc.replace(/T/g, "U") : rc;
 }
 
 /** Transcribes a coding (sense) DNA strand to mRNA (T → U). */

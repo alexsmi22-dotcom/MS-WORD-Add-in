@@ -353,8 +353,15 @@ export function toaToHtml(toa: TableOfAuthorities): string {
   // reporter + (court year) on an indented second line (hanging indent).
   const font = "font-family:'Times New Roman',serif;font-size:12pt";
   const parts: string[] = [`<p style="text-align:center;${font}"><b><u>TABLE OF AUTHORITIES</u></b></p>`];
+  let lastHtmlHeading = "";
   for (const g of toa.groups) {
-    parts.push(`<p style="${font}"><b>${esc(g.heading)}</b></p>`);
+    // Patents fold into "Other Authorities"; don't repeat the heading when the
+    // separate "other" group follows.
+    const h = g.category === "patents" ? "Other Authorities" : g.heading;
+    if (h !== lastHtmlHeading) {
+      parts.push(`<p style="${font}"><b>${esc(h)}</b></p>`);
+      lastHtmlHeading = h;
+    }
     for (const e of g.entries) {
       const m = e.html.match(/^<i>([\s\S]*?)<\/i>,\s*([\s\S]*)$/);
       const style = `${font};margin-left:0.5in;text-indent:-0.5in`;
@@ -397,8 +404,15 @@ export function toaStaticOoxml(toa: TableOfAuthorities, pages?: Map<string, stri
   };
 
   const body = [titlePara("TABLE OF AUTHORITIES")];
+  let lastHeading = "";
   for (const g of toa.groups) {
-    body.push(heading(g.category === "patents" ? "Other Authorities" : g.heading));
+    // Patents fold into "Other Authorities"; emit that heading once even when a
+    // separate "other" group follows (avoids two consecutive identical headings).
+    const h = g.category === "patents" ? "Other Authorities" : g.heading;
+    if (h !== lastHeading) {
+      body.push(heading(h));
+      lastHeading = h;
+    }
     for (const e of g.entries) body.push(entryPara(e));
   }
   return wrapOoxml(body.join(""));

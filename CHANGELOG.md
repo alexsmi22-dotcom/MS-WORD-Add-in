@@ -2,6 +2,15 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
+## [1.43.3] — 2026-07-13
+
+### Fixed
+- **2D structures no longer look cluttered for stereo-rich molecules.** Suppressed
+  the OpenChemLib R/S/"abs" stereo-descriptor text tags in the depiction (Chemical
+  and Build modes): on a molecule with many stereocentres (e.g. paclitaxel, 11) the
+  CIP/ESR labels piled onto the bonds and overlapped. Wedge bonds still convey the
+  stereochemistry; query/R-group labels are unaffected.
+
 ## [1.43.2] — 2026-07-13
 
 ### Changed

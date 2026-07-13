@@ -311,8 +311,16 @@ function finish(mol: Molecule, width: number, height: number, needCoords: boolea
     }
   }
   // autoCrop removes OpenChemLib's wide empty margins, keeping the structure at
-  // its natural drawn size with the surrounding whitespace trimmed.
-  const svg = mol.toSVG(width, height, undefined, { autoCrop: true, autoCropMargin: 8 });
+  // its natural drawn size with the surrounding whitespace trimmed. The stereo
+  // R/S/"abs" text tags are suppressed (wedge bonds already show configuration;
+  // the tags clutter dense structures) — query/R-group labels are unaffected.
+  const svg = mol.toSVG(width, height, undefined, {
+    autoCrop: true,
+    autoCropMargin: 8,
+    suppressChiralText: true,
+    suppressCIPParity: true,
+    suppressESR: true,
+  });
   const generic = mol.isFragment();
   let smiles = "";
   try {

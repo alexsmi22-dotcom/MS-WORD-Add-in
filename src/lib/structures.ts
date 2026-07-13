@@ -122,7 +122,16 @@ export function renderStructure(input: string, width = 280, height = 220): Struc
   // autoCrop trims the wide empty margins OpenChemLib leaves around a molecule
   // (the structure itself is drawn at its natural size — we just remove the
   // surrounding whitespace so the inserted image is tight to the structure).
-  const svg = mol.toSVG(width, height, undefined, { autoCrop: true, autoCropMargin: 8 });
+  // Suppress the R/S/"abs" stereo-descriptor text labels: the wedge bonds already
+  // convey stereochemistry, and on a stereo-rich molecule (e.g. paclitaxel, 11
+  // centres) the CIP/ESR tags pile onto the bonds and read as overlapping clutter.
+  const svg = mol.toSVG(width, height, undefined, {
+    autoCrop: true,
+    autoCropMargin: 8,
+    suppressChiralText: true,
+    suppressCIPParity: true,
+    suppressESR: true,
+  });
 
   // Provenance: canonical SMILES, OCL ID code, formula, and molecular weight.
   let canonicalSmiles = smiles;

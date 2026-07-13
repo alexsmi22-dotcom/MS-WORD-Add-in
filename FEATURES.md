@@ -30,6 +30,7 @@ inserted, and the **Examples & syntax** panel updates to match the selected tool
 - **Stereochemistry** — isomeric SMILES (`C[C@@H](N)C(=O)O`) drawn with wedges.
 - Each inserted structure carries provenance (formula / MW / canonical SMILES / OCL ID) in its alt-text.
 - **Physicochemical properties & druglikeness** — for any resolved structure, a readout of **cLogP**, **logS**, **topological PSA**, **H-bond donors/acceptors**, **rotatable bonds**, and **heavy-atom count**, plus the **Lipinski Rule of Five** and **Veber** oral-druglikeness screens (with the specific criteria that pass/fail). Insert the summary at the cursor. Estimated offline (OpenChemLib) — no server, no license tier.
+- **Online name resolution (opt-in)** — for a full **systematic IUPAC name** the offline dictionary doesn't know (e.g. *2-amino-3-(1H-indol-3-yl)propanoic acid*), a **“Resolve name online”** button parses it via the EMBL-EBI **OPSIN** service and draws the result (also reporting its **InChIKey**). This is the **only** feature that leaves your machine: it's off until you click it, shows a **consent prompt** naming the service before the name is sent over the internet, and warns against use for confidential names. Everything else stays fully offline.
 
 ## ∑ Math (native Word equations)
 - Fractions, super/subscripts, roots (`sqrt`, n-th `root`), `Σ`/`∫`/`∏`, limits, `|x|`, accents (`bar`/`hat`/`vec`), factorials, implicit multiplication, full Greek.

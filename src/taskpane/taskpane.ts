@@ -53,6 +53,7 @@ import {
 } from "../lib/finance";
 import { renderStructure, nameForIdcode, StructureResult } from "../lib/structures";
 import { computeProperties, PhysChemProperties, RuleResult } from "../lib/properties";
+import { resolveNameOnline, OpsinResult } from "../lib/opsin";
 import { build, BuildFormat, BuildResult } from "../lib/builder";
 import { formatCodeBlock, CodeStyle } from "../lib/codeblock";
 import {
@@ -206,6 +207,16 @@ let structurePropsEl: HTMLElement;
 let insertPropsBtn: HTMLButtonElement;
 /** Physicochemical properties of the most recently resolved structure. */
 let currentProperties: PhysChemProperties | null = null;
+let opsinBtn: HTMLButtonElement;
+let opsinConfirm: HTMLElement;
+let opsinConfirmText: HTMLElement;
+let opsinContinueBtn: HTMLButtonElement;
+let opsinCancelBtn: HTMLButtonElement;
+let opsinStatusEl: HTMLElement;
+/** Online-lookup consent is per-session (re-prompted each Word session) and the
+ *  name awaiting confirmation, so the network call never fires without a click. */
+let opsinConsentedThisSession = false;
+let opsinPendingName = "";
 let libraryRow: HTMLElement;
 let libCategorySelect: HTMLSelectElement;
 let libFormulaSelect: HTMLSelectElement;
@@ -454,6 +465,12 @@ Office.onReady((info) => {
   structureInfo = document.getElementById("structure-info") as HTMLElement;
   structurePropsEl = document.getElementById("structure-props") as HTMLElement;
   insertPropsBtn = document.getElementById("insert-props-btn") as HTMLButtonElement;
+  opsinBtn = document.getElementById("opsin-btn") as HTMLButtonElement;
+  opsinConfirm = document.getElementById("opsin-confirm") as HTMLElement;
+  opsinConfirmText = document.getElementById("opsin-confirm-text") as HTMLElement;
+  opsinContinueBtn = document.getElementById("opsin-continue") as HTMLButtonElement;
+  opsinCancelBtn = document.getElementById("opsin-cancel") as HTMLButtonElement;
+  opsinStatusEl = document.getElementById("opsin-status") as HTMLElement;
   libraryRow = document.getElementById("library-row") as HTMLElement;
   libCategorySelect = document.getElementById("lib-category") as HTMLSelectElement;
   libFormulaSelect = document.getElementById("lib-formula") as HTMLSelectElement;
@@ -639,6 +656,16 @@ Office.onReady((info) => {
   insertStructureBtn.addEventListener("click", insertStructure);
   insertNameBtn.addEventListener("click", () => insertDnaText(currentStructureName, "Name"));
   insertPropsBtn.addEventListener("click", () => insertDnaText(propertiesAsText(currentProperties), "Properties"));
+  opsinBtn.addEventListener("click", onOpsinClick);
+  opsinContinueBtn.addEventListener("click", () => {
+    opsinConfirm.hidden = true;
+    opsinConsentedThisSession = true;
+    void doOpsinLookup(opsinPendingName);
+  });
+  opsinCancelBtn.addEventListener("click", () => {
+    opsinConfirm.hidden = true;
+    setOpsinStatus("");
+  });
   numberCheckbox.addEventListener("change", updateNumberLabel);
   numberReset.addEventListener("click", () => {
     resetFormulaNumbering();
@@ -2291,6 +2318,9 @@ async function insertTraitTable(): Promise<void> {
 function updateStructurePreview(): void {
   const text = inputEl.value.trim();
   currentStructure = null;
+  // Editing the name invalidates any prior online lookup / pending consent.
+  opsinConfirm.hidden = true;
+  setOpsinStatus("");
 
   if (!text) {
     showStructureHint("Type a name, formula, or SMILES to see its structure.");
@@ -2457,6 +2487,76 @@ function propertiesAsText(p: PhysChemProperties | null): string {
     ruleVerdict("Veber rule", p.veber),
     "Estimated values (OpenChemLib) — verify before relying on them.",
   ].join("\n");
+}
+
+function setOpsinStatus(message: string, kind: "" | "error" | "success" = ""): void {
+  opsinStatusEl.textContent = message;
+  opsinStatusEl.className = kind ? `opsin-status ${kind}` : "opsin-status";
+}
+
+/**
+ * Handles the "Resolve name online" button. On the first use this session it
+ * shows the in-pane consent step (an Office add-in can't rely on window.confirm);
+ * once consented, subsequent lookups go straight through.
+ */
+function onOpsinClick(): void {
+  const name = inputEl.value.trim();
+  if (!name) {
+    setOpsinStatus("Type a name in the box above first.", "error");
+    return;
+  }
+  if (opsinConsentedThisSession) {
+    void doOpsinLookup(name);
+    return;
+  }
+  // Consent gate: the name is about to leave the machine — make that explicit.
+  opsinPendingName = name;
+  opsinConfirmText.textContent =
+    `Send “${name}” to the EMBL-EBI OPSIN service over the internet to resolve its structure? ` +
+    `Don't do this for confidential compound names.`;
+  opsinConfirm.hidden = false;
+  setOpsinStatus("");
+}
+
+/** Calls OPSIN for `name` and renders the returned structure (offline depiction). */
+async function doOpsinLookup(name: string): Promise<void> {
+  opsinBtn.disabled = true;
+  setOpsinStatus(`Looking up “${name}” online…`);
+  try {
+    const outcome = await resolveNameOnline(name);
+    if (!outcome.ok) {
+      setOpsinStatus(outcome.message, "error");
+      return;
+    }
+    renderResolvedSmiles(outcome.result, name);
+  } finally {
+    opsinBtn.disabled = false;
+  }
+}
+
+/** Depicts an OPSIN-resolved SMILES in the structure preview (all offline from here). */
+function renderResolvedSmiles(result: OpsinResult, name: string): void {
+  let structure: ReturnType<typeof renderStructure> = null;
+  try {
+    structure = renderStructure(result.smiles, STRUCTURE_W, STRUCTURE_H);
+  } catch {
+    structure = null;
+  }
+  if (!structure) {
+    setOpsinStatus(`OPSIN parsed “${name}” but its structure couldn't be drawn.`, "error");
+    return;
+  }
+  currentStructure = structure;
+  structurePreviewEl.innerHTML = structure.svg;
+  renderStructureInfo(structure.formula, structure.mw, structure.smiles);
+  renderProperties(result.smiles);
+  insertStructureBtn.disabled = false;
+  // The user typed the name, so offer it for insertion directly.
+  currentStructureName = name;
+  structureNameEl.textContent = `Name: ${name}`;
+  insertNameBtn.disabled = false;
+  const key = result.inchikey ? ` · InChIKey ${result.inchikey}` : "";
+  setOpsinStatus(`Resolved “${name}” via OPSIN.${key}`, "success");
 }
 
 function setStatus(message: string, kind: "" | "error" | "success" = ""): void {

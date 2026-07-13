@@ -2,6 +2,21 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
+## [1.44.0] — 2026-07-13
+
+### Added (opt-in online name→structure — roadmap #2)
+- **Resolve arbitrary IUPAC names via the EMBL-EBI OPSIN service.** When the
+  offline dictionary does not know a systematic name, a **Resolve name online**
+  button (Chemical mode) parses it through OPSIN and draws the returned structure
+  offline, reporting its InChIKey. There is no offline OPSIN build, so this is the
+  ONE feature that leaves the machine — it is **strictly opt-in**: off until
+  clicked, gated behind an **in-pane consent prompt** (Office add-ins can not rely
+  on window.confirm) that names the service before the name is sent, consent is
+  **per-session**, and it warns against use for confidential names.
+- New  (pure URL builder + response parser unit-tested; only the
+  fetch touches the network). Verified the service is CORS-enabled for the add-in
+  origin. 5 tests (1193 total).
+
 ## [1.43.3] — 2026-07-13
 
 ### Fixed

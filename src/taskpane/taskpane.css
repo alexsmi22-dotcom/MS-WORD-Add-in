@@ -706,6 +706,56 @@ h1 {
   color: var(--muted);
 }
 
+/* Opt-in online name lookup (OPSIN) — the one feature that leaves the machine. */
+.opsin-block {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.opsin-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+.opsin-note {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.opsin-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 9px;
+  background: var(--bg-soft);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+.opsin-confirm[hidden] {
+  display: none;
+}
+.opsin-confirm-text {
+  font-size: 12px;
+  color: var(--text);
+  line-height: 1.4;
+}
+.opsin-confirm-actions {
+  display: flex;
+  gap: 8px;
+}
+.opsin-status {
+  font-size: 12px;
+  color: var(--muted);
+}
+.opsin-status.error {
+  color: #a4262c;
+}
+.opsin-status.success {
+  color: #197a48;
+}
+
 .build-rgroups {
   margin: 8px 0 4px;
 }

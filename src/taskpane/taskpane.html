@@ -148,6 +148,23 @@
           <button id="insert-props-btn" class="insert-btn secondary" type="button" disabled>
             Insert properties
           </button>
+
+          <div id="opsin-block" class="opsin-block">
+            <div class="opsin-title">Can't find it offline?</div>
+            <button id="opsin-btn" class="insert-btn secondary" type="button">Resolve name online (OPSIN)</button>
+            <div class="opsin-note">
+              Uses the EMBL-EBI OPSIN web service — the typed name is sent over the internet.
+              Don't use for confidential compound names.
+            </div>
+            <div id="opsin-confirm" class="opsin-confirm" hidden>
+              <div id="opsin-confirm-text" class="opsin-confirm-text"></div>
+              <div class="opsin-confirm-actions">
+                <button id="opsin-continue" class="insert-btn" type="button">Continue online</button>
+                <button id="opsin-cancel" class="insert-btn secondary" type="button">Cancel</button>
+              </div>
+            </div>
+            <div id="opsin-status" class="opsin-status" aria-live="polite"></div>
+          </div>
         </section>
       </section>
 

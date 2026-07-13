@@ -67,3 +67,14 @@ describe("formatTraitTableHtml", () => {
     expect(formatTraitTableHtml("  \n ")).toBe("");
   });
 });
+
+describe("botanical infraspecific-after-author fix", () => {
+  it("italicizes an infraspecific epithet even after an author citation", () => {
+    expect(formatBotanicalNameHtml("Quercus robur L. subsp. robur")).toBe(
+      "<i>Quercus</i> <i>robur</i> L. subsp. <i>robur</i>"
+    );
+    expect(formatBotanicalNameHtml("Rosa canina L. var. dumalis")).toBe(
+      "<i>Rosa</i> <i>canina</i> L. var. <i>dumalis</i>"
+    );
+  });
+});

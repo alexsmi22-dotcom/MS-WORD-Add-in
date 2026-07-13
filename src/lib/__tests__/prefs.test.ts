@@ -39,3 +39,42 @@ describe("prefs", () => {
     expect(() => setPref("calloutParens", true)).not.toThrow();
   });
 });
+
+describe("prefs value validation", () => {
+  const realLs = (globalThis as { localStorage?: unknown }).localStorage;
+  afterEach(() => {
+    (globalThis as { localStorage?: unknown }).localStorage = realLs;
+  });
+
+  it("falls back to defaults for present-but-invalid stored values", () => {
+    const store: Record<string, string> = {
+      "formula-inserter.prefs": JSON.stringify({ calloutParens: "yes", dnaFrame: "north", legendFormat: "bogus" }),
+    };
+    (globalThis as { localStorage?: unknown }).localStorage = {
+      getItem: (k: string) => store[k] ?? null,
+      setItem: (k: string, v: string) => {
+        store[k] = v;
+      },
+    };
+    const p = getPrefs();
+    expect(p.calloutParens).toBe(DEFAULT_PREFS.calloutParens);
+    expect(p.dnaFrame).toBe(DEFAULT_PREFS.dnaFrame);
+    expect(p.legendFormat).toBe(DEFAULT_PREFS.legendFormat);
+  });
+
+  it("keeps a valid non-default value", () => {
+    const store: Record<string, string> = {
+      "formula-inserter.prefs": JSON.stringify({ calloutParens: false, dnaFrame: -2, legendFormat: "table" }),
+    };
+    (globalThis as { localStorage?: unknown }).localStorage = {
+      getItem: (k: string) => store[k] ?? null,
+      setItem: (k: string, v: string) => {
+        store[k] = v;
+      },
+    };
+    const p = getPrefs();
+    expect(p.calloutParens).toBe(false);
+    expect(p.dnaFrame).toBe(-2);
+    expect(p.legendFormat).toBe("table");
+  });
+});

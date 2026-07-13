@@ -2,6 +2,26 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
+## [1.47.3] — 2026-07-13
+
+### Fixed (second bug-review round — under-covered modules)
+- **LaTeX import: bare delimiter commands** (langle, angle, lfloor,
+  lceil, ert, …) now render as their glyphs instead of the literal words
+  "langle"/"rfloor" — fixes bra-ket and floor/ceil import.
+- **LaTeX import: a script after a fraction** binds to the whole fraction:
+  rac{a}{b}^2 → (a/b)², not a/(b²).
+- **Botanical: an infraspecific epithet after an author** is now italicized
+  ("Quercus robur L. subsp. *robur*") — the sticky roman flag no longer suppresses
+  it.
+- **Prefs: present-but-invalid stored values** fall back to defaults (type/domain
+  validated) instead of propagating (e.g. a corrupt dnaFrame).
+- +8 regression tests (1262 total).
+
+### Known limitations (documented, low value / import-only best-effort)
+- LaTeX import: set braces { }, a big-operator body scope (∑…+y), and
+  delimiter *shape* under leftight are approximate; the import is a
+  labeled best-effort — verify the result.
+
 ## [1.47.2] — 2026-07-13
 
 ### Fixed

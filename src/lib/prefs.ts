@@ -28,7 +28,17 @@ export function getPrefs(): Prefs {
     const raw = localStorage.getItem(KEY);
     const parsed = raw ? JSON.parse(raw) : {};
     if (!parsed || typeof parsed !== "object") return { ...DEFAULT_PREFS };
-    return { ...DEFAULT_PREFS, ...(parsed as Partial<Prefs>) };
+    const p = parsed as Partial<Prefs>;
+    // Validate each value's type/domain; a present-but-invalid value (corrupt
+    // storage, older schema) falls back to the default rather than propagating.
+    return {
+      calloutParens: typeof p.calloutParens === "boolean" ? p.calloutParens : DEFAULT_PREFS.calloutParens,
+      dnaFrame:
+        typeof p.dnaFrame === "number" && Number.isInteger(p.dnaFrame) && Math.abs(p.dnaFrame) >= 1 && Math.abs(p.dnaFrame) <= 3
+          ? p.dnaFrame
+          : DEFAULT_PREFS.dnaFrame,
+      legendFormat: p.legendFormat === "line" || p.legendFormat === "table" ? p.legendFormat : DEFAULT_PREFS.legendFormat,
+    };
   } catch {
     return { ...DEFAULT_PREFS };
   }

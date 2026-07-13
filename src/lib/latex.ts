@@ -38,6 +38,10 @@ const SIMPLE: Record<string, string> = {
   // Calculus / misc
   partial: "∂", nabla: "∇", infty: "∞", prime: "′", circ: "∘", bullet: "•",
   ldots: "…", cdots: "⋯", dots: "…", angle: "∠", hbar: "ℏ", ell: "ℓ", Re: "ℜ", Im: "ℑ",
+  // Delimiters used bare (not inside \left…\right) — otherwise the fallback
+  // would emit the literal command letters ("langle", "rfloor", …).
+  langle: "⟨", rangle: "⟩", lfloor: "⌊", rfloor: "⌋", lceil: "⌈", rceil: "⌉",
+  vert: "|", Vert: "‖", backslash: "\\",
   // Blackboard-bold number sets
   mathbbR: "ℝ", mathbbZ: "ℤ", mathbbN: "ℕ", mathbbQ: "ℚ", mathbbC: "ℂ",
   // Spacing → dropped
@@ -174,7 +178,9 @@ export function latexToDsl(src: string): string {
       if (!a && !b) return "";
       if (!b) return a;
       if (!a) return b;
-      return "{" + a + "}/{" + b + "}";
+      // Wrap the whole fraction in an (invisible) group so a following script
+      // binds to it: "\frac{a}{b}^2" → (a/b)², not a/(b²).
+      return "{{" + a + "}/{" + b + "}}";
     }
     if (name === "binom") return "binom(" + group() + ", " + group() + ")";
     if (name === "sqrt") {

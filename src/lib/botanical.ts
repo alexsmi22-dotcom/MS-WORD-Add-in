@@ -73,6 +73,16 @@ export function parseBotanicalName(input: string): NamePart[] {
     const t = tokens[i];
     const low = t.toLowerCase();
 
+    // An infraspecific rank connector (subsp./var./f./…) is always followed by an
+    // italic epithet — even after an author citation set `roman` — so handle it
+    // first and clear the sticky roman flag.
+    if (RANK_CONNECTORS.has(low)) {
+      parts.push({ text: t, italic: false });
+      epithetNext = true;
+      roman = false;
+      continue;
+    }
+
     if (roman) {
       parts.push({ text: t, italic: false });
     } else if (isQuoted(t)) {
@@ -81,9 +91,6 @@ export function parseBotanicalName(input: string): NamePart[] {
     } else if (low === "cv.") {
       parts.push({ text: t, italic: false });
       roman = true;
-    } else if (RANK_CONNECTORS.has(low)) {
-      parts.push({ text: t, italic: false });
-      epithetNext = true;
     } else if (UNRANKED.has(low)) {
       parts.push({ text: t, italic: false });
       roman = true;

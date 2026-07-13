@@ -11,8 +11,23 @@ function expectRenders(latex: string): string {
 
 describe("latexToDsl", () => {
   it("translates fractions", () => {
-    expect(latexToDsl("\\frac{a}{b}")).toBe("{a}/{b}");
-    expect(latexToDsl("\\frac12")).toBe("{1}/{2}");
+    // The whole fraction is wrapped in an invisible group so a trailing script
+    // binds to it (see "binds a trailing script to the whole fraction" below).
+    expect(latexToDsl("\\frac{a}{b}")).toBe("{{a}/{b}}");
+    expect(latexToDsl("\\frac12")).toBe("{{1}/{2}}");
+  });
+
+  it("binds a trailing script to the whole fraction, not the denominator", () => {
+    // (a/b)² — the group wraps the fraction so ^2 applies to it, not to b.
+    expect(latexToDsl("\\frac{a}{b}^2")).toBe("{{a}/{b}}^{2}");
+    expect(() => mathToOmml(latexToDsl("\\frac{a}{b}^2"))).not.toThrow();
+  });
+
+  it("renders bare delimiter commands as their glyphs, not literal words", () => {
+    expect(latexToDsl("\\langle x \\rangle")).toBe("⟨x⟩");
+    expect(latexToDsl("\\lfloor x \\rfloor")).toBe("⌊x⌋");
+    expect(latexToDsl("\\lceil x \\rceil")).toBe("⌈x⌉");
+    expect(latexToDsl("\\langle \\psi | \\phi \\rangle")).toBe("⟨ψ|φ⟩");
   });
 
   it("translates roots", () => {
@@ -26,7 +41,7 @@ describe("latexToDsl", () => {
   });
 
   it("keeps multi-digit numbers and decimals intact", () => {
-    expect(latexToDsl("\\frac{10}{20}")).toBe("{10}/{20}");
+    expect(latexToDsl("\\frac{10}{20}")).toBe("{{10}/{20}}");
     expect(latexToDsl("x^{100}")).toBe("x^{100}");
     expect(latexToDsl("3.14r")).toBe("3.14r");
     expect(mathToOmml(latexToDsl("\\frac{100}{25}"))).toContain("100");

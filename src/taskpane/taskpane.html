@@ -40,6 +40,7 @@
             <option value="math">Math</option>
             <option value="units">Units</option>
             <option value="plot">Plot</option>
+            <option value="stats">Stats</option>
           </optgroup>
           <optgroup label="Data &amp; figures">
             <option value="ppt">Table → Chart</option>
@@ -567,6 +568,22 @@
           <div id="fin-result" class="preview" aria-live="polite"></div>
         </div>
         <button id="fin-insert" class="insert-btn" type="button" disabled>Insert result</button>
+      </section>
+
+      <!-- Statistics & uncertainty -->
+      <section id="stats-section">
+        <p class="seq-disclaimer">
+          Statistics &amp; uncertainty — descriptive stats, t-tests, ANOVA, regression, and error
+          propagation, computed offline. Analysis aid — verify before publishing.
+        </p>
+        <label class="field-label" for="stats-calc">Test</label>
+        <select id="stats-calc" class="lib-select"></select>
+        <div id="stats-inputs"></div>
+        <div class="preview-wrap">
+          <span class="preview-label">Result</span>
+          <div id="stats-result" class="preview" aria-live="polite"></div>
+        </div>
+        <button id="stats-insert" class="insert-btn" type="button" disabled>Insert result</button>
       </section>
 
       <!-- Peptide: draw a 2D structure from a sequence -->

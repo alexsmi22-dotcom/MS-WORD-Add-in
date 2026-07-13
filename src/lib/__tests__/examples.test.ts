@@ -20,6 +20,7 @@ const MODES: ExampleMode[] = [
   "assay",
   "massspec",
   "peptide",
+  "stats",
 ];
 
 describe("MODE_EXAMPLES", () => {
@@ -55,5 +56,6 @@ describe("MODE_EXAMPLES", () => {
     expect(MODE_EXAMPLES.assay).toContain("IC50");
     expect(MODE_EXAMPLES.massspec).toContain("monoisotopic");
     expect(MODE_EXAMPLES.peptide).toContain("One-letter");
+    expect(MODE_EXAMPLES.stats).toContain("ANOVA");
   });
 });

@@ -56,6 +56,17 @@ import { computeProperties, PhysChemProperties, RuleResult } from "../lib/proper
 import { resolveNameOnline, OpsinResult } from "../lib/opsin";
 import { computeMassSpec, MassSpecResult } from "../lib/massspec";
 import { buildPeptide } from "../lib/peptide";
+import {
+  describe as statDescribe,
+  twoSampleTTest,
+  pairedTTest,
+  oneWayAnova,
+  linearRegression as statRegression,
+  propagateUncertainty,
+  reportT,
+  reportF,
+  formatP,
+} from "../lib/stats";
 import { build, BuildFormat, BuildResult } from "../lib/builder";
 import { formatCodeBlock, CodeStyle } from "../lib/codeblock";
 import {
@@ -165,6 +176,7 @@ type Mode =
   | "assay"
   | "massspec"
   | "peptide"
+  | "stats"
   | "build"
   | "code"
   | "sequence"
@@ -387,6 +399,12 @@ let msResult: HTMLElement;
 let msInsertBtn: HTMLButtonElement;
 /** MS readout for the most recent input, for insertion. */
 let currentMassSpec: MassSpecResult | null = null;
+let statsSection: HTMLElement;
+let statsCalcSelect: HTMLSelectElement;
+let statsInputs: HTMLElement;
+let statsResult: HTMLElement;
+let statsInsertBtn: HTMLButtonElement;
+let currentStatsText = "";
 let peptideSection: HTMLElement;
 let pepInput: HTMLTextAreaElement;
 let pepPreview: HTMLElement;
@@ -639,6 +657,11 @@ Office.onReady((info) => {
   msInput = document.getElementById("ms-input") as HTMLInputElement;
   msResult = document.getElementById("ms-result") as HTMLElement;
   msInsertBtn = document.getElementById("ms-insert") as HTMLButtonElement;
+  statsSection = document.getElementById("stats-section") as HTMLElement;
+  statsCalcSelect = document.getElementById("stats-calc") as HTMLSelectElement;
+  statsInputs = document.getElementById("stats-inputs") as HTMLElement;
+  statsResult = document.getElementById("stats-result") as HTMLElement;
+  statsInsertBtn = document.getElementById("stats-insert") as HTMLButtonElement;
   peptideSection = document.getElementById("peptide-section") as HTMLElement;
   pepInput = document.getElementById("pep-input") as HTMLTextAreaElement;
   pepPreview = document.getElementById("pep-preview") as HTMLElement;
@@ -775,6 +798,10 @@ Office.onReady((info) => {
   pepInput.addEventListener("input", updatePeptide);
   pepInsertBtn.addEventListener("click", insertPeptide);
 
+  populateStatsCalcs();
+  statsCalcSelect.addEventListener("change", renderStatsInputs);
+  statsInsertBtn.addEventListener("click", () => insertDnaText(currentStatsText, "Statistics"));
+
   populateAssayCalcs();
   assayCalcSelect.addEventListener("change", renderAssayInputs);
   assayInsertBtn.addEventListener("click", () => insertDnaText(currentAssayText, "Assay result"));
@@ -869,6 +896,7 @@ const HOME_GROUPS: HomeGroup[] = [
       { mode: "math", icon: "∑", label: "Math", desc: "Native equations, LaTeX" },
       { mode: "units", icon: "📏", label: "Units", desc: "SI typesetting & conversion" },
       { mode: "plot", icon: "📈", label: "Plot", desc: "Function & data charts" },
+      { mode: "stats", icon: "📐", label: "Stats", desc: "Descriptive, t-tests, ANOVA, uncertainty" },
     ],
   },
   {
@@ -1406,7 +1434,7 @@ function onInputChanged(): void {
     for (const s of [
       formatSection, buildSection, codeSection, sequenceSection, botanicalSection, numeralsSection,
       dnaSection, reactionSection, auditSection, unitsSection, refsSection, citationsSection,
-      plotSection, financeSection, assaySection, massspecSection, peptideSection, pptSection,
+      plotSection, financeSection, assaySection, massspecSection, peptideSection, statsSection, pptSection,
     ]) {
       s.style.display = "none";
     }
@@ -1432,6 +1460,7 @@ function onInputChanged(): void {
   assaySection.style.display = mode === "assay" ? "block" : "none";
   massspecSection.style.display = mode === "massspec" ? "block" : "none";
   peptideSection.style.display = mode === "peptide" ? "block" : "none";
+  statsSection.style.display = mode === "stats" ? "block" : "none";
   pptSection.style.display = mode === "ppt" ? "block" : "none";
 
   if (mode === "units") {
@@ -1469,6 +1498,10 @@ function onInputChanged(): void {
   }
   if (mode === "peptide") {
     updatePeptide();
+    return;
+  }
+  if (mode === "stats") {
+    if (!statsInputs.children.length) renderStatsInputs();
     return;
   }
   if (mode === "numerals") {
@@ -4190,6 +4223,253 @@ function updateFinancePreview(): void {
   }
   currentFinText = insertable ? text : "";
   finInsertBtn.disabled = !insertable;
+}
+
+// ---------------------------------------------------------------------------
+// Statistics & uncertainty
+// ---------------------------------------------------------------------------
+
+interface StatField {
+  key: string;
+  label: string;
+  default: string;
+  kind: "list" | "groups" | "vars" | "text" | "select";
+  options?: { value: string; label: string }[];
+}
+interface StatOutput {
+  text: string;
+  /** False for a validation message (blocks insertion). */
+  ok?: boolean;
+}
+interface StatCalc {
+  id: string;
+  name: string;
+  fields: StatField[];
+  compute: (read: (k: string) => string) => StatOutput;
+}
+
+function statList(s: string): number[] {
+  return s
+    .split(/[\s,]+/)
+    .filter(Boolean)
+    .map(Number)
+    .filter((n) => !Number.isNaN(n));
+}
+function statGroups(s: string): number[][] {
+  return s
+    .split(/\n\s*\n|;/)
+    .map((g) => statList(g))
+    .filter((g) => g.length > 0);
+}
+function statVars(s: string): Record<string, { value: number; uncertainty: number }> {
+  const out: Record<string, { value: number; uncertainty: number }> = {};
+  for (const line of s.split(/[\n;]+/)) {
+    const m = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(-?[\d.eE+]+)\s*(?:±|\+\/-|\+-)\s*([\d.eE+]+)\s*$/.exec(line);
+    if (m) out[m[1]] = { value: parseFloat(m[2]), uncertainty: parseFloat(m[3]) };
+  }
+  return out;
+}
+
+const STAT_CALCS: StatCalc[] = [
+  {
+    id: "descriptive",
+    name: "Descriptive statistics",
+    fields: [{ key: "data", label: "Data (numbers)", default: "2, 4, 4, 4, 5, 5, 7, 9", kind: "list" }],
+    compute: (r) => {
+      const xs = statList(r("data"));
+      if (xs.length < 2) return { text: "Enter at least two numbers.", ok: false };
+      const d = statDescribe(xs);
+      return {
+        text:
+          `Descriptive statistics (n = ${d.n})\n` +
+          `Mean = ${assaySig(d.mean)} ± ${assaySig(d.sem, 3)} (SEM)\n` +
+          `SD = ${assaySig(d.sd)} · Variance = ${assaySig(d.variance)}\n` +
+          `Median = ${assaySig(d.median)} · Min = ${assaySig(d.min)} · Max = ${assaySig(d.max)}\n` +
+          `95% CI = [${assaySig(d.ci95[0])}, ${assaySig(d.ci95[1])}]\n` +
+          `CV = ${(d.cv * 100).toFixed(1)}%`,
+      };
+    },
+  },
+  {
+    id: "twosample",
+    name: "Two-sample t-test",
+    fields: [
+      { key: "a", label: "Group A", default: "5.1, 4.9, 6.2, 5.7, 5.5", kind: "list" },
+      { key: "b", label: "Group B", default: "6.3, 6.8, 7.1, 6.4, 7.0", kind: "list" },
+      {
+        key: "type",
+        label: "Variance assumption",
+        default: "welch",
+        kind: "select",
+        options: [
+          { value: "welch", label: "Welch (unequal)" },
+          { value: "student", label: "Student (pooled)" },
+        ],
+      },
+    ],
+    compute: (r) => {
+      const a = statList(r("a"));
+      const b = statList(r("b"));
+      if (a.length < 2 || b.length < 2) return { text: "Enter at least two numbers per group.", ok: false };
+      const res = twoSampleTTest(a, b, r("type") === "student");
+      const label = r("type") === "student" ? "Student's" : "Welch's";
+      return { text: `${label} two-sample t-test\n${reportT(res)}\nMean difference = ${assaySig(res.meanDifference)}` };
+    },
+  },
+  {
+    id: "paired",
+    name: "Paired t-test",
+    fields: [
+      { key: "a", label: "Condition 1", default: "5, 6, 7, 8", kind: "list" },
+      { key: "b", label: "Condition 2 (paired)", default: "4, 4, 6, 5", kind: "list" },
+    ],
+    compute: (r) => {
+      const a = statList(r("a"));
+      const b = statList(r("b"));
+      if (a.length < 2 || a.length !== b.length) return { text: "Enter two equal-length paired lists (≥ 2).", ok: false };
+      const res = pairedTTest(a, b);
+      return { text: `Paired t-test\n${reportT(res)}\nMean difference = ${assaySig(res.meanDifference)}` };
+    },
+  },
+  {
+    id: "anova",
+    name: "One-way ANOVA",
+    fields: [
+      {
+        key: "groups",
+        label: "Groups (blank line or ; between groups)",
+        default: "1 2 3\n4 5 6\n7 8 9",
+        kind: "groups",
+      },
+    ],
+    compute: (r) => {
+      const groups = statGroups(r("groups"));
+      if (groups.length < 2) return { text: "Enter at least two groups (separate with a blank line).", ok: false };
+      const res = oneWayAnova(groups);
+      return { text: `One-way ANOVA (${groups.length} groups)\n${reportF(res)}` };
+    },
+  },
+  {
+    id: "regression",
+    name: "Linear regression",
+    fields: [
+      { key: "x", label: "x values", default: "1, 2, 3, 4, 5", kind: "list" },
+      { key: "y", label: "y values", default: "2.1, 3.9, 6.1, 8.0, 9.9", kind: "list" },
+    ],
+    compute: (r) => {
+      const x = statList(r("x"));
+      const y = statList(r("y"));
+      if (x.length < 3 || x.length !== y.length) return { text: "Enter equal-length x and y lists (≥ 3 points).", ok: false };
+      const res = statRegression(x, y);
+      return {
+        text:
+          `Linear regression (n = ${res.n})\n` +
+          `y = ${assaySig(res.slope)}·x + ${assaySig(res.intercept)}\n` +
+          `R² = ${assaySig(res.rSquared, 4)} · slope SE = ${assaySig(res.slopeSE, 3)} · slope ${formatP(res.slopeP)}`,
+      };
+    },
+  },
+  {
+    id: "uncertainty",
+    name: "Uncertainty propagation",
+    fields: [
+      { key: "formula", label: "Formula", default: "a*b/c", kind: "text" },
+      { key: "vars", label: "Variables (name = value ± uncertainty)", default: "a = 10 ± 0.1\nb = 20 ± 0.2\nc = 5 ± 0.05", kind: "vars" },
+    ],
+    compute: (r) => {
+      const formula = r("formula").trim();
+      const vars = statVars(r("vars"));
+      if (!formula || !Object.keys(vars).length) return { text: "Enter a formula and at least one variable.", ok: false };
+      try {
+        const res = propagateUncertainty(formula, vars);
+        const dominant = res.contributions[0];
+        return {
+          text:
+            `Uncertainty propagation\n` +
+            `${formula} = ${assaySig(res.value)} ± ${assaySig(res.uncertainty, 3)}\n` +
+            `Largest contribution: ${dominant.name}`,
+        };
+      } catch (e) {
+        return { text: `Couldn't evaluate: ${(e as Error).message}`, ok: false };
+      }
+    },
+  },
+];
+
+function populateStatsCalcs(): void {
+  statsCalcSelect.replaceChildren();
+  for (const c of STAT_CALCS) {
+    const opt = document.createElement("option");
+    opt.value = c.id;
+    opt.textContent = c.name;
+    statsCalcSelect.appendChild(opt);
+  }
+}
+
+/** Builds the inputs for the selected statistical test and wires live compute. */
+function renderStatsInputs(): void {
+  const calc = STAT_CALCS.find((c) => c.id === statsCalcSelect.value) ?? STAT_CALCS[0];
+  statsInputs.replaceChildren();
+  for (const f of calc.fields) {
+    const row = document.createElement("div");
+    row.className = "dna-controls";
+    const label = document.createElement("label");
+    label.className = "field-label";
+    label.textContent = f.label;
+    label.htmlFor = `stats-f-${f.key}`;
+
+    let input: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
+    if (f.kind === "select") {
+      const sel = document.createElement("select");
+      sel.className = "lib-select";
+      for (const o of f.options ?? []) {
+        const opt = document.createElement("option");
+        opt.value = o.value;
+        opt.textContent = o.label;
+        sel.appendChild(opt);
+      }
+      sel.value = f.default;
+      input = sel;
+    } else if (f.kind === "text") {
+      const t = document.createElement("input");
+      t.type = "text";
+      t.className = "rgroup-input";
+      t.value = f.default;
+      input = t;
+    } else {
+      const ta = document.createElement("textarea");
+      ta.className = "rgroup-input";
+      ta.rows = f.kind === "groups" || f.kind === "vars" ? 3 : 2;
+      ta.value = f.default;
+      input = ta;
+    }
+    input.id = `stats-f-${f.key}`;
+    input.dataset.key = f.key;
+    input.addEventListener("input", updateStatsPreview);
+    input.addEventListener("change", updateStatsPreview);
+    row.append(label, input);
+    statsInputs.appendChild(row);
+  }
+  updateStatsPreview();
+}
+
+/** Computes and shows the result for the current statistical test. */
+function updateStatsPreview(): void {
+  const calc = STAT_CALCS.find((c) => c.id === statsCalcSelect.value) ?? STAT_CALCS[0];
+  const read = (k: string): string => {
+    const el = statsInputs.querySelector<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(`[data-key="${k}"]`);
+    return el ? el.value : "";
+  };
+  let out: StatOutput;
+  try {
+    out = calc.compute(read);
+  } catch {
+    out = { text: "Could not compute — check the inputs.", ok: false };
+  }
+  const insertable = out.ok !== false && !!out.text;
+  statsResult.innerHTML = esc(out.text).replace(/\n/g, "<br>");
+  currentStatsText = insertable ? out.text : "";
+  statsInsertBtn.disabled = !insertable;
 }
 
 // ---------------------------------------------------------------------------

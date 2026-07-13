@@ -25,7 +25,8 @@ export type ExampleMode =
   | "finance"
   | "assay"
   | "massspec"
-  | "peptide";
+  | "peptide"
+  | "stats";
 
 /** HTML help fragment shown in the "Examples & syntax" panel for each mode. */
 export const MODE_EXAMPLES: Record<ExampleMode, string> = {
@@ -340,5 +341,19 @@ export const MODE_EXAMPLES: Record<ExampleMode, string> = {
     <p class="examples-note">
       The structure shows <strong>connectivity</strong> (stereochemistry isn't drawn, to avoid asserting
       a wrong configuration). Best for short peptides — long chains get dense. Verify before relying.
+    </p>`,
+  stats: `
+    <p class="examples-note">
+      <strong>Statistics &amp; uncertainty</strong> — pick a test, paste your data, and it computes
+      a paper-ready result offline.
+    </p>
+    <ul>
+      <li><strong>Descriptive</strong> — n, mean, SD, SEM, median, 95% CI, CV from one list</li>
+      <li><strong>t-tests</strong> — two-sample (Welch/Student) &amp; paired, with a <strong>p-value</strong> and an APA report (<em>t</em>(18) = 2.41, <em>p</em> = .027)</li>
+      <li><strong>One-way ANOVA</strong> and <strong>linear regression</strong> (slope, R², slope p)</li>
+      <li><strong>Uncertainty propagation</strong> — a formula plus <code>a = 10 ± 0.1</code> lines → result ± combined 1σ</li>
+    </ul>
+    <p class="examples-note">
+      Enter numbers separated by spaces, commas, or new lines. Analysis aid — verify before publishing.
     </p>`,
 };

@@ -63,6 +63,14 @@ inserted, and the **Examples & syntax** panel updates to match the selected tool
 - **Multiple functions** at once (separate with `;`) with a labeled **legend**.
 - Axes, ticks, gridlines, optional title and axis labels. Rendered offline as an image; nothing leaves your machine.
 
+## 📐 Stats — statistics & uncertainty
+- Turn experimental data into a paper-ready result, offline. Pick a test, paste numbers (separated by spaces, commas, or new lines), and it computes live.
+- **Descriptive statistics** — n, mean, SD, **SEM**, variance, median, min/max, **95% CI** (t-based), CV.
+- **t-tests** — two-sample (**Welch** or **Student** pooled) and **paired**, each with a real **p-value** and an APA-style report (*t*(18) = 2.41, *p* = .027).
+- **One-way ANOVA** (F, df, p) and **linear regression** (slope, intercept, R², slope SE, slope p).
+- **Uncertainty propagation** — enter a formula and `name = value ± uncertainty` lines; get the result with its **combined 1σ uncertainty** (first-order quadrature) and the dominant contributor.
+- p-values use the regularized incomplete beta (Student-t and F distributions). Insert any result at the cursor. Analysis aid — verify before publishing.
+
 ## 📊 Table → Chart — patent figures & PowerPoint from a Word table
 - Click anywhere **inside a table** in your document, press **Read selected table** — the add-in **auto-picks** the representation that fits its shape (chart, flowchart, block diagram, or table figure) and tells you why. Change it any time in **Show as**.
 - **Charts** (numeric tables) — column, bar (horizontal), line, area, **scatter**, **stacked column / bar / area**, pie, doughnut. First column = category labels, first row = series names (when it's text); numbers may include `$`/`€`/`£`, `%`, thousands commas, units (`12 kg`), and accountant-style `(1,200)` negatives. Cells that aren't numbers are reported, not silently charted.

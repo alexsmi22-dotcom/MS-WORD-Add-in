@@ -2,6 +2,19 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
+## [1.47.0] — 2026-07-13
+
+### Added (Stats mode — roadmap #6)
+- **New Stats tool.** Descriptive statistics (n, mean, SD, SEM, median, 95% CI,
+  CV); **t-tests** (two-sample Welch/Student and paired) with p-values and APA
+  reports; **one-way ANOVA**; **linear regression** (slope, R², slope p); and
+  **uncertainty propagation** (formula + value±uncertainty lines → combined 1sigma).
+  Insertable as text.
+- New pure : p-values via the regularized incomplete beta
+  (Student-t & F tails), plus a small multi-variable formula evaluator driving
+  first-order (quadrature) error propagation. 13 tests against known statistical
+  values.
+
 ## [1.46.0] — 2026-07-13
 
 ### Added (Peptide mode — roadmap #5)

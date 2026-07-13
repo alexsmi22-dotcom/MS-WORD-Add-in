@@ -2378,8 +2378,15 @@ function renderProperties(input: string): void {
 
   currentProperties = p;
 
-  // Compact two-column metric grid — reads cleanly in the narrow pane and
-  // wraps on word boundaries (unlike the SMILES-oriented .build-readout).
+  const eyebrow = (text: string): void => {
+    const e = document.createElement("div");
+    e.className = "prop-eyebrow";
+    e.textContent = text;
+    structurePropsEl.appendChild(e);
+  };
+
+  // Metric list: label left, value in a shared right-aligned column.
+  eyebrow("Properties");
   const grid = document.createElement("div");
   grid.className = "prop-grid";
   const metrics: [string, string][] = [
@@ -2393,30 +2400,43 @@ function renderProperties(input: string): void {
     ["Heavy atoms", `${p.heavyAtoms}`],
   ];
   for (const [k, v] of metrics) {
-    const cell = document.createElement("div");
-    cell.className = "prop-cell";
     const kk = document.createElement("span");
     kk.className = "prop-k";
     kk.textContent = k;
     const vv = document.createElement("span");
     vv.className = "prop-v";
     vv.textContent = v;
-    cell.append(kk, vv);
-    grid.appendChild(cell);
+    grid.append(kk, vv);
   }
   structurePropsEl.appendChild(grid);
 
-  // Colored pass/fail rows for the druglikeness screens.
-  const rules: [string, RuleResult][] = [
+  // Druglikeness: a PASS/FAIL pill per screen, with any criteria on their own line.
+  eyebrow("Druglikeness");
+  const rules = document.createElement("div");
+  rules.className = "prop-rules";
+  const ruleData: [string, RuleResult][] = [
     ["Lipinski Ro5", p.lipinski],
     ["Veber", p.veber],
   ];
-  for (const [name, r] of rules) {
+  for (const [name, r] of ruleData) {
     const row = document.createElement("div");
-    row.className = `prop-rule ${r.pass ? "pass" : "fail"}`;
-    row.textContent = ruleVerdict(name, r);
-    structurePropsEl.appendChild(row);
+    row.className = "prop-rule";
+    const pill = document.createElement("span");
+    pill.className = `prop-pill ${r.pass ? "pass" : "fail"}`;
+    pill.textContent = r.pass ? "Pass" : "Fail";
+    const nm = document.createElement("span");
+    nm.className = "prop-name";
+    nm.textContent = name;
+    row.append(pill, nm);
+    if (r.violations.length) {
+      const why = document.createElement("span");
+      why.className = "prop-why";
+      why.textContent = r.violations.join(" · ");
+      row.appendChild(why);
+    }
+    rules.appendChild(row);
   }
+  structurePropsEl.appendChild(rules);
 
   insertPropsBtn.disabled = false;
 }

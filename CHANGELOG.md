@@ -2,6 +2,15 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
+## [1.43.2] — 2026-07-13
+
+### Changed
+- **Redesigned the property readout for clarity.** Metrics now sit in an aligned
+  label/value list (one shared right-hand value column, tabular figures) and each
+  druglikeness screen is a PASS/FAIL pill with its criteria on a separate muted
+  line — so a many-violation compound (paclitaxel) reads cleanly. Verified at
+  task-pane width before shipping.
+
 ## [1.43.1] — 2026-07-13
 
 ### Changed

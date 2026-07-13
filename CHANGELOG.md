@@ -2,6 +2,14 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
+## [1.43.1] — 2026-07-13
+
+### Changed
+- **Tidied the property readout.** Replaced the dot-separated lines (which wrapped
+  and broke mid-word for big molecules like paclitaxel) with a compact two-column
+  metric grid and **color-coded pass/fail rows** for the Lipinski/Veber screens,
+  so a druglikeness-failing compound reads cleanly instead of as a wall of text.
+
 ## [1.43.0] — 2026-07-13
 
 ### Added (physicochemical properties & druglikeness — Chemical mode)

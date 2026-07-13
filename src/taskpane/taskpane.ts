@@ -52,7 +52,7 @@ import {
   sharpeRatio,
 } from "../lib/finance";
 import { renderStructure, nameForIdcode, StructureResult } from "../lib/structures";
-import { computeProperties, PhysChemProperties } from "../lib/properties";
+import { computeProperties, PhysChemProperties, RuleResult } from "../lib/properties";
 import { build, BuildFormat, BuildResult } from "../lib/builder";
 import { formatCodeBlock, CodeStyle } from "../lib/codeblock";
 import {
@@ -2377,17 +2377,47 @@ function renderProperties(input: string): void {
   if (!p) return;
 
   currentProperties = p;
-  const lines = [
-    `cLogP ${p.logP} · logS ${p.logS} · tPSA ${p.tpsa} Å²`,
-    `H-bond donors ${p.hbd} · acceptors ${p.hba} · rotatable bonds ${p.rotatableBonds} · heavy atoms ${p.heavyAtoms}`,
-    ruleVerdict("Lipinski Ro5", p.lipinski),
-    ruleVerdict("Veber", p.veber),
+
+  // Compact two-column metric grid — reads cleanly in the narrow pane and
+  // wraps on word boundaries (unlike the SMILES-oriented .build-readout).
+  const grid = document.createElement("div");
+  grid.className = "prop-grid";
+  const metrics: [string, string][] = [
+    ["MW", `${p.mw}`],
+    ["cLogP", `${p.logP}`],
+    ["logS", `${p.logS}`],
+    ["tPSA", `${p.tpsa} Å²`],
+    ["H-bond donors", `${p.hbd}`],
+    ["H-bond acceptors", `${p.hba}`],
+    ["Rotatable bonds", `${p.rotatableBonds}`],
+    ["Heavy atoms", `${p.heavyAtoms}`],
   ];
-  for (const line of lines) {
-    const span = document.createElement("span");
-    span.textContent = line;
-    structurePropsEl.appendChild(span);
+  for (const [k, v] of metrics) {
+    const cell = document.createElement("div");
+    cell.className = "prop-cell";
+    const kk = document.createElement("span");
+    kk.className = "prop-k";
+    kk.textContent = k;
+    const vv = document.createElement("span");
+    vv.className = "prop-v";
+    vv.textContent = v;
+    cell.append(kk, vv);
+    grid.appendChild(cell);
   }
+  structurePropsEl.appendChild(grid);
+
+  // Colored pass/fail rows for the druglikeness screens.
+  const rules: [string, RuleResult][] = [
+    ["Lipinski Ro5", p.lipinski],
+    ["Veber", p.veber],
+  ];
+  for (const [name, r] of rules) {
+    const row = document.createElement("div");
+    row.className = `prop-rule ${r.pass ? "pass" : "fail"}`;
+    row.textContent = ruleVerdict(name, r);
+    structurePropsEl.appendChild(row);
+  }
+
   insertPropsBtn.disabled = false;
 }
 

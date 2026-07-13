@@ -627,6 +627,55 @@ h1 {
   font-family: "Cascadia Code", "Consolas", monospace;
 }
 
+/* Physicochemical property readout under the structure preview. */
+.prop-readout {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 10px 0 6px;
+  font-size: 12px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.prop-readout:empty {
+  display: none;
+}
+.prop-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px 14px;
+}
+.prop-cell {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 0;
+  border-bottom: 1px dotted var(--border);
+}
+.prop-k {
+  color: var(--muted);
+  white-space: nowrap;
+}
+.prop-v {
+  color: var(--text);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.prop-rule {
+  padding: 3px 7px;
+  border-radius: 3px;
+  line-height: 1.35;
+}
+.prop-rule.pass {
+  background: #e7f5ec;
+  color: #1a7f4b;
+}
+.prop-rule.fail {
+  background: #fdf0e3;
+  color: #9a5b00;
+}
+
 .build-rgroups {
   margin: 8px 0 4px;
 }

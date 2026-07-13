@@ -2,6 +2,15 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
+## [1.42.2] — 2026-07-13
+
+### Fixed
+- **Bio/Assay mode now opens.** The tool was added to the home cards and the mode
+  switch but not to the top tool-selector `<select>`; clicking the card set an
+  unknown value, so `currentMode()` came back empty and the pane showed only the
+  dropdown with no calculator. Added the missing `Bio/Assay` option to the
+  selector's Biology group.
+
 ## [1.42.1] — 2026-07-13
 
 ### Fixed (updates now reach installed clients)

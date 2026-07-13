@@ -2,6 +2,22 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
+## [1.48.0] — 2026-07-13 — Life-science release
+
+Release milestone rolling up the life-science expansion (20 tools total):
+- **New modes:** Bio/Assay (enzyme kinetics, dose-response IC50/EC50, binding, lab
+  math — offline curve fitting), Mass Spec (monoisotopic/average mass, isotope
+  pattern, adduct m/z), Peptide (2D structure from sequence), Stats (t-tests,
+  ANOVA, regression, uncertainty propagation).
+- **Chemical mode:** physicochemical properties + Lipinski/Veber druglikeness;
+  opt-in online IUPAC name→structure via OPSIN.
+- **Compound library:** 259 → 359 named structures (violacein &amp; other large
+  natural products/steroids/alkaloids/vitamins), all PubChem-sourced.
+- **Infrastructure:** content-hashed bundles so updates reach installed clients.
+- **Quality:** two adversarial bug-review rounds (15 fixes), ~27 new regression
+  tests; 1262 tests total, lint + build clean. Landing page + install packs
+  refreshed for distribution.
+
 ## [1.47.3] — 2026-07-13
 
 ### Fixed (second bug-review round — under-covered modules)

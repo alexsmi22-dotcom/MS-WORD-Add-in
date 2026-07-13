@@ -2,6 +2,19 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
+## [1.45.0] — 2026-07-13
+
+### Added (Mass Spec mode — roadmap #4)
+- **New Mass Spec tool.** From a name / formula / SMILES: exact **monoisotopic**
+  and **average** mass, the theoretical **isotope pattern** (M, M+1, M+2… bars with
+  relative intensities — e.g. a chlorine’s ~32% M+2), and common **adduct m/z**
+  ([M+H]+, [M+Na]+, [M+K]+, [M+NH4]+, [M+2H]2+, [M-H]-, [M+Cl]-, [M+HCOO]-, [M-2H]2-).
+  Insertable as text. For proteomics / metabolomics / small-molecule MS.
+- New pure : masses from OpenChemLib, isotope pattern by
+  discrete convolution over NIST stable-isotope abundances (C, H, N, O, S, P,
+  halogens, Si, Se, B, Na, K; other elements reported, not dropped), exact adduct
+  arithmetic. 12 tests cross-check the M peak against OCL and known Cl/S patterns.
+
 ## [1.44.0] — 2026-07-13
 
 ### Added (opt-in online name→structure — roadmap #2)

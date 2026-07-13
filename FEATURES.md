@@ -32,6 +32,13 @@ inserted, and the **Examples & syntax** panel updates to match the selected tool
 - **Physicochemical properties & druglikeness** — for any resolved structure, a readout of **cLogP**, **logS**, **topological PSA**, **H-bond donors/acceptors**, **rotatable bonds**, and **heavy-atom count**, plus the **Lipinski Rule of Five** and **Veber** oral-druglikeness screens (with the specific criteria that pass/fail). Insert the summary at the cursor. Estimated offline (OpenChemLib) — no server, no license tier.
 - **Online name resolution (opt-in)** — for a full **systematic IUPAC name** the offline dictionary doesn't know (e.g. *2-amino-3-(1H-indol-3-yl)propanoic acid*), a **“Resolve name online”** button parses it via the EMBL-EBI **OPSIN** service and draws the result (also reporting its **InChIKey**). This is the **only** feature that leaves your machine: it's off until you click it, shows a **consent prompt** naming the service before the name is sent over the internet, and warns against use for confidential names. Everything else stays fully offline.
 
+## ⚛️ Mass Spec — exact mass, isotope pattern, adducts
+- From a **name, formula, or SMILES**, an offline mass-spectrometry readout for proteomics / metabolomics / small-molecule MS.
+- **Exact masses** — **monoisotopic** (for high-resolution MS) and **average** molecular weight.
+- **Isotope pattern** — the theoretical M, M+1, M+2… peaks with relative intensities, drawn as bars (e.g. the tell-tale **~32% M+2** of a chlorine, elevated M+2 for sulfur). Uses standard NIST isotope abundances across the common organic/bio elements (C, H, N, O, S, P, halogens, Si, Se, B, Na, K); any element outside that set is reported, not silently dropped.
+- **Adduct m/z** — the common ESI ions computed exactly: **[M+H]⁺, [M+Na]⁺, [M+K]⁺, [M+NH₄]⁺, [M+2H]²⁺, [M−H]⁻, [M+Cl]⁻, [M+HCOO]⁻, [M−2H]²⁻**.
+- Insert the full readout as a text summary. Computed entirely on your machine — verify before relying.
+
 ## ∑ Math (native Word equations)
 - Fractions, super/subscripts, roots (`sqrt`, n-th `root`), `Σ`/`∫`/`∏`, limits, `|x|`, accents (`bar`/`hat`/`vec`), factorials, implicit multiplication, full Greek.
 - **Matrices** — `matrix(a,b; c,d)`, plus `pmatrix`/`bmatrix`/`vmatrix`; **piecewise** `cases(…)`.

@@ -34,6 +34,7 @@
             <option value="chemical">Chemical</option>
             <option value="build">Build</option>
             <option value="reaction">Reaction</option>
+            <option value="massspec">Mass Spec</option>
           </optgroup>
           <optgroup label="Math &amp; units">
             <option value="math">Math</option>
@@ -565,6 +566,20 @@
           <div id="fin-result" class="preview" aria-live="polite"></div>
         </div>
         <button id="fin-insert" class="insert-btn" type="button" disabled>Insert result</button>
+      </section>
+
+      <!-- Mass spectrometry: exact mass, isotope pattern, adducts -->
+      <section id="massspec-section">
+        <p class="seq-disclaimer">
+          Mass-spectrometry readout — exact monoisotopic &amp; average mass, the theoretical
+          isotope pattern, and common adduct m/z. Computed entirely on your machine.
+          Analysis aid — verify before relying.
+        </p>
+        <label class="field-label" for="ms-input">Name / formula / SMILES</label>
+        <input id="ms-input" type="text" class="rgroup-input" autocomplete="off"
+          placeholder="e.g. caffeine, C8H10N4O2, or a SMILES" />
+        <div id="ms-result" class="ms-result" aria-live="polite"></div>
+        <button id="ms-insert" class="insert-btn" type="button" disabled>Insert MS data</button>
       </section>
 
       <!-- Bio / Assay: kinetics, dose-response, binding, lab math -->

@@ -54,6 +54,7 @@ import {
 import { renderStructure, nameForIdcode, StructureResult } from "../lib/structures";
 import { computeProperties, PhysChemProperties, RuleResult } from "../lib/properties";
 import { resolveNameOnline, OpsinResult } from "../lib/opsin";
+import { computeMassSpec, MassSpecResult } from "../lib/massspec";
 import { build, BuildFormat, BuildResult } from "../lib/builder";
 import { formatCodeBlock, CodeStyle } from "../lib/codeblock";
 import {
@@ -161,6 +162,7 @@ type Mode =
   | "ppt"
   | "finance"
   | "assay"
+  | "massspec"
   | "build"
   | "code"
   | "sequence"
@@ -377,6 +379,12 @@ let finCalcSelect: HTMLSelectElement;
 let finInputs: HTMLElement;
 let finResult: HTMLElement;
 let finInsertBtn: HTMLButtonElement;
+let massspecSection: HTMLElement;
+let msInput: HTMLInputElement;
+let msResult: HTMLElement;
+let msInsertBtn: HTMLButtonElement;
+/** MS readout for the most recent input, for insertion. */
+let currentMassSpec: MassSpecResult | null = null;
 let assaySection: HTMLElement;
 let assayCalcSelect: HTMLSelectElement;
 let assayInputs: HTMLElement;
@@ -617,6 +625,10 @@ Office.onReady((info) => {
   finInputs = document.getElementById("fin-inputs") as HTMLElement;
   finResult = document.getElementById("fin-result") as HTMLElement;
   finInsertBtn = document.getElementById("fin-insert") as HTMLButtonElement;
+  massspecSection = document.getElementById("massspec-section") as HTMLElement;
+  msInput = document.getElementById("ms-input") as HTMLInputElement;
+  msResult = document.getElementById("ms-result") as HTMLElement;
+  msInsertBtn = document.getElementById("ms-insert") as HTMLButtonElement;
   assaySection = document.getElementById("assay-section") as HTMLElement;
   assayCalcSelect = document.getElementById("assay-calc") as HTMLSelectElement;
   assayInputs = document.getElementById("assay-inputs") as HTMLElement;
@@ -742,6 +754,9 @@ Office.onReady((info) => {
   finCalcSelect.addEventListener("change", renderFinanceInputs);
   finInsertBtn.addEventListener("click", () => insertDnaText(currentFinText, "Result"));
 
+  msInput.addEventListener("input", updateMassSpec);
+  msInsertBtn.addEventListener("click", () => insertDnaText(massSpecAsText(currentMassSpec), "MS data"));
+
   populateAssayCalcs();
   assayCalcSelect.addEventListener("change", renderAssayInputs);
   assayInsertBtn.addEventListener("click", () => insertDnaText(currentAssayText, "Assay result"));
@@ -827,6 +842,7 @@ const HOME_GROUPS: HomeGroup[] = [
       { mode: "chemical", icon: "🧪", label: "Chemical", desc: "Formulas & 2D structures" },
       { mode: "build", icon: "🔬", label: "Build", desc: "Structures from atoms/bonds; Markush" },
       { mode: "reaction", icon: "⚗️", label: "Reaction", desc: "Reaction schemes" },
+      { mode: "massspec", icon: "⚛️", label: "Mass Spec", desc: "Exact mass, isotope pattern, adducts" },
     ],
   },
   {
@@ -1371,7 +1387,7 @@ function onInputChanged(): void {
     for (const s of [
       formatSection, buildSection, codeSection, sequenceSection, botanicalSection, numeralsSection,
       dnaSection, reactionSection, auditSection, unitsSection, refsSection, citationsSection,
-      plotSection, financeSection, assaySection, pptSection,
+      plotSection, financeSection, assaySection, massspecSection, pptSection,
     ]) {
       s.style.display = "none";
     }
@@ -1395,6 +1411,7 @@ function onInputChanged(): void {
   plotSection.style.display = mode === "plot" ? "block" : "none";
   financeSection.style.display = mode === "finance" ? "block" : "none";
   assaySection.style.display = mode === "assay" ? "block" : "none";
+  massspecSection.style.display = mode === "massspec" ? "block" : "none";
   pptSection.style.display = mode === "ppt" ? "block" : "none";
 
   if (mode === "units") {
@@ -1424,6 +1441,10 @@ function onInputChanged(): void {
   }
   if (mode === "assay") {
     if (!assayInputs.children.length) renderAssayInputs();
+    return;
+  }
+  if (mode === "massspec") {
+    updateMassSpec();
     return;
   }
   if (mode === "numerals") {
@@ -4145,6 +4166,128 @@ function updateFinancePreview(): void {
   }
   currentFinText = insertable ? text : "";
   finInsertBtn.disabled = !insertable;
+}
+
+// ---------------------------------------------------------------------------
+// Mass spectrometry (exact mass, isotope pattern, adducts)
+// ---------------------------------------------------------------------------
+
+function msEyebrow(text: string): HTMLElement {
+  const e = document.createElement("div");
+  e.className = "prop-eyebrow";
+  e.textContent = text;
+  return e;
+}
+
+/** Computes and renders the MS readout for the current Mass Spec input. */
+function updateMassSpec(): void {
+  const text = msInput.value.trim();
+  msResult.replaceChildren();
+  currentMassSpec = null;
+  msInsertBtn.disabled = true;
+  if (!text) {
+    const hint = document.createElement("div");
+    hint.className = "ms-hint";
+    hint.textContent = "Type a name, formula, or SMILES to see its mass spectrum.";
+    msResult.appendChild(hint);
+    return;
+  }
+
+  let spec: MassSpecResult | null = null;
+  try {
+    spec = computeMassSpec(text);
+  } catch {
+    spec = null;
+  }
+  if (!spec) {
+    const hint = document.createElement("div");
+    hint.className = "ms-hint";
+    hint.textContent = "No structure found. Try a name (caffeine), a formula (C8H10N4O2), or a SMILES.";
+    msResult.appendChild(hint);
+    return;
+  }
+  currentMassSpec = spec;
+
+  // Exact masses.
+  const masses = document.createElement("div");
+  masses.className = "ms-masses";
+  for (const [k, v] of [
+    ["Monoisotopic mass", spec.monoisotopicMass.toFixed(4)],
+    ["Average mass", spec.averageMass.toFixed(2)],
+    ["Formula", spec.formula],
+  ] as [string, string][]) {
+    const kk = document.createElement("span");
+    kk.className = "ms-mass-k";
+    kk.textContent = k;
+    const vv = document.createElement("span");
+    vv.className = "ms-mass-v";
+    vv.textContent = v;
+    masses.append(kk, vv);
+  }
+  msResult.append(msEyebrow("Exact mass"), masses);
+
+  // Isotope pattern as horizontal bars (intensity relative to the base peak).
+  msResult.appendChild(msEyebrow("Isotope pattern"));
+  const peaks = document.createElement("div");
+  peaks.className = "ms-peaks";
+  for (const pk of spec.pattern) {
+    const row = document.createElement("div");
+    row.className = "ms-peak";
+    const label = document.createElement("span");
+    label.className = "ms-peak-label";
+    label.textContent = pk.offset === 0 ? "M" : `M+${pk.offset}`;
+    const track = document.createElement("div");
+    track.className = "ms-bar-track";
+    const bar = document.createElement("div");
+    bar.className = "ms-bar";
+    bar.style.width = `${Math.max(2, pk.intensity)}%`;
+    track.appendChild(bar);
+    const int = document.createElement("span");
+    int.className = "ms-peak-int";
+    int.textContent = `${pk.intensity.toFixed(1)}`;
+    row.append(label, track, int);
+    peaks.appendChild(row);
+  }
+  msResult.appendChild(peaks);
+  if (spec.unsupportedInPattern.length) {
+    const note = document.createElement("div");
+    note.className = "ms-note";
+    note.textContent = `Pattern excludes ${spec.unsupportedInPattern.join(", ")} (not in the isotope table); masses and adducts are still exact.`;
+    msResult.appendChild(note);
+  }
+
+  // Adduct m/z.
+  msResult.appendChild(msEyebrow("Adducts (m/z)"));
+  const adducts = document.createElement("div");
+  adducts.className = "ms-adducts";
+  for (const a of spec.adducts) {
+    const name = document.createElement("span");
+    name.className = "ms-adduct-name";
+    name.textContent = a.name;
+    const mz = document.createElement("span");
+    mz.className = "ms-adduct-mz";
+    mz.textContent = a.mz.toFixed(4);
+    adducts.append(name, mz);
+  }
+  msResult.appendChild(adducts);
+
+  msInsertBtn.disabled = false;
+}
+
+/** Multi-line plain-text MS summary for insertion. */
+function massSpecAsText(spec: MassSpecResult | null): string {
+  if (!spec) return "";
+  const lines = [
+    `Mass spectrometry — ${spec.formula}`,
+    `Monoisotopic mass: ${spec.monoisotopicMass.toFixed(4)}`,
+    `Average mass: ${spec.averageMass.toFixed(2)}`,
+    "Isotope pattern (relative intensity):",
+    ...spec.pattern.map((p) => `  ${p.offset === 0 ? "M" : "M+" + p.offset}  ${p.mass.toFixed(4)}  ${p.intensity.toFixed(1)}%`),
+    "Adducts (m/z):",
+    ...spec.adducts.map((a) => `  ${a.name}  ${a.mz.toFixed(4)}`),
+    "Computed offline — verify before relying.",
+  ];
+  return lines.join("\n");
 }
 
 // ---------------------------------------------------------------------------

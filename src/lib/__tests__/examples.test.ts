@@ -18,6 +18,7 @@ const MODES: ExampleMode[] = [
   "citations",
   "finance",
   "assay",
+  "massspec",
 ];
 
 describe("MODE_EXAMPLES", () => {
@@ -51,5 +52,6 @@ describe("MODE_EXAMPLES", () => {
     expect(MODE_EXAMPLES.citations).toContain("Bluebook");
     expect(MODE_EXAMPLES.finance).toContain("IRR");
     expect(MODE_EXAMPLES.assay).toContain("IC50");
+    expect(MODE_EXAMPLES.massspec).toContain("monoisotopic");
   });
 });

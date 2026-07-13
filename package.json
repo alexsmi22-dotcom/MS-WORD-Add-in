@@ -1,6 +1,6 @@
 {
   "name": "word-chem-formula",
-  "version": "1.44.0",
+  "version": "1.45.0",
   "description": "Word add-in for STEM authoring: chemical & math formulas, 2D structures, units, plotting, finance, DNA/sequence tools, and patent-drafting aids.",
   "private": true,
   "license": "MIT",

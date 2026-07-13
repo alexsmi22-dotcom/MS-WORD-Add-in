@@ -23,7 +23,8 @@ export type ExampleMode =
   | "ppt"
   | "citations"
   | "finance"
-  | "assay";
+  | "assay"
+  | "massspec";
 
 /** HTML help fragment shown in the "Examples & syntax" panel for each mode. */
 export const MODE_EXAMPLES: Record<ExampleMode, string> = {
@@ -311,5 +312,19 @@ export const MODE_EXAMPLES: Record<ExampleMode, string> = {
     <p class="examples-note">
       For fits, enter two equal-length lists (e.g. [S] and v), one value per number, separated
       by commas or spaces. Concentrations are linear (not log). Analysis aid — verify before publishing.
+    </p>`,
+  massspec: `
+    <p class="examples-note">
+      <strong>Mass-spectrometry</strong> readout for a compound — type a name, molecular
+      formula, or SMILES and it computes offline.
+    </p>
+    <ul>
+      <li><strong>Exact masses</strong> — monoisotopic (for high-res MS) and average</li>
+      <li><strong>Isotope pattern</strong> — M, M+1, M+2… peaks with relative intensities (e.g. the ~32% M+2 of a chlorine)</li>
+      <li><strong>Adduct m/z</strong> — [M+H]⁺, [M+Na]⁺, [M+K]⁺, [M+NH₄]⁺, [M+2H]²⁺, [M−H]⁻, [M+Cl]⁻, [M+HCOO]⁻, [M−2H]²⁻</li>
+    </ul>
+    <p class="examples-note">
+      Isotope abundances are standard NIST values; the pattern covers the common organic/bio
+      elements (C, H, N, O, S, P, halogens, Si, Se, B, Na, K). Analysis aid — verify before relying.
     </p>`,
 };

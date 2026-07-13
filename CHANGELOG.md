@@ -2,6 +2,20 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
+## [1.43.0] — 2026-07-13
+
+### Added (physicochemical properties & druglikeness — Chemical mode)
+- Resolving a structure (name / formula / SMILES) now also shows a **property
+  readout**: **cLogP**, **logS**, **topological PSA**, **H-bond donors/acceptors**,
+  **rotatable bonds**, **heavy atoms**, plus the **Lipinski Rule of Five** and
+  **Veber** oral-druglikeness screens with the exact passing/failing criteria.
+  Insertable as a text summary. Roadmap item #3 toward winning life-science PhDs
+  from ChemDraw (which gates these behind a license tier).
+- Computed offline via OpenChemLib's validated estimators (already bundled) — no
+  new dependency, no network. New `src/lib/properties.ts`; 6 tests validate
+  against known values (aspirin, caffeine, ibuprofen) and a druglikeness-failing
+  natural product (paclitaxel). Advisory — estimates, verify before relying.
+
 ## [1.42.2] — 2026-07-13
 
 ### Fixed

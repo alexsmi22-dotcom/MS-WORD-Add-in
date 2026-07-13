@@ -29,6 +29,7 @@ inserted, and the **Examples & syntax** panel updates to match the selected tool
 - **Formula validator** — checks every element symbol against the real 118-element periodic table (flags typos like `Xy`), balances parentheses/hydrates, and reports **molecular weight** and **net charge** (polyatomic ions handled, e.g. `NH4+`, `Ca(OH)2`).
 - **Stereochemistry** — isomeric SMILES (`C[C@@H](N)C(=O)O`) drawn with wedges.
 - Each inserted structure carries provenance (formula / MW / canonical SMILES / OCL ID) in its alt-text.
+- **Physicochemical properties & druglikeness** — for any resolved structure, a readout of **cLogP**, **logS**, **topological PSA**, **H-bond donors/acceptors**, **rotatable bonds**, and **heavy-atom count**, plus the **Lipinski Rule of Five** and **Veber** oral-druglikeness screens (with the specific criteria that pass/fail). Insert the summary at the cursor. Estimated offline (OpenChemLib) — no server, no license tier.
 
 ## ∑ Math (native Word equations)
 - Fractions, super/subscripts, roots (`sqrt`, n-th `root`), `Σ`/`∫`/`∏`, limits, `|x|`, accents (`bar`/`hat`/`vec`), factorials, implicit multiplication, full Greek.

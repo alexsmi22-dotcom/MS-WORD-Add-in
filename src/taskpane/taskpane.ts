@@ -52,6 +52,7 @@ import {
   sharpeRatio,
 } from "../lib/finance";
 import { renderStructure, nameForIdcode, StructureResult } from "../lib/structures";
+import { computeProperties, PhysChemProperties } from "../lib/properties";
 import { build, BuildFormat, BuildResult } from "../lib/builder";
 import { formatCodeBlock, CodeStyle } from "../lib/codeblock";
 import {
@@ -201,6 +202,10 @@ let numberCheckbox: HTMLInputElement;
 let numberNext: HTMLElement;
 let numberReset: HTMLButtonElement;
 let structureInfo: HTMLElement;
+let structurePropsEl: HTMLElement;
+let insertPropsBtn: HTMLButtonElement;
+/** Physicochemical properties of the most recently resolved structure. */
+let currentProperties: PhysChemProperties | null = null;
 let libraryRow: HTMLElement;
 let libCategorySelect: HTMLSelectElement;
 let libFormulaSelect: HTMLSelectElement;
@@ -447,6 +452,8 @@ Office.onReady((info) => {
   numberNext = document.getElementById("number-next") as HTMLElement;
   numberReset = document.getElementById("number-reset") as HTMLButtonElement;
   structureInfo = document.getElementById("structure-info") as HTMLElement;
+  structurePropsEl = document.getElementById("structure-props") as HTMLElement;
+  insertPropsBtn = document.getElementById("insert-props-btn") as HTMLButtonElement;
   libraryRow = document.getElementById("library-row") as HTMLElement;
   libCategorySelect = document.getElementById("lib-category") as HTMLSelectElement;
   libFormulaSelect = document.getElementById("lib-formula") as HTMLSelectElement;
@@ -631,6 +638,7 @@ Office.onReady((info) => {
   insertBtn.addEventListener("click", insertFormula);
   insertStructureBtn.addEventListener("click", insertStructure);
   insertNameBtn.addEventListener("click", () => insertDnaText(currentStructureName, "Name"));
+  insertPropsBtn.addEventListener("click", () => insertDnaText(propertiesAsText(currentProperties), "Properties"));
   numberCheckbox.addEventListener("change", updateNumberLabel);
   numberReset.addEventListener("click", () => {
     resetFormulaNumbering();
@@ -2304,6 +2312,7 @@ function updateStructurePreview(): void {
   currentStructure = result;
   structurePreviewEl.innerHTML = result.svg;
   renderStructureInfo(result.formula, result.mw, result.smiles);
+  renderProperties(text);
   insertStructureBtn.disabled = false;
 
   // Dictionary name lookup (recognized compounds only).
@@ -2334,9 +2343,70 @@ function showStructureHint(message: string): void {
   structurePreviewEl.appendChild(hint);
   structureInfo.replaceChildren();
   structureNameEl.textContent = "";
+  structurePropsEl.replaceChildren();
   currentStructureName = "";
+  currentProperties = null;
   insertNameBtn.disabled = true;
   insertStructureBtn.disabled = true;
+  insertPropsBtn.disabled = true;
+}
+
+/** One-line druglikeness verdict for a rule screen. */
+function ruleVerdict(name: string, r: { pass: boolean; violations: string[] }): string {
+  if (r.pass && !r.violations.length) return `${name}: ✓ pass`;
+  if (r.pass) return `${name}: ✓ pass (1 violation: ${r.violations.join(", ")})`;
+  return `${name}: ✗ fail (${r.violations.join(", ")})`;
+}
+
+/**
+ * Computes and shows the physicochemical property readout (cLogP, logS, tPSA,
+ * H-bond donors/acceptors, rotatable bonds) and the Lipinski/Veber druglikeness
+ * screens under the structure. Values are OpenChemLib estimates — advisory.
+ */
+function renderProperties(input: string): void {
+  structurePropsEl.replaceChildren();
+  currentProperties = null;
+  insertPropsBtn.disabled = true;
+
+  let p: PhysChemProperties | null = null;
+  try {
+    p = computeProperties(input);
+  } catch {
+    p = null;
+  }
+  if (!p) return;
+
+  currentProperties = p;
+  const lines = [
+    `cLogP ${p.logP} · logS ${p.logS} · tPSA ${p.tpsa} Å²`,
+    `H-bond donors ${p.hbd} · acceptors ${p.hba} · rotatable bonds ${p.rotatableBonds} · heavy atoms ${p.heavyAtoms}`,
+    ruleVerdict("Lipinski Ro5", p.lipinski),
+    ruleVerdict("Veber", p.veber),
+  ];
+  for (const line of lines) {
+    const span = document.createElement("span");
+    span.textContent = line;
+    structurePropsEl.appendChild(span);
+  }
+  insertPropsBtn.disabled = false;
+}
+
+/** Multi-line plain-text property summary for insertion into the document. */
+function propertiesAsText(p: PhysChemProperties | null): string {
+  if (!p) return "";
+  return [
+    `Physicochemical properties — ${p.formula} (MW ${p.mw} g/mol)`,
+    `cLogP: ${p.logP}`,
+    `logS: ${p.logS} (log mol/L)`,
+    `Topological PSA: ${p.tpsa} Å²`,
+    `H-bond donors: ${p.hbd}`,
+    `H-bond acceptors: ${p.hba}`,
+    `Rotatable bonds: ${p.rotatableBonds}`,
+    `Heavy atoms: ${p.heavyAtoms}`,
+    ruleVerdict("Lipinski Rule of Five", p.lipinski),
+    ruleVerdict("Veber rule", p.veber),
+    "Estimated values (OpenChemLib) — verify before relying on them.",
+  ].join("\n");
 }
 
 function setStatus(message: string, kind: "" | "error" | "success" = ""): void {

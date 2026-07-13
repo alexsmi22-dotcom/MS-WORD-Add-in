@@ -3309,11 +3309,18 @@ function findRestrictionSites(): void {
 }
 
 /** Inserts a plain-text DNA result (reverse complement, mRNA, or protein). */
+// Re-entrancy guard shared by every text-insert button (MS, Stats, Assay, DNA,
+// Finance…): a fast double-click would otherwise queue two insertions of the
+// same text before the first Word.run resolves.
+let insertTextBusy = false;
+
 async function insertDnaText(text: string, label: string): Promise<void> {
   if (!text.trim()) {
     setStatus(`Nothing to insert for ${label.toLowerCase()}.`, "error");
     return;
   }
+  if (insertTextBusy) return;
+  insertTextBusy = true;
   try {
     await Word.run(async (context) => {
       const range = context.document.getSelection();
@@ -3324,6 +3331,8 @@ async function insertDnaText(text: string, label: string): Promise<void> {
     setStatus(`${label} inserted.`, "success");
   } catch (error) {
     setStatus(`Could not insert ${label.toLowerCase()}: ${(error as Error).message}`, "error");
+  } finally {
+    insertTextBusy = false;
   }
 }
 

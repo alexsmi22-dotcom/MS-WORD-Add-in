@@ -2,6 +2,19 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
+## [1.47.2] — 2026-07-13
+
+### Fixed
+- **Double-click no longer inserts twice.** A shared re-entrancy guard on the
+  text-insert helper (MS / Stats / Assay / DNA / Finance results) stops a fast
+  double-click from queuing two insertions before the first completes.
+
+### Note
+- Re-examined the citations T10 report: abbreviating a geographic unit inside a
+  company name (Washington Mutual -> Wash. Mutual) is correct Bluebook, matching
+  the intended "N.Y. Times Co." behavior — not a bug. The only real defect was the
+  hyphenated-compound case (Georgia-Pacific), already fixed in 1.47.1.
+
 ## [1.47.1] — 2026-07-13
 
 ### Fixed (bug sweep — 4-agent adversarial review)

@@ -49,6 +49,7 @@
             <option value="sequence">Sequence</option>
             <option value="dna">DNA</option>
             <option value="assay">Bio/Assay</option>
+            <option value="peptide">Peptide</option>
             <option value="botanical">Botanical</option>
           </optgroup>
           <optgroup label="Patent drafting">
@@ -566,6 +567,21 @@
           <div id="fin-result" class="preview" aria-live="polite"></div>
         </div>
         <button id="fin-insert" class="insert-btn" type="button" disabled>Insert result</button>
+      </section>
+
+      <!-- Peptide: draw a 2D structure from a sequence -->
+      <section id="peptide-section">
+        <p class="seq-disclaimer">
+          Draw a peptide's 2D structure from its sequence — one-letter (ACDEFG) or three-letter
+          (Ala-Gly-Ser) codes. Free N-/C-termini; shows connectivity (stereochemistry not drawn).
+          Best for short peptides — long chains get dense. Verify before relying.
+        </p>
+        <label class="field-label" for="pep-input">Peptide sequence</label>
+        <textarea id="pep-input" class="rgroup-input" rows="2" autocomplete="off"
+          placeholder="e.g. ACDEFG or Ala-Gly-Ser"></textarea>
+        <div id="pep-preview" class="structure-preview" aria-live="polite"></div>
+        <div id="pep-info" class="build-readout"></div>
+        <button id="pep-insert" class="insert-btn" type="button" disabled>Insert peptide structure</button>
       </section>
 
       <!-- Mass spectrometry: exact mass, isotope pattern, adducts -->

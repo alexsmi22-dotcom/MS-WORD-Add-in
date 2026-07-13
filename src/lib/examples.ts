@@ -24,7 +24,8 @@ export type ExampleMode =
   | "citations"
   | "finance"
   | "assay"
-  | "massspec";
+  | "massspec"
+  | "peptide";
 
 /** HTML help fragment shown in the "Examples & syntax" panel for each mode. */
 export const MODE_EXAMPLES: Record<ExampleMode, string> = {
@@ -326,5 +327,18 @@ export const MODE_EXAMPLES: Record<ExampleMode, string> = {
     <p class="examples-note">
       Isotope abundances are standard NIST values; the pattern covers the common organic/bio
       elements (C, H, N, O, S, P, halogens, Si, Se, B, Na, K). Analysis aid — verify before relying.
+    </p>`,
+  peptide: `
+    <p class="examples-note">
+      Draw a <strong>peptide's 2D structure</strong> from its sequence — then insert it.
+    </p>
+    <ul>
+      <li><strong>One-letter</strong> codes: <code>ACDEFG</code> (spaces optional)</li>
+      <li><strong>Three-letter</strong> codes with separators: <code>Ala-Gly-Ser</code> or <code>Met Lys</code></li>
+      <li>Free N- and C-termini; reports residue count, formula, and molecular weight</li>
+    </ul>
+    <p class="examples-note">
+      The structure shows <strong>connectivity</strong> (stereochemistry isn't drawn, to avoid asserting
+      a wrong configuration). Best for short peptides — long chains get dense. Verify before relying.
     </p>`,
 };

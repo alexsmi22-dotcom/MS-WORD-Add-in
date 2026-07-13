@@ -55,6 +55,7 @@ import { renderStructure, nameForIdcode, StructureResult } from "../lib/structur
 import { computeProperties, PhysChemProperties, RuleResult } from "../lib/properties";
 import { resolveNameOnline, OpsinResult } from "../lib/opsin";
 import { computeMassSpec, MassSpecResult } from "../lib/massspec";
+import { buildPeptide } from "../lib/peptide";
 import { build, BuildFormat, BuildResult } from "../lib/builder";
 import { formatCodeBlock, CodeStyle } from "../lib/codeblock";
 import {
@@ -163,6 +164,7 @@ type Mode =
   | "finance"
   | "assay"
   | "massspec"
+  | "peptide"
   | "build"
   | "code"
   | "sequence"
@@ -385,6 +387,14 @@ let msResult: HTMLElement;
 let msInsertBtn: HTMLButtonElement;
 /** MS readout for the most recent input, for insertion. */
 let currentMassSpec: MassSpecResult | null = null;
+let peptideSection: HTMLElement;
+let pepInput: HTMLTextAreaElement;
+let pepPreview: HTMLElement;
+let pepInfo: HTMLElement;
+let pepInsertBtn: HTMLButtonElement;
+/** Rendered peptide structure for the current sequence, for insertion. */
+let currentPeptideStructure: StructureResult | null = null;
+let currentPeptideSeq = "";
 let assaySection: HTMLElement;
 let assayCalcSelect: HTMLSelectElement;
 let assayInputs: HTMLElement;
@@ -629,6 +639,11 @@ Office.onReady((info) => {
   msInput = document.getElementById("ms-input") as HTMLInputElement;
   msResult = document.getElementById("ms-result") as HTMLElement;
   msInsertBtn = document.getElementById("ms-insert") as HTMLButtonElement;
+  peptideSection = document.getElementById("peptide-section") as HTMLElement;
+  pepInput = document.getElementById("pep-input") as HTMLTextAreaElement;
+  pepPreview = document.getElementById("pep-preview") as HTMLElement;
+  pepInfo = document.getElementById("pep-info") as HTMLElement;
+  pepInsertBtn = document.getElementById("pep-insert") as HTMLButtonElement;
   assaySection = document.getElementById("assay-section") as HTMLElement;
   assayCalcSelect = document.getElementById("assay-calc") as HTMLSelectElement;
   assayInputs = document.getElementById("assay-inputs") as HTMLElement;
@@ -757,6 +772,9 @@ Office.onReady((info) => {
   msInput.addEventListener("input", updateMassSpec);
   msInsertBtn.addEventListener("click", () => insertDnaText(massSpecAsText(currentMassSpec), "MS data"));
 
+  pepInput.addEventListener("input", updatePeptide);
+  pepInsertBtn.addEventListener("click", insertPeptide);
+
   populateAssayCalcs();
   assayCalcSelect.addEventListener("change", renderAssayInputs);
   assayInsertBtn.addEventListener("click", () => insertDnaText(currentAssayText, "Assay result"));
@@ -866,6 +884,7 @@ const HOME_GROUPS: HomeGroup[] = [
       { mode: "sequence", icon: "🧬", label: "Sequence", desc: "WIPO ST.26 listings" },
       { mode: "dna", icon: "🧬", label: "DNA", desc: "Rev-comp, translation, ORFs" },
       { mode: "assay", icon: "🧫", label: "Bio/Assay", desc: "Kinetics, IC50/EC50, binding, lab math" },
+      { mode: "peptide", icon: "🔗", label: "Peptide", desc: "Draw a peptide from its sequence" },
       { mode: "botanical", icon: "🌿", label: "Botanical", desc: "Plant nomenclature" },
     ],
   },
@@ -1387,7 +1406,7 @@ function onInputChanged(): void {
     for (const s of [
       formatSection, buildSection, codeSection, sequenceSection, botanicalSection, numeralsSection,
       dnaSection, reactionSection, auditSection, unitsSection, refsSection, citationsSection,
-      plotSection, financeSection, assaySection, massspecSection, pptSection,
+      plotSection, financeSection, assaySection, massspecSection, peptideSection, pptSection,
     ]) {
       s.style.display = "none";
     }
@@ -1412,6 +1431,7 @@ function onInputChanged(): void {
   financeSection.style.display = mode === "finance" ? "block" : "none";
   assaySection.style.display = mode === "assay" ? "block" : "none";
   massspecSection.style.display = mode === "massspec" ? "block" : "none";
+  peptideSection.style.display = mode === "peptide" ? "block" : "none";
   pptSection.style.display = mode === "ppt" ? "block" : "none";
 
   if (mode === "units") {
@@ -1445,6 +1465,10 @@ function onInputChanged(): void {
   }
   if (mode === "massspec") {
     updateMassSpec();
+    return;
+  }
+  if (mode === "peptide") {
+    updatePeptide();
     return;
   }
   if (mode === "numerals") {
@@ -4166,6 +4190,102 @@ function updateFinancePreview(): void {
   }
   currentFinText = insertable ? text : "";
   finInsertBtn.disabled = !insertable;
+}
+
+// ---------------------------------------------------------------------------
+// Peptide — 2D structure from a sequence
+// ---------------------------------------------------------------------------
+
+/** Builds and previews the peptide structure for the current sequence input. */
+function updatePeptide(): void {
+  const seq = pepInput.value.trim();
+  pepPreview.replaceChildren();
+  pepInfo.replaceChildren();
+  currentPeptideStructure = null;
+  currentPeptideSeq = "";
+  pepInsertBtn.disabled = true;
+
+  const hint = (msg: string): void => {
+    const h = document.createElement("span");
+    h.className = "hint";
+    h.textContent = msg;
+    pepPreview.appendChild(h);
+  };
+  if (!seq) {
+    hint("Type a peptide sequence (e.g. ACDEFG or Ala-Gly-Ser).");
+    return;
+  }
+
+  const built = buildPeptide(seq);
+  if (!built || !built.length) {
+    hint("No valid amino acids found. Use one-letter (ACDEFG) or three-letter (Ala-Gly) codes.");
+    return;
+  }
+
+  let structure: ReturnType<typeof renderStructure> = null;
+  try {
+    structure = renderStructure(built.smiles, STRUCTURE_W, STRUCTURE_H);
+  } catch {
+    structure = null;
+  }
+  if (!structure) {
+    hint("Couldn't draw this peptide.");
+    return;
+  }
+  currentPeptideStructure = structure;
+  currentPeptideSeq = built.sequence;
+  pepPreview.innerHTML = structure.svg;
+
+  const bits = [`${built.length} residue${built.length === 1 ? "" : "s"}`, structure.formula, `MW ${structure.mw}`];
+  const line = document.createElement("span");
+  line.textContent = bits.join(" · ");
+  pepInfo.appendChild(line);
+  if (built.invalid.length) {
+    const warn = document.createElement("span");
+    warn.textContent = `Ignored unrecognized: ${built.invalid.join(", ")}`;
+    pepInfo.appendChild(warn);
+  }
+  if (built.length > 20) {
+    const dense = document.createElement("span");
+    dense.textContent = "Long peptide — the 2D depiction will be dense.";
+    pepInfo.appendChild(dense);
+  }
+  pepInsertBtn.disabled = false;
+}
+
+/** Inserts the current peptide's 2D structure as an inline picture. */
+async function insertPeptide(): Promise<void> {
+  const structure = currentPeptideStructure;
+  if (!structure) {
+    setStatus("No peptide structure to insert.", "error");
+    return;
+  }
+  pepInsertBtn.disabled = true;
+  setStatus("Inserting peptide structure…");
+  try {
+    const d = readSvgDims(structure.svg, STRUCTURE_W, STRUCTURE_H);
+    const base64 = await svgToPngBase64(structure.svg, d.w, d.h);
+    const alt = provenanceAltText(
+      `Peptide ${currentPeptideSeq}`,
+      structure.formula,
+      structure.mw,
+      structure.smiles,
+      structure.idcode
+    );
+    await Word.run(async (context) => {
+      const range = context.document.getSelection();
+      const picture = range.insertInlinePictureFromBase64(base64, Word.InsertLocation.after);
+      picture.altTextDescription = alt;
+      range.select(Word.SelectionMode.end);
+      await context.sync();
+      await tagInserted(context, picture.getRange(), "formula-inserter:peptide");
+    });
+    setStatus("Peptide structure inserted.", "success");
+  } catch (error) {
+    setStatus(`Could not insert peptide: ${(error as Error).message}`, "error");
+  } finally {
+    pepInsertBtn.disabled = false;
+  }
 }
 
 // ---------------------------------------------------------------------------

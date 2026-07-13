@@ -2,6 +2,19 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
+## [1.46.0] — 2026-07-13
+
+### Added (Peptide mode — roadmap #5)
+- **New Peptide tool.** Draw a peptide 2D structure from its sequence — one-letter
+  (ACDEFG) or three-letter (Ala-Gly-Ser) codes — and insert it. Reports residue
+  count, molecular formula, and MW; flags unrecognized residues. The structure
+  shows connectivity only (stereochemistry is intentionally not drawn, to avoid
+  asserting a wrong configuration).
+- New pure : sequence parser (one-/three-letter) + SMILES
+  builder for all 20 standard residues (free termini, proline ring handled). 28
+  tests, including each residue built alone matching its known free-amino-acid
+  formula and dipeptides losing one water per bond.
+
 ## [1.45.0] — 2026-07-13
 
 ### Added (Mass Spec mode — roadmap #4)

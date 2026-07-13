@@ -132,6 +132,12 @@ inserted, and the **Examples & syntax** panel updates to match the selected tool
 - Applicant / invention-title / application metadata; **download `.xml`** or **copy**.
 - *Always validate the output in the WIPO Sequence tool before filing.*
 
+## 🔗 Peptide — structure from a sequence
+- Draw a **peptide's 2D structure** from its amino-acid **sequence** and insert it.
+- **One-letter** codes (`ACDEFG`, spaces optional) or **three-letter** codes with separators (`Ala-Gly-Ser`, `Met Lys`).
+- Free N- and C-termini; reports **residue count, molecular formula, and molecular weight**. Unrecognized residues are flagged, not silently dropped.
+- Shows **connectivity** (stereochemistry isn't drawn — so it never asserts a wrong configuration). Best for short peptides; long chains render densely. Verify before relying.
+
 ## 🌿 Botanical — plant patents
 - **Scientific-name typesetting** with correct nomenclature italics — genus, species, and infraspecific epithets italic; rank connectors (`subsp.`/`var.`/`f.`), author citations, hybrid `×`, and cultivars (`'Peace'`) roman; quotes normalized, genus capitalized.
 - **Varietal characteristics table** from `Label: value` lines (plant height, flower color/RHS, habit, …).

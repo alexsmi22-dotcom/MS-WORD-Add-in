@@ -19,6 +19,7 @@ const MODES: ExampleMode[] = [
   "finance",
   "assay",
   "massspec",
+  "peptide",
 ];
 
 describe("MODE_EXAMPLES", () => {
@@ -53,5 +54,6 @@ describe("MODE_EXAMPLES", () => {
     expect(MODE_EXAMPLES.finance).toContain("IRR");
     expect(MODE_EXAMPLES.assay).toContain("IC50");
     expect(MODE_EXAMPLES.massspec).toContain("monoisotopic");
+    expect(MODE_EXAMPLES.peptide).toContain("One-letter");
   });
 });

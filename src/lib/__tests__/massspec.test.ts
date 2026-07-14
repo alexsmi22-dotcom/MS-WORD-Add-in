@@ -85,6 +85,33 @@ describe("computeMassSpec", () => {
     expect(s.pattern[0].mass).toBeGreaterThan(50);
     expect(s.unsupportedInPattern).toContain("Fe");
   });
+
+  it("reports a neutral molecule as netCharge 0 with a full adduct table", () => {
+    const s = computeMassSpec("aspirin")!;
+    expect(s.netCharge).toBe(0);
+    expect(s.adducts.length).toBeGreaterThan(0);
+  });
+
+  it("omits ESI adducts for an already-charged cation (choline)", () => {
+    const s = computeMassSpec("[N+](C)(C)(C)CCO")!;
+    expect(s.netCharge).toBe(1);
+    expect(s.adducts).toHaveLength(0);
+    // Mass and pattern are still valid for the ion's formula.
+    expect(s.monoisotopicMass).toBeCloseTo(104.1075, 3);
+    expect(s.pattern[0].offset).toBe(0);
+  });
+
+  it("omits ESI adducts for an anion (acetate)", () => {
+    const s = computeMassSpec("CC(=O)[O-]")!;
+    expect(s.netCharge).toBe(-1);
+    expect(s.adducts).toHaveLength(0);
+  });
+
+  it("keeps adducts for a net-neutral salt (charges balance)", () => {
+    const s = computeMassSpec("[Na+].[Cl-]")!;
+    expect(s.netCharge).toBe(0);
+    expect(s.adducts.length).toBeGreaterThan(0);
+  });
 });
 
 describe("adductMz", () => {

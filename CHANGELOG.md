@@ -2,6 +2,19 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
+## [1.48.4] — 2026-07-14 — Mass Spec: no ESI adducts for already-charged inputs
+
+- **Mass Spec mode:** the ESI adduct table (`[M+H]+`, `[M+Na]+`, `[M-H]-`, …)
+  assumes a *neutral* precursor. It was computed for any input, so a structure
+  that already carries a net formal charge — e.g. choline (a permanent
+  quaternary-ammonium cation) or an anion like acetate — got physically
+  meaningless protonation/cationization m/z values. The panel now detects net
+  charge and, when non-zero, omits the adducts with a note
+  (*"Input carries a net charge (n+); ESI adducts assume a neutral molecule"*).
+  Exact mass and isotope pattern are unaffected and still shown. +4 tests.
+  (Audit of Peptide and Mass Spec for the same edge-case-honesty class as
+  1.48.2/1.48.3; peptide constitution/masses verified correct, no change needed.)
+
 ## [1.48.3] — 2026-07-13 — Hide QSAR estimates for non-organic inputs
 
 - **Chemical mode (properties):** follow-up to the druglikeness gate. cLogP and

@@ -4685,20 +4685,29 @@ function updateMassSpec(): void {
     msResult.appendChild(note);
   }
 
-  // Adduct m/z.
+  // Adduct m/z. These assume a neutral precursor; if the structure already
+  // carries a net charge, protonation/cationization adducts don't apply.
   msResult.appendChild(msEyebrow("Adducts (m/z)"));
-  const adducts = document.createElement("div");
-  adducts.className = "ms-adducts";
-  for (const a of spec.adducts) {
-    const name = document.createElement("span");
-    name.className = "ms-adduct-name";
-    name.textContent = a.name;
-    const mz = document.createElement("span");
-    mz.className = "ms-adduct-mz";
-    mz.textContent = a.mz.toFixed(4);
-    adducts.append(name, mz);
+  if (spec.netCharge !== 0) {
+    const note = document.createElement("div");
+    note.className = "ms-note";
+    const sign = spec.netCharge > 0 ? `${spec.netCharge}+` : `${-spec.netCharge}−`;
+    note.textContent = `Input carries a net charge (${sign}); ESI adducts assume a neutral molecule, so none are shown. The exact mass above is still valid.`;
+    msResult.appendChild(note);
+  } else {
+    const adducts = document.createElement("div");
+    adducts.className = "ms-adducts";
+    for (const a of spec.adducts) {
+      const name = document.createElement("span");
+      name.className = "ms-adduct-name";
+      name.textContent = a.name;
+      const mz = document.createElement("span");
+      mz.className = "ms-adduct-mz";
+      mz.textContent = a.mz.toFixed(4);
+      adducts.append(name, mz);
+    }
+    msResult.appendChild(adducts);
   }
-  msResult.appendChild(adducts);
 
   msInsertBtn.disabled = false;
 }
@@ -4712,8 +4721,9 @@ function massSpecAsText(spec: MassSpecResult | null): string {
     `Average mass: ${spec.averageMass.toFixed(2)}`,
     "Isotope pattern (relative intensity):",
     ...spec.pattern.map((p) => `  ${p.offset === 0 ? "M" : "M+" + p.offset}  ${p.mass.toFixed(4)}  ${p.intensity.toFixed(1)}%`),
-    "Adducts (m/z):",
-    ...spec.adducts.map((a) => `  ${a.name}  ${a.mz.toFixed(4)}`),
+    ...(spec.netCharge !== 0
+      ? [`Adducts: n/a (input carries a net charge of ${spec.netCharge > 0 ? "+" : "−"}${Math.abs(spec.netCharge)}; ESI adducts assume a neutral molecule)`]
+      : ["Adducts (m/z):", ...spec.adducts.map((a) => `  ${a.name}  ${a.mz.toFixed(4)}`)]),
     "Computed offline — verify before relying.",
   ];
   return lines.join("\n");

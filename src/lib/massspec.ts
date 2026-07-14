@@ -199,6 +199,12 @@ export interface MassSpecResult {
   averageMass: number;
   pattern: IsotopePeak[];
   unsupportedInPattern: string[];
+  /**
+   * Net formal charge of the input. The ESI adduct table assumes a NEUTRAL
+   * precursor, so when this is non-zero the adducts don't apply and are omitted
+   * (mass and isotope pattern are still valid for the given formula).
+   */
+  netCharge: number;
   adducts: { name: string; mz: number; charge: number }[];
 }
 
@@ -231,7 +237,16 @@ export function computeMassSpec(input: string): MassSpecResult | null {
   const peaks = rawPeaks.length
     ? rawPeaks.map((p) => ({ ...p, mass: monoisotopicMass + (p.mass - base) }))
     : [{ offset: 0, mass: monoisotopicMass, intensity: 100 }];
-  const adducts = ADDUCTS.map((a) => ({ name: a.name, mz: adductMz(monoisotopicMass, a), charge: a.charge }));
+
+  // The ESI adduct m/z table assumes a neutral M. If the drawn structure already
+  // carries a net formal charge, protonation/cationization adducts are physically
+  // meaningless, so omit them (mass and pattern above remain exact).
+  let netCharge = 0;
+  for (let i = 0; i < mol.getAllAtoms(); i++) netCharge += mol.getAtomCharge(i);
+  const adducts =
+    netCharge === 0
+      ? ADDUCTS.map((a) => ({ name: a.name, mz: adductMz(monoisotopicMass, a), charge: a.charge }))
+      : [];
 
   return {
     formula: mf.formula,
@@ -239,6 +254,7 @@ export function computeMassSpec(input: string): MassSpecResult | null {
     averageMass,
     pattern: peaks,
     unsupportedInPattern: unsupported,
+    netCharge,
     adducts,
   };
 }

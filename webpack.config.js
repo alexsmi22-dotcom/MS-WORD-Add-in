@@ -6,6 +6,11 @@ const CopyWebpackPlugin = require("copy-webpack-plugin");
 const devCerts = require("office-addin-dev-certs");
 
 const urlDev = "https://localhost:3000/";
+// The live GitHub Pages host the deployed add-in is served from. Used to stamp
+// the published manifest so /manifest.xml is directly installable (and matches
+// what the install packs ship). No trailing slash — it prefixes "/taskpane.html"
+// etc. and replaces the manifest's placeholder host verbatim.
+const prodHost = "https://alexsmi22-dotcom.github.io/MS-WORD-Add-in";
 
 async function getHttpsOptions() {
   const httpsOptions = await devCerts.getHttpsServerOptions();
@@ -79,7 +84,21 @@ module.exports = async (env, options) => {
       new CopyWebpackPlugin({
         patterns: [
           { from: "assets/*", to: "assets/[name][ext][query]" },
-          { from: "manifest*.xml", to: "[name][ext]" },
+          // Publish a single installable manifest at the site root. In production,
+          // stamp the production manifest with the live Pages host so the deployed
+          // /manifest.xml points at the hosted files and matches what the install
+          // packs ship; in dev, publish the localhost manifest for local sideload.
+          // (The example.com template and the localhost dev manifest are NOT
+          // published in production — a new user grabbing /manifest.xml gets a
+          // working one, not a dev URL.)
+          dev
+            ? { from: "manifest.xml", to: "manifest.xml" }
+            : {
+                from: "manifest.prod.xml",
+                to: "manifest.xml",
+                transform: (content) =>
+                  content.toString().replace(/https:\/\/ADDIN-HOST\.example\.com/g, prodHost),
+              },
           { from: "landing/index.html", to: "index.html" },
         ],
       }),

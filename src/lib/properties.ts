@@ -38,6 +38,14 @@ export interface PhysChemProperties {
   /** Hydrogen-bond acceptors. */
   hba: number;
   rotatableBonds: number;
+  /**
+   * True when the Lipinski/Veber screens actually apply: an organic
+   * (carbon-containing) molecule with ≥ 2 heavy atoms. Both rules are
+   * upper-bound filters derived from organic drug-candidate libraries, so a
+   * bare metal atom, a noble gas, or a simple inorganic salt trivially "passes"
+   * every ceiling. Callers should show "n/a" rather than a green pass for those.
+   */
+  druglikenessApplicable: boolean;
   /** Lipinski Rule of Five (oral druglikeness). */
   lipinski: RuleResult;
   /** Veber rule (oral bioavailability): rotatable bonds ≤ 10 and tPSA ≤ 140. */
@@ -71,6 +79,20 @@ export function computeProperties(input: string): PhysChemProperties | null {
   const mw = round(mf.relativeWeight, 2);
   const heavyAtoms = mol.getAllAtoms();
 
+  // Druglikeness applies only to organic small molecules. Require at least one
+  // carbon and more than one heavy atom — this suppresses the meaningless
+  // "pass" that bare metals ([Au]), noble gases ([He]), and simple salts
+  // (NaCl) would otherwise report, without excluding carbon-bearing
+  // metallodrugs such as auranofin.
+  let hasCarbon = false;
+  for (let i = 0; i < heavyAtoms; i++) {
+    if (mol.getAtomicNo(i) === 6) {
+      hasCarbon = true;
+      break;
+    }
+  }
+  const druglikenessApplicable = hasCarbon && heavyAtoms >= 2;
+
   const mp = new MoleculeProperties(mol);
   const logP = round(mp.logP, 2);
   const logS = round(mp.logS, 2);
@@ -102,5 +124,5 @@ export function computeProperties(input: string): PhysChemProperties | null {
   if (mp.polarSurfaceArea > 140) veberViolations.push("tPSA > 140 Å²");
   const veber: RuleResult = { pass: veberViolations.length === 0, violations: veberViolations };
 
-  return { smiles, formula: mf.formula, mw, heavyAtoms, logP, logS, tpsa, hbd, hba, rotatableBonds, lipinski, veber };
+  return { smiles, formula: mf.formula, mw, heavyAtoms, logP, logS, tpsa, hbd, hba, rotatableBonds, druglikenessApplicable, lipinski, veber };
 }

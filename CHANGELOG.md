@@ -2,6 +2,18 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
+## [1.48.2] — 2026-07-13 — Don't claim bare metals/salts are "druglike"
+
+- **Chemical mode (druglikeness):** Lipinski's Rule of Five and Veber are
+  upper-bound filters — they only flag molecules that are *too* big/greasy/polar,
+  so anything small and nonpolar (a bare gold atom `[Au]`, a noble gas, a simple
+  inorganic salt) trivially "passed" every ceiling and showed a green
+  **Druglikeness: ✓ pass**. The screens now render only for organic small
+  molecules (≥ 1 carbon and ≥ 2 heavy atoms); everything else shows
+  **"n/a — applies to organic small molecules"**. Carbon-bearing metallodrugs
+  (e.g. auranofin) are still screened normally. Raw properties are unaffected.
+  +4 regression tests.
+
 ## [1.48.1] — 2026-07-13 — Fix OPSIN "HTTP 404" on unrecognized names
 
 - **Chemical mode (online name→structure):** OPSIN answers HTTP 404 with a

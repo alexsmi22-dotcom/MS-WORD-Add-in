@@ -705,6 +705,11 @@ h1 {
   font-size: 11.5px;
   color: var(--muted);
 }
+.prop-na {
+  font-size: 12px;
+  font-style: italic;
+  color: var(--muted);
+}
 
 /* Opt-in online name lookup (OPSIN) — the one feature that leaves the machine. */
 .opsin-block {

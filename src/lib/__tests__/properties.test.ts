@@ -56,4 +56,30 @@ describe("computeProperties", () => {
     expect(computeProperties("not_a_compound_xyz!!")).toBeNull();
     expect(computeProperties("")).toBeNull();
   });
+
+  it("marks organic drug-like molecules as druglikeness-applicable", () => {
+    expect(computeProperties("aspirin")!.druglikenessApplicable).toBe(true);
+    expect(computeProperties("caffeine")!.druglikenessApplicable).toBe(true);
+  });
+
+  it("does NOT apply druglikeness to a bare metal atom (gold)", () => {
+    const p = computeProperties("[Au]")!;
+    expect(p).not.toBeNull();
+    // The raw Lipinski/Veber ceilings are still vacuously satisfied...
+    expect(p.lipinski.pass).toBe(true);
+    expect(p.veber.pass).toBe(true);
+    // ...but the screens must be flagged as not applicable so the UI hides the pass.
+    expect(p.druglikenessApplicable).toBe(false);
+  });
+
+  it("does NOT apply druglikeness to noble gases or simple inorganic salts", () => {
+    expect(computeProperties("[He]")!.druglikenessApplicable).toBe(false);
+    expect(computeProperties("[Na+].[Cl-]")!.druglikenessApplicable).toBe(false);
+  });
+
+  it("still applies druglikeness to a carbon-bearing metallodrug (auranofin)", () => {
+    const p = computeProperties("CC(=O)OCC1OC(S[Au]P(CC)(CC)CC)C(OC(C)=O)C(OC(C)=O)C1OC(C)=O");
+    expect(p).not.toBeNull();
+    expect(p!.druglikenessApplicable).toBe(true);
+  });
 });

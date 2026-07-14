@@ -2520,6 +2520,17 @@ function renderProperties(input: string): void {
 
   // Druglikeness: a PASS/FAIL pill per screen, with any criteria on their own line.
   eyebrow("Druglikeness");
+  // Lipinski/Veber are upper-bound filters for organic small molecules, so they
+  // are vacuously "passed" by bare metals, noble gases, and simple salts. Show a
+  // plain "n/a" note for those rather than a misleading green pass.
+  if (!p.druglikenessApplicable) {
+    const na = document.createElement("div");
+    na.className = "prop-na";
+    na.textContent = "n/a — applies to organic small molecules";
+    structurePropsEl.appendChild(na);
+    insertPropsBtn.disabled = false;
+    return;
+  }
   const rules = document.createElement("div");
   rules.className = "prop-rules";
   const ruleData: [string, RuleResult][] = [
@@ -2561,8 +2572,9 @@ function propertiesAsText(p: PhysChemProperties | null): string {
     `H-bond acceptors: ${p.hba}`,
     `Rotatable bonds: ${p.rotatableBonds}`,
     `Heavy atoms: ${p.heavyAtoms}`,
-    ruleVerdict("Lipinski Rule of Five", p.lipinski),
-    ruleVerdict("Veber rule", p.veber),
+    ...(p.druglikenessApplicable
+      ? [ruleVerdict("Lipinski Rule of Five", p.lipinski), ruleVerdict("Veber rule", p.veber)]
+      : ["Druglikeness: n/a (screens apply to organic small molecules)"]),
     "Estimated values (OpenChemLib) — verify before relying on them.",
   ].join("\n");
 }

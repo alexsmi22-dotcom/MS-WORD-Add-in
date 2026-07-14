@@ -88,6 +88,39 @@ describe("buildTableOfAuthorities", () => {
     expect(toa.groups.find((x) => x.category === "cases")).toBeUndefined();
   });
 
+  test("does not glue a leading sentence word onto the case name", () => {
+    // "In"/"Applying"/"Whether" run straight into a capitalized party name with
+    // no comma, so the greedy match used to absorb them into the first party.
+    expect(grouped("In Alice Corp. v. CLS Bank Int'l, 573 U.S. 208 (2014), the Court held...").cases).toEqual([
+      "Alice Corp. v. CLS Bank Int'l, 573 U.S. 208 (2014)",
+    ]);
+    expect(grouped("Applying Mayo v. Prometheus, 566 U.S. 66 (2012).").cases).toEqual([
+      "Mayo v. Prometheus, 566 U.S. 66 (2012)",
+    ]);
+    expect(grouped("Whether Bilski v. Kappos, 561 U.S. 593 (2010) controls...").cases).toEqual([
+      "Bilski v. Kappos, 561 U.S. 593 (2010)",
+    ]);
+  });
+
+  test("a stripped leading word lets the cite dedupe against its clean form", () => {
+    // "In Alice…" and a later clean "Alice…" are the SAME authority → one entry.
+    const g = grouped(
+      "In Alice Corp. v. CLS Bank Int'l, 573 U.S. 208 (2014). Later, Alice Corp. v. CLS Bank Int'l, 573 U.S. 208, 217 (2014)."
+    );
+    expect(g.cases).toEqual(["Alice Corp. v. CLS Bank Int'l, 573 U.S. 208 (2014)"]);
+  });
+
+  test("preserves genuine case-name forms that begin with 'In' or 'Under'", () => {
+    // "In re" / "In the Matter of" are real prefixes; "Under" can be a real party
+    // ("Under Armour"), so neither is stripped.
+    expect(grouped("In re Bilski, 545 F.3d 943 (Fed. Cir. 2008).").cases).toEqual([
+      "In re Bilski, 545 F.3d 943 (Fed. Cir. 2008)",
+    ]);
+    expect(grouped("Under Armour, Inc. v. Battle Fashions, Inc., 294 F. Supp. 3d 428 (E.D.N.C. 2018).").cases).toEqual([
+      "Under Armour, Inc. v. Battle Fashions, Inc., 294 F. Supp. 3d 428 (E.D.N.C. 2018)",
+    ]);
+  });
+
   test("handles a corporate suffix in the party name (', Inc.')", () => {
     const g = grouped(
       "See Ass'n for Molecular Pathology v. Myriad Genetics, Inc., 569 U.S. 576, 580 (2013)."

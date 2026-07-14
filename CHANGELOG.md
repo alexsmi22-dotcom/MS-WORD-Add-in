@@ -2,6 +2,36 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
+## [1.48.5] — 2026-07-14 — Edge-case-honesty audit: Stats + legal citations
+
+Swept the Stats, Bio/Assay, and citation/legal modules for the same class of
+"confident-but-wrong output on edge inputs" as 1.48.2–1.48.4. Bio/Assay was clean
+(fits already gate on convergence; closed-form calculators route non-finite
+results through the "—" guard). Fixes:
+
+- **Stats:** CV (coefficient of variation) showed **"Infinity%"** for any
+  zero-mean data (e.g. `-5, 5`) because it bypassed the non-finite guard — now
+  **"n/a (needs a positive mean)"**. A zero-variance t-test rendered
+  **"t(NaN) = -Infinity, p = NaN"**, and constant-x regression showed
+  **"slope p = NaN"** — both now return a clear "test is undefined" message.
+  `formatP` can no longer emit "p = NaN" anywhere, and ANOVA now requires ≥2
+  values per group.
+- **Citations — dates:** `formatDate` fabricated impossible dates like
+  **"Feb. 31, 2019"**; it now rejects any day beyond the month's length
+  (leap-year aware, so `2020-02-29` is valid but `2019-02-29` isn't) and passes
+  the raw text through instead.
+- **Citations — section symbol:** a single dotted Treasury reg such as
+  `1.6011-4` wrongly rendered **`§§`** (the internal hyphen read as a range).
+  Compound dotted sections now keep the singular `§`; genuine integer ranges
+  (`101-103`) still use `§§`.
+- **Table of Authorities:** a full citation introduced by an ordinary
+  capitalized word with no comma ("**In** Alice Corp. v. CLS Bank…",
+  "**Applying** Mayo v. Prometheus…") glued that word onto the case name,
+  producing a wrong, mis-alphabetized, and duplicated TOA entry. Such leading
+  prose words are now stripped — while genuine forms are preserved: "In re" /
+  "In the Matter of", and litigants like "Under Armour" ("Under" is deliberately
+  never stripped). +11 regression tests.
+
 ## [1.48.4] — 2026-07-14 — Mass Spec: no ESI adducts for already-charged inputs
 
 - **Mass Spec mode:** the ESI adduct table (`[M+H]+`, `[M+Na]+`, `[M-H]-`, …)

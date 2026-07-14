@@ -46,6 +46,14 @@ describe("helpers", () => {
     expect(formatDate("2018")).toBe("2018");
   });
 
+  test("formatDate rejects impossible calendar dates instead of fabricating them", () => {
+    expect(formatDate("2019-02-31")).toBe("2019-02-31"); // Feb has no 31st → pass-through, not "Feb. 31, 2019"
+    expect(formatDate("2019-04-31")).toBe("2019-04-31"); // Apr has 30 days
+    expect(formatDate("2019-02-29")).toBe("2019-02-29"); // 2019 is not a leap year
+    expect(formatDate("2020-02-29")).toBe("Feb. 29, 2020"); // 2020 IS a leap year → valid
+    expect(formatDate("2014-13-40")).toBe("2014-13-40"); // out-of-range month
+  });
+
   test("formatPatentNumber groups digits and keeps a prefix", () => {
     expect(formatPatentNumber("10123456")).toBe("10,123,456");
     expect(formatPatentNumber("10,123,456")).toBe("10,123,456");
@@ -102,6 +110,16 @@ describe("statutes & regs", () => {
   });
   test("C.F.R.", () => {
     expect(fmt("cfr", { title: "37", section: "1.84", year: "2023" }).plain).toBe("37 C.F.R. § 1.84 (2023)");
+  });
+  test("a single dotted tax reg keeps § (the hyphen is a sub-part, not a range)", () => {
+    expect(fmt("cfr", { title: "26", section: "1.6011-4" }).plain).toBe("26 C.F.R. § 1.6011-4");
+    expect(fmt("cfr", { title: "26", section: "1.482-7" }).plain).toBe("26 C.F.R. § 1.482-7");
+  });
+  test("a real integer section range still uses §§", () => {
+    expect(fmt("usc", { title: "35", section: "101-103" }).plain).toBe("35 U.S.C. §§ 101-103");
+  });
+  test("a lettered single section (2000e-2) stays §", () => {
+    expect(fmt("usc", { title: "42", section: "2000e-2" }).plain).toBe("42 U.S.C. § 2000e-2");
   });
 });
 

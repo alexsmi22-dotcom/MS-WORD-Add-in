@@ -58,21 +58,30 @@ const MONTHS = ["Jan.", "Feb.", "Mar.", "Apr.", "May", "June", "July", "Aug.", "
 /** "2014-06-19" or "6/19/2014" → "June 19, 2014"; other forms pass through. */
 export function formatDate(input: string): string {
   const t = input.trim();
-  // Pass an out-of-range month/day through unchanged rather than fabricating a
-  // date ("2014-13-40" is not silently coerced to "Dec. 40, 2014").
-  const valid = (mo: number, day: number): boolean => mo >= 1 && mo <= 12 && day >= 1 && day <= 31;
+  // Pass an out-of-range or impossible calendar date through unchanged rather
+  // than fabricating one — "2014-13-40" is not coerced to "Dec. 40, 2014", and
+  // a day beyond the month's length ("2019-02-31" → Feb. 31) is rejected too,
+  // accounting for leap years so "2020-02-29" is valid but "2019-02-29" is not.
+  const daysInMonth = (year: number, mo: number): number => {
+    if (mo === 2) return (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0 ? 29 : 28;
+    return [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][mo - 1];
+  };
+  const valid = (year: number, mo: number, day: number): boolean =>
+    mo >= 1 && mo <= 12 && day >= 1 && day <= daysInMonth(year, mo);
   const iso = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(t);
   if (iso) {
+    const y = parseInt(iso[1], 10);
     const m = parseInt(iso[2], 10);
     const d = parseInt(iso[3], 10);
-    if (valid(m, d)) return `${MONTHS[m - 1]} ${d}, ${iso[1]}`;
+    if (valid(y, m, d)) return `${MONTHS[m - 1]} ${d}, ${iso[1]}`;
     return t;
   }
   const us = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(t);
   if (us) {
     const m = parseInt(us[1], 10);
     const d = parseInt(us[2], 10);
-    if (valid(m, d)) return `${MONTHS[m - 1]} ${d}, ${us[3]}`;
+    const y = parseInt(us[3], 10);
+    if (valid(y, m, d)) return `${MONTHS[m - 1]} ${d}, ${us[3]}`;
     return t;
   }
   return t;
@@ -103,14 +112,17 @@ export function formatPublicationNumber(input: string): string {
 /**
  * "§" or "§§" depending on whether the section string names more than one.
  * A digit–dash–digit range (101-103, 101–103) is plural; a hyphen inside a
- * single section number (e.g. 2000e-2) is not, so we require digits on both
- * sides of the dash.
+ * single section number is not. That hyphen can follow a letter (2000e-2) or a
+ * digit of a *dotted* compound section (a Treasury reg like 1.6011-4, 1.482-7),
+ * so the range branch only fires when the digits before the dash are NOT part of
+ * a dotted number — otherwise a single tax reg would wrongly read "§§".
  */
 function sectionSymbol(section: string): string {
   // Plural §§ for multiple *sections* — a comma/ampersand/"and"/"to" followed by
-  // another section number, or a number range. A comma before a subsection like
-  // "1.84(a), (b)" is one section, so it stays singular §.
-  return /,\s*\d|&\s*\d|\s(?:to|and)\s+\d|\d\s*[-–—]\s*\d/.test(section) ? "§§" : "§";
+  // another section number, or an integer range whose left operand isn't the tail
+  // of a dotted compound number. A comma before a subsection like "1.84(a), (b)"
+  // is one section, so it stays singular §.
+  return /,\s*\d|&\s*\d|\s(?:to|and)\s+\d|(?:^|[^.\d])\d+\s*[-–—]\s*\d/.test(section) ? "§§" : "§";
 }
 
 /** Joins non-empty pieces with a separator. */

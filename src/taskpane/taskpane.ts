@@ -4306,6 +4306,11 @@ const STAT_CALCS: StatCalc[] = [
       const xs = statList(r("data"));
       if (xs.length < 2) return { text: "Enter at least two numbers.", ok: false };
       const d = statDescribe(xs);
+      // CV = SD/mean is only meaningful for ratio-scale data with a positive
+      // mean; it blows up to ±∞ as the mean → 0 and is negative for negative
+      // means, so report "n/a" there rather than a fake-confident percentage.
+      const cvText =
+        d.mean > 0 && Number.isFinite(d.cv) ? `${(d.cv * 100).toFixed(1)}%` : "n/a (needs a positive mean)";
       return {
         text:
           `Descriptive statistics (n = ${d.n})\n` +
@@ -4313,7 +4318,7 @@ const STAT_CALCS: StatCalc[] = [
           `SD = ${assaySig(d.sd)} · Variance = ${assaySig(d.variance)}\n` +
           `Median = ${assaySig(d.median)} · Min = ${assaySig(d.min)} · Max = ${assaySig(d.max)}\n` +
           `95% CI = [${assaySig(d.ci95[0])}, ${assaySig(d.ci95[1])}]\n` +
-          `CV = ${(d.cv * 100).toFixed(1)}%`,
+          `CV = ${cvText}`,
       };
     },
   },
@@ -4339,6 +4344,8 @@ const STAT_CALCS: StatCalc[] = [
       const b = statList(r("b"));
       if (a.length < 2 || b.length < 2) return { text: "Enter at least two numbers per group.", ok: false };
       const res = twoSampleTTest(a, b, r("type") === "student");
+      if (!Number.isFinite(res.t) || !Number.isFinite(res.p))
+        return { text: "t-test is undefined — a group has zero variance (all its values are identical).", ok: false };
       const label = r("type") === "student" ? "Student's" : "Welch's";
       return { text: `${label} two-sample t-test\n${reportT(res)}\nMean difference = ${assaySig(res.meanDifference)}` };
     },
@@ -4355,6 +4362,8 @@ const STAT_CALCS: StatCalc[] = [
       const b = statList(r("b"));
       if (a.length < 2 || a.length !== b.length) return { text: "Enter two equal-length paired lists (≥ 2).", ok: false };
       const res = pairedTTest(a, b);
+      if (!Number.isFinite(res.t) || !Number.isFinite(res.p))
+        return { text: "Paired t-test is undefined — the paired differences have zero variance (all identical).", ok: false };
       return { text: `Paired t-test\n${reportT(res)}\nMean difference = ${assaySig(res.meanDifference)}` };
     },
   },
@@ -4372,7 +4381,11 @@ const STAT_CALCS: StatCalc[] = [
     compute: (r) => {
       const groups = statGroups(r("groups"));
       if (groups.length < 2) return { text: "Enter at least two groups (separate with a blank line).", ok: false };
+      if (groups.some((g) => g.length < 2))
+        return { text: "Each ANOVA group needs at least two values.", ok: false };
       const res = oneWayAnova(groups);
+      if (!Number.isFinite(res.f) || !Number.isFinite(res.p))
+        return { text: "ANOVA is undefined — every group has zero within-group variance (identical values).", ok: false };
       return { text: `One-way ANOVA (${groups.length} groups)\n${reportF(res)}` };
     },
   },
@@ -4388,6 +4401,7 @@ const STAT_CALCS: StatCalc[] = [
       const y = statList(r("y"));
       if (x.length < 3 || x.length !== y.length) return { text: "Enter equal-length x and y lists (≥ 3 points).", ok: false };
       const res = statRegression(x, y);
+      if (!Number.isFinite(res.slope)) return { text: "Regression is undefined — the x values must not all be identical.", ok: false };
       return {
         text:
           `Linear regression (n = ${res.n})\n` +

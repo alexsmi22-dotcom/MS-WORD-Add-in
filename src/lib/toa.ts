@@ -119,6 +119,31 @@ function trimSection(s: string): string {
   return s.replace(/\.+$/, "");
 }
 
+// Capitalized sentence-opener words that a greedy party-name match can absorb
+// when they run straight into a case name with no comma ("In Alice Corp. v. …",
+// "Applying Mayo v. …", "Whether Bilski v. …"). "In" is guarded so the genuine
+// "In re" / "In the Matter of" case forms survive. "Under" is deliberately NOT
+// listed: real litigants start with it ("Under Armour", "Under Seal"), and a
+// wrong strip would corrupt an actual party name — worse than leaving it.
+const LEADING_INTRO_RE =
+  /^(?:In(?!\s+re\b)(?!\s+the\s+Matter\b)|Applying|Citing|Quoting|Following|Whether|Because|Although|Though|Since|When|Where|While|Unlike|Given|Assuming|Consider|Accordingly|Moreover|Nevertheless|Nonetheless|Likewise|Similarly|Conversely|Instead|Notably|Finally|Here|Thus|Therefore|Hence|However|Indeed)\s+/;
+
+/**
+ * Normalizes a captured case name: collapse whitespace, drop a leading Bluebook
+ * signal, and — for a "Party v. Party" citation only — drop a leading prose word
+ * the greedy regex glued on from the introducing sentence. The " v. " gate keeps
+ * the "In re" / "Ex parte" / "In the Matter of" forms untouched (they have no
+ * " v. "), so their leading "In"/"Ex" is never mistaken for prose.
+ */
+function cleanCaseName(rawName: string): string {
+  let name = rawName
+    .replace(/\s+/g, " ")
+    .replace(/^(?:See|Cf\.|Compare|Accord|Contra|E\.g\.)\s+/, "")
+    .trim();
+  if (/\sv\.\s/.test(name)) name = name.replace(LEADING_INTRO_RE, "").trim();
+  return name;
+}
+
 interface Raw {
   category: ToaCategory;
   sortKey: string;
@@ -138,10 +163,7 @@ interface Raw {
 
 /** Builds a case Raw, splitting the italic name from the roman cite + (court year). */
 function caseRaw(rawName: string, coreCite: string, courtYear: string | undefined): Raw {
-  const name = rawName
-    .replace(/\s+/g, " ")
-    .replace(/^(?:See|Cf\.|Compare|Accord|Contra|E\.g\.)\s+/, "")
-    .trim();
+  const name = cleanCaseName(rawName);
   const cy = courtYear ? courtYear.replace(/\s+/g, " ").trim() : "";
   const rest = `, ${coreCite}${cy ? ` (${cy})` : ""}`;
   return {
@@ -441,10 +463,7 @@ export function findPrecedingAuthority(text: string): PrecedingAuthority | null 
   let m: RegExpExecArray | null;
   CASE_RE.lastIndex = 0;
   while ((m = CASE_RE.exec(text))) {
-    const name = m[1]
-      .replace(/\s+/g, " ")
-      .replace(/^(?:See|Cf\.|Compare|Accord|Contra|E\.g\.)\s+/, "")
-      .trim();
+    const name = cleanCaseName(m[1]);
     consider(m.index, { plain: `${name}, ${m[2]} ${normalizeReporter(m[3])} ${m[4]}`, category: "cases" });
   }
   const scan = (re: RegExp, category: ToaCategory, build: (mm: RegExpExecArray) => string): void => {
@@ -454,10 +473,7 @@ export function findPrecedingAuthority(text: string): PrecedingAuthority | null 
   };
   UNPUB_RE.lastIndex = 0;
   while ((m = UNPUB_RE.exec(text))) {
-    const name = m[1]
-      .replace(/\s+/g, " ")
-      .replace(/^(?:See|Cf\.|Compare|Accord|Contra|E\.g\.)\s+/, "")
-      .trim();
+    const name = cleanCaseName(m[1]);
     consider(m.index, { plain: `${name}, ${m[2]} ${m[3]} ${m[4]}`, category: "cases" });
   }
   scan(STATUTE_RE, "statutes", (mm) => `${mm[1]} U.S.C. § ${trimSection(mm[2])}`);

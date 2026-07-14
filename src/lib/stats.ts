@@ -262,6 +262,7 @@ export function linearRegression(x: number[], y: number[]): RegressionResult {
 
 /** APA-style p-value string ("p < .001", "p = .027"). */
 export function formatP(p: number): string {
+  if (!Number.isFinite(p)) return "p = n/a";
   if (p < 0.001) return "p < .001";
   return `p = ${p.toFixed(3).replace(/^0/, "")}`;
 }

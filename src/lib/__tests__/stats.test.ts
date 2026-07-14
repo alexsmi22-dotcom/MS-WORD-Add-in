@@ -90,6 +90,29 @@ describe("reporting", () => {
     expect(formatP(0.0004)).toBe("p < .001");
     expect(reportT({ t: 2.41, df: 18, p: 0.027, meanDifference: 1 })).toBe("t(18) = 2.41, p = .027");
   });
+
+  it("formatP shows n/a (not 'p = NaN') for a non-finite p-value", () => {
+    expect(formatP(NaN)).toBe("p = n/a");
+    expect(formatP(Infinity)).toBe("p = n/a");
+  });
+});
+
+describe("degenerate inputs produce non-finite statistics the UI must gate", () => {
+  it("CV is undefined (non-finite) when the mean is zero", () => {
+    const d = describeStats([-5, 5]);
+    expect(d.mean).toBe(0);
+    expect(Number.isFinite(d.cv)).toBe(false); // UI shows "n/a", never "Infinity%"
+  });
+
+  it("a zero-variance two-sample t-test yields a non-finite t", () => {
+    const res = twoSampleTTest([5, 5], [7, 7]);
+    expect(Number.isFinite(res.t)).toBe(false); // UI reports "undefined", not "t(NaN) = -Infinity"
+  });
+
+  it("regression on constant x yields a non-finite slope", () => {
+    const res = linearRegression([3, 3, 3], [1, 2, 3]);
+    expect(Number.isFinite(res.slope)).toBe(false); // UI reports "undefined"
+  });
 });
 
 describe("evalFormula", () => {

@@ -2,6 +2,16 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
+## [1.48.3] — 2026-07-13 — Hide QSAR estimates for non-organic inputs
+
+- **Chemical mode (properties):** follow-up to the druglikeness gate. cLogP and
+  logS are QSAR estimates trained on organic molecules; OpenChemLib returns
+  fallback constants (0 and −0.53) for out-of-domain inputs — a bare metal atom,
+  a noble gas, or a simple salt — so the panel showed a fake-confident
+  "cLogP 0 / logS −0.53" even for water or a gold atom. Those two rows now read
+  **"n/a"** for non-organic small molecules. Exact values (MW, formula, tPSA,
+  H-bond/rotatable/heavy-atom counts) are shown for every input, unchanged.
+
 ## [1.48.2] — 2026-07-13 — Don't claim bare metals/salts are "druglike"
 
 - **Chemical mode (druglikeness):** Lipinski's Rule of Five and Veber are

@@ -2497,10 +2497,15 @@ function renderProperties(input: string): void {
   eyebrow("Properties");
   const grid = document.createElement("div");
   grid.className = "prop-grid";
+  // cLogP and logS are QSAR estimates trained on organic molecules; OpenChemLib
+  // returns fallback constants (0 and −0.53) for out-of-domain inputs like bare
+  // metals or salts, so show "n/a" there rather than a fake-confident number.
+  // Everything else (MW, tPSA, H-bond/rotatable counts) is exact for any input.
+  const estimatesInDomain = p.druglikenessApplicable;
   const metrics: [string, string][] = [
     ["MW", `${p.mw}`],
-    ["cLogP", `${p.logP}`],
-    ["logS", `${p.logS}`],
+    ["cLogP", estimatesInDomain ? `${p.logP}` : "n/a"],
+    ["logS", estimatesInDomain ? `${p.logS}` : "n/a"],
     ["tPSA", `${p.tpsa} Å²`],
     ["H-bond donors", `${p.hbd}`],
     ["H-bond acceptors", `${p.hba}`],
@@ -2563,10 +2568,11 @@ function renderProperties(input: string): void {
 /** Multi-line plain-text property summary for insertion into the document. */
 function propertiesAsText(p: PhysChemProperties | null): string {
   if (!p) return "";
+  const est = p.druglikenessApplicable; // cLogP/logS QSAR estimates apply to organic small molecules only
   return [
     `Physicochemical properties — ${p.formula} (MW ${p.mw} g/mol)`,
-    `cLogP: ${p.logP}`,
-    `logS: ${p.logS} (log mol/L)`,
+    `cLogP: ${est ? p.logP : "n/a (outside model domain)"}`,
+    `logS: ${est ? `${p.logS} (log mol/L)` : "n/a (outside model domain)"}`,
     `Topological PSA: ${p.tpsa} Å²`,
     `H-bond donors: ${p.hbd}`,
     `H-bond acceptors: ${p.hba}`,

@@ -64,6 +64,7 @@ _Screenshots coming soon — see [`docs/screenshots/`](docs/screenshots/) for th
 - [Features](FEATURES.md) — the in-repo reference for what every mode does
 - [Install (Windows & macOS)](install/README.md) — for end users
 - [Manual test script](docs/TEST-SCRIPT.md) — in-Word QA checklist
+- [Punch list](docs/PUNCH-LIST.md) — audit findings, ordered by risk to the user
 - [Distribution & Deployment](DISTRIBUTION.md) — for IT
 - [Architecture](ARCHITECTURE.md) · [Security & Confidentiality](SECURITY.md)
 - [License (MIT)](LICENSE) · [Third-Party Licenses](THIRD_PARTY_LICENSES.md) · [Changelog](CHANGELOG.md)

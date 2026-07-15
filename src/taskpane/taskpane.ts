@@ -53,6 +53,7 @@ import {
 } from "../lib/finance";
 import { renderStructure, nameForIdcode, StructureResult } from "../lib/structures";
 import { computeProperties, PhysChemProperties, RuleResult } from "../lib/properties";
+import { predictPka, PkaResult } from "../lib/pka";
 import { resolveNameOnline, OpsinResult } from "../lib/opsin";
 import { computeMassSpec, MassSpecResult } from "../lib/massspec";
 import { buildPeptide } from "../lib/peptide";
@@ -66,7 +67,17 @@ import {
   reportT,
   reportF,
   formatP,
+  evalFormula,
 } from "../lib/stats";
+import {
+  mannWhitneyU,
+  wilcoxonSignedRank,
+  chiSquareGoodnessOfFit,
+  chiSquareIndependence,
+  twoWayAnova,
+  adjustPValues,
+  CorrectionMethod,
+} from "../lib/stats2";
 import { build, BuildFormat, BuildResult } from "../lib/builder";
 import { formatCodeBlock, CodeStyle } from "../lib/codeblock";
 import {
@@ -164,6 +175,31 @@ import {
   isTableFieldCode,
   findPrecedingSecondarySource,
 } from "../lib/toa";
+import {
+  parseMatrix,
+  multiply,
+  transpose,
+  trace,
+  determinant,
+  inverse,
+  solve,
+  rank,
+  eigenSymmetric,
+  eigenvaluesGeneral,
+  qrDecompose,
+  svd,
+  formatMatrix,
+  formatNum,
+  formatComplex,
+  rows as matRows,
+  cols as matCols,
+  Matrix,
+} from "../lib/linalg";
+import { analyzeData } from "../lib/insights";
+import { parseDefinitions, evalMatrixExpression } from "../lib/matrixExpr";
+import { nelderMead } from "../lib/optimize";
+import { spectrum, dominantFrequencies } from "../lib/fft";
+import { integrate } from "../lib/ode";
 
 type Mode =
   | "home"
@@ -177,6 +213,7 @@ type Mode =
   | "massspec"
   | "peptide"
   | "stats"
+  | "analyze"
   | "build"
   | "code"
   | "sequence"
@@ -223,6 +260,8 @@ let structurePropsEl: HTMLElement;
 let insertPropsBtn: HTMLButtonElement;
 /** Physicochemical properties of the most recently resolved structure. */
 let currentProperties: PhysChemProperties | null = null;
+/** Ionizable-group pKa estimate for the current structure. */
+let currentPka: PkaResult | null = null;
 let opsinBtn: HTMLButtonElement;
 let opsinConfirm: HTMLElement;
 let opsinConfirmText: HTMLElement;
@@ -405,6 +444,14 @@ let statsInputs: HTMLElement;
 let statsResult: HTMLElement;
 let statsInsertBtn: HTMLButtonElement;
 let currentStatsText = "";
+let analyzeSection: HTMLElement;
+let analyzeCalcSelect: HTMLSelectElement;
+let analyzeHint: HTMLElement;
+let analyzeInputs: HTMLElement;
+let analyzeResult: HTMLElement;
+let analyzeInsertBtn: HTMLButtonElement;
+let currentAnalyzeText = "";
+let currentAnalyzeBlocks: AnalyzeBlock[] | null = null;
 let peptideSection: HTMLElement;
 let pepInput: HTMLTextAreaElement;
 let pepPreview: HTMLElement;
@@ -662,6 +709,12 @@ Office.onReady((info) => {
   statsInputs = document.getElementById("stats-inputs") as HTMLElement;
   statsResult = document.getElementById("stats-result") as HTMLElement;
   statsInsertBtn = document.getElementById("stats-insert") as HTMLButtonElement;
+  analyzeSection = document.getElementById("analyze-section") as HTMLElement;
+  analyzeCalcSelect = document.getElementById("analyze-calc") as HTMLSelectElement;
+  analyzeHint = document.getElementById("analyze-hint") as HTMLElement;
+  analyzeInputs = document.getElementById("analyze-inputs") as HTMLElement;
+  analyzeResult = document.getElementById("analyze-result") as HTMLElement;
+  analyzeInsertBtn = document.getElementById("analyze-insert") as HTMLButtonElement;
   peptideSection = document.getElementById("peptide-section") as HTMLElement;
   pepInput = document.getElementById("pep-input") as HTMLTextAreaElement;
   pepPreview = document.getElementById("pep-preview") as HTMLElement;
@@ -802,6 +855,10 @@ Office.onReady((info) => {
   statsCalcSelect.addEventListener("change", renderStatsInputs);
   statsInsertBtn.addEventListener("click", () => insertDnaText(currentStatsText, "Statistics"));
 
+  populateAnalyzeCalcs();
+  analyzeCalcSelect.addEventListener("change", renderAnalyzeInputs);
+  analyzeInsertBtn.addEventListener("click", insertAnalysis);
+
   populateAssayCalcs();
   assayCalcSelect.addEventListener("change", renderAssayInputs);
   assayInsertBtn.addEventListener("click", () => insertDnaText(currentAssayText, "Assay result"));
@@ -897,6 +954,7 @@ const HOME_GROUPS: HomeGroup[] = [
       { mode: "units", icon: "📏", label: "Units", desc: "SI typesetting & conversion" },
       { mode: "plot", icon: "📈", label: "Plot", desc: "Function & data charts" },
       { mode: "stats", icon: "📐", label: "Stats", desc: "Descriptive, t-tests, ANOVA, uncertainty" },
+      { mode: "analyze", icon: "🧮", label: "Analyze", desc: "Matrix math + data → trends & insights" },
     ],
   },
   {
@@ -1461,6 +1519,7 @@ function onInputChanged(): void {
   massspecSection.style.display = mode === "massspec" ? "block" : "none";
   peptideSection.style.display = mode === "peptide" ? "block" : "none";
   statsSection.style.display = mode === "stats" ? "block" : "none";
+  analyzeSection.style.display = mode === "analyze" ? "block" : "none";
   pptSection.style.display = mode === "ppt" ? "block" : "none";
 
   if (mode === "units") {
@@ -1502,6 +1561,10 @@ function onInputChanged(): void {
   }
   if (mode === "stats") {
     if (!statsInputs.children.length) renderStatsInputs();
+    return;
+  }
+  if (mode === "analyze") {
+    if (!analyzeInputs.children.length) renderAnalyzeInputs();
     return;
   }
   if (mode === "numerals") {
@@ -2454,6 +2517,7 @@ function showStructureHint(message: string): void {
   structurePropsEl.replaceChildren();
   currentStructureName = "";
   currentProperties = null;
+  currentPka = null;
   insertNameBtn.disabled = true;
   insertStructureBtn.disabled = true;
   insertPropsBtn.disabled = true;
@@ -2474,6 +2538,7 @@ function ruleVerdict(name: string, r: { pass: boolean; violations: string[] }): 
 function renderProperties(input: string): void {
   structurePropsEl.replaceChildren();
   currentProperties = null;
+  currentPka = null;
   insertPropsBtn.disabled = true;
 
   let p: PhysChemProperties | null = null;
@@ -2562,7 +2627,57 @@ function renderProperties(input: string): void {
   }
   structurePropsEl.appendChild(rules);
 
+  renderPka(input);
   insertPropsBtn.disabled = false;
+}
+
+/** Detects ionizable groups and appends a pKa block to the properties panel. */
+function renderPka(input: string): void {
+  currentPka = null;
+  let res: PkaResult | null = null;
+  try {
+    res = predictPka(input);
+  } catch {
+    return;
+  }
+  if (!res) return;
+  currentPka = res;
+  const block = document.createElement("div");
+  block.className = "prop-rules";
+  const head = document.createElement("div");
+  head.className = "prop-name";
+  head.textContent = res.sites.length ? "Ionizable groups (typical pKa)" : "No common ionizable groups detected";
+  block.appendChild(head);
+  for (const s of res.sites) {
+    const row = document.createElement("div");
+    row.className = "prop-rule";
+    row.textContent = `${s.group} — ${s.kind === "acid" ? "acidic" : "basic"}, ${s.kind === "acid" ? "pKa" : "pKaH"} ≈ ${s.pka}`;
+    block.appendChild(row);
+  }
+  if (res.sites.length) {
+    const net = document.createElement("div");
+    net.className = "prop-why";
+    net.textContent = `Est. net charge at pH 7.4: ${res.netChargeAt74 >= 0 ? "+" : ""}${res.netChargeAt74.toFixed(2)}`;
+    block.appendChild(net);
+  }
+  const caveat = document.createElement("div");
+  caveat.className = "prop-why";
+  caveat.textContent = "Typical literature values for the detected groups — a group estimate, not a compound-specific pKa.";
+  block.appendChild(caveat);
+  structurePropsEl.appendChild(block);
+}
+
+/** Multi-line plain-text pKa summary for insertion (empty when nothing detected). */
+function pkaAsText(res: PkaResult | null): string {
+  if (!res || !res.sites.length) return "";
+  const lines = res.sites.map(
+    (s) => `  ${s.group}: ${s.kind === "acid" ? "acidic" : "basic"}, ${s.kind === "acid" ? "pKa" : "pKaH"} ≈ ${s.pka}`,
+  );
+  return [
+    "Ionizable groups (typical literature pKa — group estimate, not a compound-specific value):",
+    ...lines,
+    `Estimated net charge at pH 7.4: ${res.netChargeAt74 >= 0 ? "+" : ""}${res.netChargeAt74.toFixed(2)}`,
+  ].join("\n");
 }
 
 /** Multi-line plain-text property summary for insertion into the document. */
@@ -2582,6 +2697,7 @@ function propertiesAsText(p: PhysChemProperties | null): string {
       ? [ruleVerdict("Lipinski Rule of Five", p.lipinski), ruleVerdict("Veber rule", p.veber)]
       : ["Druglikeness: n/a (screens apply to organic small molecules)"]),
     "Estimated values (OpenChemLib) — verify before relying on them.",
+    ...(pkaAsText(currentPka) ? ["", pkaAsText(currentPka)] : []),
   ].join("\n");
 }
 
@@ -4288,6 +4404,34 @@ function statGroups(s: string): number[][] {
     .map((g) => statList(g))
     .filter((g) => g.length > 0);
 }
+/** Parses a numeric table: one row per line, entries space/comma separated. */
+function statTable(s: string): number[][] {
+  return s
+    .split(/\n|;/)
+    .map((line) => statList(line))
+    .filter((row) => row.length > 0);
+}
+
+/**
+ * Parses two-way data as "A B value" per line (A, B are factor-level labels) into
+ * a balanced cell grid cells[i][j] = replicate values, plus the level labels.
+ */
+function statTwoWay(s: string): { cells: number[][][]; aLevels: string[]; bLevels: string[] } {
+  const rows: { a: string; b: string; v: number }[] = [];
+  for (const line of s.split(/\n|;/)) {
+    const parts = line.trim().split(/[\s,]+/).filter(Boolean);
+    if (parts.length < 3) continue;
+    const v = Number(parts[parts.length - 1]);
+    if (!Number.isFinite(v)) continue;
+    rows.push({ a: parts[0], b: parts[1], v });
+  }
+  const aLevels = Array.from(new Set(rows.map((r) => r.a)));
+  const bLevels = Array.from(new Set(rows.map((r) => r.b)));
+  const cells: number[][][] = aLevels.map(() => bLevels.map(() => [] as number[]));
+  for (const r of rows) cells[aLevels.indexOf(r.a)][bLevels.indexOf(r.b)].push(r.v);
+  return { cells, aLevels, bLevels };
+}
+
 function statVars(s: string): Record<string, { value: number; uncertainty: number }> {
   const out: Record<string, { value: number; uncertainty: number }> = {};
   for (const line of s.split(/[\n;]+/)) {
@@ -4435,6 +4579,136 @@ const STAT_CALCS: StatCalc[] = [
       }
     },
   },
+  {
+    id: "mannwhitney",
+    name: "Mann–Whitney U (non-parametric)",
+    fields: [
+      { key: "a", label: "Group A", default: "1, 2, 3, 4, 5", kind: "list" },
+      { key: "b", label: "Group B", default: "6, 7, 8, 9, 10", kind: "list" },
+    ],
+    compute: (r) => {
+      const a = statList(r("a"));
+      const b = statList(r("b"));
+      if (a.length < 2 || b.length < 2) return { text: "Enter at least two values per group.", ok: false };
+      const res = mannWhitneyU(a, b);
+      return {
+        text: `Mann–Whitney U test (two independent samples)\nU = ${assaySig(res.statistic)}, z = ${assaySig(res.z, 3)}, ${formatP(res.p)}\n(normal approximation, tie- and continuity-corrected)`,
+      };
+    },
+  },
+  {
+    id: "wilcoxon",
+    name: "Wilcoxon signed-rank (paired)",
+    fields: [
+      { key: "a", label: "Condition 1", default: "125, 115, 130, 140, 140, 115, 140, 125", kind: "list" },
+      { key: "b", label: "Condition 2 (paired)", default: "110, 122, 125, 120, 140, 124, 123, 137", kind: "list" },
+    ],
+    compute: (r) => {
+      const a = statList(r("a"));
+      const b = statList(r("b"));
+      if (a.length < 2 || a.length !== b.length) return { text: "Enter two equal-length paired lists (≥ 2).", ok: false };
+      const res = wilcoxonSignedRank(a, b);
+      if (res.n1 === 0) return { text: "All paired differences are zero — the test is undefined.", ok: false };
+      return {
+        text: `Wilcoxon signed-rank test (paired)\nW = ${assaySig(res.statistic)}, n = ${res.n1}, z = ${assaySig(res.z, 3)}, ${formatP(res.p)}\n(normal approximation, tie- and continuity-corrected)`,
+      };
+    },
+  },
+  {
+    id: "chigof",
+    name: "Chi-square goodness of fit",
+    fields: [
+      { key: "obs", label: "Observed counts", default: "18, 22, 20, 25, 15", kind: "list" },
+      { key: "exp", label: "Expected counts (blank = uniform)", default: "", kind: "list" },
+    ],
+    compute: (r) => {
+      const obs = statList(r("obs"));
+      if (obs.length < 2) return { text: "Enter at least two observed counts.", ok: false };
+      let exp = statList(r("exp"));
+      if (exp.length === 0) {
+        const total = obs.reduce((s, v) => s + v, 0);
+        exp = obs.map(() => total / obs.length);
+      }
+      if (exp.length !== obs.length) return { text: "Observed and expected must have the same length.", ok: false };
+      const res = chiSquareGoodnessOfFit(obs, exp);
+      return { text: `Chi-square goodness of fit\nχ² = ${assaySig(res.chi2)}, df = ${res.df}, ${formatP(res.p)}` };
+    },
+  },
+  {
+    id: "chiind",
+    name: "Chi-square test of independence",
+    fields: [
+      { key: "table", label: "Contingency table (one row per line)", default: "10, 20, 30\n30, 40, 20", kind: "groups" },
+    ],
+    compute: (r) => {
+      const table = statTable(r("table"));
+      if (table.length < 2 || table[0].length < 2) return { text: "Enter a table with at least 2 rows and 2 columns.", ok: false };
+      if (table.some((row) => row.length !== table[0].length)) return { text: "Every row must have the same number of columns.", ok: false };
+      const res = chiSquareIndependence(table);
+      return { text: `Chi-square test of independence (${table.length}×${table[0].length})\nχ² = ${assaySig(res.chi2)}, df = ${res.df}, ${formatP(res.p)}` };
+    },
+  },
+  {
+    id: "twoway",
+    name: "Two-way ANOVA",
+    fields: [
+      {
+        key: "data",
+        label: "Data: A B value (one observation per line)",
+        default: "lo x 12\nlo x 14\nlo y 20\nlo y 22\nhi x 30\nhi x 33\nhi y 41\nhi y 39",
+        kind: "groups",
+      },
+    ],
+    compute: (r) => {
+      const { cells, aLevels, bLevels } = statTwoWay(r("data"));
+      if (aLevels.length < 2 || bLevels.length < 2)
+        return { text: "Need ≥ 2 levels for each factor. Each line: factorA factorB value.", ok: false };
+      try {
+        const res = twoWayAnova(cells);
+        const row = (name: string, e: { F: number; df: number; p: number }) =>
+          `${name}: F(${e.df}, ${res.error.df}) = ${assaySig(e.F)}, ${formatP(e.p)}`;
+        return {
+          text:
+            `Two-way ANOVA (A: ${aLevels.join("/")} × B: ${bLevels.join("/")})\n` +
+            `${row("Factor A", res.factorA)}\n${row("Factor B", res.factorB)}\n${row("A × B interaction", res.interaction)}`,
+        };
+      } catch (e) {
+        return { text: `${(e as Error).message}`, ok: false };
+      }
+    },
+  },
+  {
+    id: "multcomp",
+    name: "Multiple-comparison correction",
+    fields: [
+      { key: "p", label: "Raw p-values", default: "0.01, 0.04, 0.03, 0.005, 0.2", kind: "list" },
+      {
+        key: "method",
+        label: "Method",
+        default: "bh",
+        kind: "select",
+        options: [
+          { value: "bh", label: "Benjamini–Hochberg (FDR)" },
+          { value: "holm", label: "Holm (FWER)" },
+          { value: "bonferroni", label: "Bonferroni (FWER)" },
+        ],
+      },
+    ],
+    compute: (r) => {
+      const p = statList(r("p"));
+      if (!p.length) return { text: "Enter at least one p-value.", ok: false };
+      if (p.some((v) => v < 0 || v > 1)) return { text: "p-values must be between 0 and 1.", ok: false };
+      const method = r("method") as CorrectionMethod;
+      const adj = adjustPValues(p, method);
+      const names: Record<CorrectionMethod, string> = {
+        bh: "Benjamini–Hochberg (FDR)",
+        holm: "Holm",
+        bonferroni: "Bonferroni",
+      };
+      const lines = p.map((raw, i) => `  p = ${assaySig(raw, 3)} → ${assaySig(adj[i], 3)}${adj[i] < 0.05 ? " *" : ""}`);
+      return { text: `${names[method]} adjusted p-values\n${lines.join("\n")}\n(* significant at 0.05 after correction)` };
+    },
+  },
 ];
 
 function populateStatsCalcs(): void {
@@ -4513,6 +4787,537 @@ function updateStatsPreview(): void {
   statsResult.innerHTML = esc(out.text).replace(/\n/g, "<br>");
   currentStatsText = insertable ? out.text : "";
   statsInsertBtn.disabled = !insertable;
+}
+
+// ---------------------------------------------------------------------------
+// Analyze — no-code numerical workbench (matrix math + data insights)
+// ---------------------------------------------------------------------------
+
+interface AnalyzeField {
+  key: string;
+  label: string;
+  default: string;
+  kind: "block" | "text" | "select";
+  rows?: number;
+  options?: { value: string; label: string }[];
+}
+/** A piece of an Analyze result: a text line, a matrix (→ table), or a plot (→ image). */
+type AnalyzeBlock =
+  | { kind: "line"; text: string }
+  | { kind: "matrix"; label?: string; m: Matrix }
+  | { kind: "plot"; svg: string; caption: string; alt: string; w: number; h: number };
+interface AnalyzeOutput extends StatOutput {
+  /** Structured blocks for rich insertion; when present, matrices go in as Word tables. */
+  blocks?: AnalyzeBlock[];
+}
+
+/** Parses "x = 1, y = 2" (comma/newline/semicolon separated) into names + values. */
+function parseAssignments(s: string): { names: string[]; values: number[] } {
+  const names: string[] = [];
+  const values: number[] = [];
+  for (const part of s.split(/[,\n;]+/)) {
+    const m = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(-?[\d.]+(?:[eE][+-]?\d+)?)\s*$/.exec(part);
+    if (m) {
+      names.push(m[1]);
+      values.push(parseFloat(m[2]));
+    }
+  }
+  return { names, values };
+}
+interface AnalyzeCalc {
+  id: string;
+  name: string;
+  hint: string;
+  fields: AnalyzeField[];
+  compute: (read: (k: string) => string) => AnalyzeOutput;
+}
+
+/** Parses a matrix field, throwing the parser's message on bad input. */
+function readMatrix(s: string): Matrix {
+  const p = parseMatrix(s);
+  if (!p.ok) throw new Error(p.error);
+  return p.matrix;
+}
+
+/** Renders a block's text form (for the pane preview and the plain-text fallback). */
+function analyzeBlocksToText(blocks: AnalyzeBlock[]): string {
+  return blocks
+    .map((b) => {
+      if (b.kind === "line") return b.text;
+      if (b.kind === "plot") return b.caption;
+      return (b.label ? `${b.label}\n` : "") + formatMatrix(b.m);
+    })
+    .join("\n");
+}
+
+/** Rich preview HTML for a block list (matrices monospaced, plots inline). */
+function analyzeBlocksToPreviewHtml(blocks: AnalyzeBlock[]): string {
+  return blocks
+    .map((b) => {
+      if (b.kind === "line") return esc(b.text);
+      if (b.kind === "plot") return b.svg;
+      return (
+        (b.label ? `${esc(b.label)}<br>` : "") +
+        `<span style="font-family:monospace;white-space:pre">${esc(formatMatrix(b.m))}</span>`
+      );
+    })
+    .join("<br>");
+}
+
+/** Wraps blocks into an AnalyzeOutput, deriving the text form once. */
+function analyzeResultOf(blocks: AnalyzeBlock[]): AnalyzeOutput {
+  return { blocks, text: analyzeBlocksToText(blocks) };
+}
+
+const ANALYZE_CALCS: AnalyzeCalc[] = [
+  {
+    id: "solve",
+    name: "Solve linear system A·x = b",
+    hint: "Enter the square coefficient matrix A (one row per line) and the right-hand side b.",
+    fields: [
+      { key: "A", label: "Matrix A", default: "2 1\n1 -1", kind: "block", rows: 4 },
+      { key: "b", label: "Right-hand side b", default: "5, 1", kind: "text" },
+    ],
+    compute: (r) => {
+      const A = readMatrix(r("A"));
+      const b = readMatrix(r("b"));
+      if (matRows(A) !== matCols(A)) return { text: "A must be square.", ok: false };
+      const x = solve(A, b);
+      if (!x) return { text: "No unique solution — A is singular or b has the wrong length.", ok: false };
+      return analyzeResultOf([{ kind: "matrix", label: "Solution x =", m: x }]);
+    },
+  },
+  {
+    id: "inverse",
+    name: "Inverse of a matrix",
+    hint: "Enter a square matrix, one row per line.",
+    fields: [{ key: "M", label: "Matrix", default: "4 7\n2 6", kind: "block", rows: 4 }],
+    compute: (r) => {
+      const M = readMatrix(r("M"));
+      if (matRows(M) !== matCols(M)) return { text: "Matrix must be square.", ok: false };
+      const inv = inverse(M);
+      if (!inv) return { text: "Matrix is singular — no inverse exists (determinant = 0).", ok: false };
+      return analyzeResultOf([{ kind: "matrix", label: "Inverse =", m: inv }]);
+    },
+  },
+  {
+    id: "determinant",
+    name: "Determinant, rank & trace",
+    hint: "Enter a matrix, one row per line. Determinant and trace need a square matrix.",
+    fields: [{ key: "M", label: "Matrix", default: "6 1 1\n4 -2 5\n2 8 7", kind: "block", rows: 5 }],
+    compute: (r) => {
+      const M = readMatrix(r("M"));
+      const rk = rank(M);
+      const square = matRows(M) === matCols(M);
+      const det = square ? determinant(M) : null;
+      const lines = [`Rank = ${rk}`];
+      if (square) {
+        lines.unshift(`Determinant = ${formatNum(det ?? 0, 6)}`);
+        lines.push(`Trace = ${formatNum(trace(M), 6)}`);
+        if (det === 0) lines.push("(singular: determinant is 0, so no inverse exists)");
+      } else {
+        lines.push("(determinant & trace need a square matrix)");
+      }
+      return { text: lines.join("\n") };
+    },
+  },
+  {
+    id: "eigen",
+    name: "Eigenvalues (symmetric matrix)",
+    hint: "Enter a symmetric square matrix (e.g. a covariance/correlation matrix). Non-symmetric matrices are out of scope — their eigenvalues can be complex.",
+    fields: [{ key: "M", label: "Symmetric matrix", default: "2 1\n1 2", kind: "block", rows: 4 }],
+    compute: (r) => {
+      const M = readMatrix(r("M"));
+      if (matRows(M) !== matCols(M)) return { text: "Matrix must be square.", ok: false };
+      const e = eigenSymmetric(M);
+      if (!e) return { text: "Matrix is not symmetric — only symmetric matrices are supported (real eigenvalues).", ok: false };
+      const vals = e.values.map((v) => formatNum(v, 6)).join(", ");
+      return analyzeResultOf([
+        { kind: "line", text: `Eigenvalues (descending) = ${vals}` },
+        { kind: "matrix", label: "Eigenvectors (columns) =", m: e.vectors },
+      ]);
+    },
+  },
+  {
+    id: "eigen-general",
+    name: "Eigenvalues (any square matrix)",
+    hint: "Eigenvalues of a general (non-symmetric) square matrix via the Francis double-shift QR algorithm. Complex-conjugate pairs are shown as a ± bi.",
+    fields: [{ key: "M", label: "Square matrix", default: "0 -1\n1 0", kind: "block", rows: 4 }],
+    compute: (r) => {
+      const M = readMatrix(r("M"));
+      if (matRows(M) !== matCols(M)) return { text: "Matrix must be square.", ok: false };
+      const vals = eigenvaluesGeneral(M);
+      if (!vals) return { text: "Matrix must be square.", ok: false };
+      const anyComplex = vals.some((c) => Math.abs(c.im) > 1e-12);
+      const listed = vals.map((c) => formatComplex(c, 6)).join(", ");
+      return { text: `Eigenvalues = ${listed}` + (anyComplex ? "\n(complex-conjugate pair present)" : "") };
+    },
+  },
+  {
+    id: "qr",
+    name: "QR decomposition",
+    hint: "Factors A = Q·R with Q orthogonal and R upper-triangular (Householder reflections).",
+    fields: [{ key: "M", label: "Matrix", default: "12 -51 4\n6 167 -68\n-4 24 -41", kind: "block", rows: 5 }],
+    compute: (r) => {
+      const M = readMatrix(r("M"));
+      const { Q, R } = qrDecompose(M);
+      return analyzeResultOf([
+        { kind: "matrix", label: "Q =", m: Q },
+        { kind: "matrix", label: "R =", m: R },
+      ]);
+    },
+  },
+  {
+    id: "svd",
+    name: "Singular value decomposition (SVD)",
+    hint: "Factors A = U·diag(S)·Vᵀ (one-sided Jacobi). Works for any shape; returns the economy form.",
+    fields: [{ key: "M", label: "Matrix", default: "3 0\n0 -2", kind: "block", rows: 4 }],
+    compute: (r) => {
+      const M = readMatrix(r("M"));
+      const { U, S, V } = svd(M);
+      const sv = S.map((x) => formatNum(x, 6)).join(", ");
+      return analyzeResultOf([
+        { kind: "line", text: `Singular values = ${sv}` },
+        { kind: "matrix", label: "U =", m: U },
+        { kind: "matrix", label: "V =", m: V },
+      ]);
+    },
+  },
+  {
+    id: "expr",
+    name: "Matrix expression",
+    hint: "Define named matrices (one per line, e.g. A = 1 2; 3 4), then evaluate an expression using + − *, scalars, transpose (') and inv/det/trace/rank, e.g. A*inv(B) + 2*C'.",
+    fields: [
+      { key: "defs", label: "Definitions (one per line)", default: "A = 1 2; 3 4\nB = 2 0; 1 2", kind: "block", rows: 4 },
+      { key: "expr", label: "Expression", default: "A*inv(B) + 2*A'", kind: "text" },
+    ],
+    compute: (r) => {
+      const defs = parseDefinitions(r("defs"));
+      if (!defs.ok) return { text: defs.error, ok: false };
+      const out = evalMatrixExpression(r("expr"), defs.env);
+      if (!out.ok) return { text: out.error, ok: false };
+      if (out.value.kind === "scalar") return { text: `Result = ${formatNum(out.value.s, 6)}` };
+      return analyzeResultOf([{ kind: "matrix", label: "Result =", m: out.value.m }]);
+    },
+  },
+  {
+    id: "multiply",
+    name: "Multiply two matrices A·B",
+    hint: "Columns of A must equal rows of B.",
+    fields: [
+      { key: "A", label: "Matrix A", default: "1 2\n3 4", kind: "block", rows: 3 },
+      { key: "B", label: "Matrix B", default: "5 6\n7 8", kind: "block", rows: 3 },
+    ],
+    compute: (r) => {
+      const A = readMatrix(r("A"));
+      const B = readMatrix(r("B"));
+      const p = multiply(A, B);
+      if (!p) return { text: `Can't multiply: columns of A (${matCols(A)}) ≠ rows of B (${matRows(B)}).`, ok: false };
+      return analyzeResultOf([{ kind: "matrix", label: "A·B =", m: p }]);
+    },
+  },
+  {
+    id: "transpose",
+    name: "Transpose a matrix",
+    hint: "Enter a matrix, one row per line.",
+    fields: [{ key: "M", label: "Matrix", default: "1 2 3\n4 5 6", kind: "block", rows: 3 }],
+    compute: (r) => {
+      const M = readMatrix(r("M"));
+      return analyzeResultOf([{ kind: "matrix", label: "Transpose =", m: transpose(M) }]);
+    },
+  },
+  {
+    id: "insights",
+    name: "Data → trends, correlations & insights",
+    hint: "Paste a data table (from a spreadsheet, CSV, or instrument). A header row is auto-detected; columns may be tab-, comma-, or space-separated.",
+    fields: [
+      {
+        key: "data",
+        label: "Data table",
+        default: "dose,response\n1,12\n2,19\n4,31\n8,52\n16,84\n32,131",
+        kind: "block",
+        rows: 8,
+      },
+    ],
+    compute: (r) => {
+      const report = analyzeData(r("data"));
+      if (!report) return { text: "Enter a data table with at least one row of values.", ok: false };
+      return { text: report.text };
+    },
+  },
+  {
+    id: "optimize",
+    name: "Minimize a function",
+    hint: "Nelder–Mead minimization. Enter an objective over your variables and a starting guess. To maximize, negate the objective.",
+    fields: [
+      { key: "obj", label: "Objective f (minimize)", default: "(1-x)^2 + 100*(y - x^2)^2", kind: "text" },
+      { key: "start", label: "Start (var = value, comma-separated)", default: "x = -1.2, y = 1", kind: "text" },
+    ],
+    compute: (r) => {
+      const start = parseAssignments(r("start"));
+      if (!start.names.length) return { text: "Enter at least one variable, e.g. x = 0.", ok: false };
+      const obj = r("obj");
+      const f = (vec: number[]): number => {
+        const vars: Record<string, number> = {};
+        start.names.forEach((n, i) => (vars[n] = vec[i]));
+        return evalFormula(obj, vars);
+      };
+      try {
+        const v0 = f(start.values);
+        if (!Number.isFinite(v0)) return { text: "Objective is not finite at the start point.", ok: false };
+      } catch (e) {
+        return { text: `Objective error: ${(e as Error).message}`, ok: false };
+      }
+      const res = nelderMead(f, start.values);
+      const at = start.names.map((n, i) => `${n} = ${formatNum(res.x[i], 6)}`).join(", ");
+      const note = res.converged
+        ? `converged in ${res.iterations} iterations`
+        : `stopped after ${res.iterations} iterations — may not be a true minimum`;
+      return { text: `Minimum f = ${formatNum(res.fx, 6)}\nat ${at}\n(${note})` };
+    },
+  },
+  {
+    id: "fft",
+    name: "FFT / frequency spectrum",
+    hint: "Paste a uniformly sampled signal (one value per line, or comma/space separated) and its sample rate. Non-power-of-two lengths are zero-padded.",
+    fields: [
+      {
+        key: "signal",
+        label: "Signal samples",
+        default: "0\n0.707\n1\n0.707\n0\n-0.707\n-1\n-0.707",
+        kind: "block",
+        rows: 6,
+      },
+      { key: "fs", label: "Sample rate (e.g. Hz)", default: "8", kind: "text" },
+    ],
+    compute: (r) => {
+      const signal = statList(r("signal"));
+      const fs = Number(r("fs"));
+      if (signal.length < 2) return { text: "Enter at least two samples.", ok: false };
+      if (!Number.isFinite(fs) || fs <= 0) return { text: "Enter a positive sample rate.", ok: false };
+      const bins = spectrum(signal, fs);
+      const dom = dominantFrequencies(signal, fs, 3);
+      const pts: Point[] = bins.map((b) => ({ x: b.freq, y: b.magnitude }));
+      const svg = buildPlotSvg([{ points: pts, type: "line", color: "#2563eb", label: "|X(f)|" }], {
+        title: "Amplitude spectrum",
+        xlabel: "Frequency",
+        ylabel: "Amplitude",
+      });
+      const domText = dom.length
+        ? dom.map((d) => `${formatNum(d.freq, 4)} (amp ${formatNum(d.magnitude, 3)})`).join(", ")
+        : "none";
+      return analyzeResultOf([
+        { kind: "line", text: `Dominant frequencies: ${domText}` },
+        { kind: "plot", svg, caption: "Amplitude spectrum", alt: "FFT amplitude spectrum", w: 380, h: 270 },
+      ]);
+    },
+  },
+  {
+    id: "ode",
+    name: "Solve an ODE / system (RK45)",
+    hint: "Enter y' = f(t, y), one equation per line for a system (state vars are the names on the left). Reduce higher-order ODEs to first order by hand. Give initial values and a t-range.",
+    fields: [
+      { key: "eqs", label: "Equations (one per line)", default: "y1' = y2\ny2' = -y1", kind: "block", rows: 3 },
+      { key: "y0", label: "Initial values", default: "y1 = 1, y2 = 0", kind: "text" },
+      { key: "trange", label: "t range (t0, t1)", default: "0, 6.2832", kind: "text" },
+    ],
+    compute: (r) => {
+      const lines = r("eqs")
+        .split(/[\n;]+/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (!lines.length) return { text: "Enter at least one equation, e.g. y' = -y.", ok: false };
+      const names: string[] = [];
+      const rhs: string[] = [];
+      for (const line of lines) {
+        const m = /^([A-Za-z_][A-Za-z0-9_]*)\s*'\s*=\s*(.+)$/.exec(line);
+        if (!m) return { text: `Couldn't parse "${line}". Use  y' = expression.`, ok: false };
+        names.push(m[1]);
+        rhs.push(m[2]);
+      }
+      const init = parseAssignments(r("y0"));
+      const y0 = names.map((n) => {
+        const idx = init.names.indexOf(n);
+        return idx >= 0 ? init.values[idx] : NaN;
+      });
+      if (y0.some((v) => !Number.isFinite(v)))
+        return { text: `Give an initial value for every state variable (${names.join(", ")}).`, ok: false };
+      const tr = statList(r("trange"));
+      if (tr.length < 2) return { text: "Enter t0 and t1, e.g. 0, 6.2832.", ok: false };
+      const f = (t: number, y: number[]): number[] =>
+        rhs.map((expr) => {
+          const vars: Record<string, number> = { t };
+          names.forEach((n, i) => (vars[n] = y[i]));
+          return evalFormula(expr, vars);
+        });
+      try {
+        const d0 = f(tr[0], y0);
+        if (d0.some((v) => !Number.isFinite(v))) return { text: "The equations are not finite at t0.", ok: false };
+      } catch (e) {
+        return { text: `Equation error: ${(e as Error).message}`, ok: false };
+      }
+      const sol = integrate(f, y0, tr[0], tr[1]);
+      if (!sol.completed)
+        return { text: "The solver did not reach t1 (the system may be stiff or unstable). Try a shorter range.", ok: false };
+      // sample up to 12 rows for the table
+      const maxRows = 12;
+      const stride = Math.max(1, Math.floor(sol.t.length / maxRows));
+      const sampled: Matrix = [];
+      for (let i = 0; i < sol.t.length; i += stride) sampled.push([sol.t[i], ...sol.y[i]]);
+      if (sampled[sampled.length - 1][0] !== sol.t[sol.t.length - 1])
+        sampled.push([sol.t[sol.t.length - 1], ...sol.y[sol.y.length - 1]]);
+      const colors = ["#2563eb", "#dc2626", "#059669", "#d97706", "#7c3aed"];
+      const series: Series[] = names.map((n, i) => ({
+        points: sol.t.map((tt, k) => ({ x: tt, y: sol.y[k][i] })),
+        type: "line",
+        color: colors[i % colors.length],
+        label: n,
+      }));
+      const svg = buildPlotSvg(series, { title: "Solution", xlabel: "t", ylabel: "y" });
+      const finalVals = names.map((n, i) => `${n}(${formatNum(tr[1], 4)}) = ${formatNum(sol.y[sol.y.length - 1][i], 6)}`).join(", ");
+      return analyzeResultOf([
+        { kind: "line", text: `Solved ${names.length} equation${names.length === 1 ? "" : "s"} over t ∈ [${formatNum(tr[0], 4)}, ${formatNum(tr[1], 4)}] in ${sol.steps} steps.` },
+        { kind: "line", text: `Final: ${finalVals}` },
+        { kind: "matrix", label: `Sampled [t, ${names.join(", ")}]:`, m: sampled },
+        { kind: "plot", svg, caption: "Solution trajectory", alt: "ODE solution trajectory", w: 380, h: 270 },
+      ]);
+    },
+  },
+];
+
+function populateAnalyzeCalcs(): void {
+  analyzeCalcSelect.replaceChildren();
+  for (const c of ANALYZE_CALCS) {
+    const opt = document.createElement("option");
+    opt.value = c.id;
+    opt.textContent = c.name;
+    analyzeCalcSelect.appendChild(opt);
+  }
+}
+
+/** Builds the inputs for the selected Analyze tool and wires live compute. */
+function renderAnalyzeInputs(): void {
+  const calc = ANALYZE_CALCS.find((c) => c.id === analyzeCalcSelect.value) ?? ANALYZE_CALCS[0];
+  analyzeHint.textContent = calc.hint;
+  analyzeInputs.replaceChildren();
+  for (const f of calc.fields) {
+    const row = document.createElement("div");
+    row.className = "dna-controls";
+    const label = document.createElement("label");
+    label.className = "field-label";
+    label.textContent = f.label;
+    label.htmlFor = `analyze-f-${f.key}`;
+
+    let input: HTMLInputElement | HTMLTextAreaElement;
+    if (f.kind === "text") {
+      const t = document.createElement("input");
+      t.type = "text";
+      t.className = "rgroup-input";
+      t.value = f.default;
+      input = t;
+    } else {
+      const ta = document.createElement("textarea");
+      ta.className = "rgroup-input";
+      ta.rows = f.rows ?? 4;
+      ta.value = f.default;
+      ta.spellcheck = false;
+      input = ta;
+    }
+    input.id = `analyze-f-${f.key}`;
+    input.dataset.key = f.key;
+    input.addEventListener("input", updateAnalyzePreview);
+    input.addEventListener("change", updateAnalyzePreview);
+    row.append(label, input);
+    analyzeInputs.appendChild(row);
+  }
+  updateAnalyzePreview();
+}
+
+/** Computes and shows the result for the current Analyze tool. */
+function updateAnalyzePreview(): void {
+  const calc = ANALYZE_CALCS.find((c) => c.id === analyzeCalcSelect.value) ?? ANALYZE_CALCS[0];
+  const read = (k: string): string => {
+    const el = analyzeInputs.querySelector<HTMLInputElement | HTMLTextAreaElement>(`[data-key="${k}"]`);
+    return el ? el.value : "";
+  };
+  let out: AnalyzeOutput;
+  try {
+    out = calc.compute(read);
+  } catch (e) {
+    out = { text: `Couldn't compute: ${(e as Error).message}`, ok: false };
+  }
+  // Block insertion of a non-finite result: formatNum renders Infinity/NaN as the
+  // "—" sentinel (e.g. a matrix expression that divides by zero), and a dash must
+  // never land in the document — matches the Stats-mode guard.
+  const insertable = out.ok !== false && !!out.text && !out.text.includes("—");
+  analyzeResult.innerHTML =
+    out.blocks && insertable ? analyzeBlocksToPreviewHtml(out.blocks) : esc(out.text).replace(/\n/g, "<br>");
+  currentAnalyzeText = insertable ? out.text : "";
+  currentAnalyzeBlocks = insertable ? out.blocks ?? null : null;
+  analyzeInsertBtn.disabled = !insertable;
+}
+
+/**
+ * Inserts the current Analyze result at the cursor. Matrices go in as real,
+ * right-aligned Word tables (so columns line up in any font); text lines and
+ * labels become paragraphs. Falls back to plain text when there is no matrix.
+ */
+async function insertAnalysis(): Promise<void> {
+  if (!currentAnalyzeText.trim()) {
+    setStatus("Nothing to insert.", "error");
+    return;
+  }
+  const blocks = currentAnalyzeBlocks;
+  // No matrix/plot to lay out → the existing plain-text path is exactly right.
+  if (!blocks || !blocks.some((b) => b.kind === "matrix" || b.kind === "plot")) {
+    await insertDnaText(currentAnalyzeText, "Analysis");
+    return;
+  }
+  if (insertTextBusy) return;
+  insertTextBusy = true;
+  try {
+    // Render any plot SVGs to PNG before entering Word.run (the conversion is async).
+    const images: Record<number, string> = {};
+    for (let i = 0; i < blocks.length; i++) {
+      const b = blocks[i];
+      if (b.kind === "plot") images[i] = await svgToPngBase64(b.svg, b.w, b.h);
+    }
+    await Word.run(async (context) => {
+      let anchor = context.document.getSelection().getRange(Word.RangeLocation.end);
+      for (let i = 0; i < blocks.length; i++) {
+        const block = blocks[i];
+        if (block.kind === "line") {
+          const para = anchor.insertParagraph(block.text, Word.InsertLocation.after);
+          anchor = para.getRange(Word.RangeLocation.after);
+          continue;
+        }
+        if (block.kind === "plot") {
+          const para = anchor.insertParagraph(block.caption, Word.InsertLocation.after);
+          const pic = para.insertInlinePictureFromBase64(images[i], Word.InsertLocation.end);
+          pic.altTextDescription = block.alt;
+          anchor = para.getRange(Word.RangeLocation.after);
+          continue;
+        }
+        if (block.label) {
+          const labelPara = anchor.insertParagraph(block.label, Word.InsertLocation.after);
+          anchor = labelPara.getRange(Word.RangeLocation.after);
+        }
+        const values = block.m.map((row) => row.map((v) => formatNum(v, 6)));
+        const table = anchor.insertTable(block.m.length, block.m[0].length, Word.InsertLocation.after, values);
+        for (let i2 = 0; i2 < block.m.length; i2++)
+          for (let j = 0; j < block.m[0].length; j++)
+            table.getCell(i2, j).body.paragraphs.getFirst().alignment = Word.Alignment.right;
+        anchor = table.getRange(Word.RangeLocation.after);
+      }
+      anchor.select(Word.SelectionMode.end);
+      await context.sync();
+    });
+    setStatus("Analysis inserted.", "success");
+  } catch (error) {
+    setStatus(`Could not insert analysis: ${(error as Error).message}`, "error");
+  } finally {
+    insertTextBusy = false;
+  }
 }
 
 // ---------------------------------------------------------------------------

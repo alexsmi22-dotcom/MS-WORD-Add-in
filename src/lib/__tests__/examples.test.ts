@@ -21,6 +21,7 @@ const MODES: ExampleMode[] = [
   "massspec",
   "peptide",
   "stats",
+  "analyze",
 ];
 
 describe("MODE_EXAMPLES", () => {

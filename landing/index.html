@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>JurisLab — Word Add-in for STEM &amp; Legal Authoring</title>
-  <meta name="description" content="A free Microsoft Word add-in for STEM authoring and patent/legal drafting: chemistry & 2D structures, physicochemical properties & druglikeness, mass spectrometry, enzyme kinetics & dose-response, peptide structures, statistics, math/LaTeX equations, units, plotting, finance, DNA & ST.26 sequences, Bluebook citations & Table of Authorities. 100% offline. Windows & Mac." />
+  <meta name="description" content="A free Microsoft Word add-in for STEM authoring and patent/legal drafting: a no-code numerical workbench (matrix math, eigenvalues, QR/SVD, optimization, FFT, ODE solving, data insights), chemistry & 2D structures, physicochemical properties, pKa & druglikeness, mass spectrometry, enzyme kinetics & dose-response, peptide structures, statistics (non-parametric, chi-square, two-way ANOVA), math/LaTeX equations, units, plotting, finance, DNA & ST.26 sequences, Bluebook citations & Table of Authorities. 100% offline. Windows & Mac." />
   <style>
     :root { --blue:#2e74b5; --ink:#1b1b1f; --muted:#5b5b66; --bg:#f6f8fb; --card:#fff; --line:#e4e8ef; }
     * { box-sizing: border-box; }
@@ -40,8 +40,9 @@
   <header>
     <div class="wrap">
       <h1><img src="assets/icon-64.png" alt="" width="40" height="40" style="vertical-align:-9px;margin-right:10px" />JurisLab</h1>
-      <p class="tag">A free Microsoft Word add-in fusing <strong>STEM authoring</strong> and <strong>patent &amp; legal drafting</strong> — chemistry &amp; structures, mass spec, enzyme kinetics, peptides, statistics, equations, plots, finance, Bluebook citations &amp; Table of Authorities, and more. <strong>20 tools, 100% offline.</strong></p>
+      <p class="tag">A free Microsoft Word add-in fusing <strong>STEM authoring</strong> and <strong>patent &amp; legal drafting</strong> — a no-code <strong>numerical workbench</strong> (matrix math, optimization, FFT, ODEs, data insights), chemistry &amp; structures, mass spec, enzyme kinetics, peptides, statistics, equations, plots, finance, Bluebook citations &amp; Table of Authorities, and more. <strong>21 tools, 100% offline.</strong></p>
       <div class="pills">
+        <span class="pill">🧮 Analyze / Matrix</span>
         <span class="pill">🧪 Chemistry</span>
         <span class="pill">⚛️ Mass Spec</span>
         <span class="pill">🧫 Bio/Assay</span>
@@ -61,26 +62,26 @@
   </header>
 
   <section class="wrap whatsnew">
-    <h2>New in this release — a life-science suite</h2>
+    <h2>New in this release — a numerical workbench that competes with MATLAB</h2>
     <div class="grid">
-      <div class="card"><b>🧫 Bio/Assay <span class="new">New</span></b><span>Offline curve fitting in Word — <strong>enzyme kinetics</strong> (Michaelis–Menten, Hill), <strong>dose–response</strong> (IC50/EC50, 4PL), and <strong>binding</strong> (K<sub>d</sub>/B<sub>max</sub>), with parameters ± SE, R², and the fitted curve over your data. Plus Cheng–Prusoff, Henderson–Hasselbalch, Beer–Lambert, dilutions &amp; A260/A280 quantitation.</span></div>
-      <div class="card"><b>⚛️ Mass Spec <span class="new">New</span></b><span>Exact <strong>monoisotopic</strong> &amp; average mass, the theoretical <strong>isotope pattern</strong> (the tell-tale ~32% M+2 for chlorine), and common <strong>adduct m/z</strong> — [M+H]⁺, [M+Na]⁺, [M+2H]²⁺, [M−H]⁻ and more.</span></div>
-      <div class="card"><b>🧪 Properties &amp; druglikeness <span class="new">New</span></b><span>For any structure: <strong>cLogP</strong>, logS, tPSA, H-bond donors/acceptors, rotatable bonds, plus the <strong>Lipinski Rule of Five</strong> and <strong>Veber</strong> screens — capabilities ChemDraw gates behind a license.</span></div>
-      <div class="card"><b>🔗 Peptide <span class="new">New</span></b><span>Draw a peptide's <strong>2D structure from its sequence</strong> — one-letter (ACDEFG) or three-letter (Ala-Gly-Ser) codes — with formula and molecular weight.</span></div>
-      <div class="card"><b>📐 Stats <span class="new">New</span></b><span>Descriptive stats, <strong>t-tests</strong> (Welch/Student/paired), <strong>ANOVA</strong> and regression with real p-values and APA reports, plus <strong>uncertainty propagation</strong> through a formula.</span></div>
-      <div class="card"><b>🔬 Online name → structure <span class="new">New</span></b><span>Resolve an arbitrary IUPAC name (e.g. <em>2-amino-3-(1H-indol-3-yl)propanoic acid</em>) via OPSIN — strictly opt-in with a consent prompt; everything else stays fully offline.</span></div>
-      <div class="card"><b>🧪 Compound library <span class="upd">Updated</span></b><span>359 named structures — added 100 large/complex compounds (violacein, morphine, cholesterol, paclitaxel, chlorophyll, heme…), every SMILES sourced from PubChem.</span></div>
+      <div class="card"><b>🧮 Analyze — matrix math <span class="new">New</span></b><span>A no-code numerical workbench in Word: <strong>solve A·x = b</strong>, inverse, determinant, rank &amp; trace, <strong>eigenvalues</strong> (including complex), <strong>QR</strong> and <strong>SVD</strong> decompositions, and one-line <strong>matrix expressions</strong> like <code>A*inv(B)+2*C'</code>. Matrices insert as clean, editable Word tables.</span></div>
+      <div class="card"><b>🧮 Analyze — optimization, FFT &amp; ODEs <span class="new">New</span></b><span><strong>Minimize a function</strong> (Nelder–Mead) you type; run an <strong>FFT</strong> on a sampled signal for its amplitude spectrum and dominant frequencies; solve an <strong>ODE or system</strong> (adaptive RK45) with a sampled table and trajectory plot — all offline.</span></div>
+      <div class="card"><b>🧮 Data → insights <span class="new">New</span></b><span>Paste a data table and get per-column summaries, a <strong>correlation matrix</strong> (Pearson r + p-value, Spearman ρ), <strong>trend detection</strong>, outlier/missing-data flags, and plain-language <strong>actionable insights</strong> — computed from your own numbers.</span></div>
+      <div class="card"><b>📐 Stats — expanded <span class="new">New</span></b><span>Non-parametric tests (<strong>Mann–Whitney U</strong>, <strong>Wilcoxon</strong> signed-rank), <strong>chi-square</strong> (goodness-of-fit &amp; independence), <strong>two-way ANOVA</strong>, and <strong>multiple-comparison correction</strong> (Bonferroni, Holm, Benjamini–Hochberg) — on top of the existing t-tests, ANOVA &amp; regression.</span></div>
+      <div class="card"><b>🧪 pKa estimation <span class="new">New</span></b><span>For any structure, JurisLab detects the <strong>ionizable groups</strong> (carboxylic acids, amines, phenols, pyridines…) and reports their typical pKa plus an estimated <strong>net charge at pH 7.4</strong> — an honest functional-group estimate, computed offline.</span></div>
+      <div class="card"><b>🧪 Compound library <span class="upd">Updated</span></b><span>359 named structures with every SMILES sourced from PubChem — violacein, morphine, cholesterol, paclitaxel, chlorophyll, heme and more.</span></div>
     </div>
   </section>
 
   <section class="wrap">
-    <h2>All 20 tools</h2>
+    <h2>All 21 tools</h2>
     <div class="grid">
-      <div class="card"><b>🧪 Chemical <span class="upd">Updated</span></b><span>Formatted formulas, 2D structures from name/SMILES, formula validator, <strong>physicochemical properties &amp; druglikeness</strong> (cLogP, tPSA, Lipinski/Veber), and opt-in <strong>online name→structure</strong></span></div>
-      <div class="card"><b>⚛️ Mass Spec <span class="new">New</span></b><span>Monoisotopic &amp; average mass, isotope pattern, and adduct m/z ([M+H]⁺, [M+Na]⁺, [M+2H]²⁺, [M−H]⁻…)</span></div>
-      <div class="card"><b>🧫 Bio/Assay <span class="new">New</span></b><span>Enzyme kinetics, dose–response (IC50/EC50), binding, and lab math — offline curve fitting with the fit drawn over your data</span></div>
-      <div class="card"><b>🔗 Peptide <span class="new">New</span></b><span>2D structure from a one- or three-letter amino-acid sequence, with formula &amp; molecular weight</span></div>
-      <div class="card"><b>📐 Stats <span class="new">New</span></b><span>Descriptive stats, t-tests, ANOVA, regression (with p-values) &amp; uncertainty propagation</span></div>
+      <div class="card"><b>🧮 Analyze <span class="new">New</span></b><span>No-code numerical workbench — matrix math (solve, inverse, eigenvalues, QR, SVD, expressions), optimization, FFT, ODE/system solving (RK45), and raw data → correlations, trends &amp; insights</span></div>
+      <div class="card"><b>🧪 Chemical <span class="upd">Updated</span></b><span>Formatted formulas, 2D structures from name/SMILES, formula validator, <strong>physicochemical properties &amp; druglikeness</strong> (cLogP, tPSA, Lipinski/Veber), <strong>pKa group estimation</strong>, and opt-in <strong>online name→structure</strong></span></div>
+      <div class="card"><b>⚛️ Mass Spec</b><span>Monoisotopic &amp; average mass, isotope pattern, and adduct m/z ([M+H]⁺, [M+Na]⁺, [M+2H]²⁺, [M−H]⁻…)</span></div>
+      <div class="card"><b>🧫 Bio/Assay</b><span>Enzyme kinetics, dose–response (IC50/EC50), binding, and lab math — offline curve fitting with the fit drawn over your data</span></div>
+      <div class="card"><b>🔗 Peptide</b><span>2D structure from a one- or three-letter amino-acid sequence, with formula &amp; molecular weight</span></div>
+      <div class="card"><b>📐 Stats <span class="upd">Updated</span></b><span>t-tests, one- &amp; two-way ANOVA, regression, <strong>non-parametric</strong> (Mann–Whitney, Wilcoxon), <strong>chi-square</strong>, <strong>multiple-comparison correction</strong> &amp; uncertainty propagation</span></div>
       <div class="card"><b>∑ Math</b><span>Native Word equations, LaTeX import/export, aligned equations, Greek letters &amp; ∑ ∫ ∂ operators</span></div>
       <div class="card"><b>📏 Units</b><span>SI typesetting + conversion — length, mass, time, electrical (V/A/W/Ω/F), chemistry (M, Da, ppm) &amp; more</span></div>
       <div class="card"><b>📈 Plot</b><span>Offline function &amp; data charts with legends; multi-argument functions (atan2, hypot, min/max)</span></div>

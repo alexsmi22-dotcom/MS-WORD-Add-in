@@ -2,6 +2,105 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
+## [1.52.0] — 2026-07-14 — Phase 3: stats breadth + pKa estimation
+
+Fills the thin spots identified on the roadmap.
+
+- **Stats mode — non-parametric & categorical tests** (`stats2.ts`): Mann–Whitney U
+  (independent), Wilcoxon signed-rank (paired), chi-square goodness-of-fit and test
+  of independence, **two-way ANOVA** (balanced, with interaction), and
+  **multiple-comparison correction** (Bonferroni, Holm, Benjamini–Hochberg/FDR).
+  P-values come from real distribution functions (normal via erf, chi-square via the
+  incomplete gamma). _Tukey HSD deferred — it needs the studentized-range
+  distribution; Bonferroni/Holm/BH cover the common correction needs meanwhile._
+- **Chemical mode — pKa estimation from structure** (`pka.ts`): a deterministic
+  functional-group detector (walks the OpenChemLib atom graph, so an ester is never
+  read as a carboxylic acid nor an amide as an amine) that reports the typical
+  literature pKa for each ionizable group and an estimated net charge at pH 7.4.
+  Clearly labeled as a **group estimate, not a compound-specific prediction** —
+  consistent with the "all data must be real" mandate.
+- **Bug test:** invariant + adversarial suites for both (known critical values,
+  ties, zero cells, false-positive guards for ester/amide/nitrile/pyrrole,
+  glycine-zwitterion net charge). No bugs found this round.
+- Tests: +57; full suite **1425 passing**.
+
+## [1.51.0] — 2026-07-14 — Analyze mode: Phase 2 numerical breadth (ODE, FFT, optimization)
+
+Adds the three Phase-2 tools that round out the MATLAB-style workbench, all
+offline and computed from the user's own numbers:
+
+- **Minimize a function** — Nelder–Mead simplex optimization of a typed objective
+  over named variables (`optimize.ts`). Derivative-free; reports the optimum,
+  minimum value, and convergence.
+- **FFT / frequency spectrum** — radix-2 Cooley–Tukey (`fft.ts`), zero-padding
+  non-power-of-two lengths. Returns a one-sided amplitude spectrum, dominant
+  frequencies, and a spectrum chart inserted into the document.
+- **ODE / system (RK45)** — adaptive Dormand–Prince integrator (`ode.ts`) for
+  `y' = f(t, y)` and coupled systems, evaluated via the shared `evalFormula`.
+  Inserts a sampled (t, y) table plus a trajectory plot.
+- Analyze insertion now also handles **plots** (SVG → PNG) alongside tables/text.
+- **Bug test (adversarial):** the pass caught and fixed **two real bugs** —
+  (1) the ODE integrator looped forever on a finite-time blow-up (`y'=y²`) because
+  a non-finite error made the step size NaN and only accepted steps counted toward
+  the cap; termination is now guaranteed. (2) `dominantFrequencies` reported
+  zero-amplitude "peaks" for a constant signal; negligible bins are now dropped.
+- Tests: +45 (Phase 2 invariant + adversarial suites); full suite **1383 passing**.
+
+## [1.50.0] — 2026-07-14 — Analyze mode: completes the linear-algebra core
+
+Closes Phase 1 of the "compete with MATLAB" roadmap to the letter, adding the
+four remaining linear-algebra capabilities as new Analyze tools:
+
+- **Eigenvalues (any square matrix)** — the Francis double-shift QR algorithm
+  (Hessenberg reduction + `hqr`) for general non-symmetric matrices, including
+  complex-conjugate pairs rendered as `a ± bi`. Complements the existing
+  symmetric-matrix path (which also returns eigenvectors).
+- **QR decomposition** — A = Q·R by Householder reflections (Q orthogonal,
+  R upper-triangular).
+- **Singular value decomposition (SVD)** — A = U·diag(S)·Vᵀ by one-sided Jacobi;
+  works for any shape, economy form.
+- **Matrix expression** — define named matrices and evaluate an expression in one
+  line: `A*inv(B) + 2*C'`, `det(A)`, `(A - B)^T`, with +, −, *, /-by-scalar,
+  transpose (`'` or `^T`), and inv/det/trace/rank. Dimension mismatches and
+  singular inverses surface as clear messages.
+- New module `src/lib/matrixExpr.ts`; `src/lib/linalg.ts` gains `qrDecompose`,
+  `svd`, `eigenvaluesGeneral`, `formatComplex`.
+- **Bug test:** added an adversarial/invariant stress suite
+  (`analyze.adversarial.test.ts`) — ~800 random matrices checked against
+  Σλ = trace, Πλ = det, A·inv(A) = I, QR/SVD reconstruction, and symmetric-vs-general
+  agreement, plus degenerate cases (zero/singular/1×1/complex-spectrum matrices,
+  constant/all-missing data columns, malformed expressions). All pass.
+- **Fix (found by the bug test):** the Analyze insert button no longer offers to
+  insert a non-finite result — a matrix expression that divides by zero renders as
+  the "—" sentinel, which is now blocked from insertion (matches the Stats guard).
+- **Production polish:** Analyze now inserts matrices as real, right-aligned **Word
+  tables** (inverse, solve, QR, SVD, transpose, multiply, eigenvectors, matrix
+  expressions) instead of space-padded text that only aligned in a monospace font —
+  columns now line up in any document font, and the result is editable. Scalars and
+  the data-insights report still insert as text.
+- Tests: +69 across the two releases; full suite **1354 passing**.
+
+## [1.49.0] — 2026-07-14 — Analyze mode: no-code numerical workbench (matrix math + data insights)
+
+First milestone of the "compete with MATLAB" roadmap — a new **Analyze** mode
+that brings a no-code numerical workbench into Word, computed entirely offline
+from the user's own numbers.
+
+- **Linear-algebra core** (`src/lib/linalg.ts`) — solve A·x = b, matrix inverse,
+  determinant, rank & trace, transpose, multiply, and eigenvalues/eigenvectors of
+  a symmetric matrix (cyclic Jacobi). Gaussian elimination / Gauss-Jordan with
+  partial pivoting for stability; singular systems are reported, never faked.
+  Non-symmetric eigenvalues are intentionally out of scope (they can be complex).
+- **Data → insights engine** (`src/lib/insights.ts`) — paste a data table (tab/
+  comma/space-delimited, header auto-detected) and get per-column summaries
+  (mean/sd/min/median/max, missing-cell and Tukey-1.5×IQR outlier flags), a ranked
+  correlation matrix (Pearson r with p-value + Spearman rho), per-column trend
+  detection over row order, and plain-language actionable insights. Reuses the
+  tested `stats.ts` p-value machinery.
+- **Analyze mode UI** — a tool picker over the above, wired to the existing
+  live-compute/insert pattern; nothing leaves the machine.
+- Tests: +30 (linalg, insights); full suite 1315 passing.
+
 ## [1.48.5] — 2026-07-14 — Edge-case-honesty audit: Stats + legal citations
 
 Swept the Stats, Bio/Assay, and citation/legal modules for the same class of

@@ -26,7 +26,8 @@ export type ExampleMode =
   | "assay"
   | "massspec"
   | "peptide"
-  | "stats";
+  | "stats"
+  | "analyze";
 
 /** HTML help fragment shown in the "Examples & syntax" panel for each mode. */
 export const MODE_EXAMPLES: Record<ExampleMode, string> = {
@@ -351,9 +352,32 @@ export const MODE_EXAMPLES: Record<ExampleMode, string> = {
       <li><strong>Descriptive</strong> — n, mean, SD, SEM, median, 95% CI, CV from one list</li>
       <li><strong>t-tests</strong> — two-sample (Welch/Student) &amp; paired, with a <strong>p-value</strong> and an APA report (<em>t</em>(18) = 2.41, <em>p</em> = .027)</li>
       <li><strong>One-way ANOVA</strong> and <strong>linear regression</strong> (slope, R², slope p)</li>
+      <li><strong>Non-parametric</strong> — Mann–Whitney U (independent) and Wilcoxon signed-rank (paired)</li>
+      <li><strong>Chi-square</strong> — goodness of fit and test of independence (contingency table)</li>
+      <li><strong>Two-way ANOVA</strong> (enter <code>factorA factorB value</code> per line) and <strong>multiple-comparison correction</strong> (Bonferroni / Holm / Benjamini–Hochberg)</li>
       <li><strong>Uncertainty propagation</strong> — a formula plus <code>a = 10 ± 0.1</code> lines → result ± combined 1σ</li>
     </ul>
     <p class="examples-note">
       Enter numbers separated by spaces, commas, or new lines. Analysis aid — verify before publishing.
+    </p>`,
+  analyze: `
+    <p class="examples-note">
+      <strong>Analyze</strong> — a no-code numerical workbench. Pick a tool; every field is pre-filled
+      with a worked example you can edit, and the result computes live on your machine.
+    </p>
+    <ul>
+      <li><strong>Solve A·x = b</strong> — a square system; enter A one row per line (<code>2 1</code> / <code>1 -1</code>) and b (<code>5, 1</code>) → x</li>
+      <li><strong>Inverse</strong> and <strong>Determinant, rank &amp; trace</strong> — singular matrices are reported, never faked</li>
+      <li><strong>Eigenvalues</strong> — symmetric (real values + eigenvectors) or <em>any</em> square matrix (complex pairs as a ± bi)</li>
+      <li><strong>QR</strong> and <strong>SVD</strong> decompositions; <strong>Multiply</strong> A·B and <strong>Transpose</strong></li>
+      <li><strong>Matrix expression</strong> — name matrices, then evaluate <code>A*inv(B) + 2*C'</code> in one line</li>
+      <li><strong>Data → insights</strong> — paste a table (a header row and tab/comma/space columns are auto-detected) and get column summaries, <strong>correlations</strong> (Pearson r + p, Spearman ρ), <strong>trends</strong>, outlier/missing flags, and plain-language findings</li>
+      <li><strong>Minimize a function</strong> — Nelder–Mead optimization of an objective you type, e.g. <code>(1-x)^2 + 100*(y-x^2)^2</code></li>
+      <li><strong>FFT / spectrum</strong> — a sampled signal → amplitude spectrum, dominant frequencies, and a chart</li>
+      <li><strong>ODE / system (RK45)</strong> — solve <code>y' = f(t, y)</code> (or a coupled system) with an adaptive solver → sampled table + trajectory plot</li>
+    </ul>
+    <p class="examples-note">
+      Matrix rows go one per line, entries separated by spaces or commas. Everything is computed
+      offline from your own numbers. Analysis aid — verify before publishing.
     </p>`,
 };

@@ -41,6 +41,7 @@
             <option value="units">Units</option>
             <option value="plot">Plot</option>
             <option value="stats">Stats</option>
+            <option value="analyze">Analyze</option>
           </optgroup>
           <optgroup label="Data &amp; figures">
             <option value="ppt">Table → Chart</option>
@@ -584,6 +585,24 @@
           <div id="stats-result" class="preview" aria-live="polite"></div>
         </div>
         <button id="stats-insert" class="insert-btn" type="button" disabled>Insert result</button>
+      </section>
+
+      <!-- Analyze: no-code numerical workbench — matrix math + data insights -->
+      <section id="analyze-section">
+        <p class="seq-disclaimer">
+          Analyze — a no-code numerical workbench. Matrix math (solve, inverse, eigenvalues) and raw
+          data → trends, correlations &amp; insights, computed offline from your own numbers.
+          Analysis aid — verify before publishing.
+        </p>
+        <label class="field-label" for="analyze-calc">Tool</label>
+        <select id="analyze-calc" class="lib-select"></select>
+        <div id="analyze-hint" class="seq-disclaimer" aria-live="polite"></div>
+        <div id="analyze-inputs"></div>
+        <div class="preview-wrap">
+          <span class="preview-label">Result</span>
+          <div id="analyze-result" class="preview" aria-live="polite"></div>
+        </div>
+        <button id="analyze-insert" class="insert-btn" type="button" disabled>Insert result</button>
       </section>
 
       <!-- Peptide: draw a 2D structure from a sequence -->

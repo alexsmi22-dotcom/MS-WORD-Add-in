@@ -2,6 +2,37 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
+## [1.61.0] — 2026-07-15 — Patent & legal landing page; Markush tagging fix
+
+**Audience tagging fix — found while writing the legal page.** Build's headline
+feature is Markush/R-group *genus* structures, which is a **patent claim**
+construct: a bench chemist rarely draws one. It was tagged science-only, so a
+chemical patent attorney selecting "⚖️ Patent & legal" would have lost the single
+most patent-specific tool in the product. Chemical was wrong the same way —
+structures fill chemical applications. Both are now `["science", "legal"]`.
+
+This is exactly the failure the audience-*list* design exists to prevent, and it
+still slipped through — writing the marketing page for an audience is a good way
+to notice you've hidden their tools. Legal now shows 14 of 22; science 18.
+
+**`landing/legal.html` → `/legal.html`** — the mirror of the science page:
+- Leads with the work: *"Draft the application — in Word."*
+- **Confidentiality first**, because for an unpublished application "offline"
+  isn't a nicety, it's the reason you're allowed to use it at all.
+- Pitches only the drafting tools (12 cards, every link verified): numerals with
+  collision/gap/orphan checks, whole-document audit, Bluebook & TOA, Markush,
+  ST.26, B&W patent figures, plant patents, algorithm listings.
+- Names the competitor reality: structures in a drawing package, listings in a
+  separate WIPO tool, citations in a research service, numerals checked by eye.
+- Honest block: drafting aid, not a filing check. ST.26 must still be validated
+  in WIPO Sequence; numeral detection is advisory; Bluebook follows the common
+  rules, not every local quirk.
+- Points at the ⚖️ filter so the page and the pane agree.
+
+The index hero now offers both doors (🔬 For scientists · ⚖️ For patent & legal),
+and the two pages cross-link — the biotech attorney and the chemist who files
+patents can find the other half.
+
 ## [1.60.0] — 2026-07-15 — Home audience filter (focus without fragmenting)
 
 Prompted by a real observation: *science people don't want the finance and law

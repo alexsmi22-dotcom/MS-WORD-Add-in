@@ -125,6 +125,7 @@ module.exports = async (env, options) => {
           { from: "landing/tool.html", to: "tool.html" },
           { from: "landing/manual.html", to: "manual.html" },
           { from: "landing/science.html", to: "science.html" },
+          { from: "landing/legal.html", to: "legal.html" },
         ],
       }),
     ],

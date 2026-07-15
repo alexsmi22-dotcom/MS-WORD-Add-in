@@ -1012,8 +1012,8 @@ const HOME_GROUPS: HomeGroup[] = [
   {
     title: "Chemistry & structures",
     items: [
-      { mode: "chemical", audience: ["science"], icon: "🧪", label: "Chemical", desc: "Formulas & 2D structures" },
-      { mode: "build", audience: ["science"], icon: "🔬", label: "Build", desc: "Structures from atoms/bonds; Markush" },
+      { mode: "chemical", audience: ["science", "legal"], icon: "🧪", label: "Chemical", desc: "Formulas & 2D structures" },
+      { mode: "build", audience: ["science", "legal"], icon: "🔬", label: "Build", desc: "Structures from atoms/bonds; Markush" },
       { mode: "reaction", audience: ["science"], icon: "⚗️", label: "Reaction", desc: "Reaction schemes" },
       { mode: "massspec", audience: ["science"], icon: "⚛️", label: "Mass Spec", desc: "Exact mass, isotope pattern, adducts" },
       { mode: "spectra", audience: ["science"], icon: "📡", label: "Spectra", desc: "Predicted NMR, IR, UV-Vis, fragmentation" },

@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Draft the application — in Word | JurisLab for patent &amp; legal</title>
+  <meta name="description" content="Bluebook citations, Tables of Authorities, reference-numeral checking, Markush structures, ST.26 sequence listings and B&W patent figures — inside Microsoft Word, entirely offline." />
+  <link rel="icon" href="assets/icon-32.png" />
+  <style>
+    :root { --blue:#2e74b5; --ink:#1b1b1f; --muted:#5b5b66; --bg:#f6f8fb; --card:#fff; --line:#e4e8ef; --plum:#5b3f8a; }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; color:var(--ink); background:var(--bg); line-height:1.55; }
+    .wrap { max-width:900px; margin:0 auto; padding:0 20px; }
+    header { background:linear-gradient(135deg,#4a3a7a,#1f4e79); color:#fff; padding:56px 0 46px; }
+    header .wrap { text-align:center; }
+    h1 { font-size:2.35rem; margin:0 0 10px; line-height:1.2; }
+    .tag { font-size:1.12rem; opacity:.96; margin:0 auto 4px; max-width:670px; }
+    .sub { font-size:.95rem; opacity:.85; margin:10px auto 0; max-width:620px; }
+    .pills { margin:18px 0 6px; }
+    .pill { display:inline-block; background:rgba(255,255,255,.16); border:1px solid rgba(255,255,255,.25); border-radius:999px; padding:5px 12px; margin:4px; font-size:.85rem; }
+    .cta { margin-top:20px; }
+    .btn { display:inline-block; background:#fff; color:var(--plum); font-weight:700; text-decoration:none; padding:12px 22px; border-radius:8px; margin:6px; box-shadow:0 2px 8px rgba(0,0,0,.15); }
+    .btn.alt { background:rgba(255,255,255,.14); color:#fff; border:1px solid rgba(255,255,255,.4); box-shadow:none; }
+    h2 { color:var(--blue); font-size:1.45rem; margin:44px 0 6px; }
+    .hint-line { color:var(--muted); font-size:.92rem; margin:0 0 16px; }
+    .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(270px,1fr)); gap:12px; }
+    .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px 16px; text-decoration:none; color:inherit; display:block; transition:.15s; }
+    .card b { display:block; margin-bottom:5px; color:var(--ink); }
+    .card span { color:var(--muted); font-size:.92rem; }
+    a.card:hover { border-color:var(--blue); box-shadow:0 5px 16px rgba(46,116,181,.14); transform:translateY(-2px); }
+    a.card b::after { content:" ›"; color:var(--blue); opacity:.55; }
+    code { background:#eef1f6; padding:1px 6px; border-radius:5px; font-size:.9em; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
+    .why { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:4px 20px 16px; }
+    .why h3 { font-size:1rem; margin:18px 0 4px; }
+    .why p { margin:0; color:var(--muted); font-size:.94rem; }
+    .conf { background:#f3effa; border:1px solid #d9cdf0; border-left:4px solid var(--plum); border-radius:8px; padding:14px 18px; margin:18px 0; }
+    .conf b { color:var(--plum); }
+    .conf p { margin:6px 0 0; font-size:.94rem; }
+    .honest { background:#fff8e6; border:1px solid #f0dca8; border-left:4px solid #8a5a00; border-radius:8px; padding:14px 18px; margin:18px 0; }
+    .honest b { color:#8a5a00; }
+    .honest p { margin:6px 0 0; font-size:.94rem; }
+    .example { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px 18px; margin:14px 0; }
+    .example .in { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:.9rem; color:var(--blue); }
+    .example .out { color:var(--muted); font-size:.92rem; margin-top:4px; }
+    footer { text-align:center; color:var(--muted); font-size:.9rem; padding:30px 0 50px; }
+    footer a { color:var(--blue); }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap">
+      <h1>Draft the application — in Word.</h1>
+      <p class="tag">Bluebook citations and Tables of Authorities, reference numerals that check themselves, Markush structures, ST.26 listings and patent-ready figures. In the document you're already drafting — and nothing leaves your machine.</p>
+      <div class="pills">
+        <span class="pill">⚖️ Bluebook &amp; TOA</span>
+        <span class="pill">🔢 Reference numerals</span>
+        <span class="pill">🔬 Markush / genus</span>
+        <span class="pill">🧬 ST.26 listings</span>
+        <span class="pill">📐 B&amp;W patent figures</span>
+        <span class="pill">✅ Whole-document audit</span>
+      </div>
+      <div class="cta">
+        <a class="btn" href="https://github.com/alexsmi22-dotcom/MS-WORD-Add-in/tree/main/install">Install free (Windows &amp; Mac)</a>
+        <a class="btn alt" href="manual.html">Read the manual</a>
+      </div>
+      <p class="sub">Already installed? Open the pane and click <b>⚖️ Patent &amp; legal</b> on the Home screen — the bench-science tools get out of your way.</p>
+    </div>
+  </header>
+
+  <main class="wrap">
+
+    <div class="conf">
+      <b>Your unpublished application never leaves this machine.</b>
+      <p>No account, no server, no telemetry. Claims, specifications, sequences and client compound names are all processed locally. The one optional online lookup asks every time and sends a single chemical name — never your document. For an application that isn't published yet, "offline" isn't a nicety; it's the whole reason you can use it.</p>
+    </div>
+
+    <h2>The tedious parts, done for you</h2>
+    <p class="hint-line">The work that eats a drafting afternoon — and the work where a missed numeral survives to filing.</p>
+
+    <div class="grid">
+      <a class="card" href="tool.html?tool=numerals"><b>🔢 Reference numerals</b><span>A numeral → element table saved in the document, callouts at the cursor, and a scan that flags <strong>collisions</strong> (one numeral, two elements), <strong>gaps</strong>, <strong>orphans</strong> (a callout with no entry) and unused entries. Inserts the sorted List of Reference Numerals.</span></a>
+      <a class="card" href="tool.html?tool=audit"><b>✅ Whole-document audit</b><span>One pass over the whole application: numerals, <strong>SEQ ID NO</strong> references against the listing, figure numbering, and dangling cross-references — all at once, before it goes out.</span></a>
+      <a class="card" href="tool.html?tool=citations"><b>⚖️ Bluebook &amp; authorities</b><span>Cases, statutes, patents, the Federal Register and the MPEP, in practitioner or academic style with T6/T10 abbreviation. Builds a <strong>Table of Authorities</strong> from the citations in your document, and a <strong>Table of Contents</strong> from its headings.</span></a>
+      <a class="card" href="tool.html?tool=build"><b>🔬 Markush / genus structures</b><span>Genus claims drawn properly: <code>[C,N]</code> variable atoms, <code>X</code> halogen, <code>A</code> any atom, <code>Q</code> heteroatom, <code>R1</code> R-groups, query features (<code>{ar}</code>, <code>{r6}</code>), R-group legends and a substituent gallery.</span></a>
+      <a class="card" href="tool.html?tool=sequence"><b>🧬 ST.26 sequence listings</b><span>WIPO Standard ST.26 XML — the mandatory format — with CDS and gene annotation, generated from the sequences you enter. Validate in WIPO Sequence before filing.</span></a>
+      <a class="card" href="tool.html?tool=chemical"><b>🧪 Structures for the spec</b><span>2D structures from a name, formula or SMILES, with stereochemistry drawn as wedges. Every inserted figure carries its SMILES and a canonical structure ID in the alt-text — provenance that survives into the file.</span></a>
+      <a class="card" href="tool.html?tool=refs"><b>🔗 Figures &amp; cross-references</b><span>Auto-numbered figure and table captions with cross-references that renumber when you insert one in the middle.</span></a>
+      <a class="card" href="tool.html?tool=tablechart"><b>📐 Patent figures</b><span>Turn a table into a chart, flowchart or block diagram — with a <strong>black-and-white line-art mode</strong> for filing, or an editable PowerPoint when you need to hand it to a draftsperson.</span></a>
+      <a class="card" href="tool.html?tool=botanical"><b>🌱 Plant patents</b><span>Scientific-name typesetting (<code>Rosa × hybrida 'Peace'</code>) with the right italics, and varietal characteristic tables.</span></a>
+      <a class="card" href="tool.html?tool=code"><b>💻 Algorithm listings</b><span>Software claims and specs: algorithm listings with bold keywords and numbered lines, or verbatim code.</span></a>
+      <a class="card" href="tool.html?tool=math"><b>∑ Equations</b><span>Native, editable Word equations — not images — with auto-numbering (I), (II)… for the specification.</span></a>
+      <a class="card" href="tool.html?tool=units"><b>📏 Units &amp; ranges</b><span>SI typesetting, tolerances (5.0 ± 0.2 kg), and <code>C1-6 alkyl</code> → C₁–C₆ alkyl carbon-range shorthands.</span></a>
+    </div>
+
+    <h2>What it catches</h2>
+    <div class="example">
+      <div class="in">Check this application →</div>
+      <div class="out">Orphan callout <b>(99)</b> with no entry in your numerals table · a figure-number <b>gap</b> · <b>SEQ ID NO: 5</b> referenced but not in the listing · a dangling <b>“Fig. 7”</b> with no Figure 7 caption. The kind of thing that survives three read-throughs and gets caught by the examiner.</div>
+    </div>
+    <div class="example">
+      <div class="in">atoms: [C,N] C C C C C · bonds: 1=2 2-3 3=4 4-5 5=6 6-1</div>
+      <div class="out">A genus ring drawn as a proper Markush structure — the variable position rendered as a real query atom, not a hand-drawn approximation.</div>
+    </div>
+
+    <h2>Why this and not another subscription</h2>
+    <div class="why">
+      <h3>One pane, not four vendors</h3>
+      <p>Structures in a drawing package, sequence listings in a separate WIPO tool, citations in a research service, numerals checked by eye. Each is its own login, export and paste-back. This is one pane, in the document you're already writing.</p>
+
+      <h3>Confidential by construction</h3>
+      <p>Nothing is transmitted, so there's no vendor holding your client's unpublished claims. That isn't a policy promise — the computation happens in the pane.</p>
+
+      <h3>Free, per-user install, no admin rights</h3>
+      <p>No licence, no seat count, no IT ticket to get it approved.</p>
+
+      <h3>It flags rather than fixes</h3>
+      <p>The audit reports what looks wrong and leaves the judgement to you. It never silently rewrites your claims.</p>
+    </div>
+
+    <div class="honest">
+      <b>Drafting aid — not a filing check.</b>
+      <p>Verify everything before it goes out. <b>ST.26 listings must be validated in the WIPO Sequence tool before filing</b> — JurisLab generates the XML, it doesn't replace WIPO's validator. Numeral and cross-reference detection is advisory: it reads the conventional forms and will not catch every variant. Bluebook output follows the common rules, not every jurisdiction's local quirks.</p>
+    </div>
+
+    <h2>Get started</h2>
+    <p class="hint-line">Two minutes: unzip, run the installer, <strong>fully restart Word</strong> (all windows — this is the step people miss), then <b>Insert → Add-ins → Developer Add-ins → JurisLab</b>.</p>
+    <div class="cta" style="text-align:center;margin:8px 0 4px">
+      <a class="btn" style="color:#fff;background:var(--blue)" href="https://github.com/alexsmi22-dotcom/MS-WORD-Add-in/tree/main/install">Install free (Windows &amp; Mac)</a>
+      <a class="btn" style="background:#fff;color:var(--blue);border:1px solid var(--line)" href="manual.html">Read the manual</a>
+    </div>
+
+  </main>
+
+  <footer>
+    <div class="wrap">
+      Drafting aid — verify all output before filing. Runs entirely on your machine.<br />
+      <a href="index.html">All 22 tools</a> · <a href="manual.html">User manual</a> ·
+      <a href="https://github.com/alexsmi22-dotcom/MS-WORD-Add-in">Source</a><br />
+      <span style="font-size:.85rem">Prosecuting chemical or biotech cases? It also does <a href="science.html">predicted spectra, kinetics and structures</a>.</span>
+    </div>
+  </footer>
+</body>
+</html>

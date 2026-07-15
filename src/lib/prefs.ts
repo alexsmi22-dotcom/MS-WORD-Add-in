@@ -5,6 +5,20 @@
 
 /* global localStorage */
 
+/**
+ * Which tools the Home screen shows.
+ *
+ * The pane spans two audiences that barely overlap — a chemist has no use for
+ * Bluebook citations, and a litigator has none for mass spectrometry. Showing
+ * everyone all 22 tools makes each of them read the other half as clutter and
+ * conclude the tool isn't for them.
+ *
+ * This filters the Home CARDS only. Every tool stays reachable from the mode
+ * dropdown and the search box, so nothing is ever lost — it's a lens, not a
+ * licence tier. Defaults to "all": nothing is hidden until the user asks.
+ */
+export type HomeFilter = "all" | "science" | "legal";
+
 export interface Prefs {
   /** Parenthesize reference-numeral callouts ("housing (12)" vs "housing 12"). */
   calloutParens: boolean;
@@ -12,12 +26,15 @@ export interface Prefs {
   dnaFrame: number;
   /** Default R-group legend insertion format. */
   legendFormat: "line" | "table";
+  /** Which audience's tools the Home screen shows. */
+  homeFilter: HomeFilter;
 }
 
 export const DEFAULT_PREFS: Prefs = {
   calloutParens: true,
   dnaFrame: 1,
   legendFormat: "line",
+  homeFilter: "all",
 };
 
 const KEY = "formula-inserter.prefs";
@@ -38,6 +55,10 @@ export function getPrefs(): Prefs {
           ? p.dnaFrame
           : DEFAULT_PREFS.dnaFrame,
       legendFormat: p.legendFormat === "line" || p.legendFormat === "table" ? p.legendFormat : DEFAULT_PREFS.legendFormat,
+      homeFilter:
+        p.homeFilter === "all" || p.homeFilter === "science" || p.homeFilter === "legal"
+          ? p.homeFilter
+          : DEFAULT_PREFS.homeFilter,
     };
   } catch {
     return { ...DEFAULT_PREFS };

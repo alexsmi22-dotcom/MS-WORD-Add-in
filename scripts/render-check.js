@@ -144,6 +144,25 @@ function run() {
     if (Number(exLen) < 30) failures.push(`${mode} has no Examples & syntax content (${exLen} chars)`);
   }
 
+  // 4b. The Home audience filter narrows the cards without stranding a tool.
+  const total = Number((get("FILTER_DEFAULT=") || "").split("=")[1]);
+  if (!(total >= 22)) failures.push(`Home shows ${total} cards by default, expected all 22 (nothing hidden until asked)`);
+  const sci = get("FILTER_SCIENCE=") || "";
+  if (!/citations=false/.test(sci)) failures.push("the Science filter still shows Citations — the exact clutter it exists to remove");
+  if (!/spectra=true/.test(sci)) failures.push("the Science filter hides Spectra");
+  if (!/math=true/.test(sci)) failures.push("the Science filter hides Math (an everyone tool)");
+  if (!/sequence=true/.test(sci)) failures.push("the Science filter hides Sequence");
+  const leg = get("FILTER_LEGAL=") || "";
+  if (!/citations=true/.test(leg)) failures.push("the Patent/legal filter hides Citations");
+  if (!/spectra=false/.test(leg)) failures.push("the Patent/legal filter still shows Spectra");
+  // Sequence is ST.26 — a patent filing format. Hiding it from the legal filter
+  // would strand the biotech patent attorney, who is the whole point.
+  if (!/sequence=true/.test(leg)) failures.push("the Patent/legal filter hides Sequence (ST.26 is a patent format)");
+  const dd = Number((get("FILTER_DROPDOWN=") || "").split("=")[1]);
+  if (!(dd >= 23)) failures.push(`the dropdown lost entries under a filter (${dd}) — every tool must stay reachable`);
+  const restored = Number((get("FILTER_RESTORED=") || "").split("=")[1]);
+  if (restored !== total) failures.push(`"All tools" did not restore every card (${restored} vs ${total})`);
+
   // 5. Spectra computes and keeps its caveat.
   const rows = Number((get("SPECTRA_ROWS=") || "").split("=")[1]);
   if (!(rows >= 4)) failures.push("Spectra did not render signal rows for toluene (got " + rows + ")");

@@ -2,6 +2,52 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
+## [1.60.0] — 2026-07-15 — Home audience filter (focus without fragmenting)
+
+Prompted by a real observation: *science people don't want the finance and law
+stuff.* The proposed fix was splitting into four add-ins (JurisSCI / JurisMAT /
+JurisLAW / Juris$$$). We didn't, because the split isn't clean and it would cost
+the thing that makes JurisLab defensible:
+
+- JurisMAT would be a strict subset of JurisSCI — every chemist needs equations,
+  units and plots. Juris$$$ would be one tool. JurisLAW overlaps SCI heavily:
+  ST.26 sequence listings are a *patent* format, Botanical is *plant patents*.
+- The biotech patent attorney — who needs Chemical + Sequence + Citations in one
+  document — is the user nobody else serves. SnapGene has no ST.26; Westlaw has
+  no chemistry. Splitting would make that person install two products.
+- And the complaint about competitors is precisely that their tools are separate
+  software you flip-flop between. Splitting would rebuild the problem we win on.
+
+So: the diagnosis was right, the prescription wasn't. Clutter is a presentation
+problem, not a packaging one.
+
+**Home filter chips** — *Show: All tools · 🔬 Science · ⚖️ Patent & legal*
+- Tags are per TOOL, not per group, because the groups don't divide cleanly:
+  "Patent drafting" holds Refs (figure captions — every paper needs them) and
+  Biology holds Sequence (ST.26 exists purely for filings).
+- Audience is a LIST, so genuinely dual tools show to both: **Sequence** and
+  **Botanical** survive either filter. Tagging them once would have hidden a tool
+  from the person who most needs it.
+- Six tools are untagged and shown to everyone: Math, Units, Plot, Table→Chart,
+  Refs, Code.
+- Science hides 4 (18 of 22 shown); Patent & legal hides 10 (12 shown).
+
+It is a lens, not a licence tier:
+- **Defaults to "All"** — nothing is hidden until the user asks.
+- **Filters the Home CARDS only.** Every tool stays in the dropdown and the
+  search box, and the count line says so out loud: *"Showing 18 of 22 tools.
+  Show all — the rest stay available in the dropdown and search."*
+- One click to change, persisted per user, reversible.
+
+Guarded by the render check, which now asserts the behaviour in a real browser:
+default shows all 22, Science hides Citations but keeps Math/Spectra/Sequence,
+Patent & legal hides Spectra but keeps Citations *and* Sequence, the dropdown
+never loses an entry, and "All tools" restores everything. Verified by breaking
+it — untagging Citations fails with *"the Science filter still shows Citations —
+the exact clutter it exists to remove."*
+
+Suite: **1,846 tests** (was 1,841).
+
 ## [1.59.0] — 2026-07-15 — Headless render check (the missing test layer)
 
 There was a hole between the two things we had: 1,841 unit tests that cover the

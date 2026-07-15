@@ -39,6 +39,32 @@
       out.push("MODE " + m + " shown=" + (shown.join("+") || "NONE") + " examples=" + exLen);
     });
 
+    // 2b. The Home audience filter. It must narrow the CARDS without ever making
+    // a tool unreachable — the dropdown stays complete, and it is reversible.
+    sel.value = "home";
+    sel.dispatchEvent(new Event("change", { bubbles: true }));
+    var chip = function (t) {
+      var c = [].slice.call(document.querySelectorAll(".home-chip")).filter(function (x) {
+        return x.textContent.indexOf(t) >= 0;
+      })[0];
+      if (c) c.click();
+    };
+    var cardModes = function () {
+      return [].slice.call(document.querySelectorAll(".home-card")).map(function (c) {
+        return c.dataset.mode;
+      });
+    };
+    out.push("FILTER_DEFAULT=" + cardModes().length);
+    chip("Science");
+    var sci = cardModes();
+    out.push("FILTER_SCIENCE=" + sci.length + " citations=" + (sci.indexOf("citations") >= 0) + " spectra=" + (sci.indexOf("spectra") >= 0) + " math=" + (sci.indexOf("math") >= 0) + " sequence=" + (sci.indexOf("sequence") >= 0));
+    chip("Patent");
+    var leg = cardModes();
+    out.push("FILTER_LEGAL=" + leg.length + " citations=" + (leg.indexOf("citations") >= 0) + " spectra=" + (leg.indexOf("spectra") >= 0) + " sequence=" + (leg.indexOf("sequence") >= 0));
+    out.push("FILTER_DROPDOWN=" + document.querySelectorAll("#mode-select option").length);
+    chip("All tools");
+    out.push("FILTER_RESTORED=" + cardModes().length);
+
     // 3. Spectra must actually compute and show its caveat.
     sel.value = "spectra";
     sel.dispatchEvent(new Event("change", { bubbles: true }));

@@ -146,7 +146,7 @@ import {
 import { auditDocument, AuditReport } from "../lib/audit";
 import { parseReaction, composeReactionScheme, Rendered } from "../lib/reactions";
 import { formatSeqIdRef } from "../lib/seqid";
-import { getPrefs, setPref } from "../lib/prefs";
+import { getPrefs, setPref, HomeFilter } from "../lib/prefs";
 import { parseTableData, cleanTableRows, buildChartPreviewSvg, TableChart, ChartKind, ChartStyle } from "../lib/tablechart";
 import { buildDiagramSvg, DiagramKind } from "../lib/tablediagram";
 import { buildTableFigureSvg, prepareTableFigure } from "../lib/tablefigure";
@@ -220,6 +220,7 @@ const GALLERY_H = 140;
 
 let homeSection: HTMLElement;
 let homeGroups: HTMLElement;
+let homeFilterEl: HTMLElement;
 let searchWrap: HTMLElement | null;
 let modeSelectWrap: HTMLElement | null;
 let modeSelect: HTMLSelectElement;
@@ -518,6 +519,7 @@ Office.onReady((info) => {
 
   homeSection = document.getElementById("home-section") as HTMLElement;
   homeGroups = document.getElementById("home-groups") as HTMLElement;
+  homeFilterEl = document.getElementById("home-filter") as HTMLElement;
   searchWrap = document.querySelector(".search-wrap");
   modeSelectWrap = document.getElementById("mode-select-wrap");
   modeSelect = document.getElementById("mode-select") as HTMLSelectElement;
@@ -981,11 +983,25 @@ function showUpdateBanner(newVersion: string): void {
 // Home / intro page
 // ---------------------------------------------------------------------------
 
+/**
+ * Who a tool is for. Tagged per TOOL rather than per group, because the groups
+ * don't divide cleanly: "Patent drafting" contains Refs (figure captions), which
+ * every scientist writing a paper needs, and Biology contains Sequence, whose
+ * ST.26 listings exist purely for patent filings.
+ *
+ * Several tools genuinely serve both — a plant-patent attorney needs Botanical,
+ * a biotech attorney needs Sequence — so this is a list, not a single value.
+ * Getting that wrong would hide a tool from the person who most needs it.
+ */
+type Audience = "science" | "legal";
+
 interface HomeItem {
   mode: Mode;
   icon: string;
   label: string;
   desc: string;
+  /** Audiences this tool is shown to on Home. Omitted = shown to everyone. */
+  audience?: Audience[];
 }
 interface HomeGroup {
   title: string;
@@ -996,11 +1012,11 @@ const HOME_GROUPS: HomeGroup[] = [
   {
     title: "Chemistry & structures",
     items: [
-      { mode: "chemical", icon: "🧪", label: "Chemical", desc: "Formulas & 2D structures" },
-      { mode: "build", icon: "🔬", label: "Build", desc: "Structures from atoms/bonds; Markush" },
-      { mode: "reaction", icon: "⚗️", label: "Reaction", desc: "Reaction schemes" },
-      { mode: "massspec", icon: "⚛️", label: "Mass Spec", desc: "Exact mass, isotope pattern, adducts" },
-      { mode: "spectra", icon: "📡", label: "Spectra", desc: "Predicted NMR, IR, UV-Vis, fragmentation" },
+      { mode: "chemical", audience: ["science"], icon: "🧪", label: "Chemical", desc: "Formulas & 2D structures" },
+      { mode: "build", audience: ["science"], icon: "🔬", label: "Build", desc: "Structures from atoms/bonds; Markush" },
+      { mode: "reaction", audience: ["science"], icon: "⚗️", label: "Reaction", desc: "Reaction schemes" },
+      { mode: "massspec", audience: ["science"], icon: "⚛️", label: "Mass Spec", desc: "Exact mass, isotope pattern, adducts" },
+      { mode: "spectra", audience: ["science"], icon: "📡", label: "Spectra", desc: "Predicted NMR, IR, UV-Vis, fragmentation" },
     ],
   },
   {
@@ -1009,46 +1025,120 @@ const HOME_GROUPS: HomeGroup[] = [
       { mode: "math", icon: "∑", label: "Math", desc: "Native equations, LaTeX" },
       { mode: "units", icon: "📏", label: "Units", desc: "SI typesetting & conversion" },
       { mode: "plot", icon: "📈", label: "Plot", desc: "Function & data charts" },
-      { mode: "stats", icon: "📐", label: "Stats", desc: "Descriptive, t-tests, ANOVA, uncertainty" },
-      { mode: "analyze", icon: "🧮", label: "Analyze", desc: "Matrix math + data → trends & insights" },
+      { mode: "stats", audience: ["science"], icon: "📐", label: "Stats", desc: "Descriptive, t-tests, ANOVA, uncertainty" },
+      { mode: "analyze", audience: ["science"], icon: "🧮", label: "Analyze", desc: "Matrix math + data → trends & insights" },
     ],
   },
   {
     title: "Data & figures",
     items: [
       { mode: "ppt", icon: "📊", label: "Table → Chart", desc: "Charts, diagrams, table figures, PPT" },
-      { mode: "finance", icon: "💵", label: "Finance", desc: "TVM, DCF, bonds, options + Greeks, amortization" },
+      { mode: "finance", audience: ["legal"], icon: "💵", label: "Finance", desc: "TVM, DCF, bonds, options + Greeks, amortization" },
     ],
   },
   {
     title: "Biology",
     items: [
-      { mode: "sequence", icon: "🧬", label: "Sequence", desc: "WIPO ST.26 listings" },
-      { mode: "dna", icon: "🧬", label: "DNA", desc: "Rev-comp, translation, ORFs" },
-      { mode: "assay", icon: "🧫", label: "Bio/Assay", desc: "Kinetics, IC50/EC50, binding, lab math" },
-      { mode: "peptide", icon: "🔗", label: "Peptide", desc: "Draw a peptide from its sequence" },
-      { mode: "botanical", icon: "🌿", label: "Botanical", desc: "Plant nomenclature" },
+      { mode: "sequence", audience: ["science", "legal"], icon: "🧬", label: "Sequence", desc: "WIPO ST.26 listings" },
+      { mode: "dna", audience: ["science"], icon: "🧬", label: "DNA", desc: "Rev-comp, translation, ORFs" },
+      { mode: "assay", audience: ["science"], icon: "🧫", label: "Bio/Assay", desc: "Kinetics, IC50/EC50, binding, lab math" },
+      { mode: "peptide", audience: ["science"], icon: "🔗", label: "Peptide", desc: "Draw a peptide from its sequence" },
+      { mode: "botanical", audience: ["science", "legal"], icon: "🌿", label: "Botanical", desc: "Plant nomenclature" },
     ],
   },
   {
     title: "Patent drafting",
     items: [
-      { mode: "numerals", icon: "🔢", label: "Numerals", desc: "Reference-numeral management" },
+      { mode: "numerals", audience: ["legal"], icon: "🔢", label: "Numerals", desc: "Reference-numeral management" },
       { mode: "refs", icon: "🔖", label: "Refs", desc: "Captions & cross-references" },
       { mode: "code", icon: "💻", label: "Code", desc: "Algorithm & code listings" },
-      { mode: "audit", icon: "✅", label: "Audit", desc: "Whole-document consistency" },
+      { mode: "audit", audience: ["legal"], icon: "✅", label: "Audit", desc: "Whole-document consistency" },
     ],
   },
   {
     title: "Legal citations",
-    items: [{ mode: "citations", icon: "⚖️", label: "Citations", desc: "Bluebook — cases, statutes, patents" }],
+    items: [{ mode: "citations", audience: ["legal"], icon: "⚖️", label: "Citations", desc: "Bluebook — cases, statutes, patents" }],
   },
 ];
+
+/** True if `item` should appear on Home under the current filter. */
+function itemMatchesFilter(item: HomeItem, filter: HomeFilter): boolean {
+  if (filter === "all") return true;
+  if (!item.audience) return true; // untagged = everyone's tool (Math, Units, Plot…)
+  return item.audience.includes(filter);
+}
+
+/** Total tools, for the "showing N of M" reassurance. */
+const TOTAL_TOOLS = HOME_GROUPS.reduce((n, g) => n + g.items.length, 0);
+
+/**
+ * Builds the Home filter chips.
+ *
+ * This exists because the pane serves two audiences that barely overlap, and
+ * showing a chemist "Bluebook Citations" makes them read half the product as
+ * clutter and conclude it isn't for them. The chips filter the CARDS ONLY —
+ * every tool stays reachable from the dropdown and the search box — so this is
+ * a lens, not a paywall, and the count line says so out loud.
+ */
+function renderHomeFilter(shown: number): void {
+  homeFilterEl.replaceChildren();
+  const current = getPrefs().homeFilter;
+  const chips: { value: HomeFilter; label: string }[] = [
+    { value: "all", label: "All tools" },
+    { value: "science", label: "🔬 Science" },
+    { value: "legal", label: "⚖️ Patent & legal" },
+  ];
+  const row = document.createElement("div");
+  row.className = "home-filter-row";
+  const lead = document.createElement("span");
+  lead.className = "home-filter-lead";
+  lead.textContent = "Show:";
+  row.appendChild(lead);
+  for (const c of chips) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "home-chip" + (c.value === current ? " is-on" : "");
+    b.textContent = c.label;
+    b.setAttribute("aria-pressed", String(c.value === current));
+    b.addEventListener("click", () => {
+      setPref("homeFilter", c.value);
+      renderHome();
+    });
+    row.appendChild(b);
+  }
+  homeFilterEl.appendChild(row);
+
+  // Nothing is hidden permanently — say so, so a filtered view never reads as a
+  // missing feature.
+  if (current !== "all") {
+    const note = document.createElement("div");
+    note.className = "home-filter-note";
+    note.textContent = `Showing ${shown} of ${TOTAL_TOOLS} tools. `;
+    const all = document.createElement("button");
+    all.type = "button";
+    all.className = "home-filter-link";
+    all.textContent = "Show all";
+    all.addEventListener("click", () => {
+      setPref("homeFilter", "all");
+      renderHome();
+    });
+    note.appendChild(all);
+    const tail = document.createElement("span");
+    tail.textContent = " — the rest stay available in the dropdown and search.";
+    note.appendChild(tail);
+    homeFilterEl.appendChild(note);
+  }
+}
 
 /** Builds the grouped tool cards on the home page. */
 function renderHome(): void {
   homeGroups.replaceChildren();
+  const filter = getPrefs().homeFilter;
+  let shown = 0;
   for (const g of HOME_GROUPS) {
+    const items = g.items.filter((i) => itemMatchesFilter(i, filter));
+    if (!items.length) continue; // a group with nothing to show is just noise
+    shown += items.length;
     const group = document.createElement("div");
     group.className = "home-group";
     const title = document.createElement("div");
@@ -1056,7 +1146,7 @@ function renderHome(): void {
     title.textContent = g.title;
     const cards = document.createElement("div");
     cards.className = "home-cards";
-    for (const item of g.items) {
+    for (const item of items) {
       const card = document.createElement("button");
       card.type = "button";
       card.className = "home-card";
@@ -1080,6 +1170,7 @@ function renderHome(): void {
     group.append(title, cards);
     homeGroups.appendChild(group);
   }
+  renderHomeFilter(shown);
 }
 
 /** Swaps the "Examples & syntax" panel to the help for the current mode. */

@@ -106,6 +106,23 @@
         {in:"C9H8O4 (aspirin)", out:"monoisotopic 180.0423; [M+H]⁺ 181.0495; [M−H]⁻ 179.0350"},
         {note:"A chlorine-containing molecule shows the characteristic ~32% M+2 isotope peak."}
       ] },
+    spectra: { icon:"📡", title:"Spectra", tagline:"Predicted ¹H/¹³C NMR, IR, UV-Vis and EI-MS fragmentation from a name or SMILES — computed on your machine. Estimates from published rules, never passed off as measured spectra.",
+      does:[
+        "<b>¹H NMR</b> — chemical shift, <b>integration</b> and <i>n+1</i> <b>multiplicity</b> per signal, each with an assignment. Symmetry-aware, so benzene is one 6H singlet rather than six signals. Typical accuracy ±0.2–0.4 ppm.",
+        "<b>¹³C NMR</b> — Grant–Paul additivity for sp³ carbons and benzene substituent increments for aromatics, with the carbonyl classes properly separated (ketone ≈ 205, aldehyde ≈ 199, acid ≈ 178, ester ≈ 171). Typical ±2–4 ppm.",
+        "<b>IR</b> — characteristic group frequencies with published ranges, plus a simulated transmittance trace. Ester ≈ 1740 > ketone ≈ 1715 > amide ≈ 1660, and conjugation drops C=O by ~25 cm⁻¹.",
+        "<b>UV-Vis</b> — λmax by the <b>Woodward–Fieser</b> rules with <b>every increment shown</b>, so you can audit the arithmetic rather than trust a number.",
+        "<b>MS fragmentation</b> — exact fragment m/z via α-cleavage, benzylic→tropylium, McLafferty and gated neutral losses. Correctly ranks the real base peak for toluene (m/z 91), ethanol (31) and butylamine (30).",
+        "Insert a <b>data table</b> or a <b>spectrum chart</b> — δ increases leftward and wavenumber decreases rightward, per convention.",
+        "<b>Honest by construction.</b> Structure recognition is exact; the values are empirical estimates and every screen says so. Out-of-domain cases are disclosed rather than guessed: an unconjugated molecule reports <i>transparent</i> instead of a fabricated λmax, fused and heteroaromatic rings say they are approximate, and MS “likelihood” is a rule-based <b>ranking, not an intensity</b>."
+      ],
+      examples:[
+        {in:"toluene, ¹H NMR", out:"δ 7.17 (2H, m), 7.09 (2H, d), 7.08 (1H, t), 2.37 (3H, s, CH₃ on Ph)"},
+        {in:"toluene, ¹³C NMR", out:"137.8, 129.2, 128.4, 125.6, 20.7 — within ~1 ppm of literature"},
+        {in:"acetophenone, IR", out:"C=O 1690 cm⁻¹, labelled <em>conjugated</em> (acetone sits at 1715)"},
+        {in:"butane, UV-Vis", out:"no λmax — reported transparent above 200 nm, not invented"},
+        {note:"An assignment aid — always verify against an acquired spectrum."}
+      ] },
     bioassay: { icon:"🧫", title:"Bio/Assay", tagline:"Quantitative life-science tools — offline curve fitting with parameters ± SE and R², plus everyday lab math, with the fit drawn over your data.",
       does:[
         "<b>Enzyme kinetics</b> — Michaelis–Menten (V_max, K_m) and Hill fits, catalytic efficiency (k_cat, k_cat/K_m); linearizations seed the fit so no starting guess is needed.",
@@ -308,7 +325,7 @@
       ] }
   };
 
-  const ORDER = ["analyze","chemical","massspec","bioassay","peptide","stats","math","units","plot","tablechart","finance","build","code","sequence","botanical","numerals","refs","citations","dna","reaction","audit"];
+  const ORDER = ["analyze","chemical","massspec","spectra","bioassay","peptide","stats","math","units","plot","tablechart","finance","build","code","sequence","botanical","numerals","refs","citations","dna","reaction","audit"];
 
   const params = new URLSearchParams(location.search);
   const id = params.get("tool");
@@ -321,7 +338,7 @@
   if (!t) {
     titleEl.textContent = "Tool not found";
     tagEl.textContent = "";
-    content.innerHTML = '<div class="missing"><p>That tool isn’t recognized. <a href="index.html">See all 21 tools →</a></p></div>';
+    content.innerHTML = '<div class="missing"><p>That tool isn’t recognized. <a href="index.html">See all 22 tools →</a></p></div>';
   } else {
     document.title = t.title + " — JurisLab";
     titleEl.innerHTML = '<span class="ic">' + t.icon + "</span>" + t.title;

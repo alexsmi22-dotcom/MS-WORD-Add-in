@@ -44,11 +44,12 @@
   <header>
     <div class="wrap">
       <h1><img src="assets/icon-64.png" alt="" width="40" height="40" style="vertical-align:-9px;margin-right:10px" />JurisLab</h1>
-      <p class="tag">A free Microsoft Word add-in fusing <strong>STEM authoring</strong> and <strong>patent &amp; legal drafting</strong> — a no-code <strong>numerical workbench</strong> (matrix math, optimization, FFT, ODEs, data insights), chemistry &amp; structures, mass spec, enzyme kinetics, peptides, statistics, equations, plots, finance, Bluebook citations &amp; Table of Authorities, and more. <strong>21 tools, 100% offline.</strong></p>
+      <p class="tag">A free Microsoft Word add-in fusing <strong>STEM authoring</strong> and <strong>patent &amp; legal drafting</strong> — a no-code <strong>numerical workbench</strong> (matrix math, optimization, FFT, stiff ODEs, data insights), chemistry &amp; structures, <strong>predicted spectra</strong> (NMR, IR, UV-Vis, MS fragmentation), mass spec, enzyme kinetics, peptides, statistics, equations, plots, finance, Bluebook citations &amp; Table of Authorities, and more. <strong>22 tools, 100% offline.</strong></p>
       <div class="pills">
         <span class="pill">🧮 Analyze / Matrix</span>
         <span class="pill">🧪 Chemistry</span>
         <span class="pill">⚛️ Mass Spec</span>
+        <span class="pill">📡 Spectra</span>
         <span class="pill">🧫 Bio/Assay</span>
         <span class="pill">🔗 Peptides</span>
         <span class="pill">∑ Math / LaTeX</span>
@@ -69,8 +70,9 @@
     <h2>New in this release — a numerical workbench that competes with MATLAB</h2>
     <p class="hint-line">Tap any tile for full details and examples.</p>
     <div class="grid">
+      <a class="card" href="tool.html?tool=spectra"><b>📡 Predicted spectra <span class="new">New</span></b><span>Type a name or SMILES and get a predicted <strong>¹H</strong> or <strong>¹³C NMR</strong> spectrum — shift, integration, <em>n+1</em> multiplicity and an assignment per signal — plus <strong>IR</strong> bands, a <strong>UV-Vis λmax</strong> with every Woodward–Fieser increment shown, and <strong>EI-MS fragmentation</strong> (α-cleavage, tropylium, McLafferty). Insert a table or a publication-ready chart. These are <strong>estimates from published additivity rules</strong>, not acquired spectra — and JurisLab says so on every screen, discloses where the model is weak, and reports “no λmax” rather than inventing one.</span></a>
       <a class="card" href="tool.html?tool=analyze"><b>🧮 Analyze — matrix math <span class="new">New</span></b><span>A no-code numerical workbench in Word: <strong>solve A·x = b</strong>, inverse, determinant, rank &amp; trace, <strong>eigenvalues</strong> (including complex), <strong>QR</strong> and <strong>SVD</strong> decompositions, and one-line <strong>matrix expressions</strong> like <code>A*inv(B)+2*C'</code>. Matrices insert as clean, editable Word tables.</span></a>
-      <a class="card" href="tool.html?tool=analyze"><b>🧮 Analyze — optimization, FFT &amp; ODEs <span class="new">New</span></b><span><strong>Minimize a function</strong> (Nelder–Mead) you type; run an <strong>FFT</strong> on a sampled signal for its amplitude spectrum and dominant frequencies; solve an <strong>ODE or system</strong> (adaptive RK45) with a sampled table and trajectory plot — all offline.</span></a>
+      <a class="card" href="tool.html?tool=analyze"><b>🧮 Analyze — optimization, FFT &amp; ODEs <span class="new">New</span></b><span><strong>Minimize a function</strong> (Nelder–Mead) you type; run an <strong>FFT</strong> on a sampled signal for its amplitude spectrum and dominant frequencies; solve an <strong>ODE or system</strong> — type <code>y'' = -y</code> and the reduction to first order is done for you, with <strong>automatic stiff detection</strong> (a 4th-order implicit solver takes over for kinetics with widely separated rate constants), results at <strong>the times you choose</strong>, and a <strong>stop-when</strong> condition that answers “when does it hit zero?” — all offline.</span></a>
       <a class="card" href="tool.html?tool=analyze"><b>🧮 Data → insights <span class="new">New</span></b><span>Paste a data table and get per-column summaries, a <strong>correlation matrix</strong> (Pearson r + p-value, Spearman ρ), <strong>trend detection</strong>, outlier/missing-data flags, and plain-language <strong>actionable insights</strong> — computed from your own numbers.</span></a>
       <a class="card" href="tool.html?tool=stats"><b>📐 Stats — expanded <span class="new">New</span></b><span>Non-parametric tests (<strong>Mann–Whitney U</strong>, <strong>Wilcoxon</strong> signed-rank), <strong>chi-square</strong> (goodness-of-fit &amp; independence), <strong>two-way ANOVA</strong>, and <strong>multiple-comparison correction</strong> (Bonferroni, Holm, Benjamini–Hochberg) — on top of the existing t-tests, ANOVA &amp; regression.</span></a>
       <a class="card" href="tool.html?tool=chemical"><b>🧪 pKa estimation <span class="new">New</span></b><span>For any structure, JurisLab detects the <strong>ionizable groups</strong> (carboxylic acids, amines, phenols, pyridines…) and reports their typical pKa plus an estimated <strong>net charge at pH 7.4</strong> — an honest functional-group estimate, computed offline.</span></a>
@@ -79,12 +81,13 @@
   </section>
 
   <section class="wrap">
-    <h2>All 21 tools</h2>
+    <h2>All 22 tools</h2>
     <p class="hint-line">Tap any tool for a full breakdown of what it does, with examples.</p>
     <div class="grid">
       <a class="card" href="tool.html?tool=analyze"><b>🧮 Analyze <span class="new">New</span></b><span>No-code numerical workbench — matrix math (solve, inverse, eigenvalues, QR, SVD, expressions), optimization, FFT, ODE/system solving (RK45), and raw data → correlations, trends &amp; insights</span></a>
       <a class="card" href="tool.html?tool=chemical"><b>🧪 Chemical <span class="upd">Updated</span></b><span>Formatted formulas, 2D structures from name/SMILES, formula validator, <strong>physicochemical properties &amp; druglikeness</strong> (cLogP, tPSA, Lipinski/Veber), <strong>pKa group estimation</strong>, and opt-in <strong>online name→structure</strong></span></a>
       <a class="card" href="tool.html?tool=massspec"><b>⚛️ Mass Spec</b><span>Monoisotopic &amp; average mass, isotope pattern, and adduct m/z ([M+H]⁺, [M+Na]⁺, [M+2H]²⁺, [M−H]⁻…)</span></a>
+      <a class="card" href="tool.html?tool=spectra"><b>📡 Spectra <span class="new">New</span></b><span>Predicted <strong>¹H &amp; ¹³C NMR</strong> (shift, integration, multiplicity, assignment), <strong>IR</strong> group frequencies, <strong>UV-Vis λmax</strong> (Woodward–Fieser) and <strong>EI-MS fragmentation</strong> — from a name or SMILES, offline. Estimates from published rules, labelled as such, never passed off as measured spectra</span></a>
       <a class="card" href="tool.html?tool=bioassay"><b>🧫 Bio/Assay</b><span>Enzyme kinetics, dose–response (IC50/EC50), binding, and lab math — offline curve fitting with the fit drawn over your data</span></a>
       <a class="card" href="tool.html?tool=peptide"><b>🔗 Peptide</b><span>2D structure from a one- or three-letter amino-acid sequence, with formula &amp; molecular weight</span></a>
       <a class="card" href="tool.html?tool=stats"><b>📐 Stats <span class="upd">Updated</span></b><span>t-tests, one- &amp; two-way ANOVA, regression, <strong>non-parametric</strong> (Mann–Whitney, Wilcoxon), <strong>chi-square</strong>, <strong>multiple-comparison correction</strong> &amp; uncertainty propagation</span></a>

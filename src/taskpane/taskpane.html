@@ -54,6 +54,7 @@
             <option value="assay">Bio/Assay</option>
             <option value="peptide">Peptide</option>
             <option value="botanical">Botanical</option>
+            <option value="seqmap">Sequence Map</option>
           </optgroup>
           <optgroup label="Patent drafting">
             <option value="numerals">Numerals</option>
@@ -664,6 +665,34 @@
           <button id="spec-insert" class="insert-btn" type="button" disabled>Insert data table</button>
           <button id="spec-insert-chart" class="insert-btn" type="button" disabled>Insert spectrum chart</button>
         </div>
+      </section>
+
+
+      <!-- Sequence Map: open a FASTA/GenBank file, draw an annotated map -->
+      <section id="seqmap-section">
+        <p class="seq-disclaimer">
+          Open a <strong>GenBank</strong> (.gb/.gbk) or <strong>FASTA</strong> file — or paste a
+          sequence — and insert an annotated map at the cursor. GenBank carries the feature
+          annotations, so that's the one that draws a real map. Everything is read on your
+          machine; nothing is uploaded.
+        </p>
+        <div class="seq-actions">
+          <button id="seqmap-open" class="insert-btn secondary" type="button">Open file…</button>
+          <input id="seqmap-file" type="file" accept=".gb,.gbk,.genbank,.gbff,.fa,.fasta,.fna,.seq,.txt" hidden />
+        </div>
+        <label class="field-label" for="seqmap-input">Or paste FASTA / GenBank / a raw sequence</label>
+        <textarea id="seqmap-input" class="build-input" rows="4" spellcheck="false"
+          placeholder="&gt;my_construct&#10;ATGGCC…    — or paste a whole GenBank record"></textarea>
+        <div id="seqmap-info" class="build-readout" aria-live="polite"></div>
+        <label class="omml-option">
+          <input type="checkbox" id="seqmap-mono" />
+          Black &amp; white line art (patent figure)
+        </label>
+        <div class="preview-wrap">
+          <span class="preview-label">Map</span>
+          <div id="seqmap-preview" class="preview" aria-live="polite"></div>
+        </div>
+        <button id="seqmap-insert" class="insert-btn" type="button" disabled>Insert map</button>
       </section>
 
       <!-- Bio / Assay: kinetics, dose-response, binding, lab math -->

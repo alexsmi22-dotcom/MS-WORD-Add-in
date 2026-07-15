@@ -9,7 +9,7 @@ citations, and more — and inserts it at the cursor. Everything runs **entirely
 content is sent anywhere** (the one exception is the strictly opt-in online
 name→structure lookup, which prompts before sending).
 
-Pick a tool from the home screen — **22 tools** (grouped STEM + legal):
+Pick a tool from the home screen — **23 tools** (grouped STEM + legal):
 
 | Mode | What it does |
 |---|---|
@@ -27,6 +27,7 @@ Pick a tool from the home screen — **22 tools** (grouped STEM + legal):
 | **Finance** | 18 calculators — TVM / loan / NPV / IRR / DCF / Black–Scholes + Greeks / bond analytics, plus a finance equation library |
 | **Build** | molecules from atom/bond lists or molfiles; Markush/R-group genus + substituent gallery |
 | **Code** | algorithm (bold-keyword) and verbatim code listings |
+| **Sequence Map** | **NEW** — open a **GenBank** (.gb/.gbk) or **FASTA** file, or paste one, and insert an **annotated linear map** at the cursor: features as strand-aware arrows, a joined CDS drawn per exon, a scale bar, and a **black-&-white line-art mode** for patent figures. Read entirely on your machine |
 | **Sequence** | WIPO **ST.26** biological sequence listings (DNA/RNA/protein) with CDS/gene annotation |
 | **Botanical** | plant-patent scientific-name typesetting + varietal trait tables |
 | **Numerals** | reference-numeral management (callouts, collision/gap/orphan checks, list) |
@@ -40,7 +41,7 @@ Pick a tool from the home screen — **22 tools** (grouped STEM + legal):
 H2O → H₂O   ·   paste \frac{-b±√(b²-4ac)}{2a} (LaTeX) → a Word equation   ·   aspirin → 2D structure
 ```
 
-> **Status:** v1.61.0 — production. Word on **Windows & macOS**,
+> **Status:** v1.62.0 — production. Word on **Windows & macOS**,
 > 100% client-side. Install packs: [`install/`](install/) · feature list: [`FEATURES.md`](FEATURES.md).
 
 ## Screenshots
@@ -74,7 +75,7 @@ _Screenshots coming soon — see [`docs/screenshots/`](docs/screenshots/) for th
    (modern WebView2/Edge runtime; legacy IE-based webviews are not supported).
 
 > Verified by the QC gate (`npm run qc`): `npm run lint` (type-check),
-> `npm test` (**1,846 unit tests**), `npm run build` (production bundle),
+> `npm test` (**1,906 unit tests**), `npm run build` (production bundle),
 > `office-addin-manifest validate`, the task-pane id-wiring audit, and a
 > **headless render check** (`npm run render-check`) that boots the real bundle in
 > Chromium — the same engine as Word's WebView2 — and drives every tool. All pass.

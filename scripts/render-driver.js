@@ -65,6 +65,37 @@
     chip("All tools");
     out.push("FILTER_RESTORED=" + cardModes().length);
 
+
+    // 2c. Sequence Map: a GenBank record must parse, draw, and enable insert;
+    // junk must refuse rather than offer a bad figure.
+    sel.value = "seqmap";
+    sel.dispatchEvent(new Event("change", { bubbles: true }));
+    var gbLines = [
+      "LOCUS       pPROBE                   600 bp    DNA     circular SYN 15-JUL-2026",
+      "FEATURES             Location/Qualifiers",
+      "     promoter        1..100",
+      '                     /label="T7 promoter"',
+      "     CDS             complement(201..400)",
+      '                     /gene="probeG"',
+      "ORIGIN",
+      "        1 " + new Array(151).join("acgt"),
+      "//",
+    ];
+    var ta = document.getElementById("seqmap-input");
+    ta.value = gbLines.join(String.fromCharCode(10));
+    ta.dispatchEvent(new Event("input", { bubbles: true }));
+    out.push(
+      "SEQMAP_GB svg=" + document.querySelectorAll("#seqmap-preview svg").length +
+      " paths=" + document.querySelectorAll("#seqmap-preview path").length +
+      " insert=" + !document.getElementById("seqmap-insert").disabled +
+      " file=" + !!document.getElementById("seqmap-file")
+    );
+    ta.value = "%PDF-1.4 junk";
+    ta.dispatchEvent(new Event("input", { bubbles: true }));
+    out.push("SEQMAP_JUNK insert=" + !document.getElementById("seqmap-insert").disabled);
+    ta.value = "";
+    ta.dispatchEvent(new Event("input", { bubbles: true }));
+
     // 3. Spectra must actually compute and show its caveat.
     sel.value = "spectra";
     sel.dispatchEvent(new Event("change", { bubbles: true }));

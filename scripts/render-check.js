@@ -163,6 +163,17 @@ function run() {
   const restored = Number((get("FILTER_RESTORED=") || "").split("=")[1]);
   if (restored !== total) failures.push(`"All tools" did not restore every card (${restored} vs ${total})`);
 
+  // 4c. Sequence Map — the new file-reading surface.
+  const gb = get("SEQMAP_GB") || "";
+  if (!/svg=1/.test(gb)) failures.push("Sequence Map did not draw an SVG for a GenBank record");
+  if (!/paths=2/.test(gb)) failures.push("Sequence Map drew the wrong number of features -> " + gb);
+  if (!/insert=true/.test(gb)) failures.push("Sequence Map did not enable Insert for a valid record");
+  if (!/file=true/.test(gb)) failures.push("Sequence Map is missing its file input");
+  // Junk must never leave Insert armed — a bad figure in a paper is worse than none.
+  if (!/insert=false/.test(get("SEQMAP_JUNK") || "")) {
+    failures.push("Sequence Map left Insert enabled for an unparseable file");
+  }
+
   // 5. Spectra computes and keeps its caveat.
   const rows = Number((get("SPECTRA_ROWS=") || "").split("=")[1]);
   if (!(rows >= 4)) failures.push("Spectra did not render signal rows for toluene (got " + rows + ")");

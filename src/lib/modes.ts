@@ -26,6 +26,7 @@ export const ALL_MODES = [
   "assay",
   "massspec",
   "spectra",
+  "seqmap",
   "peptide",
   "stats",
   "analyze",

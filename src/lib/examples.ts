@@ -334,6 +334,30 @@ export const MODE_EXAMPLES: Record<ExampleMode, string> = {
       chart — δ increases leftward and wavenumber decreases rightward, per convention.
       Assignment aid — always verify against an acquired spectrum.
     </p>`,
+  seqmap: `
+    <p class="examples-note">
+      <strong>Sequence Map</strong> — open a sequence file and insert an annotated map at the
+      cursor. Read entirely on your machine; nothing is uploaded.
+    </p>
+    <ul>
+      <li><strong>GenBank</strong> (<code>.gb</code>, <code>.gbk</code>, <code>.gbff</code>) — the one that draws a <em>real</em> map, because it carries the <strong>feature annotations</strong>: promoters, CDS, resistance markers, primer sites, origins</li>
+      <li><strong>FASTA</strong> (<code>.fa</code>, <code>.fasta</code>) — sequence only. FASTA has no annotations and no topology, so you get the backbone and scale but no features. That's the format, not a limitation of the tool</li>
+      <li>Or <strong>paste</strong> a GenBank record, a FASTA block, or a bare sequence</li>
+    </ul>
+    <p class="examples-note">
+      <strong>Exporting from SnapGene, Benchling or ApE?</strong> Export as <strong>GenBank</strong> —
+      every one of them can, and the annotations come with it.
+    </p>
+    <ul>
+      <li>Arrows show <strong>strand</strong>: a <code>complement(...)</code> feature points left</li>
+      <li>A <strong>joined CDS</strong> (<code>join(21..30,41..50)</code>) draws one body per exon with a dashed connector — the intron is not drawn as coding sequence</li>
+      <li>Tick <strong>black &amp; white line art</strong> for a patent figure</li>
+      <li>On a circular plasmid, a feature crossing the origin can't be drawn honestly on a linear map — the map says so rather than dropping it silently</li>
+    </ul>
+    <p class="examples-note">
+      The inserted figure carries the construct's name, length, topology and feature count in its
+      alt-text. Drafting aid — check the map against your own record before publishing or filing.
+    </p>`,
   peptide: `
     <p class="examples-note">
       Draw a <strong>peptide's 2D structure</strong> from its sequence — then insert it.

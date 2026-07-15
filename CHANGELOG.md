@@ -2,6 +2,59 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
+## [1.62.0] — 2026-07-15 — Sequence Map: open GenBank/FASTA, insert an annotated map
+
+The gap a competitor comparison surfaced: JurisLab could compute plenty about a
+sequence but **could not read one**, and had no sequence visualization at all —
+so a scientist drew the map in SnapGene and *screenshotted* it into Word. The
+screenshot was the gap; JurisLab's whole competency is figures into Word.
+
+Deliberately scoped to import + map, not cloning simulation: SnapGene is for
+designing the experiment, JurisLab is for writing it up. The overlap is the
+figure — and **SnapGene exports GenBank**, so this reaches their users without
+touching any proprietary binary format.
+
+**`src/lib/seqio.ts` — FASTA and GenBank readers.**
+- The GenBank **location grammar** is where a lazy parser quietly goes wrong, so
+  it is tested case by case: `complement(...)`, `join(...)` (an intron is NOT
+  coding), `complement(join(...))`, fuzzy `<1..>888`, `order(...)`, `102^103`,
+  and remote accessions (skipped rather than mis-placed on *this* sequence).
+- Tolerant by design — real files have ragged whitespace and vendor quirks, and a
+  reader that throws on the first oddity is useless. Anything unparseable is
+  skipped, never guessed.
+- **Validated against real NCBI records, not just a hand-written fixture.** The
+  hand-made one passed while pUC19 returned 0 features — which turned out to be
+  correct (that record has only `source`, which we skip as noise). Lambda phage
+  (NC_001416) then exercised it properly: 48,502 bp, 284 features, and
+  **197 forward / 87 reverse exactly matching the 87 `complement(` in the file**.
+
+**`src/lib/seqmap.ts` — linear maps to SVG.**
+- Strand-aware arrows, per-type colours, lane packing that reserves the LABEL's
+  width (a 3px feature with a 60px label needs 60px of lane, or the labels
+  collide), a scale bar, and **monochrome line art** for patent figures.
+- A joined CDS draws one body per exon with a dashed intron connector — one solid
+  bar would claim the intron is coding, the exact error the parser avoids.
+- A feature crossing the origin of a circular plasmid is **disclosed**, not
+  silently dropped: a linear map cannot draw it honestly.
+
+**Found by rendering a pUC19 map and looking at it:** labels near the right edge
+were placed to the right of their feature and ran off the canvas — "AmpR
+promoter" rendered as "AmpR p", "rrnB T1" as "rrn". Every assertion passed; only
+the picture showed it. Labels now flip to the left when they would overflow, with
+regression tests. (A suspected second bug — colour leaking into the mono map —
+turned out to be font anti-aliasing; the SVG contains only #000/#fff.)
+
+**Pane:** a new **Sequence Map** tool (23rd). The pane had never read a file, so
+`<input type="file">`/FileReader are new surface — with an 8 MB guard, because a
+pasted genome would wedge the pane. Tagged for **both** audiences: papers need
+maps, and so do patent figures of constructs.
+
+Guarded by the render check: a GenBank record must draw and enable Insert, and
+junk must leave Insert **disabled** — a bad figure in a paper is worse than none.
+Verified by breaking both.
+
+Suite: **1,906 tests** (was 1,846).
+
 ## [1.61.0] — 2026-07-15 — Patent & legal landing page; Markush tagging fix
 
 **Audience tagging fix — found while writing the legal page.** Build's headline

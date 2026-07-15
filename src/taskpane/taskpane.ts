@@ -1,4 +1,4 @@
-/* global Office, Word, document, localStorage, navigator, URL, Blob, HTMLInputElement, HTMLButtonElement, HTMLSelectElement, HTMLTextAreaElement, HTMLElement, Image, TextEncoder, btoa */
+/* global Office, Word, document, localStorage, navigator, URL, Blob, FileReader, HTMLInputElement, HTMLButtonElement, HTMLSelectElement, HTMLTextAreaElement, HTMLElement, Image, TextEncoder, btoa */
 
 import { Segment, segmentsToHtml } from "../lib/segments";
 import { parseChemical } from "../lib/chemParser";
@@ -60,6 +60,8 @@ import { predictNmr, NmrResult, Nucleus } from "../lib/nmr";
 import { predictIr, IrResult } from "../lib/ir";
 import { predictUvVis, UvResult } from "../lib/uvvis";
 import { predictFragments, FragmentResult } from "../lib/fragment";
+import { parseSequenceFile, SeqRecord } from "../lib/seqio";
+import { buildLinearMapSvg, featureTypes } from "../lib/seqmap";
 import { nmrChartSvg, irChartSvg, msChartSvg, SPECTRUM_CHART_SIZE } from "../lib/spectraChart";
 import { buildPeptide } from "../lib/peptide";
 import {
@@ -425,6 +427,14 @@ let massspecSection: HTMLElement;
 let msInput: HTMLInputElement;
 let msResult: HTMLElement;
 let msInsertBtn: HTMLButtonElement;
+let seqmapSection: HTMLElement;
+let seqmapOpenBtn: HTMLButtonElement;
+let seqmapFile: HTMLInputElement;
+let seqmapInput: HTMLTextAreaElement;
+let seqmapInfo: HTMLElement;
+let seqmapMono: HTMLInputElement;
+let seqmapPreview: HTMLElement;
+let seqmapInsert: HTMLButtonElement;
 let spectraSection: HTMLElement;
 let specInput: HTMLInputElement;
 let specKind: HTMLSelectElement;
@@ -700,6 +710,14 @@ Office.onReady((info) => {
   msInput = document.getElementById("ms-input") as HTMLInputElement;
   msResult = document.getElementById("ms-result") as HTMLElement;
   msInsertBtn = document.getElementById("ms-insert") as HTMLButtonElement;
+  seqmapSection = document.getElementById("seqmap-section") as HTMLElement;
+  seqmapOpenBtn = document.getElementById("seqmap-open") as HTMLButtonElement;
+  seqmapFile = document.getElementById("seqmap-file") as HTMLInputElement;
+  seqmapInput = document.getElementById("seqmap-input") as HTMLTextAreaElement;
+  seqmapInfo = document.getElementById("seqmap-info") as HTMLElement;
+  seqmapMono = document.getElementById("seqmap-mono") as HTMLInputElement;
+  seqmapPreview = document.getElementById("seqmap-preview") as HTMLElement;
+  seqmapInsert = document.getElementById("seqmap-insert") as HTMLButtonElement;
   spectraSection = document.getElementById("spectra-section") as HTMLElement;
   specInput = document.getElementById("spec-input") as HTMLInputElement;
   specKind = document.getElementById("spec-kind") as HTMLSelectElement;
@@ -853,6 +871,11 @@ Office.onReady((info) => {
   specKind.addEventListener("change", updateSpectra);
   specInsertBtn.addEventListener("click", () => insertDnaText(spectrumAsText(), "spectrum data"));
   specInsertChartBtn.addEventListener("click", insertSpectrumChart);
+  seqmapOpenBtn.addEventListener("click", () => seqmapFile.click());
+  seqmapFile.addEventListener("change", onSeqMapFile);
+  seqmapInput.addEventListener("input", updateSeqMap);
+  seqmapMono.addEventListener("change", updateSeqMap);
+  seqmapInsert.addEventListener("click", insertSeqMap);
 
   pepInput.addEventListener("input", updatePeptide);
   pepInsertBtn.addEventListener("click", insertPeptide);
@@ -1039,6 +1062,7 @@ const HOME_GROUPS: HomeGroup[] = [
   {
     title: "Biology",
     items: [
+      { mode: "seqmap", audience: ["science", "legal"], icon: "🗺️", label: "Sequence Map", desc: "Open a GenBank/FASTA file → annotated map" },
       { mode: "sequence", audience: ["science", "legal"], icon: "🧬", label: "Sequence", desc: "WIPO ST.26 listings" },
       { mode: "dna", audience: ["science"], icon: "🧬", label: "DNA", desc: "Rev-comp, translation, ORFs" },
       { mode: "assay", audience: ["science"], icon: "🧫", label: "Bio/Assay", desc: "Kinetics, IC50/EC50, binding, lab math" },
@@ -1646,6 +1670,7 @@ function onInputChanged(): void {
   assaySection.style.display = mode === "assay" ? "block" : "none";
   massspecSection.style.display = mode === "massspec" ? "block" : "none";
   spectraSection.style.display = mode === "spectra" ? "block" : "none";
+  seqmapSection.style.display = mode === "seqmap" ? "block" : "none";
   peptideSection.style.display = mode === "peptide" ? "block" : "none";
   statsSection.style.display = mode === "stats" ? "block" : "none";
   analyzeSection.style.display = mode === "analyze" ? "block" : "none";
@@ -1686,6 +1711,10 @@ function onInputChanged(): void {
   }
   if (mode === "spectra") {
     updateSpectra();
+    return;
+  }
+  if (mode === "seqmap") {
+    updateSeqMap();
     return;
   }
   if (mode === "peptide") {
@@ -6055,6 +6084,119 @@ async function insertSpectrumChart(): Promise<void> {
     setStatus(`Could not insert spectrum: ${(error as Error).message}`, "error");
   } finally {
     specInsertChartBtn.disabled = false;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Sequence Map — open a GenBank/FASTA file, draw an annotated map
+//
+// The pane could compute plenty about a sequence but could never READ one, so
+// every sequence had to be pasted as raw text — which throws away the feature
+// annotations that make a map worth drawing. GenBank carries them, and every
+// tool in the field exports GenBank, so this is the interchange path.
+// ---------------------------------------------------------------------------
+
+let currentSeqRecord: SeqRecord | null = null;
+let currentSeqMapSvg: string | null = null;
+
+/** Reads a chosen file as text and drops it into the box. Nothing is uploaded. */
+function onSeqMapFile(): void {
+  const file = seqmapFile.files && seqmapFile.files[0];
+  if (!file) return;
+  // A whole genome pasted into a textarea will wedge the pane; refuse politely.
+  const MAX = 8 * 1024 * 1024;
+  if (file.size > MAX) {
+    seqmapInfo.textContent = `That file is ${(file.size / 1e6).toFixed(1)} MB — too large for the pane (limit 8 MB).`;
+    return;
+  }
+  const reader = new FileReader();
+  reader.onerror = () => {
+    seqmapInfo.textContent = "Couldn't read that file.";
+  };
+  reader.onload = () => {
+    seqmapInput.value = String(reader.result ?? "");
+    updateSeqMap();
+  };
+  reader.readAsText(file);
+  seqmapFile.value = ""; // so picking the same file twice still fires
+}
+
+/** Parses whatever is in the box and redraws the map. */
+function updateSeqMap(): void {
+  const text = seqmapInput.value;
+  currentSeqRecord = null;
+  currentSeqMapSvg = null;
+  seqmapInsert.disabled = true;
+  seqmapPreview.replaceChildren();
+
+  if (!text.trim()) {
+    seqmapInfo.textContent = "Open a GenBank or FASTA file, or paste a sequence.";
+    return;
+  }
+
+  const parsed = parseSequenceFile(text);
+  if (!parsed.ok) {
+    seqmapInfo.textContent = parsed.error;
+    return;
+  }
+  const rec = parsed.records[0];
+  currentSeqRecord = rec;
+
+  const types = featureTypes(rec);
+  const shape = rec.circular ? "circular" : "linear";
+  let info = `${rec.name} — ${rec.length.toLocaleString()} bp, ${shape}`;
+  if (parsed.records.length > 1) info += ` (first of ${parsed.records.length} records)`;
+  if (rec.features.length) {
+    info += ` · ${rec.features.length} features: ${types.slice(0, 4).map((t) => `${t.count}× ${t.type}`).join(", ")}`;
+  } else {
+    // Say WHY there's nothing to draw — a FASTA has no annotations to lose.
+    info +=
+      rec.format === "fasta"
+        ? " · no features (FASTA carries none — a GenBank file draws a real map)"
+        : " · no features found in that record";
+  }
+  seqmapInfo.textContent = info;
+
+  const svg = buildLinearMapSvg(rec, { width: 640, monochrome: seqmapMono.checked });
+  if (!svg) {
+    seqmapInfo.textContent += " — nothing to draw.";
+    return;
+  }
+  currentSeqMapSvg = svg;
+  const holder = document.createElement("div");
+  holder.className = "seqmap-holder";
+  holder.innerHTML = svg;
+  seqmapPreview.appendChild(holder);
+  seqmapInsert.disabled = false;
+}
+
+/** Inserts the map as a picture at the cursor. */
+async function insertSeqMap(): Promise<void> {
+  if (!currentSeqMapSvg || !currentSeqRecord) {
+    setStatus("No map to insert.", "error");
+    return;
+  }
+  seqmapInsert.disabled = true;
+  setStatus("Inserting map…");
+  try {
+    const h = Number(/height="(\d+)"/.exec(currentSeqMapSvg)?.[1] ?? 200);
+    const base64 = await svgToPngBase64(currentSeqMapSvg, 640 * 2, h * 2);
+    const rec = currentSeqRecord;
+    await Word.run(async (context) => {
+      const range = context.document.getSelection();
+      const picture = range.insertInlinePictureFromBase64(base64, Word.InsertLocation.after);
+      picture.altTextDescription =
+        `Sequence map: ${rec.name}, ${rec.length} bp, ${rec.circular ? "circular" : "linear"}, ` +
+        `${rec.features.length} features`;
+      range.select(Word.SelectionMode.end);
+      await context.sync();
+      await tagInserted(context, picture.getRange(), "formula-inserter:seqmap");
+    });
+    setStatus("Map inserted.", "success");
+  } catch (error) {
+    setStatus(`Could not insert the map: ${(error as Error).message}`, "error");
+  } finally {
+    seqmapInsert.disabled = false;
   }
 }
 

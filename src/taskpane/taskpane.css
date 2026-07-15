@@ -1358,3 +1358,14 @@ a:focus-visible {
   color: var(--muted);
   line-height: 1.35;
 }
+
+/* Sequence Map preview. The map is wider than the pane, so it scrolls
+   horizontally rather than being squashed — a squashed map is unreadable, and
+   the inserted figure is full width regardless. */
+.seqmap-holder {
+  overflow-x: auto;
+  max-width: 100%;
+}
+.seqmap-holder svg {
+  display: block;
+}

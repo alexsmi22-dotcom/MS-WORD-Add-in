@@ -2,6 +2,53 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
+## [1.58.1] — 2026-07-15 — Close the remaining coverage gaps
+
+The three modules the gap analysis named as untested. In each case the code turned
+out to be CORRECT — the gap was that nothing proved it, and each new suite was
+verified by reintroducing a bug and confirming it fails.
+
+**Preview fidelity — `mathHtml.ts` (was 0 tests).**
+- Its own header states the contract: *"mirrors the OMML emitter so the preview
+  reflects what gets inserted."* mathOmml had a full suite and a FORMULA_LIBRARY
+  sweep; the preview emitter had none. Drift would mean the preview LIES about
+  what lands in the document, and only the OMML side would notice.
+- 70 tests. Both emitters walk the same AST, so fidelity is proved by asserting
+  each faithfully renders every leaf, in order: the OMML's `<m:t>` runs must equal
+  the AST's leaves exactly, and the preview's text must contain them all in order.
+  Now sweeps every FORMULA_LIBRARY entry through the PREVIEW too, not just OMML.
+- Documents one intentional divergence: for an n-ary (Σ, ∫) the HTML emits sup
+  before sub (it stacks the limits visually) while the OMML emits sub before sup
+  (the XML order Word expects). Same rendering, different source order.
+- Also pins the fallback contract (partial input like `sqrt(` must preview, not
+  throw — the OMML side throws and `insertEquation` catches it and says so), and
+  that HTML-special characters are escaped rather than injected into the pane.
+- Verified by mutation: dropping the radical's degree fails 2 tests; dropping a
+  subsup's subscript fails 4. **No drift exists today** — the emitters agree.
+
+**`lookupSmiles` / `nameForIdcode` — `structures.ts` (was untested).**
+- The front door for the whole chemistry stack: molgraph.ts (and through it
+  nmr/ir/uvvis/fragment), massspec.ts and pka.ts all resolve input through it. A
+  wrong SMILES here would make every predicted spectrum confidently wrong.
+- 21 tests pinning names to their real formulas (aspirin → C9H8O4, caffeine →
+  C8H10N4O2, glucose → C6H12O6…), case-insensitivity, formula lookup, the
+  name-beats-formula precedence and its `source` reporting, name→structure→name
+  round trips, and that unknown input returns null rather than a near-miss.
+
+**`history.ts` (was untested).**
+- 15 tests. Nothing here reaches the document, but it holds the only untested
+  failure paths that decide whether the pane opens at all: corrupt JSON, valid
+  JSON of the wrong shape, and a throwing localStorage (quota exceeded, or
+  disabled by policy) must all degrade to empty rather than killing the pane.
+
+Coverage: 60 of 61 lib modules are now imported by at least one test. The
+exception is `molgraph.ts`, which has no direct test file but is exercised by
+~100 adversarial tests through the four predictors built on it — a real failure
+there surfaces as a confusing multi-module failure rather than a pinpointed one,
+which is a diagnosability cost, not a coverage gap.
+
+Suite: **1,841 tests** (was 1,735).
+
 ## [1.58.0] — 2026-07-15 — Gap analysis: fixes from a first real audit
 
 Prompted by "did you perform a comprehensive bug test and gap analysis?" — the

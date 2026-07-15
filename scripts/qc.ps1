@@ -38,7 +38,13 @@ $ts = Get-Content "src\taskpane\taskpane.ts" -Raw
 $html = Get-Content "src\taskpane\taskpane.html" -Raw
 $tsIds = [regex]::Matches($ts, 'getElementById\("([^"]+)"\)') | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique
 $htmlIds = [regex]::Matches($html, 'id="([^"]+)"') | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique
-$missing = $tsIds | Where-Object { $_ -notin $htmlIds }
+# Some elements are created at runtime rather than authored in the HTML (e.g. the
+# update banner: the code assigns `bar.id = "update-banner"` and the matching
+# getElementById is only a guard against creating it twice). Those ids are wired
+# correctly and must not be reported as missing.
+$dynamicIds = [regex]::Matches($ts, '\.id\s*=\s*"([^"]+)"') | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique
+$knownIds = @($htmlIds) + @($dynamicIds)
+$missing = $tsIds | Where-Object { $_ -notin $knownIds }
 $idOk = (@($missing).Count -eq 0)
 $results["Id wiring audit"] = $idOk
 if ($idOk) {

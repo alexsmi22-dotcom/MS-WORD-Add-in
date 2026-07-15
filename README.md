@@ -9,12 +9,13 @@ citations, and more — and inserts it at the cursor. Everything runs **entirely
 content is sent anywhere** (the one exception is the strictly opt-in online
 name→structure lookup, which prompts before sending).
 
-Pick a tool from the home screen — **21 tools** (grouped STEM + legal):
+Pick a tool from the home screen — **22 tools** (grouped STEM + legal):
 
 | Mode | What it does |
 |---|---|
 | **Chemical** | formulas (`H2O`→H₂O, `SO4^2-`→SO₄²⁻), 2D structures from name/formula/SMILES, structure→name lookup, **physicochemical properties & druglikeness** (cLogP, tPSA, Lipinski/Veber), **pKa group estimation** + net charge at pH 7.4, opt-in **online IUPAC name→structure** (OPSIN) |
 | **Mass Spec** | monoisotopic & average mass, theoretical **isotope pattern**, and common **adduct m/z** ([M+H]⁺, [M+Na]⁺, [M+2H]²⁺, [M−H]⁻…) |
+| **Spectra** | **NEW** — predicted spectra from structure, offline: **¹H / ¹³C NMR** (shift, integration, n+1 multiplicity, assignment), **IR** group frequencies + simulated transmittance trace, **UV-Vis λmax** (Woodward–Fieser, with the arithmetic shown), and **EI-MS fragmentation** (α-cleavage, benzylic/tropylium, McLafferty, neutral losses). Estimates from published additivity rules — labelled as such, never presented as acquired spectra |
 | **Bio/Assay** | offline curve fitting: **enzyme kinetics** (Michaelis–Menten, Hill), **dose–response** (IC50/EC50, 4PL), **binding** (Kd/Bmax), plus lab calculators (Cheng–Prusoff, Henderson–Hasselbalch, Beer–Lambert, dilutions, A260/A280) |
 | **Peptide** | 2D structure from a one- or three-letter amino-acid sequence, with formula & MW |
 | **Stats** | descriptive stats, **t-tests** (Welch/Student/paired), one- & **two-way ANOVA**, regression, **non-parametric** (Mann–Whitney, Wilcoxon), **chi-square** (fit & independence), **multiple-comparison correction** (Bonferroni/Holm/BH), and **uncertainty propagation** |
@@ -39,7 +40,7 @@ Pick a tool from the home screen — **21 tools** (grouped STEM + legal):
 H2O → H₂O   ·   paste \frac{-b±√(b²-4ac)}{2a} (LaTeX) → a Word equation   ·   aspirin → 2D structure
 ```
 
-> **Status:** v1.53.0 — production. Word on **Windows & macOS**,
+> **Status:** v1.54.0 — production. Word on **Windows & macOS**,
 > 100% client-side. Install packs: [`install/`](install/) · feature list: [`FEATURES.md`](FEATURES.md).
 
 ## Screenshots
@@ -72,7 +73,7 @@ _Screenshots coming soon — see [`docs/screenshots/`](docs/screenshots/) for th
    (modern WebView2/Edge runtime; legacy IE-based webviews are not supported).
 
 > Verified by the QC gate (`npm run qc`): `npm run lint` (type-check),
-> `npm test` (**1,430 unit tests**), `npm run build` (production bundle),
+> `npm test` (**1,552 unit tests**), `npm run build` (production bundle),
 > `office-addin-manifest validate`, and the task-pane id-wiring audit — all pass.
 
 ## Setup
@@ -371,6 +372,15 @@ sub/superscript formatting. Uncheck the box to always use inline formatting.
       dilutions, A260/A280 quantitation).
 - [x] **Mass Spec mode** — monoisotopic & average mass, theoretical isotope
       pattern, and common adduct m/z.
+- [x] **Spectra mode** — predicted ¹H/¹³C NMR (Grant–Paul + benzene-increment +
+      Shoolery additivity, with symmetry-aware equivalence and n+1 multiplicity),
+      IR group frequencies with a simulated transmittance trace, UV-Vis λmax by
+      Woodward–Fieser (showing every increment), and EI-MS fragmentation
+      (α-cleavage, benzylic/tropylium, McLafferty, gated neutral losses).
+      Structure detection is exact; the shift/frequency values are published
+      empirical estimates and every prediction carries its own accuracy caveat.
+      Out-of-domain cases (unconjugated → no λmax, fused rings, polysubstituted
+      carbons) are disclosed rather than guessed.
 - [x] **Peptide mode** — 2D structure from a one-/three-letter amino-acid sequence.
 - [x] **Stats mode** — descriptive statistics, t-tests, one- & two-way ANOVA, linear
       regression (with p-values), non-parametric tests (Mann–Whitney U, Wilcoxon

@@ -35,6 +35,7 @@
             <option value="build">Build</option>
             <option value="reaction">Reaction</option>
             <option value="massspec">Mass Spec</option>
+            <option value="spectra">Spectra</option>
           </optgroup>
           <optgroup label="Math &amp; units">
             <option value="math">Math</option>
@@ -632,6 +633,32 @@
           placeholder="e.g. caffeine, C8H10N4O2, or a SMILES" />
         <div id="ms-result" class="ms-result" aria-live="polite"></div>
         <button id="ms-insert" class="insert-btn" type="button" disabled>Insert MS data</button>
+      </section>
+
+      <!-- Spectra: predicted 1H/13C NMR, IR, UV-Vis, MS fragmentation -->
+      <section id="spectra-section">
+        <p class="seq-disclaimer">
+          Predicted spectra from structure — computed entirely on your machine.
+          These are <strong>estimates from published additivity rules</strong>, not acquired
+          spectra and not quantum-chemical calculations. Use them to assign peaks you
+          already have; always verify against a real spectrum.
+        </p>
+        <label class="field-label" for="spec-input">Name / formula / SMILES</label>
+        <input id="spec-input" type="text" class="rgroup-input" autocomplete="off"
+          placeholder="e.g. toluene, aspirin, or a SMILES" />
+        <label class="field-label" for="spec-kind">Spectrum</label>
+        <select id="spec-kind" class="mode-select">
+          <option value="1H">¹H NMR (predicted)</option>
+          <option value="13C">¹³C NMR (predicted)</option>
+          <option value="ir">IR (group frequencies)</option>
+          <option value="uvvis">UV-Vis (Woodward-Fieser)</option>
+          <option value="ms">MS fragmentation (EI)</option>
+        </select>
+        <div id="spec-result" class="ms-result" aria-live="polite"></div>
+        <div class="plot-actions">
+          <button id="spec-insert" class="insert-btn" type="button" disabled>Insert data table</button>
+          <button id="spec-insert-chart" class="insert-btn" type="button" disabled>Insert spectrum chart</button>
+        </div>
       </section>
 
       <!-- Bio / Assay: kinetics, dose-response, binding, lab math -->

@@ -56,6 +56,11 @@ import { computeProperties, PhysChemProperties, RuleResult } from "../lib/proper
 import { predictPka, PkaResult } from "../lib/pka";
 import { resolveNameOnline, OpsinResult } from "../lib/opsin";
 import { computeMassSpec, MassSpecResult } from "../lib/massspec";
+import { predictNmr, NmrResult, Nucleus } from "../lib/nmr";
+import { predictIr, IrResult } from "../lib/ir";
+import { predictUvVis, UvResult } from "../lib/uvvis";
+import { predictFragments, FragmentResult } from "../lib/fragment";
+import { nmrChartSvg, irChartSvg, msChartSvg, SPECTRUM_CHART_SIZE } from "../lib/spectraChart";
 import { buildPeptide } from "../lib/peptide";
 import {
   describe as statDescribe,
@@ -215,6 +220,7 @@ type Mode =
   | "finance"
   | "assay"
   | "massspec"
+  | "spectra"
   | "peptide"
   | "stats"
   | "analyze"
@@ -440,6 +446,12 @@ let massspecSection: HTMLElement;
 let msInput: HTMLInputElement;
 let msResult: HTMLElement;
 let msInsertBtn: HTMLButtonElement;
+let spectraSection: HTMLElement;
+let specInput: HTMLInputElement;
+let specKind: HTMLSelectElement;
+let specResult: HTMLElement;
+let specInsertBtn: HTMLButtonElement;
+let specInsertChartBtn: HTMLButtonElement;
 /** MS readout for the most recent input, for insertion. */
 let currentMassSpec: MassSpecResult | null = null;
 let statsSection: HTMLElement;
@@ -708,6 +720,12 @@ Office.onReady((info) => {
   msInput = document.getElementById("ms-input") as HTMLInputElement;
   msResult = document.getElementById("ms-result") as HTMLElement;
   msInsertBtn = document.getElementById("ms-insert") as HTMLButtonElement;
+  spectraSection = document.getElementById("spectra-section") as HTMLElement;
+  specInput = document.getElementById("spec-input") as HTMLInputElement;
+  specKind = document.getElementById("spec-kind") as HTMLSelectElement;
+  specResult = document.getElementById("spec-result") as HTMLElement;
+  specInsertBtn = document.getElementById("spec-insert") as HTMLButtonElement;
+  specInsertChartBtn = document.getElementById("spec-insert-chart") as HTMLButtonElement;
   statsSection = document.getElementById("stats-section") as HTMLElement;
   statsCalcSelect = document.getElementById("stats-calc") as HTMLSelectElement;
   statsInputs = document.getElementById("stats-inputs") as HTMLElement;
@@ -851,6 +869,10 @@ Office.onReady((info) => {
 
   msInput.addEventListener("input", updateMassSpec);
   msInsertBtn.addEventListener("click", () => insertDnaText(massSpecAsText(currentMassSpec), "MS data"));
+  specInput.addEventListener("input", updateSpectra);
+  specKind.addEventListener("change", updateSpectra);
+  specInsertBtn.addEventListener("click", () => insertDnaText(spectrumAsText(), "spectrum data"));
+  specInsertChartBtn.addEventListener("click", insertSpectrumChart);
 
   pepInput.addEventListener("input", updatePeptide);
   pepInsertBtn.addEventListener("click", insertPeptide);
@@ -1000,6 +1022,7 @@ const HOME_GROUPS: HomeGroup[] = [
       { mode: "build", icon: "🔬", label: "Build", desc: "Structures from atoms/bonds; Markush" },
       { mode: "reaction", icon: "⚗️", label: "Reaction", desc: "Reaction schemes" },
       { mode: "massspec", icon: "⚛️", label: "Mass Spec", desc: "Exact mass, isotope pattern, adducts" },
+      { mode: "spectra", icon: "📡", label: "Spectra", desc: "Predicted NMR, IR, UV-Vis, fragmentation" },
     ],
   },
   {
@@ -1547,7 +1570,7 @@ function onInputChanged(): void {
     for (const s of [
       formatSection, buildSection, codeSection, sequenceSection, botanicalSection, numeralsSection,
       dnaSection, reactionSection, auditSection, unitsSection, refsSection, citationsSection,
-      plotSection, financeSection, assaySection, massspecSection, peptideSection, statsSection, pptSection,
+      plotSection, financeSection, assaySection, massspecSection, spectraSection, peptideSection, statsSection, pptSection,
     ]) {
       s.style.display = "none";
     }
@@ -1572,6 +1595,7 @@ function onInputChanged(): void {
   financeSection.style.display = mode === "finance" ? "block" : "none";
   assaySection.style.display = mode === "assay" ? "block" : "none";
   massspecSection.style.display = mode === "massspec" ? "block" : "none";
+  spectraSection.style.display = mode === "spectra" ? "block" : "none";
   peptideSection.style.display = mode === "peptide" ? "block" : "none";
   statsSection.style.display = mode === "stats" ? "block" : "none";
   analyzeSection.style.display = mode === "analyze" ? "block" : "none";
@@ -1608,6 +1632,10 @@ function onInputChanged(): void {
   }
   if (mode === "massspec") {
     updateMassSpec();
+    return;
+  }
+  if (mode === "spectra") {
+    updateSpectra();
     return;
   }
   if (mode === "peptide") {
@@ -5601,6 +5629,272 @@ function massSpecAsText(spec: MassSpecResult | null): string {
     "Computed offline — verify before relying.",
   ];
   return lines.join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// Spectra — predicted 1H/13C NMR, IR, UV-Vis and EI fragmentation
+//
+// Every branch here renders values produced by the lib/ predictors and carries
+// their caveats through to the UI verbatim. These are estimates from published
+// additivity rules; the disclaimer is part of the feature, not decoration.
+// ---------------------------------------------------------------------------
+
+type SpectrumKind = "1H" | "13C" | "ir" | "uvvis" | "ms";
+
+/** The currently displayed prediction, kept for the insert buttons. */
+let currentSpectrum:
+  | { kind: "1H" | "13C"; nmr: NmrResult }
+  | { kind: "ir"; ir: IrResult }
+  | { kind: "uvvis"; uv: UvResult }
+  | { kind: "ms"; ms: FragmentResult }
+  | null = null;
+let currentSpectrumSvg: string | null = null;
+
+function specRow(cells: string[], className = "spec-row"): HTMLElement {
+  const row = document.createElement("div");
+  row.className = className;
+  for (const c of cells) {
+    const s = document.createElement("span");
+    s.textContent = c;
+    row.appendChild(s);
+  }
+  return row;
+}
+
+/** Renders the caveats block. Never omitted — it is what keeps this honest. */
+function specCaveats(caveats: string[]): HTMLElement {
+  const wrap = document.createElement("div");
+  wrap.className = "ms-note";
+  for (const c of caveats) {
+    const d = document.createElement("div");
+    d.textContent = `• ${c}`;
+    wrap.appendChild(d);
+  }
+  return wrap;
+}
+
+/** Builds the SVG chart for the current prediction, or null if not chartable. */
+function buildSpectrumSvg(): string | null {
+  const cur = currentSpectrum;
+  if (!cur) return null;
+  if (cur.kind === "ir") return irChartSvg(cur.ir.bands);
+  if (cur.kind === "ms") return msChartSvg(cur.ms);
+  if (cur.kind === "uvvis") return null; // a single λmax is a number, not a spectrum
+  return nmrChartSvg(cur.nmr);
+}
+
+/** Computes and renders the selected prediction for the current input. */
+function updateSpectra(): void {
+  const text = specInput.value.trim();
+  const kind = specKind.value as SpectrumKind;
+  specResult.replaceChildren();
+  currentSpectrum = null;
+  currentSpectrumSvg = null;
+  specInsertBtn.disabled = true;
+  specInsertChartBtn.disabled = true;
+
+  if (!text) {
+    const hint = document.createElement("div");
+    hint.className = "ms-hint";
+    hint.textContent = "Type a name, formula, or SMILES to predict a spectrum.";
+    specResult.appendChild(hint);
+    return;
+  }
+
+  const fail = (msg: string) => {
+    const hint = document.createElement("div");
+    hint.className = "ms-hint";
+    hint.textContent = msg;
+    specResult.appendChild(hint);
+  };
+
+  try {
+    if (kind === "1H" || kind === "13C") {
+      const r = predictNmr(text, kind as Nucleus);
+      if (!r) return fail("No structure found. Try a name (toluene), a formula, or a SMILES.");
+      if (!r.signals.length) return fail("No signals predicted for this structure.");
+      currentSpectrum = { kind, nmr: r };
+      specResult.appendChild(msEyebrow(`Predicted ${kind} NMR — ${r.signals.length} signals`));
+      const head = specRow(["δ (ppm)", kind === "1H" ? "H" : "C", kind === "1H" ? "mult." : "", "assignment"], "spec-row spec-head");
+      specResult.appendChild(head);
+      for (const s of r.signals) {
+        specResult.appendChild(
+          specRow([
+            s.shift.toFixed(kind === "1H" ? 2 : 1),
+            String(s.count),
+            kind === "1H" ? s.multiplicity : "",
+            s.assignment,
+          ])
+        );
+      }
+    } else if (kind === "ir") {
+      const r = predictIr(text);
+      if (!r) return fail("No structure found. Try a name (acetone), a formula, or a SMILES.");
+      if (!r.bands.length) return fail("No characteristic IR bands predicted for this structure.");
+      currentSpectrum = { kind, ir: r };
+      specResult.appendChild(msEyebrow(`Predicted IR — ${r.bands.length} characteristic bands`));
+      specResult.appendChild(specRow(["cm⁻¹", "range", "int.", "assignment"], "spec-row spec-head"));
+      for (const b of r.bands) {
+        specResult.appendChild(
+          specRow([
+            String(Math.round(b.wavenumber)),
+            `${b.range[0]}-${b.range[1]}`,
+            b.intensity.slice(0, 1) + (b.broad ? ",br" : ""),
+            b.assignment,
+          ])
+        );
+      }
+    } else if (kind === "uvvis") {
+      const r = predictUvVis(text);
+      if (!r) return fail("No structure found. Try a name (mesityl oxide), a formula, or a SMILES.");
+      currentSpectrum = { kind, uv: r };
+      specResult.appendChild(msEyebrow("Predicted UV-Vis λmax"));
+      const val = document.createElement("div");
+      val.className = "ms-masses";
+      const kk = document.createElement("span");
+      kk.className = "ms-mass-k";
+      kk.textContent = r.transparent ? "λmax" : "λmax (π→π*)";
+      const vv = document.createElement("span");
+      vv.className = "ms-mass-v";
+      vv.textContent = r.lambdaMax === null ? "none above 200 nm" : `${r.lambdaMax} nm`;
+      val.append(kk, vv);
+      const ck = document.createElement("span");
+      ck.className = "ms-mass-k";
+      ck.textContent = "Chromophore";
+      const cv = document.createElement("span");
+      cv.className = "ms-mass-v";
+      cv.textContent = r.chromophore;
+      val.append(ck, cv);
+      specResult.appendChild(val);
+      if (r.contributions.length) {
+        specResult.appendChild(msEyebrow("How this was built up"));
+        for (const c of r.contributions) {
+          specResult.appendChild(specRow([`${c.nm > 0 ? "+" : ""}${c.nm} nm`, c.label]));
+        }
+      }
+    } else {
+      const r = predictFragments(text);
+      if (!r) return fail("No structure found. Try a name (toluene), a formula, or a SMILES.");
+      currentSpectrum = { kind, ms: r };
+      specResult.appendChild(msEyebrow(`Predicted EI fragments — ${r.formula}`));
+      specResult.appendChild(specRow(["m/z", "formula", "rank", "pathway"], "spec-row spec-head"));
+      specResult.appendChild(specRow([r.molecularIon.toFixed(4), r.formula, "M⁺•", "molecular ion"]));
+      for (const f of r.fragments) {
+        specResult.appendChild(specRow([f.mz.toFixed(4), f.formula, f.likelihood, `${f.pathway} (−${f.neutralLoss})`]));
+      }
+    }
+  } catch (error) {
+    return fail(`Could not predict: ${(error as Error).message}`);
+  }
+
+  const cur = currentSpectrum;
+  if (!cur) return;
+  const caveats =
+    cur.kind === "ir"
+      ? cur.ir.caveats
+      : cur.kind === "uvvis"
+        ? cur.uv.caveats
+        : cur.kind === "ms"
+          ? cur.ms.caveats
+          : cur.nmr.caveats;
+  specResult.appendChild(specCaveats([...caveats, "Predicted from structure — verify against an acquired spectrum."]));
+
+  specInsertBtn.disabled = false;
+  currentSpectrumSvg = buildSpectrumSvg();
+  specInsertChartBtn.disabled = !currentSpectrumSvg;
+}
+
+/** Plain-text rendering of the current prediction, for insertion into Word. */
+function spectrumAsText(): string {
+  const cur = currentSpectrum;
+  if (!cur) return "";
+  const tail = "Predicted from structure (additivity rules), computed offline — verify against an acquired spectrum.";
+
+  if (cur.kind === "1H" || cur.kind === "13C") {
+    const r = cur.nmr;
+    const lines = [
+      `Predicted ${r.nucleus} NMR — ${r.smiles}`,
+      ...r.signals.map((s) =>
+        r.nucleus === "1H"
+          ? `  δ ${s.shift.toFixed(2)}  (${s.count}H, ${s.multiplicity})  ${s.assignment}`
+          : `  δ ${s.shift.toFixed(1)}  ${s.assignment}${s.count > 1 ? `  (${s.count} equivalent C)` : ""}`
+      ),
+      ...r.caveats.map((c) => `Note: ${c}`),
+      tail,
+    ];
+    return lines.join("\n");
+  }
+
+  if (cur.kind === "ir") {
+    const r = cur.ir;
+    return [
+      `Predicted IR — ${r.smiles}`,
+      ...r.bands.map(
+        (b) =>
+          `  ${String(Math.round(b.wavenumber)).padStart(4)} cm-1  (${b.range[0]}-${b.range[1]}, ${b.intensity}${b.broad ? ", broad" : ""})  ${b.assignment}`
+      ),
+      ...r.caveats.map((c) => `Note: ${c}`),
+      tail,
+    ].join("\n");
+  }
+
+  if (cur.kind === "uvvis") {
+    const r = cur.uv;
+    return [
+      `Predicted UV-Vis — ${r.smiles}`,
+      `  Chromophore: ${r.chromophore}`,
+      r.lambdaMax === null
+        ? "  λmax: none above 200 nm (transparent in the usual UV-Vis window)"
+        : `  λmax: ${r.lambdaMax} nm`,
+      ...(r.contributions.length ? ["  Build-up:", ...r.contributions.map((c) => `    ${c.nm > 0 ? "+" : ""}${c.nm} nm  ${c.label}`)] : []),
+      ...r.caveats.map((c) => `Note: ${c}`),
+      tail,
+    ].join("\n");
+  }
+
+  if (cur.kind === "ms") {
+    const r = cur.ms;
+    return [
+      `Predicted EI fragmentation — ${r.formula}`,
+      `  M+•  ${r.molecularIon.toFixed(4)}`,
+      ...r.fragments.map(
+        (f) => `  ${f.mz.toFixed(4)}  ${f.formula.padEnd(8)} [${f.likelihood}]  ${f.pathway} (−${f.neutralLoss})`
+      ),
+      ...r.caveats.map((c) => `Note: ${c}`),
+      tail,
+    ].join("\n");
+  }
+  return "";
+}
+
+/** Inserts the current spectrum chart as a picture. */
+async function insertSpectrumChart(): Promise<void> {
+  if (!currentSpectrumSvg) {
+    setStatus("No chart available for this spectrum.", "error");
+    return;
+  }
+  specInsertChartBtn.disabled = true;
+  setStatus("Inserting spectrum…");
+  try {
+    const base64 = await svgToPngBase64(
+      currentSpectrumSvg,
+      SPECTRUM_CHART_SIZE.width * 2,
+      SPECTRUM_CHART_SIZE.height * 2
+    );
+    await Word.run(async (context) => {
+      const range = context.document.getSelection();
+      const picture = range.insertInlinePictureFromBase64(base64, Word.InsertLocation.after);
+      picture.altTextDescription = `Predicted spectrum (${specKind.value}) for ${specInput.value.trim()} — estimate from additivity rules`;
+      range.select(Word.SelectionMode.end);
+      await context.sync();
+      await tagInserted(context, picture.getRange(), "formula-inserter:spectrum");
+    });
+    setStatus("Spectrum inserted.", "success");
+  } catch (error) {
+    setStatus(`Could not insert spectrum: ${(error as Error).message}`, "error");
+  } finally {
+    specInsertChartBtn.disabled = false;
+  }
 }
 
 // ---------------------------------------------------------------------------

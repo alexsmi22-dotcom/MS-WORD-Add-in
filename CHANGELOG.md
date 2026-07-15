@@ -2,6 +2,58 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
+## [1.54.0] — 2026-07-15 — Spectra mode (Phase 4: spectroscopy prediction)
+
+Predicted spectra from structure — the last big white space on the analytical
+roadmap. All offline. These are **estimates from published additivity rules**,
+not acquired spectra and not quantum-chemical calculations; structure detection
+is exact, the values are empirical, and every prediction carries its accuracy.
+
+- **New Spectra mode** (22nd tool) — ¹H NMR, ¹³C NMR, IR, UV-Vis and EI-MS
+  fragmentation from a name, formula, or SMILES. Insert as a data table or a
+  spectrum chart.
+- **¹H / ¹³C NMR** (`src/lib/nmr.ts`) — Grant–Paul additivity over the alkane
+  skeleton, benzene substituent increments for aromatics, Shoolery-type α/β
+  effects for protons. Symmetry-aware signal grouping (OpenChemLib ranks), n+1
+  multiplicity with equivalent-nucleus suppression, integration, per-signal
+  assignment. Exchangeable OH/NH/COOH reported as flagged nominal ranges.
+- **IR** (`src/lib/ir.ts`) — characteristic group frequencies with published
+  ranges + a simulated Lorentzian transmittance trace. Carbonyl classes and
+  conjugation shifts resolved. Fingerprint region explicitly not predicted.
+- **UV-Vis** (`src/lib/uvvis.ts`) — Woodward–Fieser for dienes and enones with
+  every increment shown. Out-of-domain inputs are disclosed, never guessed:
+  unconjugated → reported transparent (no fabricated λmax).
+- **MS fragmentation** (`src/lib/fragment.ts`) — exact fragment m/z via real
+  graph cleavage; α-cleavage, benzylic/tropylium, allylic, McLafferty (γ-H
+  gated), and feature-gated neutral losses. Likelihood is a ranking, not an
+  intensity. Shares the exact-mass scale with `massspec.ts`.
+- **Shared graph layer** (`src/lib/molgraph.ts`) — one exact structure detector
+  (carbonyl class, substituent classification, ring topology) behind all four
+  predictors, so an ester is an ester in every module.
+- **Chart builder** (`src/lib/spectraChart.ts`) — δ and wavenumber axes run in
+  the conventional (reversed) direction; kept in `lib/` so the convention is
+  testable.
+
+Bug-tested per the standing rule — `phase4.adversarial.test.ts` (hostile corpus:
+charged, isotopic, radical, macrocyclic, exotic-element, zero-proton, garbage
+inputs) plus literature-pinned assertions. The pass **found and fixed 6 real
+bugs** before release:
+
+1. sp³ shifts double-counted aromatic/carbonyl groups (toluene CH₃ read 57.9 ppm
+   vs 21.4 literature) — Grant–Paul now counts only the alkane skeleton.
+2. The same double-count in the ¹H β-term (toluene CH₃ 2.8 vs 2.34).
+3. Benzene predicted as a triplet — equivalent nuclei do not split each other.
+4. Toluene's tropylium base peak (m/z 91) was missing entirely, and the m/z 77
+   phenyl cation was mislabelled "tropylium/benzyl".
+5. A bogus high-ranked HO⁺ (m/z 17) for ethanol; α-cleavage was keeping the
+   heteroatom rather than the carbon it stabilises (ethanol's real base peak,
+   m/z 31, was misclassified).
+6. The aromatic ring-walk filtered on atom aromaticity and so crossed biphenyl's
+   non-aromatic inter-ring bond, leaking the far ring's increments; and fused
+   aromatics (naphthalene) returned a flat 128.5 with no caveat at all.
+
+Full suite: **1,552 tests** (was 1,430), build clean.
+
 ## [1.53.0] — 2026-07-15 — In-pane update check (self-update awareness)
 
 For users who installed via the per-user pack (no admin/centralized deployment),

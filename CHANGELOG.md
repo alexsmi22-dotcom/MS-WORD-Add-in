@@ -2,6 +2,31 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
+## [1.57.1] — 2026-07-15 — Fix: Analyze controls showed under the Home tiles
+
+Reported from a real install: on first opening JurisLab, an unexpected toolbar
+sat at the bottom of the Home page.
+
+- **Cause.** The Home branch of `onInputChanged` hid the tool sections from a
+  hand-written list, and `analyze-section` was missing from it — 20 entries for
+  21 sections. Nothing else hides a section, so Analyze's controls (tool picker,
+  Result box, Insert button) rendered under the tile grid.
+- **Why only on first open.** Opening any tool runs the per-mode branch, which
+  sets every section explicitly and so hid Analyze as a side effect; it then
+  stayed hidden. The bug was only ever visible on a fresh load — which is
+  exactly how it survived since Analyze shipped in v1.52.0.
+- **Fix.** The Home branch now reads the tool sections from the DOM
+  (`main > section`) instead of a hand-maintained list, so a newly added tool
+  cannot be half-registered. Nested sub-sections (structure-section, inside
+  format-section) are correctly untouched.
+- **Regression test.** `src/taskpane/__tests__/homeSections.test.ts` pins the
+  invariant, and was verified to fail when the bug is reintroduced. Jest roots
+  now include `src/taskpane` for static-asset tests (markup structure and id
+  wiring) that need no Word host; Office-dependent behaviour still belongs in
+  the manual pass.
+
+Suite: **1,703 tests** (was 1,698).
+
 ## [1.57.0] — 2026-07-15 — ODE: dense output & event detection
 
 The last two gaps in the ODE tool. Both change it from "computes the right
@@ -395,7 +420,8 @@ Release milestone rolling up the life-science expansion (20 tools total):
 ## [1.47.3] — 2026-07-13
 
 ### Fixed (second bug-review round — under-covered modules)
-- **LaTeX import: bare delimiter commands** (langle, angle, lfloor,
+- **LaTeX import: bare delimiter commands** (langle, 
+angle, lfloor,
   lceil, ert, …) now render as their glyphs instead of the literal words
   "langle"/"rfloor" — fixes bra-ket and floor/ceil import.
 - **LaTeX import: a script after a fraction** binds to the whole fraction:
@@ -409,7 +435,8 @@ Release milestone rolling up the life-science expansion (20 tools total):
 
 ### Known limitations (documented, low value / import-only best-effort)
 - LaTeX import: set braces { }, a big-operator body scope (∑…+y), and
-  delimiter *shape* under leftight are approximate; the import is a
+  delimiter *shape* under left
+ight are approximate; the import is a
   labeled best-effort — verify the result.
 
 ## [1.47.2] — 2026-07-13

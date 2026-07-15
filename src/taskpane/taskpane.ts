@@ -1568,12 +1568,14 @@ function onInputChanged(): void {
   if (examplesPanel) examplesPanel.style.display = isHome ? "none" : "";
   if (bottomDisclaimer) bottomDisclaimer.style.display = isHome ? "none" : "";
   if (isHome) {
-    for (const s of [
-      formatSection, buildSection, codeSection, sequenceSection, botanicalSection, numeralsSection,
-      dnaSection, reactionSection, auditSection, unitsSection, refsSection, citationsSection,
-      plotSection, financeSection, assaySection, massspecSection, spectraSection, peptideSection, statsSection, pptSection,
-    ]) {
-      s.style.display = "none";
+    // Hide every tool section by querying them, not by listing them by hand.
+    // The old hand-written list was missing analyze-section, so the Analyze
+    // controls rendered underneath the Home cards on first open — and only on
+    // first open, because opening any tool ran the per-mode branch below, which
+    // set Analyze to "none" as a side effect and left it that way. Reading the
+    // sections from the DOM means a newly added tool cannot be half-registered.
+    for (const el of document.querySelectorAll<HTMLElement>("main > section")) {
+      if (el !== homeSection) el.style.display = "none";
     }
     return;
   }

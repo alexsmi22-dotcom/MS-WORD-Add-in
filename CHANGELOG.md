@@ -2,6 +2,43 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
+## [1.59.0] — 2026-07-15 — Headless render check (the missing test layer)
+
+There was a hole between the two things we had: 1,841 unit tests that cover the
+engine but cannot see the pane, and a 30-minute manual in-Word script that sees
+the pane but costs a human. Everything in between — *does each tool actually
+render, and only its own section?* — was covered by nothing. That hole is exactly
+where the Analyze-under-the-Home-tiles bug lived for six versions until a user
+spotted it.
+
+`npm run render-check` (`scripts/render-check.js` + `render-driver.js`) closes it:
+- Boots the **real production bundle** in headless Chromium against a stubbed
+  Office, then drives every mode and asserts what renders. Word's task pane runs
+  on WebView2, which is Chromium — the same engine — so this exercises the real
+  rendering path rather than a simulation of it.
+- Asserts: the pane boots; Home shows only its tiles and leaks no tool section;
+  all 22 tools have tiles; every mode renders exactly its own section (chemical
+  and math correctly share format-section) and has Examples & syntax content;
+  Spectra computes toluene AND keeps its caveat; the ODE tool auto-reduces
+  `y'' = -y` and solves it; the chemical preview still subscripts H2O.
+- **Verified by reintroducing the original bug**: excluding analyze-section from
+  the Home hide fails the check with the exact diagnosis —
+  `tool sections visible on Home -> HOME_LEAKS=analyze-section` — and exits 1.
+- Added as step 6 of `npm run qc`. Skips cleanly (exit 0) where no Chromium-family
+  browser exists, so it never blocks a machine that cannot run it.
+
+It does NOT replace the manual pass, and the QC header says so: it cannot see
+layout or styling, and cannot exercise anything needing a live Word document
+(insertion, document scanning). It catches the WIRING class — which is the class
+that has actually been shipping.
+
+Live confirmation from the render (values a chemist can check):
+- Spectra / toluene ¹H NMR → 7.17 (2H, m), 7.09 (2H, d), 7.08 (1H, t),
+  **2.37 (3H, s, CH₃ on Ph)** — matching literature, caveat present.
+- ODE → *"Solved over t ∈ [0, 6.283] in 32 steps using explicit RK45.
+  Auto-reduced to a first-order system of 2 states: y, y'. Final:
+  y(6.283) = 0.999999"* — the auto-reduction working in the real pane.
+
 ## [1.58.1] — 2026-07-15 — Close the remaining coverage gaps
 
 The three modules the gap analysis named as untested. In each case the code turned

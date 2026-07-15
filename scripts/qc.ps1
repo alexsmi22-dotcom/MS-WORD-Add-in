@@ -2,10 +2,13 @@
 #
 # Runs everything that can be verified WITHOUT the Word host, in one command:
 #   1. Type-check (tsc)         3. Production build (webpack)   5. Task-pane id wiring audit
-#   2. Unit tests (jest)        4. Manifest validation
+#   2. Unit tests (jest)        4. Manifest validation          6. Headless render check
 #
 # Prints a PASS/FAIL summary and exits non-zero if anything fails. The remaining
-# in-Word functional pass is the manual checklist in docs\TEST-SCRIPT.md.
+# in-Word functional pass is the manual checklist in docs\TEST-SCRIPT.md — step 6
+# now covers the pane WIRING (every tool renders its own section, Home shows only
+# tiles), which is the class of bug that had been shipping unnoticed; the manual
+# pass still owns layout, styling, and anything needing a live document.
 #
 #   powershell -ExecutionPolicy Bypass -File scripts\qc.ps1     (or: npm run qc)
 
@@ -30,6 +33,7 @@ Invoke-Step "Type-check (tsc)"    { npm run lint }
 Invoke-Step "Unit tests (jest)"   { npm test }
 Invoke-Step "Production build"     { npm run build }
 Invoke-Step "Manifest validation" { npx office-addin-manifest validate manifest.xml }
+Invoke-Step "Render check"        { node scripts/render-check.js }
 
 # 5. Task-pane id wiring audit — every getElementById has a matching HTML id.
 Write-Host ""

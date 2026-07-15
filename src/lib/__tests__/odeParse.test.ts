@@ -6,7 +6,7 @@
 // asserted — a structurally plausible but physically wrong reduction is exactly
 // the bug this would otherwise ship.
 
-import { parseOdeSystem } from "../odeParse";
+import { parseOdeSystem, rewriteStateExpression, parseTimeList } from "../odeParse";
 import { solveOde } from "../ode";
 import { evalFormula } from "../stats";
 
@@ -155,6 +155,80 @@ describe("the reduction is PHYSICALLY correct, not just structurally", () => {
     expect(r.completed).toBe(true);
     // y(t) = (1000e^-t - e^-1000t)/999 → at t=10, ~ (1000 e^-10)/999
     expect(r.y[r.y.length - 1][0]).toBeCloseTo((1000 * Math.exp(-10)) / 999, 6);
+  });
+});
+
+describe("output-time lists (dense output input)", () => {
+  const times = (s: string) => {
+    const r = parseTimeList(s);
+    if (!r.ok) throw new Error(r.error);
+    return r.times;
+  };
+  const err = (s: string) => {
+    const r = parseTimeList(s);
+    return r.ok ? "" : r.error;
+  };
+
+  test("blank means no requested times", () => expect(times("")).toEqual([]));
+  test("an explicit list", () => expect(times("0, 1, 2.5")).toEqual([0, 1, 2.5]));
+  test("whitespace-separated works too", () => expect(times("0 1 2")).toEqual([0, 1, 2]));
+
+  test("a start:step:stop range", () => {
+    expect(times("0:1:5")).toEqual([0, 1, 2, 3, 4, 5]);
+    expect(times("0:0.5:2")).toEqual([0, 0.5, 1, 1.5, 2]);
+  });
+
+  test("a range that does not land exactly on the stop still terminates", () => {
+    expect(times("0:0.3:1")).toEqual([0, 0.3, 0.6, 0.8999999999999999]);
+  });
+
+  test("a descending range for backward integration", () => {
+    expect(times("5:-1:2")).toEqual([5, 4, 3, 2]);
+  });
+
+  test("a zero step is refused rather than looping forever", () => {
+    expect(err("0:0:5")).toMatch(/cannot be zero/i);
+  });
+
+  test("a range pointing the wrong way is refused", () => {
+    expect(err("0:-1:5")).toMatch(/steps away/i);
+  });
+
+  test("an absurd point count is refused rather than hanging the pane", () => {
+    expect(err("0:0.00001:1000")).toMatch(/20,000 points/i);
+  });
+
+  test("garbage is refused with guidance", () => {
+    expect(err("abc")).toMatch(/Use  0, 1, 2/);
+    expect(err("1:2")).toMatch(/start:step:stop/);
+  });
+});
+
+describe("rewriting auxiliary expressions (stop conditions)", () => {
+  const sys = (eqs: string, y0: string) => {
+    const r = parseOdeSystem(eqs, y0);
+    if (!r.ok) throw new Error(r.error);
+    return r.system;
+  };
+
+  test("a plain state name passes through", () => {
+    expect(rewriteStateExpression("y", sys("y'' = -y", "y = 1, y' = 0"))).toBe("y");
+  });
+
+  test("a derivative is mapped to its internal state", () => {
+    expect(rewriteStateExpression("y'", sys("y'' = -y", "y = 1, y' = 0"))).toBe("y__d1");
+  });
+
+  test("a threshold expression keeps its arithmetic", () => {
+    expect(rewriteStateExpression("y - 100", sys("y' = -y", "y = 1"))).toBe("y - 100");
+  });
+
+  test("the rewritten stop condition actually evaluates against the system", () => {
+    const s = sys("y'' = -y", "y = 1, y' = 0");
+    const g = rewriteStateExpression("y' + 0.5", s);
+    const vars: Record<string, number> = { t: 0 };
+    s.states.forEach((st, i) => (vars[st.varName] = [1, -2][i]));
+    expect(evalFormula(g, vars)).toBeCloseTo(-1.5, 10);
   });
 });
 

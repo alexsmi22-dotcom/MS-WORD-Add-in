@@ -41,6 +41,48 @@ export interface OdeSystem {
 
 export type OdeParse = { ok: true; system: OdeSystem } | { ok: false; error: string };
 
+/**
+ * Rewrites an auxiliary expression written in the user's notation into the
+ * system's internal state names — so a stop condition like "y' " or "y - 100"
+ * resolves against the reduced system exactly as the equations do.
+ */
+export function rewriteStateExpression(expr: string, system: OdeSystem): string {
+  const maxOrder = new Map<string, number>();
+  for (const s of system.states) maxOrder.set(s.base, Math.max(maxOrder.get(s.base) ?? 0, s.order));
+  return substituteDerivatives(expr, maxOrder);
+}
+
+/**
+ * Parses a list of output times: either explicit values ("0, 1, 2.5") or a
+ * MATLAB-style range ("0:0.5:10" = start:step:stop). Returns [] for blank input.
+ */
+export function parseTimeList(text: string): { ok: true; times: number[] } | { ok: false; error: string } {
+  const s = text.trim();
+  if (!s) return { ok: true, times: [] };
+  if (s.includes(":")) {
+    const parts = s.split(":").map((x) => Number(x.trim()));
+    if (parts.length !== 3 || parts.some((x) => !Number.isFinite(x))) {
+      return { ok: false, error: `Couldn't read "${s}". Use start:step:stop, e.g. 0:0.5:10` };
+    }
+    const [a, step, b] = parts;
+    if (step === 0) return { ok: false, error: "The step in start:step:stop cannot be zero." };
+    if ((b - a) / step < 0) return { ok: false, error: `"${s}" steps away from the stop value.` };
+    const n = Math.floor((b - a) / step + 1e-9);
+    if (n > 20000) return { ok: false, error: `"${s}" asks for over 20,000 points; use a larger step.` };
+    const times: number[] = [];
+    for (let i = 0; i <= n; i++) times.push(a + i * step);
+    return { ok: true, times };
+  }
+  const times = s
+    .split(/[,\s]+/)
+    .filter(Boolean)
+    .map(Number);
+  if (times.some((x) => !Number.isFinite(x))) {
+    return { ok: false, error: `Couldn't read the times "${s}". Use  0, 1, 2  or  0:0.5:10` };
+  }
+  return { ok: true, times };
+}
+
 /** Internal name for the k-th derivative of `base`. k = 0 is the function itself. */
 function derivVar(base: string, k: number): string {
   return k === 0 ? base : `${base}__d${k}`;

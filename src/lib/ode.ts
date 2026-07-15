@@ -38,7 +38,13 @@ export interface OdeResult {
   /** Which integrator produced this result. */
   method?: OdeMethodUsed;
   /** Why the solver stopped early, when it did. */
-  stopReason?: "stiff" | "stepUnderflow" | "stepBudget";
+  stopReason?: "stiff" | "stepUnderflow" | "stepBudget" | "event";
+  /** The requested output times actually reached (see OdeOptions.tEval). */
+  evalT?: number[];
+  /** Solution at each evalT — computed by landing on the point, not interpolated. */
+  evalY?: number[][];
+  /** Events detected, in the order they occurred. */
+  events?: OdeEventHit[];
 }
 
 /** What actually ran — "rk45→stiff" means the auto-selector switched mid-run. */
@@ -59,6 +65,42 @@ export interface OdeOptions {
    * behaviour for callers that asked for RK45 specifically.
    */
   detectStiff?: boolean;
+  /**
+   * Times at which the solution is wanted. The integrator is forced to land
+   * exactly on each one, so the reported values are computed, NOT interpolated —
+   * there is no interpolation error to explain away. The full step-by-step
+   * trajectory is still returned in t/y (a plot wants every step); the requested
+   * points come back separately in evalT/evalY.
+   */
+  tEval?: number[];
+  /**
+   * Called after every accepted step. Return false to stop integrating. This is
+   * the hook event detection is built on, so events work identically for the
+   * explicit and implicit solvers.
+   */
+  onStep?: (tPrev: number, yPrev: number[], tNew: number, yNew: number[]) => boolean | void;
+}
+
+/** A condition to watch for: an event fires where g(t, y) crosses zero. */
+export interface OdeEvent {
+  /** The event function. A zero crossing of this is the event. */
+  g: (t: number, y: number[]) => number;
+  /** Stop the integration when this fires. Default false (just record it). */
+  terminal?: boolean;
+  /** +1 = only rising crossings, -1 = only falling, 0/undefined = either. */
+  direction?: number;
+  /** Label used when reporting the hit. */
+  name?: string;
+}
+
+export interface OdeEventHit {
+  name: string;
+  /** Time of the crossing, located to solver tolerance by bisection. */
+  t: number;
+  /** State at the crossing. */
+  y: number[];
+  /** +1 if g was rising through zero, -1 if falling. */
+  direction: number;
 }
 
 // Dormand–Prince coefficients (the classic RK45 tableau).
@@ -78,6 +120,46 @@ const B4 = [5179 / 57600, 0, 7571 / 16695, 393 / 640, -92097 / 339200, 187 / 210
 
 function axpy(y: number[], k: number[], h: number): number[] {
   return y.map((yi, i) => yi + h * k[i]);
+}
+
+/**
+ * Tracks the caller's requested output times (OdeOptions.tEval).
+ *
+ * Rather than interpolating between whatever steps the controller happened to
+ * take, the step size is capped so the integrator lands exactly on each
+ * requested time. The values are then genuinely computed — no interpolation
+ * error, nothing to caveat — at the cost of a slightly constrained step
+ * sequence, which stays within the same error tolerance either way.
+ */
+function makeOutputTracker(tEval: number[] | undefined, t0: number, t1: number, dir: number) {
+  const inRange = (x: number) =>
+    dir > 0 ? x >= t0 - 1e-12 && x <= t1 + 1e-12 : x <= t0 + 1e-12 && x >= t1 - 1e-12;
+  const outs = (tEval ?? [])
+    .filter((x) => Number.isFinite(x) && inRange(x))
+    .sort((a, b) => (dir > 0 ? a - b : b - a));
+  let idx = 0;
+  const evalT: number[] = [];
+  const evalY: number[][] = [];
+  return {
+    active: outs.length > 0,
+    /** Shrink h so the step ends exactly on the next requested time. */
+    cap(t: number, h: number): number {
+      if (idx >= outs.length) return h;
+      const target = outs[idx];
+      if ((dir > 0 && t + h > target) || (dir < 0 && t + h < target)) return target - t;
+      return h;
+    },
+    /** Record this point if it is one of the requested times. */
+    record(t: number, y: number[]): void {
+      while (idx < outs.length && Math.abs(t - outs[idx]) <= 1e-9 * Math.max(1, Math.abs(t))) {
+        evalT.push(outs[idx]);
+        evalY.push(y.slice());
+        idx++;
+      }
+    },
+    evalT,
+    evalY,
+  };
 }
 
 /**
@@ -108,10 +190,14 @@ export function integrate(
   let stiffHits = 0;
   let nonStiffRun = 0;
   let stopReason: OdeResult["stopReason"];
+  const tracker = makeOutputTracker(opts.tEval, t0, t1, dir);
+  tracker.record(t0, y);
+  const onStep = opts.onStep;
 
   while ((dir > 0 ? t < t1 : t > t1) && steps < maxSteps) {
-    // don't overshoot the endpoint
+    // don't overshoot the endpoint, nor the next requested output time
     if ((dir > 0 && t + h > t1) || (dir < 0 && t + h < t1)) h = t1 - t;
+    h = tracker.cap(t, h);
 
     const k: number[][] = [];
     const stageY: number[][] = [];
@@ -166,17 +252,25 @@ export function integrate(
             ts.push(t);
             ys.push(y.slice());
             steps++;
+            tracker.record(t, y);
             break;
           }
         } else if (++nonStiffRun >= 6) {
           stiffHits = 0;
         }
       }
+      const tPrev = t;
+      const yPrev = y; // y is rebound below, not mutated, so this stays valid
       t += h;
       y = y5;
       ts.push(t);
       ys.push(y.slice());
       steps++;
+      tracker.record(t, y);
+      if (onStep && onStep(tPrev, yPrev, t, y) === false) {
+        stopReason = "event";
+        break;
+      }
       const factor = err === 0 ? 5 : 0.9 * Math.pow(err, -1 / 5);
       h *= Math.min(5, factor);
     } else {
@@ -197,7 +291,15 @@ export function integrate(
 
   const completed = dir > 0 ? t >= t1 - 1e-9 : t <= t1 + 1e-9;
   if (!completed && !stopReason && steps >= maxSteps) stopReason = "stepBudget";
-  return { t: ts, y: ys, steps, completed, method: "rk45", stopReason };
+  return {
+    t: ts,
+    y: ys,
+    steps,
+    completed,
+    method: "rk45",
+    stopReason,
+    ...(tracker.active ? { evalT: tracker.evalT, evalY: tracker.evalY } : {}),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -406,9 +508,13 @@ export function integrateStiff(
   let y = y0.slice();
   let steps = 0;
   let stopReason: OdeResult["stopReason"];
+  const tracker = makeOutputTracker(opts.tEval, t0, t1, dir);
+  tracker.record(t0, y);
+  const onStep = opts.onStep;
 
   while ((dir > 0 ? t < t1 : t > t1) && steps < maxSteps) {
     if ((dir > 0 && t + h > t1) || (dir < 0 && t + h < t1)) h = t1 - t;
+    h = tracker.cap(t, h);
 
     const f0 = f(t, y);
     if (!f0.every(Number.isFinite)) break;
@@ -435,11 +541,18 @@ export function integrateStiff(
       }
       e = Math.sqrt(e / n);
       if (Number.isFinite(e) && e <= 1 && yR.every(Number.isFinite)) {
+        const tPrev = t;
+        const yPrev = y;
         t += h;
         y = yR;
         ts.push(t);
         ys.push(y.slice());
         steps++;
+        tracker.record(t, y);
+        if (onStep && onStep(tPrev, yPrev, t, y) === false) {
+          stopReason = "event";
+          break;
+        }
         const factor = e === 0 ? 5 : 0.9 * Math.pow(e, -1 / 4); // order 4 → exponent 1/4
         h *= Math.min(5, Math.max(0.2, factor));
       } else {
@@ -499,11 +612,18 @@ export function integrateStiff(
     err = Math.sqrt(err / n);
 
     if (Number.isFinite(err) && err <= 1 && yNew.every(Number.isFinite)) {
+      const tPrev = t;
+      const yPrev = y;
       t += h;
       y = yNew;
       ts.push(t);
       ys.push(y.slice());
       steps++;
+      tracker.record(t, y);
+      if (onStep && onStep(tPrev, yPrev, t, y) === false) {
+        stopReason = "event";
+        break;
+      }
       const factor = err === 0 ? 5 : 0.9 * Math.pow(err, -1 / 3);
       h *= Math.min(5, Math.max(0.2, factor));
     } else {
@@ -521,7 +641,101 @@ export function integrateStiff(
 
   const completed = dir > 0 ? t >= t1 - 1e-9 : t <= t1 + 1e-9;
   if (!completed && !stopReason && steps >= maxSteps) stopReason = "stepBudget";
-  return { t: ts, y: ys, steps, completed, method: "stiff", stopReason };
+  return {
+    t: ts,
+    y: ys,
+    steps,
+    completed,
+    method: "stiff",
+    stopReason,
+    ...(tracker.active ? { evalT: tracker.evalT, evalY: tracker.evalY } : {}),
+  };
+}
+
+/**
+ * Locates an event's zero crossing inside an accepted step, by bisection.
+ *
+ * Each probe re-integrates from the step's starting state to the candidate time,
+ * so the state at the located crossing is genuinely computed rather than
+ * interpolated. A step is short, so these probes are cheap.
+ */
+function locateEvent(
+  stepper: typeof integrate,
+  f: (t: number, y: number[]) => number[],
+  ev: OdeEvent,
+  tPrev: number,
+  yPrev: number[],
+  tNew: number,
+  gPrev: number,
+  opts: OdeOptions
+): { t: number; y: number[] } | null {
+  const probe = (tc: number): number[] | null => {
+    if (tc === tPrev) return yPrev.slice();
+    const r = stepper(f, yPrev, tPrev, tc, { ...opts, tEval: undefined, onStep: undefined, detectStiff: false });
+    if (!r.completed) return null;
+    return r.y[r.y.length - 1];
+  };
+  let lo = tPrev;
+  let hi = tNew;
+  let sLo = Math.sign(gPrev);
+  let yHi: number[] | null = null;
+  for (let it = 0; it < 60; it++) {
+    if (Math.abs(hi - lo) <= 1e-12 * Math.max(1, Math.abs(hi))) break;
+    const mid = 0.5 * (lo + hi);
+    const yMid = probe(mid);
+    if (!yMid) return null;
+    const sMid = Math.sign(ev.g(mid, yMid));
+    if (sMid === 0) return { t: mid, y: yMid };
+    if (sMid === sLo) {
+      lo = mid;
+      sLo = sMid;
+    } else {
+      hi = mid;
+      yHi = yMid;
+    }
+  }
+  const yEnd = yHi ?? probe(hi);
+  return yEnd ? { t: hi, y: yEnd } : null;
+}
+
+/**
+ * Truncates a solution at a terminal event.
+ *
+ * The integrator only learns about the event AFTER the step that crossed it, so
+ * the raw trajectory always overshoots — sometimes far, since a step can be
+ * large (RK45 integrates a quadratic exactly in a handful of steps, so the
+ * overshoot can be the whole interval). "Stop when it hits the ground" has to
+ * mean the answer ENDS at the ground, so the tail past the event is dropped and
+ * the located crossing becomes the final point.
+ */
+function truncateAtEvent(r: OdeResult, hit: OdeEventHit, dir: number): OdeResult {
+  const strictlyBefore = (x: number) => (dir > 0 ? x < hit.t - 1e-12 : x > hit.t + 1e-12);
+  const keep: number[] = [];
+  for (let i = 0; i < r.t.length; i++) if (strictlyBefore(r.t[i])) keep.push(i);
+  const t = keep.map((i) => r.t[i]);
+  const y = keep.map((i) => r.y[i].slice());
+  t.push(hit.t);
+  y.push(hit.y.slice());
+
+  let evalT = r.evalT;
+  let evalY = r.evalY;
+  if (evalT && evalY) {
+    const ek: number[] = [];
+    for (let i = 0; i < evalT.length; i++) {
+      if (dir > 0 ? evalT[i] <= hit.t + 1e-12 : evalT[i] >= hit.t - 1e-12) ek.push(i);
+    }
+    evalT = ek.map((i) => (r.evalT as number[])[i]);
+    evalY = ek.map((i) => (r.evalY as number[][])[i]);
+  }
+
+  return {
+    ...r,
+    t,
+    y,
+    completed: false,
+    stopReason: "event",
+    ...(evalT ? { evalT, evalY } : {}),
+  };
 }
 
 /**
@@ -531,39 +745,96 @@ export function integrateStiff(
  * hands the current state to the Rosenbrock solver and continues, so a system
  * that starts benign and stiffens later (Van der Pol) is still solved. The
  * result reports which method actually ran.
+ *
+ * Supports requested output times (opts.tEval) and event detection
+ * (opts.events) — both survive the mid-run handoff between solvers.
  */
 export function solveOde(
   f: (t: number, y: number[]) => number[],
   y0: number[],
   t0: number,
   t1: number,
-  opts: OdeOptions & { method?: OdeMethod } = {}
+  opts: OdeOptions & { method?: OdeMethod; events?: OdeEvent[] } = {}
 ): OdeResult {
   const method = opts.method ?? "auto";
-  if (method === "rk45") return integrate(f, y0, t0, t1, opts);
-  if (method === "stiff") return integrateStiff(f, y0, t0, t1, opts);
+  const events = opts.events ?? [];
+  const hits: OdeEventHit[] = [];
 
-  const first = integrate(f, y0, t0, t1, { ...opts, detectStiff: true });
-  if (first.completed) return { ...first, method: "rk45" };
+  // Wrap the caller's onStep with event detection, so both are honoured and the
+  // same logic serves the explicit and implicit solvers.
+  let stopForEvent = false;
+  const makeOpts = (base: OdeOptions, stepper: typeof integrate): OdeOptions => {
+    if (!events.length) return base;
+    const gPrevOf = events.map((ev) => ev.g(t0, y0));
+    return {
+      ...base,
+      onStep: (tPrev, yPrev, tNew, yNew) => {
+        for (let i = 0; i < events.length; i++) {
+          const ev = events[i];
+          const gA = gPrevOf[i];
+          const gB = ev.g(tNew, yNew);
+          gPrevOf[i] = gB;
+          if (!Number.isFinite(gA) || !Number.isFinite(gB)) continue;
+          // A crossing needs a genuine sign change. Touching zero exactly at the
+          // step end counts; a zero at the start was already handled last step.
+          const crossed = (gA < 0 && gB >= 0) || (gA > 0 && gB <= 0);
+          if (!crossed) continue;
+          const dirn = gA < gB ? 1 : -1;
+          if (ev.direction && Math.sign(ev.direction) !== dirn) continue;
+          const found = locateEvent(stepper, f, ev, tPrev, yPrev, tNew, gA, base);
+          if (!found) continue;
+          hits.push({ name: ev.name ?? `event${i + 1}`, t: found.t, y: found.y, direction: dirn });
+          if (ev.terminal) {
+            stopForEvent = true;
+            return false;
+          }
+        }
+        if (base.onStep) return base.onStep(tPrev, yPrev, tNew, yNew);
+        return true;
+      },
+    };
+  };
+
+  const dir = t1 >= t0 ? 1 : -1;
+  const withEvents = (r: OdeResult): OdeResult => {
+    if (!events.length) return r;
+    // A terminal event ends the solution AT the crossing, not at whatever point
+    // the overshooting step happened to reach.
+    const out = stopForEvent && hits.length ? truncateAtEvent(r, hits[hits.length - 1], dir) : r;
+    return { ...out, events: hits };
+  };
+
+  if (method === "rk45") return withEvents(integrate(f, y0, t0, t1, makeOpts(opts, integrate)));
+  if (method === "stiff")
+    return withEvents(integrateStiff(f, y0, t0, t1, makeOpts(opts, integrateStiff as typeof integrate)));
+
+  const first = integrate(f, y0, t0, t1, { ...makeOpts(opts, integrate), detectStiff: true });
+  if (first.completed || stopForEvent) return withEvents({ ...first, method: "rk45" });
 
   // Not finished. If it was stiffness (or the step size collapsed / budget ran
   // out, both of which stiffness causes), continue from where RK45 gave up.
   const lastT = first.t[first.t.length - 1];
   const lastY = first.y[first.y.length - 1];
-  if (!lastY.every(Number.isFinite)) return first; // genuine blow-up, not stiffness
+  if (!lastY.every(Number.isFinite)) return withEvents(first); // genuine blow-up, not stiffness
   const used = first.steps;
   const rest = integrateStiff(f, lastY, lastT, t1, {
-    ...opts,
+    ...makeOpts(opts, integrateStiff as typeof integrate),
     maxSteps: Math.max(1000, (opts.maxSteps ?? 100000) - used),
     hInit: undefined,
   });
 
-  return {
+  return withEvents({
     t: [...first.t, ...rest.t.slice(1)],
     y: [...first.y, ...rest.y.slice(1)],
     steps: first.steps + rest.steps,
     completed: rest.completed,
     method: first.steps > 0 ? "rk45→stiff" : "stiff",
     stopReason: rest.stopReason,
-  };
+    ...(first.evalT || rest.evalT
+      ? {
+          evalT: [...(first.evalT ?? []), ...(rest.evalT ?? [])],
+          evalY: [...(first.evalY ?? []), ...(rest.evalY ?? [])],
+        }
+      : {}),
+  });
 }

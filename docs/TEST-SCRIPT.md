@@ -1,9 +1,9 @@
-# JurisLab — Manual Test Script (v1.0.0)
+# JurisLab — Manual Test Script (v1.57.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
-The engine is covered by 793 automated unit tests; this script verifies the parts
-that only run in the Office host: insertion, document scanning, settings, and the
-live UI. Budget ~20 minutes for the full pass.
+The engine is covered by 1,698 automated unit tests; this script verifies the
+parts that only run in the Office host: insertion, document scanning, settings,
+and the live UI. Budget ~30 minutes for the full pass.
 
 Mark each box: ☐ pass · ✗ fail (note what happened).
 
@@ -20,8 +20,11 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
   (orphan numeral `(99)`, `SEQ ID NO: 5`, figure-number gaps, and a dangling
   `Fig. 7`). Regenerate it any time with `powershell -File scripts\make-test-doc.ps1`.
 - [ ] Open the task pane (**Home → Insert Formula**, or **Insert → Add-ins**).
-- [ ] The pane loads with the mode row showing 14 modes:
-  **Chemical · Math · Units · Plot · Finance · Build · Code · Sequence · Botanical · Numerals · Refs · DNA · Reaction · Audit.**
+- [ ] The pane loads on the **Home** page with tools grouped by category, and the
+  mode list shows all 22:
+  **Chemical · Mass Spec · Spectra · Bio/Assay · Peptide · Stats · Analyze ·
+  Math · Units · Plot · Table → Chart · Finance · Build · Code · Sequence ·
+  Botanical · Numerals · Refs · DNA · Reaction · Citations · Audit.**
 - [ ] **Offline check:** after first load, disconnect the network — the pane and
   all *insert* actions still work (only first load needs HTTPS).
 
@@ -38,6 +41,84 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
 - [ ] **Insert 2D structure** → image inserts, sized to the structure (not oversized).
 - [ ] **Insert name** → inserts the text "Aspirin".
 - [ ] Type a SMILES `CC(=O)O` → structure renders.
+
+## 1b. Mass Spec
+- [ ] Type `caffeine` → **Monoisotopic 194.0804**, **Average 194.19**, formula
+  **C8H10N4O2**.
+- [ ] Isotope pattern shows M as the base peak with a small M+1 bar.
+- [ ] Adducts list shows **[M+H]+ 195.0877** and **[M+Na]+ 217.0696**.
+- [ ] Type a chlorinated compound (`ClC(Cl)Cl`) → the **M+2 bar is ~98%** of M
+  (the chlorine signature) — this is the check that the pattern is real.
+- [ ] **Insert MS data** → text summary lands at the cursor.
+
+## 1c. Spectra  *(v1.54 — predicted NMR / IR / UV-Vis / fragmentation)*
+> These are **estimates from additivity rules**, not acquired spectra. Every
+> screen must carry its caveat — if a caveat block is missing, that is a FAIL.
+
+- [ ] Type `toluene`, spectrum **¹H NMR** → ~4 signals; the **CH₃ is ~2.4 ppm,
+  3H, singlet**; aromatics ~7.1–7.2. A caveat block is visible.
+- [ ] Switch to **¹³C NMR** → **137.8 / 129.2 / 128.4 / 125.6 / 20.7** (±1).
+- [ ] Type `benzene`, **¹H** → exactly **one signal, 7.26, 6H, s** (a triplet here
+  would be a bug).
+- [ ] Switch to **IR** with `acetone` → strong **C=O ~1715**; then `ethyl acetate`
+  → **~1740** (ester sits above ketone); then `acetophenone` → **~1690**, labelled
+  *conjugated*.
+- [ ] **UV-Vis** with `butane` → reports **no λmax / transparent** (it must NOT
+  invent a number). Then `CC(=O)C=C(C)C` (mesityl oxide) → **~237 nm** with the
+  increments listed and summing to the total.
+- [ ] **MS fragmentation** with `toluene` → **91.0542 tropylium ranked high**
+  (the real base peak); m/z 77 present but NOT high, and not called "tropylium".
+- [ ] **Insert data table** → text lands with its caveat.
+- [ ] **Insert spectrum chart** (¹H or IR) → image inserts; the **δ axis increases
+  leftward** and the IR axis **decreases rightward** (spectroscopy convention).
+- [ ] UV-Vis: the **chart button is disabled** (a single λmax is a number, not a
+  spectrum) — this is intentional.
+
+## 1d. Bio/Assay
+- [ ] Pick **Michaelis–Menten**, accept the pre-filled example → Vmax/Km with
+  ± standard errors and an R².
+- [ ] Pick **Dose–response (4PL)** → IC50/EC50 and a fitted curve chart.
+- [ ] **Insert** → results and chart land at the cursor.
+
+## 1e. Peptide
+- [ ] Type `AGCW` → 2D structure renders with formula and MW.
+- [ ] Try three-letter form (`Ala-Gly-Cys`) → same behaviour.
+- [ ] **Insert** → structure image lands.
+
+## 1f. Stats
+- [ ] **Descriptive** with the pre-filled data → mean/SD/median populate.
+- [ ] **t-test (Welch)** → t, df, p.
+- [ ] **Mann–Whitney U** → U and p (non-parametric path).
+- [ ] **Uncertainty propagation** → value ± uncertainty with per-variable
+  contributions.
+- [ ] **Insert** → table lands at the cursor.
+
+## 1g. Analyze  *(no-code numerical workbench)*
+- [ ] **Solve A·x = b** with the pre-filled example → x is returned; insert makes
+  a Word table.
+- [ ] **Eigenvalues** on a non-symmetric matrix → complex pairs shown as a ± bi.
+- [ ] **Minimize a function** (Rosenbrock default) → converges near (1, 1).
+- [ ] **FFT / spectrum** → dominant frequency and a chart.
+- [ ] **Data → insights** → paste a small table; correlations, trends and
+  plain-language findings appear.
+- [ ] **ODE — the default is now `y'' = -y`** with `y = 1, y' = 0`:
+  - [ ] It solves **without hand-reduction** and the result line says
+    *"Auto-reduced to a first-order system of 2 states: y, y'"*.
+  - [ ] At t = 6.2832 (2π) the final **y ≈ 1.000000** (it is cos t).
+- [ ] **ODE — stiff:** equations `A' = -1000*A + B` / `B' = 1000*A - B`, initials
+  `A = 1, B = 0`, range `0, 10` → completes, and the result line says
+  **auto-switched to the implicit stiff solver**.
+- [ ] **ODE — report-at times:** with `y' = -y`, `y = 1`, range `0, 5`, set
+  **Report at times** to `0:1:5` → the table has exactly 6 rows and
+  **y(5) = 0.006738** (e⁻⁵). The plot is still a smooth curve, not 6 points.
+- [ ] **ODE — stop condition:** equations `z'' = -9.81`, initials `z = 0, z' = 20`,
+  range `0, 10`, **Stop when** `z` → result reports
+  **"z reached zero at t = 4.077472"** with z′ = −20, and the plotted curve
+  **ends at the ground** (no underground tail).
+- [ ] **ODE — condition never met:** same but **Stop when** `z - 1000` → a clear
+  message that it never reached zero (not a silent full-range solve).
+- [ ] **ODE — bad input:** delete the `y'` initial value → the error names it:
+  *"Missing an initial value for y'. A system of order 2 needs 2…"*.
 
 ## 2. Math
 - [ ] Type `x^2 + y^2` with **native Word equation** ticked → **Insert** creates a
@@ -62,6 +143,14 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
   curves with a legend** → **Insert plot** (image inserts).
 - [ ] Data box: `0 1` / `1 2 0.1` / `2 4` (one per line) → scatter with an error bar.
 - [ ] Bad function (`sin(`) → shows an error hint, insert disabled.
+
+## 4b. Table → Chart
+- [ ] Put the cursor in a Word table of numbers (or use the pre-filled example) →
+  **Refresh from selection** picks it up.
+- [ ] Chart type **Column** → preview renders → **Insert** places the image.
+- [ ] Switch to **Line** and **Scatter** → preview follows.
+- [ ] Tick the **B&W / patent figure** option → preview loses colour (patent-safe).
+- [ ] **Insert as editable PowerPoint** → a .pptx is produced/downloaded.
 
 ## 5. Finance
 - [ ] Calculator **Loan payment**, defaults (200000, 5%, 30y, 12/yr) →
@@ -127,6 +216,16 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
 - [ ] Multi-step `A -> B -> C` (use real names/SMILES) → arrow between each stage.
 - [ ] Charged SMILES `C[N+](C)(C)C >> X` → not split on the `+` inside brackets.
 
+## 13b. Citations  *(legal — Bluebook)*
+- [ ] **Case** form: fill the pre-filled example → preview shows a correctly
+  formatted Bluebook cite → **Insert**.
+- [ ] Switch style **Practitioner ↔ Academic** → the formatting changes
+  accordingly.
+- [ ] **Statute** and **Patent** forms → each previews and inserts.
+- [ ] **Table of Authorities** → builds from the document's cites, grouped by
+  category (Cases / Statutes / Other).
+- [ ] **Table of Contents** → builds from the document's headings.
+
 ## 14. Audit
 - [ ] With the document containing numerals, a `(99)` callout, `SEQ ID NO: 5`, and a
   `Fig. 7` reference that has **no** "Figure 7" caption → **Check this application**.
@@ -139,10 +238,17 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ## Cross-cutting
 - [ ] **Undo:** each insert is a clean single Ctrl-Z.
+- [ ] **Home page:** every tile opens its tool; the Home tile returns to the grid.
 - [ ] **Examples panel:** the "Examples & syntax" content changes with the mode.
 - [ ] **Preferences persist:** toggle Numerals "Parenthesize callouts" and the DNA
   frame, reopen Word → choices remembered.
-- [ ] **No network calls** during inserts (privacy-by-construction).
+- [ ] **No network calls** during inserts (privacy-by-construction). The ONLY
+  exception is the opt-in IUPAC name→structure lookup, which must prompt first.
+- [ ] **Honesty surfaces are present:** Spectra shows its caveats, pKa is labelled
+  a group estimate, and MS fragment "likelihood" is described as a ranking rather
+  than an intensity. A missing caveat is a FAIL, not a cosmetic issue.
+- [ ] **Update banner** (prod installs): with a newer `version.json` published, the
+  pane surfaces the update notice.
 
 ## Sign-off
 - Tester: ____________________  Date: __________  Build/commit: __________

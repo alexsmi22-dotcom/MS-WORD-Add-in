@@ -2,6 +2,47 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
+## [1.57.0] — 2026-07-15 — ODE: dense output & event detection
+
+The last two gaps in the ODE tool. Both change it from "computes the right
+numbers" to "answers the question you actually asked".
+
+**Report at the times you choose** (`OdeOptions.tEval`)
+- The table showed whatever steps the solver happened to take. Now you can ask
+  for a list (`0, 1, 2.5`) or a range (`0:0.5:10`), and get exactly those rows.
+- The values are **computed, not interpolated**: the step size is capped so the
+  integrator lands exactly on each requested time, so there is no interpolation
+  error to caveat. Verified against closed-form solutions to 8 decimal places,
+  and confirmed to cost no accuracy versus an unconstrained run.
+- The full step-by-step trajectory is still returned separately, so the plot
+  stays smooth even when you ask for 6 table rows.
+- Works on both solvers and survives the auto handoff between them.
+
+**Stop on a condition** (`OdeOptions.events`)
+- Answers "when does it…?" instead of making you read it off a chart. Supply an
+  expression that crosses zero — `z` for "hits the ground", `y - 100` for a
+  threshold, `y'` for "at the turning point".
+- The crossing is located by bisection, each probe re-integrating from the step
+  start, so the reported state is computed rather than interpolated. Direction
+  filtering (rising/falling only), non-terminal events that record every
+  crossing and keep going, and multiple independent conditions are all supported.
+- Projectile check: `z'' = -9.81` from `z' = 20` stops at t = 4.077472 with
+  z = 0 and z′ = −20 — the closed form is 20/4.905 = 4.0774719673.
+
+Found and fixed a real design bug while testing: a terminal event only becomes
+known AFTER the step that crossed it, and RK45 integrates a quadratic exactly in
+~4 huge steps — so the overshooting step carried t all the way to t1. The run
+reported `completed: true` and the trajectory continued *underground* past the
+event. A terminal event now truncates the solution at the crossing, which is
+what "stop when it hits the ground" has to mean. Requested output times past the
+event are dropped with it.
+
+Also: the pane treats a terminal event as success (it returns `completed: false`
+by design), and tells you plainly when a stop condition never triggered instead
+of silently returning a full-range solve.
+
+Suite: **1,698 tests** (was 1,662).
+
 ## [1.56.0] — 2026-07-15 — ODE: auto-reduction, RODAS4, richer expressions
 
 Removing the limitations that made the ODE tool feel like a homework exercise

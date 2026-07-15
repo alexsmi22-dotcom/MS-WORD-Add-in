@@ -204,8 +204,8 @@ import { analyzeData } from "../lib/insights";
 import { parseDefinitions, evalMatrixExpression } from "../lib/matrixExpr";
 import { nelderMead } from "../lib/optimize";
 import { spectrum, dominantFrequencies } from "../lib/fft";
-import { solveOde, OdeMethod } from "../lib/ode";
-import { parseOdeSystem } from "../lib/odeParse";
+import { solveOde, OdeMethod, OdeEvent } from "../lib/ode";
+import { parseOdeSystem, rewriteStateExpression, parseTimeList } from "../lib/odeParse";
 import { isNewerVersion } from "../lib/version";
 
 // Injected at build time (webpack DefinePlugin) from package.json.
@@ -5199,11 +5199,23 @@ const ANALYZE_CALCS: AnalyzeCalc[] = [
   {
     id: "ode",
     name: "Solve an ODE / system",
-    hint: "Type the equation you actually have — higher order is reduced for you (y'' = -y works directly; give y and y' as initial values). One equation per line for a system. Auto picks an explicit solver and switches to the implicit (stiff) one when needed, e.g. kinetics with widely separated rate constants. RHS may use t, the state names, and functions like exp, sin, tanh, sqrt, min/max, mod, and if(cond, a, b).",
+    hint: "Type the equation you actually have — higher order is reduced for you (y'' = -y works directly; give y and y' as initial values). One equation per line for a system. Report-at times accept a list (0, 1, 2) or a range (0:0.5:10) and are computed exactly, not interpolated. Stop-when takes an expression that ends the solve where it crosses zero — e.g. y for 'when it hits zero', or y - 100 for a threshold. Auto switches to the implicit (stiff) solver when needed, e.g. kinetics with widely separated rate constants. RHS may use t, the state names, and functions like exp, sin, tanh, sqrt, min/max, mod, and if(cond, a, b).",
     fields: [
       { key: "eqs", label: "Equations (one per line)", default: "y'' = -y", kind: "block", rows: 3 },
       { key: "y0", label: "Initial values", default: "y = 1, y' = 0", kind: "text" },
       { key: "trange", label: "t range (t0, t1)", default: "0, 6.2832", kind: "text" },
+      {
+        key: "tout",
+        label: "Report at times (optional — blank = solver's own steps)",
+        default: "",
+        kind: "text",
+      },
+      {
+        key: "stopwhen",
+        label: "Stop when this hits zero (optional)",
+        default: "",
+        kind: "text",
+      },
       {
         key: "method",
         label: "Solver",
@@ -5212,7 +5224,7 @@ const ANALYZE_CALCS: AnalyzeCalc[] = [
         options: [
           { value: "auto", label: "Auto (detect stiffness)" },
           { value: "rk45", label: "Explicit RK45 (non-stiff; most accurate)" },
-          { value: "stiff", label: "Implicit Rosenbrock (stiff)" },
+          { value: "stiff", label: "Implicit RODAS4 (stiff, 4th order)" },
         ],
       },
     ],
@@ -5238,8 +5250,39 @@ const ANALYZE_CALCS: AnalyzeCalc[] = [
         return { text: `Equation error: ${(e as Error).message}`, ok: false };
       }
       const method = (r("method") || "auto") as OdeMethod;
-      const sol = solveOde(f, y0, tr[0], tr[1], { method });
-      if (!sol.completed) {
+
+      // Optional: report at times the user chose, rather than the solver's steps.
+      const outParse = parseTimeList(r("tout"));
+      if (!outParse.ok) return { text: outParse.error, ok: false };
+      const tEval = outParse.times.length ? outParse.times : undefined;
+      if (tEval && tEval.some((x) => (tr[1] >= tr[0] ? x < tr[0] || x > tr[1] : x > tr[0] || x < tr[1]))) {
+        return { text: `Report-at times must lie within t ∈ [${formatNum(tr[0], 4)}, ${formatNum(tr[1], 4)}].`, ok: false };
+      }
+
+      // Optional: stop at the first zero crossing of a user expression.
+      const stopSrc = r("stopwhen").trim();
+      let events: OdeEvent[] | undefined;
+      if (stopSrc) {
+        const gExpr = rewriteStateExpression(stopSrc, parsed.system);
+        const gFn = (t: number, y: number[]): number => {
+          const vars: Record<string, number> = { t };
+          states.forEach((s, i) => (vars[s.varName] = y[i]));
+          return evalFormula(gExpr, vars);
+        };
+        try {
+          const probe = gFn(tr[0], y0);
+          if (!Number.isFinite(probe)) return { text: `"${stopSrc}" is not finite at t0.`, ok: false };
+        } catch (e) {
+          return { text: `Stop condition: ${(e as Error).message}`, ok: false };
+        }
+        events = [{ g: gFn, terminal: true, name: stopSrc }];
+      }
+
+      const sol = solveOde(f, y0, tr[0], tr[1], { method, tEval, events });
+      // A terminal event returns completed:false by design — the solution ends at
+      // the event. That is a successful answer, not a failure.
+      const stoppedByEvent = sol.stopReason === "event";
+      if (!sol.completed && !stoppedByEvent) {
         // Say what actually went wrong. "Stiff" is no longer a dead end — the
         // implicit solver exists — so the remaining honest causes are a genuine
         // singularity or a problem too hard for the step budget.
@@ -5250,13 +5293,26 @@ const ANALYZE_CALCS: AnalyzeCalc[] = [
             : "The solution appears to blow up (a finite-time singularity) or the system is too hard for the step budget.";
         return { text: `Stopped at t = ${stalledAt} without reaching t1. ${why}`, ok: false };
       }
-      // sample up to 12 rows for the table
-      const maxRows = 12;
-      const stride = Math.max(1, Math.floor(sol.t.length / maxRows));
+      if (stopSrc && !stoppedByEvent) {
+        // The condition never triggered — say so rather than silently returning
+        // a full-range solve that looks like it stopped somewhere meaningful.
+        return {
+          text: `"${stopSrc}" never reached zero over t ∈ [${formatNum(tr[0], 4)}, ${formatNum(tr[1], 4)}] — the solution ran to t1. Widen the range or check the condition.`,
+          ok: false,
+        };
+      }
+      // The table shows the times the user asked for when they asked for any;
+      // otherwise it samples the solver's own steps.
       const sampled: Matrix = [];
-      for (let i = 0; i < sol.t.length; i += stride) sampled.push([sol.t[i], ...sol.y[i]]);
-      if (sampled[sampled.length - 1][0] !== sol.t[sol.t.length - 1])
-        sampled.push([sol.t[sol.t.length - 1], ...sol.y[sol.y.length - 1]]);
+      if (sol.evalT && sol.evalY && sol.evalT.length) {
+        for (let i = 0; i < sol.evalT.length; i++) sampled.push([sol.evalT[i], ...sol.evalY[i]]);
+      } else {
+        const maxRows = 12;
+        const stride = Math.max(1, Math.floor(sol.t.length / maxRows));
+        for (let i = 0; i < sol.t.length; i += stride) sampled.push([sol.t[i], ...sol.y[i]]);
+        if (sampled[sampled.length - 1][0] !== sol.t[sol.t.length - 1])
+          sampled.push([sol.t[sol.t.length - 1], ...sol.y[sol.y.length - 1]]);
+      }
       const colors = ["#2563eb", "#dc2626", "#059669", "#d97706", "#7c3aed"];
       // A stiff run can accept thousands of steps; drawing every one bloats the
       // SVG (and the PNG it becomes) for no visible gain. Thin to a cap, always
@@ -5276,22 +5332,37 @@ const ANALYZE_CALCS: AnalyzeCalc[] = [
       const finalVals = names.map((n, i) => `${n}(${formatNum(tr[1], 4)}) = ${formatNum(sol.y[sol.y.length - 1][i], 6)}`).join(", ");
       const methodLabel: Record<string, string> = {
         rk45: "explicit RK45",
-        stiff: "implicit Rosenbrock (stiff)",
+        stiff: "implicit RODAS4 (stiff)",
         "rk45→stiff": "RK45, auto-switched to the implicit stiff solver",
       };
-      return analyzeResultOf([
+      const hit = sol.events && sol.events.length ? sol.events[sol.events.length - 1] : null;
+      const endT = sol.t[sol.t.length - 1];
+      const blocks: AnalyzeBlock[] = [
         {
           kind: "line",
           text:
-            `Solved over t ∈ [${formatNum(tr[0], 4)}, ${formatNum(tr[1], 4)}] in ${sol.steps} steps using ${methodLabel[sol.method ?? "rk45"]}.` +
+            `Solved over t ∈ [${formatNum(tr[0], 4)}, ${formatNum(hit ? endT : tr[1], 4)}] in ${sol.steps} steps using ${methodLabel[sol.method ?? "rk45"]}.` +
             (reduced
               ? ` Auto-reduced to a first-order system of ${states.length} states: ${names.join(", ")}.`
               : ""),
         },
-        { kind: "line", text: `Final: ${finalVals}` },
-        { kind: "matrix", label: `Sampled [t, ${names.join(", ")}]:`, m: sampled },
-        { kind: "plot", svg, caption: "Solution trajectory", alt: "ODE solution trajectory", w: 380, h: 270 },
-      ]);
+      ];
+      if (hit) {
+        const at = names.map((n, i) => `${n} = ${formatNum(hit.y[i], 6)}`).join(", ");
+        blocks.push({
+          kind: "line",
+          text: `Stopped: "${stopSrc}" reached zero at t = ${formatNum(hit.t, 6)} (${at}).`,
+        });
+      } else {
+        blocks.push({ kind: "line", text: `Final: ${finalVals}` });
+      }
+      blocks.push({
+        kind: "matrix",
+        label: sol.evalT && sol.evalT.length ? `[t, ${names.join(", ")}] at your times:` : `Sampled [t, ${names.join(", ")}]:`,
+        m: sampled,
+      });
+      blocks.push({ kind: "plot", svg, caption: "Solution trajectory", alt: "ODE solution trajectory", w: 380, h: 270 });
+      return analyzeResultOf(blocks);
     },
   },
 ];

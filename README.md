@@ -321,7 +321,7 @@ sub/superscript formatting. Uncheck the box to always use inline formatting.
       `X` halogen shorthand.
 - [x] **Equation numbering** (I, II, …) and **structure provenance**
       (formula/MW/SMILES/OCL-ID in alt-text).
-- [x] **Test suite** (Jest, 1,430 tests) + **CI**; distribution/security docs.
+- [x] **Test suite** (Jest, 1,841 tests) + **CI**; distribution/security docs.
 - [x] **Stereochemistry** — isomeric SMILES (wedges) + Build wedge/hash bonds.
 - [x] **Richer Markush atoms** — `A` any, `Q` heteroatom, `R1` R-group (+ `[C,N]`, `X`).
 - [x] **R-group legends** — define `R1 = …` and insert a "where R1 = …" line.

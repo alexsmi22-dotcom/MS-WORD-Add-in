@@ -62,6 +62,7 @@ import { predictUvVis, UvResult } from "../lib/uvvis";
 import { predictFragments, FragmentResult } from "../lib/fragment";
 import { parseSequenceFile, SeqRecord } from "../lib/seqio";
 import { buildLinearMapSvg, featureTypes } from "../lib/seqmap";
+import { buildCircularMapSvg } from "../lib/seqmapcirc";
 import { nmrChartSvg, irChartSvg, msChartSvg, SPECTRUM_CHART_SIZE } from "../lib/spectraChart";
 import { buildPeptide } from "../lib/peptide";
 import {
@@ -432,6 +433,7 @@ let seqmapOpenBtn: HTMLButtonElement;
 let seqmapFile: HTMLInputElement;
 let seqmapInput: HTMLTextAreaElement;
 let seqmapInfo: HTMLElement;
+let seqmapShape: HTMLSelectElement;
 let seqmapMono: HTMLInputElement;
 let seqmapPreview: HTMLElement;
 let seqmapInsert: HTMLButtonElement;
@@ -715,6 +717,7 @@ Office.onReady((info) => {
   seqmapFile = document.getElementById("seqmap-file") as HTMLInputElement;
   seqmapInput = document.getElementById("seqmap-input") as HTMLTextAreaElement;
   seqmapInfo = document.getElementById("seqmap-info") as HTMLElement;
+  seqmapShape = document.getElementById("seqmap-shape") as HTMLSelectElement;
   seqmapMono = document.getElementById("seqmap-mono") as HTMLInputElement;
   seqmapPreview = document.getElementById("seqmap-preview") as HTMLElement;
   seqmapInsert = document.getElementById("seqmap-insert") as HTMLButtonElement;
@@ -874,6 +877,7 @@ Office.onReady((info) => {
   seqmapOpenBtn.addEventListener("click", () => seqmapFile.click());
   seqmapFile.addEventListener("change", onSeqMapFile);
   seqmapInput.addEventListener("input", updateSeqMap);
+  seqmapShape.addEventListener("change", updateSeqMap);
   seqmapMono.addEventListener("change", updateSeqMap);
   seqmapInsert.addEventListener("click", insertSeqMap);
 
@@ -6157,10 +6161,21 @@ function updateSeqMap(): void {
   }
   seqmapInfo.textContent = info;
 
-  const svg = buildLinearMapSvg(rec, { width: 640, monochrome: seqmapMono.checked });
+  // Auto follows the record's own topology: a plasmid is a ring, and drawing a
+  // linear sequence as one would misrepresent the construct.
+  const want = seqmapShape.value;
+  const circular = want === "circular" || (want === "auto" && rec.circular);
+  const mono = seqmapMono.checked;
+  const svg = circular
+    ? buildCircularMapSvg(rec, { size: 460, monochrome: mono })
+    : buildLinearMapSvg(rec, { width: 640, monochrome: mono });
   if (!svg) {
     seqmapInfo.textContent += " — nothing to draw.";
     return;
+  }
+  if (want === "circular" && !rec.circular) {
+    // Say so: a ring drawn from a linear record is a claim about the construct.
+    seqmapInfo.textContent += " · drawn as a circle, but this record says linear";
   }
   currentSeqMapSvg = svg;
   const holder = document.createElement("div");
@@ -6179,8 +6194,12 @@ async function insertSeqMap(): Promise<void> {
   seqmapInsert.disabled = true;
   setStatus("Inserting map…");
   try {
+    // Read BOTH dimensions from the SVG itself. A circular map is square (460)
+    // and a linear one is wide (640) — hardcoding either would stretch the other
+    // out of shape in the document.
+    const w = Number(/width="(\d+)"/.exec(currentSeqMapSvg)?.[1] ?? 640);
     const h = Number(/height="(\d+)"/.exec(currentSeqMapSvg)?.[1] ?? 200);
-    const base64 = await svgToPngBase64(currentSeqMapSvg, 640 * 2, h * 2);
+    const base64 = await svgToPngBase64(currentSeqMapSvg, w * 2, h * 2);
     const rec = currentSeqRecord;
     await Word.run(async (context) => {
       const range = context.document.getSelection();

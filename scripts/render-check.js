@@ -169,6 +169,16 @@ function run() {
   if (!/paths=2/.test(gb)) failures.push("Sequence Map drew the wrong number of features -> " + gb);
   if (!/insert=true/.test(gb)) failures.push("Sequence Map did not enable Insert for a valid record");
   if (!/file=true/.test(gb)) failures.push("Sequence Map is missing its file input");
+  // Auto must follow the record's topology, both ways.
+  if (!/circles=1/.test(get("SEQMAP_AUTO_CIRC") || "")) {
+    failures.push("a circular record did not draw a circular map on Auto");
+  }
+  if (!/w=460/.test(get("SEQMAP_AUTO_CIRC") || "")) {
+    failures.push("the circular map is not square — it would stretch when inserted");
+  }
+  if (!/circles=0/.test(get("SEQMAP_AUTO_LIN") || "")) {
+    failures.push("a LINEAR record was drawn as a ring — that misrepresents the construct");
+  }
   // Junk must never leave Insert armed — a bad figure in a paper is worse than none.
   if (!/insert=false/.test(get("SEQMAP_JUNK") || "")) {
     failures.push("Sequence Map left Insert enabled for an unparseable file");

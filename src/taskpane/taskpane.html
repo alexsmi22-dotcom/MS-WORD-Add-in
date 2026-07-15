@@ -684,6 +684,12 @@
         <textarea id="seqmap-input" class="build-input" rows="4" spellcheck="false"
           placeholder="&gt;my_construct&#10;ATGGCC…    — or paste a whole GenBank record"></textarea>
         <div id="seqmap-info" class="build-readout" aria-live="polite"></div>
+        <label class="field-label" for="seqmap-shape">Map style</label>
+        <select id="seqmap-shape" class="lib-select">
+          <option value="auto">Auto (circular for plasmids)</option>
+          <option value="linear">Linear</option>
+          <option value="circular">Circular</option>
+        </select>
         <label class="omml-option">
           <input type="checkbox" id="seqmap-mono" />
           Black &amp; white line art (patent figure)

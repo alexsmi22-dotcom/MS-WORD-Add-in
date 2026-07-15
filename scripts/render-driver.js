@@ -90,6 +90,15 @@
       " insert=" + !document.getElementById("seqmap-insert").disabled +
       " file=" + !!document.getElementById("seqmap-file")
     );
+    // Auto must follow the record's own topology: a plasmid is a ring, and a
+    // ring drawn from a linear record misrepresents the construct.
+    var sm = document.querySelector("#seqmap-preview svg");
+    out.push("SEQMAP_AUTO_CIRC circles=" + (sm ? sm.querySelectorAll("circle").length : -1) + " w=" + (sm ? sm.getAttribute("width") : "?"));
+    ta.value = gbLines.join(String.fromCharCode(10)).replace("circular", "linear  ");
+    ta.dispatchEvent(new Event("input", { bubbles: true }));
+    sm = document.querySelector("#seqmap-preview svg");
+    out.push("SEQMAP_AUTO_LIN circles=" + (sm ? sm.querySelectorAll("circle").length : -1));
+
     ta.value = "%PDF-1.4 junk";
     ta.dispatchEvent(new Event("input", { bubbles: true }));
     out.push("SEQMAP_JUNK insert=" + !document.getElementById("seqmap-insert").disabled);

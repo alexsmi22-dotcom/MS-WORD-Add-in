@@ -351,6 +351,7 @@ export const MODE_EXAMPLES: Record<ExampleMode, string> = {
     <ul>
       <li>Arrows show <strong>strand</strong>: a <code>complement(...)</code> feature points left</li>
       <li>A <strong>joined CDS</strong> (<code>join(21..30,41..50)</code>) draws one body per exon with a dashed connector — the intron is not drawn as coding sequence</li>
+      <li><strong>Map style</strong> — <em>Auto</em> follows the record: a plasmid draws as the classic <strong>circular map</strong> (position 1 at 12 o'clock, clockwise), a linear sequence as a linear one. Force either if you need to</li>
       <li>Tick <strong>black &amp; white line art</strong> for a patent figure</li>
       <li>On a circular plasmid, a feature crossing the origin can't be drawn honestly on a linear map — the map says so rather than dropping it silently</li>
     </ul>

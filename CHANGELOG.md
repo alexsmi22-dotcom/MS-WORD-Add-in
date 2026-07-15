@@ -2,6 +2,45 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
+## [1.63.0] — 2026-07-15 — Circular plasmid maps
+
+The iconic figure — a ring with feature arcs and radiating labels. The single
+most recognisable output of the incumbent tools, and the thing that gets
+screenshotted into Word.
+
+**`src/lib/seqmapcirc.ts`**
+- **Position 1 at 12 o'clock, increasing clockwise** — the universal convention.
+  Getting it backwards mirrors the whole construct: a picture that looks perfect
+  and is wrong. Four geometry tests pin it (25% round lands right, 50% bottom,
+  75% left).
+- Annular-sector arrows with strand-aware heads, concentric rings so overlapping
+  features never cover each other, ticks, and a centre caption.
+- The hard part is label placement, not the polar maths: real plasmids cluster
+  features (an MCS packs a dozen sites into 100 bp of a 5 kb ring), so naive
+  radial labels smear into an unreadable mess. Labels pack per side and push
+  along until they clear, with leader lines back to the ring.
+- Features that run out of radius are **disclosed**, not silently dropped.
+
+**Pane:** a *Map style* selector — Auto / Linear / Circular. Auto follows the
+record's own topology, because a ring drawn from a linear record misrepresents
+the construct; forcing it still draws, but says so.
+
+**Two bugs caught by rendering and looking, not by assertions:**
+- A colour (`#64748b`) leaked into the monochrome map's centre caption, and the
+  leader lines were grey — neither is line art. A patent figure must be
+  *genuinely* black and white, not mostly. Now only `#000`/`#fff`/`#1b1b1f`,
+  asserted.
+- The insert path **hardcoded 640px width**. A circular map is 460px square, so
+  it would have been stretched out of shape in the document. Insert now reads
+  both dimensions from the SVG. (The edit meant to fix this silently failed to
+  match — checking rather than assuming is what caught it.)
+
+Guarded by the render check, verified by breaking it: forcing Auto to always ring
+fails with *"a LINEAR record was drawn as a ring — that misrepresents the
+construct"*.
+
+Suite: **1,928 tests** (was 1,906).
+
 ## [1.62.0] — 2026-07-15 — Sequence Map: open GenBank/FASTA, insert an annotated map
 
 The gap a competitor comparison surfaced: JurisLab could compute plenty about a

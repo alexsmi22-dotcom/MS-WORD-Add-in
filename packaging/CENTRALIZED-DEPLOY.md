@@ -1,8 +1,8 @@
 # Centralized deployment (IT admin)
 
-This guide is for an IT/Microsoft 365 administrator who wants to push **Formula
-Inserter** to users centrally — so users get it automatically, without running
-the per-user `install.ps1`. It uses the Microsoft 365 admin center
+This guide is for an IT/Microsoft 365 administrator who wants to push **JurisLab**
+(formerly Formula Inserter) to users centrally — so users get it automatically,
+without running the per-user `install.ps1`. It uses the Microsoft 365 admin center
 (**Integrated apps** / Centralized Deployment).
 
 > If you only need a quick per-user pilot, the emailable installer in
@@ -50,8 +50,8 @@ small `manifest.xml`; the web files are loaded from your host at runtime.
 
 ### What users see
 
-The add-in appears automatically on the Word **Home** tab as the **Insert
-Formula** button (group "Formulas") — no installer, no developer settings, no
+The add-in appears automatically on the Word **Home** tab as the **JurisLab**
+button (group "JurisLab") — no installer, no developer settings, no
 restart beyond the normal next launch. (The per-user method instead surfaces it
 under Insert → Add-ins → Developer Add-ins.)
 

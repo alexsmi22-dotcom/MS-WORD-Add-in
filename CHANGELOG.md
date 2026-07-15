@@ -2,6 +2,22 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
+## [1.53.0] — 2026-07-15 — In-pane update check (self-update awareness)
+
+For users who installed via the per-user pack (no admin/centralized deployment),
+the add-in now surfaces new releases itself instead of relying solely on the
+browser cache expiring.
+
+- The build bakes its version in (`__APP_VERSION__`) and emits a `version.json`
+  at the site root. On open, the pane fetches `version.json` **cache-busted**
+  (`?t=…`, `no-store`) and, if the hosted version is newer, shows a dismissible
+  **"Update available — Reload"** banner (`src/lib/version.ts`, unit-tested).
+- Fails silently when offline — a failed fetch never nags the user.
+- This works around WebView2's stubborn same-origin caching: a pending update is
+  now visible and one-click-applyable (and, if a reload is still cached, a Word
+  restart forces it). Existing content-hashing of the JS bundle is unchanged.
+- Tests: +5 (version comparison); full suite **1430 passing**.
+
 ## [1.52.0] — 2026-07-14 — Phase 3: stats breadth + pKa estimation
 
 Fills the thin spots identified on the roadmap.

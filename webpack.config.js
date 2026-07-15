@@ -4,6 +4,7 @@ const webpack = require("webpack");
 const HtmlWebpackPlugin = require("html-webpack-plugin");
 const CopyWebpackPlugin = require("copy-webpack-plugin");
 const devCerts = require("office-addin-dev-certs");
+const pkg = require("./package.json");
 
 const urlDev = "https://localhost:3000/";
 // The live GitHub Pages host the deployed add-in is served from. Used to stamp
@@ -71,6 +72,27 @@ module.exports = async (env, options) => {
       new webpack.NormalModuleReplacementPlugin(/^node:/, (resource) => {
         resource.request = resource.request.replace(/^node:/, "");
       }),
+      // Bake the build version into the bundle so the pane can compare itself to
+      // the hosted version.json and prompt users to reload after a new release.
+      new webpack.DefinePlugin({
+        __APP_VERSION__: JSON.stringify(pkg.version),
+      }),
+      // Emit /version.json (the update check fetches it cache-busted at runtime).
+      {
+        apply(compiler) {
+          compiler.hooks.thisCompilation.tap("EmitVersion", (compilation) => {
+            compilation.hooks.processAssets.tap(
+              { name: "EmitVersion", stage: webpack.Compilation.PROCESS_ASSETS_STAGE_ADDITIONAL },
+              () => {
+                compilation.emitAsset(
+                  "version.json",
+                  new webpack.sources.RawSource(JSON.stringify({ version: pkg.version })),
+                );
+              },
+            );
+          });
+        },
+      },
       new HtmlWebpackPlugin({
         filename: "taskpane.html",
         template: "./src/taskpane/taskpane.html",

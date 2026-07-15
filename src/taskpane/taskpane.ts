@@ -200,6 +200,10 @@ import { parseDefinitions, evalMatrixExpression } from "../lib/matrixExpr";
 import { nelderMead } from "../lib/optimize";
 import { spectrum, dominantFrequencies } from "../lib/fft";
 import { integrate } from "../lib/ode";
+import { isNewerVersion } from "../lib/version";
+
+// Injected at build time (webpack DefinePlugin) from package.json.
+declare const __APP_VERSION__: string;
 
 type Mode =
   | "home"
@@ -920,7 +924,58 @@ Office.onReady((info) => {
   updatePlaceholder();
   updateExamples();
   onInputChanged();
+
+  void checkForUpdate();
 });
+
+/**
+ * Checks whether a newer release is live on the host and, if so, shows a
+ * one-click "reload to update" banner. The add-in's web files are served from a
+ * static host, so a new deploy reaches users when their browser/WebView2 next
+ * fetches taskpane.html — but that cache can be stubborn. Fetching a
+ * cache-busted version.json makes a pending update visible and fixable on the
+ * spot. Fails silently (offline-first): a failed fetch never nags the user.
+ */
+async function checkForUpdate(): Promise<void> {
+  try {
+    const res = await fetch(`version.json?t=${Date.now()}`, { cache: "no-store" });
+    if (!res.ok) return;
+    const data = (await res.json()) as { version?: string };
+    if (data && data.version && isNewerVersion(data.version, __APP_VERSION__)) {
+      showUpdateBanner(data.version);
+    }
+  } catch {
+    /* offline or host unreachable — no prompt */
+  }
+}
+
+/** Renders a dismissible update banner at the top of the pane. */
+function showUpdateBanner(newVersion: string): void {
+  if (document.getElementById("update-banner")) return;
+  const bar = document.createElement("div");
+  bar.id = "update-banner";
+  bar.setAttribute("role", "status");
+  bar.style.cssText =
+    "position:sticky;top:0;z-index:1000;display:flex;align-items:center;gap:8px;" +
+    "padding:8px 12px;background:#e7f7ec;border-bottom:1px solid #b7e4c3;color:#0f5132;font-size:.85rem;";
+  const msg = document.createElement("span");
+  msg.style.flex = "1";
+  msg.textContent = `Update available (v${newVersion}). Reload to get the latest.`;
+  const reload = document.createElement("button");
+  reload.type = "button";
+  reload.textContent = "Reload";
+  reload.style.cssText =
+    "border:1px solid #0f5132;background:#0f5132;color:#fff;border-radius:6px;padding:3px 10px;cursor:pointer;font-weight:600;";
+  reload.addEventListener("click", () => window.location.reload());
+  const dismiss = document.createElement("button");
+  dismiss.type = "button";
+  dismiss.setAttribute("aria-label", "Dismiss");
+  dismiss.textContent = "✕";
+  dismiss.style.cssText = "border:none;background:transparent;color:#0f5132;cursor:pointer;font-size:1rem;line-height:1;";
+  dismiss.addEventListener("click", () => bar.remove());
+  bar.append(msg, reload, dismiss);
+  document.body.prepend(bar);
+}
 
 // ---------------------------------------------------------------------------
 // Home / intro page

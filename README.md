@@ -39,7 +39,7 @@ Pick a tool from the home screen — **21 tools** (grouped STEM + legal):
 H2O → H₂O   ·   paste \frac{-b±√(b²-4ac)}{2a} (LaTeX) → a Word equation   ·   aspirin → 2D structure
 ```
 
-> **Status:** v1.52.0 — production. Word on **Windows & macOS**,
+> **Status:** v1.53.0 — production. Word on **Windows & macOS**,
 > 100% client-side. Install packs: [`install/`](install/) · feature list: [`FEATURES.md`](FEATURES.md).
 
 ## Screenshots
@@ -72,7 +72,7 @@ _Screenshots coming soon — see [`docs/screenshots/`](docs/screenshots/) for th
    (modern WebView2/Edge runtime; legacy IE-based webviews are not supported).
 
 > Verified by the QC gate (`npm run qc`): `npm run lint` (type-check),
-> `npm test` (**1,425 unit tests**), `npm run build` (production bundle),
+> `npm test` (**1,430 unit tests**), `npm run build` (production bundle),
 > `office-addin-manifest validate`, and the task-pane id-wiring audit — all pass.
 
 ## Setup
@@ -318,7 +318,7 @@ sub/superscript formatting. Uncheck the box to always use inline formatting.
       `X` halogen shorthand.
 - [x] **Equation numbering** (I, II, …) and **structure provenance**
       (formula/MW/SMILES/OCL-ID in alt-text).
-- [x] **Test suite** (Jest, 1,425 tests) + **CI**; distribution/security docs.
+- [x] **Test suite** (Jest, 1,430 tests) + **CI**; distribution/security docs.
 - [x] **Stereochemistry** — isomeric SMILES (wedges) + Build wedge/hash bonds.
 - [x] **Richer Markush atoms** — `A` any, `Q` heteroatom, `R1` R-group (+ `[C,N]`, `X`).
 - [x] **R-group legends** — define `R1 = …` and insert a "where R1 = …" line.
@@ -386,6 +386,9 @@ sub/superscript formatting. Uncheck the box to always use inline formatting.
       with typical literature pKa per ionizable group and net charge at pH 7.4.
 - [x] **GitHub Pages deployment** — automated build & publish of the hosted add-in
       and landing page on every push to `main`.
+- [x] **In-pane update check** — the pane compares its baked-in version to a
+      cache-busted `version.json` and shows a one-click "reload to update" banner,
+      so per-user installs pick up new releases without admin/centralized deployment.
 - [x] **Centralized-deployment path documented** — validated deploy manifest +
       IT admin guide (`packaging/CENTRALIZED-DEPLOY.md`) for Microsoft 365
       Integrated Apps. (AppSource intentionally not used — internal tool.)

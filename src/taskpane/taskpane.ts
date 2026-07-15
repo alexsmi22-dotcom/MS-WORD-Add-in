@@ -204,7 +204,7 @@ import { analyzeData } from "../lib/insights";
 import { parseDefinitions, evalMatrixExpression } from "../lib/matrixExpr";
 import { nelderMead } from "../lib/optimize";
 import { spectrum, dominantFrequencies } from "../lib/fft";
-import { integrate } from "../lib/ode";
+import { solveOde, OdeMethod } from "../lib/ode";
 import { isNewerVersion } from "../lib/version";
 
 // Injected at build time (webpack DefinePlugin) from package.json.
@@ -5197,12 +5197,23 @@ const ANALYZE_CALCS: AnalyzeCalc[] = [
   },
   {
     id: "ode",
-    name: "Solve an ODE / system (RK45)",
-    hint: "Enter y' = f(t, y), one equation per line for a system (state vars are the names on the left). Reduce higher-order ODEs to first order by hand. Give initial values and a t-range.",
+    name: "Solve an ODE / system (RK45 + stiff)",
+    hint: "Enter y' = f(t, y), one equation per line for a system (state vars are the names on the left). Reduce higher-order ODEs to first order by hand. Give initial values and a t-range. Auto picks an explicit solver and switches to the implicit (stiff) one if needed — e.g. kinetics with widely separated rate constants.",
     fields: [
       { key: "eqs", label: "Equations (one per line)", default: "y1' = y2\ny2' = -y1", kind: "block", rows: 3 },
       { key: "y0", label: "Initial values", default: "y1 = 1, y2 = 0", kind: "text" },
       { key: "trange", label: "t range (t0, t1)", default: "0, 6.2832", kind: "text" },
+      {
+        key: "method",
+        label: "Solver",
+        default: "auto",
+        kind: "select",
+        options: [
+          { value: "auto", label: "Auto (detect stiffness)" },
+          { value: "rk45", label: "Explicit RK45 (non-stiff; most accurate)" },
+          { value: "stiff", label: "Implicit Rosenbrock (stiff)" },
+        ],
+      },
     ],
     compute: (r) => {
       const lines = r("eqs")
@@ -5239,9 +5250,19 @@ const ANALYZE_CALCS: AnalyzeCalc[] = [
       } catch (e) {
         return { text: `Equation error: ${(e as Error).message}`, ok: false };
       }
-      const sol = integrate(f, y0, tr[0], tr[1]);
-      if (!sol.completed)
-        return { text: "The solver did not reach t1 (the system may be stiff or unstable). Try a shorter range.", ok: false };
+      const method = (r("method") || "auto") as OdeMethod;
+      const sol = solveOde(f, y0, tr[0], tr[1], { method });
+      if (!sol.completed) {
+        // Say what actually went wrong. "Stiff" is no longer a dead end — the
+        // implicit solver exists — so the remaining honest causes are a genuine
+        // singularity or a problem too hard for the step budget.
+        const stalledAt = sol.t.length ? formatNum(sol.t[sol.t.length - 1], 6) : formatNum(tr[0], 6);
+        const why =
+          method === "rk45"
+            ? "The explicit solver stalled — this system looks stiff. Switch the solver to Auto or Implicit (stiff)."
+            : "The solution appears to blow up (a finite-time singularity) or the system is too hard for the step budget.";
+        return { text: `Stopped at t = ${stalledAt} without reaching t1. ${why}`, ok: false };
+      }
       // sample up to 12 rows for the table
       const maxRows = 12;
       const stride = Math.max(1, Math.floor(sol.t.length / maxRows));
@@ -5250,16 +5271,29 @@ const ANALYZE_CALCS: AnalyzeCalc[] = [
       if (sampled[sampled.length - 1][0] !== sol.t[sol.t.length - 1])
         sampled.push([sol.t[sol.t.length - 1], ...sol.y[sol.y.length - 1]]);
       const colors = ["#2563eb", "#dc2626", "#059669", "#d97706", "#7c3aed"];
+      // A stiff run can accept thousands of steps; drawing every one bloats the
+      // SVG (and the PNG it becomes) for no visible gain. Thin to a cap, always
+      // keeping the endpoints so the curve still spans the full range.
+      const MAX_PLOT_PTS = 800;
+      const pStride = Math.max(1, Math.ceil(sol.t.length / MAX_PLOT_PTS));
+      const idx: number[] = [];
+      for (let k = 0; k < sol.t.length; k += pStride) idx.push(k);
+      if (idx[idx.length - 1] !== sol.t.length - 1) idx.push(sol.t.length - 1);
       const series: Series[] = names.map((n, i) => ({
-        points: sol.t.map((tt, k) => ({ x: tt, y: sol.y[k][i] })),
+        points: idx.map((k) => ({ x: sol.t[k], y: sol.y[k][i] })),
         type: "line",
         color: colors[i % colors.length],
         label: n,
       }));
       const svg = buildPlotSvg(series, { title: "Solution", xlabel: "t", ylabel: "y" });
       const finalVals = names.map((n, i) => `${n}(${formatNum(tr[1], 4)}) = ${formatNum(sol.y[sol.y.length - 1][i], 6)}`).join(", ");
+      const methodLabel: Record<string, string> = {
+        rk45: "explicit RK45",
+        stiff: "implicit Rosenbrock (stiff)",
+        "rk45→stiff": "RK45, auto-switched to the implicit stiff solver",
+      };
       return analyzeResultOf([
-        { kind: "line", text: `Solved ${names.length} equation${names.length === 1 ? "" : "s"} over t ∈ [${formatNum(tr[0], 4)}, ${formatNum(tr[1], 4)}] in ${sol.steps} steps.` },
+        { kind: "line", text: `Solved ${names.length} equation${names.length === 1 ? "" : "s"} over t ∈ [${formatNum(tr[0], 4)}, ${formatNum(tr[1], 4)}] in ${sol.steps} steps using ${methodLabel[sol.method ?? "rk45"]}.` },
         { kind: "line", text: `Final: ${finalVals}` },
         { kind: "matrix", label: `Sampled [t, ${names.join(", ")}]:`, m: sampled },
         { kind: "plot", svg, caption: "Solution trajectory", alt: "ODE solution trajectory", w: 380, h: 270 },
@@ -5291,13 +5325,24 @@ function renderAnalyzeInputs(): void {
     label.textContent = f.label;
     label.htmlFor = `analyze-f-${f.key}`;
 
-    let input: HTMLInputElement | HTMLTextAreaElement;
+    let input: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
     if (f.kind === "text") {
       const t = document.createElement("input");
       t.type = "text";
       t.className = "rgroup-input";
       t.value = f.default;
       input = t;
+    } else if (f.kind === "select") {
+      const sel = document.createElement("select");
+      sel.className = "mode-select";
+      for (const o of f.options ?? []) {
+        const opt = document.createElement("option");
+        opt.value = o.value;
+        opt.textContent = o.label;
+        sel.appendChild(opt);
+      }
+      sel.value = f.default;
+      input = sel;
     } else {
       const ta = document.createElement("textarea");
       ta.className = "rgroup-input";
@@ -5320,7 +5365,9 @@ function renderAnalyzeInputs(): void {
 function updateAnalyzePreview(): void {
   const calc = ANALYZE_CALCS.find((c) => c.id === analyzeCalcSelect.value) ?? ANALYZE_CALCS[0];
   const read = (k: string): string => {
-    const el = analyzeInputs.querySelector<HTMLInputElement | HTMLTextAreaElement>(`[data-key="${k}"]`);
+    const el = analyzeInputs.querySelector<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(
+      `[data-key="${k}"]`
+    );
     return el ? el.value : "";
   };
   let out: AnalyzeOutput;

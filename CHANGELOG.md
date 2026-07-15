@@ -2,6 +2,52 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
+## [1.55.0] — 2026-07-15 — Stiff ODE solver (Analyze)
+
+Closes the biggest real gap in the ODE tool. Explicit RK45 is limited by
+*stability* rather than accuracy on stiff systems, so it crawls or dies — and
+stiffness is the normal case in chemical kinetics whenever rate constants differ
+by orders of magnitude, which is squarely JurisLab's territory.
+
+- **New implicit solver** (`integrateStiff`, `src/lib/ode.ts`) — Shampine's
+  modified Rosenbrock pair, the method behind MATLAB's `ode23s`. Linearly
+  implicit and L-stable: one LU factorization per step serves all three stage
+  solves, with no Newton iteration. Numerical Jacobian and ∂f/∂t by finite
+  differences; 2nd order with a 3rd-order embedded error estimate.
+- **Automatic stiffness detection** (`solveOde`) — RK45 runs with Hairer's
+  DOPRI5 stiffness probe armed (free: it reuses stages already computed). On a
+  sustained run of hits it hands the current state to the implicit solver and
+  continues, so a system that *starts* benign and stiffens later (Van der Pol)
+  is still solved. The result reports which method ran.
+- **Solver selector in the pane** — Auto (default) / explicit RK45 / implicit
+  stiff, and the result line names the solver used.
+
+What this unlocks, measured:
+- **Van der Pol μ=1000** — the standard stiff test. Was: never finished (burned
+  200,000 steps). Now: completes in ~9,000 steps / ~80 ms.
+- **Robertson kinetics (ROBER)** — the canonical stiff kinetics benchmark, rate
+  constants 0.04 → 3×10⁷. Solves in ~205 steps / 3 ms, conserving mass to 12
+  digits and converging to a solution stable across rtol 1e-8…1e-10.
+- **Stiff linear** — 6,133 RK45 steps → 1,058 stiff steps, and more accurate.
+- **Non-stiff is untouched**: the harmonic oscillator still runs on RK45 in 32
+  steps; no false switch, no slowdown.
+
+Honest limits, documented in the module and FEATURES.md: the Rosenbrock is 2nd
+order against RK45's 5th, so on non-stiff problems it is both slower and less
+accurate (y′ = −y at rtol 1e-6: RK45 8 significant figures in 23 steps, stiff ~4
+in 188). That is exactly why Auto stays on RK45 unless the problem is genuinely
+stiff. Both solvers converge cleanly — error falls monotonically as rtol tightens
+— and both still terminate honestly on a finite-time singularity rather than
+claiming to integrate past it.
+
+Also fixes a latent UI gap: `AnalyzeField` declared a `select` kind with options,
+but the renderer only handled `text` and silently fell through to a textarea for
+anything else. No calculator had used `select` before, so it never surfaced.
+
+Suite: **1,573 tests** (was 1,552), including 21 new stiff-solver tests pinned to
+analytical solutions and the standard benchmarks. `integrate()` keeps its exact
+prior behaviour (stiffness detection is opt-in), verified by regression tests.
+
 ## [1.54.0] — 2026-07-15 — Spectra mode (Phase 4: spectroscopy prediction)
 
 Predicted spectra from structure — the last big white space on the analytical

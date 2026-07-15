@@ -6,10 +6,11 @@ cleanly formatted chemistry, math, structures, figures, sequences, citations, an
 directly at the cursor.
 
 Opening the pane shows a **Home** page with the tools grouped by category — click a card
-(or a tab at the top) to open a tool: **Chemical · Math · Units · Plot · Table → Chart ·
-Finance · Build · Code · Sequence · Botanical · Numerals · Refs · Citations · DNA ·
-Reaction · Audit.** Everything shows a live preview that matches exactly what gets
-inserted, and the **Examples & syntax** panel updates to match the selected tool.
+(or a tab at the top) to open a tool: **Chemical · Mass Spec · Spectra · Bio/Assay ·
+Peptide · Stats · Analyze · Math · Units · Plot · Table → Chart · Finance · Build ·
+Code · Sequence · Botanical · Numerals · Refs · Citations · DNA · Reaction · Audit.**
+Everything shows a live preview that matches exactly what gets inserted, and the
+**Examples & syntax** panel updates to match the selected tool.
 
 > Drafting aid — always verify structures, formulas, and listings before filing.
 
@@ -48,6 +49,20 @@ inserted, and the **Examples & syntax** panel updates to match the selected tool
 - **MS fragmentation (EI)** — principal fragments with **exact** m/z, via the classical pathways: **α-cleavage** (acylium, oxocarbenium/iminium), **benzylic → tropylium**, allylic, **McLafferty rearrangement** (only when a γ-hydrogen actually exists), and neutral losses (H₂O, CO₂, CO, NH₃, HCl) gated on the group that enables them. Correctly ranks the real base peak for toluene (m/z 91), ethanol (31), butylamine (30) and 2-pentanone (43/58). **Likelihood is a rule-based ranking, never a predicted intensity.**
 - Insert either a **data table** or a **spectrum chart** (NMR/IR/MS; δ and wavenumber axes run in the conventional direction). Every insert carries the caveat with it.
 - Known limits, disclosed in-pane: fused aromatics (naphthalene-type) and heteroaromatic rings are approximate; carbons bearing 3+ electron-withdrawing groups over-count; ring fragmentation needs two cleavages and is covered only via the listed rearrangements.
+
+## 🧮 Analyze — no-code numerical workbench
+- Paste numbers, get real computed results and publication-ready figures straight into Word. No scripting, no licence, fully offline.
+- **Linear algebra** — solve **A·x = b**, inverse, determinant, rank, trace, transpose, multiply; **eigenvalues** (symmetric via Jacobi, general via Francis double-shift QR **including complex pairs**), **QR** (Householder) and **SVD** (one-sided Jacobi). Results insert as Word tables.
+- **Matrix expressions** — one line, e.g. `A*inv(B)+2*C'`.
+- **Optimization** — unconstrained minimization (Nelder–Mead).
+- **FFT** — radix-2 FFT with zero-padding, frequency spectrum and dominant-peak detection, inserted as a chart.
+- **ODE / system solving** — two integrators with **automatic stiffness detection**:
+  - **Explicit RK45** (adaptive Dormand–Prince). Fast and highly accurate on well-behaved problems — ~8 significant figures on y′ = −y in ~23 steps.
+  - **Implicit Rosenbrock** (the **ode23s** method: L-stable, one LU factorization per step, no Newton iteration). This is what makes **stiff** systems solvable — *stiffness is the normal case in chemical kinetics whenever rate constants differ by orders of magnitude*. Van der Pol at μ=1000 and **Robertson kinetics** (rate constants spanning 0.04 → 3×10⁷) both solve; the explicit solver cannot finish either.
+  - **Auto** starts explicit and switches to implicit mid-integration if the problem stiffens (so Van der Pol, which *starts* non-stiff, is still solved). The result states which solver ran.
+  - Honest trade-off, and why Auto prefers RK45: the stiff solver is 2nd order against RK45's 5th, so on non-stiff problems it is both slower and less accurate. Tighten the tolerance when the stiff path is in use.
+  - Enter systems one equation per line (`y1' = y2`). **Higher-order ODEs must be hand-reduced to first order** (y″ = −y → `y1' = y2`, `y2' = -y1`). Numerical only — no symbolic/closed-form solutions, no boundary-value problems, no PDEs, no event detection.
+- **Raw data → insights** — per-column summaries, Tukey outlier & missing-data flags, **Pearson + Spearman** correlations with p-values, trend/slope detection, and a plain-language "what this means" write-up. Computed from your numbers — never invented.
 
 ## ∑ Math (native Word equations)
 - Fractions, super/subscripts, roots (`sqrt`, n-th `root`), `Σ`/`∫`/`∏`, limits, `|x|`, accents (`bar`/`hat`/`vec`), factorials, implicit multiplication, full Greek.

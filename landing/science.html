@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Write up your science — in Word | JurisLab for scientists</title>
+  <meta name="description" content="Predicted NMR/IR/UV-Vis spectra, 2D structures, enzyme kinetics, DNA tools, stiff ODE solving and statistics — inside Microsoft Word, entirely offline, free." />
+  <link rel="icon" href="assets/icon-32.png" />
+  <style>
+    :root { --blue:#2e74b5; --ink:#1b1b1f; --muted:#5b5b66; --bg:#f6f8fb; --card:#fff; --line:#e4e8ef; --green:#1f7a4d; }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; color:var(--ink); background:var(--bg); line-height:1.55; }
+    .wrap { max-width:900px; margin:0 auto; padding:0 20px; }
+    header { background:linear-gradient(135deg,#1f7a6b,#1f4e79); color:#fff; padding:56px 0 46px; }
+    header .wrap { text-align:center; }
+    h1 { font-size:2.35rem; margin:0 0 10px; line-height:1.2; }
+    .tag { font-size:1.12rem; opacity:.96; margin:0 auto 4px; max-width:660px; }
+    .sub { font-size:.95rem; opacity:.85; margin:10px auto 0; max-width:620px; }
+    .pills { margin:18px 0 6px; }
+    .pill { display:inline-block; background:rgba(255,255,255,.16); border:1px solid rgba(255,255,255,.25); border-radius:999px; padding:5px 12px; margin:4px; font-size:.85rem; }
+    .cta { margin-top:20px; }
+    .btn { display:inline-block; background:#fff; color:#1f7a6b; font-weight:700; text-decoration:none; padding:12px 22px; border-radius:8px; margin:6px; box-shadow:0 2px 8px rgba(0,0,0,.15); }
+    .btn.alt { background:rgba(255,255,255,.14); color:#fff; border:1px solid rgba(255,255,255,.4); box-shadow:none; }
+    h2 { color:var(--blue); font-size:1.45rem; margin:44px 0 6px; }
+    .hint-line { color:var(--muted); font-size:.92rem; margin:0 0 16px; }
+    .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(270px,1fr)); gap:12px; }
+    .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px 16px; text-decoration:none; color:inherit; display:block; transition:.15s; }
+    .card b { display:block; margin-bottom:5px; color:var(--ink); }
+    .card span { color:var(--muted); font-size:.92rem; }
+    a.card:hover { border-color:var(--blue); box-shadow:0 5px 16px rgba(46,116,181,.14); transform:translateY(-2px); }
+    a.card b::after { content:" ›"; color:var(--blue); opacity:.55; }
+    .new { display:inline-block; font-size:.6rem; font-weight:800; text-transform:uppercase; letter-spacing:.05em; padding:2px 6px; border-radius:999px; vertical-align:middle; margin-left:6px; background:#e7f4ec; color:var(--green); }
+    code { background:#eef1f6; padding:1px 6px; border-radius:5px; font-size:.9em; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
+    .why { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:4px 20px 16px; }
+    .why h3 { font-size:1rem; margin:18px 0 4px; }
+    .why p { margin:0; color:var(--muted); font-size:.94rem; }
+    .honest { background:#fff8e6; border:1px solid #f0dca8; border-left:4px solid #8a5a00; border-radius:8px; padding:14px 18px; margin:18px 0; }
+    .honest b { color:#8a5a00; }
+    .honest p { margin:6px 0 0; font-size:.94rem; }
+    .example { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px 18px; margin:14px 0; }
+    .example .in { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:.9rem; color:var(--blue); }
+    .example .out { color:var(--muted); font-size:.92rem; margin-top:4px; }
+    footer { text-align:center; color:var(--muted); font-size:.9rem; padding:30px 0 50px; }
+    footer a { color:var(--blue); }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap">
+      <h1>Write up your science — in Word.</h1>
+      <p class="tag">Predicted spectra, structures, kinetics, sequences and real numerical solving — where you're already writing the paper. No licence. No server. Nothing leaves your machine.</p>
+      <div class="pills">
+        <span class="pill">📡 NMR · IR · UV-Vis</span>
+        <span class="pill">🧪 2D structures</span>
+        <span class="pill">🧫 Enzyme kinetics</span>
+        <span class="pill">🧬 DNA &amp; sequences</span>
+        <span class="pill">🧮 Stiff ODEs &amp; matrices</span>
+        <span class="pill">📐 Statistics</span>
+      </div>
+      <div class="cta">
+        <a class="btn" href="https://github.com/alexsmi22-dotcom/MS-WORD-Add-in/tree/main/install">Install free (Windows &amp; Mac)</a>
+        <a class="btn alt" href="manual.html">Read the manual</a>
+      </div>
+      <p class="sub">Already installed? Open the pane and click <b>🔬 Science</b> on the Home screen — the legal and finance tools get out of your way.</p>
+    </div>
+  </header>
+
+  <main class="wrap">
+
+    <h2>Stop leaving Word to make a figure</h2>
+    <p class="hint-line">You draw the structure in one app, fit the curve in another, predict the spectrum in a third — then screenshot all three into the manuscript. Every one of these inserts directly at your cursor, as a real figure or a real Word table.</p>
+
+    <div class="grid">
+      <a class="card" href="tool.html?tool=spectra"><b>📡 Predicted spectra <span class="new">New</span></b><span>Type a name or SMILES → <strong>¹H</strong> / <strong>¹³C NMR</strong> with shift, integration, multiplicity and an assignment per signal. Plus <strong>IR</strong> bands, <strong>UV-Vis λmax</strong> (Woodward–Fieser, every increment shown) and <strong>EI-MS fragmentation</strong>. Insert a table or a publication-ready chart.</span></a>
+      <a class="card" href="tool.html?tool=chemical"><b>🧪 Structures &amp; properties</b><span>2D structures from a name, formula or SMILES — with cLogP, tPSA, Lipinski/Veber, <strong>pKa</strong> and net charge at pH 7.4. Stereochemistry drawn with wedges. Every inserted figure carries its SMILES in the alt-text.</span></a>
+      <a class="card" href="tool.html?tool=massspec"><b>⚛️ Mass spec</b><span>Monoisotopic &amp; average mass, the theoretical isotope pattern (the tell-tale ~32% M+2 of a chlorine), and adduct m/z — [M+H]⁺, [M+Na]⁺, [M−H]⁻ and the rest.</span></a>
+      <a class="card" href="tool.html?tool=bioassay"><b>🧫 Kinetics &amp; dose–response</b><span>Michaelis–Menten, Hill, <strong>IC50/EC50</strong> (4PL), binding — real Levenberg–Marquardt fits with parameters ± SE and R², drawn over your data. No GraphPad round-trip.</span></a>
+      <a class="card" href="tool.html?tool=dna"><b>🧬 DNA</b><span>Reverse complement, transcription, six-frame translation, ORF finder, primer Tm, protein MW/pI/GRAVY, restriction sites.</span></a>
+      <a class="card" href="tool.html?tool=analyze"><b>🧮 Analyze <span class="new">New</span></b><span>A no-code numerical workbench: matrix maths (eigenvalues, QR, SVD), optimization, FFT, <strong>ODE solving that handles stiff systems</strong>, and raw data → correlations, trends and plain-language insights.</span></a>
+      <a class="card" href="tool.html?tool=stats"><b>📐 Statistics</b><span>t-tests, one- &amp; two-way ANOVA, regression, non-parametric (Mann–Whitney, Wilcoxon), chi-square, multiple-comparison correction, and uncertainty propagation.</span></a>
+      <a class="card" href="tool.html?tool=math"><b>∑ Equations</b><span>Native, editable Word equations — not pictures. Paste LaTeX and convert it, or copy back out as LaTeX. Auto-numbering, matrices, piecewise.</span></a>
+      <a class="card" href="tool.html?tool=peptide"><b>🔗 Peptide</b><span>2D structure from a one- or three-letter sequence, with formula and MW.</span></a>
+      <a class="card" href="tool.html?tool=units"><b>📏 Units</b><span>SI typesetting, uncertainties (5.0 ± 0.2 kg), significant figures, and conversion — including compound units. Incompatible conversions are refused, not fudged.</span></a>
+      <a class="card" href="tool.html?tool=plot"><b>📈 Plots</b><span>Function and data charts with legends and error bars, computed and drawn offline.</span></a>
+      <a class="card" href="tool.html?tool=sequence"><b>📄 ST.26 listings</b><span>WIPO sequence listings for filings — the thing your patent attorney will ask you for, and that your bench software doesn't do.</span></a>
+    </div>
+
+    <h2>Real answers, not decoration</h2>
+    <p class="hint-line">Things you can type today and check against the literature:</p>
+
+    <div class="example">
+      <div class="in">toluene → ¹H NMR</div>
+      <div class="out">δ 7.17 (2H, m), 7.09 (2H, d), 7.08 (1H, t), <b>2.37 (3H, s, CH₃ on Ph)</b> — literature: 2.34.</div>
+    </div>
+    <div class="example">
+      <div class="in">y'' = -9.81, z = 0, z' = 20, stop when z</div>
+      <div class="out">“z reached zero at <b>t = 4.077472</b>” — the closed form is 20/4.905 = 4.0774719673. Type the second-order equation; the reduction is done for you.</div>
+    </div>
+    <div class="example">
+      <div class="in">Robertson kinetics — rate constants 0.04 → 3×10⁷</div>
+      <div class="out">Solves in ~570 steps with mass conserved to 12 digits. <b>Stiff kinetics is the normal case</b> whenever rate constants differ by orders of magnitude — an explicit solver simply can't finish it, and JurisLab switches automatically.</div>
+    </div>
+
+    <h2>Why this and not another tab</h2>
+    <div class="why">
+      <h3>One pane, not six applications</h3>
+      <p>The frustrating part of the big suites isn't the science — it's that structures, kinetics, spectra and stats each live in separate software you flip between, then paste screenshots into Word. This is one pane, in the app where the writing already happens.</p>
+
+      <h3>Nothing leaves your machine</h3>
+      <p>No account, no server, no telemetry. Your compounds, sequences and unpublished data are computed locally and never transmitted. The single exception — an optional IUPAC name lookup — asks every time and sends one chemical name, never your document. That matters if your structures are confidential.</p>
+
+      <h3>Free, and no seat to renew</h3>
+      <p>No licence, no per-seat cost, no admin rights to install.</p>
+
+      <h3>It tells you when it doesn't know</h3>
+      <p>An unconjugated molecule reports “no λmax” rather than inventing one. Fused rings say they're approximate. MS fragment “likelihood” is labelled a ranking, not an intensity. You can only trust a tool that admits its edges.</p>
+    </div>
+
+    <div class="honest">
+      <b>What predicted spectra are — and aren't.</b>
+      <p>They're estimates from published additivity rules, not measured spectra and not quantum-chemical calculations. Structure recognition is exact; the numbers carry real uncertainty (≈ ±0.2–0.4 ppm for ¹H, ±2–4 ppm for ¹³C). Use them to <b>assign peaks you already have</b> — never as a substitute for running the spectrum. Every screen in the add-in says so too.</p>
+    </div>
+
+    <h2>Get started</h2>
+    <p class="hint-line">Two minutes: unzip, run the installer, <strong>fully restart Word</strong> (all windows — this is the step people miss), then <b>Insert → Add-ins → Developer Add-ins → JurisLab</b>.</p>
+    <div class="cta" style="text-align:center;margin:8px 0 4px">
+      <a class="btn" style="color:#fff;background:var(--blue)" href="https://github.com/alexsmi22-dotcom/MS-WORD-Add-in/tree/main/install">Install free (Windows &amp; Mac)</a>
+      <a class="btn" style="background:#fff;color:var(--blue);border:1px solid var(--line)" href="manual.html">Read the manual</a>
+    </div>
+
+  </main>
+
+  <footer>
+    <div class="wrap">
+      Runs entirely on your machine. Drafting aid — verify before publishing or filing.<br />
+      <a href="index.html">All 22 tools</a> · <a href="manual.html">User manual</a> ·
+      <a href="https://github.com/alexsmi22-dotcom/MS-WORD-Add-in">Source</a><br />
+      <span style="font-size:.85rem">Also does patent &amp; legal drafting — Bluebook citations, Tables of Authorities, reference numerals. <a href="index.html">See everything</a>.</span>
+    </div>
+  </footer>
+</body>
+</html>

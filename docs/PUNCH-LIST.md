@@ -16,8 +16,44 @@ Status key: `[ ]` open · `[x]` done · `[~]` partially done
 
 ## P0 — Correctness: wrong answers that can ship
 
-### [ ] 1. Verify the compound dictionary against an external source
-**Risk: HIGH. Same class as the arginine bug.**
+### [x] 1. Verify the compound dictionary against an external source — DONE v1.66.0
+**Risk was HIGH. Same class as the arginine bug — and it found the same class of bug.**
+
+All 359 names checked against PubChem by parsing BOTH structures through the same
+OCL canonicalizer and comparing ID codes (exact on connectivity — a formula check
+alone passes a wrong isomer, since 1-propanol and 2-propanol are both C3H8O). All
+101 formulas checked offline against OCL's own derivation.
+
+**Found and fixed — three real defects, all live at the time:**
+- `alpha-tocopherol` / `vitamin e` — **wrong molecule.** Two aromatic methyls, but
+  alpha is the 5,7,8-TRImethyl vitamer. We shipped beta/gamma-tocopherol:
+  C28H48O2 / MW 416.69 against a true C29H50O2 / MW 430.71. A silent 14 Da error
+  in Mass Spec, NMR and properties.
+- `epsom salt` — anhydrous MgSO4 (MW 120.37), byte-identical to the
+  `magnesium sulfate` entry. Epsom salt IS the heptahydrate (MW 246.47).
+- `glucose` and `galactose` had **identical SMILES.** Without stereo, C4 epimers
+  collapse to the same graph. Two different sugars, one structure.
+
+**Also fixed:** 31 entries carried no stereochemistry, including `naproxen` (the
+drug is the (S) enantiomer; (R) is hepatotoxic) and `oleic acid` (no Z — making it
+indistinguishable from elaidic acid, a trans fat). arginine and histidine were the
+last two caught: their tautomer difference routed them past the stereo sweep, so
+two L-amino acids were being drawn achiral.
+
+**The counter-example that matters:** PubChem's record titled "Folate"
+(CID 135405876) is the **(2R)** D-glutamate form. Natural folic acid is (2S) —
+which JurisLab already had right. Auto-correcting to match PubChem would have
+INTRODUCED a bug. Every remaining difference (tautomers, `iron oxide` vs FeO2,
+ionic CaO, furanose ribose) is a reviewed, documented exception — not a silenced
+failure.
+
+Now gated permanently by `compoundsVsPubChem.test.ts`, which runs offline against
+a cached fixture and was verified to FAIL when the tocopherol bug is reintroduced.
+
+### [ ] 1b. Follow-on: the fixture pins PubChem as of 2026-07-15
+Re-run `node scripts/verify-compounds-pubchem.mjs --refresh` periodically. New
+dictionary entries fail the coverage test until they have a fixture record, which
+is the intended behaviour — an unverified name is exactly what this ended.
 
 `compounds.json` holds 359 names + 101 formulas. Both `validate-compounds.mjs`
 and `compounds.test.ts` check only that each SMILES **parses**
@@ -37,9 +73,10 @@ offline-cache the result as a fixture, and assert formula equality per entry.
 Report any mismatch rather than auto-correcting — a mismatch may be a naming
 ambiguity, not an error.
 
-### [ ] 2. Wire `validate:compounds` into CI
-It exists as an npm script and **is not run by jest or CI**. A validator nobody
-runs is decoration. Either fold it into the jest suite or add it to `npm run qc`.
+### [x] 2. Wire `validate:compounds` into CI — DONE v1.66.0
+Added as an explicit gate in `scripts/qc.ps1` ("Compound dictionary"). The stronger
+structural check against PubChem lives in the jest suite, so it runs on every
+`npm test` and every `npm run qc` without a network call.
 
 ### [ ] 3. Sweep for other "plausible wrong number" sites
 The arginine bug was a **missing group class silently misrouted to a catch-all

@@ -2,6 +2,54 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
+## [1.58.0] — 2026-07-15 — Gap analysis: fixes from a first real audit
+
+Prompted by "did you perform a comprehensive bug test and gap analysis?" — the
+honest answer was no. Previous passes were feature-scoped; nothing had ever swept
+the whole product. The Analyze-on-Home bug (v1.57.1, found by the user) was the
+evidence. This is that sweep.
+
+**Spectra had no Examples & syntax content — user-visible, shipped in v1.54.0.**
+- Opening Spectra and expanding the help panel showed an EMPTY panel. Every other
+  tool has help.
+- Root cause was a bug class, not a typo: the mode list existed in THREE
+  hand-maintained copies — the `Mode` union (taskpane.ts), the `ExampleMode`
+  union (examples.ts), and a `MODES` array inside examples.test.ts. `spectra` was
+  added to the pane and to none of the others. `MODE_EXAMPLES` is
+  `Record<ExampleMode, string>`, so it was "complete" against its own stale
+  union; an `as ExampleMode` cast at the call site laundered the real type; and
+  `?? ""` turned the miss into a silent blank. The test that claimed to check
+  "every mode has help content" iterated its own copy and passed vacuously.
+- Fixed properly: `src/lib/modes.ts` is now the single source of truth
+  (`ALL_MODES` const → `Mode` type → `ExampleMode` = all but home). examples.ts,
+  taskpane.ts and the test all derive from it, and the cast is gone. Verified:
+  deleting the spectra entry is now a COMPILE ERROR, not a blank panel.
+- Wrote the Spectra help content, carrying the same caveats as the pane.
+
+**Finance formulas rendered ungrouped in the library dropdown.**
+- `FORMULA_LIBRARY` has 19 categories; the grouping named 16. The three Finance
+  categories were never assigned, so they appeared as bare options dangling below
+  the labelled groups. A safety net appends unassigned categories ungrouped,
+  which is why this degraded quietly rather than breaking.
+- `LIBRARY_GROUPS` moved from taskpane.ts into formulaLibrary.ts, beside the data
+  it groups, so it is testable; added the Finance group and tests that every
+  category is assigned exactly once and that no group names a phantom category
+  (the match is by name, so a rename on either side silently un-groups).
+
+**palettes.ts had ZERO tests and encodes real chemistry.**
+- `BUILD_TEMPLATES` holds molecules as data (`Benzene`, `Acetic acid`,
+  `Acetone`…). A wrong bond order there is SYNTACTICALLY VALID — it would parse
+  cleanly and silently insert incorrect chemistry into a document, which is
+  exactly what "all data must be real" forbids.
+- 26 new tests assert each template IS the molecule its label claims (Benzene →
+  C6H6, Acetic acid → C2H4O2, …), that rings actually close, that Benzene is
+  Kekulé (3 double bonds) and Cyclohexane saturated, that bond indices are in
+  range, that Markush tokens really yield a generic structure, and that carets
+  never point outside their snippet. **The shipped chemistry all checks out** —
+  the gap was that nothing proved it.
+
+Suite: **1,735 tests** (was 1,703).
+
 ## [1.57.1] — 2026-07-15 — Fix: Analyze controls showed under the Home tiles
 
 Reported from a real install: on first opening JurisLab, an unexpected toolbar

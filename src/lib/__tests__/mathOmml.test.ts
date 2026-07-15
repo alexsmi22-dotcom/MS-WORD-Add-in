@@ -1,5 +1,5 @@
 import { mathToOmml, mathToOoxml } from "../mathOmml";
-import { FORMULA_LIBRARY } from "../formulaLibrary";
+import { FORMULA_LIBRARY, LIBRARY_GROUPS } from "../formulaLibrary";
 
 describe("mathToOmml", () => {
   it("emits a fraction", () => {
@@ -153,5 +153,35 @@ describe("numbered equation OOXML", () => {
   });
   it("omits numbering when not requested", () => {
     expect(mathToOoxml("a/b")).not.toContain("<w:tab/>");
+  });
+});
+
+// --- Library grouping -------------------------------------------------------
+// The dropdown groups categories into <optgroup>s by NAME. Nothing errors when a
+// category is left out — the consumer appends it ungrouped — so the three
+// Finance categories sat unlabelled below the real groups from the day they were
+// added. These assertions make that a test failure instead of a silent demotion.
+describe("LIBRARY_GROUPS", () => {
+  it("assigns every FORMULA_LIBRARY category to a group", () => {
+    const grouped = new Set(LIBRARY_GROUPS.flatMap((g) => g.categories));
+    const ungrouped = FORMULA_LIBRARY.map((c) => c.name).filter((n) => !grouped.has(n));
+    expect(ungrouped).toEqual([]);
+  });
+
+  it("names no category that does not exist (catches a rename on either side)", () => {
+    const real = new Set(FORMULA_LIBRARY.map((c) => c.name));
+    const phantom = LIBRARY_GROUPS.flatMap((g) => g.categories).filter((n) => !real.has(n));
+    expect(phantom).toEqual([]);
+  });
+
+  it("assigns each category to exactly one group", () => {
+    const all = LIBRARY_GROUPS.flatMap((g) => g.categories);
+    expect(new Set(all).size).toBe(all.length);
+  });
+
+  it("groups the Finance categories under a Finance heading", () => {
+    const finance = LIBRARY_GROUPS.find((g) => g.label === "Finance");
+    expect(finance).toBeDefined();
+    expect(finance!.categories.length).toBe(3);
   });
 });

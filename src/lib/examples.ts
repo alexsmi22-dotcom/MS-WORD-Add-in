@@ -5,29 +5,11 @@
 // Pure data (HTML strings) — no Office.js — so a unit test can assert that every
 // mode has help content. The task pane swaps the active entry on mode change.
 
-/** The task pane's modes, used to key the examples map. */
-export type ExampleMode =
-  | "chemical"
-  | "math"
-  | "build"
-  | "code"
-  | "sequence"
-  | "botanical"
-  | "numerals"
-  | "dna"
-  | "audit"
-  | "reaction"
-  | "units"
-  | "refs"
-  | "plot"
-  | "ppt"
-  | "citations"
-  | "finance"
-  | "assay"
-  | "massspec"
-  | "peptide"
-  | "stats"
-  | "analyze";
+// The mode list lives in modes.ts as the single source of truth. Re-declaring it
+// here is what let "spectra" ship without help content: the union was stale, and
+// because Record<> only checks against the union, nothing complained.
+export type { ExampleMode } from "./modes";
+import type { ExampleMode } from "./modes";
 
 /** HTML help fragment shown in the "Examples & syntax" panel for each mode. */
 export const MODE_EXAMPLES: Record<ExampleMode, string> = {
@@ -329,6 +311,28 @@ export const MODE_EXAMPLES: Record<ExampleMode, string> = {
     <p class="examples-note">
       Isotope abundances are standard NIST values; the pattern covers the common organic/bio
       elements (C, H, N, O, S, P, halogens, Si, Se, B, Na, K). Analysis aid — verify before relying.
+    </p>`,
+  spectra: `
+    <p class="examples-note">
+      <strong>Predicted spectra</strong> from a structure — type a name, formula, or SMILES.
+      These are <strong>estimates from published additivity rules</strong>, not acquired spectra
+      and not quantum-chemical calculations: structure recognition is exact, the numbers are
+      empirical, and every prediction states its own accuracy.
+    </p>
+    <ul>
+      <li><strong>¹H NMR</strong> — shift, integration and <em>n+1</em> multiplicity per signal, with an assignment. Symmetry-aware, so benzene is one 6H singlet. Try <code>toluene</code> (CH₃ ≈ 2.4, 3H, s). Typical <strong>±0.2–0.4 ppm</strong></li>
+      <li><strong>¹³C NMR</strong> — Grant–Paul additivity (sp³) + benzene increments (aromatic); carbonyl classes separate properly (ketone ≈ 205, aldehyde ≈ 199, acid ≈ 178, ester ≈ 171). Typical <strong>±2–4 ppm</strong></li>
+      <li><strong>IR</strong> — characteristic group frequencies + a simulated transmittance trace. Ester ≈ 1740 &gt; ketone ≈ 1715 &gt; amide ≈ 1660; conjugation drops C=O ~25 cm⁻¹ (<code>acetophenone</code> ≈ 1690)</li>
+      <li><strong>UV-Vis</strong> — λmax by <strong>Woodward–Fieser</strong> with every increment shown, so you can audit the arithmetic (<code>CC(=O)C=C(C)C</code> → ≈ 237 nm)</li>
+      <li><strong>MS fragmentation</strong> — exact fragment m/z via α-cleavage, benzylic→tropylium, McLafferty and gated neutral losses (<code>toluene</code> → m/z 91 tropylium, its real base peak)</li>
+    </ul>
+    <p class="examples-note">
+      Out-of-domain cases are disclosed, never guessed: an unconjugated molecule reports
+      <em>transparent</em> rather than a made-up λmax; fused and heteroaromatic rings say they are
+      approximate; MS "likelihood" is a rule-based <strong>ranking, not an intensity</strong>. The IR
+      fingerprint region (below ~1500 cm⁻¹) is not predicted. Insert a data table or a spectrum
+      chart — δ increases leftward and wavenumber decreases rightward, per convention.
+      Assignment aid — always verify against an acquired spectrum.
     </p>`,
   peptide: `
     <p class="examples-note">

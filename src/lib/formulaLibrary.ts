@@ -260,3 +260,50 @@ export const FORMULA_LIBRARY: FormulaCategory[] = [
     ],
   },
 ];
+
+/**
+ * How the categories above are grouped into <optgroup>s in the library dropdown.
+ *
+ * This lives beside the data it groups, rather than in taskpane.ts, so a test can
+ * assert that every category is actually assigned. It wasn't: the three Finance
+ * categories were added to FORMULA_LIBRARY but never to the grouping, so they
+ * rendered as bare options dangling below the labelled groups. The consumer has
+ * a safety net that appends unassigned categories ungrouped, which is why this
+ * degraded quietly instead of breaking.
+ *
+ * Categories are matched BY NAME, so renaming one here or above without the
+ * other silently un-groups it — hence the test.
+ */
+export interface LibraryGroup {
+  label: string;
+  categories: string[];
+}
+
+export const LIBRARY_GROUPS: LibraryGroup[] = [
+  { label: "Mathematics", categories: ["Statistics", "Geometry", "Algebra", "Trigonometry", "Calculus"] },
+  {
+    label: "Functions",
+    categories: [
+      "Trig functions",
+      "Hyperbolic functions",
+      "Log & exponential",
+      "Special functions",
+      "Discrete & combinatorics",
+    ],
+  },
+  {
+    label: "Science & engineering",
+    categories: [
+      "Cryptography",
+      "Computer science / ML",
+      "Mechanical engineering",
+      "Electrical engineering",
+      "Physics",
+      "Biology / assays",
+    ],
+  },
+  {
+    label: "Finance",
+    categories: ["Finance — time value", "Finance — valuation & options", "Finance — portfolio & bonds"],
+  },
+];

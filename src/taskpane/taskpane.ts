@@ -97,7 +97,7 @@ import {
 } from "../lib/sequence";
 import { formatBotanicalNameHtml, formatTraitTableHtml } from "../lib/botanical";
 import { parseSubstituents } from "../lib/gallery";
-import { FORMULA_LIBRARY } from "../lib/formulaLibrary";
+import { FORMULA_LIBRARY, LIBRARY_GROUPS } from "../lib/formulaLibrary";
 import {
   MATH_PALETTE,
   CHEM_PALETTE,
@@ -211,30 +211,7 @@ import { isNewerVersion } from "../lib/version";
 // Injected at build time (webpack DefinePlugin) from package.json.
 declare const __APP_VERSION__: string;
 
-type Mode =
-  | "home"
-  | "chemical"
-  | "math"
-  | "units"
-  | "plot"
-  | "ppt"
-  | "finance"
-  | "assay"
-  | "massspec"
-  | "spectra"
-  | "peptide"
-  | "stats"
-  | "analyze"
-  | "build"
-  | "code"
-  | "sequence"
-  | "botanical"
-  | "numerals"
-  | "dna"
-  | "reaction"
-  | "audit"
-  | "refs"
-  | "citations";
+import type { Mode } from "../lib/modes";
 
 const STRUCTURE_W = 300;
 const STRUCTURE_H = 230;
@@ -1107,7 +1084,11 @@ function renderHome(): void {
 
 /** Swaps the "Examples & syntax" panel to the help for the current mode. */
 function updateExamples(): void {
-  examplesBody.innerHTML = MODE_EXAMPLES[currentMode() as ExampleMode] ?? "";
+  const m = currentMode();
+  // No cast: MODE_EXAMPLES is keyed by every non-home mode, so TypeScript now
+  // catches a tool shipped without help content. The old `as ExampleMode` cast
+  // silenced exactly that check and let Spectra ship with an empty panel.
+  examplesBody.innerHTML = m === "home" ? "" : MODE_EXAMPLES[m];
 }
 
 /** Shows the next equation number "(I)" next to the numbering checkbox. */
@@ -1410,31 +1391,6 @@ function insertAtCursor(snippet: string, caret?: number): void {
 }
 
 /** Groups the library categories under optgroups for a scannable dropdown. */
-const LIBRARY_GROUPS: Array<{ label: string; categories: string[] }> = [
-  { label: "Mathematics", categories: ["Statistics", "Geometry", "Algebra", "Trigonometry", "Calculus"] },
-  {
-    label: "Functions",
-    categories: [
-      "Trig functions",
-      "Hyperbolic functions",
-      "Log & exponential",
-      "Special functions",
-      "Discrete & combinatorics",
-    ],
-  },
-  {
-    label: "Science & engineering",
-    categories: [
-      "Cryptography",
-      "Computer science / ML",
-      "Mechanical engineering",
-      "Electrical engineering",
-      "Physics",
-      "Biology / assays",
-    ],
-  },
-];
-
 /** Fills the category dropdown (grouped) and the formulas for the first category. */
 function populateLibraryCategories(): void {
   libCategorySelect.replaceChildren();

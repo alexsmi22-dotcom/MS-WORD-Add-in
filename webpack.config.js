@@ -100,6 +100,7 @@ module.exports = async (env, options) => {
                   content.toString().replace(/https:\/\/ADDIN-HOST\.example\.com/g, prodHost),
               },
           { from: "landing/index.html", to: "index.html" },
+          { from: "landing/tool.html", to: "tool.html" },
         ],
       }),
     ],

@@ -25,6 +25,10 @@
     .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px 16px; }
     .card b { display:block; margin-bottom:3px; }
     .card span { color:var(--muted); font-size:.92rem; }
+    a.card { text-decoration:none; color:inherit; display:block; transition:transform .08s ease, box-shadow .08s ease, border-color .08s ease; }
+    a.card:hover, a.card:focus-visible { border-color:var(--blue); box-shadow:0 5px 16px rgba(46,116,181,.14); transform:translateY(-2px); outline:none; }
+    a.card b::after { content:" ›"; color:var(--blue); opacity:.55; }
+    .hint-line { color:var(--muted); font-size:.9rem; margin:-6px 0 14px; }
     .new, .upd { display:inline-block; font-size:.6rem; font-weight:800; text-transform:uppercase; letter-spacing:.05em; padding:2px 6px; border-radius:999px; vertical-align:middle; margin-left:6px; }
     .new { background:#e7f7ec; color:#1a7f37; border:1px solid #b7e4c3; }
     .upd { background:#fff4e5; color:#9a6700; border:1px solid #f2d9a8; }
@@ -63,40 +67,42 @@
 
   <section class="wrap whatsnew">
     <h2>New in this release — a numerical workbench that competes with MATLAB</h2>
+    <p class="hint-line">Tap any tile for full details and examples.</p>
     <div class="grid">
-      <div class="card"><b>🧮 Analyze — matrix math <span class="new">New</span></b><span>A no-code numerical workbench in Word: <strong>solve A·x = b</strong>, inverse, determinant, rank &amp; trace, <strong>eigenvalues</strong> (including complex), <strong>QR</strong> and <strong>SVD</strong> decompositions, and one-line <strong>matrix expressions</strong> like <code>A*inv(B)+2*C'</code>. Matrices insert as clean, editable Word tables.</span></div>
-      <div class="card"><b>🧮 Analyze — optimization, FFT &amp; ODEs <span class="new">New</span></b><span><strong>Minimize a function</strong> (Nelder–Mead) you type; run an <strong>FFT</strong> on a sampled signal for its amplitude spectrum and dominant frequencies; solve an <strong>ODE or system</strong> (adaptive RK45) with a sampled table and trajectory plot — all offline.</span></div>
-      <div class="card"><b>🧮 Data → insights <span class="new">New</span></b><span>Paste a data table and get per-column summaries, a <strong>correlation matrix</strong> (Pearson r + p-value, Spearman ρ), <strong>trend detection</strong>, outlier/missing-data flags, and plain-language <strong>actionable insights</strong> — computed from your own numbers.</span></div>
-      <div class="card"><b>📐 Stats — expanded <span class="new">New</span></b><span>Non-parametric tests (<strong>Mann–Whitney U</strong>, <strong>Wilcoxon</strong> signed-rank), <strong>chi-square</strong> (goodness-of-fit &amp; independence), <strong>two-way ANOVA</strong>, and <strong>multiple-comparison correction</strong> (Bonferroni, Holm, Benjamini–Hochberg) — on top of the existing t-tests, ANOVA &amp; regression.</span></div>
-      <div class="card"><b>🧪 pKa estimation <span class="new">New</span></b><span>For any structure, JurisLab detects the <strong>ionizable groups</strong> (carboxylic acids, amines, phenols, pyridines…) and reports their typical pKa plus an estimated <strong>net charge at pH 7.4</strong> — an honest functional-group estimate, computed offline.</span></div>
-      <div class="card"><b>🧪 Compound library <span class="upd">Updated</span></b><span>359 named structures with every SMILES sourced from PubChem — violacein, morphine, cholesterol, paclitaxel, chlorophyll, heme and more.</span></div>
+      <a class="card" href="tool.html?tool=analyze"><b>🧮 Analyze — matrix math <span class="new">New</span></b><span>A no-code numerical workbench in Word: <strong>solve A·x = b</strong>, inverse, determinant, rank &amp; trace, <strong>eigenvalues</strong> (including complex), <strong>QR</strong> and <strong>SVD</strong> decompositions, and one-line <strong>matrix expressions</strong> like <code>A*inv(B)+2*C'</code>. Matrices insert as clean, editable Word tables.</span></a>
+      <a class="card" href="tool.html?tool=analyze"><b>🧮 Analyze — optimization, FFT &amp; ODEs <span class="new">New</span></b><span><strong>Minimize a function</strong> (Nelder–Mead) you type; run an <strong>FFT</strong> on a sampled signal for its amplitude spectrum and dominant frequencies; solve an <strong>ODE or system</strong> (adaptive RK45) with a sampled table and trajectory plot — all offline.</span></a>
+      <a class="card" href="tool.html?tool=analyze"><b>🧮 Data → insights <span class="new">New</span></b><span>Paste a data table and get per-column summaries, a <strong>correlation matrix</strong> (Pearson r + p-value, Spearman ρ), <strong>trend detection</strong>, outlier/missing-data flags, and plain-language <strong>actionable insights</strong> — computed from your own numbers.</span></a>
+      <a class="card" href="tool.html?tool=stats"><b>📐 Stats — expanded <span class="new">New</span></b><span>Non-parametric tests (<strong>Mann–Whitney U</strong>, <strong>Wilcoxon</strong> signed-rank), <strong>chi-square</strong> (goodness-of-fit &amp; independence), <strong>two-way ANOVA</strong>, and <strong>multiple-comparison correction</strong> (Bonferroni, Holm, Benjamini–Hochberg) — on top of the existing t-tests, ANOVA &amp; regression.</span></a>
+      <a class="card" href="tool.html?tool=chemical"><b>🧪 pKa estimation <span class="new">New</span></b><span>For any structure, JurisLab detects the <strong>ionizable groups</strong> (carboxylic acids, amines, phenols, pyridines…) and reports their typical pKa plus an estimated <strong>net charge at pH 7.4</strong> — an honest functional-group estimate, computed offline.</span></a>
+      <a class="card" href="tool.html?tool=chemical"><b>🧪 Compound library <span class="upd">Updated</span></b><span>359 named structures with every SMILES sourced from PubChem — violacein, morphine, cholesterol, paclitaxel, chlorophyll, heme and more.</span></a>
     </div>
   </section>
 
   <section class="wrap">
     <h2>All 21 tools</h2>
+    <p class="hint-line">Tap any tool for a full breakdown of what it does, with examples.</p>
     <div class="grid">
-      <div class="card"><b>🧮 Analyze <span class="new">New</span></b><span>No-code numerical workbench — matrix math (solve, inverse, eigenvalues, QR, SVD, expressions), optimization, FFT, ODE/system solving (RK45), and raw data → correlations, trends &amp; insights</span></div>
-      <div class="card"><b>🧪 Chemical <span class="upd">Updated</span></b><span>Formatted formulas, 2D structures from name/SMILES, formula validator, <strong>physicochemical properties &amp; druglikeness</strong> (cLogP, tPSA, Lipinski/Veber), <strong>pKa group estimation</strong>, and opt-in <strong>online name→structure</strong></span></div>
-      <div class="card"><b>⚛️ Mass Spec</b><span>Monoisotopic &amp; average mass, isotope pattern, and adduct m/z ([M+H]⁺, [M+Na]⁺, [M+2H]²⁺, [M−H]⁻…)</span></div>
-      <div class="card"><b>🧫 Bio/Assay</b><span>Enzyme kinetics, dose–response (IC50/EC50), binding, and lab math — offline curve fitting with the fit drawn over your data</span></div>
-      <div class="card"><b>🔗 Peptide</b><span>2D structure from a one- or three-letter amino-acid sequence, with formula &amp; molecular weight</span></div>
-      <div class="card"><b>📐 Stats <span class="upd">Updated</span></b><span>t-tests, one- &amp; two-way ANOVA, regression, <strong>non-parametric</strong> (Mann–Whitney, Wilcoxon), <strong>chi-square</strong>, <strong>multiple-comparison correction</strong> &amp; uncertainty propagation</span></div>
-      <div class="card"><b>∑ Math</b><span>Native Word equations, LaTeX import/export, aligned equations, Greek letters &amp; ∑ ∫ ∂ operators</span></div>
-      <div class="card"><b>📏 Units</b><span>SI typesetting + conversion — length, mass, time, electrical (V/A/W/Ω/F), chemistry (M, Da, ppm) &amp; more</span></div>
-      <div class="card"><b>📈 Plot</b><span>Offline function &amp; data charts with legends; multi-argument functions (atan2, hypot, min/max)</span></div>
-      <div class="card"><b>📊 Table → Chart</b><span>Charts — column, bar, line, area, scatter &amp; stacked — plus flowcharts, block diagrams &amp; clean table figures; B&amp;W patent figures or PowerPoint (.pptx)</span></div>
-      <div class="card"><b>💵 Finance</b><span>18 calculators — TVM, DCF, amortization, bonds (price/YTM/duration/convexity), options + Greeks, implied vol, depreciation, return stats</span></div>
-      <div class="card"><b>🔬 Build</b><span>Structures from atom/bond lists; Markush genus</span></div>
-      <div class="card"><b>💻 Code</b><span>Algorithm &amp; code listings</span></div>
-      <div class="card"><b>🧬 Sequence</b><span>WIPO ST.26 listings — mandatory source feature plus CDS/gene annotations with auto <code>/translation</code> and full mol_type vocabulary</span></div>
-      <div class="card"><b>🌿 Botanical</b><span>Plant-nomenclature typesetting</span></div>
-      <div class="card"><b>🔢 Numerals</b><span>Reference-numeral management — parenthesized &amp; “element 12” callouts, gap/orphan/collision checks, numeral list</span></div>
-      <div class="card"><b>🔖 Refs</b><span>Auto-numbered figure/table captions &amp; cross-references</span></div>
-      <div class="card"><b>⚖️ Citations</b><span>Bluebook citations — cases, statutes, patents, Fed. Reg., MPEP, articles; practitioner/academic styles, T6/T10 abbreviation, id./supra &amp; parallel cites, paste-and-fix. Plus a <strong>Table of Contents</strong>, a <strong>Table of Authorities</strong> (static, italic, two-line, court/year) and a citation register</span></div>
-      <div class="card"><b>🧬 DNA</b><span>Reverse complement, translation, ORFs, primer Tm, restriction sites (48 enzymes), EMBOSS isoelectric point</span></div>
-      <div class="card"><b>⚗️ Reaction</b><span>Multi-step reaction schemes with conditions over the arrow; forward, reversible (⇌) &amp; retrosynthetic arrows</span></div>
-      <div class="card"><b>✅ Audit</b><span>Whole-document consistency check</span></div>
+      <a class="card" href="tool.html?tool=analyze"><b>🧮 Analyze <span class="new">New</span></b><span>No-code numerical workbench — matrix math (solve, inverse, eigenvalues, QR, SVD, expressions), optimization, FFT, ODE/system solving (RK45), and raw data → correlations, trends &amp; insights</span></a>
+      <a class="card" href="tool.html?tool=chemical"><b>🧪 Chemical <span class="upd">Updated</span></b><span>Formatted formulas, 2D structures from name/SMILES, formula validator, <strong>physicochemical properties &amp; druglikeness</strong> (cLogP, tPSA, Lipinski/Veber), <strong>pKa group estimation</strong>, and opt-in <strong>online name→structure</strong></span></a>
+      <a class="card" href="tool.html?tool=massspec"><b>⚛️ Mass Spec</b><span>Monoisotopic &amp; average mass, isotope pattern, and adduct m/z ([M+H]⁺, [M+Na]⁺, [M+2H]²⁺, [M−H]⁻…)</span></a>
+      <a class="card" href="tool.html?tool=bioassay"><b>🧫 Bio/Assay</b><span>Enzyme kinetics, dose–response (IC50/EC50), binding, and lab math — offline curve fitting with the fit drawn over your data</span></a>
+      <a class="card" href="tool.html?tool=peptide"><b>🔗 Peptide</b><span>2D structure from a one- or three-letter amino-acid sequence, with formula &amp; molecular weight</span></a>
+      <a class="card" href="tool.html?tool=stats"><b>📐 Stats <span class="upd">Updated</span></b><span>t-tests, one- &amp; two-way ANOVA, regression, <strong>non-parametric</strong> (Mann–Whitney, Wilcoxon), <strong>chi-square</strong>, <strong>multiple-comparison correction</strong> &amp; uncertainty propagation</span></a>
+      <a class="card" href="tool.html?tool=math"><b>∑ Math</b><span>Native Word equations, LaTeX import/export, aligned equations, Greek letters &amp; ∑ ∫ ∂ operators</span></a>
+      <a class="card" href="tool.html?tool=units"><b>📏 Units</b><span>SI typesetting + conversion — length, mass, time, electrical (V/A/W/Ω/F), chemistry (M, Da, ppm) &amp; more</span></a>
+      <a class="card" href="tool.html?tool=plot"><b>📈 Plot</b><span>Offline function &amp; data charts with legends; multi-argument functions (atan2, hypot, min/max)</span></a>
+      <a class="card" href="tool.html?tool=tablechart"><b>📊 Table → Chart</b><span>Charts — column, bar, line, area, scatter &amp; stacked — plus flowcharts, block diagrams &amp; clean table figures; B&amp;W patent figures or PowerPoint (.pptx)</span></a>
+      <a class="card" href="tool.html?tool=finance"><b>💵 Finance</b><span>18 calculators — TVM, DCF, amortization, bonds (price/YTM/duration/convexity), options + Greeks, implied vol, depreciation, return stats</span></a>
+      <a class="card" href="tool.html?tool=build"><b>🔬 Build</b><span>Structures from atom/bond lists; Markush genus</span></a>
+      <a class="card" href="tool.html?tool=code"><b>💻 Code</b><span>Algorithm &amp; code listings</span></a>
+      <a class="card" href="tool.html?tool=sequence"><b>🧬 Sequence</b><span>WIPO ST.26 listings — mandatory source feature plus CDS/gene annotations with auto <code>/translation</code> and full mol_type vocabulary</span></a>
+      <a class="card" href="tool.html?tool=botanical"><b>🌿 Botanical</b><span>Plant-nomenclature typesetting</span></a>
+      <a class="card" href="tool.html?tool=numerals"><b>🔢 Numerals</b><span>Reference-numeral management — parenthesized &amp; “element 12” callouts, gap/orphan/collision checks, numeral list</span></a>
+      <a class="card" href="tool.html?tool=refs"><b>🔖 Refs</b><span>Auto-numbered figure/table captions &amp; cross-references</span></a>
+      <a class="card" href="tool.html?tool=citations"><b>⚖️ Citations</b><span>Bluebook citations — cases, statutes, patents, Fed. Reg., MPEP, articles; practitioner/academic styles, T6/T10 abbreviation, id./supra &amp; parallel cites, paste-and-fix. Plus a <strong>Table of Contents</strong>, a <strong>Table of Authorities</strong> (static, italic, two-line, court/year) and a citation register</span></a>
+      <a class="card" href="tool.html?tool=dna"><b>🧬 DNA</b><span>Reverse complement, translation, ORFs, primer Tm, restriction sites (48 enzymes), EMBOSS isoelectric point</span></a>
+      <a class="card" href="tool.html?tool=reaction"><b>⚗️ Reaction</b><span>Multi-step reaction schemes with conditions over the arrow; forward, reversible (⇌) &amp; retrosynthetic arrows</span></a>
+      <a class="card" href="tool.html?tool=audit"><b>✅ Audit</b><span>Whole-document consistency check</span></a>
     </div>
   </section>
 

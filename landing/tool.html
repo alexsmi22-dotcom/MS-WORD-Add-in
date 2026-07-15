@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>JurisLab — Tool detail</title>
+  <meta name="description" content="Detailed capabilities and examples for a JurisLab Word add-in tool." />
+  <style>
+    :root { --blue:#2e74b5; --ink:#1b1b1f; --muted:#5b5b66; --bg:#f6f8fb; --card:#fff; --line:#e4e8ef; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; color:var(--ink); background:var(--bg); line-height:1.6; }
+    .wrap { max-width:820px; margin:0 auto; padding:0 20px; }
+    header { background:linear-gradient(135deg,#2e74b5,#1f4e79); color:#fff; padding:40px 0 34px; }
+    .back { display:inline-block; color:#fff; text-decoration:none; opacity:.9; font-size:.95rem; margin-bottom:18px; }
+    .back:hover { opacity:1; text-decoration:underline; }
+    h1 { font-size:2.1rem; margin:0 0 8px; }
+    h1 .ic { margin-right:10px; }
+    .tagline { font-size:1.12rem; opacity:.95; margin:0; max-width:660px; }
+    section { padding:30px 0; }
+    h2 { color:var(--blue); font-size:1.25rem; margin:0 0 14px; }
+    ul.does { list-style:none; margin:0; padding:0; }
+    ul.does li { background:var(--card); border:1px solid var(--line); border-left:3px solid var(--blue); border-radius:8px; padding:11px 15px; margin-bottom:9px; }
+    ul.does li b { color:var(--ink); }
+    .examples { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:6px 18px 14px; }
+    .ex { padding:12px 0; border-bottom:1px dashed var(--line); }
+    .ex:last-child { border-bottom:none; }
+    .ex .io { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:.92rem; }
+    .ex .io .in { background:#eef1f6; padding:2px 7px; border-radius:5px; }
+    .ex .io .arrow { color:var(--muted); margin:0 8px; }
+    .ex .io .out { background:#e7f7ec; padding:2px 7px; border-radius:5px; }
+    .ex .note { color:var(--muted); font-size:.95rem; margin-top:5px; }
+    .note-box { background:#eef4fb; border:1px solid #d6e3f3; border-radius:10px; padding:14px 16px; color:#234; font-size:.95rem; }
+    .nav { display:flex; justify-content:space-between; gap:12px; padding:10px 0 40px; }
+    .nav a { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:12px 16px; text-decoration:none; color:var(--blue); font-weight:600; flex:1; }
+    .nav a:hover { border-color:var(--blue); }
+    .nav a.next { text-align:right; }
+    .nav a small { display:block; color:var(--muted); font-weight:400; font-size:.8rem; }
+    footer { text-align:center; color:var(--muted); font-size:.9rem; padding:24px 0 44px; }
+    a { color:var(--blue); }
+    code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
+    .missing { padding:60px 0; text-align:center; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap">
+      <a class="back" href="index.html">← All tools</a>
+      <h1 id="title">JurisLab</h1>
+      <p class="tagline" id="tagline"></p>
+    </div>
+  </header>
+
+  <main class="wrap" id="content"></main>
+
+  <div class="wrap nav" id="nav"></div>
+
+  <footer>
+    100% offline (except the opt-in online name lookup). Free &amp; open-source (MIT). ·
+    <a href="index.html">Back to all tools</a> ·
+    <a href="https://github.com/alexsmi22-dotcom/MS-WORD-Add-in">GitHub</a>
+  </footer>
+
+  <script>
+  // Each tool: icon, title, tagline, does[] (HTML bullets), examples[] ({in,out} or {note}).
+  const TOOLS = {
+    analyze: { icon:"🧮", title:"Analyze", tagline:"A no-code numerical workbench inside Word — matrix math, optimization, signal processing, differential equations, and data insights, all computed offline from your own numbers.",
+      does:[
+        "<b>Linear algebra</b> — solve A·x = b, matrix inverse, determinant, rank &amp; trace, transpose, and multiplication, with partial pivoting for stability. Singular systems are reported honestly, never faked.",
+        "<b>Eigenvalues</b> — for symmetric matrices (real values + eigenvectors) or <em>any</em> square matrix via the Francis double-shift QR algorithm, including complex-conjugate pairs shown as a ± bi.",
+        "<b>QR and SVD</b> decompositions (Householder QR; one-sided Jacobi SVD, any shape).",
+        "<b>Matrix expressions</b> — define named matrices and evaluate one line, e.g. A*inv(B) + 2*C', det(A), (A−B)^T.",
+        "<b>Optimization</b> — minimize an objective you type (Nelder–Mead simplex); reports the optimum, minimum value, and convergence.",
+        "<b>FFT / spectrum</b> — a sampled signal → amplitude spectrum, dominant frequencies, and a chart.",
+        "<b>ODE / system solving</b> — y' = f(t, y) and coupled systems via an adaptive Dormand–Prince RK45 solver → a sampled table and a trajectory plot.",
+        "<b>Data → insights</b> — paste a table and get per-column summaries, a correlation matrix (Pearson r + p-value, Spearman ρ), trend detection, outlier/missing flags, and plain-language findings.",
+        "Matrices insert as clean, editable <b>Word tables</b>; spectra and trajectories insert as charts."
+      ],
+      examples:[
+        {in:"Solve A·x=b:  A = [[2,1],[1,-1]], b = [5,1]", out:"x = [2, 1]"},
+        {in:"Eigenvalues of [[0,-1],[1,0]]", out:"±i (complex pair)"},
+        {in:"Minimize (1-x)^2 + 100*(y-x^2)^2", out:"min ≈ 0 at x=1, y=1"},
+        {note:"Paste a dose/response table → \"dose and response are strongly positively correlated (r = 0.99, p < 0.001); response shows a significant increasing trend.\""}
+      ] },
+    chemical: { icon:"🧪", title:"Chemical", tagline:"Correctly formatted chemical formulas, offline 2D structures from a name/formula/SMILES, and a full physicochemical + pKa readout.",
+      does:[
+        "<b>Formatted formulas</b> with correct sub/superscripts — digits become subscripts, charges become superscripts.",
+        "<b>2D structures</b>, fully offline, from a common <b>name</b> (359 built-in compounds), a <b>formula</b>, or a <b>SMILES</b> string; isomeric SMILES draw with wedge/hash stereochemistry.",
+        "<b>Formula validator</b> — every element checked against the real 118-element periodic table, parentheses/hydrates balanced, with molecular weight and net charge (polyatomic ions handled).",
+        "<b>Physicochemical properties &amp; druglikeness</b> — cLogP, logS, tPSA, H-bond donors/acceptors, rotatable bonds, plus the Lipinski Rule of Five and Veber screens.",
+        "<b>pKa group estimation</b> — detects ionizable groups (carboxylic acids, amines, phenols, pyridines…) and reports typical literature pKa per group plus an estimated net charge at pH 7.4.",
+        "<b>Online name → structure</b> (opt-in) — resolves an arbitrary systematic IUPAC name via OPSIN, with a consent prompt; everything else stays offline."
+      ],
+      examples:[
+        {in:"H2O", out:"H₂O"}, {in:"SO4^2-", out:"SO₄²⁻"}, {in:"Ca(OH)2", out:"Ca(OH)₂"},
+        {in:"aspirin", out:"2D structure + cLogP/tPSA/Lipinski + pKa ≈ 3.5 (carboxylic acid)"},
+        {note:"Glycine → detects a carboxylic acid (−) and an amine (+): net charge ≈ 0 at pH 7.4 (a zwitterion)."}
+      ] },
+    massspec: { icon:"⚛️", title:"Mass Spec", tagline:"An offline mass-spectrometry readout for a name, formula, or SMILES — exact masses, the theoretical isotope pattern, and common adduct m/z.",
+      does:[
+        "<b>Exact masses</b> — monoisotopic (for high-resolution MS) and average molecular weight.",
+        "<b>Isotope pattern</b> — theoretical M, M+1, M+2… peaks with relative intensities (e.g. the tell-tale ~32% M+2 of chlorine), from standard NIST abundances.",
+        "<b>Adduct m/z</b> — [M+H]⁺, [M+Na]⁺, [M+K]⁺, [M+NH₄]⁺, [M+2H]²⁺, [M−H]⁻, [M+Cl]⁻, [M+HCOO]⁻, [M−2H]²⁻, all computed exactly.",
+        "Elements outside the common organic/bio set are reported, never silently dropped."
+      ],
+      examples:[
+        {in:"C9H8O4 (aspirin)", out:"monoisotopic 180.0423; [M+H]⁺ 181.0495; [M−H]⁻ 179.0350"},
+        {note:"A chlorine-containing molecule shows the characteristic ~32% M+2 isotope peak."}
+      ] },
+    bioassay: { icon:"🧫", title:"Bio/Assay", tagline:"Quantitative life-science tools — offline curve fitting with parameters ± SE and R², plus everyday lab math, with the fit drawn over your data.",
+      does:[
+        "<b>Enzyme kinetics</b> — Michaelis–Menten (V_max, K_m) and Hill fits, catalytic efficiency (k_cat, k_cat/K_m); linearizations seed the fit so no starting guess is needed.",
+        "<b>Dose–response</b> — a 4-parameter logistic returns IC50/EC50, Hill slope, plateaus, pEC50; Cheng–Prusoff converts IC50 → K_i.",
+        "<b>Receptor binding</b> — one-site saturation binding (B_max, K_d).",
+        "<b>Lab math</b> — Henderson–Hasselbalch buffer pH, Beer–Lambert, dilution (C₁V₁=C₂V₂) &amp; serial dilutions, A260/A280 quantitation.",
+        "Fitting is Levenberg–Marquardt nonlinear least squares — no server, no GraphPad round-trip."
+      ],
+      examples:[
+        {in:"[S] and v data", out:"Michaelis–Menten: V_max = 12.3 ± 0.4, K_m = 5.1 ± 0.3, R² = 0.998 + fitted curve"},
+        {in:"dose vs % inhibition", out:"IC50 = 42 nM, Hill slope = 1.1"}
+      ] },
+    peptide: { icon:"🔗", title:"Peptide", tagline:"Draw a peptide's 2D structure from its amino-acid sequence and insert it, with formula and molecular weight.",
+      does:[
+        "<b>One-letter</b> codes (ACDEFG, spaces optional) or <b>three-letter</b> codes with separators (Ala-Gly-Ser, Met Lys).",
+        "Reports residue count, molecular formula, and molecular weight; free N- and C-termini.",
+        "Shows connectivity (stereochemistry isn't drawn, so it never asserts a wrong configuration).",
+        "Unrecognized residues are flagged, not silently dropped. Best for short peptides."
+      ],
+      examples:[
+        {in:"ACDEFG", out:"2D structure + formula + MW"},
+        {in:"Ala-Gly-Ser", out:"tripeptide structure, 3 residues"}
+      ] },
+    stats: { icon:"📐", title:"Stats", tagline:"Turn experimental data into a paper-ready result offline — parametric and non-parametric tests, ANOVA, regression, and uncertainty, all with real p-values.",
+      does:[
+        "<b>Descriptive statistics</b> — n, mean, SD, SEM, variance, median, min/max, 95% CI (t-based), CV.",
+        "<b>t-tests</b> — two-sample (Welch or Student pooled) and paired, with a real p-value and an APA-style report.",
+        "<b>Non-parametric</b> — Mann–Whitney U (independent) and Wilcoxon signed-rank (paired), tie- and continuity-corrected.",
+        "<b>ANOVA</b> — one-way and <b>two-way</b> (balanced, with interaction); <b>linear regression</b> (slope, R², slope p).",
+        "<b>Chi-square</b> — goodness-of-fit and test of independence (contingency table).",
+        "<b>Multiple-comparison correction</b> — Bonferroni, Holm, and Benjamini–Hochberg (FDR).",
+        "<b>Uncertainty propagation</b> — a formula plus <code>a = 10 ± 0.1</code> lines → result with combined 1σ. P-values use real distribution functions (incomplete beta / gamma)."
+      ],
+      examples:[
+        {in:"Welch t-test on two groups", out:"t(17.4) = 2.41, p = .027"},
+        {in:"Mann–Whitney on [1,2,3,4] vs [6,7,8,9]", out:"U = 0, p < .05"},
+        {in:"p = [.01,.04,.03,.005] with BH", out:"adjusted p-values controlling FDR"}
+      ] },
+    math: { icon:"∑", title:"Math", tagline:"Insert native Word equations (OMML) — fractions, radicals, Σ/∫/∏, matrices, logic, physics notation — plus LaTeX import/export and a formula library.",
+      does:[
+        "Fractions, super/subscripts, roots, Σ/∫/∏, limits, |x|, accents, factorials, implicit multiplication, full Greek.",
+        "<b>Matrices</b> (matrix/pmatrix/bmatrix/vmatrix) and <b>piecewise</b> cases(…).",
+        "<b>Logic &amp; set theory</b> (∀ ∃ ∈ ⊆ ∪ ∩ ∅ ∧ ∨ ¬ ⇒ ⇔), number sets (ℤ ℝ ℕ ℚ ℂ), engineering/physics (bra-ket, ∮ ∬ ∭, ℏ, Ω, ℒ, ℱ).",
+        "<b>LaTeX import/export</b> — paste LaTeX → a native Word equation, or copy the current one out as LaTeX.",
+        "<b>Multi-line aligned equations</b> and a categorized <b>formula library</b> (stats, geometry, algebra, trig, calculus, engineering, finance).",
+        "Optional right-aligned equation numbering (I), (II), … with a counter."
+      ],
+      examples:[
+        {in:"a/b", out:"stacked fraction"},
+        {in:"paste \\frac{-b±√(b²-4ac)}{2a}", out:"a native Word equation"},
+        {in:"matrix(a,b; c,d)", out:"a 2×2 matrix"}
+      ] },
+    units: { icon:"📏", title:"Units", tagline:"Typeset physical quantities with SI conventions and convert between units, including compound units, with significant-figure rounding.",
+      does:[
+        "<b>Typeset quantities</b> — superscript exponents, ±, ×10ⁿ, thin space, symbol fixes (ohm → Ω, degC → °C, umol → µmol).",
+        "<b>Convert</b> across length, mass, time, temperature (affine), volume, pressure, energy, amount, and angle.",
+        "<b>Compound units</b> — km/h → m/s, g/mol → kg/mol.",
+        "Insert the typeset quantity or the conversion result."
+      ],
+      examples:[
+        {in:"9.81 m/s^2", out:"9.81 m/s²"}, {in:"5.0 +- 0.2 kg", out:"5.0 ± 0.2 kg"},
+        {in:"100 °C → °F", out:"212 °F"}, {in:"km/h → m/s", out:"÷ 3.6"}
+      ] },
+    plot: { icon:"📈", title:"Plot", tagline:"Offline function and data charts with legends and error bars, rendered as an image — nothing leaves your machine.",
+      does:[
+        "Plot a <b>function</b> y = f(x) over an x-range (sin, cos, exp, log, sqrt, abs…, constants pi/e).",
+        "Plot <b>data</b> points (x y per line, optional err for error bars) as scatter — combine with a function on the same axes.",
+        "<b>Multiple functions</b> at once (separate with ;) with a labeled legend.",
+        "Axes, ticks, gridlines, optional title and axis labels."
+      ],
+      examples:[
+        {in:"sin(x)/x", out:"function chart over your x-range"},
+        {in:"x^2 ; exp(-x^2)", out:"two curves with a legend"}
+      ] },
+    tablechart: { icon:"📊", title:"Table → Chart", tagline:"Turn a Word table into a chart, flowchart, block diagram, or clean table figure — patent-ready black-and-white or an editable PowerPoint.",
+      does:[
+        "Click inside a table, <b>Read selected table</b>, and the add-in auto-picks the best representation and tells you why.",
+        "<b>Charts</b> — column, bar, line, area, scatter, stacked, pie, doughnut; currency/percent/units/accountant negatives parsed.",
+        "<b>Flowchart</b> — each row a step (decision diamonds for <code>?</code>, reference numerals from a first column) — ideal for method-claim figures.",
+        "<b>Block diagram</b> — hierarchy paths merge into a connected box tree — ideal for apparatus figures.",
+        "<b>Table figure</b> — draw the table itself as a clean figure (section bands, bold header, right-aligned numbers).",
+        "<b>Reference numerals</b> with lead lines (37 CFR 1.84 style), <b>patent B&amp;W line art</b>, and an <b>editable PowerPoint</b> export that paginates big diagrams across slides."
+      ],
+      examples:[
+        {note:"A numeric sales table → a stacked column chart, or a black-and-white hatched patent figure with a \"FIG. 2\" label."},
+        {note:"A Step | Description table → a top-to-bottom flowchart with numbered steps and decision diamonds."}
+      ] },
+    finance: { icon:"💵", title:"Finance", tagline:"18 financial calculators — time value of money, DCF, bonds, options with Greeks — plus a typeset finance formula library.",
+      does:[
+        "<b>Time value of money</b> — future/present value, annuities, growing annuities, compound interest, effective annual rate.",
+        "<b>Loans</b> — payment and full amortization schedule.",
+        "<b>Valuation</b> — NPV/IRR, date-aware XNPV/XIRR, DCF with a Gordon-growth terminal value.",
+        "<b>Bonds</b> — price, YTM, Macaulay/modified duration, convexity.",
+        "<b>Options</b> — Black–Scholes price with Greeks (Δ Γ Θ ν ρ) and implied volatility; depreciation; return statistics.",
+        "A <b>finance formula library</b> in Math mode (CAPM, WACC, Sharpe, put–call parity, …)."
+      ],
+      examples:[
+        {in:"cash flows -1000, 500, 500, 500", out:"NPV / IRR"},
+        {in:"S, K, r, σ, T", out:"Black–Scholes price + Δ Γ Θ ν ρ"}
+      ] },
+    build: { icon:"🔬", title:"Build", tagline:"Build a 2D structure from a typed atom/bond list or a molfile, including Markush/generic genus structures for patents.",
+      does:[
+        "Atom/bond list or a pasted MDL molfile; bonds single/double/triple/undefined/stereo, atom charges, auto hydrogens.",
+        "<b>Markush / generic</b> atoms — [C,N] lists, X halogen, A any atom, Q heteroatom, R/R1/R2 R-groups.",
+        "<b>R-group legends</b> — \"where R1 = …\" as a line or a structured R-group | Definition table; nested (sub-generic) R-groups auto-detected.",
+        "<b>Query features</b> for a rigorous genus — {ar} aromatic, {ring} in-ring, {r5}/{r6} ring size, {sub}/{nosub}.",
+        "<b>Substituent gallery</b> — depict R-group alternatives as drawn 2D structures."
+      ],
+      examples:[
+        {in:"atoms: C O O / bonds: 1=2 1=3", out:"CO₂ structure"},
+        {in:"atoms: [C,N] C C C C C (ring)", out:"a benzene/pyridine genus"}
+      ] },
+    code: { icon:"💻", title:"Code", tagline:"Insert algorithm/pseudocode blocks and verbatim code listings — ideal for cryptography and computer-science claims.",
+      does:[
+        "<b>Algorithm / pseudocode blocks</b> — bold control-flow keywords, line numbers, optional caption (\"Algorithm 1: KeyGen\").",
+        "<b>Code listings</b> — verbatim monospace, whitespace-preserving, optional line numbers."
+      ],
+      examples:[
+        {note:"Paste pseudocode → a numbered block with bold if/else/for/return, captioned \"Algorithm 1\"."}
+      ] },
+    sequence: { icon:"🧬", title:"Sequence", tagline:"Generate a draft WIPO ST.26 sequence-listing XML from DNA/RNA/protein sequences, with feature annotation.",
+      does:[
+        "Per-sequence molecule type and organism; the source mol_type picks from the full ST.26 vocabulary (genomic DNA/RNA, mRNA, tRNA, rRNA…).",
+        "Residues cleaned (whitespace/numbering stripped, IUPAC ambiguity accepted, invalid residues flagged).",
+        "<b>Feature annotation</b> — CDS / gene / mRNA / misc_feature with a location and qualifiers; a CDS auto-generates /translation from the verified genetic code.",
+        "Applicant / title / metadata; download .xml or copy. Always validate in the WIPO Sequence tool before filing."
+      ],
+      examples:[
+        {in:"ATG…TAA + CDS 1..300", out:"ST.26 XML with /translation auto-filled"}
+      ] },
+    botanical: { icon:"🌿", title:"Botanical", tagline:"Plant-patent scientific-name typesetting with correct nomenclature italics, plus a varietal characteristics table.",
+      does:[
+        "Genus/species/infraspecific epithets italic; rank connectors (subsp./var./f.), authors, hybrid ×, and cultivars ('Peace') roman.",
+        "Quotes normalized, genus capitalized.",
+        "<b>Varietal characteristics table</b> from Label: value lines (plant height, flower color/RHS, habit…)."
+      ],
+      examples:[
+        {in:"rosa hybrida 'Peace'", out:"<em>Rosa hybrida</em> 'Peace'"}
+      ] },
+    numerals: { icon:"🔢", title:"Numerals", tagline:"Manage patent reference numerals — a numeral→element table saved in the document, one-click callouts, and consistency checks.",
+      does:[
+        "A <b>numeral → element table</b> (widget 10, housing 12…) saved inside the document, so each case keeps its own list.",
+        "<b>One-click callout insertion</b> — housing (12) or housing 12; next numeral auto-suggested.",
+        "<b>Scan document</b> to flag collisions, gaps, orphans, and unused entries.",
+        "Insert the sorted <b>\"List of Reference Numerals\"</b> table."
+      ],
+      examples:[
+        {in:"housing → insert callout", out:"housing (12)"},
+        {note:"Scan flags that numeral 14 is used for two different elements (a collision)."}
+      ] },
+    refs: { icon:"🔖", title:"Refs", tagline:"Auto-numbered figure/table captions and cross-references, with a gap/duplicate check.",
+      does:[
+        "<b>Auto-numbered captions</b> — \"Figure 1.\", \"Table 2.\" with per-document counters saved in the file.",
+        "<b>Cross-references</b> — insert \"Fig. 3\", \"Table 2\", or \"Eq. (1)\".",
+        "<b>Check captions</b> — flags skipped or duplicated figure/table numbers."
+      ],
+      examples:[
+        {in:"insert figure caption", out:"Figure 1., Figure 2., …"}
+      ] },
+    citations: { icon:"⚖️", title:"Citations", tagline:"Bluebook legal citations — cases, statutes, patents, agency &amp; secondary sources — plus a Table of Contents, Table of Authorities, and citation register.",
+      does:[
+        "<b>Cases</b> — full and short form, parallel citations, T6/T10 abbreviation; an unrecognized reporter is flagged.",
+        "<b>Statutes &amp; regulations</b> (35 U.S.C. § 101, 37 C.F.R. § 1.84), <b>patents</b> and application publications, <b>agency &amp; secondary</b> (Fed. Reg., MPEP, law-review articles, treatises).",
+        "<b>Practitioner / academic</b> typeface toggle; reporter/court auto-correct; signals (See, Cf., …); date normalization.",
+        "<b>Paste &amp; fix</b> — paste a messy citation and it detects the type and reformats it; <b>Id./supra</b> short forms.",
+        "<b>Table of Contents</b> (FRAP 28(a)(2)) and <b>Table of Authorities</b> — grouped, alphabetized, de-duplicated, case names italic, (court year) parentheticals, with a page-number flow.",
+        "<b>Citation register</b> — scan the document for every authority with a usage count."
+      ],
+      examples:[
+        {in:"alice corp v cls bank, 573 us 208 (2014)", out:"<em>Alice Corp. v. CLS Bank Int'l</em>, 573 U.S. 208 (2014)"},
+        {in:"35 usc 101", out:"35 U.S.C. § 101"}
+      ] },
+    dna: { icon:"🧬", title:"DNA", tagline:"Sequence analysis at the bench — reverse complement, transcription, six-frame translation, ORFs, primer Tm, and restriction sites.",
+      does:[
+        "<b>Reverse complement</b> / complementary strand (IUPAC ambiguity accepted); <b>transcription</b> to mRNA.",
+        "<b>Translation</b> in any of six frames; stop codons as *; degenerate codons resolved when unambiguous.",
+        "<b>GC content &amp; base composition</b>; a <b>six-frame ORF finder</b> with a minimum-length filter and an insertable table.",
+        "<b>Bench tools</b> — primer Tm (Wallace/GC%), protein MW/pI/GRAVY of the translation, restriction-site scan."
+      ],
+      examples:[
+        {in:"ATGGCC…", out:"reverse complement, mRNA, protein, ORF table"},
+        {in:"primer sequence", out:"Tm (Wallace and GC% methods)"}
+      ] },
+    reaction: { icon:"⚗️", title:"Reaction", tagline:"Compose multi-step reaction schemes with conditions over the arrow, drawn from names or SMILES.",
+      does:[
+        "reactants + reactants >> products, with optional conditions over/under the arrow.",
+        "<b>Multi-step</b> schemes — A -> B -> C draws an arrow between each stage.",
+        "Each component is a name or SMILES (formal charges kept); the scheme inserts as one image with provenance."
+      ],
+      examples:[
+        {in:"benzene + HNO3 >> nitrobenzene ; H2SO4", out:"a reaction scheme with H₂SO₄ over the arrow"}
+      ] },
+    audit: { icon:"✅", title:"Audit", tagline:"One pass over the whole document runs every consistency check at once — a pre-filing sweep.",
+      does:[
+        "<b>Reference numerals</b> (uses your Numerals table), <b>SEQ ID NO</b> references vs. the listing, <b>figure-number</b> continuity, and <b>cross-reference validity</b>.",
+        "Grouped report with a ✓ per clean area. Advisory — every check is heuristic; verify before filing."
+      ],
+      examples:[
+        {note:"Reports: numerals ✓, figures ✓, but \"Fig. 5\" is referenced with no matching caption."}
+      ] }
+  };
+
+  const ORDER = ["analyze","chemical","massspec","bioassay","peptide","stats","math","units","plot","tablechart","finance","build","code","sequence","botanical","numerals","refs","citations","dna","reaction","audit"];
+
+  const params = new URLSearchParams(location.search);
+  const id = params.get("tool");
+  const t = TOOLS[id];
+  const titleEl = document.getElementById("title");
+  const tagEl = document.getElementById("tagline");
+  const content = document.getElementById("content");
+  const nav = document.getElementById("nav");
+
+  if (!t) {
+    titleEl.textContent = "Tool not found";
+    tagEl.textContent = "";
+    content.innerHTML = '<div class="missing"><p>That tool isn’t recognized. <a href="index.html">See all 21 tools →</a></p></div>';
+  } else {
+    document.title = t.title + " — JurisLab";
+    titleEl.innerHTML = '<span class="ic">' + t.icon + "</span>" + t.title;
+    tagEl.textContent = t.tagline;
+
+    let html = "<section><h2>What it does</h2><ul class=\"does\">";
+    for (const d of t.does) html += "<li>" + d + "</li>";
+    html += "</ul></section>";
+
+    html += "<section><h2>Examples</h2><div class=\"examples\">";
+    for (const ex of t.examples) {
+      html += '<div class="ex">';
+      if (ex.in !== undefined) {
+        html += '<div class="io"><span class="in"></span><span class="arrow">→</span><span class="out"></span></div>';
+      }
+      if (ex.note) html += '<div class="note">' + ex.note + "</div>";
+      html += "</div>";
+    }
+    html += "</div></section>";
+
+    html += '<section><div class="note-box"><strong>Private by design.</strong> This tool runs entirely on your machine — nothing you type leaves your computer. (The one exception across the whole add-in is the optional online name→structure lookup in Chemical mode, which prompts for consent before sending.)</div></section>';
+
+    content.innerHTML = html;
+
+    // Fill code text safely (textContent avoids any escaping surprises).
+    const ios = content.querySelectorAll(".io");
+    let k = 0;
+    for (const ex of t.examples) {
+      if (ex.in !== undefined) {
+        const io = ios[k++];
+        io.querySelector(".in").textContent = ex.in;
+        io.querySelector(".out").innerHTML = ex.out; // out may contain <em> for names
+      }
+    }
+
+    // prev / next
+    const i = ORDER.indexOf(id);
+    const prev = i > 0 ? ORDER[i - 1] : ORDER[ORDER.length - 1];
+    const next = i < ORDER.length - 1 ? ORDER[i + 1] : ORDER[0];
+    nav.innerHTML =
+      '<a class="prev" href="tool.html?tool=' + prev + '"><small>← Previous</small>' + TOOLS[prev].icon + " " + TOOLS[prev].title + "</a>" +
+      '<a class="next" href="tool.html?tool=' + next + '"><small>Next →</small>' + TOOLS[next].icon + " " + TOOLS[next].title + "</a>";
+  }
+  </script>
+</body>
+</html>

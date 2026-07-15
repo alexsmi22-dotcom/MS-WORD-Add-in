@@ -3,8 +3,9 @@
 A Microsoft Word add-in (Office.js / TypeScript) for **STEM authoring and patent &
 legal drafting**, with a strong **life-science** toolset. It turns what you type
 into correctly formatted content — formulas, structures, mass spectra, kinetics
-fits, peptides, statistics, equations, plots, sequences, citations, and more — and
-inserts it at the cursor. Everything runs **entirely on your machine; no document
+fits, peptides, statistics, a no-code numerical workbench (matrix math,
+optimization, FFT, ODE solving, data insights), equations, plots, sequences,
+citations, and more — and inserts it at the cursor. Everything runs **entirely on your machine; no document
 content is sent anywhere** (the one exception is the strictly opt-in online
 name→structure lookup, which prompts before sending).
 
@@ -13,9 +14,9 @@ Pick a tool from the home screen — **21 tools** (grouped STEM + legal):
 | Mode | What it does |
 |---|---|
 | **Chemical** | formulas (`H2O`→H₂O, `SO4^2-`→SO₄²⁻), 2D structures from name/formula/SMILES, structure→name lookup, **physicochemical properties & druglikeness** (cLogP, tPSA, Lipinski/Veber), **pKa group estimation** + net charge at pH 7.4, opt-in **online IUPAC name→structure** (OPSIN) |
-| **Mass Spec** | **NEW** — monoisotopic & average mass, theoretical **isotope pattern**, and common **adduct m/z** ([M+H]⁺, [M+Na]⁺, [M+2H]²⁺, [M−H]⁻…) |
-| **Bio/Assay** | **NEW** — offline curve fitting: **enzyme kinetics** (Michaelis–Menten, Hill), **dose–response** (IC50/EC50, 4PL), **binding** (Kd/Bmax), plus lab calculators (Cheng–Prusoff, Henderson–Hasselbalch, Beer–Lambert, dilutions, A260/A280) |
-| **Peptide** | **NEW** — 2D structure from a one- or three-letter amino-acid sequence, with formula & MW |
+| **Mass Spec** | monoisotopic & average mass, theoretical **isotope pattern**, and common **adduct m/z** ([M+H]⁺, [M+Na]⁺, [M+2H]²⁺, [M−H]⁻…) |
+| **Bio/Assay** | offline curve fitting: **enzyme kinetics** (Michaelis–Menten, Hill), **dose–response** (IC50/EC50, 4PL), **binding** (Kd/Bmax), plus lab calculators (Cheng–Prusoff, Henderson–Hasselbalch, Beer–Lambert, dilutions, A260/A280) |
+| **Peptide** | 2D structure from a one- or three-letter amino-acid sequence, with formula & MW |
 | **Stats** | descriptive stats, **t-tests** (Welch/Student/paired), one- & **two-way ANOVA**, regression, **non-parametric** (Mann–Whitney, Wilcoxon), **chi-square** (fit & independence), **multiple-comparison correction** (Bonferroni/Holm/BH), and **uncertainty propagation** |
 | **Analyze** | **NEW** — no-code numerical workbench: **matrix math** (solve A·x=b, inverse, determinant/rank/trace, eigenvalues incl. complex, **QR**, **SVD**, one-line **matrix expressions** like `A*inv(B)+2*C'`), **optimization** (Nelder–Mead), **FFT** spectra, **ODE/system solving** (RK45), and **raw data → trends, correlations & plain-language insights**, all offline |
 | **Math** | native Word equations, matrices/cases, **LaTeX import/export**, multi-line aligned equations, a formula library |
@@ -317,7 +318,7 @@ sub/superscript formatting. Uncheck the box to always use inline formatting.
       `X` halogen shorthand.
 - [x] **Equation numbering** (I, II, …) and **structure provenance**
       (formula/MW/SMILES/OCL-ID in alt-text).
-- [x] **Test suite** (Jest, 1,262 tests) + **CI**; distribution/security docs.
+- [x] **Test suite** (Jest, 1,425 tests) + **CI**; distribution/security docs.
 - [x] **Stereochemistry** — isomeric SMILES (wedges) + Build wedge/hash bonds.
 - [x] **Richer Markush atoms** — `A` any, `Q` heteroatom, `R1` R-group (+ `[C,N]`, `X`).
 - [x] **R-group legends** — define `R1 = …` and insert a "where R1 = …" line.
@@ -371,18 +372,30 @@ sub/superscript formatting. Uncheck the box to always use inline formatting.
 - [x] **Mass Spec mode** — monoisotopic & average mass, theoretical isotope
       pattern, and common adduct m/z.
 - [x] **Peptide mode** — 2D structure from a one-/three-letter amino-acid sequence.
-- [x] **Stats mode** — descriptive statistics, t-tests, one-way ANOVA, linear
-      regression (with p-values), and uncertainty propagation.
+- [x] **Stats mode** — descriptive statistics, t-tests, one- & two-way ANOVA, linear
+      regression (with p-values), non-parametric tests (Mann–Whitney U, Wilcoxon
+      signed-rank), chi-square (goodness-of-fit & independence), multiple-comparison
+      correction (Bonferroni/Holm/Benjamini–Hochberg), and uncertainty propagation.
 - [x] **IUPAC name→structure** — opt-in online resolution via the OPSIN web
       service (consented; everything else stays offline).
+- [x] **Analyze mode** — a no-code numerical workbench: linear algebra (solve A·x=b,
+      inverse, determinant/rank/trace, eigenvalues incl. complex, QR, SVD, matrix
+      expressions), Nelder–Mead optimization, FFT/frequency spectrum, adaptive RK45
+      ODE/system solving, and raw data → correlations, trends & plain-language insights.
+- [x] **pKa estimation** (Chemical mode) — functional-group detection from structure
+      with typical literature pKa per ionizable group and net charge at pH 7.4.
+- [x] **GitHub Pages deployment** — automated build & publish of the hosted add-in
+      and landing page on every push to `main`.
 - [x] **Centralized-deployment path documented** — validated deploy manifest +
       IT admin guide (`packaging/CENTRALIZED-DEPLOY.md`) for Microsoft 365
       Integrated Apps. (AppSource intentionally not used — internal tool.)
 
 ## Notes
 
-- The dev manifest points at `https://localhost:3000`. For real distribution,
-  host the built `dist/` somewhere and update the URLs in `manifest.xml`.
+- The dev manifest (`manifest.xml`) points at `https://localhost:3000` for local
+  development; the production manifest (`manifest.prod.xml`) points at the hosted
+  GitHub Pages site, which is built and published automatically on every push to
+  `main` (see `.github/workflows/pages.yml`).
 - Math mode inserts a **native Word equation** (OMML) by default — fractions,
   radicals, Σ/∫, matrices, etc. Uncheck "native equation" to fall back to inline
   superscript/subscript formatting.

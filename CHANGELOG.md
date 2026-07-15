@@ -2,6 +2,55 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
+## [1.65.0] — 2026-07-15 — Restriction enzymes: independent compilation, both strands, Type IIS
+
+**First, a correction.** I reported that the add-in knew *"18 restriction
+enzymes"*. That was wrong — a bad grep. It was **49**. The real gaps were never
+the row count; they were structural.
+
+**Provenance.** This table is compiled **independently** from the freely
+published supplier catalogues (NEB, Thermo, Promega, Takara), cross-checked
+between them. It is **not copied from REBASE**. A recognition sequence is a
+*fact* — "EcoRI cuts G^AATTC" is in every catalogue and textbook, and facts carry
+no copyright (*Feist v. Rural Telephone*). But a database's **selection and
+arrangement** can carry thin copyright, and REBASE's file is distributed *"All
+rights reserved"* — copying it wholesale would copy the compilation, not just the
+facts. The selection here is our own. The module says so, so nobody bulk-imports
+REBASE later.
+
+**The real bug, which adding enzymes would have made critical.** The old matcher
+was a forward-only `indexOf`. That happened to work because all 49 known enzymes
+were **palindromic**. Every Type IIS enzyme is **asymmetric** — adding BsaI to the
+old engine would have silently missed every reverse-strand site: a Golden Gate
+assembly that fails at the bench with nothing to explain why.
+
+| | before | after |
+|---|---|---|
+| enzymes | 49 | **122** |
+| BsaI on the reverse strand | **0 hits** | 1 hit |
+| DraIII (`CACNNNGTG`) | **0 hits** (couldn't express `N`) | 1 hit |
+| EcoRI | position only | position + cut site + 4 nt 5′ overhang |
+
+- **IUPAC ambiguity codes** — BstXI, SfiI, DraIII, AlwNI, XcmI, BglI, PflMI,
+  Bsu36I, BstEII, EcoO109I, AhdI, DrdI, XmnI. None findable by string search.
+- **Type IIS**, verified against NEB's Golden Gate documentation: BsaI
+  `GGTCTC(1/5)`, BsmBI `CGTCTC(1/5)`, BbsI `GAAGAC(2/6)`, plus SapI/BspQI, Esp3I,
+  AarI, BsmAI, BspMI, BtgZI, FokI, HgaI, MlyI, PleI, AlwI, MmeI, BsgI, BpmI,
+  BpuEI, EcoP15I.
+- **Cut positions and overhangs** (5′/3′/blunt with length) — what you need to
+  plan a ligation, and what a name→site map cannot hold.
+- **Circular search**, so a site spanning a plasmid's origin is found.
+- **Unique cutters flagged** — the ones you can actually clone into.
+- Isoschizomers noted where the distinction matters (Acc65I vs KpnI).
+
+`dna.ts` delegates to the new engine and keeps its old API — the 22 existing DNA
+tests pass unmodified.
+
+50 new tests, weighted to the failure that matters: a sweep asserting **every**
+asymmetric enzyme finds its own reverse-complement site.
+
+Suite: **2,000 tests** (was 1,950).
+
 ## [1.64.0] — 2026-07-15 — SnapGene .dna import (with an honest caveat)
 
 Opens `.dna` files directly. **But read the caveat — it is the point.**

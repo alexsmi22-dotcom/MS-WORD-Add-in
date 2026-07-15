@@ -64,6 +64,7 @@ import { parseSequenceFile, SeqRecord } from "../lib/seqio";
 import { buildLinearMapSvg, featureTypes } from "../lib/seqmap";
 import { buildCircularMapSvg } from "../lib/seqmapcirc";
 import { parseSnapGeneDna, looksLikeDna } from "../lib/seqdna";
+import { ENZYMES, findSites, summarise, uniqueCutters, formatSite } from "../lib/enzymes";
 import { nmrChartSvg, irChartSvg, msChartSvg, SPECTRUM_CHART_SIZE } from "../lib/spectraChart";
 import { buildPeptide } from "../lib/peptide";
 import {
@@ -3592,21 +3593,34 @@ function findRestrictionSites(): void {
     setStatus("Enter a DNA sequence first.", "error");
     return;
   }
-  const hits = restrictionSites(seq);
-  if (!hits.length) {
-    dnaRestrictResults.innerHTML = '<span class="hint">No common restriction sites found.</span>';
+  const raw = findSites(seq);
+  if (!raw.length) {
+    dnaRestrictResults.innerHTML = '<span class="hint">No restriction sites found.</span>';
     return;
   }
+  const hits = summarise(raw);
+  const unique = new Set(uniqueCutters(raw));
   const cell = 'style="border:1px solid #000;padding:2px 8px;"';
   const rows = hits
-    .map((h) => `<tr><td ${cell}>${esc(h.enzyme)}</td><td ${cell}>${h.site}</td><td ${cell}>${h.positions.join(", ")}</td></tr>`)
+    .map((h) => {
+      const e = ENZYMES.find((x) => x.name === h.enzyme);
+      const site = e ? formatSite(e) : h.site;
+      // A unique cutter is the one you can actually clone into — flag it.
+      const tag = unique.has(h.enzyme) ? " ★" : "";
+      const oh = h.overhang === "blunt" ? "blunt" : `${h.overhang} overhang`;
+      return `<tr><td ${cell}>${esc(h.enzyme)}${tag}</td><td ${cell}>${esc(site)}</td><td ${cell}>${oh}</td><td ${cell}>${h.positions.join(", ")}</td></tr>`;
+    })
     .join("");
   dnaRestrictResults.innerHTML =
     '<table style="border-collapse:collapse;"><tr>' +
-    `<td ${cell}><strong>Enzyme</strong></td><td ${cell}><strong>Site</strong></td><td ${cell}><strong>Positions</strong></td></tr>` +
+    `<td ${cell}><strong>Enzyme</strong></td><td ${cell}><strong>Site</strong></td><td ${cell}><strong>Ends</strong></td><td ${cell}><strong>Positions</strong></td></tr>` +
     rows +
-    "</table>";
-  setStatus(`Found ${hits.length} enzyme${hits.length === 1 ? "" : "s"} with sites.`, "success");
+    "</table>" +
+    `<div class="hint" style="margin-top:6px">★ = cuts once (a unique cutter). Both strands are searched, so asymmetric sites (BsaI, BsmBI, BbsI) are found on either.</div>`;
+  setStatus(
+    `Found ${hits.length} enzyme${hits.length === 1 ? "" : "s"}; ${unique.size} cut${unique.size === 1 ? "s" : ""} once.`,
+    "success"
+  );
 }
 
 /** Inserts a plain-text DNA result (reverse complement, mRNA, or protein). */

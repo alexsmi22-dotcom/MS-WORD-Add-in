@@ -9,6 +9,7 @@
 // and ORF coordinates are reported 1-based on the original (+) strand for both
 // strands. Like the rest of the engine, it is a drafting aid — verify downstream.
 
+import { ENZYMES, findSites, summarise } from "./enzymes";
 export type Strand = "+" | "-";
 
 // IUPAC nucleotide complements (DNA + RNA; U complements to A).
@@ -289,19 +290,6 @@ export function primerTm(seq: string): PrimerTm {
  * enzymes with unambiguous A/C/G/T sites are listed (the finder matches
  * literally; IUPAC-degenerate sites like AccI's GTMKAC are omitted).
  */
-export const RESTRICTION_ENZYMES: Record<string, string> = {
-  EcoRI: "GAATTC", BamHI: "GGATCC", HindIII: "AAGCTT", NotI: "GCGGCCGC", XhoI: "CTCGAG",
-  PstI: "CTGCAG", SmaI: "CCCGGG", KpnI: "GGTACC", SacI: "GAGCTC", SalI: "GTCGAC",
-  XbaI: "TCTAGA", NcoI: "CCATGG", NdeI: "CATATG", EcoRV: "GATATC", BglII: "AGATCT",
-  SpeI: "ACTAGT", NheI: "GCTAGC", ApaI: "GGGCCC", ClaI: "ATCGAT", HpaI: "GTTAAC",
-  AatII: "GACGTC", AflII: "CTTAAG", AgeI: "ACCGGT", AscI: "GGCGCGCC", AvrII: "CCTAGG",
-  BclI: "TGATCA", BspEI: "TCCGGA", BsrGI: "TGTACA", BstBI: "TTCGAA", DraI: "TTTAAA",
-  EagI: "CGGCCG", FseI: "GGCCGGCC", HaeIII: "GGCC", HhaI: "GCGC", MfeI: "CAATTG",
-  MluI: "ACGCGT", MscI: "TGGCCA", NaeI: "GCCGGC", NsiI: "ATGCAT", PacI: "TTAATTAA",
-  PmeI: "GTTTAAAC", PvuII: "CAGCTG", RsaI: "GTAC", SbfI: "CCTGCAGG", ScaI: "AGTACT",
-  SnaBI: "TACGTA", SspI: "AATATT", StuI: "AGGCCT", SwaI: "ATTTAAAT",
-};
-
 export interface RestrictionHit {
   enzyme: string;
   site: string;
@@ -309,21 +297,34 @@ export interface RestrictionHit {
   positions: number[];
 }
 
-/** Finds occurrences of restriction sites in the sequence (enzymes with ≥1 hit). */
-export function restrictionSites(seq: string, enzymes: Record<string, string> = RESTRICTION_ENZYMES): RestrictionHit[] {
-  // Search in place (don't strip) so reported positions match the input sequence.
-  const s = seq.toUpperCase();
-  const hits: RestrictionHit[] = [];
-  for (const [enzyme, site] of Object.entries(enzymes)) {
-    const positions: number[] = [];
-    let i = s.indexOf(site);
-    while (i !== -1) {
-      positions.push(i + 1);
-      i = s.indexOf(site, i + 1);
-    }
-    if (positions.length) hits.push({ enzyme, site, positions });
-  }
-  return hits.sort((a, b) => a.enzyme.localeCompare(b.enzyme));
+/**
+ * The enzyme table, as a name → site map.
+ *
+ * Kept for backward compatibility. The real table lives in enzymes.ts, which
+ * carries cut positions, overhangs, Type IIS enzymes and IUPAC ambiguity codes
+ * — none of which a flat name→string map can express.
+ */
+export const RESTRICTION_ENZYMES: Record<string, string> = (() => {
+  // Not Object.fromEntries: the project targets ES2017.
+  const out: Record<string, string> = {};
+  for (const e of ENZYMES) out[e.name] = e.site;
+  return out;
+})();
+
+/**
+ * Finds restriction sites.
+ *
+ * Delegates to enzymes.ts, which searches BOTH strands and understands IUPAC
+ * ambiguity codes. The previous implementation did a plain forward-only
+ * indexOf: that happened to work because every enzyme it knew was palindromic,
+ * but it would silently miss every reverse-strand site of an asymmetric enzyme
+ * (all Type IIS — BsaI, BsmBI, BbsI) and could not match a degenerate site
+ * (DraIII's CACNNNGTG) at all.
+ */
+export function restrictionSites(seq: string, enzymes?: Record<string, string>): RestrictionHit[] {
+  const only = enzymes ? Object.keys(enzymes) : undefined;
+  const hits = findSites(seq, { only });
+  return summarise(hits).map((s) => ({ enzyme: s.enzyme, site: s.site, positions: s.positions }));
 }
 
 // --- Protein properties -----------------------------------------------------

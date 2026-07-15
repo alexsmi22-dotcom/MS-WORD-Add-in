@@ -2,6 +2,33 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
+## [1.65.1] — 2026-07-15 — Phase 5 adversarial bug test
+
+The standing rule: nothing deploys without a full suite plus an adversarial pass.
+This is that pass for the Sequence Map work, following phase2 and phase4 — each
+of which found real bugs.
+
+34 tests: hostile input (20 malformed files, pathological locations at 200-deep
+nesting, a 400 kb sequence, null bytes, emoji), biological invariants swept over
+the **whole** enzyme table rather than spot-checked, cross-module consistency, and
+honesty under pressure. Plus a regression class pinning the forward-only-search
+bug — **every** asymmetric enzyme must find its reverse-complement site.
+
+**Result: one failure, and it was the test, not the product.** The finiteness
+check matched the `x` inside `viewBox`, the `y` inside `font-family` and the `r`
+inside `text-anchor`, reporting every map as broken. Fixed, with a comment saying
+why so nobody "simplifies" it back.
+
+Then probed six things the suite doesn't cover, since phase4 also passed clean
+first run and still had bugs behind it: CRLF GenBank files (parse), reverse-strand
+Type IIS cut positions (**verified by hand** — forward cuts at 11, reverse at 3,
+both correct), zero-span features (no NaN), full-span features, lowercase keywords
+(correctly refused), and an 8 bp site in a 4 bp circular sequence (0 hits, no
+crash).
+
+**No product bugs found.** Suite: **2,034 tests** (was 2,000), 67 suites, all six
+QC gates green.
+
 ## [1.65.0] — 2026-07-15 — Restriction enzymes: independent compilation, both strands, Type IIS
 
 **First, a correction.** I reported that the add-in knew *"18 restriction

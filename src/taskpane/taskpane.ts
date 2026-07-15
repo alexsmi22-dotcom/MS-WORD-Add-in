@@ -1,4 +1,4 @@
-/* global Office, Word, document, localStorage, navigator, URL, Blob, FileReader, HTMLInputElement, HTMLButtonElement, HTMLSelectElement, HTMLTextAreaElement, HTMLElement, Image, TextEncoder, btoa */
+/* global Office, Word, document, localStorage, navigator, URL, Blob, FileReader, TextDecoder, ArrayBuffer, Uint8Array, HTMLInputElement, HTMLButtonElement, HTMLSelectElement, HTMLTextAreaElement, HTMLElement, Image, TextEncoder, btoa */
 
 import { Segment, segmentsToHtml } from "../lib/segments";
 import { parseChemical } from "../lib/chemParser";
@@ -63,6 +63,7 @@ import { predictFragments, FragmentResult } from "../lib/fragment";
 import { parseSequenceFile, SeqRecord } from "../lib/seqio";
 import { buildLinearMapSvg, featureTypes } from "../lib/seqmap";
 import { buildCircularMapSvg } from "../lib/seqmapcirc";
+import { parseSnapGeneDna, looksLikeDna } from "../lib/seqdna";
 import { nmrChartSvg, irChartSvg, msChartSvg, SPECTRUM_CHART_SIZE } from "../lib/spectraChart";
 import { buildPeptide } from "../lib/peptide";
 import {
@@ -6101,6 +6102,8 @@ async function insertSpectrumChart(): Promise<void> {
 // ---------------------------------------------------------------------------
 
 let currentSeqRecord: SeqRecord | null = null;
+/** A .dna record read from bytes — it cannot round-trip through the textarea. */
+let seqmapDnaRecord: SeqRecord | null = null;
 let currentSeqMapSvg: string | null = null;
 
 /** Reads a chosen file as text and drops it into the box. Nothing is uploaded. */
@@ -6117,11 +6120,32 @@ function onSeqMapFile(): void {
   reader.onerror = () => {
     seqmapInfo.textContent = "Couldn't read that file.";
   };
+  // Read as BYTES, not text: .dna is binary, and decoding it as text mangles the
+  // sequence. Text formats are decoded from the same bytes afterwards.
   reader.onload = () => {
-    seqmapInput.value = String(reader.result ?? "");
+    const buf = reader.result as ArrayBuffer;
+    const bytes = new Uint8Array(buf);
+    if (looksLikeDna(bytes)) {
+      const r = parseSnapGeneDna(bytes);
+      if (!r.ok) {
+        seqmapInput.value = "";
+        seqmapDnaRecord = null;
+        updateSeqMap();
+        seqmapInfo.textContent = r.error;
+        return;
+      }
+      // A .dna record can't round-trip through the textarea (it's binary), so
+      // hold it aside and show the user what was read.
+      seqmapDnaRecord = r.record;
+      seqmapInput.value = "";
+      renderSeqMapRecord(r.record, "SnapGene .dna");
+      return;
+    }
+    seqmapDnaRecord = null;
+    seqmapInput.value = new TextDecoder("utf-8").decode(bytes);
     updateSeqMap();
   };
-  reader.readAsText(file);
+  reader.readAsArrayBuffer(file);
   seqmapFile.value = ""; // so picking the same file twice still fires
 }
 
@@ -6134,9 +6158,14 @@ function updateSeqMap(): void {
   seqmapPreview.replaceChildren();
 
   if (!text.trim()) {
-    seqmapInfo.textContent = "Open a GenBank or FASTA file, or paste a sequence.";
+    if (seqmapDnaRecord) {
+      renderSeqMapRecord(seqmapDnaRecord, "SnapGene .dna");
+      return;
+    }
+    seqmapInfo.textContent = "Open a GenBank, FASTA or SnapGene .dna file, or paste a sequence.";
     return;
   }
+  seqmapDnaRecord = null; // typing replaces a loaded .dna
 
   const parsed = parseSequenceFile(text);
   if (!parsed.ok) {
@@ -6144,18 +6173,26 @@ function updateSeqMap(): void {
     return;
   }
   const rec = parsed.records[0];
+  renderSeqMapRecord(rec, rec.format === "fasta" ? "FASTA" : "GenBank", parsed.records.length);
+}
+
+/** Draws a record and its readout. Shared by the pasted-text and .dna paths. */
+function renderSeqMapRecord(rec: SeqRecord, source: string, recordCount = 1): void {
   currentSeqRecord = rec;
+  currentSeqMapSvg = null;
+  seqmapInsert.disabled = true;
+  seqmapPreview.replaceChildren();
 
   const types = featureTypes(rec);
   const shape = rec.circular ? "circular" : "linear";
-  let info = `${rec.name} — ${rec.length.toLocaleString()} bp, ${shape}`;
-  if (parsed.records.length > 1) info += ` (first of ${parsed.records.length} records)`;
+  let info = `${rec.name} — ${rec.length.toLocaleString()} bp, ${shape} · ${source}`;
+  if (recordCount > 1) info += ` (first of ${recordCount} records)`;
   if (rec.features.length) {
     info += ` · ${rec.features.length} features: ${types.slice(0, 4).map((t) => `${t.count}× ${t.type}`).join(", ")}`;
   } else {
     // Say WHY there's nothing to draw — a FASTA has no annotations to lose.
     info +=
-      rec.format === "fasta"
+      source === "FASTA"
         ? " · no features (FASTA carries none — a GenBank file draws a real map)"
         : " · no features found in that record";
   }

@@ -671,14 +671,14 @@
       <!-- Sequence Map: open a FASTA/GenBank file, draw an annotated map -->
       <section id="seqmap-section">
         <p class="seq-disclaimer">
-          Open a <strong>GenBank</strong> (.gb/.gbk) or <strong>FASTA</strong> file — or paste a
+          Open a <strong>GenBank</strong> (.gb/.gbk), <strong>FASTA</strong> or <strong>SnapGene .dna</strong> file — or paste a
           sequence — and insert an annotated map at the cursor. GenBank carries the feature
           annotations, so that's the one that draws a real map. Everything is read on your
           machine; nothing is uploaded.
         </p>
         <div class="seq-actions">
           <button id="seqmap-open" class="insert-btn secondary" type="button">Open file…</button>
-          <input id="seqmap-file" type="file" accept=".gb,.gbk,.genbank,.gbff,.fa,.fasta,.fna,.seq,.txt" hidden />
+          <input id="seqmap-file" type="file" accept=".gb,.gbk,.genbank,.gbff,.fa,.fasta,.fna,.seq,.txt,.dna" hidden />
         </div>
         <label class="field-label" for="seqmap-input">Or paste FASTA / GenBank / a raw sequence</label>
         <textarea id="seqmap-input" class="build-input" rows="4" spellcheck="false"

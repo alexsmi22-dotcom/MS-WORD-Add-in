@@ -2,6 +2,40 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
+## [1.64.0] — 2026-07-15 — SnapGene .dna import (with an honest caveat)
+
+Opens `.dna` files directly. **But read the caveat — it is the point.**
+
+The `.dna` format is **proprietary and undocumented by its vendor**. This reader
+is written from a public reverse-engineering write-up, and its tests build
+synthetic files to that same write-up. That genuinely exercises the parser —
+packet framing, flags, XML reading, every failure path — but it **cannot confirm
+the write-up itself is right**. Testing my code against my own understanding of
+the format is circular. I tried to obtain a real `.dna` file from Addgene to
+validate against and could not.
+
+So it ships as a **convenience, not the supported path**, built to fail cleanly
+rather than confidently:
+- The magic cookie must match, or it refuses.
+- A packet whose declared length runs past the buffer stops the walk rather than
+  reinterpreting arbitrary bytes.
+- An unknown tag is skipped **by its length**, never interpreted.
+- A feature with no readable range is dropped, not placed at a guess.
+- Every refusal names the way out: *"export it as GenBank instead"* — which every
+  tool including SnapGene can do, and which **is** validated against real NCBI
+  records. The in-pane help says all of this too.
+
+**Pane:** the file handler now reads **bytes** (`readAsArrayBuffer`), not text —
+decoding a binary file as text mangles it. Text formats are decoded from the same
+bytes afterwards, so one input handles all three formats.
+
+Also replaced `String.matchAll` with exec loops in the new module: the project
+targets ES2017, and moving the whole build's goalposts for one convenience method
+isn't a trade worth making.
+
+Suite: **1,950 tests** (was 1,928) — 22 on this reader, most of them on the
+failure paths.
+
 ## [1.63.0] — 2026-07-15 — Circular plasmid maps
 
 The iconic figure — a ring with feature arcs and radiating labels. The single

@@ -342,11 +342,20 @@ export const MODE_EXAMPLES: Record<ExampleMode, string> = {
     <ul>
       <li><strong>GenBank</strong> (<code>.gb</code>, <code>.gbk</code>, <code>.gbff</code>) — the one that draws a <em>real</em> map, because it carries the <strong>feature annotations</strong>: promoters, CDS, resistance markers, primer sites, origins</li>
       <li><strong>FASTA</strong> (<code>.fa</code>, <code>.fasta</code>) — sequence only. FASTA has no annotations and no topology, so you get the backbone and scale but no features. That's the format, not a limitation of the tool</li>
+      <li><strong>SnapGene .dna</strong> — opens directly, but see the note below</li>
       <li>Or <strong>paste</strong> a GenBank record, a FASTA block, or a bare sequence</li>
     </ul>
     <p class="examples-note">
       <strong>Exporting from SnapGene, Benchling or ApE?</strong> Export as <strong>GenBank</strong> —
-      every one of them can, and the annotations come with it.
+      every one of them can, and the annotations come with it. <strong>GenBank is the
+      supported path</strong> and is validated against real records.
+    </p>
+    <p class="examples-note">
+      <strong>About .dna files.</strong> The SnapGene <code>.dna</code> format is proprietary and
+      undocumented; this reader is written from a public reverse-engineering write-up and has
+      <strong>not been verified against a real .dna file</strong>. It's a convenience: if it can't
+      read yours it will say so and ask for GenBank, rather than show you a wrong sequence. If a
+      .dna file fails here, exporting it as GenBank always works.
     </p>
     <ul>
       <li>Arrows show <strong>strand</strong>: a <code>complement(...)</code> feature points left</li>

@@ -2,6 +2,38 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
+## [1.65.2] — 2026-07-15 — Fix: arginine's pKa net charge was wrong by 100%
+
+Found by a full-product audit. A shipped **wrong answer**, not a missing caveat.
+
+`pka.ts` had no guanidine case. Arginine's guanidine has three nitrogens: the
+`=N` was skipped as an imine and the other two fell through to the catch-all
+"aliphatic amine" branch — so arginine reported **three** amine sites at 10.6.
+Wrong three ways at once: wrong group, wrong pKa (10.6 vs ~12.5), and
+triple-counted into the headline number — **net charge at pH 7.4 = +2.00 against
+a true +1.0.**
+
+Guanidine is the most basic group in biochemistry and arginine is one of the
+twenty amino acids; any peptide containing it got a substantially wrong charge.
+Histidine was wrong too: imidazole read as pyridine (5.2 vs ~6.0) — and imidazole
+is the only side chain that titrates near physiological pH.
+
+**Fix:** a pass before the per-atom walk claims whole-group bases and marks their
+nitrogens consumed, so they can't be re-counted. Guanidine → 12.5, amidine →
+11.6, imidazole → 6.0 (distinguished from pyridine by ring size + N count), with
+a urea/acylguanidine guard.
+
+Verified including that it doesn't overreach — lysine unchanged, pyridine still
+pyridine, urea claims no guanidine.
+
+**Why it survived, which is the more useful finding:** `pka.test.ts` tested
+*detection* thoroughly but **never asserted a single pKa value** against
+literature, and tested neither arginine nor histidine. Detection tests cannot
+catch a group being silently misrouted to a wrong label with a plausible number
+attached. Added 7 value tests, including the net charge the user actually sees.
+
+Suite: **2,041 tests** (was 2,034).
+
 ## [1.65.1] — 2026-07-15 — Phase 5 adversarial bug test
 
 The standing rule: nothing deploys without a full suite plus an adversarial pass.

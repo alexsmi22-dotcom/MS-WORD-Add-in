@@ -45,6 +45,59 @@ function isCarbonyl(mol: Molecule, c: number): boolean {
 }
 
 /**
+ * A guanidine/amidine carbon: sp2 carbon with one C=N and one or two further
+ * single-bonded nitrogens.
+ *
+ * These MUST be recognised as one group, not as their individual nitrogens.
+ * Arginine's guanidine has three N: the =N is skipped as an imine, and the other
+ * two each fall through to "aliphatic amine". That reported arginine as THREE
+ * amines at 10.6 and gave a net charge of +2.0 at pH 7.4 — the real answer is
+ * one guanidinium at ~12.5 and +1.0. Guanidine is the most basic group in
+ * biochemistry; getting it wrong is not a rounding error.
+ *
+ * Returns the nitrogens belonging to the group, or null if `c` isn't one.
+ */
+function guanidineNitrogens(mol: Molecule, c: number): { ns: number[]; kind: "guanidine" | "amidine" } | null {
+  if (mol.getAtomicNo(c) !== 6 || mol.isAromaticAtom(c)) return null;
+  const nbrs = neighbors(mol, c);
+  const dblN = nbrs.filter((nb) => nb.order === 2 && mol.getAtomicNo(nb.atom) === 7);
+  if (dblN.length !== 1) return null;
+  const sglN = nbrs.filter((nb) => nb.order === 1 && mol.getAtomicNo(nb.atom) === 7);
+  if (!sglN.length) return null;
+  // A nitrogen that is itself an amide N belongs to the amide, not here — this
+  // keeps acylguanidines and ureas from being misread.
+  if (dblN.some((nb) => isCarbonyl(mol, nb.atom))) return null;
+  const ns = [dblN[0].atom, ...sglN.map((nb) => nb.atom)];
+  // Three nitrogens = guanidine (arginine, ~12.5). Two = amidine (~11.6).
+  return { ns, kind: sglN.length >= 2 ? "guanidine" : "amidine" };
+}
+
+/**
+ * True if aromatic nitrogen `a` sits in an imidazole — a five-membered aromatic
+ * ring with exactly two nitrogens.
+ */
+function isImidazoleN(mol: Molecule, a: number): boolean {
+  if (!mol.isAromaticAtom(a) || mol.getAtomicNo(a) !== 7) return false;
+  if (!mol.isRingAtom(a) || mol.getAtomRingSize(a) !== 5) return false;
+  // Walk the aromatic ring this atom belongs to and count its nitrogens.
+  const seen = new Set<number>([a]);
+  const stack = [a];
+  let nCount = 0;
+  while (stack.length) {
+    const x = stack.pop() as number;
+    if (mol.getAtomicNo(x) === 7) nCount++;
+    for (const nb of neighbors(mol, x)) {
+      if (seen.has(nb.atom)) continue;
+      if (!mol.isAromaticAtom(nb.atom) || !mol.isRingAtom(nb.atom)) continue;
+      if (mol.getAtomRingSize(nb.atom) !== 5) continue;
+      seen.add(nb.atom);
+      stack.push(nb.atom);
+    }
+  }
+  return seen.size === 5 && nCount === 2;
+}
+
+/**
  * Detects ionizable groups and returns their representative pKa values. Returns
  * null if the input can't be resolved to a structure.
  */
@@ -68,6 +121,25 @@ export function predictPka(input: string): PkaResult | null {
     smiles = mol.toIsomericSmiles();
   } catch {
     /* keep raw */
+  }
+
+  // --- Pass 1: whole-group bases, before the per-atom walk -----------------
+  // Guanidine and amidine must be claimed as ONE group. Left to the per-atom
+  // loop, each of their nitrogens is separately mislabelled an "aliphatic
+  // amine" — which reported arginine as three amines at 10.6 and a net charge
+  // of +2.0 at pH 7.4, against a true +1.0.
+  const consumedN = new Set<number>();
+  for (let c = 0; c < n; c++) {
+    if (mol.getAtomCharge(c) !== 0) continue;
+    const g = guanidineNitrogens(mol, c);
+    if (!g) continue;
+    if (g.ns.some((x) => consumedN.has(x))) continue; // already part of a group
+    for (const x of g.ns) consumedN.add(x);
+    sites.push(
+      g.kind === "guanidine"
+        ? { group: "Guanidine (arginine-type)", kind: "base", pka: 12.5 }
+        : { group: "Amidine", kind: "base", pka: 11.6 }
+    );
   }
 
   for (let a = 0; a < n; a++) {
@@ -115,10 +187,22 @@ export function predictPka(input: string): PkaResult | null {
 
     // --- Nitrogen bases -----------------------------------------------------
     if (z === 7) {
+      // A nitrogen already claimed by a guanidine/amidine group below is part of
+      // that group, not an amine in its own right.
+      if (consumedN.has(a)) continue;
+
       // Aromatic nitrogen: pyridine-type (no H, lone pair available) is basic;
       // pyrrole-type (bears an H) is not.
       if (mol.isAromaticAtom(a)) {
-        if (hyd === 0) sites.push({ group: "Aromatic N (pyridine-type)", kind: "base", pka: 5.2 });
+        if (hyd !== 0) continue;
+        // Imidazole (histidine's side chain) is markedly more basic than
+        // pyridine — pKaH ~6.0 vs ~5.2 — and it is THE physiologically
+        // interesting one, being the only side chain that titrates near pH 7.
+        sites.push(
+          isImidazoleN(mol, a)
+            ? { group: "Imidazole (histidine-type)", kind: "base", pka: 6.0 }
+            : { group: "Aromatic N (pyridine-type)", kind: "base", pka: 5.2 }
+        );
         continue;
       }
       // Skip imines/nitriles/nitro (any multiple bond from N) and amides.

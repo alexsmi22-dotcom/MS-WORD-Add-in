@@ -205,6 +205,7 @@ import { parseDefinitions, evalMatrixExpression } from "../lib/matrixExpr";
 import { nelderMead } from "../lib/optimize";
 import { spectrum, dominantFrequencies } from "../lib/fft";
 import { solveOde, OdeMethod } from "../lib/ode";
+import { parseOdeSystem } from "../lib/odeParse";
 import { isNewerVersion } from "../lib/version";
 
 // Injected at build time (webpack DefinePlugin) from package.json.
@@ -5197,11 +5198,11 @@ const ANALYZE_CALCS: AnalyzeCalc[] = [
   },
   {
     id: "ode",
-    name: "Solve an ODE / system (RK45 + stiff)",
-    hint: "Enter y' = f(t, y), one equation per line for a system (state vars are the names on the left). Reduce higher-order ODEs to first order by hand. Give initial values and a t-range. Auto picks an explicit solver and switches to the implicit (stiff) one if needed — e.g. kinetics with widely separated rate constants.",
+    name: "Solve an ODE / system",
+    hint: "Type the equation you actually have — higher order is reduced for you (y'' = -y works directly; give y and y' as initial values). One equation per line for a system. Auto picks an explicit solver and switches to the implicit (stiff) one when needed, e.g. kinetics with widely separated rate constants. RHS may use t, the state names, and functions like exp, sin, tanh, sqrt, min/max, mod, and if(cond, a, b).",
     fields: [
-      { key: "eqs", label: "Equations (one per line)", default: "y1' = y2\ny2' = -y1", kind: "block", rows: 3 },
-      { key: "y0", label: "Initial values", default: "y1 = 1, y2 = 0", kind: "text" },
+      { key: "eqs", label: "Equations (one per line)", default: "y'' = -y", kind: "block", rows: 3 },
+      { key: "y0", label: "Initial values", default: "y = 1, y' = 0", kind: "text" },
       { key: "trange", label: "t range (t0, t1)", default: "0, 6.2832", kind: "text" },
       {
         key: "method",
@@ -5216,32 +5217,18 @@ const ANALYZE_CALCS: AnalyzeCalc[] = [
       },
     ],
     compute: (r) => {
-      const lines = r("eqs")
-        .split(/[\n;]+/)
-        .map((s) => s.trim())
-        .filter(Boolean);
-      if (!lines.length) return { text: "Enter at least one equation, e.g. y' = -y.", ok: false };
-      const names: string[] = [];
-      const rhs: string[] = [];
-      for (const line of lines) {
-        const m = /^([A-Za-z_][A-Za-z0-9_]*)\s*'\s*=\s*(.+)$/.exec(line);
-        if (!m) return { text: `Couldn't parse "${line}". Use  y' = expression.`, ok: false };
-        names.push(m[1]);
-        rhs.push(m[2]);
-      }
-      const init = parseAssignments(r("y0"));
-      const y0 = names.map((n) => {
-        const idx = init.names.indexOf(n);
-        return idx >= 0 ? init.values[idx] : NaN;
-      });
-      if (y0.some((v) => !Number.isFinite(v)))
-        return { text: `Give an initial value for every state variable (${names.join(", ")}).`, ok: false };
+      // Higher-order equations are reduced to a first-order system here, so the
+      // user can type y'' = -y rather than hand-reducing it themselves.
+      const parsed = parseOdeSystem(r("eqs"), r("y0"));
+      if (!parsed.ok) return { text: parsed.error, ok: false };
+      const { states, rhs, y0, reduced } = parsed.system;
+      const names = states.map((s) => s.label);
       const tr = statList(r("trange"));
       if (tr.length < 2) return { text: "Enter t0 and t1, e.g. 0, 6.2832.", ok: false };
       const f = (t: number, y: number[]): number[] =>
         rhs.map((expr) => {
           const vars: Record<string, number> = { t };
-          names.forEach((n, i) => (vars[n] = y[i]));
+          states.forEach((s, i) => (vars[s.varName] = y[i]));
           return evalFormula(expr, vars);
         });
       try {
@@ -5293,7 +5280,14 @@ const ANALYZE_CALCS: AnalyzeCalc[] = [
         "rk45→stiff": "RK45, auto-switched to the implicit stiff solver",
       };
       return analyzeResultOf([
-        { kind: "line", text: `Solved ${names.length} equation${names.length === 1 ? "" : "s"} over t ∈ [${formatNum(tr[0], 4)}, ${formatNum(tr[1], 4)}] in ${sol.steps} steps using ${methodLabel[sol.method ?? "rk45"]}.` },
+        {
+          kind: "line",
+          text:
+            `Solved over t ∈ [${formatNum(tr[0], 4)}, ${formatNum(tr[1], 4)}] in ${sol.steps} steps using ${methodLabel[sol.method ?? "rk45"]}.` +
+            (reduced
+              ? ` Auto-reduced to a first-order system of ${states.length} states: ${names.join(", ")}.`
+              : ""),
+        },
         { kind: "line", text: `Final: ${finalVals}` },
         { kind: "matrix", label: `Sampled [t, ${names.join(", ")}]:`, m: sampled },
         { kind: "plot", svg, caption: "Solution trajectory", alt: "ODE solution trajectory", w: 380, h: 270 },

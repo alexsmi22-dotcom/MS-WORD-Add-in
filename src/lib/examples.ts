@@ -374,7 +374,7 @@ export const MODE_EXAMPLES: Record<ExampleMode, string> = {
       <li><strong>Data → insights</strong> — paste a table (a header row and tab/comma/space columns are auto-detected) and get column summaries, <strong>correlations</strong> (Pearson r + p, Spearman ρ), <strong>trends</strong>, outlier/missing flags, and plain-language findings</li>
       <li><strong>Minimize a function</strong> — Nelder–Mead optimization of an objective you type, e.g. <code>(1-x)^2 + 100*(y-x^2)^2</code></li>
       <li><strong>FFT / spectrum</strong> — a sampled signal → amplitude spectrum, dominant frequencies, and a chart</li>
-      <li><strong>ODE / system (RK45)</strong> — solve <code>y' = f(t, y)</code> (or a coupled system) with an adaptive solver → sampled table + trajectory plot</li>
+      <li><strong>ODE / system</strong> — type the equation you have: <code>y' = -y</code>, a coupled system, or <strong>higher order directly</strong> (<code>y'' = -0.1*y' - y</code> with <code>y = 1, y' = 0</code>) — the reduction to first order is done for you → sampled table + trajectory plot. <strong>Stiff systems</strong> (kinetics with widely separated rate constants) are detected automatically and switched to an implicit solver</li>
     </ul>
     <p class="examples-note">
       Matrix rows go one per line, entries separated by spaces or commas. Everything is computed

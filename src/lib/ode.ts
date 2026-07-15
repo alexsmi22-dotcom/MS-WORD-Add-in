@@ -288,20 +288,112 @@ function dfdt(
   return f0.map((v, i) => (fp[i] - v) / dt);
 }
 
+// --- RODAS4 -----------------------------------------------------------------
+// Hairer & Wanner's RODAS: a 4th-order (3rd-order embedded) Rosenbrock, 6 stages,
+// L-stable and STIFFLY ACCURATE. This is the high-accuracy stiff path: it gets
+// the accuracy of the explicit solver on problems where the explicit solver
+// cannot run at all, and reaches a given error in far fewer steps than the
+// 2nd-order ode23s method.
+//
+// Stiff accuracy gives the error estimate its elegant form: the embedded 3rd
+// order solution is exactly the 6th stage value, so y_new = y6stage + k6 and the
+// error estimate is simply k6.
+const RODAS_GAMMA = 0.25;
+const RODAS_ALPHA = [0, 0.386, 0.21, 0.63, 1, 1];
+// a[i][j] — stage-value coefficients.
+const RODAS_A: number[][] = [
+  [],
+  [1.544],
+  [0.9466785280815826, 0.2557011698983284],
+  [3.314825187068521, 2.896124015972201, 0.9986419139977817],
+  [1.221224509226641, 6.019134481288629, 12.53708332932087, -0.687886036105895],
+  [1.221224509226641, 6.019134481288629, 12.53708332932087, -0.687886036105895, 1],
+];
+// c[i][j] — the (gamma_ij / h) coupling terms.
+const RODAS_C: number[][] = [
+  [],
+  [-5.6688],
+  [-2.430093356833875, -0.2063599157091915],
+  [-0.1073529058151375, -9.594562251023355, -20.4702861489071],
+  [7.496443313967647, -10.24680431464352, -33.99990352819905, 11.7089089320616],
+  [8.083246795921522, -7.981132988064893, -31.52159432874371, 16.31930543123136, -6.058818238834054],
+];
+// d[i] — the h·(df/dt) coefficients (gamma_i).
+const RODAS_D = [0.25, -0.1043, 0.1035, -0.0362, 0, 0];
+
+/** One RODAS4 step. Returns the new state and the error estimate, or null if W is singular. */
+function rodasStep(
+  f: (t: number, y: number[]) => number[],
+  t: number,
+  y: number[],
+  h: number,
+  f0: number[],
+  J: number[][],
+  T: number[]
+): { yNew: number[]; err: number[] } | null {
+  const n = y.length;
+  // W = I/(gamma*h) - J
+  const W: number[][] = [];
+  const inv = 1 / (RODAS_GAMMA * h);
+  for (let i = 0; i < n; i++) {
+    W.push(new Array<number>(n));
+    for (let j = 0; j < n; j++) W[i][j] = (i === j ? inv : 0) - J[i][j];
+  }
+  const fac = luFactor(W);
+  if (fac.singular) return null;
+
+  const k: number[][] = [];
+  for (let i = 0; i < 6; i++) {
+    // Stage value: y + sum_j a_ij k_j
+    const yi = y.slice();
+    for (let j = 0; j < i; j++) {
+      const a = RODAS_A[i][j];
+      if (a) for (let m = 0; m < n; m++) yi[m] += a * k[j][m];
+    }
+    const fi = i === 0 ? f0 : f(t + RODAS_ALPHA[i] * h, yi);
+    if (!fi.every(Number.isFinite)) return null;
+    // rhs = f_i + sum_j (c_ij/h) k_j + h*d_i*T
+    const rhs = fi.slice();
+    for (let j = 0; j < i; j++) {
+      const c = RODAS_C[i][j];
+      if (c) for (let m = 0; m < n; m++) rhs[m] += (c / h) * k[j][m];
+    }
+    const d = RODAS_D[i];
+    if (d) for (let m = 0; m < n; m++) rhs[m] += h * d * T[m];
+    const ki = luSolve(fac, rhs);
+    if (!ki) return null;
+    k[i] = ki;
+  }
+
+  // Stiffly accurate: the 6th stage value IS the embedded 3rd-order solution,
+  // so the 4th-order result is that plus k6 and the error estimate is just k6.
+  const yHat = y.slice();
+  for (let j = 0; j < 5; j++) {
+    const a = RODAS_A[5][j];
+    if (a) for (let m = 0; m < n; m++) yHat[m] += a * k[j][m];
+  }
+  const yNew = yHat.map((v, m) => v + k[5][m]);
+  return { yNew, err: k[5] };
+}
+
 /**
  * Integrates a STIFF system y' = f(t, y) from t0 to t1. Same contract as
  * integrate(): adaptive, returns accepted (t, y) points, never hangs.
+ *
+ * Defaults to the 4th-order RODAS4. Pass order: 2 for the 2nd-order ode23s
+ * method (more robust on very rough problems, less accurate per step).
  */
 export function integrateStiff(
   f: (t: number, y: number[]) => number[],
   y0: number[],
   t0: number,
   t1: number,
-  opts: OdeOptions = {}
+  opts: OdeOptions & { order?: 2 | 4 } = {}
 ): OdeResult {
   const rtol = opts.rtol ?? 1e-6;
   const atol = opts.atol ?? 1e-9;
   const maxSteps = opts.maxSteps ?? 100000;
+  const order = opts.order ?? 4;
   const n = y0.length;
   const dir = t1 >= t0 ? 1 : -1;
   const span = Math.abs(t1 - t0);
@@ -323,6 +415,45 @@ export function integrateStiff(
     const J = jacobian(f, t, y, f0);
     const T = dfdt(f, t, y, f0, h);
 
+    // --- 4th-order RODAS path -----------------------------------------------
+    if (order === 4) {
+      const stepResult = rodasStep(f, t, y, h, f0, J, T);
+      if (!stepResult) {
+        h *= 0.5;
+        if (!Number.isFinite(h) || Math.abs(h) <= 1e-13 * Math.max(1, Math.abs(t))) {
+          stopReason = "stepUnderflow";
+          break;
+        }
+        continue;
+      }
+      const { yNew: yR, err: errVec } = stepResult;
+      let e = 0;
+      for (let i = 0; i < n; i++) {
+        const sc = atol + rtol * Math.max(Math.abs(y[i]), Math.abs(yR[i]));
+        const q = errVec[i] / sc;
+        e += q * q;
+      }
+      e = Math.sqrt(e / n);
+      if (Number.isFinite(e) && e <= 1 && yR.every(Number.isFinite)) {
+        t += h;
+        y = yR;
+        ts.push(t);
+        ys.push(y.slice());
+        steps++;
+        const factor = e === 0 ? 5 : 0.9 * Math.pow(e, -1 / 4); // order 4 → exponent 1/4
+        h *= Math.min(5, Math.max(0.2, factor));
+      } else {
+        const factor = Number.isFinite(e) && e > 0 ? Math.max(0.2, 0.9 * Math.pow(e, -1 / 4)) : 0.2;
+        h *= factor;
+      }
+      if (!Number.isFinite(h) || Math.abs(h) <= 1e-13 * Math.max(1, Math.abs(t))) {
+        stopReason = "stepUnderflow";
+        break;
+      }
+      continue;
+    }
+
+    // --- 2nd-order ode23s path ----------------------------------------------
     // W = I − h·d·J, factored once and reused by all three stage solves.
     const W: number[][] = [];
     for (let i = 0; i < n; i++) {

@@ -279,26 +279,107 @@ export function reportF(r: AnovaResult): string {
 
 // --- uncertainty propagation -------------------------------------------------
 
+/** Single-argument functions available in every expression. */
+const EXPR_FNS_1: Record<string, (v: number) => number> = {
+  sqrt: Math.sqrt,
+  cbrt: Math.cbrt,
+  exp: Math.exp,
+  ln: Math.log,
+  log: Math.log10,
+  log10: Math.log10,
+  log2: Math.log2,
+  sin: Math.sin,
+  cos: Math.cos,
+  tan: Math.tan,
+  asin: Math.asin,
+  acos: Math.acos,
+  atan: Math.atan,
+  sinh: Math.sinh,
+  cosh: Math.cosh,
+  tanh: Math.tanh,
+  asinh: Math.asinh,
+  acosh: Math.acosh,
+  atanh: Math.atanh,
+  abs: Math.abs,
+  floor: Math.floor,
+  ceil: Math.ceil,
+  round: Math.round,
+  trunc: Math.trunc,
+  sign: Math.sign,
+  sgn: Math.sign,
+  /** Heaviside step: 0 below zero, 1 at and above it. For switching inputs. */
+  step: (v: number) => (v < 0 ? 0 : 1),
+};
+
+/** Two-argument functions. */
+const EXPR_FNS_2: Record<string, (a: number, b: number) => number> = {
+  min: Math.min,
+  max: Math.max,
+  atan2: Math.atan2,
+  pow: Math.pow,
+  /** True modulo — result carries the sign of the divisor, unlike JS %. */
+  mod: (a, b) => a - b * Math.floor(a / b),
+  /** Logarithm to an arbitrary base: logbase(x, b). */
+  logbase: (a, b) => Math.log(a) / Math.log(b),
+  hypot: Math.hypot,
+};
+
+/** Three-argument functions. */
+const EXPR_FNS_3: Record<string, (a: number, b: number, c: number) => number> = {
+  /** if(condition, then, else) — condition is true when non-zero. */
+  if: (c, a, b) => (c !== 0 ? a : b),
+  /** clamp(x, lo, hi) */
+  clamp: (x, lo, hi) => Math.min(Math.max(x, lo), hi),
+};
+
+/** Every function name the evaluator knows, for error messages and docs. */
+export const EXPR_FUNCTIONS: string[] = [
+  ...Object.keys(EXPR_FNS_1),
+  ...Object.keys(EXPR_FNS_2),
+  ...Object.keys(EXPR_FNS_3),
+].sort();
+
 /**
- * Evaluates an arithmetic expression with named variables. Supports + − × ÷,
- * ^ (right-assoc), parentheses, unary minus, and the functions sqrt, exp, ln,
- * log, sin, cos, tan, abs. Used by the uncertainty propagator; throws on a
- * malformed expression or an unknown name.
+ * Evaluates an arithmetic expression with named variables.
+ *
+ * Supports + − × ÷, ^ (right-associative), parentheses, unary minus, the
+ * comparison operators < > <= >= == != (yielding 1 or 0, so they compose with
+ * `if`), the constants pi and e, and the function library above — trig, inverse
+ * trig, hyperbolics, logs to any base, rounding, min/max/clamp, true modulo, a
+ * Heaviside `step`, and `if(cond, a, b)` for piecewise definitions.
+ *
+ * User variables shadow the built-in constants, so a quantity named "e" or "pi"
+ * keeps its own value. Throws on a malformed expression or an unknown name.
  */
 export function evalFormula(expr: string, vars: Record<string, number>): number {
   const s = expr.replace(/\s+/g, "");
   let i = 0;
-  const fns: Record<string, (v: number) => number> = {
-    sqrt: Math.sqrt,
-    exp: Math.exp,
-    ln: Math.log,
-    log: Math.log10,
-    sin: Math.sin,
-    cos: Math.cos,
-    tan: Math.tan,
-    abs: Math.abs,
-  };
+
+  /** Lowest precedence: comparisons, yielding 1 or 0. */
   function expr_(): number {
+    let v = additive();
+    for (;;) {
+      // Two-character operators must be tested before the one-character ones,
+      // or "<=" would parse as "<" followed by a stray "=".
+      const two = s.slice(i, i + 2);
+      if (two === "<=" || two === ">=" || two === "==" || two === "!=") {
+        i += 2;
+        const r = additive();
+        v = two === "<=" ? (v <= r ? 1 : 0) : two === ">=" ? (v >= r ? 1 : 0) : two === "==" ? (v === r ? 1 : 0) : v !== r ? 1 : 0;
+        continue;
+      }
+      const one = s[i];
+      if (one === "<" || one === ">") {
+        i++;
+        const r = additive();
+        v = one === "<" ? (v < r ? 1 : 0) : v > r ? 1 : 0;
+        continue;
+      }
+      return v;
+    }
+  }
+
+  function additive(): number {
     let v = term();
     while (s[i] === "+" || s[i] === "-") {
       const op = s[i++];
@@ -349,12 +430,32 @@ export function evalFormula(expr: string, vars: Record<string, number>): number 
       i += name.length;
       if (s[i] === "(") {
         i++;
-        const arg = expr_();
+        const args: number[] = [];
+        if (s[i] !== ")") {
+          args.push(expr_());
+          while (s[i] === ",") {
+            i++;
+            args.push(expr_());
+          }
+        }
         if (s[i] !== ")") throw new Error("Unbalanced parentheses.");
         i++;
-        const fn = fns[name];
-        if (!fn) throw new Error(`Unknown function "${name}".`);
-        return fn(arg);
+        const f1 = EXPR_FNS_1[name];
+        if (f1) {
+          if (args.length !== 1) throw new Error(`"${name}" takes 1 argument, got ${args.length}.`);
+          return f1(args[0]);
+        }
+        const f2 = EXPR_FNS_2[name];
+        if (f2) {
+          if (args.length !== 2) throw new Error(`"${name}" takes 2 arguments, got ${args.length}.`);
+          return f2(args[0], args[1]);
+        }
+        const f3 = EXPR_FNS_3[name];
+        if (f3) {
+          if (args.length !== 3) throw new Error(`"${name}" takes 3 arguments, got ${args.length}.`);
+          return f3(args[0], args[1], args[2]);
+        }
+        throw new Error(`Unknown function "${name}".`);
       }
       // User variables win over the built-in constants, so a quantity named
       // "e" (elementary charge, eccentricity) or "pi" isn't silently shadowed.

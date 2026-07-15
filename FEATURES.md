@@ -56,12 +56,13 @@ Everything shows a live preview that matches exactly what gets inserted, and the
 - **Matrix expressions** — one line, e.g. `A*inv(B)+2*C'`.
 - **Optimization** — unconstrained minimization (Nelder–Mead).
 - **FFT** — radix-2 FFT with zero-padding, frequency spectrum and dominant-peak detection, inserted as a chart.
-- **ODE / system solving** — two integrators with **automatic stiffness detection**:
+- **ODE / system solving** — type the equation you actually have; two integrators with **automatic stiffness detection** pick themselves.
+  - **Higher order is reduced for you.** `y'' = -0.1*y' - y` with `y = 1, y' = 0` just works — no hand-reduction to a first-order system. Third order and above too, several higher-order equations at once, and mixed orders in one system. The result names the states it created.
   - **Explicit RK45** (adaptive Dormand–Prince). Fast and highly accurate on well-behaved problems — ~8 significant figures on y′ = −y in ~23 steps.
-  - **Implicit Rosenbrock** (the **ode23s** method: L-stable, one LU factorization per step, no Newton iteration). This is what makes **stiff** systems solvable — *stiffness is the normal case in chemical kinetics whenever rate constants differ by orders of magnitude*. Van der Pol at μ=1000 and **Robertson kinetics** (rate constants spanning 0.04 → 3×10⁷) both solve; the explicit solver cannot finish either.
+  - **Implicit RODAS4** (4th-order Rosenbrock, L-stable and stiffly accurate; one LU factorization per step, no Newton iteration). This is what makes **stiff** systems solvable — *stiffness is the normal case in chemical kinetics whenever rate constants differ by orders of magnitude*. Van der Pol at μ=1000 (~1,500 steps) and **Robertson kinetics** (rate constants spanning 0.04 → 3×10⁷; ~570 steps, mass conserved to 12 digits) both solve; the explicit solver cannot finish either.
   - **Auto** starts explicit and switches to implicit mid-integration if the problem stiffens (so Van der Pol, which *starts* non-stiff, is still solved). The result states which solver ran.
-  - Honest trade-off, and why Auto prefers RK45: the stiff solver is 2nd order against RK45's 5th, so on non-stiff problems it is both slower and less accurate. Tighten the tolerance when the stiff path is in use.
-  - Enter systems one equation per line (`y1' = y2`). **Higher-order ODEs must be hand-reduced to first order** (y″ = −y → `y1' = y2`, `y2' = -y1`). Numerical only — no symbolic/closed-form solutions, no boundary-value problems, no PDEs, no event detection.
+  - **Rich right-hand sides** — `t`, the state names, and a full function library: trig, inverse trig, hyperbolics (`tanh`), logs to any base, `sqrt`/`cbrt`, rounding, `min`/`max`/`clamp`, true `mod`, `hypot`, a Heaviside `step`, comparisons (`<`, `>=`, `==` …) and **`if(cond, a, b)`** for piecewise/switching inputs.
+  - Honest limits: numerical only — no symbolic/closed-form solutions, no boundary-value problems, no PDEs, no event detection. Ultimate accuracy is capped near 1×10⁻¹² by the finite-difference Jacobian (no analytical Jacobian is supplied).
 - **Raw data → insights** — per-column summaries, Tukey outlier & missing-data flags, **Pearson + Spearman** correlations with p-values, trend/slope detection, and a plain-language "what this means" write-up. Computed from your numbers — never invented.
 
 ## ∑ Math (native Word equations)

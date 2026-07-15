@@ -19,7 +19,7 @@ Pick a tool from the home screen — **22 tools** (grouped STEM + legal):
 | **Bio/Assay** | offline curve fitting: **enzyme kinetics** (Michaelis–Menten, Hill), **dose–response** (IC50/EC50, 4PL), **binding** (Kd/Bmax), plus lab calculators (Cheng–Prusoff, Henderson–Hasselbalch, Beer–Lambert, dilutions, A260/A280) |
 | **Peptide** | 2D structure from a one- or three-letter amino-acid sequence, with formula & MW |
 | **Stats** | descriptive stats, **t-tests** (Welch/Student/paired), one- & **two-way ANOVA**, regression, **non-parametric** (Mann–Whitney, Wilcoxon), **chi-square** (fit & independence), **multiple-comparison correction** (Bonferroni/Holm/BH), and **uncertainty propagation** |
-| **Analyze** | **NEW** — no-code numerical workbench: **matrix math** (solve A·x=b, inverse, determinant/rank/trace, eigenvalues incl. complex, **QR**, **SVD**, one-line **matrix expressions** like `A*inv(B)+2*C'`), **optimization** (Nelder–Mead), **FFT** spectra, **ODE/system solving** — explicit **RK45** plus an implicit **stiff solver** (Rosenbrock/ode23s-class) with **automatic stiffness detection**, so kinetics with widely separated rate constants actually solve — and **raw data → trends, correlations & plain-language insights**, all offline |
+| **Analyze** | **NEW** — no-code numerical workbench: **matrix math** (solve A·x=b, inverse, determinant/rank/trace, eigenvalues incl. complex, **QR**, **SVD**, one-line **matrix expressions** like `A*inv(B)+2*C'`), **optimization** (Nelder–Mead), **FFT** spectra, **ODE/system solving** — type the equation you have (**higher order auto-reduces**: `y'' = -0.1*y' - y` just works), with explicit **RK45** plus a 4th-order implicit **stiff solver** (RODAS4) and **automatic stiffness detection**, so kinetics with widely separated rate constants actually solve — and **raw data → trends, correlations & plain-language insights**, all offline |
 | **Math** | native Word equations, matrices/cases, **LaTeX import/export**, multi-line aligned equations, a formula library |
 | **Units** | SI typesetting (±, ×10ⁿ, µ/Ω/°), significant figures, unit conversion incl. compound units (`km/h → m/s`) |
 | **Plot** | offline function & data charts (multiple series + legend, error bars) |
@@ -40,7 +40,7 @@ Pick a tool from the home screen — **22 tools** (grouped STEM + legal):
 H2O → H₂O   ·   paste \frac{-b±√(b²-4ac)}{2a} (LaTeX) → a Word equation   ·   aspirin → 2D structure
 ```
 
-> **Status:** v1.55.0 — production. Word on **Windows & macOS**,
+> **Status:** v1.56.0 — production. Word on **Windows & macOS**,
 > 100% client-side. Install packs: [`install/`](install/) · feature list: [`FEATURES.md`](FEATURES.md).
 
 ## Screenshots
@@ -73,7 +73,7 @@ _Screenshots coming soon — see [`docs/screenshots/`](docs/screenshots/) for th
    (modern WebView2/Edge runtime; legacy IE-based webviews are not supported).
 
 > Verified by the QC gate (`npm run qc`): `npm run lint` (type-check),
-> `npm test` (**1,573 unit tests**), `npm run build` (production bundle),
+> `npm test` (**1,662 unit tests**), `npm run build` (production bundle),
 > `office-addin-manifest validate`, and the task-pane id-wiring audit — all pass.
 
 ## Setup

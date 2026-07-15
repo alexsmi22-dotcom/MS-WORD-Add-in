@@ -2,6 +2,52 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
+## [1.56.0] — 2026-07-15 — ODE: auto-reduction, RODAS4, richer expressions
+
+Removing the limitations that made the ODE tool feel like a homework exercise
+rather than something you would reach for.
+
+**Higher-order ODEs are reduced automatically** (`src/lib/odeParse.ts`)
+- `y'' = -0.1*y' - y` with `y = 1, y' = 0` now just works. Previously you had to
+  hand-reduce to `y1' = y2 / y2' = -0.1*y2 - y1` — the single biggest papercut in
+  a tool whose whole premise is "no code".
+- Up to 6th order, several higher-order equations at once, mixed orders in one
+  system, `y(0) = 1` or `y = 1` initial-value syntax. Existing hand-reduced
+  first-order systems keep working unchanged.
+- Errors are specific and actionable: *"Missing an initial value for y'. A system
+  of order 2 needs 2: y = …, y' = …"* and *"refers to 'k', which isn't a state of
+  this system"* rather than an opaque failure deep in the evaluator.
+
+**4th-order stiff solver — RODAS4** (`src/lib/ode.ts`)
+- Hairer & Wanner's RODAS: 6-stage, L-stable, stiffly accurate, with the error
+  estimate falling out as k6. Now the default stiff path; the 2nd-order ode23s
+  method remains available via `order: 2`.
+- Verified by **empirical convergence order**, not by trusting the tableau:
+  measured 4.08 for RODAS4 and 2.00 for ode23s on the same harness. A wrong
+  tableau cannot produce clean order-4 convergence *and* match analytical
+  solutions *and* reproduce ROBER.
+- The accuracy/speed trade-off is gone:
+  - Van der Pol μ=1000: 9,072 steps / 100 ms → **1,521 steps / 22 ms**
+  - Robertson kinetics: 13,286 steps / 146 ms → **570 steps / 8 ms**
+  - y′ = −y to ~4e-9: ~4,069 steps → **46 steps** (~90× fewer)
+- Honest limit, documented: ultimate accuracy saturates near 1e-12 because the
+  Jacobian is a finite-difference approximation.
+
+**Richer expressions everywhere** (`evalFormula`, `src/lib/stats.ts`)
+- Was: `sqrt exp ln log sin cos tan abs`. Now adds inverse trig, hyperbolics
+  (`tanh` etc.), `cbrt`, `log2`/`log10`/`logbase`, rounding (`floor`/`ceil`/
+  `round`/`trunc`/`sign`), `min`/`max`/`clamp`/`hypot`/`pow`, a **true `mod`**
+  (sign follows the divisor, unlike JS `%`), a Heaviside `step`, the comparison
+  operators `< > <= >= == !=`, and **`if(cond, a, b)`** for piecewise and
+  switching inputs. Multi-argument calls are parsed with arity checked.
+- This lifts ODE right-hand sides, the optimizer objective, plot expressions and
+  uncertainty propagation at once. Fully backward compatible.
+
+Suite: **1,662 tests** (was 1,573) — 27 auto-reduction tests (asserting the
+reduction is *physically* right, not just structurally: the damped oscillator,
+projectile and stiff 2nd-order cases are each checked against their analytical
+solutions) and 62 expression-library tests.
+
 ## [1.55.0] — 2026-07-15 — Stiff ODE solver (Analyze)
 
 Closes the biggest real gap in the ODE tool. Explicit RK45 is limited by

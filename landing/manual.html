@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>JurisLab — User Manual</title>
+  <meta name="description" content="How to use JurisLab: the core loop, all 22 tools with worked examples, honest limits, and troubleshooting." />
+  <link rel="icon" href="assets/icon-32.png" />
+  <style>
+    :root { --blue:#2e74b5; --ink:#1b1b1f; --muted:#5b5b66; --bg:#f6f8fb; --card:#fff; --line:#e4e8ef; --warn:#8a5a00; --warnbg:#fff8e6; }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; color:var(--ink); background:var(--bg); line-height:1.6; }
+    .wrap { max-width:860px; margin:0 auto; padding:0 20px; }
+    header { background:linear-gradient(135deg,#2e74b5,#1f4e79); color:#fff; padding:44px 0 36px; }
+    header .wrap { text-align:center; }
+    h1 { font-size:2.1rem; margin:0 0 8px; }
+    .tag { font-size:1.05rem; opacity:.95; margin:0 auto; max-width:640px; }
+    .home { display:inline-block; color:#fff; opacity:.85; text-decoration:none; font-size:.9rem; margin-bottom:14px; }
+    .home:hover { opacity:1; text-decoration:underline; }
+    h2 { color:var(--blue); font-size:1.35rem; margin:38px 0 12px; padding-top:8px; border-top:1px solid var(--line); }
+    h2:first-of-type { border-top:none; }
+    h3 { font-size:1.05rem; margin:22px 0 6px; }
+    p, li { color:var(--ink); }
+    .muted { color:var(--muted); }
+    code { background:#eef1f6; padding:1px 6px; border-radius:5px; font-size:.9em; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
+    .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px 18px; margin:14px 0; }
+    table { width:100%; border-collapse:collapse; margin:12px 0; background:var(--card); border:1px solid var(--line); border-radius:10px; overflow:hidden; }
+    th, td { text-align:left; padding:9px 12px; border-bottom:1px solid var(--line); font-size:.94rem; vertical-align:top; }
+    th { background:#f0f4f9; color:var(--blue); font-weight:700; }
+    tr:last-child td { border-bottom:none; }
+    .note { background:var(--warnbg); border:1px solid #f0dca8; border-left:4px solid var(--warn); border-radius:8px; padding:12px 16px; margin:16px 0; }
+    .note b { color:var(--warn); }
+    .toc { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px 20px; margin:22px 0; }
+    .toc ul { margin:6px 0 0; padding-left:20px; columns:2; column-gap:28px; }
+    .toc li { margin:3px 0; font-size:.94rem; break-inside:avoid; }
+    a { color:var(--blue); }
+    .steps { counter-reset:s; list-style:none; padding-left:0; }
+    .steps li { counter-increment:s; position:relative; padding-left:38px; margin:12px 0; }
+    .steps li::before { content:counter(s); position:absolute; left:0; top:1px; width:26px; height:26px; border-radius:50%; background:var(--blue); color:#fff; font-weight:700; font-size:.85rem; display:flex; align-items:center; justify-content:center; }
+    .try { border-left:3px solid var(--blue); background:#f4f8fc; padding:10px 14px; margin:10px 0; border-radius:0 8px 8px 0; font-size:.94rem; }
+    .try b { color:var(--blue); }
+    footer { text-align:center; color:var(--muted); font-size:.88rem; padding:32px 0 52px; }
+    @media (max-width:620px) { .toc ul { columns:1; } }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap">
+      <a class="home" href="index.html">← JurisLab</a>
+      <h1>User Manual</h1>
+      <p class="tag">How JurisLab works, what each of the 22 tools does, and what it deliberately doesn’t do. Everything runs on your machine.</p>
+    </div>
+  </header>
+
+  <main class="wrap">
+
+    <div class="toc">
+      <b>On this page</b>
+      <ul>
+        <li><a href="#start">Getting started</a></li>
+        <li><a href="#loop">The core loop</a></li>
+        <li><a href="#everywhere">Things that work everywhere</a></li>
+        <li><a href="#chemistry">Chemistry &amp; structures</a></li>
+        <li><a href="#analysis">Numbers &amp; analysis</a></li>
+        <li><a href="#writing">Math, units &amp; figures</a></li>
+        <li><a href="#lifesci">Life sciences</a></li>
+        <li><a href="#legal">Patent &amp; legal</a></li>
+        <li><a href="#limits">Honest limits</a></li>
+        <li><a href="#trouble">Troubleshooting</a></li>
+      </ul>
+    </div>
+
+    <h2 id="start">Getting started</h2>
+    <ol class="steps">
+      <li><b>Install.</b> Unzip the pack for your machine and run the installer inside — <code>install.bat</code> on Windows, <code>install.command</code> on a Mac. No admin rights needed; it only registers the add-in for your own account.</li>
+      <li><b>Restart Word completely.</b> Close every window, not just the document. Word only notices a new add-in on a cold start — this is the single most common reason it "didn’t install".</li>
+      <li><b>Open the pane.</b> <b>Insert</b> → <b>Add-ins</b> → <b>Developer Add-ins</b> → <b>JurisLab</b>. It opens on the Home screen showing all 22 tools as cards.</li>
+    </ol>
+    <p class="muted">Only the first load needs internet — the add-in fetches itself from the web once, then everything you type is computed on your own machine.</p>
+
+    <h2 id="loop">The core loop</h2>
+    <p>Every tool works the same way, so once you’ve learned one you’ve learned all of them:</p>
+    <ol class="steps">
+      <li><b>Put your cursor</b> where you want the content to land in your document.</li>
+      <li><b>Pick a tool</b> — click a card on the Home screen, or use the dropdown at the top.</li>
+      <li><b>Type.</b> A live preview appears as you go, showing exactly what will be inserted.</li>
+      <li><b>Insert.</b> The button drops it at your cursor. If it isn’t what you wanted, a single <b>Ctrl-Z</b> (⌘-Z on a Mac) removes it cleanly.</li>
+    </ol>
+    <div class="try"><b>Try it:</b> open <b>Chemical</b>, type <code>H2O</code> → the preview shows H₂O → <b>Insert formatted text</b>. Then type <code>aspirin</code> → a 2D structure appears with its formula and molecular weight.</div>
+
+    <h2 id="everywhere">Things that work everywhere</h2>
+    <table>
+      <tr><th>What</th><th>How it helps</th></tr>
+      <tr><td><b>Search box</b></td><td>Type a name — <code>quadratic</code>, <code>benzene</code>, <code>Black–Scholes</code> — and it jumps to the right tool with it loaded, ready to insert.</td></tr>
+      <tr><td><b>Examples &amp; syntax</b></td><td>The collapsible panel at the bottom always shows help for the tool you’re in, with syntax you can copy.</td></tr>
+      <tr><td><b>The preview is the truth</b></td><td>What you see is what gets inserted. If the preview looks wrong, don’t insert it.</td></tr>
+      <tr><td><b>Undo</b></td><td>Every insert is a single undo step.</td></tr>
+      <tr><td><b>Fully offline</b></td><td>Nothing you type — no formula, structure, sequence or document text — is sent anywhere. The one exception asks permission first (see below).</td></tr>
+      <tr><td><b>Updates</b></td><td>When a new version ships, a banner appears in the pane. Reload the pane to pick it up; you don’t reinstall.</td></tr>
+      <tr><td><b>Provenance</b></td><td>Inserted structures carry their SMILES and a canonical structure ID in the image’s alt-text, so a figure can always be traced back to what generated it.</td></tr>
+    </table>
+    <div class="note"><b>The one exception to “offline”.</b> Chemical mode can look up an IUPAC name online when the built-in dictionary doesn’t know it. It is <b>opt-in and asks every time</b> — and it sends only that one chemical name, never your document. Decline it and everything else still works.</div>
+
+    <h2 id="chemistry">Chemistry &amp; structures</h2>
+
+    <h3>Chemical — formulas and 2D structures</h3>
+    <p>Type a formula and it typesets itself: <code>H2O</code> → H₂O, <code>Ca(OH)2</code> → Ca(OH)₂, <code>SO4^2-</code> → SO₄²⁻, <code>Na+</code> → Na⁺. Type a <b>name</b> (<code>caffeine</code>), a <b>formula</b> (<code>C6H6</code>) or any <b>SMILES</b> and you get a 2D structure, plus physicochemical properties (cLogP, tPSA, Lipinski/Veber druglikeness) and a pKa estimate with the net charge at pH 7.4.</p>
+    <p class="muted">For stereochemistry, enter an isomeric SMILES — <code>C[C@@H](N)C(=O)O</code> — and it’s drawn with wedge and hash bonds.</p>
+
+    <h3>Build — structures from atoms and bonds</h3>
+    <div class="try"><b>Try it:</b> <code>atoms: C O O</code> then <code>bonds: 1=2 1=3</code> → CO₂. The palette buttons insert templates (benzene, acetic acid) and Markush tokens for you.</div>
+    <p>Also handles <b>Markush / genus</b> structures for patent work: <code>[C,N]</code> variable atoms, <code>X</code> halogen, <code>R1</code> R-groups, plus query features like <code>{ar}</code> (aromatic) and <code>{r6}</code> (ring size 6).</p>
+
+    <h3>Mass Spec</h3>
+    <p>From a name, formula or SMILES: exact <b>monoisotopic</b> and <b>average</b> mass, the theoretical <b>isotope pattern</b>, and common <b>adduct m/z</b> ([M+H]⁺, [M+Na]⁺, [M−H]⁻ …).</p>
+    <div class="try"><b>Try it:</b> <code>caffeine</code> → monoisotopic 194.0804, [M+H]⁺ 195.0877. A chlorinated compound shows the tell-tale ~32% M+2 peak.</div>
+
+    <h3>Spectra — predicted NMR, IR, UV-Vis &amp; fragmentation</h3>
+    <p>Pick a spectrum type, type a name or SMILES, and get a prediction with an assignment for every signal. Insert it as a data table or a publication-ready chart.</p>
+    <div class="try"><b>Try it:</b> <code>toluene</code>, ¹H NMR → δ 7.17 (2H, m), 7.09 (2H, d), 7.08 (1H, t), <b>2.37 (3H, s, CH₃ on Ph)</b>.</div>
+    <div class="note"><b>Read this before using Spectra.</b> These are <b>estimates from published additivity rules</b> — not measured spectra, and not quantum-chemical calculations. The structure recognition is exact, but the numbers carry real uncertainty (about ±0.2–0.4 ppm for ¹H, ±2–4 ppm for ¹³C). The tool tells you where it’s weak rather than hiding it: fused and heteroaromatic rings are flagged approximate, an unconjugated molecule reports <i>no λmax</i> instead of inventing one, and MS “likelihood” is a <b>ranking, not an intensity</b>. Use it to <b>assign peaks you already have</b> — never as a substitute for running the spectrum.</div>
+
+    <h3>Reaction</h3>
+    <p>Multi-step schemes with conditions over the arrow: <code>CCO + CC(=O)O &gt;&gt; CC(=O)OCC ; H2SO4 ; reflux</code>.</p>
+
+    <h2 id="analysis">Numbers &amp; analysis</h2>
+
+    <h3>Analyze — a no-code numerical workbench</h3>
+    <p>Paste numbers, get real computed results and a figure, without writing any code:</p>
+    <ul>
+      <li><b>Matrix maths</b> — solve A·x = b, inverse, determinant, rank, trace, eigenvalues (including complex), QR and SVD. Results insert as editable Word tables.</li>
+      <li><b>Matrix expressions</b> — one line: <code>A*inv(B)+2*C'</code>.</li>
+      <li><b>Optimization</b> — minimise a function you type.</li>
+      <li><b>FFT</b> — amplitude spectrum and dominant frequencies from a sampled signal.</li>
+      <li><b>Data → insights</b> — paste a table and get column summaries, correlations (with p-values), trends, outlier flags, and a plain-language write-up.</li>
+    </ul>
+
+    <h3>Analyze → Solve an ODE</h3>
+    <p><b>Type the equation you actually have.</b> Higher-order equations are reduced for you — you do <i>not</i> hand-convert to a first-order system.</p>
+    <div class="try"><b>Try it:</b> equations <code>y'' = -y</code>, initial values <code>y = 1, y' = 0</code>, range <code>0, 6.2832</code> → solves and reports <i>“auto-reduced to a first-order system of 2 states”</i>, ending at y = 1 (it’s cos t).</div>
+    <table>
+      <tr><th>Field</th><th>What to put in it</th></tr>
+      <tr><td><b>Equations</b></td><td>One per line. <code>y' = -y</code>, or <code>y'' = -0.1*y' - y</code>, or a system. Right-hand sides can use <code>t</code>, the state names, and functions like <code>exp</code>, <code>sin</code>, <code>tanh</code>, <code>sqrt</code>, <code>min</code>/<code>max</code>, <code>mod</code>, and <code>if(cond, a, b)</code> for switching inputs.</td></tr>
+      <tr><td><b>Initial values</b></td><td>One per state: <code>y = 1, y' = 0</code>. A second-order equation needs two.</td></tr>
+      <tr><td><b>Report at times</b></td><td>Optional. A list (<code>0, 1, 2.5</code>) or a range (<code>0:0.5:10</code>). Those values are <b>computed exactly</b>, not interpolated. Leave blank to get the solver’s own steps.</td></tr>
+      <tr><td><b>Stop when</b></td><td>Optional. An expression that ends the solve where it crosses zero — answers <i>“when does it…?”</i></td></tr>
+      <tr><td><b>Solver</b></td><td>Leave on <b>Auto</b>. It starts with a fast explicit method and switches to an implicit one if the problem turns <b>stiff</b> — which is normal for kinetics whenever rate constants differ by orders of magnitude.</td></tr>
+    </table>
+    <div class="try"><b>“When does it land?”</b> Equations <code>z'' = -9.81</code>, initials <code>z = 0, z' = 20</code>, range <code>0, 10</code>, <b>Stop when</b> <code>z</code> → <i>“z reached zero at t = 4.077472”</i>, and the curve ends at the ground.</div>
+
+    <h3>Stats</h3>
+    <p>Descriptive statistics, t-tests (Welch/Student/paired), one- and two-way ANOVA, regression, non-parametric tests (Mann–Whitney U, Wilcoxon), chi-square, multiple-comparison correction (Bonferroni/Holm/Benjamini–Hochberg), and uncertainty propagation.</p>
+
+    <h3>Finance</h3>
+    <p>18 calculators — time value of money, loans, NPV, IRR, DCF, Black–Scholes with Greeks, bond analytics — plus a finance equation library for typesetting the formulas themselves.</p>
+
+    <h2 id="writing">Math, units &amp; figures</h2>
+
+    <h3>Math — native Word equations</h3>
+    <p>Type <code>x^2 + y^2</code> and insert a <b>real Word equation</b> (click it and Equation Tools appear — it’s editable, not a picture). Fractions, roots, Σ, ∫, matrices, piecewise <code>cases(…)</code>, Greek, and multi-line <code>align(…)</code>.</p>
+    <div class="try"><b>Coming from LaTeX?</b> Paste <code>\frac{-b \pm \sqrt{b^2-4ac}}{2a}</code> and convert it to a Word equation — or copy what’s in the box back out <i>as</i> LaTeX.</div>
+    <p class="muted">Tick <b>Number this equation</b> for an auto-numbered (I), (II)… The <b>Formula library</b> dropdown has ready-made expressions across maths, physics, engineering and finance.</p>
+
+    <h3>Units</h3>
+    <p>SI typesetting (<code>9.81 m/s^2</code> → 9.81 m/s²), uncertainties (<code>5.0 +- 0.2 kg</code> → 5.0 ± 0.2 kg), significant figures, and conversion including compound units (<code>36 km/h</code> → <code>10 m/s</code>). Incompatible conversions are refused, not fudged.</p>
+
+    <h3>Plot</h3>
+    <p>Function and data charts, multiple series with a legend, error bars — computed and drawn offline.</p>
+
+    <h3>Table → Chart</h3>
+    <p>Put your cursor in a Word table of numbers and turn it into a chart (column, bar, line, area, scatter, stacked), a flowchart, or a block diagram. Includes a <b>black-and-white patent-figure</b> mode, and can produce an <b>editable PowerPoint</b> instead of an image.</p>
+
+    <h3>Code</h3>
+    <p>Algorithm listings with bold keywords and numbered lines, or verbatim code blocks.</p>
+
+    <h2 id="lifesci">Life sciences</h2>
+
+    <h3>Bio/Assay</h3>
+    <p>Offline curve fitting with parameters ± standard errors and R², and the fit drawn over your data: enzyme kinetics (Michaelis–Menten, Hill), dose–response (IC50/EC50, 4PL), one-site binding, plus lab maths (Cheng–Prusoff, Henderson–Hasselbalch, Beer–Lambert, dilutions, A260/A280).</p>
+
+    <h3>Peptide</h3>
+    <p>A 2D structure from a one- or three-letter sequence (<code>AGCW</code> or <code>Ala-Gly-Cys</code>), with formula and molecular weight.</p>
+
+    <h3>DNA</h3>
+    <p>Reverse complement (RNA-aware), transcription, six-frame translation, ORF finder, primer Tm, protein MW/pI/GRAVY, and restriction sites.</p>
+
+    <h3>Sequence</h3>
+    <p>WIPO <b>ST.26</b> biological sequence listings (DNA/RNA/protein) with CDS and gene annotation.</p>
+    <div class="note"><b>Always validate ST.26 output in the WIPO Sequence tool before filing.</b> JurisLab generates the listing; it is not a substitute for WIPO’s own validator.</div>
+
+    <h3>Botanical</h3>
+    <p>Plant-patent scientific-name typesetting (<code>Rosa × hybrida 'Peace'</code> → <i>Rosa</i> × <i>hybrida</i> 'Peace') and varietal trait tables.</p>
+
+    <h2 id="legal">Patent &amp; legal</h2>
+
+    <h3>Citations</h3>
+    <p>Bluebook citations for cases, statutes, patents, the Federal Register and the MPEP, in practitioner or academic style, with T6/T10 abbreviation. Builds a <b>Table of Authorities</b> from the citations in your document and a <b>Table of Contents</b> from its headings.</p>
+
+    <h3>Numerals</h3>
+    <p>Reference-numeral management: a numeral → element table saved in the document, callouts inserted at the cursor, and a document scan that flags <b>collisions</b> (one numeral, two elements), <b>gaps</b>, <b>orphans</b> (a callout with no entry) and unused entries. Inserts the sorted List of Reference Numerals.</p>
+
+    <h3>Refs</h3>
+    <p>Auto-numbered figure and table captions with cross-references.</p>
+
+    <h3>Audit</h3>
+    <p>One pass over the whole document checking everything at once: reference numerals, SEQ ID NO references against the listing, figure numbering, and dangling cross-references. A clean document reports “✓ No issues found.”</p>
+
+    <h2 id="limits">Honest limits — what JurisLab does <i>not</i> do</h2>
+    <p>Knowing where a tool stops is what makes the rest of it trustworthy.</p>
+    <ul>
+      <li><b>It is a drafting aid.</b> Verify every structure, formula, calculation and listing before filing or publishing. It is not a reviewer.</li>
+      <li><b>Predicted spectra are estimates</b>, not measurements — see the warning in the Spectra section above.</li>
+      <li><b>pKa is a functional-group estimate</b>, not a compound-specific prediction. The group detection is exact; the value is a typical literature figure for that group.</li>
+      <li><b>The ODE tool is numerical only</b> — no symbolic/closed-form solutions, no boundary-value problems, no PDEs.</li>
+      <li><b>IR predicts group frequencies</b>, not the fingerprint region below ~1500 cm⁻¹ — that’s compound-specific and no rule reproduces it.</li>
+      <li><b>UV-Vis uses the Woodward–Fieser rules</b>, which have a defined domain (conjugated dienes and α,β-unsaturated carbonyls). Outside it, JurisLab says so instead of guessing.</li>
+      <li><b>ST.26 listings need WIPO validation</b> before filing.</li>
+      <li><b>Word on the web / older Word</b>: native equations need a recent Word. Where they aren’t available, JurisLab inserts formatted text instead and tells you it did.</li>
+    </ul>
+
+    <h2 id="trouble">Troubleshooting</h2>
+    <table>
+      <tr><th>Symptom</th><th>What to do</th></tr>
+      <tr><td>The add-in doesn’t appear after installing</td><td><b>Fully close and reopen Word</b> — all windows, not just the document. This is the usual cause. Then look under <b>Insert → Add-ins → Developer Add-ins</b>.</td></tr>
+      <tr><td>The pane is blank or won’t load</td><td>You need internet for the <i>first</i> load. If it’s still blank, close the pane and reopen it. If it persists, reinstall from the current pack — an older install can point at an address that no longer exists.</td></tr>
+      <tr><td>A banner says a new version is available</td><td>Reload the pane (close and reopen it). You don’t need to reinstall — the add-in updates itself from the web.</td></tr>
+      <tr><td>“Couldn’t build an equation from that”</td><td>The expression didn’t parse, so it inserted formatted text instead. Check for an unclosed bracket. The <b>Examples &amp; syntax</b> panel shows the syntax for what you’re typing.</td></tr>
+      <tr><td>The preview shows an error</td><td>Trust it — that’s the preview doing its job. Nothing is inserted until you click Insert.</td></tr>
+      <tr><td>An ODE says it stalled or looks stiff</td><td>Set the solver to <b>Auto</b> (or <b>Implicit</b>). If it still won’t finish, the solution may genuinely blow up in finite time — try a shorter range.</td></tr>
+      <tr><td>A structure name isn’t recognised</td><td>Try its SMILES, or enable the opt-in online IUPAC name lookup when prompted.</td></tr>
+      <tr><td>Something inserted that you didn’t want</td><td><b>Ctrl-Z</b> (⌘-Z on a Mac). Every insert is a single undo step.</td></tr>
+    </table>
+
+    <div class="card" style="margin-top:26px">
+      <b>More detail per tool.</b> Every tool has its own page with a full breakdown and worked examples — start from the <a href="index.html">tool list</a> and click any card.
+    </div>
+
+  </main>
+
+  <footer>
+    <div class="wrap">
+      JurisLab — runs entirely on your machine. Drafting aid; verify before filing.<br />
+      <a href="index.html">All tools</a> · <a href="https://github.com/alexsmi22-dotcom/MS-WORD-Add-in">Source</a>
+    </div>
+  </footer>
+</body>
+</html>

@@ -2766,6 +2766,10 @@ function renderProperties(input: string): void {
     na.className = "prop-na";
     na.textContent = "n/a — applies to organic small molecules";
     structurePropsEl.appendChild(na);
+    // The caveats must survive this early exit. An out-of-domain input is the
+    // case that needs them MOST — it is the one where the numbers above mean
+    // least — so returning before rendering them would be exactly backwards.
+    structurePropsEl.appendChild(specCaveats(p.caveats));
     insertPropsBtn.disabled = false;
     return;
   }
@@ -2794,6 +2798,11 @@ function renderProperties(input: string): void {
     rules.appendChild(row);
   }
   structurePropsEl.appendChild(rules);
+
+  // Same block the Spectra modes use. cLogP sitting bare next to a carefully
+  // caveated NMR prediction taught the reader that a JurisLab number is
+  // trustworthy by default — which is the opposite of the point.
+  structurePropsEl.appendChild(specCaveats(p.caveats));
 
   renderPka(input);
   insertPropsBtn.disabled = false;

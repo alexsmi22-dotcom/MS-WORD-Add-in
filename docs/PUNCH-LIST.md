@@ -439,10 +439,45 @@ saturating [S] while uncompetitive is not; non-competitive lowers Vmax by exactl
 **Still open:** tight-binding inhibitors (Morrison's equation) — disclosed in the
 caveats rather than silently mis-fitted.
 
-### [ ] 16. `dna.ts` — standard genetic code only
-No mitochondrial or alternative codon tables. `primerTm` self-admits it is **not
-a salt-corrected nearest-neighbour Tm** — which is what anyone ordering primers
-actually needs.
+### [~] 16. `dna.ts` — primer Tm — DONE v1.76.0; codon tables still open
+
+**Primer Tm: DONE.** The old method used the Wallace rule below 14 nt and
+64.9 + 41(GC−16.4)/N above it. Both see only LENGTH and GC COUNT, so they are blind
+to sequence ORDER — and duplex stability IS stacking between adjacent bases. Measured
+against nearest-neighbour on 20-mers:
+
+| primer | old | NN | error |
+|---|---|---|---|
+| `GCGCGCGCGCGCGCGCGCGC` | 72.3 | 79.2 | **−6.9** |
+| `ATATATATATATATATATAT` | 31.3 | 26.3 | **+4.9** |
+| `TTTTTTTTTTAAAAAAAAAA` | 31.3 | 37.2 | **−5.9** |
+
+**The last two are the whole argument**: same length, same 0% GC, so the old formula
+returns the SAME 31.3 °C for both. They really differ by **11 °C**. A Tm that wrong
+is a failed PCR or a smear of non-specific product, and the number looked ordinary.
+
+Replaced with SantaLucia (1998) unified nearest-neighbour, salt- and
+concentration-corrected (ΔS′ = ΔS + 0.368·(N−1)·ln[Na⁺]; CT/4 for
+non-self-complementary, CT/1 when self-complementary). Defaults 50 mM Na⁺ / 0.25 µM,
+**both shown in the pane** — a Tm without its conditions is not a fact about the
+oligo, and differing supplier defaults are why two people "get different Tm" for the
+same primer.
+
+Below 8 nt it falls back to Wallace and **says which model it used**, rather than
+applying NN where its initiation terms dominate.
+
+NN_PARAMS is transcribed data (BLOSUM62 class), so it is checked structurally: a
+duplex and its reverse complement must melt identically — a slip in any of the 16
+keys breaks that. Plus: CG most stable, ΔH and ΔS negative, Tm monotonic in salt,
+primer concentration, length and GC.
+
+A legacy test asserted the OLD formula's 51.78 for `ATGCATGCATGCATGCATGC`. It now
+asserts **57.68**, hand-verified from the published parameters rather than re-pinned
+to whatever the new code emitted.
+
+**Still open:** alternative codon tables (mitochondrial etc.). Lower risk — an
+unusual translation is visible as a wrong protein, unlike a Tm that silently fails
+a PCR.
 
 ### [ ] 17. Spectra import (JCAMP-DX)
 You can *predict* a spectrum but not open a real one — so you cannot overlay

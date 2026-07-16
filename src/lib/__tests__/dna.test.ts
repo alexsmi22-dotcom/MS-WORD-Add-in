@@ -146,14 +146,29 @@ describe("buildOrfTableHtml", () => {
 });
 
 describe("primerTm", () => {
-  it("uses the Wallace rule for short oligos", () => {
-    expect(primerTm("ATGC")).toMatchObject({ length: 4, tm: 12 }); // 2*2 + 4*2
+  it("uses the Wallace rule for short oligos, and says so", () => {
+    expect(primerTm("ATGC")).toMatchObject({ length: 4, tm: 12, method: "wallace" }); // 2*2 + 4*2
   });
-  it("uses the GC% formula for longer oligos and reports GC", () => {
+
+  it("uses nearest-neighbour for a real primer, not the GC% formula", () => {
+    // CHANGED in v1.76.0. This test used to assert the old GC% formula,
+    // 64.9 + 41*(GC-16.4)/N = 51.78 for this 20-mer. That formula sees only length
+    // and GC count, so it cannot see sequence order — and duplex stability IS
+    // stacking between adjacent bases. It was out by up to 7 °C on real primers and
+    // gave IDENTICAL answers to sequences that differ by 11 °C.
+    //
+    // 57.68 is hand-verifiable from SantaLucia (1998) at 50 mM Na+ / 0.25 µM:
+    //   steps AT×5, TG×5, GC×5, CA×4 -> ΔH -161.5, ΔS -428.3
+    //   init  A…C: +2.3+0.1 / +4.1-2.8 -> ΔH -159.1, ΔS -427.0
+    //   salt  +0.368·19·ln(0.05) = -20.95 -> ΔS -447.95
+    //   Tm = -159100 / (-447.95 + 1.987·ln(0.25e-6/4)) - 273.15 = 57.68
     const r = primerTm("ATGCATGCATGCATGCATGC"); // 20-mer, 50% GC
     expect(r.length).toBe(20);
     expect(r.gcPercent).toBeCloseTo(50, 6);
-    expect(r.tm).toBeCloseTo(64.9 + (41 * (10 - 16.4)) / 20, 6);
+    expect(r.method).toBe("nearest-neighbour");
+    expect(r.tm).toBeCloseTo(57.68, 1);
+    // ...and materially above what the old formula claimed.
+    expect(r.tm).toBeGreaterThan(64.9 + (41 * (10 - 16.4)) / 20 + 3);
   });
 });
 

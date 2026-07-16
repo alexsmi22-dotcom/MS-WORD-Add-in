@@ -3674,7 +3674,13 @@ function updateDnaPreview(): void {
 
   // Tools readouts: primer Tm of the input, and properties of the translated protein.
   const tm = primerTm(seq);
-  dnaTm.textContent = `Primer Tm ≈ ${tm.tm.toFixed(1)} °C · ${tm.gcPercent.toFixed(0)}% GC · ${tm.length} nt`;
+  // The conditions are part of the number. A Tm quoted without its salt and primer
+  // concentration is not a fact about the oligo — it moves ~10 °C between 10 mM and
+  // 1 M Na⁺, and different suppliers' calculators assume different defaults, which
+  // is exactly why two people "get different Tm" for the same primer.
+  dnaTm.textContent =
+    `Primer Tm ≈ ${tm.tm.toFixed(1)} °C · ${tm.gcPercent.toFixed(0)}% GC · ${tm.length} nt` +
+    (tm.method === "nearest-neighbour" ? " · nearest-neighbour, 50 mM Na⁺, 0.25 µM" : " · Wallace rule (too short for NN)");
   const props = proteinProperties(protein);
   dnaProteinProps.textContent = props.length
     ? `Protein (this frame): ${props.length} aa · MW ${props.mw.toLocaleString("en-US")} Da · pI ${props.pI} · GRAVY ${props.gravy.toFixed(2)}`

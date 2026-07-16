@@ -261,16 +261,89 @@ export function findOrfs(seq: string, options: OrfOptions = {}): Orf[] {
 export interface PrimerTm {
   length: number;
   gcPercent: number;
+  /** Melting temperature, °C. Nearest-neighbour unless `method` says otherwise. */
   tm: number;
+  /** Which model produced `tm`. */
+  method: "nearest-neighbour" | "wallace";
+  /** Enthalpy and entropy of duplex formation (NN only): kcal/mol and cal/mol·K. */
+  deltaH?: number;
+  deltaS?: number;
+  caveats: string[];
+}
+
+export interface PrimerTmOptions {
+  /** Monovalent cation concentration, molar. Default 0.05 M — a typical PCR buffer. */
+  sodium?: number;
+  /** Total strand concentration, molar. Default 0.25 µM — a typical primer. */
+  primer?: number;
 }
 
 /**
- * Estimated melting temperature of a primer/oligo — the basic method used by
- * OligoCalc: the Wallace rule (2·AT + 4·GC) for short oligos (<14 nt) and the
- * GC% formula 64.9 + 41·(GC − 16.4)/N for longer ones. It is a quick estimate,
- * not a salt-corrected nearest-neighbor Tm.
+ * SantaLucia (1998) unified nearest-neighbour parameters.
+ *
+ * [ΔH kcal/mol, ΔS cal/(mol·K)] for each 5'→3' dinucleotide step, paired with its
+ * complement. Duplex stability depends on STACKING between adjacent bases, which is
+ * why the ORDER matters and a GC%-only formula cannot work.
+ *
+ * There are 10 unique values; the other 6 keys are the reverse complements and MUST
+ * carry the same numbers (AA/TT stacking is the same interaction read from either
+ * strand). primerTmNN.test.ts checks exactly that, because these are transcribed
+ * data — the same class as BLOSUM62 and the compound dictionary — and one wrong
+ * cell would skew every primer silently.
  */
-export function primerTm(seq: string): PrimerTm {
+const NN_PARAMS: Record<string, [number, number]> = {
+  AA: [-7.9, -22.2], TT: [-7.9, -22.2],
+  AT: [-7.2, -20.4],
+  TA: [-7.2, -21.3],
+  CA: [-8.5, -22.7], TG: [-8.5, -22.7],
+  GT: [-8.4, -22.4], AC: [-8.4, -22.4],
+  CT: [-7.8, -21.0], AG: [-7.8, -21.0],
+  GA: [-8.2, -22.2], TC: [-8.2, -22.2],
+  CG: [-10.6, -27.2],
+  GC: [-9.8, -24.4],
+  GG: [-8.0, -19.9], CC: [-8.0, -19.9],
+};
+
+/** Helix initiation, which depends on whether the end is a G·C or an A·T pair. */
+const INIT_GC: [number, number] = [0.1, -2.8];
+const INIT_AT: [number, number] = [2.3, 4.1];
+
+/** Gas constant, cal/(mol·K). */
+const R_CAL = 1.987;
+
+/** True if the oligo is its own reverse complement (changes the concentration term). */
+function isSelfComplementary(s: string): boolean {
+  const comp: Record<string, string> = { A: "T", T: "A", G: "C", C: "G" };
+  if (s.length % 2 !== 0) return false;
+  for (let i = 0; i < s.length; i++) if (s[i] !== comp[s[s.length - 1 - i]]) return false;
+  return true;
+}
+
+/**
+ * Melting temperature of a primer/oligo by nearest-neighbour thermodynamics
+ * (SantaLucia 1998), salt- and concentration-corrected.
+ *
+ * WHY THIS REPLACED THE OLD METHOD. The previous implementation used the Wallace
+ * rule below 14 nt and 64.9 + 41(GC − 16.4)/N above it. Both see only LENGTH and
+ * GC COUNT, so they are blind to sequence order — and duplex stability is stacking,
+ * which is entirely about order. Measured against NN on 20-mers, the old method was
+ * out by up to 7 °C, and not by a constant you could correct for:
+ *
+ *   GCGCGCGCGCGCGCGCGCGC   old 72.3   NN 79.2   -6.9
+ *   ATATATATATATATATATAT   old 31.3   NN 26.3   +4.9
+ *   TTTTTTTTTTAAAAAAAAAA   old 31.3   NN 37.2   -5.9
+ *
+ * Note the last two: same length, same 0% GC, so the old formula gives them the
+ * SAME 31.3 °C. They really differ by 11 °C. A Tm wrong by that much is a failed
+ * PCR or a smear of non-specific product, and the number looked perfectly ordinary.
+ *
+ *   Tm = ΔH·1000 / (ΔS + R·ln(CT/x)) − 273.15
+ *
+ * with x = 4 for the usual non-self-complementary primer and x = 1 when the oligo is
+ * its own reverse complement, and the SantaLucia salt correction
+ * ΔS' = ΔS + 0.368·(N−1)·ln([Na⁺]).
+ */
+export function primerTm(seq: string, opts: PrimerTmOptions = {}): PrimerTm {
   const s = seq.toUpperCase().replace(/[^ACGTU]/g, "").replace(/U/g, "T");
   const n = s.length;
   let gc = 0;
@@ -279,8 +352,67 @@ export function primerTm(seq: string): PrimerTm {
     if (ch === "G" || ch === "C") gc++;
     else at++;
   }
-  const tm = n === 0 ? 0 : n < 14 ? 2 * at + 4 * gc : 64.9 + (41 * (gc - 16.4)) / n;
-  return { length: n, gcPercent: n ? (gc / n) * 100 : 0, tm };
+  const gcPercent = n ? (gc / n) * 100 : 0;
+  const caveats: string[] = [];
+
+  if (n === 0) return { length: 0, gcPercent: 0, tm: 0, method: "wallace", caveats: ["Empty sequence."] };
+
+  // Below ~8 nt the NN model's initiation terms dominate and the duplex is barely
+  // stable; the Wallace rule is the honest answer there, and saying which model
+  // produced the number matters more than pretending one covers everything.
+  if (n < 8) {
+    caveats.push(
+      `Only ${n} nt: too short for the nearest-neighbour model to mean much, so this is the ` +
+        "Wallace rule (2·AT + 4·GC) — a rule of thumb, not thermodynamics. Expect several °C of error."
+    );
+    return { length: n, gcPercent, tm: 2 * at + 4 * gc, method: "wallace", caveats };
+  }
+
+  const sodium = opts.sodium ?? 0.05;
+  const primer = opts.primer ?? 0.25e-6;
+
+  let dH = 0;
+  let dS = 0;
+  let unknown = 0;
+  for (let i = 0; i < n - 1; i++) {
+    const p = NN_PARAMS[s.slice(i, i + 2)];
+    if (!p) { unknown++; continue; }
+    dH += p[0];
+    dS += p[1];
+  }
+  const init = (c: string): [number, number] => (c === "G" || c === "C" ? INIT_GC : INIT_AT);
+  const a = init(s[0]);
+  const b = init(s[n - 1]);
+  dH += a[0] + b[0];
+  dS += a[1] + b[1];
+
+  // Salt correction (SantaLucia 1998). Applied to entropy, not to Tm directly.
+  dS += 0.368 * (n - 1) * Math.log(sodium);
+
+  const selfComp = isSelfComplementary(s);
+  const ctTerm = selfComp ? primer : primer / 4;
+  const tm = (dH * 1000) / (dS + R_CAL * Math.log(ctTerm)) - 273.15;
+
+  caveats.push(
+    `Nearest-neighbour (SantaLucia 1998) at [Na⁺] ${(sodium * 1000).toFixed(0)} mM and ` +
+      `${(primer * 1e6).toFixed(2)} µM primer. Tm moves with BOTH — quoting a Tm without them ` +
+      "is meaningless, and different suppliers' calculators assume different defaults."
+  );
+  if (selfComp) {
+    caveats.push("This oligo is self-complementary (its own reverse complement), so it will form a hairpin/dimer with itself. The concentration term is adjusted, but the oligo is a poor primer regardless.");
+  }
+  caveats.push(
+    "Assumes a perfectly matched duplex in a two-state transition. It does not model " +
+      "mismatches, dangling ends, hairpins or primer-dimers, and it says nothing about " +
+      "whether the primer is SPECIFIC to your template — a perfect Tm on a primer that " +
+      "binds in three places will still fail."
+  );
+  if (sodium > 0 && !opts.sodium) {
+    caveats.push("Salt defaults to 50 mM Na⁺ (a typical PCR buffer). Mg²⁺ is NOT accounted for; a high-Mg buffer raises the real Tm above this.");
+  }
+  if (unknown) caveats.push(`${unknown} dinucleotide step(s) contained a non-ACGT base and were skipped — the Tm is an underestimate.`);
+
+  return { length: n, gcPercent, tm, method: "nearest-neighbour", deltaH: dH, deltaS: dS, caveats };
 }
 
 // --- Restriction sites ------------------------------------------------------

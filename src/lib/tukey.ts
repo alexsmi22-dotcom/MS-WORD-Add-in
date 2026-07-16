@@ -244,6 +244,19 @@ export function tukeyHSD(groups: number[][], alpha = 0.05): TukeyResult | null {
       "against one control, Dunnett's test is more powerful; using Tukey there costs you " +
       "sensitivity for comparisons you never wanted.",
   ];
+  if (mse === 0) {
+    // Every observation within every group is identical, so the pooled variance is
+    // zero and q is infinite for any pair whose means differ. That is arithmetically
+    // honest and practically meaningless: real measurements have error. Found by the
+    // adversarial pass, which reported q = Infinity — a value that would have
+    // rendered in the pane as the literal word "Infinity".
+    caveats.unshift(
+      "ZERO within-group variance: every replicate in every group is identical. That gives " +
+        "an infinite test statistic and a p of 0 for any pair whose means differ — arithmetic, " +
+        "not evidence. Real measurements vary; data like this is usually rounded, duplicated, " +
+        "or synthetic. Do not report these p values."
+    );
+  }
   if (new Set(n).size > 1) {
     caveats.push(
       "Group sizes are unequal, so this is the Tukey-Kramer variant. It is approximate " +

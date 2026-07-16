@@ -4165,6 +4165,17 @@ interface FinCalc {
   name: string;
   fields: FinField[];
   compute: (read: (k: string) => string) => string;
+  /**
+   * The modelling assumptions this calculator silently makes — shown under the
+   * result, and carried into the inserted text.
+   *
+   * finance.ts documents these accurately in its source ("European option (no
+   * dividends)"), but a source comment is not a disclosure: nothing reached the
+   * user. Someone pricing an American put got a number that is simply too low,
+   * with nothing on screen to say so. Every model here that is only valid under
+   * conditions the inputs cannot express must name them.
+   */
+  assumes?: string;
 }
 
 function finMoney(x: number): string {
@@ -4245,6 +4256,11 @@ const FIN_CALCS: FinCalc[] = [
       const v = irr(finList(r("cf")));
       return v === null ? "IRR = no solution" : `IRR = ${finPct(v)}`;
     },
+    assumes:
+      "IRR assumes every interim cash flow is reinvested AT THE IRR — usually optimistic. "+
+      "Cash flows that change sign more than once can have several valid IRRs and this "+
+      "reports only the first found; compare NPV instead when signs alternate. Returns "+
+      "no solution when no rate in the searched range zeroes the NPV."
   },
   {
     id: "bs",
@@ -4268,6 +4284,11 @@ const FIN_CALCS: FinCalc[] = [
     ],
     compute: (r) =>
       `Price = ${finMoney(blackScholes(r("type") as OptionType, +r("s"), +r("k"), +r("t"), +r("r") / 100, +r("sig") / 100))}`,
+    assumes:
+      "EUROPEAN exercise (expiry only) and NO dividends. An American option cannot " +
+      "be priced with this: early exercise makes an American put worth MORE than " +
+      "this figure, and a dividend-paying stock makes a call worth LESS. Also assumes " +
+      "constant volatility and a lognormal price — real options show a volatility smile.",
   },
   {
     id: "bond",
@@ -4281,6 +4302,10 @@ const FIN_CALCS: FinCalc[] = [
     ],
     compute: (r) =>
       `Price = ${finMoney(bondPrice(+r("face"), +r("coupon") / 100, +r("ytm") / 100, +r("years"), +r("freq")))}`,
+    assumes:
+      "CLEAN price — accrued interest is not included, so this matches a quoted price, "+
+      "not the cash you would pay to settle. Assumes a flat yield curve, no credit risk, "+
+      "no embedded call/put, and coupons reinvested at the YTM."
   },
   {
     id: "ear",
@@ -4336,6 +4361,11 @@ const FIN_CALCS: FinCalc[] = [
       const v = dcf(+r("rate") / 100, finList(r("cf")), +r("g") / 100);
       return Number.isFinite(v) ? `Value = ${finMoney(v)}` : "Value = — (need rate > terminal growth)";
     },
+    assumes:
+      "The Gordon terminal value typically dominates this number and is extremely sensitive "+
+      "to the terminal growth rate: it explodes as growth approaches the discount rate, "+
+      "and requires growth < discount rate to mean anything. Treat the output as a scenario, "+
+      "not a valuation."
   },
   {
     id: "xirr",
@@ -4348,6 +4378,10 @@ const FIN_CALCS: FinCalc[] = [
       const v = xirr(finList(r("cf")), finList(r("days")));
       return v === null ? "XIRR = no solution" : `XIRR = ${finPct(v)} / year`;
     },
+    assumes:
+      "Same reinvestment assumption and multiple-root caveat as IRR, on actual dates. "+
+      "Uses a 365-day year and ignores day-count conventions (30/360, ACT/360), so it "+
+      "will differ slightly from a bond-desk figure."
   },
   {
     id: "ytm",
@@ -4363,6 +4397,10 @@ const FIN_CALCS: FinCalc[] = [
       const y = bondYTM(+r("price"), +r("face"), +r("coupon") / 100, +r("years"), +r("freq"));
       return y === null ? "YTM = no solution" : `YTM = ${finPct(y)}`;
     },
+    assumes:
+      "Assumes settlement on a coupon date, a flat curve, and no default. YTM is a redemption "+
+      "yield: it only realises if every coupon is reinvested at that same rate. Returns "+
+      "no solution when no yield in the searched range reproduces the price."
   },
   {
     id: "bondrisk",
@@ -4383,6 +4421,10 @@ const FIN_CALCS: FinCalc[] = [
         `Convexity  ${a.convexity.toFixed(2)}`,
       ].join("\n");
     },
+    assumes:
+      "Duration and convexity are first- and second-order sensitivities to a PARALLEL "+
+      "shift in a flat curve. They understate risk for large moves and for non-parallel "+
+      "shifts, and do not apply to callable or putable bonds."
   },
   {
     id: "greeks",
@@ -4414,6 +4456,10 @@ const FIN_CALCS: FinCalc[] = [
         `Rho    ${finMoney(g.rho / 100)} per 1% rate`,
       ].join("\n");
     },
+    assumes:
+      "Same EUROPEAN, no-dividend model as the Black–Scholes price above — these Greeks "+
+      "do not describe an American option or a dividend payer. Theta is per YEAR here; "+
+      "trading desks usually quote it per day (divide by 365)."
   },
   {
     id: "iv",
@@ -4439,6 +4485,11 @@ const FIN_CALCS: FinCalc[] = [
       const v = impliedVolatility(r("type") as OptionType, +r("price"), +r("s"), +r("k"), +r("t"), +r("r") / 100);
       return v === null ? "Implied vol = no solution" : `Implied vol = ${finPct(v)}`;
     },
+    assumes:
+      "Solves the EUROPEAN, no-dividend Black–Scholes price for sigma. Feeding it a real "+
+      "American or dividend-paying option's market price yields a sigma that silently "+
+      "absorbs the model error, so it is not that option's true volatility. Returns no "+
+      "solution when the price is outside the model's arbitrage bounds."
   },
   {
     id: "depr",
@@ -4553,8 +4604,20 @@ function updateFinancePreview(): void {
     finResult.innerHTML = '<span class="hint">Enter values to compute.</span>';
   } else {
     finResult.textContent = text;
+    // Show the model's assumptions with the number, not buried in the source.
+    // A Black-Scholes price for an American put is simply wrong, and nothing on
+    // screen said so — the whole gap #5 named.
+    if (calc.assumes) {
+      const note = document.createElement("div");
+      note.className = "ms-note";
+      note.textContent = `• Assumes: ${calc.assumes}`;
+      finResult.appendChild(note);
+    }
   }
-  currentFinText = insertable ? text : "";
+  // Carry the assumptions into the DOCUMENT too. A number that leaves the pane
+  // without them is the same defect one step further downstream — and the
+  // document is where it gets relied on. pkaAsText already does this.
+  currentFinText = insertable ? (calc.assumes ? `${text}\nAssumes: ${calc.assumes}` : text) : "";
   finInsertBtn.disabled = !insertable;
 }
 

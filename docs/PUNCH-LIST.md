@@ -103,12 +103,32 @@ logS is worse. The header calls them "OpenChemLib's validated models", which a
 reader hears as "these are right". Add the error bars and say they are estimates,
 in the pane and not just the source.
 
-### [ ] 5. `finance.ts` — 433 LOC, 39 exports, zero disclosures
-The one module whose silence isn't earned. Specifically:
-- **Black–Scholes is European-only** — unstated. Someone pricing an American
-  option gets a wrong number with no warning.
-- IRR/XIRR return `null` on non-bracketing — handled in code, undisclosed.
-- Bond analytics assume conventions that should be named.
+### [x] 5. `finance.ts` — zero disclosures — DONE v1.69.0
+The source was never dishonest: `blackScholes()` is documented as "European option
+(no dividends)" right in the file. **But a source comment is not a disclosure.**
+The words "European" and "dividend" appeared NOWHERE the user could see them — not
+the pane, not the HTML, not the landing pages. Someone pricing an American put got
+a number that is simply too low, with nothing on screen to say so.
+
+`FinCalc.assumes` is a new disclosure channel, rendered under the result AND
+carried into the inserted text (a number that reaches the document without its
+assumptions is the same defect one step further downstream). Eight calculators now
+disclose: Black–Scholes, Greeks, implied vol, bond price, YTM, duration/convexity,
+IRR, XIRR, DCF.
+
+`financeDisclosure.test.ts` asserts the BEHAVIOUR each warning describes, so the
+text stays true instead of becoming decoration:
+- put–call parity holds → this really is the European model
+- a deep ITM European put prices **more than $5 BELOW** immediate exercise — the
+  concrete harm, and the number looks perfectly reasonable
+- `blackScholes.length === 6` → there is no dividend input at all
+- `[-100, 500, -500]` genuinely has **two** IRRs and `irr()` silently returns one
+- duration understates a 200bp move (convexity), as the warning says
+
+Not changed: `normCdf`. An early draft of the test demanded 9 decimals and
+"failed" at 0.4999999995 — off by 5e-10, i.e. 200x BETTER than the ~1e-7 its
+docstring promises. Testing a spec the code never claimed only manufactures false
+alarms. The test now asserts the documented tolerance.
 
 ### [ ] 6. `assay.ts` — 517 LOC, 0 caveats
 Levenberg–Marquardt on a small noisy dataset has real limits: local minima,

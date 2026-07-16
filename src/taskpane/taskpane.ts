@@ -64,7 +64,7 @@ import { parseSequenceFile, SeqRecord } from "../lib/seqio";
 import { buildLinearMapSvg, featureTypes } from "../lib/seqmap";
 import { buildCircularMapSvg } from "../lib/seqmapcirc";
 import { parseSnapGeneDna, looksLikeDna } from "../lib/seqdna";
-import { ENZYMES, findSites, summarise, uniqueCutters, formatSite } from "../lib/enzymes";
+import { ENZYMES, findSites, summarise, uniqueCutters, formatSite, methylationWarnings } from "../lib/enzymes";
 import { nmrChartSvg, irChartSvg, msChartSvg, SPECTRUM_CHART_SIZE } from "../lib/spectraChart";
 import { buildPeptide } from "../lib/peptide";
 import {
@@ -3714,6 +3714,24 @@ function findRestrictionSites(): void {
     rows +
     "</table>" +
     `<div class="hint" style="margin-top:6px">★ = cuts once (a unique cutter). Both strands are searched, so asymmetric sites (BsaI, BsmBI, BbsI) are found on either.</div>`;
+
+  // Methylation is the difference between this prediction and the gel. MboI on
+  // plasmid DNA from an ordinary dam+ strain cuts NOTHING, and DpnI cuts ONLY
+  // methylated DNA — neither failure announces itself, you just lose a week. The
+  // table above cannot show that, so it goes underneath in full.
+  const methWarnings = methylationWarnings(seq, raw);
+  if (methWarnings.length) {
+    const seen = new Set<string>();
+    const unique2: string[] = [];
+    for (const w of methWarnings) {
+      // One line per enzyme+methylase; the position is already in the message.
+      const key = `${w.enzyme}:${w.methylase}:${w.effect}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      unique2.push(w.message);
+    }
+    dnaRestrictResults.appendChild(specCaveats(unique2));
+  }
   setStatus(
     `Found ${hits.length} enzyme${hits.length === 1 ? "" : "s"}; ${unique.size} cut${unique.size === 1 ? "s" : ""} once.`,
     "success"

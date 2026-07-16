@@ -368,10 +368,39 @@ collected 12 atoms, and the `size === 6` check rejected the whole molecule. Walk
 only RING BONDS fixes it — the bond joining two rings is not itself a ring bond.
 Pinned.
 
-### [ ] 14. Enzyme methylation sensitivity (Dam/Dcm)
-`enzymes.ts` ships the **MspI/HpaII isoschizomer pair**, whose *entire purpose*
-is CpG-methylation discrimination — with no methylation flag to express it. The
-pair is currently pointless. Also absent: star activity, buffer compatibility.
+### [x] 14. Enzyme methylation sensitivity (Dam/Dcm) — DONE v1.74.0
+The audit called the MspI/HpaII pair "pointless" without a flag. True — but **the
+GATC trio was worse than pointless, it was wrong**, and the failure costs a week:
+
+| enzyme | table said | reality |
+|---|---|---|
+| **MboI** (GATC) | plain isoschizomer, full digest | **BLOCKED by Dam** — on plasmid DNA from any ordinary dam+ strain it cuts **nothing** |
+| **Sau3AI** (GATC) | identical to MboI | **ignores Dam** — which is the whole reason to choose it |
+| **DpnI** (GATC) | plain GATC cutter | cuts **ONLY** Dam-methylated DNA |
+
+**DpnI is exactly backwards.** Its purpose is site-directed mutagenesis: destroy the
+methylated parental plasmid, keep the unmethylated PCR product. The table predicted
+it digests a PCR product. Neither failure announces itself — you get an undigested
+gel.
+
+Added `Enzyme.methylation` with four effects: `blocked`, `blocked-in-context`,
+`required`, `insensitive`. Annotated 12 enzymes: the GATC trio, MspI/HpaII (the
+pair now differs), BclI (TGATCA always contains GATC → unconditional), SmaI, and
+the context-dependent set (ClaI, XbaI, TaqI, NruI, StuI).
+
+**`blocked-in-context` is checked against the DNA, not asserted from the enzyme.**
+ClaI is only Dam-blocked when the flanking bases complete a GATC across its edge
+(…**G**ATCGAT…). Warning on every ClaI site would be noise the user learns to
+ignore — which is worse than silence, because it devalues the real warnings.
+Handles circular sequences, where a methylase site can span the origin.
+
+The data is self-checked: a `blocked` (unconditional) Dam claim must have GATC
+inside its own site, a `blocked` CpG claim must contain CG, only DpnI may
+`require`, and no enzyme may be both blocked by and requiring the same methylase.
+
+Rendered under the digest table in the pane.
+
+**Still open from this item:** star activity and buffer compatibility.
 
 ### [ ] 15. `assay.ts` — only one Ki path
 Cheng–Prusoff only. No competitive / uncompetitive / non-competitive inhibition

@@ -63,7 +63,50 @@ export interface Enzyme {
   typeIIS?: boolean;
   /** Enzymes recognising the same site (informational). */
   isoschizomers?: string[];
+  /**
+   * How DNA methylation affects this enzyme. Omitted means "not known to be
+   * affected by the three methylases below".
+   *
+   * WHY THIS EXISTS. Without it the table was not merely incomplete, it was
+   * misleading in ways that cost a bench week:
+   *
+   *  - MboI, Sau3AI and DpnI all read GATC and were listed as plain isoschizomers
+   *    with identical behaviour. In reality they are THE textbook discrimination
+   *    set: MboI is BLOCKED by Dam, Sau3AI ignores Dam, and DpnI cuts ONLY when
+   *    Dam has methylated the site.
+   *  - DpnI's whole purpose is site-directed mutagenesis: digest the methylated
+   *    parental plasmid, leave the unmethylated PCR product intact. Predicting
+   *    that it cuts a PCR product is exactly backwards.
+   *  - MboI on plasmid DNA from any ordinary dam+ E. coli strain cuts NOTHING.
+   *    The table predicted a full digest.
+   *  - MspI and HpaII were byte-identical records. The pair exists ONLY because
+   *    HpaII is blocked by CpG methylation and MspI is not — that is the basis of
+   *    every methylation-sensitive assay. Identical entries made the pair
+   *    pointless.
+   *
+   * Facts, not a compilation: every supplier catalogue states these.
+   */
+  methylation?: {
+    /** Dam methylates the A of GATC (E. coli K-12 is dam+ unless engineered). */
+    dam?: MethylEffect;
+    /** Dcm methylates the second C of CCWGG. */
+    dcm?: MethylEffect;
+    /** CpG methylation (mammalian genomic DNA, or M.SssI in vitro). */
+    cpg?: MethylEffect;
+  };
 }
+
+/**
+ * - `blocked`      — methylation prevents cutting, always (the site itself is,
+ *                    or always contains, the methylase target).
+ * - `blocked-in-context` — only blocked when the recognition site happens to
+ *                    OVERLAP a methylase site in this particular sequence. Must be
+ *                    checked against the actual DNA, not asserted from the enzyme.
+ * - `required`     — cuts ONLY the methylated form (DpnI).
+ * - `insensitive`  — explicitly unaffected. Worth stating: it is the reason to
+ *                    choose this enzyme over its isoschizomer.
+ */
+export type MethylEffect = "blocked" | "blocked-in-context" | "required" | "insensitive";
 
 /**
  * The enzyme table.
@@ -80,14 +123,15 @@ export const ENZYMES: Enzyme[] = [
   { name: "HindIII", site: "AAGCTT", cutTop: 1, cutBottom: 5 },
   { name: "XhoI", site: "CTCGAG", cutTop: 1, cutBottom: 5 },
   { name: "SalI", site: "GTCGAC", cutTop: 1, cutBottom: 5 },
-  { name: "XbaI", site: "TCTAGA", cutTop: 1, cutBottom: 5 },
+  { name: "XbaI", site: "TCTAGA", cutTop: 1, cutBottom: 5, methylation: { dam: "blocked-in-context" } },
   { name: "BglII", site: "AGATCT", cutTop: 1, cutBottom: 5 },
   { name: "SpeI", site: "ACTAGT", cutTop: 1, cutBottom: 5 },
   { name: "NheI", site: "GCTAGC", cutTop: 1, cutBottom: 5 },
   { name: "AflII", site: "CTTAAG", cutTop: 1, cutBottom: 5 },
   { name: "AgeI", site: "ACCGGT", cutTop: 1, cutBottom: 5 },
   { name: "AvrII", site: "CCTAGG", cutTop: 1, cutBottom: 5 },
-  { name: "BclI", site: "TGATCA", cutTop: 1, cutBottom: 5 },
+  // TGATCA always contains GATC, so Dam always blocks it — no context needed.
+  { name: "BclI", site: "TGATCA", cutTop: 1, cutBottom: 5, methylation: { dam: "blocked" } },
   { name: "BspEI", site: "TCCGGA", cutTop: 1, cutBottom: 5 },
   { name: "BsrGI", site: "TGTACA", cutTop: 1, cutBottom: 5 },
   { name: "MfeI", site: "CAATTG", cutTop: 1, cutBottom: 5 },
@@ -104,7 +148,7 @@ export const ENZYMES: Enzyme[] = [
   { name: "AscI", site: "GGCGCGCC", cutTop: 2, cutBottom: 6 },
   { name: "NotI", site: "GCGGCCGC", cutTop: 2, cutBottom: 6 },
   { name: "NdeI", site: "CATATG", cutTop: 2, cutBottom: 4 },
-  { name: "ClaI", site: "ATCGAT", cutTop: 2, cutBottom: 4 },
+  { name: "ClaI", site: "ATCGAT", cutTop: 2, cutBottom: 4, methylation: { dam: "blocked-in-context" } },
   { name: "BstBI", site: "TTCGAA", cutTop: 2, cutBottom: 4 },
   { name: "AsiSI", site: "GCGATCGC", cutTop: 5, cutBottom: 3 },
 
@@ -122,11 +166,11 @@ export const ENZYMES: Enzyme[] = [
   { name: "PacI", site: "TTAATTAA", cutTop: 5, cutBottom: 3 },
 
   // --- Blunt cutters -------------------------------------------------------
-  { name: "SmaI", site: "CCCGGG", cutTop: 3, cutBottom: 3 },
+  { name: "SmaI", site: "CCCGGG", cutTop: 3, cutBottom: 3, methylation: { cpg: "blocked" } },
   { name: "EcoRV", site: "GATATC", cutTop: 3, cutBottom: 3 },
   { name: "PvuII", site: "CAGCTG", cutTop: 3, cutBottom: 3 },
   { name: "ScaI", site: "AGTACT", cutTop: 3, cutBottom: 3 },
-  { name: "StuI", site: "AGGCCT", cutTop: 3, cutBottom: 3 },
+  { name: "StuI", site: "AGGCCT", cutTop: 3, cutBottom: 3, methylation: { dcm: "blocked-in-context" } },
   { name: "HpaI", site: "GTTAAC", cutTop: 3, cutBottom: 3 },
   { name: "DraI", site: "TTTAAA", cutTop: 3, cutBottom: 3 },
   { name: "SspI", site: "AATATT", cutTop: 3, cutBottom: 3 },
@@ -135,7 +179,7 @@ export const ENZYMES: Enzyme[] = [
   { name: "SnaBI", site: "TACGTA", cutTop: 3, cutBottom: 3 },
   { name: "PmlI", site: "CACGTG", cutTop: 3, cutBottom: 3 },
   { name: "ZraI", site: "GACGTC", cutTop: 3, cutBottom: 3, isoschizomers: ["AatII (3' overhang)"] },
-  { name: "NruI", site: "TCGCGA", cutTop: 3, cutBottom: 3 },
+  { name: "NruI", site: "TCGCGA", cutTop: 3, cutBottom: 3, methylation: { dam: "blocked-in-context" } },
   { name: "HincII", site: "GTYRAC", cutTop: 3, cutBottom: 3 },
   { name: "PmeI", site: "GTTTAAAC", cutTop: 4, cutBottom: 4 },
   { name: "SwaI", site: "ATTTAAAT", cutTop: 4, cutBottom: 4 },
@@ -148,12 +192,25 @@ export const ENZYMES: Enzyme[] = [
   { name: "HaeIII", site: "GGCC", cutTop: 2, cutBottom: 2 },
   { name: "RsaI", site: "GTAC", cutTop: 2, cutBottom: 2 },
   { name: "MseI", site: "TTAA", cutTop: 1, cutBottom: 3 },
-  { name: "MspI", site: "CCGG", cutTop: 1, cutBottom: 3, isoschizomers: ["HpaII"] },
-  { name: "HpaII", site: "CCGG", cutTop: 1, cutBottom: 3, isoschizomers: ["MspI"] },
-  { name: "TaqI", site: "TCGA", cutTop: 1, cutBottom: 3 },
-  { name: "MboI", site: "GATC", cutTop: 0, cutBottom: 4, isoschizomers: ["Sau3AI", "DpnII"] },
-  { name: "Sau3AI", site: "GATC", cutTop: 0, cutBottom: 4, isoschizomers: ["MboI", "DpnII"] },
-  { name: "DpnI", site: "GATC", cutTop: 2, cutBottom: 2 },
+  // MspI/HpaII differ ONLY in CpG sensitivity — that difference is the basis of
+  // every methylation-sensitive restriction assay. Identical records made the
+  // pair pointless.
+  { name: "MspI", site: "CCGG", cutTop: 1, cutBottom: 3, isoschizomers: ["HpaII"],
+    methylation: { cpg: "insensitive" } },
+  { name: "HpaII", site: "CCGG", cutTop: 1, cutBottom: 3, isoschizomers: ["MspI"],
+    methylation: { cpg: "blocked" } },
+  { name: "TaqI", site: "TCGA", cutTop: 1, cutBottom: 3, methylation: { dam: "blocked-in-context" } },
+  // The GATC trio below is the classic Dam-discrimination set. Same site, three
+  // different answers on the same DNA — which is the ONLY reason to list all three.
+  { name: "MboI", site: "GATC", cutTop: 0, cutBottom: 4, isoschizomers: ["Sau3AI", "DpnII"],
+    methylation: { dam: "blocked" } },
+  { name: "Sau3AI", site: "GATC", cutTop: 0, cutBottom: 4, isoschizomers: ["MboI", "DpnII"],
+    methylation: { dam: "insensitive" } },
+  // DpnI cuts ONLY G-m6A-TC. This is why site-directed mutagenesis works: it
+  // destroys the Dam-methylated parental plasmid and leaves the unmethylated PCR
+  // product whole. Predicting that it digests a PCR product is exactly backwards.
+  { name: "DpnI", site: "GATC", cutTop: 2, cutBottom: 2, isoschizomers: ["MboI", "Sau3AI"],
+    methylation: { dam: "required" } },
   { name: "HhaI", site: "GCGC", cutTop: 3, cutBottom: 1 },
   { name: "HinfI", site: "GANTC", cutTop: 1, cutBottom: 4 },
   { name: "NlaIII", site: "CATG", cutTop: 4, cutBottom: 0 },
@@ -274,6 +331,108 @@ export interface FindOptions {
   circular?: boolean;
   /** Only these enzymes (by name). Default: all. */
   only?: string[];
+}
+
+/** Where a methylase acts, and what it methylates. Facts from any catalogue. */
+export const METHYLASES = {
+  dam: { site: "GATC", what: "the A of GATC", who: "Dam (E. coli K-12 is dam+ unless engineered)" },
+  dcm: { site: "CCWGG", what: "the second C of CCWGG", who: "Dcm (E. coli K-12 is dcm+)" },
+  cpg: { site: "CG", what: "the C of CG", who: "CpG methylation (mammalian genomic DNA, or M.SssI)" },
+} as const;
+
+export type MethylaseName = keyof typeof METHYLASES;
+
+/** A methylation problem at a specific site in a specific sequence. */
+export interface MethylationWarning {
+  enzyme: string;
+  /** 1-based start of the affected recognition site. */
+  position: number;
+  methylase: MethylaseName;
+  effect: MethylEffect;
+  message: string;
+}
+
+/** True if `seq` matches the IUPAC pattern `pat` at `i` (no wraparound). */
+function matchesAt(seq: string, pat: string, i: number): boolean {
+  if (i < 0 || i + pat.length > seq.length) return false;
+  for (let k = 0; k < pat.length; k++) {
+    const allowed = IUPAC[pat[k]];
+    if (!allowed || !allowed.includes(seq[i + k])) return false;
+  }
+  return true;
+}
+
+/**
+ * Does a methylase site OVERLAP the window [start, end) of `seq`?
+ *
+ * This is what makes "blocked-in-context" a statement about the DNA rather than
+ * about the enzyme. ClaI (ATCGAT) is only Dam-blocked when the surrounding bases
+ * make a GATC across its edge — e.g. ...GATCGAT... — so it must be checked
+ * against the actual sequence. Asserting it from the enzyme alone would warn on
+ * every ClaI site, which is noise the user would learn to ignore.
+ */
+function methylaseOverlaps(seq: string, start: number, end: number, m: MethylaseName, circular: boolean): boolean {
+  const pat = METHYLASES[m].site;
+  const s = circular ? seq + seq.slice(0, pat.length - 1) : seq;
+  const from = Math.max(0, start - (pat.length - 1));
+  const to = Math.min(s.length - pat.length, end - 1);
+  for (let i = from; i <= to; i++) if (matchesAt(s, pat, i)) return true;
+  return false;
+}
+
+/**
+ * Methylation problems for the hits found in `seq`.
+ *
+ * A digest predicted without this is confidently wrong in the most expensive way:
+ * MboI on plasmid DNA from an ordinary dam+ strain cuts NOTHING, and DpnI cuts
+ * ONLY methylated DNA — so predicting that it digests a PCR product is exactly
+ * backwards. Neither failure announces itself; you just get an undigested gel and
+ * lose a week.
+ */
+export function methylationWarnings(seq: string, hits: EnzymeHit[], circular = false): MethylationWarning[] {
+  const clean = seq.toUpperCase().replace(/[^A-Z]/g, "");
+  const out: MethylationWarning[] = [];
+  const byName = new Map(ENZYMES.map((e) => [e.name, e]));
+
+  for (const h of hits) {
+    const e = byName.get(h.enzyme);
+    if (!e?.methylation) continue;
+    const start = h.position - 1;
+    const end = start + e.site.length;
+
+    for (const m of Object.keys(e.methylation) as MethylaseName[]) {
+      const effect = e.methylation[m];
+      if (!effect || effect === "insensitive") continue;
+      const meta = METHYLASES[m];
+
+      if (effect === "required") {
+        out.push({
+          enzyme: h.enzyme, position: h.position, methylase: m, effect,
+          message:
+            `${h.enzyme} cuts ONLY when ${meta.what} is methylated. On unmethylated DNA — ` +
+            `a PCR product, or DNA from a ${m}− strain — it will not cut at all. That is the ` +
+            `point of it: in site-directed mutagenesis it destroys the methylated parental ` +
+            `plasmid and leaves your PCR product intact.`,
+        });
+        continue;
+      }
+
+      // "blocked" is unconditional; "blocked-in-context" must be proven against
+      // this sequence, or the warning is noise on every site.
+      if (effect === "blocked-in-context" && !methylaseOverlaps(clean, start, end, m, circular)) continue;
+
+      out.push({
+        enzyme: h.enzyme, position: h.position, methylase: m, effect,
+        message:
+          `${h.enzyme} at ${h.position} is BLOCKED by ${meta.who}, which methylates ${meta.what}` +
+          `${effect === "blocked-in-context" ? " — and this site overlaps one" : ""}. ` +
+          `It will not cut DNA grown in an ordinary ${m}+ host. Use a ${m}− strain, ` +
+          `or an isoschizomer that ignores ${m}` +
+          `${e.isoschizomers?.length ? ` (try ${e.isoschizomers.join(" or ")})` : ""}.`,
+      });
+    }
+  }
+  return out;
 }
 
 /**

@@ -41,6 +41,61 @@ function assertNoBadNumbers(v: unknown, path = "root"): void {
   }
 }
 
+describe("the user-facing docs are not allowed to rot", () => {
+  // The docs drifted silently: the manual claimed "22 tools" while 24 shipped, and
+  // the test script still said v1.59.0 at v1.80.0 — 21 releases behind. A manual
+  // that omits a tool is a tool nobody uses, and a test script pinned to a dead
+  // version is one nobody trusts. Neither the type-checker nor the render gate can
+  // see prose, so it gets a test.
+  const fs = require("fs") as typeof import("fs");
+  const path = require("path") as typeof import("path");
+  const ROOT = path.join(__dirname, "..", "..", "..");
+  const read = (p: string) => fs.readFileSync(path.join(ROOT, p), "utf8");
+  const pkg = JSON.parse(read("package.json")) as { version: string };
+
+  /** Every shipping tool, from the single source of truth. */
+  const modes = (): string[] => {
+    const src = read("src/lib/modes.ts");
+    return [...src.matchAll(/^\s*"([a-z]+)",$/gm)].map((m) => m[1]).filter((m) => m !== "home");
+  };
+
+  test("the manual's tool count matches what actually ships", () => {
+    const man = read("landing/manual.html");
+    const claimed = /(\d+)\s+tools/.exec(man);
+    expect(claimed).not.toBeNull();
+    expect(Number(claimed![1])).toBe(modes().length);
+  });
+
+  test("the manual documents every tool by name", () => {
+    // Matched on the human names the manual uses, not the mode ids.
+    const man = read("landing/manual.html").toLowerCase();
+    const NAMES: Record<string, string> = {
+      align: "needleman", seqmap: "sequence map", massspec: "mass spec", ppt: "table",
+      spectra: "spectra", assay: "bio/assay", peptide: "peptide", stats: "stats",
+      dna: "dna", citations: "bluebook", finance: "finance", plot: "plot",
+      chemical: "chemical", math: "math", units: "units", reaction: "reaction",
+      analyze: "analyze", build: "build", code: "code", sequence: "st.26",
+      botanical: "botanical", numerals: "numerals", audit: "audit", refs: "refs",
+    };
+    const missing = modes().filter((m) => {
+      const needle = NAMES[m] ?? m;
+      return !man.includes(needle);
+    });
+    expect(missing).toEqual([]);
+  });
+
+  test("the test script is not pinned to a dead version", () => {
+    const ts = read("docs/TEST-SCRIPT.md");
+    const v = /v(\d+\.\d+\.\d+)/.exec(ts);
+    expect(v).not.toBeNull();
+    expect(v![1]).toBe(pkg.version);
+  });
+
+  test("the test script covers the newest tool", () => {
+    expect(read("docs/TEST-SCRIPT.md").toLowerCase()).toMatch(/needleman|smith.?waterman/);
+  });
+});
+
 describe("align — hostile sequences", () => {
   test("single characters, and one-vs-huge, do not throw", () => {
     for (const [a, b] of [["A", "A"], ["A", "W"], ["A", "M".repeat(200)], ["M".repeat(200), "A"]]) {

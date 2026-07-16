@@ -1,7 +1,7 @@
-# JurisLab — Manual Test Script (v1.59.0)
+# JurisLab — Manual Test Script (v1.81.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
-The engine is covered by 1,841 automated unit tests, and `npm run qc` now also
+The engine is covered by 2,818 automated unit tests, and `npm run qc` now also
 boots the pane in headless Chromium to check every tool renders. This script
 covers what neither can reach: insertion into a real document, undo, document
 scanning, and layout. Budget ~30 minutes for the full pass.
@@ -22,10 +22,11 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
   `Fig. 7`). Regenerate it any time with `powershell -File scripts\make-test-doc.ps1`.
 - [ ] Open the task pane (**Home → Insert Formula**, or **Insert → Add-ins**).
 - [ ] The pane loads on the **Home** page with tools grouped by category, and the
-  mode list shows all 22:
+  mode list shows all 24:
   **Chemical · Mass Spec · Spectra · Bio/Assay · Peptide · Stats · Analyze ·
-  Math · Units · Plot · Table → Chart · Finance · Build · Code · Sequence ·
-  Botanical · Numerals · Refs · DNA · Reaction · Citations · Audit.**
+  Math · Units · Plot · Table → Chart · Finance · Build · Code · Sequence Map ·
+  Align · Sequence · Botanical · Numerals · Refs · DNA · Reaction · Citations ·
+  Audit.**
 - [ ] **Offline check:** after first load, disconnect the network — the pane and
   all *insert* actions still work (only first load needs HTTPS).
 
@@ -209,6 +210,26 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
   at the correct position.
 - [ ] **Find ORFs** → table of ORFs; **Insert ORF table** inserts it.
 - [ ] **Insert** reverse complement / mRNA / protein each inserts text.
+
+## 12b. Align (Needleman–Wunsch / Smith–Waterman)
+New in v1.72.0. Nothing here has been seen in Word.
+- [ ] Paste `MKTAYIAKQRQISFVKSHFSRQ` into **A** and `MKTAYIAKQRQVSFVKSHFARQ` into **B**
+  → readout shows **Global (Needleman–Wunsch) · BLOSUM62**, a score, and
+  **Identity 20/22 (90.9%)**.
+- [ ] The alignment block shows both sequences with a `|` ruler between them, the
+  `|` sitting **directly above** each identical residue.
+- [ ] Switch **Mode** to **Local** → readout says Smith–Waterman; score is ≥ the
+  global score.
+- [ ] Paste two DNA sequences (`ATGCGTACGTAGCTAGCTAG` / `ATGCGTACGTTGCTAGCTAGCAT`)
+  → **Sequence type** auto-detect reports **DNA +5/−4**, not BLOSUM62.
+- [ ] **Insert alignment** → lands at the cursor **in a monospace font**. This is the
+  thing to check hardest: if it inserts in Calibri the columns no longer line up and
+  the figure is wrong, not just ugly.
+- [ ] The inserted block carries the stats line and the caveats beneath it.
+- [ ] **Ctrl-Z** removes the whole insert in one step.
+- [ ] Align two unrelated proteins (`MKTAYIAKQRQISFVKSHFSRQ` vs
+  `WWPPCCWWPPCCWWPPCCWWPP`) → a **twilight zone** caveat appears warning that below
+  ~25% identity unrelated sequences still align convincingly.
 
 ## 13. Reaction
 - [ ] `CCO + CC(=O)O >> CC(=O)OCC ; H2SO4 ; reflux` → preview shows reactants `+`

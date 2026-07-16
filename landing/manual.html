@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>JurisLab — User Manual</title>
-  <meta name="description" content="How to use JurisLab: the core loop, all 22 tools with worked examples, honest limits, and troubleshooting." />
+  <meta name="description" content="How to use JurisLab: the core loop, all 24 tools with worked examples, honest limits, and troubleshooting." />
   <link rel="icon" href="assets/icon-32.png" />
   <style>
     :root { --blue:#2e74b5; --ink:#1b1b1f; --muted:#5b5b66; --bg:#f6f8fb; --card:#fff; --line:#e4e8ef; --warn:#8a5a00; --warnbg:#fff8e6; }
@@ -48,7 +48,7 @@
     <div class="wrap">
       <a class="home" href="index.html">← JurisLab</a>
       <h1>User Manual</h1>
-      <p class="tag">How JurisLab works, what each of the 22 tools does, and what it deliberately doesn’t do. Everything runs on your machine.</p>
+      <p class="tag">How JurisLab works, what each of the 24 tools does, and what it deliberately doesn’t do. Everything runs on your machine.</p>
     </div>
   </header>
 
@@ -74,7 +74,7 @@
     <ol class="steps">
       <li><b>Install.</b> Unzip the pack for your machine and run the installer inside — <code>install.bat</code> on Windows, <code>install.command</code> on a Mac. No admin rights needed; it only registers the add-in for your own account.</li>
       <li><b>Restart Word completely.</b> Close every window, not just the document. Word only notices a new add-in on a cold start — this is the single most common reason it "didn’t install".</li>
-      <li><b>Open the pane.</b> <b>Insert</b> → <b>Add-ins</b> → <b>Developer Add-ins</b> → <b>JurisLab</b>. It opens on the Home screen showing all 22 tools as cards.</li>
+      <li><b>Open the pane.</b> <b>Insert</b> → <b>Add-ins</b> → <b>Developer Add-ins</b> → <b>JurisLab</b>. It opens on the Home screen showing all 24 tools as cards.</li>
     </ol>
     <p class="muted">Only the first load needs internet — the add-in fetches itself from the web once, then everything you type is computed on your own machine.</p>
 
@@ -183,6 +183,47 @@
 
     <h3>DNA</h3>
     <p>Reverse complement (RNA-aware), transcription, six-frame translation, ORF finder, primer Tm, protein MW/pI/GRAVY, and restriction sites.</p>
+
+    <h3>Sequence Map</h3>
+    <p>Open a sequence file and insert an annotated map at the cursor. Read entirely on your
+      machine; nothing is uploaded.</p>
+    <table>
+      <tr><th>Format</th><th>What you get</th></tr>
+      <tr><td><b>GenBank</b> <code>.gb .gbk .gbff</code></td><td>The one that draws a <b>real</b> map,
+        because it carries the feature annotations — promoters, CDS, resistance markers, primer
+        sites, origins.</td></tr>
+      <tr><td><b>FASTA</b> <code>.fa .fasta</code></td><td>Sequence only. FASTA has no annotations
+        and no topology, so you get the backbone and scale but no features. That is the format, not
+        a limitation of the tool.</td></tr>
+      <tr><td><b>SnapGene</b> <code>.dna</code></td><td>Read where possible; it falls back to
+        GenBank with a message rather than guessing.</td></tr>
+    </table>
+    <p>Plasmids draw as <b>circular</b> maps, linear constructs as linear ones, and <b>Auto</b> picks
+      from the file’s own topology. Restriction sites can be overlaid.</p>
+    <div class="note"><b>Methylation changes what actually cuts.</b> The site list is what the
+      enzyme <i>recognises</i>; whether it cuts depends on how the DNA was grown. MboI will not
+      touch plasmid DNA from an ordinary <code>dam+</code> strain, and DpnI cuts <i>only</i>
+      methylated DNA. JurisLab flags both under the digest table — read it before you set the
+      reaction up.</div>
+
+    <h3>Align</h3>
+    <p>Compare two sequences and insert the alignment at the cursor. <b>Needleman–Wunsch</b> (global)
+      and <b>Smith–Waterman</b> (local) with affine gaps — the same algorithms EMBOSS
+      <code>needle</code> and <code>water</code> run, at their default costs (BLOSUM62, gap open 10 /
+      extend 0.5 for protein; +5/−4 for DNA). Paste plain sequence or FASTA. Everything runs on your
+      machine.</p>
+    <p><b>Global</b> forces an end-to-end alignment — use it when the two sequences are the same
+      thing: your clone against the reference, two alleles, a read against the expected insert.
+      <b>Local</b> finds the best shared segment — use it when they share only a domain, or differ a
+      lot in length.</p>
+    <div class="note"><b>Percent identity is not a fact about the sequences.</b> It is a fact about
+      the alignment, and it moves when you change the gap costs. Below about <b>25% identity</b> (the
+      “twilight zone”) two completely unrelated proteins will still align convincingly — JurisLab
+      says so when you get there. An “optimal” alignment is the highest-scoring one under the
+      parameters you chose, not necessarily the biologically correct one.</div>
+    <p>The alignment inserts in a <b>monospace</b> font deliberately: the ruler’s <code>|</code> must
+      sit directly above the residue it refers to, and a proportional font breaks that while still
+      looking like an alignment.</p>
 
     <h3>Sequence</h3>
     <p>WIPO <b>ST.26</b> biological sequence listings (DNA/RNA/protein) with CDS and gene annotation.</p>

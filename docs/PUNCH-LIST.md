@@ -335,10 +335,38 @@ align to DNA, but `percentIdentity` compared raw characters — so AUGCGUACGU vs
 ATGCGTACGT aligned perfectly and reported **70% identity**. The score and its own
 statistic disagreed. Both now use one equivalence.
 
-### [ ] 13. `pka.ts` — still only 13 group classes
-Now has guanidine/amidine/imidazole. Still missing: **tetrazole** (~4.9, a common
-carboxylic acid bioisostere in med-chem), **sulfonamide** (~10), **hydroxamic
-acid** (~9), **barbiturate**, **phosphonic acid** distinct from phosphate.
+### [x] 13. `pka.ts` — missing group classes — DONE v1.73.0
+**They were not missing. Four of the five were MISCLASSIFIED** — the arginine bug's
+shape again, and the audit understated it. Measured before the fix:
+
+| input | reported | net @ 7.4 | truth |
+|---|---|---|---|
+| **benzenesulfonamide** | "Aliphatic amine" pKa 10.6 | **+1.00** | acidic ~10 → **~0** |
+| **5-phenyltetrazole** | 3× "Aromatic N (pyridine)" 5.2 | **+0.02** | acidic 4.9 → **−1** |
+| **barbituric acid** | no sites | **0.00** | acidic 4.0 → **−1** |
+| methylphosphonic acid | 2× pKa 2.0 | **−2.00** | 2.4 & 8.0 → **−1.2** |
+| benzohydroxamic acid | no sites | 0.00 | acidic ~9 |
+
+**Sulfonamide is the serious one.** A sulfonyl makes its nitrogen ACIDIC; calling
+it a base put the net charge a full unit out IN THE WRONG DIRECTION, on a group in
+a large share of marketed drugs. Tetrazole (losartan, valsartan, candesartan) was
+a full unit out the other way.
+
+Added: tetrazole 4.9 · sulfonamide N-H 10.0 · hydroxamic acid 9.0 · barbiturate
+(C5-H 4.0 when C5 bears H; N-H 7.6 when 5,5-disubstituted) · phosphonic acid
+2.4/8.0 vs phosphate monoester 1.5/6.3. **Phosphorus is now handled as a whole
+group** because successive pKa values differ by ~5-6 units — pushing one site per
+-OH at a single pKa is what produced −2.00.
+
+Verified end to end on real drugs: phenobarbital −0.39, vorinostat (SAHA)
+hydroxamic acid, sulfamethoxazole's sulfonamide acidic + aniline basic. Controls
+(acetic acid −1, ethylamine +1, arginine +1, phenol ~0) unchanged.
+
+**A bug found in the writing:** phenobarbital reported NO site. The ring walk
+accepted any size-6 ring atom, so it leaked from C5 into the pendant **phenyl**,
+collected 12 atoms, and the `size === 6` check rejected the whole molecule. Walking
+only RING BONDS fixes it — the bond joining two rings is not itself a ring bond.
+Pinned.
 
 ### [ ] 14. Enzyme methylation sensitivity (Dam/Dcm)
 `enzymes.ts` ships the **MspI/HpaII isoschizomer pair**, whose *entire purpose*

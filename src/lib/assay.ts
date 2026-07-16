@@ -105,6 +105,76 @@ export interface FitResult {
   converged: boolean;
   /** Evaluate the fitted model at an arbitrary x (for drawing the curve). */
   predict: (x: number) => number;
+  /**
+   * Conditions that make these numbers untrustworthy. The UI must show them.
+   *
+   * A least-squares fit ALWAYS returns parameters. It cannot refuse. The only
+   * signals that they mean anything live in the standard errors and in the design
+   * of the experiment — and R² does not carry that signal at all. See
+   * `kineticsCaveats` for the measured demonstration.
+   */
+  caveats: string[];
+}
+
+/**
+ * Caveats that apply to any Levenberg-Marquardt fit here, from the fit's own
+ * diagnostics. Kept separate from the model-specific ones so every fit gets them.
+ */
+function commonFitCaveats(n: number, p: number, fit: Omit<FitResult, "caveats">): string[] {
+  const out: string[] = [];
+
+  if (!fit.converged) {
+    out.push(
+      "THE FIT DID NOT CONVERGE. The parameters below are wherever the optimiser " +
+        "stopped, not a best fit — do not report them."
+    );
+  }
+
+  const dof = n - p;
+  if (dof <= 0) {
+    out.push(
+      `Only ${n} points for ${p} parameters: there are no degrees of freedom left, ` +
+        "so the standard errors are undefined and R² is meaningless — the model can " +
+        "thread every point regardless of whether it is right."
+    );
+  } else if (dof < 3) {
+    out.push(
+      `Only ${dof} degree${dof === 1 ? "" : "s"} of freedom (${n} points, ${p} parameters). ` +
+        "Standard errors from so few points are themselves very uncertain."
+    );
+  }
+
+  // A parameter whose SE is a large fraction of itself is not determined by this
+  // data, whatever R² says.
+  const shaky = fit.params
+    .map((v, i) => ({ i, rel: v !== 0 ? Math.abs(fit.se[i] / v) : Infinity }))
+    .filter((x) => Number.isFinite(x.rel) && x.rel > 0.25);
+  if (shaky.length) {
+    out.push(
+      `Parameter${shaky.length > 1 ? "s" : ""} ${shaky.map((x) => `#${x.i + 1}`).join(", ")} ` +
+        `${shaky.length > 1 ? "have" : "has"} a standard error above 25% of the estimate — ` +
+        "this data does not pin it down. Widen the range of x, or add points where the " +
+        "curve actually bends."
+    );
+  }
+
+  out.push(
+    "Least squares always returns an answer; it cannot tell you the model is wrong. " +
+      "The standard errors describe PRECISION under the assumption that this model is " +
+      "correct and the noise is independent and constant-variance — they say nothing " +
+      "about ACCURACY if it is not."
+  );
+  out.push(
+    "R² is a poor guide for a nonlinear fit: it stays near 1 even when a parameter is " +
+      "completely undetermined. Judge the fit by the standard errors and the residuals, " +
+      "not by R²."
+  );
+  out.push(
+    "This is a LOCAL optimiser. It converges to a minimum near its starting guess " +
+      "(taken here from a linearisation), which is not guaranteed to be the global one."
+  );
+
+  return out;
 }
 
 export interface FitOptions {
@@ -234,7 +304,7 @@ export function levenbergMarquardt(
     }
   }
 
-  return {
+  const base = {
     params,
     se,
     rsquared,
@@ -243,6 +313,7 @@ export function levenbergMarquardt(
     converged,
     predict: (xi: number) => model(params, xi),
   };
+  return { ...base, caveats: commonFitCaveats(n, p, base) };
 }
 
 // --- enzyme kinetics ---------------------------------------------------------
@@ -264,12 +335,78 @@ export interface KineticsFit extends FitResult {
  * from the Hanes-Woolf linearization ([S]/v vs [S]), which is the most
  * numerically stable of the three classic linear plots.
  */
+/**
+ * Whether the substrate range can separate Vmax from Km at all.
+ *
+ * This is the classic way an enzyme-kinetics experiment silently fails. Below
+ * saturation, Michaelis-Menten collapses to v ≈ (Vmax/Km)·[S] — a straight line.
+ * Every (Vmax, Km) pair with the same RATIO fits that line equally well, so the
+ * two parameters are not separately identifiable and the fit is choosing between
+ * them on noise alone.
+ *
+ * MEASURED on simulated data with 5% proportional noise (true Vmax 100, Km 50):
+ *
+ *   max[S]/Km = 10    Vmax 97.8 ± 1.4    R² 0.9986
+ *   max[S]/Km = 2     Vmax 97.7 ± 3.1    R² 0.9983
+ *   max[S]/Km = 0.12  Vmax 107.4 ± 41.8  R² 0.9986   <-- SE is 39% of the estimate
+ *
+ * Note the R² column: IDENTICAL for the best and worst designs. A user reading
+ * "R² = 0.999, great fit" gets a Vmax that is ±39%. Only the standard error
+ * carries the warning, and only Vmax/Km (the specificity constant) survives.
+ * See assayFitQuality.test.ts, which pins exactly this.
+ */
+function kineticsCaveats(s: number[], km: number, vmax: number, vmaxSE: number): string[] {
+  const out: string[] = [];
+  const maxS = Math.max(...s);
+  const ratio = km > 0 ? maxS / km : Infinity;
+
+  if (!Number.isFinite(ratio) || ratio < 1) {
+    out.push(
+      `SUBSTRATE RANGE TOO LOW: your highest [S] (${maxS.toPrecision(3)}) is BELOW the ` +
+        `fitted Km (${km.toPrecision(3)}). Every point is on the linear part of the curve, ` +
+        "where v ≈ (Vmax/Km)·[S] — so Vmax and Km are NOT separately determined here and " +
+        "a high R² does not change that. Only their ratio Vmax/Km is meaningful. To pin " +
+        "Vmax you need points approaching saturation, ideally up to ~5×Km."
+    );
+  } else if (ratio < 3) {
+    out.push(
+      `Substrate range is marginal: highest [S] is only ${ratio.toFixed(1)}×Km, so the ` +
+        "curve barely approaches saturation and Vmax leans on extrapolation. Points up to " +
+        "~5×Km would tighten it considerably."
+    );
+  }
+
+  if (vmax !== 0 && Math.abs(vmaxSE / vmax) > 0.2) {
+    out.push(
+      `Vmax has a standard error of ${((Math.abs(vmaxSE / vmax)) * 100).toFixed(0)}% — it is ` +
+        "an extrapolation to infinite substrate, not something this data measured directly."
+    );
+  }
+
+  out.push(
+    "Assumes steady state, initial rates (v measured before substrate depletes), no " +
+      "product inhibition, and no cooperativity. Sigmoidal data means the Hill model, " +
+      "not this one."
+  );
+  return out;
+}
+
 export function fitMichaelisMenten(s: number[], v: number[]): KineticsFit {
   const hw = hanesWoolf(s, v);
   const vmax0 = hw.vmax > 0 && Number.isFinite(hw.vmax) ? hw.vmax : Math.max(...v);
   const km0 = hw.km > 0 && Number.isFinite(hw.km) ? hw.km : s[Math.floor(s.length / 2)] || 1;
   const fit = levenbergMarquardt(s, v, ([vmax, km], x) => michaelisMenten(vmax, km, x), [vmax0, km0]);
-  return { ...fit, vmax: fit.params[0], km: fit.params[1], vmaxSE: fit.se[0], kmSE: fit.se[1] };
+  const [vmax, km] = fit.params;
+  return {
+    ...fit,
+    vmax,
+    km,
+    vmaxSE: fit.se[0],
+    kmSE: fit.se[1],
+    // Design caveats FIRST — an unusable substrate range matters more than the
+    // generic warnings, and a reader stops after the first bullet or two.
+    caveats: [...kineticsCaveats(s, km, vmax, fit.se[0]), ...fit.caveats],
+  };
 }
 
 /** Hill (cooperative) velocity: v = Vmax·[S]ⁿ / (K^n + [S]ⁿ). */

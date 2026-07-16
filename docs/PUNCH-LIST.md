@@ -55,23 +55,6 @@ Re-run `node scripts/verify-compounds-pubchem.mjs --refresh` periodically. New
 dictionary entries fail the coverage test until they have a fixture record, which
 is the intended behaviour — an unverified name is exactly what this ended.
 
-`compounds.json` holds 359 names + 101 formulas. Both `validate-compounds.mjs`
-and `compounds.test.ts` check only that each SMILES **parses**
-(`getAllAtoms() > 0`). **A SMILES that is valid but is the wrong molecule for its
-name passes silently.** Only ONE entry (aspirin) is checked against a real
-formula.
-
-So **459 of 460 entries have no name↔structure correctness check** — in a
-dictionary that feeds Chemical mode, Spectra, Mass Spec, pKa and properties. A
-wrong entry produces a confident, wrong structure *and* a wrong predicted
-spectrum for that compound.
-
-This directly contradicts the project's own "all data must be real" mandate.
-
-**Do:** cross-check every entry's molecular formula against PubChem (by name),
-offline-cache the result as a fixture, and assert formula equality per entry.
-Report any mismatch rather than auto-correcting — a mismatch may be a naming
-ambiguity, not an error.
 
 ### [x] 2. Wire `validate:compounds` into CI — DONE v1.66.0
 Added as an explicit gate in `scripts/qc.ps1` ("Compound dictionary"). The stronger
@@ -97,11 +80,34 @@ sees a carefully-caveated NMR prediction next to a bare cLogP will trust **both*
 less. The newer modules are scrupulous (nmr.ts: 8 caveats, states ±2–4 ppm); the
 older ones have none. **The inconsistency is the problem, not the absence.**
 
-### [ ] 4. `properties.ts` — cLogP/logS presented as bare numbers
-**0 caveats in 128 LOC.** cLogP is a *prediction* with ~±0.5–1.0 log unit error;
-logS is worse. The header calls them "OpenChemLib's validated models", which a
-reader hears as "these are right". Add the error bars and say they are estimates,
-in the pane and not just the source.
+### [x] 4. `properties.ts` — bare cLogP/logS — DONE v1.68.0
+The header called them "OpenChemLib's validated models" and returned every number
+bare. A reader hears "validated" as "these are right".
+
+**The error figures shipped are MEASURED, not folklore.** `propertiesAccuracy.test.ts`
+pins OpenChemLib against tabulated experimental values:
+
+| | n | MAE | RMSE | worst | bias |
+|---|---|---|---|---|---|
+| cLogP | 20 | 0.33 | **0.42** | 0.97 (ibuprofen) | −0.15 |
+| logS | 10 | 0.53 | **0.72** | 1.52 (anthracene) | +0.05 |
+
+So the caveat says RMSE 0.42, not the "±0.5–1.0" rule of thumb this list quoted —
+for this set OCL BEATS the folklore, and saying what was observed is better than
+repeating what is usually said. The test fails if the claim or the model drifts, so
+the number cannot quietly become a lie.
+
+Caveats are tailored to the molecule, not boilerplate: a strongly aromatic input is
+told the measured negative bias means its true cLogP is likely HIGHER; a non-organic
+is told it is outside every model's training space and that clearing Lipinski's
+ceilings "is not a pass". Rendered in the pane via the same `specCaveats` block
+Spectra uses — including on the out-of-domain early-return path, which needed them
+most and would otherwise have skipped them.
+
+Surveyed and deliberately NOT changed: `pka.ts`. Its caveat already renders
+("a group estimate, not a compound-specific pKa") and is carried into the inserted
+text. A grep of caveat mentions per lib file suggested otherwise; it was counting
+the wrong file.
 
 ### [x] 5. `finance.ts` — zero disclosures — DONE v1.69.0
 The source was never dishonest: `blackScholes()` is documented as "European option
@@ -130,14 +136,67 @@ Not changed: `normCdf`. An early draft of the test demanded 9 decimals and
 docstring promises. Testing a spec the code never claimed only manufactures false
 alarms. The test now asserts the documented tolerance.
 
-### [ ] 6. `assay.ts` — 517 LOC, 0 caveats
-Levenberg–Marquardt on a small noisy dataset has real limits: local minima,
-parameter identifiability, SEs that assume the model is correct. Say so.
+### [x] 6. `assay.ts` — 0 caveats — DONE v1.70.0
+**The measured finding is the whole story.** Fit Michaelis–Menten to data whose
+highest [S] is 8x BELOW Km, with 5% noise (true Vmax 100, Km 50):
 
-### [ ] 7. `citations.ts` — 0 real caveats
-Has one line at :7. T10 covers **US states only** — not the foreign
-jurisdictions, territories, D.C., Guam that real T10 includes. Say which subset
-is implemented.
+| max[S]/Km | Vmax | R² |
+|---|---|---|
+| 10 (good design) | 97.8 **± 1.4** | 0.9986 |
+| 0.12 (hopeless) | 107.4 **± 41.8** | **0.9986** |
+
+**R² is IDENTICAL.** A user reading "R² = 0.999, great fit" gets a Vmax that is
+±39%. Below saturation, MM collapses to v ≈ (Vmax/Km)·[S] — every (Vmax, Km) pair
+with the same ratio fits equally well, so the two are not separately identifiable
+and the fit picks between them on noise alone. Only Vmax/Km survives (recovered to
+2.8% vs Vmax's 7.4%).
+
+`FitResult.caveats` now names it with the user's own numbers, plus: no-convergence
+in capitals, degrees of freedom, any parameter whose SE exceeds 25% of itself,
+"least squares cannot tell you the model is wrong", "R² is a poor guide for a
+nonlinear fit", and "this is a LOCAL optimiser". Rendered in the pane under the
+result.
+
+### [x] 9. `assay.ts` tests fit noise-free data — DONE v1.70.0
+Folded into #6, because #9 is exactly WHY #6 was invisible. With exact data the
+fitter recovers Vmax=100.00 ± 0.00, R²=1.000000 **from the hopeless design** — the
+pre-existing tests would never have found this. `assayFitQuality.test.ts` uses a
+seeded LCG for reproducible noise and pins the table above, that R² cannot separate
+the two designs, that the SE ratio exceeds 10x, and that Hill does not invent
+cooperativity (n = 1.0 ± 0.15) from MM data.
+
+**Not done as specified:** the punch list asked for "one real Michaelis–Menten
+dataset with known published Km/Vmax". Offline I cannot verify a citation, and
+fabricating a "published" dataset would be precisely the sin this audit exists to
+catch. Simulated-with-noise recovery tests the same property honestly. Add a real
+dataset when a source is at hand.
+
+### [x] 7. `citations.ts` — coverage unstated — DONE v1.70.0
+Correction to the audit: this was NOT "0 real caveats". The pane already carried a
+visible "Drafting aid — verify against the current Bluebook and court rules". The
+:7 line the audit counted was the source header; the HTML disclosed it. What was
+genuinely missing was WHICH SUBSET of T10 is implemented.
+
+The pane now states: 50 U.S. states only, with the Rule 10.2.1(f) named-party
+exception; territories, D.C. by full name, and foreign jurisdictions are left
+unabbreviated and must be checked by hand; an unrecognised jurisdiction passes
+through unchanged rather than being guessed at.
+
+`citationsCoverage.test.ts` makes that claim true — Guam, Puerto Rico, Virgin
+Islands, Northern Mariana Islands, Ontario and New South Wales all survive verbatim.
+A silently INVENTED abbreviation would be worse than a long-form one, because the
+drafter could not see it was wrong.
+
+Two things the tests corrected in me, not the code:
+- "Smith v. California" keeps "California" — the state IS the party, so Rule
+  10.2.1(f) forbids abbreviating it. My first test called that a failure. It is the
+  exception working.
+- "American Samoa" -> "Am. Samoa", because T6 abbreviates the organizational word
+  "American" before T10 is consulted. Correct as far as it goes, but real T10 gives
+  "Am. Sam." — a partial form, now pinned so it is a known fact, not a surprise.
+
+Severity, honestly: unlike finance this is not a wrong-number risk. An unrecognised
+jurisdiction is left long-form, which a drafter can see.
 
 ---
 
@@ -178,11 +237,6 @@ comparing nonsense. Worst of all, its own corruption probe used C = pi/2 — whe
 `cos(C) = 0`, so the `2ab·cos(C)` term vanishes and the planted sign-flip bug went
 undetected. **A verifier that cannot fail is worse than no verifier**, because it
 manufactures confidence. Sabotage-test every gate before trusting it.
-
-### [ ] 9. `assay.ts` — tests fit noise-free data generated by the same model
-This correctly tests the *fitter*; it cannot detect a wrong *model*. No test uses
-a published dataset or noisy input. Add one real Michaelis–Menten dataset with
-known published Km/Vmax.
 
 ### [ ] 10. `molgraph.ts` — 14 exports, **0 direct tests**
 Exercised transitively by four predictors, so coverage is real — but a failure

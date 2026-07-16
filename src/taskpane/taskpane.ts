@@ -6365,6 +6365,15 @@ interface AssayOutput {
   plot?: AssayPlot;
   /** False for a validation message (blocks insertion). Defaults to true. */
   ok?: boolean;
+  /**
+   * Conditions that make the fit above untrustworthy — rendered under the result.
+   *
+   * A least-squares fit always returns numbers and an R² near 1, even when the
+   * experiment could not determine them. Measured: a substrate range 8x below Km
+   * yields Vmax +-39% at R² 0.9986 — the SAME R² as a good design. Nothing on
+   * screen distinguished the two.
+   */
+  caveats?: string[];
 }
 interface AssayCalc {
   id: string;
@@ -6418,7 +6427,7 @@ const ASSAY_CALCS: AssayCalc[] = [
         `Vmax = ${assayValSE(fit.vmax, fit.vmaxSE)}\n` +
         `Km = ${assayValSE(fit.km, fit.kmSE)}\n` +
         `R² = ${assaySig(fit.rsquared, 4)}`;
-      return { text, plot: { data: pts, predict: fit.predict, xlabel: "[S]", ylabel: "v" } };
+      return { text, caveats: fit.caveats, plot: { data: pts, predict: fit.predict, xlabel: "[S]", ylabel: "v" } };
     },
   },
   {
@@ -6442,7 +6451,7 @@ const ASSAY_CALCS: AssayCalc[] = [
         `K (half-saturation) = ${assaySig(fit.k)}\n` +
         `Hill coefficient n = ${assaySig(fit.hill, 3)}\n` +
         `R² = ${assaySig(fit.rsquared, 4)}`;
-      return { text, plot: { data: pts, predict: fit.predict, xlabel: "[S]", ylabel: "response" } };
+      return { text, caveats: fit.caveats, plot: { data: pts, predict: fit.predict, xlabel: "[S]", ylabel: "response" } };
     },
   },
   {
@@ -6682,6 +6691,14 @@ function updateAssayPreview(): void {
   // dash placeholder is never inserted into the document.
   const insertable = out.ok !== false && !!out.text && !out.text.includes("—");
   assayResult.innerHTML = esc(out.text).replace(/\n/g, "<br>");
+
+  // Show the fit's own warnings under the numbers. Without this, a substrate
+  // range too low to determine Vmax renders as a clean "Vmax = 107 ± 42, R² =
+  // 0.9986" — and R² is identical to a good design, so nothing on screen tells
+  // the user the experiment could not answer the question they asked.
+  if (insertable && out.caveats?.length) {
+    assayResult.appendChild(specCaveats(out.caveats));
+  }
 
   // Draw the fitted curve over the raw data when the calculator produced one.
   if (out.plot && insertable) {

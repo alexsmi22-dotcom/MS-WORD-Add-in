@@ -536,8 +536,23 @@ overlaid on a predicted one. The reader is the hard half; the overlay is plumbin
   variances → Games-Howell), and point at Dunnett when only control comparisons
   were wanted.
 
-- **[ ] FFT filtering** — `fft.ts` has fft/ifft/spectrum/dominantFrequencies but no
-  lowpass/highpass/bandpass. Still open.
+- **[x] FFT filtering** — `fftfilter.ts` v1.79.0. Low/high/band-pass and band-stop.
+  Both classic artefacts produce output that is **smooth, plausible and wrong**:
+  - **Gibbs ringing** — a brick-wall cutoff is a sinc in time, so it invents
+    oscillations around every edge that look exactly like real features. Defaults to
+    a raised-cosine transition; a brick wall is available but warns.
+  - **Circular wraparound** — the DFT treats the record as periodic, so a signal
+    whose ends don't join gets both ends corrupted by a discontinuity that isn't in
+    the data.
+
+  A bug worth recording, because it inverts the usual lesson: my first wraparound
+  check compared `signal[0]` to `signal[n-1]` and **flagged every clean sine**. A
+  perfectly periodic record's last sample sits one step BEFORE the wrap point, so its
+  ends are SUPPOSED to differ — a 12.5 Hz sine over exactly 32 cycles ends at −0.38
+  with a per-sample step of 0.39. The test that "failed" was right and the code was
+  wrong. It now compares the wrap step against the TYPICAL step. **A warning that
+  fires on good data is worse than no warning**, because it trains the reader to
+  ignore it.
 - **[ ] Exact permutation tests** for small-n rank tests. Still open; the normal
   approximation is disclosed.
 

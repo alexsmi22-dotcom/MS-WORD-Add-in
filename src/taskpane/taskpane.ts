@@ -156,6 +156,7 @@ import { parseTableData, cleanTableRows, buildChartPreviewSvg, TableChart, Chart
 import { buildDiagramSvg, DiagramKind } from "../lib/tablediagram";
 import { buildTableFigureSvg, prepareTableFigure } from "../lib/tablefigure";
 import { classifyTable } from "../lib/tableclassify";
+import { align, formatAlignment, AlignMode, SeqKind } from "../lib/align";
 import {
   CITATIONS,
   SIGNALS,
@@ -430,6 +431,14 @@ let massspecSection: HTMLElement;
 let msInput: HTMLInputElement;
 let msResult: HTMLElement;
 let msInsertBtn: HTMLButtonElement;
+let alignSection: HTMLElement;
+let alignA: HTMLTextAreaElement;
+let alignB: HTMLTextAreaElement;
+let alignModeSel: HTMLSelectElement;
+let alignKindSel: HTMLSelectElement;
+let alignResult: HTMLElement;
+let alignInsertBtn: HTMLButtonElement;
+let currentAlignText = "";
 let seqmapSection: HTMLElement;
 let seqmapOpenBtn: HTMLButtonElement;
 let seqmapFile: HTMLInputElement;
@@ -714,6 +723,13 @@ Office.onReady((info) => {
   msInput = document.getElementById("ms-input") as HTMLInputElement;
   msResult = document.getElementById("ms-result") as HTMLElement;
   msInsertBtn = document.getElementById("ms-insert") as HTMLButtonElement;
+  alignSection = document.getElementById("align-section") as HTMLElement;
+  alignA = document.getElementById("align-a") as HTMLTextAreaElement;
+  alignB = document.getElementById("align-b") as HTMLTextAreaElement;
+  alignModeSel = document.getElementById("align-mode") as HTMLSelectElement;
+  alignKindSel = document.getElementById("align-kind") as HTMLSelectElement;
+  alignResult = document.getElementById("align-result") as HTMLElement;
+  alignInsertBtn = document.getElementById("align-insert") as HTMLButtonElement;
   seqmapSection = document.getElementById("seqmap-section") as HTMLElement;
   seqmapOpenBtn = document.getElementById("seqmap-open") as HTMLButtonElement;
   seqmapFile = document.getElementById("seqmap-file") as HTMLInputElement;
@@ -876,6 +892,11 @@ Office.onReady((info) => {
   specKind.addEventListener("change", updateSpectra);
   specInsertBtn.addEventListener("click", () => insertDnaText(spectrumAsText(), "spectrum data"));
   specInsertChartBtn.addEventListener("click", insertSpectrumChart);
+  alignA.addEventListener("input", updateAlign);
+  alignB.addEventListener("input", updateAlign);
+  alignModeSel.addEventListener("change", updateAlign);
+  alignKindSel.addEventListener("change", updateAlign);
+  alignInsertBtn.addEventListener("click", insertAlignmentText);
   seqmapOpenBtn.addEventListener("click", () => seqmapFile.click());
   seqmapFile.addEventListener("change", onSeqMapFile);
   seqmapInput.addEventListener("input", updateSeqMap);
@@ -1069,6 +1090,7 @@ const HOME_GROUPS: HomeGroup[] = [
     title: "Biology",
     items: [
       { mode: "seqmap", audience: ["science", "legal"], icon: "🗺️", label: "Sequence Map", desc: "Open a GenBank/FASTA file → annotated map" },
+      { mode: "align", audience: ["science"], icon: "🧬", label: "Align", desc: "Compare two sequences — global or local" },
       { mode: "sequence", audience: ["science", "legal"], icon: "🧬", label: "Sequence", desc: "WIPO ST.26 listings" },
       { mode: "dna", audience: ["science"], icon: "🧬", label: "DNA", desc: "Rev-comp, translation, ORFs" },
       { mode: "assay", audience: ["science"], icon: "🧫", label: "Bio/Assay", desc: "Kinetics, IC50/EC50, binding, lab math" },
@@ -1676,6 +1698,7 @@ function onInputChanged(): void {
   assaySection.style.display = mode === "assay" ? "block" : "none";
   massspecSection.style.display = mode === "massspec" ? "block" : "none";
   spectraSection.style.display = mode === "spectra" ? "block" : "none";
+  alignSection.style.display = mode === "align" ? "block" : "none";
   seqmapSection.style.display = mode === "seqmap" ? "block" : "none";
   peptideSection.style.display = mode === "peptide" ? "block" : "none";
   statsSection.style.display = mode === "stats" ? "block" : "none";
@@ -1717,6 +1740,10 @@ function onInputChanged(): void {
   }
   if (mode === "spectra") {
     updateSpectra();
+    return;
+  }
+  if (mode === "align") {
+    updateAlign();
     return;
   }
   if (mode === "seqmap") {
@@ -2808,6 +2835,67 @@ function renderProperties(input: string): void {
   insertPropsBtn.disabled = false;
 }
 
+/**
+ * Computes the pairwise alignment for the current inputs and shows it.
+ *
+ * The alignment is rendered — and inserted — in a MONOSPACE font. That is not
+ * cosmetic: an alignment is a column-wise claim, and a proportional font silently
+ * destroys the correspondence between the ruler and the residues beneath it. A
+ * misaligned alignment is a wrong figure, not an ugly one.
+ */
+function updateAlign(): void {
+  currentAlignText = "";
+  alignInsertBtn.disabled = true;
+  const a = alignA.value.trim();
+  const b = alignB.value.trim();
+  if (!a || !b) {
+    alignResult.innerHTML = '<span class="hint">Paste two sequences to align.</span>';
+    return;
+  }
+
+  const kindSel = alignKindSel.value;
+  let r;
+  try {
+    r = align(a, b, {
+      mode: alignModeSel.value as AlignMode,
+      kind: kindSel === "auto" ? undefined : (kindSel as SeqKind),
+    });
+  } catch {
+    r = null;
+  }
+  if (!r) {
+    alignResult.innerHTML = '<span class="hint">Nothing alignable in one of the inputs.</span>';
+    return;
+  }
+
+  const block = formatAlignment(r, 60, "A", "B");
+  const stats =
+    `${r.mode === "global" ? "Global (Needleman–Wunsch)" : "Local (Smith–Waterman)"} · ` +
+    `${r.kind === "protein" ? "BLOSUM62" : "DNA +5/−4"}\n` +
+    `Score ${r.score} · Length ${r.length}\n` +
+    `Identity ${r.identities}/${r.length} (${r.percentIdentity}%) · ` +
+    `Similarity ${r.similarities}/${r.length} (${r.percentSimilarity}%) · ` +
+    `Gaps ${r.gaps}/${r.length} (${r.percentGaps}%)`;
+
+  alignResult.innerHTML = "";
+  const head = document.createElement("div");
+  head.textContent = stats;
+  head.style.whiteSpace = "pre-wrap";
+  const pre = document.createElement("pre");
+  pre.textContent = block;
+  pre.style.fontFamily = "Consolas, 'Courier New', monospace";
+  pre.style.overflowX = "auto";
+  pre.style.margin = "8px 0";
+  alignResult.append(head, pre);
+  alignResult.appendChild(specCaveats(r.caveats));
+
+  // The document gets the same thing the pane shows, caveats included — a percent
+  // identity that lands in a paper without its gap costs is a number without a
+  // meaning.
+  currentAlignText = `${stats}\n\n${block}\n\n${r.caveats.map((c) => `• ${c}`).join("\n")}`;
+  alignInsertBtn.disabled = false;
+}
+
 /** Detects ionizable groups and appends a pKa block to the properties panel. */
 function renderPka(input: string): void {
   currentPka = null;
@@ -3636,6 +3724,41 @@ function findRestrictionSites(): void {
 // Re-entrancy guard shared by every text-insert button (MS, Stats, Assay, DNA,
 // Finance…): a fast double-click would otherwise queue two insertions of the
 // same text before the first Word.run resolves.
+/**
+ * Inserts an alignment as MONOSPACE text.
+ *
+ * insertText() inherits the document's font, which is proportional in every
+ * default Word template. An alignment is a column-wise claim — the ruler's '|'
+ * must sit directly above the residues it refers to — and a proportional font
+ * silently breaks that correspondence while still looking like an alignment. That
+ * is a wrong figure, not an ugly one, so this goes in via insertHtml with an
+ * explicit monospace family and the whitespace preserved.
+ */
+async function insertAlignmentText(): Promise<void> {
+  if (!currentAlignText.trim()) {
+    setStatus("Nothing to insert — align two sequences first.", "error");
+    return;
+  }
+  if (insertTextBusy) return;
+  insertTextBusy = true;
+  try {
+    const html =
+      `<pre style="font-family:Consolas,'Courier New',monospace;font-size:9pt;` +
+      `white-space:pre;margin:0">${esc(currentAlignText)}</pre>`;
+    await Word.run(async (context) => {
+      const range = context.document.getSelection();
+      range.insertHtml(html, Word.InsertLocation.replace);
+      range.select(Word.SelectionMode.end);
+      await context.sync();
+    });
+    setStatus("Alignment inserted.", "success");
+  } catch (e) {
+    setStatus(`Could not insert the alignment: ${(e as Error).message}`, "error");
+  } finally {
+    insertTextBusy = false;
+  }
+}
+
 let insertTextBusy = false;
 
 async function insertDnaText(text: string, label: string): Promise<void> {

@@ -55,6 +55,7 @@
             <option value="peptide">Peptide</option>
             <option value="botanical">Botanical</option>
             <option value="seqmap">Sequence Map</option>
+            <option value="align">Align</option>
           </optgroup>
           <optgroup label="Patent drafting">
             <option value="numerals">Numerals</option>
@@ -669,6 +670,42 @@
 
 
       <!-- Sequence Map: open a FASTA/GenBank file, draw an annotated map -->
+      <!-- Pairwise alignment (Needleman-Wunsch / Smith-Waterman, affine gaps) -->
+      <section id="align-section">
+        <p class="seq-disclaimer">
+          Compare two sequences and insert the alignment at the cursor.
+          <strong>Needleman–Wunsch</strong> (global) and <strong>Smith–Waterman</strong> (local)
+          with affine gaps — the algorithms EMBOSS <code>needle</code> and <code>water</code>
+          run, at their default costs. Paste plain sequence or FASTA; headers, line numbers
+          and whitespace are stripped. Everything runs on your machine; nothing is uploaded.
+        </p>
+        <label class="field-label" for="align-a">Sequence A (query)</label>
+        <textarea id="align-a" class="build-input" rows="3" spellcheck="false"
+          placeholder="&gt;query&#10;MKTAYIAKQRQISFVKSHFSRQ    — or a raw sequence"></textarea>
+        <label class="field-label" for="align-b">Sequence B (subject)</label>
+        <textarea id="align-b" class="build-input" rows="3" spellcheck="false"
+          placeholder="&gt;subject&#10;MKTAYIAKQRQVSFVKSHFARQ"></textarea>
+        <div class="rgroup">
+          <label class="field-label" for="align-mode">Mode</label>
+          <select id="align-mode" class="lib-select">
+            <option value="global">Global — end to end (Needleman–Wunsch)</option>
+            <option value="local">Local — best shared segment (Smith–Waterman)</option>
+          </select>
+        </div>
+        <div class="rgroup">
+          <label class="field-label" for="align-kind">Sequence type</label>
+          <select id="align-kind" class="lib-select">
+            <option value="auto">Auto-detect</option>
+            <option value="protein">Protein (BLOSUM62)</option>
+            <option value="dna">DNA / RNA (+5 / −4)</option>
+          </select>
+        </div>
+        <div id="align-result" class="build-readout" aria-live="polite"></div>
+        <div class="seq-actions">
+          <button id="align-insert" class="insert-btn" type="button" disabled>Insert alignment</button>
+        </div>
+      </section>
+
       <section id="seqmap-section">
         <p class="seq-disclaimer">
           Open a <strong>GenBank</strong> (.gb/.gbk), <strong>FASTA</strong> or <strong>SnapGene .dna</strong> file — or paste a

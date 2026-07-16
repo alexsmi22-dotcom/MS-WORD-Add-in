@@ -334,6 +334,36 @@ export const MODE_EXAMPLES: Record<ExampleMode, string> = {
       chart — δ increases leftward and wavenumber decreases rightward, per convention.
       Assignment aid — always verify against an acquired spectrum.
     </p>`,
+  align: `
+    <p class="examples-note">
+      <strong>Align</strong> — compare two sequences and insert the alignment at the cursor.
+      Needleman–Wunsch (global) and Smith–Waterman (local) with <strong>affine gaps</strong>,
+      the same algorithms EMBOSS <code>needle</code> and <code>water</code> run. Everything
+      happens on your machine; nothing is uploaded.
+    </p>
+    <ul>
+      <li><strong>Global</strong> — forces an end-to-end alignment. Use it when the two
+        sequences are the same thing: your clone against the reference, two alleles, a
+        sequencing read against the expected insert</li>
+      <li><strong>Local</strong> — finds the single best-scoring subsegment. Use it when
+        they only share a domain or a motif, or differ a lot in length. A <em>global</em>
+        alignment of two sequences that share only a domain is real output that means
+        nothing</li>
+      <li><strong>Protein</strong> uses BLOSUM62 (gap open 10, extend 0.5) —
+        <code>MKTAYIAKQRQISFVKSHFSRQ</code></li>
+      <li><strong>DNA/RNA</strong> uses +5 match / −4 mismatch. <code>U</code> is treated as
+        <code>T</code>, so RNA compares against DNA; <code>N</code> scores 0 against
+        anything</li>
+      <li>Paste plain sequence or FASTA — headers, line numbers and whitespace are stripped</li>
+    </ul>
+    <p class="examples-note">
+      Two things worth knowing. <strong>Percent identity is not a fact about the
+      sequences</strong> — it is a fact about the alignment, and it moves when you change
+      the gap costs. And below about <strong>25% identity</strong> (the "twilight zone")
+      two unrelated proteins will still align convincingly; the tool says so when you get
+      there. An optimal alignment is the highest-scoring one under the parameters you
+      chose, not necessarily the biologically correct one.
+    </p>`,
   seqmap: `
     <p class="examples-note">
       <strong>Sequence Map</strong> — open a sequence file and insert an annotated map at the

@@ -295,15 +295,45 @@ a diagnosability cost, not a safety gap. Lower priority than it looks.
 
 ## P3 — Capability gaps
 
-### [ ] 12. Sequence alignment — **completely absent**
-**The biggest gap in the product.** Zero: every "align" hit in the codebase is
-text-alignment or LaTeX. Pairwise alignment is *table stakes* for the audience
-`/science.html` targets — and "compare my clone to the reference" is the single
-most common thing a molecular biologist does after opening a sequence.
+### [x] 12. Sequence alignment — DONE v1.72.0
+Shipped as the **Align** mode (25th tool). Needleman–Wunsch (global) and
+Smith–Waterman (local) with **affine gaps** via Gotoh's three-matrix formulation,
+at EMBOSS needle/water defaults (BLOSUM62, gap open 10 / extend 0.5; DNA +5/−4).
 
-Scope: Needleman–Wunsch (global) + Smith–Waterman (local), an identity/similarity
-readout, and an **alignment figure inserted into Word** — which is the JurisLab
-wedge, since the incumbents make you screenshot theirs.
+**Affine, not linear, deliberately.** A linear penalty charges per gap position, so
+it scatters short gaps instead of opening one long one — an alignment no biologist
+would accept. Pinned: a 10-base deletion comes back as ONE gap run, not ten.
+
+**How it is verified.** Two layers, because self-consistency is not correctness:
+1. `align.test.ts` re-derives each reported score from the traceback the DP emitted.
+   Catches a broken traceback — the classic failure — but NOT a wrong recurrence.
+2. `alignBruteForce.test.ts` computes the true optimum by **exhaustively enumerating
+   every possible alignment** of short sequences with an independently written
+   scorer, and demands Gotoh match it. A subtly wrong gap rule is perfectly
+   self-consistent and still wrong; brute force is the only offline check that
+   cannot be fooled. The enumerator is itself checked (Delannoy D(2,2)=13, no
+   gap/gap columns, originals recoverable).
+
+**BLOSUM62 is transcribed data**, so it is checked rather than trusted:
+symmetry (a transcription slip almost always breaks it), the published diagonal
+(W=11 highest, C=9), the [-4,11] range, conservative pairs positive, dissimilar
+pairs negative.
+
+**Inserted as MONOSPACE.** An alignment is a column-wise claim — the ruler's '|'
+must sit above the residue it refers to — and Word's default proportional font
+silently breaks that while still looking like an alignment. That is a wrong figure,
+not an ugly one, so insertion goes through insertHtml with an explicit monospace
+family rather than insertText.
+
+Caveats ship with it: global vs local failure modes, the scoring parameters, that
+"optimal" means highest-scoring under THESE costs and not biologically correct, and
+the **twilight zone** warning below ~25% identity where unrelated proteins still
+align convincingly.
+
+A bug found in the writing, worth recording: the scorer treated U as T so RNA could
+align to DNA, but `percentIdentity` compared raw characters — so AUGCGUACGU vs
+ATGCGTACGT aligned perfectly and reported **70% identity**. The score and its own
+statistic disagreed. Both now use one equivalence.
 
 ### [ ] 13. `pka.ts` — still only 13 group classes
 Now has guanidine/amidine/imidazole. Still missing: **tetrazole** (~4.9, a common

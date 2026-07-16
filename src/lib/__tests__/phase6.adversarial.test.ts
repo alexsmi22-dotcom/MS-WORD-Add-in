@@ -94,6 +94,39 @@ describe("the user-facing docs are not allowed to rot", () => {
   test("the test script covers the newest tool", () => {
     expect(read("docs/TEST-SCRIPT.md").toLowerCase()).toMatch(/needleman|smith.?waterman/);
   });
+
+  test("every page that counts tools counts them correctly", () => {
+    // index.html and science.html both quoted "22 tools" at 24. A landing page is
+    // the most public thing here and the least checked.
+    const n = modes().length;
+    for (const f of ["landing/manual.html", "landing/index.html", "landing/science.html"]) {
+      for (const m of read(f).matchAll(/(\d+)\s+tools/g)) {
+        expect({ file: f, claimed: Number(m[1]) }).toEqual({ file: f, claimed: n });
+      }
+    }
+  });
+
+  test("the enzyme count on the landing page is the real one", () => {
+    // index.html said "48 enzymes" against an actual 122 — UNDERSELLING by 74, which
+    // is the opposite of the usual failure but still a false claim in public. And I
+    // had already miscounted this table once in this project's history (reported 18
+    // when it was 49), so it gets read from the array, never from a grep.
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { ENZYMES } = require("../enzymes") as { ENZYMES: { name: string }[] };
+    for (const f of ["landing/index.html", "landing/science.html", "landing/manual.html"]) {
+      for (const m of read(f).matchAll(/(\d+)\s+enzymes/g)) {
+        expect({ file: f, claimed: Number(m[1]) }).toEqual({ file: f, claimed: ENZYMES.length });
+      }
+    }
+  });
+
+  test("the science page names the newest capability", () => {
+    // Align is the SnapGene-competitive feature. A capability nobody is told about
+    // may as well not ship.
+    const sci = read("landing/science.html").toLowerCase();
+    expect(sci).toMatch(/needleman/);
+    expect(sci).toMatch(/sequence map|genbank/);
+  });
 });
 
 describe("align — hostile sequences", () => {

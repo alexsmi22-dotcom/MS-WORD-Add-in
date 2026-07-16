@@ -509,11 +509,37 @@ absorbance spectrum on a transmittance trace is an easy and invisible mistake.
 **Still open:** wiring the reader into the Spectra pane so a measured trace can be
 overlaid on a predicted one. The reader is the hard half; the overlay is plumbing.
 
-### [ ] 18. Deferred from earlier phases
-- **Tukey HSD** (needs the studentized-range distribution) — deferred from Phase 3
-- **FFT filtering** — deferred from Phase 2
-- Exact permutation tests for small-n rank tests (currently normal approximation
-  only, disclosed)
+### [~] 18. Deferred from earlier phases — TUKEY DONE v1.78.0
+- **[x] Tukey HSD** — `tukey.ts`. This was a CORRECTNESS gap, not a convenience:
+  a significant ANOVA says only "these groups are not all equal", never WHICH. With
+  no post-hoc test the user runs repeated t-tests, and 5 groups is 10 pairs — at
+  alpha 0.05 per test the chance of **at least one spurious result is 40%**. Tukey
+  holds the family-wise rate at alpha.
+
+  The studentized range has no closed form; it is computed by nested quadrature
+  (P(Q≤q) = ∫f_df(s)·W_k(q·s)ds over the range-of-k-normals CDF).
+
+  **Verified against a THEOREM, not a table.** A transcribed q table would be the
+  same failure mode as BLOSUM62 / the compound dictionary / the NN parameters. So
+  instead: **q(α, 2, df) = √2 · t(α/2, df)** — exact for two groups — checked against
+  the t distribution already in stats.ts, across df and α. A quadrature bug cannot
+  satisfy that at every df by luck.
+
+  That check then paid for itself twice: the first implementation took **10.5
+  SECONDS per critical value** (the pane would have frozen). Because the identity
+  gave a real accuracy signal, the grid could be cut hard — 25× faster (416 ms, then
+  0 ms memoised) with the identity still holding to **1e-5**. Optimising without a
+  real check is how you silently degrade a number.
+
+  Caveats warn against the common mistake of Bonferroni-on-top (the p values are
+  already family-wise), name the assumption Tukey is NOT robust to (unequal
+  variances → Games-Howell), and point at Dunnett when only control comparisons
+  were wanted.
+
+- **[ ] FFT filtering** — `fft.ts` has fft/ifft/spectrum/dominantFrequencies but no
+  lowpass/highpass/bandpass. Still open.
+- **[ ] Exact permutation tests** for small-n rank tests. Still open; the normal
+  approximation is disclosed.
 
 ### [ ] 19. Smaller gaps
 - IUPAC **name generation** (structure→name works only via the 359-name dictionary)

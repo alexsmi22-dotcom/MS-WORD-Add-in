@@ -479,9 +479,35 @@ to whatever the new code emitted.
 unusual translation is visible as a wrong protein, unlike a Tm that silently fails
 a PCR.
 
-### [ ] 17. Spectra import (JCAMP-DX)
-You can *predict* a spectrum but not open a real one — so you cannot overlay
-predicted against measured, which is the actual workflow.
+### [~] 17. Spectra import (JCAMP-DX) — READER DONE v1.77.0; overlay UI still open
+`jcamp.ts` reads real instrument files: XYDATA (X++(Y..Y)) with AFFN/PAC/SQZ/DIF/DUP,
+XYPOINTS, PEAK TABLE, multi-spectrum LINK files, XFACTOR/YFACTOR, and kind detection
+from DATA TYPE with an X-axis fallback.
+
+**Why ASDF is the whole job.** JCAMP's compression is DIFFERENTIAL. A reader that
+treats DIF characters as absolute produces a trace that is wrong from the second
+point on **and still looks exactly like a spectrum** — nothing crashes, you just
+overlay your prediction against noise and draw a conclusion. So the format's own
+checksum (the DIF y-check: each line restates the previous line's last ordinate) is
+**verified and reported**, not skipped, and a NPOINTS mismatch is surfaced too.
+
+**Two bugs my own first draft had — both would have shipped a plausible wrong
+spectrum:**
+1. The tokenizer parsed `0E0` as **scientific notation**. In ASDF, `E` is the SQZ
+   character for +5 — so "E0" is the ordinate 50. The whole line collapsed to one
+   point. Exponent parsing has no place in an ASDF line; the letters ARE the encoding.
+2. **DIF never advanced x.** The `x += deltaX` lived only in the AFFN branch, so
+   every differential point stacked at the line's starting abscissa. The trace
+   collapsed onto a handful of x values — and still plotted.
+
+Both found by hand-decoding test fixtures from the published tables rather than
+pinning whatever the code emitted. 26 tests.
+
+Transmittance is flagged (peaks point DOWN) because overlaying a predicted
+absorbance spectrum on a transmittance trace is an easy and invisible mistake.
+
+**Still open:** wiring the reader into the Spectra pane so a measured trace can be
+overlaid on a predicted one. The reader is the hard half; the overlay is plumbing.
 
 ### [ ] 18. Deferred from earlier phases
 - **Tukey HSD** (needs the studentized-range distribution) — deferred from Phase 3

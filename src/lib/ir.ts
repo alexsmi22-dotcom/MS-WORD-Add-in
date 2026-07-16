@@ -67,6 +67,13 @@ const CARBONYL_IR: Record<string, { wn: number; range: [number, number]; label: 
   carbonate: { wn: 1760, range: [1740, 1780], label: "C=O stretch (carbonate)" },
   urea: { wn: 1660, range: [1640, 1680], label: "C=O stretch (urea)" },
   carbamate: { wn: 1700, range: [1680, 1720], label: "C=O stretch (carbamate)" },
+  // Thioester C=O sits BELOW a ketone: sulfur donates into the carbonyl far less
+  // effectively than oxygen, so there is less double-bond character. 1690 is
+  // outside the ketone band range [1705,1725] — which is why calling a thioester a
+  // ketone produced a band a reader would have rejected on sight.
+  thioester: { wn: 1690, range: [1675, 1710], label: "C=O stretch (thioester)" },
+  // R-N=C=O is a cumulated stretch, not an acyl C=O — hundreds of wavenumbers away.
+  isocyanate: { wn: 2270, range: [2240, 2285], label: "N=C=O asym. stretch (isocyanate)" },
 };
 
 /**

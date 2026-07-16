@@ -61,14 +61,57 @@ Added as an explicit gate in `scripts/qc.ps1` ("Compound dictionary"). The stron
 structural check against PubChem lives in the jest suite, so it runs on every
 `npm test` and every `npm run qc` without a network call.
 
-### [ ] 3. Sweep for other "plausible wrong number" sites
-The arginine bug was a **missing group class silently misrouted to a catch-all
-branch with a plausible label attached**. Audit every catch-all `else` in a
-classifier for the same shape:
-- `pka.ts` — done (guanidine/amidine/imidazole added)
-- `molgraph.ts` `classifySubstituent` — has an `"other"` fallback; what lands there?
-- `carbonylKind` — returns `"ketone"` as its final fallback. What reaches it wrongly?
-- `tableclassify.ts` — heuristic shape detection with a default
+### [x] 3. Sweep for other "plausible wrong number" sites — DONE v1.71.0
+**The shape survived in two places, and both were live.**
+
+#### `carbonylKind` — "ketone" was a dumping ground
+Everything the branches above failed to recognise fell through `return "ketone"`
+and was handed a ketone's 1715 cm⁻¹ IR band and 205 ppm ¹³C shift:
+
+| input | reported | reality |
+|---|---|---|
+| `O=C=O` **carbon dioxide** | ketone, 1715 cm⁻¹ | **2349 cm⁻¹** (off by 634), ¹³C ~125 (off by 80) |
+| `CN=C=O` isocyanate | ketone, 1715 | ~2270 cm⁻¹ |
+| `CC(=O)SC` thioester | ketone, 1715 | ~1690 — **outside** the ketone range [1705,1725] |
+| `O=C=C=C=O` carbon suboxide | ketone ×2 | — |
+| acyl silane, selenoester | ketone | — |
+
+**carbon dioxide is in compounds.json** under both "carbon dioxide" and the formula
+"CO2", so this was reachable by typing CO2 into Spectra. Thioesters cover every
+acyl-CoA in metabolism.
+
+Fixed: `thioester` and `isocyanate` added as real classes with their own IR/¹³C
+entries, and **the catch-all is gone** — a carbonyl that cannot be positively named
+returns null and gets NO band. A wrong band is worse than no band: an absent
+prediction is visible, a confident wrong one is not.
+
+#### `classifySubstituent` — the "other" fallback was the SAFE half
+"other" gets no increment and is skipped, so it contributes zero. The real damage
+was groups that never reached "other" because an earlier branch claimed them:
+
+| substituent | classified as | electronic reality |
+|---|---|---|
+| benzenesulfonic acid | **SR** (thioether) | −SO₃H **withdraws**, −SR **donates** |
+| benzenesulfonamide | **SR** | same — opposite sign |
+| nitrosobenzene | **NR2** (dialkylamine) | −N=O **withdraws**, −NR₂ **donates** |
+| phenyl azide | **NR2** | azide withdraws |
+
+Not near misses — **wrong-sign** increments, so the predicted shift moved the wrong
+way along the axis. Cause: any S without an H returned "SR"; any N that was not
+NO₂/amide/NH₂ returned "NR2". Both now demand positive evidence (no oxygens on S;
+no oxygen, no multiple bond, carbon-only partners on N) and return "other" otherwise.
+
+And the silent half is now visible: an unrecognised substituent contributed **zero**
+to the shift with no warning — predicted as if the group were not on the ring.
+`aromaticCaveats` now names the ignored attachment atoms and says the shift is
+"predicted as if they were absent".
+
+Both pinned by `carbonylCatchAll.test.ts` (24) and `substituentCatchAll.test.ts`
+(25), each asserting the real classes still work so the conservative fallback did
+not gut ordinary chemistry.
+
+**Still open from this item:** `tableclassify.ts` heuristic shape detection with a
+default — not yet audited.
 
 ---
 

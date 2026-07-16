@@ -67,17 +67,56 @@ export type CarbonylKind =
   | "anhydride"
   | "carbonate"
   | "urea"
-  | "carbamate";
+  | "carbamate"
+  | "thioester"
+  | "isocyanate";
 
+/**
+ * Classifies a carbonyl carbon, or returns null when it is not one THIS FUNCTION
+ * CAN NAME.
+ *
+ * The null matters. This used to end in a bare `return "ketone"`, which made
+ * "ketone" a catch-all for every acyl environment the branches above did not
+ * recognise — the same shape as the arginine pKa bug, where a missing group class
+ * was silently routed to a plausible-looking default. Measured, all of these were
+ * reported as ketones and given a ketone's 1715 cm-1 IR band and 205 ppm 13C shift:
+ *
+ *   O=C=O      carbon dioxide   -> IR is really 2349 cm-1, 13C ~125 ppm
+ *   CN=C=O     isocyanate       -> N=C=O stretch is really ~2270 cm-1
+ *   CC(=O)SC   thioester        -> C=O is really ~1690 cm-1, 13C ~193 ppm
+ *   O=C=C=C=O  carbon suboxide  -> two "ketones"
+ *   CC(=O)[SiH3] acyl silane, CC(=O)[Se]C selenoester
+ *
+ * carbon dioxide is IN the compound dictionary (both as a name and as the formula
+ * CO2), so "predict the IR of CO2" answered 1715 cm-1 — off by 634 — with the
+ * label "C=O stretch (ketone)". Thioesters cover every acyl-CoA in metabolism.
+ *
+ * A wrong band is worse than no band: an absent prediction is visible, a confident
+ * wrong one is not. So anything not positively identified now returns null and the
+ * callers simply predict nothing for it.
+ */
 export function carbonylKind(mol: Molecule, c: number): CarbonylKind | null {
   if (!isCarbonyl(mol, c)) return null;
   const o = carbonylOxygen(mol, c);
   const rest = neighbors(mol, c).filter((nb) => nb.atom !== o);
   const hydrogens = mol.getAllHydrogens(c);
 
+  // A carbonyl carbon carrying a SECOND multiple bond is a cumulene, not an acyl
+  // compound: O=C=O, R-N=C=O, R2C=C=O, O=C=C=C=O. Their stretches sit hundreds of
+  // wavenumbers away from any acyl C=O, so they must never reach the ketone branch.
+  const cumulated = rest.filter((nb) => nb.order >= 2);
+  if (cumulated.length) {
+    const partner = cumulated[0].atom;
+    // R-N=C=O is a real, common group with a distinctive band; name it.
+    if (mol.getAtomicNo(partner) === 7) return "isocyanate";
+    // CO2, ketenes, suboxide: not acyl chemistry. Say nothing rather than guess.
+    return null;
+  }
+
   // Single-bonded heteroatom partners decide the class.
   const singleO = rest.filter((nb) => nb.order === 1 && mol.getAtomicNo(nb.atom) === 8);
   const singleN = rest.filter((nb) => nb.order === 1 && mol.getAtomicNo(nb.atom) === 7);
+  const singleS = rest.filter((nb) => nb.order === 1 && mol.getAtomicNo(nb.atom) === 16);
   const halide = rest.filter((nb) => [9, 17, 35, 53].includes(mol.getAtomicNo(nb.atom)));
 
   if (singleO.length === 2) return "carbonate";
@@ -93,8 +132,17 @@ export function carbonylKind(mol: Molecule, c: number): CarbonylKind | null {
     return mol.getAllHydrogens(oAtom) >= 1 ? "acid" : "ester";
   }
   if (singleN.length === 1) return "amide";
+  // C(=O)-S: thioester (or thioacid). Every acyl-CoA in metabolism is one, and its
+  // C=O sits ~25 cm-1 below a ketone's — outside the ketone band's stated range.
+  if (singleS.length === 1) return "thioester";
   if (hydrogens >= 1) return "aldehyde";
-  return "ketone";
+
+  // A ketone is C(=O) flanked by exactly two single-bonded CARBONS. Anything else
+  // reaching here — acyl silane, selenoester, an acyl metal — is an environment
+  // this function does not know, so it gets no name and no predicted band.
+  const carbons = rest.filter((nb) => nb.order === 1 && mol.getAtomicNo(nb.atom) === 6);
+  if (rest.length === 2 && carbons.length === 2) return "ketone";
+  return null;
 }
 
 /**
@@ -252,17 +300,35 @@ export function classifySubstituent(mol: Molecule, atom: number, from: number): 
   }
 
   if (z === 16) {
+    // Oxidised sulfur is NOT a thioether. -SO3H, -SO2NH2, -SO2R and -S(=O)R are
+    // strongly ELECTRON-WITHDRAWING, whereas -SR is weakly DONATING: the increments
+    // differ in SIGN, not just magnitude. Returning "SR" for benzenesulfonic acid
+    // (measured — it did) applied a donating increment to a withdrawing group and
+    // pushed the predicted para shift the wrong way.
+    if (nbrs.some((nb) => mol.getAtomicNo(nb.atom) === 8)) return "other";
     if (h >= 1) return "SH";
-    return "SR";
+    // A thioether's other partner should be carbon; anything else is unknown.
+    if (nbrs.every((nb) => mol.getAtomicNo(nb.atom) === 6)) return "SR";
+    return "other";
   }
 
   if (z === 7) {
     // Nitro: N with two oxygens (charge-separated or pentavalent form).
     const oxy = nbrs.filter((nb) => mol.getAtomicNo(nb.atom) === 8).length;
     if (oxy >= 2) return "NO2";
+    // Nitroso (-N=O) has exactly ONE oxygen and is strongly WITHDRAWING. It used to
+    // fall through to "NR2" — a strongly DONATING dialkylamine. Opposite sign,
+    // ~19 ppm out at the para position, with nothing on screen to say so.
+    if (oxy === 1) return "other";
     if (isAmideN(mol, atom)) return "NHAc";
+    // Any multiple bond from N means azide, imine, diazo, isocyanate — none of
+    // which behave like an amine. Measured: phenyl azide and nitrosobenzene both
+    // classified as "NR2".
+    if (nbrs.some((nb) => nb.order >= 2)) return "other";
     if (h >= 2) return "NH2";
-    return "NR2";
+    // A real amine's remaining partners are carbon.
+    if (nbrs.every((nb) => mol.getAtomicNo(nb.atom) === 6)) return "NR2";
+    return "other";
   }
 
   if (z === 6) {

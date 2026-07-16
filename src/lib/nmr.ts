@@ -215,6 +215,8 @@ const CARBONYL_13C: Record<string, number> = {
   carbonate: 156,
   urea: 158,
   carbamate: 156,
+  thioester: 193,
+  isocyanate: 122,
 };
 
 function hybridization(mol: Molecule, a: number): "sp" | "sp2" | "sp3" {
@@ -245,6 +247,28 @@ function aromaticCaveats(mol: Molecule, a: number, dist: number[], caveats: Set<
       "Fused aromatic ring (naphthalene-type): benzene increments assume an isolated ring, so fused-ring shifts are approximate (±5 ppm)."
     );
   }
+
+  // A substituent with no increment contributes ZERO — the shift comes out as if
+  // the group were not on the ring at all. That silence was the gap: a boronic
+  // acid, a phosphonate or a nitroso group simply vanished from the prediction and
+  // nothing said so. Name the group so the reader knows what was ignored.
+  const unknown = new Set<string>();
+  for (let b = 0; b < mol.getAllAtoms(); b++) {
+    if (!mol.isAromaticAtom(b) || dist[b] < 0 || dist[b] > 3) continue;
+    for (const s of aromaticSubstituents(mol, b)) {
+      const key = classifySubstituent(mol, s, b);
+      if (key === "other" || !AR13C[key]) unknown.add(mol.getAtomLabel(s));
+    }
+  }
+  if (unknown.size) {
+    caveats.add(
+      `Substituent${unknown.size > 1 ? "s" : ""} on this ring (attached via ${[...unknown].join(", ")}) ` +
+        "have no tabulated benzene increment, so they contributed NOTHING to the shift — " +
+        "it is predicted as if they were absent. Expect a real error of tens of ppm for a " +
+        "strongly donating or withdrawing group."
+    );
+  }
+
   for (let x = 0; x < mol.getAllAtoms(); x++) {
     if (dist[x] >= 0 && mol.isAromaticAtom(x) && mol.getAtomicNo(x) !== 6) {
       caveats.add("Heteroaromatic ring: benzene-based increments are approximate (±5-10 ppm).");
@@ -289,6 +313,8 @@ function shift13C(mol: Molecule, a: number, caveats: Set<string>): { shift: numb
       carbonate: "C=O (carbonate)",
       urea: "C=O (urea)",
       carbamate: "C=O (carbamate)",
+      thioester: "C=O (thioester)",
+      isocyanate: "N=C=O (isocyanate)",
     };
     return { shift, assignment: label[kind] ?? "C=O" };
   }

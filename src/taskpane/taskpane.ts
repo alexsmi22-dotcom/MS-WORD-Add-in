@@ -17,6 +17,8 @@ import {
   fitDoseResponse,
   fitSaturationBinding,
   chengPrusoff,
+  kiFromIc50,
+  InhibitionMode,
   catalyticEfficiency,
   kcat,
   hendersonHasselbalch,
@@ -6646,13 +6648,60 @@ const ASSAY_CALCS: AssayCalc[] = [
   },
   {
     id: "chengprusoff",
-    name: "Cheng–Prusoff (Ki from IC50)",
+    name: "Ki from IC50 (Cheng–Prusoff)",
     fields: [
       { key: "ic50", label: "IC50", default: "100" },
       { key: "s", label: "[Substrate] (or [ligand])", default: "8" },
       { key: "km", label: "Km (or Kd)", default: "8" },
+      {
+        key: "mode",
+        label: "Inhibition mode",
+        default: "competitive",
+        kind: "select",
+        options: [
+          { value: "competitive", label: "Competitive (classic Cheng–Prusoff)" },
+          { value: "uncompetitive", label: "Uncompetitive" },
+          { value: "noncompetitive", label: "Non-competitive (pure)" },
+          { value: "mixed", label: "Mixed" },
+        ],
+      },
     ],
-    compute: (r) => ({ text: `Ki = ${assaySig(chengPrusoff(+r("ic50"), +r("s"), +r("km")))}` }),
+    // The mode selector is the fix. Cheng-Prusoff is the COMPETITIVE relationship,
+    // and this calculator applied it unconditionally: on a non-competitive
+    // inhibitor at [S] = 10*Km it returned a Ki ELEVEN TIMES TOO LOW, making the
+    // compound look eleven times more potent than it is.
+    compute: (r) => {
+      const mode = r("mode") as InhibitionMode;
+      const ki = kiFromIc50(+r("ic50"), +r("s"), +r("km"), mode);
+      if (mode === "mixed") {
+        return {
+          text:
+            "Mixed inhibition has TWO constants — Ki (free enzyme) and Ki' (ES complex).\n" +
+            "A single IC50 at a single [S] cannot separate them, so there is no Ki to report here.\n" +
+            "Measure velocities across a range of [S] and [I] and fit the mixed model instead.",
+          ok: false,
+        };
+      }
+      if (!Number.isFinite(ki)) return { text: "Enter a positive IC50, [S] and Km.", ok: false };
+      const note: Record<string, string> = {
+        competitive: "Ki = IC50 / (1 + [S]/Km). Raising [S] out-competes the inhibitor.",
+        uncompetitive: "Ki' = IC50 / (1 + Km/[S]). The inhibitor binds ES, so MORE substrate makes it worse.",
+        noncompetitive: "Ki = IC50. A pure non-competitive inhibitor binds E and ES equally, so [S] does not enter — your [S] and Km are ignored here, deliberately.",
+      };
+      return {
+        text: `Ki = ${assaySig(ki)}\n${note[mode]}`,
+        caveats: [
+          "The MODE is your claim, not the data's. Cheng–Prusoff is the COMPETITIVE " +
+            "relationship; applying it to a non-competitive inhibitor at [S] = 10×Km returns " +
+            "a Ki ELEVEN TIMES too low — and the number looks perfectly reasonable. " +
+            "Determine the mode from a Lineweaver–Burk or a full inhibition fit before " +
+            "converting an IC50.",
+          "Assumes rapid equilibrium, a single inhibitor site, and [I] >> [enzyme]. " +
+            "Tight-binding inhibitors (Ki near the enzyme concentration) violate the free-" +
+            "inhibitor assumption and need Morrison's equation.",
+        ],
+      };
+    },
   },
   {
     id: "efficiency",

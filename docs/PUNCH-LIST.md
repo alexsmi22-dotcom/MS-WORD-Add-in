@@ -402,9 +402,42 @@ Rendered under the digest table in the pane.
 
 **Still open from this item:** star activity and buffer compatibility.
 
-### [ ] 15. `assay.ts` — only one Ki path
-Cheng–Prusoff only. No competitive / uncompetitive / non-competitive inhibition
-models, no substrate inhibition. Thin for a module headed "enzyme kinetics".
+### [x] 15. `assay.ts` — only one Ki path — DONE v1.75.0
+**The single path was worse than thin — it was a wrong-answer generator.**
+Cheng–Prusoff is the COMPETITIVE relationship, Ki = IC50/(1 + [S]/Km), and
+`chengPrusoff()` applied it unconditionally under a docstring promising "the true
+inhibition constant Ki". A non-competitive inhibitor has Ki = IC50, [S] absent:
+
+| [S]/Km | chengPrusoff | true Ki | error |
+|---|---|---|---|
+| 1 | 50.0 | 100 | **2× too low** |
+| 10 | 9.09 | 100 | **11× too low** |
+| 100 | 0.99 | 100 | **101× too low** |
+
+A Ki 11× too low makes a compound look **11× more potent than it is** — a
+decision-changing error in a screening cascade, from a number that looks fine.
+
+Added: `kiFromIc50(ic50, s, km, mode)` — competitive, uncompetitive,
+non-competitive, and **mixed which returns NaN rather than guess** (two constants,
+one IC50 → not identifiable). Velocity models `competitiveV`, `uncompetitiveV`,
+`noncompetitiveV`, `mixedV`, `substrateInhibitionV`, plus `fitInhibition` over an
+[S]×[I] grid. The pane's Ki calculator now has a **mode selector**.
+
+Verified by identity, not just by fitting: every model collapses to Michaelis–Menten
+at [I]=0; mixed with Ki=Ki′ IS pure non-competitive; competitive is out-competed at
+saturating [S] while uncompetitive is not; non-competitive lowers Vmax by exactly
+(1 + [I]/Ki) with Km untouched.
+
+**Two findings worth keeping:**
+- Fitting substrate-inhibited data with plain Michaelis–Menten **fails silently** —
+  it converges, reports `converged: true`, and returns a Vmax ~30% low, because MM
+  has no descending limb to represent the data with.
+- Fitting competitive data as **non-competitive also converges**, with a perfectly
+  plausible Ki. Only comparing RMSE across modes reveals it. That is why every fit
+  now says "the MODE is YOUR claim, not the data's".
+
+**Still open:** tight-binding inhibitors (Morrison's equation) — disclosed in the
+caveats rather than silently mis-fitted.
 
 ### [ ] 16. `dna.ts` — standard genetic code only
 No mitochondrial or alternative codon tables. `primerTm` self-admits it is **not

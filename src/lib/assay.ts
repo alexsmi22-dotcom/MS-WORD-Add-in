@@ -553,13 +553,174 @@ export function fitDoseResponse(conc: number[], response: number[]): DoseRespons
   };
 }
 
+/** How an inhibitor binds. Determines BOTH the velocity equation and the Ki conversion. */
+export type InhibitionMode = "competitive" | "uncompetitive" | "noncompetitive" | "mixed";
+
 /**
- * Cheng-Prusoff: converts an IC50 to the true inhibition constant Ki.
- * Ki = IC50 / (1 + [substrate]/Km) — with (Km, [S]) for enzymes, or (Kd, [L])
- * for radioligand binding.
+ * Cheng-Prusoff: converts an IC50 to the inhibition constant Ki.
+ *
+ * ONLY VALID FOR COMPETITIVE INHIBITION. Ki = IC50 / (1 + [S]/Km) is the
+ * competitive relationship; the other modes have entirely different ones, and
+ * applying this formula to them is not a small error:
+ *
+ *   a NON-COMPETITIVE inhibitor has Ki = IC50, independent of [S]. Using this
+ *   function at [S] = 10*Km returns a Ki ELEVEN TIMES TOO LOW; at [S] = 100*Km,
+ *   101x too low. A Ki 11x too low makes a compound look 11x more potent than it
+ *   is — a decision-changing error in a screening cascade, and nothing about the
+ *   number looks wrong.
+ *
+ * Kept with its original signature so existing callers keep working, but see
+ * `kiFromIc50`, which requires the mode to be stated.
+ *
+ * Works for radioligand binding too, reading (Kd, [L]) for (Km, [S]).
  */
 export function chengPrusoff(ic50: number, substrate: number, km: number): number {
   return ic50 / (1 + substrate / km);
+}
+
+/**
+ * IC50 -> Ki for a stated inhibition mode. Prefer this over `chengPrusoff`: it
+ * cannot silently apply the competitive relationship to a mode that does not obey
+ * it.
+ *
+ *   competitive     Ki  = IC50 / (1 + [S]/Km)      classic Cheng-Prusoff
+ *   uncompetitive   Ki' = IC50 / (1 + Km/[S])      the mirror image
+ *   noncompetitive  Ki  = IC50                     [S]-independent
+ *   mixed           needs both Ki and Ki' — a single IC50 cannot determine them,
+ *                   so this returns NaN rather than a plausible wrong number.
+ */
+export function kiFromIc50(ic50: number, substrate: number, km: number, mode: InhibitionMode): number {
+  if (!(ic50 > 0) || !(km > 0) || substrate < 0) return NaN;
+  switch (mode) {
+    case "competitive":
+      return ic50 / (1 + substrate / km);
+    case "uncompetitive":
+      return substrate > 0 ? ic50 / (1 + km / substrate) : NaN;
+    case "noncompetitive":
+      // Pure non-competitive: the inhibitor binds E and ES equally, so raising
+      // [S] does not out-compete it and the IC50 IS the Ki.
+      return ic50;
+    case "mixed":
+      // Deliberately refuses. Mixed inhibition has two constants (Ki for E, Ki'
+      // for ES); one IC50 at one [S] cannot separate them. Returning a number
+      // here would be exactly the kind of confident guess this module exists to
+      // avoid — fit the full model instead (fitInhibition).
+      return NaN;
+  }
+}
+
+// --- inhibition velocity models ---------------------------------------------
+// Each is the Michaelis-Menten equation with the inhibitor's effect placed where
+// that mode's biology puts it. The differences are the whole diagnostic:
+//   competitive    raises apparent Km, leaves Vmax alone  (I binds free E only)
+//   uncompetitive  lowers both Km and Vmax by the same factor (I binds ES only)
+//   noncompetitive lowers Vmax, leaves Km alone (I binds E and ES equally)
+//   mixed          both, by different factors
+
+/** Competitive: v = Vmax·[S] / (Km·(1 + [I]/Ki) + [S]). */
+export function competitiveV(vmax: number, km: number, ki: number, s: number, i: number): number {
+  return (vmax * s) / (km * (1 + i / ki) + s);
+}
+
+/** Uncompetitive: v = Vmax·[S] / (Km + [S]·(1 + [I]/Ki')). */
+export function uncompetitiveV(vmax: number, km: number, kiPrime: number, s: number, i: number): number {
+  return (vmax * s) / (km + s * (1 + i / kiPrime));
+}
+
+/** Pure non-competitive: v = Vmax·[S] / ((Km + [S])·(1 + [I]/Ki)). */
+export function noncompetitiveV(vmax: number, km: number, ki: number, s: number, i: number): number {
+  return (vmax * s) / ((km + s) * (1 + i / ki));
+}
+
+/** Mixed: v = Vmax·[S] / (Km·(1 + [I]/Ki) + [S]·(1 + [I]/Ki')). */
+export function mixedV(vmax: number, km: number, ki: number, kiPrime: number, s: number, i: number): number {
+  return (vmax * s) / (km * (1 + i / ki) + s * (1 + i / kiPrime));
+}
+
+/**
+ * Substrate inhibition: v = Vmax·[S] / (Km + [S] + [S]²/Ksi).
+ *
+ * The curve RISES then FALLS. Fitting such data with plain Michaelis-Menten does
+ * not fail loudly — it returns a converged fit with a depressed Vmax and a
+ * distorted Km, because MM has no way to represent a descending limb. Real and
+ * common (acetylcholinesterase, many kinases at high ATP).
+ */
+export function substrateInhibitionV(vmax: number, km: number, ksi: number, s: number): number {
+  return (vmax * s) / (km + s + (s * s) / ksi);
+}
+
+export interface InhibitionFit extends FitResult {
+  vmax: number;
+  km: number;
+  ki: number;
+  /** Only defined for mixed inhibition; NaN otherwise. */
+  kiPrime: number;
+  mode: InhibitionMode;
+}
+
+/**
+ * Fits an inhibition model to (substrate, inhibitor, velocity) triples.
+ *
+ * The x vector is an index into the pairs, because the underlying LM engine is
+ * single-x; the model closure reads the real (s, i) from the arrays.
+ */
+export function fitInhibition(
+  s: number[],
+  i: number[],
+  v: number[],
+  mode: InhibitionMode
+): InhibitionFit | null {
+  const n = Math.min(s.length, i.length, v.length);
+  if (n < 4) return null;
+  const idx = Array.from({ length: n }, (_, k) => k);
+
+  // Initial guess: fit MM to the uninhibited points if there are any, else all.
+  const zero = idx.filter((k) => i[k] === 0);
+  const base = zero.length >= 3 ? fitMichaelisMenten(zero.map((k) => s[k]), zero.map((k) => v[k])) : fitMichaelisMenten(s, v);
+  const vmax0 = base.vmax > 0 ? base.vmax : Math.max(...v);
+  const km0 = base.km > 0 ? base.km : s[Math.floor(n / 2)] || 1;
+  const ki0 = Math.max(...i.filter((x) => x > 0), 1) || 1;
+
+  const model: Model =
+    mode === "mixed"
+      ? (p, x) => mixedV(p[0], p[1], p[2], p[3], s[Math.round(x)], i[Math.round(x)])
+      : mode === "competitive"
+        ? (p, x) => competitiveV(p[0], p[1], p[2], s[Math.round(x)], i[Math.round(x)])
+        : mode === "uncompetitive"
+          ? (p, x) => uncompetitiveV(p[0], p[1], p[2], s[Math.round(x)], i[Math.round(x)])
+          : (p, x) => noncompetitiveV(p[0], p[1], p[2], s[Math.round(x)], i[Math.round(x)]);
+
+  const initial = mode === "mixed" ? [vmax0, km0, ki0, ki0] : [vmax0, km0, ki0];
+  const fit = levenbergMarquardt(idx, v.slice(0, n), model, initial);
+
+  const caveats = [
+    `Fitted as ${mode.toUpperCase()} inhibition — YOU chose that, the data did not. ` +
+      "The modes differ in what the inhibitor does to Km and Vmax (competitive raises " +
+      "apparent Km; uncompetitive lowers both; non-competitive lowers Vmax alone), and " +
+      "a wrong choice returns a converged fit with a plausible Ki. Compare the modes " +
+      "before trusting one.",
+    "Assumes rapid equilibrium, a single inhibitor site, and initial rates. Tight-binding " +
+      "inhibitors (Ki near the enzyme concentration) break the free-inhibitor assumption " +
+      "and need Morrison's equation instead.",
+    ...fit.caveats,
+  ];
+  if (mode === "mixed") {
+    caveats.unshift(
+      "Mixed inhibition has TWO constants (Ki for free enzyme, Ki' for the ES complex). " +
+        "Separating them needs inhibitor data across a range of substrate concentrations; " +
+        "with one [S] they are not identifiable and the fit will pick between them on noise."
+    );
+  }
+
+  return {
+    ...fit,
+    vmax: fit.params[0],
+    km: fit.params[1],
+    ki: fit.params[2],
+    kiPrime: mode === "mixed" ? fit.params[3] : NaN,
+    mode,
+    caveats,
+  };
 }
 
 // --- receptor / saturation binding ------------------------------------------

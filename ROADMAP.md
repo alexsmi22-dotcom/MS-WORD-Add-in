@@ -1,6 +1,6 @@
 # JurisLab — Product Roadmap
 
-_Last updated: 2026-07-14 · Current release: **v1.48.5** (production)_
+_Last updated: 2026-07-24 · Current release: **v1.82.0** (production)_
 
 This is the forward-looking plan. For what already ships, see [FEATURES.md](FEATURES.md);
 for the historical build log, see [CHANGELOG.md](CHANGELOG.md).
@@ -92,24 +92,27 @@ Added as Analyze tools (`src/lib/ode.ts`, `src/lib/optimize.ts`, `src/lib/fft.ts
   sampled table + trajectory plot.
 - **General optimization** ✅ — Nelder–Mead simplex minimization of a typed objective.
 - **FFT / signal processing** ✅ — radix-2 Cooley–Tukey, amplitude spectrum + dominant
-  frequencies + chart. _Filtering not yet added — a possible Phase-2 follow-on._
+  frequencies + chart. Filtering ✅ added (low/high/band-pass in the frequency domain,
+  with a caveat about the artefacts a naive brick-wall filter introduces).
 
 ### Phase 3 — Fill the thin spots ✅ COMPLETE (v1.52.0)
 
 - **Stats breadth** ✅ (`src/lib/stats2.ts`) — Mann–Whitney U, Wilcoxon signed-rank,
   chi-square (goodness-of-fit + independence), two-way ANOVA, multiple-comparison
-  correction (Bonferroni, Holm, Benjamini–Hochberg/FDR). _Tukey HSD deferred — needs
-  the studentized-range distribution; the three corrections above cover common needs._
+  correction (Bonferroni, Holm, Benjamini–Hochberg/FDR). Tukey HSD ✅ added (studentized-range
+  distribution; ANOVA without a post-hoc test inflates the family-wise error rate).
 - **pKa estimation from structure** ✅ (`src/lib/pka.ts`) — deterministic functional-group
   detection (OCL atom graph; ester/amide/nitrile correctly excluded) reporting typical
   literature pKa per ionizable group + net charge at pH 7.4, labeled as a group estimate.
 
-### Phase 4 — Spectroscopy prediction  _(most differentiating, most work)_
+### Phase 4 — Spectroscopy prediction ✅ COMPLETE (v1.54.0, Spectra mode)  _(most differentiating, most work)_
 
-- **1H / 13C NMR** predicted spectra (HOSE-code / additivity, offline, honest caveat).
-- **IR** predicted spectra.
-- **UV-Vis** predicted spectra.
-- **MS fragmentation** prediction (today: molecular ion + isotopes + adducts only).
+- **1H / 13C NMR** ✅ predicted spectra (additivity — Grant–Paul + aromatic increments, offline, honest caveat).
+- **IR** ✅ predicted spectra (group frequencies + Lorentzian transmittance trace).
+- **UV-Vis** ✅ predicted spectra (Woodward–Fieser).
+- **MS fragmentation** ✅ (EI: α-cleavage, benzylic/tropylium, McLafferty, gated neutral losses).
+- **Open:** NMR depth — J-coupling constants and 2D (COSY/HSQC); current model gives shift + multiplicity only.
+- **Also shipped, unplanned here:** a **JCAMP-DX reader** to open a real measured spectrum.
 
 ### Ongoing / low priority — Chemical coverage
 
@@ -121,7 +124,14 @@ Added as Analyze tools (`src/lib/ode.ts`, `src/lib/optimize.ts`, `src/lib/fft.ts
 
 ---
 
-## Suggested first milestone
+## Status & what's next
 
-**Phase 1: linear-algebra core + insights engine.** It's the smallest thing that makes
-the MATLAB comparison credible, and the insights engine leans on code we already have.
+**Phases 1–4 are all COMPLETE** (linear-algebra/FFT/ODE core, optimization, insights
+engine, expanded stats, pKa, and the full Spectra suite). Since then the build has added
+a **molecular-biology suite** — Sequence Map, circular plasmid maps, SnapGene `.dna`
+import, restriction-enzyme digestion (Type IIS, both-strand), pairwise Align, and
+nearest-neighbour primer Tm — and a sustained **correctness-hardening sweep** (punch-list
+audits fixing real numerical/biological bugs the unit tests missed).
+
+**Genuinely open candidates:** NMR depth (J-coupling / 2D COSY-HSQC); deeper BVP/PDE/DAE
+support on the ODE side (out of scope today — state honestly). Confirm priority before building.

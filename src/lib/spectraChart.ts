@@ -14,7 +14,8 @@
 import { NmrResult, nmrSticks } from "./nmr";
 import { IrBand, irTransmittanceCurve } from "./ir";
 import { FragmentResult, Likelihood } from "./fragment";
-import { buildPlotSvg, Series } from "./plot";
+import { Cosy2D, Hsqc2D } from "./nmr2d";
+import { buildPlotSvg, Series, Point } from "./plot";
 
 const WIDTH = 380;
 const HEIGHT = 240;
@@ -96,4 +97,51 @@ export function msChartSvg(r: FragmentResult): string | null {
   });
 }
 
+// 2D maps are square and a little larger — two shift axes need the room.
+const SIZE_2D = 300;
+
+/**
+ * 1H-1H COSY contour-style map. Both axes are 1H δ increasing toward the
+ * top-left (the conventional NMR orientation), so shifts are negated. The
+ * diagonal is drawn in grey; cross-peaks in blue, with weak (long-range)
+ * correlations lightened.
+ */
+export function cosyChartSvg(r: Cosy2D): string | null {
+  if (!r.peaks.length) return null;
+  const map = (f2: number, f1: number): Point => ({ x: -f2, y: -f1 });
+  const diagonal = r.peaks.filter((p) => p.kind === "diagonal").map((p) => map(p.f2, p.f1));
+  const strong = r.peaks.filter((p) => p.kind === "cross" && !p.weak).map((p) => map(p.f2, p.f1));
+  const weak = r.peaks.filter((p) => p.kind === "cross" && p.weak).map((p) => map(p.f2, p.f1));
+
+  const series: Series[] = [{ points: diagonal, type: "scatter", color: "#94a3b8", label: "diagonal" }];
+  if (strong.length) series.push({ points: strong, type: "scatter", color: "#2563eb", label: "cross-peak" });
+  if (weak.length) series.push({ points: weak, type: "scatter", color: "#93c5fd", label: "weak (long-range)" });
+
+  return buildPlotSvg(series, {
+    title: "Predicted ¹H–¹H COSY (estimate)",
+    xlabel: "δ (ppm) — increases leftward",
+    ylabel: "δ (ppm) — increases downward",
+    width: SIZE_2D,
+    height: SIZE_2D,
+  });
+}
+
+/**
+ * 1H-13C HSQC map: 1H δ on the direct axis (F2, leftward), 13C δ on the indirect
+ * axis (F1, downward). One point per protonated carbon. The C-H topology is
+ * exact; only the positions carry additivity-model uncertainty.
+ */
+export function hsqcChartSvg(r: Hsqc2D): string | null {
+  if (!r.peaks.length) return null;
+  const points: Point[] = r.peaks.map((p) => ({ x: -p.f2, y: -p.f1 }));
+  return buildPlotSvg([{ points, type: "scatter", color: "#2563eb", label: "¹J(C,H)" }], {
+    title: "Predicted ¹H–¹³C HSQC (estimate)",
+    xlabel: "δ ¹H (ppm) — increases leftward",
+    ylabel: "δ ¹³C (ppm) — increases downward",
+    width: SIZE_2D,
+    height: SIZE_2D,
+  });
+}
+
 export const SPECTRUM_CHART_SIZE = { width: WIDTH, height: HEIGHT };
+export const SPECTRUM_2D_SIZE = { width: SIZE_2D, height: SIZE_2D };

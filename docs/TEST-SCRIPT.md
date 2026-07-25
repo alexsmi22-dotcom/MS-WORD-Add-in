@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v1.82.0)
+# JurisLab — Manual Test Script (v1.83.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 2,800+ automated unit tests, and `npm run qc` now also
@@ -53,7 +53,7 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
   (the chlorine signature) — this is the check that the pattern is real.
 - [ ] **Insert MS data** → text summary lands at the cursor.
 
-## 1c. Spectra  *(v1.54 — predicted NMR / IR / UV-Vis / fragmentation)*
+## 1c. Spectra  *(v1.54 — predicted NMR / IR / UV-Vis / fragmentation; v1.83 — J-coupling + 2D COSY/HSQC)*
 > These are **estimates from additivity rules**, not acquired spectra. Every
 > screen must carry its caveat — if a caveat block is missing, that is a FAIL.
 
@@ -62,6 +62,15 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
 - [ ] Switch to **¹³C NMR** → **137.8 / 129.2 / 128.4 / 125.6 / 20.7** (±1).
 - [ ] Type `benzene`, **¹H** → exactly **one signal, 7.26, 6H, s** (a triplet here
   would be a bug).
+- [ ] **J-coupling:** type `ethanol`, **¹H** → the mult. column reads **`t (7.0)`**
+  for the CH₃ (3H) and **`q (7.0)`** for the CH₂ (2H); the OH is **`s (br)`**. The
+  Karplus and first-order caveats are visible.
+- [ ] **COSY (¹H–¹H, 2D)** with `ethanol` → one **CH₃ ↔ CH₂** correlation
+  (`type = vicinal, J ≈ 7`); inserting the chart gives a **square 2D map** with a
+  grey diagonal and a blue cross-peak, both axes δ increasing left/down.
+- [ ] **HSQC (¹H–¹³C, 2D)** with `ethanol` → **two** cross-peaks (CH₃ and CH₂),
+  OH absent; `carbon tetrachloride` → **no correlations** (no C–H). Every peak sits
+  in a plausible δH/δC box.
 - [ ] Switch to **IR** with `acetone` → strong **C=O ~1715**; then `ethyl acetate`
   → **~1740** (ester sits above ketone); then `acetophenone` → **~1690**, labelled
   *conjugated*.

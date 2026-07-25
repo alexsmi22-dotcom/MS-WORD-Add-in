@@ -59,6 +59,7 @@ import { predictPka, PkaResult } from "../lib/pka";
 import { resolveNameOnline, OpsinResult } from "../lib/opsin";
 import { computeMassSpec, MassSpecResult } from "../lib/massspec";
 import { predictNmr, NmrResult, Nucleus } from "../lib/nmr";
+import { predictCoupling, predictCosy, predictHsqc, Cosy2D, Hsqc2D } from "../lib/nmr2d";
 import { predictIr, IrResult } from "../lib/ir";
 import { predictUvVis, UvResult } from "../lib/uvvis";
 import { predictFragments, FragmentResult } from "../lib/fragment";
@@ -67,7 +68,7 @@ import { buildLinearMapSvg, featureTypes } from "../lib/seqmap";
 import { buildCircularMapSvg } from "../lib/seqmapcirc";
 import { parseSnapGeneDna, looksLikeDna } from "../lib/seqdna";
 import { ENZYMES, findSites, summarise, uniqueCutters, formatSite, methylationWarnings } from "../lib/enzymes";
-import { nmrChartSvg, irChartSvg, msChartSvg, SPECTRUM_CHART_SIZE } from "../lib/spectraChart";
+import { nmrChartSvg, irChartSvg, msChartSvg, cosyChartSvg, hsqcChartSvg, SPECTRUM_CHART_SIZE, SPECTRUM_2D_SIZE } from "../lib/spectraChart";
 import { buildPeptide } from "../lib/peptide";
 import {
   describe as statDescribe,
@@ -6069,7 +6070,7 @@ function massSpecAsText(spec: MassSpecResult | null): string {
 // additivity rules; the disclaimer is part of the feature, not decoration.
 // ---------------------------------------------------------------------------
 
-type SpectrumKind = "1H" | "13C" | "ir" | "uvvis" | "ms";
+type SpectrumKind = "1H" | "13C" | "ir" | "uvvis" | "ms" | "cosy" | "hsqc";
 
 /** The currently displayed prediction, kept for the insert buttons. */
 let currentSpectrum:
@@ -6077,6 +6078,8 @@ let currentSpectrum:
   | { kind: "ir"; ir: IrResult }
   | { kind: "uvvis"; uv: UvResult }
   | { kind: "ms"; ms: FragmentResult }
+  | { kind: "cosy"; cosy: Cosy2D }
+  | { kind: "hsqc"; hsqc: Hsqc2D }
   | null = null;
 let currentSpectrumSvg: string | null = null;
 
@@ -6110,7 +6113,21 @@ function buildSpectrumSvg(): string | null {
   if (cur.kind === "ir") return irChartSvg(cur.ir.bands);
   if (cur.kind === "ms") return msChartSvg(cur.ms);
   if (cur.kind === "uvvis") return null; // a single λmax is a number, not a spectrum
+  if (cur.kind === "cosy") return cosyChartSvg(cur.cosy);
+  if (cur.kind === "hsqc") return hsqcChartSvg(cur.hsqc);
   return nmrChartSvg(cur.nmr);
+}
+
+/** The pixel size of the current chart — 2D maps are square and larger. */
+function currentChartSize(): { width: number; height: number } {
+  return currentSpectrum && (currentSpectrum.kind === "cosy" || currentSpectrum.kind === "hsqc")
+    ? SPECTRUM_2D_SIZE
+    : SPECTRUM_CHART_SIZE;
+}
+
+/** Formats a refined multiplet with its coupling constants, e.g. "dd (7.8, 1.5)". */
+function formatMultiplet(multiplet: string, J: number[]): string {
+  return J.length ? `${multiplet} (${J.map((j) => j.toFixed(1)).join(", ")})` : multiplet;
 }
 
 /** Computes and renders the selected prediction for the current input. */
@@ -6144,18 +6161,70 @@ function updateSpectra(): void {
       if (!r) return fail("No structure found. Try a name (toluene), a formula, or a SMILES.");
       if (!r.signals.length) return fail("No signals predicted for this structure.");
       currentSpectrum = { kind, nmr: r };
+      // For 1H, resolve scalar couplings so the table can show J and a refined
+      // multiplet (dd, td, ...) instead of the plain n+1 letter. Signals from
+      // predictCoupling align by index with predictNmr's (same input, same order).
+      const cpl = kind === "1H" ? predictCoupling(text) : null;
       specResult.appendChild(msEyebrow(`Predicted ${kind} NMR — ${r.signals.length} signals`));
-      const head = specRow(["δ (ppm)", kind === "1H" ? "H" : "C", kind === "1H" ? "mult." : "", "assignment"], "spec-row spec-head");
+      const head = specRow(["δ (ppm)", kind === "1H" ? "H" : "C", kind === "1H" ? "mult. (J/Hz)" : "", "assignment"], "spec-row spec-head");
       specResult.appendChild(head);
-      for (const s of r.signals) {
+      r.signals.forEach((s, i) => {
+        const cs = cpl?.signals[i];
+        const mult = cs ? formatMultiplet(cs.multiplet, cs.J) : s.multiplicity;
         specResult.appendChild(
           specRow([
             s.shift.toFixed(kind === "1H" ? 2 : 1),
             String(s.count),
-            kind === "1H" ? s.multiplicity : "",
+            kind === "1H" ? mult : "",
             s.assignment,
           ])
         );
+      });
+    } else if (kind === "cosy") {
+      const cc = predictCoupling(text);
+      const r = predictCosy(text);
+      if (!cc || !r) return fail("No structure found. Try a name (ethanol), a formula, or a SMILES.");
+      currentSpectrum = { kind, cosy: r };
+      // Unique 1H-1H correlations, read from the coupling graph (which carries the
+      // relationship and J); the mirror-image half of each pair is dropped here.
+      const rows: { a: number; b: number; kind: string; J: number }[] = [];
+      const seen = new Set<string>();
+      cc.signals.forEach((s, i) => {
+        for (const cp of s.couplings) {
+          if (cp.kind === "para" || cp.J < 1) continue;
+          const key = i < cp.partner ? `${i}-${cp.partner}` : `${cp.partner}-${i}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          rows.push({ a: s.shift, b: cp.partnerShift, kind: cp.kind, J: cp.J });
+        }
+      });
+      specResult.appendChild(msEyebrow(`Predicted ¹H–¹H COSY — ${rows.length} correlation${rows.length === 1 ? "" : "s"}`));
+      if (!rows.length) {
+        const hint = document.createElement("div");
+        hint.className = "ms-hint";
+        hint.textContent = "No resolved ¹H–¹H couplings (protons are equivalent or isolated).";
+        specResult.appendChild(hint);
+      } else {
+        specResult.appendChild(specRow(["δ (ppm)", "↔ δ", "type", "J/Hz"], "spec-row spec-head"));
+        for (const row of rows.sort((x, y) => y.a - x.a)) {
+          specResult.appendChild(specRow([row.a.toFixed(2), row.b.toFixed(2), row.kind, row.J.toFixed(1)]));
+        }
+      }
+    } else if (kind === "hsqc") {
+      const r = predictHsqc(text);
+      if (!r) return fail("No structure found. Try a name (ethanol), a formula, or a SMILES.");
+      currentSpectrum = { kind, hsqc: r };
+      specResult.appendChild(msEyebrow(`Predicted ¹H–¹³C HSQC — ${r.peaks.length} correlation${r.peaks.length === 1 ? "" : "s"}`));
+      if (!r.peaks.length) {
+        const hint = document.createElement("div");
+        hint.className = "ms-hint";
+        hint.textContent = "No ¹H–¹³C correlations (no protonated carbons).";
+        specResult.appendChild(hint);
+      } else {
+        specResult.appendChild(specRow(["δ ¹H", "δ ¹³C", "type", ""], "spec-row spec-head"));
+        for (const p of r.peaks) {
+          specResult.appendChild(specRow([p.f2.toFixed(2), p.f1.toFixed(1), p.label.split(":")[0], ""]));
+        }
       }
     } else if (kind === "ir") {
       const r = predictIr(text);
@@ -6226,7 +6295,11 @@ function updateSpectra(): void {
         ? cur.uv.caveats
         : cur.kind === "ms"
           ? cur.ms.caveats
-          : cur.nmr.caveats;
+          : cur.kind === "cosy"
+            ? cur.cosy.caveats
+            : cur.kind === "hsqc"
+              ? cur.hsqc.caveats
+              : cur.nmr.caveats;
   specResult.appendChild(specCaveats([...caveats, "Predicted from structure — verify against an acquired spectrum."]));
 
   specInsertBtn.disabled = false;
@@ -6242,17 +6315,51 @@ function spectrumAsText(): string {
 
   if (cur.kind === "1H" || cur.kind === "13C") {
     const r = cur.nmr;
+    // For 1H, fold the resolved multiplet + J into each line.
+    const cpl = r.nucleus === "1H" ? predictCoupling(r.smiles) : null;
     const lines = [
       `Predicted ${r.nucleus} NMR — ${r.smiles}`,
-      ...r.signals.map((s) =>
-        r.nucleus === "1H"
-          ? `  δ ${s.shift.toFixed(2)}  (${s.count}H, ${s.multiplicity})  ${s.assignment}`
-          : `  δ ${s.shift.toFixed(1)}  ${s.assignment}${s.count > 1 ? `  (${s.count} equivalent C)` : ""}`
-      ),
+      ...r.signals.map((s, i) => {
+        if (r.nucleus !== "1H") {
+          return `  δ ${s.shift.toFixed(1)}  ${s.assignment}${s.count > 1 ? `  (${s.count} equivalent C)` : ""}`;
+        }
+        const cs = cpl?.signals[i];
+        const mult = cs ? formatMultiplet(cs.multiplet, cs.J) : s.multiplicity;
+        return `  δ ${s.shift.toFixed(2)}  (${s.count}H, ${mult})  ${s.assignment}`;
+      }),
       ...r.caveats.map((c) => `Note: ${c}`),
       tail,
     ];
     return lines.join("\n");
+  }
+
+  if (cur.kind === "cosy") {
+    const r = cur.cosy;
+    const crosses = r.peaks.filter((p) => p.kind === "cross");
+    const seen = new Set<string>();
+    const lines: string[] = [];
+    for (const p of crosses) {
+      const key = [p.f2, p.f1].sort((a, b) => a - b).join("|");
+      if (seen.has(key)) continue;
+      seen.add(key);
+      lines.push(`  ${p.label}`);
+    }
+    return [
+      `Predicted ¹H–¹H COSY — ${r.smiles}`,
+      ...(lines.length ? lines : ["  (no resolved ¹H–¹H couplings)"]),
+      ...r.caveats.map((c) => `Note: ${c}`),
+      tail,
+    ].join("\n");
+  }
+
+  if (cur.kind === "hsqc") {
+    const r = cur.hsqc;
+    return [
+      `Predicted ¹H–¹³C HSQC — ${r.smiles}`,
+      ...(r.peaks.length ? r.peaks.map((p) => `  ${p.label}`) : ["  (no protonated carbons)"]),
+      ...r.caveats.map((c) => `Note: ${c}`),
+      tail,
+    ].join("\n");
   }
 
   if (cur.kind === "ir") {
@@ -6306,11 +6413,8 @@ async function insertSpectrumChart(): Promise<void> {
   specInsertChartBtn.disabled = true;
   setStatus("Inserting spectrum…");
   try {
-    const base64 = await svgToPngBase64(
-      currentSpectrumSvg,
-      SPECTRUM_CHART_SIZE.width * 2,
-      SPECTRUM_CHART_SIZE.height * 2
-    );
+    const size = currentChartSize();
+    const base64 = await svgToPngBase64(currentSpectrumSvg, size.width * 2, size.height * 2);
     await Word.run(async (context) => {
       const range = context.document.getSelection();
       const picture = range.insertInlinePictureFromBase64(base64, Word.InsertLocation.after);

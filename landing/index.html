@@ -102,6 +102,17 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
     radial-gradient(820px 560px at 4% 84%, rgba(14,165,233,.20), transparent 62%),
     linear-gradient(166deg,#0C4A6E 0%,#0A3A57 55%,#062231 100%);
 }
+
+/* Watermark on the dark bands: skeletal structures and an equilibrium on one
+   side, section marks and paragraph marks on the other — the two benches this
+   thing sits between. Decorative only, so it is aria-hidden and drawn at 7%,
+   which is under the threshold where it would start eating text contrast. */
+.chem-bg{
+  position:absolute; inset:0; width:100%; height:100%;
+  z-index:0; pointer-events:none; opacity:.07; color:#fff;
+}
+.hero > .wrap, .band-deep > .wrap{position:relative; z-index:1}
+.band-deep{position:relative; overflow:hidden}
 .hero-grid{display:grid;grid-template-columns:minmax(0,.92fr) minmax(0,1.08fr);gap:clamp(30px,4.5vw,62px);align-items:center}
 .hero .eyebrow{color:var(--cyan-2)}
 
@@ -356,6 +367,38 @@ footer{border-top:1px solid var(--rule);background:var(--ground-2);padding:32px 
 
 <!-- ================= HERO ================= -->
 <section class="hero">
+  <svg class="chem-bg" aria-hidden="true" focusable="false">
+    <defs>
+      <pattern id="stemlaw" width="340" height="340" patternUnits="userSpaceOnUse">
+        <g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <!-- benzene -->
+          <path d="M44 30 L66 43 L66 69 L44 82 L22 69 L22 43 Z"/>
+          <circle cx="44" cy="56" r="13"/>
+          <!-- skeletal chain with a pendant bond -->
+          <path d="M104 250 l18 10 l18-10 l18 10 l18-10"/>
+          <path d="M140 260 v18"/>
+          <!-- carbonyl: the double bond is what makes it read as chemistry -->
+          <path d="M244 96 l16 9 l16-9"/>
+          <path d="M260 105 v-17"/><path d="M264 105 v-17"/>
+          <!-- equilibrium, drawn as the two half-arrows it actually is -->
+          <path d="M38 170 h44"/><path d="M76 166 l6 4"/>
+          <path d="M82 186 h-44"/><path d="M44 190 l-6-4"/>
+          <!-- cyclopentane -->
+          <path d="M292 210 L306 220 L301 236 L283 236 L278 220 Z"/>
+        </g>
+        <g fill="currentColor" font-family="Cambria,Georgia,'Times New Roman',serif" font-size="18">
+          <text x="110" y="52">C₆H₆</text>
+          <text x="236" y="170">H₂O</text>
+          <text x="22" y="128">§ 112</text>
+          <text x="150" y="126">Σ</text>
+          <text x="196" y="304">∫</text>
+          <text x="38" y="302">pKa</text>
+          <text x="248" y="58">¶</text>
+        </g>
+      </pattern>
+    </defs>
+    <rect width="100%" height="100%" fill="url(#stemlaw)"/>
+  </svg>
   <div class="wrap">
     <div class="hero-grid">
 
@@ -814,6 +857,7 @@ footer{border-top:1px solid var(--rule);background:var(--ground-2);padding:32px 
 
 <!-- ================= PRIVACY ================= -->
 <section class="band band-deep">
+  <svg class="chem-bg" aria-hidden="true" focusable="false"><rect width="100%" height="100%" fill="url(#stemlaw)"/></svg>
   <div class="wrap privacy">
     <div>
       <p class="eyebrow">Private by design</p>

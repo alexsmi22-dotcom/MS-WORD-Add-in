@@ -98,9 +98,24 @@ describe("the user-facing docs are not allowed to rot", () => {
   test("every page that counts tools counts them correctly", () => {
     // index.html and science.html both quoted "22 tools" at 24. A landing page is
     // the most public thing here and the least checked.
+    //
+    // index.html now also breaks the set into per-bench groups, so a bare
+    // "N tools" is no longer the only shape on the page. Subtotals are pulled out
+    // and checked as a sum instead of against the total: that still catches rot,
+    // and it additionally catches a tool filed under two benches or under none —
+    // which comparing each subtotal to the total never could.
     const n = modes().length;
     for (const f of ["landing/manual.html", "landing/index.html", "landing/science.html"]) {
-      for (const m of read(f).matchAll(/(\d+)\s+tools/g)) {
+      const src = read(f);
+      const subtotals = [...src.matchAll(/<span class="count">(\d+)\s+tools<\/span>/g)].map((m) =>
+        Number(m[1]),
+      );
+      if (subtotals.length > 0) {
+        const sum = subtotals.reduce((a, b) => a + b, 0);
+        expect({ file: f, sum }).toEqual({ file: f, sum: n });
+      }
+      const totals = src.replace(/<span class="count">\d+\s+tools<\/span>/g, "");
+      for (const m of totals.matchAll(/(\d+)\s+tools/g)) {
         expect({ file: f, claimed: Number(m[1]) }).toEqual({ file: f, claimed: n });
       }
     }

@@ -1,135 +1,917 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>JurisLab — Word Add-in for STEM &amp; Legal Authoring</title>
-  <meta name="description" content="A free Microsoft Word add-in for STEM authoring and patent/legal drafting: a no-code numerical workbench (matrix math, eigenvalues, QR/SVD, optimization, FFT, ODE solving, data insights), an equation/calculus/word-problem solver, chemistry & 2D structures, physicochemical properties, pKa & druglikeness, mass spectrometry, predicted NMR/IR/UV-Vis spectra (incl. 2D COSY & HSQC), enzyme kinetics & dose-response, peptide structures, statistics (non-parametric, chi-square, two-way ANOVA), math/LaTeX equations, units, plotting, finance, DNA, sequence maps, alignment & ST.26 sequences, Bluebook citations & Table of Authorities. 100% offline. Windows & Mac." />
-  <style>
-    :root { --blue:#2e74b5; --ink:#1b1b1f; --muted:#5b5b66; --bg:#f6f8fb; --card:#fff; --line:#e4e8ef; }
-    * { box-sizing: border-box; }
-    body { margin:0; font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; color:var(--ink); background:var(--bg); line-height:1.55; }
-    .wrap { max-width:860px; margin:0 auto; padding:0 20px; }
-    header { background:linear-gradient(135deg,#2e74b5,#1f4e79); color:#fff; padding:56px 0 48px; }
-    header .wrap { text-align:center; }
-    h1 { font-size:2.4rem; margin:0 0 8px; }
-    .tag { font-size:1.15rem; opacity:.95; margin:0 auto; max-width:640px; }
-    .pills { margin:22px 0 4px; }
-    .pill { display:inline-block; background:rgba(255,255,255,.16); border:1px solid rgba(255,255,255,.25); border-radius:999px; padding:5px 12px; margin:4px; font-size:.85rem; }
-    .cta { margin-top:26px; }
-    .btn { display:inline-block; background:#fff; color:var(--blue); font-weight:700; text-decoration:none; padding:12px 22px; border-radius:8px; margin:6px; box-shadow:0 2px 8px rgba(0,0,0,.15); }
-    .btn.alt { background:transparent; color:#fff; border:1.5px solid rgba(255,255,255,.7); }
-    section { padding:40px 0; }
-    h2 { color:var(--blue); font-size:1.4rem; margin:0 0 16px; }
-    .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); gap:14px; }
-    .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px 16px; }
-    .card b { display:block; margin-bottom:3px; }
-    .card span { color:var(--muted); font-size:.92rem; }
-    a.card { text-decoration:none; color:inherit; display:block; transition:transform .08s ease, box-shadow .08s ease, border-color .08s ease; }
-    a.card:hover, a.card:focus-visible { border-color:var(--blue); box-shadow:0 5px 16px rgba(46,116,181,.14); transform:translateY(-2px); outline:none; }
-    a.card b::after { content:" ›"; color:var(--blue); opacity:.55; }
-    .hint-line { color:var(--muted); font-size:.9rem; margin:-6px 0 14px; }
-    .new, .upd { display:inline-block; font-size:.6rem; font-weight:800; text-transform:uppercase; letter-spacing:.05em; padding:2px 6px; border-radius:999px; vertical-align:middle; margin-left:6px; }
-    .new { background:#e7f7ec; color:#1a7f37; border:1px solid #b7e4c3; }
-    .upd { background:#fff4e5; color:#9a6700; border:1px solid #f2d9a8; }
-    .whatsnew .grid { grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); }
-    .whatsnew .card { border-color:#cfe6d6; background:#fbfefc; }
-    .note { background:#eef4fb; border:1px solid #d6e3f3; border-radius:10px; padding:16px 18px; color:#234; }
-    code { background:#eef1f6; padding:1px 6px; border-radius:5px; font-size:.9em; }
-    footer { text-align:center; color:var(--muted); font-size:.9rem; padding:28px 0 48px; }
-    a { color:var(--blue); }
-  </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JurisLab | Word Add-in for STEM &amp; Legal Authoring</title>
+<meta name="description" content="A free Microsoft Word add-in for STEM authoring and patent/legal drafting: numerical workbench, chemistry and 2D structures, predicted NMR/IR/UV-Vis spectra, mass spec, enzyme kinetics, peptides, statistics, equations, plots, finance, DNA and ST.26 sequences, sequence maps, alignment, Bluebook citations and Table of Authorities. 25 tools. 100% offline. Windows &amp; Mac.">
+<meta name="theme-color" content="#0C4A6E">
+<meta property="og:title" content="JurisLab: a technical workbench inside Microsoft Word">
+<meta property="og:description" content="25 tools for STEM authoring and patent drafting. Free, open source, and it runs entirely on your machine.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://alexsmi22-dotcom.github.io/MS-WORD-Add-in/">
+<link rel="canonical" href="https://alexsmi22-dotcom.github.io/MS-WORD-Add-in/">
+
+<style>
+/* ==========================================================================
+   JurisLab
+   Self-contained. No external fonts, scripts, trackers or CDNs: a page for an
+   offline-first tool should not phone home either.
+   ========================================================================== */
+
+:root{
+  --ink:#0B1F2A;
+  --ink-2:#48606E;
+  --ink-3:#758794;
+
+  --navy-900:#062231;
+  --navy-800:#0A3A57;
+  --navy-700:#0C4A6E;
+  --mid:#0369A1;
+  --cyan:#0EA5E9;
+  --cyan-2:#38BDF8;
+
+  --paper:#FFFFFF;
+  --ground:#EDF1F4;
+  --ground-2:#F7F9FB;
+  --rule:#DBE3E9;
+  --rule-soft:#E9EEF2;
+
+  --glass-edge:rgba(255,255,255,.26);
+  --glass-fill:rgba(255,255,255,.085);
+
+  --sans:"Segoe UI",-apple-system,BlinkMacSystemFont,system-ui,Roboto,"Helvetica Neue",Arial,sans-serif;
+  --serif:Georgia,"Times New Roman",Times,serif;
+  --mono:ui-monospace,"Cascadia Mono","SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+
+  --wrap:1200px;
+  --pad:clamp(20px,5vw,48px);
+}
+
+*,*::before,*::after{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%;scroll-behavior:smooth}
+body{
+  margin:0;background:var(--ground);color:var(--ink);
+  font-family:var(--sans);font-size:17px;line-height:1.6;
+  -webkit-font-smoothing:antialiased;overflow-x:hidden;
+}
+img,svg{max-width:100%}
+a{color:var(--mid);text-decoration:none}
+a:hover{color:var(--navy-700)}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+:focus-visible{outline:2.5px solid var(--cyan);outline-offset:3px;border-radius:4px}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+
+.skip{position:absolute;left:-9999px;top:0;z-index:200;background:var(--navy-700);color:#fff;padding:12px 18px;border-radius:0 0 6px 0}
+.skip:focus{left:0;color:#fff}
+.wrap{max-width:var(--wrap);margin:0 auto;padding-left:var(--pad);padding-right:var(--pad)}
+
+/* ---------- shared type ---------- */
+.eyebrow{font-family:var(--mono);font-size:11.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--mid);margin:0 0 14px}
+.h2{font-size:clamp(1.5rem,3vw,2.15rem);line-height:1.13;letter-spacing:-.02em;font-weight:700;margin:0 0 10px}
+.lede{color:var(--ink-2);max-width:62ch;margin:0}
+.tag{font-family:var(--mono);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;padding:2.5px 6px;border-radius:3px;font-weight:600;line-height:1.4}
+.tag-new{background:#E1F0F9;color:var(--navy-700)}
+.tag-upd{background:transparent;color:var(--ink-3);border:1px solid var(--rule)}
+
+/* ---------- header: navy glass, constant ---------- */
+.masthead{
+  position:sticky;top:0;z-index:100;
+  background:rgba(9,52,79,.78);
+  backdrop-filter:saturate(170%) blur(16px);
+  -webkit-backdrop-filter:saturate(170%) blur(16px);
+  border-bottom:1px solid rgba(255,255,255,.14);
+}
+.masthead .bar{display:flex;align-items:center;gap:26px;height:62px;max-width:var(--wrap);margin:0 auto;padding-left:var(--pad);padding-right:var(--pad)}
+.brand{display:flex;align-items:center;gap:10px;color:#fff;font-weight:700;letter-spacing:-.015em;font-size:18px}
+.brand:hover{color:#fff}
+.nav{margin-left:auto;display:flex;align-items:center;gap:24px}
+.nav a{color:rgba(226,240,248,.86);font-size:14.5px;font-weight:500}
+.nav a:hover{color:#fff}
+.nav .btn-sm{background:#fff;color:var(--navy-700);padding:8px 16px;border-radius:6px;font-weight:600;font-size:14.5px}
+.nav .btn-sm:hover{background:#E4F2FA;color:var(--navy-700)}
+@media (max-width:900px){.nav .hide-sm{display:none}}
+@media (max-width:420px){.masthead .bar{gap:14px}.nav{gap:14px}}
+
+/* ---------- hero ---------- */
+.hero{
+  position:relative;color:#EAF4FA;
+  padding:clamp(52px,7vw,88px) 0 clamp(40px,5vw,64px);
+  background:
+    radial-gradient(1100px 640px at 80% 4%, rgba(56,189,248,.30), transparent 62%),
+    radial-gradient(820px 560px at 4% 84%, rgba(14,165,233,.20), transparent 62%),
+    linear-gradient(166deg,#0C4A6E 0%,#0A3A57 55%,#062231 100%);
+}
+.hero-grid{display:grid;grid-template-columns:minmax(0,.92fr) minmax(0,1.08fr);gap:clamp(30px,4.5vw,62px);align-items:center}
+.hero .eyebrow{color:var(--cyan-2)}
+
+h1{
+  font-size:clamp(2.2rem,5.1vw,3.6rem);line-height:1.03;letter-spacing:-.03em;
+  font-weight:700;margin:0 0 20px;max-width:14ch;color:#fff;
+}
+/* glass lettering: gradient fill, light top edge, cast shadow */
+@supports ((-webkit-background-clip:text) or (background-clip:text)){
+  h1 .glass{
+    background:linear-gradient(178deg,#FFFFFF 0%,#EAF6FD 34%,#B9DAEE 72%,#8FC4E4 100%);
+    -webkit-background-clip:text;background-clip:text;
+    color:transparent;-webkit-text-fill-color:transparent;
+    filter:drop-shadow(0 1px 0 rgba(255,255,255,.55)) drop-shadow(0 16px 26px rgba(3,20,32,.55));
+    display:inline-block;
+  }
+}
+.hero p.sub{font-size:clamp(1rem,1.45vw,1.14rem);color:#B6D5E7;max-width:52ch;margin:0 0 30px}
+
+.cta-row{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:26px}
+.btn{display:inline-flex;align-items:center;gap:9px;padding:13px 22px;border-radius:8px;font-weight:600;font-size:16px;border:1px solid transparent}
+.btn-white{background:#fff;color:var(--navy-700);box-shadow:0 10px 26px rgba(2,17,28,.34)}
+.btn-white:hover{background:#E7F4FC;color:var(--navy-700)}
+.btn-glass{background:var(--glass-fill);border-color:var(--glass-edge);color:#EAF4FA;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
+.btn-glass:hover{background:rgba(255,255,255,.16);color:#fff}
+.btn-primary{background:var(--navy-700);color:#fff;box-shadow:0 1px 2px rgba(11,31,42,.18)}
+.btn-primary:hover{background:#0a3c5a;color:#fff}
+.btn-ghost{background:var(--paper);color:var(--ink);border-color:var(--rule)}
+.btn-ghost:hover{border-color:var(--ink-3);color:var(--ink)}
+.spec-line{font-family:var(--mono);font-size:12.5px;letter-spacing:.05em;color:#8FB6CD;border-top:1px solid rgba(255,255,255,.16);padding-top:14px;max-width:52ch}
+
+/* ---------- the demo: glass slab holding a Word page ---------- */
+.frame{
+  position:relative;border-radius:16px;padding:12px;
+  background:var(--glass-fill);
+  border:1px solid var(--glass-edge);
+  backdrop-filter:blur(18px) saturate(160%);-webkit-backdrop-filter:blur(18px) saturate(160%);
+  box-shadow:0 40px 80px -24px rgba(2,17,28,.66),0 2px 0 rgba(255,255,255,.16) inset;
+  transform:perspective(1900px) rotateY(-5.5deg) rotateX(2.4deg);
+  transition:transform .55s cubic-bezier(.2,.7,.3,1);
+}
+.frame:hover,.frame:focus-within{transform:perspective(1900px) rotateY(0) rotateX(0)}
+@media (max-width:1000px){.frame{transform:none}}
+@media (prefers-reduced-motion:reduce){.frame{transform:none;transition:none}}
+
+.stage{display:flex;border-radius:9px;overflow:hidden;box-shadow:0 10px 26px rgba(2,17,28,.34)}
+.sheet{flex:1 1 auto;min-width:0;background:var(--paper);padding:18px clamp(16px,2.2vw,26px) 22px}
+.sheet-head{display:flex;justify-content:space-between;gap:12px;font-family:var(--mono);font-size:9.5px;letter-spacing:.13em;text-transform:uppercase;color:#A8B6C0;border-bottom:1px solid var(--rule-soft);padding-bottom:9px;margin-bottom:16px}
+.panel{display:none}
+.panel.on{display:block;animation:pop .34s ease both}
+@keyframes pop{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){.panel.on{animation:none}}
+.panel-min{min-height:380px}
+
+/* task pane */
+.pane{flex:0 0 168px;background:#F2F6F9;border-left:1px solid var(--rule);padding:13px 11px;display:flex;flex-direction:column;gap:1px}
+.pane-title{display:flex;align-items:center;gap:7px;font-size:12.5px;font-weight:700;color:var(--ink);padding-bottom:10px;margin-bottom:8px;border-bottom:1px solid var(--rule)}
+.pane-item{display:flex;align-items:center;gap:8px;width:100%;text-align:left;font-size:12.5px;color:var(--ink-2);padding:7px 8px;border-radius:5px;transition:background .15s ease,color .15s ease}
+.pane-item .dot{width:5px;height:5px;border-radius:50%;background:#BCC9D2;flex:0 0 auto;transition:background .15s ease}
+.pane-item:hover{background:#E7EEF3;color:var(--ink)}
+.pane-item[aria-selected="true"]{background:#DCEDF8;color:var(--navy-700);font-weight:600}
+.pane-item[aria-selected="true"] .dot{background:var(--cyan)}
+.pane-btn{margin-top:auto;background:var(--mid);color:#fff;text-align:center;font-size:12.5px;font-weight:600;padding:8px 0;border-radius:5px}
+@media (max-width:820px){
+  .stage{flex-direction:column-reverse}
+  .pane{flex:0 0 auto;flex-direction:row;flex-wrap:wrap;gap:5px;border-left:0;border-bottom:1px solid var(--rule)}
+  .pane-title,.pane-btn{display:none}
+  .pane-item{width:auto;font-size:12px;padding:6px 10px;background:#fff;border:1px solid var(--rule)}
+  .panel-min{min-height:0}
+}
+
+/* ---------- Word-output artifacts (shared) ---------- */
+.doc-h{font-family:var(--serif);font-size:11.5px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:#22333D;margin:0 0 9px}
+.doc-text{font-family:var(--serif);font-size:13px;line-height:1.7;color:#22333D;margin:0 0 14px}
+.fig{display:block;margin:0 auto;width:100%;max-width:250px;height:auto}
+.fig-cap{font-family:var(--serif);font-weight:700;font-size:11.5px;letter-spacing:.09em;text-align:center;color:#1A1A1A;margin:4px 0 16px}
+.eq{font-family:var(--serif);font-size:15px;text-align:center;color:#1A1A1A;padding:11px 0;margin:0 0 14px;border-top:1px solid var(--rule-soft);border-bottom:1px solid var(--rule-soft)}
+.eq i{font-style:italic}
+.frac{display:inline-block;vertical-align:middle;text-align:center;margin:0 3px}
+.frac .top{display:block;border-bottom:1px solid #1A1A1A;padding:0 6px 1px}
+.frac .bot{display:block;padding:1px 6px 0}
+.cite{font-family:var(--serif);font-size:12.5px;color:#22333D;margin:0}
+.cite i{font-style:italic}
+.caret{display:inline-block;width:1.5px;height:1.05em;background:var(--navy-700);vertical-align:-2px;margin-left:2px;animation:blink 1.15s steps(1) infinite}
+@keyframes blink{0%,49%{opacity:1}50%,100%{opacity:0}}
+@media (prefers-reduced-motion:reduce){.caret{animation:none}}
+
+table.wtab{width:100%;border-collapse:collapse;font-family:var(--serif);font-size:11.5px;color:#22333D}
+table.wtab th,table.wtab td{border:1px solid #B9C4CC;padding:4px 7px;text-align:left}
+table.wtab th{font-weight:700;background:#F4F7F9}
+table.wtab td.n,table.wtab th.n{text-align:right;font-variant-numeric:tabular-nums}
+.tab-cap{font-family:var(--serif);font-size:11.5px;font-style:italic;color:#44555F;margin:0 0 7px}
+
+/* dot-leader list, for the Table of Authorities */
+.toa{list-style:none;margin:0;padding:0;font-family:var(--serif);font-size:12px;color:#22333D}
+.toa li{display:flex;align-items:baseline;gap:6px;padding:3px 0}
+.toa .nm{flex:0 1 auto;min-width:0}
+.toa .nm i{font-style:italic}
+.toa .dots{flex:1 1 auto;border-bottom:1.5px dotted #9AA8B2;transform:translateY(-3px);min-width:14px}
+.toa .pg{flex:0 0 auto;font-variant-numeric:tabular-nums}
+.toa-sub{font-family:var(--serif);font-size:11.5px;font-style:italic;color:#44555F;margin:12px 0 4px}
+.toa-sub:first-of-type{margin-top:0}
+
+/* numeral audit */
+.numlist{list-style:none;margin:0;padding:0;font-family:var(--serif);font-size:12px;color:#22333D}
+.numlist li{display:flex;align-items:baseline;gap:8px;padding:4px 0;border-bottom:1px solid var(--rule-soft)}
+.numlist .rf{font-variant-numeric:tabular-nums;color:#1A1A1A;flex:0 0 34px}
+.numlist .ct{margin-left:auto;font-variant-numeric:tabular-nums;color:#5A6B75}
+.flagline{display:flex;align-items:center;gap:7px;margin-top:11px;font-family:var(--sans);font-size:11.5px;color:#8A5A12;background:#FEF6E7;border:1px solid #F0DCB6;border-radius:5px;padding:7px 9px}
+.flagline .sq{width:7px;height:7px;border-radius:2px;background:#D99A20;flex:0 0 auto}
+
+/* ---------- stat strip ---------- */
+.stats{
+  margin-top:clamp(34px,4.5vw,54px);
+  display:grid;grid-template-columns:repeat(5,1fr);
+  background:var(--glass-fill);border:1px solid var(--glass-edge);border-radius:14px;
+  backdrop-filter:blur(16px) saturate(160%);-webkit-backdrop-filter:blur(16px) saturate(160%);
+  box-shadow:0 24px 50px -22px rgba(2,17,28,.6),0 1px 0 rgba(255,255,255,.14) inset;
+  overflow:hidden;
+}
+.stat{padding:20px clamp(12px,1.6vw,22px);border-right:1px solid rgba(255,255,255,.13)}
+.stat:last-child{border-right:0}
+.stat b{display:block;font-size:clamp(1.5rem,2.6vw,2rem);font-weight:700;letter-spacing:-.03em;color:#fff;line-height:1.1}
+.stat span{display:block;margin-top:5px;font-family:var(--mono);font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:#8FB6CD;line-height:1.5}
+@media (max-width:900px){.stats{grid-template-columns:repeat(2,1fr)}.stat{border-bottom:1px solid rgba(255,255,255,.13)}.stat:nth-child(2n){border-right:0}.stat:last-child{grid-column:1/-1;border-bottom:0}}
+
+/* ---------- section frame ---------- */
+.band{padding:clamp(48px,6.5vw,82px) 0;border-top:1px solid var(--rule)}
+.band-paper{background:var(--ground-2)}
+.band-deep{background:linear-gradient(150deg,#0C4A6E,#083752);color:#DCEBF4;border-top:0}
+.band-head{margin-bottom:clamp(26px,3.5vw,40px)}
+
+/* ---------- showcase (glass panels on tinted field) ---------- */
+.band-tint{
+  border-top:0;position:relative;
+  background:
+    radial-gradient(760px 460px at 88% 6%, rgba(56,189,248,.22), transparent 60%),
+    radial-gradient(680px 420px at 6% 92%, rgba(3,105,161,.16), transparent 62%),
+    linear-gradient(180deg,#E7F0F7 0%,#DCE9F3 100%);
+}
+.showcase{display:grid;grid-template-columns:repeat(2,1fr);gap:20px}
+.gpanel{
+  background:rgba(255,255,255,.5);
+  border:1px solid rgba(255,255,255,.85);
+  border-radius:14px;padding:22px;
+  backdrop-filter:blur(16px) saturate(155%);-webkit-backdrop-filter:blur(16px) saturate(155%);
+  box-shadow:0 18px 40px -20px rgba(9,52,79,.42),0 1px 0 rgba(255,255,255,.85) inset;
+  display:flex;flex-direction:column;
+}
+.gpanel h3{font-size:1.06rem;margin:0 0 7px;letter-spacing:-.012em;display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.gpanel > p{margin:0 0 16px;font-size:14.5px;line-height:1.6;color:var(--ink-2)}
+.inset{margin-top:auto;background:var(--paper);border:1px solid var(--rule);border-radius:9px;padding:16px 16px 15px;box-shadow:0 6px 16px -8px rgba(9,52,79,.3)}
+.inset-cap{font-family:var(--mono);font-size:9.5px;letter-spacing:.13em;text-transform:uppercase;color:#A8B6C0;margin:0 0 11px;padding-bottom:8px;border-bottom:1px solid var(--rule-soft)}
+.gpanel .go{margin-top:14px;font-family:var(--mono);font-size:11.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--mid)}
+a.gpanel{color:var(--ink);transition:transform .2s ease,box-shadow .2s ease}
+a.gpanel:hover{color:var(--ink);transform:translateY(-3px);box-shadow:0 26px 50px -20px rgba(9,52,79,.5),0 1px 0 rgba(255,255,255,.9) inset}
+@media (max-width:820px){.showcase{grid-template-columns:1fr}}
+
+/* ---------- doors ---------- */
+.doors{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+.door{background:var(--paper);border:1px solid var(--rule);border-radius:10px;padding:clamp(22px,3vw,32px);display:block;color:var(--ink);transition:border-color .18s ease,transform .18s ease,box-shadow .18s ease}
+.door:hover{border-color:var(--cyan);transform:translateY(-2px);color:var(--ink);box-shadow:0 16px 34px -18px rgba(9,52,79,.4)}
+.door h3{font-size:1.2rem;margin:0 0 8px;letter-spacing:-.015em}
+.door p{margin:0 0 16px;color:var(--ink-2);font-size:15.5px}
+.door .go{font-family:var(--mono);font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--mid)}
+@media (max-width:700px){.doors{grid-template-columns:1fr}}
+
+/* ---------- highlight cards ---------- */
+.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+.card{background:var(--paper);border:1px solid var(--rule);border-radius:10px;padding:24px 22px 22px;color:var(--ink);border-top:3px solid var(--navy-700);transition:border-color .18s ease,box-shadow .18s ease,transform .18s ease}
+.card:hover{box-shadow:0 18px 36px -18px rgba(9,52,79,.44);transform:translateY(-2px);color:var(--ink);border-top-color:var(--cyan)}
+.card h3{font-size:1.02rem;margin:0 0 9px;letter-spacing:-.01em;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.card p{margin:0;font-size:14.5px;line-height:1.62;color:var(--ink-2)}
+@media (max-width:940px){.cards{grid-template-columns:repeat(2,1fr)}}
+@media (max-width:620px){.cards{grid-template-columns:1fr}}
+
+/* ---------- grouped tool register ---------- */
+.group{margin-bottom:clamp(30px,4vw,46px)}
+.group:last-child{margin-bottom:0}
+.group-head{display:flex;align-items:baseline;gap:12px;padding-bottom:10px;margin-bottom:6px;border-bottom:2px solid var(--navy-700)}
+.group-head h3{font-size:1.05rem;margin:0;letter-spacing:-.012em}
+.group-head .count{font-family:var(--mono);font-size:11px;letter-spacing:.11em;text-transform:uppercase;color:var(--ink-3);margin-left:auto}
+.register{columns:2;column-gap:44px}
+@media (max-width:860px){.register{columns:1}}
+.row{display:grid;grid-template-columns:44px 1fr;gap:14px;break-inside:avoid;-webkit-column-break-inside:avoid;padding:15px 10px 15px 8px;margin:0 -10px 0 -8px;border-bottom:1px solid var(--rule);color:var(--ink);border-radius:5px;transition:background .16s ease}
+.row:hover{background:var(--paper);color:var(--ink)}
+.row .ref{font-family:var(--mono);font-size:12.5px;color:var(--ink-3);padding-top:3px;transition:color .16s ease}
+.row:hover .ref{color:var(--cyan)}
+.row h3{font-size:15.5px;margin:0 0 3px;letter-spacing:-.008em;font-weight:650;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.row p{margin:0;font-size:14px;line-height:1.55;color:var(--ink-2)}
+.row code,.step code{font-family:var(--mono);font-size:13px;background:var(--paper);border:1px solid var(--rule);border-radius:4px;padding:1.5px 6px;color:var(--ink);white-space:nowrap}
+
+/* ---------- privacy ---------- */
+.band-deep .eyebrow{color:var(--cyan-2)}
+.band-deep .h2{color:#fff;max-width:22ch}
+.privacy{display:grid;grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr);gap:clamp(28px,5vw,60px);align-items:start}
+.privacy p{margin:0 0 16px;color:#C3DDEB;font-size:16px}
+.privacy p:last-child{margin-bottom:0}
+.privacy strong{color:#fff;font-weight:600}
+@media (max-width:760px){.privacy{grid-template-columns:1fr}}
+
+/* ---------- get it ---------- */
+.steps{display:grid;grid-template-columns:repeat(3,1fr);border-top:1px solid var(--rule);margin-bottom:30px}
+.step{padding:22px 26px 22px 0;border-right:1px solid var(--rule)}
+.step:last-child{border-right:0;padding-right:0}
+.step .n{font-family:var(--mono);font-size:12px;color:var(--cyan);letter-spacing:.1em;display:block;margin-bottom:8px}
+.step p{margin:0;font-size:15px;color:var(--ink-2)}
+@media (max-width:760px){.steps{grid-template-columns:1fr}.step{border-right:0;border-bottom:1px solid var(--rule);padding:20px 0}.step:last-child{border-bottom:0}}
+
+/* ---------- footer ---------- */
+footer{border-top:1px solid var(--rule);background:var(--ground-2);padding:32px 0 44px}
+.foot{display:flex;flex-wrap:wrap;gap:16px 28px;align-items:center;font-size:14px;color:var(--ink-3)}
+.foot .mono{font-family:var(--mono);font-size:12.5px;letter-spacing:.04em}
+.foot a{color:var(--ink-2)}
+.foot a:hover{color:var(--navy-700)}
+.foot .right{margin-left:auto}
+@media (max-width:620px){.foot .right{margin-left:0}}
+</style>
 </head>
+
 <body>
-  <header>
-    <div class="wrap">
-      <h1><img src="assets/icon-64.png" alt="" width="40" height="40" style="vertical-align:-9px;margin-right:10px" />JurisLab</h1>
-      <p class="tag">A free Microsoft Word add-in fusing <strong>STEM authoring</strong> and <strong>patent &amp; legal drafting</strong> — a no-code <strong>numerical workbench</strong> (matrix math, optimization, FFT, stiff ODEs, data insights), chemistry &amp; structures, <strong>predicted spectra</strong> (NMR, IR, UV-Vis, MS fragmentation), mass spec, enzyme kinetics, peptides, statistics, equations, plots, finance, Bluebook citations &amp; Table of Authorities, and more. <strong>25 tools, 100% offline.</strong></p>
-      <div class="pills">
-        <span class="pill">🧮 Analyze / Matrix</span>
-        <span class="pill">🧪 Chemistry</span>
-        <span class="pill">⚛️ Mass Spec</span>
-        <span class="pill">📡 Spectra</span>
-        <span class="pill">🧫 Bio/Assay</span>
-        <span class="pill">🔗 Peptides</span>
-        <span class="pill">∑ Math / LaTeX</span>
-        <span class="pill">📐 Stats</span>
-        <span class="pill">📈 Plotting</span>
-        <span class="pill">💵 Finance</span>
-        <span class="pill">🧬 DNA / Sequences</span>
-        <span class="pill">⚖️ Citations &amp; Authorities</span>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="masthead">
+  <div class="bar">
+    <a class="brand" href="./">
+      <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">
+        <g fill="#fff">
+          <circle cx="12" cy="4.3" r="1.5"/>
+          <rect x="11.1" y="4.3" width="1.8" height="14" rx=".7"/>
+          <rect x="2.6" y="6.2" width="18.8" height="1.9" rx=".95"/>
+          <rect x="7.6" y="18.3" width="8.8" height="1.9" rx=".8"/>
+        </g>
+        <g fill="none" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round">
+          <polygon points="9.7,12.6 8.1,15.37 4.9,15.37 3.3,12.6 4.9,9.83 8.1,9.83" stroke="#38BDF8"/>
+          <polyline points="20.2,10 14.9,10 17.5,12.6 14.9,15.2 20.2,15.2" stroke="#fff"/>
+        </g>
+      </svg>
+      JurisLab
+    </a>
+    <nav class="nav">
+      <a class="hide-sm" href="#showcase">What it inserts</a>
+      <a class="hide-sm" href="#tools">All 25 tools</a>
+      <a class="hide-sm" href="manual.html">Manual</a>
+      <a class="hide-sm" href="https://github.com/alexsmi22-dotcom/MS-WORD-Add-in">GitHub</a>
+      <a class="btn-sm" href="https://github.com/alexsmi22-dotcom/MS-WORD-Add-in/tree/main/install">Install</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+
+<!-- ================= HERO ================= -->
+<section class="hero">
+  <div class="wrap">
+    <div class="hero-grid">
+
+      <div>
+        <p class="eyebrow">Free · Open source · MIT</p>
+        <h1><span class="glass">A technical workbench inside Word.</span></h1>
+        <p class="sub">JurisLab inserts the work itself, not a picture of it. Predicted spectra, matrix results, plasmid maps, statistics, patent figures with reference numerals, Bluebook citations and a live Table of Authorities, placed straight into the document you are already writing.</p>
+
+        <div class="cta-row">
+          <a class="btn btn-white" href="https://github.com/alexsmi22-dotcom/MS-WORD-Add-in/tree/main/install">
+            Install for Windows &amp; Mac
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 2v9m0 0 3.4-3.4M8 11 4.6 7.6M2.5 13.5h11" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </a>
+          <a class="btn btn-glass" href="manual.html">Read the manual</a>
+        </div>
+
+        <p class="spec-line">Word for Windows &amp; macOS (Microsoft 365 / 2019+) · No account, no upload</p>
       </div>
-      <div class="cta">
-        <a class="btn" href="https://github.com/alexsmi22-dotcom/MS-WORD-Add-in/tree/main/install">Install (Windows &amp; Mac)</a>
-        <a class="btn alt" href="manual.html">Read the manual</a>
-        <a class="btn alt" href="https://github.com/alexsmi22-dotcom/MS-WORD-Add-in">View on GitHub</a>
+
+      <!-- interactive demo -->
+      <div class="frame">
+        <div class="stage">
+
+          <div class="sheet">
+            <div class="sheet-head"><span>Specification.docx</span><span>Page 4</span></div>
+
+            <!-- Chemical -->
+            <div class="panel panel-min on" id="p-chem" role="tabpanel" aria-labelledby="t-chem">
+              <svg class="fig" viewBox="0 0 260 148" role="img" aria-label="Patent-style chemical structure with reference numerals">
+                <g fill="none" stroke="#1A1A1A" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M100 44 L127.7 60 L127.7 92 L100 108 L72.3 92 L72.3 60 Z"/>
+                  <path d="M100 52 L79.2 64"/><path d="M79.2 88 L100 100"/><path d="M120.8 88 L120.8 64"/>
+                  <path d="M127.7 60 L152 46"/>
+                </g>
+                <text x="156" y="44" font-family="Georgia,serif" font-size="13" fill="#1A1A1A">OH</text>
+                <g stroke="#1A1A1A" stroke-width="1" stroke-linecap="round"><path d="M196 102 L143 91"/><path d="M196 30 L168 39"/></g>
+                <circle cx="143" cy="91" r="1.7" fill="#1A1A1A"/><circle cx="168" cy="39" r="1.7" fill="#1A1A1A"/>
+                <text x="200" y="106" font-family="Georgia,serif" font-size="12.5" fill="#1A1A1A">(12)</text>
+                <text x="200" y="34" font-family="Georgia,serif" font-size="12.5" fill="#1A1A1A">(14)</text>
+              </svg>
+              <p class="fig-cap">FIG. 1</p>
+              <p class="doc-text">In one embodiment, the aromatic core (12) bears a hydroxyl substituent (14). Inhibition of the target enzyme follows saturation kinetics:</p>
+              <p class="eq"><i>v</i> = <span class="frac"><span class="top"><i>V</i><sub>max</sub>[S]</span><span class="bot"><i>K</i><sub>M</sub> + [S]</span></span></p>
+              <p class="cite">cLogP 2.14 · tPSA 46.5 Å² · Lipinski 0 violations<span class="caret"></span></p>
+            </div>
+
+            <!-- Spectra -->
+            <div class="panel panel-min" id="p-spec" role="tabpanel" aria-labelledby="t-spec" hidden>
+              <p class="doc-h">Predicted ¹H NMR (400 MHz, CDCl₃)</p>
+              <svg viewBox="0 0 460 132" role="img" aria-label="Predicted proton NMR stick spectrum" style="width:100%;height:auto">
+                <g stroke="#1A1A1A" stroke-width="1.2" stroke-linecap="round">
+                  <path d="M28 110 H444"/>
+                  <path d="M30 110 v5"/><path d="M112 110 v5"/><path d="M194 110 v5"/><path d="M276 110 v5"/><path d="M358 110 v5"/><path d="M440 110 v5"/>
+                </g>
+                <g font-family="Georgia,serif" font-size="9.5" fill="#44555F" text-anchor="middle">
+                  <text x="30" y="127">10</text><text x="112" y="127">8</text><text x="194" y="127">6</text>
+                  <text x="276" y="127">4</text><text x="358" y="127">2</text><text x="440" y="127">0</text>
+                </g>
+                <g stroke="#0C4A6E" stroke-width="1.5" stroke-linecap="round">
+                  <path d="M136 110 V44"/><path d="M141 110 V38"/><path d="M146 110 V47"/>
+                  <path d="M247 110 V62"/><path d="M253 110 V62"/>
+                  <path d="M285 110 V66"/><path d="M290 110 V58"/><path d="M295 110 V66"/>
+                  <path d="M352 110 V70"/><path d="M357 110 V64"/><path d="M362 110 V70"/>
+                  <path d="M380 110 V30"/>
+                </g>
+                <g font-family="Georgia,serif" font-size="9" fill="#0C4A6E" text-anchor="middle">
+                  <text x="141" y="31">5H</text><text x="250" y="55">2H</text><text x="290" y="51">2H</text><text x="357" y="57">2H</text><text x="380" y="23">9H</text>
+                </g>
+              </svg>
+              <p class="tab-cap" style="margin-top:12px">Table 1. Predicted shifts, multiplicities and coupling.</p>
+              <table class="wtab">
+                <tr><th>δ (ppm)</th><th>Mult.</th><th class="n">J (Hz)</th><th>Assignment</th></tr>
+                <tr><td>7.34 – 7.26</td><td>m</td><td class="n">—</td><td>Ar‑H (5H)</td></tr>
+                <tr><td>4.62</td><td>s</td><td class="n">—</td><td>OCH₂Ph</td></tr>
+                <tr><td>3.71</td><td>t</td><td class="n">6.4</td><td>CH₂O</td></tr>
+                <tr><td>2.05</td><td>quint</td><td class="n">6.6</td><td>CH₂</td></tr>
+                <tr><td>1.42</td><td>s</td><td class="n">—</td><td>C(CH₃)₃</td></tr>
+              </table>
+            </div>
+
+            <!-- Analyze -->
+            <div class="panel panel-min" id="p-anal" role="tabpanel" aria-labelledby="t-anal" hidden>
+              <p class="doc-h">Eigen-decomposition of A</p>
+              <p class="doc-text" style="margin-bottom:12px">The stiffness matrix A was decomposed offline. The dominant mode is real and positive, so the system is stable about the operating point.</p>
+              <p class="tab-cap">Table 2. Eigenvalues and condition number.</p>
+              <table class="wtab">
+                <tr><th>Mode</th><th class="n">λ (real)</th><th class="n">λ (imag)</th><th class="n">‖v‖</th></tr>
+                <tr><td>1</td><td class="n">5.3722</td><td class="n">0.0000</td><td class="n">1.0000</td></tr>
+                <tr><td>2</td><td class="n">−0.3722</td><td class="n">0.0000</td><td class="n">1.0000</td></tr>
+                <tr><td>3</td><td class="n">0.9143</td><td class="n">1.2076</td><td class="n">1.0000</td></tr>
+                <tr><td>4</td><td class="n">0.9143</td><td class="n">−1.2076</td><td class="n">1.0000</td></tr>
+              </table>
+              <p class="cite" style="margin-top:12px">cond(A) = 14.43 · det(A) = −2.000 · rank 4<span class="caret"></span></p>
+            </div>
+
+            <!-- Stats -->
+            <div class="panel panel-min" id="p-stat" role="tabpanel" aria-labelledby="t-stat" hidden>
+              <p class="doc-h">Two-way ANOVA</p>
+              <p class="doc-text" style="margin-bottom:12px">Response was analysed by dose and time, with a Holm correction applied across the three planned comparisons.</p>
+              <p class="tab-cap">Table 3. Analysis of variance.</p>
+              <table class="wtab">
+                <tr><th>Source</th><th class="n">df</th><th class="n">SS</th><th class="n">MS</th><th class="n">F</th><th class="n">p</th></tr>
+                <tr><td>Dose</td><td class="n">2</td><td class="n">41.86</td><td class="n">20.93</td><td class="n">18.42</td><td class="n">&lt;0.001</td></tr>
+                <tr><td>Time</td><td class="n">3</td><td class="n">12.04</td><td class="n">4.01</td><td class="n">3.53</td><td class="n">0.024</td></tr>
+                <tr><td>Dose × Time</td><td class="n">6</td><td class="n">7.31</td><td class="n">1.22</td><td class="n">1.07</td><td class="n">0.392</td></tr>
+                <tr><td>Residual</td><td class="n">36</td><td class="n">40.91</td><td class="n">1.14</td><td class="n">—</td><td class="n">—</td></tr>
+              </table>
+              <p class="cite" style="margin-top:12px">η²<sub>p</sub> (Dose) = 0.506 · Holm-adjusted α = 0.0167<span class="caret"></span></p>
+            </div>
+
+            <!-- Numerals -->
+            <div class="panel panel-min" id="p-num" role="tabpanel" aria-labelledby="t-num" hidden>
+              <p class="doc-h">Reference numeral list</p>
+              <ul class="numlist">
+                <li><span class="rf">(10)</span><span>housing</span><span class="ct">6</span></li>
+                <li><span class="rf">(12)</span><span>aromatic core</span><span class="ct">11</span></li>
+                <li><span class="rf">(14)</span><span>hydroxyl substituent</span><span class="ct">4</span></li>
+                <li><span class="rf">(16)</span><span>sensor assembly</span><span class="ct">9</span></li>
+                <li><span class="rf">(18)</span><span>controller</span><span class="ct">7</span></li>
+                <li><span class="rf">(22)</span><span>bias network</span><span class="ct">2</span></li>
+              </ul>
+              <div class="flagline"><span class="sq"></span>Gap at (20). Numeral (22) appears in the text but not in FIG. 3.</div>
+              <p class="cite" style="margin-top:12px">6 numerals · 39 callouts · 1 gap · 0 collisions<span class="caret"></span></p>
+            </div>
+
+            <!-- Citations -->
+            <div class="panel panel-min" id="p-cite" role="tabpanel" aria-labelledby="t-cite" hidden>
+              <p class="doc-h">Table of Authorities</p>
+              <p class="toa-sub">Cases</p>
+              <ul class="toa">
+                <li><span class="nm"><i>Alice Corp. v. CLS Bank Int'l</i>, 573 U.S. 208 (2014)</span><span class="dots"></span><span class="pg">9, 14</span></li>
+                <li><span class="nm"><i>In re Fisher</i>, 421 F.3d 1365 (Fed. Cir. 2005)</span><span class="dots"></span><span class="pg">4, 11</span></li>
+                <li><span class="nm"><i>KSR Int'l Co. v. Teleflex Inc.</i>, 550 U.S. 398 (2007)</span><span class="dots"></span><span class="pg">7</span></li>
+              </ul>
+              <p class="toa-sub">Statutes and Regulations</p>
+              <ul class="toa">
+                <li><span class="nm">35 U.S.C. § 103</span><span class="dots"></span><span class="pg">6, 7</span></li>
+                <li><span class="nm">35 U.S.C. § 112(a)</span><span class="dots"></span><span class="pg">3</span></li>
+                <li><span class="nm">37 C.F.R. § 1.84</span><span class="dots"></span><span class="pg">12</span></li>
+              </ul>
+              <p class="cite" style="margin-top:14px">Practitioner style · T6 and T10 abbreviation applied<span class="caret"></span></p>
+            </div>
+          </div>
+
+          <div class="pane" role="tablist" aria-label="JurisLab tools">
+            <div class="pane-title">
+              <svg width="15" height="15" viewBox="0 0 24 24" aria-hidden="true"><g fill="#0C4A6E"><circle cx="12" cy="4.3" r="1.5"/><rect x="11.1" y="4.3" width="1.8" height="14" rx=".7"/><rect x="2.6" y="6.2" width="18.8" height="1.9" rx=".95"/><rect x="7.6" y="18.3" width="8.8" height="1.9" rx=".8"/></g><g fill="none" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"><polygon points="9.7,12.6 8.1,15.37 4.9,15.37 3.3,12.6 4.9,9.83 8.1,9.83" stroke="#0EA5E9"/><polyline points="20.2,10 14.9,10 17.5,12.6 14.9,15.2 20.2,15.2" stroke="#0C4A6E"/></g></svg>
+              JurisLab
+            </div>
+            <button class="pane-item" id="t-chem" role="tab" aria-selected="true" aria-controls="p-chem"><span class="dot"></span>Chemical</button>
+            <button class="pane-item" id="t-spec" role="tab" aria-selected="false" aria-controls="p-spec"><span class="dot"></span>Spectra</button>
+            <button class="pane-item" id="t-anal" role="tab" aria-selected="false" aria-controls="p-anal"><span class="dot"></span>Analyze</button>
+            <button class="pane-item" id="t-stat" role="tab" aria-selected="false" aria-controls="p-stat"><span class="dot"></span>Stats</button>
+            <button class="pane-item" id="t-num" role="tab" aria-selected="false" aria-controls="p-num"><span class="dot"></span>Numerals</button>
+            <button class="pane-item" id="t-cite" role="tab" aria-selected="false" aria-controls="p-cite"><span class="dot"></span>Citations</button>
+            <div class="pane-btn">Insert</div>
+          </div>
+
+        </div>
       </div>
-      <p style="font-size:.92rem;opacity:.9;margin:14px 0 0">
-        <a href="science.html" style="color:#fff;font-weight:600">🔬 For scientists →</a>
-        &nbsp;·&nbsp;
-        <a href="legal.html" style="color:#fff;font-weight:600">⚖️ For patent &amp; legal →</a>
-      </p>
     </div>
-  </header>
 
-  <section class="wrap whatsnew">
-    <h2>Recent highlights</h2>
-    <p class="hint-line">Tap any tile for full details and examples.</p>
-    <div class="grid">
-      <a class="card" href="tool.html?tool=solve"><b>🟰 Solve <span class="new">New</span></b><span>A no-code solver: <strong>solve equations</strong> (exact linear &amp; quadratic incl. complex roots; numeric real roots for the rest), take a <strong>symbolic derivative</strong>, evaluate a <strong>definite integral</strong>, or work a <strong>word problem</strong> (percentages, distance = rate × time, simple “a number …” sentences). Exact answers are labelled exact, numeric ones state their limits, and it says so rather than guessing when it can’t parse.</span></a>
-      <a class="card" href="tool.html?tool=spectra"><b>📡 NMR: J-coupling &amp; 2D <span class="new">New</span></b><span>The ¹H predictor now resolves <strong>coupling constants</strong> and multiplet names (dd, td…), and two new 2D maps join the Spectra tool: <strong>COSY</strong> (¹H–¹H) and <strong>HSQC</strong> (¹H–¹³C). The coupling <em>topology</em> is exact from the bond graph; the J values are typical literature figures, and the caveats say so.</span></a>
-      <a class="card" href="tool.html?tool=seqmap"><b>🗺️ Sequence Map <span class="new">New</span></b><span>Open a <strong>GenBank, FASTA or SnapGene</strong> file and insert an annotated <strong>linear or circular</strong> map — features, topology and restriction sites, with a black-and-white patent-figure style. Files are read on your machine; nothing is uploaded.</span></a>
-      <a class="card" href="tool.html?tool=align"><b>🧬 Align <span class="new">New</span></b><span>Pairwise alignment with the algorithms EMBOSS runs: <strong>Needleman–Wunsch</strong> (global) and <strong>Smith–Waterman</strong> (local), affine gaps, BLOSUM62 or DNA scoring. Reports identity/similarity/gaps — and warns in the <em>twilight zone</em> where unrelated proteins still align.</span></a>
-      <a class="card" href="tool.html?tool=analyze"><b>🧮 Analyze — the MATLAB-style workbench</b><span>The no-code numerical core: <strong>matrix math</strong> (solve A·x = b, inverse, eigenvalues incl. complex, QR, SVD, expressions), <strong>optimization</strong>, <strong>FFT</strong>, a stiff-aware <strong>ODE solver</strong>, and raw <strong>data → correlations, trends &amp; insights</strong> — results as editable tables and charts.</span></a>
-      <a class="card" href="tool.html?tool=chemical"><b>🧪 Compound library <span class="upd">Updated</span></b><span>359 named structures with every SMILES verified against PubChem — violacein, morphine, cholesterol, paclitaxel, chlorophyll, heme and more.</span></a>
+    <div class="stats">
+      <div class="stat"><b>25</b><span>Tools in one pane</span></div>
+      <div class="stat"><b>359</b><span>Structures verified against PubChem</span></div>
+      <div class="stat"><b>122</b><span>Restriction enzymes</span></div>
+      <div class="stat"><b>19</b><span>Finance calculators</span></div>
+      <div class="stat"><b>$0</b><span>Free forever, MIT licensed</span></div>
     </div>
-  </section>
+  </div>
+</section>
 
-  <section class="wrap">
-    <h2>All 25 tools</h2>
-    <p class="hint-line">Tap any tool for a full breakdown of what it does, with examples.</p>
-    <div class="grid">
-      <a class="card" href="tool.html?tool=analyze"><b>🧮 Analyze <span class="new">New</span></b><span>No-code numerical workbench — matrix math (solve, inverse, eigenvalues, QR, SVD, expressions), optimization, FFT, ODE/system solving (RK45), and raw data → correlations, trends &amp; insights</span></a>
-      <a class="card" href="tool.html?tool=chemical"><b>🧪 Chemical <span class="upd">Updated</span></b><span>Formatted formulas, 2D structures from name/SMILES, formula validator, <strong>physicochemical properties &amp; druglikeness</strong> (cLogP, tPSA, Lipinski/Veber), <strong>substituent-corrected pKa</strong> (Hammett), and opt-in <strong>online name→structure</strong></span></a>
-      <a class="card" href="tool.html?tool=massspec"><b>⚛️ Mass Spec</b><span>Monoisotopic &amp; average mass, isotope pattern, and adduct m/z ([M+H]⁺, [M+Na]⁺, [M+2H]²⁺, [M−H]⁻…)</span></a>
-      <a class="card" href="tool.html?tool=spectra"><b>📡 Spectra <span class="upd">Updated</span></b><span>Predicted <strong>¹H &amp; ¹³C NMR</strong> (shift, integration, multiplicity, assignment) — now with <strong>J-coupling</strong> and <strong>2D COSY &amp; HSQC</strong> — plus <strong>IR</strong> group frequencies, <strong>UV-Vis λmax</strong> (Woodward–Fieser) and <strong>EI-MS fragmentation</strong>, from a name or SMILES, offline. Estimates from published rules, labelled as such, never passed off as measured spectra</span></a>
-      <a class="card" href="tool.html?tool=bioassay"><b>🧫 Bio/Assay</b><span>Enzyme kinetics, dose–response (IC50/EC50), binding, and lab math — offline curve fitting with the fit drawn over your data</span></a>
-      <a class="card" href="tool.html?tool=peptide"><b>🔗 Peptide</b><span>2D structure from a one- or three-letter amino-acid sequence, with formula &amp; molecular weight</span></a>
-      <a class="card" href="tool.html?tool=stats"><b>📐 Stats <span class="upd">Updated</span></b><span>t-tests, one- &amp; two-way ANOVA, regression, <strong>non-parametric</strong> (Mann–Whitney, Wilcoxon), <strong>chi-square</strong>, <strong>multiple-comparison correction</strong> &amp; uncertainty propagation</span></a>
-      <a class="card" href="tool.html?tool=math"><b>∑ Math</b><span>Native Word equations, LaTeX import/export, aligned equations, Greek letters &amp; ∑ ∫ ∂ operators</span></a>
-      <a class="card" href="tool.html?tool=solve"><b>🟰 Solve <span class="new">New</span></b><span>Solve equations (exact linear/quadratic incl. complex roots, numeric otherwise), <strong>symbolic derivatives</strong>, definite integrals, and common <strong>word problems</strong> — offline, and honest when it can’t parse</span></a>
-      <a class="card" href="tool.html?tool=units"><b>📏 Units</b><span>SI typesetting + conversion — length, mass, time, electrical (V/A/W/Ω/F), chemistry (M, Da, ppm) &amp; more</span></a>
-      <a class="card" href="tool.html?tool=plot"><b>📈 Plot</b><span>Offline function &amp; data charts with legends; multi-argument functions (atan2, hypot, min/max)</span></a>
-      <a class="card" href="tool.html?tool=tablechart"><b>📊 Table → Chart</b><span>Charts — column, bar, line, area, scatter &amp; stacked — plus flowcharts, block diagrams &amp; clean table figures; B&amp;W patent figures or PowerPoint (.pptx)</span></a>
-      <a class="card" href="tool.html?tool=finance"><b>💵 Finance</b><span>19 calculators — TVM, DCF, amortization, bonds (price/YTM/duration/convexity), options + Greeks, implied vol, depreciation, return stats</span></a>
-      <a class="card" href="tool.html?tool=build"><b>🔬 Build</b><span>Structures from atom/bond lists; Markush genus</span></a>
-      <a class="card" href="tool.html?tool=code"><b>💻 Code</b><span>Algorithm &amp; code listings</span></a>
-      <a class="card" href="tool.html?tool=sequence"><b>🧬 Sequence</b><span>WIPO ST.26 listings — mandatory source feature plus CDS/gene annotations with auto <code>/translation</code> and full mol_type vocabulary</span></a>
-      <a class="card" href="tool.html?tool=botanical"><b>🌿 Botanical</b><span>Plant-nomenclature typesetting</span></a>
-      <a class="card" href="tool.html?tool=numerals"><b>🔢 Numerals</b><span>Reference-numeral management — parenthesized &amp; “element 12” callouts, gap/orphan/collision checks, numeral list</span></a>
-      <a class="card" href="tool.html?tool=refs"><b>🔖 Refs</b><span>Auto-numbered figure/table captions &amp; cross-references</span></a>
-      <a class="card" href="tool.html?tool=citations"><b>⚖️ Citations</b><span>Bluebook citations — cases, statutes, patents, Fed. Reg., MPEP, articles; practitioner/academic styles, T6/T10 abbreviation, id./supra &amp; parallel cites, paste-and-fix. Plus a <strong>Table of Contents</strong>, a <strong>Table of Authorities</strong> (static, italic, two-line, court/year) and a citation register</span></a>
-      <a class="card" href="tool.html?tool=dna"><b>🧬 DNA</b><span>Reverse complement, translation, ORFs, primer Tm (nearest-neighbour), restriction sites (122 enzymes) with methylation warnings, EMBOSS isoelectric point</span></a>
-      <a class="card" href="tool.html?tool=seqmap"><b>🗺️ Sequence Map <span class="new">New</span></b><span>Open a <strong>GenBank/FASTA/SnapGene</strong> file → an annotated <strong>linear or circular</strong> map inserted at the cursor, with features and restriction sites; B&amp;W patent-figure style available. Read on your machine, nothing uploaded</span></a>
-      <a class="card" href="tool.html?tool=align"><b>🧬 Align <span class="new">New</span></b><span>Pairwise sequence alignment — <strong>Needleman–Wunsch</strong> (global) &amp; <strong>Smith–Waterman</strong> (local) with affine gaps, BLOSUM62 or DNA scoring; identity/similarity stats with a twilight-zone caveat</span></a>
-      <a class="card" href="tool.html?tool=reaction"><b>⚗️ Reaction</b><span>Multi-step reaction schemes with conditions over the arrow; forward, reversible (⇌) &amp; retrosynthetic arrows</span></a>
-      <a class="card" href="tool.html?tool=audit"><b>✅ Audit</b><span>Whole-document consistency check</span></a>
+<!-- ================= SHOWCASE ================= -->
+<section class="band band-tint" id="showcase">
+  <div class="wrap">
+    <div class="band-head">
+      <p class="eyebrow">What it inserts</p>
+      <h2 class="h2">Finished output, not a placeholder.</h2>
+      <p class="lede">Every result lands as native Word content you can edit, restyle and cross-reference. Nothing is a flattened screenshot, and nothing is a stub.</p>
     </div>
-  </section>
 
-  <section class="wrap">
-    <div class="note">
-      <strong>Private by design.</strong> Everything runs on your machine — nothing you type leaves your computer. The one exception is the <strong>optional</strong> online name→structure lookup, which is off until you use it and prompts for consent before sending a name. Works on Word for <strong>Windows &amp; macOS</strong> (Microsoft 365 / 2019+).
+    <div class="showcase">
+
+      <a class="gpanel" href="tool.html?tool=spectra">
+        <h3>Predicted spectra <span class="tag tag-upd">Updated</span></h3>
+        <p>Give it a name or a SMILES string and get ¹H and ¹³C NMR with shifts, integration, multiplicity and assignment, now including J-coupling and 2D COSY and HSQC maps, plus IR group frequencies, UV-Vis λmax by Woodward-Fieser, and EI-MS fragmentation. The coupling topology is exact from the bond graph. Estimates are labelled as estimates, never passed off as measured spectra.</p>
+        <div class="inset">
+          <p class="inset-cap">Inserted: Table 1 and Figure 2</p>
+          <table class="wtab">
+            <tr><th>δ (ppm)</th><th>Mult.</th><th class="n">J (Hz)</th><th>Assignment</th></tr>
+            <tr><td>7.34 – 7.26</td><td>m</td><td class="n">—</td><td>Ar‑H (5H)</td></tr>
+            <tr><td>4.62</td><td>s</td><td class="n">—</td><td>OCH₂Ph</td></tr>
+            <tr><td>3.71</td><td>t</td><td class="n">6.4</td><td>CH₂O</td></tr>
+            <tr><td>1.42</td><td>s</td><td class="n">—</td><td>C(CH₃)₃</td></tr>
+          </table>
+        </div>
+        <span class="go">Open the Spectra tool &rarr;</span>
+      </a>
+
+      <a class="gpanel" href="tool.html?tool=seqmap">
+        <h3>Annotated sequence maps <span class="tag tag-new">New</span></h3>
+        <p>Open a GenBank, FASTA or SnapGene file and drop an annotated linear or circular map at the cursor, with features, topology and restriction sites. A black-and-white patent-figure style is built in, so the same map serves the paper and the application. Files are read on your machine and nothing is uploaded.</p>
+        <div class="inset">
+          <p class="inset-cap">Inserted: FIG. 4, patent-figure style</p>
+          <svg viewBox="0 0 300 190" role="img" aria-label="Circular plasmid map with annotated features" style="display:block;width:100%;max-width:250px;margin:0 auto;height:auto">
+            <circle cx="150" cy="95" r="62" fill="none" stroke="#1A1A1A" stroke-width="1.2"/>
+            <g fill="none" stroke="#1A1A1A" stroke-width="7" stroke-linecap="butt">
+              <path d="M171.2 36.7 A62 62 0 0 1 208.3 105.6"/>
+              <path d="M181 148.7 A62 62 0 0 1 99.2 130.6"/>
+              <path d="M88.2 104.4 A62 62 0 0 1 102.5 59.2"/>
+            </g>
+            <g stroke="#1A1A1A" stroke-width="1.1"><path d="M150 33 v-9"/><path d="M212 95 h9"/><path d="M150 157 v9"/><path d="M88 95 h-9"/></g>
+            <g font-family="Georgia,serif" font-size="8.5" fill="#44555F">
+              <text x="150" y="19" text-anchor="middle">1</text>
+              <text x="226" y="98" >1400</text>
+              <text x="150" y="177" text-anchor="middle">2700</text>
+              <text x="52" y="98">4100</text>
+            </g>
+            <g font-family="Georgia,serif" font-size="10" fill="#1A1A1A">
+              <text x="228" y="58">GFP</text>
+              <text x="120" y="182">AmpR</text>
+              <text x="18" y="66">ori</text>
+            </g>
+            <g font-family="Georgia,serif" font-size="10" fill="#1A1A1A" text-anchor="middle">
+              <text x="150" y="92">pJL‑1</text><text x="150" y="106">5,412 bp</text>
+            </g>
+          </svg>
+        </div>
+        <span class="go">Open the Sequence Map tool &rarr;</span>
+      </a>
+
+      <a class="gpanel" href="tool.html?tool=citations">
+        <h3>Bluebook citations and authorities</h3>
+        <p>Cases, statutes, patents, Fed. Reg., MPEP and articles in practitioner or academic style, with T6 and T10 abbreviation, id., supra and parallel cites, and a paste-and-fix mode for citations you inherited. It then builds a Table of Contents, a Table of Authorities with court and year, and a citation register for the whole brief.</p>
+        <div class="inset">
+          <p class="inset-cap">Inserted: Table of Authorities</p>
+          <p class="toa-sub">Cases</p>
+          <ul class="toa">
+            <li><span class="nm"><i>Alice Corp. v. CLS Bank Int'l</i>, 573 U.S. 208 (2014)</span><span class="dots"></span><span class="pg">9, 14</span></li>
+            <li><span class="nm"><i>In re Fisher</i>, 421 F.3d 1365 (Fed. Cir. 2005)</span><span class="dots"></span><span class="pg">4, 11</span></li>
+            <li><span class="nm"><i>KSR Int'l Co. v. Teleflex Inc.</i>, 550 U.S. 398 (2007)</span><span class="dots"></span><span class="pg">7</span></li>
+          </ul>
+          <p class="toa-sub">Statutes and Regulations</p>
+          <ul class="toa">
+            <li><span class="nm">35 U.S.C. § 103</span><span class="dots"></span><span class="pg">6, 7</span></li>
+            <li><span class="nm">37 C.F.R. § 1.84</span><span class="dots"></span><span class="pg">12</span></li>
+          </ul>
+        </div>
+        <span class="go">Open the Citations tool &rarr;</span>
+      </a>
+
+      <a class="gpanel" href="tool.html?tool=bioassay">
+        <h3>Curve fitting that shows its work</h3>
+        <p>Enzyme kinetics, dose response for IC50 and EC50, binding and everyday lab math, fitted offline with the curve drawn over your own points. The fitted parameters arrive as an editable table beside the figure, so the number in your text and the number on the chart cannot drift apart.</p>
+        <div class="inset">
+          <p class="inset-cap">Inserted: FIG. 5 and fitted parameters</p>
+          <svg viewBox="0 0 300 150" role="img" aria-label="Dose response curve with fitted sigmoid through plotted points" style="display:block;width:100%;height:auto">
+            <g stroke="#B9C4CC" stroke-width=".8"><path d="M40 30 H285"/><path d="M40 60 H285"/><path d="M40 90 H285"/></g>
+            <g stroke="#1A1A1A" stroke-width="1.2" stroke-linecap="round"><path d="M40 18 V120 H285"/></g>
+            <path d="M46 34 C96 34 112 38 132 56 C152 74 162 104 186 112 C216 118 250 118 279 118" fill="none" stroke="#0C4A6E" stroke-width="1.9"/>
+            <g fill="#0C4A6E">
+              <circle cx="52" cy="33" r="2.6"/><circle cx="88" cy="36" r="2.6"/><circle cx="120" cy="48" r="2.6"/>
+              <circle cx="140" cy="66" r="2.6"/><circle cx="162" cy="92" r="2.6"/><circle cx="196" cy="113" r="2.6"/>
+              <circle cx="238" cy="116" r="2.6"/><circle cx="272" cy="119" r="2.6"/>
+            </g>
+            <g stroke="#0EA5E9" stroke-width="1.1" stroke-dasharray="3 3"><path d="M152 20 V120"/></g>
+            <text x="157" y="28" font-family="Georgia,serif" font-size="9.5" fill="#0369A1">IC₅₀ = 42 nM</text>
+            <g font-family="Georgia,serif" font-size="9" fill="#44555F">
+              <text x="12" y="34">100</text><text x="18" y="94">50</text><text x="24" y="123">0</text>
+              <text x="130" y="139">log [inhibitor]</text>
+            </g>
+            <text x="200" y="139" font-family="Georgia,serif" font-size="9" fill="#44555F">Hill n = 1.04 · R² = 0.997</text>
+          </svg>
+        </div>
+        <span class="go">Open the Bio/Assay tool &rarr;</span>
+      </a>
+
     </div>
-  </section>
+  </div>
+</section>
 
-  <section class="wrap">
-    <h2>Get it</h2>
-    <p>Download the install pack for your OS from the <a href="https://github.com/alexsmi22-dotcom/MS-WORD-Add-in/tree/main/install">install folder</a>, unzip, and run the installer (full steps in the install guide). Then open Word → <code>Insert → Add-ins → JurisLab</code>.</p>
-  </section>
+<!-- ================= TWO DOORS ================= -->
+<section class="band band-paper">
+  <div class="wrap">
+    <div class="band-head">
+      <p class="eyebrow">Two ways in</p>
+      <h2 class="h2">Pick the side of the desk you sit on.</h2>
+      <p class="lede">The same add-in, described in the vocabulary you already use.</p>
+    </div>
+    <div class="doors">
+      <a class="door" href="science.html">
+        <h3>For scientists</h3>
+        <p>Matrix math and optimization, predicted NMR, IR and UV-Vis, mass spec, enzyme kinetics and dose response, alignment, statistics and plots. Results arrive as editable Word tables and charts, not flat images.</p>
+        <span class="go">See the science tools &rarr;</span>
+      </a>
+      <a class="door" href="legal.html">
+        <h3>For patent &amp; legal</h3>
+        <p>Reference numeral management with gap and collision checks, black-and-white patent figures, WIPO ST.26 sequence listings, Bluebook citations, a Table of Authorities and a whole-document consistency audit.</p>
+        <span class="go">See the drafting tools &rarr;</span>
+      </a>
+    </div>
+  </div>
+</section>
 
-  <footer>
-    Free &amp; open-source (MIT). &nbsp;·&nbsp; <a href="https://github.com/alexsmi22-dotcom/MS-WORD-Add-in">github.com/alexsmi22-dotcom/MS-WORD-Add-in</a>
-  </footer>
+<!-- ================= HIGHLIGHTS ================= -->
+<section class="band">
+  <div class="wrap">
+    <div class="band-head">
+      <p class="eyebrow">Recent highlights</p>
+      <h2 class="h2">What is new since the last release.</h2>
+      <p class="lede">Every tile opens a full breakdown with worked examples.</p>
+    </div>
+    <div class="cards">
+      <a class="card" href="tool.html?tool=solve">
+        <h3>Solve <span class="tag tag-new">New</span></h3>
+        <p>A no-code solver: solve equations (exact linear and quadratic including complex roots, numeric real roots for the rest), take a symbolic derivative, evaluate a definite integral, or work a word problem. Exact answers are labelled exact, numeric ones state their limits, and it says so rather than guessing when it cannot parse.</p>
+      </a>
+      <a class="card" href="tool.html?tool=spectra">
+        <h3>NMR: J-coupling &amp; 2D <span class="tag tag-new">New</span></h3>
+        <p>The ¹H predictor now resolves coupling constants and multiplet names (dd, td and so on), and two new 2D maps join the Spectra tool: COSY (¹H–¹H) and HSQC (¹H–¹³C). The coupling topology is exact from the bond graph. The J values are typical literature figures, and the caveats say so.</p>
+      </a>
+      <a class="card" href="tool.html?tool=seqmap">
+        <h3>Sequence Map <span class="tag tag-new">New</span></h3>
+        <p>Open a GenBank, FASTA or SnapGene file and insert an annotated linear or circular map, with features, topology and restriction sites, in a black-and-white patent-figure style. Files are read on your machine. Nothing is uploaded.</p>
+      </a>
+      <a class="card" href="tool.html?tool=align">
+        <h3>Align <span class="tag tag-new">New</span></h3>
+        <p>Pairwise alignment with the algorithms EMBOSS runs: Needleman–Wunsch (global) and Smith–Waterman (local), affine gaps, BLOSUM62 or DNA scoring. Reports identity, similarity and gaps, and warns in the twilight zone where unrelated proteins still align.</p>
+      </a>
+      <a class="card" href="tool.html?tool=analyze">
+        <h3>Analyze, the MATLAB-style workbench</h3>
+        <p>The no-code numerical core: matrix math (solve A·x = b, inverse, eigenvalues including complex, QR, SVD, expressions), optimization, FFT, a stiff-aware ODE solver, and raw data turned into correlations, trends and insights. Results come back as editable tables and charts.</p>
+      </a>
+      <a class="card" href="tool.html?tool=chemical">
+        <h3>Compound library <span class="tag tag-upd">Updated</span></h3>
+        <p>359 named structures with every SMILES verified against PubChem: violacein, morphine, cholesterol, paclitaxel, chlorophyll, heme and more.</p>
+      </a>
+    </div>
+  </div>
+</section>
+
+<!-- ================= ALL TOOLS ================= -->
+<section class="band band-paper" id="tools">
+  <div class="wrap">
+    <div class="band-head">
+      <p class="eyebrow">The full set</p>
+      <h2 class="h2">All 25 tools, grouped by bench.</h2>
+      <p class="lede">Numbered the way a patent figure is numbered. Open any entry for the full breakdown and examples.</p>
+    </div>
+
+    <!-- group 1 -->
+    <div class="group">
+      <div class="group-head"><h3>Numerical &amp; mathematical</h3><span class="count">7 tools</span></div>
+      <div class="register">
+        <a class="row" href="tool.html?tool=analyze"><span class="ref">(10)</span><div>
+          <h3>Analyze <span class="tag tag-new">New</span></h3>
+          <p>No-code numerical workbench: matrix math (solve, inverse, eigenvalues, QR, SVD, expressions), optimization, FFT, ODE and system solving (RK45), and raw data turned into correlations, trends and insights.</p></div></a>
+        <a class="row" href="tool.html?tool=solve"><span class="ref">(12)</span><div>
+          <h3>Solve <span class="tag tag-new">New</span></h3>
+          <p>Solve equations (exact linear and quadratic including complex roots, numeric otherwise), symbolic derivatives, definite integrals, and common word problems. Offline, and honest when it cannot parse.</p></div></a>
+        <a class="row" href="tool.html?tool=math"><span class="ref">(14)</span><div>
+          <h3>Math</h3>
+          <p>Native Word equations, LaTeX import and export, aligned equations, Greek letters and ∑ ∫ ∂ operators.</p></div></a>
+        <a class="row" href="tool.html?tool=stats"><span class="ref">(16)</span><div>
+          <h3>Stats <span class="tag tag-upd">Updated</span></h3>
+          <p>t-tests, one- and two-way ANOVA, regression, non-parametric tests (Mann–Whitney, Wilcoxon), chi-square, multiple-comparison correction and uncertainty propagation.</p></div></a>
+        <a class="row" href="tool.html?tool=plot"><span class="ref">(18)</span><div>
+          <h3>Plot</h3>
+          <p>Offline function and data charts with legends, including multi-argument functions (atan2, hypot, min, max).</p></div></a>
+        <a class="row" href="tool.html?tool=units"><span class="ref">(20)</span><div>
+          <h3>Units</h3>
+          <p>SI typesetting and conversion: length, mass, time, electrical (V, A, W, Ω, F), chemistry (M, Da, ppm) and more.</p></div></a>
+        <a class="row" href="tool.html?tool=finance"><span class="ref">(22)</span><div>
+          <h3>Finance</h3>
+          <p>19 calculators: TVM, DCF, amortization, bonds (price, YTM, duration, convexity), options and Greeks, implied vol, depreciation, return stats.</p></div></a>
+      </div>
+    </div>
+
+    <!-- group 2 -->
+    <div class="group">
+      <div class="group-head"><h3>Chemistry</h3><span class="count">6 tools</span></div>
+      <div class="register">
+        <a class="row" href="tool.html?tool=chemical"><span class="ref">(24)</span><div>
+          <h3>Chemical <span class="tag tag-upd">Updated</span></h3>
+          <p>Formatted formulas, 2D structures from name or SMILES, formula validator, physicochemical properties and druglikeness (cLogP, tPSA, Lipinski, Veber), substituent-corrected pKa (Hammett), and opt-in online name to structure lookup.</p></div></a>
+        <a class="row" href="tool.html?tool=spectra"><span class="ref">(26)</span><div>
+          <h3>Spectra <span class="tag tag-upd">Updated</span></h3>
+          <p>Predicted ¹H and ¹³C NMR (shift, integration, multiplicity, assignment), now with J-coupling and 2D COSY and HSQC, plus IR group frequencies, UV-Vis λmax (Woodward–Fieser) and EI-MS fragmentation, from a name or SMILES, offline.</p></div></a>
+        <a class="row" href="tool.html?tool=massspec"><span class="ref">(28)</span><div>
+          <h3>Mass Spec</h3>
+          <p>Monoisotopic and average mass, isotope pattern, and adduct m/z ([M+H]⁺, [M+Na]⁺, [M+2H]²⁺, [M−H]⁻).</p></div></a>
+        <a class="row" href="tool.html?tool=build"><span class="ref">(30)</span><div>
+          <h3>Build</h3>
+          <p>Structures from atom and bond lists, plus Markush genus.</p></div></a>
+        <a class="row" href="tool.html?tool=reaction"><span class="ref">(32)</span><div>
+          <h3>Reaction</h3>
+          <p>Multi-step reaction schemes with conditions over the arrow, including forward, reversible (⇌) and retrosynthetic arrows.</p></div></a>
+        <a class="row" href="tool.html?tool=peptide"><span class="ref">(34)</span><div>
+          <h3>Peptide</h3>
+          <p>2D structure from a one- or three-letter amino-acid sequence, with formula and molecular weight.</p></div></a>
+      </div>
+    </div>
+
+    <!-- group 3 -->
+    <div class="group">
+      <div class="group-head"><h3>Life science</h3><span class="count">6 tools</span></div>
+      <div class="register">
+        <a class="row" href="tool.html?tool=dna"><span class="ref">(36)</span><div>
+          <h3>DNA</h3>
+          <p>Reverse complement, translation, ORFs, primer Tm (nearest-neighbour), restriction sites (122 enzymes) with methylation warnings, and EMBOSS isoelectric point.</p></div></a>
+        <a class="row" href="tool.html?tool=sequence"><span class="ref">(38)</span><div>
+          <h3>Sequence</h3>
+          <p>WIPO ST.26 listings: mandatory source feature plus CDS and gene annotations with auto <code>/translation</code> and the full mol_type vocabulary.</p></div></a>
+        <a class="row" href="tool.html?tool=seqmap"><span class="ref">(40)</span><div>
+          <h3>Sequence Map <span class="tag tag-new">New</span></h3>
+          <p>Open a GenBank, FASTA or SnapGene file and insert an annotated linear or circular map at the cursor, with features and restriction sites. Black-and-white patent-figure style available.</p></div></a>
+        <a class="row" href="tool.html?tool=align"><span class="ref">(42)</span><div>
+          <h3>Align <span class="tag tag-new">New</span></h3>
+          <p>Pairwise sequence alignment: Needleman–Wunsch (global) and Smith–Waterman (local) with affine gaps, BLOSUM62 or DNA scoring, and identity and similarity stats with a twilight-zone caveat.</p></div></a>
+        <a class="row" href="tool.html?tool=bioassay"><span class="ref">(44)</span><div>
+          <h3>Bio/Assay</h3>
+          <p>Enzyme kinetics, dose response (IC50 and EC50), binding, and lab math. Offline curve fitting with the fit drawn over your data.</p></div></a>
+        <a class="row" href="tool.html?tool=botanical"><span class="ref">(46)</span><div>
+          <h3>Botanical</h3>
+          <p>Plant-nomenclature typesetting.</p></div></a>
+      </div>
+    </div>
+
+    <!-- group 4 -->
+    <div class="group">
+      <div class="group-head"><h3>Patent &amp; legal drafting</h3><span class="count">6 tools</span></div>
+      <div class="register">
+        <a class="row" href="tool.html?tool=numerals"><span class="ref">(48)</span><div>
+          <h3>Numerals</h3>
+          <p>Reference-numeral management: parenthesized and "element 12" callouts, gap, orphan and collision checks, and a numeral list.</p></div></a>
+        <a class="row" href="tool.html?tool=refs"><span class="ref">(50)</span><div>
+          <h3>Refs</h3>
+          <p>Auto-numbered figure and table captions with cross-references.</p></div></a>
+        <a class="row" href="tool.html?tool=citations"><span class="ref">(52)</span><div>
+          <h3>Citations</h3>
+          <p>Bluebook citations for cases, statutes, patents, Fed. Reg., MPEP and articles. Practitioner and academic styles, T6 and T10 abbreviation, id., supra and parallel cites, and paste-and-fix. Plus a Table of Contents, a Table of Authorities and a citation register.</p></div></a>
+        <a class="row" href="tool.html?tool=tablechart"><span class="ref">(54)</span><div>
+          <h3>Table → Chart</h3>
+          <p>Charts (column, bar, line, area, scatter and stacked) plus flowcharts, block diagrams and clean table figures. Black-and-white patent figures or PowerPoint (.pptx).</p></div></a>
+        <a class="row" href="tool.html?tool=code"><span class="ref">(56)</span><div>
+          <h3>Code</h3>
+          <p>Algorithm and code listings.</p></div></a>
+        <a class="row" href="tool.html?tool=audit"><span class="ref">(58)</span><div>
+          <h3>Audit</h3>
+          <p>Whole-document consistency check.</p></div></a>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ================= PRIVACY ================= -->
+<section class="band band-deep">
+  <div class="wrap privacy">
+    <div>
+      <p class="eyebrow">Private by design</p>
+      <h2 class="h2">Nothing you type leaves your computer.</h2>
+    </div>
+    <div>
+      <p>Every tool runs locally. Structures, spectra, sequences, statistics and citations are computed on your machine, so unfiled specifications and client matters never touch a server.</p>
+      <p>There is <strong>one exception</strong>, and it is optional. The online name to structure lookup stays off until you use it, and it asks for consent before sending a compound name. Everything else works with the network disconnected.</p>
+      <p>Works on Word for <strong>Windows and macOS</strong> (Microsoft 365 or 2019 and later).</p>
+    </div>
+  </div>
+</section>
+
+<!-- ================= GET IT ================= -->
+<section class="band">
+  <div class="wrap">
+    <div class="band-head">
+      <p class="eyebrow">Get it</p>
+      <h2 class="h2">Three steps, about two minutes.</h2>
+    </div>
+    <div class="steps">
+      <div class="step"><span class="n">STEP 1</span><p>Download the install pack for your operating system from the install folder.</p></div>
+      <div class="step"><span class="n">STEP 2</span><p>Unzip it and run the installer. Full steps are in the install guide.</p></div>
+      <div class="step"><span class="n">STEP 3</span><p>Open Word, then <code>Insert → Add-ins → JurisLab</code>.</p></div>
+    </div>
+    <div class="cta-row">
+      <a class="btn btn-primary" href="https://github.com/alexsmi22-dotcom/MS-WORD-Add-in/tree/main/install">Open the install folder</a>
+      <a class="btn btn-ghost" href="https://github.com/alexsmi22-dotcom/MS-WORD-Add-in">View the source on GitHub</a>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap foot">
+    <span class="mono">JurisLab · Free and open source (MIT)</span>
+    <a href="manual.html">Manual</a>
+    <a href="science.html">For scientists</a>
+    <a href="legal.html">For patent &amp; legal</a>
+    <a class="right" href="https://github.com/alexsmi22-dotcom/MS-WORD-Add-in">github.com/alexsmi22-dotcom/MS-WORD-Add-in</a>
+  </div>
+</footer>
+
+<script>
+(function(){
+  var tabs = Array.prototype.slice.call(document.querySelectorAll('[role="tab"]'));
+  if(!tabs.length) return;
+  var timer = null, stopped = false;
+  var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  function show(i){
+    tabs.forEach(function(t,n){
+      var sel = n === i;
+      t.setAttribute('aria-selected', sel ? 'true' : 'false');
+      var panel = document.getElementById(t.getAttribute('aria-controls'));
+      if(!panel) return;
+      panel.hidden = !sel;
+      panel.classList.toggle('on', sel);
+    });
+  }
+  function current(){
+    for(var i=0;i<tabs.length;i++){ if(tabs[i].getAttribute('aria-selected')==='true') return i; }
+    return 0;
+  }
+  function stop(){ stopped = true; if(timer){ clearInterval(timer); timer = null; } }
+
+  tabs.forEach(function(t,i){
+    t.addEventListener('click', function(){ stop(); show(i); });
+    t.addEventListener('keydown', function(e){
+      var d = e.key === 'ArrowDown' || e.key === 'ArrowRight' ? 1
+            : e.key === 'ArrowUp'   || e.key === 'ArrowLeft'  ? -1 : 0;
+      if(!d) return;
+      e.preventDefault(); stop();
+      var n = (current() + d + tabs.length) % tabs.length;
+      show(n); tabs[n].focus();
+    });
+  });
+
+  var frame = document.querySelector('.frame');
+  if(frame){
+    frame.addEventListener('mouseenter', stop);
+    frame.addEventListener('focusin', stop);
+  }
+
+  var visible = true;
+  if(frame && 'IntersectionObserver' in window){
+    new IntersectionObserver(function(en){ visible = en[0].isIntersecting; },{threshold:.25}).observe(frame);
+  }
+
+  if(!reduce){
+    timer = setInterval(function(){
+      if(stopped || !visible || document.hidden) return;
+      show((current() + 1) % tabs.length);
+    }, 4200);
+  }
+})();
+</script>
+
 </body>
 </html>

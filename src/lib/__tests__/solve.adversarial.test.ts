@@ -163,6 +163,36 @@ describe("honesty on degenerate equations", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Unicode super/subscripts are accepted like their ASCII forms.
+// ---------------------------------------------------------------------------
+describe("typed/pasted Unicode super- and subscripts parse like ^ and _", () => {
+  it("x² solves the same as x^2", () => {
+    const r = solveEquation("x² - 5x + 6 = 0")!;
+    expect(r).not.toBeNull();
+    expect(r.roots.map((x) => x.re).sort((a, b) => a - b)).toEqual([2, 3]);
+  });
+  it("x² + 1 = 0 still gives the complex pair", () => {
+    const r = solveEquation("x² + 1 = 0")!;
+    expect(r.roots.every((x) => x.im !== 0)).toBe(true);
+  });
+  it("multi-digit superscript x¹⁰", () => {
+    // d/dx x^10 = 10 x^9; check the value at a point.
+    const d = parseExpr(differentiate("x¹⁰")!.derivative);
+    expect(Math.abs(evalAst(d, { x: 1.5 }) - 10 * Math.pow(1.5, 9))).toBeLessThan(1e-6);
+  });
+  it("negative superscript exponent 2⁻³", () => {
+    expect(evalAst(parseExpr("2⁻³"), {})).toBeCloseTo(0.125, 10);
+  });
+  it("subscript folds into a variable name (x₁ → x_1)", () => {
+    const r = solveEquation("x₁ + 2 = 5")!;
+    expect(r.roots[0].re).toBeCloseTo(3, 10);
+  });
+  it("derivative of x² prints 2*x", () => {
+    expect(differentiate("x²")!.derivative).toBe("2*x");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Numeric integration vs known closed forms.
 // ---------------------------------------------------------------------------
 describe("definite integrals match known values", () => {

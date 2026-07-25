@@ -463,6 +463,7 @@ let solveSection: HTMLElement;
 let solveKind: HTMLSelectElement;
 let solveInput: HTMLInputElement;
 let solveInputLabel: HTMLElement;
+let solveHint: HTMLElement;
 let solveBounds: HTMLElement;
 let solveA: HTMLInputElement;
 let solveB: HTMLInputElement;
@@ -763,6 +764,7 @@ Office.onReady((info) => {
   solveKind = document.getElementById("solve-kind") as HTMLSelectElement;
   solveInput = document.getElementById("solve-input") as HTMLInputElement;
   solveInputLabel = document.getElementById("solve-input-label") as HTMLElement;
+  solveHint = document.getElementById("solve-hint") as HTMLElement;
   solveBounds = document.getElementById("solve-bounds") as HTMLElement;
   solveA = document.getElementById("solve-a") as HTMLInputElement;
   solveB = document.getElementById("solve-b") as HTMLInputElement;
@@ -6500,8 +6502,15 @@ function updateSolveUi(): void {
     integral: "x^2",
     word: "twice a number plus 7 is 15",
   };
+  const hints: Record<SolveKind, string> = {
+    equation: "Use ^ for powers — type x^2 for x². Functions: sqrt, sin, cos, exp, ln; constants pi, e. Pasted superscripts like x² also work.",
+    derivative: "Use ^ for powers — e.g. x^2, exp(x), sin(x^2). Pasted superscripts like x² also work.",
+    integral: "Use ^ for powers. The limits may be numbers or expressions like pi/2.",
+    word: "Plain English — e.g. “12 is what percent of 48?” or “twice a number plus 7 is 15”.",
+  };
   solveInputLabel.textContent = labels[kind];
   solveInput.placeholder = placeholders[kind];
+  solveHint.textContent = hints[kind];
   solveBounds.style.display = kind === "integral" ? "block" : "none";
 }
 

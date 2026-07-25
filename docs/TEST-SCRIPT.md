@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v1.85.0)
+# JurisLab — Manual Test Script (v1.86.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 2,800+ automated unit tests, and `npm run qc` now also
@@ -150,7 +150,9 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
 - [ ] `x^2 + 1 = 0` → two **complex** roots (`0 + 1i`, `0 − 1i`) with a caveat — NOT
   "no solution", and never faked as real.
 - [ ] `x + 1 = x + 2` → **No solution**; `2*(x+1) = 2*x+2` → **identity**.
-- [ ] **Differentiate** `sin(x^2)` → **`2*x*cos(x^2)`**.
+- [ ] **Differentiate** `sin(x^2)` → **`2*x*cos(x^2)`** (conventional factor order).
+- [ ] **Superscripts:** paste/type `x² - 5x + 6 = 0` → same result as `x^2…` (x = 3, 2). The
+  hint under the box reminds you to use `^` for powers.
 - [ ] **Definite integral** of `x^2` from `0` to `3` → **9** (numeric caveat shown);
   limits accept `pi/2`.
 - [ ] **Word problem** `12 is what percent of 48?` → **25%**; `twice a number plus 7 is 15`

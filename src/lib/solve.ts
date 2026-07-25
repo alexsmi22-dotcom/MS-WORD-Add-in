@@ -45,6 +45,32 @@ const EVAL_FN: Record<string, (x: number) => number> = {
 
 const CONSTANTS: Record<string, number> = { pi: Math.PI, e: Math.E };
 
+// Unicode super/subscript glyphs, so a pasted or typed x² / x₁ parses like the
+// ASCII forms x^2 / x_1. Superscript runs become an exponent ^(…); subscript runs
+// fold into the variable name with an underscore.
+const SUP: Record<string, string> = {
+  "⁰": "0", "¹": "1", "²": "2", "³": "3", "⁴": "4",
+  "⁵": "5", "⁶": "6", "⁷": "7", "⁸": "8", "⁹": "9",
+  "⁺": "+", "⁻": "-", "⁽": "(", "⁾": ")", "ⁿ": "n",
+};
+const SUB: Record<string, string> = {
+  "₀": "0", "₁": "1", "₂": "2", "₃": "3", "₄": "4",
+  "₅": "5", "₆": "6", "₇": "7", "₈": "8", "₉": "9",
+};
+
+/** Rewrites Unicode super/subscripts to the ASCII grammar (x² → x^(2), x₁ → x_1). */
+export function normalizeUnicodeMath(input: string): string {
+  return input
+    .replace(/[⁰¹²³⁴-⁹⁺⁻⁽⁾ⁿ]+/g, (run) => {
+      const decoded = [...run].map((c) => SUP[c] ?? "").join("");
+      return decoded ? `^(${decoded})` : "";
+    })
+    .replace(/[₀-₉]+/g, (run) => {
+      const decoded = [...run].map((c) => SUB[c] ?? "").join("");
+      return decoded ? `_${decoded}` : "";
+    });
+}
+
 // ---------------------------------------------------------------------------
 // Parser — recursive descent over the same grammar evalFormula accepts.
 // ---------------------------------------------------------------------------
@@ -52,7 +78,7 @@ const CONSTANTS: Record<string, number> = { pi: Math.PI, e: Math.E };
 class Parser {
   private i = 0;
   constructor(private s: string) {
-    this.s = s.replace(/\s+/g, "");
+    this.s = normalizeUnicodeMath(s).replace(/\s+/g, "");
   }
   parse(): Expr {
     const e = this.additive();

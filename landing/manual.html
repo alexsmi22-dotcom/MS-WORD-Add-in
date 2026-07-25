@@ -187,7 +187,7 @@
     <p>A no-code solver that runs entirely on your machine. Pick what to do from the dropdown:</p>
     <ul>
       <li><b>Solve an equation</b> — <code>x^2 - 5x + 6 = 0</code> → <code>x = 3, 2</code> exactly; linear and quadratic are closed-form (complex roots included). Higher-degree and transcendental equations (<code>cos(x) = 0</code>) give real roots numerically over a scanned range. Identities and no-solution cases are reported as such; a multi-unknown equation is refused, not guessed.</li>
-      <li><b>Differentiate</b> — a <b>symbolic</b> derivative: <code>sin(x^2)</code> → <code>cos(x^2)*2*x</code> (chain rule; the value is exact).</li>
+      <li><b>Differentiate</b> — a <b>symbolic</b> derivative: <code>sin(x^2)</code> → <code>2*x*cos(x^2)</code> (chain rule).</li>
       <li><b>Definite integral</b> — numeric (adaptive Simpson): <code>x^2</code> from 0 to 3 → 9. Limits may be expressions like <code>pi/2</code>.</li>
       <li><b>Word problem</b> — offline templates for percentages (<code>12 is what percent of 48?</code> → 25%), distance = rate × time, and simple “a number …” sentences (<code>twice a number plus 7 is 15</code> → builds <code>2*n + 7 = 15</code>, n = 4).</li>
     </ul>

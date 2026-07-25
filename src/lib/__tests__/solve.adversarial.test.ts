@@ -48,6 +48,12 @@ describe("differentiate() returns readable, correct expressions", () => {
   it("basic trig", () => {
     expect(differentiate("sin(x)")!.derivative).toBe("cos(x)");
   });
+  it("chain rule prints in conventional order (coefficient first, function last)", () => {
+    // Guards the fix that turned cos(x^2)*2*x into 2*x*cos(x^2) — matching the
+    // in-app help text. The value is verified separately by the finite-difference
+    // sweep; this pins the readable factor order.
+    expect(differentiate("sin(x^2)")!.derivative).toBe("2*x*cos(x^2)");
+  });
   it("constant", () => {
     expect(differentiate("5")!.derivative).toBe("0");
   });

@@ -253,6 +253,28 @@ export function derivative(e: Expr, x: string): Expr {
 
 const isNum = (e: Expr, v?: number): boolean => e.t === "num" && (v === undefined || e.v === v);
 
+/** Flattens a left/right-nested product into its factor list. */
+function flattenMul(e: Expr): Expr[] {
+  return e.t === "mul" ? [...flattenMul(e.l), ...flattenMul(e.r)] : [e];
+}
+
+/**
+ * Display order for a factor within a product: numbers, then variables/powers,
+ * then everything else, with functions last. This is what turns the chain-rule
+ * result cos(x^2)·2·x into the conventional 2·x·cos(x^2).
+ */
+function factorRank(e: Expr): number {
+  switch (e.t) {
+    case "num": return 0;
+    case "neg": return 1;
+    case "var": return 1;
+    case "pow": return 2;
+    case "div": return 3;
+    case "fn": return 5;
+    default: return 4;
+  }
+}
+
 export function simplify(e: Expr): Expr {
   switch (e.t) {
     case "num":
@@ -284,12 +306,21 @@ export function simplify(e: Expr): Expr {
       return { t: "sub", l, r };
     }
     case "mul": {
-      const l = simplify(e.l), r = simplify(e.r);
-      if (l.t === "num" && r.t === "num") return N(l.v * r.v);
-      if (isNum(l, 0) || isNum(r, 0)) return N(0);
-      if (isNum(l, 1)) return r;
-      if (isNum(r, 1)) return l;
-      return { t: "mul", l, r };
+      // Flatten the whole product, fold the numeric constants into one coefficient,
+      // then order the remaining factors so the printed form reads conventionally
+      // (coefficient first, functions last).
+      const factors = [...flattenMul(simplify(e.l)), ...flattenMul(simplify(e.r))];
+      let coeff = 1;
+      const rest: Expr[] = [];
+      for (const f of factors) {
+        if (f.t === "num") coeff *= f.v;
+        else rest.push(f);
+      }
+      if (coeff === 0) return N(0);
+      // Stable sort (V8's is stable) keeps same-rank factors in their original order.
+      rest.sort((a, b) => factorRank(a) - factorRank(b));
+      const ordered: Expr[] = coeff !== 1 || rest.length === 0 ? [N(coeff), ...rest] : rest;
+      return ordered.reduce((acc, f) => ({ t: "mul", l: acc, r: f }));
     }
     case "div": {
       const l = simplify(e.l), r = simplify(e.r);

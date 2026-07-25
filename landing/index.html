@@ -434,8 +434,13 @@ footer{border-top:1px solid var(--rule);background:var(--ground-2);padding:32px 
                   <path d="M127.7 60 L152 46"/>
                 </g>
                 <text x="156" y="44" font-family="Georgia,serif" font-size="13" fill="#1A1A1A">OH</text>
-                <g stroke="#1A1A1A" stroke-width="1" stroke-linecap="round"><path d="M196 102 L143 91"/><path d="M196 30 L168 39"/></g>
-                <circle cx="143" cy="91" r="1.7" fill="#1A1A1A"/><circle cx="168" cy="39" r="1.7" fill="#1A1A1A"/>
+                <!-- Leader lines stop clear of what they point at. (14) used to end at
+                     x=168, which is inside the "OH" text box (x 156-175) and struck the H
+                     through; (12) ended at x=143, floating in space beside the ring instead
+                     of touching it. A leader that crosses a label or lands on nothing is
+                     exactly the thing a patent figure gets objected to for. -->
+                <g stroke="#1A1A1A" stroke-width="1" stroke-linecap="round"><path d="M196 102 L131 78"/><path d="M196 30 L185 37"/></g>
+                <circle cx="129.6" cy="77.4" r="1.7" fill="#1A1A1A"/><circle cx="185" cy="37" r="1.7" fill="#1A1A1A"/>
                 <text x="200" y="106" font-family="Georgia,serif" font-size="12.5" fill="#1A1A1A">(12)</text>
                 <text x="200" y="34" font-family="Georgia,serif" font-size="12.5" fill="#1A1A1A">(14)</text>
               </svg>
@@ -619,7 +624,8 @@ footer{border-top:1px solid var(--rule);background:var(--ground-2);padding:32px 
             </g>
             <g font-family="Georgia,serif" font-size="10" fill="#1A1A1A">
               <text x="228" y="58">GFP</text>
-              <text x="120" y="182">AmpR</text>
+              <!-- x=120 put this straight through the "2700" tick label (x 135-165). -->
+              <text x="94" y="180">AmpR</text>
               <text x="18" y="66">ori</text>
             </g>
             <g font-family="Georgia,serif" font-size="10" fill="#1A1A1A" text-anchor="middle">

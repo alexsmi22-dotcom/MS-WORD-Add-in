@@ -3,6 +3,7 @@
 # Runs everything that can be verified WITHOUT the Word host, in one command:
 #   1. Type-check (tsc)         3. Production build (webpack)   5. Task-pane id wiring audit
 #   2. Unit tests (jest)        4. Manifest validation          6. Headless render check
+#                                                               7. Landing-page layout check
 #
 # Prints a PASS/FAIL summary and exits non-zero if anything fails. The remaining
 # in-Word functional pass is the manual checklist in docs\TEST-SCRIPT.md — step 6
@@ -39,6 +40,11 @@ Invoke-Step "Compound dictionary" { npm run validate:compounds }
 Invoke-Step "Production build"     { npm run build }
 Invoke-Step "Manifest validation" { npx office-addin-manifest validate manifest.xml }
 Invoke-Step "Render check"        { node scripts/render-check.js }
+# The landing page is the most public artefact here and the least covered by jest:
+# a leader line through a label, a feature name printed over a tick, and a stats
+# table silently losing two columns below 940px all shipped because the markup
+# reads fine and only a laid-out browser shows the collision.
+Invoke-Step "Landing layout"      { node scripts/check-landing-overlap.js }
 
 # 5. Task-pane id wiring audit — every getElementById has a matching HTML id.
 Write-Host ""

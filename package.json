@@ -16,7 +16,8 @@
     "lint": "tsc --noEmit",
     "test": "node scripts/run-jest.js",
     "qc": "powershell -ExecutionPolicy Bypass -File scripts/qc.ps1",
-    "render-check": "node scripts/render-check.js"
+    "render-check": "node scripts/render-check.js",
+    "check:overlap": "node scripts/check-landing-overlap.js"
   },
   "dependencies": {
     "core-js": "^3.36.0",

@@ -60,6 +60,8 @@ import { resolveNameOnline, OpsinResult } from "../lib/opsin";
 import { computeMassSpec, MassSpecResult } from "../lib/massspec";
 import { predictNmr, NmrResult, Nucleus } from "../lib/nmr";
 import { predictCoupling, predictCosy, predictHsqc, Cosy2D, Hsqc2D } from "../lib/nmr2d";
+import { solveEquation, differentiate, integrate, parseExpr, evalAst } from "../lib/solve";
+import { solveWordProblem } from "../lib/wordproblem";
 import { predictIr, IrResult } from "../lib/ir";
 import { predictUvVis, UvResult } from "../lib/uvvis";
 import { predictFragments, FragmentResult } from "../lib/fragment";
@@ -457,6 +459,15 @@ let specKind: HTMLSelectElement;
 let specResult: HTMLElement;
 let specInsertBtn: HTMLButtonElement;
 let specInsertChartBtn: HTMLButtonElement;
+let solveSection: HTMLElement;
+let solveKind: HTMLSelectElement;
+let solveInput: HTMLInputElement;
+let solveInputLabel: HTMLElement;
+let solveBounds: HTMLElement;
+let solveA: HTMLInputElement;
+let solveB: HTMLInputElement;
+let solveResult: HTMLElement;
+let solveInsertBtn: HTMLButtonElement;
 /** MS readout for the most recent input, for insertion. */
 let currentMassSpec: MassSpecResult | null = null;
 let statsSection: HTMLElement;
@@ -748,6 +759,15 @@ Office.onReady((info) => {
   specResult = document.getElementById("spec-result") as HTMLElement;
   specInsertBtn = document.getElementById("spec-insert") as HTMLButtonElement;
   specInsertChartBtn = document.getElementById("spec-insert-chart") as HTMLButtonElement;
+  solveSection = document.getElementById("solve-section") as HTMLElement;
+  solveKind = document.getElementById("solve-kind") as HTMLSelectElement;
+  solveInput = document.getElementById("solve-input") as HTMLInputElement;
+  solveInputLabel = document.getElementById("solve-input-label") as HTMLElement;
+  solveBounds = document.getElementById("solve-bounds") as HTMLElement;
+  solveA = document.getElementById("solve-a") as HTMLInputElement;
+  solveB = document.getElementById("solve-b") as HTMLInputElement;
+  solveResult = document.getElementById("solve-result") as HTMLElement;
+  solveInsertBtn = document.getElementById("solve-insert") as HTMLButtonElement;
   statsSection = document.getElementById("stats-section") as HTMLElement;
   statsCalcSelect = document.getElementById("stats-calc") as HTMLSelectElement;
   statsInputs = document.getElementById("stats-inputs") as HTMLElement;
@@ -895,6 +915,11 @@ Office.onReady((info) => {
   specKind.addEventListener("change", updateSpectra);
   specInsertBtn.addEventListener("click", () => insertDnaText(spectrumAsText(), "spectrum data"));
   specInsertChartBtn.addEventListener("click", insertSpectrumChart);
+  solveKind.addEventListener("change", () => { updateSolveUi(); updateSolve(); });
+  solveInput.addEventListener("input", updateSolve);
+  solveA.addEventListener("input", updateSolve);
+  solveB.addEventListener("input", updateSolve);
+  solveInsertBtn.addEventListener("click", () => insertDnaText(currentSolveText, "solution"));
   alignA.addEventListener("input", updateAlign);
   alignB.addEventListener("input", updateAlign);
   alignModeSel.addEventListener("change", updateAlign);
@@ -1076,6 +1101,7 @@ const HOME_GROUPS: HomeGroup[] = [
     title: "Math & units",
     items: [
       { mode: "math", icon: "∑", label: "Math", desc: "Native equations, LaTeX" },
+      { mode: "solve", icon: "🟰", label: "Solve", desc: "Equations, derivatives, integrals, word problems" },
       { mode: "units", icon: "📏", label: "Units", desc: "SI typesetting & conversion" },
       { mode: "plot", icon: "📈", label: "Plot", desc: "Function & data charts" },
       { mode: "stats", audience: ["science"], icon: "📐", label: "Stats", desc: "Descriptive, t-tests, ANOVA, uncertainty" },
@@ -1701,6 +1727,7 @@ function onInputChanged(): void {
   assaySection.style.display = mode === "assay" ? "block" : "none";
   massspecSection.style.display = mode === "massspec" ? "block" : "none";
   spectraSection.style.display = mode === "spectra" ? "block" : "none";
+  solveSection.style.display = mode === "solve" ? "block" : "none";
   alignSection.style.display = mode === "align" ? "block" : "none";
   seqmapSection.style.display = mode === "seqmap" ? "block" : "none";
   peptideSection.style.display = mode === "peptide" ? "block" : "none";
@@ -1743,6 +1770,11 @@ function onInputChanged(): void {
   }
   if (mode === "spectra") {
     updateSpectra();
+    return;
+  }
+  if (mode === "solve") {
+    updateSolveUi();
+    updateSolve();
     return;
   }
   if (mode === "align") {
@@ -6428,6 +6460,142 @@ async function insertSpectrumChart(): Promise<void> {
     setStatus(`Could not insert spectrum: ${(error as Error).message}`, "error");
   } finally {
     specInsertChartBtn.disabled = false;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Solve — equations, derivatives, definite integrals, and word problems.
+//
+// Everything here runs on the offline engine (solve.ts / wordproblem.ts): exact
+// where it can be, numeric where it must be, and always carrying the method and
+// caveats through to the UI. A word problem it cannot map is reported as such —
+// never answered with a guess.
+// ---------------------------------------------------------------------------
+
+type SolveKind = "equation" | "derivative" | "integral" | "word";
+
+/** Plain-text form of the current result, for insertion into Word. */
+let currentSolveText = "";
+
+/** A muted or emphasised result line. */
+function solveLine(text: string, cls = "ms-hint"): HTMLElement {
+  const d = document.createElement("div");
+  d.className = cls;
+  d.textContent = text;
+  return d;
+}
+
+/** Adjusts the input label and the visibility of the integral bounds. */
+function updateSolveUi(): void {
+  const kind = solveKind.value as SolveKind;
+  const labels: Record<SolveKind, string> = {
+    equation: "Equation (e.g. x^2 - 5x + 6 = 0)",
+    derivative: "Expression to differentiate (e.g. sin(x^2))",
+    integral: "Integrand (e.g. x^2)",
+    word: "Word problem (e.g. 12 is what percent of 48?)",
+  };
+  const placeholders: Record<SolveKind, string> = {
+    equation: "x^2 - 5x + 6 = 0",
+    derivative: "sin(x^2)",
+    integral: "x^2",
+    word: "twice a number plus 7 is 15",
+  };
+  solveInputLabel.textContent = labels[kind];
+  solveInput.placeholder = placeholders[kind];
+  solveBounds.style.display = kind === "integral" ? "block" : "none";
+}
+
+/** Parses a bound expression like "0", "pi", or "pi/2" to a number, or NaN. */
+function parseBound(s: string): number {
+  try {
+    return evalAst(parseExpr(s), {});
+  } catch {
+    return NaN;
+  }
+}
+
+/** Computes and renders the current solve request. */
+function updateSolve(): void {
+  const kind = solveKind.value as SolveKind;
+  const text = solveInput.value.trim();
+  solveResult.replaceChildren();
+  currentSolveText = "";
+  solveInsertBtn.disabled = true;
+
+  if (!text) {
+    solveResult.appendChild(solveLine("Type something to solve."));
+    return;
+  }
+
+  const lines: string[] = [];
+  const finish = (caveats: string[]) => {
+    if (caveats.length) solveResult.appendChild(specCaveats(caveats));
+    currentSolveText = lines.join("\n");
+    solveInsertBtn.disabled = !currentSolveText;
+  };
+
+  try {
+    if (kind === "equation") {
+      const r = solveEquation(text);
+      if (!r) return void solveResult.appendChild(solveLine("Couldn't parse that equation. Try e.g. x^2 - 5x + 6 = 0."));
+      solveResult.appendChild(msEyebrow(`Solve for ${r.variable}`));
+      lines.push(`Solve for ${r.variable}:  ${text}`);
+      if (!r.roots.length) {
+        const msg = r.method === "no-solution" ? "No solution." : r.method === "identity" ? "True for every value (identity)." : "No real roots found.";
+        solveResult.appendChild(solveLine(msg, "ms-masses"));
+        lines.push(msg);
+      } else {
+        for (const root of r.roots) {
+          solveResult.appendChild(solveLine(`${r.variable} = ${root.display}`, "ms-masses"));
+          lines.push(`${r.variable} = ${root.display}`);
+        }
+      }
+      solveResult.appendChild(solveLine(`Method: ${r.method}`));
+      for (const s of r.steps) solveResult.appendChild(solveLine(s));
+      lines.push(`Method: ${r.method}`, ...r.steps);
+      return finish(r.caveats);
+    }
+
+    if (kind === "derivative") {
+      const r = differentiate(text);
+      if (!r) return void solveResult.appendChild(solveLine("Couldn't parse that expression. Try e.g. sin(x^2)."));
+      solveResult.appendChild(msEyebrow(`Derivative with respect to ${r.variable}`));
+      solveResult.appendChild(solveLine(`f(${r.variable}) = ${r.expression}`, "ms-masses"));
+      solveResult.appendChild(solveLine(`f'(${r.variable}) = ${r.derivative}`, "ms-masses"));
+      lines.push(`d/d${r.variable} [ ${r.expression} ] = ${r.derivative}`);
+      return finish(r.caveats);
+    }
+
+    if (kind === "integral") {
+      const a = parseBound(solveA.value.trim() || "0");
+      const b = parseBound(solveB.value.trim() || "1");
+      if (!Number.isFinite(a) || !Number.isFinite(b)) return void solveResult.appendChild(solveLine("Enter numeric limits (numbers, or expressions like pi/2)."));
+      const r = integrate(text, a, b);
+      if (!r) return void solveResult.appendChild(solveLine("Couldn't integrate that. Use one variable and numeric limits."));
+      solveResult.appendChild(msEyebrow("Definite integral"));
+      const val = `∫ (${text}) d${r.variable}, from ${solveA.value.trim() || "0"} to ${solveB.value.trim() || "1"} = ${r.value.toPrecision(8).replace(/\.?0+$/, "")}`;
+      solveResult.appendChild(solveLine(val, "ms-masses"));
+      lines.push(val, `Method: ${r.method}`);
+      return finish(r.caveats);
+    }
+
+    // word problem
+    const r = solveWordProblem(text);
+    if (!r) {
+      solveResult.appendChild(
+        solveLine("This isn't one of the offline templates (percentage, distance = rate × time, or a simple 'a number …' sentence). Rephrase, or an online AI solver can be added.")
+      );
+      return;
+    }
+    solveResult.appendChild(msEyebrow(`Word problem — ${r.template}`));
+    solveResult.appendChild(solveLine(`Answer: ${r.answer}`, "ms-masses"));
+    lines.push(`Word problem (${r.template})`, `Answer: ${r.answer}`);
+    if (r.equation) { solveResult.appendChild(solveLine(`Equation: ${r.equation}`)); lines.push(`Equation: ${r.equation}`); }
+    for (const s of r.steps) solveResult.appendChild(solveLine(s));
+    lines.push(...r.steps);
+    return finish(r.caveats);
+  } catch (error) {
+    solveResult.appendChild(solveLine(`Could not solve: ${(error as Error).message}`));
   }
 }
 

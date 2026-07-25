@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>JurisLab — User Manual</title>
-  <meta name="description" content="How to use JurisLab: the core loop, all 24 tools with worked examples, honest limits, and troubleshooting." />
+  <meta name="description" content="How to use JurisLab: the core loop, all 25 tools with worked examples, honest limits, and troubleshooting." />
   <link rel="icon" href="assets/icon-32.png" />
   <style>
     :root { --blue:#2e74b5; --ink:#1b1b1f; --muted:#5b5b66; --bg:#f6f8fb; --card:#fff; --line:#e4e8ef; --warn:#8a5a00; --warnbg:#fff8e6; }
@@ -48,7 +48,7 @@
     <div class="wrap">
       <a class="home" href="index.html">← JurisLab</a>
       <h1>User Manual</h1>
-      <p class="tag">How JurisLab works, what each of the 24 tools does, and what it deliberately doesn’t do. Everything runs on your machine.</p>
+      <p class="tag">How JurisLab works, what each of the 25 tools does, and what it deliberately doesn’t do. Everything runs on your machine.</p>
     </div>
   </header>
 
@@ -74,7 +74,7 @@
     <ol class="steps">
       <li><b>Install.</b> Unzip the pack for your machine and run the installer inside — <code>install.bat</code> on Windows, <code>install.command</code> on a Mac. No admin rights needed; it only registers the add-in for your own account.</li>
       <li><b>Restart Word completely.</b> Close every window, not just the document. Word only notices a new add-in on a cold start — this is the single most common reason it "didn’t install".</li>
-      <li><b>Open the pane.</b> <b>Insert</b> → <b>Add-ins</b> → <b>Developer Add-ins</b> → <b>JurisLab</b>. It opens on the Home screen showing all 24 tools as cards.</li>
+      <li><b>Open the pane.</b> <b>Insert</b> → <b>Add-ins</b> → <b>Developer Add-ins</b> → <b>JurisLab</b>. It opens on the Home screen showing all 25 tools as cards.</li>
     </ol>
     <p class="muted">Only the first load needs internet — the add-in fetches itself from the web once, then everything you type is computed on your own machine.</p>
 
@@ -134,6 +134,16 @@
       <li><b>FFT</b> — amplitude spectrum and dominant frequencies from a sampled signal.</li>
       <li><b>Data → insights</b> — paste a table and get column summaries, correlations (with p-values), trends, outlier flags, and a plain-language write-up.</li>
     </ul>
+
+    <h3>Solve — equations, calculus &amp; word problems</h3>
+    <p>A no-code solver that runs entirely on your machine:</p>
+    <ul>
+      <li><b>Solve an equation</b> — <code>x^2 - 5x + 6 = 0</code> gives <code>x = 3, 2</code> exactly; linear and quadratic are solved in closed form (complex roots included), while higher-degree and transcendental equations (e.g. <code>cos(x) = 0</code>) are solved numerically for real roots.</li>
+      <li><b>Differentiate</b> — a <b>symbolic</b> derivative: <code>sin(x^2)</code> → <code>2*x*cos(x^2)</code>.</li>
+      <li><b>Definite integral</b> — numeric (adaptive Simpson): <code>x^2</code> from 0 to 3 → 9. Limits may be expressions like <code>pi/2</code>.</li>
+      <li><b>Word problem</b> — offline templates for percentages (<code>12 is what percent of 48?</code>), distance = rate × time, and simple “a number …” sentences. It <b>says so when it can’t parse</b> a problem rather than inventing an answer.</li>
+    </ul>
+    <div class="note">Exact answers are labelled exact; numeric answers say so and state their limits (real roots only, within the scanned range; integration is an approximation). This is the honest half of a “both, offline first” design — an optional online AI solver can handle free-form word problems the templates can’t.</div>
 
     <h3>Analyze → Solve an ODE</h3>
     <p><b>Type the equation you actually have.</b> Higher-order equations are reduced for you — you do <i>not</i> hand-convert to a first-order system.</p>

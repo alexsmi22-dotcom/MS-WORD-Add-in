@@ -19,6 +19,7 @@ export const ALL_MODES = [
   "home",
   "chemical",
   "math",
+  "solve",
   "units",
   "plot",
   "ppt",

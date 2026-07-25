@@ -171,6 +171,22 @@ export const MODE_EXAMPLES: Record<ExampleMode, string> = {
     </ul>
     <p class="examples-note">Inserts as a single image with provenance — verify before filing.</p>`,
 
+  solve: `
+    <p class="examples-note">
+      Solve equations and basic calculus — offline, on your machine:
+    </p>
+    <ul>
+      <li><strong>Solve an equation:</strong> <code>x^2 - 5x + 6 = 0</code> → x = 3, 2 (exact); <code>cos(x) = 0</code> → numeric roots.</li>
+      <li><strong>Differentiate:</strong> <code>sin(x^2)</code> → <code>2*x*cos(x^2)</code> (symbolic).</li>
+      <li><strong>Definite integral:</strong> <code>x^2</code> from 0 to 3 → 9 (numeric).</li>
+      <li><strong>Word problem:</strong> "12 is what percent of 48?", "twice a number plus 7 is 15".</li>
+    </ul>
+    <p class="examples-note">
+      Linear &amp; quadratic equations are solved <strong>exactly</strong>; higher-degree and
+      transcendental ones give real roots <strong>numerically</strong>. Word problems match a
+      fixed set of templates and say so when they cannot parse — nothing is invented.
+    </p>`,
+
   units: `
     <p class="examples-note">
       Typeset physical quantities and convert units:

@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v1.83.0)
+# JurisLab — Manual Test Script (v1.84.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 2,800+ automated unit tests, and `npm run qc` now also
@@ -141,6 +141,24 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
   **Convert** → preview shows the quadratic formula → **Insert**.
 - [ ] **Copy current as LaTeX** with that formula in the box → clipboard has LaTeX.
 - [ ] Type `align(x = 1; y = 2)` → **Insert** → a stacked two-line equation.
+
+## 2b. Solve  *(v1.84 — equations, calculus, word problems; offline)*
+> Exact where it can be, numeric where it must be; every screen states its method
+> and caveats. A fabricated root or a guessed word-problem answer is a FAIL.
+- [ ] **Solve an equation** with `x^2 - 5x + 6 = 0` → **x = 3** and **x = 2**, method
+  *exact (quadratic)*.
+- [ ] `x^2 + 1 = 0` → two **complex** roots (`0 + 1i`, `0 − 1i`) with a caveat — NOT
+  "no solution", and never faked as real.
+- [ ] `x + 1 = x + 2` → **No solution**; `2*(x+1) = 2*x+2` → **identity**.
+- [ ] **Differentiate** `sin(x^2)` → **`2*x*cos(x^2)`**.
+- [ ] **Definite integral** of `x^2` from `0` to `3` → **9** (numeric caveat shown);
+  limits accept `pi/2`.
+- [ ] **Word problem** `12 is what percent of 48?` → **25%**; `twice a number plus 7 is 15`
+  → shows the equation `2*n + 7 = 15` and **n = 4**.
+- [ ] **Word problem** with free-form phrasing it can't template (e.g. a two-trains
+  puzzle) → it says it can't parse and points to the AI option — it does NOT invent
+  an answer.
+- [ ] **Insert result** → the solution text lands at the cursor.
 
 ## 3. Units
 - [ ] Type `9.81 m/s^2` → preview **9.81 m/s²** → **Insert quantity**.

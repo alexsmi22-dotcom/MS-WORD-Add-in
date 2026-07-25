@@ -39,6 +39,7 @@
           </optgroup>
           <optgroup label="Math &amp; units">
             <option value="math">Math</option>
+            <option value="solve">Solve</option>
             <option value="units">Units</option>
             <option value="plot">Plot</option>
             <option value="stats">Stats</option>
@@ -667,6 +668,38 @@
         <div class="plot-actions">
           <button id="spec-insert" class="insert-btn" type="button" disabled>Insert data table</button>
           <button id="spec-insert-chart" class="insert-btn" type="button" disabled>Insert spectrum chart</button>
+        </div>
+      </section>
+
+
+      <!-- Solve: equations, derivatives, integrals, word problems (offline) -->
+      <section id="solve-section">
+        <p class="seq-disclaimer">
+          Solve equations and basic calculus, computed entirely on your machine.
+          Linear and quadratic equations are solved <strong>exactly</strong>; higher-degree and
+          transcendental equations give real roots <strong>numerically</strong>. Derivatives are
+          symbolic; definite integrals are numeric. Word problems match a fixed set of common
+          templates — offline and private, and honest when they cannot parse.
+        </p>
+        <label class="field-label" for="solve-kind">What to do</label>
+        <select id="solve-kind" class="mode-select">
+          <option value="equation">Solve an equation</option>
+          <option value="derivative">Differentiate</option>
+          <option value="integral">Definite integral</option>
+          <option value="word">Word problem</option>
+        </select>
+        <label class="field-label" for="solve-input" id="solve-input-label">Equation</label>
+        <input id="solve-input" type="text" class="rgroup-input" autocomplete="off"
+          placeholder="x^2 - 5x + 6 = 0" />
+        <div id="solve-bounds" style="display: none;">
+          <label class="field-label" for="solve-a">Integrate from</label>
+          <input id="solve-a" type="text" class="rgroup-input" autocomplete="off" placeholder="0" />
+          <label class="field-label" for="solve-b">to</label>
+          <input id="solve-b" type="text" class="rgroup-input" autocomplete="off" placeholder="1" />
+        </div>
+        <div id="solve-result" class="ms-result" aria-live="polite"></div>
+        <div class="plot-actions">
+          <button id="solve-insert" class="insert-btn" type="button" disabled>Insert result</button>
         </div>
       </section>
 

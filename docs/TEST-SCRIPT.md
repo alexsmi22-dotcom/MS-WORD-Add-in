@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v1.86.0)
+# JurisLab — Manual Test Script (v1.87.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 2,800+ automated unit tests, and `npm run qc` now also
@@ -22,9 +22,9 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
   `Fig. 7`). Regenerate it any time with `powershell -File scripts\make-test-doc.ps1`.
 - [ ] Open the task pane (**Home → Insert Formula**, or **Insert → Add-ins**).
 - [ ] The pane loads on the **Home** page with tools grouped by category, and the
-  mode list shows all 24:
+  mode list shows all 25:
   **Chemical · Mass Spec · Spectra · Bio/Assay · Peptide · Stats · Analyze ·
-  Math · Units · Plot · Table → Chart · Finance · Build · Code · Sequence Map ·
+  Math · Solve · Units · Plot · Table → Chart · Finance · Build · Code · Sequence Map ·
   Align · Sequence · Botanical · Numerals · Refs · DNA · Reaction · Citations ·
   Audit.**
 - [ ] **Offline check:** after first load, disconnect the network — the pane and
@@ -43,6 +43,9 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
 - [ ] **Insert 2D structure** → image inserts, sized to the structure (not oversized).
 - [ ] **Insert name** → inserts the text "Aspirin".
 - [ ] Type a SMILES `CC(=O)O` → structure renders.
+- [ ] **Substituent-corrected pKa (v1.87):** `Oc1ccc([N+](=O)[O-])cc1` (p-nitrophenol) →
+  Phenol pKa **≈ 7.15** (not 9.99), with a note showing **parent 9.99; Hammett … NO2 para**.
+  `Oc1ccccc1` (phenol) → **≈ 9.99**. `OC(=O)CCl` (chloroacetic) → **≈ 2.87** (vs acetic 4.76).
 
 ## 1b. Mass Spec
 - [ ] Type `caffeine` → **Monoisotopic 194.0804**, **Average 194.19**, formula
@@ -149,12 +152,14 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
   *exact (quadratic)*.
 - [ ] `x^2 + 1 = 0` → two **complex** roots (`0 + 1i`, `0 − 1i`) with a caveat — NOT
   "no solution", and never faked as real.
+- [ ] **All roots (cubic):** `x^3 - 1 = 0` → **three** roots — `1` and `-0.5 ± 0.866i`,
+  method *complete (all roots)*. `x^4 - 1 = 0` → `1, -1, i, -i`. Repeated roots show ×2/×3.
 - [ ] `x + 1 = x + 2` → **No solution**; `2*(x+1) = 2*x+2` → **identity**.
 - [ ] **Differentiate** `sin(x^2)` → **`2*x*cos(x^2)`** (conventional factor order).
 - [ ] **Superscripts:** paste/type `x² - 5x + 6 = 0` → same result as `x^2…` (x = 3, 2). The
   hint under the box reminds you to use `^` for powers.
-- [ ] **Definite integral** of `x^2` from `0` to `3` → **9** (numeric caveat shown);
-  limits accept `pi/2`.
+- [ ] **Definite integral (exact):** `x^2` from `0` to `3` → **9**, method *exact (symbolic)*,
+  and it shows **F(x) = x^3/3 + C**. `exp(x^2)` → falls back to numeric (adaptive Simpson).
 - [ ] **Word problem** `12 is what percent of 48?` → **25%**; `twice a number plus 7 is 15`
   → shows the equation `2*n + 7 = 15` and **n = 4**.
 - [ ] **Word problem** with free-form phrasing it can't template (e.g. a two-trains

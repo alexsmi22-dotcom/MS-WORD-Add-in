@@ -129,7 +129,7 @@ describe("pKa values match the literature", () => {
   });
 
   test("known group values, spot-checked", () => {
-    expect(site("CC(=O)O", /Carboxylic/)!.pka).toBeCloseTo(4.5, 1);
+    expect(site("CC(=O)O", /Carboxylic/)!.pka).toBeCloseTo(4.76, 1); // acetic acid, exact literature value
     expect(site("Oc1ccccc1", /Phenol/)!.pka).toBeCloseTo(10.0, 1);
     expect(site("CCS", /Thiol/)!.pka).toBeCloseTo(10.5, 1);
     expect(site("Nc1ccccc1", /Aniline/)!.pka).toBeCloseTo(4.6, 1);

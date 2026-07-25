@@ -122,13 +122,55 @@ describe("linear and quadratic are solved exactly", () => {
   }
 });
 
-describe("higher-degree and transcendental fall back to numeric roots", () => {
+// A complex polynomial evaluation, to back-substitute EVERY root (incl. complex).
+const polyAtComplex = (coeffs: number[], re: number, im: number) => {
+  let ar = 0, ai = 0;
+  for (let k = coeffs.length - 1; k >= 0; k--) {
+    const nr = ar * re - ai * im + coeffs[k];
+    const ni = ar * im + ai * re;
+    ar = nr; ai = ni;
+  }
+  return Math.hypot(ar, ai);
+};
+// Extract ascending coeffs of a monovariate polynomial via finite differences on a grid.
+// (Simpler: parse known polynomials directly in the tests below.)
+
+describe("polynomial equations return ALL roots (real and complex)", () => {
   it("cubic with three real roots", () => {
     const r = solveEquation("x^3 - 6*x^2 + 11*x - 6 = 0")!;
     const found = r.roots.map((x) => x.re).sort((a, b) => a - b);
     expect(found.length).toBe(3);
     [1, 2, 3].forEach((want, k) => expect(found[k]).toBeCloseTo(want, 4));
-    expect(r.method).toContain("numeric");
+    expect(r.method).toContain("complete");
+  });
+  it("x^3 - 1 = 0 gives all three roots, not just the real one", () => {
+    const r = solveEquation("x^3 - 1 = 0")!;
+    expect(r.roots.length).toBe(3);
+    // one real root 1, two complex -1/2 ± (√3/2)i
+    expect(r.roots.some((x) => Math.abs(x.re - 1) < 1e-6 && x.im === 0)).toBe(true);
+    expect(r.roots.filter((x) => x.im !== 0).length).toBe(2);
+    for (const root of r.roots) expect(polyAtComplex([-1, 0, 0, 1], root.re, root.im)).toBeLessThan(1e-6);
+  });
+  it("x^4 - 1 = 0 gives 1, -1, i, -i", () => {
+    const r = solveEquation("x^4 - 1 = 0")!;
+    expect(r.roots.length).toBe(4);
+    for (const root of r.roots) expect(polyAtComplex([-1, 0, 0, 0, 1], root.re, root.im)).toBeLessThan(1e-6);
+    expect(r.roots.filter((x) => x.im !== 0).length).toBe(2); // ±i
+    expect(r.roots.filter((x) => x.im === 0).length).toBe(2); // ±1
+  });
+  it("Vieta: for a monic cubic, the roots sum to −(coeff of x²)", () => {
+    const r = solveEquation("x^3 - 2*x^2 - 5*x + 6 = 0")!;
+    const sum = r.roots.reduce((s, x) => s + x.re * (x.display.includes("×") ? 2 : 1), 0);
+    // roots are 1, 3, -2 → sum 2 = −(−2)
+    expect(sum).toBeCloseTo(2, 4);
+    for (const root of r.roots) expect(polyAtComplex([6, -5, -2, 1], root.re, root.im)).toBeLessThan(1e-6);
+  });
+  it("repeated roots collapse with a multiplicity marker", () => {
+    // (x-1)^3 = x^3 - 3x^2 + 3x - 1
+    const r = solveEquation("x^3 - 3*x^2 + 3*x - 1 = 0")!;
+    const one = r.roots.find((x) => Math.abs(x.re - 1) < 1e-5);
+    expect(one).toBeTruthy();
+    expect(one!.display).toMatch(/×3/);
   });
   it("exp equation", () => {
     const r = solveEquation("exp(x) - 2 = 0", "x", 50)!;
@@ -214,5 +256,47 @@ describe("definite integrals match known values", () => {
   }
   it("refuses to integrate with an unresolved parameter", () => {
     expect(integrate("a*x", 0, 1)).toBeNull();
+  });
+});
+
+describe("integration is EXACT (symbolic) where a rule applies, numeric otherwise", () => {
+  const exactCases: [string, number, number, number][] = [
+    ["x^2", 0, 3, 9],
+    ["x^3", -2, 2, 0],
+    ["sin(x)", 0, Math.PI, 2],
+    ["1/x", 1, Math.E, 1],
+    ["exp(2*x)", 0, 1, (Math.E * Math.E - 1) / 2],
+    ["sin(2*x)", 0, Math.PI / 2, 1],
+    ["1/(x^2+1)", 0, 1, Math.PI / 4],
+    ["3*x^2 + 2*x + 1", 0, 2, 14],
+  ];
+  for (const [src, a, b, want] of exactCases) {
+    it(`∫ ${src} is exact = ${want.toFixed(4)}`, () => {
+      const r = integrate(src, a, b)!;
+      expect(r.method).toBe("exact (symbolic)");
+      expect(r.antiderivative).toBeTruthy();
+      expect(Math.abs(r.value - want)).toBeLessThan(1e-9);
+    });
+  }
+
+  it("the reported antiderivative F actually satisfies F' = integrand", () => {
+    const r = integrate("x^3 + sin(x)", 0, 1)!;
+    const dF = parseExpr(differentiate(r.antiderivative!)!.derivative);
+    for (const x of [0.3, 0.9, 1.7]) {
+      const integrand = Math.pow(x, 3) + Math.sin(x);
+      expect(Math.abs(evalAst(dF, { x }) - integrand)).toBeLessThan(1e-6);
+    }
+  });
+
+  it("falls back to numeric when no rule applies (exp(x^2))", () => {
+    const r = integrate("exp(x^2)", 0, 1)!;
+    expect(r.method).toBe("adaptive Simpson");
+    expect(Math.abs(r.value - 1.4626517459)).toBeLessThan(1e-6); // known ∫₀¹ e^{x²}
+  });
+
+  it("falls back to numeric for a product it can't integrate (x*exp(x))", () => {
+    const r = integrate("x*exp(x)", 0, 1)!;
+    // ∫₀¹ x e^x dx = 1 (exactly), Simpson gets it numerically
+    expect(Math.abs(r.value - 1)).toBeLessThan(1e-6);
   });
 });

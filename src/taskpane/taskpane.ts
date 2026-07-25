@@ -2948,13 +2948,20 @@ function renderPka(input: string): void {
   block.className = "prop-rules";
   const head = document.createElement("div");
   head.className = "prop-name";
-  head.textContent = res.sites.length ? "Ionizable groups (typical pKa)" : "No common ionizable groups detected";
+  head.textContent = res.sites.length ? "Ionizable groups (estimated pKa)" : "No common ionizable groups detected";
   block.appendChild(head);
   for (const s of res.sites) {
     const row = document.createElement("div");
     row.className = "prop-rule";
     row.textContent = `${s.group} — ${s.kind === "acid" ? "acidic" : "basic"}, ${s.kind === "acid" ? "pKa" : "pKaH"} ≈ ${s.pka}`;
     block.appendChild(row);
+    // Show the derivation when a substituent correction was applied.
+    if (s.note) {
+      const why = document.createElement("div");
+      why.className = "prop-why";
+      why.textContent = s.note;
+      block.appendChild(why);
+    }
   }
   if (res.sites.length) {
     const net = document.createElement("div");
@@ -2964,7 +2971,7 @@ function renderPka(input: string): void {
   }
   const caveat = document.createElement("div");
   caveat.className = "prop-why";
-  caveat.textContent = "Typical literature values for the detected groups — a group estimate, not a compound-specific pKa.";
+  caveat.textContent = "Estimates. Aromatic acids/bases and aliphatic acids are adjusted for their substituents (Hammett / inductive, ±0.3–0.5); other groups use the typical value for the detected group.";
   block.appendChild(caveat);
   structurePropsEl.appendChild(block);
 }
@@ -2972,11 +2979,13 @@ function renderPka(input: string): void {
 /** Multi-line plain-text pKa summary for insertion (empty when nothing detected). */
 function pkaAsText(res: PkaResult | null): string {
   if (!res || !res.sites.length) return "";
-  const lines = res.sites.map(
-    (s) => `  ${s.group}: ${s.kind === "acid" ? "acidic" : "basic"}, ${s.kind === "acid" ? "pKa" : "pKaH"} ≈ ${s.pka}`,
-  );
+  const lines: string[] = [];
+  for (const s of res.sites) {
+    lines.push(`  ${s.group}: ${s.kind === "acid" ? "acidic" : "basic"}, ${s.kind === "acid" ? "pKa" : "pKaH"} ≈ ${s.pka}`);
+    if (s.note) lines.push(`    (${s.note})`);
+  }
   return [
-    "Ionizable groups (typical literature pKa — group estimate, not a compound-specific value):",
+    "Ionizable groups (estimated pKa; aromatic acids/bases and aliphatic acids are substituent-corrected):",
     ...lines,
     `Estimated net charge at pH 7.4: ${res.netChargeAt74 >= 0 ? "+" : ""}${res.netChargeAt74.toFixed(2)}`,
   ].join("\n");
@@ -6584,7 +6593,15 @@ function updateSolve(): void {
       solveResult.appendChild(msEyebrow("Definite integral"));
       const val = `∫ (${text}) d${r.variable}, from ${solveA.value.trim() || "0"} to ${solveB.value.trim() || "1"} = ${r.value.toPrecision(8).replace(/\.?0+$/, "")}`;
       solveResult.appendChild(solveLine(val, "ms-masses"));
-      lines.push(val, `Method: ${r.method}`);
+      lines.push(val);
+      if (r.antiderivative) {
+        // Show the work: the exact antiderivative F(x) behind an exact result.
+        const fx = `antiderivative F(${r.variable}) = ${r.antiderivative} + C`;
+        solveResult.appendChild(solveLine(fx));
+        lines.push(fx);
+      }
+      solveResult.appendChild(solveLine(`Method: ${r.method}`));
+      lines.push(`Method: ${r.method}`);
       return finish(r.caveats);
     }
 

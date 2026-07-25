@@ -11,12 +11,139 @@
 
 import { Molecule } from "openchemlib";
 import { lookupSmiles } from "./structures";
+import { aromaticRingDistances, aromaticSubstituents, classifySubstituent, SubstKey } from "./molgraph";
 
 export interface PkaSite {
   group: string;
   kind: "acid" | "base";
   /** Representative literature pKa. For a base this is the pKa of its conjugate acid (pKaH). */
   pka: number;
+  /** How the value was derived, when a substituent correction was applied (for the UI to show). */
+  note?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Substituent corrections — make the pKa compound-specific instead of a flat
+// group average. Aromatic groups use the Hammett equation pKa = pKa0 − ρ·Σσ over
+// the ring's meta/para substituents (ortho is excluded — Hammett is unreliable
+// there). Aliphatic acids get an inductive α-substituent correction.
+//
+// σ constants are the standard Hansch–Leo values; σp⁻ (enhanced para) is used for
+// resonance-withdrawing groups on phenol/aniline. ρ and pKa0 are the classic
+// reaction constants (benzoic 4.20/1.00, phenol 9.99/2.23, anilinium 4.60/2.89).
+// ---------------------------------------------------------------------------
+
+const SIGMA: Partial<Record<SubstKey, { m: number; p: number; pMinus?: number }>> = {
+  CH3: { m: -0.07, p: -0.17 },
+  alkyl: { m: -0.07, p: -0.15 },
+  OH: { m: 0.12, p: -0.37 },
+  OR: { m: 0.12, p: -0.27 },
+  OAc: { m: 0.39, p: 0.31 },
+  NH2: { m: -0.16, p: -0.66 },
+  NR2: { m: -0.21, p: -0.83 },
+  NHAc: { m: 0.21, p: 0.0 },
+  NO2: { m: 0.71, p: 0.78, pMinus: 1.27 },
+  CN: { m: 0.56, p: 0.66, pMinus: 1.0 },
+  CHO: { m: 0.35, p: 0.42, pMinus: 1.03 },
+  COR: { m: 0.38, p: 0.5, pMinus: 0.84 },
+  COOH: { m: 0.37, p: 0.45, pMinus: 0.73 },
+  COOR: { m: 0.37, p: 0.45, pMinus: 0.74 },
+  CONH2: { m: 0.28, p: 0.36, pMinus: 0.61 },
+  F: { m: 0.34, p: 0.06 },
+  Cl: { m: 0.37, p: 0.23 },
+  Br: { m: 0.39, p: 0.23 },
+  I: { m: 0.35, p: 0.18 },
+  SH: { m: 0.25, p: 0.15 },
+  SR: { m: 0.15, p: 0.0 },
+  Ph: { m: 0.06, p: -0.01 },
+  vinyl: { m: 0.05, p: -0.02 },
+  alkynyl: { m: 0.21, p: 0.23 },
+};
+
+const HAMMETT: Record<"phenol" | "benzoic" | "anilinium", { pka0: number; rho: number; minus: boolean }> = {
+  phenol: { pka0: 9.99, rho: 2.23, minus: true },
+  benzoic: { pka0: 4.2, rho: 1.0, minus: false },
+  anilinium: { pka0: 4.6, rho: 2.89, minus: true },
+};
+
+/**
+ * Applies the Hammett correction for an ionizable group attached to the aromatic
+ * ring at `ipso`. Returns the corrected pKa and a human-readable derivation.
+ */
+function hammettAdjust(mol: Molecule, ipso: number, kind: keyof typeof HAMMETT): { pka: number; note: string } {
+  const p = HAMMETT[kind];
+  const dist = aromaticRingDistances(mol, ipso);
+  let sum = 0;
+  const parts: string[] = [];
+  let ortho = 0;
+  for (let b = 0; b < mol.getAllAtoms(); b++) {
+    const d = dist[b];
+    if (d < 1 || d > 3) continue;
+    for (const s of aromaticSubstituents(mol, b)) {
+      const key = classifySubstituent(mol, s, b);
+      const sig = SIGMA[key];
+      if (!sig) continue;
+      if (d === 1) { ortho++; continue; } // ortho excluded
+      const v = d === 3 ? (p.minus && sig.pMinus !== undefined ? sig.pMinus : sig.p) : sig.m;
+      sum += v;
+      parts.push(`${key} ${d === 3 ? "para" : "meta"} σ=${v >= 0 ? "+" : ""}${v.toFixed(2)}`);
+    }
+  }
+  const pka = Math.round((p.pka0 - p.rho * sum) * 100) / 100;
+  let note = `parent ${p.pka0.toFixed(2)}`;
+  if (parts.length) note += `; Hammett ρ=${p.rho}, Σσ=${sum >= 0 ? "+" : ""}${sum.toFixed(2)} [${parts.join(", ")}]`;
+  else note += "; no meta/para substituents";
+  if (ortho) note += `; ${ortho} ortho substituent(s) excluded`;
+  return { pka, note };
+}
+
+// Inductive shift on an aliphatic carboxylic acid per electron-withdrawing group
+// on the α-carbon (relative to acetic acid, pKa 4.76). Multiple groups attenuate.
+const ALPHA_SHIFT: Partial<Record<SubstKey, number>> = {
+  F: -2.2, Cl: -1.9, Br: -1.9, I: -1.7, CN: -2.3, NO2: -3.1,
+  OH: -0.9, OR: -0.9, OAc: -0.9, COOH: -0.8, COOR: -0.8, Ph: -0.6, SR: -0.5,
+};
+
+/** Aliphatic carboxylic-acid pKa: acetic 4.76 with α-substituent inductive corrections. */
+function aliphaticAcidPka(mol: Molecule, carbonylC: number): { pka: number; note: string } {
+  const base = 4.76;
+  // The α-carbon is the single-bonded carbon neighbour of the carbonyl (the R).
+  let alpha = -1;
+  const n = mol.getConnAtoms(carbonylC);
+  for (let i = 0; i < n; i++) {
+    const nb = mol.getConnAtom(carbonylC, i);
+    if (mol.getConnBondOrder(carbonylC, i) === 1 && mol.getAtomicNo(nb) === 6) { alpha = nb; break; }
+  }
+  if (alpha < 0) return { pka: base, note: `parent 4.76` };
+  const shifts: number[] = [];
+  const parts: string[] = [];
+  const na = mol.getConnAtoms(alpha);
+  for (let i = 0; i < na; i++) {
+    const s = mol.getConnAtom(alpha, i);
+    if (s === carbonylC) continue;
+    const key = classifySubstituent(mol, s, alpha);
+    const sh = ALPHA_SHIFT[key];
+    if (sh === undefined) continue;
+    shifts.push(sh);
+    parts.push(`${key} ${sh.toFixed(1)}`);
+  }
+  // Successive groups attenuate (each further one contributes ~0.82×).
+  shifts.sort((a, b) => a - b);
+  let total = 0;
+  shifts.forEach((sh, i) => (total += sh * Math.pow(0.82, i)));
+  const pka = Math.round((base + total) * 100) / 100;
+  const note = parts.length ? `parent 4.76; α-inductive [${parts.join(", ")}]` : `parent 4.76`;
+  return { pka, note };
+}
+
+/** The aromatic-carbon neighbour of `atom` (the ipso for a ring-attached group), or -1. */
+function aromaticNeighbor(mol: Molecule, atom: number): number {
+  const n = mol.getConnAtoms(atom);
+  for (let i = 0; i < n; i++) {
+    const nb = mol.getConnAtom(atom, i);
+    if (mol.getAtomicNo(nb) === 6 && mol.isAromaticAtom(nb)) return nb;
+  }
+  return -1;
 }
 
 export interface PkaResult {
@@ -346,11 +473,19 @@ export function predictPka(input: string): PkaResult | null {
         // Distinguish acid (carbon is a carbonyl) from phenol/alcohol.
         // Sulfur/phosphorus oxo-acids handled separately below.
         if (isCarbonyl(mol, c)) {
-          sites.push({ group: "Carboxylic acid", kind: "acid", pka: 4.5 });
+          const ipso = aromaticNeighbor(mol, c);
+          if (ipso >= 0) {
+            const { pka, note } = hammettAdjust(mol, ipso, "benzoic");
+            sites.push({ group: "Benzoic acid (aromatic)", kind: "acid", pka, note });
+          } else {
+            const { pka, note } = aliphaticAcidPka(mol, c);
+            sites.push({ group: "Carboxylic acid", kind: "acid", pka, note });
+          }
           continue;
         }
         if (mol.isAromaticAtom(c)) {
-          sites.push({ group: "Phenol", kind: "acid", pka: 10.0 });
+          const { pka, note } = hammettAdjust(mol, c, "phenol");
+          sites.push({ group: "Phenol", kind: "acid", pka, note });
           continue;
         }
         sites.push({ group: "Alcohol (very weak; ~non-ionizable in water)", kind: "acid", pka: 16.0 });
@@ -404,9 +539,13 @@ export function predictPka(input: string): PkaResult | null {
       if (nbrs.some((nb) => nb.order >= 2)) continue;
       const amide = nbrs.some((nb) => isCarbonyl(mol, nb.atom));
       if (amide) continue; // amide N is not basic
-      const onAromatic = nbrs.some((nb) => mol.getAtomicNo(nb.atom) === 6 && mol.isAromaticAtom(nb.atom));
-      if (onAromatic) sites.push({ group: "Aniline (aromatic amine)", kind: "base", pka: 4.6 });
-      else sites.push({ group: "Aliphatic amine", kind: "base", pka: 10.6 });
+      const ipso = aromaticNeighbor(mol, a);
+      if (ipso >= 0) {
+        const { pka, note } = hammettAdjust(mol, ipso, "anilinium");
+        sites.push({ group: "Aniline (aromatic amine)", kind: "base", pka, note });
+      } else {
+        sites.push({ group: "Aliphatic amine", kind: "base", pka: 10.6 });
+      }
       continue;
     }
   }

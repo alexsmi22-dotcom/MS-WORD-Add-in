@@ -163,11 +163,11 @@
       <li><b>Structure</b> drawn by OpenChemLib; isomeric SMILES (<code>C[C@@H](N)C(=O)O</code>) is drawn with wedge/hash bonds. Known compounds are recognised back from the drawing (a dictionary lookup, not a general IUPAC namer).</li>
       <li><b>Physicochemical properties</b>: MW, heavy-atom count, cLogP, logS, tPSA, H-bond donors/acceptors, rotatable bonds.</li>
       <li><b>Druglikeness</b>: Lipinski Rule of Five (≤1 violation passes) and Veber (rotatable ≤10, tPSA ≤140), compared on unrounded values.</li>
-      <li><b>pKa</b> by exact ionizable-group detection on the atom graph (carboxylic acid ≈4.5, phenol ≈10, aliphatic amine ≈10.6, aniline ≈4.6, and ~a dozen more, including polyprotic acids), plus the estimated net charge at pH 7.4.</li>
+      <li><b>pKa</b> by exact ionizable-group detection on the atom graph (~a dozen groups, including polyprotic acids), <b>substituent-corrected</b> for aromatic acids/bases (Hammett) and aliphatic acids (inductive) so the value is specific to your molecule — e.g. p-nitrophenol ≈ 7.15 vs phenol 9.99, chloroacetic ≈ 2.87 vs acetic 4.76 — with the derivation shown, plus the estimated net charge at pH 7.4.</li>
     </ul>
     <div class="try"><b>Try it:</b> <code>aspirin</code> → structure, formula C₉H₈O₄, MW, druglikeness, and “Carboxylic acid — acidic, pKa ≈ 4.5”. <code>Ca(OH)2</code> → <code>✓ Valid — CaH2O2, M = 74.093 g/mol</code>.</div>
     <p class="out"><b>Inserts:</b> formatted formula (text), structure (picture with provenance), recognised name (text), or the properties + pKa block (text with its caveats).</p>
-    <div class="note"><b>Honest about estimates.</b> cLogP/logS are model predictions (RMSE ≈ 0.4 / 0.7 log units; shown as <i>n/a</i> for inorganics). pKa is a <b>group estimate, not a compound-specific value</b> — the group detection is exact, the number is a typical literature figure. Online IUPAC lookup (OPSIN) is the one feature that leaves the machine, and it always asks first.</p>
+    <div class="note"><b>Honest about estimates.</b> cLogP/logS are model predictions (RMSE ≈ 0.4 / 0.7 log units; shown as <i>n/a</i> for inorganics). pKa detection is exact, and for <b>aromatic acids/bases and aliphatic acids the value is now substituent-corrected</b> — a Hammett (ρ·Σσ) or inductive adjustment specific to your molecule, shown with its derivation (e.g. p-nitrophenol ≈ 7.15, not phenol’s 9.99). Other groups still use the typical group value. Online IUPAC lookup (OPSIN) is the one feature that leaves the machine, and it always asks first.</p>
 
     <h3><span class="icon">🔬</span>Build — structures from atoms/bonds, Markush &amp; molfiles</h3>
     <p>Draw a structure by describing it, or paste an MDL molfile. Built for patent genus/Markush work.</p>
@@ -232,9 +232,9 @@
     <h3><span class="icon">🟰</span>Solve — equations, calculus &amp; word problems</h3>
     <p>A no-code solver that runs entirely on your machine. Pick what to do from the dropdown:</p>
     <ul>
-      <li><b>Solve an equation</b> — <code>x^2 - 5x + 6 = 0</code> → <code>x = 3, 2</code> exactly; linear and quadratic are closed-form (complex roots included). Higher-degree and transcendental equations (<code>cos(x) = 0</code>) give real roots numerically over a scanned range. Identities and no-solution cases are reported as such; a multi-unknown equation is refused, not guessed.</li>
+      <li><b>Solve an equation</b> — <code>x^2 - 5x + 6 = 0</code> → <code>x = 3, 2</code> exactly. Linear and quadratic are closed-form; for <b>any higher-degree polynomial you get every root, real and complex</b> (<code>x^3 - 1 = 0</code> → 1 and −0.5 ± 0.866i), with repeated roots marked ×2/×3. Only genuinely transcendental equations (<code>cos(x) = 0</code>) are limited to real roots in a scanned range. Identities and no-solution cases are reported as such; a multi-unknown equation is refused, not guessed.</li>
       <li><b>Differentiate</b> — a <b>symbolic</b> derivative: <code>sin(x^2)</code> → <code>2*x*cos(x^2)</code> (chain rule).</li>
-      <li><b>Definite integral</b> — numeric (adaptive Simpson): <code>x^2</code> from 0 to 3 → 9. Limits may be expressions like <code>pi/2</code>.</li>
+      <li><b>Definite integral</b> — <b>exact</b> where a closed form exists (it shows the antiderivative F(x)): <code>x^2</code> from 0 to 3 → 9. Falls back to numeric (adaptive Simpson) only when no rule applies. Limits may be expressions like <code>pi/2</code>.</li>
       <li><b>Word problem</b> — offline templates for percentages (<code>12 is what percent of 48?</code> → 25%), distance = rate × time, and simple “a number …” sentences (<code>twice a number plus 7 is 15</code> → builds <code>2*n + 7 = 15</code>, n = 4).</li>
     </ul>
     <p class="out"><b>Inserts:</b> the solution as text — the variable, each root/answer, the method label, and steps.</p>
@@ -431,7 +431,7 @@
     <ul>
       <li><b>It is a drafting aid.</b> Verify every structure, formula, calculation and listing before filing or publishing. It is not a reviewer.</li>
       <li><b>Predicted spectra are estimates</b>, not measurements — see the Spectra warning above.</li>
-      <li><b>pKa is a functional-group estimate</b>, not a compound-specific prediction. The group detection is exact; the value is a typical literature figure.</li>
+      <li><b>pKa</b> detection is exact; aromatic acids/bases and aliphatic acids are substituent-corrected (Hammett/inductive, ±0.3–0.5), other groups use the typical group value. It’s a strong estimate, not a measurement.</li>
       <li><b>The Solve/ODE tools are numerical where they say so</b> — real roots within a scanned range, numeric integration, no closed-form ODE solutions, no boundary-value problems or PDEs.</li>
       <li><b>IR predicts group frequencies</b>, not the fingerprint region below ~1500 cm⁻¹.</li>
       <li><b>UV-Vis uses the Woodward–Fieser rules</b>, which have a defined domain; outside it, JurisLab says “transparent” instead of guessing.</li>

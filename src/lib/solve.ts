@@ -512,6 +512,91 @@ function solvePolyExact(coeffs: number[]): Root[] | null {
   return null;
 }
 
+// ---------------------------------------------------------------------------
+// All roots of a polynomial (real AND complex) via Durand–Kerner. This is what
+// makes degree-≥3 solving COMPLETE — a scan for real roots in a range could only
+// ever find some of them. Self-contained complex arithmetic; no external deps.
+// ---------------------------------------------------------------------------
+
+interface Cx { re: number; im: number }
+const cAdd = (a: Cx, b: Cx): Cx => ({ re: a.re + b.re, im: a.im + b.im });
+const cSub = (a: Cx, b: Cx): Cx => ({ re: a.re - b.re, im: a.im - b.im });
+const cMul = (a: Cx, b: Cx): Cx => ({ re: a.re * b.re - a.im * b.im, im: a.re * b.im + a.im * b.re });
+const cDiv = (a: Cx, b: Cx): Cx => {
+  const d = b.re * b.re + b.im * b.im;
+  return { re: (a.re * b.re + a.im * b.im) / d, im: (a.im * b.re - a.re * b.im) / d };
+};
+const cAbs = (a: Cx): number => Math.hypot(a.re, a.im);
+
+/** Evaluates a polynomial (ascending coeffs) at a complex point via Horner. */
+function polyEvalCx(coeffs: number[], z: Cx): Cx {
+  let acc: Cx = { re: 0, im: 0 };
+  for (let i = coeffs.length - 1; i >= 0; i--) acc = cAdd(cMul(acc, z), { re: coeffs[i], im: 0 });
+  return acc;
+}
+
+/** Snaps a value to the nearest integer when it is within tol, else rounds for display. */
+function snap(v: number): number {
+  const r = Math.round(v);
+  if (Math.abs(v - r) < 1e-7) return r;
+  return Math.round(v * 1e9) / 1e9;
+}
+
+/**
+ * All roots of a polynomial of degree ≥ 1 (ascending coeffs), real and complex,
+ * by Durand–Kerner iteration. Equal roots are collapsed and their multiplicity
+ * reported. Roots are numerical but complete — every one is returned.
+ */
+function allPolyRoots(coeffs: number[]): Root[] {
+  const c = trimPoly(coeffs);
+  const n = c.length - 1;
+  const lead = c[n];
+  const monic = c.map((v) => v / lead);
+
+  // Seed with distinct points off the real axis to avoid symmetric stalls.
+  const seed: Cx = { re: 0.4, im: 0.9 };
+  const roots: Cx[] = [];
+  let p: Cx = { re: 1, im: 0 };
+  for (let k = 0; k < n; k++) {
+    roots.push({ ...p });
+    p = cMul(p, seed);
+  }
+
+  for (let iter = 0; iter < 1000; iter++) {
+    let maxDelta = 0;
+    for (let k = 0; k < n; k++) {
+      let denom: Cx = { re: 1, im: 0 };
+      for (let j = 0; j < n; j++) if (j !== k) denom = cMul(denom, cSub(roots[k], roots[j]));
+      if (cAbs(denom) < 1e-300) continue; // coincident guesses; nudge next round
+      const delta = cDiv(polyEvalCx(monic, roots[k]), denom);
+      roots[k] = cSub(roots[k], delta);
+      maxDelta = Math.max(maxDelta, cAbs(delta));
+    }
+    if (maxDelta < 1e-14) break;
+  }
+
+  // Snap, split real/complex, collapse equal roots into multiplicities.
+  const cleaned = roots.map((z) => {
+    const re = snap(z.re);
+    const im = Math.abs(z.im) < 1e-7 ? 0 : snap(z.im);
+    return { re, im };
+  });
+  const groups: { re: number; im: number; mult: number }[] = [];
+  for (const z of cleaned) {
+    const g = groups.find((h) => Math.abs(h.re - z.re) < 1e-6 && Math.abs(h.im - z.im) < 1e-6);
+    if (g) g.mult++;
+    else groups.push({ ...z, mult: 1 });
+  }
+  return groups
+    .sort((a, b) => b.re - a.re || a.im - b.im)
+    .map((g) => ({
+      display: fmtRoot(g.re, g.im) + (g.mult > 1 ? ` (×${g.mult})` : ""),
+      re: g.re,
+      im: g.im,
+      exact: false,
+    }));
+}
+
 /** Real roots of f in [lo, hi] by scanning for sign changes, then bisecting. */
 function numericRealRoots(f: (x: number) => number, lo: number, hi: number, steps = 4000): Root[] {
   const roots: Root[] = [];
@@ -618,11 +703,13 @@ export function solveEquation(input: string, variable?: string, range = 1000): E
       }
       return { variable: x, roots: exact, method: `exact (${deg === 1 ? "linear" : "quadratic"})`, steps, caveats };
     }
-    // Degree >= 3 polynomial: numeric real roots.
-    steps.push(`Degree-${deg} polynomial; solving numerically for real roots in [−${range}, ${range}].`);
-    const roots = numericRealRoots((xv) => evalAst(f, { [x]: xv }), -range, range);
-    caveats.push(`Numeric solution: only real roots bracketed in [−${range}, ${range}] are shown. A degree-${deg} polynomial can have up to ${deg} roots (some complex or outside this range).`);
-    return { variable: x, roots, method: "numeric (polynomial)", steps, caveats };
+    // Degree >= 3 polynomial: ALL roots (real and complex) via Durand–Kerner.
+    const roots = allPolyRoots(trimmed);
+    steps.push(`Degree-${deg} polynomial; all ${deg} root${deg === 1 ? "" : "s"} found (Durand–Kerner), counting multiplicity.`);
+    caveats.push(
+      `Complete: every root is shown, real and complex. Values are numerical (refined to ~1e-10); an exact closed form is not attempted above the quadratic.`
+    );
+    return { variable: x, roots, method: "complete (all roots)", steps, caveats };
   }
 
   // Transcendental: numeric root-finding.
@@ -666,7 +753,103 @@ export interface IntegralResult {
   variable: string;
   value: number;
   method: string;
+  /** The symbolic antiderivative F(x), when one was found (exact path). */
+  antiderivative?: string;
   caveats: string[];
+}
+
+const V = (name: string): Expr => ({ t: "var", name });
+const near = (v: number, t: number): boolean => Math.abs(v - t) < 1e-12;
+const lnAbs = (u: Expr): Expr => ({ t: "fn", name: "ln", arg: { t: "fn", name: "abs", arg: u } });
+function safeConst(e: Expr): number | null {
+  try { return evalAst(e, {}); } catch { return null; }
+}
+
+/** {a,b} if `e` is a·x + b (degree ≤ 1 in x), else null. */
+function linearInX(e: Expr, x: string): { a: number; b: number } | null {
+  const cf = polyCoeffs(e, x);
+  if (!cf) return null;
+  const t = trimPoly(cf);
+  if (t.length > 2) return null;
+  return { a: t[1] ?? 0, b: t[0] ?? 0 };
+}
+
+// Elementary antiderivatives for f(u); combined with the linear-argument rule
+// ∫ f(a·x+b) dx = F(a·x+b)/a.
+const FN_INTEGRAL: Record<string, (u: Expr) => Expr> = {
+  sin: (u) => ({ t: "neg", e: { t: "fn", name: "cos", arg: u } }),
+  cos: (u) => ({ t: "fn", name: "sin", arg: u }),
+  exp: (u) => ({ t: "fn", name: "exp", arg: u }),
+  sinh: (u) => ({ t: "fn", name: "cosh", arg: u }),
+  cosh: (u) => ({ t: "fn", name: "sinh", arg: u }),
+};
+
+/**
+ * Symbolic antiderivative of `e` with respect to `x`, or null when no rule
+ * applies (then the caller falls back to numeric quadrature). Covers linearity,
+ * the power rule (incl. 1/x → ln|x|), 1/(x²+1) → atan, e^x, sin/cos/sinh/cosh,
+ * and linear arguments a·x+b for all of the above.
+ */
+function symbolicAntideriv(e: Expr, x: string): Expr | null {
+  if (!containsVar(e, x)) return { t: "mul", l: e, r: V(x) }; // ∫ c dx = c·x
+  switch (e.t) {
+    case "var":
+      return { t: "div", l: { t: "pow", l: V(x), r: N(2) }, r: N(2) }; // ∫ x dx = x²/2
+    case "neg": {
+      const a = symbolicAntideriv(e.e, x);
+      return a ? { t: "neg", e: a } : null;
+    }
+    case "add": {
+      const l = symbolicAntideriv(e.l, x), r = symbolicAntideriv(e.r, x);
+      return l && r ? { t: "add", l, r } : null;
+    }
+    case "sub": {
+      const l = symbolicAntideriv(e.l, x), r = symbolicAntideriv(e.r, x);
+      return l && r ? { t: "sub", l, r } : null;
+    }
+    case "mul": {
+      // A constant factor pulls out; a genuine product of two x-terms has no simple rule.
+      if (!containsVar(e.l, x)) { const r = symbolicAntideriv(e.r, x); return r ? { t: "mul", l: e.l, r } : null; }
+      if (!containsVar(e.r, x)) { const l = symbolicAntideriv(e.l, x); return l ? { t: "mul", l: e.r, r: l } : null; }
+      return null;
+    }
+    case "div": {
+      if (!containsVar(e.r, x)) { const u = symbolicAntideriv(e.l, x); return u ? { t: "div", l: u, r: e.r } : null; } // f/c
+      if (!containsVar(e.l, x)) {
+        if (e.r.t === "var") return { t: "mul", l: e.l, r: lnAbs(V(x)) }; // c/x → c·ln|x|
+        const dc = trimPoly(polyCoeffs(e.r, x) ?? [0]);
+        if (dc.length === 3 && near(dc[0], 1) && near(dc[1], 0) && near(dc[2], 1))
+          return { t: "mul", l: e.l, r: { t: "fn", name: "atan", arg: V(x) } }; // c/(x²+1) → c·atan(x)
+        return null;
+      }
+      return null;
+    }
+    case "pow": {
+      if (!containsVar(e.r, x)) {
+        const n = safeConst(e.r);
+        if (n === null) return null;
+        if (e.l.t === "var") {
+          return near(n, -1) ? lnAbs(V(x)) : { t: "div", l: { t: "pow", l: V(x), r: N(n + 1) }, r: N(n + 1) };
+        }
+        const lin = linearInX(e.l, x);
+        if (lin && lin.a !== 0) {
+          return near(n, -1)
+            ? { t: "div", l: lnAbs(e.l), r: N(lin.a) }
+            : { t: "div", l: { t: "pow", l: e.l, r: N(n + 1) }, r: N(lin.a * (n + 1)) };
+        }
+      }
+      return null;
+    }
+    case "fn": {
+      const F = FN_INTEGRAL[e.name];
+      if (!F) return null;
+      const lin = linearInX(e.arg, x);
+      if (!lin || lin.a === 0) return null;
+      return { t: "div", l: F(e.arg), r: N(lin.a) };
+    }
+    default:
+      return null;
+  }
 }
 
 /** Adaptive Simpson quadrature of f over [a, b]. */
@@ -700,10 +883,29 @@ export function integrate(input: string, a: number, b: number, variable?: string
   const x = variable ?? (vars.length === 1 ? vars[0] : "x");
   const others = vars.filter((v) => v !== x);
   if (others.length) return null; // cannot integrate with unresolved parameters
+
+  // Prefer an EXACT symbolic antiderivative; fall back to numeric only if none.
+  const F = symbolicAntideriv(simplify(e), x);
+  if (F) {
+    const Fs = simplify(F);
+    try {
+      const value = evalAst(Fs, { [x]: b }) - evalAst(Fs, { [x]: a });
+      if (Number.isFinite(value)) {
+        const caveats: string[] = [];
+        const fs = format(Fs);
+        if (/\bln\b/.test(fs) && a * b < 0)
+          caveats.push("The antiderivative has a singularity at 0, which lies inside the interval — this is the formal value; the integral may be improper.");
+        return { variable: x, value, method: "exact (symbolic)", antiderivative: fs, caveats };
+      }
+    } catch {
+      /* fall through to numeric */
+    }
+  }
+
   const f = (xv: number) => evalAst(e, { [x]: xv });
   const value = adaptiveSimpson(f, a, b);
   const caveats = [
-    "Numeric definite integral (adaptive Simpson) — an approximation, not a symbolic antiderivative.",
+    "Numeric definite integral (adaptive Simpson) — an approximation, because no closed-form antiderivative rule applied here.",
     "A singularity or discontinuity of the integrand inside the interval can make the result unreliable.",
   ];
   return { variable: x, value, method: "adaptive Simpson", caveats };

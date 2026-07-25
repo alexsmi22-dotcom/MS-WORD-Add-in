@@ -34,6 +34,7 @@
   --paper:#FFFFFF;
   --ground:#EDF1F4;
   --ground-2:#F7F9FB;
+  --oxblood:#7B2D2D;
   --rule:#DBE3E9;
   --rule-soft:#E9EEF2;
 
@@ -290,10 +291,15 @@ a.gpanel:hover{color:var(--ink);transform:translateY(-3px);box-shadow:0 26px 50p
 @media (max-width:620px){.cards{grid-template-columns:1fr}}
 
 /* ---------- grouped tool register ---------- */
-.group{margin-bottom:clamp(30px,4vw,46px)}
+.group{margin-bottom:clamp(42px,5.5vw,70px)}
+.group-head .gnum{font-family:var(--mono);font-size:11px;letter-spacing:.12em;color:var(--ink-3);flex:0 0 auto}
+/* The page splits science from drafting everywhere else; the register says so too. */
+.group-law .group-head{border-bottom-color:var(--oxblood)}
+.group-law .group-head .gnum,.group-law .group-head .count{color:var(--oxblood)}
+.group-law .row:hover .ref{color:var(--oxblood)}
 .group:last-child{margin-bottom:0}
 .group-head{display:flex;align-items:baseline;gap:12px;padding-bottom:10px;margin-bottom:6px;border-bottom:2px solid var(--navy-700)}
-.group-head h3{font-size:1.05rem;margin:0;letter-spacing:-.012em}
+.group-head h3{font-size:1.18rem;margin:0;letter-spacing:-.014em}
 .group-head .count{font-family:var(--mono);font-size:11px;letter-spacing:.11em;text-transform:uppercase;color:var(--ink-3);margin-left:auto}
 .register{columns:2;column-gap:44px}
 @media (max-width:860px){.register{columns:1}}
@@ -310,6 +316,7 @@ a.gpanel:hover{color:var(--ink);transform:translateY(-3px);box-shadow:0 26px 50p
 .spec svg{display:inline-block;vertical-align:middle;height:26px;width:auto;margin-right:7px}
 .spec .mono{display:inline-block;vertical-align:middle;font-family:var(--mono);font-size:11.5px;white-space:pre;color:var(--ink-2)}
 .spec sub,.spec sup{line-height:0}
+.door .spec:last-of-type{margin-bottom:16px}
 .spec .dim{color:var(--ink-3)}
 .row:hover .spec{border-color:#C7D5DF}
 @media (max-width:560px){.spec{font-size:12px}}
@@ -714,12 +721,12 @@ footer{border-top:1px solid var(--rule);background:var(--ground-2);padding:32px 
     <div class="doors">
       <a class="door" href="science.html">
         <h3>For scientists</h3>
-        <p>Matrix math and optimization, predicted NMR, IR and UV-Vis, mass spec, enzyme kinetics and dose response, alignment, statistics and plots. Results arrive as editable Word tables and charts, not flat images.</p>
+        <p>Matrix math and optimization, predicted NMR, IR and UV-Vis, mass spec, enzyme kinetics and dose response, alignment, statistics and plots. Results arrive as editable Word tables and charts, not flat images.</p><div class="spec"><svg viewBox="0 0 60 24" aria-hidden="true"><g fill="none" stroke="#0C4A6E" stroke-width="1.2"><path d="M10 22 V8"/><path d="M13 22 V5"/><path d="M16 22 V10"/><path d="M30 22 V13"/><path d="M33 22 V11"/><path d="M46 22 V6"/></g><path d="M2 22 H58" fill="none" stroke="#1A1A1A" stroke-width="1"/></svg><span>predicted <sup>1</sup>H NMR from a SMILES string</span></div><div class="spec">&#955; = 5.3722, &#8722;0.3722, 0.9143 &#177; 1.2076i</div>
         <span class="go">See the science tools &rarr;</span>
       </a>
       <a class="door" href="legal.html">
         <h3>For patent &amp; legal</h3>
-        <p>Reference numeral management with gap and collision checks, black-and-white patent figures, WIPO ST.26 sequence listings, Bluebook citations, a Table of Authorities and a whole-document consistency audit.</p>
+        <p>Reference numeral management with gap and collision checks, black-and-white patent figures, WIPO ST.26 sequence listings, Bluebook citations, a Table of Authorities and a whole-document consistency audit.</p><div class="spec">(10) housing <span class="dim">&#183;</span> (12) aromatic core <span class="dim">&#183;</span> gap at (20)</div><div class="spec"><i>Alice Corp. v. CLS Bank Int&#8217;l</i>, 573 U.S. 208 (2014)</div>
         <span class="go">See the drafting tools &rarr;</span>
       </a>
     </div>
@@ -774,7 +781,7 @@ footer{border-top:1px solid var(--rule);background:var(--ground-2);padding:32px 
 
     <!-- group 1 -->
     <div class="group">
-      <div class="group-head"><h3>Numerical &amp; mathematical</h3><span class="count">7 tools</span></div>
+      <div class="group-head"><span class="gnum">01</span><h3>Numerical &amp; mathematical</h3><span class="count">7 tools</span></div>
       <div class="register">
         <a class="row" href="tool.html?tool=analyze"><span class="ref">(10)</span><div>
           <h3>Analyze <span class="tag tag-new">New</span></h3>
@@ -802,7 +809,7 @@ footer{border-top:1px solid var(--rule);background:var(--ground-2);padding:32px 
 
     <!-- group 2 -->
     <div class="group">
-      <div class="group-head"><h3>Chemistry</h3><span class="count">6 tools</span></div>
+      <div class="group-head"><span class="gnum">02</span><h3>Chemistry</h3><span class="count">6 tools</span></div>
       <div class="register">
         <a class="row" href="tool.html?tool=chemical"><span class="ref">(24)</span><div>
           <h3>Chemical <span class="tag tag-upd">Updated</span></h3>
@@ -827,7 +834,7 @@ footer{border-top:1px solid var(--rule);background:var(--ground-2);padding:32px 
 
     <!-- group 3 -->
     <div class="group">
-      <div class="group-head"><h3>Life science</h3><span class="count">6 tools</span></div>
+      <div class="group-head"><span class="gnum">03</span><h3>Life science</h3><span class="count">6 tools</span></div>
       <div class="register">
         <a class="row" href="tool.html?tool=dna"><span class="ref">(36)</span><div>
           <h3>DNA</h3>
@@ -852,8 +859,8 @@ GA&#8209;TACA</span> <span>6/7 identity, 1 gap</span></div></div></a>
     </div>
 
     <!-- group 4 -->
-    <div class="group">
-      <div class="group-head"><h3>Patent &amp; legal drafting</h3><span class="count">6 tools</span></div>
+    <div class="group group-law">
+      <div class="group-head"><span class="gnum">04</span><h3>Patent &amp; legal drafting</h3><span class="count">6 tools</span></div>
       <div class="register">
         <a class="row" href="tool.html?tool=numerals"><span class="ref">(48)</span><div>
           <h3>Numerals</h3>

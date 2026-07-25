@@ -43,6 +43,14 @@
     .try b { color:var(--blue); }
     .out { font-size:.9rem; color:var(--muted); margin:6px 0 2px; }
     .out b { color:var(--ink); }
+    .dl { display:inline-block; background:var(--blue); color:#fff; text-decoration:none; padding:10px 18px; border-radius:8px; font-weight:700; margin:6px 10px 6px 0; box-shadow:0 2px 6px rgba(46,116,181,.18); }
+    .dl:hover { background:#245e97; }
+    .osgrid { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin:14px 0; }
+    .osgrid .card { margin:0; }
+    .osgrid h4 { margin:0 0 8px; color:var(--blue); font-size:1rem; }
+    .osgrid ol { margin:0; padding-left:20px; }
+    .osgrid li { margin:7px 0; font-size:.93rem; }
+    @media (max-width:620px) { .osgrid { grid-template-columns:1fr; } }
     footer { text-align:center; color:var(--muted); font-size:.88rem; padding:32px 0 52px; }
     @media (max-width:620px) { .toc ul { columns:1; } }
   </style>
@@ -75,13 +83,51 @@
       </ul>
     </div>
 
-    <h2 id="start">Getting started</h2>
+    <h2 id="start">Getting started — install, open, run</h2>
+    <p>JurisLab is a free add-in for Microsoft Word. Installing it just registers it for your own account — <b>no administrator rights, nothing to buy, nothing sent anywhere.</b> You need <b>Microsoft Word</b> (Microsoft 365, or Office 2019 or later) on <b>Windows or Mac</b>, and an internet connection <b>the first time you open the pane</b> (after that it runs offline). The whole thing takes about two minutes.</p>
+
+    <h3>Step 1 — Download the pack for your computer</h3>
+    <p>Grab the one zip for your operating system:</p>
+    <p>
+      <a class="dl" href="https://github.com/alexsmi22-dotcom/MS-WORD-Add-in/raw/main/install/formula-inserter-windows.zip">⬇ Download for Windows</a>
+      <a class="dl" href="https://github.com/alexsmi22-dotcom/MS-WORD-Add-in/raw/main/install/formula-inserter-mac.zip">⬇ Download for Mac</a>
+    </p>
+    <p class="muted"><b>Before you install:</b> open Word once and then close it, so it has created the folder the add-in installs into.</p>
+
+    <h3>Step 2 — Run the installer</h3>
+    <p>Unzip the download first (double-click the <code>.zip</code>), keeping the files together in one folder. Then follow the column for your computer:</p>
+    <div class="osgrid">
+      <div class="card">
+        <h4>🪟 On Windows</h4>
+        <ol>
+          <li><b>Double-click <code>install.bat</code></b> inside the unzipped folder.</li>
+          <li>If a blue <b>“Windows protected your PC”</b> box appears, click <b>More info → Run anyway</b>. (That box only shows because the file came from the internet — it’s expected.)</li>
+          <li>A window says <b>“JurisLab installed…”</b> — press any key to close it.</li>
+        </ol>
+        <p class="muted" style="margin:8px 0 0">Double-click does nothing? Right-click <code>install.ps1</code> → <b>Run with PowerShell</b> instead.</p>
+      </div>
+      <div class="card">
+        <h4>🍎 On a Mac</h4>
+        <ol>
+          <li><b>Right-click</b> (or Control-click) <b><code>install.command</code></b> and choose <b>Open</b> — don’t double-click it the first time.</li>
+          <li>You’ll get one of two boxes. If it has an <b>Open</b> button, click <b>Open</b>. If it only offers <i>Move to Trash / Done</i> (newer macOS), click <b>Done</b>, then go to <b>Apple menu → System Settings → Privacy &amp; Security</b>, scroll down to <b>Security</b>, and click <b>Open Anyway</b> next to “install.command was blocked”. Enter your password / Touch ID, then <b>Open Anyway</b> once more.</li>
+          <li>A Terminal window prints <b>“JurisLab installed.”</b> — press any key to close it.</li>
+        </ol>
+        <p class="muted" style="margin:8px 0 0">This one-time approval is Apple’s rule for any installer it didn’t deliver itself — it isn’t specific to JurisLab. After the first time, it’s a normal double-click.</p>
+      </div>
+    </div>
+    <div class="note"><b>Why the security prompt?</b> Neither installer needs admin rights and neither sends anything anywhere — it only copies one small file into Word’s own add-in folder. Windows and macOS simply ask you to confirm any installer downloaded from the web. Approving it once is all it takes.</div>
+
+    <h3>Step 3 — Restart Word, then open the pane</h3>
     <ol class="steps">
-      <li><b>Install.</b> Unzip the pack for your machine and run the installer inside — <code>install.bat</code> on Windows, <code>install.command</code> on a Mac. No admin rights needed; it only registers the add-in for your own account.</li>
-      <li><b>Restart Word completely.</b> Close every window, not just the document. Word only notices a new add-in on a cold start — this is the single most common reason it "didn’t install".</li>
-      <li><b>Open the pane.</b> <b>Insert</b> → <b>Add-ins</b> → <b>Developer Add-ins</b> → <b>JurisLab</b>. It opens on the Home screen showing all 25 tools as cards, grouped by area.</li>
+      <li><b>Fully quit Word</b> — every window (on Mac use <b>⌘-Q</b>, not just the red dot). Word only notices a new add-in on a cold start; this is the single most common reason it seems “not installed”.</li>
+      <li>Reopen Word and go to the <b>Insert</b> tab → <b>Add-ins</b> (the <i>My Add-ins</i> dropdown) → click <b>JurisLab</b>. On Windows it may sit under <b>Developer Add-ins</b>.</li>
+      <li>The pane opens on the side, on the <b>Home</b> screen showing all 25 tools as cards, grouped by area.</li>
     </ol>
-    <p class="muted">Only the first load needs internet — the add-in fetches itself from the web once, then everything you type is computed on your own machine.</p>
+
+    <h3>Step 4 — Run it (a 10-second test)</h3>
+    <p>Put your cursor in the document, click the <b>Chemical</b> card, type <code>H2O</code>, and press <b>Insert formatted text</b> — you should get <b>H₂O</b> in your document. That’s the whole loop: pick a tool, type, insert. If that worked, everything works.</p>
+    <p class="muted">Only that first load needs internet — the add-in fetches its code once, then everything you type is computed on your own machine. If it ever misbehaves, jump to <a href="#trouble">Troubleshooting</a> at the bottom.</p>
 
     <h2 id="loop">The core loop</h2>
     <p>Every tool works the same way, so once you’ve learned one you’ve learned all of them:</p>
@@ -397,7 +443,9 @@
     <h2 id="trouble">Troubleshooting</h2>
     <table>
       <tr><th>Symptom</th><th>What to do</th></tr>
-      <tr><td>The add-in doesn’t appear after installing</td><td><b>Fully close and reopen Word</b> — all windows, not just the document. This is the usual cause. Then look under <b>Insert → Add-ins → Developer Add-ins</b>.</td></tr>
+      <tr><td><b>Mac:</b> “install.command can’t be opened” / “unidentified developer” / only <i>Move to Trash</i></td><td><b>Right-click</b> the file → <b>Open</b> (not double-click). If it still won’t open, go to <b>Apple menu → System Settings → Privacy &amp; Security</b>, scroll to <b>Security</b>, and click <b>Open Anyway</b> next to “install.command was blocked”, then confirm once more. This is Apple’s one-time approval; the installer only copies one file. The unzipped folder also has a <code>START HERE</code> file with a copy-paste fallback.</td></tr>
+      <tr><td><b>Windows:</b> double-clicking <code>install.bat</code> does nothing, or opens Notepad</td><td>Right-click <code>install.ps1</code> → <b>Run with PowerShell</b>. If a “Windows protected your PC” box appears, click <b>More info → Run anyway</b>.</td></tr>
+      <tr><td>The add-in doesn’t appear after installing</td><td><b>Fully close and reopen Word</b> — all windows, not just the document (on Mac, <b>⌘-Q</b>). This is the usual cause. Also make sure you opened Word once <i>before</i> installing. Then look under <b>Insert → Add-ins</b> (Windows: <b>Developer Add-ins</b>).</td></tr>
       <tr><td>The pane is blank or won’t load</td><td>You need internet for the <i>first</i> load. If it’s still blank, close the pane and reopen it. If it persists, reinstall from the current pack — an older install can point at an address that no longer exists.</td></tr>
       <tr><td>A banner says a new version is available</td><td>Reload the pane (close and reopen it). You don’t need to reinstall — the add-in updates itself from the web.</td></tr>
       <tr><td>“Couldn’t build an equation from that”</td><td>The expression didn’t parse, so it inserted formatted text instead. Check for an unclosed bracket. The <b>Examples &amp; syntax</b> panel shows the syntax for what you’re typing.</td></tr>

@@ -303,6 +303,17 @@ a.gpanel:hover{color:var(--ink);transform:translateY(-3px);box-shadow:0 26px 50p
 .row:hover .ref{color:var(--cyan)}
 .row h3{font-size:15.5px;margin:0 0 3px;letter-spacing:-.008em;font-weight:650;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .row p{margin:0;font-size:14px;line-height:1.55;color:var(--ink-2)}
+/* Deliberately NOT a flex container. Flex makes every child its own item, so a
+   `gap` would push <sub>/<sup> away from the character they belong to and
+   "IC<sub>50</sub>" renders as "IC 50". Inline flow keeps formulae intact. */
+.spec{margin-top:9px;padding:7px 10px;background:var(--paper);border:1px solid var(--rule);border-radius:5px;font-family:var(--serif);font-size:12.5px;line-height:1.5;color:var(--ink);min-height:32px;overflow:hidden}
+.spec svg{display:inline-block;vertical-align:middle;height:26px;width:auto;margin-right:7px}
+.spec .mono{display:inline-block;vertical-align:middle;font-family:var(--mono);font-size:11.5px;white-space:pre;color:var(--ink-2)}
+.spec sub,.spec sup{line-height:0}
+.spec .dim{color:var(--ink-3)}
+.row:hover .spec{border-color:#C7D5DF}
+@media (max-width:560px){.spec{font-size:12px}}
+
 .row code,.step code{font-family:var(--mono);font-size:13px;background:var(--paper);border:1px solid var(--rule);border-radius:4px;padding:1.5px 6px;color:var(--ink);white-space:nowrap}
 
 /* ---------- privacy ---------- */
@@ -767,25 +778,25 @@ footer{border-top:1px solid var(--rule);background:var(--ground-2);padding:32px 
       <div class="register">
         <a class="row" href="tool.html?tool=analyze"><span class="ref">(10)</span><div>
           <h3>Analyze <span class="tag tag-new">New</span></h3>
-          <p>No-code numerical workbench: matrix math (solve, inverse, eigenvalues, QR, SVD, expressions), optimization, FFT, ODE and system solving (RK45), and raw data turned into correlations, trends and insights.</p></div></a>
+          <p>No-code numerical workbench: matrix math (solve, inverse, eigenvalues, QR, SVD, expressions), optimization, FFT, ODE and system solving (RK45), and raw data turned into correlations, trends and insights.</p><div class="spec">&#955; = 5.3722, &#8722;0.3722, 0.9143 &#177; 1.2076i <span class="dim">&#183; cond(A) = 14.43</span></div></div></a>
         <a class="row" href="tool.html?tool=solve"><span class="ref">(12)</span><div>
           <h3>Solve <span class="tag tag-new">New</span></h3>
-          <p>Solve equations (exact linear and quadratic including complex roots, numeric otherwise), symbolic derivatives, definite integrals, and common word problems. Offline, and honest when it cannot parse.</p></div></a>
+          <p>Solve equations (exact linear and quadratic including complex roots, numeric otherwise), symbolic derivatives, definite integrals, and common word problems. Offline, and honest when it cannot parse.</p><div class="spec">x&#179; &#8722; 1 = 0 &#8594; x = 1, &#8722;0.5 &#177; 0.866i</div></div></a>
         <a class="row" href="tool.html?tool=math"><span class="ref">(14)</span><div>
           <h3>Math</h3>
-          <p>Native Word equations, LaTeX import and export, aligned equations, Greek letters and ∑ ∫ ∂ operators.</p></div></a>
+          <p>Native Word equations, LaTeX import and export, aligned equations, Greek letters and ∑ ∫ ∂ operators.</p><div class="spec"><span class="mono">e^{i\pi}+1=0</span> <span class="dim">&#8594;</span> <span>e<sup>i&#960;</sup> + 1 = 0</span></div></div></a>
         <a class="row" href="tool.html?tool=stats"><span class="ref">(16)</span><div>
           <h3>Stats <span class="tag tag-upd">Updated</span></h3>
-          <p>t-tests, one- and two-way ANOVA, regression, non-parametric tests (Mann–Whitney, Wilcoxon), chi-square, multiple-comparison correction and uncertainty propagation.</p></div></a>
+          <p>t-tests, one- and two-way ANOVA, regression, non-parametric tests (Mann–Whitney, Wilcoxon), chi-square, multiple-comparison correction and uncertainty propagation.</p><div class="spec">F(2, 36) = 18.42 <span class="dim">&#183;</span> p &lt; 0.001 <span class="dim">&#183;</span> &#951;&#178;<sub>p</sub> = 0.506</div></div></a>
         <a class="row" href="tool.html?tool=plot"><span class="ref">(18)</span><div>
           <h3>Plot</h3>
-          <p>Offline function and data charts with legends, including multi-argument functions (atan2, hypot, min, max).</p></div></a>
+          <p>Offline function and data charts with legends, including multi-argument functions (atan2, hypot, min, max).</p><div class="spec"><svg viewBox="0 0 60 24" aria-hidden="true"><path d="M2 12 Q9 2 16 12 Q23 22 30 12 Q37 2 44 12 Q51 22 58 12" fill="none" stroke="#0C4A6E" stroke-width="1.4"/></svg><span>y = sin x</span></div></div></a>
         <a class="row" href="tool.html?tool=units"><span class="ref">(20)</span><div>
           <h3>Units</h3>
-          <p>SI typesetting and conversion: length, mass, time, electrical (V, A, W, Ω, F), chemistry (M, Da, ppm) and more.</p></div></a>
+          <p>SI typesetting and conversion: length, mass, time, electrical (V, A, W, Ω, F), chemistry (M, Da, ppm) and more.</p><div class="spec">1 atm = 101.325 kPa</div></div></a>
         <a class="row" href="tool.html?tool=finance"><span class="ref">(22)</span><div>
           <h3>Finance</h3>
-          <p>19 calculators: TVM, DCF, amortization, bonds (price, YTM, duration, convexity), options and Greeks, implied vol, depreciation, return stats.</p></div></a>
+          <p>19 calculators: TVM, DCF, amortization, bonds (price, YTM, duration, convexity), options and Greeks, implied vol, depreciation, return stats.</p><div class="spec">1,000 at 5% for 10 yr &#8594; FV 1,628.89</div></div></a>
       </div>
     </div>
 
@@ -795,22 +806,22 @@ footer{border-top:1px solid var(--rule);background:var(--ground-2);padding:32px 
       <div class="register">
         <a class="row" href="tool.html?tool=chemical"><span class="ref">(24)</span><div>
           <h3>Chemical <span class="tag tag-upd">Updated</span></h3>
-          <p>Formatted formulas, 2D structures from name or SMILES, formula validator, physicochemical properties and druglikeness (cLogP, tPSA, Lipinski, Veber), substituent-corrected pKa (Hammett), and opt-in online name to structure lookup.</p></div></a>
+          <p>Formatted formulas, 2D structures from name or SMILES, formula validator, physicochemical properties and druglikeness (cLogP, tPSA, Lipinski, Veber), substituent-corrected pKa (Hammett), and opt-in online name to structure lookup.</p><div class="spec"><svg viewBox="0 0 30 30" aria-hidden="true"><g fill="none" stroke="#1A1A1A" stroke-width="1.3"><path d="M15 4 L24 9.5 L24 20.5 L15 26 L6 20.5 L6 9.5 Z"/><circle cx="15" cy="15" r="5"/></g></svg><span>C<sub>6</sub>H<sub>6</sub> <span class="dim">&#183;</span> 78.11 g/mol</span></div></div></a>
         <a class="row" href="tool.html?tool=spectra"><span class="ref">(26)</span><div>
           <h3>Spectra <span class="tag tag-upd">Updated</span></h3>
-          <p>Predicted ¹H and ¹³C NMR (shift, integration, multiplicity, assignment), now with J-coupling and 2D COSY and HSQC, plus IR group frequencies, UV-Vis λmax (Woodward–Fieser) and EI-MS fragmentation, from a name or SMILES, offline.</p></div></a>
+          <p>Predicted ¹H and ¹³C NMR (shift, integration, multiplicity, assignment), now with J-coupling and 2D COSY and HSQC, plus IR group frequencies, UV-Vis λmax (Woodward–Fieser) and EI-MS fragmentation, from a name or SMILES, offline.</p><div class="spec"><svg viewBox="0 0 60 24" aria-hidden="true"><g fill="none" stroke="#0C4A6E" stroke-width="1.2"><path d="M10 22 V8"/><path d="M13 22 V5"/><path d="M16 22 V10"/><path d="M30 22 V13"/><path d="M33 22 V11"/><path d="M46 22 V6"/></g><path d="M2 22 H58" fill="none" stroke="#1A1A1A" stroke-width="1"/></svg><span><sup>1</sup>H <span class="dim">&#183;</span> 400 MHz</span></div></div></a>
         <a class="row" href="tool.html?tool=massspec"><span class="ref">(28)</span><div>
           <h3>Mass Spec</h3>
-          <p>Monoisotopic and average mass, isotope pattern, and adduct m/z ([M+H]⁺, [M+Na]⁺, [M+2H]²⁺, [M−H]⁻).</p></div></a>
+          <p>Monoisotopic and average mass, isotope pattern, and adduct m/z ([M+H]⁺, [M+Na]⁺, [M+2H]²⁺, [M−H]⁻).</p><div class="spec"><svg viewBox="0 0 40 24" aria-hidden="true"><g fill="none" stroke="#0C4A6E" stroke-width="2.6"><path d="M8 22 V4"/><path d="M18 22 V10.3"/><path d="M28 22 V20.1"/></g><path d="M2 22 H38" fill="none" stroke="#1A1A1A" stroke-width="1"/></svg><span>Cl<sub>2</sub> <span class="dim">&#183;</span> M : M+2 : M+4 = 9 : 6 : 1</span></div></div></a>
         <a class="row" href="tool.html?tool=build"><span class="ref">(30)</span><div>
           <h3>Build</h3>
-          <p>Structures from atom and bond lists, plus Markush genus.</p></div></a>
+          <p>Structures from atom and bond lists, plus Markush genus.</p><div class="spec"><svg viewBox="0 0 40 26" aria-hidden="true"><g fill="none" stroke="#1A1A1A" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round"><path d="M4 18 l7 -5 l7 5 l7 -5 l7 5"/><path d="M18 18 v6"/></g></svg><span>atom and bond lists &#8594; structure</span></div></div></a>
         <a class="row" href="tool.html?tool=reaction"><span class="ref">(32)</span><div>
           <h3>Reaction</h3>
-          <p>Multi-step reaction schemes with conditions over the arrow, including forward, reversible (⇌) and retrosynthetic arrows.</p></div></a>
+          <p>Multi-step reaction schemes with conditions over the arrow, including forward, reversible (⇌) and retrosynthetic arrows.</p><div class="spec"><svg viewBox="0 0 54 24" aria-hidden="true"><g fill="none" stroke="#1A1A1A" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 16 H46"/><path d="M40 12 l6 4 l-6 4"/></g><text x="21" y="9" font-family="Georgia,serif" font-size="9" fill="#44555F">&#916;</text></svg><span>A + B &#8594; C</span></div></div></a>
         <a class="row" href="tool.html?tool=peptide"><span class="ref">(34)</span><div>
           <h3>Peptide</h3>
-          <p>2D structure from a one- or three-letter amino-acid sequence, with formula and molecular weight.</p></div></a>
+          <p>2D structure from a one- or three-letter amino-acid sequence, with formula and molecular weight.</p><div class="spec">H&#8211;Ala&#8211;Gly&#8211;Ser&#8211;OH <span class="dim">&#183;</span> C<sub>8</sub>H<sub>15</sub>N<sub>3</sub>O<sub>5</sub> <span class="dim">&#183;</span> 233.22</div></div></a>
       </div>
     </div>
 
@@ -820,22 +831,23 @@ footer{border-top:1px solid var(--rule);background:var(--ground-2);padding:32px 
       <div class="register">
         <a class="row" href="tool.html?tool=dna"><span class="ref">(36)</span><div>
           <h3>DNA</h3>
-          <p>Reverse complement, translation, ORFs, primer Tm (nearest-neighbour), restriction sites (122 enzymes) with methylation warnings, and EMBOSS isoelectric point.</p></div></a>
+          <p>Reverse complement, translation, ORFs, primer Tm (nearest-neighbour), restriction sites (122 enzymes) with methylation warnings, and EMBOSS isoelectric point.</p><div class="spec"><span class="mono">ATG GCC TAA</span> <span>&#8594; Met &#183; Ala &#183; stop</span></div></div></a>
         <a class="row" href="tool.html?tool=sequence"><span class="ref">(38)</span><div>
           <h3>Sequence</h3>
-          <p>WIPO ST.26 listings: mandatory source feature plus CDS and gene annotations with auto <code>/translation</code> and the full mol_type vocabulary.</p></div></a>
+          <p>WIPO ST.26 listings: mandatory source feature plus CDS and gene annotations with auto <code>/translation</code> and the full mol_type vocabulary.</p><div class="spec">SEQ ID NO: 1 <span class="dim">&#183;</span> moltype DNA <span class="dim">&#183;</span> 27 nt</div></div></a>
         <a class="row" href="tool.html?tool=seqmap"><span class="ref">(40)</span><div>
           <h3>Sequence Map <span class="tag tag-new">New</span></h3>
-          <p>Open a GenBank, FASTA or SnapGene file and insert an annotated linear or circular map at the cursor, with features and restriction sites. Black-and-white patent-figure style available.</p></div></a>
+          <p>Open a GenBank, FASTA or SnapGene file and insert an annotated linear or circular map at the cursor, with features and restriction sites. Black-and-white patent-figure style available.</p><div class="spec"><svg viewBox="0 0 28 28" aria-hidden="true"><circle cx="14" cy="14" r="10" fill="none" stroke="#1A1A1A" stroke-width="1"/><path d="M14 4 A10 10 0 0 1 24 14" fill="none" stroke="#1A1A1A" stroke-width="3"/><path d="M8.9 22.7 A10 10 0 0 1 4.6 16.6" fill="none" stroke="#1A1A1A" stroke-width="3"/></svg><span>pJL&#8209;1 <span class="dim">&#183;</span> 5,412 bp</span></div></div></a>
         <a class="row" href="tool.html?tool=align"><span class="ref">(42)</span><div>
           <h3>Align <span class="tag tag-new">New</span></h3>
-          <p>Pairwise sequence alignment: Needleman–Wunsch (global) and Smith–Waterman (local) with affine gaps, BLOSUM62 or DNA scoring, and identity and similarity stats with a twilight-zone caveat.</p></div></a>
+          <p>Pairwise sequence alignment: Needleman–Wunsch (global) and Smith–Waterman (local) with affine gaps, BLOSUM62 or DNA scoring, and identity and similarity stats with a twilight-zone caveat.</p><div class="spec"><span class="mono">GATTACA
+GA&#8209;TACA</span> <span>6/7 identity, 1 gap</span></div></div></a>
         <a class="row" href="tool.html?tool=bioassay"><span class="ref">(44)</span><div>
           <h3>Bio/Assay</h3>
-          <p>Enzyme kinetics, dose response (IC50 and EC50), binding, and lab math. Offline curve fitting with the fit drawn over your data.</p></div></a>
+          <p>Enzyme kinetics, dose response (IC50 and EC50), binding, and lab math. Offline curve fitting with the fit drawn over your data.</p><div class="spec">IC<sub>50</sub> = 42 nM <span class="dim">&#183;</span> Hill n = 1.04 <span class="dim">&#183;</span> R&#178; = 0.997</div></div></a>
         <a class="row" href="tool.html?tool=botanical"><span class="ref">(46)</span><div>
           <h3>Botanical</h3>
-          <p>Plant-nomenclature typesetting.</p></div></a>
+          <p>Plant-nomenclature typesetting.</p><div class="spec"><i>Fritillaria thunbergii</i> Miq.</div></div></a>
       </div>
     </div>
 
@@ -845,22 +857,22 @@ footer{border-top:1px solid var(--rule);background:var(--ground-2);padding:32px 
       <div class="register">
         <a class="row" href="tool.html?tool=numerals"><span class="ref">(48)</span><div>
           <h3>Numerals</h3>
-          <p>Reference-numeral management: parenthesized and "element 12" callouts, gap, orphan and collision checks, and a numeral list.</p></div></a>
+          <p>Reference-numeral management: parenthesized and "element 12" callouts, gap, orphan and collision checks, and a numeral list.</p><div class="spec">(10) housing <span class="dim">&#183;</span> (12) aromatic core <span class="dim">&#183;</span> gap at (20)</div></div></a>
         <a class="row" href="tool.html?tool=refs"><span class="ref">(50)</span><div>
           <h3>Refs</h3>
-          <p>Auto-numbered figure and table captions with cross-references.</p></div></a>
+          <p>Auto-numbered figure and table captions with cross-references.</p><div class="spec"><b>FIG. 3.</b> Circular map of pJL&#8209;1. <span class="dim">&#183; cited in text as &#8220;see FIG. 3&#8221;</span></div></div></a>
         <a class="row" href="tool.html?tool=citations"><span class="ref">(52)</span><div>
           <h3>Citations</h3>
-          <p>Bluebook citations for cases, statutes, patents, Fed. Reg., MPEP and articles. Practitioner and academic styles, T6 and T10 abbreviation, id., supra and parallel cites, and paste-and-fix. Plus a Table of Contents, a Table of Authorities and a citation register.</p></div></a>
+          <p>Bluebook citations for cases, statutes, patents, Fed. Reg., MPEP and articles. Practitioner and academic styles, T6 and T10 abbreviation, id., supra and parallel cites, and paste-and-fix. Plus a Table of Contents, a Table of Authorities and a citation register.</p><div class="spec"><i>Alice Corp. v. CLS Bank Int&#8217;l</i>, 573 U.S. 208 (2014)</div></div></a>
         <a class="row" href="tool.html?tool=tablechart"><span class="ref">(54)</span><div>
           <h3>Table → Chart</h3>
-          <p>Charts (column, bar, line, area, scatter and stacked) plus flowcharts, block diagrams and clean table figures. Black-and-white patent figures or PowerPoint (.pptx).</p></div></a>
+          <p>Charts (column, bar, line, area, scatter and stacked) plus flowcharts, block diagrams and clean table figures. Black-and-white patent figures or PowerPoint (.pptx).</p><div class="spec"><svg viewBox="0 0 44 24" aria-hidden="true"><g fill="#0C4A6E"><rect x="4" y="12" width="6" height="10"/><rect x="14" y="6" width="6" height="16"/><rect x="24" y="15" width="6" height="7"/><rect x="34" y="9" width="6" height="13"/></g><path d="M2 22 H42" fill="none" stroke="#1A1A1A" stroke-width="1"/></svg><span>table &#8594; column chart</span></div></div></a>
         <a class="row" href="tool.html?tool=code"><span class="ref">(56)</span><div>
           <h3>Code</h3>
-          <p>Algorithm and code listings.</p></div></a>
+          <p>Algorithm and code listings.</p><div class="spec"><span class="mono">for i in range(n):</span></div></div></a>
         <a class="row" href="tool.html?tool=audit"><span class="ref">(58)</span><div>
           <h3>Audit</h3>
-          <p>Whole-document consistency check.</p></div></a>
+          <p>Whole-document consistency check.</p><div class="spec">&#9873; (22) appears in the text, not in FIG. 3</div></div></a>
       </div>
     </div>
 

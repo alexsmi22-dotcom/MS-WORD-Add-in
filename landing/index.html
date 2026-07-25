@@ -317,6 +317,34 @@ a.gpanel:hover{color:var(--ink);transform:translateY(-3px);box-shadow:0 26px 50p
 .spec .mono{display:inline-block;vertical-align:middle;font-family:var(--mono);font-size:11.5px;white-space:pre;color:var(--ink-2)}
 .spec sub,.spec sup{line-height:0}
 .door .spec:last-of-type{margin-bottom:16px}
+
+/* --- register filter --- */
+.filter[hidden]{display:none}
+.filter{display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px;margin:0 0 clamp(26px,3.4vw,38px)}
+.filter input{flex:1 1 260px;min-width:0;font-family:var(--sans);font-size:14.5px;color:var(--ink);
+  background:var(--paper);border:1px solid var(--rule);border-radius:7px;padding:10px 13px;
+  transition:border-color .16s ease,box-shadow .16s ease}
+.filter input::placeholder{color:var(--ink-3)}
+.filter input:focus{outline:none;border-color:var(--cyan);box-shadow:0 0 0 3px rgba(14,165,233,.16)}
+.chips{display:flex;flex-wrap:wrap;gap:7px}
+.chip{font-family:var(--mono);font-size:11px;letter-spacing:.09em;text-transform:uppercase;
+  color:var(--ink-2);background:var(--paper);border:1px solid var(--rule);border-radius:999px;
+  padding:7px 12px;cursor:pointer;transition:background .16s ease,color .16s ease,border-color .16s ease}
+.chip:hover{border-color:#B9C9D4}
+.chip[aria-pressed="true"]{background:var(--navy-700);border-color:var(--navy-700);color:#fff}
+.chip[data-bench="04"][aria-pressed="true"]{background:var(--oxblood);border-color:var(--oxblood)}
+.filter-count{flex:0 0 auto;margin:0;font-family:var(--mono);font-size:11px;letter-spacing:.09em;
+  text-transform:uppercase;color:var(--ink-3)}
+.no-hits{margin:0;padding:26px 2px;color:var(--ink-2);font-size:15px}
+.no-hits[hidden]{display:none}
+.group[hidden],.row[hidden]{display:none}
+/* the whole row is a link; say so on hover and on keyboard focus */
+.row h3::after{content:"\203A";color:var(--cyan);opacity:0;transform:translateX(-3px);
+  transition:opacity .16s ease,transform .16s ease;font-weight:400}
+.row:hover h3::after,.row:focus-visible h3::after{opacity:1;transform:none}
+.group-law .row h3::after{color:var(--oxblood)}
+.row:focus-visible{outline:2px solid var(--cyan);outline-offset:2px}
+
 .spec .dim{color:var(--ink-3)}
 .row:hover .spec{border-color:#C7D5DF}
 @media (max-width:560px){.spec{font-size:12px}}
@@ -778,9 +806,24 @@ footer{border-top:1px solid var(--rule);background:var(--ground-2);padding:32px 
       <h2 class="h2">All 25 tools, grouped by bench.</h2>
       <p class="lede">Numbered the way a patent figure is numbered. Open any entry for the full breakdown and examples.</p>
     </div>
+      <div class="filter" hidden>
+        <input id="tool-q" type="search" autocomplete="off" spellcheck="false"
+               aria-label="Filter the tool list"
+               placeholder="Filter 25 tools — try NMR, citation, matrix…">
+        <div class="chips" role="group" aria-label="Filter by bench">
+          <button type="button" class="chip" data-bench="all" aria-pressed="true">All</button>
+          <button type="button" class="chip" data-bench="01" aria-pressed="false">Numerical</button>
+          <button type="button" class="chip" data-bench="02" aria-pressed="false">Chemistry</button>
+          <button type="button" class="chip" data-bench="03" aria-pressed="false">Life science</button>
+          <button type="button" class="chip" data-bench="04" aria-pressed="false">Patent &amp; legal</button>
+        </div>
+        <p class="filter-count" aria-live="polite">25 tools</p>
+      </div>
+      <p class="no-hits" hidden>Nothing matches that. Try a broader word &mdash; the tools are described in the
+        vocabulary of the bench they belong to.</p>
 
     <!-- group 1 -->
-    <div class="group">
+    <div data-bench="01" class="group">
       <div class="group-head"><span class="gnum">01</span><h3>Numerical &amp; mathematical</h3><span class="count">7 tools</span></div>
       <div class="register">
         <a class="row" href="tool.html?tool=analyze"><span class="ref">(10)</span><div>
@@ -808,7 +851,7 @@ footer{border-top:1px solid var(--rule);background:var(--ground-2);padding:32px 
     </div>
 
     <!-- group 2 -->
-    <div class="group">
+    <div data-bench="02" class="group">
       <div class="group-head"><span class="gnum">02</span><h3>Chemistry</h3><span class="count">6 tools</span></div>
       <div class="register">
         <a class="row" href="tool.html?tool=chemical"><span class="ref">(24)</span><div>
@@ -833,7 +876,7 @@ footer{border-top:1px solid var(--rule);background:var(--ground-2);padding:32px 
     </div>
 
     <!-- group 3 -->
-    <div class="group">
+    <div data-bench="03" class="group">
       <div class="group-head"><span class="gnum">03</span><h3>Life science</h3><span class="count">6 tools</span></div>
       <div class="register">
         <a class="row" href="tool.html?tool=dna"><span class="ref">(36)</span><div>
@@ -859,7 +902,7 @@ GA&#8209;TACA</span> <span>6/7 identity, 1 gap</span></div></div></a>
     </div>
 
     <!-- group 4 -->
-    <div class="group group-law">
+    <div data-bench="04" class="group group-law">
       <div class="group-head"><span class="gnum">04</span><h3>Patent &amp; legal drafting</h3><span class="count">6 tools</span></div>
       <div class="register">
         <a class="row" href="tool.html?tool=numerals"><span class="ref">(48)</span><div>
@@ -988,5 +1031,69 @@ GA&#8209;TACA</span> <span>6/7 identity, 1 gap</span></div></div></a>
 })();
 </script>
 
+
+<script>
+(function(){
+  var wrap = document.getElementById('tools');
+  if(!wrap) return;
+  var bar = wrap.querySelector('.filter');
+  var q = wrap.querySelector('#tool-q');
+  var count = wrap.querySelector('.filter-count');
+  var none = wrap.querySelector('.no-hits');
+  var chips = Array.prototype.slice.call(wrap.querySelectorAll('.chip'));
+  var groups = Array.prototype.slice.call(wrap.querySelectorAll('.group'));
+  if(!bar || !q) return;
+
+  // Index once. Row text is name + description + the specimen, so searching
+  // "eigenvalue" finds Analyze through its worked example, not only its blurb.
+  var rows = [];
+  groups.forEach(function(g){
+    Array.prototype.slice.call(g.querySelectorAll('.row')).forEach(function(r){
+      rows.push({ el:r, group:g, bench:g.getAttribute('data-bench') || '',
+                  text:(r.textContent || '').toLowerCase().replace(/\s+/g,' ') });
+    });
+    var c = g.querySelector('.count');
+    if(c) c.setAttribute('data-total', g.querySelectorAll('.row').length);
+  });
+  var TOTAL = rows.length;
+  var bench = 'all';
+
+  function apply(){
+    var term = q.value.trim().toLowerCase();
+    var shown = 0;
+    rows.forEach(function(r){
+      var ok = (bench === 'all' || r.bench === bench) && (!term || r.text.indexOf(term) !== -1);
+      r.el.hidden = !ok;
+      if(ok) shown++;
+    });
+    groups.forEach(function(g){
+      var vis = g.querySelectorAll('.row:not([hidden])').length;
+      g.hidden = vis === 0;
+      var c = g.querySelector('.count');
+      if(c){
+        var all = Number(c.getAttribute('data-total'));
+        c.textContent = vis === all ? all + ' tools' : vis + ' of ' + all;
+      }
+    });
+    none.hidden = shown !== 0;
+    count.textContent = shown === TOTAL ? TOTAL + ' tools' : shown + ' of ' + TOTAL;
+  }
+
+  chips.forEach(function(c){
+    c.addEventListener('click', function(){
+      bench = c.getAttribute('data-bench');
+      chips.forEach(function(o){ o.setAttribute('aria-pressed', String(o === c)); });
+      apply();
+    });
+  });
+  q.addEventListener('input', apply);
+  q.addEventListener('keydown', function(e){
+    if(e.key === 'Escape'){ q.value = ''; apply(); }
+  });
+
+  bar.hidden = false;   // only now is it real
+  apply();
+})();
+</script>
 </body>
 </html>

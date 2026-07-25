@@ -71,9 +71,6 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
 .eyebrow{font-family:var(--mono);font-size:11.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--mid);margin:0 0 14px}
 .h2{font-size:clamp(1.5rem,3vw,2.15rem);line-height:1.13;letter-spacing:-.02em;font-weight:700;margin:0 0 10px}
 .lede{color:var(--ink-2);max-width:62ch;margin:0}
-.tag{font-family:var(--mono);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;padding:2.5px 6px;border-radius:3px;font-weight:600;line-height:1.4}
-.tag-new{background:#E1F0F9;color:var(--navy-700)}
-.tag-upd{background:transparent;color:var(--ink-3);border:1px solid var(--rule)}
 
 /* ---------- header: navy glass, constant ---------- */
 .masthead{
@@ -646,7 +643,7 @@ footer{border-top:1px solid var(--rule);background:var(--ground-2);padding:32px 
     <div class="showcase">
 
       <a class="gpanel" href="tool.html?tool=spectra">
-        <h3>Predicted spectra <span class="tag tag-upd">Updated</span></h3>
+        <h3>Predicted spectra</h3>
         <p>Give it a name or a SMILES string and get ¹H and ¹³C NMR with shifts, integration, multiplicity and assignment, now including J-coupling and 2D COSY and HSQC maps, plus IR group frequencies, UV-Vis λmax by Woodward-Fieser, and EI-MS fragmentation. The coupling topology is exact from the bond graph. Estimates are labelled as estimates, never passed off as measured spectra.</p>
         <div class="inset">
           <p class="inset-cap">Inserted: Table 1 and Figure 2</p>
@@ -662,7 +659,7 @@ footer{border-top:1px solid var(--rule);background:var(--ground-2);padding:32px 
       </a>
 
       <a class="gpanel" href="tool.html?tool=seqmap">
-        <h3>Annotated sequence maps <span class="tag tag-new">New</span></h3>
+        <h3>Annotated sequence maps</h3>
         <p>Open a GenBank, FASTA or SnapGene file and drop an annotated linear or circular map at the cursor, with features, topology and restriction sites. A black-and-white patent-figure style is built in, so the same map serves the paper and the application. Files are read on your machine and nothing is uploaded.</p>
         <div class="inset">
           <p class="inset-cap">Inserted: FIG. 4, patent-figure style</p>
@@ -783,19 +780,19 @@ footer{border-top:1px solid var(--rule);background:var(--ground-2);padding:32px 
     </div>
     <div class="cards">
       <a class="card" href="tool.html?tool=solve">
-        <h3>Solve <span class="tag tag-new">New</span></h3>
+        <h3>Solve</h3>
         <p>A no-code solver: solve equations (exact linear and quadratic including complex roots, numeric real roots for the rest), take a symbolic derivative, evaluate a definite integral, or work a word problem. Exact answers are labelled exact, numeric ones state their limits, and it says so rather than guessing when it cannot parse.</p>
       </a>
       <a class="card" href="tool.html?tool=spectra">
-        <h3>NMR: J-coupling &amp; 2D <span class="tag tag-new">New</span></h3>
+        <h3>NMR: J-coupling &amp; 2D</h3>
         <p>The ¹H predictor now resolves coupling constants and multiplet names (dd, td and so on), and two new 2D maps join the Spectra tool: COSY (¹H–¹H) and HSQC (¹H–¹³C). The coupling topology is exact from the bond graph. The J values are typical literature figures, and the caveats say so.</p>
       </a>
       <a class="card" href="tool.html?tool=seqmap">
-        <h3>Sequence Map <span class="tag tag-new">New</span></h3>
+        <h3>Sequence Map</h3>
         <p>Open a GenBank, FASTA or SnapGene file and insert an annotated linear or circular map, with features, topology and restriction sites, in a black-and-white patent-figure style. Files are read on your machine. Nothing is uploaded.</p>
       </a>
       <a class="card" href="tool.html?tool=align">
-        <h3>Align <span class="tag tag-new">New</span></h3>
+        <h3>Align</h3>
         <p>Pairwise alignment with the algorithms EMBOSS runs: Needleman–Wunsch (global) and Smith–Waterman (local), affine gaps, BLOSUM62 or DNA scoring. Reports identity, similarity and gaps, and warns in the twilight zone where unrelated proteins still align.</p>
       </a>
       <a class="card" href="tool.html?tool=analyze">
@@ -803,7 +800,7 @@ footer{border-top:1px solid var(--rule);background:var(--ground-2);padding:32px 
         <p>The no-code numerical core: matrix math (solve A·x = b, inverse, eigenvalues including complex, QR, SVD, expressions), optimization, FFT, a stiff-aware ODE solver, and raw data turned into correlations, trends and insights. Results come back as editable tables and charts.</p>
       </a>
       <a class="card" href="tool.html?tool=chemical">
-        <h3>Compound library <span class="tag tag-upd">Updated</span></h3>
+        <h3>Compound library</h3>
         <p>359 named structures with every SMILES verified against PubChem: violacein, morphine, cholesterol, paclitaxel, chlorophyll, heme and more.</p>
       </a>
     </div>
@@ -839,16 +836,16 @@ footer{border-top:1px solid var(--rule);background:var(--ground-2);padding:32px 
       <div class="group-head"><span class="gnum">01</span><h3>Numerical &amp; mathematical</h3><span class="count">7 tools</span></div>
       <div class="register">
         <a class="row" href="tool.html?tool=analyze"><span class="ref">(10)</span><div>
-          <h3>Analyze <span class="tag tag-new">New</span></h3>
+          <h3>Analyze</h3>
           <p>No-code numerical workbench: matrix math (solve, inverse, eigenvalues, QR, SVD, expressions), optimization, FFT, ODE and system solving (RK45), and raw data turned into correlations, trends and insights.</p><div class="spec">&#955; = 5.3722, &#8722;0.3722, 0.9143 &#177; 1.2076i <span class="dim">&#183; cond(A) = 14.43</span></div></div></a>
         <a class="row" href="tool.html?tool=solve"><span class="ref">(12)</span><div>
-          <h3>Solve <span class="tag tag-new">New</span></h3>
+          <h3>Solve</h3>
           <p>Solve equations (exact linear and quadratic including complex roots, numeric otherwise), symbolic derivatives, definite integrals, and common word problems. Offline, and honest when it cannot parse.</p><div class="spec">x&#179; &#8722; 1 = 0 &#8594; x = 1, &#8722;0.5 &#177; 0.866i</div></div></a>
         <a class="row" href="tool.html?tool=math"><span class="ref">(14)</span><div>
           <h3>Math</h3>
           <p>Native Word equations, LaTeX import and export, aligned equations, Greek letters and ∑ ∫ ∂ operators.</p><div class="spec"><span class="mono">e^{i\pi}+1=0</span> <span class="dim">&#8594;</span> <span>e<sup>i&#960;</sup> + 1 = 0</span></div></div></a>
         <a class="row" href="tool.html?tool=stats"><span class="ref">(16)</span><div>
-          <h3>Stats <span class="tag tag-upd">Updated</span></h3>
+          <h3>Stats</h3>
           <p>t-tests, one- and two-way ANOVA, regression, non-parametric tests (Mann–Whitney, Wilcoxon), chi-square, multiple-comparison correction and uncertainty propagation.</p><div class="spec">F(2, 36) = 18.42 <span class="dim">&#183;</span> p &lt; 0.001 <span class="dim">&#183;</span> &#951;&#178;<sub>p</sub> = 0.506</div></div></a>
         <a class="row" href="tool.html?tool=plot"><span class="ref">(18)</span><div>
           <h3>Plot</h3>
@@ -867,10 +864,10 @@ footer{border-top:1px solid var(--rule);background:var(--ground-2);padding:32px 
       <div class="group-head"><span class="gnum">02</span><h3>Chemistry</h3><span class="count">6 tools</span></div>
       <div class="register">
         <a class="row" href="tool.html?tool=chemical"><span class="ref">(24)</span><div>
-          <h3>Chemical <span class="tag tag-upd">Updated</span></h3>
+          <h3>Chemical</h3>
           <p>Formatted formulas, 2D structures from name or SMILES, formula validator, physicochemical properties and druglikeness (cLogP, tPSA, Lipinski, Veber), substituent-corrected pKa (Hammett), and opt-in online name to structure lookup.</p><div class="spec"><svg viewBox="0 0 30 30" aria-hidden="true"><g fill="none" stroke="#1A1A1A" stroke-width="1.3"><path d="M15 4 L24 9.5 L24 20.5 L15 26 L6 20.5 L6 9.5 Z"/><circle cx="15" cy="15" r="5"/></g></svg><span>C<sub>6</sub>H<sub>6</sub> <span class="dim">&#183;</span> 78.11 g/mol</span></div></div></a>
         <a class="row" href="tool.html?tool=spectra"><span class="ref">(26)</span><div>
-          <h3>Spectra <span class="tag tag-upd">Updated</span></h3>
+          <h3>Spectra</h3>
           <p>Predicted ¹H and ¹³C NMR (shift, integration, multiplicity, assignment), now with J-coupling and 2D COSY and HSQC, plus IR group frequencies, UV-Vis λmax (Woodward–Fieser) and EI-MS fragmentation, from a name or SMILES, offline.</p><div class="spec"><svg viewBox="0 0 60 24" aria-hidden="true"><g fill="none" stroke="#0C4A6E" stroke-width="1.2"><path d="M10 22 V8"/><path d="M13 22 V5"/><path d="M16 22 V10"/><path d="M30 22 V13"/><path d="M33 22 V11"/><path d="M46 22 V6"/></g><path d="M2 22 H58" fill="none" stroke="#1A1A1A" stroke-width="1"/></svg><span><sup>1</sup>H <span class="dim">&#183;</span> 400 MHz</span></div></div></a>
         <a class="row" href="tool.html?tool=massspec"><span class="ref">(28)</span><div>
           <h3>Mass Spec</h3>
@@ -898,10 +895,10 @@ footer{border-top:1px solid var(--rule);background:var(--ground-2);padding:32px 
           <h3>Sequence</h3>
           <p>WIPO ST.26 listings: mandatory source feature plus CDS and gene annotations with auto <code>/translation</code> and the full mol_type vocabulary.</p><div class="spec">SEQ ID NO: 1 <span class="dim">&#183;</span> moltype DNA <span class="dim">&#183;</span> 27 nt</div></div></a>
         <a class="row" href="tool.html?tool=seqmap"><span class="ref">(40)</span><div>
-          <h3>Sequence Map <span class="tag tag-new">New</span></h3>
+          <h3>Sequence Map</h3>
           <p>Open a GenBank, FASTA or SnapGene file and insert an annotated linear or circular map at the cursor, with features and restriction sites. Black-and-white patent-figure style available.</p><div class="spec"><svg viewBox="0 0 28 28" aria-hidden="true"><circle cx="14" cy="14" r="10" fill="none" stroke="#1A1A1A" stroke-width="1"/><path d="M14 4 A10 10 0 0 1 24 14" fill="none" stroke="#1A1A1A" stroke-width="3"/><path d="M8.9 22.7 A10 10 0 0 1 4.6 16.6" fill="none" stroke="#1A1A1A" stroke-width="3"/></svg><span>pJL&#8209;1 <span class="dim">&#183;</span> 5,412 bp</span></div></div></a>
         <a class="row" href="tool.html?tool=align"><span class="ref">(42)</span><div>
-          <h3>Align <span class="tag tag-new">New</span></h3>
+          <h3>Align</h3>
           <p>Pairwise sequence alignment: Needleman–Wunsch (global) and Smith–Waterman (local) with affine gaps, BLOSUM62 or DNA scoring, and identity and similarity stats with a twilight-zone caveat.</p><div class="spec"><span class="mono">GATTACA
 GA&#8209;TACA</span> <span>6/7 identity, 1 gap</span></div></div></a>
         <a class="row" href="tool.html?tool=bioassay"><span class="ref">(44)</span><div>

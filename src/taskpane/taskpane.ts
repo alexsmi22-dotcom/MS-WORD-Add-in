@@ -100,6 +100,7 @@ import {
   CorrectionMethod,
 } from "../lib/stats2";
 import { tukeyHSD } from "../lib/tukey";
+import { fftFilter, FilterKind } from "../lib/fftfilter";
 import { build, BuildFormat, BuildResult } from "../lib/builder";
 import { formatCodeBlock, CodeStyle } from "../lib/codeblock";
 import {
@@ -5619,7 +5620,7 @@ const ANALYZE_CALCS: AnalyzeCalc[] = [
       const at = start.names.map((n, i) => `${n} = ${formatNum(res.x[i], 6)}`).join(", ");
       const note = res.converged
         ? `converged in ${res.iterations} iterations`
-        : `stopped after ${res.iterations} iterations — may not be a true minimum`;
+        : `stopped after ${res.iterations} iterations, so this may not be a true minimum`;
       return { text: `Minimum f = ${formatNum(res.fx, 6)}\nat ${at}\n(${note})` };
     },
   },
@@ -5657,6 +5658,79 @@ const ANALYZE_CALCS: AnalyzeCalc[] = [
         { kind: "line", text: `Dominant frequencies: ${domText}` },
         { kind: "plot", svg, caption: "Amplitude spectrum", alt: "FFT amplitude spectrum", w: 380, h: 270 },
       ]);
+    },
+  },
+  {
+    // The spectrum tool could SHOW noise and do nothing about it. fftfilter.ts
+    // was written, tested, caveated, and never wired to anything.
+    id: "fftfilter",
+    name: "FFT filter (de-noise a signal)",
+    hint: "Removes a frequency band from a uniformly sampled signal. The transition band is a raised cosine, not a brick wall, because a brick wall rings.",
+    fields: [
+      { key: "signal", label: "Signal samples", default: "0.0000, 0.7362, 0.2071, 1.2774, 1.0000, 0.5703, 1.2071, 0.0291, -0.0000, -0.0291, -1.2071, -0.5703, -1.0000, -1.2774, -0.2071, -0.7362, -0.0000, 0.7362, 0.2071, 1.2774, 1.0000, 0.5703, 1.2071, 0.0291, -0.0000, -0.0291, -1.2071, -0.5703, -1.0000, -1.2774, -0.2071, -0.7362", kind: "block", rows: 6 },
+      { key: "fs", label: "Sample rate (Hz)", default: "64", kind: "text" },
+      {
+        key: "kind",
+        label: "Filter",
+        default: "lowpass",
+        kind: "select",
+        options: [
+          { value: "lowpass", label: "Low-pass (keep below cutoff)" },
+          { value: "highpass", label: "High-pass (keep above cutoff)" },
+          { value: "bandpass", label: "Band-pass (keep between)" },
+          { value: "bandstop", label: "Band-stop (remove between)" },
+        ],
+      },
+      { key: "cutoff", label: "Cutoff / low edge (Hz)", default: "8", kind: "text" },
+      { key: "cutoffHigh", label: "High edge (Hz, band filters only)", default: "", kind: "text" },
+      { key: "transition", label: "Transition width (Hz, blank = 10% of cutoff)", default: "", kind: "text" },
+    ],
+    compute: (r) => {
+      const signal = statList(r("signal"));
+      const fs = Number(r("fs"));
+      const kind = r("kind") as FilterKind;
+      const cutoff = Number(r("cutoff"));
+      if (signal.length < 4) return { text: "Enter at least four samples.", ok: false };
+      if (!Number.isFinite(fs) || fs <= 0) return { text: "Enter a positive sample rate.", ok: false };
+      if (!Number.isFinite(cutoff) || cutoff <= 0) return { text: "Enter a positive cutoff frequency.", ok: false };
+
+      const hiRaw = r("cutoffHigh").trim();
+      const trRaw = r("transition").trim();
+      const cutoffHigh = hiRaw ? Number(hiRaw) : undefined;
+      const transition = trRaw ? Number(trRaw) : undefined;
+      if ((kind === "bandpass" || kind === "bandstop") && !(Number.isFinite(cutoffHigh) && (cutoffHigh as number) > cutoff))
+        return { text: "A band filter needs a high edge greater than the low edge.", ok: false };
+      if (cutoff >= fs / 2)
+        return { text: `The cutoff must be below the Nyquist frequency (${formatNum(fs / 2, 4)} Hz); nothing above it was ever sampled.`, ok: false };
+
+      const res = fftFilter(signal, fs, kind, { cutoff, cutoffHigh, transition });
+      if (!res) return { text: "Could not filter that; check the samples, sample rate and cutoffs.", ok: false };
+
+      const t = (k: number): number => k / fs;
+      const before: Point[] = signal.map((y, k) => ({ x: t(k), y }));
+      const after: Point[] = res.signal.map((y, k) => ({ x: t(k), y }));
+      const svg = buildPlotSvg(
+        [
+          { points: before, type: "line", color: "#94a3b8", label: "original" },
+          { points: after, type: "line", color: "#2563eb", label: "filtered" },
+        ],
+        { title: `${kind} filter`, xlabel: "Time (s)", ylabel: "Amplitude" },
+      );
+
+      const blocks: AnalyzeBlock[] = [
+        { kind: "line", text: `${kind} filter, cutoff ${formatNum(cutoff, 4)} Hz${cutoffHigh ? ` to ${formatNum(cutoffHigh, 4)} Hz` : ""}` },
+        { kind: "line", text: `Transform ran at ${res.paddedLength} points, ${formatNum(res.binWidth, 4)} Hz per bin` },
+        { kind: "plot", svg, caption: "Filtered signal", alt: "Original and filtered signal", w: 380, h: 270 },
+        { kind: "line", text: `Filtered samples: ${res.signal.map((y) => formatNum(y, 4)).join(", ")}` },
+      ];
+      // The module's caveats are the reason it is trustworthy — never dropped.
+      // The em dash is formatNum's non-finite sentinel and the insertable
+      // guard scans the whole result text for it, so a caveat using one as
+      // punctuation would silently disable Insert. Swapped for a comma-dash;
+      // the wording is untouched otherwise.
+      for (const c of res.caveats)
+        blocks.push({ kind: "line", text: `\u2022 ${c.replace(/\u2014/g, " -")}` });
+      return analyzeResultOf(blocks);
     },
   },
   {
@@ -5906,7 +5980,13 @@ function updateAnalyzePreview(): void {
   }
   // Block insertion of a non-finite result: formatNum renders Infinity/NaN as the
   // "—" sentinel (e.g. a matrix expression that divides by zero), and a dash must
-  // never land in the document — matches the Stats-mode guard.
+  // never land in the document. Matches the Stats-mode guard.
+  //
+  // HAZARD, learned the hard way: this scans the WHOLE result text, so an em dash
+  // used as ordinary punctuation anywhere in a calculator's output silently
+  // disables Insert AND suppresses the rich preview (the reader falls back to the
+  // plain-text branch below, so plots vanish). If you are writing a calculator,
+  // use a comma or a hyphen in prose. analyzeCalcText.test.ts pins this.
   const insertable = out.ok !== false && !!out.text && !out.text.includes("—");
   analyzeResult.innerHTML =
     out.blocks && insertable ? analyzeBlocksToPreviewHtml(out.blocks) : esc(out.text).replace(/\n/g, "<br>");

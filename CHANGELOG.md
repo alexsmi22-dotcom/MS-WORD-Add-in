@@ -2,6 +2,48 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
+## [1.94.0] — 2026-07-26 — FFT filtering, and two bugs a punctuation mark was causing
+
+**FFT filter (Analyze).** `fftfilter.ts` — 181 lines of low/high/band-pass with
+written caveats for Gibbs ringing, circular wraparound and Nyquist — had zero
+references outside its own test. The FFT tool could show you noise and do nothing
+about it, so the workflow an engineer opens MATLAB for dead-ended at the
+spectrum. Low, high, band-pass and band-stop, with a raised-cosine transition
+rather than a brick wall, plotted against the original signal. Verified in the
+real pane: the default 4 Hz + 24 Hz signal, low-passed at 8 Hz, comes back as a
+clean 4 Hz sine (0, 0.3827, 0.7071, 0.9239, 1, ...).
+
+**Two pre-existing bugs, both caused by an em dash.** `formatNum()` renders
+Infinity/NaN as "—" (linalg.ts:73), and the Analyze reader blocks insertion when
+the result text contains one. That is a whole-text scan, so an em dash used as
+ordinary PUNCTUATION silently disabled the Insert button *and* suppressed the
+rich preview, dropping the reader to the plain-text branch so plots vanished.
+
+  - The Nelder-Mead optimizer's non-converged note contained one, so an
+    optimisation that did not converge could not be inserted — no button, no
+    explanation. It is a legitimate result and is now insertable.
+  - The new FFT filter tripped it twice, in its own prose and via the ten em
+    dashes inside fftfilter.ts's caveats. The caveats are kept verbatim except
+    for the dash, which is swapped rather than the wording changed.
+
+The guard now documents the hazard, and `analyzeCalcText.test.ts` pins it so the
+next calculator to use an em dash fails a test instead of quietly losing its
+Insert button.
+
+**A reachability gate.** `reachability.test.ts` walks the import graph from both
+entry points and fails on any library module nothing can reach. It follows
+DYNAMIC imports, because ppt.ts is reached only that way and a static-only walk
+calls it dead — a mistake already made once during the audit. It also pins the
+six exports the evaluation found orphaned INSIDE live modules, which
+module-level reachability cannot see: `fitInhibition` lived in assay.ts, which
+was very much alive, and was still unreachable.
+
+`jcamp.ts` remains deliberately unwired, with the reason recorded in the gate's
+allowlist: it needs a file input and a decision about overlaying a measured trace
+on a predicted spectrum, which is a design question rather than plumbing.
+
+16 new tests, suite 3154.
+
 ## [1.93.0] — 2026-07-26 — Four finished tools that no user could reach
 
 Harvesting dead code found by the product evaluation: modules written, tested,

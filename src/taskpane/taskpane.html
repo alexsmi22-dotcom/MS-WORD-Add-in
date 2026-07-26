@@ -12,15 +12,48 @@
 
   <body>
     <main class="container">
-      <h1>JurisLab</h1>
-      <p class="subtitle">STEM &amp; legal authoring for Word.</p>
+      <!--
+        Brand bar. The mark is INLINE SVG, not <img src="assets/icon-*.png">, for
+        two reasons: it costs no request and stays crisp at any DPI, and Word
+        caches add-in icons by URL — the ribbon button can sit on a stale icon
+        for a long time after a redesign, so the pane must carry the current
+        logo itself rather than depend on that cache.
+        Scales of justice: a benzene ring weighed against a summation sign.
+      -->
+      <header class="brand">
+        <svg class="brand-mark" viewBox="0 0 128 128" role="img" aria-label="JurisLab">
+          <defs>
+            <linearGradient id="brandGrad" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stop-color="#0EA5E9" />
+              <stop offset="1" stop-color="#0C4A6E" />
+            </linearGradient>
+          </defs>
+          <rect x="3" y="3" width="122" height="122" rx="27" fill="url(#brandGrad)" />
+          <g fill="#fff">
+            <circle cx="64" cy="26" r="6" />
+            <rect x="60.5" y="26" width="7" height="72" rx="2" />
+            <rect x="22" y="38.5" width="84" height="7.5" rx="3.75" />
+            <rect x="30.25" y="44" width="3.5" height="9" />
+            <rect x="94.25" y="44" width="3.5" height="9" />
+            <path d="M52 98 h24 l9 10 h-42 z" />
+          </g>
+          <g fill="none" stroke="#fff" stroke-width="5.4" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="43.5,63 37.75,72.96 26.25,72.96 20.5,63 26.25,53.04 37.75,53.04" />
+            <polyline points="107,53 85,53 96,63 85,73 107,73" />
+          </g>
+        </svg>
+        <div class="brand-text">
+          <h1>JurisLab</h1>
+          <p class="subtitle">STEM &amp; legal authoring for Word.</p>
+        </div>
+      </header>
 
       <div class="search-wrap">
         <input
           id="search"
           type="text"
           class="search-input"
-          placeholder="🔎  Search formulas &amp; compounds — e.g. quadratic, benzene"
+          placeholder="Search formulas &amp; compounds — e.g. quadratic, benzene"
           autocomplete="off"
         />
         <div id="search-results" class="search-results" role="listbox"></div>
@@ -29,7 +62,7 @@
       <div class="mode-select-wrap" id="mode-select-wrap">
         <label class="field-label" for="mode-select">Tool</label>
         <select id="mode-select" class="lib-select mode-select" aria-label="Tool">
-          <option value="home">🏠 Home</option>
+          <option value="home">Home</option>
           <optgroup label="Chemistry &amp; structures">
             <option value="chemical">Chemical</option>
             <option value="build">Build</option>

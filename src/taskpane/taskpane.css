@@ -1,10 +1,46 @@
+/*
+ * The pane's palette is the LANDING PAGE's palette.
+ *
+ * The two had drifted into different products: the site is navy/cyan with a
+ * patent-register look, while the pane was stock Office blue (#005a9e) on
+ * default greys. Someone arriving from the marketing page met something that
+ * did not look like what they were sold.
+ *
+ * The original token NAMES are kept and re-pointed rather than renamed, so all
+ * ~1400 lines below inherit the new palette without being touched — a rename
+ * would have meant editing every rule, which is how visual refactors break
+ * things that were working.
+ */
 :root {
-  --accent: #005a9e;
-  --accent-hover: #004578;
-  --border: #d0d0d0;
-  --text: #201f1e;
-  --muted: #605e5c;
-  --bg-soft: #f3f6fb;
+  /* Ink */
+  --ink: #0b1f2a;
+  --ink-2: #48606e;
+  --ink-3: #758794;
+
+  /* Brand */
+  --navy-900: #062231;
+  --navy-800: #0a3a57;
+  --navy-700: #0c4a6e;
+  --mid: #0369a1;
+  --cyan: #0ea5e9;
+
+  /* Surfaces */
+  --paper: #ffffff;
+  --ground: #edf1f4;
+  --ground-2: #f7f9fb;
+  --rule: #dbe3e9;
+  --rule-soft: #e9eef2;
+  --oxblood: #7b2d2d;
+
+  /* Legacy names, re-pointed at the new palette. */
+  --accent: var(--navy-700);
+  --accent-hover: var(--navy-900);
+  --border: var(--rule);
+  --text: var(--ink);
+  --muted: var(--ink-2);
+  --bg-soft: var(--ground-2);
+
+  --mono: ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace;
 }
 
 * {
@@ -1425,4 +1461,214 @@ a:focus-visible {
   font-size: 12px;
   line-height: 1.45;
   color: #8a6d00;
+}
+
+/* ==========================================================================
+   Design refresh — brought in line with the landing page.
+
+   Appended deliberately. These rules override earlier ones of equal
+   specificity by source order, so the refresh is additive and the original
+   layout rules above stay intact and reviewable. Nothing here changes an id,
+   a class the code queries, or a layout structure — only how it looks.
+   ========================================================================== */
+
+/* --- Brand bar ----------------------------------------------------------- */
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-bottom: 12px;
+  margin-bottom: 14px;
+  border-bottom: 1px solid var(--rule);
+}
+.brand-mark {
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  border-radius: 8px;
+  /* The mark carries its own gradient; a soft shadow lifts it off white. */
+  box-shadow: 0 1px 3px rgba(6, 34, 49, 0.22);
+}
+.brand-text {
+  min-width: 0;
+}
+.brand h1 {
+  font-size: 17px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: var(--navy-900);
+  margin: 0;
+  line-height: 1.15;
+}
+.brand .subtitle {
+  margin: 2px 0 0;
+  font-size: 11.5px;
+  color: var(--ink-3);
+  line-height: 1.3;
+}
+
+/* --- Group headings: numbered, like the landing page's benches ----------- */
+.home-group {
+  margin-bottom: 18px;
+}
+.home-group-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin: 0 0 8px;
+}
+.home-group-title::after {
+  /* A hairline carrying the eye across the width, as the site does. */
+  content: "";
+  flex: 1 1 auto;
+  height: 1px;
+  background: var(--rule-soft);
+}
+
+/* --- Tool cards ---------------------------------------------------------- */
+.home-cards {
+  gap: 7px;
+}
+.home-card {
+  align-items: flex-start;
+  gap: 9px;
+  padding: 10px 11px;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: var(--paper);
+  transition: border-color 0.13s ease, box-shadow 0.13s ease, transform 0.13s ease;
+}
+.home-card:hover {
+  border-color: var(--cyan);
+  background: var(--paper);
+  box-shadow: 0 2px 10px rgba(12, 74, 110, 0.13);
+  transform: translateY(-1px);
+}
+.home-card:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: 1px;
+}
+/* The patent-drawing reference numeral that replaced the emoji. */
+.home-card-ref {
+  flex: 0 0 auto;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1.6;
+  color: var(--mid);
+  padding-top: 1px;
+  font-variant-numeric: tabular-nums;
+}
+.home-card-title {
+  font-size: 12.5px;
+  font-weight: 650;
+  color: var(--navy-900);
+  margin: 0 0 2px;
+}
+.home-card-desc {
+  font-size: 11px;
+  color: var(--ink-2);
+  line-height: 1.4;
+}
+
+/* --- Filter chips -------------------------------------------------------- */
+.home-chip {
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  background: var(--paper);
+  color: var(--ink-2);
+  font-weight: 550;
+  padding: 6px 12px;
+  transition: background 0.13s, border-color 0.13s, color 0.13s;
+}
+.home-chip:hover {
+  border-color: var(--cyan);
+  color: var(--navy-700);
+}
+.home-chip[aria-pressed="true"],
+.home-chip.active {
+  background: var(--navy-700);
+  border-color: var(--navy-700);
+  color: #fff;
+}
+
+/* --- Inputs and selects -------------------------------------------------- */
+.search-input,
+.formula-input,
+.lib-select,
+.build-input,
+input[type="text"],
+input[type="number"],
+select,
+textarea {
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  color: var(--ink);
+  background: var(--paper);
+}
+.search-input:focus,
+.formula-input:focus,
+.lib-select:focus,
+input[type="text"]:focus,
+input[type="number"]:focus,
+select:focus,
+textarea:focus {
+  border-color: var(--cyan);
+  /* A ring rather than a hard 1px border shift, so nothing reflows on focus. */
+  box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.18);
+  outline: none;
+}
+
+/* A <select> must never dictate its own width from its longest option: the
+   pane is ~320px at its narrowest, and Align's "Global — end to end
+   (Needleman–Wunsch)" pushed the control 21px past the right edge, where the
+   pane cannot scroll to reach it. */
+.lib-select,
+select {
+  max-width: 100%;
+  width: 100%;
+}
+
+/* --- Buttons ------------------------------------------------------------- */
+.insert-btn {
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-weight: 600;
+  letter-spacing: 0.005em;
+  background: var(--navy-700);
+  box-shadow: 0 1px 2px rgba(6, 34, 49, 0.18);
+  transition: background 0.13s ease, box-shadow 0.13s ease;
+}
+.insert-btn:hover:not(:disabled) {
+  background: var(--navy-900);
+  box-shadow: 0 2px 8px rgba(6, 34, 49, 0.24);
+}
+.insert-btn:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: 2px;
+}
+.insert-btn.secondary {
+  background: var(--paper);
+  color: var(--navy-700);
+  border: 1px solid var(--rule);
+  box-shadow: none;
+}
+.insert-btn.secondary:hover:not(:disabled) {
+  background: var(--ground-2);
+  border-color: var(--cyan);
+}
+
+/* --- Section furniture --------------------------------------------------- */
+.field-label {
+  color: var(--ink-2);
+  font-weight: 600;
+}
+.disclaimer {
+  color: var(--ink-3);
+  border-top: 1px solid var(--rule-soft);
 }

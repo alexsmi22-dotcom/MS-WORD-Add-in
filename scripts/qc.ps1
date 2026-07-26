@@ -59,6 +59,11 @@ Invoke-Step "Render check"        { node scripts/render-check.js }
 # table silently losing two columns below 940px all shipped because the markup
 # reads fine and only a laid-out browser shows the collision.
 Invoke-Step "Landing layout"      { node scripts/check-landing-overlap.js }
+# The landing pages had a layout gate; the PANE — the actual product — had none.
+# The pane scrolls vertically only, so anything past the right edge is
+# unreachable rather than awkward: Align's mode <select> sat 21px off the edge at
+# 320px, where the control could not be clicked at all.
+Invoke-Step "Pane layout"         { node scripts/check-pane-layout.js }
 
 # 5. Task-pane id wiring audit — every getElementById has a matching HTML id.
 Write-Host ""

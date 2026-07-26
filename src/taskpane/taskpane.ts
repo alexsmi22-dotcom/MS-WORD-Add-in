@@ -1100,7 +1100,14 @@ type Audience = "science" | "legal";
 
 interface HomeItem {
   mode: Mode;
-  icon: string;
+  /**
+   * The tool's patent-style reference numeral, e.g. "24" rendered as (24).
+   *
+   * These are the SAME numerals the landing page prints, so a tool has one
+   * identity in both places. They replaced emoji, which collided (align,
+   * sequence and dna all showed 🧬) and drew differently on Mac and Windows.
+   */
+  ref: string;
   label: string;
   desc: string;
   /** Audiences this tool is shown to on Home. Omitted = shown to everyone. */
@@ -1115,55 +1122,55 @@ const HOME_GROUPS: HomeGroup[] = [
   {
     title: "Chemistry & structures",
     items: [
-      { mode: "chemical", audience: ["science", "legal"], icon: "🧪", label: "Chemical", desc: "Formulas & 2D structures" },
-      { mode: "build", audience: ["science", "legal"], icon: "🔬", label: "Build", desc: "Structures from atoms/bonds; Markush" },
-      { mode: "reaction", audience: ["science"], icon: "⚗️", label: "Reaction", desc: "Reaction schemes" },
-      { mode: "massspec", audience: ["science"], icon: "⚛️", label: "Mass Spec", desc: "Exact mass, isotope pattern, adducts" },
-      { mode: "spectra", audience: ["science"], icon: "📡", label: "Spectra", desc: "Predicted NMR, IR, UV-Vis, fragmentation" },
+      { mode: "chemical", audience: ["science", "legal"], ref: "24", label: "Chemical", desc: "Formulas & 2D structures" },
+      { mode: "build", audience: ["science", "legal"], ref: "30", label: "Build", desc: "Structures from atoms/bonds; Markush" },
+      { mode: "reaction", audience: ["science"], ref: "32", label: "Reaction", desc: "Reaction schemes" },
+      { mode: "massspec", audience: ["science"], ref: "28", label: "Mass Spec", desc: "Exact mass, isotope pattern, adducts" },
+      { mode: "spectra", audience: ["science"], ref: "26", label: "Spectra", desc: "Predicted NMR, IR, UV-Vis, fragmentation" },
     ],
   },
   {
     title: "Math & units",
     items: [
-      { mode: "math", icon: "∑", label: "Math", desc: "Native equations, LaTeX" },
-      { mode: "solve", icon: "🟰", label: "Solve", desc: "Equations, derivatives, integrals, word problems" },
-      { mode: "units", icon: "📏", label: "Units", desc: "SI typesetting & conversion" },
-      { mode: "plot", icon: "📈", label: "Plot", desc: "Function & data charts" },
-      { mode: "stats", audience: ["science"], icon: "📐", label: "Stats", desc: "Descriptive, t-tests, ANOVA, uncertainty" },
-      { mode: "analyze", audience: ["science"], icon: "🧮", label: "Analyze", desc: "Matrix math + data → trends & insights" },
+      { mode: "math", ref: "14", label: "Math", desc: "Native equations, LaTeX" },
+      { mode: "solve", ref: "12", label: "Solve", desc: "Equations, derivatives, integrals, word problems" },
+      { mode: "units", ref: "20", label: "Units", desc: "SI typesetting & conversion" },
+      { mode: "plot", ref: "18", label: "Plot", desc: "Function & data charts" },
+      { mode: "stats", audience: ["science"], ref: "16", label: "Stats", desc: "Descriptive, t-tests, ANOVA, uncertainty" },
+      { mode: "analyze", audience: ["science"], ref: "10", label: "Analyze", desc: "Matrix math + data → trends & insights" },
     ],
   },
   {
     title: "Data & figures",
     items: [
-      { mode: "ppt", icon: "📊", label: "Table → Chart", desc: "Charts, diagrams, table figures, PPT" },
-      { mode: "finance", audience: ["legal"], icon: "💵", label: "Finance", desc: "TVM, DCF, bonds, options + Greeks, amortization" },
+      { mode: "ppt", ref: "54", label: "Table → Chart", desc: "Charts, diagrams, table figures, PPT" },
+      { mode: "finance", audience: ["legal"], ref: "22", label: "Finance", desc: "TVM, DCF, bonds, options + Greeks, amortization" },
     ],
   },
   {
     title: "Biology",
     items: [
-      { mode: "seqmap", audience: ["science", "legal"], icon: "🗺️", label: "Sequence Map", desc: "Open a GenBank/FASTA file → annotated map" },
-      { mode: "align", audience: ["science"], icon: "🧬", label: "Align", desc: "Compare two sequences — global or local" },
-      { mode: "sequence", audience: ["science", "legal"], icon: "🧬", label: "Sequence", desc: "WIPO ST.26 listings" },
-      { mode: "dna", audience: ["science"], icon: "🧬", label: "DNA", desc: "Rev-comp, translation, ORFs" },
-      { mode: "assay", audience: ["science"], icon: "🧫", label: "Bio/Assay", desc: "Kinetics, IC50/EC50, binding, lab math" },
-      { mode: "peptide", audience: ["science"], icon: "🔗", label: "Peptide", desc: "Draw a peptide from its sequence" },
-      { mode: "botanical", audience: ["science", "legal"], icon: "🌿", label: "Botanical", desc: "Plant nomenclature" },
+      { mode: "seqmap", audience: ["science", "legal"], ref: "40", label: "Sequence Map", desc: "Open a GenBank/FASTA file → annotated map" },
+      { mode: "align", audience: ["science"], ref: "42", label: "Align", desc: "Compare two sequences — global or local" },
+      { mode: "sequence", audience: ["science", "legal"], ref: "38", label: "Sequence", desc: "WIPO ST.26 listings" },
+      { mode: "dna", audience: ["science"], ref: "36", label: "DNA", desc: "Rev-comp, translation, ORFs" },
+      { mode: "assay", audience: ["science"], ref: "44", label: "Bio/Assay", desc: "Kinetics, IC50/EC50, binding, lab math" },
+      { mode: "peptide", audience: ["science"], ref: "34", label: "Peptide", desc: "Draw a peptide from its sequence" },
+      { mode: "botanical", audience: ["science", "legal"], ref: "46", label: "Botanical", desc: "Plant nomenclature" },
     ],
   },
   {
     title: "Patent drafting",
     items: [
-      { mode: "numerals", audience: ["legal"], icon: "🔢", label: "Numerals", desc: "Reference-numeral management" },
-      { mode: "refs", icon: "🔖", label: "Refs", desc: "Captions & cross-references" },
-      { mode: "code", icon: "💻", label: "Code", desc: "Algorithm & code listings" },
-      { mode: "audit", audience: ["legal"], icon: "✅", label: "Audit", desc: "Whole-document consistency" },
+      { mode: "numerals", audience: ["legal"], ref: "48", label: "Numerals", desc: "Reference-numeral management" },
+      { mode: "refs", ref: "50", label: "Refs", desc: "Captions & cross-references" },
+      { mode: "code", ref: "56", label: "Code", desc: "Algorithm & code listings" },
+      { mode: "audit", audience: ["legal"], ref: "58", label: "Audit", desc: "Whole-document consistency" },
     ],
   },
   {
     title: "Legal citations",
-    items: [{ mode: "citations", audience: ["legal"], icon: "⚖️", label: "Citations", desc: "Bluebook — cases, statutes, patents" }],
+    items: [{ mode: "citations", audience: ["legal"], ref: "52", label: "Citations", desc: "Bluebook — cases, statutes, patents" }],
   },
 ];
 
@@ -1191,8 +1198,8 @@ function renderHomeFilter(shown: number): void {
   const current = getPrefs().homeFilter;
   const chips: { value: HomeFilter; label: string }[] = [
     { value: "all", label: "All tools" },
-    { value: "science", label: "🔬 Science" },
-    { value: "legal", label: "⚖️ Patent & legal" },
+    { value: "science", label: "Science" },
+    { value: "legal", label: "Patent & legal" },
   ];
   const row = document.createElement("div");
   row.className = "home-filter-row";
@@ -1258,8 +1265,11 @@ function renderHome(): void {
       card.className = "home-card";
       card.dataset.mode = item.mode;
       const icon = document.createElement("span");
-      icon.className = "home-card-icon";
-      icon.textContent = item.icon;
+      icon.className = "home-card-ref";
+      // Parenthesised like a patent drawing callout, matching the landing page.
+      icon.textContent = `(${item.ref})`;
+      // The numeral is decoration for sighted users; the label carries the name.
+      icon.setAttribute("aria-hidden", "true");
       const body = document.createElement("span");
       body.className = "home-card-body";
       const t = document.createElement("span");

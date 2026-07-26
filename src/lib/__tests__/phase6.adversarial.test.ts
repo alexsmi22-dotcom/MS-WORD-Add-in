@@ -219,6 +219,41 @@ describe("the user-facing docs are not allowed to rot", () => {
     }
   });
 
+  test("a tool has the same reference numeral in the pane as on the site", () => {
+    // The pane's tool tiles print a patent-style numeral — (24) Chemical — and
+    // those are the SAME numerals landing/index.html prints beside each tool.
+    // That is the whole point: one identity in both places. They are maintained
+    // in two files, so without this they drift and the pane starts quietly
+    // contradicting the page that sent the user there.
+    //
+    // They replaced emoji, which had collided outright: align, sequence and dna
+    // all showed the same glyph.
+    const site = new Map(
+      [...read("landing/index.html").matchAll(
+        /href="tool\.html\?tool=([a-z0-9]+)"><span class="ref">\((\d+)\)<\/span>/g,
+      )].map((m) => [m[1], m[2]]),
+    );
+    // Two landing slugs differ from the pane's mode ids.
+    const SLUG: Record<string, string> = { assay: "bioassay", ppt: "tablechart" };
+
+    const pane = [...read("src/taskpane/taskpane.ts").matchAll(
+      /\{ mode: "([a-z0-9]+)",[^}]*?ref: "(\d+)"/g,
+    )].map((m) => ({ mode: m[1], ref: m[2] }));
+
+    expect(pane.length).toBe(modes().length);
+    const mismatched = pane.filter((p) => site.get(SLUG[p.mode] ?? p.mode) !== p.ref);
+    expect(mismatched).toEqual([]);
+  });
+
+  test("the pane's tool numerals are unique", () => {
+    // The emoji they replaced were not: three tools shared one glyph, so the
+    // icon identified nothing. A duplicated numeral would repeat that quietly.
+    const refs = [...read("src/taskpane/taskpane.ts").matchAll(
+      /\{ mode: "[a-z0-9]+",[^}]*?ref: "(\d+)"/g,
+    )].map((m) => m[1]);
+    expect(new Set(refs).size).toBe(refs.length);
+  });
+
   test("the enzyme count on the landing page is the real one", () => {
     // index.html said "48 enzymes" against an actual 122 — UNDERSELLING by 74, which
     // is the opposite of the usual failure but still a false claim in public. And I

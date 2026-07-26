@@ -1,12 +1,40 @@
-# JurisLab — Manual Test Script (v1.96.0)
+# JurisLab — Manual Test Script (v1.97.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
-The engine is covered by 2,800+ automated unit tests, and `npm run qc` now also
+The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
 boots the pane in headless Chromium to check every tool renders. This script
 covers what neither can reach: insertion into a real document, undo, document
 scanning, and layout. Budget ~30 minutes for the full pass.
 
 Mark each box: ☐ pass · ✗ fail (note what happened).
+
+---
+
+## 0a. What changed in v1.97.0 — check this first
+
+The pane was restyled to match the landing page. Nothing about what the tools
+COMPUTE changed, so this section is about appearance and reach.
+
+- [ ] The pane header shows the **scales-of-justice logo** (benzene ring on one
+  side, summation sign on the other) beside the JurisLab wordmark.
+- [ ] **The ribbon button may still show the OLD icon.** That is Word's cache,
+  not a build problem — Office caches add-in icons by URL and the filenames did
+  not change. See the note at the end of this section to clear it. The icon in
+  the PANE is the truth.
+- [ ] Home tiles show **reference numerals** — (24) Chemical, (12) Solve — not
+  emoji. They match the numerals on the landing page.
+- [ ] Colours are navy/cyan, not the old Office blue; buttons are navy with a
+  cyan focus ring.
+- [ ] **Drag the pane as narrow as it will go.** Nothing should be cut off at
+  the right edge. Check **Align** in particular: its mode dropdown used to run
+  ~21px past the edge at the narrowest width, where it could not be clicked.
+  (Now gated by `npm run check:pane`, but only a human can confirm in Word.)
+
+**Clearing a stale ribbon icon.** Quit Word fully, then delete the Office add-in
+cache and reopen:
+- **macOS:** `~/Library/Containers/com.microsoft.Word/Data/Library/Caches/` and
+  `~/Library/Containers/com.microsoft.Word/Data/Library/Application Support/Microsoft/Office/16.0/Wef/`
+- **Windows:** `%LOCALAPPDATA%\Microsoft\Office\16.0\Wef\`
 
 ---
 

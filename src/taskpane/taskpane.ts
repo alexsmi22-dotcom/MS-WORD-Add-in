@@ -235,6 +235,9 @@ declare const __APP_VERSION__: string;
 import type { Mode } from "../lib/modes";
 import { toolIcon } from "./icons";
 import { resolveTheme, hostTheme, type ThemePref } from "../lib/theme";
+import { describeAssumptions, normalityTest, varianceHomogeneity } from "../lib/diagnostics";
+import { kruskalWallis, dunnTest, friedman } from "../lib/nonparametric";
+import { dunnettTest } from "../lib/dunnett";
 import {
   planParagraphNumbering,
   describeParagraphPlan,
@@ -5269,7 +5272,15 @@ const STAT_CALCS: StatCalc[] = [
       if (!Number.isFinite(res.t) || !Number.isFinite(res.p))
         return { text: "t-test is undefined — a group has zero variance (all its values are identical).", ok: false };
       const label = r("type") === "student" ? "Student's" : "Welch's";
-      return { text: `${label} two-sample t-test\n${reportT(res)}\nMean difference = ${assaySig(res.meanDifference)}` };
+      // The assumptions the test rests on, checked against the actual data. A
+      // p-value from a test whose conditions failed is the quiet kind of wrong
+      // this product exists to avoid.
+      const notes = describeAssumptions([a, b]);
+      return {
+        text:
+          `${label} two-sample t-test\n${reportT(res)}\nMean difference = ${assaySig(res.meanDifference)}` +
+          (notes.length ? "\n\n" + notes.join("\n") : ""),
+      };
     },
   },
   {
@@ -5286,7 +5297,183 @@ const STAT_CALCS: StatCalc[] = [
       const res = pairedTTest(a, b);
       if (!Number.isFinite(res.t) || !Number.isFinite(res.p))
         return { text: "Paired t-test is undefined — the paired differences have zero variance (all identical).", ok: false };
-      return { text: `Paired t-test\n${reportT(res)}\nMean difference = ${assaySig(res.meanDifference)}` };
+      const notes = describeAssumptions([a, b], { paired: true });
+      return {
+        text:
+          `Paired t-test\n${reportT(res)}\nMean difference = ${assaySig(res.meanDifference)}` +
+          (notes.length ? "\n\n" + notes.join("\n") : ""),
+      };
+    },
+  },
+  {
+    id: "dunnett",
+    name: "Dunnett (each treatment vs one control)",
+    fields: [
+      {
+        key: "groups",
+        label: "FIRST group is the control; then one group per treatment",
+        default: "10 11 12 13 14\n\n12 13 14 15 16\n\n15 16 17 18 19\n\n20 21 22 23 24",
+        kind: "groups",
+      },
+    ],
+    compute: (r) => {
+      const groups = statGroups(r("groups"));
+      if (groups.length < 2) {
+        return { text: "Enter a control group and at least one treatment group (blank line between).", ok: false };
+      }
+      const res = dunnettTest(groups[0], groups.slice(1));
+      if (!res.ok) return { text: res.reason ?? "Could not run the test.", ok: false };
+
+      const lines = [
+        `Dunnett's test — ${res.comparisons.length} treatment${res.comparisons.length === 1 ? "" : "s"} vs control (n = ${res.controlN})`,
+        `df = ${res.df}, two-sided critical |t| = ${assaySig(res.critical, 4)} at α = 0.05`,
+        "",
+      ];
+      for (const c of res.comparisons) {
+        lines.push(
+          `Treatment ${c.treatment + 1} − control = ${assaySig(c.meanDifference)}  ` +
+            `t = ${assaySig(c.t, 3)}, ${formatP(c.p)}${c.significant ? " *" : ""}`,
+        );
+      }
+      // Why this rather than Tukey — the whole reason the test exists.
+      lines.push("");
+      lines.push(
+        `Corrects for ${res.comparisons.length} comparison${res.comparisons.length === 1 ? "" : "s"}, not all ` +
+          `${(groups.length * (groups.length - 1)) / 2} pairs. That is what makes it more powerful than Tukey ` +
+          "when the control is the only thing you wanted to compare against.",
+      );
+      return { text: lines.join("\n") + "\n\n" + res.caveats.join("\n") };
+    },
+  },
+  {
+    id: "kruskal",
+    name: "Kruskal-Wallis (non-parametric ANOVA)",
+    fields: [
+      {
+        key: "groups",
+        label: "Groups (blank line or ; between groups)",
+        default: "1 2 3 4\n\n5 6 7 8\n\n9 10 11 12",
+        kind: "groups",
+      },
+    ],
+    compute: (r) => {
+      const groups = statGroups(r("groups"));
+      const res = kruskalWallis(groups);
+      if (!res.ok) return { text: res.reason ?? "Could not run the test.", ok: false };
+
+      const lines = [
+        `Kruskal-Wallis H(${res.df}) = ${assaySig(res.h, 4)}, ${formatP(res.p)}  (n = ${res.n})`,
+        "Mean ranks: " + res.meanRanks.map((m, i) => `group ${i + 1} = ${assaySig(m, 4)}`).join(" · "),
+      ];
+      if (res.tiesCorrected) lines.push("Tied values were present; H is tie-corrected.");
+
+      // The post-hoc only makes sense once the omnibus test is significant, and
+      // running it anyway is the classic way to manufacture a finding.
+      if (res.p < 0.05) {
+        const d = dunnTest(groups, "holm");
+        if (d.ok) {
+          lines.push("");
+          lines.push("Dunn post-hoc (Holm-adjusted):");
+          for (const c of d.comparisons) {
+            lines.push(
+              `  group ${c.a + 1} vs ${c.b + 1}: z = ${assaySig(c.z, 3)}, ` +
+                `${formatP(c.pAdjusted)}${c.significant ? " *" : ""}`,
+            );
+          }
+        }
+      } else {
+        lines.push("Post-hoc comparisons are not shown: the overall test is not significant.");
+      }
+      lines.push("");
+      lines.push(
+        "Compares distributions by rank, so it assumes no particular shape. It does NOT " +
+          "compare means — a significant result says the groups differ in location, not by how much.",
+      );
+      return { text: lines.join("\n") };
+    },
+  },
+  {
+    id: "friedman",
+    name: "Friedman (repeated measures, non-parametric)",
+    fields: [
+      {
+        key: "blocks",
+        label: "One row per subject; one value per condition, same order every row",
+        default: "10 12 14\n9 11 15\n12 13 16\n8 10 13",
+        kind: "groups",
+      },
+    ],
+    compute: (r) => {
+      // Rows, not groups: each line is one subject measured under every
+      // condition, which is what makes this a repeated-measures design.
+      const rows = r("blocks")
+        .split(/[\n;]+/)
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .map((line) => statList(line));
+      const res = friedman(rows);
+      if (!res.ok) return { text: res.reason ?? "Could not run the test.", ok: false };
+      return {
+        text:
+          `Friedman \u03c7\u00b2(${res.df}) = ${assaySig(res.chi2, 4)}, ${formatP(res.p)}\n` +
+          `${res.blocks} subjects \u00d7 ${res.treatments} conditions\n` +
+          "Mean ranks: " +
+          res.meanRanks.map((m, i) => `condition ${i + 1} = ${assaySig(m, 4)}`).join(" \u00b7 ") +
+          "\n\nUse when the SAME subjects are measured under every condition. A between-groups " +
+          "test on this data would ignore the pairing and lose most of its power.",
+      };
+    },
+  },
+  {
+    id: "assumptions",
+    name: "Check test assumptions",
+    fields: [
+      {
+        key: "groups",
+        label: "Groups (blank line or ; between groups)",
+        default: "1 2 3 4 5\n\n2 3 4 5 6",
+        kind: "groups",
+      },
+    ],
+    compute: (r) => {
+      const groups = statGroups(r("groups"));
+      if (!groups.length) return { text: "Enter at least one group.", ok: false };
+      const pooled = groups.reduce<number[]>((acc, g) => acc.concat(g), []);
+
+      const lines: string[] = ["Assumption check"];
+      const norm = normalityTest(pooled);
+      if (norm.ok) {
+        lines.push(
+          `Normality (D'Agostino-Pearson): K\u00b2 = ${assaySig(norm.k2, 4)}, ${formatP(norm.p)} \u2014 ` +
+            `${norm.normal ? "consistent with normal" : "NOT normal"}`,
+        );
+        lines.push(`  skewness = ${assaySig(norm.skewness, 3)}, kurtosis = ${assaySig(norm.kurtosis, 3)} (normal \u2248 3)`);
+      } else {
+        lines.push("Normality: " + (norm.reason ?? "not tested"));
+      }
+
+      if (groups.length >= 2) {
+        const vh = varianceHomogeneity(groups);
+        if (vh.ok) {
+          lines.push(
+            `Equal variances (Brown-Forsythe): F(${vh.df1}, ${vh.df2}) = ${assaySig(vh.f, 4)}, ` +
+              `${formatP(vh.p)} \u2014 ${vh.equal ? "consistent with equal" : "NOT equal"}`,
+          );
+          lines.push(`  largest/smallest variance = ${assaySig(vh.varianceRatio, 3)}`);
+        } else {
+          lines.push("Equal variances: " + (vh.reason ?? "not tested"));
+        }
+      }
+
+      const advice = describeAssumptions(groups);
+      if (advice.length) {
+        lines.push("");
+        for (const a of advice) lines.push(a);
+      } else {
+        lines.push("");
+        lines.push("No assumption problems found. A parametric test (t-test / ANOVA) is appropriate.");
+      }
+      return { text: lines.join("\n") };
     },
   },
   {

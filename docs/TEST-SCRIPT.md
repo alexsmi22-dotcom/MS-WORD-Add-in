@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.0.0)
+# JurisLab — Manual Test Script (v2.1.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -10,7 +10,7 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
 
-## 0a. What changed in v1.97-2.0.0 — check this first
+## 0a. What changed in v1.97-2.1.0 — check this first
 
 The pane was restyled to match the landing page. Nothing about what the tools
 COMPUTE changed, so this section is about appearance and reach.
@@ -59,6 +59,23 @@ COMPUTE changed, so this section is about appearance and reach.
   still black-on-white with the pane in dark mode.
 - [ ] Nothing is unreadable in either theme — check disabled buttons, the
   warning/error text, and the active filter chip in particular.
+
+**Statistics in v2.1.0.**
+- [ ] **Stats → Check test assumptions.** Paste two skewed groups; it must say
+  the data are NOT normal and name Mann-Whitney as the alternative.
+- [ ] **Stats → t-test on non-normal data.** The result must carry the same
+  warning underneath the p-value, and that warning must travel into the document
+  when you insert it.
+- [ ] **Stats → Kruskal-Wallis.** Dunn post-hoc appears only when the overall
+  test is significant; with a non-significant result it says so instead.
+- [ ] **Stats → Friedman.** One row per subject. A ragged design (rows of
+  different lengths) must be refused, not padded.
+- [ ] **Stats → Dunnett (each treatment vs one control).** First group is the
+  control. Check that it corrects for the number of TREATMENTS, not all pairs —
+  the note under the result says so — and that its p-values are smaller than
+  Tukey's on the same data.
+- [ ] **Stats → Tukey HSD** caveats must no longer mention "Games-Howell", and
+  the Dunnett they point to must now exist in the Test dropdown.
 
 **Clearing a stale ribbon icon.** Quit Word fully, then delete the Office add-in
 cache and reopen:

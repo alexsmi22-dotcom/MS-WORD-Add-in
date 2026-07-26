@@ -228,12 +228,22 @@ describe("caveats say what the numbers do not", () => {
   test("it names the assumption Tukey is NOT robust to", () => {
     const r = tukeyHSD([[1, 2, 3], [4, 5, 6], [7, 8, 9]])!;
     expect(r.caveats.join(" ")).toMatch(/NOT.*to unequal variances/);
-    expect(r.caveats.join(" ")).toMatch(/Games-Howell/);
+    // This used to require the caveat to name "Games-Howell" — a test the
+    // product does not have and never had. The test was pinning the defect: it
+    // sent the user looking for something that does not exist. A caveat must
+    // name something REACHABLE.
+    expect(r.caveats.join(" ")).toMatch(/Check test assumptions|Kruskal-Wallis/);
+    expect(r.caveats.join(" ")).not.toMatch(/Games-Howell/);
   });
 
-  test("it points at Dunnett when Tukey is the wrong tool", () => {
+  test("it points at Dunnett, which now exists and is reachable", () => {
+    // This caveat named Dunnett for a long time while the product had no
+    // Dunnett — the same defect as the Games-Howell line beside it. Both now
+    // point at something a user can actually open.
     const r = tukeyHSD([[1, 2, 3], [4, 5, 6], [7, 8, 9]])!;
     expect(r.caveats.join(" ")).toMatch(/Dunnett/);
+    expect(r.caveats.join(" ")).toMatch(/available in Stats/);
+    expect(r.caveats.join(" ")).not.toMatch(/NOT available/);
   });
 });
 

@@ -239,10 +239,12 @@ export function tukeyHSD(groups: number[][], alpha = 0.05): TukeyResult | null {
       "that would double-count and make the test needlessly conservative.",
     "Assumes the ANOVA's assumptions: independent observations, roughly normal residuals, " +
       "and equal variances across groups. Tukey is fairly robust to non-normality but NOT " +
-      "to unequal variances — with heteroscedastic groups use Games-Howell instead.",
+      "to unequal variances. Run \"Check test assumptions\" (Stats) to find out whether "
+      + "yours are equal; if they are not, treat these comparisons with caution and "
+      + "consider the rank-based Kruskal-Wallis with Dunn post-hoc instead.",
     "Tukey is for ALL pairwise comparisons. If you only ever intended to compare each group " +
       "against one control, Dunnett's test is more powerful; using Tukey there costs you " +
-      "sensitivity for comparisons you never wanted.",
+      "sensitivity for comparisons you never wanted. Dunnett is available in Stats.",
   ];
   if (mse === 0) {
     // Every observation within every group is identical, so the pooled variance is

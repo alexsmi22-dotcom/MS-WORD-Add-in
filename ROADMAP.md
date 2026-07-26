@@ -1,6 +1,6 @@
 # JurisLab — Product Roadmap
 
-_Last updated: 2026-07-26 · Current release: **v2.0.0** (production)_
+_Last updated: 2026-07-26 · Current release: **v2.1.0** (production)_
 
 > The release number above is gated by `phase6.adversarial.test.ts` against
 > `package.json`. If they disagree, the suite fails — this file drifted five
@@ -182,9 +182,40 @@ gate (`themeContrast.test.ts`) now measures 15 text/background pairs against WCA
 theme that had shipped: muted text at 4.03:1, the warning pill at 4.31:1, and the active
 filter chip at 2.3:1 in dark.
 
+**v2.1.0 — assumption diagnostics and rank tests beyond two groups.** These are one
+feature, not two: warning a user that their data is not normal, in a product with no
+Kruskal-Wallis, would be worse than saying nothing.
+- **Check test assumptions** (new Stats calculator) — D'Agostino-Pearson K² for normality
+  and Brown-Forsythe (median-centred Levene) for equal variances. Chosen over Shapiro-Wilk
+  deliberately: Royston's algorithm is a long chain of fitted polynomials, easy to get
+  subtly wrong, and a subtly wrong p-value is worse than none. The cost is honest — below
+  n = 20 it REFUSES to report rather than returning a number with no power behind it.
+- **The t-tests now carry the verdict** underneath the p-value, and every warning names the
+  alternative to use rather than just complaining.
+- **Kruskal-Wallis + Dunn post-hoc** (tie-corrected; post-hoc shown only when the omnibus
+  test is significant) and **Friedman** for repeated measures. A ragged Friedman design is
+  refused rather than padded, because padding invents measurements.
+- **Dunnett's test** — each treatment against ONE control. Tukey's own caveat had pointed
+  here for a long time while the product had no Dunnett, the same defect as the
+  "use Games-Howell instead" line beside it. It matters beyond tidiness: Tukey corrects for
+  all k(k−1)/2 pairs, so a 4-dose study vs vehicle pays a 6-comparison penalty for
+  comparisons nobody wanted, which is routinely the difference between a significant result
+  and none.
+  The p-value needs the multivariate t, which has no closed form — but the correlation has
+  a factor structure (rho_ij = lambda_i·lambda_j, lambda_i = sqrt(n_i/(n_i+n_0))), collapsing
+  it to nested 1-D integrals computed by 48-node Gauss-Legendre. Verified two ways that do
+  not depend on trusting the integrator: with ONE treatment it reduces exactly to the
+  two-sided t-test (to 1e-6), and every adjusted p is bracketed between unadjusted and
+  Bonferroni. The critical value for k=3, v=16 comes out at 2.592 against a published 2.59.
+  First cut took 2.6 s per call — unusable in a pane that recomputes on every keystroke —
+  so Simpson was replaced with Gauss-Legendre (identical results to 6 dp, 15x faster) and
+  the critical value is cached on group SIZES, which do not change while values are typed.
+  23 ms per keystroke now.
+- Fixed two caveats that named tests the product does not have: "use Games-Howell instead",
+  and the Dunnett reference. **A test asserted the Games-Howell wording, so the suite was
+  pinning the defect in place.**
+
 **Genuinely open candidates:** deeper BVP/PDE/DAE
 support on the ODE side (out of scope today — state honestly). Confirm priority before building.
-Also open from the evaluation: assumption diagnostics (normality, variance
-homogeneity, Q-Q), nonparametric coverage past two groups (Kruskal-Wallis,
-Friedman, Dunn), multiple/polynomial regression, survival analysis, and the four near-identical calculator registries
+Also open from the evaluation: residual and Q-Q plots, multiple/polynomial regression, survival analysis, and the four near-identical calculator registries
 (~1,935 lines) that want consolidating.

@@ -18,7 +18,7 @@ Pick a tool from the home screen — **25 tools** (grouped STEM + legal):
 | **Spectra** | predicted spectra from structure, offline: **¹H / ¹³C NMR** (shift, integration, n+1 multiplicity, assignment), **IR** group frequencies + simulated transmittance trace, **UV-Vis λmax** (Woodward–Fieser, with the arithmetic shown), and **EI-MS fragmentation** (α-cleavage, benzylic/tropylium, McLafferty, neutral losses). Estimates from published additivity rules — labelled as such, never presented as acquired spectra |
 | **Bio/Assay** | offline curve fitting: **enzyme kinetics** (Michaelis–Menten, Hill), **dose–response** (IC50/EC50, 4PL), **binding** (Kd/Bmax), plus lab calculators (Cheng–Prusoff, Henderson–Hasselbalch, Beer–Lambert, dilutions, A260/A280) |
 | **Peptide** | 2D structure from a one- or three-letter amino-acid sequence, with formula & MW |
-| **Stats** | descriptive stats, **t-tests** (Welch/Student/paired), one- & **two-way ANOVA**, regression, **non-parametric** (Mann–Whitney, Wilcoxon), **chi-square** (fit & independence), **multiple-comparison correction** (Bonferroni/Holm/BH), and **uncertainty propagation** |
+| **Stats** | descriptive stats, **t-tests** (Welch/Student/paired), one- & **two-way ANOVA**, regression, **non-parametric** (Mann–Whitney, Wilcoxon, **Kruskal–Wallis + Dunn**, **Friedman**), **post-hoc** (Tukey HSD, **Dunnett** many-to-one), **chi-square** (fit & independence), **multiple-comparison correction** (Bonferroni/Holm/BH), **assumption diagnostics** (normality, equal variances, with the right alternative named), and **uncertainty propagation** |
 | **Analyze** | no-code numerical workbench: **matrix math** (solve A·x=b, inverse, determinant/rank/trace, eigenvalues incl. complex, **QR**, **SVD**, one-line **matrix expressions** like `A*inv(B)+2*C'`), **optimization** (Nelder–Mead), **FFT** spectra, **ODE/system solving** — type the equation you have (**higher order auto-reduces**: `y'' = -0.1*y' - y` just works), with explicit **RK45** plus a 4th-order implicit **stiff solver** (RODAS4) and **automatic stiffness detection**, so kinetics with widely separated rate constants actually solve; **report at the times you choose** (computed, not interpolated) and **stop on a condition** (“when does it hit zero?”) — and **raw data → trends, correlations & plain-language insights**, all offline |
 | **Math** | native Word equations, matrices/cases, **LaTeX import/export**, multi-line aligned equations, a formula library |
 | **Solve** | equations, calculus & word problems, offline: exact linear/quadratic roots, every root of any higher-degree polynomial (real **and complex**, repeated roots marked), symbolic **derivatives**, **definite integrals** (exact where a closed form exists, showing F(x)), and **word problems** — percentages, distance = rate × time, "a number …" sentences, and **successive-share problems** ("guest 1 takes 1%, guest 2 takes 2% of what's left …"), each with the working shown |
@@ -43,7 +43,7 @@ Pick a tool from the home screen — **25 tools** (grouped STEM + legal):
 H2O → H₂O   ·   paste \frac{-b±√(b²-4ac)}{2a} (LaTeX) → a Word equation   ·   aspirin → 2D structure
 ```
 
-> **Status:** v2.0.0 — production. Word on **Windows & macOS**,
+> **Status:** v2.1.0 — production. Word on **Windows & macOS**,
 > 100% client-side. Install packs: [`install/`](install/) · feature list: [`FEATURES.md`](FEATURES.md).
 
 ## Screenshots
@@ -78,7 +78,7 @@ _Screenshots coming soon — see [`docs/screenshots/`](docs/screenshots/) for th
    (modern WebView2/Edge runtime; legacy IE-based webviews are not supported).
 
 > Verified by the QC gate (`npm run qc`): `npm run lint` (type-check),
-> `npm test` (**3,000+ unit tests** across **112 test files**), `npm run build` (production bundle),
+> `npm test` (**3,000+ unit tests** across **115 test files**), `npm run build` (production bundle),
 > `office-addin-manifest validate`, the task-pane id-wiring audit, and a
 > **headless render check** (`npm run render-check`) that boots the real bundle in
 > Chromium — the same engine as Word's WebView2 — and drives every tool. All pass.

@@ -23,6 +23,11 @@ const path = require("path");
 const os = require("os");
 const { execFileSync } = require("child_process");
 
+// The one list of tools. Imported rather than hardcoded so this gate cannot
+// drift from the product the way its old `>= 22` floors did.
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const TOOL_COUNT = require("./tool-count.js").count;
+
 const ROOT = path.join(__dirname, "..");
 const DIST = path.join(ROOT, "dist");
 
@@ -125,7 +130,8 @@ function run() {
 
   // 3. Every tool has a Home tile.
   const tiles = Number((get("HOME_TILES=") || "").split("=")[1]);
-  if (!(tiles >= 22)) failures.push("expected >=22 Home tiles, got " + tiles);
+  if (tiles !== TOOL_COUNT)
+    failures.push(`expected exactly ${TOOL_COUNT} Home tiles (one per tool), got ${tiles}`);
 
   // 4. Every mode shows exactly one section, and has help content.
   for (const line of lines.filter((l) => l.startsWith("MODE "))) {
@@ -149,7 +155,10 @@ function run() {
 
   // 4b. The Home audience filter narrows the cards without stranding a tool.
   const total = Number((get("FILTER_DEFAULT=") || "").split("=")[1]);
-  if (!(total >= 22)) failures.push(`Home shows ${total} cards by default, expected all 22 (nothing hidden until asked)`);
+  if (total !== TOOL_COUNT)
+    failures.push(
+      `Home shows ${total} cards by default, expected all ${TOOL_COUNT} (nothing hidden until asked)`,
+    );
   const sci = get("FILTER_SCIENCE=") || "";
   if (!/citations=false/.test(sci)) failures.push("the Science filter still shows Citations — the exact clutter it exists to remove");
   if (!/spectra=true/.test(sci)) failures.push("the Science filter hides Spectra");
@@ -162,7 +171,11 @@ function run() {
   // would strand the biotech patent attorney, who is the whole point.
   if (!/sequence=true/.test(leg)) failures.push("the Patent/legal filter hides Sequence (ST.26 is a patent format)");
   const dd = Number((get("FILTER_DROPDOWN=") || "").split("=")[1]);
-  if (!(dd >= 23)) failures.push(`the dropdown lost entries under a filter (${dd}) — every tool must stay reachable`);
+  // The dropdown carries every tool plus Home.
+  if (dd !== TOOL_COUNT + 1)
+    failures.push(
+      `the dropdown has ${dd} entries, expected ${TOOL_COUNT + 1} (every tool plus Home) — a filter must not strand one`,
+    );
   const restored = Number((get("FILTER_RESTORED=") || "").split("=")[1]);
   if (restored !== total) failures.push(`"All tools" did not restore every card (${restored} vs ${total})`);
 

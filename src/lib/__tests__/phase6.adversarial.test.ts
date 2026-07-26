@@ -125,7 +125,16 @@ describe("the user-facing docs are not allowed to rot", () => {
     // and it additionally catches a tool filed under two benches or under none —
     // which comparing each subtotal to the total never could.
     const n = modes().length;
-    for (const f of ["landing/manual.html", "landing/index.html", "landing/science.html"]) {
+    // Discovered, not listed. Hardcoding three filenames is why landing/tool.html
+    // sat at "22 tools" against 25 — a published page nobody was checking, missed
+    // for the same reason the layout gate saw only index.html.
+    const pages = fs
+      .readdirSync(path.join(ROOT, "landing"))
+      .filter((f) => f.endsWith(".html"))
+      .sort()
+      .map((f) => `landing/${f}`);
+    expect(pages.length).toBeGreaterThanOrEqual(5);
+    for (const f of pages) {
       const src = read(f);
       const subtotals = [...src.matchAll(/<span class="count">(\d+)\s+tools<\/span>/g)].map((m) =>
         Number(m[1]),
@@ -138,6 +147,75 @@ describe("the user-facing docs are not allowed to rot", () => {
       for (const m of totals.matchAll(/(\d+)\s+tools/g)) {
         expect({ file: f, claimed: Number(m[1]) }).toEqual({ file: f, claimed: n });
       }
+    }
+  });
+
+  test("the README documents every shipping tool by name", () => {
+    // The count agreeing with the table proves nothing when both are wrong: the
+    // README said "23 tools" over a 23-row table while 25 shipped. Solve and
+    // Align had no row at all, so a reader had no way to learn they existed.
+    // This compares the table to the mode list instead of to itself.
+    const rows = [...read("README.md").matchAll(/^\| \*\*([^*]+)\*\* \|/gm)].map((m) =>
+      m[1].trim().toLowerCase(),
+    );
+    // The human names the README uses, mapped to mode ids.
+    const NAMES: Record<string, string> = {
+      ppt: "table \u2192 chart", seqmap: "sequence map", massspec: "mass spec",
+      assay: "bio/assay", sequence: "sequence", align: "align", solve: "solve",
+    };
+    const missing = modes().filter((m) => !rows.includes(NAMES[m] ?? m));
+    expect(missing).toEqual([]);
+  });
+
+  test("the README's tool table has no rows for tools that do not exist", () => {
+    // The other direction: a row left behind by a removed tool sends a reader
+    // looking for something that is gone.
+    const rows = [...read("README.md").matchAll(/^\| \*\*([^*]+)\*\* \|/gm)].map((m) =>
+      m[1].trim().toLowerCase(),
+    );
+    expect(rows.length).toBe(modes().length);
+  });
+
+  test("every README tool count matches what ships", () => {
+    const n = modes().length;
+    for (const m of read("README.md").matchAll(/(\d+) tools/g)) {
+      expect({ claimed: Number(m[1]) }).toEqual({ claimed: n });
+    }
+  });
+
+  test("the README's status version is not stale", () => {
+    // It sat at v1.65.2 for 31 releases.
+    const v = /> \*\*Status:\*\* v(\d+\.\d+\.\d+)/.exec(read("README.md"));
+    expect(v).not.toBeNull();
+    expect(v![1]).toBe(pkg.version);
+  });
+
+  test("the README's test-file count is real", () => {
+    // Two different wrong test counts ("2,041", "1,841") sat in the README at
+    // once. The file count is checkable from disk, so that is the one pinned;
+    // the test total is stated as a floor, which cannot rot into a lie.
+    const claimed = /\*\*(\d+) test files\*\*/.exec(read("README.md"));
+    expect(claimed).not.toBeNull();
+    const dir = path.join(ROOT, "src");
+    const walk = (d: string): string[] =>
+      fs.readdirSync(d, { withFileTypes: true }).flatMap((e) => {
+        const p = path.join(d, e.name);
+        return e.isDirectory() ? walk(p) : p.endsWith(".test.ts") ? [p] : [];
+      });
+    expect(Number(claimed![1])).toBe(walk(dir).length);
+  });
+
+  test("the README carries no NEW badge from a long-past release", () => {
+    // Three "NEW" badges from v1.54 and v1.62 were still there ~35 releases
+    // later. A NEW badge that old is not a highlight, it is a false claim about
+    // what changed recently — the same reason the landing page dropped its
+    // new/updated badges entirely.
+    expect(read("README.md")).not.toContain("**NEW**");
+  });
+
+  test("the user guide's tool count matches what ships", () => {
+    for (const m of read("docs/USER_GUIDE.md").matchAll(/\*\*(\d+) tools\*\*/g)) {
+      expect({ claimed: Number(m[1]) }).toEqual({ claimed: modes().length });
     }
   });
 

@@ -99,24 +99,29 @@ function harnessHtml(pageFile) {
 </script></body></html>`;
 }
 
-function run() {
-  const browser = findBrowser();
-  if (!browser) {
-    console.log("SKIP: no Chromium-family browser found (set CHROME_PATH to run this check).");
-    // Exit 2, NOT 0. Returning 0 made the caller record a PASS for a check
-    // that inspected nothing — and these two are the only gates that see
-    // the real rendered output, so a false green here is the worst kind.
-    return 2;
-  }
+/**
+ * Every published landing page, discovered rather than listed.
+ *
+ * All five deploy together and are equally public. Hardcoding the list is how
+ * index.html ended up as the only one checked; globbing means a new page is
+ * covered the moment it exists.
+ */
+/** index.html is the only page with the interactive hero demo tabs. */
+function isIndex(p) {
+  return path.basename(p) === "index.html";
+}
 
-  const argIdx = process.argv.indexOf("--page");
-  const pageSrc = argIdx !== -1 ? path.resolve(process.argv[argIdx + 1])
-                                : path.join(ROOT, "landing", "index.html");
-  if (!fs.existsSync(pageSrc)) {
-    console.error("FAIL: page not found: " + pageSrc);
-    return 1;
-  }
+function landingPages() {
+  const dir = path.join(ROOT, "landing");
+  return fs
+    .readdirSync(dir)
+    .filter((f) => f.endsWith(".html"))
+    .sort()
+    .map((f) => path.join(dir, f));
+}
 
+/** Layout-checks one page. Returns 0 clean, 1 on problems. */
+function checkPage(browser, pageSrc) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "jurislab-overlap-"));
   fs.copyFileSync(pageSrc, path.join(dir, "page.html"));
   fs.copyFileSync(path.join(__dirname, "landing-overlap-driver.js"),
@@ -151,8 +156,9 @@ function run() {
     .trim();
 
   if (body === "CLEAN") {
-    console.log(`PASS: no text overlaps and no overflow across ${WIDTHS.length} widths ` +
-                `(${WIDTHS.join(", ")}px) and every hero demo tab at ${TAB_WIDTHS.join(" and ")}px.`);
+    console.log(`  PASS ${path.basename(pageSrc)} — no overlaps or overflow across ` +
+                `${WIDTHS.length} widths (${WIDTHS.join(", ")}px)` +
+                `${isIndex(pageSrc) ? ` and every hero demo tab at ${TAB_WIDTHS.join(" and ")}px` : ""}.`);
     return 0;
   }
   if (body.startsWith("ERROR")) {
@@ -161,10 +167,46 @@ function run() {
   }
 
   const lines = body.split("\n").filter((l) => l.trim());
-  console.error(`FAIL: ${lines.length} layout problem(s) on ${path.relative(ROOT, pageSrc)}:`);
-  for (const l of lines.slice(0, 40)) console.error("  " + l);
-  if (lines.length > 40) console.error(`  ...and ${lines.length - 40} more`);
+  console.error(`  FAIL ${path.relative(ROOT, pageSrc)} — ${lines.length} layout problem(s):`);
+  for (const l of lines.slice(0, 40)) console.error("    " + l);
+  if (lines.length > 40) console.error(`    ...and ${lines.length - 40} more`);
   return 1;
+}
+
+function run() {
+  const browser = findBrowser();
+  if (!browser) {
+    console.log("SKIP: no Chromium-family browser found (set CHROME_PATH to run this check).");
+    // Exit 2, NOT 0. Returning 0 made the caller record a PASS for a check
+    // that inspected nothing — and these two are the only gates that see
+    // the real rendered output, so a false green here is the worst kind.
+    return 2;
+  }
+
+  const argIdx = process.argv.indexOf("--page");
+  const pages = argIdx !== -1 ? [path.resolve(process.argv[argIdx + 1])] : landingPages();
+
+  const missing = pages.filter((p) => !fs.existsSync(p));
+  if (missing.length) {
+    console.error("FAIL: page not found: " + missing.join(", "));
+    return 1;
+  }
+  if (!pages.length) {
+    // An empty glob must not read as success.
+    console.error("FAIL: no landing pages found to check.");
+    return 1;
+  }
+
+  console.log(`Checking ${pages.length} landing page(s):`);
+  let failed = 0;
+  for (const p of pages) failed += checkPage(browser, p) === 0 ? 0 : 1;
+
+  if (failed) {
+    console.error(`FAIL: ${failed} of ${pages.length} landing page(s) have layout problems.`);
+    return 1;
+  }
+  console.log(`PASS: all ${pages.length} landing pages are clean.`);
+  return 0;
 }
 
 try {

@@ -5,7 +5,7 @@
 ### → [JurisLab User Manual](https://alexsmi22-dotcom.github.io/MS-WORD-Add-in/manual.html)
 
 It covers getting started, the core loop (pick a tool → type → preview → insert),
-all **22 tools** with worked examples you can type, the honest limits of each
+all **25 tools** with worked examples you can type, the honest limits of each
 prediction, and troubleshooting.
 
 Per-tool detail pages — one for every tool, with examples — start from the

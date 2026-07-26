@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.1.0)
+# JurisLab — Manual Test Script (v2.2.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -10,7 +10,7 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
 
-## 0a. What changed in v1.97-2.1.0 — check this first
+## 0a. What changed in v1.97-2.2.0 — check this first
 
 The pane was restyled to match the landing page. Nothing about what the tools
 COMPUTE changed, so this section is about appearance and reach.
@@ -76,6 +76,22 @@ COMPUTE changed, so this section is about appearance and reach.
   Tukey's on the same data.
 - [ ] **Stats → Tukey HSD** caveats must no longer mention "Games-Howell", and
   the Dunnett they point to must now exist in the Test dropdown.
+
+**Regression in v2.2.0.**
+- [ ] **Stats → Multiple regression.** One row per observation, response first.
+  Two diagnostic plots must appear under the result.
+- [ ] **Stats → Polynomial regression.** Fit degree 1 to data that is obviously
+  curved: the residual plot must show a clear ARC. Refit at degree 2 and the arc
+  must disappear into a shapeless band. That contrast is the whole point of the
+  plot — R² alone will not tell you.
+- [ ] Enter two identical predictor columns: it must REFUSE with a collinearity
+  message, not return coefficients.
+- [ ] The diagnostic plots stay on white paper in dark mode (same reason as the
+  structure preview).
+- [ ] **Every Stats test's "Insert result" button is enabled** once it has a
+  result. Tukey HSD's had been permanently disabled before v2.2.0 — its caveats
+  contained em dashes, which the reader treats as a non-finite-value sentinel.
+  Insert a Tukey result and confirm it lands in the document.
 
 **Clearing a stale ribbon icon.** Quit Word fully, then delete the Office add-in
 cache and reopen:

@@ -108,6 +108,32 @@ describe("the em-dash sentinel hazard is contained", () => {
     expect(offenders).toEqual([]);
   });
 
+  test("no Stats calculator emits an em dash into an insertable result", () => {
+    // This guard covered ANALYZE_CALCS only, which is why the v2.2.0 regression
+    // caveats shipped with em dashes and silently disabled "Insert result" on a
+    // perfectly valid fit. A documented trap that has caught someone should be
+    // an enforced one.
+    const offenders: string[] = [];
+    for (const e of entries("STAT_CALCS")) {
+      for (const line of insertableLines(e.body)) {
+        // A line that CALLS plainDashes is removing the sentinel, not emitting it.
+        if (line.includes("plainDashes")) continue;
+        for (const pat of EM_PATTERNS) {
+          if (line.includes(pat)) offenders.push(`${e.id}: ${line.trim().slice(0, 80)}`);
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  test("the Stats scan actually reads the registry (guard against a vacuous pass)", () => {
+    const ids = entries("STAT_CALCS").map((e) => e.id);
+    expect(ids).toContain("multiregress");
+    expect(ids).toContain("dunnett");
+    expect(ids).toContain("descriptive");
+    expect(ids.length).toBeGreaterThanOrEqual(15);
+  });
+
   test("the filter is not so broad that it excludes everything", () => {
     // If insertableLines() ever returned nothing, the test above would pass
     // while checking no code at all.

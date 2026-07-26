@@ -1,6 +1,6 @@
 # JurisLab — Product Roadmap
 
-_Last updated: 2026-07-26 · Current release: **v2.1.0** (production)_
+_Last updated: 2026-07-26 · Current release: **v2.2.0** (production)_
 
 > The release number above is gated by `phase6.adversarial.test.ts` against
 > `package.json`. If they disagree, the suite fails — this file drifted five
@@ -215,7 +215,36 @@ Kruskal-Wallis, would be worse than saying nothing.
   and the Dunnett reference. **A test asserted the Games-Howell wording, so the suite was
   pinning the defect in place.**
 
+**v2.2.0 — regression that is actually usable, and the plots that check it.**
+- **Multiple regression** (any number of predictors) and **polynomial regression** (to
+  degree 6). Regression had stopped at one predictor, and `linalg.ts` had QR but no
+  least-squares on top of it, so a user with dose AND time could not assemble one either.
+- Solved by **QR, not the normal equations**: forming XᵀX squares the condition number, and
+  a polynomial design is exactly where that bites. Polynomial x is **centred** first — a
+  cubic on x ≈ 1000 otherwise spans 10⁰–10⁹ across its columns and degenerates into noise.
+- **Rank-deficient designs are refused**, not silently resolved: two collinear predictors,
+  a constant predictor, or as many parameters as observations each return a reason.
+- **Residual-vs-fitted and normal Q-Q plots** shown under the result. This is the half that
+  matters: a quadratic relationship fitted with a straight line posts a respectable R²
+  while being systematically wrong at both ends, and NO summary number reveals it.
+  `StatOutput` gained an optional `svg` for display only — the inserted text is unchanged,
+  so no existing calculator's output could shift.
+- **Adjusted R² beside R²**, because plain R² can only ever rise when a predictor is added,
+  even a column of random numbers. A test asserts exactly that.
+- Verified against closed forms rather than against the solver: one predictor reproduces
+  the existing simple-linear fit's slope, intercept, SE and p to 1e-10; an exactly
+  determined plane and a perfect quadratic are recovered exactly.
+
+**Found by widening a guard, not by looking for it: Tukey HSD's result could never be
+inserted.** The Stats/Analyze readers block insertion when the result text contains an em
+dash, because that is `formatNum`'s non-finite sentinel — a whole-text scan, so an em dash
+used as ordinary PROSE disables the button. tukey.ts's caveats are full of them. The
+existing guard test covered `ANALYZE_CALCS` only; extending it to `STAT_CALCS` (after my own
+regression caveats tripped the same wire) surfaced Tukey immediately, plus the assumptions
+and Dunnett prose. All normalised at the point the text is built, wording untouched.
+**A trap that is documented rather than enforced will catch the next person — it caught me.**
+
 **Genuinely open candidates:** deeper BVP/PDE/DAE
 support on the ODE side (out of scope today — state honestly). Confirm priority before building.
-Also open from the evaluation: residual and Q-Q plots, multiple/polynomial regression, survival analysis, and the four near-identical calculator registries
+Also open from the evaluation: survival analysis (Kaplan-Meier, log-rank, hazard ratios), and the four near-identical calculator registries
 (~1,935 lines) that want consolidating.

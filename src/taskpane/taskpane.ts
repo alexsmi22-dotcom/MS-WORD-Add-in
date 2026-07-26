@@ -238,6 +238,7 @@ import { resolveTheme, hostTheme, type ThemePref } from "../lib/theme";
 import { describeAssumptions, normalityTest, varianceHomogeneity } from "../lib/diagnostics";
 import { kruskalWallis, dunnTest, friedman } from "../lib/nonparametric";
 import { dunnettTest } from "../lib/dunnett";
+import { multipleRegression, polynomialRegression, qqPoints } from "../lib/regression";
 import {
   planParagraphNumbering,
   describeParagraphPlan,
@@ -5164,6 +5165,12 @@ interface StatOutput {
   text: string;
   /** False for a validation message (blocks insertion). */
   ok?: boolean;
+  /**
+   * Optional diagram shown under the result — currently the regression residual
+   * and Q-Q plots. Display only: `text` remains what gets inserted, so adding
+   * this cannot change any existing calculator's output.
+   */
+  svg?: string;
 }
 interface StatCalc {
   id: string;
@@ -5220,6 +5227,82 @@ function statVars(s: string): Record<string, { value: number; uncertainty: numbe
     if (m) out[m[1]] = { value: parseFloat(m[2]), uncertainty: parseFloat(m[3]) };
   }
   return out;
+}
+
+/**
+ * Swaps em dashes for hyphens in prose destined for a Stats result.
+ *
+ * An em dash in the result text is the NON-FINITE sentinel (formatNum, linalg.ts)
+ * and blocks insertion. Library caveats are written with em dashes because they
+ * are prose; this normalises them so a valid result stays insertable, changing
+ * the punctuation and never the wording.
+ */
+function plainDashes(text: string): string {
+  return text.replace(/\u2014/g, "-");
+}
+
+/** Shared text report for any least-squares fit. */
+function regressionReport(res: {
+  coefficients: { name: string; estimate: number; standardError: number; t: number; p: number }[];
+  rSquared: number;
+  adjustedRSquared: number;
+  residualStandardError: number;
+  f: number;
+  dfModel: number;
+  dfResidual: number;
+  pOverall: number;
+  n: number;
+  caveats: string[];
+}): string {
+  const lines: string[] = [];
+  for (const c of res.coefficients) {
+    lines.push(
+      `${c.name} = ${assaySig(c.estimate)} \u00b1 ${assaySig(c.standardError, 3)}  ` +
+        `t = ${assaySig(c.t, 3)}, ${formatP(c.p)}`,
+    );
+  }
+  lines.push("");
+  lines.push(
+    `R\u00b2 = ${assaySig(res.rSquared, 4)} \u00b7 adjusted R\u00b2 = ${assaySig(res.adjustedRSquared, 4)}`,
+  );
+  lines.push(`Residual SE = ${assaySig(res.residualStandardError, 4)} on ${res.dfResidual} df (n = ${res.n})`);
+  lines.push(`Overall F(${res.dfModel}, ${res.dfResidual}) = ${assaySig(res.f, 4)}, ${formatP(res.pOverall)}`);
+  lines.push("");
+  lines.push(plainDashes(res.caveats.join("\n")));
+  return lines.join("\n");
+}
+
+/**
+ * Residuals-vs-fitted and normal Q-Q, side by side.
+ *
+ * These are the diagnostics that catch what the summary numbers cannot: a curved
+ * residual band means the model SHAPE is wrong however good R² looks.
+ */
+function regressionFigures(res: { fitted: number[]; residuals: number[]; standardizedResiduals: number[] }): string {
+  const resid = buildPlotSvg(
+    [{ type: "scatter", points: res.fitted.map((f, i) => ({ x: f, y: res.residuals[i] })), color: "#0369a1" }],
+    { width: 300, height: 190, title: "Residuals vs fitted", xlabel: "Fitted", ylabel: "Residual" },
+  );
+  const pts = qqPoints(res.standardizedResiduals);
+  const qq = buildPlotSvg(
+    [
+      { type: "scatter", points: pts.map((p) => ({ x: p.theoretical, y: p.sample })), color: "#0369a1" },
+      // The reference line points would lie on if the residuals were normal.
+      {
+        type: "line",
+        points: [
+          { x: pts[0]?.theoretical ?? -2, y: pts[0]?.theoretical ?? -2 },
+          {
+            x: pts[pts.length - 1]?.theoretical ?? 2,
+            y: pts[pts.length - 1]?.theoretical ?? 2,
+          },
+        ],
+        color: "#94a3b8",
+      },
+    ],
+    { width: 300, height: 190, title: "Normal Q-Q", xlabel: "Theoretical quantile", ylabel: "Std. residual" },
+  );
+  return resid + qq;
 }
 
 const STAT_CALCS: StatCalc[] = [
@@ -5306,6 +5389,67 @@ const STAT_CALCS: StatCalc[] = [
     },
   },
   {
+    id: "multiregress",
+    name: "Multiple regression",
+    fields: [
+      {
+        key: "cols",
+        label: "One row per observation: response first, then each predictor",
+        default: "12 1 2\n19 2 1\n23 3 4\n31 4 3\n38 5 6\n45 6 5\n52 7 8\n59 8 7",
+        kind: "groups",
+      },
+    ],
+    compute: (r) => {
+      const rows = r("cols")
+        .split(/[\n;]+/)
+        .map((l) => statList(l))
+        .filter((v) => v.length >= 2);
+      if (rows.length < 3) return { text: "Enter at least three rows: response then predictors.", ok: false };
+      const width = rows[0].length;
+      if (rows.some((v) => v.length !== width)) {
+        return { text: "Every row needs the same number of values.", ok: false };
+      }
+      const y = rows.map((v) => v[0]);
+      const preds: number[][] = [];
+      for (let j = 1; j < width; j++) preds.push(rows.map((v) => v[j]));
+
+      const res = multipleRegression(y, preds);
+      if (!res.ok) return { text: res.reason ?? "Could not fit the model.", ok: false };
+      return { text: regressionReport(res), svg: regressionFigures(res) };
+    },
+  },
+  {
+    id: "polyregress",
+    name: "Polynomial regression",
+    fields: [
+      { key: "x", label: "x values", default: "1 2 3 4 5 6 7 8 9 10", kind: "list" },
+      { key: "y", label: "y values", default: "2.2 4.1 7.3 11.8 17.5 25.1 34.2 45.0 57.3 71.2", kind: "list" },
+      {
+        key: "degree",
+        label: "Degree",
+        default: "2",
+        kind: "select",
+        options: [
+          { value: "1", label: "1 (straight line)" },
+          { value: "2", label: "2 (quadratic)" },
+          { value: "3", label: "3 (cubic)" },
+          { value: "4", label: "4" },
+        ],
+      },
+    ],
+    compute: (r) => {
+      const x = statList(r("x"));
+      const y = statList(r("y"));
+      if (x.length !== y.length) return { text: "x and y must have the same number of values.", ok: false };
+      const res = polynomialRegression(x, y, Number(r("degree")) || 2);
+      if (!res.ok) return { text: res.reason ?? "Could not fit the model.", ok: false };
+      return {
+        text: `Polynomial regression, degree ${res.degree}\n` + regressionReport(res),
+        svg: regressionFigures(res),
+      };
+    },
+  },
+  {
     id: "dunnett",
     name: "Dunnett (each treatment vs one control)",
     fields: [
@@ -5325,7 +5469,7 @@ const STAT_CALCS: StatCalc[] = [
       if (!res.ok) return { text: res.reason ?? "Could not run the test.", ok: false };
 
       const lines = [
-        `Dunnett's test — ${res.comparisons.length} treatment${res.comparisons.length === 1 ? "" : "s"} vs control (n = ${res.controlN})`,
+        `Dunnett's test - ${res.comparisons.length} treatment${res.comparisons.length === 1 ? "" : "s"} vs control (n = ${res.controlN})`,
         `df = ${res.df}, two-sided critical |t| = ${assaySig(res.critical, 4)} at α = 0.05`,
         "",
       ];
@@ -5342,7 +5486,7 @@ const STAT_CALCS: StatCalc[] = [
           `${(groups.length * (groups.length - 1)) / 2} pairs. That is what makes it more powerful than Tukey ` +
           "when the control is the only thing you wanted to compare against.",
       );
-      return { text: lines.join("\n") + "\n\n" + res.caveats.join("\n") };
+      return { text: plainDashes(lines.join("\n") + "\n\n" + res.caveats.join("\n")) };
     },
   },
   {
@@ -5387,9 +5531,9 @@ const STAT_CALCS: StatCalc[] = [
       lines.push("");
       lines.push(
         "Compares distributions by rank, so it assumes no particular shape. It does NOT " +
-          "compare means — a significant result says the groups differ in location, not by how much.",
+          "compare means - a significant result says the groups differ in location, not by how much.",
       );
-      return { text: lines.join("\n") };
+      return { text: plainDashes(lines.join("\n")) };
     },
   },
   {
@@ -5414,13 +5558,14 @@ const STAT_CALCS: StatCalc[] = [
       const res = friedman(rows);
       if (!res.ok) return { text: res.reason ?? "Could not run the test.", ok: false };
       return {
-        text:
+        text: plainDashes(
           `Friedman \u03c7\u00b2(${res.df}) = ${assaySig(res.chi2, 4)}, ${formatP(res.p)}\n` +
           `${res.blocks} subjects \u00d7 ${res.treatments} conditions\n` +
           "Mean ranks: " +
           res.meanRanks.map((m, i) => `condition ${i + 1} = ${assaySig(m, 4)}`).join(" \u00b7 ") +
           "\n\nUse when the SAME subjects are measured under every condition. A between-groups " +
           "test on this data would ignore the pairing and lose most of its power.",
+        ),
       };
     },
   },
@@ -5444,7 +5589,7 @@ const STAT_CALCS: StatCalc[] = [
       const norm = normalityTest(pooled);
       if (norm.ok) {
         lines.push(
-          `Normality (D'Agostino-Pearson): K\u00b2 = ${assaySig(norm.k2, 4)}, ${formatP(norm.p)} \u2014 ` +
+          `Normality (D'Agostino-Pearson): K\u00b2 = ${assaySig(norm.k2, 4)}, ${formatP(norm.p)} - ` +
             `${norm.normal ? "consistent with normal" : "NOT normal"}`,
         );
         lines.push(`  skewness = ${assaySig(norm.skewness, 3)}, kurtosis = ${assaySig(norm.kurtosis, 3)} (normal \u2248 3)`);
@@ -5457,7 +5602,7 @@ const STAT_CALCS: StatCalc[] = [
         if (vh.ok) {
           lines.push(
             `Equal variances (Brown-Forsythe): F(${vh.df1}, ${vh.df2}) = ${assaySig(vh.f, 4)}, ` +
-              `${formatP(vh.p)} \u2014 ${vh.equal ? "consistent with equal" : "NOT equal"}`,
+              `${formatP(vh.p)} - ${vh.equal ? "consistent with equal" : "NOT equal"}`,
           );
           lines.push(`  largest/smallest variance = ${assaySig(vh.varianceRatio, 3)}`);
         } else {
@@ -5473,7 +5618,7 @@ const STAT_CALCS: StatCalc[] = [
         lines.push("");
         lines.push("No assumption problems found. A parametric test (t-test / ANOVA) is appropriate.");
       }
-      return { text: lines.join("\n") };
+      return { text: plainDashes(lines.join("\n")) };
     },
   },
   {
@@ -5552,8 +5697,8 @@ const STAT_CALCS: StatCalc[] = [
       const anySig = res.pairs.some((pr) => pr.significant);
 
       return {
-        text:
-          `Tukey HSD \u2014 ${res.k} groups, family-wise alpha = ${res.alpha}\n` +
+        text: plainDashes(
+          `Tukey HSD - ${res.k} groups, family-wise alpha = ${res.alpha}\n` +
           `${omniLine}\n` +
           `q critical = ${assaySig(res.qCritical, 4)} \u00b7 MSE = ${assaySig(res.mse)} \u00b7 df within = ${res.dfWithin}\n\n` +
           rows.join("\n") +
@@ -5561,6 +5706,7 @@ const STAT_CALCS: StatCalc[] = [
           // tukeyHSD already emits the family-wise warning, and better than a
           // hand-written one — showing both said the same thing twice.
           (res.caveats.length ? "\n\n" + res.caveats.map((c) => `\u2022 ${c}`).join("\n") : ""),
+        ),
       };
     },
   },
@@ -5856,7 +6002,10 @@ function updateStatsPreview(): void {
   // Exclude the "—" no-value sentinel (from a non-finite computation) so a
   // dash placeholder is never inserted into the document.
   const insertable = out.ok !== false && !!out.text && !out.text.includes("—");
-  statsResult.innerHTML = esc(out.text).replace(/\n/g, "<br>");
+  statsResult.innerHTML =
+    esc(out.text).replace(/\n/g, "<br>") +
+    // The SVG is generated by this code, never from user input.
+    (out.svg ? `<div class="stats-figure">${out.svg}</div>` : "");
   currentStatsText = insertable ? out.text : "";
   statsInsertBtn.disabled = !insertable;
 }

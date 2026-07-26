@@ -1881,3 +1881,20 @@ select {
     background: var(--accent-hover);
   }
 }
+
+/* Regression diagnostic plots under a Stats result. The charts are generated
+   as black-on-white artwork (same generator as inserted figures), so they sit
+   on paper rather than on the themed surface — see --paper-fixed. */
+.stats-figure {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+.stats-figure svg {
+  max-width: 100%;
+  height: auto;
+  background: var(--paper-fixed);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+}

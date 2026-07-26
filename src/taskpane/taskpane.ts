@@ -239,6 +239,7 @@ import { describeAssumptions, normalityTest, varianceHomogeneity } from "../lib/
 import { kruskalWallis, dunnTest, friedman } from "../lib/nonparametric";
 import { dunnettTest } from "../lib/dunnett";
 import { multipleRegression, polynomialRegression, qqPoints } from "../lib/regression";
+import { kaplanMeier, logRankTest, survivalCurvePoints } from "../lib/survival";
 import {
   planParagraphNumbering,
   describeParagraphPlan,
@@ -5386,6 +5387,117 @@ const STAT_CALCS: StatCalc[] = [
           `Paired t-test\n${reportT(res)}\nMean difference = ${assaySig(res.meanDifference)}` +
           (notes.length ? "\n\n" + notes.join("\n") : ""),
       };
+    },
+  },
+  {
+    id: "survival",
+    name: "Survival (Kaplan-Meier)",
+    fields: [
+      {
+        key: "data",
+        label: "One row per subject: time then 1 (event) or 0 (censored, i.e. event-free when last seen)",
+        default: "5 1\n6 1\n6 0\n8 1\n10 0\n12 1\n15 0\n18 1\n20 0\n24 0",
+        kind: "groups",
+      },
+    ],
+    compute: (r) => {
+      const rows = r("data")
+        .split(/[;\n]+/)
+        .map((l) => statList(l))
+        .filter((v) => v.length >= 2);
+      if (rows.length < 2) return { text: "Enter at least two subjects: time then 1 or 0.", ok: false };
+      const res = kaplanMeier(rows.map((v) => v[0]), rows.map((v) => v[1]));
+      if (!res.ok) return { text: res.reason ?? "Could not compute the curve.", ok: false };
+
+      const lines = [
+        `Kaplan-Meier: n = ${res.n}, ${res.events} event${res.events === 1 ? "" : "s"}, ${res.censored} censored`,
+        res.medianSurvival !== null
+          ? `Median survival = ${assaySig(res.medianSurvival)}`
+          : "Median survival: NOT REACHED (the curve never falls to 50%)",
+        "",
+        "Time  At risk  Events  S(t)   95% CI",
+      ];
+      for (const p of res.points) {
+        const ci = Number.isFinite(p.ci95[0])
+          ? `[${assaySig(p.ci95[0], 3)}, ${assaySig(p.ci95[1], 3)}]`
+          : "n/a";
+        lines.push(
+          `${p.time}  ${p.atRisk}  ${p.events}${p.censored ? ` (+${p.censored} cens.)` : ""}  ` +
+            `${assaySig(p.survival, 4)}  ${ci}`,
+        );
+      }
+      const svg = buildPlotSvg(
+        [{ type: "line", points: survivalCurvePoints(res), color: "#0369a1", label: "S(t)" }],
+        { width: 320, height: 210, title: "Kaplan-Meier", xlabel: "Time", ylabel: "Survival" },
+      );
+      return { text: plainDashes(lines.join("\n") + "\n\n" + res.caveats.join("\n")), svg };
+    },
+  },
+  {
+    id: "logrank",
+    name: "Log-rank (compare survival curves)",
+    fields: [
+      {
+        key: "groups",
+        label: "One group per block (blank line between). Each row: time then 1 or 0",
+        default: "5 1\n8 1\n12 1\n15 0\n20 0\n\n10 1\n14 1\n18 1\n22 0\n28 0",
+        kind: "groups",
+      },
+    ],
+    compute: (r) => {
+      const blocks = r("groups")
+        .split(/\n[ \t]*\n|;;/)
+        .map((b) => b.trim())
+        .filter(Boolean);
+      const groups = blocks.map((b) => {
+        const rows = b.split(/[;\n]+/).map((l) => statList(l)).filter((v) => v.length >= 2);
+        return { times: rows.map((v) => v[0]), events: rows.map((v) => v[1]) };
+      });
+      if (groups.length < 2) {
+        return { text: "Enter at least two groups, separated by a blank line.", ok: false };
+      }
+      const res = logRankTest(groups);
+      if (!res.ok) return { text: res.reason ?? "Could not run the test.", ok: false };
+
+      const lines = [
+        `Log-rank \u03c7\u00b2(${res.df}) = ${assaySig(res.chi2, 4)}, ${formatP(res.p)}`,
+        "",
+      ];
+      for (let i = 0; i < res.observed.length; i++) {
+        lines.push(
+          `Group ${i + 1}: observed ${res.observed[i]} vs expected ${assaySig(res.expected[i], 4)} events`,
+        );
+      }
+      if (res.hazardRatio !== null && res.hazardRatioCI) {
+        lines.push("");
+        lines.push(
+          `Hazard ratio (group 2 vs group 1) = ${assaySig(res.hazardRatio, 3)} ` +
+            `[95% CI ${assaySig(res.hazardRatioCI[0], 3)}, ${assaySig(res.hazardRatioCI[1], 3)}]`,
+        );
+        lines.push(
+          res.hazardRatio > 1
+            ? "Above 1: group 2 has the higher hazard, i.e. does worse."
+            : "Below 1: group 2 has the lower hazard, i.e. does better.",
+        );
+      }
+
+      // Both curves on one chart, which is how the result is read.
+      const curves = groups.map((g, i) => {
+        const km = kaplanMeier(g.times, g.events);
+        return {
+          type: "line" as const,
+          points: km.ok ? survivalCurvePoints(km) : [],
+          label: `Group ${i + 1}`,
+        };
+      });
+      const svg = buildPlotSvg(curves, {
+        width: 320,
+        height: 210,
+        title: "Survival by group",
+        xlabel: "Time",
+        ylabel: "Survival",
+      });
+      return { text: plainDashes(lines.join("\n") + "\n\n" + res.caveats.join("\n")), svg };
     },
   },
   {

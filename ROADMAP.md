@@ -1,6 +1,6 @@
 # JurisLab — Product Roadmap
 
-_Last updated: 2026-07-26 · Current release: **v2.2.0** (production)_
+_Last updated: 2026-07-26 · Current release: **v2.3.0** (production)_
 
 > The release number above is gated by `phase6.adversarial.test.ts` against
 > `package.json`. If they disagree, the suite fails — this file drifted five
@@ -244,7 +244,19 @@ regression caveats tripped the same wire) surfaced Tukey immediately, plus the a
 and Dunnett prose. All normalised at the point the text is built, wording untouched.
 **A trap that is documented rather than enforced will catch the next person — it caught me.**
 
+**v2.3.0 — survival analysis.** The largest named category absent for a life-science
+audience. Time-to-event data was not analysable by anything else here: a t-test on survival
+times throws away every censored subject, which is usually most of the ones who did best.
+Kaplan-Meier with Greenwood confidence intervals, the log-rank test, and a Peto hazard ratio
+with its interval; both curves drawn on one chart.
+Censoring is the whole design: a subject censored at 10 months is not one who died at 10
+months and not one who survived forever — they count toward the risk set up to that moment
+and not after. The tests check it by comparing against the uncensored case, where the answer
+is known exactly. **Median survival reports NOT REACHED** when the curve never falls to 50%,
+rather than substituting the longest observed time, which is the common spreadsheet error and
+understates survival.
+
 **Genuinely open candidates:** deeper BVP/PDE/DAE
 support on the ODE side (out of scope today — state honestly). Confirm priority before building.
-Also open from the evaluation: survival analysis (Kaplan-Meier, log-rank, hazard ratios), and the four near-identical calculator registries
+Also open from the evaluation: the four near-identical calculator registries
 (~1,935 lines) that want consolidating.

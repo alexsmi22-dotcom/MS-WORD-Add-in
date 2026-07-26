@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.2.0)
+# JurisLab — Manual Test Script (v2.3.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -10,7 +10,7 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
 
-## 0a. What changed in v1.97-2.2.0 — check this first
+## 0a. What changed in v1.97-2.3.0 — check this first
 
 The pane was restyled to match the landing page. Nothing about what the tools
 COMPUTE changed, so this section is about appearance and reach.
@@ -92,6 +92,17 @@ COMPUTE changed, so this section is about appearance and reach.
   result. Tukey HSD's had been permanently disabled before v2.2.0 — its caveats
   contained em dashes, which the reader treats as a non-finite-value sentinel.
   Insert a Tukey result and confirm it lands in the document.
+
+**Survival analysis in v2.3.0.**
+- [ ] **Stats -> Survival (Kaplan-Meier).** One row per subject: time, then 1
+  (event) or 0 (censored). Change one subject from 1 to 0 and confirm the curve
+  does NOT step down at that time — it should stay flat and the subject should
+  simply leave the risk set.
+- [ ] Make every subject censored: median survival must read NOT REACHED, not a
+  number.
+- [ ] **Stats -> Log-rank.** Two groups separated by a blank line. Both curves
+  must appear on one chart, and the hazard ratio direction must match which
+  group is doing better.
 
 **Clearing a stale ribbon icon.** Quit Word fully, then delete the Office add-in
 cache and reopen:

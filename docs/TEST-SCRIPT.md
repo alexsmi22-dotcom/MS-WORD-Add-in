@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v1.99.0)
+# JurisLab — Manual Test Script (v2.0.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -10,7 +10,7 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
 
-## 0a. What changed in v1.97-1.99 — check this first
+## 0a. What changed in v1.97-2.0.0 — check this first
 
 The pane was restyled to match the landing page. Nothing about what the tools
 COMPUTE changed, so this section is about appearance and reach.
@@ -45,6 +45,20 @@ COMPUTE changed, so this section is about appearance and reach.
 - [ ] **Citations → native TOA.** In a brief using short forms (`Alice, 573 U.S.
   at 217`), the page list must now include those pages, not just the full cite.
   The message says how many `Id.` references it declined to attribute.
+
+**Dark mode (v2.0.0).** The pane follows Word's own theme.
+- [ ] Switch Word to **File → Account → Office Theme → Black** (or Dark Gray).
+  With Appearance on **Match Word** the pane should go dark to match. Switch back
+  to Colorful/White and it should return to light.
+- [ ] The **Appearance** control at the bottom of the pane forces Light or Dark
+  and overrides Word. The choice must survive closing and reopening the pane.
+- [ ] **The 2D structure / plot / spectra preview stays WHITE in dark mode.**
+  That is deliberate, not a bug: those previews show artwork that is inserted
+  into the document as black-on-white line art, and a dark preview would
+  misrepresent what you are about to insert. Confirm an inserted structure is
+  still black-on-white with the pane in dark mode.
+- [ ] Nothing is unreadable in either theme — check disabled buttons, the
+  warning/error text, and the active filter chip in particular.
 
 **Clearing a stale ribbon icon.** Quit Word fully, then delete the Office add-in
 cache and reopen:

@@ -17,6 +17,8 @@
  * dropdown and the search box, so nothing is ever lost — it's a lens, not a
  * licence tier. Defaults to "all": nothing is hidden until the user asks.
  */
+import { isThemePref, type ThemePref } from "./theme";
+
 export type HomeFilter = "all" | "science" | "legal";
 
 export interface Prefs {
@@ -28,10 +30,16 @@ export interface Prefs {
   legendFormat: "line" | "table";
   /** Which audience's tools the Home screen shows. */
   homeFilter: HomeFilter;
+  /**
+   * Pane appearance. "auto" follows Word's own theme where the host reports it,
+   * and the OS otherwise — see lib/theme.ts for the resolution order.
+   */
+  theme: ThemePref;
 }
 
 export const DEFAULT_PREFS: Prefs = {
   calloutParens: true,
+  theme: "auto",
   dnaFrame: 1,
   legendFormat: "line",
   homeFilter: "all",
@@ -59,6 +67,7 @@ export function getPrefs(): Prefs {
         p.homeFilter === "all" || p.homeFilter === "science" || p.homeFilter === "legal"
           ? p.homeFilter
           : DEFAULT_PREFS.homeFilter,
+      theme: isThemePref(p.theme) ? p.theme : DEFAULT_PREFS.theme,
     };
   } catch {
     return { ...DEFAULT_PREFS };

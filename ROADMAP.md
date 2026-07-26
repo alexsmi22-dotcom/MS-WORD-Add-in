@@ -1,6 +1,6 @@
 # JurisLab — Product Roadmap
 
-_Last updated: 2026-07-26 · Current release: **v1.99.0** (production)_
+_Last updated: 2026-07-26 · Current release: **v2.0.0** (production)_
 
 > The release number above is gated by `phase6.adversarial.test.ts` against
 > `package.json`. If they disagree, the suite fails — this file drifted five
@@ -165,10 +165,26 @@ audits fixing real numerical/biological bugs the unit tests missed).
   and declared, because Word searches by string and a mis-attributed page is
   worse than a missing one.
 
+**v2.0.0 — dark mode.** The pane follows Word's own theme (`Office.context.officeTheme`),
+falling back to the OS `prefers-color-scheme`, with an explicit Light/Dark override that
+beats both. The resolution order is deliberate: the pane lives inside Word, so a user
+running Word in Black on a light desktop gets a dark pane rather than a white slab bolted
+to a black application.
+
+The load-bearing decision is `--paper-fixed`: **preview panels keep their white paper in
+dark mode.** A structure, plot or spectrum is inserted into the document as black-on-white
+line art, because that is what a document and a patent figure require — so a dark preview
+would misrepresent its own output. Dark mode frames the paper instead of inverting it.
+
+All 41 literal colours in the pane were replaced with semantic tokens first, and a contrast
+gate (`themeContrast.test.ts`) now measures 15 text/background pairs against WCAG AA in
+**both** themes. It found three real defects on the first run, two of them in the LIGHT
+theme that had shipped: muted text at 4.03:1, the warning pill at 4.31:1, and the active
+filter chip at 2.3:1 in dark.
+
 **Genuinely open candidates:** deeper BVP/PDE/DAE
 support on the ODE side (out of scope today — state honestly). Confirm priority before building.
 Also open from the evaluation: assumption diagnostics (normality, variance
 homogeneity, Q-Q), nonparametric coverage past two groups (Kruskal-Wallis,
-Friedman, Dunn), multiple/polynomial regression, survival analysis, dark-mode
-and Office theme support, and the four near-identical calculator registries
+Friedman, Dunn), multiple/polynomial regression, survival analysis, and the four near-identical calculator registries
 (~1,935 lines) that want consolidating.

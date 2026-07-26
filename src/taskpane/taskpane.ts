@@ -234,6 +234,7 @@ declare const __APP_VERSION__: string;
 
 import type { Mode } from "../lib/modes";
 import { toolIcon } from "./icons";
+import { resolveTheme, hostTheme, type ThemePref } from "../lib/theme";
 import {
   planParagraphNumbering,
   describeParagraphPlan,
@@ -454,6 +455,7 @@ let plotXmax: HTMLInputElement;
 let plotData: HTMLTextAreaElement;
 let plotTitle: HTMLInputElement;
 let plotXscale: HTMLSelectElement;
+let themeSelect: HTMLSelectElement;
 let digestEnzymes: HTMLInputElement;
 let digestTopology: HTMLSelectElement;
 let digestRunBtn: HTMLButtonElement;
@@ -774,6 +776,7 @@ Office.onReady((info) => {
   plotTitle = document.getElementById("plot-title") as HTMLInputElement;
   plotXlabel = document.getElementById("plot-xlabel") as HTMLInputElement;
   plotXscale = document.getElementById("plot-xscale") as HTMLSelectElement;
+  themeSelect = document.getElementById("theme-select") as HTMLSelectElement;
   digestEnzymes = document.getElementById("digest-enzymes") as HTMLInputElement;
   digestTopology = document.getElementById("digest-topology") as HTMLSelectElement;
   digestRunBtn = document.getElementById("digest-run-btn") as HTMLButtonElement;
@@ -970,6 +973,16 @@ Office.onReady((info) => {
     el.addEventListener("change", updatePlotPreview);
   }
   plotInsertBtn.addEventListener("click", insertPlot);
+  themeSelect.value = getPrefs().theme;
+  themeSelect.addEventListener("change", () => {
+    setPref("theme", themeSelect.value as ThemePref);
+    applyTheme();
+  });
+  applyTheme();
+  // On "Match Word", an OS theme change is handled by the CSS media query with
+  // no attribute pinned — but a WORD theme change is not observable, so the
+  // theme is re-resolved whenever the pane is looked at again.
+  window.addEventListener("focus", applyTheme);
   digestRunBtn.addEventListener("click", runVirtualDigest);
   digestInsertBtn.addEventListener("click", () => insertPlainText(currentDigestText, "Digest"));
   paraPreviewBtn.addEventListener("click", previewParagraphNumbers);
@@ -3908,6 +3921,29 @@ function findRestrictionSites(): void {
     `Found ${hits.length} enzyme${hits.length === 1 ? "" : "s"}; ${unique.size} cut${unique.size === 1 ? "s" : ""} once.`,
     "success"
   );
+}
+
+/**
+ * Puts the pane in the right theme.
+ *
+ * Word is asked first because the pane lives inside Word: running Word in Black
+ * on a light desktop should give a dark pane, not a white slab bolted to a black
+ * application. `Office.context.officeTheme` is not present on every host or
+ * build, so it is read defensively and a missing value falls through to the OS.
+ */
+function applyTheme(): void {
+  const officeTheme = (Office as unknown as { context?: { officeTheme?: { bodyBackgroundColor?: string } } })
+    ?.context?.officeTheme;
+  const { attribute } = resolveTheme({
+    pref: getPrefs().theme,
+    host: hostTheme(officeTheme),
+    osPrefersDark:
+      typeof window.matchMedia === "function" && window.matchMedia("(prefers-color-scheme: dark)").matches,
+  });
+  const root = document.documentElement;
+  if (attribute) root.setAttribute("data-theme", attribute);
+  // No attribute = let the media query decide, so an OS change needs no listener.
+  else root.removeAttribute("data-theme");
 }
 
 /** Cuts the sequence with the chosen enzymes and reports the fragments. */

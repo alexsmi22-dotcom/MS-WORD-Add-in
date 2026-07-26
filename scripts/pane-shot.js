@@ -69,6 +69,11 @@ function writeHarness(mode) {
   // clipped two-column grid and is not one. A screenshot tool that lies about
   // width is worse than none, so the width is forced in CSS and the window is
   // merely made large enough to contain it.
+  // Optional forced theme, so dark mode can be screenshotted.
+  const themeAttr = arg("theme", "");
+  if (themeAttr) {
+    html = html.replace("<html", `<html data-theme="${themeAttr}"`);
+  }
   html = html.replace(
     "</head>",
     `<style>html{width:${PANE_WIDTH}px!important;overflow-x:hidden}` +

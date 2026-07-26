@@ -15,7 +15,9 @@
   /* Ink */
   --ink: #0b1f2a;
   --ink-2: #48606e;
-  --ink-3: #758794;
+  /* Was #758794 = 4.03:1 on white, under AA for the small text it is used for
+     (subtitles, group headings, the disclaimer). */
+  --ink-3: #5c7080;
 
   /* Brand */
   --navy-900: #062231;
@@ -26,11 +28,52 @@
 
   /* Surfaces */
   --paper: #ffffff;
+  /* The pane's own background, distinct from a card surface. In light they are
+     both white and cards are told apart by their border; in dark the app sits
+     BELOW the cards so the cards read as raised. */
+  --app-bg: #ffffff;
   --ground: #edf1f4;
   --ground-2: #f7f9fb;
   --rule: #dbe3e9;
   --rule-soft: #e9eef2;
   --oxblood: #7b2d2d;
+
+  /* Semantic colours. Every literal colour in the file was replaced by one of
+     these so the whole pane can be re-themed from one block. */
+  --on-accent: #ffffff;      /* text ON an accent fill */
+  --accent-soft: #e6eef8;    /* pressed/selected wash */
+  --disabled: #a6a6a6;
+  --error: #b00020;
+  --success: #197a48;
+  --success-bg: #e7f5ec;
+  --warn: #7a5f00;
+  --warn-bg: #fbeede;
+  --star: #c8a200;
+  /* Fill behind an ACTIVE filter chip. Named so contrast against
+     --on-accent is checkable, which is how the dark one shipped at 2.3:1. */
+  --chip-on: var(--navy-700);
+
+  /*
+   * The white of the paper — NOT a themed surface.
+   *
+   * Preview panels show artwork (structures, plots, spectra, plasmid maps) that
+   * is inserted into the document as black-on-white, because that is what a
+   * document and a patent figure require. If these followed the dark theme the
+   * preview would show white-on-dark and the document would get black-on-white:
+   * a preview that lies about its own output. Dark mode FRAMES the paper
+   * instead of inverting it.
+   */
+  --paper-fixed: #ffffff;
+
+  /*
+   * Ink for text drawn ON that paper.
+   *
+   * Fixed like the paper it sits on. Without it the themed --ink flips light for
+   * the dark pane and the hint inside the white structure preview becomes pale
+   * grey on white — unreadable, in the one panel that deliberately did not
+   * change colour.
+   */
+  --ink-on-paper: #2c3e4a;
 
   /* Legacy names, re-pointed at the new palette. */
   --accent: var(--navy-700);
@@ -51,7 +94,7 @@ body {
   margin: 0;
   font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
   color: var(--text);
-  background: #ffffff;
+  background: var(--app-bg);
 }
 
 .container {
@@ -97,7 +140,7 @@ h1 {
   top: calc(100% + 2px);
   max-height: 260px;
   overflow-y: auto;
-  background: #fff;
+  background: var(--paper);
   border: 1px solid var(--border);
   border-radius: 4px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
@@ -116,7 +159,7 @@ h1 {
   padding: 7px 10px;
   font-size: 13px;
   cursor: pointer;
-  border-bottom: 1px solid #f0f0f0;
+  border-bottom: 1px solid var(--rule-soft);
 }
 
 .search-item:hover,
@@ -128,7 +171,7 @@ h1 {
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: #fff;
+  color: var(--on-accent);
   background: var(--accent);
   border-radius: 3px;
   padding: 1px 5px;
@@ -136,7 +179,7 @@ h1 {
 }
 
 .search-item-type.compound {
-  background: #107c10;
+  background: var(--success);
 }
 
 .search-empty {
@@ -197,7 +240,7 @@ h1 {
   font-size: 13px;
   line-height: 1;
   cursor: pointer;
-  color: #c8a200;
+  color: var(--star);
 }
 
 .mode-row {
@@ -249,7 +292,8 @@ h1 {
   border: 1px solid var(--border);
   border-radius: 4px;
   padding: 4px 6px;
-  background: #fff;
+  /* Drawn substituent structures — paper, see --paper-fixed. */
+  background: var(--paper-fixed);
   text-align: center;
 }
 .gallery-card svg {
@@ -334,10 +378,10 @@ h1 {
   font-size: 12.5px;
 }
 .seq-warnings.error {
-  color: var(--error, #b00020);
+  color: var(--error);
 }
 .seq-warnings.warn {
-  color: #8a6d00;
+  color: var(--warn);
 }
 .seq-actions {
   display: flex;
@@ -424,7 +468,7 @@ h1 {
   font-size: 14px;
   font-family: "Cambria Math", "Segoe UI", serif;
   color: var(--text);
-  background: #fff;
+  background: var(--paper);
   border: 1px solid var(--border);
   border-radius: 4px;
   cursor: pointer;
@@ -437,7 +481,7 @@ h1 {
 }
 
 .palette-btn:active {
-  background: #e6eef8;
+  background: var(--accent-soft);
 }
 
 .library-selects {
@@ -452,7 +496,7 @@ h1 {
   font-size: 13px;
   border: 1px solid var(--border);
   border-radius: 4px;
-  background: #fff;
+  background: var(--paper);
 }
 
 /* Math preview rendering (mirrors mathHtml.ts) */
@@ -574,7 +618,7 @@ h1 {
   padding: 10px;
   font-size: 14px;
   font-weight: 600;
-  color: #fff;
+  color: var(--on-accent);
   background: var(--accent);
   border: none;
   border-radius: 4px;
@@ -586,14 +630,14 @@ h1 {
 }
 
 .insert-btn:disabled {
-  background: #a6a6a6;
+  background: var(--disabled);
   cursor: default;
 }
 
 .insert-btn.secondary {
   margin-top: 10px;
   color: var(--accent);
-  background: #fff;
+  background: var(--paper);
   border: 1px solid var(--accent);
 }
 
@@ -602,9 +646,9 @@ h1 {
 }
 
 .insert-btn.secondary:disabled {
-  color: #a6a6a6;
-  background: #fff;
-  border-color: #d0d0d0;
+  color: var(--disabled);
+  background: var(--paper);
+  border-color: var(--rule);
 }
 
 .structure-section {
@@ -629,7 +673,7 @@ h1 {
   font-size: 13px;
   border: 1px solid var(--border);
   border-radius: 4px;
-  background: #fff;
+  background: var(--paper);
 }
 
 .build-input {
@@ -689,7 +733,7 @@ h1 {
 }
 .prop-grid span {
   padding: 3px 1px;
-  border-bottom: 1px solid #ededed;
+  border-bottom: 1px solid var(--rule-soft);
 }
 .prop-k {
   font-size: 12.5px;
@@ -723,12 +767,12 @@ h1 {
   border-radius: 999px;
 }
 .prop-pill.pass {
-  color: #197a48;
-  background: #e7f5ec;
+  color: var(--success);
+  background: var(--success-bg);
 }
 .prop-pill.fail {
-  color: #9a5b00;
-  background: #fbeede;
+  color: var(--warn);
+  background: var(--warn-bg);
 }
 .prop-name {
   font-size: 12.5px;
@@ -791,10 +835,10 @@ h1 {
   color: var(--muted);
 }
 .opsin-status.error {
-  color: #a4262c;
+  color: var(--error);
 }
 .opsin-status.success {
-  color: #197a48;
+  color: var(--success);
 }
 
 /* Mass-spec readout: exact masses, isotope-pattern bars, adduct m/z list. */
@@ -814,7 +858,7 @@ h1 {
 }
 .ms-masses span {
   padding: 3px 1px;
-  border-bottom: 1px solid #ededed;
+  border-bottom: 1px solid var(--rule-soft);
   font-size: 12.5px;
 }
 .ms-mass-k {
@@ -865,7 +909,7 @@ h1 {
 }
 .ms-adducts span {
   padding: 3px 1px;
-  border-bottom: 1px solid #ededed;
+  border-bottom: 1px solid var(--rule-soft);
   font-size: 12.5px;
 }
 .ms-adduct-name {
@@ -1004,16 +1048,16 @@ h1 {
   font-size: 12.5px;
   border: 1px solid var(--border);
   border-radius: 4px;
-  background: var(--surface, #fff);
+  background: var(--paper);
   cursor: pointer;
 }
 .num-remove-btn {
-  color: var(--error, #b00020);
+  color: var(--error);
   font-weight: 700;
   line-height: 1;
 }
 .num-findings.ok {
-  color: var(--success, #1a7f37);
+  color: var(--success);
 }
 .num-findings ul {
   margin: 4px 0 0;
@@ -1041,7 +1085,9 @@ h1 {
   min-height: 120px;
   margin: 6px 0 2px;
   padding: 8px;
-  background: #fff;
+  /* Paper, not a pane surface: this previews artwork that is inserted into the
+     document as black-on-white. It must not follow the theme. */
+  background: var(--paper-fixed);
   border: 1px solid var(--border);
   border-radius: 4px;
 }
@@ -1064,11 +1110,11 @@ h1 {
 }
 
 .status.error {
-  color: #a4262c;
+  color: var(--error);
 }
 
 .status.success {
-  color: #107c10;
+  color: var(--success);
 }
 
 .number-next {
@@ -1243,16 +1289,16 @@ a:focus-visible {
 }
 .audit-summary.ok,
 .audit-block.ok strong {
-  color: var(--success, #1a7f37);
+  color: var(--success);
 }
 .audit-summary.error {
-  color: var(--error, #b00020);
+  color: var(--error);
 }
 .audit-block {
   margin: 6px 0;
 }
 .audit-block.error strong {
-  color: var(--error, #b00020);
+  color: var(--error);
 }
 .audit-block ul {
   margin: 3px 0 0;
@@ -1310,9 +1356,9 @@ a:focus-visible {
   outline-offset: 1px;
 }
 .home-chip.is-on {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
+  background: var(--chip-on);
+  border-color: var(--chip-on);
+  color: var(--on-accent);
   font-weight: 600;
 }
 .home-filter-note {
@@ -1358,7 +1404,7 @@ a:focus-visible {
   padding: 9px 10px;
   border: 1px solid var(--border);
   border-radius: 7px;
-  background: #fff;
+  background: var(--paper);
   cursor: pointer;
   font: inherit;
   color: var(--text);
@@ -1460,7 +1506,7 @@ a:focus-visible {
   margin-top: 6px;
   font-size: 12px;
   line-height: 1.45;
-  color: #8a6d00;
+  color: var(--warn);
 }
 
 /* ==========================================================================
@@ -1595,9 +1641,9 @@ a:focus-visible {
 }
 .home-chip[aria-pressed="true"],
 .home-chip.active {
-  background: var(--navy-700);
-  border-color: var(--navy-700);
-  color: #fff;
+  background: var(--chip-on);
+  border-color: var(--chip-on);
+  color: var(--on-accent);
 }
 
 /* --- Inputs and selects -------------------------------------------------- */
@@ -1674,4 +1720,164 @@ select {
 .disclaimer {
   color: var(--ink-3);
   border-top: 1px solid var(--rule-soft);
+}
+
+/*
+ * Dark palette.
+ *
+ * Applied when the user (or Word) asks for it via data-theme="dark", and when
+ * the OS prefers dark AND nothing has explicitly asked for light. The
+ * data-theme rules are written after the media query so an explicit choice wins
+ * in BOTH directions — a user who picks Light on a dark OS must get light.
+ *
+ * Deliberately a deep navy rather than grey: it is the landing page's own
+ * --navy-900 family, so the product still looks like itself with the lights off.
+ * Accents move to the brighter cyan because navy-on-navy has no contrast, and
+ * --on-accent flips to near-black since the accent is now a light colour.
+ */
+:root[data-theme="dark"],
+:root[data-theme="dark"] body {
+  color-scheme: dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+
+    --ink: #e6edf3;
+    --ink-2: #a9bcc9;
+    --ink-3: #93a8b6;
+
+    --paper: #16252f;
+    --app-bg: #0a141b;
+    --ground: #0a141b;
+    --ground-2: #1d3040;
+    --rule: #24363f;
+    --rule-soft: #1b2932;
+
+    --accent: #38bdf8;
+    --accent-hover: #7dd3fc;
+    --mid: #56ccf8;
+    --cyan: #7dd3fc;
+    --navy-700: #1d5f85;
+    --navy-900: #e8f1f7;
+
+    --on-accent: #04222f;
+    --accent-soft: #16323f;
+    --disabled: #47606e;
+    --error: #ff8080;
+    --success: #6ee0a8;
+    --success-bg: #10322a;
+    --warn: #f5cd77;
+    --warn-bg: #33290f;
+    --star: #e8c34a;
+  --chip-on: #38bdf8;
+    --chip-on: #38bdf8;
+  }
+}
+
+:root[data-theme="dark"] {
+  --ink: #e6edf3;
+  --ink-2: #a9bcc9;
+  --ink-3: #93a8b6;
+
+  --paper: #16252f;
+  --app-bg: #0a141b;
+  --ground: #0a141b;
+  --ground-2: #1d3040;
+  --rule: #24363f;
+  --rule-soft: #1b2932;
+
+  --accent: #38bdf8;
+  --accent-hover: #7dd3fc;
+  --mid: #56ccf8;
+  --cyan: #7dd3fc;
+  --navy-700: #1d5f85;
+  --navy-900: #e8f1f7;
+
+  --on-accent: #04222f;
+  --accent-soft: #16323f;
+  --disabled: #47606e;
+  --error: #ff8080;
+  --success: #6ee0a8;
+  --success-bg: #10322a;
+  --warn: #f5cd77;
+  --warn-bg: #33290f;
+  --star: #e8c34a;
+  --chip-on: #38bdf8;
+}
+
+/*
+ * Paper, in the dark.
+ *
+ * The preview keeps its white fill (--paper-fixed, unchanged above). What dark
+ * mode adds is a frame and a slight inset shadow, so a white rectangle on a dark
+ * pane reads as a sheet of paper rather than an unstyled element.
+ */
+:root[data-theme="dark"] .structure-preview,
+:root[data-theme="dark"] .gallery-card {
+  border-color: var(--rule);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .structure-preview,
+  :root:not([data-theme="light"]) .gallery-card {
+    border-color: var(--rule);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+  }
+}
+
+/* The brand mark carries its own gradient and needs no inversion, but the
+   shadow that lifts it off white is invisible on dark. */
+:root[data-theme="dark"] .brand-mark {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+
+/* Theme picker, in the pane footer next to the other small controls. */
+.theme-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+.theme-row .field-label {
+  margin: 0;
+  flex: 0 0 auto;
+}
+.theme-row select {
+  flex: 0 1 auto;
+  width: auto;
+  min-width: 96px;
+}
+
+/* Text on the fixed paper of a preview panel — see --ink-on-paper. */
+.structure-preview,
+.structure-preview .hint,
+.gallery-card,
+.gallery-label {
+  color: var(--ink-on-paper);
+}
+
+/*
+ * The primary button in dark.
+ *
+ * --navy-700 against the dark --on-accent gave 2.3:1, which is unreadable. In
+ * dark the primary action takes the bright accent with dark text, which is both
+ * legible and the strongest thing on the pane — as a primary action should be.
+ */
+:root[data-theme="dark"] .insert-btn:not(.secondary):not(:disabled) {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+:root[data-theme="dark"] .insert-btn:not(.secondary):hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .insert-btn:not(.secondary):not(:disabled) {
+    background: var(--accent);
+    color: var(--on-accent);
+  }
+  :root:not([data-theme="light"]) .insert-btn:not(.secondary):hover:not(:disabled) {
+    background: var(--accent-hover);
+  }
 }

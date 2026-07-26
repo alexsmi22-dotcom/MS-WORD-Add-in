@@ -271,7 +271,22 @@ let opsinCancelBtn: HTMLButtonElement;
 let opsinStatusEl: HTMLElement;
 /** Online-lookup consent is per-session (re-prompted each Word session) and the
  *  name awaiting confirmation, so the network call never fires without a click. */
-let opsinConsentedThisSession = false;
+/**
+ * Names the user has already agreed to send this session, normalised.
+ *
+ * This was a single boolean: consent for one name silently authorised every
+ * later lookup, so a user who approved "benzene" could then type a confidential
+ * client compound and have it leave the machine with no prompt — while two
+ * published pages promised the lookup "asks every time". Per NAME is both honest
+ * and usable: nothing new ever leaves unasked, and re-checking a name you have
+ * already sent does not nag, because nothing new leaves.
+ */
+const opsinConsentedNames = new Set<string>();
+
+/** Consent key: case- and whitespace-insensitive, so "Benzene " matches "benzene". */
+function opsinKey(name: string): string {
+  return name.trim().toLowerCase().replace(/\s+/g, " ");
+}
 let opsinPendingName = "";
 let libraryRow: HTMLElement;
 let libCategorySelect: HTMLSelectElement;
@@ -829,7 +844,7 @@ Office.onReady((info) => {
   opsinBtn.addEventListener("click", onOpsinClick);
   opsinContinueBtn.addEventListener("click", () => {
     opsinConfirm.hidden = true;
-    opsinConsentedThisSession = true;
+    opsinConsentedNames.add(opsinKey(opsinPendingName));
     void doOpsinLookup(opsinPendingName);
   });
   opsinCancelBtn.addEventListener("click", () => {
@@ -3025,7 +3040,8 @@ function setOpsinStatus(message: string, kind: "" | "error" | "success" = ""): v
 /**
  * Handles the "Resolve name online" button. On the first use this session it
  * shows the in-pane consent step (an Office add-in can't rely on window.confirm);
- * once consented, subsequent lookups go straight through.
+ * Consent is per NAME: a name already sent this session goes straight through,
+ * anything new always asks first.
  */
 function onOpsinClick(): void {
   const name = inputEl.value.trim();
@@ -3033,7 +3049,7 @@ function onOpsinClick(): void {
     setOpsinStatus("Type a name in the box above first.", "error");
     return;
   }
-  if (opsinConsentedThisSession) {
+  if (opsinConsentedNames.has(opsinKey(name))) {
     void doOpsinLookup(name);
     return;
   }

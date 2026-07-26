@@ -2,6 +2,47 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
+## [1.92.0] — 2026-07-26 — Truthfulness and gating
+
+Four things the product said about itself, or relied on, that were not true.
+
+**The online lookup now asks per NAME, not once per session.** Consent was a
+single boolean: approving one name silently authorised every later lookup, so a
+user who approved "benzene" could then type a confidential client compound and
+have it leave the machine with no prompt — while `legal.html`, `science.html` and
+the manual all promised it "asks every time". Consent is now keyed by the
+normalised name. Nothing new ever leaves unasked; re-checking a name already sent
+does not nag, because nothing new leaves. The three pages now describe exactly
+that instead of a stronger claim the code did not honour.
+
+**GitHub Pages no longer deploys past a red build.** `pages.yml` ran `npm ci &&
+npm run build` and published. CI ran in a separate, concurrent workflow whose
+result nothing consumed — so a commit failing `npm test`, the compound-dictionary
+check or manifest validation still reached production, because webpack only fails
+on type errors. Pages serves the installable manifest.xml and version.json, so
+the site and the shipped add-in are one artefact. `deploy` now needs a `gate`
+job. `ci.yml` drops to pull requests, since the same checks would otherwise race
+the ones that actually block publication.
+
+**A skipped gate is no longer reported as a pass.** `render-check.js` and
+`check-landing-overlap.js` exited 0 with a SKIP message when no Chromium was
+found, and `qc.ps1` recorded that as PASS and printed "ALL AUTOMATED QC PASSED" —
+having checked neither the rendered pane nor the laid-out page, which are the two
+bug classes that keep shipping. They now exit 2, and qc has a third state:
+SKIPPED, yellow, exit 3, "QC INCOMPLETE". The same change closes a latent hazard
+where a command that failed to LAUNCH inherited the previous step's exit code.
+
+**SECURITY.md described a program that does not exist.** It claimed "no external
+API calls", said office.js was the only network request, and credited a CI source
+scan that was never written. It now names all three destinations, what each
+carries, and what consent applies — and `networkSurface.test.ts` makes the claim
+enforceable: it scans the source for fetch/XHR/WebSocket/sendBeacon/EventSource
+and fails on any call site or host outside an explicit allowlist. XML namespace
+URIs are excluded by name, having been verified as identifiers rather than
+addresses.
+
+6 new tests. Suite 3133.
+
 ## [1.91.0] — 2026-07-26 — Solve: typeset reasoning, and room to type a word problem
 
 Both reported from real use of the v1.90.0 word-problem work.

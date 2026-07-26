@@ -3,6 +3,16 @@ name: Deploy to GitHub Pages
 # Builds the add-in and publishes the dist/ web files to GitHub Pages.
 # The published site root serves taskpane.html, assets/, etc. — i.e. the add-in's
 # hosted web files. Your add-in URL is https://<user>.github.io/<repo>/
+#
+# WHY THE GATE JOB EXISTS
+# This workflow used to run `npm ci && npm run build` and publish, with no tests.
+# CI ran in a SEPARATE workflow, concurrently, and nothing consumed its result —
+# so a commit failing `npm test`, the compound-dictionary check or manifest
+# validation still reached production, because webpack only fails on type errors.
+# Pages serves the installable /manifest.xml and version.json (the user update
+# trigger), so "the site" and "the shipped add-in" are the same artefact.
+#
+# `deploy` now needs `gate`. A red gate publishes nothing.
 
 on:
   push:
@@ -19,7 +29,33 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  gate:
+    name: Quality gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Type-check
+        run: npm run lint
+      - name: Unit tests
+        run: npm test
+      - name: Validate compound dictionary
+        run: npm run validate:compounds
+      - name: Validate manifest
+        run: npx office-addin-manifest validate manifest.xml
+      # The headless render and landing-layout checks are deliberately NOT run
+      # here: both need a Chromium-family browser and both SKIP without one.
+      # Adding them to a runner with no browser would add two green ticks that
+      # checked nothing — the exact failure this block exists to prevent. They
+      # run in `npm run qc` locally, where a browser exists.
+
   deploy:
+    name: Build and publish
+    needs: gate
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

@@ -1,9 +1,12 @@
 # JurisLab — automated QC gate.
 #
 # Runs everything that can be verified WITHOUT the Word host, in one command:
-#   1. Type-check (tsc)         3. Production build (webpack)   5. Task-pane id wiring audit
-#   2. Unit tests (jest)        4. Manifest validation          6. Headless render check
-#                                                               7. Landing-page layout check
+#   1. Type-check (tsc)         4. Production build (webpack)   7. Landing-page layout check
+#   2. Unit tests (jest)        5. Manifest validation          8. Task-pane id wiring audit
+#   3. Compound dictionary      6. Headless render check
+#
+# Exit codes: 0 all passed - 1 something failed - 3 nothing failed but a gate was
+# SKIPPED (the two headless gates need a Chromium-family browser).
 #
 # Prints a PASS/FAIL summary and exits non-zero if anything fails. The remaining
 # in-Word functional pass is the manual checklist in docs\TEST-SCRIPT.md — step 6
@@ -20,14 +23,25 @@ if (Test-Path "C:\Program Files\nodejs") { $env:Path = "C:\Program Files\nodejs;
 
 $results = [ordered]@{}
 
+# Three states, not two. A step that exits 2 has SKIPPED — it ran but inspected
+# nothing (no browser installed). Recording that as PASS is how "ALL AUTOMATED QC
+# PASSED" came to be printed for a run where neither of the two gates that see
+# real rendered output had looked at anything.
+#
+# $LASTEXITCODE is cleared first: with $ErrorActionPreference = "Continue", a
+# command that fails to LAUNCH leaves the previous step's exit code in place, so
+# a missing `node` would inherit the preceding success.
 function Invoke-Step {
   param([string]$Name, [scriptblock]$Action)
   Write-Host ""
   Write-Host "==> $Name" -ForegroundColor Cyan
+  $global:LASTEXITCODE = $null
   & $Action | Out-Host
-  $ok = ($LASTEXITCODE -eq 0)
-  $results[$Name] = $ok
-  Write-Host ("    {0}: {1}" -f $(if ($ok) { "PASS" } else { "FAIL" }), $Name) -ForegroundColor $(if ($ok) { "Green" } else { "Red" })
+  $code = $LASTEXITCODE
+  $state = if ($null -eq $code) { "FAIL" } elseif ($code -eq 0) { "PASS" } elseif ($code -eq 2) { "SKIPPED" } else { "FAIL" }
+  $results[$Name] = $state
+  $colour = switch ($state) { "PASS" { "Green" } "SKIPPED" { "Yellow" } default { "Red" } }
+  Write-Host ("    {0}: {1}" -f $state, $Name) -ForegroundColor $colour
 }
 
 Invoke-Step "Type-check (tsc)"    { npm run lint }
@@ -61,7 +75,7 @@ $dynamicIds = [regex]::Matches($ts, '\.id\s*=\s*"([^"]+)"') | ForEach-Object { $
 $knownIds = @($htmlIds) + @($dynamicIds)
 $missing = $tsIds | Where-Object { $_ -notin $knownIds }
 $idOk = (@($missing).Count -eq 0)
-$results["Id wiring audit"] = $idOk
+$results["Id wiring audit"] = $(if ($idOk) { "PASS" } else { "FAIL" })
 if ($idOk) {
   Write-Host ("    PASS: all {0} ids matched" -f @($tsIds).Count) -ForegroundColor Green
 } else {
@@ -72,15 +86,25 @@ if ($idOk) {
 Write-Host ""
 Write-Host "================= QC SUMMARY =================" -ForegroundColor Cyan
 $allOk = $true
+$anySkipped = $false
 foreach ($k in $results.Keys) {
-  if (-not $results[$k]) { $allOk = $false }
-  Write-Host ("  {0,-26} {1}" -f $k, $(if ($results[$k]) { "PASS" } else { "FAIL" })) -ForegroundColor $(if ($results[$k]) { "Green" } else { "Red" })
+  $state = $results[$k]
+  if ($state -eq "FAIL") { $allOk = $false }
+  if ($state -eq "SKIPPED") { $anySkipped = $true }
+  $colour = switch ($state) { "PASS" { "Green" } "SKIPPED" { "Yellow" } default { "Red" } }
+  Write-Host ("  {0,-26} {1}" -f $k, $state) -ForegroundColor $colour
 }
 Write-Host "============================================="
-if ($allOk) {
+if ($allOk -and -not $anySkipped) {
   Write-Host "ALL AUTOMATED QC PASSED." -ForegroundColor Green
   Write-Host "Next (manual): load the add-in in Word and run docs\TEST-SCRIPT.md." -ForegroundColor Green
   exit 0
+} elseif ($allOk) {
+  # Nothing failed, but something did not run. Saying "all passed" here would be
+  # a claim the run cannot support.
+  Write-Host "QC INCOMPLETE - nothing failed, but one or more gates were SKIPPED." -ForegroundColor Yellow
+  Write-Host "The skipped gates need a Chromium-family browser; set CHROME_PATH to run them." -ForegroundColor Yellow
+  exit 3
 } else {
   Write-Host "QC FAILED - fix the items above before release." -ForegroundColor Red
   exit 1

@@ -150,7 +150,7 @@
       <tr><td><b>Updates</b></td><td>When a new version ships, a banner appears in the pane. Reload the pane to pick it up; you don’t reinstall.</td></tr>
       <tr><td><b>Provenance</b></td><td>Inserted structures and figures carry their SMILES and a canonical structure ID in the image’s alt-text, so a figure can always be traced back to what generated it.</td></tr>
     </table>
-    <div class="note"><b>The one exception to “offline”.</b> Chemical mode can look up an IUPAC name online when the built-in dictionary doesn’t know it. It is <b>opt-in and asks every time</b> — and it sends only that one chemical name, never your document. Decline it and everything else still works.</div>
+    <div class="note"><b>The one exception to “offline”.</b> Chemical mode can look up an IUPAC name online when the built-in dictionary doesn’t know it. It is <b>opt-in and asks before it sends any name it has not already sent</b>, showing you the exact name first — and it sends that one chemical name and nothing else, never your document. Looking the same name up twice does not ask twice, because nothing new leaves your machine. Decline it and everything else still works.</div>
 
     <!-- ============================ CHEMISTRY ============================ -->
     <h2 id="chemistry">Chemistry &amp; structures</h2>

@@ -1,8 +1,9 @@
 name: CI
 
+# Pull requests only. On a push to main the SAME checks run as the `gate` job in
+# pages.yml, which the deploy depends on — running them here too would just be a
+# second, slower copy racing the one that actually blocks publication.
 on:
-  push:
-    branches: [main, master]
   pull_request:
 
 jobs:

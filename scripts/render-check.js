@@ -72,7 +72,10 @@ function run() {
   const browser = findBrowser();
   if (!browser) {
     console.log("SKIP: no Chromium-family browser found (set CHROME_PATH to run this check).");
-    return 0;
+    // Exit 2, NOT 0. Returning 0 made the caller record a PASS for a check
+    // that inspected nothing — and these two are the only gates that see
+    // the real rendered output, so a false green here is the worst kind.
+    return 2;
   }
   writeHarness();
 

@@ -13,6 +13,9 @@ confirmed is written as "not found (searched: …)" rather than "missing". One a
 was rejected on exactly these grounds: `ppt.ts` appears unreachable to a static import
 walk but is reached through a dynamic `import()` at `taskpane.ts:2538`.
 
+**Items struck through have since been fixed.** The original finding is left in
+place rather than deleted, so the record shows what was wrong and when it closed.
+
 Effort: **S** = hours · **M** = days · **L** = weeks.
 
 ---
@@ -22,11 +25,11 @@ Effort: **S** = hours · **M** = days · **L** = weeks.
 | # | Finding | Area | Effort |
 |---|---|---|---|
 | 1 | Pasting FASTA into Align/DNA — which the pane explicitly invites — folds the **header letters into the sequence** and flips DNA to protein scoring | Life science | S |
-| 2 | Landing pages promise the OPSIN lookup "asks every time". It asks **once per session**. | Truthfulness | S |
-| 3 | GitHub Pages deploys on every push with **no quality gate**; CI runs separately and nothing consumes its result | Infrastructure | S |
+| 2 | ~~Landing pages promise the OPSIN lookup "asks every time". It asks **once per session**.~~ **FIXED v1.92.0** — consent is now per name | Truthfulness | S |
+| 3 | ~~GitHub Pages deploys on every push with **no quality gate**~~ **FIXED v1.92.0** — deploy now needs a gate job | Infrastructure | S |
 | 4 | Four finished, tested modules plus nine assay functions are **dead code** a user cannot reach | Product | S |
 | 5 | A user-supplied `/codon_start` is written to the ST.26 XML but **ignored** when generating `/translation` | Life science | S |
-| 6 | The two headless gates report **PASS when they silently skip** | Infrastructure | S |
+| 6 | ~~The two headless gates report **PASS when they silently skip**~~ **FIXED v1.92.0** — skip exits 2, qc reports SKIPPED | Infrastructure | S |
 | 7 | Caption detection is `\n`-anchored; Word's text is `\r`-delimited, so the check always reports clean | Legal | S |
 | 8 | Numeral gap detection invents dozens of phantom "skipped" numerals on any 100-series spec | Legal | S |
 | 9 | 14 insert paths **overwrite the user's selection** | Pane | S |
@@ -40,7 +43,7 @@ work is ungated, and a handful of small defects sit in the highest-traffic paths
 
 ## P0 — Wrong today, and cheap to fix
 
-### 1. The privacy claim on the public site is false — **S** ✔ *verified directly*
+### 1. ~~The privacy claim on the public site is false~~ — **FIXED in v1.92.0** ✔ *verified directly*
 The OPSIN consent gate sets `opsinConsentedThisSession = true` on first approval and
 every later lookup in that pane session goes straight through. The code comment says so
 plainly: *"once consented, subsequent lookups go straight through"* (`taskpane.ts:3028`).
@@ -59,7 +62,7 @@ visible, revocable "online lookup enabled this session" state in the pane. Given
 positioning, prompting every time is the honest default.
 **Evidence:** `taskpane.ts:274, 832, 3028-3040`; `landing/legal.html:74`; `landing/science.html:113`.
 
-### 2. Production deploys with no quality gate — **S** ✔ *verified directly*
+### 2. ~~Production deploys with no quality gate~~ — **FIXED in v1.92.0** ✔ *verified directly*
 `pages.yml` triggers on push to `main` and runs only `npm ci && npm run build` before
 publishing `dist/`. `ci.yml` runs five gates in a **separate, concurrent** job, and
 nothing consumes its result — no `needs:`, no `workflow_run`. A commit that fails
@@ -85,7 +88,7 @@ the product. This also warrants a permanent gate: a test that every `src/lib/*.t
 reachable from an entry point, with an explicit allowlist for dynamic imports.
 **Evidence:** `grep -rn "tukey\|fftfilter\|jcamp" src/taskpane/` → nothing; no non-test importer.
 
-### 4. The two gates that see rendered output can pass vacuously — **S**
+### 4. ~~The two gates that see rendered output can pass vacuously~~ — **FIXED in v1.92.0**
 `render-check.js` and `check-landing-overlap.js` both `return 0` with a `SKIP:` log when
 no Chromium is found, and `qc.ps1` records that as **PASS** and prints "ALL AUTOMATED QC
 PASSED". These are the only two gates that see the real pane and the real laid-out page —
@@ -94,7 +97,7 @@ path they check nothing and say everything is fine.
 **Fix:** exit 2 on skip; render a distinct `SKIPPED` state that is not "all passed".
 **Evidence:** `scripts/render-check.js:72-75`; `scripts/check-landing-overlap.js:101-105`; `scripts/qc.ps1:42,47,80-82`.
 
-### 5. `SECURITY.md` is materially false, and cites a CI check that does not exist — **S**
+### 5. ~~`SECURITY.md` is materially false, and cites a CI check that does not exist~~ — **FIXED in v1.92.0**
 It claims "no external API calls" and that office.js is "the only network request", and
 attributes this to a source scan in CI. There is no such scan. The app reaches three
 destinations: `appsforoffice.microsoft.com` (every load), same-origin `version.json`

@@ -4,8 +4,10 @@
 //   node scripts/check-landing-overlap.js            (part of `npm run qc`)
 //   node scripts/check-landing-overlap.js --page X   check a different page
 //
-// Exits 0 clean, 1 on findings, 0 with SKIP when no Chromium-family browser is
-// installed — same contract as scripts/render-check.js.
+// Exits 0 clean, 1 on findings, and 2 when no Chromium-family browser is
+// installed — same contract as scripts/render-check.js. Skip is NOT success:
+// exit 0 there made qc.ps1 print "ALL AUTOMATED QC PASSED" having checked
+// nothing, and this is one of only two gates that sees real rendered output.
 //
 // Everything runs in ONE browser launch. The page is loaded in an iframe and
 // the iframe is resized between measurements, because media queries respond to
@@ -101,7 +103,10 @@ function run() {
   const browser = findBrowser();
   if (!browser) {
     console.log("SKIP: no Chromium-family browser found (set CHROME_PATH to run this check).");
-    return 0;
+    // Exit 2, NOT 0. Returning 0 made the caller record a PASS for a check
+    // that inspected nothing — and these two are the only gates that see
+    // the real rendered output, so a false green here is the worst kind.
+    return 2;
   }
 
   const argIdx = process.argv.indexOf("--page");

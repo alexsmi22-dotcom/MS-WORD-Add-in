@@ -2,6 +2,42 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
+## [1.90.0] — 2026-07-26 — Solve: successive-share word problems
+
+Reported from real use. Typing
+
+    "A pie is divided to 100 guest. Guest 1 gets 1%, guest 2 gets 2% of
+     what's left, and so on. Who gets the largest piece of pie?"
+
+produced nothing — no answer, no explanation, no way to insert anything. It is a
+recurrence rather than a pattern that maps onto one equation, so none of the
+three existing templates could touch it.
+
+`src/lib/sharesequence.ts` models the class properly: N recipients in order,
+recipient k taking k% either of what remains or of the original, answering "who
+gets the most / least", "how much does recipient k get", and "how much is left".
+
+The answer is counter-intuitive — guest 10, not guest 1 and not guest 100 —
+because k rises faster than the remainder falls until it doesn't. So the tool
+shows the reasoning rather than just the number:
+
+    P(k) = (k/100) x R(k),  R(k) = prod_{i<k} (1 - i/100)
+    P(k+1)/P(k) = ((k+1)/k)(1 - k/100) = 1  when  k^2 + k - 100 = 0
+    k* = (-1 + sqrt(401))/2 = 9.5125, so shares rise then fall, peaking at k = 10
+    guest 9 = 6.2125%, guest 10 = 6.2816%, guest 11 = 6.2187%
+
+Answer, derivation and insert all work through the existing Solve paths.
+Tried before the percentage template, which would otherwise match on the "1%"
+and answer a much smaller question than the one asked.
+
+Also fixed in Solve: an equation with more than one unknown reported "No real
+roots found.", which is a false statement about the equation — `F = m*a` has
+roots, the solver just cannot isolate one of three variables. It now says so and
+suggests giving the other variables values.
+
+20 new tests, with every expected share checked against an independent
+simulation rather than against the implementation. Suite 3124.
+
 ## [1.89.0] — 2026-07-26 — Fix: three defects that put wrong numbers in documents
 
 All three were found by a full product evaluation and verified by executing the

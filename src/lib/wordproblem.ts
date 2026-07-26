@@ -16,6 +16,8 @@
 
 import { solveEquation } from "./solve";
 
+import { parseShareProblem, solveShares } from "./sharesequence";
+
 export interface WordProblemResult {
   template: string;
   answer: string;
@@ -206,8 +208,33 @@ function tryNumberSentence(t: string): WordProblemResult | null {
  * when none matches — the caller should then offer the online AI path rather
  * than pretend an answer.
  */
+/**
+ * Successive shares: "N guests, guest k takes k% of what's left, who gets the
+ * most?" Handled by its own model in sharesequence.ts because it is a recurrence
+ * rather than a pattern that maps onto a single equation.
+ *
+ * Tried FIRST: its phrasing contains percentages, so tryPercentage would
+ * otherwise match on the "1%" and answer a much smaller question than the one
+ * asked.
+ */
+function tryShareSequence(original: string): WordProblemResult | null {
+  const p = parseShareProblem(original);
+  if (!p) return null;
+  const sol = solveShares(p);
+  return {
+    template: "successive shares",
+    answer: sol.answer,
+    value: sol.value,
+    equation: p.ofRemainder ? "P(k) = (k/100) x prod_{i<k} (1 - i/100)" : "P(k) = k/100",
+    steps: sol.steps,
+    caveats: sol.caveats,
+  };
+}
+
 export function solveWordProblem(text: string): WordProblemResult | null {
   const t = normalize(text);
   if (!t) return null;
-  return tryPercentage(t) ?? tryDistanceRateTime(t) ?? tryNumberSentence(t);
+  return (
+    tryShareSequence(text) ?? tryPercentage(t) ?? tryDistanceRateTime(t) ?? tryNumberSentence(t)
+  );
 }

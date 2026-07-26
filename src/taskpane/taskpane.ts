@@ -6575,7 +6575,17 @@ function updateSolve(): void {
       solveResult.appendChild(msEyebrow(`Solve for ${r.variable}`));
       lines.push(`Solve for ${r.variable}:  ${text}`);
       if (!r.roots.length) {
-        const msg = r.method === "no-solution" ? "No solution." : r.method === "identity" ? "True for every value (identity)." : "No real roots found.";
+        // "unsolved" is NOT "no roots" — it means the solver could not isolate a
+        // single unknown (e.g. F = m*a has three). Saying "No real roots found."
+        // there is a false statement about the equation.
+        const msg =
+          r.method === "no-solution"
+            ? "No solution."
+            : r.method === "identity"
+              ? "True for every value (identity)."
+              : r.method === "unsolved"
+                ? `Couldn't isolate a single unknown — this has more than one variable. Solve for one of them by giving the others values, e.g. "F = 2*a" rather than "F = m*a".`
+                : "No real roots found in the range searched.";
         solveResult.appendChild(solveLine(msg, "ms-masses"));
         lines.push(msg);
       } else {
@@ -6625,7 +6635,7 @@ function updateSolve(): void {
     const r = solveWordProblem(text);
     if (!r) {
       solveResult.appendChild(
-        solveLine("This isn't one of the offline templates (percentage, distance = rate × time, or a simple 'a number …' sentence). Rephrase, or an online AI solver can be added.")
+        solveLine("This isn't one of the offline templates (percentage; distance = rate × time; successive shares, e.g. “guest k takes k% of what's left”; or a simple 'a number …' sentence). Rephrase, or an online AI solver can be added.")
       );
       return;
     }

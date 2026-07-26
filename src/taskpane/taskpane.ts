@@ -3689,7 +3689,7 @@ function esc(s: string): string {
 
 /** Recomputes the live DNA readouts (stats, strands, translation) from the input. */
 function updateDnaPreview(): void {
-  const { seq, invalid } = cleanDna(dnaInput.value);
+  const { seq, invalid, records } = cleanDna(dnaInput.value);
 
   if (!seq) {
     dnaReadout.textContent = invalid.length ? `Ignored invalid: ${invalid.join(" ")}` : "";
@@ -3706,7 +3706,11 @@ function updateDnaPreview(): void {
   }
 
   const stats = baseStats(seq);
-  dnaReadout.textContent = `${stats.length} nt${invalid.length ? ` · ignored invalid: ${invalid.join(" ")}` : ""}`;
+  // A multi-record paste is concatenated, which is almost never what the user
+  // meant — say so rather than analysing a chimera in silence.
+  const multi = records > 1 ? ` · ⚠ ${records} FASTA records were joined — analyse one at a time` : "";
+  dnaReadout.textContent =
+    `${stats.length} nt${invalid.length ? ` · ignored invalid: ${invalid.join(" ")}` : ""}${multi}`;
   dnaStats.innerHTML =
     `<span><strong>GC:</strong> ${stats.gcPercent.toFixed(1)}%</span>` +
     `<span><strong>A</strong> ${stats.a} · <strong>C</strong> ${stats.c} · <strong>G</strong> ${stats.g} · <strong>T/U</strong> ${stats.t}` +

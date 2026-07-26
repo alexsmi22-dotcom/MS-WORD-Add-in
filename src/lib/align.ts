@@ -116,9 +116,31 @@ export const BLOSUM62 = { order: B62_ORDER, rows: B62_ROWS };
 
 const NEG = -1e9; // stands in for -Infinity without NaN risk in arithmetic
 
-/** Cleans an input sequence: uppercase, strip whitespace/digits (FASTA line numbers). */
+/**
+ * Cleans an input sequence: drop FASTA/comment headers, then uppercase and strip
+ * whitespace, digits and gap characters.
+ *
+ * Header removal is load-bearing, not cosmetic. This function used to strip only
+ * non-letters, so a header's LETTERS survived: pasting
+ * ">gi|5453555|ref|NM_001101.3| Homo sapiens actin beta ACTB mRNA" prepended 35
+ * spurious residues to the query. Worse, those letters pushed guessKind() over
+ * its ACGTUN threshold in the wrong direction, so a nucleotide pair was scored
+ * with BLOSUM62 — a confident, meaningless identity. Measured on two real ACTB
+ * fragments: 96.5% identity became 86.4%. The pane invites exactly this paste
+ * ("Paste plain sequence or FASTA; headers … are stripped"), so the promise and
+ * the behaviour have to agree.
+ */
 export function cleanSequence(s: string): string {
-  return s.toUpperCase().replace(/[^A-Z*-]/g, "").replace(/-/g, "");
+  return s
+    .replace(/^[>;].*$/gm, " ") // FASTA ">" headers and legacy ";" comments
+    .toUpperCase()
+    .replace(/[^A-Z*-]/g, "")
+    .replace(/-/g, "");
+}
+
+/** How many FASTA records the text contains. >1 means the caller should warn. */
+export function countFastaRecords(s: string): number {
+  return (s.match(/^>/gm) ?? []).length;
 }
 
 /**

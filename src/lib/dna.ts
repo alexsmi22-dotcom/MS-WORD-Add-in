@@ -33,18 +33,33 @@ export interface CleanDnaResult {
   seq: string;
   /** Distinct invalid characters that were dropped, for a UI warning. */
   invalid: string[];
+  /**
+   * How many FASTA records were present. More than one means the caller pasted a
+   * multi-record file and the sequences were concatenated — which is almost
+   * never what they meant, so the UI must warn rather than quietly join them.
+   */
+  records: number;
 }
 
 /** Strips whitespace/digits/punctuation, uppercases, and keeps valid IUPAC bases. */
 export function cleanDna(raw: string): CleanDnaResult {
-  const letters = raw.replace(/[^A-Za-z]/g, "").toUpperCase();
+  // Drop FASTA ">" headers and legacy ";" comments BEFORE keeping letters.
+  // Without this a header's letters that happen to be IUPAC codes survive into
+  // the sequence: a 12 nt insert under a normal NCBI header became 37 nt and
+  // shifted GC% from 33.3 to 30.4, silently corrupting reverse complement,
+  // translation, ORFs, restriction sites and Tm. The "ignored invalid
+  // characters" line made it look handled, because the non-IUPAC header letters
+  // were reported there.
+  const records = (raw.match(/^>/gm) ?? []).length;
+  const body = raw.replace(/^[>;].*$/gm, " ");
+  const letters = body.replace(/[^A-Za-z]/g, "").toUpperCase();
   let seq = "";
   const invalid: Record<string, true> = {};
   for (const ch of letters) {
     if (VALID.indexOf(ch) >= 0) seq += ch;
     else invalid[ch] = true;
   }
-  return { seq, invalid: Object.keys(invalid) };
+  return { seq, invalid: Object.keys(invalid), records };
 }
 
 /** Complement of each base (IUPAC-aware); unknown bases map to N. */

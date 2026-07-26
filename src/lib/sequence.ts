@@ -138,16 +138,31 @@ function sourceFeatureInner(moltype: MolType, length: number, organism: string, 
   );
 }
 
-/** Translates a coding nucleotide string to protein, stopping at the first stop codon. */
-export function translateCds(nucleotides: string): string {
+/**
+ * Translates a coding nucleotide string to protein, stopping at the first stop
+ * codon.
+ *
+ * `codonStart` is the INSDC /codon_start qualifier: 1, 2 or 3, giving the first
+ * base of the first complete codon. It used to be ignored — the emitted feature
+ * carried the drafter's /codon_start=2 next to a translation read from base 1,
+ * so the listing contradicted its own reading frame. In a filed application that
+ * is a wrong protein of record.
+ */
+export function translateCds(nucleotides: string, codonStart: 1 | 2 | 3 = 1): string {
   const s = nucleotides.toUpperCase().replace(/U/g, "T");
   let protein = "";
-  for (let i = 0; i + 3 <= s.length; i += 3) {
+  for (let i = codonStart - 1; i + 3 <= s.length; i += 3) {
     const aa = resolveCodon(s.substring(i, i + 3));
     if (aa === "*") break;
     protein += aa;
   }
   return protein;
+}
+
+/** Reads a /codon_start qualifier value; anything not 1/2/3 falls back to 1. */
+function readCodonStart(value: string | undefined): 1 | 2 | 3 {
+  const n = parseInt((value ?? "").trim(), 10);
+  return n === 2 || n === 3 ? n : 1;
 }
 
 /** The residues a simple "start..end" (1-based) CDS location covers, or null. */
@@ -173,9 +188,13 @@ function featureInner(feature: St26Feature, moltype: MolType, residues: string):
     const has = (n: string): boolean => quals.some((q) => q.name.toLowerCase() === n);
     const region = cdsRegion(location, residues);
     if (region !== null && !has("translation")) {
-      const protein = translateCds(region);
+      // Honour a drafter-supplied /codon_start rather than translating from base
+      // 1 regardless — the two used to disagree in the emitted XML.
+      const supplied = quals.find((q) => q.name.toLowerCase() === "codon_start");
+      const codonStart = readCodonStart(supplied?.value);
+      const protein = translateCds(region, codonStart);
       if (protein) {
-        if (!has("codon_start")) quals.push({ name: "codon_start", value: "1" });
+        if (!supplied) quals.push({ name: "codon_start", value: "1" });
         quals.push({ name: "translation", value: protein });
       }
     }

@@ -2,6 +2,43 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
+## [1.89.0] — 2026-07-26 — Fix: three defects that put wrong numbers in documents
+
+All three were found by a full product evaluation and verified by executing the
+libraries, not by reading them.
+
+**FASTA headers were folded into the sequence.** `cleanSequence()` and
+`cleanDna()` stripped only NON-letters, so every letter of a FASTA header
+survived into the sequence — while the pane invites exactly that paste and
+promises "headers, line numbers and whitespace are stripped". A normal NCBI
+header prepended 35 spurious residues, and in Align it pushed `guessKind()` over
+its threshold so a NUCLEOTIDE pair was scored with BLOSUM62. Measured on two real
+ACTB orthologue fragments: 96.5% identity became 86.4%. In DNA mode a 12 nt
+insert became 37 nt, shifting GC% from 33.3 to 30.4 and corrupting reverse
+complement, translation, ORFs, restriction sites and Tm — while the "ignored
+invalid characters" line made the header look handled, because its non-IUPAC
+letters were listed there. Both now drop ">" headers and legacy ";" comments
+first. A multi-record paste is counted and the pane warns rather than silently
+analysing a chimera.
+
+**A supplied /codon_start was written to the ST.26 XML and then ignored.**
+`translateCds` always read from base 1, so a CDS carrying /codon_start=2 was
+emitted beside the frame-1 product. A listing whose translation contradicts its
+own reading frame is a substantive defect in a filed application.
+
+**Reverse-strand restriction cuts used the wrong offset.** On a reverse-
+orientation site the enzyme is bound the other way round, so ITS bottom-strand
+cut is the one landing on the molecule's top strand — the code used cutTop where
+it needs cutBottom. Every reverse hit was out by the overhang length, inverted
+for the 3'-overhang cutters (BsgI, BpmI, MmeI), and every Golden Gate enzyme was
+affected: reverse BsaI at position 11 reported a cut at 9 when it is at 5.
+Separately the 1-based coordinate was wrapped modulo the length regardless of
+topology, so a cut past the end of a LINEAR molecule was reported as an in-range
+position that does not exist — MboI at position 1 of a 24 nt linear sequence
+claimed a cut at 24. `cutPosition` is now `number | null`.
+
+31 new tests across three regression suites. Suite 3104.
+
 ## [1.88.0] — 2026-07-26 — Fix: inserted figures were sized by pixel count
 
 Word lays an inserted PNG out at its pixel count interpreted at 96 dpi. Any

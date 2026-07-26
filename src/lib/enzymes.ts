@@ -311,8 +311,13 @@ export interface EnzymeHit {
   position: number;
   /** Which strand the recognition site was found on. */
   strand: 1 | -1;
-  /** 1-based position of the top-strand cut. */
-  cutPosition: number;
+  /**
+   * 1-based position of the top-strand cut, or null when the cut falls outside a
+   * LINEAR molecule. A Type IIS site near an end cuts past the end and simply
+   * does not produce a cut there; reporting a wrapped in-range coordinate would
+   * be inventing one.
+   */
+  cutPosition: number | null;
   overhang: OverhangKind;
   /** Overhang length in nt (0 for blunt). */
   overhangLength: number;
@@ -454,7 +459,10 @@ export function findSites(seq: string, opts: FindOptions = {}): EnzymeHit[] {
   // For a circular molecule, a site can span the origin. Searching a doubled
   // sequence finds those; positions past n wrap back.
   const hay = opts.circular ? clean + clean : clean;
-  const limit = opts.circular ? n : n;
+  // A recognition site may start anywhere in the original molecule; on a circular
+  // one the doubled haystack lets it run past the origin. Either way the START
+  // index is bounded by n-1, and by the haystack for a linear molecule.
+  const maxSiteStart = n - 1;
 
   const list = opts.only ? ENZYMES.filter((e) => opts.only!.includes(e.name)) : ENZYMES;
   const hits: EnzymeHit[] = [];
@@ -470,18 +478,27 @@ export function findSites(seq: string, opts: FindOptions = {}): EnzymeHit[] {
         ];
 
     for (const { site, strand } of strands) {
-      const maxStart = Math.min(hay.length - site.length, limit - 1);
+      const maxStart = Math.min(hay.length - site.length, maxSiteStart);
       for (let i = 0; i <= maxStart; i++) {
         if (!siteMatchesAt(hay, i, site)) continue;
         const pos = (i % n) + 1;
-        // The top-strand cut, relative to the site's start on the top strand.
-        const cut = strand === 1 ? i + e.cutTop : i + site.length - e.cutTop;
+        // The top-strand cut, as a count of bases before it, measured from the
+        // start of the match.
+        //
+        // On a reverse-orientation site the enzyme is bound the other way round,
+        // so ITS bottom-strand cut is the one that falls on the molecule's TOP
+        // strand — hence cutBottom, mirrored through the site. Using cutTop here
+        // put every reverse hit out by the overhang length, and inverted the
+        // error for the 3'-overhang cutters (BsgI, BpmI, MmeI). Every Golden Gate
+        // enzyme (BsaI, BsmBI, BbsI, SapI) was affected: reverse BsaI at position
+        // 11 reported a cut at 9 when it is at 5.
+        const cut = strand === 1 ? i + e.cutTop : i + site.length - e.cutBottom;
         hits.push({
           enzyme: e.name,
           site: e.site,
           position: pos,
           strand,
-          cutPosition: ((cut % n) + n) % n || n,
+          cutPosition: cutCoordinate(cut, n, !!opts.circular),
           overhang: kind,
           overhangLength: length,
           typeIIS: e.typeIIS,
@@ -490,6 +507,19 @@ export function findSites(seq: string, opts: FindOptions = {}): EnzymeHit[] {
     }
   }
   return hits.sort((a, b) => a.position - b.position || a.enzyme.localeCompare(b.enzyme));
+}
+
+/**
+ * Turns a 0-based "bases before the cut" count into a 1-based coordinate.
+ *
+ * On a circular molecule the coordinate wraps. On a LINEAR one a cut before the
+ * start or past the end does not happen, so it is reported as null rather than
+ * wrapped — the old code wrapped unconditionally, so MboI at position 1 of a
+ * 24 nt linear sequence claimed a cut at 24.
+ */
+function cutCoordinate(cut: number, n: number, circular: boolean): number | null {
+  if (circular) return ((cut % n) + n) % n || n;
+  return cut >= 1 && cut <= n ? cut : null;
 }
 
 /** Groups hits by enzyme, for a summary table. */

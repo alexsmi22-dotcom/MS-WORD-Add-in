@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.3.0)
+# JurisLab — Manual Test Script (v2.4.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -10,7 +10,7 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
 
-## 0a. What changed in v1.97-2.3.0 — check this first
+## 0a. What changed in v1.97-2.4.0 — check this first
 
 The pane was restyled to match the landing page. Nothing about what the tools
 COMPUTE changed, so this section is about appearance and reach.
@@ -103,6 +103,15 @@ COMPUTE changed, so this section is about appearance and reach.
 - [ ] **Stats -> Log-rank.** Two groups separated by a blank line. Both curves
   must appear on one chart, and the hazard ratio direction must match which
   group is doing better.
+
+**Refactor in v2.4.0 — no behaviour should change, which is what to check.**
+Finance, Stats, Analyze and Bio/Assay now share one field renderer. Nothing
+about any calculator should look or behave differently.
+- [ ] In EACH of those four tools, switch between several calculators and
+  confirm the input fields change correctly each time, and that typing in them
+  still updates the result live.
+- [ ] Multi-line fields (Stats "Groups", Analyze matrix/ODE fields) must still be
+  text AREAS, not single-line boxes.
 
 **Clearing a stale ribbon icon.** Quit Word fully, then delete the Office add-in
 cache and reopen:

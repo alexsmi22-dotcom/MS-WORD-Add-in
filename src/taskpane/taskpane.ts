@@ -5068,18 +5068,36 @@ function populateFinanceCalcs(): void {
 }
 
 /** Builds the inputs for the selected calculator and wires live computation. */
-function renderFinanceInputs(): void {
-  const calc = FIN_CALCS.find((c) => c.id === finCalcSelect.value) ?? FIN_CALCS[0];
-  finInputs.replaceChildren();
-  for (const f of calc.fields) {
+/**
+ * Builds the input rows for one calculator, for ALL four tool registries.
+ *
+ * Replaces four near-identical renderers. They had already drifted apart:
+ * Finance and Assay had no branch for a `text` field or a textarea, so a field
+ * kind that renders correctly in Stats produced a plain numeric input there —
+ * the kind of divergence four copies guarantee eventually.
+ *
+ * `idPrefix` keeps element ids unique per tool (the id-wiring audit checks
+ * these), and `onChange` is the tool's own preview function.
+ */
+function renderCalcFields(
+  // `kind` is OPTIONAL: the Finance and Assay registries omit it on plain
+  // numeric fields, and an undefined kind falls through to the numeric input
+  // exactly as it did in their own renderers.
+  fields: { key: string; label: string; default: string; kind?: string; options?: { value: string; label: string }[] }[],
+  container: HTMLElement,
+  idPrefix: string,
+  onChange: () => void,
+): void {
+  container.replaceChildren();
+  for (const f of fields) {
     const row = document.createElement("div");
     row.className = "dna-controls";
     const label = document.createElement("label");
     label.className = "field-label";
     label.textContent = f.label;
-    label.htmlFor = `fin-f-${f.key}`;
+    label.htmlFor = `${idPrefix}-f-${f.key}`;
 
-    let input: HTMLInputElement | HTMLSelectElement;
+    let input: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
     if (f.kind === "select") {
       const sel = document.createElement("select");
       sel.className = "lib-select";
@@ -5091,21 +5109,44 @@ function renderFinanceInputs(): void {
       }
       sel.value = f.default;
       input = sel;
+    } else if (f.kind === "text") {
+      const t = document.createElement("input");
+      t.type = "text";
+      t.className = "rgroup-input";
+      t.value = f.default;
+      input = t;
+    } else if (f.kind !== undefined && MULTILINE_FIELD_KINDS.has(f.kind)) {
+      const ta = document.createElement("textarea");
+      ta.className = "build-input";
+      ta.rows = f.kind === "groups" || f.kind === "vars" ? 3 : 2;
+      ta.spellcheck = false;
+      ta.value = f.default;
+      input = ta;
     } else {
-      const text = document.createElement("input");
-      text.type = "text";
-      text.className = f.kind === "list" ? "rgroup-input" : "rgroup-input num-numeral";
-      text.value = f.default;
-      input = text;
+      const t = document.createElement("input");
+      t.type = "text";
+      // `list` holds several numbers, so it must not get the single-numeral
+      // styling that right-aligns and narrows the box.
+      t.className = f.kind === "list" ? "rgroup-input" : "rgroup-input num-numeral";
+      t.value = f.default;
+      input = t;
     }
-    input.id = `fin-f-${f.key}`;
+    input.id = `${idPrefix}-f-${f.key}`;
     input.dataset.key = f.key;
-    input.addEventListener("input", updateFinancePreview);
-    input.addEventListener("change", updateFinancePreview);
+    input.addEventListener("input", onChange);
+    input.addEventListener("change", onChange);
     row.append(label, input);
-    finInputs.appendChild(row);
+    container.appendChild(row);
   }
-  updateFinancePreview();
+  onChange();
+}
+
+/** Field kinds that need room for more than one line. */
+const MULTILINE_FIELD_KINDS = new Set(["groups", "vars", "matrix", "block", "line", "plot"]);
+
+function renderFinanceInputs(): void {
+  const calc = FIN_CALCS.find((c) => c.id === finCalcSelect.value) ?? FIN_CALCS[0];
+  renderCalcFields(calc.fields, finInputs, "fin", updateFinancePreview);
 }
 
 /** Computes and shows the result for the current calculator inputs. */
@@ -6013,48 +6054,7 @@ function populateStatsCalcs(): void {
 /** Builds the inputs for the selected statistical test and wires live compute. */
 function renderStatsInputs(): void {
   const calc = STAT_CALCS.find((c) => c.id === statsCalcSelect.value) ?? STAT_CALCS[0];
-  statsInputs.replaceChildren();
-  for (const f of calc.fields) {
-    const row = document.createElement("div");
-    row.className = "dna-controls";
-    const label = document.createElement("label");
-    label.className = "field-label";
-    label.textContent = f.label;
-    label.htmlFor = `stats-f-${f.key}`;
-
-    let input: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
-    if (f.kind === "select") {
-      const sel = document.createElement("select");
-      sel.className = "lib-select";
-      for (const o of f.options ?? []) {
-        const opt = document.createElement("option");
-        opt.value = o.value;
-        opt.textContent = o.label;
-        sel.appendChild(opt);
-      }
-      sel.value = f.default;
-      input = sel;
-    } else if (f.kind === "text") {
-      const t = document.createElement("input");
-      t.type = "text";
-      t.className = "rgroup-input";
-      t.value = f.default;
-      input = t;
-    } else {
-      const ta = document.createElement("textarea");
-      ta.className = "rgroup-input";
-      ta.rows = f.kind === "groups" || f.kind === "vars" ? 3 : 2;
-      ta.value = f.default;
-      input = ta;
-    }
-    input.id = `stats-f-${f.key}`;
-    input.dataset.key = f.key;
-    input.addEventListener("input", updateStatsPreview);
-    input.addEventListener("change", updateStatsPreview);
-    row.append(label, input);
-    statsInputs.appendChild(row);
-  }
-  updateStatsPreview();
+  renderCalcFields(calc.fields, statsInputs, "stats", updateStatsPreview);
 }
 
 /** Computes and shows the result for the current statistical test. */
@@ -6702,50 +6702,7 @@ function populateAnalyzeCalcs(): void {
 /** Builds the inputs for the selected Analyze tool and wires live compute. */
 function renderAnalyzeInputs(): void {
   const calc = ANALYZE_CALCS.find((c) => c.id === analyzeCalcSelect.value) ?? ANALYZE_CALCS[0];
-  analyzeHint.textContent = calc.hint;
-  analyzeInputs.replaceChildren();
-  for (const f of calc.fields) {
-    const row = document.createElement("div");
-    row.className = "dna-controls";
-    const label = document.createElement("label");
-    label.className = "field-label";
-    label.textContent = f.label;
-    label.htmlFor = `analyze-f-${f.key}`;
-
-    let input: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
-    if (f.kind === "text") {
-      const t = document.createElement("input");
-      t.type = "text";
-      t.className = "rgroup-input";
-      t.value = f.default;
-      input = t;
-    } else if (f.kind === "select") {
-      const sel = document.createElement("select");
-      sel.className = "mode-select";
-      for (const o of f.options ?? []) {
-        const opt = document.createElement("option");
-        opt.value = o.value;
-        opt.textContent = o.label;
-        sel.appendChild(opt);
-      }
-      sel.value = f.default;
-      input = sel;
-    } else {
-      const ta = document.createElement("textarea");
-      ta.className = "rgroup-input";
-      ta.rows = f.rows ?? 4;
-      ta.value = f.default;
-      ta.spellcheck = false;
-      input = ta;
-    }
-    input.id = `analyze-f-${f.key}`;
-    input.dataset.key = f.key;
-    input.addEventListener("input", updateAnalyzePreview);
-    input.addEventListener("change", updateAnalyzePreview);
-    row.append(label, input);
-    analyzeInputs.appendChild(row);
-  }
-  updateAnalyzePreview();
+  renderCalcFields(calc.fields, analyzeInputs, "analyze", updateAnalyzePreview);
 }
 
 /** Computes and shows the result for the current Analyze tool. */
@@ -8265,42 +8222,7 @@ function populateAssayCalcs(): void {
 /** Builds the inputs for the selected assay calculator and wires live compute. */
 function renderAssayInputs(): void {
   const calc = ASSAY_CALCS.find((c) => c.id === assayCalcSelect.value) ?? ASSAY_CALCS[0];
-  assayInputs.replaceChildren();
-  for (const f of calc.fields) {
-    const row = document.createElement("div");
-    row.className = "dna-controls";
-    const label = document.createElement("label");
-    label.className = "field-label";
-    label.textContent = f.label;
-    label.htmlFor = `assay-f-${f.key}`;
-
-    let input: HTMLInputElement | HTMLSelectElement;
-    if (f.kind === "select") {
-      const sel = document.createElement("select");
-      sel.className = "lib-select";
-      for (const o of f.options ?? []) {
-        const opt = document.createElement("option");
-        opt.value = o.value;
-        opt.textContent = o.label;
-        sel.appendChild(opt);
-      }
-      sel.value = f.default;
-      input = sel;
-    } else {
-      const text = document.createElement("input");
-      text.type = "text";
-      text.className = f.kind === "list" ? "rgroup-input" : "rgroup-input num-numeral";
-      text.value = f.default;
-      input = text;
-    }
-    input.id = `assay-f-${f.key}`;
-    input.dataset.key = f.key;
-    input.addEventListener("input", updateAssayPreview);
-    input.addEventListener("change", updateAssayPreview);
-    row.append(label, input);
-    assayInputs.appendChild(row);
-  }
-  updateAssayPreview();
+  renderCalcFields(calc.fields, assayInputs, "assay", updateAssayPreview);
 }
 
 /** Computes and shows the result (and any fitted-curve plot) for the current inputs. */

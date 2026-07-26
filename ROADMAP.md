@@ -1,6 +1,6 @@
 # JurisLab — Product Roadmap
 
-_Last updated: 2026-07-26 · Current release: **v2.3.0** (production)_
+_Last updated: 2026-07-26 · Current release: **v2.4.0** (production)_
 
 > The release number above is gated by `phase6.adversarial.test.ts` against
 > `package.json`. If they disagree, the suite fails — this file drifted five
@@ -256,7 +256,30 @@ is known exactly. **Median survival reports NOT REACHED** when the curve never f
 rather than substituting the longest observed time, which is the common spreadsheet error and
 understates survival.
 
+**v2.4.0 — one calculator-field renderer instead of four.**
+
+**The evaluation's framing needed correcting first.** It listed "four near-identical
+calculator registries, ~1,935 lines, 24% of taskpane.ts" as wanting consolidation. Measured:
+STAT_CALCS 692, ANALYZE_CALCS 485, ASSAY_CALCS 379, FIN_CALCS 331 = 1,887 lines — but those
+lines are 60+ DISTINCT calculator definitions (Black-Scholes, Kaplan-Meier,
+Michaelis-Menten, eigenvalues). That is data with different maths in every entry. Merging the
+arrays would delete none of it, only concatenate them while forcing each entry to carry a
+"which tool am I" tag it does not need.
+
+The REAL duplication was the four renderers: 166 lines building the same input rows from the
+same field shapes, differing only in registry, id prefix, container and callback. **They had
+already drifted** — Finance and Assay had no branch for a `text` field or a textarea, so a
+field kind that renders correctly in Stats produced a plain numeric input there. Four copies
+guarantee that eventually.
+
+Now one `renderCalcFields()`; the four callers are three lines each, and taskpane.ts is 78
+lines shorter. `kind` is optional in the shared signature because Finance and Assay omit it
+on numeric fields — TypeScript caught that rather than my papering over it with a cast.
+Verified by driving all four tools in the real bundle (19/21/15/15 calculators, fields
+rendered and results computed, including on a differently-shaped last calculator in each),
+plus the id-wiring audit which is what would catch an id-prefix collision.
+
 **Genuinely open candidates:** deeper BVP/PDE/DAE
 support on the ODE side (out of scope today — state honestly). Confirm priority before building.
-Also open from the evaluation: the four near-identical calculator registries
-(~1,935 lines) that want consolidating.
+The evaluation's own list is now closed. Remaining ideas are new work rather than
+outstanding findings.

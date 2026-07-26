@@ -252,6 +252,22 @@ table.wtab td.n,table.wtab th.n{text-align:right;font-variant-numeric:tabular-nu
 /* ---------- section frame ---------- */
 .band{padding:clamp(48px,6.5vw,82px) 0;border-top:1px solid var(--rule)}
 .band-paper{background:var(--ground-2)}
+/* "Instead of" — the page described what JurisLab is and never named a product
+   the reader is already paying for. The caveat below the list is not hedging:
+   overclaim once and the offline-and-honest positioning is worth nothing. */
+.band-swap{background:var(--paper);padding:clamp(34px,4vw,52px) 0}
+.swaps{list-style:none;margin:14px 0 0;padding:0;display:grid;
+  grid-template-columns:repeat(5,1fr);gap:0}
+.swaps li{padding:0 clamp(10px,1.5vw,20px);border-left:1px solid var(--rule)}
+.swaps li:first-child{padding-left:0;border-left:0}
+.swaps b{display:block;font-size:1.02rem;letter-spacing:-.012em;color:var(--ink);margin-bottom:5px}
+.swaps span{display:block;font-size:13px;line-height:1.55;color:var(--ink-2)}
+.swap-note{margin:clamp(20px,2.6vw,28px) 0 0;font-size:13.5px;line-height:1.6;
+  color:var(--ink-3);max-width:78ch;border-top:1px solid var(--rule-soft);padding-top:14px}
+@media (max-width:940px){.swaps{grid-template-columns:repeat(2,1fr);gap:18px 0}
+  .swaps li:nth-child(odd){padding-left:0;border-left:0}}
+@media (max-width:560px){.swaps{grid-template-columns:1fr}
+  .swaps li{padding-left:0;border-left:0}}
 .band-deep{background:linear-gradient(150deg,#0C4A6E,#083752);color:#DCEBF4;border-top:0}
 .band-head{margin-bottom:clamp(26px,3.5vw,40px)}
 
@@ -470,7 +486,10 @@ footer{border-top:1px solid var(--rule);background:var(--ground-2);padding:32px 
       <div>
         <p class="eyebrow">Free · Open source · MIT</p>
         <h1><span class="glass">A technical workbench inside Word.</span></h1>
-        <p class="sub">JurisLab inserts the work itself, not a picture of it. Predicted spectra, matrix results, plasmid maps, statistics, patent figures with reference numerals, Bluebook citations and a live Table of Authorities, placed straight into the document you are already writing.</p>
+        <p class="sub">Work that currently means opening <b>ChemDraw</b>, <b>MATLAB</b>, <b>Prism</b> or
+          <b>SnapGene</b> — done in the document you are already writing. JurisLab inserts the result
+          itself, not a picture of it: predicted spectra, matrix results, plasmid maps, statistics,
+          patent figures with reference numerals, Bluebook citations and a live Table of Authorities.</p>
 
         <div class="cta-row">
           <a class="btn btn-white" href="https://github.com/alexsmi22-dotcom/MS-WORD-Add-in/tree/main/install">
@@ -638,6 +657,24 @@ footer{border-top:1px solid var(--rule);background:var(--ground-2);padding:32px 
       <div class="stat"><b>19</b><span>Finance calculators</span></div>
       <div class="stat"><b>$0</b><span>Free forever, MIT licensed</span></div>
     </div>
+  </div>
+</section>
+
+<!-- ================= INSTEAD OF ================= -->
+<section class="band band-swap">
+  <div class="wrap">
+    <p class="eyebrow">Instead of</p>
+    <ul class="swaps">
+      <li><b>ChemDraw</b><span>Structures from a name or SMILES, formulas, properties, pKa</span></li>
+      <li><b>MATLAB</b><span>Matrix math, FFT, ODEs, optimization, data to insight</span></li>
+      <li><b>Prism</b><span>Curve fitting with real standard errors, IC50 and Kd</span></li>
+      <li><b>SnapGene</b><span>Plasmid maps, restriction digests, primer Tm, alignment</span></li>
+      <li><b>Best Authority</b><span>Bluebook citations and a Table of Authorities Word maintains</span></li>
+    </ul>
+    <p class="swap-note">Where it stops, plainly: JurisLab does analysis and reporting, not general
+      scientific programming — a Simulink model still needs MATLAB. It does maps, digests and
+      primers, not cloning simulation. Predicted spectra, cLogP and pKa are labelled as estimates
+      everywhere they appear, because they are.</p>
   </div>
 </section>
 

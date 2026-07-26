@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v1.97.0)
+# JurisLab — Manual Test Script (v1.98.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -10,7 +10,7 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
 
-## 0a. What changed in v1.97.0 — check this first
+## 0a. What changed in v1.97-1.98 — check this first
 
 The pane was restyled to match the landing page. Nothing about what the tools
 COMPUTE changed, so this section is about appearance and reach.
@@ -21,8 +21,9 @@ COMPUTE changed, so this section is about appearance and reach.
   not a build problem — Office caches add-in icons by URL and the filenames did
   not change. See the note at the end of this section to clear it. The icon in
   the PANE is the truth.
-- [ ] Home tiles show **reference numerals** — (24) Chemical, (12) Solve — not
-  emoji. They match the numerals on the landing page.
+- [ ] Home tiles show **drawn line icons** — a benzene ring for Chemical, a
+  sigma for Math, a double helix for DNA — not emoji and not numerals. Every
+  tool has its own; no two are the same drawing.
 - [ ] Colours are navy/cyan, not the old Office blue; buttons are navy with a
   cyan focus ring.
 - [ ] **Drag the pane as narrow as it will go.** Nothing should be cut off at

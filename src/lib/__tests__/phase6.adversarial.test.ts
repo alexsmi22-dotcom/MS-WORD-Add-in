@@ -219,39 +219,56 @@ describe("the user-facing docs are not allowed to rot", () => {
     }
   });
 
-  test("a tool has the same reference numeral in the pane as on the site", () => {
-    // The pane's tool tiles print a patent-style numeral — (24) Chemical — and
-    // those are the SAME numerals landing/index.html prints beside each tool.
-    // That is the whole point: one identity in both places. They are maintained
-    // in two files, so without this they drift and the pane starts quietly
-    // contradicting the page that sent the user there.
-    //
-    // They replaced emoji, which had collided outright: align, sequence and dna
-    // all showed the same glyph.
-    const site = new Map(
-      [...read("landing/index.html").matchAll(
-        /href="tool\.html\?tool=([a-z0-9]+)"><span class="ref">\((\d+)\)<\/span>/g,
-      )].map((m) => [m[1], m[2]]),
-    );
-    // Two landing slugs differ from the pane's mode ids.
-    const SLUG: Record<string, string> = { assay: "bioassay", ppt: "tablechart" };
+  test("every tool has its own icon — no two share a drawing", () => {
+    // This is the defect the emoji had: align, sequence and dna all showed the
+    // same glyph, so the mark identified nothing. TypeScript enforces that every
+    // tool HAS an icon; only a test can check they are all different.
+    const src = read("src/taskpane/icons.ts");
+    const body = src.slice(src.indexOf("TOOL_ICONS"), src.indexOf("export function toolIcon"));
+    const entries = [...body.matchAll(/^ {2}([a-z]+):\s*((?:'[^']*'(?:\s*\+\s*)?\s*)+),$/gm)].map((m) => ({
+      mode: m[1],
+      markup: [...m[2].matchAll(/'([^']*)'/g)].map((x) => x[1]).join(""),
+    }));
 
-    const pane = [...read("src/taskpane/taskpane.ts").matchAll(
-      /\{ mode: "([a-z0-9]+)",[^}]*?ref: "(\d+)"/g,
-    )].map((m) => ({ mode: m[1], ref: m[2] }));
+    expect(entries.length).toBe(modes().length);
 
-    expect(pane.length).toBe(modes().length);
-    const mismatched = pane.filter((p) => site.get(SLUG[p.mode] ?? p.mode) !== p.ref);
-    expect(mismatched).toEqual([]);
+    const byMarkup = new Map<string, string[]>();
+    for (const e of entries) {
+      const norm = e.markup.replace(/\s+/g, " ").trim();
+      byMarkup.set(norm, [...(byMarkup.get(norm) ?? []), e.mode]);
+    }
+    const duplicated = [...byMarkup.values()].filter((v) => v.length > 1);
+    expect(duplicated).toEqual([]);
   });
 
-  test("the pane's tool numerals are unique", () => {
-    // The emoji they replaced were not: three tools shared one glyph, so the
-    // icon identified nothing. A duplicated numeral would repeat that quietly.
-    const refs = [...read("src/taskpane/taskpane.ts").matchAll(
-      /\{ mode: "[a-z0-9]+",[^}]*?ref: "(\d+)"/g,
-    )].map((m) => m[1]);
-    expect(new Set(refs).size).toBe(refs.length);
+  test("the icon set covers exactly the shipping tools", () => {
+    const src = read("src/taskpane/icons.ts");
+    const body = src.slice(src.indexOf("TOOL_ICONS"), src.indexOf("export function toolIcon"));
+    const keys = [...body.matchAll(/^ {2}([a-z]+):/gm)].map((m) => m[1]);
+    expect([...keys].sort()).toEqual([...modes()].sort());
+  });
+
+  test("no icon hardcodes a colour", () => {
+    // The wrapper supplies stroke="currentColor" so icons follow hover, focus
+    // and any future theme. An icon that sets its own fill or stroke opts out of
+    // all of that and will look wrong the first time the palette moves.
+    const src = read("src/taskpane/icons.ts");
+    const body = src.slice(src.indexOf("TOOL_ICONS"), src.indexOf("export function toolIcon"));
+    expect(body).not.toMatch(/(fill|stroke)="(?!none")[^"]+"/);
+  });
+
+  test("the pane ships no emoji", () => {
+    // Emoji come from the platform's font, so Word on macOS and Word on Windows
+    // drew different panes. Comments are stripped first: the icon module
+    // explains the emoji it replaced, and quoting one is not shipping one.
+    for (const f of ["src/taskpane/taskpane.ts", "src/taskpane/taskpane.html", "src/taskpane/icons.ts"]) {
+      const stripped = read(f)
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .replace(/^\s*\/\/.*$/gm, "")
+        .replace(/<!--[\s\S]*?-->/g, "");
+      const emoji = [...stripped].filter((c) => c.codePointAt(0)! > 0x1f000);
+      expect({ file: f, emoji }).toEqual({ file: f, emoji: [] });
+    }
   });
 
   test("the enzyme count on the landing page is the real one", () => {

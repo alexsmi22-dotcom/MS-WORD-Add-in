@@ -231,6 +231,7 @@ import { isNewerVersion } from "../lib/version";
 declare const __APP_VERSION__: string;
 
 import type { Mode } from "../lib/modes";
+import { toolIcon } from "./icons";
 
 const STRUCTURE_W = 300;
 const STRUCTURE_H = 230;
@@ -1099,15 +1100,12 @@ function showUpdateBanner(newVersion: string): void {
 type Audience = "science" | "legal";
 
 interface HomeItem {
-  mode: Mode;
   /**
-   * The tool's patent-style reference numeral, e.g. "24" rendered as (24).
-   *
-   * These are the SAME numerals the landing page prints, so a tool has one
-   * identity in both places. They replaced emoji, which collided (align,
-   * sequence and dna all showed 🧬) and drew differently on Mac and Windows.
+   * Home is a page, not a tool, so it can never be a card here. Narrowing the
+   * type (rather than casting at the call site) is what lets the icon map be
+   * exhaustive: TypeScript now refuses to compile a tool with no icon.
    */
-  ref: string;
+  mode: Exclude<Mode, "home">;
   label: string;
   desc: string;
   /** Audiences this tool is shown to on Home. Omitted = shown to everyone. */
@@ -1122,55 +1120,55 @@ const HOME_GROUPS: HomeGroup[] = [
   {
     title: "Chemistry & structures",
     items: [
-      { mode: "chemical", audience: ["science", "legal"], ref: "24", label: "Chemical", desc: "Formulas & 2D structures" },
-      { mode: "build", audience: ["science", "legal"], ref: "30", label: "Build", desc: "Structures from atoms/bonds; Markush" },
-      { mode: "reaction", audience: ["science"], ref: "32", label: "Reaction", desc: "Reaction schemes" },
-      { mode: "massspec", audience: ["science"], ref: "28", label: "Mass Spec", desc: "Exact mass, isotope pattern, adducts" },
-      { mode: "spectra", audience: ["science"], ref: "26", label: "Spectra", desc: "Predicted NMR, IR, UV-Vis, fragmentation" },
+      { mode: "chemical", audience: ["science", "legal"], label: "Chemical", desc: "Formulas & 2D structures" },
+      { mode: "build", audience: ["science", "legal"], label: "Build", desc: "Structures from atoms/bonds; Markush" },
+      { mode: "reaction", audience: ["science"], label: "Reaction", desc: "Reaction schemes" },
+      { mode: "massspec", audience: ["science"], label: "Mass Spec", desc: "Exact mass, isotope pattern, adducts" },
+      { mode: "spectra", audience: ["science"], label: "Spectra", desc: "Predicted NMR, IR, UV-Vis, fragmentation" },
     ],
   },
   {
     title: "Math & units",
     items: [
-      { mode: "math", ref: "14", label: "Math", desc: "Native equations, LaTeX" },
-      { mode: "solve", ref: "12", label: "Solve", desc: "Equations, derivatives, integrals, word problems" },
-      { mode: "units", ref: "20", label: "Units", desc: "SI typesetting & conversion" },
-      { mode: "plot", ref: "18", label: "Plot", desc: "Function & data charts" },
-      { mode: "stats", audience: ["science"], ref: "16", label: "Stats", desc: "Descriptive, t-tests, ANOVA, uncertainty" },
-      { mode: "analyze", audience: ["science"], ref: "10", label: "Analyze", desc: "Matrix math + data → trends & insights" },
+      { mode: "math", label: "Math", desc: "Native equations, LaTeX" },
+      { mode: "solve", label: "Solve", desc: "Equations, derivatives, integrals, word problems" },
+      { mode: "units", label: "Units", desc: "SI typesetting & conversion" },
+      { mode: "plot", label: "Plot", desc: "Function & data charts" },
+      { mode: "stats", audience: ["science"], label: "Stats", desc: "Descriptive, t-tests, ANOVA, uncertainty" },
+      { mode: "analyze", audience: ["science"], label: "Analyze", desc: "Matrix math + data → trends & insights" },
     ],
   },
   {
     title: "Data & figures",
     items: [
-      { mode: "ppt", ref: "54", label: "Table → Chart", desc: "Charts, diagrams, table figures, PPT" },
-      { mode: "finance", audience: ["legal"], ref: "22", label: "Finance", desc: "TVM, DCF, bonds, options + Greeks, amortization" },
+      { mode: "ppt", label: "Table → Chart", desc: "Charts, diagrams, table figures, PPT" },
+      { mode: "finance", audience: ["legal"], label: "Finance", desc: "TVM, DCF, bonds, options + Greeks, amortization" },
     ],
   },
   {
     title: "Biology",
     items: [
-      { mode: "seqmap", audience: ["science", "legal"], ref: "40", label: "Sequence Map", desc: "Open a GenBank/FASTA file → annotated map" },
-      { mode: "align", audience: ["science"], ref: "42", label: "Align", desc: "Compare two sequences — global or local" },
-      { mode: "sequence", audience: ["science", "legal"], ref: "38", label: "Sequence", desc: "WIPO ST.26 listings" },
-      { mode: "dna", audience: ["science"], ref: "36", label: "DNA", desc: "Rev-comp, translation, ORFs" },
-      { mode: "assay", audience: ["science"], ref: "44", label: "Bio/Assay", desc: "Kinetics, IC50/EC50, binding, lab math" },
-      { mode: "peptide", audience: ["science"], ref: "34", label: "Peptide", desc: "Draw a peptide from its sequence" },
-      { mode: "botanical", audience: ["science", "legal"], ref: "46", label: "Botanical", desc: "Plant nomenclature" },
+      { mode: "seqmap", audience: ["science", "legal"], label: "Sequence Map", desc: "Open a GenBank/FASTA file → annotated map" },
+      { mode: "align", audience: ["science"], label: "Align", desc: "Compare two sequences — global or local" },
+      { mode: "sequence", audience: ["science", "legal"], label: "Sequence", desc: "WIPO ST.26 listings" },
+      { mode: "dna", audience: ["science"], label: "DNA", desc: "Rev-comp, translation, ORFs" },
+      { mode: "assay", audience: ["science"], label: "Bio/Assay", desc: "Kinetics, IC50/EC50, binding, lab math" },
+      { mode: "peptide", audience: ["science"], label: "Peptide", desc: "Draw a peptide from its sequence" },
+      { mode: "botanical", audience: ["science", "legal"], label: "Botanical", desc: "Plant nomenclature" },
     ],
   },
   {
     title: "Patent drafting",
     items: [
-      { mode: "numerals", audience: ["legal"], ref: "48", label: "Numerals", desc: "Reference-numeral management" },
-      { mode: "refs", ref: "50", label: "Refs", desc: "Captions & cross-references" },
-      { mode: "code", ref: "56", label: "Code", desc: "Algorithm & code listings" },
-      { mode: "audit", audience: ["legal"], ref: "58", label: "Audit", desc: "Whole-document consistency" },
+      { mode: "numerals", audience: ["legal"], label: "Numerals", desc: "Reference-numeral management" },
+      { mode: "refs", label: "Refs", desc: "Captions & cross-references" },
+      { mode: "code", label: "Code", desc: "Algorithm & code listings" },
+      { mode: "audit", audience: ["legal"], label: "Audit", desc: "Whole-document consistency" },
     ],
   },
   {
     title: "Legal citations",
-    items: [{ mode: "citations", audience: ["legal"], ref: "52", label: "Citations", desc: "Bluebook — cases, statutes, patents" }],
+    items: [{ mode: "citations", audience: ["legal"], label: "Citations", desc: "Bluebook — cases, statutes, patents" }],
   },
 ];
 
@@ -1264,12 +1262,10 @@ function renderHome(): void {
       card.type = "button";
       card.className = "home-card";
       card.dataset.mode = item.mode;
-      const icon = document.createElement("span");
-      icon.className = "home-card-ref";
-      // Parenthesised like a patent drawing callout, matching the landing page.
-      icon.textContent = `(${item.ref})`;
-      // The numeral is decoration for sighted users; the label carries the name.
-      icon.setAttribute("aria-hidden", "true");
+      // A drawn mark, not an emoji and not a numeral: unique per tool,
+      // identical on every platform, and recognisable at a glance.
+      const icon = toolIcon(item.mode);
+      icon.setAttribute("class", "home-card-icon");
       const body = document.createElement("span");
       body.className = "home-card-body";
       const t = document.createElement("span");

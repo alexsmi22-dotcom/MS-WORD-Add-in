@@ -91,6 +91,26 @@ describe("the user-facing docs are not allowed to rot", () => {
     expect(v![1]).toBe(pkg.version);
   });
 
+  test("the roadmap is not pinned to a dead version", () => {
+    // ROADMAP.md carried "v1.82.0" in its header and "v1.48.5" in its status
+    // section while package.json said 1.87.0 — three numbers, none agreeing, and
+    // nothing to catch it. The header is the one a reader trusts, so it is the
+    // one that gets gated.
+    const rm = read("ROADMAP.md");
+    const v = /Current release: \*\*v(\d+\.\d+\.\d+)\*\*/.exec(rm);
+    expect(v).not.toBeNull();
+    expect(v![1]).toBe(pkg.version);
+  });
+
+  test("the roadmap does not still list shipped work as open", () => {
+    // Every one of these shipped. Listing them as open sent a reader looking for
+    // a feature that was already in their hands.
+    const open = read("ROADMAP.md").split("## Status & what's next")[1] ?? "";
+    for (const shipped of ["J-coupling", "COSY", "HSQC"]) {
+      expect({ shipped, listedAsOpen: open.includes(shipped) }).toEqual({ shipped, listedAsOpen: false });
+    }
+  });
+
   test("the test script covers the newest tool", () => {
     expect(read("docs/TEST-SCRIPT.md").toLowerCase()).toMatch(/needleman|smith.?waterman/);
   });

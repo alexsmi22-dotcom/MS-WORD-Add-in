@@ -1,6 +1,10 @@
 # JurisLab — Product Roadmap
 
-_Last updated: 2026-07-24 · Current release: **v1.82.0** (production)_
+_Last updated: 2026-07-26 · Current release: **v1.87.0** (production)_
+
+> The release number above is gated by `phase6.adversarial.test.ts` against
+> `package.json`. If they disagree, the suite fails — this file drifted five
+> versions once and nothing caught it.
 
 This is the forward-looking plan. For what already ships, see [FEATURES.md](FEATURES.md);
 for the historical build log, see [CHANGELOG.md](CHANGELOG.md).
@@ -45,7 +49,7 @@ an assay, a survey, or an instrument dump and writing it up does not.
 
 ---
 
-## Where we are (v1.48.5)
+## Where we are (v1.87.0)
 
 The analytical **quantitation** engine is genuinely strong and honest about its limits:
 
@@ -58,9 +62,14 @@ The analytical **quantitation** engine is genuinely strong and honest about its 
 - **DNA/protein, Units, Plot** — ORF/Tm/translation; sig-figs & conversions; offline charts.
 - Plus the full legal/patent drafting suite (Citations, TOA/TOC, Sequence, Numerals…).
 
-**The gap:** we're strong at *quantitation* but have **no analytical spectroscopy
-prediction**, **thin general-purpose stats**, and **no core numerical primitives**
-(linear algebra, ODE, FFT) — which is exactly what a MATLAB comparison demands.
+**That gap is now closed.** The three things this section used to list as missing —
+analytical spectroscopy prediction, thin general-purpose stats, and no core numerical
+primitives — all shipped: Spectra (v1.54.0), the expanded stats suite, and the
+linear-algebra/ODE/FFT core (v1.51.0–v1.52.0). Since then: the molecular-biology
+suite (Sequence Map, plasmid maps, SnapGene import, restriction digestion, Align,
+primer Tm), **Solve** (v1.84.0), NMR J-coupling and 2D COSY/HSQC (v1.83.0), and a
+reliability pass (v1.87.0) that made polynomial roots complete, integration exactly
+symbolic where possible, and pKa compound-specific via Hammett.
 
 ---
 
@@ -111,7 +120,8 @@ Added as Analyze tools (`src/lib/ode.ts`, `src/lib/optimize.ts`, `src/lib/fft.ts
 - **IR** ✅ predicted spectra (group frequencies + Lorentzian transmittance trace).
 - **UV-Vis** ✅ predicted spectra (Woodward–Fieser).
 - **MS fragmentation** ✅ (EI: α-cleavage, benzylic/tropylium, McLafferty, gated neutral losses).
-- **Open:** NMR depth — J-coupling constants and 2D (COSY/HSQC); current model gives shift + multiplicity only.
+- **J-coupling and 2D** ✅ SHIPPED in v1.83.0 — coupling constants and multiplet names
+  (dd, td…) from the bond graph, plus COSY (¹H–¹H) and HSQC (¹H–¹³C) maps.
 - **Also shipped, unplanned here:** a **JCAMP-DX reader** to open a real measured spectrum.
 
 ### Ongoing / low priority — Chemical coverage
@@ -133,5 +143,5 @@ import, restriction-enzyme digestion (Type IIS, both-strand), pairwise Align, an
 nearest-neighbour primer Tm — and a sustained **correctness-hardening sweep** (punch-list
 audits fixing real numerical/biological bugs the unit tests missed).
 
-**Genuinely open candidates:** NMR depth (J-coupling / 2D COSY-HSQC); deeper BVP/PDE/DAE
+**Genuinely open candidates:** deeper BVP/PDE/DAE
 support on the ODE side (out of scope today — state honestly). Confirm priority before building.

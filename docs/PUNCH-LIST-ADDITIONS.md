@@ -121,29 +121,65 @@ and the offline-and-honest positioning is gone.
 
 ---
 
-### [ ] 4. Reconcile the version story (S)
+### [x] 4. Reconcile the version story (S) — **done 2026-07-26**
 
-Three numbers, none agreeing: `package.json` **1.87.0**, `ROADMAP.md` header
-**v1.82.0**, `ROADMAP.md` status section **v1.48.5**. The ROADMAP also still
-lists NMR J-coupling and 2D COSY/HSQC as open; both shipped in v1.83.0.
+Was three numbers, none agreeing: `package.json` **1.87.0**, `ROADMAP.md` header
+**v1.82.0**, `ROADMAP.md` status section **v1.48.5**, with NMR J-coupling and 2D
+COSY/HSQC still listed as open six versions after they shipped.
 
-**Done when.** `package.json` is the single source of truth and `qc.ps1` fails
-when a doc drifts from it. There is precedent: `phase6.adversarial.test.ts`
-already gates `docs/TEST-SCRIPT.md` against `pkg.version`.
+`ROADMAP.md` now reads v1.87.0 throughout, the closed gap is described as closed,
+and two gates in `phase6.adversarial.test.ts` hold it there: one fails when the
+header release differs from `package.json`, the other fails when shipped work
+reappears in the open-candidates section. Both were negative-tested — set the
+header to v9.9.9 or reinstate the NMR line and the suite goes red.
 
 ---
 
-### [ ] 5. Tests for the twelve genuinely untested modules (M)
+### [~] 5. Dedicated suites for the modules that lack one (M)
 
-By lines of untested logic: `ode.ts` (840), `mathParse.ts` (522), `molgraph.ts`
-(404), `fragment.ts` (451), `uvvis.ts` (340), `ir.ts` (332), `formulaLibrary.ts`
-(309), `matrixExpr.ts` (269), `structures.ts` (160), `fft.ts` (138),
-`optimize.ts` (133), `modes.ts` (57).
+**Correction to the framing.** These modules were described as "untested". None of
+them are. Every one is imported and driven by between one and six existing
+suites:
 
-`ode.ts` and `mathParse.ts` first. An RK45 integrator has a known-good answer for
-any textbook system, so those tests write themselves; and every parser is a
-security-adjacent surface even offline, because malformed input should produce a
-message rather than a stack trace in the pane.
+| Module | Lines | Dedicated suite | Driven by |
+|---|---|---|---|
+| `ode.ts` | 840 | **added** | 6 suites |
+| `mathParse.ts` | 522 | **added** | 3 suites |
+| `fragment.ts` | 451 | no | 3 suites |
+| `molgraph.ts` | 404 | no | 3 suites |
+| `uvvis.ts` | 340 | no | 2 suites |
+| `ir.ts` | 332 | no | 4 suites |
+| `formulaLibrary.ts` | 309 | no | 3 suites |
+| `matrixExpr.ts` | 269 | no | 2 suites |
+| `structures.ts` | 160 | no | 2 suites |
+| `fft.ts` | 138 | no | 3 suites |
+| `optimize.ts` | 133 | no | 2 suites |
+| `modes.ts` | 57 | no | 1 suite |
+
+So the gap is not "untested logic" — it is that the indirect suites drive the
+**happy path**, because they exist to check what the emitters and calculators
+produce from valid input. The error paths and edge cases are what nothing
+reaches. Write dedicated suites for that, not for coverage percentage.
+
+**Done so far.**
+- `ode.test.ts` — 16 tests, every assertion against a closed-form solution
+  (e^-t, the harmonic oscillator's invariant, a two-species linear system)
+  rather than a recorded previous run. Also: tightening rtol must actually
+  reduce error, `tEval` lands on requested points, events are located to
+  tolerance and the direction filter is proved by comparing against an
+  undirected control run, and Van der Pol at mu=1000 bails with
+  `stopReason: "stiff"` after 42 steps rather than quietly returning junk.
+- `mathParse.test.ts` — 23 tests. Nine on the shape each construct produces
+  (notably that `x_1^2` collapses to one `subsup`, since sub-of-sup renders the
+  indices wrongly in OMML). Fourteen on the contract in the module header:
+  "anything it can't parse throws". Those assert on the *message*, not merely
+  that something threw — a `TypeError` from an undefined lookup also throws, the
+  caller's fallback still fires, and the user gets "Cannot read properties of
+  undefined" where a sentence should be. All twelve malformed inputs produce a
+  written `Error`. None leak internals.
+
+**Next, in order.** `fragment.ts` and `molgraph.ts` — most logic, and both feed
+user-visible chemistry claims.
 
 **`solve.ts` and `nmr2d.ts` are NOT on this list** — both already have adversarial
 suites. See [Corrections](#corrections-to-the-audit).
@@ -464,7 +500,14 @@ with the source. Recorded so they are not reintroduced.
    functional, all storing palette accordion open/closed state. Correctly
    machine-local. Moved to *Explicitly not building*.
 
+6. **"Thirteen untested modules" — none of them are untested.** Every module on
+   that list is imported and driven by between one and six existing suites; what
+   they lack is a *dedicated* suite. The distinction matters, because it changes
+   what the work is for: not coverage, but the error paths the happy-path
+   indirect tests never reach. Item 5 carries the corrected table.
+
 The pattern is worth noting: every one of these was a claim about **absence** —
-no test file, no field support, no resize. Absence is the expensive thing to
-assert, because a grep that finds nothing looks identical whether the feature is
-missing or merely named something else.
+no test file, no field support, no resize, no coverage. Absence is the expensive
+thing to assert, because a grep that finds nothing looks identical whether the
+feature is missing, named something else, or reached through another module.
+Four of the six corrections above are that same mistake.

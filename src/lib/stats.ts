@@ -161,6 +161,18 @@ export interface TTestResult {
   df: number;
   p: number;
   meanDifference: number;
+  /**
+   * Standardised effect size.
+   *
+   * Cohen's d for the two-sample tests (pooled SD, the standard denominator);
+   * for the paired test this is d_z — computed on the differences, so it is NOT
+   * comparable with a two-sample d and is labelled separately.
+   */
+  d: number;
+  /** Which effect size `d` is, since the two are not interchangeable. */
+  dKind: "cohen" | "dz";
+  /** 95% confidence interval on the mean difference, [lo, hi]. */
+  ci95: [number, number];
 }
 
 /**
@@ -176,16 +188,35 @@ export function twoSampleTTest(a: number[], b: number[], pooled = false): TTestR
   const vb = variance(b);
   let t: number;
   let df: number;
+  // The standard error of the DIFFERENCE, which the confidence interval needs.
+  // It differs between the pooled and Welch tests, so each branch sets it.
+  let se: number;
   if (pooled) {
     const sp2 = ((na - 1) * va + (nb - 1) * vb) / (na + nb - 2);
     t = (ma - mb) / Math.sqrt(sp2 * (1 / na + 1 / nb));
     df = na + nb - 2;
+    se = Math.sqrt(sp2 * (1 / na + 1 / nb));
   } else {
-    const se = Math.sqrt(va / na + vb / nb);
+    se = Math.sqrt(va / na + vb / nb);
     t = (ma - mb) / se;
     df = Math.pow(va / na + vb / nb, 2) / (Math.pow(va / na, 2) / (na - 1) + Math.pow(vb / nb, 2) / (nb - 1));
   }
-  return { t, df, p: tTestP(Math.abs(t), df), meanDifference: ma - mb };
+  // Cohen's d uses the POOLED sd regardless of which test was run: it describes
+  // the data, not the test, so Welch and Student report the same effect size for
+  // the same samples. Using Welch's denominator here would make d depend on the
+  // test choice, which is not what the statistic means.
+  const sPooled = Math.sqrt(((na - 1) * va + (nb - 1) * vb) / (na + nb - 2));
+  const diff = ma - mb;
+  const tCrit = tCritical(0.05, df);
+  return {
+    t,
+    df,
+    p: tTestP(Math.abs(t), df),
+    meanDifference: diff,
+    d: sPooled > 0 ? diff / sPooled : NaN,
+    dKind: "cohen",
+    ci95: [diff - tCrit * se, diff + tCrit * se],
+  };
 }
 
 /** Paired (dependent) t-test on equal-length samples. */
@@ -193,9 +224,24 @@ export function pairedTTest(a: number[], b: number[]): TTestResult {
   const diffs = a.map((x, i) => x - b[i]);
   const n = diffs.length;
   const md = mean(diffs);
-  const t = md / (stdev(diffs) / Math.sqrt(n));
+  const sd = stdev(diffs);
+  const se = sd / Math.sqrt(n);
+  const t = md / se;
   const df = n - 1;
-  return { t, df, p: tTestP(Math.abs(t), df), meanDifference: md };
+  const tCrit = tCritical(0.05, df);
+  return {
+    t,
+    df,
+    p: tTestP(Math.abs(t), df),
+    meanDifference: md,
+    // d_z, on the differences. Deliberately NOT relabelled as Cohen's d: d_z is
+    // typically larger for the same data because it is divided by the SD of the
+    // differences rather than of the raw scores, and quoting it as a two-sample
+    // d overstates the effect.
+    d: sd > 0 ? md / sd : NaN,
+    dKind: "dz",
+    ci95: [md - tCrit * se, md + tCrit * se],
+  };
 }
 
 export interface AnovaResult {
@@ -269,7 +315,22 @@ export function formatP(p: number): string {
 
 /** APA-style t report, e.g. "t(18) = 2.41, p = .027". */
 export function reportT(r: TTestResult): string {
-  return `t(${r.df.toFixed(r.df % 1 ? 1 : 0)}) = ${r.t.toFixed(2)}, ${formatP(r.p)}`;
+  // Degenerate input: with no variance in either sample t is 0/0, and the line
+  // used to read "t(NaN) = NaN, p = n/a", which tells the user nothing about
+  // what went wrong. Two identical constant columns are an easy paste away.
+  if (!Number.isFinite(r.t) || !Number.isFinite(r.df)) {
+    return "t undefined — the data have no variance (every value in a group is identical), so a t-test cannot be computed.";
+  }
+  // APA order: statistic, p, then the effect size and the interval on the
+  // difference. Journals require the last two; reporting p alone confounds
+  // effect size with sample size, which is the whole reason d is mandated.
+  const label = r.dKind === "dz" ? "d_z" : "d";
+  const d = Number.isFinite(r.d) ? `, ${label} = ${r.d.toFixed(2)}` : "";
+  const ci =
+    Number.isFinite(r.ci95[0]) && Number.isFinite(r.ci95[1])
+      ? `, 95% CI [${r.ci95[0].toFixed(3)}, ${r.ci95[1].toFixed(3)}]`
+      : "";
+  return `t(${r.df.toFixed(r.df % 1 ? 1 : 0)}) = ${r.t.toFixed(2)}, ${formatP(r.p)}${d}${ci}`;
 }
 
 /** APA-style F report, e.g. "F(2, 27) = 4.31, p = .024". */

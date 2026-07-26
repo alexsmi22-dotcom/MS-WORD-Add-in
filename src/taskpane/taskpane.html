@@ -414,6 +414,27 @@
           <button id="num-insert-list-btn" class="insert-btn" type="button">Insert List of Reference Numerals</button>
         </div>
         <div id="num-findings" class="seq-warnings" aria-live="polite"></div>
+
+        <span class="palette-group-label">USPTO paragraph numbers</span>
+        <p class="seq-disclaimer">
+          Insert bracketed paragraph numbers &mdash; <code>[0001]</code>, <code>[0002]</code>
+          &mdash; through the specification, the form used to amend a US application and to
+          cite it in an office-action response. Headings, empty paragraphs and the claims are
+          skipped. Preview first; nothing is written until you apply.
+        </p>
+        <div class="dna-controls">
+          <label class="field-label" for="para-start">Start at</label>
+          <input id="para-start" type="text" class="rgroup-input num-numeral" value="1" aria-label="First paragraph number" />
+          <label class="omml-option" for="para-renumber">
+            <input type="checkbox" id="para-renumber" />
+            Renumber (replace existing marks)
+          </label>
+        </div>
+        <div class="seq-actions">
+          <button id="para-preview-btn" class="insert-btn secondary" type="button">Preview numbering</button>
+          <button id="para-apply-btn" class="insert-btn" type="button" disabled>Apply to document</button>
+        </div>
+        <div id="para-findings" class="seq-warnings" aria-live="polite"></div>
       </section>
 
       <!-- DNA / RNA analysis: strands, transcription, translation, GC, ORFs -->
@@ -476,6 +497,22 @@
         <button id="dna-restrict-btn" class="insert-btn secondary" type="button">Find restriction sites</button>
         <div id="dna-restrict-results" class="dna-orf-results" aria-live="polite"></div>
 
+        <span class="palette-group-label">Virtual digest</span>
+        <div class="dna-controls">
+          <label class="field-label" for="digest-enzymes">Enzymes</label>
+          <input id="digest-enzymes" type="text" class="formula-input" placeholder="e.g. EcoRI, BamHI (blank = all that cut)" autocomplete="off" spellcheck="false" />
+          <label class="field-label" for="digest-topology">Topology</label>
+          <select id="digest-topology" class="lib-select" aria-label="Molecule topology">
+            <option value="linear">Linear</option>
+            <option value="circular">Circular (plasmid)</option>
+          </select>
+        </div>
+        <div class="seq-actions">
+          <button id="digest-run-btn" class="insert-btn secondary" type="button">Run digest</button>
+          <button id="digest-insert-btn" class="insert-btn" type="button" disabled>Insert digest</button>
+        </div>
+        <div id="digest-results" class="dna-result" aria-live="polite"></div>
+
         <span class="palette-group-label">Open reading frames (6-frame)</span>
         <div class="dna-controls">
           <label class="field-label" for="dna-orf-min">Min length (aa)</label>
@@ -525,6 +562,18 @@
         <div class="dna-controls">
           <input id="plot-xlabel" class="formula-input" type="text" placeholder="x-axis label" />
           <input id="plot-ylabel" class="formula-input" type="text" placeholder="y-axis label" />
+        </div>
+        <div class="dna-controls">
+          <label class="field-label" for="plot-xscale">x scale</label>
+          <select id="plot-xscale" class="lib-select" aria-label="x axis scale">
+            <option value="linear">Linear</option>
+            <option value="log">Log&#8321;&#8320;</option>
+          </select>
+          <label class="field-label" for="plot-yscale">y scale</label>
+          <select id="plot-yscale" class="lib-select" aria-label="y axis scale">
+            <option value="linear">Linear</option>
+            <option value="log">Log&#8321;&#8320;</option>
+          </select>
         </div>
         <div id="plot-preview" class="structure-preview" aria-live="polite"></div>
         <button id="plot-insert" class="insert-btn" type="button" disabled>Insert plot</button>

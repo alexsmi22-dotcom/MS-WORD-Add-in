@@ -11,7 +11,7 @@ import { figureScale, figurePoints } from "../lib/figures";
 import { latexToDsl, astToLatex } from "../lib/latex";
 import { formatQuantityHtml, convert, formatSig } from "../lib/units";
 import { RefKind, formatCaption, formatRef, formatEqRef, checkCaptions } from "../lib/refs";
-import { Series, Point, samplePlot, parseData, buildPlotSvg } from "../lib/plot";
+import { Series, Point, samplePlot, parseData, buildPlotSvg, dropForScales, type AxisScale } from "../lib/plot";
 import {
   fitMichaelisMenten,
   fitHill,
@@ -76,6 +76,7 @@ import { buildLinearMapSvg, featureTypes } from "../lib/seqmap";
 import { buildCircularMapSvg } from "../lib/seqmapcirc";
 import { parseSnapGeneDna, looksLikeDna } from "../lib/seqdna";
 import { ENZYMES, findSites, summarise, uniqueCutters, formatSite, methylationWarnings } from "../lib/enzymes";
+import { digest, describeDigest, gelBands } from "../lib/digest";
 import { nmrChartSvg, irChartSvg, msChartSvg, cosyChartSvg, hsqcChartSvg, SPECTRUM_CHART_SIZE, SPECTRUM_2D_SIZE } from "../lib/spectraChart";
 import { buildPeptide } from "../lib/peptide";
 import {
@@ -198,6 +199,7 @@ import {
   isTaFieldCode,
   isTableFieldCode,
   findPrecedingSecondarySource,
+  toaOccurrences,
 } from "../lib/toa";
 import {
   parseMatrix,
@@ -232,6 +234,12 @@ declare const __APP_VERSION__: string;
 
 import type { Mode } from "../lib/modes";
 import { toolIcon } from "./icons";
+import {
+  planParagraphNumbering,
+  describeParagraphPlan,
+  stripParagraphNumber,
+  type ParagraphPlan,
+} from "../lib/paragraphs";
 
 const STRUCTURE_W = 300;
 const STRUCTURE_H = 230;
@@ -445,6 +453,21 @@ let plotXmin: HTMLInputElement;
 let plotXmax: HTMLInputElement;
 let plotData: HTMLTextAreaElement;
 let plotTitle: HTMLInputElement;
+let plotXscale: HTMLSelectElement;
+let digestEnzymes: HTMLInputElement;
+let digestTopology: HTMLSelectElement;
+let digestRunBtn: HTMLButtonElement;
+let digestInsertBtn: HTMLButtonElement;
+let digestResults: HTMLElement;
+let currentDigestText = "";
+let paraStart: HTMLInputElement;
+let paraRenumber: HTMLInputElement;
+let paraPreviewBtn: HTMLButtonElement;
+let paraApplyBtn: HTMLButtonElement;
+let paraFindings: HTMLElement;
+/** The plan the user has previewed and may apply. Cleared on any change. */
+let currentParaPlan: ParagraphPlan | null = null;
+let plotYscale: HTMLSelectElement;
 let plotXlabel: HTMLInputElement;
 let plotYlabel: HTMLInputElement;
 let plotPreview: HTMLElement;
@@ -750,6 +773,18 @@ Office.onReady((info) => {
   plotData = document.getElementById("plot-data") as HTMLTextAreaElement;
   plotTitle = document.getElementById("plot-title") as HTMLInputElement;
   plotXlabel = document.getElementById("plot-xlabel") as HTMLInputElement;
+  plotXscale = document.getElementById("plot-xscale") as HTMLSelectElement;
+  digestEnzymes = document.getElementById("digest-enzymes") as HTMLInputElement;
+  digestTopology = document.getElementById("digest-topology") as HTMLSelectElement;
+  digestRunBtn = document.getElementById("digest-run-btn") as HTMLButtonElement;
+  digestInsertBtn = document.getElementById("digest-insert-btn") as HTMLButtonElement;
+  digestResults = document.getElementById("digest-results") as HTMLElement;
+  paraStart = document.getElementById("para-start") as HTMLInputElement;
+  paraRenumber = document.getElementById("para-renumber") as HTMLInputElement;
+  paraPreviewBtn = document.getElementById("para-preview-btn") as HTMLButtonElement;
+  paraApplyBtn = document.getElementById("para-apply-btn") as HTMLButtonElement;
+  paraFindings = document.getElementById("para-findings") as HTMLElement;
+  plotYscale = document.getElementById("plot-yscale") as HTMLSelectElement;
   plotYlabel = document.getElementById("plot-ylabel") as HTMLInputElement;
   plotPreview = document.getElementById("plot-preview") as HTMLElement;
   plotInsertBtn = document.getElementById("plot-insert") as HTMLButtonElement;
@@ -929,7 +964,24 @@ Office.onReady((info) => {
   for (const el of [plotFn, plotXmin, plotXmax, plotData, plotTitle, plotXlabel, plotYlabel]) {
     el.addEventListener("input", updatePlotPreview);
   }
+  // Selects get "change": "input" fires for them in Chromium but is not the
+  // event a <select> is specified to emit, and the pane also runs in WebView2.
+  for (const el of [plotXscale, plotYscale]) {
+    el.addEventListener("change", updatePlotPreview);
+  }
   plotInsertBtn.addEventListener("click", insertPlot);
+  digestRunBtn.addEventListener("click", runVirtualDigest);
+  digestInsertBtn.addEventListener("click", () => insertPlainText(currentDigestText, "Digest"));
+  paraPreviewBtn.addEventListener("click", previewParagraphNumbers);
+  paraApplyBtn.addEventListener("click", applyParagraphNumbers);
+  for (const el of [paraStart, paraRenumber]) {
+    // Any change invalidates a preview: applying a plan built from
+    // different settings would write numbers the user never saw.
+    el.addEventListener("input", () => {
+      currentParaPlan = null;
+      paraApplyBtn.disabled = true;
+    });
+  }
 
   populateFinanceCalcs();
   finCalcSelect.addEventListener("change", renderFinanceInputs);
@@ -3858,6 +3910,72 @@ function findRestrictionSites(): void {
   );
 }
 
+/** Cuts the sequence with the chosen enzymes and reports the fragments. */
+function runVirtualDigest(): void {
+  currentDigestText = "";
+  digestInsertBtn.disabled = true;
+  const { seq } = cleanDna(dnaInput.value);
+  if (!seq) {
+    digestResults.innerHTML = '<span class="hint">Enter a DNA sequence first.</span>';
+    return;
+  }
+
+  const wanted = digestEnzymes.value
+    .split(/[\s,;]+/)
+    .map((t) => t.trim())
+    .filter(Boolean);
+
+  // An enzyme the user asked for that this tool does not know is worth saying
+  // out loud: silently digesting with the OTHER enzymes would produce a
+  // plausible fragment list for a digest they did not request.
+  const known = new Set(ENZYMES.map((e) => e.name.toLowerCase()));
+  const unknown = wanted.filter((w) => !known.has(w.toLowerCase()));
+  const only = wanted
+    .filter((w) => known.has(w.toLowerCase()))
+    .map((w) => ENZYMES.find((e) => e.name.toLowerCase() === w.toLowerCase())!.name);
+
+  if (wanted.length && !only.length) {
+    digestResults.innerHTML = `<span class="hint">None of those enzymes are in the table (${esc(unknown.join(", "))}). Leave the box blank to use every enzyme that cuts.</span>`;
+    return;
+  }
+
+  const circular = digestTopology.value === "circular";
+  const hits = findSites(seq, { circular, ...(only.length ? { only } : {}) });
+  const result = digest(seq.length, hits, circular);
+  const bands = gelBands(result.sizes);
+
+  const cell = 'style="border:1px solid #000;padding:2px 8px;"';
+  const rows = result.fragments
+    .map((f, i) => {
+      const ends = `${f.leftEnzyme ?? "end"} / ${f.rightEnzyme ?? "end"}`;
+      const span = f.spansOrigin ? `${f.start}\u2013${f.end} (through origin)` : `${f.start}\u2013${f.end}`;
+      return `<tr><td ${cell}>${i + 1}</td><td ${cell}>${f.length}</td><td ${cell}>${esc(span)}</td><td ${cell}>${esc(ends)}</td></tr>`;
+    })
+    .join("");
+
+  const text = describeDigest(result);
+  digestResults.innerHTML =
+    (result.uncut
+      ? `<span class="hint">${esc(text)}</span>`
+      : '<table style="border-collapse:collapse;"><tr>' +
+        `<td ${cell}><strong>#</strong></td><td ${cell}><strong>bp</strong></td><td ${cell}><strong>Span</strong></td><td ${cell}><strong>Ends</strong></td></tr>` +
+        rows +
+        "</table>" +
+        `<div class="hint" style="margin-top:6px">${esc(text.split("\n").slice(1).join(" \u00b7 "))}</div>`) +
+    (unknown.length
+      ? `<div class="hint" style="margin-top:4px">\u26a0 Not in the enzyme table, so not used: ${esc(unknown.join(", "))}.</div>`
+      : "");
+
+  currentDigestText = text;
+  digestInsertBtn.disabled = result.uncut;
+  setStatus(
+    result.uncut
+      ? "Not cut by those enzymes."
+      : `${result.fragments.length} fragment${result.fragments.length === 1 ? "" : "s"}, ${bands.length} band${bands.length === 1 ? "" : "s"} on a gel.`,
+    result.uncut ? "error" : "success",
+  );
+}
+
 /** Inserts a plain-text result at the cursor. Shared by ~14 tools, not just DNA. */
 // Re-entrancy guard shared by every text-insert button (MS, Stats, Assay, DNA,
 // Finance…): a fast double-click would otherwise queue two insertions of the
@@ -4385,14 +4503,112 @@ function updatePlotPreview(): void {
     plotPreview.innerHTML = '<span class="hint">Enter a function (e.g. sin(x)/x) or data points to plot.</span>';
     return;
   }
-  const svg = buildPlotSvg(series, {
+  const opts = {
     title: plotTitle.value.trim(),
     xlabel: plotXlabel.value.trim(),
     ylabel: plotYlabel.value.trim(),
-  });
-  plotPreview.innerHTML = warning ? `${svg}<div class="hint" style="margin-top:4px">${esc(warning)}</div>` : svg;
+    xScale: plotXscale.value as AxisScale,
+    yScale: plotYscale.value as AxisScale,
+  };
+
+  // A log axis cannot show zero or negative values, so it DISCARDS points. Say
+  // how many and on which axis: a titration series with a zero-concentration
+  // control silently losing a point, on a chart that still looks complete, is
+  // exactly the kind of quiet wrong this product refuses to ship.
+  const filtered = dropForScales(series, opts);
+  const notes: string[] = [];
+  if (warning) notes.push(warning);
+  if (filtered.dropped > 0) {
+    const axes = filtered.axes.join(" and ");
+    notes.push(
+      `\u26a0 ${filtered.dropped} point${filtered.dropped === 1 ? "" : "s"} not plotted: ` +
+        `a logarithmic ${axes} axis cannot show zero or negative values.`,
+    );
+  }
+  if (!filtered.series.some((sr) => sr.points.length)) {
+    plotPreview.innerHTML =
+      '<span class="hint">Nothing left to plot — every point is zero or negative, ' +
+      "which a logarithmic axis cannot show. Switch the axis back to linear.</span>";
+    return;
+  }
+
+  const svg = buildPlotSvg(filtered.series, opts);
+  plotPreview.innerHTML = notes.length
+    ? `${svg}<div class="hint" style="margin-top:4px">${esc(notes.join(" "))}</div>`
+    : svg;
   currentPlotSvg = svg;
   plotInsertBtn.disabled = false;
+}
+
+/** Reads the document's paragraphs and shows what numbering would do. */
+async function previewParagraphNumbers(): Promise<void> {
+  currentParaPlan = null;
+  paraApplyBtn.disabled = true;
+  paraFindings.textContent = "Reading the document…";
+  try {
+    await Word.run(async (context) => {
+      const paras = context.document.body.paragraphs;
+      paras.load("items/text");
+      await context.sync();
+      const texts = paras.items.map((p) => p.text);
+      const plan = planParagraphNumbering(texts, {
+        start: Number(paraStart.value) || 1,
+        renumber: paraRenumber.checked,
+      });
+      paraFindings.textContent = describeParagraphPlan(plan);
+      // A collision would put two identical numbers in a filed specification.
+      // Refuse to apply rather than letting the user click past the warning.
+      if (plan.collisions.length) {
+        paraApplyBtn.disabled = true;
+        currentParaPlan = null;
+      } else if (plan.numbered > 0) {
+        currentParaPlan = plan;
+        paraApplyBtn.disabled = false;
+      }
+    });
+  } catch (e) {
+    // Deliberately not Word's raw exception text: it is not actionable, and
+    // leaking it is a defect the evaluation already logged elsewhere.
+    paraFindings.textContent =
+      "Could not read the document. Make sure a document is open and try again.";
+    console.error("paragraph numbering preview failed", e);
+  }
+}
+
+/** Writes the previewed marks into the document. */
+async function applyParagraphNumbers(): Promise<void> {
+  const plan = currentParaPlan;
+  if (!plan) return;
+  paraApplyBtn.disabled = true;
+  paraFindings.textContent = "Numbering…";
+  try {
+    await Word.run(async (context) => {
+      const paras = context.document.body.paragraphs;
+      paras.load("items/text");
+      await context.sync();
+
+      for (const item of plan.items) {
+        if (!item.mark) continue;
+        const p = paras.items[item.index];
+        if (!p) continue;
+        if (item.removeExisting) {
+          // Renumbering: rewrite the paragraph without its old mark rather than
+          // stacking a second one in front of it.
+          p.insertText(item.mark + " " + stripParagraphNumber(p.text), Word.InsertLocation.replace);
+        } else {
+          p.insertText(item.mark + " ", Word.InsertLocation.start);
+        }
+      }
+      await context.sync();
+      paraFindings.textContent = `Numbered ${plan.numbered} paragraph${plan.numbered === 1 ? "" : "s"}. Undo (Ctrl+Z) reverses it.`;
+    });
+  } catch (e) {
+    paraFindings.textContent =
+      "Could not number the document. Nothing was changed — press Ctrl+Z if anything looks off, and try again.";
+    console.error("paragraph numbering failed", e);
+  } finally {
+    currentParaPlan = null;
+  }
 }
 
 /** Rasterizes the plot and inserts it as an inline picture. */
@@ -7963,18 +8179,46 @@ async function buildNativeToaHandler(): Promise<void> {
       // table shows the full page range (Word aggregates pages by the \l text).
       let authoritiesMarked = 0;
       let occurrences = 0;
+      let unattributed = 0;
       const categoryNums = new Set<number>();
-      for (const mark of marks) {
-        const results = body.search(mark.locator, { matchCase: false });
+
+      // Full forms AND short forms AND Id. — resolved against the document text
+      // by offset, which is the only way "Id. at 79" can be attributed at all.
+      const occ = toaOccurrences(body.text, marks);
+
+      // Word searches by STRING, so an occurrence text that means different
+      // authorities in different places cannot be marked: one search would
+      // stamp every hit with one authority and put pages under the wrong case.
+      // Those are counted and declared instead of guessed.
+      const byText = new Map<string, Set<number>>();
+      for (const o of occ) {
+        const set = byText.get(o.text) ?? new Set<number>();
+        set.add(o.markIndex);
+        byText.set(o.text, set);
+      }
+
+      const markedAuthorities = new Set<number>();
+      for (const [needle, owners] of byText) {
+        if (owners.size !== 1) {
+          unattributed += occ.filter((o) => o.text === needle).length;
+          continue;
+        }
+        const markIndex = [...owners][0];
+        const mark = marks[markIndex];
+        // Word's search has a 255-character limit and chokes on some wildcards;
+        // a citation is far shorter, but guard rather than throw mid-pass.
+        if (!needle || needle.length > 240) continue;
+        const results = body.search(needle, { matchCase: false });
         results.load("items");
         await context.sync();
         if (!results.items.length) continue;
         const ooxml = taFieldOoxml(mark.name, mark.rest, mark.categoryNum);
         for (const hit of results.items) hit.insertOoxml(ooxml, Word.InsertLocation.before);
         categoryNums.add(mark.categoryNum);
-        authoritiesMarked++;
+        markedAuthorities.add(markIndex);
         occurrences += results.items.length;
       }
+      authoritiesMarked = markedAuthorities.size;
       await context.sync();
       // Insert the TOA fields (one per marked category) at the cursor, wrapped in
       // a tagged content control so the "formatted list" button can find this
@@ -7994,7 +8238,15 @@ async function buildNativeToaHandler(): Promise<void> {
       await setTableStylesToTimesNewRoman(context, ["Table of Authorities"]);
       toaMsg.textContent =
         `Marked ${authoritiesMarked} of ${marks.length} authorit${marks.length === 1 ? "y" : "ies"} ` +
-        `(${occurrences} citation${occurrences === 1 ? "" : "s"}). ` +
+        `(${occurrences} citation${occurrences === 1 ? "" : "s"}, including short forms). ` +
+        // Say what was NOT marked. An "Id." that means different cases in
+        // different places cannot be marked by a string search without
+        // attaching pages to the wrong authority, so those are left out — and a
+        // page list that is short by a known amount beats one that is silently
+        // wrong. The user can convert those to a short form and re-run.
+        (unattributed > 0
+          ? `${unattributed} short reference${unattributed === 1 ? "" : "s"} (e.g. “Id.”) could not be tied to one authority and ${unattributed === 1 ? "was" : "were"} left unmarked — check those pages by hand. `
+          : "") +
         "Now: select all (Ctrl/⌘+A), press F9 to fill page numbers, then click “Insert formatted list”.";
       setStatus("Field table inserted — press F9, then click “Insert formatted list”.", "success");
     });

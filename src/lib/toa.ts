@@ -735,3 +735,139 @@ export function tocFieldOoxml(levels = 3): string {
   const field = `<w:p><w:pPr><w:rPr>${RPR_BASE}</w:rPr></w:pPr>${FLD_BEGIN}${instr}${FLD_SEP}${placeholder}${FLD_END}</w:p>`;
   return wrapOoxml(title + field);
 }
+
+// --- short forms -------------------------------------------------------------
+//
+// WHY THIS EXISTS
+// The native TOA marked only FULL-form citations, because it searched the
+// document for each authority's full core cite. So a brief citing Alice in full
+// on page 4, then as "Alice, 573 U.S. at 216" on 9, 11 and 14, and as "Id. at
+// 217" on 15, produced a table listing page 4 alone.
+//
+// That table LOOKS finished. Under most local rules an incomplete page list is a
+// defective TOA, and this is the single job Best Authority is bought for.
+
+/**
+ * The party name a short-form cite would use.
+ *
+ * Bluebook Rule 10.9 uses one party, normally the first — but not when the first
+ * would not distinguish the case, which is why "United States v. Alvarez"
+ * shortens to "Alvarez" and never to "United States".
+ */
+export function caseShortName(name: string): string | null {
+  const parts = name.split(/\s+v\.?\s+/i);
+  if (parts.length < 2) return null;
+  const strip = (p: string): string =>
+    p
+      .replace(
+        /,?\s*(Inc\.|LLC|L\.L\.C\.|Ltd\.|Corp\.|Co\.|Corporation|Company|Ass'n|Assoc\.|N\.A\.|P\.C\.|LLP)\.?$/gi,
+        "",
+      )
+      .replace(/[,.]$/, "")
+      .trim();
+
+  // Parties too common to identify a case on their own.
+  const GENERIC =
+    /^(united states( of america)?|u\.s\.|state|people|commissioner|comm'r|secretary|sec'y|director|dir\.)$/i;
+  const first = strip(parts[0]);
+  const second = strip(parts[1]);
+  const pick = GENERIC.test(first) && second ? second : first;
+  if (!pick) return null;
+  // The distinctive leading word, which is what briefs actually write.
+  const word = pick.split(/\s+/)[0].replace(/[^\w'’-]/g, "");
+  return word.length >= 2 ? word : null;
+}
+
+export interface ToaOccurrence {
+  /** Character offset in the source text. */
+  index: number;
+  /** The exact substring to mark. */
+  text: string;
+  /** Index into the `marks` array this occurrence belongs to. */
+  markIndex: number;
+  kind: "full" | "short" | "id";
+}
+
+function escapeRe(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Every place each authority is cited — full form, short form and `Id.`
+ *
+ * `Id.` is resolved POSITIONALLY: it refers to the authority of the immediately
+ * preceding citation, so the list is built in document order and each `Id.`
+ * inherits from the occurrence before it. An `Id.` with nothing before it is
+ * DROPPED rather than guessed at — putting a page under the wrong case is worse
+ * than omitting it.
+ */
+export function toaOccurrences(text: string, marks: ToaMark[]): ToaOccurrence[] {
+  const found: ToaOccurrence[] = [];
+
+  marks.forEach((mark, markIndex) => {
+    // Full form: every occurrence of the core cite, not merely the first.
+    if (mark.locator) {
+      const re = new RegExp(escapeRe(mark.locator), "g");
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(text)) !== null) {
+        found.push({ index: m.index, text: m[0], markIndex, kind: "full" });
+      }
+    }
+
+    // Short form: "Alice, 573 U.S. at 216".
+    const short = caseShortName(mark.name);
+    const lm = /^(\d+)\s+(.+?)\s+(\d+)$/.exec(mark.locator || "");
+    if (short && lm) {
+      const vol = lm[1];
+      const reporter = lm[2];
+      const re = new RegExp(
+        "\\b" +
+          escapeRe(short) +
+          "[^,\\n]{0,40}?,\\s*" +
+          escapeRe(vol) +
+          "\\s+" +
+          escapeRe(reporter) +
+          "\\s+at\\s+\\d+(?:[-\\u2013]\\d+)?",
+        "g",
+      );
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(text)) !== null) {
+        found.push({ index: m.index, text: m[0], markIndex, kind: "short" });
+      }
+    }
+  });
+
+  // Drop an occurrence contained inside another: a short cite's reporter span
+  // can sit inside a longer full-form match.
+  found.sort((a, b) => a.index - b.index || b.text.length - a.text.length);
+  const kept: ToaOccurrence[] = [];
+  for (const o of found) {
+    const last = kept[kept.length - 1];
+    if (last && o.index < last.index + last.text.length) continue;
+    kept.push(o);
+  }
+
+  const idRe = /\bId\.(?:\s+at\s+\d+(?:[-–]\d+)?)?/g;
+  const ids: Array<{ index: number; text: string }> = [];
+  let im: RegExpExecArray | null;
+  while ((im = idRe.exec(text)) !== null) ids.push({ index: im.index, text: im[0] });
+
+  const all: ToaOccurrence[] = [
+    ...kept,
+    ...ids.map((i) => ({ index: i.index, text: i.text, markIndex: -1, kind: "id" as const })),
+  ];
+  all.sort((a, b) => a.index - b.index);
+
+  let lastMark = -1;
+  const out: ToaOccurrence[] = [];
+  for (const o of all) {
+    if (o.kind === "id") {
+      if (lastMark === -1) continue; // no antecedent — omit rather than guess
+      out.push({ ...o, markIndex: lastMark });
+    } else {
+      lastMark = o.markIndex;
+      out.push(o);
+    }
+  }
+  return out;
+}

@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v1.98.0)
+# JurisLab — Manual Test Script (v1.99.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -10,7 +10,7 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
 
-## 0a. What changed in v1.97-1.98 — check this first
+## 0a. What changed in v1.97-1.99 — check this first
 
 The pane was restyled to match the landing page. Nothing about what the tools
 COMPUTE changed, so this section is about appearance and reach.
@@ -30,6 +30,21 @@ COMPUTE changed, so this section is about appearance and reach.
   the right edge. Check **Align** in particular: its mode dropdown used to run
   ~21px past the edge at the narrowest width, where it could not be clicked.
   (Now gated by `npm run check:pane`, but only a human can confirm in Word.)
+
+**New capabilities in v1.99.0 — worth a pass each.**
+- [ ] **Plot → x/y scale = Log₁₀.** Enter data spanning decades including a zero
+  (e.g. `0 5`, `1 12`, `10 30`, `100 61`). The zero must be dropped WITH a
+  warning saying so, and the decades must be evenly spaced.
+- [ ] **Stats → t-test.** The result line now carries Cohen's *d* and a 95% CI on
+  the difference. A paired test must say `d_z`, not `d`.
+- [ ] **Numerals → USPTO paragraph numbers.** On a spec with headings, press
+  Preview: headings, blank paragraphs and the claims must be excluded from the
+  count. Then Apply, and confirm Ctrl+Z reverses it.
+- [ ] **DNA → Virtual digest.** Same sequence as Linear then Circular: circular
+  must give exactly ONE fewer fragment, and one fragment marked "through origin".
+- [ ] **Citations → native TOA.** In a brief using short forms (`Alice, 573 U.S.
+  at 217`), the page list must now include those pages, not just the full cite.
+  The message says how many `Id.` references it declined to attribute.
 
 **Clearing a stale ribbon icon.** Quit Word fully, then delete the Office add-in
 cache and reopen:

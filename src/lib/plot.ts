@@ -188,12 +188,105 @@ export interface Series {
   label?: string;
 }
 
+export type AxisScale = "linear" | "log";
+
 export interface PlotOptions {
   width?: number;
   height?: number;
   title?: string;
   xlabel?: string;
   ylabel?: string;
+  /**
+   * Axis scales. "log" is base 10, matching the `log` function in every
+   * evaluator and the log10[concentration] convention dose-response is defined
+   * on. A log axis cannot show zero or negative values — see dropForScales.
+   */
+  xScale?: AxisScale;
+  yScale?: AxisScale;
+}
+
+/** What a log axis had to discard, so the caller can say so. */
+export interface ScaleFilterResult {
+  series: Series[];
+  /** Points removed because an axis is logarithmic and the value was <= 0. */
+  dropped: number;
+  /** Which axis or axes caused it, for the message. */
+  axes: string[];
+}
+
+/**
+ * Removes points a logarithmic axis cannot represent.
+ *
+ * log10 is undefined at 0 and for negatives, so a log axis necessarily discards
+ * those points. Callers MUST surface `dropped`: quietly plotting 7 of 10 points
+ * and labelling the axis "log" is a graph that lies, and a titration series
+ * containing a zero-concentration control hits this on the first try.
+ *
+ * Error bars are clipped too — a bar reaching below zero cannot be drawn on a
+ * log axis, so its lower end is brought up rather than the point being lost.
+ */
+export function dropForScales(series: Series[], options: PlotOptions = {}): ScaleFilterResult {
+  const logX = options.xScale === "log";
+  const logY = options.yScale === "log";
+  if (!logX && !logY) return { series, dropped: 0, axes: [] };
+
+  let dropped = 0;
+  const axes = new Set<string>();
+  const out = series.map((s) => ({
+    ...s,
+    points: s.points.filter((p) => {
+      const badX = logX && !(p.x > 0);
+      const badY = logY && !(p.y > 0);
+      if (badX) axes.add("x");
+      if (badY) axes.add("y");
+      if (badX || badY) {
+        dropped++;
+        return false;
+      }
+      return true;
+    }),
+  }));
+  return { series: out, dropped, axes: [...axes] };
+}
+
+/**
+ * Decade ticks for a log axis, with minor ticks at 2-9 inside each decade.
+ *
+ * The minor ticks are what make a log plot readable — without them a reader
+ * cannot tell 2x10^3 from 5x10^3 by eye. They are returned separately because
+ * they get a gridline but no label.
+ */
+export function logTicks(lo: number, hi: number): { major: number[]; minor: number[] } {
+  const major: number[] = [];
+  const minor: number[] = [];
+  const first = Math.floor(lo);
+  const last = Math.ceil(hi);
+  // A guard against a pathological domain producing thousands of ticks.
+  if (!Number.isFinite(first) || !Number.isFinite(last) || last - first > 40) {
+    return { major: [], minor: [] };
+  }
+  for (let d = first; d <= last; d++) {
+    const decade = Math.pow(10, d);
+    if (d >= lo - 1e-9 && d <= hi + 1e-9) major.push(decade);
+    // Only worth drawing minor ticks when the span is small enough to see them.
+    if (last - first <= 6) {
+      for (let m = 2; m <= 9; m++) {
+        const v = Math.log10(m * decade);
+        if (v >= lo && v <= hi) minor.push(m * decade);
+      }
+    }
+  }
+  return { major, minor };
+}
+
+/** Axis label for a decade: 10^n, or the plain number when it reads better. */
+export function fmtLogTick(v: number): string {
+  const e = Math.round(Math.log10(v));
+  if (e >= -3 && e <= 4) return fmtTick(v);
+  const sup = String(e)
+    .replace(/-/g, "\u207b")
+    .replace(/[0-9]/g, (d) => "\u2070\u00b9\u00b2\u00b3\u2074\u2075\u2076\u2077\u2078\u2079"[Number(d)]);
+  return "10" + sup;
 }
 
 export function niceStep(range: number, target: number): number {
@@ -231,10 +324,27 @@ export function buildPlotSvg(series: Series[], options: PlotOptions = {}): strin
     return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><rect width="${W}" height="${H}" fill="#fff"/><text x="${W / 2}" y="${H / 2}" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#999">No data to plot</text></svg>`;
   }
 
-  let xmin = Math.min(...all.map((p) => p.x));
-  let xmax = Math.max(...all.map((p) => p.x));
-  let ymin = Math.min(...all.map((p) => p.y - (p.err ?? 0)));
-  let ymax = Math.max(...all.map((p) => p.y + (p.err ?? 0)));
+  // Everything below works in TRANSFORMED space: on a log axis the domain, the
+  // padding and the tick placement are all computed on log10 values, which is
+  // what makes a decade occupy equal width. Only tick LABELS return to data
+  // space.
+  const logX = options.xScale === "log";
+  const logY = options.yScale === "log";
+  const tx = (x: number): number => (logX ? Math.log10(x) : x);
+  const ty = (y: number): number => (logY ? Math.log10(y) : y);
+
+  let xmin = Math.min(...all.map((p) => tx(p.x)));
+  let xmax = Math.max(...all.map((p) => tx(p.x)));
+  // On a log y axis an error bar may reach to or below zero, where log is
+  // undefined; clamp its lower end into the domain instead of dropping a point
+  // that is itself perfectly plottable.
+  const lowY = (p: Point): number => {
+    const raw = p.y - (p.err ?? 0);
+    if (!logY) return raw;
+    return ty(raw > 0 ? raw : p.y);
+  };
+  let ymin = Math.min(...all.map(lowY));
+  let ymax = Math.max(...all.map((p) => ty(p.y + (p.err ?? 0))));
   if (xmin === xmax) {
     xmin -= 1;
     xmax += 1;
@@ -247,27 +357,55 @@ export function buildPlotSvg(series: Series[], options: PlotOptions = {}): strin
   ymin -= ypad;
   ymax += ypad;
 
-  const sx = (x: number): number => ml + ((x - xmin) / (xmax - xmin)) * pw;
-  const sy = (y: number): number => mt + ph - ((y - ymin) / (ymax - ymin)) * ph;
+  const sx = (x: number): number => ml + ((tx(x) - xmin) / (xmax - xmin)) * pw;
+  const sy = (y: number): number => mt + ph - ((ty(y) - ymin) / (ymax - ymin)) * ph;
 
   const parts: string[] = [`<rect width="${W}" height="${H}" fill="#fff"/>`];
   // Plot frame.
   parts.push(`<rect x="${ml}" y="${mt}" width="${pw}" height="${ph}" fill="none" stroke="#888" stroke-width="1"/>`);
 
   // Ticks + gridlines.
-  const xstep = niceStep(xmax - xmin, 6);
-  for (let t = Math.ceil(xmin / xstep) * xstep; t <= xmax + 1e-9; t += xstep) {
-    const px = sx(t);
-    parts.push(`<line x1="${px.toFixed(1)}" y1="${mt}" x2="${px.toFixed(1)}" y2="${mt + ph}" stroke="#eee"/>`);
-    parts.push(`<line x1="${px.toFixed(1)}" y1="${mt + ph}" x2="${px.toFixed(1)}" y2="${mt + ph + 4}" stroke="#888"/>`);
-    parts.push(`<text x="${px.toFixed(1)}" y="${mt + ph + 16}" text-anchor="middle" font-family="sans-serif" font-size="10" fill="#333">${fmtTick(t)}</text>`);
+  if (logX) {
+    const { major, minor } = logTicks(xmin, xmax);
+    for (const v of minor) {
+      const px = sx(v);
+      parts.push(`<line x1="${px.toFixed(1)}" y1="${mt}" x2="${px.toFixed(1)}" y2="${mt + ph}" stroke="#f5f5f5"/>`);
+    }
+    for (const v of major) {
+      const px = sx(v);
+      parts.push(`<line x1="${px.toFixed(1)}" y1="${mt}" x2="${px.toFixed(1)}" y2="${mt + ph}" stroke="#eee"/>`);
+      parts.push(`<line x1="${px.toFixed(1)}" y1="${mt + ph}" x2="${px.toFixed(1)}" y2="${mt + ph + 4}" stroke="#888"/>`);
+      parts.push(`<text x="${px.toFixed(1)}" y="${mt + ph + 16}" text-anchor="middle" font-family="sans-serif" font-size="10" fill="#333">${fmtLogTick(v)}</text>`);
+    }
+  } else {
+    const xstep = niceStep(xmax - xmin, 6);
+    for (let t = Math.ceil(xmin / xstep) * xstep; t <= xmax + 1e-9; t += xstep) {
+      const px = sx(t);
+      parts.push(`<line x1="${px.toFixed(1)}" y1="${mt}" x2="${px.toFixed(1)}" y2="${mt + ph}" stroke="#eee"/>`);
+      parts.push(`<line x1="${px.toFixed(1)}" y1="${mt + ph}" x2="${px.toFixed(1)}" y2="${mt + ph + 4}" stroke="#888"/>`);
+      parts.push(`<text x="${px.toFixed(1)}" y="${mt + ph + 16}" text-anchor="middle" font-family="sans-serif" font-size="10" fill="#333">${fmtTick(t)}</text>`);
+    }
   }
-  const ystep = niceStep(ymax - ymin, 5);
-  for (let t = Math.ceil(ymin / ystep) * ystep; t <= ymax + 1e-9; t += ystep) {
-    const py = sy(t);
-    parts.push(`<line x1="${ml}" y1="${py.toFixed(1)}" x2="${ml + pw}" y2="${py.toFixed(1)}" stroke="#eee"/>`);
-    parts.push(`<line x1="${ml - 4}" y1="${py.toFixed(1)}" x2="${ml}" y2="${py.toFixed(1)}" stroke="#888"/>`);
-    parts.push(`<text x="${ml - 7}" y="${(py + 3).toFixed(1)}" text-anchor="end" font-family="sans-serif" font-size="10" fill="#333">${fmtTick(t)}</text>`);
+  if (logY) {
+    const { major, minor } = logTicks(ymin, ymax);
+    for (const v of minor) {
+      const py = sy(v);
+      parts.push(`<line x1="${ml}" y1="${py.toFixed(1)}" x2="${ml + pw}" y2="${py.toFixed(1)}" stroke="#f5f5f5"/>`);
+    }
+    for (const v of major) {
+      const py = sy(v);
+      parts.push(`<line x1="${ml}" y1="${py.toFixed(1)}" x2="${ml + pw}" y2="${py.toFixed(1)}" stroke="#eee"/>`);
+      parts.push(`<line x1="${ml - 4}" y1="${py.toFixed(1)}" x2="${ml}" y2="${py.toFixed(1)}" stroke="#888"/>`);
+      parts.push(`<text x="${ml - 7}" y="${(py + 3).toFixed(1)}" text-anchor="end" font-family="sans-serif" font-size="10" fill="#333">${fmtLogTick(v)}</text>`);
+    }
+  } else {
+    const ystep = niceStep(ymax - ymin, 5);
+    for (let t = Math.ceil(ymin / ystep) * ystep; t <= ymax + 1e-9; t += ystep) {
+      const py = sy(t);
+      parts.push(`<line x1="${ml}" y1="${py.toFixed(1)}" x2="${ml + pw}" y2="${py.toFixed(1)}" stroke="#eee"/>`);
+      parts.push(`<line x1="${ml - 4}" y1="${py.toFixed(1)}" x2="${ml}" y2="${py.toFixed(1)}" stroke="#888"/>`);
+      parts.push(`<text x="${ml - 7}" y="${(py + 3).toFixed(1)}" text-anchor="end" font-family="sans-serif" font-size="10" fill="#333">${fmtTick(t)}</text>`);
+    }
   }
 
   // Series.
@@ -282,7 +420,10 @@ export function buildPlotSvg(series: Series[], options: PlotOptions = {}): strin
     } else {
       for (const p of pts) {
         if (p.err) {
-          parts.push(`<line x1="${sx(p.x).toFixed(1)}" y1="${sy(p.y - p.err).toFixed(1)}" x2="${sx(p.x).toFixed(1)}" y2="${sy(p.y + p.err).toFixed(1)}" stroke="${color}" stroke-width="1"/>`);
+          // On a log axis, y - err can be <= 0 where log is undefined; the bar
+          // is drawn from the point itself rather than off the chart.
+          const lo = logY && !(p.y - p.err > 0) ? p.y : p.y - p.err;
+          parts.push(`<line x1="${sx(p.x).toFixed(1)}" y1="${sy(lo).toFixed(1)}" x2="${sx(p.x).toFixed(1)}" y2="${sy(p.y + p.err).toFixed(1)}" stroke="${color}" stroke-width="1"/>`);
         }
         parts.push(`<circle cx="${sx(p.x).toFixed(1)}" cy="${sy(p.y).toFixed(1)}" r="2.6" fill="${color}"/>`);
       }

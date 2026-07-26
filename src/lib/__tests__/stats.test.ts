@@ -88,7 +88,11 @@ describe("reporting", () => {
   it("APA p-value and t formatting", () => {
     expect(formatP(0.027)).toBe("p = .027");
     expect(formatP(0.0004)).toBe("p < .001");
-    expect(reportT({ t: 2.41, df: 18, p: 0.027, meanDifference: 1 })).toBe("t(18) = 2.41, p = .027");
+    // The APA head is unchanged; v1.99.0 appends the effect size and the
+    // interval on the difference, which journals now require alongside p.
+    expect(
+      reportT({ t: 2.41, df: 18, p: 0.027, meanDifference: 1, d: 0.8, dKind: "cohen", ci95: [0.2, 1.8] }),
+    ).toBe("t(18) = 2.41, p = .027, d = 0.80, 95% CI [0.200, 1.800]");
   });
 
   it("formatP shows n/a (not 'p = NaN') for a non-finite p-value", () => {

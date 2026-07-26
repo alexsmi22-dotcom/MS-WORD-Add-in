@@ -1,6 +1,6 @@
 # JurisLab — Product Roadmap
 
-_Last updated: 2026-07-26 · Current release: **v1.98.0** (production)_
+_Last updated: 2026-07-26 · Current release: **v1.99.0** (production)_
 
 > The release number above is gated by `phase6.adversarial.test.ts` against
 > `package.json`. If they disagree, the suite fails — this file drifted five
@@ -143,5 +143,32 @@ import, restriction-enzyme digestion (Type IIS, both-strand), pairwise Align, an
 nearest-neighbour primer Tm — and a sustained **correctness-hardening sweep** (punch-list
 audits fixing real numerical/biological bugs the unit tests missed).
 
+**v1.99.0 closed the five capability gaps from the 2026-07-26 evaluation:**
+- **Logarithmic axes** (Plot) — base-10 x and/or y, decade ticks with minor
+  gridlines. Dose-response is defined on log₁₀[concentration], so an EC50 could
+  be fitted but never drawn. A log axis discards zero and negative values, and
+  says how many and on which axis rather than plotting a subset silently.
+- **Effect sizes and confidence intervals** (Stats) — Cohen's *d* on the pooled
+  SD for two-sample tests, *d_z* for paired (labelled separately, because they
+  are not comparable), and a 95% CI on the mean difference. Journals require
+  these; *p* alone confounds effect size with sample size.
+- **USPTO paragraph numbering** (Numerals) — `[0001]` marks through the
+  specification, skipping headings, blank paragraphs and the claims. Previews
+  before it writes, and refuses to run when it would create duplicate numbers.
+- **Virtual digest** (DNA) — fragment sizes, spans, ends, and the bands a gel
+  would actually resolve. `cutPosition`/`overhangLength` had been computed and
+  consumed nowhere. Circular topology is handled correctly: n cuts give n
+  fragments, not n+1.
+- **TOA short forms** (Citations) — `Alice, 573 U.S. at 217` and `Id. at 223` are
+  now marked, so the page list is no longer just the full-form page. Occurrence
+  texts that mean different authorities in different places are left unmarked
+  and declared, because Word searches by string and a mis-attributed page is
+  worse than a missing one.
+
 **Genuinely open candidates:** deeper BVP/PDE/DAE
 support on the ODE side (out of scope today — state honestly). Confirm priority before building.
+Also open from the evaluation: assumption diagnostics (normality, variance
+homogeneity, Q-Q), nonparametric coverage past two groups (Kruskal-Wallis,
+Friedman, Dunn), multiple/polynomial regression, survival analysis, dark-mode
+and Office theme support, and the four near-identical calculator registries
+(~1,935 lines) that want consolidating.

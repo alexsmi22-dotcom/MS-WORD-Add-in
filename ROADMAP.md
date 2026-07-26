@@ -1,6 +1,6 @@
 # JurisLab — Product Roadmap
 
-_Last updated: 2026-07-26 · Current release: **v1.94.0** (production)_
+_Last updated: 2026-07-26 · Current release: **v1.95.0** (production)_
 
 > The release number above is gated by `phase6.adversarial.test.ts` against
 > `package.json`. If they disagree, the suite fails — this file drifted five
@@ -49,7 +49,7 @@ an assay, a survey, or an instrument dump and writing it up does not.
 
 ---
 
-## Where we are (v1.94.0)
+## Where we are (v1.95.0)
 
 The analytical **quantitation** engine is genuinely strong and honest about its limits:
 

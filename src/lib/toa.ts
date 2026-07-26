@@ -113,6 +113,18 @@ const RULE_RE = /\bFed\.\s+R\.\s+(Civ|App|Evid|Crim|Bankr)\.\s+P\.\s+(\d+)(?:\([
 // in a federal civil brief is treated as Fed. R. Civ. P.
 const HAS_FRCP_RE = /\bFed\.\s+R\.\s+Civ\.\s+P\./;
 const BARE_RULE_RE = /\bRules?\s+(\d+)(?:\([\w)(]+\))?/g;
+/**
+ * Words that, immediately before "Rule", mean it is NOT a Federal Rule of Civil
+ * Procedure: a local rule, a patent local rule, a bankruptcy rule and so on.
+ */
+const RULE_QUALIFIER_RE =
+  /(?:\b(?:local|patent|civil|criminal|bankruptcy|appellate|evidence)|[snew]\.\s?d\.|l\.\s?r\.)\s*$/i;
+/**
+ * USPTO practice rules, always written "Rule 131" / "Rule 132" and never FRCP.
+ * 37 C.F.R. 1.131 (swear-behind) and 1.132 (declaration) are the two a patent
+ * attorney types most often, which is exactly why this mattered here.
+ */
+const USPTO_PRACTICE_RULES = new Set([130, 131, 132]);
 
 /** Trims a trailing sentence period from a captured section number. */
 function trimSection(s: string): string {
@@ -194,10 +206,17 @@ function collect(text: string): Raw[] {
     out.push(caseRaw(m[1], `${m[2]} ${m[3]} ${m[4]}`, m[5]));
   }
 
-  const pushPlain = (re: RegExp, category: ToaCategory, build: (mm: RegExpExecArray) => { text: string; sortKey: string }): void => {
+  const pushPlain = (
+    re: RegExp,
+    category: ToaCategory,
+    build: (mm: RegExpExecArray) => { text: string; sortKey: string },
+    /** Optional filter: return false to skip a match that only LOOKS like a hit. */
+    accept?: (mm: RegExpExecArray) => boolean,
+  ): void => {
     re.lastIndex = 0;
     let mm: RegExpExecArray | null;
     while ((mm = re.exec(text))) {
+      if (accept && !accept(mm)) continue;
       const { text: t, sortKey } = build(mm);
       out.push({ category, sortKey, name: "", rest: t, plain: t, html: esc(t), locator: t, dedupe: `${category}|${t.toLowerCase()}` });
     }
@@ -235,7 +254,20 @@ function collect(text: string): Raw[] {
   // Bare "Rule 12(b)(7)" — trusted only in a document that also uses the
   // qualified Fed. R. Civ. P. form; then treated as a civil rule.
   if (HAS_FRCP_RE.test(text)) {
-    pushPlain(BARE_RULE_RE, "rules", (mm) => ruleText("Civ", mm[1]));
+    // A bare rule number is a civil rule only when nothing in front of it says
+    // otherwise. Without these guards a patent brief produced entries for rules
+    // the drafter never cited: "a Rule 132 declaration" became
+    // "Fed. R. Civ. P. 132", and "Local Rule 7.1" became "Fed. R. Civ. P. 7".
+    pushPlain(
+      BARE_RULE_RE,
+      "rules",
+      (mm) => ruleText("Civ", mm[1]),
+      (mm) => {
+        if (USPTO_PRACTICE_RULES.has(parseInt(mm[1], 10))) return false;
+        const at = mm.index ?? 0;
+        return !RULE_QUALIFIER_RE.test(text.slice(Math.max(0, at - 24), at));
+      },
+    );
   }
 
   return out;

@@ -3621,7 +3621,9 @@ async function scanDocumentNumerals(): Promise<void> {
       const body = context.document.body;
       body.load("text");
       await context.sync();
-      const docNumerals = extractNumerals(body.text);
+      // The table bounds what counts as a callout: a citation year or a
+      // list marker far outside the numbering range is not one.
+      const docNumerals = extractNumerals(body.text, numeralEntries.map((e) => e.numeral));
       renderNumeralFindings(reconcileNumerals(numeralEntries, docNumerals, body.text), docNumerals.length);
     });
     setStatus("Scan complete.", "success");

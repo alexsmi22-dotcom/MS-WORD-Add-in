@@ -2,6 +2,50 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
+## [1.95.0] — 2026-07-26 — Four patent-tool checks that reported things that were not true
+
+Every one of these produced confident, wrong output in a practitioner's document,
+and each is the kind of thing a drafter notices once and then stops trusting the
+tool over.
+
+**Caption detection never matched in a real Word document.**
+`extractCaptionNumbers` anchored on `(?:^|
+)`, but Word's `body.text` delimits
+paragraphs with a carriage return. So on any real document it returned nothing:
+"Check captions" ALWAYS reported clean — including when captions were genuinely
+duplicated or skipped — and the Audit reported every figure reference as having
+no caption. The anchor now accepts CR, LF and VT, matching how toa.ts:359 already
+split text. The codebase knew; this one function did not.
+
+**Numeral gaps invented dozens of omissions.** The gap walk inferred ONE global
+step and ran from the lowest numeral to the highest, so a spec numbered 10/12/14
+for FIG. 1 and 100/102/104 for FIG. 2 — the commonest patent convention there is
+— reported 42 skipped numerals that were never meant to exist. Gaps are now
+reported only within a contiguous run; a jump from 14 to 100 is a new series.
+
+**Citation years were read as reference numerals.** The callout pattern
+`\((\d+)[A-Za-z']?\)` has no context filter, so "See Alice, 573 U.S. 208
+(2014). The steps are: (1) forming, (2) etching" yielded (2014), (1) and (2) as
+callouts, which the Audit then reported as "called out but undefined".
+Four-digit years are excluded, and — when the numeral table is available — so is
+enumeration below a scheme that starts at 10 or above. A genuinely undefined
+callout is still reported, which is the tool's actual job.
+
+**Bare "Rule N" fabricated Federal Rules entries.** Any "Rule 132" in a document
+that mentioned Fed. R. Civ. P. anywhere became "Fed. R. Civ. P. 132" in the Table
+of Authorities. Patent practitioners write "a Rule 132 declaration", "Rule 131
+swear-behind" and "Local Rule 7.1" constantly, so a district-court patent brief
+produced a table listing authorities the drafter never cited — in a document they
+sign. USPTO practice rules (130-132) are excluded, and a qualifier before the
+word "Rule" now blocks the civil-rule reading.
+
+Two of my own fixes over-filtered and the tests caught both: the district
+abbreviation pattern made its periods optional, so `n\.?d\.?` matched the "nd"
+in "and" and silently dropped a legitimate "Rule 36"; and the callout range's
+lower margin still admitted "(1)" and "(2)".
+
+21 new tests, suite 3175.
+
 ## [1.94.0] — 2026-07-26 — FFT filtering, and two bugs a punctuation mark was causing
 
 **FFT filter (Analyze).** `fftfilter.ts` — 181 lines of low/high/band-pass with

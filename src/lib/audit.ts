@@ -75,7 +75,10 @@ export function auditDocument(input: AuditInput): AuditReport {
 
   // 1. Reference numerals.
   {
-    const f = reconcileNumerals(input.numerals, extractNumerals(text));
+    // Pass the table so extractNumerals can discard citation years and
+    // enumeration far outside the numbering range.
+    const known = input.numerals.map((e) => e.numeral);
+    const f = reconcileNumerals(input.numerals, extractNumerals(text, known));
     const issues: string[] = [];
     for (const c of f.collisions) issues.push(`Numeral (${c.numeral}) reused for: ${c.elements.join(", ")}`);
     if (f.gaps.length) issues.push(`Skipped numerals: ${f.gaps.join(", ")}`);

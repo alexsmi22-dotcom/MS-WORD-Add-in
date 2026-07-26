@@ -33,10 +33,19 @@ export function formatEqRef(n: number): string {
   return `Eq. (${n})`;
 }
 
-/** Caption numbers found at the start of a line ("Figure 3", "Table 1"), in order. */
+/**
+ * Caption numbers found at the start of a line ("Figure 3", "Table 1"), in order.
+ *
+ * The line anchor must accept \r, not just \n. Word's `body.text` delimits
+ * paragraphs with a carriage return, so anchoring on \n alone matched nothing in
+ * any real document: "Check captions" reported clean even when captions were
+ * duplicated or skipped, and the Audit reported every figure reference as having
+ * no caption. \v is accepted too — Word uses it for a line break within a
+ * paragraph — matching how toa.ts:359 already splits text.
+ */
 export function extractCaptionNumbers(text: string, kind: RefKind): number[] {
   const word = STYLE[kind].caption;
-  const re = new RegExp(`(?:^|\\n)\\s*${word}\\s+(\\d+)`, "g");
+  const re = new RegExp(`(?:^|[\\r\\n\\v])[^\\S\\r\\n\\v]*${word}\\s+(\\d+)`, "g");
   const out: number[] = [];
   let m: RegExpExecArray | null;
   while ((m = re.exec(text)) !== null) out.push(parseInt(m[1], 10));

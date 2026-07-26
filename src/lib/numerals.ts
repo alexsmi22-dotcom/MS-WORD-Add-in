@@ -38,15 +38,60 @@ export interface NumeralFindings {
  */
 const CALLOUT_RE = /\((\d+)[A-Za-z']?\)/g;
 
-/** Distinct reference numerals called out in a block of document text, ascending.
- *  Detection relies on the parenthesized convention "(12)"/"(12a)"; bare numerals
- *  are not matched (they collide with quantities, dates, claim numbers, etc.). */
-export function extractNumerals(documentText: string): number[] {
+/**
+ * A parenthesized four-digit year. A patent spec or brief is full of these
+ * ("(2014)" in a citation), and the callout pattern cannot tell them apart from
+ * a reference numeral by shape alone.
+ */
+function looksLikeYear(n: number, raw: string): boolean {
+  return raw.length === 4 && n >= 1800 && n <= 2199;
+}
+
+/**
+ * Distinct reference numerals called out in a block of document text, ascending.
+ *
+ * Detection relies on the parenthesized convention "(12)"/"(12a)"; bare numerals
+ * are not matched, as they collide with quantities, dates and claim numbers.
+ * Parenthesized ones collide too, which is what `known` is for: given the numeral
+ * table, anything far outside its range is enumeration or a citation year rather
+ * than a callout. Measured before this filter, on one sentence of ordinary legal
+ * prose, the extractor returned (10), (2014), (1) and (2) — and the Audit
+ * reported three of them as "called out but undefined".
+ *
+ * `known` is optional so the function still works with no table; without it only
+ * the year filter applies, which is the conservative direction (it under-filters
+ * rather than dropping a real callout).
+ */
+export function extractNumerals(documentText: string, known?: number[]): number[] {
   const seen = new Set<number>();
   let m: RegExpExecArray | null;
   CALLOUT_RE.lastIndex = 0;
+
+  // A callout well outside the table's span is not a callout. The margin is
+  // generous on purpose: a drafter adding (150) to a 10-140 table should still
+  // see it flagged as undefined, which is the tool working.
+  let lo = -Infinity;
+  let hi = Infinity;
+  if (known && known.length) {
+    const sorted = [...known].sort((a, b) => a - b);
+    const min = sorted[0];
+    const max = sorted[sorted.length - 1];
+    // Enumeration markers "(1)", "(2)", "(3)" are small integers BELOW any real
+    // numbering scheme, which conventionally starts at 10 or 100. Only applied
+    // when the table itself starts at 10 or above, so a spec that genuinely
+    // numbers from 1 keeps its low callouts.
+    if (min >= 10) lo = 10;
+    // Upward, stay generous: a drafter adding (150) to a 10-140 table should
+    // still see it flagged as undefined. That is the tool working, not noise.
+    hi = max + Math.max(100, max - min);
+  }
+
   while ((m = CALLOUT_RE.exec(documentText)) !== null) {
-    seen.add(parseInt(m[1], 10));
+    const raw = m[1];
+    const n = parseInt(raw, 10);
+    if (looksLikeYear(n, raw)) continue;
+    if (n < lo || n > hi) continue;
+    seen.add(n);
   }
   return Array.from(seen).sort((a, b) => a - b);
 }
@@ -101,15 +146,32 @@ export function reconcileNumerals(entries: NumeralEntry[], documentNumerals: num
   }
   collisions.sort((a, b) => a.numeral - b.numeral);
 
-  // Gaps: walk the inferred grid from min to max.
+  // Gaps, reported only WITHIN a contiguous run.
+  //
+  // This used to infer one global step and walk min -> max, which is wrong for
+  // the commonest patent convention there is: numbering each figure in its own
+  // hundreds band. A spec with 10/12/14 for FIG. 1 and 100/102/104 for FIG. 2
+  // reported 42 "skipped numerals" (16, 18 ... 98) that were never intended to
+  // exist. One run like that and the drafter stops trusting the tool.
+  //
+  // A run ends where the next numeral is further away than a few steps — a jump
+  // from 14 to 100 starts a new series rather than omitting 42 numerals.
   const nums = tableNumerals(defined);
   const gaps: number[] = [];
   if (nums.length >= 2) {
     const allEven = nums.every((n) => n % 2 === 0);
     const step = allEven ? 2 : 1;
+    // Tolerate a few missing numerals inside a run; beyond that it is a new band.
+    const runBreak = step * 10;
     const present = new Set(nums);
-    for (let n = nums[0]; n <= nums[nums.length - 1]; n += step) {
-      if (!present.has(n)) gaps.push(n);
+    let runStart = 0;
+    for (let i = 1; i <= nums.length; i++) {
+      const endOfRun = i === nums.length || nums[i] - nums[i - 1] > runBreak;
+      if (!endOfRun) continue;
+      for (let n = nums[runStart]; n <= nums[i - 1]; n += step) {
+        if (!present.has(n)) gaps.push(n);
+      }
+      runStart = i;
     }
   }
 

@@ -846,8 +846,8 @@ Office.onReady((info) => {
   });
   insertBtn.addEventListener("click", insertFormula);
   insertStructureBtn.addEventListener("click", insertStructure);
-  insertNameBtn.addEventListener("click", () => insertDnaText(currentStructureName, "Name"));
-  insertPropsBtn.addEventListener("click", () => insertDnaText(propertiesAsText(currentProperties), "Properties"));
+  insertNameBtn.addEventListener("click", () => insertPlainText(currentStructureName, "Name"));
+  insertPropsBtn.addEventListener("click", () => insertPlainText(propertiesAsText(currentProperties), "Properties"));
   opsinBtn.addEventListener("click", onOpsinClick);
   opsinContinueBtn.addEventListener("click", () => {
     opsinConfirm.hidden = true;
@@ -896,9 +896,9 @@ Office.onReady((info) => {
   dnaInput.addEventListener("input", updateDnaPreview);
   dnaFrameSelect.addEventListener("change", updateDnaPreview);
   dnaStopCheckbox.addEventListener("change", updateDnaPreview);
-  dnaRevcompInsert.addEventListener("click", () => insertDnaText(dnaRevcompEl.textContent || "", "Reverse complement"));
-  dnaMrnaInsert.addEventListener("click", () => insertDnaText(dnaMrnaEl.textContent || "", "mRNA"));
-  dnaProteinInsert.addEventListener("click", () => insertDnaText(dnaProteinEl.textContent || "", "Protein"));
+  dnaRevcompInsert.addEventListener("click", () => insertPlainText(dnaRevcompEl.textContent || "", "Reverse complement"));
+  dnaMrnaInsert.addEventListener("click", () => insertPlainText(dnaMrnaEl.textContent || "", "mRNA"));
+  dnaProteinInsert.addEventListener("click", () => insertPlainText(dnaProteinEl.textContent || "", "Protein"));
   dnaOrfBtn.addEventListener("click", findOrfsHandler);
   dnaOrfInsert.addEventListener("click", insertOrfTable);
   dnaRestrictBtn.addEventListener("click", findRestrictionSites);
@@ -932,19 +932,19 @@ Office.onReady((info) => {
 
   populateFinanceCalcs();
   finCalcSelect.addEventListener("change", renderFinanceInputs);
-  finInsertBtn.addEventListener("click", () => insertDnaText(currentFinText, "Result"));
+  finInsertBtn.addEventListener("click", () => insertPlainText(currentFinText, "Result"));
 
   msInput.addEventListener("input", updateMassSpec);
-  msInsertBtn.addEventListener("click", () => insertDnaText(massSpecAsText(currentMassSpec), "MS data"));
+  msInsertBtn.addEventListener("click", () => insertPlainText(massSpecAsText(currentMassSpec), "MS data"));
   specInput.addEventListener("input", updateSpectra);
   specKind.addEventListener("change", updateSpectra);
-  specInsertBtn.addEventListener("click", () => insertDnaText(spectrumAsText(), "spectrum data"));
+  specInsertBtn.addEventListener("click", () => insertPlainText(spectrumAsText(), "spectrum data"));
   specInsertChartBtn.addEventListener("click", insertSpectrumChart);
   solveKind.addEventListener("change", () => { updateSolveUi(); updateSolve(); });
   solveInput.addEventListener("input", updateSolve);
   solveA.addEventListener("input", updateSolve);
   solveB.addEventListener("input", updateSolve);
-  solveInsertBtn.addEventListener("click", () => insertDnaText(currentSolveText, "solution"));
+  solveInsertBtn.addEventListener("click", () => insertPlainText(currentSolveText, "solution"));
   alignA.addEventListener("input", updateAlign);
   alignB.addEventListener("input", updateAlign);
   alignModeSel.addEventListener("change", updateAlign);
@@ -962,7 +962,7 @@ Office.onReady((info) => {
 
   populateStatsCalcs();
   statsCalcSelect.addEventListener("change", renderStatsInputs);
-  statsInsertBtn.addEventListener("click", () => insertDnaText(currentStatsText, "Statistics"));
+  statsInsertBtn.addEventListener("click", () => insertPlainText(currentStatsText, "Statistics"));
 
   populateAnalyzeCalcs();
   analyzeCalcSelect.addEventListener("change", renderAnalyzeInputs);
@@ -970,7 +970,7 @@ Office.onReady((info) => {
 
   populateAssayCalcs();
   assayCalcSelect.addEventListener("change", renderAssayInputs);
-  assayInsertBtn.addEventListener("click", () => insertDnaText(currentAssayText, "Assay result"));
+  assayInsertBtn.addEventListener("click", () => insertPlainText(currentAssayText, "Assay result"));
   assayInsertPlotBtn.addEventListener("click", insertAssayPlot);
 
   populateCitationTypes();
@@ -2741,7 +2741,7 @@ function updateStructurePreview(): void {
 
   currentStructure = result;
   structurePreviewEl.innerHTML = result.svg;
-  renderStructureInfo(result.formula, result.mw, result.smiles);
+  renderStructureInfo(result.formula, result.mw, result.smiles, result.source, text);
   renderProperties(text);
   insertStructureBtn.disabled = false;
 
@@ -2751,8 +2751,24 @@ function updateStructurePreview(): void {
   insertNameBtn.disabled = !currentStructureName;
 }
 
-/** Shows formula / MW / SMILES under the structure preview (provenance at a glance). */
-function renderStructureInfo(formula: string, mw: number, smiles: string): void {
+/**
+ * Shows formula / MW / SMILES under the structure preview (provenance at a
+ * glance), and says so when the input was AMBIGUOUS.
+ *
+ * A bare molecular formula does not determine a structure: C2H6O is ethanol or
+ * dimethyl ether, C6H12O6 is glucose, fructose, galactose and a dozen more. The
+ * library resolves it to the most common compound and reports `source` so the UI
+ * can be honest about the guess; nothing read that flag until now, so the user
+ * saw a confident structure with no hint that a choice had been made on their
+ * behalf.
+ */
+function renderStructureInfo(
+  formula: string,
+  mw: number,
+  smiles: string,
+  source?: "name" | "formula" | "smiles",
+  input?: string,
+): void {
   structureInfo.replaceChildren();
   const bits: string[] = [];
   if (formula) bits.push(`Formula: ${formula}`);
@@ -2762,6 +2778,16 @@ function renderStructureInfo(formula: string, mw: number, smiles: string): void 
     const span = document.createElement("span");
     span.textContent = b;
     structureInfo.appendChild(span);
+  }
+  if (source === "formula") {
+    const warn = document.createElement("span");
+    warn.className = "structure-warn";
+    const typed = (input ?? "").trim();
+    warn.textContent =
+      `\u26a0 "${typed}" is a molecular formula, which does not identify one structure. ` +
+      `Interpreted as the most common compound with that formula. ` +
+      `Paste a SMILES string or a specific name to choose a different isomer.`;
+    structureInfo.appendChild(warn);
   }
 }
 
@@ -3826,7 +3852,7 @@ function findRestrictionSites(): void {
   );
 }
 
-/** Inserts a plain-text DNA result (reverse complement, mRNA, or protein). */
+/** Inserts a plain-text result at the cursor. Shared by ~14 tools, not just DNA. */
 // Re-entrancy guard shared by every text-insert button (MS, Stats, Assay, DNA,
 // Finance…): a fast double-click would otherwise queue two insertions of the
 // same text before the first Word.run resolves.
@@ -3867,21 +3893,31 @@ async function insertAlignmentText(): Promise<void> {
 
 let insertTextBusy = false;
 
-async function insertDnaText(text: string, label: string): Promise<void> {
+async function insertPlainText(text: string, label: string): Promise<void> {
   if (!text.trim()) {
     setStatus(`Nothing to insert for ${label.toLowerCase()}.`, "error");
     return;
   }
-  if (insertTextBusy) return;
+  if (insertTextBusy) {
+    // Was a silent `return`, so a second click looked like nothing happened.
+    setStatus("Still inserting the last result — one moment.", "error");
+    return;
+  }
   insertTextBusy = true;
+  setStatus(`Inserting ${label.toLowerCase()}…`);
   try {
     await Word.run(async (context) => {
       const range = context.document.getSelection();
-      range.insertText(text, Word.InsertLocation.replace);
+      // AFTER, not replace. This is the insert path for mass spec, spectra,
+      // properties, stats, finance, assay, solve, analyze, cross-references and
+      // SEQ ID refs, and it used to overwrite whatever the user had selected —
+      // every other insert in the product appends. Losing a selected word to a
+      // button labelled "Insert" is not a trade anyone agreed to.
+      range.insertText(text, Word.InsertLocation.after);
       range.select(Word.SelectionMode.end);
       await context.sync();
     });
-    setStatus(`${label} inserted.`, "success");
+    setStatus(`${label} inserted. Ctrl/⌘+Z undoes it.`, "success");
   } catch (error) {
     setStatus(`Could not insert ${label.toLowerCase()}: ${(error as Error).message}`, "error");
   } finally {
@@ -4067,7 +4103,7 @@ async function insertSeqIdRef(): Promise<void> {
     setStatus("Enter a SEQ ID number ≥ 1.", "error");
     return;
   }
-  await insertDnaText(formatSeqIdRef(n), "SEQ ID reference");
+  await insertPlainText(formatSeqIdRef(n), "SEQ ID reference");
 }
 
 // ---------------------------------------------------------------------------
@@ -4244,7 +4280,7 @@ async function insertCrossRef(): Promise<void> {
     return;
   }
   const text = kind === "equation" ? formatEqRef(n) : formatRef(kind as RefKind, n);
-  await insertDnaText(text, "Cross-reference");
+  await insertPlainText(text, "Cross-reference");
 }
 
 /** Scans the document and reports caption-numbering issues. */
@@ -5319,6 +5355,30 @@ function renderStatsInputs(): void {
 }
 
 /** Computes and shows the result for the current statistical test. */
+/**
+ * Tokens in a numeric Stats field that statList() would silently drop.
+ *
+ * Only fields that are MOSTLY numeric are considered: a two-way ANOVA's data
+ * field is "lo x 12" per line, where the labels are the point, and flagging
+ * those would train the user to ignore the warning.
+ */
+function statDroppedTokens(calc: StatCalc, read: (k: string) => string): string[] {
+  const dropped: string[] = [];
+  for (const f of calc.fields) {
+    if (f.kind !== "list" && f.kind !== "groups") continue;
+    const tokens = read(f.key).split(/[\s,;]+/).filter(Boolean);
+    if (!tokens.length) continue;
+    const bad = tokens.filter((t) => !Number.isFinite(Number(t)));
+    // Mostly-numeric test. A LABELLED field is majority non-numeric — two-way
+    // ANOVA's "lo x 12" per line is two labels to one number, ~67% — whereas a
+    // numeric column with a few ND/N-A cells stays well under half. Measured:
+    // "2, 4, ND, 5, N/A, 7, 9" is 29% bad, which an earlier 20% threshold
+    // wrongly treated as labelled data and stayed silent about.
+    if (bad.length && bad.length < tokens.length * 0.5) dropped.push(...bad);
+  }
+  return dropped;
+}
+
 function updateStatsPreview(): void {
   const calc = STAT_CALCS.find((c) => c.id === statsCalcSelect.value) ?? STAT_CALCS[0];
   const read = (k: string): string => {
@@ -5330,6 +5390,23 @@ function updateStatsPreview(): void {
     out = calc.compute(read);
   } catch {
     out = { text: "Could not compute — check the inputs.", ok: false };
+  }
+  // Say so when values were dropped. A t-test on n=7 presented as if it were
+  // n=10 is the quiet kind of wrong: nothing on screen distinguished them,
+  // because the two-sample output reports t(df) and never n.
+  if (out.ok !== false) {
+    const dropped = statDroppedTokens(calc, read);
+    if (dropped.length) {
+      const shown = [...new Set(dropped)].slice(0, 6).join(", ");
+      out = {
+        ...out,
+        text:
+          `${out.text}\n\n\u26a0 ${dropped.length} non-numeric ` +
+          `${dropped.length === 1 ? "entry was" : "entries were"} ignored (${shown}` +
+          `${new Set(dropped).size > 6 ? ", ..." : ""}). They are NOT counted in n, ` +
+          `so check that this is what you meant.`,
+      };
+    }
   }
   // Exclude the "—" no-value sentinel (from a non-finite computation) so a
   // dash placeholder is never inserted into the document.
@@ -6010,7 +6087,7 @@ async function insertAnalysis(): Promise<void> {
   const blocks = currentAnalyzeBlocks;
   // No matrix/plot to lay out → the existing plain-text path is exactly right.
   if (!blocks || !blocks.some((b) => b.kind === "matrix" || b.kind === "plot")) {
-    await insertDnaText(currentAnalyzeText, "Analysis");
+    await insertPlainText(currentAnalyzeText, "Analysis");
     return;
   }
   if (insertTextBusy) return;

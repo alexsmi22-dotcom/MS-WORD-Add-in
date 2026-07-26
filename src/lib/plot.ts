@@ -18,7 +18,10 @@ function factorial(n: number): number {
 const FUNCS: Record<string, (x: number) => number> = {
   sin: Math.sin, cos: Math.cos, tan: Math.tan, asin: Math.asin, acos: Math.acos, atan: Math.atan,
   sinh: Math.sinh, cosh: Math.cosh, tanh: Math.tanh, exp: Math.exp, sqrt: Math.sqrt, cbrt: Math.cbrt, abs: Math.abs,
-  log: Math.log, ln: Math.log, log10: Math.log10, log2: Math.log2, sign: Math.sign,
+  // `log` is base 10, matching stats.ts, solve.ts and every spreadsheet.
+  // It used to be the natural log here alone, so the same formula gave a
+  // different curve in Plot than in Stats. `ln` is the natural log.
+  log: Math.log10, ln: Math.log, log10: Math.log10, log2: Math.log2, sign: Math.sign,
   floor: Math.floor, ceil: Math.ceil, round: Math.round, trunc: Math.trunc,
   fact: factorial, factorial,
 };
@@ -26,7 +29,9 @@ const FUNCS: Record<string, (x: number) => number> = {
 /** Multi-argument functions. Arity is validated in the evaluator. */
 const FUNCS_N: Record<string, { arity: number | "var"; fn: (a: number[]) => number }> = {
   atan2: { arity: 2, fn: (a) => Math.atan2(a[0], a[1]) },
-  mod: { arity: 2, fn: (a) => a[0] % a[1] },
+  // True modulo: the result carries the sign of the divisor, matching
+  // stats.ts. JS % is a remainder, so mod(-7, 3) was -1 here and 2 there.
+  mod: { arity: 2, fn: (a) => a[0] - a[1] * Math.floor(a[0] / a[1]) },
   pow: { arity: 2, fn: (a) => Math.pow(a[0], a[1]) },
   hypot: { arity: "var", fn: (a) => Math.hypot(...a) },
   min: { arity: "var", fn: (a) => Math.min(...a) },

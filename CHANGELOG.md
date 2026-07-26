@@ -2,6 +2,46 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
+## [1.96.0] — 2026-07-26 — Four quiet correctness problems
+
+**Inserting no longer destroys your selection.** The shared text-insert path used
+`InsertLocation.replace`, so a user with a word selected who clicked "Insert MS
+data" lost that word. It is the insert path for mass spec, spectra, compound
+name, properties, stats, finance, assay, solve, analyze, cross-references and SEQ
+ID refs — 15 call sites — and every other insert in the product appends. It now
+appends too. While there: renamed from `insertDnaText` (it has not been DNA-only
+for a long time), given the in-progress status every other insert path had, and
+its re-entrancy guard now says something instead of dropping the second click in
+silence.
+
+**`log()` meant different things in different tools.** Three expression
+evaluators had drifted: `log` was the natural log in Plot and base 10 in Stats
+and Solve, so `log(100)` was 4.605 on a chart and 2 in an uncertainty
+calculation. `mod` was JS's remainder in Plot and true modulo in Stats, so
+`mod(-7, 3)` was -1 and 2. A user who typed one formula in Uncertainty
+propagation and the same formula in Plot to visualise it got two different
+answers, silently. Aligned on the majority and the spreadsheet convention: `log`
+is base 10, `ln` is natural, `mod` carries the sign of the divisor. This CHANGES
+Plot for anyone who typed `log` meaning natural, which is why `ln` is still there
+— an inconsistency this quiet is worse than a documented change.
+
+**Stats no longer changes n without saying so.** `statList` drops anything
+non-numeric, so "N/A", "ND", "<0.01" and a pasted header row silently vanished: a
+column with two bad cells gave a result on n=5 presented exactly like one on
+n=7, and the two-sample output prints t(df) but never n. Dropped entries are now
+counted and named, in the result text so the note travels into the document with
+the number it qualifies. The check only fires on a MOSTLY numeric field, so
+two-way ANOVA's labelled "lo x 12" rows do not trip it.
+
+**A molecular formula says when it guessed the isomer.** C2H6O is ethanol or
+dimethyl ether; C6H12O6 is glucose, fructose, galactose and a dozen more. The
+library resolves to the most common compound and has always returned a `source`
+flag SPECIFICALLY so the UI could say so — uses of that flag in the pane before
+today: zero. Everything downstream, properties, pKa, NMR, mass spec and the
+inserted picture, was confidently about a molecule the user may not have meant.
+
+16 new tests pinning that the three evaluators agree. Suite 3191.
+
 ## [1.95.0] — 2026-07-26 — Four patent-tool checks that reported things that were not true
 
 Every one of these produced confident, wrong output in a practitioner's document,

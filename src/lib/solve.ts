@@ -39,7 +39,7 @@ const EVAL_FN: Record<string, (x: number) => number> = {
   sin: Math.sin, cos: Math.cos, tan: Math.tan,
   asin: Math.asin, acos: Math.acos, atan: Math.atan,
   sinh: Math.sinh, cosh: Math.cosh, tanh: Math.tanh,
-  exp: Math.exp, ln: Math.log, log: Math.log10, log2: Math.log2,
+  exp: Math.exp, ln: Math.log, log: Math.log10, log10: Math.log10, log2: Math.log2,
   sqrt: Math.sqrt, cbrt: Math.cbrt, abs: Math.abs,
 };
 

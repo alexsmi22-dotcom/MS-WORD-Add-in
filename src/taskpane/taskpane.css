@@ -1412,3 +1412,17 @@ a:focus-visible {
   color: var(--text);
   line-height: 1.35;
 }
+
+/* Ambiguity notice under the structure preview.
+   A bare molecular formula does not identify one structure — C2H6O is ethanol
+   or dimethyl ether — so when the input was a formula the pane says which way
+   it guessed. Amber, matching .seq-warnings.warn, because it is a caution
+   rather than an error: the structure shown is valid, just not necessarily the
+   one the user meant. */
+.structure-warn {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #8a6d00;
+}

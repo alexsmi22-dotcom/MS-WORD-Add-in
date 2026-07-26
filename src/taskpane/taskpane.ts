@@ -7,6 +7,7 @@ import { parseMath } from "../lib/mathFormat";
 import { mathToOoxml } from "../lib/mathOmml";
 import { mathToHtml } from "../lib/mathHtml";
 import { parseMathAst } from "../lib/mathParse";
+import { figureScale, figurePoints } from "../lib/figures";
 import { latexToDsl, astToLatex } from "../lib/latex";
 import { formatQuantityHtml, convert, formatSig } from "../lib/units";
 import { RefKind, formatCaption, formatRef, formatEqRef, checkCaptions } from "../lib/refs";
@@ -1971,14 +1972,20 @@ function updateGalleryPreview(): void {
 /** Inserts each drawn substituent (label + structure image) as its own paragraph. */
 async function insertGallery(): Promise<void> {
   const items = parseSubstituents(galleryInput.value);
-  const rendered: { label: string; base64: string; alt: string }[] = [];
+  const rendered: { label: string; base64: string; alt: string; w: number; h: number }[] = [];
   for (const it of items) {
     const r = renderStructure(it.input, GALLERY_W, GALLERY_H);
     if (!r) continue;
     const d = readSvgDims(r.svg, GALLERY_W, GALLERY_H);
-    const base64 = await svgToPngBase64(r.svg, d.w, d.h);
+    const base64 = await renderFigurePng(r.svg, d.w, d.h);
     const label = it.label ? `substituent ${it.label}` : "substituent";
-    rendered.push({ label: it.label, base64, alt: provenanceAltText(label, r.formula, r.mw, r.smiles, r.idcode) });
+    rendered.push({
+      label: it.label,
+      base64,
+      alt: provenanceAltText(label, r.formula, r.mw, r.smiles, r.idcode),
+      w: d.w,
+      h: d.h,
+    });
   }
   if (!rendered.length) {
     setStatus("No drawable substituents — check the SMILES/names.", "error");
@@ -1992,6 +1999,7 @@ async function insertGallery(): Promise<void> {
       for (const item of rendered) {
         const para = anchor.insertParagraph(item.label ? `${item.label} = ` : "", Word.InsertLocation.after);
         const pic = para.insertInlinePictureFromBase64(item.base64, Word.InsertLocation.end);
+        sizeFigure(pic, item.w, item.h);
         pic.altTextDescription = item.alt;
         anchor = para.getRange(Word.RangeLocation.end);
       }
@@ -2391,18 +2399,15 @@ async function insertTableFigure(): Promise<void> {
     const style = currentChartStyle();
     const kind = pptKindSelect.value as RenderKind;
     const d = readSvgDims(rendered.svg, 380, 260);
-    // Rasterize at 2× and set the picture back to natural size (points =
-    // px × 0.75) so the figure prints crisply.
-    const base64 = await svgToPngBase64(rendered.svg, d.w * 2, d.h * 2);
+    const base64 = await renderFigurePng(rendered.svg, d.w, d.h);
     const kindLabel = kind === "tablefigure" ? "table figure" : kind;
     const alt = `${style.figLabel ? style.figLabel + " — " : ""}${kindLabel} of table (${currentTableRows?.length ?? 0} rows)${style.patent ? ", patent line-art style" : ""}`;
     const alsoText = pptWithTextCheckbox.checked && !!currentTableRows;
     await Word.run(async (context) => {
       const range = context.document.getSelection();
       const picture = range.insertInlinePictureFromBase64(base64, Word.InsertLocation.after);
+      sizeFigure(picture, d.w, d.h);
       picture.altTextDescription = alt;
-      picture.width = d.w * 0.75;
-      picture.height = d.h * 0.75;
       // Optionally follow the image with an editable Word table of the data,
       // so the text is editable even though the figure itself is an image.
       let tail = picture.getRange(Word.RangeLocation.end);
@@ -3214,7 +3219,7 @@ async function insertStructure(): Promise<void> {
 
   try {
     const d = readSvgDims(structure.svg, STRUCTURE_W, STRUCTURE_H);
-    const base64 = await svgToPngBase64(structure.svg, d.w, d.h);
+    const base64 = await renderFigurePng(structure.svg, d.w, d.h);
     const label = inputEl.value.trim();
     const alt = provenanceAltText(
       `2D structure of ${label}`,
@@ -3226,6 +3231,7 @@ async function insertStructure(): Promise<void> {
     await Word.run(async (context) => {
       const range = context.document.getSelection();
       const picture = range.insertInlinePictureFromBase64(base64, Word.InsertLocation.after);
+      sizeFigure(picture, d.w, d.h);
       picture.altTextDescription = alt;
       range.select(Word.SelectionMode.end);
       await context.sync();
@@ -3424,7 +3430,7 @@ async function insertBuild(): Promise<void> {
 
   try {
     const d = readSvgDims(molecule.svg, STRUCTURE_W, STRUCTURE_H);
-    const base64 = await svgToPngBase64(molecule.svg, d.w, d.h);
+    const base64 = await renderFigurePng(molecule.svg, d.w, d.h);
     const label = molecule.formula || "molecule";
     const alt = provenanceAltText(`2D structure (${label})`, molecule.formula, molecule.mw, molecule.smiles, molecule.idcode);
     const entries = currentLegendEntries();
@@ -3434,6 +3440,7 @@ async function insertBuild(): Promise<void> {
     await Word.run(async (context) => {
       const range = context.document.getSelection();
       const picture = range.insertInlinePictureFromBase64(base64, Word.InsertLocation.after);
+      sizeFigure(picture, d.w, d.h);
       picture.altTextDescription = alt;
       const tail = picture.getRange(Word.RangeLocation.end);
       if (legendFormat === "table" && legendTable) {
@@ -3960,10 +3967,11 @@ async function insertReaction(): Promise<void> {
   setStatus("Inserting reaction scheme…");
   try {
     const { svg, width, height } = currentReactionSvg;
-    const base64 = await svgToPngBase64(svg, width, height);
+    const base64 = await renderFigurePng(svg, width, height);
     await Word.run(async (context) => {
       const range = context.document.getSelection();
       const picture = range.insertInlinePictureFromBase64(base64, Word.InsertLocation.after);
+      sizeFigure(picture, width, height);
       picture.altTextDescription = `Reaction scheme: ${reactionInput.value.trim()}`;
       range.select(Word.SelectionMode.end);
       await context.sync();
@@ -4325,10 +4333,11 @@ async function insertPlot(): Promise<void> {
   plotInsertBtn.disabled = true;
   setStatus("Inserting plot…");
   try {
-    const base64 = await svgToPngBase64(currentPlotSvg, 380, 270);
+    const base64 = await renderFigurePng(currentPlotSvg, 380, 270);
     await Word.run(async (context) => {
       const range = context.document.getSelection();
       const picture = range.insertInlinePictureFromBase64(base64, Word.InsertLocation.after);
+      sizeFigure(picture, 380, 270);
       picture.altTextDescription = `Plot: ${plotFn.value.trim() || "data"}`;
       range.select(Word.SelectionMode.end);
       await context.sync();
@@ -5837,7 +5846,7 @@ async function insertAnalysis(): Promise<void> {
     const images: Record<number, string> = {};
     for (let i = 0; i < blocks.length; i++) {
       const b = blocks[i];
-      if (b.kind === "plot") images[i] = await svgToPngBase64(b.svg, b.w, b.h);
+      if (b.kind === "plot") images[i] = await renderFigurePng(b.svg, b.w, b.h);
     }
     await Word.run(async (context) => {
       let anchor = context.document.getSelection().getRange(Word.RangeLocation.end);
@@ -5851,6 +5860,7 @@ async function insertAnalysis(): Promise<void> {
         if (block.kind === "plot") {
           const para = anchor.insertParagraph(block.caption, Word.InsertLocation.after);
           const pic = para.insertInlinePictureFromBase64(images[i], Word.InsertLocation.end);
+          sizeFigure(pic, block.w, block.h);
           pic.altTextDescription = block.alt;
           anchor = para.getRange(Word.RangeLocation.after);
           continue;
@@ -5949,7 +5959,7 @@ async function insertPeptide(): Promise<void> {
   setStatus("Inserting peptide structure…");
   try {
     const d = readSvgDims(structure.svg, STRUCTURE_W, STRUCTURE_H);
-    const base64 = await svgToPngBase64(structure.svg, d.w, d.h);
+    const base64 = await renderFigurePng(structure.svg, d.w, d.h);
     const alt = provenanceAltText(
       `Peptide ${currentPeptideSeq}`,
       structure.formula,
@@ -5960,6 +5970,7 @@ async function insertPeptide(): Promise<void> {
     await Word.run(async (context) => {
       const range = context.document.getSelection();
       const picture = range.insertInlinePictureFromBase64(base64, Word.InsertLocation.after);
+      sizeFigure(picture, d.w, d.h);
       picture.altTextDescription = alt;
       range.select(Word.SelectionMode.end);
       await context.sync();
@@ -6457,10 +6468,11 @@ async function insertSpectrumChart(): Promise<void> {
   setStatus("Inserting spectrum…");
   try {
     const size = currentChartSize();
-    const base64 = await svgToPngBase64(currentSpectrumSvg, size.width * 2, size.height * 2);
+    const base64 = await renderFigurePng(currentSpectrumSvg, size.width, size.height);
     await Word.run(async (context) => {
       const range = context.document.getSelection();
       const picture = range.insertInlinePictureFromBase64(base64, Word.InsertLocation.after);
+      sizeFigure(picture, size.width, size.height);
       picture.altTextDescription = `Predicted spectrum (${specKind.value}) for ${specInput.value.trim()} — estimate from additivity rules`;
       range.select(Word.SelectionMode.end);
       await context.sync();
@@ -6769,11 +6781,12 @@ async function insertSeqMap(): Promise<void> {
     // out of shape in the document.
     const w = Number(/width="(\d+)"/.exec(currentSeqMapSvg)?.[1] ?? 640);
     const h = Number(/height="(\d+)"/.exec(currentSeqMapSvg)?.[1] ?? 200);
-    const base64 = await svgToPngBase64(currentSeqMapSvg, w * 2, h * 2);
+    const base64 = await renderFigurePng(currentSeqMapSvg, w, h);
     const rec = currentSeqRecord;
     await Word.run(async (context) => {
       const range = context.document.getSelection();
       const picture = range.insertInlinePictureFromBase64(base64, Word.InsertLocation.after);
+      sizeFigure(picture, w, h);
       picture.altTextDescription =
         `Sequence map: ${rec.name}, ${rec.length} bp, ${rec.circular ? "circular" : "linear"}, ` +
         `${rec.features.length} features`;
@@ -7233,10 +7246,11 @@ async function insertAssayPlot(): Promise<void> {
   assayInsertPlotBtn.disabled = true;
   setStatus("Inserting fit plot…");
   try {
-    const base64 = await svgToPngBase64(currentAssayPlotSvg, 380, 270);
+    const base64 = await renderFigurePng(currentAssayPlotSvg, 380, 270);
     await Word.run(async (context) => {
       const range = context.document.getSelection();
       const picture = range.insertInlinePictureFromBase64(base64, Word.InsertLocation.after);
+      sizeFigure(picture, 380, 270);
       const calc = ASSAY_CALCS.find((c) => c.id === assayCalcSelect.value);
       picture.altTextDescription = `Assay fit: ${calc?.name ?? "curve"}`;
       range.select(Word.SelectionMode.end);
@@ -7882,6 +7896,22 @@ function readSvgDims(svg: string, fallbackW: number, fallbackH: number): { w: nu
   const w = wm ? parseFloat(wm[1]) : NaN;
   const h = hm ? parseFloat(hm[1]) : NaN;
   return { w: w > 0 ? w : fallbackW, h: h > 0 ? h : fallbackH };
+}
+
+/** Rasterises at the supersampled size. Pair with sizeFigure() at the insert. */
+function renderFigurePng(svg: string, width: number, height: number): Promise<string> {
+  const s = figureScale(width, height);
+  return svgToPngBase64(svg, Math.round(width * s), Math.round(height * s));
+}
+
+/**
+ * Pins an inserted picture to its natural physical size, so the extra pixels
+ * from renderFigurePng() become resolution instead of size. See lib/figures.ts
+ * for why this pairing is mandatory.
+ */
+function sizeFigure(pic: Word.InlinePicture, width: number, height: number): void {
+  pic.width = figurePoints(width);
+  pic.height = figurePoints(height);
 }
 
 /**

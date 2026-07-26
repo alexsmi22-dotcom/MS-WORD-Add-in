@@ -2,6 +2,36 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
+## [1.88.0] — 2026-07-26 — Fix: inserted figures were sized by pixel count
+
+Word lays an inserted PNG out at its pixel count interpreted at 96 dpi. Any
+figure rasterised above 1x and inserted *without* an explicit size therefore came
+out physically larger rather than sharper.
+
+**Spectra and Sequence Map rasterised at 2x and set no size.** Every predicted
+spectrum and every sequence map inserted up to and including v1.87.0 arrived at
+**twice its intended width**. Table -> Chart was the only call site doing it
+correctly, converting back to points with `width = px * 0.75`.
+
+All eleven Word figure insertions now share `renderFigurePng()` and
+`sizeFigure()`: supersample at 4x, then pin the picture to its natural physical
+size so the extra pixels become resolution. Spectra and Sequence Map return to
+their intended width; the nine sites that were rasterising at 1x keep the size
+they always had and gain roughly 4x the resolution.
+
+`figureScale()` degrades the factor for large figures to stay inside an 8 MP
+budget, so a wide sequence map or a dense flowchart cannot allocate a canvas big
+enough to stall the pane. It never returns 0 — an invisible figure would be worse
+than an unsharp one.
+
+The PowerPoint export path is deliberately unchanged: its 3x rasterisation never
+enters a Word document and is embedded at explicit slide dimensions, where 3x is
+already correct.
+
+The arithmetic moved to `src/lib/figures.ts` so it could be tested at all —
+`taskpane.ts` imports Office and cannot be reached from jest. Nine new tests
+cover the conversion, the budget, monotonic degradation and the zero/NaN guards.
+
 ## [1.65.2] — 2026-07-15 — Fix: arginine's pKa net charge was wrong by 100%
 
 Found by a full-product audit. A shipped **wrong answer**, not a missing caveat.

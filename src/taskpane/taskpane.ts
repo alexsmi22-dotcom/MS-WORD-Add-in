@@ -29,6 +29,11 @@ import {
   nucleicAcidConc,
   proteinConcFromA280,
   NucleicAcidKind,
+  fitInhibition,
+  lineweaverBurk,
+  eadieHofstee,
+  hanesWoolf,
+  bufferRatioForPh,
 } from "../lib/assay";
 import {
   futureValue,
@@ -94,6 +99,7 @@ import {
   adjustPValues,
   CorrectionMethod,
 } from "../lib/stats2";
+import { tukeyHSD } from "../lib/tukey";
 import { build, BuildFormat, BuildResult } from "../lib/builder";
 import { formatCodeBlock, CodeStyle } from "../lib/codeblock";
 import {
@@ -4993,7 +4999,7 @@ const STAT_CALCS: StatCalc[] = [
       {
         key: "groups",
         label: "Groups (blank line or ; between groups)",
-        default: "1 2 3\n4 5 6\n7 8 9",
+        default: "1 2 3\n\n4 5 6\n\n7 8 9",
         kind: "groups",
       },
     ],
@@ -5006,6 +5012,72 @@ const STAT_CALCS: StatCalc[] = [
       if (!Number.isFinite(res.f) || !Number.isFinite(res.p))
         return { text: "ANOVA is undefined — every group has zero within-group variance (identical values).", ok: false };
       return { text: `One-way ANOVA (${groups.length} groups)\n${reportF(res)}` };
+    },
+  },
+  {
+    // ANOVA answers only "are these all the same?". Without a post-hoc the user
+    // runs pairwise t-tests instead — the exact error tukey.ts's own header warns
+    // inflates the family-wise error rate to ~40% at k = 5. The module was
+    // written, tested, and then never wired to anything a user could reach.
+    id: "tukey",
+    name: "Tukey HSD (ANOVA post-hoc)",
+    fields: [
+      {
+        key: "groups",
+        label: "Groups (blank line or ; between groups)",
+        default: "5.1 4.9 5.4 5.0\n\n6.3 6.8 6.1 6.5\n\n5.2 5.0 5.5 5.3",
+        kind: "groups",
+      },
+      {
+        key: "alpha",
+        label: "Family-wise level",
+        default: "0.05",
+        kind: "select",
+        options: [
+          { value: "0.05", label: "alpha = 0.05" },
+          { value: "0.01", label: "alpha = 0.01" },
+          { value: "0.10", label: "alpha = 0.10" },
+        ],
+      },
+    ],
+    compute: (r) => {
+      const groups = statGroups(r("groups"));
+      if (groups.length < 2) return { text: "Enter at least two groups (separate with a blank line).", ok: false };
+      if (groups.some((g) => g.length < 2)) return { text: "Each group needs at least two values.", ok: false };
+      const alpha = Number(r("alpha")) || 0.05;
+      const res = tukeyHSD(groups, alpha);
+      if (!res) return { text: "Tukey HSD needs at least two groups with data in each.", ok: false };
+      if (!Number.isFinite(res.qCritical))
+        return { text: "Tukey HSD is undefined here \u2014 every group has zero within-group variance.", ok: false };
+
+      // Report the omnibus test alongside: reading a post-hoc without it invites
+      // picking a significant pair out of a non-significant ANOVA.
+      const omnibus = oneWayAnova(groups);
+      const omniLine = Number.isFinite(omnibus.p)
+        ? `One-way ANOVA: ${reportF(omnibus)}`
+        : "One-way ANOVA: undefined (no within-group variance)";
+      const ciPct = res.alpha === 0.01 ? "99" : res.alpha === 0.1 ? "90" : "95";
+
+      const rows = res.pairs.map(
+        (pr) =>
+          `Group ${pr.i + 1} vs ${pr.j + 1}:  diff = ${assaySig(pr.difference)}` +
+          `  q = ${assaySig(pr.q, 3)}  ${formatP(pr.p)}` +
+          `  ${ciPct}% CI [${assaySig(pr.ciLow)}, ${assaySig(pr.ciHigh)}]` +
+          (pr.significant ? "  *" : "")
+      );
+      const anySig = res.pairs.some((pr) => pr.significant);
+
+      return {
+        text:
+          `Tukey HSD \u2014 ${res.k} groups, family-wise alpha = ${res.alpha}\n` +
+          `${omniLine}\n` +
+          `q critical = ${assaySig(res.qCritical, 4)} \u00b7 MSE = ${assaySig(res.mse)} \u00b7 df within = ${res.dfWithin}\n\n` +
+          rows.join("\n") +
+          (anySig ? `\n\n* significant at alpha = ${res.alpha}` : "\n\nNo pair is significant at this level.") +
+          // tukeyHSD already emits the family-wise warning, and better than a
+          // hand-written one — showing both said the same thing twice.
+          (res.caveats.length ? "\n\n" + res.caveats.map((c) => `\u2022 ${c}`).join("\n") : ""),
+      };
     },
   },
   {
@@ -6959,6 +7031,98 @@ const ASSAY_CALCS: AssayCalc[] = [
     },
   },
   {
+    // The Cheng-Prusoff panel tells the user to "determine the mode from a
+    // Lineweaver-Burk or a full inhibition fit before converting an IC50" -
+    // advice the product made impossible to follow, because fitInhibition was
+    // written, tested, and never wired to anything.
+    id: "inhibition",
+    name: "Inhibition mode fit (Ki)",
+    fields: [
+      { key: "s", label: "[S] substrate", default: "1, 2, 5, 10, 20, 1, 2, 5, 10, 20", kind: "list" },
+      { key: "i", label: "[I] inhibitor (matching [S])", default: "0, 0, 0, 0, 0, 5, 5, 5, 5, 5", kind: "list" },
+      { key: "v", label: "v velocity (matching)", default: "1.67, 2.86, 5.0, 6.67, 8.0, 0.62, 1.11, 2.5, 4.0, 5.71", kind: "list" },
+      {
+        key: "mode",
+        label: "Inhibition mode",
+        default: "competitive",
+        kind: "select",
+        options: [
+          { value: "competitive", label: "Competitive" },
+          { value: "uncompetitive", label: "Uncompetitive" },
+          { value: "noncompetitive", label: "Non-competitive" },
+          { value: "mixed", label: "Mixed" },
+        ],
+      },
+    ],
+    compute: (r) => {
+      const s = assayList(r("s"));
+      const i = assayList(r("i"));
+      const v = assayList(r("v"));
+      if (s.length !== i.length || s.length !== v.length)
+        return { text: "[S], [I] and v must be the same length \u2014 one row per measurement.", ok: false };
+      if (s.length < 4) return { text: "Need at least 4 (s, i, v) rows to fit.", ok: false };
+      const mode = r("mode") as InhibitionMode;
+      const fit = fitInhibition(s, i, v, mode);
+      if (!fit) return { text: "Fit did not converge \u2014 check the data and the chosen mode.", ok: false };
+      // FitResult carries the standard errors in se[], in the model's parameter
+      // order: [vmax, km, ki] and [vmax, km, ki, kiPrime] for mixed.
+      const se = (k: number): number => (Number.isFinite(fit.se[k]) ? fit.se[k] : NaN);
+      const lines = [
+        `Inhibition fit \u2014 ${mode}`,
+        `Vmax = ${assayValSE(fit.vmax, se(0))}`,
+        `Km = ${assayValSE(fit.km, se(1))}`,
+        `Ki = ${assayValSE(fit.ki, se(2))}`,
+      ];
+      if (mode === "mixed" && Number.isFinite(fit.kiPrime)) {
+        lines.push(`Ki-prime = ${assayValSE(fit.kiPrime, se(3))}`);
+      }
+      lines.push(`R\u00b2 = ${assaySig(fit.rsquared, 4)}`);
+      return {
+        text: lines.join("\n"),
+        caveats: [
+          ...fit.caveats,
+          "The MODE is chosen by you, not determined by the fit. Every mode returns numbers; compare the fits, and the linearized plots, before trusting one \u2014 a Ki from the wrong mode is confidently wrong.",
+        ],
+      };
+    },
+  },
+  {
+    // Diagnostic only. Each linearization distorts the error structure in a
+    // different direction, which is why all three are shown together and why the
+    // nonlinear fit above stays authoritative.
+    id: "linearize",
+    name: "Linearized kinetics (diagnostic)",
+    fields: [
+      { key: "s", label: "[S] substrate", default: "1, 2, 5, 10, 20, 50", kind: "list" },
+      { key: "v", label: "v velocity (matching [S])", default: "1.333, 2.4, 4.615, 6.667, 8.571, 10.345", kind: "list" },
+    ],
+    compute: (r) => {
+      const s = assayList(r("s"));
+      const v = assayList(r("v"));
+      if (s.length !== v.length || s.length < 3)
+        return { text: "Enter equal-length [S] and v lists (3 or more points).", ok: false };
+      if (s.some((x) => x <= 0) || v.some((y) => y <= 0))
+        return { text: "Linearizations divide by [S] and by v, so every value must be greater than zero.", ok: false };
+      const lb = lineweaverBurk(s, v);
+      const eh = eadieHofstee(s, v);
+      const hw = hanesWoolf(s, v);
+      const row = (name: string, l: { vmax: number; km: number; rsquared: number }) =>
+        `${name}: Vmax = ${assaySig(l.vmax)}, Km = ${assaySig(l.km)}, R\u00b2 = ${assaySig(l.rsquared, 4)}`;
+      return {
+        text: [
+          "Linearized kinetics \u2014 three transforms of the same data",
+          row("Lineweaver-Burk (1/v vs 1/[S])", lb),
+          row("Eadie-Hofstee (v vs v/[S])", eh),
+          row("Hanes-Woolf ([S]/v vs [S])", hw),
+        ].join("\n"),
+        caveats: [
+          "These are DIAGNOSTIC, not a substitute for the nonlinear fit. Each transform reweights the errors differently \u2014 Lineweaver-Burk in particular inflates the influence of the smallest, noisiest velocities \u2014 so the three will disagree on real data. Judge the data by the spread between them, and take Vmax and Km from the Michaelis-Menten fit.",
+          "Widely differing estimates, or a curved Eadie-Hofstee plot, suggest the simple model does not hold \u2014 cooperativity, substrate inhibition, or a second enzyme form.",
+        ],
+      };
+    },
+  },
+  {
     id: "hill",
     name: "Hill equation (cooperativity)",
     fields: [
@@ -7110,6 +7274,41 @@ const ASSAY_CALCS: AssayCalc[] = [
       { key: "acid", label: "[HA] acid", default: "0.1" },
     ],
     compute: (r) => ({ text: `pH = ${assaySig(hendersonHasselbalch(+r("pka"), +r("base"), +r("acid")), 4)}` }),
+  },
+  {
+    // The inverse of the entry above, and the direction a bench scientist
+    // actually needs: "I want pH 7.4 from this buffer - what ratio do I mix?"
+    // bufferRatioForPh existed and was tested; nothing called it.
+    id: "bufferratio",
+    name: "Buffer ratio for a target pH",
+    fields: [
+      { key: "pka", label: "pKa of the buffer", default: "7.21" },
+      { key: "ph", label: "Target pH", default: "7.4" },
+    ],
+    compute: (r) => {
+      const pka = +r("pka");
+      const ph = +r("ph");
+      if (!Number.isFinite(pka) || !Number.isFinite(ph))
+        return { text: "Enter a numeric pKa and target pH.", ok: false };
+      const ratio = bufferRatioForPh(pka, ph);
+      const basePct = (100 * ratio) / (1 + ratio);
+      const caveats: string[] = [];
+      if (Math.abs(ph - pka) > 1) {
+        caveats.push(
+          "The target pH is more than one unit from the pKa, so this buffer has little capacity there \u2014 the ratio is extreme and a small addition of acid or base will move the pH a long way. Choose a buffer whose pKa is nearer the target.",
+        );
+      }
+      caveats.push(
+        "Henderson-Hasselbalch assumes activity coefficients of 1 and ignores ionic strength and temperature. Mix to the calculated ratio, then verify with a meter.",
+      );
+      return {
+        text: [
+          `[A-]/[HA] = ${assaySig(ratio, 4)}`,
+          `Mix ${assaySig(basePct, 3)}% conjugate base with ${assaySig(100 - basePct, 3)}% acid.`,
+        ].join("\n"),
+        caveats,
+      };
+    },
   },
   {
     id: "beer",

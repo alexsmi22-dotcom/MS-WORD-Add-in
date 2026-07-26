@@ -2,6 +2,59 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
+## [1.93.0] — 2026-07-26 — Four finished tools that no user could reach
+
+Harvesting dead code found by the product evaluation: modules written, tested,
+shipped in every bundle, and wired to nothing.
+
+**Tukey HSD (Stats).** `tukey.ts` — 273 lines with memoised studentized-range
+critical values and three written caveats — had zero references outside its own
+test. So ANOVA in the pane had no post-hoc test at all, and a user comparing
+three groups had to fall back on repeated t-tests: the exact error that module's
+own header warns inflates the family-wise error rate to ~40% at k = 5. It now
+sits beside One-way ANOVA, reports the omnibus F alongside the pairwise table so
+a post-hoc is not read out of a non-significant ANOVA, and carries the module's
+own family-wise warning.
+
+**Inhibition mode fit (Bio/Assay).** `fitInhibition` was dead, and with it the
+four model functions only it calls — competitive, uncompetitive, non-competitive
+and mixed. The Cheng-Prusoff panel told users to "determine the mode from a
+Lineweaver-Burk or a full inhibition fit before converting an IC50", advice the
+product made impossible to follow. Reports Vmax, Km, Ki (and Ki-prime for mixed)
+with standard errors, and states plainly that the MODE is the user's choice, not
+the fit's finding.
+
+**Linearized kinetics (Bio/Assay).** `lineweaverBurk` and `eadieHofstee` were
+dead. All three transforms are now shown together as a diagnostic, with the
+nonlinear fit kept authoritative — each linearization reweights the errors
+differently, so their spread is the signal, not any one of them.
+
+**Buffer ratio for a target pH (Bio/Assay).** `bufferRatioForPh` was dead. This
+is the inverse of the Henderson-Hasselbalch entry and the direction a bench
+scientist actually needs. Warns when the target is more than a pH unit from the
+pKa, where the buffer has little capacity.
+
+**Also fixed, found while wiring the above: the One-way ANOVA default never
+worked.** `statGroups()` splits on a BLANK line or a semicolon, but the shipped
+default was "1 2 3
+4 5 6
+7 8 9" — single newlines — so it collapsed to one
+group of nine and the calculator opened showing "Enter at least two groups"
+instead of a worked example. Confirmed in the real pane before changing it. Both
+that default and the new Tukey one now use blank lines, and
+`statCalcDefaults.test.ts` pins the property for every Stats calculator that
+parses groups.
+
+Two corrections to the evaluation's dead-code list: `hanesWoolf` is NOT dead —
+`fitMichaelisMenten` uses it for its initial guess — and `substrateInhibitionV`
+is left unwired on purpose, being a model equation with no fitter. Exposing it
+would mean writing one or shipping a "predict v from parameters you already
+know" box.
+
+Every calculator was verified by driving the real built bundle headlessly and
+checking the output against independently computed values. 5 new tests, suite
+3138.
+
 ## [1.92.0] — 2026-07-26 — Truthfulness and gating
 
 Four things the product said about itself, or relied on, that were not true.

@@ -18,13 +18,29 @@ import { solveEquation } from "./solve";
 
 import { parseShareProblem, solveShares } from "./sharesequence";
 
+/**
+ * One line of shown work. `text` is prose; `math` is the pane's formula DSL, so
+ * the reasoning renders as real notation — fractions, superscripts, radicals and
+ * n-ary products — instead of ASCII. Templates that have no formulae simply
+ * leave `work` unset and their plain `steps` are shown as before.
+ */
+export interface WorkStep {
+  text?: string;
+  math?: string;
+}
+
 export interface WordProblemResult {
   template: string;
   answer: string;
   value: number;
-  /** The equation the parser built, when it translated one. */
+  /** The equation the parser built, when it translated one. Plain text. */
   equation?: string;
+  /** The same equation in the pane's math DSL, when it can be typeset. */
+  equationMath?: string;
+  /** Plain-text working — this is what gets inserted into the document. */
   steps: string[];
+  /** The same working, with the formulae kept as DSL for typeset display. */
+  work?: WorkStep[];
   caveats: string[];
 }
 
@@ -226,7 +242,9 @@ function tryShareSequence(original: string): WordProblemResult | null {
     answer: sol.answer,
     value: sol.value,
     equation: p.ofRemainder ? "P(k) = (k/100) x prod_{i<k} (1 - i/100)" : "P(k) = k/100",
+    equationMath: p.ofRemainder ? "P(k) = (k/100)*prod(i=1, k-1, (1 - i/100))" : "P(k) = k/100",
     steps: sol.steps,
+    work: sol.work,
     caveats: sol.caveats,
   };
 }

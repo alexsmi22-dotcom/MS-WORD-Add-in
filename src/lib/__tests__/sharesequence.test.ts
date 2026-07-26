@@ -10,6 +10,7 @@
 
 import { parseShareProblem, solveShares } from "../sharesequence";
 import { solveWordProblem } from "../wordproblem";
+import { parseMathAst } from "../mathParse";
 
 const PIE =
   "A pie is divided to 100 guest. Guest 1 gets 1%, guest 2 gets 2% of what's left, and so on. Who gets the largest piece of pie?";
@@ -132,12 +133,36 @@ describe("solveShares — the explanation", () => {
     expect(sol.answer).toContain("6.2816%");
   });
 
-  test("the work shows the recurrence, the ratio test and the root", () => {
-    const work = sol.steps.join("\n");
-    expect(work).toContain("P(k) = (k/100)");
-    expect(work).toContain("P(k+1) / P(k)");
-    expect(work).toContain("k² + k − 100 = 0");
-    expect(work).toContain("9.5125");
+  test("the plain working shows the recurrence, the ratio test and the root", () => {
+    // This is the text that gets inserted into the document, so it has to stand
+    // on its own without any typesetting.
+    const plain = sol.steps.join("\n");
+    expect(plain).toContain("P(k) = (k/100)");
+    expect(plain).toContain("P(k+1)/P(k)");
+    expect(plain).toContain("k^2 + k - 100 = 0");
+    expect(plain).toContain("9.5125");
+  });
+
+  test("the same working is also carried as typesettable formulae", () => {
+    const math = sol.work.map((w) => w.math ?? "").join("\n");
+    expect(math).toContain("prod(i=1, k-1, (1 - i/100))"); // the n-ary product
+    expect(math).toContain("P(k) = (k/100)*R(k)");
+    expect(math).toContain("P(k+1)/P(k)");
+    expect(math).toContain("k^2 + k - 100 = 0");
+    expect(math).toContain("sqrt(401)");
+  });
+
+  test("every formula in the working actually parses as math", () => {
+    // A DSL string the renderer cannot parse would fall back to plain segments
+    // and silently look wrong, so each one is checked here.
+    for (const w of sol.work) {
+      if (!w.math) continue;
+      expect(() => parseMathAst(w.math!)).not.toThrow();
+    }
+  });
+
+  test("plain and typeset working describe the same number of steps", () => {
+    expect(sol.work.length).toBe(sol.steps.length);
   });
 
   test("the work checks both neighbours, so the peak is shown not asserted", () => {

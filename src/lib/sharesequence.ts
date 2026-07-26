@@ -29,6 +29,12 @@ export interface ShareProblem {
   recipient: string;
 }
 
+/** One line of working: prose, a formula in the pane's math DSL, or both. */
+export interface ShareWorkStep {
+  text?: string;
+  math?: string;
+}
+
 export interface ShareSolution {
   answer: string;
   value: number;
@@ -39,6 +45,8 @@ export interface ShareSolution {
   /** Fraction of the whole still undistributed after everyone has taken theirs. */
   remaining: number;
   steps: string[];
+  /** The same working with formulae kept as DSL, for typeset rendering. */
+  work: ShareWorkStep[];
   caveats: string[];
 }
 
@@ -71,24 +79,35 @@ export function solveShares(p: ShareProblem): ShareSolution {
 
   const R = p.recipient;
   const steps: string[] = [];
+  const work: ShareWorkStep[] = [];
   const caveats: string[] = [];
 
+  // One source for both renderings so they cannot drift: `math` is the pane's
+  // formula DSL (typeset in the pane), `plain` is the same thing as text (what
+  // gets inserted into the document).
+  const add = (text?: string, math?: string, plain?: string): void => {
+    work.push({ text, math });
+    steps.push([text, plain ?? math].filter(Boolean).join(" ").trim());
+  };
+
   if (p.ofRemainder) {
-    steps.push(
-      `Take the whole ${p.subject} as 1. ${cap(R)} k takes k% of whatever is still undivided when they arrive.`,
-      `Left before ${R} k:   R(k) = (1 − 1/100)(1 − 2/100)…(1 − (k−1)/100)`,
-      `${cap(R)} k's share:  P(k) = (k/100) × R(k)`,
-      `Compare neighbours:   P(k+1) / P(k) = ((k+1)/k) × (1 − k/100)`,
-      `That ratio equals 1 when (k+1)(100 − k) = 100k, i.e. k² + k − 100 = 0.`,
-      `Positive root: k* = (−1 + √401) / 2 = ${KSTAR.toFixed(4)}`,
-      `So each share is bigger than the last while k < ${KSTAR.toFixed(2)}, and smaller after — the shares rise to a single peak, then fall.`,
-      `The peak is the whole number just above k*: k = ${Math.ceil(KSTAR)}.`,
+    add(`Take the whole ${p.subject} as 1. ${cap(R)} k takes k% of whatever is still undivided when they arrive.`);
+    add(
+      `Left before ${R} k:`,
+      "R(k) = prod(i=1, k-1, (1 - i/100))",
+      "R(k) = (1 - 1/100)(1 - 2/100)...(1 - (k-1)/100)",
     );
+    add(`${cap(R)} k's share:`, "P(k) = (k/100)*R(k)", "P(k) = (k/100) x R(k)");
+    add("Compare neighbours:", "P(k+1)/P(k) = ((k+1)/k)*(1 - k/100)", "P(k+1)/P(k) = ((k+1)/k) x (1 - k/100)");
+    add("That ratio equals 1 when", "k^2 + k - 100 = 0", "k^2 + k - 100 = 0");
+    add("Positive root:", `k = (-1 + sqrt(401))/2 = ${KSTAR.toFixed(4)}`, `k = (-1 + sqrt(401))/2 = ${KSTAR.toFixed(4)}`);
+    add(
+      `So each share is bigger than the last while k < ${KSTAR.toFixed(2)}, and smaller after — the shares rise to a single peak, then fall.`,
+    );
+    add(`The peak is the whole number just above that root: k = ${Math.ceil(KSTAR)}.`);
     const k = largest.k;
     const near = [k - 1, k, k + 1].filter((j) => j >= 1 && j <= n);
-    steps.push(
-      `Check either side: ${near.map((j) => `${R} ${j} = ${pct(pieces[j - 1])}`).join(", ")}.`,
-    );
+    add(`Check either side: ${near.map((j) => `${R} ${j} = ${pct(pieces[j - 1])}`).join(", ")}.`);
     caveats.push(
       "Each share is computed exactly from the recurrence, not estimated — the percentages are the real values, rounded only for display.",
     );
@@ -98,11 +117,10 @@ export function solveShares(p: ShareProblem): ShareSolution {
       );
     }
   } else {
-    steps.push(
-      `Take the whole ${p.subject} as 1. ${cap(R)} k takes k% of the ORIGINAL amount, not of the remainder.`,
-      `${cap(R)} k's share:  P(k) = k/100 — strictly increasing, so the last recipient gets the most.`,
-      `Total handed out: ${pct(1 - remaining, 2)} of the ${p.subject}.`,
-    );
+    add(`Take the whole ${p.subject} as 1. ${cap(R)} k takes k% of the ORIGINAL amount, not of the remainder.`);
+    add(`${cap(R)} k's share:`, "P(k) = k/100", "P(k) = k/100");
+    add("That rises with every recipient, so the last one gets the most.");
+    add(`Total handed out: ${pct(1 - remaining, 2)} of the ${p.subject}.`);
     if (remaining <= 0) {
       caveats.push(
         `The shares add up to more than the whole ${p.subject} — with this rule the ${p.subject} runs out before everyone is served.`,
@@ -134,7 +152,7 @@ export function solveShares(p: ShareProblem): ShareSolution {
       break;
   }
 
-  return { answer, value, pieces, largest, smallest, remaining, steps, caveats };
+  return { answer, value, pieces, largest, smallest, remaining, steps, work, caveats };
 }
 
 /** The positive root of k² + k − 100 = 0, where consecutive shares are equal. */

@@ -2,6 +2,34 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
+## [1.91.0] — 2026-07-26 — Solve: typeset reasoning, and room to type a word problem
+
+Both reported from real use of the v1.90.0 word-problem work.
+
+**The reasoning is now typeset.** The derivation was ASCII — "P(k) = (k/100) x
+R(k)", "k^2 + k - 100 = 0" — sitting in a product whose Math tool renders real
+notation. Each step now carries its formula in the pane's math DSL and is
+rendered through the same `mathToHtml` the Math tool uses, so the working shows
+a true fraction for k/100, an n-ary product with its limits above and below, a
+superscript on k squared, and sqrt(401) under a radical. The `Equation:` line is
+typeset the same way rather than being the one leftover ASCII line.
+
+Plain text and typeset formulae come from one source in `solveShares`, so they
+cannot drift, and the plain form is still what gets inserted into the document —
+a Word paragraph should not carry markup it cannot render.
+
+**The input is a textarea, five rows tall for word problems.** It was a
+single-line `<input>`, so a paragraph-long problem scrolled sideways and could
+not be read back or edited. Equations, derivatives and integrands keep one row.
+
+Verified by driving the real built bundle in a headless harness — selecting the
+tool, choosing the word-problem kind, typing the pie problem, and reading the
+rendered pane back — rather than by inspecting the markup.
+
+3 new tests, including one that parses every emitted formula to prove the
+renderer can actually typeset it: an unparseable DSL string falls back to plain
+segments and would look subtly wrong rather than failing. Suite 3127.
+
 ## [1.90.0] — 2026-07-26 — Solve: successive-share word problems
 
 Reported from real use. Typing

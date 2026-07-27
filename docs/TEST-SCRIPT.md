@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.7.0)
+# JurisLab — Manual Test Script (v2.8.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -290,6 +290,16 @@ cache and reopen:
   - `x^2/9 + y^2/4 = 1` -> **ellipse**, a = 3, b = 2, eccentricity ~ 0.745, foci listed.
   - `x^2 + y^2 = 0` -> reported as a **point** and flagged DEGENERATE, not as a circle.
   - `x*y = 1` -> **hyperbola**, with a 45 deg rotation reported.
+- [ ] **Topology / homology (v2.8.0).** Switch the dropdown to **Topology (homology)**.
+  - `torus` -> H_0 = Z, H_1 = Z^2, H_2 = Z; Betti 1, 2, 1; chi = 0.
+  - `sphere` -> H_0 = Z, H_1 = 0, H_2 = Z; chi = 2.
+  - `projective plane` -> **H_1 = Z/2** (TORSION) and a caveat saying a field
+    coefficient would have discarded it. chi = 1.
+  - `Klein bottle` -> H_1 = **Z + Z/2**, H_2 = 0, chi = 0.
+  - `circle` -> Z, Z. `figure eight` -> beta_1 = 2. `Mobius band` -> Z, Z.
+  - Type your own: `[0,1,2] [0,1,3] [0,2,3] [1,2,3]` (tetrahedron boundary) -> S^2.
+  - Every result must print **both** Euler characteristic lines and the sentence
+    saying the two agree. If it ever says the check FAILED, that is a real bug.
 - [ ] **Geometry inserts.** Insert a geometry result — the exact forms (9*pi, 2*sqrt(3))
   must arrive as real editable equations, with the working alongside.
 - [ ] **Insert is a REAL equation now (v2.6.0).** With any Solve result on screen press

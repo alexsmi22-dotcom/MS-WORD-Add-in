@@ -68,6 +68,7 @@ import { predictNmr, NmrResult, Nucleus } from "../lib/nmr";
 import { predictCoupling, predictCosy, predictHsqc, Cosy2D, Hsqc2D } from "../lib/nmr2d";
 import { solveEquation, differentiate, integrate, parseExpr, evalAst } from "../lib/solve";
 import { solveGeometry } from "../lib/geometryParse";
+import { solveTopology, BUILTIN_NAMES } from "../lib/homology";
 import { solveWordProblem, WorkStep } from "../lib/wordproblem";
 import { predictIr, IrResult } from "../lib/ir";
 import { predictUvVis, UvResult } from "../lib/uvvis";
@@ -7450,7 +7451,7 @@ async function insertSpectrumChart(): Promise<void> {
 // never answered with a guess.
 // ---------------------------------------------------------------------------
 
-type SolveKind = "equation" | "derivative" | "integral" | "geometry" | "word";
+type SolveKind = "equation" | "derivative" | "integral" | "geometry" | "topology" | "word";
 
 /** Plain-text form of the current result, for insertion into Word. */
 let currentSolveText = "";
@@ -7519,6 +7520,7 @@ function updateSolveUi(): void {
     derivative: "Expression to differentiate (e.g. sin(x^2))",
     integral: "Integrand (e.g. x^2)",
     geometry: "Geometry — a shape, points, or an equation in x and y",
+    topology: "Topology — a named space, or a list of maximal simplices",
     word: "Word problem (e.g. 12 is what percent of 48?)",
   };
   const placeholders: Record<SolveKind, string> = {
@@ -7526,6 +7528,7 @@ function updateSolveUi(): void {
     derivative: "sin(x^2)",
     integral: "x^2",
     geometry: "triangle 3 4 5",
+    topology: "torus",
     word: "twice a number plus 7 is 15",
   };
   const hints: Record<SolveKind, string> = {
@@ -7538,6 +7541,12 @@ function updateSolveUi(): void {
       "triangle a=6 b=8 A=30 (SSA — may give TWO answers). Points: triangle (0,0) (4,0) (0,3) · " +
       "polygon (0,0) (4,0) (4,4) (0,4) · distance (0,0) (3,4) · line (0,0) (2,4) · circle (1,0) (0,1) (-1,0). " +
       "Or just type a conic: x^2/9 + y^2/4 = 1.",
+    topology:
+      "Integral homology of a simplicial complex — computed over ℤ, so TORSION is kept " +
+      "(a field would silently discard it). Named spaces: torus · Klein bottle · sphere · " +
+      "projective plane · circle · Möbius band · annulus · figure eight · disk · point · S3. " +
+      "Or give the maximal simplices yourself: [0,1,2] [1,2,3] [0,2,3] [0,1,3]. " +
+      "Every result cross-checks its Euler characteristic two independent ways.",
     word: "Plain English — e.g. “12 is what percent of 48?” or “twice a number plus 7 is 15”.",
   };
   solveInputLabel.textContent = labels[kind];
@@ -7546,7 +7555,7 @@ function updateSolveUi(): void {
   // back and edited. Geometry gets two rows because a point list runs long.
   // Equations stay a single line.
   solveInput.classList.toggle("solve-input-tall", kind === "word");
-  solveInput.rows = kind === "word" ? 5 : kind === "geometry" ? 2 : 1;
+  solveInput.rows = kind === "word" ? 5 : kind === "geometry" || kind === "topology" ? 2 : 1;
   solveHint.textContent = hints[kind];
   solveBounds.style.display = kind === "integral" ? "block" : "none";
 }
@@ -7719,6 +7728,43 @@ function updateSolve(): void {
         say(s);
       }
       return finish(g.caveats);
+    }
+
+    if (kind === "topology") {
+      let h;
+      try {
+        h = solveTopology(text);
+      } catch (err) {
+        // A capped or malformed complex: say what happened, do not guess.
+        return void solveResult.appendChild(solveLine((err as Error).message, "ms-masses"));
+      }
+      if (!h) {
+        return void solveResult.appendChild(
+          solveLine(
+            `Couldn't read that as a space or a complex. Try a name (${BUILTIN_NAMES.slice(0, 6).join(", ")}…) ` +
+            `or a list of maximal simplices like [0,1,2] [1,2,3].`
+          )
+        );
+      }
+      solveResult.appendChild(msEyebrow(h.title));
+      say(h.title, "heading");
+      // The homology groups are the answer; everything else is supporting work.
+      for (let k = 0; k <= h.dimension; k++) {
+        const line = `H_${k} = ${h.groups[k]}`;
+        solveResult.appendChild(solveLine(line, "ms-masses"));
+        say(line);
+      }
+      const bet = `Betti numbers: ${h.betti.join(", ")}`;
+      const chi = `Euler characteristic χ = ${h.euler}`;
+      solveResult.appendChild(solveLine(bet, "ms-masses"));
+      solveResult.appendChild(solveLine(chi, "ms-masses"));
+      say(bet);
+      say(chi);
+      for (const s of h.steps) {
+        solveResult.appendChild(solveLine(s));
+        say(s);
+      }
+      return finish(h.caveats);
     }
 
     // word problem

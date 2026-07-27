@@ -1,6 +1,6 @@
 # JurisLab — Product Roadmap
 
-_Last updated: 2026-07-26 · Current release: **v2.7.0** (production)_
+_Last updated: 2026-07-26 · Current release: **v2.8.0** (production)_
 
 > The release number above is gated by `phase6.adversarial.test.ts` against
 > `package.json`. If they disagree, the suite fails — this file drifted five
@@ -357,6 +357,26 @@ Also fixed here: the Solve section blurb and the Examples panel both still claim
 transformations), then the topology releases — simplicial homology over ℤ via Smith Normal
 Form, then persistent homology. See the brief's §3 for the order and §0 for the
 decidability limits that scope π₁ deliberately hard.
+
+**v2.8.0 — simplicial homology over ℤ (Release T1).**
+`src/lib/homology.ts`: boundary matrices over ℤ, reduced by **Smith Normal Form** in bigint,
+giving Betti numbers AND torsion. `linalg.ts` is deliberately not reused — it is IEEE double
+with a 1e-9 pivot cutoff, which is the wrong regime for a ±1 boundary matrix and cannot see
+torsion at all. **Torsion is the entire point of working over ℤ:** H₁(ℝP²) = ℤ/2 and
+H₁(Klein) = ℤ ⊕ ℤ/2 both vanish into a bare Betti number over a field, and it is exactly the
+part that distinguishes a projective plane from a disk. SNF pivots on the SMALLEST nonzero
+entry each round, because naive pivoting causes integer coefficient explosion.
+**Self-check on every result:** the Euler characteristic is computed twice — the alternating
+sum of cell counts and the alternating sum of Betti numbers — and disagreement is reported as
+untrustworthy rather than quietly returned. Same discipline as the CAS differentiating its
+antiderivatives back.
+Built-in spaces are CONSTRUCTED from quotients where possible (the torus and Klein bottle come
+from a grid identification with an optional twist) rather than transcribed as face lists — a
+construction can be reasoned about, a copied list of 16 triangles cannot. Tests assert the
+textbook oracle (β(T²) = 1,2,1; H(S²) = Z,0,Z; H₁(ℝP²) = Z/2) plus ∂∘∂ = 0 on every complex.
+**NOT built:** persistent homology (T2), and the advanced list (Release A) — cellular homology,
+characteristic classes, cobordism, spectral sequences — which the brief splits by
+computability regime before any of it is attempted.
 
 **Genuinely open candidates:** deeper BVP/PDE/DAE
 support on the ODE side (out of scope today — state honestly). Confirm priority before building.

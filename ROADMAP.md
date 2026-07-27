@@ -1,6 +1,6 @@
 # JurisLab — Product Roadmap
 
-_Last updated: 2026-07-26 · Current release: **v2.16.0** (production)_
+_Last updated: 2026-07-26 · Current release: **v2.17.0** (production)_
 
 > The release number above is gated by `phase6.adversarial.test.ts` against
 > `package.json`. If they disagree, the suite fails — this file drifted five
@@ -623,6 +623,59 @@ RATIONAL roots were being found and that cubic's single real root is irrational 
 point existed and the sign was never tested. Sign changes are now located numerically as well,
 and any endpoint that came from that is declared approximate. Touching intervals are also merged,
 so `x² ≥ 0` reads (−∞, ∞) rather than two pieces meeting at zero.
+
+**v2.17.0 — advanced algebraic topology, tiers A2 and A3 (Release A, completed).**
+`src/lib/spectral.ts`. These are the two entries the A1 brief deliberately held back, and what
+ships is defined by what must NOT be claimed.
+
+- **Serre spectral sequences.** The E₂ page is genuinely computable — it is
+  H_p(B; H_q(F)), a tensor product of two known homologies — and it is computed, laid out as a
+  grid with q increasing upward the way it is drawn by hand. **The differentials are not
+  computed, and that is the feature.** The fibration S¹ → E → S² has exactly one possible d₂,
+  and that differential is not determined by the page: for the Hopf fibration it is an
+  isomorphism (E = S³) and for the trivial bundle it is zero (E = S¹ × S²). Same E₂ page,
+  different answer. So each possible differential is MARKED as undetermined and no H\*(E) is
+  reported. Collapse is the one case where an abutment is safe, and it is PROVED before it is
+  used — every possible differential has a zero end — and even then what is reported is the
+  associated graded, with the extension problem named (ℤ/4 and ℤ/2 ⊕ ℤ/2 have the same one).
+- **Stable homotopy groups of spheres** are a CITED TABLE, never a computation, and every result
+  says so and names Hatcher and Toda. Outside the tabulated range it reports "not tabulated
+  here" rather than continuing a pattern — πₙˢ has no formula, and extrapolating from 0, ℤ/2,
+  ℤ/2, ℤ/24 is exactly the mistake the module exists to refuse.
+
+**The bug test found three routing failures, one of them shipped.** Every engine had passing
+unit tests while three of them could not be reached from the pane, because routing is the one
+thing a unit test of an engine cannot check:
+
+- **`/\balexander\b/` contained literal BACKSPACE characters** where the two word-boundaries
+  should have been — a shell had eaten the backslashes on the way into the file. It compiles, it
+  lints clean, it looks right in an editor, and it can never match. So the Alexander polynomial
+  shipped in v2.16.0 unreachable, and every question about it was quietly answered with the
+  JONES polynomial instead. A repo-wide scan for this class of damage is now a permanent test
+  (`controlchars.adversarial.test.ts`); it also cleared a stray vertical tab in `toa.ts` and
+  confirmed the 0x07 bells in the table tests are the real Word cell terminators they claim.
+- **`pi1 trefoil` was answered with the stable homotopy group π₁ˢ**, because the new stem branch
+  was placed ahead of the knot branch and its `pi_?\d` pattern was greedier. Knot questions are
+  the more specific reading and now go first.
+- **`homology of torus` returned nothing**, because named spaces were looked up by exact string
+  and the framing words were never stripped.
+
+`routing.adversarial.test.ts` now checks that thirty-odd phrasings arrive at the right door,
+asserting on the ANSWER'S IDENTITY rather than its content. Separately, the PowerPoint export
+suite was found failing on a clean checkout: PptxGenJS 4.x changed its environment sniff from
+`typeof window` to `process.release.name`, so under jsdom it took its Node path and tried a
+dynamic `import("node:fs")` that Jest cannot evaluate. The add-in is unaffected — there is no
+`process` in a browser — and the test environment now masks those two markers, which makes it
+more like production rather than less.
+
+**The comprehensive sweep** then fed about forty hostile strings — empty, whitespace, NUL, an
+emoji, 400 characters of "x", unbalanced brackets, `1e999`, `0/0` — through every engine in
+Solve. Nothing hung, nothing threw, and nothing returned a wrong answer; the topology surface
+took 39 hostile inputs in 6 ms. Two results were confusing in the same way, and both are fixed:
+the limit of `sqrt(-1)` reported "Limit of NaN as x → 0", showing a folded artefact rather than
+what was typed and never saying why, and `NaN` parsed as a perfectly ordinary IDENTIFIER, so
+solving it produced an equation in a variable called NaN. Neither was a wrong answer, which is
+precisely why neither had been noticed.
 
 **Genuinely open candidates:** deeper BVP/PDE/DAE
 support on the ODE side (out of scope today — state honestly). Confirm priority before building.

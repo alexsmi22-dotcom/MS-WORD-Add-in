@@ -136,8 +136,29 @@ export function limit(input: string, variable = "x", point: LimitPoint = 0, side
   }
   const steps: string[] = [];
   const caveats: string[] = [];
+
+  // The simplifier folds constants, so an expression that is not real-valued
+  // collapses to a bare NaN or Infinity before anything else runs. Carrying
+  // that forward produced working that read "Limit of NaN as x → 0" for an
+  // input of sqrt(-1) — honest about having no answer, but it showed the user a
+  // folded artefact instead of what they typed, and never said WHY. Name the
+  // reason and echo the original.
+  const folded = format(e);
+  if (/NaN|Infinity/.test(folded)) {
+    const why = folded.includes("NaN")
+      ? "That expression is not defined over the real numbers — it evaluates to NaN before the limit is even taken (sqrt of a negative, or the log of a non-positive, are the usual causes)."
+      : "That expression overflows to infinity as a CONSTANT, before the limit is taken — a literal too large for double precision, or a log of zero. It is not a function of " + variable + ".";
+    return {
+      expression: input.trim(),
+      variable, point, side,
+      steps: [`Read as: ${input.trim()}`],
+      caveats: [why],
+      kind: "undetermined",
+    };
+  }
+
   const base: Omit<LimitResult, "kind"> = {
-    expression: format(e), variable, point, side, steps, caveats,
+    expression: folded, variable, point, side, steps, caveats,
   };
   const pretty = point === "inf" ? "∞" : point === "-inf" ? "−∞" : String(point);
   steps.push(`Limit of ${format(e)} as ${variable} → ${pretty}${side !== "both" && typeof point === "number" ? (side === "+" ? " from above" : " from below") : ""}.`);

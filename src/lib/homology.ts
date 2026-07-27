@@ -19,6 +19,7 @@
 import { parsePointCloud } from "./persistence";
 import { parseBraid, jonesPolynomial, wirtingerPresentation, KNOT_BRAIDS } from "./knots";
 import { alexanderPolynomial, kTheory } from "./alexander";
+import { serreE2, stableStem, SPECTRAL_SPACES, STABLE_RANGE } from "./spectral";
 import {
   cellularHomology, CW_BUILTIN, realProjectiveTangentClass,
   complexProjectiveTangentClass, realProjectiveCobordism, BEYOND,
@@ -377,6 +378,21 @@ export const BUILTIN: Record<string, () => Complex> = {
 /** Names a caller can offer; keeps the pane and the docs in step. */
 export const BUILTIN_NAMES = Object.keys(BUILTIN);
 
+// People type the question, not just the object: "homology of the torus",
+// "compute H_* of rp2". Strip the framing words so the lookup sees the
+// space name alone. Nothing here changes WHICH spaces are known.
+const FILLER =
+  /\b(compute|calculate|find|give|show|what|is|are|the|of|for|please|homology|cohomology|groups?|h_?\*|h\d*)\b/g;
+// "H_*" and "H*" cannot sit inside a word-boundary group — the asterisk is
+// not a word character, so the trailing boundary never matches. Strip them
+// first, on their own.
+// "H_*" and "H*" cannot live inside the word-boundary group above: the
+// asterisk is not a word character, so the trailing boundary never matches and
+// the whole token survives. Strip that spelling on its own, first.
+export const stripFiller = (s: string): string =>
+  s.replace(/h_?\*/gi, " ").replace(FILLER, " ").replace(/\s+/g, " ").trim();
+
+
 // ---------------------------------------------------------------------------
 // Typed input for Solve's topology kind.
 // ---------------------------------------------------------------------------
@@ -420,8 +436,65 @@ export function solveTopology(input: string): TopologyOutcome | null {
     if (cloud) return { kind: "persistence", cloud };
   }
 
+  const knot = knotQuery(raw, lower);
+  if (knot) return knot;
+
+  // A3: stable homotopy — a CITED table, and it says so.
+  // The index gets written several ways in practice — "stable pi_3",
+  // "pi_3^s", "stable homotopy 7" — so a keyword decides that a stem is
+  // wanted and the first integer near it decides which one.
+  const wantsStem = /\bstable\b|\bstem\b|homotopy|pi[_ ^]?\d|\u03c0/.test(lower);
+  const stem = /(?:pi|\u03c0|stem|stable|homotopy)\D{0,12}?(\d+)/.exec(lower);
+  if (stem && wantsStem) {
+    const r = stableStem(parseInt(stem[1], 10));
+    if (r) {
+      return {
+        kind: "advanced",
+        title: `Stable homotopy group pi_${r.n}^s`,
+        display: [`pi_${r.n}^s = ${r.group}`],
+        steps: r.steps,
+        caveats: r.caveats,
+      };
+    }
+  }
+
+  // A2: the E2 page of a Serre spectral sequence, differentials MARKED.
+  // Filler words vary ("serre s2 s1", "spectral sequence of s2 s3"), so
+  // rather than counting tokens by position, keep only the ones that name a
+  // space in the table. The order written is base then fibre.
+  if (/serre|spectral|fibration/.test(lower)) {
+    const named = (lower.match(/[a-z][a-z0-9^]*/g) ?? []).filter((t) =>
+      SPECTRAL_SPACES.includes(t.replace(/\^/g, ""))
+    );
+    const r =
+      named.length >= 2
+        ? serreE2(named[0], named[1]) ?? serreE2(named[1], named[0])
+        : null;
+    if (r) {
+      return {
+        kind: "advanced",
+        title: `Serre spectral sequence: ${r.fibration}`,
+        display: [
+          r.collapses
+            ? `The sequence COLLAPSES at E2 — proved, because every possible differential has a zero end.`
+            : `${r.differentials.length} differential(s) remain UNDETERMINED, so no H*(E) is reported.`,
+          ...(r.abutment ?? []),
+        ],
+        steps: [r.grid, ...r.steps, ...r.differentials.map((d) => `d_${d.r}: (${d.from.p},${d.from.q}) -> (${d.to.p},${d.to.q}) — UNDETERMINED.`)],
+        caveats: r.caveats,
+      };
+    }
+    return {
+      kind: "advanced",
+      title: "Serre spectral sequence",
+      display: ["Those spaces are not in the table."],
+      steps: [`Known spaces: ${SPECTRAL_SPACES.join(", ")}. Try: serre s2 s1 (for the fibration S^1 -> E -> S^2).`],
+      caveats: [],
+    };
+  }
+
   // K-theory is keyword-led and cannot be confused with anything else here.
-  if (/k[- ]?theory/.test(lower)) {
+  if (/k[- ]?theory/.test(lower)) {
     const kt = kTheory(lower.replace(/k[- ]?theory/, "").trim());
     if (kt) {
       return {
@@ -443,15 +516,20 @@ export function solveTopology(input: string): TopologyOutcome | null {
 
   // Knot queries come first: a braid word is unambiguous once the keyword is
   // present, and "trefoil" must not be mistaken for a space name.
-  const knot = knotQuery(raw, lower);
-  if (knot) return knot;
 
   // Advanced (A1) queries: characteristic classes and cobordism.
   const adv = advancedQuery(lower);
   if (adv) return adv;
 
   // A named space.
-  const named = ALIASES[lower] ?? (lower in BUILTIN ? lower : null);
+  const bare = stripFiller(lower);
+  const named =
+    ALIASES[lower] ??
+    (lower in BUILTIN ? lower : null) ??
+    ALIASES[bare] ??
+    (bare in BUILTIN ? bare : null) ??
+    ALIASES[bare.replace(/ /g, "")] ??
+    (bare.replace(/ /g, "") in BUILTIN ? bare.replace(/ /g, "") : null);
   if (named && BUILTIN[named]) {
     const c = BUILTIN[named]();
     const h = homology(c);
@@ -544,9 +622,25 @@ function advancedQuery(lower: string): TopologyOutcome | null {
     }
   }
 
+  // The keyword alone is a question this tool can answer, but not without a
+  // manifold. Say so rather than returning nothing.
+  if (/\b(cobord|null-?cobord)/.test(lower)) {
+    return {
+      kind: "advanced",
+      title: "Cobordism",
+      display: ["Name a manifold — cobordism is computed here for real projective spaces."],
+      steps: [
+        "Try: \"does RP^5 bound\" or \"cobordism of RP^4\". The answer comes from the Stiefel-Whitney numbers, which vanish exactly when the manifold is null-cobordant (Thom).",
+      ],
+      caveats: [
+        "Only UNORIENTED cobordism of RP^n is computed. Oriented cobordism, and other manifolds, are not.",
+      ],
+    };
+  }
+
   // Cellular homology of a named CW complex.
   if (/^cellular\b/.test(lower)) {
-    const key = lower.replace(/^cellular\s*/, "").replace(/\s+/g, "");
+    const key = stripFiller(lower.replace(/^cellular\s*/, "")).replace(/\s+/g, "");
     const make = CW_BUILTIN[key] ?? CW_BUILTIN[key.replace(/[^a-z0-9-]/g, "")];
     if (make) {
       const cw = make();
@@ -589,7 +683,7 @@ function advancedQuery(lower: string): TopologyOutcome | null {
 // ---------------------------------------------------------------------------
 
 function knotQuery(raw: string, lower: string): TopologyOutcome | null {
-  const wantsKnot = /\b(knot|jones|braid|link|wirtinger|pi1|π1|fundamental group of)\b/.test(lower);
+  const wantsKnot = /\b(knot|jones|braid|link|wirtinger|alexander|pi1|π1|fundamental group of)\b/.test(lower);
   if (!wantsKnot) return null;
 
   // A named knot, or a braid word typed out.
@@ -623,7 +717,7 @@ function knotQuery(raw: string, lower: string): TopologyOutcome | null {
   }
 
   // The Alexander polynomial, when asked for by name.
-  if (/alexander/.test(lower)) {
+  if (/alexander/.test(lower)) {
     const a = alexanderPolynomial(braid);
     if (!a) {
       return {

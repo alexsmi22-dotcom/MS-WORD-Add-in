@@ -6,12 +6,35 @@
  * task pane uses (its Node path needs dynamic `import("node:fs")`, which Jest
  * can't evaluate without --experimental-vm-modules).
  *
+ * jsdom alone stopped being enough at PptxGenJS 4.x: it used to sniff the
+ * environment with `typeof window`, and now reads `process.release.name`, which
+ * jsdom leaves as the real Node value. Every test in this file failed with
+ * "a dynamic import callback was invoked without --experimental-vm-modules"
+ * until the two markers below were masked. The add-in itself is unaffected —
+ * there is no `process` in the browser — so masking them here makes the test
+ * environment MORE like production, not less.
+ *
  * @jest-environment jsdom
  */
 import JSZip from "jszip";
 import { buildTablePptx } from "../ppt";
 import { parseTableData } from "../tablechart";
 import { prepareTableFigure } from "../tablefigure";
+
+// Applied at module scope: PptxGenJS re-reads these on every write() call.
+const realRelease = process.release;
+const realVersions = process.versions;
+beforeAll(() => {
+  Object.defineProperty(process, "release", { value: undefined, configurable: true });
+  Object.defineProperty(process, "versions", {
+    value: { ...realVersions, node: undefined },
+    configurable: true,
+  });
+});
+afterAll(() => {
+  Object.defineProperty(process, "release", { value: realRelease, configurable: true });
+  Object.defineProperty(process, "versions", { value: realVersions, configurable: true });
+});
 
 const chart = parseTableData([
   ["Year", "Sales", "Costs"],

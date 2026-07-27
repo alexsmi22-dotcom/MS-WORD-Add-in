@@ -388,7 +388,7 @@ const PAGE_LIST_RE = /^[ivxlcdm\d]+(?:\s*[,–—-]\s*[ivxlcdm\d]+)*$/i;
  */
 export function parseToaPages(text: string): Map<string, string> {
   const out = new Map<string, string>();
-  for (const line of text.split(/[\r\n\v]+/)) {
+  for (const line of text.split(/[\r\n\v]+/)) {
     const ti = line.lastIndexOf("\t");
     if (ti < 1) continue;
     const name = line.slice(0, ti).replace(/[\t.\s]+$/, "");

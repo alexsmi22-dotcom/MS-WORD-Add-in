@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.16.0)
+# JurisLab — Manual Test Script (v2.17.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -335,9 +335,41 @@ cache and reopen:
   - `does RP^5 bound` -> BOUNDS (5 is odd). `cobordism RP^2` -> does NOT bound.
   - `cellular rp2` -> H_1 = Z/2 from only 3 cells; compare `projective plane` which gives the
     same answer from the simplicial route.
-  - `spectral sequence`, `stable homotopy`, `fundamental group`, `homeomorphism` -> each must
-    EXPLAIN what is and is not computable and why. If any of these ever returns a confident
-    numeric answer, that is a serious bug.
+  - `fundamental group`, `homeomorphism` -> each must EXPLAIN what is and is not computable
+    and why. If either ever returns a confident numeric answer, that is a serious bug.
+  - `cobordism` on its own -> must ASK for a manifold, not return nothing.
+- [ ] **Alexander polynomial and K-theory (v2.16.0).** Still the **Topology (homology)** kind.
+  - `alexander trefoil` -> **Delta(t) = 1 - t + t^2**, knot determinant **3**, and the working
+    reports the Delta(t) = Delta(1/t) symmetry check having PASSED.
+    This one matters: through v2.16.0 it answered with the JONES polynomial instead.
+    If you see `V(t) = ...` here, the routing has regressed.
+  - `alexander figure-8` -> 1 - 3t + t^2, determinant 5.
+  - `jones trefoil` -> still V(t) = -t^-4 + t^-3 + t^-1. The two commands must give
+    DIFFERENT answers.
+  - `k-theory S^2` -> K^0 = Z + Z, K^1 = 0, reduced K^0 = Z, and the working must name
+    **Bott periodicity** rather than reading a table.
+  - `k-theory CP^3` -> K^0 = Z^4, K^1 = 0, explained by the absence of odd cells.
+- [ ] **Spectral sequences and stable homotopy (v2.17.0).** Still the **Topology (homology)**
+  kind. The whole point of this section is what is REFUSED.
+  - `serre s2 s1` -> an E_2 grid with q increasing UPWARD, and **one differential marked
+    UNDETERMINED**. It must NOT report H*(E). If it ever does, that is the most serious bug
+    this tool can have: the Hopf fibration and the trivial bundle share this exact page and
+    have different answers.
+  - `serre s2 s3` -> **COLLAPSES**, and the working must say the collapse was PROVED (no
+    differential has both ends nonzero), not assumed. The abutment is labelled the
+    **associated graded**, with the extension problem named.
+  - `spectral sequence of s2 s1` and `fibration s2 s1` -> the same answer as `serre s2 s1`;
+    the filler words must not change the reading.
+  - `serre nonsense s1` -> says those spaces are not in the table and lists the ones that are.
+  - `stable pi_3` -> **pi_3^s = Z/24**, labelled a **LOOKUP from a published table**, naming
+    Hatcher and Toda, and warning against extrapolating.
+  - `stable homotopy 7` -> Z/240. `stable pi_4` -> 0.
+  - `stable homotopy 99` -> **"not tabulated here"**. It must NOT invent a group or continue
+    the pattern.
+  - `pi1 trefoil` -> still the **Wirtinger presentation**, NOT the stable stem pi_1^s. These
+    two collided before shipping.
+  - `homology of the torus` -> Z, Z^2, Z. Phrasing it as a question must work as well as
+    typing `torus` alone.
 - [ ] **Persistent homology (v2.10.0).** In the **Topology (homology)** kind, PASTE a point
   cloud instead of a name — one point per line. A rough circle, e.g.:
   `1 0` / `0.7 0.7` / `0 1` / `-0.7 0.7` / `-1 0` / `-0.7 -0.7` / `0 -1` / `0.7 -0.7`

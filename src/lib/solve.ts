@@ -143,6 +143,13 @@ class Parser {
         if (!(name in EVAL_FN)) throw new Error(`Unknown function "${name}".`);
         return { t: "fn", name, arg };
       }
+      // "NaN" and "Infinity" parse as perfectly ordinary identifiers, so typing
+      // either one produced an equation in a variable called NaN and working
+      // that read "1·NaN^1 + 0·NaN^0 = 0". Whatever the user meant, they did
+      // not mean that. Refuse by name.
+      if (/^(nan|infinity|inf|undefined)$/i.test(name)) {
+        throw new Error(`"${name}" is not a value this can solve for.`);
+      }
       // Implicit multiplication like "2x" is handled by the tokenizer only for a
       // number immediately followed by an identifier (see number branch).
       return { t: "var", name };

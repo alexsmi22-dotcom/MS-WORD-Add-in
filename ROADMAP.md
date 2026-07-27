@@ -1,6 +1,6 @@
 # JurisLab — Product Roadmap
 
-_Last updated: 2026-07-26 · Current release: **v2.4.0** (production)_
+_Last updated: 2026-07-26 · Current release: **v2.4.1** (production)_
 
 > The release number above is gated by `phase6.adversarial.test.ts` against
 > `package.json`. If they disagree, the suite fails — this file drifted five
@@ -278,6 +278,16 @@ on numeric fields — TypeScript caught that rather than my papering over it wit
 Verified by driving all four tools in the real bundle (19/21/15/15 calculators, fields
 rendered and results computed, including on a differently-shaped last calculator in each),
 plus the id-wiring audit which is what would catch an id-prefix collision.
+
+**v2.4.1 — Solve gave a confidently wrong answer to a two-body problem.**
+"Two trains 300 km apart travelling toward each other at 60 and 90 km/h, when do they meet?"
+is 2 hours. It answered **3.33 hours**, with the working "time = distance / rate = 300 / 90"
+attached. Reworded it said 5 hours instead: `exec` returns the FIRST match and which speed
+appears first is arbitrary. Found while probing Solve's ceiling, not by looking for it.
+Now the closing/separating case is actually solved (the speeds add, and the working shows the
+combined rate), and anything the one-body template cannot represent — two distances, two
+times, two speeds with no stated geometry — is REFUSED rather than approximated. Also fixed:
+"90 km/h" was counting as a distance in km, because DIST_UNITS contains "km".
 
 **Genuinely open candidates:** deeper BVP/PDE/DAE
 support on the ODE side (out of scope today — state honestly). Confirm priority before building.

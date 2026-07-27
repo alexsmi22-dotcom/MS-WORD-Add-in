@@ -121,6 +121,64 @@ function tryDistanceRateTime(t: string): WordProblemResult | null {
   const asksTime = /\b(how long|what time|how much time)\b/.test(t);
   const asksSpeed = /\b(how fast|what speed|average speed|what rate)\b/.test(t);
 
+  // How many of each quantity the text actually contains.
+  //
+  // The one-body template can hold exactly one of each, and `exec` silently
+  // takes the first of several — which is how a two-train problem came to be
+  // answered with one train's speed and authoritative-looking working.
+  //
+  // A distance must NOT be followed by "/" or "per": "90 km/h" contains "km",
+  // so without that guard every speed also counted as a distance and ordinary
+  // one-body questions were refused.
+  const countAll = (src: string): number => (t.match(new RegExp(src, "g")) ?? []).length;
+  const DIST_ONLY = `${NUM} ${DIST_UNITS}\\b(?!\\s*/|\\s*per)`;
+  const nTimes = countAll(`${NUM} ${TIME_UNITS}\\b`);
+  const nDists = countAll(DIST_ONLY);
+
+  // Rates, including the elided form "60 and 90 km/h", where two numbers share
+  // one unit. Counting explicit "N unit" matches finds only the second.
+  const rates: number[] = [];
+  const elided = new RegExp(`${NUM}\\s*(?:and|,)\\s*${NUM}\\s*${SPEED_UNITS}`).exec(t);
+  if (elided) {
+    rates.push(+elided[1], +elided[2]);
+  } else {
+    const rateRe = new RegExp(`${NUM} ${SPEED_UNITS}`, "g");
+    let rm: RegExpExecArray | null;
+    while ((rm = rateRe.exec(t)) !== null) rates.push(+rm[1]);
+  }
+  const nRates = rates.length;
+
+  // Two bodies approaching or separating: their speeds ADD. Claimed only when
+  // the wording is explicit, so this does not become a new way to guess.
+  const towardEachOther = /\b(toward each other|towards each other|approach each other)\b/.test(t);
+  const oppositeWays = /\b(opposite directions|away from each other)\b/.test(t);
+  if ((towardEachOther || oppositeWays) && nRates === 2 && nDists === 1) {
+    const d = +new RegExp(DIST_ONLY).exec(t)![1];
+    const combined = rates[0] + rates[1];
+    if (combined > 0) {
+      const v = d / combined;
+      return {
+        template: "distance = combined rate × time",
+        value: v,
+        answer: fmt(v),
+        steps: [
+          `combined rate = ${fmt(rates[0])} + ${fmt(rates[1])} = ${fmt(combined)}`,
+          `time = distance ÷ combined rate = ${fmt(d)} ÷ ${fmt(combined)} = ${fmt(v)}`,
+        ],
+        caveats: [
+          towardEachOther
+            ? "Two bodies approaching: their speeds add, so the gap closes at the combined rate."
+            : "Two bodies separating: their speeds add, so the gap opens at the combined rate.",
+          "Assumes both start at the same moment, constant speed, and consistent units.",
+        ],
+      };
+    }
+  }
+
+  // More of any quantity than the one-body template can hold: refuse. Picking
+  // one and answering is precisely the failure this guard exists to stop.
+  if (nRates > 1 || nTimes > 1 || nDists > 1) return null;
+
   if (rate && time && (asksDistance || !dist)) {
     const r = +rate[1], tm = +time[1];
     const v = r * tm;

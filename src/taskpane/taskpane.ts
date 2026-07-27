@@ -67,6 +67,7 @@ import { computeMassSpec, MassSpecResult } from "../lib/massspec";
 import { predictNmr, NmrResult, Nucleus } from "../lib/nmr";
 import { predictCoupling, predictCosy, predictHsqc, Cosy2D, Hsqc2D } from "../lib/nmr2d";
 import { solveEquation, differentiate, integrate, parseExpr, evalAst } from "../lib/solve";
+import { solveSystem, splitEquations } from "../lib/systems";
 import { solveGeometry } from "../lib/geometryParse";
 import { solveTopology, BUILTIN_NAMES } from "../lib/homology";
 import { persistentHomology, barcodeSvg } from "../lib/persistence";
@@ -7594,7 +7595,9 @@ function updateSolveUi(): void {
   // back and edited. Geometry gets two rows because a point list runs long.
   // Equations stay a single line.
   solveInput.classList.toggle("solve-input-tall", kind === "word");
-  solveInput.rows = kind === "word" ? 5 : kind === "geometry" || kind === "topology" ? 2 : 1;
+  // An equation box now accepts a SYSTEM, one equation per line, so it needs
+  // more than one row to be usable.
+  solveInput.rows = kind === "word" ? 5 : kind === "equation" ? 3 : kind === "geometry" || kind === "topology" ? 2 : 1;
   solveHint.textContent = hints[kind];
   solveBounds.style.display = kind === "integral" ? "block" : "none";
 }
@@ -7653,6 +7656,49 @@ function updateSolve(): void {
 
   try {
     if (kind === "equation") {
+      // SEVERAL equations means a SYSTEM. Two or more lines each containing an
+      // "=" is unambiguous — a single equation never spans lines.
+      const eqs = splitEquations(text);
+      if (eqs.length > 1) {
+        const sys = solveSystem(eqs);
+        if (!sys) {
+          return void solveResult.appendChild(
+            solveLine("Couldn't parse that system. Put one equation per line, e.g. \"x + y = 3\" then \"x - y = 1\".")
+          );
+        }
+        const title = `System of ${eqs.length} equations in ${sys.variables.length} unknown${sys.variables.length === 1 ? "" : "s"} (${sys.variables.join(", ")})`;
+        solveResult.appendChild(msEyebrow(title));
+        say(title, "heading");
+        if (sys.kind === "unique" && sys.exact) {
+          for (const v of sys.variables) {
+            const line = `${v} = ${sys.exact[v]}`;
+            solveResult.appendChild(solveLine(line, "ms-masses"));
+            sayMath(line);
+          }
+        } else if (sys.kind === "infinite" && sys.general) {
+          // The GENERAL solution — reporting one point would misrepresent it.
+          for (const g of sys.general) {
+            solveResult.appendChild(solveLine(g, "ms-masses"));
+            say(g);
+          }
+        } else if (sys.kind === "nonlinear" && sys.numeric) {
+          sys.numeric.forEach((sol, i) => {
+            const line = `Solution ${i + 1}: ` + sys.variables.map((v) => `${v} = ${trimNum(sol[v])}`).join(", ");
+            solveResult.appendChild(solveLine(line, "ms-masses"));
+            say(line);
+          });
+        } else {
+          const msg = sys.kind === "none" ? "No solution — the equations contradict each other." : "Could not solve this system.";
+          solveResult.appendChild(solveLine(msg, "ms-masses"));
+          say(msg);
+        }
+        for (const st of sys.steps) {
+          solveResult.appendChild(solveLine(st));
+          say(st);
+        }
+        return finish(sys.caveats);
+      }
+
       let r = solveEquation(text);
       if (!r) return void solveResult.appendChild(solveLine("Couldn't parse that equation. Try e.g. x^2 - 5x + 6 = 0."));
       // A chip choice re-solves for that unknown — the symbolic rearrangement

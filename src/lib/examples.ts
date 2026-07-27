@@ -177,6 +177,7 @@ export const MODE_EXAMPLES: Record<ExampleMode, string> = {
     </p>
     <ul>
       <li><strong>Solve an equation:</strong> <code>x^2 - 5x + 6 = 0</code> → x = 3, 2 (exact); <code>x^3 - 1 = 0</code> → all three roots, real and complex; <code>cos(x) = 0</code> → numeric roots.</li>
+      <li><strong>Systems:</strong> type several equations, one per line — <code>x + y = 3</code> / <code>x - y = 1</code> → x = 2, y = 1, exactly. It says whether there is one solution, none, or <strong>infinitely many</strong> (naming the free variables) rather than inventing a single answer.</li>
       <li><strong>Rearrange a formula:</strong> <code>F = m*a</code> → chips let you solve for <em>F</em>, <em>m</em> or <em>a</em>; picking <em>a</em> gives <code>a = F/m</code> with the condition <code>m ≠ 0</code>.</li>
       <li><strong>Differentiate:</strong> <code>sin(x^2)</code> → <code>2*x*cos(x^2)</code>; <code>sin(x)*cos(x)</code> → <code>cos(x)^2 - sin(x)^2</code>.</li>
       <li><strong>Definite integral:</strong> <code>x^2</code> from 0 to 3 → 9, <strong>exact</strong>, showing F(x) = x³/3. Also <code>x*exp(x)</code>, <code>ln(x)</code>, <code>1/(x^2+4)</code> — by parts, substitution and partial fractions.</li>

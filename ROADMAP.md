@@ -1,6 +1,6 @@
 # JurisLab — Product Roadmap
 
-_Last updated: 2026-07-26 · Current release: **v2.12.0** (production)_
+_Last updated: 2026-07-26 · Current release: **v2.13.0** (production)_
 
 > The release number above is gated by `phase6.adversarial.test.ts` against
 > `package.json`. If they disagree, the suite fails — this file drifted five
@@ -557,6 +557,37 @@ it is Z for every one of them.
 Honesty carried on every result: the Jones polynomial is NOT a complete invariant — distinct
 knots share it, and whether it detects the unknot is an open problem — so a match is evidence,
 never proof.
+
+**v2.13.0 — systems of equations (CAS brief's 'later' list).**
+`src/lib/systems.ts`. The most-requested thing a solver can lack, and the highest-value item
+left anywhere on the list. Type several equations, one per line.
+
+**Linear systems are solved EXACTLY** by reduced row echelon form over the CAS's rationals, so
+`x/3 + y/7 = 1` comes out with no rounding anywhere. But the arithmetic is not the valuable
+part — the CLASSIFICATION is. A linear system has exactly one solution, none, or infinitely
+many, and which one falls straight out of the rank. Reporting `x = 2.0000, y = 1.0000` for a
+system that actually has a whole LINE of solutions is precisely the confident wrong answer this
+project keeps designing out, so an underdetermined system returns its **general solution with
+the free variables named**, and an inconsistent one says which row proved it.
+
+**Nonlinear systems** go to Newton from many starting points, each root substituted back before
+it is reported, and the result states plainly that other solutions may exist.
+
+**The adversarial pass found two defects, one of them serious:**
+- **SPURIOUS DUPLICATE ROOTS.** Where the Jacobian is singular at a root the equations are FLAT
+  there, so a residual under 1e-9 is satisfied by points ~1e-4 away. Merging only at 1e-6 meant
+  `sin(x) = x` — which has exactly ONE real root — was reported as **twenty-eight distinct
+  solutions**, and `x² = y² = 0` reported the origin three times. Telling someone there are 28
+  solutions when there is one is worse than finding none. Roots now merge at the accuracy the
+  method can actually achieve, the tolerance is disclosed, and genuinely distinct roots like
+  (3,4) and (4,3) are still kept apart.
+- `e` and `pi` are CONSTANTS in this grammar, so `e = 4` quietly vanished from the unknowns and
+  the failure was then blamed on Newton needing as many equations as unknowns. It now names the
+  real problem and suggests renaming the variable.
+
+Newton's starting points are also deliberately ASYMMETRIC across coordinates now: giving every
+coordinate the same value made symmetric systems degenerate, so `x² + y² = 25` with `x + y = 7`
+found only one of (3,4) and (4,3).
 
 **Genuinely open candidates:** deeper BVP/PDE/DAE
 support on the ODE side (out of scope today — state honestly). Confirm priority before building.

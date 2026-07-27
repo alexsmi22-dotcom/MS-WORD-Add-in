@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.12.0)
+# JurisLab — Manual Test Script (v2.13.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -266,6 +266,15 @@ cache and reopen:
 - [ ] **All roots (cubic):** `x^3 - 1 = 0` → **three** roots — `1` and `-0.5 ± 0.866i`,
   method *complete (all roots)*. `x^4 - 1 = 0` → `1, -1, i, -i`. Repeated roots show ×2/×3.
 - [ ] `x + 1 = x + 2` → **No solution**; `2*(x+1) = 2*x+2` → **identity**.
+- [ ] **Systems of equations (v2.13.0).** In the **Solve an equation** kind, type MORE THAN
+  ONE equation, one per line.
+  - `x + y = 3` / `x - y = 1` -> x = 2, y = 1, method says UNIQUE.
+  - `x/3 + y/7 = 1` / `x/3 - y/7 = 0` -> x = 3/2, y = 7/2 EXACTLY (fractions, not decimals).
+  - `x + y = 1` / `x + y = 2` -> No solution, and it says the equations contradict each other.
+    It must NOT report numbers.
+  - `x + y = 3` / `2*x + 2*y = 6` -> INFINITELY many, with `x = 3 - y` and `y is free`.
+    It must NOT pick one arbitrary point.
+  - `x^2 + y^2 = 25` / `x + y = 7` -> two solutions, (3,4) and (4,3), flagged numeric.
 - [ ] **Rearrange (v2.5.0 CAS):** `F = m*a` → "more than one unknown" message with
   **Solve for: F · m · a** chips. Click **a** → **a = F/m**, method
   *exact (symbolic rearrangement)*, caveat **requires m ≠ 0**. Click **m** → `m = F/a`.

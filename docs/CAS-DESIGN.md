@@ -111,8 +111,9 @@ which do not exist until Release 1 lands. Correctness net is different too —
 **every antiderivative must be checked by differentiating it back** and comparing
 canonical forms, which is only possible once equality works.
 
-**Later, in no fixed order** — these were the other three directions and remain
-open: systems of equations (linear exactly via `linalg.ts`, nonlinear by Newton),
+**Later, in no fixed order** — ~~systems of equations~~ **SHIPPED v2.13.0**
+(`src/lib/systems.ts`; exact RREF over the CAS rationals rather than `linalg.ts`,
+which is float and would make the rank test unreliable). Still open:
 inequalities, limits, series/Taylor, symbolic ODEs; Word-native typeset
 derivations (see §5); units-aware solving.
 

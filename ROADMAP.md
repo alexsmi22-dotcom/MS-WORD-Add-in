@@ -1,6 +1,6 @@
 # JurisLab — Product Roadmap
 
-_Last updated: 2026-07-26 · Current release: **v2.20.0** (production)_
+_Last updated: 2026-07-26 · Current release: **v2.21.0** (production)_
 
 > The release number above is gated by `phase6.adversarial.test.ts` against
 > `package.json`. If they disagree, the suite fails — this file drifted five
@@ -807,6 +807,32 @@ produces by typing a bad formula.
 `numerics.adversarial.test.ts` pins all of it — 75 tests, every one asserting on TIME as
 well as value, because a solver bug in this family does not return a wrong answer, it does
 not return.
+
+**v2.21.0 — the version bump stops corrupting history.** The last outstanding defect from
+the v2.20.0 pass, and the only one that had been reported and left unfixed.
+
+There was no bump script: each release was bumped by hand with a blanket "replace the old
+version string with the new one" across whole documents. That is correct for the handful
+of places naming the CURRENT release and wrong for every sentence recording WHEN something
+shipped — so each release quietly dragged the previous release's tags forward. It ran
+undetected for several versions: "Spectral sequences and stable homotopy" had walked from
+v2.17.0 to v2.20.0 and "Nothing freezes Word" from v2.18.0 to v2.19.0, purely by sitting
+in the same file as a version marker.
+
+- `scripts/bump-version.js` now edits an explicit, closed list of six sites — the version
+  in `package.json`, the `<Version>` in both manifests, the README status line, the
+  ROADMAP current-release line, and the TEST-SCRIPT title. **It refuses to run** if any of
+  them fails to match exactly once, rather than guessing at a document whose shape has
+  changed. On this release it touched 6 files, one line each; the old approach rewrote
+  seven lines in ROADMAP.md alone.
+- `versionTags.adversarial.test.ts` pins every tagged entry in the manual test script to
+  the release that actually introduced it, and fails if one moves. It also checks that no
+  tagged entry goes unpinned, so a new feature cannot be added without being recorded.
+
+**An audit of the existing damage found none beyond the two already repaired** — matching
+each tagged entry against the commit that introduced it, across TEST-SCRIPT.md, ROADMAP.md
+and FEATURES.md. The five remaining flags were false positives from repeated boilerplate
+("Still the **Topology (homology)** kind."), not walked tags.
 
 **Genuinely open candidates:** deeper BVP/PDE/DAE
 support on the ODE side (out of scope today — state honestly). Confirm priority before building.

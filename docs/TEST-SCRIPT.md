@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.13.0)
+# JurisLab — Manual Test Script (v2.14.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -266,6 +266,15 @@ cache and reopen:
 - [ ] **All roots (cubic):** `x^3 - 1 = 0` → **three** roots — `1` and `-0.5 ± 0.866i`,
   method *complete (all roots)*. `x^4 - 1 = 0` → `1, -1, i, -i`. Repeated roots show ×2/×3.
 - [ ] `x + 1 = x + 2` → **No solution**; `2*(x+1) = 2*x+2` → **identity**.
+- [ ] **Limits and series (v2.14.0).** In the **Differentiate** kind.
+  - `limit sin(x)/x as x -> 0` -> 1, and the working mentions L'Hopital.
+  - `limit abs(x)/x as x -> 0` -> must say the limit DOES NOT EXIST. If it reports 1, that is
+    a serious bug.
+  - `limit abs(x)/x as x -> 0+` -> 1; `... as x -> 0-` -> -1.
+  - `lim 1/x as x -> inf` -> 0. `lim 1/x as x -> 0+` -> diverges to +inf.
+  - `taylor exp(x) order 5` -> 1 + x + 1/2*x^2 + 1/6*x^3 + 1/24*x^4, as FRACTIONS not decimals,
+    with an O(x^6) term shown.
+  - `maclaurin sin(x)` -> only odd powers, alternating signs.
 - [ ] **Systems of equations (v2.13.0).** In the **Solve an equation** kind, type MORE THAN
   ONE equation, one per line.
   - `x + y = 3` / `x - y = 1` -> x = 2, y = 1, method says UNIQUE.

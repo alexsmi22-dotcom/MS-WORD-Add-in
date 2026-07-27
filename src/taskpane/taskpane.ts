@@ -68,6 +68,7 @@ import { predictNmr, NmrResult, Nucleus } from "../lib/nmr";
 import { predictCoupling, predictCosy, predictHsqc, Cosy2D, Hsqc2D } from "../lib/nmr2d";
 import { solveEquation, differentiate, integrate, parseExpr, evalAst } from "../lib/solve";
 import { solveSystem, splitEquations } from "../lib/systems";
+import { limit, taylorSeries, parseLimitRequest, parseSeriesRequest } from "../lib/analysis";
 import { solveGeometry } from "../lib/geometryParse";
 import { solveTopology, BUILTIN_NAMES } from "../lib/homology";
 import { persistentHomology, barcodeSvg } from "../lib/persistence";
@@ -7547,7 +7548,7 @@ function updateSolveUi(): void {
   const kind = solveKind.value as SolveKind;
   const labels: Record<SolveKind, string> = {
     equation: "Equation (e.g. x^2 - 5x + 6 = 0)",
-    derivative: "Expression to differentiate (e.g. sin(x^2))",
+    derivative: "Differentiate, take a limit, or expand a series",
     integral: "Integrand (e.g. x^2)",
     geometry: "Geometry — a shape, points, or an equation in x and y",
     topology: "Topology — a named space, or a list of maximal simplices",
@@ -7563,7 +7564,9 @@ function updateSolveUi(): void {
   };
   const hints: Record<SolveKind, string> = {
     equation: "Use ^ for powers — type x^2 for x². Functions: sqrt, sin, cos, exp, ln; constants pi, e. Pasted superscripts like x² also work. A formula with several symbols — F = m*a — offers a choice of which one to solve for.",
-    derivative: "Use ^ for powers — e.g. x^2, exp(x), sin(x^2). Pasted superscripts like x² also work.",
+    derivative: "Use ^ for powers — e.g. x^2, exp(x), sin(x^2). Pasted superscripts like x² also work. " +
+      "This box also takes LIMITS — limit sin(x)/x as x -> 0, lim 1/x as x -> inf, limit 1/x as x -> 0+ — " +
+      "and SERIES: taylor exp(x) order 5, maclaurin sin(x), series sqrt(x) about 1 order 4.",
     integral: "Use ^ for powers. The limits may be numbers or expressions like pi/2.",
     geometry:
       "Shapes: circle r=3 · sphere r=2 · cylinder r=2 h=5 · box 1 2 3 · polygon n=6 a=2. " +
@@ -7746,6 +7749,38 @@ function updateSolve(): void {
     }
 
     if (kind === "derivative") {
+      // "limit ... as x -> 0" and "taylor ..." share this kind: it is where the
+      // calculus lives, and both are unambiguous from their leading keyword.
+      const lim = parseLimitRequest(text);
+      if (lim) {
+        const lr = limit(lim.expr, lim.variable, lim.point, lim.side);
+        if (!lr) return void solveResult.appendChild(solveLine("Couldn't parse that limit. Try: limit sin(x)/x as x -> 0"));
+        const pretty = lim.point === "inf" ? "∞" : lim.point === "-inf" ? "−∞" : String(lim.point);
+        const head = `Limit as ${lim.variable} → ${pretty}${lim.side === "+" ? " (from above)" : lim.side === "-" ? " (from below)" : ""}`;
+        solveResult.appendChild(msEyebrow(head));
+        say(head, "heading");
+        const answer =
+          lr.kind === "finite" ? `= ${lr.exact ?? trimNum(lr.value!)}`
+          : lr.kind === "infinite" ? `= ${lr.value! > 0 ? "+∞" : "−∞"} (diverges)`
+          : lr.kind === "does-not-exist" ? "The limit DOES NOT EXIST."
+          : "Could not be established.";
+        solveResult.appendChild(solveLine(answer, "ms-masses"));
+        say(answer);
+        for (const st of lr.steps) { solveResult.appendChild(solveLine(st)); say(st); }
+        return finish(lr.caveats);
+      }
+      const ser = parseSeriesRequest(text);
+      if (ser) {
+        const sr = taylorSeries(ser.expr, ser.variable, ser.centre, ser.order);
+        if (!sr) return void solveResult.appendChild(solveLine("Couldn't expand that as a series — check it is differentiable at the centre. Try: taylor exp(x) order 5"));
+        const head = `${ser.centre === 0 ? "Maclaurin" : "Taylor"} series about ${ser.variable} = ${ser.centre}`;
+        solveResult.appendChild(msEyebrow(head));
+        say(head, "heading");
+        solveResult.appendChild(solveLine(sr.display, "ms-masses"));
+        sayMath(sr.display.replace(/ + O(.*)$/, ""), sr.display);
+        for (const st of sr.steps) { solveResult.appendChild(solveLine(st)); say(st); }
+        return finish(sr.caveats);
+      }
       const r = differentiate(text);
       if (!r) return void solveResult.appendChild(solveLine("Couldn't parse that expression. Try e.g. sin(x^2)."));
       solveResult.appendChild(msEyebrow(`Derivative with respect to ${r.variable}`));

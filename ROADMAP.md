@@ -1,6 +1,6 @@
 # JurisLab — Product Roadmap
 
-_Last updated: 2026-07-26 · Current release: **v2.13.0** (production)_
+_Last updated: 2026-07-26 · Current release: **v2.14.0** (production)_
 
 > The release number above is gated by `phase6.adversarial.test.ts` against
 > `package.json`. If they disagree, the suite fails — this file drifted five
@@ -588,6 +588,25 @@ it is reported, and the result states plainly that other solutions may exist.
 Newton's starting points are also deliberately ASYMMETRIC across coordinates now: giving every
 coordinate the same value made symmetric systems degenerate, so `x² + y² = 25` with `x + y = 7`
 found only one of (3,4) and (4,3).
+
+**v2.14.0 — limits and Taylor series (CAS "later" list).**
+`src/lib/analysis.ts`. Limits by direct substitution, then L'Hôpital for 0/0 and ∞/∞; limits at
+±∞ are handled by substituting x = 1/t, which turns every question about infinity into one the
+same machinery answers. **Every symbolic answer is cross-checked numerically** and withdrawn if
+the two disagree — the same discipline as the integrator differentiating its antiderivatives back.
+Taylor/Maclaurin series come from repeated CAS differentiation with **exact rational coefficients**,
+so eˣ gives 1, 1, 1/2, 1/6, 1/24 rather than decimals, and the truncation is always shown.
+
+**Four defects found by the probe, one serious:**
+- **A TWO-SIDED LIMIT WAS REPORTED WHERE NONE EXISTS.** `abs(x)/x` at 0 is −1 from below and +1
+  from above, so there is no two-sided limit — but the indeterminate 0/0 sent it down the
+  L'Hôpital path, and the fallback probe sampled only from ABOVE and confidently returned 1.
+  Both sides are now checked BEFORE any answer is produced.
+- Divergence was tested against an absolute threshold of 1e12, so `1/x` at 1e-7 — only 1e7 —
+  read as "undetermined" instead of +∞. It now tests for GROWTH.
+- The probe was too shallow for slowly-decaying limits: ln(x)/x is still 1.6e-6 at x = 1e7.
+- A tail shrinking to zero reported its last sample (2.76e-11) rather than 0 — presenting a
+  sampling artefact as the answer.
 
 **Genuinely open candidates:** deeper BVP/PDE/DAE
 support on the ODE side (out of scope today — state honestly). Confirm priority before building.

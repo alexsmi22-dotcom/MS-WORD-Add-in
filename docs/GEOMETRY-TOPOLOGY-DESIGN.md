@@ -167,6 +167,61 @@ oracle (β of a torus is 1,2,1; H₁(ℝP²) = ℤ/2).
 arbitrary field coefficients, Mayer–Vietoris helpers, cell complexes beyond
 simplicial.
 
+### Release A — ADVANCED algebraic topology (user, 2026-07-27)
+
+Scoped for a future round: **cellular homology, spectral sequences, stable
+homotopy theory; generalised cohomology theories, characteristic classes,
+cobordism.**
+
+That list spans three very different computability regimes, and the whole value
+of writing it down now is to keep them apart — building it as though it were one
+uniform capability is how a tool ends up asserting things nobody can compute.
+
+**A1 — genuinely computable, and worth building first.**
+- **Cellular homology.** A CW structure has far fewer cells than a simplicial
+  one (ℝP² needs 6+ simplices but 3 cells), so the boundary matrices are small.
+  The cellular boundary is the matrix of **degrees** of the attaching maps; when
+  the user supplies those degrees, the homology is exact integer linear algebra —
+  the same Smith Normal Form as T1. This is the single biggest practical win in
+  the advanced list and should lead.
+- **Characteristic classes.** Stiefel–Whitney, Chern and Pontryagin classes of
+  sums, tensor products and duals of bundles are **symmetric-polynomial algebra**
+  via the splitting principle — Whitney sum formula, Chern character, Todd class.
+  This is exact symbolic computation and fits the CAS core directly. Chern
+  classes of a tensor product of line bundles, `c(E⊕F) = c(E)c(F)`, and the
+  resulting Stiefel–Whitney/Chern **numbers** are all mechanical.
+- **Cobordism, in low degrees.** Thom: the unoriented cobordism ring is a
+  polynomial algebra over 𝔽₂, and **Stiefel–Whitney numbers are a complete
+  invariant of unoriented cobordism class** — so "are these two manifolds
+  cobordant?" IS decidable unorientedly and is a real, checkable computation.
+  Oriented cobordism is harder and should be scoped separately.
+- **K-theory of simple spaces** via Bott periodicity and the Chern character.
+
+**A2 — computable only in pieces, and the pieces must be labelled.**
+- **Spectral sequences.** The **E₂ page** of a Serre, Mayer–Vietoris or
+  Atiyah–Hirzebruch spectral sequence is computable from homology input, and
+  displaying that page as a grid is genuinely useful. **The differentials are
+  not determined by the algebra**, and neither are the extensions at the
+  abutment: two different spaces can share an E₂ page and differ in d₂. So the
+  honest product is "here is E₂, here is what converges to what, and here is
+  exactly which differentials remain undetermined" — never a computed H* handed
+  over as though the sequence had collapsed.
+
+**A3 — tabulated, never computed.**
+- **Stable homotopy groups of spheres.** πₙˢ is known only in a finite range,
+  and that range is the product of decades of work (Adams spectral sequence,
+  motivic methods; the ~90-stem frontier). Nothing here can compute them. If
+  they appear at all they are a **cited literature table**, labelled as such,
+  with the range stated and the frontier named — the same standard the NMR
+  predictions are held to.
+
+**The rule this section exists to enforce:** general homotopy groups, homotopy
+equivalence and homeomorphism are undecidable (§0). A tool that computes
+cellular homology and characteristic classes exactly, shows an E₂ page with its
+unknown differentials marked, and cites a table for πₙˢ is honest and genuinely
+useful. One that blurs those three regimes together is the fabrication failure
+this project has spent its whole history designing out.
+
 ---
 
 ## 4. Constraints and risks

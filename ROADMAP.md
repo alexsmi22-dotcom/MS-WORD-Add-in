@@ -1,6 +1,6 @@
 # JurisLab — Product Roadmap
 
-_Last updated: 2026-07-26 · Current release: **v2.21.0** (production)_
+_Last updated: 2026-07-26 · Current release: **v2.22.0** (production)_
 
 > The release number above is gated by `phase6.adversarial.test.ts` against
 > `package.json`. If they disagree, the suite fails — this file drifted five
@@ -833,6 +833,37 @@ in the same file as a version marker.
 each tagged entry against the commit that introduced it, across TEST-SCRIPT.md, ROADMAP.md
 and FEATURES.md. The five remaining flags were false positives from repeated boilerplate
 ("Still the **Topology (homology)** kind."), not walked tags.
+
+**v2.22.0 — the landing page catches up with the product.** Several releases of work were
+shipping without anyone outside the repo being told about it: the recent-highlights band
+still led with NMR 2D (v1.83) and Sequence Map (v1.62), the Solve entry in the tool list
+described a pre-v2.7 tool with no mention of geometry or topology at all, and the user
+manual's Solve section stopped at word problems.
+
+- **Four new tiles, each marked `New` and each carrying a worked example figure:** boundary
+  value problems / PDEs / DAEs, opening a measured JCAMP-DX spectrum, Serre spectral
+  sequences with stable homotopy, and the Alexander polynomial with K-theory. The badge is
+  new (`.is-new`) and reuses the existing mono/uppercase chip language in the cyan the
+  cards already use on hover, so it reads as part of the system rather than a sticker. The
+  band's lede explains what the mark means and says the untagged tiles have grown too.
+- **Every figure is real output.** The heat-equation curves are the actual Crank-Nicolson
+  paths (peak 1.0000 → 0.3729 over t = 0 → 0.1), the E₂ grid is the real page for
+  S¹ → E → S² with its single d₂ marked undetermined, and the Alexander block is the
+  computed Δ(t) for the trefoil and figure-eight with their determinants. They were emitted
+  from the solvers rather than drawn by eye — the same "all data must be real" rule the
+  product itself is held to.
+- **Updated tools are visible without being tagged:** the Analyze and Solve rows in the full
+  tool list, the Analyze card, and the Spectra row now describe what those tools actually
+  do. The manual gained BVP/PDE/DAE and JCAMP entries, and its Solve section — retitled
+  "equations, calculus, geometry & topology" — gained systems, inequalities, limits,
+  geometry and the whole topology suite, including the undecidability boundary.
+
+**Checked by rendering, not by reading the diff.** `tool.html` builds its examples from a
+JavaScript object literal, so one stray quote blanks the page — and an empty page passes a
+layout check, because empty pages have no overlaps. All five pages were loaded in headless
+Chrome and the rendered text read back, then the band was screenshotted and looked at. That
+caught two things the automated gates could not: the E₂ figure's caption sat on top of its
+own grid cells, and a tenth tile left one card stranded alone on a row.
 
 **Genuinely open candidates:** deeper BVP/PDE/DAE
 support on the ODE side (out of scope today — state honestly). Confirm priority before building.

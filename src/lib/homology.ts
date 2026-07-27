@@ -18,6 +18,7 @@
 
 import { parsePointCloud } from "./persistence";
 import { parseBraid, jonesPolynomial, wirtingerPresentation, KNOT_BRAIDS } from "./knots";
+import { alexanderPolynomial, kTheory } from "./alexander";
 import {
   cellularHomology, CW_BUILTIN, realProjectiveTangentClass,
   complexProjectiveTangentClass, realProjectiveCobordism, BEYOND,
@@ -419,6 +420,27 @@ export function solveTopology(input: string): TopologyOutcome | null {
     if (cloud) return { kind: "persistence", cloud };
   }
 
+  // K-theory is keyword-led and cannot be confused with anything else here.
+  if (/k[- ]?theory/.test(lower)) {
+    const kt = kTheory(lower.replace(/k[- ]?theory/, "").trim());
+    if (kt) {
+      return {
+        kind: "advanced",
+        title: `K-theory of ${kt.space}`,
+        display: [`K^0(${kt.space}) = ${kt.k0}`, `K^1(${kt.space}) = ${kt.k1}`, `reduced K^0 = ${kt.reducedK0}`],
+        steps: kt.steps,
+        caveats: kt.caveats,
+      };
+    }
+    return {
+      kind: "advanced",
+      title: "K-theory",
+      display: ["Not computed for that space."],
+      steps: ["K-theory is computed here only where Bott periodicity settles it outright: spheres (S^n), complex projective spaces (CP^n), a point, and the torus."],
+      caveats: ["Reporting the limit is deliberate — K-theory of an arbitrary space is not a computation this tool can do."],
+    };
+  }
+
   // Knot queries come first: a braid word is unambiguous once the keyword is
   // present, and "trefoil" must not be mistaken for a space name.
   const knot = knotQuery(raw, lower);
@@ -597,6 +619,27 @@ function knotQuery(raw: string, lower: string): TopologyOutcome | null {
         `Give a braid word — "1 1 1" is the trefoil, "1 -2 1 -2" the figure-eight — or a name: ${Object.keys(KNOT_BRAIDS).join(", ")}.`,
       ],
       caveats: [],
+    };
+  }
+
+  // The Alexander polynomial, when asked for by name.
+  if (/alexander/.test(lower)) {
+    const a = alexanderPolynomial(braid);
+    if (!a) {
+      return {
+        kind: "advanced",
+        title: "Alexander polynomial",
+        display: ["The Burau route did not divide cleanly for this braid, so no polynomial is reported."],
+        steps: [],
+        caveats: ["An honest refusal: a rounded answer here would not be an Alexander polynomial."],
+      };
+    }
+    return {
+      kind: "advanced",
+      title: `Alexander polynomial of ${label}`,
+      display: [`Delta(t) = ${a.display}`, `knot determinant |Delta(-1)| = ${a.determinant}`],
+      steps: a.steps,
+      caveats: a.caveats,
     };
   }
 

@@ -312,6 +312,20 @@ h1 {
   color: var(--muted);
   margin: 0 0 12px;
 }
+/* Divides the predicted-spectrum tool from the measured-file reader below it.
+   The two do opposite things and must not read as one continuous form. */
+.section-rule {
+  border: 0;
+  border-top: 1px solid var(--border, #d8dde3);
+  margin: 18px 0 14px;
+}
+/* A caveat the parser attached to a file it read — not an error, but the user
+   must see it before trusting the trace. */
+.warn-line {
+  color: var(--warn, #a15c00);
+  font-size: 12.5px;
+  margin-top: 4px;
+}
 .seq-appdetails {
   margin: 10px 0;
 }

@@ -32,12 +32,11 @@ const ENTRIES = [
  * Modules that are deliberately not wired yet. Each needs a reason, so that
  * adding one is a decision rather than a shrug.
  */
-const KNOWN_UNREACHABLE: { module: string; why: string }[] = [
-  {
-    module: "jcamp",
-    why: "JCAMP-DX reader for opening a MEASURED spectrum. Wiring it needs a file input in Spectra mode and a decision about overlaying a measured trace on a predicted one — a design question, not plumbing. Tracked in docs/EVALUATION-2026-07-26.md.",
-  },
-];
+// Empty, and the test below keeps it that way: an entry here is a DEBT.
+// jcamp lived here until v2.19.0, when the file input and measured-trace chart
+// it was waiting on were built. The entry was deleted the moment it was wired,
+// which is what "still unreachable" below exists to force.
+const KNOWN_UNREACHABLE: { module: string; why: string }[] = [];
 
 function listModules(): string[] {
   return fs

@@ -143,5 +143,79 @@ export function hsqcChartSvg(r: Hsqc2D): string | null {
   });
 }
 
+/**
+ * Reduces a trace to at most `budget` points for drawing.
+ *
+ * Stride sampling ("keep every nth point") is the obvious approach and it is
+ * WRONG for a spectrum: a peak one or two points wide is exactly what the user
+ * cares about, and stride sampling drops it whenever it lands between samples —
+ * silently, producing a clean-looking spectrum with a missing band.
+ *
+ * So this keeps, for each bucket, the point with the smallest y AND the one with
+ * the largest y, in their original x order. Every extremum in the source survives
+ * into the drawing; only points that were never on the outline are discarded.
+ */
+export function decimateTrace(points: Point[], budget = 1200): Point[] {
+  if (points.length <= budget) return points.slice();
+  const buckets = Math.max(1, Math.floor(budget / 2));
+  const per = points.length / buckets;
+  const out: Point[] = [];
+  for (let b = 0; b < buckets; b++) {
+    const lo = Math.floor(b * per);
+    const hi = Math.min(points.length, Math.floor((b + 1) * per));
+    if (hi <= lo) continue;
+    let min = points[lo];
+    let max = points[lo];
+    for (let i = lo; i < hi; i++) {
+      if (points[i].y < min.y) min = points[i];
+      if (points[i].y > max.y) max = points[i];
+    }
+    // Original x order, so the polyline never doubles back on itself.
+    if (min === max) out.push(min);
+    else if (min.x <= max.x) out.push(min, max);
+    else out.push(max, min);
+  }
+  return out;
+}
+
+/** What a JCAMP chart needs from a parsed spectrum — kept narrow so this module does not depend on jcamp.ts. */
+export interface MeasuredTrace {
+  title: string;
+  kind: "ir" | "nmr" | "uvvis" | "ms" | "raman" | "unknown";
+  xUnits: string;
+  yUnits: string;
+  points: Point[];
+}
+
+/**
+ * A MEASURED spectrum, drawn exactly as the file gives it.
+ *
+ * The axis direction is a per-technique convention, and getting it backwards
+ * produces a plausible-looking mirror image rather than an obvious error — so it
+ * is decided here from the kind, and the axis label always says which way the
+ * quantity increases.
+ */
+export function jcampChartSvg(s: MeasuredTrace): string | null {
+  if (!s.points.length) return null;
+
+  // IR, Raman and NMR are all drawn with their x quantity increasing LEFTWARD.
+  // buildPlotSvg draws x ascending rightward, so those are negated.
+  const flip = s.kind === "ir" || s.kind === "raman" || s.kind === "nmr";
+  const pts = decimateTrace(s.points).map((p) => ({ x: flip ? -p.x : p.x, y: p.y }));
+
+  const dir = flip ? "decreases rightward" : "increases rightward";
+  const xlabel = `${s.xUnits || "x"} — ${dir}`;
+  // A stick spectrum for MS, a continuous trace for everything else.
+  const type: Series["type"] = s.kind === "ms" ? "scatter" : "line";
+
+  return buildPlotSvg([{ points: pts, type, color: "#2563eb" }], {
+    title: s.title ? `${s.title} (measured)` : "Measured spectrum",
+    xlabel,
+    ylabel: s.yUnits || "",
+    width: WIDTH,
+    height: HEIGHT,
+  });
+}
+
 export const SPECTRUM_CHART_SIZE = { width: WIDTH, height: HEIGHT };
 export const SPECTRUM_2D_SIZE = { width: SIZE_2D, height: SIZE_2D };

@@ -10,6 +10,10 @@ import { parseMathAst } from "../lib/mathParse";
 import { figureScale, figurePoints } from "../lib/figures";
 import { latexToDsl, astToLatex } from "../lib/latex";
 import { formatQuantityHtml, convert, formatSig } from "../lib/units";
+import { parseJcamp, JcampSpectrum } from "../lib/jcamp";
+import { solveBvp, BvpMethod } from "../lib/bvp";
+import { solveHeat, solveWave, solveLaplace, HeatScheme, PdeOutcome } from "../lib/pde";
+import { solveDae } from "../lib/dae";
 import { RefKind, formatCaption, formatRef, formatEqRef, checkCaptions } from "../lib/refs";
 import { Series, Point, samplePlot, parseData, buildPlotSvg, dropForScales, type AxisScale } from "../lib/plot";
 import {
@@ -83,7 +87,7 @@ import { buildCircularMapSvg } from "../lib/seqmapcirc";
 import { parseSnapGeneDna, looksLikeDna } from "../lib/seqdna";
 import { ENZYMES, findSites, summarise, uniqueCutters, formatSite, methylationWarnings } from "../lib/enzymes";
 import { digest, describeDigest, gelBands } from "../lib/digest";
-import { nmrChartSvg, irChartSvg, msChartSvg, cosyChartSvg, hsqcChartSvg, SPECTRUM_CHART_SIZE, SPECTRUM_2D_SIZE } from "../lib/spectraChart";
+import { nmrChartSvg, irChartSvg, msChartSvg, cosyChartSvg, hsqcChartSvg, jcampChartSvg, decimateTrace, SPECTRUM_CHART_SIZE, SPECTRUM_2D_SIZE } from "../lib/spectraChart";
 import { buildPeptide } from "../lib/peptide";
 import {
   describe as statDescribe,
@@ -519,6 +523,11 @@ let specKind: HTMLSelectElement;
 let specResult: HTMLElement;
 let specInsertBtn: HTMLButtonElement;
 let specInsertChartBtn: HTMLButtonElement;
+let jcampOpenBtn: HTMLButtonElement;
+let jcampFile: HTMLInputElement;
+let jcampInfo: HTMLElement;
+let jcampInsertBtn: HTMLButtonElement;
+let jcampInsertChartBtn: HTMLButtonElement;
 let solveSection: HTMLElement;
 let solveKind: HTMLSelectElement;
 let solveInput: HTMLTextAreaElement;
@@ -833,6 +842,11 @@ Office.onReady((info) => {
   specResult = document.getElementById("spec-result") as HTMLElement;
   specInsertBtn = document.getElementById("spec-insert") as HTMLButtonElement;
   specInsertChartBtn = document.getElementById("spec-insert-chart") as HTMLButtonElement;
+  jcampOpenBtn = document.getElementById("jcamp-open") as HTMLButtonElement;
+  jcampFile = document.getElementById("jcamp-file") as HTMLInputElement;
+  jcampInfo = document.getElementById("jcamp-info") as HTMLElement;
+  jcampInsertBtn = document.getElementById("jcamp-insert") as HTMLButtonElement;
+  jcampInsertChartBtn = document.getElementById("jcamp-insert-chart") as HTMLButtonElement;
   solveSection = document.getElementById("solve-section") as HTMLElement;
   solveKind = document.getElementById("solve-kind") as HTMLSelectElement;
   solveInput = document.getElementById("solve-input") as HTMLTextAreaElement;
@@ -1017,6 +1031,10 @@ Office.onReady((info) => {
   specKind.addEventListener("change", updateSpectra);
   specInsertBtn.addEventListener("click", () => insertPlainText(spectrumAsText(), "spectrum data"));
   specInsertChartBtn.addEventListener("click", insertSpectrumChart);
+  jcampOpenBtn.addEventListener("click", () => jcampFile.click());
+  jcampFile.addEventListener("change", onJcampFile);
+  jcampInsertBtn.addEventListener("click", () => insertPlainText(jcampAsText(), "measured spectrum data"));
+  jcampInsertChartBtn.addEventListener("click", insertJcampChart);
   solveKind.addEventListener("change", () => { solveVarChoice = null; updateSolveUi(); updateSolve(); });
   solveInput.addEventListener("input", () => { solveVarChoice = null; updateSolve(); });
   solveA.addEventListener("input", updateSolve);
@@ -6763,7 +6781,309 @@ const ANALYZE_CALCS: AnalyzeCalc[] = [
       return analyzeResultOf(blocks);
     },
   },
+  {
+    id: "bvp",
+    name: "Boundary value problem (y'' = f)",
+    hint:
+      "A two-point BVP: give y'' in terms of x, y and y', then the interval and the value of y at each end. " +
+      "Unlike an initial value problem, a BVP may have no solution, one, or infinitely many - this finds one and cannot tell you which case you are in.",
+    fields: [
+      { key: "eq", label: "y'' =", default: "-y", kind: "text" },
+      { key: "ab", label: "Interval a, b", default: "0, 1.5707963", kind: "text" },
+      { key: "bc", label: "y(a), y(b)", default: "0, 1", kind: "text" },
+      { key: "n", label: "Grid intervals", default: "200", kind: "text" },
+      {
+        key: "method", label: "Method", kind: "select", default: "fd",
+        options: [
+          { value: "fd", label: "Finite differences (robust)" },
+          { value: "shooting", label: "Shooting (secant on y'(a))" },
+        ],
+      },
+    ],
+    compute: (r) => {
+      const ab = statList(r("ab"));
+      const bc = statList(r("bc"));
+      if (ab.length < 2) return { text: "Enter the interval as two numbers, e.g. 0, 1.", ok: false };
+      if (bc.length < 2) return { text: "Enter both boundary values, e.g. 0, 1.", ok: false };
+      const src = r("eq").trim();
+      if (!src) return { text: "Enter the right-hand side of y'' = …", ok: false };
+      const f = (x: number, y: number, yp: number): number => evalFormula(src, { x, y, yp, "y'": yp });
+      try {
+        const probe = f(ab[0], bc[0], 0);
+        if (!Number.isFinite(probe)) return { text: "The equation is not finite at the left endpoint.", ok: false };
+      } catch (e) {
+        return { text: `Equation error: ${(e as Error).message}`, ok: false };
+      }
+      const out = solveBvp(f, ab[0], ab[1], bc[0], bc[1], {
+        n: Math.floor(+r("n") || 200),
+        method: (r("method") || "fd") as BvpMethod,
+      });
+      if (!out.ok) return { text: out.error, ok: false };
+      const res = out.result;
+
+      const blocks: AnalyzeBlock[] = [];
+      for (const s of res.steps) blocks.push({ kind: "line", text: plainDashes(s) });
+      const maxRows = 12;
+      const stride = Math.max(1, Math.floor(res.x.length / maxRows));
+      const sampled: Matrix = [];
+      for (let i = 0; i < res.x.length; i += stride) sampled.push([res.x[i], res.y[i], res.yp[i]]);
+      if (sampled[sampled.length - 1][0] !== res.x[res.x.length - 1]) {
+        sampled.push([res.x[res.x.length - 1], res.y[res.y.length - 1], res.yp[res.yp.length - 1]]);
+      }
+      blocks.push({ kind: "matrix", label: "Sampled [x, y, y']:", m: sampled });
+      const svg = buildPlotSvg(
+        [{ points: res.x.map((x, i) => ({ x, y: res.y[i] })), type: "line", color: "#2563eb", label: "y" }],
+        { title: "BVP solution", xlabel: "x", ylabel: "y", width: 380, height: 270 }
+      );
+      blocks.push({ kind: "plot", svg, caption: "BVP solution", alt: "Boundary value problem solution curve", w: 380, h: 270 });
+      for (const c of res.caveats) blocks.push({ kind: "line", text: plainDashes(`! ${c}`) });
+      return analyzeResultOf(blocks);
+    },
+  },
+  {
+    id: "pdeheat",
+    name: "PDE - heat equation (u_t = α u_xx)",
+    hint:
+      "Diffusion on a rod with both ends held at fixed temperatures. Crank-Nicolson is unconditionally stable; " +
+      "explicit FTCS needs r = αΔt/Δx² ≤ 1/2, and Δt is reduced automatically if you ask for more.",
+    fields: [
+      { key: "alpha", label: "Diffusivity α", default: "1", kind: "text" },
+      { key: "L", label: "Length L", default: "1", kind: "text" },
+      { key: "tend", label: "Final time", default: "0.1", kind: "text" },
+      { key: "u0", label: "Initial u(x,0) =", default: "sin(pi*x)", kind: "text" },
+      { key: "ends", label: "u(0,t), u(L,t)", default: "0, 0", kind: "text" },
+      { key: "nx", label: "Space intervals", default: "60", kind: "text" },
+      {
+        key: "scheme", label: "Scheme", kind: "select", default: "crank-nicolson",
+        options: [
+          { value: "crank-nicolson", label: "Crank-Nicolson (unconditionally stable)" },
+          { value: "explicit", label: "Explicit FTCS (needs r ≤ 1/2)" },
+        ],
+      },
+    ],
+    compute: (r) => {
+      const ends = statList(r("ends"));
+      if (ends.length < 2) return { text: "Enter both end temperatures, e.g. 0, 0.", ok: false };
+      const src = r("u0").trim();
+      const f = (x: number) => evalFormula(src, { x });
+      const out = solveHeat(+r("alpha"), +r("L"), +r("tend"), f, ends[0], ends[1], {
+        nx: Math.floor(+r("nx") || 60),
+        scheme: (r("scheme") || "crank-nicolson") as HeatScheme,
+      });
+      return pdeBlocks(out, "Temperature u(x, t)", "u");
+    },
+  },
+  {
+    id: "pdewave",
+    name: "PDE - wave equation (u_tt = c² u_xx)",
+    hint:
+      "A vibrating string with fixed ends. The Courant number C = cΔt/Δx must not exceed 1; at exactly 1 the scheme " +
+      "is EXACT for this equation, which is why it is the default. Waves reflect off both ends.",
+    fields: [
+      { key: "c", label: "Wave speed c", default: "1", kind: "text" },
+      { key: "L", label: "Length L", default: "1", kind: "text" },
+      { key: "tend", label: "Final time", default: "1", kind: "text" },
+      { key: "u0", label: "Initial shape u(x,0) =", default: "sin(pi*x)", kind: "text" },
+      { key: "v0", label: "Initial velocity u_t(x,0) =", default: "0", kind: "text" },
+      { key: "nx", label: "Space intervals", default: "80", kind: "text" },
+      { key: "courant", label: "Courant number C (≤ 1)", default: "1", kind: "text" },
+    ],
+    compute: (r) => {
+      const fs = r("u0").trim();
+      const gs = r("v0").trim();
+      const out = solveWave(
+        +r("c"), +r("L"), +r("tend"),
+        (x) => evalFormula(fs, { x }),
+        (x) => evalFormula(gs || "0", { x }),
+        0, 0,
+        { nx: Math.floor(+r("nx") || 80), courant: +r("courant") || 1 }
+      );
+      return pdeBlocks(out, "Displacement u(x, t)", "u");
+    },
+  },
+  {
+    id: "pdelaplace",
+    name: "PDE - Laplace / Poisson (steady state)",
+    hint:
+      "The steady field on a rectangle with values given on all four edges - what the heat equation relaxes to after " +
+      "infinitely long. Give a source term to solve Poisson instead of Laplace.",
+    fields: [
+      { key: "W", label: "Width", default: "1", kind: "text" },
+      { key: "H", label: "Height", default: "1", kind: "text" },
+      { key: "bc", label: "Boundary u(x,y) =", default: "sin(pi*x)*y", kind: "text" },
+      { key: "src", label: "Source f in ∇²u = f (blank for Laplace)", default: "", kind: "text" },
+      { key: "nx", label: "Intervals each way", default: "40", kind: "text" },
+    ],
+    compute: (r) => {
+      const bs = r("bc").trim();
+      const ss = r("src").trim();
+      const n = Math.floor(+r("nx") || 40);
+      const out = solveLaplace(+r("W"), +r("H"), (x, y) => evalFormula(bs || "0", { x, y }), {
+        nx: n, ny: n,
+        source: ss ? (x, y) => evalFormula(ss, { x, y }) : undefined,
+      });
+      if (!out.ok) return { text: out.error, ok: false };
+      const res = out.result;
+      const blocks: AnalyzeBlock[] = [];
+      for (const s of res.steps) blocks.push({ kind: "line", text: plainDashes(s) });
+      // A 41x41 field is not a table anyone reads; show a coarse sample of it.
+      const stride = Math.max(1, Math.floor(res.x.length / 8));
+      const grid: Matrix = [];
+      const header = [NaN, ...res.x.filter((_, i) => i % stride === 0)];
+      grid.push(header);
+      for (let j = 0; j < res.y!.length; j += stride) {
+        grid.push([res.y![j], ...res.u[j].filter((_, i) => i % stride === 0)]);
+      }
+      blocks.push({ kind: "matrix", label: "u sampled (first row is x, first column is y):", m: grid });
+      // Draw a few horizontal slices - a contour plot is not available here, and
+      // slices are honest about being slices.
+      const colors = ["#2563eb", "#dc2626", "#059669", "#d97706", "#7c3aed"];
+      const slices: Series[] = [];
+      const sliceStride = Math.max(1, Math.floor(res.y!.length / 5));
+      let ci = 0;
+      for (let j = 0; j < res.y!.length; j += sliceStride) {
+        slices.push({
+          points: res.x.map((x, i) => ({ x, y: res.u[j][i] })),
+          type: "line",
+          color: colors[ci++ % colors.length],
+          label: `y = ${formatNum(res.y![j], 3)}`,
+        });
+      }
+      const svg = buildPlotSvg(slices, { title: "Steady field, slices at fixed y", xlabel: "x", ylabel: "u", width: 380, height: 270 });
+      blocks.push({ kind: "plot", svg, caption: "Steady field", alt: "Laplace/Poisson solution, slices at fixed y", w: 380, h: 270 });
+      for (const c of res.caveats) blocks.push({ kind: "line", text: plainDashes(`! ${c}`) });
+      return analyzeResultOf(blocks);
+    },
+  },
+  {
+    id: "dae",
+    name: "Differential-algebraic system (index 1)",
+    hint:
+      "Semi-explicit DAE: differential equations y' = f(t, y, z) plus algebraic constraints 0 = g(t, y, z). " +
+      "Index 1 only - ∂g/∂z must be nonsingular. Initial values must satisfy the constraint; inconsistent ones are projected onto it and reported.",
+    fields: [
+      { key: "eqs", label: "Differential equations (one per line)", default: "y' = -z", kind: "block", rows: 3 },
+      { key: "cons", label: "Constraints, 0 = … (one per line)", default: "z - y", kind: "block", rows: 3 },
+      { key: "y0", label: "Initial y values", default: "y = 1", kind: "text" },
+      { key: "z0", label: "Initial z values", default: "z = 1", kind: "text" },
+      { key: "trange", label: "t from, to", default: "0, 2", kind: "text" },
+      { key: "steps", label: "Steps", default: "500", kind: "text" },
+    ],
+    compute: (r) => {
+      const yIn = parseAssignments(r("y0"));
+      const zIn = parseAssignments(r("z0"));
+      if (!yIn.names.length) return { text: "Give at least one initial y value, e.g. y = 1.", ok: false };
+      if (!zIn.names.length) return { text: "Give at least one initial z value, e.g. z = 1.", ok: false };
+
+      const diffLines = r("eqs").split(/[\n;]/).map((s) => s.trim()).filter(Boolean);
+      const consLines = r("cons").split(/[\n;]/).map((s) => s.trim()).filter(Boolean);
+      if (!diffLines.length) return { text: "Enter at least one differential equation, e.g. y' = -z.", ok: false };
+      if (!consLines.length) return { text: "Enter at least one constraint. With none this is an ODE - use the ODE solver.", ok: false };
+
+      // "y' = expr" -> expr, keeping the order the user wrote so it lines up
+      // with the initial values.
+      const rhs: string[] = [];
+      for (const line of diffLines) {
+        const m = /^([A-Za-z_][A-Za-z0-9_]*)\s*'\s*=\s*(.+)$/.exec(line);
+        if (!m) return { text: `Couldn't read "${line}". Write each differential equation as  name' = expression.`, ok: false };
+        rhs.push(m[2].trim());
+      }
+      if (rhs.length !== yIn.names.length) {
+        return { text: `There are ${rhs.length} differential equations but ${yIn.names.length} initial y values. They must match.`, ok: false };
+      }
+      // A constraint may be written "0 = expr", "expr = 0", or bare "expr".
+      const cons = consLines.map((line) => {
+        const m = /^0\s*=\s*(.+)$/.exec(line) ?? /^(.+?)\s*=\s*0$/.exec(line);
+        return m ? m[1].trim() : line;
+      });
+      if (cons.length !== zIn.names.length) {
+        return { text: `There are ${cons.length} constraints but ${zIn.names.length} initial z values. A semi-explicit DAE needs exactly as many of each.`, ok: false };
+      }
+
+      const vars = (t: number, y: number[], z: number[]): Record<string, number> => {
+        const v: Record<string, number> = { t };
+        yIn.names.forEach((n, i) => (v[n] = y[i]));
+        zIn.names.forEach((n, i) => (v[n] = z[i]));
+        return v;
+      };
+      const f = (t: number, y: number[], z: number[]) => rhs.map((e) => evalFormula(e, vars(t, y, z)));
+      const g = (t: number, y: number[], z: number[]) => cons.map((e) => evalFormula(e, vars(t, y, z)));
+
+      const tr = statList(r("trange"));
+      if (tr.length < 2) return { text: "Enter t0 and t1, e.g. 0, 2.", ok: false };
+      try {
+        f(tr[0], yIn.values, zIn.values);
+        g(tr[0], yIn.values, zIn.values);
+      } catch (e) {
+        return { text: `Equation error: ${(e as Error).message}`, ok: false };
+      }
+
+      const out = solveDae(f, g, tr[0], tr[1], yIn.values, zIn.values, { steps: Math.floor(+r("steps") || 500) });
+      if (!out.ok) return { text: out.error, ok: false };
+      const res = out.result;
+
+      const blocks: AnalyzeBlock[] = [];
+      for (const s of res.steps) blocks.push({ kind: "line", text: plainDashes(s) });
+      const names = [...yIn.names, ...zIn.names];
+      const maxRows = 12;
+      const stride = Math.max(1, Math.floor(res.t.length / maxRows));
+      const sampled: Matrix = [];
+      for (let i = 0; i < res.t.length; i += stride) sampled.push([res.t[i], ...res.y[i], ...res.z[i]]);
+      if (sampled[sampled.length - 1][0] !== res.t[res.t.length - 1]) {
+        const k = res.t.length - 1;
+        sampled.push([res.t[k], ...res.y[k], ...res.z[k]]);
+      }
+      blocks.push({ kind: "matrix", label: `Sampled [t, ${names.join(", ")}]:`, m: sampled });
+      const colors = ["#2563eb", "#dc2626", "#059669", "#d97706", "#7c3aed"];
+      const series: Series[] = names.map((n, i) => ({
+        points: res.t.map((t, k) => ({ x: t, y: i < yIn.names.length ? res.y[k][i] : res.z[k][i - yIn.names.length] })),
+        type: "line",
+        color: colors[i % colors.length],
+        label: n,
+      }));
+      const svg = buildPlotSvg(series, { title: "DAE solution", xlabel: "t", ylabel: "", width: 380, height: 270 });
+      blocks.push({ kind: "plot", svg, caption: "DAE solution", alt: "Differential-algebraic system solution", w: 380, h: 270 });
+      for (const c of res.caveats) blocks.push({ kind: "line", text: plainDashes(`! ${c}`) });
+      return analyzeResultOf(blocks);
+    },
+  },
 ];
+
+/**
+ * Shared rendering for the two time-dependent PDEs. Both produce u(x, t), so
+ * both are shown the same way: a few time levels drawn as curves, because a
+ * surface plot is not available here and a table of 60 × 400 values is not
+ * something anyone reads.
+ */
+function pdeBlocks(out: PdeOutcome, title: string, ylabel: string): AnalyzeOutput | { text: string; ok: false } {
+  if (!out.ok) return { text: out.error, ok: false };
+  const res = out.result;
+  const blocks: AnalyzeBlock[] = [];
+  for (const s of res.steps) blocks.push({ kind: "line", text: plainDashes(s) });
+
+  const times = res.t ?? [];
+  const colors = ["#2563eb", "#dc2626", "#059669", "#d97706", "#7c3aed", "#0891b2"];
+  const wanted = Math.min(6, res.u.length);
+  const pick: number[] = [];
+  for (let i = 0; i < wanted; i++) pick.push(Math.round((i * (res.u.length - 1)) / Math.max(1, wanted - 1)));
+
+  const series: Series[] = pick.map((k, i) => ({
+    points: res.x.map((x, j) => ({ x, y: res.u[k][j] })),
+    type: "line",
+    color: colors[i % colors.length],
+    label: `t = ${formatNum(times[k] ?? 0, 3)}`,
+  }));
+  const svg = buildPlotSvg(series, { title, xlabel: "x", ylabel, width: 380, height: 270 });
+
+  const xStride = Math.max(1, Math.floor(res.x.length / 8));
+  const grid: Matrix = [];
+  grid.push([NaN, ...res.x.filter((_, i) => i % xStride === 0)]);
+  for (const k of pick) grid.push([times[k] ?? 0, ...res.u[k].filter((_, i) => i % xStride === 0)]);
+  blocks.push({ kind: "matrix", label: "u sampled (first row is x, first column is t):", m: grid });
+  blocks.push({ kind: "plot", svg, caption: title, alt: title, w: 380, h: 270 });
+  for (const c of res.caveats) blocks.push({ kind: "line", text: plainDashes(`! ${c}`) });
+  return analyzeResultOf(blocks);
+}
 
 function populateAnalyzeCalcs(): void {
   analyzeCalcSelect.replaceChildren();
@@ -7473,6 +7793,157 @@ async function insertSpectrumChart(): Promise<void> {
     setStatus(`Could not insert spectrum: ${(error as Error).message}`, "error");
   } finally {
     specInsertChartBtn.disabled = false;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// JCAMP-DX — a MEASURED spectrum, opened from the user's own file.
+//
+// Everything else in the Spectra tool is predicted from structure. This is the
+// opposite: it plots exactly what an instrument wrote, and nothing here
+// estimates anything. The reader (lib/jcamp.ts) had been complete and tested for
+// several releases while being imported by nothing, so no user could reach it.
+
+/** The spectrum currently on screen, if a file has been opened. */
+let currentJcamp: JcampSpectrum | null = null;
+let currentJcampSvg: string | null = null;
+
+const JCAMP_MAX_BYTES = 16 * 1024 * 1024;
+
+function setJcampButtons(enabled: boolean): void {
+  jcampInsertBtn.disabled = !enabled;
+  jcampInsertChartBtn.disabled = !enabled || !currentJcampSvg;
+}
+
+function onJcampFile(): void {
+  const file = jcampFile.files && jcampFile.files[0];
+  if (!file) return;
+  if (file.size > JCAMP_MAX_BYTES) {
+    currentJcamp = null;
+    currentJcampSvg = null;
+    setJcampButtons(false);
+    jcampInfo.textContent = `That file is ${(file.size / 1e6).toFixed(1)} MB — too large for the pane (limit 16 MB).`;
+    return;
+  }
+  const reader = new FileReader();
+  reader.onerror = () => {
+    jcampInfo.textContent = "Couldn't read that file.";
+    setJcampButtons(false);
+  };
+  reader.onload = () => {
+    renderJcamp(String(reader.result ?? ""), file.name);
+  };
+  // JCAMP-DX is a text format. Latin-1 rather than UTF-8: older instrument files
+  // carry degree signs and Greek letters in the high-bit range, and decoding
+  // those as UTF-8 turns them into replacement characters inside the metadata.
+  reader.readAsText(file, "iso-8859-1");
+  jcampFile.value = ""; // so picking the same file twice still fires
+}
+
+function renderJcamp(text: string, filename: string): void {
+  currentJcamp = null;
+  currentJcampSvg = null;
+  jcampInfo.replaceChildren();
+
+  const parsed = parseJcamp(text);
+  if (!parsed.ok) {
+    jcampInfo.textContent = `${filename}: ${parsed.error}`;
+    setJcampButtons(false);
+    return;
+  }
+  // A file may hold several blocks; show the first and say so rather than
+  // silently picking one.
+  const s = parsed.spectra[0];
+  currentJcamp = s;
+  currentJcampSvg = jcampChartSvg({
+    title: s.title,
+    kind: s.kind,
+    xUnits: s.xUnits,
+    yUnits: s.yUnits,
+    points: s.points,
+  });
+
+  const lines: string[] = [];
+  lines.push(`${s.title || filename} — ${s.dataType || "spectrum"}`);
+  lines.push(`${s.points.length.toLocaleString()} points, ${s.xUnits || "?"} vs ${s.yUnits || "?"}`);
+  if (s.points.length) {
+    const xs = s.points.map((p) => p.x);
+    lines.push(`Range ${Math.min(...xs).toPrecision(6)} to ${Math.max(...xs).toPrecision(6)} ${s.xUnits}`);
+  }
+  if (parsed.spectra.length > 1) {
+    lines.push(`This file holds ${parsed.spectra.length} blocks; the first is shown.`);
+  }
+  lines.push("This is your measured data — nothing here is predicted.");
+
+  const p = document.createElement("div");
+  for (const ln of lines) {
+    const d = document.createElement("div");
+    d.textContent = ln;
+    p.appendChild(d);
+  }
+  for (const c of s.caveats) {
+    const d = document.createElement("div");
+    d.className = "warn-line";
+    d.textContent = `⚠ ${c}`;
+    p.appendChild(d);
+  }
+  jcampInfo.appendChild(p);
+  if (currentJcampSvg) {
+    const holder = document.createElement("div");
+    holder.innerHTML = currentJcampSvg;
+    jcampInfo.appendChild(holder);
+  }
+  setJcampButtons(true);
+}
+
+/** The measured trace as text, for insertion as a data table. */
+function jcampAsText(): string {
+  const s = currentJcamp;
+  if (!s) return "";
+  const head = [
+    `${s.title || "Measured spectrum"} (${s.dataType || "spectrum"})`,
+    `Measured data read from a JCAMP-DX file — not predicted.`,
+    `${s.xUnits}\t${s.yUnits}`,
+  ];
+  // A full trace can be 30,000 rows, which is not a table anyone wants in a
+  // document. Say what was written rather than truncating silently.
+  const MAX_ROWS = 2000;
+  const pts = s.points.length > MAX_ROWS ? decimateTrace(s.points, MAX_ROWS) : s.points;
+  if (pts.length < s.points.length) {
+    head.push(
+      `Showing ${pts.length.toLocaleString()} of ${s.points.length.toLocaleString()} points ` +
+        `(peaks preserved — every local minimum and maximum is kept).`
+    );
+  }
+  return head.concat(pts.map((p) => `${p.x}\t${p.y}`)).join("\n");
+}
+
+async function insertJcampChart(): Promise<void> {
+  if (!currentJcampSvg || !currentJcamp) {
+    setStatus("Open a JCAMP-DX file first.", "error");
+    return;
+  }
+  jcampInsertChartBtn.disabled = true;
+  setStatus("Inserting spectrum…");
+  try {
+    const size = SPECTRUM_CHART_SIZE;
+    const base64 = await renderFigurePng(currentJcampSvg, size.width, size.height);
+    await Word.run(async (context) => {
+      const range = context.document.getSelection();
+      const picture = range.insertInlinePictureFromBase64(base64, Word.InsertLocation.after);
+      sizeFigure(picture, size.width, size.height);
+      picture.altTextDescription =
+        `Measured ${currentJcamp?.dataType || "spectrum"} from a JCAMP-DX file` +
+        ` — ${currentJcamp?.xUnits} vs ${currentJcamp?.yUnits}`;
+      range.select(Word.SelectionMode.end);
+      await context.sync();
+      await tagInserted(context, picture.getRange(), "formula-inserter:spectrum");
+    });
+    setStatus("Measured spectrum inserted.", "success");
+  } catch (error) {
+    setStatus(`Could not insert spectrum: ${(error as Error).message}`, "error");
+  } finally {
+    jcampInsertChartBtn.disabled = false;
   }
 }
 

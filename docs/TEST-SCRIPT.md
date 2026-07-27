@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.18.0)
+# JurisLab — Manual Test Script (v2.19.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -349,7 +349,7 @@ cache and reopen:
   - `k-theory S^2` -> K^0 = Z + Z, K^1 = 0, reduced K^0 = Z, and the working must name
     **Bott periodicity** rather than reading a table.
   - `k-theory CP^3` -> K^0 = Z^4, K^1 = 0, explained by the absence of odd cells.
-- [ ] **Spectral sequences and stable homotopy (v2.18.0).** Still the **Topology (homology)**
+- [ ] **Spectral sequences and stable homotopy (v2.19.0).** Still the **Topology (homology)**
   kind. The whole point of this section is what is REFUSED.
   - `serre s2 s1` -> an E_2 grid with q increasing UPWARD, and **one differential marked
     UNDETERMINED**. It must NOT report H*(E). If it ever does, that is the most serious bug
@@ -370,11 +370,46 @@ cache and reopen:
     two collided before shipping.
   - `homology of the torus` -> Z, Z^2, Z. Phrasing it as a question must work as well as
     typing `torus` alone.
-- [ ] **Nothing freezes Word (v2.18.0).** The whole-library sweep found seven loops that
+- [ ] **Measured spectra — JCAMP-DX (v2.19.0).** Open **Spectra**. Below the predicted
+  tools there is now a rule and an **"Open a .jdx / .dx file…"** button. This reader had
+  been complete but unreachable for several releases, so it has never had a real pass.
+  - Open a genuine `.jdx`/`.dx` file from an instrument. The readout must name the title
+    and data type, the point count, the x range, and say **"This is your measured data —
+    nothing here is predicted."**
+  - The chart title must say **measured**, and must NOT say predicted or estimate.
+  - **Axis direction:** an IR or Raman file must show wavenumber **decreasing** rightward;
+    UV-Vis and MS increase rightward. A mirrored spectrum is the failure to look for —
+    it looks perfectly plausible.
+  - **Insert data table** and **Insert spectrum chart** must both work. On a large file
+    the table says how many of the original points it wrote.
+  - Try a text file that is not JCAMP: it must say so, not draw an empty frame.
+- [ ] **BVP / PDE / DAE (v2.19.0).** Open **Analyze**; five new calculators.
+  - **Boundary value problem.** Defaults are y'' = -y on [0, π/2] with y = 0, 1 — the
+    answer is sin x, so y near the midpoint must be about 0.707. The result must report an
+    **observed convergence order near 2** and carry the caveat that a BVP may have no
+    solution, one, or infinitely many.
+  - Switch Method to **Shooting**: the curve must come out the same.
+  - **PDE - heat.** With the defaults the peak must **shrink** steadily and both ends stay
+    at 0. Now switch the scheme to **Explicit FTCS**: it must either report that Δt was
+    **REDUCED** for stability, or refuse and name Crank-Nicolson. It must NOT return huge
+    oscillating values.
+  - **PDE - wave.** With the defaults the amplitude must **not** decay — a wave preserves
+    it, unlike heat — and at t = 2 the string should be back to its starting shape.
+  - **PDE - Laplace.** The slices must be smooth, and the interior must stay within the
+    boundary values (the maximum principle).
+  - **DAE.** Defaults are y' = -z with 0 = z - y, so y = e^-t and z tracks y. Now set the
+    initial z to **5** (inconsistent): it must say the values were **INCONSISTENT**,
+    report the residual, and start from the projected point.
+  - **The refusal that matters:** enter the Cartesian pendulum — equations `x' = u`,
+    `y' = v`, `u' = -L*x`, `v' = -L*y - 9.81`, initial y values `x = 1, y = 0, u = 0,
+    v = 0`, constraint `x^2 + y^2 - 1`, initial z `L = 0`. It must **refuse**, say the
+    system is **not index 1**, and mention index reduction. If it returns a pendulum,
+    that is a serious bug.
+- [ ] **Nothing freezes Word (v2.19.0).** The whole-library sweep found seven loops that
   never returned on a non-finite count. A frozen pane has no error and no way back, so
   these are worth a real pass:
   - **Finance -> Loan amortization.** Set **Years** to `1e400` (or paste a very long run
-    of 9s). It must come back with a message. Before v2.18.0 this hung Word outright.
+    of 9s). It must come back with a message. Before v2.19.0 this hung Word outright.
     Then set Years to `30`, payments/year `12`, and confirm you still get 360 rows.
   - **Finance -> Declining balance.** Same test on **Life**.
   - **Plot** with **Log scale** on data containing a colossal value (`1 1`, `2 1e308`).

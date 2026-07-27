@@ -1,6 +1,6 @@
 # JurisLab — Product Roadmap
 
-_Last updated: 2026-07-26 · Current release: **v2.18.0** (production)_
+_Last updated: 2026-07-26 · Current release: **v2.19.0** (production)_
 
 > The release number above is gated by `phase6.adversarial.test.ts` against
 > `package.json`. If they disagree, the suite fails — this file drifted five
@@ -122,12 +122,15 @@ Added as Analyze tools (`src/lib/ode.ts`, `src/lib/optimize.ts`, `src/lib/fft.ts
 - **MS fragmentation** ✅ (EI: α-cleavage, benzylic/tropylium, McLafferty, gated neutral losses).
 - **J-coupling and 2D** ✅ SHIPPED in v1.83.0 — coupling constants and multiplet names
   (dd, td…) from the bond graph, plus COSY (¹H–¹H) and HSQC (¹H–¹³C) maps.
-- **Built but NOT REACHABLE — `src/lib/jcamp.ts`.** A complete JCAMP-DX reader, with its
-  own tests, committed as "open a real spectrum (punch list #17)". It is imported by
-  nothing: no pane import, and no file input that accepts `.jdx`/`.dx`. A user has never
-  been able to run it. Found by the v2.18.0 reachability sweep and now recorded as a
-  declared gap in `reachability.adversarial.test.ts`, so it cannot be forgotten again.
-  Wiring it needs a file input plus a handler to render the parsed spectrum.
+- **JCAMP-DX reader — open a real measured spectrum** ✅ SHIPPED in v2.19.0. `jcamp.ts`
+  had been complete and tested since the punch-list pass while being imported by nothing,
+  so no user could reach it; `reachability.test.ts` carried it as a documented exception
+  the whole time. Spectra mode now has a file input (`.jdx`/`.dx`/`.jcm`) that plots
+  exactly what the instrument wrote, clearly separated from the predicted spectra above
+  it and labelled MEASURED on the chart itself. The trace is decimated for drawing by
+  keeping the minimum AND maximum of each bucket, so a one-point peak survives — stride
+  sampling would drop narrow bands silently, which is the worst thing this code could do
+  to someone's data.
 
 ### Ongoing / low priority — Chemical coverage
 
@@ -629,7 +632,7 @@ point existed and the sign was never tested. Sign changes are now located numeri
 and any endpoint that came from that is declared approximate. Touching intervals are also merged,
 so `x² ≥ 0` reads (−∞, ∞) rather than two pieces meeting at zero.
 
-**v2.18.0 — advanced algebraic topology, tiers A2 and A3 (Release A, completed).**
+**v2.19.0 — advanced algebraic topology, tiers A2 and A3 (Release A, completed).**
 `src/lib/spectral.ts`. These are the two entries the A1 brief deliberately held back, and what
 ships is defined by what must NOT be claimed.
 
@@ -682,7 +685,7 @@ what was typed and never saying why, and `NaN` parsed as a perfectly ordinary ID
 solving it produced an equation in a variable called NaN. Neither was a wrong answer, which is
 precisely why neither had been noticed.
 
-**v2.18.0 — the whole-library bug test.** The v2.17.0 sweep covered the Solve surface: 7
+**v2.19.0 — the whole-library bug test.** The v2.17.0 sweep covered the Solve surface: 7
 entry points out of 97 modules. This one covered all of them — every exported function in
 every lib module, called with hostile arguments in a child process with a heap cap and a
 30-second timeout, so a module that hangs is REPORTED rather than taking the run down with
@@ -715,17 +718,61 @@ number nobody wrote. The parser now refuses any literal it cannot represent, whi
 supersedes the v2.17.0 limit-side patch — catching it at the literal tells the user what
 is actually wrong.
 
-**A whole feature was found unreachable.** `src/lib/jcamp.ts` — a complete JCAMP-DX
-spectrum reader with its own tests — is imported by nothing and has never been runnable by
-a user. `reachability.adversarial.test.ts` now checks every lib module is imported by
-something outside its own tests, with unwired modules declared and explained rather than
-discovered.
+**A whole feature is unreachable — and, correcting what this entry first said, it was
+already known.** `src/lib/jcamp.ts` is a complete JCAMP-DX spectrum reader with its own
+tests, imported by nothing. The v2.19.0 sweep re-derived that, but it did not discover it:
+`reachability.test.ts` already listed it in `KNOWN_UNREACHABLE`, pointing at
+`docs/EVALUATION-2026-07-26.md`, and already had a test asserting the entry stays honest.
+The existing guard was adequate; the second one added here was redundant and has been
+removed. **Wired in v2.19.0**, and the allowlist entry deleted, which is exactly what that
+test exists to force.
 
 The 385 "threw on undefined" results the fuzz also produced were NOT treated as bugs: they
 are typed internals fed untyped garbage, which the compiler already prevents at every real
 call site. Reporting them would have been noise dressed as diligence.
 
-**Genuinely open candidates:** wiring the JCAMP-DX reader; deeper BVP/PDE/DAE
+**v2.19.0 — the JCAMP-DX reader wired, and BVP / PDE / DAE.** Both items that were
+standing open. `src/lib/bvp.ts`, `src/lib/pde.ts`, `src/lib/dae.ts`, five new Analyze
+calculators, 84 new tests — every accuracy test against a closed form, because the failure
+mode of all three is a smooth plausible curve that is not the solution.
+
+- **Boundary value problems**, y'' = f(x, y, y') with y fixed at both ends. Finite
+  differences with Newton on a tridiagonal Jacobian by default, shooting by secant as an
+  alternative. **The honest part is what cannot be computed:** an IVP has one solution, a
+  BVP may have NONE, ONE, or INFINITELY MANY — y'' + y = 0 on [0, π] with both ends zero
+  has infinitely many, and moving one endpoint to y(π) = 1 leaves it with none. Both are
+  ordinary-looking inputs. Every result declares that it reports one solution and cannot
+  tell you which case you are in. **The self-check** solves on three grids and reports the
+  observed convergence order; anything far from 2 means a kink or a boundary layer the
+  grid cannot see, and the error estimate says so rather than being quoted anyway.
+- **PDEs — the three classical linear second-order equations.** Heat (Crank-Nicolson,
+  unconditionally stable, and explicit FTCS), wave (leapfrog), Laplace/Poisson (5-point
+  stencil with optimal-ω SOR). **Stability is the whole problem and it is enforced, not
+  hoped for:** explicit FTCS is stable only for r = αΔt/Δx² ≤ 1/2, and at r = 0.51 it does
+  not degrade gracefully — it blows up to 1e300 within a few dozen steps from input that
+  looks entirely reasonable. Δt is reduced to satisfy the bound and the result says it
+  was; where the bound would need more steps than the budget it refuses and names
+  Crank-Nicolson as the way out. For the wave equation, Courant C = cΔt/Δx ≤ 1, and at
+  exactly C = 1 the scheme is not merely stable but EXACT for the 1D wave equation, which
+  is why that is the default.
+- **DAEs — semi-explicit, index 1.** y' = f(t,y,z) with 0 = g(t,y,z), by implicit Euler
+  with the constraint imposed at the same time level, so g = 0 holds at every step by
+  construction and there is no drift. **Index ≥ 2 is refused by name.** The Cartesian
+  pendulum is index 3 because ∂g/∂λ is identically zero — the constraint never mentions λ
+  — and an index-1 method run on it can produce a plausible pendulum that slides off its
+  own constraint. ∂g/∂z is checked numerically and a singular one is refused with the
+  reformulation that does work. **Inconsistent initial values are projected and reported:**
+  unlike an ODE, (y₀, z₀) must already satisfy the constraint, so z₀ is moved onto it
+  (y₀ held, being the free data) and the result states the original residual and where it
+  actually started.
+
+**A correction to the v2.18.0 entry above:** that sweep did not discover the unreachable
+JCAMP reader. `reachability.test.ts` already listed it, with a reason, pointing at
+`docs/EVALUATION-2026-07-26.md`. The guard that existed was adequate and the second one
+added in v2.18.0 was redundant; it has been deleted, and the allowlist entry was pruned
+when the reader was wired — which is precisely what that test was built to force.
+
+**Genuinely open candidates:** deeper BVP/PDE/DAE
 support on the ODE side (out of scope today — state honestly). Confirm priority before building.
 The evaluation's own list is now closed. Remaining ideas are new work rather than
 outstanding findings.

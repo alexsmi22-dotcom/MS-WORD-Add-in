@@ -751,6 +751,22 @@
           <button id="spec-insert" class="insert-btn" type="button" disabled>Insert data table</button>
           <button id="spec-insert-chart" class="insert-btn" type="button" disabled>Insert spectrum chart</button>
         </div>
+
+        <hr class="section-rule" />
+        <p class="seq-disclaimer">
+          <strong>Open a measured spectrum (JCAMP-DX).</strong> Everything above is
+          <em>predicted</em>. This reads a real spectrum your instrument produced —
+          <code>.jdx</code>, <code>.dx</code>, <code>.jcm</code> — and plots exactly what the
+          file contains. Nothing is predicted, nothing is uploaded; the file is read on your
+          machine.
+        </p>
+        <button id="jcamp-open" class="insert-btn" type="button">Open a .jdx / .dx file…</button>
+        <input id="jcamp-file" type="file" accept=".jdx,.dx,.jcm,.jcamp,.txt" hidden />
+        <div id="jcamp-info" class="ms-result" aria-live="polite"></div>
+        <div class="plot-actions">
+          <button id="jcamp-insert" class="insert-btn" type="button" disabled>Insert data table</button>
+          <button id="jcamp-insert-chart" class="insert-btn" type="button" disabled>Insert spectrum chart</button>
+        </div>
       </section>
 
 

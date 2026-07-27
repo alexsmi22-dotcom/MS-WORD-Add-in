@@ -176,14 +176,19 @@ export const MODE_EXAMPLES: Record<ExampleMode, string> = {
       Solve equations and basic calculus — offline, on your machine:
     </p>
     <ul>
-      <li><strong>Solve an equation:</strong> <code>x^2 - 5x + 6 = 0</code> → x = 3, 2 (exact); <code>cos(x) = 0</code> → numeric roots.</li>
-      <li><strong>Differentiate:</strong> <code>sin(x^2)</code> → <code>2*x*cos(x^2)</code> (symbolic).</li>
-      <li><strong>Definite integral:</strong> <code>x^2</code> from 0 to 3 → 9 (numeric).</li>
+      <li><strong>Solve an equation:</strong> <code>x^2 - 5x + 6 = 0</code> → x = 3, 2 (exact); <code>x^3 - 1 = 0</code> → all three roots, real and complex; <code>cos(x) = 0</code> → numeric roots.</li>
+      <li><strong>Rearrange a formula:</strong> <code>F = m*a</code> → chips let you solve for <em>F</em>, <em>m</em> or <em>a</em>; picking <em>a</em> gives <code>a = F/m</code> with the condition <code>m ≠ 0</code>.</li>
+      <li><strong>Differentiate:</strong> <code>sin(x^2)</code> → <code>2*x*cos(x^2)</code>; <code>sin(x)*cos(x)</code> → <code>cos(x)^2 - sin(x)^2</code>.</li>
+      <li><strong>Definite integral:</strong> <code>x^2</code> from 0 to 3 → 9, <strong>exact</strong>, showing F(x) = x³/3. Also <code>x*exp(x)</code>, <code>ln(x)</code>, <code>1/(x^2+4)</code> — by parts, substitution and partial fractions.</li>
+      <li><strong>Geometry:</strong> <code>triangle 3 4 5</code>; <code>triangle a=6 b=8 A=30</code> (the ambiguous case — <strong>two</strong> answers); <code>triangle (0,0) (4,0) (0,3)</code> for centres; <code>circle r=3</code> → area <code>9π</code>; <code>x^2/9 + y^2/4 = 1</code> → classified as an ellipse with foci and eccentricity.</li>
       <li><strong>Word problem:</strong> "12 is what percent of 48?", "twice a number plus 7 is 15".</li>
     </ul>
     <p class="examples-note">
-      Linear &amp; quadratic equations are solved <strong>exactly</strong>; higher-degree and
-      transcendental ones give real roots <strong>numerically</strong>. Word problems match a
+      Built on a <strong>CAS core</strong> with exact rational arithmetic. Linear &amp; quadratic
+      equations and formula rearrangement are <strong>exact</strong>; higher-degree polynomials
+      return <strong>every</strong> root; transcendental ones give real roots
+      <strong>numerically</strong> and say so. Every antiderivative is verified by
+      differentiating it back — if it cannot be verified it is not offered. Word problems match a
       fixed set of templates and say so when they cannot parse — nothing is invented.
     </p>`,
 

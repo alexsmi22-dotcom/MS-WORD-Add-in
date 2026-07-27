@@ -1,6 +1,6 @@
 # JurisLab — Product Roadmap
 
-_Last updated: 2026-07-26 · Current release: **v2.6.0** (production)_
+_Last updated: 2026-07-26 · Current release: **v2.7.0** (production)_
 
 > The release number above is gated by `phase6.adversarial.test.ts` against
 > `package.json`. If they disagree, the suite fails — this file drifted five
@@ -328,6 +328,35 @@ multi-paragraph package mixing prose and genuine `<m:oMath>` — fractions as fr
 limits — and degrades one un-parseable line to text rather than failing the whole insertion.
 One regression test was renamed rather than accommodated: `x*exp(x)` was pinned as a case the
 integrator "can't integrate", which the improvement falsified; the value assertion is unchanged.
+
+**v2.7.0 — geometry in Solve (GEOMETRY-TOPOLOGY-DESIGN Release G1).**
+New direction, agreed 2026-07-27: geometry from basic to expert, then algebraic topology.
+The brief is `docs/GEOMETRY-TOPOLOGY-DESIGN.md`; **G1 (Tiers 1–2) is what shipped here.**
+`src/lib/geometry.ts` runs coordinate geometry on the CAS's exact rationals, because for
+rational vertices the interesting answers are themselves rational — shoelace area, centroid,
+circumcentre and the conic invariants all come out exact, with a decimal offered alongside
+rather than instead. Lengths keep their surds (√2, 2√3); angles are genuinely
+transcendental and are reported numerically, which is honest rather than a shortcut.
+What it does: mensuration exact in π; **triangle solving** for SSS/SAS/ASA/AAS and the
+**ambiguous SSA case**, which returns **two triangles, one, or none** and says which — a
+solver that quietly returns the acute answer is wrong about half the time it matters;
+analytic geometry (lines, intersections, point–line distance, circle through three points);
+polygons (shoelace, centroid, convexity, point-in-polygon by **winding number**, which is
+unambiguous on the boundary where ray casting is not; convex hull); **triangle centres**
+with the **Euler line verified exactly on every call** as a free self-check; and
+**conic classification** from a bare `x`/`y` equation — no keyword needed — by the
+invariants δ = B²−4AC and the 3×3 determinant, rotating to kill the xy term and translating
+to the centre, reporting canonical form, foci, vertices, eccentricity and asymptotes.
+**Degenerate conics are named** (a point, a crossed line pair, parallel lines, empty) rather
+than forced into an ellipse with imaginary axes.
+`src/lib/geometryParse.ts` is the typed grammar, deliberately strict where a reading would
+be ambiguous: a bare three-number triangle is SSS, and any angle must be named (`A=30`).
+Also fixed here: the Solve section blurb and the Examples panel both still claimed
+"definite integrals are numeric", which v2.6.0 had falsified.
+**NOT yet built** (next): geometry Tiers 3–4 (3D vectors, planes, skew lines,
+transformations), then the topology releases — simplicial homology over ℤ via Smith Normal
+Form, then persistent homology. See the brief's §3 for the order and §0 for the
+decidability limits that scope π₁ deliberately hard.
 
 **Genuinely open candidates:** deeper BVP/PDE/DAE
 support on the ODE side (out of scope today — state honestly). Confirm priority before building.

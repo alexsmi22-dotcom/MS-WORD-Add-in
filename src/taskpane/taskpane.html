@@ -757,17 +757,22 @@
       <!-- Solve: equations, derivatives, integrals, word problems (offline) -->
       <section id="solve-section">
         <p class="seq-disclaimer">
-          Solve equations and basic calculus, computed entirely on your machine.
-          Linear and quadratic equations are solved <strong>exactly</strong>; higher-degree and
-          transcendental equations give real roots <strong>numerically</strong>. Derivatives are
-          symbolic; definite integrals are numeric. Word problems match a fixed set of common
-          templates — offline and private, and honest when they cannot parse.
+          Solve equations, calculus and geometry, computed entirely on your machine on a
+          <strong>CAS core</strong> with exact rational arithmetic. Linear and quadratic
+          equations are solved <strong>exactly</strong>, higher-degree polynomials return
+          <strong>every</strong> root (real and complex), and a formula with several symbols can be
+          <strong>rearranged</strong> for any one of them. Derivatives and integrals are symbolic
+          where a closed form exists — each antiderivative is checked by differentiating it back —
+          and numeric, clearly labelled, where none does. Geometry is exact where π and surds
+          allow. Word problems match a fixed set of templates — offline and private, and honest
+          when they cannot parse.
         </p>
         <label class="field-label" for="solve-kind">What to do</label>
         <select id="solve-kind" class="mode-select">
           <option value="equation">Solve an equation</option>
           <option value="derivative">Differentiate</option>
           <option value="integral">Definite integral</option>
+          <option value="geometry">Geometry</option>
           <option value="word">Word problem</option>
         </select>
         <label class="field-label" for="solve-input" id="solve-input-label">Equation</label>

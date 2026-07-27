@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.6.0)
+# JurisLab — Manual Test Script (v2.7.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -280,6 +280,18 @@ cache and reopen:
   0→2 (= π/8, atan form), `ln(x)` 1→e (= 1), `1/(x*(x+1))` 1→2. Each must say EXACT.
 - [ ] **Integration refuses honestly.** `exp(x^2)` 0→1 → falls back to *adaptive Simpson*
   with the approximation caveat — it must NOT claim exact.
+- [ ] **Geometry (v2.7.0).** Switch the dropdown to **Geometry**.
+  - `triangle 3 4 5` -> area **6**, angle C = **90 deg**, method SSS.
+  - `triangle a=6 b=8 A=30` -> **TWO** solutions listed, with the ambiguous-case caveat.
+  - `triangle a=2 b=8 A=30` -> refused, saying the side is shorter than the altitude.
+  - `circle r=3` -> area shown as **9*pi** (exact) with the decimal beside it.
+  - `triangle (0,0) (4,0) (0,3)` -> area 6 exactly, plus centroid / circumcentre /
+    orthocentre, and the line **"Euler line check: ... verified exactly"**.
+  - `x^2/9 + y^2/4 = 1` -> **ellipse**, a = 3, b = 2, eccentricity ~ 0.745, foci listed.
+  - `x^2 + y^2 = 0` -> reported as a **point** and flagged DEGENERATE, not as a circle.
+  - `x*y = 1` -> **hyperbola**, with a 45 deg rotation reported.
+- [ ] **Geometry inserts.** Insert a geometry result — the exact forms (9*pi, 2*sqrt(3))
+  must arrive as real editable equations, with the working alongside.
 - [ ] **Insert is a REAL equation now (v2.6.0).** With any Solve result on screen press
   **Insert**. What lands must be an **editable Word equation** — click it and Word shows
   the equation toolbar; a fraction like F/m is drawn as a fraction, and an integral shows

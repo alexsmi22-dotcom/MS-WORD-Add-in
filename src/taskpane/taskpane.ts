@@ -67,6 +67,7 @@ import { computeMassSpec, MassSpecResult } from "../lib/massspec";
 import { predictNmr, NmrResult, Nucleus } from "../lib/nmr";
 import { predictCoupling, predictCosy, predictHsqc, Cosy2D, Hsqc2D } from "../lib/nmr2d";
 import { solveEquation, differentiate, integrate, parseExpr, evalAst } from "../lib/solve";
+import { solveGeometry } from "../lib/geometryParse";
 import { solveWordProblem, WorkStep } from "../lib/wordproblem";
 import { predictIr, IrResult } from "../lib/ir";
 import { predictUvVis, UvResult } from "../lib/uvvis";
@@ -7449,7 +7450,7 @@ async function insertSpectrumChart(): Promise<void> {
 // never answered with a guess.
 // ---------------------------------------------------------------------------
 
-type SolveKind = "equation" | "derivative" | "integral" | "word";
+type SolveKind = "equation" | "derivative" | "integral" | "geometry" | "word";
 
 /** Plain-text form of the current result, for insertion into Word. */
 let currentSolveText = "";
@@ -7517,28 +7518,43 @@ function updateSolveUi(): void {
     equation: "Equation (e.g. x^2 - 5x + 6 = 0)",
     derivative: "Expression to differentiate (e.g. sin(x^2))",
     integral: "Integrand (e.g. x^2)",
+    geometry: "Geometry — a shape, points, or an equation in x and y",
     word: "Word problem (e.g. 12 is what percent of 48?)",
   };
   const placeholders: Record<SolveKind, string> = {
     equation: "x^2 - 5x + 6 = 0",
     derivative: "sin(x^2)",
     integral: "x^2",
+    geometry: "triangle 3 4 5",
     word: "twice a number plus 7 is 15",
   };
   const hints: Record<SolveKind, string> = {
     equation: "Use ^ for powers — type x^2 for x². Functions: sqrt, sin, cos, exp, ln; constants pi, e. Pasted superscripts like x² also work. A formula with several symbols — F = m*a — offers a choice of which one to solve for.",
     derivative: "Use ^ for powers — e.g. x^2, exp(x), sin(x^2). Pasted superscripts like x² also work.",
     integral: "Use ^ for powers. The limits may be numbers or expressions like pi/2.",
+    geometry:
+      "Shapes: circle r=3 · sphere r=2 · cylinder r=2 h=5 · box 1 2 3 · polygon n=6 a=2. " +
+      "Triangles: triangle 3 4 5 (SSS) · triangle b=4 c=3 A=90 (SAS) · triangle A=30 B=60 c=10 (ASA) · " +
+      "triangle a=6 b=8 A=30 (SSA — may give TWO answers). Points: triangle (0,0) (4,0) (0,3) · " +
+      "polygon (0,0) (4,0) (4,4) (0,4) · distance (0,0) (3,4) · line (0,0) (2,4) · circle (1,0) (0,1) (-1,0). " +
+      "Or just type a conic: x^2/9 + y^2/4 = 1.",
     word: "Plain English — e.g. “12 is what percent of 48?” or “twice a number plus 7 is 15”.",
   };
   solveInputLabel.textContent = labels[kind];
   solveInput.placeholder = placeholders[kind];
   // A word problem is a paragraph, not a one-liner — give it room to be read
-  // back and edited. Equations stay a single line.
+  // back and edited. Geometry gets two rows because a point list runs long.
+  // Equations stay a single line.
   solveInput.classList.toggle("solve-input-tall", kind === "word");
-  solveInput.rows = kind === "word" ? 5 : 1;
+  solveInput.rows = kind === "word" ? 5 : kind === "geometry" ? 2 : 1;
   solveHint.textContent = hints[kind];
   solveBounds.style.display = kind === "integral" ? "block" : "none";
+}
+
+/** Formats a number for the pane: up to 8 significant digits, no trailing zeros. */
+function trimNum(v: number): string {
+  if (Number.isInteger(v)) return String(v);
+  return String(Number(v.toPrecision(8)));
 }
 
 /** Parses a bound expression like "0", "pi", or "pi/2" to a number, or NaN. */
@@ -7669,6 +7685,40 @@ function updateSolve(): void {
       solveResult.appendChild(solveLine(`Method: ${r.method}`));
       say(`Method: ${r.method}`);
       return finish(r.caveats);
+    }
+
+    if (kind === "geometry") {
+      const g = solveGeometry(text);
+      if (!g) {
+        return void solveResult.appendChild(
+          solveLine(
+            "Couldn't read that as geometry. Try a shape (circle r=3), a triangle " +
+            "(triangle 3 4 5, or triangle a=6 b=8 A=30), a point list " +
+            "(triangle (0,0) (4,0) (0,3)), or a conic equation (x^2/9 + y^2/4 = 1)."
+          )
+        );
+      }
+      solveResult.appendChild(msEyebrow(g.title));
+      say(g.title, "heading");
+      // A named degenerate outcome is the ANSWER, not an error — show it first.
+      if (g.degenerate) {
+        solveResult.appendChild(solveLine(g.degenerate, "ms-masses"));
+        say(g.degenerate);
+      }
+      for (const v of g.values) {
+        const shown = v.exact && v.exact !== String(v.value)
+          ? `${v.label} = ${v.exact}${Number.isFinite(v.value) ? `  ≈ ${trimNum(v.value)}` : ""}`
+          : `${v.label} = ${Number.isFinite(v.value) ? trimNum(v.value) : v.exact ?? "—"}`;
+        solveResult.appendChild(solveLine(shown, "ms-masses"));
+        // Exact forms are real mathematics — typeset them.
+        if (v.exact && /[a-z(]/i.test(v.exact)) sayMath(`${v.label} = ${v.exact}`, shown);
+        else say(shown);
+      }
+      for (const s of g.steps) {
+        solveResult.appendChild(solveLine(s));
+        say(s);
+      }
+      return finish(g.caveats);
     }
 
     // word problem

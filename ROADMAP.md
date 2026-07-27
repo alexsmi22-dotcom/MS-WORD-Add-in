@@ -1,6 +1,6 @@
 # JurisLab — Product Roadmap
 
-_Last updated: 2026-07-26 · Current release: **v2.19.0** (production)_
+_Last updated: 2026-07-26 · Current release: **v2.20.0** (production)_
 
 > The release number above is gated by `phase6.adversarial.test.ts` against
 > `package.json`. If they disagree, the suite fails — this file drifted five
@@ -771,6 +771,42 @@ JCAMP reader. `reachability.test.ts` already listed it, with a reason, pointing 
 `docs/EVALUATION-2026-07-26.md`. The guard that existed was adequate and the second one
 added in v2.18.0 was redundant; it has been deleted, and the allowlist entry was pruned
 when the reader was wired — which is precisely what that test was built to force.
+
+**v2.20.0 — the adversarial pass on v2.19.0, which should have run before it shipped.**
+v2.19.0 went out on the full suite and QC alone. Its three new solvers had 84 tests, but
+those were tests written alongside the implementation: they cover what the author thought
+of, and that is not the separate adversarial half. Running it afterwards found three real
+bugs in shipped code.
+
+**The whole-library fuzzer could not have found them, and the reason is worth recording.**
+It fills at most three arguments, and all three solvers take a CALLBACK first — so every
+hostile scalar threw at argument validation and no loop inside was ever entered. That run
+reported zero hangs across 90 modules, and for these three modules the zero meant nothing.
+Reaching them needed a probe that supplies well-formed callbacks and hostile
+everything-else, plus callbacks that are themselves hostile, which is precisely what a user
+produces by typing a bad formula.
+
+- **`solveLaplace(nx = Infinity)` ran for 91 SECONDS.** The clamp was `Math.min(nx, 400)`,
+  which bounds MEMORY and not TIME — and worse, it made nonsense input buy the LARGEST grid
+  on offer, when garbage in should be cheap. Cost is ~4n³, since SOR needs about 4n sweeps
+  of n² work: 48 ms at n=40, 3.3 s at n=160, 8.0 s at n=200. **Measured again under load**
+  — the full suite running in parallel — the same solve took 18 s, and a user's machine is
+  rarely idle either. The 2-D grid is now capped at 120 a side with a work budget in
+  point-updates, so the cost of a solve cannot grow without limit; it still converges fully
+  at the maximum size.
+- **`nx = NaN` threw "Invalid array length".** `Math.floor(NaN)` is NaN, `Math.min(NaN, 400)`
+  is NaN, and `new Array(NaN)` throws — an uncaught exception rather than a refusal. The
+  shared `gridSize()` in `numguard.ts` now falls back to the DEFAULT on anything non-finite.
+- **A callback that throws escaped the solver.** These take f and g as functions because the
+  pane compiles them from what the user typed, and such a function can fail at some x but
+  not at the left endpoint where a cheap up-front probe looks. An exception from inside a
+  Newton iteration propagated out instead of being reported as the equation error it is.
+  All user callbacks are now wrapped, and the original message is kept so the formula can
+  be fixed.
+
+`numerics.adversarial.test.ts` pins all of it — 75 tests, every one asserting on TIME as
+well as value, because a solver bug in this family does not return a wrong answer, it does
+not return.
 
 **Genuinely open candidates:** deeper BVP/PDE/DAE
 support on the ODE side (out of scope today — state honestly). Confirm priority before building.

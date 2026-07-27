@@ -57,7 +57,10 @@ export type BvpOutcome =
   | { ok: true; result: BvpResult }
   | { ok: false; error: string; caveats: string[] };
 
+import { gridSize, guard3 } from "./numguard";
+
 const MAX_N = 4000;
+const DEFAULT_N = 200;
 const NEWTON_MAX = 60;
 
 /** Thomas algorithm. Returns null if a pivot vanishes — the system is singular there. */
@@ -248,8 +251,15 @@ export function solveBvp(
   if (a === b) return { ok: false, error: "The interval is empty — a and b are the same point.", caveats };
   if (b < a) return { ok: false, error: "The right endpoint must be greater than the left endpoint.", caveats };
 
+  // The right-hand side is compiled from what the user typed, so it can throw.
+  // Catch it here and report it as an equation error rather than letting an
+  // exception escape from inside a Newton iteration.
+  const gf = guard3(f);
+  f = gf.fn;
   const method: BvpMethod = opts.method ?? "fd";
-  let n = Math.max(8, Math.min(Math.floor(opts.n ?? 200), MAX_N));
+  // gridSize, not Math.min: a NaN here reached `new Array(NaN)` and threw,
+  // and an Infinity silently bought the largest grid on offer.
+  let n = gridSize(opts.n, DEFAULT_N, 8, MAX_N);
   if (n % 2 === 1) n += 1; // so the coarse grid is a subset of the fine one
 
   const run = (m: number): { y: number[]; converged: boolean } | null => {
@@ -262,6 +272,9 @@ export function solveBvp(
   };
 
   const coarse = run(n);
+  if (gf.error) {
+    return { ok: false, caveats, error: `The equation could not be evaluated: ${gf.error}` };
+  }
   if (!coarse) {
     return {
       ok: false,
@@ -273,6 +286,9 @@ export function solveBvp(
     };
   }
   const fine = run(2 * n);
+  if (gf.error) {
+    return { ok: false, caveats, error: `The equation could not be evaluated: ${gf.error}` };
+  }
   if (!fine) {
     return { ok: false, error: "The refined grid failed to solve, so no error estimate is possible and no answer is reported.", caveats };
   }

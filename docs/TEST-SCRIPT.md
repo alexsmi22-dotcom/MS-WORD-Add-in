@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.19.0)
+# JurisLab — Manual Test Script (v2.20.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -349,7 +349,7 @@ cache and reopen:
   - `k-theory S^2` -> K^0 = Z + Z, K^1 = 0, reduced K^0 = Z, and the working must name
     **Bott periodicity** rather than reading a table.
   - `k-theory CP^3` -> K^0 = Z^4, K^1 = 0, explained by the absence of odd cells.
-- [ ] **Spectral sequences and stable homotopy (v2.19.0).** Still the **Topology (homology)**
+- [ ] **Spectral sequences and stable homotopy (v2.17.0).** Still the **Topology (homology)**
   kind. The whole point of this section is what is REFUSED.
   - `serre s2 s1` -> an E_2 grid with q increasing UPWARD, and **one differential marked
     UNDETERMINED**. It must NOT report H*(E). If it ever does, that is the most serious bug
@@ -405,7 +405,18 @@ cache and reopen:
     v = 0`, constraint `x^2 + y^2 - 1`, initial z `L = 0`. It must **refuse**, say the
     system is **not index 1**, and mention index reduction. If it returns a pendulum,
     that is a serious bug.
-- [ ] **Nothing freezes Word (v2.19.0).** The whole-library sweep found seven loops that
+- [ ] **The numerics cannot freeze the pane (v2.20.0).** The v2.19.0 solvers shipped with
+  three bugs that the adversarial pass caught only afterwards. Worth confirming in Word:
+  - **Analyze -> PDE - Laplace/Poisson.** Set **Intervals each way** to a huge number
+    (e.g. 999999999). It must come back within a few seconds, having clamped the grid.
+    Before v2.20.0 the equivalent call ran for 91 seconds with the pane frozen solid.
+  - Now set that field to nonsense (`abc`), or clear it. It must fall back to a SMALL
+    default, NOT to the largest grid, and must not show an error.
+  - **Any of the five new calculators**, with a formula that only fails part way along —
+    for the BVP, set the right-hand side to `1/(x-0.5)`, or use a function name that does
+    not exist. It must report the equation as the problem. An unhandled error, or a
+    frozen pane, is a regression.
+- [ ] **Nothing freezes Word (v2.18.0).** The whole-library sweep found seven loops that
   never returned on a non-finite count. A frozen pane has no error and no way back, so
   these are worth a real pass:
   - **Finance -> Loan amortization.** Set **Years** to `1e400` (or paste a very long run

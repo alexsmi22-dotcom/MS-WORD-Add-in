@@ -31,6 +31,7 @@
 // name where it can be detected.
 
 import { solveTridiagonal } from "./bvp";
+import { gridSize, guard1, guard2, RELAX_WORK_BUDGET } from "./numguard";
 
 export type PdeKind = "heat" | "wave" | "laplace";
 export type HeatScheme = "crank-nicolson" | "explicit";
@@ -66,6 +67,13 @@ export type PdeOutcome =
 
 const MAX_NODES = 400;
 const MAX_LEVELS = 4000;
+/**
+ * A 2-D grid costs nx*ny per sweep and SOR needs about 4n sweeps, so the total
+ * is ~4n^3: measured at 48ms for n=40, 1.3s for n=120, 3.3s for n=160 and 8.0s
+ * for n=200. 160 is the largest that still relaxes fully inside a few seconds,
+ * and a task pane is frozen for every one of them.
+ */
+const MAX_NODES_2D = 120;
 
 /** Reports at most `want` time levels out of `have`, always including the last. */
 function levelStride(have: number, want: number): number {
@@ -86,12 +94,12 @@ export function solveHeat(
   if (!Number.isFinite(tEnd) || tEnd <= 0) return { ok: false, error: "The final time must be a positive finite number." };
   if (![left, right].every(Number.isFinite)) return { ok: false, error: "Both boundary values must be finite numbers." };
 
-  const nx = Math.max(4, Math.min(Math.floor(opts.nx ?? 60), MAX_NODES));
+  const nx = gridSize(opts.nx, 60, 4, MAX_NODES);
   const scheme: HeatScheme = opts.scheme ?? "crank-nicolson";
   const dx = L / nx;
   const x = Array.from({ length: nx + 1 }, (_, i) => i * dx);
 
-  let nt = Math.max(1, Math.min(Math.floor(opts.nt ?? 400), MAX_LEVELS));
+  let nt = gridSize(opts.nt, 400, 1, MAX_LEVELS);
   let dt = tEnd / nt;
   let stepReduced = false;
 
@@ -115,7 +123,9 @@ export function solveHeat(
   }
   const r = rOf(dt);
 
-  const u0 = x.map(f);
+  const gf = guard1(f);
+  const u0 = x.map(gf.fn);
+  if (gf.error) return { ok: false, error: `The initial condition could not be evaluated: ${gf.error}` };
   if (!u0.every(Number.isFinite)) return { ok: false, error: "The initial condition is not finite everywhere on the grid." };
   u0[0] = left;
   u0[nx] = right;
@@ -208,7 +218,7 @@ export function solveWave(
   if (!Number.isFinite(L) || L <= 0) return { ok: false, error: "The length L must be a positive finite number." };
   if (!Number.isFinite(tEnd) || tEnd <= 0) return { ok: false, error: "The final time must be a positive finite number." };
 
-  const nx = Math.max(4, Math.min(Math.floor(opts.nx ?? 80), MAX_NODES));
+  const nx = gridSize(opts.nx, 80, 4, MAX_NODES);
   const dx = L / nx;
   const x = Array.from({ length: nx + 1 }, (_, i) => i * dx);
 
@@ -224,8 +234,11 @@ export function solveWave(
     return { ok: false, error: `Reaching t = ${tEnd} at the stable step size needs ${Math.ceil(tEnd / dt).toLocaleString()} steps — past the ${MAX_LEVELS.toLocaleString()} this will run. Use a coarser space grid.` };
   }
 
-  const u0 = x.map(f);
-  const v0 = x.map(g);
+  const gf = guard1(f);
+  const gg = guard1(g);
+  const u0 = x.map(gf.fn);
+  const v0 = x.map(gg.fn);
+  if (gf.error || gg.error) return { ok: false, error: `The initial data could not be evaluated: ${gf.error ?? gg.error}` };
   if (!u0.every(Number.isFinite) || !v0.every(Number.isFinite)) {
     return { ok: false, error: "The initial displacement or velocity is not finite everywhere on the grid." };
   }
@@ -305,29 +318,33 @@ export function solveLaplace(
   if (!Number.isFinite(W) || W <= 0 || !Number.isFinite(H) || H <= 0) {
     return { ok: false, error: "The rectangle's width and height must be positive finite numbers." };
   }
-  const nx = Math.max(3, Math.min(Math.floor(opts.nx ?? 40), MAX_NODES));
-  const ny = Math.max(3, Math.min(Math.floor(opts.ny ?? 40), MAX_NODES));
+  const nx = gridSize(opts.nx, 40, 3, MAX_NODES_2D);
+  const ny = gridSize(opts.ny, 40, 3, MAX_NODES_2D);
   const dx = W / nx;
   const dy = H / ny;
   const x = Array.from({ length: nx + 1 }, (_, i) => i * dx);
   const y = Array.from({ length: ny + 1 }, (_, j) => j * dy);
 
   // u[j][i] — row index is y, so the array prints the way the region is drawn.
+  const gb = guard2(boundary);
+  const gs = opts.source ? guard2(opts.source) : null;
   const u: number[][] = Array.from({ length: ny + 1 }, () => new Array<number>(nx + 1).fill(0));
   for (let j = 0; j <= ny; j++) {
     for (let i = 0; i <= nx; i++) {
       const onEdge = i === 0 || i === nx || j === 0 || j === ny;
       if (onEdge) {
-        const v = boundary(x[i], y[j]);
+        const v = gb.fn(x[i], y[j]);
         if (!Number.isFinite(v)) return { ok: false, error: "The boundary values are not finite everywhere." };
         u[j][i] = v;
       }
     }
   }
-  const src = opts.source;
+  if (gb.error) return { ok: false, error: `The boundary values could not be evaluated: ${gb.error}` };
+  const src = gs ? gs.fn : null;
   const fgrid: number[][] = Array.from({ length: ny + 1 }, (_, j) =>
     Array.from({ length: nx + 1 }, (_, i) => (src ? src(x[i], y[j]) : 0))
   );
+  if (gs && gs.error) return { ok: false, error: `The source term could not be evaluated: ${gs.error}` };
   if (fgrid.some((row) => row.some((v) => !Number.isFinite(v)))) {
     return { ok: false, error: "The source term is not finite everywhere on the grid." };
   }
@@ -340,7 +357,12 @@ export function solveLaplace(
   const by = 1 / (dy * dy);
   const denom = 2 * (bx + by);
   const tol = opts.tol ?? 1e-10;
-  const maxIter = Math.min(opts.maxIter ?? 20000, 200000);
+  // A 400x400 grid relaxed to 1e-10 took 91 SECONDS: memory-bounded, entirely
+  // unbounded in TIME. Sweeps are budgeted by total point-updates so the cost
+  // of a solve cannot grow with the grid without limit.
+  const perSweep = Math.max(1, (nx - 1) * (ny - 1));
+  const budgetIter = Math.max(50, Math.floor(RELAX_WORK_BUDGET / perSweep));
+  const maxIter = Math.min(gridSize(opts.maxIter, 20000, 1, 200000), budgetIter);
 
   let iterations = 0;
   let converged = false;
@@ -365,7 +387,8 @@ export function solveLaplace(
     `Five-point stencil solved by successive over-relaxation with ω = ${omega.toFixed(4)} (the optimal value for a rectangle of this shape).`,
     converged
       ? `Converged in ${iterations} sweeps to a maximum change below ${tol.toExponential(0)}.`
-      : `Stopped after ${iterations} sweeps WITHOUT reaching the tolerance.`,
+      : `Stopped after ${iterations} sweeps WITHOUT reaching the tolerance` +
+        (iterations >= budgetIter ? " — the work budget for this grid size was reached. A coarser grid converges further per unit of work." : "") + ".",
   ];
   const caveats = [
     "Second-order accurate. Dirichlet boundary values on all four sides of a rectangle — no other shape and no other boundary condition.",

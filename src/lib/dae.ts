@@ -61,6 +61,8 @@ export type DaeOutcome =
   | { ok: true; result: DaeResult }
   | { ok: false; error: string };
 
+import { gridSize, guardVec } from "./numguard";
+
 const MAX_STEPS = 20000;
 const NEWTON_MAX = 50;
 
@@ -143,6 +145,11 @@ export function solveDae(
     return { ok: false, error: "The initial values must all be finite numbers." };
   }
 
+  // f and g are compiled from what the user typed and can throw.
+  const gf = guardVec(f);
+  const gg = guardVec(g);
+  f = gf.fn;
+  g = gg.fn;
   const ny = y0.length;
   const nz = z0.length;
   const caveats: string[] = [];
@@ -150,6 +157,9 @@ export function solveDae(
 
   // --- The index check ------------------------------------------------------
   const g0 = g(t0, y0, z0);
+  if (gf.error || gg.error) {
+    return { ok: false, error: `The equations could not be evaluated: ${gf.error ?? gg.error}` };
+  }
   if (g0.length !== nz) {
     return { ok: false, error: `There are ${nz} algebraic unknowns but ${g0.length} constraint equations. A semi-explicit DAE needs exactly as many constraints as algebraic variables.` };
   }
@@ -197,7 +207,7 @@ export function solveDae(
   }
 
   // --- Integrate ------------------------------------------------------------
-  const nSteps = Math.max(1, Math.min(Math.floor(opts.steps ?? 500), MAX_STEPS));
+  const nSteps = gridSize(opts.steps, 500, 1, MAX_STEPS);
   const h = (t1 - t0) / nSteps;
   const ts = [t0];
   const ys = [y0.slice()];
@@ -219,6 +229,9 @@ export function solveDae(
       const gv = g(tn, yk, zk);
       if (fv.length !== ny) return { ok: false, error: `The differential part returned ${fv.length} values but there are ${ny} differential unknowns.` };
       if (!fv.every(Number.isFinite) || !gv.every(Number.isFinite)) {
+        if (gf.error || gg.error) {
+          return { ok: false, error: `The equations could not be evaluated at t = ${tn.toPrecision(6)}: ${gf.error ?? gg.error}` };
+        }
         return { ok: false, error: `The equations stopped being finite at t = ${tn.toPrecision(6)}.` };
       }
       const F = new Array<number>(n);

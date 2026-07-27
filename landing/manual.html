@@ -20,7 +20,6 @@
     h2 { color:var(--blue); font-size:1.35rem; margin:38px 0 12px; padding-top:8px; border-top:1px solid var(--line); }
     h2:first-of-type { border-top:none; }
     h3 { font-size:1.08rem; margin:24px 0 6px; }
-    h3 .icon { font-style:normal; margin-right:6px; }
     p, li { color:var(--ink); }
     .muted { color:var(--muted); }
     .lead { color:var(--muted); font-size:.96rem; margin:2px 0 8px; }
@@ -98,7 +97,7 @@
     <p>Unzip the download first (double-click the <code>.zip</code>), keeping the files together in one folder. Then follow the column for your computer:</p>
     <div class="osgrid">
       <div class="card">
-        <h4>🪟 On Windows</h4>
+        <h4>On Windows</h4>
         <ol>
           <li><b>Double-click <code>install.bat</code></b> inside the unzipped folder.</li>
           <li>If a blue <b>“Windows protected your PC”</b> box appears, click <b>More info → Run anyway</b>. (That box only shows because the file came from the internet — it’s expected.)</li>
@@ -107,7 +106,7 @@
         <p class="muted" style="margin:8px 0 0">Double-click does nothing? Right-click <code>install.ps1</code> → <b>Run with PowerShell</b> instead.</p>
       </div>
       <div class="card">
-        <h4>🍎 On a Mac</h4>
+        <h4>On a Mac</h4>
         <ol>
           <li><b>Right-click</b> (or Control-click) <b><code>install.command</code></b> and choose <b>Open</b> — don’t double-click it the first time.</li>
           <li>You’ll get one of two boxes. If it has an <b>Open</b> button, click <b>Open</b>. If it only offers <i>Move to Trash / Done</i> (newer macOS), click <b>Done</b>, then go to <b>Apple menu → System Settings → Privacy &amp; Security</b>, scroll down to <b>Security</b>, and click <b>Open Anyway</b> next to “install.command was blocked”. Enter your password / Touch ID, then <b>Open Anyway</b> once more.</li>
@@ -162,7 +161,7 @@
     <h2 id="chemistry">Chemistry &amp; structures</h2>
     <p class="lead">Five tools — Chemical, Build, Reaction, Mass Spec, Spectra.</p>
 
-    <h3><span class="icon">🧪</span>Chemical — formulas, 2D structures, properties &amp; pKa</h3>
+    <h3>Chemical — formulas, 2D structures, properties &amp; pKa</h3>
     <p>Two things in one panel. <b>Type a formula</b> and it typesets itself: <code>H2O</code> → H₂O, <code>Ca(OH)2</code> → Ca(OH)₂, <code>2H2O</code> keeps the coefficient full-size, <code>SO4^2-</code> → SO₄²⁻, <code>Na+</code> → Na⁺, <code>[Fe(CN)6]3-</code> → the bracketed ion. <b>Type a name, formula or SMILES</b> and it resolves a 2D structure with a full readout.</p>
     <ul>
       <li><b>Validation</b> against a complete 118-element table: real-element check, balanced brackets, nested groups (<code>K4[Fe(CN)6]</code>), hydrate dots (<code>CuSO4·5H2O</code>), net charge, molecular weight, and the normalized Hill formula. The readout is either <code>✓ Valid — CaH2O2, M = 74.093 g/mol</code> or <code>⚠</code> with the exact error.</li>
@@ -173,9 +172,9 @@
     </ul>
     <div class="try"><b>Try it:</b> <code>aspirin</code> → structure, formula C₉H₈O₄, MW, druglikeness, and “Carboxylic acid — acidic, pKa ≈ 4.5”. <code>Ca(OH)2</code> → <code>✓ Valid — CaH2O2, M = 74.093 g/mol</code>.</div>
     <p class="out"><b>Inserts:</b> formatted formula (text), structure (picture with provenance), recognised name (text), or the properties + pKa block (text with its caveats).</p>
-    <div class="note"><b>Honest about estimates.</b> cLogP/logS are model predictions (RMSE ≈ 0.4 / 0.7 log units; shown as <i>n/a</i> for inorganics). pKa detection is exact, and for <b>aromatic acids/bases and aliphatic acids the value is now substituent-corrected</b> — a Hammett (ρ·Σσ) or inductive adjustment specific to your molecule, shown with its derivation (e.g. p-nitrophenol ≈ 7.15, not phenol’s 9.99). Other groups still use the typical group value. Online IUPAC lookup (OPSIN) is the one feature that leaves the machine, and it always asks first.</p>
+    <div class="note"><b>Honest about estimates.</b> cLogP/logS are model predictions (RMSE ≈ 0.4 / 0.7 log units; shown as <i>n/a</i> for inorganics). pKa detection is exact, and for <b>aromatic acids/bases and aliphatic acids the value is substituent-corrected</b> — a Hammett (ρ·Σσ) or inductive adjustment specific to your molecule, shown with its derivation (e.g. p-nitrophenol ≈ 7.15, not phenol’s 9.99). Other groups still use the typical group value. Online IUPAC lookup (OPSIN) is the one feature that leaves the machine, and it always asks first.</p>
 
-    <h3><span class="icon">🔬</span>Build — structures from atoms/bonds, Markush &amp; molfiles</h3>
+    <h3>Build — structures from atoms/bonds, Markush &amp; molfiles</h3>
     <p>Draw a structure by describing it, or paste an MDL molfile. Built for patent genus/Markush work.</p>
     <ul>
       <li><b>Atom/bond DSL:</b> <code>atoms: C C O</code> (1-indexed) and <code>bonds: 1-2 2=3</code> where <code>-</code>/<code>=</code>/<code>#</code> are single/double/triple, <code>~</code> is any, <code>i&gt;j</code>/<code>i&lt;j</code> are wedge/hash. Atoms carry charge (<code>N+</code>, <code>Fe2+</code>); hydrogens auto-fill.</li>
@@ -187,13 +186,13 @@
     <div class="try"><b>Try it:</b> <code>atoms: C O O</code> / <code>bonds: 1=2 1=3</code> → CO₂. A ring with <code>[C,N]</code> spans benzene and pyridine and is reported as a <i>generic structure</i>.</div>
     <p class="out"><b>Inserts:</b> the structure (picture with provenance), optionally followed by the R-group legend (paragraph or table). Query structures report MW as “generic structure”, by design.</p>
 
-    <h3><span class="icon">⚗️</span>Reaction — reaction-scheme layout</h3>
+    <h3>Reaction — reaction-scheme layout</h3>
     <p>Compose a scheme from names/SMILES: <code>reactants + reactants &gt;&gt; products ; over ; under</code>. Arrows: <code>&gt;&gt;</code>/<code>-&gt;</code> forward, <code>&lt;=&gt;</code>/<code>⇌</code> reversible, <code>&lt;-</code> retrosynthetic; multi-stage chains are supported. The two optional <code>;</code> fields are text over/under the first arrow.</p>
     <div class="try"><b>Try it:</b> <code>CCO + CC(=O)O &gt;&gt; CC(=O)OCC ; H2SO4 ; reflux</code> → ethanol + acetic acid → ethyl acetate, “H2SO4” above and “reflux” below a forward arrow.</div>
     <p class="out"><b>Inserts:</b> the whole scheme as one picture with provenance.</p>
     <div class="note"><b>Layout only.</b> Reaction draws what you type — it does <i>not</i> balance equations, predict products, or check feasibility. Arrow type and conditions are yours to state.</div>
 
-    <h3><span class="icon">⚛️</span>Mass Spec — exact mass, isotope pattern, adducts</h3>
+    <h3>Mass Spec — exact mass, isotope pattern, adducts</h3>
     <p>From a name, formula or SMILES:</p>
     <ul>
       <li><b>Monoisotopic</b> and <b>average</b> mass.</li>
@@ -203,7 +202,7 @@
     <div class="try"><b>Try it:</b> <code>glucose</code> → monoisotopic 180.0423, average 180.159; [M+H]⁺ 181.0495, [M+Na]⁺ 203.0315, [M−H]⁻ 179.0350. A chlorinated compound shows the tell-tale ~32% M+2 peak.</div>
     <p class="out"><b>Inserts:</b> a text summary (masses, pattern with %, adducts). Untabled elements are excluded from the pattern shape only, with a note; masses stay exact.</p>
 
-    <h3><span class="icon">📡</span>Spectra — predicted NMR, 2D, IR, UV-Vis &amp; MS fragmentation</h3>
+    <h3>Spectra — predicted NMR, 2D, IR, UV-Vis &amp; MS fragmentation</h3>
     <p>Pick a spectrum type, type a name or SMILES, and get a prediction with an assignment for every signal. Seven kinds:</p>
     <table>
       <tr><th>Kind</th><th>What you get</th></tr>
@@ -223,35 +222,36 @@
     <h2 id="mathunits">Math &amp; units</h2>
     <p class="lead">Six tools — Math, Solve, Units, Plot, Stats, Analyze.</p>
 
-    <h3><span class="icon">∑</span>Math — native Word equations</h3>
+    <h3>Math — native Word equations</h3>
     <p>Type <code>x^2 + y^2</code> and insert a <b>real Word equation</b> (click it and Equation Tools appear — editable, not a picture). If the host is too old or the expression won’t parse, it falls back to formatted text and tells you.</p>
     <ul>
       <li>Fractions <code>a/b</code>, scripts <code>x^{n+1}</code>, roots <code>sqrt(x)</code>/<code>root(n,x)</code>, <code>abs</code>/<code>floor</code>/<code>ceil</code>/<code>norm</code>.</li>
       <li>N-ary <code>sum(i=1,n,e)</code> Σ, <code>prod</code> ∏, <code>int(a,b,e)</code> ∫ (plus <code>oint</code>/<code>iint</code>), <code>lim(x-&gt;0, e)</code>.</li>
       <li>Matrices <code>matrix(a,b; c,d)</code> (and pmatrix/bmatrix/vmatrix), <code>cases(…)</code> piecewise, multi-line <code>align(a=b; c=d)</code>, accents <code>bar/hat/vec</code>, Dirac <code>bra</code>/<code>ket</code>/<code>braket</code>.</li>
       <li>Greek by name, logic/set-theory symbols, and operators (<code>&lt;=</code> → ≤, <code>-&gt;</code> → →, <code>+-</code> → ±). Implicit multiplication (<code>2x</code>, <code>2(x+1)</code>).</li>
-      <li><b>Formula library</b> dropdown with 21 categories (statistics, calculus, physics, engineering, four finance groups…). <b>LaTeX import</b> (paste, convert) and <b>copy-as-LaTeX</b> out. Tick <b>Number this equation</b> for an auto-incrementing (I), (II)….</li>
+      <li><b>Formula library</b> dropdown with 19 categories (statistics, calculus, physics, engineering, three finance groups…). <b>LaTeX import</b> (paste, convert) and <b>copy-as-LaTeX</b> out. Tick <b>Number this equation</b> for an auto-incrementing (I), (II)….</li>
     </ul>
     <div class="try"><b>Coming from LaTeX?</b> Paste <code>\frac{-b \pm \sqrt{b^2-4ac}}{2a}</code> and convert it to a Word equation — the quadratic formula as a true stacked fraction with a radical.</div>
     <p class="out"><b>Inserts:</b> a native Word equation object, or inline formatted-text runs matching the preview.</p>
 
-    <h3><span class="icon">🟰</span>Solve — equations, calculus &amp; word problems</h3>
+    <h3>Solve — equations, calculus &amp; word problems</h3>
     <p>A no-code solver that runs entirely on your machine. Pick what to do from the dropdown:</p>
-    <p><b>Two bodies.</b> Distance/rate/time problems now handle the closing case — two things
+    <p><b>Two bodies.</b> Distance/rate/time problems handle the closing case — two things
     approaching or separating, where the speeds add — and show the combined rate in the working.
     Anything the templates cannot actually represent is refused rather than approximated: two
     distances, two times, or two speeds with no stated geometry all produce a refusal instead of an
     answer built from whichever number appeared first.</p>
     <ul>
-      <li><b>Solve an equation</b> — <code>x^2 - 5x + 6 = 0</code> → <code>x = 3, 2</code> exactly. Linear and quadratic are closed-form; for <b>any higher-degree polynomial you get every root, real and complex</b> (<code>x^3 - 1 = 0</code> → 1 and −0.5 ± 0.866i), with repeated roots marked ×2/×3. Only genuinely transcendental equations (<code>cos(x) = 0</code>) are limited to real roots in a scanned range. Identities and no-solution cases are reported as such; a multi-unknown equation is refused, not guessed.</li>
-      <li><b>Differentiate</b> — a <b>symbolic</b> derivative: <code>sin(x^2)</code> → <code>2*x*cos(x^2)</code> (chain rule).</li>
+      <li><b>Solve an equation</b> — <code>x^2 - 5x + 6 = 0</code> → <code>x = 3, 2</code> exactly. Linear and quadratic are closed-form; for <b>any higher-degree polynomial you get every root, real and complex</b> (<code>x^3 - 1 = 0</code> → 1 and −0.5 ± 0.866i), with repeated roots marked ×2/×3. Only genuinely transcendental equations (<code>cos(x) = 0</code>) are limited to real roots in a scanned range. Identities and no-solution cases are reported as such.</li>
+      <li><b>Rearrange a formula</b> — type an equation with several symbols and the pane offers a chip per unknown: <code>F = m*a</code> → <b>Solve for: F · m · a</b>. Pick <code>a</code> and you get <code>a = F/m</code>, exactly, with the other symbols carried through. Quadratic targets return both ± branches of the quadratic formula symbolically. Every division the rearrangement introduces states its condition (<code>requires m ≠ 0</code>), and every answer is checked by substituting it back into the original equation.</li>
+      <li><b>Differentiate</b> — a <b>symbolic</b> derivative: <code>sin(x^2)</code> → <code>2*x*cos(x^2)</code> (chain rule). Results are collected and cancelled by the CAS core, so <code>sin(x)*cos(x)</code> differentiates to <code>cos(x)^2 - sin(x)^2</code> rather than an unreduced sum.</li>
       <li><b>Definite integral</b> — <b>exact</b> where a closed form exists (it shows the antiderivative F(x)): <code>x^2</code> from 0 to 3 → 9. Falls back to numeric (adaptive Simpson) only when no rule applies. Limits may be expressions like <code>pi/2</code>.</li>
       <li><b>Word problem</b> — offline templates for percentages (<code>12 is what percent of 48?</code> → 25%), distance = rate × time, and simple “a number …” sentences (<code>twice a number plus 7 is 15</code> → builds <code>2*n + 7 = 15</code>, n = 4). Also <b>successive-share</b> problems — <code>a pie is divided among 100 guests; guest 1 gets 1%, guest 2 gets 2% of what’s left, and so on — who gets the largest piece?</code> — solved by evaluating the whole sequence, with the general term and the winning share shown.</li>
     </ul>
     <p class="out"><b>Inserts:</b> the solution as text — the variable, each root/answer, the method label, and steps.</p>
-    <div class="note">Exact answers are labelled exact; numeric answers state their limits (real roots only, within the scanned range; integration is an approximation). Word problems say so when they can’t template a problem rather than inventing an answer — the honest half of a “both, offline first” design. An optional online AI solver for free-form problems can be added.</div>
+    <div class="note">Exact answers are labelled exact; numeric answers state their limits (a transcendental equation reports only the real roots it bracketed in the scanned range; integration falls back to adaptive Simpson only when no closed form applies, and says so). Word problems say so when they can’t template a problem rather than inventing an answer — the honest half of a “both, offline first” design. An optional online AI solver for free-form problems can be added.</div>
 
-    <h3><span class="icon">📏</span>Units — SI typesetting &amp; conversion</h3>
+    <h3>Units — SI typesetting &amp; conversion</h3>
     <ul>
       <li><b>Typesetting:</b> <code>9.81 m/s^2</code> → 9.81 m/s², uncertainties <code>5.0 +- 0.2 kg</code> → 5.0 ± 0.2 kg, scientific notation <code>1.2e-3 mol/L</code> → 1.2 × 10⁻³ mol/L, symbol fixes (<code>ohm</code> → Ω, <code>degC</code> → °C, <code>um</code> → µm, <code>angstrom</code> → Å).</li>
       <li><b>Conversion</b> across length, mass (incl. Da/kDa), time, temperature (°C/°F offsets handled), volume, pressure, energy, amount, angle, and electrical units — including <b>compound units</b> (<code>km/h</code> → <code>m/s</code>, <code>g/mol</code> → <code>kg/mol</code>). Results are given to 4 significant figures.</li>
@@ -259,7 +259,7 @@
     <div class="try"><b>Try it:</b> <code>1 km → mi</code> → 0.6214 mi; <code>100 °C → °F</code> → 212 °F.</div>
     <p class="out"><b>Inserts:</b> the typeset quantity or the conversion line. Incompatible or unknown units are refused, not fudged.</p>
 
-    <h3><span class="icon">📈</span>Plot — function &amp; data charts</h3>
+    <h3>Plot — function &amp; data charts</h3>
     <ul>
       <li><b>Functions:</b> one or more expressions separated by <code>;</code> (each its own labelled line), over an x-range. Full function set (trig, hyperbolic, <code>exp</code>/<code>log</code>/<code>sqrt</code>, <code>min</code>/<code>max</code>/<code>hypot</code>…), constants <code>pi</code>/<code>e</code>/<code>tau</code>. No <code>eval</code> — safe expression parsing.</li>
       <li><b>Data:</b> one point per line, <code>x y</code> or <code>x y err</code> (the third column draws an error bar). Functions and data can overlay, with a legend.</li>
@@ -268,14 +268,14 @@
     <p class="out"><b>Inserts:</b> the chart as a PNG picture, drawn entirely offline.</p>
     <p><b>Logarithmic axes.</b> Either axis can be base-10 log — for dose–response, titrations, kinetics, and anything spanning decades. A log axis cannot show zero or a negative value, so it says how many points it dropped and on which axis rather than quietly plotting a subset; a dilution series with a zero-concentration control hits that on the first try.</p>
 
-    <h3><span class="icon">📐</span>Stats — tests, regression &amp; uncertainty</h3>
+    <h3>Stats — tests, regression &amp; uncertainty</h3>
     <p>Pick a test, paste your numbers (space/comma/newline separated), get a paper-ready result with a <b>real p-value</b> computed from distribution functions (not table lookups). Twenty-one tests in all:</p>
     <ul>
       <li>Descriptive statistics (n, mean, SEM, SD, median, 95% CI, CV); two-sample t-test (Welch or Student); paired t-test; one-way ANOVA; linear regression (slope/intercept/R²/slope p).</li>
       <li>Non-parametric: Mann–Whitney U and Wilcoxon signed-rank (normal approximation, tie- and continuity-corrected).</li>
       <li>Chi-square goodness-of-fit and test of independence (r×c); two-way ANOVA (balanced, with replication).</li>
       <li>Utilities: uncertainty propagation (value ± combined 1σ, with the largest-contributing variable), and multiple-comparison correction (Benjamini–Hochberg / Holm / Bonferroni).</li>
-      <li><b>Effect sizes.</b> Every t-test now reports Cohen's <i>d</i> and a 95% confidence interval on the difference, which journals require alongside <i>p</i> — <i>p</i> alone confounds the size of an effect with the size of the sample. The paired test reports <i>d</i><sub>z</sub> and labels it as such, because the two are not comparable.</li>
+      <li><b>Effect sizes.</b> Every t-test reports Cohen's <i>d</i> and a 95% confidence interval on the difference, which journals require alongside <i>p</i> — <i>p</i> alone confounds the size of an effect with the size of the sample. The paired test reports <i>d</i><sub>z</sub> and labels it as such, because the two are not comparable.</li>
       <li><b>Check test assumptions.</b> D'Agostino–Pearson K² for normality and Brown–Forsythe for equal variances. Every warning names the alternative to use rather than just complaining, and the t-tests carry the verdict underneath their own p-value. Below n = 20 it <b>refuses to report</b> rather than returning a number with no power behind it.</li>
       <li><b>Non-parametric beyond two groups:</b> Kruskal–Wallis with Dunn post-hoc (tie-corrected; the post-hoc appears only when the overall test is significant) and Friedman for repeated measures.</li>
       <li><b>Post-hoc:</b> Tukey HSD for all pairs, and <b>Dunnett</b> for every treatment against one control — which corrects for the comparisons you wanted rather than all k(k−1)/2, and is the difference between a significant result and none in a typical dose study.</li>
@@ -285,8 +285,8 @@
     <div class="try"><b>Try it:</b> one-way ANOVA on <code>1 2 3</code> / <code>4 5 6</code> / <code>7 8 9</code> → F(2, 6) = 27.00, p ≈ .001. Regression on x = 1..5, y = <code>2.1 3.9 6.1 8.0 9.9</code> → slope ≈ 1.97, R² ≈ 0.999.</div>
     <p class="out"><b>Inserts:</b> the result block as text (APA-style, e.g. <code>t(18) = 2.41, p = .027</code>). Zero-variance or too-few-points inputs get a clear guard message.</p>
 
-    <h3><span class="icon">🧮</span>Analyze — a no-code numerical workbench</h3>
-    <p>Fourteen sub-tools, each pre-filled with a worked example; results (matrices, text, and inline plots) insert at the cursor.</p>
+    <h3>Analyze — a no-code numerical workbench</h3>
+    <p>Fifteen sub-tools, each pre-filled with a worked example; results (matrices, text, and inline plots) insert at the cursor.</p>
     <ul>
       <li><b>Linear algebra:</b> solve A·x = b, inverse, determinant/rank/trace, eigenvalues (symmetric — with vectors; and <b>any square</b> matrix — complex pairs as <code>a ± bi</code>), QR, SVD, matrix multiply, transpose, and a MATLAB-style <b>matrix expression</b> evaluator (<code>A*inv(B) + 2*A'</code>).</li>
       <li><b>Optimization:</b> minimise a typed function (Nelder–Mead); reports the minimum, its location, and whether it converged.</li>
@@ -301,7 +301,7 @@
     <h2 id="datafig">Data &amp; figures</h2>
     <p class="lead">Two tools — Table → Chart, Finance.</p>
 
-    <h3><span class="icon">📊</span>Table → Chart — turn a Word table into a graphic</h3>
+    <h3>Table → Chart — turn a Word table into a graphic</h3>
     <p>Click inside a Word table, press <b>Read selected table</b>, and it auto-picks the best representation (you can override with <b>Show as</b>).</p>
     <ul>
       <li><b>10 chart types:</b> column, bar, line, area, scatter, stacked column/bar/area, pie, doughnut. Tolerant number parsing handles <code>1,234.5</code>, <code>$2,500</code>, <code>45%</code>, accountant negatives <code>(1,200)</code> → −1200, and magnitude suffixes <code>1.2K</code> → 1200.</li>
@@ -313,7 +313,7 @@
     <div class="try"><b>Try it:</b> a table <code>Year | Revenue</code> with <code>2021 $1,200</code> / <code>2022 $1,500</code> / <code>2023 (200)</code> → the accountant parentheses become −200; “Show as = Column” renders a column chart with a zero line; Patent style hatches the bars and captions “FIG. 1”.</div>
     <p class="out"><b>Inserts:</b> a figure at the cursor (picture), an editable Word table, or a downloaded <code>.pptx</code>. Tables over 24 rows get a “this will be dense — try the table figure” warning.</p>
 
-    <h3><span class="icon">💵</span>Finance — 19 calculators</h3>
+    <h3>Finance — 19 calculators</h3>
     <p>Pick a calculator; rates are entered as percentages; the result computes live. Nineteen calculators, each backed by a pure function:</p>
     <ul>
       <li><b>Time value of money:</b> future value, present value, compound interest, growing-annuity PV, effective annual rate.</li>
@@ -329,7 +329,7 @@
     <h2 id="biology">Biology</h2>
     <p class="lead">Seven tools — Sequence Map, Align, Sequence (ST.26), DNA, Bio/Assay, Peptide, Botanical.</p>
 
-    <h3><span class="icon">🗺️</span>Sequence Map — open a file, draw an annotated map</h3>
+    <h3>Sequence Map — open a file, draw an annotated map</h3>
     <p>Open a sequence file (or paste one) and insert an annotated map at the cursor. Files are read locally as bytes; nothing is uploaded. Format is sniffed by <b>content, not extension</b>.</p>
     <table>
       <tr><th>Format</th><th>What you get</th></tr>
@@ -340,12 +340,12 @@
     <p>Plasmids draw as <b>circular</b> maps, linear constructs as linear, and <b>Auto</b> follows the record’s own topology. Joined CDS draw as segmented arrows with a dashed intron connector; restriction sites can be overlaid; a <b>black-and-white patent-figure</b> style is available.</p>
     <div class="note"><b>Methylation changes what actually cuts.</b> The site list is what the enzyme <i>recognises</i>; whether it cuts depends on how the DNA was grown. MboI won’t touch plasmid DNA from a <code>dam+</code> strain; DpnI cuts <i>only</i> methylated DNA. Both are flagged under the digest table.</div>
 
-    <h3><span class="icon">🧬</span>Align — pairwise sequence alignment</h3>
+    <h3>Align — pairwise sequence alignment</h3>
     <p>Compare two sequences and insert the alignment at the cursor. <b>Needleman–Wunsch</b> (global) and <b>Smith–Waterman</b> (local) with affine gaps — the algorithms EMBOSS <code>needle</code> and <code>water</code> run, at their default costs (BLOSUM62, gap open 10 / extend 0.5 for protein; +5/−4 for DNA). Paste plain sequence or FASTA; headers and whitespace are stripped. Sequence type auto-detects conservatively (DNA only when ≥90% ACGTUN).</p>
     <p><b>Global</b> forces an end-to-end alignment — use it when the two sequences are the same thing (a clone vs its reference). <b>Local</b> finds the best shared segment — use it when they share only a domain. The stats line reports identities, similarities, gaps, and 1-based spans; the ruler uses <code>|</code> (identical) and <code>:</code> (similar).</p>
     <div class="note"><b>Percent identity is a fact about the alignment, not the sequences</b> — it moves when you change the gap costs. Below ~25% identity (the “twilight zone”) two unrelated proteins still align convincingly, and JurisLab says so. The alignment inserts in a <b>monospace</b> font deliberately: a proportional font would silently break the column correspondence the ruler depends on.</div>
 
-    <h3><span class="icon">🧬</span>Sequence — WIPO ST.26 listings</h3>
+    <h3>Sequence — WIPO ST.26 listings</h3>
     <p>Generates a well-formed <b>WIPO Standard ST.26</b> XML sequence listing — the mandatory format for patent sequence filings.</p>
     <ul>
       <li><b>Metadata:</b> applicant, invention title, file reference, IP office, application number, filing date (production date auto-set).</li>
@@ -357,7 +357,7 @@
     <p class="out"><b>Output:</b> the XML is shown with <b>Download</b> and <b>Copy</b> buttons (not inserted into the document).</p>
     <div class="note"><b>Always validate ST.26 output in the WIPO Sequence tool before filing.</b> JurisLab generates the listing; it is not a substitute for WIPO’s own validator.</div>
 
-    <h3><span class="icon">🧬</span>DNA — nucleotide analysis</h3>
+    <h3>DNA — nucleotide analysis</h3>
     <p>Live analysis of a DNA/RNA sequence (IUPAC codes accepted):</p>
     <p><b>Virtual digest.</b> Cut with the enzymes you choose and get fragment sizes, their spans
     and ends, and the bands a gel would actually resolve — two fragments within about 8% of each
@@ -370,12 +370,12 @@
       <li><b>Base composition &amp; GC%</b>; a six-frame <b>ORF finder</b> with a minimum-length filter, coordinates 1-based on the (+) strand for both strands, inserted as a table.</li>
       <li><b>Primer Tm</b> by nearest-neighbour SantaLucia (1998) thermodynamics with salt and primer-concentration corrections (defaults 50 mM Na⁺, 0.25 µM); below 8 nt it falls back to the Wallace rule and says so.</li>
       <li><b>Protein properties</b> of the translation: MW (ProtParam masses), pI (EMBOSS pKa values), GRAVY (Kyte–Doolittle).</li>
-      <li><b>Restriction sites</b> from a ~110-enzyme table (both strands, IUPAC-degenerate, Type IIS), with cut positions and overhangs, unique cutters starred, and <b>methylation warnings</b> (Dam/Dcm/DpnI).</li>
+      <li><b>Restriction sites</b> from a 122-enzyme table (both strands, IUPAC-degenerate, Type IIS), with cut positions and overhangs, unique cutters starred, and <b>methylation warnings</b> (Dam/Dcm/DpnI).</li>
     </ul>
     <div class="try"><b>Try it:</b> <code>ATGGCCAAGCTTGATTAA</code> → mRNA <code>AUGGCCAAGCUUGAUUAA</code>; +1 translation <code>MAKLD*</code>; reverse complement <code>TTAATCAAGCTTGGCCAT</code>; a <b>HindIII</b> site at <code>A^AGCTT</code>.</div>
     <div class="note"><b>Primer Tm is meaningless without its conditions.</b> The readout always echoes them, and warns that it assumes a perfectly matched duplex — no mismatches, hairpins or primer-dimers, and it says nothing about specificity.</div>
 
-    <h3><span class="icon">🧫</span>Bio/Assay — kinetics, dose–response, binding &amp; lab math</h3>
+    <h3>Bio/Assay — kinetics, dose–response, binding &amp; lab math</h3>
     <p>Pick one of 15 calculators. Four fit a curve with a shared Levenberg–Marquardt engine that reports <b>parameters ± standard errors and R²</b> and draws the fit over your data; the rest are closed-form lab maths. You never enter starting values — each fit seeds itself from a linearization.</p>
     <ul>
       <li><b>Fits:</b> Michaelis–Menten (Vmax, Km); Hill (Vmax, K, coefficient n); dose–response 4PL (IC50/EC50, orientation inferred from the data); one-site saturation binding (Bmax, Kd).</li>
@@ -385,13 +385,13 @@
     <p class="out"><b>Inserts:</b> the result text and, for fits, the data+fit plot as a picture.</p>
     <div class="note"><b>R² is a poor guide for a nonlinear fit</b> — it stays near 1 even when a parameter is undetermined, so the tool warns you to judge by the standard errors and residuals. It flags any parameter whose SE exceeds 25% of its estimate, warns when your substrate range can’t separate Vmax from Km, and notes that least squares can’t tell you the model is wrong.</div>
 
-    <h3><span class="icon">🔗</span>Peptide — draw a peptide from its sequence</h3>
+    <h3>Peptide — draw a peptide from its sequence</h3>
     <p>Type an amino-acid sequence in one- or three-letter codes (<code>ACDEFG</code>, <code>Ala-Gly-Cys</code>) and get its 2D structure, residue count, molecular formula, and molecular weight. All 20 standard amino acids are supported (proline’s ring and glycine handled correctly); unrecognised tokens are reported, not dropped.</p>
     <div class="try"><b>Try it:</b> <code>AG</code> (or <code>Ala-Gly</code>) → 2 residues, formula C₅H₁₀N₂O₃, MW ≈ 146.14. Single residues equal their free amino acid.</div>
     <p class="out"><b>Inserts:</b> the 2D structure as a picture, with formula/MW/SMILES in the alt-text.</p>
     <div class="note"><b>Connectivity only — no stereochemistry.</b> Cα chirality is left undefined so the tool never asserts a possibly-wrong configuration. Standard-20 residues only (no modifications or disulfides); long chains render dense.</div>
 
-    <h3><span class="icon">🌿</span>Botanical — plant nomenclature &amp; trait tables</h3>
+    <h3>Botanical — plant nomenclature &amp; trait tables</h3>
     <p>Typesets a scientific name with correct ICN/ICNCP italics, and builds a varietal “characteristics” table.</p>
     <ul>
       <li>Genus and species/infraspecific epithets italic; rank connectors (<code>subsp.</code>, <code>var.</code>, <code>f.</code>…) roman, and they <b>re-italicize the epithet even after an author citation</b>; author citations roman; hybrid <code>×</code> roman; cultivar epithets roman in straight single quotes.</li>
@@ -404,7 +404,7 @@
     <h2 id="patent">Patent drafting</h2>
     <p class="lead">Four tools — Numerals, Refs, Code, Audit.</p>
 
-    <h3><span class="icon">🔢</span>Numerals — reference-numeral management</h3>
+    <h3>Numerals — reference-numeral management</h3>
     <p>Maintains a numeral → element table <b>saved in the document</b>, inserts callouts, and reconciles the table against the text.</p>
     <p><b>USPTO paragraph numbering.</b> Insert bracketed paragraph numbers — [0001], [0002] —
     through the specification: the form used to amend a US application and to cite it in an
@@ -420,16 +420,16 @@
     </ul>
     <div class="try"><b>Try it:</b> table <code>10 base / 12 housing / 14 cover</code>, document calls out (10)(12)(14) → “✓ no issues”. Add a <code>12 cover</code> row → a collision on 12.</div>
 
-    <h3><span class="icon">🔖</span>Refs — captions &amp; cross-references</h3>
+    <h3>Refs — captions &amp; cross-references</h3>
     <p>Auto-numbered figure/table captions with per-document running counters (inserted with Word’s built-in <b>Caption</b> style), in-text cross-references (<code>Fig. 3</code>, <code>Table 2</code>, <code>Eq. (1)</code>), and a <b>Check captions</b> pass that flags gaps and duplicates per kind.</p>
     <div class="try"><b>Try it:</b> insert a figure caption → “Figure 1. …”, the counter advances to 2. A document with Figure 1 and Figure 3 → check reports “missing 2”.</div>
     <p class="muted">For live auto-renumbering across a long document, Word’s own cross-reference fields remain the authority; this is the lightweight authoring aid.</p>
 
-    <h3><span class="icon">💻</span>Code — algorithm &amp; code listings</h3>
+    <h3>Code — algorithm &amp; code listings</h3>
     <p>Renders pseudocode or source as a monospace, whitespace-preserving block with an optional caption and line numbers. <b>Algorithm</b> style additionally bolds control-flow keywords (function, if, then, for, while, return…), preserving your case; <b>Code listing</b> style is verbatim. Everything is HTML-escaped, so <code>a &lt; b &amp;&amp; c</code> renders literally.</p>
     <div class="try"><b>Try it:</b> paste pseudocode with <code>function</code>/<code>if</code>/<code>return</code>, Algorithm style, caption “Algorithm 1: KeyGen” → keywords bold, numbered lines, caption above.</div>
 
-    <h3><span class="icon">✅</span>Audit — whole-document consistency</h3>
+    <h3>Audit — whole-document consistency</h3>
     <p>One <b>Check this application</b> pass runs every cross-reference rule at once and returns a per-section report:</p>
     <ul>
       <li><b>Reference numerals</b> — the same collisions / gaps / orphans / unused reconciliation as Numerals.</li>
@@ -443,7 +443,7 @@
     <h2 id="legal">Legal citations</h2>
     <p class="lead">One tool — Citations.</p>
 
-    <h3><span class="icon">⚖️</span>Citations — Bluebook citations, TOA &amp; TOC</h3>
+    <h3>Citations — Bluebook citations, TOA &amp; TOC</h3>
     <p>A config-driven <b>Bluebook</b> citation formatter with 11 types, correct italics, and practitioner or academic typography.</p>
     <p><b>The Table of Authorities marks short forms.</b> Not only the full citation but
     <i>Alice</i>, 573 U.S. at 217 and <i>Id.</i> as well, so the page list covers the whole
@@ -469,7 +469,7 @@
       <li><b>It is a drafting aid.</b> Verify every structure, formula, calculation and listing before filing or publishing. It is not a reviewer.</li>
       <li><b>Predicted spectra are estimates</b>, not measurements — see the Spectra warning above.</li>
       <li><b>pKa</b> detection is exact; aromatic acids/bases and aliphatic acids are substituent-corrected (Hammett/inductive, ±0.3–0.5), other groups use the typical group value. It’s a strong estimate, not a measurement.</li>
-      <li><b>The Solve/ODE tools are numerical where they say so</b> — real roots within a scanned range, numeric integration, no closed-form ODE solutions, no boundary-value problems or PDEs.</li>
+      <li><b>The Solve/ODE tools say which answers are exact and which are numerical</b> — exact for linear/quadratic roots, formula rearrangement, and integrals with a closed form; complete (every root, real and complex) for higher polynomials; numerical for transcendental equations, where only the real roots bracketed in the scanned range are reported. ODE solutions are numerical throughout — no closed-form ODEs, no boundary-value problems or PDEs.</li>
       <li><b>IR predicts group frequencies</b>, not the fingerprint region below ~1500 cm⁻¹.</li>
       <li><b>UV-Vis uses the Woodward–Fieser rules</b>, which have a defined domain; outside it, JurisLab says “transparent” instead of guessing.</li>
       <li><b>Reaction is a layout tool</b> — it doesn’t balance, predict, or check feasibility.</li>

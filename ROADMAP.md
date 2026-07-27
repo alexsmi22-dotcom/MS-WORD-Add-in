@@ -1,6 +1,6 @@
 # JurisLab — Product Roadmap
 
-_Last updated: 2026-07-26 · Current release: **v2.5.0** (production)_
+_Last updated: 2026-07-26 · Current release: **v2.6.0** (production)_
 
 > The release number above is gated by `phase6.adversarial.test.ts` against
 > `package.json`. If they disagree, the suite fails — this file drifted five
@@ -307,6 +307,27 @@ where the sqrt atom blocks the exact route — stated, not hidden). The pane off
 d/dx sin(x)cos(x) is now cos(x)² − sin(x)², and the `+ -` artifacts are gone.
 Deliberately NOT done yet (Release 2, per the design): symbolic integration (needs the
 factoring/partial-fraction machinery), multivariate GCD, systems of equations.
+
+**v2.6.0 — symbolic integration + typeset insertion (CAS-DESIGN Release 2 and §5.1).**
+Release 2 was deliberately second because it stands entirely on Release 1: `src/lib/casint.ts`
+does **substitution** (canonical equality recognises that a factor IS g′(x), then replaces every
+occurrence of g by a fresh symbol), **integration by parts** (recursive, so ∫x²eˣ resolves through
+two rounds), and **partial fractions** over exact rationals — polynomial division, rational-root
+factoring with multiplicity, and an exact Gaussian solve for the decomposition coefficients.
+∫x·eˣ dx = eˣ(x−1), ∫dx/(x(x+1)), ∫dx/(x²+4) = ½atan(x/2), ∫ln x dx = x ln x − x, ∫tan x dx all
+now come back exactly, where every one of them used to fall back to Simpson.
+**The correctness net is the design's own:** every antiderivative is DIFFERENTIATED BACK and
+compared canonically (numerically where canonical comparison is inconclusive); a candidate that
+fails is discarded, not returned. That is what makes aggressive heuristics safe — the worst case
+is a fallback to quadrature, never a wrong closed form dressed up as exact. What it cannot do it
+refuses: ∫eˣ² , ∫sin(x)/x, and cyclic by-parts like ∫eˣ sin x return null and go numeric.
+Also shipped: **§5.1 — Solve inserts real Word equations.** It called `insertPlainText` while the
+pane typeset the same derivation on screen and the OMML engine sat there driving Math mode, so
+`a = F/m` landed in the document as literal characters. `buildDerivationOoxml` now emits a
+multi-paragraph package mixing prose and genuine `<m:oMath>` — fractions as fractions, ∫ with real
+limits — and degrades one un-parseable line to text rather than failing the whole insertion.
+One regression test was renamed rather than accommodated: `x*exp(x)` was pinned as a case the
+integrator "can't integrate", which the improvement falsified; the value assertion is unchanged.
 
 **Genuinely open candidates:** deeper BVP/PDE/DAE
 support on the ODE side (out of scope today — state honestly). Confirm priority before building.

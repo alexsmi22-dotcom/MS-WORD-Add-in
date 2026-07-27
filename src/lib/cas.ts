@@ -725,6 +725,161 @@ export function solveRationalInVar(f: Expr, x: string): SymbolicSolution | null 
   };
 }
 
+// ---------------------------------------------------------------------------
+// Exact-rational polynomial toolkit, exported for symbolic integration
+// (casint.ts). Partial fractions needs coefficient arithmetic that cannot
+// drift, which is exactly what the Q layer above provides.
+// ---------------------------------------------------------------------------
+
+/** An exact rational. `d` > 0, always reduced. */
+export type Rat = Q;
+
+export const ratMake = (n: bigint, d: bigint): Rat => qMake(n, d);
+export const ratInt = (n: bigint | number): Rat => qMake(BigInt(n), 1n);
+export const ratAdd = qAdd;
+export const ratSub = (a: Rat, b: Rat): Rat => qAdd(a, qNeg(b));
+export const ratMul = qMul;
+export const ratDiv = qDiv;
+export const ratNeg = qNeg;
+export const ratIsZero = qIsZero;
+export const ratIsOne = qIsOne;
+export const ratToNumber = qToNumber;
+export const ratFromNumber = qFromNumber;
+export const ratToExpr = qToExpr;
+export const RAT_ZERO = Q_ZERO;
+export const RAT_ONE = Q_ONE;
+/** Sign of a rational: -1, 0 or 1. */
+export const ratSign = (a: Rat): number => (a.n < 0n ? -1 : a.n > 0n ? 1 : 0);
+export const ratEq = (a: Rat, b: Rat): boolean => a.n === b.n && a.d === b.d;
+
+/**
+ * `e` as an exact rational function of `x` alone: ascending coefficient arrays
+ * for numerator and denominator, already reduced by the canonicaliser's GCD
+ * cancellation. Null when `e` involves any other symbol or any non-polynomial
+ * structure in x (sin(x), x^0.5, x^y …).
+ */
+export function ratFunctionInVar(e: Expr, x: string): { num: Rat[]; den: Rat[] } | null {
+  let ctx: Ctx;
+  let rf: RF;
+  try {
+    ctx = { atoms: new Map() };
+    rf = normalize(e, ctx);
+  } catch (err) {
+    if (err instanceof CasBail) return null;
+    throw err;
+  }
+  for (const k of new Set([...pAtoms(rf.n), ...pAtoms(rf.d)])) if (k !== x) return null;
+  const num = pAsUnivariate(rf.n, x);
+  const den = pAsUnivariate(rf.d, x);
+  if (!num || !den || !den.length) return null;
+  return { num, den };
+}
+
+/** `e` as an exact polynomial in `x` alone (ascending coefficients), or null. */
+export function polyInVar(e: Expr, x: string): Rat[] | null {
+  const rf = ratFunctionInVar(e, x);
+  if (!rf) return null;
+  if (rf.den.length !== 1) return null; // a genuine denominator in x
+  return rf.num.map((c) => qDiv(c, rf.den[0]));
+}
+
+/** Rebuilds an ascending coefficient array into an Expr in `x`. */
+export function ratPolyToExpr(coeffs: Rat[], x: string): Expr {
+  const ctx: Ctx = { atoms: new Map() };
+  return polyToExpr(uniToPoly(coeffs, x), ctx);
+}
+
+/** Ascending-coefficient polynomial arithmetic over exact rationals. */
+export const ratPolyAdd = (a: Rat[], b: Rat[]): Rat[] => {
+  const out: Rat[] = [];
+  for (let i = 0; i < Math.max(a.length, b.length); i++) out.push(qAdd(a[i] ?? Q_ZERO, b[i] ?? Q_ZERO));
+  return ratPolyTrim(out);
+};
+export const ratPolyScale = (a: Rat[], k: Rat): Rat[] => ratPolyTrim(a.map((c) => qMul(c, k)));
+export function ratPolyMul(a: Rat[], b: Rat[]): Rat[] {
+  if (!a.length || !b.length) return [];
+  const out: Rat[] = new Array(a.length + b.length - 1).fill(Q_ZERO);
+  a.forEach((av, i) => b.forEach((bv, j) => (out[i + j] = qAdd(out[i + j], qMul(av, bv)))));
+  return ratPolyTrim(out);
+}
+export function ratPolyTrim(a: Rat[]): Rat[] {
+  const out = a.slice();
+  while (out.length && qIsZero(out[out.length - 1])) out.pop();
+  return out;
+}
+/** Evaluates a polynomial at an exact rational point (Horner). */
+export function ratPolyEval(a: Rat[], at: Rat): Rat {
+  let acc = Q_ZERO;
+  for (let i = a.length - 1; i >= 0; i--) acc = qAdd(qMul(acc, at), a[i]);
+  return acc;
+}
+/** Quotient and remainder of a ÷ b over exact rationals. */
+export function ratPolyDivMod(a: Rat[], b: Rat[]): { q: Rat[]; r: Rat[] } {
+  const bb = ratPolyTrim(b);
+  if (!bb.length) throw new CasBail("polynomial division by zero");
+  let r = ratPolyTrim(a);
+  const db = bb.length - 1;
+  const lead = bb[db];
+  const q: Rat[] = new Array(Math.max(0, r.length - db)).fill(Q_ZERO);
+  while (r.length - 1 >= db && r.length) {
+    const dr = r.length - 1;
+    const f = qDiv(r[dr], lead);
+    q[dr - db] = f;
+    const shifted: Rat[] = new Array(dr - db).fill(Q_ZERO).concat(bb.map((c) => qMul(c, f)));
+    r = ratPolyAdd(r, shifted.map((c) => qNeg(c)));
+  }
+  return { q: ratPolyTrim(q), r };
+}
+
+/**
+ * Rational roots of a polynomial with their multiplicities, plus whatever
+ * factor is left once they are divided out. Uses the rational-root theorem
+ * over the integer-scaled coefficients — complete for rational roots, which
+ * is what partial fractions needs.
+ */
+export function ratPolyRoots(coeffs: Rat[]): { roots: { root: Rat; mult: number }[]; rest: Rat[] } {
+  let p = ratPolyTrim(coeffs);
+  const roots: { root: Rat; mult: number }[] = [];
+  if (p.length < 2) return { roots, rest: p };
+
+  // Scale to integer coefficients so the rational-root theorem applies.
+  let lcm = 1n;
+  for (const c of p) lcm = (lcm / bGcd(lcm, c.d)) * c.d;
+  const ints = p.map((c) => (c.n * lcm) / c.d);
+  const a0 = ints.find((v) => v !== 0n) ?? 0n; // lowest nonzero coefficient
+  const an = ints[ints.length - 1];
+  const divisors = (v: bigint): bigint[] => {
+    v = bAbs(v);
+    if (v === 0n) return [1n];
+    const out: bigint[] = [];
+    // Bounded trial division: a user-typed polynomial has small coefficients,
+    // and giving up simply means the factor stays unfactored (honest, not wrong).
+    for (let i = 1n; i <= v && i <= 10000n; i++) if (v % i === 0n) out.push(i);
+    return out;
+  };
+  const candidates: Rat[] = [];
+  for (const pnum of divisors(a0)) {
+    for (const qden of divisors(an)) {
+      candidates.push(qMake(pnum, qden), qMake(-pnum, qden));
+    }
+  }
+  // x = 0 is a root whenever the constant term vanishes.
+  if (p.length && qIsZero(p[0])) candidates.unshift(Q_ZERO);
+
+  for (const c of candidates) {
+    if (p.length < 2) break;
+    let mult = 0;
+    while (p.length >= 2 && qIsZero(ratPolyEval(p, c))) {
+      const { q, r } = ratPolyDivMod(p, [qNeg(c), Q_ONE]); // divide by (x − c)
+      if (r.length) break; // numerically impossible here, but stay total
+      p = q;
+      mult++;
+    }
+    if (mult) roots.push({ root: c, mult });
+  }
+  return { roots, rest: p };
+}
+
 /** Does the (composite) atom's expression mention variable `x`? */
 function atomMentionsVar(ctx: Ctx, key: string, x: string): boolean {
   const e = ctx.atoms.get(key);

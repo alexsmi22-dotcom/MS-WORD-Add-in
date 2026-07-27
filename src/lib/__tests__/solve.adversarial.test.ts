@@ -294,9 +294,15 @@ describe("integration is EXACT (symbolic) where a rule applies, numeric otherwis
     expect(Math.abs(r.value - 1.4626517459)).toBeLessThan(1e-6); // known ∫₀¹ e^{x²}
   });
 
-  it("falls back to numeric for a product it can't integrate (x*exp(x))", () => {
+  it("integrates x*exp(x) EXACTLY (was numeric before the CAS integrator)", () => {
+    // BEHAVIOUR CHANGE, v2.6.0 — justified, not accommodated. This case was
+    // written when ∫x·eˣ had no rule and fell back to Simpson; casint.ts now
+    // solves it by parts and the result is verified by differentiating back.
+    // The value assertion below is unchanged and still passes; only the claim
+    // in the name was falsified by the improvement.
     const r = integrate("x*exp(x)", 0, 1)!;
-    // ∫₀¹ x e^x dx = 1 (exactly), Simpson gets it numerically
-    expect(Math.abs(r.value - 1)).toBeLessThan(1e-6);
+    expect(Math.abs(r.value - 1)).toBeLessThan(1e-6); // ∫₀¹ x eˣ dx = 1 exactly
+    expect(r.method).toBe("exact (symbolic)");
+    expect(r.antiderivative).toBeTruthy();
   });
 });

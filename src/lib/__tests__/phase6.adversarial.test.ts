@@ -294,6 +294,11 @@ describe("the user-facing docs are not allowed to rot", () => {
       ["virtual digest", /virtual digest/i],
       ["TOA short forms", /short forms/i],
       ["dark mode", /follows Word.s own theme|Appearance/i],
+      // v2.5.0's headline feature shipped while the manual still described the
+      // pre-CAS product — and said outright that a multi-unknown equation is
+      // "refused, not guessed", which the rearranger had just made false. The
+      // gate listed no CAS entry, so the suite stayed green over a false claim.
+      ["formula rearrangement", /rearrange a formula/i],
     ];
     const man = read("landing/manual.html");
     const missing = REQUIRED.filter(([, re]) => !re.test(man)).map(([name]) => name);

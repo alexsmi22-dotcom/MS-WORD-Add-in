@@ -4,7 +4,7 @@ import { Segment, segmentsToHtml } from "../lib/segments";
 import { parseChemical } from "../lib/chemParser";
 import { validateFormula } from "../lib/chemValidate";
 import { parseMath } from "../lib/mathFormat";
-import { mathToOoxml } from "../lib/mathOmml";
+import { mathToOoxml, buildDerivationOoxml, DerivationBlock } from "../lib/mathOmml";
 import { mathToHtml } from "../lib/mathHtml";
 import { parseMathAst } from "../lib/mathParse";
 import { figureScale, figurePoints } from "../lib/figures";
@@ -1015,7 +1015,10 @@ Office.onReady((info) => {
   solveInput.addEventListener("input", () => { solveVarChoice = null; updateSolve(); });
   solveA.addEventListener("input", updateSolve);
   solveB.addEventListener("input", updateSolve);
-  solveInsertBtn.addEventListener("click", () => insertPlainText(currentSolveText, "solution"));
+  // Inserts real, editable Word equations (OMML) — the pane already typeset the
+  // derivation on screen, and the same engine drives Math mode, so shipping it
+  // to the document as flat ASCII was leaving the best part behind.
+  solveInsertBtn.addEventListener("click", () => insertDerivation(currentSolveBlocks, currentSolveText, "solution"));
   alignA.addEventListener("input", updateAlign);
   alignB.addEventListener("input", updateAlign);
   alignModeSel.addEventListener("change", updateAlign);
@@ -4085,6 +4088,43 @@ async function insertPlainText(text: string, label: string): Promise<void> {
     setStatus(`${label} inserted. Ctrl/⌘+Z undoes it.`, "success");
   } catch (error) {
     setStatus(`Could not insert ${label.toLowerCase()}: ${(error as Error).message}`, "error");
+  } finally {
+    insertTextBusy = false;
+  }
+}
+
+/**
+ * Inserts a worked derivation as REAL Word equations (OMML) rather than flat
+ * ASCII. Falls back to the plain-text path if the host rejects the OOXML, so
+ * the button always does something.
+ */
+async function insertDerivation(blocks: DerivationBlock[], plain: string, label: string): Promise<void> {
+  if (!blocks.length) {
+    setStatus(`Nothing to insert for ${label.toLowerCase()}.`, "error");
+    return;
+  }
+  if (insertTextBusy) {
+    setStatus("Still inserting the last result — one moment.", "error");
+    return;
+  }
+  insertTextBusy = true;
+  setStatus(`Inserting ${label.toLowerCase()}…`);
+  try {
+    const ooxml = buildDerivationOoxml(blocks);
+    await Word.run(async (context) => {
+      const range = context.document.getSelection();
+      // AFTER, matching every other insert path — never overwrite a selection.
+      const inserted = range.insertOoxml(ooxml, Word.InsertLocation.after);
+      range.select(Word.SelectionMode.end);
+      await context.sync();
+      await tagInserted(context, inserted, "formula-inserter:solution");
+    });
+    setStatus(`${label} inserted as editable equations. Ctrl/⌘+Z undoes it.`, "success");
+  } catch (error) {
+    // OOXML refused by the host — the derivation is still worth having as text.
+    insertTextBusy = false;
+    await insertPlainText(plain, label);
+    return;
   } finally {
     insertTextBusy = false;
   }
@@ -7413,6 +7453,8 @@ type SolveKind = "equation" | "derivative" | "integral" | "word";
 
 /** Plain-text form of the current result, for insertion into Word. */
 let currentSolveText = "";
+/** The same result as typeset blocks, so it can insert as real Word equations. */
+let currentSolveBlocks: DerivationBlock[] = [];
 /** Target variable chosen via the "solve for …" chips; cleared on new input. */
 let solveVarChoice: string | null = null;
 
@@ -7514,6 +7556,7 @@ function updateSolve(): void {
   const text = solveInput.value.trim();
   solveResult.replaceChildren();
   currentSolveText = "";
+  currentSolveBlocks = [];
   solveInsertBtn.disabled = true;
 
   if (!text) {
@@ -7522,9 +7565,24 @@ function updateSolve(): void {
   }
 
   const lines: string[] = [];
+  // Typeset counterpart of `lines`: equations go in as real OMML, prose as text.
+  const blocks: DerivationBlock[] = [];
+  const say = (text: string, kind: "text" | "heading" = "text") => {
+    lines.push(text);
+    blocks.push({ kind, content: text });
+  };
+  const sayMath = (math: string, plain = math) => {
+    lines.push(plain);
+    blocks.push({ kind: "math", content: math });
+  };
   const finish = (caveats: string[]) => {
     if (caveats.length) solveResult.appendChild(specCaveats(caveats));
+    for (const c of caveats) {
+      lines.push(c);
+      blocks.push({ kind: "text", content: c });
+    }
     currentSolveText = lines.join("\n");
+    currentSolveBlocks = blocks;
     solveInsertBtn.disabled = !currentSolveText;
   };
 
@@ -7538,7 +7596,8 @@ function updateSolve(): void {
         r = solveEquation(text, solveVarChoice) ?? r;
       }
       solveResult.appendChild(msEyebrow(`Solve for ${r.variable}`));
-      lines.push(`Solve for ${r.variable}:  ${text}`);
+      say(`Solve for ${r.variable}:`, "heading");
+      sayMath(text);
       if (!r.roots.length) {
         // "unsolved" is NOT "no roots" — it means the solver could not isolate a
         // single unknown (e.g. F = m*a has three). Saying "No real roots found."
@@ -7554,11 +7613,15 @@ function updateSolve(): void {
                   : `Couldn't isolate ${r.variable} in closed form here. Giving the other symbols values can make it solvable numerically.`
                 : "No real roots found in the range searched.";
         solveResult.appendChild(solveLine(msg, "ms-masses"));
-        lines.push(msg);
+        say(msg);
       } else {
         for (const root of r.roots) {
           solveResult.appendChild(solveLine(`${r.variable} = ${root.display}`, "ms-masses"));
-          lines.push(`${r.variable} = ${root.display}`);
+          // A root is an equation — typeset it. Complex roots (0 + 1i) and
+          // multiplicity markers (×2) are not linear math, so those stay text.
+          const plain = `${r.variable} = ${root.display}`;
+          if (/[i×]/.test(root.display)) say(plain);
+          else sayMath(plain);
         }
       }
       // Multi-unknown equations get a chip per unknown; the rearranger solves
@@ -7566,7 +7629,8 @@ function updateSolve(): void {
       if (r.unknowns && r.unknowns.length > 1) solveResult.appendChild(solveVarChipsRow(r.unknowns));
       solveResult.appendChild(solveLine(`Method: ${r.method}`));
       for (const s of r.steps) solveResult.appendChild(solveLine(s));
-      lines.push(`Method: ${r.method}`, ...r.steps);
+      say(`Method: ${r.method}`);
+      for (const s of r.steps) say(s);
       return finish(r.caveats);
     }
 
@@ -7576,7 +7640,9 @@ function updateSolve(): void {
       solveResult.appendChild(msEyebrow(`Derivative with respect to ${r.variable}`));
       solveResult.appendChild(solveLine(`f(${r.variable}) = ${r.expression}`, "ms-masses"));
       solveResult.appendChild(solveLine(`f'(${r.variable}) = ${r.derivative}`, "ms-masses"));
-      lines.push(`d/d${r.variable} [ ${r.expression} ] = ${r.derivative}`);
+      say(`Derivative with respect to ${r.variable}:`, "heading");
+      sayMath(`f(${r.variable}) = ${r.expression}`);
+      sayMath(`f'(${r.variable}) = ${r.derivative}`);
       return finish(r.caveats);
     }
 
@@ -7587,17 +7653,21 @@ function updateSolve(): void {
       const r = integrate(text, a, b);
       if (!r) return void solveResult.appendChild(solveLine("Couldn't integrate that. Use one variable and numeric limits."));
       solveResult.appendChild(msEyebrow("Definite integral"));
-      const val = `∫ (${text}) d${r.variable}, from ${solveA.value.trim() || "0"} to ${solveB.value.trim() || "1"} = ${r.value.toPrecision(8).replace(/\.?0+$/, "")}`;
+      const lo = solveA.value.trim() || "0";
+      const hi = solveB.value.trim() || "1";
+      const val = `∫ (${text}) d${r.variable}, from ${lo} to ${hi} = ${r.value.toPrecision(8).replace(/\.?0+$/, "")}`;
       solveResult.appendChild(solveLine(val, "ms-masses"));
-      lines.push(val);
+      say("Definite integral:", "heading");
+      // A real ∫ with its limits, typeset — the notation is the whole point.
+      sayMath(`int(${lo}, ${hi}, ${text}) = ${r.value.toPrecision(8).replace(/\.?0+$/, "")}`, val);
       if (r.antiderivative) {
         // Show the work: the exact antiderivative F(x) behind an exact result.
         const fx = `antiderivative F(${r.variable}) = ${r.antiderivative} + C`;
         solveResult.appendChild(solveLine(fx));
-        lines.push(fx);
+        sayMath(`F(${r.variable}) = ${r.antiderivative} + C`, fx);
       }
       solveResult.appendChild(solveLine(`Method: ${r.method}`));
-      lines.push(`Method: ${r.method}`);
+      say(`Method: ${r.method}`);
       return finish(r.caveats);
     }
 
@@ -7611,12 +7681,13 @@ function updateSolve(): void {
     }
     solveResult.appendChild(msEyebrow(`Word problem — ${r.template}`));
     solveResult.appendChild(solveLine(`Answer: ${r.answer}`, "ms-masses"));
-    lines.push(`Word problem (${r.template})`, `Answer: ${r.answer}`);
+    say(`Word problem (${r.template})`, "heading");
+    say(`Answer: ${r.answer}`);
     if (r.equation) {
       // Typeset the equation the same way as the working — it was the one line
       // still showing raw ASCII next to properly rendered formulae.
       solveResult.appendChild(solveWorkLine({ text: "Equation:", math: r.equationMath ?? r.equation }));
-      lines.push(`Equation: ${r.equation}`);
+      sayMath(r.equationMath ?? r.equation, `Equation: ${r.equation}`);
     }
     // Prefer the typeset working when the template provides it; the plain steps
     // are still what goes into the document.
@@ -7625,7 +7696,7 @@ function updateSolve(): void {
     } else {
       for (const s of r.steps) solveResult.appendChild(solveLine(s));
     }
-    lines.push(...r.steps);
+    for (const s of r.steps) say(s);
     return finish(r.caveats);
   } catch (error) {
     solveResult.appendChild(solveLine(`Could not solve: ${(error as Error).message}`));

@@ -27,6 +27,7 @@
 // stated), verified by substituting the solution back.
 
 import { casSimplify, CasBail, solveRationalInVar } from "./cas";
+import { symbolicIntegrate } from "./casint";
 
 // ---------------------------------------------------------------------------
 // AST
@@ -998,8 +999,12 @@ export function integrate(input: string, a: number, b: number, variable?: string
   const others = vars.filter((v) => v !== x);
   if (others.length) return null; // cannot integrate with unresolved parameters
 
-  // Prefer an EXACT symbolic antiderivative; fall back to numeric only if none.
-  const F = symbolicAntideriv(simplify(e), x);
+  // Prefer an EXACT symbolic antiderivative. The CAS integrator (Release 2:
+  // substitution, by parts, partial fractions) is tried first and is
+  // self-verifying — it differentiates every candidate back and discards any
+  // that does not match, so a miss costs nothing but a fallback. The older
+  // rule table below still runs when the CAS finds nothing.
+  const F = symbolicIntegrate(simplify(e), x, derivative)?.F ?? symbolicAntideriv(simplify(e), x);
   if (F) {
     const Fs = simplify(F);
     try {

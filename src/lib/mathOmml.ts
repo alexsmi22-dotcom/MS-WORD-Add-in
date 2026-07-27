@@ -141,3 +141,64 @@ export function buildMathOoxml(ommlBody: string, options: MathOoxmlOptions = {})
 export function mathToOoxml(input: string, options: MathOoxmlOptions = {}): string {
   return buildMathOoxml(mathToOmml(input), options);
 }
+
+/**
+ * One line of a multi-paragraph insertion: either prose or an equation.
+ * `math` content is linear math (the same grammar Math mode accepts); if it
+ * fails to parse the line degrades to plain text rather than failing the whole
+ * insertion — a derivation is still useful with one line un-typeset.
+ */
+export interface DerivationBlock {
+  kind: "text" | "math" | "heading";
+  content: string;
+}
+
+/**
+ * Builds a multi-paragraph flat-OPC package mixing prose and REAL Word
+ * equations, for inserting a worked derivation.
+ *
+ * Solve used to insert its derivations as flat ASCII through insertPlainText,
+ * even though the pane already typeset them on screen and this OMML engine was
+ * driving Math mode the whole time — so `a = F/m` arrived in the document as
+ * the literal characters "a = F/m" rather than an editable equation. This is
+ * what makes the inserted result a first-class Word object.
+ */
+export function buildDerivationOoxml(blocks: DerivationBlock[]): string {
+  const paragraphs = blocks
+    .map((b) => {
+      if (b.kind === "math") {
+        try {
+          return `<w:p>${mathToOmml(b.content)}</w:p>`;
+        } catch {
+          return textParagraph(b.content, false); // un-parseable: keep the text
+        }
+      }
+      return textParagraph(b.content, b.kind === "heading");
+    })
+    .join("");
+
+  const documentXml =
+    `<w:document xmlns:w="${W_NS}" xmlns:m="${M_NS}">` +
+    `<w:body>${paragraphs}</w:body></w:document>`;
+
+  const relsXml =
+    `<Relationships xmlns="${REL_NS}">` +
+    `<Relationship Id="rId1" Type="${OFFICE_DOC_REL}" Target="word/document.xml"/>` +
+    `</Relationships>`;
+
+  return (
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
+    `<?mso-application progid="Word.Document"?>` +
+    `<pkg:package xmlns:pkg="${PKG_NS}">` +
+    `<pkg:part pkg:name="/_rels/.rels" pkg:contentType="application/vnd.openxmlformats-package.relationships+xml">` +
+    `<pkg:xmlData>${relsXml}</pkg:xmlData></pkg:part>` +
+    `<pkg:part pkg:name="/word/document.xml" pkg:contentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml">` +
+    `<pkg:xmlData>${documentXml}</pkg:xmlData></pkg:part>` +
+    `</pkg:package>`
+  );
+}
+
+function textParagraph(text: string, bold: boolean): string {
+  const rPr = bold ? `<w:rPr><w:b/></w:rPr>` : "";
+  return `<w:p><w:r>${rPr}<w:t xml:space="preserve">${escapeXml(text)}</w:t></w:r></w:p>`;
+}

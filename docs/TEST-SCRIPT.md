@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.5.0)
+# JurisLab — Manual Test Script (v2.6.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -275,6 +275,15 @@ cache and reopen:
 - [ ] **Differentiate** `sin(x^2)` → **`2*x*cos(x^2)`** (conventional factor order).
 - [ ] **Differentiate (v2.5.0 readability)** `sin(x)*cos(x)` → **`cos(x)^2 - sin(x)^2`** —
   collected, no `+ -` artifacts.
+- [ ] **Symbolic integration (v2.6.0).** Integrand `x*exp(x)`, limits 0 to 1 → **1**,
+  method *exact (symbolic)*, and it shows **F(x) = x·eˣ − eˣ + C**. Try `1/(x^2+4)`
+  0→2 (= π/8, atan form), `ln(x)` 1→e (= 1), `1/(x*(x+1))` 1→2. Each must say EXACT.
+- [ ] **Integration refuses honestly.** `exp(x^2)` 0→1 → falls back to *adaptive Simpson*
+  with the approximation caveat — it must NOT claim exact.
+- [ ] **Insert is a REAL equation now (v2.6.0).** With any Solve result on screen press
+  **Insert**. What lands must be an **editable Word equation** — click it and Word shows
+  the equation toolbar; a fraction like F/m is drawn as a fraction, and an integral shows
+  a real ∫ with its limits. It must NOT be flat text. Ctrl/⌘+Z removes it in one step.
 - [ ] **Superscripts:** paste/type `x² - 5x + 6 = 0` → same result as `x^2…` (x = 3, 2). The
   hint under the box reminds you to use `^` for powers.
 - [ ] **Definite integral (exact):** `x^2` from `0` to `3` → **9**, method *exact (symbolic)*,

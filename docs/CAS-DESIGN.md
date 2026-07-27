@@ -4,6 +4,14 @@ _Written 2026-07-26, at v2.4.1. This is the brief for the next session; it exist
 so that work can start on the first line of code rather than re-deriving what is
 already known._
 
+> **STATUS (2026-07-26, v2.6.0): Release 2 SHIPPED TOO** — `src/lib/casint.ts`
+> does substitution, by parts and partial fractions over exact rationals, with
+> the verify-by-differentiating-back gate this document specified; and §5.1
+> (typeset insertion) is done — `buildDerivationOoxml` inserts real `<m:oMath>`.
+> Still open from §3's "later" list: systems of equations, inequalities, limits,
+> series/Taylor, symbolic ODEs, units-aware solving. Cyclic by-parts (∫eˣ sin x)
+> and trig-identity integrals (∫sin²x) are refused — a known, honest gap.
+>
 > **STATUS (2026-07-26, v2.5.0): Release 1 SHIPPED** — `src/lib/cas.ts` (canonical
 > rational functions over atoms, exact BigInt rationals), `simplify()` switched
 > over with the peephole as totality fallback, symbolic rearrangement with ≠ 0

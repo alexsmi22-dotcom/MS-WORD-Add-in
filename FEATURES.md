@@ -85,7 +85,9 @@ Everything shows a live preview that matches exactly what gets inserted, and the
 - **Rearrange a formula (v2.5.0)** — several symbols? Pick which to solve for: `F = m*a` for `a` → **`a = F/m`**, exactly, other symbols carried through; quadratic targets use the quadratic formula symbolically. Every introduced divisor states its **≠ 0 condition**, and every answer is **verified by substituting it back**.
 - Built on a **CAS core** with exact rational arithmetic: `1/3 + 1/3 + 1/3` is exactly 1, like terms collect, `x/x` cancels, `(x+1)^2` expands.
 - **Differentiate** — symbolic, canonically simplified (`d/dx sin(x)cos(x)` → `cos(x)² − sin(x)²`).
+- **Symbolic integration** — substitution, integration by parts, and partial fractions over exact rationals: ∫x·eˣ dx = eˣ(x−1), ∫dx/(x(x+1)), ∫dx/(x²+4) = ½·atan(x/2), ∫ln x dx = x·ln x − x, ∫tan x dx. **Every antiderivative is verified by differentiating it back**; anything that fails is discarded rather than returned, so a wrong closed form cannot reach you. What has no elementary form (∫eˣ², ∫sin(x)/x) is refused and integrated numerically instead, and says so.
 - **Definite integrals** — exact with the antiderivative shown where a closed form exists; adaptive Simpson (and it says so) otherwise.
+- **Inserts as real Word equations** — the derivation lands as editable OMML (fractions as fractions, ∫ with its limits), not as flat text.
 - **Word problems** — percentages, distance = rate × time (including two bodies approaching/separating), successive shares; templates it cannot represent are **refused, not guessed**.
 
 ## 📏 Units — quantities & conversion

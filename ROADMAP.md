@@ -1,6 +1,6 @@
 # JurisLab — Product Roadmap
 
-_Last updated: 2026-07-26 · Current release: **v2.4.1** (production)_
+_Last updated: 2026-07-26 · Current release: **v2.5.0** (production)_
 
 > The release number above is gated by `phase6.adversarial.test.ts` against
 > `package.json`. If they disagree, the suite fails — this file drifted five
@@ -288,6 +288,25 @@ Now the closing/separating case is actually solved (the speeds add, and the work
 combined rate), and anything the one-body template cannot represent — two distances, two
 times, two speeds with no stated geometry — is REFUSED rather than approximated. Also fixed:
 "90 km/h" was counting as a distance in km, because DIST_UNITS contains "km".
+
+**v2.5.0 — the CAS core (docs/CAS-DESIGN.md Release 1).**
+Solve's ceiling was `simplify()` being a local peephole: `2*x + 3*x` came back unchanged,
+`x/x` did not cancel, and `solveEquation("F = m*a", "a")` returned an **empty root list** —
+the single most common thing an engineer asks a solver for. Now there is a real canonical
+form (`src/lib/cas.ts`): every expression normalises to a rational function over atoms with
+**exact BigInt rational coefficients** (1/3 + 1/3 + 1/3 is exactly 1; a JS float enters via
+its decimal string, so nothing is invented). Collect/expand/cancel and **canonical equality**
+fall out; cancellation covers common monomials plus full univariate GCD, so (x²−1)/(x−1) is
+x+1. `simplify()` switched over with the old peephole kept as the totality fallback, and the
+whole existing suite stayed green **unedited**. Symbolic rearrangement ships on top: linear
+targets isolate exactly (F = m·a for a → F/m), quadratic targets get the quadratic formula
+symbolically, every introduced divisor states its ≠ 0 condition, and every answer is
+**verified by back-substitution** (canonical 0 for linear; sampled residuals for quadratic,
+where the sqrt atom blocks the exact route — stated, not hidden). The pane offers
+"Solve for F / m / a" chips on any multi-unknown equation. Derivatives got readable for free:
+d/dx sin(x)cos(x) is now cos(x)² − sin(x)², and the `+ -` artifacts are gone.
+Deliberately NOT done yet (Release 2, per the design): symbolic integration (needs the
+factoring/partial-fraction machinery), multivariate GCD, systems of equations.
 
 **Genuinely open candidates:** deeper BVP/PDE/DAE
 support on the ODE side (out of scope today — state honestly). Confirm priority before building.

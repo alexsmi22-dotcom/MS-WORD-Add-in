@@ -1011,8 +1011,8 @@ Office.onReady((info) => {
   specKind.addEventListener("change", updateSpectra);
   specInsertBtn.addEventListener("click", () => insertPlainText(spectrumAsText(), "spectrum data"));
   specInsertChartBtn.addEventListener("click", insertSpectrumChart);
-  solveKind.addEventListener("change", () => { updateSolveUi(); updateSolve(); });
-  solveInput.addEventListener("input", updateSolve);
+  solveKind.addEventListener("change", () => { solveVarChoice = null; updateSolveUi(); updateSolve(); });
+  solveInput.addEventListener("input", () => { solveVarChoice = null; updateSolve(); });
   solveA.addEventListener("input", updateSolve);
   solveB.addEventListener("input", updateSolve);
   solveInsertBtn.addEventListener("click", () => insertPlainText(currentSolveText, "solution"));
@@ -7413,6 +7413,8 @@ type SolveKind = "equation" | "derivative" | "integral" | "word";
 
 /** Plain-text form of the current result, for insertion into Word. */
 let currentSolveText = "";
+/** Target variable chosen via the "solve for …" chips; cleared on new input. */
+let solveVarChoice: string | null = null;
 
 /** A muted or emphasised result line. */
 /**
@@ -7434,6 +7436,27 @@ function solveWorkLine(step: WorkStep): HTMLElement {
     m.className = "solve-work-math";
     m.innerHTML = mathToHtml(step.math);
     row.appendChild(m);
+  }
+  return row;
+}
+
+/** Chip row offering "solve for F / m / a" on a multi-unknown equation. */
+function solveVarChipsRow(unknowns: string[]): HTMLElement {
+  const row = document.createElement("div");
+  row.className = "solve-var-chips";
+  const label = document.createElement("span");
+  label.textContent = "Solve for:";
+  row.appendChild(label);
+  for (const v of unknowns) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "solve-var-chip" + (v === solveVarChoice ? " is-on" : "");
+    b.textContent = v;
+    b.addEventListener("click", () => {
+      solveVarChoice = v;
+      updateSolve();
+    });
+    row.appendChild(b);
   }
   return row;
 }
@@ -7461,7 +7484,7 @@ function updateSolveUi(): void {
     word: "twice a number plus 7 is 15",
   };
   const hints: Record<SolveKind, string> = {
-    equation: "Use ^ for powers — type x^2 for x². Functions: sqrt, sin, cos, exp, ln; constants pi, e. Pasted superscripts like x² also work.",
+    equation: "Use ^ for powers — type x^2 for x². Functions: sqrt, sin, cos, exp, ln; constants pi, e. Pasted superscripts like x² also work. A formula with several symbols — F = m*a — offers a choice of which one to solve for.",
     derivative: "Use ^ for powers — e.g. x^2, exp(x), sin(x^2). Pasted superscripts like x² also work.",
     integral: "Use ^ for powers. The limits may be numbers or expressions like pi/2.",
     word: "Plain English — e.g. “12 is what percent of 48?” or “twice a number plus 7 is 15”.",
@@ -7507,8 +7530,13 @@ function updateSolve(): void {
 
   try {
     if (kind === "equation") {
-      const r = solveEquation(text);
+      let r = solveEquation(text);
       if (!r) return void solveResult.appendChild(solveLine("Couldn't parse that equation. Try e.g. x^2 - 5x + 6 = 0."));
+      // A chip choice re-solves for that unknown — the symbolic rearrangement
+      // path (F = m*a solved for a gives a = F/m).
+      if (solveVarChoice && r.unknowns && r.unknowns.length > 1 && r.unknowns.includes(solveVarChoice)) {
+        r = solveEquation(text, solveVarChoice) ?? r;
+      }
       solveResult.appendChild(msEyebrow(`Solve for ${r.variable}`));
       lines.push(`Solve for ${r.variable}:  ${text}`);
       if (!r.roots.length) {
@@ -7521,7 +7549,9 @@ function updateSolve(): void {
             : r.method === "identity"
               ? "True for every value (identity)."
               : r.method === "unsolved"
-                ? `Couldn't isolate a single unknown — this has more than one variable. Solve for one of them by giving the others values, e.g. "F = 2*a" rather than "F = m*a".`
+                ? r.unknowns && r.unknowns.length > 1 && !solveVarChoice
+                  ? "This has more than one unknown — choose which one to solve for:"
+                  : `Couldn't isolate ${r.variable} in closed form here. Giving the other symbols values can make it solvable numerically.`
                 : "No real roots found in the range searched.";
         solveResult.appendChild(solveLine(msg, "ms-masses"));
         lines.push(msg);
@@ -7531,6 +7561,9 @@ function updateSolve(): void {
           lines.push(`${r.variable} = ${root.display}`);
         }
       }
+      // Multi-unknown equations get a chip per unknown; the rearranger solves
+      // for whichever one the user picks, carrying the rest symbolically.
+      if (r.unknowns && r.unknowns.length > 1) solveResult.appendChild(solveVarChipsRow(r.unknowns));
       solveResult.appendChild(solveLine(`Method: ${r.method}`));
       for (const s of r.steps) solveResult.appendChild(solveLine(s));
       lines.push(`Method: ${r.method}`, ...r.steps);

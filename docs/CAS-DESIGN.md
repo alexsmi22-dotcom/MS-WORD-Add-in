@@ -4,6 +4,14 @@ _Written 2026-07-26, at v2.4.1. This is the brief for the next session; it exist
 so that work can start on the first line of code rather than re-deriving what is
 already known._
 
+> **STATUS (2026-07-26, v2.5.0): Release 1 SHIPPED** — `src/lib/cas.ts` (canonical
+> rational functions over atoms, exact BigInt rationals), `simplify()` switched
+> over with the peephole as totality fallback, symbolic rearrangement with ≠ 0
+> conditions and back-substitution verification, pane "solve for …" chips,
+> readable derivatives. §1's table rows all pass (pinned in
+> `src/lib/__tests__/cas.test.ts`). Release 2 (symbolic integration) is NOT
+> started; §5.1 (typeset insertion) remains open.
+
 **Decision (user, 2026-07-26):** make Solve dramatically more capable, starting
 with a **CAS core plus symbolic rearrangement** — chosen over three alternatives
 (Word-native typeset output, breadth of problem types, natural-language word

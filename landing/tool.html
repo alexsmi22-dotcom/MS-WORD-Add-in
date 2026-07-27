@@ -337,6 +337,7 @@
     solve: { icon:"🟰", title:"Solve", tagline:"A no-code solver for equations, calculus and common word problems — deterministic and entirely offline.",
       does:[
         "<b>Solve an equation</b> — <code>LHS = RHS</code> for one unknown. Linear and quadratic are exact; <b>any higher-degree polynomial returns every root, real and complex</b> (<code>x^3 - 1 = 0</code> → 1 and −0.5 ± 0.866i, repeated roots marked). Only transcendental equations (e.g. <code>cos(x) = 0</code>) are limited to real roots in a scanned range. Identities and no-solution cases are reported as such.",
+        "<b>Rearrange a formula</b> — an equation with several symbols offers a choice of which one to solve for: <code>F = m*a</code> solved for <code>a</code> is <code>F/m</code>, exactly, with the other symbols carried through (quadratics use the quadratic formula symbolically). Every division the rearrangement introduces states its ≠ 0 condition, and every answer is verified by substituting it back. Built on a new CAS core with exact rational arithmetic — <code>1/3 + 1/3 + 1/3</code> is exactly 1, and <code>x/x</code> cancels to 1.",
         "<b>Differentiate</b> — a <b>symbolic</b> derivative (product, quotient, chain and power rules; trig, exp/log, hyperbolic).",
         "<b>Definite integral</b> — <b>exact</b> where a closed form exists (shows the antiderivative), numeric (adaptive Simpson) otherwise; limits may be expressions like <code>pi/2</code>.",
         "<b>Word problem</b> — offline templates for percentages, distance = rate × time, and simple “a number …” sentences translated to an equation and solved.",
@@ -346,6 +347,8 @@
       examples:[
         {in:"x^2 - 5x + 6 = 0", out:"x = 3, 2 (exact, quadratic)"},
         {in:"x^2 + 1 = 0", out:"0 + 1i, 0 − 1i (complex pair, flagged)"},
+        {in:"F = m*a, solve for a", out:"a = F/m — requires m ≠ 0"},
+        {in:"differentiate sin(x)*cos(x)", out:"cos(x)^2 - sin(x)^2"},
         {in:"differentiate sin(x^2)", out:"2*x*cos(x^2)"},
         {in:"∫ x^2 from 0 to 3", out:"9 (numeric)"},
         {in:"12 is what percent of 48?", out:"25%"},

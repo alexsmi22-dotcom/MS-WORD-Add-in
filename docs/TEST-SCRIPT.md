@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.4.1)
+# JurisLab — Manual Test Script (v2.5.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -266,7 +266,15 @@ cache and reopen:
 - [ ] **All roots (cubic):** `x^3 - 1 = 0` → **three** roots — `1` and `-0.5 ± 0.866i`,
   method *complete (all roots)*. `x^4 - 1 = 0` → `1, -1, i, -i`. Repeated roots show ×2/×3.
 - [ ] `x + 1 = x + 2` → **No solution**; `2*(x+1) = 2*x+2` → **identity**.
+- [ ] **Rearrange (v2.5.0 CAS):** `F = m*a` → "more than one unknown" message with
+  **Solve for: F · m · a** chips. Click **a** → **a = F/m**, method
+  *exact (symbolic rearrangement)*, caveat **requires m ≠ 0**. Click **m** → `m = F/a`.
+  Edit the equation → the chips reset.
+- [ ] **Rearrange (quadratic):** `s = u*t + a*t^2/2`, chip **t** → two ± roots with the
+  discriminant condition stated. Insert lands both.
 - [ ] **Differentiate** `sin(x^2)` → **`2*x*cos(x^2)`** (conventional factor order).
+- [ ] **Differentiate (v2.5.0 readability)** `sin(x)*cos(x)` → **`cos(x)^2 - sin(x)^2`** —
+  collected, no `+ -` artifacts.
 - [ ] **Superscripts:** paste/type `x² - 5x + 6 = 0` → same result as `x^2…` (x = 3, 2). The
   hint under the box reminds you to use `^` for powers.
 - [ ] **Definite integral (exact):** `x^2` from `0` to `3` → **9**, method *exact (symbolic)*,

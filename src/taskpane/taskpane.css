@@ -1470,6 +1470,44 @@ a:focus-visible {
   min-height: 5.5em;
 }
 
+/* "Solve for F / m / a" chips under a multi-unknown equation — the entry point
+   to symbolic rearrangement. Mirrors .home-chip so choices look like choices. */
+.solve-var-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+  margin: 8px 0 2px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.solve-var-chip {
+  font: inherit;
+  font-size: 12px;
+  line-height: 1;
+  padding: 5px 11px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--text);
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+.solve-var-chip:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.solve-var-chip:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.solve-var-chip.is-on {
+  background: var(--chip-on);
+  border-color: var(--chip-on);
+  color: var(--on-accent);
+  font-weight: 600;
+}
+
 /* One line of shown work: prose, then the formula typeset by mathHtml. */
 .solve-work {
   display: flex;

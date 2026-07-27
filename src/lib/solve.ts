@@ -18,6 +18,15 @@
 //
 // evalFormula (stats.ts) is reused only for its numeric behaviour where a value
 // is genuinely needed; the symbolic work is done on the AST defined here.
+//
+// The heavy symbolic machinery lives in cas.ts (canonical rational functions
+// over atoms, exact rational coefficients — see docs/CAS-DESIGN.md). simplify()
+// delegates to it, falling back to the local peephole pass on the rare input
+// the canonical form cannot represent; solveEquation() uses it for exact
+// symbolic rearrangement (F = m·a solved for a gives a = F/m, with m ≠ 0
+// stated), verified by substituting the solution back.
+
+import { casSimplify, CasBail, solveRationalInVar } from "./cas";
 
 // ---------------------------------------------------------------------------
 // AST
@@ -301,41 +310,57 @@ function factorRank(e: Expr): number {
   }
 }
 
+/**
+ * Canonical simplification via the CAS core: collects like terms, cancels,
+ * expands, and orders factors readably (2*x + 3*x → 5*x, x/x → 1). The
+ * peephole pass below remains as the fallback for anything the canonical
+ * form cannot represent (e.g. a literal division by zero), so simplify()
+ * stays total.
+ */
 export function simplify(e: Expr): Expr {
+  try {
+    return casSimplify(e);
+  } catch (err) {
+    if (err instanceof CasBail) return peepholeSimplify(e);
+    throw err;
+  }
+}
+
+function peepholeSimplify(e: Expr): Expr {
   switch (e.t) {
     case "num":
     case "var":
       return e;
     case "neg": {
-      const x = simplify(e.e);
+      const x = peepholeSimplify(e.e);
       if (x.t === "num") return N(-x.v);
       if (x.t === "neg") return x.e;
       return { t: "neg", e: x };
     }
     case "fn": {
-      const a = simplify(e.arg);
+      const a = peepholeSimplify(e.arg);
       if (a.t === "num") return N(EVAL_FN[e.name](a.v));
       return { t: "fn", name: e.name, arg: a };
     }
     case "add": {
-      const l = simplify(e.l), r = simplify(e.r);
+      const l = peepholeSimplify(e.l), r = peepholeSimplify(e.r);
       if (l.t === "num" && r.t === "num") return N(l.v + r.v);
       if (isNum(l, 0)) return r;
       if (isNum(r, 0)) return l;
       return { t: "add", l, r };
     }
     case "sub": {
-      const l = simplify(e.l), r = simplify(e.r);
+      const l = peepholeSimplify(e.l), r = peepholeSimplify(e.r);
       if (l.t === "num" && r.t === "num") return N(l.v - r.v);
       if (isNum(r, 0)) return l;
-      if (isNum(l, 0)) return simplify({ t: "neg", e: r });
+      if (isNum(l, 0)) return peepholeSimplify({ t: "neg", e: r });
       return { t: "sub", l, r };
     }
     case "mul": {
       // Flatten the whole product, fold the numeric constants into one coefficient,
       // then order the remaining factors so the printed form reads conventionally
       // (coefficient first, functions last).
-      const factors = [...flattenMul(simplify(e.l)), ...flattenMul(simplify(e.r))];
+      const factors = [...flattenMul(peepholeSimplify(e.l)), ...flattenMul(peepholeSimplify(e.r))];
       let coeff = 1;
       const rest: Expr[] = [];
       for (const f of factors) {
@@ -349,14 +374,14 @@ export function simplify(e: Expr): Expr {
       return ordered.reduce((acc, f) => ({ t: "mul", l: acc, r: f }));
     }
     case "div": {
-      const l = simplify(e.l), r = simplify(e.r);
+      const l = peepholeSimplify(e.l), r = peepholeSimplify(e.r);
       if (l.t === "num" && r.t === "num" && r.v !== 0) return N(l.v / r.v);
       if (isNum(l, 0)) return N(0);
       if (isNum(r, 1)) return l;
       return { t: "div", l, r };
     }
     case "pow": {
-      const l = simplify(e.l), r = simplify(e.r);
+      const l = peepholeSimplify(e.l), r = peepholeSimplify(e.r);
       if (l.t === "num" && r.t === "num") return N(Math.pow(l.v, r.v));
       if (isNum(r, 1)) return l;
       if (isNum(r, 0)) return N(1);
@@ -464,6 +489,8 @@ export interface Root {
   re: number;
   im: number;
   exact: boolean;
+  /** True for a symbolic (rearranged) solution like a = F/m; re/im are NaN then. */
+  symbolic?: boolean;
 }
 
 /** Trims trailing near-zero leading coefficients and returns the true degree. */
@@ -641,6 +668,42 @@ export interface EquationResult {
   method: string;
   steps: string[];
   caveats: string[];
+  /** Every unknown in the equation — lets a caller offer "solve for …" choices. */
+  unknowns?: string[];
+}
+
+/**
+ * Numeric back-substitution check for symbolic solutions whose exact
+ * verification is blocked by an opaque sqrt atom (the quadratic branches):
+ * assign fixed sample values to the other symbols, evaluate the root, and
+ * require f(root) ≈ 0 at every sample where the root is real and finite.
+ * Deterministic — a fixed sample table, no RNG.
+ */
+const VERIFY_SAMPLES = [1, 2, 0.7, -1.3, 3.1, -0.6, 1.9, -2.4];
+
+function verifySymbolicRoots(f: Expr, x: string, roots: Expr[], others: string[]): boolean {
+  let checked = 0;
+  for (let s = 0; s < VERIFY_SAMPLES.length; s++) {
+    const vars: Record<string, number> = {};
+    others.forEach((v, i) => {
+      vars[v] = VERIFY_SAMPLES[(s + i * 3) % VERIFY_SAMPLES.length] + s * 0.17;
+    });
+    for (const root of roots) {
+      let rv: number;
+      let resid: number;
+      try {
+        rv = evalAst(root, vars);
+        if (!Number.isFinite(rv)) continue; // complex branch at this sample
+        resid = evalAst(f, { ...vars, [x]: rv });
+      } catch {
+        continue;
+      }
+      if (!Number.isFinite(resid)) continue; // sample hit a pole
+      checked++;
+      if (Math.abs(resid) > 1e-6 * (1 + Math.abs(rv))) return false;
+    }
+  }
+  return checked > 0;
 }
 
 /**
@@ -670,6 +733,7 @@ export function solveEquation(input: string, variable?: string, range = 1000): E
       method: "unsolved",
       steps: [],
       caveats: [`This equation has more than one unknown (${vars.join(", ")}). Solve for one variable at a time.`],
+      unknowns: vars,
     };
   }
 
@@ -710,6 +774,56 @@ export function solveEquation(input: string, variable?: string, range = 1000): E
       `Complete: every root is shown, real and complex. Values are numerical (refined to ~1e-10); an exact closed form is not attempted above the quadratic.`
     );
     return { variable: x, roots, method: "complete (all roots)", steps, caveats };
+  }
+
+  // Not numerically polynomial in x — try EXACT symbolic rearrangement before
+  // any numeric scan: it covers every rational equation whose numerator is
+  // linear or quadratic in x, with other symbols carried through (F = m·a
+  // solved for a → a = F/m; PV = nRT solved for T → T = P·V/(n·R)).
+  const others = vars.filter((v) => v !== x);
+  const sym = solveRationalInVar(f, x);
+  if (sym) {
+    const verified = sym.verified || verifySymbolicRoots(f, x, sym.roots, others);
+    if (verified) {
+      const roots: Root[] = sym.roots.map((r) => ({
+        display: format(r),
+        re: NaN,
+        im: NaN,
+        exact: true,
+        symbolic: true,
+      }));
+      steps.push(
+        `${sym.kind === "linear" ? "Linear" : "Quadratic"} in ${x} once rearranged; solved in closed form` +
+          (others.length ? ` with ${others.join(", ")} carried through symbolically.` : ".")
+      );
+      steps.push(
+        sym.verified
+          ? "Verified: substituting the solution back reduces the equation to exactly 0."
+          : "Verified by substituting back at sample values of the other symbols."
+      );
+      for (const c of sym.nonzeroConditions) {
+        caveats.push(`Requires ${format(c)} ≠ 0 — the rearrangement divides by it.`);
+      }
+      if (sym.discriminant) {
+        caveats.push(`The two roots are the ± branches of the quadratic formula; they are real when ${format(sym.discriminant)} ≥ 0.`);
+      }
+      return { variable: x, roots, method: "exact (symbolic rearrangement)", steps, caveats, unknowns: vars };
+    }
+  }
+  if (others.length) {
+    // Other unknowns present and no closed form found — scanning a numeric
+    // range with unbound symbols would be meaningless, so say what is missing
+    // rather than reporting an empty scan as if it had searched something.
+    return {
+      variable: x,
+      roots: [],
+      method: "unsolved",
+      steps,
+      caveats: [
+        `Could not isolate ${x} in closed form — this needs more than a linear/quadratic rearrangement, so the other symbol${others.length > 1 ? "s" : ""} (${others.join(", ")}) would need values first.`,
+      ],
+      unknowns: vars,
+    };
   }
 
   // Transcendental: numeric root-finding.

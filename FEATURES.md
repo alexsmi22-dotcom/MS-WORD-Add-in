@@ -80,6 +80,14 @@ Everything shows a live preview that matches exactly what gets inserted, and the
 - **Formula library** grouped into *Mathematics* (statistics, geometry, algebra, trig, calculus), *Functions*, and *Science & engineering* (**Cryptography, Computer science/ML, Mechanical engineering, Electrical engineering, Physics, Biology/assays**).
 - Symbol palette is collapsible; its open/closed state is remembered.
 
+## 🟰 Solve — equations, rearrangement, calculus & word problems (offline, CAS core)
+- **Solve an equation** `LHS = RHS` for one unknown — linear/quadratic **exact** (complex pairs reported, never faked real); any higher-degree polynomial returns **every root, real and complex**, repeated roots marked; transcendental equations solved numerically for real roots in a stated range.
+- **Rearrange a formula (v2.5.0)** — several symbols? Pick which to solve for: `F = m*a` for `a` → **`a = F/m`**, exactly, other symbols carried through; quadratic targets use the quadratic formula symbolically. Every introduced divisor states its **≠ 0 condition**, and every answer is **verified by substituting it back**.
+- Built on a **CAS core** with exact rational arithmetic: `1/3 + 1/3 + 1/3` is exactly 1, like terms collect, `x/x` cancels, `(x+1)^2` expands.
+- **Differentiate** — symbolic, canonically simplified (`d/dx sin(x)cos(x)` → `cos(x)² − sin(x)²`).
+- **Definite integrals** — exact with the antiderivative shown where a closed form exists; adaptive Simpson (and it says so) otherwise.
+- **Word problems** — percentages, distance = rate × time (including two bodies approaching/separating), successive shares; templates it cannot represent are **refused, not guessed**.
+
 ## 📏 Units — quantities & conversion
 - **Typeset quantities** with SI conventions: `9.81 m/s^2` → 9.81 m/s², `5.0 +- 0.2 kg` → 5.0 ± 0.2 kg, `1.2e-3 mol/L` → 1.2 × 10⁻³ mol/L (thin space, superscripts, ±, ×10ⁿ).
 - **Symbol fixes** — `ohm` → Ω, `degC` → °C, `umol` → µmol, `*`/spaces → ·.

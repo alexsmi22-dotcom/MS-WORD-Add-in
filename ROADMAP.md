@@ -1,6 +1,6 @@
 # JurisLab — Product Roadmap
 
-_Last updated: 2026-07-26 · Current release: **v2.10.0** (production)_
+_Last updated: 2026-07-26 · Current release: **v2.11.0** (production)_
 
 > The release number above is gated by `phase6.adversarial.test.ts` against
 > `package.json`. If they disagree, the suite fails — this file drifted five
@@ -485,6 +485,41 @@ long H₁ bar, dominating the runner-up fivefold, and a blob shows nothing compa
   which dimensions are unreliable and why ("H1, H2 are NOT RELIABLE here … features will appear
   to live forever whether or not they really do"), and stays quiet when the killing dimension
   really was completed.
+
+**v2.11.0 — advanced algebraic topology, tier A1 (Release A).**
+`src/lib/topology2.ts`. The user's advanced list was cellular homology, spectral sequences,
+stable homotopy, generalised cohomology, characteristic classes and cobordism. The brief split
+that list by COMPUTABILITY REGIME before any of it was built, and this ships only the part that
+is exactly computable — which is the whole point of having written the split down.
+
+- **Cellular homology.** ℝP² needs 6 vertices, 15 edges and 10 triangles simplicially; as a CW
+  complex it is ONE cell in each of dimensions 0, 1 and 2, and the boundary map is the matrix of
+  DEGREES of the attaching maps. Same Smith Normal Form, same ℤ, same torsion — on a matrix
+  small enough to read. The suite checks it against the simplicial route, so the ℤ/2 of ℝP² is
+  now reached two independent ways.
+- **Characteristic classes** via the splitting principle, which turns this into
+  symmetric-polynomial algebra: exact integer arithmetic on coefficients, nothing estimated.
+  w(T ℝPⁿ) = (1+a)^{n+1} mod 2 is trivial EXACTLY when n+1 is a power of two (verified n ≤ 16),
+  and c(T ℂPⁿ) has top class n+1 = χ(ℂPⁿ). The parallelisability deduction is stated AND
+  qualified: a trivial w removes the obstruction this invariant can see, it does not prove
+  parallelisability, and only n = 1, 3, 7 actually are.
+- **Unoriented cobordism**, and this is the most interesting entry in the module. Thom: the
+  Stiefel–Whitney numbers are a COMPLETE invariant of unoriented cobordism class, so "are these
+  cobordant?" is genuinely DECIDABLE — one of the very few equivalence questions in this area
+  that is, unlike homeomorphism or homotopy equivalence. The tool COMPUTES that ℝPⁿ bounds
+  exactly when n is odd, from the numbers, rather than asserting the classical result.
+
+**What is deliberately NOT built, and is now answered rather than silently missing:** ask about
+spectral sequences, stable homotopy, the fundamental group or homeomorphism and Solve explains
+what IS computable (the E₂ page; a π₁ presentation and its abelianisation), what is NOT (the
+differentials and extensions; the word problem, Novikov–Boone; homeomorphism in dim ≥ 4, Markov),
+and why. Reporting the limit is the feature — a tool that appeared to answer there would be
+inventing mathematics nobody can compute.
+
+The adversarial pass ran before shipping and found two input-validation gaps: a NEGATIVE cell
+count produced a negative Betti number that formatted as the trivial group "0", and a
+non-integer attaching degree of 2.7 was silently truncated to 2 — each answering confidently
+for a complex the user never described. Both are refused now.
 
 **Genuinely open candidates:** deeper BVP/PDE/DAE
 support on the ODE side (out of scope today — state honestly). Confirm priority before building.

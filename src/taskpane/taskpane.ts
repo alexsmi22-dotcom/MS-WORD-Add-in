@@ -7580,7 +7580,10 @@ function updateSolveUi(): void {
       "Or give the maximal simplices yourself: [0,1,2] [1,2,3] [0,2,3] [0,1,3]. " +
       "Or PASTE A POINT CLOUD — one point per line, e.g. rows of \"x y\" — and it computes " +
       "PERSISTENT HOMOLOGY instead: a barcode showing which holes in your data are real and which are noise. " +
-      "Every result cross-checks its Euler characteristic two independent ways.",
+      "Every result cross-checks its Euler characteristic two independent ways. " +
+      "ADVANCED: w(RP^5) and chern CP^3 for characteristic classes · does RP^5 bound (cobordism — " +
+      "a genuinely decidable question) · cellular rp2. Ask about spectral sequences, stable homotopy, " +
+      "the fundamental group or homeomorphism and it explains what is and is not computable, rather than guessing.",
     word: "Plain English — e.g. “12 is what percent of 48?” or “twice a number plus 7 is 15”.",
   };
   solveInputLabel.textContent = labels[kind];
@@ -7827,6 +7830,22 @@ function updateSolve(): void {
           say(s);
         }
         return finish(pr.caveats);
+      }
+
+      if (h.kind === "advanced") {
+        // Characteristic classes, cobordism, cellular homology — or a stated
+        // reason why something in tier A2/A3 is NOT computed here.
+        solveResult.appendChild(msEyebrow(h.title));
+        say(h.title, "heading");
+        for (const line of h.display) {
+          solveResult.appendChild(solveLine(line, "ms-masses"));
+          say(line);
+        }
+        for (const s of h.steps) {
+          solveResult.appendChild(solveLine(s));
+          say(s);
+        }
+        return finish(h.caveats);
       }
 
       solveResult.appendChild(msEyebrow(h.title));

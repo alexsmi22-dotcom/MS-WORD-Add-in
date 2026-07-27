@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.10.0)
+# JurisLab — Manual Test Script (v2.11.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -290,6 +290,17 @@ cache and reopen:
   - `x^2/9 + y^2/4 = 1` -> **ellipse**, a = 3, b = 2, eccentricity ~ 0.745, foci listed.
   - `x^2 + y^2 = 0` -> reported as a **point** and flagged DEGENERATE, not as a circle.
   - `x*y = 1` -> **hyperbola**, with a 45 deg rotation reported.
+- [ ] **Advanced topology (v2.11.0).** Still the **Topology (homology)** kind.
+  - `w(RP^5)` -> Stiefel-Whitney class, and the working says whether it obstructs
+    parallelisability. `w(RP^3)` -> trivial, with the honest note that this does NOT prove
+    parallelisability.
+  - `chern CP^3` -> c(T CP^3) with top class 4 = chi(CP^3).
+  - `does RP^5 bound` -> BOUNDS (5 is odd). `cobordism RP^2` -> does NOT bound.
+  - `cellular rp2` -> H_1 = Z/2 from only 3 cells; compare `projective plane` which gives the
+    same answer from the simplicial route.
+  - `spectral sequence`, `stable homotopy`, `fundamental group`, `homeomorphism` -> each must
+    EXPLAIN what is and is not computable and why. If any of these ever returns a confident
+    numeric answer, that is a serious bug.
 - [ ] **Persistent homology (v2.10.0).** In the **Topology (homology)** kind, PASTE a point
   cloud instead of a name — one point per line. A rough circle, e.g.:
   `1 0` / `0.7 0.7` / `0 1` / `-0.7 0.7` / `-1 0` / `-0.7 -0.7` / `0 -1` / `0.7 -0.7`

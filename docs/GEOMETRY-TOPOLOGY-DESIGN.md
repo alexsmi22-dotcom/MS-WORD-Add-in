@@ -167,6 +167,12 @@ oracle (β of a torus is 1,2,1; H₁(ℝP²) = ℤ/2).
 arbitrary field coefficients, Mayer–Vietoris helpers, cell complexes beyond
 simplicial.
 
+> **STATUS (v2.11.0): tier A1 SHIPPED** — cellular homology, characteristic
+> classes and unoriented cobordism are live in `src/lib/topology2.ts`. A2
+> (spectral sequences) and A3 (stable homotopy) are NOT built, and are now
+> answered with a statement of what is and is not computable rather than
+> silently missing. G1, G2, T1 and T2 all shipped earlier the same day.
+
 ### Release A — ADVANCED algebraic topology (user, 2026-07-27)
 
 Scoped for a future round: **cellular homology, spectral sequences, stable

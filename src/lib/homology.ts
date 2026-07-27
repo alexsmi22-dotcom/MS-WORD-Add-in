@@ -17,6 +17,10 @@
 // same discipline as the CAS differentiating its antiderivatives back.
 
 import { parsePointCloud } from "./persistence";
+import {
+  cellularHomology, CW_BUILTIN, realProjectiveTangentClass,
+  complexProjectiveTangentClass, realProjectiveCobordism, BEYOND,
+} from "./topology2";
 
 /** A simplicial complex, given by its maximal faces (vertices are integers). */
 export interface Complex {
@@ -397,6 +401,7 @@ export interface TopologyReport extends HomologyResult {
  * its integral homology. Null when the input is neither.
  */
 export type TopologyOutcome =
+  | { kind: "advanced"; title: string; display: string[]; steps: string[]; caveats: string[] }
   | ({ kind: "homology" } & TopologyReport)
   | { kind: "persistence"; cloud: number[][] };
 
@@ -412,6 +417,10 @@ export function solveTopology(input: string): TopologyOutcome | null {
     const cloud = parsePointCloud(raw);
     if (cloud) return { kind: "persistence", cloud };
   }
+
+  // Advanced (A1) queries: characteristic classes and cobordism.
+  const adv = advancedQuery(lower);
+  if (adv) return adv;
 
   // A named space.
   const named = ALIASES[lower] ?? (lower in BUILTIN ? lower : null);
@@ -439,4 +448,110 @@ export function solveTopology(input: string): TopologyOutcome | null {
 
   const h = homology({ maximal: groups });
   return { kind: "homology", ...h, title: `Homology of the complex you gave (${groups.length} maximal simplices)` };
+}
+
+// ---------------------------------------------------------------------------
+// Advanced (Release A1) queries — characteristic classes and cobordism.
+//
+// Typed, like everything else in Solve: "w(RP^5)", "chern CP^3", "does RP^5
+// bound", "cellular rp2". Anything in tier A2/A3 is answered with the honest
+// statement of WHY it is not computed, rather than silently returning nothing.
+// ---------------------------------------------------------------------------
+
+function advancedQuery(lower: string): TopologyOutcome | null {
+  const dimOf = (re: RegExp): number | null => {
+    const m = re.exec(lower);
+    if (!m) return null;
+    const n = parseInt(m[1], 10);
+    return Number.isFinite(n) && n >= 1 && n <= 200 ? n : null;
+  };
+
+  // Stiefel-Whitney class of a real projective space.
+  if (/\b(w|stiefel|sw)\b/.test(lower) && /rp|projective/.test(lower)) {
+    const n = dimOf(/(?:rp|p)\s*\^?\s*(\d+)/);
+    if (n !== null) {
+      const r = realProjectiveTangentClass(n);
+      return {
+        kind: "advanced",
+        title: `Stiefel-Whitney class ${r.name}`,
+        display: [`${r.name} = ${r.display}`],
+        steps: r.steps,
+        caveats: r.caveats,
+      };
+    }
+  }
+
+  // Chern class of a complex projective space.
+  if (/\b(c|chern)\b/.test(lower) && /cp|complex projective/.test(lower)) {
+    const n = dimOf(/(?:cp|p)\s*\^?\s*(\d+)/);
+    if (n !== null) {
+      const r = complexProjectiveTangentClass(n);
+      return {
+        kind: "advanced",
+        title: `Chern class ${r.name}`,
+        display: [`${r.name} = ${r.display}`],
+        steps: r.steps,
+        caveats: r.caveats,
+      };
+    }
+  }
+
+  // Cobordism.
+  if (/\b(cobord|bound)/.test(lower) && /rp|projective/.test(lower)) {
+    const n = dimOf(/(?:rp|p)\s*\^?\s*(\d+)/);
+    if (n !== null) {
+      const r = realProjectiveCobordism(n);
+      return {
+        kind: "advanced",
+        title: `Unoriented cobordism of RP^${n}`,
+        display: [
+          r.boundsAManifold
+            ? `RP^${n} BOUNDS a compact manifold (null-cobordant).`
+            : `RP^${n} does NOT bound.`,
+          `Stiefel-Whitney numbers: ${r.numbers.map((x) => `w${x.partition.join("w")} = ${x.value}`).join(", ")}`,
+        ],
+        steps: r.steps,
+        caveats: r.caveats,
+      };
+    }
+  }
+
+  // Cellular homology of a named CW complex.
+  if (/^cellular\b/.test(lower)) {
+    const key = lower.replace(/^cellular\s*/, "").replace(/\s+/g, "");
+    const make = CW_BUILTIN[key] ?? CW_BUILTIN[key.replace(/[^a-z0-9-]/g, "")];
+    if (make) {
+      const cw = make();
+      const r = cellularHomology(cw);
+      return {
+        kind: "advanced",
+        title: `Cellular homology of ${cw.name ?? key}`,
+        display: r.groups.map((g, k) => `H_${k} = ${g}`),
+        steps: [...r.steps, `Only ${cw.cells.reduce((a, b) => a + b, 0)} cells were needed.`],
+        caveats: r.caveats,
+      };
+    }
+  }
+
+  // The honest boundary: name what is NOT computable rather than returning null.
+  for (const key of Object.keys(BEYOND)) {
+    const probe = key.split(" ")[0];
+    if (lower.includes(key) || lower.includes(probe)) {
+      const b = BEYOND[key];
+      return {
+        kind: "advanced",
+        title: `${b.topic} — not computed here, and why`,
+        display: [`This is outside what this tool computes.`],
+        steps: [
+          `What IS computable: ${b.whatIsComputable}`,
+          `What is NOT: ${b.whatIsNot}`,
+          b.why,
+        ],
+        caveats: [
+          "Reporting this limit is deliberate. A tool that appeared to answer here would be inventing mathematics that nobody can compute.",
+        ],
+      };
+    }
+  }
+  return null;
 }

@@ -1,6 +1,6 @@
 # JurisLab — Product Roadmap
 
-_Last updated: 2026-07-26 · Current release: **v2.14.0** (production)_
+_Last updated: 2026-07-26 · Current release: **v2.15.0** (production)_
 
 > The release number above is gated by `phase6.adversarial.test.ts` against
 > `package.json`. If they disagree, the suite fails — this file drifted five
@@ -607,6 +607,22 @@ so eˣ gives 1, 1, 1/2, 1/6, 1/24 rather than decimals, and the truncation is al
 - The probe was too shallow for slowly-decaying limits: ln(x)/x is still 1.6e-6 at x = 1e7.
 - A tail shrinking to zero reported its last sample (2.76e-11) rather than 0 — presenting a
   sampling artefact as the answer.
+
+**v2.15.0 — inequalities (CAS "later" list).**
+`src/lib/inequalities.ts`. Move everything to one side and analyse the SIGN on the intervals
+between critical points — the roots of the numerator AND of the denominator.
+**The poles are the whole difficulty.** Multiplying `1/(x−2) > 0` through by (x−2) is invalid,
+because the direction depends on a sign you do not know, and a pole is a point where the
+expression is UNDEFINED so it can never be in the solution set even for ≤ or ≥. Both fall out by
+construction here: nothing is multiplied through, and a denominator root is always excluded.
+`1/x < 1` correctly returns (−∞, 0) ∪ (1, ∞) — the naive multiply gives "x > 1" and silently
+loses the entire negative branch.
+
+**The probe caught a wrong answer:** `x³ + x + 1 > 0` returned the whole real line, because only
+RATIONAL roots were being found and that cubic's single real root is irrational — so no critical
+point existed and the sign was never tested. Sign changes are now located numerically as well,
+and any endpoint that came from that is declared approximate. Touching intervals are also merged,
+so `x² ≥ 0` reads (−∞, ∞) rather than two pieces meeting at zero.
 
 **Genuinely open candidates:** deeper BVP/PDE/DAE
 support on the ODE side (out of scope today — state honestly). Confirm priority before building.

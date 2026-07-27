@@ -69,6 +69,7 @@ import { predictCoupling, predictCosy, predictHsqc, Cosy2D, Hsqc2D } from "../li
 import { solveEquation, differentiate, integrate, parseExpr, evalAst } from "../lib/solve";
 import { solveSystem, splitEquations } from "../lib/systems";
 import { limit, taylorSeries, parseLimitRequest, parseSeriesRequest } from "../lib/analysis";
+import { solveInequality } from "../lib/inequalities";
 import { solveGeometry } from "../lib/geometryParse";
 import { solveTopology, BUILTIN_NAMES } from "../lib/homology";
 import { persistentHomology, barcodeSvg } from "../lib/persistence";
@@ -7659,6 +7660,29 @@ function updateSolve(): void {
 
   try {
     if (kind === "equation") {
+      // An INEQUALITY is unambiguous from its comparison sign.
+      if (/[<>≤≥≠]|!=/.test(text) && !text.includes("\n")) {
+        const iq = solveInequality(text);
+        if (iq) {
+          const head = `Solve ${text.trim()}`;
+          solveResult.appendChild(msEyebrow(head));
+          say(head, "heading");
+          const answer = `${iq.variable} ∈ ${iq.display}`;
+          solveResult.appendChild(solveLine(answer, "ms-masses"));
+          say(answer);
+          for (const st of iq.steps) { solveResult.appendChild(solveLine(st)); say(st); }
+          return finish(iq.caveats);
+        }
+        // Not a rational inequality — say so rather than falling through to the
+        // equation solver, which would silently ignore the comparison.
+        if (/[<>≤≥]/.test(text)) {
+          return void solveResult.appendChild(solveLine(
+            "Inequalities are solved exactly for POLYNOMIAL and RATIONAL expressions in one variable — " +
+            "e.g. x^2 - 4 > 0, or 1/(x-2) >= 0. This one is outside that, so nothing is reported rather than guessed."
+          ));
+        }
+      }
+
       // SEVERAL equations means a SYSTEM. Two or more lines each containing an
       // "=" is unambiguous — a single equation never spans lines.
       const eqs = splitEquations(text);

@@ -127,6 +127,12 @@
 
     <h3>Step 4 — Run it (a 10-second test)</h3>
     <p>Put your cursor in the document, click the <b>Chemical</b> card, type <code>H2O</code>, and press <b>Insert formatted text</b> — you should get <b>H₂O</b> in your document. That’s the whole loop: pick a tool, type, insert. If that worked, everything works.</p>
+    <p><b>Appearance.</b> The pane follows Word's own theme — switch Word to Black or Dark Gray
+    and the pane goes dark to match. There is an <b>Appearance</b> control at the foot of the pane
+    if you would rather force Light or Dark. One deliberate exception: the structure, plot and
+    spectra previews <b>keep their white background in dark mode</b>. They are showing you artwork
+    that goes into your document as black-on-white line art, and a dark preview would misrepresent
+    what you are about to insert.</p>
     <p class="muted">Only that first load needs internet — the add-in fetches its code once, then everything you type is computed on your own machine. If it ever misbehaves, jump to <a href="#trouble">Troubleshooting</a> at the bottom.</p>
 
     <h2 id="loop">The core loop</h2>
@@ -231,6 +237,11 @@
 
     <h3><span class="icon">🟰</span>Solve — equations, calculus &amp; word problems</h3>
     <p>A no-code solver that runs entirely on your machine. Pick what to do from the dropdown:</p>
+    <p><b>Two bodies.</b> Distance/rate/time problems now handle the closing case — two things
+    approaching or separating, where the speeds add — and show the combined rate in the working.
+    Anything the templates cannot actually represent is refused rather than approximated: two
+    distances, two times, or two speeds with no stated geometry all produce a refusal instead of an
+    answer built from whichever number appeared first.</p>
     <ul>
       <li><b>Solve an equation</b> — <code>x^2 - 5x + 6 = 0</code> → <code>x = 3, 2</code> exactly. Linear and quadratic are closed-form; for <b>any higher-degree polynomial you get every root, real and complex</b> (<code>x^3 - 1 = 0</code> → 1 and −0.5 ± 0.866i), with repeated roots marked ×2/×3. Only genuinely transcendental equations (<code>cos(x) = 0</code>) are limited to real roots in a scanned range. Identities and no-solution cases are reported as such; a multi-unknown equation is refused, not guessed.</li>
       <li><b>Differentiate</b> — a <b>symbolic</b> derivative: <code>sin(x^2)</code> → <code>2*x*cos(x^2)</code> (chain rule).</li>
@@ -255,14 +266,21 @@
     </ul>
     <div class="try"><b>Try it:</b> <code>x^2; exp(-x^2)</code> → two labelled curves with a legend; data lines <code>1 2</code> / <code>2 4.1 0.3</code> → scatter points with an error bar.</div>
     <p class="out"><b>Inserts:</b> the chart as a PNG picture, drawn entirely offline.</p>
+    <p><b>Logarithmic axes.</b> Either axis can be base-10 log — for dose–response, titrations, kinetics, and anything spanning decades. A log axis cannot show zero or a negative value, so it says how many points it dropped and on which axis rather than quietly plotting a subset; a dilution series with a zero-concentration control hits that on the first try.</p>
 
     <h3><span class="icon">📐</span>Stats — tests, regression &amp; uncertainty</h3>
-    <p>Pick a test, paste your numbers (space/comma/newline separated), get a paper-ready result with a <b>real p-value</b> computed from distribution functions (not table lookups). Twelve tools in all:</p>
+    <p>Pick a test, paste your numbers (space/comma/newline separated), get a paper-ready result with a <b>real p-value</b> computed from distribution functions (not table lookups). Twenty-one tests in all:</p>
     <ul>
       <li>Descriptive statistics (n, mean, SEM, SD, median, 95% CI, CV); two-sample t-test (Welch or Student); paired t-test; one-way ANOVA; linear regression (slope/intercept/R²/slope p).</li>
       <li>Non-parametric: Mann–Whitney U and Wilcoxon signed-rank (normal approximation, tie- and continuity-corrected).</li>
       <li>Chi-square goodness-of-fit and test of independence (r×c); two-way ANOVA (balanced, with replication).</li>
       <li>Utilities: uncertainty propagation (value ± combined 1σ, with the largest-contributing variable), and multiple-comparison correction (Benjamini–Hochberg / Holm / Bonferroni).</li>
+      <li><b>Effect sizes.</b> Every t-test now reports Cohen's <i>d</i> and a 95% confidence interval on the difference, which journals require alongside <i>p</i> — <i>p</i> alone confounds the size of an effect with the size of the sample. The paired test reports <i>d</i><sub>z</sub> and labels it as such, because the two are not comparable.</li>
+      <li><b>Check test assumptions.</b> D'Agostino–Pearson K² for normality and Brown–Forsythe for equal variances. Every warning names the alternative to use rather than just complaining, and the t-tests carry the verdict underneath their own p-value. Below n = 20 it <b>refuses to report</b> rather than returning a number with no power behind it.</li>
+      <li><b>Non-parametric beyond two groups:</b> Kruskal–Wallis with Dunn post-hoc (tie-corrected; the post-hoc appears only when the overall test is significant) and Friedman for repeated measures.</li>
+      <li><b>Post-hoc:</b> Tukey HSD for all pairs, and <b>Dunnett</b> for every treatment against one control — which corrects for the comparisons you wanted rather than all k(k−1)/2, and is the difference between a significant result and none in a typical dose study.</li>
+      <li><b>Multiple and polynomial regression</b> — any number of predictors, solved by QR, with <b>residual and normal Q–Q plots</b> drawn under the result. Those plots are the point: a curved relationship fitted with a straight line posts a respectable R² while being systematically wrong at both ends, and no summary number reveals it. Adjusted R² sits beside R² because plain R² can only ever rise when you add a predictor.</li>
+      <li><b>Survival analysis:</b> Kaplan–Meier with Greenwood confidence intervals, the log-rank test, and a hazard ratio. Censored subjects count toward the risk set up to their time and not after — they are neither events nor discarded. Median survival reports <b>NOT REACHED</b> when the curve never falls to 50%, rather than substituting the longest observed time.</li>
     </ul>
     <div class="try"><b>Try it:</b> one-way ANOVA on <code>1 2 3</code> / <code>4 5 6</code> / <code>7 8 9</code> → F(2, 6) = 27.00, p ≈ .001. Regression on x = 1..5, y = <code>2.1 3.9 6.1 8.0 9.9</code> → slope ≈ 1.97, R² ≈ 0.999.</div>
     <p class="out"><b>Inserts:</b> the result block as text (APA-style, e.g. <code>t(18) = 2.41, p = .027</code>). Zero-variance or too-few-points inputs get a clear guard message.</p>
@@ -341,6 +359,11 @@
 
     <h3><span class="icon">🧬</span>DNA — nucleotide analysis</h3>
     <p>Live analysis of a DNA/RNA sequence (IUPAC codes accepted):</p>
+    <p><b>Virtual digest.</b> Cut with the enzymes you choose and get fragment sizes, their spans
+    and ends, and the bands a gel would actually resolve — two fragments within about 8% of each
+    other co-migrate, and saying so beats predicting a gel you will not see. State the topology,
+    because it changes the answer: <i>n</i> cuts give <i>n</i> fragments in a circular plasmid and
+    <i>n</i>+1 in a linear molecule, and a single cut linearises rather than splitting.</p>
     <ul>
       <li><b>Reverse complement</b> (RNA-aware), <b>complement</b>, and <b>transcription</b> (T→U).</li>
       <li><b>Translation</b> in any of six frames; degenerate codons resolve when unambiguous (<code>GCN</code> → Ala), else <code>X</code>; optional stop-at-first-stop.</li>
@@ -353,7 +376,7 @@
     <div class="note"><b>Primer Tm is meaningless without its conditions.</b> The readout always echoes them, and warns that it assumes a perfectly matched duplex — no mismatches, hairpins or primer-dimers, and it says nothing about specificity.</div>
 
     <h3><span class="icon">🧫</span>Bio/Assay — kinetics, dose–response, binding &amp; lab math</h3>
-    <p>Pick one of 12 calculators. Four fit a curve with a shared Levenberg–Marquardt engine that reports <b>parameters ± standard errors and R²</b> and draws the fit over your data; the rest are closed-form lab maths. You never enter starting values — each fit seeds itself from a linearization.</p>
+    <p>Pick one of 15 calculators. Four fit a curve with a shared Levenberg–Marquardt engine that reports <b>parameters ± standard errors and R²</b> and draws the fit over your data; the rest are closed-form lab maths. You never enter starting values — each fit seeds itself from a linearization.</p>
     <ul>
       <li><b>Fits:</b> Michaelis–Menten (Vmax, Km); Hill (Vmax, K, coefficient n); dose–response 4PL (IC50/EC50, orientation inferred from the data); one-site saturation binding (Bmax, Kd).</li>
       <li><b>Lab maths:</b> Ki from IC50 (Cheng–Prusoff, with competitive / uncompetitive / non-competitive / mixed modes — mixed is refused, since one IC50 can’t separate Ki and Ki′); catalytic efficiency (kcat, kcat/Km); Henderson–Hasselbalch; Beer–Lambert; dilution (C₁V₁ = C₂V₂); serial-dilution plan; nucleic-acid concentration (A260); protein concentration (A280).</li>
@@ -383,6 +406,13 @@
 
     <h3><span class="icon">🔢</span>Numerals — reference-numeral management</h3>
     <p>Maintains a numeral → element table <b>saved in the document</b>, inserts callouts, and reconciles the table against the text.</p>
+    <p><b>USPTO paragraph numbering.</b> Insert bracketed paragraph numbers — [0001], [0002] —
+    through the specification: the form used to amend a US application and to cite it in an
+    office-action response. Headings, blank paragraphs and the claims are skipped, because a spec
+    whose claims carry paragraph marks is facially defective. It previews what it will do before
+    writing anything, and <b>refuses</b> when the numbers it would assign already exist further
+    down — the situation you are in after inserting paragraphs into a numbered spec, where
+    numbering again would create duplicates.</p>
     <ul>
       <li>Per row: an integer numeral and an element name; a <b>next-numeral suggestion</b> (10 to start, then the even-number convention 12/14…). <b>Parenthesize</b> toggles <code>(12)</code> vs <code>12</code>.</li>
       <li><b>Scan document</b> reports four findings: <b>collisions</b> (one numeral, two elements), <b>gaps</b>, <b>orphans</b> (a callout with no entry), and <b>unused</b> entries. Prose numbers like “12 mm” or “2024” are deliberately not matched.</li>
@@ -415,6 +445,13 @@
 
     <h3><span class="icon">⚖️</span>Citations — Bluebook citations, TOA &amp; TOC</h3>
     <p>A config-driven <b>Bluebook</b> citation formatter with 11 types, correct italics, and practitioner or academic typography.</p>
+    <p><b>The Table of Authorities marks short forms.</b> Not only the full citation but
+    <i>Alice</i>, 573 U.S. at 217 and <i>Id.</i> as well, so the page list covers the whole
+    discussion rather than the one page where the case was first cited in full — a table listing
+    pp. 4 and 9 when the authority is argued on 4, 9, 11, 14 and 15 is defective under most local
+    rules, and it looks finished. Where a short reference genuinely cannot be tied to one authority
+    (an "<i>Id.</i>" that means different cases in different places), it is left unmarked and the
+    count is reported, because a page list short by a stated amount beats one silently wrong.</p>
     <ul>
       <li><b>Types:</b> case (full &amp; short form), <code>Id.</code>, <code>supra</code>, statute (U.S.C.), regulation (C.F.R.), patent, patent-application publication, Federal Register, MPEP section, law-review article, book/treatise.</li>
       <li><b>T6/T10 abbreviation</b> (Corporation → Corp., International → Int’l, California → Cal.), with the named-party exception so a state that <i>is</i> the party stays spelled out. Reporter, court, date, and patent-number normalization, with a ⚠ on an unrecognised reporter and rejection of impossible dates (Feb 31).</li>

@@ -271,6 +271,35 @@ describe("the user-facing docs are not allowed to rot", () => {
     }
   });
 
+  test("the manual documents the capabilities that actually shipped", () => {
+    // The doc-rot gate checked tool COUNTS and version pins, never feature
+    // COVERAGE — so eleven capabilities shipped across v1.97-2.4.1 while the
+    // public site described none of them, and every gate stayed green. The
+    // manual is the page the README calls "start here if you're using it".
+    //
+    // Each entry is a capability plus a phrase the manual must contain. Add a
+    // line here when a release adds something a user would look for.
+    const REQUIRED: Array<[string, RegExp]> = [
+      ["survival analysis", /Kaplan.{0,3}Meier/i],
+      ["log-rank", /log-rank/i],
+      ["Kruskal-Wallis", /Kruskal.{0,3}Wallis/i],
+      ["Friedman", /Friedman/i],
+      ["Dunnett", /Dunnett/i],
+      ["assumption checks", /assumption checks|D.Agostino/i],
+      ["effect sizes", /effect size|Cohen/i],
+      ["multiple/polynomial regression", /multiple and polynomial|polynomial regression/i],
+      ["residual and Q-Q plots", /Q.{0,3}Q plot/i],
+      ["logarithmic axes", /logarithmic ax/i],
+      ["USPTO paragraph numbering", /paragraph number/i],
+      ["virtual digest", /virtual digest/i],
+      ["TOA short forms", /short forms/i],
+      ["dark mode", /follows Word.s own theme|Appearance/i],
+    ];
+    const man = read("landing/manual.html");
+    const missing = REQUIRED.filter(([, re]) => !re.test(man)).map(([name]) => name);
+    expect(missing).toEqual([]);
+  });
+
   test("the enzyme count on the landing page is the real one", () => {
     // index.html said "48 enzymes" against an actual 122 — UNDERSELLING by 74, which
     // is the opposite of the usual failure but still a false claim in public. And I

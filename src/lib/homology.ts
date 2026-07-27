@@ -17,6 +17,7 @@
 // same discipline as the CAS differentiating its antiderivatives back.
 
 import { parsePointCloud } from "./persistence";
+import { parseBraid, jonesPolynomial, wirtingerPresentation, KNOT_BRAIDS } from "./knots";
 import {
   cellularHomology, CW_BUILTIN, realProjectiveTangentClass,
   complexProjectiveTangentClass, realProjectiveCobordism, BEYOND,
@@ -418,6 +419,11 @@ export function solveTopology(input: string): TopologyOutcome | null {
     if (cloud) return { kind: "persistence", cloud };
   }
 
+  // Knot queries come first: a braid word is unambiguous once the keyword is
+  // present, and "trefoil" must not be mistaken for a space name.
+  const knot = knotQuery(raw, lower);
+  if (knot) return knot;
+
   // Advanced (A1) queries: characteristic classes and cobordism.
   const adv = advancedQuery(lower);
   if (adv) return adv;
@@ -554,4 +560,82 @@ function advancedQuery(lower: string): TopologyOutcome | null {
     }
   }
   return null;
+}
+
+// ---------------------------------------------------------------------------
+// Knot queries: "knot trefoil", "jones 1 1 1", "braid 1 -2 1 -2", "pi1 trefoil".
+// ---------------------------------------------------------------------------
+
+function knotQuery(raw: string, lower: string): TopologyOutcome | null {
+  const wantsKnot = /\b(knot|jones|braid|link|wirtinger|pi1|π1|fundamental group of)\b/.test(lower);
+  if (!wantsKnot) return null;
+
+  // A named knot, or a braid word typed out.
+  let braid: { word: number[]; strands: number } | null = null;
+  let label = "";
+  for (const name of Object.keys(KNOT_BRAIDS)) {
+    if (lower.includes(name) || lower.includes(name.replace(/-/g, " "))) {
+      const b = KNOT_BRAIDS[name];
+      braid = { word: b.word, strands: b.strands };
+      label = `${name} (${b.note})`;
+      break;
+    }
+  }
+  if (!braid) {
+    const parsed = parseBraid(raw.replace(/\b(knot|jones|braid|link|wirtinger|pi1|π1|of|the|fundamental|group)\b/gi, " "));
+    if (parsed) {
+      braid = parsed;
+      label = `the closure of the braid you gave`;
+    }
+  }
+  if (!braid) {
+    return {
+      kind: "advanced",
+      title: "Knot invariants",
+      display: ["Couldn't read that as a knot."],
+      steps: [
+        `Give a braid word — "1 1 1" is the trefoil, "1 -2 1 -2" the figure-eight — or a name: ${Object.keys(KNOT_BRAIDS).join(", ")}.`,
+      ],
+      caveats: [],
+    };
+  }
+
+  // π₁ was asked for specifically.
+  if (/\b(pi1|π1|wirtinger|fundamental group)\b/.test(lower)) {
+    const w = wirtingerPresentation(braid);
+    return {
+      kind: "advanced",
+      title: `π₁ of the complement of ${label}`,
+      display: [
+        `Generators: ${w.generators.join(", ")}`,
+        `H₁ (abelianisation) = ${w.abelianisation}`,
+      ],
+      steps: [...w.relations.map((r) => `Relation: ${r}`), ...w.steps],
+      caveats: w.caveats,
+    };
+  }
+
+  let r;
+  try {
+    r = jonesPolynomial(braid);
+  } catch (err) {
+    return {
+      kind: "advanced",
+      title: "Knot invariants",
+      display: [(err as Error).message],
+      steps: [],
+      caveats: [],
+    };
+  }
+  return {
+    kind: "advanced",
+    title: `Jones polynomial of ${label}`,
+    display: [
+      `V(t) = ${r.jonesDisplay}`,
+      `Kauffman bracket = ${r.bracketDisplay}`,
+      `${r.components} component${r.components === 1 ? " (a knot)" : "s (a link)"}, writhe ${r.writhe}`,
+    ],
+    steps: r.steps,
+    caveats: r.caveats,
+  };
 }

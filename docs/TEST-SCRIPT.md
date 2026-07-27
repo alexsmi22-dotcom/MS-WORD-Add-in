@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.11.0)
+# JurisLab — Manual Test Script (v2.12.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -290,6 +290,17 @@ cache and reopen:
   - `x^2/9 + y^2/4 = 1` -> **ellipse**, a = 3, b = 2, eccentricity ~ 0.745, foci listed.
   - `x^2 + y^2 = 0` -> reported as a **point** and flagged DEGENERATE, not as a circle.
   - `x*y = 1` -> **hyperbola**, with a 45 deg rotation reported.
+- [ ] **Knots (v2.12.0).** Still the **Topology (homology)** kind.
+  - `knot trefoil` -> V(t) = -t^-4 + t^-3 + t^-1, 1 component.
+  - `knot trefoil-mirror` -> t + t^3 - t^4. The two MUST differ — that is the polynomial
+    detecting chirality, which homology cannot.
+  - `braid 1 -2 1 -2` (figure-eight) -> t^-2 - t^-1 + 1 - t + t^2, and it must read the same
+    forwards and backwards (amphichiral knots have palindromic Jones polynomials).
+  - `knot hopf-link` -> 2 components, with HALF-integer powers of t.
+  - `pi1 trefoil` -> a Wirtinger presentation, H_1 = Z, and the plain statement that the
+    group is NOT identified because the word problem is undecidable.
+  - A braid with 25 crossings -> refused, saying a truncated state sum would be wrong rather
+    than incomplete. It must NOT hang.
 - [ ] **Advanced topology (v2.11.0).** Still the **Topology (homology)** kind.
   - `w(RP^5)` -> Stiefel-Whitney class, and the working says whether it obstructs
     parallelisability. `w(RP^3)` -> trivial, with the honest note that this does NOT prove

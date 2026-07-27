@@ -1,6 +1,6 @@
 # JurisLab — Product Roadmap
 
-_Last updated: 2026-07-26 · Current release: **v2.11.0** (production)_
+_Last updated: 2026-07-26 · Current release: **v2.12.0** (production)_
 
 > The release number above is gated by `phase6.adversarial.test.ts` against
 > `package.json`. If they disagree, the suite fails — this file drifted five
@@ -520,6 +520,43 @@ The adversarial pass ran before shipping and found two input-validation gaps: a 
 count produced a negative Betti number that formatted as the trivial group "0", and a
 non-integer attaching degree of 2.7 was silently truncated to 2 — each answering confidently
 for a complex the user never described. Both are refused now.
+
+**v2.12.0 — knot polynomials and π₁ presentations (Releases T3 and T4).**
+`src/lib/knots.ts`. Both were scoped in the brief's §2 and never reached until now.
+Input is a BRAID WORD, because it is the one knot notation a person can type without drawing a
+diagram: `1 1 1` closes to the trefoil, `1 -2 1 -2` to the figure-eight.
+
+The **Jones polynomial** is computed exactly by the Kauffman bracket state sum — every one of
+the 2ⁿ smoothings, loops counted by union-find, then f = (−A³)^(−writhe)·⟨D⟩ evaluated at
+A = t^(−1/4). Coefficients are exact integers and exponents are kept as quarter-powers, so a
+link's t^(1/2) survives without a float ever appearing.
+
+**Two real bugs, both invisible to a naive test, and worth recording:**
+- The A- and B-smoothings SWAP for a negative crossing. Treating every crossing alike is
+  correct only when all crossings share a sign — so the all-positive trefoil looked nearly
+  right while the mixed-sign figure-eight came back missing terms.
+- The writhe factor was raised to +writhe instead of −writhe, which gave a ONE-COMPONENT knot
+  half-integer powers of t. That is impossible, and is how the error announced itself.
+Both were caught by comparing against literature values rather than by the code agreeing with
+itself. The figure-eight is the sharpest oracle available here: it is amphichiral, so its
+polynomial must be PALINDROMIC, and it is (t⁻² − t⁻¹ + 1 − t + t²).
+
+The adversarial pass added the strongest check in the module: **Markov stabilisation**. Adding
+a strand with a single crossing gives a DIFFERENT braid whose closure is the SAME knot, so the
+polynomial must not move — it exercises the bracket, the writhe factor and the substitution
+together against a fact none of them knows. It also found that 20 crossings took 13.2 SECONDS
+in a pane that recomputes per keystroke, so the cap is now 16 (measured at ~460ms), and that
+`1.5` was being split into the generators 1 and 5 rather than refused.
+
+**π₁** is the T4 entry and is scoped hard on purpose: a Wirtinger presentation plus its
+abelianisation, which is H₁ and is fully computable. Simplifying a presentation or deciding
+triviality is UNDECIDABLE (the word problem, Novikov–Boone), so the tool never claims to have
+recognised the group it just wrote down. It also states why H₁ alone distinguishes no knots:
+it is Z for every one of them.
+
+Honesty carried on every result: the Jones polynomial is NOT a complete invariant — distinct
+knots share it, and whether it detects the unknot is an open problem — so a match is evidence,
+never proof.
 
 **Genuinely open candidates:** deeper BVP/PDE/DAE
 support on the ODE side (out of scope today — state honestly). Confirm priority before building.

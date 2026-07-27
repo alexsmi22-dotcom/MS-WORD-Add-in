@@ -7583,7 +7583,9 @@ function updateSolveUi(): void {
       "Every result cross-checks its Euler characteristic two independent ways. " +
       "ADVANCED: w(RP^5) and chern CP^3 for characteristic classes · does RP^5 bound (cobordism — " +
       "a genuinely decidable question) · cellular rp2. Ask about spectral sequences, stable homotopy, " +
-      "the fundamental group or homeomorphism and it explains what is and is not computable, rather than guessing.",
+      "the fundamental group or homeomorphism and it explains what is and is not computable, rather than guessing. " +
+      "KNOTS: knot trefoil · jones 1 1 1 (a braid word) · braid 1 -2 1 -2 (figure-eight) · pi1 trefoil. " +
+      "The Jones polynomial is exact but NOT a complete invariant, and it says so.",
     word: "Plain English — e.g. “12 is what percent of 48?” or “twice a number plus 7 is 15”.",
   };
   solveInputLabel.textContent = labels[kind];

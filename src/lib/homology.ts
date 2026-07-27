@@ -51,6 +51,23 @@ const key = (s: number[]): string => s.join(",");
  * boundary matrices have a deterministic basis order.
  */
 export function allFaces(maximal: number[][]): number[][][] {
+  // Check the PROJECTED face count before enumerating anything. A handful of
+  // 18-vertex simplices is 2^18 faces each: building them and only then
+  // noticing takes seconds and a million allocations, and Solve recomputes on
+  // every keystroke. The bound has to come first.
+  let projected = 0;
+  for (const raw of maximal) {
+    const n = new Set(raw).size;
+    if (n > 20) throw new Error("A simplex with more than 20 vertices has too many faces to enumerate.");
+    projected += 2 ** n - 1;
+    if (projected > MAX_SIMPLICES) {
+      throw new Error(
+        `That complex would generate at least ${projected.toLocaleString()} faces, past this tool's limit of ` +
+        `${MAX_SIMPLICES.toLocaleString()}. The reduction is cubic in exact integers, so it is capped up front ` +
+        `rather than left to run. Use fewer or smaller maximal simplices.`
+      );
+    }
+  }
   const byDim: Map<number, Map<string, number[]>> = new Map();
   const addFace = (s: number[]) => {
     const d = s.length - 1;
@@ -124,8 +141,19 @@ export function smithNormalForm(input: bigint[][]): { divisors: bigint[]; rank: 
   const swapRows = (a: number, b: number) => { const x = m[a]; m[a] = m[b]; m[b] = x; };
   const swapCols = (a: number, b: number) => { for (let r = 0; r < rows; r++) { const x = m[r][a]; m[r][a] = m[r][b]; m[r][b] = x; } };
 
+  // Backstop against a non-terminating reduction. The structure below is
+  // provably finite, but a silent infinite loop in a pane that recomputes on
+  // every keystroke is bad enough to be worth an explicit guard.
+  let guard = 0;
+  const GUARD_MAX = 2_000_000;
+  const tick = () => {
+    if (++guard > GUARD_MAX) {
+      throw new Error("The integer reduction did not converge; this matrix is past what this tool can reduce.");
+    }
+  };
+
   while (t < rows && t < cols) {
-    // Find the smallest nonzero entry in the remaining submatrix.
+    // Pivot on the SMALLEST nonzero entry of the remaining submatrix.
     let pr = -1, pc = -1, best = 0n;
     for (let r = t; r < rows; r++) {
       for (let c = t; c < cols; c++) {
@@ -137,38 +165,43 @@ export function smithNormalForm(input: bigint[][]): { divisors: bigint[]; rank: 
     swapRows(t, pr);
     swapCols(t, pc);
 
-    // Clear the pivot row and column, repeating until both are clean: the
-    // remainder steps can reintroduce entries, which is the normal behaviour.
-    let clean = false;
-    while (!clean) {
-      clean = true;
-      for (let r = t + 1; r < rows; r++) {
-        if (m[r][t] === 0n) continue;
-        const q = m[r][t] / m[t][t];
-        for (let c = t; c < cols; c++) m[r][c] -= q * m[t][c];
-        if (m[r][t] !== 0n) { swapRows(t, r); clean = false; }
-      }
-      for (let c = t + 1; c < cols; c++) {
-        if (m[t][c] === 0n) continue;
-        const q = m[t][c] / m[t][t];
-        for (let r = t; r < rows; r++) m[r][c] -= q * m[r][t];
-        if (m[t][c] !== 0n) { swapCols(t, c); clean = false; }
-      }
+    // ONE reduction pass over the pivot column and row, then re-pivot.
+    //
+    // This is the load-bearing detail. An earlier version looped the reduction
+    // to completion against a FIXED pivot, which let the off-pivot entries grow
+    // without bound — a random 7×7 integer matrix blew past BigInt's maximum
+    // size after ~14 seconds. Division leaves every remainder strictly smaller
+    // in absolute value than the pivot, so returning to the pivot search makes
+    // the pivot magnitude strictly decrease each round. A strictly decreasing
+    // positive integer terminates, and the entries stay small on the way down.
+    let changed = false;
+    for (let r = t + 1; r < rows; r++) {
+      if (m[r][t] === 0n) continue;
+      const q = m[r][t] / m[t][t];
+      if (q !== 0n) for (let c = t; c < cols; c++) m[r][c] -= q * m[t][c];
+      if (m[r][t] !== 0n) changed = true;
     }
+    for (let c = t + 1; c < cols; c++) {
+      if (m[t][c] === 0n) continue;
+      const q = m[t][c] / m[t][t];
+      if (q !== 0n) for (let r = t; r < rows; r++) m[r][c] -= q * m[r][t];
+      if (m[t][c] !== 0n) changed = true;
+    }
+    if (changed) { tick(); continue; } // a smaller remainder exists — re-pivot
 
-    // The divisibility condition d_t | every remaining entry. If it fails,
-    // fold the offending row in and redo this pivot.
-    let fixed = true;
-    outer: for (let r = t + 1; r < rows; r++) {
+    // Row t and column t are now clean. Enforce d_t | every remaining entry,
+    // which is what makes the divisors a divisibility chain.
+    let bad = -1;
+    for (let r = t + 1; r < rows && bad < 0; r++) {
       for (let c = t + 1; c < cols; c++) {
-        if (m[r][c] % m[t][t] !== 0n) {
-          for (let cc = t; cc < cols; cc++) m[t][cc] += m[r][cc];
-          fixed = false;
-          break outer;
-        }
+        if (m[r][c] % m[t][t] !== 0n) { bad = r; break; }
       }
     }
-    if (!fixed) continue; // same t, pivot again
+    if (bad >= 0) {
+      for (let c = t; c < cols; c++) m[t][c] += m[bad][c];
+      tick();
+      continue; // same t, pivot again
+    }
 
     divisors.push(babs(m[t][t]));
     t++;

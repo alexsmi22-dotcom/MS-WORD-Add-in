@@ -77,7 +77,9 @@ export function fmtSqrtRat(a: Rat): string | null {
   const num = sq / g;
   const dd = den / g;
   const numPart = rest === 1n ? `${num}` : num === 1n ? `sqrt(${rest})` : `${num}*sqrt(${rest})`;
-  return dd === 1n ? numPart : `(${numPart})/${dd}`;
+  if (dd === 1n) return numPart;
+  // Parenthesise only a genuine product — "(1)/2" and "(sqrt(2))/2" are noise.
+  return numPart.includes("*") ? `(${numPart})/${dd}` : `${numPart}/${dd}`;
 }
 
 function bgcd(a: bigint, b: bigint): bigint {
@@ -435,8 +437,16 @@ export function solveTriangle(spec: {
       );
       const triangles: SolvedTriangle[] = [];
       if (Math.abs(a! - h) < 1e-12) {
-        // Exactly one, right-angled at B.
+        // The altitude case. Normally exactly one right-angled triangle — but
+        // if a = b the third side collapses to zero, which is not a triangle at
+        // all, and reporting one with area 0 would be a fabricated answer.
         const c = Math.sqrt(Math.max(0, b! * b! - a! * a!));
+        if (c <= 1e-12) {
+          return bad(
+            `No triangle: with a = ${a} equal to both the altitude and side b, the third side collapses to zero — ` +
+            `angles A and B would each be 90°, leaving nothing for the third angle.`
+          );
+        }
         triangles.push(finishFromSides(a!, b!, c));
         caveats.push("Exactly one triangle: side a equals the altitude, so the triangle is right-angled.");
         return { kind: "SSA", triangles, caveats };
@@ -680,7 +690,15 @@ export function shapeMetrics(spec: ShapeSpec): GeoResult | null {
   const d = spec.dims;
   const V = (label: string, value: number, exact?: string): GeoValue => ({ label, value, exact });
   const need = (...keys: string[]): boolean => keys.every((k) => typeof d[k] === "number" && Number.isFinite(d[k]) && d[k] > 0);
-  const rExact = (n: number): string => fmtRat(ratFromNumber(n));
+  // EXACT arithmetic on the inputs, never on their float product: 0.1*0.1 is
+  // 0.010000000000000002 as a double, and converting THAT faithfully gives
+  // 5000000000000001/500000000000000000 rather than 1/100. Multiply as rationals.
+  const R = (n: number): Rat => ratFromNumber(n);
+  const rmul = (...ns: number[]): Rat => ns.map(R).reduce(ratMul, ratInt(1));
+  const rExact = (n: number): string => fmtRat(R(n));
+  const rExactMul = (...ns: number[]): string => fmtRat(rmul(...ns));
+  const sqrtOfSquares = (...ns: number[]): string | undefined =>
+    fmtSqrtRat(ns.map((n) => ratMul(R(n), R(n))).reduce(ratAdd, RAT_ZERO)) ?? undefined;
 
   switch (spec.shape) {
     case "circle": {
@@ -689,9 +707,9 @@ export function shapeMetrics(spec: ShapeSpec): GeoResult | null {
       return {
         title: `Circle, r = ${r}`,
         values: [
-          V("area", Math.PI * r * r, `${rExact(r * r)}*pi`),
-          V("circumference", 2 * Math.PI * r, `${rExact(2 * r)}*pi`),
-          V("diameter", 2 * r, rExact(2 * r)),
+          V("area", Math.PI * r * r, `${rExactMul(r, r)}*pi`),
+          V("circumference", 2 * Math.PI * r, `${rExactMul(2, r)}*pi`),
+          V("diameter", 2 * r, rExactMul(2, r)),
         ],
         steps: ["A = πr², C = 2πr."], caveats: [],
       };
@@ -700,8 +718,8 @@ export function shapeMetrics(spec: ShapeSpec): GeoResult | null {
       if (!need("a")) return null;
       return {
         title: `Square, side ${d.a}`,
-        values: [V("area", d.a * d.a, rExact(d.a * d.a)), V("perimeter", 4 * d.a, rExact(4 * d.a)),
-          V("diagonal", d.a * Math.SQRT2, fmtSqrtRat(ratFromNumber(2 * d.a * d.a)) ?? undefined)],
+        values: [V("area", d.a * d.a, rExactMul(d.a, d.a)), V("perimeter", 4 * d.a, rExactMul(4, d.a)),
+          V("diagonal", d.a * Math.SQRT2, sqrtOfSquares(d.a, d.a))],
         steps: ["A = a², P = 4a, diagonal = a√2."], caveats: [],
       };
     }
@@ -709,8 +727,8 @@ export function shapeMetrics(spec: ShapeSpec): GeoResult | null {
       if (!need("a", "b")) return null;
       return {
         title: `Rectangle ${d.a} × ${d.b}`,
-        values: [V("area", d.a * d.b, rExact(d.a * d.b)), V("perimeter", 2 * (d.a + d.b), rExact(2 * (d.a + d.b))),
-          V("diagonal", Math.hypot(d.a, d.b), fmtSqrtRat(ratFromNumber(d.a * d.a + d.b * d.b)) ?? undefined)],
+        values: [V("area", d.a * d.b, rExactMul(d.a, d.b)), V("perimeter", 2 * (d.a + d.b), fmtRat(ratMul(ratInt(2), ratAdd(R(d.a), R(d.b))))),
+          V("diagonal", Math.hypot(d.a, d.b), sqrtOfSquares(d.a, d.b))],
         steps: ["A = ab, P = 2(a+b)."], caveats: [],
       };
     }
@@ -720,8 +738,8 @@ export function shapeMetrics(spec: ShapeSpec): GeoResult | null {
       return {
         title: `Sphere, r = ${r}`,
         values: [
-          V("volume", (4 / 3) * Math.PI * r ** 3, `${fmtRat(ratMul(ratMake(4n, 3n), ratFromNumber(r ** 3)))}*pi`),
-          V("surface area", 4 * Math.PI * r * r, `${rExact(4 * r * r)}*pi`),
+          V("volume", (4 / 3) * Math.PI * r ** 3, `${fmtRat(ratMul(ratMake(4n, 3n), rmul(r, r, r)))}*pi`),
+          V("surface area", 4 * Math.PI * r * r, `${rExactMul(4, r, r)}*pi`),
         ],
         steps: ["V = 4πr³/3, S = 4πr²."], caveats: [],
       };
@@ -732,9 +750,9 @@ export function shapeMetrics(spec: ShapeSpec): GeoResult | null {
       return {
         title: `Cylinder, r = ${r}, h = ${h}`,
         values: [
-          V("volume", Math.PI * r * r * h, `${rExact(r * r * h)}*pi`),
-          V("surface area", 2 * Math.PI * r * (r + h), `${rExact(2 * r * (r + h))}*pi`),
-          V("lateral area", 2 * Math.PI * r * h, `${rExact(2 * r * h)}*pi`),
+          V("volume", Math.PI * r * r * h, `${rExactMul(r, r, h)}*pi`),
+          V("surface area", 2 * Math.PI * r * (r + h), `${fmtRat(ratMul(rmul(2, r), ratAdd(R(r), R(h))))}*pi`),
+          V("lateral area", 2 * Math.PI * r * h, `${rExactMul(2, r, h)}*pi`),
         ],
         steps: ["V = πr²h, S = 2πr(r+h)."], caveats: [],
       };
@@ -746,8 +764,8 @@ export function shapeMetrics(spec: ShapeSpec): GeoResult | null {
       return {
         title: `Cone, r = ${r}, h = ${h}`,
         values: [
-          V("volume", (Math.PI * r * r * h) / 3, `${fmtRat(ratDiv(ratFromNumber(r * r * h), ratInt(3)))}*pi`),
-          V("slant height", l, fmtSqrtRat(ratFromNumber(r * r + h * h)) ?? undefined),
+          V("volume", (Math.PI * r * r * h) / 3, `${fmtRat(ratDiv(rmul(r, r, h), ratInt(3)))}*pi`),
+          V("slant height", l, sqrtOfSquares(r, h)),
           V("surface area", Math.PI * r * (r + l)),
         ],
         steps: ["V = πr²h/3, slant l = √(r²+h²), S = πr(r+l)."], caveats: [],
@@ -759,9 +777,9 @@ export function shapeMetrics(spec: ShapeSpec): GeoResult | null {
       return {
         title: `Box ${a} × ${b} × ${c}`,
         values: [
-          V("volume", a * b * c, rExact(a * b * c)),
-          V("surface area", 2 * (a * b + b * c + a * c), rExact(2 * (a * b + b * c + a * c))),
-          V("space diagonal", Math.sqrt(a * a + b * b + c * c), fmtSqrtRat(ratFromNumber(a * a + b * b + c * c)) ?? undefined),
+          V("volume", a * b * c, rExactMul(a, b, c)),
+          V("surface area", 2 * (a * b + b * c + a * c), fmtRat(ratMul(ratInt(2), [rmul(a, b), rmul(b, c), rmul(a, c)].reduce(ratAdd, RAT_ZERO)))),
+          V("space diagonal", Math.sqrt(a * a + b * b + c * c), sqrtOfSquares(a, b, c)),
         ],
         steps: ["V = abc, S = 2(ab+bc+ca)."], caveats: [],
       };
@@ -774,7 +792,7 @@ export function shapeMetrics(spec: ShapeSpec): GeoResult | null {
         title: `Regular ${n}-gon, side ${a}`,
         values: [
           V("area", (n * a * apothem) / 2),
-          V("perimeter", n * a, rExact(n * a)),
+          V("perimeter", n * a, rExactMul(n, a)),
           V("interior angle", ((n - 2) * 180) / n, rExact(((n - 2) * 180) / n)),
           V("apothem", apothem),
           V("circumradius", a / (2 * Math.sin(Math.PI / n))),

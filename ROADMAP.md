@@ -1,6 +1,6 @@
 # JurisLab — Product Roadmap
 
-_Last updated: 2026-07-26 · Current release: **v2.8.0** (production)_
+_Last updated: 2026-07-26 · Current release: **v2.8.1** (production)_
 
 > The release number above is gated by `phase6.adversarial.test.ts` against
 > `package.json`. If they disagree, the suite fails — this file drifted five
@@ -377,6 +377,29 @@ textbook oracle (β(T²) = 1,2,1; H(S²) = Z,0,Z; H₁(ℝP²) = Z/2) plus ∂�
 **NOT built:** persistent homology (T2), and the advanced list (Release A) — cellular homology,
 characteristic classes, cobordism, spectral sequences — which the brief splits by
 computability regime before any of it is attempted.
+
+**v2.8.1 — the adversarial pass v2.7.0 and v2.8.0 should have had.**
+The deploy rule here is full suite PLUS an adversarial pass. The CAS releases got both; the
+geometry and homology releases went out with the suite and QC only. Running the missing pass
+found four real defects, one of them severe:
+- **Smith Normal Form DIVERGED.** Reducing against a fixed pivot let off-pivot entries grow
+  without bound; a random 7×7 integer matrix blew past BigInt maximum size after ~14 seconds.
+  Boundary matrices start at ±1, so homology never tripped it and all 25 oracle tests passed —
+  the algorithm was simply unsound outside that regime. Now one reduction pass then RE-PIVOT,
+  which makes the pivot magnitude strictly decrease and therefore terminate, plus a guard.
+  Cross-checked by prod(divisors) = |det| on nonsingular input.
+- **The homology size cap fired too late** — checked after allFaces() had already built
+  1,048,572 faces, 8.8 SECONDS, in a pane that recomputes on every keystroke. Now projected
+  up front: 8787ms → 13ms.
+- **Float noise corrupted exact forms**: circle r=0.1 reported its area as
+  5000000000000001/500000000000000000·π instead of π/100. The rational conversion was
+  faithful; the double product handed to it was not. Mensuration now multiplies as rationals.
+- **A degenerate triangle was reported as valid**: SSA with a = b = altitude returned a
+  triangle with third side 0 and area 0, when two right angles leave nothing for the third.
+Both modules now carry permanent adversarial suites
+(`geometry.adversarial.test.ts`, `homology.adversarial.test.ts`), and the lesson is the
+process one: a full green suite is not an adversarial pass, and shipping without the second
+half is how an unsound reduction reached production behind 25 passing oracle tests.
 
 **Genuinely open candidates:** deeper BVP/PDE/DAE
 support on the ODE side (out of scope today — state honestly). Confirm priority before building.

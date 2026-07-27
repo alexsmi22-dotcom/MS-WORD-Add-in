@@ -27,7 +27,7 @@ describe("exact formatting", () => {
     expect(fmtSqrtRat(ratInt(9))).toBe("3");
     expect(fmtSqrtRat(ratInt(12))).toBe("2*sqrt(3)");
     expect(fmtSqrtRat(ratInt(2))).toBe("sqrt(2)");
-    expect(fmtSqrtRat(ratMake(1n, 4n))).toBe("(1)/2");
+    expect(fmtSqrtRat(ratMake(1n, 4n))).toBe("1/2"); // was "(1)/2" — redundant parens, fixed
     expect(fmtSqrtRat(ratInt(-1))).toBeNull();
   });
 });

@@ -157,7 +157,15 @@ class Parser {
     const num = /^\d*\.?\d+(?:[eE][+-]?\d+)?/.exec(this.s.slice(this.i));
     if (num) {
       this.i += num[0].length;
-      const n: Expr = { t: "num", v: parseFloat(num[0]) };
+      const v = parseFloat(num[0]);
+      // A literal past the range of a double becomes Infinity silently, and the
+      // working then read "Reduced to -Infinity = 0" — an answer about a number
+      // the user never wrote. Blocking the IDENTIFIERS "NaN"/"Infinity" above
+      // does not cover this: 1e999 is neither.
+      if (!Number.isFinite(v)) {
+        throw new Error(`"${num[0]}" is too large to represent — the limit is about 1e308.`);
+      }
+      const n: Expr = { t: "num", v };
       // Implicit multiplication: "2x", "3sin(x)", "2(x+1)".
       if (/[A-Za-z(]/.test(this.s[this.i] ?? "")) return { t: "mul", l: n, r: this.power() };
       return n;

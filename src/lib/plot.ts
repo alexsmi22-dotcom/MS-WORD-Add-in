@@ -262,7 +262,15 @@ export function logTicks(lo: number, hi: number): { major: number[]; minor: numb
   const first = Math.floor(lo);
   const last = Math.ceil(hi);
   // A guard against a pathological domain producing thousands of ticks.
-  if (!Number.isFinite(first) || !Number.isFinite(last) || last - first > 40) {
+  //
+  // Checking only the SPAN is not enough: at a magnitude like 1e308, `d++` is
+  // below the floating-point step size, so d never advances and `d <= last`
+  // loops forever with a span of zero. Bound the magnitude as well — a decade
+  // exponent outside +-320 is past the range of a double anyway.
+  if (
+    !Number.isFinite(first) || !Number.isFinite(last) ||
+    last - first > 40 || Math.abs(first) > 320 || Math.abs(last) > 320
+  ) {
     return { major: [], minor: [] };
   }
   for (let d = first; d <= last; d++) {

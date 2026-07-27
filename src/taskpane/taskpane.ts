@@ -4929,7 +4929,11 @@ const FIN_CALCS: FinCalc[] = [
     ],
     compute: (r) => {
       const m = +r("m");
-      const rows = amortizationSchedule(+r("p"), +r("rate") / 100 / m, +r("t") * m);
+      const years = +r("t");
+      if (!Number.isFinite(m) || m <= 0 || !Number.isFinite(years) || years <= 0) {
+        return "Enter a positive number of years and payments per year.";
+      }
+      const rows = amortizationSchedule(+r("p"), +r("rate") / 100 / m, years * m);
       if (!rows.length) return "—";
       const interest = rows.reduce((a, x) => a + x.interest, 0);
       const paid = rows.reduce((a, x) => a + x.payment, 0);

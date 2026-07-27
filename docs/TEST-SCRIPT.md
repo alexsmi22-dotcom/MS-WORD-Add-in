@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.17.0)
+# JurisLab — Manual Test Script (v2.18.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -349,7 +349,7 @@ cache and reopen:
   - `k-theory S^2` -> K^0 = Z + Z, K^1 = 0, reduced K^0 = Z, and the working must name
     **Bott periodicity** rather than reading a table.
   - `k-theory CP^3` -> K^0 = Z^4, K^1 = 0, explained by the absence of odd cells.
-- [ ] **Spectral sequences and stable homotopy (v2.17.0).** Still the **Topology (homology)**
+- [ ] **Spectral sequences and stable homotopy (v2.18.0).** Still the **Topology (homology)**
   kind. The whole point of this section is what is REFUSED.
   - `serre s2 s1` -> an E_2 grid with q increasing UPWARD, and **one differential marked
     UNDETERMINED**. It must NOT report H*(E). If it ever does, that is the most serious bug
@@ -370,6 +370,17 @@ cache and reopen:
     two collided before shipping.
   - `homology of the torus` -> Z, Z^2, Z. Phrasing it as a question must work as well as
     typing `torus` alone.
+- [ ] **Nothing freezes Word (v2.18.0).** The whole-library sweep found seven loops that
+  never returned on a non-finite count. A frozen pane has no error and no way back, so
+  these are worth a real pass:
+  - **Finance -> Loan amortization.** Set **Years** to `1e400` (or paste a very long run
+    of 9s). It must come back with a message. Before v2.18.0 this hung Word outright.
+    Then set Years to `30`, payments/year `12`, and confirm you still get 360 rows.
+  - **Finance -> Declining balance.** Same test on **Life**.
+  - **Plot** with **Log scale** on data containing a colossal value (`1 1`, `2 1e308`).
+    It must draw or decline — never hang.
+  - **Solve.** Type `1e999 = 0`. It must say the literal is too large to represent,
+    NOT "Reduced to -Infinity = 0". `x - 1e300 = 0` must still solve normally.
 - [ ] **Persistent homology (v2.10.0).** In the **Topology (homology)** kind, PASTE a point
   cloud instead of a name — one point per line. A rough circle, e.g.:
   `1 0` / `0.7 0.7` / `0 1` / `-0.7 0.7` / `-1 0` / `-0.7 -0.7` / `0 -1` / `0.7 -0.7`

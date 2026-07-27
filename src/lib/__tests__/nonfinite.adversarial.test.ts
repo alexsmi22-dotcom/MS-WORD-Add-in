@@ -19,11 +19,15 @@ import { limit } from "../analysis";
 import { solveEquation } from "../solve";
 
 describe("a limit of something that is not real-valued", () => {
+  // 1e999 and -1e999 used to land here too. They are now rejected earlier, by
+  // the PARSER, which refuses a literal it cannot represent — a better place to
+  // catch it, because the user is told the literal is the problem rather than
+  // being told something about a function they did not write. See
+  // unbounded.adversarial.test.ts. What is left here is the case that only the
+  // simplifier can find: an expression that parses fine and is not real-valued.
   const CASES: [string, RegExp][] = [
     ["sqrt(-1)", /not defined over the real numbers/],
     ["log(0)", /overflows to infinity as a CONSTANT/],
-    ["1e999", /overflows to infinity as a CONSTANT/],
-    ["-1e999", /overflows to infinity as a CONSTANT/],
   ];
   for (const [src, why] of CASES) {
     it(`${src} is refused with a reason, not answered`, () => {
@@ -37,6 +41,11 @@ describe("a limit of something that is not real-valued", () => {
       expect(r.steps.join(" ")).not.toMatch(/NaN|Infinity/);
     });
   }
+
+  it("an overflowing literal is refused outright, at the parser", () => {
+    expect(limit("1e999", "x", 0)).toBeNull();
+    expect(limit("-1e999", "x", 0)).toBeNull();
+  });
 
   it("an ordinary limit is untouched by any of this", () => {
     expect(limit("sin(x)/x", "x", 0)!.kind).toBe("finite");

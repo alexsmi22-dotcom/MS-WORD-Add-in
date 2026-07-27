@@ -97,6 +97,10 @@ export function reconcileSeqIds(refs: number[], listingCount: number): SeqIdFind
     .filter((n) => n < 1 || n > listingCount)
     .sort((a, b) => a - b);
   const uncited: number[] = [];
-  for (let i = 1; i <= listingCount; i++) if (!refSet.has(i)) uncited.push(i);
+  // listingCount comes from a parsed listing, so it is bounded in practice —
+  // but `i <= Infinity` never ends, and this runs during a document audit where
+  // a freeze would look like Word hanging on the user's own file.
+  const upto = Number.isFinite(listingCount) ? Math.min(listingCount, 100000) : 0;
+  for (let i = 1; i <= upto; i++) if (!refSet.has(i)) uncited.push(i);
   return { outOfRange, uncited, ok: outOfRange.length === 0 && uncited.length === 0 };
 }

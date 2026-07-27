@@ -788,9 +788,18 @@ export interface DilutionStep {
  * `foldPerStep` (e.g. 10 for a 10-fold series). Returns the concentration at
  * each step (step 1 = the starting concentration).
  */
+/** The largest series this will build; beyond it the caller wanted something else. */
+export const MAX_DILUTION_STEPS = 1000;
+
 export function serialDilution(start: number, foldPerStep: number, count: number): DilutionStep[] {
+  // `for (i = 0; i < count; i++)` with count = Infinity allocates until the heap
+  // dies — and in a task pane that is a frozen Word, not an error message. The
+  // pane does check this before calling, but a bound belongs on the function
+  // too: whoever calls it next will not know the check was somewhere else.
+  if (!Number.isFinite(count) || count < 1) return [];
+  const n = Math.min(Math.floor(count), MAX_DILUTION_STEPS);
   const out: DilutionStep[] = [];
-  for (let i = 0; i < count; i++) out.push({ step: i + 1, concentration: start / Math.pow(foldPerStep, i) });
+  for (let i = 0; i < n; i++) out.push({ step: i + 1, concentration: start / Math.pow(foldPerStep, i) });
   return out;
 }
 

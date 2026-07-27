@@ -226,9 +226,19 @@ export interface AmortRow {
  * interest and principal, with the running balance. The final payment is
  * adjusted so the balance lands exactly on zero (absorbing rounding drift).
  */
+/**
+ * The longest schedule this will build. 12,000 periods is a thousand years of
+ * monthly payments — past any real loan, and small enough to render.
+ */
+export const MAX_AMORT_PERIODS = 12000;
+
 export function amortizationSchedule(principal: number, ratePerPeriod: number, nPeriods: number): AmortRow[] {
   const rows: AmortRow[] = [];
-  if (nPeriods <= 0) return rows;
+  // `nPeriods <= 0` does not reject Infinity, and `k <= Infinity` never ends —
+  // so a large enough "Years" in the pane froze Word outright, with no error and
+  // no way back. A bound belongs here, not only at the call site.
+  if (!Number.isFinite(nPeriods) || nPeriods <= 0) return rows;
+  nPeriods = Math.min(Math.floor(nPeriods), MAX_AMORT_PERIODS);
   const pmt = loanPayment(principal, ratePerPeriod, nPeriods);
   let balance = principal;
   for (let k = 1; k <= nPeriods; k++) {
@@ -385,7 +395,10 @@ export interface DepRow {
  */
 export function decliningBalanceSchedule(cost: number, salvage: number, life: number, factor = 2): DepRow[] {
   const rows: DepRow[] = [];
-  if (life <= 0) return rows;
+  // Same shape as amortizationSchedule: `life <= 0` does not reject Infinity,
+  // and `year <= Infinity` never ends. A depreciation life is in years.
+  if (!Number.isFinite(life) || life <= 0) return rows;
+  life = Math.min(Math.floor(life), MAX_AMORT_PERIODS);
   let book = cost;
   const rate = factor / life;
   for (let year = 1; year <= life; year++) {

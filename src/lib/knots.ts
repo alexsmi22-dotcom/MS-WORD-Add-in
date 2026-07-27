@@ -57,7 +57,17 @@ export function lMul(a: Laurent, b: Laurent): Laurent {
   return out;
 }
 
+/** Far beyond any braid this tool accepts (strands are capped at 24). */
+export const MAX_LAURENT_POWER = 4096;
+
 export function lPow(a: Laurent, n: number): Laurent {
+  // Callers pass a loop count derived from the strand count, so this is bounded
+  // in practice — but `i < Infinity` never ends, and a polynomial multiply per
+  // step means the heap goes first. Refuse rather than trust the caller.
+  //
+  // Rejecting only the non-finite case is not enough: 1e308 is finite and still
+  // never finishes. The bound has to be a real number, not just "not Infinity".
+  if (!Number.isFinite(n) || n < 0 || n > MAX_LAURENT_POWER) return lOne();
   let out = lOne();
   for (let i = 0; i < n; i++) out = lMul(out, a);
   return out;

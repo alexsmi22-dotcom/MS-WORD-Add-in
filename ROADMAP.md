@@ -1,6 +1,6 @@
 # JurisLab — Product Roadmap
 
-_Last updated: 2026-07-26 · Current release: **v2.17.0** (production)_
+_Last updated: 2026-07-26 · Current release: **v2.18.0** (production)_
 
 > The release number above is gated by `phase6.adversarial.test.ts` against
 > `package.json`. If they disagree, the suite fails — this file drifted five
@@ -122,7 +122,12 @@ Added as Analyze tools (`src/lib/ode.ts`, `src/lib/optimize.ts`, `src/lib/fft.ts
 - **MS fragmentation** ✅ (EI: α-cleavage, benzylic/tropylium, McLafferty, gated neutral losses).
 - **J-coupling and 2D** ✅ SHIPPED in v1.83.0 — coupling constants and multiplet names
   (dd, td…) from the bond graph, plus COSY (¹H–¹H) and HSQC (¹H–¹³C) maps.
-- **Also shipped, unplanned here:** a **JCAMP-DX reader** to open a real measured spectrum.
+- **Built but NOT REACHABLE — `src/lib/jcamp.ts`.** A complete JCAMP-DX reader, with its
+  own tests, committed as "open a real spectrum (punch list #17)". It is imported by
+  nothing: no pane import, and no file input that accepts `.jdx`/`.dx`. A user has never
+  been able to run it. Found by the v2.18.0 reachability sweep and now recorded as a
+  declared gap in `reachability.adversarial.test.ts`, so it cannot be forgotten again.
+  Wiring it needs a file input plus a handler to render the parsed spectrum.
 
 ### Ongoing / low priority — Chemical coverage
 
@@ -624,7 +629,7 @@ point existed and the sign was never tested. Sign changes are now located numeri
 and any endpoint that came from that is declared approximate. Touching intervals are also merged,
 so `x² ≥ 0` reads (−∞, ∞) rather than two pieces meeting at zero.
 
-**v2.17.0 — advanced algebraic topology, tiers A2 and A3 (Release A, completed).**
+**v2.18.0 — advanced algebraic topology, tiers A2 and A3 (Release A, completed).**
 `src/lib/spectral.ts`. These are the two entries the A1 brief deliberately held back, and what
 ships is defined by what must NOT be claimed.
 
@@ -677,7 +682,50 @@ what was typed and never saying why, and `NaN` parsed as a perfectly ordinary ID
 solving it produced an equation in a variable called NaN. Neither was a wrong answer, which is
 precisely why neither had been noticed.
 
-**Genuinely open candidates:** deeper BVP/PDE/DAE
+**v2.18.0 — the whole-library bug test.** The v2.17.0 sweep covered the Solve surface: 7
+entry points out of 97 modules. This one covered all of them — every exported function in
+every lib module, called with hostile arguments in a child process with a heap cap and a
+30-second timeout, so a module that hangs is REPORTED rather than taking the run down with
+it. 17,646 calls.
+
+**It found seven functions that never return when handed a non-finite count** — and in a
+task pane that is a FROZEN WORD: no error, no message, no way back, with the user's
+document sitting behind it. That failure mode is worse than any wrong answer.
+
+- **`amortizationSchedule` was genuinely reachable.** The pane passed `+r("t") * m` —
+  years times payments per year — with no finite check, and the function's own guard,
+  `nPeriods <= 0`, does not reject Infinity. `for (k = 1; k <= Infinity; k++)` never ends.
+- The other six were guarded by their callers, which is precisely the arrangement that
+  fails later: the bound lived in a different file from the loop, so the next caller would
+  not know to repeat it. `serialDilution`, `decliningBalanceSchedule`, `toRoman`,
+  `reconcileSeqIds`, `lPow`, `binomial`, `partitions` and both characteristic-class
+  builders now carry their own bounds.
+- **`logTicks` shows why "not Infinity" is not a bound.** It already checked that the span
+  was finite and under 40 decades. At a magnitude of 1e308 the span is *zero* — and `d++`
+  is below the floating-point step size there, so `d` never advances and the loop runs
+  forever. The magnitude has to be bounded too, not just the span.
+- Fixing the first crash in a module **unmasked the next**, twice over: `finance` and
+  `topology2` each hid a second unbounded loop behind the one that killed the process
+  first. The sweep was re-run to a fixed point — four rounds, ending at zero.
+
+**A numeric literal too large to represent was accepted as Infinity.** Blocking the
+identifiers `NaN` and `Infinity` in v2.17.0 did not cover `1e999`, which is neither: it
+overflowed silently and the working read "Reduced to −Infinity = 0", an answer about a
+number nobody wrote. The parser now refuses any literal it cannot represent, which also
+supersedes the v2.17.0 limit-side patch — catching it at the literal tells the user what
+is actually wrong.
+
+**A whole feature was found unreachable.** `src/lib/jcamp.ts` — a complete JCAMP-DX
+spectrum reader with its own tests — is imported by nothing and has never been runnable by
+a user. `reachability.adversarial.test.ts` now checks every lib module is imported by
+something outside its own tests, with unwired modules declared and explained rather than
+discovered.
+
+The 385 "threw on undefined" results the fuzz also produced were NOT treated as bugs: they
+are typed internals fed untyped garbage, which the compiler already prevents at every real
+call site. Reporting them would have been noise dressed as diligence.
+
+**Genuinely open candidates:** wiring the JCAMP-DX reader; deeper BVP/PDE/DAE
 support on the ODE side (out of scope today — state honestly). Confirm priority before building.
 The evaluation's own list is now closed. Remaining ideas are new work rather than
 outstanding findings.

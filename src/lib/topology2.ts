@@ -227,6 +227,11 @@ export function swOfLineSum(roots: number[]): TotalClass {
  * cohomology ring. That truncation is the geometry, not an approximation.
  */
 export function chernComplexProjectiveTangent(n: number): TotalClass {
+  // The Solve routing caps n before it reaches here, so this is not currently
+  // reachable with a hostile value — but the cap lives in a different file, and
+  // `i < Infinity + 1` with a polynomial multiply per step hangs outright.
+  if (!Number.isFinite(n) || n < 0) return [1];
+  n = Math.min(Math.floor(n), MAX_CHAR_CLASS_DIM);
   let out: TotalClass = [1];
   for (let i = 0; i < n + 1; i++) out = whitneySum(out, [1, 1], n);
   return out.slice(0, n + 1);
@@ -238,7 +243,16 @@ export function chernComplexProjectiveTangent(n: number): TotalClass {
  * This is the classical computation behind the parallelisability and
  * immersion results, and it is exact binomial arithmetic mod 2.
  */
+/**
+ * Largest dimension a characteristic class is computed in. The Solve routing
+ * caps n well below this; the bound is here so the functions cannot hang no
+ * matter who calls them.
+ */
+export const MAX_CHAR_CLASS_DIM = 512;
+
 export function swRealProjectiveTangent(n: number): TotalClass {
+  if (!Number.isFinite(n) || n < 0) return [1];
+  n = Math.min(Math.floor(n), MAX_CHAR_CLASS_DIM);
   const out: number[] = [];
   for (let k = 0; k <= n; k++) out.push(Number(binomialMod2(n + 1, k)));
   return out;
@@ -251,7 +265,12 @@ export function binomialMod2(n: number, k: number): 0 | 1 {
 
 /** Exact binomial coefficient in bigint, for the integral classes. */
 export function binomial(n: number, k: number): bigint {
-  if (k < 0 || k > n) return 0n;
+  // `k > n` rejects the obvious nonsense but not a huge k with a huger n, and
+  // each step here multiplies a bigint that is itself growing — so a large k
+  // exhausts memory rather than merely taking a while. BigInt(Infinity) also
+  // throws, which is a worse failure than an honest zero.
+  if (!Number.isFinite(n) || !Number.isFinite(k)) return 0n;
+  if (k < 0 || k > n || k > MAX_CHAR_CLASS_DIM) return 0n;
   let r = 1n;
   for (let i = 0; i < k; i++) r = (r * BigInt(n - i)) / BigInt(i + 1);
   return r;
@@ -348,7 +367,17 @@ export interface CobordismResult {
 }
 
 /** Partitions of n, used to index the Stiefel–Whitney numbers. */
+/**
+ * Largest n this enumerates partitions of. p(n) grows fast — p(40) is already
+ * 37,338 lists and p(100) is 190 million — so the bound is about memory, not
+ * just about Infinity. Well past the dimensions the cobordism route uses.
+ */
+export const MAX_PARTITION_N = 40;
+
 export function partitions(n: number): number[][] {
+  // `p--` on Infinity stays Infinity and `left === 0` is never reached, so the
+  // recursion below never bottoms out.
+  if (!Number.isFinite(n) || n < 0 || n > MAX_PARTITION_N) return [];
   const out: number[][] = [];
   const walk = (left: number, max: number, acc: number[]) => {
     if (left === 0) { out.push(acc.slice()); return; }

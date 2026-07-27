@@ -23,7 +23,11 @@ const ROMAN: Array<[number, string]> = [
 
 /** Converts a positive integer to an uppercase Roman numeral. */
 export function toRoman(n: number): string {
-  let value = Math.max(1, Math.floor(n));
+  // Math.floor(Infinity) is Infinity, and the subtract-while loop below then
+  // appends "M" forever until the heap dies. Roman numerals stop being useful
+  // long before this bound anyway.
+  if (!Number.isFinite(n)) return "";
+  let value = Math.min(Math.max(1, Math.floor(n)), 100000);
   let out = "";
   for (const [num, sym] of ROMAN) {
     while (value >= num) {

@@ -20,10 +20,21 @@
 // CasBail and the caller falls back to the old peephole simplifier, so no
 // input can crash and no value can silently change.
 //
-// KNOWN VALUE CAVEAT (standard CAS behaviour, stated rather than hidden):
-// cancellation removes removable singularities — x/x normalises to 1, which
-// differs from the original at x = 0. Equality and simplification are of the
-// rational functions, not of the pointwise partial functions.
+// KNOWN VALUE CAVEATS (standard CAS behaviour, stated rather than hidden).
+// Both are cases where the canonical form has a WIDER DOMAIN than the input:
+//
+//   * cancellation removes removable singularities — x/x normalises to 1,
+//     which differs from the original at x = 0;
+//   * the sqrt rule takes the principal branch, so sqrt(x)^2 normalises to x,
+//     which is finite at x = −4 where the original is NaN. (This is what lets
+//     a quadratic solution verify to exactly 0 on substitution, so it is
+//     deliberate rather than incidental.)
+//
+// Equality and simplification are therefore of the RATIONAL FUNCTIONS, not of
+// the pointwise partial functions. Callers that integrate or evaluate over an
+// interval must check the ORIGINAL expression's domain — solve.ts's integrate()
+// does exactly that, because otherwise ∫sqrt(x)² over [−1,1] comes back as a
+// confident "exact 0" for an integral that does not exist.
 //
 // Cancellation implemented: rational-coefficient content, common monomial
 // factors (covers x/x, x²y/xy), and full polynomial GCD when numerator and

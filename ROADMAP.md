@@ -1,6 +1,6 @@
 # JurisLab — Product Roadmap
 
-_Last updated: 2026-07-26 · Current release: **v2.8.1** (production)_
+_Last updated: 2026-07-26 · Current release: **v2.8.2** (production)_
 
 > The release number above is gated by `phase6.adversarial.test.ts` against
 > `package.json`. If they disagree, the suite fails — this file drifted five
@@ -400,6 +400,38 @@ Both modules now carry permanent adversarial suites
 (`geometry.adversarial.test.ts`, `homology.adversarial.test.ts`), and the lesson is the
 process one: a full green suite is not an adversarial pass, and shipping without the second
 half is how an unsound reduction reached production behind 25 passing oracle tests.
+
+**v2.8.2 — the adversarial pass on the CAS releases (v2.5.0/v2.6.0).**
+Same sweep as v2.8.1, now applied to the CAS. The two structures that looked most likely to
+be unsound outside their tested regime — Euclidean GCD over the rationals (the classic
+coefficient-explosion algorithm) and the atom-key scheme (a non-injective key would merge
+distinct atoms and make equality return WRONG answers) — both held up: no blowup, zero key
+collisions, zero false positives in equality, no stack overflow at nesting depth 800, and 880
+random-point antiderivative checks plus 246 random-parameter rearrangement back-substitutions
+all clean. The defects were elsewhere, and the worse one was not in the CAS at all.
+
+- **NUMERIC QUADRATURE COULD HANG THE PANE — the worst bug of either sweep.**
+  `adaptiveSimpson`'s convergence test is `|left + right − whole| < 15·tol`, and ANY
+  comparison against NaN is false. So a single non-finite sample defeated the short-circuit
+  and drove the full binary recursion to depth 50: roughly 2^51 evaluations.
+  `integrate("ln(x)", -1, 2)` reached it by way of the symbolic path returning NaN at an
+  endpoint and falling through to quadrature. In the pane that is an unrecoverable freeze —
+  a synchronous loop cannot be interrupted, and the test runner's own timeout could not stop
+  it either (the process burned 605 CPU-seconds before being killed by hand). Non-finite
+  samples now abort immediately: ∞ → 3ms.
+- **CANONICALISATION CAN WIDEN A DOMAIN.** `sqrt(x)^2` normalises to `x`, which is finite at
+  x = −4 where the original is NaN — deliberate, since it is what lets a quadratic solution
+  verify to exactly 0, but undisclosed. `∫sqrt(x)²` over [−1,1] therefore came back as
+  "0, exact (symbolic)" with NO caveat, for an integral that does not exist. Fixed generally
+  rather than by special-casing sqrt: the ORIGINAL integrand is now scanned across the
+  interval, which also catches logs of non-positive numbers and division poles. The valid
+  [0,2] range over the same integrand stays warning-free.
+- An undefined integrand now reports **no value** and the method `"undefined on this
+  interval"`, instead of handing back a NaN dressed as a result; the pane prints that in
+  words rather than the literal "NaN".
+- The domain-widening caveat is now documented in `cas.ts` alongside the existing x/x one.
+
+`cas.adversarial.test.ts` pins all of it, with deliberately tight time bounds on the hang.
 
 **Genuinely open candidates:** deeper BVP/PDE/DAE
 support on the ODE side (out of scope today — state honestly). Confirm priority before building.

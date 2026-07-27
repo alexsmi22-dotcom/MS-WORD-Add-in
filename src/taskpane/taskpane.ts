@@ -7680,7 +7680,11 @@ function updateSolve(): void {
       solveResult.appendChild(msEyebrow("Definite integral"));
       const lo = solveA.value.trim() || "0";
       const hi = solveB.value.trim() || "1";
-      const val = `∫ (${text}) d${r.variable}, from ${lo} to ${hi} = ${r.value.toPrecision(8).replace(/\.?0+$/, "")}`;
+      // An integrand undefined inside the interval has NO value — say that,
+      // rather than printing "NaN" as though it were a number.
+      const val = Number.isFinite(r.value)
+        ? `∫ (${text}) d${r.variable}, from ${lo} to ${hi} = ${r.value.toPrecision(8).replace(/\.?0+$/, "")}`
+        : `∫ (${text}) d${r.variable}, from ${lo} to ${hi} — no value: the integrand is undefined somewhere in this interval.`;
       solveResult.appendChild(solveLine(val, "ms-masses"));
       say("Definite integral:", "heading");
       // A real ∫ with its limits, typeset — the notation is the whole point.

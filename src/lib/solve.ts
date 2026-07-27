@@ -967,6 +967,35 @@ function symbolicAntideriv(e: Expr, x: string): Expr | null {
   }
 }
 
+/**
+ * First sampled point in [a, b] where `e` is undefined (non-finite or throwing),
+ * or null if it is finite everywhere sampled.
+ *
+ * This exists because SIMPLIFICATION CAN WIDEN A DOMAIN: the canonical form of
+ * sqrt(x)^2 is x, which is perfectly finite at x = −4 where the original is
+ * not. Reporting a value for an integral that does not exist — and calling it
+ * exact — is precisely the confidently-wrong output this product keeps
+ * designing out, so the ORIGINAL integrand is what gets checked.
+ *
+ * Sampling is a heuristic: it cannot prove a function is defined everywhere,
+ * only find a witness that it is not. A missed narrow gap therefore leaves the
+ * old behaviour, never a new false warning.
+ */
+function undefinedPointIn(e: Expr, x: string, a: number, b: number, steps = 129): number | null {
+  const lo = Math.min(a, b), hi = Math.max(a, b);
+  for (let i = 0; i <= steps; i++) {
+    const t = lo + ((hi - lo) * i) / steps;
+    let v: number;
+    try {
+      v = evalAst(e, { [x]: t });
+    } catch {
+      return t;
+    }
+    if (!Number.isFinite(v)) return t;
+  }
+  return null;
+}
+
 /** Adaptive Simpson quadrature of f over [a, b]. */
 function adaptiveSimpson(f: (x: number) => number, a: number, b: number, tol = 1e-10, depth = 50): number {
   const simpson = (lo: number, hi: number, flo: number, fmid: number, fhi: number) =>
@@ -975,6 +1004,16 @@ function adaptiveSimpson(f: (x: number) => number, a: number, b: number, tol = 1
     const mid = (lo + hi) / 2;
     const lmid = (lo + mid) / 2, rmid = (mid + hi) / 2;
     const flm = f(lmid), frm = f(rmid);
+    // NON-FINITE SAMPLES MUST ABORT, NOT SUBDIVIDE.
+    //
+    // The convergence test below is `|left + right − whole| < 15·tol`, and any
+    // comparison against NaN is FALSE — so a single NaN sample defeated the
+    // short-circuit and drove the full binary recursion to depth 50, roughly
+    // 2^51 evaluations. `integrate("ln(x)", -1, 2)` reached this by way of the
+    // symbolic path returning NaN at an endpoint and falling through, and it
+    // froze the pane unrecoverably: a synchronous loop cannot be interrupted,
+    // so even the test runner's own timeout could not stop it.
+    if (!Number.isFinite(flm) || !Number.isFinite(frm)) return NaN;
     const left = simpson(lo, mid, flo, flm, fmid);
     const right = simpson(mid, hi, fmid, frm, fhi);
     if (d <= 0 || Math.abs(left + right - whole) < 15 * tol) return left + right + (left + right - whole) / 15;
@@ -982,6 +1021,7 @@ function adaptiveSimpson(f: (x: number) => number, a: number, b: number, tol = 1
   }
   const mid = (a + b) / 2;
   const fa = f(a), fm = f(mid), fb = f(b);
+  if (!Number.isFinite(fa) || !Number.isFinite(fm) || !Number.isFinite(fb)) return NaN;
   return rec(a, b, fa, fm, fb, simpson(a, b, fa, fm, fb), depth);
 }
 
@@ -1012,8 +1052,22 @@ export function integrate(input: string, a: number, b: number, variable?: string
       if (Number.isFinite(value)) {
         const caveats: string[] = [];
         const fs = format(Fs);
-        if (/\bln\b/.test(fs) && a * b < 0)
+        // CANONICALISATION CAN WIDEN A DOMAIN. sqrt(x)^2 normalises to x, which
+        // is defined for negative x where the original is not — so ∫sqrt(x)² over
+        // [−1,1] would otherwise come back as a confident "exact 0" for an
+        // integral that does not exist. Scan the ORIGINAL integrand across the
+        // interval before calling any of this exact. Catches ln and division
+        // poles for free, so it subsumes the old ln-only special case.
+        const gap = undefinedPointIn(e, x, a, b);
+        if (gap !== null) {
+          caveats.push(
+            `The integrand is UNDEFINED at ${x} ≈ ${fmtNum(gap)}, inside the interval — for example a square root ` +
+            `of a negative number, a log of a non-positive number, or a division by zero. This is only the formal ` +
+            `value of the antiderivative at the endpoints; the integral itself may not exist. Verify the domain first.`
+          );
+        } else if (/\bln\b/.test(fs) && a * b < 0) {
           caveats.push("The antiderivative has a singularity at 0, which lies inside the interval — this is the formal value; the integral may be improper.");
+        }
         return { variable: x, value, method: "exact (symbolic)", antiderivative: fs, caveats };
       }
     } catch {
@@ -1023,6 +1077,21 @@ export function integrate(input: string, a: number, b: number, variable?: string
 
   const f = (xv: number) => evalAst(e, { [x]: xv });
   const value = adaptiveSimpson(f, a, b);
+  if (!Number.isFinite(value)) {
+    // The integrand is undefined somewhere in the interval. Say so, rather than
+    // handing back a NaN dressed as a result.
+    const gap = undefinedPointIn(e, x, a, b);
+    return {
+      variable: x,
+      value: NaN,
+      method: "undefined on this interval",
+      caveats: [
+        `The integrand is undefined${gap === null ? "" : ` at ${x} ≈ ${fmtNum(gap)}`} inside [${fmtNum(a)}, ${fmtNum(b)}] ` +
+        `— for example a square root of a negative number, a log of a non-positive number, or a division by zero. ` +
+        `No value is reported, because there is none to report over this interval.`,
+      ],
+    };
+  }
   const caveats = [
     "Numeric definite integral (adaptive Simpson) — an approximation, because no closed-form antiderivative rule applied here.",
     "A singularity or discontinuity of the integrand inside the interval can make the result unreliable.",

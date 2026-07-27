@@ -116,3 +116,48 @@ describe("hostile and degenerate input never throws", () => {
     }
   });
 });
+
+describe("typed fractions must survive the parser exactly", () => {
+  // Found in the Tier-3/4 sweep: numOf() divided as a FLOAT, so a coordinate
+  // or dimension typed as 1/3 arrived as 0.3333333333333333 and the exact
+  // layer then faithfully preserved that noise. Same class as the v2.8.1
+  // circle-r=0.1 defect, one layer earlier — at the parse boundary rather
+  // than in the arithmetic. Coordinates AND positional/named dimensions are
+  // all affected, so all three paths are pinned.
+  const val = (s: string, label: string) =>
+    solveGeometry(s)!.values.find((v) => v.label === label);
+
+  it("fractional COORDINATES stay exact", () => {
+    expect(val("(1/2,1/3) (1/4,1/5)", "distance")!.exact).toBe("17/60");
+    expect(val("triangle (0,0) (1/2,0) (0,1/3)", "area")!.exact).toBe("1/12");
+  });
+  it("fractional NAMED dimensions stay exact", () => {
+    expect(val("circle r=1/3", "area")!.exact).toBe("1/9*pi");
+    expect(val("sphere r=1/2", "volume")!.exact).toBe("1/6*pi");
+    expect(val("cylinder r=1/3 h=3", "volume")!.exact).toBe("1/3*pi");
+    expect(val("square a=1/4", "area")!.exact).toBe("1/16");
+  });
+  it("fractional POSITIONAL dimensions stay exact", () => {
+    expect(val("box 1/2 1/3 1/4", "volume")!.exact).toBe("1/24");
+    expect(val("rectangle 1/2 2/3", "area")!.exact).toBe("1/3");
+    expect(val("circle 1/3", "area")!.exact).toBe("1/9*pi");
+  });
+  it("no exact form anywhere grows a runaway integer", () => {
+    const INPUTS = [
+      "circle r=1/3", "sphere r=1/7", "box 1/2 1/3 1/4", "cone r=1/3 h=1/7",
+      "(1/2,1/3) (1/4,1/5)", "(1/2,1/3,1/4) (1/5,1/6,1/7)",
+      "triangle (0,0) (1/3,0) (0,1/7)",
+    ];
+    for (const s of INPUTS) {
+      const r = solveGeometry(s);
+      if (!r) continue;
+      for (const v of r.values) {
+        if (v.exact) expect(`${s} ${v.label}=${v.exact}`).not.toMatch(/[0-9]{15,}/);
+      }
+    }
+  });
+  it("whole numbers are unaffected", () => {
+    expect(val("circle r=3", "area")!.exact).toBe("9*pi");
+    expect(val("box 1 2 3", "volume")!.exact).toBe("6");
+  });
+});

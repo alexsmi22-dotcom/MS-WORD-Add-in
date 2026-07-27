@@ -1,6 +1,6 @@
 # JurisLab — Product Roadmap
 
-_Last updated: 2026-07-26 · Current release: **v2.8.2** (production)_
+_Last updated: 2026-07-26 · Current release: **v2.9.0** (production)_
 
 > The release number above is gated by `phase6.adversarial.test.ts` against
 > `package.json`. If they disagree, the suite fails — this file drifted five
@@ -432,6 +432,32 @@ all clean. The defects were elsewhere, and the worse one was not in the CAS at a
 - The domain-widening caveat is now documented in `cas.ts` alongside the existing x/x one.
 
 `cas.adversarial.test.ts` pins all of it, with deliberately tight time bounds on the hang.
+
+**v2.9.0 — geometry Tiers 3–4: vectors, planes and solids (Release G2).**
+`src/lib/geometry3d.ts`, same exactness discipline as the plane module: for rational input the
+dot product, cross product, scalar triple product, plane coefficients, tetrahedron volume and
+transformation determinant are all themselves rational and come back exact; lengths keep their
+surds; angles are transcendental and stay numeric.
+The case the module exists for is **classifying two lines**. The skew-distance formula divides
+by |d₁ × d₂|, which vanishes EXACTLY when the directions are parallel — so parallel has to be
+split off first rather than discovered as a division by zero, and identical/parallel/
+intersecting/skew are four genuinely different answers. Because the cross product is exact the
+test needs no tolerance: a pair off by 1e-9 is correctly skew, and a pair that is exactly
+coplanar is correctly reported as intersecting with the meeting point given.
+Also: planes from three points (collinear input refused), point–plane distance, line–plane
+intersection (meets / parallel / contained), triangle area in space, tetrahedron and
+parallelepiped volumes, the sphere through four points (coplanar input refused — no unique
+sphere exists), and Tier-4 transformation matrices reporting their volume scale, whether they
+flip orientation, and whether they are singular.
+
+**The adversarial pass ran BEFORE shipping this time**, per the rule, and found a real defect
+that the v2.7.0 sweep had missed because it never tested fractional input: the parser's
+`numOf()` divided as a FLOAT, so a coordinate or dimension typed `1/3` arrived as
+0.3333333333333333 and the exact layer then faithfully preserved that noise — `circle r=1/3`
+reported its area as a 33-digit fraction. Same class as the v2.8.1 `circle r=0.1` bug but one
+layer earlier, at the parse boundary rather than in the arithmetic, and it affected all three
+input paths (coordinates, named dimensions, positional dimensions). All now parse straight
+into the rational layer: `box 1/2 1/3 1/4` gives volume 1/24 exactly.
 
 **Genuinely open candidates:** deeper BVP/PDE/DAE
 support on the ODE side (out of scope today — state honestly). Confirm priority before building.

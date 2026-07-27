@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.8.2)
+# JurisLab — Manual Test Script (v2.9.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -290,6 +290,17 @@ cache and reopen:
   - `x^2/9 + y^2/4 = 1` -> **ellipse**, a = 3, b = 2, eccentricity ~ 0.745, foci listed.
   - `x^2 + y^2 = 0` -> reported as a **point** and flagged DEGENERATE, not as a circle.
   - `x*y = 1` -> **hyperbola**, with a 45 deg rotation reported.
+- [ ] **3D geometry (v2.9.0).** Still in the **Geometry** kind — triples switch it to 3D.
+  - `vector (1,0,0) (0,1,0)` -> dot 0, cross (0,0,1), angle 90 deg, and the working says
+    PERPENDICULAR.
+  - `lines (0,0,0) (1,0,0) (0,0,1) (1,1,2)` -> **skew**, distance `sqrt(2)/2`.
+  - `lines (0,0,0) (1,0,0) (2,-1,0) (2,1,0)` -> **intersecting** at (2,0,0), not skew.
+  - `lines (0,0,0) (1,0,0) (0,3,0) (1,3,0)` -> **parallel**, distance 3.
+  - `(0,0,0) (1,0,0) (0,1,0) (0,0,1)` -> tetrahedron volume **1/6** plus the sphere centre.
+  - `(0,0,0) (1,0,0) (0,1,0) (1,1,0)` -> refused as **COPLANAR**: no volume, no unique sphere.
+  - `(0,0,0) (1,1,1) (2,2,2)` -> refused as **COLLINEAR**: no plane.
+  - `circle r=1/3` -> area **1/9*pi** exactly, and `box 1/2 1/3 1/4` -> volume **1/24**.
+    (Typed fractions must stay exact — no long decimals or giant fractions anywhere.)
 - [ ] **Topology / homology (v2.8.0).** Switch the dropdown to **Topology (homology)**.
   - `torus` -> H_0 = Z, H_1 = Z^2, H_2 = Z; Betti 1, 2, 1; chi = 0.
   - `sphere` -> H_0 = Z, H_1 = 0, H_2 = Z; chi = 2.

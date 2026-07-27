@@ -7540,7 +7540,10 @@ function updateSolveUi(): void {
       "Triangles: triangle 3 4 5 (SSS) · triangle b=4 c=3 A=90 (SAS) · triangle A=30 B=60 c=10 (ASA) · " +
       "triangle a=6 b=8 A=30 (SSA — may give TWO answers). Points: triangle (0,0) (4,0) (0,3) · " +
       "polygon (0,0) (4,0) (4,4) (0,4) · distance (0,0) (3,4) · line (0,0) (2,4) · circle (1,0) (0,1) (-1,0). " +
-      "Or just type a conic: x^2/9 + y^2/4 = 1.",
+      "Or just type a conic: x^2/9 + y^2/4 = 1. " +
+      "3D uses coordinate TRIPLES: vector (1,0,0) (0,1,0) · lines (0,0,0) (1,0,0) (0,0,1) (1,1,2) " +
+      "(identical / parallel / intersecting / skew, with the distance) · (0,0,0) (1,0,0) (0,1,0) (0,0,1) " +
+      "for a tetrahedron volume and its circumscribed sphere.",
     topology:
       "Integral homology of a simplicial complex — computed over ℤ, so TORSION is kept " +
       "(a field would silently discard it). Named spaces: torus · Klein bottle · sphere · " +

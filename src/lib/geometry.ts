@@ -683,6 +683,13 @@ export interface ShapeSpec {
   shape: string;
   /** Named dimensions, e.g. { r: 5 } or { a: 3, b: 4, h: 2 }. */
   dims: Record<string, number>;
+  /**
+   * EXACT forms of the same dimensions, when the caller parsed a typed
+   * fraction. Without this, `circle r=1/3` arrives as the double
+   * 0.3333333333333333 and its area comes back as a 33-digit fraction — the
+   * exact layer faithfully preserving noise the parser introduced.
+   */
+  exact?: Record<string, Rat>;
 }
 
 /** Area/perimeter/volume for the standard shapes. Exact forms carry π. */
@@ -693,7 +700,10 @@ export function shapeMetrics(spec: ShapeSpec): GeoResult | null {
   // EXACT arithmetic on the inputs, never on their float product: 0.1*0.1 is
   // 0.010000000000000002 as a double, and converting THAT faithfully gives
   // 5000000000000001/500000000000000000 rather than 1/100. Multiply as rationals.
-  const R = (n: number): Rat => ratFromNumber(n);
+  // Prefer the caller's exact form for a dimension over the double it became.
+  const EXACT = new Map<number, Rat>();
+  if (spec.exact) for (const k of Object.keys(spec.exact)) EXACT.set(d[k], spec.exact[k]);
+  const R = (n: number): Rat => EXACT.get(n) ?? ratFromNumber(n);
   const rmul = (...ns: number[]): Rat => ns.map(R).reduce(ratMul, ratInt(1));
   const rExact = (n: number): string => fmtRat(R(n));
   const rExactMul = (...ns: number[]): string => fmtRat(rmul(...ns));

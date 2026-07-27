@@ -12,8 +12,14 @@
 
 import { parseExpr, Expr } from "./solve";
 import {
-  Rat, ratAdd, ratMul, ratNeg, ratInt, ratFromNumber, ratIsZero, RAT_ZERO,
+  Rat, ratAdd, ratMul, ratNeg, ratInt, ratDiv, ratFromNumber, ratIsZero, RAT_ZERO,
 } from "./cas";
+import {
+  v3, Vec3, vSub, dot, cross, norm, normSquared, angleBetween, project, isZeroVec,
+  planeFrom3, pointPlaneDistance, anglePlanes, fmtPlane, lineFrom2, classifyLines,
+  linePlaneIntersect, tetrahedronVolume, parallelepipedVolume, triangleArea3,
+  sphereFrom4, fmtVec, vectorReport,
+} from "./geometry3d";
 import {
   pt, Pt, GeoResult, GeoValue, distance, midpoint, lineThrough, lineIntersect,
   pointLineDistance, polygonArea, polygonCentroid, isConvex, convexHull,
@@ -146,7 +152,7 @@ function parsePoints(s: string): Pt[] {
   const out: Pt[] = [];
   const re = /\(\s*(-?\d+(?:\.\d+)?(?:\/\d+)?)\s*,\s*(-?\d+(?:\.\d+)?(?:\/\d+)?)\s*\)/g;
   let m: RegExpExecArray | null;
-  while ((m = re.exec(s))) out.push(pt(numOf(m[1]), numOf(m[2])));
+  while ((m = re.exec(s))) out.push(pt(ratOf(m[1]), ratOf(m[2])));
   return out;
 }
 
@@ -158,6 +164,26 @@ function numOf(t: string): number {
   return Number(t);
 }
 
+/**
+ * A typed coordinate as an EXACT rational.
+ *
+ * numOf() divides as a float, so "1/3" arrived as 0.3333333333333333 and the
+ * exact layer then faithfully preserved that noise — a point typed (1/2,1/3)
+ * reported its coordinate as 3333333333333333/10000000000000000. Coordinates
+ * are the one place where the user's own fraction must survive intact, so they
+ * are parsed straight into the rational layer instead of via a double.
+ */
+function ratOf(t: string): Rat {
+  if (t.includes("/")) {
+    const [a, b] = t.split("/");
+    const num = ratFromNumber(Number(a));
+    const den = ratFromNumber(Number(b));
+    if (!ratIsZero(den)) return ratDiv(num, den);
+  }
+  return ratFromNumber(Number(t));
+}
+
+
 /** Named values: "r=5 h=2 A=30" → { r: 5, h: 2, A: 30 }. Case-sensitive. */
 function parseNamed(s: string): Record<string, number> {
   const out: Record<string, number> = {};
@@ -167,12 +193,29 @@ function parseNamed(s: string): Record<string, number> {
   return out;
 }
 
+/** The same named values, kept EXACT for callers that can use them. */
+function parseNamedExact(s: string): Record<string, Rat> {
+  const out: Record<string, Rat> = {};
+  const re = /\b([A-Za-z]\w*)\s*=\s*(-?\d+(?:\.\d+)?(?:\/\d+)?)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(s))) out[m[1]] = ratOf(m[2]);
+  return out;
+}
+
 /** Bare numbers not part of a name=value pair or a coordinate. */
 function bareNumbers(s: string): number[] {
   const stripped = s
     .replace(/\([^)]*\)/g, " ")
     .replace(/\b[A-Za-z]\w*\s*=\s*-?\d+(?:\.\d+)?(?:\/\d+)?/g, " ");
   return (stripped.match(/-?\d+(?:\.\d+)?(?:\/\d+)?/g) || []).map(numOf);
+}
+
+/** The same positional numbers, kept EXACT (see ratOf). */
+function bareRats(s: string): Rat[] {
+  const stripped = s
+    .replace(/\([^)]*\)/g, " ")
+    .replace(/\b[A-Za-z]\w*\s*=\s*-?\d+(?:\.\d+)?(?:\/\d+)?/g, " ");
+  return (stripped.match(/-?\d+(?:\.\d+)?(?:\/\d+)?/g) || []).map(ratOf);
 }
 
 const fmtPt = (p: Pt): string => `(${fmtRat(p.x)}, ${fmtRat(p.y)})`;
@@ -190,6 +233,11 @@ export function solveGeometry(input: string): GeoResult | null {
   const raw = input.trim();
   if (!raw) return null;
   const lower = raw.toLowerCase();
+
+  // 3D comes FIRST, because a triple like (1,2,3) is unambiguous: the 2D
+  // grammar only ever produces pairs, so there is no reading to lose.
+  const solid = solveGeometry3D(raw, lower);
+  if (solid) return solid;
 
   // 1. A bare equation in x and y → conic classification. Checked FIRST because
   //    it needs no keyword, and it is the highest-value single answer here.
@@ -257,13 +305,14 @@ export function solveGeometry(input: string): GeoResult | null {
     if (pts.length >= 3) return polygonRequest(kw, pts);
     // "polygon n=6 a=2" is the regular polygon instead.
     if (named.n && named.a) {
-      return shapeMetrics({ shape: "regular-polygon", dims: { n: named.n, a: named.a } });
+      return shapeMetrics({ shape: "regular-polygon", dims: { n: named.n, a: named.a }, exact: parseNamedExact(raw) });
     }
     return null;
   }
 
   if (kw === "circle" && (named.r || bare.length === 1) && pts.length === 0) {
-    return shapeMetrics({ shape: "circle", dims: { r: named.r ?? bare[0] } });
+    return shapeMetrics({ shape: "circle", dims: { r: named.r ?? bare[0] },
+      exact: { r: parseNamedExact(raw).r ?? bareRats(raw)[0] } });
   }
   if (kw === "circle" && pts.length >= 3) {
     const c = circleFrom3Points(pts[0], pts[1], pts[2]);
@@ -294,7 +343,12 @@ export function solveGeometry(input: string): GeoResult | null {
     const keys = SHAPES[kw];
     const dims: Record<string, number> = {};
     keys.forEach((k, i) => { dims[k] = named[k] ?? bare[i]; });
-    const res = shapeMetrics({ shape: kw, dims });
+    // Exactness must survive the positional form too: `box 1/2 1/3 1/4` has no
+    // name=value pairs at all, so the fractions live only in the bare list.
+    const exact: Record<string, Rat> = parseNamedExact(raw);
+    const bareEx = bareRats(raw);
+    keys.forEach((k, i) => { if (exact[k] === undefined && bareEx[i] !== undefined) exact[k] = bareEx[i]; });
+    const res = shapeMetrics({ shape: kw, dims, exact });
     if (res) return res;
     return null;
   }
@@ -459,4 +513,144 @@ function tryConic(raw: string): GeoResult | null {
     values, steps, caveats: r.caveats,
     degenerate: r.degenerate ? `This is a degenerate conic: ${r.canonical}.` : undefined,
   };
+}
+
+// ---------------------------------------------------------------------------
+// 3D — Tiers 3–4.
+// ---------------------------------------------------------------------------
+
+/** Pulls "(1,2,3)" triples out of a string. Pairs are left for the 2D grammar. */
+function parseTriples(s: string): Vec3[] {
+  const out: Vec3[] = [];
+  const num = String.raw`-?\d+(?:\.\d+)?(?:\/\d+)?`;
+  const re = new RegExp(String.raw`\(\s*(${num})\s*,\s*(${num})\s*,\s*(${num})\s*\)`, "g");
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(s))) out.push(v3(ratOf(m[1]), ratOf(m[2]), ratOf(m[3])));
+  return out;
+}
+
+const V3 = (label: string, value: number, exact?: string): GeoValue => ({ label, value, exact });
+const rnum = (r: { n: bigint; d: bigint }): number => evalFrac(fmtRat(r));
+
+/**
+ * 3D geometry from typed input. Returns null when the string contains no
+ * coordinate triples, so the 2D grammar gets its turn.
+ */
+export function solveGeometry3D(raw: string, lower: string): GeoResult | null {
+  const P = parseTriples(raw);
+  if (P.length === 0) return null;
+  const kw = (lower.match(/^[a-z-]+/) || [""])[0];
+
+  // Explicit vector operations on two triples.
+  if ((kw === "vector" || kw === "vectors" || kw === "dot" || kw === "cross" || kw === "angle") && P.length >= 2) {
+    return vectorReport(P[0], P[1]);
+  }
+
+  // A line and a plane needs FIVE points, so it is matched before the
+  // two-line case below — otherwise `P.length >= 4` swallows it and reports a
+  // pair of lines, one of which was meant to be the plane.
+  if (kw === "line" && P.length === 5) {
+    const l = lineFrom2(P[0], P[1]);
+    const pl = planeFrom3(P[2], P[3], P[4]);
+    if (!l || !pl) {
+      return { title: "Line and plane", values: [], steps: [], caveats: [],
+        degenerate: !l ? "The two line points coincide, so they define no line."
+          : "The three plane points are COLLINEAR, so they define no plane." };
+    }
+    const r = linePlaneIntersect(l, pl);
+    const steps = [`Line through ${fmtVec(P[0])} and ${fmtVec(P[1])}.`, `Plane: ${fmtPlane(pl)}.`];
+    if (r.kind === "point") steps.push(`The line meets the plane at ${fmtVec(r.at)}.`);
+    else if (r.kind === "parallel") steps.push("The line is PARALLEL to the plane and never meets it.");
+    else steps.push("The line lies ENTIRELY IN the plane, so every point of it is an intersection.");
+    return { title: `Line and plane — ${r.kind}`, values: [], steps, caveats: [] };
+  }
+
+  // Two lines, each from a pair of points: classify and measure.
+  if ((kw === "line" || kw === "lines" || kw === "skew") && P.length >= 4) {
+    const l1 = lineFrom2(P[0], P[1]), l2 = lineFrom2(P[2], P[3]);
+    if (!l1 || !l2) {
+      return { title: "Two lines in space", values: [], steps: [], caveats: [],
+        degenerate: "A line needs two DISTINCT points; one of these pairs coincides." };
+    }
+    const r = classifyLines(l1, l2);
+    const steps = [`Line 1 through ${fmtVec(P[0])} and ${fmtVec(P[1])}; line 2 through ${fmtVec(P[2])} and ${fmtVec(P[3])}.`];
+    const values: GeoValue[] = [];
+    switch (r.kind) {
+      case "identical":
+        steps.push("These are the SAME line — every point is shared.");
+        break;
+      case "parallel":
+        steps.push("The directions are parallel, so the lines never meet.");
+        values.push({ ...r.distance, label: "distance between them" });
+        break;
+      case "intersecting":
+        steps.push(`The lines INTERSECT at ${fmtVec(r.at)}.`);
+        values.push(V3("distance between them", 0, "0"));
+        break;
+      case "skew":
+        steps.push("The lines are SKEW — not parallel, and they never meet. This is the case the distance formula exists for.");
+        values.push({ ...r.distance, label: "distance between them" });
+        break;
+    }
+    return { title: `Two lines in space — ${r.kind}`, values, steps, caveats: [] };
+  }
+
+  switch (P.length) {
+    case 1: {
+      const n = norm(P[0]);
+      return {
+        title: `Vector ${fmtVec(P[0])}`,
+        values: [{ ...n, label: "magnitude" }],
+        steps: [`|v|² = ${fmtRat(normSquared(P[0]))}.`],
+        caveats: [],
+      };
+    }
+    case 2: {
+      // Two points: distance and the vector between, plus the vector readout.
+      const d = vSub(P[1], P[0]);
+      const dn = norm(d);
+      const rep = vectorReport(P[0], P[1]);
+      rep.title = `Two points ${fmtVec(P[0])}, ${fmtVec(P[1])}`;
+      rep.values.unshift({ ...dn, label: "distance between the points" });
+      rep.steps.unshift(`Displacement ${fmtVec(P[0])} → ${fmtVec(P[1])} is ${fmtVec(d)}.`);
+      return rep;
+    }
+    case 3: {
+      const pl = planeFrom3(P[0], P[1], P[2]);
+      if (!pl) {
+        return { title: "Three points in space", values: [], steps: [], caveats: [],
+          degenerate: "These three points are COLLINEAR — they define no plane, and the triangle they would form has zero area." };
+      }
+      const area = triangleArea3(P[0], P[1], P[2]);
+      const values: GeoValue[] = [{ ...area, label: "triangle area" }];
+      const steps = [
+        `Plane through the three points: ${fmtPlane(pl)}.`,
+        `Normal ${fmtVec(pl.n)}.`,
+      ];
+      const sides = [norm(vSub(P[1], P[0])), norm(vSub(P[2], P[1])), norm(vSub(P[0], P[2]))];
+      sides.forEach((s, i) => values.push({ ...s, label: `side ${i + 1}` }));
+      return { title: "Three points in space (a plane and a triangle)", values, steps, caveats: [] };
+    }
+    default: {
+      // Four or more: tetrahedron volume and the circumscribed sphere.
+      const vol = tetrahedronVolume(P[0], P[1], P[2], P[3]);
+      const values: GeoValue[] = [V3("tetrahedron volume", rnum(vol), fmtRat(vol))];
+      const steps: string[] = [];
+      const caveats: string[] = [];
+      if (ratIsZero(vol)) {
+        caveats.push("These four points are COPLANAR: they bound no volume, and no unique sphere passes through them.");
+        steps.push("Volume is exactly zero, computed from the scalar triple product.");
+        return { title: "Four points in space", values, steps, caveats, degenerate: "The four points are coplanar." };
+      }
+      steps.push("Volume = |(b−a) · ((c−a) × (d−a))| / 6, exactly.");
+      const sph = sphereFrom4(P[0], P[1], P[2], P[3]);
+      if (sph) {
+        values.push(V3("sphere centre", NaN, fmtVec(sph.centre)));
+        const r = fmtSqrtRat(sph.r2);
+        values.push(V3("sphere radius", Math.sqrt(rnum(sph.r2)), r ?? undefined));
+        steps.push(`The unique sphere through all four points is centred at ${fmtVec(sph.centre)}.`);
+      }
+      return { title: `Four points in space (tetrahedron)`, values, steps, caveats };
+    }
+  }
 }

@@ -1,6 +1,6 @@
 # JurisLab — Product Roadmap
 
-_Last updated: 2026-07-26 · Current release: **v2.9.0** (production)_
+_Last updated: 2026-07-26 · Current release: **v2.10.0** (production)_
 
 > The release number above is gated by `phase6.adversarial.test.ts` against
 > `package.json`. If they disagree, the suite fails — this file drifted five
@@ -458,6 +458,33 @@ reported its area as a 33-digit fraction. Same class as the v2.8.1 `circle r=0.1
 layer earlier, at the parse boundary rather than in the arithmetic, and it affected all three
 input paths (coordinates, named dimensions, positional dimensions). All now parse straight
 into the rational layer: `box 1/2 1/3 1/4` gives volume 1/24 exactly.
+
+**v2.10.0 — persistent homology (Release T2).**
+`src/lib/persistence.ts`. This is the entry in the topology plan that earns its place for a
+working scientist, because the input is a PASTED TABLE OF POINTS — the same gesture as Stats
+and Analyze — and the output answers something no summary statistic can: does this data have a
+HOLE in it? A ring of measurements and a filled blob have the same mean, the same spread and
+similar correlations; they differ in H₁, and a barcode is what shows it.
+Vietoris–Rips filtration, boundary matrix reduced over 𝔽₂, persistence pairs, and a barcode
+figure that inserts into the document. Reached by pasting the cloud into the Topology kind —
+several rows of equal-length coordinates is unambiguous, since a complex is typed as bracketed
+vertex lists and a space is a single word.
+
+The property test is the whole claim and is what the suite asserts: a ring shows exactly one
+long H₁ bar, dominating the runner-up fivefold, and a blob shows nothing comparable.
+
+**The adversarial pass ran before shipping** and found three things worth the trouble:
+- A DESIGN error caught by the property test failing first time: a class in H_k is killed by a
+  (k+1)-simplex, so the complex must be built ONE DIMENSION HIGHER than the homology asked for.
+  Built only to H₁ and every loop is necessarily immortal — the barcode came back empty.
+- The essential-class scan rebuilt its key list every iteration, O(n²), which would have crawled
+  at the 60,000-simplex cap. `pairedBy` is keyed by the low row, so it is a direct has().
+- An HONESTY defect: when the cap bites BELOW the killing dimension the answer changes
+  qualitatively rather than losing detail — no triangles means every loop looks immortal. The
+  message said only that "bars near the largest scales may be missing". It now names exactly
+  which dimensions are unreliable and why ("H1, H2 are NOT RELIABLE here … features will appear
+  to live forever whether or not they really do"), and stays quiet when the killing dimension
+  really was completed.
 
 **Genuinely open candidates:** deeper BVP/PDE/DAE
 support on the ODE side (out of scope today — state honestly). Confirm priority before building.

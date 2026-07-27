@@ -16,6 +16,8 @@
 // result says so rather than reporting a number that looks fine. This is the
 // same discipline as the CAS differentiating its antiderivatives back.
 
+import { parsePointCloud } from "./persistence";
+
 /** A simplicial complex, given by its maximal faces (vertices are integers). */
 export interface Complex {
   name?: string;
@@ -394,17 +396,29 @@ export interface TopologyReport extends HomologyResult {
  * list of maximal simplices ("[0,1,2] [1,2,3]" / "0,1,2; 1,2,3"), and returns
  * its integral homology. Null when the input is neither.
  */
-export function solveTopology(input: string): TopologyReport | null {
+export type TopologyOutcome =
+  | ({ kind: "homology" } & TopologyReport)
+  | { kind: "persistence"; cloud: number[][] };
+
+export function solveTopology(input: string): TopologyOutcome | null {
   const raw = input.trim();
   if (!raw) return null;
   const lower = raw.toLowerCase().replace(/\s+/g, " ").trim();
+
+  // A pasted POINT CLOUD is persistent homology, not a simplicial complex.
+  // Two or more rows of equal-length coordinates is unambiguous: a complex is
+  // typed as bracketed vertex lists, and a space is a single word.
+  if (/[\n;]/.test(raw) && !raw.includes("[")) {
+    const cloud = parsePointCloud(raw);
+    if (cloud) return { kind: "persistence", cloud };
+  }
 
   // A named space.
   const named = ALIASES[lower] ?? (lower in BUILTIN ? lower : null);
   if (named && BUILTIN[named]) {
     const c = BUILTIN[named]();
     const h = homology(c);
-    return { ...h, title: `Homology of ${c.name ?? named}` };
+    return { kind: "homology", ...h, title: `Homology of ${c.name ?? named}` };
   }
 
   // An explicit complex: bracketed groups, or semicolon/newline-separated rows.
@@ -424,5 +438,5 @@ export function solveTopology(input: string): TopologyReport | null {
   if (!groups.length) return null;
 
   const h = homology({ maximal: groups });
-  return { ...h, title: `Homology of the complex you gave (${groups.length} maximal simplices)` };
+  return { kind: "homology", ...h, title: `Homology of the complex you gave (${groups.length} maximal simplices)` };
 }

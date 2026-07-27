@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.9.0)
+# JurisLab — Manual Test Script (v2.10.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -290,6 +290,15 @@ cache and reopen:
   - `x^2/9 + y^2/4 = 1` -> **ellipse**, a = 3, b = 2, eccentricity ~ 0.745, foci listed.
   - `x^2 + y^2 = 0` -> reported as a **point** and flagged DEGENERATE, not as a circle.
   - `x*y = 1` -> **hyperbola**, with a 45 deg rotation reported.
+- [ ] **Persistent homology (v2.10.0).** In the **Topology (homology)** kind, PASTE a point
+  cloud instead of a name — one point per line. A rough circle, e.g.:
+  `1 0` / `0.7 0.7` / `0 1` / `-0.7 0.7` / `-1 0` / `-0.7 -0.7` / `0 -1` / `0.7 -0.7`
+  - It must report a **most persistent H1 feature** with a clear lifetime, and draw a
+    **barcode** in the pane.
+  - Replace it with a random blob of 8 points: the long H1 bar must DISAPPEAR. That contrast
+    is the whole feature — if a blob shows the same bar as a ring, something is wrong.
+  - **Insert** it: the text lands AND the barcode arrives as a picture. Ctrl/Cmd+Z undoes.
+  - Paste ~150 points: it must still respond, and say plainly that a cap was hit.
 - [ ] **3D geometry (v2.9.0).** Still in the **Geometry** kind — triples switch it to 3D.
   - `vector (1,0,0) (0,1,0)` -> dot 0, cross (0,0,1), angle 90 deg, and the working says
     PERPENDICULAR.

@@ -1508,6 +1508,19 @@ a:focus-visible {
   font-weight: 600;
 }
 
+/* A generated figure inside a Solve result (the persistence barcode). Kept on
+   white paper in dark mode for the same reason as the structure preview: it is
+   inserted into the document as black-on-white line art. */
+.solve-figure {
+  margin: 10px 0 4px;
+  padding: 6px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow-x: auto;
+}
+.solve-figure svg { display: block; max-width: 100%; height: auto; }
+
 /* One line of shown work: prose, then the formula typeset by mathHtml. */
 .solve-work {
   display: flex;

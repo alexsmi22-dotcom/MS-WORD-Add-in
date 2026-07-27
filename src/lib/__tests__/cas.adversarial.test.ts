@@ -264,10 +264,14 @@ describe("integration does not hang on hostile input", () => {
     "1/((x^2+1)*(x^2+2)*(x^2+3))",
   ];
   for (const src of HOSTILE) {
-    it(`${src.slice(0, 38)} resolves or refuses quickly`, () => {
+    it(`${src.slice(0, 38)} terminates rather than hanging`, () => {
       const t0 = Date.now();
       expect(() => symbolicIntegrate(P(src), "x", derivative)).not.toThrow();
-      expect(Date.now() - t0).toBeLessThan(5000);
+      // The claim is TERMINATION, not speed. A 5s bound flaked at 6.7s under
+      // parallel suite load while taking 850ms in isolation, which tested the
+      // machine rather than the code. This is loose enough to stay meaningful
+      // and still catch the unbounded recursion it was written for.
+      expect(Date.now() - t0).toBeLessThan(20000);
     });
   }
 });

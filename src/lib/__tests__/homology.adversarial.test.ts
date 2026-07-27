@@ -115,16 +115,39 @@ describe("the topology parser refuses rather than guessing", () => {
       expect(solveTopology(s)).toBeNull();
     }
   });
+  // solveTopology now returns a UNION: a named space or complex gives homology,
+  // a pasted point cloud gives persistence. Narrowing on `kind` is the point of
+  // the union — TypeScript refused to compile these tests until they did, which
+  // is the safety net working rather than an inconvenience.
+  const asHomology = (s: string) => {
+    const r = solveTopology(s);
+    if (r === null || r.kind !== "homology") throw new Error(`expected homology for "${s}"`);
+    return r;
+  };
+
   it("names are case- and spacing-insensitive", () => {
-    expect(solveTopology("TORUS")!.betti).toEqual([1, 2, 1]);
-    expect(solveTopology("Klein   Bottle")!.torsion[1].map(String)).toEqual(["2"]);
-    expect(solveTopology("projective plane")!.groups[1]).toBe("Z/2");
+    expect(asHomology("TORUS").betti).toEqual([1, 2, 1]);
+    expect(asHomology("Klein   Bottle").torsion[1].map(String)).toEqual(["2"]);
+    expect(asHomology("projective plane").groups[1]).toBe("Z/2");
   });
   it("every built-in name resolves and passes its own Euler check", () => {
     for (const name of Object.keys(BUILTIN)) {
       const r = solveTopology(name);
       expect(`${name}: ${r ? "ok" : "NULL"}`).toBe(`${name}: ok`);
-      expect(r!.eulerAgrees).toBe(true);
+      if (r === null) throw new Error(name + ": returned null");
+      expect(r.kind).toBe("homology");
+      if (r.kind === "homology") expect(r.eulerAgrees).toBe(true);
     }
+  });
+  it("a pasted point cloud routes to PERSISTENCE, not to a simplicial complex", () => {
+    const r = solveTopology("0 0\n1 0\n1 1\n0 1");
+    expect(r).not.toBeNull();
+    if (r === null) throw new Error("point cloud returned null");
+    expect(r.kind).toBe("persistence");
+    if (r.kind === "persistence") expect(r.cloud.length).toBe(4);
+  });
+  it("bracketed simplices still route to HOMOLOGY even across several lines", () => {
+    const r = solveTopology("[0,1,2]\n[1,2,3]");
+    expect(r!.kind).toBe("homology");
   });
 });

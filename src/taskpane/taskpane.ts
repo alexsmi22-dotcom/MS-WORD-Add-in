@@ -69,6 +69,7 @@ import { predictCoupling, predictCosy, predictHsqc, Cosy2D, Hsqc2D } from "../li
 import { solveEquation, differentiate, integrate, parseExpr, evalAst } from "../lib/solve";
 import { solveGeometry } from "../lib/geometryParse";
 import { solveTopology, BUILTIN_NAMES } from "../lib/homology";
+import { persistentHomology, barcodeSvg } from "../lib/persistence";
 import { solveWordProblem, WorkStep } from "../lib/wordproblem";
 import { predictIr, IrResult } from "../lib/ir";
 import { predictUvVis, UvResult } from "../lib/uvvis";
@@ -1020,7 +1021,7 @@ Office.onReady((info) => {
   // Inserts real, editable Word equations (OMML) — the pane already typeset the
   // derivation on screen, and the same engine drives Math mode, so shipping it
   // to the document as flat ASCII was leaving the best part behind.
-  solveInsertBtn.addEventListener("click", () => insertDerivation(currentSolveBlocks, currentSolveText, "solution"));
+  solveInsertBtn.addEventListener("click", () => insertSolveResult());
   alignA.addEventListener("input", updateAlign);
   alignB.addEventListener("input", updateAlign);
   alignModeSel.addEventListener("change", updateAlign);
@@ -4129,6 +4130,32 @@ async function insertDerivation(blocks: DerivationBlock[], plain: string, label:
     return;
   } finally {
     insertTextBusy = false;
+  }
+}
+
+/**
+ * Inserts the current Solve result: the typeset derivation, plus the figure
+ * when there is one (the persistence barcode). The figure is rasterised BEFORE
+ * entering Word.run, because that conversion is async and Word.run batches.
+ */
+async function insertSolveResult(): Promise<void> {
+  await insertDerivation(currentSolveBlocks, currentSolveText, "solution");
+  if (!currentSolveSvg) return;
+  try {
+    const svg = currentSolveSvg;
+    const { w, h } = readSvgDims(svg, 460, 300);
+    const png = await renderFigurePng(svg, w, h);
+    await Word.run(async (context) => {
+      const range = context.document.getSelection();
+      const pic = range.insertInlinePictureFromBase64(png, Word.InsertLocation.after);
+      sizeFigure(pic, w, h);
+      pic.altTextDescription = "Persistence barcode: each bar is a topological feature, spanning the range of scales over which it exists.";
+      await context.sync();
+    });
+    setStatus("Solution and barcode inserted. Ctrl/⌘+Z undoes it.", "success");
+  } catch (error) {
+    // The text already landed; say the figure did not rather than failing silently.
+    setStatus(`Solution inserted, but the barcode figure could not be: ${(error as Error).message}`, "error");
   }
 }
 
@@ -7457,6 +7484,8 @@ type SolveKind = "equation" | "derivative" | "integral" | "geometry" | "topology
 let currentSolveText = "";
 /** The same result as typeset blocks, so it can insert as real Word equations. */
 let currentSolveBlocks: DerivationBlock[] = [];
+/** A figure to insert alongside the text (currently the persistence barcode). */
+let currentSolveSvg: string | null = null;
 /** Target variable chosen via the "solve for …" chips; cleared on new input. */
 let solveVarChoice: string | null = null;
 
@@ -7549,6 +7578,8 @@ function updateSolveUi(): void {
       "(a field would silently discard it). Named spaces: torus · Klein bottle · sphere · " +
       "projective plane · circle · Möbius band · annulus · figure eight · disk · point · S3. " +
       "Or give the maximal simplices yourself: [0,1,2] [1,2,3] [0,2,3] [0,1,3]. " +
+      "Or PASTE A POINT CLOUD — one point per line, e.g. rows of \"x y\" — and it computes " +
+      "PERSISTENT HOMOLOGY instead: a barcode showing which holes in your data are real and which are noise. " +
       "Every result cross-checks its Euler characteristic two independent ways.",
     word: "Plain English — e.g. “12 is what percent of 48?” or “twice a number plus 7 is 15”.",
   };
@@ -7585,6 +7616,7 @@ function updateSolve(): void {
   solveResult.replaceChildren();
   currentSolveText = "";
   currentSolveBlocks = [];
+  currentSolveSvg = null;
   solveInsertBtn.disabled = true;
 
   if (!text) {
@@ -7753,6 +7785,50 @@ function updateSolve(): void {
           )
         );
       }
+
+      if (h.kind === "persistence") {
+        // A pasted point cloud: persistent homology and a barcode.
+        let pr;
+        try {
+          pr = persistentHomology(h.cloud, { maxDim: 1 });
+        } catch (err) {
+          return void solveResult.appendChild(solveLine((err as Error).message, "ms-masses"));
+        }
+        const title = `Persistent homology of ${pr.points} points in ${pr.dimensions}D`;
+        solveResult.appendChild(msEyebrow(title));
+        say(title, "heading");
+        // The headline is the longest-lived feature per dimension — that is the
+        // one that means something; short bars are usually sampling noise.
+        if (pr.notable.length) {
+          for (const nb of pr.notable) {
+            const line =
+              `Most persistent H${nb.dimension} feature: born ${trimNum(nb.birth)}, dies ${trimNum(nb.death)} ` +
+              `(lifetime ${trimNum(nb.persistence)})`;
+            solveResult.appendChild(solveLine(line, "ms-masses"));
+            say(line);
+          }
+        } else {
+          const line = "No finite persistent features were found.";
+          solveResult.appendChild(solveLine(line, "ms-masses"));
+          say(line);
+        }
+        const counts = `Bars: ${pr.pairs.filter((x) => x.dimension === 0).length} in H0, ` +
+          `${pr.pairs.filter((x) => x.dimension === 1).length} in H1.`;
+        solveResult.appendChild(solveLine(counts, "ms-masses"));
+        say(counts);
+        // The barcode itself, drawn in the pane and carried to the document.
+        currentSolveSvg = barcodeSvg(pr);
+        const fig = document.createElement("div");
+        fig.className = "solve-figure";
+        fig.innerHTML = currentSolveSvg;
+        solveResult.appendChild(fig);
+        for (const s of pr.steps) {
+          solveResult.appendChild(solveLine(s));
+          say(s);
+        }
+        return finish(pr.caveats);
+      }
+
       solveResult.appendChild(msEyebrow(h.title));
       say(h.title, "heading");
       // The homology groups are the answer; everything else is supporting work.

@@ -87,3 +87,96 @@ describe("parseMeasured", () => {
     expect(ok(parseMeasured("2.1e11 Pa", "GPa")).inTarget).toBeCloseTo(210, 6);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Parenthesised compound units.
+//
+// "W/(m^2*K)" is how every engineering text writes a heat transfer coefficient
+// and how every student will type it. It used to be refused as "not a unit this
+// recognises", which reads as a typo rather than as an unsupported notation, and
+// sent people to guess at the equivalent "W/m^2/K". Both now work and must agree
+// exactly, because they are the same unit written two ways.
+// ---------------------------------------------------------------------------
+describe("parenthesised compound units", () => {
+  test("a parenthesised denominator equals the slash-chained form", () => {
+    for (const [paren, chained] of [
+      ["W/(m^2*K)", "W/m^2/K"],
+      ["W/(m*K)", "W/m/K"],
+      ["J/(kg*K)", "J/kg/K"],
+      ["kJ/(kg*K)", "kJ/kg/K"],
+      ["N/(m*s)", "N/m/s"],
+    ]) {
+      const a = convert(1, paren, chained);
+      expect({ unit: paren, factor: a }).toEqual({ unit: paren, factor: 1 });
+    }
+  });
+
+  test("the value converts correctly through a parenthesised unit", () => {
+    // 1 kW/(m^2*K) is 1000 W/(m^2*K).
+    expect(convert(1, "kW/(m^2*K)", "W/m^2/K")).toBeCloseTo(1000, 9);
+    expect(ok(parseMeasured("25 W/(m^2*K)", "W/m^2/K")).inTarget).toBeCloseTo(25, 12);
+    expect(ok(parseMeasured("1.5 kJ/(kg*K)", "J/kg/K")).inTarget).toBeCloseTo(1500, 9);
+  });
+
+  test("a parenthesised numerator works too", () => {
+    expect(convert(1, "(N*m)/s", "W")).toBeCloseTo(1, 12);
+  });
+
+  // The two readings of "a/(b/c)" differ by c^2, so guessing one is a wrong
+  // answer wearing a unit. It is refused instead.
+  test("a nested division inside a group is refused rather than guessed", () => {
+    expect(convert(1, "W/(m^2/K)", "W/m^2/K")).toBeNull();
+  });
+
+  test("unbalanced parentheses are refused, not silently repaired", () => {
+    for (const bad of ["W/(m^2*K", "W/m^2*K)", "W/((m^2*K)", "W/)m^2*K("]) {
+      expect(convert(1, bad, "W/m^2/K")).toBeNull();
+    }
+  });
+
+  test("units without parentheses are completely unaffected", () => {
+    // The regression guard for the change: every pre-existing form still works.
+    expect(convert(1, "km/h", "m/s")).toBeCloseTo(1 / 3.6, 12);
+    expect(convert(1, "kg*m/s^2", "N")).toBeCloseTo(1, 12);
+    expect(convert(1, "mol/L/s", "mol/m^3/s")).toBeCloseTo(1000, 9);
+    expect(convert(1, "N*m", "J")).toBeCloseTo(1, 12);
+    expect(convert(1, "mm^4", "m^4")).toBeCloseTo(1e-12, 24);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// THE NO-REGRESSION INVARIANT for making the Engineering tools unit-aware.
+//
+// Every one of those fields used to be read with Number(). They now go through
+// parseMeasured(). That is safe ONLY because a bare number is returned in the
+// target unit untouched — if parseMeasured ever started scaling a bare number,
+// every Engineering answer would change silently and no oracle test would
+// notice, because they all pass bare numbers too. This is the load-bearing
+// property, so it is pinned directly.
+// ---------------------------------------------------------------------------
+describe("a bare number is never rescaled, whatever the target unit", () => {
+  const targets = ["m", "m^2", "m^4", "Pa", "N", "N*m", "W", "W/m^2/K", "W/m/K", "kg/m^3", "Pa*s", "m/s", "m^3/s", "°C"];
+  const values = ["0", "1", "-1", "8", "2.5", "-40", "250", "1e-6", "2e11", "998.2", "1.002e-3", "0.0000001", "1234567"];
+
+  test.each(targets)("target %s", (unit) => {
+    for (const v of values) {
+      const m = parseMeasured(v, unit);
+      if ("error" in m) throw new Error(`${v} as ${unit}: ${m.error}`);
+      expect({ unit, v, inTarget: m.inTarget, assumed: m.assumed }).toEqual({
+        unit,
+        v,
+        inTarget: Number(v),
+        assumed: true,
+      });
+    }
+  });
+
+  test("and writing the target unit explicitly is also the identity", () => {
+    for (const unit of ["m", "Pa", "N*m", "m^4"]) {
+      const m = parseMeasured(`12.5 ${unit}`, unit);
+      if ("error" in m) throw new Error(m.error);
+      expect(m.inTarget).toBeCloseTo(12.5, 12);
+      expect(m.assumed).toBe(false);
+    }
+  });
+});

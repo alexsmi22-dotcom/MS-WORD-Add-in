@@ -5,6 +5,60 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > Note: this file was not maintained between v1.96.0 and v2.23.0. Those releases
 > are recorded in the git history rather than here.
 
+## [2.25.0] — 2026-07-28 — One unit contract across Engineering, and the 10^12 trap it was hiding
+
+Engineering had drifted into three different unit contracts. Beam, truss and
+cross-sections said "consistent units, nothing converts". Column, torsion, pipe
+flow and the heat tools said "strict SI" — **and then accepted whatever was
+typed without checking**, which is the half that mattered. A declaration
+enforces nothing.
+
+**The trap that produced was inside the product.** The cross-section tool
+reports I in mm⁴, because that is what every section table in the world prints.
+The column tool wanted m⁴. So the single most natural workflow in the whole
+section — size a section, paste its I into the buckling check — was wrong by a
+factor of 10¹², and the answer looked entirely plausible. Nothing anywhere said
+a word.
+
+**The rule now, stated once and enforced by a test:** a tool converts units
+unless it is dimensionally homogeneous (every input is the same kind of
+quantity, so the answer comes back in whatever went in) or it computes over
+exact rationals (where a conversion is a floating-point multiply that would
+destroy the exactness that is the whole reason the engine exists). Either way
+**every tool declares which branch it is on**, in its result.
+
+So column, torsion, pipe flow, cross-sections and both heat tools now read every
+field through the unit layer. A bare number is read in the unit the field names,
+a unit you write is converted and the conversion is **reported back to you**,
+and a unit of the wrong quantity is **refused by name** rather than silently
+dropped. `200 GPa`, `1e6 mm^4`, `50 ksi`, `68 °F`, `15.7 L/s` and
+`Mineral wool, 50 mm` all now work. Beam and truss deliberately still do not
+convert, and now say why. The cross-section result additionally tells you to
+carry A and I to the column tool **with their units**, which is where the trap
+used to be.
+
+**Parenthesised compound units are now accepted** — `W/(m^2*K)`, `kJ/(kg*K)` —
+because that is how every engineering text writes a heat transfer coefficient
+and how anyone will type it. It used to be rejected as "not a unit this
+recognises", which reads as a typo rather than as unsupported notation. A
+*nested* division inside a group (`a/(b/c)`) is refused rather than guessed at,
+because the two readings differ by c² and picking one silently would be a wrong
+answer wearing a unit.
+
+**Why this could not regress anything.** Every one of those fields used to be
+read with `Number()`. `parseMeasured` returns a bare number in the target unit
+untouched, so a user who types plain numbers — the old contract — gets byte-identical
+results. That invariant is now pinned directly across all 14 Engineering target
+units rather than left as an argument, because if it ever broke, every
+Engineering answer would change silently and no oracle test would notice: they
+all pass bare numbers too.
+
+Full suite green at 4,952 tests with no behaviour change to any existing case,
+plus a 32-test adversarial pass on the parser covering half-typed input,
+bracket soup, 50,000-character tokens and catastrophic-backtracking probes —
+unit parsing runs on every keystroke, and a parser that hangs there is a frozen
+Word, not a slow one.
+
 ## [2.24.0] — 2026-07-28 — Engineering becomes a full bench: stress, trusses, buckling, thermofluids
 
 Engineering had four tools — beam, cross-section, DC circuit, AC circuit. It has

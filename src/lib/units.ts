@@ -286,16 +286,70 @@ function accumulateFactors(part: string, sign: 1 | -1, out: CompoundUnit): boole
 }
 
 /**
+ * Splits on "/" at PAREN DEPTH ZERO, so "W/(m^2*K)" gives ["W", "(m^2*K)"]
+ * rather than breaking the group apart. Returns null on unbalanced parentheses,
+ * which is a typo rather than a unit and must not be guessed at.
+ */
+function splitTopLevel(expr: string): string[] | null {
+  const parts: string[] = [];
+  let depth = 0;
+  let cur = "";
+  for (const ch of expr) {
+    if (ch === "(") depth++;
+    else if (ch === ")") {
+      depth--;
+      if (depth < 0) return null;
+    }
+    if (ch === "/" && depth === 0) {
+      parts.push(cur);
+      cur = "";
+    } else {
+      cur += ch;
+    }
+  }
+  if (depth !== 0) return null;
+  parts.push(cur);
+  return parts;
+}
+
+/**
  * Parses a compound unit like "km/h", "kg*m/s^2", "g/mol", "mol/L/s" → dimensions
  * + factor. Multiple "/" are all denominators: "a/b/c" ≡ a·b⁻¹·c⁻¹.
+ *
+ * A parenthesised GROUP is accepted in any position — "W/(m^2*K)",
+ * "kJ/(kg*K)" — because that is how every engineering text writes a heat
+ * transfer coefficient or a specific heat, and refusing it sent people to guess
+ * at "W/m^2/K" instead. The two are equivalent here and both work.
+ *
+ * NOTE that only a FLAT group is supported: the contents of the parentheses are
+ * multiplied together, so "a/(b*c)" is a·b⁻¹·c⁻¹ as expected. A nested division
+ * inside a group ("a/(b/c)") is REFUSED rather than misread, because the two
+ * readings differ by c² and silently picking one would be a wrong answer
+ * dressed as a unit.
  */
 export function parseCompoundUnit(expr: string): CompoundUnit | null {
-  const parts = expr.trim().split("/");
+  const parts = splitTopLevel(expr.trim());
+  if (!parts) return null;
   if (!parts[0].trim()) return null;
   for (let i = 1; i < parts.length; i++) if (!parts[i].trim()) return null; // reject empty denominator / trailing "/"
+
+  /** Strips one wrapping paren pair; null if the part is still not flat. */
+  const flatten = (part: string): string | null => {
+    const t = part.trim();
+    if (!t.includes("(")) return t.includes(")") ? null : t;
+    if (!t.startsWith("(") || !t.endsWith(")")) return null;
+    const inner = t.slice(1, -1);
+    // Must be a single balanced group, with nothing nested inside it.
+    if (inner.includes("(") || inner.includes(")") || inner.includes("/")) return null;
+    return inner.trim() || null;
+  };
+
   const out: CompoundUnit = { dims: {}, factor: 1 };
-  if (!accumulateFactors(parts[0], 1, out)) return null;
-  for (let i = 1; i < parts.length; i++) if (!accumulateFactors(parts[i], -1, out)) return null;
+  for (let i = 0; i < parts.length; i++) {
+    const flat = flatten(parts[i]);
+    if (flat === null) return null;
+    if (!accumulateFactors(flat, i === 0 ? 1 : -1, out)) return null;
+  }
   return out;
 }
 

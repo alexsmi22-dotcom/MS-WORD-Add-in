@@ -7195,6 +7195,134 @@ const engNumericPart = (text: string): string => {
 /** Figures the inputs support, for a calculator that knows its own fields. */
 const engFigures = (raws: string[]): number => resultFigures(raws.map(engNumericPart));
 
+/**
+ * THE ENGINEERING UNIT CONTRACT, in one place.
+ *
+ * The Engineering tools had drifted into three different contracts. Beam, truss
+ * and cross-sections said "consistent units, nothing converts". Column, torsion,
+ * pipe flow and the heat tools said "strict SI" — and then accepted whatever was
+ * typed WITHOUT CHECKING, which is the dangerous half: the declaration was the
+ * only thing enforcing it, and a declaration enforces nothing.
+ *
+ * That was not merely untidy, it was a live trap inside the product. The
+ * cross-section tool reports I in mm^4 by default, because that is the unit
+ * every section table in the world prints. The column tool wants m^4. So the
+ * single most natural workflow — size a section, paste its I into the buckling
+ * check — was off by a factor of 10^12, and the answer looked entirely
+ * plausible. Nothing anywhere said a word.
+ *
+ * Every SI-declared field now reads through `parseMeasured`, which gives three
+ * behaviours at once:
+ *   - A BARE NUMBER is taken as already being in the field's SI unit and is
+ *     flagged `assumed`. This is exactly the old behaviour, so nothing that
+ *     worked before changes — the reason this could be adopted everywhere
+ *     without a regression.
+ *   - A UNIT THAT FITS is converted ("200 GPa", "1e6 mm^4", "50 ksi"), and the
+ *     conversion is REPORTED, so the reader can see what was assumed on their
+ *     behalf rather than trusting it.
+ *   - A UNIT OF THE WRONG QUANTITY is REFUSED by name rather than ignored. A
+ *     length where a force belongs is a mistake, and silently dropping the unit
+ *     is how it becomes a number in a document.
+ *
+ * Beam and truss deliberately stay unit-agnostic: they compute over EXACT
+ * rationals, and a unit conversion is a floating-point multiply that would
+ * destroy the exactness that is the whole reason those two engines exist. That
+ * is now a stated rule rather than an accident — see ENG_UNIT_NOTE.
+ */
+interface EngUnits {
+  /** Fatal problems; when non-empty the calculator must refuse. */
+  errors: string[];
+  /** Human-readable record of every conversion actually performed. */
+  conversions: string[];
+  /** A required quantity, in SI. Returns NaN and records an error if unreadable. */
+  req(key: string, si: string, label: string): number;
+  /** An optional quantity; `dflt` when the field is blank. */
+  opt(key: string, si: string, label: string, dflt: number): number;
+  /** An optional quantity; null when the field is blank. */
+  optNull(key: string, si: string, label: string): number | null;
+  /** Appends the "units read" block to a report, when anything was converted. */
+  report(lines: string[]): void;
+}
+
+function engUnits(r: (k: string) => string): EngUnits {
+  const errors: string[] = [];
+  const conversions: string[] = [];
+
+  const read = (key: string, si: string, label: string): number | null => {
+    const raw = r(key).trim();
+    if (!raw) return null;
+    const m = parseMeasured(raw, si);
+    if ("error" in m) {
+      errors.push(`${label}: ${m.error}`);
+      return NaN;
+    }
+    // Only a real conversion is worth reporting. A bare number, or one already
+    // written in the target unit, would just be noise.
+    if (!m.assumed && m.inTarget !== m.value) {
+      conversions.push(`${label}: ${engNum(m.value, 6)} ${m.unit} = ${engNum(m.inTarget, 6)} ${si}`);
+    }
+    return m.inTarget;
+  };
+
+  return {
+    errors,
+    conversions,
+    req(key, si, label) {
+      const v = read(key, si, label);
+      if (v === null) {
+        errors.push(`${label}: this field is required.`);
+        return NaN;
+      }
+      return v;
+    },
+    opt(key, si, label, dflt) {
+      const v = read(key, si, label);
+      return v === null ? dflt : v;
+    },
+    optNull(key, si, label) {
+      return read(key, si, label);
+    },
+    report(lines) {
+      if (!conversions.length) return;
+      lines.push("");
+      lines.push("Units read");
+      for (const c of conversions) lines.push(`  ${c}`);
+    },
+  };
+}
+
+/**
+ * THE RULE, stated once and enforced by engineeringRouting.test.ts:
+ *
+ *   An Engineering tool CONVERTS UNITS unless it is dimensionally homogeneous
+ *   (every input is the same kind of quantity, so the answer comes back in
+ *   whatever unit went in) or it computes over EXACT RATIONALS (where a
+ *   conversion is a floating-point multiply that destroys the exactness that is
+ *   the entire reason the engine exists). Either way it says which it is.
+ *
+ * The point is not that all eleven tools behave identically — beam cannot
+ * convert without ceasing to be exact, and forcing stress into pascals would
+ * make "80" mean 80 Pa to someone who has thought in MPa all afternoon. The
+ * point is that the behaviour follows one stated rule instead of eleven
+ * accidents, and that every tool declares which branch it is on.
+ */
+const ENG_UNIT_NOTE =
+  "Units: a bare number is read in the unit that field names; write another unit " +
+  "(200 GPa, 1e6 mm^4, 50 ksi, 68 °F) and it is converted for you, and a unit of the " +
+  "wrong quantity is refused rather than silently ignored.";
+
+/** The matching declaration for the tools that deliberately do not convert. */
+const ENG_SAME_UNIT_NOTE =
+  "Units: whatever you type, used consistently — nothing is converted here, and nothing " +
+  "needs to be: every quantity in this tool is the same kind, so the answer comes back in " +
+  "the unit you went in with.";
+
+/** As above, for the two engines whose exactness a conversion would destroy. */
+const ENG_EXACT_UNIT_NOTE =
+  "Units: whatever you type, used consistently — nothing is converted here, because this " +
+  "engine computes over exact rationals and a unit conversion is a floating-point multiply " +
+  "that would destroy that exactness. Convert before you type, and the answer stays exact.";
+
 const ENG_CALCS: EngCalc[] = [
   {
     id: "beam",
@@ -7280,6 +7408,7 @@ const ENG_CALCS: EngCalc[] = [
         lines.push("Deflection needs EI. Reactions, shear and moment do not, and are exact without it.");
       }
       for (const w of res.warnings) lines.push(`Note: ${w}`);
+      lines.push(ENG_EXACT_UNIT_NOTE);
 
       // plainDashes must be applied to the LINES, not only to the joined text.
       // The blocks are what get inserted whenever there is a diagram, so
@@ -7424,6 +7553,16 @@ const ENG_CALCS: EngCalc[] = [
         }
       }
       for (const n of p.notes) lines.push(`Note: ${n}`);
+      // Closing a trap that lived inside the product: these values are what the
+      // buckling check wants, and they come out in mm by default because that is
+      // what section tables print — while the column tool works in metres. It
+      // now converts, so say so here, where the numbers are.
+      lines.push(
+        `To check buckling, carry A and I to the column tool WITH their units ` +
+          `("${engNum(p.A, figs)} ${dimUnit}^2", "${engNum(p.I, figs)} ${dimUnit}^4") — it converts them. ` +
+          "Use the SMALLER principal I unless that axis is separately braced.",
+      );
+      lines.push(ENG_UNIT_NOTE);
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -7468,6 +7607,7 @@ const ENG_CALCS: EngCalc[] = [
         `  Total delivered ${engNum(res.totalDelivered)} W = total dissipated ${engNum(res.totalDissipated)} W`,
       );
       for (const n of res.notes) lines.push(`Note: ${n}`);
+      lines.push(ENG_SAME_UNIT_NOTE);
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -7557,6 +7697,7 @@ const ENG_CALCS: EngCalc[] = [
         lines.push("  does not fall 3 dB anywhere in this range, so the corner is outside it.");
       }
       lines.push("AC results are floating point, and phase is in degrees relative to the source.");
+      lines.push(ENG_SAME_UNIT_NOTE);
 
       const clean = lines.map(plainDashes);
       const blocks: AnalyzeBlock[] = [
@@ -7678,6 +7819,7 @@ const ENG_CALCS: EngCalc[] = [
       lines.push(
         `Quoted to ${figs} significant figures, the fewest any input carries.`,
       );
+      lines.push(ENG_SAME_UNIT_NOTE);
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -7755,6 +7897,7 @@ const ENG_CALCS: EngCalc[] = [
         "Reactions and any member with a whole-number length are EXACT; the rest are exact " +
           "divided by an irrational length.",
       );
+      lines.push(ENG_EXACT_UNIT_NOTE);
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -7762,7 +7905,9 @@ const ENG_CALCS: EngCalc[] = [
     id: "column",
     name: "Column buckling (Euler / Johnson)",
     hint:
-      "Consistent SI: length in m, E and the yield strength in Pa, I in m^4, A in m^2. " +
+      "Each field names its SI unit; a bare number is read in that unit, and you may write " +
+      'another ("200 GPa", "1e6 mm^4") to have it converted. Paste I straight from the ' +
+      "cross-section tool in mm^4 and it now converts instead of being wrong by 10^12. " +
       "I must be about the axis the column is WEAKEST in. Enter a yield strength — without it " +
       "a short column's Euler load is badly unconservative.",
     fields: [
@@ -7788,16 +7933,17 @@ const ENG_CALCS: EngCalc[] = [
     ],
     compute: (r) => {
       const figs = engFigures([r("L"), r("E"), r("I"), r("A"), r("Fy")]);
-      const num = (k: string): number => Number(r(k) || "0");
+      const u = engUnits(r);
       const res = analyzeColumn({
-        L: num("L"),
-        E: num("E"),
-        I: num("I"),
-        A: num("A"),
-        Fy: r("Fy").trim() ? num("Fy") : 0,
+        L: u.req("L", "m", "Unbraced length"),
+        E: u.req("E", "Pa", "Young's modulus"),
+        I: u.req("I", "m^4", "Second moment of area"),
+        A: u.req("A", "m^2", "Cross-sectional area"),
+        Fy: u.opt("Fy", "Pa", "Yield strength", 0),
         end: (r("end") || "pinned") as EndCondition,
         kCustom: Number(r("K") || "1"),
       });
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
       if (!res.ok) return { text: res.error, ok: false };
 
       const lines: string[] = [];
@@ -7824,6 +7970,8 @@ const ENG_CALCS: EngCalc[] = [
           "and load eccentricity and fails below it, which is what a design code's factors are for.",
       );
       for (const note of res.notes) lines.push(`Note: ${note}`);
+      u.report(lines);
+      lines.push(ENG_UNIT_NOTE);
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -7832,7 +7980,8 @@ const ENG_CALCS: EngCalc[] = [
     name: "Shaft torsion",
     hint:
       "Circular shafts only — the formula is exact for a circle and simply wrong for any other " +
-      "shape. Consistent SI: torque in N·m, diameters and length in m, G in Pa.",
+      'shape. Each field names its SI unit; a bare number is read in it, and a unit you write ("12 kN·m", ' +
+      '"40 mm", "80 GPa") is converted.',
     fields: [
       { key: "T", label: "Torque, N·m", default: "1200", kind: "text" },
       { key: "d", label: "Outer diameter, m", default: "0.04", kind: "text" },
@@ -7842,8 +7991,15 @@ const ENG_CALCS: EngCalc[] = [
     ],
     compute: (r) => {
       const figs = engFigures([r("T"), r("d"), r("di"), r("L"), r("G")]);
-      const num = (k: string): number => Number(r(k) || "0");
-      const res = analyzeTorsion({ T: num("T"), d: num("d"), di: num("di"), L: num("L"), G: num("G") });
+      const u = engUnits(r);
+      const res = analyzeTorsion({
+        T: u.req("T", "N*m", "Torque"),
+        d: u.req("d", "m", "Outer diameter"),
+        di: u.opt("di", "m", "Bore diameter", 0),
+        L: u.opt("L", "m", "Length", 0),
+        G: u.opt("G", "Pa", "Shear modulus", 0),
+      });
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
       if (!res.ok) return { text: res.error, ok: false };
 
       const lines: string[] = [];
@@ -7859,6 +8015,8 @@ const ENG_CALCS: EngCalc[] = [
         lines.push(`Angle of twist = ${engNum(res.twistDeg as number, figs)} deg (${engNum(res.twistRad, figs)} rad)`);
       }
       for (const note of res.notes) lines.push(`Note: ${note}`);
+      u.report(lines);
+      lines.push(ENG_UNIT_NOTE);
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -7866,7 +8024,8 @@ const ENG_CALCS: EngCalc[] = [
     id: "pipe",
     name: "Pipe flow & head loss",
     hint:
-      "Strict SI: diameter and length in m, velocity in m/s. The friction factor comes from " +
+      "Each field names its SI unit; a bare number is read in it, and a unit you write " +
+      '("100 mm", "15.7 L/s", "68 °F") is converted. The friction factor comes from ' +
       "Colebrook-White, solved rather than approximated. Leave the water temperature set to use " +
       "water properties; clear it to use the density and viscosity below.",
     fields: [
@@ -7890,43 +8049,52 @@ const ENG_CALCS: EngCalc[] = [
     ],
     compute: (r) => {
       const figs = engFigures([r("D"), r("L"), r("V") || r("Q")]);
-      const num = (k: string, dflt = 0): number => (r(k).trim() ? Number(r(k)) : dflt);
+      const u = engUnits(r);
 
-      let rho = num("rho", NaN);
-      let mu = num("mu", NaN);
+      let rho = NaN;
+      let mu = NaN;
       let fluidNote = "";
       const tempRaw = r("tempC").trim();
       if (tempRaw) {
-        const w = waterProperties(Number(tempRaw));
+        // Read as a temperature so "68 °F" works; the table is indexed in °C.
+        const tC = u.req("tempC", "°C", "Water temperature");
+        const w = Number.isFinite(tC) ? waterProperties(tC) : null;
         if (!w) {
-          return {
-            text: "The water temperature must be between 0 and 100 °C. Clear it to enter a density and viscosity directly.",
-            ok: false,
-          };
+          if (!u.errors.length) {
+            u.errors.push(
+              "Water temperature: must be between 0 and 100 °C. Clear this field to enter a density and viscosity directly.",
+            );
+          }
+        } else {
+          rho = w.rho;
+          mu = w.mu;
+          fluidNote = `Water at ${engNum(tC, figs)} °C: ρ = ${engNum(rho, 5)} kg/m^3, μ = ${engNum(mu, 4)} Pa·s`;
         }
-        rho = w.rho;
-        mu = w.mu;
-        fluidNote = `Water at ${engNum(Number(tempRaw), figs)} °C: ρ = ${engNum(rho, 5)} kg/m^3, μ = ${engNum(mu, 4)} Pa·s`;
       } else {
+        // Only read these when they are actually the source of truth, so a stale
+        // value in a hidden-by-convention field cannot raise an error.
+        rho = u.req("rho", "kg/m^3", "Density");
+        mu = u.req("mu", "Pa*s", "Dynamic viscosity");
         fluidNote = `ρ = ${engNum(rho, 5)} kg/m^3, μ = ${engNum(mu, 4)} Pa·s as entered`;
       }
 
       const mat = ROUGHNESS.find((m) => m.id === r("mat")) ?? ROUGHNESS[1];
-      const eps = r("eps").trim() ? Number(r("eps")) : mat.eps;
+      const eps = u.opt("eps", "m", "Roughness", mat.eps);
 
       const vRaw = r("V").trim();
       const qRaw = r("Q").trim();
       const res = analyzePipe({
-        D: num("D"),
-        L: num("L"),
-        V: vRaw ? Number(vRaw) : undefined,
-        Q: !vRaw && qRaw ? Number(qRaw) : undefined,
+        D: u.req("D", "m", "Internal diameter"),
+        L: u.req("L", "m", "Pipe length"),
+        V: vRaw ? u.req("V", "m/s", "Mean velocity") : undefined,
+        Q: !vRaw && qRaw ? u.req("Q", "m^3/s", "Volumetric flow rate") : undefined,
         eps,
         rho,
         mu,
-        sumK: num("K"),
+        sumK: Number(r("K") || "0"),
         eta: r("eta").trim() ? Number(r("eta")) : undefined,
       });
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
       if (!res.ok) return { text: res.error, ok: false };
 
       const lines: string[] = [];
@@ -7958,6 +8126,8 @@ const ENG_CALCS: EngCalc[] = [
           "of two or more and roughens with age — so the head loss is not as precise as the " +
           "digits suggest.",
       );
+      u.report(lines);
+      lines.push(ENG_UNIT_NOTE);
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -7965,9 +8135,10 @@ const ENG_CALCS: EngCalc[] = [
     id: "wall",
     name: "Composite wall / pipe insulation",
     hint:
-      'Layers, one per line: "name, conductivity, thickness" (SI), or "material, thickness" to ' +
-      "use the built-in conductivity — try \"Mineral wool, 0.1\". Order them from the inside out. " +
-      "A film coefficient of 0 means that surface sits at the fluid temperature.",
+      'Layers, one per line: "name, conductivity, thickness", or "material, thickness" to use ' +
+      'the built-in conductivity — try "Mineral wool, 50 mm". Order them from the inside out. ' +
+      "Each field names its SI unit; a bare number is read in it and a unit you write is " +
+      "converted. A film coefficient of 0 means that surface sits at the fluid temperature.",
     fields: [
       {
         key: "geom",
@@ -8004,17 +8175,24 @@ const ENG_CALCS: EngCalc[] = [
         if (!line) continue;
         const parts = line.split(",").map((s) => s.trim());
         if (parts.length === 3) {
-          const k = Number(parts[1]);
-          const t = Number(parts[2]);
-          if (!Number.isFinite(k) || !Number.isFinite(t)) {
-            errors.push(`Layer ${i + 1}: the conductivity and thickness must be numbers.`);
+          // Unit-aware like every other Engineering field, so "Brick, 0.72, 200 mm"
+          // works and does not have to be pre-divided by a thousand by hand.
+          const kM = parseMeasured(parts[1], "W/m/K");
+          const tM = parseMeasured(parts[2], "m");
+          if ("error" in kM) {
+            errors.push(`Layer ${i + 1} conductivity: ${kM.error}`);
             continue;
           }
-          layers.push({ name: parts[0], k, t });
+          if ("error" in tM) {
+            errors.push(`Layer ${i + 1} thickness: ${tM.error}`);
+            continue;
+          }
+          layers.push({ name: parts[0], k: kM.inTarget, t: tM.inTarget });
         } else if (parts.length === 2) {
           const wanted = parts[0].toLowerCase();
           const hit = CONDUCTIVITY.find((c) => c.id === wanted || c.label.toLowerCase() === wanted);
-          const t = Number(parts[1]);
+          const tM = parseMeasured(parts[1], "m");
+          const t = "error" in tM ? NaN : tM.inTarget;
           if (!hit) {
             errors.push(
               `Layer ${i + 1}: "${parts[0]}" is not a known material. Give a conductivity ` +
@@ -8024,7 +8202,7 @@ const ENG_CALCS: EngCalc[] = [
             continue;
           }
           if (!Number.isFinite(t)) {
-            errors.push(`Layer ${i + 1}: the thickness must be a number.`);
+            errors.push(`Layer ${i + 1} thickness: ${"error" in tM ? tM.error : "must be a number."}`);
             continue;
           }
           layers.push({ name: hit.label, k: hit.k, t });
@@ -8035,18 +8213,23 @@ const ENG_CALCS: EngCalc[] = [
       if (errors.length) return { text: errors.join("\n"), ok: false };
 
       const geom = (r("geom") || "plane") as "plane" | "cylinder";
-      const num = (k: string): number => Number(r(k) || "0");
+      const u = engUnits(r);
+      // Held in a local because the report prints the inside fluid temperature
+      // back, and it must be the CONVERTED value — printing the raw field would
+      // say 68 next to a chain computed at 20.
+      const tInSi = u.req("tIn", "°C", "Inside temperature");
       const res = analyzeWall({
         geometry: geom,
         layers,
-        A: geom === "plane" ? num("A") : undefined,
-        r1: geom === "cylinder" ? num("r1") : undefined,
-        L: geom === "cylinder" ? num("Lc") : undefined,
-        hIn: num("hIn"),
-        hOut: num("hOut"),
-        tIn: num("tIn"),
-        tOut: num("tOut"),
+        A: geom === "plane" ? u.req("A", "m^2", "Area") : undefined,
+        r1: geom === "cylinder" ? u.req("r1", "m", "Inner radius") : undefined,
+        L: geom === "cylinder" ? u.req("Lc", "m", "Length") : undefined,
+        hIn: u.opt("hIn", "W/m^2/K", "Inside film coefficient", 0),
+        hOut: u.opt("hOut", "W/m^2/K", "Outside film coefficient", 0),
+        tIn: tInSi,
+        tOut: u.req("tOut", "°C", "Outside temperature"),
       });
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
       if (!res.ok) return { text: res.error, ok: false };
 
       const lines: string[] = [];
@@ -8057,7 +8240,7 @@ const ENG_CALCS: EngCalc[] = [
       lines.push(`Heat flux = ${engNum(res.flux, figs)} W/m² of outer surface`);
       lines.push("");
       lines.push("Resistance chain, inside to outside");
-      lines.push(`  Inside fluid at ${engNum(Number(r("tIn")), figs)} °C`);
+      lines.push(`  Inside fluid at ${engNum(tInSi, figs)} °C`);
       for (const s of res.steps) {
         lines.push(
           `  ${s.name}: R = ${engNum(s.R, figs)} K/W (${engNum(100 * s.share, 3)}%) → ` +
@@ -8074,6 +8257,8 @@ const ENG_CALCS: EngCalc[] = [
         "Conductivity values are representative. Real materials vary with density and moisture, " +
           "and wet insulation can be several times worse than the dry figure.",
       );
+      u.report(lines);
+      lines.push(ENG_UNIT_NOTE);
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -8082,8 +8267,9 @@ const ENG_CALCS: EngCalc[] = [
     name: "Heat exchanger (LMTD sizing)",
     hint:
       "Give all four terminal temperatures and U, then either an area to get the duty or a duty " +
-      "to get the area. Counterflow is the true-counterflow LMTD; a real shell-and-tube unit " +
-      "needs an F correction and more area than this.",
+      "to get the area. Each field names its SI unit; a bare number is read in it and a unit " +
+      'you write ("120 °F", "50 kW") is converted. Counterflow is the true-counterflow LMTD; ' +
+      "a real shell-and-tube unit needs an F correction and more area than this.",
     fields: [
       {
         key: "flow",
@@ -8105,19 +8291,21 @@ const ENG_CALCS: EngCalc[] = [
     ],
     compute: (r) => {
       const figs = engFigures([r("thIn"), r("thOut"), r("tcIn"), r("tcOut"), r("U")]);
-      const num = (k: string): number => Number(r(k) || "0");
+      const u = engUnits(r);
       const aRaw = r("A").trim();
       const qRaw = r("Q").trim();
+      const Usi = u.req("U", "W/m^2/K", "Overall coefficient");
       const res = analyzeExchanger({
         flow: (r("flow") || "counter") as "counter" | "parallel",
-        thIn: num("thIn"),
-        thOut: num("thOut"),
-        tcIn: num("tcIn"),
-        tcOut: num("tcOut"),
-        U: num("U"),
-        A: aRaw ? Number(aRaw) : undefined,
-        Q: !aRaw && qRaw ? Number(qRaw) : undefined,
+        thIn: u.req("thIn", "°C", "Hot stream inlet"),
+        thOut: u.req("thOut", "°C", "Hot stream outlet"),
+        tcIn: u.req("tcIn", "°C", "Cold stream inlet"),
+        tcOut: u.req("tcOut", "°C", "Cold stream outlet"),
+        U: Usi,
+        A: aRaw ? u.req("A", "m^2", "Area") : undefined,
+        Q: !aRaw && qRaw ? u.req("Q", "W", "Duty") : undefined,
       });
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
       if (!res.ok) return { text: res.error, ok: false };
 
       const lines: string[] = [];
@@ -8127,8 +8315,10 @@ const ENG_CALCS: EngCalc[] = [
       lines.push("");
       lines.push(`Heat duty Q = ${engNum(res.Q, figs)} W (${engNum(res.Q / 1000, figs)} kW)`);
       lines.push(`Area A = ${engNum(res.A, figs)} m²`);
-      lines.push(`  from Q = U·A·ΔTlm with U = ${engNum(Number(r("U")), figs)} W/(m²·K)`);
+      lines.push(`  from Q = U·A·ΔTlm with U = ${engNum(Usi, figs)} W/(m²·K)`);
       for (const note of res.notes) lines.push(`Note: ${note}`);
+      u.report(lines);
+      lines.push(ENG_UNIT_NOTE);
       return { text: plainDashes(lines.join("\n")) };
     },
   },

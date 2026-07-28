@@ -5,6 +5,31 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > Note: this file was not maintained between v1.96.0 and v2.23.0. Those releases
 > are recorded in the git history rather than here.
 
+## [2.31.5] — 2026-07-28 — The Engineering menu is grouped by discipline
+
+Thirty-six calculations in one flat dropdown is a scroll, not a menu — and they
+were listed in the order they were built, which is meaningful to nobody. The
+Calculation dropdown now carries nine `<optgroup>` headings: Structural &
+solids, Fatigue & machine design, Fluids, Thermal, Electronics, Control systems,
+Vibration, Biomedical, Pharmacokinetics.
+
+Names lost the prefixes the headings now carry, so "Control: frequency response
+& margins" is "Frequency response & margins" under "Control systems". That
+matters more than it sounds in a 320px-wide task pane, where the old labels were
+spending their first third repeating a word.
+
+`<optgroup>` was the right tool over a second dropdown (doubles the clicks) or a
+filter box (the right answer at 60+ tools, and useless to someone who does not
+yet know what the thing is called). It costs no vertical space, keeps keyboard
+type-ahead, and is announced by screen readers.
+
+Gated on both sides, because a grouped menu can lose a tool in a way a flat one
+could not — a calculation naming a heading the pane does not render is built,
+routable, fully tested and invisible. Jest pins that every calc declares a group
+in the rendered order, that no heading is empty, and that no two labels collide
+now that they are shorter. The headless audit checks the DOM the browser
+actually built: nine groups, 36 options inside them, none loose.
+
 ## [2.31.4] — 2026-07-28 — Only one of the two figures was being inserted
 
 The frequency-response report inserted one Bode plot instead of two. Same root

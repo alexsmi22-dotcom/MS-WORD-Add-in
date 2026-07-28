@@ -2042,11 +2042,21 @@ function onInputChanged(): void {
   }
   if (mode === "engineering") {
     if (!engineeringCalcSelect.options.length) {
-      for (const c of ENG_CALCS) {
-        const o = document.createElement("option");
-        o.value = c.id;
-        o.textContent = c.name;
-        engineeringCalcSelect.appendChild(o);
+      // Grouped by discipline, in ENG_GROUP_ORDER rather than in the order the
+      // calculations happened to be built. Within a group the ENG_CALCS order
+      // is kept, which is roughly simple-to-specialised.
+      for (const title of ENG_GROUP_ORDER) {
+        const members = ENG_CALCS.filter((c) => c.group === title);
+        if (!members.length) continue;
+        const g = document.createElement("optgroup");
+        g.label = title;
+        for (const c of members) {
+          const o = document.createElement("option");
+          o.value = c.id;
+          o.textContent = c.name;
+          g.appendChild(o);
+        }
+        engineeringCalcSelect.appendChild(g);
       }
     }
     if (!engineeringInputs.children.length) renderEngineeringInputs();
@@ -7249,9 +7259,41 @@ function populateAnalyzeCalcs(): void {
 // Engineering — beams and cross-sections
 // ---------------------------------------------------------------------------
 
+/**
+ * The discipline a calculation belongs to, used as an <optgroup> heading.
+ *
+ * Thirty-six calculations in one flat dropdown is a scroll, not a menu, and the
+ * build order they were listed in ("beam, cross-section, DC circuit, …") is
+ * meaningless to anyone who did not build them. Grouping is the same shape
+ * HOME_GROUPS already uses for the mode tiles, one level down: an <optgroup>
+ * costs no vertical space in a 320px pane, keeps keyboard type-ahead, and is
+ * announced by screen readers.
+ *
+ * ENG_GROUP_ORDER fixes the order the headings appear in; a calculation naming
+ * a group outside it is a build error rather than a silently ungrouped option.
+ */
+const ENG_GROUP_ORDER = [
+  "Structural & solids",
+  "Fatigue & machine design",
+  "Fluids",
+  "Thermal",
+  "Electronics",
+  "Control systems",
+  "Vibration",
+  "Biomedical",
+  "Pharmacokinetics",
+] as const;
+type EngGroup = (typeof ENG_GROUP_ORDER)[number];
+
 interface EngCalc {
   id: string;
+  /**
+   * The label shown in the dropdown. It does NOT repeat the group heading:
+   * "Control: frequency response" under a "Control systems" heading reads as a
+   * stutter and wastes the width the pane does not have.
+   */
   name: string;
+  group: EngGroup;
   hint: string;
   fields: AnalyzeField[];
   compute: (read: (k: string) => string) => AnalyzeOutput;
@@ -7477,6 +7519,7 @@ const ENG_CALCS: EngCalc[] = [
   {
     id: "beam",
     name: "Beam analysis (shear, moment, deflection)",
+    group: "Structural & solids",
     hint:
       'Supports: "pin 0, roller 8" or "fixed 0". Loads, one per line: "point 30 at 6", ' +
       '"udl 5 from 0 to 8", "udl 0 to 9 from 0 to 6" (varying), "moment 200 at 4". ' +
@@ -7583,6 +7626,7 @@ const ENG_CALCS: EngCalc[] = [
   {
     id: "section",
     name: "Cross-section properties & stress",
+    group: "Structural & solids",
     hint:
       "Dimensions in consistent units (mm gives I in mm^4). Enter a moment and shear in matching units " +
       "to get the peak bending and transverse shear stress.",
@@ -7718,7 +7762,8 @@ const ENG_CALCS: EngCalc[] = [
   },
   {
     id: "circuit-dc",
-    name: "Circuit: DC operating point",
+    name: "DC operating point",
+    group: "Electronics",
     hint:
       'One element per line: "R1 1 0 1k", "V1 1 0 5", "I1 0 2 10m". Node 0 is ground. ' +
       "Values take SI suffixes and RKM notation, so 2k2 is 2.2 k and 4r7 is 4.7 ohms. " +
@@ -7763,7 +7808,8 @@ const ENG_CALCS: EngCalc[] = [
   },
   {
     id: "circuit-ac",
-    name: "Circuit: AC response & Bode plot",
+    name: "AC response & Bode plot",
+    group: "Electronics",
     hint:
       "Same netlist, plus C and L. Give one frequency for a phasor answer, or a start and stop " +
       "frequency to sweep an output node and draw a Bode magnitude plot. AC is floating point: " +
@@ -7867,6 +7913,7 @@ const ENG_CALCS: EngCalc[] = [
   {
     id: "stress",
     name: "Stress state: principal stresses & failure",
+    group: "Structural & solids",
     hint:
       "Enter the stress components in any consistent unit — MPa in gives MPa out. Tension is " +
       "positive. Leave the out-of-plane components at 0 for plane stress, which is the usual case.",
@@ -7976,6 +8023,7 @@ const ENG_CALCS: EngCalc[] = [
   {
     id: "truss",
     name: "Truss analysis (method of joints)",
+    group: "Structural & solids",
     hint:
       'One item per line: "joint A 0 0", "member A B", "support A pin" (or roller), ' +
       '"load C 0 -10". Loads are vector components, so DOWNWARD IS NEGATIVE. y is up. ' +
@@ -8054,6 +8102,7 @@ const ENG_CALCS: EngCalc[] = [
   {
     id: "column",
     name: "Column buckling (Euler / Johnson)",
+    group: "Structural & solids",
     hint:
       "Each field names its SI unit; a bare number is read in that unit, and you may write " +
       'another ("200 GPa", "1e6 mm^4") to have it converted. Paste I straight from the ' +
@@ -8128,6 +8177,7 @@ const ENG_CALCS: EngCalc[] = [
   {
     id: "torsion",
     name: "Shaft torsion",
+    group: "Structural & solids",
     hint:
       "Circular shafts only — the formula is exact for a circle and simply wrong for any other " +
       'shape. Each field names its SI unit; a bare number is read in it, and a unit you write ("12 kN·m", ' +
@@ -8173,6 +8223,7 @@ const ENG_CALCS: EngCalc[] = [
   {
     id: "pipe",
     name: "Pipe flow & head loss",
+    group: "Fluids",
     hint:
       "Each field names its SI unit; a bare number is read in it, and a unit you write " +
       '("100 mm", "15.7 L/s", "68 °F") is converted. The friction factor comes from ' +
@@ -8284,6 +8335,7 @@ const ENG_CALCS: EngCalc[] = [
   {
     id: "wall",
     name: "Composite wall / pipe insulation",
+    group: "Thermal",
     hint:
       'Layers, one per line: "name, conductivity, thickness", or "material, thickness" to use ' +
       'the built-in conductivity — try "Mineral wool, 50 mm". Order them from the inside out. ' +
@@ -8415,6 +8467,7 @@ const ENG_CALCS: EngCalc[] = [
   {
     id: "hx",
     name: "Heat exchanger (LMTD sizing)",
+    group: "Thermal",
     hint:
       "Give all four terminal temperatures and U, then either an area to get the duty or a duty " +
       "to get the area. Each field names its SI unit; a bare number is read in it and a unit " +
@@ -8474,7 +8527,8 @@ const ENG_CALCS: EngCalc[] = [
   },
   {
     id: "control-tf",
-    name: "Control: poles, zeros & stability",
+    name: "Poles, zeros & stability",
+    group: "Control systems",
     hint:
       'Coefficients highest power first ("1 3 2") or written out ("s^2+3*s+2") — either works. ' +
       "Stability is decided TWICE, exactly by Routh-Hurwitz and numerically from the poles, and " +
@@ -8538,7 +8592,8 @@ const ENG_CALCS: EngCalc[] = [
   },
   {
     id: "control-step",
-    name: "Control: step & impulse response",
+    name: "Step & impulse response",
+    group: "Control systems",
     hint:
       "Simulates the response and reports the transient metrics. For a genuine second-order " +
       "system the damping ratio and overshoot are exact identities; above second order they come " +
@@ -8629,7 +8684,8 @@ const ENG_CALCS: EngCalc[] = [
   },
   {
     id: "control-bode",
-    name: "Control: frequency response & margins",
+    name: "Frequency response & margins",
+    group: "Control systems",
     hint:
       "Enter the OPEN-LOOP transfer function L(s) = G·H. Gain and phase margins are open-loop " +
       "quantities that predict what happens when the loop is closed around them — entering a " +
@@ -8701,7 +8757,8 @@ const ENG_CALCS: EngCalc[] = [
   },
   {
     id: "control-pid",
-    name: "Control: PID & closed loop",
+    name: "PID & closed loop",
+    group: "Control systems",
     hint:
       "Puts a PID controller in series with your plant and closes a unity-feedback loop around " +
       "it. Ziegler-Nichols is offered as a STARTING POINT — it is deliberately aggressive and " +
@@ -8783,7 +8840,8 @@ const ENG_CALCS: EngCalc[] = [
   },
   {
     id: "pk-dose",
-    name: "Pharmacokinetics: dose & concentration curve",
+    name: "Dose & concentration curve",
+    group: "Pharmacokinetics",
     hint:
       "Built on CLEARANCE and VOLUME, which are the physiologically independent parameters — " +
       "half-life is a consequence of both (t½ = ln2·Vd/CL). Dose in mg with Vd in L gives mg/L " +
@@ -8877,7 +8935,8 @@ const ENG_CALCS: EngCalc[] = [
   },
   {
     id: "pk-steady",
-    name: "Pharmacokinetics: steady state & loading dose",
+    name: "Steady state & loading dose",
+    group: "Pharmacokinetics",
     hint:
       "Repeated dosing at a fixed interval. The average steady-state concentration depends ONLY " +
       "on dose rate and clearance — not on volume and not on half-life — while the time to get " +
@@ -8952,7 +9011,8 @@ const ENG_CALCS: EngCalc[] = [
   },
   {
     id: "pk-nca",
-    name: "Pharmacokinetics: analyse measured data (NCA)",
+    name: "Analyse measured data (NCA)",
+    group: "Pharmacokinetics",
     hint:
       'One "time concentration" pair per line. The terminal slope is CHOSEN by trying every ' +
       "window of at least three points and keeping the best adjusted R². The percentage of AUC " +
@@ -9060,7 +9120,8 @@ const ENG_CALCS: EngCalc[] = [
   },
   {
     id: "vib-free",
-    name: "Vibration: free response & damping",
+    name: "Free response & damping",
+    group: "Vibration",
     hint:
       "Mass, stiffness and damping in consistent units (kg, N/m, N·s/m gives rad/s). Give a " +
       "damping coefficient, or leave it blank and give a damping ratio instead. Two measured " +
@@ -9155,7 +9216,8 @@ const ENG_CALCS: EngCalc[] = [
   },
   {
     id: "vib-forced",
-    name: "Vibration: forced response & isolation",
+    name: "Forced response & isolation",
+    group: "Vibration",
     hint:
       "Harmonic forcing of a damped SDOF system. Resonance is NOT at ω = ωn for a damped system, " +
       "and vibration isolation only begins above a frequency ratio of √2 — below it a mount " +
@@ -9233,7 +9295,8 @@ const ENG_CALCS: EngCalc[] = [
   },
   {
     id: "vib-modal",
-    name: "Vibration: natural frequencies & mode shapes",
+    name: "Natural frequencies & mode shapes",
+    group: "Vibration",
     hint:
       'Either a chain of masses and springs ("1 1 1" masses, "100 100 100" springs), or the mass ' +
       "and stiffness matrices directly, one row per line. Frequencies come back ascending and " +
@@ -9309,7 +9372,8 @@ const ENG_CALCS: EngCalc[] = [
   },
   {
     id: "thermo-process",
-    name: "Thermodynamics: ideal-gas process",
+    name: "Ideal-gas process",
+    group: "Thermal",
     hint:
       "A closed-system process on an ideal gas. All four named processes are the same polytropic " +
       "family (n = 0 isobaric, 1 isothermal, k isentropic, ∞ isochoric), so the work integral is " +
@@ -9399,7 +9463,8 @@ const ENG_CALCS: EngCalc[] = [
   },
   {
     id: "thermo-cycle",
-    name: "Thermodynamics: power cycles",
+    name: "Power cycles",
+    group: "Thermal",
     hint:
       "Air-standard Otto, Diesel and Brayton cycles. Every one is compared against the Carnot " +
       "bound between its own extremes, and a real engine reaches roughly a third of the " +
@@ -9493,7 +9558,8 @@ const ENG_CALCS: EngCalc[] = [
   },
   {
     id: "thermo-vapour",
-    name: "Thermodynamics: Rankine, refrigeration & Carnot check",
+    name: "Rankine, refrigeration & Carnot check",
+    group: "Thermal",
     hint:
       "Vapour cycles are computed from enthalpies YOU look up in your own steam or refrigerant " +
       "tables — no property tables are built in, deliberately, so the data is yours and " +
@@ -9614,7 +9680,8 @@ const ENG_CALCS: EngCalc[] = [
   },
   {
     id: "fatigue-endurance",
-    name: "Fatigue: endurance limit & notch factor",
+    name: "Endurance limit & notch factor",
+    group: "Fatigue & machine design",
     hint:
       "The corrected endurance limit by the Marin factor method, and the fatigue " +
       "stress-concentration factor. Surface finish is usually the largest single reduction — an " +
@@ -9704,7 +9771,8 @@ const ENG_CALCS: EngCalc[] = [
   },
   {
     id: "fatigue-safety",
-    name: "Fatigue: mean stress & factor of safety",
+    name: "Mean stress & factor of safety",
+    group: "Fatigue & machine design",
     hint:
       "All four mean-stress criteria are computed and shown, because they disagree by a lot. The " +
       "first-cycle YIELD check runs alongside them — none of the fatigue criteria knows about " +
@@ -9762,7 +9830,8 @@ const ENG_CALCS: EngCalc[] = [
   },
   {
     id: "fatigue-life",
-    name: "Fatigue: finite life & cumulative damage",
+    name: "Finite life & cumulative damage",
+    group: "Fatigue & machine design",
     hint:
       "Cycles to failure from the S-N line between 0.9·Sut at 10³ cycles and Se at 10⁶. Add more " +
       'lines as "stress cycles" to sum Miner damage over a load spectrum. Read every life as an ' +
@@ -9851,7 +9920,8 @@ const ENG_CALCS: EngCalc[] = [
   },
   {
     id: "opamp",
-    name: "Electronics: op-amp circuits",
+    name: "Op-amp circuits",
+    group: "Electronics",
     hint:
       "Gains and impedances for the standard configurations, plus the real limits the ideal model " +
       "hides. Give a gain-bandwidth product to see what bandwidth the gain actually leaves you, " +
@@ -9929,7 +9999,8 @@ const ENG_CALCS: EngCalc[] = [
   },
   {
     id: "filter-design",
-    name: "Electronics: analogue filter design",
+    name: "Analogue filter design",
+    group: "Electronics",
     hint:
       "Give a passband and stopband specification and it computes the minimum order that meets " +
       "both, then hands you a transfer function you can take straight to the control tools to " +
@@ -9993,7 +10064,8 @@ const ENG_CALCS: EngCalc[] = [
   },
   {
     id: "logic",
-    name: "Electronics: truth table & Boolean minimisation",
+    name: "Truth table & Boolean minimisation",
+    group: "Electronics",
     hint:
       'Write the expression in any common notation — "A AND B", "A&B", "AB", "A*B" all work, and ' +
       "a trailing apostrophe negates. Minimisation is Quine-McCluskey, so it does not run out at " +
@@ -10055,7 +10127,8 @@ const ENG_CALCS: EngCalc[] = [
   },
   {
     id: "open-channel",
-    name: "Fluids: open-channel flow",
+    name: "Open-channel flow",
+    group: "Fluids",
     hint:
       "Manning's equation for uniform flow, in SI. The Froude number is the answer that matters: " +
       "it decides whether the channel is controlled from upstream or downstream, and crossing " +
@@ -10127,7 +10200,8 @@ const ENG_CALCS: EngCalc[] = [
   },
   {
     id: "pump-npsh",
-    name: "Fluids: pump NPSH & cavitation",
+    name: "Pump NPSH & cavitation",
+    group: "Fluids",
     hint:
       "Cavitation is a failure mode, not an efficiency loss, and it is entirely a suction-side " +
       "problem — nothing downstream of the pump can fix it. Note that NPSH available FALLS as the " +
@@ -10179,7 +10253,8 @@ const ENG_CALCS: EngCalc[] = [
   },
   {
     id: "compressible",
-    name: "Fluids: compressible flow & choking",
+    name: "Compressible flow & choking",
+    group: "Fluids",
     hint:
       "Isentropic relations for an ideal gas. The result worth knowing is CHOKING: past the " +
       "critical pressure ratio, lowering the downstream pressure does not increase the mass flow, " +
@@ -10214,7 +10289,8 @@ const ENG_CALCS: EngCalc[] = [
   },
   {
     id: "haemodynamics",
-    name: "Biomedical: haemodynamics",
+    name: "Haemodynamics",
+    group: "Biomedical",
     hint:
       "Poiseuille flow in a single vessel and whole-circulation resistance. The fourth-power " +
       "dependence on radius is the point: a 20% narrowing more than doubles the resistance, which " +
@@ -10283,7 +10359,8 @@ const ENG_CALCS: EngCalc[] = [
   },
   {
     id: "biomechanics",
-    name: "Biomedical: joint biomechanics",
+    name: "Joint biomechanics",
+    group: "Biomedical",
     hint:
       "Static equilibrium about a joint. The body is built almost entirely from third-class " +
       "levers, so the muscle force is many times the external load — and the JOINT REACTION is " +
@@ -10321,7 +10398,8 @@ const ENG_CALCS: EngCalc[] = [
   },
   {
     id: "biosignal",
-    name: "Biomedical: signal sampling & aliasing",
+    name: "Signal sampling & aliasing",
+    group: "Biomedical",
     hint:
       "Checks a sampling rate against the signal it is meant to capture. Aliasing is the one " +
       "failure here that cannot be undone: once a frequency has folded down into the band, no " +

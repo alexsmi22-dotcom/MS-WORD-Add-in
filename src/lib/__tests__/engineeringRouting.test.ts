@@ -94,8 +94,8 @@ describe("the scan is not vacuous", () => {
     // If the select is ever populated from a second, hand-written list, adding a
     // calc here would silently not appear — the exact drift modes.ts was created
     // to end. Pin the loop that reads the registry.
-    expect(PANE).toContain("for (const c of ENG_CALCS)");
-    expect(PANE).toContain("engineeringCalcSelect");
+    expect(PANE).toContain("ENG_CALCS.filter((c) => c.group === title)");
+    expect(PANE).toContain("engineeringCalcSelect.appendChild(g)");
   });
 
   test("selection and compute both resolve against the registry", () => {
@@ -482,5 +482,79 @@ describe("the em-dash sentinel cannot disable Insert on an Engineering result", 
     // than wrong — so pin the thing it is protecting.
     expect(PANE).toContain("function plainDashes(");
     expect(PANE).toContain("\\u2014");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The menu is grouped, and a grouped menu can drop a tool in a way a flat one
+// could not: the pane renders one <optgroup> per heading in ENG_GROUP_ORDER and
+// fills it by filtering ENG_CALCS. A calculation whose group is absent from
+// that order is therefore built into the registry, reachable by every routing
+// test above, and INVISIBLE IN THE MENU. TypeScript's union type catches a
+// typo, but not a group deleted from the order list while calcs still name it,
+// and not a heading that ends up with nothing under it.
+// ---------------------------------------------------------------------------
+describe("every Engineering tool appears under a heading in the menu", () => {
+  const ORDER = (() => {
+    const i = PANE.indexOf("const ENG_GROUP_ORDER");
+    expect(i).toBeGreaterThan(-1);
+    const seg = PANE.slice(i, PANE.indexOf("] as const", i));
+    return [...seg.matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+  })();
+
+  const groupOf = (body: string): string | null => {
+    const m = /\bgroup: "([^"]+)"/.exec(body);
+    return m ? m[1] : null;
+  };
+
+  test("the heading list was found and is not empty", () => {
+    expect(ORDER.length).toBeGreaterThanOrEqual(2);
+  });
+
+  test.each(ENG.map((e) => [e.id, e.body] as const))("%s declares a group", (id, body) => {
+    expect({ id, group: groupOf(body) !== null }).toEqual({ id, group: true });
+  });
+
+  test.each(ENG.map((e) => [e.id, e.body] as const))(
+    "%s names a group the menu actually renders",
+    (id, body) => {
+      const g = groupOf(body);
+      // Not `toContain` on the array: the failure message should name the tool
+      // and the orphaned heading, because that is the whole diagnosis.
+      expect({ id, group: g, rendered: g !== null && ORDER.includes(g) }).toEqual({
+        id,
+        group: g,
+        rendered: true,
+      });
+    },
+  );
+
+  test("no heading is empty", () => {
+    const used = new Set(ENG.map((e) => groupOf(e.body)));
+    const empty = ORDER.filter((g) => !used.has(g));
+    expect(empty).toEqual([]);
+  });
+
+  test("no calculation repeats its heading in its own name", () => {
+    // "Control: frequency response" under a "Control systems" heading is the
+    // stutter this change removed; it creeps back the moment someone copies an
+    // existing entry as a template.
+    const stutters = ENG.filter((e) => {
+      const g = groupOf(e.body);
+      const n = /\bname: "([^"]+)"/.exec(e.body);
+      if (!g || !n) return false;
+      const first = g.split(/[ &]/)[0].toLowerCase();
+      return n[1].toLowerCase().startsWith(first + ":");
+    }).map((e) => e.id);
+    expect(stutters).toEqual([]);
+  });
+
+  test("no two calculations show the same label", () => {
+    // Names got shorter to fit under a heading, which is exactly when two of
+    // them collide. Within a group a duplicate is unusable; across groups it is
+    // merely confusing, so this checks globally.
+    const names = ENG.map((e) => (/\bname: "([^"]+)"/.exec(e.body) || [, ""])[1]);
+    const dupes = names.filter((n, i) => names.indexOf(n) !== i);
+    expect(dupes).toEqual([]);
   });
 });

@@ -52,6 +52,56 @@
     });
     push("TOOLS=" + tools.length);
 
+    // The menu is grouped by discipline. A source scan can prove the registry
+    // declares groups; only the rendered DOM proves the pane built the
+    // <optgroup> elements, and an option that ends up outside one is invisible
+    // under a heading rather than merely misplaced.
+    var groups = [].slice.call(calcSel.querySelectorAll("optgroup"));
+    var grouped = groups.reduce(function (n, g) {
+      return n + g.querySelectorAll("option").length;
+    }, 0);
+    var loose = calcSel.querySelectorAll(":scope > option").length;
+    push(
+      "MENU groups=" + groups.length + " grouped=" + grouped + " loose=" + loose +
+        " headings=" + groups.map(function (g) { return g.label; }).join("/")
+    );
+
+    // ADVERSARIAL — leaving Engineering and coming back must not rebuild the
+    // menu. The pane guards that with `if (!engineeringCalcSelect.options.length)`,
+    // and the options now live INSIDE <optgroup> elements. That guard only still
+    // works because HTMLSelectElement.options is a flat list of every descendant
+    // option rather than of direct children; if it were not, every visit would
+    // append 36 more entries and the menu would grow without bound. That is a
+    // one-line assumption sitting under a change nobody would think to re-check,
+    // so it gets exercised rather than reasoned about.
+    (function repopulationCheck() {
+      var before = calcSel.querySelectorAll("option").length;
+      var groupsBefore = calcSel.querySelectorAll("optgroup").length;
+      var engSection = document.getElementById("engineering-section");
+      // The check is only worth anything if the pane genuinely LEAVES
+      // Engineering. A mode switch that silently no-ops would hold the option
+      // count steady for the most boring possible reason and read as a pass, so
+      // the departure is confirmed before the count is trusted.
+      var reallyLeft = false;
+      for (var r = 0; r < 3; r++) {
+        sel.value = "math";
+        sel.dispatchEvent(new Event("change", { bubbles: true }));
+        if (engSection && engSection.offsetParent === null) reallyLeft = true;
+        sel.value = "engineering";
+        sel.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+      if (!reallyLeft) {
+        push("REVISIT VACUOUS the pane never left Engineering, so the count proves nothing");
+        return;
+      }
+      var after = calcSel.querySelectorAll("option").length;
+      var groupsAfter = calcSel.querySelectorAll("optgroup").length;
+      push(
+        "REVISIT options=" + before + "->" + after + " groups=" + groupsBefore + "->" + groupsAfter +
+          " " + (after === before && groupsAfter === groupsBefore ? "ok" : "MENU_GREW")
+      );
+    })();
+
     function fields() {
       return [].slice.call(inputsEl.querySelectorAll("[data-key]"));
     }

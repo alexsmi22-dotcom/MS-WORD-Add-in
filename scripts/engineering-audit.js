@@ -132,6 +132,21 @@ function run() {
     console.log("  ok    self-test: every check tripped on a known-bad payload.\n");
   }
 
+  const menu = lines.find((l) => l.startsWith("MENU ")) || "";
+  const loose = Number((/loose=(\d+)/.exec(menu) || [, "-1"])[1]);
+  const grouped = Number((/grouped=(\d+)/.exec(menu) || [, "-1"])[1]);
+  const menuOk = loose === 0 && grouped === Number(toolCount) && grouped > 0;
+  if (!menuOk) findings.push(menu || "MENU MISSING");
+  console.log("--- The menu as the browser actually rendered it ---------------");
+  console.log(`  ${menuOk ? "ok  " : "FLAG"}  ${menu.slice(5) || "no MENU line produced"}`);
+  console.log("");
+
+  const revisit = lines.find((l) => l.startsWith("REVISIT ")) || "";
+  const revisitOk = / ok$/.test(revisit);
+  if (!revisitOk) findings.push(revisit || "REVISIT MISSING");
+  console.log(`  ${revisitOk ? "ok  " : "FLAG"}  leaving and re-entering Engineering 3x: ${revisit.slice(8) || "no result"}`);
+  console.log("");
+
   console.log("--- On their own defaults -------------------------------------");
   for (const l of defaults) {
     const clean = / flags=clean /.test(l);

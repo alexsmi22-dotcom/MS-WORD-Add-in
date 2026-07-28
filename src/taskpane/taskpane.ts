@@ -100,6 +100,10 @@ import { analyzeBeam, parseSupports, parseLoads, parseLength } from "../lib/beam
 import { beamDiagramSvg } from "../lib/beamChart";
 import { sectionProperties, bendingStress, SectionSpec } from "../lib/section";
 import { parseNetlist, parseValue, solveDc, solveAc, frequencySweep, dB } from "../lib/circuit";
+import { analyzeStress, transformPlane, factorOfSafety, analyzeTorsion, analyzeColumn, EndCondition } from "../lib/stress";
+import { analyzeTruss, parseTruss } from "../lib/truss";
+import { analyzePipe, waterProperties, ROUGHNESS } from "../lib/fluids";
+import { analyzeWall, analyzeExchanger, CONDUCTIVITY, Layer } from "../lib/heat";
 import { parseMeasured, resultFigures } from "../lib/units";
 import { nmrChartSvg, irChartSvg, msChartSvg, cosyChartSvg, hsqcChartSvg, jcampChartSvg, decimateTrace, SPECTRUM_CHART_SIZE, SPECTRUM_2D_SIZE } from "../lib/spectraChart";
 import { buildPeptide } from "../lib/peptide";
@@ -7567,6 +7571,565 @@ const ENG_CALCS: EngCalc[] = [
         },
       ];
       return { text: clean.join("\n"), blocks };
+    },
+  },
+  {
+    id: "stress",
+    name: "Stress state: principal stresses & failure",
+    hint:
+      "Enter the stress components in any consistent unit — MPa in gives MPa out. Tension is " +
+      "positive. Leave the out-of-plane components at 0 for plane stress, which is the usual case.",
+    fields: [
+      { key: "sx", label: "σx", default: "80", kind: "text" },
+      { key: "sy", label: "σy", default: "-40", kind: "text" },
+      { key: "txy", label: "τxy", default: "25", kind: "text" },
+      { key: "sz", label: "σz (0 for plane stress)", default: "0", kind: "text" },
+      { key: "tyz", label: "τyz (0 for plane stress)", default: "0", kind: "text" },
+      { key: "tzx", label: "τzx (0 for plane stress)", default: "0", kind: "text" },
+      { key: "Fy", label: "Yield strength, same unit (blank to skip)", default: "", kind: "text" },
+      { key: "ang", label: "Also report the state rotated by this angle, degrees (blank to skip)", default: "", kind: "text" },
+    ],
+    compute: (r) => {
+      const raws = ["sx", "sy", "txy", "sz", "tyz", "tzx"].map((k) => r(k));
+      const figs = engFigures(raws);
+      const n = (k: string): number => Number(r(k) || "0");
+      const state = { sx: n("sx"), sy: n("sy"), sz: n("sz"), txy: n("txy"), tyz: n("tyz"), tzx: n("tzx") };
+      for (const [k, v] of Object.entries(state)) {
+        if (!Number.isFinite(v)) return { text: `${k} must be a number.`, ok: false };
+      }
+      const res = analyzeStress(state);
+      if (!res.ok) return { text: res.error, ok: false };
+
+      const lines: string[] = [];
+      lines.push(res.plane ? "Plane stress state" : "General three-dimensional stress state");
+      lines.push("");
+      lines.push("Principal stresses");
+      lines.push(`  σ1 = ${engNum(res.principal[0], figs)}`);
+      lines.push(`  σ2 = ${engNum(res.principal[1], figs)}`);
+      lines.push(`  σ3 = ${engNum(res.principal[2], figs)}`);
+      if (res.plane && res.thetaP !== null) {
+        lines.push(
+          `  σ1 acts on a plane ${engNum(res.thetaP, figs)} deg counterclockwise from the x axis` +
+            " (double this to read it off a Mohr diagram).",
+        );
+      }
+      lines.push("");
+      if (res.tauInPlane !== null) {
+        lines.push(`Maximum in-plane shear = ${engNum(res.tauInPlane, figs)}`);
+      }
+      lines.push(`Absolute maximum shear = ${engNum(res.tauAbsMax, figs)}`);
+      if (res.mohrCentre !== null && res.mohrRadius !== null) {
+        lines.push(
+          `Mohr's circle: centre ${engNum(res.mohrCentre, figs)}, radius ${engNum(res.mohrRadius, figs)}`,
+        );
+      }
+      lines.push(`Hydrostatic (mean) stress = ${engNum(res.hydrostatic, figs)}`);
+      lines.push("");
+      lines.push("Equivalent stress");
+      lines.push(`  von Mises (distortion energy) = ${engNum(res.vonMises, figs)}`);
+      lines.push(`  Tresca (maximum shear)        = ${engNum(res.tresca, figs)}`);
+
+      const fyRaw = r("Fy").trim();
+      if (fyRaw) {
+        const Fy = Number(fyRaw);
+        const fos = factorOfSafety(res, Fy);
+        if ("ok" in fos && fos.ok === false) {
+          lines.push(`Factor of safety: ${fos.error}`);
+        } else {
+          const f = fos as { vonMises: number; tresca: number };
+          lines.push("");
+          lines.push(`Factor of safety against a yield strength of ${engNum(Fy, figs)}`);
+          lines.push(`  by von Mises = ${Number.isFinite(f.vonMises) ? engNum(f.vonMises, figs) : "unbounded (no stress)"}`);
+          lines.push(`  by Tresca    = ${Number.isFinite(f.tresca) ? engNum(f.tresca, figs) : "unbounded (no stress)"}`);
+          lines.push(
+            "  Tresca is the conservative one and is what a code will usually ask for; von Mises " +
+              "is the better predictor for a ductile metal. Design to whichever your standard names.",
+          );
+        }
+      }
+
+      const angRaw = r("ang").trim();
+      if (angRaw) {
+        const deg = Number(angRaw);
+        if (!Number.isFinite(deg)) {
+          lines.push("The rotation angle must be a number.");
+        } else if (!res.plane) {
+          lines.push("");
+          lines.push(
+            "A rotation was requested, but this is a three-dimensional state and a single angle " +
+              "does not define a rotation of it. The rotated components were not computed.",
+          );
+        } else {
+          const t = transformPlane(state.sx, state.sy, state.txy, deg);
+          if ("ok" in t && t.ok === false) {
+            lines.push(t.error);
+          } else {
+            const tt = t as { sxp: number; syp: number; txyp: number };
+            lines.push("");
+            lines.push(`On a plane rotated ${engNum(deg, figs)} deg counterclockwise`);
+            lines.push(`  σx' = ${engNum(tt.sxp, figs)}`);
+            lines.push(`  σy' = ${engNum(tt.syp, figs)}`);
+            lines.push(`  τx'y' = ${engNum(tt.txyp, figs)}`);
+          }
+        }
+      }
+
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(
+        `Quoted to ${figs} significant figures, the fewest any input carries.`,
+      );
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "truss",
+    name: "Truss analysis (method of joints)",
+    hint:
+      'One item per line: "joint A 0 0", "member A B", "support A pin" (or roller), ' +
+      '"load C 0 -10". Loads are vector components, so DOWNWARD IS NEGATIVE. y is up. ' +
+      "Member forces come back positive in tension. Keep your units consistent.",
+    fields: [
+      {
+        key: "net",
+        label: "Truss description",
+        default: [
+          "joint A 0 0",
+          "joint B 6 0",
+          "joint C 3 4",
+          "member A B",
+          "member A C",
+          "member B C",
+          "support A pin",
+          "support B roller",
+          "load C 0 -12",
+        ].join("\n"),
+        kind: "block",
+        rows: 9,
+      },
+      { key: "unit", label: "Force unit (labelling only)", default: "kN", kind: "text" },
+    ],
+    compute: (r) => {
+      const parsed = parseTruss(r("net"));
+      if (parsed.errors.length) return { text: parsed.errors.join("\n"), ok: false };
+      const res = analyzeTruss(parsed.input);
+      if (!res.ok) return { text: res.error, ok: false };
+      const fu = r("unit").trim();
+
+      const lines: string[] = [];
+      lines.push(
+        `Planar truss: ${res.counts.joints} joints, ${res.counts.members} members, ` +
+          `${res.counts.reactions} reaction components`,
+      );
+      lines.push(res.determinacy);
+      lines.push("");
+      lines.push("Member forces (positive = tension)");
+      for (const m of res.members) {
+        // An exact answer is shown as a fraction as well as a decimal, because
+        // the fraction is what a textbook quotes and what a student is checking.
+        const exact =
+          m.exact && m.exact.d !== 1n ? ` = ${m.exact.n}/${m.exact.d}` : "";
+        const tag = m.state === "zero" ? "zero force" : m.state;
+        lines.push(`  ${m.a}-${m.b}: ${engNum(m.force)}${exact} ${fu} (${tag}), length ${engNum(m.length)}`);
+      }
+      lines.push("");
+      lines.push("Reactions");
+      for (const v of res.reactions) {
+        const exact = v.exact.d !== 1n ? ` = ${v.exact.n}/${v.exact.d}` : "";
+        lines.push(`  ${v.joint} ${v.dir}: ${engNum(v.value)}${exact} ${fu}`);
+      }
+      if (res.maxTension || res.maxCompression) {
+        lines.push("");
+        if (res.maxTension)
+          lines.push(`Largest tension: ${res.maxTension.member} at ${engNum(res.maxTension.force)} ${fu}`);
+        if (res.maxCompression)
+          lines.push(
+            `Largest compression: ${res.maxCompression.member} at ${engNum(res.maxCompression.force)} ${fu}`,
+          );
+      }
+      if (res.zeroForce.length) {
+        lines.push("");
+        lines.push(`Zero-force members: ${res.zeroForce.join(", ")}`);
+      }
+      for (const w of res.warnings) lines.push(`Note: ${w}`);
+      lines.push(
+        "Reactions and any member with a whole-number length are EXACT; the rest are exact " +
+          "divided by an irrational length.",
+      );
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "column",
+    name: "Column buckling (Euler / Johnson)",
+    hint:
+      "Consistent SI: length in m, E and the yield strength in Pa, I in m^4, A in m^2. " +
+      "I must be about the axis the column is WEAKEST in. Enter a yield strength — without it " +
+      "a short column's Euler load is badly unconservative.",
+    fields: [
+      { key: "L", label: "Unbraced length, m", default: "3", kind: "text" },
+      { key: "E", label: "Young's modulus, Pa", default: "200e9", kind: "text" },
+      { key: "I", label: "Second moment of area (minor axis), m^4", default: "1e-6", kind: "text" },
+      { key: "A", label: "Cross-sectional area, m^2", default: "2e-3", kind: "text" },
+      { key: "Fy", label: "Yield strength, Pa (blank to skip)", default: "250e6", kind: "text" },
+      {
+        key: "end",
+        label: "End conditions",
+        default: "pinned",
+        kind: "select",
+        options: [
+          { value: "pinned", label: "Pinned both ends (K = 1)" },
+          { value: "fixed", label: "Fixed both ends (K = 0.5)" },
+          { value: "fixed-pinned", label: "Fixed one end, pinned the other (K = 0.7)" },
+          { value: "fixed-free", label: "Fixed one end, free the other (K = 2)" },
+          { value: "custom", label: "Custom K" },
+        ],
+      },
+      { key: "K", label: "Custom K (used only when End conditions is Custom)", default: "1", kind: "text" },
+    ],
+    compute: (r) => {
+      const figs = engFigures([r("L"), r("E"), r("I"), r("A"), r("Fy")]);
+      const num = (k: string): number => Number(r(k) || "0");
+      const res = analyzeColumn({
+        L: num("L"),
+        E: num("E"),
+        I: num("I"),
+        A: num("A"),
+        Fy: r("Fy").trim() ? num("Fy") : 0,
+        end: (r("end") || "pinned") as EndCondition,
+        kCustom: Number(r("K") || "1"),
+      });
+      if (!res.ok) return { text: res.error, ok: false };
+
+      const lines: string[] = [];
+      lines.push("Column buckling");
+      lines.push(`Effective length factor K = ${engNum(res.K, figs)}, effective length = ${engNum(res.Le, figs)} m`);
+      lines.push(`Radius of gyration r = ${engNum(res.r, figs)} m`);
+      lines.push(`Slenderness ratio Le/r = ${engNum(res.slenderness, figs)}`);
+      lines.push("");
+      lines.push(`Euler critical load Pcr = ${engNum(res.pEuler, figs)} N (${engNum(res.pEuler / 1e3, figs)} kN)`);
+      lines.push(`Euler critical stress = ${engNum(res.sigmaEuler / 1e6, figs)} MPa`);
+      if (res.slendernessTransition !== null) {
+        lines.push(`Transition slenderness = ${engNum(res.slendernessTransition, figs)}`);
+        lines.push(`Squash load A·Fy = ${engNum(res.pSquash as number, figs)} N`);
+        lines.push("");
+        lines.push(
+          `GOVERNING critical load = ${engNum(res.pCritical, figs)} N ` +
+            `(${engNum(res.pCritical / 1e3, figs)} kN), by the ` +
+            `${res.governs === "johnson" ? "Johnson parabola" : "Euler hyperbola"}.`,
+        );
+      }
+      lines.push("");
+      lines.push(
+        "This is the load at which the PERFECT column buckles. A real one has initial crookedness " +
+          "and load eccentricity and fails below it, which is what a design code's factors are for.",
+      );
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "torsion",
+    name: "Shaft torsion",
+    hint:
+      "Circular shafts only — the formula is exact for a circle and simply wrong for any other " +
+      "shape. Consistent SI: torque in N·m, diameters and length in m, G in Pa.",
+    fields: [
+      { key: "T", label: "Torque, N·m", default: "1200", kind: "text" },
+      { key: "d", label: "Outer diameter, m", default: "0.04", kind: "text" },
+      { key: "di", label: "Bore diameter, m (0 for solid)", default: "0", kind: "text" },
+      { key: "L", label: "Length, m (blank to skip the twist)", default: "1.5", kind: "text" },
+      { key: "G", label: "Shear modulus, Pa (blank to skip the twist)", default: "80e9", kind: "text" },
+    ],
+    compute: (r) => {
+      const figs = engFigures([r("T"), r("d"), r("di"), r("L"), r("G")]);
+      const num = (k: string): number => Number(r(k) || "0");
+      const res = analyzeTorsion({ T: num("T"), d: num("d"), di: num("di"), L: num("L"), G: num("G") });
+      if (!res.ok) return { text: res.error, ok: false };
+
+      const lines: string[] = [];
+      lines.push("Torsion of a circular shaft");
+      lines.push(`Polar second moment J = ${engNum(res.J, figs)} m^4`);
+      lines.push(`Peak shear stress at the surface = ${engNum(res.tauMax / 1e6, figs)} MPa (${engNum(res.tauMax, figs)} Pa)`);
+      if (res.tauInner > 0) {
+        lines.push(`Shear stress at the bore = ${engNum(res.tauInner / 1e6, figs)} MPa`);
+      }
+      lines.push("Shear varies linearly with radius, so the centre of a solid shaft carries none of it.");
+      if (res.twistRad !== null) {
+        lines.push("");
+        lines.push(`Angle of twist = ${engNum(res.twistDeg as number, figs)} deg (${engNum(res.twistRad, figs)} rad)`);
+      }
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "pipe",
+    name: "Pipe flow & head loss",
+    hint:
+      "Strict SI: diameter and length in m, velocity in m/s. The friction factor comes from " +
+      "Colebrook-White, solved rather than approximated. Leave the water temperature set to use " +
+      "water properties; clear it to use the density and viscosity below.",
+    fields: [
+      { key: "D", label: "Internal diameter, m", default: "0.1", kind: "text" },
+      { key: "L", label: "Pipe length, m", default: "100", kind: "text" },
+      { key: "V", label: "Mean velocity, m/s (blank to use the flow rate)", default: "2", kind: "text" },
+      { key: "Q", label: "Volumetric flow rate, m^3/s (used when velocity is blank)", default: "", kind: "text" },
+      {
+        key: "mat",
+        label: "Pipe material (roughness)",
+        default: "steel",
+        kind: "select",
+        options: ROUGHNESS.map((m) => ({ value: m.id, label: `${m.label} (${m.eps * 1000} mm)` })),
+      },
+      { key: "eps", label: "Roughness override, m (blank to use the material)", default: "", kind: "text" },
+      { key: "tempC", label: "Water temperature, °C (blank to use ρ and μ below)", default: "20", kind: "text" },
+      { key: "rho", label: "Density, kg/m^3", default: "998.2", kind: "text" },
+      { key: "mu", label: "Dynamic viscosity, Pa·s", default: "1.002e-3", kind: "text" },
+      { key: "K", label: "Sum of minor-loss coefficients ΣK", default: "0", kind: "text" },
+      { key: "eta", label: "Pump efficiency 0-1 (blank to skip)", default: "", kind: "text" },
+    ],
+    compute: (r) => {
+      const figs = engFigures([r("D"), r("L"), r("V") || r("Q")]);
+      const num = (k: string, dflt = 0): number => (r(k).trim() ? Number(r(k)) : dflt);
+
+      let rho = num("rho", NaN);
+      let mu = num("mu", NaN);
+      let fluidNote = "";
+      const tempRaw = r("tempC").trim();
+      if (tempRaw) {
+        const w = waterProperties(Number(tempRaw));
+        if (!w) {
+          return {
+            text: "The water temperature must be between 0 and 100 °C. Clear it to enter a density and viscosity directly.",
+            ok: false,
+          };
+        }
+        rho = w.rho;
+        mu = w.mu;
+        fluidNote = `Water at ${engNum(Number(tempRaw), figs)} °C: ρ = ${engNum(rho, 5)} kg/m^3, μ = ${engNum(mu, 4)} Pa·s`;
+      } else {
+        fluidNote = `ρ = ${engNum(rho, 5)} kg/m^3, μ = ${engNum(mu, 4)} Pa·s as entered`;
+      }
+
+      const mat = ROUGHNESS.find((m) => m.id === r("mat")) ?? ROUGHNESS[1];
+      const eps = r("eps").trim() ? Number(r("eps")) : mat.eps;
+
+      const vRaw = r("V").trim();
+      const qRaw = r("Q").trim();
+      const res = analyzePipe({
+        D: num("D"),
+        L: num("L"),
+        V: vRaw ? Number(vRaw) : undefined,
+        Q: !vRaw && qRaw ? Number(qRaw) : undefined,
+        eps,
+        rho,
+        mu,
+        sumK: num("K"),
+        eta: r("eta").trim() ? Number(r("eta")) : undefined,
+      });
+      if (!res.ok) return { text: res.error, ok: false };
+
+      const lines: string[] = [];
+      lines.push("Pipe flow");
+      lines.push(fluidNote);
+      lines.push(
+        `Roughness ε = ${engNum(eps, 3)} m` + (r("eps").trim() ? " (as entered)" : ` (${mat.label})`),
+      );
+      lines.push("");
+      lines.push(`Velocity = ${engNum(res.V, figs)} m/s, flow rate = ${engNum(res.Q, figs)} m^3/s (${engNum(res.Q * 1000, figs)} L/s)`);
+      lines.push(`Reynolds number Re = ${engNum(res.Re, figs)} — ${res.regime}`);
+      lines.push(`Relative roughness ε/D = ${engNum(res.relRoughness, 3)}`);
+      lines.push(`Darcy friction factor f = ${engNum(res.f, 4)} (Fanning = ${engNum(res.f / 4, 4)})`);
+      lines.push("");
+      lines.push(`Friction head loss = ${engNum(res.hMajor, figs)} m`);
+      if (res.hMinor > 0) {
+        lines.push(`Minor (fitting) losses = ${engNum(res.hMinor, figs)} m`);
+        lines.push(`Total head loss = ${engNum(res.hTotal, figs)} m`);
+      }
+      lines.push(`Pressure drop = ${engNum(res.dp, figs)} Pa (${engNum(res.dp / 1e5, figs)} bar)`);
+      lines.push(`Wall shear stress = ${engNum(res.tauWall, figs)} Pa`);
+      lines.push(`Power lost to friction = ${engNum(res.powerLost, figs)} W`);
+      if (res.pumpPower !== null) {
+        lines.push(`Pump shaft power required = ${engNum(res.pumpPower, figs)} W`);
+      }
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(
+        "Pipe roughness is a design value with real spread — commercial steel varies by a factor " +
+          "of two or more and roughens with age — so the head loss is not as precise as the " +
+          "digits suggest.",
+      );
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "wall",
+    name: "Composite wall / pipe insulation",
+    hint:
+      'Layers, one per line: "name, conductivity, thickness" (SI), or "material, thickness" to ' +
+      "use the built-in conductivity — try \"Mineral wool, 0.1\". Order them from the inside out. " +
+      "A film coefficient of 0 means that surface sits at the fluid temperature.",
+    fields: [
+      {
+        key: "geom",
+        label: "Geometry",
+        default: "plane",
+        kind: "select",
+        options: [
+          { value: "plane", label: "Plane wall" },
+          { value: "cylinder", label: "Pipe or cylinder" },
+        ],
+      },
+      {
+        key: "layers",
+        label: "Layers, inside first",
+        default: "Common brick, 0.2\nMineral wool, 0.05",
+        kind: "block",
+        rows: 4,
+      },
+      { key: "A", label: "Area, m^2 (plane only)", default: "1", kind: "text" },
+      { key: "r1", label: "Inner radius, m (cylinder only)", default: "0.02", kind: "text" },
+      { key: "Lc", label: "Length, m (cylinder only)", default: "1", kind: "text" },
+      { key: "hIn", label: "Inside film coefficient, W/(m²·K)", default: "10", kind: "text" },
+      { key: "hOut", label: "Outside film coefficient, W/(m²·K)", default: "25", kind: "text" },
+      { key: "tIn", label: "Inside fluid temperature, °C", default: "20", kind: "text" },
+      { key: "tOut", label: "Outside fluid temperature, °C", default: "-5", kind: "text" },
+    ],
+    compute: (r) => {
+      const figs = engFigures([r("hIn"), r("hOut"), r("tIn"), r("tOut")]);
+      const layers: Layer[] = [];
+      const errors: string[] = [];
+      const raw = r("layers").split(/\r?\n/);
+      for (let i = 0; i < raw.length; i++) {
+        const line = raw[i].split("#")[0].trim();
+        if (!line) continue;
+        const parts = line.split(",").map((s) => s.trim());
+        if (parts.length === 3) {
+          const k = Number(parts[1]);
+          const t = Number(parts[2]);
+          if (!Number.isFinite(k) || !Number.isFinite(t)) {
+            errors.push(`Layer ${i + 1}: the conductivity and thickness must be numbers.`);
+            continue;
+          }
+          layers.push({ name: parts[0], k, t });
+        } else if (parts.length === 2) {
+          const wanted = parts[0].toLowerCase();
+          const hit = CONDUCTIVITY.find((c) => c.id === wanted || c.label.toLowerCase() === wanted);
+          const t = Number(parts[1]);
+          if (!hit) {
+            errors.push(
+              `Layer ${i + 1}: "${parts[0]}" is not a known material. Give a conductivity ` +
+                `explicitly as "name, k, thickness", or use one of: ` +
+                CONDUCTIVITY.map((c) => c.label).join(", "),
+            );
+            continue;
+          }
+          if (!Number.isFinite(t)) {
+            errors.push(`Layer ${i + 1}: the thickness must be a number.`);
+            continue;
+          }
+          layers.push({ name: hit.label, k: hit.k, t });
+        } else {
+          errors.push(`Layer ${i + 1}: expected "name, k, thickness" or "material, thickness".`);
+        }
+      }
+      if (errors.length) return { text: errors.join("\n"), ok: false };
+
+      const geom = (r("geom") || "plane") as "plane" | "cylinder";
+      const num = (k: string): number => Number(r(k) || "0");
+      const res = analyzeWall({
+        geometry: geom,
+        layers,
+        A: geom === "plane" ? num("A") : undefined,
+        r1: geom === "cylinder" ? num("r1") : undefined,
+        L: geom === "cylinder" ? num("Lc") : undefined,
+        hIn: num("hIn"),
+        hOut: num("hOut"),
+        tIn: num("tIn"),
+        tOut: num("tOut"),
+      });
+      if (!res.ok) return { text: res.error, ok: false };
+
+      const lines: string[] = [];
+      lines.push(geom === "plane" ? "Composite plane wall" : "Composite cylindrical wall");
+      lines.push(`Total thermal resistance = ${engNum(res.Rtotal, figs)} K/W`);
+      lines.push(`Overall coefficient U = ${engNum(res.U, figs)} W/(m²·K), on the outer area ${engNum(res.areaOuter, figs)} m²`);
+      lines.push(`Heat rate Q = ${engNum(res.Q, figs)} W`);
+      lines.push(`Heat flux = ${engNum(res.flux, figs)} W/m² of outer surface`);
+      lines.push("");
+      lines.push("Resistance chain, inside to outside");
+      lines.push(`  Inside fluid at ${engNum(Number(r("tIn")), figs)} °C`);
+      for (const s of res.steps) {
+        lines.push(
+          `  ${s.name}: R = ${engNum(s.R, figs)} K/W (${engNum(100 * s.share, 3)}%) → ` +
+            `${engNum(s.tAfter, figs)} °C`,
+        );
+      }
+      lines.push("");
+      lines.push(`Controlling resistance: ${res.controlling}`);
+      if (res.criticalRadius !== null) {
+        lines.push(`Critical radius of insulation k/h = ${engNum(res.criticalRadius, figs)} m`);
+      }
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(
+        "Conductivity values are representative. Real materials vary with density and moisture, " +
+          "and wet insulation can be several times worse than the dry figure.",
+      );
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "hx",
+    name: "Heat exchanger (LMTD sizing)",
+    hint:
+      "Give all four terminal temperatures and U, then either an area to get the duty or a duty " +
+      "to get the area. Counterflow is the true-counterflow LMTD; a real shell-and-tube unit " +
+      "needs an F correction and more area than this.",
+    fields: [
+      {
+        key: "flow",
+        label: "Arrangement",
+        default: "counter",
+        kind: "select",
+        options: [
+          { value: "counter", label: "Counterflow" },
+          { value: "parallel", label: "Parallel flow" },
+        ],
+      },
+      { key: "thIn", label: "Hot stream inlet, °C", default: "150", kind: "text" },
+      { key: "thOut", label: "Hot stream outlet, °C", default: "90", kind: "text" },
+      { key: "tcIn", label: "Cold stream inlet, °C", default: "30", kind: "text" },
+      { key: "tcOut", label: "Cold stream outlet, °C", default: "70", kind: "text" },
+      { key: "U", label: "Overall coefficient U, W/(m²·K)", default: "500", kind: "text" },
+      { key: "A", label: "Area, m² (blank to solve for it)", default: "10", kind: "text" },
+      { key: "Q", label: "Duty, W (used when the area is blank)", default: "", kind: "text" },
+    ],
+    compute: (r) => {
+      const figs = engFigures([r("thIn"), r("thOut"), r("tcIn"), r("tcOut"), r("U")]);
+      const num = (k: string): number => Number(r(k) || "0");
+      const aRaw = r("A").trim();
+      const qRaw = r("Q").trim();
+      const res = analyzeExchanger({
+        flow: (r("flow") || "counter") as "counter" | "parallel",
+        thIn: num("thIn"),
+        thOut: num("thOut"),
+        tcIn: num("tcIn"),
+        tcOut: num("tcOut"),
+        U: num("U"),
+        A: aRaw ? Number(aRaw) : undefined,
+        Q: !aRaw && qRaw ? Number(qRaw) : undefined,
+      });
+      if (!res.ok) return { text: res.error, ok: false };
+
+      const lines: string[] = [];
+      lines.push(`${r("flow") === "parallel" ? "Parallel-flow" : "Counterflow"} heat exchanger`);
+      lines.push(`Terminal differences: ΔT1 = ${engNum(res.dt1, figs)} K, ΔT2 = ${engNum(res.dt2, figs)} K`);
+      lines.push(`Log mean temperature difference = ${engNum(res.lmtd, figs)} K`);
+      lines.push("");
+      lines.push(`Heat duty Q = ${engNum(res.Q, figs)} W (${engNum(res.Q / 1000, figs)} kW)`);
+      lines.push(`Area A = ${engNum(res.A, figs)} m²`);
+      lines.push(`  from Q = U·A·ΔTlm with U = ${engNum(Number(r("U")), figs)} W/(m²·K)`);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      return { text: plainDashes(lines.join("\n")) };
     },
   },
 ];

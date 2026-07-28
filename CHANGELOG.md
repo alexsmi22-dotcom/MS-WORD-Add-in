@@ -2,7 +2,80 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
-## [1.96.0] — 2026-07-26 — Four quiet correctness problems
+> Note: this file was not maintained between v1.96.0 and v2.23.0. Those releases
+> are recorded in the git history rather than here.
+
+## [2.24.0] — 2026-07-28 — Engineering becomes a full bench: stress, trusses, buckling, thermofluids
+
+Engineering had four tools — beam, cross-section, DC circuit, AC circuit. It has
+eleven. The new seven are the rest of an undergraduate engineering course, and
+each one is built around the thing that is most often got wrong rather than
+around the formula that is easiest to type.
+
+**Stress state.** Principal stresses, principal angle, Mohr's circle, von Mises
+and Tresca, and the factor of safety against a yield strength. It reports the
+**absolute** maximum shear as well as the in-plane one and says when they differ:
+for a biaxial state the zero out-of-plane principal stress lies outside the
+in-plane pair, so the in-plane circle understates the shear the material actually
+sees — σ1 = 100, σ2 = 60 gives 20 in-plane and 50 in truth. Three-dimensional
+states are solved in closed form from the tensor invariants, not by iteration.
+
+**Truss analysis** by the method of joints, **solved exactly**. The trick that
+makes that possible is a change of unknown: solving for the force *per unit
+length* rather than the axial force keeps every matrix coefficient rational, so
+the whole equilibrium solve is exact and the single square root happens once per
+member at the point of reporting. Reactions never touch it and are exact always.
+Zero-force members are therefore detected as exact zeros rather than as values
+below a tolerance. A mechanism, a statically indeterminate truss, and a
+**critical form** — where the member count balances and the structure still
+collapses, which is precisely what member counting cannot catch — are each named
+rather than given a confident wrong number.
+
+**Column buckling** with the Johnson parabola, not Euler alone. Euler's load has
+no upper bound as the column gets shorter, so for a stocky column it reports a
+load that would need a stress above yield and the column squashes long before it
+buckles. Quoting that figure by itself is unconservative in exactly the regime
+where being wrong matters. The transition slenderness is computed and the
+governing curve named.
+
+**Shaft torsion** — polar second moment, peak and bore shear stress, angle of
+twist. Circular sections only, and that is a deliberate refusal: τ = Tr/J is a
+theorem for a circle and simply false for a rectangle, where the section warps
+and the peak shear moves.
+
+**Pipe flow.** Reynolds number, friction factor from **Colebrook-White solved
+rather than approximated** (Swamee-Jain seeds a fixed-point iteration that is
+hard-capped and convergence-checked), Darcy-Weisbach head loss, minor losses,
+wall shear and pump power. Laminar flow uses f = 64/Re and says the roughness was
+ignored, because a laminar flow does not feel the wall. The transition band
+2300 < Re < 4000 returns a number **and says it is unreliable**, which is the
+honest position: there is no correlation there worth trusting.
+
+**Composite walls and pipe insulation** as a thermal resistance chain, with every
+interface temperature and the controlling layer. For a cylinder it reports the
+**critical radius**: on a thin pipe, insulation below k/h increases the exposed
+area faster than it adds resistance and the pipe loses *more* heat than bare.
+That is the one place in the subject where doing the obvious thing makes the
+problem worse, so it is computed rather than left to be discovered.
+
+**Heat exchanger sizing** by LMTD, counter or parallel flow. Equal terminal
+differences are handled as the removable singularity they are — a balanced
+counterflow exchanger is an ordinary design, not a degenerate one, and the naive
+formula returns NaN for it. A temperature cross is normal in counterflow and
+impossible in parallel flow, and it says so either way.
+
+**What the adversarial pass found.** Three overflow defects that all 93 oracle
+tests missed, every one a finite input producing a NaN or an Infinity that would
+have reached the document. The characteristic cubic formed I1³ and overflowed for
+a stress state written in pascals; von Mises squared its differences and lost an
+answer that fit in a double comfortably; the polar second moment is a fourth
+power and underflowed to zero, making the shear stress infinite. All three are
+now normalised before the arithmetic that overflows, with a final guard that
+refuses rather than reports a non-number.
+
+**Routing is now gated.** A new test asserts that every tool in the Engineering
+registry is reachable from the pane and calls its engine — the failure mode that
+once left three fully-tested Solve features with no way to run them.
 
 **Inserting no longer destroys your selection.** The shared text-insert path used
 `InsertLocation.replace`, so a user with a word selected who clicked "Insert MS

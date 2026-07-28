@@ -35,7 +35,35 @@ export const MODE_EXAMPLES: Record<ExampleMode, string> = {
       <li>Values may be written as a schematic prints them: <code>2k2</code> is 2.2 k, <code>4r7</code> is 4.7 ohms</li>
       <li>The <strong>DC operating point is exact</strong> &mdash; that divider reports <code>10/3 V</code>, not 3.3333</li>
       <li>Add <code>C</code> and <code>L</code> and give a start and stop frequency to sweep a node and draw a <strong>Bode magnitude plot</strong></li>
-      <li>Units are whatever you type, used consistently. Nothing converts them for you.</li>
+      <li><strong>Stress state</strong> &mdash; principal stresses, principal angle, Mohr's circle,
+        von Mises and Tresca, and the factor of safety against a yield strength. It reports the
+        <strong>absolute</strong> maximum shear as well as the in-plane one, and says when they
+        differ &mdash; for a biaxial state the in-plane circle understates the shear the material
+        actually sees, which is the classic way to be unconservative here.</li>
+      <li><strong>Truss</strong> &mdash; the method of joints, one item per line:</li>
+      <li><code>joint A 0 0</code> &middot; <code>member A B</code> &middot;
+        <code>support A pin</code> &middot; <code>load C 0 -12</code></li>
+      <li>Loads are vector components, so <strong>downward is negative</strong>, and member forces
+        come back positive in tension. Reactions are <strong>exact</strong>. A mechanism, an
+        indeterminate truss, and a critical form (the member count balances but the truss still
+        collapses) are each named rather than given a confident wrong number.</li>
+      <li><strong>Column buckling</strong> &mdash; Euler with the Johnson parabola for short
+        columns, so a stocky column does not get quoted a critical load above yield that it can
+        never reach. Give <code>I</code> about the <em>weak</em> axis.</li>
+      <li><strong>Shaft torsion</strong> &mdash; polar second moment, peak shear, angle of twist.
+        Circular sections only: <code>Tr/J</code> is a theorem for a circle and simply wrong for
+        anything else.</li>
+      <li><strong>Pipe flow</strong> &mdash; Reynolds number, friction factor from Colebrook-White
+        (solved, not approximated), Darcy-Weisbach head loss, minor losses and pump power. The
+        transition band 2300 &lt; Re &lt; 4000 returns a figure <em>and</em> says it is unreliable.</li>
+      <li><strong>Composite wall or pipe insulation</strong> &mdash; a thermal resistance chain with
+        every interface temperature, the controlling layer, and the <strong>critical radius</strong>:
+        on a thin pipe, insulation below <code>k/h</code> makes the heat loss <em>worse</em>.</li>
+      <li><strong>Heat exchanger</strong> &mdash; LMTD sizing, counter or parallel flow. A
+        temperature cross is normal in counterflow and impossible in parallel flow, and it says so
+        either way.</li>
+      <li>Units are whatever you type, used consistently. Nothing converts them for you &mdash;
+        except the pipe-flow and heat tools, which are strict SI and say so.</li>
     </ul>
   `,
   chemical: `

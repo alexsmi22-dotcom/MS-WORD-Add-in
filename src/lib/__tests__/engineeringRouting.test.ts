@@ -62,6 +62,9 @@ const EXPECTED: { id: string; calls: string[]; module: string }[] = [
   { id: "control-step", calls: ["timeResponse(", "secondOrderMetrics("], module: "../lib/control" },
   { id: "control-bode", calls: ["margins(", "frequencyResponse("], module: "../lib/control" },
   { id: "control-pid", calls: ["pidTf(", "feedback(", "series("], module: "../lib/control" },
+  { id: "pk-dose", calls: ["singleDoseCurve("], module: "../lib/pk" },
+  { id: "pk-steady", calls: ["steadyState(", "multipleDoseCurve("], module: "../lib/pk" },
+  { id: "pk-nca", calls: ["nca(", "parseConcentrationData("], module: "../lib/pk" },
 ];
 
 describe("the scan is not vacuous", () => {
@@ -167,6 +170,7 @@ const UNIT_NOTES = [
   "ENG_SAME_UNIT_NOTE",
   "ENG_EXACT_UNIT_NOTE",
   "ENG_CONTROL_UNIT_NOTE",
+  "ENG_PK_UNIT_NOTE",
 ] as const;
 
 /** Which contract each tool is on, asserted rather than inferred. */
@@ -186,6 +190,9 @@ const CONTRACT: Record<string, (typeof UNIT_NOTES)[number]> = {
   "control-step": "ENG_CONTROL_UNIT_NOTE",
   "control-bode": "ENG_CONTROL_UNIT_NOTE",
   "control-pid": "ENG_CONTROL_UNIT_NOTE",
+  "pk-dose": "ENG_PK_UNIT_NOTE",
+  "pk-steady": "ENG_PK_UNIT_NOTE",
+  "pk-nca": "ENG_PK_UNIT_NOTE",
 };
 
 describe("every Engineering tool declares one unit contract", () => {

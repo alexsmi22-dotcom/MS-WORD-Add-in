@@ -119,6 +119,14 @@ import {
   TransferFunction,
 } from "../lib/control";
 import { parseRatLiteral, ratToNumber as ratNum } from "../lib/cas";
+import {
+  singleDoseCurve,
+  steadyState,
+  multipleDoseCurve,
+  nca,
+  parseConcentrationData,
+  Route as PkRoute,
+} from "../lib/pk";
 import { parseMeasured, resultFigures } from "../lib/units";
 import { nmrChartSvg, irChartSvg, msChartSvg, cosyChartSvg, hsqcChartSvg, jcampChartSvg, decimateTrace, SPECTRUM_CHART_SIZE, SPECTRUM_2D_SIZE } from "../lib/spectraChart";
 import { buildPeptide } from "../lib/peptide";
@@ -7342,6 +7350,16 @@ const ENG_CONTROL_UNIT_NOTE =
   "unit you want back — with s in rad/s, times are seconds and frequencies rad/s; divide a " +
   "frequency by 2π for Hz.";
 
+/**
+ * Pharmacokinetics is dimensionally consistent in whatever the caller uses, but
+ * the pairing matters enough to spell out — mg with L gives mg/L, which is the
+ * same number as µg/mL and is where most unit confusion in PK actually happens.
+ */
+const ENG_PK_UNIT_NOTE =
+  "Units: yours, used consistently and not converted. Dose in mg with volume in L gives " +
+  "concentration in mg/L, which is the same number as µg/mL; clearance is then L/h and time is " +
+  "hours. Keep volume and clearance on the same volume unit or everything downstream is wrong.";
+
 /** As above, for the two engines whose exactness a conversion would destroy. */
 const ENG_EXACT_UNIT_NOTE =
   "Units: whatever you type, used consistently — nothing is converted here, because this " +
@@ -8646,6 +8664,283 @@ const ENG_CALCS: EngCalc[] = [
       for (const note of st.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_CONTROL_UNIT_NOTE);
       return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "pk-dose",
+    name: "Pharmacokinetics: dose & concentration curve",
+    hint:
+      "Built on CLEARANCE and VOLUME, which are the physiologically independent parameters — " +
+      "half-life is a consequence of both (t½ = ln2·Vd/CL). Dose in mg with Vd in L gives mg/L " +
+      "(= µg/mL) and CL in L/h. Oral dosing checks for flip-flop kinetics.",
+    fields: [
+      {
+        key: "route",
+        label: "Route",
+        default: "iv-bolus",
+        kind: "select",
+        options: [
+          { value: "iv-bolus", label: "IV bolus" },
+          { value: "infusion", label: "IV infusion" },
+          { value: "oral", label: "Oral (first-order absorption)" },
+        ],
+      },
+      { key: "dose", label: "Dose, mg", default: "500", kind: "text" },
+      { key: "vd", label: "Volume of distribution Vd, L", default: "35", kind: "text" },
+      { key: "cl", label: "Clearance CL, L/h", default: "3.5", kind: "text" },
+      { key: "f", label: "Bioavailability F, 0-1 (oral)", default: "0.8", kind: "text" },
+      { key: "ka", label: "Absorption rate constant ka, /h (oral)", default: "1.0", kind: "text" },
+      { key: "tInf", label: "Infusion duration, h (infusion)", default: "1", kind: "text" },
+      { key: "tEnd", label: "End time, h (blank to use 5 half-lives)", default: "", kind: "text" },
+    ],
+    compute: (r) => {
+      const route = (r("route") || "iv-bolus") as PkRoute;
+      const base = {
+        dose: Number(r("dose") || "0"),
+        vd: Number(r("vd") || "0"),
+        cl: Number(r("cl") || "0"),
+        f: r("f").trim() ? Number(r("f")) : 1,
+      };
+      const p = {
+        ...base,
+        // Bioavailability only applies to the oral route; forcing F on an IV
+        // dose would quietly discard drug that went straight into the vein.
+        f: route === "oral" ? base.f : 1,
+        ka: Number(r("ka") || "0"),
+        tInf: Number(r("tInf") || "0"),
+      };
+      let tEnd = Number(r("tEnd"));
+      let chosen = false;
+      if (!r("tEnd").trim() || !Number.isFinite(tEnd) || tEnd <= 0) {
+        if (!(p.cl > 0 && p.vd > 0)) return { text: "Enter a positive clearance and volume.", ok: false };
+        tEnd = 5 * (Math.LN2 / (p.cl / p.vd)) + (route === "infusion" ? p.tInf : 0);
+        chosen = true;
+      }
+
+      const res = singleDoseCurve(route, p, tEnd, 400);
+      if (!res.ok) return { text: res.error, ok: false };
+
+      const label = route === "iv-bolus" ? "IV bolus" : route === "infusion" ? "IV infusion" : "Oral";
+      const lines: string[] = [];
+      lines.push(`${label} dose of ${engNum(p.dose)} mg`);
+      lines.push(
+        `CL = ${engNum(p.cl)} L/h, Vd = ${engNum(p.vd)} L` + (route === "oral" ? `, F = ${engNum(p.f)}, ka = ${engNum(p.ka)} /h` : ""),
+      );
+      lines.push("");
+      lines.push(`Elimination rate constant k = CL/Vd = ${engNum(res.k)} /h`);
+      lines.push(`Half-life = ln2/k = ${engNum(res.halfLife)} h`);
+      lines.push("");
+      lines.push(`Cmax = ${engNum(res.cmax)} mg/L at t = ${engNum(res.tmax)} h`);
+      lines.push(`AUC (0 to infinity) = ${engNum(res.auc)} mg·h/L`);
+      lines.push(
+        route === "oral"
+          ? "  AUC = F·Dose/CL — total exposure is set by clearance and bioavailability alone."
+          : "  AUC = Dose/CL — total exposure is set by CLEARANCE alone, not by the volume of distribution.",
+      );
+      if (chosen) lines.push(`Simulated to ${engNum(tEnd)} h (five half-lives, chosen for you).`);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_PK_UNIT_NOTE);
+
+      const svg = buildPlotSvg(
+        [{ points: res.t.map((t, i) => ({ x: t, y: res.c[i] })), type: "line", color: "#2563eb", label: "C(t)" }],
+        { width: 380, height: 240, xlabel: "Time (h)", ylabel: "Concentration (mg/L)", title: `${label} concentration-time profile` },
+      );
+      const clean = lines.map(plainDashes);
+      const blocks: AnalyzeBlock[] = [
+        ...clean.map((t) => ({ kind: "line" as const, text: t })),
+        {
+          kind: "plot" as const,
+          svg,
+          caption: `${label} concentration-time profile`,
+          alt: `Plasma concentration against time after a ${label} dose`,
+          w: 380,
+          h: 240,
+        },
+      ];
+      return { text: clean.join("\n"), blocks };
+    },
+  },
+  {
+    id: "pk-steady",
+    name: "Pharmacokinetics: steady state & loading dose",
+    hint:
+      "Repeated dosing at a fixed interval. The average steady-state concentration depends ONLY " +
+      "on dose rate and clearance — not on volume and not on half-life — while the time to get " +
+      "there depends only on half-life. That split is what a loading dose exploits.",
+    fields: [
+      { key: "dose", label: "Maintenance dose, mg", default: "500", kind: "text" },
+      { key: "tau", label: "Dosing interval τ, h", default: "12", kind: "text" },
+      { key: "vd", label: "Volume of distribution Vd, L", default: "35", kind: "text" },
+      { key: "cl", label: "Clearance CL, L/h", default: "3.5", kind: "text" },
+      { key: "f", label: "Bioavailability F, 0-1", default: "1", kind: "text" },
+      { key: "nDoses", label: "Doses to plot", default: "10", kind: "text" },
+    ],
+    compute: (r) => {
+      const p = {
+        dose: Number(r("dose") || "0"),
+        vd: Number(r("vd") || "0"),
+        cl: Number(r("cl") || "0"),
+        f: r("f").trim() ? Number(r("f")) : 1,
+      };
+      const tau = Number(r("tau") || "0");
+      const res = steadyState(p, tau);
+      if (!res.ok) return { text: res.error, ok: false };
+
+      const lines: string[] = [];
+      lines.push(`${engNum(p.dose)} mg every ${engNum(tau)} h`);
+      lines.push(`CL = ${engNum(p.cl)} L/h, Vd = ${engNum(p.vd)} L, F = ${engNum(p.f)}`);
+      lines.push("");
+      lines.push(`Half-life = ${engNum(res.halfLife)} h; the interval is ${engNum(tau / res.halfLife)} half-lives`);
+      lines.push(`Accumulation ratio = ${engNum(res.accumulation)}`);
+      lines.push("");
+      lines.push("At steady state");
+      lines.push(`  Peak    Cmax,ss = ${engNum(res.cMaxSs)} mg/L`);
+      lines.push(`  Trough  Cmin,ss = ${engNum(res.cMinSs)} mg/L`);
+      lines.push(`  Average Cavg,ss = ${engNum(res.cAvgSs)} mg/L  (= F·Dose/(CL·τ))`);
+      lines.push(
+        res.fluctuation === null
+          ? "  Peak-to-trough fluctuation: not defined — the trough reaches zero between doses."
+          : `  Peak-to-trough fluctuation = ${engNum(res.fluctuation * 100)}% of the trough`,
+      );
+      lines.push("");
+      lines.push(`Time to 95% of steady state = ${engNum(res.timeTo95)} h (4.3 half-lives)`);
+      lines.push(`Loading dose to reach the steady-state peak immediately = ${engNum(res.loadingDose)} mg`);
+      lines.push(
+        "  The loading dose is set by the VOLUME (it fills the space); the maintenance dose is " +
+          "set by the CLEARANCE (it replaces what is removed). They answer different questions.",
+      );
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_PK_UNIT_NOTE);
+
+      const nDoses = Math.max(1, Math.min(Math.floor(Number(r("nDoses") || "10")) || 10, 60));
+      const trace = multipleDoseCurve(p, tau, nDoses, 800);
+      const clean = lines.map(plainDashes);
+      if (!trace.ok) return { text: clean.join("\n") };
+
+      const svg = buildPlotSvg(
+        [{ points: trace.t.map((t, i) => ({ x: t, y: trace.c[i] })), type: "line", color: "#2563eb", label: "C(t)" }],
+        { width: 380, height: 240, xlabel: "Time (h)", ylabel: "Concentration (mg/L)", title: `${nDoses} doses, ${engNum(tau)} h apart` },
+      );
+      const blocks: AnalyzeBlock[] = [
+        ...clean.map((t) => ({ kind: "line" as const, text: t })),
+        {
+          kind: "plot" as const,
+          svg,
+          caption: `Accumulation over ${nDoses} doses`,
+          alt: `Plasma concentration over ${nDoses} repeated doses approaching steady state`,
+          w: 380,
+          h: 240,
+        },
+      ];
+      return { text: clean.join("\n"), blocks };
+    },
+  },
+  {
+    id: "pk-nca",
+    name: "Pharmacokinetics: analyse measured data (NCA)",
+    hint:
+      'One "time concentration" pair per line. The terminal slope is CHOSEN by trying every ' +
+      "window of at least three points and keeping the best adjusted R². The percentage of AUC " +
+      "that came from extrapolation is reported, because above about 20% the study simply did " +
+      "not follow the drug long enough.",
+    fields: [
+      {
+        key: "data",
+        label: "Time and concentration, one pair per line",
+        default: [
+          "0.25 13.9",
+          "0.5 13.6",
+          "1 12.9",
+          "2 11.7",
+          "4 9.6",
+          "6 7.8",
+          "8 6.4",
+          "12 4.3",
+          "18 2.4",
+          "24 1.3",
+          "36 0.4",
+          "48 0.13",
+        ].join("\n"),
+        kind: "block",
+        rows: 8,
+      },
+      { key: "dose", label: "Dose given, mg", default: "500", kind: "text" },
+      {
+        key: "route",
+        label: "Route the data came from",
+        default: "iv",
+        kind: "select",
+        options: [
+          { value: "iv", label: "Intravenous (gives true CL and Vz)" },
+          { value: "oral", label: "Oral (gives apparent CL/F and Vz/F)" },
+        ],
+      },
+    ],
+    compute: (r) => {
+      const parsed = parseConcentrationData(r("data"));
+      if (parsed.errors.length) return { text: parsed.errors.join("\n"), ok: false };
+      const route = r("route") === "oral" ? "oral" : "iv";
+      const dose = Number(r("dose") || "0");
+      const res = nca(parsed.times, parsed.concentrations, dose, route);
+      if (!res.ok) return { text: res.error, ok: false };
+
+      const apparent = route === "oral" ? "/F" : "";
+      const lines: string[] = [];
+      lines.push(`Non-compartmental analysis of ${parsed.times.length} points, ${route === "oral" ? "oral" : "intravenous"} dose of ${engNum(dose)} mg`);
+      lines.push("");
+      lines.push("Observed");
+      lines.push(`  Cmax = ${engNum(res.cmax)} mg/L at Tmax = ${engNum(res.tmax)} h`);
+      lines.push("");
+      lines.push("Terminal phase");
+      lines.push(`  λz = ${engNum(res.lambdaZ)} /h, from the last ${res.lambdaPoints} points (adjusted R² = ${engNum(res.lambdaR2, 4)})`);
+      lines.push(`  Half-life = ${engNum(res.halfLife)} h`);
+      lines.push("");
+      lines.push("Exposure");
+      lines.push(`  AUC to the last sample = ${engNum(res.aucLast)} mg·h/L`);
+      lines.push(`  AUC to infinity = ${engNum(res.aucInf)} mg·h/L`);
+      lines.push(`  Extrapolated beyond the last sample = ${engNum(res.percentExtrapolated)}%`);
+      lines.push("");
+      lines.push("Derived");
+      lines.push(`  Clearance CL${apparent} = Dose/AUC∞ = ${engNum(res.clearance)} L/h`);
+      lines.push(`  Terminal volume Vz${apparent} = Dose/(λz·AUC∞) = ${engNum(res.volume)} L`);
+      lines.push(`  Mean residence time = ${engNum(res.mrt)} h`);
+      if (route === "iv") {
+        lines.push(`  Steady-state volume Vss = CL·MRT = ${engNum(res.clearance * res.mrt)} L`);
+      }
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_PK_UNIT_NOTE);
+
+      const svg = buildPlotSvg(
+        [
+          {
+            points: parsed.times.map((t, i) => ({ x: t, y: parsed.concentrations[i] })),
+            type: "scatter",
+            color: "#2563eb",
+            label: "measured",
+          },
+        ],
+        {
+          width: 380,
+          height: 240,
+          xlabel: "Time (h)",
+          ylabel: "Concentration (mg/L)",
+          yScale: "log",
+          title: "Concentration-time data (log scale)",
+        },
+      );
+      const clean = lines.map(plainDashes);
+      const blocks: AnalyzeBlock[] = [
+        ...clean.map((t) => ({ kind: "line" as const, text: t })),
+        {
+          kind: "plot" as const,
+          svg,
+          caption: "Measured concentration-time data, log concentration axis",
+          alt: "Measured plasma concentrations against time on a logarithmic concentration axis, where a straight terminal phase indicates first-order elimination",
+          w: 380,
+          h: 240,
+        },
+      ];
+      return { text: clean.join("\n"), blocks };
     },
   },
 ];

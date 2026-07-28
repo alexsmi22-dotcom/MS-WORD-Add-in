@@ -81,6 +81,25 @@ export const MODE_EXAMPLES: Record<ExampleMode, string> = {
         loop, and reports the closed-loop poles, stability, margins and transient.</li>
       <li>A <strong>right-half-plane zero</strong> is called out as non-minimum-phase: the step
         response goes the <em>wrong way</em> first and more gain makes it worse.</li>
+      <li><strong>Pharmacokinetics</strong> &mdash; built on <strong>clearance and volume</strong>,
+        which are the physiologically independent parameters; half-life is a consequence of both
+        (t&frac12; = ln2&middot;Vd/CL).</li>
+      <li><strong>Dose &amp; concentration curve</strong> &mdash; IV bolus, infusion or oral, with
+        Cmax, Tmax, AUC and a plot. AUC = Dose/CL, so total exposure is set by <em>clearance
+        alone</em> and not by the volume of distribution.</li>
+      <li><strong>Steady state &amp; loading dose</strong> &mdash; accumulation ratio, peak, trough
+        and average. The average depends <em>only</em> on dose rate and clearance, so halving both
+        the dose and the interval leaves it unchanged and only narrows the swing; the time to get
+        there depends only on half-life, which is what a loading dose exists to bypass.</li>
+      <li><strong>Non-compartmental analysis</strong> of measured data &mdash; paste
+        <code>time concentration</code> pairs and get &lambda;z, half-life, AUC, clearance and
+        volume. The terminal window is <strong>chosen</strong> by best adjusted R&sup2;, and the
+        <strong>percentage of AUC that came from extrapolation</strong> is reported: above ~20% the
+        study did not follow the drug long enough and every derived parameter is mostly assumption.</li>
+      <li><strong>Flip-flop kinetics are detected.</strong> If absorption is slower than
+        elimination, the terminal slope is <em>absorption</em>, not elimination &mdash; so a
+        half-life read off the tail is the wrong one, and the curve looks entirely normal either
+        way. Oral data also reports CL/F and Vz/F rather than pretending to know F.</li>
       <li>Units are whatever you type, used consistently &mdash; except the cross-section,
         buckling, torsion, pipe-flow and heat tools, which <strong>convert for you</strong>
         (<code>200 GPa</code>, <code>1e6 mm^4</code>, <code>50 ksi</code>, <code>68 &deg;F</code>)

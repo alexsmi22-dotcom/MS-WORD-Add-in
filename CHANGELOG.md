@@ -5,6 +5,65 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > Note: this file was not maintained between v1.96.0 and v2.23.0. Those releases
 > are recorded in the git history rather than here.
 
+## [2.27.0] — 2026-07-28 — Pharmacokinetics: where the engineering and life-science halves meet
+
+Engineering gains three PK tools, taking it to eighteen calculators. This is the
+one place the two halves of the product touch — the existing dose-response,
+IC50 and enzyme-kinetics tools describe what a drug does at a concentration, and
+these describe what concentration the patient actually has.
+
+**Built on clearance and volume**, not on half-life. That is not a style choice:
+CL and Vd are the physiologically independent quantities and half-life is a
+consequence of both (t½ = ln2·Vd/CL). A renal-failure patient has a long
+half-life because clearance fell; an obese patient can have one at completely
+normal clearance because volume rose. Building on half-life hides that.
+
+**Dose and concentration curve** — IV bolus, infusion or oral, with Cmax, Tmax,
+AUC and a plot. AUC = Dose/CL, so total exposure is set by clearance alone and
+not by volume; the infusion plateau is rate/CL, and volume only sets how quickly
+you get there.
+
+**Steady state and loading dose** — accumulation ratio, peak, trough, average and
+fluctuation. The average depends **only** on dose rate and clearance, so halving
+both the dose and the interval leaves it exactly where it was and only narrows
+the swing. Time to steady state depends **only** on half-life, and a bigger
+maintenance dose does not shorten it — which is what a loading dose is for, and
+why the loading dose comes from the volume while the maintenance dose comes from
+the clearance.
+
+**Non-compartmental analysis** of real measured data — paste time/concentration
+pairs and get λz, half-life, AUC, clearance, volume and MRT. Two things it does
+that calculators usually skip: the terminal window is **chosen**, by trying every
+window of at least three points and keeping the best *adjusted* R² (adjusted,
+because plain R² improves automatically as points are added); and the
+**percentage of AUC that came from extrapolation** is reported, because above
+about 20% the study simply did not follow the drug long enough and every derived
+parameter rests on an assumed exponential tail rather than on measurement.
+
+**Flip-flop kinetics are detected**, which is the trap this module partly exists
+for. Everyone reads an oral curve's terminal slope as elimination, and that is
+only true when absorption is faster. When it is not — depot injections,
+modified-release formulations, poorly soluble drugs — the terminal slope is the
+**absorption** rate constant, the half-life read off it is the absorption
+half-life, and everything derived from it is wrong. The curve looks completely
+normal either way. Oral data is also reported as CL/F and Vz/F rather than
+"clearance": without an IV reference bioavailability cannot be separated, and a
+drug with 50% F would look as though it clears twice as fast as it does.
+
+**What the adversarial pass found.** On an ultra-short-half-life drug —
+adenosine is a real one — the trough underflows to exactly zero between doses and
+the peak-to-trough ratio became `Infinity`, which would have printed as "not
+finite" in a document. Infinity is not the answer there; the useful and true
+statement is that the drug is completely eliminated before the next dose, so the
+ratio is now reported as undefined with that explanation.
+
+The routing gate also earned its keep: it flagged the PK fields as unread because
+they went through a shared helper, so the wiring was invisible to it. Rather than
+weaken the gate a second time, the reads were inlined — the gate's entire value
+is that it can see each field being used.
+
+Suite 5,192 across 177 files, QC 10/10.
+
 ## [2.26.0] — 2026-07-28 — Control systems: the course that was missing entirely
 
 Engineering had no transfer functions at all — the one subject required across

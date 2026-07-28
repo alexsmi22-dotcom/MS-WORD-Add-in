@@ -127,6 +127,15 @@ import {
   parseConcentrationData,
   Route as PkRoute,
 } from "../lib/pk";
+import {
+  sdofProperties,
+  freeResponse,
+  dampingFromDecrement,
+  forcedResponse,
+  frequencySweep as vibSweep,
+  modalAnalysis,
+  chainSystem,
+} from "../lib/vibration";
 import { parseMeasured, resultFigures } from "../lib/units";
 import { nmrChartSvg, irChartSvg, msChartSvg, cosyChartSvg, hsqcChartSvg, jcampChartSvg, decimateTrace, SPECTRUM_CHART_SIZE, SPECTRUM_2D_SIZE } from "../lib/spectraChart";
 import { buildPeptide } from "../lib/peptide";
@@ -7360,6 +7369,12 @@ const ENG_PK_UNIT_NOTE =
   "concentration in mg/L, which is the same number as µg/mL; clearance is then L/h and time is " +
   "hours. Keep volume and clearance on the same volume unit or everything downstream is wrong.";
 
+/** Vibration is consistent in the caller's units; SI is what makes rad/s come out. */
+const ENG_VIB_UNIT_NOTE =
+  "Units: yours, used consistently and not converted. Mass in kg with stiffness in N/m gives " +
+  "rad/s (divide by 2π for Hz); a damping coefficient is then N·s/m. Frequency ratios, damping " +
+  "ratios, magnification and transmissibility are dimensionless whatever you use.";
+
 /** As above, for the two engines whose exactness a conversion would destroy. */
 const ENG_EXACT_UNIT_NOTE =
   "Units: whatever you type, used consistently — nothing is converted here, because this " +
@@ -8941,6 +8956,255 @@ const ENG_CALCS: EngCalc[] = [
         },
       ];
       return { text: clean.join("\n"), blocks };
+    },
+  },
+  {
+    id: "vib-free",
+    name: "Vibration: free response & damping",
+    hint:
+      "Mass, stiffness and damping in consistent units (kg, N/m, N·s/m gives rad/s). Give a " +
+      "damping coefficient, or leave it blank and give a damping ratio instead. Two measured " +
+      "peak amplitudes will estimate the damping ratio from a recorded trace.",
+    fields: [
+      { key: "m", label: "Mass m, kg", default: "1", kind: "text" },
+      { key: "k", label: "Stiffness k, N/m", default: "100", kind: "text" },
+      { key: "c", label: "Damping coefficient c, N·s/m (blank to use ζ)", default: "", kind: "text" },
+      { key: "zeta", label: "Damping ratio ζ (used when c is blank)", default: "0.1", kind: "text" },
+      { key: "x0", label: "Initial displacement x₀", default: "0.05", kind: "text" },
+      { key: "v0", label: "Initial velocity v₀", default: "0", kind: "text" },
+      { key: "tEnd", label: "End time (blank to use 5 decay times)", default: "", kind: "text" },
+      { key: "peak1", label: "Measured peak 1 (optional, to estimate ζ)", default: "", kind: "text" },
+      { key: "peak2", label: "Measured peak 2", default: "", kind: "text" },
+      { key: "cycles", label: "Cycles between those peaks", default: "1", kind: "text" },
+    ],
+    compute: (r) => {
+      const m = Number(r("m") || "0");
+      const k = Number(r("k") || "0");
+      // A damping RATIO is what a student is usually given; the coefficient is
+      // what the equations need. Either is accepted, and which was used is said.
+      let c: number;
+      let fromZeta = false;
+      if (r("c").trim()) {
+        c = Number(r("c"));
+      } else {
+        const z = Number(r("zeta") || "0");
+        if (!(m > 0 && k > 0)) return { text: "Enter a positive mass and stiffness.", ok: false };
+        c = z * 2 * Math.sqrt(k * m);
+        fromZeta = true;
+      }
+
+      const p = sdofProperties(m, k, c);
+      if (!p.ok) return { text: p.error, ok: false };
+
+      let tEnd = Number(r("tEnd"));
+      let chosen = false;
+      if (!r("tEnd").trim() || !Number.isFinite(tEnd) || tEnd <= 0) {
+        // Five decay time-constants when damped, five periods when not.
+        tEnd = p.zeta > 0 ? 5 / (p.zeta * p.wn) : (5 * 2 * Math.PI) / p.wn;
+        chosen = true;
+      }
+
+      const res = freeResponse(m, k, c, Number(r("x0") || "0"), Number(r("v0") || "0"), tEnd, 500);
+      if (!res.ok) return { text: res.error, ok: false };
+
+      const lines: string[] = [];
+      lines.push(`Single degree of freedom: m = ${engNum(m)}, k = ${engNum(k)}, c = ${engNum(c)}` + (fromZeta ? " (from ζ)" : ""));
+      lines.push("");
+      lines.push(`Natural frequency ωn = √(k/m) = ${engNum(p.wn)} rad/s = ${engNum(p.fn)} Hz`);
+      lines.push(`Critical damping cc = 2√(km) = ${engNum(p.cc)} N·s/m`);
+      lines.push(`Damping ratio ζ = c/cc = ${engNum(p.zeta)} — ${p.kind}`);
+      if (p.wd > 0) {
+        lines.push(`Damped natural frequency ωd = ωn√(1-ζ²) = ${engNum(p.wd)} rad/s = ${engNum(p.fd)} Hz`);
+      }
+      lines.push(`Static deflection under its own weight = ${engNum(p.staticDeflection)} m`);
+      if (res.logDecrement !== null) {
+        lines.push("");
+        lines.push(`Logarithmic decrement δ = ${engNum(res.logDecrement)}`);
+      }
+      if (chosen) lines.push(`Simulated to ${engNum(tEnd)} (chosen from the decay rate).`);
+
+      const p1 = r("peak1").trim();
+      const p2 = r("peak2").trim();
+      if (p1 && p2) {
+        const est = dampingFromDecrement(Number(p1), Number(p2), Number(r("cycles") || "1"));
+        lines.push("");
+        if (!est.ok) {
+          lines.push(`Damping from the measured peaks: ${est.error}`);
+        } else {
+          lines.push("Damping estimated from your two measured peaks");
+          lines.push(`  δ = ${engNum(est.delta)}, ζ = ${engNum(est.zeta)}`);
+          lines.push(`  which is c = ${engNum(est.zeta * p.cc)} N·s/m at this mass and stiffness`);
+          for (const note of est.notes) lines.push(`  Note: ${note}`);
+        }
+      }
+      for (const note of p.notes) lines.push(`Note: ${note}`);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_VIB_UNIT_NOTE);
+
+      const svg = buildPlotSvg(
+        [{ points: res.t.map((t, i) => ({ x: t, y: res.x[i] })), type: "line", color: "#2563eb", label: "x(t)" }],
+        { width: 380, height: 240, xlabel: "Time (s)", ylabel: "Displacement", title: `Free response, ζ = ${engNum(p.zeta, 3)}` },
+      );
+      const clean = lines.map(plainDashes);
+      const blocks: AnalyzeBlock[] = [
+        ...clean.map((t) => ({ kind: "line" as const, text: t })),
+        { kind: "plot" as const, svg, caption: "Free vibration response", alt: "Displacement against time in free vibration", w: 380, h: 240 },
+      ];
+      return { text: clean.join("\n"), blocks };
+    },
+  },
+  {
+    id: "vib-forced",
+    name: "Vibration: forced response & isolation",
+    hint:
+      "Harmonic forcing of a damped SDOF system. Resonance is NOT at ω = ωn for a damped system, " +
+      "and vibration isolation only begins above a frequency ratio of √2 — below it a mount " +
+      "AMPLIFIES. Both are computed rather than assumed.",
+    fields: [
+      { key: "m", label: "Mass m, kg", default: "1", kind: "text" },
+      { key: "k", label: "Stiffness k, N/m", default: "100", kind: "text" },
+      { key: "zeta", label: "Damping ratio ζ", default: "0.1", kind: "text" },
+      { key: "f0", label: "Force amplitude F₀, N", default: "10", kind: "text" },
+      { key: "w", label: "Forcing frequency ω, rad/s", default: "12", kind: "text" },
+    ],
+    compute: (r) => {
+      const m = Number(r("m") || "0");
+      const k = Number(r("k") || "0");
+      const zeta = Number(r("zeta") || "0");
+      if (!(m > 0 && k > 0)) return { text: "Enter a positive mass and stiffness.", ok: false };
+      if (!Number.isFinite(zeta) || zeta < 0) return { text: "The damping ratio must be zero or greater.", ok: false };
+      const c = zeta * 2 * Math.sqrt(k * m);
+      const res = forcedResponse(m, k, c, Number(r("f0") || "0"), Number(r("w") || "0"));
+      if (!res.ok) return { text: res.error, ok: false };
+      const p = sdofProperties(m, k, c);
+      if (!p.ok) return { text: p.error, ok: false };
+
+      const lines: string[] = [];
+      lines.push(`Harmonic forcing of an SDOF system, ζ = ${engNum(zeta)}`);
+      lines.push(`Natural frequency ωn = ${engNum(p.wn)} rad/s; forcing at ${engNum(Number(r("w") || "0"))} rad/s`);
+      lines.push(`Frequency ratio r = ω/ωn = ${engNum(res.r)}`);
+      lines.push("");
+      lines.push(`Magnification factor = ${engNum(res.magnification)}`);
+      lines.push(`Steady-state amplitude = ${engNum(res.amplitude)} m`);
+      lines.push(`Phase lag behind the force = ${engNum(res.phaseDeg)} deg`);
+      lines.push(`Force transmissibility = ${engNum(res.transmissibility)}`);
+      lines.push("");
+      if (res.peakR !== null) {
+        lines.push(`Resonant peak at r = ${engNum(res.peakR)} (ω = ${engNum(res.peakR * p.wn)} rad/s)`);
+        lines.push(`  peak magnification = ${engNum(res.peakMagnification as number)}`);
+      }
+      lines.push(
+        res.isolating
+          ? "This mount IS isolating: r is above √2 = 1.414."
+          : "This mount is NOT isolating: r is below √2 = 1.414.",
+      );
+      lines.push("Transmissibility is exactly 1 at r = √2, for every damping ratio — that is where isolation begins.");
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_VIB_UNIT_NOTE);
+
+      const s = vibSweep(zeta, 4, 400);
+      const magSvg = buildPlotSvg(
+        [
+          { points: s.r.map((x, i) => ({ x, y: s.magnification[i] })), type: "line", color: "#2563eb", label: "magnification" },
+          { points: s.r.map((x, i) => ({ x, y: s.transmissibility[i] })), type: "line", color: "#b91c1c", label: "transmissibility" },
+        ],
+        {
+          width: 380,
+          height: 240,
+          xlabel: "Frequency ratio r = ω/ωn",
+          ylabel: "Factor",
+          title: `Response and transmissibility, ζ = ${engNum(zeta, 3)}`,
+        },
+      );
+      const clean = lines.map(plainDashes);
+      const blocks: AnalyzeBlock[] = [
+        ...clean.map((t) => ({ kind: "line" as const, text: t })),
+        {
+          kind: "plot" as const,
+          svg: magSvg,
+          caption: "Magnification and transmissibility against frequency ratio",
+          alt: "Dynamic magnification and force transmissibility against frequency ratio, crossing 1 at root two",
+          w: 380,
+          h: 240,
+        },
+      ];
+      return { text: clean.join("\n"), blocks };
+    },
+  },
+  {
+    id: "vib-modal",
+    name: "Vibration: natural frequencies & mode shapes",
+    hint:
+      'Either a chain of masses and springs ("1 1 1" masses, "100 100 100" springs), or the mass ' +
+      "and stiffness matrices directly, one row per line. Frequencies come back ascending and " +
+      "mode shapes mass-normalised, so read their pattern rather than their magnitude.",
+    fields: [
+      {
+        key: "mode",
+        label: "Input",
+        default: "chain",
+        kind: "select",
+        options: [
+          { value: "chain", label: "Chain of masses and springs" },
+          { value: "matrix", label: "Mass and stiffness matrices" },
+        ],
+      },
+      { key: "masses", label: "Masses (chain)", default: "1 1", kind: "text" },
+      { key: "springs", label: "Stiffnesses (chain)", default: "100 100", kind: "text" },
+      {
+        key: "ground",
+        label: "Far end of the chain",
+        default: "grounded",
+        kind: "select",
+        options: [
+          { value: "grounded", label: "Grounded at both ends" },
+          { value: "free", label: "Free-free (unrestrained)" },
+        ],
+      },
+      { key: "M", label: "Mass matrix (one row per line)", default: "1 0\n0 1", kind: "block", rows: 3 },
+      { key: "K", label: "Stiffness matrix (one row per line)", default: "200 -100\n-100 200", kind: "block", rows: 3 },
+    ],
+    compute: (r) => {
+      let M: number[][];
+      let K: number[][];
+      if ((r("mode") || "chain") === "chain") {
+        const masses = r("masses").split(/[,\s]+/).filter(Boolean).map(Number);
+        const springs = r("springs").split(/[,\s]+/).filter(Boolean).map(Number);
+        const built = chainSystem(masses, springs, r("ground") !== "free");
+        if ("ok" in built) return { text: built.error, ok: false };
+        M = built.M;
+        K = built.K;
+      } else {
+        const pm = parseMatrix(r("M"));
+        if (!pm.ok) return { text: `Mass matrix: ${pm.error}`, ok: false };
+        const pk = parseMatrix(r("K"));
+        if (!pk.ok) return { text: `Stiffness matrix: ${pk.error}`, ok: false };
+        M = pm.matrix;
+        K = pk.matrix;
+      }
+
+      const res = modalAnalysis(M, K);
+      if (!res.ok) return { text: res.error, ok: false };
+
+      const n = res.frequencies.length;
+      const lines: string[] = [];
+      lines.push(`${n} degree-of-freedom system`);
+      lines.push("");
+      lines.push("Natural frequencies");
+      for (let i = 0; i < n; i++) {
+        lines.push(
+          `  Mode ${i + 1}: ω = ${engNum(res.frequencies[i])} rad/s = ${engNum(res.frequenciesHz[i])} Hz` +
+            (res.frequencies[i] === 0 ? "  (rigid-body mode)" : ""),
+        );
+      }
+      lines.push("");
+      lines.push("Mode shapes (columns, mass-normalised)");
+      for (let i = 0; i < n; i++) {
+        lines.push(`  DOF ${i + 1}: ` + res.modes[i].map((v) => engNum(v, 4)).join("   "));
+      }
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_VIB_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
     },
   },
 ];

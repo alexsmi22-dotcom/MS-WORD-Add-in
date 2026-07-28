@@ -100,6 +100,28 @@ export const MODE_EXAMPLES: Record<ExampleMode, string> = {
         elimination, the terminal slope is <em>absorption</em>, not elimination &mdash; so a
         half-life read off the tail is the wrong one, and the curve looks entirely normal either
         way. Oral data also reports CL/F and Vz/F rather than pretending to know F.</li>
+      <li><strong>Vibration</strong> &mdash; single- and multi-degree-of-freedom, built around the
+        three results that are most often got wrong:</li>
+      <li><strong>Resonance is not at r = 1.</strong> The magnification peaks at
+        r = &radic;(1&minus;2&zeta;&sup2;), always <em>below</em> the natural frequency &mdash; and
+        for &zeta; &ge; 0.707 there is <strong>no peak at all</strong> and no forcing frequency can
+        resonate the system.</li>
+      <li><strong>Isolation only begins above r = &radic;2.</strong> Transmissibility is exactly 1
+        at &radic;2 for <em>every</em> damping ratio, and above 1 below it &mdash; so a mount that
+        is not soft enough does not isolate a little, it <strong>amplifies</strong>.</li>
+      <li><strong>Damping helps below &radic;2 and hurts above it.</strong> More damping lowers the
+        resonant peak but <em>raises</em> transmissibility in the isolation region, because the
+        damper is itself a path for force.</li>
+      <li><strong>Free response &amp; damping</strong> &mdash; &omega;n, &zeta;, &omega;d,
+        logarithmic decrement and a plot; each damping regime uses its own closed form (the
+        critically damped case is not the underdamped one at &zeta; = 1, which divides by zero).
+        Two measured peaks estimate &zeta; from a recorded trace, by the exact relation rather than
+        the light-damping approximation.</li>
+      <li><strong>Natural frequencies &amp; mode shapes</strong> &mdash; from a chain of masses and
+        springs or from mass and stiffness matrices, solved as a symmetric generalised
+        eigenproblem so the frequencies are guaranteed real. Mode shapes come back
+        mass-normalised; a rigid-body (zero-frequency) mode is reported as the real feature it is,
+        and a mass matrix that is not positive definite is refused as unphysical.</li>
       <li>Units are whatever you type, used consistently &mdash; except the cross-section,
         buckling, torsion, pipe-flow and heat tools, which <strong>convert for you</strong>
         (<code>200 GPa</code>, <code>1e6 mm^4</code>, <code>50 ksi</code>, <code>68 &deg;F</code>)

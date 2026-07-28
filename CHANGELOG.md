@@ -5,6 +5,68 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > Note: this file was not maintained between v1.96.0 and v2.23.0. Those releases
 > are recorded in the git history rather than here.
 
+## [2.28.0] — 2026-07-28 — Vibration, and the three results everyone gets wrong
+
+Engineering gains three vibration tools, taking it to twenty-one calculators.
+The module is built around the three results in this subject that are
+counter-intuitive enough that getting them wrong is the normal outcome, and each
+one is computed and stated rather than left to be remembered.
+
+**Resonance is not at r = 1.** The magnification of a damped system peaks at
+r = √(1−2ζ²), always *below* the natural frequency — and for ζ ≥ 1/√2 = 0.707
+there is **no peak at all**: the response falls monotonically and no forcing
+frequency can resonate the system. "Resonance at ω = ωₙ" is the undamped special
+case, taught first and then never unlearned.
+
+**Vibration isolation only begins above r = √2.** Transmissibility is exactly 1
+at √2 *for every damping ratio*, and above 1 below it. So a mount that is not
+soft enough does not isolate a little — it **amplifies**, and more force reaches
+the foundation than if the machine had been bolted down. This is a design
+failure that looks like a design.
+
+**Damping helps below √2 and hurts above it.** More damping lowers the resonant
+peak, which is why you want it while passing through resonance on run-up, and it
+*raises* transmissibility in the isolation region, because the damper is itself
+a path for force. "More damping is safer" is false in exactly the region
+isolators are designed to work in.
+
+**Free response and damping** — ωₙ, ζ, ωd, logarithmic decrement, and a plot.
+Each damping regime uses its **own** closed form rather than one formula with a
+tolerance: the critically damped solution is not the underdamped one evaluated
+at ζ = 1, which divides by a damped frequency of zero. Two measured peak
+amplitudes estimate ζ from a recorded trace, using the exact relation
+ζ = δ/√(4π² + δ²) rather than the light-damping approximation δ/2π, which is
+wrong by more than 1% above ζ ≈ 0.1. A trace whose amplitude *grows* is refused
+and named: that is not a damped system, it is being driven or it is
+self-excited.
+
+**Natural frequencies and mode shapes** — from a chain of masses and springs, or
+from the mass and stiffness matrices directly. Solved as a **symmetric**
+generalised eigenproblem, K φ = ω²M φ, via a Cholesky transform to
+L⁻¹KL⁻ᵀ. The lazy route — forming M⁻¹K and handing it to a general eigenvalue
+routine — produces a matrix that is *not* symmetric even though the problem is,
+discarding the guarantee that the eigenvalues are real and permitting complex
+natural frequencies for a perfectly ordinary structure. Mode shapes come back
+mass-normalised with a fixed sign convention. A **rigid-body mode** at zero
+frequency is reported as the real feature it is, and a mass matrix that is not
+positive definite is refused as unphysical — the Cholesky failure and the
+modelling error are the same event.
+
+**Testing.** The modal solver is checked against algebraic eigenvalues where
+they exist — a one-end-grounded two-mass chain has eigenvalues (3∓√5)/2 · k/m —
+and the adversarial pass substitutes **every** eigenpair back into K φ = ω²M φ
+across five systems, so nothing about the transform, the normalisation or the
+ordering can hide a wrong eigenvector. Orthogonality through the mass matrix is
+verified on deliberately badly scaled systems (stiffnesses spanning six orders
+of magnitude, which is a real modelling situation rather than a contrived one).
+
+One test-side fix worth recording: an adversarial check was calling `expect()`
+14,000 times inside a loop, which measured Jest rather than the engine and then
+flaked against its own timing budget under parallel load. Failures are now
+collected and asserted once — the same check, honest accounting.
+
+Suite 5,291 across 179 files, QC 10/10.
+
 ## [2.27.0] — 2026-07-28 — Pharmacokinetics: where the engineering and life-science halves meet
 
 Engineering gains three PK tools, taking it to eighteen calculators. This is the

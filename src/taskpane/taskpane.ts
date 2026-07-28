@@ -104,6 +104,21 @@ import { analyzeStress, transformPlane, factorOfSafety, analyzeTorsion, analyzeC
 import { analyzeTruss, parseTruss } from "../lib/truss";
 import { analyzePipe, waterProperties, ROUGHNESS } from "../lib/fluids";
 import { analyzeWall, analyzeExchanger, CONDUCTIVITY, Layer } from "../lib/heat";
+import {
+  parseTf,
+  analyzeStability,
+  timeResponse,
+  secondOrderMetrics,
+  frequencyResponse,
+  autoFrequencies,
+  margins,
+  series,
+  feedback,
+  pidTf,
+  polyToString,
+  TransferFunction,
+} from "../lib/control";
+import { parseRatLiteral, ratToNumber as ratNum } from "../lib/cas";
 import { parseMeasured, resultFigures } from "../lib/units";
 import { nmrChartSvg, irChartSvg, msChartSvg, cosyChartSvg, hsqcChartSvg, jcampChartSvg, decimateTrace, SPECTRUM_CHART_SIZE, SPECTRUM_2D_SIZE } from "../lib/spectraChart";
 import { buildPeptide } from "../lib/peptide";
@@ -7317,6 +7332,16 @@ const ENG_SAME_UNIT_NOTE =
   "needs to be: every quantity in this tool is the same kind, so the answer comes back in " +
   "the unit you went in with.";
 
+/**
+ * Control systems set their own units through the coefficients, so there is
+ * nothing to convert and nothing to assume — but saying "every quantity is the
+ * same kind" would be false, since time, frequency and gain all appear.
+ */
+const ENG_CONTROL_UNIT_NOTE =
+  "Units: set by your coefficients and not converted. Write the transfer function in the time " +
+  "unit you want back — with s in rad/s, times are seconds and frequencies rad/s; divide a " +
+  "frequency by 2π for Hz.";
+
 /** As above, for the two engines whose exactness a conversion would destroy. */
 const ENG_EXACT_UNIT_NOTE =
   "Units: whatever you type, used consistently — nothing is converted here, because this " +
@@ -8322,7 +8347,314 @@ const ENG_CALCS: EngCalc[] = [
       return { text: plainDashes(lines.join("\n")) };
     },
   },
+  {
+    id: "control-tf",
+    name: "Control: poles, zeros & stability",
+    hint:
+      'Coefficients highest power first ("1 3 2") or written out ("s^2+3*s+2") — either works. ' +
+      "Stability is decided TWICE, exactly by Routh-Hurwitz and numerically from the poles, and " +
+      "if the two disagree it says so instead of picking one.",
+    fields: [
+      { key: "num", label: "Numerator", default: "1", kind: "text" },
+      { key: "den", label: "Denominator", default: "s^3+3*s^2+2*s+1", kind: "text" },
+      { key: "showRouth", label: "Show the Routh array", default: "yes", kind: "select", options: [
+        { value: "yes", label: "Yes" },
+        { value: "no", label: "No" },
+      ] },
+    ],
+    compute: (r) => {
+      const tf = parseTf(r("num"), r("den"));
+      if ("ok" in tf) return { text: tf.error, ok: false };
+      const res = analyzeStability(tf);
+      if (!res.ok) return { text: res.error, ok: false };
+
+      const lines: string[] = [];
+      lines.push(`G(s) = [ ${polyToString(tf.num)} ] / [ ${polyToString(tf.den)} ]`);
+      lines.push("");
+      lines.push(res.verdict);
+      lines.push("");
+      lines.push("Poles");
+      for (const p of res.poles) {
+        const tag = p.re > 0 ? "right half plane" : Math.abs(p.re) < 1e-12 ? "on the imaginary axis" : "stable";
+        lines.push(`  ${fmtComplexPlain(p)}   (${tag})`);
+      }
+      if (res.zeros.length) {
+        lines.push("");
+        lines.push("Zeros");
+        for (const z of res.zeros) lines.push(`  ${fmtComplexPlain(z)}`);
+      } else {
+        lines.push("");
+        lines.push("No finite zeros.");
+      }
+
+      if (r("showRouth") !== "no" && res.routh) {
+        lines.push("");
+        lines.push("Routh array (exact, first column first)");
+        for (const row of res.routh.rows) {
+          lines.push("  " + row.map((c) => (c.d === 1n ? String(c.n) : `${c.n}/${c.d}`)).join("   "));
+        }
+        lines.push(
+          `Sign changes in the first column: ${res.routh.signChanges}` +
+            (res.routh.clean ? " = poles in the right half plane." : " (the array degenerated; see the note)."),
+        );
+      }
+      if (res.rhpPolesRouth !== null && !res.disagreement) {
+        lines.push("");
+        lines.push(
+          `Cross-check: the exact tabulation and the computed poles BOTH give ` +
+            `${res.rhpPolesNumeric} pole(s) in the right half plane. These share no arithmetic, ` +
+            "so agreeing is real evidence rather than the same mistake twice.",
+        );
+      }
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_CONTROL_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "control-step",
+    name: "Control: step & impulse response",
+    hint:
+      "Simulates the response and reports the transient metrics. For a genuine second-order " +
+      "system the damping ratio and overshoot are exact identities; above second order they come " +
+      "from the dominant poles and the result says so rather than presenting an estimate as fact.",
+    fields: [
+      { key: "num", label: "Numerator", default: "4", kind: "text" },
+      { key: "den", label: "Denominator", default: "s^2+2*s+4", kind: "text" },
+      {
+        key: "kind",
+        label: "Input",
+        default: "step",
+        kind: "select",
+        options: [
+          { value: "step", label: "Unit step" },
+          { value: "impulse", label: "Impulse" },
+        ],
+      },
+      { key: "tEnd", label: "End time (blank to choose it from the poles)", default: "", kind: "text" },
+    ],
+    compute: (r) => {
+      const tf = parseTf(r("num"), r("den"));
+      if ("ok" in tf) return { text: tf.error, ok: false };
+      const kind = r("kind") === "impulse" ? "impulse" : "step";
+
+      // A sensible default window: about five time constants of the slowest
+      // stable mode, so the transient is actually visible rather than a spike
+      // in the corner of an arbitrary 10-second axis.
+      let tEnd = Number(r("tEnd"));
+      let chosen = false;
+      if (!r("tEnd").trim() || !Number.isFinite(tEnd) || tEnd <= 0) {
+        const st = analyzeStability(tf);
+        const slowest =
+          st.ok && st.poles.length
+            ? Math.min(...st.poles.map((p) => Math.abs(p.re)).filter((v) => v > 1e-9))
+            : NaN;
+        tEnd = Number.isFinite(slowest) && slowest > 0 ? 6 / slowest : 10;
+        chosen = true;
+      }
+
+      const res = timeResponse(tf, kind, tEnd, 400);
+      if (!res.ok) return { text: res.error, ok: false };
+
+      const lines: string[] = [];
+      lines.push(`G(s) = [ ${polyToString(tf.num)} ] / [ ${polyToString(tf.den)} ]`);
+      lines.push(`${kind === "step" ? "Unit step" : "Impulse"} response over 0 to ${engNum(tEnd)} s` +
+        (chosen ? " (window chosen from the slowest pole)" : ""));
+      lines.push("");
+
+      const m = secondOrderMetrics(tf);
+      if (m.ok) {
+        lines.push(m.exact ? "Second-order metrics (exact for this system)" : "Transient metrics from the dominant poles");
+        lines.push(`  Natural frequency wn = ${engNum(m.wn)} rad/s`);
+        lines.push(`  Damping ratio zeta = ${engNum(m.zeta)} (${m.kind})`);
+        if (m.wd > 0) lines.push(`  Damped frequency wd = ${engNum(m.wd)} rad/s`);
+        if (m.overshoot !== null) lines.push(`  Overshoot = ${engNum(m.overshoot * 100)}%`);
+        if (m.peakTime !== null) lines.push(`  Peak time = ${engNum(m.peakTime)} s`);
+        if (m.riseTime !== null) lines.push(`  Rise time (0-100%) = ${engNum(m.riseTime)} s`);
+        if (m.settlingTime !== null) lines.push(`  Settling time (2%) = ${engNum(m.settlingTime)} s`);
+        for (const note of m.notes) lines.push(`  Note: ${note}`);
+        lines.push("");
+      }
+
+      if (res.finalValue !== null) lines.push(`Final value = ${engNum(res.finalValue)}`);
+      lines.push(`Peak of the simulated response: ${engNum(res.peak.y)} at t = ${engNum(res.peak.t)} s`);
+      if (res.finalValue !== null && res.finalValue !== 0) {
+        const os = (res.peak.y - res.finalValue) / res.finalValue;
+        if (os > 1e-6) lines.push(`  which is ${engNum(os * 100)}% overshoot, measured from the simulation`);
+      }
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push("The response is integrated numerically; the metrics above it are closed-form.");
+      lines.push(ENG_CONTROL_UNIT_NOTE);
+
+      const svg = buildPlotSvg(
+        [{ points: res.t.map((t, i) => ({ x: t, y: res.y[i] })), type: "line", color: "#2563eb", label: "y(t)" }],
+        { width: 380, height: 240, xlabel: "Time (s)", ylabel: "Output", title: `${kind === "step" ? "Step" : "Impulse"} response` },
+      );
+      const clean = lines.map(plainDashes);
+      const blocks: AnalyzeBlock[] = [
+        ...clean.map((t) => ({ kind: "line" as const, text: t })),
+        {
+          kind: "plot" as const,
+          svg,
+          caption: `${kind === "step" ? "Step" : "Impulse"} response`,
+          alt: `${kind} response of the transfer function against time`,
+          w: 380,
+          h: 240,
+        },
+      ];
+      return { text: clean.join("\n"), blocks };
+    },
+  },
+  {
+    id: "control-bode",
+    name: "Control: frequency response & margins",
+    hint:
+      "Enter the OPEN-LOOP transfer function L(s) = G·H. Gain and phase margins are open-loop " +
+      "quantities that predict what happens when the loop is closed around them — entering a " +
+      "closed-loop transfer function here produces numbers that mean nothing.",
+    fields: [
+      { key: "num", label: "Open-loop numerator", default: "1", kind: "text" },
+      { key: "den", label: "Open-loop denominator", default: "s^3+3*s^2+2*s", kind: "text" },
+    ],
+    compute: (r) => {
+      const tf = parseTf(r("num"), r("den"));
+      if ("ok" in tf) return { text: tf.error, ok: false };
+      const mg = margins(tf);
+      if (!mg.ok) return { text: mg.error, ok: false };
+      const freqs = autoFrequencies(tf, 300);
+      const resp = frequencyResponse(tf, freqs);
+
+      const lines: string[] = [];
+      lines.push(`L(s) = [ ${polyToString(tf.num)} ] / [ ${polyToString(tf.den)} ]`);
+      lines.push("");
+      if (mg.gainMarginDb !== null) {
+        lines.push(`Gain margin = ${engNum(mg.gainMarginDb)} dB at ${engNum(mg.phaseCrossoverW as number)} rad/s`);
+        lines.push(`  the loop gain may be multiplied by ${engNum(Math.pow(10, mg.gainMarginDb / 20))} before it goes unstable`);
+      } else {
+        lines.push("Gain margin: infinite — the phase never reaches -180 degrees.");
+      }
+      if (mg.phaseMarginDeg !== null) {
+        lines.push(`Phase margin = ${engNum(mg.phaseMarginDeg)} deg at ${engNum(mg.gainCrossoverW as number)} rad/s`);
+      } else {
+        lines.push("Phase margin: none — the magnitude never crosses 0 dB.");
+      }
+      lines.push("");
+      lines.push("Closing the loop");
+      const closed = feedback(tf);
+      const st = analyzeStability(closed);
+      if (st.ok) {
+        lines.push(`  Closed-loop denominator: ${polyToString(closed.den)}`);
+        lines.push(`  ${st.verdict}`);
+      }
+      for (const note of mg.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_CONTROL_UNIT_NOTE);
+
+      const magSvg = buildPlotSvg(
+        [{ points: resp.map((p) => ({ x: p.w, y: p.magnitudeDb })), type: "line", color: "#2563eb", label: "|L|" }],
+        { width: 380, height: 220, xlabel: "Frequency (rad/s)", ylabel: "Magnitude (dB)", xScale: "log", title: "Bode magnitude" },
+      );
+      const phaseSvg = buildPlotSvg(
+        [{ points: resp.map((p) => ({ x: p.w, y: p.phaseDeg })), type: "line", color: "#b91c1c", label: "phase" }],
+        { width: 380, height: 220, xlabel: "Frequency (rad/s)", ylabel: "Phase (deg)", xScale: "log", title: "Bode phase" },
+      );
+      const clean = lines.map(plainDashes);
+      const blocks: AnalyzeBlock[] = [
+        ...clean.map((t) => ({ kind: "line" as const, text: t })),
+        { kind: "plot" as const, svg: magSvg, caption: "Bode magnitude", alt: "Open-loop magnitude in decibels against log frequency", w: 380, h: 220 },
+        { kind: "plot" as const, svg: phaseSvg, caption: "Bode phase", alt: "Open-loop phase in degrees against log frequency", w: 380, h: 220 },
+      ];
+      return { text: clean.join("\n"), blocks };
+    },
+  },
+  {
+    id: "control-pid",
+    name: "Control: PID & closed loop",
+    hint:
+      "Puts a PID controller in series with your plant and closes a unity-feedback loop around " +
+      "it. Ziegler-Nichols is offered as a STARTING POINT — it is deliberately aggressive and " +
+      "typically gives about 25% overshoot, which is a tuning to refine, not a design.",
+    fields: [
+      { key: "num", label: "Plant numerator", default: "1", kind: "text" },
+      { key: "den", label: "Plant denominator", default: "s^3+3*s^2+2*s", kind: "text" },
+      { key: "kp", label: "Kp", default: "1", kind: "text" },
+      { key: "ki", label: "Ki", default: "0", kind: "text" },
+      { key: "kd", label: "Kd", default: "0", kind: "text" },
+    ],
+    compute: (r) => {
+      const plant = parseTf(r("num"), r("den"));
+      if ("ok" in plant) return { text: plant.error, ok: false };
+      const gains: Record<string, ReturnType<typeof parseRatLiteral>> = {
+        kp: parseRatLiteral(r("kp") || "0"),
+        ki: parseRatLiteral(r("ki") || "0"),
+        kd: parseRatLiteral(r("kd") || "0"),
+      };
+      for (const [k, v] of Object.entries(gains)) {
+        if (!v) return { text: `${k.toUpperCase()} must be a number.`, ok: false };
+      }
+      const c = pidTf(gains.kp!, gains.ki!, gains.kd!);
+      const open = series(c, plant);
+      const closed = feedback(open);
+
+      const lines: string[] = [];
+      lines.push(`Controller C(s) = [ ${polyToString(c.num)} ] / [ ${polyToString(c.den)} ]`);
+      lines.push(`Plant G(s)      = [ ${polyToString(plant.num)} ] / [ ${polyToString(plant.den)} ]`);
+      lines.push(`Open loop L = C·G = [ ${polyToString(open.num)} ] / [ ${polyToString(open.den)} ]`);
+      lines.push("");
+      lines.push(`Closed loop T = L/(1+L) = [ ${polyToString(closed.num)} ] / [ ${polyToString(closed.den)} ]`);
+      const st = analyzeStability(closed);
+      if (!st.ok) return { text: st.error, ok: false };
+      lines.push(st.verdict);
+      lines.push("");
+      lines.push("Closed-loop poles");
+      for (const p of st.poles) lines.push(`  ${fmtComplexPlain(p)}`);
+
+      const mg = margins(open);
+      if (mg.ok) {
+        lines.push("");
+        lines.push("Open-loop margins");
+        lines.push(
+          mg.gainMarginDb !== null
+            ? `  Gain margin = ${engNum(mg.gainMarginDb)} dB at ${engNum(mg.phaseCrossoverW as number)} rad/s`
+            : "  Gain margin: infinite — the phase never reaches -180 degrees.",
+        );
+        lines.push(
+          mg.phaseMarginDeg !== null
+            ? `  Phase margin = ${engNum(mg.phaseMarginDeg)} deg at ${engNum(mg.gainCrossoverW as number)} rad/s`
+            : "  Phase margin: none — the magnitude never crosses 0 dB.",
+        );
+        for (const note of mg.notes) lines.push(`  Note: ${note}`);
+      }
+
+      const m = secondOrderMetrics(closed);
+      if (m.ok) {
+        lines.push("");
+        lines.push(m.exact ? "Closed-loop transient (exact)" : "Closed-loop transient, from the dominant poles");
+        lines.push(`  wn = ${engNum(m.wn)} rad/s, zeta = ${engNum(m.zeta)} (${m.kind})`);
+        if (m.overshoot !== null) lines.push(`  Overshoot = ${engNum(m.overshoot * 100)}%`);
+        if (m.settlingTime !== null) lines.push(`  Settling time (2%) = ${engNum(m.settlingTime)} s`);
+        for (const note of m.notes) lines.push(`  Note: ${note}`);
+      }
+
+      if (ratNum(gains.ki!) === 0) {
+        lines.push("");
+        lines.push(
+          "With Ki = 0 there is no integrator, so a step input leaves a STEADY-STATE ERROR unless " +
+            "the plant already contains one. Integral action removes that error and costs phase " +
+            "margin, which is the trade this tool is for.",
+        );
+      }
+      for (const note of st.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_CONTROL_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
 ];
+
+/** A complex number as plain text, for a result that must survive the dash guard. */
+function fmtComplexPlain(c: { re: number; im: number }): string {
+  if (Math.abs(c.im) < 1e-12) return engNum(c.re);
+  return `${engNum(c.re)} ${c.im < 0 ? "-" : "+"} ${engNum(Math.abs(c.im))}j`;
+}
 
 /** Builds the inputs for the selected Engineering tool and wires live compute. */
 function renderEngineeringInputs(): void {

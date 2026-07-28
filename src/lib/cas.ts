@@ -764,6 +764,52 @@ export const ratSign = (a: Rat): number => (a.n < 0n ? -1 : a.n > 0n ? 1 : 0);
 export const ratEq = (a: Rat, b: Rat): boolean => a.n === b.n && a.d === b.d;
 
 /**
+ * A number the user TYPED, as an exact rational: "2.5" is 5/2, not the binary
+ * double nearest 2.5.
+ *
+ * This is deliberately not `ratFromNumber(Number(s))`. Going through a double
+ * embeds that double's error in what is supposed to be the exact half of an
+ * engine — "0.1" would become 3602879701896397/36028797018963968, and every
+ * "exact" answer downstream would carry it. Decimal text is exactly a fraction
+ * over a power of ten, so it is read as one.
+ *
+ * Accepts a plain decimal, a fraction ("7/3"), and scientific notation. Returns
+ * null on anything else rather than guessing; the exponent is bounded because
+ * 10^(10^9) as a BigInt is not a number, it is an out-of-memory crash.
+ */
+export function parseRatLiteral(s: string): Rat | null {
+  const t = s.trim();
+  if (!t) return null;
+
+  let m = /^([+-]?\d+)\s*\/\s*([+-]?\d+)$/.exec(t);
+  if (m) {
+    const d = BigInt(m[2]);
+    if (d === 0n) return null;
+    return qDiv(qMake(BigInt(m[1]), 1n), qMake(d, 1n));
+  }
+
+  m = /^([+-]?)(\d*)(?:\.(\d*))?$/.exec(t);
+  if (m && (m[2] || m[3])) {
+    const sign = m[1] === "-" ? -1n : 1n;
+    const frac = m[3] || "";
+    const num = BigInt((m[2] || "0") + frac) * sign;
+    return qMake(num, 10n ** BigInt(frac.length));
+  }
+
+  m = /^([+-]?(?:\d+(?:\.\d*)?|\.\d+))[eE]([+-]?\d+)$/.exec(t);
+  if (m) {
+    const base = parseRatLiteral(m[1]);
+    if (!base) return null;
+    const exp = parseInt(m[2], 10);
+    if (!Number.isFinite(exp) || Math.abs(exp) > 400) return null;
+    const p = qMake(10n ** BigInt(Math.abs(exp)), 1n);
+    return exp >= 0 ? qMul(base, p) : qDiv(base, p);
+  }
+
+  return null;
+}
+
+/**
  * `e` as an exact rational function of `x` alone: ascending coefficient arrays
  * for numerator and denominator, already reduced by the canonicaliser's GCD
  * cancellation. Null when `e` involves any other symbol or any non-polynomial

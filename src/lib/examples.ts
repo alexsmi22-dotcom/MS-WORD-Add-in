@@ -62,8 +62,30 @@ export const MODE_EXAMPLES: Record<ExampleMode, string> = {
       <li><strong>Heat exchanger</strong> &mdash; LMTD sizing, counter or parallel flow. A
         temperature cross is normal in counterflow and impossible in parallel flow, and it says so
         either way.</li>
-      <li>Units are whatever you type, used consistently. Nothing converts them for you &mdash;
-        except the pipe-flow and heat tools, which are strict SI and say so.</li>
+      <li><strong>Control systems</strong> &mdash; enter a transfer function as coefficients
+        highest power first (<code>1 3 2</code>) or written out (<code>s^2+3*s+2</code>):</li>
+      <li><strong>Poles, zeros &amp; stability</strong> &mdash; with the <strong>exact</strong>
+        Routh-Hurwitz array. Stability is decided TWICE, once exactly by Routh and once
+        numerically from the poles; the two share no arithmetic, so agreeing is real evidence
+        &mdash; and if they <em>disagree</em> the tool says so instead of picking one, because a
+        disagreement means the system sits on the stability boundary.</li>
+      <li><strong>Step &amp; impulse response</strong> &mdash; damping ratio, natural frequency,
+        overshoot, rise, peak and settling time, with a plot. Exact identities for a genuine
+        second-order system; above that they come from the dominant poles and it <em>says</em> so
+        rather than presenting an estimate as a result.</li>
+      <li><strong>Frequency response &amp; margins</strong> &mdash; Bode magnitude and phase with
+        <strong>gain and phase margins</strong>. A margin that does not exist is reported as not
+        existing: a first-order lag's phase never reaches &minus;180&deg;, so its gain margin is
+        infinite and no finite number is correct.</li>
+      <li><strong>PID &amp; closed loop</strong> &mdash; puts a controller in series, closes the
+        loop, and reports the closed-loop poles, stability, margins and transient.</li>
+      <li>A <strong>right-half-plane zero</strong> is called out as non-minimum-phase: the step
+        response goes the <em>wrong way</em> first and more gain makes it worse.</li>
+      <li>Units are whatever you type, used consistently &mdash; except the cross-section,
+        buckling, torsion, pipe-flow and heat tools, which <strong>convert for you</strong>
+        (<code>200 GPa</code>, <code>1e6 mm^4</code>, <code>50 ksi</code>, <code>68 &deg;F</code>)
+        and refuse a unit of the wrong quantity rather than ignoring it. Beam and truss do not
+        convert, because they compute over exact rationals and a conversion would destroy that.</li>
     </ul>
   `,
   chemical: `

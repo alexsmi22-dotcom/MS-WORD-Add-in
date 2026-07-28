@@ -5,6 +5,61 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > Note: this file was not maintained between v1.96.0 and v2.23.0. Those releases
 > are recorded in the git history rather than here.
 
+## [2.26.0] — 2026-07-28 — Control systems: the course that was missing entirely
+
+Engineering had no transfer functions at all — the one subject required across
+mechanical, electrical, chemical *and* biomedical engineering. It has four new
+tools, built on machinery that was already here: the exact rational arithmetic
+from the CAS, the Francis QR eigenvalue solver from the linear algebra core, and
+the plotting used by the Bode sweep in circuits.
+
+**Poles, zeros and stability**, with the **exact** Routh-Hurwitz array. Routh is
+a tabulation of differences of products, so it is precisely the algorithm where
+a coefficient that is 1e-17 instead of 0 flips the verdict from stable to
+unstable — and floating point is least reliable exactly at the stability
+boundary, which is the only place anyone runs it. Over rationals it is exact.
+
+**Stability is decided twice, and the two answers are compared.** The
+right-half-plane pole count comes once from the exact tabulation and once from
+the poles as eigenvalues of the companion matrix. These share no code and no
+arithmetic, so agreement is real evidence rather than the same mistake twice.
+**When they disagree, both are reported and neither is chosen** — a disagreement
+means a pole sits so close to the imaginary axis that its computed real part is
+untrustworthy, which is the most useful thing to be told and exactly the case a
+single method answers confidently and wrongly.
+
+**Step and impulse response** with damping ratio, natural frequency, overshoot,
+rise, peak and settling time, plotted. For a genuine second-order system these
+are exact identities; above that they come from the dominant pole pair and the
+result *says so*, and says it louder when the next pole is less than five times
+faster and the approximation stops holding. A zero near the dominant poles is
+flagged, because the standard formulas know nothing about zeros and a nearby one
+increases overshoot substantially.
+
+**Frequency response and margins** — Bode magnitude and phase, gain and phase
+margin. A margin that does not exist is reported as not existing: a first-order
+lag's phase never reaches −180°, so its gain margin is infinite and any finite
+number is wrong, including the value at the edge of whatever range was swept.
+
+**PID and closed loop** — controller in series, loop closed, closed-loop poles,
+stability, margins and transient. A right-half-plane zero is called out as
+non-minimum-phase: the step response goes the *wrong way* first, and more gain
+makes it worse rather than better.
+
+**Three defects the tests found.** An oracle test that knew the gain margin
+algebraically caught the margin bisection refining on the **unwrapped** phase —
+evaluating one frequency in isolation restarts the unwrapping, so it read +179.9
+where the swept value was −180.1 and walked away from the crossing; it now
+refines on Im(G) = 0, which locates the same point with no phase bookkeeping to
+get wrong. A P-only controller was reported *marginally stable*, because
+Kp written as (Kd·s² + Kp·s)/s leaves a pole at the origin that the numerator's
+own zero cancels; the cancellation is now done rather than left to produce a
+wrong verdict. And the adversarial pass timed a step response at **2.4 seconds**
+— the sub-step cap bounded memory but not total work, which in a pane that
+recomputes per keystroke is a hang; a total-step budget now bounds the time.
+
+Suite 5,083 across 175 files, QC 10/10.
+
 ## [2.25.0] — 2026-07-28 — One unit contract across Engineering, and the 10^12 trap it was hiding
 
 Engineering had drifted into three different unit contracts. Beam, truss and

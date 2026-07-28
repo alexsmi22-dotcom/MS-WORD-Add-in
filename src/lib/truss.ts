@@ -48,7 +48,7 @@
 //   Member force is POSITIVE IN TENSION, negative in compression — universal in
 //     truss work and the convention every textbook answer is quoted in.
 
-import { Rat, ratAdd, ratSub, ratMul, ratDiv, ratInt, ratIsZero, ratNeg, ratToNumber, ratFromNumber } from "./cas";
+import { Rat, ratAdd, ratSub, ratMul, ratDiv, ratInt, ratIsZero, ratNeg, ratToNumber, parseRatLiteral } from "./cas";
 
 // ---------------------------------------------------------------------------
 // Model
@@ -421,41 +421,12 @@ export function analyzeTruss(input: TrussInput): TrussResult | TrussError {
 // ---------------------------------------------------------------------------
 
 /**
- * A decimal to an EXACT rational — 2.5 becomes 5/2, not the binary double
- * nearest 2.5. Going through ratFromNumber on a value like 0.1 would embed the
- * double's error in what is supposed to be the exact half of the engine.
+ * A decimal to an EXACT rational, shared with the CAS so there is one such
+ * parser rather than one per engine — this file and control.ts both need it,
+ * and four copies of a renderer is a mistake this codebase has already made
+ * once.
  */
-function parseRat(s: string): Rat | null {
-  const t = s.trim();
-  if (!t) return null;
-  let m = /^([+-]?\d+)\s*\/\s*(\d+)$/.exec(t);
-  if (m) {
-    const d = BigInt(m[2]);
-    if (d === 0n) return null;
-    return ratDiv(ratInt(BigInt(m[1])), ratInt(d));
-  }
-  m = /^([+-]?)(\d*)(?:\.(\d*))?$/.exec(t);
-  if (m && (m[2] || m[3])) {
-    const sign = m[1] === "-" ? -1n : 1n;
-    const whole = m[2] || "0";
-    const frac = m[3] || "";
-    const num = BigInt(whole + frac) * sign;
-    const den = 10n ** BigInt(frac.length);
-    return ratDiv(ratInt(num), ratInt(den));
-  }
-  // Scientific notation is rational too, and is what a pasted spreadsheet gives.
-  m = /^([+-]?\d*\.?\d+)[eE]([+-]?\d+)$/.exec(t);
-  if (m) {
-    const base = parseRat(m[1]);
-    if (!base) return null;
-    const exp = parseInt(m[2], 10);
-    if (!Number.isFinite(exp) || Math.abs(exp) > 300) return null;
-    const p = ratDiv(ratInt(10n ** BigInt(Math.abs(exp))), ratInt(1));
-    return exp >= 0 ? ratMul(base, p) : ratDiv(base, p);
-  }
-  const n = Number(t);
-  return Number.isFinite(n) ? ratFromNumber(n) : null;
-}
+const parseRat = parseRatLiteral;
 
 export interface ParsedTruss {
   input: TrussInput;

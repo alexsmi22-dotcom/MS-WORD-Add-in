@@ -58,6 +58,10 @@ const EXPECTED: { id: string; calls: string[]; module: string }[] = [
   { id: "pipe", calls: ["analyzePipe("], module: "../lib/fluids" },
   { id: "wall", calls: ["analyzeWall("], module: "../lib/heat" },
   { id: "hx", calls: ["analyzeExchanger("], module: "../lib/heat" },
+  { id: "control-tf", calls: ["analyzeStability(", "parseTf("], module: "../lib/control" },
+  { id: "control-step", calls: ["timeResponse(", "secondOrderMetrics("], module: "../lib/control" },
+  { id: "control-bode", calls: ["margins(", "frequencyResponse("], module: "../lib/control" },
+  { id: "control-pid", calls: ["pidTf(", "feedback(", "series("], module: "../lib/control" },
 ];
 
 describe("the scan is not vacuous", () => {
@@ -158,7 +162,12 @@ describe("every Engineering tool declares its inputs and can produce a result", 
 // tests enforce the declaration, because the last thing to enforce it was a
 // sentence in a hint.
 // ---------------------------------------------------------------------------
-const UNIT_NOTES = ["ENG_UNIT_NOTE", "ENG_SAME_UNIT_NOTE", "ENG_EXACT_UNIT_NOTE"] as const;
+const UNIT_NOTES = [
+  "ENG_UNIT_NOTE",
+  "ENG_SAME_UNIT_NOTE",
+  "ENG_EXACT_UNIT_NOTE",
+  "ENG_CONTROL_UNIT_NOTE",
+] as const;
 
 /** Which contract each tool is on, asserted rather than inferred. */
 const CONTRACT: Record<string, (typeof UNIT_NOTES)[number]> = {
@@ -173,6 +182,10 @@ const CONTRACT: Record<string, (typeof UNIT_NOTES)[number]> = {
   hx: "ENG_UNIT_NOTE",
   "circuit-dc": "ENG_SAME_UNIT_NOTE",
   "circuit-ac": "ENG_SAME_UNIT_NOTE",
+  "control-tf": "ENG_CONTROL_UNIT_NOTE",
+  "control-step": "ENG_CONTROL_UNIT_NOTE",
+  "control-bode": "ENG_CONTROL_UNIT_NOTE",
+  "control-pid": "ENG_CONTROL_UNIT_NOTE",
 };
 
 describe("every Engineering tool declares one unit contract", () => {

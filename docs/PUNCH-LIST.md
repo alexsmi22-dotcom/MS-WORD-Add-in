@@ -1,5 +1,10 @@
 # JurisLab — Punch List
 
+> **⚠ THE STATUS MARKS IN THIS FILE ARE STALE. See [OPEN-ITEMS.md](OPEN-ITEMS.md)**
+> for what is actually open, verified against the source at v2.22.0 on 2026-07-27.
+> This file is kept for its reasoning and its record of what was found and fixed —
+> the analysis is still good, the checkboxes are not.
+
 From the full-product audit, 2026-07-15 (v1.65.2). Ordered by **risk to the
 user**, not by effort.
 

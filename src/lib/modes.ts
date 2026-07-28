@@ -32,6 +32,7 @@ export const ALL_MODES = [
   "peptide",
   "stats",
   "analyze",
+  "engineering",
   "build",
   "code",
   "sequence",

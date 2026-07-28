@@ -13,6 +13,26 @@ import type { ExampleMode } from "./modes";
 
 /** HTML help fragment shown in the "Examples & syntax" panel for each mode. */
 export const MODE_EXAMPLES: Record<ExampleMode, string> = {
+  engineering: `
+    <ul>
+      <li><strong>Beam analysis</strong> &mdash; span, supports and loads in, reactions, shear and
+        bending-moment diagrams out. Supports are <code>pin 0</code>, <code>roller 8</code> or
+        <code>fixed 0</code>; loads go one per line:</li>
+      <li><code>point 30 at 6</code> &mdash; a concentrated force, downward positive</li>
+      <li><code>udl 5 from 0 to 8</code> &mdash; uniform intensity over part or all of the span</li>
+      <li><code>udl 0 to 9 from 0 to 6</code> &mdash; linearly varying (triangular or trapezoidal)</li>
+      <li><code>moment 200 at 4</code> &mdash; an applied couple, counterclockwise positive</li>
+      <li><strong>Indeterminate beams work the same way</strong> &mdash; a propped cantilever
+        (<code>fixed 0, roller 8</code>) or a fixed-fixed beam needs no special handling, and the
+        reactions come out exact.</li>
+      <li><strong>Deflection</strong> needs <code>EI</code>. Reactions, shear and moment do not, and
+        are computed exactly without it.</li>
+      <li><strong>Cross-section properties</strong> &mdash; area, second moment, section modulus,
+        radius of gyration, and the peak bending and shear stress for a moment and shear you enter.
+        A tee reports BOTH section moduli, because its fibres are at different distances.</li>
+      <li>Units are whatever you type, used consistently. Nothing converts them for you.</li>
+    </ul>
+  `,
   chemical: `
     <ul>
       <li><code>H2O</code> &rarr; H<sub>2</sub>O</li>

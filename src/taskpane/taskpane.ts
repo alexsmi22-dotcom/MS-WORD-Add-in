@@ -87,6 +87,9 @@ import { buildCircularMapSvg } from "../lib/seqmapcirc";
 import { parseSnapGeneDna, looksLikeDna } from "../lib/seqdna";
 import { ENZYMES, findSites, summarise, uniqueCutters, formatSite, methylationWarnings } from "../lib/enzymes";
 import { digest, describeDigest, gelBands } from "../lib/digest";
+import { analyzeBeam, parseSupports, parseLoads, parseLength } from "../lib/beam";
+import { beamDiagramSvg } from "../lib/beamChart";
+import { sectionProperties, bendingStress, SectionSpec } from "../lib/section";
 import { nmrChartSvg, irChartSvg, msChartSvg, cosyChartSvg, hsqcChartSvg, jcampChartSvg, decimateTrace, SPECTRUM_CHART_SIZE, SPECTRUM_2D_SIZE } from "../lib/spectraChart";
 import { buildPeptide } from "../lib/peptide";
 import {
@@ -546,6 +549,12 @@ let statsInputs: HTMLElement;
 let statsResult: HTMLElement;
 let statsInsertBtn: HTMLButtonElement;
 let currentStatsText = "";
+let engineeringSection: HTMLElement;
+let engineeringCalcSelect: HTMLSelectElement;
+let engineeringHint: HTMLElement;
+let engineeringInputs: HTMLElement;
+let engineeringResult: HTMLElement;
+let engineeringInsertBtn: HTMLButtonElement;
 let analyzeSection: HTMLElement;
 let analyzeCalcSelect: HTMLSelectElement;
 let analyzeHint: HTMLElement;
@@ -862,6 +871,12 @@ Office.onReady((info) => {
   statsInputs = document.getElementById("stats-inputs") as HTMLElement;
   statsResult = document.getElementById("stats-result") as HTMLElement;
   statsInsertBtn = document.getElementById("stats-insert") as HTMLButtonElement;
+  engineeringSection = document.getElementById("engineering-section") as HTMLElement;
+  engineeringCalcSelect = document.getElementById("engineering-calc") as HTMLSelectElement;
+  engineeringHint = document.getElementById("engineering-hint") as HTMLElement;
+  engineeringInputs = document.getElementById("engineering-inputs") as HTMLElement;
+  engineeringResult = document.getElementById("engineering-result") as HTMLElement;
+  engineeringInsertBtn = document.getElementById("engineering-insert") as HTMLButtonElement;
   analyzeSection = document.getElementById("analyze-section") as HTMLElement;
   analyzeCalcSelect = document.getElementById("analyze-calc") as HTMLSelectElement;
   analyzeHint = document.getElementById("analyze-hint") as HTMLElement;
@@ -1063,6 +1078,8 @@ Office.onReady((info) => {
   statsInsertBtn.addEventListener("click", () => insertPlainText(currentStatsText, "Statistics"));
 
   populateAnalyzeCalcs();
+  engineeringCalcSelect.addEventListener("change", renderEngineeringInputs);
+  engineeringInsertBtn.addEventListener("click", insertEngineering);
   analyzeCalcSelect.addEventListener("change", renderAnalyzeInputs);
   analyzeInsertBtn.addEventListener("click", insertAnalysis);
 
@@ -1233,6 +1250,12 @@ const HOME_GROUPS: HomeGroup[] = [
       { mode: "plot", label: "Plot", desc: "Function & data charts" },
       { mode: "stats", audience: ["science"], label: "Stats", desc: "Descriptive, t-tests, ANOVA, uncertainty" },
       { mode: "analyze", audience: ["science"], label: "Analyze", desc: "Matrix math + data → trends & insights" },
+      {
+        mode: "engineering",
+        audience: ["science"],
+        label: "Engineering",
+        desc: "Beam shear/moment diagrams, deflection, section properties",
+      },
     ],
   },
   {
@@ -1861,6 +1884,7 @@ function onInputChanged(): void {
   peptideSection.style.display = mode === "peptide" ? "block" : "none";
   statsSection.style.display = mode === "stats" ? "block" : "none";
   analyzeSection.style.display = mode === "analyze" ? "block" : "none";
+  engineeringSection.style.display = mode === "engineering" ? "block" : "none";
   pptSection.style.display = mode === "ppt" ? "block" : "none";
 
   if (mode === "units") {
@@ -1923,6 +1947,17 @@ function onInputChanged(): void {
   }
   if (mode === "analyze") {
     if (!analyzeInputs.children.length) renderAnalyzeInputs();
+  }
+  if (mode === "engineering") {
+    if (!engineeringCalcSelect.options.length) {
+      for (const c of ENG_CALCS) {
+        const o = document.createElement("option");
+        o.value = c.id;
+        o.textContent = c.name;
+        engineeringCalcSelect.appendChild(o);
+      }
+    }
+    if (!engineeringInputs.children.length) renderEngineeringInputs();
     return;
   }
   if (mode === "numerals") {
@@ -7095,6 +7130,256 @@ function populateAnalyzeCalcs(): void {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Engineering — beams and cross-sections
+// ---------------------------------------------------------------------------
+
+interface EngCalc {
+  id: string;
+  name: string;
+  hint: string;
+  fields: AnalyzeField[];
+  compute: (read: (k: string) => string) => AnalyzeOutput;
+}
+
+/** Four significant figures is the right resolution for a design number. */
+const engNum = (v: number): string => {
+  if (!Number.isFinite(v)) return "not finite";
+  if (v === 0) return "0";
+  const a = Math.abs(v);
+  if (a >= 1e6 || a < 1e-3) return v.toExponential(3);
+  return String(Number(v.toPrecision(4)));
+};
+
+const ENG_CALCS: EngCalc[] = [
+  {
+    id: "beam",
+    name: "Beam analysis (shear, moment, deflection)",
+    hint:
+      'Supports: "pin 0, roller 8" or "fixed 0". Loads, one per line: "point 30 at 6", ' +
+      '"udl 5 from 0 to 8", "udl 0 to 9 from 0 to 6" (varying), "moment 200 at 4". ' +
+      "Downward loads are positive. Keep your units consistent; nothing here converts them.",
+    fields: [
+      { key: "L", label: "Span", default: "8", kind: "text" },
+      { key: "sup", label: "Supports", default: "pin 0, roller 8", kind: "text" },
+      {
+        key: "loads",
+        label: "Loads (one per line)",
+        default: "udl 5 from 0 to 8\npoint 30 at 6",
+        kind: "block",
+        rows: 4,
+      },
+      { key: "EI", label: "EI for deflection (blank to skip)", default: "", kind: "text" },
+      { key: "unit", label: "Units as force,length", default: "kN,m", kind: "text" },
+    ],
+    compute: (r) => {
+      const L = parseLength(r("L"));
+      if (!L) return { text: "Enter a span, e.g. 8.", ok: false };
+      const sup = parseSupports(r("sup"));
+      const lds = parseLoads(r("loads"));
+      const problems = [...sup.errors, ...lds.errors];
+      if (problems.length) return { text: problems.join("\n"), ok: false };
+
+      const res = analyzeBeam({ length: L, supports: sup.supports, loads: lds.loads });
+      if (!res.ok) return { text: res.error, ok: false };
+
+      const parts = (r("unit") || "kN,m").split(",");
+      const fu = (parts[0] || "").trim();
+      const lu = (parts[1] || "").trim();
+      const mu = fu && lu ? fu + "·" + lu : "";
+      const svg = beamDiagramSvg({
+        result: res,
+        supports: sup.supports,
+        loads: lds.loads,
+        forceUnit: fu,
+        momentUnit: mu,
+        lengthUnit: lu,
+      });
+
+      const lines: string[] = [];
+      lines.push(`Beam analysis, span ${engNum(res.length)} ${lu}`);
+      lines.push(res.determinacy.note);
+      lines.push("");
+      lines.push("Reactions");
+      for (const re of res.reactions) {
+        let line = `  ${re.kind} at x = ${engNum(re.x)} ${lu}: ${engNum(re.force)} ${fu} ${re.force >= 0 ? "up" : "down"}`;
+        if (re.moment !== undefined)
+          line += `, fixed-end moment ${engNum(re.moment)} ${mu} (${re.moment < 0 ? "hogging" : "sagging"})`;
+        lines.push(line);
+      }
+      lines.push("");
+      lines.push(`Max shear: ${engNum(res.maxShear.value)} ${fu} at x = ${engNum(res.maxShear.x)} ${lu}`);
+      const govern =
+        Math.abs(res.minMoment.value) > Math.abs(res.maxMoment.value) ? res.minMoment : res.maxMoment;
+      lines.push(`Max moment: ${engNum(govern.value)} ${mu} at x = ${engNum(govern.x)} ${lu}`);
+      if (res.maxMoment.value > 0 && res.minMoment.value < 0)
+        lines.push(
+          `  sagging peak ${engNum(res.maxMoment.value)} ${mu}, hogging peak ${engNum(res.minMoment.value)} ${mu}`,
+        );
+
+      const eiRaw = r("EI").trim();
+      if (eiRaw) {
+        const EI = Number(eiRaw);
+        if (!Number.isFinite(EI) || EI <= 0) {
+          lines.push("");
+          lines.push("EI must be a positive number, so deflection was not computed.");
+        } else {
+          const d = res.maxEiDeflection;
+          lines.push("");
+          lines.push(
+            `Max deflection: ${engNum(d.value / EI)} ${lu} at x = ${engNum(d.x)} ${lu} (${d.value < 0 ? "downward" : "upward"})`,
+          );
+          lines.push(`  from EI times v = ${engNum(d.value)}, with EI = ${engNum(EI)}`);
+        }
+      } else {
+        lines.push("");
+        lines.push("Deflection needs EI. Reactions, shear and moment do not, and are exact without it.");
+      }
+      for (const w of res.warnings) lines.push(`Note: ${w}`);
+
+      // plainDashes must be applied to the LINES, not only to the joined text.
+      // The blocks are what get inserted whenever there is a diagram, so
+      // cleaning only `text` left the em dash in every line that actually
+      // reached the document, while the guard — which reads `text` — saw a clean
+      // string and enabled the button. Caught by looking at the rendered pane.
+      const clean = lines.map(plainDashes);
+      const blocks: AnalyzeBlock[] = [
+        ...clean.map((t) => ({ kind: "line" as const, text: t })),
+        {
+          kind: "plot" as const,
+          svg,
+          caption: "Shear force and bending moment diagrams",
+          alt: `Beam of span ${engNum(res.length)} with its shear force and bending moment diagrams`,
+          w: 420,
+          h: 336,
+        },
+      ];
+      return { text: clean.join("\n"), blocks };
+    },
+  },
+  {
+    id: "section",
+    name: "Cross-section properties & stress",
+    hint:
+      "Dimensions in consistent units (mm gives I in mm^4). Enter a moment and shear in matching units " +
+      "to get the peak bending and transverse shear stress.",
+    fields: [
+      {
+        key: "shape",
+        label: "Shape",
+        default: "rect",
+        kind: "select",
+        options: [
+          { value: "rect", label: "Rectangle (b, h)" },
+          { value: "circle", label: "Solid circle (d)" },
+          { value: "pipe", label: "Circular hollow (d, wall t)" },
+          { value: "box", label: "Rectangular hollow (b, h, wall t)" },
+          { value: "ibeam", label: "I-beam (bf, tf, depth, tw)" },
+          { value: "tee", label: "Tee (bf, tf, depth, tw)" },
+        ],
+      },
+      { key: "dims", label: "Dimensions, comma separated, in the order above", default: "50, 200", kind: "text" },
+      { key: "M", label: "Bending moment (blank to skip)", default: "", kind: "text" },
+      { key: "V", label: "Shear force (blank to skip)", default: "", kind: "text" },
+    ],
+    compute: (r) => {
+      const shape = r("shape") || "rect";
+      const d = r("dims")
+        .split(/[,\s]+/)
+        .filter(Boolean)
+        .map(Number);
+      if (d.some((v) => !Number.isFinite(v))) return { text: "Every dimension must be a number.", ok: false };
+      const need: Record<string, number> = { rect: 2, circle: 1, pipe: 2, box: 3, ibeam: 4, tee: 4 };
+      if (d.length !== need[shape])
+        return { text: `This shape needs ${need[shape]} dimension(s); ${d.length} given.`, ok: false };
+
+      let spec: SectionSpec;
+      if (shape === "rect") spec = { kind: "rect", b: d[0], h: d[1] };
+      else if (shape === "circle") spec = { kind: "circle", d: d[0] };
+      else if (shape === "pipe") spec = { kind: "pipe", d: d[0], t: d[1] };
+      else if (shape === "box") spec = { kind: "box", b: d[0], h: d[1], t: d[2] };
+      else if (shape === "ibeam") spec = { kind: "ibeam", bf: d[0], tf: d[1], d: d[2], tw: d[3] };
+      else spec = { kind: "tee", bf: d[0], tf: d[1], d: d[2], tw: d[3] };
+
+      const p = sectionProperties(spec);
+      if ("error" in p) return { text: p.error, ok: false };
+
+      const lines: string[] = [];
+      lines.push(`${p.name}, section properties`);
+      lines.push(`Area A = ${engNum(p.A)}`);
+      lines.push(`Second moment I = ${engNum(p.I)}`);
+      lines.push(`Centroid above the bottom fibre = ${engNum(p.yBar)}`);
+      if (p.symmetric) {
+        lines.push(`Section modulus S = ${engNum(p.sTop)} (c = ${engNum(p.cTop)})`);
+      } else {
+        lines.push(`Section modulus, top fibre = ${engNum(p.sTop)} (c = ${engNum(p.cTop)})`);
+        lines.push(`Section modulus, bottom fibre = ${engNum(p.sBot)} (c = ${engNum(p.cBot)})`);
+      }
+      lines.push(`Radius of gyration r = ${engNum(p.r)}`);
+      lines.push(`First moment Q at the neutral axis = ${engNum(p.Q)}, width there = ${engNum(p.tNA)}`);
+
+      const mRaw = r("M").trim();
+      const vRaw = r("V").trim();
+      if (mRaw || vRaw) {
+        const M = mRaw ? Number(mRaw) : 0;
+        const V = vRaw ? Number(vRaw) : 0;
+        if (!Number.isFinite(M) || !Number.isFinite(V)) {
+          lines.push("Moment and shear must be numbers.");
+        } else {
+          const s = bendingStress(p, M, V);
+          lines.push("");
+          if (mRaw) lines.push(`Peak bending stress = ${engNum(s.sigma)} at the ${s.fibre} fibre`);
+          if (vRaw) lines.push(`Transverse shear stress at the neutral axis = ${engNum(s.tau)}`);
+          lines.push("Units follow whatever you entered; nothing here converts them.");
+        }
+      }
+      for (const n of p.notes) lines.push(`Note: ${n}`);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+];
+
+/** Builds the inputs for the selected Engineering tool and wires live compute. */
+function renderEngineeringInputs(): void {
+  const calc = ENG_CALCS.find((c) => c.id === engineeringCalcSelect.value) ?? ENG_CALCS[0];
+  engineeringHint.textContent = calc.hint;
+  renderCalcFields(calc.fields, engineeringInputs, "engineering", updateEngineeringPreview);
+}
+
+let currentEngText = "";
+let currentEngBlocks: AnalyzeBlock[] | null = null;
+
+/** Computes and shows the result for the current Engineering tool. */
+function updateEngineeringPreview(): void {
+  const calc = ENG_CALCS.find((c) => c.id === engineeringCalcSelect.value) ?? ENG_CALCS[0];
+  const read = (k: string): string => {
+    const el = engineeringInputs.querySelector<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(
+      `[data-key="${k}"]`,
+    );
+    return el ? el.value : "";
+  };
+  let out: AnalyzeOutput;
+  try {
+    out = calc.compute(read);
+  } catch (e) {
+    out = { text: `Couldn't compute: ${(e as Error).message}`, ok: false };
+  }
+  // Same em-dash sentinel guard as Stats and Analyze. Every string this mode
+  // builds is passed through plainDashes() where it is assembled, so the prose
+  // can stay readable without silently disabling the button.
+  const insertable = out.ok !== false && !!out.text && !out.text.includes("—");
+  engineeringResult.innerHTML =
+    out.blocks && insertable ? analyzeBlocksToPreviewHtml(out.blocks) : esc(out.text).replace(/\n/g, "<br>");
+  currentEngText = insertable ? out.text : "";
+  currentEngBlocks = insertable ? out.blocks ?? null : null;
+  engineeringInsertBtn.disabled = !insertable;
+}
+
+/** Inserts the current Engineering result, diagram included. */
+async function insertEngineering(): Promise<void> {
+  await insertResultBlocks(currentEngText, currentEngBlocks, "Engineering result");
+}
+
 /** Builds the inputs for the selected Analyze tool and wires live compute. */
 function renderAnalyzeInputs(): void {
   const calc = ANALYZE_CALCS.find((c) => c.id === analyzeCalcSelect.value) ?? ANALYZE_CALCS[0];
@@ -7139,14 +7424,25 @@ function updateAnalyzePreview(): void {
  * labels become paragraphs. Falls back to plain text when there is no matrix.
  */
 async function insertAnalysis(): Promise<void> {
-  if (!currentAnalyzeText.trim()) {
+  await insertResultBlocks(currentAnalyzeText, currentAnalyzeBlocks, "Analysis");
+}
+
+/**
+ * Shared block-insertion path. Analyze was the only mode producing matrices and
+ * plots when this was written; Engineering produces the same shapes (a diagram
+ * plus lines), and duplicating the Word.run choreography is how two copies drift
+ * apart — which is exactly what happened to the four field renderers before
+ * v2.4.0 folded them into one.
+ */
+async function insertResultBlocks(text: string, blocksIn: AnalyzeBlock[] | null, label: string): Promise<void> {
+  if (!text.trim()) {
     setStatus("Nothing to insert.", "error");
     return;
   }
-  const blocks = currentAnalyzeBlocks;
+  const blocks = blocksIn;
   // No matrix/plot to lay out → the existing plain-text path is exactly right.
   if (!blocks || !blocks.some((b) => b.kind === "matrix" || b.kind === "plot")) {
-    await insertPlainText(currentAnalyzeText, "Analysis");
+    await insertPlainText(text, label);
     return;
   }
   if (insertTextBusy) return;
@@ -7189,9 +7485,9 @@ async function insertAnalysis(): Promise<void> {
       anchor.select(Word.SelectionMode.end);
       await context.sync();
     });
-    setStatus("Analysis inserted.", "success");
+    setStatus(`${label} inserted.`, "success");
   } catch (error) {
-    setStatus(`Could not insert analysis: ${(error as Error).message}`, "error");
+    setStatus(`Could not insert ${label.toLowerCase()}: ${(error as Error).message}`, "error");
   } finally {
     insertTextBusy = false;
   }

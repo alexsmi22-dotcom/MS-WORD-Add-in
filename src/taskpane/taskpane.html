@@ -77,6 +77,7 @@
             <option value="plot">Plot</option>
             <option value="stats">Stats</option>
             <option value="analyze">Analyze</option>
+            <option value="engineering">Engineering</option>
           </optgroup>
           <optgroup label="Data &amp; figures">
             <option value="ppt">Table → Chart</option>
@@ -694,6 +695,23 @@
           <div id="analyze-result" class="preview" aria-live="polite"></div>
         </div>
         <button id="analyze-insert" class="insert-btn" type="button" disabled>Insert result</button>
+      </section>
+
+      <section id="engineering-section">
+        <p class="seq-disclaimer">
+          Engineering — beam analysis and cross-section properties, computed exactly on your own
+          numbers. Reactions, shear and bending-moment diagrams, deflection, and section properties
+          with the stresses they give. Analysis aid — check against your own working before relying on it.
+        </p>
+        <label class="field-label" for="engineering-calc">Tool</label>
+        <select id="engineering-calc" class="lib-select"></select>
+        <div id="engineering-hint" class="seq-disclaimer" aria-live="polite"></div>
+        <div id="engineering-inputs"></div>
+        <div class="preview-wrap">
+          <span class="preview-label">Result</span>
+          <div id="engineering-result" class="preview" aria-live="polite"></div>
+        </div>
+        <button id="engineering-insert" class="insert-btn" type="button" disabled>Insert result</button>
       </section>
 
       <!-- Peptide: draw a 2D structure from a sequence -->

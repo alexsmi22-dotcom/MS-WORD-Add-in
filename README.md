@@ -9,7 +9,7 @@ citations, and more — and inserts it at the cursor. Everything runs **entirely
 content is sent anywhere** (the one exception is the strictly opt-in online
 name→structure lookup, which prompts before sending).
 
-Pick a tool from the home screen — **25 tools** (grouped STEM + legal):
+Pick a tool from the home screen — **26 tools** (grouped STEM + legal):
 
 | Mode | What it does |
 |---|---|
@@ -20,6 +20,7 @@ Pick a tool from the home screen — **25 tools** (grouped STEM + legal):
 | **Peptide** | 2D structure from a one- or three-letter amino-acid sequence, with formula & MW |
 | **Stats** | descriptive stats, **t-tests** (Welch/Student/paired), one- & **two-way ANOVA**, **regression** (simple, **multiple**, **polynomial**, with **residual and Q-Q diagnostic plots**), **non-parametric** (Mann–Whitney, Wilcoxon, **Kruskal–Wallis + Dunn**, **Friedman**), **post-hoc** (Tukey HSD, **Dunnett** many-to-one), **survival analysis** (Kaplan–Meier with Greenwood intervals, log-rank, hazard ratio), **chi-square** (fit & independence), **multiple-comparison correction** (Bonferroni/Holm/BH), **assumption diagnostics** (normality, equal variances, with the right alternative named), and **uncertainty propagation** |
 | **Analyze** | no-code numerical workbench: **matrix math** (solve A·x=b, inverse, determinant/rank/trace, eigenvalues incl. complex, **QR**, **SVD**, one-line **matrix expressions** like `A*inv(B)+2*C'`), **optimization** (Nelder–Mead), **FFT** spectra, **ODE/system solving** — type the equation you have (**higher order auto-reduces**: `y'' = -0.1*y' - y` just works), with explicit **RK45** plus a 4th-order implicit **stiff solver** (RODAS4) and **automatic stiffness detection**, so kinetics with widely separated rate constants actually solve; **report at the times you choose** (computed, not interpolated) and **stop on a condition** (“when does it hit zero?”) — and **raw data → trends, correlations & plain-language insights**, all offline |
+| **Engineering** | beam analysis and cross-sections: reactions, **shear force and bending moment diagrams**, slope and deflection, from point loads, uniform and **linearly varying** distributed loads and applied couples. **Statically indeterminate beams need no special handling** - a propped cantilever or a fixed-fixed beam is the same code path, solved by compatibility, and the reactions come out **exact** (3/8 wL, not 0.37499999996). Cross-section properties (area, I, section modulus, radius of gyration, Q) for rectangle, circle, pipe, box, I-beam and tee, with the bending and transverse shear stress they give - and **both section moduli for a non-symmetric section**, because the far fibre is the one that yields |
 | **Math** | native Word equations, matrices/cases, **LaTeX import/export**, multi-line aligned equations, a formula library |
 | **Solve** | equations, calculus & word problems, offline, on a **CAS core** (exact rational arithmetic — collect, expand, cancel, canonical equality): exact linear/quadratic roots, every root of any higher-degree polynomial (real **and complex**, repeated roots marked), **inequalities** (solved exactly by sign analysis on the critical points — nothing is multiplied through by an expression whose sign is unknown, so `1/x < 1` keeps the negative branch a naive multiply loses, and a pole is excluded even from a non-strict comparison), **systems of equations** (several equations, one per line: linear ones solved **exactly** by rational row reduction, and classified as one solution / none / **infinitely many** with the free variables named — never one arbitrary point passed off as *the* answer; nonlinear ones by Newton, every root substituted back), **symbolic rearrangement of formulas** (`F = m*a` solved for `a` → `F/m`, the quadratic formula symbolically, every introduced divisor's ≠ 0 condition stated, answers verified by back-substitution), **limits** (L'Hôpital where needed, each answer cross-checked numerically, and a two-sided limit that does not exist is *said* not to exist rather than reported from one side) and **Taylor/Maclaurin series** with exact rational coefficients, symbolic **derivatives** (canonically simplified — `d/dx sin(x)cos(x)` → `cos(x)² − sin(x)²`), **symbolic integration** (substitution, by parts, partial fractions — ∫x·eˣ dx = eˣ(x−1), ∫dx/(x²−1), ∫ln x dx — every antiderivative verified by differentiating it back), **definite integrals** exact where a closed form exists, showing F(x), and **word problems** — percentages, distance = rate × time, "a number …" sentences, and **successive-share problems** ("guest 1 takes 1%, guest 2 takes 2% of what's left …"), each with the working shown; and **geometry** — mensuration exact in π and surds, triangle solving including the **ambiguous SSA case** (which can have two answers, one, or none, and says which), analytic geometry with exact rational coordinates, and **conic classification** by invariants (rotate, translate, canonical form, foci, eccentricity — degenerate cases named, not dressed up as ellipses). Results insert as **real, editable Word equations**, not flat text |
 | **Units** | SI typesetting (±, ×10ⁿ, µ/Ω/°), significant figures, unit conversion incl. compound units (`km/h → m/s`) |
@@ -43,7 +44,7 @@ Pick a tool from the home screen — **25 tools** (grouped STEM + legal):
 H2O → H₂O   ·   paste \frac{-b±√(b²-4ac)}{2a} (LaTeX) → a Word equation   ·   aspirin → 2D structure
 ```
 
-> **Status:** v2.22.0 — production. Word on **Windows & macOS**,
+> **Status:** v2.23.0 — production. Word on **Windows & macOS**,
 > 100% client-side. Install packs: [`install/`](install/) · feature list: [`FEATURES.md`](FEATURES.md).
 
 ## Screenshots
@@ -62,7 +63,7 @@ _Screenshots coming soon — see [`docs/screenshots/`](docs/screenshots/) for th
 
 ## Documentation
 
-- **[User Manual](https://alexsmi22-dotcom.github.io/MS-WORD-Add-in/manual.html)** — **start here if you're using it**: the core loop, all 25 tools with worked examples, honest limits, troubleshooting. Published from [`landing/manual.html`](landing/manual.html), so it deploys with every release and can't go stale.
+- **[User Manual](https://alexsmi22-dotcom.github.io/MS-WORD-Add-in/manual.html)** — **start here if you're using it**: the core loop, all 26 tools with worked examples, honest limits, troubleshooting. Published from [`landing/manual.html`](landing/manual.html), so it deploys with every release and can't go stale.
 - [Features](FEATURES.md) — the in-repo reference for what every mode does
 - [Install (Windows & macOS)](install/README.md) — for end users
 - [Manual test script](docs/TEST-SCRIPT.md) — in-Word QA checklist
@@ -78,7 +79,7 @@ _Screenshots coming soon — see [`docs/screenshots/`](docs/screenshots/) for th
    (modern WebView2/Edge runtime; legacy IE-based webviews are not supported).
 
 > Verified by the QC gate (`npm run qc`): `npm run lint` (type-check),
-> `npm test` (**4,200+ unit tests** across **152 test files**), `npm run build` (production bundle),
+> `npm test` (**4,400+ unit tests** across **155 test files**), `npm run build` (production bundle),
 > `office-addin-manifest validate`, the task-pane id-wiring audit, and a
 > **headless render check** (`npm run render-check`) that boots the real bundle in
 > Chromium — the same engine as Word's WebView2 — and drives every tool. All pass.

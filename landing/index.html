@@ -4,10 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>JurisLab | Word Add-in for STEM &amp; Legal Authoring</title>
-<meta name="description" content="A free Microsoft Word add-in for STEM authoring and patent/legal drafting: numerical workbench, chemistry and 2D structures, predicted NMR/IR/UV-Vis spectra, mass spec, enzyme kinetics, peptides, statistics, equations, plots, finance, DNA and ST.26 sequences, sequence maps, alignment, Bluebook citations and Table of Authorities. 25 tools. 100% offline. Windows &amp; Mac.">
+<meta name="description" content="A free Microsoft Word add-in for STEM authoring and patent/legal drafting: numerical workbench, chemistry and 2D structures, predicted NMR/IR/UV-Vis spectra, mass spec, enzyme kinetics, peptides, statistics, equations, plots, finance, DNA and ST.26 sequences, sequence maps, alignment, Bluebook citations and Table of Authorities. 26 tools. 100% offline. Windows &amp; Mac.">
 <meta name="theme-color" content="#0C4A6E">
 <meta property="og:title" content="JurisLab: a technical workbench inside Microsoft Word">
-<meta property="og:description" content="25 tools for STEM authoring and patent drafting. Free, open source, and it runs entirely on your machine.">
+<meta property="og:description" content="26 tools for STEM authoring and patent drafting. Free, open source, and it runs entirely on your machine.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://alexsmi22-dotcom.github.io/MS-WORD-Add-in/">
 <link rel="canonical" href="https://alexsmi22-dotcom.github.io/MS-WORD-Add-in/">
@@ -443,7 +443,7 @@ footer{border-top:1px solid var(--rule);background:var(--ground-2);padding:32px 
     </a>
     <nav class="nav">
       <a class="hide-sm" href="#showcase">What it inserts</a>
-      <a class="hide-sm" href="#tools">All 25 tools</a>
+      <a class="hide-sm" href="#tools">All 26 tools</a>
       <a class="hide-sm" href="manual.html">Manual</a>
       <a class="hide-sm" href="https://github.com/alexsmi22-dotcom/MS-WORD-Add-in">GitHub</a>
       <a class="btn-sm" href="https://github.com/alexsmi22-dotcom/MS-WORD-Add-in/tree/main/install">Install</a>
@@ -658,7 +658,7 @@ footer{border-top:1px solid var(--rule);background:var(--ground-2);padding:32px 
     </div>
 
     <div class="stats">
-      <div class="stat"><b>25</b><span>Tools in one pane</span></div>
+      <div class="stat"><b>26</b><span>Tools in one pane</span></div>
       <div class="stat"><b>359</b><span>Structures verified against PubChem</span></div>
       <div class="stat"><b>122</b><span>Restriction enzymes</span></div>
       <div class="stat"><b>19</b><span>Finance calculators</span></div>
@@ -882,13 +882,13 @@ GATTGCAGAT-ACA</span><p class="fig-note">12/14 identity (86%) &#183; 1 mismatch 
   <div class="wrap">
     <div class="band-head">
       <p class="eyebrow">The full set</p>
-      <h2 class="h2">All 25 tools, grouped by bench.</h2>
+      <h2 class="h2">All 26 tools, grouped by bench.</h2>
       <p class="lede">Numbered the way a patent figure is numbered. Open any entry for the full breakdown and examples.</p>
     </div>
       <div class="filter" hidden>
         <input id="tool-q" type="search" autocomplete="off" spellcheck="false"
                aria-label="Filter the tool list"
-               placeholder="Filter 25 tools — try NMR, citation, matrix…">
+               placeholder="Filter 26 tools — try NMR, citation, matrix…">
         <div class="chips" role="group" aria-label="Filter by bench">
           <button type="button" class="chip" data-bench="all" aria-pressed="true">All</button>
           <button type="button" class="chip" data-bench="01" aria-pressed="false">Numerical</button>
@@ -896,18 +896,21 @@ GATTGCAGAT-ACA</span><p class="fig-note">12/14 identity (86%) &#183; 1 mismatch 
           <button type="button" class="chip" data-bench="03" aria-pressed="false">Life science</button>
           <button type="button" class="chip" data-bench="04" aria-pressed="false">Patent &amp; legal</button>
         </div>
-        <p class="filter-count" aria-live="polite">25 tools</p>
+        <p class="filter-count" aria-live="polite">26 tools</p>
       </div>
       <p class="no-hits" hidden>Nothing matches that. Try a broader word &mdash; the tools are described in the
         vocabulary of the bench they belong to.</p>
 
     <!-- group 1 -->
     <div data-bench="01" class="group">
-      <div class="group-head"><span class="gnum">01</span><h3>Numerical &amp; mathematical</h3><span class="count">7 tools</span></div>
+      <div class="group-head"><span class="gnum">01</span><h3>Numerical &amp; mathematical</h3><span class="count">8 tools</span></div>
       <div class="register">
         <a class="row" href="tool.html?tool=analyze"><span class="ref">(10)</span><div>
           <h3>Analyze</h3>
           <p>No-code numerical workbench: matrix math (solve, inverse, eigenvalues, QR, SVD, expressions), optimization, FFT, ODE and system solving (RK45, auto-switching to stiff RODAS4), boundary value problems, the heat/wave/Laplace equations, semi-explicit index-1 DAEs, and raw data turned into correlations, trends and insights.</p><div class="spec">&#955; = 5.3722, &#8722;0.3722, 0.9143 &#177; 1.2076i <span class="dim">&#183; cond(A) = 14.43</span></div></div></a>
+        <a class="row" href="tool.html?tool=engineering"><span class="ref">(11)</span><div>
+          <h3>Engineering</h3>
+          <p>Beam analysis and cross-sections. Reactions, shear force and bending moment diagrams, slope and deflection, from point loads, uniform and linearly varying distributed loads and applied couples. Statically indeterminate beams &mdash; a propped cantilever, a fixed-fixed span &mdash; need no special handling and come out exact. Section properties for rectangle, circle, pipe, box, I-beam and tee, with the bending and shear stress they give, and both section moduli when the section is not symmetric.</p><div class="spec">propped cantilever, w = 24 kN/m &#183; R = 3/8 wL = 72 kN <span class="dim">&#183; exact, not 71.99999</span></div></div></a>
         <a class="row" href="tool.html?tool=solve"><span class="ref">(12)</span><div>
           <h3>Solve</h3>
           <p>Solve equations (exact linear and quadratic including complex roots; every root of any higher-degree polynomial), systems, inequalities, limits and Taylor series, rearrange a formula for any of its symbols, symbolic derivatives, definite integrals exact where a closed form exists, and common word problems. Now also exact 2D and 3D <b>geometry</b>, and <b>algebraic topology</b> &mdash; integral homology with torsion, persistent homology from a point cloud, knot polynomials, characteristic classes, cobordism, spectral sequences and stable homotopy. Offline, and honest when it cannot parse.</p><div class="spec">x&#179; &#8722; 1 = 0 &#8594; x = 1, &#8722;0.5 &#177; 0.866i</div></div></a>

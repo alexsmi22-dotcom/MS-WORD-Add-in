@@ -1,5 +1,13 @@
 # JurisLab — Punch List: Additions & Exploration
 
+> **⚠ THE STATUS MARKS IN THIS FILE ARE STALE. See [OPEN-ITEMS.md](OPEN-ITEMS.md)**
+> for what is actually open, verified against the source at v2.22.0 on 2026-07-27.
+> Known drift: item 13 (Kaplan–Meier) shipped in v2.3.0, item 18 (USPTO paragraph
+> numbering) in v1.99.0, and item 1 (double-size figures) is fixed — all three are
+> still marked `[ ]` below. Items 16 and 24 have since been decided AGAINST and
+> belong under "Explicitly not building". The reasoning here is still worth
+> reading; the checkboxes are not.
+
 Companion to `docs/PUNCH-LIST.md`, which covers defects. This one covers what to
 build next. **Audited against v1.87.0 on 2026-07-26, every claim checked against
 the source.** Where an earlier draft of this list was wrong, the correction is

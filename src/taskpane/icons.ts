@@ -29,6 +29,11 @@ export const TOOL_ICONS: Record<Exclude<Mode, "home">, string> = {
   // Benzene ring — the universal mark for a structure.
   chemical: '<path d="M12 3.4 19.4 7.7v8.6L12 20.6 4.6 16.3V7.7z"/><circle cx="12" cy="12" r="3.5"/>',
 
+  // A simply supported beam under load: the span, its two supports and the
+  // arrow that bends it.
+  engineering:
+    '<path d="M3 13h18"/><path d="M6 13l-2 4h4z"/><path d="M18 13l-2 4h4z"/><path d="M12 3v6"/><path d="M9.5 6.5 12 9.5 14.5 6.5"/>',
+
   // Atoms joined by bonds: what Build assembles.
   build:
     '<circle cx="6" cy="17" r="2.3"/><circle cx="18" cy="17" r="2.3"/><circle cx="12" cy="6" r="2.3"/>' +

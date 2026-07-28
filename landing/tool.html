@@ -63,6 +63,9 @@
   <script>
   // Each tool: icon, title, tagline, does[] (HTML bullets), examples[] ({in,out} or {note}).
   const TOOLS = {
+    engineering: { title:"Engineering", tagline:"Beam analysis and cross-section properties, computed exactly. Shear force and bending moment diagrams that go straight into the document, and statically indeterminate beams solved by the same route as simple ones.",
+      body:"<p>Type a span, its supports and its loads, and get the reactions, the shear force and bending moment diagrams, and the deflection. Supports are pins, rollers or fixed walls; loads are point forces, uniform or linearly varying distributed loads, and applied couples.</p><p><b>Statically indeterminate beams are the same code path.</b> A propped cantilever or a fixed-fixed beam needs no force method and no superposition table &mdash; the compatibility conditions at the supports are solved alongside equilibrium, so the answer comes out in one step.</p><p><b>The arithmetic is exact.</b> Reactions are computed as rationals rather than floats, so a propped cantilever under a uniform load reports 3/8 wL and not 0.37499999996 &mdash; which matters when the number is going to be checked against a textbook.</p><p><b>Deflection needs EI; nothing else does.</b> For a prismatic beam the flexural rigidity divides out of the reactions, the shear and the moment, so those are exact without it, and only the deflection asks for a material property.</p><p><b>Cross-sections</b> give area, second moment, section modulus, radius of gyration and the first moment Q, plus the peak bending and transverse shear stress for a moment and shear you supply. A non-symmetric section reports <i>both</i> section moduli, because the fibre that yields first is the far one and quoting a single number for a tee understates it.</p><p>Units are whatever you type, used consistently. Nothing converts them for you, and it says so.</p>",
+      limits:"A beam is modelled as prismatic, linearly elastic and small-deflection (Euler-Bernoulli): shear deformation is not included, so a deep short beam deflects more in reality than this reports. Reactions on an indeterminate beam assume rigid supports, so a settling support changes them. There is no buckling check, no torsion, no combined or biaxial bending, and no design code: this computes the mechanics, it does not tell you whether a member passes." },
     analyze: { title:"Analyze", tagline:"A no-code numerical workbench inside Word — matrix math, optimization, signal processing, differential equations, and data insights, all computed offline from your own numbers.",
       does:[
         "<b>Linear algebra</b> — solve A·x = b, matrix inverse, determinant, rank &amp; trace, transpose, and multiplication, with partial pivoting for stability. Singular systems are reported honestly, never faked.",
@@ -410,7 +413,7 @@
       ] }
   };
 
-  const ORDER = ["analyze","chemical","massspec","spectra","bioassay","peptide","stats","math","solve","units","plot","tablechart","finance","build","code","sequence","botanical","numerals","refs","citations","dna","seqmap","align","reaction","audit"];
+  const ORDER = ["analyze","engineering","chemical","massspec","spectra","bioassay","peptide","stats","math","solve","units","plot","tablechart","finance","build","code","sequence","botanical","numerals","refs","citations","dna","seqmap","align","reaction","audit"];
 
   const params = new URLSearchParams(location.search);
   const id = params.get("tool");
@@ -423,7 +426,7 @@
   if (!t) {
     titleEl.textContent = "Tool not found";
     tagEl.textContent = "";
-    content.innerHTML = '<div class="missing"><p>That tool isn’t recognized. <a href="index.html">See all 25 tools →</a></p></div>';
+    content.innerHTML = '<div class="missing"><p>That tool isn’t recognized. <a href="index.html">See all 26 tools →</a></p></div>';
   } else {
     document.title = t.title + " — JurisLab";
     titleEl.textContent = t.title;

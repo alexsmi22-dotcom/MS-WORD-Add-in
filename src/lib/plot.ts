@@ -203,7 +203,27 @@ export interface PlotOptions {
    */
   xScale?: AxisScale;
   yScale?: AxisScale;
+  /**
+   * What the third data column MEANS. A bare error bar is not a fact — the same
+   * numbers plotted as ±1 SD, ±1 SEM and a 95% CI tell a reader three different
+   * things about the same experiment, and SEM bars are visibly the smallest,
+   * which is why they get chosen. Every journal and every marking scheme
+   * requires the choice to be stated, so the figure states it rather than
+   * leaving it to a caption nobody writes.
+   */
+  errorBars?: ErrorBarKind;
 }
+
+/** What an error bar represents. `custom` is for a half-width the caller computed. */
+export type ErrorBarKind = "sd" | "sem" | "ci95" | "range" | "custom";
+
+const ERROR_BAR_LABEL: Record<ErrorBarKind, string> = {
+  sd: "Error bars: ±1 SD",
+  sem: "Error bars: ±1 SEM",
+  ci95: "Error bars: 95% CI",
+  range: "Error bars: full range",
+  custom: "Error bars: as supplied",
+};
 
 /** What a log axis had to discard, so the caller can say so. */
 export interface ScaleFilterResult {
@@ -290,7 +310,12 @@ export function logTicks(lo: number, hi: number): { major: number[]; minor: numb
 /** Axis label for a decade: 10^n, or the plain number when it reads better. */
 export function fmtLogTick(v: number): string {
   const e = Math.round(Math.log10(v));
-  if (e >= -3 && e <= 4) return fmtTick(v);
+  // The band must stop where fmtTick stops being plain. fmtTick switches to
+  // exponential at |v| >= 1e4, and this used to delegate THROUGH e = 4 — so a
+  // decade axis read 100, 1000, 1.0e+4, 10⁵: three different notations in one
+  // row, with the odd one in the middle. An axis that changes notation twice
+  // makes a reader check whether the scale changed too.
+  if (e >= -3 && e <= 3) return fmtTick(v);
   const sup = String(e)
     .replace(/-/g, "\u207b")
     .replace(/[0-9]/g, (d) => "\u2070\u00b9\u00b2\u00b3\u2074\u2075\u2076\u2077\u2078\u2079"[Number(d)]);
@@ -322,7 +347,9 @@ export function buildPlotSvg(series: Series[], options: PlotOptions = {}): strin
   const ml = 48;
   const mr = 14;
   const mt = options.title ? 26 : 12;
-  const mb = options.xlabel ? 42 : 30;
+  // The error-bar declaration needs its own line, or it lands on the x label.
+  const hasErrNote = !!options.errorBars && series.some((s) => s.points.some((p) => p.err !== undefined));
+  const mb = (options.xlabel ? 42 : 30) + (hasErrNote ? 13 : 0);
   const pw = W - ml - mr;
   const ph = H - mt - mb;
 
@@ -431,7 +458,23 @@ export function buildPlotSvg(series: Series[], options: PlotOptions = {}): strin
           // On a log axis, y - err can be <= 0 where log is undefined; the bar
           // is drawn from the point itself rather than off the chart.
           const lo = logY && !(p.y - p.err > 0) ? p.y : p.y - p.err;
-          parts.push(`<line x1="${sx(p.x).toFixed(1)}" y1="${sy(lo).toFixed(1)}" x2="${sx(p.x).toFixed(1)}" y2="${sy(p.y + p.err).toFixed(1)}" stroke="${color}" stroke-width="1"/>`);
+          const x = sx(p.x);
+          const yLo = sy(lo);
+          const yHi = sy(p.y + p.err);
+          parts.push(
+            `<line x1="${x.toFixed(1)}" y1="${yLo.toFixed(1)}" x2="${x.toFixed(1)}" y2="${yHi.toFixed(1)}" stroke="${color}" stroke-width="1"/>`,
+          );
+          // Caps. Without them two overlapping series' bars are impossible to
+          // tell apart, and a bar that has been clipped at the axis reads as a
+          // shorter bar rather than as a clipped one.
+          const cap = 3;
+          parts.push(
+            `<line x1="${(x - cap).toFixed(1)}" y1="${yHi.toFixed(1)}" x2="${(x + cap).toFixed(1)}" y2="${yHi.toFixed(1)}" stroke="${color}" stroke-width="1"/>`,
+          );
+          if (!(logY && !(p.y - p.err > 0)))
+            parts.push(
+              `<line x1="${(x - cap).toFixed(1)}" y1="${yLo.toFixed(1)}" x2="${(x + cap).toFixed(1)}" y2="${yLo.toFixed(1)}" stroke="${color}" stroke-width="1"/>`,
+            );
         }
         parts.push(`<circle cx="${sx(p.x).toFixed(1)}" cy="${sy(p.y).toFixed(1)}" r="2.6" fill="${color}"/>`);
       }
@@ -465,8 +508,13 @@ export function buildPlotSvg(series: Series[], options: PlotOptions = {}): strin
   if (options.title) {
     parts.push(`<text x="${W / 2}" y="16" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="bold" fill="#222">${escapeXml(options.title)}</text>`);
   }
+  if (hasErrNote) {
+    parts.push(
+      `<text x="${ml + pw / 2}" y="${H - 8}" text-anchor="middle" font-family="sans-serif" font-size="9" fill="#555">${escapeXml(ERROR_BAR_LABEL[options.errorBars as ErrorBarKind])}</text>`,
+    );
+  }
   if (options.xlabel) {
-    parts.push(`<text x="${ml + pw / 2}" y="${H - 8}" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#333">${escapeXml(options.xlabel)}</text>`);
+    parts.push(`<text x="${ml + pw / 2}" y="${H - (hasErrNote ? 21 : 8)}" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#333">${escapeXml(options.xlabel)}</text>`);
   }
   if (options.ylabel) {
     const cx = 14;

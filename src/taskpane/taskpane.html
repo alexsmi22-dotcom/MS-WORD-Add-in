@@ -577,6 +577,14 @@
             <option value="linear">Linear</option>
             <option value="log">Log&#8321;&#8320;</option>
           </select>
+          <label class="field-label" for="plot-errbars">Error bars</label>
+          <select id="plot-errbars" class="lib-select" aria-label="what the error bars represent">
+            <option value="">Not stated</option>
+            <option value="sd">&#177;1 SD</option>
+            <option value="sem">&#177;1 SEM</option>
+            <option value="ci95">95% CI</option>
+            <option value="range">Full range</option>
+          </select>
         </div>
         <div id="plot-preview" class="structure-preview" aria-live="polite"></div>
         <button id="plot-insert" class="insert-btn" type="button" disabled>Insert plot</button>

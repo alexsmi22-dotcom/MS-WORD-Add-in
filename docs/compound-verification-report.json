@@ -365,6 +365,8 @@
   "asparagine",
   "glutamine",
   "lysine",
+  "arginine",
+  "histidine",
   "phenylalanine",
   "tyrosine",
   "tryptophan",
@@ -534,22 +536,6 @@
    "ourFormula": "C5H10O5",
    "pcFormula": "C5H10O5",
    "cid": 10975657
-  },
-  {
-   "name": "arginine",
-   "ours": "NC(=N)NCCCC(N)C(=O)O",
-   "pubchem": "C(C[C@@H](C(=O)O)N)CN=C(N)N",
-   "ourFormula": "C6H14N4O2",
-   "pcFormula": "C6H14N4O2",
-   "cid": 6322
-  },
-  {
-   "name": "histidine",
-   "ours": "NC(Cc1c[nH]cn1)C(=O)O",
-   "pubchem": "C1=C(NC=N1)C[C@@H](C(=O)O)N",
-   "ourFormula": "C6H9N3O2",
-   "pcFormula": "C6H9N3O2",
-   "cid": 6274
   },
   {
    "name": "histamine",

@@ -30,6 +30,11 @@ export const MODE_EXAMPLES: Record<ExampleMode, string> = {
       <li><strong>Cross-section properties</strong> &mdash; area, second moment, section modulus,
         radius of gyration, and the peak bending and shear stress for a moment and shear you enter.
         A tee reports BOTH section moduli, because its fibres are at different distances.</li>
+      <li><strong>Circuits</strong> &mdash; a SPICE-style netlist, one element per line:</li>
+      <li><code>V1 1 0 5</code> &middot; <code>R1 1 2 1k</code> &middot; <code>R2 2 0 2k</code> &mdash; node <code>0</code> is ground</li>
+      <li>Values may be written as a schematic prints them: <code>2k2</code> is 2.2 k, <code>4r7</code> is 4.7 ohms</li>
+      <li>The <strong>DC operating point is exact</strong> &mdash; that divider reports <code>10/3 V</code>, not 3.3333</li>
+      <li>Add <code>C</code> and <code>L</code> and give a start and stop frequency to sweep a node and draw a <strong>Bode magnitude plot</strong></li>
       <li>Units are whatever you type, used consistently. Nothing converts them for you.</li>
     </ul>
   `,

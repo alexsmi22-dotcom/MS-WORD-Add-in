@@ -138,6 +138,13 @@ const UNITS: Record<string, UnitDef> = {
   Pa: { dim: "pressure", factor: 1 }, kPa: { dim: "pressure", factor: 1000 },
   bar: { dim: "pressure", factor: 1e5 }, atm: { dim: "pressure", factor: 101325 },
   psi: { dim: "pressure", factor: 6894.757 }, mmHg: { dim: "pressure", factor: 133.322 },
+  MPa: { dim: "pressure", factor: 1e6 }, GPa: { dim: "pressure", factor: 1e9 },
+  ksi: { dim: "pressure", factor: 6894757 }, hPa: { dim: "pressure", factor: 100 },
+  // force (base N) — absent entirely until engineering needed it, which is why
+  // "N/m^2" could not be recognised as a stress.
+  N: { dim: "force", factor: 1 }, kN: { dim: "force", factor: 1000 },
+  MN: { dim: "force", factor: 1e6 }, mN: { dim: "force", factor: 0.001 },
+  lbf: { dim: "force", factor: 4.4482216152605 }, kip: { dim: "force", factor: 4448.2216152605 },
   // energy (base J)
   J: { dim: "energy", factor: 1 }, kJ: { dim: "energy", factor: 1000 },
   cal: { dim: "energy", factor: 4.184 }, kcal: { dim: "energy", factor: 4184 },
@@ -226,6 +233,38 @@ interface CompoundUnit {
   factor: number;
 }
 
+/**
+ * Named dimensions decomposed into base ones.
+ *
+ * WHY THIS EXISTS. Every named dimension used to be ATOMIC: "pressure" was its
+ * own irreducible thing, unrelated to mass, length and time. That is fine for
+ * converting bar to atm, and useless for anything derived — "N/m^2" came out as
+ * {force: 1, length: -2} and could never be recognised as a pressure, so a
+ * stress could not be expressed at all. Decomposing here means Pa, N/m^2 and
+ * N/mm^2 all reduce to the same signature and convert between each other, and
+ * the same for J vs N·m and W vs J/s.
+ *
+ * Anything not listed stays atomic, which is right for genuinely dimensionless
+ * tags like "fraction" and for "angle" — radians are dimensionless, and folding
+ * them into 1 would let an angle convert into a pure number silently.
+ */
+const BASE: Record<string, Record<string, number>> = {
+  volume: { length: 3 },
+  force: { mass: 1, length: 1, time: -2 },
+  pressure: { mass: 1, length: -1, time: -2 },
+  energy: { mass: 1, length: 2, time: -2 },
+  power: { mass: 1, length: 2, time: -3 },
+  frequency: { time: -1 },
+  charge: { current: 1, time: 1 },
+  voltage: { mass: 1, length: 2, time: -3, current: -1 },
+  resistance: { mass: 1, length: 2, time: -3, current: -2 },
+  conductance: { mass: -1, length: -2, time: 3, current: 2 },
+  capacitance: { mass: -1, length: -2, time: 4, current: 2 },
+  inductance: { mass: 1, length: 2, time: -2, current: -2 },
+  bfield: { mass: 1, time: -2, current: -1 },
+  molarity: { amount: 1, length: -3 },
+};
+
 /** Accumulates one side ("·"/"*"/space-separated factors) into dims & factor. */
 function accumulateFactors(part: string, sign: 1 | -1, out: CompoundUnit): boolean {
   for (const tok of part.split(/[·*\s]+/).filter(Boolean)) {
@@ -235,7 +274,12 @@ function accumulateFactors(part: string, sign: 1 | -1, out: CompoundUnit): boole
     // Compound units must be purely multiplicative (no affine offset like °C).
     if (!def || (def.offset !== undefined && def.offset !== 0)) return false;
     const exp = (m[2] ? parseInt(m[2], 10) : 1) * sign;
-    out.dims[def.dim] = (out.dims[def.dim] ?? 0) + exp;
+    const decomposed = BASE[def.dim];
+    if (decomposed) {
+      for (const [b, e] of Object.entries(decomposed)) out.dims[b] = (out.dims[b] ?? 0) + e * exp;
+    } else {
+      out.dims[def.dim] = (out.dims[def.dim] ?? 0) + exp;
+    }
     out.factor *= Math.pow(def.factor, exp);
   }
   return true;
@@ -278,6 +322,85 @@ export function convert(value: number, from: string, to: string): number | null 
   const ct = parseCompoundUnit(to);
   if (!cf || !ct || !sameDims(cf.dims, ct.dims)) return null;
   return (value * cf.factor) / ct.factor;
+}
+
+/** A number the user typed, with the unit they typed it in, reduced to a target unit. */
+export interface Measured {
+  /** The number as typed. */
+  value: number;
+  /** The unit as typed, or the assumed one if none was given. */
+  unit: string;
+  /** The value converted into the caller's target unit. */
+  inTarget: number;
+  /** True when no unit was written and the target was assumed. */
+  assumed: boolean;
+}
+
+/**
+ * Reads "12 kN·m", "4.5mm", "200 GPa" or a bare "12" and converts it to
+ * `targetUnit`. A bare number is ACCEPTED and flagged as assumed rather than
+ * refused, because a student mid-calculation should not be forced to annotate
+ * every field — but a WRONG unit is refused rather than ignored, which is the
+ * whole point: entering a section in millimetres and a moment in newton-metres
+ * is a factor of a billion in the stress, and it looks entirely plausible.
+ */
+export function parseMeasured(text: string, targetUnit: string): Measured | { error: string } {
+  const t = text.trim();
+  if (!t) return { error: "This field is empty." };
+  const m = /^([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)\s*(.*)$/.exec(t);
+  if (!m) return { error: `"${t}" does not start with a number.` };
+  const value = parseFloat(m[1]);
+  if (!Number.isFinite(value)) return { error: `"${m[1]}" is not a finite number.` };
+  const written = m[2].trim().replace(/·/g, "*");
+  if (!written) return { value, unit: targetUnit, inTarget: value, assumed: true };
+  const converted = convert(value, written, targetUnit);
+  if (converted === null) {
+    const known = parseCompoundUnit(written) || lookup(written);
+    return {
+      error: known
+        ? `"${written}" is not compatible with ${targetUnit} — check which quantity this field wants.`
+        : `"${written}" is not a unit this recognises.`,
+    };
+  }
+  return { value, unit: written, inTarget: converted, assumed: false };
+}
+
+/**
+ * How many significant figures the user actually wrote.
+ *
+ * TRAILING ZEROS IN A BARE INTEGER ARE AMBIGUOUS and are NOT counted: "1000"
+ * may carry one figure or four, and there is no way to tell from the text. The
+ * conservative reading is the honest one, because over-counting invents
+ * precision the measurement may not have — and a lab report is marked on
+ * exactly that. A student who means four writes "1000." or "1.000e3", both of
+ * which are counted as four.
+ *
+ * Returns null when the text is not a plain number.
+ */
+export function significantFigures(text: string): number | null {
+  const t = text.trim().replace(/^[+-]/, "");
+  const m = /^(\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.exec(t);
+  if (!m) return null;
+  const mantissa = m[1];
+  const hasPoint = mantissa.includes(".");
+  const digits = mantissa.replace(".", "");
+  // Leading zeros are never significant: 0.0042 has two figures.
+  const firstSig = digits.search(/[1-9]/);
+  if (firstSig < 0) return hasPoint ? Math.max(1, digits.length - 1) : 1; // all zeros
+  let significant = digits.slice(firstSig);
+  if (!hasPoint) significant = significant.replace(/0+$/, "") || "0";
+  return Math.max(1, significant.length);
+}
+
+/**
+ * The figures a product or quotient may be quoted to: the fewest any input
+ * carries. Inputs that are not plain numbers are ignored rather than treated as
+ * infinitely precise. Falls back to `fallback` when nothing is countable.
+ */
+export function resultFigures(inputs: string[], fallback = 4): number {
+  const counts = inputs.map(significantFigures).filter((n): n is number => n !== null);
+  if (!counts.length) return fallback;
+  return Math.min(Math.max(Math.min(...counts), 2), 6);
 }
 
 /** Rounds to `sig` significant figures (returns a number). */

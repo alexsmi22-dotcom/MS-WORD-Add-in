@@ -15,7 +15,16 @@ import { solveBvp, BvpMethod } from "../lib/bvp";
 import { solveHeat, solveWave, solveLaplace, HeatScheme, PdeOutcome } from "../lib/pde";
 import { solveDae } from "../lib/dae";
 import { RefKind, formatCaption, formatRef, formatEqRef, checkCaptions } from "../lib/refs";
-import { Series, Point, samplePlot, parseData, buildPlotSvg, dropForScales, type AxisScale } from "../lib/plot";
+import {
+  Series,
+  Point,
+  samplePlot,
+  parseData,
+  buildPlotSvg,
+  dropForScales,
+  type AxisScale,
+  type ErrorBarKind,
+} from "../lib/plot";
 import {
   fitMichaelisMenten,
   fitHill,
@@ -90,6 +99,8 @@ import { digest, describeDigest, gelBands } from "../lib/digest";
 import { analyzeBeam, parseSupports, parseLoads, parseLength } from "../lib/beam";
 import { beamDiagramSvg } from "../lib/beamChart";
 import { sectionProperties, bendingStress, SectionSpec } from "../lib/section";
+import { parseNetlist, parseValue, solveDc, solveAc, frequencySweep, dB } from "../lib/circuit";
+import { parseMeasured, resultFigures } from "../lib/units";
 import { nmrChartSvg, irChartSvg, msChartSvg, cosyChartSvg, hsqcChartSvg, jcampChartSvg, decimateTrace, SPECTRUM_CHART_SIZE, SPECTRUM_2D_SIZE } from "../lib/spectraChart";
 import { buildPeptide } from "../lib/peptide";
 import {
@@ -488,6 +499,7 @@ let paraFindings: HTMLElement;
 /** The plan the user has previewed and may apply. Cleared on any change. */
 let currentParaPlan: ParagraphPlan | null = null;
 let plotYscale: HTMLSelectElement;
+let plotErrbars: HTMLSelectElement;
 let plotXlabel: HTMLInputElement;
 let plotYlabel: HTMLInputElement;
 let plotPreview: HTMLElement;
@@ -817,6 +829,7 @@ Office.onReady((info) => {
   paraApplyBtn = document.getElementById("para-apply-btn") as HTMLButtonElement;
   paraFindings = document.getElementById("para-findings") as HTMLElement;
   plotYscale = document.getElementById("plot-yscale") as HTMLSelectElement;
+  plotErrbars = document.getElementById("plot-errbars") as HTMLSelectElement;
   plotYlabel = document.getElementById("plot-ylabel") as HTMLInputElement;
   plotPreview = document.getElementById("plot-preview") as HTMLElement;
   plotInsertBtn = document.getElementById("plot-insert") as HTMLButtonElement;
@@ -1009,7 +1022,7 @@ Office.onReady((info) => {
   }
   // Selects get "change": "input" fires for them in Chromium but is not the
   // event a <select> is specified to emit, and the pane also runs in WebView2.
-  for (const el of [plotXscale, plotYscale]) {
+  for (const el of [plotXscale, plotYscale, plotErrbars]) {
     el.addEventListener("change", updatePlotPreview);
   }
   plotInsertBtn.addEventListener("click", insertPlot);
@@ -4684,6 +4697,7 @@ function updatePlotPreview(): void {
     ylabel: plotYlabel.value.trim(),
     xScale: plotXscale.value as AxisScale,
     yScale: plotYscale.value as AxisScale,
+    errorBars: (plotErrbars.value || undefined) as ErrorBarKind | undefined,
   };
 
   // A log axis cannot show zero or negative values, so it DISCARDS points. Say
@@ -7151,14 +7165,31 @@ interface EngCalc {
   compute: (read: (k: string) => string) => AnalyzeOutput;
 }
 
-/** Four significant figures is the right resolution for a design number. */
-const engNum = (v: number): string => {
+/**
+ * Formats a result to a stated number of significant figures.
+ *
+ * The default of four is a display convention, not a claim about the data. Any
+ * caller that knows what its inputs carry should pass that instead: quoting a
+ * stress to four figures from a section measured to two is the precision error
+ * a lab report is marked down for, and a calculator produces it by default.
+ */
+const engNum = (v: number, sig = 4): string => {
   if (!Number.isFinite(v)) return "not finite";
   if (v === 0) return "0";
+  const s2 = Math.max(1, Math.min(Math.round(sig), 12));
   const a = Math.abs(v);
-  if (a >= 1e6 || a < 1e-3) return v.toExponential(3);
-  return String(Number(v.toPrecision(4)));
+  if (a >= 1e6 || a < 1e-3) return v.toExponential(Math.max(0, s2 - 1));
+  return String(Number(v.toPrecision(s2)));
 };
+
+/** The leading numeric text of a field like "12 kN·m", for counting figures. */
+const engNumericPart = (text: string): string => {
+  const m = /^\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)/.exec(text);
+  return m ? m[1] : "";
+};
+
+/** Figures the inputs support, for a calculator that knows its own fields. */
+const engFigures = (raws: string[]): number => resultFigures(raws.map(engNumericPart));
 
 const ENG_CALCS: EngCalc[] = [
   {
@@ -7288,11 +7319,25 @@ const ENG_CALCS: EngCalc[] = [
         ],
       },
       { key: "dims", label: "Dimensions, comma separated, in the order above", default: "50, 200", kind: "text" },
-      { key: "M", label: "Bending moment (blank to skip)", default: "", kind: "text" },
-      { key: "V", label: "Shear force (blank to skip)", default: "", kind: "text" },
+      {
+        key: "dimUnit",
+        label: "Dimension unit",
+        default: "mm",
+        kind: "select",
+        options: [
+          { value: "mm", label: "mm" },
+          { value: "cm", label: "cm" },
+          { value: "m", label: "m" },
+          { value: "in", label: "inches" },
+        ],
+      },
+      { key: "M", label: "Bending moment, e.g. 12 kN·m (blank to skip)", default: "", kind: "text" },
+      { key: "V", label: "Shear force, e.g. 8 kN (blank to skip)", default: "", kind: "text" },
     ],
     compute: (r) => {
       const shape = r("shape") || "rect";
+      const dimUnit = r("dimUnit") || "mm";
+      const figs = engFigures([...r("dims").split(/[,\s]+/).filter(Boolean), r("M"), r("V")]);
       const d = r("dims")
         .split(/[,\s]+/)
         .filter(Boolean)
@@ -7315,35 +7360,213 @@ const ENG_CALCS: EngCalc[] = [
 
       const lines: string[] = [];
       lines.push(`${p.name}, section properties`);
-      lines.push(`Area A = ${engNum(p.A)}`);
-      lines.push(`Second moment I = ${engNum(p.I)}`);
-      lines.push(`Centroid above the bottom fibre = ${engNum(p.yBar)}`);
+      lines.push(`Area A = ${engNum(p.A, figs)} ${dimUnit}^2`);
+      lines.push(`Second moment I = ${engNum(p.I, figs)} ${dimUnit}^4`);
+      lines.push(`Centroid above the bottom fibre = ${engNum(p.yBar, figs)} ${dimUnit}`);
       if (p.symmetric) {
-        lines.push(`Section modulus S = ${engNum(p.sTop)} (c = ${engNum(p.cTop)})`);
+        lines.push(`Section modulus S = ${engNum(p.sTop, figs)} (c = ${engNum(p.cTop, figs)})`);
       } else {
-        lines.push(`Section modulus, top fibre = ${engNum(p.sTop)} (c = ${engNum(p.cTop)})`);
-        lines.push(`Section modulus, bottom fibre = ${engNum(p.sBot)} (c = ${engNum(p.cBot)})`);
+        lines.push(`Section modulus, top fibre = ${engNum(p.sTop, figs)} (c = ${engNum(p.cTop, figs)})`);
+        lines.push(`Section modulus, bottom fibre = ${engNum(p.sBot, figs)} (c = ${engNum(p.cBot, figs)})`);
       }
-      lines.push(`Radius of gyration r = ${engNum(p.r)}`);
-      lines.push(`First moment Q at the neutral axis = ${engNum(p.Q)}, width there = ${engNum(p.tNA)}`);
+      lines.push(`Radius of gyration r = ${engNum(p.r, figs)}`);
+      lines.push(`First moment Q at the neutral axis = ${engNum(p.Q, figs)}, width there = ${engNum(p.tNA, figs)}`);
 
       const mRaw = r("M").trim();
       const vRaw = r("V").trim();
       if (mRaw || vRaw) {
-        const M = mRaw ? Number(mRaw) : 0;
-        const V = vRaw ? Number(vRaw) : 0;
-        if (!Number.isFinite(M) || !Number.isFinite(V)) {
-          lines.push("Moment and shear must be numbers.");
+        // THE UNITS ARE THE WHOLE POINT HERE. Section dimensions are habitually
+        // in millimetres and moments in kN·m, and multiplying them as if they
+        // agreed is wrong by a factor of 10^9 while looking entirely plausible.
+        // So everything is reduced to SI before anything is divided, and a unit
+        // of the wrong quantity is refused rather than ignored.
+        const mQ = mRaw ? parseMeasured(mRaw, "N*m") : null;
+        const vQ = vRaw ? parseMeasured(vRaw, "N") : null;
+        if (mQ && "error" in mQ) {
+          lines.push(`Bending moment: ${mQ.error}`);
+        } else if (vQ && "error" in vQ) {
+          lines.push(`Shear force: ${vQ.error}`);
         } else {
-          const s = bendingStress(p, M, V);
+          const toM = convert(1, dimUnit, "m") ?? 1;
+          const Isi = p.I * Math.pow(toM, 4);
+          const sTopSi = p.sTop * Math.pow(toM, 3);
+          const sBotSi = p.sBot * Math.pow(toM, 3);
+          const Qsi = p.Q * Math.pow(toM, 3);
+          const tSi = p.tNA * toM;
+          const Msi = mQ ? (mQ as { inTarget: number }).inTarget : 0;
+          const Vsi = vQ ? (vQ as { inTarget: number }).inTarget : 0;
+          const sigmaSi = Math.abs(Msi) / Math.min(sTopSi, sBotSi);
+          const fibre = sTopSi < sBotSi ? "top" : "bottom";
+          const tauSi = tSi > 0 && Isi > 0 ? (Math.abs(Vsi) * Qsi) / (Isi * tSi) : 0;
           lines.push("");
-          if (mRaw) lines.push(`Peak bending stress = ${engNum(s.sigma)} at the ${s.fibre} fibre`);
-          if (vRaw) lines.push(`Transverse shear stress at the neutral axis = ${engNum(s.tau)}`);
-          lines.push("Units follow whatever you entered; nothing here converts them.");
+          if (mQ) {
+            lines.push(
+              `Peak bending stress = ${engNum(sigmaSi / 1e6, figs)} MPa at the ${fibre} fibre` +
+                ` (${engNum(sigmaSi, figs)} Pa)`,
+            );
+            if ((mQ as { assumed: boolean }).assumed)
+              lines.push("  no unit was given for the moment, so N·m was assumed.");
+          }
+          if (vQ) {
+            lines.push(`Transverse shear stress at the neutral axis = ${engNum(tauSi / 1e6, figs)} MPa`);
+            if ((vQ as { assumed: boolean }).assumed)
+              lines.push("  no unit was given for the shear, so N was assumed.");
+          }
+          lines.push(`Computed with dimensions in ${dimUnit}, converted to SI before dividing.`);
+          lines.push(
+            `Quoted to ${figs} significant figures, the fewest any input carries. ` +
+              "Trailing zeros in a bare integer are not counted as significant, so write 1000. or 1.000e3 if you mean four.",
+          );
         }
       }
       for (const n of p.notes) lines.push(`Note: ${n}`);
       return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "circuit-dc",
+    name: "Circuit: DC operating point",
+    hint:
+      'One element per line: "R1 1 0 1k", "V1 1 0 5", "I1 0 2 10m". Node 0 is ground. ' +
+      "Values take SI suffixes and RKM notation, so 2k2 is 2.2 k and 4r7 is 4.7 ohms. " +
+      "Answers are EXACT: a divider reports 10/3 V, not 3.3333.",
+    fields: [
+      {
+        key: "net",
+        label: "Netlist",
+        default: "V1 1 0 5\nR1 1 2 1k\nR2 2 0 2k",
+        kind: "block",
+        rows: 6,
+      },
+    ],
+    compute: (r) => {
+      const parsed = parseNetlist(r("net"));
+      if (parsed.errors.length) return { text: parsed.errors.join("\n"), ok: false };
+      const res = solveDc(parsed.elements);
+      if (!res.ok) return { text: res.error, ok: false };
+
+      const lines: string[] = [];
+      lines.push(res.exact ? "DC operating point (exact)" : "DC operating point");
+      lines.push("");
+      lines.push("Node voltages");
+      for (const n of res.nodes) {
+        const ex = n.exact && n.exact.d !== 1n ? `  = ${n.exact.n}/${n.exact.d}` : "";
+        lines.push(`  V(${n.name}) = ${engNum(n.volts)} V${ex}`);
+      }
+      lines.push("");
+      lines.push("Element currents (positive from the first node to the second)");
+      for (const c of res.currents) lines.push(`  I(${c.name}) = ${engNum(c.amps)} A`);
+      lines.push("");
+      lines.push("Power");
+      for (const p of res.power)
+        lines.push(`  ${p.name}: ${engNum(Math.abs(p.watts))} W ${p.watts >= 0 ? "dissipated" : "delivered"}`);
+      lines.push(
+        `  Total delivered ${engNum(res.totalDelivered)} W = total dissipated ${engNum(res.totalDissipated)} W`,
+      );
+      for (const n of res.notes) lines.push(`Note: ${n}`);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "circuit-ac",
+    name: "Circuit: AC response & Bode plot",
+    hint:
+      "Same netlist, plus C and L. Give one frequency for a phasor answer, or a start and stop " +
+      "frequency to sweep an output node and draw a Bode magnitude plot. AC is floating point: " +
+      "an impedance carries 2*pi*f, which is not rational.",
+    fields: [
+      {
+        key: "net",
+        label: "Netlist",
+        default: "V1 1 0 1\nR1 1 2 1k\nC1 2 0 1u",
+        kind: "block",
+        rows: 6,
+      },
+      { key: "out", label: "Output node", default: "2", kind: "text" },
+      { key: "f1", label: "Frequency, or sweep start (Hz)", default: "1", kind: "text" },
+      { key: "f2", label: "Sweep stop (Hz), blank for a single frequency", default: "100k", kind: "text" },
+    ],
+    compute: (r) => {
+      const parsed = parseNetlist(r("net"));
+      if (parsed.errors.length) return { text: parsed.errors.join("\n"), ok: false };
+      const out = r("out").trim();
+      const f1 = parseValue(r("f1"))?.value;
+      const f2raw = r("f2").trim();
+      const f2 = f2raw ? parseValue(f2raw)?.value : undefined;
+      if (f1 === undefined) return { text: "The start frequency is not a number.", ok: false };
+      if (f2raw && f2 === undefined) return { text: "The stop frequency is not a number.", ok: false };
+
+      // Single frequency: report every node as a phasor.
+      if (f2 === undefined) {
+        const res = solveAc(parsed.elements, f1);
+        if (!res.ok) return { text: res.error, ok: false };
+        const lines: string[] = [];
+        lines.push(`AC steady state at ${engNum(res.frequency)} Hz`);
+        lines.push("");
+        for (const n of res.nodes)
+          lines.push(
+            `  V(${n.name}) = ${engNum(n.magnitude)} at ${engNum(n.phaseDeg)} deg  ` +
+              `(${engNum(n.re)} ${n.im >= 0 ? "+" : "-"} j${engNum(Math.abs(n.im))})`,
+          );
+        for (const n of res.notes) lines.push(`Note: ${n}`);
+        return { text: plainDashes(lines.join("\n")) };
+      }
+
+      const sweep = frequencySweep(parsed.elements, out, f1, f2, 160);
+      if ("ok" in sweep && sweep.ok === false) return { text: sweep.error, ok: false };
+      const pts = (sweep as { points: { f: number; magnitude: number; phaseDeg: number }[] }).points;
+
+      const ref = pts[0].magnitude;
+      const series: Series[] = [
+        { points: pts.map((p) => ({ x: p.f, y: dB(p.magnitude, ref) })), type: "line" },
+      ];
+      // A log frequency axis is the whole point of a Bode plot: it makes a
+      // decade occupy equal width, so a first-order roll-off is a straight line
+      // at 20 dB per decade instead of a curve crushed against the left edge.
+      const svg = buildPlotSvg(series, {
+        width: 380,
+        height: 240,
+        title: `Bode magnitude at node ${out}`,
+        xlabel: "Frequency (Hz)",
+        ylabel: `dB relative to ${engNum(ref)}`,
+        xScale: "log",
+      });
+
+      // The corner is where the response has fallen 3 dB from its starting value.
+      let corner: number | null = null;
+      for (const p of pts) {
+        if (dB(p.magnitude, ref) <= -3.0103) {
+          corner = p.f;
+          break;
+        }
+      }
+
+      const lines: string[] = [];
+      lines.push(`Frequency response at node ${out}`);
+      lines.push(`Swept ${engNum(f1)} Hz to ${engNum(f2)} Hz, ${pts.length} points, logarithmic`);
+      lines.push(`  at ${engNum(pts[0].f)} Hz: ${engNum(pts[0].magnitude)} at ${engNum(pts[0].phaseDeg)} deg`);
+      const last = pts[pts.length - 1];
+      lines.push(`  at ${engNum(last.f)} Hz: ${engNum(last.magnitude)} at ${engNum(last.phaseDeg)} deg`);
+      if (corner !== null) {
+        lines.push(`  falls 3 dB by about ${engNum(corner)} Hz`);
+      } else {
+        lines.push("  does not fall 3 dB anywhere in this range, so the corner is outside it.");
+      }
+      lines.push("AC results are floating point, and phase is in degrees relative to the source.");
+
+      const clean = lines.map(plainDashes);
+      const blocks: AnalyzeBlock[] = [
+        ...clean.map((t) => ({ kind: "line" as const, text: t })),
+        {
+          kind: "plot" as const,
+          svg,
+          caption: `Bode magnitude at node ${out}`,
+          alt: `Frequency response magnitude in decibels at node ${out}, on a logarithmic frequency axis`,
+          w: 380,
+          h: 240,
+        },
+      ];
+      return { text: clean.join("\n"), blocks };
     },
   },
 ];

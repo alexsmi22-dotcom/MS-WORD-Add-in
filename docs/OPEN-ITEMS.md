@@ -108,12 +108,39 @@ structure-detection layer sitting behind all four spectra predictors** (NMR, IR,
 UV-Vis, MS fragmentation), so a defect there is silently wrong in four tools at
 once.
 
-### [~] 4. Seven modules still have no dedicated suite
-`fragment.ts`, `uvvis.ts`, `ir.ts`, `matrixExpr.ts`, `optimize.ts`, `modes.ts`,
-and `fft.ts` (exercised only as a helper inside `fftfilter.test.ts` — its own
-exports are untested). `ode.ts` and `mathParse.ts` from the original list are
-still open too; `formulaLibrary.ts` and `structures.ts` have since gained suites
-under different names.
+### [~] 4. Modules with no dedicated suite — but the list needed triage first
+**"Has no file named after it" is a proxy for coverage, not coverage.** Working
+through the seven, they are not one problem:
+
+- **`fft.ts` — DONE.** Was genuinely dark: exercised only as a helper inside
+  `fftfilter.test.ts`, so its own exports went unchecked. Now has `fft.test.ts`,
+  13 tests built on identities rather than recorded outputs — Parseval, round-trip
+  inversion, linearity, conjugate symmetry. A wrong twiddle factor or
+  normalisation fails those and does not produce an obviously wrong-looking
+  spectrum.
+- **`optimize.ts`, `matrixExpr.ts` — still genuinely open.** Real logic, no
+  direct tests.
+- **`ir.ts`, `uvvis.ts`, `fragment.ts` — not dark.** All three are exercised hard
+  by `phase4.adversarial.test.ts`, which found six real bugs in them, plus the
+  carbonyl and substituent catch-alls. A dedicated file would add something, but
+  these are not uncovered and should not be ranked with the two above.
+- **`modes.ts` — STRUCK. It should not have its own suite.** It is a literal
+  array plus two derived exports, with no logic in it. A test would assert that
+  a literal contains what it literally contains, which is the exact failure this
+  repo already learned from: the README counted "23 tools" over its own 23-row
+  table while 25 shipped. **Counting a claim against itself proves nothing.**
+  What actually matters about modes is cross-file, and is already enforced —
+  mostly by the TYPE SYSTEM, which is stronger than a test:
+  `TOOL_ICONS: Record<Exclude<Mode, "home">, string>` makes a missing icon a
+  compile error, `MODE_EXAMPLES: Record<ExampleMode, string>` does the same for
+  help content, `scripts/tool-count.js` derives the count from `ALL_MODES`, the
+  render check asserts every mode renders its own section, the id-wiring audit
+  covers the controls, and `phase6.adversarial` compares every published count
+  against the mode list. `modes.ts` is among the best-covered files in the repo.
+
+`ode.ts` and `mathParse.ts` from the original list are still open;
+`formulaLibrary.ts` and `structures.ts` have since gained suites under different
+names.
 
 ### [ ] 5. The PubChem fixture pins the world as of 2026-07-15
 `src/lib/__tests__/fixtures/pubchem-names.json` has not been refreshed in 12

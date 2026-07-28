@@ -26,6 +26,14 @@ const os = require("os");
 const path = require("path");
 const { execFileSync } = require("child_process");
 
+/**
+ * Distinct exit code for "the check could not run". A browser that will not
+ * start and a page that genuinely overlaps are both failures, but they call for
+ * opposite responses, and reporting them identically sent a real debugging
+ * session after a layout regression that did not exist.
+ */
+const INFRA = 2;
+
 const ROOT = path.join(__dirname, "..");
 
 const WIDTHS = [1440, 1280, 1024, 940, 900, 820, 700, 600, 420];
@@ -142,14 +150,22 @@ function checkPage(browser, pageSrc) {
       "file:///" + path.join(dir, "harness.html").replace(/\\/g, "/"),
     ], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024, stdio: ["ignore", "pipe", "ignore"] });
   } catch (e) {
-    console.error("FAIL: browser run failed — " + e.message);
-    return 1;
+    // INFRASTRUCTURE, NOT LAYOUT. Returning the same code as a real overlap made
+    // a browser that would not start report as "1 of 5 landing pages have layout
+    // problems" — so the pages looked broken when nothing had been measured at
+    // all. Two cycles were spent hunting a layout regression that did not exist.
+    // A check that cannot run must say so in different words from a check that
+    // ran and found something.
+    console.error("BROWSER FAILED TO START — nothing was measured on " + path.basename(pageSrc));
+    console.error("  " + String(e.message).split("\n")[0]);
+    return INFRA;
   }
 
   const m = /<pre id="OVERLAP-REPORT">([\s\S]*?)<\/pre>/.exec(dom);
   if (!m) {
-    console.error("FAIL: harness produced no report (the page may not have loaded).");
-    return 1;
+    console.error("HARNESS PRODUCED NO REPORT for " + path.basename(pageSrc) + " — the page did not load.");
+    console.error("  This is a harness problem, not a layout problem: nothing was measured.");
+    return INFRA;
   }
   const body = m[1]
     .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&amp;/g, "&")
@@ -199,12 +215,33 @@ function run() {
 
   console.log(`Checking ${pages.length} landing page(s):`);
   let failed = 0;
-  for (const p of pages) failed += checkPage(browser, p) === 0 ? 0 : 1;
+  let infra = 0;
+  for (const p of pages) {
+    const code = checkPage(browser, p);
+    if (code === INFRA) infra++;
+    else if (code !== 0) failed++;
+  }
 
+  // Report the two causes separately. Both still fail the gate — a check that
+  // could not run must never pass — but they call for opposite responses: one
+  // means fix the page, the other means fix the machine.
+  if (infra) {
+    console.error(
+      `FAIL: the browser could not run on ${infra} of ${pages.length} page(s), so they were NOT CHECKED.`
+    );
+    console.error("  This is an environment problem, not a layout problem.");
+    console.error("  Commonest cause: leftover headless browser processes from an earlier run.");
+    console.error("  On Windows, clear only the headless ones (leave your own browser alone):");
+    console.error(
+      "    Get-CimInstance Win32_Process -Filter \"Name='msedge.exe'\" |" +
+        " Where-Object { $_.CommandLine -like '*--headless*' } | Stop-Process -Force"
+    );
+    console.error("  Then remove any stale profiles: Remove-Item $env:TEMP\\jurislab-* -Recurse -Force");
+  }
   if (failed) {
     console.error(`FAIL: ${failed} of ${pages.length} landing page(s) have layout problems.`);
-    return 1;
   }
+  if (infra || failed) return 1;
   console.log(`PASS: all ${pages.length} landing pages are clean.`);
   return 0;
 }

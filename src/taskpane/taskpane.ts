@@ -1250,11 +1250,20 @@ const HOME_GROUPS: HomeGroup[] = [
       { mode: "plot", label: "Plot", desc: "Function & data charts" },
       { mode: "stats", audience: ["science"], label: "Stats", desc: "Descriptive, t-tests, ANOVA, uncertainty" },
       { mode: "analyze", audience: ["science"], label: "Analyze", desc: "Matrix math + data → trends & insights" },
+    ],
+  },
+  {
+    // Engineering is its own bench, not a corner of "Math & units". Everything
+    // engineering lands here as it is built - the mode carries a Calculation
+    // dropdown the way Analyze, Stats and Finance do, so a new discipline is an
+    // entry in ENG_CALCS rather than a new tile.
+    title: "Engineering",
+    items: [
       {
         mode: "engineering",
         audience: ["science"],
         label: "Engineering",
-        desc: "Beam shear/moment diagrams, deflection, section properties",
+        desc: "Beams: shear, moment, deflection; cross-sections & stress",
       },
     ],
   },

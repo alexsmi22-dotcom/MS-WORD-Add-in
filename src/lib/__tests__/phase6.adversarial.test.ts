@@ -128,6 +128,13 @@ describe("the user-facing docs are not allowed to rot", () => {
     // Discovered, not listed. Hardcoding three filenames is why landing/tool.html
     // sat at "22 tools" against 25 — a published page nobody was checking, missed
     // for the same reason the layout gate saw only index.html.
+    //
+    // "tools?" and not "tools": a group holding ONE tool is written "1 tool", and
+    // the plural-only pattern skipped it entirely — so its member vanished from a
+    // sum whose whole job is to catch a miscount. The Engineering bench was the
+    // first one-tool group and the subtotals came to 25 against 26 with nothing
+    // visibly wrong on the page. A gate that silently ignores a case is worse
+    // than no gate, because it reads as coverage.
     const pages = fs
       .readdirSync(path.join(ROOT, "landing"))
       .filter((f) => f.endsWith(".html"))
@@ -136,15 +143,15 @@ describe("the user-facing docs are not allowed to rot", () => {
     expect(pages.length).toBeGreaterThanOrEqual(5);
     for (const f of pages) {
       const src = read(f);
-      const subtotals = [...src.matchAll(/<span class="count">(\d+)\s+tools<\/span>/g)].map((m) =>
+      const subtotals = [...src.matchAll(/<span class="count">(\d+)\s+tools?<\/span>/g)].map((m) =>
         Number(m[1]),
       );
       if (subtotals.length > 0) {
         const sum = subtotals.reduce((a, b) => a + b, 0);
         expect({ file: f, sum }).toEqual({ file: f, sum: n });
       }
-      const totals = src.replace(/<span class="count">\d+\s+tools<\/span>/g, "");
-      for (const m of totals.matchAll(/(\d+)\s+tools/g)) {
+      const totals = src.replace(/<span class="count">\d+\s+tools?<\/span>/g, "");
+      for (const m of totals.matchAll(/(\d+)\s+tools\b/g)) {
         expect({ file: f, claimed: Number(m[1]) }).toEqual({ file: f, claimed: n });
       }
     }

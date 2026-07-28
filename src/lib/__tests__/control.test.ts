@@ -14,6 +14,7 @@ import {
   polyDegree,
   trimPoly,
   polyToString,
+  polyToMath,
   routhHurwitz,
   analyzeStability,
   series,
@@ -104,6 +105,26 @@ describe("parsing", () => {
   test("a zero denominator is refused", () => {
     const t = parseTf("1", "0");
     expect("ok" in t && t.ok === false).toBe(true);
+  });
+
+  // A transfer function inserted into a document should be a real equation, not
+  // ASCII with carets — so the math form has to survive the math parser AND mean
+  // the same thing as the display form.
+  test("polyToMath parenthesises fractional coefficients", () => {
+    // "1/2s^2" would parse as 1/(2s^2) — a different polynomial that still looks
+    // plausible. "(1/2)s^2" cannot be misread.
+    expect(polyToMath(poly("s^2-0.5*s+0.25"))).toBe("s^2 - (1/2)s + (1/4)");
+    // Integer coefficients need no brackets.
+    expect(polyToMath(poly("s^2+2s+3"))).toBe("s^2 + 2s + 3");
+    expect(polyToMath(P(0))).toBe("0");
+  });
+
+  test("the math form and the display form describe the same polynomial", () => {
+    for (const src of ["s^3+3s^2+2s+1", "s^2-2s", "5", "s", "s^2-0.5*s+0.25"]) {
+      const p = poly(src);
+      // Same terms, same order; only the bracketing of fractions differs.
+      expect(polyToMath(p).replace(/[()]/g, "")).toBe(polyToString(p));
+    }
   });
 
   test("polyToString round-trips the display form", () => {

@@ -1057,6 +1057,35 @@ export function margins(open: TransferFunction): Margins | ControlError {
   return { ok: true, gainMarginDb, phaseCrossoverW, phaseMarginDeg, gainCrossoverW, notes };
 }
 
+/**
+ * The same polynomial in the pane's MATH syntax, so it can be typeset as a real
+ * equation rather than printed with carets.
+ *
+ * The only difference from polyToString is that a fractional coefficient is
+ * PARENTHESISED: "1/2s^2" would parse as 1/(2s^2) — a different polynomial that
+ * still looks plausible — whereas "(1/2)s^2" is unambiguous. Exactness is kept
+ * rather than decimalised, because a coefficient the user typed as 1/2 should
+ * come back as 1/2.
+ */
+export function polyToMath(p: Rat[]): string {
+  const t = trimPoly(p);
+  const n = t.length - 1;
+  const parts: string[] = [];
+  for (let i = 0; i <= n; i++) {
+    const c = t[i];
+    if (ratIsZero(c)) continue;
+    const power = n - i;
+    const neg = ratSign(c) < 0;
+    const mag = neg ? ratNeg(c) : c;
+    const isOne = mag.n === 1n && mag.d === 1n;
+    const coeff =
+      isOne && power > 0 ? "" : mag.d === 1n ? String(mag.n) : `(${mag.n}/${mag.d})`;
+    const sPart = power === 0 ? "" : power === 1 ? "s" : `s^${power}`;
+    parts.push((parts.length ? (neg ? " - " : " + ") : neg ? "-" : "") + coeff + sPart);
+  }
+  return parts.length ? parts.join("") : "0";
+}
+
 /** Formats a polynomial in s for display, highest power first. */
 export function polyToString(p: Rat[]): string {
   const t = trimPoly(p);

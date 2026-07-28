@@ -116,9 +116,10 @@ import {
   feedback,
   pidTf,
   polyToString,
+  polyToMath,
   TransferFunction,
 } from "../lib/control";
-import { parseRatLiteral, ratToNumber as ratNum } from "../lib/cas";
+import { parseRatLiteral, ratToNumber as ratNum, Rat } from "../lib/cas";
 import {
   singleDoseCurve,
   steadyState,
@@ -6358,6 +6359,18 @@ interface AnalyzeField {
 /** A piece of an Analyze result: a text line, a matrix (→ table), or a plot (→ image). */
 type AnalyzeBlock =
   | { kind: "line"; text: string }
+  /**
+   * A line that IS a formula, written in the pane's math syntax and inserted as
+   * a real Word equation rather than as characters.
+   *
+   * This exists because a transfer function arriving in a document as
+   * "G(s) = (s^3 + 3s^2 + 2s + 1)/(s^2 + 2s + 5)" is ASCII with carets, not a
+   * formula — the same complaint that got Solve's derivations converted from
+   * flat text to OMML. `fallback` is what a reader gets if the expression will
+   * not parse, so an unusual result degrades to readable text rather than
+   * failing the whole insert.
+   */
+  | { kind: "math"; math: string; fallback: string }
   | { kind: "matrix"; label?: string; m: Matrix }
   | { kind: "plot"; svg: string; caption: string; alt: string; w: number; h: number };
 interface AnalyzeOutput extends StatOutput {
@@ -6398,6 +6411,7 @@ function analyzeBlocksToText(blocks: AnalyzeBlock[]): string {
   return blocks
     .map((b) => {
       if (b.kind === "line") return b.text;
+      if (b.kind === "math") return b.fallback;
       if (b.kind === "plot") return b.caption;
       return (b.label ? `${b.label}\n` : "") + formatMatrix(b.m);
     })
@@ -6409,6 +6423,15 @@ function analyzeBlocksToPreviewHtml(blocks: AnalyzeBlock[]): string {
   return blocks
     .map((b) => {
       if (b.kind === "line") return esc(b.text);
+      if (b.kind === "math") {
+        // The pane must show the SAME thing the document will get, so the
+        // preview typesets it rather than showing the source syntax.
+        try {
+          return `<span class="math-preview">${mathToHtml(b.math)}</span>`;
+        } catch {
+          return esc(b.fallback);
+        }
+      }
       if (b.kind === "plot") return b.svg;
       return (
         (b.label ? `${esc(b.label)}<br>` : "") +
@@ -8470,8 +8493,8 @@ const ENG_CALCS: EngCalc[] = [
       const res = analyzeStability(tf);
       if (!res.ok) return { text: res.error, ok: false };
 
-      const lines: string[] = [];
-      lines.push(`G(s) = [ ${polyToString(tf.num)} ] / [ ${polyToString(tf.den)} ]`);
+      const lines: EngLine[] = [];
+      lines.push(tfLine("G(s)", tf.num, tf.den));
       lines.push("");
       lines.push(res.verdict);
       lines.push("");
@@ -8510,7 +8533,7 @@ const ENG_CALCS: EngCalc[] = [
       }
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_CONTROL_UNIT_NOTE);
-      return { text: plainDashes(lines.join("\n")) };
+      return engReport(lines);
     },
   },
   {
@@ -8558,8 +8581,8 @@ const ENG_CALCS: EngCalc[] = [
       const res = timeResponse(tf, kind, tEnd, 400);
       if (!res.ok) return { text: res.error, ok: false };
 
-      const lines: string[] = [];
-      lines.push(`G(s) = [ ${polyToString(tf.num)} ] / [ ${polyToString(tf.den)} ]`);
+      const lines: EngLine[] = [];
+      lines.push(tfLine("G(s)", tf.num, tf.den));
       lines.push(`${kind === "step" ? "Unit step" : "Impulse"} response over 0 to ${engNum(tEnd)} s` +
         (chosen ? " (window chosen from the slowest pole)" : ""));
       lines.push("");
@@ -8592,19 +8615,16 @@ const ENG_CALCS: EngCalc[] = [
         [{ points: res.t.map((t, i) => ({ x: t, y: res.y[i] })), type: "line", color: "#2563eb", label: "y(t)" }],
         { width: 380, height: 240, xlabel: "Time (s)", ylabel: "Output", title: `${kind === "step" ? "Step" : "Impulse"} response` },
       );
-      const clean = lines.map(plainDashes);
-      const blocks: AnalyzeBlock[] = [
-        ...clean.map((t) => ({ kind: "line" as const, text: t })),
+      return engReport(lines, [
         {
-          kind: "plot" as const,
+          kind: "plot",
           svg,
           caption: `${kind === "step" ? "Step" : "Impulse"} response`,
           alt: `${kind} response of the transfer function against time`,
           w: 380,
           h: 240,
         },
-      ];
-      return { text: clean.join("\n"), blocks };
+      ]);
     },
   },
   {
@@ -8626,8 +8646,8 @@ const ENG_CALCS: EngCalc[] = [
       const freqs = autoFrequencies(tf, 300);
       const resp = frequencyResponse(tf, freqs);
 
-      const lines: string[] = [];
-      lines.push(`L(s) = [ ${polyToString(tf.num)} ] / [ ${polyToString(tf.den)} ]`);
+      const lines: EngLine[] = [];
+      lines.push(tfLine("L(s)", tf.num, tf.den));
       lines.push("");
       if (mg.gainMarginDb !== null) {
         lines.push(`Gain margin = ${engNum(mg.gainMarginDb)} dB at ${engNum(mg.phaseCrossoverW as number)} rad/s`);
@@ -8659,13 +8679,24 @@ const ENG_CALCS: EngCalc[] = [
         [{ points: resp.map((p) => ({ x: p.w, y: p.phaseDeg })), type: "line", color: "#b91c1c", label: "phase" }],
         { width: 380, height: 220, xlabel: "Frequency (rad/s)", ylabel: "Phase (deg)", xScale: "log", title: "Bode phase" },
       );
-      const clean = lines.map(plainDashes);
-      const blocks: AnalyzeBlock[] = [
-        ...clean.map((t) => ({ kind: "line" as const, text: t })),
-        { kind: "plot" as const, svg: magSvg, caption: "Bode magnitude", alt: "Open-loop magnitude in decibels against log frequency", w: 380, h: 220 },
-        { kind: "plot" as const, svg: phaseSvg, caption: "Bode phase", alt: "Open-loop phase in degrees against log frequency", w: 380, h: 220 },
-      ];
-      return { text: clean.join("\n"), blocks };
+      return engReport(lines, [
+        {
+          kind: "plot",
+          svg: magSvg,
+          caption: "Bode magnitude",
+          alt: "Open-loop magnitude in decibels against log frequency",
+          w: 380,
+          h: 220,
+        },
+        {
+          kind: "plot",
+          svg: phaseSvg,
+          caption: "Bode phase",
+          alt: "Open-loop phase in degrees against log frequency",
+          w: 380,
+          h: 220,
+        },
+      ]);
     },
   },
   {
@@ -8697,12 +8728,12 @@ const ENG_CALCS: EngCalc[] = [
       const open = series(c, plant);
       const closed = feedback(open);
 
-      const lines: string[] = [];
-      lines.push(`Controller C(s) = [ ${polyToString(c.num)} ] / [ ${polyToString(c.den)} ]`);
-      lines.push(`Plant G(s)      = [ ${polyToString(plant.num)} ] / [ ${polyToString(plant.den)} ]`);
-      lines.push(`Open loop L = C·G = [ ${polyToString(open.num)} ] / [ ${polyToString(open.den)} ]`);
+      const lines: EngLine[] = [];
+      lines.push(tfLine("C(s)", c.num, c.den));
+      lines.push(tfLine("G(s)", plant.num, plant.den));
+      lines.push(tfLine("L(s)", open.num, open.den));
       lines.push("");
-      lines.push(`Closed loop T = L/(1+L) = [ ${polyToString(closed.num)} ] / [ ${polyToString(closed.den)} ]`);
+      lines.push(tfLine("T(s)", closed.num, closed.den));
       const st = analyzeStability(closed);
       if (!st.ok) return { text: st.error, ok: false };
       lines.push(st.verdict);
@@ -8747,7 +8778,7 @@ const ENG_CALCS: EngCalc[] = [
       }
       for (const note of st.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_CONTROL_UNIT_NOTE);
-      return { text: plainDashes(lines.join("\n")) };
+      return engReport(lines);
     },
   },
   {
@@ -9943,11 +9974,11 @@ const ENG_CALCS: EngCalc[] = [
       if (!res.ok) return { text: res.error, ok: false };
 
       const tf = toTransferFunction(res);
-      const lines: string[] = [];
+      const lines: EngLine[] = [];
       lines.push(`${res.family} ${res.kind} filter, order ${res.order}`);
       lines.push(`  the specification needs order ${engNum(res.exactOrder, 4)}, rounded up`);
       lines.push("");
-      lines.push(`H(s) = [ ${polyToString(tf.num)} ] / [ ${polyToString(tf.den)} ]`);
+      lines.push(tfLineDecimal("H(s)", res.num, res.den));
       lines.push("");
       lines.push("Poles");
       for (const p of res.poles) lines.push(`  ${fmtComplexPlain(p)}`);
@@ -9957,7 +9988,7 @@ const ENG_CALCS: EngCalc[] = [
       lines.push(`The other family would need order ${res.alternativeOrder} for the same specification.`);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_ELEC_UNIT_NOTE);
-      return { text: plainDashes(lines.join("\n")) };
+      return engReport(lines);
     },
   },
   {
@@ -10328,6 +10359,62 @@ const ENG_CALCS: EngCalc[] = [
   },
 ];
 
+/**
+ * One line of an Engineering report: prose, or a formula to be typeset.
+ *
+ * Marking the formulas rather than typesetting everything keeps the reports
+ * readable — a result is mostly sentences with a few equations in it, and
+ * pushing the prose through a math engine would be both wrong and ugly.
+ */
+type EngLine = string | { math: string; fallback: string };
+
+/** Turns an Engineering report into blocks, typesetting the marked formulas. */
+function engReport(lines: EngLine[], extra: AnalyzeBlock[] = []): AnalyzeOutput {
+  const blocks: AnalyzeBlock[] = lines.map((l) =>
+    typeof l === "string"
+      ? { kind: "line" as const, text: plainDashes(l) }
+      : { kind: "math" as const, math: l.math, fallback: plainDashes(l.fallback) },
+  );
+  blocks.push(...extra);
+  return { blocks, text: analyzeBlocksToText(blocks) };
+}
+
+/** A transfer function as a typeset fraction, with a readable text fallback. */
+function tfLine(name: string, num: Rat[], den: Rat[]): EngLine {
+  return {
+    math: `${name} = (${polyToMath(num)})/(${polyToMath(den)})`,
+    fallback: `${name} = [ ${polyToString(num)} ] / [ ${polyToString(den)} ]`,
+  };
+}
+
+/**
+ * The same, for a filter whose coefficients came from doubles.
+ *
+ * Those are rationalised to the nearest double, so their exact numerators and
+ * denominators run to sixteen digits each and are useless to read. Decimals are
+ * the honest presentation of a coefficient that was never rational.
+ */
+function tfLineDecimal(name: string, num: number[], den: number[], sig = 5): EngLine {
+  const fmt = (p: number[]): string => {
+    const n = p.length - 1;
+    const parts: string[] = [];
+    for (let i = 0; i <= n; i++) {
+      if (p[i] === 0) continue;
+      const power = n - i;
+      const neg = p[i] < 0;
+      const mag = Math.abs(p[i]);
+      const isOne = Math.abs(mag - 1) < 1e-12;
+      const coeff = isOne && power > 0 ? "" : engNum(mag, sig);
+      const sPart = power === 0 ? "" : power === 1 ? "s" : `s^${power}`;
+      parts.push((parts.length ? (neg ? " - " : " + ") : neg ? "-" : "") + coeff + sPart);
+    }
+    return parts.length ? parts.join("") : "0";
+  };
+  const n = fmt(num);
+  const d = fmt(den);
+  return { math: `${name} = (${n})/(${d})`, fallback: `${name} = [ ${n} ] / [ ${d} ]` };
+}
+
 /** A complex number as plain text, for a result that must survive the dash guard. */
 function fmtComplexPlain(c: { re: number; im: number }): string {
   if (Math.abs(c.im) < 1e-12) return engNum(c.re);
@@ -10458,12 +10545,34 @@ async function insertResultBlocks(text: string, blocksIn: AnalyzeBlock[] | null,
           anchor = para.getRange(Word.RangeLocation.after);
           continue;
         }
+        if (block.kind === "math") {
+          // A real, editable Word equation. If it will not parse we fall back to
+          // text rather than losing the line entirely.
+          try {
+            const ooxml = mathToOoxml(block.math);
+            const inserted = anchor.insertOoxml(ooxml, Word.InsertLocation.after);
+            anchor = inserted.getRange(Word.RangeLocation.after);
+          } catch {
+            const para = anchor.insertParagraph(block.fallback, Word.InsertLocation.after);
+            anchor = para.getRange(Word.RangeLocation.after);
+          }
+          continue;
+        }
         if (block.kind === "plot") {
-          const para = anchor.insertParagraph(block.caption, Word.InsertLocation.after);
-          const pic = para.insertInlinePictureFromBase64(images[i], Word.InsertLocation.end);
+          // THE CAPTION GETS ITS OWN PARAGRAPH. It used to share one with the
+          // image, which put the picture AFTER the caption text on the same
+          // line — so two figures with captions of different lengths started at
+          // different horizontal positions and did not line up, even at
+          // identical pixel sizes. Reported from real use on the two stacked
+          // Bode plots. A figure on its own paragraph always starts at the
+          // margin, and a caption in its own paragraph is the correct document
+          // structure anyway.
+          const capPara = anchor.insertParagraph(block.caption, Word.InsertLocation.after);
+          const figPara = capPara.insertParagraph("", Word.InsertLocation.after);
+          const pic = figPara.insertInlinePictureFromBase64(images[i], Word.InsertLocation.end);
           sizeFigure(pic, block.w, block.h);
           pic.altTextDescription = block.alt;
-          anchor = para.getRange(Word.RangeLocation.after);
+          anchor = figPara.getRange(Word.RangeLocation.after);
           continue;
         }
         if (block.label) {

@@ -311,8 +311,22 @@ describe("the em-dash sentinel cannot disable Insert on an Engineering result", 
   // its assembled text through plainDashes() before returning it. Missing that
   // call does not fail anything — the Insert button just quietly stops working.
   test.each(EXPECTED)("$id normalises its result text", ({ id }) => {
+    // Two acceptable shapes: call plainDashes directly, or return through
+    // engReport(), which does it for every line and every formula fallback on
+    // the tool's behalf. The indirection is pinned by its own test below, so it
+    // cannot become a hole in this one.
     const body = ENG.find((e) => e.id === id)!.body;
-    expect(body).toContain("plainDashes");
+    const normalises = body.includes("plainDashes") || body.includes("engReport(");
+    expect({ id, normalises }).toEqual({ id, normalises: true });
+  });
+
+  test("engReport normalises every line and every formula fallback", () => {
+    // The tools that delegate to it are only safe if it really does this.
+    const i = PANE.indexOf("function engReport(");
+    expect(i).toBeGreaterThan(-1);
+    const body = PANE.slice(i, PANE.indexOf("\n}", i));
+    // Once for the prose lines, once for the math fallbacks.
+    expect(body.split("plainDashes").length - 1).toBeGreaterThanOrEqual(2);
   });
 
   test("the guard this defends is still in place", () => {

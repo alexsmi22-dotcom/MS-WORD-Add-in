@@ -5,6 +5,40 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > Note: this file was not maintained between v1.96.0 and v2.23.0. Those releases
 > are recorded in the git history rather than here.
 
+## [2.31.1] — 2026-07-28 — Two fixes from the first real Word session
+
+Both of these came from opening the add-in in Word rather than from any
+automated gate, which is exactly the gap those gates cannot cover.
+
+**Figures were not aligning with each other.** A figure's caption and its image
+shared one paragraph, so the picture began *after* the caption text on the same
+line — and two figures whose captions differ in length therefore started at
+different horizontal positions, even at identical pixel sizes. It showed up most
+obviously on the two stacked Bode plots, where the frequency axes visibly failed
+to line up. The caption now gets its own paragraph and the figure its own, so a
+figure always starts at the margin. This affected **every** multi-figure insert
+in the product, not only the control tools.
+
+**Inserted formulas were ASCII, not formulas.** A transfer function arrived in
+the document as `G(s) = [ s^3 + 3s^2 + 2s + 1 ] / [ s^2 + 2s + 5 ]` — carets and
+square brackets, not an equation. This is the same complaint that got Solve's
+derivations converted from flat text to OMML, and the same machinery fixes it:
+report lines can now be marked as **formulas**, which the pane typesets in the
+preview and Word receives as a **real, editable equation**. Applied to every
+transfer function in the control tools and the filter designer.
+
+Two details that mattered in doing it. A fractional coefficient has to be
+**parenthesised** in math syntax, because `1/2s^2` parses as 1/(2s^2) — a
+different polynomial that still looks plausible — so `polyToMath` emits
+`(1/2)s^2`. And the designed filter's coefficients are rationalised doubles whose
+exact numerators run to sixteen digits, so those are shown as **decimals**, which
+is the honest presentation of a coefficient that was never rational.
+
+An expression that will not parse falls back to readable text rather than
+failing the whole insert.
+
+Suite 5,718 across 186 files, QC 10/10.
+
 ## [2.31.0] — 2026-07-28 — Electronics, fluids breadth and biomedical: the plan is finished
 
 Nine new tools across five new engines, taking Engineering to **36 calculators**

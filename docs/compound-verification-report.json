@@ -345,16 +345,7 @@
  ],
  "STEREO": [],
  "ISOMER": [],
- "WRONG": [
-  {
-   "name": "iron oxide",
-   "ours": "[Fe+2].[Fe+3].[Fe+3].[O-2].[O-2].[O-2].[O-2]",
-   "pubchem": "O=[Fe]=O",
-   "ourFormula": "O4Fe3",
-   "pcFormula": "FeO2",
-   "cid": 123289
-  }
- ],
+ "WRONG": [],
  "NOTFOUND": [],
  "ERROR": [],
  "REVIEWED": [
@@ -367,6 +358,16 @@
    "cid": 21225609,
    "bucket": "WRONG",
    "reason": "Ours is trisodium phosphate, the usual reading. PubChem returns a mono-sodium phosphate anion. The name does not specify stoichiometry."
+  },
+  {
+   "name": "iron oxide",
+   "ours": "[Fe+3].[Fe+3].[O-2].[O-2].[O-2]",
+   "pubchem": "O=[Fe]=O",
+   "ourFormula": "O3Fe2",
+   "pcFormula": "FeO2",
+   "cid": 123289,
+   "bucket": "WRONG",
+   "reason": "Ours is Fe2O3, which is what 'iron oxide' means in ordinary use (hematite, rust). PubChem resolves the ambiguous name to FeO2."
   },
   {
    "name": "vitamin b6",

@@ -51,6 +51,7 @@ Invoke-Step "Unit tests (jest)"   { npm test }
 # its own gate. The structural check against PubChem runs inside jest above
 # (compoundsVsPubChem.test.ts); this is the cheap parse/consistency sweep.
 Invoke-Step "Compound dictionary" { npm run validate:compounds }
+Invoke-Step "Compound vs PubChem" { npm run verify:compounds }
 Invoke-Step "Production build"     { npm run build }
 Invoke-Step "Manifest validation" { npx office-addin-manifest validate manifest.xml }
 Invoke-Step "Render check"        { node scripts/render-check.js }

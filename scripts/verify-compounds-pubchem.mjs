@@ -16,13 +16,15 @@
 // This script REPORTS. It never auto-corrects: a mismatch is often a naming
 // ambiguity ("iodine" = I2 or the atom?) that needs a chemist, not a script.
 //
-//   node scripts/verify-compounds-pubchem.mjs          # use cache, fetch misses
+//   node scripts/verify-compounds-pubchem.mjs           # use cache, fetch misses
+//   node scripts/verify-compounds-pubchem.mjs --offline # never touch the network (QC)
 //   node scripts/verify-compounds-pubchem.mjs --refresh # re-fetch everything
 
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import OCL from "openchemlib";
+import { sameComposition } from "./formula-compare.cjs";
 
 const { Molecule } = OCL;
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -31,6 +33,13 @@ const DICT = path.join(ROOT, "src/lib/compounds.json");
 const CACHE = path.join(ROOT, "src/lib/__tests__/fixtures/pubchem-names.json");
 
 const REFRESH = process.argv.includes("--refresh");
+// --offline REFUSES to reach the network. Every one of the 359 names is in the
+// cached fixture, so the check is fully offline in practice — but "in practice"
+// is not a guarantee, and this product's whole value is that it works with no
+// connection. A gate that silently makes a network call the day someone adds a
+// compound is a gate that fails on a train. In offline mode an uncached name is
+// an ERROR telling you to run the fetch deliberately, not a reason to start one.
+const OFFLINE = process.argv.includes("--offline");
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /** OCL canonical ID code for a SMILES, or null if unparseable. */
@@ -53,49 +62,6 @@ function formulaOf(smiles) {
   } catch {
     return null;
   }
-}
-
-/**
- * A formula string parsed into element -> count.
- *
- * WHY THIS EXISTS. Formulas were compared as STRINGS, so "NH3" against OCL's
- * Hill-ordered "H3N" read as a mismatch, and heme's "C34H32N4O4Fe" against
- * "C34H32FeN4O4" was reported as a WRONG MOLECULE. Those are the same
- * composition written in a different order. 32 of the 46 things the last run
- * asked a human to review were this, and a check that needs a chemist to triage
- * 46 items to find zero problems is a check that stops being run.
- *
- * This does NOT weaken detection: a genuinely different composition still has
- * different counts. It removes a false-positive class, not a true-positive one.
- * Charge suffixes ("-2", "+") are stripped — they are not composition, and the
- * ionic-versus-covalent depiction of a salt is a drawing choice.
- */
-function parseFormula(f) {
-  if (!f) return null;
-  const cleaned = String(f).replace(/[+-]\d*$/, "").trim();
-  if (!/^[A-Za-z0-9]+$/.test(cleaned)) return null;
-  const counts = {};
-  const re = /([A-Z][a-z]?)(\d*)/g;
-  let m;
-  let consumed = 0;
-  while ((m = re.exec(cleaned)) !== null) {
-    if (m[0] === "") break;
-    consumed += m[0].length;
-    counts[m[1]] = (counts[m[1]] ?? 0) + (m[2] ? parseInt(m[2], 10) : 1);
-  }
-  // Anything the element pattern could not account for means this is not a
-  // formula, and guessing at it would be worse than saying so.
-  return consumed === cleaned.length ? counts : null;
-}
-
-/** True when two formula strings describe the same composition, whatever their order. */
-function sameComposition(a, b) {
-  const pa = parseFormula(a);
-  const pb = parseFormula(b);
-  if (!pa || !pb) return false;
-  const keys = new Set([...Object.keys(pa), ...Object.keys(pb)]);
-  for (const k of keys) if ((pa[k] ?? 0) !== (pb[k] ?? 0)) return false;
-  return true;
 }
 
 /** PubChem PUG-REST: name -> {cid, formula, smiles, inchikey}. null = not found. */
@@ -153,6 +119,15 @@ let cache = {};
 if (!REFRESH && fs.existsSync(CACHE)) cache = JSON.parse(fs.readFileSync(CACHE, "utf8"));
 
 const todo = Object.keys(names).filter((n) => !cache[n]);
+if (todo.length && OFFLINE) {
+  console.error(
+    `\n${todo.length} name(s) are not in the cached fixture and --offline forbids fetching:\n` +
+      todo.slice(0, 10).map((n) => "  " + n).join("\n") +
+      (todo.length > 10 ? `\n  ...and ${todo.length - 10} more` : "") +
+      "\n\nRun `node scripts/verify-compounds-pubchem.mjs` (no --offline) once to fetch them."
+  );
+  process.exit(1);
+}
 if (todo.length) {
   console.log(`\nFetching ${todo.length} names from PubChem (~${Math.ceil(todo.length / 4)}s)...`);
   let done = 0;

@@ -19,7 +19,8 @@
     "render-check": "node scripts/render-check.js",
     "check:overlap": "node scripts/check-landing-overlap.js",
     "check:pane": "node scripts/check-pane-layout.js",
-    "pane-shot": "node scripts/pane-shot.js"
+    "pane-shot": "node scripts/pane-shot.js",
+    "verify:compounds": "node scripts/verify-compounds-pubchem.mjs --offline"
   },
   "dependencies": {
     "core-js": "^3.36.0",

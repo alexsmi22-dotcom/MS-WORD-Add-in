@@ -4,7 +4,7 @@ import { Segment, segmentsToHtml } from "../lib/segments";
 import { parseChemical } from "../lib/chemParser";
 import { validateFormula } from "../lib/chemValidate";
 import { parseMath } from "../lib/mathFormat";
-import { mathToOoxml, buildDerivationOoxml, DerivationBlock } from "../lib/mathOmml";
+import { mathToOoxml, mathToOmml, buildDerivationOoxml, DerivationBlock } from "../lib/mathOmml";
 import { mathToHtml } from "../lib/mathHtml";
 import { parseMathAst } from "../lib/mathParse";
 import { figureScale, figurePoints } from "../lib/figures";
@@ -10548,26 +10548,68 @@ async function insertResultBlocks(text: string, blocksIn: AnalyzeBlock[] | null,
     }
     await Word.run(async (context) => {
       let anchor = context.document.getSelection().getRange(Word.RangeLocation.end);
+      // TEXT AND EQUATIONS GO IN AS ONE PACKAGE PER RUN, NOT ONE CALL PER LINE.
+      //
+      // mathToOoxml builds a COMPLETE flat-OPC document, and inserting one of
+      // those in the middle of a sequence breaks the anchor chain — the range it
+      // returns is not a usable insertion point for the paragraphs that follow,
+      // so everything after the first equation silently failed to land. With the
+      // formula as the first line of the poles/zeros report, the result was that
+      // ONLY the formula was inserted. Reported from real use.
+      //
+      // buildDerivationOoxml already solves exactly this for Solve's
+      // derivations: it puts every paragraph, prose and equation alike, into a
+      // SINGLE package that is inserted once. So consecutive line/math blocks
+      // are batched into one such package here, and only genuinely different
+      // objects — pictures and tables — break the run.
+      let run: DerivationBlock[] = [];
+      let runHasMath = false;
+      const flushRun = (): void => {
+        if (!run.length) return;
+        if (runHasMath) {
+          // One package for the whole run — the only way an equation and the
+          // lines around it can go in together.
+          const ooxml = buildDerivationOoxml(run);
+          const inserted = anchor.insertOoxml(ooxml, Word.InsertLocation.after);
+          anchor = inserted.getRange(Word.RangeLocation.after);
+        } else {
+          // NO FORMULAS IN THIS RUN, SO NOTHING CHANGES FOR IT. Plain paragraphs
+          // still go in one at a time, exactly as before, because
+          // insertParagraph inherits the style at the cursor while an OOXML
+          // package brings its own. Every tool without equations — beam,
+          // sections, stats, the whole rest of the product — therefore inserts
+          // identically to how it did before this change. Only the reports that
+          // genuinely need an equation take the different path.
+          for (const b of run) {
+            const para = anchor.insertParagraph(b.content, Word.InsertLocation.after);
+            anchor = para.getRange(Word.RangeLocation.after);
+          }
+        }
+        run = [];
+        runHasMath = false;
+      };
+
       for (let i = 0; i < blocks.length; i++) {
         const block = blocks[i];
         if (block.kind === "line") {
-          const para = anchor.insertParagraph(block.text, Word.InsertLocation.after);
-          anchor = para.getRange(Word.RangeLocation.after);
+          run.push({ kind: "text", content: block.text });
           continue;
         }
         if (block.kind === "math") {
-          // A real, editable Word equation. If it will not parse we fall back to
-          // text rather than losing the line entirely.
+          // Parseability is checked HERE rather than left to the builder, so an
+          // expression that will not typeset falls back to the readable text
+          // this tool wrote rather than to its own math source.
+          let parses = true;
           try {
-            const ooxml = mathToOoxml(block.math);
-            const inserted = anchor.insertOoxml(ooxml, Word.InsertLocation.after);
-            anchor = inserted.getRange(Word.RangeLocation.after);
+            mathToOmml(block.math);
           } catch {
-            const para = anchor.insertParagraph(block.fallback, Word.InsertLocation.after);
-            anchor = para.getRange(Word.RangeLocation.after);
+            parses = false;
           }
+          run.push(parses ? { kind: "math", content: block.math } : { kind: "text", content: block.fallback });
+          if (parses) runHasMath = true;
           continue;
         }
+        flushRun();
         if (block.kind === "plot") {
           // THE CAPTION GETS ITS OWN PARAGRAPH. It used to share one with the
           // image, which put the picture AFTER the caption text on the same
@@ -10596,6 +10638,7 @@ async function insertResultBlocks(text: string, blocksIn: AnalyzeBlock[] | null,
             table.getCell(i2, j).body.paragraphs.getFirst().alignment = Word.Alignment.right;
         anchor = table.getRange(Word.RangeLocation.after);
       }
+      flushRun();
       anchor.select(Word.SelectionMode.end);
       await context.sync();
     });

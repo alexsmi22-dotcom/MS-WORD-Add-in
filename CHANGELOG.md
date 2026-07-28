@@ -5,6 +5,48 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > Note: this file was not maintained between v1.96.0 and v2.23.0. Those releases
 > are recorded in the git history rather than here.
 
+## [2.31.3] — 2026-07-28 — Only the formula was being inserted
+
+v2.31.2 routed formula-only reports to the rich insert path. The equations then
+appeared — and nothing else did.
+
+`mathToOoxml` builds a COMPLETE flat-OPC document, and inserting one of those in
+the middle of a sequence breaks the anchor chain: the range it returns is not a
+usable insertion point for the paragraphs that follow, so every line after the
+first equation silently failed to land. Because the transfer function is the
+FIRST line of the poles/zeros report, the visible result was that only the
+formula was inserted.
+
+The fix is the pattern this codebase already had. `buildDerivationOoxml` exists
+precisely because interleaving does not work: it puts every paragraph, prose and
+equation alike, into a **single** package that is inserted once, and that is how
+Solve inserts its derivations. Consecutive prose and formula lines are now
+batched into one such package, and only genuinely different objects — pictures
+and tables — break the run.
+
+**The batching is deliberately narrow.** Only a run that actually contains a
+typesetting formula goes in as a package; a run without one still inserts as
+plain paragraphs, one at a time, exactly as before. That matters because
+`insertParagraph` inherits the paragraph style at the cursor while an OOXML
+package brings its own — so beam, cross-sections, stats and every other
+figure-bearing tool insert byte-for-byte as they did, and only the reports that
+genuinely need an equation take the different path.
+
+Parseability is checked before building, so an expression that will not typeset
+falls back to the readable text the tool wrote rather than to its own math
+source — and an unparseable formula does not force the run onto the package
+path either.
+
+Five gates added: that prose and equations are batched rather than inserted per
+line, that the run is flushed before every non-text block and once at the end,
+and that a math block contributes to the batch rather than inserting a package
+of its own, that a run with no formula still inserts as plain paragraphs, and
+that only a formula which actually typesets switches the run to the package
+path. One earlier gate was rewritten — it asserted the old per-line
+architecture, which was the bug.
+
+Suite 5,728 across 186 files, QC 10/10.
+
 ## [2.31.2] — 2026-07-28 — The equation insert was written but never reached
 
 v2.31.1 added real Word equations for transfer functions. It did not work for

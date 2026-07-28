@@ -353,14 +353,76 @@ describe("every non-text block kind reaches the rich insert path", () => {
     }
   });
 
-  test("the math insert really builds an equation rather than a paragraph", () => {
-    const i = PANE.indexOf('if (block.kind === "math")');
+  // THE SECOND WAY THIS BROKE. mathToOoxml builds a COMPLETE flat-OPC document,
+  // and inserting one mid-sequence breaks the anchor chain — every paragraph
+  // after the first equation silently failed to land, so a report whose first
+  // line is a formula inserted ONLY that formula. The fix is the pattern Solve
+  // already used: batch consecutive prose and equations into ONE package.
+  test("text and equations are batched into one package per run", () => {
+    const i = PANE.indexOf("const RICH_KINDS");
+    const body = PANE.slice(i, i + 4000);
+    // A run accumulator, flushed as a single buildDerivationOoxml insert.
+    expect(body).toContain("buildDerivationOoxml(run)");
+    expect(body).toContain("const flushRun");
+    // Line and math blocks must PUSH to the run, never insert on their own.
+    expect(body).toMatch(/kind === "line"[\s\S]{0,120}run\.push/);
+    expect(body).toMatch(/kind === "math"[\s\S]{0,400}run\.push/);
+  });
+
+  test("the run is flushed before every non-text block and at the end", () => {
+    const i = PANE.indexOf("const RICH_KINDS");
+    // Wide enough to reach past the loop; the two flushes sit either side
+    // of the plot and matrix branches.
+    const body = PANE.slice(i, i + 8000);
+    // Once before the plot/matrix branches, once after the loop.
+    expect(body.split("flushRun()").length - 1).toBeGreaterThanOrEqual(2);
+    // The final flush must come immediately before the selection is moved.
+    const tail = body.slice(body.lastIndexOf("flushRun()"));
+    expect(tail).toMatch(/^flushRun\(\);[\s]*anchor\.select/);
+  });
+
+  // The batching must not change how the rest of the product inserts. A run with
+  // no equation in it still goes in as plain paragraphs, because insertParagraph
+  // inherits the style at the cursor while an OOXML package brings its own — so
+  // beam, sections, stats and every other figure-bearing tool are untouched.
+  test("a run with no formula in it still inserts as plain paragraphs", () => {
+    const i = PANE.indexOf("const flushRun");
+    expect(i).toBeGreaterThan(-1);
+    const body = PANE.slice(i, i + 1600);
+    expect(body).toContain("if (runHasMath)");
+    expect(body).toContain("buildDerivationOoxml(run)");
+    // The else branch is the old behaviour, unchanged.
+    expect(body).toContain("insertParagraph(b.content");
+  });
+
+  test("only a formula that actually typesets switches the run to the package path", () => {
+    const i = PANE.indexOf('block.kind === "math"', PANE.indexOf("const RICH_KINDS"));
+    const body = PANE.slice(i, i + 700);
+    // An unparseable expression becomes text and must NOT force the OOXML path.
+    expect(body).toContain("if (parses) runHasMath = true;");
+  });
+
+  test("a formula that will not typeset falls back to the tool's own text", () => {
+    // Not to its math source, which is what the generic builder would use.
+    const i = PANE.indexOf('kind === "math"', PANE.indexOf("const RICH_KINDS"));
+    const body = PANE.slice(i, i + 600);
+    expect(body).toContain("mathToOmml(block.math)");
+    expect(body).toContain("block.fallback");
+  });
+
+  test("a math block ends up as an equation, not as a paragraph of characters", () => {
+    // It no longer inserts its own package — that was the bug. It contributes a
+    // math paragraph to the batched run, which buildDerivationOoxml turns into
+    // real OMML in a single insert.
+    const i = PANE.indexOf('block.kind === "math"', PANE.indexOf("const RICH_KINDS"));
     expect(i).toBeGreaterThan(-1);
     const body = PANE.slice(i, i + 700);
-    expect(body).toContain("mathToOoxml(");
-    expect(body).toContain("insertOoxml(");
-    // ...and degrades to text rather than losing the line.
-    expect(body).toContain("block.fallback");
+    expect(body).toContain("run.push(");
+    expect(body).toContain('kind: "math"');
+    // The whole run is inserted as one OOXML package.
+    const routine = PANE.slice(PANE.indexOf("const RICH_KINDS"), PANE.indexOf("const RICH_KINDS") + 8000);
+    expect(routine).toContain("buildDerivationOoxml(run)");
+    expect(routine).toContain("insertOoxml(");
   });
 });
 

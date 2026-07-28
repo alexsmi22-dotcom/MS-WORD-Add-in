@@ -5,6 +5,64 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > Note: this file was not maintained between v1.96.0 and v2.23.0. Those releases
 > are recorded in the git history rather than here.
 
+## [2.29.0] — 2026-07-28 — Thermodynamics, and a property table that was quietly breaking the first law
+
+Engineering gains three thermodynamics tools, taking it to twenty-four
+calculators: ideal-gas processes, air-standard power cycles, and vapour cycles
+with a Carnot check.
+
+**Temperature is absolute everywhere, and it is enforced.** Every efficiency and
+entropy in this module is a ratio of absolute temperatures. The Carnot bound
+between 500 °C and 20 °C is 62% computed correctly and **96%** if the numbers go
+in as they are written — a plausible, publishable, completely wrong figure, and
+the single most common error in the subject. Each tool takes the temperature
+unit explicitly, converts before anything is divided, and refuses a temperature
+at or below absolute zero rather than dividing by it.
+
+**All five ideal-gas processes are one polytropic family**, P·Vⁿ = constant with
+n = 1, 0, ∞ and k. Deriving the work integral once means the four named
+processes cannot disagree with each other, and it makes the n = 1 singularity
+explicit — the isothermal case is the *limit* of the general formula, written as
+its own branch rather than left to evaluate 0/0. Every result carries a first-law
+check.
+
+**Otto, Diesel and Brayton**, each compared against the Carnot bound between its
+own extremes. At the *same* compression ratio Otto beats Diesel, which surprises
+people — and the tool explains why Diesel wins in practice anyway: there is no
+fuel in the cylinder during compression, so there is nothing to knock, so a much
+higher compression ratio is available. Brayton efficiency depends only on
+pressure ratio, and the pressure ratio that maximises *work per unit mass* is not
+the one that maximises efficiency, which is why real turbines are sized where
+they are.
+
+**No steam tables, deliberately.** Rankine and vapour-compression cycles are
+computed from enthalpies the reader looks up in their own property tables. A
+saturated-water table reconstructed from memory would be plausible,
+unverifiable, and wrong in the third digit somewhere nobody would check — and
+this product's rule is that all data must be real. Doing the cycle arithmetic,
+the back-work ratio and the energy balance on the reader's own data is honest and
+is the workflow they already have.
+
+**The bug the oracle tests found, which is the interesting one.** An isentropic
+expansion was coming back with a non-zero heat — an apparent first-law violation
+in the one process where Q is zero by construction. The cause was not the
+algorithm: it was the **property table**. Air's usual handbook values cp = 1005,
+cv = 718, R = 287, k = 1.4 are each rounded independently and are therefore
+mutually inconsistent — R/(k−1) is 717.5, not 718. The work integral uses R and
+k while the internal-energy change uses cv, so the two disagreed by 0.07% and the
+result looked like physics. The table now stores only **cp and cv** and derives
+R = cp − cv and k = cp/cv, which makes every identity exact by construction at
+the cost of k reading 1.3997 for air rather than the rounded 1.4. That is the
+better trade: the third decimal of k is not physically meaningful, and a
+self-inconsistent property table produces errors that are indistinguishable from
+real results.
+
+The adversarial pass verifies Q = ΔU + W over 1,500 randomised combinations of
+gas, process and end state, and checks that no cycle beats its own Carnot bound
+across every gas and every ratio the module accepts.
+
+Suite 5,385 across 181 files, QC 10/10.
+
 ## [2.28.0] — 2026-07-28 — Vibration, and the three results everyone gets wrong
 
 Engineering gains three vibration tools, taking it to twenty-one calculators.

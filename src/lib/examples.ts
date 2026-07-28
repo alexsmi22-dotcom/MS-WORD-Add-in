@@ -122,6 +122,27 @@ export const MODE_EXAMPLES: Record<ExampleMode, string> = {
         eigenproblem so the frequencies are guaranteed real. Mode shapes come back
         mass-normalised; a rigid-body (zero-frequency) mode is reported as the real feature it is,
         and a mass matrix that is not positive definite is refused as unphysical.</li>
+      <li><strong>Thermodynamics</strong> &mdash; ideal-gas processes, air-standard power cycles,
+        and the Carnot limits that bound them.</li>
+      <li><strong>TEMPERATURE IS ABSOLUTE</strong> in every formula, so you pick the unit you are
+        typing and it converts before anything is divided. A Celsius value used as kelvin makes
+        the Carnot bound between 500&nbsp;&deg;C and 20&nbsp;&deg;C read 96% instead of 62% &mdash;
+        plausible, publishable and completely wrong. A temperature at or below absolute zero is
+        refused rather than divided by.</li>
+      <li><strong>Ideal-gas process</strong> &mdash; isothermal, isobaric, isochoric, isentropic
+        and polytropic are one family (P&middot;V&#8319; = constant), so the work integral is
+        derived once and cannot disagree between them; the n&nbsp;=&nbsp;1 singularity is written
+        as its own limit rather than left to divide by zero.</li>
+      <li><strong>Power cycles</strong> &mdash; Otto, Diesel and Brayton, each compared against
+        the Carnot bound between its own extremes. At the <em>same</em> compression ratio Otto
+        beats Diesel, and it says why Diesel wins anyway; Brayton efficiency depends only on
+        pressure ratio, and the work-optimum ratio is not the efficiency-optimum one.</li>
+      <li><strong>Rankine and refrigeration take enthalpies YOU look up.</strong> No steam tables
+        are built in, deliberately &mdash; a table reconstructed from memory would be plausible and
+        unverifiable, and this product's rule is that all data must be real. The tool does the
+        cycle arithmetic and the energy-balance check on your own property data.</li>
+      <li><strong>Carnot check</strong> &mdash; paste any claimed efficiency or COP and it says
+        whether it is thermodynamically possible, and names the Celsius error when it is not.</li>
       <li>Units are whatever you type, used consistently &mdash; except the cross-section,
         buckling, torsion, pipe-flow and heat tools, which <strong>convert for you</strong>
         (<code>200 GPa</code>, <code>1e6 mm^4</code>, <code>50 ksi</code>, <code>68 &deg;F</code>)

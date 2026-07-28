@@ -136,6 +136,20 @@ import {
   modalAnalysis,
   chainSystem,
 } from "../lib/vibration";
+import {
+  toKelvin,
+  GASES as THERMO_GASES,
+  idealGasProcess,
+  carnot,
+  ottoCycle,
+  dieselCycle,
+  braytonCycle,
+  rankineFromEnthalpies,
+  refrigerationFromEnthalpies,
+  checkAgainstCarnot,
+  TempUnit,
+  ProcessKind,
+} from "../lib/thermo";
 import { parseMeasured, resultFigures } from "../lib/units";
 import { nmrChartSvg, irChartSvg, msChartSvg, cosyChartSvg, hsqcChartSvg, jcampChartSvg, decimateTrace, SPECTRUM_CHART_SIZE, SPECTRUM_2D_SIZE } from "../lib/spectraChart";
 import { buildPeptide } from "../lib/peptide";
@@ -7375,6 +7389,18 @@ const ENG_VIB_UNIT_NOTE =
   "rad/s (divide by 2π for Hz); a damping coefficient is then N·s/m. Frequency ratios, damping " +
   "ratios, magnification and transmissibility are dimensionless whatever you use.";
 
+/**
+ * Thermodynamics is strict SI internally, but TEMPERATURE gets its own unit
+ * selector rather than being folded into the general unit layer — because the
+ * failure mode is uniquely bad. Every efficiency here is a ratio of absolute
+ * temperatures, so a Celsius value used as kelvin does not produce a slightly
+ * wrong answer, it produces a plausible and completely wrong one.
+ */
+const ENG_THERMO_UNIT_NOTE =
+  "Units: SI — pressure in Pa, mass in kg, energy in J. TEMPERATURE IS ABSOLUTE in every " +
+  "formula here, so pick the unit you are typing and it is converted to kelvin before anything " +
+  "is divided; a Celsius value used as kelvin is the classic way to get a confident wrong answer.";
+
 /** As above, for the two engines whose exactness a conversion would destroy. */
 const ENG_EXACT_UNIT_NOTE =
   "Units: whatever you type, used consistently — nothing is converted here, because this " +
@@ -9204,6 +9230,311 @@ const ENG_CALCS: EngCalc[] = [
       }
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_VIB_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "thermo-process",
+    name: "Thermodynamics: ideal-gas process",
+    hint:
+      "A closed-system process on an ideal gas. All four named processes are the same polytropic " +
+      "family (n = 0 isobaric, 1 isothermal, k isentropic, ∞ isochoric), so the work integral is " +
+      "derived once and cannot disagree between them. Give ONE end-state quantity.",
+    fields: [
+      {
+        key: "gas",
+        label: "Gas",
+        default: "air",
+        kind: "select",
+        options: THERMO_GASES.map((g) => ({ value: g.id, label: g.label })),
+      },
+      {
+        key: "kind",
+        label: "Process",
+        default: "isentropic",
+        kind: "select",
+        options: [
+          { value: "isothermal", label: "Isothermal (constant T, n = 1)" },
+          { value: "isobaric", label: "Isobaric (constant P, n = 0)" },
+          { value: "isochoric", label: "Isochoric (constant V, n = ∞)" },
+          { value: "isentropic", label: "Isentropic (reversible adiabatic, n = k)" },
+          { value: "polytropic", label: "Polytropic (give n)" },
+        ],
+      },
+      { key: "n", label: "Polytropic index n (polytropic only)", default: "1.3", kind: "text" },
+      { key: "m", label: "Mass, kg", default: "1", kind: "text" },
+      { key: "p1", label: "Initial pressure P₁, Pa", default: "100000", kind: "text" },
+      { key: "t1", label: "Initial temperature T₁", default: "27", kind: "text" },
+      {
+        key: "tunit",
+        label: "Temperature unit",
+        default: "C",
+        kind: "select",
+        options: [
+          { value: "C", label: "°C" },
+          { value: "K", label: "K" },
+          { value: "F", label: "°F" },
+        ],
+      },
+      { key: "p2", label: "End pressure P₂, Pa (or leave blank)", default: "1000000", kind: "text" },
+      { key: "t2", label: "End temperature T₂ (same unit, or blank)", default: "", kind: "text" },
+      { key: "v2", label: "End volume V₂, m³ (or blank)", default: "", kind: "text" },
+    ],
+    compute: (r) => {
+      const tunit = (r("tunit") || "C") as TempUnit;
+      const t1 = toKelvin(Number(r("t1") || "0"), tunit);
+      if (typeof t1 === "object") return { text: t1.error, ok: false };
+      let t2: number | undefined;
+      if (r("t2").trim()) {
+        const k2 = toKelvin(Number(r("t2")), tunit);
+        if (typeof k2 === "object") return { text: k2.error, ok: false };
+        t2 = k2;
+      }
+
+      const res = idealGasProcess({
+        gasId: r("gas") || "air",
+        m: Number(r("m") || "0"),
+        p1: Number(r("p1") || "0"),
+        t1,
+        kind: (r("kind") || "isentropic") as ProcessKind,
+        n: r("n").trim() ? Number(r("n")) : undefined,
+        p2: r("p2").trim() ? Number(r("p2")) : undefined,
+        t2,
+        v2: r("v2").trim() ? Number(r("v2")) : undefined,
+      });
+      if (!res.ok) return { text: res.error, ok: false };
+
+      const lines: string[] = [];
+      lines.push(`${res.gas}, ${r("kind") || "isentropic"} process (polytropic index n = ${Number.isFinite(res.n) ? engNum(res.n) : "infinite"})`);
+      lines.push("");
+      lines.push("State 1 → State 2");
+      lines.push(`  P: ${engNum(res.p1)} → ${engNum(res.p2)} Pa`);
+      lines.push(`  T: ${engNum(res.t1)} → ${engNum(res.t2)} K  (${engNum(res.t1 - 273.15)} → ${engNum(res.t2 - 273.15)} °C)`);
+      lines.push(`  V: ${engNum(res.v1)} → ${engNum(res.v2)} m³`);
+      lines.push("");
+      lines.push(`Boundary work done BY the gas = ${engNum(res.work)} J`);
+      lines.push(`Heat added TO the gas = ${engNum(res.heat)} J`);
+      lines.push(`Change in internal energy ΔU = ${engNum(res.deltaU)} J`);
+      lines.push(`Change in enthalpy ΔH = ${engNum(res.deltaH)} J`);
+      lines.push(`Change in entropy ΔS = ${engNum(res.deltaS)} J/K`);
+      lines.push(`  First law check: ΔU + W = ${engNum(res.deltaU + res.work)} J, which is Q.`);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_THERMO_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "thermo-cycle",
+    name: "Thermodynamics: power cycles",
+    hint:
+      "Air-standard Otto, Diesel and Brayton cycles. Every one is compared against the Carnot " +
+      "bound between its own extremes, and a real engine reaches roughly a third of the " +
+      "air-standard figure — quoting it as the efficiency overstates by about three times.",
+    fields: [
+      {
+        key: "cycle",
+        label: "Cycle",
+        default: "otto",
+        kind: "select",
+        options: [
+          { value: "otto", label: "Otto (spark ignition)" },
+          { value: "diesel", label: "Diesel (compression ignition)" },
+          { value: "brayton", label: "Brayton (gas turbine)" },
+        ],
+      },
+      {
+        key: "gas",
+        label: "Working fluid",
+        default: "air",
+        kind: "select",
+        options: THERMO_GASES.map((g) => ({ value: g.id, label: g.label })),
+      },
+      { key: "r", label: "Compression ratio (Otto, Diesel)", default: "8", kind: "text" },
+      { key: "rc", label: "Cut-off ratio (Diesel only)", default: "2", kind: "text" },
+      { key: "rp", label: "Pressure ratio (Brayton only)", default: "10", kind: "text" },
+      { key: "t1", label: "Inlet temperature T₁ (blank to skip temperatures)", default: "27", kind: "text" },
+      { key: "t3", label: "Peak temperature T₃ (Otto, Brayton)", default: "1527", kind: "text" },
+      {
+        key: "tunit",
+        label: "Temperature unit",
+        default: "C",
+        kind: "select",
+        options: [
+          { value: "C", label: "°C" },
+          { value: "K", label: "K" },
+          { value: "F", label: "°F" },
+        ],
+      },
+    ],
+    compute: (r) => {
+      const tunit = (r("tunit") || "C") as TempUnit;
+      const conv = (key: string): number | undefined | { error: string } => {
+        if (!r(key).trim()) return undefined;
+        const k = toKelvin(Number(r(key)), tunit);
+        return typeof k === "object" ? { error: k.error } : k;
+      };
+      const t1 = conv("t1");
+      if (t1 && typeof t1 === "object") return { text: t1.error, ok: false };
+      const t3 = conv("t3");
+      if (t3 && typeof t3 === "object") return { text: t3.error, ok: false };
+
+      const gas = r("gas") || "air";
+      const which = r("cycle") || "otto";
+      const res =
+        which === "diesel"
+          ? dieselCycle(Number(r("r") || "0"), Number(r("rc") || "0"), gas, t1 as number | undefined)
+          : which === "brayton"
+            ? braytonCycle(Number(r("rp") || "0"), gas, t1 as number | undefined, t3 as number | undefined)
+            : ottoCycle(Number(r("r") || "0"), gas, t1 as number | undefined, t3 as number | undefined);
+      if (!res.ok) return { text: res.error, ok: false };
+
+      const lines: string[] = [];
+      lines.push(`${res.name} cycle, air-standard`);
+      lines.push("");
+      lines.push(`Thermal efficiency = ${engNum(res.efficiency * 100)}%`);
+      if (res.carnotEfficiency !== null) {
+        lines.push(`Carnot bound between this cycle's own extremes = ${engNum(res.carnotEfficiency * 100)}%`);
+        lines.push(
+          res.efficiency < res.carnotEfficiency
+            ? "  The cycle is below its Carnot bound, as it must be."
+            : "  WARNING: the cycle exceeds its Carnot bound, which is impossible — check the inputs.",
+        );
+      }
+      if (res.temperatures.length) {
+        lines.push("");
+        lines.push("Temperatures around the cycle");
+        for (const t of res.temperatures) {
+          lines.push(`  ${t.label}: ${engNum(t.t)} K (${engNum(t.t - 273.15)} °C)`);
+        }
+      }
+      if (res.heatIn !== null && res.netWork !== null) {
+        lines.push("");
+        lines.push(`Heat added = ${engNum(res.heatIn / 1000)} kJ/kg`);
+        lines.push(`Net work = ${engNum(res.netWork / 1000)} kJ/kg`);
+      }
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_THERMO_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "thermo-vapour",
+    name: "Thermodynamics: Rankine, refrigeration & Carnot check",
+    hint:
+      "Vapour cycles are computed from enthalpies YOU look up in your own steam or refrigerant " +
+      "tables — no property tables are built in, deliberately, so the data is yours and " +
+      "verifiable. Also checks any claimed efficiency or COP against the Carnot bound.",
+    fields: [
+      {
+        key: "which",
+        label: "Analysis",
+        default: "rankine",
+        kind: "select",
+        options: [
+          { value: "rankine", label: "Rankine cycle (4 enthalpies)" },
+          { value: "fridge", label: "Vapour-compression refrigeration (3 enthalpies)" },
+          { value: "check", label: "Check a claimed efficiency or COP against Carnot" },
+        ],
+      },
+      { key: "h1", label: "h₁ — pump / compressor inlet, kJ/kg", default: "191.8", kind: "text" },
+      { key: "h2", label: "h₂ — pump / compressor outlet, kJ/kg", default: "195.0", kind: "text" },
+      { key: "h3", label: "h₃ — turbine inlet (Rankine) or condenser outlet (fridge), kJ/kg", default: "3214.0", kind: "text" },
+      { key: "h4", label: "h₄ — turbine outlet, kJ/kg (Rankine only)", default: "2100.0", kind: "text" },
+      { key: "claimed", label: "Claimed efficiency (0-1) or COP (check only)", default: "0.68", kind: "text" },
+      {
+        key: "ckind",
+        label: "What the claim is (check only)",
+        default: "efficiency",
+        kind: "select",
+        options: [
+          { value: "efficiency", label: "Thermal efficiency" },
+          { value: "refrigerator", label: "Refrigerator COP" },
+          { value: "heat-pump", label: "Heat-pump COP" },
+        ],
+      },
+      { key: "th", label: "Hot reservoir temperature (check only)", default: "500", kind: "text" },
+      { key: "tc", label: "Cold reservoir temperature (check only)", default: "20", kind: "text" },
+      {
+        key: "tunit",
+        label: "Temperature unit (check only)",
+        default: "C",
+        kind: "select",
+        options: [
+          { value: "C", label: "°C" },
+          { value: "K", label: "K" },
+          { value: "F", label: "°F" },
+        ],
+      },
+    ],
+    compute: (r) => {
+      const which = r("which") || "rankine";
+      const lines: string[] = [];
+
+      if (which === "rankine") {
+        const res = rankineFromEnthalpies(
+          Number(r("h1") || "0"),
+          Number(r("h2") || "0"),
+          Number(r("h3") || "0"),
+          Number(r("h4") || "0"),
+        );
+        if (!res.ok) return { text: res.error, ok: false };
+        lines.push("Rankine cycle, from your enthalpies");
+        lines.push("");
+        lines.push(`Turbine work = ${engNum(res.turbineWork)} kJ/kg`);
+        lines.push(`Pump work = ${engNum(res.pumpWork)} kJ/kg`);
+        lines.push(`Net work = ${engNum(res.netWork)} kJ/kg`);
+        lines.push(`Heat added in the boiler = ${engNum(res.heatIn)} kJ/kg`);
+        lines.push(`Heat rejected in the condenser = ${engNum(res.heatOut)} kJ/kg`);
+        lines.push("");
+        lines.push(`Thermal efficiency = ${engNum(res.efficiency * 100)}%`);
+        lines.push(`Back-work ratio (pump / turbine) = ${engNum(res.backWorkRatio * 100)}%`);
+        lines.push(`  Energy balance: Qin - Qout - Wnet = ${engNum(res.heatIn - res.heatOut - res.netWork)} kJ/kg (should be zero)`);
+        for (const note of res.notes) lines.push(`Note: ${note}`);
+      } else if (which === "fridge") {
+        const res = refrigerationFromEnthalpies(
+          Number(r("h1") || "0"),
+          Number(r("h2") || "0"),
+          Number(r("h3") || "0"),
+        );
+        if (!res.ok) return { text: res.error, ok: false };
+        lines.push("Vapour-compression refrigeration, from your enthalpies");
+        lines.push("");
+        lines.push(`Compressor work = ${engNum(res.compressorWork)} kJ/kg`);
+        lines.push(`Refrigeration effect = ${engNum(res.refrigerationEffect)} kJ/kg`);
+        lines.push(`Heat rejected = ${engNum(res.heatRejected)} kJ/kg`);
+        lines.push("");
+        lines.push(`COP as a refrigerator = ${engNum(res.copRefrigerator)}`);
+        lines.push(`COP as a heat pump = ${engNum(res.copHeatPump)}`);
+        for (const note of res.notes) lines.push(`Note: ${note}`);
+      } else {
+        const tunit = (r("tunit") || "C") as TempUnit;
+        const th = toKelvin(Number(r("th") || "0"), tunit);
+        if (typeof th === "object") return { text: th.error, ok: false };
+        const tc = toKelvin(Number(r("tc") || "0"), tunit);
+        if (typeof tc === "object") return { text: tc.error, ok: false };
+        const res = checkAgainstCarnot(
+          Number(r("claimed") || "0"),
+          th,
+          tc,
+          (r("ckind") || "efficiency") as "efficiency" | "refrigerator" | "heat-pump",
+        );
+        if (!res.ok) return { text: res.error, ok: false };
+        const c = carnot(th, tc);
+        lines.push("Carnot check");
+        lines.push("");
+        lines.push(`Reservoirs: ${engNum(th)} K and ${engNum(tc)} K`);
+        lines.push(`Carnot bound for this quantity = ${engNum(res.bound)}`);
+        lines.push("");
+        lines.push(res.possible ? "POSSIBLE" : "IMPOSSIBLE");
+        lines.push(res.message);
+        if (c.ok) {
+          lines.push("");
+          lines.push(`For reference between these reservoirs: max efficiency ${engNum(c.efficiency * 100)}%, ` +
+            `max refrigerator COP ${engNum(c.copRefrigerator)}, max heat-pump COP ${engNum(c.copHeatPump)}`);
+          for (const note of c.notes) lines.push(`Note: ${note}`);
+        }
+      }
+      lines.push(ENG_THERMO_UNIT_NOTE);
       return { text: plainDashes(lines.join("\n")) };
     },
   },

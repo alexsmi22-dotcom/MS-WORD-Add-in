@@ -68,6 +68,9 @@ const EXPECTED: { id: string; calls: string[]; module: string }[] = [
   { id: "vib-free", calls: ["sdofProperties(", "freeResponse("], module: "../lib/vibration" },
   { id: "vib-forced", calls: ["forcedResponse("], module: "../lib/vibration" },
   { id: "vib-modal", calls: ["modalAnalysis(", "chainSystem("], module: "../lib/vibration" },
+  { id: "thermo-process", calls: ["idealGasProcess(", "toKelvin("], module: "../lib/thermo" },
+  { id: "thermo-cycle", calls: ["ottoCycle(", "dieselCycle(", "braytonCycle("], module: "../lib/thermo" },
+  { id: "thermo-vapour", calls: ["rankineFromEnthalpies(", "refrigerationFromEnthalpies(", "checkAgainstCarnot("], module: "../lib/thermo" },
 ];
 
 describe("the scan is not vacuous", () => {
@@ -175,6 +178,7 @@ const UNIT_NOTES = [
   "ENG_CONTROL_UNIT_NOTE",
   "ENG_PK_UNIT_NOTE",
   "ENG_VIB_UNIT_NOTE",
+  "ENG_THERMO_UNIT_NOTE",
 ] as const;
 
 /** Which contract each tool is on, asserted rather than inferred. */
@@ -200,6 +204,9 @@ const CONTRACT: Record<string, (typeof UNIT_NOTES)[number]> = {
   "vib-free": "ENG_VIB_UNIT_NOTE",
   "vib-forced": "ENG_VIB_UNIT_NOTE",
   "vib-modal": "ENG_VIB_UNIT_NOTE",
+  "thermo-process": "ENG_THERMO_UNIT_NOTE",
+  "thermo-cycle": "ENG_THERMO_UNIT_NOTE",
+  "thermo-vapour": "ENG_THERMO_UNIT_NOTE",
 };
 
 describe("every Engineering tool declares one unit contract", () => {

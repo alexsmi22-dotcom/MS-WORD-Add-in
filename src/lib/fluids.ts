@@ -325,3 +325,449 @@ export function waterProperties(tempC: number): { rho: number; mu: number } | nu
   }
   return null;
 }
+
+// ---------------------------------------------------------------------------
+// Open-channel flow
+// ---------------------------------------------------------------------------
+
+export type ChannelShape = "rectangular" | "trapezoidal" | "triangular" | "circular";
+
+export interface ChannelInput {
+  shape: ChannelShape;
+  /** Bed width, m. Rectangular and trapezoidal. */
+  b?: number;
+  /** Side slope, horizontal per 1 vertical. Trapezoidal and triangular. */
+  z?: number;
+  /** Diameter, m. Circular. */
+  D?: number;
+  /** Flow depth, m. */
+  y: number;
+  /** Manning roughness coefficient. */
+  n: number;
+  /** Bed slope, m/m. */
+  S: number;
+}
+
+export interface ChannelResult {
+  ok: true;
+  area: number;
+  perimeter: number;
+  hydraulicRadius: number;
+  velocity: number;
+  discharge: number;
+  froude: number;
+  regime: "subcritical" | "critical" | "supercritical";
+  /** Critical depth for this discharge, m. */
+  criticalDepth: number | null;
+  specificEnergy: number;
+  notes: string[];
+}
+
+/** Geometry of a channel section at a given depth. */
+function channelGeometry(inp: ChannelInput): { A: number; P: number; T: number } | FluidError {
+  const y = inp.y;
+  if (!Number.isFinite(y) || y <= 0) return { ok: false, error: "The flow depth must be greater than zero." };
+  switch (inp.shape) {
+    case "rectangular": {
+      const b = inp.b ?? 0;
+      if (!Number.isFinite(b) || b <= 0) return { ok: false, error: "The bed width must be greater than zero." };
+      return { A: b * y, P: b + 2 * y, T: b };
+    }
+    case "trapezoidal": {
+      const b = inp.b ?? 0;
+      const z = inp.z ?? 0;
+      if (!Number.isFinite(b) || b <= 0) return { ok: false, error: "The bed width must be greater than zero." };
+      if (!Number.isFinite(z) || z < 0) return { ok: false, error: "The side slope cannot be negative." };
+      return { A: (b + z * y) * y, P: b + 2 * y * Math.sqrt(1 + z * z), T: b + 2 * z * y };
+    }
+    case "triangular": {
+      const z = inp.z ?? 0;
+      if (!Number.isFinite(z) || z <= 0) return { ok: false, error: "The side slope must be greater than zero." };
+      return { A: z * y * y, P: 2 * y * Math.sqrt(1 + z * z), T: 2 * z * y };
+    }
+    case "circular": {
+      const D = inp.D ?? 0;
+      if (!Number.isFinite(D) || D <= 0) return { ok: false, error: "The diameter must be greater than zero." };
+      if (y > D) return { ok: false, error: "The depth exceeds the pipe diameter; this is no longer open-channel flow." };
+      const theta = 2 * Math.acos(1 - (2 * y) / D);
+      const A = ((D * D) / 8) * (theta - Math.sin(theta));
+      const P = (D * theta) / 2;
+      const T = D * Math.sin(theta / 2);
+      return { A, P, T };
+    }
+  }
+}
+
+/**
+ * Uniform open-channel flow by Manning's equation.
+ *
+ * THE FROUDE NUMBER IS THE ANSWER, NOT THE DISCHARGE. Whether flow is
+ * subcritical (Fr < 1) or supercritical (Fr > 1) decides how the channel
+ * behaves in every respect that matters: subcritical flow is controlled from
+ * DOWNSTREAM and a disturbance travels back upstream, supercritical flow is
+ * controlled from upstream and nothing propagates back. Design a transition
+ * that crosses Fr = 1 without intending to and you get a HYDRAULIC JUMP —
+ * abrupt, violent, energy-dissipating, and capable of destroying an unprotected
+ * channel bed. Reporting a discharge without the regime is the easy half.
+ *
+ * MANNING'S n IS THE DOMINANT UNCERTAINTY. Published values for the same
+ * material span roughly a factor of two, and discharge is inversely
+ * proportional to it. Four significant figures of discharge from a table-lookup
+ * n is false precision by about a factor of two.
+ *
+ * MANNING IS DIMENSIONAL. The 1/n coefficient carries units, so this is the SI
+ * form; the US customary form has a 1.486 in it, and mixing the two is a 50%
+ * error that produces an entirely plausible number.
+ */
+export function openChannelFlow(inp: ChannelInput): ChannelResult | FluidError {
+  const geo = channelGeometry(inp);
+  if ("ok" in geo) return geo;
+  const { A, P, T } = geo;
+  if (!Number.isFinite(inp.n) || inp.n <= 0) return { ok: false, error: "Manning's n must be greater than zero." };
+  if (!Number.isFinite(inp.S) || inp.S <= 0) {
+    return {
+      ok: false,
+      error:
+        "The bed slope must be greater than zero. Manning's equation describes UNIFORM flow driven " +
+        "by gravity down a slope; a level or adverse channel has no uniform-flow solution and needs " +
+        "a gradually-varied flow analysis instead.",
+    };
+  }
+  if (P <= 0 || A <= 0) return { ok: false, error: "The section geometry came out non-physical." };
+
+  const R = A / P;
+  const velocity = (1 / inp.n) * Math.pow(R, 2 / 3) * Math.sqrt(inp.S);
+  const discharge = velocity * A;
+  // Froude uses the HYDRAULIC DEPTH A/T, not the flow depth. For any
+  // non-rectangular section they differ, and using the flow depth gives the
+  // wrong regime near the boundary.
+  const hydraulicDepth = A / T;
+  const froude = velocity / Math.sqrt(G * hydraulicDepth);
+
+  const notes: string[] = [];
+  const regime = froude > 1.01 ? "supercritical" : froude < 0.99 ? "subcritical" : "critical";
+
+  // Critical depth for this discharge, by bisection on Q^2*T/(g*A^3) = 1.
+  let criticalDepth: number | null = null;
+  {
+    const f = (y: number): number => {
+      const g2 = channelGeometry({ ...inp, y });
+      if ("ok" in g2) return NaN;
+      return (discharge * discharge * g2.T) / (G * Math.pow(g2.A, 3)) - 1;
+    };
+    let lo = 1e-6;
+    let hi = inp.shape === "circular" ? (inp.D as number) * 0.999 : Math.max(inp.y * 10, 1);
+    let flo = f(lo);
+    const fhi = f(hi);
+    if (Number.isFinite(flo) && Number.isFinite(fhi) && flo * fhi < 0) {
+      // Fixed iteration count: this runs on every keystroke.
+      for (let k = 0; k < 100; k++) {
+        const mid = (lo + hi) / 2;
+        const fm = f(mid);
+        if (!Number.isFinite(fm)) break;
+        if (flo * fm < 0) hi = mid;
+        else {
+          lo = mid;
+          flo = fm;
+        }
+      }
+      criticalDepth = (lo + hi) / 2;
+    }
+  }
+
+  const specificEnergy = inp.y + (velocity * velocity) / (2 * G);
+
+  if (regime === "supercritical") {
+    notes.push(
+      "SUPERCRITICAL flow. It is controlled from UPSTREAM and no disturbance can travel back up " +
+        "the channel. Where it meets a subcritical reach it does so through a HYDRAULIC JUMP — " +
+        "abrupt, violent and highly energy-dissipating — which needs a protected stilling basin " +
+        "unless you want it eating the channel bed.",
+    );
+  } else if (regime === "subcritical") {
+    notes.push(
+      "SUBCRITICAL flow. It is controlled from DOWNSTREAM, so a backwater from an obstruction " +
+        "propagates upstream and the depth here depends on what happens further down the channel.",
+    );
+  } else {
+    notes.push(
+      "NEAR-CRITICAL flow, which is the worst place to operate: the water surface is unstable, " +
+        "small changes in discharge or roughness give large changes in depth, and the flow can " +
+        "flip between regimes. Design away from Fr = 1.",
+    );
+  }
+  notes.push(
+    "The Froude number here uses the HYDRAULIC DEPTH A/T, not the flow depth. For a rectangular " +
+      "channel they are the same; for a trapezoid or a part-full pipe they are not, and using the " +
+      "flow depth gives the wrong regime near the boundary.",
+  );
+  notes.push(
+    "Manning's n is the dominant uncertainty. Published values for the same material span roughly " +
+      "a factor of two, and discharge is inversely proportional to n — so treat this discharge as " +
+      "good to about a factor of two rather than to four figures.",
+  );
+  notes.push(
+    "SI form of Manning's equation. The US customary form carries a 1.486 coefficient; mixing the " +
+      "two is a 50% error that looks like nothing.",
+  );
+
+  return {
+    ok: true,
+    area: A,
+    perimeter: P,
+    hydraulicRadius: R,
+    velocity,
+    discharge,
+    froude,
+    regime,
+    criticalDepth,
+    specificEnergy,
+    notes,
+  };
+}
+
+/**
+ * Manning roughness coefficients for common channel surfaces.
+ *
+ * The RANGE is given rather than one value, because the range IS the answer:
+ * taking the midpoint and quoting four figures of discharge hides an
+ * uncertainty of about a factor of two.
+ */
+export const MANNING_N: { id: string; label: string; min: number; typical: number; max: number }[] = [
+  { id: "glass", label: "Glass or smooth plastic", min: 0.009, typical: 0.01, max: 0.013 },
+  { id: "concrete-smooth", label: "Concrete, trowelled", min: 0.011, typical: 0.013, max: 0.015 },
+  { id: "concrete-rough", label: "Concrete, unfinished", min: 0.014, typical: 0.017, max: 0.02 },
+  { id: "earth-clean", label: "Earth channel, clean", min: 0.018, typical: 0.022, max: 0.025 },
+  { id: "earth-gravel", label: "Earth channel, gravelly", min: 0.022, typical: 0.025, max: 0.03 },
+  { id: "stream-clean", label: "Natural stream, clean and straight", min: 0.025, typical: 0.03, max: 0.033 },
+  { id: "stream-weedy", label: "Natural stream, weedy with pools", min: 0.05, typical: 0.07, max: 0.1 },
+];
+
+// ---------------------------------------------------------------------------
+// Pumps, NPSH and cavitation
+// ---------------------------------------------------------------------------
+
+export interface NpshInput {
+  /** Absolute pressure on the liquid surface, Pa. */
+  pSurface: number;
+  /** Vapour pressure at the pumping temperature, Pa. */
+  pVapour: number;
+  rho: number;
+  /** Positive when the liquid level is ABOVE the pump, m. */
+  staticHead: number;
+  /** Friction and fitting losses in the suction line, m. */
+  suctionLosses: number;
+  /** NPSH the pump requires at this flow, from its curve, m. */
+  npshRequired: number;
+  Q?: number;
+  head?: number;
+  eta?: number;
+}
+
+export interface NpshResult {
+  ok: true;
+  npshAvailable: number;
+  margin: number;
+  cavitating: boolean;
+  hydraulicPower: number | null;
+  shaftPower: number | null;
+  notes: string[];
+}
+
+/**
+ * Net positive suction head, and whether the pump will cavitate.
+ *
+ * CAVITATION IS A FAILURE MODE, NOT AN EFFICIENCY LOSS. When the local pressure
+ * at the impeller eye reaches the vapour pressure the liquid boils, and the
+ * bubbles collapse violently a few millimetres later against the impeller. It
+ * sounds like gravel in the pump and it destroys the impeller in weeks. It is
+ * entirely a SUCTION-side problem: nothing on the discharge side can fix it.
+ *
+ * NPSH AVAILABLE FALLS AS THE LIQUID GETS HOTTER, because vapour pressure rises
+ * steeply with temperature. A pump that has run for years on cold water can
+ * cavitate the first time the same water arrives warm — which is why the vapour
+ * pressure is asked for rather than assumed.
+ */
+export function npshAnalysis(inp: NpshInput): NpshResult | FluidError {
+  const { pSurface, pVapour, rho, staticHead, suctionLosses, npshRequired } = inp;
+  for (const [name, v] of [
+    ["surface pressure", pSurface],
+    ["vapour pressure", pVapour],
+    ["density", rho],
+    ["static head", staticHead],
+    ["suction losses", suctionLosses],
+    ["required NPSH", npshRequired],
+  ] as [string, number][]) {
+    if (!Number.isFinite(v)) return { ok: false, error: `The ${name} must be a finite number.` };
+  }
+  if (rho <= 0) return { ok: false, error: "The density must be greater than zero." };
+  if (pSurface <= 0) {
+    return { ok: false, error: "The surface pressure must be greater than zero — it is an ABSOLUTE pressure, not gauge." };
+  }
+  if (pVapour < 0) return { ok: false, error: "The vapour pressure cannot be negative." };
+  if (suctionLosses < 0) return { ok: false, error: "The suction losses cannot be negative." };
+  if (npshRequired < 0) return { ok: false, error: "The required NPSH cannot be negative." };
+  if (pVapour >= pSurface) {
+    return {
+      ok: false,
+      error:
+        "The vapour pressure is at or above the surface pressure, so the liquid is already boiling " +
+        "in the tank. No suction arrangement can pump it — lower the temperature or raise the " +
+        "system pressure.",
+    };
+  }
+
+  const npshAvailable = (pSurface - pVapour) / (rho * G) + staticHead - suctionLosses;
+  const margin = npshAvailable - npshRequired;
+  const cavitating = margin <= 0;
+  const notes: string[] = [];
+
+  if (cavitating) {
+    notes.push(
+      "THIS PUMP WILL CAVITATE: the available NPSH is below what the pump requires. Cavitation is " +
+        "not an efficiency loss — it is vapour bubbles collapsing against the impeller, and it " +
+        "destroys the impeller in weeks. Nothing on the DISCHARGE side of the pump can fix it.",
+    );
+    notes.push(
+      "Every fix is on the suction side: raise the liquid level relative to the pump, shorten or " +
+        "widen the suction line to cut losses, lower the liquid temperature to drop the vapour " +
+        "pressure, or choose a pump with a lower NPSH requirement.",
+    );
+  } else if (margin < 0.5) {
+    notes.push(
+      "The NPSH margin is under 0.5 m. Common practice is at least 0.5 to 1 m above the pump's " +
+        "stated requirement, because the published NPSHr is measured at the point where head has " +
+        "ALREADY dropped 3% — the pump is mildly cavitating at its own rated NPSHr.",
+    );
+  }
+  notes.push(
+    "NPSH available falls as the liquid gets hotter, because vapour pressure rises steeply with " +
+      "temperature. A pump that has run for years on cold water can cavitate the first time the " +
+      "same water arrives warm.",
+  );
+
+  let hydraulicPower: number | null = null;
+  let shaftPower: number | null = null;
+  if (
+    inp.Q !== undefined &&
+    inp.head !== undefined &&
+    Number.isFinite(inp.Q) &&
+    Number.isFinite(inp.head) &&
+    inp.Q > 0 &&
+    inp.head > 0
+  ) {
+    hydraulicPower = rho * G * inp.Q * inp.head;
+    if (inp.eta !== undefined && Number.isFinite(inp.eta) && inp.eta > 0 && inp.eta <= 1) {
+      shaftPower = hydraulicPower / inp.eta;
+    }
+  }
+
+  return { ok: true, npshAvailable, margin, cavitating, hydraulicPower, shaftPower, notes };
+}
+
+// ---------------------------------------------------------------------------
+// Compressible flow
+// ---------------------------------------------------------------------------
+
+export interface CompressibleResult {
+  ok: true;
+  mach: number;
+  regime: "subsonic" | "sonic" | "supersonic";
+  /** Stagnation-to-static ratios. */
+  temperatureRatio: number;
+  pressureRatio: number;
+  densityRatio: number;
+  speedOfSound: number;
+  /** Area relative to the sonic throat area. */
+  areaRatio: number;
+  criticalPressureRatio: number;
+  choked: boolean;
+  notes: string[];
+}
+
+/**
+ * Isentropic compressible-flow relations for an ideal gas.
+ *
+ * CHOKING IS THE RESULT THAT SURPRISES PEOPLE. Once the flow reaches Mach 1 at
+ * the throat, lowering the downstream pressure further does NOT increase the
+ * mass flow: the information that the pressure has dropped cannot travel
+ * upstream against sonic flow. A valve or orifice sized on the assumption that
+ * more pressure difference always means more flow is sized wrong, and the
+ * critical pressure ratio — 0.528 for air — is exactly where that stops being
+ * true.
+ *
+ * These relations assume ISENTROPIC flow: no friction, no heat transfer and no
+ * shocks. A normal shock is not isentropic and none of this holds across one.
+ */
+export function compressibleFlow(mach: number, k = 1.4, staticTempK = 288.15): CompressibleResult | FluidError {
+  if (!Number.isFinite(mach) || mach < 0) return { ok: false, error: "The Mach number must be zero or greater." };
+  if (!Number.isFinite(k) || k <= 1) return { ok: false, error: "The specific-heat ratio must be greater than 1." };
+  if (!Number.isFinite(staticTempK) || staticTempK <= 0) {
+    return { ok: false, error: "The static temperature must be above absolute zero." };
+  }
+
+  const m2 = mach * mach;
+  const temperatureRatio = 1 + ((k - 1) / 2) * m2;
+  const pressureRatio = Math.pow(temperatureRatio, k / (k - 1));
+  const densityRatio = Math.pow(temperatureRatio, 1 / (k - 1));
+  const R = 287.0;
+  const speedOfSound = Math.sqrt(k * R * staticTempK);
+  const criticalPressureRatio = Math.pow(2 / (k + 1), k / (k - 1));
+
+  let areaRatio = Infinity;
+  if (mach > 0) {
+    areaRatio = (1 / mach) * Math.pow((2 / (k + 1)) * temperatureRatio, (k + 1) / (2 * (k - 1)));
+  }
+
+  const regime = mach > 1.001 ? "supersonic" : mach < 0.999 ? "subsonic" : "sonic";
+  const notes: string[] = [];
+
+  if (regime === "sonic") {
+    notes.push(
+      "At Mach 1 the flow is CHOKED. Lowering the downstream pressure any further does not increase " +
+        "the mass flow — that information cannot travel upstream against sonic flow. It is the most " +
+        "useful single fact in sizing a relief valve or an orifice.",
+    );
+  } else if (regime === "supersonic") {
+    notes.push(
+      "SUPERSONIC. Area and velocity now behave BACKWARDS from intuition: a diverging duct " +
+        "accelerates the flow and a converging one decelerates it, which is why a supersonic nozzle " +
+        "has a throat and then widens. Note also that a supersonic flow meeting a back pressure " +
+        "usually contains a shock, and none of these isentropic relations holds across one.",
+    );
+  } else if (mach > 0.3) {
+    notes.push(
+      "Above about Mach 0.3 compressibility matters: density changes by more than 5%, so an " +
+        "incompressible Bernoulli analysis is beginning to be wrong.",
+    );
+  } else if (mach > 0) {
+    notes.push(
+      "Below about Mach 0.3 the flow is effectively incompressible — density varies by under 5% — " +
+        "so a simple Bernoulli analysis is adequate and much easier.",
+    );
+  }
+
+  notes.push(
+    "A nozzle chokes once the downstream absolute pressure falls below the critical fraction of the " +
+      "upstream stagnation pressure. For air that is 0.528, so any discharge to atmosphere from " +
+      "above about 1.9 bar absolute is already choked.",
+  );
+  notes.push(
+    "These are ISENTROPIC relations — no friction, no heat transfer, no shocks — and none of them " +
+      "holds across a normal shock, which is not isentropic.",
+  );
+
+  return {
+    ok: true,
+    mach,
+    regime,
+    temperatureRatio,
+    pressureRatio,
+    densityRatio,
+    speedOfSound,
+    areaRatio,
+    criticalPressureRatio,
+    choked: mach >= 0.999,
+    notes,
+  };
+}

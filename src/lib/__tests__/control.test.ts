@@ -180,6 +180,52 @@ describe("roots", () => {
   test("a constant polynomial has no roots", () => {
     expect(polyRoots(P(5))).toEqual([]);
   });
+
+  // THE BALANCING BUG. A companion matrix built from a badly scaled polynomial
+  // is badly conditioned and the QR iteration returns garbage — an 8th-order
+  // polynomial with coefficients spanning 10^16 had SIX of its eight roots come
+  // back as exactly zero, which reads as "poles on the imaginary axis" and turns
+  // a stable system into a marginally stable one. Found by cross-checking a
+  // designed Butterworth filter against this analysis.
+  test("roots are found correctly for a polynomial spanning many decades", () => {
+    // (s^2 + 2*a*s + a^2)^4 style scaling: build (s + 100)^8, whose coefficients
+    // run from 1 to 10^16 and whose only root is -100 with multiplicity 8.
+    let p = P(1);
+    for (let i = 0; i < 8; i++) p = polyMul(p, P(1, 100));
+    expect(Number(p[p.length - 1].n) / Number(p[p.length - 1].d)).toBeCloseTo(1e16, -10);
+    const r = polyRoots(p);
+    expect(r).not.toBeNull();
+    expect(r).toHaveLength(8);
+    for (const z of r!) {
+      // A root of multiplicity 8 is ill-conditioned, so the tolerance is loose —
+      // but nothing may come back at the origin.
+      expect(Math.hypot(z.re + 100, z.im)).toBeLessThan(30);
+      expect(Math.hypot(z.re, z.im)).toBeGreaterThan(50);
+    }
+  });
+
+  test("a badly scaled stable system is not reported as marginally stable", () => {
+    // Distinct poles at -100 spaced around a circle: a Butterworth denominator.
+    let p = P(1);
+    for (const [re, im] of [
+      [-21.23, 106.72],
+      [-60.45, 90.47],
+      [-90.47, 60.45],
+      [-106.72, 21.23],
+    ]) {
+      // Each conjugate pair as a real quadratic, scaled to integer coefficients.
+      const b1 = Math.round(-2 * re * 100);
+      const c1 = Math.round((re * re + im * im) * 100);
+      p = polyMul(p, [ratInt(100), ratInt(b1), ratInt(c1)]);
+    }
+    const s = analyzeStability({ num: P(1), den: p });
+    expect(s.ok).toBe(true);
+    if (s.ok) {
+      expect(s.imaginaryAxisPoles).toBe(0);
+      expect(s.rhpPolesNumeric).toBe(0);
+      expect(s.stable).toBe(true);
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------

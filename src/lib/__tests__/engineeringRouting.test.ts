@@ -74,6 +74,15 @@ const EXPECTED: { id: string; calls: string[]; module: string }[] = [
   { id: "fatigue-endurance", calls: ["enduranceLimit(", "notchFactor("], module: "../lib/fatigue" },
   { id: "fatigue-safety", calls: ["meanStressAnalysis("], module: "../lib/fatigue" },
   { id: "fatigue-life", calls: ["finiteLife(", "minerDamage("], module: "../lib/fatigue" },
+  { id: "opamp", calls: ["analyzeOpamp("], module: "../lib/opamp" },
+  { id: "filter-design", calls: ["designFilter(", "toTransferFunction("], module: "../lib/filter" },
+  { id: "logic", calls: ["truthTable(", "minimise("], module: "../lib/logic" },
+  { id: "open-channel", calls: ["openChannelFlow("], module: "../lib/fluids" },
+  { id: "pump-npsh", calls: ["npshAnalysis("], module: "../lib/fluids" },
+  { id: "compressible", calls: ["compressibleFlow("], module: "../lib/fluids" },
+  { id: "haemodynamics", calls: ["vesselFlow(", "circulation("], module: "../lib/biomed" },
+  { id: "biomechanics", calls: ["jointStatics("], module: "../lib/biomed" },
+  { id: "biosignal", calls: ["samplingCheck("], module: "../lib/biomed" },
 ];
 
 describe("the scan is not vacuous", () => {
@@ -183,6 +192,8 @@ const UNIT_NOTES = [
   "ENG_VIB_UNIT_NOTE",
   "ENG_THERMO_UNIT_NOTE",
   "ENG_FATIGUE_UNIT_NOTE",
+  "ENG_ELEC_UNIT_NOTE",
+  "ENG_BIOMED_UNIT_NOTE",
 ] as const;
 
 /** Which contract each tool is on, asserted rather than inferred. */
@@ -214,6 +225,16 @@ const CONTRACT: Record<string, (typeof UNIT_NOTES)[number]> = {
   "fatigue-endurance": "ENG_FATIGUE_UNIT_NOTE",
   "fatigue-safety": "ENG_FATIGUE_UNIT_NOTE",
   "fatigue-life": "ENG_FATIGUE_UNIT_NOTE",
+  opamp: "ENG_ELEC_UNIT_NOTE",
+  "filter-design": "ENG_ELEC_UNIT_NOTE",
+  logic: "ENG_ELEC_UNIT_NOTE",
+  // The two fluids additions share the converting contract with pipe flow.
+  "open-channel": "ENG_UNIT_NOTE",
+  "pump-npsh": "ENG_UNIT_NOTE",
+  compressible: "ENG_THERMO_UNIT_NOTE",
+  haemodynamics: "ENG_BIOMED_UNIT_NOTE",
+  biomechanics: "ENG_BIOMED_UNIT_NOTE",
+  biosignal: "ENG_BIOMED_UNIT_NOTE",
 };
 
 describe("every Engineering tool declares one unit contract", () => {

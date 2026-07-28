@@ -216,15 +216,39 @@ export function polyRoots(poly: Rat[]): Complex[] | null {
   const lead = ratToNumber(p[0]);
   if (!Number.isFinite(lead) || lead === 0) return null;
 
-  // Monic companion matrix, top-row form.
-  const a = p.slice(1).map((c) => ratToNumber(c) / lead);
+  // BALANCE FIRST. The companion matrix of a badly scaled polynomial is badly
+  // conditioned, and the QR iteration then returns garbage — an 8th-order
+  // Butterworth at 100 rad/s has coefficients spanning 10^16, and six of its
+  // eight roots came back as exactly ZERO, which reads as "poles on the
+  // imaginary axis" and turned a perfectly stable filter into a marginally
+  // stable one. Substituting s = lambda*u with lambda the geometric mean root
+  // magnitude, (|a_n|/|a_0|)^(1/n), makes the first and last coefficients equal
+  // and the root magnitudes O(1); the roots are then scaled back at the end.
+  // Found by cross-checking a designed filter against this analysis.
+  const tail = ratToNumber(p[p.length - 1]);
+  let lambda = 1;
+  if (Number.isFinite(tail) && tail !== 0) {
+    const candidate = Math.pow(Math.abs(tail / lead), 1 / n);
+    if (Number.isFinite(candidate) && candidate > 0) lambda = candidate;
+  }
+
+  // Coefficients of the polynomial in u, where s = lambda*u, then made MONIC.
+  // Both steps are needed: balancing alone leaves a leading coefficient of
+  // lambda^n, and a companion matrix built from a non-monic polynomial is not
+  // that polynomial's companion matrix at all.
+  const scaled = p.map((c, i) => ratToNumber(c) * Math.pow(lambda, n - i));
+  const scaledLead = scaled[0];
+  if (!Number.isFinite(scaledLead) || scaledLead === 0) return null;
+  const a = scaled.slice(1).map((v) => v / scaledLead);
   if (a.some((v) => !Number.isFinite(v))) return null;
   const A: number[][] = Array.from({ length: n }, () => new Array(n).fill(0));
   for (let j = 0; j < n; j++) A[0][j] = -a[j];
   for (let i = 1; i < n; i++) A[i][i - 1] = 1;
 
   try {
-    return eigenvaluesGeneral(A);
+    const roots = eigenvaluesGeneral(A);
+    // Undo the balancing substitution.
+    return roots ? roots.map((z) => ({ re: z.re * lambda, im: z.im * lambda })) : null;
   } catch {
     // eigenvaluesGeneral throws only if QR fails to converge, which must be
     // reported as "no answer" rather than as a root at the origin.

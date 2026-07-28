@@ -162,6 +162,43 @@ export const MODE_EXAMPLES: Record<ExampleMode, string> = {
         helps, which is why shot peening works, and feeding it in negative would overstate the
         benefit. <strong>Sut and Sy are asked for, not looked up:</strong> they move by a factor of
         three with heat treatment for the same alloy designation.</li>
+      <li><strong>Op-amp circuits</strong> &mdash; the standard configurations plus the limits the
+        ideal model hides. <strong>Bandwidth is the price of gain</strong>, and it is the
+        <em>noise</em> gain that sets it, so a unity-gain inverting stage is half as fast as it
+        looks. Slew rate is a separate large-signal limit whose full-power bandwidth is usually far
+        below the small-signal one. An ideal integrator <em>saturates</em> without a DC feedback
+        path &mdash; which is why the textbook 1/(sRC) never appears in a working schematic.</li>
+      <li><strong>Analogue filter design</strong> &mdash; Butterworth or Chebyshev, low- or
+        high-pass. It computes the <strong>minimum order</strong> from your specification, reports
+        the attenuation actually delivered, compares what the other family would have needed, and
+        hands you a <strong>transfer function</strong> you can take straight to the control tools.
+        Look at the <em>phase</em> before committing: that is the half a magnitude plot hides.</li>
+      <li><strong>Truth tables &amp; Boolean minimisation</strong> &mdash; any common notation
+        (<code>A AND B</code>, <code>A&amp;B</code>, <code>AB</code>, <code>A*B</code>, trailing
+        apostrophe for NOT). Minimisation is <strong>Quine-McCluskey</strong>, so it does not run
+        out at five variables the way a Karnaugh map does; essential prime implicants are named,
+        don't-cares are used with the risk stated, and when several minimal forms exist it says so.</li>
+      <li><strong>Open-channel flow</strong> &mdash; Manning for rectangular, trapezoidal,
+        triangular and part-full circular sections. <strong>The Froude number is the answer</strong>:
+        it decides whether the channel is controlled from upstream or downstream, and crossing
+        Fr&nbsp;=&nbsp;1 unintentionally gives a <strong>hydraulic jump</strong>.</li>
+      <li><strong>Pump NPSH</strong> &mdash; cavitation is a <em>failure mode</em>, not an
+        efficiency loss, and it is entirely a suction-side problem. NPSH available <em>falls</em> as
+        the liquid gets hotter, which is what catches people out.</li>
+      <li><strong>Compressible flow</strong> &mdash; isentropic relations with <strong>choking</strong>:
+        past the critical pressure ratio (0.528 for air), lowering the downstream pressure does not
+        increase the mass flow at all.</li>
+      <li><strong>Haemodynamics</strong> &mdash; Poiseuille resistance, wall shear stress and
+        systemic vascular resistance. <strong>The fourth power is the whole story</strong>: a 20%
+        narrowing more than doubles resistance and halving the radius multiplies it by sixteen.</li>
+      <li><strong>Joint biomechanics</strong> &mdash; the body is almost all third-class levers, so
+        muscle force is many times the load &mdash; and the <strong>joint reaction force</strong> is
+        larger than either, which is the number a prosthesis has to survive and the one usually
+        left out.</li>
+      <li><strong>Sampling &amp; aliasing</strong> &mdash; <strong>aliasing is irreversible</strong>.
+        Once a frequency above Nyquist has folded into the band, no filtering afterwards can
+        separate it from real data, which is why the anti-alias filter must be analogue and before
+        the converter.</li>
       <li>Units are whatever you type, used consistently &mdash; except the cross-section,
         buckling, torsion, pipe-flow and heat tools, which <strong>convert for you</strong>
         (<code>200 GPa</code>, <code>1e6 mm^4</code>, <code>50 ksi</code>, <code>68 &deg;F</code>)

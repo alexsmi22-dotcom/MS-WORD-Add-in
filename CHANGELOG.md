@@ -5,6 +5,54 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > Note: this file was not maintained between v1.96.0 and v2.23.0. Those releases
 > are recorded in the git history rather than here.
 
+## [2.31.0] — 2026-07-28 — Electronics, fluids breadth and biomedical: the plan is finished
+
+Nine new tools across five new engines, taking Engineering to **36 calculators**
+and completing every item on the build-out plan.
+
+**Electronics.** Op-amp circuits with the limits the ideal model hides — the
+*noise* gain sets the bandwidth (so a unity-gain inverting stage is half as fast
+as it looks), slew rate is a separate large-signal limit whose full-power
+bandwidth is usually far below the small-signal one, and an ideal integrator
+saturates on its own offset unless there is a DC feedback path. Analogue filter
+design for Butterworth and Chebyshev, computing the minimum order from a
+specification and emitting a **transfer function** the control tools consume
+directly. And truth tables with **Quine-McCluskey** minimisation, which does not
+run out at five variables the way a Karnaugh map does.
+
+**Fluids breadth.** Open-channel flow by Manning, where the Froude number rather
+than the discharge is the answer — it decides whether the channel is controlled
+from upstream or downstream, and crossing Fr = 1 unintentionally gives a
+hydraulic jump. Pump NPSH and cavitation, which is a failure mode rather than an
+efficiency loss and is entirely a suction-side problem. And compressible flow
+with choking.
+
+**Biomedical.** Haemodynamics, where the fourth-power dependence of resistance on
+radius means a 20% narrowing more than doubles it; joint biomechanics, where the
+joint reaction force is larger than either the load or the muscle force and is
+the number usually left out; and a sampling check, because aliasing is the one
+failure in the module that cannot be undone afterwards.
+
+**THE BUG THIS RELEASE FOUND, WHICH WAS NOT IN THE NEW CODE.** Cross-checking a
+designed filter against the existing control analysis produced a disagreement: a
+perfectly stable 8th-order Butterworth was reported as *marginally stable*. The
+cause was in `control.ts`. A companion matrix built from a badly scaled
+polynomial is badly conditioned, and this filter's coefficients span 10¹⁶ — so
+the QR iteration returned **six of its eight roots as exactly zero**, which reads
+as poles on the imaginary axis. `polyRoots` now balances the polynomial first,
+substituting s = λ·u with λ the geometric mean root magnitude so the coefficients
+are comparable and the roots are O(1), then scales the roots back. This was a
+latent defect affecting **every** control analysis of a realistically scaled
+plant, and it was only visible because two independently built tools were made to
+agree with each other.
+
+A parser bug in the new logic module was caught the same way: stripping
+whitespace before tokenising turned `A AND B` into `AANDB`, which the identifier
+matcher swallowed whole. The tokeniser now skips whitespace rather than removing
+it.
+
+Suite 5,714 across 186 files, QC 10/10.
+
 ## [2.30.0] — 2026-07-28 — Fatigue and machine design
 
 Engineering gains three fatigue tools, taking it to twenty-seven calculators.

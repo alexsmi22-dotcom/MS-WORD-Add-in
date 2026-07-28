@@ -136,6 +136,13 @@ import {
   modalAnalysis,
   chainSystem,
 } from "../lib/vibration";
+import { analyzeOpamp, OpampConfig } from "../lib/opamp";
+// FilterKind is already taken by the FFT filter tool, so the analogue-design
+// one is aliased rather than shadowing it.
+import { designFilter, toTransferFunction, FilterFamily, FilterKind as AnalogueFilterKind } from "../lib/filter";
+import { truthTable, minimise } from "../lib/logic";
+import { openChannelFlow, npshAnalysis, compressibleFlow, MANNING_N, ChannelShape } from "../lib/fluids";
+import { vesselFlow, circulation, jointStatics, samplingCheck } from "../lib/biomed";
 import {
   enduranceLimit,
   notchFactor,
@@ -7425,6 +7432,18 @@ const ENG_FATIGUE_UNIT_NOTE =
   "three with heat treatment for the same alloy designation — take them from your drawing or " +
   "material certificate.";
 
+/** Electronics: SI throughout, and the notation question matters more than units. */
+const ENG_ELEC_UNIT_NOTE =
+  "Units: SI — ohms, farads, volts, hertz — except slew rate, which is V/µs because that is how " +
+  "every datasheet prints it. Filter frequencies are rad/s to match the control tools; divide by " +
+  "2π for Hz. Boolean expressions accept AND/&/*, OR/|/+, NOT/!/~ and a trailing apostrophe.";
+
+/** Biomedical: SI internally, with the clinical units named where they differ. */
+const ENG_BIOMED_UNIT_NOTE =
+  "Units: SI internally — metres, m³/s, pascals — with clinical figures converted where they " +
+  "appear: pressures in mmHg, cardiac output in L/min, resistance in dyn·s/cm⁵. A pressure in " +
+  "mmHg used as pascals is wrong by a factor of 133.";
+
 /** As above, for the two engines whose exactness a conversion would destroy. */
 const ENG_EXACT_UNIT_NOTE =
   "Units: whatever you type, used consistently — nothing is converted here, because this " +
@@ -9796,6 +9815,514 @@ const ENG_CALCS: EngCalc[] = [
       );
       for (const note of dmg.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_FATIGUE_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "opamp",
+    name: "Electronics: op-amp circuits",
+    hint:
+      "Gains and impedances for the standard configurations, plus the real limits the ideal model " +
+      "hides. Give a gain-bandwidth product to see what bandwidth the gain actually leaves you, " +
+      "and a slew rate to see where large-signal output stops following.",
+    fields: [
+      {
+        key: "config",
+        label: "Configuration",
+        default: "non-inverting",
+        kind: "select",
+        options: [
+          { value: "inverting", label: "Inverting" },
+          { value: "non-inverting", label: "Non-inverting" },
+          { value: "buffer", label: "Buffer (unity gain)" },
+          { value: "summing", label: "Summing (inverting)" },
+          { value: "difference", label: "Difference" },
+          { value: "integrator", label: "Integrator" },
+          { value: "differentiator", label: "Differentiator" },
+        ],
+      },
+      { key: "rin", label: "Input resistor(s), ohms — comma separated for summing", default: "1000", kind: "text" },
+      { key: "rf", label: "Feedback resistor, ohms", default: "99000", kind: "text" },
+      { key: "c", label: "Capacitor, farads (integrator / differentiator)", default: "1e-7", kind: "text" },
+      { key: "gbw", label: "Gain-bandwidth product, Hz (blank to skip)", default: "1e6", kind: "text" },
+      { key: "sr", label: "Slew rate, V/µs (blank to skip)", default: "1", kind: "text" },
+      { key: "vout", label: "Peak output swing of interest, V", default: "10", kind: "text" },
+      { key: "vs", label: "Supply rail, V (blank to skip the clipping check)", default: "15", kind: "text" },
+    ],
+    compute: (r) => {
+      const rin = r("rin")
+        .split(/[,\s]+/)
+        .filter(Boolean)
+        .map(Number);
+      const res = analyzeOpamp({
+        config: (r("config") || "non-inverting") as OpampConfig,
+        rin: rin.length ? rin : [0],
+        rf: Number(r("rf") || "0"),
+        c: r("c").trim() ? Number(r("c")) : undefined,
+        gbw: r("gbw").trim() ? Number(r("gbw")) : undefined,
+        slewRate: r("sr").trim() ? Number(r("sr")) : undefined,
+        vout: r("vout").trim() ? Number(r("vout")) : undefined,
+        vsupply: r("vs").trim() ? Number(r("vs")) : undefined,
+      });
+      if (!res.ok) return { text: res.error, ok: false };
+
+      const lines: string[] = [];
+      lines.push(`${res.config} amplifier`);
+      lines.push("");
+      if (res.inputGains.length > 1) {
+        lines.push("Per-input gains");
+        for (let i = 0; i < res.inputGains.length; i++) {
+          lines.push(`  input ${i + 1} (${engNum(rin[i])} Ω): ${engNum(res.inputGains[i])}`);
+        }
+      } else if (res.cornerFrequency === null) {
+        lines.push(`Closed-loop gain = ${engNum(res.gain)}`);
+      }
+      lines.push(`Noise gain = ${engNum(res.noiseGain)}  (this is what sets the bandwidth)`);
+      lines.push(
+        `Input resistance = ${res.inputResistance === Infinity ? "essentially infinite" : engNum(res.inputResistance) + " Ω"}`,
+      );
+      if (res.cornerFrequency !== null) {
+        lines.push(`Corner frequency (unity gain) = ${engNum(res.cornerFrequency)} Hz`);
+      }
+      if (res.bandwidth !== null) {
+        lines.push("");
+        lines.push(`Small-signal bandwidth = ${engNum(res.bandwidth)} Hz`);
+      }
+      if (res.fullPowerBandwidth !== null) {
+        lines.push(`Full-power bandwidth = ${engNum(res.fullPowerBandwidth)} Hz`);
+      }
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_ELEC_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "filter-design",
+    name: "Electronics: analogue filter design",
+    hint:
+      "Give a passband and stopband specification and it computes the minimum order that meets " +
+      "both, then hands you a transfer function you can take straight to the control tools to " +
+      "look at the phase. Both families are compared so you can see the size of the trade.",
+    fields: [
+      {
+        key: "family",
+        label: "Family",
+        default: "butterworth",
+        kind: "select",
+        options: [
+          { value: "butterworth", label: "Butterworth (maximally flat, slowest roll-off)" },
+          { value: "chebyshev", label: "Chebyshev I (ripple, sharpest roll-off)" },
+        ],
+      },
+      {
+        key: "kind",
+        label: "Type",
+        default: "lowpass",
+        kind: "select",
+        options: [
+          { value: "lowpass", label: "Low-pass" },
+          { value: "highpass", label: "High-pass" },
+        ],
+      },
+      { key: "wp", label: "Passband edge ωp, rad/s", default: "1000", kind: "text" },
+      { key: "ws", label: "Stopband edge ωs, rad/s", default: "4000", kind: "text" },
+      { key: "ap", label: "Maximum passband ripple, dB", default: "1", kind: "text" },
+      { key: "as", label: "Minimum stopband attenuation, dB", default: "40", kind: "text" },
+      { key: "force", label: "Force an order (blank to use the minimum)", default: "", kind: "text" },
+    ],
+    compute: (r) => {
+      const res = designFilter({
+        family: (r("family") || "butterworth") as FilterFamily,
+        kind: (r("kind") || "lowpass") as AnalogueFilterKind,
+        wp: Number(r("wp") || "0"),
+        ws: Number(r("ws") || "0"),
+        ap: Number(r("ap") || "0"),
+        as: Number(r("as") || "0"),
+        forceOrder: r("force").trim() ? Number(r("force")) : undefined,
+      });
+      if (!res.ok) return { text: res.error, ok: false };
+
+      const tf = toTransferFunction(res);
+      const lines: string[] = [];
+      lines.push(`${res.family} ${res.kind} filter, order ${res.order}`);
+      lines.push(`  the specification needs order ${engNum(res.exactOrder, 4)}, rounded up`);
+      lines.push("");
+      lines.push(`H(s) = [ ${polyToString(tf.num)} ] / [ ${polyToString(tf.den)} ]`);
+      lines.push("");
+      lines.push("Poles");
+      for (const p of res.poles) lines.push(`  ${fmtComplexPlain(p)}`);
+      lines.push("");
+      lines.push(`Delivered stopband attenuation = ${engNum(res.stopbandAttenuation)} dB (asked for ${engNum(Number(r("as")))})`);
+      lines.push(`Passband ripple = ${engNum(res.passbandRipple)} dB`);
+      lines.push(`The other family would need order ${res.alternativeOrder} for the same specification.`);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_ELEC_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "logic",
+    name: "Electronics: truth table & Boolean minimisation",
+    hint:
+      'Write the expression in any common notation — "A AND B", "A&B", "AB", "A*B" all work, and ' +
+      "a trailing apostrophe negates. Minimisation is Quine-McCluskey, so it does not run out at " +
+      "five variables the way a Karnaugh map does.",
+    fields: [
+      { key: "vars", label: "Variables, in order", default: "A B C D", kind: "text" },
+      { key: "expr", label: "Boolean expression", default: "A'B'C'D' + A'B'C'D + A'B'CD' + A'BC'D + A'BCD' + A'BCD + AB'C'D' + AB'C'D + AB'CD' + ABCD'", kind: "text" },
+      { key: "dc", label: "Don't-care minterms, comma separated (optional)", default: "", kind: "text" },
+      {
+        key: "show",
+        label: "Show the full truth table",
+        default: "no",
+        kind: "select",
+        options: [
+          { value: "no", label: "No — just the minimisation" },
+          { value: "yes", label: "Yes" },
+        ],
+      },
+    ],
+    compute: (r) => {
+      const t = truthTable(r("expr"), r("vars"));
+      if (!t.ok) return { text: t.error, ok: false };
+
+      const dc = r("dc")
+        .split(/[,\s]+/)
+        .filter(Boolean)
+        .map(Number);
+      if (dc.some((v) => !Number.isInteger(v))) {
+        return { text: "Don't-care minterms must be whole numbers.", ok: false };
+      }
+
+      const m = minimise(t.minterms, t.variables, dc);
+      if (!m.ok) return { text: m.error, ok: false };
+
+      const lines: string[] = [];
+      lines.push(`Variables: ${t.variables.join(", ")} — ${t.rows.length} rows`);
+      lines.push(`Minterms where the output is true: ${t.minterms.join(", ") || "none"}`);
+      if (dc.length) lines.push(`Don't-cares: ${dc.join(", ")}`);
+      lines.push("");
+      lines.push(`Minimised sum of products:  ${m.expression}`);
+      lines.push(`  ${m.terms.length} product term(s), ${m.literals} literal(s)`);
+      lines.push("");
+      lines.push(`Prime implicants: ${m.primeImplicants.join(", ")}`);
+      if (m.essential.length) lines.push(`Essential: ${m.essential.join(", ")}`);
+
+      if (r("show") === "yes") {
+        lines.push("");
+        lines.push(`${t.variables.join(" ")}  |  out`);
+        for (let i = 0; i < t.rows.length; i++) {
+          const row = t.rows[i];
+          lines.push(`${row.inputs.map((b) => (b ? "1" : "0")).join(" ")}  |  ${row.output ? "1" : "0"}`);
+        }
+      }
+      for (const note of t.notes) lines.push(`Note: ${note}`);
+      for (const note of m.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_ELEC_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "open-channel",
+    name: "Fluids: open-channel flow",
+    hint:
+      "Manning's equation for uniform flow, in SI. The Froude number is the answer that matters: " +
+      "it decides whether the channel is controlled from upstream or downstream, and crossing " +
+      "Fr = 1 unintentionally gives you a hydraulic jump.",
+    fields: [
+      {
+        key: "shape",
+        label: "Section",
+        default: "trapezoidal",
+        kind: "select",
+        options: [
+          { value: "rectangular", label: "Rectangular (bed width)" },
+          { value: "trapezoidal", label: "Trapezoidal (bed width + side slope)" },
+          { value: "triangular", label: "Triangular (side slope)" },
+          { value: "circular", label: "Circular, part full (diameter)" },
+        ],
+      },
+      { key: "b", label: "Bed width, m", default: "3", kind: "text" },
+      { key: "z", label: "Side slope, horizontal per 1 vertical", default: "2", kind: "text" },
+      { key: "D", label: "Diameter, m (circular)", default: "1", kind: "text" },
+      { key: "y", label: "Flow depth, m", default: "1.2", kind: "text" },
+      {
+        key: "nsel",
+        label: "Surface (sets Manning's n)",
+        default: "concrete-rough",
+        kind: "select",
+        options: MANNING_N.map((m) => ({ value: m.id, label: `${m.label} (${m.min}–${m.max})` })),
+      },
+      { key: "n", label: "Manning's n override (blank to use the surface)", default: "", kind: "text" },
+      { key: "S", label: "Bed slope, m/m", default: "0.001", kind: "text" },
+    ],
+    compute: (r) => {
+      const sel = MANNING_N.find((m) => m.id === r("nsel")) ?? MANNING_N[2];
+      const n = r("n").trim() ? Number(r("n")) : sel.typical;
+      const u = engUnits(r);
+      const res = openChannelFlow({
+        shape: (r("shape") || "trapezoidal") as ChannelShape,
+        // Lengths convert; the side slope, Manning's n and the bed slope are
+        // dimensionless ratios with nothing to convert.
+        b: u.opt("b", "m", "Bed width", 0),
+        z: Number(r("z") || "0"),
+        D: u.opt("D", "m", "Diameter", 0),
+        y: u.req("y", "m", "Flow depth"),
+        n,
+        S: Number(r("S") || "0"),
+      });
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      if (!res.ok) return { text: res.error, ok: false };
+
+      const lines: string[] = [];
+      lines.push(`Open-channel flow, ${r("shape") || "trapezoidal"} section`);
+      lines.push(
+        `Manning's n = ${engNum(n, 4)}` +
+          (r("n").trim() ? " (as entered)" : ` (${sel.label}, range ${sel.min} to ${sel.max})`),
+      );
+      lines.push("");
+      lines.push(`Flow area = ${engNum(res.area)} m², wetted perimeter = ${engNum(res.perimeter)} m`);
+      lines.push(`Hydraulic radius = ${engNum(res.hydraulicRadius)} m`);
+      lines.push(`Mean velocity = ${engNum(res.velocity)} m/s`);
+      lines.push(`Discharge Q = ${engNum(res.discharge)} m³/s`);
+      lines.push("");
+      lines.push(`Froude number = ${engNum(res.froude)} — ${res.regime.toUpperCase()}`);
+      if (res.criticalDepth !== null) lines.push(`Critical depth for this discharge = ${engNum(res.criticalDepth)} m`);
+      lines.push(`Specific energy = ${engNum(res.specificEnergy)} m`);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "pump-npsh",
+    name: "Fluids: pump NPSH & cavitation",
+    hint:
+      "Cavitation is a failure mode, not an efficiency loss, and it is entirely a suction-side " +
+      "problem — nothing downstream of the pump can fix it. Note that NPSH available FALLS as the " +
+      "liquid gets hotter, which is what catches people out.",
+    fields: [
+      { key: "psurf", label: "Absolute pressure on the liquid surface, Pa", default: "101325", kind: "text" },
+      { key: "pvap", label: "Vapour pressure at the pumping temperature, Pa", default: "2339", kind: "text" },
+      { key: "rho", label: "Density, kg/m³", default: "998", kind: "text" },
+      { key: "hstat", label: "Static head, m (positive = liquid ABOVE the pump)", default: "2", kind: "text" },
+      { key: "hloss", label: "Suction-line losses, m", default: "0.5", kind: "text" },
+      { key: "npshr", label: "NPSH required by the pump, m (from its curve)", default: "3", kind: "text" },
+      { key: "Q", label: "Flow, m³/s (blank to skip power)", default: "", kind: "text" },
+      { key: "head", label: "Total head delivered, m", default: "", kind: "text" },
+      { key: "eta", label: "Pump efficiency, 0-1", default: "0.7", kind: "text" },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const res = npshAnalysis({
+        pSurface: u.req("psurf", "Pa", "Surface pressure"),
+        pVapour: u.req("pvap", "Pa", "Vapour pressure"),
+        rho: u.req("rho", "kg/m^3", "Density"),
+        staticHead: u.opt("hstat", "m", "Static head", 0),
+        suctionLosses: u.opt("hloss", "m", "Suction losses", 0),
+        npshRequired: u.req("npshr", "m", "Required NPSH"),
+        Q: r("Q").trim() ? Number(r("Q")) : undefined,
+        head: r("head").trim() ? Number(r("head")) : undefined,
+        eta: r("eta").trim() ? Number(r("eta")) : undefined,
+      });
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      if (!res.ok) return { text: res.error, ok: false };
+
+      const lines: string[] = [];
+      lines.push("Pump suction analysis");
+      lines.push("");
+      lines.push(`NPSH available = ${engNum(res.npshAvailable)} m`);
+      lines.push(`NPSH required  = ${engNum(Number(r("npshr")))} m`);
+      lines.push(`Margin = ${engNum(res.margin)} m`);
+      lines.push("");
+      lines.push(res.cavitating ? "VERDICT: THIS PUMP WILL CAVITATE." : "VERDICT: no cavitation predicted.");
+      if (res.hydraulicPower !== null) {
+        lines.push("");
+        lines.push(`Hydraulic power = ${engNum(res.hydraulicPower)} W`);
+        if (res.shaftPower !== null) lines.push(`Shaft power required = ${engNum(res.shaftPower)} W`);
+      }
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "compressible",
+    name: "Fluids: compressible flow & choking",
+    hint:
+      "Isentropic relations for an ideal gas. The result worth knowing is CHOKING: past the " +
+      "critical pressure ratio, lowering the downstream pressure does not increase the mass flow, " +
+      "because that information cannot travel upstream against sonic flow.",
+    fields: [
+      { key: "mach", label: "Mach number", default: "0.8", kind: "text" },
+      { key: "k", label: "Specific-heat ratio k", default: "1.4", kind: "text" },
+      { key: "T", label: "Static temperature, K", default: "288.15", kind: "text" },
+    ],
+    compute: (r) => {
+      const res = compressibleFlow(Number(r("mach") || "0"), Number(r("k") || "1.4"), Number(r("T") || "288.15"));
+      if (!res.ok) return { text: res.error, ok: false };
+
+      const lines: string[] = [];
+      lines.push(`Compressible flow at Mach ${engNum(res.mach)} — ${res.regime.toUpperCase()}`);
+      lines.push("");
+      lines.push(`Speed of sound = ${engNum(res.speedOfSound)} m/s`);
+      lines.push(`Velocity = ${engNum(res.mach * res.speedOfSound)} m/s`);
+      lines.push("");
+      lines.push("Stagnation to static ratios");
+      lines.push(`  T0/T = ${engNum(res.temperatureRatio)}`);
+      lines.push(`  p0/p = ${engNum(res.pressureRatio)}`);
+      lines.push(`  ρ0/ρ = ${engNum(res.densityRatio)}`);
+      lines.push("");
+      lines.push(`Area ratio A/A* = ${res.areaRatio === Infinity ? "infinite (no flow)" : engNum(res.areaRatio)}`);
+      lines.push(`Critical pressure ratio p*/p0 = ${engNum(res.criticalPressureRatio)}`);
+      lines.push(res.choked ? "The flow is CHOKED." : "The flow is not choked.");
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_THERMO_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "haemodynamics",
+    name: "Biomedical: haemodynamics",
+    hint:
+      "Poiseuille flow in a single vessel and whole-circulation resistance. The fourth-power " +
+      "dependence on radius is the point: a 20% narrowing more than doubles the resistance, which " +
+      "is why a stenosis that looks modest on an image is not.",
+    fields: [
+      {
+        key: "which",
+        label: "Analysis",
+        default: "vessel",
+        kind: "select",
+        options: [
+          { value: "vessel", label: "Single vessel (Poiseuille)" },
+          { value: "systemic", label: "Systemic vascular resistance" },
+        ],
+      },
+      { key: "radius", label: "Vessel radius, m", default: "0.002", kind: "text" },
+      { key: "length", label: "Vessel length, m", default: "0.1", kind: "text" },
+      { key: "flow", label: "Flow, m³/s", default: "5e-6", kind: "text" },
+      { key: "mu", label: "Blood viscosity, Pa·s", default: "3.5e-3", kind: "text" },
+      { key: "rho", label: "Blood density, kg/m³", default: "1060", kind: "text" },
+      { key: "map", label: "Mean arterial pressure, mmHg", default: "93", kind: "text" },
+      { key: "cvp", label: "Central venous pressure, mmHg", default: "5", kind: "text" },
+      { key: "co", label: "Cardiac output, L/min", default: "5", kind: "text" },
+      { key: "hr", label: "Heart rate, bpm (blank to skip)", default: "70", kind: "text" },
+      { key: "bsa", label: "Body surface area, m² (blank to skip)", default: "1.8", kind: "text" },
+    ],
+    compute: (r) => {
+      const lines: string[] = [];
+      if ((r("which") || "vessel") === "vessel") {
+        const res = vesselFlow({
+          radius: Number(r("radius") || "0"),
+          length: Number(r("length") || "0"),
+          flow: Number(r("flow") || "0"),
+          viscosity: Number(r("mu") || "0"),
+          density: Number(r("rho") || "0"),
+        });
+        if (!res.ok) return { text: res.error, ok: false };
+        lines.push("Single-vessel flow (Poiseuille)");
+        lines.push("");
+        lines.push(`Hydraulic resistance = ${engNum(res.resistance)} Pa·s/m³`);
+        lines.push(`Pressure drop = ${engNum(res.pressureDrop)} Pa = ${engNum(res.pressureDropMmHg)} mmHg`);
+        lines.push(`Mean velocity = ${engNum(res.velocity)} m/s`);
+        lines.push(`Reynolds number = ${engNum(res.reynolds)}${res.turbulent ? " — TURBULENT" : " — laminar"}`);
+        lines.push(`Wall shear stress = ${engNum(res.wallShearStress)} Pa`);
+        for (const note of res.notes) lines.push(`Note: ${note}`);
+      } else {
+        const res = circulation({
+          mapMmHg: Number(r("map") || "0"),
+          cvpMmHg: Number(r("cvp") || "0"),
+          cardiacOutputLmin: Number(r("co") || "0"),
+          heartRate: r("hr").trim() ? Number(r("hr")) : undefined,
+          bsa: r("bsa").trim() ? Number(r("bsa")) : undefined,
+        });
+        if (!res.ok) return { text: res.error, ok: false };
+        lines.push("Systemic circulation");
+        lines.push("");
+        lines.push(`Systemic vascular resistance = ${engNum(res.svrClinical)} dyn·s/cm⁵`);
+        lines.push(`  = ${engNum(res.svrSI)} Pa·s/m³ in SI`);
+        if (res.strokeVolume !== null) lines.push(`Stroke volume = ${engNum(res.strokeVolume)} mL`);
+        if (res.cardiacIndex !== null) lines.push(`Cardiac index = ${engNum(res.cardiacIndex)} L/min/m²`);
+        for (const note of res.notes) lines.push(`Note: ${note}`);
+      }
+      lines.push(ENG_BIOMED_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "biomechanics",
+    name: "Biomedical: joint biomechanics",
+    hint:
+      "Static equilibrium about a joint. The body is built almost entirely from third-class " +
+      "levers, so the muscle force is many times the external load — and the JOINT REACTION is " +
+      "larger than either, which is the number a prosthesis has to survive.",
+    fields: [
+      { key: "load", label: "External load, N", default: "100", kind: "text" },
+      { key: "loadArm", label: "Joint to load distance, m", default: "0.35", kind: "text" },
+      { key: "muscleArm", label: "Joint to muscle insertion, m", default: "0.05", kind: "text" },
+      { key: "angle", label: "Muscle pull angle to the bone, degrees", default: "90", kind: "text" },
+      { key: "segW", label: "Segment weight, N (blank to ignore)", default: "", kind: "text" },
+      { key: "segArm", label: "Joint to segment centre of mass, m", default: "", kind: "text" },
+    ],
+    compute: (r) => {
+      const res = jointStatics({
+        load: Number(r("load") || "0"),
+        loadArm: Number(r("loadArm") || "0"),
+        muscleArm: Number(r("muscleArm") || "0"),
+        pullAngleDeg: r("angle").trim() ? Number(r("angle")) : undefined,
+        segmentWeight: r("segW").trim() ? Number(r("segW")) : undefined,
+        segmentArm: r("segArm").trim() ? Number(r("segArm")) : undefined,
+      });
+      if (!res.ok) return { text: res.error, ok: false };
+
+      const lines: string[] = [];
+      lines.push("Static equilibrium about a joint");
+      lines.push("");
+      lines.push(`External moment = ${engNum(res.externalMoment)} N·m`);
+      lines.push(`Muscle force required = ${engNum(res.muscleForce)} N`);
+      lines.push(`Mechanical advantage = ${engNum(res.mechanicalAdvantage)}`);
+      lines.push(`JOINT REACTION FORCE = ${engNum(res.jointReaction)} N`);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_BIOMED_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "biosignal",
+    name: "Biomedical: signal sampling & aliasing",
+    hint:
+      "Checks a sampling rate against the signal it is meant to capture. Aliasing is the one " +
+      "failure here that cannot be undone: once a frequency has folded down into the band, no " +
+      "filtering afterwards can separate it from real data.",
+    fields: [
+      { key: "fs", label: "Sampling rate, Hz", default: "500", kind: "text" },
+      { key: "fmax", label: "Highest frequency in the signal, Hz", default: "100", kind: "text" },
+      { key: "rec", label: "Record length, s (blank to skip resolution)", default: "10", kind: "text" },
+      { key: "interf", label: "Interference frequency to check, Hz (blank to skip)", default: "550", kind: "text" },
+    ],
+    compute: (r) => {
+      const res = samplingCheck(
+        Number(r("fs") || "0"),
+        Number(r("fmax") || "0"),
+        r("rec").trim() ? Number(r("rec")) : undefined,
+        r("interf").trim() ? Number(r("interf")) : undefined,
+      );
+      if (!res.ok) return { text: res.error, ok: false };
+
+      const lines: string[] = [];
+      lines.push(`Sampling at ${engNum(Number(r("fs")))} Hz`);
+      lines.push("");
+      lines.push(`Nyquist frequency = ${engNum(res.nyquist)} Hz`);
+      lines.push(res.adequate ? "The sampling rate is ADEQUATE for this signal." : "The sampling rate is TOO LOW — the signal will alias.");
+      if (res.aliasedTo !== null) lines.push(`The checked frequency appears at ${engNum(res.aliasedTo)} Hz after sampling.`);
+      if (res.samples !== null) {
+        lines.push("");
+        lines.push(`Samples in the record = ${engNum(res.samples)}`);
+        lines.push(`Frequency resolution = ${engNum(res.resolution as number)} Hz`);
+      }
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_BIOMED_UNIT_NOTE);
       return { text: plainDashes(lines.join("\n")) };
     },
   },

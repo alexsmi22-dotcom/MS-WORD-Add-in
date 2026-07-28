@@ -71,6 +71,9 @@ const EXPECTED: { id: string; calls: string[]; module: string }[] = [
   { id: "thermo-process", calls: ["idealGasProcess(", "toKelvin("], module: "../lib/thermo" },
   { id: "thermo-cycle", calls: ["ottoCycle(", "dieselCycle(", "braytonCycle("], module: "../lib/thermo" },
   { id: "thermo-vapour", calls: ["rankineFromEnthalpies(", "refrigerationFromEnthalpies(", "checkAgainstCarnot("], module: "../lib/thermo" },
+  { id: "fatigue-endurance", calls: ["enduranceLimit(", "notchFactor("], module: "../lib/fatigue" },
+  { id: "fatigue-safety", calls: ["meanStressAnalysis("], module: "../lib/fatigue" },
+  { id: "fatigue-life", calls: ["finiteLife(", "minerDamage("], module: "../lib/fatigue" },
 ];
 
 describe("the scan is not vacuous", () => {
@@ -179,6 +182,7 @@ const UNIT_NOTES = [
   "ENG_PK_UNIT_NOTE",
   "ENG_VIB_UNIT_NOTE",
   "ENG_THERMO_UNIT_NOTE",
+  "ENG_FATIGUE_UNIT_NOTE",
 ] as const;
 
 /** Which contract each tool is on, asserted rather than inferred. */
@@ -207,6 +211,9 @@ const CONTRACT: Record<string, (typeof UNIT_NOTES)[number]> = {
   "thermo-process": "ENG_THERMO_UNIT_NOTE",
   "thermo-cycle": "ENG_THERMO_UNIT_NOTE",
   "thermo-vapour": "ENG_THERMO_UNIT_NOTE",
+  "fatigue-endurance": "ENG_FATIGUE_UNIT_NOTE",
+  "fatigue-safety": "ENG_FATIGUE_UNIT_NOTE",
+  "fatigue-life": "ENG_FATIGUE_UNIT_NOTE",
 };
 
 describe("every Engineering tool declares one unit contract", () => {

@@ -308,7 +308,13 @@ describe("boundary conditions are actually satisfied by the returned functions",
 describe("random beams", () => {
   test("300 random beams satisfy equilibrium exactly and return promptly", () => {
     const rand = rng(20260727);
-    const started = Date.now();
+    // ENGINE TIME ONLY, not wall-clock across the loop. The budget below is
+    // meant to catch a performance regression in analyzeBeam, but the loop also
+    // runs several thousand Jest expect() calls, which cost far more than the
+    // solves do — so the original measurement was dominated by the harness and
+    // flaked under parallel load without anything having got slower. Timing
+    // just the engine measures the thing the test is actually about.
+    let engineMs = 0;
     let solved = 0;
     for (let iter = 0; iter < 300; iter++) {
       const L = 1 + Math.floor(rand() * 20);
@@ -349,7 +355,9 @@ describe("random beams", () => {
       }
 
       const input: BeamInput = { length: R(L), supports, loads };
+      const t0 = Date.now();
       const r = analyzeBeam(input);
+      engineMs += Date.now() - t0;
       if (!r.ok) throw new Error(`stable layout refused at iter ${iter}: ${r.error}`);
       expectEquilibrium(r, supports, loads, `iter ${iter}`);
       // Deflection must still vanish at the supports on a random beam.
@@ -358,7 +366,7 @@ describe("random beams", () => {
       solved++;
     }
     expect(solved).toBe(300);
-    expect(Date.now() - started).toBeLessThan(20000);
+    expect(engineMs).toBeLessThan(20000);
   });
 });
 

@@ -143,6 +143,25 @@ export const MODE_EXAMPLES: Record<ExampleMode, string> = {
         cycle arithmetic and the energy-balance check on your own property data.</li>
       <li><strong>Carnot check</strong> &mdash; paste any claimed efficiency or COP and it says
         whether it is thermodynamically possible, and names the Celsius error when it is not.</li>
+      <li><strong>Fatigue &amp; machine design</strong> &mdash; the corrected endurance limit by the
+        Marin factor method, mean-stress criteria, finite life and cumulative damage. It consumes
+        the stress state the stress tool produces and answers the next question: <em>will it
+        survive 10&#8311; cycles?</em></li>
+      <li><strong>Read every fatigue life as an order of magnitude.</strong> Identical specimens
+        from the same bar differ by a factor of three routinely. Quoting a fatigue life to three
+        significant figures is a category error, and every result here says so.</li>
+      <li><strong>The endurance limit does not exist for most materials.</strong> Steel has a real
+        knee in the S-N curve; aluminium, copper and magnesium <em>do not</em> &mdash; their curve
+        keeps falling, so there is no stress with infinite life at all. Pick the material class and
+        a non-ferrous one is told this rather than being handed a false "infinite".</li>
+      <li><strong>Goodman alone can pass a part that yields on the first cycle.</strong> None of the
+        fatigue criteria knows about static yield, so the Langer yield check runs alongside every
+        one of them and the <em>governing</em> (smaller) factor of safety is reported. All four
+        criteria are shown together, because they disagree by a lot.</li>
+      <li>Compressive mean stress is treated as zero, not negative &mdash; it closes cracks and
+        helps, which is why shot peening works, and feeding it in negative would overstate the
+        benefit. <strong>Sut and Sy are asked for, not looked up:</strong> they move by a factor of
+        three with heat treatment for the same alloy designation.</li>
       <li>Units are whatever you type, used consistently &mdash; except the cross-section,
         buckling, torsion, pipe-flow and heat tools, which <strong>convert for you</strong>
         (<code>200 GPa</code>, <code>1e6 mm^4</code>, <code>50 ksi</code>, <code>68 &deg;F</code>)

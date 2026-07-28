@@ -137,6 +137,18 @@ import {
   chainSystem,
 } from "../lib/vibration";
 import {
+  enduranceLimit,
+  notchFactor,
+  meanStressAnalysis,
+  finiteLife,
+  minerDamage,
+  SURFACE_FACTORS,
+  MaterialClass,
+  LoadKind,
+  SurfaceFinish,
+  Criterion,
+} from "../lib/fatigue";
+import {
   toKelvin,
   GASES as THERMO_GASES,
   idealGasProcess,
@@ -7401,6 +7413,18 @@ const ENG_THERMO_UNIT_NOTE =
   "formula here, so pick the unit you are typing and it is converted to kelvin before anything " +
   "is divided; a Celsius value used as kelvin is the classic way to get a confident wrong answer.";
 
+/**
+ * Fatigue is stated in MPa throughout, and the reason it gets its own note is
+ * the accuracy claim rather than the units: everything this tool produces
+ * carries scatter of a factor of three or more, so the units being consistent
+ * is the least of what the reader needs told.
+ */
+const ENG_FATIGUE_UNIT_NOTE =
+  "Units: stresses and strengths in MPa throughout, diameters in mm, and nothing is converted. " +
+  "Sut and Sy are asked for rather than looked up in a table, because they move by a factor of " +
+  "three with heat treatment for the same alloy designation — take them from your drawing or " +
+  "material certificate.";
+
 /** As above, for the two engines whose exactness a conversion would destroy. */
 const ENG_EXACT_UNIT_NOTE =
   "Units: whatever you type, used consistently — nothing is converted here, because this " +
@@ -9535,6 +9559,243 @@ const ENG_CALCS: EngCalc[] = [
         }
       }
       lines.push(ENG_THERMO_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "fatigue-endurance",
+    name: "Fatigue: endurance limit & notch factor",
+    hint:
+      "The corrected endurance limit by the Marin factor method, and the fatigue " +
+      "stress-concentration factor. Surface finish is usually the largest single reduction — an " +
+      "as-forged surface can more than halve the endurance limit of the same steel.",
+    fields: [
+      { key: "sut", label: "Ultimate tensile strength Sut, MPa", default: "700", kind: "text" },
+      {
+        key: "mclass",
+        label: "Material class",
+        default: "steel",
+        kind: "select",
+        options: [
+          { value: "steel", label: "Steel (has a true endurance limit)" },
+          { value: "non-ferrous", label: "Aluminium / copper / other non-ferrous (has NONE)" },
+        ],
+      },
+      {
+        key: "surface",
+        label: "Surface finish",
+        default: "machined",
+        kind: "select",
+        options: (Object.keys(SURFACE_FACTORS) as SurfaceFinish[]).map((k) => ({
+          value: k,
+          label: SURFACE_FACTORS[k].label,
+        })),
+      },
+      { key: "dia", label: "Diameter or equivalent dimension, mm", default: "25", kind: "text" },
+      {
+        key: "load",
+        label: "Loading",
+        default: "bending",
+        kind: "select",
+        options: [
+          { value: "bending", label: "Bending (kc = 1)" },
+          { value: "axial", label: "Axial (kc = 0.85, no size factor)" },
+          { value: "torsion", label: "Torsion (kc = 0.59)" },
+        ],
+      },
+      { key: "temp", label: "Operating temperature, °C", default: "20", kind: "text" },
+      { key: "rel", label: "Reliability, 0-1 (0.5 gives ke = 1)", default: "0.99", kind: "text" },
+      { key: "kt", label: "Stress-concentration factor Kt (blank to skip)", default: "", kind: "text" },
+      { key: "q", label: "Notch sensitivity q, 0-1 (1 is conservative)", default: "1", kind: "text" },
+    ],
+    compute: (r) => {
+      const res = enduranceLimit({
+        sut: Number(r("sut") || "0"),
+        materialClass: (r("mclass") || "steel") as MaterialClass,
+        surface: (r("surface") || "machined") as SurfaceFinish,
+        diameter: Number(r("dia") || "0"),
+        load: (r("load") || "bending") as LoadKind,
+        tempC: Number(r("temp") || "0"),
+        reliability: Number(r("rel") || "0"),
+      });
+      if (!res.ok) return { text: res.error, ok: false };
+
+      const lines: string[] = [];
+      lines.push("Corrected endurance limit, Marin factor method");
+      lines.push("");
+      lines.push(`Uncorrected Se' = ${engNum(res.sePrime)} MPa`);
+      lines.push(`  ka surface     = ${engNum(res.ka, 4)}`);
+      lines.push(`  kb size        = ${engNum(res.kb, 4)}`);
+      lines.push(`  kc load        = ${engNum(res.kc, 4)}`);
+      lines.push(`  kd temperature = ${engNum(res.kd, 4)}`);
+      lines.push(`  ke reliability = ${engNum(res.ke, 4)}`);
+      lines.push("");
+      lines.push(`Corrected Se = ${engNum(res.se)} MPa`);
+      lines.push(`  a reduction of ${engNum((1 - res.se / res.sePrime) * 100)}% from the uncorrected value`);
+
+      const ktRaw = r("kt").trim();
+      if (ktRaw) {
+        const nf = notchFactor(Number(ktRaw), Number(r("q") || "1"));
+        if (!nf.ok) {
+          lines.push("");
+          lines.push(nf.error);
+        } else {
+          lines.push("");
+          lines.push("Stress concentration");
+          lines.push(`  Kt = ${engNum(nf.kt)}, q = ${engNum(nf.q)} → Kf = 1 + q(Kt-1) = ${engNum(nf.kf)}`);
+          lines.push(`  Multiply the alternating stress by Kf before the fatigue check.`);
+          for (const note of nf.notes) lines.push(`  Note: ${note}`);
+        }
+      }
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_FATIGUE_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "fatigue-safety",
+    name: "Fatigue: mean stress & factor of safety",
+    hint:
+      "All four mean-stress criteria are computed and shown, because they disagree by a lot. The " +
+      "first-cycle YIELD check runs alongside them — none of the fatigue criteria knows about " +
+      "static yield, so a high mean stress can pass Goodman and still yield immediately.",
+    fields: [
+      { key: "sa", label: "Alternating stress σa, MPa (already multiplied by Kf)", default: "100", kind: "text" },
+      { key: "sm", label: "Mean stress σm, MPa (negative = compressive)", default: "200", kind: "text" },
+      { key: "se", label: "Corrected endurance limit Se, MPa", default: "250", kind: "text" },
+      { key: "sut", label: "Ultimate tensile strength Sut, MPa", default: "700", kind: "text" },
+      { key: "sy", label: "Yield strength Sy, MPa", default: "500", kind: "text" },
+      {
+        key: "crit",
+        label: "Criterion",
+        default: "goodman",
+        kind: "select",
+        options: [
+          { value: "goodman", label: "Modified Goodman (most codes)" },
+          { value: "soderberg", label: "Soderberg (most conservative)" },
+          { value: "gerber", label: "Gerber (least conservative)" },
+          { value: "asme-elliptic", label: "ASME elliptic" },
+        ],
+      },
+    ],
+    compute: (r) => {
+      const res = meanStressAnalysis(
+        Number(r("sa") || "0"),
+        Number(r("sm") || "0"),
+        Number(r("se") || "0"),
+        Number(r("sut") || "0"),
+        Number(r("sy") || "0"),
+        (r("crit") || "goodman") as Criterion,
+      );
+      if (!res.ok) return { text: res.error, ok: false };
+
+      const lines: string[] = [];
+      lines.push(`Mean-stress analysis, σa = ${engNum(Number(r("sa")))} MPa, σm = ${engNum(Number(r("sm")))} MPa`);
+      lines.push("");
+      lines.push(`GOVERNING factor of safety = ${engNum(res.nGoverning)}, governed by ${res.governedBy}`);
+      lines.push("");
+      lines.push(
+        Number.isFinite(res.nFatigue)
+          ? `Fatigue (${res.criterion}) = ${engNum(res.nFatigue)}`
+          : `Fatigue (${res.criterion}) = not applicable — there is no fatigue loading in this state`,
+      );
+      lines.push(`First-cycle yield (Langer) = ${engNum(res.nYield)}`);
+      lines.push("");
+      lines.push("All four criteria, for comparison");
+      for (const c of res.comparison) {
+        lines.push(`  ${c.criterion.padEnd(14)} n = ${engNum(c.n)}`);
+      }
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_FATIGUE_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "fatigue-life",
+    name: "Fatigue: finite life & cumulative damage",
+    hint:
+      "Cycles to failure from the S-N line between 0.9·Sut at 10³ cycles and Se at 10⁶. Add more " +
+      'lines as "stress cycles" to sum Miner damage over a load spectrum. Read every life as an ' +
+      "order of magnitude — identical specimens differ by a factor of three.",
+    fields: [
+      {
+        key: "blocks",
+        label: 'Load spectrum: "alternating stress, cycles" per line',
+        default: "420, 1000\n350, 20000\n280, 500000",
+        kind: "block",
+        rows: 5,
+      },
+      { key: "se", label: "Corrected endurance limit Se, MPa", default: "250", kind: "text" },
+      { key: "sut", label: "Ultimate tensile strength Sut, MPa", default: "700", kind: "text" },
+      {
+        key: "mclass",
+        label: "Material class",
+        default: "steel",
+        kind: "select",
+        options: [
+          { value: "steel", label: "Steel (has a true endurance limit)" },
+          { value: "non-ferrous", label: "Non-ferrous (has NONE)" },
+        ],
+      },
+    ],
+    compute: (r) => {
+      const se = Number(r("se") || "0");
+      const sut = Number(r("sut") || "0");
+      const mclass = (r("mclass") || "steel") as MaterialClass;
+
+      const blocks: { sigmaA: number; cycles: number }[] = [];
+      const errors: string[] = [];
+      const raw = r("blocks").split(/\r?\n/);
+      for (let i = 0; i < raw.length; i++) {
+        const line = raw[i].split("#")[0].trim();
+        if (!line) continue;
+        const parts = line.split(/[,\s]+/).filter(Boolean).map(Number);
+        if (parts.length !== 2 || parts.some((v) => !Number.isFinite(v))) {
+          errors.push(`Line ${i + 1}: expected "stress, cycles" as two numbers.`);
+          continue;
+        }
+        blocks.push({ sigmaA: parts[0], cycles: parts[1] });
+      }
+      if (errors.length) return { text: errors.join("\n"), ok: false };
+      if (!blocks.length) return { text: "Give at least one load block.", ok: false };
+
+      const lines: string[] = [];
+
+      // A single block reads as a life question; several read as a spectrum.
+      if (blocks.length === 1) {
+        const life = finiteLife(blocks[0].sigmaA, se, sut, mclass);
+        if (!life.ok) return { text: life.error, ok: false };
+        lines.push(`Finite life at σa = ${engNum(blocks[0].sigmaA)} MPa`);
+        lines.push("");
+        lines.push(
+          life.infiniteLife
+            ? "Cycles to failure: INFINITE — the stress is below the endurance limit."
+            : `Cycles to failure ≈ ${engNum(life.cycles, 3)}  (10^${engNum(Math.log10(life.cycles), 3)})`,
+        );
+        lines.push(`S-N line: S = ${engNum(life.a)} · N^${engNum(life.b, 4)}`);
+        for (const note of life.notes) lines.push(`Note: ${note}`);
+      }
+
+      const dmg = minerDamage(blocks, se, sut, mclass);
+      if (!dmg.ok) return { text: dmg.error, ok: false };
+      if (blocks.length > 1) lines.push("Cumulative damage over the load spectrum (Palmgren-Miner)");
+      lines.push("");
+      lines.push("Block   σa (MPa)   applied      allowable        damage");
+      for (const b of dmg.blocks) {
+        lines.push(
+          `        ${engNum(b.sigmaA, 4).padEnd(10)} ${engNum(b.applied, 4).padEnd(12)} ` +
+            `${(b.allowable === Infinity ? "infinite" : engNum(b.allowable, 3)).padEnd(15)} ${engNum(b.damage, 3)}`,
+        );
+      }
+      lines.push("");
+      lines.push(`Total damage D = ${engNum(dmg.damage, 4)}  (failure nominally at D = 1)`);
+      lines.push(
+        dmg.repeats === Infinity
+          ? "The whole spectrum can be repeated indefinitely."
+          : `The whole spectrum can be repeated about ${engNum(dmg.repeats, 3)} times.`,
+      );
+      for (const note of dmg.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_FATIGUE_UNIT_NOTE);
       return { text: plainDashes(lines.join("\n")) };
     },
   },

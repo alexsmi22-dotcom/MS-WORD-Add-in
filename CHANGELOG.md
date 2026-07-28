@@ -5,6 +5,66 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > Note: this file was not maintained between v1.96.0 and v2.23.0. Those releases
 > are recorded in the git history rather than here.
 
+## [2.30.0] — 2026-07-28 — Fatigue and machine design
+
+Engineering gains three fatigue tools, taking it to twenty-seven calculators.
+This is the natural successor to the stress engine: you compute a stress state,
+and the next question is whether the part survives 10⁷ cycles.
+
+**Every result is framed as an order of magnitude.** Fatigue life scatter is
+enormous — identical specimens from the same bar, on the same machine, routinely
+differ by a factor of three, and a factor of ten is not remarkable. This is the
+most over-trusted calculation in mechanical engineering, so every life carries
+that caveat and no result is quoted as though it were precise.
+
+**The endurance limit does not exist for most materials**, which is the single
+most useful thing this module says. Steel has a genuine knee in its S-N curve.
+Aluminium, copper and magnesium do not — the curve keeps falling for ever, so
+there is no stress below which the part is safe, and infinite-life design is
+unavailable at any stress. Choosing a non-ferrous material class gets that
+stated rather than a false infinite life.
+
+**The Langer yield check runs alongside every fatigue criterion.** None of
+Goodman, Soderberg, Gerber or the ASME ellipse knows anything about static
+yield, so a state with a high mean stress can sit comfortably inside the Goodman
+line and still yield on the very first application of load. The governing —
+smaller — factor of safety is what gets reported, along with which of the two
+governs. All four criteria are shown together, because they disagree by a lot
+and that spread is the honest uncertainty in the method rather than an
+invitation to pick the friendliest one.
+
+**Compressive mean stress is treated as zero, not negative.** It closes cracks
+and helps, which is the entire principle behind shot peening — but feeding a
+negative mean into Goodman produces a factor of safety *above* the fully
+reversed one, overstating the benefit. Zero is the standard conservative
+treatment.
+
+**Finite life and Palmgren-Miner cumulative damage** over a load spectrum, with
+the caveat that matters: Miner takes no account of load ORDER, and observed
+damage sums at failure scatter between roughly 0.3 and 3 rather than landing on
+1. A sum of 0.9 is not a pass.
+
+**Two things the adversarial pass surfaced.** The size factor can legitimately
+exceed 1 — the fit is normalised at the 7.62 mm rotating-beam specimen the
+endurance data came from, so a smaller section really does do better — which
+made the corrected limit exceed the uncorrected one and looked exactly like a
+bug. It is left as the method gives it rather than clamped, since clamping would
+invent a conservatism the method does not have, but it is now explained where it
+happens. And a state with zero alternating stress and a compressive mean gave an
+infinite fatigue factor of safety, which would have printed as "not finite"; it
+is now named as no fatigue loading, with the governing factor falling back to
+the finite yield check.
+
+**No material strength table**, for the same reason there are no steam tables:
+Sut and Sy move by a factor of three with heat treatment for the same alloy
+designation, so a table of typical values would be wrong for the specific piece
+of steel in front of the reader. They are on the drawing; they are asked for.
+The reliability factor, by contrast, *is* derived rather than tabulated — it is
+defined as 1 − 0.08·z, so inverting the normal CDF gives any reliability
+instead of forcing a choice among five.
+
+Suite 5,470 across 183 files, QC 10/10.
+
 ## [2.29.0] — 2026-07-28 — Thermodynamics, and a property table that was quietly breaking the first law
 
 Engineering gains three thermodynamics tools, taking it to twenty-four

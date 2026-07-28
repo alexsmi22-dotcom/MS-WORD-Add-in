@@ -304,6 +304,66 @@ describe("every Engineering tool declares one unit contract", () => {
   );
 });
 
+// ---------------------------------------------------------------------------
+// THE RICH-INSERT DISPATCH.
+//
+// A block kind is only useful if the insert path actually takes the rich branch
+// for it. When "math" was added, the dispatch guard still tested only for
+// "matrix" and "plot" — so the three tools whose reports contain formulas but no
+// figure fell through to insertPlainText and put the caret form into the
+// document, with the equation code written, tested and never reached. That is
+// the same "engine built, pane cannot reach it" failure as the dead Solve
+// features, one layer further in: the tool WAS reachable, the block kind was
+// not.
+// ---------------------------------------------------------------------------
+describe("every non-text block kind reaches the rich insert path", () => {
+  test("the dispatch lists every rich kind", () => {
+    const i = PANE.indexOf("const RICH_KINDS");
+    expect(i).toBeGreaterThan(-1);
+    const line = PANE.slice(i, PANE.indexOf(";", i));
+    for (const kind of ["matrix", "plot", "math"]) {
+      expect({ kind, listed: line.includes(`"${kind}"`) }).toEqual({ kind, listed: true });
+    }
+  });
+
+  test("the guard is driven by that list, not by a hand-written condition", () => {
+    expect(PANE).toContain("blocks.some((b) => RICH_KINDS.includes(b.kind))");
+  });
+
+  test("every block kind in the union is either plain text or listed as rich", () => {
+    // Parses the AnalyzeBlock union so a NEW kind cannot be added without either
+    // being routed or being consciously left as text.
+    const start = PANE.indexOf("type AnalyzeBlock =");
+    const end = PANE.indexOf("interface AnalyzeOutput", start);
+    const union = PANE.slice(start, end);
+    const kinds = [...union.matchAll(/kind: "([a-z]+)"/g)].map((m) => m[1]);
+    expect(kinds.length).toBeGreaterThanOrEqual(4);
+    const richLine = PANE.slice(PANE.indexOf("const RICH_KINDS"), PANE.indexOf(";", PANE.indexOf("const RICH_KINDS")));
+    const unrouted = kinds.filter((k) => k !== "line" && !richLine.includes(`"${k}"`));
+    expect(unrouted).toEqual([]);
+  });
+
+  test("a formula tool with no figure still produces a rich block", () => {
+    // The three that regressed. Each must emit a math block, which the guard
+    // above now routes.
+    for (const id of ["control-tf", "control-pid", "filter-design"]) {
+      const body = ENG.find((e) => e.id === id)!.body;
+      const emitsMath = body.includes("tfLine(") || body.includes("tfLineDecimal(");
+      expect({ id, emitsMath }).toEqual({ id, emitsMath: true });
+    }
+  });
+
+  test("the math insert really builds an equation rather than a paragraph", () => {
+    const i = PANE.indexOf('if (block.kind === "math")');
+    expect(i).toBeGreaterThan(-1);
+    const body = PANE.slice(i, i + 700);
+    expect(body).toContain("mathToOoxml(");
+    expect(body).toContain("insertOoxml(");
+    // ...and degrades to text rather than losing the line.
+    expect(body).toContain("block.fallback");
+  });
+});
+
 describe("the em-dash sentinel cannot disable Insert on an Engineering result", () => {
   // formatNum() renders a non-finite number as an em dash and the pane blocks
   // insertion when it sees one anywhere in the result text. Library caveats are

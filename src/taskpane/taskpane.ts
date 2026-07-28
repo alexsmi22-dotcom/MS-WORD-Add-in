@@ -10523,7 +10523,17 @@ async function insertResultBlocks(text: string, blocksIn: AnalyzeBlock[] | null,
   }
   const blocks = blocksIn;
   // No matrix/plot to lay out → the existing plain-text path is exactly right.
-  if (!blocks || !blocks.some((b) => b.kind === "matrix" || b.kind === "plot")) {
+  // WHICH BLOCK KINDS NEED THE RICH PATH. Anything that is not plain text does:
+  // a matrix becomes a Word table, a plot becomes a picture, and a formula
+  // becomes a real equation. Leaving "math" out of this list meant the three
+  // tools whose reports contain formulas but no figure — poles/zeros/stability,
+  // PID, and filter design — fell straight through to insertPlainText and put
+  // the caret form in the document anyway, with the equation code sitting there
+  // fully written and never reached. Exactly the "engine built, pane cannot
+  // reach it" failure this repo has hit before; the gate below now pins the
+  // list so a new rich block kind cannot be added without routing it.
+  const RICH_KINDS = ["matrix", "plot", "math"];
+  if (!blocks || !blocks.some((b) => RICH_KINDS.includes(b.kind))) {
     await insertPlainText(text, label);
     return;
   }

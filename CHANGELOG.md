@@ -5,6 +5,35 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > Note: this file was not maintained between v1.96.0 and v2.23.0. Those releases
 > are recorded in the git history rather than here.
 
+## [2.31.2] — 2026-07-28 — The equation insert was written but never reached
+
+v2.31.1 added real Word equations for transfer functions. It did not work for
+three of the five tools that emit them — including *Control: poles, zeros &
+stability*, the one that prompted the change.
+
+The insert path takes a rich branch (tables, pictures, equations) only when the
+result contains a block that needs it, and that guard still tested for
+`matrix` or `plot` only. A report made of prose and formulas but **no figure**
+therefore fell straight through to the plain-text insert and put the caret form
+into the document — with the equation code fully written, fully tested, and
+never executed. Poles/zeros/stability, PID and filter design were all affected;
+step response and Bode escaped only because they happen to contain a plot.
+
+This is the "engine built, pane cannot reach it" failure this repo has hit
+before, one layer further in: the *tool* was reachable, the *block kind* was
+not. The guard is now driven by an explicit `RICH_KINDS` list, and four new
+gates pin it — that the list names every non-text kind in the block union, that
+the guard is driven by the list rather than a hand-written condition, that the
+three formula-only tools really emit a math block, and that the math branch
+builds an equation via OOXML rather than a paragraph.
+
+Found by checking before answering a question about whether it worked, rather
+than by any test. Worth recording: a source-scanning routing gate proves a tool
+calls its engine; it does not prove the pane's dispatch will act on what that
+engine returns.
+
+Suite 5,723 across 186 files, QC 10/10.
+
 ## [2.31.1] — 2026-07-28 — Two fixes from the first real Word session
 
 Both of these came from opening the add-in in Word rather than from any

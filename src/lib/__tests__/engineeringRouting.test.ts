@@ -402,6 +402,32 @@ describe("every non-text block kind reaches the rich insert path", () => {
     expect(body).toContain("if (parses) runHasMath = true;");
   });
 
+  // EVERY ANCHOR MUST BE COMPUTED AGAINST MATERIALISED CONTENT. Chaining a
+  // range off content Word has not synced yet does not reliably give a usable
+  // insertion point — that is what lost the paragraphs after an equation, and
+  // then lost the SECOND of two figures once the caption/figure split added
+  // another unsynced hop. Both were reported from real use; neither is visible
+  // to any test that does not run inside Word. The remedy is a sync between
+  // hops, and this pins that it is there.
+  test("the insert syncs between every complex hop", () => {
+    const i = PANE.indexOf("const RICH_KINDS");
+    const routine = PANE.slice(i, i + 9000);
+    // After the run package, between caption and figure, after the figure, and
+    // after a table.
+    const syncs = routine.split("await context.sync()").length - 1;
+    expect(syncs).toBeGreaterThanOrEqual(5);
+  });
+
+  test("the figure branch syncs before the next block computes its anchor", () => {
+    const i = PANE.indexOf('block.kind === "plot"', PANE.indexOf("const RICH_KINDS"));
+    // Wide enough to clear the explanatory comment and reach both syncs.
+    const body = PANE.slice(i, i + 2600);
+    // The caption hop is materialised before the figure paragraph is made...
+    expect(body).toMatch(/capPara[\s\S]{0,200}await context\.sync\(\)/);
+    // ...and the figure is materialised before the loop moves on.
+    expect(body).toMatch(/figPara\.getRange[\s\S]{0,120}await context\.sync\(\)/);
+  });
+
   test("a formula that will not typeset falls back to the tool's own text", () => {
     // Not to its math source, which is what the generic builder would use.
     const i = PANE.indexOf('kind === "math"', PANE.indexOf("const RICH_KINDS"));

@@ -65,6 +65,15 @@ Invoke-Step "Landing layout"      { node scripts/check-landing-overlap.js }
 # unreachable rather than awkward: Align's mode <select> sat 21px off the edge at
 # 320px, where the control could not be clicked at all.
 Invoke-Step "Pane layout"         { node scripts/check-pane-layout.js }
+# Engineering is 36 calculators whose engines carry thousands of unit tests, and
+# every Engineering defect that reached a user still lived ABOVE them: a formula
+# path that was never routed, an OOXML package that swallowed the paragraphs
+# after it, a figure chain that dropped the second figure. Unit tests cannot see
+# any of those, because none of them is a wrong number. This drives the real
+# bundle instead — computes, empties, corrupts, then inserts against a recording
+# Word mock — and self-tests its own predicates first, since three earlier runs
+# of it reported the harness rather than the product.
+Invoke-Step "Engineering audit"   { node scripts/engineering-audit.js }
 
 # 5. Task-pane id wiring audit — every getElementById has a matching HTML id.
 Write-Host ""

@@ -10610,6 +10610,9 @@ async function insertResultBlocks(text: string, blocksIn: AnalyzeBlock[] | null,
           continue;
         }
         flushRun();
+        // The run insert is an OOXML package whose returned range is chained
+        // from too, so it gets the same treatment.
+        await context.sync();
         if (block.kind === "plot") {
           // THE CAPTION GETS ITS OWN PARAGRAPH. It used to share one with the
           // image, which put the picture AFTER the caption text on the same
@@ -10619,12 +10622,24 @@ async function insertResultBlocks(text: string, blocksIn: AnalyzeBlock[] | null,
           // Bode plots. A figure on its own paragraph always starts at the
           // margin, and a caption in its own paragraph is the correct document
           // structure anyway.
+          //
+          // AND EACH FIGURE IS SYNCED BEFORE THE NEXT ANCHOR IS COMPUTED. The
+          // caption/figure split added a second unsynced hop to the chain
+          // (caption paragraph -> empty paragraph -> picture), and chaining a
+          // range off content Word has not materialised yet does not reliably
+          // give a usable insertion point: with two figures, only the first
+          // arrived. Reported from real use on the frequency-response report.
+          // A sync per figure costs a round trip and makes every anchor be
+          // computed against content that actually exists.
           const capPara = anchor.insertParagraph(block.caption, Word.InsertLocation.after);
-          const figPara = capPara.insertParagraph("", Word.InsertLocation.after);
+          anchor = capPara.getRange(Word.RangeLocation.after);
+          await context.sync();
+          const figPara = anchor.insertParagraph("", Word.InsertLocation.after);
           const pic = figPara.insertInlinePictureFromBase64(images[i], Word.InsertLocation.end);
           sizeFigure(pic, block.w, block.h);
           pic.altTextDescription = block.alt;
           anchor = figPara.getRange(Word.RangeLocation.after);
+          await context.sync();
           continue;
         }
         if (block.label) {
@@ -10637,6 +10652,7 @@ async function insertResultBlocks(text: string, blocksIn: AnalyzeBlock[] | null,
           for (let j = 0; j < block.m[0].length; j++)
             table.getCell(i2, j).body.paragraphs.getFirst().alignment = Word.Alignment.right;
         anchor = table.getRange(Word.RangeLocation.after);
+        await context.sync();
       }
       flushRun();
       anchor.select(Word.SelectionMode.end);

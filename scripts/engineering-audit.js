@@ -1,0 +1,190 @@
+/* eslint-disable no-undef */
+// Comprehensive Engineering audit — boots the real production bundle in headless
+// Chromium and drives all 36 Engineering calculators.
+//
+// This exists because the unit suite is structurally blind to the layer where
+// every Engineering defect that reached a user actually lived: not in the
+// engines, which have ~5,700 tests behind them, but in the pane above them.
+//
+//   node scripts/engineering-audit.js        (expects `npm run build` to have run)
+//
+// Exit 0 = nothing found, 1 = findings, 2 = skipped (no browser).
+
+const fs = require("fs");
+const path = require("path");
+const os = require("os");
+const { execFileSync } = require("child_process");
+
+const ROOT = path.join(__dirname, "..");
+const DIST = path.join(ROOT, "dist");
+
+function findBrowser() {
+  const candidates = [
+    process.env.CHROME_PATH,
+    "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe",
+    "C:/Program Files/Microsoft/Edge/Application/msedge.exe",
+    "C:/Program Files/Google/Chrome/Application/chrome.exe",
+    "C:/Program Files (x86)/Google/Chrome/Application/chrome.exe",
+    "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "/usr/bin/google-chrome",
+    "/usr/bin/chromium",
+  ].filter(Boolean);
+  return candidates.find((p) => fs.existsSync(p)) || null;
+}
+
+function writeHarness() {
+  const htmlPath = path.join(DIST, "taskpane.html");
+  if (!fs.existsSync(htmlPath)) throw new Error("dist/taskpane.html not found — run `npm run build` first.");
+  let html = fs.readFileSync(htmlPath, "utf8");
+  const bundle = /src="(taskpane\.[a-f0-9]+\.js)"/.exec(html);
+  if (!bundle) throw new Error("Could not find the taskpane bundle in dist/taskpane.html.");
+
+  html = html.replace(/<script[^>]*appsforoffice[^>]*><\/script>/g, "");
+  html = html.replace(/<script[^>]*src="taskpane\.[a-f0-9]+\.js"[^>]*><\/script>/g, "");
+  // The stub must carry EVERY Word enum the pane dereferences. It first
+  // carried only two, so `Word.RangeLocation.after` threw a TypeError on the
+  // very first line of every insert handler and the audit reported all 36
+  // tools as inserting nothing. A harness that is missing a constant reports
+  // a product-wide catastrophe, so the enum list is derived from the source
+  // rather than remembered.
+  const paneSrc = fs.readFileSync(path.join(ROOT, "src", "taskpane", "taskpane.ts"), "utf8");
+  const enums = new Set();
+  for (const mm of paneSrc.matchAll(/\bWord\.([A-Z][A-Za-z]*)\.([A-Za-z]+)/g)) {
+    enums.add(mm[1] + "." + mm[2]);
+  }
+  const byNs = {};
+  for (const e of enums) {
+    const [ns, k] = e.split(".");
+    (byNs[ns] = byNs[ns] || []).push(k);
+  }
+  const enumJs = Object.keys(byNs)
+    .map((ns) => ns + ":{" + byNs[ns].map((k) => k + ":'" + k + "'").join(",") + "}")
+    .join(",");
+  const stub =
+    "<script>window.Office={HostType:{Word:'Word'},onReady:function(cb){window.__officeCb=cb;}," +
+    "context:{requirements:{isSetSupported:function(){return true;}}}};" +
+    "window.Word={run:function(){return Promise.resolve();}," + enumJs + "};</script>";
+  html = html.replace("</head>", stub + "</head>");
+  html = html.replace("</body>", `<script src="${bundle[1]}"></script><script src="engdriver.js"></script></body>`);
+
+  fs.writeFileSync(path.join(DIST, "eng-harness.html"), html);
+  fs.copyFileSync(path.join(__dirname, "engineering-audit-driver.js"), path.join(DIST, "engdriver.js"));
+}
+
+function run() {
+  const browser = findBrowser();
+  if (!browser) {
+    console.log("SKIP: no Chromium-family browser found (set CHROME_PATH to run this audit).");
+    return 2;
+  }
+  writeHarness();
+
+  const dom = execFileSync(
+    browser,
+    [
+      "--headless=new",
+      "--disable-gpu",
+      "--no-sandbox",
+      "--virtual-time-budget=60000",
+      "--dump-dom",
+      "file:///" + path.join(DIST, "eng-harness.html").replace(/\\/g, "/"),
+    ],
+    { encoding: "utf8", maxBuffer: 128 * 1024 * 1024 }
+  );
+
+  const m = /data-results="([^"]*)"/.exec(dom);
+  if (!m) {
+    const outFile = path.join(os.tmpdir(), "jurislab-eng-audit-dom.html");
+    fs.writeFileSync(outFile, dom);
+    console.error("FAIL: the pane did not finish the audit — no results were produced.");
+    console.error("      Rendered DOM saved to " + outFile);
+    return 1;
+  }
+  const decode = (s) =>
+    s.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, "&");
+  const lines = decode(m[1]).split(" ||| ");
+
+  const err = lines.find((l) => l.startsWith("ERROR:"));
+  if (err) {
+    console.error(err);
+    console.error(lines.find((l) => l.startsWith("STACK:")) || "");
+    return 1;
+  }
+
+  const toolCount = (lines.find((l) => l.startsWith("TOOLS=")) || "TOOLS=0").split("=")[1];
+  const defaults = lines.filter((l) => l.startsWith("DEFAULT "));
+  const blanks = lines.filter((l) => l.startsWith("BLANK "));
+  const junk = lines.filter((l) => l.startsWith("JUNK "));
+  const inserts = lines.filter((l) => l.startsWith("INSERT "));
+
+  console.log(`Engineering audit — ${toolCount} tools driven in the real bundle\n`);
+
+  const findings = [];
+
+  // If the checks themselves are broken, every "ok" below is worthless, so this
+  // is reported first and loudest rather than buried at the end.
+  const self = lines.find((l) => l.startsWith("SELFTEST ")) || "SELFTEST MISSING";
+  if (!/^SELFTEST ok$/.test(self)) {
+    findings.push(self);
+    console.log(`  FLAG  self-test: ${self.slice(9)} — the checks below prove nothing.\n`);
+  } else {
+    console.log("  ok    self-test: every check tripped on a known-bad payload.\n");
+  }
+
+  console.log("--- On their own defaults -------------------------------------");
+  for (const l of defaults) {
+    const clean = / flags=clean /.test(l);
+    if (!clean) findings.push(l);
+    const tool = l.split(" ")[1];
+    const flags = (/flags=(\S+)/.exec(l) || [, "?"])[1];
+    const ins = (/insert=(\S+)/.exec(l) || [, "?"])[1];
+    const len = (/len=(\d+)/.exec(l) || [, "?"])[1];
+    console.log(`  ${clean ? "ok  " : "FLAG"}  ${tool.padEnd(20)} len=${String(len).padStart(5)} insert=${ins.padEnd(3)} ${flags}`);
+    if (!clean) console.log(`        ${l.split(":: ")[1] || ""}`);
+  }
+
+  console.log("\n--- Every field blank -----------------------------------------");
+  for (const l of blanks) {
+    const ok = / issues=ok /.test(l);
+    if (!ok) findings.push(l);
+    const tool = l.split(" ")[1];
+    const issues = (/issues=(\S+)/.exec(l) || [, "?"])[1];
+    console.log(`  ${ok ? "ok  " : "FLAG"}  ${tool.padEnd(20)} ${issues}`);
+    if (!ok) console.log(`        ${l.split(":: ")[1] || ""}`);
+  }
+
+  console.log("\n--- Rubbish in every field ------------------------------------");
+  if (!junk.length) console.log("  ok    nothing produced a bad number or a sentinel");
+  for (const l of junk) {
+    findings.push(l);
+    console.log(`  FLAG  ${l.slice(5)}`);
+  }
+
+  console.log("\n--- Inserting each result (against a recording Word mock) -----");
+  for (const l of inserts) {
+    const ok = /\bok$/.test(l);
+    if (!ok) findings.push(l);
+    console.log(`  ${ok ? "ok  " : "FLAG"}  ${l.slice(7)}`);
+  }
+  console.log("  NOTE: a mock always says yes. This proves the pane ATTEMPTS the right");
+  console.log("        objects in the right order; it cannot prove Word honours them.");
+
+  console.log("\n===============================================================");
+  if (findings.length) {
+    console.log(`${findings.length} finding(s) to look at.`);
+    return 1;
+  }
+  console.log("No findings: every tool computes on its defaults, refuses cleanly when emptied,");
+  console.log("and produces no NaN, Infinity or em-dash sentinel under rubbish input.");
+  return 0;
+}
+
+let code = 1;
+try {
+  code = run();
+} catch (e) {
+  console.error("Audit failed to run: " + e.message);
+  code = 1;
+}
+process.exit(code);

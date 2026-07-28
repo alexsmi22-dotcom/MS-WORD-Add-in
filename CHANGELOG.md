@@ -5,6 +5,58 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > Note: this file was not maintained between v1.96.0 and v2.23.0. Those releases
 > are recorded in the git history rather than here.
 
+## [2.31.4] — 2026-07-28 — Only one of the two figures was being inserted
+
+The frequency-response report inserted one Bode plot instead of two. Same root
+cause as the missing paragraphs in v2.31.3, in a different place: **an anchor
+chained off content Word has not materialised does not reliably give a usable
+insertion point.**
+
+Giving the caption its own paragraph in v2.31.1 added a second unsynced hop —
+caption paragraph, then empty paragraph, then picture — and with two figures the
+second one had nowhere valid to land. Every hop in the insert now syncs before
+the next anchor is computed: after the OOXML run package, between a caption and
+its figure, after a figure, and after a table. That costs a few round trips on a
+one-shot user action and makes every anchor be computed against content that
+actually exists.
+
+Two gates added, pinning that the routine syncs between complex hops and that
+the figure branch in particular syncs on both sides.
+
+Worth recording plainly: this is the third defect in the same insert path found
+by using the product, and none of the three was visible to 5,700 automated tests.
+Everything here is Word API sequencing behaviour that only exists at runtime
+inside Word. The gates can pin that the calls are present and ordered; they
+cannot pin that Word does what the calls imply.
+
+### An Engineering audit that drives the real pane
+
+`scripts/engineering-audit.js` boots the production bundle in headless Chromium
+and drives all 36 Engineering calculators: each one on its own defaults, then
+with every field emptied, then with seven kinds of rubbish typed into every
+field, then **actually clicking Insert** against a Word mock that records every
+paragraph, package, picture, table and sync. It checks the recorded calls
+against what the preview showed, parses every OOXML package rather than merely
+counting equations in it, and clicks Insert twice to prove the busy guard
+clears. It runs as part of `npm run qc`.
+
+The audit found no defect in the 36 tools. It did find three defects in itself,
+which is the part worth writing down: a missing `Word.RangeLocation` in the
+Office stub made all 36 tools report inserting nothing; a missing `insertText`
+on the mock made the 24 plain-text tools report the same; and reading the
+recorded calls one tick after the click missed every figure, because rasterising
+an SVG goes through an `Image` load and never finishes inside a microtask. Each
+of those looked exactly like a product-wide catastrophe. So the audit now
+self-tests every predicate against a payload built to trip it, and reports
+itself broken before it reports anything about the product — a check nobody has
+watched fail is not evidence.
+
+What it still cannot do is stated in its own output: a mock always says yes. It
+proves the pane attempts the right objects in the right order. It cannot prove
+Word honours them, which is what actually broke all three times.
+
+Suite 5,730 across 186 files, QC 10/10.
+
 ## [2.31.3] — 2026-07-28 — Only the formula was being inserted
 
 v2.31.2 routed formula-only reports to the rich insert path. The equations then

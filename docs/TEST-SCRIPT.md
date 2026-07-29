@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.31.7)
+# JurisLab — Manual Test Script (v2.31.8)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also

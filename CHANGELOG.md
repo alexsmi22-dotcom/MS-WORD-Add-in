@@ -5,6 +5,43 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > Note: this file was not maintained between v1.96.0 and v2.23.0. Those releases
 > are recorded in the git history rather than here.
 
+## [2.31.8] — 2026-07-28 — Back to the six lines that actually worked
+
+The picture count from v2.31.7 said "Word kept 1 of 2 figures", which is the
+first hard measurement in this whole sequence rather than an inference. It also
+convicted the fix that release shipped.
+
+v2.31.7 differed from the last version known to render both plots in TWO ways,
+not one: the picture moved to `InsertLocation.start`, and a `context.sync()`
+was left in the figure branch. The full ladder, every rung measured in real Word:
+
+| Figure paragraph | Picture at | Sync in branch | Result |
+|---|---|---|---|
+| caption text — v2.31.0 | End | no | **2 of 2** |
+| empty — v2.31.1 | End | no | 1 of 2 |
+| empty — v2.31.4 | End | yes | 0 of 2, beam too |
+| caption text — v2.31.7 | **Start** | yes | 1 of 2 |
+
+Two independent things cost figures: creating the paragraph **empty**, and
+**syncing inside the loop**. `InsertLocation.start` turned out to be a third.
+Every sync added to this routine has cost figures and none has ever recovered
+one, so the three added in v2.31.4 — in the figure branch, after the OOXML run
+flush, and after a table — are all gone. The block loop no longer syncs at all;
+what remains are the picture-count probes and the single closing sync.
+
+The figure branch is now byte-for-byte v2.31.0, and pinned **as a whole** rather
+than statement by statement, because every regression here came from adding one
+more thing to a sequence that was already correct. Changing it now requires a
+picture count proving the change.
+
+**The alignment defect is deliberately back.** The picture sits after the caption
+text, so two figures with captions of different lengths do not start at the same
+x — the original complaint that set all of this off. Three structural attempts to
+fix it have each cost figures. The next attempt must build figure and caption as
+a single OOXML package, where layout is declared rather than assembled from
+chained ranges, and must be proved against the picture count before shipping.
+Figures that render beat figures that align.
+
 ## [2.31.7] — 2026-07-28 — The figures come back to the shape that worked
 
 The Bode plots still did not arrive, and this time the pane said why it could

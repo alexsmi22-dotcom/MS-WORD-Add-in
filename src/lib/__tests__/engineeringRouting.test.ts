@@ -431,29 +431,32 @@ describe("every non-text block kind reaches the rich insert path", () => {
     expect(body).toContain("if (parses) runHasMath = true;");
   });
 
-  // THIS GATE USED TO DEMAND MORE SYNCS, AND IT WAS WRONG.
+  // THIS GATE ONCE DEMANDED FIVE SYNCS. IT WAS WRONG, AND IT COST A RELEASE.
   //
-  // It required at least five, on the theory that an anchor chained off
-  // unsynced content is unusable and that a sync between every hop was the
-  // remedy. That theory cost a release: adding a sync per hop in the figure
-  // branch took the frequency-response report from one figure of two to none,
-  // and broke beam as well. The failure never tracked syncing — it tracked
-  // inserting a picture into an EMPTY paragraph (see the figure-shape tests
-  // below).
+  // The theory was that an anchor chained off unsynced content is unusable and
+  // that a sync between every hop was the remedy. The user's picture counts say
+  // the opposite: the release that added a sync per hop took the
+  // frequency-response report from one figure of two to NONE, and broke the
+  // single-figure beam report too. Every sync added to this loop has cost
+  // figures; none has ever recovered one.
   //
-  // What genuinely needs materialising is the OOXML run package, whose returned
-  // range is chained from, and a table. Those are pinned here. The figure
-  // branch is pinned separately, and pinned to exactly ONE sync, because more
-  // is the regression rather than the fix.
-  test("the run package and the table are materialised before the loop moves on", () => {
+  // So the gate is inverted. The block loop must not sync at all — the syncs
+  // that remain in this routine are the picture-count probes and the single
+  // closing sync, all outside the loop.
+  test("the block loop does not sync while it is building content", () => {
     const routine = insertBlocksBody();
-    const syncs = routine.split("await context.sync()").length - 1;
-    expect(syncs).toBeGreaterThanOrEqual(3);
-    // The flush of a formula run is followed by a sync before anything chains
-    // off the package it inserted.
-    expect(routine).toMatch(/flushRun\(\);[\s\S]{0,200}await context\.sync\(\)/);
-    // A table's range is likewise chained from.
-    expect(routine).toMatch(/table\.getRange[\s\S]{0,120}await context\.sync\(\)/);
+    const loopStart = routine.indexOf("for (let i = 0; i < blocks.length; i++)", routine.indexOf("const flushRun"));
+    const loopEnd = routine.indexOf("anchor.select(");
+    expect(loopStart).toBeGreaterThan(-1);
+    expect(loopEnd).toBeGreaterThan(loopStart);
+    const loop = routine.slice(loopStart, loopEnd);
+    expect(loop.split("await context.sync()").length - 1).toBe(0);
+  });
+
+  test("the routine still closes with a sync", () => {
+    // Removing the mid-loop syncs must not remove the one that commits the batch.
+    const routine = insertBlocksBody();
+    expect(routine).toMatch(/anchor\.select\([\s\S]{0,120}await context\.sync\(\)/);
   });
 
   /** The plot branch, bounded by its own `continue` rather than a byte count. */
@@ -484,19 +487,39 @@ describe("every non-text block kind reaches the rich insert path", () => {
     expect(body).not.toMatch(/insertParagraph\(""/);
   });
 
-  test("the picture is inserted at the start, so figures align with each other", () => {
-    // The original complaint: two plots of identical size not lining up,
-    // because each sat after caption text of a different length. Position, not
-    // paragraph structure — structure is what broke the figures.
+  test("the picture is inserted at the END of the caption paragraph", () => {
+    // InsertLocation.start was an attempt to make figures line up at the margin
+    // without changing the paragraph structure. It cost a figure on its own:
+    // the user's picture count went from 2 of 2 to 1 of 2 with that as the only
+    // change. End is the only location ever observed to keep both.
     const body = figureBranch();
-    expect(body).toMatch(/insertInlinePictureFromBase64\([^)]*Word\.InsertLocation\.start/);
+    expect(body).toMatch(/insertInlinePictureFromBase64\([^)]*Word\.InsertLocation\.end/);
+    expect(body).not.toMatch(/insertInlinePictureFromBase64\([^)]*Word\.InsertLocation\.start/);
   });
 
-  test("the figure branch does not sync between its own hops", () => {
-    // Adding a sync per hop is what took this from 1 of 2 figures to 0 of 2.
-    // One sync closes the branch; more than one is the regression.
+  test("the figure branch does not sync at all", () => {
+    // Syncing inside this branch took the report from 1 of 2 figures to 0 of 2.
+    // The v2.31.0 branch that rendered both had no sync in it.
     const body = figureBranch();
-    expect(body.split("await context.sync()").length - 1).toBe(1);
+    expect(body.split("await context.sync()").length - 1).toBe(0);
+  });
+
+  test("the figure branch is exactly the five statements that worked", () => {
+    // Pinned as a whole, not statement by statement, because every regression
+    // here came from adding ONE more thing to a sequence that was already
+    // correct. If this needs to change, it needs a picture count proving it.
+    const body = figureBranch();
+    const code = body
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l && !l.includes('block.kind === "plot"'));
+    expect(code).toEqual([
+      "const para = anchor.insertParagraph(block.caption, Word.InsertLocation.after);",
+      "const pic = para.insertInlinePictureFromBase64(images[i], Word.InsertLocation.end);",
+      "sizeFigure(pic, block.w, block.h);",
+      "pic.altTextDescription = block.alt;",
+      "anchor = para.getRange(Word.RangeLocation.after);",
+    ]);
   });
 
   test("properties may be set in the same batch as the insert", () => {

@@ -10785,44 +10785,44 @@ async function insertResultBlocks(text: string, blocksIn: AnalyzeBlock[] | null,
           continue;
         }
         flushRun();
-        // The run insert is an OOXML package whose returned range is chained
-        // from too, so it gets the same treatment.
-        await context.sync();
         if (block.kind === "plot") {
-          // THE PICTURE GOES AT THE START OF A PARAGRAPH THAT HAS TEXT IN IT.
+          // BYTE-FOR-BYTE THE v2.31.0 SHAPE. DO NOT "IMPROVE" IT.
           //
-          // This is the v2.31.0 shape, restored, and the deviation from it is
-          // the whole story of three failed releases. What the evidence says,
-          // in order:
+          // Four releases were spent walking away from these six lines, and the
+          // user measured the cost of every step. Word reports no error for any
+          // of them; it accepts the picture and keeps nothing, so only a count
+          // of document.body.inlinePictures can tell the variants apart:
           //
-          //   picture into the caption paragraph (non-empty)   -> 2 of 2 figures
-          //   picture into insertParagraph("")        (2.31.1) -> 1 of 2
-          //   ...plus a sync per hop                  (2.31.4) -> 0 of 2, beam too
+          //   caption paragraph, picture at End    (2.31.0)  2 of 2 figures
+          //   empty paragraph,   picture at End    (2.31.1)  1 of 2
+          //   ...plus a sync per hop               (2.31.4)  0 of 2, beam too
+          //   caption paragraph, picture at Start  (2.31.7)  1 of 2
           //
-          // The variable tracking the failure is how the figure paragraph is
-          // created, not when it is synced. Word accepts a picture destined for
-          // an empty paragraph, reports no error, and keeps nothing.
+          // Two independent things cost figures: creating the paragraph EMPTY,
+          // and syncing inside this branch. The 2.31.7 attempt fixed the first
+          // and introduced a third variable — InsertLocation.start — which cost
+          // a figure by itself. Only End into a paragraph that already has text,
+          // with no sync, has ever put both plots on the page.
           //
-          // The theory that replaced this — that properties set on a picture
-          // before its batch syncs get discarded along with the picture — is
-          // refuted by this file: insertSubstituentGallery, the table-figure
-          // insert and the structure insert all set width, height and alt-text
-          // in the same unsynced batch, and all three have shipped and worked
-          // for many versions. Do not reintroduce it.
+          // Refuted on the way, and recorded so it is not rediscovered: the
+          // theory that properties set on a picture before its batch syncs are
+          // discarded with the picture. insertSubstituentGallery, the
+          // table-figure insert and the structure insert all set width, height
+          // and alt-text in the same unsynced batch and have shipped for years.
           //
-          // The original complaint that started this — two Bode plots not
-          // lining up — was caused by the picture sitting AFTER caption text of
-          // differing lengths. Fixed here by position rather than structure:
-          // at Start, every figure begins at the margin whatever its caption
-          // says. A caption sharing the figure's line is worse typography than
-          // a caption on its own, and that is a cosmetic debt to repay once
-          // figures render again — not before.
+          // THE COSMETIC DEBT. The picture sits after the caption text, so two
+          // figures with captions of different lengths do not start at the same
+          // x — the complaint that began all of this. It is a real defect and it
+          // is deliberately still here, because every structural fix attempted
+          // for it has cost the figures themselves. The next attempt must build
+          // figure and caption as a single OOXML package, where the layout is
+          // declared rather than assembled from chained ranges — and it must be
+          // proved against the picture count before it ships.
           const para = anchor.insertParagraph(block.caption, Word.InsertLocation.after);
-          const pic = para.insertInlinePictureFromBase64(images[i], Word.InsertLocation.start);
+          const pic = para.insertInlinePictureFromBase64(images[i], Word.InsertLocation.end);
           sizeFigure(pic, block.w, block.h);
           pic.altTextDescription = block.alt;
           anchor = para.getRange(Word.RangeLocation.after);
-          await context.sync();
           continue;
         }
         if (block.label) {
@@ -10835,7 +10835,6 @@ async function insertResultBlocks(text: string, blocksIn: AnalyzeBlock[] | null,
           for (let j = 0; j < block.m[0].length; j++)
             table.getCell(i2, j).body.paragraphs.getFirst().alignment = Word.Alignment.right;
         anchor = table.getRange(Word.RangeLocation.after);
-        await context.sync();
       }
       flushRun();
       anchor.select(Word.SelectionMode.end);

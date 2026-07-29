@@ -31,6 +31,7 @@
 // are simple and fixed, and a mis-read attribute is skipped, never invented.
 
 import { SeqRecord, SeqFeature, FeatureSegment } from "./seqio";
+import { minOf, maxOf } from "./minmax";
 
 const TAG_COOKIE = 0x09;
 const TAG_DNA = 0x00;
@@ -145,8 +146,8 @@ function parseFeaturesXml(xml: string): SeqFeature[] {
     out.push({
       type,
       name: label.replace(/\s+/g, " ").trim() || type,
-      start: Math.min(...segments.map((s) => s.start)),
-      end: Math.max(...segments.map((s) => s.end)),
+      start: minOf(segments.map((s) => s.start)),
+      end: maxOf(segments.map((s) => s.end)),
       strand,
       segments,
       qualifiers: {},

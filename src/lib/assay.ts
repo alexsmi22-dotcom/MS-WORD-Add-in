@@ -13,6 +13,8 @@
 
 // --- linear algebra helpers --------------------------------------------------
 
+import { maxOf } from "./minmax";
+
 /** Solves the linear system A·x = b (A is n×n, row-major) by Gaussian
  *  elimination with partial pivoting. Returns null if A is singular. */
 function solveLinear(A: number[][], b: number[]): number[] | null {
@@ -357,7 +359,7 @@ export interface KineticsFit extends FitResult {
  */
 function kineticsCaveats(s: number[], km: number, vmax: number, vmaxSE: number): string[] {
   const out: string[] = [];
-  const maxS = Math.max(...s);
+  const maxS = maxOf(s);
   const ratio = km > 0 ? maxS / km : Infinity;
 
   if (!Number.isFinite(ratio) || ratio < 1) {
@@ -393,7 +395,7 @@ function kineticsCaveats(s: number[], km: number, vmax: number, vmaxSE: number):
 
 export function fitMichaelisMenten(s: number[], v: number[]): KineticsFit {
   const hw = hanesWoolf(s, v);
-  const vmax0 = hw.vmax > 0 && Number.isFinite(hw.vmax) ? hw.vmax : Math.max(...v);
+  const vmax0 = hw.vmax > 0 && Number.isFinite(hw.vmax) ? hw.vmax : maxOf(v);
   const km0 = hw.km > 0 && Number.isFinite(hw.km) ? hw.km : s[Math.floor(s.length / 2)] || 1;
   const fit = levenbergMarquardt(s, v, ([vmax, km], x) => michaelisMenten(vmax, km, x), [vmax0, km0]);
   const [vmax, km] = fit.params;
@@ -426,7 +428,7 @@ export interface HillFit extends FitResult {
 /** Fits the Hill equation to substrate/velocity (or ligand/response) data. */
 export function fitHill(s: number[], v: number[]): HillFit {
   const mm = fitMichaelisMenten(s, v);
-  const vmax0 = mm.vmax > 0 ? mm.vmax : Math.max(...v);
+  const vmax0 = mm.vmax > 0 ? mm.vmax : maxOf(v);
   const k0 = mm.km > 0 ? mm.km : s[Math.floor(s.length / 2)] || 1;
   const fit = levenbergMarquardt(
     s,
@@ -677,9 +679,9 @@ export function fitInhibition(
   // Initial guess: fit MM to the uninhibited points if there are any, else all.
   const zero = idx.filter((k) => i[k] === 0);
   const base = zero.length >= 3 ? fitMichaelisMenten(zero.map((k) => s[k]), zero.map((k) => v[k])) : fitMichaelisMenten(s, v);
-  const vmax0 = base.vmax > 0 ? base.vmax : Math.max(...v);
+  const vmax0 = base.vmax > 0 ? base.vmax : maxOf(v);
   const km0 = base.km > 0 ? base.km : s[Math.floor(n / 2)] || 1;
-  const ki0 = Math.max(...i.filter((x) => x > 0), 1) || 1;
+  const ki0 = maxOf(i.filter((x) => x > 0), 1) || 1;
 
   const model: Model =
     mode === "mixed"
@@ -741,7 +743,7 @@ export interface BindingFit extends FitResult {
 export function fitSaturationBinding(ligand: number[], bound: number[]): BindingFit {
   // Same hyperbola as Michaelis-Menten, so reuse its stable seeding.
   const seed = fitMichaelisMenten(ligand, bound);
-  const bmax0 = seed.vmax > 0 ? seed.vmax : Math.max(...bound);
+  const bmax0 = seed.vmax > 0 ? seed.vmax : maxOf(bound);
   const kd0 = seed.km > 0 ? seed.km : ligand[Math.floor(ligand.length / 2)] || 1;
   const fit = levenbergMarquardt(ligand, bound, ([bmax, kd], x) => oneSiteBinding(bmax, kd, x), [bmax0, kd0]);
   return { ...fit, bmax: fit.params[0], kd: fit.params[1], bmaxSE: fit.se[0], kdSE: fit.se[1] };

@@ -85,8 +85,16 @@ const MAX_ELEMENTS = 200;
 const MAX_NODES = 120;
 const MAX_SWEEP_POINTS = 400;
 
-const GROUND = new Set(["0", "gnd", "GND", "gnd!", "ground"]);
-const isGround = (n: string): boolean => GROUND.has(n);
+// CASE-INSENSITIVE, because a hardcoded list of spellings is not a predicate.
+//
+// The set used to be matched exactly, and it happened to contain both "gnd" and
+// "GND" — so those two worked and "Gnd" did not. A node called `Gnd` was then an
+// ordinary node, and `V1 1 Gnd 5 / R1 1 0 1k` solved to V(1) = 0 V and
+// V(Gnd) = -5 V: exact, unique, and completely wrong, from nothing but
+// capitalisation. "Ground" and "GROUND" failed the same way while "ground" did
+// not, which is the kind of inconsistency nobody would ever think to test.
+const GROUND = new Set(["0", "gnd", "gnd!", "ground", "vss", "agnd", "dgnd"]);
+const isGround = (n: string): boolean => GROUND.has(n.trim().toLowerCase());
 
 // ---------------------------------------------------------------------------
 // Complex arithmetic — small and local; linalg.ts is real-valued.
@@ -213,6 +221,21 @@ export function parseNetlist(text: string): ParsedNetlist {
       errors.push(`"${name}" is a zero-ohm resistor, which is a short. Remove it and merge the nodes.`);
       continue;
     }
+    // A ZERO-VALUED L OR C IS NOT A COMPONENT EITHER, and it was not caught.
+    // Its admittance is infinite (1/(jwL) with L = 0), and the pivot guard only
+    // rejects SMALL pivots — an infinite one sailed through, cDiv then produced
+    // NaN, and the pane printed "V(1) = not finite at not finite deg" as a
+    // successful result that could be inserted into the document. A zero
+    // inductor is a short and a zero capacitor is an open; both are structural
+    // statements the user should make by editing the netlist, not by a value.
+    if ((kindChar === "L" || kindChar === "C") && v.value === 0) {
+      errors.push(
+        `"${name}" has a value of zero. A zero-henry inductor is a short and a zero-farad ` +
+          "capacitor is an open circuit — say that by changing the netlist rather than the value, " +
+          "because at zero the element's admittance is infinite and there is no answer to report.",
+      );
+      continue;
+    }
     elements.push({ kind: kindChar as ElementKind, name, a, b, value: v.value, exact: v.exact });
   }
   if (elements.length > MAX_ELEMENTS) errors.push(`At most ${MAX_ELEMENTS} elements.`);
@@ -311,7 +334,13 @@ function singularMessage(elements: Element[], nodes: string[]): string {
   while (grew && guard++ < MAX_NODES + 2) {
     grew = false;
     for (const e of elements) {
-      if (e.kind === "I") continue; // a current source is an open circuit to DC bias
+      // A CURRENT SOURCE AND A CAPACITOR ARE BOTH OPEN CIRCUITS TO DC BIAS.
+      // Only the current source was skipped, so a node reachable solely through
+      // a capacitor counted as grounded — which defeated the single refusal this
+      // module's header leads with ("a node with no DC path to ground floats"),
+      // for the single commonest netlist mistake it exists to catch: the
+      // coupling-capacitor input with no bias resistor.
+      if (e.kind === "I" || e.kind === "C") continue;
       const a = isGround(e.a) ? "0" : e.a;
       const b = isGround(e.b) ? "0" : e.b;
       if (reach.has(a) && !reach.has(b)) {

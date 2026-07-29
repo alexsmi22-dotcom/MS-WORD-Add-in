@@ -23,6 +23,7 @@
 // Pure numerics — no Office.js.
 
 import { fft, ifft, nextPow2 } from "./fft";
+import { minOf, maxOf } from "./minmax";
 
 export type FilterKind = "lowpass" | "highpass" | "bandpass" | "bandstop";
 
@@ -144,7 +145,7 @@ export function fftFilter(
   let stepSum = 0;
   for (let i = 1; i < n; i++) stepSum += Math.abs(signal[i] - signal[i - 1]);
   const typicalStep = stepSum / (n - 1);
-  const span = Math.max(...signal) - Math.min(...signal);
+  const span = maxOf(signal) - minOf(signal);
   if (span > 0 && typicalStep > 0 && wrapStep > 8 * typicalStep && wrapStep / span > 0.1) {
     caveats.push(
       `The signal starts at ${signal[0].toPrecision(4)} and ends at ${signal[n - 1].toPrecision(4)} — ` +

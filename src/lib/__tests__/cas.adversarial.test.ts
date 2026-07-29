@@ -24,14 +24,21 @@ import { symbolicIntegrate } from "../casint";
 const P = (s: string) => parseExpr(s);
 
 describe("domain widening must not produce a confident wrong answer", () => {
-  it("an integral whose integrand is undefined inside the range is CAVEATED", () => {
+  it("an integral whose integrand is undefined inside the range is REFUSED", () => {
+    // This test used to assert only that the formal value "no longer arrives
+    // bare" -- a caveat beside a number. That was upgraded to a refusal when the
+    // pole scan was rebuilt: sqrt(x) is undefined on half of [-1, 1], so there
+    // is no integral to report, and a caveated number is still a number in the
+    // document. The stronger contract is asserted here deliberately.
     const r = integrate("sqrt(x)^2", -1, 1)!;
     expect(r).not.toBeNull();
-    // The value is the formal one; what matters is that it no longer arrives bare.
+    expect(Number.isNaN(r.value)).toBe(true);
+    expect(r.method).toMatch(/does not exist|undefined/i);
     expect(r.caveats.some((c) => /UNDEFINED/i.test(c))).toBe(true);
   });
   it("the same hazard through a product spelling", () => {
     const r = integrate("sqrt(x)*sqrt(x)", -1, 1)!;
+    expect(Number.isNaN(r.value)).toBe(true);
     expect(r.caveats.some((c) => /UNDEFINED/i.test(c))).toBe(true);
   });
   it("a legitimate range over the same integrand stays clean", () => {
@@ -81,7 +88,12 @@ describe("numeric quadrature must not hang on an undefined integrand", () => {
   it("an undefined integrand reports NO value rather than a NaN dressed as one", () => {
     const r = integrate("ln(x)", -1, 2)!;
     expect(Number.isFinite(r.value)).toBe(false);
-    expect(r.method).toBe("undefined on this interval");
+    // One method string for one outcome. There were briefly two — "undefined on
+    // this interval" for a domain error and "does not exist on this interval" for
+    // a pole — which is a distinction about the CAUSE dressed up as a
+    // distinction about the RESULT. The cause belongs in the caveat, where it is
+    // stated, and the result is the same either way: there is no value.
+    expect(r.method).toBe("does not exist on this interval");
     expect(r.caveats.some((c) => /undefined/i.test(c))).toBe(true);
   });
   it("valid intervals over the same integrands are unaffected", () => {

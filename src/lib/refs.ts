@@ -9,6 +9,8 @@
 // auto-renumbering, Word's own cross-reference fields remain the authority; this is
 // the lightweight authoring aid.)
 
+import { maxOf } from "./minmax";
+
 export type RefKind = "figure" | "table";
 
 const STYLE: Record<RefKind, { caption: string; abbr: string }> = {
@@ -106,7 +108,7 @@ export function checkCaptions(text: string, kind: RefKind): CaptionFindings {
     .sort((a, b) => a - b);
   const gaps: number[] = [];
   if (nums.length) {
-    const max = Math.max(...nums);
+    const max = maxOf(nums);
     for (let i = 1; i <= max; i++) if (!seen.has(i)) gaps.push(i);
   }
   return { gaps, duplicates, ok: gaps.length === 0 && duplicates.length === 0 };

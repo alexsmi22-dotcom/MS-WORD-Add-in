@@ -10,6 +10,7 @@
 
 import { ChartStyle, parseNumberCell } from "./tablechart";
 import { wrapText } from "./tablediagram";
+import { maxOf } from "./minmax";
 
 export interface TableFigureResult {
   svg: string;
@@ -161,7 +162,7 @@ export function buildTableFigureSvg(rows: string[][], title = "", style: ChartSt
     }
     return r.map((c, j) => (c ? wrapText(c, maxCharsFor(colW[j]), MAX_LINES) : [""]));
   });
-  const rowH = wrapped.map((cells) => Math.max(...cells.map((lines) => lines.length)) * LINE_H + V_PAD);
+  const rowH = wrapped.map((cells) => maxOf(cells.map((lines) => lines.length)) * LINE_H + V_PAD);
   const rowY: number[] = [];
   {
     let acc = 0;

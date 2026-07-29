@@ -7,6 +7,7 @@
 // Pure logic — no Office.js — fully unit-testable.
 
 import { parseTableData, parseNumberCell } from "./tablechart";
+import { maxOf } from "./minmax";
 
 export type Representation =
   | "column"
@@ -46,7 +47,7 @@ function looksLikeSteps(rows: string[][]): boolean {
 }
 
 function looksLikeHierarchy(rows: string[][]): boolean {
-  const cols = Math.max(...rows.map((r) => r.length));
+  const cols = maxOf(rows.map((r) => r.length));
   if (cols < 2 || cols > 4) return false;
   if (avgCellLength(rows) > 26) return false; // long prose → not boxes
   // All columns essentially text.
@@ -97,7 +98,7 @@ function chartSubtype(
  * table figure, not a chart — the columns are usually mixed scales (n and %).
  */
 function isGrouped(rows: string[][]): boolean {
-  const cols = Math.max(...rows.map((r) => r.length));
+  const cols = maxOf(rows.map((r) => r.length));
   if (cols < 3) return false;
   const body = rows.slice(1);
   const bands = body.filter((r) => r.filter((c) => c !== "").length === 1).length;

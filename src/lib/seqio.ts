@@ -9,6 +9,8 @@
 //
 // Pure parsing — no DOM, no Office. Returns data; drawing lives in seqmap.ts.
 
+import { minOf, maxOf } from "./minmax";
+
 /** A feature interval. Coordinates are 1-based inclusive, as in the file. */
 export interface FeatureSegment {
   start: number;
@@ -325,8 +327,8 @@ function buildFeature(key: string, locText: string, quals: string[], seqLen: num
   }
 
   const label = LABEL_KEYS.map((k) => qualifiers[k]).find((v) => v && v.trim()) || key;
-  const start = Math.min(...loc.segments.map((s) => s.start));
-  const end = Math.max(...loc.segments.map((s) => s.end));
+  const start = minOf(loc.segments.map((s) => s.start));
+  const end = maxOf(loc.segments.map((s) => s.end));
   // A feature running past the end means it wraps the origin of a circular
   // plasmid. Flag it rather than silently drawing a bar off the edge.
   const wraps = end > seqLen;

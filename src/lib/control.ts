@@ -427,11 +427,31 @@ export function analyzeStability(tf: TransferFunction): StabilityResult | Contro
 
   // The axis tolerance is relative to the pole magnitudes: an absolute epsilon
   // calls a pole at -1e-9 stable for a slow system and unstable for a fast one.
-  const scale = Math.max(1, ...poles.map((p) => Math.hypot(p.re, p.im)));
-  const tol = scale * 1e-9;
+  // PER-POLE TOLERANCE, NOT ONE SCALED BY THE LARGEST POLE.
+  //
+  // A single tolerance of 1e-9 times the biggest |pole| means a fast pole sets the
+  // yardstick for a slow one. `1/((s+1)(s+2)(s+1e10))` therefore had its two
+  // ordinary poles — at -1 and -2, strictly in the left half plane — measured
+  // against a tolerance of 10, and was reported "MARGINALLY STABLE, 2 poles on
+  // the imaginary axis" for a plainly stable plant. The knock-on was worse than
+  // the label: `timeResponse` then refuses to quote a final value, and the pane
+  // prints that verdict directly above a pole list where every pole is tagged
+  // "(stable)".
+  //
+  // The cross-check could not catch it either, because `disagreement` compares
+  // only RHP counts — Routh said 0 and the numeric method said 0, so they
+  // "agreed" while the verdict was wrong. This is the same shape as the
+  // eigenvalue threshold in vibration.ts: a tolerance relative to the largest
+  // element cannot answer a question about an individual one.
+  //
+  // Scaling each pole by its own magnitude asks the right question — is this
+  // pole's real part negligible compared with THIS pole? — and leaves an absolute
+  // floor for a pole genuinely at the origin.
+  const poleTol = (p: { re: number; im: number }): number =>
+    Math.max(1e-12, 1e-9 * Math.hypot(p.re, p.im));
 
-  const rhpPolesNumeric = poles.filter((p) => p.re > tol).length;
-  const imaginaryAxisPoles = poles.filter((p) => Math.abs(p.re) <= tol).length;
+  const rhpPolesNumeric = poles.filter((p) => p.re > poleTol(p)).length;
+  const imaginaryAxisPoles = poles.filter((p) => Math.abs(p.re) <= poleTol(p)).length;
 
   const routh = routhHurwitz(den);
   const routhOk = !("ok" in routh && routh.ok === false);
@@ -465,7 +485,8 @@ export function analyzeStability(tf: TransferFunction): StabilityResult | Contro
     verdict = "STABLE — every pole is in the left half plane.";
   }
 
-  const nonMinimumPhase = zeros.some((z) => z.re > tol);
+  // Same per-zero yardstick, for the same reason.
+  const nonMinimumPhase = zeros.some((z) => z.re > poleTol(z));
   if (nonMinimumPhase) {
     notes.push(
       "This system is NON-MINIMUM-PHASE: it has a zero in the right half plane. Its step response " +

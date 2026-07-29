@@ -16,6 +16,7 @@ import { IrBand, irTransmittanceCurve } from "./ir";
 import { FragmentResult, Likelihood } from "./fragment";
 import { Cosy2D, Hsqc2D } from "./nmr2d";
 import { buildPlotSvg, Series, Point } from "./plot";
+import { minOf, maxOf } from "./minmax";
 
 const WIDTH = 380;
 const HEIGHT = 240;
@@ -29,8 +30,8 @@ export function nmrChartSvg(r: NmrResult): string | null {
     color: "#2563eb",
   }));
   const shifts = r.signals.map((s) => s.shift);
-  const max = Math.max(...shifts);
-  const min = Math.min(...shifts);
+  const max = maxOf(shifts);
+  const min = minOf(shifts);
   // A single-signal molecule (benzene) would otherwise give a zero-width axis.
   const pad = Math.max(0.4, (max - min) * 0.08);
   series.push({

@@ -90,11 +90,25 @@ Compress-Archive -Path (Join-Path $winPack "*") -DestinationPath $winZip
 node (Join-Path $root "scripts\zip-mac.mjs") $macPack $macZip
 if ($LASTEXITCODE -ne 0) { throw "Mac zip build failed." }
 
+# COPY INTO install/, WHICH IS WHAT USERS ACTUALLY DOWNLOAD.
+#
+# release/ is gitignored local output; install/ holds the two committed zips that
+# landing/manual.html links to. Building here and forgetting to copy meant the
+# published download stayed at the previous release while every version check in
+# the test suite passed, because those checks read install/ and release/ was
+# never consulted. Doing it in the same step is the only way the two cannot
+# drift. installPacks.test.ts then verifies what is actually committed.
+$installDir = Join-Path $root "install"
+if (-not (Test-Path $installDir)) { New-Item -ItemType Directory $installDir | Out-Null }
+Copy-Item -Force $winZip (Join-Path $installDir "formula-inserter-windows.zip")
+Copy-Item -Force $macZip (Join-Path $installDir "formula-inserter-mac.zip")
+
 Write-Host ""
 Write-Host "Done." -ForegroundColor Green
 Write-Host "  Hosting files (upload once): $hostPack\web  ->  $HostUrl"
 Write-Host "  Windows install pack:        $winZip"
 Write-Host "  macOS install pack:          $macZip"
+Write-Host "  Committed downloads updated: install\formula-inserter-{windows,mac}.zip"
 Write-Host ""
 Write-Host "Next: upload 'formula-inserter-host\web' to $HostUrl (one time),"
 Write-Host "then email each user the pack for their OS:"

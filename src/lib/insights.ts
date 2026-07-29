@@ -11,6 +11,7 @@
 // to an input cell.
 
 import { mean, median, stdev, tTestP, linearRegression } from "./stats";
+import { minOf, maxOf } from "./minmax";
 
 export type ColumnType = "numeric" | "categorical";
 
@@ -87,7 +88,7 @@ export function parseTable(text: string): ParsedTable {
   };
 
   const cells = lines.map(split);
-  const width = Math.max(...cells.map((r) => r.length));
+  const width = maxOf(cells.map((r) => r.length));
   for (const r of cells) while (r.length < width) r.push("");
 
   const firstAllNonNumeric = cells[0].every((c) => c !== "" && !Number.isFinite(Number(c)));
@@ -146,9 +147,9 @@ export function summarizeColumn(name: string, col: string[]): ColumnSummary {
       missing,
       mean: mean(nums),
       sd: nums.length > 1 ? stdev(nums) : NaN,
-      min: Math.min(...nums),
+      min: minOf(nums),
       median: median(nums),
-      max: Math.max(...nums),
+      max: maxOf(nums),
       outliers: countOutliers(nums),
     };
   }

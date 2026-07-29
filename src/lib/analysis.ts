@@ -19,6 +19,7 @@
 
 import { parseExpr, evalAst, format, simplify, derivative, Expr } from "./solve";
 import { casSimplify, CasBail, exprEqual } from "./cas";
+import { minOf, maxOf } from "./minmax";
 
 const N = (v: number): Expr => ({ t: "num", v });
 const V = (name: string): Expr => ({ t: "var", name });
@@ -106,7 +107,7 @@ function settles(vals: number[]): { value: number } | { diverges: 1 | -1 } | nul
   // artefact as though it were the answer.
   const shrinking = tail.every((v, i) => i === 0 || Math.abs(v) < Math.abs(tail[i - 1]));
   if (shrinking && Math.abs(last) < 1e-9) return { value: 0 };
-  const spread = Math.max(...tail) - Math.min(...tail);
+  const spread = maxOf(tail) - minOf(tail);
   if (spread <= 1e-4 * (1 + Math.abs(last))) return { value: last };
   // A tail marching steadily toward zero IS a limit of zero, even if the last
   // few values are still spread out on an absolute scale.

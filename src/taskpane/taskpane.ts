@@ -336,6 +336,8 @@ import { kruskalWallis, dunnTest, friedman } from "../lib/nonparametric";
 import { dunnettTest } from "../lib/dunnett";
 import { multipleRegression, polynomialRegression, qqPoints } from "../lib/regression";
 import { kaplanMeier, logRankTest, survivalCurvePoints } from "../lib/survival";
+import { minOf, maxOf } from "../lib/minmax";
+import { statVars, statVarLineProblem } from "../lib/uncertaintyParse";
 import {
   planParagraphNumbering,
   describeParagraphPlan,
@@ -5560,14 +5562,6 @@ function statTwoWay(s: string): { cells: number[][][]; aLevels: string[]; bLevel
   return { cells, aLevels, bLevels };
 }
 
-function statVars(s: string): Record<string, { value: number; uncertainty: number }> {
-  const out: Record<string, { value: number; uncertainty: number }> = {};
-  for (const line of s.split(/[\n;]+/)) {
-    const m = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(-?[\d.eE+]+)\s*(?:±|\+\/-|\+-)\s*([\d.eE+]+)\s*$/.exec(line);
-    if (m) out[m[1]] = { value: parseFloat(m[2]), uncertainty: parseFloat(m[3]) };
-  }
-  return out;
-}
 
 /**
  * Swaps em dashes for hyphens in prose destined for a Stats result.
@@ -6191,7 +6185,17 @@ const STAT_CALCS: StatCalc[] = [
     ],
     compute: (r) => {
       const formula = r("formula").trim();
-      const vars = statVars(r("vars"));
+      const varsText = r("vars");
+      const vars = statVars(varsText);
+      // Name the line that could not be read. Previously any unreadable line was
+      // dropped in silence and the user was then told 'Unknown variable "a"'
+      // about a variable defined on their own screen — the message blamed the
+      // formula for the parser's omission.
+      const problems = varsText
+        .split(/[\n;]+/)
+        .map((line) => statVarLineProblem(line))
+        .filter((p): p is string => p !== null);
+      if (problems.length) return { text: problems.join("\n"), ok: false };
       if (!formula || !Object.keys(vars).length) return { text: "Enter a formula and at least one variable.", ok: false };
       try {
         const res = propagateUncertainty(formula, vars);
@@ -9175,35 +9179,61 @@ const ENG_CALCS: EngCalc[] = [
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_PK_UNIT_NOTE);
 
-      const svg = buildPlotSvg(
-        [
-          {
-            points: parsed.times.map((t, i) => ({ x: t, y: parsed.concentrations[i] })),
-            type: "scatter",
-            color: "#2563eb",
-            label: "measured",
-          },
-        ],
+      // A log concentration axis cannot plot a zero, and in pharmacokinetics a zero
+      // is NORMAL data: the pre-dose sample is zero by definition, and a trailing
+      // below-limit-of-quantification sample is reported as zero too. plot.ts
+      // requires every caller passing a log scale to run dropForScales first;
+      // this one did not, so log(0) = -Infinity propagated to Infinity/Infinity
+      // and all nine points were emitted as cy="NaN" -- a blank-bodied figure,
+      // with no y tick labels but a plausible x axis, inserted into the document
+      // beneath a numerically correct NCA report.
+      const pkPlotOpts = {
+        width: 380,
+        height: 240,
+        xlabel: "Time (h)",
+        ylabel: "Concentration (mg/L)",
+        yScale: "log" as const,
+        title: "Concentration-time data (log scale)",
+      };
+      const pkSeries = [
         {
-          width: 380,
-          height: 240,
-          xlabel: "Time (h)",
-          ylabel: "Concentration (mg/L)",
-          yScale: "log",
-          title: "Concentration-time data (log scale)",
+          points: parsed.times.map((t, i) => ({ x: t, y: parsed.concentrations[i] })),
+          type: "scatter" as const,
+          color: "#2563eb",
+          label: "measured",
         },
-      );
+      ];
+      const pkFiltered = dropForScales(pkSeries, pkPlotOpts);
+      if (pkFiltered.dropped > 0) {
+        // Say it on the page. A point silently missing from a log plot is the
+        // quiet-wrong this product refuses to ship, and here it is load-bearing:
+        // the reader is looking at that plot to judge whether the terminal phase
+        // is straight.
+        lines.push(
+          `Note: ${pkFiltered.dropped} point(s) with a concentration of zero or less cannot be ` +
+            "plotted on a logarithmic axis and are omitted from the figure only. Every number " +
+            "in the report above uses the full data set.",
+        );
+      }
+      const svg =
+        pkFiltered.series.some((s) => s.points.length > 0)
+          ? buildPlotSvg(pkFiltered.series, pkPlotOpts)
+          : null;
       const clean = lines.map(plainDashes);
       const blocks: AnalyzeBlock[] = [
         ...clean.map((t) => ({ kind: "line" as const, text: t })),
-        {
-          kind: "plot" as const,
-          svg,
-          caption: "Measured concentration-time data, log concentration axis",
-          alt: "Measured plasma concentrations against time on a logarithmic concentration axis, where a straight terminal phase indicates first-order elimination",
-          w: 380,
-          h: 240,
-        },
+        ...(svg
+          ? [
+              {
+                kind: "plot" as const,
+                svg,
+                caption: "Measured concentration-time data, log concentration axis",
+                alt: "Measured plasma concentrations against time on a logarithmic concentration axis, where a straight terminal phase indicates first-order elimination",
+                w: 380,
+                h: 240,
+              },
+            ]
+          : []),
       ];
       return { text: clean.join("\n"), blocks };
     },
@@ -11854,7 +11884,7 @@ function renderJcamp(text: string, filename: string): void {
   lines.push(`${s.points.length.toLocaleString()} points, ${s.xUnits || "?"} vs ${s.yUnits || "?"}`);
   if (s.points.length) {
     const xs = s.points.map((p) => p.x);
-    lines.push(`Range ${Math.min(...xs).toPrecision(6)} to ${Math.max(...xs).toPrecision(6)} ${s.xUnits}`);
+    lines.push(`Range ${minOf(xs).toPrecision(6)} to ${maxOf(xs).toPrecision(6)} ${s.xUnits}`);
   }
   if (parsed.spectra.length > 1) {
     lines.push(`This file holds ${parsed.spectra.length} blocks; the first is shown.`);
@@ -13135,8 +13165,8 @@ function updateAssayPreview(): void {
   if (out.plot && insertable) {
     const { data, predict, xlabel, ylabel } = out.plot;
     const xs = data.map((p) => p.x);
-    const xmin = Math.min(...xs);
-    const xmax = Math.max(...xs);
+    const xmin = minOf(xs);
+    const xmax = maxOf(xs);
     const fitPts: Point[] = [];
     const N = 120;
     for (let i = 0; i <= N; i++) {

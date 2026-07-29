@@ -91,7 +91,12 @@ function parseSegment(body: string): SegmentResult {
       // Digits after an atom are its subscript count; a bare trailing sign is a
       // ±1 charge (NH4+ → H:4, charge +1; NO3- → O:3, charge −1). A monatomic
       // metal cation like "Ca2+" (digit = charge) is handled in validateFormula.
-      add(top(), sym, num ? parseInt(num, 10) : 1);
+      // A subscript of zero is not chemistry. "H0" used to validate clean with a
+      // molar mass of 0 and a Hill formula of "H0", and "C0H4" likewise -- an
+      // impossible formula certified as correct, which is worse than a refusal.
+      const count = num ? parseInt(num, 10) : 1;
+      if (count === 0) errors.push(`Subscript 0 on “${sym}” is not a formula — remove the element or give it a count of 1 or more`);
+      add(top(), sym, count);
       if (sign) charge += sign;
       continue;
     }

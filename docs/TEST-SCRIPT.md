@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.38.0)
+# JurisLab — Manual Test Script (v2.39.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -176,6 +176,116 @@ Engineering > Structural & solids > **Beam analysis**:
   answer.
 - [ ] `k=5 roller 8` (option before the position) must be refused.
 - [ ] Uppercase still works: `UDL 0 TO 9 FROM 1/3 TO 6`.
+
+---
+
+## 0d. New in v2.39.0 — divergent integrals, the PK figure, and a 130k paste
+
+Every item here is a bug that shipped and looked completely normal. Check the
+refusals as carefully as the answers: in each case the old behaviour was a
+plausible number, not an error message.
+
+Math > **Solve** > definite integral:
+
+- [ ] `1/((x-1)^2)` from `0` to `2` must be **REFUSED** — "does not exist on this
+  interval", naming a POLE near x = 1. It used to report **−2** as
+  "exact (symbolic)" with no caveat at all. The integrand is positive everywhere
+  on that interval, so a negative area was impossible, not merely inaccurate.
+- [ ] `tan(x)` from `0` to `3` must be refused (pole at π/2). It used to report
+  0.01005 as exact.
+- [ ] `1/(x-0.5)` from `0` to `3` must be refused. This one took the *numeric*
+  path and returned a confident **5.0355** — the quadrature stepped over the pole
+  without ever sampling it.
+- [ ] `1/(x^2-4)` from `0` to `3` refused (pole at x = 2); from `0` to `1` it must
+  still give the ordinary answer **−0.2747**.
+- [ ] **The control that matters most:** `1/((x-1)^2)` from `2` to `3` must still
+  return **0.5**. The pole is real but outside the interval, and refusing this
+  would mean the fix went too far.
+- [ ] A handful of ordinary integrals must be untouched and still say
+  "exact (symbolic)": `x^2` over [0, 2] = 2.6667, `1/(x^2+1)` over [0, 1] =
+  0.7854, `ln(x)` over [1, 2] = 0.3863, `sin(x)` over [0, π] = 2.
+- [ ] Type into the integral fields and watch for lag. The pole search runs on
+  every keystroke; it should be imperceptible.
+
+Math > **Solve** > derivative:
+
+- [ ] `log10(x)` must give `0.434294/x`. It used to **throw an error** into the
+  pane — `log10` was the only function the parser accepted and the derivative
+  table did not have.
+- [ ] `x/0` must show a caveat saying the result is not a number. It used to
+  report the derivative as **`0`**.
+
+Analyze > **Pharmacokinetics (NCA)**:
+
+- [ ] Paste concentration-time data whose **first sample is 0** — which is normal,
+  the pre-dose sample is zero by definition:
+  `0 0 / 0.5 12.1 / 1 10.9 / 2 9.6 / 4 7.8 / 8 4.3 / 12 2.4 / 24 1.3 / 48 0.13`,
+  dose 500, IV.
+- [ ] **Look at the figure.** Every point must be visible on the log axis. It used
+  to insert a figure where all nine points were `cy="NaN"` — a blank plot body
+  with no y-axis labels, but a normal-looking x axis, beneath a numerically
+  correct report. If the figure looks empty, this has regressed.
+- [ ] A note must appear saying **1 point** could not be plotted on a logarithmic
+  axis, that it is omitted from the figure only, and that the numbers use the full
+  data set.
+- [ ] Same check with a trailing zero (a below-limit-of-quantification sample).
+- [ ] With data where *every* concentration is zero, there must be **no figure at
+  all** rather than an empty frame.
+
+Stats > **Uncertainty propagation**:
+
+- [ ] Variables `a = 1e-3 ± 1e-4`, `b = 20 ± 0.2`, `c = 5 ± 0.05`, formula
+  `a*b/c`. This must work. It used to say **`Unknown variable "a"`** — about a
+  variable defined on screen — because the parser accepted `1e+3` but not `1e-3`.
+- [ ] `a = 5 ± -0.1` must be **refused** with a message saying an uncertainty is a
+  magnitude. Do not accept a negative uncertainty: propagation squares it, so it
+  would vanish into a plausible answer.
+- [ ] `a = 1.2.3 ± 0.1` must be refused by name, not silently read as 1.2.
+- [ ] A negative *value* is still fine: `dT = -1.5e-3 ± 2e-5`.
+
+Anywhere that takes a pasted column of numbers — **Plot**, **Analyze → data
+insights**, **FFT filter**, **Table→Chart**:
+
+- [ ] Paste a **very large** column, at least 150,000 rows. A spreadsheet column
+  that size is ordinary. Nothing may crash. The previous limit was about 125,000
+  and the failure was a cliff, not a slowdown — 100,000 rows worked perfectly,
+  which is why no test caught it.
+
+Engineering > **Circuits**:
+
+- [ ] `V1 1 Gnd 5` / `R1 1 0 1k`. Ground aliases are now case-insensitive, so this
+  must give V(1) = 5 V. It used to report **V(1) = 0 V and V(Gnd) = −5 V** — an
+  exact, unique, wrong answer, because `Gnd` with a capital G was treated as an
+  ordinary node. Try `GND`, `Ground`, `GROUND`, `VSS` too.
+- [ ] An inductor of `0` or a capacitor of `0` must be refused at parse. They used
+  to return "ok" with all-NaN node voltages that were still insertable.
+- [ ] A circuit whose only path to ground is through a **capacitor** must be
+  refused for having no DC path. The capacitor used to count as a path, defeating
+  the refusal the module's own header advertises.
+
+Engineering > **Control**:
+
+- [ ] Transfer function `1` over `s^3 + 10000000003 s^2 + 30000000002 s +
+  20000000000` — that is `1/((s+1)(s+2)(s+1e10))`. The verdict must read
+  **STABLE**. It used to read "MARGINALLY STABLE — 2 poles on the imaginary axis"
+  directly above a pole list where every pole was tagged "(stable)", because one
+  tolerance was scaled by the largest pole.
+- [ ] `1/s` must still be MARGINALLY STABLE, and `1/(s-1)` still UNSTABLE — the
+  genuine cases must not have been loosened away.
+
+Chemical:
+
+- [ ] Formula `H0` must be **refused**. It used to validate clean with a molar
+  mass of 0 and a Hill formula of "H0". Same for `C0H4`. Ordinary formulas
+  (`H2O`, `K4[Fe(CN)6]`) must be unaffected.
+
+> **Known and NOT fixed in this release.** `docs/KNOWN-DEFECTS.md` lists eleven
+> defects that still produce a wrong number, with exact reproductions — settling
+> time for an overdamped system, phase margin at the wrong crossover, NCA area
+> starting at the first sample instead of t = 0, oral half-life without a
+> flip-flop check, small limit points, and several tolerance bands in the equation
+> solver. If you are checking those areas, read that file first so you know what
+> you are looking at.
 
 ---
 

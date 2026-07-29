@@ -7,6 +7,8 @@
 
 // --- Expression evaluator ----------------------------------------------------
 
+import { minOf, maxOf } from "./minmax";
+
 /** Factorial for non-negative integers (else NaN). */
 function factorial(n: number): number {
   if (n < 0 || !Number.isInteger(n)) return NaN;
@@ -34,8 +36,8 @@ const FUNCS_N: Record<string, { arity: number | "var"; fn: (a: number[]) => numb
   mod: { arity: 2, fn: (a) => a[0] - a[1] * Math.floor(a[0] / a[1]) },
   pow: { arity: 2, fn: (a) => Math.pow(a[0], a[1]) },
   hypot: { arity: "var", fn: (a) => Math.hypot(...a) },
-  min: { arity: "var", fn: (a) => Math.min(...a) },
-  max: { arity: "var", fn: (a) => Math.max(...a) },
+  min: { arity: "var", fn: (a) => minOf(a) },
+  max: { arity: "var", fn: (a) => maxOf(a) },
 };
 const CONSTS: Record<string, number> = { pi: Math.PI, e: Math.E, tau: Math.PI * 2 };
 
@@ -368,8 +370,8 @@ export function buildPlotSvg(series: Series[], options: PlotOptions = {}): strin
   const tx = (x: number): number => (logX ? Math.log10(x) : x);
   const ty = (y: number): number => (logY ? Math.log10(y) : y);
 
-  let xmin = Math.min(...all.map((p) => tx(p.x)));
-  let xmax = Math.max(...all.map((p) => tx(p.x)));
+  let xmin = minOf(all.map((p) => tx(p.x)));
+  let xmax = maxOf(all.map((p) => tx(p.x)));
   // On a log y axis an error bar may reach to or below zero, where log is
   // undefined; clamp its lower end into the domain instead of dropping a point
   // that is itself perfectly plottable.
@@ -378,8 +380,8 @@ export function buildPlotSvg(series: Series[], options: PlotOptions = {}): strin
     if (!logY) return raw;
     return ty(raw > 0 ? raw : p.y);
   };
-  let ymin = Math.min(...all.map(lowY));
-  let ymax = Math.max(...all.map((p) => ty(p.y + (p.err ?? 0))));
+  let ymin = minOf(all.map(lowY));
+  let ymax = maxOf(all.map((p) => ty(p.y + (p.err ?? 0))));
   if (xmin === xmax) {
     xmin -= 1;
     xmax += 1;
@@ -492,7 +494,7 @@ export function buildPlotSvg(series: Series[], options: PlotOptions = {}): strin
     };
     const maxRows = Math.max(1, Math.floor((ph - 10) / lh));
     const shown = labeled.slice(0, maxRows);
-    const lw = Math.min(14 + Math.max(...shown.map((s) => labelOf(s).length)) * 6 + 8, pw - 8);
+    const lw = Math.min(14 + maxOf(shown.map((s) => labelOf(s).length)) * 6 + 8, pw - 8);
     const lx = ml + pw - lw - 4;
     const ly = mt + 4;
     parts.push(`<rect x="${lx}" y="${ly}" width="${lw}" height="${shown.length * lh + 6}" fill="#fff" fill-opacity="0.82" stroke="#ccc"/>`);

@@ -5,6 +5,192 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > Note: this file was not maintained between v1.96.0 and v2.23.0. Those releases
 > are recorded in the git history rather than here.
 
+## [2.39.0] — 2026-07-29 — A negative area under a positive curve, and a figure of pure NaN
+
+Four independent reviews reported at once — truss/circuit, control/pharmacokinetics,
+CAS/chemistry, and a cross-cutting sweep for defect classes rather than modules.
+Between them they found more than could responsibly be fixed in one release, so this
+one takes the items that are **wrong numbers or crashes**, verifies each
+reproduction before touching anything, and writes the rest down instead of
+pretending it isn't there. The remainder is now in **`docs/KNOWN-DEFECTS.md`** with
+the exact inputs, ranked by severity, and a fix direction for each — including
+eleven that produce a wrong number today.
+
+### A divergent integral no longer returns a number
+
+`integrate("1/((x-1)^2)", 0, 2)` returned **−2**, method `"exact (symbolic)"`,
+caveats **`[]`**. The integrand is strictly positive at every point of that
+interval and the integral diverges to +∞, so this was not an imprecise answer — its
+**sign was impossible**, and nothing in six rounds of review noticed.
+
+The singularity scan had two independent blind spots, and both had to be understood
+before it could be fixed:
+
+- **Grid alignment.** It sampled `a + (b−a)·i/129`, so the pole at x = 1 in [0, 2]
+  needs i = 64.5 and was never visited. The control that proves it: the *same pole*
+  over [0, 2.58] lands on i = 50 and was caught. A pole that is visible over one
+  interval and invisible over another is not a tolerance problem, and no threshold
+  fixes it.
+- **Structural invisibility.** `tan` has a pole at π/2, but `tan` is *finite at
+  every representable double near π/2* — `Number.isFinite` is true at all 130
+  samples no matter how the grid is spaced. `integrate("tan(x)", 0, 3)` returned
+  0.01005… as exact. More sampling could never have found this one.
+
+Poles are now located from the **structure** of the expression: real roots of a
+polynomial denominator, verified by residual, plus the known pole sets of
+tan/cot/sec/csc. Sampling is kept only as a backstop for domain errors — a square
+root or logarithm of the wrong sign, which really are non-finite — and that backstop
+now runs on two grids offset by an irrational fraction of a step, so nothing can
+hide in the gaps of both.
+
+Fixing only the symbolic path left the same wrong number reachable by another road:
+`integrate("1/(x-0.5)", 0, 3)` finds no antiderivative rule, falls through to
+adaptive Simpson, and Simpson stepped straight over the pole without sampling it —
+returning a confident **5.0355** for a divergent integral. Its stock caveat about
+singularities appears on *every* numeric integral, so it said nothing about that
+one. Both paths now share the guard.
+
+There is also an exact backstop, on the principle that the two lines of defence
+should not share a failure mode: **an integrand that never changes sign cannot
+integrate to the opposite sign.** That is a theorem with no tolerance in it, and it
+catches precisely the failure that reaches a document.
+
+Verified in both directions. All six divergent cases refuse; all fourteen
+legitimate ones still return their exact values, including `1/((x−1)²)` over [2, 3]
+= 0.5, where the pole is real but outside the interval — and `sin(x)` over [0, 4π],
+where the sign test must *not* fire because the integral is genuinely zero. Cost is
+under 5 ms per call.
+
+### A pharmacokinetics figure made entirely of NaN
+
+The PK report passed `yScale: "log"` to the plot renderer without calling
+`dropForScales`, which `plot.ts` documents as mandatory for any caller using a
+logarithmic axis. Plot mode calls it; this one did not.
+
+In pharmacokinetics a zero concentration is not bad data — **the pre-dose sample is
+zero by definition**, and a trailing below-limit-of-quantification sample is
+reported as zero too. So `log(0) = −Infinity` became `Infinity/Infinity` became
+`NaN`, and all nine points were emitted as `cy="NaN"`. The figure went into the
+document with a blank body, no y-axis tick labels, and a perfectly plausible x
+axis — beneath a numerically correct NCA report.
+
+The report now drops unplottable points from the figure only, **says on the page how
+many and why**, states that every number above uses the full data set, and emits no
+figure at all rather than an empty one if nothing is left to draw.
+
+Why this survived six rounds: the repo's two non-finite walkers recurse into
+numbers, arrays and objects, and neither looks inside a **string** — so neither can
+see an SVG. Nothing here had ever grepped generated markup. There is now a harness
+that does, and it proves itself against the pre-fix figure before it is trusted to
+report anything clean.
+
+### A stable plant reported as marginally stable
+
+`analyzeStability` set one tolerance from the largest pole magnitude — `1e-9 × max
+|pole|` — so a fast pole set the yardstick for a slow one. For
+`1/((s+1)(s+2)(s+1e10))` the two ordinary poles at −1 and −2 were measured against
+a tolerance of **10**, and a plainly stable plant came back *"MARGINALLY STABLE — 2
+poles on the imaginary axis"*, printed directly above a pole list where every pole
+was tagged "(stable)". `timeResponse` then refuses to quote a final value.
+
+The cross-check could not catch it: it compares only right-half-plane counts, and
+both methods said zero, so they "agreed" while the verdict was wrong. This is the
+same shape as the eigenvalue threshold fixed in `vibration.ts` last release — **a
+tolerance relative to the largest element cannot answer a question about an
+individual one.** Each pole and zero is now measured against its own magnitude,
+with an absolute floor for a pole genuinely at the origin.
+
+### A 130,000-row paste crashed the renderer
+
+`Math.min(...xs)` passes every element as a separate function argument, and V8
+throws past roughly 125,000 of them. Every textarea that takes a column of numbers
+here is uncapped, and a 130,000-row spreadsheet column is an ordinary paste.
+
+The failure is a **cliff, not a curve** — 100,000 values worked perfectly — so the
+existing "large input" tests certified the bug. Twenty-eight sites reachable from a
+paste now use a shared reduction (`lib/minmax.ts`), including the plot renderer
+behind about 25 call sites, the data-insights engine, the FFT filter, the assay
+fits and the sequence readers. The remaining spread sites in the repo are bounded by
+structure — matrix order, pole count, polynomial degree — and were deliberately left
+alone.
+
+Its own test caught a semantic gap on the first run: `Math.min(0, −0)` is `−0`, and
+a naive `v < m` reduction returns `+0`. The plot renderer divides by an axis span,
+where `1/+0` and `1/−0` differ in sign, so a drop-in replacement that was subtly not
+a drop-in replacement would have been its own new bug. Signed zero is now handled
+explicitly and checked against `Math` directly.
+
+### "Unknown variable a" about a variable defined on screen
+
+The uncertainty parser matched numbers with the character class `[\d.eE+]+`, which
+allows `+` but not `−`. So `a = 1e-3 ± 1e-4` failed the anchored match, the line was
+**silently discarded**, and the pane then reported `Unknown variable "a"` — blaming
+the formula for the parser's omission. `1e+3` worked, which is what made scientific
+notation look supported. The same loose class accepted `1.2.3`, which `parseFloat`
+quietly read as 1.2.
+
+Widening the grammar fixed that and opened a new hole: `a = 5 ± -0.1` now *matched*,
+and propagation squares sigma, so a negative uncertainty would have disappeared into
+a plausible-looking answer. The old class rejected it only by accident. It is now
+refused on purpose, with a message that says an uncertainty is a magnitude.
+
+Two structural changes matter more than the character. The number grammar now lives
+in one place (`lib/numgrammar.ts`) instead of being hand-written per module, which
+retires an instance of the duplicated-constant class and lets `beam.ts` share it.
+And the parser moved out of `taskpane.ts` into `lib/uncertaintyParse.ts` — **nothing
+in this repo can import `taskpane.ts` in a test**, because it pulls in the Office.js
+`Word` namespace, so every parser buried in that file is structurally unreachable by
+the suite. That is why a one-character omission survived. It is now tested, and an
+unreadable line is named rather than dropped in silence.
+
+### Smaller, all verified before and after
+
+- **`log10` threw an uncaught exception.** `derivFn` had cases for `log` and
+  `log2` but not `log10`, which the parser and evaluator both accept.
+  `differentiate("log10(x)")` threw *"No derivative rule"* straight out of the pane,
+  and `integrate("log10(x)", 1, 2)` threw the same from the by-parts branch. It was
+  the only such gap.
+- **`0/0` simplified to `0`**, so `differentiate("x/0")`, `("0/0")` and
+  `("(x+1)/0")` all reported the derivative as **0**. The fold now requires a
+  denominator demonstrably non-zero, and a division by literal zero anywhere in the
+  expression carries a caveat saying the result shown is not a number — a
+  non-answer must not be presented as an answer.
+- **A NaN root labelled `exact (linear)`.** `solveEquation("x/0 = 1")` returned
+  roots `["NaN"]`. `polyCoeffs` divided by a zero constant, producing `[NaN,
+  Infinity]`. The parser deliberately refuses the identifiers `NaN` and `Infinity`
+  and the literal `1e999` to prevent exactly this; arithmetic division by zero
+  walked past both defences.
+- **An impossible formula validated clean.** `validateFormula("H0")` returned
+  `valid: true` with a molar mass of 0 and a Hill formula of `"H0"`; `"C0H4"`
+  likewise. A subscript of zero is a typo, not chemistry, and certifying it is worse
+  than refusing it.
+- **Ground-node aliases were case-sensitive.** `V1 1 Gnd 5 / R1 1 0 1k` gave
+  **V(1) = 0 V, V(Gnd) = −5 V** — exact, unique, and wrong, because `Gnd` was
+  treated as an ordinary node. `gnd`, `GND` and `ground` worked; `Gnd`, `Ground` and
+  `GROUND` did not.
+- **A zero-henry inductor or zero-farad capacitor** returned `ok: true` with
+  all-NaN node voltages, printed as "not finite" and still insertable. Rejected at
+  parse now.
+- **A capacitor counted as a DC path to ground**, defeating the flagship refusal in
+  the module's own header.
+- One method string for one outcome: a domain error and a pole both mean the
+  integral does not exist, and having two names for that was a distinction about the
+  *cause* dressed up as a distinction about the *result*. The cause is in the
+  caveat, where it is stated explicitly and never guessed.
+
+### Two tests that could not fail
+
+- The `sqrt(x)^2` domain-widening tests asserted only that the formal value "no
+  longer arrives bare" — a caveat beside a number. That is now a refusal: `sqrt(x)`
+  is undefined on half of [−1, 1], so there is no integral, and a caveated number is
+  still a number in the document.
+- Recorded in `docs/KNOWN-DEFECTS.md` rather than fixed: both beam-chart height
+  tests parse the height out of the SVG they just generated, so they cannot fail.
+  Proved by rewriting the declared height by +10, +50, +200 and +1000 — the exact
+  change that caused the 336→346 bug — and watching all four still pass.
+
+6,362 tests across 210 files, all green.
+
 ## [2.38.0] — 2026-07-29 — Two wrong statistical verdicts, and eight more from the stats engines
 
 A deep round aimed at engines never independently reviewed. Five passes launched;

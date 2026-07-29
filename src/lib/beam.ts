@@ -89,6 +89,7 @@ import {
   ratToNumber,
   parseRatLiteral,
 } from "./cas";
+import { NUM_WITH_FRACTION } from "./numgrammar";
 
 // ---------------------------------------------------------------------------
 // Model
@@ -877,7 +878,7 @@ export interface ParsedBeam {
  * by the parser with "is not a number", which is the honest outcome: writing it
  * as `3/6` or `0.5` is unambiguous, and silently reinterpreting it would not be.
  */
-const NUM = String.raw`[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?(?:\s*\/\s*[+-]?\d+)?`;
+const NUM = NUM_WITH_FRACTION;
 
 /**
  * Reads the support line, e.g. `pin 0, roller 8` or `fixed 0`.

@@ -232,7 +232,13 @@ function derivFn(name: string, u: Expr): Expr {
     case "tan": return { t: "div", l: N(1), r: { t: "pow", l: { t: "fn", name: "cos", arg: u }, r: N(2) } };
     case "exp": return { t: "fn", name: "exp", arg: u };
     case "ln": return { t: "div", l: N(1), r: u };
-    case "log": return { t: "div", l: N(1), r: { t: "mul", l: u, r: N(Math.LN10) } };
+    // log and log10 are the same function here -- EVAL_FN and the parser both
+        // accept log10, but derivFn had no case for it, so differentiate("log10(x)")
+        // threw "No derivative rule" straight out of the pane (derivative() is not
+        // inside solve.ts's try), and integrate("log10(x)", 1, 2) threw the same
+        // from casint's by-parts branch. It was the only such gap.
+    case "log":
+    case "log10": return { t: "div", l: N(1), r: { t: "mul", l: u, r: N(Math.LN10) } };
     case "log2": return { t: "div", l: N(1), r: { t: "mul", l: u, r: N(Math.LN2) } };
     case "sqrt": return { t: "div", l: N(1), r: { t: "mul", l: N(2), r: { t: "fn", name: "sqrt", arg: u } } };
     case "cbrt": return { t: "div", l: N(1), r: { t: "mul", l: N(3), r: { t: "pow", l: { t: "fn", name: "cbrt", arg: u }, r: N(2) } } };
@@ -392,7 +398,13 @@ function peepholeSimplify(e: Expr): Expr {
     case "div": {
       const l = peepholeSimplify(e.l), r = peepholeSimplify(e.r);
       if (l.t === "num" && r.t === "num" && r.v !== 0) return N(l.v / r.v);
-      if (isNum(l, 0)) return N(0);
+      // 0/r is 0 only when r is DEMONSTRABLY non-zero. casSimplify correctly
+      // bails on a zero denominator, which handed 0/0 to this peephole, and the
+      // unconditional fold answered "0" -- so differentiate("x/0"),
+      // differentiate("0/0") and differentiate("(x+1)/0") all reported the
+      // derivative as 0. A symbolic denominator is not known to be non-zero
+      // either, so it is left alone rather than folded.
+      if (isNum(l, 0) && r.t === "num" && r.v !== 0) return N(0);
       if (isNum(r, 1)) return l;
       return { t: "div", l, r };
     }
@@ -472,6 +484,13 @@ export function polyCoeffs(e: Expr, x: string): number[] | null {
       // Only division by a constant keeps it polynomial.
       const denom = polyCoeffs(e.r, x);
       if (!denom || denom.length !== 1) return null;
+      // Division by a zero constant is not a polynomial. Without this guard
+      // "x/0 = 1" produced coefficients [NaN, Infinity], sailed through the
+      // linear branch, and was reported as roots ["NaN"] with the method
+      // "exact (linear)". The parser deliberately refuses the identifiers NaN
+      // and Infinity and the literal 1e999 to prevent exactly this outcome;
+      // arithmetic division by zero walked past both of those defences.
+      if (!Number.isFinite(denom[0]) || denom[0] === 0) return null;
       const num = polyCoeffs(e.l, x);
       return num ? num.map((v) => v / denom[0]) : null;
     }
@@ -872,7 +891,19 @@ export function differentiate(input: string, variable?: string): DerivativeResul
   const caveats: string[] = [];
   if (freeVars(e).length > 1) caveats.push(`Differentiated with respect to ${x}; other symbols were treated as constants.`);
   if (/\babs\b/.test(input)) caveats.push("The derivative of abs() is the sign function, undefined where its argument is zero.");
-  return { variable: x, expression: format(simplify(e)), derivative: format(d), caveats };
+  // A division by literal zero anywhere in the expression means there is nothing
+  // to differentiate. The peephole simplifier used to fold 0/0 to 0, so
+  // differentiate("x/0") reported the derivative as "0" — a confident wrong
+  // answer. That fold is gone, but the result is now a formatted "0/0", which is
+  // still a non-answer and must not be presented as one without saying so.
+  const out = format(d);
+  if (/\/\s*0(?![.\d])/.test(out) || /\/\s*0(?![.\d])/.test(format(simplify(e)))) {
+    caveats.push(
+      "This expression divides by zero, so it has no value and no derivative. " +
+        "Check the denominator — the result shown is not a number.",
+    );
+  }
+  return { variable: x, expression: format(simplify(e)), derivative: out, caveats };
 }
 
 // ---------------------------------------------------------------------------
@@ -996,19 +1027,168 @@ function symbolicAntideriv(e: Expr, x: string): Expr | null {
  * only find a witness that it is not. A missed narrow gap therefore leaves the
  * old behaviour, never a new false warning.
  */
-function undefinedPointIn(e: Expr, x: string, a: number, b: number, steps = 129): number | null {
+type Singularity = { at: number; kind: "pole" | "domain" };
+
+function undefinedPointIn(e: Expr, x: string, a: number, b: number, steps = 129): Singularity | null {
+  // SYMBOLIC FIRST. A sampled scan cannot find a pole reliably, and this one had
+  // two independent blind spots that both produced a confident wrong number:
+  //
+  //   (a) GRID ALIGNMENT. The samples were a + (b-a)*i/129, so the pole at x = 1
+  //       in [0, 2] needs i = 64.5 and was never visited. Proof by control:
+  //       [0, 2.58] puts the same pole on i = 50 and WAS caught, [0, 2] was not.
+  //       integrate("1/((x-1)^2)", 0, 2) therefore returned -2, method
+  //       "exact (symbolic)", caveats [] -- a NEGATIVE value for an integrand
+  //       that is strictly positive everywhere, for an integral that diverges to
+  //       +infinity.
+  //   (b) STRUCTURAL INVISIBILITY. tan has a pole at pi/2, but tan is FINITE at
+  //       every representable double near pi/2, so Number.isFinite is true at
+  //       every sample no matter how the grid is spaced. No amount of extra
+  //       sampling fixes that. integrate("tan(x)", 0, 3) returned 0.01005... as
+  //       "exact (symbolic)" with no caveat.
+  //
+  // So the poles are located by structure, and sampling is kept only as a
+  // backstop for the cases structure does not cover (sqrt and ln of the wrong
+  // sign, which the scan does find because those really are non-finite or NaN).
   const lo = Math.min(a, b), hi = Math.max(a, b);
+  const inside = (t: number): boolean => t > lo + 0 && t < hi - 0;
+
+  const sym = symbolicSingularityIn(e, x, lo, hi);
+  if (sym !== null) return { at: sym, kind: "pole" };
+
   for (let i = 0; i <= steps; i++) {
     const t = lo + ((hi - lo) * i) / steps;
     let v: number;
     try {
       v = evalAst(e, { [x]: t });
     } catch {
-      return t;
+      return { at: t, kind: "domain" };
     }
-    if (!Number.isFinite(v)) return t;
+    if (!Number.isFinite(v)) return { at: t, kind: "domain" };
+  }
+  // Offset backstop: the same count of samples, shifted by an irrational
+  // fraction of a step, so a pole cannot hide in the gaps of BOTH grids. This is
+  // cheap insurance, not the mechanism -- the mechanism is symbolic.
+  const OFFSET = 0.381966011250105; // (3 - sqrt(5)) / 2
+  for (let i = 0; i < steps; i++) {
+    const t = lo + ((hi - lo) * (i + OFFSET)) / steps;
+    if (!inside(t)) continue;
+    try {
+      if (!Number.isFinite(evalAst(e, { [x]: t }))) return { at: t, kind: "domain" };
+    } catch {
+      return { at: t, kind: "domain" };
+    }
   }
   return null;
+}
+
+/**
+ * A point strictly inside (lo, hi) where `e` has a pole, found from the
+ * STRUCTURE of the expression rather than by sampling. Returns null when no such
+ * point is found -- which is not a proof that none exists, only that this
+ * covers the two classes that reach users: a polynomial denominator, and the
+ * trigonometric functions with known pole sets.
+ */
+function symbolicSingularityIn(e: Expr, x: string, lo: number, hi: number): number | null {
+  let found: number | null = null;
+
+  const report = (t: number): void => {
+    if (found !== null) return;
+    // Strictly inside. A pole exactly at an endpoint is a different (also
+    // improper) case, and the endpoint evaluation already produces a non-finite
+    // value there, so the caller's own check handles it.
+    if (t > lo && t < hi) found = t;
+  };
+
+  /** Real roots in (lo, hi) of a polynomial denominator, verified by residual. */
+  const rootsOfDenominator = (d: Expr): void => {
+    const c = polyCoeffs(d, x);
+    if (!c) return;
+    const deg = c.length - 1;
+    if (deg < 1) return;
+    if (!c.every((v) => Number.isFinite(v))) return;
+    const at = (t: number): number => {
+      let acc = 0;
+      for (let k = deg; k >= 0; k--) acc = acc * t + c[k];
+      return acc;
+    };
+    // Bisect on a fine grid, then REQUIRE the residual to be small relative to
+    // the coefficient scale. A sign change alone is not a root -- that mistake
+    // is what let this module report a pole as a root elsewhere.
+    const scale = Math.max(...c.map(Math.abs), 1);
+    const N = 2048;
+    for (let i = 0; i < N; i++) {
+      let p = lo + ((hi - lo) * i) / N;
+      let q = lo + ((hi - lo) * (i + 1)) / N;
+      let fp = at(p), fq = at(q);
+      if (fp === 0) { report(p); continue; }
+      if (fq === 0) { report(q); continue; }
+      if (fp > 0 === fq > 0) continue;
+      for (let k = 0; k < 80; k++) {
+        const m = (p + q) / 2;
+        const fm = at(m);
+        if (fm === 0) { p = q = m; break; }
+        if (fm > 0 === fp > 0) { p = m; fp = fm; } else { q = m; fq = fm; }
+      }
+      const m = (p + q) / 2;
+      if (Math.abs(at(m)) <= 1e-9 * scale) report(m);
+    }
+  };
+
+  /** Poles of tan/sec at cos(arg) = 0, and of cot/csc at sin(arg) = 0. */
+  const trigPoles = (arg: Expr, offsetIsHalfPi: boolean): void => {
+    const lin = linearInX(arg, x);
+    if (!lin || lin.a === 0) return;
+    // arg = lin.a*x + lin.b; poles where arg = base + k*pi.
+    const base = offsetIsHalfPi ? Math.PI / 2 : 0;
+    // Solve lin.a*t + lin.b = base + k*pi for t in (lo, hi).
+    const kLo = (lin.a * lo + lin.b - base) / Math.PI;
+    const kHi = (lin.a * hi + lin.b - base) / Math.PI;
+    const from = Math.floor(Math.min(kLo, kHi)) - 1;
+    const to = Math.ceil(Math.max(kLo, kHi)) + 1;
+    // A bounded loop. An enormous linear coefficient could otherwise ask for
+    // billions of iterations inside a task pane, which is a frozen Word.
+    if (to - from > 100000) return;
+    for (let k = from; k <= to; k++) {
+      report((base + k * Math.PI - lin.b) / lin.a);
+    }
+  };
+
+  const walk = (n: Expr): void => {
+    if (found !== null) return;
+    switch (n.t) {
+      case "num":
+      case "var":
+        return;
+      case "neg":
+        return walk(n.e);
+      case "add":
+      case "sub":
+      case "mul":
+        walk(n.l); walk(n.r); return;
+      case "div":
+        walk(n.l);
+        walk(n.r);
+        if (containsVar(n.r, x)) rootsOfDenominator(n.r);
+        return;
+      case "pow": {
+        walk(n.l); walk(n.r);
+        // A negative constant exponent puts the base in a denominator.
+        const p = safeConst(n.r);
+        if (p !== null && p < 0 && containsVar(n.l, x)) rootsOfDenominator(n.l);
+        return;
+      }
+      case "fn":
+        walk(n.arg);
+        if (n.name === "tan" || n.name === "sec") trigPoles(n.arg, true);
+        if (n.name === "cot" || n.name === "csc") trigPoles(n.arg, false);
+        return;
+      default:
+        return;
+    }
+  };
+
+  walk(e);
+  return found;
 }
 
 /** Adaptive Simpson quadrature of f over [a, b]. */
@@ -1038,6 +1218,64 @@ function adaptiveSimpson(f: (x: number) => number, a: number, b: number, tol = 1
   const fa = f(a), fm = f(mid), fb = f(b);
   if (!Number.isFinite(fa) || !Number.isFinite(fm) || !Number.isFinite(fb)) return NaN;
   return rec(a, b, fa, fm, fb, simpson(a, b, fa, fm, fb), depth);
+}
+
+/**
+ * A reason the reported value contradicts the sign of the integrand, or null.
+ *
+ * If f > 0 everywhere on the interval then the integral is > 0. That is a
+ * theorem, with no tolerance in it, and it is the cheapest possible check on an
+ * "exact" answer. It exists because the grid-aligned singularity scan let
+ * integrate("1/((x-1)^2)", 0, 2) report -2 for a strictly positive integrand:
+ * the number was not merely imprecise, its SIGN was impossible, and nothing
+ * noticed. A structural fix for the pole is in undefinedPointIn; this is the
+ * independent second line, on the principle that the two should not share a
+ * failure mode.
+ */
+function signContradiction(e: Expr, x: string, a: number, b: number, value: number): string | null {
+  if (!Number.isFinite(value) || value === 0) return null;
+  const lo = Math.min(a, b), hi = Math.max(a, b);
+  if (!(hi > lo)) return null;
+  // Sampled on two offset grids for the same reason as the scan above: one grid
+  // can align with a zero of the integrand and miss the sign change.
+  const N = 200;
+  let sawPositive = false, sawNegative = false;
+  for (const off of [0.5, 0.881966011250105]) {
+    for (let i = 0; i < N; i++) {
+      const t = lo + ((hi - lo) * (i + off)) / N;
+      let v: number;
+      try { v = evalAst(e, { [x]: t }); } catch { return null; }
+      if (!Number.isFinite(v)) return null;
+      if (v > 0) sawPositive = true;
+      else if (v < 0) sawNegative = true;
+      if (sawPositive && sawNegative) return null; // the integrand changes sign
+    }
+  }
+  // `value` here is the antiderivative difference in the order the caller asked
+  // for, so flip the expected sign when b < a.
+  const orientation = b >= a ? 1 : -1;
+  const signed = value * orientation;
+  if (sawPositive && !sawNegative && signed < 0) {
+    return (
+      `Refused. The integrand is positive at every one of ${2 * N} sample points across ` +
+      `[${fmtNum(lo)}, ${fmtNum(hi)}], so its integral cannot be negative — but the ` +
+      `antiderivative's endpoint difference is ${fmtNum(value)}. That means the ` +
+      `antiderivative is discontinuous inside the interval, which is a singularity of the ` +
+      `integrand, and the integral is improper. No value is reported, because the one ` +
+      `available is impossible.`
+    );
+  }
+  if (sawNegative && !sawPositive && signed > 0) {
+    return (
+      `Refused. The integrand is negative at every one of ${2 * N} sample points across ` +
+      `[${fmtNum(lo)}, ${fmtNum(hi)}], so its integral cannot be positive — but the ` +
+      `antiderivative's endpoint difference is ${fmtNum(value)}. That means the ` +
+      `antiderivative is discontinuous inside the interval, which is a singularity of the ` +
+      `integrand, and the integral is improper. No value is reported, because the one ` +
+      `available is impossible.`
+    );
+  }
+  return null;
 }
 
 /**
@@ -1075,12 +1313,52 @@ export function integrate(input: string, a: number, b: number, variable?: string
         // poles for free, so it subsumes the old ln-only special case.
         const gap = undefinedPointIn(e, x, a, b);
         if (gap !== null) {
-          caveats.push(
-            `The integrand is UNDEFINED at ${x} ≈ ${fmtNum(gap)}, inside the interval — for example a square root ` +
-            `of a negative number, a log of a non-positive number, or a division by zero. This is only the formal ` +
-            `value of the antiderivative at the endpoints; the integral itself may not exist. Verify the domain first.`
-          );
-        } else if (/\bln\b/.test(fs) && a * b < 0) {
+          // The integral does not exist over this interval. Saying so is not a
+          // caveat on a number -- there is no number. Reporting one anyway is
+          // how integrate("1/((x-1)^2)", 0, 2) came to return -2 as "exact
+          // (symbolic)" with an empty caveat list, for a strictly positive
+          // integrand whose integral diverges to +infinity. The formal
+          // endpoint difference of the antiderivative is not the integral when
+          // the antiderivative is discontinuous in between; the fundamental
+          // theorem of calculus requires continuity, and this is exactly the
+          // hypothesis that fails.
+          const cause =
+            gap.kind === "pole"
+              ? `has a POLE — a division by zero, or a pole of tan/cot/sec/csc — at ${x} ≈ ${fmtNum(gap.at)}`
+              : `is UNDEFINED at ${x} ≈ ${fmtNum(gap.at)} — for example a square root of a negative ` +
+                `number, or a log of a non-positive number`;
+          return {
+            variable: x,
+            value: NaN,
+            method: "does not exist on this interval",
+            antiderivative: fs,
+            caveats: [
+              `The integrand ${cause}, strictly inside [${fmtNum(a)}, ${fmtNum(b)}], so it is ` +
+                `UNDEFINED somewhere the integral needs it. The fundamental theorem of calculus ` +
+                `requires the integrand to be continuous across the whole interval, so the ` +
+                `difference of the antiderivative at the endpoints is NOT the integral here. No ` +
+                `value is reported, because there is none. Split the interval at that point and ` +
+                `take limits if you want a principal value.`,
+              `For reference, the antiderivative found was F(${x}) = ${fs}, and its formal endpoint ` +
+                `difference is ${fmtNum(value)} — a number that does not answer the question asked.`,
+            ],
+          };
+        }
+        // An exact theorem as a backstop: an integrand that never changes sign
+        // cannot integrate to the opposite sign. If a pole is ever missed again,
+        // this catches the specific failure that reaches a document -- a
+        // NEGATIVE area under a strictly positive curve.
+        const signProblem = signContradiction(e, x, a, b, value);
+        if (signProblem !== null) {
+          return {
+            variable: x,
+            value: NaN,
+            method: "does not exist on this interval",
+            antiderivative: fs,
+            caveats: [signProblem],
+          };
+        }
+        if (/\bln\b/.test(fs) && a * b < 0) {
           caveats.push("The antiderivative has a singularity at 0, which lies inside the interval — this is the formal value; the integral may be improper.");
         }
         return { variable: x, value, method: "exact (symbolic)", antiderivative: fs, caveats };
@@ -1088,6 +1366,38 @@ export function integrate(input: string, a: number, b: number, variable?: string
     } catch {
       /* fall through to numeric */
     }
+  }
+
+  // THE SAME CHECK BEFORE THE NUMERIC PATH, NOT ONLY BEFORE THE EXACT ONE.
+  //
+  // Guarding just the symbolic branch left the same wrong number reachable by
+  // another road. `integrate("1/(x-0.5)", 0, 3)` finds no antiderivative rule,
+  // falls through to adaptive Simpson, and Simpson happily straddles the pole at
+  // 0.5 without ever sampling it: it returned **5.0355** as a confident
+  // "adaptive Simpson" result for an integral that diverges. Its stock caveat —
+  // "a singularity inside the interval can make the result unreliable" — is a
+  // hedge, not a refusal, and it appears on every numeric integral so it carries
+  // no information about this one.
+  //
+  // Two paths sharing one wrong answer is the shape of this bug, so they now
+  // share the guard.
+  const numericGap = undefinedPointIn(e, x, a, b);
+  if (numericGap !== null) {
+    const cause =
+      numericGap.kind === "pole"
+        ? `has a POLE — a division by zero, or a pole of tan/cot/sec/csc — at ${x} ≈ ${fmtNum(numericGap.at)}`
+        : `is UNDEFINED at ${x} ≈ ${fmtNum(numericGap.at)}`;
+    return {
+      variable: x,
+      value: NaN,
+      method: "does not exist on this interval",
+      caveats: [
+        `The integrand ${cause}, strictly inside [${fmtNum(a)}, ${fmtNum(b)}]. Quadrature can step ` +
+          `straight over a pole without sampling it and return a plausible finite number, so no ` +
+          `value is reported here. This integral is improper: split the interval at that point and ` +
+          `take limits if you want a principal value.`,
+      ],
+    };
   }
 
   const f = (xv: number) => evalAst(e, { [x]: xv });
@@ -1099,9 +1409,9 @@ export function integrate(input: string, a: number, b: number, variable?: string
     return {
       variable: x,
       value: NaN,
-      method: "undefined on this interval",
+      method: "does not exist on this interval",
       caveats: [
-        `The integrand is undefined${gap === null ? "" : ` at ${x} ≈ ${fmtNum(gap)}`} inside [${fmtNum(a)}, ${fmtNum(b)}] ` +
+        `The integrand is undefined${gap === null ? "" : ` at ${x} ≈ ${fmtNum(gap.at)}`} inside [${fmtNum(a)}, ${fmtNum(b)}] ` +
         `— for example a square root of a negative number, a log of a non-positive number, or a division by zero. ` +
         `No value is reported, because there is none to report over this interval.`,
       ],

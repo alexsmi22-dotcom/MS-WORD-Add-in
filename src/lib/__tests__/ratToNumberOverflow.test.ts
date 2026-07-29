@@ -148,58 +148,160 @@ describe("the beam results that exposed it", () => {
 // exercises the code under test at all. The first attempt at reproducing this bug
 // failed for exactly that reason.
 
-describe("the overflow band between 960 and 1024 bits of gap", () => {
-  const bitLen = (v: bigint) => v.toString(2).length;
+describe("the overflow band, and correct rounding, checked EXACTLY", () => {
+  // THE PREVIOUS VERSION OF THIS BLOCK WAS NOT A CHECK.
+  //
+  // It defined a `reference()` described as "Independent reference", with a
+  // comment claiming it was validated before use — and its body was a
+  // line-for-line copy of the production slow path. Every
+  // `expect(ratToNumber(x)).toEqual(reference(x))` was a tautology, and it
+  // certified a version that was NOT correctly rounded. That is exactly the
+  // failure this repo had already written a commit message condemning: an oracle
+  // of self-consistency cannot detect a consistent error.
+  //
+  // So this does not recompute the answer at all. It VERIFIES one, in exact
+  // integer arithmetic: a double v is the correctly rounded value of N/D exactly
+  // when no neighbouring double is strictly closer. That is independent of
+  // however v was produced, and cannot drift into agreeing with the code.
 
-  /** Independent reference: divide first, then scale by a split power of two. */
-  function reference(N: bigint, D: bigint): number {
-    const e = bitLen(N) - bitLen(D);
-    if (e > 1100) return Infinity;
-    if (e < -1200) return 0;
-    const k = 64 - e;
-    const q = k >= 0 ? (N << BigInt(k)) / D : N / (D << BigInt(-k));
-    const k1 = Math.trunc(k / 2);
-    const k2 = k - k1;
-    return Number(q) * Math.pow(2, -k1) * Math.pow(2, -k2);
+  /** The exact rational value of a finite double. */
+  function toRat(v: number): { n: bigint; d: bigint } {
+    const buf = new DataView(new ArrayBuffer(8));
+    buf.setFloat64(0, v);
+    const bits = (BigInt(buf.getUint32(0)) << 32n) | BigInt(buf.getUint32(4));
+    const expo = Number((bits >> 52n) & 0x7ffn);
+    const man = bits & 0xfffffffffffffn;
+    const sign = bits >> 63n === 1n ? -1n : 1n;
+    if (expo === 0) return { n: sign * man, d: 1n << 1074n };
+    const e = expo - 1075;
+    const mant = sign * (man | (1n << 52n));
+    return e >= 0 ? { n: mant << BigInt(e), d: 1n } : { n: mant, d: 1n << BigInt(-e) };
   }
 
-  test("the reference agrees with plain division wherever plain division works", () => {
-    // Validating the oracle before using it, so a wrong reference cannot pass a
-    // wrong implementation.
-    let worst = 0;
-    for (let i = 0; i < 5000; i++) {
-      const n = BigInt(Math.floor(Math.random() * 1e15) + 1);
-      const d = BigInt(Math.floor(Math.random() * 1e15) + 1);
-      const truth = Number(n) / Number(d);
-      const rel = Math.abs(reference(n, d) - truth) / Math.abs(truth);
-      worst = Math.max(worst, rel);
+  /** The doubles either side of v, by bit pattern. */
+  function neighbours(v: number): [number, number] {
+    const buf = new DataView(new ArrayBuffer(8));
+    buf.setFloat64(0, v);
+    const bits = (BigInt(buf.getUint32(0)) << 32n) | BigInt(buf.getUint32(4));
+    const back = (b: bigint): number => {
+      const x = new DataView(new ArrayBuffer(8));
+      x.setUint32(0, Number(b >> 32n));
+      x.setUint32(4, Number(b & 0xffffffffn));
+      return x.getFloat64(0);
+    };
+    return [back(bits - 1n), back(bits + 1n)];
+  }
+
+  /** |N/D - a| <= |N/D - b|, exactly. */
+  function closerOrEqual(N: bigint, D: bigint, a: number, b: number): boolean {
+    const A = toRat(a);
+    const B = toRat(b);
+    const da = N * A.d - A.n * D;
+    const db = N * B.d - B.n * D;
+    const abs = (x: bigint) => (x < 0n ? -x : x);
+    return abs(da) * B.d <= abs(db) * A.d;
+  }
+
+  /**
+   * null only when v is 0 or non-finite — there the "no neighbour is closer"
+   * test says nothing useful. A neighbour that IS zero is perfectly usable
+   * (MIN_VALUE's lower neighbour is 0, and comparing against it is exactly the
+   * check that matters for the subnormal cases); only a non-finite neighbour is
+   * dropped.
+   */
+  function correctlyRounded(N: bigint, D: bigint, v: number): boolean | null {
+    if (!Number.isFinite(v) || v === 0) return null;
+    return neighbours(v)
+      .filter((b) => Number.isFinite(b))
+      .every((b) => closerOrEqual(N, D, v, b));
+  }
+
+  /** Deterministic odd BigInt of roughly `bits` bits, so a failure reproduces. */
+  function odd(bits: number, seed: number): bigint {
+    let s = seed >>> 0;
+    let v = 0n;
+    for (let i = 0; i < bits; i += 30) {
+      s = (Math.imul(s, 1103515245) + 12345) >>> 0;
+      v = (v << 30n) | BigInt(s >>> 2);
     }
-    expect(worst).toBeLessThan(1e-15);
+    return v | 1n;
+  }
+
+  test("the verifier itself is sound — it accepts truth and rejects a neighbour", () => {
+    for (const v of [1, 0.5, 3.25, 1e300, 5e-324, 2.2250738585072014e-308]) {
+      const r = toRat(v);
+      expect({ v, ok: correctlyRounded(r.n, r.d, v) }).toEqual({ v, ok: true });
+      const [, hi] = neighbours(v);
+      if (Number.isFinite(hi) && hi !== v) {
+        expect({ v, neighbourAccepted: correctlyRounded(r.n, r.d, hi) }).toEqual({ v, neighbourAccepted: false });
+      }
+    }
   });
 
-  test("coprime ratios across the whole gap range are finite where they should be", () => {
+  test.each([
+    ["normal range", 1200, 1150],
+    ["wide gap", 2000, 1100],
+    ["subnormal results", 1000, 2050],
+    ["tiny over huge", 1200, 1500],
+  ])("%s: every slow-path result is the NEAREST double", (_label, nb, db) => {
+    let checked = 0;
+    const wrong: string[] = [];
+    for (let i = 0; i < 1500; i++) {
+      const N = odd(nb as number, 0x9e37 + i);
+      const D = odd(db as number, 0x85eb + i * 7);
+      if (Number.isFinite(Number(N)) && Number.isFinite(Number(D))) continue;
+      const v = ratToNumber(ratDiv(ratInt(N), ratInt(D)));
+      const ok = correctlyRounded(N, D, v);
+      if (ok === null) continue;
+      checked++;
+      if (!ok) wrong.push(`${N}/${D} -> ${v}`);
+    }
+    expect(checked).toBeGreaterThan(200);
+    expect(wrong.slice(0, 3)).toEqual([]);
+  });
+
+  test("a tie broken far below the 64th bit is still rounded up", () => {
+    // 1 + 2^-53 + 2^-1063. The 64-bit version floored away the term that breaks
+    // the tie and returned exactly 1.
+    const N = ((1n << 64n) + (1n << 11n)) * (1n << 999n) + 1n;
+    const D = 1n << 1063n;
+    const v = ratToNumber(ratDiv(ratInt(N), ratInt(D)));
+    expect(correctlyRounded(N, D, v)).toBe(true);
+    expect(v).toBe(1.0000000000000002);
+  });
+
+  test("a value just above half of MIN_VALUE rounds up, not to zero", () => {
+    const N = (3n ** 700n << 400n) + 1n;
+    const D = 3n ** 700n << 1475n;
+    expect(ratToNumber(ratDiv(ratInt(N), ratInt(D)))).toBe(5e-324);
+  });
+
+  test("coprime ratios across the whole gap range are finite and nearest", () => {
+    const bitLen = (v: bigint) => v.toString(2).length;
     const D = 5n ** 120n;
-    for (const gap of [900, 940, 955, 958, 959, 960, 961, 962, 980, 1000, 1010, 1023]) {
+    for (const gap of [900, 940, 958, 959, 960, 961, 962, 980, 1000, 1010, 1023]) {
       const a = Math.round((gap + bitLen(D)) / Math.log2(3));
       const N = 3n ** BigInt(a);
-      const got = ratToNumber(ratDiv(ratInt(N), ratInt(D)));
-      expect({ gap, finite: Number.isFinite(got) }).toEqual({ gap, finite: true });
-      expect({ gap, v: got }).toEqual({ gap, v: reference(N, D) });
+      const v = ratToNumber(ratDiv(ratInt(N), ratInt(D)));
+      expect({ gap, finite: Number.isFinite(v) }).toEqual({ gap, finite: true });
+      expect({ gap, ok: correctlyRounded(N, D, v) }).toEqual({ gap, ok: true });
     }
   });
 
   test("the mirrored band does not flush representable small values to zero", () => {
+    const bitLen = (v: bigint) => v.toString(2).length;
     const N = 5n ** 120n;
     for (const gap of [900, 959, 960, 961, 1000, 1023, 1060]) {
       const b = Math.round((gap + bitLen(N)) / Math.log2(3));
       const D = 3n ** BigInt(b);
-      const got = ratToNumber(ratDiv(ratInt(N), ratInt(D)));
-      expect({ gap, zero: got === 0 }).toEqual({ gap, zero: false });
-      expect({ gap, v: got }).toEqual({ gap, v: reference(N, D) });
+      const v = ratToNumber(ratDiv(ratInt(N), ratInt(D)));
+      expect({ gap, zero: v === 0 }).toEqual({ gap, zero: false });
+      expect({ gap, ok: correctlyRounded(N, D, v) }).toEqual({ gap, ok: true });
     }
   });
 
-  test("a truly out-of-range ratio still overflows or underflows, at the right place", () => {
+  test("a truly out-of-range ratio still overflows or underflows", () => {
+    const bitLen = (v: bigint) => v.toString(2).length;
     const D = 5n ** 120n;
     const aBig = Math.round((1200 + bitLen(D)) / Math.log2(3));
     expect(ratToNumber(ratDiv(ratInt(3n ** BigInt(aBig)), ratInt(D)))).toBe(Infinity);
@@ -208,26 +310,26 @@ describe("the overflow band between 960 and 1024 bits of gap", () => {
     expect(ratToNumber(ratDiv(ratInt(N), ratInt(3n ** BigInt(bBig))))).toBe(0);
   });
 
-  test("a large coprime ratio agrees with the reference over a wide sweep", () => {
-    let mismatches = 0;
-    for (let b = 60; b <= 460; b += 40) {
-      const D = 5n ** BigInt(b);
-      for (let a = 60; a <= 1400; a += 40) {
-        const N = 3n ** BigInt(a);
-        // Only the SLOW path is under test; the fast path's 1-ULP double
-        // rounding is pre-existing and not what this file is about.
-        if (Number.isFinite(Number(N)) && Number.isFinite(Number(D))) continue;
-        if (ratToNumber(ratDiv(ratInt(N), ratInt(D))) !== reference(N, D)) mismatches++;
-      }
-    }
-    expect(mismatches).toBe(0);
-  });
-
   test("signs survive the whole range", () => {
+    const bitLen = (v: bigint) => v.toString(2).length;
     const D = 5n ** 120n;
     const a = Math.round((1000 + bitLen(D)) / Math.log2(3));
     const N = 3n ** BigInt(a);
     const pos = ratToNumber(ratDiv(ratInt(N), ratInt(D)));
     expect(ratToNumber(ratDiv(ratInt(-N), ratInt(D)))).toBe(-pos);
+  });
+
+  test("the slow path stays fast enough for a per-keystroke pane", () => {
+    // A HANG DETECTOR, not a performance gate. A Date.now() delta counts every
+    // millisecond the thread spent descheduled, so under a full parallel run
+    // this figure tracks how many other suites are running — a 4 s budget that
+    // passed alone failed in the full suite with nothing having got slower. The
+    // real regression this guards against (an accidental quadratic, or losing
+    // the early exits) is orders of magnitude, not a factor of three.
+    const N = 3n ** 3000n;
+    const D = 5n ** 1500n;
+    const t0 = Date.now();
+    for (let i = 0; i < 500; i++) ratToNumber(ratDiv(ratInt(N + BigInt(i)), ratInt(D)));
+    expect(Date.now() - t0).toBeLessThan(30000);
   });
 });

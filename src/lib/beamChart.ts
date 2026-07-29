@@ -80,7 +80,7 @@ export function beamDiagramSvg(input: BeamChartInput): string {
   const pw = W - ML - MR;
   // +34 left the x-axis label at axisY + 26 = H + 6, i.e. clipped off the
 // bottom on every beam including a plain rigid one. It needs 40.
-const H = BEAM_H + GAP + PANEL_H + GAP + PANEL_H + 40;
+const H = BEAM_H + GAP + PANEL_H + GAP + PANEL_H + 44;
   const sx = (x: number): number => ML + (L > 0 ? (x / L) * pw : 0);
 
   const vs = sample(result.shearAt, L, result.breakpoints);
@@ -200,10 +200,17 @@ function drawBeam(
       // Anchor at the END when the support sits near the right edge, or the
       // label runs past the viewBox and is clipped — which happens on the
       // ordinary "roller 8" case, not some exotic one.
-      const nearRight = x > W - 34;
+      // Budget the label by its ACTUAL length. A fixed 34 px allowance assumed a
+      // short number; "-1.23e+300" is 38 px at 7.5 px Arial and ran off the
+      // right edge, and the first test for this sampled only x in {0,1,4,7,8}
+      // and stepped straight over the band where it happens.
+      const text = fmt(d);
+      const wEst = text.length * 4.3 + 6;
+      const nearRight = x + wEst > W - 2;
+      const lx = nearRight ? Math.max(wEst, x - 6) : Math.min(x + 6, W - 2 - wEst);
       p.push(
-        `<text x="${nearRight ? x - 6 : x + 6}" y="${tipY}" text-anchor="${nearRight ? "end" : "start"}" ` +
-          `font-size="7.5" fill="${INK}">${esc(fmt(d))}</text>`,
+        `<text x="${lx.toFixed(1)}" y="${tipY}" text-anchor="${nearRight ? "end" : "start"}" ` +
+          `font-size="7.5" fill="${INK}">${esc(text)}</text>`,
       );
     }
   }
@@ -274,7 +281,19 @@ function drawPanel(
   // is left the panel says so instead of drawing a lie.
   const finite = pts.filter((q) => Number.isFinite(q.y));
   const vals = finite.map((q) => q.y);
-  if (finite.length < 2) {
+
+  // BAIL ON DISTINCT X, NOT ON SAMPLE COUNT. The sampler emits the right-hand
+  // end more than once, so a beam whose response overflows everywhere except at
+  // x = L left TWO coincident samples — the count said 2, the panel drew
+  // `M 404 142 L 404 142`, a single dot at the edge, and said nothing. Worse, it
+  // was drawn beside a reported peak of 0 while shearAt(0) was Infinity: figure
+  // and number agreed with each other and both were wrong.
+  //
+  // Any dropped sample also means the curve would be drawn across a hole, so the
+  // honest thing is to bail whenever anything was lost rather than join across
+  // the gap as though it were continuous.
+  const distinctX = new Set(finite.map((q) => q.x)).size;
+  if (distinctX < 2 || finite.length !== pts.length) {
     p.push(
       `<text x="${ML}" y="${(top + h / 2).toFixed(1)}" font-size="9" fill="${INK}">` +
         `${esc(label)} — not finite at this scale</text>`,
@@ -288,9 +307,21 @@ function drawPanel(
     hi = 1;
     lo = -1;
   }
+  // The PADDING can overflow even when every sample is finite: a value within
+  // ~12% of MAX_VALUE sends `lo - pad` to -Infinity, and then
+  // (v - lo)/(hi - lo) is Infinity/Infinity = NaN, which went straight into the
+  // path as `L 399.5 NaN`. Guarding the samples was not enough; the SCALE
+  // derived from them needs the same guard.
   const pad = (hi - lo) * 0.12;
   lo -= pad;
   hi += pad;
+  if (!Number.isFinite(lo) || !Number.isFinite(hi) || !Number.isFinite(hi - lo) || hi === lo) {
+    p.push(
+      `<text x="${ML}" y="${(top + h / 2).toFixed(1)}" font-size="9" fill="${INK}">` +
+        `${esc(label)} — out of range at this scale</text>`,
+    );
+    return p.join("");
+  }
   const sy = (v: number): number => top + h - ((v - lo) / (hi - lo)) * h;
   const zero = sy(0);
 
@@ -320,10 +351,16 @@ function annotate(
   let lo = Math.min(0, ...vals);
   let hi = Math.max(0, ...vals);
   if (hi === lo) return "";
+  // Same guard as drawPanel: the PADDING can overflow even when every sample is
+  // finite, and (v - lo)/(hi - lo) is then Infinity/Infinity = NaN. Fixing this
+  // in drawPanel alone still left `y1="NaN"` and `cy="NaN"` coming out of here,
+  // because the annotation recomputes the scale rather than sharing it.
   const pad = (hi - lo) * 0.12;
   lo -= pad;
   hi += pad;
+  if (!Number.isFinite(lo) || !Number.isFinite(hi) || !Number.isFinite(hi - lo) || hi === lo) return "";
   const py = top + h - ((v - lo) / (hi - lo)) * h;
+  if (!Number.isFinite(py)) return "";
   const px = sx(x);
   // Normally the label sits outside the curve — above a positive peak, below a
   // negative one. But a peak that reaches the top of its panel puts the label

@@ -127,28 +127,43 @@ function qFromNumber(v: number): Q {
  * every result and is byte-identical to the old expression whenever both sides
  * convert finitely.
  *
- * THE SLOW PATH DIVIDES FIRST AND SCALES AFTERWARDS. An earlier version shifted
- * both sides right by the same number of bits until the SMALLER had ~64 left.
- * That preserves the ratio, but it leaves the LARGER side with
- * `bitLen(max) - bitLen(min) + 64` bits — so it still overflowed once the gap
- * between the two exceeded about 960 bits, even though a double does not run out
- * until 1024. The result was a band, gaps 961 to 1023, where a perfectly
- * representable number came back as Infinity: 3^1237 / 5^233 is 1.8e302 and was
- * reported as Infinity, and the mirrored band returned 0 for everything from
- * 1e-289 down through the whole subnormal range. Being wrong in a band is worse
- * than being wrong everywhere, because the tests sampled either side of it.
+ * THE SLOW PATH IS CORRECTLY ROUNDED, and getting there took two attempts that
+ * were each wrong in an instructive way.
  *
- * So instead: take the quotient with BigInt division, shifted left far enough to
- * carry ~64 bits of it, and then scale by the power of two that was shifted in.
- * The scale is applied as TWO half-powers, because a single `2**-k` would itself
- * overflow or flush to zero at the extremes and reintroduce the same class of
- * bug — splitting it lets the subnormal range come out correctly.
+ * The first shifted both sides right until the SMALLER had ~64 bits left. That
+ * preserves the ratio but leaves the LARGER side with `gap + 64` bits, so it
+ * still overflowed once the gap exceeded ~960 even though a double does not run
+ * out until 1024 — a band, gaps 961 to 1023, where a representable number came
+ * back as Infinity, mirrored by a band returning 0 across the whole subnormal
+ * range. 3^807 / 5^120 is about 1e301 with a gap of 1001 bits, and came back
+ * as Infinity. Being wrong in a BAND is worse than being wrong everywhere: the tests
+ * sampled either side and passed.
  *
- * A genuinely out-of-range ratio still returns Infinity or 0, and now does so at
- * the point where a double genuinely runs out rather than 64 bits early. The
- * early exits also bound the work: without them a ratio with a millions-of-bits
- * gap would shift a BigInt by that many bits to discover an answer already known
- * from the bit lengths alone.
+ * The second divided first and scaled afterwards, always carrying exactly 64
+ * bits of quotient. That fixed the band but rounded TWICE — the BigInt division
+ * floors, and `Number()` then rounds again — so it was off by 1 ULP at a small
+ * but real rate. In the subnormal range 1 ULP is a 20-100% relative error, and
+ * one constructed ratio came back as 0 where the answer is MIN_VALUE.
+ *
+ * This version picks the shift from the RESULT'S exponent rather than using a
+ * fixed 64, so the division lands exactly on the double grid — 53 significant
+ * bits for a normal result, or the 2^-1074 subnormal grid — and rounds that one
+ * division half-to-even itself. One rounding, in the right place, so the answer
+ * is the nearest double rather than within one of it. The scale is applied as
+ * TWO half-powers, because a single `2**-s` would overflow or flush to zero at
+ * the extremes and reintroduce the first bug.
+ *
+ * A genuinely out-of-range ratio still returns Infinity or 0. The early exits
+ * also bound the work: without them a ratio with a millions-of-bits gap would
+ * shift a BigInt by that many bits to discover an answer the bit lengths already
+ * gave. `bitLen` goes through base 16 rather than base 2 for the same reason —
+ * both are linear, but base 2 builds a string four times longer, and at a
+ * million digits that alone cost more than everything it was protecting.
+ *
+ * Verified by an EXACT verifier in ratToNumberOverflow.test.ts, which does not
+ * recompute the answer but checks in integer arithmetic that no neighbouring
+ * double is closer. The previous test compared against a "reference" that was a
+ * line-for-line copy of this function, which is no check at all.
  */
 const qToNumber = (a: Q): number => {
   const n = Number(a.n);
@@ -161,17 +176,38 @@ const qToNumber = (a: Q): number => {
   if (N === 0n) return neg ? -0 : 0;
   if (D === 0n) return neg ? -Infinity : Infinity;
 
-  const bitLen = (v: bigint): number => v.toString(2).length;
+  // Base 16, not base 2: same linear cost, a quarter of the string.
+  const bitLen = (v: bigint): number => {
+    const hex = v.toString(16);
+    return (hex.length - 1) * 4 + (32 - Math.clz32(parseInt(hex[0], 16)));
+  };
   // log2 of the result, to within one bit.
   const e = bitLen(N) - bitLen(D);
   if (e > 1100) return neg ? -Infinity : Infinity;
   if (e < -1200) return neg ? -0 : 0;
 
-  const k = 64 - e;
-  const q = k >= 0 ? (N << BigInt(k)) / D : N / (D << BigInt(-k));
-  const k1 = Math.trunc(k / 2);
-  const k2 = k - k1;
-  const v = Number(q) * Math.pow(2, -k1) * Math.pow(2, -k2);
+  /** round(N * 2^s / D) with ties to even — the single rounding. */
+  const scaled = (s: number): bigint => {
+    const num = s >= 0 ? N << BigInt(s) : N;
+    const den = s >= 0 ? D : D << BigInt(-s);
+    const q = num / den;
+    const twice = (num % den) * 2n;
+    return twice > den || (twice === den && (q & 1n) === 1n) ? q + 1n : q;
+  };
+
+  let E = e - 1;
+  let s = E >= -1022 ? 52 - E : 1074;
+  let m = scaled(s);
+  // Rounding can carry into the next binary exponent; redo once at the new one.
+  if (m >= 1n << 53n) {
+    E += 1;
+    s = E >= -1022 ? 52 - E : 1074;
+    m = scaled(s);
+  }
+
+  const s1 = Math.trunc(s / 2);
+  const s2 = s - s1;
+  const v = Number(m) * Math.pow(2, -s1) * Math.pow(2, -s2);
   return neg ? -v : v;
 };
 

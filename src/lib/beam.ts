@@ -524,8 +524,9 @@ export function analyzeBeam(input: BeamInput, probe = false): BeamResult | BeamF
       ok: false,
       error:
         "This beam is a mechanism — the supports cannot hold it in equilibrium. " +
-        "A single roller, or two rollers with nothing resisting rotation, will do this. " +
-        "Add a pin or a fixed support.",
+        "A single support of any kind, or two rollers with nothing resisting rotation, will " +
+        "do this: a pin and a roller both restrain only vertically, so one of them leaves the " +
+        "beam free to rotate. Add a second support, or make one of them fixed.",
     };
   }
 
@@ -546,6 +547,7 @@ export function analyzeBeam(input: BeamInput, probe = false): BeamResult | BeamF
   // a different EI and compare the rationals. An assertion about EI-dependence
   // becomes a measurement of it. `probe` stops the recursion at one level.
   let eiDependent = false;
+  let eiChecked = true;
   if (eiCoupled && EI != null && !probe) {
     const twin = analyzeBeam({ ...input, ei: ratMul(EI, ratInt(2)) }, true);
     if (twin.ok) {
@@ -555,9 +557,11 @@ export function analyzeBeam(input: BeamInput, probe = false): BeamResult | BeamF
         return !ratIsZero(ratSub(a, b));
       });
     } else {
-      // The twin should always solve — same structure, different EI. If it does
-      // not, say nothing rather than guess.
+      // The twin should always solve — same structure, different EI. If it ever
+      // does not, assume dependence (the conservative reading) but do NOT let
+      // the note claim it was measured, because it was not.
       eiDependent = true;
+      eiChecked = false;
     }
   }
 
@@ -575,8 +579,8 @@ export function analyzeBeam(input: BeamInput, probe = false): BeamResult | BeamF
           (eiCoupled
             ? eiDependent
               ? " The supports are elastic or displaced, so those compatibility conditions carry EI " +
-                "and the reactions below are specific to the EI you entered — checked by re-solving " +
-                "at a different EI and finding them changed."
+                "and the reactions below are specific to the EI you entered" +
+                (eiChecked ? " — checked by re-solving at a different EI and finding them changed." : ".")
               : " The supports are elastic or displaced, so EI entered the equations — but the " +
                 "reactions below came out IDENTICAL when re-solved at a different EI, so for this " +
                 "structure and this loading they do not depend on it after all."
@@ -614,6 +618,39 @@ export function analyzeBeam(input: BeamInput, probe = false): BeamResult | BeamF
       coupleExact: couple,
     };
   });
+
+  // THE PROBE STOPS HERE. Everything below samples the beam a few hundred times
+  // to find the extremes of shear, moment and deflection — on an eight-support
+  // beam that is about 80% of the whole solve — and the EI-dependence check
+  // reads exactly one thing from its twin: `reactions[i].forceExact`. Computing
+  // the rest and discarding it doubled the cost of every elastic or settling
+  // beam in a pane that recomputes on each keystroke.
+  //
+  // The stub below is deliberately inert rather than plausible: zeroed extrema
+  // and sampler functions that throw. A probe result must never be mistaken for
+  // an answer, and a silent zero would be exactly that mistake.
+  if (probe) {
+    const nope = (): never => {
+      throw new Error("probe result: only reactions are computed");
+    };
+    return {
+      ok: true,
+      length: ratToNumber(L),
+      reactions,
+      determinacy: { degree, note: "" },
+      shearAt: nope,
+      momentAt: nope,
+      eiSlopeAt: nope,
+      eiDeflectionAt: nope,
+      maxShear: { x: 0, value: 0, exact: false },
+      maxMoment: { x: 0, value: 0, exact: false },
+      minMoment: { x: 0, value: 0, exact: false },
+      maxEiDeflection: { x: 0, value: 0, exact: false },
+      breakpoints: [],
+      eiCoupled,
+      warnings: [],
+    };
+  }
 
   const breaks = collectBreakpoints(L, supports, loads);
   const maxShear = extremeOf((x, inc) => num(V, x, inc), breaks, L, true);

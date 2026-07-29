@@ -558,12 +558,34 @@ export function modalAnalysis(M: Matrix, K: Matrix): ModalResult | VibError {
   let rigid = 0;
   const scale = Math.max(...eig.values.map(Math.abs), 1);
 
+  // HOW SMALL IS "ZERO" FOR AN EIGENVALUE. This threshold decides whether a mode
+  // is a rigid-body mode, and getting it wrong does not mislabel the mode — it
+  // DELETES it, because lambda is then forced to 0 and the frequency with it.
+  //
+  // It was 1e-9 relative to the largest eigenvalue, which is about seven orders
+  // looser than the rounding of a symmetric eigensolve (~eps = 2.2e-16). Any
+  // structure whose eigenvalue spread exceeded 1e9 therefore had its LOWEST
+  // GENUINE MODE zeroed and announced as a rigid-body mode. That spread is not
+  // exotic: 1000 kg on a soft mount carrying a 1 g part on a stiff spring does
+  // it, with a stiffness matrix that is plainly positive definite. The true
+  // frequencies are 1.0 and 1e5 rad/s; the engine reported 0 and 1e5, refused
+  // the static case outright as "the whole structure accelerates away", and was
+  // 3x wrong at a mundane 0.5 rad/s.
+  //
+  // 1e-12 keeps four orders of headroom above rounding — a genuinely singular K
+  // still produces an eigenvalue at ~1e-16 of the scale and is still caught —
+  // while moving the cliff out by three orders. A cliff still exists, because
+  // separating a real eigenvalue from zero is a finite-precision question, so
+  // the note below says when the spread is close enough to matter rather than
+  // pretending the threshold is exact.
+  const ZERO_EIGENVALUE = 1e-12;
+
   order.forEach((o, col) => {
     let lambda = o.v;
-    if (lambda < -1e-9 * scale) {
+    if (lambda < -ZERO_EIGENVALUE * scale) {
       negative++;
       lambda = 0;
-    } else if (Math.abs(lambda) <= 1e-9 * scale) {
+    } else if (Math.abs(lambda) <= ZERO_EIGENVALUE * scale) {
       rigid++;
       lambda = 0;
     }
@@ -581,6 +603,24 @@ export function modalAnalysis(M: Matrix, K: Matrix): ModalResult | VibError {
     const sign = phi[biggest] < 0 ? -1 : 1;
     for (let i = 0; i < n; i++) modes[i][col] = (sign * phi[i]) / norm;
   });
+
+  // A spread this wide means the smallest eigenvalue is within a few orders of
+  // the point where double precision cannot tell it from zero. The answer is
+  // still the best available, but "the lowest natural frequency" is the number
+  // to distrust, and saying so is cheaper than being quietly wrong about it.
+  const nonZero = frequencies.filter((w) => w > 0);
+  if (nonZero.length >= 2) {
+    const spread = Math.max(...nonZero) / Math.min(...nonZero);
+    if (spread > 1e5) {
+      notes.push(
+        `The natural frequencies span a factor of ${spread.toExponential(1)}. A stiffness ratio ` +
+          "that wide pushes the LOWEST frequency towards the limit of what double precision can " +
+          "separate from zero, so treat it as the least reliable number here. It usually means a " +
+          "very light mass on a very stiff connection, which is often better condensed out of the " +
+          "model than solved alongside the rest of it.",
+      );
+    }
+  }
 
   if (rigid) {
     notes.push(
@@ -856,8 +896,25 @@ export function modalForcedResponse(
     let f = 0;
     for (let j = 0; j < n; j++) f += phi[j] * force[j];
 
-    const re = wn * wn - omega * omega;
-    const im = damp[i] * omega;
+    // FORMED IN SCALED UNITS so the squares cannot overflow. Written directly,
+    // `wn*wn - omega*omega` overflows at omega above ~1.34e154 — and Smith's
+    // algorithm then quietly returns ZERO for it rather than NaN (t = im/re is
+    // -0, d is -Infinity, so both parts are -0), which the finiteness guard
+    // cannot see. That turned an explicit refusal into a silent wrong answer:
+    // F = 1e300 at omega = 1e160 has the perfectly representable response 1e-20
+    // and came back as amplitude 0 with a contribution reading
+    // "force: 1e300, amplitude: 0" — the same self-contradiction the isNodal
+    // repair was written to remove.
+    //
+    // Dividing through by the larger of wn and omega BEFORE squaring keeps every
+    // intermediate at or below 1. The whole quotient is computed in those units
+    // and rescaled once at the end.
+    const mag = Math.max(wn, omega);
+    const sc = mag > 0 && Number.isFinite(mag) ? mag : 1;
+    const wr = wn / sc;
+    const orr = omega / sc;
+    const re = wr * wr - orr * orr;
+    const im = (damp[i] / sc) * orr;
 
     // The steady state fails to exist ONLY when the denominator is exactly zero.
     // Testing `re*re + im*im === 0` instead made that judgement on a squared
@@ -918,18 +975,22 @@ export function modalForcedResponse(
     // keep the numbers in a physical range" — advice that cannot help, because
     // the result was representable all along. Dividing through by the larger of
     // the two first keeps every intermediate in range.
+    // `re` and `im` are in units of sc^2, so the generalised force has to be
+    // divided by the same thing. Written as two divisions rather than `f/(sc*sc)`
+    // because sc*sc is exactly the square that overflowing was the problem.
+    const fs = f / sc / sc;
     let qr: number;
     let qi: number;
     if (Math.abs(re) >= Math.abs(im)) {
       const t = im / re;
       const d = re + im * t;
-      qr = f / d;
-      qi = (-f * t) / d;
+      qr = fs / d;
+      qi = (-fs * t) / d;
     } else {
       const t = re / im;
       const d = re * t + im;
-      qr = (f * t) / d;
-      qi = -f / d;
+      qr = (fs * t) / d;
+      qi = -fs / d;
     }
     qRe.push(qr);
     qIm.push(qi);

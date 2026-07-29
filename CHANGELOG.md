@@ -5,6 +5,117 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > Note: this file was not maintained between v1.96.0 and v2.23.0. Those releases
 > are recorded in the git history rather than here.
 
+## [2.37.4] — 2026-07-29 — Round three: the reviews reviewed the repairs
+
+Three more independent passes, this time over the code written the same day to
+repair round two. They found defects in every area again, including two in a
+release that had shipped hours earlier and one in the guard written to prevent
+documentation rot.
+
+### A genuine mode was being deleted and announced as a rigid-body mode
+
+`modalAnalysis` decided "is this eigenvalue zero?" with a tolerance of 1e-9
+relative to the LARGEST eigenvalue — about seven orders looser than the rounding
+of the eigensolve itself. Any structure whose eigenvalue spread exceeded 1e9 had
+its lowest genuine mode zeroed, and the zero is not a label: it replaces the
+frequency.
+
+The input is not exotic. 1000 kg on a soft mount carrying a 1 g part on a stiff
+spring, stiffness matrix plainly positive definite, true frequencies 1.0 and
+1e5 rad/s. The engine reported **0 and 1e5**, told the user *"that is a
+RIGID-BODY MODE… a support is missing"*, **refused the static case outright**, and
+was **3x wrong at a mundane 0.5 rad/s** (4.00 against 1.33). All 146 vibration
+tests passed against it.
+
+Now 1e-12 — four orders above rounding, so a genuinely singular stiffness matrix
+is still caught — plus a note when the spread is wide enough that the lowest
+frequency is near the limit of what double precision can separate from zero.
+Verified against the exact static answer K⁻¹F and against an independent product
+of eigenvalues, det(K)/det(M).
+
+### Smith's algorithm had turned a refusal into a silent zero
+
+The round-two repair fixed overflow in the complex division and introduced a new
+way to be wrong: when `wn² - ω²` overflows, Smith's returns **-0**, so the
+finiteness guard never fires. `F = 1e300` at `omega = 1e160` has the perfectly
+representable answer 1e-20 and came back as **amplitude 0** with a contribution
+reading `force: 1e300, amplitude: 0` — the same self-contradiction the `isNodal`
+repair in that very commit was written to remove, one branch over. The
+denominator is now formed in scaled units so the squares cannot overflow at all.
+
+### The exact-to-double conversion, third time
+
+Two findings, and the second is about method rather than code.
+
+- It was **not correctly rounded**. Always carrying exactly 64 bits of quotient
+  means the BigInt division floors and `Number()` then rounds again — two
+  roundings, so up to 1 ULP off. In the subnormal range 1 ULP is a 20-100%
+  relative error, and one ratio returned **0 where the answer is MIN_VALUE**. The
+  shift is now chosen from the RESULT's exponent, so the division lands on the
+  double grid and is rounded once, half-to-even, in the right place.
+- **The "independent reference" that certified it was a line-for-line copy of the
+  implementation.** It was labelled "Independent reference" and carried a comment
+  claiming it had been validated first. Every assertion against it was a
+  tautology — and it is what certified the version that was not correctly
+  rounded. That is precisely the failure this project's own v2.37.1 commit
+  message describes: *an oracle of self-consistency cannot detect a consistent
+  error.* Knowing the rule did not prevent committing it.
+
+  The replacement does not recompute the answer at all. It **verifies** one in
+  exact integer arithmetic: a double is correct exactly when no neighbouring
+  double is closer. That cannot drift into agreeing with the code. It also
+  rejects a known-good value's neighbour, so it cannot pass vacuously.
+
+  Also corrected: the docstring's flagship example (3^1237 / 5^233) was not in
+  the band it was offered as evidence for — its gap is 1419 bits and its value
+  about 1e427, genuinely infinite. Replaced with one that is real.
+
+### The EI-dependence check was doubling every elastic beam
+
+The twin solve added in v2.37.1 ran the FULL analysis — several hundred sampling
+sweeps for the shear, moment and deflection extremes — and read exactly one thing
+from it: the reactions. Measured at ×1.75 to ×2.2, up to 63 seconds at the
+module's own maximum supports and loads, in a pane that recomputes on every
+keystroke. The probe now stops immediately after the reactions: 8 ms against a
+1758 ms solve, down from doubling it. Its stub throws rather than returning
+plausible zeros, so a probe result can never be mistaken for an answer.
+
+### The figure, again
+
+- `NaN` still reached the SVG at `settle` between 1e295 and 1e308, **including at
+  the repo's own standard test EI**. The round-two fix guarded the sample values
+  but not the SCALE derived from them: a surviving sample within 12% of
+  MAX_VALUE sends `lo - pad` to -Infinity and the ratio to NaN. Both `drawPanel`
+  and `annotate` now guard it — fixing only the first still left `y1="NaN"`.
+- **The v2.37.1 test that was supposed to catch this sampled only `settle=1e400`**,
+  which passes for the wrong reason: everything overflows, so the panel bails
+  cleanly. A green test certifying a band it does not sample — the same shape as
+  the qToNumber band the same release's commit message was written about.
+- The "cannot draw this" bail counted SAMPLES, not distinct x. The sampler emits
+  the right-hand end more than once, so two coincident points satisfied it and
+  the panel drew a single dot at the edge with no notice — beside a reported peak
+  of 0 while the true shear was infinite.
+- The settlement label still ran off the viewBox: a fixed 34 px allowance against
+  labels reaching 38 px, and the previous test sampled x in {0,1,4,7,8} and
+  stepped over the band where it happens.
+- A lone pin was told *"Add a pin or a fixed support"*.
+
+### The documentation guard was defeatable six ways
+
+Written last release to prevent doc rot, and an independent pass made the
+documentation wrong six different ways while it stayed green. Every hole was a
+general trap: a count regex that required adjacency (so "19 financial
+calculators" was invisible, and invisible *silently*); a Map keyed by name, so a
+stale count ABOVE a correct one was overwritten; a HARDCODED discipline list in
+the check whose own comment boasted about avoiding hardcoded lists; and a
+haystack that included `taskpane.ts`, so a **code comment** satisfied a
+**documentation** check.
+
+Rewritten to four rules: documentation is prose and source files are not
+searched; every occurrence is judged, never the last; an unattributable quantity
+is a failure rather than a skip; nothing is hardcoded that can be derived. All
+six mutations plus three controls now fail the guard, checked by replaying them.
+
 ## [2.37.3] — 2026-07-29 — A guard for the documentation, and a count it immediately caught
 
 v2.37.2 fixed seven stale documentation surfaces by hand. This adds the gate that

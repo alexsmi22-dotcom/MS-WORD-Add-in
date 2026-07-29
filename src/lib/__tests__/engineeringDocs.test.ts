@@ -2,26 +2,36 @@
 //
 // WHY THIS EXISTS. Three releases of engineering work shipped while the landing
 // page, the tool page and the README still described the previous tool. The
-// existing doc-rot guards all passed throughout, because they check TOOL-level
-// facts — 26 tools, every tool named, counts matching — and nothing at that level
-// had changed. The two things that actually went stale were a level below:
+// older doc-rot guards all passed throughout, because they check TOOL-level
+// facts — 26 tools, every tool named — and nothing at that level had changed.
 //
-//   1. A 37th Engineering CALCULATOR shipped while the manual still said
-//      "Vibration (3)". A per-discipline count is structured data on both sides,
-//      so this is checkable exactly rather than by matching prose.
-//   2. New SYNTAX shipped — `k=`, `settle=`, and fractions — while no
-//      user-facing page mentioned any of it. No count changed, so a count guard
-//      could never have caught it. Syntax is API: it does not churn when someone
-//      rewrites a paragraph, which makes it a fair thing to pin.
+// WHY IT LOOKS LIKE THIS. The first version of this file was defeated SIX ways
+// by an independent review, and every hole is worth naming because each is a
+// general trap:
 //
-// Both lists are DERIVED FROM SOURCE rather than written out here. A hardcoded
-// list is how `unbounded.adversarial.test.ts` ended up covering none of the
-// exports added after it was written, and repeating that mistake in the test
-// built to prevent it would be a poor joke.
+//   - Its count regex required the number to sit immediately before the word, so
+//     "19 financial calculators" and "<b>19</b><span>Finance calculators</span>"
+//     were invisible — and invisible SILENTLY, because an unparsed number was
+//     skipped rather than reported as unattributed.
+//   - `declaredCounts` used a Map keyed by name, so last-write-won: a stale count
+//     ABOVE a correct one was overwritten and never judged. That is the realistic
+//     shape of doc rot.
+//   - Its "advertises a discipline that does not exist" check filtered on a
+//     HARDCODED list of discipline words — precisely the anti-pattern the file's
+//     own comment claimed to avoid.
+//   - Its documentation haystack included the whole of `taskpane.ts`, so a
+//     *code comment* satisfied a *documentation* check; and its keyword check
+//     matched "point" and "moment" against "operating point" and "bending
+//     moment" elsewhere in that source.
+//   - Half the fraction assertion inspected `beam.ts`'s own source, so it could
+//     not fail for a documentation reason at all.
 //
-// Deliberately NOT checked: prose. A test asserting that some page contains the
-// words "modal superposition" fails the first time someone improves a sentence,
-// and a guard people delete is worse than no guard at all.
+// The rules that follow, and that this version holds to:
+//   1. Documentation is prose written for a reader. Source files are NOT
+//      documentation and are not searched.
+//   2. EVERY occurrence is judged, never just the last one.
+//   3. A quantity that cannot be attributed is a FAILURE, not a skip.
+//   4. Nothing is hardcoded that can be derived from source.
 
 import * as fs from "fs";
 import * as path from "path";
@@ -30,196 +40,209 @@ const ROOT = path.join(__dirname, "..", "..", "..");
 const read = (p: string): string => fs.readFileSync(path.join(ROOT, p), "utf8").replace(/\r\n/g, "\n");
 
 const PANE = read("src/taskpane/taskpane.ts");
-const BEAM = read("src/lib/beam.ts");
-const MANUAL = read("landing/manual.html");
-const TOOLPAGE = read("landing/tool.html");
-const EXAMPLES = read("src/lib/examples.ts");
 
-/** The Engineering registry, sliced out of the pane source. */
-function engCalcSource(): string {
-  const start = PANE.indexOf("const ENG_CALCS");
-  if (start < 0) throw new Error("ENG_CALCS not found in taskpane.ts");
-  const end = PANE.indexOf("\n];", start);
-  if (end < 0) throw new Error("end of ENG_CALCS not found");
-  return PANE.slice(start, end);
-}
-
-/** How many calculators each discipline actually ships. */
-function groupSizes(): Map<string, number> {
-  const src = engCalcSource();
-  const sizes = new Map<string, number>();
-  for (const m of src.matchAll(/group: "([^"]+)"/g)) {
-    sizes.set(m[1], (sizes.get(m[1]) ?? 0) + 1);
-  }
-  if (sizes.size === 0) throw new Error("no groups found — the registry changed shape");
-  return sizes;
-}
-
-/** Counts a page declares, e.g. `<b>Vibration (4)</b>`. HTML-entity aware. */
-function declaredCounts(html: string): Map<string, number> {
-  const out = new Map<string, number>();
-  for (const m of html.matchAll(/<b>([A-Za-z][A-Za-z\s&;a-z]*?)\s*\((\d+)\)/g)) {
-    const name = m[1].replace(/&amp;/g, "&").trim();
-    out.set(name, parseInt(m[2], 10));
+/** The registries the pane actually ships, found rather than listed. */
+function registries(): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const m of PANE.matchAll(/^const ([A-Z][A-Z_]*_CALCS)\b/gm)) {
+    const name = m[1];
+    const i = PANE.indexOf(`const ${name}`);
+    const j = PANE.indexOf("\n];", i);
+    out[name] = [...PANE.slice(i, j).matchAll(/\bid: "[a-z0-9-]+"/g)].length;
   }
   return out;
 }
 
-describe("every discipline's calculator count is the real one", () => {
-  const sizes = groupSizes();
+/** Engineering disciplines and their sizes, from the ENG_CALCS `group` fields. */
+function engGroups(): Map<string, number> {
+  const i = PANE.indexOf("const ENG_CALCS");
+  const j = PANE.indexOf("\n];", i);
+  const out = new Map<string, number>();
+  for (const m of PANE.slice(i, j).matchAll(/group: "([^"]+)"/g)) {
+    out.set(m[1], (out.get(m[1]) ?? 0) + 1);
+  }
+  return out;
+}
 
-  test("the registry is found and has the expected shape", () => {
-    // A guard that cannot find what it checks passes vacuously; fail loudly.
-    expect(sizes.size).toBeGreaterThanOrEqual(8);
-    const total = [...sizes.values()].reduce((a, b) => a + b, 0);
-    expect(total).toBeGreaterThanOrEqual(30);
+/** Prose pages only. Source files are not documentation. */
+const PAGES = [
+  "landing/index.html",
+  "landing/manual.html",
+  "landing/science.html",
+  "landing/tool.html",
+  "README.md",
+  "FEATURES.md",
+];
+
+const decodeEntities = (s: string): string =>
+  s.replace(/&amp;/g, "&").replace(/&nbsp;/g, " ").replace(/&mdash;/g, "-");
+
+describe("the registries are found — this file cannot pass vacuously", () => {
+  test("every *_CALCS registry is located and non-empty", () => {
+    const r = registries();
+    expect(Object.keys(r).length).toBeGreaterThanOrEqual(5);
+    for (const [name, n] of Object.entries(r)) expect({ name, ok: n > 0 }).toEqual({ name, ok: true });
   });
 
+  test("the Engineering groups are found", () => {
+    expect(engGroups().size).toBeGreaterThanOrEqual(8);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Per-discipline counts — EVERY occurrence, not the last
+// ---------------------------------------------------------------------------
+
+describe("every discipline count on every page is the real one", () => {
+  const groups = engGroups();
+
+  /** All `Name (n)` claims on a page, as a LIST so duplicates are all kept. */
+  function claims(html: string): { name: string; n: number }[] {
+    const out: { name: string; n: number }[] = [];
+    for (const m of html.matchAll(/<b>([^<]{3,40}?)\s*\((\d+)\)/g)) {
+      out.push({ name: decodeEntities(m[1]).replace(/[:.]$/, "").trim(), n: parseInt(m[2], 10) });
+    }
+    return out;
+  }
+
   for (const page of ["landing/manual.html", "landing/tool.html"]) {
-    const html = page.includes("manual") ? MANUAL : TOOLPAGE;
-    const declared = declaredCounts(html);
+    const html = read(page);
 
-    test(`${page} declares a count for every discipline`, () => {
-      const missing = [...sizes.keys()].filter((g) => !declared.has(g));
-      expect({ page, missing }).toEqual({ page, missing: [] });
-    });
-
-    test(`${page}'s counts match what ships`, () => {
-      const wrong: string[] = [];
-      for (const [group, n] of sizes) {
-        const d = declared.get(group);
-        if (d !== undefined && d !== n) wrong.push(`${group}: page says ${d}, ships ${n}`);
-      }
+    test(`${page}: every claim naming a real discipline states its real size`, () => {
+      const wrong = claims(html)
+        .filter((c) => groups.has(c.name))
+        .filter((c) => c.n !== groups.get(c.name))
+        .map((c) => `${c.name} says ${c.n}, ships ${groups.get(c.name)}`);
       expect({ page, wrong }).toEqual({ page, wrong: [] });
     });
 
-    test(`${page} declares no discipline that does not exist`, () => {
-      // Only judges names that look like Engineering disciplines, so the other
-      // sections of these pages are left alone.
-      const stale = [...declared.keys()].filter(
-        (name) => !sizes.has(name) && /solids|fatigue|fluids|thermal|electronics|control|vibration|biomedical|pharmacokinetics/i.test(name),
-      );
-      expect({ page, stale }).toEqual({ page, stale: [] });
+    test(`${page}: every discipline is claimed at least once`, () => {
+      const named = new Set(claims(html).map((c) => c.name));
+      const missing = [...groups.keys()].filter((g) => !named.has(g));
+      expect({ page, missing }).toEqual({ page, missing: [] });
+    });
+
+    test(`${page}: no claim advertises a discipline that does not ship`, () => {
+      // Derived, not hardcoded. Any claim shaped like a discipline-list entry —
+      // a plain capitalised phrase followed by a count — must name a real group.
+      const bogus = claims(html)
+        .filter((c) => !groups.has(c.name))
+        .filter((c) => /^[A-Z][A-Za-z&\s]{2,30}$/.test(c.name))
+        .map((c) => `${c.name} (${c.n})`);
+      expect({ page, bogus }).toEqual({ page, bogus: [] });
     });
   }
+});
 
-  test("every calculator total on every page matches the registry it describes", () => {
-    // Generalised past Engineering on purpose. The first version of this test
-    // only knew about ENG_CALCS and flagged Finance's counts as wrong; chasing
-    // that down showed README.md and FEATURES.md had been claiming Finance
-    // shipped 18 calculators when it ships 19. A guard that covers one registry
-    // finds bugs in the others by accident and then has to be taught to ignore
-    // them, which is the wrong lesson to encode.
-    const registries: Record<string, number> = {};
-    for (const name of ["FIN_CALCS", "STAT_CALCS", "ANALYZE_CALCS", "ENG_CALCS", "ASSAY_CALCS"]) {
-      const i = PANE.indexOf(`const ${name}`);
-      expect({ name, found: i >= 0 }).toEqual({ name, found: true });
-      const j = PANE.indexOf("\n];", i);
-      registries[name] = [...PANE.slice(i, j).matchAll(/\bid: "[a-z0-9-]+"/g)].length;
-      expect(registries[name]).toBeGreaterThan(0);
-    }
+// ---------------------------------------------------------------------------
+// Totals — every quantity near the word, attributed or failed
+// ---------------------------------------------------------------------------
 
-    // Which registry a claim is about, judged from the words around it.
-    const OWNER: [RegExp, string][] = [
-      [/engineering|disciplin/i, "ENG_CALCS"],
-      [/finance|amortization|TVM|Black/i, "FIN_CALCS"],
-      [/statistic|stats/i, "STAT_CALCS"],
-      [/analy[sz]e|workbench/i, "ANALYZE_CALCS"],
-      [/assay|bio\b|curve/i, "ASSAY_CALCS"],
-    ];
-    const WORDS: Record<string, number> = {
-      fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19, twenty: 20,
-      "twenty-one": 21, "thirty-six": 36, "thirty-seven": 37, "thirty-eight": 38,
-    };
+describe("every calculator total is attributable and correct", () => {
+  const WORDS: Record<string, number> = {
+    twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17,
+    eighteen: 18, nineteen: 19, twenty: 20, "twenty-one": 21, "twenty-two": 22,
+    "thirty-five": 35, "thirty-six": 36, "thirty-seven": 37, "thirty-eight": 38, "thirty-nine": 39,
+  };
 
-    const pages = [
-      "landing/index.html", "landing/manual.html", "landing/science.html",
-      "landing/tool.html", "README.md", "FEATURES.md",
-    ];
+  const OWNER: [RegExp, string][] = [
+    [/engineering|disciplin/i, "ENG_CALCS"],
+    [/financ|amortization|\bTVM\b|black\W*scholes|\bbond/i, "FIN_CALCS"],
+    [/statistic|\bstats\b/i, "STAT_CALCS"],
+    [/analy[sz]e|workbench|matrix math/i, "ANALYZE_CALCS"],
+    [/assay|\bbio\b|dose\W*response|curve fit/i, "ASSAY_CALCS"],
+  ];
+
+  test("every 'N calculators' claim names a real registry and its real size", () => {
+    const reg = registries();
     const wrong: string[] = [];
     const unattributed: string[] = [];
-    for (const p of pages) {
+
+    for (const p of PAGES) {
       const text = read(p);
-      for (const m of text.matchAll(/([A-Za-z-]+|\d+)\s+calculators/g)) {
-        const raw = m[1].toLowerCase();
-        const n = /^\d+$/.test(raw) ? parseInt(raw, 10) : WORDS[raw];
-        if (n === undefined) continue; // "the calculators", "these calculators"
-        const from = Math.max(0, m.index! - 260);
-        const ctx = text.slice(from, m.index! + 160);
+      for (const m of text.matchAll(/calculators?\b/gi)) {
+        // The quantity must be a STANDALONE TOKEN just before the noun, with
+        // only markup and at most two adjectives in between. Tags are stripped
+        // first so "<b>19</b><span>Finance calculators" reads as "19 Finance
+        // calculators", which is the phrasing that defeated the first version —
+        // but scanning backwards for "the nearest digit anywhere" is too greedy
+        // the other way, and picked the 3 out of "</h3>", the 4 out of "4PL"
+        // and the 50 out of "IC50". Neither extreme is right; this is the
+        // middle, and it is why the window is anchored at its end.
+        const before = decodeEntities(text.slice(Math.max(0, m.index! - 90), m.index!))
+          .replace(/<[^>]*>/g, " ")
+          .replace(/\s+/g, " ");
+        // The delimiter is "anything that is not alphanumeric", not a list of
+        // punctuation: the first attempt listed a few characters and missed
+        // `tagline:"19 financial calculators` because a double quote was not on
+        // the list. It still excludes a digit glued to letters, so "IC50" and
+        // "4PL" cannot be read as quantities.
+        const q = /(?:^|[^A-Za-z0-9])([A-Za-z]+(?:-[A-Za-z]+)?|\d+)\s+(?:[A-Za-z]+\s+){0,2}$/.exec(before);
+        let n: number | undefined;
+        if (q) {
+          const t = q[1].toLowerCase();
+          if (/^\d+$/.test(t)) n = parseInt(t, 10);
+          else if (WORDS[t] !== undefined) n = WORDS[t];
+        }
+        if (n === undefined) continue; // "the calculators", "lab calculators"
+
+        const ctx = decodeEntities(text.slice(Math.max(0, m.index! - 300), m.index! + 120));
         const owner = OWNER.find(([re]) => re.test(ctx));
-        if (!owner) {
-          unattributed.push(`${p}: "${m[0]}"`);
-          continue;
-        }
-        if (registries[owner[1]] !== n) {
-          wrong.push(`${p}: "${m[0]}" but ${owner[1]} ships ${registries[owner[1]]}`);
-        }
+        const snippet = `${before.slice(-42).replace(/\s+/g, " ")}${m[0]}`;
+        if (!owner) unattributed.push(`${p}: "...${snippet}"`);
+        else if (reg[owner[1]] !== n)
+          wrong.push(`${p}: "...${snippet}" -> ${owner[1]} ships ${reg[owner[1]]}, page says ${n}`);
       }
     }
+    // An unattributable quantity FAILS. Silently skipping one is exactly how the
+    // first version let a wrong Finance number through.
     expect({ wrong, unattributed }).toEqual({ wrong: [], unattributed: [] });
   });
 });
 
 // ---------------------------------------------------------------------------
-// Syntax must be documented somewhere a user can find it
+// Syntax must be documented in PROSE, not merely present in source
 // ---------------------------------------------------------------------------
 
-describe("every beam syntax the parser accepts is documented", () => {
+describe("every beam support option is documented for a reader", () => {
+  const BEAM = read("src/lib/beam.ts");
+
   /**
-   * The CANONICAL support option names, read out of parseSupports itself.
-   *
-   * Taken from the `opts.set("x", ...)` targets rather than from the `name ===`
-   * comparisons, because the latter also yields the aliases (`spring`,
-   * `stiffness`, `settlement`). An alias is a convenience for someone who
-   * already knows the option exists; requiring every one to be advertised would
-   * clutter the docs to no benefit. What must be documented is the name a user
-   * has to be told about in order to use the feature at all.
+   * Canonical option names, from the `opts.set("x", …)` targets in parseSupports.
+   * Aliases are excluded deliberately: an alias only helps someone who already
+   * knows the option exists.
    */
   function optionNames(): string[] {
-    const out = new Set<string>();
-    for (const m of BEAM.matchAll(/opts\.set\("([a-z]+)"/g)) out.add(m[1]);
-    return [...out];
+    return [...new Set([...BEAM.matchAll(/opts\.set\("([a-z]+)"/g)].map((m) => m[1]))];
   }
 
-  /** The leading keyword alternations of the support and load patterns. */
-  function keywordGroups(): string[][] {
-    const out: string[][] = [];
-    for (const m of BEAM.matchAll(/\((?:\?:)?((?:[a-z]+\|){1,}[a-z]+)\)/g)) {
-      out.push(m[1].split("|"));
-    }
-    return out;
-  }
+  // The in-pane help and the two web pages. NOT taskpane.ts — its source is
+  // code, and letting code satisfy a documentation check is how the first
+  // version passed while `k=` and `settle=` were genuinely undocumented.
+  const PROSE = [read("src/lib/examples.ts"), read("landing/manual.html"), read("landing/tool.html")].join("\n");
 
-  // Anywhere a user could reasonably find it: the in-pane examples, the pane's
-  // own hint text, or either web page.
-  const DOCS = [EXAMPLES, PANE, MANUAL, TOOLPAGE].join("\n");
-
-  test("the extractors found something — this guard cannot pass vacuously", () => {
+  test("the extractor found the options", () => {
     expect(optionNames().length).toBeGreaterThanOrEqual(2);
-    expect(keywordGroups().length).toBeGreaterThanOrEqual(3);
   });
 
-  test("every support option is written down somewhere, with its equals sign", () => {
-    const undocumented = optionNames().filter((n) => !DOCS.includes(`${n}=`));
+  test("each option appears with its equals sign in user-facing prose", () => {
+    const undocumented = optionNames().filter((n) => !PROSE.includes(`${n}=`));
     expect(undocumented).toEqual([]);
   });
 
-  test("every support kind and load keyword appears in the docs", () => {
-    // The FIRST alternative of each group is the canonical spelling; aliases are
-    // conveniences and are not required to be advertised.
-    const undocumented: string[] = [];
-    for (const group of keywordGroups()) {
-      const canonical = group[0];
-      if (canonical.length < 2) continue; // single letters are aliases, not names
-      if (!new RegExp(`\\b${canonical}\\b`, "i").test(DOCS)) undocumented.push(canonical);
-    }
-    expect(undocumented).toEqual([]);
+  test("the beam calculator's own hint mentions them, since that is read first", () => {
+    // Scoped to the beam entry's hint, not the whole pane source.
+    const i = PANE.indexOf('id: "beam"');
+    expect(i).toBeGreaterThan(0);
+    const hint = PANE.slice(i, PANE.indexOf("fields:", i));
+    const missing = optionNames().filter((n) => !hint.includes(`${n}=`));
+    expect(missing).toEqual([]);
   });
 
-  test("the fraction form is documented, since the fields accept it", () => {
-    // parseRatLiteral takes `a/b` and, as of v2.37.0, so does every beam field.
-    const acceptsFractions = /\\\/|\\s\*\\\//.test(BEAM) || BEAM.includes("(?:\\s*\\/\\s*[+-]?\\d+)?");
-    expect(acceptsFractions).toBe(true);
-    expect(/8\/3|fraction/i.test(DOCS)).toBe(true);
+  test("the fraction form is documented where a reader will find it", () => {
+    // Prose only. The earlier version also inspected beam.ts's own source, which
+    // cannot fail for a documentation reason and was structurally vacuous.
+    expect(/\b\d+\/\d+\b/.test(PROSE)).toBe(true);
+    expect(/fraction/i.test(PROSE)).toBe(true);
   });
 });

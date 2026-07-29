@@ -91,6 +91,126 @@
       push("PANELCLICK BROKEN no panel buttons rendered");
     }
 
+    // CONTRAST IN BOTH THEMES. The panels shipped with a hardcoded light-grey
+    // hover behind text coloured by the theme, so in dark mode the hovered tool
+    // was near-white on near-white and could not be read. CSS never errors on
+    // this; it just looks fine in whichever theme the author had open. So the
+    // colours are measured, in both themes, on the states a user actually hits.
+    function luminance(col) {
+      col = String(col || "").trim();
+      var m = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(col);
+      if (!m) {
+        // Custom properties resolve to whatever was authored, usually hex.
+        var h = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(col);
+        if (!h) return null;
+        var x = h[1];
+        if (x.length === 3) x = x[0] + x[0] + x[1] + x[1] + x[2] + x[2];
+        m = [null, parseInt(x.slice(0, 2), 16), parseInt(x.slice(2, 4), 16), parseInt(x.slice(4, 6), 16)];
+      }
+      var c = [1, 2, 3].map(function (i) {
+        var v = Number(m[i]) / 255;
+        return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+      });
+      return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+    }
+    function contrast(fg, bg) {
+      var a = luminance(fg), b = luminance(bg);
+      if (a === null || b === null) return null;
+      var hi = Math.max(a, b), lo = Math.min(a, b);
+      return (hi + 0.05) / (lo + 0.05);
+    }
+    // An element's own background may be transparent; walk up for the real one.
+    function effectiveBg(el) {
+      for (var n = el; n && n !== document.documentElement; n = n.parentElement) {
+        var bg = getComputedStyle(n).backgroundColor;
+        if (bg && !/rgba\(0,\s*0,\s*0,\s*0\)|transparent/.test(bg)) return bg;
+      }
+      return getComputedStyle(document.body).backgroundColor;
+    }
+    ["light", "dark"].forEach(function (theme) {
+      document.documentElement.setAttribute("data-theme", theme);
+      var btns = document.querySelectorAll("#engineering-groups button.eng-tool");
+      if (!btns.length) { push("CONTRAST " + theme + " BROKEN no tools"); return; }
+      var worst = 99, worstWhere = "";
+      var probe = btns[0];
+      var cs = getComputedStyle(probe);
+      var fg = cs.color;
+
+      // REST — whatever surface the button actually sits on.
+      var pairs = [["rest", effectiveBg(probe), fg]];
+
+      // HOVER — READ FROM THE STYLESHEET, NOT ASSUMED.
+      //
+      // getComputedStyle cannot apply :hover, and the reported bug was ON
+      // HOVER. An earlier version of this check resolved --bg-soft and called
+      // that the hover colour; when the original bug was reintroduced as a
+      // negative control the check still passed, because the broken rule used a
+      // DIFFERENT property (var(--hover, #f3f4f6)) and nothing here was reading
+      // the rule. So find the actual :hover rule, take its declared values, and
+      // resolve them by applying them to a probe inside the panel — var() then
+      // resolves in the real inherited context, fallbacks and all.
+      function declaredFor(selectorPart) {
+        var out = { bg: "", color: "" };
+        for (var si = 0; si < document.styleSheets.length; si++) {
+          var rules;
+          try { rules = document.styleSheets[si].cssRules; } catch (e) { continue; }
+          if (!rules) continue;
+          for (var ri = 0; ri < rules.length; ri++) {
+            var r = rules[ri];
+            if (!r.selectorText || r.selectorText.indexOf(selectorPart) < 0) continue;
+            // A shorthand containing var() cannot be decomposed into
+            // longhands, so `background: var(--x)` leaves backgroundColor empty
+            // — which read as "no rule found" and made this check silent.
+            var bg = r.style.getPropertyValue("background-color") || r.style.getPropertyValue("background");
+            if (bg) out.bg = bg;
+            if (r.style.getPropertyValue("color")) out.color = r.style.getPropertyValue("color");
+          }
+        }
+        return out;
+      }
+      function resolveOn(el, decl) {
+        var probe2 = document.createElement("span");
+        probe2.style.display = "none";
+        if (decl.bg) probe2.style.background = decl.bg;
+        if (decl.color) probe2.style.color = decl.color;
+        el.appendChild(probe2);
+        var cs2 = getComputedStyle(probe2);
+        var res = { bg: cs2.backgroundColor, color: cs2.color };
+        probe2.remove();
+        return res;
+      }
+      var hoverDecl = declaredFor(".eng-tool:hover");
+      if (!hoverDecl.bg) {
+        push("CONTRAST " + theme + " BROKEN could not find the .eng-tool:hover rule");
+        return;
+      }
+      var hoverRes = resolveOn(probe.parentElement || probe, hoverDecl);
+      pairs.push(["hover", hoverRes.bg, hoverDecl.color ? hoverRes.color : fg]);
+
+      var selDecl = declaredFor('.eng-tool[aria-current="true"]');
+      if (selDecl.bg) {
+        var selRes = resolveOn(probe.parentElement || probe, selDecl);
+        pairs.push(["selected", selRes.bg, selDecl.color ? selRes.color : fg]);
+      }
+
+      var sumDecl = declaredFor(".eng-group > summary:hover");
+      if (sumDecl.bg) {
+        var sumRes = resolveOn(probe.parentElement || probe, sumDecl);
+        pairs.push(["heading-hover", sumRes.bg, sumDecl.color ? sumRes.color : fg]);
+      }
+
+      pairs.forEach(function (pair) {
+        var c = contrast(pair[2], pair[1]);
+        if (c === null) { worst = 0; worstWhere = pair[0] + "(unparsed:" + String(pair[1]).trim() + ")"; return; }
+        if (c < worst) { worst = c; worstWhere = pair[0]; }
+      });
+      push(
+        "CONTRAST " + theme + " worst=" + worst.toFixed(2) + " at=" + worstWhere +
+          " " + (worst >= 4.5 ? "ok" : "UNREADABLE")
+      );
+    });
+    document.documentElement.removeAttribute("data-theme");
+
     var groups = [].slice.call(calcSel.querySelectorAll("optgroup"));
     var grouped = groups.reduce(function (n, g) {
       return n + g.querySelectorAll("option").length;

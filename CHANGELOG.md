@@ -5,6 +5,49 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > Note: this file was not maintained between v1.96.0 and v2.23.0. Those releases
 > are recorded in the git history rather than here.
 
+## [2.32.1] — 2026-07-28 — Hovering a calculation made it unreadable
+
+Reported from real use: hovering a tool in the new Engineering panels turned the
+text white on a near-white background.
+
+`--hover` is defined **nowhere** in the stylesheet. `var(--hover, #f3f4f6)`
+therefore used its fallback unconditionally — a hardcoded light grey — behind
+text coloured by the theme. In Word's dark theme that is `--ink: #e6edf3` on
+`#f3f4f6`: a contrast ratio of **1.07:1**, against 4.5:1 for readable body text.
+In light mode it looked perfect, which is why it shipped.
+
+Hover, headings and the selected row now use `--bg-soft` and `--ink`, the same
+theme-aware pair the rest of the pane uses, and every colour is stated rather
+than inherited through a `<details>` and a `<button>`.
+
+The same scan found `background: var(--bg)` in two chip styles — also undefined,
+also never erroring, just silently leaving those chips with no background at
+all. Fixed to `--paper`.
+
+### Two new gates, and two false starts worth recording
+
+`cssVariables.test.ts` fails on any `var(--x)` whose `--x` is not defined
+anywhere in the stylesheet — with or without a fallback, because a fallback for
+a variable that does not exist is not defensive, it is a theme-blind constant.
+
+The Engineering audit now measures **contrast in both themes** on the states a
+user actually hits. Getting it honest took two attempts, both instructive:
+
+1. The first version resolved `--bg-soft` and called that the hover colour. When
+   the original bug was reintroduced as a negative control, **the check still
+   passed** — it was testing an assumption about the CSS rather than the CSS.
+   It now reads the real `:hover` rule out of `document.styleSheets` and
+   resolves the declared value on a probe inside the panel.
+2. That failed too, silently, twice over: `cssRules` throws SecurityError for a
+   separate stylesheet on a `file://` page (the harness now inlines the CSS),
+   and `background: var(--x)` is a shorthand containing a variable, which cannot
+   be decomposed, so `style.backgroundColor` came back empty and read as "no
+   such rule".
+
+Verified by reintroducing the bug: the check reports `dark worst=1.07 at=hover
+UNREADABLE` and stays quiet in light mode — the exact shape of what was
+reported. A check nobody has watched fail is not evidence.
+
 ## [2.32.0] — 2026-07-28 — Engineering is panels, not a dropdown
 
 Thirty-six calculations in one `<select>` is a scroll, not a menu. Grouping them

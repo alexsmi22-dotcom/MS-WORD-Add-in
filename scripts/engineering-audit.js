@@ -65,6 +65,20 @@ function writeHarness() {
     "<script>window.Office={HostType:{Word:'Word'},onReady:function(cb){window.__officeCb=cb;}," +
     "context:{requirements:{isSetSupported:function(){return true;}}}};" +
     "window.Word={run:function(){return Promise.resolve();}," + enumJs + "};</script>";
+  // INLINE THE STYLESHEET.
+  //
+  // The contrast check reads the real :hover rule out of document.styleSheets,
+  // and on a file:// page Chromium refuses cssRules access to a stylesheet
+  // loaded from a separate file — it throws SecurityError, which reads exactly
+  // like "the rule does not exist". Inlining it makes the rules readable and
+  // keeps the check honest about what the CSS actually declares.
+  const cssRef = /<link[^>]*href="([^"]+\.css)"[^>]*>/.exec(html);
+  if (cssRef) {
+    const cssPath = path.join(DIST, cssRef[1]);
+    if (fs.existsSync(cssPath)) {
+      html = html.replace(cssRef[0], "<style>" + fs.readFileSync(cssPath, "utf8") + "</style>");
+    }
+  }
   html = html.replace("</head>", stub + "</head>");
   html = html.replace("</body>", `<script src="${bundle[1]}"></script><script src="engdriver.js"></script></body>`);
 
@@ -146,6 +160,17 @@ function run() {
   const clickOk = / ok$/.test(click);
   if (!panelsOk) findings.push(panels || "PANELS MISSING");
   if (!clickOk) findings.push(click || "PANELCLICK MISSING");
+  const contrast = lines.filter((l) => l.startsWith("CONTRAST "));
+  console.log("--- Readability in both themes ---------------------------------");
+  if (!contrast.length) findings.push("CONTRAST MISSING — the check did not run");
+  for (const l of contrast) {
+    const ok = / ok$/.test(l);
+    if (!ok) findings.push(l);
+    console.log(`  ${ok ? "ok  " : "FLAG"}  ${l.slice(9)}`);
+  }
+  console.log("        (WCAG AA body text is 4.5:1; below that is the dark-mode bug)");
+  console.log("");
+
   console.log("--- Discipline panels (the control the user actually clicks) ---");
   console.log(`  ${panelsOk ? "ok  " : "FLAG"}  ${panels.slice(7) || "no PANELS line"}`);
   console.log(`  ${clickOk ? "ok  " : "FLAG"}  ${click.slice(11) || "no PANELCLICK line"}`);

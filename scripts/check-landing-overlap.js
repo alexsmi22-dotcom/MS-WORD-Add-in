@@ -136,19 +136,54 @@ function checkPage(browser, pageSrc) {
                   path.join(dir, "landing-overlap-driver.js"));
   fs.writeFileSync(path.join(dir, "harness.html"), harnessHtml("page.html"));
 
-  let dom;
-  try {
-    dom = execFileSync(browser, [
+  // FLAKY LAUNCH, RETRIED ONCE.
+  //
+  // Five sequential browser launches, each with a fresh profile, and roughly one
+  // run in three had exactly one of them never return -- a different page each
+  // time (3m7s with a failure, 7.9s clean, same code). Before the timeout
+  // existed this hung the whole QC run with no output, which read as "QC keeps
+  // failing" when nothing had failed. The timeout made it an honest error; the
+  // retry turns a transient hang into a pass without hiding a real one, because
+  // a page that genuinely cannot render fails twice.
+  //
+  // The extra flags remove everything Edge does at startup that has nothing to
+  // do with laying out a local file: first-run setup, sync, background
+  // networking, extensions, the crash reporter. Less startup work, less to hang
+  // on.
+  const launch = () => execFileSync(browser, [
       "--headless=new",
       "--disable-gpu",
       "--no-sandbox",
+      "--no-first-run",
+      "--no-default-browser-check",
+      "--disable-extensions",
+      "--disable-sync",
+      "--disable-background-networking",
+      "--disable-component-update",
+      "--disable-breakpad",
       "--allow-file-access-from-files",   // the harness reads into the iframe
       "--virtual-time-budget=30000",
       "--window-size=1600,3400",
       "--user-data-dir=" + path.join(dir, "profile"),
       "--dump-dom",
       "file:///" + path.join(dir, "harness.html").replace(/\\/g, "/"),
-    ], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024, stdio: ["ignore", "pipe", "ignore"] , timeout: 180000, killSignal: "SIGKILL" });
+    ], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024, stdio: ["ignore", "pipe", "ignore"] , timeout: 90000, killSignal: "SIGKILL" });
+
+  let dom;
+  try {
+    try {
+      dom = launch();
+    } catch (first) {
+      // Fresh profile for the retry: a half-written one is a plausible cause of
+      // the hang, and reusing it would reproduce the failure faithfully.
+      try {
+        fs.rmSync(path.join(dir, "profile"), { recursive: true, force: true });
+      } catch {
+        /* best effort */
+      }
+      console.error("  (browser did not return on " + path.basename(pageSrc) + " - retrying once)");
+      dom = launch();
+    }
   } catch (e) {
     // INFRASTRUCTURE, NOT LAYOUT. Returning the same code as a real overlap made
     // a browser that would not start report as "1 of 5 landing pages have layout

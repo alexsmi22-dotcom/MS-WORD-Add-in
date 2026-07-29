@@ -5,6 +5,64 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > Note: this file was not maintained between v1.96.0 and v2.23.0. Those releases
 > are recorded in the git history rather than here.
 
+## [2.37.3] — 2026-07-29 — A guard for the documentation, and a count it immediately caught
+
+v2.37.2 fixed seven stale documentation surfaces by hand. This adds the gate that
+would have caught them, and it found an eighth on its first run.
+
+### Finance had been claiming 18 calculators; it ships 19
+
+`FIN_CALCS` has nineteen entries. README.md and FEATURES.md said eighteen. Nobody
+had counted them since the nineteenth was added, and nothing checked.
+
+This was found by accident: the guard was written for Engineering, flagged the
+Finance numbers as disagreeing, and chasing that down turned up a real error. So
+the guard now covers **all five calculator registries** — Finance, Stats,
+Analyze, Engineering and Bio/Assay — rather than the one it was written for. A
+check that finds bugs in its neighbours and then gets taught to ignore them has
+learned the wrong lesson.
+
+### What the guard checks, and what it deliberately does not
+
+Two things, both **derived from source** so they grow on their own. A hardcoded
+list is exactly how `unbounded.adversarial.test.ts` came to cover none of the
+exports added after it was written, and repeating that in the test built to
+prevent it would have been a poor joke.
+
+1. **Per-discipline calculator counts.** `<b>Vibration (4)</b>` on the manual and
+   tool pages is checked against the number of `ENG_CALCS` entries carrying that
+   group. Both sides are structured data, so this is exact rather than a prose
+   match — and it is what would have caught the 37th calculator shipping while
+   the manual still said three.
+2. **Every syntax the parser accepts is documented somewhere.** The option names
+   are read out of `parseSupports` itself, and each must appear with its equals
+   sign in the in-pane examples, the pane hint, or a web page. This is the one
+   that would have caught `k=` and `settle=` shipping undocumented for three
+   releases: no count changed, so a count guard alone could never have seen it.
+   Aliases (`spring=`, `stiffness=`, `settlement=`) are exempt — an alias helps
+   someone who already knows the option exists.
+
+Not checked: prose. A test asserting a page contains the words "modal
+superposition" fails the first time someone improves a sentence, and a guard
+people delete is worse than no guard.
+
+### Watched to fail before being trusted
+
+Each check was run against a deliberately broken payload: a wrong discipline
+count on each page, a wrong total, and an option stripped from every document.
+All four fired. A check nobody has seen fail is not evidence — the same reason
+the Engineering audit self-tests its own predicates.
+
+### One that bit while writing it
+
+Building the guard through a shell heredoc turned `
+` into a real newline and
+`` into a literal 0x08 BACKSPACE inside a regex — the identical damage that
+once shipped the Alexander polynomial unreachable for a release. It failed to
+compile this time, which is luck rather than process; the repair went through a
+script file instead, and `controlchars.adversarial.test.ts` confirms the byte is
+gone.
+
 ## [2.37.2] — 2026-07-29 — The documentation catches up with the code
 
 Three releases of engineering work had landed with only FEATURES.md and half the

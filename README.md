@@ -26,7 +26,7 @@ Pick a tool from the home screen — **26 tools** (grouped STEM + legal):
 | **Units** | SI typesetting (±, ×10ⁿ, µ/Ω/°), significant figures, unit conversion incl. compound units (`km/h → m/s`) |
 | **Plot** | offline function & data charts (multiple series + legend, error bars) |
 | **Table → Chart** | charts (column/bar/line/area/scatter/stacked), flowcharts, block diagrams, table figures; B&W patent figures or editable PowerPoint |
-| **Finance** | 18 calculators — TVM / loan / NPV / IRR / DCF / Black–Scholes + Greeks / bond analytics, plus a finance equation library |
+| **Finance** | 19 calculators — TVM / loan / NPV / IRR / DCF / Black–Scholes + Greeks / bond analytics, plus a finance equation library |
 | **Build** | molecules from atom/bond lists or molfiles; Markush/R-group genus + substituent gallery |
 | **Code** | algorithm (bold-keyword) and verbatim code listings |
 | **Sequence Map** | open a **GenBank** (.gb/.gbk), **FASTA** or **SnapGene .dna** file, or paste one, and insert an **annotated map** at the cursor — a classic **circular plasmid map** or a linear one: features as strand-aware arrows, a joined CDS drawn per exon, a scale bar, and a **black-&-white line-art mode** for patent figures. Read entirely on your machine |
@@ -44,7 +44,7 @@ Pick a tool from the home screen — **26 tools** (grouped STEM + legal):
 H2O → H₂O   ·   paste \frac{-b±√(b²-4ac)}{2a} (LaTeX) → a Word equation   ·   aspirin → 2D structure
 ```
 
-> **Status:** v2.37.2 — production. Word on **Windows & macOS**,
+> **Status:** v2.37.3 — production. Word on **Windows & macOS**,
 > 100% client-side. Install packs: [`install/`](install/) · feature list: [`FEATURES.md`](FEATURES.md).
 
 ## Screenshots
@@ -79,7 +79,7 @@ _Screenshots coming soon — see [`docs/screenshots/`](docs/screenshots/) for th
    (modern WebView2/Edge runtime; legacy IE-based webviews are not supported).
 
 > Verified by the QC gate (`npm run qc`): `npm run lint` (type-check),
-> `npm test` (**6,100+ unit tests** across **200 test files**), `npm run build` (production bundle),
+> `npm test` (**6,100+ unit tests** across **201 test files**), `npm run build` (production bundle),
 > `office-addin-manifest validate`, the task-pane id-wiring audit, and a
 > **headless render check** (`npm run render-check`) that boots the real bundle in
 > Chromium — the same engine as Word's WebView2 — and drives every tool. All pass.

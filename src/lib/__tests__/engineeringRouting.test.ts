@@ -473,11 +473,22 @@ describe("every non-text block kind reaches the rich insert path", () => {
     return branch;
   }
 
-  // THE FIGURE SHAPE IS THE WHOLE BUG. Three releases moved further from the
-  // one arrangement known to put both Bode plots on the page, and each step
-  // lost more figures: caption paragraph (2 of 2) -> empty paragraph (1 of 2)
-  // -> empty paragraph plus a sync per hop (0 of 2, beam too). These pin the
-  // shape that worked, because nothing else caught the drift.
+  // THE FIGURE SHAPE IS WHERE FIVE RELEASES WENT, so it is pinned as a whole.
+  //
+  // Read the ladder honestly, because an earlier version of this comment did
+  // not. There are THREE measurements and ONE inference:
+  //   - v2.31.0, caption paragraph: count UNKNOWN. The picture counter did not
+  //     exist yet. "2 of 2" was inferred from a user's remark about two plots
+  //     being misaligned, and four releases were spent reverting toward a state
+  //     nobody had ever verified.
+  //   - v2.31.1, empty paragraph: 1 of 2.       (measured)
+  //   - v2.31.4, empty paragraph + sync/hop: 0 of 2, and beam lost its one too.
+  //   - v2.31.7, caption paragraph + Start: 1 of 2, instrumented.
+  //
+  // Every one of those chained the next anchor .after a paragraph CONTAINING a
+  // picture. That is the token these gates actually protect; the rest of the
+  // shape is pinned because each regression came from adding one more thing to
+  // a sequence that was already correct.
 
   test("the picture goes into a paragraph that has text in it", () => {
     // An empty paragraph is where the figures went missing. Word accepts a
@@ -489,9 +500,18 @@ describe("every non-text block kind reaches the rich insert path", () => {
 
   test("the picture is inserted at the END of the caption paragraph", () => {
     // InsertLocation.start was an attempt to make figures line up at the margin
-    // without changing the paragraph structure. It cost a figure on its own:
-    // the user's picture count went from 2 of 2 to 1 of 2 with that as the only
-    // change. End is the only location ever observed to keep both.
+    // without changing the paragraph structure, and v2.31.7 measured 1 of 2
+    // with it. That does NOT convict it: the same build had OOXML upstream, a
+    // sync in-branch, and .after off a picture paragraph, so Start was never
+    // the only variable and the "2 of 2" it was compared against was never a
+    // count. Start is unconvicted, not refuted.
+    //
+    // End is pinned anyway, on the narrower ground that it is what the three
+    // shipped N-picture inserts use and what every candidate fix has to vary
+    // from. If a future release wants Start for alignment, it may have it —
+    // but alone, on top of a CONFIRMED 2 of 2, and never bundled with a
+    // structural change. Bundling the cosmetic fix with a structural one is
+    // exactly what v2.31.1 did.
     const body = figureBranch();
     expect(body).toMatch(/insertInlinePictureFromBase64\([^)]*Word\.InsertLocation\.end/);
     expect(body).not.toMatch(/insertInlinePictureFromBase64\([^)]*Word\.InsertLocation\.start/);
@@ -523,6 +543,29 @@ describe("every non-text block kind reaches the rich insert path", () => {
     expect(g).toBeGreaterThan(-1);
     const loop = PANE.slice(g, g + 400);
     expect(loop).toContain("para.getRange(Word.RangeLocation.end)");
+  });
+
+  test("every shipped site that chains off a picture uses .end", () => {
+    // The comment in the figure branch claims THREE shipped sites follow one
+    // rule — chain .end off a picture, .after off text. That claim is the whole
+    // justification for the token, so it is gated rather than asserted. The
+    // table-figure and structure inserts each take their tail from a picture.
+    const sites = PANE.split("\n")
+      .map((l) => l.trim())
+      .filter((l) => /^(let|const)\s+tail = picture\.getRange\(/.test(l));
+    expect(sites.length).toBeGreaterThanOrEqual(2);
+    for (const s of sites) expect(s).toContain("Word.RangeLocation.end");
+  });
+
+  test("the OOXML anchor in flushRun is deliberately NOT changed", () => {
+    // One variable per release. An OOXML package upstream was the rival theory
+    // for the missing figure, and it was set aside on evidence: step response
+    // is math (hence insertOoxml) plus exactly ONE plot and has never been
+    // reported to lose it. If someone later changes this to .end as well, the
+    // next picture count stops being a single-variable measurement — so this
+    // pins the NON-change until Bode has been confirmed at 2 of 2.
+    const routine = insertBlocksBody();
+    expect(routine).toContain("inserted.getRange(Word.RangeLocation.after)");
   });
 
   test("the figure branch is exactly the five statements that worked", () => {

@@ -10788,11 +10788,23 @@ async function insertResultBlocks(text: string, blocksIn: AnalyzeBlock[] | null,
         if (block.kind === "plot") {
           // THE ANCHOR AFTER A FIGURE MUST BE RangeLocation.end, NOT .after.
           //
-          // This is the whole bug, and it took five releases because the first
-          // "measurement" was an inference. A user's remark that two Bode plots
-          // "are not aligned even though they are the same size" was read as
-          // proof both had been inserted; it was almost certainly about the
-          // pane's preview. The second figure has probably NEVER arrived.
+          // Five releases went into this because the first "measurement" was an
+          // inference. A user's remark that two Bode plots "are not aligned even
+          // though they are the same size" was read as proof both had been
+          // inserted. It is not proof of anything: v2.31.0 predates the picture
+          // counter entirely (`git show d561229 | grep -c picturesBefore` = 0),
+          // so THE FIGURE COUNT AT v2.31.0 IS SIMPLY UNKNOWN. Do not replace
+          // that with a better story. An earlier draft of this comment guessed
+          // the remark was about the pane's preview; a later one asserted there
+          // is no plot preview at all, which is wrong — updateEngineeringPreview
+          // renders every block through analyzeBlocksToPreviewHtml into
+          // #engineering-result, and the audit counts two <svg> there for
+          // frequency response. (The claim was about previewEl, a different
+          // element.) So the remark could have been about either the preview or
+          // the page, and which one it was remains unknown. Leave it unknown.
+          //
+          // So the ladder is three measurements and one inference, and the
+          // inference is the only rung this token disagrees with.
           //
           // Everything else fits that. Every other figure-bearing report — beam,
           // step response, all three PK tools, both vibration tools — carries
@@ -10800,10 +10812,19 @@ async function insertResultBlocks(text: string, blocksIn: AnalyzeBlock[] | null,
           // only report with two, and it is the only one that loses one. A
           // single figure never chains an anchor; a second one does.
           //
-          // insertGallery is the proof. It has shipped untouched for years, it
-          // inserts N pictures in one loop in one Word.run, and it differs from
-          // this branch in exactly one token: it takes its next anchor from
-          // getRange(RangeLocation.END) rather than .after. Chaining .after off
+          // insertGallery is the corroboration. It has shipped untouched for
+          // years, it inserts N pictures in one loop in one Word.run, and it
+          // differed from this branch in exactly one token: it takes its next
+          // anchor from getRange(RangeLocation.END) rather than .after. It is
+          // not the only site — the table-figure and structure inserts BOTH
+          // chain .end off a picture, while the same routines chain .after off
+          // ordinary text paragraphs. Three shipped sites, one rule.
+          //
+          // MEASURED, v2.31.9: with .end in place the frequency-response report
+          // inserts 2 OF 2 figures, counted from document.body.inlinePictures in
+          // real Word and confirmed by the user. That is the first hard number
+          // in this entire story, and it is what promotes the rule below from
+          // corroboration to a result. Chaining .after off
           // a paragraph that CONTAINS AN INLINE PICTURE does not yield a usable
           // insertion point — Word accepts the next picture against it and keeps
           // nothing, with no error. Text paragraphs chain off .after perfectly
@@ -10814,10 +10835,29 @@ async function insertResultBlocks(text: string, blocksIn: AnalyzeBlock[] | null,
           //   - that properties set on a picture pre-sync are discarded with it
           //     (insertGallery, the table-figure and structure inserts all do
           //     this and have shipped for years);
-          //   - that a sync between hops is the remedy (it took the report from
-          //     one figure to none, and broke single-figure beam as well);
-          //   - that InsertLocation.start would fix alignment harmlessly (it
-          //     cost a figure by itself).
+          //   - that a sync between hops is the remedy. This is the one CLEAN
+          //     inference in the dataset: beam carries a single figure and no
+          //     math, and it kept that figure until the release that added a
+          //     sync per hop, which took it to none. Syncs in this loop cost
+          //     figures.
+          //   - that an OOXML package upstream is what eats the figure. The
+          //     step-response report is tfLine (math, hence insertOoxml) plus
+          //     exactly ONE plot, and it has never been reported to lose it,
+          //     while Bode with the same upstream loses one of two. That is
+          //     absence-of-complaint rather than a count, so it is weaker than
+          //     the rungs above — but the recorded OOXML failure mode is total
+          //     downstream loss ("only the formula was inserted"), and what was
+          //     actually seen is prose plus the FIRST figure landing. A cause
+          //     that has to spare figure one and kill figure two is a free
+          //     parameter. flushRun's own anchor is deliberately left on .after.
+          //
+          // NOT refuted, only never tested cleanly:
+          //   - InsertLocation.start. It shipped in v2.31.7 and gave 1 of 2, but
+          //     that build also had OOXML upstream and a sync in-branch, and it
+          //     chained .after off a picture paragraph like every other rung. It
+          //     is unconvicted, not exonerated. It also aligns every picture at
+          //     the margin for free, at the cost of the caption sitting to the
+          //     right of the figure — worth a look AFTER a confirmed 2 of 2.
           //
           // THE COSMETIC DEBT that started this is still here: the picture sits
           // after the caption text, so captions of different lengths push their

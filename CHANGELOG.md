@@ -7,21 +7,28 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 
 ## [2.31.9] — 2026-07-28 — The anchor after a figure, and a measurement that never was
 
+> **Confirmed in real Word:** the frequency-response report now inserts **2 of 2
+> figures**, counted from `document.body.inlinePictures` rather than assumed.
+> The anchor was the cause. This is the first hard number in the sequence.
+
 v2.31.8 restored the figure branch byte-for-byte to the version believed to
 render both Bode plots. It still inserted one of two. That result is the useful
 one, because it convicts the belief rather than the code.
 
 **The "2 of 2" rung was never a measurement.** It was inferred from a remark
-that two plots "are not aligned even though they are the same size" — read as
-proof both had been inserted, when it was almost certainly about the pane's
-preview. The second figure has probably never arrived, and four releases were
-spent reverting toward a state that was never verified.
+that two plots "are not aligned even though they are the same size", read as
+proof both had been inserted. v2.31.0 predates the picture counter entirely, so
+**the figure count at v2.31.0 is unknown** — not "was probably one". An earlier
+draft of this entry guessed the remark was about the pane's preview; there is no
+plot preview in the pane, and swapping one unverifiable explanation for another
+is the same mistake twice. What can be said is that four releases were spent
+reverting toward a state nobody had ever verified.
 
-Everything fits that reading. Every other figure-bearing report — beam, step
-response, all three pharmacokinetics tools, both vibration tools — carries
-exactly ONE figure and has always worked. Frequency response is the only report
-with two, and the only one that loses one. One figure never chains an anchor; a
-second one does.
+That leaves three measurements and one inference. Every other figure-bearing
+report — beam, step response, all three pharmacokinetics tools, both vibration
+tools — carries exactly ONE figure and has always worked. Frequency response is
+the only report with two, and the only one that loses one. One figure never
+chains an anchor; a second one does.
 
 **The fix is one token, and it is corroborated rather than reasoned.**
 `insertGallery` has shipped untouched for years, inserts N pictures in one loop
@@ -32,10 +39,31 @@ insertGallery:  anchor = para.getRange(Word.RangeLocation.end);    // N pictures
 figure branch:  anchor = para.getRange(Word.RangeLocation.after);  // 2nd lost
 ```
 
-Chaining `.after` off a paragraph that CONTAINS an inline picture does not yield
-a usable insertion point. Word accepts the next picture against it and keeps
-nothing, without error. Text paragraphs chain off `.after` perfectly well, which
-is why the prose in these reports always landed and only figures went missing.
+It is not the only such site: the table-figure and structure inserts both take
+their tail from a picture with `.end`, while the same routines chain `.after`
+off ordinary text paragraphs. Three shipped sites, one rule.
+
+The proposed reading is that chaining `.after` off a paragraph which CONTAINS an
+inline picture does not yield a usable insertion point — Word accepts the next
+picture against it and keeps nothing, without error — while text paragraphs
+chain off `.after` perfectly well, which is why the prose in these reports always
+landed and only figures went missing. **Whether that is actually the cause is not
+yet confirmed.** No picture count has ever been taken with `.end` in place. The
+status line now reports Word's own count, so the next frequency-response insert
+either reads "2 figures" or names what was dropped.
+
+An OOXML package upstream of the figures was the rival explanation and was set
+aside, not disproven: the step-response report is a transfer-function equation
+(hence `insertOoxml`) plus exactly one plot, and has never been reported to lose
+it, while frequency response with the same upstream loses one of two. The
+recorded OOXML failure mode is total downstream loss; what was actually seen is
+the prose and the *first* figure landing. `flushRun`'s anchor is deliberately
+left unchanged so that this release varies one token and stays measurable.
+
+**Figure alignment is unchanged** — the picture still sits after caption text of
+varying length, so stacked figures still start at different x. That is deferred
+on purpose until the figures themselves are confirmed; bundling the cosmetic fix
+with a structural one is what went wrong in v2.31.1.
 
 Gated both ways: the figure branch must use `.end`, and a second test asserts
 `insertGallery` still uses `.end` too — if the path this is modelled on ever
@@ -43,9 +71,15 @@ changes, the justification is stale and the suite should say so rather than keep
 asserting a shape nothing corroborates.
 
 Refuted and recorded, so none of it is rediscovered: that properties set on a
-picture before its batch syncs are discarded with it; that a sync between hops
-is the remedy; that `InsertLocation.start` fixes alignment harmlessly. Each cost
-a release.
+picture before its batch syncs are discarded with it (three shipped inserts do
+exactly this); and that a sync between hops is the remedy — the cleanest single
+variable in the whole episode, since beam carries one figure and no equation and
+kept it until the release that added a sync per hop, which took it to none.
+
+`InsertLocation.start` is **not** refuted, only never tested cleanly: the build
+that measured 1 of 2 with it also had an OOXML package upstream, a sync in the
+branch, and the `.after` chain. It remains a candidate for the alignment fix —
+alone, on top of a confirmed 2 of 2, never bundled.
 
 ## [2.31.8] — 2026-07-28 — Back to the six lines that actually worked
 

@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.35.0)
+# JurisLab — Manual Test Script (v2.36.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -118,6 +118,42 @@ cache and reopen:
 - **macOS:** `~/Library/Containers/com.microsoft.Word/Data/Library/Caches/` and
   `~/Library/Containers/com.microsoft.Word/Data/Library/Application Support/Microsoft/Office/16.0/Wef/`
 - **Windows:** `%LOCALAPPDATA%\Microsoft\Office\16.0\Wef\`
+
+---
+
+## 0b. New in v2.36.0 — elastic beam supports and MDOF forced response
+
+Engineering > Structural & solids > **Beam analysis**:
+
+- [ ] Leave the defaults (`pin 0, roller 8`, udl 5 + point 30) and note the two
+  reactions. Now change the supports to `pin 0, roller 8 settle=0.01` and put
+  `2.4e5` in the EI field. **The reactions must not change at all** — a
+  determinate beam does not care that a support moved. The determinacy line
+  should say so in words.
+- [ ] Change the supports to `fixed 0, roller 8 settle=0.01`, EI `2.4e5`, and
+  DELETE every load. Reactions are now non-zero: settlement alone induces them
+  in an indeterminate beam. Double EI to `4.8e5` and they should **double**.
+- [ ] With any spring or settlement present, clear the EI field. It must be
+  **refused with a reason** — that there is no EI-free answer to give — rather
+  than silently computing something.
+- [ ] `roller 8 k=0` must be refused as NO support rather than a soft one.
+- [ ] Check the result says the reactions are **not EI-free**, and that the old
+  "reactions ... are exact without it" line does NOT appear for these beams.
+
+Engineering > Vibration > **Forced response of a multi-DOF system**:
+
+- [ ] Defaults compute and insert. The modal breakdown lists one row per mode
+  with its own ζ, r and share of the peak response.
+- [ ] Set the mass matrix to `1 0 / 0 1` and stiffness to `200 -100 / -100 200`
+  (matrix input), force `10 10`, ω `5`. Mode 2 is antisymmetric and the load is
+  symmetric, so **mode 2's generalised force must be 0** and the note about a
+  load at a node of a mode must appear.
+- [ ] Set damping to `0` and ω to a natural frequency shown by the Natural
+  frequencies tool. It must **refuse** with "no steady state", not print
+  Infinity or NaN.
+- [ ] Enter damping as `rayleigh 0.6 0.002` and confirm the per-mode ζ values
+  differ between modes.
+- [ ] The classical-damping caveat appears in the notes every time.
 
 ---
 

@@ -135,6 +135,8 @@ import {
   forcedResponse,
   frequencySweep as vibSweep,
   modalAnalysis,
+  modalForcedResponse,
+  rayleighDamping,
   chainSystem,
 } from "../lib/vibration";
 import { analyzeOpamp, OpampConfig } from "../lib/opamp";
@@ -7585,7 +7587,10 @@ const ENG_CALCS: EngCalc[] = [
     name: "Beam analysis (shear, moment, deflection)",
     group: "Structural & solids",
     hint:
-      'Supports: "pin 0, roller 8" or "fixed 0". Loads, one per line: "point 30 at 6", ' +
+      'Supports: "pin 0, roller 8" or "fixed 0". A support may be elastic or displaced: ' +
+      '"roller 8 k=5e4" sits it on a spring, "roller 8 settle=0.01" sinks it (downward positive). ' +
+      "Both need EI, because an elastic or settling support makes the reactions depend on the " +
+      'beam\'s own stiffness. Loads, one per line: "point 30 at 6", ' +
       '"udl 5 from 0 to 8", "udl 0 to 9 from 0 to 6" (varying), "moment 200 at 4". ' +
       "Downward loads are positive. Keep your units consistent; nothing here converts them.",
     fields: [
@@ -7598,7 +7603,7 @@ const ENG_CALCS: EngCalc[] = [
         kind: "block",
         rows: 4,
       },
-      { key: "EI", label: "EI for deflection (blank to skip)", default: "", kind: "text" },
+      { key: "EI", label: "EI (needed for deflection, and for k= or settle=)", default: "", kind: "text" },
       { key: "unit", label: "Units as force,length", default: "kN,m", kind: "text" },
     ],
     compute: (r) => {
@@ -7609,7 +7614,15 @@ const ENG_CALCS: EngCalc[] = [
       const problems = [...sup.errors, ...lds.errors];
       if (problems.length) return { text: problems.join("\n"), ok: false };
 
-      const res = analyzeBeam({ length: L, supports: sup.supports, loads: lds.loads });
+      // EI is parsed EXACTLY and passed into the solve, not just applied to the
+      // answer afterwards. A spring or settling support puts EI inside the
+      // compatibility equations, so handing the engine a float there would put
+      // rounding in the middle of an otherwise exact solve.
+      const eiRaw = r("EI").trim();
+      const eiExact = eiRaw ? parseLength(eiRaw) : null;
+      if (eiRaw && !eiExact) return { text: `"${eiRaw}" is not a number, so EI could not be read.`, ok: false };
+
+      const res = analyzeBeam({ length: L, supports: sup.supports, loads: lds.loads, ei: eiExact });
       if (!res.ok) return { text: res.error, ok: false };
 
       const parts = (r("unit") || "kN,m").split(",");
@@ -7646,9 +7659,8 @@ const ENG_CALCS: EngCalc[] = [
           `  sagging peak ${engNum(res.maxMoment.value)} ${mu}, hogging peak ${engNum(res.minMoment.value)} ${mu}`,
         );
 
-      const eiRaw = r("EI").trim();
-      if (eiRaw) {
-        const EI = Number(eiRaw);
+      if (eiExact) {
+        const EI = ratNum(eiExact);
         if (!Number.isFinite(EI) || EI <= 0) {
           lines.push("");
           lines.push("EI must be a positive number, so deflection was not computed.");
@@ -7662,7 +7674,14 @@ const ENG_CALCS: EngCalc[] = [
         }
       } else {
         lines.push("");
-        lines.push("Deflection needs EI. Reactions, shear and moment do not, and are exact without it.");
+        // Only true for a beam on rigid supports. An elastic or settling support
+        // never reaches this branch — analyzeBeam refuses it without EI — but
+        // the sentence is wrong for it, so it is guarded rather than trusted.
+        lines.push(
+          res.eiCoupled
+            ? "Deflection needs EI."
+            : "Deflection needs EI. Reactions, shear and moment do not, and are exact without it.",
+        );
       }
       for (const w of res.warnings) lines.push(`Note: ${w}`);
       lines.push(ENG_EXACT_UNIT_NOTE);
@@ -9384,7 +9403,11 @@ const ENG_CALCS: EngCalc[] = [
         default: "grounded",
         kind: "select",
         options: [
-          { value: "grounded", label: "Grounded at both ends" },
+          // chainSystem anchors spring 0 to ground and leaves the far end free,
+          // so a grounded chain of n masses takes n springs. This said "both
+          // ends", which describes a different structure with a different
+          // stiffness matrix and different frequencies.
+          { value: "grounded", label: "Anchored at one end, free at the other" },
           { value: "free", label: "Free-free (unrestrained)" },
         ],
       },
@@ -9429,6 +9452,118 @@ const ENG_CALCS: EngCalc[] = [
       for (let i = 0; i < n; i++) {
         lines.push(`  DOF ${i + 1}: ` + res.modes[i].map((v) => engNum(v, 4)).join("   "));
       }
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_VIB_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "vib-mdof-forced",
+    name: "Forced response of a multi-DOF system",
+    group: "Vibration",
+    hint:
+      "Steady-state response to a harmonic force on a structure with several degrees of freedom, " +
+      "by modal superposition. Give one force amplitude per degree of freedom. Damping is entered " +
+      'as MODAL damping ratios — one value for all modes, a list of them, or "rayleigh 0.6 0.002" ' +
+      "to derive them from C = αM + βK. It assumes CLASSICAL damping; a single discrete damper " +
+      "between two degrees of freedom does not satisfy that and needs complex modes.",
+    fields: [
+      {
+        key: "mode",
+        label: "Input",
+        default: "chain",
+        kind: "select",
+        options: [
+          { value: "chain", label: "Chain of masses and springs" },
+          { value: "matrix", label: "Mass and stiffness matrices" },
+        ],
+      },
+      { key: "masses", label: "Masses (chain)", default: "1 1", kind: "text" },
+      { key: "springs", label: "Stiffnesses (chain)", default: "100 100", kind: "text" },
+      {
+        key: "ground",
+        label: "Far end of the chain",
+        default: "grounded",
+        kind: "select",
+        options: [
+          { value: "grounded", label: "Anchored at one end, free at the other" },
+          { value: "free", label: "Free-free (unrestrained)" },
+        ],
+      },
+      { key: "M", label: "Mass matrix (one row per line)", default: "1 0\n0 1", kind: "block", rows: 3 },
+      { key: "K", label: "Stiffness matrix (one row per line)", default: "200 -100\n-100 200", kind: "block", rows: 3 },
+      { key: "F", label: "Force amplitude per DOF", default: "10 0", kind: "text" },
+      { key: "w", label: "Forcing frequency ω (rad/s)", default: "8", kind: "text" },
+      { key: "zeta", label: "Modal damping (value, list, or \"rayleigh α β\")", default: "0.02", kind: "text" },
+    ],
+    compute: (r) => {
+      let M: number[][];
+      let K: number[][];
+      if ((r("mode") || "chain") === "chain") {
+        const masses = r("masses").split(/[,\s]+/).filter(Boolean).map(Number);
+        const springs = r("springs").split(/[,\s]+/).filter(Boolean).map(Number);
+        const built = chainSystem(masses, springs, r("ground") !== "free");
+        if ("ok" in built) return { text: built.error, ok: false };
+        M = built.M;
+        K = built.K;
+      } else {
+        const pm = parseMatrix(r("M"));
+        if (!pm.ok) return { text: `Mass matrix: ${pm.error}`, ok: false };
+        const pk = parseMatrix(r("K"));
+        if (!pk.ok) return { text: `Stiffness matrix: ${pk.error}`, ok: false };
+        M = pm.matrix;
+        K = pk.matrix;
+      }
+
+      const F = r("F").split(/[,\s]+/).filter(Boolean).map(Number);
+      if (!F.length || F.some((v) => !Number.isFinite(v)))
+        return { text: "Give one finite force amplitude per degree of freedom.", ok: false };
+      const w = Number(r("w"));
+      if (!Number.isFinite(w) || w < 0) return { text: "The forcing frequency must be zero or greater.", ok: false };
+
+      // Damping: a single ratio, a list of them, or Rayleigh alpha/beta. The
+      // Rayleigh route needs the frequencies first, so the modes are found once
+      // here and once inside modalForcedResponse; that is cheap, and threading a
+      // half-solved system through would be worse.
+      const zRaw = r("zeta").trim();
+      let damping: number | number[];
+      const ray = /^rayleigh\s+([-\d.eE+]+)\s+([-\d.eE+]+)$/i.exec(zRaw);
+      if (ray) {
+        const alpha = Number(ray[1]);
+        const beta = Number(ray[2]);
+        if (!Number.isFinite(alpha) || !Number.isFinite(beta) || alpha < 0 || beta < 0)
+          return { text: "Rayleigh α and β must both be zero or greater.", ok: false };
+        const pre = modalAnalysis(M, K);
+        if (!pre.ok) return { text: pre.error, ok: false };
+        damping = rayleighDamping(alpha, beta, pre.frequencies);
+      } else {
+        const zs = zRaw.split(/[,\s]+/).filter(Boolean).map(Number);
+        if (!zs.length || zs.some((v) => !Number.isFinite(v)))
+          return { text: 'Damping must be a ratio, a list of ratios, or "rayleigh 0.6 0.002".', ok: false };
+        damping = zs.length === 1 ? zs[0] : zs;
+      }
+
+      const res = modalForcedResponse(M, K, F, w, damping);
+      if (!res.ok) return { text: res.error, ok: false };
+
+      const n = res.frequencies.length;
+      const lines: string[] = [];
+      lines.push(`${n} degree-of-freedom forced response at ω = ${engNum(w)} rad/s`);
+      lines.push("");
+      lines.push("Steady-state amplitude per degree of freedom");
+      for (let j = 0; j < n; j++)
+        lines.push(`  DOF ${j + 1}: ${engNum(res.amplitude[j])}, lagging the force by ${engNum(res.phaseDeg[j])}°`);
+      lines.push("");
+      lines.push("Modal breakdown");
+      for (const c of res.contributions) {
+        lines.push(
+          `  Mode ${c.mode}: ω_n = ${engNum(c.wn)} rad/s, ζ = ${engNum(c.zeta)}, ` +
+            `r = ${c.wn > 0 ? engNum(c.r) : "—"}, generalised force ${engNum(c.force)}, ` +
+            `${(c.share * 100).toFixed(1)}% of the peak response`,
+        );
+      }
+      lines.push("");
+      lines.push(`Mode ${res.dominantMode} dominates the largest response.`);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_VIB_UNIT_NOTE);
       return { text: plainDashes(lines.join("\n")) };

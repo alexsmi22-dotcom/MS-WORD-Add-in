@@ -5,6 +5,126 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > Note: this file was not maintained between v1.96.0 and v2.23.0. Those releases
 > are recorded in the git history rather than here.
 
+## [2.36.0] — 2026-07-29 — Two honest limits lifted, and one that provably cannot be
+
+A review of the disclosed limits, and then the two that were worth acting on.
+Most of that list turned out to be correct scoping rather than a to-do: no
+design code, circular-only torsion and the perfect-column buckling load are the
+same decision three times over — do not turn a theorem into a lookup table —
+and the pharmacokinetic extrapolated-AUC fraction is a diagnostic the tool
+already reports rather than a shortcoming.
+
+### Beams: elastic and settling supports, still exact
+
+Supports were rigid or nothing. Now `roller 8 k=5e4` sits one on a spring and
+`roller 8 settle=0.01` sinks it by a known amount, downward positive.
+
+This stays **exact over rationals**, which is the whole point of the beam
+engine. A rigid support contributes the homogeneous condition v = 0, which is
+why EI cancels out of every reaction. A spring contributes v = -R/k and a
+settlement v = -delta; written in the EI·v the engine actually carries, those
+are `EI·v + (EI/k)·R = 0` and `EI·v = -EI·delta`, so EI appears as a coefficient
+on an unknown and as a right-hand-side term. Both stay affine in the unknowns
+and rational, so the solve is unchanged in kind.
+
+What changes is the CONTRACT, and it is stated rather than glossed: these beams
+need EI, and their reactions are **not** EI-free. That is physics, not a
+limitation — a stiffer beam really does draw more reaction out of a settling
+support — but "reactions need no EI" is this module's headline property and it
+is false here, so `eiCoupled` is on the result and every line that repeats the
+old claim is guarded by it.
+
+Two facts the tests pin, because they are the ones people get wrong:
+
+- On a **determinate** beam, a spring and a settlement change **no reaction at
+  all**. Equilibrium alone already fixed them; the beam simply moves. This is
+  also the best available oracle for the new path, and it is checked as exact
+  rational equality against the rigid-support answer.
+- On an **indeterminate** beam they change everything, and the induced
+  reactions scale **linearly with EI**. A propped cantilever with a settling
+  prop reports exactly `3EI·delta/L^3`. That is a real load case and often the
+  governing one, and it is also the least certain number in a design, since it
+  scales with two estimates at once. The result says so.
+
+`beam.ts` also stopped carrying its own decimal parser and now uses the CAS's
+shared literal parser. The private one accepted plain decimals only, which was
+invisible until a spring stiffness had to be written `k=5e4` — EI and support
+stiffnesses are exactly the two quantities nobody types in full, so the new
+option would have been unusable at the magnitudes it exists for.
+
+### Vibration: forced response of a multi-degree-of-freedom system
+
+The disclosed limit — free and forced vibration are single-degree-of-freedom —
+was true, but it undersold what already shipped: `modalAnalysis` has been
+multi-DOF for some time and returns **mass-normalised** mode shapes. That is
+precisely the normalisation modal superposition needs, so the modal coordinates
+decouple into n independent SDOF oscillators and the MDOF forced response is
+the SDOF path run n times, not a new solver.
+
+Reports amplitude and phase at every degree of freedom, plus the modal
+breakdown, because which mode is carrying the response is the useful part:
+
+- **Every** natural frequency is a resonance, not just the first. A run-up
+  passes through all of them below the operating speed.
+- A load applied at a **node** of a mode cannot excite that mode at all,
+  however close the forcing sits to it. That is a real design lever, and also
+  why a shaker in the wrong place can miss a mode entirely.
+- Modal contributions can partially **cancel**, so the total is not the sum of
+  the individual peaks, and a single-mode approximation is not always safe.
+
+Damping is entered as **modal ratios** (or Rayleigh alpha/beta) rather than as a
+damping matrix. That is deliberate: modal superposition requires the undamped
+modes to diagonalise the damping too, which holds for damping proportional to M,
+to K, or a combination — and does **not** hold for a single discrete damper
+bolted between two floors, which is the everyday real case. Taking ratios makes
+the assumption something the user states instead of something silently assumed
+of a matrix they supplied, and it is repeated in the notes, because a violation
+produces an answer that still looks entirely reasonable.
+
+### The truss limit provably cannot be lifted exactly
+
+Indeterminate trusses stay refused, and the reason is now a proof rather than a
+preference. Parametrise the member unknown as `g = F·L^a`. Joint equilibrium
+needs `a = -1` for rational coefficients — that is exactly the `f = F/L` change
+of unknown the module already uses. Compatibility needs `2-a` even, so `a` even.
+Those are incompatible, and scaling a compatibility row by L or L² only moves
+the odd power of L to the right-hand side. Because joints share displacements
+between members of different length, no per-member rescaling escapes it.
+
+So a stiffness solve is exact only when **every** member length is rational, and
+floating point otherwise. `truss.ts` opens with an essay on how it stays exact;
+putting a silent float path inside it would change what the module is. That is a
+product decision rather than an implementation detail, so it stays open.
+
+### Also
+
+- The Natural frequencies option labelled "Grounded at both ends" described a
+  structure `chainSystem` does not build. It anchors spring 0 to ground and
+  leaves the far end free — a grounded chain of n masses takes n springs — so it
+  now reads "Anchored at one end, free at the other". Different stiffness
+  matrix, different frequencies.
+
+### Testing
+
+Four new files, 92 tests, and none of them checks modal superposition against
+modal superposition or the beam solve against itself:
+
+- Beam oracles are closed forms (`3EI·delta/L^3`), plus limit checks that a
+  stiffening spring converges on the rigid answer and a vanishing one on the
+  unpropped cantilever.
+- The beam adversarial pass attacks with **invariants** rather than more closed
+  forms: equilibrium on nine support arrangements, **exact rational
+  superposition** of load and settlement, the spring's own law `R = k·v` which
+  the solve never asserts, and uniform settlement of a determinate beam being
+  pure rigid-body motion.
+- MDOF is checked against a **direct complex solve** of
+  `(K - w²M + jwC)x = F` with `C = alpha·M + beta·K` built explicitly — no
+  eigenvectors, no modal coordinates, no shared code — over **100 pseudo-random
+  systems** from a seeded generator at six frequencies each.
+- Degenerate cases that break code assuming distinct modes: repeated
+  eigenvalues, non-diagonal (consistent) mass matrices, overdamped modes, and
+  omega = 0 checked against the static answer K⁻¹F.
+
 ## [2.32.1] — 2026-07-28 — Hovering a calculation made it unreadable
 
 Reported from real use: hovering a tool in the new Engineering panels turned the

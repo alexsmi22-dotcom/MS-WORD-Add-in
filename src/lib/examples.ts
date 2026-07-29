@@ -25,8 +25,16 @@ export const MODE_EXAMPLES: Record<ExampleMode, string> = {
       <li><strong>Indeterminate beams work the same way</strong> &mdash; a propped cantilever
         (<code>fixed 0, roller 8</code>) or a fixed-fixed beam needs no special handling, and the
         reactions come out exact.</li>
-      <li><strong>Deflection</strong> needs <code>EI</code>. Reactions, shear and moment do not, and
-        are computed exactly without it.</li>
+      <li><strong>Elastic and settling supports</strong> &mdash; add <code>k=5e4</code> to put a
+        support on a spring, or <code>settle=0.01</code> to push it down by a known amount
+        (<code>roller 8 k=5e4</code>, <code>roller 8 settle=0.01</code>). Both need
+        <code>EI</code>, and the tool says why: on rigid supports EI cancels out, but an elastic or
+        displaced support makes the reactions genuinely depend on the beam's own stiffness, so
+        there is no EI-free answer to give. On a <em>determinate</em> beam neither changes any
+        reaction &mdash; the beam simply moves &mdash; and the engine reports that rather than
+        leaving you to wonder.</li>
+      <li><strong>Deflection</strong> needs <code>EI</code>. On rigid supports, reactions, shear and
+        moment do not, and are computed exactly without it.</li>
       <li><strong>Cross-section properties</strong> &mdash; area, second moment, section modulus,
         radius of gyration, and the peak bending and shear stress for a moment and shear you enter.
         A tee reports BOTH section moduli, because its fibres are at different distances.</li>
@@ -122,6 +130,15 @@ export const MODE_EXAMPLES: Record<ExampleMode, string> = {
         eigenproblem so the frequencies are guaranteed real. Mode shapes come back
         mass-normalised; a rigid-body (zero-frequency) mode is reported as the real feature it is,
         and a mass matrix that is not positive definite is refused as unphysical.</li>
+      <li><strong>Multi-DOF forced response</strong> &mdash; steady-state amplitude and phase at
+        every degree of freedom under a harmonic force, by modal superposition, with the modal
+        breakdown showing which mode is actually carrying the response. <strong>Every</strong>
+        natural frequency is a resonance, not just the first. A load applied at a <em>node</em> of a
+        mode cannot excite that mode at all &mdash; a real design lever, and the reason a shaker in
+        the wrong place can miss a mode entirely. Damping is entered as <strong>modal</strong>
+        ratios (or Rayleigh &alpha;, &beta;) because modal superposition assumes CLASSICAL damping,
+        which a single discrete damper between two floors does not satisfy; the tool states that
+        rather than assuming it of a matrix you handed it.</li>
       <li><strong>Thermodynamics</strong> &mdash; ideal-gas processes, air-standard power cycles,
         and the Carnot limits that bound them.</li>
       <li><strong>TEMPERATURE IS ABSOLUTE</strong> in every formula, so you pick the unit you are

@@ -45,14 +45,50 @@
 //     positive, so a simply supported beam under gravity has M > 0 throughout.
 //   An applied couple is positive COUNTERCLOCKWISE.
 //
-// EI: for a prismatic beam the flexural rigidity DIVIDES OUT of the boundary
-// conditions, so reactions, shear and moment are independent of E and I even
-// when the beam is indeterminate. This engine therefore returns slope and
-// deflection multiplied by EI (exactly), and the caller divides by a real EI to
-// get real units. That keeps the exact part exact and puts the only
+// EI: for a prismatic beam on RIGID supports the flexural rigidity DIVIDES OUT
+// of the boundary conditions, so reactions, shear and moment are independent of
+// E and I even when the beam is indeterminate. This engine therefore returns
+// slope and deflection multiplied by EI (exactly), and the caller divides by a
+// real EI to get real units. That keeps the exact part exact and puts the only
 // floating-point step at the very end, where the material property lives.
+//
+// ELASTIC SUPPORTS AND SETTLEMENT ARE THE TWO CASES WHERE THAT BREAKS, and the
+// break is physical rather than numerical. A rigid support contributes the
+// homogeneous condition v = 0, which is why EI cancels. A spring contributes
+// v = -R/k and a settlement contributes v = -delta, and neither is homogeneous:
+// written in the EI·v that this engine actually carries they read
+//
+//     EI·v(x_s) + (EI/k)·R = 0        and        EI·v(x_s) = -EI·delta
+//
+// so EI appears as a COEFFICIENT on an unknown and as a term on the right-hand
+// side. The reactions of such a beam genuinely depend on EI — a stiffer beam
+// draws more reaction out of a settling support — so this is the model telling
+// the truth, not a loss of generality. Both forms stay AFFINE in the unknowns
+// and rational whenever EI, k and delta are, so the solve is still exact; the
+// only change is that `ei` becomes required and the result is flagged
+// `eiCoupled` so no caller repeats the "reactions need no EI" line for a beam
+// where it is false.
+//
+// Two consequences worth knowing, both of which the tests pin:
+//   - On a DETERMINATE beam, settlement and spring stiffness change no reaction
+//     at all. Equilibrium alone fixes them, so the supports simply move. This
+//     is the classic result and the best available oracle for the new path.
+//   - On an INDETERMINATE beam they change everything, and the induced
+//     reactions scale linearly with EI.
 
-import { Rat, ratAdd, ratSub, ratMul, ratDiv, ratInt, ratIsZero, ratNeg, ratSign, ratToNumber } from "./cas";
+import {
+  Rat,
+  ratAdd,
+  ratSub,
+  ratMul,
+  ratDiv,
+  ratInt,
+  ratIsZero,
+  ratNeg,
+  ratSign,
+  ratToNumber,
+  parseRatLiteral,
+} from "./cas";
 
 // ---------------------------------------------------------------------------
 // Model
@@ -64,6 +100,21 @@ export interface Support {
   kind: SupportKind;
   /** Distance from the left-hand end. */
   x: Rat;
+  /**
+   * Vertical spring stiffness (force per unit length). Null or absent means a
+   * RIGID support, which is the usual assumption and the one that keeps the
+   * reactions independent of EI. A finite stiffness replaces the condition
+   * v = 0 with v = -R/k, which is still linear in the unknowns and still exact
+   * — but it drags EI into the equations, so `ei` becomes required and the
+   * reactions stop being an EI-free result. See `eiCoupled` on the result.
+   */
+  k?: Rat | null;
+  /**
+   * Prescribed support settlement, DOWNWARD POSITIVE to match the load sign
+   * convention, so `settle 0.01` sinks the support by 0.01. Replaces v = 0 with
+   * v = -settle. Like a spring this couples EI, and for the same reason.
+   */
+  settle?: Rat | null;
 }
 
 export type Load =
@@ -80,6 +131,13 @@ export interface BeamInput {
   length: Rat;
   supports: Support[];
   loads: Load[];
+  /**
+   * Flexural rigidity, as an EXACT rational. Required only when some support
+   * has a spring stiffness or a settlement, because those are the two cases
+   * where EI stops dividing out and enters the equations themselves. Supplying
+   * it otherwise changes nothing: the solve does not use it.
+   */
+  ei?: Rat | null;
 }
 
 /** How far from statically determinate the beam is, and what that means. */
@@ -142,6 +200,14 @@ export interface BeamResult {
   maxEiDeflection: Extremum;
   /** x values where the diagrams have a genuine break (supports, loads, ends). */
   breakpoints: number[];
+  /**
+   * True when a spring or a settlement put EI into the equilibrium solve, so
+   * the reactions, shear and moment are specific to the EI that was supplied
+   * rather than being properties of the loading alone. The caller must say so:
+   * "reactions are exact without EI" is the module's normal contract and it is
+   * FALSE for these beams.
+   */
+  eiCoupled: boolean;
   warnings: string[];
 }
 
@@ -324,6 +390,30 @@ export function analyzeBeam(input: BeamInput): BeamResult | BeamFailure {
       if (ratIsZero(ratSub(supports[i].x, supports[j].x)))
         return { ok: false, error: "Two supports share the same position — remove one." };
 
+  // --- elastic supports and settlement: the only place EI enters the solve ---
+  for (const s of supports) {
+    if (s.k != null && ratSign(s.k) <= 0)
+      return {
+        ok: false,
+        error:
+          "A support spring stiffness must be greater than zero. A stiffness of zero is not a soft " +
+          "support, it is NO support — remove the support instead, or the beam is a mechanism.",
+      };
+  }
+  const eiCoupled = supports.some((s) => s.k != null || (s.settle != null && !ratIsZero(s.settle)));
+  const EI = input.ei ?? null;
+  if (eiCoupled) {
+    if (EI == null || ratSign(EI) <= 0)
+      return {
+        ok: false,
+        error:
+          "A spring support or a support settlement needs EI, and it must be positive. Unlike a " +
+          "beam on rigid supports — where EI cancels out and the reactions are exact without it — " +
+          "an elastic or settling support makes the reactions genuinely depend on the beam's " +
+          "stiffness, so there is no EI-free answer to give.",
+      };
+  }
+
   // --- unknowns: reaction per support, moment for each fixed, then C1, C2 ---
   const reactionIdx: number[] = [];
   const momentIdx: number[] = [];
@@ -382,9 +472,24 @@ export function analyzeBeam(input: BeamInput): BeamResult | BeamFailure {
   // Global equilibrium, read off the same terms: past the right end, V and M vanish.
   rows.push(evalTermsLin(V, L, N, true));
   rows.push(evalTermsLin(M, L, N, true));
-  // Support conditions.
+  // Support conditions. A rigid support is EI·v = 0; a spring adds (EI/k)·R to
+  // the same row; a settlement moves EI·delta to the right-hand side. The row is
+  // assembled as a `Lin` whose constant is negated into the RHS below, so a
+  // downward settlement of `delta` (v = -delta, EI·v = -EI·delta) is applied by
+  // ADDING EI·delta to the constant.
   supports.forEach((s, i) => {
-    rows.push(evalTermsLin(DEF, s.x, N, true));
+    const row = evalTermsLin(DEF, s.x, N, true);
+    if (s.k != null && EI != null) {
+      const ri = reactionIdx[i];
+      row.k[ri] = ratAdd(row.k[ri], ratDiv(EI, s.k));
+    }
+    if (s.settle != null && !ratIsZero(s.settle) && EI != null) {
+      row.c = ratAdd(row.c, ratMul(EI, s.settle));
+    }
+    rows.push(row);
+    // A fixed support still holds its rotation. A spring here is a VERTICAL
+    // spring under a rotationally rigid end — a guided wall on a soft seat —
+    // and the slope condition is untouched by both spring and settlement.
     if (momentIdx[i] >= 0) rows.push(evalTermsLin(TH, s.x, N, true));
   });
 
@@ -412,9 +517,17 @@ export function analyzeBeam(input: BeamInput): BeamResult | BeamFailure {
     degree,
     note:
       degree <= 0
-        ? "Statically determinate — reactions follow from equilibrium alone."
+        ? "Statically determinate — reactions follow from equilibrium alone." +
+          (eiCoupled
+            ? " Because it is determinate, the spring stiffness and any settlement move the beam " +
+              "but change no reaction: equilibrium alone already fixed them."
+            : "")
         : `Statically indeterminate to degree ${degree} — solved by compatibility ` +
-          "(deflection conditions at the supports), not by equilibrium alone.",
+          "(deflection conditions at the supports), not by equilibrium alone." +
+          (eiCoupled
+            ? " The supports are elastic or displaced, so those compatibility conditions carry EI " +
+              "and the reactions below are specific to the EI you entered."
+            : ""),
   };
 
   // --- readouts ---
@@ -455,10 +568,23 @@ export function analyzeBeam(input: BeamInput): BeamResult | BeamFailure {
   const maxEiDeflection = extremeOf((x) => num(DEF, x), breaks, L, true);
 
   const warnings: string[] = [];
-  if (degree > 0)
+  if (degree > 0 && !eiCoupled)
     warnings.push(
       "Indeterminate beam: the reactions depend on the beam being PRISMATIC (constant EI) " +
-        "and on the supports being rigid. A settling support changes them.",
+        "and on the supports being RIGID. A support that settles or sits on a soft seat changes " +
+        "them — add \"settle 0.01\" or \"k=5e4\" to a support to model that instead of assuming it away.",
+    );
+  if (eiCoupled)
+    warnings.push(
+      "These reactions are NOT EI-free. A spring or a settlement puts EI into the compatibility " +
+        "equations, so the numbers above belong to the EI you entered and scale with it; on a rigid " +
+        "-support beam they would not.",
+    );
+  if (degree > 0 && eiCoupled)
+    warnings.push(
+      "Settlement-induced reactions are a real load case and are often the governing one, but they " +
+        "are also the least certain number in a design: they scale linearly with EI and with the " +
+        "assumed settlement, and both are estimates. Treat the magnitude as an order of magnitude.",
     );
   if (supports.every((s) => s.kind !== "fixed") && supports.length === 1)
     warnings.push("A single pin cannot resist rotation — check this is the beam you meant.");
@@ -477,6 +603,7 @@ export function analyzeBeam(input: BeamInput): BeamResult | BeamFailure {
     minMoment: mExt.min,
     maxEiDeflection,
     breakpoints: breaks.map(ratToNumber),
+    eiCoupled,
     warnings,
   };
 }
@@ -575,21 +702,19 @@ function extremeSigned(f: (x: number) => number, breaks: Rat[], L: Rat): { max: 
 // ---------------------------------------------------------------------------
 
 /**
- * Exact rational from a typed decimal, so "2.5" becomes 5/2 and not a float.
+ * Exact rational from typed text, so "2.5" becomes 5/2 and not a float.
  * Returns null on anything unparseable — the caller must say so rather than
  * silently treating a typo as zero, which would quietly change the beam.
+ *
+ * This is the CAS's shared literal parser rather than a fourth private copy.
+ * The local one this replaced accepted plain decimals only, which was invisible
+ * until a spring stiffness had to be written as `k=5e4`: EI and support
+ * stiffnesses are the two quantities in this module that nobody types in full,
+ * and rejecting `5e4` would have made the new option unusable at exactly the
+ * magnitudes it exists for. Going through the shared parser also brings
+ * fractions (`1/3`) along, which the position and load fields simply gain.
  */
-function parseRat(s: string): Rat | null {
-  const t = s.trim();
-  if (!/^[+-]?(\d+(\.\d*)?|\.\d+)$/.test(t)) return null;
-  const neg = t.startsWith("-");
-  const body = t.replace(/^[+-]/, "");
-  const [int, frac = ""] = body.split(".");
-  const digits = (int || "0") + frac;
-  let n = BigInt(digits === "" ? "0" : digits);
-  if (neg) n = -n;
-  return ratDiv(ratInt(n), ratInt(10n ** BigInt(frac.length)));
-}
+const parseRat = parseRatLiteral;
 
 export interface ParsedBeam {
   supports: Support[];
@@ -600,15 +725,45 @@ export interface ParsedBeam {
 /**
  * Reads the support line, e.g. `pin 0, roller 8` or `fixed 0`.
  * `@` is accepted in place of a space because it is what people type.
+ *
+ * A support may carry either or both of two options, in any order after the
+ * position:
+ *
+ *   roller 8 k=5e4          a vertical spring of that stiffness instead of rigid
+ *   roller 8 settle=0.012   a prescribed settlement, DOWNWARD POSITIVE
+ *
+ * The options are pulled out first and the remainder is matched against the
+ * plain form, so the position regex never has to grow to accommodate them —
+ * which is how `settle=1e-3` would otherwise end up parsed as a coordinate.
  */
 export function parseSupports(text: string): { supports: Support[]; errors: string[] } {
   const supports: Support[] = [];
   const errors: string[] = [];
+  const NUM = String.raw`[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?`;
   const parts = text.split(/[,\n;]+/).map((p) => p.trim()).filter(Boolean);
   for (const p of parts) {
-    const m = /^(pin|roller|fixed)\s*@?\s*([+-]?[\d.]+)$/i.exec(p);
+    const opts = new Map<string, string>();
+    let badOpt = false;
+    const stripped = p
+      .replace(new RegExp(String.raw`\b([a-z]+)\s*=\s*(${NUM})`, "gi"), (_all, key: string, val: string) => {
+        const name = key.toLowerCase();
+        if (name === "k" || name === "spring" || name === "stiffness") opts.set("k", val);
+        else if (name === "settle" || name === "settlement") opts.set("settle", val);
+        else {
+          errors.push(`"${key}" is not a support option. Use "k=" for a spring or "settle=" for a settlement.`);
+          badOpt = true;
+        }
+        return " ";
+      })
+      .trim();
+    if (badOpt) continue;
+
+    const m = /^(pin|roller|fixed)\s*@?\s*([+-]?[\d.]+)$/i.exec(stripped);
     if (!m) {
-      errors.push(`Could not read the support "${p}". Write it as "pin 0", "roller 8" or "fixed 0".`);
+      errors.push(
+        `Could not read the support "${p}". Write it as "pin 0", "roller 8" or "fixed 0", ` +
+          `optionally with "k=5e4" for a spring or "settle=0.01" for a settlement.`,
+      );
       continue;
     }
     const x = parseRat(m[2]);
@@ -616,7 +771,27 @@ export function parseSupports(text: string): { supports: Support[]; errors: stri
       errors.push(`"${m[2]}" is not a number.`);
       continue;
     }
-    supports.push({ kind: m[1].toLowerCase() as SupportKind, x });
+
+    const s: Support = { kind: m[1].toLowerCase() as SupportKind, x };
+    const kRaw = opts.get("k");
+    if (kRaw !== undefined) {
+      const k = parseRat(kRaw);
+      if (!k) {
+        errors.push(`"${kRaw}" is not a spring stiffness.`);
+        continue;
+      }
+      s.k = k;
+    }
+    const dRaw = opts.get("settle");
+    if (dRaw !== undefined) {
+      const d = parseRat(dRaw);
+      if (!d) {
+        errors.push(`"${dRaw}" is not a settlement.`);
+        continue;
+      }
+      s.settle = d;
+    }
+    supports.push(s);
   }
   return { supports, errors };
 }

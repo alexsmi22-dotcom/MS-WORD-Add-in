@@ -7,13 +7,13 @@
   xsi:type="TaskPaneApp">
 
   <Id>5674364b-9410-41a5-a938-12c1155aeb7e</Id>
-  <Version>2.34.0.0</Version>
+  <Version>2.35.0.0</Version>
   <ProviderName>AlexanderSmith</ProviderName>
   <DefaultLocale>en-US</DefaultLocale>
   <DisplayName DefaultValue="JurisLab" />
   <Description DefaultValue="STEM &amp; legal authoring for Word — chemical &amp; math formulas, 2D structures, plots, tables → figures, sequences, patent-drafting aids, and Bluebook legal citations." />
-  <IconUrl DefaultValue="https://ADDIN-HOST.example.com/assets/icon-32.png" />
-  <HighResolutionIconUrl DefaultValue="https://ADDIN-HOST.example.com/assets/icon-80.png" />
+  <IconUrl DefaultValue="https://ADDIN-HOST.example.com/assets/icon-32-v2.png" />
+  <HighResolutionIconUrl DefaultValue="https://ADDIN-HOST.example.com/assets/icon-80-v2.png" />
   <SupportUrl DefaultValue="https://ADDIN-HOST.example.com/" />
 
   <AppDomains>
@@ -82,9 +82,9 @@
 
     <Resources>
       <bt:Images>
-        <bt:Image id="Icon.16" DefaultValue="https://ADDIN-HOST.example.com/assets/icon-16.png" />
-        <bt:Image id="Icon.32" DefaultValue="https://ADDIN-HOST.example.com/assets/icon-32.png" />
-        <bt:Image id="Icon.80" DefaultValue="https://ADDIN-HOST.example.com/assets/icon-80.png" />
+        <bt:Image id="Icon.16" DefaultValue="https://ADDIN-HOST.example.com/assets/icon-16-v2.png" />
+        <bt:Image id="Icon.32" DefaultValue="https://ADDIN-HOST.example.com/assets/icon-32-v2.png" />
+        <bt:Image id="Icon.80" DefaultValue="https://ADDIN-HOST.example.com/assets/icon-80-v2.png" />
       </bt:Images>
       <bt:Urls>
         <bt:Url id="Commands.Url" DefaultValue="https://ADDIN-HOST.example.com/commands.html" />

@@ -1401,7 +1401,10 @@ const HOME_GROUPS: HomeGroup[] = [
         mode: "engineering",
         audience: ["science"],
         label: "Engineering",
-        desc: "Beams: shear, moment, deflection; cross-sections & stress",
+        // Named the two structural calculators for a long time after this tile
+        // grew to 36 across nine disciplines, so the pane undersold its own
+        // largest tool to the person deciding whether to open it.
+        desc: "36 calculators: beams, stress, fluids, thermal, circuits, control, vibration, PK",
       },
     ],
   },

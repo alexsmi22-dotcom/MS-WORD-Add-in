@@ -17,29 +17,33 @@
         two reasons: it costs no request and stays crisp at any DPI, and Word
         caches add-in icons by URL — the ribbon button can sit on a stale icon
         for a long time after a redesign, so the pane must carry the current
-        logo itself rather than depend on that cache.
+        logo itself rather than depend on that cache. (The ribbon side of that
+        is now handled too: the manifest points at versioned icon filenames, so
+        a redesign is a URL the cache has never seen. See scripts/make-icons.mjs.)
         Scales of justice: a benzene ring weighed against a summation sign.
+        This must stay identical to assets/logo.svg and to the brand mark in
+        landing/index.html — all three drifted apart once, which is how the
+        add-in came to show a different logo from the website.
       -->
       <header class="brand">
         <svg class="brand-mark" viewBox="0 0 128 128" role="img" aria-label="JurisLab">
           <defs>
-            <linearGradient id="brandGrad" x1="0" y1="0" x2="1" y2="1">
-              <stop offset="0" stop-color="#0EA5E9" />
-              <stop offset="1" stop-color="#0C4A6E" />
+            <linearGradient id="brandGrad" x1="0" y1="0" x2="0.35" y2="1">
+              <stop offset="0" stop-color="#0C4A6E" />
+              <stop offset="0.55" stop-color="#0A3A57" />
+              <stop offset="1" stop-color="#062231" />
             </linearGradient>
           </defs>
           <rect x="3" y="3" width="122" height="122" rx="27" fill="url(#brandGrad)" />
           <g fill="#fff">
-            <circle cx="64" cy="26" r="6" />
-            <rect x="60.5" y="26" width="7" height="72" rx="2" />
-            <rect x="22" y="38.5" width="84" height="7.5" rx="3.75" />
-            <rect x="30.25" y="44" width="3.5" height="9" />
-            <rect x="94.25" y="44" width="3.5" height="9" />
-            <path d="M52 98 h24 l9 10 h-42 z" />
+            <circle cx="64" cy="27.86" r="7.04" />
+            <rect x="59.78" y="27.86" width="8.45" height="65.71" rx="3.28" />
+            <rect x="19.89" y="36.78" width="88.24" height="8.91" rx="4.46" />
+            <rect x="43.35" y="93.57" width="41.30" height="8.91" rx="3.76" />
           </g>
-          <g fill="none" stroke="#fff" stroke-width="5.4" stroke-linecap="round" stroke-linejoin="round">
-            <polygon points="43.5,63 37.75,72.96 26.25,72.96 20.5,63 26.25,53.04 37.75,53.04" />
-            <polyline points="107,53 85,53 96,63 85,73 107,73" />
+          <g fill="none" stroke-width="6.34" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="53.20,66.82 45.70,79.81 30.71,79.81 23.17,66.82 30.71,53.83 45.70,53.83" stroke="#38BDF8" />
+            <polyline points="102.48,54.61 77.61,54.61 89.73,66.82 77.61,79.02 102.48,79.02" stroke="#fff" />
           </g>
         </svg>
         <div class="brand-text">

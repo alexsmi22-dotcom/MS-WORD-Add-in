@@ -360,3 +360,81 @@ describe("parseSupports reads the new options", () => {
     expectExact(p.supports[0].settle as Rat, ratDiv(R(1), R(1000)), "settle");
   });
 });
+
+// ---------------------------------------------------------------------------
+// What the two options MEAN together
+// ---------------------------------------------------------------------------
+
+describe("a spring and a settlement on the same support compose as seat-then-spring", () => {
+  // v(x_s) = -settle - R/k : the seat drops by `settle`, and the spring then
+  // compresses by R/k on top of that. The alternative reading — the beam ends up
+  // exactly `settle` low whatever the spring does — is a different model, and
+  // the two are indistinguishable from the reported numbers alone.
+  const EI = 2.4e5;
+  const k = 5e4;
+  const settle = 0.01;
+
+  const r = ok({
+    length: R(8),
+    supports: [
+      { kind: "fixed", x: R(0) },
+      { kind: "roller", x: R(8), k: X("5e4"), settle: X("0.01") },
+    ],
+    loads: [{ kind: "udl", a: R(0), b: R(8), w: R(5) }],
+    ei: X("2.4e5"),
+  });
+
+  test("the beam sits at exactly -(settle + R/k), not at -settle", () => {
+    const v = r.eiDeflectionAt(8) / EI;
+    near(v, -(settle + r.reactions[1].force / k), 1e-9);
+  });
+
+  test("and that is measurably NOT the same as the settle-only model", () => {
+    const settleOnly = ok({
+      length: R(8),
+      supports: [
+        { kind: "fixed", x: R(0) },
+        { kind: "roller", x: R(8), settle: X("0.01") },
+      ],
+      loads: [{ kind: "udl", a: R(0), b: R(8), w: R(5) }],
+      ei: X("2.4e5"),
+    });
+    near(settleOnly.eiDeflectionAt(8) / EI, -settle, 1e-9);
+    // Different model, different reaction — so the docs have to say which.
+    expect(Math.abs(r.reactions[1].force - settleOnly.reactions[1].force)).toBeGreaterThan(1e-6);
+  });
+
+  test("dropping the spring recovers the pure-settlement answer", () => {
+    const stiff = ok({
+      length: R(8),
+      supports: [
+        { kind: "fixed", x: R(0) },
+        { kind: "roller", x: R(8), k: X("1e14"), settle: X("0.01") },
+      ],
+      loads: [{ kind: "udl", a: R(0), b: R(8), w: R(5) }],
+      ei: X("2.4e5"),
+    });
+    const settleOnly = ok({
+      length: R(8),
+      supports: [
+        { kind: "fixed", x: R(0) },
+        { kind: "roller", x: R(8), settle: X("0.01") },
+      ],
+      loads: [{ kind: "udl", a: R(0), b: R(8), w: R(5) }],
+      ei: X("2.4e5"),
+    });
+    near(ratToNumber(stiff.reactions[1].forceExact), ratToNumber(settleOnly.reactions[1].forceExact), 1e-6);
+  });
+});
+
+describe("fractions are rejected by the FIELDS, whatever the shared parser accepts", () => {
+  // Pins the corrected claim: parseRatLiteral takes "1/3", the field regexes do
+  // not. If these ever start passing, the comment in beam.ts must change too.
+  test("a fractional support position is refused", () => {
+    expect(parseSupports("roller 1/3").errors.length).toBeGreaterThan(0);
+  });
+
+  test("a fractional spring stiffness is refused", () => {
+    expect(parseSupports("roller 8 k=1/3").errors.length).toBeGreaterThan(0);
+  });
+});

@@ -7590,7 +7590,8 @@ const ENG_CALCS: EngCalc[] = [
       'Supports: "pin 0, roller 8" or "fixed 0". A support may be elastic or displaced: ' +
       '"roller 8 k=5e4" sits it on a spring, "roller 8 settle=0.01" sinks it (downward positive). ' +
       "Both need EI, because an elastic or settling support makes the reactions depend on the " +
-      'beam\'s own stiffness. Loads, one per line: "point 30 at 6", ' +
+      "beam's own stiffness. Using both on one support drops the SEAT by the settlement and lets " +
+      "the spring compress on top of it (v = -settle - R/k). Loads, one per line: \"point 30 at 6\", " +
       '"udl 5 from 0 to 8", "udl 0 to 9 from 0 to 6" (varying), "moment 200 at 4". ' +
       "Downward loads are positive. Keep your units consistent; nothing here converts them.",
     fields: [

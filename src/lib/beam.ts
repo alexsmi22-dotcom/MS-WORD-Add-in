@@ -113,6 +113,19 @@ export interface Support {
    * Prescribed support settlement, DOWNWARD POSITIVE to match the load sign
    * convention, so `settle 0.01` sinks the support by 0.01. Replaces v = 0 with
    * v = -settle. Like a spring this couples EI, and for the same reason.
+   *
+   * WITH A SPRING, `settle` MOVES THE SEAT, NOT THE BEAM. The two options
+   * combine as
+   *
+   *     v(x_s) = -settle - R/k
+   *
+   * so the support's seat drops by `settle` and the spring then compresses by
+   * R/k on top of it — a settling elastic foundation. The other reading a person
+   * might expect, "the beam at this point ends up exactly `settle` below datum
+   * whatever the spring does", is a DIFFERENT model and gives different
+   * reactions; it is what you get by writing `settle` with no `k` at all. The
+   * distinction is invisible in the output, so it is stated here, in the pane
+   * hint and in the examples rather than left to be reverse-engineered.
    */
   settle?: Rat | null;
 }
@@ -711,8 +724,15 @@ function extremeSigned(f: (x: number) => number, breaks: Rat[], L: Rat): { max: 
  * until a spring stiffness had to be written as `k=5e4`: EI and support
  * stiffnesses are the two quantities in this module that nobody types in full,
  * and rejecting `5e4` would have made the new option unusable at exactly the
- * magnitudes it exists for. Going through the shared parser also brings
- * fractions (`1/3`) along, which the position and load fields simply gain.
+ * magnitudes it exists for.
+ *
+ * NOTE ON FRACTIONS. This parser also accepts `1/3`, but the FIELDS DO NOT —
+ * every caller here first matches a decimal-only regex and hands the parser what
+ * it captured, so `roller 1/3` and `point 30 at 1/3` are rejected before the
+ * parser is ever reached. Widening those regexes would be a real improvement for
+ * an engine that is exact over rationals, and it is deliberately not claimed
+ * until it is done: an earlier version of this comment said the position and
+ * load fields "simply gain" fractions, which was false in every one of them.
  */
 const parseRat = parseRatLiteral;
 

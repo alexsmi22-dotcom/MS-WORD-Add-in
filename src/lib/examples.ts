@@ -32,7 +32,10 @@ export const MODE_EXAMPLES: Record<ExampleMode, string> = {
         displaced support makes the reactions genuinely depend on the beam's own stiffness, so
         there is no EI-free answer to give. On a <em>determinate</em> beam neither changes any
         reaction &mdash; the beam simply moves &mdash; and the engine reports that rather than
-        leaving you to wonder.</li>
+        leaving you to wonder. Using <strong>both on one support</strong> means the
+        <em>seat</em> drops by the settlement and the spring then compresses on top of it
+        (<code>v = &minus;settle &minus; R/k</code>) &mdash; a settling elastic foundation, not
+        &ldquo;the beam ends up exactly that low whatever the spring does&rdquo;.</li>
       <li><strong>Deflection</strong> needs <code>EI</code>. On rigid supports, reactions, shear and
         moment do not, and are computed exactly without it.</li>
       <li><strong>Cross-section properties</strong> &mdash; area, second moment, section modulus,

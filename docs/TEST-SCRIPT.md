@@ -157,6 +157,28 @@ Engineering > Vibration > **Forced response of a multi-DOF system**:
 
 ---
 
+## 0c. New in v2.37.0 — fractions in every beam field
+
+Engineering > Structural & solids > **Beam analysis**:
+
+- [ ] Span `9`, supports `pin 0, roller 9`, one load `point 30 at 9/3`. The
+  reactions must read exactly **20** and **10** — not 19.999999 — because the
+  position went in as an exact third rather than a rounded decimal.
+- [ ] Fractions work in the other fields too: `udl 7/2 from 1/3 to 16/3`,
+  `moment 200/3 at 4/3`, `roller 8/3`, `roller 8 k=1/3 settle=1/400`, and in the
+  span and EI boxes.
+- [ ] `roller 1.5/3` must be **refused** ("is not a number"), not reinterpreted.
+  Same for `roller 8/0`.
+- [ ] **The one that mattered:** `pin 0, roller 8 k=1/2/3` must be REFUSED with a
+  message naming `k=1/2/3`. Before v2.37.0 it silently moved the roller to 8/3
+  and flipped a reaction into uplift. Check the support really is refused rather
+  than quietly relocated — the old behaviour looked like a perfectly normal
+  answer.
+- [ ] `k=5 roller 8` (option before the position) must be refused.
+- [ ] Uppercase still works: `UDL 0 TO 9 FROM 1/3 TO 6`.
+
+---
+
 ## 0. Setup
 
 - [ ] Build is current (`npm run build`) and the add-in is loaded:

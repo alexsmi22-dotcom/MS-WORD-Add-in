@@ -1027,6 +1027,51 @@ function symbolicAntideriv(e: Expr, x: string): Expr | null {
  * only find a witness that it is not. A missed narrow gap therefore leaves the
  * old behaviour, never a new false warning.
  */
+/**
+ * Does `e` actually blow up at `t`, or is the singularity removable?
+ *
+ * A ZERO OF A DENOMINATOR IS NOT NECESSARILY A POLE. The first version of the
+ * structural detector reported every real root of a denominator inside the
+ * interval without asking whether the numerator vanished there too, and it
+ * refused five correct integrals: `(x^2-1)/(x-1)` over [0, 2] is **4**, not a
+ * divergence — the integrand IS x + 1. Likewise `x/x`, `(x-2)/(x-2)` and
+ * `(x^2-4)/(x-2)`. Trading a wrong number for a refused correct one is a smaller
+ * harm, not an acceptable one.
+ *
+ * The test is cheap precisely because the caller has already established WHERE to
+ * look — which is the thing a blind grid scan never knew. At a genuine pole of
+ * order n >= 1, |f| grows like h^-n as h shrinks, so shrinking h by 1e6
+ * multiplies |f| by at least 1e6. At a removable singularity |f| converges to its
+ * limit and the ratio is about 1. The threshold is 1e3: three orders of magnitude
+ * of daylight between the two cases, so this is a predicate with margin, not a
+ * tolerance standing in for one.
+ *
+ * Both sides are probed. A pole of even order blows up alike on each, an odd one
+ * changes sign, and a one-sided domain edge — sqrt or ln of the wrong sign —
+ * misbehaves on only one, which must still count.
+ */
+function isGenuinePole(e: Expr, x: string, t: number): boolean {
+  const scale = Math.max(1, Math.abs(t));
+  const worstAt = (h: number): number => {
+    let worst = 0;
+    for (const s of [1, -1]) {
+      let v: number;
+      try {
+        v = evalAst(e, { [x]: t + s * h });
+      } catch {
+        return Infinity;
+      }
+      if (Number.isNaN(v)) return Infinity;
+      worst = Math.max(worst, Math.abs(v));
+    }
+    return worst;
+  };
+  const wide = worstAt(scale * 1e-5);
+  const narrow = worstAt(scale * 1e-11);
+  if (!Number.isFinite(wide) || !Number.isFinite(narrow)) return true;
+  return narrow > 1e3 * (wide + 1e-300);
+}
+
 type Singularity = { at: number; kind: "pole" | "domain" };
 
 function undefinedPointIn(e: Expr, x: string, a: number, b: number, steps = 129): Singularity | null {
@@ -1055,15 +1100,23 @@ function undefinedPointIn(e: Expr, x: string, a: number, b: number, steps = 129)
   const sym = symbolicSingularityIn(e, x, lo, hi);
   if (sym !== null) return { at: sym, kind: "pole" };
 
+  // The sampled candidate has to pass the SAME two rules as a structural one.
+  // Without the interior test, `x/x` over [0, 2] was refused because 0/0 is NaN at
+  // the endpoint x = 0 — but the integral is 2, and an endpoint the integrand
+  // misses is not a reason to refuse. Without the removable test,
+  // `(x^2-4)/(x-2)` over [0, 3] was refused because 129 evenly spaced samples
+  // land exactly on x = 2, where 0/0 is NaN; the integral is 10.5.
+  const fatal = (t: number): boolean => t > lo && t < hi && isGenuinePole(e, x, t);
   for (let i = 0; i <= steps; i++) {
     const t = lo + ((hi - lo) * i) / steps;
     let v: number;
     try {
       v = evalAst(e, { [x]: t });
     } catch {
-      return { at: t, kind: "domain" };
+      if (fatal(t)) return { at: t, kind: "domain" };
+      continue;
     }
-    if (!Number.isFinite(v)) return { at: t, kind: "domain" };
+    if (!Number.isFinite(v) && fatal(t)) return { at: t, kind: "domain" };
   }
   // Offset backstop: the same count of samples, shifted by an irrational
   // fraction of a step, so a pole cannot hide in the gaps of BOTH grids. This is
@@ -1073,9 +1126,9 @@ function undefinedPointIn(e: Expr, x: string, a: number, b: number, steps = 129)
     const t = lo + ((hi - lo) * (i + OFFSET)) / steps;
     if (!inside(t)) continue;
     try {
-      if (!Number.isFinite(evalAst(e, { [x]: t }))) return { at: t, kind: "domain" };
+      if (!Number.isFinite(evalAst(e, { [x]: t })) && fatal(t)) return { at: t, kind: "domain" };
     } catch {
-      return { at: t, kind: "domain" };
+      if (fatal(t)) return { at: t, kind: "domain" };
     }
   }
   return null;
@@ -1093,10 +1146,8 @@ function symbolicSingularityIn(e: Expr, x: string, lo: number, hi: number): numb
 
   const report = (t: number): void => {
     if (found !== null) return;
-    // Strictly inside. A pole exactly at an endpoint is a different (also
-    // improper) case, and the endpoint evaluation already produces a non-finite
-    // value there, so the caller's own check handles it.
-    if (t > lo && t < hi) found = t;
+    // Strictly inside, and actually a pole rather than a removable point.
+    if (t > lo && t < hi && isGenuinePole(e, x, t)) found = t;
   };
 
   /** Real roots in (lo, hi) of a polynomial denominator, verified by residual. */

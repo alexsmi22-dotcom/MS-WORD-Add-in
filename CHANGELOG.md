@@ -5,6 +5,76 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > Note: this file was not maintained between v1.96.0 and v2.23.0. Those releases
 > are recorded in the git history rather than here.
 
+## [2.39.1] — 2026-07-29 — The pole detector was refusing five correct integrals
+
+A patch on v2.39.0, found by reviewing the fix rather than the feature — which is
+the habit this project now keeps, because five rounds running have turned up
+defects in the previous round's repairs.
+
+**A zero of a denominator is not necessarily a pole.** The new structural detector
+reported every real root of a denominator inside the interval without asking
+whether the numerator vanished there too. `integrate("(x^2-1)/(x-1)", 0, 2)` is
+**4** — the integrand *is* x + 1 and the singularity at x = 1 is removable — and it
+came back refused. So did `x/x`, `(x-2)/(x-2)` and `(x^2-4)/(x-2)`. Trading a wrong
+number for a refused correct one is a smaller harm than the −2 it replaced, not an
+acceptable one.
+
+The discriminator is cheap precisely because the structural search has already
+established *where* to look, which is what a blind grid scan never knew: evaluate
+the integrand either side of the candidate point. At a genuine pole of order n ≥ 1,
+|f| grows like h⁻ⁿ, so shrinking h by 1e6 multiplies |f| by at least 1e6; at a
+removable singularity |f| converges to its limit and the ratio is about 1. The
+threshold is 1e3 — three orders of magnitude of daylight between the two cases,
+which makes it a predicate with margin rather than a tolerance standing in for one.
+
+Two further cases came from the *sampling* backstop applying different rules from
+the structural search, so both now share one predicate:
+
+- **An endpoint the integrand misses is not a reason to refuse.** `x/x` over [0, 2]
+  is 2. The integrand is undefined at x = 0, which is the endpoint, and the
+  structural branch already required strict interiority while the sampled branch
+  did not.
+- `(x^2-4)/(x-2)` over [0, 3] was refused because 129 evenly spaced samples land
+  *exactly* on x = 2, where 0/0 is NaN. The integral is 10.5. The same grid
+  alignment that hid a real pole in v2.39.0 manufactured a fake one here.
+
+Every genuine case is still refused, and that is asserted directly rather than
+assumed: `1/(x-1)`, `1/((x-1)^2)`, `tan(x)`, `1/(x-0.5)`, `1/(x^2-4)`, `sqrt(x)^2`
+over [−1, 1] and `ln(x)` over [−1, 2].
+
+### A guard for the examples we publish
+
+`engineeringDocs.test.ts` checks that every `<code>` fragment in the help panel
+round-trips through its real parser — and it structurally cannot catch this class,
+because a now-refused integral parses perfectly. A guard that tightens a refusal
+can therefore falsify a published worked example, and the landing page goes live
+the moment it is pushed. The four integrals in `examples.ts` and `landing/*.html`
+are now asserted to still produce their published values, along with the sentence
+in the manual promising that `ln(x)` from −1 to 2 "has no integral, and it says so
+rather than returning a number."
+
+### Filed rather than fixed
+
+`integrate("sin(x)/x", -1, 1)` should be ≈ 1.8921 and is refused. The detector
+correctly identifies x = 0 as removable, but sinc has no antiderivative rule, so it
+falls to adaptive Simpson whose first midpoint is exactly 0. Checked against both
+v2.39.0 and the version before the detector was rebuilt — **both refuse it**, so
+this is a pre-existing limitation rather than a regression, and it is an honest
+refusal rather than a wrong number. Recorded as C0 in `docs/KNOWN-DEFECTS.md` with
+the fix direction: the removability is already computed, it just is not handed to
+the numeric path.
+
+### Release plumbing
+
+`package.ps1` now copies the built zips into `install/` as part of the same step
+that builds them. Building to `release/` and copying by hand meant the published
+download could sit a release behind while every automated version check passed,
+because those checks read `install/`. Verified that the macOS `.command` files keep
+mode 0755 through the copy — without the executable bit they cannot run at all, by
+any route.
+
+6,375 tests across 210 files, all green.
+
 ## [2.39.0] — 2026-07-29 — A negative area under a positive curve, and a figure of pure NaN
 
 Four independent reviews reported at once — truss/circuit, control/pharmacokinetics,

@@ -270,6 +270,22 @@ agreement that fix established has nothing holding it in place.
 
 ## C — cosmetic, or unreachable today
 
+### C0. A removable singularity strictly inside the interval still refuses on the numeric path
+`src/lib/solve.ts`. `integrate("sin(x)/x", -1, 1)` should be ≈ **1.8921**. The
+singularity at x = 0 is removable — sinc is bounded, with limit 1 — and the
+structural detector correctly does *not* flag it. But sinc has no antiderivative
+rule, so it falls through to adaptive Simpson, whose very first midpoint is exactly
+0, where `sin(0)/0` is NaN. The quadrature aborts and the integral is refused.
+
+**Not a regression** — verified against v2.39.0 as shipped and against the version
+before the pole detector was rebuilt; both refuse it. It is an honest refusal (the
+integrand genuinely is undefined at that point) rather than a wrong number, which
+is why it is filed here rather than in section A.
+**Fix direction:** when `isGenuinePole` has already established that a point inside
+the interval is *removable*, the quadrature can evaluate a few doubles to one side
+of it instead of at it. The information needed is already computed; it just is not
+passed to the numeric path.
+
 ### C1. `massspec.parseFormula` mis-parses hydrates
 `src/lib/massspec.ts:68` strips the `·` without splitting, so `CuSO4·5H2O` parses
 as `{Cu:1, S:1, O:46, H:2}` — "SO4" and "5" merge into "O45". **Unreachable

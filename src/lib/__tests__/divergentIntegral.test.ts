@@ -163,3 +163,71 @@ describe("it stays fast enough for a task pane", () => {
     expect(Date.now() - t0).toBeLessThan(1000);
   });
 });
+
+describe("a zero of the denominator is NOT necessarily a pole", () => {
+  // The first version of this fix reported every real root of a denominator
+  // inside the interval and refused five CORRECT integrals. Trading a wrong
+  // number for a refused correct one is a smaller harm, not an acceptable one —
+  // so the boundary between the two cases is pinned here in both directions.
+  //
+  // The discriminator: at a genuine pole of order n >= 1, |f| grows like h^-n, so
+  // shrinking h by 1e6 multiplies |f| by at least 1e6. At a removable singularity
+  // |f| converges to its limit and the ratio is about 1. Three orders of
+  // magnitude of daylight, not a tuned threshold.
+  test.each([
+    ["(x^2-1)/(x-1)", 0, 2, 4],        // integrand IS x + 1; root at 1 is removable
+    ["(x^2-1)/(x+1)", -2, 0, -4],      // and on the other side of zero
+    ["(x^2-4)/(x-2)", 0, 3, 10.5],     // 129 samples land EXACTLY on x = 2 here
+    ["x/x", 0, 2, 2],                  // undefined at the ENDPOINT, which is fine
+    ["(x-2)/(x-2)", 0, 4, 4],
+  ] as [string, number, number, number][])("%s over [%s, %s] = %s", (input, a, b, expected) => {
+    const r = M(input, a, b);
+    expect(r.value).toBeCloseTo(expected, 9);
+    expect(r.method).toBe("exact (symbolic)");
+  });
+
+  test("an endpoint the integrand misses is not a reason to refuse", () => {
+    // x/x is undefined at x = 0 and the integral over [0, 2] is still 2. Before
+    // the interior test, the sampled scan reported the endpoint as fatal.
+    expect(M("x/x", 0, 2).value).toBeCloseTo(2, 9);
+    expect(M("(x^2-1)/(x-1)", 1, 3).value).toBeCloseTo(6, 9); // endpoint AT the root
+  });
+
+  test("the genuine cases are all still refused", () => {
+    // The removable test must not have loosened the fix it protects.
+    for (const [s, a, b] of [
+      ["1/(x-1)", 0, 2], ["1/((x-1)^2)", 0, 2], ["tan(x)", 0, 3],
+      ["1/(x-0.5)", 0, 3], ["1/(x^2-4)", 0, 3],
+      ["sqrt(x)^2", -1, 1], ["ln(x)", -1, 2],
+    ] as [string, number, number][]) {
+      expect({ s, nan: Number.isNaN(M(s, a, b).value) }).toEqual({ s, nan: true });
+    }
+  });
+});
+
+describe("the worked examples we PUBLISH still work", () => {
+  // engineeringDocs.test.ts checks that every <code> fragment in the help panel
+  // round-trips through its real parser. That cannot catch this: a now-refused
+  // integral parses perfectly. So a guard that tightens a refusal can silently
+  // falsify a published example, and the landing page is live the moment it is
+  // pushed. These are the exact examples in src/lib/examples.ts and
+  // landing/*.html — if one is changed there, change it here.
+  test.each([
+    ["x^2", 0, 3, 9],
+    ["x*exp(x)", 0, 1, 1],
+    ["ln(x)", 1, 2, 2 * Math.LN2 - 1],
+    ["1/(x^2+4)", 0, 1, Math.atan(0.5) / 2],
+  ] as [string, number, number, number][])("%s over [%s, %s] = %s", (input, a, b, expected) => {
+    const r = M(input, a, b);
+    expect(r.method).toBe("exact (symbolic)");
+    expect(r.value).toBeCloseTo(expected, 9);
+  });
+
+  test("the one the landing page says has NO integral still says so", () => {
+    // landing/manual.html: "ln(x) from -1 to 2 has no integral, and it says so
+    // rather than returning a number." That sentence has to stay true.
+    const r = M("ln(x)", -1, 2);
+    expect(Number.isNaN(r.value)).toBe(true);
+    expect(r.caveats.join(" ")).toMatch(/UNDEFINED|POLE/);
+  });
+});

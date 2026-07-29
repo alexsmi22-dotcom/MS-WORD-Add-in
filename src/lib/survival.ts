@@ -74,7 +74,6 @@ export function kaplanMeier(times: number[], events: number[]): KaplanMeierResul
   if (events.some((e) => e !== 0 && e !== 1)) {
     return { ...empty, reason: "The event indicator must be 1 (event) or 0 (censored)." };
   }
-
   const n = times.length;
   const order = times.map((t, i) => i).sort((a, b) => times[a] - times[b]);
   const distinct: number[] = [];
@@ -153,6 +152,18 @@ export function kaplanMeier(times: number[], events: number[]): KaplanMeierResul
         "widen sharply there; treat the right-hand end with caution.",
     );
   }
+  // S(t) = 1 IS the right estimate when nobody has had the event, and Greenwood's
+  // variance is legitimately zero — but the resulting interval of [1, 1] reads as
+  // certainty, which three censored subjects do not buy. The numbers stay (they
+  // are correct); the claim they imply is what needs qualifying.
+  if (totalEvents === 0) {
+    caveats.push(
+      "NO EVENTS OCCURRED, so the estimate is S = 1 at every time with a zero-width confidence " +
+        "interval. That interval is an artefact of the formula, not evidence: with no events the " +
+        "data are consistent with any survival curve above the last follow-up time. Read this as " +
+        "\"no events yet in this follow-up\" rather than as a survival estimate.",
+    );
+  }
 
   return {
     ok: true,
@@ -206,9 +217,31 @@ export function logRankTest(groups: { times: number[]; events: number[] }[]): Lo
   };
   const usable = groups.filter((g) => g.times.length > 0);
   if (usable.length < 2) return { ...empty, reason: "Log-rank needs at least two groups." };
+  // THE SAME VALIDATION `kaplanMeier` DOES, twenty lines above in this file.
+  //
+  // This function had none, and the asymmetry inside one file is what makes it an
+  // oversight rather than a policy. The damaging case is 1/2 event coding — the
+  // SPSS and SAS convention — which reaches here because the pane's list parser
+  // filters only NaN. Every `2` was read as "not 1", i.e. censored, so the events
+  // were INVERTED and a completely different test was reported with no warning:
+  // the same data coded 1/2 gave O = [2, 1], p = 0.487, and coded 0/1 gave
+  // O = [3, 3], p = 0.810. Negative times, Infinity and NaN were all accepted
+  // with ok:true as well; `kaplanMeier` refuses all four.
   for (const g of usable) {
     if (g.times.length !== g.events.length) {
       return { ...empty, reason: "Every time needs a matching event indicator in each group." };
+    }
+    if (g.times.some((t) => !Number.isFinite(t) || t < 0)) {
+      return { ...empty, reason: "Times must be finite and non-negative." };
+    }
+    if (g.events.some((e) => e !== 0 && e !== 1)) {
+      return {
+        ...empty,
+        reason:
+          "The event indicator must be 1 (event) or 0 (censored). If your data uses 1 = event and " +
+          "2 = censored, recode the 2s as 0 — read as-is, every 2 would be treated as censored and " +
+          "the comparison would be of different groups than you meant.",
+      };
     }
   }
 
@@ -243,11 +276,36 @@ export function logRankTest(groups: { times: number[]; events: number[] }[]): Lo
       (dTot * (atRisk[0] / nTot) * (1 - atRisk[0] / nTot) * (nTot - dTot)) / (nTot - 1);
   }
 
-  let chi2 = 0;
-  for (let j = 0; j < k; j++) {
-    if (expected[j] > 0) chi2 += ((observed[j] - expected[j]) ** 2) / expected[j];
-  }
+  // THE LOG-RANK STATISTIC IS (O1 - E1)^2 / V, NOT sum (Oj - Ej)^2 / Ej.
+  //
+  // The Pearson form is the wrong denominator: E is the expectation of a sum of
+  // hypergeometric draws, and its variance is NOT E. Using it is conservative by
+  // roughly 10%, which is more than enough to cross alpha.
+  //
+  // The variance was already being accumulated above — it was computed for the
+  // Peto hazard ratio and then not used for the test it belongs to.
+  //
+  // Checked against the canonical Freireich 6-MP leukaemia data (Klein &
+  // Moeschberger Ex 7.2; the R `survdiff` help page), where the published answer
+  // is chi2 = 16.79, p = 4.17e-5. The O and E this function computes already
+  // matched the literature exactly — [21, 9] and [10.749, 19.251] — while the
+  // statistic came out 15.23, p = 9.5e-5. Only the denominator was wrong.
+  //
+  // For more than two groups the correct statistic needs the full covariance
+  // matrix of (O - E), which this accumulation does not carry, so k > 2 keeps the
+  // Pearson approximation and SAYS SO rather than quietly reporting it as exact.
   const df = k - 1;
+  let chi2: number;
+  let approximate = false;
+  if (k === 2 && variance > 0) {
+    chi2 = (observed[0] - expected[0]) ** 2 / variance;
+  } else {
+    chi2 = 0;
+    for (let j = 0; j < k; j++) {
+      if (expected[j] > 0) chi2 += (observed[j] - expected[j]) ** 2 / expected[j];
+    }
+    approximate = k > 2;
+  }
   const p = chiSquareP(chi2, df);
 
   let hazardRatio: number | null = null;
@@ -272,6 +330,14 @@ export function logRankTest(groups: { times: number[]; events: number[] }[]): Lo
     caveats.push(
       "The hazard ratio is Peto's estimator, which is accurate when the ratio is near 1 and biased " +
         "toward 1 when it is extreme. It is not a Cox regression and admits no covariates.",
+    );
+  }
+  if (approximate) {
+    caveats.push(
+      "With more than two groups this uses the Pearson form of the statistic, sum (O-E)^2/E, which " +
+        "is an APPROXIMATION: the exact k-group log-rank test needs the full covariance matrix of " +
+        "O - E, and this does not compute it. The two-group case above uses the exact variance. " +
+        "Treat a borderline k-group p-value as indicative rather than decisive.",
     );
   }
 

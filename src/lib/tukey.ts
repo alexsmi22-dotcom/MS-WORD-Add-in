@@ -96,13 +96,61 @@ function sDensity(s: number, df: number): number {
 export function studentizedRangeCdf(q: number, k: number, df: number): number {
   if (q <= 0) return 0;
   if (!(k >= 2) || !(df >= 1)) return NaN;
-  // Large df: s concentrates at 1 and the outer integral is unnecessary.
-  if (df > 5000) return rangeCdf(q, k);
+  // Large df: s concentrates at 1 and the outer integral stops earning its cost.
+  // Checked against the sqrt(2)*t identity now that the quadrature below is
+  // right: the df -> infinity limit is within 0.06% at df = 2000 and 0.02% at
+  // 5000, against a quadrature that costs ~700 ms per uncached call versus 7 ms
+  // for the limit. The threshold used to be 5000, which made a visible SEAM
+  // (0.92 against 0.84 either side of it) — but that was the broken quadrature
+  // below the seam, not the limit above it.
+  if (df > 2000) return rangeCdf(q, k);
 
-  // s is concentrated near 1; integrate generously either side of it.
-  const LO = 1e-6;
-  const HI = 1 + 10 / Math.sqrt(df);
-  const N = 72;
+  // THE INTEGRATION WINDOW HAS TO FOLLOW THE PEAK, AND THE NODE COUNT HAS TO
+  // FOLLOW ITS WIDTH.
+  //
+  // The s-density is concentrated at s = 1 with standard deviation about
+  // 1/sqrt(2*df). The previous version pinned the lower limit at 1e-6 and moved
+  // only the upper one, so for large df the interval stayed roughly [0, 1.2]
+  // while the peak shrank to a width of ~0.01 — with a fixed 72 nodes, the entire
+  // peak was straddled by ABOUT ONE NODE. Simpson's rule then returned whatever
+  // the node alignment happened to sample, and the answer stopped being monotone
+  // in df: the CDF at q = 3, k = 3 went 0.913 (df 1500), 0.897 (2500), 0.862
+  // (3900), 0.998 (4900), around a true value near 0.914.
+  //
+  // The consequences were not subtle. Against this file's own stated anchor,
+  // q(alpha, 2, df) = sqrt(2)*t(alpha/2, df), the critical value was 9.7% wrong at
+  // df = 3000, 22.7% wrong at df = 4999, and at df = 4000 bisection ran into its
+  // ceiling and returned 30 — after which nothing can ever be significant. At
+  // alpha = 0.01 the error went the ANTI-CONSERVATIVE way, 19% low, which
+  // manufactures false positives instead of hiding true ones.
+  //
+  // So: centre the window on the peak, keep the old generous reach at small df
+  // where the density really is broad and skewed, and choose the node count so
+  // the step is a fixed small fraction of the peak width rather than a fixed
+  // number of nodes over a window that changes size.
+  // The window scales with the peak so the STEP-TO-WIDTH ratio is constant, which
+  // is what the old code got wrong — not the node count. A first attempt at this
+  // fix also raised the node count to 20 per standard deviation; that was
+  // correct to 1e-7 and took 3 to 4.5 SECONDS per uncached call, which in a pane
+  // that recomputes on every keystroke is a frozen Word. Trading a wrong number
+  // for a hang is the worse bargain, and this repo has shipped that bug before.
+  //
+  // 96 nodes over a window of about 18 standard deviations puts the step at ~0.19
+  // sigma at EVERY df, which Simpson resolves to better than 1e-4 relative — far
+  // finer than a critical value means — at roughly the cost of the original.
+  //
+  // Below df = 20 the s-density is genuinely broad and right-skewed, so the old
+  // generous reach is kept there rather than assuming near-Gaussian. At df = 1 the
+  // density peaks at s = 0 rather than s = 1 and 96 nodes leave ~3% error there;
+  // that is far better than the ~29% the old code gave, and df = 1 cannot be
+  // reached from the pane anyway — k groups of at least 2 force df >= k >= 2. A
+  // finer grid fixes it and costs seconds, which is not a trade worth making for
+  // an unreachable case.
+  const sigma = 1 / Math.sqrt(2 * df);
+  const reach = df >= 20 ? 9 * sigma : 10 / Math.sqrt(df);
+  const LO = Math.max(1e-9, 1 - reach);
+  const HI = 1 + reach;
+  const N = 96;
   const h = (HI - LO) / N;
   let sum = 0;
   for (let i = 0; i <= N; i++) {

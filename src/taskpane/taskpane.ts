@@ -6259,6 +6259,10 @@ const STAT_CALCS: StatCalc[] = [
       }
       if (exp.length !== obs.length) return { text: "Observed and expected must have the same length.", ok: false };
       const res = chiSquareGoodnessOfFit(obs, exp);
+      // The engine refuses when observed and expected do not sum to the same
+      // total — a counts-vs-proportions mix-up, which is the obvious mistake in a
+      // free-text expected-counts field. Say so instead of formatting NaN.
+      if (res.reason) return { text: res.reason, ok: false };
       return { text: `Chi-square goodness of fit\nχ² = ${assaySig(res.chi2)}, df = ${res.df}, ${formatP(res.p)}` };
     },
   },

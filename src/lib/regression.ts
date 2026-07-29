@@ -54,10 +54,20 @@ export interface MultipleRegressionResult {
 /** Back-substitution for an upper-triangular system Rb = z. */
 function backSolve(R: Matrix, z: number[], n: number): number[] | null {
   const b = new Array<number>(n).fill(0);
+  let pivotScale = 0;
+  for (let i = 0; i < n; i++) pivotScale = Math.max(pivotScale, Math.abs(R[i][i]));
+  if (pivotScale === 0) return null;
   for (let i = n - 1; i >= 0; i--) {
     let sum = z[i];
     for (let j = i + 1; j < n; j++) sum -= R[i][j] * b[j];
-    if (Math.abs(R[i][i]) < 1e-12) return null; // rank-deficient
+    // RELATIVE to the largest pivot. An absolute 1e-12 is scale-dependent, and
+    // least squares is scale-equivariant: multiplying every predictor by a
+    // constant must change nothing but the slopes. It did not — predictors
+    // scaled by 1e-12 solved correctly and by 1e-13 were refused as
+    // "collinear", which was also factually wrong about the data. Reachable
+    // with genuinely small predictors: sub-picomolar concentrations, farads,
+    // femtosecond times.
+    if (Math.abs(R[i][i]) <= 1e-12 * pivotScale) return null; // rank-deficient
     b[i] = sum / R[i][i];
   }
   return b;
@@ -76,7 +86,29 @@ export function leastSquares(X: Matrix, y: number[]): { beta: number[]; xtxInv: 
   const p = X[0]?.length ?? 0;
   if (!n || !p || n < p) return null;
 
-  const { Q, R } = qrDecompose(X);
+  // EQUILIBRATE THE COLUMNS FIRST, then undo it on the coefficients.
+  //
+  // Least squares is scale-equivariant: multiplying a predictor by a constant must
+  // change nothing but that slope. It did not. A rank test on the pivots cannot
+  // fix this on its own — relative to the LARGEST pivot, a legitimately tiny
+  // column still looks rank-deficient because the intercept column is O(1), so
+  // predictors scaled by 1e-13 were refused as "collinear", which was also
+  // factually wrong about the data. Reachable with genuinely small predictors:
+  // sub-picomolar concentrations, farads, femtosecond times.
+  //
+  // Scaling each column to unit norm makes the pivot test dimensionless, which is
+  // what it needed to be all along, and dividing each coefficient back out is
+  // exact up to one rounding.
+  const colScale = new Array<number>(p).fill(1);
+  for (let j = 0; j < p; j++) {
+    let norm = 0;
+    for (let i = 0; i < n; i++) norm += X[i][j] * X[i][j];
+    norm = Math.sqrt(norm);
+    colScale[j] = norm > 0 && Number.isFinite(norm) ? norm : 1;
+  }
+  const Xs: Matrix = X.map((row) => row.map((v, j) => v / colScale[j]));
+
+  const { Q, R } = qrDecompose(Xs);
   // z = Qᵀy, using only the first p columns of Q.
   const z = new Array<number>(p).fill(0);
   for (let j = 0; j < p; j++) {
@@ -84,8 +116,9 @@ export function leastSquares(X: Matrix, y: number[]): { beta: number[]; xtxInv: 
     for (let i = 0; i < n; i++) s += Q[i][j] * y[i];
     z[j] = s;
   }
-  const beta = backSolve(R, z, p);
-  if (!beta) return null;
+  const betaScaled = backSolve(R, z, p);
+  if (!betaScaled) return null;
+  const beta = betaScaled.map((b, j) => b / colScale[j]);
 
   // (XᵀX)⁻¹ = R⁻¹R⁻ᵀ, needed for the standard errors. R is small (p×p).
   const Rinv: Matrix = Array.from({ length: p }, () => new Array<number>(p).fill(0));
@@ -96,8 +129,10 @@ export function leastSquares(X: Matrix, y: number[]): { beta: number[]; xtxInv: 
     if (!c) return null;
     for (let i = 0; i < p; i++) Rinv[i][col] = c[i];
   }
-  const xtxInv = multiply(Rinv, transpose(Rinv));
-  if (!xtxInv) return null;
+  const xtxInvScaled = multiply(Rinv, transpose(Rinv));
+  if (!xtxInvScaled) return null;
+  // Back to the original units: (XtX)^-1 picks up 1/(s_i s_j).
+  const xtxInv = xtxInvScaled.map((row, i) => row.map((v, j) => v / (colScale[i] * colScale[j])));
   return { beta, xtxInv };
 }
 
@@ -271,8 +306,14 @@ export function polynomialRegression(
 }
 
 /**
- * Inverse standard normal CDF (probit), Acklam's rational approximation with one
- * Halley refinement — accurate to about 1e-15.
+ * Inverse standard normal CDF (probit), Acklam's rational approximation —
+ * relative error about 1.1e-9.
+ *
+ * The docstring used to claim "with one Halley refinement — accurate to about
+ * 1e-15". There is no refinement step in the body, and the measured error is
+ * 8e-10 at p = 0.975: raw Acklam, six orders coarser than advertised. It is
+ * ample for a Q-Q plot, which is all this is used for, but a false accuracy
+ * claim invites someone to rely on it for something else.
  *
  * Needed for the Q-Q plot: the theoretical quantile of each order statistic.
  */

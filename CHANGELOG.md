@@ -5,6 +5,137 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > Note: this file was not maintained between v1.96.0 and v2.23.0. Those releases
 > are recorded in the git history rather than here.
 
+## [2.38.0] — 2026-07-29 — Two wrong statistical verdicts, and eight more from the stats engines
+
+A deep round aimed at engines never independently reviewed. Five passes launched;
+four died to repeated API failures, and the one that finished — the statistics
+engines — returned the best-evidenced report of the exercise, every finding
+anchored to a published authority rather than to the code. Two changed
+significance verdicts.
+
+### The log-rank test used the wrong statistic
+
+It returned the Pearson form, sum (O-E)^2/E, where the log-rank statistic is
+(O1-E1)^2/V. **V was already being computed** — accumulated for the Peto hazard
+ratio, then not used for the test it belongs to.
+
+Checked against the Freireich 6-MP leukaemia trial (Klein & Moeschberger Ex 7.2;
+R's `survdiff` help page): published chi-square = 16.79, p = 4.17e-05. The
+observed and expected counts already matched the literature exactly — [21, 9] and
+[10.749, 19.251] — while the statistic came out 15.23, p = 9.50e-05. Only the
+denominator was wrong.
+
+The Pearson form is conservative by roughly 10%, enough to cross alpha: a dataset
+reported p = 0.0557 (not significant) where the correct answer is 0.0447
+(significant). For k > 2 the exact statistic needs the full covariance matrix of
+O - E, which this accumulation does not carry, so that case keeps the
+approximation and now SAYS it is one.
+
+### Tukey HSD was unusable above about df = 1000, and anti-conservative
+
+The outer quadrature pinned its lower limit at 1e-6 and moved only the upper one,
+while the integrand's peak narrows like 1/sqrt(2*df). At large df the whole peak
+fell between two of the 72 fixed nodes, and the CDF stopped being monotone in df —
+swinging 0.914 → 0.897 → 0.862 → 0.998 around a true 0.914.
+
+Against this file's OWN anchor, the theorem q(a, 2, df) = sqrt(2)*t(a, df), which
+had apparently never been swept past df ≈ 500: 9.7% error at df = 3000, 22.7% at
+4999, and at df = 4000 bisection hit its ceiling and returned **30**, after which
+nothing can ever be significant. At alpha = 0.01 the error ran the other way,
+19% LOW, which manufactures false positives. Reachable from the pane with three
+groups of ~1350, where the p-value and the significance flag — computed by
+different routes — disagreed outright.
+
+The window now follows the peak, so the step is a fixed fraction of the peak width
+at every df: within 0.05% from df = 2 to 19000, and monotone.
+
+**The first attempt at that fix is the more useful lesson.** Raising the node
+count to 20 per standard deviation was correct to 1e-7 and took **3 to 4.5 seconds
+per uncached call** — a frozen Word in a pane that recomputes on every keystroke.
+Trading a wrong number for a hang is the worse bargain. The node count was never
+the problem; the centring was.
+
+### Eight more from the same pass
+
+- **`logRankTest` validated nothing** while `kaplanMeier`, twenty lines above in
+  the same file, validated everything — the asymmetry within one file is what makes
+  it an oversight. Worst case: 1/2 event coding (the SPSS/SAS convention) was read
+  as "2 is not 1, so censored", **inverting the events**. The same data gave
+  p = 0.487 coded 1/2 and p = 0.810 coded 0/1, with no warning either way.
+- **`chiSquareP` returned exactly 0** for small p — `1 - gammp(...)` where the
+  continued-fraction branch had already formed `1 - q`, annihilating q below
+  ~1e-16. chiSquareP(100, 1) gave 0 where the answer is 1.5e-23.
+- **Goodness of fit accepted mismatched totals** — observed summing to 60 against
+  expected summing to 6 returned chi-square = 486 without complaint. Entering
+  proportions in a counts field is the obvious user error.
+- **`describe()` threw `RangeError`** past ~130,000 values, from `Math.min(...xs)`
+  spreading every value as an argument. 100,000 worked, so it looked fine.
+- **Least squares was not scale-equivariant** — predictors scaled by 1e-12 solved
+  and by 1e-13 were refused as "collinear", a refusal also factually wrong about
+  the data. A relative pivot test alone cannot fix it, because the O(1) intercept
+  column makes a legitimately tiny column look rank-deficient; the design matrix is
+  now column-equilibrated and the coefficients scaled back.
+- **The rank tests ranked NaN.** The comparator returns NaN for a NaN, leaving the
+  sort order unspecified, so `mannWhitneyU([1,2,NaN,4],[5,6,7,8])` reported
+  p = 0.030, "significant", out of noise. `rankWithTies` exists in TWO files, and
+  guarding one left the other still doing it.
+- **`twoWayAnova`'s docstring claimed it threw for unbalanced designs.** It checked
+  cell size but never row length, so a ragged design returned F = NaN with a wrong
+  total df and no complaint. Now it throws, as advertised.
+- **`probit`'s docstring claimed a Halley refinement and 1e-15 accuracy.** No
+  refinement exists in the body; measured error is 8e-10.
+- **Kaplan-Meier with no events** reported S = 1 with a zero-width interval. S = 1
+  is correct and Greenwood is legitimately zero, so the numbers stay — but [1, 1]
+  read as certainty bought by three censored subjects, and now carries a caveat.
+
+### Reachability
+
+An audit of all 639 exported library functions against every use in `src/`,
+counting names rather than import edges so dynamic imports are covered. **Zero
+broken wiring** — no pane feature is unable to reach its engine, so the failure
+recorded at v2.19 is not currently present.
+
+It found 26 exports dead everywhere, 20 with tests: seven finance calculations, an
+entire six-function 3D transform set, and a substrate-inhibition model the pane
+*names* in a diagnostic while offering no way to fit it. Unsurfaced capability
+rather than defects, so nothing was deleted;
+`reachability.adversarial.test.ts` ratchets the count so the pile cannot grow.
+
+### Testing
+
+`statsAuthorities.test.ts` pins each fix to something outside the code — the
+Freireich trial, the sqrt(2)*t theorem, published chi-square quantiles, and
+scale-equivariance as an identity. Not one expectation recomputes the answer the
+way the implementation does.
+
+## [2.37.5] — 2026-07-29 — Round four: a squashed figure, a deleted mode, a fast path never exact
+
+Recorded here late — this release shipped with its detail in the commit message
+and no CHANGELOG entry, which is exactly the documentation rot the previous two
+releases were about.
+
+- **Every inserted beam figure was squashed 2.9% vertically.** The chart's height
+  went 336 → 342 → 346 across three releases while the pane declared `h: 336` as a
+  literal. Nothing was clipped, so nothing looked broken. The geometry test could
+  not catch it: it parses `height=` out of the SVG it just generated, so it is
+  self-consistent at any value. The size is now exported rather than re-typed.
+- **A genuine vibration mode was still being deleted** at ordinary engineering
+  numbers — two 10-tonne floors plus a 0.1 mg sensor die reported [0, 0, 1e8]
+  against a truth of 6.3 and 17.3 rad/s, with the static case refused and both
+  real resonances missed. Tightening the tolerance twice had not worked because
+  lambda_min/lambda_max carries no rank information: "is K singular" is a question
+  about K, now answered by a Cholesky factorisation. **When you tune a threshold
+  twice, the predicate is wrong.**
+- **`qToNumber`'s fast path was never correctly rounded** — 1 to 2 ULP in roughly
+  a third of cases, making the exact-rational pipeline LESS accurate than the
+  naive parse it exists to improve on. Now taken only where it is provably exact.
+- **One idiom, six places.** Having hit "square before dividing or rooting" three
+  times, a sweep found three more, including `eigenvaluesGeneral` *throwing* on a
+  matrix whose entries and eigenvalues are both perfectly representable.
+- And three defects in the previous round's own tests: an exact verifier
+  structurally blind to both bugs it replaced, a hang detector timing a code path
+  that early-exits, and a committed probe file of `console.log` with no assertions.
+
 ## [2.37.4] — 2026-07-29 — Round three: the reviews reviewed the repairs
 
 Three more independent passes, this time over the code written the same day to

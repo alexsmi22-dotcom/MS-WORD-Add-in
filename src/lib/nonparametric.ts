@@ -15,7 +15,20 @@
 import { chiSquareP, normalCdf, adjustPValues, type CorrectionMethod } from "./stats2";
 
 /** Average ranks, ties sharing the mean rank; also Σ(t³−t) for the tie correction. */
+/**
+ * Ranks with the mid-rank tie correction.
+ *
+ * REFUSES non-finite input. The comparator returns NaN for a NaN, which leaves
+ * the sort order unspecified, so the ranks come out arbitrary and every
+ * statistic built on them is meaningless but plausible — a NaN in the input
+ * produced p = 0.027 "significant" out of noise.
+ *
+ * NOTE: `stats2.ts` carries its own private copy of this function. Both are
+ * guarded; fixing one and not the other is how the first attempt at this left
+ * mannWhitneyU still ranking NaNs.
+ */
 export function rankWithTies(xs: number[]): { ranks: number[]; tieSum: number } {
+  if (xs.some((v) => !Number.isFinite(v))) throw new RangeError("ranks need finite values");
   const idx = xs.map((v, i) => [v, i] as [number, number]).sort((a, b) => a[0] - b[0]);
   const ranks = new Array<number>(xs.length).fill(0);
   let tieSum = 0;

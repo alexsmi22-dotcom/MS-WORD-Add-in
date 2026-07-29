@@ -64,8 +64,12 @@ export function describe(xs: number[]): Descriptive {
     sem,
     variance: variance(xs),
     median: median(xs),
-    min: Math.min(...xs),
-    max: Math.max(...xs),
+    // A LOOP, NOT A SPREAD. `Math.min(...xs)` passes every value as an argument,
+    // and past about 130,000 that is `RangeError: Maximum call stack size
+    // exceeded` — an unhandled throw in a task pane, on data a user could
+    // plausibly paste. n = 100,000 worked, so it looked fine.
+    min: xs.reduce((a, b) => (b < a ? b : a), Infinity),
+    max: xs.reduce((a, b) => (b > a ? b : a), -Infinity),
     cv: sd / m,
     ci95: [m - t * sem, m + t * sem],
   };

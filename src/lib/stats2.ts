@@ -90,16 +90,59 @@ function gammp(a: number, x: number): number {
   return 1 - q;
 }
 
+/**
+ * Upper tail Q(a, x) = 1 - P(a, x), computed WITHOUT the round trip.
+ *
+ * `chiSquareP` used to return `1 - gammp(...)`, and the continued-fraction
+ * branch of `gammp` had already formed `1 - q` — so the pair annihilated q
+ * below about 1.1e-16 and the p-value came back as exactly 0.
+ * chiSquareP(100, 1) gave 0 where the answer is 1.5e-23. Zero is not a
+ * p-value, and the function is exported.
+ */
+function gammq(a: number, x: number): number {
+  if (x <= 0) return 1;
+  if (x < a + 1) return 1 - gammp(a, x); // series branch is accurate for P
+  // Continued fraction: compute Q directly.
+  let b = x + 1 - a;
+  let c = 1 / 1e-300;
+  let d = 1 / b;
+  let h = d;
+  for (let i = 1; i <= 300; i++) {
+    const an = -i * (i - a);
+    b += 2;
+    d = an * d + b;
+    if (Math.abs(d) < 1e-300) d = 1e-300;
+    c = b + an / c;
+    if (Math.abs(c) < 1e-300) c = 1e-300;
+    d = 1 / d;
+    const del = d * c;
+    h *= del;
+    if (Math.abs(del - 1) < 1e-15) break;
+  }
+  return Math.exp(-x + a * Math.log(x) - gammaln(a)) * h;
+}
+
 /** Upper-tail p-value for a chi-square statistic with `df` degrees of freedom. */
 export function chiSquareP(chi2: number, df: number): number {
   if (chi2 <= 0) return 1;
-  return 1 - gammp(df / 2, chi2 / 2);
+  return gammq(df / 2, chi2 / 2);
 }
 
 // --- ranking helper ---------------------------------------------------------
 
 /** Average ranks (ties share the mean rank); also returns the tie-correction sum Σ(t³−t). */
+/**
+ * Ranks with the mid-rank tie correction.
+ *
+ * REFUSES non-finite input rather than ranking it. A NaN makes the comparator
+ * return NaN, which leaves the sort order unspecified — so the ranks came out
+ * arbitrary and every statistic built on them was meaningless but entirely
+ * plausible: `mannWhitneyU([1,2,NaN,4],[5,6,7,8])` reported p = 0.030,
+ * "significant". The pane's list parser filters NaN, so this was a
+ * library-level hole, and these functions are exported.
+ */
 function rankWithTies(xs: number[]): { ranks: number[]; tieSum: number } {
+  if (xs.some((v) => !Number.isFinite(v))) throw new RangeError("ranks need finite values");
   const idx = xs.map((v, i) => [v, i] as [number, number]).sort((a, b) => a[0] - b[0]);
   const ranks = new Array(xs.length).fill(0);
   let tieSum = 0;
@@ -181,10 +224,36 @@ export interface ChiSquareResult {
   chi2: number;
   df: number;
   p: number;
+  /**
+   * Set when the inputs are not a valid test rather than a valid test with an
+   * extreme answer. The statistics are NaN in that case, so a caller that only
+   * formats numbers still shows nothing misleading.
+   */
+  reason?: string;
 }
 
 /** Chi-square goodness-of-fit test: observed vs expected counts. */
 export function chiSquareGoodnessOfFit(observed: number[], expected: number[]): ChiSquareResult {
+  // THE TOTALS MUST AGREE. chi-square goodness of fit compares counts against
+  // EXPECTED COUNTS, not proportions: with observed summing to 60 and expected
+  // to 6 it happily returned chi2 = 486, p = 0, and the number means nothing.
+  // Entering proportions in a counts field is the obvious user error, and the
+  // pane's expected-counts field is free text.
+  {
+    const so = observed.reduce((a, b) => a + b, 0);
+    const se = expected.reduce((a, b) => a + b, 0);
+    if (se > 0 && Math.abs(so - se) > 1e-6 * Math.max(so, se)) {
+      return {
+        chi2: NaN,
+        df: NaN,
+        p: NaN,
+        reason:
+          `The expected counts sum to ${se} but the observed counts sum to ${so}. ` +
+          "Goodness of fit compares counts with counts — if you have proportions, " +
+          `multiply them by ${so} first.`,
+      };
+    }
+  }
   const df = observed.length - 1;
   let chi2 = 0;
   for (let i = 0; i < observed.length; i++) {
@@ -234,9 +303,23 @@ export interface TwoWayAnovaResult {
 /**
  * Balanced two-way ANOVA with replication. `cells[i][j]` is the array of
  * replicate values at level i of factor A and level j of factor B; every cell
- * must have the same number of replicates. Throws for an unbalanced design.
+ * must have the same number of replicates.
+ *
+ * REFUSES an unbalanced design. The docstring used to claim it threw for one
+ * while the loop only checked that each CELL had n replicates, never that each
+ * row had the same number of cells — so a ragged design returned F = NaN and
+ * p = NaN with a wrong total df and no complaint.
  */
 export function twoWayAnova(cells: number[][][]): TwoWayAnovaResult {
+  if (cells.length > 0) {
+    const b = cells[0].length;
+    if (cells.some((row) => row.length !== b)) {
+      throw new RangeError(
+        "Two-way ANOVA needs a rectangular design: every level of factor A must have the " +
+          "same number of factor-B cells.",
+      );
+    }
+  }
   const a = cells.length;
   const b = cells[0].length;
   const n = cells[0][0].length;

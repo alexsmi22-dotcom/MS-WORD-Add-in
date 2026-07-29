@@ -590,6 +590,54 @@ footer{border-top:1px solid var(--rule);background:var(--ground-2);padding:32px 
               <p class="cite" style="margin-top:12px">cond(A) = 14.43 · det(A) = −4.587 · rank 4<span class="caret"></span></p>
             </div>
 
+            <!-- Engineering -->
+            <div class="panel panel-min" id="p-eng" role="tabpanel" aria-labelledby="t-eng" hidden>
+              <p class="doc-h">Propped cantilever — shear and bending moment</p>
+              <p class="doc-text" style="margin-bottom:12px">Span 8 m, fixed at the wall and propped on a roller, under a uniform 5 kN/m. The beam is statically indeterminate to degree 1, so the reactions come from compatibility rather than equilibrium alone &mdash; and they come out exact.</p>
+              <svg viewBox="0 0 460 196" role="img" aria-label="Shear force and bending moment diagrams for a propped cantilever" style="width:100%;height:auto">
+                <!-- shear -->
+                <g font-family="Georgia,serif" font-size="9" fill="#44555F">
+                  <text x="404" y="14">V (kN)</text>
+                </g>
+                <g fill="none" stroke="#1A1A1A" stroke-width="1">
+                  <path d="M30 57.5 H440"/>
+                </g>
+                <path d="M30 20 L440 80" fill="none" stroke="#0C4A6E" stroke-width="1.6"/>
+                <g font-family="Georgia,serif" font-size="9" fill="#0C4A6E">
+                  <text x="34" y="17">+25</text>
+                  <text x="416" y="92">&#8722;15</text>
+                  <text x="292" y="54">V = 0 at x = 5</text>
+                </g>
+                <!-- moment -->
+                <g font-family="Georgia,serif" font-size="9" fill="#44555F">
+                  <text x="30" y="100">M (kN&#183;m)</text>
+                </g>
+                <g fill="none" stroke="#1A1A1A" stroke-width="1">
+                  <path d="M30 130.2 H440"/>
+                </g>
+                <polyline points="30,175 81.25,149.8 132.5,130.2 183.75,116.2 235,107.8 286.25,105 337.5,107.8 388.75,116.2 440,130.2"
+                          fill="none" stroke="#0C4A6E" stroke-width="1.6"/>
+                <g fill="none" stroke="#0C4A6E" stroke-width="0.8" stroke-dasharray="3 3">
+                  <path d="M132.5 130.2 v-8"/><path d="M286.25 105 v25.2"/>
+                </g>
+                <g font-family="Georgia,serif" font-size="9" fill="#0C4A6E">
+                  <text x="34" y="186">&#8722;40 (hogging at the wall)</text>
+                  <text x="252" y="100">+22.5</text>
+                  <text x="108" y="120">x = 2</text>
+                </g>
+                <g font-family="Georgia,serif" font-size="8.5" fill="#758794">
+                  <text x="386" y="143">x = 8 m</text>
+                </g>
+              </svg>
+              <p class="tab-cap" style="margin-top:12px">Table 2. Support reactions, as exact rationals.</p>
+              <table class="wtab">
+                <tr><th>Support</th><th>Type</th><th class="n">Reaction</th><th class="n">Exact</th><th class="n">Moment</th></tr>
+                <tr><td>x = 0</td><td>Fixed</td><td class="n">25 kN</td><td class="n">5/8 wL</td><td class="n">&#8722;40 kN&#183;m</td></tr>
+                <tr><td>x = 8</td><td>Roller</td><td class="n">15 kN</td><td class="n">3/8 wL</td><td class="n">&mdash;</td></tr>
+              </table>
+              <p class="cite" style="margin-top:12px">Indeterminate to degree 1 &#183; contraflexure at x = 2 m exactly &#183; M<sub>max</sub> = 22.5 kN&#183;m at x = 5<span class="caret"></span></p>
+            </div>
+
             <!-- Stats -->
             <div class="panel panel-min" id="p-stat" role="tabpanel" aria-labelledby="t-stat" hidden>
               <p class="doc-h">Two-way ANOVA</p>
@@ -647,6 +695,7 @@ footer{border-top:1px solid var(--rule);background:var(--ground-2);padding:32px 
             <button class="pane-item" id="t-chem" role="tab" aria-selected="true" aria-controls="p-chem"><span class="dot"></span>Chemical</button>
             <button class="pane-item" id="t-spec" role="tab" aria-selected="false" aria-controls="p-spec"><span class="dot"></span>Spectra</button>
             <button class="pane-item" id="t-anal" role="tab" aria-selected="false" aria-controls="p-anal"><span class="dot"></span>Analyze</button>
+            <button class="pane-item" id="t-eng" role="tab" aria-selected="false" aria-controls="p-eng"><span class="dot"></span>Engineering</button>
             <button class="pane-item" id="t-stat" role="tab" aria-selected="false" aria-controls="p-stat"><span class="dot"></span>Stats</button>
             <button class="pane-item" id="t-num" role="tab" aria-selected="false" aria-controls="p-num"><span class="dot"></span>Numerals</button>
             <button class="pane-item" id="t-cite" role="tab" aria-selected="false" aria-controls="p-cite"><span class="dot"></span>Citations</button>
@@ -710,6 +759,54 @@ footer{border-top:1px solid var(--rule);background:var(--ground-2);padding:32px 
           </table>
         </div>
         <span class="go">Open the Spectra tool &rarr;</span>
+      </a>
+
+      <a class="gpanel" href="tool.html?tool=engineering">
+        <h3>Engineering diagrams and checks</h3>
+        <p>Thirty-six calculators across nine disciplines &mdash; structures and solids, fatigue, fluids, thermal, electronics, control, vibration, biomedical and pharmacokinetics. Shear and bending moment diagrams, Mohr's circle, Bode plots, step responses and concentration curves all insert as real figures. Where the arithmetic can be exact it is, so a propped cantilever reports 3/8 wL rather than a rounded decimal.</p>
+        <div class="inset">
+          <p class="inset-cap">Inserted: FIG. 3 and Table 2</p>
+          <svg viewBox="0 0 300 172" role="img" aria-label="Three-circle Mohr diagram for a biaxial stress state" style="display:block;width:100%;max-width:250px;margin:0 auto;height:auto">
+            <!-- sigma axis -->
+            <g fill="none" stroke="#1A1A1A" stroke-width="1">
+              <path d="M28 130 H218"/>
+              <path d="M40 130 v4"/><path d="M136 130 v4"/><path d="M200 130 v4"/>
+            </g>
+            <!-- the three circles: (s1,s3) governs, (s1,s2) is the in-plane one -->
+            <g fill="none" stroke="#0C4A6E" stroke-width="1.5">
+              <path d="M40 130 A80 80 0 0 1 200 130"/>
+            </g>
+            <g fill="none" stroke="#5B8AA6" stroke-width="1.1">
+              <path d="M40 130 A48 48 0 0 1 136 130"/>
+              <path d="M136 130 A32 32 0 0 1 200 130"/>
+            </g>
+            <!-- shear markers -->
+            <g fill="none" stroke="#0C4A6E" stroke-width="0.9" stroke-dasharray="3 3">
+              <path d="M120 130 V50"/><path d="M168 130 V98"/>
+            </g>
+            <circle cx="120" cy="50" r="2.4" fill="#0C4A6E"/>
+            <circle cx="168" cy="98" r="2.4" fill="#5B8AA6"/>
+            <g font-family="Georgia,serif" font-size="9" fill="#0C4A6E">
+              <text x="126" y="48">&#964;<tspan baseline-shift="sub" font-size="7">abs</tspan> = 50</text>
+              <text x="174" y="96">&#964;<tspan baseline-shift="sub" font-size="7">in-plane</tspan> = 20</text>
+            </g>
+            <g font-family="Georgia,serif" font-size="9" fill="#44555F" text-anchor="middle">
+              <text x="40" y="146">&#963;&#8323; = 0</text>
+              <text x="136" y="146">&#963;&#8322; = 60</text>
+              <text x="200" y="146">&#963;&#8321; = 100</text>
+              <text x="122" y="164">MPa</text>
+            </g>
+          </svg>
+          <table class="wtab">
+            <tr><th>Quantity</th><th class="n">Value</th><th class="n">FoS (S<sub>y</sub> 250)</th></tr>
+            <tr><td>von Mises</td><td class="n">87.18 MPa</td><td class="n">2.87</td></tr>
+            <tr><td>Tresca</td><td class="n">100.0 MPa</td><td class="n">2.50</td></tr>
+            <tr><td>&#964; in-plane</td><td class="n">20.0 MPa</td><td class="n">&mdash;</td></tr>
+            <tr><td>&#964; absolute</td><td class="n">50.0 MPa</td><td class="n">&mdash;</td></tr>
+          </table>
+          <p class="inset-cap" style="margin-top:8px">The absolute maximum shear is larger than the in-plane one, because the zero out-of-plane principal stress lies outside the in-plane pair &mdash; and it is the larger number the bar yields at.</p>
+        </div>
+        <span class="go">Open the Engineering tool &rarr;</span>
       </a>
 
       <a class="gpanel" href="tool.html?tool=seqmap">

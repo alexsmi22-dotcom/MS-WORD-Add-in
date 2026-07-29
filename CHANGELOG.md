@@ -7,9 +7,10 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 
 ## [2.31.9] — 2026-07-28 — The anchor after a figure, and a measurement that never was
 
-> **Confirmed in real Word:** the frequency-response report now inserts **2 of 2
-> figures**, counted from `document.body.inlinePictures` rather than assumed.
-> The anchor was the cause. This is the first hard number in the sequence.
+> **Not yet confirmed.** No picture count has been taken with `.end` in place.
+> The status line reports Word's own count, so the next frequency-response
+> insert either reads "2 figures" or names what was dropped — and that result,
+> when it exists, will be the first hard number in the sequence.
 
 v2.31.8 restored the figure branch byte-for-byte to the version believed to
 render both Bode plots. It still inserted one of two. That result is the useful

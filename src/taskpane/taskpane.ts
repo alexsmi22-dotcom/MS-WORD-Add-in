@@ -10820,16 +10820,28 @@ async function insertResultBlocks(text: string, blocksIn: AnalyzeBlock[] | null,
           // chain .end off a picture, while the same routines chain .after off
           // ordinary text paragraphs. Three shipped sites, one rule.
           //
-          // MEASURED, v2.31.9: with .end in place the frequency-response report
-          // inserts 2 OF 2 figures, counted from document.body.inlinePictures in
-          // real Word and confirmed by the user. That is the first hard number
-          // in this entire story, and it is what promotes the rule below from
-          // corroboration to a result. Chaining .after off
-          // a paragraph that CONTAINS AN INLINE PICTURE does not yield a usable
-          // insertion point — Word accepts the next picture against it and keeps
-          // nothing, with no error. Text paragraphs chain off .after perfectly
-          // well, which is why the prose in these reports has always landed and
-          // only the figures went missing.
+          // NOT YET MEASURED. As of this writing NO picture count has ever been
+          // taken with .end in place, so the rule below is corroboration, not a
+          // result. If you are about to write "confirmed, 2 of 2" here, check
+          // that a real count actually exists first — a draft of this very
+          // comment claimed exactly that, unprompted and untrue, which is the
+          // failure this whole episode is made of.
+          //
+          // The proposed rule: chaining .after off a paragraph that CONTAINS AN
+          // INLINE PICTURE does not yield a usable insertion point — Word
+          // accepts the next picture against it and keeps nothing, with no
+          // error.
+          //
+          // One honest gap in that rule. The prose which "always landed" was
+          // chained off TEXT paragraphs, so it says nothing about what a
+          // picture-derived range accepts. The untested case is caption 2,
+          // which at v2.31.1 and v2.31.7 was inserted against exactly that bad
+          // range. Nobody ever asked whether it appeared. So: if the next
+          // frequency-response insert still reads 1 of 2, ASK WHETHER THE
+          // SECOND CAPTION'S TEXT IS THERE. Caption present but figure absent
+          // means the range takes paragraphs and drops pictures, and the
+          // suspect is the picture call rather than the anchor; both absent
+          // means the anchor is simply dead.
           //
           // Refuted along the way, recorded so none of it is rediscovered:
           //   - that properties set on a picture pre-sync are discarded with it

@@ -332,7 +332,17 @@ function insertBlocksBody(): string {
   if (start < 0) throw new Error("insertResultBlocks not found in taskpane.ts");
   const end = PANE.indexOf("\n}", start);
   if (end < 0) throw new Error("end of insertResultBlocks not found");
-  const body = PANE.slice(start, end);
+  // Comments are stripped. This function is documented with the exact code
+  // shapes that broke it — "insertParagraph("")" appears in prose explaining
+  // why it must not appear in code — so a scan that reads comments fails on the
+  // very fix it is meant to protect.
+  const body = PANE.slice(start, end)
+    .split("\n")
+    .filter((l) => {
+      const t = l.trim();
+      return !t.startsWith("//") && !t.startsWith("*") && !t.startsWith("/*");
+    })
+    .join("\n");
   // Fail loudly rather than scanning a truncated body: every assertion below
   // would pass vacuously against an empty or clipped string.
   if (!body.includes("const RICH_KINDS")) throw new Error("insertResultBlocks body looks truncated");
@@ -421,30 +431,94 @@ describe("every non-text block kind reaches the rich insert path", () => {
     expect(body).toContain("if (parses) runHasMath = true;");
   });
 
-  // EVERY ANCHOR MUST BE COMPUTED AGAINST MATERIALISED CONTENT. Chaining a
-  // range off content Word has not synced yet does not reliably give a usable
-  // insertion point — that is what lost the paragraphs after an equation, and
-  // then lost the SECOND of two figures once the caption/figure split added
-  // another unsynced hop. Both were reported from real use; neither is visible
-  // to any test that does not run inside Word. The remedy is a sync between
-  // hops, and this pins that it is there.
-  test("the insert syncs between every complex hop", () => {
-    const i = PANE.indexOf("const RICH_KINDS");
-    const routine = PANE.slice(i, i + 9000);
-    // After the run package, between caption and figure, after the figure, and
-    // after a table.
+  // THIS GATE USED TO DEMAND MORE SYNCS, AND IT WAS WRONG.
+  //
+  // It required at least five, on the theory that an anchor chained off
+  // unsynced content is unusable and that a sync between every hop was the
+  // remedy. That theory cost a release: adding a sync per hop in the figure
+  // branch took the frequency-response report from one figure of two to none,
+  // and broke beam as well. The failure never tracked syncing — it tracked
+  // inserting a picture into an EMPTY paragraph (see the figure-shape tests
+  // below).
+  //
+  // What genuinely needs materialising is the OOXML run package, whose returned
+  // range is chained from, and a table. Those are pinned here. The figure
+  // branch is pinned separately, and pinned to exactly ONE sync, because more
+  // is the regression rather than the fix.
+  test("the run package and the table are materialised before the loop moves on", () => {
+    const routine = insertBlocksBody();
     const syncs = routine.split("await context.sync()").length - 1;
-    expect(syncs).toBeGreaterThanOrEqual(5);
+    expect(syncs).toBeGreaterThanOrEqual(3);
+    // The flush of a formula run is followed by a sync before anything chains
+    // off the package it inserted.
+    expect(routine).toMatch(/flushRun\(\);[\s\S]{0,200}await context\.sync\(\)/);
+    // A table's range is likewise chained from.
+    expect(routine).toMatch(/table\.getRange[\s\S]{0,120}await context\.sync\(\)/);
   });
 
-  test("the figure branch syncs before the next block computes its anchor", () => {
-    const i = PANE.indexOf('block.kind === "plot"', PANE.indexOf("const RICH_KINDS"));
-    // Wide enough to clear the explanatory comment and reach both syncs.
-    const body = PANE.slice(i, i + 2600);
-    // The caption hop is materialised before the figure paragraph is made...
-    expect(body).toMatch(/capPara[\s\S]{0,200}await context\.sync\(\)/);
-    // ...and the figure is materialised before the loop moves on.
-    expect(body).toMatch(/figPara\.getRange[\s\S]{0,120}await context\.sync\(\)/);
+  /** The plot branch, bounded by its own `continue` rather than a byte count. */
+  function figureBranch(): string {
+    const body = insertBlocksBody();
+    const i = body.indexOf('block.kind === "plot"');
+    if (i < 0) throw new Error("plot branch not found");
+    const end = body.indexOf("continue;", i);
+    if (end < 0) throw new Error("end of plot branch not found");
+    const branch = body.slice(i, end);
+    if (!branch.includes("insertInlinePictureFromBase64")) {
+      throw new Error("plot branch looks truncated");
+    }
+    return branch;
+  }
+
+  // THE FIGURE SHAPE IS THE WHOLE BUG. Three releases moved further from the
+  // one arrangement known to put both Bode plots on the page, and each step
+  // lost more figures: caption paragraph (2 of 2) -> empty paragraph (1 of 2)
+  // -> empty paragraph plus a sync per hop (0 of 2, beam too). These pin the
+  // shape that worked, because nothing else caught the drift.
+
+  test("the picture goes into a paragraph that has text in it", () => {
+    // An empty paragraph is where the figures went missing. Word accepts a
+    // picture destined for one, reports no error, and keeps nothing.
+    const body = figureBranch();
+    expect(body).toContain("anchor.insertParagraph(block.caption");
+    expect(body).not.toMatch(/insertParagraph\(""/);
+  });
+
+  test("the picture is inserted at the start, so figures align with each other", () => {
+    // The original complaint: two plots of identical size not lining up,
+    // because each sat after caption text of a different length. Position, not
+    // paragraph structure — structure is what broke the figures.
+    const body = figureBranch();
+    expect(body).toMatch(/insertInlinePictureFromBase64\([^)]*Word\.InsertLocation\.start/);
+  });
+
+  test("the figure branch does not sync between its own hops", () => {
+    // Adding a sync per hop is what took this from 1 of 2 figures to 0 of 2.
+    // One sync closes the branch; more than one is the regression.
+    const body = figureBranch();
+    expect(body.split("await context.sync()").length - 1).toBe(1);
+  });
+
+  test("properties may be set in the same batch as the insert", () => {
+    // Pinned deliberately, against a refuted theory. insertSubstituentGallery,
+    // the table-figure insert and the structure insert all do this and have
+    // worked for many versions; "sync before setting properties" was a wrong
+    // diagnosis that cost a release, and it should not come back by imitation.
+    const body = figureBranch();
+    const insert = body.indexOf("insertInlinePictureFromBase64");
+    const sized = body.indexOf("sizeFigure(");
+    expect(sized).toBeGreaterThan(insert);
+    expect(body.slice(insert, sized)).not.toContain("await context.sync()");
+  });
+
+  test("Word is asked to confirm the pictures it kept", () => {
+    // The pane's own count is what it rasterised, not what the host stored, and
+    // the two disagreeing silently is the entire bug. Word has to be the
+    // witness.
+    const body = insertBlocksBody();
+    expect(body).toContain("body.inlinePictures");
+    expect(body).toContain("picturesConfirmed");
+    expect(PANE).toContain("but Word kept");
   });
 
   test("a formula that will not typeset falls back to the tool's own text", () => {

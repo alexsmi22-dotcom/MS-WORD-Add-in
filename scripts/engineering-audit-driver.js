@@ -230,8 +230,21 @@
       return r;
     }
     window.Word.run = function (cb) {
+      // body.inlinePictures is how the pane asks Word what it actually kept.
+      // The mock reports the pictures it was handed, so the confirmation path
+      // is exercised rather than skipped.
       return cb({
-        document: { getSelection: function () { return makeRange("sel"); } },
+        document: {
+          getSelection: function () { return makeRange("sel"); },
+          body: {
+            inlinePictures: {
+              items: [],
+              load: function () {
+                this.items = ops.filter(function (o) { return o === "picture"; }).map(function () { return {}; });
+              },
+            },
+          },
+        },
         sync: function () { ops.push("sync"); return Promise.resolve(); },
       });
     };

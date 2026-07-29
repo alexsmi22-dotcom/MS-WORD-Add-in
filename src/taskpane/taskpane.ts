@@ -10692,7 +10692,36 @@ async function insertResultBlocks(text: string, blocksIn: AnalyzeBlock[] | null,
       const b = blocks[i];
       if (b.kind === "plot") images[i] = await renderFigurePng(b.svg, b.w, b.h);
     }
+    let picturesConfirmed: number | null = null;
     await Word.run(async (context) => {
+      // ASK WORD WHAT IT ACTUALLY HAS, RATHER THAN WHAT WE ASKED IT FOR.
+      //
+      // The pane reported "inserted — 2 figures" beside a page containing none,
+      // and that count came from the images successfully RASTERISED — it says
+      // nothing about what Word kept. Word accepted every picture call and
+      // raised no error, so from inside the add-in success and silent discard
+      // are identical.
+      //
+      // Counting the document's inline pictures before and after makes Word the
+      // witness instead of us. A delta of 0 against two attempts is proof the
+      // host dropped them, and no amount of reasoning from this side could
+      // establish that.
+      // WRAPPED, BECAUSE INSTRUMENTATION MAY NEVER BREAK WHAT IT MEASURES.
+      // This is a diagnostic on the critical path of every rich insert. A host
+      // that does not expose body.inlinePictures would otherwise throw here and
+      // take the whole insert down — trading a missing figure for a missing
+      // document. Caught by the Engineering audit, which drives a Word mock
+      // that has no body: every rich tool failed with "Cannot read properties".
+      let picturesBefore: number | null = null;
+      try {
+        const before = context.document.body.inlinePictures;
+        before.load("items");
+        await context.sync();
+        picturesBefore = before.items.length;
+      } catch {
+        picturesBefore = null; // no confirmation available; the insert proceeds
+      }
+
       let anchor = context.document.getSelection().getRange(Word.RangeLocation.end);
       // TEXT AND EQUATIONS GO IN AS ONE PACKAGE PER RUN, NOT ONE CALL PER LINE.
       //
@@ -10760,31 +10789,39 @@ async function insertResultBlocks(text: string, blocksIn: AnalyzeBlock[] | null,
         // from too, so it gets the same treatment.
         await context.sync();
         if (block.kind === "plot") {
-          // THE CAPTION GETS ITS OWN PARAGRAPH. It used to share one with the
-          // image, which put the picture AFTER the caption text on the same
-          // line — so two figures with captions of different lengths started at
-          // different horizontal positions and did not line up, even at
-          // identical pixel sizes. Reported from real use on the two stacked
-          // Bode plots. A figure on its own paragraph always starts at the
-          // margin, and a caption in its own paragraph is the correct document
-          // structure anyway.
+          // THE PICTURE GOES AT THE START OF A PARAGRAPH THAT HAS TEXT IN IT.
           //
-          // AND EACH FIGURE IS SYNCED BEFORE THE NEXT ANCHOR IS COMPUTED. The
-          // caption/figure split added a second unsynced hop to the chain
-          // (caption paragraph -> empty paragraph -> picture), and chaining a
-          // range off content Word has not materialised yet does not reliably
-          // give a usable insertion point: with two figures, only the first
-          // arrived. Reported from real use on the frequency-response report.
-          // A sync per figure costs a round trip and makes every anchor be
-          // computed against content that actually exists.
-          const capPara = anchor.insertParagraph(block.caption, Word.InsertLocation.after);
-          anchor = capPara.getRange(Word.RangeLocation.after);
-          await context.sync();
-          const figPara = anchor.insertParagraph("", Word.InsertLocation.after);
-          const pic = figPara.insertInlinePictureFromBase64(images[i], Word.InsertLocation.end);
+          // This is the v2.31.0 shape, restored, and the deviation from it is
+          // the whole story of three failed releases. What the evidence says,
+          // in order:
+          //
+          //   picture into the caption paragraph (non-empty)   -> 2 of 2 figures
+          //   picture into insertParagraph("")        (2.31.1) -> 1 of 2
+          //   ...plus a sync per hop                  (2.31.4) -> 0 of 2, beam too
+          //
+          // The variable tracking the failure is how the figure paragraph is
+          // created, not when it is synced. Word accepts a picture destined for
+          // an empty paragraph, reports no error, and keeps nothing.
+          //
+          // The theory that replaced this — that properties set on a picture
+          // before its batch syncs get discarded along with the picture — is
+          // refuted by this file: insertSubstituentGallery, the table-figure
+          // insert and the structure insert all set width, height and alt-text
+          // in the same unsynced batch, and all three have shipped and worked
+          // for many versions. Do not reintroduce it.
+          //
+          // The original complaint that started this — two Bode plots not
+          // lining up — was caused by the picture sitting AFTER caption text of
+          // differing lengths. Fixed here by position rather than structure:
+          // at Start, every figure begins at the margin whatever its caption
+          // says. A caption sharing the figure's line is worse typography than
+          // a caption on its own, and that is a cosmetic debt to repay once
+          // figures render again — not before.
+          const para = anchor.insertParagraph(block.caption, Word.InsertLocation.after);
+          const pic = para.insertInlinePictureFromBase64(images[i], Word.InsertLocation.start);
           sizeFigure(pic, block.w, block.h);
           pic.altTextDescription = block.alt;
-          anchor = figPara.getRange(Word.RangeLocation.after);
+          anchor = para.getRange(Word.RangeLocation.after);
           await context.sync();
           continue;
         }
@@ -10803,6 +10840,17 @@ async function insertResultBlocks(text: string, blocksIn: AnalyzeBlock[] | null,
       flushRun();
       anchor.select(Word.SelectionMode.end);
       await context.sync();
+
+      if (picturesBefore !== null) {
+        try {
+          const after = context.document.body.inlinePictures;
+          after.load("items");
+          await context.sync();
+          picturesConfirmed = after.items.length - picturesBefore;
+        } catch {
+          picturesConfirmed = null; // stay quiet rather than report a wrong count
+        }
+      }
     });
     // SAY WHAT WENT IN, NOT JUST THAT SOMETHING DID.
     //
@@ -10814,7 +10862,20 @@ async function insertResultBlocks(text: string, blocksIn: AnalyzeBlock[] | null,
     // otherwise indistinguishable from the outside.
     const figureCount = Object.keys(images).length;
     const parts = [`${label} inserted`];
-    if (figureCount) parts.push(`${figureCount} figure${figureCount === 1 ? "" : "s"}`);
+    if (figureCount) {
+      parts.push(`${figureCount} figure${figureCount === 1 ? "" : "s"}`);
+      // Word's own count, not ours. When they disagree the host discarded
+      // pictures it accepted without complaint, and saying so is the difference
+      // between a diagnosable report and "the graphs don't show up".
+      if (picturesConfirmed !== null && picturesConfirmed !== figureCount) {
+        setStatus(
+          `${label} inserted, but Word kept ${picturesConfirmed} of ${figureCount} figures. ` +
+            `The pictures were accepted and then discarded by Word.`,
+          "error",
+        );
+        return;
+      }
+    }
     setStatus(parts.join(" — ") + ".", "success");
   } catch (error) {
     setStatus(`Could not insert ${label.toLowerCase()}: ${(error as Error).message}`, "error");
@@ -13499,9 +13560,26 @@ function readSvgDims(svg: string, fallbackW: number, fallbackH: number): { w: nu
 }
 
 /** Rasterises at the supersampled size. Pair with sizeFigure() at the insert. */
-function renderFigurePng(svg: string, width: number, height: number): Promise<string> {
-  const s = figureScale(width, height);
-  return svgToPngBase64(svg, Math.round(width * s), Math.round(height * s));
+async function renderFigurePng(svg: string, width: number, height: number): Promise<string> {
+  // A PIXEL BUDGET IS NOT A BYTE BUDGET.
+  //
+  // figureScale bounds how much memory the canvas costs. What Word cares about
+  // is the size of the base64 payload handed to insertInlinePictureFromBase64,
+  // and a picture over that limit is not rejected — it is accepted, reported as
+  // fine, and silently dropped. Two Bode plots at 4x did exactly that.
+  //
+  // So the payload is measured, not assumed, and the figure is re-rendered at a
+  // lower supersampling factor until it fits. Resolution degrades; the figure
+  // still arrives. The worst case is 1x, which is the natural size and always
+  // small enough.
+  const MAX_BASE64 = 1_400_000;
+  let s = figureScale(width, height);
+  let png = await svgToPngBase64(svg, Math.round(width * s), Math.round(height * s));
+  while (png.length > MAX_BASE64 && s > 1) {
+    s--;
+    png = await svgToPngBase64(svg, Math.round(width * s), Math.round(height * s));
+  }
+  return png;
 }
 
 /**

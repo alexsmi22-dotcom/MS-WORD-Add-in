@@ -5,6 +5,56 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > Note: this file was not maintained between v1.96.0 and v2.23.0. Those releases
 > are recorded in the git history rather than here.
 
+## [2.31.7] — 2026-07-28 — The figures come back to the shape that worked
+
+The Bode plots still did not arrive, and this time the pane said why it could
+not tell: "inserted — 2 figures" beside a page containing none. That count was
+the number of images successfully **rasterised**; it says nothing about what
+Word kept, and from inside an add-in a stored picture and a discarded one look
+identical — every call accepted, no error raised.
+
+**Word is now the witness.** The document's inline pictures are counted before
+and after the insert, and a disagreement is reported as an error naming both
+numbers: "Word kept 0 of 2 figures." Nothing on the add-in side could establish
+that; only the host can.
+
+**The figure shape is reverted to v2.31.0.** What the evidence actually says:
+
+| How the figure paragraph is made | Result |
+|---|---|
+| picture into the caption paragraph (has text) | 2 of 2 figures |
+| picture into `insertParagraph("")` — v2.31.1 | 1 of 2 |
+| ...plus a sync per hop — v2.31.4 | 0 of 2, and beam too |
+
+The variable tracking the failure is **how the paragraph is created**, not when
+it is synced. Each release moved further from the working shape and lost more.
+
+The theory shipped in the previous draft of this release — that properties set
+on a picture before its batch syncs are discarded along with the picture — is
+**refuted by this codebase**: `insertSubstituentGallery`, the table-figure
+insert and the structure insert all set width, height and alt-text in the same
+unsynced batch, and all three have shipped and worked for many versions. It is
+recorded here so it is not rediscovered.
+
+The original complaint that began this — two Bode plots not lining up — is fixed
+by **position rather than structure**: the picture goes at the *start* of the
+caption paragraph, so every figure begins at the margin whatever its caption
+says. A caption sharing the figure's line is worse typography than one on its
+own; that is a cosmetic debt to repay once figures render again.
+
+Measured rather than assumed: the payloads are 0.13–0.16 MB, nowhere near any
+host limit, so size is **not** the cause. A byte budget was added anyway,
+because the pixel budget bounds canvas memory rather than the base64 handed to
+Word and the largest figures elsewhere are far bigger. It never triggers here.
+
+Gates now pin the working shape — text-bearing paragraph, picture at start, one
+sync — and deliberately pin that properties *may* be set in the same batch, so a
+wrong diagnosis cannot return by imitation. Two of them were bounded by their
+own syntax rather than a fixed byte window, after a comment pushed the scanned
+code out of range twice; and they now strip comments, since this function is
+documented with the exact code shapes it must not contain. One of these caught a
+real defect in the revert itself: the caption was being inserted twice.
+
 ## [2.31.6] — 2026-07-28 — An insert that fails silently, and an update that could not arrive
 
 Reported from real use: figures missing from inserted reports — beam diagrams

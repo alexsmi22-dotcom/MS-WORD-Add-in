@@ -427,14 +427,16 @@ describe("a spring and a settlement on the same support compose as seat-then-spr
   });
 });
 
-describe("fractions are rejected by the FIELDS, whatever the shared parser accepts", () => {
-  // Pins the corrected claim: parseRatLiteral takes "1/3", the field regexes do
-  // not. If these ever start passing, the comment in beam.ts must change too.
-  test("a fractional support position is refused", () => {
-    expect(parseSupports("roller 1/3").errors.length).toBeGreaterThan(0);
+describe("fractions reach the parser from every field", () => {
+  test("a fractional support position is exact", () => {
+    const p = parseSupports("roller 1/3");
+    expect(p.errors).toEqual([]);
+    expectExact(p.supports[0].x, ratDiv(R(1), R(3)), "x");
   });
 
-  test("a fractional spring stiffness is refused", () => {
-    expect(parseSupports("roller 8 k=1/3").errors.length).toBeGreaterThan(0);
+  test("a fractional spring stiffness is exact", () => {
+    const p = parseSupports("roller 8 k=1/3");
+    expect(p.errors).toEqual([]);
+    expectExact(p.supports[0].k as Rat, ratDiv(R(1), R(3)), "k");
   });
 });

@@ -7593,7 +7593,9 @@ const ENG_CALCS: EngCalc[] = [
       "beam's own stiffness. Using both on one support drops the SEAT by the settlement and lets " +
       "the spring compress on top of it (v = -settle - R/k). Loads, one per line: \"point 30 at 6\", " +
       '"udl 5 from 0 to 8", "udl 0 to 9 from 0 to 6" (varying), "moment 200 at 4". ' +
-      "Downward loads are positive. Keep your units consistent; nothing here converts them.",
+      "Downward loads are positive. Any number may be an exact FRACTION — \"roller 8/3\", " +
+      "\"point 30 at 8/3\" — which is worth using, because this engine computes over rationals and " +
+      "2.6666666667 does not. Keep your units consistent; nothing here converts them.",
     fields: [
       { key: "L", label: "Span", default: "8", kind: "text" },
       { key: "sup", label: "Supports", default: "pin 0, roller 8", kind: "text" },

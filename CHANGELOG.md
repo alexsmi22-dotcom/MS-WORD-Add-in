@@ -5,6 +5,71 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > Note: this file was not maintained between v1.96.0 and v2.23.0. Those releases
 > are recorded in the git history rather than here.
 
+## [2.37.0] — 2026-07-29 — Fractions in every beam field
+
+The beam engine computes over exact rationals so that a third stays a third, and
+until now `1/3` was the one notation it would not accept. Every numeric field
+matched a decimal-only pattern and rejected fractions before `parseRatLiteral` —
+which has always handled them — was ever reached. A support at *L*/3 had to be
+typed `2.6666666667`, which puts a rounding error into the input of an exact
+solver.
+
+Now `roller 8/3`, `point 30 at 8/3`, `udl 7/2 from 1/3 to 16/3`, `moment 200/3 at
+4/3`, `k=1/3`, `settle=1/400`, and the span and EI fields all take fractions. On
+a 9 m span with a point load at `9/3`, the reactions come back exactly 20 and 10;
+typed as a decimal they cannot.
+
+This also closes an inconsistency between two engines sharing one CAS: the TRUSS
+parser has always accepted fractions, because it tokenises and hands each token
+straight to the shared parser. Only the beam fields stood in the way.
+
+**One pattern, not five.** All five support and load patterns now interpolate a
+single `NUM` constant, because five copies is how the fields drifted apart to
+begin with. `parseRatLiteral` remains the single authority on what the text
+MEANS; the pattern only decides where a number ends. So `1.5/3` is matched and
+then refused with "is not a number" rather than being silently reinterpreted —
+integer over integer is what the parser accepts, and `3/6` or `0.5` is
+unambiguous.
+
+**A false claim retired.** v2.36.0 shipped a comment saying fractions came along
+with the shared parser "which the position and load fields simply gain". That was
+false in every field, and was corrected to say so in v2.36.1. It is now true, and
+`beamFractions.test.ts` pins the claim to the behaviour so the two cannot drift
+apart again.
+
+### What the independent bug hunt caught before this shipped
+
+Widening the fields made the option stripper unsafe, and the failure was the
+worst kind — a silent wrong answer. The stripper replaced each matched
+`key=value` with a SPACE, and `NUM` tolerates whitespace around its slash, so
+anything the value pattern could not swallow REJOINED the position across that
+space:
+
+    "roller 8 k=1/2/3"  ->  strip "k=1/2"  ->  "roller 8  /3"  ->  x = 8/3
+
+No error, no warning: the support silently moved to a third of where it was
+asked for, and on a two-support beam that flipped a reaction into uplift — 24 kN
+down becoming 24 kN of uplift, with 72 kN at a roller the user never placed. The
+same mechanism let an option sit INSIDE a position (`roller 8 k=1/2 /3`).
+
+Rather than patch the cases, the part is now CUT IN TWO at the first `key=`. The
+position is whatever precedes it and cannot be assembled from fragments on either
+side, and the option region must consist entirely of options or the part is
+refused. That also finally enforces what the docstring always claimed: options
+come after the position, so `k=5 roller 8` is now refused rather than quietly
+accepted.
+
+Ruled out in the same pass, with measurements: no catastrophic backtracking
+despite `NUM` appearing four times in the varying-load pattern (linear to 100k
+characters, and the pre-existing decimal path is slower than the new fraction
+one), no mis-segmentation across `/`, and no input that previously worked now
+fails.
+
+**Also fixed:** the new support error carried EM DASHES. Parser errors
+short-circuit before the pane's `plainDashes` pass, so unlike a result line they
+reach the document unconverted — caught by the Engineering audit, not by a unit
+test.
+
 ## [2.36.1] — 2026-07-29 — What the bug test found
 
 v2.36.0 shipped with 5,987 green tests, a full QC pass, and two adversarial

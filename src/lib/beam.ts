@@ -748,13 +748,16 @@ function extremeSigned(f: (x: number) => number, breaks: Rat[], L: Rat): { max: 
  * and rejecting `5e4` would have made the new option unusable at exactly the
  * magnitudes it exists for.
  *
- * NOTE ON FRACTIONS. This parser also accepts `1/3`, but the FIELDS DO NOT —
- * every caller here first matches a decimal-only regex and hands the parser what
- * it captured, so `roller 1/3` and `point 30 at 1/3` are rejected before the
- * parser is ever reached. Widening those regexes would be a real improvement for
- * an engine that is exact over rationals, and it is deliberately not claimed
- * until it is done: an earlier version of this comment said the position and
- * load fields "simply gain" fractions, which was false in every one of them.
+ * FRACTIONS. This parser accepts `1/3`, and as of the `NUM` pattern below every
+ * support and load field does too, so a support at `8/3` is finally writable in
+ * the one notation that is exact. That was not true when the shared parser was
+ * first adopted — the fields still gated fractions out with decimal-only
+ * patterns, and a comment here claimed otherwise for one release. The claim and
+ * the behaviour now agree, and `beamFractions.test.ts` pins them together so
+ * they cannot drift apart again. (An earlier draft of this sentence named
+ * `beamElasticRegression.test.ts`, which contains no fraction test at all —
+ * a false coverage claim inside the very comment apologising for a false claim.
+ * Naming a file is itself an assertion; check it.)
  */
 const parseRat = parseRatLiteral;
 
@@ -763,6 +766,32 @@ export interface ParsedBeam {
   loads: Load[];
   errors: string[];
 }
+
+/**
+ * What a number may look like in ANY beam field: a decimal, scientific notation,
+ * or an exact FRACTION such as `1/3`.
+ *
+ * There is one of these rather than five copies because five copies is how the
+ * fields drifted apart in the first place. Every numeric group in every support
+ * and load pattern interpolates this constant, so a form accepted in one field
+ * is accepted in all of them, and `parseRatLiteral` remains the single authority
+ * on what the text actually means — the pattern's job is only to decide where
+ * the number ENDS.
+ *
+ * Fractions matter here more than they would elsewhere. This engine computes
+ * over exact rationals precisely so that a third stays a third, and until now a
+ * support at L/3 could not be written down: `1/3` was rejected by the field
+ * before the parser that handles it was ever reached, so the one notation that
+ * is exact was the one notation refused. The truss parser has always taken them,
+ * because it tokenises and hands each token straight to the shared parser — so
+ * this also removes an inconsistency between two engines that share a CAS.
+ *
+ * The fraction form is deliberately INTEGER over INTEGER, matching what
+ * `parseRatLiteral` accepts. `1.5/3` is matched by this pattern and then refused
+ * by the parser with "is not a number", which is the honest outcome: writing it
+ * as `3/6` or `0.5` is unambiguous, and silently reinterpreting it would not be.
+ */
+const NUM = String.raw`[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?(?:\s*\/\s*[+-]?\d+)?`;
 
 /**
  * Reads the support line, e.g. `pin 0, roller 8` or `fixed 0`.
@@ -781,13 +810,36 @@ export interface ParsedBeam {
 export function parseSupports(text: string): { supports: Support[]; errors: string[] } {
   const supports: Support[] = [];
   const errors: string[] = [];
-  const NUM = String.raw`[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?`;
   const parts = text.split(/[,\n;]+/).map((p) => p.trim()).filter(Boolean);
   for (const p of parts) {
+    // THE PART IS CUT IN TWO AT THE FIRST OPTION, rather than having options
+    // plucked out of the middle of it.
+    //
+    // Plucking was subtly unsafe once positions could be fractions. The old
+    // stripper replaced each `key=value` it matched with a SPACE, and `NUM`
+    // tolerates whitespace around its slash — so anything the value pattern
+    // could not swallow was left behind to REJOIN the position across that
+    // space:
+    //
+    //     "roller 8 k=1/2/3"  ->  strip "k=1/2"  ->  "roller 8  /3"  ->  x = 8/3
+    //
+    // No error, no warning, a support silently moved to a third of where it was
+    // asked for; on a two-support beam that flipped a reaction into uplift. The
+    // same mechanism let an option sit INSIDE a position ("roller 8 k=1/2 /3").
+    //
+    // Cutting at the first `key=` makes both impossible by construction: the
+    // position is whatever precedes it and cannot be assembled from fragments on
+    // either side, and the option region must consist ENTIRELY of options or the
+    // part is refused. It also enforces what the docstring always claimed — that
+    // options come after the position.
+    const optAt = p.search(/\b[a-z]+\s*=/i);
+    const head = (optAt < 0 ? p : p.slice(0, optAt)).trim();
+    const tail = optAt < 0 ? "" : p.slice(optAt);
+
     const opts = new Map<string, string>();
     let badOpt = false;
-    const stripped = p
-      .replace(new RegExp(String.raw`\b([a-z]+)\s*=\s*(${NUM})`, "gi"), (_all, key: string, val: string) => {
+    const leftover = tail
+      .replace(new RegExp(String.raw`\b([a-z]+)\s*=\s*(${NUM})(?=\s|$)`, "gi"), (_all, key: string, val: string) => {
         const name = key.toLowerCase();
         if (name === "k" || name === "spring" || name === "stiffness") opts.set("k", val);
         else if (name === "settle" || name === "settlement") opts.set("settle", val);
@@ -799,12 +851,24 @@ export function parseSupports(text: string): { supports: Support[]; errors: stri
       })
       .trim();
     if (badOpt) continue;
-
-    const m = /^(pin|roller|fixed)\s*@?\s*([+-]?[\d.]+)$/i.exec(stripped);
-    if (!m) {
+    if (leftover) {
       errors.push(
-        `Could not read the support "${p}". Write it as "pin 0", "roller 8" or "fixed 0", ` +
-          `optionally with "k=5e4" for a spring or "settle=0.01" for a settlement.`,
+        `Could not read "${leftover}" in the support "${p}". An option is written "k=5e4" or ` +
+          `"settle=0.01", with no spaces inside the value, and every option comes after the position.`,
+      );
+      continue;
+    }
+
+    const m = new RegExp(String.raw`^(pin|roller|fixed)\s*@?\s*(${NUM})$`, "i").exec(head);
+    if (!m) {
+      // No em dashes in a PARSER ERROR. The pane runs its result lines through
+      // plainDashes, but an error short-circuits before that, so an em dash here
+      // reaches the document unconverted. The Engineering audit flags it, which
+      // is how this was caught.
+      errors.push(
+        `Could not read the support "${p}". Write it as "pin 0", "roller 8" or "fixed 0". ` +
+          `The position may be a fraction such as "roller 8/3". Options: "k=5e4" for a spring, ` +
+          `"settle=0.01" for a settlement.`,
       );
       continue;
     }
@@ -852,7 +916,7 @@ export function parseLoads(text: string): { loads: Load[]; errors: string[] } {
     const line = raw.trim();
     if (!line) continue;
 
-    let m = /^(?:point|p|force|f)\s+([+-]?[\d.]+)\s*(?:at|@)\s*([+-]?[\d.]+)$/i.exec(line);
+    let m = new RegExp(String.raw`^(?:point|p|force|f)\s+(${NUM})\s*(?:at|@)\s*(${NUM})$`, "i").exec(line);
     if (m) {
       const p = parseRat(m[1]);
       const x = parseRat(m[2]);
@@ -863,7 +927,10 @@ export function parseLoads(text: string): { loads: Load[]; errors: string[] } {
 
     // Varying intensity FIRST: "udl 0 to 9 from 0 to 6" also matches the uniform
     // pattern's prefix, so testing uniform first would silently drop the taper.
-    m = /^(?:udl|w|load)\s+([+-]?[\d.]+)\s+to\s+([+-]?[\d.]+)\s+from\s+([+-]?[\d.]+)\s+to\s+([+-]?[\d.]+)$/i.exec(line);
+    m = new RegExp(
+      String.raw`^(?:udl|w|load)\s+(${NUM})\s+to\s+(${NUM})\s+from\s+(${NUM})\s+to\s+(${NUM})$`,
+      "i",
+    ).exec(line);
     if (m) {
       const w1 = parseRat(m[1]);
       const w2 = parseRat(m[2]);
@@ -874,7 +941,7 @@ export function parseLoads(text: string): { loads: Load[]; errors: string[] } {
       continue;
     }
 
-    m = /^(?:udl|w|load)\s+([+-]?[\d.]+)\s+from\s+([+-]?[\d.]+)\s+to\s+([+-]?[\d.]+)$/i.exec(line);
+    m = new RegExp(String.raw`^(?:udl|w|load)\s+(${NUM})\s+from\s+(${NUM})\s+to\s+(${NUM})$`, "i").exec(line);
     if (m) {
       const w = parseRat(m[1]);
       const a = parseRat(m[2]);
@@ -884,7 +951,7 @@ export function parseLoads(text: string): { loads: Load[]; errors: string[] } {
       continue;
     }
 
-    m = /^(?:moment|couple|m)\s+([+-]?[\d.]+)\s*(?:at|@)\s*([+-]?[\d.]+)$/i.exec(line);
+    m = new RegExp(String.raw`^(?:moment|couple|m)\s+(${NUM})\s*(?:at|@)\s*(${NUM})$`, "i").exec(line);
     if (m) {
       const mm = parseRat(m[1]);
       const x = parseRat(m[2]);
@@ -895,7 +962,8 @@ export function parseLoads(text: string): { loads: Load[]; errors: string[] } {
 
     errors.push(
       `Could not read "${line}". Use "point 30 at 6", "udl 5 from 0 to 8", ` +
-        `"udl 0 to 9 from 0 to 6" or "moment 200 at 4".`,
+        `"udl 0 to 9 from 0 to 6" or "moment 200 at 4". Any number may be a fraction, ` +
+        `e.g. "point 30 at 8/3".`,
     );
   }
   return { loads, errors };

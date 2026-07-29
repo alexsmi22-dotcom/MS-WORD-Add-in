@@ -36,6 +36,11 @@ export const MODE_EXAMPLES: Record<ExampleMode, string> = {
         <em>seat</em> drops by the settlement and the spring then compresses on top of it
         (<code>v = &minus;settle &minus; R/k</code>) &mdash; a settling elastic foundation, not
         &ldquo;the beam ends up exactly that low whatever the spring does&rdquo;.</li>
+      <li><strong>Fractions work in every field</strong> &mdash; <code>roller 8/3</code>,
+        <code>point 30 at 8/3</code>, <code>udl 7/2 from 1/3 to 16/3</code>, and in the span and
+        <code>EI</code> too. Since the engine computes over exact rationals, a support at
+        <em>L</em>/3 typed as <code>2.6666666667</code> puts a rounding error into the input of an
+        exact solver; typed as <code>8/3</code> the answer comes back exactly 20, not 19.99999999.</li>
       <li><strong>Deflection</strong> needs <code>EI</code>. On rigid supports, reactions, shear and
         moment do not, and are computed exactly without it.</li>
       <li><strong>Cross-section properties</strong> &mdash; area, second moment, section modulus,

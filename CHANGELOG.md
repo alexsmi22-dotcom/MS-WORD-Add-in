@@ -5,6 +5,51 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > Note: this file was not maintained between v1.96.0 and v2.23.0. Those releases
 > are recorded in the git history rather than here.
 
+## [2.37.2] — 2026-07-29 — The documentation catches up with the code
+
+Three releases of engineering work had landed with only FEATURES.md and half the
+manual describing it. An audit across every documentation surface found seven
+stale ones, and — the part that matters — **two honest-limits statements that had
+become false**.
+
+### The limits statements were wrong, which is the worst kind of stale
+
+The tool page carried "indeterminate reactions assume **rigid supports**" and
+"free and forced vibration are **single-degree-of-freedom**". Both were true when
+written and both stopped being true in v2.36.0. A limits section that overstates
+a limit is not merely out of date: it is the page a careful user reads precisely
+*because* they want to know what the tool cannot do, and it was telling them to
+avoid something that works.
+
+Now: supports may be rigid, elastic or settling, with the elastic and settling
+cases needing EI and their EI-dependence **checked by re-solving rather than
+asserted**; and free vibration is single-DOF while forced response covers both,
+the multi-DOF case by modal superposition, which assumes classical damping — a
+caveat that did not exist before and now does.
+
+### Everything else that was behind
+
+- **landing/index.html** — elastic and settling supports, multi-DOF forced
+  response, and exact fractions in the Engineering section.
+- **landing/science.html** — the Engineering card named neither new capability.
+- **landing/tool.html** — the Structural entry now covers elastic/settling
+  supports and fractions; Vibration went from "(3)" to "(4)" with the modal
+  breakdown, the every-frequency-is-a-resonance point and the node-excitation
+  lever described.
+- **landing/manual.html** — a full multi-DOF forced-response paragraph, and
+  fractions alongside the exactness paragraph where they belong.
+- **README.md** — the Engineering row.
+- **ROADMAP.md** — the status section stopped at v1.99.0; it now records
+  v2.36.0–v2.37.1 including the truss proof and the three rounds of independent
+  review.
+
+### Checked and deliberately left alone
+
+`docs/USER_GUIDE.md`, `docs/CAPABILITIES.md` and `docs/QUICK-SHEET.md` are
+pointers to the web manual rather than duplicates — which is why they could not
+go stale, and why they are still correct. That is the right shape for them and
+they were not touched.
+
 ## [2.37.1] — 2026-07-29 — Bugs in the bug fixes
 
 Three independent reviews, one per area, over code written EARLIER THE SAME DAY

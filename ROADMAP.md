@@ -1,6 +1,6 @@
 # JurisLab — Product Roadmap
 
-_Last updated: 2026-07-28 · Current release: **v2.37.1** (production)_
+_Last updated: 2026-07-29 · Current release: **v2.37.2** (production)_
 
 > The release number above is gated by `phase6.adversarial.test.ts` against
 > `package.json`. If they disagree, the suite fails — this file drifted five
@@ -150,6 +150,31 @@ a **molecular-biology suite** — Sequence Map, circular plasmid maps, SnapGene 
 import, restriction-enzyme digestion (Type IIS, both-strand), pairwise Align, and
 nearest-neighbour primer Tm — and a sustained **correctness-hardening sweep** (punch-list
 audits fixing real numerical/biological bugs the unit tests missed).
+
+**v2.36.0–v2.37.1 lifted two of the disclosed engineering limits, and proved a third
+cannot be lifted:**
+- **Beam supports may be elastic or settling** (`roller 8 k=5e4`, `roller 8 settle=0.01`)
+  and the solve stays exact over rationals. Those two cases need EI and say why: a spring
+  or a settlement makes the compatibility conditions non-homogeneous, so the reactions
+  genuinely depend on the beam's own stiffness — which the engine now *measures*, by
+  re-solving at a different EI and comparing the exact rationals, rather than asserting.
+  On a determinate beam neither changes any reaction at all.
+- **Multi-DOF forced response** by modal superposition — amplitude and phase per degree of
+  freedom plus the modal breakdown. Every natural frequency is a resonance, not just the
+  first, and a load at a *node* of a mode cannot excite it. Damping is entered as modal
+  ratios or a Rayleigh pair because the method assumes classical damping.
+- **Fractions in every beam field** (`roller 8/3`, `point 30 at 8/3`). The engine computes
+  over rationals, and until then the one exact notation was the one it refused.
+- **The indeterminate-truss limit is now a proof, not a preference.** Parametrising the
+  member unknown as `g = F·L^a`, equilibrium needs `a = -1` and compatibility needs `a`
+  even; those are incompatible, so a stiffness solve is exact only when every member length
+  is rational. Whether to ship a floating-point path inside a module built around exactness
+  is a product decision, deliberately left open.
+
+Three rounds of **independent adversarial review** over that work found defects in the
+fixes themselves each time — including a band where the exact-to-double conversion returned
+Infinity for representable values, and a warning that had been "fixed" into agreement with a
+statement that was itself wrong. Recorded in CHANGELOG under v2.36.1, v2.37.0 and v2.37.1.
 
 **v1.99.0 closed the five capability gaps from the 2026-07-26 evaluation:**
 - **Logarithmic axes** (Plot) — base-10 x and/or y, decade ticks with minor

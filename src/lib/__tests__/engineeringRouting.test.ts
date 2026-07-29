@@ -316,6 +316,29 @@ describe("every Engineering tool declares one unit contract", () => {
 // features, one layer further in: the tool WAS reachable, the block kind was
 // not.
 // ---------------------------------------------------------------------------
+/**
+ * The whole body of insertResultBlocks.
+ *
+ * These scans used to slice a fixed 4000/8000 characters from the RICH_KINDS
+ * marker. That is a window, not a scope: adding an explanatory comment inside
+ * the function pushed the code being scanned past the end of it, and the gate
+ * failed on a change that touched none of the behaviour it guards. A test that
+ * breaks when a comment grows is measuring the wrong thing. Bound it by the
+ * function instead — the closing brace is where the function actually ends,
+ * whatever is written inside it.
+ */
+function insertBlocksBody(): string {
+  const start = PANE.indexOf("async function insertResultBlocks(");
+  if (start < 0) throw new Error("insertResultBlocks not found in taskpane.ts");
+  const end = PANE.indexOf("\n}", start);
+  if (end < 0) throw new Error("end of insertResultBlocks not found");
+  const body = PANE.slice(start, end);
+  // Fail loudly rather than scanning a truncated body: every assertion below
+  // would pass vacuously against an empty or clipped string.
+  if (!body.includes("const RICH_KINDS")) throw new Error("insertResultBlocks body looks truncated");
+  return body;
+}
+
 describe("every non-text block kind reaches the rich insert path", () => {
   test("the dispatch lists every rich kind", () => {
     const i = PANE.indexOf("const RICH_KINDS");
@@ -359,8 +382,7 @@ describe("every non-text block kind reaches the rich insert path", () => {
   // line is a formula inserted ONLY that formula. The fix is the pattern Solve
   // already used: batch consecutive prose and equations into ONE package.
   test("text and equations are batched into one package per run", () => {
-    const i = PANE.indexOf("const RICH_KINDS");
-    const body = PANE.slice(i, i + 4000);
+    const body = insertBlocksBody();
     // A run accumulator, flushed as a single buildDerivationOoxml insert.
     expect(body).toContain("buildDerivationOoxml(run)");
     expect(body).toContain("const flushRun");
@@ -370,10 +392,7 @@ describe("every non-text block kind reaches the rich insert path", () => {
   });
 
   test("the run is flushed before every non-text block and at the end", () => {
-    const i = PANE.indexOf("const RICH_KINDS");
-    // Wide enough to reach past the loop; the two flushes sit either side
-    // of the plot and matrix branches.
-    const body = PANE.slice(i, i + 8000);
+    const body = insertBlocksBody();
     // Once before the plot/matrix branches, once after the loop.
     expect(body.split("flushRun()").length - 1).toBeGreaterThanOrEqual(2);
     // The final flush must come immediately before the selection is moved.

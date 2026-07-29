@@ -1239,12 +1239,44 @@ Office.onReady((info) => {
  * cache-busted version.json makes a pending update visible and fixable on the
  * spot. Fails silently (offline-first): a failed fetch never nags the user.
  */
+/** Session key recording the version we have already tried to reload into. */
+const UPDATE_RELOAD_KEY = "jurislab-update-reload";
+
 async function checkForUpdate(): Promise<void> {
   try {
     const res = await fetch(`version.json?t=${Date.now()}`, { cache: "no-store" });
     if (!res.ok) return;
     const data = (await res.json()) as { version?: string };
     if (data && data.version && isNewerVersion(data.version, __APP_VERSION__)) {
+      // SELF-HEAL ONCE, THEN ASK.
+      //
+      // The banner puts the fix one click away, but it still needs someone to
+      // notice a green bar and understand that "Reload" is worth pressing. The
+      // stale HTML is the host's cache, not a user decision, so repair it
+      // silently the first time it is seen.
+      //
+      // Guarded by a session flag, and this is the whole reason for the guard:
+      // if version.json ever reports a release the deployed bundle does not
+      // actually contain — a half-finished deploy, a CDN mid-propagation — the
+      // reloaded pane sees the same mismatch and would reload forever, spinning
+      // inside the user's task pane with no way to stop it. One attempt per
+      // session; if it did not take, fall back to the banner and let a person
+      // decide.
+      let alreadyTried = true;
+      try {
+        alreadyTried = window.sessionStorage.getItem(UPDATE_RELOAD_KEY) === data.version;
+        if (!alreadyTried) window.sessionStorage.setItem(UPDATE_RELOAD_KEY, data.version);
+      } catch {
+        // Private mode or a host that denies storage: never auto-reload, since
+        // without the flag there is nothing to stop the loop.
+        alreadyTried = true;
+      }
+      if (!alreadyTried) {
+        const url = new URL(window.location.href);
+        url.searchParams.set("v", data.version);
+        window.location.replace(url.toString());
+        return;
+      }
       showUpdateBanner(data.version);
     }
   } catch {
@@ -1269,7 +1301,24 @@ function showUpdateBanner(newVersion: string): void {
   reload.textContent = "Reload";
   reload.style.cssText =
     "border:1px solid #0f5132;background:#0f5132;color:#fff;border-radius:6px;padding:3px 10px;cursor:pointer;font-weight:600;";
-  reload.addEventListener("click", () => window.location.reload());
+  // RELOAD MUST BYPASS THE CACHE, AND location.reload() DOES NOT.
+  //
+  // GitHub Pages serves taskpane.html with `Cache-Control: max-age=600`, so for
+  // ten minutes after a fetch the host serves its cached copy without asking the
+  // server anything. location.reload() re-serves that copy. The cached HTML
+  // names the previous hashed bundle, so the pane reloaded into the exact build
+  // it was already running: the banner correctly announced an update and the
+  // button could not deliver it. Reported as "I do not see any change" after a
+  // release that was verifiably live on the server.
+  //
+  // Navigating to a URL the cache has never seen forces a real fetch. The new
+  // version is the cache-buster, so each update busts exactly once instead of
+  // defeating caching forever.
+  reload.addEventListener("click", () => {
+    const url = new URL(window.location.href);
+    url.searchParams.set("v", newVersion);
+    window.location.replace(url.toString());
+  });
   const dismiss = document.createElement("button");
   dismiss.type = "button";
   dismiss.setAttribute("aria-label", "Dismiss");
@@ -4200,7 +4249,12 @@ async function insertAlignmentText(): Promise<void> {
     setStatus("Nothing to insert — align two sequences first.", "error");
     return;
   }
-  if (insertTextBusy) return;
+  // Not a bare return — see insertResultBlocks. A silent refusal is
+  // indistinguishable from a dead button.
+  if (insertTextBusy) {
+    setStatus("Still inserting the last result — one moment.", "error");
+    return;
+  }
   insertTextBusy = true;
   try {
     const html =
@@ -10615,7 +10669,21 @@ async function insertResultBlocks(text: string, blocksIn: AnalyzeBlock[] | null,
     await insertPlainText(text, label);
     return;
   }
-  if (insertTextBusy) return;
+  // NEVER RETURN SILENTLY FROM AN INSERT.
+  //
+  // This was a bare `return`. It is the only path through this function that
+  // produces no document content AND no message, which is exactly what was
+  // reported from real use: figures missing, nothing in the status area, no way
+  // to tell whether the click had even registered. The plain-text path already
+  // said this out loud; the rich path swallowed it.
+  //
+  // The flag is shared with insertPlainText and insertAlignmentText, so once it
+  // sticks it disables EVERY insert in the product, and the only symptom is
+  // silence.
+  if (insertTextBusy) {
+    setStatus("Still inserting the last result — one moment.", "error");
+    return;
+  }
   insertTextBusy = true;
   try {
     // Render any plot SVGs to PNG before entering Word.run (the conversion is async).
@@ -10736,7 +10804,18 @@ async function insertResultBlocks(text: string, blocksIn: AnalyzeBlock[] | null,
       anchor.select(Word.SelectionMode.end);
       await context.sync();
     });
-    setStatus(`${label} inserted.`, "success");
+    // SAY WHAT WENT IN, NOT JUST THAT SOMETHING DID.
+    //
+    // "Beam analysis inserted." is true of a report that arrived without its
+    // diagram, which is how a missing figure became a bug report that took a
+    // round of questions to localise. Naming the counts makes the pane's belief
+    // checkable against the document at a glance: if it claims a figure the
+    // page does not show, that is Word declining the call, and the two are
+    // otherwise indistinguishable from the outside.
+    const figureCount = Object.keys(images).length;
+    const parts = [`${label} inserted`];
+    if (figureCount) parts.push(`${figureCount} figure${figureCount === 1 ? "" : "s"}`);
+    setStatus(parts.join(" — ") + ".", "success");
   } catch (error) {
     setStatus(`Could not insert ${label.toLowerCase()}: ${(error as Error).message}`, "error");
   } finally {
@@ -13451,22 +13530,51 @@ function svgToPngBase64(svg: string, width: number, height: number): Promise<str
     }
     const svgBase64 = btoa(binary);
     const img = new Image();
+
+    // A PROMISE THAT NEVER SETTLES IS WORSE THAN ONE THAT REJECTS.
+    //
+    // The handlers below assume the host fires exactly one of onload/onerror.
+    // A host that fires NEITHER — a decode that never completes, a policy that
+    // drops the load without reporting it — leaves this promise awaited forever
+    // by an insert holding the shared insertTextBusy flag. That flag then never
+    // clears, so every later Insert ANYWHERE in the product returns without
+    // doing anything, and none of it reaches a catch, a status message or a
+    // log. The user sees a button that has quietly stopped working.
+    //
+    // A callback is not a bound; only a clock is. Ten seconds is far beyond any
+    // real rasterisation here (the largest figures take tens of milliseconds)
+    // and far short of a user's patience with a dead pane. Every exit runs
+    // through done(), so the timer is always cleared and the promise settles
+    // exactly once.
+    let settled = false;
+    const timer = setTimeout(() => {
+      done(() => reject(new Error("Rasterizing the figure timed out — it was not inserted.")));
+    }, 10000);
+    function done(action: () => void): void {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      action();
+    }
+
     img.onload = () => {
-      try {
-        const canvas = document.createElement("canvas");
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext("2d");
-        if (!ctx) throw new Error("Canvas not supported.");
-        ctx.fillStyle = "#ffffff";
-        ctx.fillRect(0, 0, width, height);
-        ctx.drawImage(img, 0, 0, width, height);
-        resolve(canvas.toDataURL("image/png").split(",")[1]);
-      } catch (e) {
-        reject(e as Error);
-      }
+      done(() => {
+        try {
+          const canvas = document.createElement("canvas");
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) throw new Error("Canvas not supported.");
+          ctx.fillStyle = "#ffffff";
+          ctx.fillRect(0, 0, width, height);
+          ctx.drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL("image/png").split(",")[1]);
+        } catch (e) {
+          reject(e as Error);
+        }
+      });
     };
-    img.onerror = () => reject(new Error("Could not rasterize the structure image."));
+    img.onerror = () => done(() => reject(new Error("Could not rasterize the structure image.")));
     img.src = `data:image/svg+xml;base64,${svgBase64}`;
   });
 }

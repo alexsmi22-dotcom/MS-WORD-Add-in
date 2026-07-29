@@ -5,6 +5,54 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > Note: this file was not maintained between v1.96.0 and v2.23.0. Those releases
 > are recorded in the git history rather than here.
 
+## [2.31.6] — 2026-07-28 — An insert that fails silently, and an update that could not arrive
+
+Reported from real use: figures missing from inserted reports — beam diagrams
+and Bode plots alike — and **nothing in the status area at all**. No error, no
+success message, no way to tell whether the click had registered.
+
+Two defects combine to produce exactly that, and the combination is what made it
+undiagnosable rather than merely broken:
+
+- `insertResultBlocks` guarded re-entry with a bare `return`. That was the only
+  path through it producing no document content *and* no message. The
+  plain-text path already announced this; the rich path swallowed it.
+- `svgToPngBase64` settled only from `onload`/`onerror`. A host firing neither
+  leaves the promise pending forever — awaited by an insert holding the
+  **shared** `insertTextBusy` flag, which then never clears. Every later Insert
+  anywhere in the product returns silently. A callback is not a bound; only a
+  clock is, so rasterisation now times out after ten seconds and rejects with a
+  message that names what happened.
+
+Both silent guards now report. The success message names what actually went in
+("Beam analysis inserted — 2 figures"), counted from the images that were really
+rasterised rather than from the blocks that hoped to be, so the pane's belief is
+checkable against the page at a glance. A report claiming a figure the document
+does not show is Word declining the call — otherwise indistinguishable from the
+outside, which is precisely how this cost a round of questions to localise.
+
+Honest about scope: this does not prove the figures will now land. It makes the
+failure *visible and unstickable*. If they are still missing, the status line
+will now say what the pane believes it did.
+
+### The update banner could not deliver an update
+
+Separately, and found while chasing the above: GitHub Pages serves taskpane.html
+with `Cache-Control: max-age=600`, and the banner's Reload button called
+`window.location.reload()` — which re-serves that cached copy rather than
+refetching. The cached HTML names the previous hashed bundle, so the pane
+reloaded into the exact build it was already running. The banner was honest and
+useless at once: correctly announcing an update it could not deliver, which is
+worse than no banner because it tells the user the problem is handled.
+
+Reload now navigates to a URL carrying the new version, which the cache has
+never seen. A stale pane also self-heals once per session without waiting for
+anyone to notice a green bar — guarded by a session flag, because if version.json
+ever advertises a release the deployed bundle does not contain, an unguarded
+auto-reload would spin forever inside a task pane with no address bar and no way
+to stop it. Storage denied (private mode, a restrictive host) disables the
+auto-reload rather than the guard: fail safe, never fail into a loop.
+
 ## [2.31.5] — 2026-07-28 — The Engineering menu is grouped by discipline
 
 Thirty-six calculations in one flat dropdown is a scroll, not a menu — and they

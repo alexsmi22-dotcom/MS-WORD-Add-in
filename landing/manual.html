@@ -73,6 +73,7 @@
         <li><a href="#everywhere">Things that work everywhere</a></li>
         <li><a href="#chemistry">Chemistry &amp; structures (5)</a></li>
         <li><a href="#mathunits">Math &amp; units (6)</a></li>
+        <li><a href="#engineering">Engineering (1)</a></li>
         <li><a href="#datafig">Data &amp; figures (2)</a></li>
         <li><a href="#biology">Biology (7)</a></li>
         <li><a href="#patent">Patent drafting (4)</a></li>
@@ -290,11 +291,12 @@
     <p class="out"><b>Inserts:</b> the result block as text (APA-style, e.g. <code>t(18) = 2.41, p = .027</code>). Zero-variance or too-few-points inputs get a clear guard message.</p>
 
     <h3>Analyze — a no-code numerical workbench</h3>
-    <p>Fifteen sub-tools, each pre-filled with a worked example; results (matrices, text, and inline plots) insert at the cursor.</p>
+    <p>Twenty sub-tools, each pre-filled with a worked example; results (matrices, text, and inline plots) insert at the cursor.</p>
     <ul>
       <li><b>Linear algebra:</b> solve A·x = b, inverse, determinant/rank/trace, eigenvalues (symmetric — with vectors; and <b>any square</b> matrix — complex pairs as <code>a ± bi</code>), QR, SVD, matrix multiply, transpose, and a MATLAB-style <b>matrix expression</b> evaluator (<code>A*inv(B) + 2*A'</code>).</li>
       <li><b>Optimization:</b> minimise a typed function (Nelder–Mead); reports the minimum, its location, and whether it converged.</li>
       <li><b>FFT:</b> radix-2 amplitude spectrum + top-3 dominant frequencies + a chart.</li>
+      <li><b>FFT filter:</b> de-noise a uniformly sampled signal — low-pass, high-pass and band-pass keep a band, band-stop removes one. The filtered trace is plotted <b>over the original</b>, so you can see what was taken out rather than trusting that it was noise. The transition is a <b>raised cosine rather than a brick wall, because a brick wall rings</b>, and a cutoff at or above Nyquist is refused with the reason — nothing above it was ever sampled.</li>
       <li><b>Data → insights:</b> paste a table → per-column summaries, Pearson r (with p) and Spearman ρ for every numeric pair, trends vs row order, outlier/missing flags, and a plain-language write-up. Every figure traces to an input cell.</li>
       <li><b>Solve an ODE / system:</b> type the equation you have — higher order is <b>auto-reduced</b> to a first-order system (up to order 6). Solver <b>Auto</b> starts explicit (RK45) and switches to an implicit stiff method (RODAS4) mid-run when the problem turns stiff. Optional report-at times (computed exactly, not interpolated) and a “stop when this hits zero” terminal event.</li>
       <li><b>Boundary value problem:</b> y&Prime; = f(x, y, y&prime;) with y fixed at <b>both</b> ends, by finite differences (robust) or shooting. Reports the solution, y&prime;, and an <b>observed convergence order</b> taken from three grids &mdash; about 2 for a smooth problem, and if it is not, the result says the error estimate should not be trusted. It also states plainly that a BVP may have <b>no solution, one, or infinitely many</b>, so what you get is one solution and it cannot tell you which case you are in.</li>
@@ -303,6 +305,29 @@
     </ul>
     <div class="try"><b>Try it:</b> eigenvalues (general) of <code>0 -1 / 1 0</code> → ±i. Optimise the Rosenbrock function from <code>x=-1.2, y=1</code> → min ≈ 0 at (1, 1). ODE <code>y'' = -y</code>, <code>y=1, y'=0</code>, 0..2π → y = cos t, ending y ≈ 1 (“auto-reduced to 2 states”). Boundary value problem <code>y'' = -y</code> on <code>0, 1.5707963</code> with <code>y = 0, 1</code> &rarr; sin&nbsp;x, reported with convergence order 2.00. DAE <code>y' = -z</code> with constraint <code>z - y</code> &rarr; y = e&#8315;&#7511;, z tracking y exactly.</div>
     <p class="out"><b>Inserts:</b> text lines, matrices as editable Word tables, and inline plots (FFT spectrum, ODE trajectory). Singular matrices are reported as exactly that, never faked.</p>
+
+    <!-- ============================ ENGINEERING ============================ -->
+    <h2 id="engineering">Engineering</h2>
+    <p class="lead">One tool — but the largest in JurisLab, with 36 calculators across nine disciplines.</p>
+
+    <h3>Engineering — 36 calculators in nine disciplines</h3>
+    <p>The disciplines are shown as panels rather than one long dropdown, so you pick the bench first and the calculator second. Every calculator is pre-filled with a worked example, and each states its units and its assumptions with the answer.</p>
+    <ul>
+      <li><b>Structural &amp; solids (6):</b> beam analysis (reactions, shear, moment, deflection), cross-section properties &amp; stress, principal stresses &amp; failure, truss analysis by the method of joints, column buckling, shaft torsion.</li>
+      <li><b>Fatigue &amp; machine design (3):</b> endurance limit &amp; notch factor, mean stress &amp; factor of safety, finite life &amp; cumulative damage.</li>
+      <li><b>Fluids (4):</b> pipe flow &amp; head loss, open-channel flow, pump NPSH &amp; cavitation, compressible flow &amp; choking.</li>
+      <li><b>Thermal (5):</b> composite wall / pipe insulation, heat exchanger (LMTD sizing), ideal-gas processes, power cycles, Rankine &amp; refrigeration with a Carnot check.</li>
+      <li><b>Electronics (5):</b> DC operating point, AC response &amp; Bode plot, op-amp circuits, analogue filter design, truth table &amp; Boolean minimisation.</li>
+      <li><b>Control systems (4):</b> poles, zeros &amp; stability, step &amp; impulse response, frequency response &amp; margins, PID &amp; closed loop.</li>
+      <li><b>Vibration (3):</b> free response &amp; damping, forced response &amp; isolation, natural frequencies &amp; mode shapes.</li>
+      <li><b>Biomedical (3):</b> haemodynamics, joint biomechanics, signal sampling &amp; aliasing.</li>
+      <li><b>Pharmacokinetics (3):</b> dose &amp; concentration curve, steady state &amp; loading dose, non-compartmental analysis of measured data.</li>
+    </ul>
+    <p><b>Exact where exact is possible.</b> Beams and trusses compute over rationals, not floats, so a propped cantilever under a uniform load reports 3/8 wL rather than 0.37499999996, a zero-force member comes back as an exact zero rather than something under a tolerance, and a DC divider reports 10/3 V rather than 3.3333. Statically indeterminate beams need no force method and no superposition table — compatibility is solved alongside equilibrium in one step.</p>
+    <p><b>Units are converted and the conversion is reported.</b> A bare number is read in the unit the field names and flagged as assumed; write another unit (200 GPa, 1e6 mm^4, 50 ksi, 68 °F) and it is converted for you and told to you; a unit of the wrong quantity is refused by name rather than silently dropped. This closed a real trap: cross-sections report I in mm⁴ because that is what section tables print, buckling wants m⁴, and pasting one into the other was wrong by a factor of 10¹² while looking entirely plausible. Beam and truss deliberately do not convert, because a conversion is a floating-point multiply that would destroy the exactness those two engines exist for. Temperature is handled separately everywhere it appears, since every efficiency here is a ratio of absolute temperatures and a Celsius value used as kelvin gives a confident, completely wrong answer.</p>
+    <p><b>It refuses in the vocabulary of the subject, not the matrix.</b> A node with no DC path to ground is named as that, because it is the commonest netlist mistake. A mechanism, an indeterminate truss and a critical form — where the member count balances and the structure still collapses — are each named, which matters because counting members is exactly what cannot catch the third. Laminar pipe flow says the roughness was ignored, because a laminar flow cannot feel the wall; the transition band from Re 2300 to 4000 returns a number <i>and</i> says it is not repeatable.</p>
+    <div class="try"><b>Try it:</b> beam span 8, supports <code>pin 0, roller 8</code>, load <code>udl 5 from 0 to 8</code> → reactions 20 kN each, M<sub>max</sub> = 40 kN·m at mid-span. Stress state σ₁ = 100, σ₂ = 60 → 20 MPa in-plane maximum shear but <b>50 in truth</b>, because the zero out-of-plane principal stress lies outside the in-plane pair — and it is the second number the bar yields at.</div>
+    <p class="out"><b>Inserts:</b> the worked result as text, tables, and figures — shear and bending-moment diagrams, Mohr's circle, Bode plots, step responses and concentration curves. <b>Honest limits:</b> beams are Euler–Bernoulli (no shear deformation), trusses are pin-jointed, planar and determinate only, torsion is circular shafts only, circuits are linear and lumped with no transient analysis, control is linear time-invariant and single-input single-output, and every fatigue life is an order of magnitude rather than a figure — identical specimens differ by a factor of three. There is no design code anywhere in this tool: it computes the mechanics, it does not tell you whether a member passes.</p>
 
     <!-- ============================ DATA & FIGURES ============================ -->
     <h2 id="datafig">Data &amp; figures</h2>

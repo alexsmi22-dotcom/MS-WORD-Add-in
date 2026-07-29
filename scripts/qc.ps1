@@ -1,9 +1,14 @@
 # JurisLab — automated QC gate.
 #
 # Runs everything that can be verified WITHOUT the Word host, in one command:
-#   1. Type-check (tsc)         4. Production build (webpack)   7. Landing-page layout check
-#   2. Unit tests (jest)        5. Manifest validation          8. Task-pane id wiring audit
-#   3. Compound dictionary      6. Headless render check
+#    1. Type-check (tsc)          5. Production build (webpack)   9. Tool detail pages
+#    2. Unit tests (jest)         6. Manifest validation         10. Pane layout
+#    3. Compound dictionary       7. Headless render check       11. Engineering audit
+#    4. Compound vs PubChem       8. Landing-page layout        12. Task-pane id wiring audit
+#
+# (11 Invoke-Step gates plus the id-wiring audit at the end. This list had itself
+# gone stale, naming eight steps for a file that ran eleven — the same drift the
+# gates below exist to catch, in the header describing them.)
 #
 # Exit codes: 0 all passed - 1 something failed - 3 nothing failed but a gate was
 # SKIPPED (the two headless gates need a Chromium-family browser).
@@ -60,6 +65,13 @@ Invoke-Step "Render check"        { node scripts/render-check.js }
 # table silently losing two columns below 940px all shipped because the markup
 # reads fine and only a laid-out browser shows the collision.
 Invoke-Step "Landing layout"      { node scripts/check-landing-overlap.js }
+# A layout gate cannot see a page with NO layout. tool.html?tool=engineering was
+# broken from the day Engineering shipped and stayed broken for ten releases: the
+# entry carried `body`/`limits` where the renderer reads `does`/`examples`, so it
+# threw and rendered a title and nothing else — no capabilities, no examples, no
+# honest-limits text, no prev/next. An empty page cannot overlap itself, so the
+# layout gate passed it every time. This asserts the renderer's contract instead.
+Invoke-Step "Tool detail pages"   { node scripts/check-tool-pages.js }
 # The landing pages had a layout gate; the PANE — the actual product — had none.
 # The pane scrolls vertically only, so anything past the right edge is
 # unreachable rather than awkward: Align's mode <select> sat 21px off the edge at

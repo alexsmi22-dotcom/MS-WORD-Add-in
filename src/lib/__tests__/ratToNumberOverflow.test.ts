@@ -126,3 +126,108 @@ describe("the beam results that exposed it", () => {
     expect(Math.abs(sum - 40)).toBeLessThan(1e-6);
   });
 });
+
+// ---------------------------------------------------------------------------
+// The BAND — found by an independent review of the fix above
+// ---------------------------------------------------------------------------
+//
+// The first version of the slow path shifted both sides right until the SMALLER
+// had ~64 bits. That preserves the ratio but leaves the LARGER side with
+// (gap + 64) bits, so it still overflowed once the gap between the two exceeded
+// about 960 — while a double does not run out until 1024. The result was a band,
+// gaps 961-1023, where a perfectly representable number came back as Infinity,
+// and a mirrored band returning 0 for everything from ~1e-289 down through the
+// whole subnormal range.
+//
+// Being wrong in a BAND is worse than being wrong everywhere: the original tests
+// sampled gap 0 and gap ~1300 and passed, straddling it. These tests walk the
+// boundary deliberately.
+//
+// The constructions use 3^a over 5^b because they are COPRIME — `ratDiv` reduces
+// by the gcd, so anything sharing a factor collapses into the fast path and never
+// exercises the code under test at all. The first attempt at reproducing this bug
+// failed for exactly that reason.
+
+describe("the overflow band between 960 and 1024 bits of gap", () => {
+  const bitLen = (v: bigint) => v.toString(2).length;
+
+  /** Independent reference: divide first, then scale by a split power of two. */
+  function reference(N: bigint, D: bigint): number {
+    const e = bitLen(N) - bitLen(D);
+    if (e > 1100) return Infinity;
+    if (e < -1200) return 0;
+    const k = 64 - e;
+    const q = k >= 0 ? (N << BigInt(k)) / D : N / (D << BigInt(-k));
+    const k1 = Math.trunc(k / 2);
+    const k2 = k - k1;
+    return Number(q) * Math.pow(2, -k1) * Math.pow(2, -k2);
+  }
+
+  test("the reference agrees with plain division wherever plain division works", () => {
+    // Validating the oracle before using it, so a wrong reference cannot pass a
+    // wrong implementation.
+    let worst = 0;
+    for (let i = 0; i < 5000; i++) {
+      const n = BigInt(Math.floor(Math.random() * 1e15) + 1);
+      const d = BigInt(Math.floor(Math.random() * 1e15) + 1);
+      const truth = Number(n) / Number(d);
+      const rel = Math.abs(reference(n, d) - truth) / Math.abs(truth);
+      worst = Math.max(worst, rel);
+    }
+    expect(worst).toBeLessThan(1e-15);
+  });
+
+  test("coprime ratios across the whole gap range are finite where they should be", () => {
+    const D = 5n ** 120n;
+    for (const gap of [900, 940, 955, 958, 959, 960, 961, 962, 980, 1000, 1010, 1023]) {
+      const a = Math.round((gap + bitLen(D)) / Math.log2(3));
+      const N = 3n ** BigInt(a);
+      const got = ratToNumber(ratDiv(ratInt(N), ratInt(D)));
+      expect({ gap, finite: Number.isFinite(got) }).toEqual({ gap, finite: true });
+      expect({ gap, v: got }).toEqual({ gap, v: reference(N, D) });
+    }
+  });
+
+  test("the mirrored band does not flush representable small values to zero", () => {
+    const N = 5n ** 120n;
+    for (const gap of [900, 959, 960, 961, 1000, 1023, 1060]) {
+      const b = Math.round((gap + bitLen(N)) / Math.log2(3));
+      const D = 3n ** BigInt(b);
+      const got = ratToNumber(ratDiv(ratInt(N), ratInt(D)));
+      expect({ gap, zero: got === 0 }).toEqual({ gap, zero: false });
+      expect({ gap, v: got }).toEqual({ gap, v: reference(N, D) });
+    }
+  });
+
+  test("a truly out-of-range ratio still overflows or underflows, at the right place", () => {
+    const D = 5n ** 120n;
+    const aBig = Math.round((1200 + bitLen(D)) / Math.log2(3));
+    expect(ratToNumber(ratDiv(ratInt(3n ** BigInt(aBig)), ratInt(D)))).toBe(Infinity);
+    const N = 5n ** 120n;
+    const bBig = Math.round((1300 + bitLen(N)) / Math.log2(3));
+    expect(ratToNumber(ratDiv(ratInt(N), ratInt(3n ** BigInt(bBig))))).toBe(0);
+  });
+
+  test("a large coprime ratio agrees with the reference over a wide sweep", () => {
+    let mismatches = 0;
+    for (let b = 60; b <= 460; b += 40) {
+      const D = 5n ** BigInt(b);
+      for (let a = 60; a <= 1400; a += 40) {
+        const N = 3n ** BigInt(a);
+        // Only the SLOW path is under test; the fast path's 1-ULP double
+        // rounding is pre-existing and not what this file is about.
+        if (Number.isFinite(Number(N)) && Number.isFinite(Number(D))) continue;
+        if (ratToNumber(ratDiv(ratInt(N), ratInt(D))) !== reference(N, D)) mismatches++;
+      }
+    }
+    expect(mismatches).toBe(0);
+  });
+
+  test("signs survive the whole range", () => {
+    const D = 5n ** 120n;
+    const a = Math.round((1000 + bitLen(D)) / Math.log2(3));
+    const N = 3n ** BigInt(a);
+    const pos = ratToNumber(ratDiv(ratInt(N), ratInt(D)));
+    expect(ratToNumber(ratDiv(ratInt(-N), ratInt(D)))).toBe(-pos);
+  });
+});

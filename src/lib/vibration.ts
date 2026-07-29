@@ -688,8 +688,17 @@ function isRayleigh(d: ModalDamping): d is RayleighDamping {
  * is excited because nothing is applied.
  */
 function isNodal(f: number, phi: number[], force: number[]): boolean {
-  const scale = Math.hypot(...phi) * Math.hypot(...force);
-  return scale === 0 ? true : Math.abs(f) < 1e-12 * scale;
+  const pn = Math.hypot(...phi);
+  const fn = Math.hypot(...force);
+  if (pn === 0 || fn === 0) return true;
+  // DIVIDE, never form |phi|*|F|. Mode shapes are mass-normalised, so |phi| goes
+  // like 1/sqrt(m): a light degree of freedom under a large load overflows that
+  // product to Infinity, and `|f| < 1e-12 * Infinity` is true of every finite f.
+  // A mode sitting exactly on an undamped resonance was then reported as a NODE
+  // with amplitude 0 — the contribution said "force: 1e307" and "amplitude: 0"
+  // in the same object — when the true response is unbounded. Dividing twice
+  // keeps every intermediate in range and asks the identical question.
+  return Math.abs(f) / pn / fn < 1e-12;
 }
 
 export interface ModalContribution {
@@ -713,7 +722,13 @@ export interface ModalForcedResult {
   frequencies: number[];
   frequenciesHz: number[];
   modes: Matrix;
-  /** Modal damping ratio used for each mode. */
+  /**
+   * Modal damping ratio for each mode, FOR REPORTING. The solve carries the
+   * coefficient 2*zeta*wn instead, because a ratio cannot represent damping on a
+   * rigid-body mode: under Rayleigh damping that mode's coefficient is alpha,
+   * while its ratio is alpha/(2*0) and is reported here as 0. A note says so
+   * whenever it happens; do NOT feed these ratios back in place of the pair.
+   */
   zeta: number[];
   /** Steady-state amplitude of each physical degree of freedom. */
   amplitude: number[];
@@ -784,10 +799,26 @@ export function modalForcedResponse(
     const { alpha, beta } = damping;
     if (!Number.isFinite(alpha) || !Number.isFinite(beta) || alpha < 0 || beta < 0)
       return { ok: false, error: "Rayleigh alpha and beta must both be finite and zero or greater." };
+    let rigid = false;
     for (let i = 0; i < n; i++) {
       const wn = modal.frequencies[i];
       damp.push(alpha + beta * wn * wn);
       zeta.push(wn > 0 ? alpha / (2 * wn) + (beta * wn) / 2 : 0);
+      if (wn === 0) rigid = true;
+    }
+    // A rigid-body mode IS damped under Rayleigh — its coefficient is alpha —
+    // but a damping RATIO is alpha/(2*0) and cannot express it, so `zeta` has to
+    // report 0 there. Zero is exactly the value that reads as "undamped", which
+    // is the wrong impression to leave when the solve did use alpha. Feeding the
+    // reported ratios back in place of the pair is a 1104% amplitude error at
+    // low frequency, so this cannot go unsaid.
+    if (rigid && alpha > 0) {
+      notes.push(
+        "The rigid-body mode is reported with zeta = 0, and that is a limitation of the RATIO, not " +
+          "a statement that the mode is undamped: its modal damping coefficient is alpha itself, " +
+          "and the response above was computed with it. A ratio is 2*zeta*wn and cannot represent " +
+          "damping at wn = 0, which is why the alpha/beta pair is the input rather than the ratios.",
+      );
     }
   } else {
     if (Array.isArray(damping) && damping.length !== n)
@@ -827,9 +858,14 @@ export function modalForcedResponse(
 
     const re = wn * wn - omega * omega;
     const im = damp[i] * omega;
-    const den2 = re * re + im * im;
 
-    if (den2 === 0) {
+    // The steady state fails to exist ONLY when the denominator is exactly zero.
+    // Testing `re*re + im*im === 0` instead made that judgement on a squared
+    // quantity: with zeta = 1e-200 the true `im` is small but nonzero, `im*im`
+    // underflowed to 0, and a mode the user HAD damped was refused with "that
+    // mode has zero damping. Give a non-zero damping ratio." Asking about re and
+    // im directly cannot underflow.
+    if (re === 0 && im === 0) {
       // Undamped and driven exactly at this natural frequency, or a rigid-body
       // mode driven at zero frequency. Either way the steady state does not
       // exist: the amplitude grows without bound, and returning Infinity here
@@ -871,16 +907,39 @@ export function modalForcedResponse(
       };
     }
 
-    // 1/(re + j*im) = (re - j*im)/|den|^2
-    qRe.push((f * re) / den2);
-    qIm.push((-f * im) / den2);
+    // q = f / (re + j*im), by SMITH'S ALGORITHM rather than the textbook
+    // (re - j*im)/(re^2 + im^2).
+    //
+    // The textbook form squares both parts first, so it overflows whenever
+    // either exceeds about 1.3e154 even though the QUOTIENT is perfectly
+    // ordinary. F = 1e300 at omega = 1e150 has the elementary answer
+    // F/(m*omega^2) = 1, and it came back as Infinity/Infinity = NaN, which the
+    // guard below then reported as "the response overflowed... use units that
+    // keep the numbers in a physical range" — advice that cannot help, because
+    // the result was representable all along. Dividing through by the larger of
+    // the two first keeps every intermediate in range.
+    let qr: number;
+    let qi: number;
+    if (Math.abs(re) >= Math.abs(im)) {
+      const t = im / re;
+      const d = re + im * t;
+      qr = f / d;
+      qi = (-f * t) / d;
+    } else {
+      const t = re / im;
+      const d = re * t + im;
+      qr = (f * t) / d;
+      qi = -f / d;
+    }
+    qRe.push(qr);
+    qIm.push(qi);
     contributions.push({
       mode: i + 1,
       wn,
       zeta: zeta[i],
       r: wn > 0 ? omega / wn : Infinity,
       force: f,
-      amplitude: Math.abs(f) / Math.sqrt(den2),
+      amplitude: Math.hypot(qr, qi),
       share: 0,
     });
   }
@@ -902,7 +961,11 @@ export function modalForcedResponse(
   // returns ok:true carrying NaN, and the pane prints "not finite" as though it
   // were an answer. Refuse instead, and say which quantity was out of range —
   // the arithmetic overflowed, the model did not fail.
-  if (!amplitude.every(Number.isFinite)) {
+  // `zeta` is reported, so it has to be finite too. alpha/(2*wn) with a large
+  // alpha and a small-but-nonzero wn overflows while every amplitude stays
+  // finite, and the pane then printed "zeta = not finite" as a success — the
+  // exact symptom this guard exists to prevent, one field over.
+  if (!amplitude.every(Number.isFinite) || !zeta.every(Number.isFinite)) {
     return {
       ok: false,
       error:
@@ -972,7 +1035,11 @@ export function modalForcedResponse(
     );
   }
 
-  if (zeta.every((z) => z === 0)) {
+  // Keyed on the COEFFICIENT actually used, not on the reported ratio. Under
+  // Rayleigh damping a rigid-body mode has ratio 0 and coefficient alpha, so
+  // testing the ratio announced "the damping you did not supply" to a user who
+  // had supplied it and whose answer already used it.
+  if (damp.every((d) => d === 0)) {
     notes.push(
       "With zero damping this is the undamped forced response. It is finite only because the " +
         "forcing frequency does not coincide with a natural frequency; the amplitude near any of " +

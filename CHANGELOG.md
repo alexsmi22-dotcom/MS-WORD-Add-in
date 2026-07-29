@@ -5,6 +5,98 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > Note: this file was not maintained between v1.96.0 and v2.23.0. Those releases
 > are recorded in the git history rather than here.
 
+## [2.37.1] — 2026-07-29 — Bugs in the bug fixes
+
+Three independent reviews, one per area, over code written EARLIER THE SAME DAY
+to repair earlier bugs. None of those repairs had been independently reviewed,
+and a fix is exactly as likely to be wrong as the original. They found twelve
+real defects. The pattern is the finding: every round of this has caught
+something, and the things caught are never in the part the author was thinking
+hardest about.
+
+### The exact-to-double conversion was still wrong, in a band
+
+`qToNumber`'s repair shifted both sides right until the SMALLER had ~64 bits.
+That preserves the ratio but leaves the LARGER side with `gap + 64` bits, so it
+still overflowed once the gap exceeded ~960 — while a double does not run out
+until 1024. A band, gaps 961 to 1023, returned **Infinity for values as large as
+6.9e307**, and the mirrored band returned **0** for everything from 1e-289 down
+through the entire subnormal range. The docstring asserted the opposite, and its
+stated reasoning was precisely the mechanism of the defect.
+
+Being wrong in a BAND is worse than being wrong everywhere: the tests sampled
+gap 0 and gap ~1300 and passed, straddling it. Now it divides first with BigInt
+and scales by a power of two split in two halves, so neither factor overflows or
+flushes at the extremes. Verified against a reference validated independently
+first; zero slow-path mismatches over a wide coprime sweep.
+
+Worth recording: the first attempt to REPRODUCE this failed, because `ratDiv`
+reduces by gcd and collapsed the test cases into the fast path. The permanent
+tests use coprime `3^a / 5^b` for that reason.
+
+### Multi-DOF forced response
+
+- **`isNodal` overflowed its own scale.** It formed `|phi| * |F|` before
+  dividing; mode shapes are mass-normalised so `|phi| ~ 1/sqrt(m)`, and a light
+  degree of freedom under a large load made that product Infinity — after which
+  `|f| < 1e-12 * Infinity` is true of every finite f. A mode sitting exactly on
+  an undamped resonance was reported as a NODE with **amplitude 0 while its
+  generalised force was 1e307**. Now divides twice instead of multiplying.
+- **The complex division squared both parts first.** `F = 1e300` at
+  `omega = 1e150` has the elementary answer 1, and came back NaN — then refused
+  with "use units that keep the numbers in a physical range", advice that could
+  not help because the answer was representable throughout. Now uses Smith's
+  algorithm.
+- **`den2 === 0` tested a squared quantity**, so `zeta = 1e-200` underflowed and
+  a mode the user HAD damped was refused as undamped. Now tests `re` and `im`.
+- **`zeta` escaped the finiteness guard** and reached the pane as
+  "ζ = not finite" presented as a success — the exact symptom the guard was added
+  to prevent, one field over.
+- **Under Rayleigh damping a rigid-body mode reported ζ = 0**, which reads as
+  undamped although its coefficient is alpha and the answer used it; feeding
+  those ratios back is a 1104% amplitude error. Now explained in a note, and the
+  "damping you did not supply" note keys on the coefficient rather than the ratio.
+
+### Beam warnings, and one that could not be caught by its own oracle
+
+- The settlement-uncertainty warning fired on **spring-only** beams, asserting a
+  settlement the user never entered.
+- **The determinacy note overclaimed EI-dependence.** A three-support beam on a
+  spring under an antisymmetric load has v = 0 at the spring by symmetry, so
+  R = 0 there for every k and every EI — the reactions are bit-identical at
+  EI = 1 and EI = 1e6 while the note called them "specific to the EI you
+  entered". v2.36.1's stated criterion was "the warning must not contradict the
+  note", and it met that criterion by making the warning agree with a note that
+  was itself wrong. **An oracle of self-consistency cannot detect a consistent
+  error.** The engine now re-solves at a different EI and compares the exact
+  rationals, so the claim is measured rather than asserted.
+- A concatenation seam, a message quoting a constraint that is not true
+  ("no spaces inside the value" — spaces around a fraction slash are fine), and
+  a warning branch that was unreachable.
+
+### The figure
+
+- The new support artwork **broke the panel budget**: the spring reached y = 80
+  and the settlement label y = 94, where the shear panel starts — so the label
+  was drawn over the shear diagram's title.
+- A **heave drew a downward arrow** beside a label reading "-0.01".
+- On the perfectly ordinary `roller 8` the label started at x = 410 in a 420-wide
+  viewBox and was **clipped**.
+- `beamChart` kept its own private copy of the naive `Number(n)/Number(d)`
+  conversion — the one fixed in `cas.ts` — and a non-finite sample was written
+  straight into the path as `L 46.0 -Infinity`, which is invalid SVG in the
+  user's document. Both fixed; a panel that cannot be drawn now says so.
+- The x-axis label was clipped off the bottom on **every** beam, including a
+  plain rigid one.
+
+### Testing
+
+Three new files, 53 tests, plus an extension of the unbounded-loop guard — which
+was a hardcoded list written from a one-off sweep and had never grown, so none of
+this year's exports were in it. The new tests assert on parsed SVG COORDINATES
+rather than on "did the markup change", because the previous chart tests asked
+only the latter and all three drawing defects passed them.
+
 ## [2.37.0] — 2026-07-29 — Fractions in every beam field
 
 The beam engine computes over exact rationals so that a third stays a third, and

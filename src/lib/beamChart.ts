@@ -19,6 +19,7 @@
 // as a vertical step.
 
 import { BeamResult, Load, Support } from "./beam";
+import { Rat, ratToNumber } from "./cas";
 
 const W = 420;
 const PANEL_H = 96;
@@ -77,7 +78,9 @@ export function beamDiagramSvg(input: BeamChartInput): string {
   const lu = input.lengthUnit ?? "";
 
   const pw = W - ML - MR;
-  const H = BEAM_H + GAP + PANEL_H + GAP + PANEL_H + 34;
+  // +34 left the x-axis label at axisY + 26 = H + 6, i.e. clipped off the
+// bottom on every beam including a plain rigid one. It needs 40.
+const H = BEAM_H + GAP + PANEL_H + GAP + PANEL_H + 40;
   const sx = (x: number): number => ML + (L > 0 ? (x / L) * pw : 0);
 
   const vs = sample(result.shearAt, L, result.breakpoints);
@@ -163,29 +166,44 @@ function drawBeam(
     const base = s.kind === "fixed" ? y + 13 : y + 18;
     if (s.k != null) {
       // A zig-zag spring hanging below, on its own ground line.
+      // EVERYTHING BELOW MUST FIT INSIDE BEAM_H. The first version ran a spring
+      // to y = 80 and a settlement label to y = 94, while the shear panel starts
+      // at BEAM_H + GAP = 94 — so the label was drawn on top of the shear
+      // diagram's title. The budget is checked by a test now, because nothing
+      // about the drawing code makes it obvious.
       const top = base;
-      const bot = base + 16;
+      const bot = Math.min(base + 12, BEAM_H - 2);
       const zig: string[] = [`${x},${top}`];
+      const span = bot - top;
       for (let i = 0; i < 4; i++) {
-        zig.push(`${x + (i % 2 === 0 ? 5 : -5)},${top + 2 + i * 3}`);
+        zig.push(`${x + (i % 2 === 0 ? 4 : -4)},${top + (span * (i + 0.5)) / 4.5}`);
       }
       zig.push(`${x},${bot}`);
       p.push(`<polyline points="${zig.join(" ")}" fill="none" stroke="${INK}" stroke-width="1"/>`);
-      p.push(`<line x1="${x - 9}" y1="${bot}" x2="${x + 9}" y2="${bot}" stroke="${INK}" stroke-width="1.5"/>`);
+      p.push(`<line x1="${x - 8}" y1="${bot}" x2="${x + 8}" y2="${bot}" stroke="${INK}" stroke-width="1.5"/>`);
     }
     if (s.settle != null && num(s.settle) !== 0) {
-      // A downward tick with the settlement written beside it. Drawn even when a
-      // spring is present, because they are different things and the model
-      // applies both.
-      const top = s.k != null ? base + 18 : base;
+      // An offset arrow with the value beside it, drawn even when a spring is
+      // present because the model applies both and they are different things.
+      const d = num(s.settle);
+      const tipY = BEAM_H - 2;
+      const tailY = Math.max(base + 2, tipY - 9);
+      // A NEGATIVE settlement is a heave. The arrow has to point UP for it, or
+      // the picture contradicts the number printed next to it.
+      const up = d < 0;
       p.push(
-        `<line x1="${x}" y1="${top}" x2="${x}" y2="${top + 9}" stroke="${INK}" stroke-width="1" stroke-dasharray="2 2"/>`,
+        `<line x1="${x}" y1="${tailY}" x2="${x}" y2="${tipY}" stroke="${INK}" stroke-width="1" stroke-dasharray="2 2"/>`,
       );
+      const apex = up ? tailY : tipY;
+      const backs = up ? tailY + 5 : tipY - 5;
+      p.push(`<polygon points="${x},${apex} ${x - 3},${backs} ${x + 3},${backs}" fill="${INK}"/>`);
+      // Anchor at the END when the support sits near the right edge, or the
+      // label runs past the viewBox and is clipped — which happens on the
+      // ordinary "roller 8" case, not some exotic one.
+      const nearRight = x > W - 34;
       p.push(
-        `<polygon points="${x},${top + 12} ${x - 3},${top + 6} ${x + 3},${top + 6}" fill="${INK}"/>`,
-      );
-      p.push(
-        `<text x="${x + 6}" y="${top + 12}" font-size="7.5" fill="${INK}">${esc(fmt(num(s.settle)))}</text>`,
+        `<text x="${nearRight ? x - 6 : x + 6}" y="${tipY}" text-anchor="${nearRight ? "end" : "start"}" ` +
+          `font-size="7.5" fill="${INK}">${esc(fmt(d))}</text>`,
       );
     }
   }
@@ -248,7 +266,22 @@ function drawPanel(
   fill: string,
 ): string {
   const p: string[] = [];
-  const vals = pts.map((q) => q.y).filter((v) => Number.isFinite(v));
+  // A NON-FINITE SAMPLE MUST NEVER REACH THE PATH. `vals` already filtered them
+  // out of the scaling, but the path itself was built from `pts`, so a beam whose
+  // response genuinely overflows (a settlement of 1e400 is a legal literal) wrote
+  // `L 46.0 -Infinity` into the document — invalid SVG, not merely an ugly one.
+  // Dropping the bad points keeps the rest of the picture honest, and if nothing
+  // is left the panel says so instead of drawing a lie.
+  const finite = pts.filter((q) => Number.isFinite(q.y));
+  const vals = finite.map((q) => q.y);
+  if (finite.length < 2) {
+    p.push(
+      `<text x="${ML}" y="${(top + h / 2).toFixed(1)}" font-size="9" fill="${INK}">` +
+        `${esc(label)} — not finite at this scale</text>`,
+    );
+    return p.join("");
+  }
+  pts = finite;
   let lo = Math.min(0, ...vals);
   let hi = Math.max(0, ...vals);
   if (hi === lo) {
@@ -308,7 +341,16 @@ function annotate(
   );
 }
 
-/** Loads and supports carry exact rationals; the drawing needs numbers. */
+/**
+ * Loads and supports carry exact rationals; the drawing needs numbers.
+ *
+ * Goes through the CAS's `ratToNumber` rather than `Number(n)/Number(d)`. The
+ * naive form converts the two sides independently, so a legal-but-extreme value
+ * (`settle=1e400`, which the literal parser accepts) became Infinity and a long
+ * span emitted a literal `x2="NaN"` into the SVG — an invalid attribute in a
+ * picture that goes into the user's document. This was the last copy of a
+ * conversion that was fixed in cas.ts and missed here.
+ */
 function num(r: { n: bigint; d: bigint }): number {
-  return Number(r.n) / Number(r.d);
+  return ratToNumber(r as Rat);
 }

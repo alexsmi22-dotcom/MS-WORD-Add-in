@@ -123,16 +123,32 @@ function qFromNumber(v: number): Q {
  * it away. It was reachable on the plain rigid-support path too (a distributed
  * load of 1e308 on an 8 m span), so it predates elastic supports.
  *
- * The fix keeps the fast path first, because this is called on every coefficient
- * of every result. When either side overflows, both are shifted right by the same
- * number of BITS — which cannot change their ratio — until the SMALLER of the two
- * has about 64 bits left. That preserves roughly nineteen significant digits,
- * comfortably more than a double can hold.
+ * The fast path stays first, because this is called on every coefficient of
+ * every result and is byte-identical to the old expression whenever both sides
+ * convert finitely.
  *
- * A genuinely enormous or genuinely infinitesimal ratio still returns Infinity or
- * 0, because that is the correct double for it: the shift is bounded by the
- * smaller side, so a numerator 3000 bits longer than its denominator stays out of
- * range and overflows, exactly as it should.
+ * THE SLOW PATH DIVIDES FIRST AND SCALES AFTERWARDS. An earlier version shifted
+ * both sides right by the same number of bits until the SMALLER had ~64 left.
+ * That preserves the ratio, but it leaves the LARGER side with
+ * `bitLen(max) - bitLen(min) + 64` bits — so it still overflowed once the gap
+ * between the two exceeded about 960 bits, even though a double does not run out
+ * until 1024. The result was a band, gaps 961 to 1023, where a perfectly
+ * representable number came back as Infinity: 3^1237 / 5^233 is 1.8e302 and was
+ * reported as Infinity, and the mirrored band returned 0 for everything from
+ * 1e-289 down through the whole subnormal range. Being wrong in a band is worse
+ * than being wrong everywhere, because the tests sampled either side of it.
+ *
+ * So instead: take the quotient with BigInt division, shifted left far enough to
+ * carry ~64 bits of it, and then scale by the power of two that was shifted in.
+ * The scale is applied as TWO half-powers, because a single `2**-k` would itself
+ * overflow or flush to zero at the extremes and reintroduce the same class of
+ * bug — splitting it lets the subnormal range come out correctly.
+ *
+ * A genuinely out-of-range ratio still returns Infinity or 0, and now does so at
+ * the point where a double genuinely runs out rather than 64 bits early. The
+ * early exits also bound the work: without them a ratio with a millions-of-bits
+ * gap would shift a BigInt by that many bits to discover an answer already known
+ * from the bit lengths alone.
  */
 const qToNumber = (a: Q): number => {
   const n = Number(a.n);
@@ -142,13 +158,21 @@ const qToNumber = (a: Q): number => {
   const neg = a.n < 0n !== a.d < 0n;
   const N = a.n < 0n ? -a.n : a.n;
   const D = a.d < 0n ? -a.d : a.d;
-  if (N === 0n) return 0;
+  if (N === 0n) return neg ? -0 : 0;
   if (D === 0n) return neg ? -Infinity : Infinity;
 
   const bitLen = (v: bigint): number => v.toString(2).length;
-  const shift = BigInt(Math.max(0, Math.min(bitLen(N), bitLen(D)) - 64));
-  const q = Number(N >> shift) / Number(D >> shift);
-  return neg ? -q : q;
+  // log2 of the result, to within one bit.
+  const e = bitLen(N) - bitLen(D);
+  if (e > 1100) return neg ? -Infinity : Infinity;
+  if (e < -1200) return neg ? -0 : 0;
+
+  const k = 64 - e;
+  const q = k >= 0 ? (N << BigInt(k)) / D : N / (D << BigInt(-k));
+  const k1 = Math.trunc(k / 2);
+  const k2 = k - k1;
+  const v = Number(q) * Math.pow(2, -k1) * Math.pow(2, -k2);
+  return neg ? -v : v;
 };
 
 // ---------------------------------------------------------------------------

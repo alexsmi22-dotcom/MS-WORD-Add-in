@@ -383,7 +383,7 @@ const MAX_SUPPORTS = 12;
 const MAX_LOADS = 60;
 const SAMPLES = 400;
 
-export function analyzeBeam(input: BeamInput): BeamResult | BeamFailure {
+export function analyzeBeam(input: BeamInput, probe = false): BeamResult | BeamFailure {
   const { length: L, supports, loads } = input;
 
   if (ratSign(L) <= 0) return { ok: false, error: "Beam length must be greater than zero." };
@@ -532,6 +532,35 @@ export function analyzeBeam(input: BeamInput): BeamResult | BeamFailure {
   // --- determinacy, for the record ---
   const restraints = supports.reduce((n, s) => n + (s.kind === "fixed" ? 2 : 1), 0);
   const degree = restraints - 2;
+
+  // DOES EI ACTUALLY CHANGE THE ANSWER? Measured, not assumed.
+  //
+  // `eiCoupled` says EI entered the SOLVE. It does not say the reactions depend
+  // on it, and the difference is not a technicality: a three-support beam on a
+  // spring under an antisymmetric load has v = 0 at the spring by symmetry, so
+  // R = 0 there for every k and every EI, and equilibrium fixes the rest. The
+  // reactions come out bit-identical at EI = 1 and EI = 1e6 while the note
+  // asserted they were "specific to the EI you entered".
+  //
+  // Since the solve is exact and cheap, the honest thing is to run it again with
+  // a different EI and compare the rationals. An assertion about EI-dependence
+  // becomes a measurement of it. `probe` stops the recursion at one level.
+  let eiDependent = false;
+  if (eiCoupled && EI != null && !probe) {
+    const twin = analyzeBeam({ ...input, ei: ratMul(EI, ratInt(2)) }, true);
+    if (twin.ok) {
+      eiDependent = supports.some((_s, i) => {
+        const a = sol[reactionIdx[i]];
+        const b = twin.reactions[i].forceExact;
+        return !ratIsZero(ratSub(a, b));
+      });
+    } else {
+      // The twin should always solve — same structure, different EI. If it does
+      // not, say nothing rather than guess.
+      eiDependent = true;
+    }
+  }
+
   const determinacy: Determinacy = {
     degree,
     note:
@@ -544,8 +573,13 @@ export function analyzeBeam(input: BeamInput): BeamResult | BeamFailure {
         : `Statically indeterminate to degree ${degree} — solved by compatibility ` +
           "(deflection conditions at the supports), not by equilibrium alone." +
           (eiCoupled
-            ? " The supports are elastic or displaced, so those compatibility conditions carry EI " +
-              "and the reactions below are specific to the EI you entered."
+            ? eiDependent
+              ? " The supports are elastic or displaced, so those compatibility conditions carry EI " +
+                "and the reactions below are specific to the EI you entered — checked by re-solving " +
+                "at a different EI and finding them changed."
+              : " The supports are elastic or displaced, so EI entered the equations — but the " +
+                "reactions below came out IDENTICAL when re-solved at a different EI, so for this " +
+                "structure and this loading they do not depend on it after all."
             : ""),
   };
 
@@ -603,11 +637,18 @@ export function analyzeBeam(input: BeamInput): BeamResult | BeamFailure {
   // Gated on `eiCoupled` alone, this warning contradicted the determinacy note
   // printed a few lines above it in the same output, and asserted that numbers
   // "scale with EI" which were provably identical at EI = 1 and EI = 1e6.
-  if (degree > 0 && eiCoupled)
+  if (degree > 0 && eiDependent)
     warnings.push(
       "These reactions are NOT EI-free. A spring or a settlement puts EI into the compatibility " +
-        "equations, so the numbers above belong to the EI you entered and scale with it; on a " +
+        "equations, so the numbers above belong to the EI you entered and change with it; on a " +
         "rigid-support beam they would not.",
+    );
+  if (eiCoupled && !eiDependent && degree > 0)
+    warnings.push(
+      "EI was needed to solve this beam, but the reactions turned out not to depend on it: " +
+        "re-solving at a different EI gave exactly the same numbers. That is a property of this " +
+        "particular structure and loading, not a general rule — change the load and it will not " +
+        "hold.",
     );
   if (degree === 0 && eiCoupled)
     warnings.push(
@@ -615,14 +656,21 @@ export function analyzeBeam(input: BeamInput): BeamResult | BeamFailure {
         "determinate, so equilibrium alone fixes them and they are the same for any EI. The spring " +
         "and the settlement changed the DEFLECTIONS only.",
     );
-  if (degree > 0 && eiCoupled)
+  // Requires an actual SETTLEMENT, not merely eiCoupled — which is also true of a
+  // spring-only beam. This text is settlement-specific ("scale with the assumed
+  // settlement"), so on an indeterminate spring-only beam it asserted a
+  // settlement the user never entered.
+  const hasSettlement = supports.some((s) => s.settle != null && !ratIsZero(s.settle));
+  if (degree > 0 && hasSettlement)
     warnings.push(
       "Settlement-induced reactions are a real load case and are often the governing one, but they " +
         "are also the least certain number in a design: they scale linearly with EI and with the " +
         "assumed settlement, and both are estimates. Treat the magnitude as an order of magnitude.",
     );
-  if (supports.every((s) => s.kind !== "fixed") && supports.length === 1)
-    warnings.push("A single pin cannot resist rotation — check this is the beam you meant.");
+  // A single non-fixed support used to warn here. It is UNREACHABLE: one pin or
+  // one roller makes V(L) and M(L) proportional, so the matrix is singular and
+  // the mechanism branch above has already returned. Left as a comment rather
+  // than as code that reads like it fires.
 
   return {
     ok: true,
@@ -854,7 +902,7 @@ export function parseSupports(text: string): { supports: Support[]; errors: stri
     if (leftover) {
       errors.push(
         `Could not read "${leftover}" in the support "${p}". An option is written "k=5e4" or ` +
-          `"settle=0.01", with no spaces inside the value, and every option comes after the position.`,
+          `"settle=0.01", and every option comes after the position.`,
       );
       continue;
     }

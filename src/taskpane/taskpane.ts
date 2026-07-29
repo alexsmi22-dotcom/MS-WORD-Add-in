@@ -136,7 +136,7 @@ import {
   frequencySweep as vibSweep,
   modalAnalysis,
   modalForcedResponse,
-  rayleighDamping,
+  ModalDamping,
   chainSystem,
 } from "../lib/vibration";
 import { analyzeOpamp, OpampConfig } from "../lib/opamp";
@@ -9522,21 +9522,22 @@ const ENG_CALCS: EngCalc[] = [
       const w = Number(r("w"));
       if (!Number.isFinite(w) || w < 0) return { text: "The forcing frequency must be zero or greater.", ok: false };
 
-      // Damping: a single ratio, a list of them, or Rayleigh alpha/beta. The
-      // Rayleigh route needs the frequencies first, so the modes are found once
-      // here and once inside modalForcedResponse; that is cheap, and threading a
-      // half-solved system through would be worse.
+      // Damping: a single ratio, a list of them, or Rayleigh alpha/beta.
+      //
+      // The Rayleigh pair is passed STRAIGHT THROUGH rather than converted to
+      // ratios here. Converting loses the rigid-body mode: its ratio is
+      // alpha/(2*0), so it comes back 0 and a free-free structure is solved as
+      // undamped in the one mode alpha actually damps. That was a 56% amplitude
+      // error at these very defaults.
       const zRaw = r("zeta").trim();
-      let damping: number | number[];
+      let damping: ModalDamping;
       const ray = /^rayleigh\s+([-\d.eE+]+)\s+([-\d.eE+]+)$/i.exec(zRaw);
       if (ray) {
         const alpha = Number(ray[1]);
         const beta = Number(ray[2]);
         if (!Number.isFinite(alpha) || !Number.isFinite(beta) || alpha < 0 || beta < 0)
           return { text: "Rayleigh α and β must both be zero or greater.", ok: false };
-        const pre = modalAnalysis(M, K);
-        if (!pre.ok) return { text: pre.error, ok: false };
-        damping = rayleighDamping(alpha, beta, pre.frequencies);
+        damping = { alpha, beta };
       } else {
         const zs = zRaw.split(/[,\s]+/).filter(Boolean).map(Number);
         if (!zs.length || zs.some((v) => !Number.isFinite(v)))

@@ -214,11 +214,17 @@ export interface BeamResult {
   /** x values where the diagrams have a genuine break (supports, loads, ends). */
   breakpoints: number[];
   /**
-   * True when a spring or a settlement put EI into the equilibrium solve, so
-   * the reactions, shear and moment are specific to the EI that was supplied
-   * rather than being properties of the loading alone. The caller must say so:
-   * "reactions are exact without EI" is the module's normal contract and it is
-   * FALSE for these beams.
+   * True when a spring or a settlement put EI into the SOLVE, so the answer
+   * required an EI to compute at all — the module's normal "reactions are exact
+   * without EI" contract does not apply to the calculation.
+   *
+   * It does NOT follow that the reactions depend on EI. On a statically
+   * DETERMINATE beam they cannot: equilibrium alone fixes them, so a spring and
+   * a settlement change the deflections and leave every force untouched, and
+   * `eiCoupled` is true while the reactions are identical at EI = 1 and
+   * EI = 1e6. Only when `determinacy.degree > 0` do the reactions genuinely
+   * scale with EI. Callers wanting to warn about that must test BOTH, which is
+   * the distinction the warnings below draw and an earlier version did not.
    */
   eiCoupled: boolean;
   warnings: string[];
@@ -585,13 +591,29 @@ export function analyzeBeam(input: BeamInput): BeamResult | BeamFailure {
     warnings.push(
       "Indeterminate beam: the reactions depend on the beam being PRISMATIC (constant EI) " +
         "and on the supports being RIGID. A support that settles or sits on a soft seat changes " +
-        "them — add \"settle 0.01\" or \"k=5e4\" to a support to model that instead of assuming it away.",
+        // The syntax quoted here MUST be syntax parseSupports accepts. It read
+        // "settle 0.01" without the equals sign, which the parser rejects — and
+        // this warning fires on every indeterminate rigid-support beam, so it
+        // was the most-read instruction in the module and it failed when obeyed.
+        "them — add \"settle=0.01\" or \"k=5e4\" to a support to model that instead of assuming it away.",
     );
-  if (eiCoupled)
+  // ONLY on an indeterminate beam. A determinate one is EI-coupled in the solve
+  // and still has EI-free RESULTS: equilibrium alone fixes its reactions, so the
+  // spring and the settlement move the beam without changing a single force.
+  // Gated on `eiCoupled` alone, this warning contradicted the determinacy note
+  // printed a few lines above it in the same output, and asserted that numbers
+  // "scale with EI" which were provably identical at EI = 1 and EI = 1e6.
+  if (degree > 0 && eiCoupled)
     warnings.push(
       "These reactions are NOT EI-free. A spring or a settlement puts EI into the compatibility " +
-        "equations, so the numbers above belong to the EI you entered and scale with it; on a rigid " +
-        "-support beam they would not.",
+        "equations, so the numbers above belong to the EI you entered and scale with it; on a " +
+        "rigid-support beam they would not.",
+    );
+  if (degree === 0 && eiCoupled)
+    warnings.push(
+      "EI was needed to place the beam, but not to find these reactions: the beam is statically " +
+        "determinate, so equilibrium alone fixes them and they are the same for any EI. The spring " +
+        "and the settlement changed the DEFLECTIONS only.",
     );
   if (degree > 0 && eiCoupled)
     warnings.push(

@@ -155,6 +155,39 @@ function drawBeam(
         p.push(`<line x1="${x - 9}" y1="${y + 13}" x2="${x + 9}" y2="${y + 13}" stroke="${INK}"/>`);
       }
     }
+
+    // AN ELASTIC OR DISPLACED SUPPORT MUST NOT LOOK RIGID. This figure is what
+    // gets inserted into the document, and it was byte-identical for a rigid
+    // support, a spring and a settling one — so a reader of the finished page
+    // saw a rigid support under numbers that were computed for neither.
+    const base = s.kind === "fixed" ? y + 13 : y + 18;
+    if (s.k != null) {
+      // A zig-zag spring hanging below, on its own ground line.
+      const top = base;
+      const bot = base + 16;
+      const zig: string[] = [`${x},${top}`];
+      for (let i = 0; i < 4; i++) {
+        zig.push(`${x + (i % 2 === 0 ? 5 : -5)},${top + 2 + i * 3}`);
+      }
+      zig.push(`${x},${bot}`);
+      p.push(`<polyline points="${zig.join(" ")}" fill="none" stroke="${INK}" stroke-width="1"/>`);
+      p.push(`<line x1="${x - 9}" y1="${bot}" x2="${x + 9}" y2="${bot}" stroke="${INK}" stroke-width="1.5"/>`);
+    }
+    if (s.settle != null && num(s.settle) !== 0) {
+      // A downward tick with the settlement written beside it. Drawn even when a
+      // spring is present, because they are different things and the model
+      // applies both.
+      const top = s.k != null ? base + 18 : base;
+      p.push(
+        `<line x1="${x}" y1="${top}" x2="${x}" y2="${top + 9}" stroke="${INK}" stroke-width="1" stroke-dasharray="2 2"/>`,
+      );
+      p.push(
+        `<polygon points="${x},${top + 12} ${x - 3},${top + 6} ${x + 3},${top + 6}" fill="${INK}"/>`,
+      );
+      p.push(
+        `<text x="${x + 6}" y="${top + 12}" font-size="7.5" fill="${INK}">${esc(fmt(num(s.settle)))}</text>`,
+      );
+    }
   }
 
   for (const l of loads) {

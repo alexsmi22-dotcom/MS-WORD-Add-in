@@ -109,7 +109,47 @@ function qFromNumber(v: number): Q {
   return exp >= 0 ? qMake(n * 10n ** BigInt(exp), 1n) : qMake(n, 10n ** BigInt(-exp));
 }
 
-const qToNumber = (a: Q): number => Number(a.n) / Number(a.d);
+/**
+ * Exact rational to the nearest double.
+ *
+ * The obvious `Number(a.n) / Number(a.d)` is right almost always and WRONG in
+ * the one case this library exists to handle. Numerator and denominator are
+ * converted to doubles INDEPENDENTLY, so a ratio whose two sides are each above
+ * ~1.8e308 becomes Infinity/Infinity = NaN even when the ratio itself is an
+ * ordinary small number. That is not hypothetical: a beam on a very soft spring
+ * with a very small EI produces a reaction of exactly 15 as a 604-digit over
+ * 603-digit rational, and this function reported it as NaN. The exact answer was
+ * perfect; only the last step — the one that hands the number to the user — threw
+ * it away. It was reachable on the plain rigid-support path too (a distributed
+ * load of 1e308 on an 8 m span), so it predates elastic supports.
+ *
+ * The fix keeps the fast path first, because this is called on every coefficient
+ * of every result. When either side overflows, both are shifted right by the same
+ * number of BITS — which cannot change their ratio — until the SMALLER of the two
+ * has about 64 bits left. That preserves roughly nineteen significant digits,
+ * comfortably more than a double can hold.
+ *
+ * A genuinely enormous or genuinely infinitesimal ratio still returns Infinity or
+ * 0, because that is the correct double for it: the shift is bounded by the
+ * smaller side, so a numerator 3000 bits longer than its denominator stays out of
+ * range and overflows, exactly as it should.
+ */
+const qToNumber = (a: Q): number => {
+  const n = Number(a.n);
+  const d = Number(a.d);
+  if (Number.isFinite(n) && Number.isFinite(d)) return n / d;
+
+  const neg = a.n < 0n !== a.d < 0n;
+  const N = a.n < 0n ? -a.n : a.n;
+  const D = a.d < 0n ? -a.d : a.d;
+  if (N === 0n) return 0;
+  if (D === 0n) return neg ? -Infinity : Infinity;
+
+  const bitLen = (v: bigint): number => v.toString(2).length;
+  const shift = BigInt(Math.max(0, Math.min(bitLen(N), bitLen(D)) - 64));
+  const q = Number(N >> shift) / Number(D >> shift);
+  return neg ? -q : q;
+};
 
 // ---------------------------------------------------------------------------
 // Monomials and polynomials.

@@ -638,6 +638,60 @@ export function rayleighDamping(alpha: number, beta: number, frequencies: number
   return frequencies.map((w) => (w > 0 ? alpha / (2 * w) + (beta * w) / 2 : 0));
 }
 
+/**
+ * Rayleigh damping given to `modalForcedResponse` DIRECTLY, rather than via the
+ * ratios above.
+ *
+ * WHY THIS EXISTS, AND IT IS NOT CONVENIENCE. A damping RATIO cannot express the
+ * damping on a rigid-body mode. The modal equation is
+ *
+ *     q'' + (2*zeta*wn) q' + wn^2 q = f
+ *
+ * and with C = alpha*M + beta*K the middle coefficient is exactly
+ * `alpha + beta*wn^2`, which is perfectly well defined at wn = 0 — a free-free
+ * structure really is damped in its rigid-body mode, by the alpha term. But
+ * dividing that by 2*wn to get a ratio is a division by zero, so
+ * `rayleighDamping` returns 0 there and the mode comes out UNDAMPED. That is a
+ * wrong number, not a missing one: on a free-free chain at alpha = 0.6,
+ * beta = 0.002 it overstated the amplitude by 56% and the phase by 50 degrees.
+ *
+ * Passing the pair through instead keeps the coefficient `alpha + beta*wn^2`,
+ * which is correct for every mode including the rigid ones. The ratios remain
+ * useful for READING OFF what a given (alpha, beta) implies mode by mode, which
+ * is what `rayleighDamping` is for.
+ */
+export interface RayleighDamping {
+  alpha: number;
+  beta: number;
+}
+
+/** Damping as uniform ratio, per-mode ratios, or a Rayleigh pair. */
+export type ModalDamping = number | number[] | RayleighDamping;
+
+function isRayleigh(d: ModalDamping): d is RayleighDamping {
+  return typeof d === "object" && d !== null && !Array.isArray(d);
+}
+
+/**
+ * Is the generalised force on a mode zero — i.e. is the load applied at a NODE
+ * of it?
+ *
+ * The test has to be RELATIVE, and relative to the right thing. By
+ * Cauchy-Schwarz |phi^T*F| <= |phi|*|F|, so that product is the largest the
+ * generalised force could possibly be and is the only scale the comparison can
+ * use. An absolute tolerance makes the answer depend on the units the load was
+ * typed in, and `1 + |F|` is not a fix either: it still leaves an absolute floor
+ * that any sufficiently small load sits underneath, so a genuine resonance was
+ * reported as a node once the load dropped below 1e-12.
+ *
+ * A zero load vector is nodal for every mode, which is the right answer: nothing
+ * is excited because nothing is applied.
+ */
+function isNodal(f: number, phi: number[], force: number[]): boolean {
+  const scale = Math.hypot(...phi) * Math.hypot(...force);
+  return scale === 0 ? true : Math.abs(f) < 1e-12 * scale;
+}
+
 export interface ModalContribution {
   /** 1-based mode number, matching the modal analysis listing. */
   mode: number;
@@ -703,7 +757,7 @@ export function modalForcedResponse(
   K: Matrix,
   force: number[],
   omega: number,
-  damping: number | number[],
+  damping: ModalDamping,
 ): ModalForcedResult | VibError {
   const modal = modalAnalysis(M, K);
   if (!modal.ok) return modal;
@@ -719,19 +773,46 @@ export function modalForcedResponse(
   if (!Number.isFinite(omega) || omega < 0)
     return { ok: false, error: "The forcing frequency must be zero or greater." };
 
-  const zeta: number[] = [];
-  for (let i = 0; i < n; i++) {
-    const z = Array.isArray(damping) ? damping[i] : damping;
-    if (z === undefined)
-      return { ok: false, error: `A damping ratio is missing for mode ${i + 1}; give one value or ${n}.` };
-    if (!Number.isFinite(z) || z < 0)
-      return { ok: false, error: "Every damping ratio must be zero or greater." };
-    zeta.push(z);
-  }
-  if (Array.isArray(damping) && damping.length !== n)
-    return { ok: false, error: `Give one damping ratio or ${n} of them; ${damping.length} were given.` };
-
   const notes: string[] = [];
+
+  // Damping is carried as the modal COEFFICIENT 2*zeta*wn, not as the ratio,
+  // because the ratio cannot represent damping on a rigid-body mode (see
+  // RayleighDamping). `zeta` is derived back out purely for reporting.
+  const zeta: number[] = [];
+  const damp: number[] = [];
+  if (isRayleigh(damping)) {
+    const { alpha, beta } = damping;
+    if (!Number.isFinite(alpha) || !Number.isFinite(beta) || alpha < 0 || beta < 0)
+      return { ok: false, error: "Rayleigh alpha and beta must both be finite and zero or greater." };
+    for (let i = 0; i < n; i++) {
+      const wn = modal.frequencies[i];
+      damp.push(alpha + beta * wn * wn);
+      zeta.push(wn > 0 ? alpha / (2 * wn) + (beta * wn) / 2 : 0);
+    }
+  } else {
+    if (Array.isArray(damping) && damping.length !== n)
+      return { ok: false, error: `Give one damping ratio or ${n} of them; ${damping.length} were given.` };
+    for (let i = 0; i < n; i++) {
+      const z = Array.isArray(damping) ? damping[i] : damping;
+      if (z === undefined)
+        return { ok: false, error: `A damping ratio is missing for mode ${i + 1}; give one value or ${n}.` };
+      if (!Number.isFinite(z) || z < 0)
+        return { ok: false, error: "Every damping ratio must be zero or greater." };
+      zeta.push(z);
+      damp.push(2 * z * modal.frequencies[i]);
+    }
+    // A ratio on a rigid-body mode is 2*zeta*0 = 0 whatever the ratio, so the
+    // mode is undamped in this model. That is a real consequence of the
+    // parameterisation rather than a choice, and it must not pass silently.
+    if (modal.frequencies.some((w) => w === 0) && !isRayleigh(damping)) {
+      notes.push(
+        "This structure has a rigid-body mode, and a damping RATIO cannot describe damping on it " +
+          "— 2*zeta*wn is zero whatever ratio you give, so that mode is being treated as UNDAMPED. " +
+          "If the damping really is Rayleigh, pass alpha and beta instead: the modal coefficient is " +
+          "alpha + beta*wn^2, which is well defined at wn = 0 and generally is NOT zero.",
+      );
+    }
+  }
 
   // --- modal coordinates: q_i = f_i / (wn^2 - w^2 + 2j*zeta*wn*w) ---
   const qRe: number[] = [];
@@ -745,7 +826,7 @@ export function modalForcedResponse(
     for (let j = 0; j < n; j++) f += phi[j] * force[j];
 
     const re = wn * wn - omega * omega;
-    const im = 2 * zeta[i] * wn * omega;
+    const im = damp[i] * omega;
     const den2 = re * re + im * im;
 
     if (den2 === 0) {
@@ -753,15 +834,27 @@ export function modalForcedResponse(
       // mode driven at zero frequency. Either way the steady state does not
       // exist: the amplitude grows without bound, and returning Infinity here
       // would propagate into every physical DOF as NaN.
-      if (Math.abs(f) < 1e-12) {
+      // Is the generalised force zero? This must be asked RELATIVE to what the
+      // product phi^T*F could possibly be, which is |phi|*|F| by Cauchy-Schwarz.
+      // An absolute tolerance made the answer depend on the units the load was
+      // typed in: the same structure and the same load direction was called a
+      // node at f0 = 1e-12 and refused as unbounded at f0 = 1e-11, and a
+      // genuinely nodal load flipped between accepted and refused according to
+      // which way its float residue rounded. Note that `1 + |F|` is NOT a fix —
+      // it still leaves an absolute floor that a small load sits under.
+      if (isNodal(f, phi, force)) {
         // The force cannot excite this mode, so it simply does not participate.
         qRe.push(0);
         qIm.push(0);
         contributions.push({ mode: i + 1, wn, zeta: zeta[i], r: wn > 0 ? omega / wn : Infinity, force: f, amplitude: 0, share: 0 });
         notes.push(
-          `Mode ${i + 1} would be driven at resonance with no damping, but the generalised force ` +
-            "on it is zero — the load is applied at a NODE of that mode — so it is not excited. " +
-            "That cancellation is exact here and will not survive a small change in where the load acts.",
+          wn === 0
+            ? `Mode ${i + 1} is a RIGID-BODY mode and the load does no net work on it — the applied ` +
+              "forces are self-equilibrating, so the structure does not drift. That holds for any " +
+              "load whose resultant along this mode is zero, wherever it acts."
+            : `Mode ${i + 1} would be driven at resonance with no damping, but the generalised force ` +
+              "on it is zero — the load is applied at a NODE of that mode — so it is not excited. " +
+              "That cancellation is exact here and will not survive a small change in where the load acts.",
         );
         continue;
       }
@@ -802,6 +895,23 @@ export function modalForcedResponse(
     }
   }
   const amplitude = xRe.map((re, j) => Math.hypot(re, xIm[j]));
+
+  // A finite input can still overflow on the way through: omega = 1e200 squares
+  // to 1e400, `re` becomes -Infinity, den2 becomes Infinity, and f*(-Infinity)
+  // over Infinity is NaN. Every guard above passed, so without this the function
+  // returns ok:true carrying NaN, and the pane prints "not finite" as though it
+  // were an answer. Refuse instead, and say which quantity was out of range —
+  // the arithmetic overflowed, the model did not fail.
+  if (!amplitude.every(Number.isFinite)) {
+    return {
+      ok: false,
+      error:
+        `The response overflowed double precision at omega = ${omega}. The inputs are individually ` +
+        "finite but their combination is not representable — omega squared, or a damping " +
+        "coefficient times omega, has run past about 1e308. Use units that keep the numbers in a " +
+        "physical range rather than working in raw SI at extreme scale.",
+    };
+  }
   // atan2(-Im, Re) is the LAG: the SDOF convention has the response trailing the
   // force, and q carries a negative imaginary part when it does.
   const phaseDeg = xRe.map((re, j) => (Math.atan2(-xIm[j], re) * 180) / Math.PI);
@@ -838,7 +948,12 @@ export function modalForcedResponse(
     );
   }
 
-  const silent = contributions.filter((c) => Math.abs(c.force) < 1e-9 * (1 + Math.max(...force.map(Math.abs))));
+  // Same question, same measure as the solve above — these two disagreeing is
+  // how a mode gets refused as an unbounded resonance in one breath and listed
+  // as unexcited in the next.
+  const silent = contributions.filter((c, i) =>
+    isNodal(c.force, modal.modes.map((row) => row[i]), force),
+  );
   if (silent.length && silent.length < n) {
     notes.push(
       `Mode(s) ${silent.map((c) => c.mode).join(", ")} receive essentially no generalised force, so ` +

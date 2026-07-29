@@ -5,6 +5,84 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > Note: this file was not maintained between v1.96.0 and v2.23.0. Those releases
 > are recorded in the git history rather than here.
 
+## [2.36.1] — 2026-07-29 — What the bug test found
+
+v2.36.0 shipped with 5,987 green tests, a full QC pass, and two adversarial
+files. An INDEPENDENT bug hunt on the shipped diff then found seven real
+defects. Recording why, because the reason is more useful than the fixes: the
+adversarial files were written by the same author as the code, alongside it, and
+they tested what the author thought was hard. Six of the seven sit outside that.
+
+### The one that was a wrong number
+
+**Rayleigh damping was silently wrong on any structure with a rigid-body mode.**
+A damping RATIO cannot represent damping on a rigid-body mode: the modal
+coefficient is 2*zeta*wn, so at wn = 0 it is zero whatever ratio you give, and
+`rayleighDamping` duly returned 0. But C = alpha*M + beta*K gives that mode a
+real coefficient of alpha. A free-free chain at the alpha = 0.6, beta = 0.002
+printed in the pane's own hint came out **56% high in amplitude and 50 degrees
+wrong in phase**; at alpha = 5 it was a factor of ten.
+
+`modalForcedResponse` now accepts the Rayleigh pair directly and carries the
+modal COEFFICIENT `alpha + beta*wn^2`, which is exact at wn = 0. Given ratios on
+a structure with a rigid-body mode it still treats that mode as undamped —
+unavoidable in that parameterisation — but now says so instead of passing it off.
+
+**Why the shipped suite could not see it.** The 100-random-system property test
+builds K as `mk(200, 100)`, adding 100 to every diagonal. Every system it can
+generate is positive definite, so NOT ONE has a rigid-body mode. `rayleighDamping`
+was checked against a direct complex solve in that very file, and the single case
+it gets wrong was excluded by the generator's construction. A property test is
+only as good as the property its generator can reach.
+
+### The ones that returned NaN or refused arbitrarily
+
+- **`ratToNumber` destroyed correct answers.** `Number(n)/Number(d)` converts the
+  two sides independently, so a ratio whose halves each exceed ~1.8e308 became
+  Infinity/Infinity = NaN. A beam reaction of exactly 15, held as a 604-digit
+  over 603-digit rational, was reported as NaN — the exact solve was perfect and
+  the final conversion threw it away. **This predates elastic supports**: it was
+  reachable on the plain rigid-support path with a 1e308 distributed load. Both
+  sides are now shifted right by the same number of bits until the smaller has
+  ~64 left, which cannot change their ratio. A genuinely enormous ratio still
+  returns Infinity, because that is the correct double for it.
+- **A finite omega could still produce NaN** in the MDOF response: omega = 1e200
+  squares past the double range, and the pane rendered the result as
+  "DOF 1: not finite" while calling it a success. Now refused, naming the
+  overflow.
+- **"Is this mode excited?" depended on the units the load was typed in.** The
+  test was an absolute 1e-12, so the same structure and the same load direction
+  was called a node at f0 = 1e-12 and an unbounded resonance at f0 = 1e-11, and a
+  genuinely nodal load flipped between accepted and refused with its float
+  residue. It is now relative to |phi|*|F|, the largest the generalised force
+  could be. Note that `1 + |F|` is NOT a fix — it leaves an absolute floor.
+
+### The ones in what the user reads and sees
+
+- **The most-read instruction in the beam module did not work.** The warning on
+  every indeterminate rigid-support beam said to add `"settle 0.01"` — without
+  the equals sign, which the parser rejects. A general test now feeds every piece
+  of syntax any message quotes back through the parser.
+- **The "NOT EI-free" warning contradicted the determinacy note above it.** It
+  was gated on `eiCoupled` alone, so a DETERMINATE beam on a spring was told its
+  reactions "scale with EI" while the same output said the spring "changes no
+  reaction" — and the reactions were provably identical at EI = 1 and EI = 1e6.
+  `eiCoupled` is honest about the SOLVE; it does not license that claim about the
+  RESULT. Now gated on `degree > 0 && eiCoupled`, with the true statement given
+  in the determinate case.
+- **A concatenation seam** rendered "on a rigid -support beam".
+- **The figure inserted into the document drew a rigid support** for a spring or
+  a settling one — byte-identical SVG. Springs now draw a coil on their own
+  ground line and a settlement draws a dashed offset with its value written
+  beside it.
+
+### Testing
+
+Three new files, 54 tests, aimed at what the originals structurally could not
+reach: free-free structures, absurd-but-finite magnitudes, load scaling across
+twelve orders of magnitude, and the rendered figure. Plus general guards — every
+quoted syntax must parse, and no result may contradict itself about EI.
+
 ## [2.36.0] — 2026-07-29 — Two honest limits lifted, and one that provably cannot be
 
 A review of the disclosed limits, and then the two that were worth acting on.

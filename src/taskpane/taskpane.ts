@@ -97,7 +97,7 @@ import { parseSnapGeneDna, looksLikeDna } from "../lib/seqdna";
 import { ENZYMES, findSites, summarise, uniqueCutters, formatSite, methylationWarnings } from "../lib/enzymes";
 import { digest, describeDigest, gelBands } from "../lib/digest";
 import { analyzeBeam, parseSupports, parseLoads, parseLength } from "../lib/beam";
-import { beamDiagramSvg } from "../lib/beamChart";
+import { beamDiagramSvg, BEAM_CHART_SIZE } from "../lib/beamChart";
 import { sectionProperties, bendingStress, SectionSpec } from "../lib/section";
 import { parseNetlist, parseValue, solveDc, solveAc, frequencySweep, dB } from "../lib/circuit";
 import { analyzeStress, transformPlane, factorOfSafety, analyzeTorsion, analyzeColumn, EndCondition } from "../lib/stress";
@@ -7702,8 +7702,8 @@ const ENG_CALCS: EngCalc[] = [
           svg,
           caption: "Shear force and bending moment diagrams",
           alt: `Beam of span ${engNum(res.length)} with its shear force and bending moment diagrams`,
-          w: 420,
-          h: 336,
+          w: BEAM_CHART_SIZE.w,
+          h: BEAM_CHART_SIZE.h,
         },
       ];
       return { text: clean.join("\n"), blocks };

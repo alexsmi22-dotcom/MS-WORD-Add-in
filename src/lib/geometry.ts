@@ -65,6 +65,34 @@ export function fmtRat(a: Rat): string {
  * factors out of numerator and denominator, so √(48/9) prints 4*sqrt(3)/3
  * rather than a decimal. Returns null when the value is negative.
  */
+/**
+ * √(n/d) as a double, without ever forming n/d.
+ *
+ * The call sites all hold a SQUARED quantity as an exact rational — a squared
+ * distance, a squared radius — and were computing `Math.sqrt` of it after a
+ * round trip through a decimal string and a plain division. Both halves of that
+ * overflow long before the answer does: a 200-digit coordinate gives a squared
+ * distance around 1e400, which becomes Infinity, and √Infinity is Infinity —
+ * while the true distance, about 1.4e200, is a perfectly ordinary double. The
+ * geometry pane reported a distance of Infinity for it, and threw outright at
+ * 400 digits.
+ *
+ * Taking the root of each side separately, with an EVEN power-of-two shift to
+ * bring a huge side into range, keeps every intermediate finite. The shift is
+ * even so that halving its exponent is exact.
+ */
+export function sqrtRatToNumber(a: Rat): number {
+  const root = (v: bigint): number => {
+    if (v <= 0n) return 0;
+    const bits = v.toString(16).length * 4;
+    if (bits < 900) return Math.sqrt(Number(v));
+    const shift = BigInt(2 * Math.floor((bits - 900) / 2));
+    return Math.sqrt(Number(v >> shift)) * Math.pow(2, Number(shift) / 2);
+  };
+  if (a.n <= 0n) return 0;
+  return root(a.n) / root(a.d);
+}
+
 export function fmtSqrtRat(a: Rat): string | null {
   if (ratSign(a) < 0) return null;
   if (ratIsZero(a)) return "0";
@@ -116,7 +144,11 @@ export function distanceSquared(a: Pt, b: Pt): Rat {
 
 export function distance(a: Pt, b: Pt): GeoValue {
   const d2 = distanceSquared(a, b);
-  return { label: "distance", exact: fmtSqrtRat(d2) ?? undefined, value: Math.sqrt(num(d2)) };
+  // Root the exact squared distance directly. `Math.sqrt(num(d2))` converts d2
+  // to a double FIRST, and d2 is the square — so a 200-digit coordinate makes it
+  // ~1e400, which is Infinity, and the reported distance was Infinity even
+  // though the true 1.4e200 is an ordinary double.
+  return { label: "distance", exact: fmtSqrtRat(d2) ?? undefined, value: sqrtRatToNumber(d2) };
 }
 
 export function midpoint(a: Pt, b: Pt): Pt {
@@ -638,7 +670,9 @@ export function classifyConic(
   const negR = r1 > 0 ? r2 : r1;
   const aa = Math.sqrt(Math.abs(posR));
   const bb = Math.sqrt(Math.abs(negR));
-  const cdist = Math.sqrt(aa * aa + bb * bb);
+  // Math.hypot: aa and bb come from user coordinates, and squaring them first
+  // overflows well before the distance itself would.
+  const cdist = Math.hypot(aa, bb);
   steps.push(`δ > 0: a hyperbola; a = ${aa.toFixed(6)}, b = ${bb.toFixed(6)}.`);
   return {
     kind: "hyperbola", degenerate: false, rotationDeg, centre,
@@ -789,7 +823,7 @@ export function shapeMetrics(spec: ShapeSpec): GeoResult | null {
         values: [
           V("volume", a * b * c, rExactMul(a, b, c)),
           V("surface area", 2 * (a * b + b * c + a * c), fmtRat(ratMul(ratInt(2), [rmul(a, b), rmul(b, c), rmul(a, c)].reduce(ratAdd, RAT_ZERO)))),
-          V("space diagonal", Math.sqrt(a * a + b * b + c * c), sqrtOfSquares(a, b, c)),
+          V("space diagonal", Math.hypot(a, b, c), sqrtOfSquares(a, b, c)),
         ],
         steps: ["V = abc, S = 2(ab+bc+ca)."], caveats: [],
       };

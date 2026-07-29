@@ -524,9 +524,10 @@ export function analyzeBeam(input: BeamInput, probe = false): BeamResult | BeamF
       ok: false,
       error:
         "This beam is a mechanism — the supports cannot hold it in equilibrium. " +
-        "A single support of any kind, or two rollers with nothing resisting rotation, will " +
-        "do this: a pin and a roller both restrain only vertically, so one of them leaves the " +
-        "beam free to rotate. Add a second support, or make one of them fixed.",
+        "This model carries VERTICAL equilibrium only, so a pin and a roller are the same " +
+        "thing to it: each restrains one direction and neither resists rotation. One such " +
+        "support therefore leaves the beam free to rotate about it. Add a second support, or " +
+        "make this one fixed.",
     };
   }
 

@@ -203,17 +203,59 @@ describe("the overflow band, and correct rounding, checked EXACTLY", () => {
   }
 
   /**
-   * null only when v is 0 or non-finite — there the "no neighbour is closer"
-   * test says nothing useful. A neighbour that IS zero is perfectly usable
-   * (MIN_VALUE's lower neighbour is 0, and comparing against it is exactly the
-   * check that matters for the subnormal cases); only a non-finite neighbour is
-   * dropped.
+   * TOTAL: every input gets a verdict, including 0 and Infinity.
+   *
+   * The first version returned `null` for those and the sweeps skipped them —
+   * which made it structurally blind to BOTH bugs it was written to replace.
+   * v1's bug was a representable value coming back as Infinity (null, skipped);
+   * v2's was MIN_VALUE coming back as 0 (null, skipped). It also filtered out a
+   * non-finite neighbour, so `MAX_VALUE` was accepted where `Infinity` is right,
+   * and it compared with `<=`, so at an exact tie BOTH candidates passed and
+   * ties-to-even was asserted nowhere.
    */
-  function correctlyRounded(N: bigint, D: bigint, v: number): boolean | null {
-    if (!Number.isFinite(v) || v === 0) return null;
-    return neighbours(v)
-      .filter((b) => Number.isFinite(b))
-      .every((b) => closerOrEqual(N, D, v, b));
+  // The midpoint between MAX_VALUE and 2^1024: (2^54 - 1) * 2^970. At or above
+  // it, Infinity is the correctly rounded answer; below it, MAX_VALUE is.
+  const OVERFLOW_MIDPOINT = ((1n << 54n) - 1n) << 970n;
+
+  function correctlyRounded(N: bigint, D: bigint, v: number): boolean {
+    if (Number.isNaN(v)) return false;
+    const neg = N < 0n !== D < 0n;
+    const an = N < 0n ? -N : N;
+    const ad = D < 0n ? -D : D;
+    if (v === Infinity || v === -Infinity) {
+      if (neg !== (v === -Infinity)) return false;
+      return an >= ad * OVERFLOW_MIDPOINT;
+    }
+    if (v === 0) {
+      // Rounds to zero exactly when |N/D| <= 2^-1075 — the tie goes to even = 0.
+      return an * (1n << 1075n) <= ad;
+    }
+    const [lo, hi] = neighbours(v);
+    for (const b of [lo, hi]) {
+      if (Number.isFinite(b)) {
+        // Strictly closer, or equidistant with v's mantissa even.
+        if (!closerOrEqual(N, D, v, b)) return false;
+        if (equidistant(N, D, v, b) && !mantissaIsEven(v)) return false;
+      } else {
+        // The neighbour is +/-Infinity: v is MAX_VALUE. It is correct only if
+        // N/D is below the midpoint to 2^1024.
+        if (an >= ad * OVERFLOW_MIDPOINT) return false;
+      }
+    }
+    return true;
+  }
+
+  function equidistant(N: bigint, D: bigint, a: number, b: number): boolean {
+    const A = toRat(a);
+    const B = toRat(b);
+    const abs = (x: bigint) => (x < 0n ? -x : x);
+    return abs(N * A.d - A.n * D) * B.d === abs(N * B.d - B.n * D) * A.d;
+  }
+
+  function mantissaIsEven(v: number): boolean {
+    const buf = new DataView(new ArrayBuffer(8));
+    buf.setFloat64(0, v);
+    return (BigInt(buf.getUint32(4)) & 1n) === 0n;
   }
 
   /** Deterministic odd BigInt of roughly `bits` bits, so a failure reproduces. */
@@ -231,9 +273,10 @@ describe("the overflow band, and correct rounding, checked EXACTLY", () => {
     for (const v of [1, 0.5, 3.25, 1e300, 5e-324, 2.2250738585072014e-308]) {
       const r = toRat(v);
       expect({ v, ok: correctlyRounded(r.n, r.d, v) }).toEqual({ v, ok: true });
-      const [, hi] = neighbours(v);
-      if (Number.isFinite(hi) && hi !== v) {
-        expect({ v, neighbourAccepted: correctlyRounded(r.n, r.d, hi) }).toEqual({ v, neighbourAccepted: false });
+      for (const nb of neighbours(v)) {
+        if (Number.isFinite(nb) && nb !== v) {
+          expect({ v, nb, accepted: correctlyRounded(r.n, r.d, nb) }).toEqual({ v, nb, accepted: false });
+        }
       }
     }
   });
@@ -251,9 +294,8 @@ describe("the overflow band, and correct rounding, checked EXACTLY", () => {
       const D = odd(db as number, 0x85eb + i * 7);
       if (Number.isFinite(Number(N)) && Number.isFinite(Number(D))) continue;
       const v = ratToNumber(ratDiv(ratInt(N), ratInt(D)));
-      const ok = correctlyRounded(N, D, v);
-      if (ok === null) continue;
       checked++;
+      const ok = correctlyRounded(N, D, v);
       if (!ok) wrong.push(`${N}/${D} -> ${v}`);
     }
     expect(checked).toBeGreaterThan(200);
@@ -326,8 +368,11 @@ describe("the overflow band, and correct rounding, checked EXACTLY", () => {
     // passed alone failed in the full suite with nothing having got slower. The
     // real regression this guards against (an accidental quadratic, or losing
     // the early exits) is orders of magnitude, not a factor of three.
-    const N = 3n ** 3000n;
-    const D = 5n ** 1500n;
+    // gap ~848, inside the legal band. 3^3000 / 5^1500 has gap 1272 and takes
+    // the e > 1100 early exit, so the previous version timed a loop that never
+    // shifted a single BigInt.
+    const N = 3n ** 2000n;
+    const D = 5n ** 1000n;
     const t0 = Date.now();
     for (let i = 0; i < 500; i++) ratToNumber(ratDiv(ratInt(N + BigInt(i)), ratInt(D)));
     expect(Date.now() - t0).toBeLessThan(30000);

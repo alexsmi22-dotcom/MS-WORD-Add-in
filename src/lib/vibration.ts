@@ -299,16 +299,34 @@ export interface ForcedResponse {
   notes: string[];
 }
 
+// BOTH OF THESE ARE COMPUTED IN SCALED FORM ABOVE r = 1, and `Math.hypot` is not
+// enough on its own. The sum under the root is fine for hypot, but `1 - r*r`
+// overflows on its own once r passes ~1.3e154 — before the sum is ever formed.
+// Dividing through by r^2 first keeps every intermediate at or below 1:
+//
+//   with u = 1/r^2,   1/sqrt((1-r^2)^2 + 4 z^2 r^2) = 1 / (r^2 * sqrt((u-1)^2 + 4 z^2 u))
+//                     sqrt(1 + 4 z^2 r^2)           = r * sqrt(u + 4 z^2)
+//
+// Transmissibility was returning NaN at r = 1e200 where the true value is the
+// perfectly ordinary 2*zeta/r. Magnification happened to give the right answer
+// (0) by luck rather than by arithmetic.
+
 /** Magnification factor of a damped SDOF system at frequency ratio r. */
 export function magnification(r: number, zeta: number): number {
-  const a = 1 - r * r;
-  return 1 / Math.sqrt(a * a + 4 * zeta * zeta * r * r);
+  if (r > 1) {
+    const u = 1 / (r * r);
+    return 1 / (r * r * Math.hypot(u - 1, 2 * zeta * Math.sqrt(u)));
+  }
+  return 1 / Math.hypot(1 - r * r, 2 * zeta * r);
 }
 
 /** Force transmissibility at frequency ratio r. */
 export function transmissibility(r: number, zeta: number): number {
-  const a = 1 - r * r;
-  return Math.sqrt(1 + 4 * zeta * zeta * r * r) / Math.sqrt(a * a + 4 * zeta * zeta * r * r);
+  if (r > 1) {
+    const u = 1 / (r * r);
+    return Math.hypot(Math.sqrt(u), 2 * zeta) / (r * Math.hypot(u - 1, 2 * zeta * Math.sqrt(u)));
+  }
+  return Math.hypot(1, 2 * zeta * r) / Math.hypot(1 - r * r, 2 * zeta * r);
 }
 
 /** Steady-state response to a harmonic force of amplitude F0 at frequency w. */
@@ -558,27 +576,35 @@ export function modalAnalysis(M: Matrix, K: Matrix): ModalResult | VibError {
   let rigid = 0;
   const scale = Math.max(...eig.values.map(Math.abs), 1);
 
-  // HOW SMALL IS "ZERO" FOR AN EIGENVALUE. This threshold decides whether a mode
-  // is a rigid-body mode, and getting it wrong does not mislabel the mode — it
-  // DELETES it, because lambda is then forced to 0 and the frequency with it.
+  // IS THERE A RIGID-BODY MODE? ASK THE STIFFNESS MATRIX, NOT THE EIGENVALUES.
   //
-  // It was 1e-9 relative to the largest eigenvalue, which is about seven orders
-  // looser than the rounding of a symmetric eigensolve (~eps = 2.2e-16). Any
-  // structure whose eigenvalue spread exceeded 1e9 therefore had its LOWEST
-  // GENUINE MODE zeroed and announced as a rigid-body mode. That spread is not
-  // exotic: 1000 kg on a soft mount carrying a 1 g part on a stiff spring does
-  // it, with a stiffness matrix that is plainly positive definite. The true
-  // frequencies are 1.0 and 1e5 rad/s; the engine reported 0 and 1e5, refused
-  // the static case outright as "the whole structure accelerates away", and was
-  // 3x wrong at a mundane 0.5 rad/s.
+  // This decision does not merely label a mode — it DELETES it, forcing lambda
+  // and the frequency to zero. Two successive tolerances got it wrong, and the
+  // second failure is the instructive one.
   //
-  // 1e-12 keeps four orders of headroom above rounding — a genuinely singular K
-  // still produces an eigenvalue at ~1e-16 of the scale and is still caught —
-  // while moving the cliff out by three orders. A cliff still exists, because
-  // separating a real eigenvalue from zero is a finite-precision question, so
-  // the note below says when the spread is close enough to matter rather than
-  // pretending the threshold is exact.
-  const ZERO_EIGENVALUE = 1e-12;
+  // 1e-9 relative to the largest eigenvalue was seven orders looser than the
+  // rounding of the eigensolve, so any structure with an eigenvalue spread past
+  // 1e9 lost its lowest genuine mode. Tightening to 1e-12 moved the cliff out
+  // three orders and did not remove it: two 10-tonne floors on ordinary columns
+  // plus a 0.1 mg sensor die on a stiff bond still came back as [0, 0, 1e8]
+  // when the truth is 6.3 and 17.3 rad/s — about 1 Hz and 2.8 Hz — with the
+  // static case refused as "the whole structure accelerates away" and BOTH real
+  // resonances missed.
+  //
+  // The reason no tolerance works is that lambda_min / lambda_max carries no
+  // rank information. "Is K singular" is a question about K, and a relative
+  // eigenvalue size cannot answer it however it is tuned.
+  //
+  // So ask K directly. A Cholesky factorisation succeeds exactly when a
+  // symmetric matrix is positive definite, which for a stiffness matrix means
+  // exactly that no rigid-body mode exists — the routine is already in this file
+  // and is already trusted for the mass matrix. When it succeeds, NO eigenvalue
+  // is zeroed however small it is, and a small one is a real low-frequency mode
+  // rather than a numerical artefact. Only when it fails does the eigenvalue
+  // test run at all, and then a loose tolerance is safe, because we already know
+  // K is singular and are only deciding how many modes are.
+  const kIsPositiveDefinite = cholesky(K) !== null;
+  const ZERO_EIGENVALUE = kIsPositiveDefinite ? 0 : 1e-9;
 
   order.forEach((o, col) => {
     let lambda = o.v;

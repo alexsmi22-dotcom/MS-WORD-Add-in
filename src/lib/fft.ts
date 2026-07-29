@@ -113,7 +113,10 @@ export function spectrum(signal: number[], sampleRate: number): SpectrumBin[] {
   const half = Math.floor(n / 2);
   const bins: SpectrumBin[] = [];
   for (let k = 0; k <= half; k++) {
-    const mag = Math.sqrt(re[k] * re[k] + im[k] * im[k]);
+    // Math.hypot: squaring first overflows for sample amplitudes past ~1e154 and
+    // reports every bin as Infinity, when the true magnitudes are ordinary
+    // numbers a double holds comfortably.
+    const mag = Math.hypot(re[k], im[k]);
     // scale: DC and Nyquist by 1/N, the rest by 2/N (single-sided)
     const scale = k === 0 || k === half ? 1 / n : 2 / n;
     bins.push({ freq: (k * sampleRate) / n, magnitude: mag * scale, phase: Math.atan2(im[k], re[k]) });

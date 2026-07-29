@@ -456,7 +456,36 @@ export function eigenvaluesGeneral(A: Matrix): Complex[] | null {
   if (!isSquare(A)) return null;
   const n = rows(A);
   if (n === 0) return [];
-  const a = hessenberg(A);
+
+  // SCALE THE MATRIX BEFORE ITERATING, AND SCALE THE ANSWER BACK.
+  //
+  // The QR sweep forms products of matrix entries directly — `w = a[nn][nn-1] *
+  // a[nn-1][nn]` and `q = p*p + w` — which overflow once entries pass ~1.3e154.
+  // The overflow does not fail loudly: it becomes NaN, the iteration then never
+  // converges, and the function throws "Eigenvalue iteration did not converge"
+  // sixty sweeps later. A matrix of 1e160 entries has eigenvalues near 1e160,
+  // which a double holds perfectly well, and it could not be solved at all.
+  //
+  // Eigenvalues are homogeneous — eig(cA) = c·eig(A) — so normalising the matrix
+  // and multiplying the results back is exact in principle. The factor is a
+  // POWER OF TWO so it is also exact in floating point: scaling by 2^k changes
+  // only the exponent and cannot perturb a single mantissa bit.
+  let maxAbs = 0;
+  for (let i = 0; i < n; i++) {
+    for (let j = 0; j < n; j++) {
+      const v = Math.abs(A[i][j]);
+      if (Number.isFinite(v) && v > maxAbs) maxAbs = v;
+    }
+  }
+  let scale = 1;
+  if (maxAbs > 0 && (maxAbs > 1e100 || maxAbs < 1e-100)) {
+    // 2^-round(log2(maxAbs)) brings the largest entry to about 1.
+    scale = Math.pow(2, -Math.round(Math.log2(maxAbs)));
+    if (!Number.isFinite(scale) || scale === 0) scale = 1;
+  }
+  const src = scale === 1 ? A : A.map((row) => row.map((v) => v * scale));
+
+  const a = hessenberg(src);
   const wr = new Array(n).fill(0);
   const wi = new Array(n).fill(0);
   let anorm = 0;
@@ -551,7 +580,13 @@ export function eigenvaluesGeneral(A: Matrix): Complex[] | null {
                 r /= x;
               }
             }
-            s = Math.sqrt(p * p + q * q + r * r);
+            // Math.hypot, not sqrt of a sum of squares: squaring first overflows
+            // once any of p, q, r passes ~1.3e154, and the resulting NaN does not
+            // fail loudly — the iteration simply never converges and throws
+            // "Eigenvalue iteration did not converge" 60 sweeps later. A matrix of
+            // 1e160 entries has eigenvalues near 1e160, which a double represents
+            // perfectly well, and it could not be solved at all.
+            s = Math.hypot(p, q, r);
             if (p < 0) s = -s;
             if (s !== 0) {
               if (k === m) {
@@ -590,7 +625,8 @@ export function eigenvaluesGeneral(A: Matrix): Complex[] | null {
       }
     } while (l < nn - 1);
   }
-  return wr.map((re, i) => ({ re, im: wi[i] }));
+  // Undo the normalisation. Dividing by an exact power of two is exact.
+  return wr.map((re, i) => ({ re: re / scale, im: wi[i] / scale }));
 }
 
 /** Formats a complex eigenvalue as "a", "bi", or "a + bi" with sig figs. */

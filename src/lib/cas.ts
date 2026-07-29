@@ -166,9 +166,24 @@ function qFromNumber(v: number): Q {
  * line-for-line copy of this function, which is no check at all.
  */
 const qToNumber = (a: Q): number => {
-  const n = Number(a.n);
-  const d = Number(a.d);
-  if (Number.isFinite(n) && Number.isFinite(d)) return n / d;
+  // THE FAST PATH IS ONLY TAKEN WHERE IT IS PROVABLY EXACT: both sides at most
+  // 2^53, so `Number()` loses nothing and the single division is correctly
+  // rounded by IEEE-754.
+  //
+  // It used to be taken whenever both sides merely converted FINITELY, which is
+  // true up to ~1.8e308 — and above 2^53 `Number()` rounds, so the result was
+  // rounded twice and came out 1 to 2 ULP wrong in roughly a third of cases.
+  // That made this library's exact-rational pipeline LESS accurate than the
+  // naive parse it exists to improve on: `parseRatLiteral("6.721856781630347414583")`
+  // returned 6.721856781630347 where `Number()` of the same text gives the
+  // correct 6.721856781630348.
+  //
+  // The exact path costs 0.3-0.9 microseconds against about 0.06, which is worth
+  // it for a function whose whole purpose is to hand over the right number.
+  const SAFE = 9007199254740992n; // 2^53
+  const an = a.n < 0n ? -a.n : a.n;
+  const ad = a.d < 0n ? -a.d : a.d;
+  if (an <= SAFE && ad <= SAFE) return Number(a.n) / Number(a.d);
 
   const neg = a.n < 0n !== a.d < 0n;
   const N = a.n < 0n ? -a.n : a.n;

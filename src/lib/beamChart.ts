@@ -28,6 +28,22 @@ const ML = 46;
 const MR = 16;
 const GAP = 16;
 
+/**
+ * The figure's true pixel size, EXPORTED so a caller never re-types it.
+ *
+ * The pane declared `h: 336` as a literal. That was right at v2.23.0; H then went
+ * to 342 and to 346 without anyone updating it, so every inserted beam figure was
+ * 346 px of artwork rasterised into a 336 px canvas — squashed 2.9% vertically,
+ * on every beam including the default one. Nothing was clipped, so nothing looked
+ * broken.
+ *
+ * The geometry test could not catch it: it parses `height=` out of the SVG it
+ * just generated and measures against THAT, so it is self-consistent at 336, 342
+ * and 346 alike. A constant duplicated across a module boundary has to be
+ * exported, not re-typed.
+ */
+export const BEAM_CHART_SIZE = { w: W, h: BEAM_H + GAP + PANEL_H + GAP + PANEL_H + 44 };
+
 const INK = "#111111";
 const RULE = "#888888";
 const FILL_V = "#cfe3f3";
@@ -80,7 +96,7 @@ export function beamDiagramSvg(input: BeamChartInput): string {
   const pw = W - ML - MR;
   // +34 left the x-axis label at axisY + 26 = H + 6, i.e. clipped off the
 // bottom on every beam including a plain rigid one. It needs 40.
-const H = BEAM_H + GAP + PANEL_H + GAP + PANEL_H + 44;
+const H = BEAM_CHART_SIZE.h;
   const sx = (x: number): number => ML + (L > 0 ? (x / L) * pw : 0);
 
   const vs = sample(result.shearAt, L, result.breakpoints);
@@ -264,6 +280,29 @@ function arrow(x1: number, y1: number, x2: number, y2: number, sw = 1.2): string
   );
 }
 
+/**
+ * Can this panel be drawn at all?
+ *
+ * Shared by `drawPanel` and `annotate` on purpose. They were independent
+ * siblings, so a panel could correctly say "not finite at this scale" while its
+ * annotation still drew a peak marker and a number beside it — and because
+ * `annotate` has no clamp on its y, that marker could land INSIDE the panel
+ * above. The figure then carried a refusal and a confident value at once.
+ */
+function panelIsDrawable(pts: { x: number; y: number }[]): boolean {
+  const finite = pts.filter((q) => Number.isFinite(q.y));
+  if (finite.length !== pts.length) return false;
+  if (new Set(finite.map((q) => q.x)).size < 2) return false;
+  const vals = finite.map((q) => q.y);
+  let lo = Math.min(0, ...vals);
+  let hi = Math.max(0, ...vals);
+  if (hi === lo) return true;
+  const pad = (hi - lo) * 0.12;
+  lo -= pad;
+  hi += pad;
+  return Number.isFinite(lo) && Number.isFinite(hi) && Number.isFinite(hi - lo) && hi !== lo;
+}
+
 function drawPanel(
   pts: { x: number; y: number }[],
   top: number,
@@ -300,7 +339,6 @@ function drawPanel(
     );
     return p.join("");
   }
-  pts = finite;
   let lo = Math.min(0, ...vals);
   let hi = Math.max(0, ...vals);
   if (hi === lo) {
@@ -347,6 +385,8 @@ function annotate(
   unit: string,
 ): string {
   if (!Number.isFinite(v) || v === 0) return "";
+  // Never annotate a panel that could not be drawn.
+  if (!panelIsDrawable(pts)) return "";
   const vals = pts.map((q) => q.y).filter((n) => Number.isFinite(n));
   let lo = Math.min(0, ...vals);
   let hi = Math.max(0, ...vals);

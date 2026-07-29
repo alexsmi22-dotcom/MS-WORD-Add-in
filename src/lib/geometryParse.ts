@@ -24,7 +24,7 @@ import {
   pt, Pt, GeoResult, GeoValue, distance, midpoint, lineThrough, lineIntersect,
   pointLineDistance, polygonArea, polygonCentroid, isConvex, convexHull,
   triangleCentres, circleFrom3Points, solveTriangle, classifyConic, shapeMetrics,
-  fmtRat, fmtSqrtRat, distanceSquared, collinear, pointInPolygon,
+  fmtRat, fmtSqrtRat, sqrtRatToNumber, distanceSquared, collinear, pointInPolygon,
 } from "./geometry";
 
 // ---------------------------------------------------------------------------
@@ -326,7 +326,7 @@ export function solveGeometry(input: string): GeoResult | null {
       values: [
         V("centre x", evalFrac(fmtRat(c.centre.x)), fmtRat(c.centre.x)),
         V("centre y", evalFrac(fmtRat(c.centre.y)), fmtRat(c.centre.y)),
-        V("radius", Math.sqrt(evalFrac(fmtRat(r2))), fmtSqrtRat(r2) ?? undefined),
+        V("radius", sqrtRatToNumber(r2), fmtSqrtRat(r2) ?? undefined),
         V("area", Math.PI * evalFrac(fmtRat(r2)), `${fmtRat(r2)}*pi`),
       ],
       steps: ["Centre = the circumcentre (intersection of the perpendicular bisectors), computed exactly."],
@@ -432,7 +432,7 @@ function polygonRequest(kw: string, pts: Pt[]): GeoResult {
     { label: "area", value: evalFrac(fmtRat(area)), exact: fmtRat(area) },
   ];
   let perim = 0;
-  for (let i = 0; i < pts.length; i++) perim += Math.sqrt(evalFrac(fmtRat(distanceSquared(pts[i], pts[(i + 1) % pts.length]))));
+  for (let i = 0; i < pts.length; i++) perim += sqrtRatToNumber(distanceSquared(pts[i], pts[(i + 1) % pts.length]));
   values.push(V("perimeter", perim));
 
   const steps: string[] = [`${pts.length} points; area by the shoelace formula, exactly.`];
@@ -468,7 +468,7 @@ function polygonRequest(kw: string, pts: Pt[]): GeoResult {
           : "Euler line check FAILED, which should be impossible; treat this result with suspicion."
       );
       const circ = circleFrom3Points(pts[0], pts[1], pts[2]);
-      if (circ) values.push(V("circumradius", Math.sqrt(evalFrac(fmtRat(circ.r2))), fmtSqrtRat(circ.r2) ?? undefined));
+      if (circ) values.push(V("circumradius", sqrtRatToNumber(circ.r2), fmtSqrtRat(circ.r2) ?? undefined));
     }
   }
   return { title: `${kw === "triangle" ? "Triangle" : "Polygon"} from ${pts.length} points`, values, steps, caveats };

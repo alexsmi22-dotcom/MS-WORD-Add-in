@@ -5,6 +5,48 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > Note: this file was not maintained between v1.96.0 and v2.23.0. Those releases
 > are recorded in the git history rather than here.
 
+## [2.31.9] — 2026-07-28 — The anchor after a figure, and a measurement that never was
+
+v2.31.8 restored the figure branch byte-for-byte to the version believed to
+render both Bode plots. It still inserted one of two. That result is the useful
+one, because it convicts the belief rather than the code.
+
+**The "2 of 2" rung was never a measurement.** It was inferred from a remark
+that two plots "are not aligned even though they are the same size" — read as
+proof both had been inserted, when it was almost certainly about the pane's
+preview. The second figure has probably never arrived, and four releases were
+spent reverting toward a state that was never verified.
+
+Everything fits that reading. Every other figure-bearing report — beam, step
+response, all three pharmacokinetics tools, both vibration tools — carries
+exactly ONE figure and has always worked. Frequency response is the only report
+with two, and the only one that loses one. One figure never chains an anchor; a
+second one does.
+
+**The fix is one token, and it is corroborated rather than reasoned.**
+`insertGallery` has shipped untouched for years, inserts N pictures in one loop
+in one `Word.run`, and differs from the figure branch in exactly one place:
+
+```
+insertGallery:  anchor = para.getRange(Word.RangeLocation.end);    // N pictures
+figure branch:  anchor = para.getRange(Word.RangeLocation.after);  // 2nd lost
+```
+
+Chaining `.after` off a paragraph that CONTAINS an inline picture does not yield
+a usable insertion point. Word accepts the next picture against it and keeps
+nothing, without error. Text paragraphs chain off `.after` perfectly well, which
+is why the prose in these reports always landed and only figures went missing.
+
+Gated both ways: the figure branch must use `.end`, and a second test asserts
+`insertGallery` still uses `.end` too — if the path this is modelled on ever
+changes, the justification is stale and the suite should say so rather than keep
+asserting a shape nothing corroborates.
+
+Refuted and recorded, so none of it is rediscovered: that properties set on a
+picture before its batch syncs are discarded with it; that a sync between hops
+is the remedy; that `InsertLocation.start` fixes alignment harmlessly. Each cost
+a release.
+
 ## [2.31.8] — 2026-07-28 — Back to the six lines that actually worked
 
 The picture count from v2.31.7 said "Word kept 1 of 2 figures", which is the

@@ -10786,43 +10786,49 @@ async function insertResultBlocks(text: string, blocksIn: AnalyzeBlock[] | null,
         }
         flushRun();
         if (block.kind === "plot") {
-          // BYTE-FOR-BYTE THE v2.31.0 SHAPE. DO NOT "IMPROVE" IT.
+          // THE ANCHOR AFTER A FIGURE MUST BE RangeLocation.end, NOT .after.
           //
-          // Four releases were spent walking away from these six lines, and the
-          // user measured the cost of every step. Word reports no error for any
-          // of them; it accepts the picture and keeps nothing, so only a count
-          // of document.body.inlinePictures can tell the variants apart:
+          // This is the whole bug, and it took five releases because the first
+          // "measurement" was an inference. A user's remark that two Bode plots
+          // "are not aligned even though they are the same size" was read as
+          // proof both had been inserted; it was almost certainly about the
+          // pane's preview. The second figure has probably NEVER arrived.
           //
-          //   caption paragraph, picture at End    (2.31.0)  2 of 2 figures
-          //   empty paragraph,   picture at End    (2.31.1)  1 of 2
-          //   ...plus a sync per hop               (2.31.4)  0 of 2, beam too
-          //   caption paragraph, picture at Start  (2.31.7)  1 of 2
+          // Everything else fits that. Every other figure-bearing report — beam,
+          // step response, all three PK tools, both vibration tools — carries
+          // exactly ONE figure and has always worked. Frequency response is the
+          // only report with two, and it is the only one that loses one. A
+          // single figure never chains an anchor; a second one does.
           //
-          // Two independent things cost figures: creating the paragraph EMPTY,
-          // and syncing inside this branch. The 2.31.7 attempt fixed the first
-          // and introduced a third variable — InsertLocation.start — which cost
-          // a figure by itself. Only End into a paragraph that already has text,
-          // with no sync, has ever put both plots on the page.
+          // insertGallery is the proof. It has shipped untouched for years, it
+          // inserts N pictures in one loop in one Word.run, and it differs from
+          // this branch in exactly one token: it takes its next anchor from
+          // getRange(RangeLocation.END) rather than .after. Chaining .after off
+          // a paragraph that CONTAINS AN INLINE PICTURE does not yield a usable
+          // insertion point — Word accepts the next picture against it and keeps
+          // nothing, with no error. Text paragraphs chain off .after perfectly
+          // well, which is why the prose in these reports has always landed and
+          // only the figures went missing.
           //
-          // Refuted on the way, and recorded so it is not rediscovered: the
-          // theory that properties set on a picture before its batch syncs are
-          // discarded with the picture. insertSubstituentGallery, the
-          // table-figure insert and the structure insert all set width, height
-          // and alt-text in the same unsynced batch and have shipped for years.
+          // Refuted along the way, recorded so none of it is rediscovered:
+          //   - that properties set on a picture pre-sync are discarded with it
+          //     (insertGallery, the table-figure and structure inserts all do
+          //     this and have shipped for years);
+          //   - that a sync between hops is the remedy (it took the report from
+          //     one figure to none, and broke single-figure beam as well);
+          //   - that InsertLocation.start would fix alignment harmlessly (it
+          //     cost a figure by itself).
           //
-          // THE COSMETIC DEBT. The picture sits after the caption text, so two
-          // figures with captions of different lengths do not start at the same
-          // x — the complaint that began all of this. It is a real defect and it
-          // is deliberately still here, because every structural fix attempted
-          // for it has cost the figures themselves. The next attempt must build
-          // figure and caption as a single OOXML package, where the layout is
-          // declared rather than assembled from chained ranges — and it must be
-          // proved against the picture count before it ships.
+          // THE COSMETIC DEBT that started this is still here: the picture sits
+          // after the caption text, so captions of different lengths push their
+          // figures to different x. Fix it by declaring layout in a single OOXML
+          // package, never by chaining more ranges — and prove it against the
+          // picture count before shipping it.
           const para = anchor.insertParagraph(block.caption, Word.InsertLocation.after);
           const pic = para.insertInlinePictureFromBase64(images[i], Word.InsertLocation.end);
           sizeFigure(pic, block.w, block.h);
           pic.altTextDescription = block.alt;
-          anchor = para.getRange(Word.RangeLocation.after);
+          anchor = para.getRange(Word.RangeLocation.end);
           continue;
         }
         if (block.label) {

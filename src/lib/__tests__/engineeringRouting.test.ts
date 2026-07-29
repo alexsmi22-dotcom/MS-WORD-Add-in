@@ -504,6 +504,27 @@ describe("every non-text block kind reaches the rich insert path", () => {
     expect(body.split("await context.sync()").length - 1).toBe(0);
   });
 
+  test("the next anchor comes from RangeLocation.end, as insertGallery does", () => {
+    // insertGallery inserts N pictures in one loop in one Word.run and has
+    // shipped untouched for years. It differs from this branch in exactly one
+    // token: .end rather than .after. Chaining .after off a paragraph that
+    // CONTAINS a picture does not give a usable insertion point, so the next
+    // picture is accepted and kept by nobody. Text paragraphs chain off .after
+    // fine, which is why only figures went missing.
+    const body = figureBranch();
+    expect(body).toContain("para.getRange(Word.RangeLocation.end)");
+    expect(body).not.toContain("para.getRange(Word.RangeLocation.after)");
+  });
+
+  test("the gallery this is modelled on still uses the same anchor rule", () => {
+    // If insertGallery ever changes, the justification above is stale and this
+    // suite is asserting a shape nothing corroborates any more.
+    const g = PANE.indexOf("insertInlinePictureFromBase64(item.base64");
+    expect(g).toBeGreaterThan(-1);
+    const loop = PANE.slice(g, g + 400);
+    expect(loop).toContain("para.getRange(Word.RangeLocation.end)");
+  });
+
   test("the figure branch is exactly the five statements that worked", () => {
     // Pinned as a whole, not statement by statement, because every regression
     // here came from adding ONE more thing to a sequence that was already
@@ -518,7 +539,7 @@ describe("every non-text block kind reaches the rich insert path", () => {
       "const pic = para.insertInlinePictureFromBase64(images[i], Word.InsertLocation.end);",
       "sizeFigure(pic, block.w, block.h);",
       "pic.altTextDescription = block.alt;",
-      "anchor = para.getRange(Word.RangeLocation.after);",
+      "anchor = para.getRange(Word.RangeLocation.end);",
     ]);
   });
 

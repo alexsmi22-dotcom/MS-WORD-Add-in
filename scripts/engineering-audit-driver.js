@@ -56,6 +56,41 @@
     // declares groups; only the rendered DOM proves the pane built the
     // <optgroup> elements, and an option that ends up outside one is invisible
     // under a heading rather than merely misplaced.
+    // The PANELS are the control now; the select is only the state holder. A
+    // source scan can prove the panels are built, but only the rendered DOM
+    // proves a click on one actually selects the calculation.
+    var panelHost = document.getElementById("engineering-groups");
+    var panels = panelHost ? [].slice.call(panelHost.querySelectorAll("details.eng-group")) : [];
+    var panelBtns = panelHost ? [].slice.call(panelHost.querySelectorAll("button.eng-tool")) : [];
+    var openAtStart = panels.filter(function (p) { return p.open; }).length;
+    push(
+      "PANELS panels=" + panels.length + " tools=" + panelBtns.length +
+        " openAtStart=" + openAtStart +
+        " headings=" + panels.map(function (p) {
+          var s = p.querySelector("summary");
+          return s ? (s.childNodes[0] && s.childNodes[0].nodeValue || "").trim() : "?";
+        }).join("/")
+    );
+
+    // Clicking a panel button must move the selection. Exercised on a tool in
+    // the LAST panel, which is the one a dropdown made hardest to reach.
+    if (panelBtns.length) {
+      var target = panelBtns[panelBtns.length - 1];
+      var wanted = target.dataset.id;
+      target.click();
+      var moved = calcSel.value === wanted;
+      var marked = target.getAttribute("aria-current") === "true";
+      var opened = !!(target.closest("details") || {}).open;
+      var inputsShown = document.querySelectorAll("#engineering-inputs [data-key]").length;
+      push(
+        "PANELCLICK wanted=" + wanted + " selected=" + calcSel.value +
+          " highlighted=" + marked + " panelOpen=" + opened + " fields=" + inputsShown +
+          " " + (moved && marked && opened && inputsShown > 0 ? "ok" : "BROKEN")
+      );
+    } else {
+      push("PANELCLICK BROKEN no panel buttons rendered");
+    }
+
     var groups = [].slice.call(calcSel.querySelectorAll("optgroup"));
     var grouped = groups.reduce(function (n, g) {
       return n + g.querySelectorAll("option").length;

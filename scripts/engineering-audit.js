@@ -90,7 +90,7 @@ function run() {
       "--dump-dom",
       "file:///" + path.join(DIST, "eng-harness.html").replace(/\\/g, "/"),
     ],
-    { encoding: "utf8", maxBuffer: 128 * 1024 * 1024 }
+    { encoding: "utf8", maxBuffer: 128 * 1024 * 1024 , timeout: 180000, killSignal: "SIGKILL" }
   );
 
   const m = /data-results="([^"]*)"/.exec(dom);
@@ -137,7 +137,21 @@ function run() {
   const grouped = Number((/grouped=(\d+)/.exec(menu) || [, "-1"])[1]);
   const menuOk = loose === 0 && grouped === Number(toolCount) && grouped > 0;
   if (!menuOk) findings.push(menu || "MENU MISSING");
-  console.log("--- The menu as the browser actually rendered it ---------------");
+  const panels = lines.find((l) => l.startsWith("PANELS ")) || "";
+  const click = lines.find((l) => l.startsWith("PANELCLICK ")) || "";
+  const panelCount = Number((/panels=(\d+)/.exec(panels) || [, "0"])[1]);
+  const panelTools = Number((/tools=(\d+)/.exec(panels) || [, "0"])[1]);
+  const openAtStart = Number((/openAtStart=(\d+)/.exec(panels) || [, "-1"])[1]);
+  const panelsOk = panelCount > 1 && panelTools === Number(toolCount) && openAtStart === 1;
+  const clickOk = / ok$/.test(click);
+  if (!panelsOk) findings.push(panels || "PANELS MISSING");
+  if (!clickOk) findings.push(click || "PANELCLICK MISSING");
+  console.log("--- Discipline panels (the control the user actually clicks) ---");
+  console.log(`  ${panelsOk ? "ok  " : "FLAG"}  ${panels.slice(7) || "no PANELS line"}`);
+  console.log(`  ${clickOk ? "ok  " : "FLAG"}  ${click.slice(11) || "no PANELCLICK line"}`);
+  console.log("");
+
+  console.log("--- The select behind them (still the state holder) ------------");
   console.log(`  ${menuOk ? "ok  " : "FLAG"}  ${menu.slice(5) || "no MENU line produced"}`);
   console.log("");
 

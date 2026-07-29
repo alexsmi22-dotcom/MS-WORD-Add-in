@@ -5,6 +5,42 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > Note: this file was not maintained between v1.96.0 and v2.23.0. Those releases
 > are recorded in the git history rather than here.
 
+## [2.32.0] — 2026-07-28 — Engineering is panels, not a dropdown
+
+Thirty-six calculations in one `<select>` is a scroll, not a menu. Grouping them
+with `<optgroup>` in v2.31.5 made the list scannable but did not make it shorter,
+and Engineering was the only mode in the add-in that asked anyone to drag through
+a list taller than the pane.
+
+Each discipline is now its own collapsible panel: Structural & solids, Fatigue &
+machine design, Fluids, Thermal, Electronics, Control systems, Vibration,
+Biomedical, Pharmacokinetics. Nine short headings, three to six calculations
+each, and only the panel holding the current calculation starts open.
+
+**The `<select>` is still there, hidden, as the selection's single source of
+truth.** A panel button sets its value and fires `change`; it does not render
+inputs itself. Input rendering, compute, insert, all the routing gates and the
+headless audit therefore run through exactly the path they always did. Two
+controls drift apart; a control and a state holder cannot. The highlight follows
+the select rather than the click, so anything that moves the selection — a
+restored session, the audit driving it directly — leaves the panels showing the
+tool actually being computed.
+
+Gated in the rendered DOM, not just the source: the audit counts nine panels
+holding all 36 tools with exactly one open, then clicks the button for a tool in
+the LAST panel — the one a dropdown made hardest to reach — and checks the
+selection moved, the highlight moved, the panel opened and the fields rendered.
+
+### QC could hang instead of finishing
+
+Two QC runs stalled with no output and no verdict, which reads exactly like a
+failure and was reported as one. `execFileSync` launches the headless browser
+with no timeout, so a browser that never exits blocks the run forever. All four
+browser-driven gates — landing layout, pane layout, render check, Engineering
+audit — are now bounded at 180s with `SIGKILL`, so a hang reports as the
+infrastructure error it is rather than as silence. A callback is not a bound and
+neither is a subprocess; only a clock is.
+
 ## [2.31.9] — 2026-07-28 — The anchor after a figure, and a measurement that never was
 
 > **Not yet confirmed.** No picture count has been taken with `.end` in place.
@@ -48,10 +84,13 @@ The proposed reading is that chaining `.after` off a paragraph which CONTAINS an
 inline picture does not yield a usable insertion point — Word accepts the next
 picture against it and keeps nothing, without error — while text paragraphs
 chain off `.after` perfectly well, which is why the prose in these reports always
-landed and only figures went missing. **Whether that is actually the cause is not
-yet confirmed.** No picture count has ever been taken with `.end` in place. The
-status line now reports Word's own count, so the next frequency-response insert
-either reads "2 figures" or names what was dropped.
+landed and only figures went missing.
+
+**Confirmed in real Word.** The frequency-response report now reads "2 figures"
+on the status line, with both plots on the page — Word's own count, from
+`document.body.inlinePictures` before and after, verified against what the user
+could see. That is the first hard number in this whole sequence, and it is what
+promotes the reading above from corroboration to a result.
 
 An OOXML package upstream of the figures was the rival explanation and was set
 aside, not disproven: the step-response report is a transfer-function equation

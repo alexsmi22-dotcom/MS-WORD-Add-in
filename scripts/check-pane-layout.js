@@ -182,7 +182,7 @@ function run() {
         "--dump-dom",
         "file:///" + path.join(dir, "harness.html").replace(/\\/g, "/"),
       ],
-      { encoding: "utf8", maxBuffer: 64 * 1024 * 1024, stdio: ["ignore", "pipe", "ignore"] },
+      { encoding: "utf8", maxBuffer: 64 * 1024 * 1024, stdio: ["ignore", "pipe", "ignore"] , timeout: 180000, killSignal: "SIGKILL" },
     );
   } catch (e) {
     console.error("FAIL: browser run failed — " + e.message);

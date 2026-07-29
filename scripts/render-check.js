@@ -95,7 +95,7 @@ function run() {
       "--dump-dom",
       "file:///" + path.join(DIST, "harness.html").replace(/\\/g, "/"),
     ],
-    { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 }
+    { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 , timeout: 180000, killSignal: "SIGKILL" }
   );
   fs.writeFileSync(outFile, dom);
 

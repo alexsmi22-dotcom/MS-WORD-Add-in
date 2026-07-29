@@ -148,7 +148,7 @@ function checkPage(browser, pageSrc) {
       "--user-data-dir=" + path.join(dir, "profile"),
       "--dump-dom",
       "file:///" + path.join(dir, "harness.html").replace(/\\/g, "/"),
-    ], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024, stdio: ["ignore", "pipe", "ignore"] });
+    ], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024, stdio: ["ignore", "pipe", "ignore"] , timeout: 180000, killSignal: "SIGKILL" });
   } catch (e) {
     // INFRASTRUCTURE, NOT LAYOUT. Returning the same code as a real overlap made
     // a browser that would not start report as "1 of 5 landing pages have layout

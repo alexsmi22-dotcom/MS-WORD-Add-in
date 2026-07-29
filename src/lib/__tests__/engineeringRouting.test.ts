@@ -738,3 +738,67 @@ describe("every Engineering tool appears under a heading in the menu", () => {
     expect(dupes).toEqual([]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// The menu is a set of PANELS, not a dropdown. Thirty-six options in one
+// <select> is a scroll rather than a menu, and Engineering was the only mode in
+// the add-in that worked that way. The <select> is kept as the selection's
+// single source of truth — the panels set its value and fire `change`, so every
+// downstream path is untouched — which means the failure mode to guard is the
+// two drifting apart, or the panels silently not being built at all.
+// ---------------------------------------------------------------------------
+describe("the Engineering menu is rendered as discipline panels", () => {
+  test("the pane builds a panel per group and a button per calculation", () => {
+    expect(PANE).toContain("function renderEngineeringGroups()");
+    expect(PANE).toContain('document.getElementById("engineering-groups")');
+    expect(PANE).toContain('panel.className = "eng-group"');
+    expect(PANE).toContain('btn.className = "eng-tool"');
+  });
+
+  test("the panel host exists in the markup", () => {
+    const html = fs.readFileSync(path.join(__dirname, "..", "..", "taskpane", "taskpane.html"), "utf8");
+    expect(html).toContain('id="engineering-groups"');
+    // The select is kept, hidden, as the state holder.
+    expect(html).toContain('id="engineering-calc"');
+    expect(html).toContain("eng-state-select");
+  });
+
+  test("a panel click routes through the select rather than around it", () => {
+    // Two controls drift; a control and a state holder cannot. If the click
+    // handler ever renders inputs directly, the select stops being the truth
+    // and the audit — which drives the select — stops testing what users click.
+    const i = PANE.indexOf("function selectEngineeringCalc(");
+    expect(i).toBeGreaterThan(-1);
+    const body = PANE.slice(i, PANE.indexOf("\n}", i));
+    expect(body).toContain("engineeringCalcSelect.value = id");
+    expect(body).toContain('dispatchEvent(new Event("change"');
+    expect(body).not.toContain("renderEngineeringInputs(");
+  });
+
+  test("the panels follow the select however it was changed", () => {
+    // The audit and any restored state set the select directly. If the
+    // highlight only moved on panel clicks, those paths would leave the panels
+    // showing a different tool from the one being computed.
+    const i = PANE.indexOf('engineeringCalcSelect.addEventListener("change"');
+    expect(i).toBeGreaterThan(-1);
+    const body = PANE.slice(i, i + 400);
+    expect(body).toContain("renderEngineeringInputs()");
+    expect(body).toContain("markEngineeringSelection(");
+  });
+
+  test("only the panel holding the current calculation starts open", () => {
+    // Nine panels open at once is the scroll this replaced.
+    const i = PANE.indexOf("function renderEngineeringGroups()");
+    const body = PANE.slice(i, PANE.indexOf("\n}", PANE.indexOf("for (const title", i)));
+    expect(body).toContain("panel.open = members.some((m) => m.id === current)");
+  });
+
+  test("every calculation is reachable from a panel", () => {
+    // The panels are built from the same registry as the select, so a tool
+    // cannot be in one and not the other — pin that they share the source.
+    const i = PANE.indexOf("function renderEngineeringGroups()");
+    const body = PANE.slice(i, i + 2000);
+    expect(body).toContain("ENG_CALCS.filter((c) => c.group === title)");
+    expect(body).toContain("for (const title of ENG_GROUP_ORDER)");
+  });
+});

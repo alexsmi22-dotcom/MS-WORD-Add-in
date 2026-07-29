@@ -716,8 +716,17 @@
           it is computed exactly and says so. Analysis aid — check against your own working before
           relying on it.
         </p>
-        <label class="field-label" for="engineering-calc">Calculation</label>
-        <select id="engineering-calc" class="lib-select"></select>
+        <span class="field-label" id="engineering-groups-label">Calculation</span>
+        <!--
+          One panel per discipline, instead of a 36-item dropdown. The <select>
+          below is still the single source of truth for which calculation is
+          selected — the panels set its value and fire `change`, so every
+          downstream path (input rendering, compute, insert, the routing gates
+          and the headless audit) is unchanged. It is hidden from view and from
+          assistive tech; the panels are the real control.
+        -->
+        <div id="engineering-groups" class="eng-groups" role="group" aria-labelledby="engineering-groups-label"></div>
+        <select id="engineering-calc" class="lib-select eng-state-select" aria-hidden="true" tabindex="-1"></select>
         <div id="engineering-hint" class="seq-disclaimer" aria-live="polite"></div>
         <div id="engineering-inputs"></div>
         <div class="preview-wrap">

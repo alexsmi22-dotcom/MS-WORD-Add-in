@@ -171,6 +171,58 @@ describe("ABCD ray matrices", () => {
     expect(m[0]).toBeCloseTo(-sp / s, 10); // A = transverse magnification, inverted
   });
 
+  test("ONE convention: a window modelled with its surfaces gives B = t/n", () => {
+    // Found by an independent review. `space` used the REDUCED distance d/n while
+    // `flat` and `curved` are the UNREDUCED matrices (D = n1/n2). Mixing them
+    // counts the index twice: this stack returned t/n^2 = 4.44 mm instead of
+    // t/n = 6.67 mm, with det = 1 throughout so nothing looked wrong.
+    const t = 0.01;
+    const n = 1.5;
+    const m = systemMatrix([
+      { kind: "flat", n1: 1, n2: n },
+      { kind: "space", d: t },
+      { kind: "flat", n1: n, n2: 1 },
+    ])!;
+    expect(m[1]).toBeCloseTo(t / n, 12);
+    expect(m[1]).not.toBeCloseTo(t / (n * n), 9);
+    // Back in air on both sides, so the determinant returns to 1.
+    expect(m[0] * m[3] - m[1] * m[2]).toBeCloseTo(1, 12);
+  });
+
+  test("the q-parameter agrees with gaussianBeam through a medium", () => {
+    // The two paths disagreed by 70.7 vs 57.2 µm before the convention was fixed.
+    const lambda = 1064e-9;
+    const w0 = 50e-6;
+    const n = 1.8;
+    const zR = gaussianBeam({ w0, lambda, n })!.rayleighM;
+    const direct = gaussianBeam({ w0, lambda, n, z: zR })!.wAtZ;
+    const viaQ = beamFromQ(
+      propagateQ(qFromBeam(w0, Infinity, lambda, 1, n)!, systemMatrix([{ kind: "space", d: zR }])!)!,
+      lambda,
+      1,
+      n,
+    )!.w;
+    expect(direct).toBeCloseTo(w0 * Math.SQRT2, 12);
+    expect(viaQ).toBeCloseTo(direct, 12);
+  });
+
+  test("a flat mirror or an infinite-focus lens is the identity, not a refusal", () => {
+    // resonator() tells the user to write a flat mirror as inf, so systemMatrix
+    // refusing it made a plane-mirror cavity impossible to express.
+    expect(elementMatrix({ kind: "mirror", R: Infinity })).toEqual([1, 0, 0, 1]);
+    expect(elementMatrix({ kind: "lens", f: Infinity })).toEqual([1, 0, 0, 1]);
+    // Zero and NaN remain refusals: they are not flat, they are meaningless.
+    expect(elementMatrix({ kind: "mirror", R: 0 })).toBeNull();
+    expect(elementMatrix({ kind: "lens", f: NaN })).toBeNull();
+  });
+
+  test("only an infinite R means a flat wavefront", () => {
+    const lambda = 1064e-9;
+    expect(qFromBeam(1e-3, NaN, lambda)).toBeNull();
+    expect(qFromBeam(1e-3, 0, lambda)).toBeNull();
+    expect(qFromBeam(1e-3, Infinity, lambda)).not.toBeNull();
+  });
+
   test("q-parameter round trip and free-space propagation", () => {
     const lambda = 1064e-9;
     const w0 = 5e-4;

@@ -11051,7 +11051,19 @@ const ENG_CALCS: EngCalc[] = [
         const num = (i: number) => Number(p[i]);
         switch (p[0].toLowerCase()) {
           case "space":
-            els.push({ kind: "space", d: num(1), n: p[2] ? num(2) : 1 });
+            // No index argument: free space carries the PHYSICAL distance in this
+            // convention, and the index enters only through the interfaces. A
+            // "space d n" that quietly divided by n counted the index twice
+            // whenever the medium was also entered through a flat or curved
+            // surface, so the argument is refused rather than ignored.
+            if (p[2]) {
+              bad.push(
+                `"${t}": space takes a distance only. To model a medium, enter its surfaces: ` +
+                  `flat 1 ${p[2]} / space ${p[1]} / flat ${p[2]} 1.`,
+              );
+            } else {
+              els.push({ kind: "space", d: num(1) });
+            }
             break;
           case "lens":
             els.push({ kind: "lens", f: num(1) });

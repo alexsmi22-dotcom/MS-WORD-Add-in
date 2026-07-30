@@ -209,7 +209,7 @@ export function waistForDivergence(thetaHalfRad: number, lambda: number, m2 = 1)
 export type Abcd = [number, number, number, number]; // A, B, C, D
 
 export type OpticElement =
-  | { kind: "space"; d: number; n?: number }
+  | { kind: "space"; d: number }
   | { kind: "lens"; f: number }
   | { kind: "mirror"; R: number }
   | { kind: "flat"; n1: number; n2: number }
@@ -219,17 +219,36 @@ export type OpticElement =
 export function elementMatrix(e: OpticElement): Abcd | null {
   switch (e.kind) {
     case "space": {
-      const n = e.n ?? 1;
-      if (!Number.isFinite(e.d) || !Number.isFinite(n) || n <= 0) return null;
-      // Reduced distance d/n: a slab of glass shortens the optical path in the
-      // ray-matrix sense, which is why a thick window shifts a focus.
-      return [1, e.d / n, 0, 1];
+      // PHYSICAL distance, not d/n.
+      //
+      // There are two ABCD conventions and they cannot be mixed. This file uses
+      // the UNREDUCED one, where the ray vector carries the actual angle: that is
+      // what makes the interface matrices below correct, with D = n1/n2. In that
+      // convention free space is the physical distance. The reduced convention
+      // (vector carries n*theta) uses d/n for space and makes a flat interface the
+      // IDENTITY — so d/n here alongside a non-identity flat interface counts the
+      // index twice.
+      //
+      // It is an easy mistake because a lone space with d/n looks right: a 10 mm
+      // window of n = 1.5 does behave like 6.67 mm of air. But that shortcut is
+      // the WHOLE window, interfaces included. Modelled honestly as
+      // flat(1->n), space(t), flat(n->1) the physical distance already yields
+      // B = t/n, and d/n would give t/n^2. The q-parameter functions settle it
+      // independently: they carry Im(1/q) = -M^2*lambda/(n*pi*w^2), which is the
+      // unreduced q.
+      if (!Number.isFinite(e.d)) return null;
+      return [1, e.d, 0, 1];
     }
     case "lens":
-      if (!Number.isFinite(e.f) || e.f === 0) return null;
+      if (Number.isNaN(e.f) || e.f === 0) return null;
+      // An infinite focal length is a flat window in the ray sense: no power, so
+      // the identity. Refusing it made a plane mirror impossible to include in a
+      // system even though the resonator tool tells you to write one as inf.
+      if (!Number.isFinite(e.f)) return [1, 0, 0, 1];
       return [1, 0, -1 / e.f, 1];
     case "mirror":
-      if (!Number.isFinite(e.R) || e.R === 0) return null;
+      if (Number.isNaN(e.R) || e.R === 0) return null;
+      if (!Number.isFinite(e.R)) return [1, 0, 0, 1]; // flat mirror: no power
       return [1, 0, -2 / e.R, 1];
     case "flat":
       if (!Number.isFinite(e.n1) || !Number.isFinite(e.n2) || e.n1 <= 0 || e.n2 <= 0) return null;
@@ -283,7 +302,11 @@ export interface QParam {
 /** q from a beam radius and wavefront curvature: 1/q = 1/R - i*lambda/(pi w^2). */
 export function qFromBeam(w: number, R: number, lambda: number, m2 = 1, n = 1): QParam | null {
   if (![w, lambda, m2, n].every(Number.isFinite) || w <= 0 || lambda <= 0 || n <= 0 || m2 < 1) return null;
-  const invR = Number.isFinite(R) && R !== 0 ? 1 / R : 0;
+  // ONLY an infinite R means a flat wavefront. Treating NaN and 0 as flat too
+  // turned a typo'd radius into a silent waist: R = 0 is infinite curvature, the
+  // opposite of flat, and NaN is not a measurement at all.
+  if (Number.isNaN(R) || R === 0) return null;
+  const invR = Number.isFinite(R) ? 1 / R : 0;
   const invIm = -(m2 * lambda) / (n * Math.PI * w * w);
   const denom = invR * invR + invIm * invIm;
   if (denom === 0) return null;
@@ -452,7 +475,7 @@ export function pulseMetrics(
 
   const notes: string[] = [];
   // Computed, not typed: a truncated decimal here is a silent precision error in
-  // every peak power the tool reports. Gaussian: 2*sqrt(ln2/pi). sech^2: 2*ln(1+sqrt2)/pi.
+  // every peak power the tool reports. Gaussian: 2*sqrt(ln2/pi). sech^2: ln(1+sqrt2).
   // Gaussian P(t) = P0*exp(-4ln2 t^2/tau^2) integrates to P0*tau*sqrt(pi/(4ln2)),
   // so P0 = 2*sqrt(ln2/pi) * E/tau = 0.93944 E/tau.
   const GAUSS_FACTOR = 2 * Math.sqrt(Math.LN2 / Math.PI);

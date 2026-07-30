@@ -189,6 +189,18 @@ describe("BB84 key rate", () => {
     expect(bb84KeyRate(1.5)).toBeNull();
     expect(bb84KeyRate(NaN)).toBeNull();
   });
+
+  test("the domain stops at one half — h(Q) is symmetric and the rate turns positive again", () => {
+    // Found by an independent review. The guard was qber > 1, so 1 - 2h(Q)
+    // recovered above Q ~ 0.89: a 95% error rate reported a 0.4272 SECURE key
+    // rate while the same object reported its own 11% threshold.
+    for (const q of [0.6, 0.89, 0.9, 0.95, 1]) {
+      expect({ q, r: bb84KeyRate(q) }).toEqual({ q, r: null });
+    }
+    // The boundary itself is still a legitimate (zero-rate) answer.
+    expect(bb84KeyRate(0.5)!.keyRate).toBe(0);
+    expect(bb84KeyRate(0.5)!.secure).toBe(false);
+  });
 });
 
 describe("binary entropy", () => {

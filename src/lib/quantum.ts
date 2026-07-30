@@ -256,7 +256,12 @@ export interface QkdResult {
  * number here is a ceiling for comparison rather than a system specification.
  */
 export function bb84KeyRate(qber: number): QkdResult | null {
-  if (!Number.isFinite(qber) || qber < 0 || qber > 1) return null;
+  // Domain is [0, 0.5], NOT [0, 1]. h(Q) is symmetric about 0.5, so 1 - 2h(Q)
+  // turns POSITIVE again above Q ~ 0.89 and a 95% error rate was reporting a
+  // 0.43 "secure" key rate beside its own 11% threshold. A QBER above one half
+  // is not a channel that leaks — it is one whose bits are anticorrelated, and
+  // Shor-Preskill says nothing about it.
+  if (!Number.isFinite(qber) || qber < 0 || qber > 0.5) return null;
 
   const rate = (q: number) => 1 - 2 * binaryEntropy(q);
   // Bisect for the root of 1 - 2h(Q) on [0, 0.5], where h is monotone increasing.

@@ -27,7 +27,7 @@
 // legitimate. `1/((x-1)^2)` over [2, 3] is a perfectly ordinary integral equal to
 // 0.5, and every case in "still exact" below was checked against its true value.
 
-import { integrate } from "../solve";
+import { integrate, parseExpr, evalAst } from "../solve";
 
 const M = (s: string, a: number, b: number) => integrate(s, a, b)!;
 
@@ -229,5 +229,43 @@ describe("the worked examples we PUBLISH still work", () => {
     const r = M("ln(x)", -1, 2);
     expect(Number.isNaN(r.value)).toBe(true);
     expect(r.caveats.join(" ")).toMatch(/UNDEFINED|POLE/);
+  });
+});
+
+describe("the printed antiderivative is the function that was integrated", () => {
+  // It used to be rounded to 6 DECIMAL PLACES, so
+  // integrate("1/(x^2+x+1)", 0, 1).antiderivative printed
+  // `1.154701*atan(1.154701*x + 0.57735)` where the coefficient is
+  // 2/sqrt(3) = 1.1547005383792515. The `value` was exact; the closed form shown
+  // was not. Anyone copying that expression out of their document — which is the
+  // whole point of showing it — got a different function from the one integrated.
+  //
+  // The test is a ROUND TRIP, not a string comparison: re-parse what was printed,
+  // evaluate it at the two limits, and require the difference to reproduce the
+  // reported value. That is the property a reader actually depends on, and a
+  // string check would pass on any consistent rounding.
+  test.each([
+    ["1/(x^2+x+1)", 0, 1],
+    ["1/(x^2+4)", 0, 1],
+    ["1/(x^2-2)", 2, 5],
+    ["exp(2*x)", 0, 1],
+    ["x*exp(x)", 0, 1],
+    ["1/(x^2+1)", 0, 1],
+    ["sin(3*x)", 0, 1],
+    ["ln(x)", 1, 2],
+  ] as [string, number, number][])("%s over [%s, %s] re-parses to its own value", (f, a, b) => {
+    const r = M(f, a, b);
+    expect(r.antiderivative).toBeTruthy();
+    const F = parseExpr(r.antiderivative!);
+    const viaString = evalAst(F, { x: b }) - evalAst(F, { x: a });
+    expect(viaString).toBeCloseTo(r.value, 10);
+  });
+
+  test("the coefficient really is 2/sqrt(3), to the precision shown", () => {
+    // An external anchor: 2/sqrt(3) = 1.1547005383792515.
+    const F = M("1/(x^2+x+1)", 0, 1).antiderivative!;
+    const m = /^([\d.]+)\*atan/.exec(F);
+    expect(m).not.toBeNull();
+    expect(parseFloat(m![1])).toBeCloseTo(2 / Math.sqrt(3), 11);
   });
 });

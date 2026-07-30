@@ -9,7 +9,7 @@
 // release's commit message was written about.
 
 import { analyzeBeam, BeamInput, BeamResult, Support, Load } from "../beam";
-import { beamDiagramSvg } from "../beamChart";
+import { beamDiagramSvg, BEAM_CHART_SIZE } from "../beamChart";
 import { Rat, ratInt, ratDiv, parseRatLiteral } from "../cas";
 
 const R = (n: number, d = 1): Rat => ratDiv(ratInt(n), ratInt(d));
@@ -177,11 +177,15 @@ describe("messages fit the input they are given", () => {
     }
   });
 
-  test("the x-axis label sits inside the declared height, descenders included", () => {
+  test("the x-axis label sits inside BEAM_CHART_SIZE.h, descenders included", () => {
+    // Was: parse the height out of the SVG under test, then check the text against
+    // it. That cannot fail — a wrong declared height is compared against itself.
+    // BEAM_CHART_SIZE is what the pane reserves in the document, so it is the only
+    // height worth measuring against.
     const svg = svgFor([{ kind: "pin", x: R(0) }, { kind: "roller", x: R(8) }], null);
-    const h = parseFloat(/height="([\d.]+)"/.exec(svg)![1]);
     const ys = [...svg.matchAll(/<text x="[\d.-]+" y="([\d.-]+)"/g)].map((m) => parseFloat(m[1]));
+    expect(ys.length).toBeGreaterThan(0);
     // +3 for descender depth at 9px.
-    expect(Math.max(...ys) + 3).toBeLessThanOrEqual(h);
+    expect(Math.max(...ys) + 3).toBeLessThanOrEqual(BEAM_CHART_SIZE.h);
   });
 });

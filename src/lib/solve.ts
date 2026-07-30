@@ -425,9 +425,30 @@ function peepholeSimplify(e: Expr): Expr {
 
 const PREC: Record<Expr["t"], number> = { add: 1, sub: 1, mul: 2, div: 2, neg: 2, pow: 3, fn: 4, num: 5, var: 5 };
 
+/**
+ * SIGNIFICANT FIGURES, NOT DECIMAL PLACES.
+ *
+ * This rounded to 6 decimal places, which silently destroys any quantity smaller
+ * than 1e-6 and any coefficient that needs more precision than that:
+ *
+ *   - `x^2 - 1e-20 = 0` has roots ±1e-10, and both printed as "0" — so the answer
+ *     read "[0, 0]", two identical roots, for an equation with two distinct ones.
+ *   - `integrate("1/(x^2+x+1)", 0, 1).antiderivative` printed
+ *     `1.154701*atan(1.154701*x + 0.57735)` where the coefficient is
+ *     2/sqrt(3) = 1.1547005383792515. The `value` was exact; the closed form
+ *     shown was not, and did not re-parse. Anyone copying that expression out of
+ *     their document got a different function from the one integrated.
+ *   - The working for a quadratic with tiny coefficients read
+ *     `Polynomial form: 0·x^2 + 0·x^1 + 0·x^0 = 0` beside a claimed exact root.
+ *
+ * 12 significant figures keeps every digit a double can be trusted for while
+ * still suppressing the 0.30000000000000004 noise that made a fixed rounding
+ * attractive in the first place. Integers are unchanged.
+ */
 function fmtNum(v: number): string {
-  if (Number.isInteger(v)) return String(v);
-  return String(Math.round(v * 1e6) / 1e6);
+  if (!Number.isFinite(v)) return String(v);
+  if (Number.isInteger(v) && Math.abs(v) < 1e21) return String(v);
+  return String(Number(v.toPrecision(12)));
 }
 
 export function format(e: Expr): string {
@@ -528,10 +549,43 @@ export interface Root {
   symbolic?: boolean;
 }
 
-/** Trims trailing near-zero leading coefficients and returns the true degree. */
+/**
+ * Trims leading coefficients that are zero RELATIVE TO THE REST of the polynomial.
+ *
+ * The threshold was absolute — `< 1e-12` — which is not a question about the
+ * polynomial, it is a question about the units someone happened to type in.
+ * `0.0000000000001*x^2 - 1 = 0` had its x² term deleted, became `-1 = 0`, and was
+ * reported as **"no-solution"** with the caveat "No value of the variable
+ * satisfies this equation." The true roots are ±3162277.66.
+ *
+ * It was a BAND, which is why no test found it: a 1e-8 coefficient works and a
+ * 1e-12 one works, so sampling either side of 1e-13 certifies the bug. Scaling by
+ * the largest coefficient asks the right question — is this term negligible in
+ * THIS polynomial? — and is invariant under multiplying the whole equation by a
+ * constant, which cannot change its roots.
+ */
 function trimPoly(c: number[]): number[] {
   const out = c.slice();
-  while (out.length > 1 && Math.abs(out[out.length - 1]) < 1e-12) out.pop();
+  // ONLY EXACT ZEROS. A non-zero leading coefficient, however small, means the
+  // polynomial genuinely has that degree and genuinely has that many roots —
+  // `1e-13*x^2 - 1 = 0` really does have roots at ±3162277.66, and deleting the
+  // x² term reported "no solution" for an equation any student can solve.
+  //
+  // A relative threshold does not fix this, and my first attempt at one made it
+  // worse in the opposite direction: scaling by the LARGEST coefficient meant
+  // `x - 1e300 = 0` compared its x coefficient of 1 against 1e285 and deleted it,
+  // so an equation with the root 1e300 came back "no solution". A big constant
+  // term does not make the x term negligible. There is no threshold that is right
+  // here, because the question "is this coefficient zero" is not a question about
+  // magnitude at all.
+  //
+  // Cancellation produces EXACT zeros in floating point — subtracting two equal
+  // doubles gives exactly 0 — so this still collapses `x^2 + x = x^2 + 1` to
+  // degree 1, which is what the trim is for. The residual risk is a coefficient
+  // left as rounding dust by something like 0.1*10 - 1, which would show up as a
+  // spurious enormous root; solveEquation caveats that case rather than trimming
+  // it away silently.
+  while (out.length > 1 && out[out.length - 1] === 0) out.pop();
   return out;
 }
 
@@ -558,7 +612,23 @@ function solvePolyExact(coeffs: number[]): Root[] | null {
       const s = Math.sqrt(disc);
       const r1 = (-b + s) / (2 * a);
       const r2 = (-b - s) / (2 * a);
-      if (Math.abs(disc) < 1e-12) return [{ display: fmtNum(r1), re: r1, im: 0, exact: true }];
+      // "IS THE DISCRIMINANT ZERO" IS A RELATIVE QUESTION.
+      //
+      // The test was `|disc| < 1e-12`, an absolute threshold on a quantity whose
+      // size is set by the coefficients. `0.0000000001*x^2 - 0.0001 = 0` has
+      // disc = 4e-14, so the two roots ±1000 were collapsed into the single root
+      // **1000** and labelled `exact (quadratic)`. Half the answer, presented as
+      // certain. Another band — 1e-7 coefficients fail the same way, 1e-6 ones do
+      // not.
+      //
+      // The discriminant scales as coefficient², so the yardstick must too.
+      // Comparing against b² and 4ac keeps this invariant under multiplying the
+      // whole equation through by a constant, which cannot change its roots.
+      const discScale = Math.max(Math.abs(b * b), Math.abs(4 * a * cc));
+      const discIsZero = discScale > 0
+        ? Math.abs(disc) <= discScale * Number.EPSILON * 8
+        : Math.abs(disc) < 1e-12;
+      if (discIsZero) return [{ display: fmtNum(r1), re: r1, im: 0, exact: true }];
       return [
         { display: fmtNum(r1), re: r1, im: 0, exact: true },
         { display: fmtNum(r2), re: r2, im: 0, exact: true },
@@ -662,31 +732,77 @@ function allPolyRoots(coeffs: number[]): Root[] {
 /** Real roots of f in [lo, hi] by scanning for sign changes, then bisecting. */
 function numericRealRoots(f: (x: number) => number, lo: number, hi: number, steps = 4000): Root[] {
   const roots: Root[] = [];
-  const push = (x: number) => {
+
+  // A SIGN CHANGE IS NOT A ROOT. IT IS A SIGN CHANGE.
+  //
+  // Bisection used to stop on `|f(m)| < 1e-13` OR on the interval getting narrow,
+  // and accept the midpoint either way. Across a POLE the function also changes
+  // sign — from -infinity to +infinity — so the interval duly narrowed onto the
+  // pole and the pole was reported as a root:
+  //
+  //   solveEquation("1/(x-2.25) = 0")     -> root 2.25, where f = -1.1e12
+  //   solveEquation("x/(x-2.25) = 1")     -> root 2.25, residual -2.5e12
+  //   solveEquation("tan(x) = 2")         -> 1176 "roots" ALTERNATING real
+  //                                          solutions and asymptotes
+  //
+  // `1/(x-2) = 0` looked correct only by accident: the scan grid lands exactly on
+  // 2, so evalAst gives Infinity and the sign test is skipped. Move the pole off
+  // the grid and it reappears — the hallmark of a sampling artefact, not a fix.
+  //
+  // So a candidate is now accepted only if the residual is actually small, judged
+  // against the size of f nearby rather than against an absolute constant: a
+  // legitimately steep function can have a real root whose residual is not tiny,
+  // and demanding |f| < 1e-13 outright would silently discard real answers. The
+  // local scale comes from f a little to each side of the candidate, so a pole —
+  // where those values are astronomically large — cannot pass, while a steep but
+  // finite crossing can.
+  const residualIsSmall = (m: number, fm: number): boolean => {
+    if (!Number.isFinite(fm)) return false;
+    if (fm === 0) return true;
+    const step = Math.max(Math.abs(m), 1) * 1e-6;
+    let near = 0;
+    for (const d of [-step, step]) {
+      const v = f(m + d);
+      if (Number.isFinite(v)) near = Math.max(near, Math.abs(v));
+    }
+    // At a genuine root, |f| just off the root is of order |f'|*step, and |f(m)|
+    // is far smaller still. At a pole, |f(m)| is comparable to or larger than the
+    // neighbourhood and both are enormous. The 1e-6 factor is the margin.
+    if (near > 0 && Math.abs(fm) > near * 1e-6) return false;
+    return Math.abs(fm) < 1e-6 * Math.max(1, near);
+  };
+
+  const push = (x: number, fx: number) => {
     if (!Number.isFinite(x)) return;
+    if (!residualIsSmall(x, fx)) return;
     if (roots.some((r) => Math.abs(r.re - x) < 1e-6)) return;
     roots.push({ display: fmtNum(x), re: x, im: 0, exact: false });
   };
+
   const h = (hi - lo) / steps;
   let prevX = lo;
   let prevY = f(lo);
-  if (Math.abs(prevY) < 1e-10) push(lo);
+  if (Math.abs(prevY) < 1e-10) push(lo, prevY);
   for (let k = 1; k <= steps; k++) {
     const cx = lo + k * h;
     const cy = f(cx);
     if (Number.isFinite(prevY) && Number.isFinite(cy) && prevY * cy < 0) {
       // Bisection on [prevX, cx].
       let a = prevX, b = cx, fa = prevY;
+      let done = false;
       for (let it = 0; it < 80; it++) {
         const m = (a + b) / 2;
         const fm = f(m);
-        if (Math.abs(fm) < 1e-13 || (b - a) / 2 < 1e-12) { push(m); break; }
+        if (Math.abs(fm) < 1e-13 || (b - a) / 2 < 1e-12) { push(m, fm); done = true; break; }
         if (fa * fm < 0) b = m;
         else { a = m; fa = fm; }
-        if (it === 79) push((a + b) / 2);
+      }
+      if (!done) {
+        const m = (a + b) / 2;
+        push(m, f(m));
       }
     } else if (Math.abs(cy) < 1e-10) {
-      push(cx);
+      push(cx, cy);
     }
     prevX = cx; prevY = cy;
   }
@@ -794,6 +910,27 @@ export function solveEquation(input: string, variable?: string, range = 1000): E
     if (exact) {
       const terms = trimmed.map((c, k) => `${fmtNum(c)}·${x}^${k}`).reverse().join(" + ");
       steps.push(`Polynomial form: ${terms} = 0.`);
+      // A leading coefficient dwarfed by the next one produces a genuine but
+      // enormous root — and if that coefficient is rounding dust from cancellation
+      // rather than something the user typed, the root is an artefact. Since
+      // trimPoly can no longer tell the two apart (and should not guess), say so.
+      const lead = Math.abs(trimmed[trimmed.length - 1]);
+      const next = Math.abs(trimmed[trimmed.length - 2] ?? 0);
+      // BOTH conditions, deliberately. The ratio alone fires on `x - 1e15 = 0`,
+      // an entirely ordinary equation whose x coefficient is exactly 1 — and a
+      // warning that appears on normal input is a false message that teaches
+      // people to ignore the real ones. Rounding dust from cancellation is tiny in
+      // ABSOLUTE terms as well (0.1*10 - 1 leaves 2.2e-16), so requiring both
+      // separates it from a legitimately large constant term.
+      if (lead > 0 && next > 0 && lead < 1e-8 && next / lead > 1e14) {
+        caveats.push(
+          `The ${x}^${trimmed.length - 1} coefficient (${fmtNum(trimmed[trimmed.length - 1])}) is more than ` +
+            `1e14 times smaller than the next one, which makes one root correspondingly enormous. ` +
+            `That root is mathematically correct for the coefficients as given, but if the small ` +
+            `coefficient came from subtracting two nearly equal quantities it is rounding noise and ` +
+            `the root is an artefact. Check it against the equation you meant to write.`,
+        );
+      }
       if (deg === 2) {
         const [cc, b, a] = trimmed;
         const disc = b * b - 4 * a * cc;
@@ -861,12 +998,71 @@ export function solveEquation(input: string, variable?: string, range = 1000): E
     };
   }
 
+  const fNum = (xv: number): number => {
+    try { return evalAst(f, { [x]: xv }); } catch { return NaN; }
+  };
+
+  // IS IT AN IDENTITY? ASK BEFORE SCANNING, NOT AFTER.
+  //
+  // `(x-1)/(x-1) = 1` was reported as method "numeric (transcendental)" with
+  // FOUR THOUSAND roots — "1000, 999.5, 999, …" — and took about 2.9 seconds
+  // doing it. Same for `x/x = 1` and `sin(x)/sin(x) = 1`. The path there:
+  // polyCoeffs returns null for any non-constant denominator, the rational
+  // solver bails because the numerator normalises to zero, so f is identically 0
+  // when it reaches the scanner, every grid point passes |f| < 1e-10, and the
+  // 1e-6 dedupe never fires against 0.5 spacing.
+  //
+  // The polynomial branch above already answers this correctly when it can reduce
+  // the equation — it reports "identity". This gives the transcendental branch the
+  // same answer instead of enumerating the grid.
+  //
+  // Sampled at irrational offsets so a function that merely has zeros ON the grid
+  // is not mistaken for one that is zero everywhere.
+  const identityProbe: number[] = [];
+  for (let i = 0; i < 41; i++) {
+    const t = -range + ((2 * range) * (i + 0.381966011250105)) / 41;
+    identityProbe.push(fNum(t));
+  }
+  const defined = identityProbe.filter((v) => Number.isFinite(v));
+  if (defined.length >= 20 && defined.every((v) => v === 0)) {
+    return {
+      variable: x,
+      roots: [],
+      method: "identity",
+      steps: [`Both sides are equal for every ${x} where they are defined.`],
+      caveats: [
+        `Every value of ${x} satisfies this equation (an identity), so there is no ` +
+          `particular root to report.` +
+          (defined.length < identityProbe.length
+            ? ` Note that the expression is undefined at some points — where a denominator vanishes — and those are excluded.`
+            : ""),
+      ],
+      unknowns: vars,
+    };
+  }
+
   // Transcendental: numeric root-finding.
   steps.push(`Not a polynomial in ${x}; solving numerically for real roots in [−${range}, ${range}].`);
-  const roots = numericRealRoots((xv) => {
-    try { return evalAst(f, { [x]: xv }); } catch { return NaN; }
-  }, -range, range);
+  const roots = numericRealRoots(fNum, -range, range);
   caveats.push(`Numeric solution: only real roots this method could bracket in [−${range}, ${range}] are reported; it can miss roots that are complex, tangential, or outside the range.`);
+  // A RUN of grid points that are all numerically zero is not a set of isolated
+  // roots. `exp(x) = 0` has no solution at all, but exp underflows to 0 below
+  // about x = -745, so the scan reported hundreds of "roots" spaced 0.5 apart out
+  // in the underflow region. Enumerating them as separate answers is never right,
+  // and the honest thing is to say the values are at the limit of what a double
+  // can represent.
+  if (roots.length > 20) {
+    const spread = Math.abs(roots[0].re - roots[roots.length - 1].re);
+    const expectedGap = spread / Math.max(1, roots.length - 1);
+    if (expectedGap < (2 * range) / 4000 * 1.5) {
+      caveats.push(
+        `WARNING: ${roots.length} candidate roots came back at essentially the scan's own ` +
+          `grid spacing, which is the signature of an expression that is numerically zero ` +
+          `across a whole interval rather than at isolated points — underflow, for example. ` +
+          `Treat this as "no reliable root found" rather than as ${roots.length} answers.`,
+      );
+    }
+  }
   return { variable: x, roots, method: "numeric (transcendental)", steps, caveats };
 }
 

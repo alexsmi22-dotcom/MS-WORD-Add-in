@@ -5,6 +5,132 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > Note: this file was not maintained between v1.96.0 and v2.23.0. Those releases
 > are recorded in the git history rather than here.
 
+## [2.40.0] — 2026-07-29 — Poles reported as roots, two tolerance bands, and an instrument to prove nothing else moved
+
+The first batch from `docs/KNOWN-DEFECTS.md`, taken in the order that puts the
+wrong numbers a student would write into a report at the front. Five defects
+closed, each with its reproduction moved into a named test rather than merely
+patched.
+
+### An instrument first, because "no regressions" has to be checkable
+
+Before changing any behaviour: a **committed behavioural baseline** over 300-odd
+inputs spanning every branch of solve, integrate and differentiate
+(`solveBaseline.test.ts`). It is not an oracle and does not claim any answer is
+correct — the oracle tests do that. It claims the thing that was previously
+unclaimable: **nothing changed that was not meant to change.**
+
+This was not precautionary. v2.39.0 had already proved the hazard — tightening the
+singularity scan silently began refusing five correct integrals, and 6,362 tests
+noticed nothing, because no test asked "does this still answer what it used to
+answer?" The baseline caught this round's regression within a minute of it being
+written, and every intended change had to be justified line by line against it.
+
+### A pole is not a root
+
+`numericRealRoots` accepted any bracketed sign change, and its bisection exited on
+interval width **or** on `|f| < 1e-13` — never requiring the residual to be small.
+Across a pole the function also changes sign, from −∞ to +∞, so the interval duly
+narrowed onto the pole and the pole was reported as a solution:
+
+- `solveEquation("1/(x-2.25) = 0")` → root **2.25**, where the left-hand side
+  evaluates to −1.1e12
+- `solveEquation("x/(x-2.25) = 1")` → the same, residual −2.5e12
+- `solveEquation("tan(x) = 2")` → **1176 "roots"**, alternating genuine solutions
+  and asymptotes
+
+`1/(x-2) = 0` returned nothing only by accident: the scan grid lands exactly on 2,
+so the sign test is skipped. Move the pole off the grid and it reappeared — the
+signature of a sampling artefact, not a fix.
+
+A candidate now has to survive substitution, judged against the size of the
+function nearby rather than an absolute constant — because a legitimately steep
+crossing can have a residual that is not tiny, and demanding `|f| < 1e-13` outright
+would have discarded real answers. `tan(x) = 2` now returns **588** roots, exactly
+half of 1176: every asymptote gone, every real solution kept. That count is asserted
+directly, because a guard that fixes false positives by throwing away true positives
+is not a fix.
+
+### Two tolerance bands where roots went missing
+
+Both were absolute thresholds on quantities whose size is set by the coefficients,
+so each created a **band** — inputs on either side worked, which is precisely why no
+test found them.
+
+- `0.0000000001*x^2 - 0.0001 = 0` returned the single root **1000**, labelled
+  `exact (quadratic)`, for an equation with roots ±1000. The discriminant was
+  4e-14 against a threshold of 1e-12. Half the answer, presented as certain.
+- `0.0000000000001*x^2 - 1 = 0` returned **"no solution"** with the caveat "No
+  value of the variable satisfies this equation." The roots are ±3162277.66.
+
+The discriminant test is now relative to the coefficients it is built from, which
+keeps it invariant under multiplying the equation through by a constant — an
+operation that cannot change its roots.
+
+### The regression this round introduced, and what it actually taught
+
+Making the degree test relative looked like the same obvious fix and was wrong in a
+new direction. Scaling by the **largest** coefficient meant `x - 1e300 = 0` compared
+its x coefficient of 1 against 1e285, deleted it, and returned "no solution" for an
+equation whose root is 1e300. A large constant term does not make the x term
+negligible.
+
+The conclusion is stronger than "use a relative tolerance": **"is this coefficient
+zero" is not a question about magnitude at all.** Only an exact zero is zero, and
+every threshold — absolute or relative — deletes a real root somewhere. `trimPoly`
+now removes only exact zeros, which still collapses `x^2 + x = x^2 + 1` to a linear
+equation, because subtracting two equal doubles gives exactly zero. Rounding dust
+that survives cancellation is caveated instead of deleted, and that caveat was
+itself narrowed after it fired on `x - 1e15 = 0` — a warning that appears on
+ordinary input is a false message that teaches people to ignore the real ones.
+
+### An identity is an identity
+
+`(x-1)/(x-1) = 1` was reported as `numeric (transcendental)` with **4000 roots** —
+"1000, 999.5, 999, …" — taking about 2.9 seconds. Same for `x/x = 1` and
+`sin(x)/sin(x) = 1`. With the numerator normalising to zero, every grid point passed
+`|f| < 1e-10` and the dedupe never fired against 0.5 spacing. The transcendental
+branch now asks the question the polynomial branch already asked, and answers
+"identity" in under a millisecond. It probes at irrational offsets, so a function
+that merely has zeros *on* the grid — `sin(x) = 0`, `x^2 = 0` — is not mistaken for
+one that is zero everywhere.
+
+Related, and honest rather than fixed: `exp(x) = 0` has no solution, but exp
+underflows to zero below about x = −745, so the scan still returns candidates out in
+the underflow region. They now carry a warning that hundreds of roots arriving at
+the scan's own grid spacing means "no reliable root found" rather than hundreds of
+answers.
+
+### Numbers were being rounded to six decimal places
+
+`fmtNum` rounded to 6 dp, which silently destroys anything smaller than 1e-6:
+
+- `x^2 - 1e-20 = 0` has roots ±1e-10 and printed **"[0, 0]"** — two identical roots
+  for an equation with two distinct ones.
+- `integrate("1/(x^2+x+1)", 0, 1).antiderivative` printed
+  `1.154701*atan(1.154701*x + 0.57735)` where the coefficient is
+  2/√3 = 1.1547005383792515. The `value` was exact; the closed form shown was not,
+  and did not re-parse. Copying that expression out of the document — the whole
+  point of showing it — gave a different function from the one integrated.
+
+Now 12 significant figures. The printed antiderivative is tested by **round trip**:
+re-parsed, evaluated at both limits, and required to reproduce the reported value.
+A string comparison would have passed on any consistent rounding. Restored precision
+was checked against external constants — √2 = 1.41421356237, *e* = 2.71828182846,
+1/ln10 = 0.434294481903, the Omega constant 0.56714329041, the Dottie number
+0.739085133216.
+
+### Two tests that could not fail
+
+Both beam-height tests parsed the declared height out of the very SVG they had just
+generated, so a wrong height was compared against itself. They now assert against
+`BEAM_CHART_SIZE` — the number the pane uses to reserve space in the document, and
+until now referenced by **zero** test files, which is what the 336→346 squashed
+figure was. A negative control confirms the new assertions catch a ±10, ±50, +200
+and +1000 perturbation; before, all four passed.
+
+6,421 tests across 212 files. All twelve QC gates pass.
+
 ## [2.39.1] — 2026-07-29 — The pole detector was refusing five correct integrals
 
 A patch on v2.39.0, found by reviewing the fix rather than the feature — which is

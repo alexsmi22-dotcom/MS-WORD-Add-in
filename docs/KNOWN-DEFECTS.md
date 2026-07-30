@@ -18,6 +18,36 @@ Ordering is by severity, not by module. The scale:
 When one is fixed, delete the entry and put the reproduction in a test. An entry
 removed without a test is an entry that will come back.
 
+## Fixed since this file was opened
+
+Each was closed with its reproduction moved into a named test, not merely patched.
+
+| was | now | proof |
+|---|---|---|
+| **A10** a pole reported as a root — `1/(x-2.25) = 0` gave the root 2.25 where the LHS is −1.1e12; `tan(x) = 2` gave 1176 "roots" alternating solutions and asymptotes | every returned root is substituted back and must have a small residual; 588 real solutions to `tan(x) = 2` retained, all asymptotes gone | `rootsAreRoots.test.ts` |
+| **A11** two absolute tolerance BANDS — `1e-10·x² − 1e-4 = 0` returned one root where there are two; `1e-13·x² − 1 = 0` returned "no solution" for roots ±3162277.66 | the discriminant test is relative to the coefficients; `trimPoly` removes only EXACT zeros | `rootsAreRoots.test.ts` |
+| **A12** `(x-1)/(x-1) = 1` returned 4000 roots in 2.9 s | reported as an identity, in under a millisecond | `rootsAreRoots.test.ts` |
+| **B10** the printed antiderivative was rounded to 6 decimal places, so `1.154701*atan(...)` did not re-parse to the function integrated | 12 significant figures; the printed expression is re-parsed and must reproduce the reported value | `divergentIntegral.test.ts` |
+| **B14** two beam-height tests parsed the height out of the SVG they generated, so they could not fail | both assert against `BEAM_CHART_SIZE`, and a negative control confirms they now catch a ±10/50/200/1000 perturbation | `beamChartGeometry.test.ts` |
+
+A **behavioural baseline** now covers 300+ inputs across the solve, integrate and
+differentiate surface (`solveBaseline.test.ts`). It is not an oracle — it does not
+claim any answer is correct — it claims that nothing changed unintentionally. It is
+the instrument that caught the one regression this round introduced, described
+below.
+
+### The lesson from that regression, since it is the whole risk of this file
+
+Making the `trimPoly` threshold *relative* looked like the obvious fix and was
+wrong in a new direction: scaling by the LARGEST coefficient meant `x - 1e300 = 0`
+compared its x coefficient of 1 against 1e285, deleted it, and returned **"no
+solution"** for an equation whose root is 1e300. A big constant term does not make
+the x term negligible.
+
+The real conclusion is stronger than "use a relative tolerance": **"is this
+coefficient zero" is not a question about magnitude at all.** Only an exact zero is
+zero. Every threshold, absolute or relative, deletes a real root somewhere.
+
 ---
 
 ## A — wrong numbers
@@ -114,44 +144,6 @@ absolute floor bolted on, and the floor is what does the damage.
 **Fix direction:** a purely relative criterion plus a separate oscillation test
 scale-invariant under multiplication.
 
-### A10. Solve: a pole is reported as a root
-`src/lib/solve.ts:644-675`. `numericRealRoots` treats a sign change as a root and
-its bisection exits on interval width **or** on `|f| < 1e-13`, never requiring the
-residual to be small. `solveEquation("1/(x-2.25) = 0")` returns the root
-`["2.25"]`, where the left-hand side evaluates to **-1.1e12**.
-`solveEquation("tan(x) = 2")` returns roughly 1270 "roots" that alternate genuine
-solutions and asymptotes. `1/(x-2) = 0` correctly returns none only because the
-scan grid lands exactly on 2 — move the pole off the 0.5 grid and it appears.
-**Fix direction:** require a verified residual before accepting any bracketed
-root. The pole detector added for divergent integrals (`symbolicSingularityIn`)
-is directly reusable to exclude known poles from the bracket set.
-
-### A11. Solve: absolute tolerances create a band where quadratics silently lose roots
-`src/lib/solve.ts:515, 542`. Two separate absolute thresholds:
-- Discriminant: `0.0000000001*x^2 - 0.0001 = 0` returns **`["1000"]`**, one root
-  where there are two (±1000), labelled `exact (quadratic)`. disc = 4e-14 < 1e-12.
-- Leading coefficient: `0.0000000000001*x^2 - 1 = 0` returns **no-solution**, with
-  the caveat "No value of the variable satisfies this equation." True roots
-  ±3162277.66.
-
-Both are **bands**: a 1e-12 coefficient works and so does a 1e-14 one, so a test
-sampling either side of the band certifies the bug.
-**Fix direction:** scale the discriminant test by the coefficient magnitudes, and
-decide "is this coefficient zero" relative to the others rather than absolutely.
-Related cosmetic defect: the working shown reads `Polynomial form: 0·x^2 + 0·x^1 +
-0·x^0 = 0.` beside a claimed exact root, because `fmtNum` (line 416) rounds the
-displayed coefficients to 6 dp.
-
-### A12. Solve: an identity is reported as 4000 numeric roots
-`src/lib/solve.ts:648, 847`. `(x-1)/(x-1) = 1` returns method
-`numeric (transcendental)` with **4000 roots** `["1000","999.5","999",…]`, and
-takes about 2.9 seconds doing it. `polyCoeffs` returns null for a non-constant
-denominator, the rational solver bails because the numerator normalises to zero,
-so `f ≡ 0` reaches the scanner and every grid point passes `|f| < 1e-10`. Same for
-`x/x = 1` and `sin(x)/sin(x) = 1`.
-**Fix direction:** test for `f ≡ 0` before scanning and report an identity, which
-is what the exact path already does for polynomial identities.
-
 ---
 
 ## B — lost capability, or a message that is false
@@ -227,13 +219,6 @@ does not bound the time.**
 **Fix direction:** cap the candidate set itself, and when the cap is hit say the
 rational-root search was incomplete rather than reporting "no rational roots".
 
-### B10. The "exact (symbolic)" antiderivative STRING is rounded to 6 dp
-`src/lib/solve.ts:416`. `integrate("1/(x^2+x+1)", 0, 1).antiderivative` prints
-`1.154701*atan(1.154701*x + 0.57735)` where the true coefficient is
-2/√3 = 1.1547005383792515. The `value` is exact; the printed closed form is not,
-and does not re-parse. Anyone copying that expression out of the document gets a
-different function from the one that was integrated.
-
 ### B11. Two parsers read the same text differently
 `src/lib/solve.ts:170` versus `src/lib/mathParse.ts:231-249`:
 
@@ -255,16 +240,6 @@ not write an lparen and does not know what one is.
 ### B13. `parseReaction` glues a stray delimiter onto a component
 `src/lib/reactions.ts`. `A ->> B` yields stages `[["A"], ["> B"]]`, and `"> B"` is
 then handed to OpenChemLib as SMILES.
-
-### B14. The beam-height oracle is the implementation's own output
-`src/lib/__tests__/beamChartGeometry.test.ts:136-139` and
-`beamRound3.test.ts:181-185` both parse the height out of the SVG they just
-generated, so the assertion cannot fail. **Proved** by rewriting the declared
-height by +10, +50, +200 and +1000 — the exact class of change that caused the
-336→346 bug — and watching the assertion pass all four times. Separately,
-`BEAM_CHART_SIZE` is referenced by **zero** test files, so the pane/library
-agreement that fix established has nothing holding it in place.
-**Fix direction:** assert against `BEAM_CHART_SIZE` directly.
 
 ---
 

@@ -14,7 +14,7 @@
 // which is what the original tests asked. These parse the coordinates back out.
 
 import { analyzeBeam, BeamInput, BeamResult, Support, Load } from "../beam";
-import { beamDiagramSvg } from "../beamChart";
+import { beamDiagramSvg, BEAM_CHART_SIZE } from "../beamChart";
 import { Rat, ratInt, ratDiv, parseRatLiteral } from "../cas";
 
 const R = (n: number, d = 1): Rat => ratDiv(ratInt(n), ratInt(d));
@@ -131,12 +131,56 @@ describe("the settlement label stays inside the viewBox", () => {
 });
 
 describe("the x-axis label is not clipped off the bottom", () => {
-  test("the last text element sits inside the declared height", () => {
+  // THE HEIGHT COMES FROM BEAM_CHART_SIZE, NOT FROM THE SVG.
+  //
+  // This test used to parse `h` out of the very SVG it had just generated, which
+  // made it incapable of failing: if the code declared the wrong height, the text
+  // positions were compared against that same wrong height and everything agreed.
+  // Proved by rewriting the declared height by +10, +50, +200 and +1000 — the
+  // exact class of change that caused the 336 -> 346 bug — and watching this
+  // assertion pass all four times.
+  //
+  // BEAM_CHART_SIZE is the number `taskpane.ts` uses to size the picture in Word.
+  // Measuring against it tests the thing that actually matters: the drawing fits
+  // the box the document reserves for it. It also pins the pane/library agreement,
+  // which until now was referenced by zero test files.
+  test("every text element sits inside BEAM_CHART_SIZE.h, not inside a self-reported height", () => {
     const svg = svgFor([{ kind: "pin", x: R(0) }, { kind: "roller", x: R(8) }], null);
-    const h = parseFloat(/height="([\d.]+)"/.exec(svg)![1]);
     const ys: number[] = [];
     for (const m of svg.matchAll(/<text x="[\d.-]+" y="([\d.-]+)"/g)) ys.push(parseFloat(m[1]));
-    expect(Math.max(...ys)).toBeLessThanOrEqual(h);
+    expect(ys.length).toBeGreaterThan(0);
+    expect(Math.max(...ys)).toBeLessThanOrEqual(BEAM_CHART_SIZE.h);
+  });
+
+  test("the SVG's declared size IS BEAM_CHART_SIZE — the pane and the library agree", () => {
+    // The 336 -> 346 bug was exactly this disagreement: the library drew one
+    // height and the pane reserved another, so the figure was squashed in Word
+    // while every geometry test passed. Nothing held this in place before.
+    const svg = svgFor([{ kind: "pin", x: R(0) }, { kind: "roller", x: R(8) }], null);
+    expect(parseFloat(/width="([\d.]+)"/.exec(svg)![1])).toBe(BEAM_CHART_SIZE.w);
+    expect(parseFloat(/height="([\d.]+)"/.exec(svg)![1])).toBe(BEAM_CHART_SIZE.h);
+    const vb = /viewBox="0 0 ([\d.]+) ([\d.]+)"/.exec(svg);
+    if (vb) {
+      expect(parseFloat(vb[1])).toBe(BEAM_CHART_SIZE.w);
+      expect(parseFloat(vb[2])).toBe(BEAM_CHART_SIZE.h);
+    }
+  });
+
+  test("the size holds across every support and load combination drawn", () => {
+    // A constant that is right for the default case and wrong for a taller one is
+    // the same bug with extra steps.
+    const cases: Array<[string, ReturnType<typeof svgFor>]> = [
+      ["simple", svgFor([{ kind: "pin", x: R(0) }, { kind: "roller", x: R(8) }], null)],
+      ["cantilever", svgFor([{ kind: "fixed", x: R(0) }], null)],
+      ["spring", svgFor([{ kind: "pin", x: R(0) }, { kind: "roller", x: R(8), k: X("1e5") }], X("2.4e5"))],
+      ["settling", svgFor([{ kind: "fixed", x: R(0) }, { kind: "roller", x: R(8), settle: X("0.01") }], X("2.4e5"))],
+      ["three supports", svgFor([{ kind: "pin", x: R(0) }, { kind: "roller", x: R(4) }, { kind: "roller", x: R(8) }], null)],
+    ];
+    for (const [label, svg] of cases) {
+      const h = parseFloat(/height="([\d.]+)"/.exec(svg)![1]);
+      const w = parseFloat(/width="([\d.]+)"/.exec(svg)![1]);
+      expect({ label, w, h }).toEqual({ label, w: BEAM_CHART_SIZE.w, h: BEAM_CHART_SIZE.h });
+    }
   });
 });
 

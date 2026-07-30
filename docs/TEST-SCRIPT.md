@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.45.0)
+# JurisLab — Manual Test Script (v2.46.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -535,6 +535,37 @@ Chemical > **Mass spec** (and anywhere a formula is counted):
 > built, measured at a 1.7% error, and removed — refusing a correct answer is a
 > smaller harm than reporting an incorrect one), and **C2** (a huge exact rational
 > converting to Infinity, which is the correct IEEE result at the boundary).
+
+---
+
+## 0k. New in v2.46.0 — integrals with a hole in the integrand
+
+Math > **Solve** > definite integral:
+
+- [ ] `sin(x)/x` from `-1` to `1` must now give **1.892166**. It used to be refused —
+  the integrand is undefined at x = 0 but its limit there is 1, and the old quadrature
+  evaluated exactly that point on its first step.
+- [ ] `sin(x)/x` from `0` to `1` must give **0.9460831** (that is Si(1)), and from
+  `-1` to `0` the same. The singular point at an endpoint must work too.
+- [ ] `(1-cos(x))/x^2` from `-1` to `1` must give **0.9727708**, and
+  `(exp(x)-1)/x` from `0` to `1` must give **1.3179022**.
+- [ ] The result must SAY the integrand is undefined somewhere and that a removable
+  singularity was handled — not just hand over a number.
+- [ ] **The important negative.** `1/x` from `0` to `1` must still be **REFUSED**. That
+  integral diverges, and the new rule deliberately never evaluates an endpoint, so this
+  is exactly where it could hand back a confident wrong number. Check `1/(x-1)` from
+  `1` to `2`, `1/x^2` from `0` to `1`, and `1/(2-x)` from `0` to `2` as well.
+- [ ] Interior poles must still be refused: `1/(x-1)` from `0` to `2`, `tan(x)` from
+  `0` to `3`, `1/x` from `-1` to `1`.
+- [ ] Ordinary numeric integrals must be untouched — `sin(x)/x` from `1` to `5` should
+  still read 0.6038 and say "adaptive Simpson".
+
+> **Remaining in `docs/KNOWN-DEFECTS.md`:** two entries, neither producing a wrong
+> number — **B3** (a blank Bode chart at zero reference, which could not be reproduced)
+> and **C2** (a huge exact rational converting to Infinity, which is the correct IEEE
+> result at the boundary). Also recorded there: the two parsers still read `2^2x`
+> differently, left alone because changing how exponents bind would re-read every
+> expression already sitting in a document.
 
 ---
 

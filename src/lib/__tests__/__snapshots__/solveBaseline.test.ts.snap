@@ -119,7 +119,7 @@ exports[`integrate baseline every integral gives the same answer as the committe
   "sin(x)/x [1, 5]                        -> 0.6038481746 via adaptive Simpson (2 caveat)",
   "x^x [0, 1]                             -> 0.783430511 via adaptive Simpson (2 caveat)",
   "exp(-x^2) [0, 1]                       -> 0.7468241328 via adaptive Simpson (2 caveat)",
-  "sin(x)/x [-1, 1]                       -> NaN via does not exist on this interval (1 caveat)",
+  "sin(x)/x [-1, 1]                       -> 1.892166141 via Gauss-Legendre (removable singularity) (2 caveat)",
   "exp(sin(x)) [0, 1]                     -> 1.631869608 via adaptive Simpson (2 caveat)",
   "1/(x^5+x+1) [0, 1]                     -> 0.6538920078 via adaptive Simpson (2 caveat)",
   "x^2 [2, 2]                             -> 0 via exact (symbolic) (0 caveat)",

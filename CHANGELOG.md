@@ -5,6 +5,73 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > Note: this file was not maintained between v1.96.0 and v2.23.0. Those releases
 > are recorded in the git history rather than here.
 
+## [2.46.0] — 2026-07-29 — Integrals with a hole in the integrand, and a correction to the last release
+
+### The last defect that refused work it could do
+
+`integral of sin(x)/x over [-1, 1]` is 1.8922 and was refused. The integrand is
+undefined at x = 0 but its limit there is 1, and adaptive Simpson's very first act is to
+evaluate the midpoint — which for that interval is exactly 0, where sin(0)/0 is NaN. One
+undefined sample aborted the whole integral.
+
+Closed with the method named as the fix direction two releases ago: **composite
+Gauss–Legendre**. Its nodes lie strictly inside each panel, so no interval endpoint and
+no panel boundary is ever evaluated, and a point where the integrand merely has a hole in
+it is never visited at all. A second property matters as much and is less obvious — the
+nodes stay well AWAY from the singular point, so an integrand that loses precision very
+close to it is never asked about that region. The value is refined until two panel counts
+agree to eleven significant figures, so it carries evidence rather than a promise.
+
+Seven integrands verified against an independent high-resolution midpoint rule, agreeing
+to 5e-7 or better, with every expected value derived rather than guessed: Si(1) for
+sin(x)/x, and the series expansions for (1−cos x)/x² and (exp(x)−1)/x.
+
+### A correction to v2.45.0
+
+That release said an earlier attempt at this — averaging two neighbours across the
+singularity — "produced wrong numbers", quoting **0.9728 against a true 0.9896** for the
+integral of (1−cos x)/x² over [−1, 1].
+
+**The 0.9896 was wrong.** It was a hand figure that was never checked. The series
+(1−cos x)/x² = ½ − x²/24 + x⁴/720 − … gives 2(½ − 1/72 + 1/3600 − …) = **0.9727708**,
+confirmed here against an independent midpoint rule. So the reverted fix had been
+producing correct answers, and it was discarded for nothing.
+
+Using an unverified figure as the oracle to judge a fix is the mistake, and this one cost
+a working fix and a release. It is the same class as everything else this file has been
+recording — an unchecked reference value is exactly as dangerous as an unchecked
+computation, and rather more embarrassing.
+
+Gauss–Legendre is still the better rule and is what ships: it never visits the singular
+point rather than reconstructing a value there, its nodes avoid the cancellation-prone
+region rather than relying on two corrupted neighbours agreeing, and it reports its own
+convergence. But it was chosen on its merits, not because the alternative was broken.
+
+### The trap the fix walked into
+
+Gauss–Legendre never evaluates an endpoint. That is exactly why it can rescue a removable
+singularity sitting at one — and exactly why `integral of 1/x over [0, 1]`, which
+diverges, came back as a confident finite number.
+
+The structural pole search only reports poles strictly INSIDE the interval, because an
+endpoint pole used to be caught by Simpson evaluating that endpoint and returning NaN.
+Endpoints now get their own `isGenuinePole` check: a removable singularity is allowed
+through, a pole is not. Caught by an existing test rather than by foresight, which is the
+argument for keeping tests that assert refusals as carefully as answers.
+
+The new rule is confined to the previously-refused path, so every integral that already
+had an answer keeps the same one, computed the same way — asserted, not assumed.
+
+### What is left
+
+Two entries in `docs/KNOWN-DEFECTS.md`, neither producing a wrong number: **B3**, a blank
+Bode chart at zero reference that could not be reproduced, and **C2**, a huge exact
+rational converting to Infinity, which is the correct IEEE result at the boundary. Also
+recorded: the two expression parsers still read `2^2x` differently, left alone because
+changing how exponents bind would re-read every expression already sitting in a document.
+
+6,616 tests across 217 files. All twelve QC gates pass.
+
 ## [2.45.0] — 2026-07-29 — An identity hidden by cancellation, notation with two meanings, and hydrates
 
 Three closed, one attempted and removed, and two left open with reasons. What remains

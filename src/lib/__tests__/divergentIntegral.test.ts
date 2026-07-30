@@ -269,3 +269,77 @@ describe("the printed antiderivative is the function that was integrated", () =>
     expect(parseFloat(m![1])).toBeCloseTo(2 / Math.sqrt(3), 11);
   });
 });
+
+describe("C0: a removable singularity is integrated, a pole is still refused", () => {
+  // Closed in v2.46.0 by composite Gauss-Legendre, whose nodes lie strictly inside
+  // each panel — so an interval endpoint or panel boundary is NEVER evaluated, and a
+  // point where the integrand is merely undefined is simply never visited.
+  //
+  // Two earlier attempts averaged two neighbours across the singularity instead. The
+  // first was reverted for supposedly giving 0.9728 against "a true 0.9896" for
+  // (1-cos x)/x^2 over [-1,1] — and that reference figure was WRONG. The series
+  // (1-cos x)/x^2 = 1/2 - x^2/24 + x^4/720 - ... gives 2*(1/2 - 1/72 + 1/3600 - ...)
+  // = 0.9727708, so the reverted fix had been correct all along. Using an unverified
+  // hand figure as the oracle to judge a fix is what went wrong, and it cost a working
+  // one. Every expected value below is derived, not guessed:
+  //
+  //   integral of sin(x)/x over [0,1]  = Si(1) = 0.9460830704
+  //   integral of (1-cos x)/x^2 over [0,1] = 1/2 - 1/72 + 1/3600 - 1/282240 ...
+  //   integral of (exp(x)-1)/x over [0,1]  = Ein-type series, sum 1/(n*n!) = 1.3179022
+  test.each([
+    ["sin(x)/x", -1, 1, 2 * 0.9460830703671830],
+    ["sin(x)/x", 0, 1, 0.9460830703671830],
+    ["sin(x)/x", -1, 0, 0.9460830703671830],
+    ["(1-cos(x))/x^2", 0, 1, 0.4863853764],
+    ["(1-cos(x))/x^2", -1, 1, 2 * 0.4863853764],
+    ["(exp(x)-1)/x", 0, 1, 1.3179021514544038],
+  ] as [string, number, number, number][])("%s over [%s, %s]", (f, a, b, want) => {
+    const r = M(f, a, b);
+    expect(Number.isFinite(r.value)).toBe(true);
+    expect(Math.abs(r.value / want - 1)).toBeLessThan(1e-6);
+    expect(r.method).toBe("Gauss-Legendre (removable singularity)");
+    // It must SAY the integrand is undefined somewhere, not quietly hand over a number.
+    expect(r.caveats.join(" ")).toMatch(/removable singularity/);
+  });
+
+  test("a POLE at an endpoint is still refused — the trap in this approach", () => {
+    // Gauss-Legendre never evaluates an endpoint, which is exactly why it can rescue a
+    // removable singularity there — and exactly why it would otherwise hand back a
+    // confident finite number for a divergent integral. The structural pole search
+    // only reports poles strictly INSIDE, so endpoints needed their own check. Caught
+    // by the existing test above, not by foresight.
+    for (const [f, a, b] of [
+      ["1/x", 0, 1], ["1/(x-1)", 1, 2], ["1/x^2", 0, 1],
+      ["1/(2-x)", 0, 2], ["1/sqrt(x)^2", 0, 1],
+    ] as [string, number, number][]) {
+      const r = M(f, a, b);
+      expect({ f, finite: Number.isFinite(r.value) }).toEqual({ f, finite: false });
+    }
+  });
+
+  test("interior poles and domain errors are unaffected", () => {
+    for (const [f, a, b] of [
+      ["1/(x-1)", 0, 2], ["1/((x-1)^2)", 0, 2], ["tan(x)", 0, 3],
+      ["1/x", -1, 1], ["ln(x)", -1, 2], ["sqrt(x)^2", -1, 1], ["1/(x-0.5)", 0, 3],
+    ] as [string, number, number][]) {
+      const r = M(f, a, b);
+      expect({ f, nan: Number.isNaN(r.value) }).toEqual({ f, nan: true });
+    }
+  });
+
+  test("ordinary numeric integrals still use adaptive Simpson", () => {
+    // The new rule is confined to the previously-refused path, so nothing that already
+    // had an answer changes how it is computed.
+    for (const [f, a, b] of [["sin(x)/x", 1, 5], ["x^x", 0, 1], ["exp(-x^2)", 0, 1]] as [string, number, number][]) {
+      expect({ f, m: M(f, a, b).method }).toEqual({ f, m: "adaptive Simpson" });
+    }
+  });
+
+  test("the value carries convergence evidence, not a promise", () => {
+    // Refined until two panel counts agree to eleven significant figures; the caveat
+    // says so, because "numeric integral" alone tells the reader nothing about whether
+    // it converged.
+    const r = M("sin(x)/x", -1, 1);
+    expect(r.caveats.join(" ")).toMatch(/two different panel counts agreed/);
+  });
+});

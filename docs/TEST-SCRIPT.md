@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.54.0)
+# JurisLab — Manual Test Script (v2.55.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -728,7 +728,7 @@ Chemical mode, **Periodic table &amp; atomic structure**.
 ## 0q. New in v2.54.0 — optics, photonics and entanglement
 
 Engineering mode. The dropdown must now show two new groups, **Optics & photonics**
-(8 tools) and **Quantum optics** (4), and the mode must state **49 calculators**.
+(8 tools) and **Quantum optics** (4), and the mode must state **53 calculators**.
 
 - [ ] **Photon relations.** `1064` as a wavelength in nm must give **1.16526 eV**,
   **281.76 THz** and **9398.5 cm⁻¹**. Switch the selector to eV and type `1.16526`:
@@ -784,6 +784,47 @@ Engineering mode. The dropdown must now show two new groups, **Optics & photonic
 - [ ] Every one of the twelve must insert into the document and the inserted text must
   carry its unit note (or, for the quantum four, the "everything here is
   dimensionless" note).
+
+---
+
+## 0r. New in v2.55.0 — chips & semiconductors
+
+Engineering mode. A new **Chips & semiconductors** group of 4, and the mode must now
+state **53 calculators** across **twelve disciplines**.
+
+- [ ] **Power.** 500 pF, 0.9 V, 2 GHz, α = 0.1: dynamic power **81 mW**
+  (0.1 × 500e-12 × 0.81 × 2e9). Energy per 0→1 transition must be **405 fJ**, and the
+  note must say it is C·V² and **not ½C·V²**.
+- [ ] Double the voltage and the power must **quadruple**; double the frequency or the
+  activity and it must **double**.
+- [ ] Leave leakage blank: the result must say leakage is **not predicted here**, not
+  imply it is zero. Enter 5 mA and the static term must be 4.5 mW with its share shown.
+- [ ] **Thermal.** 15 W, 25 °C, θ = 0.5 / 0.2 / 1.3 K/W: sink **44.5**, case **47.5**,
+  junction **55 °C**, total **2.0 K/W**. Against a 125 °C limit the margin is **70 °C**
+  and the power at the limit is **50 W** — feed that 50 W back and the junction must
+  land exactly on 125.
+- [ ] Raise power to 60 W: it must say **OVER THE LIMIT by 20 °C**. The parallel-path
+  caveat (a datasheet θja already assumes a board) must always be present.
+- [ ] Type the ambient as `298 K` instead of `25`: it must convert and report having
+  done so, not read 298 as Celsius.
+- [ ] **Delay.** Defaults: the wire's **Elmore** and **50%** figures must be different
+  numbers (0.5·RC against 0.38·RC), with Elmore the larger and labelled an upper bound.
+- [ ] Set driver 1 kΩ, wire R and C both 0, load 1 pF: the 50% delay must be exactly
+  **ln2 × 1 ns ≈ 693 ps**.
+- [ ] Double both the wire's R and its C (i.e. double its length): the wire delay must
+  **quadruple**, not double.
+- [ ] `150 fF` must be accepted as a capacitance. (It was not a unit until v2.55.0, and
+  the tool silently inserted nothing.)
+- [ ] **Timing.** Defaults (1 ns period, 100/700/50/80/40 ps): setup slack **120 ps**,
+  hold slack **110 ps**, required period **880 ps**, both PASS.
+- [ ] Set skew to **+50 ps**: setup slack must **improve** to 170 ps and hold slack must
+  **worsen** to 60 ps. This is the sign convention that matters most — if hold improves
+  with positive skew the check is inverted.
+- [ ] Set skew to **+200 ps**: setup still passes, hold **FAILS**, and the note must say
+  slowing the clock does **not** fix a hold violation.
+- [ ] Drop the period to 500 ps: setup must FAIL and name the **880 ps** it needs.
+- [ ] Enter a shortest path LONGER than the longest: it must be **refused**, not solved.
+- [ ] All four must insert, and each must carry the converting unit note.
 
 ---
 

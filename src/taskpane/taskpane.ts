@@ -365,6 +365,7 @@ import {
   type PhotonUnit,
 } from "../lib/optics";
 import { pureTwoQubit, chsh, wernerState, bb84KeyRate, cx } from "../lib/quantum";
+import { switchingPower, junctionTemperature, interconnectDelay, timingCheck } from "../lib/chips";
 import { statVars, statVarLineProblem } from "../lib/uncertaintyParse";
 import {
   planParagraphNumbering,
@@ -7531,6 +7532,7 @@ const ENG_GROUP_ORDER = [
   "Fluids",
   "Thermal",
   "Electronics",
+  "Chips & semiconductors",
   "Control systems",
   "Vibration",
   "Optics & photonics",
@@ -10896,6 +10898,195 @@ const ENG_CALCS: EngCalc[] = [
       }
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_BIOMED_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+
+  // ---------------------------------------------------------------------
+  // Chips & semiconductors
+  // ---------------------------------------------------------------------
+  {
+    id: "chips-power",
+    name: "Switching & leakage power",
+    group: "Chips & semiconductors",
+    hint:
+      "P = α·C·V²·f, where α is 0→1 TRANSITIONS PER CYCLE (a clock net is 1, random logic often " +
+      "≈ 0.1). The other convention counts every edge and halves the formula, so mixing them is " +
+      "a clean factor of two. Leakage is your measured input: it is exponential in temperature " +
+      "and process-specific, so it is not predicted here.",
+    fields: [
+      { key: "C", label: "Switched capacitance, F", default: "500 pF", kind: "text" },
+      { key: "V", label: "Supply voltage, V", default: "0.9", kind: "text" },
+      { key: "f", label: "Clock frequency, Hz", default: "2 GHz", kind: "text" },
+      { key: "a", label: "Activity factor (0→1 transitions per cycle)", default: "0.1", kind: "text" },
+      { key: "I", label: "Leakage current, A (blank if unknown)", default: "", kind: "text" },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const C = u.req("C", "F", "Switched capacitance");
+      const V = u.req("V", "V", "Supply voltage");
+      const f = u.req("f", "Hz", "Clock frequency");
+      const I = u.opt("I", "A", "Leakage current", 0);
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const a = Number(r("a") || "0");
+      if (!Number.isFinite(a) || a < 0) return { text: "Activity factor must be zero or more.", ok: false };
+      const res = switchingPower(C, V, f, a, I);
+      if (!res) return { text: "Capacitance and voltage must be positive, and the frequency cannot be negative.", ok: false };
+
+      const lines = [
+        "Power",
+        "",
+        `  Dynamic          ${engNum(res.dynamicW, 6)} W`,
+        `  Static (leakage) ${engNum(res.staticW, 6)} W`,
+        `  Total            ${engNum(res.totalW, 6)} W`,
+        "",
+        `  Energy per 0→1 transition  ${engNum(res.energyPerTransitionJ, 6)} J`,
+        `  Energy per clock cycle     ${engNum(res.energyPerCycleJ, 6)} J`,
+      ];
+      if (res.staticW > 0) lines.push(`  Leakage is ${engNum(res.leakageFraction * 100, 4)} % of the total`);
+      u.report(lines);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "chips-thermal",
+    name: "Junction temperature & thermal path",
+    group: "Chips & semiconductors",
+    hint:
+      "Tj = Ta + P·(θjc + θcs + θsa), the SERIES path junction → case → sink → ambient. Thermal " +
+      "resistances are in K/W and are entered as plain numbers. A datasheet θja already bundles " +
+      "an assumed board and must not be added to these.",
+    fields: [
+      { key: "P", label: "Dissipated power, W", default: "15", kind: "text" },
+      { key: "Ta", label: "Ambient temperature, °C", default: "25", kind: "text" },
+      { key: "jc", label: "θ junction-to-case, K/W", default: "0.5", kind: "text" },
+      { key: "cs", label: "θ case-to-sink (interface), K/W", default: "0.2", kind: "text" },
+      { key: "sa", label: "θ sink-to-ambient, K/W", default: "1.3", kind: "text" },
+      { key: "max", label: "Maximum junction temperature, °C (blank to skip)", default: "125", kind: "text" },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const P = u.req("P", "W", "Dissipated power");
+      const Ta = u.req("Ta", "°C", "Ambient temperature");
+      const tjMax = u.optNull("max", "°C", "Maximum junction temperature");
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const th = ["jc", "cs", "sa"].map((k) => Number(r(k)));
+      if (th.some((v) => !Number.isFinite(v) || v < 0)) {
+        return { text: "Each thermal resistance must be a number of K/W, zero or more.", ok: false };
+      }
+      const res = junctionTemperature(P, Ta, th[0], th[1], th[2], tjMax === null ? undefined : tjMax);
+      if (!res) return { text: "Power and the thermal resistances must not be negative.", ok: false };
+
+      const lines = [
+        "Thermal path",
+        "",
+        `  Ambient            ${engNum(Ta, 5)} °C`,
+        `  Sink               ${engNum(res.sinkC, 5)} °C`,
+        `  Case               ${engNum(res.caseC, 5)} °C`,
+        `  Junction           ${engNum(res.junctionC, 5)} °C`,
+        "",
+        `  Total resistance   ${engNum(res.totalResistance, 5)} K/W`,
+      ];
+      if (res.marginC !== null) {
+        lines.push(`  Margin to limit    ${engNum(res.marginC, 5)} °C  (${res.withinLimit ? "within" : "OVER"})`);
+        if (res.maxPowerW !== null) lines.push(`  Power at the limit ${engNum(res.maxPowerW, 5)} W`);
+      }
+      u.report(lines);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "chips-delay",
+    name: "Interconnect RC delay",
+    group: "Chips & semiconductors",
+    hint:
+      "Driver → wire → load. Elmore delay is an upper BOUND on an RC ladder, not the 50% " +
+      "crossing: for a distributed wire it gives 0.5·R·C where the real 50% point is ≈ 0.38·R·C. " +
+      "Both are reported so neither gets quoted as the other.",
+    fields: [
+      { key: "Rd", label: "Driver output resistance, Ω", default: "200", kind: "text" },
+      { key: "Rw", label: "Wire resistance (total), Ω", default: "80", kind: "text" },
+      { key: "Cw", label: "Wire capacitance (total), F", default: "150 fF", kind: "text" },
+      { key: "Cl", label: "Load capacitance, F", default: "50 fF", kind: "text" },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const Rd = u.req("Rd", "Ω", "Driver resistance");
+      const Rw = u.req("Rw", "Ω", "Wire resistance");
+      const Cw = u.req("Cw", "F", "Wire capacitance");
+      const Cl = u.req("Cl", "F", "Load capacitance");
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const res = interconnectDelay(Rd, Rw, Cw, Cl);
+      if (!res) return { text: "Resistances and capacitances must be zero or more.", ok: false };
+
+      const ps = (s: number) => `${engNum(s * 1e12, 5)} ps`;
+      const lines = [
+        "Interconnect delay",
+        "",
+        `  Wire Elmore (upper bound)  ${ps(res.wireElmoreS)}`,
+        `  Wire 50% crossing          ${ps(res.wireFiftyS)}`,
+        `  Driver + wire + load, 50%  ${ps(res.totalFiftyS)}`,
+        `  10-90% rise (lumped)       ${ps(res.riseTenNinetyS)}`,
+      ];
+      u.report(lines);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "chips-timing",
+    name: "Setup / hold timing closure",
+    group: "Chips & semiconductors",
+    hint:
+      "One flop-to-flop path. POSITIVE SKEW means the capturing clock arrives later: it helps " +
+      "setup and HURTS hold, entering the two checks with opposite signs. A hold violation " +
+      "cannot be fixed by slowing the clock, because the hold check has no period term.",
+    fields: [
+      { key: "T", label: "Clock period, s", default: "1 ns", kind: "text" },
+      { key: "cq", label: "Clock-to-Q, s", default: "100 ps", kind: "text" },
+      { key: "dmax", label: "Longest combinational path, s", default: "700 ps", kind: "text" },
+      { key: "dmin", label: "Shortest combinational path, s", default: "50 ps", kind: "text" },
+      { key: "su", label: "Setup time, s", default: "80 ps", kind: "text" },
+      { key: "h", label: "Hold time, s", default: "40 ps", kind: "text" },
+      { key: "sk", label: "Clock skew (capture − launch), s", default: "0", kind: "text" },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const T = u.req("T", "s", "Clock period");
+      const cq = u.req("cq", "s", "Clock-to-Q");
+      const dmax = u.req("dmax", "s", "Longest path");
+      const dmin = u.req("dmin", "s", "Shortest path");
+      const su = u.req("su", "s", "Setup time");
+      const h = u.req("h", "s", "Hold time");
+      const sk = u.opt("sk", "s", "Clock skew", 0);
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const res = timingCheck(T, cq, dmax, dmin, su, h, sk);
+      if (!res) {
+        return {
+          text:
+            "The period must be positive, the times cannot be negative, and the shortest path " +
+            "cannot exceed the longest.",
+          ok: false,
+        };
+      }
+      const ps = (s: number) => `${engNum(s * 1e12, 5)} ps`;
+      const lines = [
+        "Timing closure (one path)",
+        "",
+        `  Setup slack   ${ps(res.setupSlackS)}   ${res.setupOk ? "PASS" : "FAIL"}`,
+        `  Hold slack    ${ps(res.holdSlackS)}   ${res.holdOk ? "PASS" : "FAIL"}`,
+        "",
+        `  Required period ${ps(res.minPeriodS)}`,
+        `  Maximum clock   ${res.fMaxHz === null ? "unbounded" : engNum(res.fMaxHz / 1e6, 6) + " MHz"}`,
+      ];
+      u.report(lines);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_UNIT_NOTE);
       return { text: plainDashes(lines.join("\n")) };
     },
   },

@@ -183,6 +183,10 @@ const UNITS: Record<string, UnitDef> = {
   // capacitance (base F)
   F: { dim: "capacitance", factor: 1 }, mF: { dim: "capacitance", factor: 1e-3 },
   µF: { dim: "capacitance", factor: 1e-6 }, nF: { dim: "capacitance", factor: 1e-9 }, pF: { dim: "capacitance", factor: 1e-12 },
+  // On-chip capacitances are quoted in femtofarads. Without this, every
+  // interconnect figure had to be typed as an exponent — and the engineering
+  // audit caught it as a tool that silently inserted nothing.
+  fF: { dim: "capacitance", factor: 1e-15 },
   // charge (base C)
   C: { dim: "charge", factor: 1 }, mC: { dim: "charge", factor: 1e-3 },
   µC: { dim: "charge", factor: 1e-6 }, nC: { dim: "charge", factor: 1e-9 },

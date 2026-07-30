@@ -100,8 +100,22 @@ describe("network surface — the offline claim is enforceable", () => {
     const external = new Set<string>();
     for (const f of files) {
       const text = fs.readFileSync(f, "utf8");
+      const lines = text.split(String.fromCharCode(10));
       for (const m of text.matchAll(/https?:\/\/([a-z0-9.-]+)/gi)) {
         const host = m[1].toLowerCase();
+        // WHICH LINE IS IT ON? A URL in a comment is a citation; a URL in code is an
+        // address. The difference is the whole point of this test, so it is measured
+        // rather than assumed — the exemption below applies only to comment lines, so
+        // adding a real fetch to the same host still fails.
+        const upto = text.slice(0, m.index ?? 0);
+        const line = lines[upto.split(String.fromCharCode(10)).length - 1] ?? "";
+        const isComment = /^\s*(\/\/|\*|\/\*)/.test(line);
+        // The PROVENANCE of the fetched element data. src/lib/elementData.ts is a
+        // generated file and its header cites the endpoint it came from, which is
+        // exactly the citation this project's data rule demands. It is never
+        // dereferenced at runtime: the fetch lives in scripts/fetch-element-data.mjs,
+        // which is a build-time tool that never ships in the pane bundle.
+        if (host === "pubchem.ncbi.nlm.nih.gov" && isComment) continue;
         // The add-in's own host and Microsoft's required office.js CDN.
         if (host.endsWith("github.io") || host.endsWith("github.com")) continue;
         if (host === "appsforoffice.microsoft.com") continue;

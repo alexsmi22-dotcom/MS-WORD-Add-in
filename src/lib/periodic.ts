@@ -24,6 +24,7 @@
 // feature look finished is the one thing this file must not do.
 
 import { PERIODIC } from "./chemValidate";
+import { ELEMENT_FACTS, ElementFacts } from "./elementData";
 
 /** Symbols in atomic-number order — index + 1 IS the atomic number. */
 export const ELEMENT_SYMBOLS: readonly string[] = Object.keys(PERIODIC);
@@ -46,6 +47,48 @@ export function symbolFor(z: number): string | null {
 export function atomicWeight(z: number): number | null {
   const s = symbolFor(z);
   return s === null ? null : PERIODIC[s];
+}
+
+/**
+ * The fetched facts for an element: name, measured configuration, oxidation states and
+ * the rest. Sourced from PubChem by scripts/fetch-element-data.mjs and cross-checked —
+ * the generator refuses to write the file unless all 118 symbols match the already-held
+ * table in order.
+ */
+export function facts(z: number): ElementFacts | null {
+  if (!Number.isInteger(z) || z < 1 || z > ELEMENT_COUNT) return null;
+  return ELEMENT_FACTS[z - 1] ?? null;
+}
+
+/** IUPAC name, or null. */
+export function elementName(z: number): string | null {
+  return facts(z)?.name ?? null;
+}
+
+/**
+ * The MEASURED ground-state configuration, as opposed to the aufbau prediction.
+ *
+ * PubChem's own "(predicted)" and "(calculated)" annotations are kept: for the
+ * superheavy elements nobody has measured this, and stripping the caveat would
+ * manufacture certainty. A caller showing this string should show it whole.
+ */
+export function measuredConfiguration(z: number): string | null {
+  const f = facts(z);
+  return f && f.config ? f.config : null;
+}
+
+/** True when the source flags its own value as predicted rather than observed. */
+export function configurationIsPredicted(z: number): boolean {
+  const c = measuredConfiguration(z);
+  return c !== null && /\((?:predicted|calculated)\)/i.test(c);
+}
+
+/** Looks an element up by name, case-insensitively. */
+export function atomicNumberByName(name: string): number | null {
+  const want = name.trim().toLowerCase();
+  if (!want) return null;
+  const i = ELEMENT_FACTS.findIndex((f) => f.name.toLowerCase() === want);
+  return i < 0 ? null : i + 1;
 }
 
 // ---------------------------------------------------------------------------
@@ -261,29 +304,24 @@ export function placement(z: number): Placement | null {
  */
 export const ABSENT_PROPERTIES: ReadonlyArray<{ name: string; why: string }> = [
   {
-    name: "Element name",
-    why: "Names are a data list of 118 entries. The symbols and atomic numbers here are held and verified; the names are not, and typing them from memory is exactly the practice this project refuses.",
+    name: "Melting and boiling points",
+    why: "Measured values that PubChem's periodic-table endpoint does not carry. They also depend on pressure, which has to be stated alongside them, so a bare number would be incomplete even if it were sourced.",
   },
   {
-    name: "Melting and boiling points",
-    why: "Measured values needing a cited source; they also depend on pressure, which has to be stated with them.",
+    name: "Density",
+    why: "Measured, and both temperature- and phase-dependent, so it cannot be a single number without saying at what conditions. Not in the source this tool fetches.",
   },
-  { name: "Density", why: "Measured, and temperature- and phase-dependent, so it cannot be a single number without saying at what." },
   {
     name: "Crystal structure",
-    why: "Measured, and needs a stated convention — Strukturbericht or Pearson symbols — before the values mean anything.",
+    why: "Measured, and needs a stated convention — Strukturbericht or Pearson symbols — before the values mean anything. Not in the source this tool fetches.",
   },
-  { name: "Mohs hardness", why: "Measured on an ordinal scale, and undefined for the gases and for several synthetic elements." },
+  {
+    name: "Mohs hardness",
+    why: "Measured on an ordinal scale, and undefined for the gases and for the synthetic elements that have never existed in bulk.",
+  },
   {
     name: "Spectral emission lines",
-    why: "Measured wavelengths, hundreds per element, and the ones worth showing depend on the excitation conditions. This is the property that most needs a citation.",
-  },
-  {
-    name: "Oxidation states",
-    why: "A mixture of commonly observed and rarely observed states; which to show is an editorial judgement that needs a source behind it.",
-  },
-  {
-    name: "Measured electron configuration",
-    why: "The configurations here are PREDICTED by the aufbau principle. About twenty elements — chromium and copper among them — are measured to differ, and those measurements are not carried.",
+    why: "Measured wavelengths, hundreds per element, and which are worth showing depends on the excitation conditions. This is the property that most needs a citation and it is not in the fetched source.",
   },
 ];
+

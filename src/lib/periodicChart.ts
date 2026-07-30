@@ -27,6 +27,10 @@ import {
   SHELL_LETTERS,
   ABSENT_PROPERTIES,
   Subshell,
+  elementName,
+  measuredConfiguration,
+  configurationIsPredicted,
+  facts,
 } from "./periodic";
 import { INK } from "./chartPalette";
 
@@ -321,9 +325,15 @@ export function elementReport(symbolOrZ: string | number): { lines: string[]; no
   if (!sym || !pl || !shells) return null;
 
   const lines: string[] = [];
-  lines.push(`${sym} — atomic number ${z}`);
+  const name = elementName(z);
+  lines.push(`${name ? `${name} (${sym})` : sym} — atomic number ${z}`);
   const w = atomicWeight(z);
-  lines.push(`Standard atomic weight: ${w ?? "—"}`);
+  // The HELD IUPAC value, deliberately not the fetched one: the two sources differ for
+  // lithium, which IUPAC gives as an interval, and for the elements with no stable
+  // isotope, where each source picks a different reference isotope.
+  lines.push(`Standard atomic weight: ${w ?? "—"} (IUPAC)`);
+  const f = facts(z);
+  if (f?.standardState) lines.push(`State at standard conditions: ${f.standardState}`);
   lines.push(
     `Position: period ${pl.period}, ` +
       (pl.group === null ? "f-block series (outside the numbered groups)" : `group ${pl.group}`) +
@@ -331,14 +341,38 @@ export function elementReport(symbolOrZ: string | number): { lines: string[]; no
   );
   if (isNobleGas(z)) lines.push("Noble gas — its outermost p subshell is full (helium's 1s shell).");
   lines.push("");
-  lines.push(`Electron configuration (predicted): ${configurationString(z)}`);
-  lines.push(`Abbreviated: ${nobleGasConfiguration(z)}`);
+  const measured = measuredConfiguration(z);
+  if (measured) {
+    lines.push(
+      `Electron configuration: ${measured}` +
+        (configurationIsPredicted(z) ? "  ← the source marks this predicted, not observed" : ""),
+    );
+  }
+  lines.push(`Aufbau prediction: ${nobleGasConfiguration(z)}`);
+  if (measured && !configurationIsPredicted(z)) {
+    const norm = (t: string): string => t.replace(/\s+/g, "");
+    if (norm(measured) !== norm(nobleGasConfiguration(z) ?? "")) {
+      lines.push(
+        "  ↑ these DIFFER — this element is one of the aufbau exceptions, where the measured " +
+          "configuration is not what the filling rule predicts.",
+      );
+    }
+  }
+  lines.push(`Full (predicted): ${configurationString(z)}`);
   lines.push(
     `Electrons per shell: ${shells
       .map((c, i) => `${SHELL_LETTERS[i] ?? `n=${i + 1}`} ${c}`)
       .join(", ")}`,
   );
   lines.push(`Valence electrons in the outermost shell: ${shells[shells.length - 1]}`);
+  if (f) {
+    lines.push("");
+    if (f.oxidation) lines.push(`Oxidation states: ${f.oxidation}`);
+    if (f.electronegativity !== null) lines.push(`Electronegativity (Pauling): ${f.electronegativity}`);
+    if (f.ionisationEnergy !== null) lines.push(`First ionisation energy: ${f.ionisationEnergy} eV`);
+    if (f.electronAffinity !== null) lines.push(`Electron affinity: ${f.electronAffinity} eV`);
+    if (f.atomicRadius !== null) lines.push(`Atomic radius (van der Waals): ${f.atomicRadius} pm`);
+  }
   lines.push("");
   lines.push("NOT CARRIED BY THIS TOOL:");
   for (const a of ABSENT_PROPERTIES) lines.push(`  • ${a.name} — ${a.why}`);
@@ -346,11 +380,18 @@ export function elementReport(symbolOrZ: string | number): { lines: string[]; no
   return {
     lines,
     notes: [
-      AUFBAU_CAVEAT,
-      "Everything above is either held and verified (the symbol, atomic number and standard " +
-        "atomic weight) or computed from the aufbau rule (the configuration, shells, block, group " +
-        "and period). No measured property has been filled in from memory, which is why the list " +
-        "of what is absent is part of the report rather than a footnote.",
+      "Sources: the symbol, atomic number and standard atomic weight are held and verified in " +
+        "this product; the name, measured configuration, oxidation states, electronegativity, " +
+        "ionisation energy, electron affinity and radius are fetched from PubChem and " +
+        "cross-checked — all 118 symbols match the held table in order, which is what licenses " +
+        "attaching them. The shells, block, group and period are computed from the aufbau rule.",
+      "The atomic weight shown is the HELD IUPAC value, not PubChem's. The two differ for " +
+        "lithium — which IUPAC gives as an interval — and for the elements with no stable " +
+        "isotope, where each source picks a different reference isotope. That is a difference of " +
+        "convention rather than an error in either, and switching silently would change numbers " +
+        "this product already computes with.",
+      "No measured property has been filled in from memory, which is why the list of what is " +
+        "still absent is part of the report rather than a footnote.",
     ],
   };
 }

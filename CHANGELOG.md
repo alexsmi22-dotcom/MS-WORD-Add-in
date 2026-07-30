@@ -5,6 +5,76 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > Note: this file was not maintained between v1.96.0 and v2.23.0. Those releases
 > are recorded in the git history rather than here.
 
+## [2.51.0] — 2026-07-30 — Element names, fetched and cross-checked rather than typed
+
+You pointed out the periodic table showed no element names. That was deliberate in
+v2.50.0 — 118 names typed from recollection is exactly the practice this project
+refuses — but "deliberate" is not the same as "right", and a reference table without
+names is a poor reference table. The answer was to get them from a real source.
+
+### What was done
+
+`scripts/fetch-element-data.mjs` fetches PubChem's periodic-table endpoint, caches the
+response in `docs/`, and generates `src/lib/elementData.ts`. The script is committed, so
+the data is reproducible rather than asserted.
+
+**It refuses to write anything unless the two sources agree about which element is
+which.** All 118 symbols must match the already-verified held table IN ORDER, and the
+atomic numbers must be sequential. They do, exactly — and that agreement is what
+licenses attaching PubChem's names to symbols this product had already verified.
+
+### What was taken, and what was not
+
+PubChem is a real source and **not an infallible one** — this repo has been bitten by
+trusting it before, on folate stereochemistry. So it was cross-checked rather than
+copied, and one class of value was deliberately left behind:
+
+**Not taken: the atomic weights.** PubChem differs from the held IUPAC values for
+lithium — which IUPAC gives as an interval, not a point — and for seven elements with
+no stable isotope, where sources pick different reference isotopes. Those are
+convention differences rather than errors in either source, and switching silently
+would have changed numbers this product already computes with. `Li` still reads 6.94,
+labelled IUPAC.
+
+**Taken:** names, measured electron configurations, oxidation states, electronegativity,
+ionisation energy, electron affinity, atomic radius and standard state.
+
+### The check that validated both sides at once
+
+The measured configurations were compared against this tool's own aufbau predictions.
+They agree for 88 of 118, and the 30 that differ are **exactly the classic exceptions** —
+Cr, Cu, Nb, Mo, Ru, Rh, Pd, Ag, La, Ce, Gd, Pt, Au, Ac, Th, Pa, U, Np, Cm and the rest —
+plus four the source itself labels "(predicted)". A correct aufbau implementation must
+disagree with measurement precisely there and nowhere else, so each source corroborates
+the other. That comparison is now a test: if the exception list ever grows to include
+neon, the filling code has broken.
+
+Where the two disagree the summary shows **both**, and says they differ because the
+element is an aufbau exception. That is more useful than either alone — it is the fact a
+student is being taught.
+
+### Still absent, and still said so
+
+Melting and boiling points, density, crystal structure, Mohs hardness and spectral
+emission lines. The source fetched does not carry them, each entry says why, and none
+has been filled in from memory.
+
+### Two guards fired on this work, both correctly
+
+The **network-surface** test refuses any external host in the source, because the
+product advertises that OPSIN is its only outbound call. The PubChem URL in the
+generated file's provenance header tripped it. Rather than adding a blanket exemption,
+the guard now distinguishes a URL on a **comment** line (a citation) from one in code
+(an address) — so a real runtime fetch to the same host would still fail it. The fetch
+itself lives in a build-time script that never ships in the pane bundle.
+
+The **dead-export ratchet** caught `atomicNumberByName` with no caller. Rather than
+widening the ratchet, the function was wired up: the pane now accepts an element **name**
+as input as well as a symbol or atomic number, which is what someone wanting names would
+reach for anyway.
+
+6,754 tests across 221 files. All twelve QC gates pass.
+
 ## [2.50.0] — 2026-07-30 — Periodic table & atomic structure, built without inventing data
 
 The third wishlist feature, shipped the incremental way: everything that can be

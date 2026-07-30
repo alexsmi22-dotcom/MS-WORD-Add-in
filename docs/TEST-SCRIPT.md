@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.50.0)
+# JurisLab — Manual Test Script (v2.51.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -696,6 +696,32 @@ Chemical mode, the new **Periodic table &amp; atomic structure** panel.
   question is unsettled — the tool must not take a side.
 - [ ] **Insert** each view. Diagrams go in as figures; the summary goes in as text with
   its notes. The figure's alt text must carry the prediction caveat.
+
+---
+
+## 0p. New in v2.51.0 — element names, and the data behind them
+
+Chemical mode, **Periodic table &amp; atomic structure**.
+
+- [ ] Type `Au`. The summary must now read **"Gold (Au) — atomic number 79"**. Names
+  were absent in v2.50.0 and are now fetched from PubChem and cross-checked.
+- [ ] Type **`Gold`** instead of `Au` — searching by name must work. So must `Iron`,
+  `oganesson` (any case), and the atomic number `79`.
+- [ ] `Cr` must show BOTH configurations: the measured `[Ar]3d5 4s1` and the aufbau
+  prediction `[Ar] 4s2 3d4`, with a line saying they DIFFER because chromium is one of
+  the exceptions. Check `Cu`, `Au`, `Pd` and `U` the same way.
+- [ ] An ordinary element like `O` must show the two agreeing, with no "differ" line.
+- [ ] `Ds` (110) must show its configuration marked **"the source marks this
+  predicted, not observed"** — for the superheavy elements even PubChem has no
+  measurement, and the hedge must survive.
+- [ ] The summary must now also show **oxidation states, electronegativity, first
+  ionisation energy, electron affinity, atomic radius and standard state** where the
+  source has them.
+- [ ] **The atomic weight must still be the IUPAC one.** `Li` must read **6.94
+  (IUPAC)**, not PubChem's 7.0 — the two genuinely differ and the held value wins.
+- [ ] The "NOT CARRIED" list must now be SHORTER: melting/boiling points, density,
+  crystal structure, Mohs hardness and spectral emission lines. Names and oxidation
+  states must have left it.
 
 ---
 

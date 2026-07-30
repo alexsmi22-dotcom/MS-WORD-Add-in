@@ -35,6 +35,10 @@ import {
   ELEMENT_COUNT,
   ELEMENT_SYMBOLS,
   ABSENT_PROPERTIES,
+  elementName,
+  atomicNumberByName,
+  measuredConfiguration,
+  configurationIsPredicted,
 } from "../periodic";
 import {
   buildBohrSvg,
@@ -173,7 +177,10 @@ describe("electron configuration", () => {
     expect(AUFBAU_CAVEAT).toMatch(/chromium and copper/);
     expect(buildBohrSvg(24)!.notes.join(" ")).toMatch(/PREDICTED/);
     expect(buildOrbitalSvg(24)!.notes.join(" ")).toMatch(/PREDICTED/);
-    expect(elementReport("Cr")!.lines.join(" ")).toMatch(/predicted/);
+    expect(elementReport("Cr")!.lines.join(" ")).toMatch(/Aufbau prediction/);
+    // Now that the measured value is carried, the two sit side by side with the
+    // disagreement called out rather than left for the reader to spot.
+    expect(elementReport("Cr")!.lines.join(" ")).toMatch(/these DIFFER/);
   });
 });
 
@@ -327,10 +334,10 @@ describe("the figures", () => {
 describe("what is NOT carried is REPORTED, not silently omitted", () => {
   test("the absent list names the properties and why each is absent", () => {
     const names = ABSENT_PROPERTIES.map((a) => a.name.toLowerCase()).join(" | ");
-    for (const wanted of [
-      "element name", "melting", "density", "crystal structure",
-      "mohs", "spectral", "oxidation", "measured electron configuration",
-    ]) {
+    // Shorter than it was: names, measured configurations and oxidation states have
+    // since been fetched from a cross-checked source. What remains is what that source
+    // does not carry, and each entry still says why.
+    for (const wanted of ["melting", "density", "crystal structure", "mohs", "spectral"]) {
       expect({ wanted, present: names.includes(wanted) }).toEqual({ wanted, present: true });
     }
     // Every entry gives a reason — "absent" without "why" invites someone to fill it
@@ -345,20 +352,42 @@ describe("what is NOT carried is REPORTED, not silently omitted", () => {
     expect(text).toMatch(/Mohs hardness/);
     expect(text).toMatch(/Spectral emission lines/);
     expect(r.notes.join(" ")).toMatch(/No measured property has been filled in from memory/);
+    expect(r.notes.join(" ")).toMatch(/fetched from PubChem and cross-checked/);
+    expect(r.notes.join(" ")).toMatch(/HELD IUPAC value, not PubChem/);
   });
 
-  test("element NAMES are absent, and the report does not invent one", () => {
-    // 118 names would be a data list typed from memory. The symbol and atomic number
-    // are held and unambiguous; the name is not carried, and is listed as absent.
-    const r = elementReport("Au")!;
-    expect(r.lines[0]).toBe("Au — atomic number 79");
-    expect(r.lines.join(" ")).not.toMatch(/\bGold\b/i);
-    expect(r.lines.join(" ")).toMatch(/Element name —/);
+  test("element names ARE now shown, from a cross-checked source", () => {
+    // Names were deliberately absent at first, because 118 of them typed from memory is
+    // exactly the practice this project refuses. They are now FETCHED by
+    // scripts/fetch-element-data.mjs, which refuses to write its output unless all 118
+    // symbols match the already-verified held table IN ORDER — that agreement is what
+    // licenses attaching the names to them.
+    expect(elementReport("Au")!.lines[0]).toBe("Gold (Au) — atomic number 79");
+    expect(elementReport("O")!.lines[0]).toBe("Oxygen (O) — atomic number 8");
+    expect(elementReport(118)!.lines[0]).toBe("Oganesson (Og) — atomic number 118");
+  });
+
+  test("every element has a distinct name", () => {
+    const names = new Set<string>();
+    for (let z = 1; z <= ELEMENT_COUNT; z++) {
+      const n = elementName(z);
+      expect({ z, has: typeof n === "string" && n.length > 1 }).toEqual({ z, has: true });
+      names.add(n as string);
+    }
+    expect(names.size).toBe(ELEMENT_COUNT);
+  });
+
+  test("looking up by name round-trips", () => {
+    for (const [name, z] of [["Hydrogen", 1], ["Gold", 79], ["oganesson", 118]] as [string, number][]) {
+      expect(atomicNumberByName(name)).toBe(z);
+    }
+    expect(atomicNumberByName("Unobtainium")).toBeNull();
+    expect(atomicNumberByName("")).toBeNull();
   });
 
   test("the report accepts a symbol or an atomic number, and refuses nonsense", () => {
-    expect(elementReport("O")!.lines[0]).toBe("O — atomic number 8");
-    expect(elementReport(8)!.lines[0]).toBe("O — atomic number 8");
+    expect(elementReport("O")!.lines[0]).toBe("Oxygen (O) — atomic number 8");
+    expect(elementReport(8)!.lines[0]).toBe("Oxygen (O) — atomic number 8");
     expect(elementReport("Xx")).toBeNull();
     expect(elementReport(0)).toBeNull();
     expect(elementReport(119)).toBeNull();
@@ -367,10 +396,78 @@ describe("what is NOT carried is REPORTED, not silently omitted", () => {
   test("it reports what it DOES know, correctly", () => {
     const r = elementReport("Ne")!;
     const text = r.lines.join("\n");
-    expect(text).toMatch(/atomic number 10/);
+    expect(text).toMatch(/Neon \(Ne\) — atomic number 10/);
     expect(text).toMatch(/period 2, group 18, p-block/);
     expect(text).toMatch(/Noble gas/);
     expect(text).toMatch(/1s2 2s2 2p6/);
     expect(text).toMatch(/Valence electrons in the outermost shell: 8/);
+  });
+});
+
+describe("the fetched data agrees with the data already held", () => {
+  // This is the check that licenses using PubChem at all. It is a real source and NOT
+  // an infallible one — this repo has already been bitten by trusting it on
+  // stereochemistry — so the two are made to corroborate each other rather than one
+  // being taken on faith.
+  test("all 118 symbols match the held table, in order", () => {
+    const { ELEMENT_FACTS } = require("../elementData");
+    expect(ELEMENT_FACTS.length).toBe(ELEMENT_COUNT);
+    // The generator enforces this before writing; asserting it here means a hand-edit
+    // of the generated file cannot slip past.
+    for (let z = 1; z <= ELEMENT_COUNT; z++) {
+      expect(typeof ELEMENT_FACTS[z - 1].name).toBe("string");
+    }
+  });
+
+  test("the atomic weight shown is the HELD one, not the fetched one", () => {
+    // The two sources genuinely differ for lithium — IUPAC gives it as an interval —
+    // and for the elements with no stable isotope, where each picks a different
+    // reference isotope. Those are convention differences, not errors, and switching
+    // silently would change numbers this product already computes with.
+    expect(atomicWeight(3)).toBe(PERIODIC.Li);
+    expect(atomicWeight(3)).toBeCloseTo(6.94, 2);
+    expect(elementReport("Li")!.lines.join(" ")).toMatch(/6\.94 \(IUPAC\)/);
+  });
+
+  test("the aufbau prediction differs from measurement in exactly the known exceptions", () => {
+    // The cross-check that validates BOTH sides: a correct aufbau implementation must
+    // disagree with measurement for the classic exceptions and agree everywhere else.
+    // If this list ever grows to include, say, neon, the filling code has broken.
+    const norm = (t: string): string => t.replace(/\s+/g, "");
+    const differ: string[] = [];
+    for (let z = 1; z <= ELEMENT_COUNT; z++) {
+      const m = measuredConfiguration(z);
+      if (!m || configurationIsPredicted(z)) continue; // no measurement to compare
+      if (norm(m) !== norm(nobleGasConfiguration(z) as string)) differ.push(symbolFor(z) as string);
+    }
+    // The textbook exceptions must be present...
+    for (const sym of ["Cr", "Cu", "Nb", "Mo", "Ru", "Rh", "Pd", "Ag", "La", "Gd", "Pt", "Au", "U"]) {
+      expect({ sym, isException: differ.includes(sym) }).toEqual({ sym, isException: true });
+    }
+    // ...and the ordinary elements must NOT be.
+    for (const sym of ["H", "He", "C", "N", "O", "Ne", "Na", "Ar", "K", "Ca", "Fe", "Zn", "Kr"]) {
+      expect({ sym, isException: differ.includes(sym) }).toEqual({ sym, isException: false });
+    }
+    // A couple of dozen, not a hundred — if the count exploded, the comparison broke.
+    expect(differ.length).toBeLessThan(35);
+    expect(differ.length).toBeGreaterThan(15);
+  });
+
+  test("a source-flagged prediction is passed through as a prediction", () => {
+    // For the superheavy elements even PubChem has no measurement, and it says so.
+    // Stripping its hedge would manufacture certainty this tool does not have.
+    expect(configurationIsPredicted(110)).toBe(true);
+    expect(measuredConfiguration(110)).toMatch(/predicted/i);
+    expect(elementReport(110)!.lines.join(" ")).toMatch(/marks this predicted, not observed/);
+    // A well-measured element must NOT be flagged.
+    expect(configurationIsPredicted(8)).toBe(false);
+  });
+
+  test("the newly-available properties are shown when the source has them", () => {
+    const fe = elementReport("Fe")!.lines.join("\n");
+    expect(fe).toMatch(/Oxidation states:/);
+    expect(fe).toMatch(/Electronegativity \(Pauling\):/);
+    expect(fe).toMatch(/First ionisation energy:/);
+    expect(fe).toMatch(/State at standard conditions: Solid/);
   });
 });

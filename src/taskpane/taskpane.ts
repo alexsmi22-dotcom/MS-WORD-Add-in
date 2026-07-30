@@ -343,7 +343,7 @@ import {
   buildPeriodicTableSvg,
   elementReport,
 } from "../lib/periodicChart";
-import { atomicNumber, symbolFor } from "../lib/periodic";
+import { atomicNumber, symbolFor, atomicNumberByName, elementName } from "../lib/periodic";
 import { statVars, statVarLineProblem } from "../lib/uncertaintyParse";
 import {
   planParagraphNumbering,
@@ -2616,6 +2616,25 @@ function isRowKind(kind: RenderKind): kind is DiagramKind | "tablefigure" {
  * are listed as missing, because a reference that silently omits a property is
  * indistinguishable from one that has no data for that element.
  */
+/**
+ * Resolves whatever was typed to an atomic number — a symbol, a number, or a NAME.
+ *
+ * Names are accepted because they are the thing most people reach for, and because the
+ * tool now carries them: they are fetched and cross-checked rather than typed from
+ * memory. Symbol first, since "C" is carbon rather than an abbreviation of anything,
+ * and symbols are case-sensitive in chemistry — "CO" is carbon monoxide, "Co" is
+ * cobalt, and quietly accepting either would be the wrong kind of helpful.
+ */
+function resolveElement(raw: string): number | null {
+  const t = raw.trim();
+  if (!t) return null;
+  if (/^\d+$/.test(t)) {
+    const n = Number(t);
+    return symbolFor(n) === null ? null : n;
+  }
+  return atomicNumber(t) ?? atomicNumberByName(t);
+}
+
 function renderPeriodic(): void {
   const raw = periodicEl.value.trim();
   const view = periodicView.value;
@@ -2625,7 +2644,7 @@ function renderPeriodic(): void {
 
   if (view === "table") {
     // The whole table needs no element; a typed one is highlighted if it resolves.
-    const z = /^\d+$/.test(raw) ? Number(raw) : atomicNumber(raw);
+    const z = resolveElement(raw);
     const sym = z === null ? undefined : (symbolFor(z) ?? undefined);
     const t = buildPeriodicTableSvg(sym);
     periodicPreview.innerHTML = t.svg;
@@ -2640,11 +2659,11 @@ function renderPeriodic(): void {
     insertPeriodicBtn.disabled = true;
     return;
   }
-  const z = /^\d+$/.test(raw) ? Number(raw) : atomicNumber(raw);
+  const z = resolveElement(raw);
   if (z === null || symbolFor(z) === null) {
     periodicInfo.textContent =
-      `"${raw}" is not one of the ${118} elements. Symbols are case-sensitive — "Fe", not "fe" ` +
-      "or \"FE\" — or give the atomic number instead.";
+      `"${raw}" is not one of the 118 elements. Give a symbol (case-sensitive: "Fe", not "fe"), ` +
+      "an atomic number (26), or the element name (Iron).";
     insertPeriodicBtn.disabled = true;
     return;
   }
@@ -2663,7 +2682,7 @@ function renderPeriodic(): void {
       svg: r.svg,
       text: [],
       notes: r.notes,
-      label: `${sym} — ${view === "bohr" ? "Bohr model" : "orbital filling"}`,
+      label: `${elementName(z) ?? sym} (${sym}) — ${view === "bohr" ? "Bohr model" : "orbital filling"}`,
     };
     insertPeriodicBtn.disabled = false;
     return;
@@ -2677,7 +2696,7 @@ function renderPeriodic(): void {
   }
   periodicPreview.textContent = rep.lines.join("\n");
   periodicInfo.textContent = rep.notes.join(" ");
-  currentPeriodic = { svg: null, text: rep.lines, notes: rep.notes, label: `${sym} — summary` };
+  currentPeriodic = { svg: null, text: rep.lines, notes: rep.notes, label: `${elementName(z) ?? sym} (${sym}) — summary` };
   insertPeriodicBtn.disabled = false;
 }
 

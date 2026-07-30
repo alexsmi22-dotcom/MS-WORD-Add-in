@@ -219,6 +219,27 @@
             <div id="opsin-status" class="opsin-status" aria-live="polite"></div>
           </div>
         </section>
+
+        <!-- Periodic table reference: computed structure only, no measured properties -->
+        <section id="periodic-section" class="structure-section">
+          <span class="preview-label">Periodic table &amp; atomic structure</span>
+          <div class="dna-controls">
+            <label class="field-label" for="periodic-el">Element (symbol or atomic number)</label>
+            <input id="periodic-el" class="lib-select" type="text" value="C" placeholder="C, Fe, 26" />
+            <label class="field-label" for="periodic-view">Show</label>
+            <select id="periodic-view" class="lib-select">
+              <option value="report">Element summary</option>
+              <option value="bohr">Bohr model diagram</option>
+              <option value="orbital">Orbital filling diagram</option>
+              <option value="table">The periodic table</option>
+            </select>
+          </div>
+          <div id="periodic-preview" class="structure-preview" aria-live="polite"></div>
+          <div id="periodic-info" class="build-readout"></div>
+          <button id="insert-periodic-btn" class="insert-btn secondary" type="button">
+            Insert
+          </button>
+        </section>
       </section>
 
       <!-- Build a molecule from a molfile or atom/bond list -->

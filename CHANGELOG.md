@@ -5,6 +5,73 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > Note: this file was not maintained between v1.96.0 and v2.23.0. Those releases
 > are recorded in the git history rather than here.
 
+## [2.50.0] — 2026-07-30 — Periodic table & atomic structure, built without inventing data
+
+The third wishlist feature, shipped the incremental way: everything that can be
+computed or is already held, with every measured property **reported as absent** rather
+than guessed.
+
+### Why it is shaped like this
+
+A 118-element table with ten properties each is roughly 1,200 measured values, and they
+cannot come from recollection. The standing rule here is that all data must be real, and
+the precedent is the deliberate refusal to build in steam tables because a table
+reconstructed from memory is unverifiable. Filling in melting points to make the feature
+look finished would have been the single worst thing this release could do.
+
+So it carries exactly two kinds of thing.
+
+**Held.** The symbols and standard atomic weights already verified in `PERIODIC`. The
+atomic number comes from the ORDER of that table rather than a second list that could
+disagree with the first — H is its first key, iron its twenty-sixth.
+
+**Computed.** Electron configuration, shell occupancy, block, group and period, all
+generated from the aufbau rule. The Madelung filling order is produced from its own
+statement — increasing n + l, then increasing n — rather than typed out, so a
+transposition in "1s 2s 2p 3s 3p 4s 3d…" is impossible rather than merely unlikely. The
+noble gases are likewise **derived**, by asking which elements complete a p subshell;
+that this returns exactly 2, 10, 18, 36, 54, 86, 118 is a check on the machinery rather
+than an input to it.
+
+### What it draws
+
+**The periodic table** — 118 cells laid out from computed period and group, with the
+f-block in two rows beneath. **A Bohr model** — one dot per electron, with the rings
+counted from shell occupancy. **An orbital filling diagram** with Hund's rule applied,
+which is the whole reason to draw one: `2p⁴` is a pair and two singles, not two pairs,
+and that is the fact the picture carries which the written configuration does not. And a
+**per-element summary**.
+
+### The three places it refuses to overclaim
+
+**Configurations are labelled PREDICTIONS.** About twenty elements — chromium and copper
+the textbook pair — are measured to differ from the aufbau prediction, and those
+measurements are not carried. Every diagram and every summary says so, and the caveat
+travels into the inserted figure's alt text.
+
+**The Bohr model says it is a teaching model.** It is from 1913, it gets the shell counts
+right and the shapes wrong, and drawing it without saying so would present superseded
+physics as current.
+
+**The group-3 question is not decided.** Whether lanthanum or lutetium belongs in group 3
+is genuinely unsettled and IUPAC has not closed it, so the whole fifteen-element f series
+sits outside the numbered groups and the figure explains why rather than taking a side.
+
+### And the absences are reported
+
+Melting and boiling points, density, crystal structure, Mohs hardness, spectral emission
+lines, oxidation states, and the element **names** are listed in the summary as absent,
+each with the reason. A reference that quietly omits a property is indistinguishable from
+one that has no data for that element, and the difference matters: these are missing
+because they need a citation, not because the elements lack them.
+
+One bug caught by its own test along the way: the orbital diagram had a fixed height and
+**silently cropped** the heavy elements — gold and oganesson came out the same size with
+oganesson's 7p simply missing. The figure now grows to fit, and a caller who forces a
+small height is told the diagram is incomplete.
+
+6,747 tests across 221 files. All twelve QC gates pass.
+
 ## [2.49.0] — 2026-07-30 — Candlestick (OHLC) charts
 
 Second of the three wishlist features. One candle per row from four numeric columns —

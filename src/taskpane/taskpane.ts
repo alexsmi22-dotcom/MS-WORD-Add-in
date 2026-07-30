@@ -337,6 +337,13 @@ import { dunnettTest } from "../lib/dunnett";
 import { multipleRegression, polynomialRegression, qqPoints } from "../lib/regression";
 import { kaplanMeier, logRankTest, survivalCurvePoints } from "../lib/survival";
 import { minOf, maxOf } from "../lib/minmax";
+import {
+  buildBohrSvg,
+  buildOrbitalSvg,
+  buildPeriodicTableSvg,
+  elementReport,
+} from "../lib/periodicChart";
+import { atomicNumber, symbolFor } from "../lib/periodic";
 import { statVars, statVarLineProblem } from "../lib/uncertaintyParse";
 import {
   planParagraphNumbering,
@@ -377,6 +384,13 @@ let numberCheckbox: HTMLInputElement;
 let numberNext: HTMLElement;
 let numberReset: HTMLButtonElement;
 let structureInfo: HTMLElement;
+let periodicEl: HTMLInputElement;
+let periodicView: HTMLSelectElement;
+let periodicPreview: HTMLElement;
+let periodicInfo: HTMLElement;
+let insertPeriodicBtn: HTMLButtonElement;
+/** The most recent periodic rendering, for insertion. */
+let currentPeriodic: { svg: string | null; text: string[]; notes: string[]; label: string } | null = null;
 let structurePropsEl: HTMLElement;
 let insertPropsBtn: HTMLButtonElement;
 /** Physicochemical properties of the most recently resolved structure. */
@@ -744,6 +758,11 @@ Office.onReady((info) => {
   numberNext = document.getElementById("number-next") as HTMLElement;
   numberReset = document.getElementById("number-reset") as HTMLButtonElement;
   structureInfo = document.getElementById("structure-info") as HTMLElement;
+  periodicEl = document.getElementById("periodic-el") as HTMLInputElement;
+  periodicView = document.getElementById("periodic-view") as HTMLSelectElement;
+  periodicPreview = document.getElementById("periodic-preview") as HTMLElement;
+  periodicInfo = document.getElementById("periodic-info") as HTMLElement;
+  insertPeriodicBtn = document.getElementById("insert-periodic-btn") as HTMLButtonElement;
   structurePropsEl = document.getElementById("structure-props") as HTMLElement;
   insertPropsBtn = document.getElementById("insert-props-btn") as HTMLButtonElement;
   opsinBtn = document.getElementById("opsin-btn") as HTMLButtonElement;
@@ -1012,6 +1031,10 @@ Office.onReady((info) => {
   });
   insertBtn.addEventListener("click", insertFormula);
   insertStructureBtn.addEventListener("click", insertStructure);
+  periodicEl.addEventListener("input", renderPeriodic);
+  periodicView.addEventListener("change", renderPeriodic);
+  insertPeriodicBtn.addEventListener("click", insertPeriodic);
+  renderPeriodic();
   insertNameBtn.addEventListener("click", () => insertPlainText(currentStructureName, "Name"));
   insertPropsBtn.addEventListener("click", () => insertPlainText(propertiesAsText(currentProperties), "Properties"));
   opsinBtn.addEventListener("click", onOpsinClick);
@@ -2584,6 +2607,116 @@ function isRowKind(kind: RenderKind): kind is DiagramKind | "tablefigure" {
 }
 
 /** Kinds exported to PowerPoint as a picture rather than a native chart. */
+/**
+ * Renders the periodic-table reference for whatever is typed.
+ *
+ * Everything shown is either HELD and verified (symbol, atomic number, standard atomic
+ * weight) or COMPUTED from the aufbau rule (configuration, shells, block, group,
+ * period). No measured property is filled in from memory — the ones that are missing
+ * are listed as missing, because a reference that silently omits a property is
+ * indistinguishable from one that has no data for that element.
+ */
+function renderPeriodic(): void {
+  const raw = periodicEl.value.trim();
+  const view = periodicView.value;
+  periodicPreview.innerHTML = "";
+  periodicInfo.textContent = "";
+  currentPeriodic = null;
+
+  if (view === "table") {
+    // The whole table needs no element; a typed one is highlighted if it resolves.
+    const z = /^\d+$/.test(raw) ? Number(raw) : atomicNumber(raw);
+    const sym = z === null ? undefined : (symbolFor(z) ?? undefined);
+    const t = buildPeriodicTableSvg(sym);
+    periodicPreview.innerHTML = t.svg;
+    periodicInfo.textContent = t.notes.join(" ");
+    currentPeriodic = { svg: t.svg, text: [], notes: t.notes, label: "Periodic table" };
+    insertPeriodicBtn.disabled = false;
+    return;
+  }
+
+  if (!raw) {
+    periodicInfo.textContent = "Type an element symbol (C, Fe) or an atomic number (6, 26).";
+    insertPeriodicBtn.disabled = true;
+    return;
+  }
+  const z = /^\d+$/.test(raw) ? Number(raw) : atomicNumber(raw);
+  if (z === null || symbolFor(z) === null) {
+    periodicInfo.textContent =
+      `"${raw}" is not one of the ${118} elements. Symbols are case-sensitive — "Fe", not "fe" ` +
+      "or \"FE\" — or give the atomic number instead.";
+    insertPeriodicBtn.disabled = true;
+    return;
+  }
+  const sym = symbolFor(z) as string;
+
+  if (view === "bohr" || view === "orbital") {
+    const r = view === "bohr" ? buildBohrSvg(z) : buildOrbitalSvg(z);
+    if (!r) {
+      periodicInfo.textContent = "That diagram could not be drawn for this element.";
+      insertPeriodicBtn.disabled = true;
+      return;
+    }
+    periodicPreview.innerHTML = r.svg;
+    periodicInfo.textContent = r.notes.join(" ");
+    currentPeriodic = {
+      svg: r.svg,
+      text: [],
+      notes: r.notes,
+      label: `${sym} — ${view === "bohr" ? "Bohr model" : "orbital filling"}`,
+    };
+    insertPeriodicBtn.disabled = false;
+    return;
+  }
+
+  const rep = elementReport(z);
+  if (!rep) {
+    periodicInfo.textContent = "No summary could be produced for that element.";
+    insertPeriodicBtn.disabled = true;
+    return;
+  }
+  periodicPreview.textContent = rep.lines.join("\n");
+  periodicInfo.textContent = rep.notes.join(" ");
+  currentPeriodic = { svg: null, text: rep.lines, notes: rep.notes, label: `${sym} — summary` };
+  insertPeriodicBtn.disabled = false;
+}
+
+/** Inserts the current periodic rendering — a figure, or the summary as text. */
+async function insertPeriodic(): Promise<void> {
+  if (!currentPeriodic) return;
+  const item = currentPeriodic;
+  try {
+    if (item.svg) {
+      // Same path the 2D-structure figure uses: read the SVG's own declared size, so
+      // the picture Word reserves matches what was drawn rather than a guess.
+      const d = readSvgDims(item.svg, 420, 360);
+      const base64 = await renderFigurePng(item.svg, d.w, d.h);
+      await Word.run(async (context) => {
+        const range = context.document.getSelection();
+        const picture = range.insertInlinePictureFromBase64(base64, Word.InsertLocation.after);
+        sizeFigure(picture, d.w, d.h);
+        // The alt text carries the caveats, so they survive into the document for a
+        // reader using a screen reader — the diagram is a PREDICTION, and that has to
+        // travel with it.
+        picture.altTextDescription = `${item.label}. ${item.notes.join(" ")}`;
+        range.select(Word.SelectionMode.end);
+        await context.sync();
+      });
+      setStatus(`${item.label} inserted.`, "success");
+    } else {
+      await Word.run(async (context) => {
+        const range = context.document.getSelection();
+        const body = [...item.text, "", ...item.notes.map((n) => `Note: ${n}`)].join("\n");
+        range.insertText(body, Word.InsertLocation.after);
+        await context.sync();
+      });
+      setStatus(`${item.label} inserted.`, "success");
+    }
+  } catch (e) {
+    periodicInfo.textContent = `Could not insert: ${(e as Error).message}`;
+  }
+}
+
 function isPictureKind(kind: RenderKind): boolean {
   // A HEAT MAP HAS NO NATIVE CHART EQUIVALENT, so it always ships as a picture of
   // the rendering. PowerPoint offers nothing that means the same thing — rows and

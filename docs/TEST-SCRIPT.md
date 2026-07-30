@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.49.0)
+# JurisLab — Manual Test Script (v2.50.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -659,6 +659,43 @@ Table&rarr;Chart. A table with one row per period and four numeric columns, then
   drawn, and a note should say so.
 - [ ] **Export to PowerPoint** — it must go out as a picture, never as a bar or line
   chart.
+
+---
+
+## 0o. New in v2.50.0 — periodic table & atomic structure
+
+Chemical mode, the new **Periodic table &amp; atomic structure** panel.
+
+- [ ] Type `C` and choose **Element summary**. It must show atomic number 6, the held
+  atomic weight, period 2 / group 14 / p-block, the configuration `1s2 2s2 2p2`, the
+  abbreviated `[He] 2s2 2p2`, shells `K 2, L 4`, and 4 valence electrons.
+- [ ] Type `26` instead of `Fe` — an atomic number must work as well as a symbol.
+- [ ] Type `fe` (lower case). It must be **refused** with a message about
+  case-sensitivity, not silently resolved.
+- [ ] **The absent list must be part of the summary**, naming melting point, density,
+  crystal structure, Mohs hardness, spectral emission lines, oxidation states — each
+  with a reason. This is the point of the release: those are absent because they need
+  a cited source, not because the elements lack them.
+- [ ] The summary must NOT show an element **name**. "Au" must read "Au — atomic
+  number 79", never "Gold" — 118 names would be a data list typed from memory.
+- [ ] **Bohr model diagram** for `Na`: three rings with 2, 8 and 1 electrons. Count
+  the dots. A note must say the Bohr model is a 1913 teaching model, not current
+  physics.
+- [ ] **Orbital filling diagram** for `O`: the 2p row must show one paired box and two
+  singly-occupied boxes — Hund's rule — not two pairs. That is the fact the picture
+  carries which `2p4` does not.
+- [ ] Orbital diagram for `Og` (118). It must show **every** subshell; the figure grows
+  taller rather than cropping. Compare with `Au` — the oganesson figure must be taller.
+- [ ] Every configuration shown must be labelled a **prediction**. Check `Cr`: it will
+  show `[Ar] 4s2 3d4`, which is what the aufbau principle gives; the measured
+  configuration differs and the tool says it does not carry it.
+- [ ] **The periodic table** view: 118 cells, group numbers across the top, period
+  numbers down the side, the f-block in two rows beneath. Typing an element highlights
+  exactly one cell.
+- [ ] A note must say the f-block sits outside the numbered groups because the group-3
+  question is unsettled — the tool must not take a side.
+- [ ] **Insert** each view. Diagrams go in as figures; the summary goes in as text with
+  its notes. The figure's alt text must carry the prediction caveat.
 
 ---
 

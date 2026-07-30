@@ -235,8 +235,45 @@ export interface Eigen {
 export function isSymmetric(m: Matrix, tol = 1e-9): boolean {
   if (!isSquare(m)) return false;
   const n = rows(m);
-  for (let i = 0; i < n; i++)
-    for (let j = i + 1; j < n; j++) if (Math.abs(m[i][j] - m[j][i]) > tol * (1 + Math.abs(m[i][j]))) return false;
+
+  // RELATIVE TO THE MATRIX, NOT TO EACH ENTRY PLUS ONE.
+  //
+  // The test was `|a_ij - a_ji| > tol * (1 + |a_ij|)`. That `1 +` is an absolute
+  // floor, and it made the answer depend on the units the matrix happened to be
+  // written in — wrong in BOTH directions:
+  //
+  //   [[1e-20, 1e-20], [2e-20, 1e-20]]      -> reported SYMMETRIC
+  //        Its off-diagonals differ by 100%. Every entry is below the floor, so
+  //        every difference passed. This one matters: eigenSymmetric is handed
+  //        matrices on this basis, and the Jacobi method it uses is only valid for
+  //        a symmetric matrix.
+  //
+  //   [[1e20, 1], [1.0000001, 1e20]]        -> reported NOT symmetric
+  //        Its off-diagonals differ by 1e-7 against a matrix norm of 1e20 — that is
+  //        symmetric to fourteen orders of magnitude better than double precision
+  //        can even represent the diagonal.
+  //
+  // Scaling by the largest magnitude in the matrix asks the question that actually
+  // matters — is this difference significant AT THIS MATRIX'S SCALE — and is
+  // invariant under multiplying the whole matrix by a constant, which cannot change
+  // whether it is symmetric.
+  let scale = 0;
+  for (let i = 0; i < n; i++) {
+    for (let j = 0; j < n; j++) {
+      const v = Math.abs(m[i][j]);
+      if (Number.isFinite(v) && v > scale) scale = v;
+    }
+  }
+  // An all-zero matrix is symmetric, and there is nothing to scale against.
+  if (scale === 0) return true;
+
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      const d = Math.abs(m[i][j] - m[j][i]);
+      if (!Number.isFinite(d)) return false;
+      if (d > tol * scale) return false;
+    }
+  }
   return true;
 }
 

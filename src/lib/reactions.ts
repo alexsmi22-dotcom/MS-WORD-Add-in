@@ -12,6 +12,12 @@ export type ArrowType = "forward" | "reversible" | "retro";
 export interface ReactionSpec {
   /** One array of components per arrow-separated stage (≥1; e.g. A + B → C → D). */
   stages: string[][];
+  /**
+   * Set when the arrow between stages was not recognised and a delimiter was left
+   * stranded against a component. Present rather than thrown because the rest of
+   * the reaction is still drawable; the caller decides whether to show it.
+   */
+  arrowWarning?: string;
   /** The arrow type between each pair of stages (length = stages.length − 1). */
   arrows: ArrowType[];
   /** Text above the (first) arrow (reagents/catalyst). */
@@ -60,7 +66,32 @@ export function parseReaction(input: string): ReactionSpec {
   // Keep exactly one arrow per gap between stages (pad/trim defensively).
   while (arrows.length < stages.length - 1) arrows.push("forward");
   arrows.length = Math.max(0, stages.length - 1);
-  return { stages, arrows, over, under };
+  // A MALFORMED ARROW MUST NOT BECOME PART OF A COMPONENT.
+  //
+  // ARROW_SPLIT matches "->" inside "->>", so `A ->> B` split into
+  // ["A ", "->", "> B"] and the second stage became the single component "> B",
+  // which was then handed to OpenChemLib as SMILES. A stray delimiter absorbed into
+  // a chemical formula is the quiet kind of wrong: it does not error, it draws
+  // something. Whatever the user meant by "->>", this code cannot know — so the
+  // leftover is stripped and reported rather than guessed at.
+  const cleaned: string[][] = [];
+  const strays: string[] = [];
+  for (const stage of stages) {
+    const parts: string[] = [];
+    for (const c of stage) {
+      const trimmed = c.replace(/^[\s<>=]+|[\s<>=]+$/g, "").trim();
+      if (trimmed !== c.trim()) strays.push(c.trim());
+      if (trimmed) parts.push(trimmed);
+    }
+    cleaned.push(parts);
+  }
+  const arrowWarning = strays.length
+    ? `The arrow between stages is not one this tool recognises — "${strays.join('", "')}" was left ` +
+      `over after splitting on it, and would otherwise have been read as part of a chemical ` +
+      `formula. Use one of -> , <- , <=> , <-> or >> .`
+    : undefined;
+
+  return { stages: cleaned, arrows, over, under, arrowWarning };
 }
 
 export interface Rendered {

@@ -5,6 +5,123 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > Note: this file was not maintained between v1.96.0 and v2.23.0. Those releases
 > are recorded in the git history rather than here.
 
+## [2.44.0] — 2026-07-29 — Circuits, trusses, parsers, and messages that were false
+
+Nine more from `docs/KNOWN-DEFECTS.md`. Nothing here produced a wrong number — the A
+tier was cleared in v2.43.0 — so this round is about work the tool refused that it
+could do, freezes, and messages that said something untrue.
+
+### Two seconds of frozen Word, per keystroke
+
+The DC path solves exactly, over rationals, which has no rounding error and pays for
+it with **coefficient growth**: numerators and denominators roughly double in bit
+length at each elimination step. On a 120-node interconnected mesh — the parser's own
+legal limit — that was **1362 ms** for the solve and **1102 ms** for a 120-point
+sweep. About two and a half seconds, in a pane that recomputes as the user types.
+That is not a slow answer; it is a Word that stops accepting typing.
+
+Above 48 unknowns the solve now uses doubles, and **says so** — a result silently no
+longer exact, in a module that advertises exactness, would be a false claim rather
+than a slow one. The sweep's point count is budgeted on points × nodes³, since every
+point is a full complex solve, and the thinning is disclosed with the count.
+
+| | before | now |
+|---|---|---|
+| DC solve, 120-node mesh | 1362 ms | **38 ms** |
+| 120-point sweep, same | 1102 ms | **183 ms** |
+
+Small circuits — every netlist anyone types by hand — keep full exactness and all 120
+sweep points, and both are asserted so the cap cannot creep down onto them. Refusing
+the large circuit outright was considered and rejected: trading a slow correct answer
+for no answer is a worse deal than an approximate one that admits it.
+
+### `1e-6` was refused while `1u` was accepted
+
+The same number, written the way a spreadsheet or a SPICE deck writes it, failed. So
+did `2.2e3` and `1E-9`. The exponent is folded into the **exact rational** and not
+just the float, because otherwise the notation would silently change the guarantee
+the DC path makes.
+
+### A message that named a fault it had already excluded
+
+The singular-matrix fallback advised checking for "a shorted or duplicated source" —
+but a duplicated source is caught by the parallel-pair test above it, so that advice
+could never be the answer. It sent the reader looking for something the tool had
+already ruled out.
+
+What actually reaches that point is a **loop** of ideal sources: three sources round
+a loop over-determine the node voltages without any two being in parallel, and an
+inductor is a short at DC so a source shorted through one is the same fault. A
+union-find pass over the zero-impedance subgraph now names it. What remains after
+that names only what has **not** been ruled out.
+
+### A negative resistance was accepted in silence
+
+This module is documented as linear and **passive**, and a negative resistance,
+inductance or capacitance was solved as though it were a component. The equations do
+not object; only physics does, so the check had to be added. A negative resistance is
+a legitimate small-signal model for an active device — the refusal says so, and says
+that modelling one needs the active-device support this tool does not have.
+
+### The truss threw away its own guarantee
+
+Member tension/compression came from the **float** while the zero test used the exact
+rational. The exact path exists precisely so the sign is decidable; taking it from
+the rounded value discards that for any member whose force is near zero, and tension
+versus compression is the difference between specifying a cable and specifying a
+strut.
+
+### The canonical correctness net was not running
+
+`casint` advertises a canonical check: it differentiates every candidate
+antiderivative back and demands `exprEqual` with the integrand. But d/dx ln|x|
+simplifies to `x/abs(x)^2`, and `abs(x)` was an opaque atom that never reduced — so
+`exprEqual` was **false for every `ln|·|` result**, and those were accepted on
+numeric agreement at eight fixed sample points instead.
+
+`abs(A)^n` now reduces to `A^n` for even n, which is exactly true with no branch to
+choose, and to `A^(n-1)·abs(A)` for odd n. Nothing was wrong — 67 integrands swept on
+a disjoint grid found no bad antiderivative — but the advertised check was not
+protecting the largest class of results it exists for. It is now.
+
+### Messages in the reader's notation
+
+`abs x` produced "Expected lparen in math expression." The reader did not write an
+lparen and has no reason to know what one is. Errors now name the character and say
+what was found instead.
+
+### A stray delimiter that drew something
+
+`A ->> B` split on the `->` inside `->>`, leaving `> B` as a component — which was
+handed to OpenChemLib as SMILES. It did not error; it drew something. Fixed by
+stripping and reporting the leftover rather than by widening the arrow pattern,
+because `[O-]` and `C[N+](C)(C)C` contain the same characters and a greedier pattern
+would shatter them.
+
+### `isSymmetric` was wrong in both directions
+
+An absolute floor made the answer depend on the units the matrix was written in:
+
+- `[[1e-20, 1e-20], [2e-20, 1e-20]]` — off-diagonals differing by **100%** — was
+  reported symmetric, because every entry fell below the floor. This one matters:
+  `eigenSymmetric` is gated on it, and the Jacobi method it uses is only valid for a
+  symmetric matrix.
+- `[[1e20, 1], [1.0000001, 1e20]]` was reported **not** symmetric, for a difference
+  of 1e-7 against a norm of 1e20.
+
+Now relative to the matrix's largest magnitude, so scaling a matrix cannot change
+whether it is symmetric — asserted across five scale factors spanning forty orders of
+magnitude.
+
+### One I could not reproduce, left open
+
+B3 claimed a blank Bode chart when the reference is zero. A high-pass whose output is
+genuinely zero at DC, swept from 1 µHz to 1 MHz, returned all twenty points finite
+with a dB range of −150 to +14. It stays in `KNOWN-DEFECTS.md` rather than being
+marked fixed, because "I could not reproduce it" is not "it does not happen".
+
+6,557 tests across 216 files. All twelve QC gates pass.
+
 ## [2.43.0] — 2026-07-29 — The A tier is empty: limits, a dozen restored integrals, and a 20-second freeze
 
 Four more from `docs/KNOWN-DEFECTS.md`, and with them **every defect that produced a

@@ -46,6 +46,34 @@ Each was closed with its reproduction moved into a named test, not merely patche
 **The A tier is now empty.** Every defect that produced a wrong number presented as
 correct has been closed, each with its reproduction moved into a named test.
 
+### Closed in v2.44.0
+
+| was | now | proof |
+|---|---|---|
+| **B1** exact rational elimination on a 120-node mesh took **1362 ms**, its sweep another **1102 ms** — ~2.5 s in a pane that recomputes on every keystroke | above 48 unknowns the DC solve uses doubles and **says so**; the sweep's point count is budgeted on points × nodes³. 1362 → 38 ms, 1102 → 183 ms. Small circuits keep full exactness and full resolution, asserted | `passiveAndParsers.test.ts` |
+| **B2** `parseValue("1e-6")` refused while `1u` — the same number — was accepted, so anything pasted from a spreadsheet or SPICE deck failed | scientific notation accepted, with the exponent folded into the **exact rational** rather than only the float, so the notation cannot silently change the guarantee | `passiveAndParsers.test.ts` |
+| **B4** the singular-matrix fallback advised checking for "a shorted or duplicated source" — a fault caught upstream, so it could never be the answer | a union-find pass finds loops of voltage sources and inductors (which the parallel-pair test cannot see), and the remaining fallback names only what has **not** been ruled out | `passiveAndParsers.test.ts` |
+| **B5** a negative resistance, inductance or capacitance was accepted in silence by a module documented as linear and PASSIVE | refused, explaining that a negative resistance is a real small-signal model but needs the active-device support this tool does not have | `passiveAndParsers.test.ts` |
+| **B6** member tension/compression came from the FLOAT while the zero test used the exact rational, discarding the one guarantee the exact path exists for | `ratSign` for both | `passiveAndParsers.test.ts` |
+| **B8** `abs(u)^2` never reduced, so casint's advertised canonical net could not recognise d/dx ln\|x\| as 1/x and did **not run** on any `ln\|·\|` result | `abs(A)^n → A^n` for even n (exactly true), `A^(n-1)·abs(A)` for odd. `exprEqual` now recognises them | `passiveAndParsers.test.ts` |
+| **B12** parse errors named internal token types: `abs x` gave "Expected lparen in math expression." | names the character and says what it found instead | `passiveAndParsers.test.ts` |
+| **B13** `A ->> B` left "> B" as a component, handed to OpenChemLib as SMILES — it did not error, it drew something | stray delimiters stripped and reported; done by trimming ends rather than widening the arrow pattern, because `[O-]` and `C[N+](C)(C)C` contain the same characters | `passiveAndParsers.test.ts` |
+| **C3** `isSymmetric` used an absolute floor and was wrong in BOTH directions — `[[1e-20,1e-20],[2e-20,1e-20]]` reported symmetric with 100% asymmetry, `[[1e20,1],[1.0000001,1e20]]` reported not | relative to the matrix's largest magnitude, so scaling a matrix cannot change the answer. Matters because `eigenSymmetric` is gated on it and Jacobi is only valid for symmetric input | `passiveAndParsers.test.ts` |
+
+### B3 could not be reproduced
+
+`docs/KNOWN-DEFECTS.md` listed "the Bode chart is blank when the reference is zero".
+Swept a high-pass whose output is genuinely zero at DC — `V1 1 0 5 / C1 1 2 1u /
+R1 2 0 1k` from 1 µHz to 1 MHz — and every one of the 20 points came back finite,
+with a dB range of −150 to +14 and no non-finite value anywhere. The `dB()` helper
+does return −Infinity for a zero magnitude, which is the correct IEEE answer and is
+guarded at every call site.
+
+Left open rather than closed, because "I could not reproduce it" is not "it does not
+happen": it may need a specific netlist, or it may live in chart rendering rather
+than in the sweep. The `svgMarkupFinite` harness added in v2.39.0 greps generated
+markup for non-finite values and would catch the rendering case.
+
 A **behavioural baseline** now covers 300+ inputs across the solve, integrate and
 differentiate surface (`solveBaseline.test.ts`). It is not an oracle — it does not
 claim any answer is correct — it claims that nothing changed unintentionally. It is
@@ -80,43 +108,10 @@ about HOW it computed, belongs in section B.
 
 ## B — lost capability, or a message that is false
 
-### B1. Circuits: a 2.08 s recompute at the legal-maximum netlist
-`src/lib/circuit.ts`. The pane recomputes on every keystroke, so this is two
-seconds of frozen typing per character at a netlist size the parser explicitly
-allows.
-
-### B2. Circuits: `parseValue` rejects scientific notation
-`src/lib/circuit.ts`. `1e-6` is refused where `1u` is accepted. Anyone pasting
-from a spreadsheet or a SPICE deck hits this.
-
 ### B3. Circuits: the Bode chart is blank when the reference is zero
 `src/lib/circuit.ts`. Same shape as the pharmacokinetics figure fixed in this
 release: a log axis with a zero reference. Worth checking against the new
 `svgMarkupFinite` harness.
-
-### B4. Circuits: the fallback message names cases that cannot occur
-`src/lib/circuit.ts`. The message offered when the solve fails lists causes that
-the code has already excluded upstream, so it sends the user looking for a problem
-they do not have.
-
-### B5. Circuits: no passivity check
-`src/lib/circuit.ts`. A negative resistance is accepted silently.
-
-### B6. Trusses: member state is read from the float, not from `ratSign`
-`src/lib/truss.ts`. The whole point of the exact path is that the sign is
-decidable; taking tension/compression from the rounded double throws that away
-for a member whose force is near zero. One line. Non-finite member forces are also
-reported rather than refused.
-
-### B8. CAS: the canonical correctness net does not apply to any `ln|·|` antiderivative
-`src/lib/casint.ts:14-19, 514` with `src/lib/solve.ts:245`.
-`simplify(d/dx ln|x|)` produces `x/abs(x)^2`, which never reduces to `1/x` because
-`abs(u)` is an opaque atom. So `exprEqual` is false for every partial-fraction and
-`g'/g` result, and those are accepted on the strength of `numericallyEqual` at 8
-fixed sample points with a `checked >= 3` floor. A guarantee gap, not a wrongness
-one: 67 integrands swept on a grid deliberately disjoint from those samples
-produced zero wrong antiderivatives.
-**Fix direction:** give `abs` enough algebra for `abs(u)^2 → u^2`.
 
 ### B11. Two parsers read the same text differently
 `src/lib/solve.ts:170` versus `src/lib/mathParse.ts:231-249`:
@@ -130,15 +125,6 @@ produced zero wrong antiderivatives.
 Both are defensible readings; having both in one product is not.
 `mathParse.ts:12` also documents `ab` as implicit multiplication, and it
 tokenizes as a single identifier.
-
-### B12. Error messages name internal token types
-`src/lib/mathParse.ts`. `abs x` produces *"Expected lparen in math expression."*;
-`|x` produces *"Expected bar…"*; `{x` produces *"Expected rbrace…"*. The user did
-not write an lparen and does not know what one is.
-
-### B13. `parseReaction` glues a stray delimiter onto a component
-`src/lib/reactions.ts`. `A ->> B` yields stages `[["A"], ["> B"]]`, and `"> B"` is
-then handed to OpenChemLib as SMILES.
 
 ---
 
@@ -197,13 +183,6 @@ it.
 ### C2. `parseRatLiteral("1e400")` returns an exact 401-digit rational whose `ratToNumber()` is Infinity
 `src/lib/cas.ts`. Correct as far as it goes, but the conversion boundary is where
 the honesty is lost.
-
-### C3. `isSymmetric` is scale-dependent
-`src/lib/linalg.ts:235`. A genuine absolute-tolerance issue, recorded as
-**qualified**: the reviewer could not construct an input where it produces a wrong
-answer, and it is listed here rather than in section A for that reason.
-
----
 
 ## Reviewed and found clean
 

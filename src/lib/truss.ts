@@ -48,7 +48,7 @@
 //   Member force is POSITIVE IN TENSION, negative in compression — universal in
 //     truss work and the convention every textbook answer is quoted in.
 
-import { Rat, ratAdd, ratSub, ratMul, ratDiv, ratInt, ratIsZero, ratNeg, ratToNumber, parseRatLiteral } from "./cas";
+import { Rat, ratAdd, ratSub, ratMul, ratDiv, ratInt, ratIsZero, ratNeg, ratSign, ratToNumber, parseRatLiteral } from "./cas";
 
 // ---------------------------------------------------------------------------
 // Model
@@ -363,7 +363,13 @@ export function analyzeTruss(input: TrussInput): TrussResult | TrussError {
       perLength: f,
       force,
       exact,
-      state: ratIsZero(f) ? "zero" : force > 0 ? "tension" : "compression",
+      // THE EXACT SIGN, NOT THE FLOAT. The zero test already used the exact
+      // rational; the tension/compression decision did not, which threw away the
+      // one thing the exact path exists to guarantee. A member force whose exact
+      // value is a tiny positive rational can round to 0 or flip sign as a double,
+      // and "tension" versus "compression" is the difference between specifying a
+      // cable and specifying a strut.
+      state: ratSign(f) === 0 ? "zero" : ratSign(f) > 0 ? "tension" : "compression",
     });
   }
 

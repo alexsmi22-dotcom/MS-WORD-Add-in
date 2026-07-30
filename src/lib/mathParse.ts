@@ -202,9 +202,42 @@ class Parser {
   private next(): Token {
     return this.tokens[this.pos++];
   }
+  /**
+   * What the user should be told is MISSING, in the notation they typed.
+   *
+   * The message used to interpolate the internal token type: `abs x` produced
+   * "Expected lparen in math expression.", `|x` produced "Expected bar...", and
+   * `{x` produced "Expected rbrace...". The reader did not write an lparen and has
+   * no reason to know what one is. Naming the character makes the message
+   * actionable, which is the only thing an error message is for.
+   */
+  private static describe(type: Token["t"]): string {
+    switch (type) {
+      case "lparen": return 'an opening bracket "("';
+      case "rparen": return 'a closing bracket ")"';
+      case "lbrace": return 'an opening brace "{"';
+      case "rbrace": return 'a closing brace "}"';
+      case "lbrack": return 'an opening bracket "["';
+      case "rbrack": return 'a closing bracket "]"';
+      case "bar": return 'a vertical bar "|"';
+      case "comma": return 'a comma ","';
+      case "semi": return 'a semicolon ";"';
+      case "caret": return 'a caret "^"';
+      case "underscore": return 'an underscore "_"';
+      case "num": return "a number";
+      case "id": return "a name";
+      case "op": return "an operator";
+      default: return `a ${type}`;
+    }
+  }
+
   private expect(type: Token["t"]): Token {
     const t = this.next();
-    if (!t || t.t !== type) throw new Error(`Expected ${type} in math expression.`);
+    if (!t || t.t !== type) {
+      const want = Parser.describe(type);
+      const got = t ? `"${t.v ?? t.t}"` : "the end of the expression";
+      throw new Error(`Expected ${want} here, but found ${got}.`);
+    }
     return t;
   }
 

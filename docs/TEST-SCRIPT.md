@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.43.0)
+# JurisLab — Manual Test Script (v2.44.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -435,6 +435,61 @@ entirely reasonable.
 - [ ] With a ka supplied, the **plotted curve** must carry a note saying the figure
   is drawn as instantaneous doses and to read the peak from the numbers, not the
   plot. The figure must not silently contradict the text above it.
+
+---
+
+## 0i. New in v2.44.0 — circuits, trusses, parsers and messages
+
+Engineering > **Circuits**:
+
+- [ ] Component value `1e-6` must be **accepted** (it used to be refused while `1u`
+  — the same number — worked, so anything pasted from a spreadsheet or a SPICE deck
+  failed). Try `2.2e3`, `1E-9`, `4.7e-12`. Suffix forms must still work: `1k`,
+  `1u`, `1meg`, `2k2`, `4r7`.
+- [ ] `R1 1 0 -1k` must be **refused**, explaining that this tool solves linear
+  passive circuits. A negative resistance used to be accepted silently and solved as
+  though it were a component.
+- [ ] `V1 1 0 5 / V2 2 1 3 / V3 2 0 2` — three sources round a loop. The message
+  must say **loop of voltage sources**. It used to say "check for a shorted or
+  duplicated source", which is advice for a fault the tool had already excluded.
+- [ ] Paste a large netlist — 100+ nodes with cross-connections. It must return
+  promptly (it took **1.4 seconds** for the DC solve alone), and a note must say the
+  answer used **double precision** rather than exact rationals. A small circuit must
+  still say nothing of the kind and stay exact: `V1 1 0 5 / R1 1 2 1k / R2 2 0 1k`
+  must give exactly 2.5 V at node 2.
+- [ ] A **Bode sweep** on that large netlist must also return promptly (was 1.1 s)
+  and say the sweep was **thinned**, naming the point count. A small circuit's sweep
+  must keep all 120 points and carry no such note.
+
+Engineering > **Trusses**:
+
+- [ ] Member tension/compression is now read from the exact sign rather than the
+  rounded value. Ordinary trusses must be unchanged — the classic three-member truss
+  with a 10 kN apex load must still report A-B as **5 kN tension**.
+
+Math > **Solve**:
+
+- [ ] `abs x` must produce an error naming **an opening bracket "("**, not
+  "Expected lparen". Try `|x`, `{x`, `sin(x` — each must name the character it
+  wanted and say what it found instead.
+- [ ] Derivative of `ln(abs(x))` must read **1/x**.
+
+Chemical > **Reactions**:
+
+- [ ] `A ->> B` must warn that the arrow is not recognised. It used to silently
+  produce a component called "> B" and hand it to the structure renderer as SMILES —
+  it did not error, it drew something.
+- [ ] Well-formed arrows must be unaffected and carry no warning: `A -> B`,
+  `A <=> B`, `A -> B -> C`, `A >> B`.
+- [ ] SMILES charges must not be mistaken for arrows:
+  `C[N+](C)(C)C -> [O-]` must parse cleanly.
+
+> **Not fixed, and deliberately so.** `docs/KNOWN-DEFECTS.md` still lists **B3**
+> (a blank Bode chart at zero reference — I could not reproduce it and left it open
+> rather than claiming it fixed), **B11** (`1/2x` reads as `1/(2x)` in Solve and
+> `(1/2)x` in the equation parser — a product decision, not a bug to patch),
+> **B15** (an identity hidden by catastrophic cancellation, where the fix I built
+> would have called `tan(x) = 2` an identity, so I reverted it), and **C0–C2**.
 
 ---
 

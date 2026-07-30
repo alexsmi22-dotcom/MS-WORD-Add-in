@@ -29,7 +29,7 @@
 // Every one of these makes the matrix singular; a pseudo-inverse would return a
 // confident number for a circuit that cannot exist.
 
-import { Rat, ratAdd, ratSub, ratMul, ratDiv, ratInt, ratIsZero, ratNeg, ratToNumber } from "./cas";
+import { Rat, ratAdd, ratSub, ratMul, ratDiv, ratInt, ratIsZero, ratNeg, ratToNumber, ratFromNumber } from "./cas";
 
 // ---------------------------------------------------------------------------
 // Model
@@ -147,17 +147,29 @@ export function parseValue(text: string): { value: number; exact: Rat | null } |
   const rkm = /^([+-]?\d+)(meg|[gkmunpfr])(\d+)$/.exec(t);
   const normalised = rkm ? `${rkm[1]}.${rkm[3]}${rkm[2] === "r" ? "" : rkm[2]}` : t;
 
-  const m = /^([+-]?(?:\d+(?:\.\d*)?|\.\d+))(meg|[gkmunpf])?$/.exec(normalised);
+  // SCIENTIFIC NOTATION IS HOW SPREADSHEETS AND SPICE DECKS WRITE COMPONENT
+  // VALUES. `1u` was accepted and `1e-6` — the same number — was refused, so
+  // anything pasted from a spreadsheet or a netlist export failed on a value the
+  // user could see was valid. `2.2e3` and `1E-9` likewise.
+  //
+  // The exponent is folded into the EXACT rational below rather than only into the
+  // float, because this module's whole DC path is exact and a value that is exact
+  // when written `1u` must not become inexact when written `1e-6`.
+  const m = /^([+-]?(?:\d+(?:\.\d*)?|\.\d+))(?:e([+-]?\d+))?(meg|[gkmunpf])?$/.exec(normalised);
   if (!m) return null;
   const mantissa = m[1];
-  const suffix = m[2];
+  const exponent = m[2] ? parseInt(m[2], 10) : 0;
+  const suffix = m[3];
+  // A bound on the exponent: 10n ** BigInt(huge) would allocate without limit, and
+  // an unbounded allocation in a task pane is a frozen Word rather than an error.
+  if (!Number.isFinite(exponent) || Math.abs(exponent) > 400) return null;
   let scale = 1;
   if (suffix) {
     const hit = SUFFIX.find(([s]) => s === suffix);
     if (!hit) return null;
     scale = hit[1];
   }
-  const value = parseFloat(mantissa) * scale;
+  const value = parseFloat(mantissa) * Math.pow(10, exponent) * scale;
   if (!Number.isFinite(value)) return null;
 
   // Exact rational from the decimal string times the (power-of-ten) scale.
@@ -166,7 +178,12 @@ export function parseValue(text: string): { value: number; exact: Rat | null } |
   const [int, frac = ""] = body.split(".");
   let n = BigInt((int || "0") + frac);
   if (neg) n = -n;
-  let exact: Rat = ratDiv(ratInt(n), ratInt(10n ** BigInt(frac.length)));
+  // The decimal string contributes 10^-frac.length and the exponent 10^exponent,
+  // so the two combine into a single power of ten. Kept exact either way.
+  const tenPower = exponent - frac.length;
+  let exact: Rat = ratInt(n);
+  if (tenPower >= 0) exact = ratMul(exact, ratInt(10n ** BigInt(tenPower)));
+  else exact = ratDiv(exact, ratInt(10n ** BigInt(-tenPower)));
   if (scale >= 1) exact = ratMul(exact, ratInt(BigInt(Math.round(scale))));
   else exact = ratDiv(exact, ratInt(BigInt(Math.round(1 / scale))));
   return { value, exact };
@@ -239,6 +256,28 @@ export function parseNetlist(text: string): ParsedNetlist {
     elements.push({ kind: kindChar as ElementKind, name, a, b, value: v.value, exact: v.exact });
   }
   if (elements.length > MAX_ELEMENTS) errors.push(`At most ${MAX_ELEMENTS} elements.`);
+
+  // PASSIVITY. This module is documented as linear and PASSIVE, and a negative
+  // resistance, inductance or capacitance was accepted in silence — producing a
+  // mathematically valid solution to a circuit that cannot be built. The equations
+  // do not object; only physics does, so the check has to be here.
+  //
+  // A negative resistance IS a real small-signal model (a tunnel diode, an
+  // oscillator), but modelling one properly needs the active-device support this
+  // tool explicitly does not have, so accepting the value would imply a capability
+  // that is not present.
+  for (const e of elements) {
+    if ((e.kind === "R" || e.kind === "L" || e.kind === "C") && e.value < 0) {
+      const what = e.kind === "R" ? "resistance" : e.kind === "L" ? "inductance" : "capacitance";
+      errors.push(
+        `${e.name} has a negative ${what} (${e.value}). This tool solves LINEAR PASSIVE ` +
+          `circuits, and no physical component has a negative ${what}. A negative resistance is ` +
+          `a legitimate small-signal model for an active device, but modelling one needs the ` +
+          `active-device support this tool does not have — so the value is refused rather than ` +
+          `solved as though it were a component.`,
+      );
+    }
+  }
   return { elements, errors };
 }
 
@@ -254,8 +293,79 @@ function nodeList(elements: Element[]): string[] {
 // Exact linear solve over rationals
 // ---------------------------------------------------------------------------
 
+/**
+ * Above this many unknowns the exact solve is abandoned in favour of doubles.
+ *
+ * Exact Gaussian elimination over the rationals has no rounding error, and it pays
+ * for that with COEFFICIENT GROWTH: the numerators and denominators roughly double
+ * in bit length at every elimination step, so a dense system costs far more than
+ * its O(n^3) arithmetic-operation count suggests. Measured on a 120-node
+ * interconnected mesh at the parser's own legal limit — 1362 ms for the DC solve
+ * and 1102 ms for a 120-point sweep, about 2.5 seconds in total, on a pane that
+ * recomputes on EVERY KEYSTROKE. That is not a slow answer, it is a Word that
+ * stops accepting typing.
+ *
+ * 48 is chosen from the measurements rather than by taste: at that size the exact
+ * solve is still a few milliseconds, and every netlist a person types by hand is
+ * far below it. Past it the answer comes back in doubles and SAYS SO, because a
+ * result that is silently no longer exact in a module that advertises exactness
+ * would be a false claim rather than a slow one.
+ */
+const MAX_EXACT_UNKNOWNS = 48;
+
+/**
+ * The same elimination in DOUBLES, for systems too large to do exactly.
+ *
+ * Returned as Rats so the caller's arithmetic is unchanged — they are exactly the
+ * doubles that came out, which is honest: each is an exact rational equal to the
+ * double, not an exact solution of the circuit. The caller clears its exactness
+ * flag, so the result is never presented as exact.
+ *
+ * Partial pivoting on the largest remaining magnitude, and a RELATIVE singularity
+ * test: an absolute one would call a correctly-scaled small pivot singular and a
+ * badly-scaled large one fine.
+ */
+function solveFloat(A: Rat[][], b: Rat[]): Rat[] | null {
+  const n = b.length;
+  const m: number[][] = A.map((row, i) => [...row.map(ratToNumber), ratToNumber(b[i])]);
+  let scale = 0;
+  for (const row of m) for (const v of row) if (Number.isFinite(v)) scale = Math.max(scale, Math.abs(v));
+  if (scale === 0) return null;
+  for (let col = 0; col < n; col++) {
+    let p = -1;
+    let best = 0;
+    for (let r = col; r < n; r++) {
+      const v = Math.abs(m[r][col]);
+      if (v > best) {
+        best = v;
+        p = r;
+      }
+    }
+    if (p < 0 || best <= scale * 1e-14) return null;
+    if (p !== col) {
+      const t = m[p];
+      m[p] = m[col];
+      m[col] = t;
+    }
+    const piv = m[col][col];
+    for (let r = 0; r < n; r++) {
+      if (r === col || m[r][col] === 0) continue;
+      const f = m[r][col] / piv;
+      for (let c = col; c <= n; c++) m[r][c] -= f * m[col][c];
+    }
+  }
+  const out: Rat[] = [];
+  for (let i = 0; i < n; i++) {
+    const v = m[i][n] / m[i][i];
+    if (!Number.isFinite(v)) return null;
+    out.push(ratFromNumber(v));
+  }
+  return out;
+}
+
 function solveRat(A: Rat[][], b: Rat[]): Rat[] | null {
   const n = b.length;
+  if (n > MAX_EXACT_UNKNOWNS) return null;
   const m = A.map((row, i) => [...row, b[i]]);
   for (let col = 0; col < n; col++) {
     let p = -1;
@@ -358,7 +468,65 @@ function singularMessage(elements: Element[], nodes: string[]): string {
       `Node ${floating.join(", ")} has no DC path to ground, so its voltage is not determined by this circuit. ` +
       "Add a resistor to ground, or check for a typo in a node name."
     );
-  return "This circuit has no unique solution — check for a shorted or duplicated source.";
+  // A LOOP OF IDEAL SOURCES, which the parallel-pair test above cannot see.
+  //
+  // Three sources round a loop — V1 across 1-0, V2 across 2-1, V3 across 2-0 —
+  // over-determine the node voltages without any two of them being in parallel.
+  // An inductor is a short at DC, so a source shorted through one is the same
+  // fault. Both reach here, and neither is "a shorted or duplicated source" in any
+  // sense the reader can act on.
+  const zeroImpedance = elements.filter((e) => e.kind === "V" || e.kind === "L");
+  if (zeroImpedance.length >= 2) {
+    // Union-find over the zero-impedance subgraph: a cycle means an over-determined
+    // loop. Bounded by the element count, so it cannot spin.
+    const parent = new Map<string, string>();
+    const find = (n: string): string => {
+      let r = n;
+      let guard = 0;
+      while (parent.get(r) !== undefined && parent.get(r) !== r && guard++ < MAX_NODES + 2) {
+        r = parent.get(r) as string;
+      }
+      return r;
+    };
+    let cycle: Element | null = null;
+    for (const e of zeroImpedance) {
+      const a = isGround(e.a) ? "0" : e.a;
+      const b = isGround(e.b) ? "0" : e.b;
+      if (parent.get(a) === undefined) parent.set(a, a);
+      if (parent.get(b) === undefined) parent.set(b, b);
+      const ra = find(a);
+      const rb = find(b);
+      if (ra === rb) {
+        cycle = e;
+        break;
+      }
+      parent.set(ra, rb);
+    }
+    if (cycle) {
+      const kinds = zeroImpedance.some((e) => e.kind === "L")
+        ? "voltage sources and inductors (an inductor is a short circuit at DC)"
+        : "voltage sources";
+      return (
+        `${cycle.name} completes a loop of ${kinds}, which over-determines the node ` +
+        "voltages: going round the loop gives two different answers for the same voltage. " +
+        "Break the loop by putting a resistance in series with one of them, or remove the " +
+        "redundant source."
+      );
+    }
+  }
+
+  // NAME ONLY WHAT HAS NOT BEEN RULED OUT. The old text here read "check for a
+  // shorted or duplicated source" — but a duplicated source is caught by the
+  // parallel-pair test above and a source loop by the test just above this, so it
+  // sent the reader looking for two faults that had already been excluded. A
+  // message that is false is a defect in its own right.
+  return (
+    "The nodal equations for this circuit have no unique solution, and it is not one of the " +
+    "faults this tool can name: it is not a pair of voltage sources in parallel, not a node " +
+    "without a DC path to ground, and not a loop of sources or inductors — each of those was " +
+    "checked. What remains is usually a redundant constraint somewhere in the topology. Try " +
+    "removing elements until it solves; the last one removed is the one to look at."
+  );
 }
 
 export function solveDc(elements: Element[]): DcResult | Failure {
@@ -428,7 +596,16 @@ export function solveDc(elements: Element[]): DcResult | Failure {
     rhs[row] = val;
   });
 
-  const sol = solveRat(A, rhs);
+  // Exact when it is affordable, doubles when it is not — never a refusal purely
+  // for being large, because a slow correct answer traded for no answer is a worse
+  // deal than an approximate one that says so.
+  let sol = solveRat(A, rhs);
+  let solvedInDoubles = false;
+  if (!sol && rhs.length > MAX_EXACT_UNKNOWNS) {
+    sol = solveFloat(A, rhs);
+    solvedInDoubles = sol !== null;
+    if (solvedInDoubles) exactOk = false;
+  }
   if (!sol) return { ok: false, error: singularMessage(elements, nodes) };
 
   const nodeVolt = (name: string): Rat => (isGround(name) ? R0 : sol[idx.get(name) as number]);
@@ -469,6 +646,17 @@ export function solveDc(elements: Element[]): DcResult | Failure {
   }
 
   const notes: string[] = [];
+  if (solvedInDoubles) {
+    notes.push(
+      `This circuit has ${rhs.length} unknowns, more than the ${MAX_EXACT_UNKNOWNS} the exact ` +
+        "rational solver handles in reasonable time, so the node voltages below were computed in " +
+        "double precision instead of exactly. Exact elimination over the rationals has no " +
+        "rounding error but its coefficients grow at every step, and on a mesh this size it took " +
+        "well over a second — in a pane that recomputes as you type, that is a frozen Word rather " +
+        "than a slow answer. The numbers are accurate to about twelve significant figures; they " +
+        "are simply not exact, and nothing here will claim they are.",
+    );
+  }
   if (elements.some((e) => e.kind === "C"))
     notes.push("Capacitors are open circuits at DC, so they carry no current here and set no voltage of their own.");
   if (!exactOk) notes.push("Some values could not be held exactly, so these results are floating point.");
@@ -597,7 +785,21 @@ export function frequencySweep(
   const nodes = nodeList(elements);
   if (!nodes.includes(outNode))
     return { ok: false, error: `There is no node called "${outNode}". Nodes here are: ${nodes.join(", ")}.` };
-  const n = Math.max(2, Math.min(Math.floor(points) || 120, MAX_SWEEP_POINTS));
+  // THE POINT COUNT MUST SCALE WITH THE CIRCUIT, because each point is a whole
+  // complex solve. At 120 nodes a 120-point sweep took 1201 ms — and this runs
+  // behind a Bode chart in a pane that recomputes as the user types, so it is a
+  // second of dropped keystrokes rather than a slow chart.
+  //
+  // A complex Gaussian elimination is O(nodes^3) per point, so the budget is set on
+  // points * nodes^3 and the resolution is spent where it is affordable. Small
+  // circuits — every hand-typed netlist — are untouched at the full 120 points; only
+  // a large mesh is thinned, and the sweep is still log-spaced across the same
+  // range, so the shape of the response is preserved rather than truncated.
+  const requested = Math.max(2, Math.min(Math.floor(points) || 120, MAX_SWEEP_POINTS));
+  const SWEEP_BUDGET = 120 * 30 * 30 * 30; // 120 points at 30 nodes, the reference cost
+  const affordable = Math.max(12, Math.floor(SWEEP_BUDGET / Math.max(1, nodes.length ** 3)));
+  const n = Math.min(requested, Math.max(12, affordable));
+  const thinned = n < requested;
   const out: SweepPoint[] = [];
   const logMin = Math.log10(fMin);
   const logMax = Math.log10(fMax);
@@ -609,7 +811,17 @@ export function frequencySweep(
     if (!node) return { ok: false, error: `Lost node ${outNode} during the sweep.` };
     out.push({ f, magnitude: node.magnitude, phaseDeg: node.phaseDeg });
   }
-  return { points: out };
+  return {
+    points: out,
+    // Disclosed, not silent: a chart drawn from 12 points where 120 were asked for
+    // looks like a coarse chart, and the reader deserves to know which it is.
+    error: thinned
+      ? `This circuit has ${nodes.length} nodes, and every sweep point is a full complex solve, ` +
+        `so the sweep was thinned from ${requested} points to ${n} to keep the pane responsive. ` +
+        `The frequency range is unchanged and still log-spaced; the curve is simply coarser. ` +
+        `Sweep a smaller sub-circuit for more resolution.`
+      : undefined,
+  };
 }
 
 /** Decibels relative to a reference, for the magnitude axis of a Bode plot. */

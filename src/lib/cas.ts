@@ -583,6 +583,26 @@ function normalize(e: Expr, ctx: Ctx): RF {
             const half = rfPowInt(inner, Math.floor(k / 2));
             return k % 2 === 0 ? half : rfMul(half, normalize(e.l, ctx));
           }
+          // abs(A)^n = A^n FOR EVEN n, exactly — |A|^2 is A^2 for every real A,
+          // with no branch to choose and no sign lost. For odd n it reduces to
+          // A^(n-1)*abs(A), keeping one abs and cancelling the rest.
+          //
+          // Without this, `abs(A)` was an opaque atom that never reduced, and the
+          // consequence was a GUARANTEE GAP rather than a wrong answer. casint
+          // advertises a canonical correctness net — it differentiates every
+          // candidate antiderivative back and demands exprEqual with the integrand —
+          // and d/dx ln|x| simplifies to x/abs(x)^2, which is not recognisably 1/x
+          // while abs(x)^2 stays opaque. So exprEqual was FALSE for every
+          // partial-fraction and g'/g result, and those were accepted on the strength
+          // of numeric agreement at eight fixed sample points with a floor of three.
+          // Sixty-seven integrands swept on a deliberately disjoint grid found no
+          // wrong antiderivative, so nothing was broken — but the advertised check
+          // was not running on the largest class of results it exists to protect.
+          if (e.l.t === "fn" && e.l.name === "abs" && k >= 0) {
+            const inner = normalize(e.l.arg, ctx);
+            if (k % 2 === 0) return rfPowInt(inner, k);
+            return rfMul(rfPowInt(inner, k - 1), normalize(e.l, ctx));
+          }
           const base = normalize(e.l, ctx);
           try {
             return rfPowInt(base, k);

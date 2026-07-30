@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.40.1)
+# JurisLab — Manual Test Script (v2.41.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -338,6 +338,51 @@ Engineering > Structural & solids > **Beam analysis**:
   x-axis label must be fully visible. Two tests that were supposed to guarantee this
   could not fail, so this has been unguarded until now. Try a cantilever, a simple
   span, three supports, and a spring support.
+
+---
+
+## 0f. New in v2.41.0 — control: settling time, margins, and a verdict withheld
+
+Engineering > Control systems. Every figure below was wrong in a way that looked
+entirely plausible, so check the numbers, not just that something appears.
+
+**Second-order metrics / step response:**
+
+- [ ] `wn = 1`, `zeta = 20` (denominator `s^2 + 40s + 1`). The 2% settling time must
+  read about **156 s**. It used to read **0.2 s** — 780 times optimistic — and was
+  flagged exact.
+- [ ] Sweep zeta upward: 1, 2, 5, 10, 20. Settling time must **INCREASE** every
+  time. It used to fall (4, 2, 0.8, 0.4, 0.2), which is backwards — more damping
+  means slower settling.
+- [ ] `zeta = 1` (critically damped) must read about **5.83 s**, not 4.
+- [ ] `zeta = 0.2` must still read **20 s** — the underdamped envelope estimate is
+  the textbook convention and is deliberately unchanged.
+
+**Margins:**
+
+- [ ] Open loop numerator `100 s^2 + 2 s + 100`, denominator `s^4+4s^3+6s^2+4s+1`.
+  The phase margin must read about **23°**, not 32.5°. A note must appear saying
+  the magnitude crosses 0 dB at **3 frequencies** and that the smallest margin is
+  the one reported.
+- [ ] Numerator `1e12`, denominator `s^3+3s^2+3s+1`. A phase margin must be
+  **reported** (about −90°). It used to say there was none, because the swept range
+  stopped at ω = 100 while the crossover is at ω = 10005.
+- [ ] Numerator `0.01`, denominator `s+1`. There must still be **no** phase margin —
+  the magnitude never reaches 0 dB, and extending the sweep must not invent one.
+- [ ] Numerator `1`, denominator `s^3+3s^2+2s` (that is `1/(s(s+1)(s+2))`). Gain
+  margin must be **15.56 dB** and no multi-crossing note should appear.
+- [ ] Type into the gain field and watch for lag — the sweep now extends itself, so
+  this is worth a moment.
+
+**Stability:**
+
+- [ ] Denominator `s^6+3s^4+3s^2+1` (that is `(s^2+1)^3`). The verdict must read
+  **UNDETERMINED**, explaining that a repeated pole cannot be resolved numerically
+  and to treat it as marginal. It used to read "UNSTABLE — 2 poles in the right half
+  plane" for a marginally stable system.
+- [ ] These must keep their definite verdicts — the refusal must be narrow:
+  `s^2+2s+1` → STABLE, `s^3+3s^2+3s+1` → STABLE, `s^2-2s+1` → UNSTABLE,
+  `s^4-2s^2+1` → UNSTABLE, `s^2` → MARGINALLY STABLE, `s^2+3s+2` → STABLE.
 
 ---
 

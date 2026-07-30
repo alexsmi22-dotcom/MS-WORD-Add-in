@@ -5,6 +5,105 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > Note: this file was not maintained between v1.96.0 and v2.23.0. Those releases
 > are recorded in the git history rather than here.
 
+## [2.41.0] — 2026-07-29 — Control: a settling time that ran backwards, and a verdict withheld
+
+Batch 2 from `docs/KNOWN-DEFECTS.md`. Four defects, each independently reproduced
+before it was touched and each checked against something outside this code — a
+simulated step response, a brute-force frequency sweep, or an exactly known
+factorisation.
+
+### Settling time ran the wrong way
+
+`4/(zeta*wn)` is the decaying envelope of an **underdamped** response. It was being
+applied at every damping ratio, so as damping rose the reported settling time
+*fell* — which is backwards. Measured, with ωₙ = 1:
+
+| ζ | reported | true |
+|---|---|---|
+| 1 | 4 | 5.83 |
+| 2 | 2 | 14.9 |
+| 5 | 0.8 | 38.8 |
+| 20 | **0.2** | **156** |
+
+780 times optimistic at ζ = 20, and flagged `exact`. Anyone sizing a controller
+from that figure was told the loop settles instantly when it crawls.
+
+For ζ ≥ 1 the poles are real and the response is a sum of two exponentials
+dominated by the **slower** one — the pole nearer the origin, which is exactly the
+one the envelope formula ignores. The 2% crossing is now solved for directly rather
+than approximated, because the second exponential matters near ζ = 1 and the
+critically damped case has a t·e^(−t) term that no single-pole rule of thumb
+captures. Verified against a simulated step response at nine (ζ, ωₙ) pairs, agreeing
+to better than one part in a thousand.
+
+The underdamped branch is deliberately **unchanged**: `4/(zeta*wn)` is the textbook
+2% estimate, students expect that number, and it is 2–4% off the true crossing by
+construction. Replacing it silently with a different figure would have been its own
+kind of wrong.
+
+### The margin reported is now the worst crossing, not the first
+
+A loop whose magnitude is not monotonic crosses 0 dB more than once and has a phase
+margin at each. The stability margin is the **smallest** — that is what the word
+means. Reporting the first gave `100(s²+0.02s+1)/(s+1)⁴` a phase margin of 32.5°
+when its three crossings are at 33.0°, 148.8° and **23.1°**. A number that says
+"comfortable" about a loop that is not is worse than no number.
+
+Every crossing is now collected and the minimum reported, with the same treatment
+for gain margin at multiple phase crossovers. The full list is disclosed in a note
+and exposed on the result, because three crossings at 33, 149 and 23 degrees is a
+different engineering situation from a single crossing at 23 even though the margin
+is identical.
+
+### The sweep no longer assumes where the crossover is
+
+The frequency range came from pole and zero magnitudes — and **those do not move
+when the gain changes.** For `1e12/(s+1)³` every pole sits at 1, so the sweep stopped
+at ω = 100 while the true 0 dB crossing is at ω = 10005. The result was "the
+magnitude never crosses 0 dB over the swept range, so there is no phase margin",
+reported for a loop that has one. A bounded sweep had silently become a wrong
+answer — exactly what that function's own docstring warns about for the gain margin.
+
+The range is now extended until |L| actually brackets 1, bounded to twelve decades
+either way, and asserted across seven loop gains from 1e3 to 1e15. A loop that
+genuinely has no crossover still says so: extending the sweep must not manufacture
+a margin, and `0.01/(s+1)` is checked for that.
+
+### A verdict withheld rather than guessed
+
+`(s²+1)³` is three double poles at ±i — marginally stable — and came back
+**"UNSTABLE — 2 poles in the right half plane."** The cause is not a tolerance:
+Durand–Kerner resolves a root of multiplicity m only to about the m-th root of
+machine precision, so a triple root lands ~1e-5 from where it belongs and carries
+that error into its real part. No threshold fixes that; moving it only changes which
+repeated-root system is misjudged. Routh–Hurwitz would settle it exactly, but a
+polynomial with roots on the imaginary axis produces a zero row, which is precisely
+the case it cannot complete.
+
+So repeated roots are now detected **exactly**, via gcd(p, p′) over the rationals —
+a theorem, not a heuristic, and free here because the coefficients are already exact
+rationals. Detecting them numerically would have been circular.
+
+The refusal is deliberately narrow. Three conditions must all hold: a repeated root,
+Routh unable to answer, **and** a pole near the axis where the multiplicity error
+could change the verdict. `(s+1)²` and `(s+1)³` stay STABLE, `(s−1)²` and `(s²−1)²`
+stay UNSTABLE — double poles at ±1 are placed to about 1e-8, so those answers are
+sound — and `s²`, a double pole exactly at the origin, stays MARGINALLY STABLE
+because the factorisation makes it exactly known. Only the genuinely ambiguous case
+returns UNDETERMINED, and **the refusal itself is asserted in a test** so a future
+change to the root finder cannot quietly resume emitting a verdict.
+
+### One thing worth recording about the fix
+
+The first version of the repeated-root helper was written for **ascending**
+coefficients while this module is highest-power-first. That is right for a palindrome
+like `(s²+1)ⁿ` — the very case it was built for, so it passed — and wrong for `s²`,
+which it reported as having no repeated root. Caught by adding `s²`,
+`(s+1)²(s+2)` and `(s+1)(s+2)(s+3)` to the check. A helper that is correct only on
+the example it was built from is a pattern this project keeps finding.
+
+6,470 tests across 213 files. All twelve QC gates pass.
+
 ## [2.40.1] — 2026-07-29 — The identity fix only caught the examples it was given
 
 A patch on v2.40.0, from reviewing the fix rather than the feature — and the

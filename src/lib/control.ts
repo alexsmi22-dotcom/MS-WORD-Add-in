@@ -402,6 +402,13 @@ export interface StabilityResult {
   imaginaryAxisPoles: number;
   /** Right-half-plane count from the exact Routh tabulation, when it was clean. */
   rhpPolesRouth: number | null;
+  /**
+   * True when the denominator has a repeated root, established EXACTLY over the
+   * rationals via gcd(p, p') rather than by inspecting the computed poles — which
+   * would be circular, since the reason this matters is that the numeric root
+   * finder cannot be trusted on a repeated root.
+   */
+  repeatedPole: boolean;
   routh: RouthResult | null;
   stable: boolean;
   /** True when the two independent methods disagree — reported, never resolved. */
@@ -410,6 +417,91 @@ export interface StabilityResult {
   nonMinimumPhase: boolean;
   verdict: string;
   notes: string[];
+}
+
+/**
+ * Formal derivative, in this module's HIGHEST-POWER-FIRST coefficient order.
+ *
+ * The order matters and the first version of this got it wrong: written for
+ * ascending coefficients it returned the derivative of the reversed polynomial,
+ * which happens to be right for a palindrome like (s^2+1)^n — so the (s^2+1)^3
+ * case it was written for passed — and wrong for s^2, which it reported as having
+ * no repeated root. A helper that is correct only on the example it was built from
+ * is the failure mode this project keeps finding; caught here by adding s^2 and
+ * (s+1)(s+2)(s+3) to the check.
+ *
+ * p[0] is the coefficient of s^n with n = p.length - 1, so d/ds drops the constant
+ * term and multiplies each remaining coefficient by its own power.
+ */
+function polyDeriv(p: Rat[]): Rat[] {
+  const t = trimPoly(p);
+  const n = t.length - 1;
+  if (n < 1) return [ratInt(0)];
+  const out: Rat[] = [];
+  for (let i = 0; i < n; i++) out.push(ratMul(t[i], ratInt(BigInt(n - i))));
+  return trimPoly(out);
+}
+
+/** Remainder of a divided by b, both highest-power-first. Exact over Q. */
+function polyRemainder(a: Rat[], b: Rat[]): Rat[] {
+  const db = polyDegree(b);
+  if (db < 0) return trimPoly(a);
+  const bt = trimPoly(b);
+  const lead = bt[0];
+  if (ratIsZero(lead)) return trimPoly(a);
+  let r = trimPoly(a).slice();
+  // Each step removes at least one degree, so deg(a)+1 iterations is a hard
+  // ceiling. A bound is not optional in a task pane: a loop that never returns is
+  // a frozen Word, not an error message.
+  for (let guard = 0; guard <= 64; guard++) {
+    const dr = polyDegree(r);
+    if (dr < db) return r;
+    const c = ratDiv(r[0], lead);
+    for (let j = 0; j <= db; j++) r[j] = ratSub(r[j], ratMul(c, bt[j]));
+    const next = trimPoly(r);
+    if (polyDegree(next) >= dr) return next; // no progress; bail rather than spin
+    r = next.slice();
+  }
+  return r;
+}
+
+/**
+ * Does this polynomial have a REPEATED root? Answered exactly, over the rationals.
+ *
+ * gcd(p, p') has positive degree exactly when p has a repeated factor — a theorem,
+ * not a heuristic, and it costs nothing here because the coefficients are already
+ * exact rationals. Doing it numerically would be circular: the whole reason the
+ * question matters is that the numeric root finder cannot be trusted on a repeated
+ * root.
+ *
+ * Why it matters: Durand-Kerner resolves a root of multiplicity m to about
+ * eps^(1/m), so a triple root lands roughly 6e-6 from its true position. For
+ * `(s^2+1)^3` — three double poles at +/-i, marginally stable — the computed real
+ * parts came out near 1e-5 instead of 0 and the verdict read "UNSTABLE, 2 poles in
+ * the right half plane". No per-pole tolerance can fix that: 1e-5 is genuinely far
+ * from zero, and moving the threshold only changes which repeated-root system is
+ * misjudged. Routh cannot arbitrate either, because roots on the imaginary axis
+ * produce a zero row and make its tabulation unusable.
+ */
+function hasRepeatedRoot(p: Rat[]): boolean {
+  const a = trimPoly(p);
+  if (polyDegree(a) < 2) return false;
+  const b = polyDeriv(a);
+  if (polyDegree(b) < 1) {
+    // p' is a non-zero constant: p is linear, already excluded. p' identically
+    // zero cannot happen for a non-constant polynomial over Q.
+    return false;
+  }
+  let u = a;
+  let v = b;
+  for (let guard = 0; guard <= 64; guard++) {
+    if (polyDegree(v) < 0) break;
+    const r = polyRemainder(u, v);
+    u = v;
+    if (polyDegree(r) < 0) break;
+    v = r;
+  }
+  return polyDegree(u) >= 1;
 }
 
 export function analyzeStability(tf: TransferFunction): StabilityResult | ControlError {
@@ -453,6 +545,11 @@ export function analyzeStability(tf: TransferFunction): StabilityResult | Contro
   const rhpPolesNumeric = poles.filter((p) => p.re > poleTol(p)).length;
   const imaginaryAxisPoles = poles.filter((p) => Math.abs(p.re) <= poleTol(p)).length;
 
+  // A REPEATED POLE MEANS THE NUMERIC REAL PARTS CANNOT BE TRUSTED TO THIS
+  // PRECISION, so the verdict is withheld rather than asserted. See
+  // hasRepeatedRoot for why no tolerance can rescue this case.
+  const repeated = hasRepeatedRoot(den);
+
   const routh = routhHurwitz(den);
   const routhOk = !("ok" in routh && routh.ok === false);
   const routhRes = routhOk ? (routh as RouthResult) : null;
@@ -460,10 +557,51 @@ export function analyzeStability(tf: TransferFunction): StabilityResult | Contro
 
   const disagreement = rhpPolesRouth !== null && rhpPolesRouth !== rhpPolesNumeric;
 
-  const stable = rhpPolesNumeric === 0 && imaginaryAxisPoles === 0 && !disagreement;
+  // A repeated pole is only a problem for the NUMERIC method, and only when it sits
+  // where the multiplicity error could change the answer.
+  //
+  // Three conditions, and all three are needed — refusing on repetition alone
+  // discards verdicts that are perfectly sound. `(s^2-1)^2` has double poles at
+  // +/-1, which Durand-Kerner places to about 1e-8: the real parts are unmistakably
+  // positive and UNSTABLE is the right answer, even though Routh cannot tabulate
+  // it. And `s^2` has a double pole exactly AT the origin, which is exactly known
+  // because the polynomial simply has a factor of s^2.
+  //
+  // What is genuinely unresolvable is a repeated pole NEAR the axis but not on it:
+  // multiplicity m costs about eps^(1/m) of accuracy, so a real part computed as
+  // 1e-5 could be zero or could be positive, and nothing here can tell which.
+  const axisDoubt = poles.some((pole) => {
+    const mag = Math.hypot(pole.re, pole.im);
+    if (!Number.isFinite(mag) || mag === 0) return false; // exactly at the origin
+    const rel = Math.abs(pole.re) / mag;
+    // rel === 0 means the real part came out exactly zero, which is a definite
+    // answer, not a doubtful one. The upper bound is eps^(1/4) rounded up, which
+    // covers multiplicity 4 and below.
+    return rel > 0 && rel < 1e-3;
+  });
+  const unresolvable = repeated && rhpPolesRouth === null && axisDoubt;
+
+  const stable =
+    !unresolvable && rhpPolesNumeric === 0 && imaginaryAxisPoles === 0 && !disagreement;
 
   let verdict: string;
-  if (disagreement) {
+  if (unresolvable) {
+    verdict =
+      "UNDETERMINED — this system has a REPEATED pole, and neither method can resolve its " +
+      "stability. Computing the poles numerically cannot place a repeated root accurately: a " +
+      "root of multiplicity m is found only to about the m-th root of machine precision, so a " +
+      "triple root lands roughly 1e-5 away from where it belongs and its computed real part " +
+      "carries that error. The exact Routh-Hurwitz tabulation would settle it, but a polynomial " +
+      "with roots on the imaginary axis produces a zero row, which is exactly the case it cannot " +
+      "complete. Treat this as MARGINAL. Nothing here is precise enough to justify calling it " +
+      "stable or unstable, and asserting either would be a guess wearing a verdict.";
+    notes.push(
+      "For the record, the numerically computed poles are listed below and the real parts you see " +
+        "near zero are the multiplicity error, not evidence of instability. (s^2+1)^3 reaches this " +
+        "branch: it is three double poles at +/-i, marginally stable, and it was previously " +
+        "reported as UNSTABLE with 2 poles in the right half plane.",
+    );
+  } else if (disagreement) {
     verdict =
       `UNCERTAIN — the two methods disagree. The exact Routh-Hurwitz tabulation finds ` +
       `${rhpPolesRouth} pole(s) in the right half plane; computing the poles numerically finds ` +
@@ -506,6 +644,7 @@ export function analyzeStability(tf: TransferFunction): StabilityResult | Contro
     imaginaryAxisPoles,
     rhpPolesRouth,
     routh: routhRes,
+    repeatedPole: repeated,
     stable,
     disagreement,
     nonMinimumPhase,
@@ -759,6 +898,58 @@ export interface SecondOrderMetrics {
 }
 
 /**
+ * 2% settling time of a critically damped or overdamped second-order step
+ * response, found by solving for the crossing rather than approximating it.
+ *
+ * The unit step response of 1/(s^2 + 2*zeta*wn*s + wn^2) normalised to a final
+ * value of 1:
+ *
+ *   zeta = 1   y(t) = 1 - (1 + wn*t) * exp(-wn*t)
+ *   zeta > 1   y(t) = 1 - (p2*exp(-p1*t) - p1*exp(-p2*t)) / (p2 - p1)
+ *
+ * with p1 = zeta*wn - wn*sqrt(zeta^2-1) the SLOW pole and p2 the fast one. The
+ * error 1 - y(t) is positive and strictly decreasing for both, so the 2% crossing
+ * is unique and bisection on it is exact to the precision asked for — no envelope
+ * approximation, and no rule of thumb that breaks down near zeta = 1.
+ *
+ * Returns null rather than guessing if the crossing cannot be bracketed.
+ */
+function settlingTimeHeavilyDamped(zeta: number, wn: number, tolerance = 0.02): number | null {
+  if (!(zeta >= 1) || !(wn > 0) || !Number.isFinite(zeta) || !Number.isFinite(wn)) return null;
+
+  const err = (t: number): number => {
+    if (zeta === 1) return (1 + wn * t) * Math.exp(-wn * t);
+    const r = wn * Math.sqrt(zeta * zeta - 1);
+    const p1 = zeta * wn - r; // slow
+    const p2 = zeta * wn + r; // fast
+    if (!(p1 > 0) || !Number.isFinite(p2) || p2 === p1) return NaN;
+    // Written so the dominant term is evaluated directly; for large zeta,
+    // p2*exp(-p1*t)/(p2-p1) is the whole answer and the other term underflows
+    // harmlessly.
+    return (p2 * Math.exp(-p1 * t) - p1 * Math.exp(-p2 * t)) / (p2 - p1);
+  };
+
+  // Bracket by doubling from the slow pole's time constant. A bound is essential:
+  // an unbounded search inside a task pane is a frozen Word, not an error message.
+  const slow = zeta === 1 ? wn : zeta * wn - wn * Math.sqrt(zeta * zeta - 1);
+  if (!(slow > 0) || !Number.isFinite(slow)) return null;
+  let hi = 1 / slow;
+  let guard = 0;
+  while (err(hi) > tolerance) {
+    hi *= 2;
+    if (++guard > 200 || !Number.isFinite(hi)) return null;
+  }
+  let lo = 0;
+  for (let i = 0; i < 200; i++) {
+    const mid = (lo + hi) / 2;
+    if (err(mid) > tolerance) lo = mid;
+    else hi = mid;
+  }
+  const t = (lo + hi) / 2;
+  return Number.isFinite(t) && t >= 0 ? t : null;
+}
+
+/**
  * Damping ratio, natural frequency and the transient metrics that follow.
  *
  * FOR A GENUINE SECOND-ORDER DENOMINATOR these are exact identities. For
@@ -856,7 +1047,48 @@ export function secondOrderMetrics(tf: TransferFunction): SecondOrderMetrics | C
     peakTime = Math.PI / wd;
     riseTime = (Math.PI - Math.acos(zeta)) / wd;
   }
-  if (zeta > 0 && wn > 0) settlingTime = 4 / (zeta * wn);
+  // SETTLING TIME: THE ENVELOPE FORMULA IS ONLY VALID FOR zeta < 1.
+  //
+  // `4/(zeta*wn)` comes from the decaying envelope exp(-zeta*wn*t) of an
+  // UNDERDAMPED response. Applied to an overdamped system it is not merely
+  // approximate, it runs the wrong way: as damping rises the reported settling
+  // time FALLS, when a heavily damped system settles more slowly. Measured, with
+  // wn = 1:
+  //
+  //     zeta      reported     true
+  //     1         4            5.83
+  //     2         2            14.9
+  //     5         0.8          39.6
+  //     20        0.2          160
+  //
+  // At zeta = 20 that is 800x optimistic, and it was flagged `exact`. Anyone
+  // sizing a controller from it is told the loop settles almost instantly when it
+  // crawls.
+  //
+  // For zeta > 1 the two poles are real at -zeta*wn +/- wn*sqrt(zeta^2-1), and the
+  // response is a sum of two decaying exponentials dominated by the SLOWER one —
+  // the pole nearer the origin, which is the one the envelope formula ignores.
+  // Note that for large zeta the slow pole tends to -wn/(2*zeta), so the settling
+  // time grows roughly as 8*zeta/wn: the opposite of what was reported.
+  //
+  // The 2% crossing is solved numerically rather than with the 4/|Re| rule of
+  // thumb, because the second exponential's coefficient is large enough to matter
+  // near zeta = 1 and the critically damped case has a t*exp(-t) term that no
+  // single-pole approximation captures at all.
+  if (zeta > 0 && wn > 0) {
+    if (zeta < 1) {
+      settlingTime = 4 / (zeta * wn);
+    } else {
+      settlingTime = settlingTimeHeavilyDamped(zeta, wn);
+      if (settlingTime === null) {
+        notes.push(
+          "The 2% settling time could not be bracketed for this system; no value is reported " +
+            "rather than one from the underdamped envelope formula, which does not apply when " +
+            "zeta >= 1.",
+        );
+      }
+    }
+  }
 
   if (kind === "undamped") {
     notes.push("Zero damping: this oscillates for ever at wn and never settles.");
@@ -945,7 +1177,89 @@ export interface Margins {
   phaseMarginDeg: number | null;
   /** Frequency at which the magnitude crosses 0 dB. */
   gainCrossoverW: number | null;
+  /**
+   * EVERY 0 dB crossing with its phase margin, lowest frequency first.
+   *
+   * `phaseMarginDeg` above is the minimum of these, because that is the margin
+   * that binds. The full list is exposed so a caller can show it: three crossings
+   * at 33, 149 and 23 degrees is a different engineering situation from a single
+   * crossing at 23, even though the reported margin is the same.
+   */
+  gainCrossings: Array<{ w: number; marginDeg: number }>;
+  /** Every -180 degree crossing with its gain margin, lowest frequency first. */
+  phaseCrossings: Array<{ w: number; marginDb: number }>;
   notes: string[];
+}
+
+/**
+ * The frequency range a MARGIN calculation needs, which is not the range a Bode
+ * plot needs.
+ *
+ * `autoFrequencies` spans two decades either side of the pole and zero
+ * magnitudes. That is right for plotting and wrong for margins, because those
+ * magnitudes DO NOT MOVE WHEN THE GAIN CHANGES and the gain crossover does. For
+ * `1e12/(s+1)^3` every pole sits at 1, so the sweep stopped at 100 — while the
+ * true 0 dB crossing is at omega = 10005. The result was "the magnitude never
+ * crosses 0 dB over the swept range, so there is no phase margin", reported for a
+ * loop that has one. A bounded sweep silently became a wrong answer, which is
+ * exactly what this function's own docstring warns about for the gain margin.
+ *
+ * So the range is EXTENDED until |L| actually brackets 1, rather than assumed to.
+ * The extension is bounded — a task pane that recomputes on every keystroke cannot
+ * afford an unbounded search, and a loop that never returns is a frozen Word, not
+ * an error message.
+ */
+function marginSweep(open: TransferFunction, count = 2000): number[] {
+  const base = autoFrequencies(open, count);
+  if (!base.length || base.some((f) => !Number.isFinite(f))) return base;
+
+  const magAt = (w: number): number => {
+    const nu = polyEvalComplex(open.num, 0, w);
+    const de = polyEvalComplex(open.den, 0, w);
+    const d2 = de.re * de.re + de.im * de.im;
+    if (d2 === 0) return Infinity;
+    return Math.hypot(
+      (nu.re * de.re + nu.im * de.im) / d2,
+      (nu.im * de.re - nu.re * de.im) / d2,
+    );
+  };
+
+  let lo = base[0];
+  let hi = base[base.length - 1];
+  const wantsBracket = (): boolean => {
+    const a = magAt(lo);
+    const b = magAt(hi);
+    if (!Number.isFinite(a) || !Number.isFinite(b)) return false;
+    // Already straddles 0 dB somewhere between the ends.
+    return (a - 1) * (b - 1) < 0;
+  };
+
+  // Push out by a decade at a time, up to 12 decades each way. Beyond about 1e15
+  // the double arithmetic in polyEvalComplex stops being meaningful anyway, so a
+  // wider search would buy noise rather than answers.
+  let guard = 0;
+  while (!wantsBracket() && guard < 24) {
+    const aboveAtHi = magAt(hi) > 1;
+    const aboveAtLo = magAt(lo) > 1;
+    if (aboveAtHi && aboveAtLo) {
+      // |L| is above 0 dB at both ends: the crossing, if any, is at higher
+      // frequency, where a proper transfer function must eventually roll off.
+      hi *= 10;
+    } else if (!aboveAtHi && !aboveAtLo) {
+      // Below 0 dB at both ends: look lower, where an integrator would lift it.
+      lo /= 10;
+    } else {
+      break;
+    }
+    if (!Number.isFinite(hi) || lo <= 0 || !Number.isFinite(1 / lo)) break;
+    guard++;
+  }
+
+  const n = Math.max(10, Math.min(count, MAX_SAMPLES));
+  const a = Math.log10(lo);
+  const b = Math.log10(hi);
+  if (!Number.isFinite(a) || !Number.isFinite(b) || b <= a) return base;
+  return Array.from({ length: n }, (_, i) => Math.pow(10, a + ((b - a) * i) / (n - 1)));
 }
 
 /**
@@ -962,7 +1276,7 @@ export interface Margins {
  * happened to be swept is how a bounded sweep becomes a wrong answer.
  */
 export function margins(open: TransferFunction): Margins | ControlError {
-  const freqs = autoFrequencies(open, 2000);
+  const freqs = marginSweep(open);
   if (!freqs.length || freqs.some((f) => !Number.isFinite(f))) {
     return { ok: false, error: "A sensible frequency range could not be chosen for this system." };
   }
@@ -1006,8 +1320,22 @@ export function margins(open: TransferFunction): Margins | ControlError {
     return Math.sqrt(a * b);
   };
 
-  let phaseCrossoverW: number | null = null;
-  let gainMarginDb: number | null = null;
+  // ALL CROSSINGS, THEN THE WORST ONE. NOT THE FIRST ONE.
+  //
+  // A loop whose magnitude is not monotonic crosses 0 dB more than once, and it
+  // has a phase margin at each crossing. The stability margin is the SMALLEST of
+  // them — that is what the word margin means. Reporting the first gave
+  // `100*(s^2+0.02s+1)/(s+1)^4` a phase margin of 32.5 degrees when its three
+  // crossings are at 33.0, 148.8 and 23.1 degrees, so the binding margin is 23.1.
+  // A number that says "comfortable" about a loop that is not is worse than no
+  // number.
+  //
+  // The same argument applies to the gain margin at multiple phase crossovers, so
+  // both loops now collect everything and take the minimum, and both say how many
+  // they found — because "3 crossings, worst of them 23 degrees" is a different
+  // engineering situation from "one crossing at 23 degrees" even though the margin
+  // is the same.
+  const phaseCrossings: Array<{ w: number; marginDb: number }> = [];
   for (let i = 0; i + 1 < resp.length; i++) {
     const a = resp[i].phaseDeg + 180;
     const b = resp[i + 1].phaseDeg + 180;
@@ -1020,9 +1348,28 @@ export function margins(open: TransferFunction): Margins | ControlError {
       // exactly "G is real and negative", so Im(G) = 0 locates the same point
       // with no phase bookkeeping to get wrong. Found by an oracle test that
       // knew the answer algebraically.
-      phaseCrossoverW = bisect(freqs[i], freqs[i + 1], (w) => gAt(w).im);
-      gainMarginDb = -20 * Math.log10(gAt(phaseCrossoverW).mag);
-      break;
+      const w = bisect(freqs[i], freqs[i + 1], (w2) => gAt(w2).im);
+      const mag = gAt(w).mag;
+      if (Number.isFinite(w) && w > 0 && Number.isFinite(mag) && mag > 0) {
+        phaseCrossings.push({ w, marginDb: -20 * Math.log10(mag) });
+      }
+    }
+  }
+  // The worst gain margin is the smallest one; a negative value means the loop is
+  // already unstable, and that must not be hidden behind a comfortable crossing
+  // found earlier in the sweep.
+  let phaseCrossoverW: number | null = null;
+  let gainMarginDb: number | null = null;
+  if (phaseCrossings.length) {
+    const worst = phaseCrossings.reduce((m, c) => (c.marginDb < m.marginDb ? c : m));
+    phaseCrossoverW = worst.w;
+    gainMarginDb = worst.marginDb;
+    if (phaseCrossings.length > 1) {
+      notes.push(
+        `The phase crosses -180 degrees at ${phaseCrossings.length} frequencies ` +
+          `(${phaseCrossings.map((c) => c.w.toPrecision(4)).join(", ")} rad/s). The gain margin ` +
+          `reported is the WORST of them, which is the one that binds; the others are larger.`,
+      );
     }
   }
   if (phaseCrossoverW === null) {
@@ -1033,25 +1380,43 @@ export function margins(open: TransferFunction): Margins | ControlError {
     );
   }
 
-  let gainCrossoverW: number | null = null;
-  let phaseMarginDeg: number | null = null;
+  const gainCrossings: Array<{ w: number; marginDeg: number }> = [];
   for (let i = 0; i + 1 < resp.length; i++) {
     const a = resp[i].magnitudeDb;
     const b = resp[i + 1].magnitudeDb;
     if (a === 0 || a * b < 0) {
       // Magnitude carries no wrapping, so it can be refined directly.
-      gainCrossoverW = bisect(freqs[i], freqs[i + 1], (w) => gAt(w).mag - 1);
+      const w = bisect(freqs[i], freqs[i + 1], (w2) => gAt(w2).mag - 1);
       // The phase here is taken from the SWEPT response so the unwrapping is
       // the same one the user sees on the Bode plot, interpolated across the
       // bracket the crossing was found in.
-      const g = gAt(gainCrossoverW);
+      const g = gAt(w);
       const rawDeg = (Math.atan2(g.im, g.re) * 180) / Math.PI;
       // Align the isolated atan2 value with the swept, unwrapped phase by
       // choosing the 360-degree branch nearest the bracket's sampled phase.
       const reference = resp[i].phaseDeg;
       const k = Math.round((reference - rawDeg) / 360);
-      phaseMarginDeg = 180 + (rawDeg + 360 * k);
-      break;
+      const marginDeg = 180 + (rawDeg + 360 * k);
+      if (Number.isFinite(w) && w > 0 && Number.isFinite(marginDeg)) {
+        gainCrossings.push({ w, marginDeg });
+      }
+    }
+  }
+  let gainCrossoverW: number | null = null;
+  let phaseMarginDeg: number | null = null;
+  if (gainCrossings.length) {
+    const worst = gainCrossings.reduce((m, c) => (c.marginDeg < m.marginDeg ? c : m));
+    gainCrossoverW = worst.w;
+    phaseMarginDeg = worst.marginDeg;
+    if (gainCrossings.length > 1) {
+      notes.push(
+        `The magnitude crosses 0 dB at ${gainCrossings.length} frequencies ` +
+          `(${gainCrossings.map((c) => c.w.toPrecision(4)).join(", ")} rad/s), with phase margins of ` +
+          `${gainCrossings.map((c) => `${c.marginDeg.toFixed(1)}`).join(", ")} degrees. The figure ` +
+          `reported is the SMALLEST, because that is the one that binds. A loop with several ` +
+          `crossings is usually resonant, and the comfortable-looking crossings say nothing about ` +
+          `its stability.`,
+      );
     }
   }
   if (gainCrossoverW === null) {
@@ -1075,7 +1440,16 @@ export function margins(open: TransferFunction): Margins | ControlError {
     );
   }
 
-  return { ok: true, gainMarginDb, phaseCrossoverW, phaseMarginDeg, gainCrossoverW, notes };
+  return {
+    ok: true,
+    gainMarginDb,
+    phaseCrossoverW,
+    phaseMarginDeg,
+    gainCrossoverW,
+    gainCrossings,
+    phaseCrossings,
+    notes,
+  };
 }
 
 /**

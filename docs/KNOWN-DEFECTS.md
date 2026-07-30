@@ -31,6 +31,10 @@ Each was closed with its reproduction moved into a named test, not merely patche
 | **B14** two beam-height tests parsed the height out of the SVG they generated, so they could not fail | both assert against `BEAM_CHART_SIZE`, and a negative control confirms they now catch a ±10/50/200/1000 perturbation | `beamChartGeometry.test.ts` |
 | **A12 (second pass)** the identity check tested `f === 0` exactly, so it caught only the three examples in the report — `sin(x)^2+cos(x)^2 = 1` still gave 3620 roots and `exp(ln(x)) = x` gave 852 | compared relative to the two sides, evaluated separately; 8 further identities close, and near-identities asserted NOT to close | `rootsAreRoots.test.ts` |
 | **A12 (third pass)** `exp(x) = 0` returned 510 fabricated roots from the underflow region with a warning attached | withheld entirely — a caveated number is still a number in the document | `rootsAreRoots.test.ts` |
+| **A1** settling time used the underdamped envelope for ζ ≥ 1 and ran BACKWARDS — more damping gave a shorter time. ζ=20, ωₙ=1 reported 0.2 s against a true 156 s, flagged `exact` | solved for the 2% crossing of the actual overdamped/critically-damped step response; verified against a simulated response to 4 significant figures at nine (ζ, ωₙ) pairs | `controlMargins.test.ts` |
+| **A2** `margins` reported the FIRST gain crossover, giving 32.5° for a loop whose three crossings are 33.0°, 148.8° and 23.1° | every crossing collected, the minimum reported, and the full list disclosed in a note; the same for gain margin at multiple phase crossovers | `controlMargins.test.ts` |
+| **A3** the sweep came from pole/zero magnitudes, which do not move with gain, so `1e12/(s+1)³` — crossover at ω = 10005, sweep ending at 100 — was reported as having NO phase margin | the range is extended until \|L\| brackets 1, bounded to 12 decades each way; asserted across seven gains from 1e3 to 1e15 | `controlMargins.test.ts` |
+| **A4** `(s²+1)³` — three double poles at ±i, marginally stable — was reported UNSTABLE with 2 poles in the right half plane | repeated roots detected EXACTLY via gcd(p, p′) over the rationals, and the verdict withheld as UNDETERMINED only when Routh also cannot answer AND a pole is near the axis; the refusal itself is asserted | `controlMargins.test.ts` |
 
 A **behavioural baseline** now covers 300+ inputs across the solve, integrate and
 differentiate surface (`solveBaseline.test.ts`). It is not an oracle — it does not
@@ -53,45 +57,6 @@ zero. Every threshold, absolute or relative, deletes a real root somewhere.
 ---
 
 ## A — wrong numbers
-
-### A1. Control: settling time uses the underdamped envelope for ζ ≥ 1, and calls it exact
-`src/lib/control.ts`. For an overdamped or critically damped system the 2%
-settling time is computed from the `exp(-ζωt)` envelope formula, which is only
-valid for ζ < 1. Measured: **0.4 s reported against a true 78 s** — nearly 200×
-low — and flagged `exact`. Anyone sizing a controller from that number is being
-told the loop settles almost instantly when it crawls.
-**Fix direction:** for ζ ≥ 1 the response is a sum of two real exponentials;
-solve for the 2% crossing on the slower one, or fall back to simulating and
-reporting the measured crossing with the method named honestly.
-
-### A2. Control: `margins` reports the FIRST gain crossover, not the worst
-`src/lib/control.ts`. A loop with several crossings of |L| = 1 has a phase margin
-at each; the stability margin is the **minimum**. Reporting the first gives
-**179° of phase margin for a loop with 94% overshoot** — a number that says
-"extremely stable" about a system that rings badly.
-**Fix direction:** find every crossover, report the minimum, and say how many
-were found.
-
-### A3. Control: the margin sweep ignores loop gain
-`src/lib/control.ts`. The frequency range is derived from pole and zero
-magnitudes, which do not move when the gain changes. A high-gain loop whose real
-crossover lies outside that window is reported as having **no phase margin at
-all**, and a grid artefact at the window edge has also produced a **fabricated
-gain margin**.
-**Fix direction:** extend the sweep until |L| brackets 1, rather than assuming
-pole/zero magnitudes bound it.
-
-### A4. Control: a triple imaginary pole is reported UNSTABLE
-`src/lib/control.ts`. `(s²+1)³` has three double poles at ±i and is marginally
-stable; it comes back **UNSTABLE, 2 poles in the right half plane**. The cause is
-not the tolerance — that was fixed, and each pole is now measured against its own
-magnitude — it is that Durand–Kerner cannot resolve a repeated root to better
-than about the cube root of machine epsilon, so the computed real parts are
-genuinely ~1e-5 rather than 0. Routh cannot arbitrate because a zero row makes
-its result unusable, so the disagreement check stays silent.
-**Fix direction:** detect repeated roots via `gcd(p, p')` and, when the
-denominator has them, say that the imaginary-axis verdict cannot be resolved
-numerically rather than asserting one.
 
 ### A5. Pharmacokinetics: NCA area starts at the first sample, not at t = 0
 `src/lib/pk.ts`. The trapezoidal AUC begins at the earliest supplied time. If

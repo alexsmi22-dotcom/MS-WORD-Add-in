@@ -344,6 +344,27 @@ import {
   elementReport,
 } from "../lib/periodicChart";
 import { atomicNumber, symbolFor, atomicNumberByName, elementName } from "../lib/periodic";
+import {
+  photonRelations,
+  gaussianBeam,
+  systemMatrix,
+  qFromBeam,
+  beamFromQ,
+  propagateQ,
+  resonator,
+  pulseMetrics,
+  refraction,
+  airy,
+  grating,
+  fibre,
+  waistForDivergence,
+  H_PLANCK,
+  C_LIGHT,
+  type OpticElement,
+  type PulseShape,
+  type PhotonUnit,
+} from "../lib/optics";
+import { pureTwoQubit, chsh, wernerState, bb84KeyRate, cx } from "../lib/quantum";
 import { statVars, statVarLineProblem } from "../lib/uncertaintyParse";
 import {
   planParagraphNumbering,
@@ -7512,6 +7533,8 @@ const ENG_GROUP_ORDER = [
   "Electronics",
   "Control systems",
   "Vibration",
+  "Optics & photonics",
+  "Quantum optics",
   "Biomedical",
   "Pharmacokinetics",
 ] as const;
@@ -7746,6 +7769,24 @@ const ENG_EXACT_UNIT_NOTE =
   "Units: whatever you type, used consistently — nothing is converted here, because this " +
   "engine computes over exact rationals and a unit conversion is a floating-point multiply " +
   "that would destroy that exactness. Convert before you type, and the answer stays exact.";
+
+/**
+ * Photon relations do not convert units — they RELATE quantities that units.ts
+ * would correctly refuse to convert between, since E = hc/lambda is not a scale
+ * factor. Saying so is the point: the converter's guarantee that a unit of the
+ * wrong quantity is refused stays intact precisely because this lives here.
+ */
+const ENG_PHOTON_UNIT_NOTE =
+  "Units: nothing is converted here, and the input unit is the one you pick. Wavelength, " +
+  "frequency, photon energy and wavenumber are DIFFERENT QUANTITIES related by E = hc/λ, not " +
+  "rescalings of one another — which is why the unit converter refuses nm → eV and this tool " +
+  "exists instead.";
+
+/** Everything in the quantum tools is a pure number, so there is nothing to convert. */
+const ENG_QUANTUM_UNIT_NOTE =
+  "Units: none — every quantity here is dimensionless. Concurrence, entropy in ebits, " +
+  "correlation values, CHSH S, the Werner fraction and the key rate are pure numbers, and the " +
+  "error rate is a percentage. Nothing is converted because there is nothing to convert.";
 
 const ENG_CALCS: EngCalc[] = [
   {
@@ -10855,6 +10896,625 @@ const ENG_CALCS: EngCalc[] = [
       }
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_BIOMED_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+
+  // ---------------------------------------------------------------------
+  // Optics & photonics
+  // ---------------------------------------------------------------------
+  {
+    id: "optics-photon",
+    name: "Photon energy, wavelength & frequency",
+    group: "Optics & photonics",
+    hint:
+      "Give ONE quantity and every other follows. These are related by E = hc/lambda, which is " +
+      "not a scale factor, so this deliberately does not live in the unit converter — that tool " +
+      "refuses to convert between different quantities and should keep doing so.",
+    fields: [
+      { key: "v", label: "Value", default: "1064", kind: "text" },
+      {
+        key: "u",
+        label: "…is a",
+        default: "nm",
+        kind: "select",
+        options: [
+          { value: "nm", label: "Wavelength in nm" },
+          { value: "um", label: "Wavelength in µm" },
+          { value: "THz", label: "Frequency in THz" },
+          { value: "eV", label: "Photon energy in eV" },
+          { value: "J", label: "Photon energy in J" },
+          { value: "cm-1", label: "Wavenumber in cm^-1" },
+        ],
+      },
+      { key: "n", label: "Refractive index of the medium (1 = vacuum)", default: "1", kind: "text" },
+    ],
+    compute: (r) => {
+      const v = Number(r("v"));
+      const n = Number(r("n") || "1");
+      if (!Number.isFinite(v) || v <= 0) return { text: "Enter a positive value.", ok: false };
+      if (!Number.isFinite(n) || n <= 0) return { text: "Refractive index must be positive.", ok: false };
+      const res = photonRelations(v, r("u") as PhotonUnit, n);
+      if (!res) return { text: "That value has no physical photon corresponding to it.", ok: false };
+      const lines = [
+        "Photon relations",
+        "",
+        `  Wavelength (vacuum)  ${engNum(res.wavelengthNm, 7)} nm`,
+        `  Frequency            ${engNum(res.frequencyTHz, 7)} THz`,
+        `  Photon energy        ${engNum(res.energyEv, 7)} eV`,
+        `                       ${engNum(res.energyJ, 6)} J`,
+        `  Wavenumber           ${engNum(res.wavenumberCm, 7)} cm^-1`,
+        "",
+        `  From the exact SI constants h = ${H_PLANCK} J*s and c = ${C_LIGHT} m/s,`,
+        `  so hc = ${((H_PLANCK * C_LIGHT) / 1.602176634e-19 / 1e-9).toPrecision(10)} eV*nm.`,
+      ];
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_PHOTON_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "optics-gaussian",
+    name: "Gaussian beam propagation",
+    group: "Optics & photonics",
+    hint:
+      "w0 is the waist RADIUS at 1/e^2 of peak irradiance — not a diameter, and not the 1/e " +
+      "field radius. Divergence comes back as a half-angle and the full angle, because that " +
+      "factor of two is the commonest error in a beam budget.",
+    fields: [
+      { key: "w0", label: "Waist radius w0, m", default: "1 mm", kind: "text" },
+      { key: "lam", label: "Wavelength, m", default: "1064 nm", kind: "text" },
+      { key: "m2", label: "Beam quality M^2 (1 = diffraction limited)", default: "1", kind: "text" },
+      { key: "z", label: "Distance from the waist, m", default: "1", kind: "text" },
+      {
+        key: "want",
+        label: "Design backwards: target half-angle, mrad (blank to skip)",
+        default: "",
+        kind: "text",
+      },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const w0 = u.req("w0", "m", "Waist radius");
+      const lam = u.req("lam", "m", "Wavelength");
+      const z = u.opt("z", "m", "Distance", 0);
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const m2 = Number(r("m2") || "1");
+      if (!Number.isFinite(m2) || m2 < 1) {
+        return { text: "M^2 must be at least 1: nothing propagates better than the diffraction limit.", ok: false };
+      }
+      const g = gaussianBeam({ w0, lambda: lam, m2, z });
+      if (!g) return { text: "Enter a positive waist and wavelength.", ok: false };
+      const mrad = (x: number) => engNum(x * 1000, 5);
+      const lines = [
+        "Gaussian beam",
+        "",
+        `  Rayleigh range z_R    ${engNum(g.rayleighM, 6)} m`,
+        `  Depth of focus 2z_R   ${engNum(g.confocalM, 6)} m`,
+        `  Divergence half-angle ${mrad(g.thetaHalfRad)} mrad   (full angle ${mrad(2 * g.thetaHalfRad)} mrad)`,
+        `  Beam parameter prod.  ${engNum(g.bpp * 1e6, 5)} mm*mrad`,
+        "",
+        `  At z = ${engNum(z, 5)} m`,
+        `    Radius w(z)         ${engNum(g.wAtZ, 6)} m   (diameter ${engNum(2 * g.wAtZ, 6)} m)`,
+        `    Wavefront R(z)      ${g.rAtZ === Infinity ? "flat (infinite)" : engNum(g.rAtZ, 6) + " m"}`,
+        `    Gouy phase          ${engNum((g.gouyRad * 180) / Math.PI, 5)} deg`,
+      ];
+      const want = r("want").trim();
+      if (want) {
+        const target = Number(want) / 1000; // mrad in, radians internally
+        const needed = Number.isFinite(target) && target > 0 ? waistForDivergence(target, lam, m2) : null;
+        lines.push("");
+        if (needed === null) {
+          lines.push("  Target divergence must be a positive number of milliradians.");
+        } else {
+          lines.push(`  To diverge at ${engNum(Number(want), 5)} mrad the waist must be ${engNum(needed, 6)} m`);
+          lines.push(`  (diameter ${engNum(2 * needed, 6)} m). Divergence and waist trade off inversely:`);
+          lines.push("  a tighter waist always diverges faster, and no aperture changes that.");
+        }
+      }
+      u.report(lines);
+      for (const note of g.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "optics-abcd",
+    name: "Ray matrix system (ABCD)",
+    group: "Optics & photonics",
+    hint:
+      'One element per line IN THE ORDER LIGHT MEETS THEM: "space 0.3", "lens 0.1", ' +
+      '"mirror 0.5", "flat 1 1.5", "curved 1 1.5 0.1". Distances and radii in metres. The ' +
+      "matrix product runs in the REVERSE of that order — this tool does the reversal, which " +
+      "is the single most common way an ABCD calculation goes quietly wrong.",
+    fields: [
+      {
+        key: "sys",
+        label: "Elements, in propagation order",
+        default: "space 0.15\nlens 0.1\nspace 0.3",
+        kind: "block",
+        rows: 5,
+      },
+      { key: "lam", label: "Wavelength, m (blank to skip the beam trace)", default: "1064 nm", kind: "text" },
+      { key: "w", label: "Input beam radius, m (blank to skip)", default: "1 mm", kind: "text" },
+      { key: "R", label: "Input wavefront radius, m (blank = collimated)", default: "", kind: "text" },
+    ],
+    compute: (r) => {
+      const raw = r("sys").trim();
+      if (!raw) return { text: "Enter at least one element.", ok: false };
+      const els: OpticElement[] = [];
+      const bad: string[] = [];
+      for (const line of raw.split(/\n+/)) {
+        const t = line.trim();
+        if (!t) continue;
+        const p = t.split(/\s+/);
+        const num = (i: number) => Number(p[i]);
+        switch (p[0].toLowerCase()) {
+          case "space":
+            els.push({ kind: "space", d: num(1), n: p[2] ? num(2) : 1 });
+            break;
+          case "lens":
+            els.push({ kind: "lens", f: num(1) });
+            break;
+          case "mirror":
+            els.push({ kind: "mirror", R: num(1) });
+            break;
+          case "flat":
+            els.push({ kind: "flat", n1: num(1), n2: num(2) });
+            break;
+          case "curved":
+            els.push({ kind: "curved", n1: num(1), n2: num(2), R: num(3) });
+            break;
+          default:
+            bad.push(`"${t}": expected space, lens, mirror, flat or curved.`);
+        }
+      }
+      if (bad.length) return { text: bad.join("\n"), ok: false };
+      const m = systemMatrix(els);
+      if (!m) return { text: "An element has a non-physical parameter (zero focal length or radius, or a non-positive index).", ok: false };
+
+      const lines = [
+        `System matrix for ${els.length} element${els.length === 1 ? "" : "s"}`,
+        "",
+        `  A = ${engNum(m[0], 6)}    B = ${engNum(m[1], 6)}`,
+        `  C = ${engNum(m[2], 6)}    D = ${engNum(m[3], 6)}`,
+        "",
+        `  det = ${engNum(m[0] * m[3] - m[1] * m[2], 6)}  (equals n_in/n_out; 1 when both ends are in the same medium)`,
+      ];
+      if (Math.abs(m[1]) < 1e-12) {
+        lines.push("  B = 0, so the input and output planes are CONJUGATE — this system images,");
+        lines.push(`  with transverse magnification A = ${engNum(m[0], 6)}.`);
+      }
+      if (Math.abs(m[2]) > 1e-15) {
+        lines.push(`  Effective focal length -1/C = ${engNum(-1 / m[2], 6)} m`);
+      }
+
+      const u = engUnits(r);
+      const lam = u.optNull("lam", "m", "Wavelength");
+      const w = u.optNull("w", "m", "Input beam radius");
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      if (lam !== null && w !== null && Number.isFinite(lam) && Number.isFinite(w)) {
+        const Rin = u.opt("R", "m", "Input wavefront radius", Infinity);
+        const q0 = qFromBeam(w, Rin, lam);
+        const q1 = q0 ? propagateQ(q0, m) : null;
+        const out = q1 ? beamFromQ(q1, lam) : null;
+        if (out) {
+          lines.push("");
+          lines.push("Gaussian beam through this system");
+          lines.push(`  Input  w = ${engNum(w, 6)} m`);
+          lines.push(`  Output w = ${engNum(out.w, 6)} m`);
+          lines.push(`  Output wavefront R = ${out.R === Infinity ? "flat" : engNum(out.R, 6) + " m"}`);
+        } else {
+          lines.push("");
+          lines.push("Note: the beam trace could not be completed for these inputs.");
+        }
+      }
+      u.report(lines);
+      lines.push(
+        "Note: elements are listed in propagation order and the product is formed in reverse " +
+          "internally. Reversing the list yourself gives a valid matrix for a DIFFERENT system " +
+          "and no error, which is why the order is fixed here rather than left to the caller.",
+      );
+      lines.push(ENG_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "optics-resonator",
+    name: "Laser cavity stability & mode size",
+    group: "Optics & photonics",
+    hint:
+      "Two-mirror standing-wave cavity. R > 0 is CONCAVE; type inf for a flat mirror. Stability " +
+      "is 0 <= g1*g2 <= 1, and the endpoints — confocal, plane-parallel, concentric — are " +
+      "marginal rather than stable, so no mode size is reported there.",
+    fields: [
+      { key: "L", label: "Cavity length L, m", default: "0.5", kind: "text" },
+      { key: "R1", label: "Mirror 1 radius, m (inf for flat)", default: "1", kind: "text" },
+      { key: "R2", label: "Mirror 2 radius, m (inf for flat)", default: "1", kind: "text" },
+      { key: "lam", label: "Wavelength, m", default: "1064 nm", kind: "text" },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const L = u.req("L", "m", "Cavity length");
+      const lam = u.req("lam", "m", "Wavelength");
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const radius = (k: string): number => {
+        const t = r(k).trim().toLowerCase();
+        if (t === "inf" || t === "infinity" || t === "flat" || t === "") return Infinity;
+        return Number(t);
+      };
+      const R1 = radius("R1");
+      const R2 = radius("R2");
+      if (Number.isNaN(R1) || Number.isNaN(R2)) {
+        return { text: "Mirror radii must be numbers, or inf for a flat mirror.", ok: false };
+      }
+      const res = resonator(L, R1, R2, lam);
+      if (!res) return { text: "Enter a positive cavity length and wavelength.", ok: false };
+
+      const lines = [
+        "Two-mirror resonator",
+        "",
+        `  g1 = ${engNum(res.g1, 6)}    g2 = ${engNum(res.g2, 6)}`,
+        `  g1*g2 = ${engNum(res.product, 6)}`,
+        `  ${res.stable ? "STABLE (0 <= g1*g2 <= 1)" : "UNSTABLE"}`,
+      ];
+      if (res.waistM !== null) {
+        lines.push("");
+        lines.push(`  Waist radius w0      ${engNum(res.waistM, 6)} m`);
+        lines.push(`  Waist from mirror 1  ${engNum(res.waistFromM1 ?? 0, 6)} m`);
+        lines.push(`  Spot on mirror 1     ${engNum(res.spot1M ?? NaN, 6)} m`);
+        lines.push(`  Spot on mirror 2     ${engNum(res.spot2M ?? NaN, 6)} m`);
+      }
+      u.report(lines);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "optics-pulse",
+    name: "Pulse energy, peak power & fluence",
+    group: "Optics & photonics",
+    hint:
+      "Peak power depends on the PULSE SHAPE: E/tau is right only for a rectangular pulse, and " +
+      "a Gaussian of the same FWHM peaks at 0.939 E/tau. Fluence is the on-axis PEAK for a " +
+      "Gaussian beam, which is twice the energy spread over the 1/e^2 area — the factor that " +
+      "decides whether an optic survives.",
+    fields: [
+      { key: "E", label: "Pulse energy, J", default: "1 mJ", kind: "text" },
+      { key: "tau", label: "Pulse duration (FWHM), s", default: "10 ns", kind: "text" },
+      { key: "f", label: "Repetition rate, Hz", default: "1 kHz", kind: "text" },
+      {
+        key: "shape",
+        label: "Pulse shape",
+        default: "gaussian",
+        kind: "select",
+        options: [
+          { value: "gaussian", label: "Gaussian (0.939 E/tau)" },
+          { value: "sech2", label: "sech^2 (0.881 E/tau)" },
+          { value: "rectangular", label: "Rectangular (E/tau exactly)" },
+        ],
+      },
+      { key: "w", label: "Beam radius at 1/e^2, m (blank to skip fluence)", default: "100 um", kind: "text" },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const E = u.req("E", "J", "Pulse energy");
+      const tau = u.req("tau", "s", "Pulse duration");
+      const f = u.req("f", "Hz", "Repetition rate");
+      const w = u.optNull("w", "m", "Beam radius");
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const res = pulseMetrics(E, tau, f, r("shape") as PulseShape, w === null ? undefined : w);
+      if (!res) return { text: "Energy and duration must be positive, and the rate cannot be negative.", ok: false };
+
+      const lines = [
+        "Pulse train",
+        "",
+        `  Average power   ${engNum(res.averagePowerW, 6)} W`,
+        `  Peak power      ${engNum(res.peakPowerW, 6)} W`,
+        `  Duty cycle      ${engNum(res.dutyCycle, 6)}`,
+        `  Period          ${f > 0 ? engNum(1 / f, 6) + " s" : "n/a (single shot)"}`,
+      ];
+      if (res.peakFluenceJm2 !== null) {
+        lines.push("");
+        lines.push(`  Peak fluence    ${engNum(res.peakFluenceJm2, 6)} J/m^2  = ${engNum(res.peakFluenceJm2 / 1e4, 6)} J/cm^2`);
+        lines.push(`  Peak irradiance ${engNum(res.peakIrradianceWm2 ?? NaN, 6)} W/m^2 = ${engNum((res.peakIrradianceWm2 ?? NaN) / 1e4, 6)} W/cm^2`);
+      }
+      u.report(lines);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "optics-refraction",
+    name: "Refraction, TIR & Brewster angle",
+    group: "Optics & photonics",
+    hint:
+      "Indices are YOUR inputs: this tool holds no refractive-index table, because n is " +
+      "dispersive and a table recalled rather than cited would be unverifiable. A critical " +
+      "angle only exists going into a LOWER index, and is reported as absent otherwise.",
+    fields: [
+      { key: "n1", label: "Index of the incident medium n1", default: "1.5", kind: "text" },
+      { key: "n2", label: "Index of the second medium n2", default: "1.0", kind: "text" },
+      { key: "th", label: "Angle of incidence from the normal, deg", default: "30", kind: "text" },
+    ],
+    compute: (r) => {
+      const n1 = Number(r("n1"));
+      const n2 = Number(r("n2"));
+      const th = Number(r("th"));
+      const res = refraction(n1, n2, th);
+      if (!res) {
+        return { text: "Indices must be positive and the angle must be at least 0 and below 90 degrees.", ok: false };
+      }
+      const lines = [
+        "Refraction at a single interface",
+        "",
+        `  Refraction angle   ${res.thetaTDeg === null ? "none — totally internally reflected" : engNum(res.thetaTDeg, 6) + " deg"}`,
+        `  Critical angle     ${res.criticalDeg === null ? "does not exist for n1 <= n2" : engNum(res.criticalDeg, 6) + " deg"}`,
+        `  Brewster angle     ${engNum(res.brewsterDeg, 6)} deg`,
+        `  Reflectance (normal incidence)  ${engNum(res.reflectanceNormal * 100, 4)} %`,
+      ];
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_SAME_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "optics-diffraction",
+    name: "Airy disc & grating orders",
+    group: "Optics & photonics",
+    hint:
+      "1.22 lambda/D is the HALF-angle to the first dark ring; the Airy disc diameter is twice " +
+      "that. Grating orders with |sin(theta)| > 1 do not exist and are omitted rather than " +
+      "printed as NaN.",
+    fields: [
+      { key: "lam", label: "Wavelength, m", default: "500 nm", kind: "text" },
+      { key: "D", label: "Aperture diameter, m", default: "10 mm", kind: "text" },
+      { key: "f", label: "Focal length, m (blank to skip the spot size)", default: "500 mm", kind: "text" },
+      { key: "g", label: "Grating, lines/mm (blank to skip)", default: "600", kind: "text" },
+      { key: "gi", label: "Grating angle of incidence, deg", default: "0", kind: "text" },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const lam = u.req("lam", "m", "Wavelength");
+      const D = u.req("D", "m", "Aperture diameter");
+      const f = u.optNull("f", "m", "Focal length");
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const a = airy(lam, D, f === null ? undefined : f);
+      if (!a) return { text: "Wavelength, aperture and focal length must all be positive.", ok: false };
+
+      const lines = [
+        "Diffraction",
+        "",
+        `  Airy half-angle to first zero  ${engNum(a.airyHalfAngleRad * 1e6, 5)} µrad`,
+      ];
+      if (a.airyDiameterM !== null) {
+        lines.push(`  Airy disc diameter at focus    ${engNum(a.airyDiameterM, 6)} m`);
+      }
+
+      const lpm = r("g").trim();
+      if (lpm) {
+        const gr = grating(lam, Number(lpm), Number(r("gi") || "0"));
+        if (!gr) {
+          lines.push("");
+          lines.push("Grating: enter a positive line density and an incidence below 90 degrees.");
+        } else {
+          lines.push("");
+          lines.push(`Grating orders (${lpm} lines/mm)`);
+          for (const o of gr.orders) {
+            lines.push(`  m = ${o.m >= 0 ? " " : ""}${o.m}   ${engNum(o.angleDeg, 6)} deg`);
+          }
+          lines.push(`  Highest existing order: ${gr.maxOrder}`);
+          for (const note of gr.notes) lines.push(`Note: ${note}`);
+        }
+      }
+      u.report(lines);
+      for (const note of a.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "optics-fibre",
+    name: "Step-index fibre: NA, V and modes",
+    group: "Optics & photonics",
+    hint:
+      "V < 2.405 is the single-mode condition, where 2.405 is the first zero of the Bessel " +
+      "function J0. A core index no higher than the cladding cannot guide at all and is refused " +
+      "rather than returned as a zero numerical aperture.",
+    fields: [
+      { key: "nc", label: "Core index", default: "1.4570", kind: "text" },
+      { key: "ncl", label: "Cladding index", default: "1.4520", kind: "text" },
+      { key: "a", label: "Core radius, m", default: "4.1 um", kind: "text" },
+      { key: "lam", label: "Wavelength, m", default: "1550 nm", kind: "text" },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const a = u.req("a", "m", "Core radius");
+      const lam = u.req("lam", "m", "Wavelength");
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const res = fibre(Number(r("nc")), Number(r("ncl")), a, lam);
+      if (!res) {
+        return {
+          text:
+            "Enter positive indices, radius and wavelength, with the CORE index strictly greater " +
+            "than the cladding. Otherwise the fibre does not guide.",
+          ok: false,
+        };
+      }
+      const lines = [
+        "Step-index fibre",
+        "",
+        `  Numerical aperture   ${engNum(res.na, 6)}`,
+        `  Acceptance half-angle ${engNum(res.acceptanceHalfDeg, 5)} deg`,
+        `  V number             ${engNum(res.vNumber, 6)}`,
+        `  ${res.singleMode ? "SINGLE MODE at this wavelength" : "MULTIMODE at this wavelength"}`,
+        `  Cutoff wavelength    ${engNum(res.cutoffWavelengthM * 1e9, 6)} nm  (single-mode above this)`,
+      ];
+      if (res.approxModes !== null) lines.push(`  Approx. guided modes ${engNum(res.approxModes, 5)}`);
+      u.report(lines);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+
+  // ---------------------------------------------------------------------
+  // Quantum optics
+  // ---------------------------------------------------------------------
+  {
+    id: "quantum-entanglement",
+    name: "Two-qubit state: entanglement",
+    group: "Quantum optics",
+    hint:
+      "The state a|00> + b|01> + c|10> + d|11>, one amplitude per field. Write a complex " +
+      'amplitude as "0.5+0.5i" or "0.5i". PHASE decides entanglement: the four equal amplitudes ' +
+      "of (|00>+|01>+|10>+|11>)/2 are a product state, and flipping one sign makes it maximally " +
+      "entangled. The state is normalised for you.",
+    fields: [
+      { key: "a", label: "Amplitude of |00>", default: "0.7071", kind: "text" },
+      { key: "b", label: "Amplitude of |01>", default: "0", kind: "text" },
+      { key: "c", label: "Amplitude of |10>", default: "0", kind: "text" },
+      { key: "d", label: "Amplitude of |11>", default: "0.7071", kind: "text" },
+    ],
+    compute: (r) => {
+      const parse = (s: string): { re: number; im: number } | null => {
+        const t = s.trim().replace(/\s+/g, "");
+        if (!t) return { re: 0, im: 0 };
+        if (!t.includes("i")) {
+          const v = Number(t);
+          return Number.isFinite(v) ? { re: v, im: 0 } : null;
+        }
+        // Forms: "bi", "a+bi", "a-bi".
+        const c = /^([+-]?\d*\.?\d*(?:[eE][+-]?\d+)?)?([+-]\d*\.?\d*(?:[eE][+-]?\d+)?)?i$/.exec(t);
+        if (!c) return null;
+        if (c[2] === undefined) {
+          const coeff = c[1] === "" || c[1] === "+" ? 1 : c[1] === "-" ? -1 : Number(c[1]);
+          return Number.isFinite(coeff) ? { re: 0, im: coeff } : null;
+        }
+        const re = Number(c[1] || "0");
+        const imRaw = c[2];
+        const im = imRaw === "+" ? 1 : imRaw === "-" ? -1 : Number(imRaw);
+        return Number.isFinite(re) && Number.isFinite(im) ? { re, im } : null;
+      };
+      const amps = ["a", "b", "c", "d"].map((k) => parse(r(k)));
+      if (amps.some((v) => v === null)) {
+        return { text: 'An amplitude could not be read. Use forms like "0.5", "-0.7071", "0.5i" or "0.5+0.5i".', ok: false };
+      }
+      const [A, B, C, D] = amps as { re: number; im: number }[];
+      const res = pureTwoQubit(cx(A.re, A.im), cx(B.re, B.im), cx(C.re, C.im), cx(D.re, D.im));
+      if (!res) return { text: "All four amplitudes are zero, which is not a state.", ok: false };
+
+      const lines = [
+        "Two-qubit pure state",
+        "",
+        `  Concurrence           ${engNum(res.concurrence, 6)}   (0 = product, 1 = maximally entangled)`,
+        `  Entanglement entropy  ${engNum(res.entropyEbits, 6)} ebits`,
+        `  Schmidt eigenvalues   ${engNum(res.schmidt[0], 6)}, ${engNum(res.schmidt[1], 6)}`,
+        `  Largest possible CHSH ${engNum(res.maxChsh, 6)}`,
+      ];
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_QUANTUM_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "quantum-chsh",
+    name: "CHSH / Bell test",
+    group: "Quantum optics",
+    hint:
+      "Four measured correlation values, each between -1 and +1, combined as " +
+      "S = E1 - E2 + E3 + E4. |S| > 2 rules out local hidden variables. |S| > 2sqrt(2) is " +
+      "impossible even quantum mechanically, so it is flagged as an error rather than a " +
+      "stronger result.",
+    fields: [
+      { key: "e1", label: "E(a, b)", default: "0.7071", kind: "text" },
+      { key: "e2", label: "E(a, b')", default: "-0.7071", kind: "text" },
+      { key: "e3", label: "E(a', b)", default: "0.7071", kind: "text" },
+      { key: "e4", label: "E(a', b')", default: "0.7071", kind: "text" },
+      { key: "sd", label: "Standard error on S (blank to skip)", default: "", kind: "text" },
+    ],
+    compute: (r) => {
+      const nums = ["e1", "e2", "e3", "e4"].map((k) => Number(r(k)));
+      if (nums.some((v) => !Number.isFinite(v))) return { text: "All four correlations must be numbers.", ok: false };
+      const sdRaw = r("sd").trim();
+      const sd = sdRaw ? Number(sdRaw) : undefined;
+      if (sdRaw && (!Number.isFinite(sd as number) || (sd as number) <= 0)) {
+        return { text: "The standard error must be a positive number, or blank.", ok: false };
+      }
+      const res = chsh(nums[0], nums[1], nums[2], nums[3], sd);
+      if (!res) {
+        return { text: "Each correlation must lie between -1 and +1. Outside that range it is not a measured correlation.", ok: false };
+      }
+      const lines = [
+        "CHSH Bell test",
+        "",
+        `  S = ${engNum(res.s, 7)}`,
+        `  Classical (local hidden variable) bound  ${res.classicalBound}`,
+        `  Tsirelson (quantum) bound                ${engNum(res.tsirelsonBound, 7)}`,
+        "",
+        `  ${res.violatesLocalRealism ? "VIOLATES local realism" : "Does NOT violate local realism"}`,
+      ];
+      if (res.sigmas !== null) lines.push(`  ${engNum(res.sigmas, 4)} standard errors beyond the classical bound`);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_QUANTUM_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "quantum-werner",
+    name: "Werner state: noise vs entanglement",
+    group: "Quantum optics",
+    hint:
+      "A Bell state mixed with white noise. The two thresholds differ and that is the point: " +
+      "entangled above p = 1/3, but able to violate CHSH only above p = 0.7071. Between them " +
+      "the state is entangled and no Bell test can show it.",
+    fields: [{ key: "p", label: "Bell-state fraction p (0 to 1)", default: "0.8", kind: "text" }],
+    compute: (r) => {
+      const p = Number(r("p"));
+      const res = wernerState(p);
+      if (!res) return { text: "p must be a number between 0 and 1.", ok: false };
+      const lines = [
+        "Werner state",
+        "",
+        `  p = ${engNum(res.p, 6)}`,
+        `  Concurrence      ${engNum(res.concurrence, 6)}`,
+        `  Entangled        ${res.entangled ? "yes (p > 1/3)" : "no (p <= 1/3)"}`,
+        `  Can violate CHSH ${res.violatesChsh ? "yes (p > 0.7071)" : "no (p <= 0.7071)"}`,
+        `  Best CHSH value  ${engNum(res.maxChsh, 6)}`,
+      ];
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_QUANTUM_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "quantum-qkd",
+    name: "BB84 secure key rate",
+    group: "Quantum optics",
+    hint:
+      "The Shor-Preskill asymptotic bound, r = 1 - 2h(Q). The famous 11% threshold is the ROOT " +
+      "of that expression rather than a separate constant, and is computed here from the same " +
+      "formula so the two cannot disagree.",
+    fields: [{ key: "q", label: "Quantum bit error rate, % ", default: "2", kind: "text" }],
+    compute: (r) => {
+      const pct = Number(r("q"));
+      if (!Number.isFinite(pct) || pct < 0 || pct > 100) {
+        return { text: "The QBER must be a percentage between 0 and 100.", ok: false };
+      }
+      const res = bb84KeyRate(pct / 100);
+      if (!res) return { text: "The QBER must be a percentage between 0 and 100.", ok: false };
+      const lines = [
+        "BB84 key rate (Shor-Preskill, asymptotic)",
+        "",
+        `  QBER              ${engNum(pct, 5)} %`,
+        `  Secure key rate   ${engNum(res.keyRate, 6)} bits per sifted bit`,
+        `  Threshold QBER    ${engNum(res.thresholdQber * 100, 5)} %`,
+        `  ${res.secure ? "A key CAN be distilled." : "NO key can be distilled."}`,
+      ];
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_QUANTUM_UNIT_NOTE);
       return { text: plainDashes(lines.join("\n")) };
     },
   },

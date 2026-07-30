@@ -125,6 +125,9 @@ const UNITS: Record<string, UnitDef> = {
   // time (base s)
   s: { dim: "time", factor: 1 }, ms: { dim: "time", factor: 0.001 },
   µs: { dim: "time", factor: 1e-6 }, ns: { dim: "time", factor: 1e-9 }, ps: { dim: "time", factor: 1e-12 },
+  // Femtoseconds and below: ultrafast pulse durations were unconvertible, which
+  // made every femtosecond number a manual exponent the user had to get right.
+  fs: { dim: "time", factor: 1e-15 },
   min: { dim: "time", factor: 60 },
   h: { dim: "time", factor: 3600 }, day: { dim: "time", factor: 86400 },
   // temperature (base K, affine)
@@ -149,6 +152,12 @@ const UNITS: Record<string, UnitDef> = {
   J: { dim: "energy", factor: 1 }, kJ: { dim: "energy", factor: 1000 },
   cal: { dim: "energy", factor: 4.184 }, kcal: { dim: "energy", factor: 4184 },
   eV: { dim: "energy", factor: 1.602176634e-19 }, Wh: { dim: "energy", factor: 3600 },
+  // Sub-joule pulse energies. A laser spec sheet is written in mJ and µJ, and
+  // neither existed, so every pulse energy had to be typed as an exponent.
+  mJ: { dim: "energy", factor: 1e-3 }, µJ: { dim: "energy", factor: 1e-6 },
+  nJ: { dim: "energy", factor: 1e-9 }, pJ: { dim: "energy", factor: 1e-12 },
+  fJ: { dim: "energy", factor: 1e-15 }, MJ: { dim: "energy", factor: 1e6 },
+  keV: { dim: "energy", factor: 1.602176634e-16 }, MeV: { dim: "energy", factor: 1.602176634e-13 },
   // amount of substance (base mol)
   mol: { dim: "amount", factor: 1 }, mmol: { dim: "amount", factor: 0.001 },
   µmol: { dim: "amount", factor: 1e-6 }, nmol: { dim: "amount", factor: 1e-9 },
@@ -197,6 +206,11 @@ const ALIASES: Record<string, string> = {
   gram: "g", grams: "g", ug: "µg", microgram: "µg", kilogram: "kg", pound: "lb", pounds: "lb",
   sec: "s", secs: "s", second: "s", seconds: "s", us: "µs", minute: "min", minutes: "min",
   hr: "h", hour: "h", hours: "h", days: "day",
+  // ASCII micro forms, matching the existing ug/us/um convention. A laser spec
+  // sheet is typed as "uJ" far more often than "µJ".
+  uJ: "µJ", microjoule: "µJ", microjoules: "µJ", joule: "J", joules: "J",
+  femtosecond: "fs", femtoseconds: "fs",
+  nanojoule: "nJ", nanojoules: "nJ", millijoule: "mJ", millijoules: "mJ",
   degC: "°C", celsius: "°C", "°c": "°C", degF: "°F", fahrenheit: "°F", "°f": "°F", kelvin: "K",
   litre: "L", liter: "L", l: "L", ml: "mL", ul: "µL", microliter: "µL",
   atmosphere: "atm", deg: "°", degree: "°", degrees: "°", radian: "rad", radians: "rad",

@@ -69,6 +69,18 @@ const EXPECTED: { id: string; calls: string[]; module: string }[] = [
   { id: "vib-forced", calls: ["forcedResponse("], module: "../lib/vibration" },
   { id: "vib-modal", calls: ["modalAnalysis(", "chainSystem("], module: "../lib/vibration" },
   { id: "vib-mdof-forced", calls: ["modalForcedResponse(", "chainSystem("], module: "../lib/vibration" },
+  { id: "optics-photon", calls: ["photonRelations("], module: "../lib/optics" },
+  { id: "optics-gaussian", calls: ["gaussianBeam("], module: "../lib/optics" },
+  { id: "optics-abcd", calls: ["systemMatrix(", "qFromBeam(", "propagateQ(", "beamFromQ("], module: "../lib/optics" },
+  { id: "optics-resonator", calls: ["resonator("], module: "../lib/optics" },
+  { id: "optics-pulse", calls: ["pulseMetrics("], module: "../lib/optics" },
+  { id: "optics-refraction", calls: ["refraction("], module: "../lib/optics" },
+  { id: "optics-diffraction", calls: ["airy(", "grating("], module: "../lib/optics" },
+  { id: "optics-fibre", calls: ["fibre("], module: "../lib/optics" },
+  { id: "quantum-entanglement", calls: ["pureTwoQubit("], module: "../lib/quantum" },
+  { id: "quantum-chsh", calls: ["chsh("], module: "../lib/quantum" },
+  { id: "quantum-werner", calls: ["wernerState("], module: "../lib/quantum" },
+  { id: "quantum-qkd", calls: ["bb84KeyRate("], module: "../lib/quantum" },
   { id: "thermo-process", calls: ["idealGasProcess(", "toKelvin("], module: "../lib/thermo" },
   { id: "thermo-cycle", calls: ["ottoCycle(", "dieselCycle(", "braytonCycle("], module: "../lib/thermo" },
   { id: "thermo-vapour", calls: ["rankineFromEnthalpies(", "refrigerationFromEnthalpies(", "checkAgainstCarnot("], module: "../lib/thermo" },
@@ -195,6 +207,8 @@ const UNIT_NOTES = [
   "ENG_FATIGUE_UNIT_NOTE",
   "ENG_ELEC_UNIT_NOTE",
   "ENG_BIOMED_UNIT_NOTE",
+  "ENG_PHOTON_UNIT_NOTE",
+  "ENG_QUANTUM_UNIT_NOTE",
 ] as const;
 
 /** Which contract each tool is on, asserted rather than inferred. */
@@ -237,6 +251,18 @@ const CONTRACT: Record<string, (typeof UNIT_NOTES)[number]> = {
   haemodynamics: "ENG_BIOMED_UNIT_NOTE",
   biomechanics: "ENG_BIOMED_UNIT_NOTE",
   biosignal: "ENG_BIOMED_UNIT_NOTE",
+  "optics-photon": "ENG_PHOTON_UNIT_NOTE",
+  "optics-gaussian": "ENG_UNIT_NOTE",
+  "optics-abcd": "ENG_UNIT_NOTE",
+  "optics-resonator": "ENG_UNIT_NOTE",
+  "optics-pulse": "ENG_UNIT_NOTE",
+  "optics-refraction": "ENG_SAME_UNIT_NOTE",
+  "optics-diffraction": "ENG_UNIT_NOTE",
+  "optics-fibre": "ENG_UNIT_NOTE",
+  "quantum-entanglement": "ENG_QUANTUM_UNIT_NOTE",
+  "quantum-chsh": "ENG_QUANTUM_UNIT_NOTE",
+  "quantum-werner": "ENG_QUANTUM_UNIT_NOTE",
+  "quantum-qkd": "ENG_QUANTUM_UNIT_NOTE",
 };
 
 describe("every Engineering tool declares one unit contract", () => {

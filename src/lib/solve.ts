@@ -28,6 +28,7 @@
 
 import { casSimplify, CasBail, solveRationalInVar } from "./cas";
 import { symbolicIntegrate } from "./casint";
+import { ambiguousImplicitProduct } from "./ambiguous";
 
 // ---------------------------------------------------------------------------
 // AST
@@ -175,6 +176,11 @@ class Parser {
 }
 
 export function parseExpr(s: string): Expr {
+  // REFUSED RATHER THAN GUESSED AT. `1/2x` has no agreed reading, and this file and
+  // mathParse.ts had picked opposite ones — so the same text meant two different
+  // functions in two parts of the product. See lib/ambiguous.ts.
+  const ambiguous = ambiguousImplicitProduct(s);
+  if (ambiguous) throw new Error(ambiguous);
   return new Parser(s).parse();
 }
 
@@ -197,6 +203,57 @@ export function evalAst(e: Expr, vars: Record<string, number>): number {
     case "pow": return Math.pow(evalAst(e.l, vars), evalAst(e.r, vars));
     case "fn": return EVAL_FN[e.name](evalAst(e.arg, vars));
   }
+}
+
+/**
+ * Evaluates `e` AND reports the largest magnitude it passed through on the way.
+ *
+ * Why this exists. A tolerance derived from the SIZE OF THE ANSWER cannot see
+ * catastrophic cancellation, because cancellation is precisely the case where the
+ * answer is tiny and the intermediates are enormous. `cosh(x)^2 - sinh(x)^2` is
+ * identically 1, but at x = 18 both squares are about 1.1e15, so the computed
+ * difference carries roughly 0.25 of rounding dust — two hundred million times the
+ * true answer's own last bit. Judged against |1| it looks like a wild disagreement;
+ * judged against 1.1e15 it is exactly what double arithmetic can be expected to
+ * deliver.
+ *
+ * The alternative was measuring the dust empirically by perturbing x, which was
+ * tried in v2.40.1 and reverted: the estimate is itself a random quantity, and the
+ * version that finally passed the cosh case also reported `tan(x) = 2` and
+ * `exp(x) = 2` as identities. Reading the intermediate magnitudes is deterministic
+ * and needs no threshold to be tuned — the answer is simply "this expression cannot
+ * be evaluated to better than eps times THIS".
+ *
+ * Kept as a separate function rather than an option on evalAst on purpose: evalAst
+ * runs inside adaptive quadrature and root-scan loops, and paying for a tracker on
+ * every one of those evaluations to serve a check that runs 123 times would be the
+ * wrong trade.
+ */
+export function evalAstScaled(e: Expr, vars: Record<string, number>): { value: number; scale: number } {
+  let scale = 0;
+  const note = (v: number): number => {
+    const a = Math.abs(v);
+    if (a > scale && Number.isFinite(a)) scale = a;
+    return v;
+  };
+  const walk = (n: Expr): number => {
+    switch (n.t) {
+      case "num": return note(n.v);
+      case "var":
+        if (n.name in vars) return note(vars[n.name]);
+        if (n.name in CONSTANTS) return note(CONSTANTS[n.name]);
+        throw new Error(`Unknown variable "${n.name}".`);
+      case "neg": return note(-walk(n.e));
+      case "add": return note(walk(n.l) + walk(n.r));
+      case "sub": return note(walk(n.l) - walk(n.r));
+      case "mul": return note(walk(n.l) * walk(n.r));
+      case "div": return note(walk(n.l) / walk(n.r));
+      case "pow": return note(Math.pow(walk(n.l), walk(n.r)));
+      case "fn": return note(EVAL_FN[n.name](walk(n.arg)));
+    }
+  };
+  const value = walk(e);
+  return { value, scale };
 }
 
 /** Free variable names in `e` (excludes the constants pi and e). */
@@ -1043,15 +1100,22 @@ export function solveEquation(input: string, variable?: string, range = 1000): E
   // of points where the functions are finite, without narrowing the wide sweep that
   // catches identities only true over a large range.
   const sideAt = (t: number): { diff: number; scale: number } | null => {
-    let l: number, r: number;
+    let l: { value: number; scale: number };
+    let r: { value: number; scale: number };
     try {
-      l = evalAst(lhs, { [x]: t });
-      r = evalAst(rhs, { [x]: t });
+      // The magnitudes the evaluation PASSED THROUGH, not just the results. See
+      // evalAstScaled: an identity whose two sides cancel internally can only be
+      // recognised against the size of what cancelled.
+      l = evalAstScaled(lhs, { [x]: t });
+      r = evalAstScaled(rhs, { [x]: t });
     } catch {
       return null;
     }
-    if (!Number.isFinite(l) || !Number.isFinite(r)) return null;
-    return { diff: Math.abs(l - r), scale: Math.abs(l) + Math.abs(r) };
+    if (!Number.isFinite(l.value) || !Number.isFinite(r.value)) return null;
+    return {
+      diff: Math.abs(l.value - r.value),
+      scale: Math.max(Math.abs(l.value) + Math.abs(r.value), l.scale, r.scale),
+    };
   };
   /**
    * True when the two sides agree to within double precision at `t`, relative to
@@ -1063,16 +1127,16 @@ export function solveEquation(input: string, variable?: string, range = 1000): E
    * actually types do not. `sin(x)^2 + cos(x)^2 - 1` evaluates to +/-1.1e-16 at
    * most doubles, and that produced 3620 "roots".
    *
-   * KNOWN LIMIT, recorded in docs/KNOWN-DEFECTS.md rather than papered over: this
-   * cannot see an identity whose evaluation is dominated by CATASTROPHIC
-   * CANCELLATION. `cosh(x)^2 - sinh(x)^2 = 1` is the example — at x = 18 both
-   * squares are about 1.1e15, so the computed difference carries roughly 0.25 of
-   * rounding dust while the true answer is 1, and no tolerance derived from the
-   * final magnitudes can distinguish that from a root. Measuring the dust by
-   * perturbing x was tried and abandoned: the estimate is itself a random quantity,
-   * and the version of it that finally passed the cosh case also reported
-   * `tan(x) = 2` and `exp(x) = 2` as identities. A predicate I cannot validate is
-   * worse than a limit I can state.
+   * CANCELLATION IS HANDLED BY READING THE INTERMEDIATE MAGNITUDES. The scale comes
+   * from evalAstScaled, which reports the largest value the evaluation passed
+   * through — so `cosh(x)^2 - sinh(x)^2 = 1` is judged against the ~1.1e15 that
+   * actually cancelled rather than against the answer of 1, and is recognised.
+   *
+   * This replaces an attempt to MEASURE the rounding dust by perturbing x, which was
+   * reverted in v2.40.1: that estimate is a random quantity, and the version of it
+   * that finally passed the cosh case also reported `tan(x) = 2` and `exp(x) = 2` as
+   * identities — every equation in the product made vacuous. Reading the magnitudes
+   * is deterministic and needs no threshold tuned to a particular example.
    */
   const sidesAgreeAt = (t: number): boolean | null => {
     const p = sideAt(t);
@@ -1775,6 +1839,35 @@ export function integrate(input: string, a: number, b: number, variable?: string
     };
   }
 
+  // C0 — A REMOVABLE SINGULARITY STILL DEFEATS THE QUADRATURE, ON PURPOSE.
+  //
+  // `sin(x)/x` over [-1, 1] is 1.8922 and is refused, because adaptive Simpson's
+  // first midpoint is exactly 0 where sin(0)/0 is NaN. The obvious repair — when a
+  // sample is non-finite, take the average of two neighbours a hair either side —
+  // was built, measured, and REMOVED. It produced wrong numbers:
+  //
+  //     integral of (1-cos(x))/x^2 over [-1, 1]   0.9728 against a true 0.9896
+  //     integral of tan(x)/x over [-1, 1]         2.2983, likewise low
+  //
+  // The reason is instructive and defeats the whole approach. Cancellation corrupts
+  // these integrands over a NEIGHBOURHOOD of the singular point, not just at it: for
+  // x below about 1e-8 the nearest double to cos(x) is exactly 1, so (1-cos(x))/x^2
+  // evaluates to 0 rather than 0.5 — and BOTH neighbours agree on that wrong value,
+  // so an agreement test cannot tell it from a genuine limit. Repairing the single
+  // undefined point leaves the quadrature integrating a function that dips to zero
+  // near the origin.
+  //
+  // A multi-scale consistency check (compare the estimate at h and at 1e4*h) does
+  // separate sin(x)/x from (1-cos(x))/x^2, and would let the first through while
+  // still refusing the second. It was not shipped because it converts a refusal into
+  // a number for one case at a time, and getting it wrong makes a plausible 2% error
+  // where there is currently an honest refusal. Refusing a correct answer is a
+  // smaller harm than reporting an incorrect one — the same trade already made for
+  // the cancellation-hidden identity in v2.40.1.
+  //
+  // The real fix is a quadrature rule that never samples the endpoint it is told to
+  // avoid — Gauss-Legendre on each side of the known point — which is a change of
+  // method rather than a patch. Recorded in docs/KNOWN-DEFECTS.md as C0.
   const f = (xv: number) => evalAst(e, { [x]: xv });
   const value = adaptiveSimpson(f, a, b);
   if (!Number.isFinite(value)) {

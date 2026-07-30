@@ -60,6 +60,31 @@ correct has been closed, each with its reproduction moved into a named test.
 | **B13** `A ->> B` left "> B" as a component, handed to OpenChemLib as SMILES — it did not error, it drew something | stray delimiters stripped and reported; done by trimming ends rather than widening the arrow pattern, because `[O-]` and `C[N+](C)(C)C` contain the same characters | `passiveAndParsers.test.ts` |
 | **C3** `isSymmetric` used an absolute floor and was wrong in BOTH directions — `[[1e-20,1e-20],[2e-20,1e-20]]` reported symmetric with 100% asymmetry, `[[1e20,1],[1.0000001,1e20]]` reported not | relative to the matrix's largest magnitude, so scaling a matrix cannot change the answer. Matters because `eigenSymmetric` is gated on it and Jacobi is only valid for symmetric input | `passiveAndParsers.test.ts` |
 
+### Closed in v2.45.0
+
+| was | now | proof |
+|---|---|---|
+| **B15** `cosh(x)²−sinh(x)²=1` is an identity and returned **33 spurious roots**. A tolerance built on the size of the ANSWER cannot see catastrophic cancellation, because that is exactly when the answer is tiny and the intermediates are enormous — at x = 18 both squares are ~1.1e15 and the difference carries 0.25 of dust | `evalAstScaled` reports the largest magnitude the evaluation passed through, and the identity test scales by that. Deterministic, with no threshold tuned to an example — unlike the perturbation estimate reverted in v2.40.1, which also called `tan(x)=2` an identity. Ten identities close, twelve near-identities asserted not to | `cancellationAndNotation.test.ts` |
+| **B11** `1/2x` read as `1/(2x)` in solve.ts and `(1/2)x` in mathParse.ts — the same text meaning two different functions in two parts of one product, differing by a factor of (2x)² | **refused by both**, with both readings offered back. Neither convention was chosen because neither is settled: most CAS take one, much handwritten mathematics the other, and ISO 80000-1 says not to write it | `cancellationAndNotation.test.ts` |
+| **C1** `parseFormula("CuSO4·5H2O")` deleted the hydrate dot, merging "O4" with the following "5" into "O45" → O:46 instead of O:9 | dot-separated parts parsed independently and multiplied by their coefficient. **And bracket groups**, found while fixing it: `(SO4)3` read as `SO43` → O:43, so the hydrate fix alone would have swapped one silent mis-parse for another. An unclosed bracket now yields nothing rather than a partial guess | `cancellationAndNotation.test.ts` |
+
+### What B11 did NOT settle
+
+The two parsers also disagree about `2^2x` — solve.ts reads `2^(2x)`, mathParse.ts
+reads `(2^2)x`. That one is **not** refused, because unlike division it has a settled
+convention: an exponent extends to the atom immediately after it, so mathParse.ts is
+right and solve.ts is the odd one out. Changing how exponents bind would re-read every
+expression already sitting in a document, which is a larger change than a notation
+guard should make quietly. Left as a known inconsistency with the correct reading named.
+
+**How the scope of the B11 refusal was found to be wrong, twice.** Usage was surveyed
+in `examples.ts` and the manual before deciding to refuse, and came back zero — but
+`formulaLibrary.ts`, the actual shipped content a user inserts, was not surveyed. The
+first version also matched `^`, which broke four shipped formulas (`V = pi r^2 h`,
+`V = (1/3) pi r^2 h`, `P = I^2 R`, and two-asset portfolio variance). The full test
+suite caught it. A usage survey that misses where the usage lives is not a survey, and
+there is now a test that walks the whole formula library.
+
 ### B3 could not be reproduced
 
 `docs/KNOWN-DEFECTS.md` listed "the Bode chart is blank when the reference is zero".
@@ -113,49 +138,9 @@ about HOW it computed, belongs in section B.
 release: a log axis with a zero reference. Worth checking against the new
 `svgMarkupFinite` harness.
 
-### B11. Two parsers read the same text differently
-`src/lib/solve.ts:170` versus `src/lib/mathParse.ts:231-249`:
-
-| typed | solve.ts | mathParse.ts |
-|---|---|---|
-| `1/2x` | `1/(2*x)` | `(1/2)*x` |
-| `2/2x` | `1/x` | `x` |
-| `2^2x` | `2^(2*x)` | `(2^2)*x` |
-
-Both are defensible readings; having both in one product is not.
-`mathParse.ts:12` also documents `ab` as implicit multiplication, and it
-tokenizes as a single identifier.
-
 ---
 
 ## C — cosmetic, or unreachable today
-
-### B15. An identity hidden by catastrophic cancellation is still reported as roots
-`src/lib/solve.ts`. `solveEquation("cosh(x)^2 - sinh(x)^2 = 1")` is an identity and
-returns **33 numeric "roots"** at irregular positions between −18 and 18.
-
-The identity check compares the two sides relative to their own magnitudes, which
-catches every ordinary case — `sin(x)^2 + cos(x)^2 = 1`, `exp(ln(x)) = x`,
-`sin(2*x) = 2*sin(x)*cos(x)` and the rest. It cannot catch this one, because the
-cancellation happens *inside* the expression: at x = 18 both squares are about
-1.1e15, so the computed difference carries roughly 0.25 of rounding dust while the
-true answer is 1. Zero sits inside that dust, and no tolerance derived from the
-final magnitudes can tell the two apart. The irregular spacing of the results also
-defeats the grid-signature test that catches the underflow case.
-
-**Attempted and abandoned, deliberately.** Measuring the dust by perturbing x and
-watching how far the computed difference moves does work in principle, but the
-estimate is itself a random quantity: the version that finally passed the cosh case
-also reported `tan(x) = 2` and `exp(x) = 2` as identities — turning every equation
-in the product into a vacuous one. That was caught by the behavioural baseline
-within a minute, and reverted. **A predicate that cannot be validated is worse than
-a limit that can be stated**, which is why this is written down rather than shipped.
-
-**Fix direction:** the magnitudes of the cancelling intermediates are invisible from
-outside `evalAst`. Have `evalAst` optionally report the largest absolute value it
-passed through, and scale the tolerance by that instead of by the result. That is a
-real answer rather than a tuned threshold, and it would also improve the
-singularity and root-residual tests, which have the same blind spot.
 
 ### C0. A removable singularity strictly inside the interval still refuses on the numeric path
 `src/lib/solve.ts`. `integrate("sin(x)/x", -1, 1)` should be ≈ **1.8921**. The
@@ -168,17 +153,31 @@ rule, so it falls through to adaptive Simpson, whose very first midpoint is exac
 before the pole detector was rebuilt; both refuse it. It is an honest refusal (the
 integrand genuinely is undefined at that point) rather than a wrong number, which
 is why it is filed here rather than in section A.
-**Fix direction:** when `isGenuinePole` has already established that a point inside
-the interval is *removable*, the quadrature can evaluate a few doubles to one side
-of it instead of at it. The information needed is already computed; it just is not
-passed to the numeric path.
+**ATTEMPTED IN v2.45.0 AND REMOVED.** The obvious repair — when a sample comes back
+non-finite, average two neighbours a hair either side — was built and measured. It
+produced wrong numbers:
 
-### C1. `massspec.parseFormula` mis-parses hydrates
-`src/lib/massspec.ts:68` strips the `·` without splitting, so `CuSO4·5H2O` parses
-as `{Cu:1, S:1, O:46, H:2}` — "SO4" and "5" merge into "O45". **Unreachable
-today**: the only caller is `computeMassSpec`, which feeds it OpenChemLib's
-already-clean `mf.formula`. It becomes a live bug the moment anything else calls
-it.
+| | reported | true |
+|---|---|---|
+| ∫ (1−cos x)/x² over [−1, 1] | 0.9728 | 0.9896 |
+| ∫ tan(x)/x over [−1, 1] | 2.2983 | higher |
+
+The reason defeats the whole approach. Cancellation corrupts these integrands over a
+**neighbourhood** of the singular point, not just at it: below x ≈ 1e-8 the nearest
+double to cos(x) is exactly 1, so (1−cos x)/x² evaluates to **0** rather than 0.5 —
+and *both* neighbours agree on that wrong value, so an agreement test cannot tell it
+from a genuine limit. Repairing the one undefined point leaves the quadrature
+integrating a function that dips to zero near the origin.
+
+A multi-scale consistency check (compare the estimate at h and at 1e4·h) does separate
+`sin(x)/x` from `(1−cos x)/x²`. It was not shipped because it converts a refusal into a
+number one case at a time, and getting it wrong puts a plausible 2% error where there
+is currently an honest refusal. **Refusing a correct answer is a smaller harm than
+reporting an incorrect one.**
+
+**Fix direction:** a quadrature rule that never samples the endpoint it is told to
+avoid — Gauss–Legendre on each side of the known point. That is a change of method
+rather than a patch, which is why it is still here.
 
 ### C2. `parseRatLiteral("1e400")` returns an exact 401-digit rational whose `ratToNumber()` is Infinity
 `src/lib/cas.ts`. Correct as far as it goes, but the conversion boundary is where

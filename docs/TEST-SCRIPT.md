@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.44.0)
+# JurisLab — Manual Test Script (v2.45.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -490,6 +490,51 @@ Chemical > **Reactions**:
 > `(1/2)x` in the equation parser — a product decision, not a bug to patch),
 > **B15** (an identity hidden by catastrophic cancellation, where the fix I built
 > would have called `tan(x) = 2` an identity, so I reverted it), and **C0–C2**.
+
+---
+
+## 0j. New in v2.45.0 — a hidden identity, ambiguous notation, and hydrates
+
+Math > **Solve** > equation:
+
+- [ ] `cosh(x)^2 - sinh(x)^2 = 1` must say **identity**. It used to return 33
+  spurious roots. Same for `cosh(2x) = cosh(x)^2 + sinh(x)^2` and
+  `tanh(x) = sinh(x)/cosh(x)`.
+- [ ] The near-misses must **not** be identities: `cosh(x)^2 - sinh(x)^2 = 1.0000001`,
+  `sin(x)^2 + cos(x)^2 = 1.0000001`. And the ordinary equations must still solve —
+  `tan(x) = 2`, `exp(x) = 2`, `x^2 = 4`. An earlier attempt at this fix called all of
+  those identities, which would have made every equation in the product vacuous, so
+  they are worth checking.
+
+Math — **anywhere an expression is typed** (Solve, Plot, equation insertion):
+
+- [ ] `1/2x` must be **refused**, with a message offering both `1/(2x)` and `(1/2)x`.
+  It used to mean `1/(2x)` in Solve and `(1/2)x` in the equation parser — the same
+  text, two different functions, differing by a factor of (2x) squared. Try `2/2x`,
+  `x/2y`, `1/2(x+1)`, and `1/2 x` with a space.
+- [ ] These must all still work, unchanged: `1/2*x`, `1/(2*x)`, `(1/2)*x`, `1/2`,
+  `x/2`, `sin(x)/2`, `1/2e5` (that last one is a single number, not a product).
+- [ ] **Exponents are deliberately NOT refused.** `pi r^2 h` must still insert — an
+  exponent extends only to the atom after it, so `r^2 h` is unambiguous. Check the
+  formula library still works: volume of a cylinder, volume of a cone, power
+  dissipated, two-asset portfolio variance. An earlier version of this refusal broke
+  all four.
+
+Chemical > **Mass spec** (and anywhere a formula is counted):
+
+- [ ] `CuSO4·5H2O` must give O:9 and H:10. It used to give **O:46**, because the
+  hydrate dot was deleted and "O4" merged with the following "5" into "O45".
+- [ ] `Cr2(SO4)3·18H2O` must give Cr:2 S:3 O:30 H:36 — bracket groups were also being
+  stripped, so `(SO4)3` read as `SO43`. Try `K4[Fe(CN)6]` and `((CH3)2CH)2O`.
+- [ ] A malformed formula like `CuSO4(` must return **nothing** rather than a partial
+  count, because the count feeds monoisotopic mass.
+
+> **Still open, and each for a stated reason.** `docs/KNOWN-DEFECTS.md` lists **B3**
+> (a blank Bode chart at zero reference — could not be reproduced), **C0** (a
+> removable singularity still defeats the numeric quadrature; the obvious repair was
+> built, measured at a 1.7% error, and removed — refusing a correct answer is a
+> smaller harm than reporting an incorrect one), and **C2** (a huge exact rational
+> converting to Infinity, which is the correct IEEE result at the boundary).
 
 ---
 

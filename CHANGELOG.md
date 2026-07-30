@@ -5,6 +5,111 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > Note: this file was not maintained between v1.96.0 and v2.23.0. Those releases
 > are recorded in the git history rather than here.
 
+## [2.45.0] — 2026-07-29 — An identity hidden by cancellation, notation with two meanings, and hydrates
+
+Three closed, one attempted and removed, and two left open with reasons. What remains
+in `docs/KNOWN-DEFECTS.md` after this is three entries, none of which produces a wrong
+number.
+
+### The identity that cancellation hid — properly fixed this time
+
+`cosh(x)^2 - sinh(x)^2 = 1` is an identity and returned **33 spurious roots**. The
+cause is that a tolerance derived from the size of the ANSWER cannot see catastrophic
+cancellation, because cancellation is exactly the case where the answer is tiny and the
+intermediates are enormous: at x = 18 both squares are about 1.1e15, so the computed
+difference carries roughly 0.25 of rounding dust — two hundred million times the true
+answer's own last bit. Judged against 1 that looks like wild disagreement; judged
+against 1.1e15 it is precisely what double arithmetic can deliver.
+
+v2.40.1 tried to measure that dust empirically, by perturbing x and watching how far
+the difference moved, and **reverted it**: the estimate is itself a random quantity,
+and the version that finally passed the cosh case also reported `tan(x) = 2` and
+`exp(x) = 2` as identities — every equation in the product made vacuous.
+
+The real fix, and the one recorded then as the direction to take: `evalAstScaled` now
+evaluates an expression and reports the largest magnitude it passed through on the way,
+so the tolerance reflects the precision at which the expression can actually be
+evaluated. It is deterministic and has no threshold tuned to a particular example — the
+answer is simply "this cannot be evaluated to better than eps times *this*". Kept
+separate from `evalAst` deliberately: that function runs inside adaptive quadrature and
+root-scan loops, and paying for a tracker on every one of those to serve a check that
+runs 123 times would be the wrong trade.
+
+Ten identities now close, including `cosh(2x) = cosh^2 + sinh^2` and
+`tanh(x) = sinh(x)/cosh(x)`, and twelve near-identities are asserted **not** to —
+including the two that the reverted approach broke.
+
+### `1/2x` meant two different things in one product
+
+| typed | solve.ts | mathParse.ts |
+|---|---|---|
+| `1/2x` | `1/(2x)` | `(1/2)x` |
+| `2/2x` | `1/x` | `x` |
+
+The two readings of `2/2x` differ by a factor of x squared, which is not a rounding
+difference — it is a different function.
+
+Neither was chosen, because neither is settled: most computer algebra systems give
+implicit multiplication the same precedence as explicit multiplication, a great deal of
+handwritten mathematics and physics reads it the other way, and ISO 80000-1 recommends
+never writing it. Picking one would have made the other silently wrong for whoever
+meant it. So it is **refused by both parsers**, with both readings offered back so the
+fix is one keystroke.
+
+**The scope of that refusal was wrong twice, and both are worth recording.** Usage was
+surveyed in `examples.ts` and the manual before deciding, and came back zero — but
+`formulaLibrary.ts`, the actual shipped content a user inserts, was not surveyed. And
+the first version also matched `^`, which is simply not ambiguous: an exponent extends
+to the atom immediately after it, so `r^2 h` is unambiguously (r^2)h. That broke four
+shipped formulas — volume of a cylinder and cone, power dissipated, two-asset portfolio
+variance. The full suite caught it, and there is now a test that walks the entire
+formula library.
+
+What this did **not** settle: the two parsers also disagree about `2^2x`, and that one
+is left alone. Unlike division it has a settled convention, so mathParse.ts is right
+and solve.ts is the odd one out — but changing how exponents bind would re-read every
+expression already sitting in a document, which is more than a notation guard should do
+quietly. Recorded with the correct reading named.
+
+### A hydrate dot is not punctuation
+
+`parseFormula("CuSO4.5H2O")` stripped every non-alphanumeric character, merging the
+parts and joining the multiplier to the element before it: "O4" and the following "5"
+became "O45", and the answer was **O:46** instead of O:9.
+
+It was unreachable when found — the only caller feeds it OpenChemLib's already-clean
+formula — which is why it was worth fixing rather than leaving. An exported function
+that is wrong only because nobody calls it that way is a trap set for the next caller,
+and the count it returns feeds monoisotopic mass.
+
+Fixing the dot alone would have swapped one silent mis-parse for another: brackets were
+stripped too, so `Cr2(SO4)3` read as `Cr2SO43` and gave O:43. Both are handled now,
+with nesting — `((CH3)2CH)2O` and `K3[Fe(C2O4)3]` hydrates included — and an unclosed
+bracket yields nothing rather than a partial count.
+
+### One attempted and removed, on purpose
+
+C0: `sin(x)/x` over [-1, 1] is 1.8922 and is refused, because adaptive Simpson's first
+midpoint is exactly 0 where sin(0)/0 is NaN. The obvious repair — average two
+neighbours either side of any non-finite sample — was built and measured, and it
+produced wrong numbers: **0.9728 against a true 0.9896** for the integral of
+(1-cos x)/x^2 over [-1, 1].
+
+The reason defeats the approach. Cancellation corrupts these integrands over a
+*neighbourhood* of the point, not just at it: below x = 1e-8 the nearest double to
+cos(x) is exactly 1, so (1-cos x)/x^2 evaluates to 0 rather than 0.5 — and **both
+neighbours agree on that wrong value**, so no agreement test can tell it from a genuine
+limit.
+
+A multi-scale check does separate the two cases, and was still not shipped: it converts
+a refusal into a number one case at a time, and getting it wrong puts a plausible 2%
+error where there is currently an honest refusal. Refusing a correct answer is a
+smaller harm than reporting an incorrect one. The real fix is a quadrature rule that
+never samples the point it is told to avoid, which is a change of method rather than a
+patch.
+
+6,606 tests across 217 files. All twelve QC gates pass.
+
 ## [2.44.0] — 2026-07-29 — Circuits, trusses, parsers, and messages that were false
 
 Nine more from `docs/KNOWN-DEFECTS.md`. Nothing here produced a wrong number — the A

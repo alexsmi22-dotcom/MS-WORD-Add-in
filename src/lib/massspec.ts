@@ -64,13 +64,67 @@ const ISOTOPES: Record<string, Isotope[]> = {
 /** Parses a molecular formula ("C9H8O4", "C22H24N2O8") into element→count. */
 export function parseFormula(formula: string): Record<string, number> {
   const counts: Record<string, number> = {};
-  // Keep only element letters and counts; drop charge signs, spaces, brackets.
-  const core = formula.replace(/[^A-Za-z0-9]/g, "");
-  const re = /([A-Z][a-z]?)(\d*)/g;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(core)) !== null) {
-    if (!m[1]) continue;
-    counts[m[1]] = (counts[m[1]] ?? 0) + (m[2] ? parseInt(m[2], 10) : 1);
+
+  // A HYDRATE DOT SEPARATES FORMULAS; IT IS NOT PUNCTUATION TO BE DELETED.
+  //
+  // Stripping every non-alphanumeric character merged the parts of a hydrate and
+  // joined the multiplier to the element before it: "CuSO4·5H2O" became "CuSO45H2O",
+  // so "O4" and the leading "5" read as "O45" and the answer was
+  // {Cu:1, S:1, O:46, H:2} instead of {Cu:1, S:1, O:9, H:10}.
+  //
+  // This was UNREACHABLE when found — the only caller feeds it OpenChemLib's already
+  // clean mf.formula — which is exactly why it is worth fixing rather than leaving:
+  // an exported function that is wrong only because nobody calls it that way is a
+  // trap set for the next caller, and the count it returns feeds monoisotopic mass.
+  //
+  // Each dot-separated part is parsed on its own and multiplied by its leading
+  // coefficient, which is what the notation means.
+  const parts = formula.split(/[·•.*]/).filter((t) => t.trim() !== "");
+  for (const part of parts) {
+    const trimmed = part.trim();
+    // A leading integer multiplies the whole part: the 5 in "5H2O" is five waters.
+    const lead = /^(\d+)/.exec(trimmed);
+    const multiplier = lead ? parseInt(lead[1], 10) : 1;
+    if (!Number.isFinite(multiplier) || multiplier <= 0) continue;
+    const body = lead ? trimmed.slice(lead[1].length) : trimmed;
+
+    // BRACKET GROUPS CARRY THEIR OWN MULTIPLIER, and stripping the brackets threw it
+    // away: "Cr2(SO4)3" became "Cr2SO43", so the group count 3 was read as part of
+    // the oxygen subscript and gave O:43 instead of S:3, O:12. Fixing the hydrate dot
+    // without this would have replaced one silent mis-parse with another.
+    //
+    // A stack of pending tallies, one level per open bracket. Every count is
+    // multiplied out when its level closes, so nesting works — "((CH3)2CH)2O" and
+    // "K3[Fe(C2O4)3]" included.
+    const stack: Array<Record<string, number>> = [{}];
+    const tok = /([A-Z][a-z]?)(\d*)|([([{])|([)\]}])(\d*)|(.)/g;
+    let m: RegExpExecArray | null;
+    let malformed = false;
+    while ((m = tok.exec(body)) !== null) {
+      if (m[1]) {
+        const top = stack[stack.length - 1];
+        top[m[1]] = (top[m[1]] ?? 0) + (m[2] ? parseInt(m[2], 10) : 1);
+      } else if (m[3]) {
+        stack.push({});
+      } else if (m[4]) {
+        if (stack.length < 2) {
+          malformed = true;
+          break;
+        }
+        const group = stack.pop() as Record<string, number>;
+        const k = m[5] ? parseInt(m[5], 10) : 1;
+        const top = stack[stack.length - 1];
+        for (const [el, n] of Object.entries(group)) top[el] = (top[el] ?? 0) + n * k;
+      }
+      // m[6] is anything else — a charge sign or stray punctuation — and is ignored,
+      // which is what the old character-class strip did for those.
+    }
+    // An unclosed bracket means the formula was not understood; adding up whatever
+    // was parsed so far would be a guess presented as a count.
+    if (malformed || stack.length !== 1) continue;
+    for (const [el, n] of Object.entries(stack[0])) {
+      counts[el] = (counts[el] ?? 0) + multiplier * n;
+    }
   }
   return counts;
 }

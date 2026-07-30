@@ -17,6 +17,8 @@
 //
 // Anything it can't parse throws, so callers can fall back to plain formatting.
 
+import { ambiguousImplicitProduct } from "./ambiguous";
+
 export type Node =
   | { k: "text"; v: string; plain?: boolean } // leaf run; plain → upright (function names)
   | { k: "row"; items: Node[] }
@@ -549,6 +551,11 @@ class Parser {
 
 /** Parses a linear math expression into the shared AST. Throws on parse errors. */
 export function parseMathAst(input: string): Node {
+  // Same refusal as solve.ts's parseExpr, and it has to be the SAME refusal: the
+  // whole defect was that these two files read `1/2x` differently. See
+  // lib/ambiguous.ts for why neither reading was chosen.
+  const ambiguous = ambiguousImplicitProduct(input);
+  if (ambiguous) throw new Error(ambiguous);
   const tokens = tokenize(input);
   if (tokens.length === 0) throw new Error("Empty math expression.");
   return new Parser(tokens).parse();

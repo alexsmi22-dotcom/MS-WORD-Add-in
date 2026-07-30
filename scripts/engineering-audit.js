@@ -129,6 +129,7 @@ function run() {
   const toolCount = (lines.find((l) => l.startsWith("TOOLS=")) || "TOOLS=0").split("=")[1];
   const defaults = lines.filter((l) => l.startsWith("DEFAULT "));
   const blanks = lines.filter((l) => l.startsWith("BLANK "));
+  const oneBlanks = lines.filter((l) => l.startsWith("ONEBLANK "));
   const junk = lines.filter((l) => l.startsWith("JUNK "));
   const inserts = lines.filter((l) => l.startsWith("INSERT "));
 
@@ -206,6 +207,45 @@ function run() {
     const issues = (/issues=(\S+)/.exec(l) || [, "?"])[1];
     console.log(`  ${ok ? "ok  " : "FLAG"}  ${tool.padEnd(20)} ${issues}`);
     if (!ok) console.log(`        ${l.split(":: ")[1] || ""}`);
+  }
+
+  // ---------------------------------------------------------------------------
+  // DIAGNOSTIC, NOT A GATE — and the reason is worth stating, because a gate that
+  // cries wolf is worse than no gate.
+  //
+  // It exists because pass 2 clears EVERY field, which is not what a user does.
+  // What they do is clear the one value they are unsure about, and that is how a
+  // cleared thermal resistance became 0 K/W in v2.55.0 and silently deleted a
+  // whole stage of a heat path.
+  //
+  // But "label does not say optional => blanking must refuse" turns out to be too
+  // strong a convention for this codebase: `pipe` legitimately falls back to water
+  // at 20 °C and SAYS so, a blank stress component is a defensible zero, and a
+  // custom K only matters when the selector asks for it. It reports ~90 cases, of
+  // which only a handful are the silent-zero defect.
+  //
+  // Telling them apart needs a judgement this script cannot make — the real
+  // signature is whether the OUTPUT admits the substitution. So this prints for a
+  // human and does NOT fail the build. Making it exact means curating a
+  // required-fields list per tool, the way engineeringRouting.test.ts curates unit
+  // contracts, and that is its own piece of work.
+  // ---------------------------------------------------------------------------
+  console.log("\n--- One required field blank (DIAGNOSTIC — needs human triage) -");
+  {
+    const bad = oneBlanks.filter((l) => !/ issues=ok /.test(l));
+    const byTool = new Map();
+    for (const l of bad) {
+      const tool = l.split(" ")[1];
+      byTool.set(tool, (byTool.get(tool) || 0) + 1);
+    }
+    console.log(
+      `  ${bad.length} of ${oneBlanks.length} required-looking fields still computed when emptied alone,`,
+    );
+    console.log(`  across ${byTool.size} tools. Not a build failure: many are documented fallbacks`);
+    console.log("  that state the substitution in their output. The ones to fix are those that");
+    console.log("  do NOT say anything — that is the silent-zero defect.");
+    const worst = [...byTool.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8);
+    for (const [tool, n] of worst) console.log(`      ${tool.padEnd(20)} ${n}`);
   }
 
   console.log("\n--- Rubbish in every field ------------------------------------");

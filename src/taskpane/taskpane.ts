@@ -11675,7 +11675,20 @@ const ENG_CALCS: EngCalc[] = [
       { key: "sd", label: "Standard error on S (blank to skip)", default: "", kind: "text" },
     ],
     compute: (r) => {
-      const nums = ["e1", "e2", "e3", "e4"].map((k) => Number(r(k)));
+      // A BLANK CORRELATION IS A MISSING MEASUREMENT, NOT A ZERO ONE. Number("")
+      // is 0, and 0 is a perfectly valid correlation, so an empty field silently
+      // entered the sum as "these settings were uncorrelated" and shifted S.
+      // Caught by the audit's one-field-blank diagnostic, in my own new code.
+      const keys = ["e1", "e2", "e3", "e4"];
+      const labels = ["E(a, b)", "E(a, b')", "E(a', b)", "E(a', b')"];
+      const nums: number[] = [];
+      for (let i = 0; i < keys.length; i++) {
+        const raw = r(keys[i]).trim();
+        if (!raw) {
+          return { text: `${labels[i]}: this field is required. A blank is a missing measurement, not a correlation of zero.`, ok: false };
+        }
+        nums.push(Number(raw));
+      }
       if (nums.some((v) => !Number.isFinite(v))) return { text: "All four correlations must be numbers.", ok: false };
       const sdRaw = r("sd").trim();
       const sd = sdRaw ? Number(sdRaw) : undefined;

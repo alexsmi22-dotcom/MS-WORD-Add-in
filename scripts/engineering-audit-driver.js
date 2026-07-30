@@ -315,6 +315,57 @@
       }
     });
 
+    // ---- 2b. ONE field blank at a time, the rest left at their defaults. --
+    //
+    // Pass 2 clears EVERY field, which is not what a user does. What they do is
+    // clear the one value they are unsure about — and that is how a cleared
+    // thermal resistance became 0 K/W and silently deleted a whole stage of a
+    // heat path, reporting a junction 20 °C cooler than the truth as "within
+    // limit". Number("") is 0, which is finite and non-negative, so a guard
+    // written as `!isFinite(v) || v < 0` waves it straight through.
+    //
+    // THE CONVENTION THIS ENFORCES: a field whose label does not advertise
+    // itself as optional ("blank", "optional") is REQUIRED, and blanking it
+    // alone must make the tool refuse rather than compute. That is checkable
+    // without knowing what any individual tool means.
+    tools.forEach(function (t) {
+      try {
+        selectTool(t);
+        var all = fields();
+        for (var i = 0; i < all.length; i++) {
+          var el = all[i];
+          if (el.tagName === "SELECT") continue;
+          var lab = el.previousElementSibling;
+          var labelText = (lab && lab.textContent ? lab.textContent : "").toLowerCase();
+          var optional = labelText.indexOf("blank") >= 0 || labelText.indexOf("optional") >= 0;
+          if (optional) continue;
+
+          // Reset everything to defaults, then clear just this one.
+          selectTool(t);
+          var f2 = fields();
+          var target = f2[i];
+          if (!target || target.tagName === "SELECT") continue;
+          var key = target.getAttribute("data-key");
+          target.value = "";
+          fire(target);
+
+          var text = textNow();
+          var refused = insertBtn.disabled;
+          var bad = [];
+          if (badNumbers(text)) bad.push("BADNUMBER");
+          // Computed a result from a required field left empty.
+          if (!refused) bad.push("BLANK_ACCEPTED");
+          push(
+            "ONEBLANK " + t + " field=" + key +
+              " issues=" + (bad.length ? bad.join("+") : "ok") +
+              " :: " + text.slice(0, 90),
+          );
+        }
+      } catch (e) {
+        push("ONEBLANK " + t + " EXCEPTION " + (e && e.message));
+      }
+    });
+
     // ---- 3. Rubbish in every field. -------------------------------------
     ["qqq", "-", "1e999", "0", "-1", "NaN", "1/0"].forEach(function (j) {
       tools.forEach(function (t) {

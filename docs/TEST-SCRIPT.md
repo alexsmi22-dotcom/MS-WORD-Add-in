@@ -725,6 +725,68 @@ Chemical mode, **Periodic table &amp; atomic structure**.
 
 ---
 
+## 0q. New in v2.54.0 — optics, photonics and entanglement
+
+Engineering mode. The dropdown must now show two new groups, **Optics & photonics**
+(8 tools) and **Quantum optics** (4), and the mode must state **49 calculators**.
+
+- [ ] **Photon relations.** `1064` as a wavelength in nm must give **1.16526 eV**,
+  **281.76 THz** and **9398.5 cm⁻¹**. Switch the selector to eV and type `1.16526`:
+  the wavelength must come back to 1064 nm. Every entry point must round-trip.
+- [ ] **Gaussian beam.** Waist `1 mm`, `1064 nm`, M² 1: Rayleigh range **2.9526 m**.
+  Set the distance equal to that Rayleigh range and the radius must be exactly
+  **√2 × the waist** with the wavefront radius **twice** the Rayleigh range.
+- [ ] Set **M² = 4**: the Rayleigh range must fall by 4× and the divergence rise by 4×.
+  M² = 0.5 must be **refused**, not computed.
+- [ ] The result must say w is a **1/e² radius** and the divergence a **half-angle**,
+  and must print the full angle beside it. Fill in the "design backwards" field and
+  check the waist it returns reproduces the divergence you asked for.
+- [ ] **ABCD.** The default `space 0.15 / lens 0.1 / space 0.3` must report **B = 0**
+  and say the planes are conjugate, with magnification **−2**.
+- [ ] Type `space 0.01 1.5` — a third argument must be **REFUSED** with a message
+  naming the three-element `flat / space / flat` stack instead. (Free space takes a
+  physical distance; the index enters through the interfaces.)
+- [ ] Build that stack — `flat 1 1.5 / space 0.01 / flat 1.5 1` — and B must be
+  **6.667 mm** (t/n), not 4.44 mm.
+- [ ] End a system in glass (last element `flat 1 1.5`). The trace must say it is
+  **leaving a medium of n = 1.5** and must NOT overstate the output radius by √1.5.
+- [ ] **Resonator.** L 0.5, both radii 1 m: stable, g₁ = g₂ = 0.5, waist at the
+  centre, equal spots on the two mirrors. Set L = 1 with both radii 1 (confocal): it
+  must report **MARGINALLY stable** and give **no mode size**. Same for two flat
+  mirrors (`inf`). L = 2.5 with radii 1 must report **UNSTABLE** and no waist.
+- [ ] **Pulses.** 1 mJ, 10 ns, 1 kHz, Gaussian: average **1 W**, peak **93.94 kW** —
+  and the note must say this is **0.939 E/τ, not E/τ**. Switch to rectangular and the
+  peak must become exactly **100 kW**.
+- [ ] With a 100 µm beam radius the peak fluence must be **twice** energy-over-area,
+  and the note must say damage thresholds are quoted against the peak.
+- [ ] **Refraction.** n₁ 1.5 → n₂ 1.0: critical **41.81°**, Brewster **33.69°**,
+  reflectance **4%**. At 60° incidence it must report **total internal reflection and
+  no transmitted angle**. Reverse to 1.0 → 1.5 and it must say there is **no critical
+  angle**, not print a number.
+- [ ] **Diffraction.** 500 nm through a 10 mm aperture: Airy half-angle **61 µrad**,
+  disc **61 µm** at f = 500 mm. A 600 line/mm grating must list orders **−3…+3** and
+  no others; a 3000 line/mm grating at 633 nm must list **only order 0**.
+- [ ] **Fibre.** 1.4570 / 1.4520, 4.1 µm radius, 1550 nm: NA **0.1206**, V **≈ 2.0**,
+  **single mode**. Drop the wavelength to 400 nm and it must become multimode with a
+  mode count. Set the core index equal to the cladding and it must be **refused**.
+- [ ] **Entanglement.** The default (0.7071, 0, 0, 0.7071) is a Bell state:
+  concurrence **1**, entropy **1 ebit**. Change all four to 0.5 → concurrence **0**
+  and it must say **product state**. Now make the last one `-0.5` → concurrence back
+  to **1**. Phase alone must flip the answer.
+- [ ] **CHSH.** The defaults give **S = 2.828** and must report a **Bell violation**.
+  Enter 1, −1, 1, 1 (S = 4): it must say this **exceeds Tsirelson's bound** and is an
+  error rather than a stronger result. A correlation of 1.5 must be refused.
+- [ ] **Werner.** p = 0.6 must say **entangled but cannot violate CHSH** — the gap is
+  the point. p = 0.3 must say separable; p = 0.8 must violate.
+- [ ] **BB84.** 2% must give **0.7176** bits per sifted bit; 11% must be at the
+  threshold with the rate at zero; **95% must be refused**, not report a positive
+  "secure" rate.
+- [ ] Every one of the twelve must insert into the document and the inserted text must
+  carry its unit note (or, for the quantum four, the "everything here is
+  dimensionless" note).
+
+---
+
 ## 0. Setup
 
 - [ ] Build is current (`npm run build`) and the add-in is loaded:

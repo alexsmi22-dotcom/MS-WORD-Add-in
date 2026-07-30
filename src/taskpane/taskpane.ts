@@ -11038,6 +11038,7 @@ const ENG_CALCS: EngCalc[] = [
       { key: "lam", label: "Wavelength, m (blank to skip the beam trace)", default: "1064 nm", kind: "text" },
       { key: "w", label: "Input beam radius, m (blank to skip)", default: "1 mm", kind: "text" },
       { key: "R", label: "Input wavefront radius, m (blank = collimated)", default: "", kind: "text" },
+      { key: "nin", label: "Refractive index at the INPUT plane", default: "1", kind: "text" },
     ],
     compute: (r) => {
       const raw = r("sys").trim();
@@ -11107,12 +11108,25 @@ const ENG_CALCS: EngCalc[] = [
       if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
       if (lam !== null && w !== null && Number.isFinite(lam) && Number.isFinite(w)) {
         const Rin = u.opt("R", "m", "Input wavefront radius", Infinity);
-        const q0 = qFromBeam(w, Rin, lam);
+        // THE MEDIUM AT EACH END MATTERS. Im(1/q) carries the index, so tracing in
+        // with n = 1 and out with n = 1 through a system that ENDS in glass
+        // overstates the output radius by sqrt(n_out) — about 22% — with no error
+        // and a perfectly finite determinant. det(M) = n_in/n_out exactly, which
+        // is already printed above, so the exit index is derived from it rather
+        // than assumed.
+        const nIn = Number(r("nin") || "1");
+        const det = m[0] * m[3] - m[1] * m[2];
+        const nOut = Number.isFinite(nIn) && nIn > 0 && det !== 0 ? nIn / det : NaN;
+        const q0 = Number.isFinite(nOut) && nOut > 0 ? qFromBeam(w, Rin, lam, 1, nIn) : null;
         const q1 = q0 ? propagateQ(q0, m) : null;
-        const out = q1 ? beamFromQ(q1, lam) : null;
+        const out = q1 ? beamFromQ(q1, lam, 1, nOut) : null;
         if (out) {
           lines.push("");
           lines.push("Gaussian beam through this system");
+          if (Math.abs(nOut - nIn) > 1e-9) {
+            lines.push(`  Entering a medium of n = ${engNum(nIn, 5)}, leaving one of n = ${engNum(nOut, 5)}`);
+            lines.push("  (the exit index is det = n_in/n_out, not an assumption).");
+          }
           lines.push(`  Input  w = ${engNum(w, 6)} m`);
           lines.push(`  Output w = ${engNum(out.w, 6)} m`);
           lines.push(`  Output wavefront R = ${out.R === Infinity ? "flat" : engNum(out.R, 6) + " m"}`);

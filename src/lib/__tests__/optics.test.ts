@@ -206,6 +206,26 @@ describe("ABCD ray matrices", () => {
     expect(viaQ).toBeCloseTo(direct, 12);
   });
 
+  test("a beam leaving into glass is sqrt(n) smaller than an air-assumed trace", () => {
+    // The exit medium is carried by Im(1/q). A system ENDING in glass traced out
+    // with n = 1 overstates the radius by sqrt(n_out) ~ 22% for n = 1.5, silently.
+    // det(M) = n_in/n_out is what makes the exit index derivable rather than assumed.
+    const lambda = 1064e-9;
+    const w = 1e-3;
+    const nOutTrue = 1.5;
+    const m = systemMatrix([{ kind: "flat", n1: 1, n2: nOutTrue }])!;
+    const det = m[0] * m[3] - m[1] * m[2];
+    expect(det).toBeCloseTo(1 / nOutTrue, 12); // det = n_in/n_out with n_in = 1
+
+    const q1 = propagateQ(qFromBeam(w, Infinity, lambda, 1, 1)!, m)!;
+    const correct = beamFromQ(q1, lambda, 1, 1 / det)!.w;
+    const assumedAir = beamFromQ(q1, lambda, 1, 1)!.w;
+    // A flat interface does not change the beam RADIUS; only the wrong index does.
+    expect(correct).toBeCloseTo(w, 12);
+    expect(assumedAir).toBeCloseTo(w * Math.sqrt(nOutTrue), 9);
+    expect(assumedAir / correct).toBeCloseTo(Math.sqrt(nOutTrue), 9);
+  });
+
   test("a flat mirror or an infinite-focus lens is the identity, not a refusal", () => {
     // resonator() tells the user to write a flat mirror as inf, so systemMatrix
     // refusing it made a plane-mirror cavity impossible to express.

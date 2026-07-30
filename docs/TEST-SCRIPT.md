@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.48.0)
+# JurisLab — Manual Test Script (v2.49.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -628,6 +628,37 @@ Table&rarr;Chart. Select a numeric table with several columns, load it, and choo
 - [ ] **Export to PowerPoint.** A heat map must export as a **picture**. It must never
   come out as a bar or line chart — PowerPoint has no heat-map chart type, and
   substituting one would present different information under the same title.
+
+---
+
+## 0n. New in v2.49.0 — candlestick (OHLC) charts
+
+Table&rarr;Chart. A table with one row per period and four numeric columns, then
+**Candlestick** from "Show as".
+
+- [ ] Columns named `Open`, `High`, `Low`, `Close` (any capitalisation, any order)
+  must render one candle per row, with a wick from low to high.
+- [ ] **The legend must state the convention in words** — "hollow = close at or above
+  open", "filled = close below open". Direction must NOT rely on colour alone:
+  green-up is a Western convention and red means UP across much of East Asia.
+- [ ] Turn on the **patent / black-and-white** style. The chart must still distinguish
+  up from down — hollow versus filled bodies — with no green or red anywhere.
+- [ ] Rename the columns to something unrecognisable (`c1`, `c2`, `c3`, `c4`) but keep
+  them in open/high/low/close order. It must still draw, AND say it assumed the
+  conventional order and checked that against the data.
+- [ ] Now **swap two of those unnamed columns** so high is no longer the largest. The
+  chart must **REFUSE**, naming the row, and say that drawing it would produce candles
+  that look plausible and are wrong. This is the important one: a silent wrong reading
+  here is undetectable by eye.
+- [ ] Put a row where the **high is below the close**. That row must be skipped with a
+  note calling it a data error rather than a market event; the other rows still draw.
+- [ ] Leave one cell **blank**. That period must leave a gap rather than shifting the
+  later candles left — otherwise every subsequent candle is silently misdated.
+- [ ] A table with only two or three columns must be refused, saying what it found.
+- [ ] Load **120 periods**. Only some x labels should show, but every candle must be
+  drawn, and a note should say so.
+- [ ] **Export to PowerPoint** — it must go out as a picture, never as a bar or line
+  chart.
 
 ---
 

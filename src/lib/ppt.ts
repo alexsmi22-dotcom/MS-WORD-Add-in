@@ -246,14 +246,15 @@ export async function buildTablePptx(chart: TableChart, kind: ChartKind, opts: T
     // chartImage branch above is for, and reaching here with a heat map means the
     // caller forgot to ask for one. Refusing beats silently shipping a bar chart
     // labelled as a heat map.
-    if (kind === "heatmap") {
+    if (kind === "heatmap" || kind === "candlestick") {
       throw new Error(
-        "A heat map cannot be exported as a native PowerPoint chart — PowerPoint has no such " +
-          "chart type, and substituting a bar or line chart would present different information " +
-          "under the same title. Export it as a picture instead.",
+        `A ${kind === "heatmap" ? "heat map" : "candlestick chart"} cannot be exported as a ` +
+          "native PowerPoint chart — PowerPoint has no such chart type, and substituting a bar " +
+          "or line chart would present different information under the same title. Export it as " +
+          "a picture instead.",
       );
     }
-    const typeMap: Record<Exclude<ChartKind, "heatmap">, pptxgen.CHART_NAME> = {
+    const typeMap: Record<Exclude<ChartKind, "heatmap" | "candlestick">, pptxgen.CHART_NAME> = {
       column: pptx.ChartType.bar,
       bar: pptx.ChartType.bar,
       line: pptx.ChartType.line,
@@ -269,7 +270,7 @@ export async function buildTablePptx(chart: TableChart, kind: ChartKind, opts: T
     };
     const isStacked = kind === "stacked-column" || kind === "stacked-bar" || kind === "stacked-area";
 
-    slide.addChart(typeMap[kind as Exclude<ChartKind, "heatmap">], data, {
+    slide.addChart(typeMap[kind as Exclude<ChartKind, "heatmap" | "candlestick">], data, {
       x: 0.4,
       y: areaY,
       w: 9.2,

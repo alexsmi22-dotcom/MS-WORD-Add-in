@@ -13,6 +13,7 @@
 
 import { niceStep, fmtTick } from "./plot";
 import { buildHeatmapSvg } from "./heatmap";
+import { buildCandlestickSvg } from "./candlestick";
 
 export type ChartKind =
   | "column"
@@ -25,7 +26,8 @@ export type ChartKind =
   | "stacked-area"
   | "pie"
   | "doughnut"
-  | "heatmap";
+  | "heatmap"
+  | "candlestick";
 
 export interface ChartStyle {
   /** Black-&-white patent-drawing rendering (hatching, dashed lines, markers). */
@@ -337,10 +339,54 @@ function markerSvg(i: number, cx: number, cy: number): string {
  * Renders the chart as SVG — the task-pane preview, the inserted Word figure,
  * and the patent-style PPT image all use this.
  */
+/**
+ * A figure that SAYS why it is empty.
+ *
+ * A refusal rendered as a blank frame is indistinguishable from a bug, and the reader
+ * has no way to act on it. The message goes into the picture so it survives being
+ * inserted into the document.
+ */
+function errorSvg(message: string, W: number, H: number): string {
+  const words = message.split(/\s+/);
+  const lines: string[] = [];
+  let cur = "";
+  const perLine = Math.max(20, Math.floor((W - 40) / 6.2));
+  for (const w of words) {
+    if ((cur + " " + w).trim().length > perLine) {
+      lines.push(cur.trim());
+      cur = w;
+    } else cur += ` ${w}`;
+  }
+  if (cur.trim()) lines.push(cur.trim());
+  const esc2 = (t: string): string =>
+    t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const body = lines
+    .slice(0, 12)
+    .map((t, i) => `<text x="20" y="${44 + i * 15}" font-family="Segoe UI, Arial, sans-serif" font-size="11" fill="#52514e">${esc2(t)}</text>`)
+    .join("");
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">` +
+    `<rect width="${W}" height="${H}" fill="#fcfcfb"/>` +
+    `<text x="20" y="26" font-family="Segoe UI, Arial, sans-serif" font-size="12" font-weight="600" fill="#0b0b0b">This chart cannot be drawn</text>` +
+    body +
+    `</svg>`
+  );
+}
+
 export function buildChartPreviewSvg(chart: TableChart, kind: ChartKind, title = "", style: ChartStyle = {}): string {
   const W = 380;
   const figLabel = (style.figLabel ?? "").trim();
   const H = 260 + (figLabel ? 26 : 0);
+  if (kind === "candlestick") {
+    // Four numeric columns per row, not one value per series, so it has its own
+    // renderer and its own column identification.
+    const r = buildCandlestickSvg(chart, title, { grey: style.patent === true }, W, H);
+    if (r.error) {
+      // A refusal must be VISIBLE in the figure, not swallowed into a blank frame.
+      return errorSvg(r.error, W, H);
+    }
+    return r.svg;
+  }
   if (kind === "heatmap") {
     // A heat map is neither an axis chart nor a pie: rows AND columns are both
     // categorical and the value is the fill, so it has its own renderer.

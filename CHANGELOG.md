@@ -5,6 +5,67 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > Note: this file was not maintained between v1.96.0 and v2.23.0. Those releases
 > are recorded in the git history rather than here.
 
+## [2.49.0] — 2026-07-30 — Candlestick (OHLC) charts
+
+Second of the three wishlist features. One candle per row from four numeric columns —
+where each period opened and closed, and how far it ranged in between. No existing
+chart here carried four numbers per period: a line of closes throws the range away, a
+bar of closes throws away the direction too.
+
+### The convention is stated, not assumed
+
+Green-up/red-down is a **Western** convention. Across much of East Asia red means UP.
+A chart that leans on colour alone is therefore ambiguous to a large part of its
+audience before colour blindness or a photocopier enters into it.
+
+So direction is carried FIRST by the body — **hollow for up, filled for down**, which
+is the older Japanese convention and survives greyscale — with colour as reinforcement
+only, and a legend that says which is which in words. The red-is-up convention is
+available as an option, and the legend follows it either way, which is the point of
+having the option rather than a preference buried in code.
+
+Asserted rather than asserted-to: the black-and-white rendering is tested to contain
+no green or red at all and still distinguish the two directions.
+
+### The columns are identified, not guessed
+
+Reading open/high/low/close in the wrong order produces candles that look entirely
+ordinary and are wrong — there is nothing to notice by eye. So names come first
+(`Open`, `O`, `Open Price`, `Adj Close`, `Last`, and so on), and position is a
+fallback **only when the OHLC invariants then hold on every row**: high really is the
+largest of the four, low the smallest. A table whose columns are in another order
+fails that check and is refused, naming the row that proved it.
+
+The name matching is exact on a normalised name with only a trailing unit word
+stripped, deliberately **not** a prefix match: "Open Price" must resolve to open and
+**"Open Interest" must not** — that is a real futures column and a completely
+different quantity, and a prefix rule would have handed its figures to the renderer as
+prices.
+
+### What it refuses to draw
+
+A row whose high is below its close is impossible for a real period. That is a data
+error rather than a market event, so no candle is drawn for it and the count is
+reported. A row missing one of its four values leaves a **gap** rather than closing up
+— shifting the later candles left would silently misdate every one of them.
+
+A refusal is drawn INTO the figure rather than returning a blank frame, because a
+blank frame is indistinguishable from a bug and gives the reader nothing to act on.
+
+### The thing deliberately left out
+
+**Volume on a second y-axis.** It is the obvious addition and the wrong one: two
+y-scales on one plot make their alignment arbitrary and invent a correlation the data
+does not contain — the single most common charting error. If volume is wanted it
+belongs in its own panel sharing the x-axis, which is a separate change rather than a
+second scale.
+
+PowerPoint export ships a picture and refuses the native path, as heat maps do —
+PowerPoint has no candlestick type and substituting a bar chart would present
+different information under the same title.
+
+6,699 tests across 220 files. All twelve QC gates pass.
+
 ## [2.48.0] — 2026-07-30 — Heat maps
 
 First of the three features on the wishlist. A numeric table rendered as a grid of

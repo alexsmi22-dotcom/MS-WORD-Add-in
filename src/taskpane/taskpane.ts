@@ -2591,7 +2591,7 @@ function isPictureKind(kind: RenderKind): boolean {
   // refuses rather than substituting a bar chart under the same title. Getting this
   // wrong would not error, it would export a different chart, so the two decisions
   // are kept consistent here rather than left to line up by luck.
-  return isRowKind(kind) || kind === "heatmap";
+  return isRowKind(kind) || kind === "heatmap" || kind === "candlestick";
 }
 
 /** Reads the table the cursor / selection sits in and parses it. */

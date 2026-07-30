@@ -108,6 +108,50 @@ function settles(vals: number[]): { value: number } | { diverges: 1 | -1 } | nul
   const shrinking = tail.every((v, i) => i === 0 || Math.abs(v) < Math.abs(tail[i - 1]));
   if (shrinking && Math.abs(last) < 1e-9) return { value: 0 };
   const spread = maxOf(tail) - minOf(tail);
+
+  // OSCILLATION IS SCALE-FREE, AND SO THIS TEST MUST BE.
+  //
+  // The convergence test was `spread <= 1e-4 * (1 + |last|)`. That `1 +` is an
+  // absolute floor bolted onto a relative tolerance, and the floor is what does the
+  // damage: any tail whose values are all smaller than about 1e-4 passes it no
+  // matter how wildly it swings. So multiplying an expression by a positive
+  // constant changed whether it had a limit at all:
+  //
+  //     limit sin(1/x)      as x -> 0   ->  undetermined   (correct)
+  //     limit 1e-3*sin(1/x) as x -> 0   ->  undetermined   (correct)
+  //     limit 1e-5*sin(1/x) as x -> 0   ->  -6.11e-6       WRONG
+  //     limit 1e-9*sin(1/x) as x -> 0   ->  -6.11e-10      WRONG
+  //
+  // A constant factor cannot create or destroy a limit. The band between 1e-3 and
+  // 1e-5 is why no test found this: inputs on either side behave differently and
+  // sampling either side certifies the bug.
+  //
+  // So the tail's spread is judged against the tail's OWN magnitude, which is
+  // invariant under scaling. That leaves one genuine case to separate: a tail that
+  // oscillates with a DECAYING envelope really does converge to zero — x*sin(1/x)
+  // is the standard example — while one with a steady envelope has no limit. The
+  // discriminator is the envelope trend, comparing the first half of the tail with
+  // the second, and it is scale-free for the same reason.
+  // A SIGN CHANGE IS WHAT MAKES IT AN OSCILLATION.
+  //
+  // Requiring one is not decoration — without it this branch fired on tails ruined
+  // by CANCELLATION rather than by oscillation, and broke a correct answer.
+  // (1-cos(x))/x^2 tends to 1/2, but for x below about 1e-8 the double nearest
+  // cos(x) is exactly 1, so 1-cos(x) evaluates to 0 and the sampled tail reads
+  // [0.5, 0.5, 0, 0]. That looks exactly like a decaying envelope and the limit came
+  // back as 0. The tail never changes sign, so it was never an oscillation.
+  const signChanges = tail.filter(
+    (v, i) => i > 0 && v !== 0 && tail[i - 1] !== 0 && v > 0 !== tail[i - 1] > 0,
+  ).length;
+  const amp = maxOf(tail.map(Math.abs));
+  if (signChanges > 0 && amp > 0 && spread > 0.01 * amp) {
+    const half = Math.floor(tail.length / 2);
+    const early = maxOf(tail.slice(0, half).map(Math.abs));
+    const late = maxOf(tail.slice(half).map(Math.abs));
+    if (early > 0 && late < 0.1 * early) return { value: 0 };
+    return null; // oscillating with a steady envelope: no limit
+  }
+
   if (spread <= 1e-4 * (1 + Math.abs(last))) return { value: last };
   // A tail marching steadily toward zero IS a limit of zero, even if the last
   // few values are still spread out on an absolute scale.

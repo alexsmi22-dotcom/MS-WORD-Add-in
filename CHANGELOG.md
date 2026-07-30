@@ -5,6 +5,103 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > Note: this file was not maintained between v1.96.0 and v2.23.0. Those releases
 > are recorded in the git history rather than here.
 
+## [2.43.0] — 2026-07-29 — The A tier is empty: limits, a dozen restored integrals, and a 20-second freeze
+
+Four more from `docs/KNOWN-DEFECTS.md`, and with them **every defect that produced a
+wrong number presented as correct is now closed** — A1 through A12, each with its
+reproduction moved into a named test rather than merely patched.
+
+### A8 was already fixed, and that is worth recording
+
+`limit x^2 as x -> 0.0001` printed `= 0` for an answer of 1e-8, and one case printed
+a headline contradicting the step line directly beneath it. Reproducing it first —
+the habit this round of work has settled into — showed all three reported cases now
+return correct values. The symptom was the **six-decimal-place rounding in `fmtNum`**
+removed in v2.43.0's predecessor v2.40.0, not a fault in the limit engine at all.
+Fixing the display fixed the arithmetic that was being displayed. The three cases are
+pinned so it stays fixed.
+
+### A constant factor cannot create or destroy a limit
+
+The convergence test was `spread <= 1e-4 * (1 + |last|)`. That `1 +` is an absolute
+floor bolted onto a relative tolerance, and the floor did the damage: **any** tail
+whose values were below about 1e-4 passed it however wildly it swung. So:
+
+| typed | before | now |
+|---|---|---|
+| `limit sin(1/x) as x -> 0` | undetermined | undetermined |
+| `limit 1e-3*sin(1/x) as x -> 0` | undetermined | undetermined |
+| `limit 1e-5*sin(1/x) as x -> 0` | **−6.11e-6** | undetermined |
+| `limit 1e-9*sin(1/x) as x -> 0` | **−6.11e-10** | undetermined |
+
+Multiplying by a positive constant changed whether a limit existed. The spread is now
+judged against the tail's own magnitude, which is invariant under scaling, and the
+envelope trend separates the one case that genuinely converges — `x*sin(1/x)`, whose
+oscillation decays — from one with a steady envelope, which has no limit. Asserted
+across eight scale factors from 1 down to 1e-30, in both directions.
+
+**The fix broke a correct answer before it was right**, which is worth setting down.
+`(1-cos(x))/x^2` tends to ½, but below x ≈ 1e-8 the nearest double to cos(x) is
+exactly 1, so `1-cos(x)` evaluates to 0 and the sampled tail reads [0.5, 0.5, 0, 0].
+That is indistinguishable from a decaying envelope, and the limit came back as 0. The
+tail never changes SIGN, though — so requiring a genuine sign change before treating a
+tail as an oscillation separates cancellation damage from oscillation. Caught by
+putting `(1-cos(x))/x^2` in the "must be untouched" list rather than only testing the
+cases that were broken.
+
+### A dozen textbook integrals were being refused
+
+Partial-fraction integration divided its result by the denominator's leading
+coefficient — which the basis polynomials already carry, since the factors are built
+monic and the coefficient-matching system absorbs it into the solved numerators. The
+answer came out wrong by that factor, the self-verification gate correctly rejected
+it, and the integrator returned null. Silently refused before this:
+
+`1/(2x+3)`, `1/(4x²−1)`, `1/(3x²+5x+2)`, `x/(2x+1)`, `1/(9x²+1)`, `1/(6x²−5x+1)`,
+`5/(2x²+3x+1)`, `1/(3−2x)`, `1/(4x²+4x+2)`, `(x²+1)/(2x+1)`.
+
+Every monic sibling worked — which is every test that existed, and why nothing caught
+it.
+
+**It was broader than reported.** The behavioural baseline flagged `1/(x-0.5)`
+changing too, which is monic as typed: a decimal coefficient becomes non-monic under
+exact-rational rescaling, so *every* decimal denominator was affected as well.
+`1/(x-0.5)` over [2, 3] is now exact and reads 0.5108256238, which is ln(2.5/1.5).
+
+And the values are confirmed by something better than a hand check: the baseline shows
+each of these moving from "adaptive Simpson" to "exact (symbolic)" with the value
+**identical to ten significant figures**. The numeric path had been quietly covering
+for the exact one, and the two now agree.
+
+### Twenty seconds of frozen Word, per keystroke
+
+The rational-root search capped how far trial division looked for divisors. It did not
+cap the **cross product** of those divisors, which is what actually gets evaluated.
+For a constant term of 963761198400 — 6720 divisors, 905 within the search bound —
+that product reached 1,638,050 exact BigInt-rational evaluations, once per degree:
+
+| | before | now |
+|---|---|---|
+| `ratPolyRoots([H, H+1, H])` | 1710 ms | **34 ms** |
+| `integrate(1/(H·x²+(H+1)x+H), 0, 1)` | 2408 ms | 22 ms |
+| `integrate(1/(H·x⁸+(H+1)x+H), 0, 1)` | **20639 ms** | **286 ms** |
+
+This is the catalogued lesson once more: a clamp that bounds the search does not bound
+the time. The candidate set itself is capped now, and a truncated search reports
+`incomplete` rather than returning nothing — because "no rational roots found" and
+"no rational roots exist" are different statements, and conflating them puts a
+falsehood where a result should be. Ordinary polynomials are unaffected and marked
+complete.
+
+### One arithmetic slip, in the test rather than the code
+
+The expected value for `∫₂³ dx/(x²−1)` was written as ½ln((1/2)/(2/4)), which is
+½ln(1) = 0. The correct figure is ½[ln(2/4) − ln(1/3)] = 0.2027325541. Recorded
+because a test with a wrong expectation is worse than no test: it would have failed
+against correct code and invited someone to "fix" the code to match.
+
+6,517 tests across 215 files. All twelve QC gates pass.
+
 ## [2.42.0] — 2026-07-29 — Pharmacokinetics: the missing area, flip-flop, and absorption
 
 Batch 3 from `docs/KNOWN-DEFECTS.md`. Three defects, each quantified before being

@@ -38,6 +38,13 @@ Each was closed with its reproduction moved into a named test, not merely patche
 | **A5** the NCA area ran from the FIRST SAMPLE, so dosing-to-first-sample was missing; clearance error grew from 1% (first sample 0.25 h) to **98%** (4 h), unflagged | IV back-extrapolates C0 log-linearly and integrates the fitted exponential; oral uses C(0) = 0, which is exact. Error is now independent of when sampling started, and converges to 0.00% as sampling densifies — proving the remainder is trapezoidal discretisation | `pkNca.test.ts` |
 | **A6** an oral terminal slope may be ABSORPTION; `ka=1.0/ke=0.1` and `ka=0.1/ke=1.0` both reported t½ = 6.93 when the second one's true elimination t½ is 0.693 | every oral result carries a flip-flop warning naming the ten-fold case, saying an IV reference is needed, and to read it as the slower of the two rate constants | `pkNca.test.ts` |
 | **A7** the steady-state peak used F·Dose/Vd — instantaneous input — and silently ignored a supplied absorption rate, overstating the peak by **21% to 97%** | the standard multiple-dose oral solution at its own tmax, verified to 1e-6 against a superposition simulation at five (ka, ke) pairs; without ka the assumption is stated and the peak called an upper bound; a `ka` field added to the pane so the corrected path is reachable | `pkNca.test.ts` |
+| **A8** `limit x^2 as x -> 0.0001` printed `= 0` for an answer of 1e-8, and one case printed a headline contradicting the step line beneath it | **already fixed** by the `fmtNum` change in v2.40.0 — the symptom was 6-decimal-place rounding, not a limit error. All three reported cases pinned so it stays fixed | `limitsAndCas.test.ts` |
+| **A9** the convergence test `spread <= 1e-4*(1 + \|last\|)` had an absolute floor, so any tail below ~1e-4 passed however wildly it swung: `1e-5*sin(1/x)` returned −6.11e-6 where `sin(1/x)` was correctly undetermined | judged against the tail's OWN magnitude, which is scale-invariant, with the envelope trend separating a decaying oscillation (limit 0) from a steady one (no limit). Eight scale factors from 1 to 1e-30 asserted | `limitsAndCas.test.ts` |
+| **B7** partial fractions divided by the denominator's leading coefficient, which the basis polynomials already carry, so the verification gate rejected every result and a dozen textbook integrals were refused | the erroneous division removed. **Broader than reported**: it also affected every DECIMAL coefficient, since those become non-monic under exact-rational rescaling. Values confirmed identical to 10 significant figures against the numeric path that was picking up the slack | `limitsAndCas.test.ts` |
+| **B9** the rational-root cap bounded the divisor SEARCH but not the CROSS PRODUCT, reaching 1.6M exact BigInt evaluations per degree — **20.6 s** of synchronous work per keystroke | the product itself is capped, and a truncated search now reports `incomplete` rather than implying no rational roots exist. 1710 ms → 34 ms; the degree-8 integral 20639 ms → 286 ms | `limitsAndCas.test.ts` |
+
+**The A tier is now empty.** Every defect that produced a wrong number presented as
+correct has been closed, each with its reproduction moved into a named test.
 
 A **behavioural baseline** now covers 300+ inputs across the solve, integrate and
 differentiate surface (`solveBaseline.test.ts`). It is not an oracle — it does not
@@ -61,36 +68,13 @@ zero. Every threshold, absolute or relative, deletes a real root somewhere.
 
 ## A — wrong numbers
 
-### A8. Limits: the reported answer contradicts its own working
-`src/lib/analysis.ts:296`, surfaced at `src/taskpane/taskpane.ts:12246`, which
-prefers the symbolic `exact` string over the numeric `value`. There is a
-cross-check against direct substitution at line 219 for the numeric probe, and
-none for the symbolic one. Reproduced end to end:
+**Empty.** Every defect that produced a wrong number presented as correct has been
+closed — A1 through A12 — each with its reproduction moved into a named test rather
+than merely patched. See the table at the top for which test holds which closure.
 
-| typed | printed | true |
-|---|---|---|
-| `limit x^2 as x -> 0.0001` | `= 0` | `1e-8` |
-| `limit 0.5e-6 + x as x -> 0` | `= 0.000001` | `5e-7` |
-| `limit 1e-7 + x as x -> 0` | `= 0`, then "Direct substitution gives 1e-7" | `1e-7` |
-
-The third prints a headline that contradicts the step line directly beneath it,
-misquotes the expression as `x + 0`, and carries no caveat. No tiny constant needs
-to be typed — a small limit POINT is enough. Suspected root cause is the
-decimal→rational conversion inside the CAS.
-**Fix direction:** apply the same `direct` cross-check to the symbolic branch that
-line 219 already applies to the numeric one, and disagree loudly rather than
-picking one.
-
-### A9. Limits: an absolute floor invents a limit that does not exist
-`src/lib/analysis.ts:113`. The convergence test is `1e-4 * (1 + |last|)`.
-`limit sin(1/x) as x -> 0` correctly returns "undetermined";
-`limit 1e-5*sin(1/x) as x -> 0` returns **-6.112e-6** with only the generic
-"numeric only" caveat. Multiplying by a positive constant cannot change whether a
-limit exists. This is the `1 + |x|` absolute-floor shape this project has already
-been bitten by: it is not a relative tolerance, it is a relative tolerance with an
-absolute floor bolted on, and the floor is what does the damage.
-**Fix direction:** a purely relative criterion plus a separate oscillation test
-scale-invariant under multiplication.
+An entry belongs here only if it makes the product state something false about a
+number it computed. Anything that refuses work it could do, or says something untrue
+about HOW it computed, belongs in section B.
 
 ---
 
@@ -124,19 +108,6 @@ decidable; taking tension/compression from the rounded double throws that away
 for a member whose force is near zero. One line. Non-finite member forces are also
 reported rather than refused.
 
-### B7. CAS: `scale()` by the leading coefficient makes every non-monic rational integral unreachable
-`src/lib/casint.ts:274`. The coefficient-matching system already solves
-`num = Σ Aᵢ·(den/fᵢ)`, so the extra `1/lead` is wrong; the self-verification gate
-then rejects the candidate and the integrator returns null. Refused, all
-textbook-elementary: `1/(2x+3)`, `1/(4x²−1)`, `1/(3x²+5x+2)`, `x/(2x+1)`,
-`1/(9x²+1)` and more. **Every monic sibling succeeds — which is every existing
-test.** `polyPart` on line 272 is not scaled, so improper fractions are scaled
-inconsistently as well.
-This is degradation, not wrongness: all the victims route into the unverified
-`symbolicAntideriv` table, and 21 of them were checked against a 200001-point
-Simpson with a maximum relative error of 1.4e-14. No wrong values — just a CAS
-refusing work it can do.
-
 ### B8. CAS: the canonical correctness net does not apply to any `ln|·|` antiderivative
 `src/lib/casint.ts:14-19, 514` with `src/lib/solve.ts:245`.
 `simplify(d/dx ln|x|)` produces `x/abs(x)^2`, which never reduces to `1/x` because
@@ -146,26 +117,6 @@ fixed sample points with a `checked >= 3` floor. A guarantee gap, not a wrongnes
 one: 67 integrands swept on a grid deliberately disjoint from those samples
 produced zero wrong antiderivatives.
 **Fix direction:** give `abs` enough algebra for `abs(u)^2 → u^2`.
-
-### B9. CAS: 20 seconds of synchronous work from rational root finding
-`src/lib/cas.ts:1023-1037`. `ratPolyRoots` builds `divisors(a0) × divisors(an) × 2`
-as its candidate set. The `i <= 10000n` bound limits the divisor **search**, not
-the **cross product**. With a highly composite constant term the candidate set
-reaches 1.6 million BigInt-rational Horner evaluations *per degree*:
-
-| input | measured |
-|---|---|
-| `ratPolyRoots([H, H+1, H])` | 1710 ms |
-| `integrate("1/(H*x^2+(H+1)*x+H)", 0, 1)` | 2408 ms |
-| `integrate("1/(H*x^6+(H+1)*x+H)", 0, 1)` | 10881 ms |
-| `integrate("1/(H*x^8+(H+1)*x+H)", 0, 1)` | **20639 ms** |
-
-where H = 963761198400 (6720 divisors). Linear in degree with no cap. The comment
-on line 1027 — "a user-typed polynomial has small coefficients" — is the failing
-assumption. This is the catalogued lesson again: **a clamp that bounds the search
-does not bound the time.**
-**Fix direction:** cap the candidate set itself, and when the cap is hit say the
-rational-root search was incomplete rather than reporting "no rational roots".
 
 ### B11. Two parsers read the same text differently
 `src/lib/solve.ts:170` versus `src/lib/mathParse.ts:231-249`:

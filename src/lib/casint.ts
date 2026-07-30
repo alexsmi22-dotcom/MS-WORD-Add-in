@@ -225,7 +225,6 @@ function integrateRational(numIn: Rat[], denIn: Rat[], x: string): Expr | null {
   if (unknownCount !== degDen) return null;
 
   // Build the basis polynomials: den divided by this term's factor.
-  const leadScale = den[den.length - 1];
   const basis: Rat[][] = [];
   for (const t of terms) {
     let factor: Rat[];
@@ -271,7 +270,29 @@ function integrateRational(numIn: Rat[], denIn: Rat[], x: string): Expr | null {
   // Integrate each basis term.
   let out: Expr = polyPart;
   let si = 0;
-  const scale = (e: Expr): Expr => div(e, ratToExpr(leadScale));
+  // NO EXTRA SCALING. The leading coefficient is ALREADY ACCOUNTED FOR.
+  //
+  // The factors below are built MONIC — (x - root) and x^2 + bx + c — so each basis
+  // polynomial is den/f_i and carries den's leading coefficient with it. The
+  // coefficient-matching system then solves num = SUM A_i * (den/f_i), which means
+  // num/den = SUM A_i/f_i exactly. Dividing again by the leading coefficient makes
+  // the answer wrong by that factor, the self-verification gate correctly rejects
+  // it, and symbolicIntegrate returns null.
+  //
+  // The effect was a silently LOST CAPABILITY rather than a wrong number, and the
+  // reason no test caught it is that every monic sibling works — and every existing
+  // test used a monic denominator. Refused before this: 1/(2x+3), 1/(4x^2-1),
+  // 1/(3x^2+5x+2), x/(2x+1), 1/(9x^2+1), 1/(6x^2-5x+1), 5/(2x^2+3x+1),
+  // 1/(4x^2+4x+2), 1/(3-2x). All elementary.
+  //
+  // Worked through for 1/(2x+3): the single factor is (x + 3/2), the basis is
+  // [2], so 2*A0 = 1 and A0 = 1/2, giving (1/2)*ln|x + 3/2| — whose derivative is
+  // (1/2)/(x + 3/2) = 1/(2x+3). Correct. With the extra division it came out as
+  // (1/4)*ln|x + 3/2|, wrong by two.
+  //
+  // Consistency note: polyPart above was never scaled, so improper fractions were
+  // scaled inconsistently with proper ones. Removing this removes that too.
+  const scale = (e: Expr): Expr => e;
   for (const t of terms) {
     if (t.kind === "linear") {
       const A0 = sol[si++];

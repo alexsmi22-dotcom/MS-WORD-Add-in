@@ -1009,10 +1009,22 @@ export function ratPolyDivMod(a: Rat[], b: Rat[]): { q: Rat[]; r: Rat[] } {
  * over the integer-scaled coefficients — complete for rational roots, which
  * is what partial fractions needs.
  */
-export function ratPolyRoots(coeffs: Rat[]): { roots: { root: Rat; mult: number }[]; rest: Rat[] } {
+export function ratPolyRoots(coeffs: Rat[]): {
+  roots: { root: Rat; mult: number }[];
+  rest: Rat[];
+  /**
+   * True when the rational-root candidate set was CAPPED, so the search was not
+   * exhaustive and `rest` may still contain rational roots.
+   *
+   * The distinction matters: without it, a truncated search returning nothing is
+   * indistinguishable from a proof that no rational root exists — a false
+   * statement dressed as a result. Callers that rely on completeness must check it.
+   */
+  incomplete: boolean;
+} {
   let p = ratPolyTrim(coeffs);
   const roots: { root: Rat; mult: number }[] = [];
-  if (p.length < 2) return { roots, rest: p };
+  if (p.length < 2) return { roots, rest: p, incomplete: false };
 
   // Scale to integer coefficients so the rational-root theorem applies.
   let lcm = 1n;
@@ -1029,9 +1041,40 @@ export function ratPolyRoots(coeffs: Rat[]): { roots: { root: Rat; mult: number 
     for (let i = 1n; i <= v && i <= 10000n; i++) if (v % i === 0n) out.push(i);
     return out;
   };
+  // CAP THE CANDIDATE SET, NOT JUST THE DIVISOR SEARCH.
+  //
+  // The bound inside `divisors` limits how far trial division looks; it does NOT
+  // limit the CROSS PRODUCT built here, which is divisors(a0) x divisors(an) x 2.
+  // With a highly composite constant term the two are wildly different: for
+  // H = 963761198400 there are 6720 divisors, 905 of them at or below 10000, and
+  // the product reaches 1,638,050 candidates — each one an exact BigInt-rational
+  // Horner evaluation, repeated once per degree. Measured before this cap:
+  //
+  //     ratPolyRoots([H, H+1, H])                          1710 ms
+  //     integrate("1/(H*x^2+(H+1)*x+H)", 0, 1)             2408 ms
+  //     integrate("1/(H*x^6+(H+1)*x+H)", 0, 1)            10881 ms
+  //     integrate("1/(H*x^8+(H+1)*x+H)", 0, 1)            20639 ms
+  //
+  // Twenty seconds of synchronous work in a task pane is a frozen Word, and it
+  // recomputes on every keystroke. The comment on the divisor loop — "a user-typed
+  // polynomial has small coefficients" — is the assumption that fails, and
+  // `gcd(H, H+1) = 1` means the coprime rescaling upstream cannot shrink it either.
+  //
+  // This is the catalogued lesson again: A CLAMP THAT BOUNDS THE SEARCH DOES NOT
+  // BOUND THE TIME. So the product itself is capped, and when the cap is hit the
+  // caller is told the search was INCOMPLETE rather than being handed "no rational
+  // roots" — which would be a false statement dressed as a result.
+  const MAX_CANDIDATES = 20000;
   const candidates: Rat[] = [];
-  for (const pnum of divisors(a0)) {
-    for (const qden of divisors(an)) {
+  let candidatesTruncated = false;
+  const numDivisors = divisors(a0);
+  const denDivisors = divisors(an);
+  outer: for (const pnum of numDivisors) {
+    for (const qden of denDivisors) {
+      if (candidates.length + 2 > MAX_CANDIDATES) {
+        candidatesTruncated = true;
+        break outer;
+      }
       candidates.push(qMake(pnum, qden), qMake(-pnum, qden));
     }
   }
@@ -1049,7 +1092,7 @@ export function ratPolyRoots(coeffs: Rat[]): { roots: { root: Rat; mult: number 
     }
     if (mult) roots.push({ root: c, mult });
   }
-  return { roots, rest: p };
+  return { roots, rest: p, incomplete: candidatesTruncated };
 }
 
 /** Does the (composite) atom's expression mention variable `x`? */

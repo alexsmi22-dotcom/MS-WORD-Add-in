@@ -769,6 +769,16 @@ function numericRealRoots(f: (x: number) => number, lo: number, hi: number, step
     // is far smaller still. At a pole, |f(m)| is comparable to or larger than the
     // neighbourhood and both are enormous. The 1e-6 factor is the margin.
     if (near > 0 && Math.abs(fm) > near * 1e-6) return false;
+    // CANCELLATION NOISE IS NOT A ROOT EITHER.
+    //
+    // `cosh(x)^2 - sinh(x)^2 = 1` is an identity, but the two squares are ~1e86 at
+    // x = 100, so the computed difference is rounding dust of order 1e70 — the true
+    // answer of 1 is far below the noise. Wherever that dust happens to land on
+    // zero, the scan called it a root: 33 of them. A genuine root of a typed
+    // equation has |f| just off the root of order |f'|*h, which is modest; a
+    // function that swings by 1e15 within a hair's breadth of its "root" is not
+    // being evaluated accurately enough for the answer to mean anything.
+    if (near > 1e15) return false;
     return Math.abs(fm) < 1e-6 * Math.max(1, near);
   };
 
@@ -1002,39 +1012,101 @@ export function solveEquation(input: string, variable?: string, range = 1000): E
     try { return evalAst(f, { [x]: xv }); } catch { return NaN; }
   };
 
-  // IS IT AN IDENTITY? ASK BEFORE SCANNING, NOT AFTER.
+  // IS IT AN IDENTITY? ASK BEFORE SCANNING, AND ASK RELATIVE TO THE TWO SIDES.
   //
-  // `(x-1)/(x-1) = 1` was reported as method "numeric (transcendental)" with
-  // FOUR THOUSAND roots — "1000, 999.5, 999, …" — and took about 2.9 seconds
-  // doing it. Same for `x/x = 1` and `sin(x)/sin(x) = 1`. The path there:
-  // polyCoeffs returns null for any non-constant denominator, the rational
-  // solver bails because the numerator normalises to zero, so f is identically 0
-  // when it reaches the scanner, every grid point passes |f| < 1e-10, and the
-  // 1e-6 dedupe never fires against 0.5 spacing.
+  // `(x-1)/(x-1) = 1` was reported as method "numeric (transcendental)" with FOUR
+  // THOUSAND roots — "1000, 999.5, 999, …" — taking about 2.9 seconds. polyCoeffs
+  // returns null for a non-constant denominator, the rational solver bails because
+  // the numerator normalises to zero, so f is identically 0 when it reaches the
+  // scanner, every grid point passes |f| < 1e-10, and the 1e-6 dedupe never fires
+  // against 0.5 spacing.
   //
-  // The polynomial branch above already answers this correctly when it can reduce
-  // the equation — it reports "identity". This gives the transcendental branch the
-  // same answer instead of enumerating the grid.
+  // THE FIRST VERSION OF THIS CHECK TESTED f === 0 EXACTLY, and that was a fix
+  // spelled to the three examples in the bug report. Those three cancel exactly in
+  // binary. The identities a person actually types do not:
   //
-  // Sampled at irrational offsets so a function that merely has zeros ON the grid
-  // is not mistaken for one that is zero everywhere.
-  const identityProbe: number[] = [];
-  for (let i = 0; i < 41; i++) {
-    const t = -range + ((2 * range) * (i + 0.381966011250105)) / 41;
-    identityProbe.push(fNum(t));
+  //   sin(x)^2 + cos(x)^2 = 1        evaluates to ±1.1e-16, not 0  -> 3620 "roots"
+  //   cosh(x)^2 - sinh(x)^2 = 1      likewise                      ->   33 "roots"
+  //   exp(ln(x)) = x                 likewise                      ->  852 "roots"
+  //
+  // So the question has to be asked relative to the SIZE OF THE TWO SIDES, not
+  // against zero. |lhs − rhs| below a few epsilon of |lhs| + |rhs| is as equal as
+  // double arithmetic can report, and exact equality is merely the special case
+  // where the cancellation happened to be lucky. Evaluating the sides separately
+  // is what makes that possible, and both are already to hand.
+  //
+  // NESTED SCALES, because a wide sweep alone cannot see these functions at all.
+  // `cosh(x)^2 - sinh(x)^2 = 1` is an identity, but cosh(x)^2 overflows to
+  // Infinity beyond x ~ 355, so only about 14 of 41 samples over [-1000, 1000] are
+  // even computable — below any sensible quorum, so the check abstained and 33
+  // fabricated roots came back. Sampling [-1, 1] and [-10, 10] as well puts plenty
+  // of points where the functions are finite, without narrowing the wide sweep that
+  // catches identities only true over a large range.
+  const sideAt = (t: number): { diff: number; scale: number } | null => {
+    let l: number, r: number;
+    try {
+      l = evalAst(lhs, { [x]: t });
+      r = evalAst(rhs, { [x]: t });
+    } catch {
+      return null;
+    }
+    if (!Number.isFinite(l) || !Number.isFinite(r)) return null;
+    return { diff: Math.abs(l - r), scale: Math.abs(l) + Math.abs(r) };
+  };
+  /**
+   * True when the two sides agree to within double precision at `t`, relative to
+   * their own magnitudes.
+   *
+   * Relative to the SIDES, not to zero — that is the whole point. Testing
+   * `f === 0` exactly only worked for the three examples in the original bug
+   * report, because those cancel exactly in binary; the identities a person
+   * actually types do not. `sin(x)^2 + cos(x)^2 - 1` evaluates to +/-1.1e-16 at
+   * most doubles, and that produced 3620 "roots".
+   *
+   * KNOWN LIMIT, recorded in docs/KNOWN-DEFECTS.md rather than papered over: this
+   * cannot see an identity whose evaluation is dominated by CATASTROPHIC
+   * CANCELLATION. `cosh(x)^2 - sinh(x)^2 = 1` is the example — at x = 18 both
+   * squares are about 1.1e15, so the computed difference carries roughly 0.25 of
+   * rounding dust while the true answer is 1, and no tolerance derived from the
+   * final magnitudes can distinguish that from a root. Measuring the dust by
+   * perturbing x was tried and abandoned: the estimate is itself a random quantity,
+   * and the version of it that finally passed the cosh case also reported
+   * `tan(x) = 2` and `exp(x) = 2` as identities. A predicate I cannot validate is
+   * worse than a limit I can state.
+   */
+  const sidesAgreeAt = (t: number): boolean | null => {
+    const p = sideAt(t);
+    if (p === null) return null;
+    return p.diff <= Math.max(p.scale, 1) * Number.EPSILON * 64;
+  };
+  const sideProbe: Array<{ agrees: boolean }> = [];
+  for (const span of [range, 10, 1]) {
+    for (let i = 0; i < 41; i++) {
+      // Irrational offsets, so a function that merely has zeros ON the grid — like
+      // sin(x) = 0 — is never mistaken for one that is zero everywhere.
+      const t = -span + ((2 * span) * (i + 0.381966011250105)) / 41;
+      const v = sidesAgreeAt(t);
+      if (v !== null) sideProbe.push({ agrees: v });
+    }
   }
-  const defined = identityProbe.filter((v) => Number.isFinite(v));
-  if (defined.length >= 20 && defined.every((v) => v === 0)) {
+  const agreesEverywhere =
+    sideProbe.length >= 30 &&
+    sideProbe.every((p) => p.agrees);
+  if (agreesEverywhere) {
     return {
       variable: x,
       roots: [],
       method: "identity",
-      steps: [`Both sides are equal for every ${x} where they are defined.`],
+      steps: [
+        `Both sides agree to within double precision at ${sideProbe.length} sample points ` +
+          `across [−${range}, ${range}].`,
+      ],
       caveats: [
         `Every value of ${x} satisfies this equation (an identity), so there is no ` +
           `particular root to report.` +
-          (defined.length < identityProbe.length
-            ? ` Note that the expression is undefined at some points — where a denominator vanishes — and those are excluded.`
+          (sideProbe.length < 41
+            ? ` The expression is undefined at some points — where a denominator vanishes, ` +
+              `for example — and those are excluded.`
             : ""),
       ],
       unknowns: vars,
@@ -1046,21 +1118,77 @@ export function solveEquation(input: string, variable?: string, range = 1000): E
   const roots = numericRealRoots(fNum, -range, range);
   caveats.push(`Numeric solution: only real roots this method could bracket in [−${range}, ${range}] are reported; it can miss roots that are complex, tangential, or outside the range.`);
   // A RUN of grid points that are all numerically zero is not a set of isolated
-  // roots. `exp(x) = 0` has no solution at all, but exp underflows to 0 below
-  // about x = -745, so the scan reported hundreds of "roots" spaced 0.5 apart out
-  // in the underflow region. Enumerating them as separate answers is never right,
-  // and the honest thing is to say the values are at the limit of what a double
-  // can represent.
+  // roots, and it must be WITHHELD rather than warned about.
+  //
+  // `exp(x) = 0` has no solution at all, but exp underflows to zero below about
+  // x = -745, so the scan came back with 510 "roots" spaced 0.5 apart out in the
+  // underflow region. The first attempt at this attached a warning and returned
+  // the list anyway — but v2.39.0 already settled that argument in the other
+  // direction, when `sqrt(x)^2` over [-1, 1] was upgraded from a caveated number
+  // to a refusal on the grounds that a caveated number is still a number in the
+  // document. 510 of them is the same mistake at scale.
+  //
+  // The signature is unmistakable: candidates arriving at the scan's own grid
+  // spacing means the expression is numerically zero across an interval, not at
+  // isolated points. No real equation has roots at exactly the resolution of the
+  // instrument looking for them.
   if (roots.length > 20) {
     const spread = Math.abs(roots[0].re - roots[roots.length - 1].re);
-    const expectedGap = spread / Math.max(1, roots.length - 1);
-    if (expectedGap < (2 * range) / 4000 * 1.5) {
-      caveats.push(
-        `WARNING: ${roots.length} candidate roots came back at essentially the scan's own ` +
-          `grid spacing, which is the signature of an expression that is numerically zero ` +
-          `across a whole interval rather than at isolated points — underflow, for example. ` +
-          `Treat this as "no reliable root found" rather than as ${roots.length} answers.`,
-      );
+    const gap = spread / Math.max(1, roots.length - 1);
+    if (gap < ((2 * range) / 4000) * 1.5) {
+      // A dense run has two possible causes and they deserve different answers.
+      // `ln(exp(x)) = x` IS an identity; it failed the probe above only because
+      // exp(x) goes denormal near x = -740, where ln loses enough precision that
+      // one sample disagrees. Checking agreement across the span where the run was
+      // actually found separates that from `exp(x) = 0`, where the two sides do not
+      // agree anywhere except in the underflow region itself.
+      const lo2 = Math.min(roots[0].re, roots[roots.length - 1].re);
+      const hi2 = Math.max(roots[0].re, roots[roots.length - 1].re);
+      let agree = 0;
+      let disagree = 0;
+      for (let i = 0; i < 25; i++) {
+        const t = lo2 + ((hi2 - lo2) * (i + 0.381966011250105)) / 25;
+        const v = sidesAgreeAt(t);
+        if (v === true) agree++;
+        else if (v === false) disagree++;
+      }
+      // Also ask away from the run: an identity holds everywhere, underflow does not.
+      let outsideAgree = 0;
+      for (const t of [0.5, 1.5, -1.5, 3.25, -3.25, 7.5, -7.5]) {
+        if (sidesAgreeAt(t) === true) outsideAgree++;
+      }
+      if (disagree === 0 && agree >= 10 && outsideAgree >= 5) {
+        return {
+          variable: x,
+          roots: [],
+          method: "identity",
+          steps,
+          caveats: [
+            `Every value of ${x} satisfies this equation (an identity), so there is no ` +
+              `particular root to report. The two sides agree to within double precision ` +
+              `everywhere they can both be evaluated, though at the extremes of the range ` +
+              `one of them overflows or falls below the smallest representable number.`,
+          ],
+          unknowns: vars,
+        };
+      }
+      return {
+        variable: x,
+        roots: [],
+        method: "no reliable root found",
+        steps,
+        caveats: [
+          `${roots.length} candidate roots came back at essentially the scan's own grid ` +
+            `spacing, which means this expression is numerically zero across a whole ` +
+            `interval rather than at isolated points — underflow is the usual cause, as in ` +
+            `exp(x) = 0, where exp falls below the smallest representable double near ` +
+            `${x} ≈ −745 without ever actually reaching zero. None of those values is ` +
+            `reported, because they are artefacts of double precision rather than ` +
+            `solutions. If you expected a root here, the equation may have no real ` +
+            `solution at all.`,
+        ],
+        unknowns: vars,
+      };
     }
   }
   return { variable: x, roots, method: "numeric (transcendental)", steps, caveats };

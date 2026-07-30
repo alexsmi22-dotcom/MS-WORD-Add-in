@@ -205,6 +205,64 @@ describe("an identity is an identity, not four thousand roots", () => {
     expect(Date.now() - t0).toBeLessThan(500);
   });
 
+  test("the identities a person actually TYPES, not just the ones in the bug report", () => {
+    // The first version of this fix tested `f === 0` exactly, and passed only
+    // because the report's three examples cancel exactly in binary. These do not —
+    // sin^2 + cos^2 - 1 evaluates to +/-1.1e-16 at most doubles — and every one of
+    // them came back as hundreds or thousands of "roots":
+    //   sin(x)^2 + cos(x)^2 = 1   ->  3620
+    //   exp(ln(x)) = x            ->   852
+    // That is the self-written-adversarial-test failure mode exactly: the fix was
+    // spelled to the examples it was given.
+    for (const eq of [
+      "sin(x)^2 + cos(x)^2 = 1",
+      "sin(2*x) = 2*sin(x)*cos(x)",
+      "exp(ln(x)) = x",
+      "ln(exp(x)) = x",
+      "(x^2-1)/((x-1)*(x+1)) = 1",
+      "(x+1)^2 = x^2+2*x+1",
+      "abs(x)^2 = x^2",
+      "2*x/x = 2",
+    ]) {
+      const r = solveEquation(eq)!;
+      expect({ eq, method: r.method, n: r.roots.length }).toEqual({ eq, method: "identity", n: 0 });
+    }
+  });
+
+  test("a NEAR-identity is not an identity", () => {
+    // The counterweight. Loosening the test until it caught every identity is how
+    // an equation with a genuine solution gets reported as vacuous — and an
+    // intermediate version of this fix did exactly that, calling `tan(x) = 2` and
+    // `exp(x) = 2` identities. Both directions have to be pinned.
+    for (const eq of [
+      "sin(x)^2 + cos(x)^2 = 1.0000001",
+      "sin(x)^2 + cos(x)^2 = 1.001",
+      "x/x = 1.000001",
+      "exp(ln(x)) = 1.0000001*x",
+      "tan(x) = 2",
+      "exp(x) = 2",
+      "sin(x) = 0",
+      "cos(x) = x",
+      "x^2 = 4",
+    ]) {
+      const r = solveEquation(eq)!;
+      expect({ eq, isIdentity: r.method === "identity" }).toEqual({ eq, isIdentity: false });
+    }
+  });
+
+  test("fabricated underflow roots are WITHHELD, not merely warned about", () => {
+    // exp(x) = 0 has no solution, but exp underflows below x ~ -745, so the scan
+    // produced 510 "roots" out in the underflow region. The first attempt attached
+    // a warning and returned them anyway — but v2.39.0 had already settled that
+    // argument the other way, when sqrt(x)^2 over [-1,1] went from a caveated
+    // number to a refusal because a caveated number is still a number in the
+    // document. 510 of them is the same mistake at scale.
+    const r = solveEquation("exp(x) = 0")!;
+    expect(r.roots).toEqual([]);
+    expect(r.method).toBe("no reliable root found");
+    expect(r.caveats.join(" ")).toMatch(/artefacts of double precision/);
+  });
+
   test("a function with zeros ON the grid is NOT mistaken for an identity", () => {
     // The identity probe samples at irrational offsets for exactly this reason.
     for (const eq of ["sin(x) = 0", "x = 0", "x^2 = 0", "x*(x-1) = 0"]) {

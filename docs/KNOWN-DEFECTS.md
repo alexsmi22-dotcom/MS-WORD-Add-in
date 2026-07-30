@@ -29,6 +29,8 @@ Each was closed with its reproduction moved into a named test, not merely patche
 | **A12** `(x-1)/(x-1) = 1` returned 4000 roots in 2.9 s | reported as an identity, in under a millisecond | `rootsAreRoots.test.ts` |
 | **B10** the printed antiderivative was rounded to 6 decimal places, so `1.154701*atan(...)` did not re-parse to the function integrated | 12 significant figures; the printed expression is re-parsed and must reproduce the reported value | `divergentIntegral.test.ts` |
 | **B14** two beam-height tests parsed the height out of the SVG they generated, so they could not fail | both assert against `BEAM_CHART_SIZE`, and a negative control confirms they now catch a ±10/50/200/1000 perturbation | `beamChartGeometry.test.ts` |
+| **A12 (second pass)** the identity check tested `f === 0` exactly, so it caught only the three examples in the report — `sin(x)^2+cos(x)^2 = 1` still gave 3620 roots and `exp(ln(x)) = x` gave 852 | compared relative to the two sides, evaluated separately; 8 further identities close, and near-identities asserted NOT to close | `rootsAreRoots.test.ts` |
+| **A12 (third pass)** `exp(x) = 0` returned 510 fabricated roots from the underflow region with a warning attached | withheld entirely — a caveated number is still a number in the document | `rootsAreRoots.test.ts` |
 
 A **behavioural baseline** now covers 300+ inputs across the solve, integrate and
 differentiate surface (`solveBaseline.test.ts`). It is not an oracle — it does not
@@ -244,6 +246,33 @@ then handed to OpenChemLib as SMILES.
 ---
 
 ## C — cosmetic, or unreachable today
+
+### B15. An identity hidden by catastrophic cancellation is still reported as roots
+`src/lib/solve.ts`. `solveEquation("cosh(x)^2 - sinh(x)^2 = 1")` is an identity and
+returns **33 numeric "roots"** at irregular positions between −18 and 18.
+
+The identity check compares the two sides relative to their own magnitudes, which
+catches every ordinary case — `sin(x)^2 + cos(x)^2 = 1`, `exp(ln(x)) = x`,
+`sin(2*x) = 2*sin(x)*cos(x)` and the rest. It cannot catch this one, because the
+cancellation happens *inside* the expression: at x = 18 both squares are about
+1.1e15, so the computed difference carries roughly 0.25 of rounding dust while the
+true answer is 1. Zero sits inside that dust, and no tolerance derived from the
+final magnitudes can tell the two apart. The irregular spacing of the results also
+defeats the grid-signature test that catches the underflow case.
+
+**Attempted and abandoned, deliberately.** Measuring the dust by perturbing x and
+watching how far the computed difference moves does work in principle, but the
+estimate is itself a random quantity: the version that finally passed the cosh case
+also reported `tan(x) = 2` and `exp(x) = 2` as identities — turning every equation
+in the product into a vacuous one. That was caught by the behavioural baseline
+within a minute, and reverted. **A predicate that cannot be validated is worse than
+a limit that can be stated**, which is why this is written down rather than shipped.
+
+**Fix direction:** the magnitudes of the cancelling intermediates are invisible from
+outside `evalAst`. Have `evalAst` optionally report the largest absolute value it
+passed through, and scale the tolerance by that instead of by the result. That is a
+real answer rather than a tuned threshold, and it would also improve the
+singularity and root-residual tests, which have the same blind spot.
 
 ### C0. A removable singularity strictly inside the interval still refuses on the numeric path
 `src/lib/solve.ts`. `integrate("sin(x)/x", -1, 1)` should be ≈ **1.8921**. The

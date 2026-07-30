@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.40.0)
+# JurisLab — Manual Test Script (v2.40.1)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -286,6 +286,58 @@ Chemical:
 > flip-flop check, small limit points, and several tolerance bands in the equation
 > solver. If you are checking those areas, read that file first so you know what
 > you are looking at.
+
+---
+
+## 0e. New in v2.40.0 — poles that were reported as roots, and lost roots recovered
+
+Every item is a bug that shipped looking completely normal. As in section 0d, the
+**refusals matter as much as the answers** — in each case the old behaviour was a
+plausible number rather than an error.
+
+Math > **Solve** > equation:
+
+- [ ] `1/(x-2.25) = 0` must return **no roots**. It used to report **2.25**, where
+  the left-hand side evaluates to −1.1e12. Same for `x/(x-2.25) = 1` and
+  `(x+1)/(x-2.25) = 1`.
+- [ ] `tan(x) = 2` must return **588** roots, not 1176. The old list alternated real
+  solutions and asymptotes — spot-check that 1.107 (which is arctan 2) is present
+  and that 1.571 (π/2, an asymptote) is **not**.
+- [ ] `0.0000000000001*x^2 - 1 = 0` must give **±3162277.66**. It used to say "No
+  value of the variable satisfies this equation."
+- [ ] `0.0000000001*x^2 - 0.0001 = 0` must give **both** ±1000. It used to give only
+  1000, labelled exact — half the answer, presented as certain.
+- [ ] `x - 1e300 = 0` must give **1e300**, with no warning. This is the regression
+  the first attempt at the above introduced, so it is worth checking directly.
+- [ ] `x^2 - 1e-20 = 0` must give **±1e-10**, not "0, 0".
+- [ ] `(x-1)/(x-1) = 1` must say **identity**, instantly. It used to return 4000
+  roots and take about three seconds.
+- [ ] `sin(x)^2 + cos(x)^2 = 1` must also say identity. And `exp(ln(x)) = x`.
+- [ ] `sin(x)^2 + cos(x)^2 = 1.0000001` must **NOT** say identity — it has no
+  solution. The check must be tight enough to tell those apart.
+- [ ] `exp(x) = 0` must report **no reliable root found** and list nothing. It used
+  to return 510 values from the underflow region.
+- [ ] **Known and NOT fixed:** `cosh(x)^2 - sinh(x)^2 = 1` still returns 33 spurious
+  roots. It is an identity. See B15 in `docs/KNOWN-DEFECTS.md` for why, and why the
+  attempted fix was reverted rather than shipped.
+- [ ] Ordinary equations must be untouched: `x^2 - 4 = 0` → ±2, `2*x + 4 = 0` → −2,
+  `x^3 - 6*x^2 + 11*x - 6 = 0` → 1, 2, 3, `sin(x) = 0` → the multiples of π.
+
+Math > **Solve** > definite integral — the displayed antiderivative:
+
+- [ ] `1/(x^2+x+1)` from 0 to 1. The antiderivative shown must read
+  **1.15470053838**, not 1.154701. That coefficient is 2/√3.
+- [ ] **Copy the displayed antiderivative and paste it back in** as a function to
+  differentiate or plot. It must parse and describe the same function. Before, it
+  was rounded to six decimals and silently described a different one — which
+  matters because showing it is an invitation to reuse it.
+
+Engineering > Structural & solids > **Beam analysis**:
+
+- [ ] Insert a beam diagram and check the figure is not squashed or clipped — the
+  x-axis label must be fully visible. Two tests that were supposed to guarantee this
+  could not fail, so this has been unguarded until now. Try a cantilever, a simple
+  span, three supports, and a spring support.
 
 ---
 

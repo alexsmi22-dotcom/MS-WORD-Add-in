@@ -5,6 +5,77 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > Note: this file was not maintained between v1.96.0 and v2.23.0. Those releases
 > are recorded in the git history rather than here.
 
+## [2.40.1] — 2026-07-29 — The identity fix only caught the examples it was given
+
+A patch on v2.40.0, from reviewing the fix rather than the feature — and the
+finding is the failure mode this repo already has a name for: **the fix was spelled
+to the report's examples.**
+
+The identity check tested `f === 0` **exactly**. That works for `x/x = 1`,
+`(x-1)/(x-1) = 1` and `sin(x)/sin(x) = 1` — the three cases in the report — because
+those cancel exactly in binary. The identities a person actually types do not:
+
+| typed | before | now |
+|---|---|---|
+| `sin(x)^2 + cos(x)^2 = 1` | **3620 roots** | identity |
+| `exp(ln(x)) = x` | **852 roots** | identity |
+| `ln(exp(x)) = x` | 852 roots | identity |
+| `sin(2*x) = 2*sin(x)*cos(x)` | thousands | identity |
+| `(x+1)^2 = x^2+2*x+1` | thousands | identity |
+
+`sin²x + cos²x − 1` evaluates to ±1.1e-16 at most doubles, not to zero. So the
+question has to be asked **relative to the size of the two sides**, comparing them
+separately rather than testing their difference against zero — exact equality is
+merely the special case where the cancellation happens to be lucky. Probing is done
+on nested ranges as well, because `cosh(x)^2` overflows past x ≈ 355 and a single
+wide sweep left too few computable samples to judge on.
+
+Eight identities are now asserted to close, and — the half that matters as much —
+nine near-identities are asserted **not** to. `sin(x)^2 + cos(x)^2 = 1.0000001` has
+no solution and must not be called vacuous.
+
+### Fabricated roots are withheld, not warned about
+
+`exp(x) = 0` has no solution, but exp underflows to zero below x ≈ −745, so the scan
+returned **510 "roots"** from the underflow region. v2.40.0 attached a warning and
+returned them anyway. That was the wrong call by this project's own precedent:
+v2.39.0 had already upgraded `sqrt(x)^2` over [−1, 1] from a caveated number to a
+refusal, on the grounds that a caveated number is still a number in the document.
+510 of them is the same mistake at scale. Nothing is returned now, with an
+explanation of what underflow is and why those values are artefacts.
+
+### One attempted fix reverted on purpose
+
+`cosh(x)^2 - sinh(x)^2 = 1` is an identity and still returns 33 spurious roots,
+because the cancellation happens *inside* the expression: at x = 18 both squares are
+about 1.1e15, so the computed difference carries roughly 0.25 of rounding dust while
+the true answer is 1. Zero sits inside the dust.
+
+Measuring that dust by perturbing x and watching the difference move does work in
+principle. The version of it that finally passed the cosh case also reported
+`tan(x) = 2` and `exp(x) = 2` as **identities** — which would have made every
+equation in the product vacuous. The behavioural baseline caught it within a minute,
+and it was reverted rather than tuned.
+
+**A predicate that cannot be validated is worse than a limit that can be stated.**
+So it is written down as B15 in `docs/KNOWN-DEFECTS.md`, with the real fix direction:
+have `evalAst` report the largest magnitude it passed through, and scale the
+tolerance by that rather than by the result. That would also fix the same blind spot
+in the singularity and root-residual tests.
+
+### Also
+
+`docs/TEST-SCRIPT.md` gains **§0e** for v2.40.0 and this release — the manual pass is
+the one gate that cannot be automated here, and the bump script only rewrites the
+title version, so the section had to be written. Every item names what the old
+behaviour was, so a refusal gets checked as carefully as an answer.
+
+The v2.40.0 changelog claimed 6,421 tests; the real figure was 6,425. Corrected —
+a false number in the release notes is the same defect class as a false number in
+the product.
+
+6,425 tests across 212 files. All twelve QC gates pass.
+
 ## [2.40.0] — 2026-07-29 — Poles reported as roots, two tolerance bands, and an instrument to prove nothing else moved
 
 The first batch from `docs/KNOWN-DEFECTS.md`, taken in the order that puts the
@@ -129,7 +200,7 @@ until now referenced by **zero** test files, which is what the 336→346 squashe
 figure was. A negative control confirms the new assertions catch a ±10, ±50, +200
 and +1000 perturbation; before, all four passed.
 
-6,421 tests across 212 files. All twelve QC gates pass.
+6,425 tests across 212 files. All twelve QC gates pass.
 
 ## [2.39.1] — 2026-07-29 — The pole detector was refusing five correct integrals
 

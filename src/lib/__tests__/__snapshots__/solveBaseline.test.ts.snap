@@ -184,7 +184,7 @@ exports[`solveEquation baseline every equation form gives the same answer as the
   "x + 1 = x + 2                          -> n=0 [] via no-solution (1 caveat)",
   "0*x = 5                                -> n=0 [] via no-solution (1 caveat)",
   "abs(x) = -1                            -> n=0 [] via numeric (transcendental) (1 caveat)",
-  "exp(x) = 0                             -> n=510 [-745.5, -746, -746.5, -747, -747.5, -748, …+504 more] via numeric (transcendental) (2 caveat)",
+  "exp(x) = 0                             -> n=0 [] via no reliable root found (1 caveat)",
   "x^2 = -1                               -> n=2 [0 + 1i, 0 − 1i] via exact (quadratic) (1 caveat)",
   "sin(x) = 0                             -> n=637 [999.026463842, 995.884871188, 992.743278534, 989.601685881, 986.460093227, 983.318500574, …+631 more] via numeric (transcendental) (1 caveat)",
   "cos(x) = 1                             -> n=1 [0] via numeric (transcendental) (1 caveat)",

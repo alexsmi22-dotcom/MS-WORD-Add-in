@@ -137,12 +137,14 @@
         "<b>Formula validator</b> — every element checked against the real 118-element periodic table, parentheses/hydrates balanced, with molecular weight and net charge (polyatomic ions handled).",
         "<b>Physicochemical properties &amp; druglikeness</b> — cLogP, logS, tPSA, H-bond donors/acceptors, rotatable bonds, plus the Lipinski Rule of Five and Veber screens.",
         "<b>pKa</b> — detects ionizable groups exactly, then <b>substituent-corrects</b> aromatic acids/bases (Hammett ρ·Σσ) and aliphatic acids (inductive) so the value is specific to your molecule (p-nitrophenol ≈ 7.15 vs phenol 9.99), with the derivation shown, plus the net charge at pH 7.4.",
-        "<b>Online name → structure</b> (opt-in) — resolves an arbitrary systematic IUPAC name via OPSIN, with a consent prompt; everything else stays offline."
+        "<b>Online name → structure</b> (opt-in) — resolves an arbitrary systematic IUPAC name via OPSIN, with a consent prompt; everything else stays offline.",
+        "<b>Periodic table &amp; atomic structure</b> — the table itself, a Bohr model, an orbital filling diagram, or a per-element summary. Configuration, shells, block, group and period are computed from the aufbau rule; names, oxidation states, electronegativity, ionisation energy, electron affinity and radius are fetched from PubChem and cross-checked against the symbols this product had already verified. Measured and predicted configurations are shown together where they differ, and the properties it does not carry — melting point, density, crystal structure, spectral lines — are listed as absent with the reason."
       ],
       examples:[
         {in:"H2O", out:"H₂O"}, {in:"SO4^2-", out:"SO₄²⁻"}, {in:"Ca(OH)2", out:"Ca(OH)₂"},
         {in:"aspirin", out:"2D structure + cLogP/tPSA/Lipinski + pKa ≈ 3.5 (carboxylic acid)"},
-        {note:"Glycine → detects a carboxylic acid (−) and an amine (+): net charge ≈ 0 at pH 7.4 (a zwitterion)."}
+        {note:"Glycine → detects a carboxylic acid (−) and an amine (+): net charge ≈ 0 at pH 7.4 (a zwitterion)."},
+        {in:"Fe (or 26)", out:"period 4, group 8, d-block · [Ar]4s² 3d⁶ · shells K2 L8 M14 N2"}
       ] },
     massspec: { title:"Mass Spec", tagline:"An offline mass-spectrometry readout for a name, formula, or SMILES — exact masses, the theoretical isotope pattern, and common adduct m/z.",
       does:[
@@ -260,7 +262,9 @@
     tablechart: { title:"Table → Chart", tagline:"Turn a Word table into a chart, flowchart, block diagram, or clean table figure — patent-ready black-and-white or an editable PowerPoint.",
       does:[
         "Click inside a table, <b>Read selected table</b>, and the add-in auto-picks the best representation and tells you why.",
-        "<b>Charts</b> — column, bar, line, area, scatter, stacked, pie, doughnut; currency/percent/units/accountant negatives parsed.",
+        "<b>Charts (12 types)</b> — column, bar, line, area, scatter, stacked, pie, doughnut; currency/percent/units/accountant negatives parsed.",
+        "<b>Heat map</b> — magnitude across two categorical axes at once (month &times; region, a correlation matrix, an assay plate). Sequential ramps are a single hue light-to-dark, never a rainbow; diverging ramps are two hues about a neutral grey, symmetric about the midpoint. A non-numeric cell is drawn blank and counted, never read as zero.",
+        "<b>Candlestick (OHLC)</b> — one candle per row from four numeric columns. Direction is carried by the body first (hollow up, filled down), so it survives greyscale and a photocopier, with colour as reinforcement and a legend in words; red-is-up is an option and the legend follows it.",
         "<b>Flowchart</b> — each row a step (decision diamonds for <code>?</code>, reference numerals from a first column) — ideal for method-claim figures.",
         "<b>Block diagram</b> — hierarchy paths merge into a connected box tree — ideal for apparatus figures.",
         "<b>Table figure</b> — draw the table itself as a clean figure (section bands, bold header, right-aligned numbers).",
@@ -268,7 +272,9 @@
       ],
       examples:[
         {note:"A numeric sales table → a stacked column chart, or a black-and-white hatched patent figure with a \"FIG. 2\" label."},
-        {note:"A Step | Description table → a top-to-bottom flowchart with numbered steps and decision diamonds."}
+        {note:"A Step | Description table → a top-to-bottom flowchart with numbered steps and decision diamonds."},
+        {note:"A quarter × region table → a heat map shaded light-to-dark in one hue, with a legend reading low to high."},
+        {note:"An open / high / low / close table → one candle per day; hollow where the close was at or above the open."}
       ] },
     finance: { title:"Finance", tagline:"19 financial calculators — time value of money, DCF, bonds, options with Greeks — plus a typeset finance formula library.",
       does:[

@@ -5,6 +5,56 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > Note: this file was not maintained between v1.96.0 and v2.23.0. Those releases
 > are recorded in the git history rather than here.
 
+## [2.47.0] — 2026-07-29 — An exponent extends to one atom, and spaces mean something
+
+`2^2x` read as 2^(2x) in one parser and (2^2)x in the other. Two releases ago I filed
+that as a cosmetic inconsistency and left it, on the grounds that changing how exponents
+bind would re-read every expression already sitting in a document.
+
+**Measuring it first — the habit that has caught something in nearly every round of this
+work — showed it was a wrong number.** The same fault made `r^2 h` parse as r^(2·h),
+which for r = 3, h = 2 evaluates to **81** where the answer is 18. That belonged in the A
+tier, not among the cosmetics.
+
+### Two causes
+
+**Implicit multiplication was formed in the wrong place.** It lived inside the parser's
+number branch, so a number followed by a letter became a product *anywhere* — including
+inside an exponent, the one place it must not. It now lives in the product rule, and the
+exponent parses a single atom.
+
+**Whitespace was deleted before anything was read.** `replace(/\s+/g, "")` — so adjacent
+names were glued into one: `pi r` became a variable called "pir", `y z` became "yz",
+`sin x` became "sinx". The consequence is the one that matters: `pi r^2 h`, the shipped
+formula for the volume of a cylinder, parsed as "pir" raised to the power (2·h), and
+nothing in the result said so. Whitespace now separates factors.
+
+### What had to survive
+
+An exponent binding change is easy to get half-right, so the things that must not move
+are asserted rather than assumed: `2^3^2` is still 512 (right-associative), `-x^2` is
+still −(x²), `x^-1` still works, `x2` and `v_max` are still single variables, and
+`2^(2*x)` still means what its brackets say.
+
+Newly correct rather than newly refused: the shipped formulas now **evaluate** in Solve
+and not merely typeset — cylinder, cone and sphere volumes, `I^2 R`, Pythagoras, the
+slope of a line. Those were being computed wrongly before, or as an expression in a
+variable nobody had typed.
+
+One thing is newly refused, and deliberately: `sin x` used to become a variable called
+"sinx", and with whitespace now meaningful it would have become sin × x — a product with
+a variable named "sin", which is the kind of nonsense that yields a plausible answer.
+It now says that sin is a function and needs brackets.
+
+### On the mis-classification
+
+The reason given for leaving this alone was caution about re-reading expressions already
+in documents. That was the wrong instinct, and worth recording as such: the old reading
+was not a rival convention someone might have relied on, it was arithmetic nobody wants.
+The 300-expression behavioural baseline did not move by a single line.
+
+6,649 tests across 218 files. All twelve QC gates pass.
+
 ## [2.46.0] — 2026-07-29 — Integrals with a hole in the integrand, and a correction to the last release
 
 ### The last defect that refused work it could do

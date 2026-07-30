@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.46.0)
+# JurisLab — Manual Test Script (v2.47.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -566,6 +566,36 @@ Math > **Solve** > definite integral:
 > result at the boundary). Also recorded there: the two parsers still read `2^2x`
 > differently, left alone because changing how exponents bind would re-read every
 > expression already sitting in a document.
+
+---
+
+## 0l. New in v2.47.0 — exponents, and spaces between symbols
+
+Math > **Solve** (and anywhere an expression is typed):
+
+- [ ] `r^2 h` with `r = 3`, `h = 2` must evaluate to **18**. It used to give **81**,
+  because the exponent swallowed the `h` and it computed r^(2h). This was filed as a
+  cosmetic inconsistency and was actually a wrong number.
+- [ ] `2^2x` must read as (2^2)·x — so with `x = 3` it is **12**, not 64.
+- [ ] `pi r^2 h` with `r = 2`, `h = 3` must be **37.699** (that is 12π). It used to be
+  a single variable called "pir" raised to the power 2h, so the expression had one
+  unknown with a name nobody typed. Check the variable list shows **r and h**.
+- [ ] The shipped formulas must now evaluate in Solve, not just typeset: volume of a
+  cylinder, cone and sphere, power dissipated `I^2 R`, Pythagoras.
+- [ ] `2^3^2` must still be **512** — exponents remain right-associative. And `-x^2`
+  with `x = 3` must be **−9**, not 9.
+- [ ] `x2`, `Vd`, `v_max` must still each be ONE variable. The fix must not shatter
+  legitimate multi-character names.
+- [ ] `y z` must be y × z, and `a b c` three variables.
+- [ ] `sin x` must be **refused**, saying sin is a function and needs brackets. It used
+  to become a variable called "sinx"; without the refusal it would now become sin × x,
+  with a variable called "sin".
+- [ ] Explicit brackets must be untouched: `2^(2*x)` with `x = 3` is **64**.
+
+> **Remaining in `docs/KNOWN-DEFECTS.md`:** two entries, neither producing a wrong
+> number — **B3** (a blank Bode chart at zero reference, which could not be reproduced)
+> and **C2** (a huge exact rational converting to Infinity, the correct IEEE result at
+> the boundary).
 
 ---
 

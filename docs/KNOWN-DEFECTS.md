@@ -96,14 +96,33 @@ removable is allowed through, a pole is not.
 | **B11** `1/2x` read as `1/(2x)` in solve.ts and `(1/2)x` in mathParse.ts — the same text meaning two different functions in two parts of one product, differing by a factor of (2x)² | **refused by both**, with both readings offered back. Neither convention was chosen because neither is settled: most CAS take one, much handwritten mathematics the other, and ISO 80000-1 says not to write it | `cancellationAndNotation.test.ts` |
 | **C1** `parseFormula("CuSO4·5H2O")` deleted the hydrate dot, merging "O4" with the following "5" into "O45" → O:46 instead of O:9 | dot-separated parts parsed independently and multiplied by their coefficient. **And bracket groups**, found while fixing it: `(SO4)3` read as `SO43` → O:43, so the hydrate fix alone would have swapped one silent mis-parse for another. An unclosed bracket now yields nothing rather than a partial guess | `cancellationAndNotation.test.ts` |
 
-### What B11 did NOT settle
+### What B11 did NOT settle — closed in v2.47.0, and it was mis-classified
 
-The two parsers also disagree about `2^2x` — solve.ts reads `2^(2x)`, mathParse.ts
-reads `(2^2)x`. That one is **not** refused, because unlike division it has a settled
-convention: an exponent extends to the atom immediately after it, so mathParse.ts is
-right and solve.ts is the odd one out. Changing how exponents bind would re-read every
-expression already sitting in a document, which is a larger change than a notation
-guard should make quietly. Left as a known inconsistency with the correct reading named.
+The `2^2x` disagreement was recorded here as a cosmetic inconsistency to be left alone.
+**That was wrong, and the mis-classification is the interesting part.** Measuring it
+before touching it — the habit that has caught something in almost every round — showed
+the same fault made `r^2 h` parse as r^(2·h), which for r = 3, h = 2 evaluates to **81**
+where the answer is 18. That is a wrong number, not a difference of opinion, and it
+belonged in the A tier.
+
+There were two causes and both are fixed:
+
+- Implicit multiplication was formed inside the parser's NUMBER branch, so a number
+  followed by a letter became a product **anywhere** — including inside an exponent,
+  the one place it must not.
+- All whitespace was **deleted** before parsing, gluing adjacent names into one: `pi r`
+  became a variable called "pir" and `y z` became "yz". So `pi r^2 h`, the shipped
+  formula for the volume of a cylinder, parsed as "pir" raised to the power (2·h).
+
+Implicit multiplication now lives in the product rule, the exponent takes a single
+atom, and whitespace separates factors. `2^3^2` is still 512, `x2` is still one
+variable, and a bare function name — `sin x` — is now refused as a missing bracket
+rather than becoming a variable called "sin".
+
+Caution about "re-reading every expression already in a document" was the reason given
+for leaving it. That was the wrong instinct: the old reading was not a different
+convention that someone might have relied on, it was arithmetic nobody wants. The
+300-expression behavioural baseline did not move at all.
 
 **How the scope of the B11 refusal was found to be wrong, twice.** Usage was surveyed
 in `examples.ts` and the manual before deciding to refuse, and came back zero — but

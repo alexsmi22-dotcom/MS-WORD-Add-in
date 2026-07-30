@@ -89,42 +89,108 @@ export function normalizeUnicodeMath(input: string): string {
 class Parser {
   private i = 0;
   constructor(private s: string) {
-    this.s = normalizeUnicodeMath(s).replace(/\s+/g, "");
+    // WHITESPACE IS A SEPARATOR, NOT NOISE.
+    //
+    // This used to delete every space before parsing, which silently glued adjacent
+    // names into one: `pi r` became a single variable called "pir", `y z` became
+    // "yz", and `sin x` became "sinx". So `pi r^2 h` — the volume of a cylinder —
+    // parsed as a variable "pir" raised to the power (2*h), and nothing about the
+    // result said so.
+    //
+    // Runs of whitespace collapse to one space, which is kept and treated as an
+    // implicit multiplication between factors.
+    this.s = normalizeUnicodeMath(s).replace(/\s+/g, " ").trim();
+  }
+  /** Skips separator spaces. Called before every operator test. */
+  private ws(): void {
+    while (this.s[this.i] === " ") this.i++;
   }
   parse(): Expr {
     const e = this.additive();
+    this.ws();
     if (this.i !== this.s.length) throw new Error(`Unexpected character "${this.s[this.i]}".`);
     return e;
   }
   private additive(): Expr {
     let e = this.term();
+    this.ws();
     while (this.s[this.i] === "+" || this.s[this.i] === "-") {
       const op = this.s[this.i++];
       const r = this.term();
       e = op === "+" ? { t: "add", l: e, r } : { t: "sub", l: e, r };
+      this.ws();
     }
     return e;
   }
+  /**
+   * Products, including IMPLICIT ones. This is the only place juxtaposition is
+   * turned into multiplication, and that is the point.
+   *
+   * It used to live in atom()'s number branch, which meant a number followed by a
+   * letter formed a product ANYWHERE — including inside an exponent, where it does
+   * not belong. `2^2x` therefore parsed as 2^(2*x) and `r^2 h` as r^(2*h), which
+   * evaluates to 81 for r = 3, h = 2 where the answer is 18. An exponent extends to
+   * the atom immediately after it and no further; that is not a disputed convention,
+   * it is what a typeset superscript shows. The other expression parser in this
+   * codebase already read it that way, so the same text meant two different things
+   * in two parts of the product.
+   */
   private term(): Expr {
     let e = this.unary();
-    while (this.s[this.i] === "*" || this.s[this.i] === "/") {
-      const op = this.s[this.i++];
-      const r = this.unary();
-      e = op === "*" ? { t: "mul", l: e, r } : { t: "div", l: e, r };
+    for (;;) {
+      this.ws();
+      const c = this.s[this.i];
+      if (c === "*" || c === "/") {
+        this.i++;
+        const r = this.unary();
+        e = c === "*" ? { t: "mul", l: e, r } : { t: "div", l: e, r };
+        continue;
+      }
+      // Juxtaposition: "2x", "pi r", "3sin(x)", "2(x+1)", "(x+1)(x+2)".
+      if (c !== undefined && /[A-Za-z0-9_(.]/.test(c)) {
+        e = { t: "mul", l: e, r: this.unary() };
+        continue;
+      }
+      return e;
     }
-    return e;
   }
   private unary(): Expr {
+    this.ws();
     if (this.s[this.i] === "-") { this.i++; return { t: "neg", e: this.unary() }; }
     if (this.s[this.i] === "+") { this.i++; return this.unary(); }
     return this.power();
   }
   private power(): Expr {
     const base = this.atom();
-    if (this.s[this.i] === "^") { this.i++; return { t: "pow", l: base, r: this.unary() }; }
+    this.ws();
+    if (this.s[this.i] === "^") {
+      this.i++;
+      return { t: "pow", l: base, r: this.exponent() };
+    }
+    return base;
+  }
+  /**
+   * The exponent: a sign, ONE atom, and then another `^` if there is one.
+   *
+   * Deliberately not `unary()` and deliberately not `term()`. Calling term() would
+   * swallow the following factors — the bug this replaces — and calling unary() did
+   * the same by way of atom()'s old implicit-multiplication branch. Recursing into
+   * itself for a trailing `^` keeps `2^3^2` right-associative at 512.
+   */
+  private exponent(): Expr {
+    this.ws();
+    if (this.s[this.i] === "-") { this.i++; return { t: "neg", e: this.exponent() }; }
+    if (this.s[this.i] === "+") { this.i++; return this.exponent(); }
+    const base = this.atom();
+    this.ws();
+    if (this.s[this.i] === "^") {
+      this.i++;
+      return { t: "pow", l: base, r: this.exponent() };
+    }
     return base;
   }
   private atom(): Expr {
+    this.ws();
     if (this.s[this.i] === "(") {
       this.i++;
       const e = this.additive();
@@ -151,8 +217,19 @@ class Parser {
       if (/^(nan|infinity|inf|undefined)$/i.test(name)) {
         throw new Error(`"${name}" is not a value this can solve for.`);
       }
-      // Implicit multiplication like "2x" is handled by the tokenizer only for a
-      // number immediately followed by an identifier (see number branch).
+      // A FUNCTION NAME WITHOUT ITS BRACKETS IS A MISSING BRACKET, NOT A VARIABLE.
+      //
+      // `sin x` used to parse as one variable called "sinx" because whitespace was
+      // deleted; with whitespace now separating factors it would otherwise become
+      // sin*x — a product with a variable named "sin". Both are nonsense, and the
+      // second is the kind that produces a plausible-looking answer. Say what is
+      // actually wrong instead.
+      if (name in EVAL_FN) {
+        throw new Error(
+          `"${name}" is a function, so it needs brackets around its argument — write ` +
+            `${name}(x) rather than ${name} x.`,
+        );
+      }
       return { t: "var", name };
     }
     const num = /^\d*\.?\d+(?:[eE][+-]?\d+)?/.exec(this.s.slice(this.i));
@@ -166,10 +243,9 @@ class Parser {
       if (!Number.isFinite(v)) {
         throw new Error(`"${num[0]}" is too large to represent — the limit is about 1e308.`);
       }
-      const n: Expr = { t: "num", v };
-      // Implicit multiplication: "2x", "3sin(x)", "2(x+1)".
-      if (/[A-Za-z(]/.test(this.s[this.i] ?? "")) return { t: "mul", l: n, r: this.power() };
-      return n;
+      // NO IMPLICIT MULTIPLICATION HERE. It is term()'s job now — see the comment
+      // there. Forming the product at this level is what leaked it into exponents.
+      return { t: "num", v };
     }
     throw new Error("Could not parse the expression.");
   }

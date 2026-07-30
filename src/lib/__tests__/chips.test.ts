@@ -56,6 +56,23 @@ describe("switching power", () => {
     expect(r.energyPerCycleJ).toBeCloseTo(0.5 * 1e-12, 20);
   });
 
+  test("with no clock there is no energy PER CYCLE when leakage is present", () => {
+    // Found by an independent review. The two branches were different quantities:
+    // the f > 0 one includes leakage, the f = 0 fallback did not, so a part
+    // drawing 1 mW standing still reported 1e-13 J per "cycle" — ten orders out,
+    // and not the limit of the f > 0 expression.
+    const leaky = switchingPower(1e-12, 1, 0, 0.1, 1e-3)!;
+    expect(leaky.energyPerCycleJ).toBeNull();
+    expect(leaky.staticW).toBeCloseTo(1e-3, 15);
+    expect(leaky.notes.join(" ")).toMatch(/no energy PER CYCLE/);
+    // With no leakage there IS a well-defined dynamic energy per cycle.
+    expect(switchingPower(1e-12, 1, 0, 0.5)!.energyPerCycleJ).toBeCloseTo(0.5e-12, 20);
+    // And above zero it is continuous with the total power.
+    const f = 1e3;
+    const running = switchingPower(1e-12, 1, f, 0.1, 1e-3)!;
+    expect(running.energyPerCycleJ!).toBeCloseTo(running.totalW / f, 20);
+  });
+
   test("non-physical inputs are refused", () => {
     expect(switchingPower(0, 1, 1e9)).toBeNull();
     expect(switchingPower(1e-12, 0, 1e9)).toBeNull();
@@ -111,6 +128,16 @@ describe("junction temperature", () => {
     expect(r.junctionC).toBeCloseTo(42, 12);
   });
 
+  test("an ambient already above the limit gives no power budget, not a negative one", () => {
+    // Found by an independent review: (Tj_max - Ta)/Rtheta was printed unfloored,
+    // so a 150 °C ambient against a 125 °C limit read "can carry -12.50 W".
+    const r = junctionTemperature(5, 150, 0.5, 0.2, 1.3, 125)!;
+    expect(r.withinLimit).toBe(false);
+    expect(r.maxPowerW).toBe(0);
+    expect(r.maxPowerW).not.toBeLessThan(0);
+    expect(r.notes.join(" ")).toMatch(/AMBIENT .* is already at or above/);
+  });
+
   test("negative power or resistance is refused", () => {
     expect(junctionTemperature(-1, 25, 1, 1, 1)).toBeNull();
     expect(junctionTemperature(1, 25, -1, 1, 1)).toBeNull();
@@ -152,6 +179,29 @@ describe("interconnect delay", () => {
     const a = interconnectDelay(0, 100, 1e-12, 0)!.wireFiftyS;
     const b = interconnectDelay(0, 200, 2e-12, 0)!.wireFiftyS;
     expect(b / a).toBeCloseTo(4, 12);
+  });
+
+  test("the 10-90% rise models the SAME network as the 50% delay", () => {
+    // Found by an independent review. 2.2*(Rd+Rw)*(Cw+Cl) expands to a full Rw*Cw
+    // term where a distributed wire contributes Rw*Cw/2, so a wire-dominated line
+    // came out 2.4x too slow — printed directly under a 50% delay that had been
+    // computed with the distributed factor precisely to avoid such an error.
+    const Rd = 0;
+    const Rw = 1000;
+    const Cw = 1e-12;
+    const Cl = 0;
+    const r = interconnectDelay(Rd, Rw, Cw, Cl)!;
+    const elmore = Rd * (Cw + Cl) + Rw * (Cw / 2 + Cl);
+    expect(r.riseTenNinetyS).toBeCloseTo(2.2 * elmore, 20);
+    expect(r.riseTenNinetyS).toBeCloseTo(1100e-12, 15);
+    // The old expression would have given 2200 ps.
+    expect(r.riseTenNinetyS).not.toBeCloseTo(2.2 * (Rd + Rw) * (Cw + Cl), 15);
+    // And the rise must stay in a sane ratio to the 50% crossing.
+    expect(r.riseTenNinetyS / r.wireFiftyS).toBeLessThan(4);
+  });
+
+  test("2.2 is ln 9, the single-pole 10-90% factor", () => {
+    expect(Math.log(9)).toBeCloseTo(2.197, 3);
   });
 
   test("everything zero is zero, not a division", () => {
@@ -222,6 +272,19 @@ describe("timing closure", () => {
     expect(r.fMaxHz!).toBeCloseTo(1 / r.minPeriodS, 6);
     // Skew relaxes the required period by exactly the skew.
     expect(r.minPeriodS).toBeCloseTo(880e-12 - 25e-12, 18);
+  });
+
+  test("a required period is never negative", () => {
+    // Found by an independent review: enough positive skew drove the arithmetic
+    // below zero and the pane printed "Required period -120 ps" next to
+    // "Maximum clock unbounded".
+    const r = timingCheck(P, TCQ, TMAX, TMIN, TSU, TH, 1e-9)!;
+    expect(r.minPeriodS).toBe(0);
+    expect(r.minPeriodS).not.toBeLessThan(0);
+    expect(r.fMaxHz).toBeNull();
+    expect(r.notes.join(" ")).toMatch(/SETUP no longer limits the clock/);
+    // The same skew must break hold — which is the actual consequence.
+    expect(r.holdOk).toBe(false);
   });
 
   test("a minimum path longer than the maximum is not a circuit", () => {

@@ -824,6 +824,20 @@ state **53 calculators** across **twelve disciplines**.
   slowing the clock does **not** fix a hold violation.
 - [ ] Drop the period to 500 ps: setup must FAIL and name the **880 ps** it needs.
 - [ ] Enter a shortest path LONGER than the longest: it must be **refused**, not solved.
+- [ ] **Clear the θ sink-to-ambient field entirely.** It must be REFUSED as required,
+  not read as 0 K/W. (It was: clearing it took the junction from 55 °C to 35.5 °C and
+  reported it as within limit — the missing rise was exactly the heatsink the user was
+  unsure about.) Same for a cleared activity factor in the power tool.
+- [ ] Type `0.5 K/W` into a θ field: the written unit must be accepted, because the
+  tool's own note promises a unit may be written out.
+- [ ] Set the ambient ABOVE the maximum junction temperature (150 °C against 125): the
+  power at the limit must be **0 W**, never negative, and it must say the ambient alone
+  already exceeds the limit.
+- [ ] In the power tool set the frequency to 0 with a leakage current entered: energy per
+  cycle must read **n/a**, not a dynamic-only figure — leakage accrues with time, not per
+  cycle.
+- [ ] In timing, set the skew to 1 ns (longer than the whole path): the required period
+  must read **0**, never a negative time, and hold must fail.
 - [ ] All four must insert, and each must carry the converting unit note.
 
 ---

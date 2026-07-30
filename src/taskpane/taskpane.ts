@@ -10928,8 +10928,12 @@ const ENG_CALCS: EngCalc[] = [
       const f = u.req("f", "Hz", "Clock frequency");
       const I = u.opt("I", "A", "Leakage current", 0);
       if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
-      const a = Number(r("a") || "0");
-      if (!Number.isFinite(a) || a < 0) return { text: "Activity factor must be zero or more.", ok: false };
+      // Blank must not read as zero here either — an empty activity field silently
+      // reported 0 W of dynamic power for a switching chip.
+      const aRaw = r("a").trim();
+      if (!aRaw) return { text: "Activity factor: this field is required (a clock net is 1, random logic often ≈ 0.1).", ok: false };
+      const a = Number(aRaw);
+      if (!Number.isFinite(a) || a < 0) return { text: "Activity factor must be a number, zero or more.", ok: false };
       const res = switchingPower(C, V, f, a, I);
       if (!res) return { text: "Capacitance and voltage must be positive, and the frequency cannot be negative.", ok: false };
 
@@ -10941,7 +10945,7 @@ const ENG_CALCS: EngCalc[] = [
         `  Total            ${engNum(res.totalW, 6)} W`,
         "",
         `  Energy per 0→1 transition  ${engNum(res.energyPerTransitionJ, 6)} J`,
-        `  Energy per clock cycle     ${engNum(res.energyPerCycleJ, 6)} J`,
+        `  Energy per clock cycle     ${res.energyPerCycleJ === null ? "n/a — no clock, and leakage accrues with time" : engNum(res.energyPerCycleJ, 6) + " J"}`,
       ];
       if (res.staticW > 0) lines.push(`  Leakage is ${engNum(res.leakageFraction * 100, 4)} % of the total`);
       u.report(lines);
@@ -10972,9 +10976,27 @@ const ENG_CALCS: EngCalc[] = [
       const Ta = u.req("Ta", "°C", "Ambient temperature");
       const tjMax = u.optNull("max", "°C", "Maximum junction temperature");
       if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
-      const th = ["jc", "cs", "sa"].map((k) => Number(r(k)));
-      if (th.some((v) => !Number.isFinite(v) || v < 0)) {
-        return { text: "Each thermal resistance must be a number of K/W, zero or more.", ok: false };
+      // A BLANK FIELD MUST NOT BECOME ZERO. Number("") is 0, which is finite and
+      // non-negative, so a cleared theta sailed through this guard and quietly
+      // deleted a whole thermal stage: clearing the heatsink took the default case
+      // from 55 °C to 35.5 °C and reported it as within limit. The other two
+      // fields in this same tool refuse a blank, so the tool had two conventions.
+      const LABELS: Record<string, string> = {
+        jc: "θ junction-to-case",
+        cs: "θ case-to-sink",
+        sa: "θ sink-to-ambient",
+      };
+      const th: number[] = [];
+      for (const k of ["jc", "cs", "sa"]) {
+        // Accept a written "K/W" as well as a bare number, because the tool's own
+        // unit note promises that writing the unit is allowed.
+        const raw = r(k).trim().replace(/\s*K\s*\/\s*W$/i, "").trim();
+        if (!raw) return { text: `${LABELS[k]}: this field is required. Enter 0 if the stage is genuinely absent.`, ok: false };
+        const v = Number(raw);
+        if (!Number.isFinite(v) || v < 0) {
+          return { text: `${LABELS[k]}: must be a number of K/W, zero or more.`, ok: false };
+        }
+        th.push(v);
       }
       const res = junctionTemperature(P, Ta, th[0], th[1], th[2], tjMax === null ? undefined : tjMax);
       if (!res) return { text: "Power and the thermal resistances must not be negative.", ok: false };

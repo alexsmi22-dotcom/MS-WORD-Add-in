@@ -27,8 +27,15 @@ export interface PowerResult {
   totalW: number;
   /** Energy per 0->1 transition of the whole switched capacitance, joules. */
   energyPerTransitionJ: number;
-  /** Energy drawn per clock cycle, joules. */
-  energyPerCycleJ: number;
+  /**
+   * Total energy drawn per clock cycle, joules — null when there is no clock.
+   *
+   * It has to be nullable. Leakage accrues with TIME, not per cycle, so at f = 0
+   * there is no such quantity: the previous code fell back to the dynamic-only
+   * figure, which reported 1e-13 J for a part drawing a milliwatt of leakage and
+   * was not the limit of the f > 0 expression.
+   */
+  energyPerCycleJ: number | null;
   /** Fraction of total that is leakage. */
   leakageFraction: number;
   notes: string[];
@@ -83,12 +90,19 @@ export function switchingPower(
       "power by 36% at the same frequency.",
   );
 
+  if (frequencyHz === 0 && staticW > 0) {
+    notes.push(
+      "There is no clock, so there is no energy PER CYCLE to report: leakage accrues with time " +
+        `rather than per cycle, and this part burns ${staticW.toPrecision(4)} W standing still.`,
+    );
+  }
+
   return {
     dynamicW,
     staticW,
     totalW,
     energyPerTransitionJ,
-    energyPerCycleJ: frequencyHz > 0 ? totalW / frequencyHz : activity * energyPerTransitionJ,
+    energyPerCycleJ: frequencyHz > 0 ? totalW / frequencyHz : staticW > 0 ? null : activity * energyPerTransitionJ,
     leakageFraction: totalW > 0 ? staticW / totalW : 0,
     notes,
   };
@@ -148,12 +162,24 @@ export function junctionTemperature(
     if (!Number.isFinite(tjMaxC)) return null;
     marginC = tjMaxC - junctionC;
     withinLimit = marginC >= 0;
-    maxPowerW = totalResistance > 0 ? (tjMaxC - ambientC) / totalResistance : null;
+    // A NEGATIVE power limit is not an answer. When the ambient is already at or
+    // above the maximum junction temperature there is no power the part can carry,
+    // and (Tj_max - Ta)/Rtheta goes negative — which was being printed as a
+    // capability ("can carry -12.5 W") rather than as an impossibility.
+    const headroomC = tjMaxC - ambientC;
+    maxPowerW = totalResistance > 0 && headroomC > 0 ? headroomC / totalResistance : headroomC > 0 ? null : 0;
+    if (headroomC <= 0) {
+      notes.push(
+        `The AMBIENT (${ambientC} °C) is already at or above the maximum junction temperature ` +
+          `(${tjMaxC} °C). No amount of heatsinking helps: with zero power dissipated the ` +
+          "junction still sits at ambient, so the part cannot be operated in this environment.",
+      );
+    }
     if (!withinLimit) {
       notes.push(
         `OVER THE LIMIT by ${(-marginC).toPrecision(4)} °C. At this ambient the path can carry ` +
-          `${maxPowerW === null ? "no" : maxPowerW.toPrecision(4)} W before the junction reaches ` +
-          `${tjMaxC} °C.`,
+          `${maxPowerW === null ? "no stated" : maxPowerW.toPrecision(4)} W before the junction ` +
+          `reaches ${tjMaxC} °C.`,
       );
     }
   }
@@ -209,7 +235,15 @@ export function interconnectDelay(
   const wireFiftyS = DIST * wireOhm * wireFarad;
   const totalFiftyS =
     LN2 * driverOhm * (wireFarad + loadFarad) + DIST * wireOhm * wireFarad + LN2 * wireOhm * loadFarad;
-  const riseTenNinetyS = 2.2 * (driverOhm + wireOhm) * (wireFarad + loadFarad);
+  // 2.2 = ln 9 is the 10-90% factor for a single pole, and that part was right —
+  // but it was multiplying (Rd + Rw)(Cw + Cl), which is a DIFFERENT network from
+  // the one every other line here models. Expanding it gives a full Rw*Cw term
+  // where a distributed wire contributes only Rw*Cw/2, so a wire-dominated line
+  // came out 2.4x too slow, printed directly beneath a 50% delay that had been
+  // computed carefully to avoid exactly that error. The time constant is now the
+  // Elmore constant of this topology.
+  const elmoreTotalS = driverOhm * (wireFarad + loadFarad) + wireOhm * (wireFarad / 2 + loadFarad);
+  const riseTenNinetyS = 2.2 * elmoreTotalS;
 
   return {
     wireElmoreS,
@@ -276,8 +310,21 @@ export function timingCheck(
 
   const setupSlackS = periodS - (clockToQS + logicMaxS + setupS) + skewS;
   const holdSlackS = clockToQS + logicMinS - holdS - skewS;
-  const minPeriodS = clockToQS + logicMaxS + setupS - skewS;
-  const fMaxHz = minPeriodS > 0 ? 1 / minPeriodS : null;
+  // A NEGATIVE required period is not a period. Enough positive skew makes the
+  // setup arithmetic come out below zero, and that was being printed as
+  // "Required period -120 ps" beside "Maximum clock unbounded" — two ways of
+  // saying the setup path no longer binds, one of them a negative time. Floored
+  // at zero, and the caller is told the path is unbounded BY SETUP only.
+  const rawMinPeriodS = clockToQS + logicMaxS + setupS - skewS;
+  const minPeriodS = Math.max(0, rawMinPeriodS);
+  const fMaxHz = rawMinPeriodS > 0 ? 1 / rawMinPeriodS : null;
+  if (rawMinPeriodS <= 0) {
+    notes.push(
+      "The skew is large enough that SETUP no longer limits the clock at all, so no maximum " +
+        "frequency follows from this path. That is not good news: the same skew is subtracted " +
+        "from the hold slack, and hold is what will fail.",
+    );
+  }
 
   notes.push(
     "Positive skew means the CAPTURING clock arrives later than the launching one. It helps " +

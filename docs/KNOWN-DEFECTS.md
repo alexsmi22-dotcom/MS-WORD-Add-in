@@ -35,6 +35,9 @@ Each was closed with its reproduction moved into a named test, not merely patche
 | **A2** `margins` reported the FIRST gain crossover, giving 32.5° for a loop whose three crossings are 33.0°, 148.8° and 23.1° | every crossing collected, the minimum reported, and the full list disclosed in a note; the same for gain margin at multiple phase crossovers | `controlMargins.test.ts` |
 | **A3** the sweep came from pole/zero magnitudes, which do not move with gain, so `1e12/(s+1)³` — crossover at ω = 10005, sweep ending at 100 — was reported as having NO phase margin | the range is extended until \|L\| brackets 1, bounded to 12 decades each way; asserted across seven gains from 1e3 to 1e15 | `controlMargins.test.ts` |
 | **A4** `(s²+1)³` — three double poles at ±i, marginally stable — was reported UNSTABLE with 2 poles in the right half plane | repeated roots detected EXACTLY via gcd(p, p′) over the rationals, and the verdict withheld as UNDETERMINED only when Routh also cannot answer AND a pole is near the axis; the refusal itself is asserted | `controlMargins.test.ts` |
+| **A5** the NCA area ran from the FIRST SAMPLE, so dosing-to-first-sample was missing; clearance error grew from 1% (first sample 0.25 h) to **98%** (4 h), unflagged | IV back-extrapolates C0 log-linearly and integrates the fitted exponential; oral uses C(0) = 0, which is exact. Error is now independent of when sampling started, and converges to 0.00% as sampling densifies — proving the remainder is trapezoidal discretisation | `pkNca.test.ts` |
+| **A6** an oral terminal slope may be ABSORPTION; `ka=1.0/ke=0.1` and `ka=0.1/ke=1.0` both reported t½ = 6.93 when the second one's true elimination t½ is 0.693 | every oral result carries a flip-flop warning naming the ten-fold case, saying an IV reference is needed, and to read it as the slower of the two rate constants | `pkNca.test.ts` |
+| **A7** the steady-state peak used F·Dose/Vd — instantaneous input — and silently ignored a supplied absorption rate, overstating the peak by **21% to 97%** | the standard multiple-dose oral solution at its own tmax, verified to 1e-6 against a superposition simulation at five (ka, ke) pairs; without ka the assumption is stated and the peak called an upper bound; a `ka` field added to the pane so the corrected path is reachable | `pkNca.test.ts` |
 
 A **behavioural baseline** now covers 300+ inputs across the solve, integrate and
 differentiate surface (`solveBaseline.test.ts`). It is not an oracle — it does not
@@ -57,28 +60,6 @@ zero. Every threshold, absolute or relative, deletes a real root somewhere.
 ---
 
 ## A — wrong numbers
-
-### A5. Pharmacokinetics: NCA area starts at the first sample, not at t = 0
-`src/lib/pk.ts`. The trapezoidal AUC begins at the earliest supplied time. If
-dosing is at t = 0 and the first sample is at 0.5 h, the interval from 0 to 0.5 h
-is simply missing — measured **+19% error in clearance**, unflagged.
-**Fix direction:** for an IV bolus, back-extrapolate to C0 using the terminal
-slope or the first two points; for oral, the concentration at t = 0 is 0. Either
-way, state which convention was used.
-
-### A6. Pharmacokinetics: `nca` never runs the flip-flop check on an oral dose
-`src/lib/pk.ts`. The function knows the route is oral and still fits the terminal
-slope as elimination. When absorption is slower than elimination the terminal
-slope IS the absorption rate, and the reported half-life came out **10× wrong**.
-**Fix direction:** the classic check — compare the terminal slope against an IV
-reference or flag when ka and ke are within an order of magnitude — and refuse to
-label the result "elimination half-life" when it cannot be distinguished.
-
-### A7. Pharmacokinetics: `steadyState` is IV-bolus-only but the pane offers bioavailability
-`src/lib/pk.ts`. The accumulation formula assumes instantaneous input. Entering
-an F less than 1, which the pane invites, gives **+41% on Cmax**.
-**Fix direction:** either apply F and a first-order absorption term, or refuse
-the F field for this calculator and say why.
 
 ### A8. Limits: the reported answer contradicts its own working
 `src/lib/analysis.ts:296`, surfaced at `src/taskpane/taskpane.ts:12246`, which

@@ -5,6 +5,103 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > Note: this file was not maintained between v1.96.0 and v2.23.0. Those releases
 > are recorded in the git history rather than here.
 
+## [2.42.0] — 2026-07-29 — Pharmacokinetics: the missing area, flip-flop, and absorption
+
+Batch 3 from `docs/KNOWN-DEFECTS.md`. Three defects, each quantified before being
+touched and each checked against a closed form or an independent simulation.
+
+### The AUC started at the first sample, not at dosing
+
+The trapezoidal loop ran from the earliest supplied time to the last, so if dosing
+was at t = 0 and the first sample was later, **that interval was simply missing** —
+and every parameter derived from AUC carried the error, with no note of any kind.
+Measured on a one-compartment IV bolus with a true clearance of 1.0 L/h:
+
+| first sample | reported CL | error |
+|---|---|---|
+| 0.25 h | 0.990 | −1% |
+| 1 h | 1.140 | +14% |
+| 2 h | 1.373 | +37% |
+| 4 h | **1.982** | **+98%** |
+
+The two routes need **different conventions**, and getting that wrong is its own
+error: naively adding a straight trapezoid from the origin to the first IV sample
+overestimates the area under an exponential decline, which took the same data from
+4% low to 6% high. So an IV bolus back-extrapolates C0 log-linearly through the
+first two points and integrates the fitted exponential exactly, while an oral dose
+uses C(0) = 0 — which is not an approximation but the definition, since the drug has
+not been absorbed yet.
+
+Verified two ways. The error is now **independent of when sampling started** — a
+spread of under 5% across first samples from 0.25 h to 4 h, where it used to vary by
+a factor of two. And it **converges to 0.00%** as sampling densifies (2.37% at
+4-hour spacing, 0.00% at 0.1-hour), which proves the remainder is trapezoidal
+discretisation rather than anything the back-extrapolation introduced. Whichever
+convention was used is stated, because a reader comparing this AUC against other
+software needs to know which produced it. If the first two points do not decline,
+no C0 is invented — the gap is disclosed instead.
+
+### An oral terminal slope may be absorption, not elimination
+
+When absorption is slower than elimination the tail of the curve decays at the
+**absorption** rate: the drug leaves as fast as it arrives. The terminal slope then
+estimates ka, and the half-life is reported with the elimination label on it.
+
+The two cases are **numerically identical**. Simulated with dose 500 and V = 10:
+
+| | reported t½ | true elimination t½ |
+|---|---|---|
+| ka = 1.0, ke = 0.1 | 6.93 | 6.93 |
+| ka = 0.1, ke = 1.0 | **6.93** | **0.693** |
+
+Same number, ten-fold different truth. No fit to oral data can separate them,
+because the one-compartment oral model is symmetric in ka and ke — which is exactly
+why the standard resolution is an intravenous reference profile. Every oral result
+now says so, and says to read the figure as the **slower** of the two rate constants
+without one. IV results carry no such warning, because there is no absorption phase
+to confuse.
+
+### The steady-state peak assumed the dose appeared instantly
+
+`F·Dose/Vd` is the concentration reached when the whole bioavailable dose arrives
+**instantaneously** — an IV bolus. An oral dose is absorbed at a finite rate, so the
+peak is lower and later and that figure is never actually reached. The parameters
+carried an absorption rate constant and it was silently ignored:
+
+| ka (ke = 0.2) | true peak | instantaneous figure | overstated by |
+|---|---|---|---|
+| 0.3 | 27.97 | 54.99 | **+97%** |
+| 0.6 | 33.28 | 54.99 | +65% |
+| 1.0 | 37.66 | 54.99 | +46% |
+| 3.0 | 45.63 | 54.99 | +21% |
+
+With an absorption rate supplied the standard multiple-dose oral solution is used at
+its own tmax, verified to better than one part in a million against a superposition
+simulation at five (ka, ke) pairs, with tmax agreeing to four significant figures.
+Without one the bolus formula is kept — it is correct for an IV bolus and a
+defensible upper bound otherwise — but it now **says** that rather than leaving the
+assumption unstated. The average concentration is unchanged either way and asserted
+to be, since Cavg depends only on dose rate and clearance.
+
+`ka` equal to `CL/Vd` falls back with an explanation, because the standard solution
+divides by their difference.
+
+### The fix had to be reachable
+
+The steady-state calculator offered bioavailability but had **no field for an
+absorption rate**, so the corrected path could not be called from the product at
+all. A green engine test proves nothing about whether the pane can reach the engine
+— a lesson this repo has already paid for. There is now an optional `ka` field, the
+peak reports when it occurs, and blank still means IV bolus. Left blank it passes
+`undefined` rather than 0, because a supplied rate of zero means something else.
+
+One more thing the figure would have got wrong: the plotted trace is a superposition
+of instantaneous doses, so with an absorption rate supplied its peaks are the bolus
+peaks and would silently contradict the numbers above it. That is now stated on the
+page.
+
+6,496 tests across 214 files. All twelve QC gates pass.
+
 ## [2.41.1] — 2026-07-29 — An approximate settling time printed beside the word "exact"
 
 A follow-up on v2.41.0, from asking what the freshly-changed code claims about

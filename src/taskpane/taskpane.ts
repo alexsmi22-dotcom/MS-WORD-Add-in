@@ -9041,14 +9041,27 @@ const ENG_CALCS: EngCalc[] = [
       { key: "vd", label: "Volume of distribution Vd, L", default: "35", kind: "text" },
       { key: "cl", label: "Clearance CL, L/h", default: "3.5", kind: "text" },
       { key: "f", label: "Bioavailability F, 0-1", default: "1", kind: "text" },
+      { key: "ka", label: "Absorption rate ka, 1/h (blank for an IV bolus)", default: "", kind: "text" },
       { key: "nDoses", label: "Doses to plot", default: "10", kind: "text" },
     ],
     compute: (r) => {
+      // ka is OPTIONAL and left out entirely when blank, because `undefined` is what
+      // steadyState reads as "no absorption model, use the instantaneous-input
+      // formula and say so". Passing 0 would look like a supplied rate of zero.
+      const kaText = r("ka").trim();
+      const kaValue = kaText ? Number(kaText) : undefined;
+      if (kaText && (!Number.isFinite(kaValue) || (kaValue as number) <= 0)) {
+        return {
+          text: "The absorption rate constant must be a positive number, or blank for an IV bolus.",
+          ok: false,
+        };
+      }
       const p = {
         dose: Number(r("dose") || "0"),
         vd: Number(r("vd") || "0"),
         cl: Number(r("cl") || "0"),
         f: r("f").trim() ? Number(r("f")) : 1,
+        ...(kaValue === undefined ? {} : { ka: kaValue }),
       };
       const tau = Number(r("tau") || "0");
       const res = steadyState(p, tau);
@@ -9056,13 +9069,19 @@ const ENG_CALCS: EngCalc[] = [
 
       const lines: string[] = [];
       lines.push(`${engNum(p.dose)} mg every ${engNum(tau)} h`);
-      lines.push(`CL = ${engNum(p.cl)} L/h, Vd = ${engNum(p.vd)} L, F = ${engNum(p.f)}`);
+      lines.push(
+        `CL = ${engNum(p.cl)} L/h, Vd = ${engNum(p.vd)} L, F = ${engNum(p.f)}` +
+          (kaValue === undefined ? " (IV bolus — no absorption)" : `, ka = ${engNum(kaValue)} 1/h`),
+      );
       lines.push("");
       lines.push(`Half-life = ${engNum(res.halfLife)} h; the interval is ${engNum(tau / res.halfLife)} half-lives`);
       lines.push(`Accumulation ratio = ${engNum(res.accumulation)}`);
       lines.push("");
       lines.push("At steady state");
-      lines.push(`  Peak    Cmax,ss = ${engNum(res.cMaxSs)} mg/L`);
+      lines.push(
+        `  Peak    Cmax,ss = ${engNum(res.cMaxSs)} mg/L` +
+          (res.tMaxSs === null ? " (at the moment of dosing)" : ` at t = ${engNum(res.tMaxSs)} h after each dose`),
+      );
       lines.push(`  Trough  Cmin,ss = ${engNum(res.cMinSs)} mg/L`);
       lines.push(`  Average Cavg,ss = ${engNum(res.cAvgSs)} mg/L  (= F·Dose/(CL·τ))`);
       lines.push(
@@ -9081,6 +9100,15 @@ const ENG_CALCS: EngCalc[] = [
       lines.push(ENG_PK_UNIT_NOTE);
 
       const nDoses = Math.max(1, Math.min(Math.floor(Number(r("nDoses") || "10")) || 10, 60));
+      if (kaValue !== undefined) {
+        // Do not let the figure quietly contradict the numbers above it.
+        lines.push(
+          "Note: the curve below is drawn as repeated INSTANTANEOUS doses, so its peaks are the " +
+            "instantaneous-input peaks rather than the absorbed ones reported above. It shows the " +
+            "accumulation and the approach to steady state correctly; read the peak height from " +
+            "the figures, not from the plot.",
+        );
+      }
       const trace = multipleDoseCurve(p, tau, nDoses, 800);
       const clean = lines.map(plainDashes);
       if (!trace.ok) return { text: clean.join("\n") };

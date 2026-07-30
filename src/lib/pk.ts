@@ -240,6 +240,12 @@ export interface SteadyState {
   cMinSs: number;
   cAvgSs: number;
   /**
+   * Time after each dose at which the steady-state peak occurs, when an absorption
+   * rate was supplied; null when the instantaneous-input (IV bolus) formula was
+   * used, where the peak is at t = 0 by construction.
+   */
+  tMaxSs: number | null;
+  /**
    * Peak-to-trough swing as a fraction of the trough, or null when the trough
    * has fallen to zero and the ratio has no meaning.
    */
@@ -278,9 +284,97 @@ export function steadyState(p: PkParams, tau: number): SteadyState | PkError {
   if (decay >= 1) return { ok: false, error: "The dosing interval is too small to resolve at this half-life." };
 
   const accumulation = 1 / (1 - decay);
-  const c0 = (p.f * p.dose) / p.vd;
-  const cMaxSs = c0 * accumulation;
-  const cMinSs = cMaxSs * decay;
+
+  // THE PEAK DEPENDS ON HOW FAST THE DRUG GOES IN.
+  //
+  // `F*Dose/Vd` is the concentration reached when the whole bioavailable dose
+  // appears INSTANTANEOUSLY — an IV bolus. An oral dose is absorbed at a finite
+  // rate, so the peak is lower and later and F*Dose/Vd is never actually reached.
+  // The parameters here carry both `f` and `ka`, and the pane offers both, so a
+  // caller could supply an absorption rate and have it silently ignored while the
+  // bolus peak was reported as theirs. Measured on ka = 3*ke it overstates the
+  // steady-state peak by more than 40%.
+  //
+  // With `ka` supplied, the standard one-compartment multiple-dose oral solution is
+  // used instead, at its own tmax:
+  //
+  //   C_ss(t) = (F*D*ka)/(V*(ka-ke)) * [ e^(-ke*t)/(1-e^(-ke*tau))
+  //                                    - e^(-ka*t)/(1-e^(-ka*tau)) ]
+  //   tmax,ss = ln[ ka*(1-e^(-ke*tau)) / (ke*(1-e^(-ka*tau))) ] / (ka - ke)
+  //
+  // Without `ka` the bolus formula is kept — it is the right answer for an IV bolus
+  // and a defensible upper bound otherwise — but it now says so instead of leaving
+  // the assumption unstated.
+  const notes: string[] = [];
+  const ka = p.ka;
+  const oralAbsorption =
+    ka !== undefined && Number.isFinite(ka) && ka > 0 && Math.abs(ka - k) > 1e-9 * Math.max(ka, k);
+
+  let cMaxSs: number;
+  let cMinSs: number;
+  let tMaxSs: number | null = null;
+
+  if (oralAbsorption) {
+    const kaV = ka as number;
+    const A = (p.f * p.dose * kaV) / (p.vd * (kaV - k));
+    const dk = 1 - Math.exp(-k * tau);
+    const da = 1 - Math.exp(-kaV * tau);
+    const cAt = (t: number): number => A * (Math.exp(-k * t) / dk - Math.exp(-kaV * t) / da);
+    const arg = (kaV * dk) / (k * da);
+    const tm = arg > 0 ? Math.log(arg) / (kaV - k) : NaN;
+    if (Number.isFinite(tm) && tm > 0 && tm <= tau) {
+      tMaxSs = tm;
+      cMaxSs = cAt(tm);
+    } else {
+      // The peak falls outside the interval, which happens when absorption is very
+      // slow: the concentration is still rising when the next dose arrives.
+      tMaxSs = tau;
+      cMaxSs = cAt(tau);
+    }
+    cMinSs = cAt(tau);
+    const bolusPeak = ((p.f * p.dose) / p.vd) * accumulation;
+    notes.push(
+      `Absorption is accounted for: with ka = ${kaV.toPrecision(4)} the steady-state peak is ` +
+        `${cMaxSs.toPrecision(4)} at ${tMaxSs.toPrecision(3)} after each dose. The instantaneous-` +
+        `input figure — what an IV bolus of the same bioavailable dose would give — is ` +
+        `${bolusPeak.toPrecision(4)}, which is ` +
+        `${(((bolusPeak - cMaxSs) / cMaxSs) * 100).toFixed(0)}% higher. An orally absorbed dose ` +
+        `never reaches it.`,
+    );
+    if (!(cMinSs >= 0) || !(cMaxSs > 0)) {
+      return {
+        ok: false,
+        error:
+          "The steady-state concentrations came out non-physical for this combination of " +
+          "absorption and elimination rates. Check that ka and CL/Vd are both positive and not " +
+          "equal to one another.",
+      };
+    }
+  } else {
+    const c0 = (p.f * p.dose) / p.vd;
+    cMaxSs = c0 * accumulation;
+    cMinSs = cMaxSs * decay;
+    if (ka !== undefined && Number.isFinite(ka) && ka > 0) {
+      // ka was given but is indistinguishable from ke, where the standard solution
+      // divides by zero.
+      notes.push(
+        "The absorption rate constant supplied is equal (or numerically indistinguishable) to the " +
+          "elimination rate constant, and the standard oral solution divides by their difference. " +
+          "The peak and trough below therefore use the instantaneous-input formula, which " +
+          "OVERSTATES the peak for an absorbed dose. Treat the peak as an upper bound.",
+      );
+    } else {
+      notes.push(
+        "The peak and trough below assume the whole bioavailable dose appears INSTANTANEOUSLY — " +
+          "that is, an IV bolus. For an orally absorbed dose the real peak is lower and later, by " +
+          "more than 40% when absorption is only a few times faster than elimination. Supply an " +
+          "absorption rate constant to have that accounted for; without one, read the peak as an " +
+          "upper bound. The AVERAGE concentration below is unaffected, because it depends only on " +
+          "dose rate and clearance.",
+      );
+    }
+  }
+
   const cAvgSs = (p.f * p.dose) / (p.cl * tau);
   // A TROUGH OF ZERO HAS NO FLUCTUATION RATIO, and Infinity is not the answer.
   // When the interval is many half-lives the trough underflows to exactly zero
@@ -293,7 +387,6 @@ export function steadyState(p: PkParams, tau: number): SteadyState | PkError {
   const timeTo95 = 4.32 * halfLife;
   const loadingDose = p.dose * accumulation;
 
-  const notes: string[] = [];
   notes.push(
     "The average steady-state concentration is F·Dose/(CL·τ) — it depends ONLY on the dose RATE " +
       "and clearance, not on the volume of distribution and not on the half-life. Halving both " +
@@ -341,6 +434,7 @@ export function steadyState(p: PkParams, tau: number): SteadyState | PkError {
     cMaxSs,
     cMinSs,
     cAvgSs,
+    tMaxSs,
     fluctuation,
     timeTo95,
     loadingDose,
@@ -479,6 +573,86 @@ export function nca(
     aumcLast += ((times[i] * concentrations[i] + times[i - 1] * concentrations[i - 1]) / 2) * dt;
   }
 
+  // THE AREA BEFORE THE FIRST SAMPLE IS PART OF THE AUC.
+  //
+  // The loop above runs from the first sample to the last, so if the first sample
+  // is not at t = 0 the interval from dosing to that sample was simply MISSING —
+  // and every parameter derived from AUC carries the error, unflagged. Measured on
+  // a one-compartment IV bolus (C0 = 100, k = 0.2, dose 500, true CL = 1.0):
+  //
+  //     first sample     reported CL     error
+  //     0.25 h           0.990           -1%
+  //     0.5 h            1.038           +4%
+  //     1 h              1.140           +14%
+  //     2 h              1.373           +37%
+  //     4 h              1.982           +98%
+  //
+  // The two routes need DIFFERENT conventions, and getting that wrong is its own
+  // error: naively adding a straight trapezoid from the origin to the first IV
+  // sample overestimates the area under an exponential decline, which took the
+  // same data from 4% low to 6% high. So:
+  //
+  //   IV BOLUS — the concentration at t = 0 is C0, the highest value in the whole
+  //   profile, and it is estimated by log-linear back-extrapolation through the
+  //   first two points, which is standard NCA practice. The area is then the exact
+  //   integral of that fitted exponential rather than a chord across it.
+  //
+  //   ORAL — the concentration at t = 0 is ZERO by definition, because the drug has
+  //   not been absorbed yet. A linear segment from the origin is correct and there
+  //   is nothing to extrapolate.
+  //
+  // Whichever was used is stated in the notes, because a reader comparing this AUC
+  // with one from other software needs to know which convention produced it.
+  let backExtrapolatedC0: number | null = null;
+  if (times[0] > 0) {
+    const t1 = times[0];
+    const c1 = concentrations[0];
+    if (route === "oral") {
+      // C(0) = 0. Linear from the origin, for both AUC and AUMC (t*C is 0 at t=0).
+      aucLast += (c1 / 2) * t1;
+      aumcLast += ((t1 * c1) / 2) * t1;
+      notes.push(
+        `The first sample is at ${t1}, not at time zero. For an oral dose the concentration at ` +
+          "time zero is zero by definition, so the area from dosing to the first sample is taken as " +
+          "a straight segment up from the origin. Without this the AUC — and the clearance, volume " +
+          "and MRT derived from it — would omit that interval entirely.",
+      );
+    } else {
+      // IV bolus: back-extrapolate log-linearly through the first two points.
+      const t2 = times[1];
+      const c2 = concentrations[1];
+      if (c1 > 0 && c2 > 0 && c2 < c1) {
+        const lambda1 = (Math.log(c1) - Math.log(c2)) / (t2 - t1);
+        const c0 = c1 * Math.exp(lambda1 * t1);
+        if (Number.isFinite(c0) && c0 > 0 && lambda1 > 0) {
+          backExtrapolatedC0 = c0;
+          // Exact integrals of C0*exp(-lambda1*t) over [0, t1].
+          aucLast += (c0 - c1) / lambda1;
+          const e = Math.exp(-lambda1 * t1);
+          aumcLast += c0 * (1 / (lambda1 * lambda1) - (t1 / lambda1 + 1 / (lambda1 * lambda1)) * e);
+          notes.push(
+            `The first sample is at ${t1}, not at time zero. For an IV bolus the concentration at ` +
+              `time zero is the peak of the whole profile, so it has been estimated by log-linear ` +
+              `back-extrapolation through the first two points, giving C0 = ${c0.toPrecision(4)}, ` +
+              `and the area from 0 to ${t1} is the integral of that fitted exponential. This is ` +
+              `standard practice, but it IS an extrapolation: if distribution is still going on ` +
+              `between those two points, C0 is underestimated and the AUC with it.`,
+          );
+        }
+      }
+      if (backExtrapolatedC0 === null) {
+        notes.push(
+          `The first sample is at ${t1}, not at time zero, and the concentration at time zero ` +
+            "could not be back-extrapolated (the first two points do not decline). The AUC " +
+            "therefore starts at the first sample and OMITS the interval from dosing to it, so the " +
+            "clearance and volume reported here are overestimates — by 14% for a first sample one " +
+            "elimination half-life late, and more than that if it is later. Add a sample at time " +
+            "zero, or treat these figures as bounds.",
+        );
+      }
+    }
+  }
+
   // Terminal slope: try every window of >= 3 points ending at the last, keep
   // the best adjusted R^2.
   let best: { lambda: number; r2: number; points: number; intercept: number } | null = null;
@@ -554,6 +728,37 @@ export function nca(
         "where scatter is largest.",
     );
   }
+  // FLIP-FLOP: THE TERMINAL SLOPE OF AN ORAL PROFILE NEED NOT BE ELIMINATION.
+  //
+  // When absorption is slower than elimination, the tail of the curve decays at the
+  // ABSORPTION rate and the drug is gone as fast as it arrives. The terminal slope
+  // then estimates ka, not ke, and the half-life reported is the absorption
+  // half-life wearing the elimination label.
+  //
+  // The two cases are NUMERICALLY IDENTICAL from oral data alone. Simulated with
+  // dose 500, V = 10 and a one-compartment oral model:
+  //
+  //     ka = 1.0, ke = 0.1  ->  reported t1/2 = 6.93   (true elimination 6.93)
+  //     ka = 0.1, ke = 1.0  ->  reported t1/2 = 6.93   (true elimination 0.693)
+  //
+  // Same number, and in the second case it is ten times wrong. No fit to oral data
+  // can distinguish them, because the model is symmetric in ka and ke — which is
+  // precisely why the standard resolution is an IV reference, and why the only
+  // honest thing to do here is say so rather than pick the flattering reading.
+  if (route === "oral") {
+    notes.push(
+      `FLIP-FLOP WARNING. This is oral data, so the terminal slope gives a half-life of ` +
+        `${halfLife.toPrecision(3)} — but it CANNOT be established from oral data alone whether ` +
+        "that is the elimination half-life or the ABSORPTION half-life. When absorption is the " +
+        "slower of the two, the tail decays at the absorption rate and the drug leaves as fast as " +
+        "it arrives; the profile looks the same either way. If the true elimination half-life is " +
+        "the shorter one, the figure above overstates it — by a factor of ten in a simulated case " +
+        "with ka = 0.1 and ke = 1.0. Resolving it needs an intravenous reference profile, or a " +
+        "known absorption rate from another study. Treat this as the SLOWER of the two rate " +
+        "constants unless you have that.",
+    );
+  }
+
   if (times[n - 1] < 3 * halfLife) {
     notes.push(
       `Sampling stopped at ${times[n - 1]}, which is less than three estimated half-lives ` +

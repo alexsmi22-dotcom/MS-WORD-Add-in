@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.41.1)
+# JurisLab — Manual Test Script (v2.42.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -383,6 +383,58 @@ entirely plausible, so check the numbers, not just that something appears.
 - [ ] These must keep their definite verdicts — the refusal must be narrow:
   `s^2+2s+1` → STABLE, `s^3+3s^2+3s+1` → STABLE, `s^2-2s+1` → UNSTABLE,
   `s^4-2s^2+1` → UNSTABLE, `s^2` → MARGINALLY STABLE, `s^2+3s+2` → STABLE.
+
+---
+
+## 0g. New in v2.42.0 — pharmacokinetics: the missing area, flip-flop, absorption
+
+Analyze > Pharmacokinetics. Every figure below was wrong in a way that looked
+entirely reasonable.
+
+**Non-compartmental analysis (NCA):**
+
+- [ ] Paste an IV bolus profile whose **first sample is late** — for example
+  `2 67.0 / 4 44.9 / 8 20.2 / 12 9.1 / 24 0.82`, dose 500, route IV. The clearance
+  must read about **1.0 L/h**. It used to read **1.37** — 37% high — because the
+  area from dosing to the first sample was simply missing. With a first sample at
+  4 h the old error was **98%**.
+- [ ] A note must appear saying the first sample is not at time zero, giving the
+  **back-extrapolated C0**, and admitting that it is an extrapolation.
+- [ ] Same data with a sample added at `0 100`: the clearance must barely change.
+  Before, the two answers differed by more than a third.
+- [ ] Switch the route to **oral** on data starting after t = 0. The note must now
+  say the concentration at time zero is **zero by definition** and must NOT mention
+  back-extrapolation — the two routes need different conventions and using the
+  IV one for an oral dose would invent drug that has not been absorbed.
+- [ ] Any **oral** analysis must carry a **FLIP-FLOP WARNING**: the terminal slope
+  may be the absorption rate rather than elimination, it cannot be told apart from
+  oral data alone, and an IV reference is needed. There was no warning at all
+  before, and the two cases give *identical* numbers — in a simulated pair the
+  reported half-life was 6.93 h both times when one of them truly had 0.693 h.
+- [ ] An **IV** analysis must NOT carry that warning.
+
+**Steady state:**
+
+- [ ] There is a new field, **absorption rate ka**. Leave it blank: the peak must be
+  reported "at the moment of dosing" and a note must say the peak assumes the dose
+  appears **instantaneously** and is an upper bound for anything swallowed.
+- [ ] Now enter `ka = 0.6` with `Vd = 10`, `CL = 2`, `dose = 500`, `τ = 12`. The
+  peak must fall from about **55 to about 33 mg/L**, and be reported at about
+  **t = 2.5 h** after each dose. A note must state how much higher the
+  instantaneous figure was. That 65% overstatement was previously silent.
+- [ ] Try `ka = 3`: the peak should rise to about 45.6 mg/L and occur earlier
+  (~0.93 h). Faster absorption, higher and earlier peak — that is the check that
+  the model is behaving.
+- [ ] The **average** concentration must not change when ka changes. Cavg depends
+  only on dose rate and clearance; if it moves, something is wrong.
+- [ ] Enter `ka` equal to `CL/Vd` (here 0.2). It must fall back to the
+  instantaneous formula and say the two rate constants are indistinguishable —
+  the standard oral solution divides by their difference.
+- [ ] `ka = -1` or `ka = abc` must be refused with a message about a positive
+  number, not silently ignored.
+- [ ] With a ka supplied, the **plotted curve** must carry a note saying the figure
+  is drawn as instantaneous doses and to read the peak from the numbers, not the
+  plot. The figure must not silently contradict the text above it.
 
 ---
 

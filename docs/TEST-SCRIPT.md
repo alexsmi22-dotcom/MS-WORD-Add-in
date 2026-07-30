@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.47.0)
+# JurisLab — Manual Test Script (v2.48.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -596,6 +596,38 @@ Math > **Solve** (and anywhere an expression is typed):
 > number — **B3** (a blank Bode chart at zero reference, which could not be reproduced)
 > and **C2** (a huge exact rational converting to Infinity, the correct IEEE result at
 > the boundary).
+
+---
+
+## 0m. New in v2.48.0 — heat maps
+
+Table&rarr;Chart. Select a numeric table with several columns, load it, and choose
+**Heat map** from "Show as".
+
+- [ ] A month &times; region table must render as a grid of shaded cells, with the row
+  labels down the left and the column names across the top.
+- [ ] The **value must be printed inside each cell** where it fits. That is not
+  decoration — colour alone is a poor readout of a specific number, and these figures
+  get printed.
+- [ ] A **colour bar with numeric ticks** must always appear beneath the grid, showing
+  the low and high ends. A shaded grid with no scale cannot be read.
+- [ ] The shading must be **one colour, light to dark** — not a rainbow. If you see
+  green and yellow and red in one sequential scale, something is wrong: a rainbow
+  implies an order the eye cannot recover.
+- [ ] Put a **blank or text cell** in the middle of the table. It must render as an
+  empty cell with a diagonal hairline, and a note must say it is NOT counted as zero.
+  Check the low end of the colour bar is still the smallest real number.
+- [ ] Turn on the **patent / black-and-white** style. The grid must render in greys,
+  with no blue surviving, and still be readable.
+- [ ] Try a table of **changes** with negatives and positives. (The diverging scale is
+  available from the library API; the pane currently offers sequential shading.) With
+  diverging selected, zero must be a neutral grey — not a colour — and the bar must
+  name the midpoint.
+- [ ] Load a **large** table, 30 columns by 40 rows. The cells become too small for
+  numbers; a note must say the colour is then the only readout.
+- [ ] **Export to PowerPoint.** A heat map must export as a **picture**. It must never
+  come out as a bar or line chart — PowerPoint has no heat-map chart type, and
+  substituting one would present different information under the same title.
 
 ---
 

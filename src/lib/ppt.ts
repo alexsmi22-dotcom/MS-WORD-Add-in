@@ -239,7 +239,21 @@ export async function buildTablePptx(chart: TableChart, kind: ChartKind, opts: T
       values: s.values.map((v) => v ?? 0),
     }));
 
-    const typeMap: Record<ChartKind, pptxgen.CHART_NAME> = {
+    // A HEAT MAP HAS NO NATIVE POWERPOINT CHART TYPE, and there is no "closest fit"
+    // that would not be a different chart. Rows and columns are both categorical and
+    // the value is the FILL — a bar or line chart of the same data says something
+    // else entirely. So it is exported as the rendered picture, which is what the
+    // chartImage branch above is for, and reaching here with a heat map means the
+    // caller forgot to ask for one. Refusing beats silently shipping a bar chart
+    // labelled as a heat map.
+    if (kind === "heatmap") {
+      throw new Error(
+        "A heat map cannot be exported as a native PowerPoint chart — PowerPoint has no such " +
+          "chart type, and substituting a bar or line chart would present different information " +
+          "under the same title. Export it as a picture instead.",
+      );
+    }
+    const typeMap: Record<Exclude<ChartKind, "heatmap">, pptxgen.CHART_NAME> = {
       column: pptx.ChartType.bar,
       bar: pptx.ChartType.bar,
       line: pptx.ChartType.line,
@@ -255,7 +269,7 @@ export async function buildTablePptx(chart: TableChart, kind: ChartKind, opts: T
     };
     const isStacked = kind === "stacked-column" || kind === "stacked-bar" || kind === "stacked-area";
 
-    slide.addChart(typeMap[kind], data, {
+    slide.addChart(typeMap[kind as Exclude<ChartKind, "heatmap">], data, {
       x: 0.4,
       y: areaY,
       w: 9.2,

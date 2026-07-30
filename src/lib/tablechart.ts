@@ -12,6 +12,7 @@
 // Pure logic — no Office.js, no PptxGenJS — fully unit-testable.
 
 import { niceStep, fmtTick } from "./plot";
+import { buildHeatmapSvg } from "./heatmap";
 
 export type ChartKind =
   | "column"
@@ -23,7 +24,8 @@ export type ChartKind =
   | "stacked-bar"
   | "stacked-area"
   | "pie"
-  | "doughnut";
+  | "doughnut"
+  | "heatmap";
 
 export interface ChartStyle {
   /** Black-&-white patent-drawing rendering (hatching, dashed lines, markers). */
@@ -339,6 +341,11 @@ export function buildChartPreviewSvg(chart: TableChart, kind: ChartKind, title =
   const W = 380;
   const figLabel = (style.figLabel ?? "").trim();
   const H = 260 + (figLabel ? 26 : 0);
+  if (kind === "heatmap") {
+    // A heat map is neither an axis chart nor a pie: rows AND columns are both
+    // categorical and the value is the fill, so it has its own renderer.
+    return buildHeatmapSvg(chart, title, { grey: style.patent === true }, W, H).svg;
+  }
   if (kind === "pie" || kind === "doughnut") return buildPieSvg(chart, kind, title, style, W, H);
   return buildAxisSvg(chart, kind, title, style, W, H);
 }

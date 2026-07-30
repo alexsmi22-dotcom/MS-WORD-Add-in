@@ -2585,7 +2585,13 @@ function isRowKind(kind: RenderKind): kind is DiagramKind | "tablefigure" {
 
 /** Kinds exported to PowerPoint as a picture rather than a native chart. */
 function isPictureKind(kind: RenderKind): boolean {
-  return isRowKind(kind);
+  // A HEAT MAP HAS NO NATIVE CHART EQUIVALENT, so it always ships as a picture of
+  // the rendering. PowerPoint offers nothing that means the same thing — rows and
+  // columns are both categorical and the value is the FILL — and buildTablePptx
+  // refuses rather than substituting a bar chart under the same title. Getting this
+  // wrong would not error, it would export a different chart, so the two decisions
+  // are kept consistent here rather than left to line up by luck.
+  return isRowKind(kind) || kind === "heatmap";
 }
 
 /** Reads the table the cursor / selection sits in and parses it. */

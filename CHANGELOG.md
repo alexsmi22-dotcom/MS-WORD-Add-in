@@ -5,6 +5,59 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > Note: this file was not maintained between v1.96.0 and v2.23.0. Those releases
 > are recorded in the git history rather than here.
 
+## [2.48.0] — 2026-07-30 — Heat maps
+
+First of the three features on the wishlist. A numeric table rendered as a grid of
+shaded cells, for the job no existing chart here does: comparing magnitude across two
+categorical axes at once — month × region, a correlation matrix, an assay plate.
+
+### The colour is the part that goes wrong, so it is the part that was computed
+
+The ramps are documented steps from a validated reference palette, run through that
+palette's own validator rather than eyeballed. What it reported for the sequential
+ramp, recorded verbatim in `chartPalette.ts`: lightness monotone PASS, adjacent ΔL
+gaps PASS, single hue (4° spread) PASS, and a light-end contrast FAIL at 1.29:1.
+
+That last one is expected here and the distinction matters. The palette's own note
+says the full range "is for sequential encoding (continuous magnitude — heatmaps,
+choropleths) where the lightest step means 'near zero' and is allowed to recede toward
+the surface", while an ordinal ramp must clear 2:1. A heat map is the sequential case,
+and the relief required for a sub-3:1 mark is secondary encoding — which is why the
+number is printed in each cell and a colour bar always accompanies the grid.
+
+Two rules do the real work:
+
+- **Sequential is ONE HUE, light to dark.** A rainbow ramp is the classic heat-map
+  error: it implies an ordering the eye cannot recover — is green more or less than
+  yellow? — and manufactures boundaries the data does not have. Asserted by measuring
+  hue spread across the ramp, not by looking at it.
+- **Diverging is TWO HUES ABOUT A NEUTRAL GREY.** A hue at the midpoint reads as a
+  third category rather than as "nothing". The arms are symmetric about the midpoint,
+  which is what stops −1 and +100 being shown as equally extreme.
+
+### What it refuses to do
+
+A non-numeric cell is drawn blank and counted, **never treated as zero** — that would
+move the colour scale and shade a cell for a value not in the table. A diverging scale
+applied to one-sided data says a sequential one would use the whole ramp instead of
+half. And greyscale admits it can only show how FAR a value is from a diverging
+midpoint, not which side it is on, because lightness has one dimension.
+
+PowerPoint export always ships a **picture**. There is no native heat-map chart type,
+and `buildTablePptx` throws rather than substituting a bar chart under the same title —
+a silent substitution would present different information, which is worse than an error.
+
+### A bug my own test caught
+
+`inkOn` decides whether a cell's number is printed in black or white. I picked its
+threshold by eye at luminance 0.36, and it was wrong in the middle of the ramp: the
+mid-blue `#5598e7` (L = 0.302) took white text at **2.98:1** where black would have
+given 7.04:1. The threshold is now derived — white overtakes black at
+√(1.05 × 0.05) − 0.05 = 0.1791 — so a new ramp needs no new decision. It only surfaced
+because the test sweeps every step of every ramp rather than the ends.
+
+6,674 tests across 219 files. All twelve QC gates pass.
+
 ## [2.47.0] — 2026-07-29 — An exponent extends to one atom, and spaces mean something
 
 `2^2x` read as 2^(2x) in one parser and (2^2)x in the other. Two releases ago I filed

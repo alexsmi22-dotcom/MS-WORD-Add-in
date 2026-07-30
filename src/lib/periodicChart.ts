@@ -231,7 +231,12 @@ export function buildPeriodicTableSvg(highlight?: string): { svg: string; notes:
   const CELL = 30;
   const GAP = 2;
   const LEFT = 16;
-  const TOP = 30;
+  // 30 put the group-number row (drawn at TOP - 4, 8px type) under the 12px title
+  // baselined at y=18: the boxes overlapped by 2-4px across every render width, and
+  // the title is long enough to run over groups 1-5. The landing page's layout gate
+  // caught it, but this SVG also goes into user documents. Title occupies up to ~y=22,
+  // so the labels start below that.
+  const TOP = 38;
   const F_TOP = TOP + 7 * (CELL + GAP) + 18;
 
   const W = LEFT * 2 + 18 * (CELL + GAP);

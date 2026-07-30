@@ -463,6 +463,32 @@ describe("the fetched data agrees with the data already held", () => {
     expect(configurationIsPredicted(8)).toBe(false);
   });
 
+  test("the title does not sit on top of the group-number row", () => {
+    // These collided by 2-4px at every width: the title was baselined at y=18 in
+    // 12px type and the group numbers at y=26 in 8px, and the title is long enough
+    // to run across groups 1-5. The landing-page layout gate found it, but this SVG
+    // is also inserted into user documents, so the clearance is asserted here where
+    // it is cheap. Compared as boxes rather than baselines, which is the mistake the
+    // original spacing made.
+    const svg = buildPeriodicTableSvg().svg;
+
+    const title = /<text x="\d+(?:\.\d+)?" y="(\d+(?:\.\d+)?)"[^>]*font-size="(\d+(?:\.\d+)?)"[^>]*>Periodic table/.exec(svg);
+    expect(title).not.toBeNull();
+    const titleBaseline = Number(title![1]);
+    const titleSize = Number(title![2]);
+
+    // Every group number 1..18 is its own <text>; take the first, they share a row.
+    const group = /<text x="\d+(?:\.\d+)?" y="(\d+(?:\.\d+)?)" text-anchor="middle"[^>]*font-size="(\d+(?:\.\d+)?)"[^>]*>1<\/text>/.exec(svg);
+    expect(group).not.toBeNull();
+    const groupBaseline = Number(group![1]);
+    const groupSize = Number(group![2]);
+
+    // Descender allowance below the baseline, cap height above it.
+    const titleBottom = titleBaseline + titleSize * 0.25;
+    const groupTop = groupBaseline - groupSize;
+    expect(groupTop).toBeGreaterThan(titleBottom);
+  });
+
   test("the newly-available properties are shown when the source has them", () => {
     const fe = elementReport("Fe")!.lines.join("\n");
     expect(fe).toMatch(/Oxidation states:/);

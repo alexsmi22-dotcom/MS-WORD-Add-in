@@ -121,11 +121,11 @@ module.exports = async (env, options) => {
                 transform: (content) =>
                   content.toString().replace(/https:\/\/ADDIN-HOST\.example\.com/g, prodHost),
               },
-          { from: "landing/index.html", to: "index.html" },
-          { from: "landing/tool.html", to: "tool.html" },
-          { from: "landing/manual.html", to: "manual.html" },
-          { from: "landing/science.html", to: "science.html" },
-          { from: "landing/legal.html", to: "legal.html" },
+          // Globbed, not listed. These five were named individually, so authoring a
+          // sixth page produced a file that every QC gate checked (they glob
+          // landing/) and that webpack then never copied — a link straight to a 404
+          // with nothing failing. Adding a page to landing/ now publishes it.
+          { from: "landing/*.html", to: "[name][ext]" },
         ],
       }),
     ],

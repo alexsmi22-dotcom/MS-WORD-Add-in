@@ -1078,6 +1078,20 @@ export function secondOrderMetrics(tf: TransferFunction): SecondOrderMetrics | C
   if (zeta > 0 && wn > 0) {
     if (zeta < 1) {
       settlingTime = 4 / (zeta * wn);
+      // SAY WHICH KIND OF NUMBER THIS IS. `exact` on this result means wn and zeta
+      // are exact identities for a genuine second-order denominator — it does not
+      // mean the settling time is exact, and 4/(zeta*wn) is the standard ENVELOPE
+      // estimate, which is 2 to 4% away from the true 2% crossing by construction
+      // (at zeta = 0.7 it gives 5.71 s against a true 5.98 s). Printing an
+      // approximate figure beside the word "exact" is the same defect class this
+      // release is closing, just smaller.
+      notes.push(
+        "The settling time above is the standard envelope estimate 4/(zeta*wn), which is the " +
+          "textbook convention and is accurate to a few percent — the true 2% crossing is " +
+          "typically 2 to 4% away because the oscillation does not touch the envelope exactly at " +
+          "the crossing. The damping ratio and natural frequency themselves are exact. For a " +
+          "critically damped or overdamped system the crossing is solved for directly instead.",
+      );
     } else {
       settlingTime = settlingTimeHeavilyDamped(zeta, wn);
       if (settlingTime === null) {

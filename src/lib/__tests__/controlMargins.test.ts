@@ -113,6 +113,40 @@ describe("A1: settling time for a critically damped or overdamped system", () =>
     expect(m.ok).toBe(true);
     if (!m.ok) return;
     expect(m.settlingTime).toBeCloseTo(20, 6);
+    // But it must SAY it is the envelope estimate. `exact: true` on this result
+    // refers to wn and zeta being exact identities, not to the settling time — and
+    // an approximate figure printed beside the word "exact" is the same defect
+    // class this release closed, just smaller in magnitude.
+    expect(m.exact).toBe(true);
+    expect(m.notes.join(" ")).toMatch(/envelope estimate/);
+    expect(m.notes.join(" ")).toMatch(/accurate to a few percent/);
+  });
+
+  test("the overdamped branch does NOT carry the envelope caveat, because it is solved directly", () => {
+    for (const z of [1, 2, 20]) {
+      const m = secondOrderMetrics(tf([1], [1, 2 * z, 1]));
+      expect(m.ok).toBe(true);
+      if (!m.ok) return;
+      expect({ z, envelope: m.notes.join(" ").includes("envelope estimate") }).toEqual({
+        z,
+        envelope: false,
+      });
+    }
+  });
+
+  test("a higher-order plant never reaches the overdamped solver with derived numbers", () => {
+    // The dominant-pole path requires a stable COMPLEX pair, which means zeta < 1 by
+    // definition, so settlingTimeHeavilyDamped only ever sees a genuine second-order
+    // denominator. An overdamped higher-order plant is refused outright rather than
+    // having a damping ratio invented for it.
+    const overdampedThirdOrder = secondOrderMetrics(tf([1], [1, 50, 401, 10]));
+    expect(overdampedThirdOrder.ok).toBe(false);
+    // and an underdamped one is flagged as an approximation, as it always was
+    const underdampedThirdOrder = secondOrderMetrics(tf([1], [1, 10.4, 5, 10]));
+    expect(underdampedThirdOrder.ok).toBe(true);
+    if (!underdampedThirdOrder.ok) return;
+    expect(underdampedThirdOrder.exact).toBe(false);
+    expect(underdampedThirdOrder.zeta).toBeLessThan(1);
   });
 
   test("it terminates promptly for extreme damping", () => {

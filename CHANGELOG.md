@@ -5,6 +5,34 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > Note: this file was not maintained between v1.96.0 and v2.23.0. Those releases
 > are recorded in the git history rather than here.
 
+## [2.41.1] — 2026-07-29 — An approximate settling time printed beside the word "exact"
+
+A follow-up on v2.41.0, from asking what the freshly-changed code claims about
+itself rather than only whether its numbers moved.
+
+`secondOrderMetrics` returns `exact: true` for any genuine second-order
+denominator, and that flag means the damping ratio and natural frequency are exact
+identities. It does **not** mean the settling time is — and for an underdamped
+system the settling time is `4/(zeta*wn)`, the standard envelope estimate, which is
+2 to 4% away from the true 2% crossing by construction. At ζ = 0.7 it gives 5.71 s
+against a true 5.98 s. This release's own test asserts that gap, so the product was
+printing a figure it knew to be approximate next to the word "exact".
+
+The underdamped branch keeps the textbook formula — students expect that number,
+and silently substituting a different one would be its own kind of wrong — but it
+now says what kind of number it is, and that the critically damped and overdamped
+cases are solved for directly instead. The overdamped branch is asserted **not** to
+carry that caveat, so the two cases stay distinguishable.
+
+Also checked, and a risk that turned out not to exist: whether a higher-order plant
+could reach the new overdamped solver with a damping ratio derived from a dominant
+pole pair rather than read off a real second-order denominator. It cannot — the
+dominant-pole path requires a stable **complex** pair, which means ζ < 1 by
+definition, and an overdamped higher-order plant is refused outright rather than
+having a damping ratio invented for it. Pinned in a test so it stays that way.
+
+6,472 tests across 213 files. All twelve QC gates pass.
+
 ## [2.41.0] — 2026-07-29 — Control: a settling time that ran backwards, and a verdict withheld
 
 Batch 2 from `docs/KNOWN-DEFECTS.md`. Four defects, each independently reproduced

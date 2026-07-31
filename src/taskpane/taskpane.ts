@@ -21,6 +21,7 @@ import {
   samplePlot,
   parseData,
   buildPlotSvg,
+  combineSvgs,
   dropForScales,
   type AxisScale,
   type ErrorBarKind,
@@ -5843,7 +5844,8 @@ function regressionFigures(res: { fitted: number[]; residuals: number[]; standar
     ],
     { width: 300, height: 190, title: "Normal Q-Q", xlabel: "Theoretical quantile", ylabel: "Std. residual" },
   );
-  return resid + qq;
+  // ONE document, not two concatenated roots - see combineSvgs.
+  return combineSvgs([resid, qq]).svg;
 }
 
 const STAT_CALCS: StatCalc[] = [
@@ -6406,7 +6408,7 @@ const STAT_CALCS: StatCalc[] = [
           `Linear regression (n = ${res.n})\n` +
           `y = ${assaySig(res.slope)}·x + ${assaySig(res.intercept)}\n` +
           `R² = ${assaySig(res.rSquared, 4)} · slope SE = ${assaySig(res.slopeSE, 3)} · slope ${formatP(res.slopeP)}`,
-        svg: fitPlot + regressionFigures({ fitted, residuals, standardizedResiduals }),
+        svg: combineSvgs([fitPlot, regressionFigures({ fitted, residuals, standardizedResiduals })]).svg,
       };
     },
   },
@@ -6700,6 +6702,13 @@ async function insertStatsResult(): Promise<void> {
   }
 }
 
+/** The width/height an SVG declares on its own root element. */
+function svgNaturalSize(svg: string): { width: number; height: number } {
+  const w = Number(/^<svg[^>]*\swidth="([\d.]+)"/.exec(svg.trim())?.[1] ?? 300);
+  const h = Number(/^<svg[^>]*\sheight="([\d.]+)"/.exec(svg.trim())?.[1] ?? 190);
+  return { width: w, height: h };
+}
+
 async function insertStatsChart(): Promise<void> {
   if (!currentStatsSvg) {
     setStatus("No chart available for this result.", "error");
@@ -6708,12 +6717,17 @@ async function insertStatsChart(): Promise<void> {
   statsInsertChartBtn.disabled = true;
   setStatus("Inserting chart…");
   try {
-    const size = currentChartSize();
+    // The figure's OWN aspect, not the spectrum chart's. A stacked diagnostic
+    // figure is tall and narrow; rasterising it into a wide spectrum-shaped box
+    // would squash it.
+    const natural = svgNaturalSize(currentStatsSvg);
+    const scale = 2; // render above display size so the picture stays sharp
+    const size = { width: natural.width * scale, height: natural.height * scale };
     const base64 = await renderFigurePng(currentStatsSvg, size.width, size.height);
     await Word.run(async (context) => {
       const range = context.document.getSelection();
       const picture = range.insertInlinePictureFromBase64(base64, Word.InsertLocation.after);
-      sizeFigure(picture, size.width, size.height);
+      sizeFigure(picture, natural.width, natural.height);
       picture.altTextDescription = `Statistics diagnostic plot for ${statsCalcSelect.value}`;
       range.select(Word.SelectionMode.end);
       await context.sync();

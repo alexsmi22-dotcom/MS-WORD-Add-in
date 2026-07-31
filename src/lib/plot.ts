@@ -343,6 +343,57 @@ function escapeXml(s: string): string {
 }
 
 /** Renders one or more series to an SVG string with axes, ticks, and labels. */
+/**
+ * Stacks several SVG figures into ONE valid SVG document.
+ *
+ * WHY THIS EXISTS. Code that wanted two figures concatenated their markup —
+ * `resid + qq` — which is fine as innerHTML, because a browser happily renders
+ * two sibling <svg> elements. It is NOT a valid SVG document: it has two root
+ * elements. So the pane preview looked right while rasterising it for Word failed
+ * outright with "Could not rasterize the structure image", which meant the
+ * regression diagnostic plots could never be inserted at all.
+ *
+ * SVG nests, so the fix is to make the parts children of one root with a y
+ * offset each. Returns the combined markup plus the dimensions a caller needs to
+ * size the raster.
+ */
+export function combineSvgs(parts: string[], gap = 8): { svg: string; width: number; height: number } {
+  const items = parts
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((s) => ({
+      s,
+      w: Number(/^<svg[^>]*\swidth="([\d.]+)"/.exec(s)?.[1] ?? 300),
+      h: Number(/^<svg[^>]*\sheight="([\d.]+)"/.exec(s)?.[1] ?? 190),
+    }));
+  if (items.length === 0) return { svg: "", width: 0, height: 0 };
+  if (items.length === 1) return { svg: items[0].s, width: items[0].w, height: items[0].h };
+
+  const width = Math.max(...items.map((i) => i.w));
+  const height = items.reduce((a, i) => a + i.h, 0) + gap * (items.length - 1);
+
+  let y = 0;
+  const inner = items
+    .map((i) => {
+      // x/y are inserted into the child's own <svg> tag; its width/height/viewBox
+      // are already correct, so nesting needs nothing else.
+      const placed = i.s.replace(/^<svg\b/, `<svg x="${(width - i.w) / 2}" y="${y}"`);
+      y += i.h + gap;
+      return placed;
+    })
+    .join("");
+
+  return {
+    svg:
+      `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" ` +
+      `viewBox="0 0 ${width} ${height}"><rect width="${width}" height="${height}" fill="#fff"/>` +
+      inner +
+      `</svg>`,
+    width,
+    height,
+  };
+}
+
 export function buildPlotSvg(series: Series[], options: PlotOptions = {}): string {
   const W = options.width ?? 380;
   const H = options.height ?? 270;

@@ -32,8 +32,8 @@ export interface SpeedupResult {
   amdahlCeiling: number;
   /** Amdahl speedup divided by the processor count. */
   efficiency: number;
-  /** Processors beyond which Amdahl gains less than 1% more. */
-  knee: number;
+  /** Processor count at which Amdahl efficiency falls to 50%. */
+  halfEfficiencyN: number;
   /** Karp-Flatt experimentally determined serial fraction, when a measured speedup is given. */
   karpFlatt: number | null;
   notes: string[];
@@ -63,19 +63,20 @@ export function parallelSpeedup(parallelFraction: number, processors: number, me
   const gustafson = 1 - p + p * n;
   const amdahlCeiling = p === 1 ? Infinity : 1 / (1 - p);
 
-  // Where Amdahl stops paying: the N at which doubling gains under 1%.
-  // S(2N)/S(N) < 1.01 solved for N.
-  let knee = Infinity;
-  if (p > 0 && p < 1) {
-    for (let k = 1; k <= 1 << 20; k *= 2) {
-      const s1 = 1 / (1 - p + p / k);
-      const s2 = 1 / (1 - p + p / (2 * k));
-      if (s2 / s1 < 1.01) {
-        knee = k;
-        break;
-      }
-    }
-  }
+  // WHERE HALF THE MACHINE IS BEING WASTED, in closed form.
+  //
+  // This was a search over POWERS OF TWO for "doubling gains under 1%", which was
+  // quantised to a factor of two, capped out at 2^20 (so p >= 0.99995 reported
+  // Infinity), and — because the loop was guarded by p > 0 — reported "no
+  // diminishing returns" for a FULLY SERIAL program, which is the one program
+  // that has nothing else.
+  //
+  // Efficiency E = S/N = 1/(N(1-p) + p). Setting E = 1/2 gives
+  // N = (2-p)/(1-p) exactly, with no loop and no quantisation. For p = 0.95 that
+  // is 21 processors, which sits sensibly against the 20x ceiling; for a fully
+  // serial program it is 2, which is correct — the second core is already half
+  // wasted.
+  const halfEfficiencyN = p === 1 ? Infinity : (2 - p) / (1 - p);
 
   const notes: string[] = [
     "Amdahl holds the PROBLEM fixed and asks how much sooner it finishes; Gustafson holds the " +
@@ -106,6 +107,14 @@ export function parallelSpeedup(parallelFraction: number, processors: number, me
           "serial section — that is the whole point of the metric, and a single value cannot " +
           "distinguish them.",
       );
+      if (karpFlatt < 0) {
+        notes.push(
+          "That serial fraction is NEGATIVE, which is not physically meaningful: it means the " +
+            "measured speedup exceeded what Amdahl allows for any serial fraction at all. Usually " +
+            "that is superlinear speedup from cache effects — the parallel run had more total " +
+            "cache — or a mis-measured baseline.",
+        );
+      }
     } else {
       notes.push("Karp-Flatt needs more than one processor to say anything.");
     }
@@ -116,7 +125,7 @@ export function parallelSpeedup(parallelFraction: number, processors: number, me
     gustafson,
     amdahlCeiling,
     efficiency: amdahl / n,
-    knee,
+    halfEfficiencyN,
     karpFlatt,
     notes,
   };
@@ -326,6 +335,10 @@ export interface CollisionResult {
 export function collisionProbability(items: number, space: number): CollisionResult | null {
   if (![items, space].every(Number.isFinite)) return null;
   if (items < 0 || space <= 0) return null;
+  // A fractional number of items is not a collision problem: the exact product
+  // walks i = 1..n-1 and would silently answer for ceil(n) while the expected
+  // pairs stayed continuous, so the two reported figures described different n.
+  if (!Number.isInteger(items)) return null;
   if (items <= 1) {
     return {
       probability: 0,
@@ -405,6 +418,25 @@ export function collisionProbability(items: number, space: number): CollisionRes
  */
 const DOUBLE_DECIMAL_DIGITS = -Math.log10(Number.EPSILON / 2);
 
+/**
+ * Spacing between `a` and the next representable double above it, read from the
+ * IEEE-754 exponent field rather than computed from a logarithm.
+ *
+ * Subnormals all share the minimum spacing, which is Number.MIN_VALUE.
+ */
+function ulpOf(a: number): number {
+  if (a === 0) return Number.MIN_VALUE;
+  const buf = new DataView(new ArrayBuffer(8));
+  buf.setFloat64(0, a);
+  // Bits 62-52 are the biased exponent; 0 marks a subnormal.
+  const biased = ((buf.getUint32(0) >>> 20) & 0x7ff) as number;
+  if (biased === 0) return Number.MIN_VALUE;
+  const unbiased = biased - 1023;
+  // 2^(e-52), clamped: for very small exponents the true spacing is the
+  // subnormal minimum rather than an underflow to zero.
+  return Math.max(Math.pow(2, unbiased - 52), Number.MIN_VALUE);
+}
+
 export interface FloatResult {
   /** Machine epsilon for IEEE-754 double: the spacing just above 1.0. */
   epsilon: number;
@@ -433,9 +465,21 @@ export function floatPrecision(value: number, subtractFrom?: number): FloatResul
   if (!Number.isFinite(value)) return null;
   const epsilon = Number.EPSILON;
 
-  // ulp from the exponent: the gap at x is 2^(floor(log2|x|) - 52).
+  // ULP FROM THE BIT PATTERN, not from Math.log2.
+  //
+  // The obvious 2^(floor(log2|x|) - 52) is wrong twice over:
+  //
+  //   1. Math.log2 is not correctly rounded. Just below a power of two it returns
+  //      the exponent EXACTLY, so floor gives e instead of e-1 and the spacing
+  //      comes out 2x too large. 1023.9999999999999 reported 2.27e-13 where the
+  //      real gap is 1.14e-13, and 2041 of 2045 exponents have such a band.
+  //   2. Below 2^-1022 the exponent goes subnormal and Math.pow UNDERFLOWS TO
+  //      ZERO, so 1e-310 reported a spacing of 0 — claiming infinite precision
+  //      exactly where doubles have the least.
+  //
+  // Reading the exponent field directly is exact and has neither problem.
   const a = Math.abs(value);
-  const ulp = a === 0 ? Number.MIN_VALUE : Math.pow(2, Math.floor(Math.log2(a)) - 52);
+  const ulp = ulpOf(a);
   const relativeSpacing = a === 0 ? 0 : ulp / a;
 
   const notes: string[] = [
@@ -493,9 +537,17 @@ export interface ScalingResult {
   notes: string[];
 }
 
+/**
+ * The POWER-LAW classes only.
+ *
+ * O(log n) is deliberately absent: it is not a power law at all, and pinning it
+ * to a single exponent is meaningless — genuine logarithmic data measured from
+ * 10^6 to 10^9 fits k = 0.059, which the old table with log n at k = 0.15 filed
+ * under "O(1), constant". Sub-linear exponents are reported as sub-linear and
+ * explained, rather than forced onto a name that cannot fit them.
+ */
 const CLASSES: Array<{ name: string; k: number }> = [
   { name: "O(1), constant", k: 0 },
-  { name: "O(log n), logarithmic", k: 0.15 },
   { name: "O(n), linear", k: 1 },
   { name: "O(n log n), linearithmic", k: 1.1 },
   { name: "O(n²), quadratic", k: 2 },
@@ -522,6 +574,21 @@ export function runtimeScaling(n1: number, t1: number, n2: number, t2: number, t
 
   let nearest = CLASSES[0];
   for (const c of CLASSES) if (Math.abs(c.k - exponent) < Math.abs(nearest.k - exponent)) nearest = c;
+  // A name is only offered when the exponent is actually near one. Otherwise the
+  // "nearest class" is a label the data does not support.
+  //
+  // The SUB-LINEAR band gets its own answer rather than being rounded to
+  // "constant": genuine logarithmic growth fits k ~ 0.06 over three decades, and
+  // calling that constant is exactly the misreading this is meant to prevent.
+  // "Constant" therefore needs k within measurement noise of zero.
+  let nearestClass: string;
+  if (exponent > 0.02 && exponent < 0.85) {
+    nearestClass = `sub-linear (k = ${exponent.toPrecision(3)}) — not a power-law class`;
+  } else if (Math.abs(nearest.k - exponent) <= 0.15) {
+    nearestClass = nearest.name;
+  } else {
+    nearestClass = `between named classes (k = ${exponent.toPrecision(3)})`;
+  }
 
   const notes: string[] = [
     `Empirical exponent ${exponent.toPrecision(4)} from t ∝ n^k. TWO POINTS FIT A POWER LAW AND ` +
@@ -532,6 +599,13 @@ export function runtimeScaling(n1: number, t1: number, n2: number, t2: number, t
       "and memory pressure dominate at the sizes most code actually runs at, and a measured " +
       "exponent below the theoretical one usually means the problem still fits in cache.",
   ];
+  if (exponent > 0 && exponent < 0.85) {
+    notes.push(
+      "A SUB-LINEAR exponent is consistent with logarithmic growth, which is not a power law at " +
+        "all and so has no single exponent — genuine log n measured over three decades fits " +
+        "k ~ 0.06. It is also what a fixed overhead dominating a small workload looks like.",
+    );
+  }
   if (exponent < 0) {
     notes.push(
       "The exponent is NEGATIVE — the larger input ran faster. That is not a complexity class; " +
@@ -554,5 +628,5 @@ export function runtimeScaling(n1: number, t1: number, n2: number, t2: number, t
     }
   }
 
-  return { exponent, nearestClass: nearest.name, predicted, growthFactor, notes };
+  return { exponent, nearestClass, predicted, growthFactor, notes };
 }

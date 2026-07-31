@@ -11250,7 +11250,7 @@ const ENG_CALCS: EngCalc[] = [
         `  Efficiency               ${engNum(res.efficiency * 100, 4)} %`,
         "",
         `  Amdahl ceiling           ${res.amdahlCeiling === Infinity ? "none (perfectly parallel)" : engNum(res.amdahlCeiling, 6) + "x"}`,
-        `  Diminishing returns past ${res.knee === Infinity ? "n/a" : res.knee + " processors"}`,
+        `  Half the machine wasted at ${res.halfEfficiencyN === Infinity ? "never (perfectly parallel)" : engNum(res.halfEfficiencyN, 5) + " processors"}`,
       ];
       if (res.karpFlatt !== null) lines.push(`  Karp-Flatt serial fraction ${engNum(res.karpFlatt, 5)}`);
       for (const note of res.notes) lines.push(`Note: ${note}`);
@@ -11379,8 +11379,10 @@ const ENG_CALCS: EngCalc[] = [
       const d0 = Number(r("d"));
       if (!Number.isFinite(n) || !Number.isFinite(d0)) return { text: "Both values must be numbers.", ok: false };
       const bits = r("mode") === "bits";
-      if (bits && (d0 <= 0 || d0 > 1024)) {
-        return { text: "Hash width must be between 1 and 1024 bits.", ok: false };
+      // 1023, not 1024: 2^1024 is Infinity, so the old bound advertised a width
+      // it then rejected with a message blaming the value space instead.
+      if (bits && (d0 <= 0 || d0 > 1023)) {
+        return { text: "Hash width must be between 1 and 1023 bits (2^1024 is beyond the range of a double).", ok: false };
       }
       const space = bits ? Math.pow(2, d0) : d0;
       if (!Number.isFinite(space) || space <= 0) {

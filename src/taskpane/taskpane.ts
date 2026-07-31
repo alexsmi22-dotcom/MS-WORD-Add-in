@@ -1,6 +1,6 @@
 /* global Office, Word, document, localStorage, navigator, URL, Blob, FileReader, TextDecoder, ArrayBuffer, Uint8Array, HTMLInputElement, HTMLButtonElement, HTMLSelectElement, HTMLTextAreaElement, HTMLElement, Image, TextEncoder, btoa */
 
-import { Segment, segmentsToHtml } from "../lib/segments";
+import { Segment, segmentsToHtml, escapeHtml } from "../lib/segments";
 import { parseChemical } from "../lib/chemParser";
 import { validateFormula } from "../lib/chemValidate";
 import { parseMath } from "../lib/mathFormat";
@@ -1202,7 +1202,7 @@ Office.onReady((info) => {
   msInsertBtn.addEventListener("click", () => insertPlainText(massSpecAsText(currentMassSpec), "MS data"));
   specInput.addEventListener("input", updateSpectra);
   specKind.addEventListener("change", updateSpectra);
-  specInsertBtn.addEventListener("click", () => insertPlainText(spectrumAsText(), "spectrum data"));
+  specInsertBtn.addEventListener("click", () => void insertSpectrumResult());
   specInsertChartBtn.addEventListener("click", insertSpectrumChart);
   jcampOpenBtn.addEventListener("click", () => jcampFile.click());
   jcampFile.addEventListener("change", onJcampFile);
@@ -1233,7 +1233,7 @@ Office.onReady((info) => {
 
   populateStatsCalcs();
   statsCalcSelect.addEventListener("change", renderStatsInputs);
-  statsInsertBtn.addEventListener("click", () => insertPlainText(currentStatsText, "Statistics"));
+  statsInsertBtn.addEventListener("click", () => void insertStatsResult());
   statsInsertChartBtn.addEventListener("click", () => void insertStatsChart());
 
   populateAnalyzeCalcs();
@@ -6675,6 +6675,31 @@ function updateStatsPreview(): void {
  * matters: a Q-Q plot is the evidence for the normality assumption the text
  * reports on, so inserting the verdict without the plot inserts the weaker half.
  */
+/**
+ * Inserts the statistics result — TEXT AND FIGURE TOGETHER.
+ *
+ * "Insert result" used to insert the text only, and the figure needed a second
+ * button that had just been added. Reported twice as "the full result is not
+ * inserting", which is the correct reading: the plot is part of the result, not
+ * an optional extra. A Q-Q plot is the evidence for the normality the text passes
+ * judgement on, so inserting the verdict without it inserts the weaker half.
+ *
+ * The separate chart button stays, for when only the picture is wanted.
+ */
+async function insertStatsResult(): Promise<void> {
+  if (!currentStatsText) {
+    setStatus("Nothing to insert for statistics.", "error");
+    return;
+  }
+  await insertPlainText(currentStatsText, "Statistics");
+  // Only if the text went in — insertPlainText reports its own failure, and
+  // appending a picture after a failed insert would put it somewhere unexpected.
+  if (currentStatsSvg) {
+    await insertStatsChart();
+    setStatus("Result and chart inserted.", "success");
+  }
+}
+
 async function insertStatsChart(): Promise<void> {
   if (!currentStatsSvg) {
     setStatus("No chart available for this result.", "error");
@@ -13914,6 +13939,89 @@ function spectrumAsText(): string {
     ].join("\n");
   }
   return "";
+}
+
+/**
+ * A chemical formula as HTML with REAL subscripts and superscripts.
+ *
+ * The spectrum insert went in through insertText, which cannot carry formatting
+ * at all — so every formula landed as flat "C9H6O3" and "H2O" where the rest of
+ * the product renders C₉H₆O₃ and H₂O. parseChemical/segmentsToHtml is the
+ * formatter Chemical mode already uses, and the preview and the insert share it,
+ * so this is the same formatting rather than a second implementation of it.
+ *
+ * A leading radical dot is held outside the parse: "•CH3" is not a formula and
+ * parseChemical should not be asked to interpret the bullet.
+ */
+function formulaHtml(formula: string): string {
+  const m = /^([•·]?)(.*)$/.exec(formula.trim());
+  const dot = m ? m[1] : "";
+  const body = m ? m[2] : formula;
+  if (!body) return escapeHtml(formula);
+  return escapeHtml(dot) + segmentsToHtml(parseChemical(body));
+}
+
+/**
+ * The MS fragmentation table as HTML.
+ *
+ * A real table rather than space-padded columns: the plain-text form used
+ * padEnd, which only lines up in a monospace font and Word's default is not one.
+ */
+function msAsHtml(r: FragmentResult, tail: string): string {
+  const rows = r.fragments
+    .map(
+      (f) =>
+        `<tr><td>${f.mz.toFixed(4)}</td><td>${formulaHtml(f.formula)}</td>` +
+        `<td>${escapeHtml(f.likelihood)}</td>` +
+        `<td>${escapeHtml(f.pathway)} (&minus;${formulaHtml(f.neutralLoss)})</td></tr>`,
+    )
+    .join("");
+  const notes = r.caveats.map((c) => `<p>Note: ${escapeHtml(c)}</p>`).join("");
+  return (
+    `<p><b>Predicted EI fragmentation — ${formulaHtml(r.formula)}</b></p>` +
+    `<table><tr><th>m/z</th><th>Formula</th><th>Rank</th><th>Pathway</th></tr>` +
+    `<tr><td>${r.molecularIon.toFixed(4)}</td><td>${formulaHtml(r.formula)}<sup>+•</sup></td>` +
+    `<td>—</td><td>molecular ion</td></tr>` +
+    rows +
+    `</table>` +
+    notes +
+    `<p>${escapeHtml(tail)}</p>`
+  );
+}
+
+/**
+ * Inserts the spectrum result, as HTML where the content has formulas in it so
+ * they carry their sub- and superscripts, and as plain text otherwise.
+ */
+async function insertSpectrumResult(): Promise<void> {
+  const cur = currentSpectrum;
+  if (!cur) {
+    setStatus("Nothing to insert for spectrum data.", "error");
+    return;
+  }
+  if (cur.kind !== "ms") {
+    await insertPlainText(spectrumAsText(), "spectrum data");
+    return;
+  }
+  const tail =
+    "Predicted from structure (additivity rules), computed offline — verify against an acquired spectrum.";
+  const html = msAsHtml(cur.ms, tail);
+  specInsertBtn.disabled = true;
+  setStatus("Inserting spectrum data…");
+  try {
+    await Word.run(async (context) => {
+      const range = context.document.getSelection();
+      const inserted = range.insertHtml(html, Word.InsertLocation.after);
+      range.select(Word.SelectionMode.end);
+      await context.sync();
+      await tagInserted(context, inserted, "formula-inserter:spectrum-data");
+    });
+    setStatus("Spectrum data inserted.", "success");
+  } catch (error) {
+    setStatus(`Could not insert spectrum data: ${(error as Error).message}`, "error");
+  } finally {
+    specInsertBtn.disabled = false;
+  }
 }
 
 /** Inserts the current spectrum chart as a picture. */

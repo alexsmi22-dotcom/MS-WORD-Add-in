@@ -36,12 +36,17 @@ describe("neutral-loss fragments carry a real molecular formula", () => {
     }
   });
 
-  test("every reported formula is plain ASCII — no subscripts or markup", () => {
+  test("the ENGINE emits plain ASCII; the PANE is what adds the sub/superscripts", () => {
+    // This assertion previously said the formula must never be subscripted, which
+    // encoded my MISREADING of the first report — "list as plain text, i.e. H2O"
+    // meant the formula should be a plain formula rather than a "[M-H2O]"
+    // placeholder, not that it should stay unformatted. The engine is still plain
+    // ASCII, which is correct for a data layer, but the INSERT now runs it through
+    // parseChemical/segmentsToHtml so Word receives real <sub> markup.
+    // See msFormulaFormatting.test.ts for that half.
     const r = predictFragments("aspirin")!;
     for (const f of r.fragments) {
       expect(f.formula).toMatch(/^[A-Za-z0-9[\]\-+•]+$/);
-      // Unicode subscripts would break a plain-text insert into Word.
-      expect(f.formula).not.toMatch(/[₀-₉]/);
     }
   });
 

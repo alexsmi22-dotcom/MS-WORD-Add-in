@@ -14,6 +14,7 @@ const fs = require("fs");
 const path = require("path");
 const os = require("os");
 const { execFileSync } = require("child_process");
+const { makeProfile } = require("./headless-profile.js");
 
 const ROOT = path.join(__dirname, "..");
 const DIST = path.join(ROOT, "dist");
@@ -94,18 +95,27 @@ function run() {
   }
   writeHarness();
 
-  const dom = execFileSync(
-    browser,
-    [
-      "--headless=new",
-      "--disable-gpu",
-      "--no-sandbox",
-      "--virtual-time-budget=60000",
-      "--dump-dom",
-      "file:///" + path.join(DIST, "eng-harness.html").replace(/\\/g, "/"),
-    ],
-    { encoding: "utf8", maxBuffer: 128 * 1024 * 1024 , timeout: 180000, killSignal: "SIGKILL" }
-  );
+  // Without an explicit profile the browser leaves a scoped_dir behind in TEMP on
+  // every launch. See scripts/headless-profile.js.
+  const profile = makeProfile("audit");
+  let dom;
+  try {
+    dom = execFileSync(
+      browser,
+      [
+        "--headless=new",
+        "--disable-gpu",
+        "--no-sandbox",
+        profile.arg,
+        "--virtual-time-budget=60000",
+        "--dump-dom",
+        "file:///" + path.join(DIST, "eng-harness.html").replace(/\\/g, "/"),
+      ],
+      { encoding: "utf8", maxBuffer: 128 * 1024 * 1024 , timeout: 180000, killSignal: "SIGKILL" }
+    );
+  } finally {
+    profile.cleanup();
+  }
 
   const m = /data-results="([^"]*)"/.exec(dom);
   if (!m) {

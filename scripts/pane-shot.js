@@ -15,6 +15,7 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const { execFileSync } = require("child_process");
+const { makeProfile } = require("./headless-profile.js");
 
 const ROOT = path.join(__dirname, "..");
 const DIST = path.join(ROOT, "dist");
@@ -115,15 +116,21 @@ function main() {
   PANE_WIDTH = width;
   const modes = arg("modes", "home").split(",").map((m) => m.trim()).filter(Boolean);
 
+  const shotProfile = makeProfile("shot");
+  try {
   for (const mode of modes) {
     const harness = writeHarness(mode);
     const out = path.join(outDir, `${mode}-${width}.png`);
+    // One profile for the whole run, removed at the end — this loop launches the
+    // browser once per mode, so without it a single invocation could leave two
+    // dozen scoped_dir directories behind.
     execFileSync(
       browser,
       [
         "--headless=new",
         "--disable-gpu",
         "--no-sandbox",
+        shotProfile.arg,
         "--hide-scrollbars",
         "--force-device-scale-factor=2", // legible text in the PNG
         `--window-size=${width + 40},2400`,
@@ -134,6 +141,9 @@ function main() {
       { stdio: ["ignore", "ignore", "ignore"] },
     );
     console.log(`${mode} -> ${out}`);
+  }
+  } finally {
+    shotProfile.cleanup();
   }
   return 0;
 }

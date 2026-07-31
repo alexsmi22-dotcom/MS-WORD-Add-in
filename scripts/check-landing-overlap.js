@@ -25,6 +25,7 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const { execFileSync } = require("child_process");
+const { registerTempDir } = require("./headless-profile.js");
 
 /**
  * Distinct exit code for "the check could not run". A browser that will not
@@ -131,6 +132,9 @@ function landingPages() {
 /** Layout-checks one page. Returns 0 clean, 1 on problems. */
 function checkPage(browser, pageSrc) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "jurislab-overlap-"));
+  // Removed at exit. Every headless launch used to leave this behind, and after
+  // a long session of qc runs they filled the disk. See scripts/headless-profile.js.
+  registerTempDir(dir);
   fs.copyFileSync(pageSrc, path.join(dir, "page.html"));
   fs.copyFileSync(path.join(__dirname, "landing-overlap-driver.js"),
                   path.join(dir, "landing-overlap-driver.js"));

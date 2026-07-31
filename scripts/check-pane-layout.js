@@ -20,6 +20,7 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const { execFileSync } = require("child_process");
+const { registerTempDir } = require("./headless-profile.js");
 
 const ROOT = path.join(__dirname, "..");
 const DIST = path.join(ROOT, "dist");
@@ -164,6 +165,9 @@ function run() {
   }
 
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "jurislab-pane-"));
+  // Removed at exit. Every headless launch used to leave this behind, and after
+  // a long session of qc runs they filled the disk. See scripts/headless-profile.js.
+  registerTempDir(dir);
   writePaneHarness(dir);
   fs.writeFileSync(path.join(dir, "harness.html"), harnessHtml());
 

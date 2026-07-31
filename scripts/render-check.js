@@ -22,6 +22,7 @@ const fs = require("fs");
 const path = require("path");
 const os = require("os");
 const { execFileSync } = require("child_process");
+const { makeProfile, sweepStaleProfiles } = require("./headless-profile.js");
 
 // The one list of tools. Imported rather than hardcoded so this gate cannot
 // drift from the product the way its old `>= 22` floors did.
@@ -74,6 +75,14 @@ function writeHarness() {
 }
 
 function run() {
+  // Clear profiles left by earlier runs — including runs of the versions of these
+  // scripts that did not pass a --user-data-dir at all. This is the first headless
+  // gate `npm run qc` reaches, so it is the natural place for the sweep. Only
+  // touches directories matching the browsers' own scoped_dir naming, and only
+  // ones over an hour old, so a concurrent browser is left alone.
+  const swept = sweepStaleProfiles();
+  if (swept > 0) console.log(`(cleared ${swept} stale headless browser profile${swept === 1 ? "" : "s"} from TEMP)`);
+
   const browser = findBrowser();
   if (!browser) {
     console.log("SKIP: no Chromium-family browser found (set CHROME_PATH to run this check).");
@@ -85,18 +94,27 @@ function run() {
   writeHarness();
 
   const outFile = path.join(os.tmpdir(), "jurislab-render-dom.html");
-  const dom = execFileSync(
-    browser,
-    [
-      "--headless=new",
-      "--disable-gpu",
-      "--no-sandbox",
-      "--virtual-time-budget=20000",
-      "--dump-dom",
-      "file:///" + path.join(DIST, "harness.html").replace(/\\/g, "/"),
-    ],
-    { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 , timeout: 180000, killSignal: "SIGKILL" }
-  );
+  // Without an explicit --user-data-dir the browser leaves a scoped_dir profile
+  // in TEMP on every launch and never removes it. See scripts/headless-profile.js.
+  const profile = makeProfile("render");
+  let dom;
+  try {
+    dom = execFileSync(
+      browser,
+      [
+        "--headless=new",
+        "--disable-gpu",
+        "--no-sandbox",
+        profile.arg,
+        "--virtual-time-budget=20000",
+        "--dump-dom",
+        "file:///" + path.join(DIST, "harness.html").replace(/\\/g, "/"),
+      ],
+      { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 , timeout: 180000, killSignal: "SIGKILL" }
+    );
+  } finally {
+    profile.cleanup();
+  }
   fs.writeFileSync(outFile, dom);
 
   const m = /data-results="([^"]*)"/.exec(dom);

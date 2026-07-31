@@ -367,6 +367,16 @@ import {
 import { pureTwoQubit, chsh, wernerState, bb84KeyRate, cx } from "../lib/quantum";
 import { switchingPower, junctionTemperature, interconnectDelay, timingCheck } from "../lib/chips";
 import { atmosphere, pressureAltitude, airspeeds, dragPolar, levelTurn, climbGlide } from "../lib/aero";
+import {
+  planarFk,
+  planar2rIk,
+  planar2rJacobian,
+  dhForward,
+  trapezoidalProfile,
+  diffDriveFromWheels,
+  diffDriveToWheels,
+  type DhRow,
+} from "../lib/robotics";
 import { statVars, statVarLineProblem } from "../lib/uncertaintyParse";
 import {
   planParagraphNumbering,
@@ -7535,6 +7545,7 @@ const ENG_GROUP_ORDER = [
   "Electronics",
   "Chips & semiconductors",
   "Aviation & avionics",
+  "Robotics & kinematics",
   "Control systems",
   "Vibration",
   "Optics & photonics",
@@ -11108,6 +11119,342 @@ const ENG_CALCS: EngCalc[] = [
         `  Required period ${ps(res.minPeriodS)}`,
         `  Maximum clock   ${res.fMaxHz === null ? "unbounded" : engNum(res.fMaxHz / 1e6, 6) + " MHz"}`,
       ];
+      u.report(lines);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+
+  // ---------------------------------------------------------------------
+  // Robotics & kinematics
+  // ---------------------------------------------------------------------
+  {
+    id: "robotics-fk",
+    name: "Planar chain forward kinematics",
+    group: "Robotics & kinematics",
+    hint:
+      "Link lengths and joint angles, one per line or comma separated. Angles are RELATIVE to " +
+      "the previous link, which is the usual joint-space convention — feeding absolute angles " +
+      "gives a wrong pose and no error, so check which you have.",
+    fields: [
+      { key: "L", label: "Link lengths, m", default: "0.5, 0.4, 0.2", kind: "text" },
+      { key: "A", label: "Joint angles, degrees (relative)", default: "30, 45, -20", kind: "text" },
+    ],
+    compute: (r) => {
+      const nums = (s: string) =>
+        s
+          .split(/[,\n;]+/)
+          .map((t) => t.trim())
+          .filter(Boolean)
+          .map(Number);
+      const L = nums(r("L"));
+      const A = nums(r("A"));
+      if (!L.length || !A.length) return { text: "Enter at least one link length and one joint angle.", ok: false };
+      if (L.length !== A.length) {
+        return { text: `There are ${L.length} link lengths and ${A.length} angles: they must match, one angle per link.`, ok: false };
+      }
+      const res = planarFk(L, A.map((d) => (d * Math.PI) / 180));
+      if (!res) return { text: "Every link length must be a positive number and every angle a number.", ok: false };
+
+      const lines = [
+        "Planar forward kinematics",
+        "",
+        `  Tip position   x = ${engNum(res.tip.x, 6)} m,  y = ${engNum(res.tip.y, 6)} m`,
+        `  Tip distance   ${engNum(Math.hypot(res.tip.x, res.tip.y), 6)} m from the base`,
+        `  Tip orientation ${engNum((res.tip.theta * 180) / Math.PI, 6)} °`,
+        `  Maximum reach  ${engNum(res.maxReach, 6)} m`,
+        "",
+        "  Joint positions",
+      ];
+      res.joints.forEach((j, i) => {
+        lines.push(`    ${i === 0 ? "base" : "J" + i}   x = ${engNum(j.x, 6)},  y = ${engNum(j.y, 6)}`);
+      });
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_SAME_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "robotics-ik",
+    name: "2R inverse kinematics (both branches)",
+    group: "Robotics & kinematics",
+    hint:
+      "BOTH solutions are returned, always, named by the SIGN of θ₂ rather than 'elbow up/down' " +
+      "— those labels flip with the base-frame convention. A target outside the annulus " +
+      "|L1−L2| ≤ r ≤ L1+L2 is refused rather than clamped, and at full extension or fold the two " +
+      "branches coincide and the arm is singular.",
+    fields: [
+      { key: "l1", label: "Link 1 length, m", default: "0.5", kind: "text" },
+      { key: "l2", label: "Link 2 length, m", default: "0.4", kind: "text" },
+      { key: "x", label: "Target x, m", default: "0.6", kind: "text" },
+      { key: "y", label: "Target y, m", default: "0.3", kind: "text" },
+    ],
+    compute: (r) => {
+      const vals: Record<string, number> = {};
+      for (const [k, label] of [["l1", "Link 1"], ["l2", "Link 2"], ["x", "Target x"], ["y", "Target y"]] as const) {
+        const raw = r(k).trim();
+        if (!raw) return { text: `${label}: this field is required.`, ok: false };
+        const v = Number(raw);
+        if (!Number.isFinite(v)) return { text: `${label}: must be a number.`, ok: false };
+        vals[k] = v;
+      }
+      const res = planar2rIk(vals.l1, vals.l2, vals.x, vals.y);
+      if (!res) return { text: "Both link lengths must be positive numbers.", ok: false };
+
+      const deg = (v: number) => engNum((v * 180) / Math.PI, 6);
+      const lines = [
+        "2R inverse kinematics",
+        "",
+        `  Target distance   ${engNum(res.radius, 6)} m`,
+        `  Workspace annulus ${engNum(res.innerReach, 6)} to ${engNum(res.outerReach, 6)} m`,
+        "",
+      ];
+      if (!res.reachable) {
+        lines.push(`  NO SOLUTION - outside the workspace by ${engNum(res.missM, 6)} m`);
+      } else {
+        lines.push(`  ${res.solutions.length} solution${res.solutions.length === 1 ? "" : "s"}`);
+        for (const s of res.solutions) {
+          lines.push(
+            `    ${s.branch.padEnd(11)} θ1 = ${deg(s.theta1)} °,  θ2 = ${deg(s.theta2)} °`,
+          );
+        }
+        if (res.singular) lines.push("  SINGULAR: the two branches coincide here.");
+      }
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_SAME_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "robotics-jacobian",
+    name: "Jacobian, singularity & static torque",
+    group: "Robotics & kinematics",
+    hint:
+      "det(J) = L1·L2·sin(θ₂) — it depends ONLY on the elbow angle, so the singularities are " +
+      "exactly full extension and full fold and no shoulder angle can rescue them. Joint torques " +
+      "are J TRANSPOSE times the tip force, which is the map from a tip load to the torques that " +
+      "hold against it.",
+    fields: [
+      { key: "l1", label: "Link 1 length, m", default: "0.5", kind: "text" },
+      { key: "l2", label: "Link 2 length, m", default: "0.4", kind: "text" },
+      { key: "t1", label: "θ1 (shoulder), degrees", default: "30", kind: "text" },
+      { key: "t2", label: "θ2 (elbow), degrees", default: "60", kind: "text" },
+      { key: "fx", label: "Tip force x, N (blank to skip torques)", default: "0", kind: "text" },
+      { key: "fy", label: "Tip force y, N (blank to skip torques)", default: "-50", kind: "text" },
+    ],
+    compute: (r) => {
+      const vals: Record<string, number> = {};
+      for (const [k, label] of [["l1", "Link 1"], ["l2", "Link 2"], ["t1", "θ1"], ["t2", "θ2"]] as const) {
+        const raw = r(k).trim();
+        if (!raw) return { text: `${label}: this field is required.`, ok: false };
+        const v = Number(raw);
+        if (!Number.isFinite(v)) return { text: `${label}: must be a number.`, ok: false };
+        vals[k] = v;
+      }
+      const fxRaw = r("fx").trim();
+      const fyRaw = r("fy").trim();
+      let force: [number, number] | undefined;
+      if (fxRaw || fyRaw) {
+        const fx = fxRaw ? Number(fxRaw) : 0;
+        const fy = fyRaw ? Number(fyRaw) : 0;
+        if (!Number.isFinite(fx) || !Number.isFinite(fy)) {
+          return { text: "Tip force: both components must be numbers, or both blank.", ok: false };
+        }
+        force = [fx, fy];
+      }
+      const res = planar2rJacobian(vals.l1, vals.l2, (vals.t1 * Math.PI) / 180, (vals.t2 * Math.PI) / 180, force);
+      if (!res) return { text: "Both link lengths must be positive numbers.", ok: false };
+
+      const lines = [
+        "Jacobian at this configuration",
+        "",
+        `  J = [ ${engNum(res.j[0], 5)}   ${engNum(res.j[1], 5)} ]`,
+        `      [ ${engNum(res.j[2], 5)}   ${engNum(res.j[3], 5)} ]`,
+        "",
+        `  det J            ${engNum(res.determinant, 6)}`,
+        `  Manipulability   ${engNum(res.manipulability, 6)}`,
+        `  Singular values  ${engNum(res.singularValues[0], 6)}, ${engNum(res.singularValues[1], 6)}`,
+        `  Condition number ${res.conditionNumber === Infinity ? "infinite (singular)" : engNum(res.conditionNumber, 6)}`,
+        `  ${res.singular ? "SINGULAR - the Jacobian has rank 1 here." : "Non-singular."}`,
+      ];
+      if (res.jointTorques) {
+        lines.push("");
+        lines.push(`  Joint torques to hold the tip load (τ = Jᵀ F)`);
+        lines.push(`    τ1 (shoulder) ${engNum(res.jointTorques[0], 6)} N·m`);
+        lines.push(`    τ2 (elbow)    ${engNum(res.jointTorques[1], 6)} N·m`);
+      }
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_SAME_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "robotics-dh",
+    name: "Denavit-Hartenberg forward kinematics",
+    group: "Robotics & kinematics",
+    hint:
+      'One joint per line: "theta d a alpha", with the angles in DEGREES and the lengths in ' +
+      "metres. STANDARD (1955) convention — Rot_z · Trans_z · Trans_x · Rot_x. The 'modified' " +
+      "or Craig convention orders the same four factors differently and gives a DIFFERENT pose " +
+      "from the same table, so a DH table without its convention is ambiguous.",
+    fields: [
+      {
+        key: "rows",
+        label: "DH table: theta d a alpha",
+        default: "0 0.3 0 90\n45 0 0.4 0\n-30 0 0.3 0",
+        kind: "block",
+        rows: 5,
+      },
+    ],
+    compute: (r) => {
+      const raw = r("rows").trim();
+      if (!raw) return { text: "Enter at least one DH row.", ok: false };
+      const rows: DhRow[] = [];
+      const bad: string[] = [];
+      for (const line of raw.split(/\n+/)) {
+        const t = line.trim();
+        if (!t) continue;
+        const p = t.split(/[\s,]+/).map(Number);
+        if (p.length !== 4 || p.some((v) => !Number.isFinite(v))) {
+          bad.push(`"${t}": expected four numbers - theta d a alpha.`);
+          continue;
+        }
+        rows.push({ theta: (p[0] * Math.PI) / 180, d: p[1], a: p[2], alpha: (p[3] * Math.PI) / 180 });
+      }
+      if (bad.length) return { text: bad.join("\n"), ok: false };
+      const res = dhForward(rows);
+      if (!res) return { text: "Every DH entry must be a finite number.", ok: false };
+
+      const lines = [
+        `Forward kinematics of a ${rows.length}-joint chain`,
+        "",
+        `  Tip position  x = ${engNum(res.position[0], 6)} m`,
+        `                y = ${engNum(res.position[1], 6)} m`,
+        `                z = ${engNum(res.position[2], 6)} m`,
+        `  Distance from base ${engNum(Math.hypot(res.position[0], res.position[1], res.position[2]), 6)} m`,
+        "",
+        "  Tip rotation matrix",
+      ];
+      for (let i = 0; i < 3; i++) {
+        lines.push(
+          `    [ ${engNum(res.rotation[i * 3], 5)}  ${engNum(res.rotation[i * 3 + 1], 5)}  ${engNum(res.rotation[i * 3 + 2], 5)} ]`,
+        );
+      }
+      lines.push("");
+      if (res.rpy) {
+        const d = (v: number) => engNum((v * 180) / Math.PI, 6);
+        lines.push(`  Roll ${d(res.rpy[0])} °,  pitch ${d(res.rpy[1])} °,  yaw ${d(res.rpy[2])} °  (ZYX)`);
+      } else {
+        lines.push("  Roll/pitch/yaw: not reported - the chain is at gimbal lock.");
+      }
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_SAME_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "robotics-profile",
+    name: "Trapezoidal motion profile",
+    group: "Robotics & kinematics",
+    hint:
+      "Falls back to a TRIANGULAR profile automatically when the move is too short to reach the " +
+      "commanded speed. That is the case that goes wrong: the peak is then sqrt(a·d), not vmax, " +
+      "and computing the time as d/vmax + vmax/a regardless promises a move the machine cannot " +
+      "make.",
+    fields: [
+      { key: "d", label: "Distance, m", default: "1.5", kind: "text" },
+      { key: "v", label: "Maximum speed, m/s", default: "2", kind: "text" },
+      { key: "a", label: "Acceleration, m/s^2", default: "5", kind: "text" },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const d = u.req("d", "m", "Distance");
+      const v = u.req("v", "m/s", "Maximum speed");
+      const a = u.req("a", "m/s^2", "Acceleration");
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const res = trapezoidalProfile(d, v, a);
+      if (!res) {
+        return { text: "Distance cannot be negative, and speed and acceleration must be positive.", ok: false };
+      }
+      const lines = [
+        `Motion profile - ${res.shape}`,
+        "",
+        `  Total time      ${engNum(res.totalTimeS, 6)} s`,
+        `  Accelerate for  ${engNum(res.accelTimeS, 6)} s`,
+        `  Cruise for      ${engNum(res.cruiseTimeS, 6)} s`,
+        `  Decelerate for  ${engNum(res.accelTimeS, 6)} s`,
+        "",
+        `  Peak speed      ${engNum(res.peakSpeed, 6)} m/s`,
+        `  Accel distance  ${engNum(res.accelDistance, 6)} m  (each end)`,
+        `  Cruise distance ${engNum(res.cruiseDistance, 6)} m`,
+      ];
+      u.report(lines);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "robotics-diffdrive",
+    name: "Differential drive kinematics",
+    group: "Robotics & kinematics",
+    hint:
+      "Either direction: give the two wheel speeds, or give the body velocity and get the wheel " +
+      "speeds. W is the TRACK WIDTH wheel to wheel — using the half-track doubles the yaw rate " +
+      "with nothing to say so. Equal wheels means an INFINITE turn radius, not zero.",
+    fields: [
+      {
+        key: "mode",
+        label: "Given",
+        default: "wheels",
+        kind: "select",
+        options: [
+          { value: "wheels", label: "Wheel speeds → body velocity" },
+          { value: "body", label: "Body velocity → wheel speeds" },
+        ],
+      },
+      { key: "a1", label: "Left wheel speed, m/s   (or body speed, m/s)", default: "0.8", kind: "text" },
+      { key: "a2", label: "Right wheel speed, m/s  (or yaw rate, rad/s)", default: "1.2", kind: "text" },
+      { key: "W", label: "Track width, m", default: "0.4", kind: "text" },
+      { key: "rw", label: "Wheel radius, m (blank to skip wheel rates)", default: "0.05", kind: "text" },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const W = u.req("W", "m", "Track width");
+      const rw = u.optNull("rw", "m", "Wheel radius");
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      if (rw !== null && !(rw > 0)) {
+        return { text: "Wheel radius: must be greater than zero, or blank to skip the wheel rates.", ok: false };
+      }
+      const a1Raw = r("a1").trim();
+      const a2Raw = r("a2").trim();
+      if (!a1Raw || !a2Raw) return { text: "Both input values are required.", ok: false };
+      const a1 = Number(a1Raw);
+      const a2 = Number(a2Raw);
+      if (!Number.isFinite(a1) || !Number.isFinite(a2)) return { text: "Both input values must be numbers.", ok: false };
+
+      const body = r("mode") === "body";
+      const res = body
+        ? diffDriveToWheels(a1, a2, W, rw === null ? undefined : rw)
+        : diffDriveFromWheels(a1, a2, W, rw === null ? undefined : rw);
+      if (!res) return { text: "The track width must be greater than zero.", ok: false };
+
+      const lines = [
+        body ? "Differential drive - wheel speeds for the commanded motion" : "Differential drive - motion from the wheel speeds",
+        "",
+        `  Left wheel    ${engNum(res.leftSpeed, 6)} m/s`,
+        `  Right wheel   ${engNum(res.rightSpeed, 6)} m/s`,
+        "",
+        `  Body speed    ${engNum(res.linearSpeed, 6)} m/s`,
+        `  Yaw rate      ${engNum(res.angularSpeed, 6)} rad/s  (${engNum((res.angularSpeed * 180) / Math.PI, 5)} °/s)`,
+        `  Turn radius   ${res.turnRadius === Infinity ? "infinite (straight ahead)" : engNum(res.turnRadius, 6) + " m"}`,
+      ];
+      if (res.wheelRates) {
+        lines.push("");
+        lines.push(`  Left wheel rate  ${engNum(res.wheelRates[0], 6)} rad/s  (${engNum((res.wheelRates[0] * 60) / (2 * Math.PI), 5)} rpm)`);
+        lines.push(`  Right wheel rate ${engNum(res.wheelRates[1], 6)} rad/s  (${engNum((res.wheelRates[1] * 60) / (2 * Math.PI), 5)} rpm)`);
+      }
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);

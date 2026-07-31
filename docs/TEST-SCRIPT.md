@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.56.0)
+# JurisLab — Manual Test Script (v2.57.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -728,7 +728,7 @@ Chemical mode, **Periodic table &amp; atomic structure**.
 ## 0q. New in v2.54.0 — optics, photonics and entanglement
 
 Engineering mode. The dropdown must now show two new groups, **Optics & photonics**
-(8 tools) and **Quantum optics** (4), and the mode must state **58 calculators**.
+(8 tools) and **Quantum optics** (4), and the mode must state **64 calculators**.
 
 - [ ] **Photon relations.** `1064` as a wavelength in nm must give **1.16526 eV**,
   **281.76 THz** and **9398.5 cm⁻¹**. Switch the selector to eV and type `1.16526`:
@@ -790,7 +790,7 @@ Engineering mode. The dropdown must now show two new groups, **Optics & photonic
 ## 0r. New in v2.55.0 — chips & semiconductors
 
 Engineering mode. A new **Chips & semiconductors** group of 4, and the mode must now
-state **58 calculators** across **thirteen disciplines**.
+state **64 calculators** across **fourteen disciplines**.
 
 - [ ] **Power.** 500 pF, 0.9 V, 2 GHz, α = 0.1: dynamic power **81 mW**
   (0.1 × 500e-12 × 0.81 × 2e9). Energy per 0→1 transition must be **405 fJ**, and the
@@ -845,7 +845,7 @@ state **58 calculators** across **thirteen disciplines**.
 ## 0s. New in v2.56.0 — aviation & avionics
 
 Engineering mode. A new **Aviation & avionics** group of 5; the mode must now state
-**58 calculators** across **thirteen disciplines**.
+**64 calculators** across **fourteen disciplines**.
 
 - [ ] **Atmosphere at 0 m**: 288.15 K, 101325 Pa, 1.225 kg/m³, 340.3 m/s, σ = 1. These
   are the defining constants and must come back exactly.
@@ -880,6 +880,52 @@ Engineering mode. A new **Aviation & avionics** group of 5; the mode must now st
   and the conversion reported. (Knots, nmi, fpm, mbar and inHg were not units before
   v2.56.0.)
 - [ ] All five must insert, each carrying the converting unit note.
+
+---
+
+## 0t. New in v2.57.0 — robotics & kinematics
+
+Engineering mode. A new **Robotics & kinematics** group of 6; the mode must state
+**64 calculators** across **fourteen disciplines**.
+
+- [ ] **Forward kinematics** with links `0.5, 0.4, 0.2` at `30, 45, -20`: note the tip
+  position, then confirm the tip orientation is the **sum** of the angles (55°) — that is
+  what makes the angles relative rather than absolute.
+- [ ] Links `1, 1` at `0, 0`: tip at exactly (2, 0). At `0, 180`: tip at (0, 0).
+- [ ] Mismatched counts (3 links, 2 angles) must be **refused** with both counts named.
+- [ ] **Inverse kinematics**, L1 0.5, L2 0.4, target (0.6, 0.3): **two** solutions, one with
+  θ₂ positive and one negative. Feed each pair back into the forward-kinematics tool — both
+  must land on (0.6, 0.3). That round trip is the real test.
+- [ ] Target (2, 0) with those links: **NO SOLUTION**, outside by 1.1 m, and it must say so
+  rather than returning the nearest reachable pose.
+- [ ] Target (0.05, 0): inside the **inner hole** of the annulus — also unreachable, and the
+  note must say an arm with unequal links cannot reach near its own base.
+- [ ] Target (0.9, 0) — exactly L1+L2: **one** solution, branch `coincident`, and a
+  **SINGULAR** warning. Same at (0.1, 0), full fold.
+- [ ] **Jacobian** at θ₂ = 60°: non-singular. Set θ₂ = 0: det J must be 0, manipulability 0,
+  condition number **infinite**, and it must say rank 1. Set θ₂ = 180°: singular again.
+- [ ] Change θ₁ with θ₂ fixed: det J must **not** change — it depends only on the elbow.
+- [ ] With L1 = L2 = 1, θ₁ = 0, θ₂ = 90°, tip force (10, 0): torques must be **−10 and −10**.
+  With force (0, 10): **10 and 0**. That is Jᵀ F, not J F.
+- [ ] Fully extended (θ₂ = 0) with a transverse load: the shoulder torque must be
+  (L1+L2)·F and the elbow L2·F.
+- [ ] **DH** with the default 3-row table: the rotation matrix rows must each have length 1
+  and be mutually perpendicular. A 2-row planar table (alpha 0) must agree with the
+  forward-kinematics tool.
+- [ ] DH rows `0 0 0 90` then `90 0 0 0`: **gimbal lock** must be reported and **no**
+  roll/pitch/yaw printed — only the matrix.
+- [ ] A row with three numbers instead of four must be **refused**, naming the row.
+- [ ] **Profile** d 1.5, v 2, a 5: trapezoidal, and 2×accel-distance + cruise must equal 1.5.
+- [ ] d 0.1 with the same limits: **TRIANGULAR**, cruise time exactly 0, peak speed below 2
+  and equal to √(a·d). The note must say computing it as d/vmax + vmax/a would promise a
+  move the machine cannot make.
+- [ ] **Differential drive**, left 0.8 right 1.2 track 0.4: body 1.0 m/s, yaw **1.0 rad/s**
+  (2.0 would mean the half-track was used), radius 1.0 m.
+- [ ] Equal wheels: turn radius **infinite**, not zero. Equal and opposite: radius exactly 0.
+- [ ] Switch to “body velocity → wheel speeds”, enter the body numbers you just got, and the
+  wheel speeds must come back to 0.8 and 1.2 exactly.
+- [ ] All six must insert; the four kinematics tools carry the same-unit note and the two
+  with real dimensions carry the converting note.
 
 ---
 

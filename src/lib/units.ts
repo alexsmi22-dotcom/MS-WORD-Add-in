@@ -162,6 +162,9 @@ const UNITS: Record<string, UnitDef> = {
   kt: { dim: "speed", factor: 1852 / 3600 },
   mph: { dim: "speed", factor: 1609.344 / 3600 },
   fpm: { dim: "speed", factor: 0.3048 / 60 },
+  // angular velocity (base rad/s). Motor and wheel speeds are quoted in rpm.
+  rpm: { dim: "angularvelocity", factor: (2 * Math.PI) / 60 },
+  "rad/s": { dim: "angularvelocity", factor: 1 },
   // energy (base J)
   J: { dim: "energy", factor: 1 }, kJ: { dim: "energy", factor: 1000 },
   cal: { dim: "energy", factor: 4.184 }, kcal: { dim: "energy", factor: 4184 },
@@ -306,6 +309,10 @@ const BASE: Record<string, Record<string, number>> = {
   // m/s and km/h and convert freely between them. Aviation is written in knots
   // and feet per minute, and neither could be expressed at all before.
   speed: { length: 1, time: -1 },
+  // Angular velocity decomposes to angle/time so rpm interoperates with the
+  // compound rad/s and deg/s. Angle itself stays atomic on purpose - folding
+  // radians into 1 would let an angle convert silently into a bare number.
+  angularvelocity: { angle: 1, time: -1 },
 };
 
 /** Accumulates one side ("·"/"*"/space-separated factors) into dims & factor. */

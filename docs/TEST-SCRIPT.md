@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.55.0)
+# JurisLab — Manual Test Script (v2.56.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -728,7 +728,7 @@ Chemical mode, **Periodic table &amp; atomic structure**.
 ## 0q. New in v2.54.0 — optics, photonics and entanglement
 
 Engineering mode. The dropdown must now show two new groups, **Optics & photonics**
-(8 tools) and **Quantum optics** (4), and the mode must state **53 calculators**.
+(8 tools) and **Quantum optics** (4), and the mode must state **58 calculators**.
 
 - [ ] **Photon relations.** `1064` as a wavelength in nm must give **1.16526 eV**,
   **281.76 THz** and **9398.5 cm⁻¹**. Switch the selector to eV and type `1.16526`:
@@ -790,7 +790,7 @@ Engineering mode. The dropdown must now show two new groups, **Optics & photonic
 ## 0r. New in v2.55.0 — chips & semiconductors
 
 Engineering mode. A new **Chips & semiconductors** group of 4, and the mode must now
-state **53 calculators** across **twelve disciplines**.
+state **58 calculators** across **thirteen disciplines**.
 
 - [ ] **Power.** 500 pF, 0.9 V, 2 GHz, α = 0.1: dynamic power **81 mW**
   (0.1 × 500e-12 × 0.81 × 2e9). Energy per 0→1 transition must be **405 fJ**, and the
@@ -839,6 +839,47 @@ state **53 calculators** across **twelve disciplines**.
 - [ ] In timing, set the skew to 1 ns (longer than the whole path): the required period
   must read **0**, never a negative time, and hold must fail.
 - [ ] All four must insert, and each must carry the converting unit note.
+
+---
+
+## 0s. New in v2.56.0 — aviation & avionics
+
+Engineering mode. A new **Aviation & avionics** group of 5; the mode must now state
+**58 calculators** across **thirteen disciplines**.
+
+- [ ] **Atmosphere at 0 m**: 288.15 K, 101325 Pa, 1.225 kg/m³, 340.3 m/s, σ = 1. These
+  are the defining constants and must come back exactly.
+- [ ] **At 11 km** (the tropopause): 216.65 K and ≈ 22632 Pa. Check 12 km and 18 km
+  report the SAME temperature — that layer is isothermal — and that 30 km is *warmer*
+  than 21 km, because the next layer has a positive lapse rate.
+- [ ] Set ISA deviation to **+15**: temperature and density must move, pressure must
+  **not**. That is the hot-and-high effect and getting it backwards would be invisible.
+- [ ] Enter **90000** m: it must be **refused** as outside the model, not extrapolated.
+- [ ] The result must state the geometric→geopotential conversion at high altitude.
+- [ ] **Airspeeds at sea level**, 100 m/s: TAS, EAS and CAS must all read 100.
+- [ ] **At 10 km**, 250 kt TAS: TAS > CAS > EAS. If CAS and EAS are equal, the
+  compressibility term has been lost.
+- [ ] Push the speed until Mach exceeds 1: it must say the subsonic relation is **out
+  of range**, not print a confident CAS.
+- [ ] Every airspeed result must say **IAS is not computed** and why.
+- [ ] **Polar** at the defaults: note the best L/D and the speed for it, then enter that
+  speed — the achieved L/D must equal the best L/D. No other speed may beat it.
+- [ ] Fly below the stall speed: it must say CL **exceeds CLmax** and that the drag
+  figure is not meaningful.
+- [ ] **Turn at 60°**: load factor exactly **2**, and the stall speed in the turn up by
+  **41%** (×√2), not doubled. At **0°** the radius must be *infinite* and the rate zero,
+  not a division by zero. At **90°** it must be refused.
+- [ ] Check rate × radius = speed at any bank angle — that is the definition of a circle
+  and a good check that neither is inverted.
+- [ ] **Climb** with T = 20 kN, D = 10 kN, W = 100 kN, V = 80 m/s: ROC exactly **8 m/s**
+  and the angle **5.739°** (the exact arcsine, not 5.730°).
+- [ ] Set thrust to **0** with drag = W/15: it must report a descent with a glide ratio
+  near 15, and with a height entered, a still-air range of 15 × that height.
+- [ ] Make drag exceed the weight: **refused**, because there is no real flight-path angle.
+- [ ] Type an airspeed as `250 kt` and an altitude as `35000 ft`: both must be accepted
+  and the conversion reported. (Knots, nmi, fpm, mbar and inHg were not units before
+  v2.56.0.)
+- [ ] All five must insert, each carrying the converting unit note.
 
 ---
 

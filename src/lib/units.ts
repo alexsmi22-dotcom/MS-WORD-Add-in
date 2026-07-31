@@ -113,6 +113,9 @@ const UNITS: Record<string, UnitDef> = {
   pm: { dim: "length", factor: 1e-12 },
   in: { dim: "length", factor: 0.0254 }, ft: { dim: "length", factor: 0.3048 },
   yd: { dim: "length", factor: 0.9144 }, mi: { dim: "length", factor: 1609.344 },
+  // The nautical mile is exactly 1852 m by definition, and is the unit every
+  // aviation distance is quoted in.
+  nmi: { dim: "length", factor: 1852 },
   Å: { dim: "length", factor: 1e-10 },
   // mass (base kg)
   kg: { dim: "mass", factor: 1 }, g: { dim: "mass", factor: 0.001 },
@@ -139,7 +142,11 @@ const UNITS: Record<string, UnitDef> = {
   µL: { dim: "volume", factor: 1e-9 }, nL: { dim: "volume", factor: 1e-12 }, "m^3": { dim: "volume", factor: 1 },
   // pressure (base Pa)
   Pa: { dim: "pressure", factor: 1 }, kPa: { dim: "pressure", factor: 1000 },
-  bar: { dim: "pressure", factor: 1e5 }, atm: { dim: "pressure", factor: 101325 },
+  bar: { dim: "pressure", factor: 1e5 },
+  // Aviation and meteorology: a millibar is exactly a hectopascal, and inHg is
+  // the conventional 0 °C value used for altimeter settings.
+  mbar: { dim: "pressure", factor: 100 }, inHg: { dim: "pressure", factor: 3386.389 },
+  atm: { dim: "pressure", factor: 101325 },
   psi: { dim: "pressure", factor: 6894.757 }, mmHg: { dim: "pressure", factor: 133.322 },
   MPa: { dim: "pressure", factor: 1e6 }, GPa: { dim: "pressure", factor: 1e9 },
   ksi: { dim: "pressure", factor: 6894757 }, hPa: { dim: "pressure", factor: 100 },
@@ -148,6 +155,13 @@ const UNITS: Record<string, UnitDef> = {
   N: { dim: "force", factor: 1 }, kN: { dim: "force", factor: 1000 },
   MN: { dim: "force", factor: 1e6 }, mN: { dim: "force", factor: 0.001 },
   lbf: { dim: "force", factor: 4.4482216152605 }, kip: { dim: "force", factor: 4448.2216152605 },
+  // speed (base m/s) — its own dimension, decomposed in BASE to length/time so it
+  // converts freely with m/s and km/h written as compounds. Aviation is quoted in
+  // knots and feet per minute and neither could be expressed at all before.
+  "m/s": { dim: "speed", factor: 1 },
+  kt: { dim: "speed", factor: 1852 / 3600 },
+  mph: { dim: "speed", factor: 1609.344 / 3600 },
+  fpm: { dim: "speed", factor: 0.3048 / 60 },
   // energy (base J)
   J: { dim: "energy", factor: 1 }, kJ: { dim: "energy", factor: 1000 },
   cal: { dim: "energy", factor: 4.184 }, kcal: { dim: "energy", factor: 4184 },
@@ -210,6 +224,9 @@ const ALIASES: Record<string, string> = {
   gram: "g", grams: "g", ug: "µg", microgram: "µg", kilogram: "kg", pound: "lb", pounds: "lb",
   sec: "s", secs: "s", second: "s", seconds: "s", us: "µs", minute: "min", minutes: "min",
   hr: "h", hour: "h", hours: "h", days: "day",
+  knot: "kt", knots: "kt", kts: "kt", kn: "kt",
+  nauticalmile: "nmi", nm: "nmi", NM: "nmi",
+  millibar: "mbar", millibars: "mbar",
   // ASCII micro forms, matching the existing ug/us/um convention. A laser spec
   // sheet is typed as "uJ" far more often than "µJ".
   uJ: "µJ", microjoule: "µJ", microjoules: "µJ", joule: "J", joules: "J",
@@ -281,6 +298,10 @@ const BASE: Record<string, Record<string, number>> = {
   inductance: { mass: 1, length: 2, time: -2, current: -2 },
   bfield: { mass: 1, time: -2, current: -1 },
   molarity: { amount: 1, length: -3 },
+  // Speed as its own dim so that kt, mph and fpm reduce to the same signature as
+  // m/s and km/h and convert freely between them. Aviation is written in knots
+  // and feet per minute, and neither could be expressed at all before.
+  speed: { length: 1, time: -1 },
 };
 
 /** Accumulates one side ("·"/"*"/space-separated factors) into dims & factor. */

@@ -366,6 +366,7 @@ import {
 } from "../lib/optics";
 import { pureTwoQubit, chsh, wernerState, bb84KeyRate, cx } from "../lib/quantum";
 import { switchingPower, junctionTemperature, interconnectDelay, timingCheck } from "../lib/chips";
+import { atmosphere, pressureAltitude, airspeeds, dragPolar, levelTurn, climbGlide } from "../lib/aero";
 import { statVars, statVarLineProblem } from "../lib/uncertaintyParse";
 import {
   planParagraphNumbering,
@@ -7533,6 +7534,7 @@ const ENG_GROUP_ORDER = [
   "Thermal",
   "Electronics",
   "Chips & semiconductors",
+  "Aviation & avionics",
   "Control systems",
   "Vibration",
   "Optics & photonics",
@@ -11108,6 +11110,270 @@ const ENG_CALCS: EngCalc[] = [
       ];
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+
+  // ---------------------------------------------------------------------
+  // Aviation & avionics
+  // ---------------------------------------------------------------------
+  {
+    id: "aero-isa",
+    name: "Standard atmosphere (ICAO / US 1976)",
+    group: "Aviation & avionics",
+    hint:
+      "Seven layers to 84.852 km, each with its own lapse rate — the barometric relation is a " +
+      "power law in the sloped layers and an exponential in the isothermal ones, so the table is " +
+      "walked rather than approximated by one formula. Altitude is GEOMETRIC and is converted to " +
+      "the geopotential the model is defined in. An ISA offset moves temperature and density but " +
+      "not pressure.",
+    fields: [
+      { key: "z", label: "Altitude (geometric), m", default: "10000", kind: "text" },
+      { key: "dT", label: "ISA temperature deviation, K", default: "0", kind: "text" },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const z = u.req("z", "m", "Altitude");
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const dTraw = r("dT").trim();
+      const dT = dTraw ? Number(dTraw) : 0;
+      if (!Number.isFinite(dT)) return { text: "The ISA deviation must be a number of kelvin.", ok: false };
+      const a = atmosphere(z, dT);
+      if (!a) {
+        return {
+          text:
+            "Outside the model: it is defined from -5 km to 84.852 km geopotential. Above that " +
+            "the 1976 standard uses a different formulation and this tool will not extrapolate.",
+          ok: false,
+        };
+      }
+      const pa = pressureAltitude(a.pressurePa);
+      const lines = [
+        "Standard atmosphere",
+        "",
+        `  Geopotential altitude ${engNum(a.geopotentialM, 6)} m`,
+        `  Temperature           ${engNum(a.temperatureK, 6)} K   (${engNum(a.temperatureK - 273.15, 5)} °C)`,
+        `  Pressure              ${engNum(a.pressurePa, 6)} Pa  (${engNum(a.pressurePa / 100, 6)} hPa)`,
+        `  Density               ${engNum(a.densityKgM3, 6)} kg/m³`,
+        `  Density ratio σ       ${engNum(a.sigma, 6)}`,
+        `  Speed of sound        ${engNum(a.soundSpeedMs, 6)} m/s  (${engNum(a.soundSpeedMs * 1.9438444924406, 6)} kt)`,
+      ];
+      if (pa !== null) lines.push(`  Pressure altitude     ${engNum(pa, 6)} m`);
+      u.report(lines);
+      for (const note of a.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "aero-airspeed",
+    name: "Airspeeds: TAS, EAS, CAS & Mach",
+    group: "Aviation & avionics",
+    hint:
+      "From true airspeed at an altitude. CAS is derived through the IMPACT PRESSURE rather than " +
+      "from EAS by a density correction — both come from the same qc, but the compressibility " +
+      "term does not cancel. IAS is NOT computed: CAS→IAS is instrument and position error, a " +
+      "property of the airframe published on a correction card.",
+    fields: [
+      { key: "V", label: "True airspeed", default: "250 kt", kind: "text" },
+      { key: "z", label: "Altitude (geometric), m", default: "10000", kind: "text" },
+      { key: "dT", label: "ISA temperature deviation, K", default: "0", kind: "text" },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const V = u.req("V", "m/s", "True airspeed");
+      const z = u.req("z", "m", "Altitude");
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const dTraw = r("dT").trim();
+      const dT = dTraw ? Number(dTraw) : 0;
+      if (!Number.isFinite(dT)) return { text: "The ISA deviation must be a number of kelvin.", ok: false };
+      const a = atmosphere(z, dT);
+      if (!a) return { text: "That altitude is outside the standard atmosphere model.", ok: false };
+      const s = airspeeds(V, a.densityKgM3, a.pressurePa);
+      if (!s) return { text: "Airspeed cannot be negative.", ok: false };
+
+      const kt = (v: number) => `${engNum(v * 1.9438444924406, 5)} kt`;
+      const lines = [
+        "Airspeeds",
+        "",
+        `  True (TAS)        ${engNum(s.tasMs, 5)} m/s   ${kt(s.tasMs)}`,
+        `  Equivalent (EAS)  ${engNum(s.easMs, 5)} m/s   ${kt(s.easMs)}`,
+        `  Calibrated (CAS)  ${engNum(s.casMs, 5)} m/s   ${kt(s.casMs)}`,
+        `  Mach              ${engNum(s.mach, 5)}`,
+        "",
+        `  Impact pressure   ${engNum(s.impactPa, 6)} Pa`,
+        `  Dynamic pressure  ${engNum(s.dynamicPa, 6)} Pa   (incompressible ½ρV²)`,
+      ];
+      u.report(lines);
+      for (const note of s.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "aero-polar",
+    name: "Lift, drag polar & stall speed",
+    group: "Aviation & avionics",
+    hint:
+      "Level flight: CL from weight and speed, CD = CD0 + k·CL² with k = 1/(π·AR·e). Best L/D is " +
+      "where induced drag EQUALS parasite drag, and both it and the speed it occurs at are " +
+      "derived from this polar rather than searched, so they cannot disagree with it.",
+    fields: [
+      { key: "W", label: "Weight, N", default: "50000", kind: "text" },
+      { key: "V", label: "True airspeed", default: "80 m/s", kind: "text" },
+      { key: "S", label: "Wing area, m^2", default: "30", kind: "text" },
+      { key: "z", label: "Altitude (geometric), m", default: "0", kind: "text" },
+      { key: "cd0", label: "Zero-lift drag coefficient CD0", default: "0.02", kind: "text" },
+      { key: "AR", label: "Aspect ratio", default: "9", kind: "text" },
+      { key: "e", label: "Oswald efficiency (0-1)", default: "0.8", kind: "text" },
+      { key: "clmax", label: "CLmax (blank to skip the stall speed)", default: "1.5", kind: "text" },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const W = u.req("W", "N", "Weight");
+      const V = u.req("V", "m/s", "True airspeed");
+      const S = u.req("S", "m^2", "Wing area");
+      const z = u.req("z", "m", "Altitude");
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const a = atmosphere(z);
+      if (!a) return { text: "That altitude is outside the standard atmosphere model.", ok: false };
+      const nums: Record<string, number> = {};
+      for (const [k, label] of [["cd0", "CD0"], ["AR", "Aspect ratio"], ["e", "Oswald efficiency"]] as const) {
+        const raw = r(k).trim();
+        if (!raw) return { text: `${label}: this field is required.`, ok: false };
+        const v = Number(raw);
+        if (!Number.isFinite(v)) return { text: `${label}: must be a number.`, ok: false };
+        nums[k] = v;
+      }
+      const clmaxRaw = r("clmax").trim();
+      const clmax = clmaxRaw ? Number(clmaxRaw) : undefined;
+      if (clmaxRaw && !Number.isFinite(clmax as number)) return { text: "CLmax must be a number, or blank.", ok: false };
+
+      const p = dragPolar(W, V, S, a.densityKgM3, nums.cd0, nums.AR, nums.e, clmax);
+      if (!p) {
+        return {
+          text:
+            "Weight, speed, area, CD0 and aspect ratio must all be positive, and the Oswald " +
+            "efficiency must be above 0 and no more than 1.",
+          ok: false,
+        };
+      }
+      const kt = (v: number) => `${engNum(v * 1.9438444924406, 5)} kt`;
+      const lines = [
+        "Lift and drag in level flight",
+        "",
+        `  Density at altitude ${engNum(a.densityKgM3, 6)} kg/m³`,
+        `  CL                  ${engNum(p.cl, 5)}`,
+        `  CD                  ${engNum(p.cd, 5)}   (CD0 ${engNum(nums.cd0, 4)} + induced ${engNum(p.cd - nums.cd0, 4)})`,
+        `  L/D                 ${engNum(p.liftToDrag, 5)}`,
+        `  Drag                ${engNum(p.dragN, 6)} N`,
+        "",
+        `  Best L/D            ${engNum(p.bestLd, 5)} at CL ${engNum(p.clAtBestLd, 5)}`,
+        `  Speed for best L/D  ${engNum(p.speedAtBestLdMs, 5)} m/s   ${kt(p.speedAtBestLdMs)}`,
+      ];
+      if (p.stallSpeedMs !== null) {
+        lines.push(`  Stall speed         ${engNum(p.stallSpeedMs, 5)} m/s   ${kt(p.stallSpeedMs)}`);
+      }
+      u.report(lines);
+      for (const note of p.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "aero-turn",
+    name: "Level turn: load factor & radius",
+    group: "Aviation & avionics",
+    hint:
+      "Steady co-ordinated level turn. Stall speed rises with sqrt(n), NOT with n — 60° of bank " +
+      "is 2 g and a 41% higher stall speed, not 100%. Ninety degrees cannot be held in level " +
+      "flight and is refused rather than divided by zero.",
+    fields: [
+      { key: "phi", label: "Bank angle, degrees", default: "45", kind: "text" },
+      { key: "V", label: "True airspeed", default: "120 kt", kind: "text" },
+      { key: "vs", label: "Wings-level stall speed (blank to skip)", default: "60 kt", kind: "text" },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const V = u.req("V", "m/s", "True airspeed");
+      const vs = u.optNull("vs", "m/s", "Stall speed");
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const phiRaw = r("phi").trim();
+      if (!phiRaw) return { text: "Bank angle: this field is required.", ok: false };
+      const phi = Number(phiRaw);
+      if (!Number.isFinite(phi)) return { text: "Bank angle must be a number of degrees.", ok: false };
+      const t = levelTurn(phi, V, vs === null ? undefined : vs);
+      if (!t) {
+        return {
+          text:
+            "Bank must be at least 0 and below 90 degrees. At 90 the lift vector is horizontal " +
+            "and nothing carries the weight, so a level turn does not exist.",
+          ok: false,
+        };
+      }
+      const kt = (v: number) => `${engNum(v * 1.9438444924406, 5)} kt`;
+      const lines = [
+        "Level turn",
+        "",
+        `  Load factor n     ${engNum(t.loadFactor, 5)} g`,
+        `  Turn radius       ${t.radiusM === Infinity ? "infinite (wings level)" : engNum(t.radiusM, 5) + " m"}`,
+        `  Turn rate         ${engNum((t.rateRadS * 180) / Math.PI, 5)} °/s`,
+        `  Time for 360°     ${t.periodS === Infinity ? "never (wings level)" : engNum(t.periodS, 5) + " s"}`,
+      ];
+      if (t.stallInTurnMs !== null) {
+        lines.push(`  Stall speed in turn ${engNum(t.stallInTurnMs, 5)} m/s   ${kt(t.stallInTurnMs)}`);
+      }
+      u.report(lines);
+      for (const note of t.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "aero-climb",
+    name: "Climb rate & power-off glide",
+    group: "Aviation & avionics",
+    hint:
+      "sin(γ) = (T − D)/W and ROC = V·sin(γ). The flight-path angle is the exact arcsine, not the " +
+      "small-angle shortcut — fine at 3°, wrong at 20°. Set thrust to zero for a glide; the range " +
+      "is still air, and a wind changes it directly.",
+    fields: [
+      { key: "T", label: "Thrust, N", default: "20000", kind: "text" },
+      { key: "D", label: "Drag, N", default: "10000", kind: "text" },
+      { key: "W", label: "Weight, N", default: "100000", kind: "text" },
+      { key: "V", label: "True airspeed", default: "80 m/s", kind: "text" },
+      { key: "h", label: "Height for glide range (blank to skip)", default: "", kind: "text" },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const T = u.req("T", "N", "Thrust");
+      const D = u.req("D", "N", "Drag");
+      const W = u.req("W", "N", "Weight");
+      const V = u.req("V", "m/s", "True airspeed");
+      const h = u.optNull("h", "m", "Height");
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const c = climbGlide(T, D, W, V, h === null ? undefined : h);
+      if (!c) {
+        return {
+          text:
+            "Weight and speed must be positive, thrust and drag cannot be negative, and |T − D| " +
+            "cannot exceed the weight; beyond that there is no real flight-path angle.",
+          ok: false,
+        };
+      }
+      const lines = [
+        c.rocMs >= 0 ? "Climb" : "Descent",
+        "",
+        `  Rate of climb      ${engNum(c.rocMs, 5)} m/s   (${engNum(c.rocMs * 196.850393700787, 5)} ft/min)`,
+        `  Flight-path angle  ${engNum(c.angleDeg, 5)} °`,
+      ];
+      if (c.glideRatio !== null) lines.push(`  Glide ratio        ${engNum(c.glideRatio, 5)} : 1`);
+      if (c.glideRangeM !== null) {
+        lines.push(`  Still-air range    ${engNum(c.glideRangeM, 6)} m   (${engNum(c.glideRangeM / 1852, 5)} nmi)`);
+      }
+      u.report(lines);
+      for (const note of c.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
       return { text: plainDashes(lines.join("\n")) };
     },

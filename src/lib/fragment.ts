@@ -102,6 +102,34 @@ function hillFormula(counts: Map<number, number>): string {
   return parts.join("") || "—";
 }
 
+/**
+ * Atom counts for a simple neutral-loss formula like "H2O", "CO2" or "HCl".
+ *
+ * Only the losses listed in this file are ever passed in, so this handles plain
+ * element-and-count sequences and nothing more — no brackets, no hydrates, no
+ * charges. It returns null on anything it does not fully understand rather than
+ * silently dropping a term, because a partly-parsed loss would subtract the wrong
+ * atoms and still produce a confident-looking formula.
+ */
+function lossCounts(formula: string): Map<number, number> | null {
+  const Z: Record<string, number> = {
+    H: 1, B: 5, C: 6, N: 7, O: 8, F: 9, Na: 11, Si: 14,
+    P: 15, S: 16, Cl: 17, K: 19, Se: 34, Br: 35, I: 53,
+  };
+  const out = new Map<number, number>();
+  const re = /([A-Z][a-z]?)(\d*)/g;
+  let consumed = 0;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(formula)) !== null) {
+    if (m.index !== consumed) return null; // a gap means an unparsed character
+    const z = Z[m[1]];
+    if (z === undefined) return null;
+    out.set(z, (out.get(z) ?? 0) + (m[2] ? Number(m[2]) : 1));
+    consumed = m.index + m[0].length;
+  }
+  return consumed === formula.length && out.size > 0 ? out : null;
+}
+
 /** Exact mass of an atom set, including its implicit hydrogens. */
 function massOf(mol: Molecule, atoms: Iterable<number>): { mass: number; counts: Map<number, number> } {
   const counts = new Map<number, number>();
@@ -424,9 +452,32 @@ export function predictFragments(input: string, opts: { maxFragments?: number } 
     const mz = molMass - fl.mass - ELECTRON;
     if (mz <= 0) continue;
     // Rebuild the residual formula by subtracting the lost atoms.
+    //
+    // This comment described the intent and the code did not do it: every one of
+    // these rows reported a bracket pseudo-formula like "[M-H2O]" while every
+    // OTHER row in the same table reported a real formula like "C8H5O4". Now the
+    // atoms are actually subtracted. If the loss cannot be parsed, or would take
+    // more atoms of some element than the molecule has, the bracket notation is
+    // kept — it is honest about being a description rather than a composition.
+    const lost = lossCounts(fl.formula);
+    let residual: string | null = null;
+    if (lost) {
+      const left = new Map(molCounts);
+      let ok = true;
+      for (const [z, k] of lost) {
+        const have = left.get(z) ?? 0;
+        if (have < k) {
+          ok = false;
+          break;
+        }
+        if (have - k === 0) left.delete(z);
+        else left.set(z, have - k);
+      }
+      if (ok && left.size > 0) residual = hillFormula(left);
+    }
     add({
       mz,
-      formula: `[M-${fl.formula}]`,
+      formula: residual ?? `[M-${fl.formula}]`,
       pathway: fl.label,
       neutralLoss: fl.formula,
       lossMass: fl.mass,

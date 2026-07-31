@@ -924,6 +924,29 @@ Engineering mode. A new **Robotics & kinematics** group of 6; the mode must stat
 - [ ] Equal wheels: turn radius **infinite**, not zero. Equal and opposite: radius exactly 0.
 - [ ] Switch to “body velocity → wheel speeds”, enter the body numbers you just got, and the
   wheel speeds must come back to 0.8 and 1.2 exactly.
+- [ ] **The singular note must agree with the number beside it.** L1 0.7, L2 0.45, target
+  (1.15, 0): the solution row reads θ₂ ≈ 0 and the note must say **fully extended
+  (theta2 = 0°)** — it used to say 180° for more than half of all extended link pairs.
+  Target (0.25, 0) must say **fully folded (theta2 = 180°)**.
+- [ ] Enter link lengths **space separated** (`0.5 0.4 0.2`) in forward kinematics: it must
+  work, not report that the values are not numbers.
+- [ ] In the Jacobian tool enter the links in **mm** (`500`, `400` with unit `mm`): the
+  conversion must be reported and the torque must still be a true **N·m**, not N·mm
+  mislabelled. In differential drive, entering `1.2 m/s` in a wheel field must be accepted.
+
+### Reported from the pane and fixed in this release
+
+- [ ] **Spectra → aspirin → MS fragmentation (EI).** The formula column must show real
+  formulas throughout — **C9H6O3** for the water loss and **C8H8O2** for the CO₂ loss —
+  not the bracket placeholders `[M-H2O]` and `[M-CO2]` it used to print while every other
+  row held a proper formula. Everything must be plain ASCII, so it survives a plain-text
+  insert into Word.
+- [ ] **Stats → Linear regression.** There must now be a **figure** (fit, residuals and a
+  normal Q-Q), where before there was none at all — and an **Insert chart** button beside
+  Insert result. Insert both and confirm the picture lands in the document.
+- [ ] The chart button must be **disabled** for a calculator with no figure (descriptive
+  statistics) and enabled for multiple regression, polynomial regression and survival.
+
 - [ ] All six must insert; the four kinematics tools carry the same-unit note and the two
   with real dimensions carry the converting note.
 

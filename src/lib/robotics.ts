@@ -154,9 +154,15 @@ export function planar2rIk(l1: number, l2: number, x: number, y: number): Ik2rRe
   const solutions = singular ? [mk(1)] : [mk(1), mk(-1)];
 
   if (singular) {
-    const kind = Math.abs(radius - outerReach) < 1e-6 ? "fully extended" : "fully folded";
+    const extended = Math.abs(t2) < Math.PI / 2;
+    const kind = extended ? "fully extended" : "fully folded";
+    // Branch on the SAME discriminator the wording uses. This compared
+    // (t2*180/PI) === 0 by exact float equality, but acos of a c2 that rounds to
+    // just under 1 returns ~1e-8 rather than 0 — so a fully extended arm printed
+    // "theta2 = 180°" directly beneath a solution row reading theta2 ≈ 0, and it
+    // did so for well over half of all fully-extended link pairs.
     notes.push(
-      `SINGULAR: the arm is ${kind} (theta2 = ${(t2 * 180) / Math.PI === 0 ? "0" : "180"}°), so the ` +
+      `SINGULAR: the arm is ${kind} (theta2 = ${extended ? "0" : "180"}°), so the ` +
         "two branches COINCIDE and there is only one solution. Here the arm cannot move radially " +
         "at all — the Jacobian has lost rank — and an inverse-Jacobian controller divides by " +
         "nearly zero, so commanded joint rates blow up near this pose.",
@@ -241,7 +247,14 @@ export function planar2rJacobian(
   const sigma2 = Math.sqrt(s2sq);
 
   const singular = manipulability < 1e-9 * l1 * l2;
-  const conditionNumber = sigma2 === 0 ? Infinity : sigma1 / sigma2;
+  // sigma2 from the difference (S - sqrt(S^2 - 4det^2))/2 loses all its digits to
+  // cancellation as the matrix approaches singular, collapsing to exactly 0 while
+  // `singular` (a threshold on |det|) still says otherwise — so the pane could
+  // print "condition number infinite" and "Non-singular" together. The product of
+  // the singular values is |det| exactly, so recovering sigma2 that way is stable
+  // and keeps the two verdicts consistent.
+  const sigma2Stable = sigma1 > 0 ? manipulability / sigma1 : 0;
+  const conditionNumber = singular || sigma2Stable === 0 ? Infinity : sigma1 / sigma2Stable;
 
   const notes: string[] = [
     "det(J) = L1·L2·sin(θ₂) — it depends ONLY on the elbow angle, which is why the singularities " +
@@ -278,7 +291,7 @@ export function planar2rJacobian(
     j: [a, b, c, d],
     determinant,
     manipulability,
-    singularValues: [sigma1, sigma2],
+    singularValues: [sigma1, sigma2Stable],
     conditionNumber,
     singular,
     jointTorques,
@@ -551,6 +564,9 @@ export function diffDriveToWheels(
   const leftSpeed = linearSpeed - (angularSpeed * trackWidth) / 2;
   const r = diffDriveFromWheels(leftSpeed, rightSpeed, trackWidth, wheelRadius);
   if (!r) return null;
-  r.notes.unshift("Wheel speeds derived from the commanded body velocity; the round trip is exact.");
+  r.notes.unshift(
+    "Wheel speeds derived from the commanded body velocity. The round trip back to (v, omega) is " +
+      "exact to floating point, not bit-for-bit.",
+  );
   return r;
 }

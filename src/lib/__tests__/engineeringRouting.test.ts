@@ -272,7 +272,7 @@ const CONTRACT: Record<string, (typeof UNIT_NOTES)[number]> = {
   "chips-timing": "ENG_UNIT_NOTE",
   "robotics-fk": "ENG_SAME_UNIT_NOTE",
   "robotics-ik": "ENG_SAME_UNIT_NOTE",
-  "robotics-jacobian": "ENG_SAME_UNIT_NOTE",
+  "robotics-jacobian": "ENG_UNIT_NOTE",
   "robotics-dh": "ENG_SAME_UNIT_NOTE",
   "robotics-profile": "ENG_UNIT_NOTE",
   "robotics-diffdrive": "ENG_UNIT_NOTE",

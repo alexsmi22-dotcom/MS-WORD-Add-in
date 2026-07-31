@@ -125,6 +125,32 @@ describe("2R inverse kinematics", () => {
     expect(r.notes.join(" ")).toMatch(/SINGULAR/);
   });
 
+  test("the singular note names the RIGHT angle for a fully extended arm", () => {
+    // Found by an independent review. The note branched on exact float equality
+    // with 0, but acos of a c2 that rounds to just under 1 returns ~1e-8, so a
+    // fully EXTENDED arm printed "theta2 = 180°" directly beneath a solution row
+    // reading theta2 ≈ 0. It hit more than half of all extended link pairs.
+    for (const [l1, l2] of [[0.7, 0.45], [0.6, 0.4], [0.3, 0.2], [1, 1], [2, 1.5]] as const) {
+      const r = planar2rIk(l1, l2, l1 + l2, 0)!;
+      expect(r.singular).toBe(true);
+      const note = r.notes.join(" ");
+      expect(note).toMatch(/fully extended \(theta2 = 0°\)/);
+      expect(note).not.toMatch(/180°/);
+      // And the note must agree with the number actually returned.
+      expect(Math.abs(r.solutions[0].theta2)).toBeLessThan(1e-3);
+    }
+  });
+
+  test("the singular note says 180 only when the arm really is folded", () => {
+    for (const [l1, l2] of [[0.7, 0.45], [2, 1.5], [3, 1]] as const) {
+      const r = planar2rIk(l1, l2, Math.abs(l1 - l2), 0)!;
+      expect(r.singular).toBe(true);
+      const note = r.notes.join(" ");
+      expect(note).toMatch(/fully folded \(theta2 = 180°\)/);
+      expect(Math.abs(Math.abs(r.solutions[0].theta2) - Math.PI)).toBeLessThan(1e-3);
+    }
+  });
+
   test("full fold is singular too", () => {
     const r = planar2rIk(2, 1, 1, 0)!; // r = |L1 - L2|
     expect(r.singular).toBe(true);
@@ -189,6 +215,21 @@ describe("Jacobian and singularities", () => {
     expect(r.singularValues[0]).toBeCloseTo(1.618, 3);
     expect(r.singularValues[1]).toBeCloseTo(0.618, 3);
     expect(r.conditionNumber).toBeCloseTo(2.618, 3);
+  });
+
+  test("singular and the condition number never disagree", () => {
+    // The small singular value came from a difference that loses all its digits
+    // to cancellation near singularity, so it could hit exactly 0 (condition
+    // number "infinite") while the |det| threshold still said "non-singular".
+    // Recovering it as |det|/sigma1 keeps the two verdicts consistent.
+    for (const th2 of [1e-6, 1e-7, 5e-8, 1e-8, 1e-9, 1e-10, 0]) {
+      const r = planar2rJacobian(0.5, 0.4, 0.3, th2)!;
+      const infinite = r.conditionNumber === Infinity;
+      expect({ th2, agree: infinite === r.singular }).toEqual({ th2, agree: true });
+    }
+    // And where it is well conditioned the product still recovers |det|.
+    const ok = planar2rJacobian(0.5, 0.4, 0.3, 1.0)!;
+    expect(ok.singularValues[0] * ok.singularValues[1]).toBeCloseTo(ok.manipulability, 12);
   });
 
   test("singular values are ordered, and the condition number is infinite at a singularity", () => {

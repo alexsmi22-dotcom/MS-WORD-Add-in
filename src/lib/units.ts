@@ -162,6 +162,28 @@ const UNITS: Record<string, UnitDef> = {
   kt: { dim: "speed", factor: 1852 / 3600 },
   mph: { dim: "speed", factor: 1609.344 / 3600 },
   fpm: { dim: "speed", factor: 0.3048 / 60 },
+  // information (base bit) — atomic, like angle: a bit is a pure count and
+  // folding it into 1 would let a data size convert into a bare number.
+  //
+  // NO LOWERCASE BIT SYMBOLS (b, kb, Mb) on purpose. Alias lookup falls back to a
+  // lowercased key, so defining "kb" would make a user's "KB" resolve to KILOBIT
+  // — an 8x error — which is the same trap "Nm" -> nautical mile was. Kilobits
+  // are spelled out as kbit instead, and KB is an explicit alias for kB.
+  //
+  // The decimal/binary split is real and is kept: kB is 1000 bytes and KiB is
+  // 1024, as IEC defines them. Conflating the two is where "why is my 1 TB disk
+  // only 931 GB" comes from.
+  bit: { dim: "information", factor: 1 },
+  B: { dim: "information", factor: 8 },
+  kB: { dim: "information", factor: 8e3 }, MB: { dim: "information", factor: 8e6 },
+  GB: { dim: "information", factor: 8e9 }, TB: { dim: "information", factor: 8e12 },
+  PB: { dim: "information", factor: 8e15 },
+  KiB: { dim: "information", factor: 8 * 1024 },
+  MiB: { dim: "information", factor: 8 * 1024 ** 2 },
+  GiB: { dim: "information", factor: 8 * 1024 ** 3 },
+  TiB: { dim: "information", factor: 8 * 1024 ** 4 },
+  kbit: { dim: "information", factor: 1e3 }, Mbit: { dim: "information", factor: 1e6 },
+  Gbit: { dim: "information", factor: 1e9 }, Tbit: { dim: "information", factor: 1e12 },
   // angular velocity (base rad/s). Motor and wheel speeds are quoted in rpm.
   rpm: { dim: "angularvelocity", factor: (2 * Math.PI) / 60 },
   "rad/s": { dim: "angularvelocity", factor: 1 },
@@ -231,6 +253,10 @@ const ALIASES: Record<string, string> = {
   // lowercased key, so `nm -> nmi` never fires for "nm" (UNITS wins, nanometre)
   // and its ONLY live effect was that "Nm" — newton-metre — silently became 1852
   // metres. "KN" likewise became knots rather than kilonewtons. Write nmi and kt.
+  // KB is overwhelmingly meant as kilobyte, so it is pinned explicitly rather
+  // than left to the lowercase fallback.
+  KB: "kB", byte: "B", bytes: "B", bits: "bit",
+  kilobyte: "kB", megabyte: "MB", gigabyte: "GB", terabyte: "TB",
   knot: "kt", knots: "kt", kts: "kt",
   nauticalmile: "nmi", nauticalmiles: "nmi",
   millibar: "mbar", millibars: "mbar",

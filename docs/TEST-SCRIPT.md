@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.57.0)
+# JurisLab — Manual Test Script (v2.58.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -728,7 +728,7 @@ Chemical mode, **Periodic table &amp; atomic structure**.
 ## 0q. New in v2.54.0 — optics, photonics and entanglement
 
 Engineering mode. The dropdown must now show two new groups, **Optics & photonics**
-(8 tools) and **Quantum optics** (4), and the mode must state **64 calculators**.
+(8 tools) and **Quantum optics** (4), and the mode must state **70 calculators**.
 
 - [ ] **Photon relations.** `1064` as a wavelength in nm must give **1.16526 eV**,
   **281.76 THz** and **9398.5 cm⁻¹**. Switch the selector to eV and type `1.16526`:
@@ -790,7 +790,7 @@ Engineering mode. The dropdown must now show two new groups, **Optics & photonic
 ## 0r. New in v2.55.0 — chips & semiconductors
 
 Engineering mode. A new **Chips & semiconductors** group of 4, and the mode must now
-state **64 calculators** across **fourteen disciplines**.
+state **70 calculators** across **fifteen disciplines**.
 
 - [ ] **Power.** 500 pF, 0.9 V, 2 GHz, α = 0.1: dynamic power **81 mW**
   (0.1 × 500e-12 × 0.81 × 2e9). Energy per 0→1 transition must be **405 fJ**, and the
@@ -845,7 +845,7 @@ state **64 calculators** across **fourteen disciplines**.
 ## 0s. New in v2.56.0 — aviation & avionics
 
 Engineering mode. A new **Aviation & avionics** group of 5; the mode must now state
-**64 calculators** across **fourteen disciplines**.
+**70 calculators** across **fifteen disciplines**.
 
 - [ ] **Atmosphere at 0 m**: 288.15 K, 101325 Pa, 1.225 kg/m³, 340.3 m/s, σ = 1. These
   are the defining constants and must come back exactly.
@@ -886,7 +886,7 @@ Engineering mode. A new **Aviation & avionics** group of 5; the mode must now st
 ## 0t. New in v2.57.0 — robotics & kinematics
 
 Engineering mode. A new **Robotics & kinematics** group of 6; the mode must state
-**64 calculators** across **fourteen disciplines**.
+**70 calculators** across **fifteen disciplines**.
 
 - [ ] **Forward kinematics** with links `0.5, 0.4, 0.2` at `30, 45, -20`: note the tip
   position, then confirm the tip orientation is the **sum** of the angles (55°) — that is
@@ -949,6 +949,56 @@ Engineering mode. A new **Robotics & kinematics** group of 6; the mode must stat
 
 - [ ] All six must insert; the four kinematics tools carry the same-unit note and the two
   with real dimensions carry the converting note.
+
+---
+
+## 0u. New in v2.58.0 — computation & information
+
+Engineering mode. A new **Computation & information** group of 6, completing the four
+domains. The mode must state **70 calculators** across **fifteen disciplines**.
+
+- [ ] **Speedup**, p = 0.95 on 16 processors: Amdahl **9.14x**, Gustafson **15.25x**,
+  ceiling **20x**. Both must be shown — reporting one alone answers half the question.
+- [ ] Set p = 0.5 with 100 processors: it must say the ceiling (2x) is **BELOW** the
+  processor count, i.e. more cores cannot help at all past that point.
+- [ ] Set p = 1: the ceiling must read **none (perfectly parallel)**, not a number.
+- [ ] Enter a measured speedup equal to the Amdahl figure: Karp-Flatt must return exactly
+  the serial fraction **0.05**.
+- [ ] **Entropy** of `0.5, 0.25, 0.125, 0.125`: exactly **1.75 bits**. A fair coin
+  (`0.5, 0.5`) is **1**; a fair die (six equal counts) is **log₂6 = 2.585**.
+- [ ] Include a zero: `0.5, 0.5, 0, 0` must still give 1 bit, **not NaN**, and must say the
+  zero contributed nothing.
+- [ ] Enter counts (`30, 30`) rather than probabilities: it must normalise and **say so**.
+- [ ] **Channel**, 20 MHz at 25 dB: SNR linear **316.2**, and the capacity must equal
+  B·log₂(1+SNR). Change 20 dB → the linear ratio must be **100**, not 10 — 10 would mean
+  the amplitude form had been used.
+- [ ] Set SNR to a negative dB: capacity must stay **positive** and say so (below-noise
+  communication is how spread spectrum works).
+- [ ] BSC at p = 0.5: capacity exactly **0**. At p = 0.9 it must equal p = 0.1 by symmetry.
+- [ ] **Collisions**: 23 items in 365 values → **0.5073**, the classic birthday answer.
+  57 items → about **0.99**.
+- [ ] 40 items in 365: expected pairs **2.14** while the probability is **0.891** — the two
+  must be clearly separate, since the expectation exceeding 1 is exactly the trap.
+- [ ] 400 items in 365 values: probability exactly **1**, with the pigeonhole reason given.
+- [ ] A 64-bit hash: the 50% count must be about **5.1 × 10⁹**.
+- [ ] **Floating point** at 1: epsilon **2.22e-16**, decimal digits **15.95**. At 10⁶ the
+  ULP must be about **1.16e-10** — a million times larger, which is the whole point.
+- [ ] Subtract 1 from 1.0000001: about **7 digits lost**, and the note must say the
+  subtraction itself is exact and the error was already in the inputs.
+- [ ] **Scaling** from (1000, 0.12) to (4000, 1.95): exponent ≈ **2.0**, nearest class
+  quadratic. Predicting at 10⁶ must warn this is **extrapolation**, not interpolation.
+- [ ] Enter a larger size with a SMALLER runtime: the exponent goes negative and it must
+  call that **noise**, not a complexity class.
+- [ ] Equal input sizes must be **refused** — no leverage on the exponent.
+- [ ] All six must insert.
+
+### Units added with this release
+
+- [ ] `1 kB` → 1000 B and `1 KiB` → 1024 B: the decimal/binary split must be kept.
+- [ ] `1 TB` → GiB must be about **931** — the missing-disk-space number.
+- [ ] **`KB` must mean kilobyte**, never kilobit. `kb`, `Mb` and `b` must be REFUSED
+  rather than guessed at, because a lowercase fallback would make a typed `KB` an 8x error.
+- [ ] `1 MB/s` → `Mbit/s` must be **8**. `B` → `m` must be refused.
 
 ---
 

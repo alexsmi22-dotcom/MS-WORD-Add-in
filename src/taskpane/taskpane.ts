@@ -377,6 +377,15 @@ import {
   diffDriveToWheels,
   type DhRow,
 } from "../lib/robotics";
+import {
+  parallelSpeedup,
+  shannonEntropy,
+  channelCapacity,
+  bscCapacity,
+  collisionProbability,
+  floatPrecision,
+  runtimeScaling,
+} from "../lib/computation";
 import { statVars, statVarLineProblem } from "../lib/uncertaintyParse";
 import {
   planParagraphNumbering,
@@ -7620,6 +7629,7 @@ const ENG_GROUP_ORDER = [
   "Chips & semiconductors",
   "Aviation & avionics",
   "Robotics & kinematics",
+  "Computation & information",
   "Control systems",
   "Vibration",
   "Optics & photonics",
@@ -11196,6 +11206,302 @@ const ENG_CALCS: EngCalc[] = [
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+
+  // ---------------------------------------------------------------------
+  // Computation & information
+  // ---------------------------------------------------------------------
+  {
+    id: "comp-speedup",
+    name: "Parallel speedup (Amdahl & Gustafson)",
+    group: "Computation & information",
+    hint:
+      "BOTH laws, because either alone answers half the question. Amdahl holds the PROBLEM fixed " +
+      "and asks how much sooner it finishes; Gustafson holds the TIME fixed and asks how much " +
+      "more work fits. Their parallel fractions are fractions of different totals and coincide " +
+      "only at one processor.",
+    fields: [
+      { key: "p", label: "Parallel fraction (0 to 1)", default: "0.95", kind: "text" },
+      { key: "n", label: "Processors", default: "16", kind: "text" },
+      { key: "m", label: "Measured speedup (blank to skip Karp-Flatt)", default: "", kind: "text" },
+    ],
+    compute: (r) => {
+      for (const [k, label] of [["p", "Parallel fraction"], ["n", "Processors"]] as const) {
+        if (!r(k).trim()) return { text: `${label}: this field is required.`, ok: false };
+      }
+      const p = Number(r("p"));
+      const n = Number(r("n"));
+      const mRaw = r("m").trim();
+      const m = mRaw ? Number(mRaw) : undefined;
+      if (mRaw && !(Number.isFinite(m as number) && (m as number) > 0)) {
+        return { text: "Measured speedup: must be a positive number, or blank.", ok: false };
+      }
+      const res = parallelSpeedup(p, n, m);
+      if (!res) {
+        return { text: "The parallel fraction must be between 0 and 1 and there must be at least one processor.", ok: false };
+      }
+      const lines = [
+        "Parallel speedup",
+        "",
+        `  Amdahl (fixed problem)   ${engNum(res.amdahl, 6)}x`,
+        `  Gustafson (fixed time)   ${engNum(res.gustafson, 6)}x`,
+        `  Efficiency               ${engNum(res.efficiency * 100, 4)} %`,
+        "",
+        `  Amdahl ceiling           ${res.amdahlCeiling === Infinity ? "none (perfectly parallel)" : engNum(res.amdahlCeiling, 6) + "x"}`,
+        `  Diminishing returns past ${res.knee === Infinity ? "n/a" : res.knee + " processors"}`,
+      ];
+      if (res.karpFlatt !== null) lines.push(`  Karp-Flatt serial fraction ${engNum(res.karpFlatt, 5)}`);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_SAME_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "comp-entropy",
+    name: "Shannon entropy & redundancy",
+    group: "Computation & information",
+    hint:
+      "Probabilities or raw counts, comma separated — counts are normalised and the result says " +
+      "so. A zero-probability symbol contributes ZERO by the limit p·log p → 0, not a NaN that " +
+      "would poison the whole sum.",
+    fields: [
+      { key: "w", label: "Probabilities or counts", default: "0.5, 0.25, 0.125, 0.125", kind: "text" },
+      { key: "n", label: "Number of symbols (blank to skip the ideal size)", default: "", kind: "text" },
+    ],
+    compute: (r) => {
+      const w = r("w")
+        .split(/[,\s;]+/)
+        .filter(Boolean)
+        .map(Number);
+      if (!w.length) return { text: "Enter at least one probability or count.", ok: false };
+      const nRaw = r("n").trim();
+      const count = nRaw ? Number(nRaw) : undefined;
+      if (nRaw && !(Number.isFinite(count as number) && (count as number) >= 0)) {
+        return { text: "Number of symbols: must be zero or more, or blank.", ok: false };
+      }
+      const res = shannonEntropy(w, count);
+      if (!res) return { text: "Every weight must be a number, none negative, and they cannot all be zero.", ok: false };
+      const lines = [
+        "Shannon entropy",
+        "",
+        `  Entropy          ${engNum(res.entropyBits, 6)} bits/symbol`,
+        `  Maximum possible ${engNum(res.maxEntropyBits, 6)} bits/symbol  (uniform over ${w.length})`,
+        `  Redundancy       ${engNum(res.redundancy * 100, 4)} %`,
+      ];
+      if (res.idealBits !== null) {
+        lines.push("");
+        lines.push(`  Ideal compressed size of ${nRaw} symbols`);
+        lines.push(`    ${engNum(res.idealBits, 6)} bits = ${engNum(res.idealBits / 8, 6)} bytes`);
+      }
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_SAME_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "comp-channel",
+    name: "Channel capacity (Shannon-Hartley & BSC)",
+    group: "Computation & information",
+    hint:
+      "C = B·log₂(1 + S/N). SNR in dB is 10·log₁₀ of a POWER ratio — the 20·log₁₀ form is for " +
+      "amplitudes and would badly overstate the capacity. dB is a logarithmic relation rather " +
+      "than a scale factor, which is why it is handled here and not in the unit converter.",
+    fields: [
+      { key: "B", label: "Bandwidth, Hz", default: "20 MHz", kind: "text" },
+      { key: "snr", label: "Signal-to-noise ratio, dB", default: "25", kind: "text" },
+      { key: "ber", label: "Binary channel error rate (blank to skip)", default: "0.01", kind: "text" },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const B = u.req("B", "Hz", "Bandwidth");
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      if (!r("snr").trim()) return { text: "Signal-to-noise ratio: this field is required.", ok: false };
+      const snr = Number(r("snr"));
+      if (!Number.isFinite(snr)) return { text: "Signal-to-noise ratio must be a number of decibels.", ok: false };
+      const res = channelCapacity(B, snr);
+      if (!res) return { text: "Bandwidth must be positive.", ok: false };
+
+      const lines = [
+        "Channel capacity",
+        "",
+        `  SNR                  ${engNum(res.snrDb, 5)} dB  =  ${engNum(res.snrLinear, 6)} (power ratio)`,
+        `  Spectral efficiency  ${engNum(res.spectralEfficiency, 6)} bit/s/Hz`,
+        `  Capacity             ${engNum(res.capacityBps, 6)} bit/s  =  ${engNum(res.capacityBps / 1e6, 6)} Mbit/s`,
+        `  Minimum Eb/N0        ${engNum(res.ebN0Db, 5)} dB at this efficiency`,
+      ];
+      const berRaw = r("ber").trim();
+      if (berRaw) {
+        const ber = Number(berRaw);
+        if (!Number.isFinite(ber) || ber < 0 || ber > 1) {
+          return { text: "Binary channel error rate: must be between 0 and 1, or blank.", ok: false };
+        }
+        const bsc = bscCapacity(ber)!;
+        lines.push("");
+        lines.push(`  Binary symmetric channel at p = ${berRaw}`);
+        lines.push(`    Capacity ${engNum(bsc.capacity, 6)} bits per channel use`);
+        for (const note of bsc.notes) lines.push(`Note: ${note}`);
+      }
+      u.report(lines);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "comp-collision",
+    name: "Hash collision / birthday bound",
+    group: "Computation & information",
+    hint:
+      "The EXPECTED number of colliding pairs is not the probability of a collision — it is an " +
+      "expectation and exceeds 1 long before a collision is certain. Both are reported, because " +
+      "quoting the first as the second is the commonest error here.",
+    fields: [
+      { key: "n", label: "Number of items", default: "1000000", kind: "text" },
+      {
+        key: "mode",
+        label: "Value space given as",
+        default: "bits",
+        kind: "select",
+        options: [
+          { value: "bits", label: "Hash width in bits (space = 2^b)" },
+          { value: "count", label: "Number of distinct values" },
+        ],
+      },
+      { key: "d", label: "Bits, or number of values", default: "64", kind: "text" },
+    ],
+    compute: (r) => {
+      for (const [k, label] of [["n", "Number of items"], ["d", "Bits or values"]] as const) {
+        if (!r(k).trim()) return { text: `${label}: this field is required.`, ok: false };
+      }
+      const n = Number(r("n"));
+      const d0 = Number(r("d"));
+      if (!Number.isFinite(n) || !Number.isFinite(d0)) return { text: "Both values must be numbers.", ok: false };
+      const bits = r("mode") === "bits";
+      if (bits && (d0 <= 0 || d0 > 1024)) {
+        return { text: "Hash width must be between 1 and 1024 bits.", ok: false };
+      }
+      const space = bits ? Math.pow(2, d0) : d0;
+      if (!Number.isFinite(space) || space <= 0) {
+        return { text: "That value space is not a finite positive number.", ok: false };
+      }
+      const res = collisionProbability(n, space);
+      if (!res) return { text: "The item count cannot be negative and the value space must be positive.", ok: false };
+
+      const lines = [
+        "Collision probability",
+        "",
+        `  Items                 ${engNum(n, 6)}`,
+        `  Distinct values       ${engNum(space, 6)}${bits ? `  (2^${d0})` : ""}`,
+        "",
+        `  P(at least one collision)  ${res.probability >= 1 ? "1 (certain)" : engNum(res.probability, 6)}`,
+        `  Expected colliding pairs   ${engNum(res.expectedPairs, 6)}`,
+        `  Items for a 50% chance     ${engNum(res.fiftyPercentCount, 6)}`,
+        `  Method                     ${res.method}`,
+      ];
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_SAME_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "comp-float",
+    name: "Floating-point precision & cancellation",
+    group: "Computation & information",
+    hint:
+      "Machine epsilon is the spacing just above 1.0, NOT an absolute error bound — the gap " +
+      "between representable doubles scales with magnitude, which is exactly why subtracting two " +
+      "nearly equal large numbers destroys precision.",
+    fields: [
+      { key: "v", label: "Value", default: "1000000", kind: "text" },
+      { key: "b", label: "Subtract from (blank to skip cancellation)", default: "", kind: "text" },
+    ],
+    compute: (r) => {
+      if (!r("v").trim()) return { text: "Value: this field is required.", ok: false };
+      const v = Number(r("v"));
+      if (!Number.isFinite(v)) return { text: "Value must be a finite number.", ok: false };
+      const bRaw = r("b").trim();
+      const b = bRaw ? Number(bRaw) : undefined;
+      if (bRaw && !Number.isFinite(b as number)) return { text: "Subtract from: must be a finite number, or blank.", ok: false };
+      const res = floatPrecision(v, b);
+      if (!res) return { text: "Both values must be finite numbers.", ok: false };
+
+      const lines = [
+        "IEEE-754 double precision",
+        "",
+        `  Machine epsilon      ${engNum(res.epsilon, 6)}   (spacing just above 1.0)`,
+        `  Decimal digits       ${engNum(res.decimalDigits, 4)}`,
+        "",
+        `  At ${engNum(v, 6)}`,
+        `    Spacing (1 ULP)    ${engNum(res.ulp, 6)}`,
+        `    Relative spacing   ${engNum(res.relativeSpacing, 6)}`,
+      ];
+      if (res.cancellationFactor !== null) {
+        lines.push("");
+        lines.push(`  Subtracting ${engNum(v, 6)} from ${bRaw}`);
+        lines.push(
+          `    Error amplification ${res.cancellationFactor === Infinity ? "infinite (exactly equal)" : engNum(res.cancellationFactor, 6) + "x"}`,
+        );
+        lines.push(
+          `    Digits lost         ${res.digitsLost === Infinity ? "all of them" : engNum(res.digitsLost as number, 4)}`,
+        );
+      }
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_SAME_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "comp-scaling",
+    name: "Runtime scaling & complexity",
+    group: "Computation & information",
+    hint:
+      "Two measurements give the empirical exponent k in t ∝ n^k. TWO POINTS FIT A POWER LAW AND " +
+      "NOTHING ELSE: they cannot separate n·log n from n^1.1, and cannot see an exponential at " +
+      "all. The class reported is the nearest one, not an identification.",
+    fields: [
+      { key: "n1", label: "First input size", default: "1000", kind: "text" },
+      { key: "t1", label: "First runtime", default: "0.12", kind: "text" },
+      { key: "n2", label: "Second input size", default: "4000", kind: "text" },
+      { key: "t2", label: "Second runtime", default: "1.95", kind: "text" },
+      { key: "nt", label: "Predict at size (blank to skip)", default: "1000000", kind: "text" },
+    ],
+    compute: (r) => {
+      const vals: Record<string, number> = {};
+      for (const [k, label] of [["n1", "First size"], ["t1", "First runtime"], ["n2", "Second size"], ["t2", "Second runtime"]] as const) {
+        if (!r(k).trim()) return { text: `${label}: this field is required.`, ok: false };
+        const v = Number(r(k));
+        if (!Number.isFinite(v)) return { text: `${label}: must be a number.`, ok: false };
+        vals[k] = v;
+      }
+      const ntRaw = r("nt").trim();
+      const nt = ntRaw ? Number(ntRaw) : undefined;
+      if (ntRaw && !(Number.isFinite(nt as number) && (nt as number) > 0)) {
+        return { text: "Predict at size: must be a positive number, or blank.", ok: false };
+      }
+      const res = runtimeScaling(vals.n1, vals.t1, vals.n2, vals.t2, nt);
+      if (!res) {
+        return {
+          text:
+            "Sizes and runtimes must all be positive, and the two input sizes must differ — " +
+            "equal sizes give no leverage on the exponent.",
+          ok: false,
+        };
+      }
+      const lines = [
+        "Runtime scaling",
+        "",
+        `  Empirical exponent k  ${engNum(res.exponent, 5)}   in t proportional to n^k`,
+        `  Nearest class         ${res.nearestClass}`,
+      ];
+      if (res.predicted !== null) {
+        lines.push("");
+        lines.push(`  Predicted at n = ${ntRaw}`);
+        lines.push(`    ${engNum(res.predicted, 6)}  (${engNum(res.growthFactor as number, 5)}x the second measurement)`);
+      }
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_SAME_UNIT_NOTE);
       return { text: plainDashes(lines.join("\n")) };
     },
   },

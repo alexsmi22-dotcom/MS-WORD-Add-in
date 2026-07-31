@@ -166,6 +166,13 @@ export function pressureAltitude(pressurePa: number): number | null {
     const L = LAYERS[0];
     return (L.t / L.lapse) * (Math.pow(L.p / pressurePa, L.lapse / GMR) - 1);
   }
+  // ABOVE THE MODEL, REFUSE — do not extrapolate the top isothermal layer upward.
+  // atmosphere() refuses above 84.852 km and this must agree with it: without the
+  // guard a pressure of 0.0037 Pa returned 110 km, an altitude the 1976 standard
+  // does not describe with these equations at all.
+  const top = LAYERS[LAYERS.length - 1];
+  if (pressurePa < top.p) return null;
+
   let i = 0;
   for (let k = 0; k < LAYERS.length; k++) if (pressurePa <= LAYERS[k].p) i = k;
   const L = LAYERS[i];

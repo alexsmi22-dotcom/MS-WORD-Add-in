@@ -224,8 +224,12 @@ const ALIASES: Record<string, string> = {
   gram: "g", grams: "g", ug: "µg", microgram: "µg", kilogram: "kg", pound: "lb", pounds: "lb",
   sec: "s", secs: "s", second: "s", seconds: "s", us: "µs", minute: "min", minutes: "min",
   hr: "h", hour: "h", hours: "h", days: "day",
-  knot: "kt", knots: "kt", kts: "kt", kn: "kt",
-  nauticalmile: "nmi", nm: "nmi", NM: "nmi",
+  // NO "nm" OR "kn" ALIAS HERE, deliberately. Alias lookup falls back to a
+  // lowercased key, so `nm -> nmi` never fires for "nm" (UNITS wins, nanometre)
+  // and its ONLY live effect was that "Nm" — newton-metre — silently became 1852
+  // metres. "KN" likewise became knots rather than kilonewtons. Write nmi and kt.
+  knot: "kt", knots: "kt", kts: "kt",
+  nauticalmile: "nmi", nauticalmiles: "nmi",
   millibar: "mbar", millibars: "mbar",
   // ASCII micro forms, matching the existing ug/us/um convention. A laser spec
   // sheet is typed as "uJ" far more often than "µJ".

@@ -101,6 +101,19 @@ describe("standard atmosphere", () => {
     }
   });
 
+  test("pressureAltitude refuses above the model rather than extrapolating", () => {
+    // Found by an independent review: below the top layer's base pressure the
+    // layer-selection loop kept extrapolating the top isothermal layer upward, so
+    // 0.0037 Pa returned 110 km — an altitude the 1976 equations do not describe,
+    // and one atmosphere() itself refuses.
+    expect(pressureAltitude(0.0037)).toBeNull();
+    expect(pressureAltitude(LAYERS[LAYERS.length - 1].p * 0.5)).toBeNull();
+    expect(pressureAltitude(0)).toBeNull();
+    expect(pressureAltitude(-1)).toBeNull();
+    // The ceiling itself is still a valid answer.
+    expect(pressureAltitude(LAYERS[LAYERS.length - 1].p)!).toBeCloseTo(84852, 0);
+  });
+
   test("the ideal-gas relation holds at every altitude", () => {
     for (const z of [0, 8000, 15000, 35000]) {
       const a = atmosphere(z)!;

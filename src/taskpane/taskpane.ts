@@ -11131,10 +11131,12 @@ const ENG_CALCS: EngCalc[] = [
     fields: [
       { key: "z", label: "Altitude (geometric), m", default: "10000", kind: "text" },
       { key: "dT", label: "ISA temperature deviation, K", default: "0", kind: "text" },
+      { key: "pObs", label: "Observed static pressure (blank to skip pressure altitude)", default: "", kind: "text" },
     ],
     compute: (r) => {
       const u = engUnits(r);
       const z = u.req("z", "m", "Altitude");
+      const pObs = u.optNull("pObs", "Pa", "Observed static pressure");
       if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
       const dTraw = r("dT").trim();
       const dT = dTraw ? Number(dTraw) : 0;
@@ -11148,7 +11150,12 @@ const ENG_CALCS: EngCalc[] = [
           ok: false,
         };
       }
-      const pa = pressureAltitude(a.pressurePa);
+      // Pressure altitude of the pressure we JUST COMPUTED from this altitude is a
+      // tautology — it is forced to equal the geopotential altitude printed above,
+      // even under an ISA offset, so it presented a no-op as a result. It is only
+      // a real answer for a MEASURED pressure, so it is reported only when one is
+      // given.
+      const pa = pObs === null ? null : pressureAltitude(pObs);
       const lines = [
         "Standard atmosphere",
         "",
@@ -11159,7 +11166,13 @@ const ENG_CALCS: EngCalc[] = [
         `  Density ratio σ       ${engNum(a.sigma, 6)}`,
         `  Speed of sound        ${engNum(a.soundSpeedMs, 6)} m/s  (${engNum(a.soundSpeedMs * 1.9438444924406, 6)} kt)`,
       ];
-      if (pa !== null) lines.push(`  Pressure altitude     ${engNum(pa, 6)} m`);
+      if (pObs !== null) {
+        if (pa === null) {
+          lines.push(`  Pressure altitude     that pressure lies outside the model's range`);
+        } else {
+          lines.push(`  Pressure altitude     ${engNum(pa, 6)} m   (for the observed ${engNum(pObs / 100, 6)} hPa)`);
+        }
+      }
       u.report(lines);
       for (const note of a.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
@@ -11248,7 +11261,11 @@ const ENG_CALCS: EngCalc[] = [
       }
       const clmaxRaw = r("clmax").trim();
       const clmax = clmaxRaw ? Number(clmaxRaw) : undefined;
-      if (clmaxRaw && !Number.isFinite(clmax as number)) return { text: "CLmax must be a number, or blank.", ok: false };
+      // Checked here rather than left to dragPolar, which folds it into the same
+      // null as every other bad input and would name the wrong fields.
+      if (clmaxRaw && !(Number.isFinite(clmax as number) && (clmax as number) > 0)) {
+        return { text: "CLmax: must be a number greater than zero, or blank to skip the stall speed.", ok: false };
+      }
 
       const p = dragPolar(W, V, S, a.densityKgM3, nums.cd0, nums.AR, nums.e, clmax);
       if (!p) {
@@ -11303,6 +11320,12 @@ const ENG_CALCS: EngCalc[] = [
       if (!phiRaw) return { text: "Bank angle: this field is required.", ok: false };
       const phi = Number(phiRaw);
       if (!Number.isFinite(phi)) return { text: "Bank angle must be a number of degrees.", ok: false };
+      // Validate the OPTIONAL field separately. levelTurn folds a bad stall speed
+      // into the same null as a bad bank angle, so a stall speed of 0 produced a
+      // message complaining about the bank angle — which was perfectly valid.
+      if (vs !== null && !(vs > 0)) {
+        return { text: "Wings-level stall speed: must be greater than zero, or blank to skip it.", ok: false };
+      }
       const t = levelTurn(phi, V, vs === null ? undefined : vs);
       if (!t) {
         return {

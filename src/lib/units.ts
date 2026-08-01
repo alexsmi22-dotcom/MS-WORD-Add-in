@@ -140,6 +140,9 @@ const UNITS: Record<string, UnitDef> = {
   // volume (base m^3)
   L: { dim: "volume", factor: 0.001 }, mL: { dim: "volume", factor: 1e-6 },
   µL: { dim: "volume", factor: 1e-9 }, nL: { dim: "volume", factor: 1e-12 }, "m^3": { dim: "volume", factor: 1 },
+  // US liquid gallon, exactly 231 in^3 = 3.785411784 L by definition. Hydro and
+  // pump flow in US practice is quoted in gal/min, which composes from this.
+  gal: { dim: "volume", factor: 3.785411784e-3 },
   // pressure (base Pa)
   Pa: { dim: "pressure", factor: 1 }, kPa: { dim: "pressure", factor: 1000 },
   bar: { dim: "pressure", factor: 1e5 },
@@ -191,6 +194,19 @@ const UNITS: Record<string, UnitDef> = {
   J: { dim: "energy", factor: 1 }, kJ: { dim: "energy", factor: 1000 },
   cal: { dim: "energy", factor: 4.184 }, kcal: { dim: "energy", factor: 4184 },
   eV: { dim: "energy", factor: 1.602176634e-19 }, Wh: { dim: "energy", factor: 3600 },
+  // Grid and utility energy is quoted in kilowatt-hours and their multiples, and
+  // fuel energy in BTU. None existed, so an electricity bill or a heating value
+  // could not be expressed at all. BTU is the IT ("International Table") BTU,
+  // exactly 1055.05585262 J by definition — the one gas utilities and HVAC
+  // ratings use. The therm is exactly 100,000 BTU(IT), likewise definitional.
+  kWh: { dim: "energy", factor: 3.6e6 }, MWh: { dim: "energy", factor: 3.6e9 },
+  GWh: { dim: "energy", factor: 3.6e12 },
+  BTU: { dim: "energy", factor: 1055.05585262 },
+  // DERIVED, not retyped: the first draft hand-typed this constant and
+  // transposed two digits — caught only because a probe asserted
+  // therm/BTU = 100000 exactly. Same lesson as thermo.ts's gas table:
+  // derive the dependent constant so the identity holds by construction.
+  therm: { dim: "energy", factor: 100000 * 1055.05585262 },
   // Sub-joule pulse energies. A laser spec sheet is written in mJ and µJ, and
   // neither existed, so every pulse energy had to be typed as an exponent.
   mJ: { dim: "energy", factor: 1e-3 }, µJ: { dim: "energy", factor: 1e-6 },
@@ -229,6 +245,10 @@ const UNITS: Record<string, UnitDef> = {
   // charge (base C)
   C: { dim: "charge", factor: 1 }, mC: { dim: "charge", factor: 1e-3 },
   µC: { dim: "charge", factor: 1e-6 }, nC: { dim: "charge", factor: 1e-9 },
+  // Battery capacity is quoted in amp-hours (spec sheets: mAh for cells, Ah for
+  // packs). Charge decomposes to current·time in BASE, so Ah interoperates with
+  // the compound "A*h" and with coulombs.
+  Ah: { dim: "charge", factor: 3600 }, mAh: { dim: "charge", factor: 3.6 },
   // inductance (base H)
   H: { dim: "inductance", factor: 1 }, mH: { dim: "inductance", factor: 1e-3 }, µH: { dim: "inductance", factor: 1e-6 },
   // conductance (base S)
@@ -263,6 +283,17 @@ const ALIASES: Record<string, string> = {
   // ASCII micro forms, matching the existing ug/us/um convention. A laser spec
   // sheet is typed as "uJ" far more often than "µJ".
   uJ: "µJ", microjoule: "µJ", microjoules: "µJ", joule: "J", joules: "J",
+  // Energy/battery/flow spellings. "Btu" is how ASHRAE and fuel specs case it;
+  // the lowercase fallback catches "btu". "mah" is pinned because the lowercase
+  // fallback of a user's "MAH" or "mAh" typo must not miss — and note "mah" can
+  // NOT be left to fall back to "Ah" via any path, it is its own alias.
+  kilowatthour: "kWh", kilowatthours: "kWh", Btu: "BTU", therms: "therm",
+  // NO "mwh" ALIAS, deliberately: alias lookup falls back to a lowercased key,
+  // so it would make a typed "mWh" — MILLIwatt-hour, a real unit on coin-cell
+  // spec sheets — resolve to MEGAwatt-hours, a 10^9 error. Same trap as
+  // "Nm" -> nmi. kWh/GWh have no milli-sibling ambiguity, so those are safe.
+  kwh: "kWh", gwh: "GWh",
+  mah: "mAh", ah: "Ah", gallon: "gal", gallons: "gal",
   femtosecond: "fs", femtoseconds: "fs",
   nanojoule: "nJ", nanojoules: "nJ", millijoule: "mJ", millijoules: "mJ",
   degC: "°C", celsius: "°C", "°c": "°C", degF: "°F", fahrenheit: "°F", "°f": "°F", kelvin: "K",

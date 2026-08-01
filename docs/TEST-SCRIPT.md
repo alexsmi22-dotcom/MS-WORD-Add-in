@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.59.0)
+# JurisLab — Manual Test Script (v2.60.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -728,7 +728,7 @@ Chemical mode, **Periodic table &amp; atomic structure**.
 ## 0q. New in v2.54.0 — optics, photonics and entanglement
 
 Engineering mode. The dropdown must now show two new groups, **Optics & photonics**
-(8 tools) and **Quantum optics** (4), and the mode must state **70 calculators**.
+(8 tools) and **Quantum optics** (4), and the mode must state **78 calculators**.
 
 - [ ] **Photon relations.** `1064` as a wavelength in nm must give **1.16526 eV**,
   **281.76 THz** and **9398.5 cm⁻¹**. Switch the selector to eV and type `1.16526`:
@@ -790,7 +790,7 @@ Engineering mode. The dropdown must now show two new groups, **Optics & photonic
 ## 0r. New in v2.55.0 — chips & semiconductors
 
 Engineering mode. A new **Chips & semiconductors** group of 4, and the mode must now
-state **70 calculators** across **fifteen disciplines**.
+state **78 calculators** across **sixteen disciplines**.
 
 - [ ] **Power.** 500 pF, 0.9 V, 2 GHz, α = 0.1: dynamic power **81 mW**
   (0.1 × 500e-12 × 0.81 × 2e9). Energy per 0→1 transition must be **405 fJ**, and the
@@ -845,7 +845,7 @@ state **70 calculators** across **fifteen disciplines**.
 ## 0s. New in v2.56.0 — aviation & avionics
 
 Engineering mode. A new **Aviation & avionics** group of 5; the mode must now state
-**70 calculators** across **fifteen disciplines**.
+**78 calculators** across **sixteen disciplines**.
 
 - [ ] **Atmosphere at 0 m**: 288.15 K, 101325 Pa, 1.225 kg/m³, 340.3 m/s, σ = 1. These
   are the defining constants and must come back exactly.
@@ -886,7 +886,7 @@ Engineering mode. A new **Aviation & avionics** group of 5; the mode must now st
 ## 0t. New in v2.57.0 — robotics & kinematics
 
 Engineering mode. A new **Robotics & kinematics** group of 6; the mode must state
-**70 calculators** across **fifteen disciplines**.
+**78 calculators** across **sixteen disciplines**.
 
 - [ ] **Forward kinematics** with links `0.5, 0.4, 0.2` at `30, 45, -20`: note the tip
   position, then confirm the tip orientation is the **sum** of the angles (55°) — that is
@@ -955,7 +955,7 @@ Engineering mode. A new **Robotics & kinematics** group of 6; the mode must stat
 ## 0u. New in v2.58.0 — computation & information
 
 Engineering mode. A new **Computation & information** group of 6, completing the four
-domains. The mode must state **70 calculators** across **fifteen disciplines**.
+domains. The mode must state **78 calculators** across **sixteen disciplines**.
 
 - [ ] **Speedup**, p = 0.95 on 16 processors: Amdahl **9.14x**, Gustafson **15.25x**,
   ceiling **20x**. Both must be shown — reporting one alone answers half the question.
@@ -999,6 +999,53 @@ domains. The mode must state **70 calculators** across **fifteen disciplines**.
 - [ ] **`KB` must mean kilobyte**, never kilobit. `kb`, `Mb` and `b` must be REFUSED
   rather than guessed at, because a lowercase fallback would make a typed `KB` an 8x error.
 - [ ] `1 MB/s` → `Mbit/s` must be **8**. `B` → `m` must be refused.
+
+---
+
+## 0v. New in v2.60.0 — energy & power
+
+Engineering mode. A new **Energy & power** group of 8. The mode must state
+**78 calculators** across **sixteen disciplines**.
+
+- [ ] **Wind** at the defaults (90 m rotor, 8 m/s, Cp 0.45): swept area **6362 m²**,
+  power in the wind **1995 kW**, Betz bound **1182 kW**, output **897.8 kW**. The
+  Betz bound must be exactly 16/27 of the wind power.
+- [ ] Set Cp = 0.7: **refused**, naming the Betz limit — not computed, not clamped.
+- [ ] Set rpm = 15: tip-speed ratio **8.836** appears.
+- [ ] **Solar** at the defaults (1000 W/m², 20 m², 0.21, −0.35 %/°C, 30 °C ambient,
+  NOCT 45): output at 25 °C cells **4.2 kW**, cell temperature **61.25 °C**,
+  derated output **3.667 kW**, thermal derating **12.69 %**.
+- [ ] Efficiency entered as **21** (the percentage): refused, telling you to write 0.21.
+- [ ] **Fill factor** at the defaults: Pmp **329.1 W**, FF **0.7966**. Swap Vmp and Voc:
+  refused, saying they are probably swapped.
+- [ ] **Hydro** at the defaults (2 m³/s, 25 m, 0.85): output **416.8 kW**. Type the flow
+  as `500 gal/min`: the conversion must be REPORTED in a "Units read" block and the
+  output becomes **6.574 kW**.
+- [ ] Head loss = 25 (the whole gross head): refused — the penstock consumed the head.
+- [ ] **Battery** at the defaults (3.6 V / 5 Ah cells, 13S4P, DoD 0.9, 10 A load):
+  **46.8 V**, **20 Ah**, **0.936 kWh** (usable **0.8424**), C-rate **0.5C**, runtime
+  **1.8 h**. Type the capacity as `5000 mAh`: identical results, conversion reported.
+- [ ] Peukert exponent 1.1: corrected runtime **1.416 h** shown BESIDE the 1.8 h figure,
+  with the 20-hour-rating caveat.
+- [ ] **Combustion** of CH4: molar mass **16.043 g/mol**, O₂ **2 mol/mol**, AFR
+  **17.12**, CO₂ **2.743 kg/kg**, H₂O **2.246 kg/kg**. Add HHV 55.5 MJ/kg: LHV
+  **50.02 MJ/kg** — the published methane figure — and CO₂ intensity **0.1779 kg/kWh**.
+- [ ] C8H18: AFR **15.03** (the gasoline number), CO₂ **3.083 kg/kg**. CO2 as the
+  formula: refused — it has nothing left to oxidise.
+- [ ] **LCOE** at the defaults (1.5 M capex, 30 k opex, 3500 MWh, 7%, 25 yr):
+  **45.35 per MWh** (0.04535 per kWh), PV of costs **1,849,609**, PV of energy
+  **40,788 MWh**. The notes must say the energy is discounted and why.
+- [ ] **Capacity factor** at the defaults (2 MW, 6100 MWh): **0.3482 = 34.82 %**,
+  full-load hours **3050**. Enter 20,000 MWh: refused, showing the 17,520 MWh maximum.
+- [ ] All eight must insert.
+
+### Units added with this release
+
+- [ ] `1 kWh` → MJ must be **3.6**; `1 therm` → BTU must be exactly **100000**.
+- [ ] `1000 mAh` → Ah must be **1**, and `1 Ah` → C must be **3600**.
+- [ ] **`mWh` must be REFUSED** rather than read as megawatt-hours — a lowercase
+  fallback would turn a coin-cell energy into a 10⁹ error. `MWh` cased correctly works.
+- [ ] `1 gal` → L must be **3.785**, and a flow typed as `gal/min` converts.
 
 ---
 

@@ -2,8 +2,33 @@
 
 All notable changes to JurisLab. Dates are release/pilot dates.
 
-> Note: this file was not maintained between v1.96.0 and v2.23.0. Those releases
-> are recorded in the git history rather than here.
+> Note: this file was not maintained between v1.96.0 and v2.23.0, nor between
+> v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
+> than here.
+
+## [2.60.0] — 2026-08-01 — Energy & power
+
+A sixteenth Engineering discipline: **Energy & power**, 8 calculators
+(Engineering is now 78). Wind turbine power with the Betz limit enforced — a
+claimed Cp above 16/27 is refused as physically impossible, the same way a
+claimed efficiency above Carnot is. Solar PV output with NOCT cell-temperature
+derating and a fill-factor consistency check. Hydropower on the net head.
+Battery pack series/parallel design with C-rate and the Peukert correction
+shown beside the uncorrected runtime. Combustion stoichiometry computed exactly
+from the fuel's molecular formula via the IUPAC atomic weights (methane AFR
+17.1, octane 15.0), with LHV derived from a user-supplied HHV. Levelized cost
+of energy — where the energy is discounted too — and capacity factor.
+
+Deliberately absent, per the steam-table rule: insolation tables, fuel
+heating-value tables, battery chemistry curves. Those are measurements of a
+site, a fuel and a cell; they are inputs, and the tool does the arithmetic and
+the physical-bound checks around them.
+
+New units: kWh/MWh/GWh, BTU and therm (therm derived as exactly 100000 BTU
+after a hand-typed constant was caught transposed by its own probe), Ah/mAh,
+and the US gallon. Deliberately NO lowercase "mwh" alias — it would make a
+typed mWh (milliwatt-hour, a real coin-cell unit) resolve to megawatt-hours,
+the same trap as Nm → nautical mile.
 
 ## [2.51.0] — 2026-07-30 — Element names, fetched and cross-checked rather than typed
 

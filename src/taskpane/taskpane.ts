@@ -387,6 +387,16 @@ import {
   floatPrecision,
   runtimeScaling,
 } from "../lib/computation";
+import {
+  windPower,
+  solarPV,
+  fillFactor,
+  hydroPower,
+  batteryPack,
+  combustion,
+  lcoe,
+  capacityFactor,
+} from "../lib/energy";
 import { statVars, statVarLineProblem } from "../lib/uncertaintyParse";
 import {
   planParagraphNumbering,
@@ -7664,6 +7674,7 @@ const ENG_GROUP_ORDER = [
   "Fatigue & machine design",
   "Fluids",
   "Thermal",
+  "Energy & power",
   "Electronics",
   "Chips & semiconductors",
   "Aviation & avionics",
@@ -12840,6 +12851,462 @@ const ENG_CALCS: EngCalc[] = [
       ];
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_QUANTUM_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "energy-wind",
+    name: "Wind turbine power (Betz)",
+    group: "Energy & power",
+    hint:
+      "P = ½ρAv³ and the Betz bound 16/27 on what any rotor can extract. Power goes as the " +
+      "CUBE of wind speed, so the speed must be a hub-height measurement, not a guess. Leave " +
+      "Cp blank for the theoretical bound; a Cp above 0.593 is refused as physically impossible.",
+    fields: [
+      { key: "d", label: "Rotor diameter, m", default: "90", kind: "text" },
+      { key: "v", label: "Wind speed at hub height, m/s", default: "8", kind: "text" },
+      { key: "rho", label: "Air density, kg/m^3 (blank = sea level 1.225)", default: "", kind: "text" },
+      { key: "cp", label: "Power coefficient Cp (blank = Betz bound)", default: "0.45", kind: "text" },
+      { key: "rpm", label: "Rotor speed, rpm (blank to skip tip-speed ratio)", default: "", kind: "text" },
+      { key: "cf", label: "Capacity factor 0-1 (blank to skip annual energy)", default: "", kind: "text" },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const d = u.req("d", "m", "Rotor diameter");
+      const v = u.req("v", "m/s", "Wind speed");
+      const rho = u.optNull("rho", "kg/m^3", "Air density");
+      const rpm = u.optNull("rpm", "rpm", "Rotor speed");
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const readFrac = (key: string, label: string): number | null | { err: string } => {
+        const raw = r(key).trim();
+        if (!raw) return null;
+        const x = Number(raw);
+        if (!Number.isFinite(x)) return { err: `${label} must be a plain number (a fraction, not a unit).` };
+        return x;
+      };
+      const cp = readFrac("cp", "Cp");
+      if (cp !== null && typeof cp === "object") return { text: cp.err, ok: false };
+      const cf = readFrac("cf", "Capacity factor");
+      if (cf !== null && typeof cf === "object") return { text: cf.err, ok: false };
+      const res = windPower({
+        diameter: d,
+        windSpeed: v,
+        airDensity: rho ?? undefined,
+        cp: cp ?? undefined,
+        rpm: rpm ?? undefined,
+        capacityFactor: cf ?? undefined,
+      });
+      if (!res.ok) return { text: res.error, ok: false };
+      const sig = engFigures([r("d"), r("v")]);
+      const lines = [
+        "Wind turbine power",
+        "",
+        `  Swept area          ${engNum(res.sweptArea, sig)} m^2`,
+        `  Power in the wind   ${engNum(res.windPower / 1000, sig)} kW`,
+        `  Betz bound (16/27)  ${engNum(res.betzPower / 1000, sig)} kW`,
+      ];
+      if (res.outputPower !== null) {
+        lines.push(`  Output at Cp = ${engNum(res.cpUsed!, 3)}   ${engNum(res.outputPower / 1000, sig)} kW`);
+      }
+      if (res.tipSpeedRatio !== null) {
+        lines.push(`  Tip-speed ratio     ${engNum(res.tipSpeedRatio, 4)}  (design optimum is typically 6-8)`);
+      }
+      if (res.annualEnergyKWh !== null) {
+        lines.push(`  Annual energy       ${engNum(res.annualEnergyKWh / 1000, sig)} MWh`);
+      }
+      u.report(lines);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "energy-solar",
+    name: "Solar PV output & temperature derating",
+    group: "Energy & power",
+    hint:
+      "Panels are rated at 25 °C cells, and cells in sun run 20-30 °C above ambient, losing " +
+      "~0.35-0.45%/°C. Irradiance and peak sun hours are SITE measurements (PVGIS, NREL) — " +
+      "this tool computes from your numbers, it does not contain an insolation model.",
+    fields: [
+      { key: "g", label: "Irradiance, W/m^2 (1000 = full sun)", default: "1000", kind: "text" },
+      { key: "a", label: "Array area, m^2", default: "20", kind: "text" },
+      { key: "eff", label: "Module efficiency, fraction (0.21 = 21%)", default: "0.21", kind: "text" },
+      { key: "gamma", label: "Temperature coefficient, %/°C (datasheet)", default: "-0.35", kind: "text" },
+      { key: "ta", label: "Ambient temperature, °C (blank to skip derating)", default: "30", kind: "text" },
+      { key: "noct", label: "NOCT, °C (datasheet, 42-48 typical)", default: "45", kind: "text" },
+      { key: "psh", label: "Peak sun hours/day (blank to skip energy)", default: "", kind: "text" },
+      { key: "pr", label: "Performance ratio 0-1 (blank = lossless)", default: "", kind: "text" },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const g = u.req("g", "W/m^2", "Irradiance");
+      const a = u.req("a", "m^2", "Array area");
+      const ta = u.optNull("ta", "°C", "Ambient temperature");
+      const noct = u.optNull("noct", "°C", "NOCT");
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const eff = Number(r("eff"));
+      if (!r("eff").trim() || !Number.isFinite(eff)) {
+        return { text: "Module efficiency must be a fraction, e.g. 0.21.", ok: false };
+      }
+      const readOpt = (key: string, label: string): number | null | { err: string } => {
+        const raw = r(key).trim();
+        if (!raw) return null;
+        const x = Number(raw);
+        if (!Number.isFinite(x)) return { err: `${label} must be a plain number.` };
+        return x;
+      };
+      const gamma = readOpt("gamma", "Temperature coefficient");
+      if (gamma !== null && typeof gamma === "object") return { text: gamma.err, ok: false };
+      const psh = readOpt("psh", "Peak sun hours");
+      if (psh !== null && typeof psh === "object") return { text: psh.err, ok: false };
+      const pr = readOpt("pr", "Performance ratio");
+      if (pr !== null && typeof pr === "object") return { text: pr.err, ok: false };
+      const res = solarPV({
+        irradiance: g,
+        area: a,
+        efficiency: eff,
+        tempCoeffPctPerC: gamma ?? undefined,
+        ambientC: ta ?? undefined,
+        noctC: noct ?? undefined,
+        peakSunHours: psh ?? undefined,
+        performanceRatio: pr ?? undefined,
+      });
+      if (!res.ok) return { text: res.error, ok: false };
+      const sig = engFigures([r("g"), r("a"), r("eff")]);
+      const lines = [
+        "Solar PV output",
+        "",
+        `  Output at stated irradiance, 25 °C cells   ${engNum(res.powerStc / 1000, sig)} kW`,
+      ];
+      if (res.cellTempC !== null && res.powerDerated !== null) {
+        lines.push(`  Estimated cell temperature                 ${engNum(res.cellTempC, 4)} °C`);
+        lines.push(`  Temperature-derated output                 ${engNum(res.powerDerated / 1000, sig)} kW`);
+        const lossPct = res.powerStc > 0 ? (1 - res.powerDerated / res.powerStc) * 100 : 0;
+        lines.push(`  Thermal derating                           ${engNum(lossPct, 3)} %`);
+      }
+      if (res.dailyEnergyKWh !== null) {
+        lines.push(`  Daily energy                               ${engNum(res.dailyEnergyKWh, sig)} kWh/day`);
+      }
+      u.report(lines);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "energy-fill-factor",
+    name: "PV fill factor from datasheet I-V points",
+    group: "Energy & power",
+    hint:
+      "FF = Vmp·Imp / (Voc·Isc). Crystalline silicon runs 0.75-0.85; a lower figure on a " +
+      "c-Si datasheet means the four numbers are inconsistent, and a measured FF falling " +
+      "over time is the signature of series-resistance degradation.",
+    fields: [
+      { key: "voc", label: "Open-circuit voltage Voc, V", default: "40.5", kind: "text" },
+      { key: "isc", label: "Short-circuit current Isc, A", default: "10.2", kind: "text" },
+      { key: "vmp", label: "Max-power voltage Vmp, V", default: "34.1", kind: "text" },
+      { key: "imp", label: "Max-power current Imp, A", default: "9.65", kind: "text" },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const voc = u.req("voc", "V", "Voc");
+      const isc = u.req("isc", "A", "Isc");
+      const vmp = u.req("vmp", "V", "Vmp");
+      const imp = u.req("imp", "A", "Imp");
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const res = fillFactor(voc, isc, vmp, imp);
+      if (!res.ok) return { text: res.error, ok: false };
+      const sig = engFigures([r("voc"), r("isc"), r("vmp"), r("imp")]);
+      const lines = [
+        "PV fill factor",
+        "",
+        `  Maximum power Pmp   ${engNum(res.pMax, sig)} W`,
+        `  Fill factor         ${engNum(res.fillFactor, 4)}`,
+      ];
+      u.report(lines);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "energy-hydro",
+    name: "Hydropower from flow & head",
+    group: "Energy & power",
+    hint:
+      "P = η·ρ·g·Q·H on the NET head — gross head is geography, net head is what the turbine " +
+      "sees after penstock friction (the Fluids pipe tool computes that loss from the actual " +
+      "pipe; subtract it here). At η = 1, one m^3/s falling 1 m is 9.81 kW.",
+    fields: [
+      { key: "q", label: "Flow, m^3/s", default: "2", kind: "text" },
+      { key: "h", label: "Gross head, m", default: "25", kind: "text" },
+      { key: "hl", label: "Penstock head loss, m (blank = none)", default: "", kind: "text" },
+      { key: "eff", label: "Water-to-wire efficiency, fraction", default: "0.85", kind: "text" },
+      { key: "cf", label: "Capacity factor 0-1 (blank to skip annual energy)", default: "", kind: "text" },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const q = u.req("q", "m^3/s", "Flow");
+      const h = u.req("h", "m", "Gross head");
+      const hl = u.optNull("hl", "m", "Head loss");
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const eff = Number(r("eff"));
+      if (!r("eff").trim() || !Number.isFinite(eff)) {
+        return { text: "Efficiency must be a fraction, e.g. 0.85.", ok: false };
+      }
+      const cfRaw = r("cf").trim();
+      const cf = cfRaw ? Number(cfRaw) : undefined;
+      if (cfRaw && !Number.isFinite(cf as number)) {
+        return { text: "Capacity factor must be a plain number between 0 and 1.", ok: false };
+      }
+      const res = hydroPower({
+        flow: q,
+        grossHead: h,
+        headLoss: hl ?? undefined,
+        efficiency: eff,
+        capacityFactor: cf,
+      });
+      if (!res.ok) return { text: res.error, ok: false };
+      const sig = engFigures([r("q"), r("h"), r("eff")]);
+      const lines = [
+        "Hydropower",
+        "",
+        `  Net head           ${engNum(res.netHead, sig)} m`,
+        `  Hydraulic power    ${engNum(res.hydraulicPower / 1000, sig)} kW`,
+        `  Electrical output  ${engNum(res.outputPower / 1000, sig)} kW`,
+      ];
+      if (res.annualEnergyKWh !== null) {
+        lines.push(`  Annual energy      ${engNum(res.annualEnergyKWh / 1000, sig)} MWh`);
+      }
+      u.report(lines);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "energy-battery",
+    name: "Battery pack: series/parallel, C-rate, runtime",
+    group: "Energy & power",
+    hint:
+      "Pack arithmetic from the CELL datasheet: voltage × series, capacity × parallel. The Ah " +
+      "rating is itself rate-dependent (Peukert) — give the exponent from a discharge test to " +
+      "see the correction beside the uncorrected figure. Capacity in mAh converts automatically.",
+    fields: [
+      { key: "vc", label: "Nominal cell voltage, V", default: "3.6", kind: "text" },
+      { key: "cap", label: "Cell capacity, Ah (mAh converts)", default: "5", kind: "text" },
+      { key: "s", label: "Cells in series", default: "13", kind: "text" },
+      { key: "p", label: "Parallel strings", default: "4", kind: "text" },
+      { key: "dod", label: "Depth of discharge 0-1 (blank = 1.0)", default: "0.9", kind: "text" },
+      { key: "load", label: "Load current, A (blank to skip runtime)", default: "10", kind: "text" },
+      { key: "peukert", label: "Peukert exponent (blank = no correction)", default: "", kind: "text" },
+      { key: "chg", label: "Charge current, A (blank to skip)", default: "", kind: "text" },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const vc = u.req("vc", "V", "Cell voltage");
+      const cap = u.req("cap", "Ah", "Cell capacity");
+      const load = u.optNull("load", "A", "Load current");
+      const chg = u.optNull("chg", "A", "Charge current");
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const s = Number(r("s"));
+      const p = Number(r("p"));
+      if (!Number.isFinite(s) || !Number.isFinite(p)) {
+        return { text: "Series and parallel counts must be whole numbers.", ok: false };
+      }
+      const dodRaw = r("dod").trim();
+      const dod = dodRaw ? Number(dodRaw) : undefined;
+      if (dodRaw && !Number.isFinite(dod as number)) {
+        return { text: "Depth of discharge must be a fraction between 0 and 1.", ok: false };
+      }
+      const pkRaw = r("peukert").trim();
+      const pk = pkRaw ? Number(pkRaw) : undefined;
+      if (pkRaw && !Number.isFinite(pk as number)) {
+        return { text: "The Peukert exponent must be a number (1.1-1.3 lead-acid, 1.02-1.1 Li-ion).", ok: false };
+      }
+      const res = batteryPack({
+        cellVoltage: vc,
+        cellCapacityAh: cap,
+        series: s,
+        parallel: p,
+        depthOfDischarge: dod,
+        loadCurrentA: load ?? undefined,
+        peukertExponent: pk,
+        chargeCurrentA: chg ?? undefined,
+      });
+      if (!res.ok) return { text: res.error, ok: false };
+      const sig = engFigures([r("vc"), r("cap")]);
+      const lines = [
+        "Battery pack",
+        "",
+        `  Configuration    ${r("s")}S${r("p")}P  (${res.cellCount} cells)`,
+        `  Pack voltage     ${engNum(res.packVoltage, sig)} V`,
+        `  Pack capacity    ${engNum(res.packCapacityAh, sig)} Ah`,
+        `  Pack energy      ${engNum(res.packEnergyWh / 1000, sig)} kWh`,
+        `  Usable energy    ${engNum(res.usableEnergyWh / 1000, sig)} kWh`,
+      ];
+      if (res.loadCurrentA !== null && res.cRate !== null && res.runtimeHours !== null) {
+        lines.push(`  C-rate at load   ${engNum(res.cRate, 3)}C`);
+        lines.push(`  Runtime          ${engNum(res.runtimeHours, sig)} h`);
+        if (res.runtimePeukertHours !== null) {
+          lines.push(`  Runtime (Peukert-corrected)  ${engNum(res.runtimePeukertHours, sig)} h`);
+        }
+      }
+      if (res.chargeTimeHours !== null) {
+        lines.push(`  Charge time (CC estimate)    ${engNum(res.chargeTimeHours, sig)} h`);
+      }
+      u.report(lines);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "energy-combustion",
+    name: "Combustion stoichiometry & CO2 from a formula",
+    group: "Energy & power",
+    hint:
+      "Stoichiometric air and combustion products computed EXACTLY from the fuel's molecular " +
+      "formula and the real IUPAC atomic weights. The heating value is a MEASURED property of " +
+      "the actual fuel and is taken as input — supply the HHV to get LHV and CO2 intensity.",
+    fields: [
+      { key: "formula", label: "Fuel formula (CH4, C8H18, C2H5OH...)", default: "CH4", kind: "text" },
+      { key: "excess", label: "Excess air, fraction (0 = stoichiometric)", default: "0", kind: "text" },
+      { key: "hhv", label: "Higher heating value, MJ/kg (blank to skip)", default: "", kind: "text" },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const hhv = u.optNull("hhv", "MJ/kg", "Higher heating value");
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const exRaw = r("excess").trim();
+      const excess = exRaw ? Number(exRaw) : undefined;
+      if (exRaw && !Number.isFinite(excess as number)) {
+        return { text: "Excess air must be a fraction (0.2 = 20% excess).", ok: false };
+      }
+      const res = combustion({
+        formula: r("formula"),
+        excessAir: excess,
+        hhvMJPerKg: hhv ?? undefined,
+      });
+      if (!res.ok) return { text: res.error, ok: false };
+      const lines = [
+        `Combustion of ${r("formula").trim()}`,
+        "",
+        `  Molar mass             ${engNum(res.molarMass, 6)} g/mol`,
+        `  O2 required            ${engNum(res.o2PerMolFuel, 5)} mol per mol fuel`,
+        `  Stoichiometric AFR     ${engNum(res.afrStoich, 4)} kg air / kg fuel`,
+      ];
+      if (res.afrActual !== res.afrStoich) {
+        lines.push(`  AFR at ${engNum((excess ?? 0) * 100, 3)}% excess air  ${engNum(res.afrActual, 4)} kg air / kg fuel`);
+      }
+      lines.push(`  CO2 produced           ${engNum(res.co2PerKgFuel, 4)} kg per kg fuel`);
+      lines.push(`  H2O produced           ${engNum(res.h2oPerKgFuel, 4)} kg per kg fuel`);
+      if (res.so2PerKgFuel !== null) {
+        lines.push(`  SO2 produced           ${engNum(res.so2PerKgFuel, 4)} kg per kg fuel`);
+      }
+      if (res.lhvMJPerKg !== null && res.co2PerKWh !== null) {
+        lines.push(`  LHV (from your HHV)    ${engNum(res.lhvMJPerKg, 4)} MJ/kg`);
+        lines.push(`  CO2 intensity          ${engNum(res.co2PerKWh, 4)} kg CO2 / kWh fuel energy (HHV basis)`);
+      }
+      u.report(lines);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "energy-lcoe",
+    name: "Levelized cost of energy (LCOE)",
+    group: "Energy & power",
+    hint:
+      "Discounted lifetime costs over discounted lifetime generation. Energy is discounted " +
+      "too — that is the algebra that makes LCOE the constant price which exactly repays the " +
+      "discounted costs, not a claim that electrons decay. Costs in any one currency.",
+    fields: [
+      { key: "capex", label: "Capital cost (currency)", default: "1500000", kind: "text" },
+      { key: "opex", label: "Annual operating cost", default: "30000", kind: "text" },
+      { key: "e", label: "First-year energy, MWh", default: "3500", kind: "text" },
+      { key: "rate", label: "Discount rate, fraction (0.07 = 7%)", default: "0.07", kind: "text" },
+      { key: "life", label: "Lifetime, years", default: "25", kind: "text" },
+      { key: "deg", label: "Degradation, fraction/yr (blank = none)", default: "", kind: "text" },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const e = u.req("e", "MWh", "First-year energy");
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const nums: Record<string, number> = {};
+      for (const [k, label] of [
+        ["capex", "Capital cost"],
+        ["opex", "Annual operating cost"],
+        ["rate", "Discount rate"],
+        ["life", "Lifetime"],
+      ] as const) {
+        const raw = r(k).trim();
+        if (!raw) return { text: `${label}: this field is required.`, ok: false };
+        const x = Number(raw);
+        if (!Number.isFinite(x)) return { text: `${label} must be a plain number.`, ok: false };
+        nums[k] = x;
+      }
+      const degRaw = r("deg").trim();
+      const deg = degRaw ? Number(degRaw) : undefined;
+      if (degRaw && !Number.isFinite(deg as number)) {
+        return { text: "Degradation must be a small fraction per year (0.005 = 0.5%).", ok: false };
+      }
+      const res = lcoe({
+        capex: nums.capex,
+        annualOpex: nums.opex,
+        annualEnergyMWh: e,
+        discountRate: nums.rate,
+        lifetimeYears: nums.life,
+        degradationRate: deg,
+      });
+      if (!res.ok) return { text: res.error, ok: false };
+      const lines = [
+        "Levelized cost of energy",
+        "",
+        `  LCOE                     ${engNum(res.lcoePerMWh, 4)} per MWh  =  ${engNum(res.lcoePerKWh, 4)} per kWh`,
+        `  PV of lifetime costs     ${engNum(res.presentValueCosts, 5)}`,
+        `  PV of lifetime energy    ${engNum(res.presentValueMWh, 5)} MWh`,
+      ];
+      u.report(lines);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "energy-capacity-factor",
+    name: "Capacity factor & full-load hours",
+    group: "Energy & power",
+    hint:
+      "Generated energy over what the nameplate could make running flat out. One number that " +
+      "folds in resource variability, maintenance and curtailment — and a value above 1 means " +
+      "an input is wrong (usually a MW/MWh mix-up), which is refused with the arithmetic shown.",
+    fields: [
+      { key: "mw", label: "Nameplate capacity, MW", default: "2", kind: "text" },
+      { key: "mwh", label: "Energy generated, MWh", default: "6100", kind: "text" },
+      { key: "hours", label: "Period, hours (blank = one year, 8760)", default: "", kind: "text" },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const mw = u.req("mw", "MW", "Nameplate capacity");
+      const mwh = u.req("mwh", "MWh", "Generated energy");
+      const hours = u.optNull("hours", "h", "Period");
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const res = capacityFactor(mw, mwh, hours ?? undefined);
+      if (!res.ok) return { text: res.error, ok: false };
+      const sig = engFigures([r("mw"), r("mwh")]);
+      const lines = [
+        "Capacity factor",
+        "",
+        `  Capacity factor             ${engNum(res.capacityFactor, 4)}  =  ${engNum(res.capacityFactor * 100, 4)} %`,
+        `  Maximum possible energy     ${engNum(res.maximumMWh, sig)} MWh`,
+        `  Equivalent full-load hours  ${engNum(res.equivalentFullLoadHours, sig)} h`,
+      ];
+      u.report(lines);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_UNIT_NOTE);
       return { text: plainDashes(lines.join("\n")) };
     },
   },

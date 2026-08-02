@@ -1,9 +1,12 @@
 # JurisLab — complete gap analysis, 2026-08-01 (v2.63.0)
 
-> **STATUS: all of TIER 0 was fixed and shipped in v2.64.0** (commit `edc3424`,
-> live-verified). Tier 0 is kept below as the record of what was found and why.
-> **Tier 2.1 (claim-set hygiene) was DECLINED by the user — do not build it.**
-> Everything in Tier 1 and the rest of Tier 2 remains open.
+> **STATUS**
+> - **TIER 0 — all eight shipped in v2.64.0** (`edc3424`, live-verified).
+> - **TIER 1.1 / 1.2 / 1.3 shipped in v2.65.0** (`cc85b36`, live-verified):
+>   Word table -> every data field, CSV/TSV import, search over tools and
+>   calculators.
+> - **TIER 2.1 (claim-set hygiene) DECLINED by the user — do not build it.**
+> - Still open: Tier 1.4-1.8, and Tier 2 apart from 2.1.
 
 Six parallel code sweeps (legal, life-science, stats, math/numerics, engineering,
 infrastructure) plus independent verification of every load-bearing claim.

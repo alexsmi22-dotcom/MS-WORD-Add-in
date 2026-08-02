@@ -303,21 +303,42 @@ Recorded so a future sweep does not list these as gaps:
    problem LMTD structurally cannot answer.
 4. **Fracture mechanics** (§4.4) — three calculators, no data, and it completes
    a discipline that currently covers only half its subject.
-5. **Reliability** (§4.5) — a new discipline, entirely arithmetic, closest of
-   anything here to what the client base actually files.
+5. **Reliability** (§4.5) — a new discipline, entirely arithmetic, and closest
+   of anything here to what the client base actually files. It sits below
+   thermal and fracture only because both of those *unblock* questions the bench
+   structurally cannot answer today, where reliability opens new ground; on
+   client relevance alone it would rank second.
 6. **Pressure vessels and combined loading** (§4.3) — the most common
    calculations still missing from the core.
 
 Items 1–2 are a single release. Items 3–6 are one release each.
 
+**Deliberately excluded from this ordering, not forgotten:** *circuit transient
+analysis* (§4.7). It is the largest single item in the bench and the only one
+with no free oracle — a netlist with C and L is a DAE needing companion models
+rebuilt inside the MNA stamp each timestep, so it is a project rather than a
+release. *MIMO control* is excluded for the same reason at smaller scale: it is
+a representation rewrite of a module that is transfer-function-based throughout.
+Both are worth doing; neither should be scheduled alongside the items above.
+
 ---
 
 ## 9. What this document does not claim
 
-Absences in §4 were verified by reading module export lists. Where a capability
-might exist under a name not exported at module level — inside a larger
-function, or in the pane — it would not have been found. The items most exposed
-to that are the smaller ones in §4.7; the discipline-level absences (no fracture
-mechanics, no reliability module, no flow measurement, ε-NTU) were confirmed
-against the full export list of `fatigue.ts`, `heat.ts` and `fluids.ts`
-respectively and are solid.
+Absences in §4 were verified by reading module export lists, and the §4.3 and
+§4.7 items were additionally grepped across **both `src/lib` and
+`src/taskpane/taskpane.ts`** — so a capability computed inline in the pane
+without a lib function, which is a real pattern in this codebase, would have
+been caught for those. What could still hide is a capability buried *inside* a
+larger exported function under a name never surfaced: ε-NTU as a second branch
+of `analyzeExchanger`, say. That was checked by reading `heat.ts` directly and
+is not the case there, but the same risk applies in principle to the smaller
+items in §4.7.
+
+The discipline-level absences — no fracture mechanics, no reliability module,
+no flow measurement, no ε-NTU — were confirmed against the complete export lists
+of `fatigue.ts`, `heat.ts` and `fluids.ts` and are solid.
+
+Counts in §1 and §3 were extracted mechanically: the registry from `ENG_CALCS`,
+and the figure and equation totals from the real-bundle audit driving all 114
+tools, not from prose.

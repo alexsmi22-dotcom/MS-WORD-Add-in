@@ -6,6 +6,48 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.75.0] — 2026-08-02 — Video & display
+
+Third step of the audio/video bench: an **eighteenth Engineering discipline**,
+6 calculators, taking the bench to **100**.
+
+Bitrate budgets, resolution and viewing geometry, HDR luminance, PSNR, streaming
+buffers, and end-to-end latency. As with audio, each is written around the thing
+people get wrong:
+
+- **4:2:0 is a 50% reduction, not 25%.** It halves chroma resolution both
+  horizontally AND vertically, so the two chroma planes together carry a quarter
+  of their full-resolution samples: 1 + 0.25 + 0.25 against 3. Pinned by a test.
+- **The eye is the limit, not the panel.** Past a certain distance the pixel
+  grid is unresolvable at normal acuity, and a finer display changes nothing
+  that can be seen.
+- **Contrast is a claim about BLACK.** Black level varies by orders of magnitude
+  between panel technologies while peak brightness varies by a factor of a few,
+  so a headline contrast figure is really a statement about the black end.
+- **PSNR is comparable only within one clip.** Squared pixel error is not what
+  an eye responds to; comparing across content is the standard misuse.
+- **Startup delay uses the SURPLUS bandwidth**, since playback drains the buffer
+  at the stream rate while it fills. And a buffer trades latency for robustness
+  one-for-one, which is exactly why live content breaks on a dropout that
+  recorded content rides out.
+- **The display quantises the latency total.** A frame appears only at a refresh
+  boundary, so shaving 5 ms off the encoder can deliver exactly nothing — there
+  is a test asserting precisely that.
+
+**On the PQ curve and its constants.** ST 2084's coefficients are written as the
+exact rationals the standard defines them by (2610/16384 and the rest) rather
+than as decimals, because they are definitional rather than measured — the
+fractions ARE the specification. They are verified by a PROPERTY rather than by
+comparing digits: PQ(1) must return exactly the 10000 nit peak the curve is
+defined against, and PQ(0) must return 0. Wrong constants fail that instantly.
+
+**Colour-gamut coverage is deliberately NOT in this release.** It needs the
+chromaticity primaries of sRGB / Rec.709 / Rec.2020 / DCI-P3, and per the scope
+those must be fetched from a citable source and cross-checked in a committed
+test before they ship — the treatment the NASA polynomials in flame.ts got.
+Typing them from recollection is the one thing that file must not do, so the
+calculator waits rather than shipping on remembered numbers.
+
 ## [2.74.0] — 2026-08-02 — Audio & acoustics
 
 Second step of the audio/video bench: a **seventeenth Engineering discipline**,

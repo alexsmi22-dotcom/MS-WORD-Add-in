@@ -430,6 +430,16 @@ import {
   DbQuantity,
 } from "../lib/audio";
 import { samplingCheck as audioSamplingCheck } from "../lib/biomed";
+import {
+  bitrate,
+  resolution,
+  hdrRange,
+  pqToNits,
+  psnr,
+  streamBuffer,
+  latencyBudget,
+  ChromaSubsampling,
+} from "../lib/video";
 import { statVars, statVarLineProblem } from "../lib/uncertaintyParse";
 import {
   planParagraphNumbering,
@@ -8452,6 +8462,7 @@ const ENG_GROUP_ORDER = [
   "Thermal",
   "Energy & power",
   "Audio & acoustics",
+  "Video & display",
   "Electronics",
   "Chips & semiconductors",
   "Aviation & avionics",
@@ -14938,6 +14949,249 @@ const ENG_CALCS: EngCalc[] = [
         `  Notches at          ${res.notches.map((f) => engNum(f, 4)).join(", ")} Hz`,
         `  Peaks at            ${res.peaks.map((f) => engNum(f, 4)).join(", ")} Hz`,
       ];
+      u.report(lines);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "video-bitrate",
+    name: "Bitrate & storage budget",
+    group: "Video & display",
+    hint:
+      "w × h × fps × bits-per-pixel, then divided by your compression ratio. 4:2:0 is a 50% " +
+      "reduction, not 25%, because it halves chroma both horizontally AND vertically. The " +
+      "compression ratio is YOUR input: codec efficiency depends on content and encoder.",
+    fields: [
+      { key: "w", label: "Width, pixels", default: "1920", kind: "text" },
+      { key: "h", label: "Height, pixels", default: "1080", kind: "text" },
+      { key: "fps", label: "Frame rate, fps", default: "25", kind: "text" },
+      { key: "depth", label: "Bit depth per component", default: "8", kind: "text" },
+      {
+        key: "chroma", label: "Chroma subsampling", default: "4:2:0", kind: "select",
+        options: [
+          { value: "4:2:0", label: "4:2:0 (broadcast, streaming) — half the data" },
+          { value: "4:2:2", label: "4:2:2 (production) — a third less" },
+          { value: "4:4:4", label: "4:4:4 (full chroma, mastering)" },
+        ],
+      },
+      { key: "ratio", label: "Compression ratio (1 = uncompressed)", default: "1", kind: "text" },
+      { key: "dur", label: "Duration, s (blank to skip file size)", default: "", kind: "text" },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const fps = u.req("fps", "fps", "Frame rate");
+      const dur = u.optNull("dur", "s", "Duration");
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const nums: Record<string, number> = {};
+      for (const [k, label] of [["w", "Width"], ["h", "Height"], ["depth", "Bit depth"], ["ratio", "Compression ratio"]] as const) {
+        const x = Number(r(k));
+        if (!Number.isFinite(x)) return { text: `${label} must be a number.`, ok: false };
+        nums[k] = x;
+      }
+      const res = bitrate(nums.w, nums.h, fps, nums.depth, r("chroma") as ChromaSubsampling, nums.ratio, dur ?? undefined);
+      if (!res.ok) return { text: res.error, ok: false };
+      const lines = [
+        `Bitrate, ${nums.w}×${nums.h} at ${engNum(fps, 4)} fps`,
+        "",
+        `  Bits per pixel      ${engNum(res.bitsPerPixel, 4)}`,
+        `  Pixel rate          ${engNum(res.pixelRate / 1e6, 5)} Mpixel/s`,
+        `  Uncompressed        ${engNum(res.uncompressedBps / 1e6, 5)} Mbit/s`,
+        `  After compression   ${engNum(res.compressedBps / 1e6, 5)} Mbit/s`,
+      ];
+      if (res.sizeBytes !== null) {
+        lines.push(`  File size           ${engNum(res.sizeBytes / 1e9, 5)} GB`);
+      }
+      u.report(lines);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "video-resolution",
+    name: "Resolution, density & viewing distance",
+    group: "Video & display",
+    hint:
+      "Pixel count, aspect ratio, PPI, and the distance past which the grid becomes " +
+      "unresolvable. The EYE is the limit, not the panel: beyond that distance a finer display " +
+      "changes nothing that can be seen.",
+    fields: [
+      { key: "w", label: "Width, pixels", default: "3840", kind: "text" },
+      { key: "h", label: "Height, pixels", default: "2160", kind: "text" },
+      { key: "diag", label: "Diagonal, inches (blank to skip density)", default: "55", kind: "text" },
+    ],
+    compute: (r) => {
+      const w = Number(r("w"));
+      const h = Number(r("h"));
+      const diagRaw = r("diag").trim();
+      const diag = diagRaw ? Number(diagRaw) : undefined;
+      if (!Number.isFinite(w) || !Number.isFinite(h)) return { text: "Width and height must be whole numbers of pixels.", ok: false };
+      if (diagRaw && !Number.isFinite(diag as number)) return { text: "The diagonal must be a number of inches.", ok: false };
+      const res = resolution(w, h, diag);
+      if (!res.ok) return { text: res.error, ok: false };
+      const lines = [
+        `Resolution ${w}×${h}`,
+        "",
+        `  Pixels              ${engNum(res.megapixels, 5)} Mpixel`,
+        `  Aspect ratio        ${res.aspectLabel}  (${engNum(res.aspectRatio, 5)})`,
+      ];
+      if (res.ppi !== null) lines.push(`  Pixel density       ${engNum(res.ppi, 4)} PPI`);
+      if (res.retinaDistanceM !== null) {
+        lines.push(`  Grid invisible past ${engNum(res.retinaDistanceM, 4)} m`);
+      }
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_SAME_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "video-hdr",
+    name: "HDR luminance & contrast",
+    group: "Video & display",
+    hint:
+      "Contrast is dominated by the BLACK level, not the peak: black varies by orders of " +
+      "magnitude between panel technologies while peak varies by a factor of a few. PQ is an " +
+      "ABSOLUTE curve — a code value means a fixed number of nits, unlike gamma.",
+    fields: [
+      { key: "peak", label: "Peak luminance, nits (cd/m² converts)", default: "1000", kind: "text" },
+      { key: "black", label: "Black level, nits (0 = self-emissive)", default: "0.05", kind: "text" },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const peak = u.req("peak", "nit", "Peak luminance");
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const black = Number(r("black"));
+      if (!Number.isFinite(black)) return { text: "The black level must be a number of nits.", ok: false };
+      const res = hdrRange(peak, black);
+      if (!res.ok) return { text: res.error, ok: false };
+      const lines = [
+        "HDR luminance",
+        "",
+        `  Peak                ${engNum(res.peakNits, 5)} nits`,
+        `  Black               ${engNum(res.blackNits, 4)} nits`,
+        `  Contrast ratio      ${Number.isFinite(res.contrastRatio) ? engNum(res.contrastRatio, 6) + " : 1" : "infinite (black is exactly zero)"}`,
+        `  Dynamic range       ${Number.isFinite(res.stops) ? engNum(res.stops, 4) + " stops" : "unbounded"}`,
+        `  PQ code at peak     ${engNum(res.pqAtPeak, 4)}  (${engNum(res.pqHeadroomPct, 4)}% of the 10000-nit range)`,
+        "",
+        "  Where the code range goes",
+        // Uses pqToNits, the inverse direction, to show how little of the code
+        // space the bright end occupies. The curve is perceptual, so half the
+        // code values cover well under a fiftieth of the luminance - which is
+        // the reason PQ exists and is not obvious from a single number.
+        ...[0.25, 0.5, 0.75, 1].map(
+          (code) => `    code ${code.toFixed(2)}  ->  ${engNum(pqToNits(code), 5)} nits`,
+        ),
+      ];
+      u.report(lines);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "video-psnr",
+    name: "PSNR from mean squared error",
+    group: "Video & display",
+    hint:
+      "10·log10(MAX²/MSE). Comparable only WITHIN one piece of content at one resolution — " +
+      "squared pixel error is not what an eye responds to, and comparing PSNR across clips is " +
+      "the standard misuse. No trained perceptual metric is reimplemented here.",
+    fields: [
+      { key: "mse", label: "Mean squared error", default: "100", kind: "text" },
+      { key: "depth", label: "Bit depth", default: "8", kind: "text" },
+    ],
+    compute: (r) => {
+      const mse = Number(r("mse"));
+      const depth = Number(r("depth") || "8");
+      if (!Number.isFinite(mse) || !Number.isFinite(depth)) return { text: "Both values must be numbers.", ok: false };
+      const res = psnr(mse, depth);
+      if (!res.ok) return { text: res.error, ok: false };
+      const lines = [
+        "PSNR",
+        "",
+        `  Mean squared error  ${engNum(res.mse, 6)}`,
+        `  Peak value          ${engNum(res.maxValue, 6)}  (${res.bitDepth}-bit)`,
+        `  PSNR                ${engNum(res.psnrDb, 5)} dB`,
+      ];
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_SAME_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "video-stream",
+    name: "Streaming bandwidth & buffering",
+    group: "Video & display",
+    hint:
+      "A buffer trades latency for robustness: it survives an outage as long as its own " +
+      "duration and costs that same duration before playback starts. Startup uses the SURPLUS " +
+      "bandwidth, since playback drains the buffer at the stream rate while it fills.",
+    fields: [
+      { key: "rate", label: "Stream bitrate, bit/s (Mbit/s converts)", default: "5 Mbit/s", kind: "text" },
+      { key: "bw", label: "Available bandwidth, bit/s", default: "8 Mbit/s", kind: "text" },
+      { key: "buf", label: "Buffer size, bytes (MB converts)", default: "5 MB", kind: "text" },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const rate = u.req("rate", "bit/s", "Stream bitrate");
+      const bw = u.req("bw", "bit/s", "Available bandwidth");
+      const buf = u.req("buf", "B", "Buffer size");
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const res = streamBuffer(rate, bw, buf);
+      if (!res.ok) return { text: res.error, ok: false };
+      const lines = [
+        "Streaming",
+        "",
+        `  Buffer holds        ${engNum(res.bufferSeconds, 4)} s of video`,
+        `  Startup delay       ${Number.isFinite(res.startupDelayS) ? engNum(res.startupDelayS, 4) + " s" : "never fills"}`,
+        `  Bandwidth headroom  ${engNum(res.headroom * 100, 4)} %`,
+        `  Survives an outage  ${engNum(res.drainS, 4)} s`,
+      ];
+      u.report(lines);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "video-latency",
+    name: "End-to-end latency budget",
+    group: "Video & display",
+    hint:
+      "The display QUANTISES the total: a frame appears only at a refresh boundary, so shaving " +
+      "time off a stage changes nothing unless it moves the total across one. One stage per " +
+      'line as "name, milliseconds".',
+    fields: [
+      {
+        key: "stages",
+        label: 'Stages: "name, ms" per line',
+        default: "capture, 5\nencode, 20\nnetwork, 30\ndecode, 8",
+        kind: "block",
+        rows: 5,
+      },
+      { key: "hz", label: "Display refresh, Hz", default: "60", kind: "text" },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const hz = u.req("hz", "Hz", "Display refresh");
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const stages: { name: string; ms: number }[] = [];
+      for (const line of r("stages").split(/\n+/)) {
+        const t = line.trim();
+        if (!t) continue;
+        const m = /^(.+?)[,;]\s*([0-9.]+)$/.exec(t);
+        if (!m) return { text: `Could not read "${t}". Use "name, milliseconds" per line.`, ok: false };
+        stages.push({ name: m[1].trim(), ms: Number(m[2]) });
+      }
+      const res = latencyBudget(stages, hz);
+      if (!res.ok) return { text: res.error, ok: false };
+      const lines = ["Latency budget", ""];
+      for (const s of res.stages) lines.push(`  ${s.name.padEnd(16)} ${engNum(s.ms, 4)} ms`);
+      lines.push("");
+      lines.push(`  Sum                 ${engNum(res.totalMs, 5)} ms`);
+      lines.push(`  Delivered           ${engNum(res.quantisedMs, 5)} ms  (${engNum(res.frames, 3)} frames)`);
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);

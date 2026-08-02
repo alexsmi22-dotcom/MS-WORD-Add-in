@@ -6,6 +6,43 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.74.0] — 2026-08-02 — Audio & acoustics
+
+Second step of the audio/video bench: a **seventeenth Engineering discipline**,
+7 calculators, taking the bench to 94.
+
+Sampling and aliasing, quantisation and dynamic range, decibels, sound level
+with distance and summing, reverberation, room modes, and comb filtering. Each
+is written around the result people get wrong rather than around the formula:
+
+- **Decibels show BOTH readings, always.** 10·log₁₀ for power-like quantities
+  and 20·log₁₀ for field-like ones is not a convention to memorise — power goes
+  as the square of a field — and picking wrong doubles or halves every figure
+  downstream while looking entirely plausible. A tool that silently chooses one
+  cannot tell you it chose wrong, so the other reading sits beside it.
+- **Two identical sources are +3 dB, not +6.** Incoherent sources add in power;
+  the +6 figure is coherent addition. Ten machines are +10 dB, not +60.
+- **Sabine and Eyring are shown together.** Sabine's formula never reaches zero
+  however absorbent the surfaces are — set every surface to a perfect absorber
+  and it still returns a finite reverberation time, which is impossible. Eyring
+  fixes exactly that, they agree only below about ᾱ = 0.2, and the divergence is
+  reported rather than hidden behind a choice made for the user.
+- **Quantisation SNR keeps its 1.76 dB.** 6.02n alone understates every
+  converter; the 1.76 comes from a full-scale sine against uniform quantisation
+  error. And the whole figure assumes a full-scale signal, which is why 24-bit
+  is for tracking rather than delivery.
+- **Comb filtering cannot be equalised away.** A 1 ms delay notches at 500 Hz
+  and every odd multiple; the cause is arrival time, so the cure is moving
+  something, not EQ.
+
+**The sampling tool calls the engine Biomedical already had.** `samplingCheck`
+was general all along — nothing about it is biomedical — so audio reaches the
+same implementation rather than forking it. One engine, two doors.
+
+No absorption-coefficient table, no Thiele-Small library, no psychoacoustic
+masking model: the first two are measured properties belonging on the datasheet
+the user is reading, and the third is a fitted dataset rather than a formula.
+
 ## [2.73.0] — 2026-08-02 — Photometric units, and the ones that must not convert
 
 First step of the audio/video bench (`docs/SCOPE-AUDIO-VIDEO.md`): units before

@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.73.0)
+# JurisLab — Manual Test Script (v2.74.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -728,7 +728,7 @@ Chemical mode, **Periodic table &amp; atomic structure**.
 ## 0q. New in v2.54.0 — optics, photonics and entanglement
 
 Engineering mode. The dropdown must now show two new groups, **Optics & photonics**
-(8 tools) and **Quantum optics** (4), and the mode must state **87 calculators**.
+(8 tools) and **Quantum optics** (4), and the mode must state **94 calculators**.
 
 - [ ] **Photon relations.** `1064` as a wavelength in nm must give **1.16526 eV**,
   **281.76 THz** and **9398.5 cm⁻¹**. Switch the selector to eV and type `1.16526`:
@@ -790,7 +790,7 @@ Engineering mode. The dropdown must now show two new groups, **Optics & photonic
 ## 0r. New in v2.55.0 — chips & semiconductors
 
 Engineering mode. A new **Chips & semiconductors** group of 4, and the mode must now
-state **87 calculators** across **sixteen disciplines**.
+state **94 calculators** across **seventeen disciplines**.
 
 - [ ] **Power.** 500 pF, 0.9 V, 2 GHz, α = 0.1: dynamic power **81 mW**
   (0.1 × 500e-12 × 0.81 × 2e9). Energy per 0→1 transition must be **405 fJ**, and the
@@ -845,7 +845,7 @@ state **87 calculators** across **sixteen disciplines**.
 ## 0s. New in v2.56.0 — aviation & avionics
 
 Engineering mode. A new **Aviation & avionics** group of 5; the mode must now state
-**87 calculators** across **sixteen disciplines**.
+**94 calculators** across **seventeen disciplines**.
 
 - [ ] **Atmosphere at 0 m**: 288.15 K, 101325 Pa, 1.225 kg/m³, 340.3 m/s, σ = 1. These
   are the defining constants and must come back exactly.
@@ -886,7 +886,7 @@ Engineering mode. A new **Aviation & avionics** group of 5; the mode must now st
 ## 0t. New in v2.57.0 — robotics & kinematics
 
 Engineering mode. A new **Robotics & kinematics** group of 6; the mode must state
-**87 calculators** across **sixteen disciplines**.
+**94 calculators** across **seventeen disciplines**.
 
 - [ ] **Forward kinematics** with links `0.5, 0.4, 0.2` at `30, 45, -20`: note the tip
   position, then confirm the tip orientation is the **sum** of the angles (55°) — that is
@@ -955,7 +955,7 @@ Engineering mode. A new **Robotics & kinematics** group of 6; the mode must stat
 ## 0u. New in v2.58.0 — computation & information
 
 Engineering mode. A new **Computation & information** group of 6, completing the four
-domains. The mode must state **87 calculators** across **sixteen disciplines**.
+domains. The mode must state **94 calculators** across **seventeen disciplines**.
 
 - [ ] **Speedup**, p = 0.95 on 16 processors: Amdahl **9.14x**, Gustafson **15.25x**,
   ceiling **20x**. Both must be shown — reporting one alone answers half the question.
@@ -1005,7 +1005,7 @@ domains. The mode must state **87 calculators** across **sixteen disciplines**.
 ## 0v. New in v2.60.0 — energy & power
 
 Engineering mode. A new **Energy & power** group of 8. The mode must state
-**87 calculators** across **sixteen disciplines**.
+**94 calculators** across **seventeen disciplines**.
 
 - [ ] **Wind** at the defaults (90 m rotor, 8 m/s, Cp 0.45): swept area **6362 m²**,
   power in the wind **1995 kW**, Betz bound **1182 kW**, output **897.8 kW**. The
@@ -1058,7 +1058,7 @@ Engineering mode. A new **Energy & power** group of 8. The mode must state
 ## 0w. New in v2.62.0 — energy depth & grid power
 
 Engineering mode. **Energy & power** grows 8 → 16; the mode must state
-**87 calculators** across **sixteen disciplines**.
+**94 calculators** across **seventeen disciplines**.
 
 - [ ] **Three-phase** at the defaults (400 V, 100 A, pf 0.8): S **69.28 kVA**,
   P **55.43 kW**, Q **41.57 kVAR**, wye phase voltage **230.9 V**. Enter the power
@@ -1090,6 +1090,32 @@ Engineering mode. **Energy & power** grows 8 → 16; the mode must state
 - [ ] **Wind + altitude**: blank the density, set altitude 2000 m → the result notes
   density **1.0065 kg/m³ from the ISA** — the same atmosphere the aviation tools use.
 - [ ] All eight new tools insert, subscripts and superscripts intact (O₂, m², kVAR).
+
+---
+
+## 0ai. New in v2.74.0 - audio & acoustics
+
+Engineering mode. A seventeenth discipline, **Audio & acoustics** (7); the mode
+must state **94 calculators** across **seventeen disciplines**.
+
+- [ ] **Sampling**: 44.1 kHz with a 20 kHz signal is adequate; Nyquist reads
+  **22050 Hz**. Set the signal to 30 kHz: it must say NOT adequate and fold it.
+- [ ] **Quantisation** at 16 bits: SNR **98.08 dB**, 65536 levels, and with
+  44.1 kHz stereo the rate reads **1.4112 Mbit/s** (CD audio). A note must say
+  the figure assumes a FULL-SCALE signal.
+- [ ] **Decibels**, ratio 2 on the field basis: **6.02 dB**, with **3.01 dB**
+  shown beside it as the other convention. Switch to power and they swap.
+- [ ] **Sound level**: 100 dB at 1 m reads **93.98 dB at 2 m** (-6.02). With
+  the summing box at `80, 80` the total is **83.01 dB** - +3, not +6.
+- [ ] **Reverberation** at 200 m3 / 240 m2 / 0.2: Sabine **0.671 s**, Eyring
+  **0.601 s**, both shown. Raise absorption to 0.4 and a note must say use
+  Eyring. Enter 1 and it must be refused.
+- [ ] **Room modes** for 5 x 4 x 2.5: the first is **34.3 Hz axial (1,0,0)**.
+  Try a 4 x 4 x 4 cube - the first three modes must be identical, which is the
+  point about ratios.
+- [ ] **Comb filtering** at 1 ms: first notch **500 Hz**, notches at 500, 1500,
+  2500, peaks at 1000, 2000, 3000. A note must say EQ cannot fix it.
+- [ ] All seven insert.
 
 ---
 
@@ -1282,7 +1308,7 @@ Word table of numbers in the document before you start.
 Fixes from `docs/GAP-ANALYSIS-2026-08-01.md`. Most are visible without leaving
 the Home screen.
 
-- [ ] **Home screen**: the Engineering tile reads **"87 calculators across 16
+- [ ] **Home screen**: the Engineering tile reads **"94 calculators across 16
   disciplines"** — not 36, not nine. It is counted from the registry, so it
   should track any future addition automatically.
 - [ ] **Home screen**: click the **science** filter chip. **Finance must still be
@@ -1305,7 +1331,7 @@ the Home screen.
 
 ## 0x. New in v2.63.0 — adiabatic flame temperature
 
-Engineering mode, Energy & power (now 17; the mode must state **87 calculators**).
+Engineering mode, Energy & power (now 17; the mode must state **94 calculators**).
 
 - [ ] **Flame temperature** at the defaults (CH4, LHV 50.0, stoichiometric): between
   **2250 and 2400 K** (~2320), and the FIRST note says dissociation is NOT modelled

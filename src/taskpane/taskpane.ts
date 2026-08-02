@@ -418,6 +418,18 @@ import {
 } from "../lib/energy";
 import { threePhase, pfCorrection, voltageDrop, ConductorMaterial, CircuitKind } from "../lib/grid";
 import { flameTemperature } from "../lib/flame";
+import {
+  quantisation,
+  toDb,
+  fromDb,
+  splAtDistance,
+  sumIncoherent,
+  reverbTime,
+  roomModes,
+  combFilter,
+  DbQuantity,
+} from "../lib/audio";
+import { samplingCheck as audioSamplingCheck } from "../lib/biomed";
 import { statVars, statVarLineProblem } from "../lib/uncertaintyParse";
 import {
   planParagraphNumbering,
@@ -8439,6 +8451,7 @@ const ENG_GROUP_ORDER = [
   "Fluids",
   "Thermal",
   "Energy & power",
+  "Audio & acoustics",
   "Electronics",
   "Chips & semiconductors",
   "Aviation & avionics",
@@ -14633,6 +14646,298 @@ const ENG_CALCS: EngCalc[] = [
       lines.push(
         `  Products per mol fuel   CO₂ ${engNum(res.products.co2, 4)}, H₂O ${engNum(res.products.h2o, 4)}, N₂ ${engNum(res.products.n2, 4)}${res.products.o2 > 0 ? `, O₂ ${engNum(res.products.o2, 4)}` : ""}`
       );
+      u.report(lines);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "audio-sampling",
+    name: "Sampling & aliasing",
+    group: "Audio & acoustics",
+    hint:
+      "Nyquist, and where an out-of-band tone LANDS after folding. Aliasing is the one error in " +
+      "the chain that cannot be undone afterwards, which is why the anti-alias filter is " +
+      "analogue and sits before the converter, never after it.",
+    fields: [
+      { key: "fs", label: "Sample rate, Hz (kHz converts)", default: "44.1 kHz", kind: "text" },
+      { key: "fmax", label: "Highest signal frequency, Hz", default: "20 kHz", kind: "text" },
+      { key: "rec", label: "Record length, s (blank to skip resolution)", default: "", kind: "text" },
+      { key: "interf", label: "Out-of-band tone to fold, Hz (blank to skip)", default: "", kind: "text" },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const fs = u.req("fs", "Hz", "Sample rate");
+      const fmax = u.req("fmax", "Hz", "Highest signal frequency");
+      const rec = u.optNull("rec", "s", "Record length");
+      const interf = u.optNull("interf", "Hz", "Interfering tone");
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      // The SAME engine Biomedical's sampling tool uses. It was written there
+      // and is not biomedical in any way; one implementation, two doors.
+      const res = audioSamplingCheck(fs, fmax, rec ?? undefined, interf ?? undefined);
+      if (!res.ok) return { text: res.error, ok: false };
+      const lines = [
+        "Sampling",
+        "",
+        `  Nyquist frequency   ${engNum(res.nyquist, 6)} Hz`,
+        `  Adequate?           ${res.adequate ? "yes" : "NO — the signal exceeds Nyquist"}`,
+      ];
+      if (res.aliasedTo !== null) lines.push(`  That tone folds to  ${engNum(res.aliasedTo, 6)} Hz`);
+      if (res.samples !== null) lines.push(`  Samples in record   ${engNum(res.samples, 6)}`);
+      if (res.resolution !== null) lines.push(`  FFT resolution      ${engNum(res.resolution, 4)} Hz`);
+      u.report(lines);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "audio-quantisation",
+    name: "Quantisation & dynamic range",
+    group: "Audio & acoustics",
+    hint:
+      "SNR = 6.02n + 1.76 dB. The 6.02 per bit is 20·log10(2) because a bit halves a VOLTAGE " +
+      "step; the 1.76 dB compares a full-scale sine to uniform quantisation error and is not " +
+      "optional. The figure assumes a full-scale signal.",
+    fields: [
+      { key: "bits", label: "Bit depth", default: "16", kind: "text" },
+      { key: "vfs", label: "Full-scale voltage, V (blank to skip LSB)", default: "", kind: "text" },
+      { key: "fs", label: "Sample rate, Hz (blank to skip data rate)", default: "44.1 kHz", kind: "text" },
+      { key: "ch", label: "Channels", default: "2", kind: "text" },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const vfs = u.optNull("vfs", "V", "Full-scale voltage");
+      const fs = u.optNull("fs", "Hz", "Sample rate");
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const bits = Number(r("bits"));
+      const ch = Number(r("ch") || "2");
+      if (!Number.isFinite(bits)) return { text: "Bit depth must be a whole number.", ok: false };
+      if (!Number.isFinite(ch)) return { text: "Channel count must be a whole number.", ok: false };
+      const res = quantisation(bits, vfs ?? undefined, fs ?? undefined, ch);
+      if (!res.ok) return { text: res.error, ok: false };
+      const lines = [
+        `Quantisation, ${res.bits}-bit`,
+        "",
+        `  Theoretical SNR     ${engNum(res.snrDb, 5)} dB`,
+        `  Levels              ${engNum(res.levels, 8)}`,
+        `  LSB                 ${engNum(res.lsbFraction, 4)} of full scale`,
+      ];
+      if (res.lsbVolts !== null) lines.push(`  LSB voltage         ${engNum(res.lsbVolts, 5)} V`);
+      if (res.bitRate !== null) {
+        lines.push(`  Uncompressed rate   ${engNum(res.bitRate / 1e6, 5)} Mbit/s`);
+        lines.push(`  One minute of it    ${engNum((res.bitRate * 60) / 8 / 1e6, 5)} MB`);
+      }
+      u.report(lines);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "audio-decibel",
+    name: "Decibels (power vs field)",
+    group: "Audio & acoustics",
+    hint:
+      "10·log10 for POWER-like quantities (watts, intensity), 20·log10 for FIELD-like ones " +
+      "(volts, pressure). Both readings are always shown, because picking the wrong one is the " +
+      "commonest error in audio arithmetic and it looks entirely plausible.",
+    fields: [
+      {
+        key: "dir", label: "Direction", default: "toDb", kind: "select",
+        options: [
+          { value: "toDb", label: "Ratio to decibels" },
+          { value: "fromDb", label: "Decibels to ratio" },
+        ],
+      },
+      { key: "val", label: "Ratio, or dB value", default: "2", kind: "text" },
+      {
+        key: "q", label: "Quantity", default: "field", kind: "select",
+        options: [
+          { value: "field", label: "Field (volts, pressure, amplitude) — 20·log10" },
+          { value: "power", label: "Power (watts, intensity, energy) — 10·log10" },
+        ],
+      },
+    ],
+    compute: (r) => {
+      const v = Number(r("val"));
+      if (!Number.isFinite(v)) return { text: "Enter a number.", ok: false };
+      const q = (r("q") === "power" ? "power" : "field") as DbQuantity;
+      const res = r("dir") === "fromDb" ? fromDb(v, q) : toDb(v, q);
+      if (!res.ok) return { text: res.error, ok: false };
+      const lines = [
+        "Decibels",
+        "",
+        `  Linear ratio        ${engNum(res.ratio, 6)}`,
+        `  On the ${res.quantity === "power" ? "POWER" : "FIELD"} basis     ${engNum(res.db, 5)} dB`,
+        `  On the other basis  ${engNum(res.dbIfOtherConvention, 5)} dB`,
+      ];
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_SAME_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "audio-spl",
+    name: "Sound level, distance & summing",
+    group: "Audio & acoustics",
+    hint:
+      "Inverse square: 6 dB per doubling of distance, free field. Incoherent sources add in " +
+      "POWER, so two identical machines are +3 dB and ten are +10 dB — the +6 dB figure is for " +
+      "coherent addition and overstates it badly.",
+    fields: [
+      { key: "lvl", label: "Level at the reference distance, dB SPL", default: "100", kind: "text" },
+      { key: "d0", label: "Reference distance, m", default: "1", kind: "text" },
+      { key: "d1", label: "Target distance, m", default: "4", kind: "text" },
+      { key: "sum", label: "Levels to sum, dB (comma separated; blank to skip)", default: "80, 80, 74", kind: "text" },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const d0 = u.req("d0", "m", "Reference distance");
+      const d1 = u.req("d1", "m", "Target distance");
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const lvl = Number(r("lvl"));
+      if (!Number.isFinite(lvl)) return { text: "The level must be a number of dB.", ok: false };
+      const res = splAtDistance(lvl, d0, d1);
+      if (!res.ok) return { text: res.error, ok: false };
+      const lines = [
+        "Sound pressure level",
+        "",
+        `  At ${engNum(d0, 4)} m           ${engNum(res.levelDb, 5)} dB SPL`,
+        `  At ${engNum(d1, 4)} m           ${engNum(res.atDistanceDb, 5)} dB SPL`,
+        `  Change              ${engNum(res.changeDb, 4)} dB`,
+        `  Pressure there      ${engNum(res.pressurePa, 4)} Pa`,
+      ];
+      const raw = r("sum").trim();
+      if (raw) {
+        const levels = raw.split(/[,;\s]+/).filter(Boolean).map(Number);
+        if (levels.some((x) => !Number.isFinite(x))) {
+          return { text: "Every level to sum must be a number of dB.", ok: false };
+        }
+        const sum = sumIncoherent(levels);
+        if (!sum.ok) return { text: sum.error, ok: false };
+        lines.push("");
+        lines.push(`  ${levels.length} incoherent sources  ${engNum(sum.totalDb, 5)} dB SPL`);
+        lines.push(`  Above the loudest   ${engNum(sum.aboveLoudestDb, 4)} dB`);
+        for (const note of sum.notes) lines.push(`Note: ${note}`);
+      }
+      u.report(lines);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "audio-reverb",
+    name: "Reverberation time (Sabine & Eyring)",
+    group: "Audio & acoustics",
+    hint:
+      "Both formulas are shown because they diverge as a room gets absorbent: Sabine never " +
+      "reaches zero however absorbent the surfaces are, which is impossible, and Eyring fixes " +
+      "exactly that. Absorption coefficients are YOUR measured input, per frequency band.",
+    fields: [
+      { key: "v", label: "Room volume, m³", default: "200", kind: "text" },
+      { key: "s", label: "Total surface area, m²", default: "240", kind: "text" },
+      { key: "a", label: "Average absorption coefficient (0-1)", default: "0.2", kind: "text" },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const v = u.req("v", "m^3", "Room volume");
+      const s = u.req("s", "m^2", "Surface area");
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const a = Number(r("a"));
+      if (!Number.isFinite(a)) return { text: "The absorption coefficient must be a number between 0 and 1.", ok: false };
+      const res = reverbTime(v, s, a);
+      if (!res.ok) return { text: res.error, ok: false };
+      const lines = [
+        "Reverberation",
+        "",
+        `  RT60, Sabine        ${engNum(res.sabineS, 4)} s`,
+        `  RT60, Eyring        ${engNum(res.eyringS, 4)} s`,
+        `  Total absorption    ${engNum(res.totalAbsorption, 5)} m² sabins`,
+        `  Schroeder frequency ${engNum(res.schroederHz, 4)} Hz`,
+        `  Critical distance   ${engNum(res.criticalDistance, 4)} m`,
+      ];
+      u.report(lines);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "audio-roommodes",
+    name: "Room modes",
+    group: "Audio & acoustics",
+    hint:
+      "Axial modes (one pair of walls) carry about twice the energy of tangential and four " +
+      "times that of oblique, so they are what is heard as boom. Evenly spaced modes are the " +
+      "goal — a cluster is a peak, a gap is a null, and RATIOS matter more than size.",
+    fields: [
+      { key: "l", label: "Length, m", default: "5", kind: "text" },
+      { key: "w", label: "Width, m", default: "4", kind: "text" },
+      { key: "h", label: "Height, m", default: "2.5", kind: "text" },
+      { key: "fmax", label: "List modes up to, Hz", default: "150", kind: "text" },
+      { key: "c", label: "Speed of sound, m/s", default: "343", kind: "text" },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const l = u.req("l", "m", "Length");
+      const w = u.req("w", "m", "Width");
+      const h = u.req("h", "m", "Height");
+      const c = u.opt("c", "m/s", "Speed of sound", 343);
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const fmax = Number(r("fmax") || "150");
+      if (!Number.isFinite(fmax)) return { text: "The frequency ceiling must be a number.", ok: false };
+      const res = roomModes(l, w, h, fmax, c);
+      if (!res.ok) return { text: res.error, ok: false };
+      const lines = [`Room modes below ${engNum(fmax, 4)} Hz`, ""];
+      if (!res.modes.length) {
+        lines.push("  No modes below that frequency.");
+      } else {
+        for (const m of res.modes.slice(0, 24)) {
+          lines.push(
+            `  ${engNum(m.frequency, 4).padStart(7)} Hz  ${m.kind.padEnd(11)} (${m.order.join(",")})`,
+          );
+        }
+        if (res.modes.length > 24) lines.push(`  … and ${res.modes.length - 24} more`);
+      }
+      u.report(lines);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "audio-comb",
+    name: "Delay & comb filtering",
+    group: "Audio & acoustics",
+    hint:
+      "A delayed copy cancels at 1/(2t) and every ODD multiple, and reinforces at every " +
+      "multiple of 1/t — a comb across the spectrum, not one dip. This is why a stray " +
+      "reflection sounds like an EQ change, and why equalisation cannot fix it.",
+    fields: [
+      { key: "ms", label: "Delay, ms (blank if giving a path difference)", default: "1", kind: "text" },
+      { key: "path", label: "Path-length difference, m (blank if giving a delay)", default: "", kind: "text" },
+      { key: "c", label: "Speed of sound, m/s", default: "343", kind: "text" },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const ms = u.optNull("ms", "ms", "Delay");
+      const path = u.optNull("path", "m", "Path difference");
+      const c = u.opt("c", "m/s", "Speed of sound", 343);
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const res = combFilter(ms ?? undefined, path ?? undefined, c);
+      if (!res.ok) return { text: res.error, ok: false };
+      const lines = [
+        "Comb filtering",
+        "",
+        `  Delay               ${engNum(res.delayMs, 5)} ms`,
+        `  Path difference     ${engNum(res.pathDifferenceM, 5)} m`,
+        `  First cancellation  ${engNum(res.firstNotchHz, 5)} Hz`,
+        `  Notches at          ${res.notches.map((f) => engNum(f, 4)).join(", ")} Hz`,
+        `  Peaks at            ${res.peaks.map((f) => engNum(f, 4)).join(", ")} Hz`,
+      ];
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);

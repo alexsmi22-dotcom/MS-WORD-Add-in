@@ -13,13 +13,14 @@
 >   v2.69.0** (`a9716bf`, live-verified). Dead-export ratchet 27 -> 18.
 > - **TIER 1.7 partial (DEPT + non-aromatic caveats) shipped in v2.70.0**
 >   (`8a3394a`). HMBC/TOCSY still open.
+> - **TIER 1.4 (ST.26 import) + formatSeqIdRefs shipped in v2.71.0** (`3b50f1d`,
+>   live-verified). Ratchet 18 -> 17.
 > - **TIER 2.1 (claim-set hygiene) DECLINED by the user — do not build it.**
 >
 > **Still open in Tier 1:**
-> - 1.4 ST.26 sequence import (`parseSequenceFile` reaches Seq Map only)
 > - 1.5 remainder: `chips-power -> chips-thermal`, `pipe -> pump-npsh` handoffs
-> - 1.6 remainder: `BELL_STATES` preset, `rayleighDamping` (dead AND duplicated
->   inline at vibration.ts:869), `totalLoad`, `formatSeqIdRefs`
+> - 1.6 remainder: `totalLoad` only (Bell presets, rayleighDamping and
+>   formatSeqIdRefs all shipped)
 > - 1.7 remainder: HMBC and TOCSY. ~~DEPT~~ and ~~non-aromatic caveats~~ shipped
 >   v2.70.0.
 > - ~~1.7b FFT windowing~~ SHIPPED v2.67.0 (`2e33369`). Still open: the

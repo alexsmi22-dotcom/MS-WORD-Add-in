@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.72.0)
+# JurisLab — Manual Test Script (v2.73.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -1090,6 +1090,24 @@ Engineering mode. **Energy & power** grows 8 → 16; the mode must state
 - [ ] **Wind + altitude**: blank the density, set altitude 2000 m → the result notes
   density **1.0065 kg/m³ from the ISA** — the same atmosphere the aviation tools use.
 - [ ] All eight new tools insert, subscripts and superscripts intact (O₂, m², kVAR).
+
+---
+
+## 0ah. New in v2.73.0 — photometric units
+
+No new calculators; this is the units groundwork for the audio/video bench.
+Check it in **Units** mode.
+
+- [ ] Convert `1 cd` → `mcd` = **1000**; `1 klm` → `lm` = **1000**.
+- [ ] `1 nit` → `cd/m^2` = **1**, and back. `1 lx` → `lm/m^2` = **1**, and back.
+- [ ] **These must be REFUSED**, each with the wrong-quantity message rather
+  than a number: `lm` → `W`, `cd` → `lm`, `nit` → `lx`, `cd` → `W`.
+  A number appearing for any of them is the defect this release exists to avoid.
+- [ ] `60 fps` → `Hz` = **60** (checking a source against a panel refresh).
+- [ ] `1 ft/s` → `m/s` = **0.3048** — feet per second still works, written that way.
+- [ ] Spelled-out `candela`, `lumen`, `lux`, `nits` all resolve.
+- [ ] Nothing existing broke: `1 km` → `m`, `1 L` → `mL`, `1 kt` → `m/s`,
+  `1 fpm` → `m/s` all still convert.
 
 ---
 

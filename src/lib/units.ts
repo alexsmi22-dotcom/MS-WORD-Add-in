@@ -259,6 +259,39 @@ const UNITS: Record<string, UnitDef> = {
   // molarity (base M = mol/L)
   M: { dim: "molarity", factor: 1 }, mM: { dim: "molarity", factor: 1e-3 },
   µM: { dim: "molarity", factor: 1e-6 }, nM: { dim: "molarity", factor: 1e-9 }, pM: { dim: "molarity", factor: 1e-12 },
+  // --- photometry (luminous intensity is the 7th SI base unit) --------------
+  //
+  // LUMINOUS INTENSITY AND LUMINOUS FLUX ARE KEPT SEPARATE ON PURPOSE, and this
+  // is the decision that matters in this block. In strict SI a lumen is a
+  // candela-steradian and the steradian is dimensionless, so the two could be
+  // made to share a signature and interconvert one-for-one. They must not.
+  // Going from a candela to a lumen means integrating over the solid angle the
+  // source actually emits into — a torch and a bare lamp of the same candela
+  // rating differ enormously in lumens — so a free conversion would return a
+  // confident number for a question the units alone cannot answer. Same
+  // reasoning as `angle`, which is kept atomic so a radian cannot silently
+  // become a bare number.
+  //
+  // What DOES work, because these are genuine derived quantities:
+  //   nit  = cd/m^2  (luminance — what HDR brightness is quoted in)
+  //   lx   = lm/m^2  (illuminance — ambient light on a surface)
+  cd: { dim: "luminousintensity", factor: 1 },
+  mcd: { dim: "luminousintensity", factor: 1e-3 },
+  kcd: { dim: "luminousintensity", factor: 1e3 },
+  lm: { dim: "luminousflux", factor: 1 },
+  klm: { dim: "luminousflux", factor: 1e3 },
+  lx: { dim: "illuminance", factor: 1 },
+  klx: { dim: "illuminance", factor: 1e3 },
+  nit: { dim: "luminance", factor: 1 },
+  // Frame rate. Dimensionally a per-second count, so it converts with Hz — which
+  // is exactly what you want when checking a 60 fps source against a 60 Hz
+  // panel. NOTE the collision this deliberately accepts: an aviation reader
+  // might expect "fps" to mean feet per second. Feet per second is already
+  // expressible as the compound "ft/s", the codebase already writes climb rates
+  // as fpm, and in video "fps" is universal — so this reading wins, and
+  // ft/s stays available and unambiguous.
+  fps: { dim: "frequency", factor: 1 },
+
   // dimensionless fraction (base = ratio)
   "%": { dim: "fraction", factor: 0.01 }, ppm: { dim: "fraction", factor: 1e-6 },
   ppb: { dim: "fraction", factor: 1e-9 }, ppt: { dim: "fraction", factor: 1e-12 },
@@ -315,6 +348,12 @@ const ALIASES: Record<string, string> = {
   tesla: "T", teslas: "T", gauss: "G",
   molar: "M", millimolar: "mM", micromolar: "µM", um_molar: "µM", nanomolar: "nM", picomolar: "pM",
   percent: "%", pct: "%",
+  // Photometric spellings. NO lowercase "cd" alias is needed (cd is already the
+  // canonical symbol), and note candela/lumen/lux spelled out are safe because
+  // none of them lowercases onto an existing key.
+  candela: "cd", candelas: "cd", lumen: "lm", lumens: "lm",
+  lux: "lx", nits: "nit", luxes: "lx",
+  fram: "fps", framespersecond: "fps",
 };
 
 function lookup(unit: string): UnitDef | null {
@@ -370,6 +409,13 @@ const BASE: Record<string, Record<string, number>> = {
   // compound rad/s and deg/s. Angle itself stays atomic on purpose - folding
   // radians into 1 would let an angle convert silently into a bare number.
   angularvelocity: { angle: 1, time: -1 },
+  // Photometric derived quantities. Luminous intensity and luminous flux are
+  // NOT decomposed into one another — see the note in UNITS — so a luminance
+  // (cd/m^2) and an illuminance (lm/m^2) have different signatures and cannot
+  // silently convert, which is correct: they measure different things at
+  // different ends of the light path.
+  luminance: { luminousintensity: 1, length: -2 },
+  illuminance: { luminousflux: 1, length: -2 },
 };
 
 /** Accumulates one side ("·"/"*"/space-separated factors) into dims & factor. */

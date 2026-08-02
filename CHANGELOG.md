@@ -6,6 +6,39 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.73.0] — 2026-08-02 — Photometric units, and the ones that must not convert
+
+First step of the audio/video bench (`docs/SCOPE-AUDIO-VIDEO.md`): units before
+calculators, because a missing unit in a default value produces no output, no
+error and no test failure — the trap that has caught this project four times.
+
+Adds **luminous intensity, the 7th SI base unit**, and its derived quantities:
+`cd` (with mcd/kcd), `lm`, `lx`, and `nit`. HDR brightness is quoted in nits
+universally, so the display calculators depend on this landing first.
+`nit ≡ cd/m²` and `lx ≡ lm/m²` both convert, as they should.
+
+**The design decision worth recording is which conversions are REFUSED.**
+
+- **lumen ↔ watt** — related by the wavelength-dependent luminosity function,
+  not a constant: 1 W at 555 nm is 683 lm, deep red a small fraction of that.
+- **candela ↔ lumen** — needs the solid angle the source emits into. A torch and
+  a bare lamp of equal candela differ enormously in lumens.
+- **luminance ↔ illuminance** (nit ↔ lx) — opposite ends of the light path.
+
+In strict SI a lumen is a candela-steradian and the steradian is dimensionless,
+so these could have been made to share a signature and convert one-for-one. That
+would return a confident number to a question the units alone cannot answer,
+which is the failure this codebase refuses everywhere else. Luminous intensity
+and luminous flux are therefore kept as separate atomic dimensions — the same
+reasoning that keeps `angle` atomic so a radian cannot silently become a bare
+number.
+
+Also adds **`fps`**, which converts with Hz so a 60 fps source can be checked
+against a 60 Hz panel. This deliberately accepts a collision: an aviation reader
+might expect feet per second. That stays available and unambiguous as `ft/s`,
+the codebase already writes climb rates as `fpm`, and in video "fps" is
+universal — so the video reading wins and the decision is written down.
+
 ## [2.72.0] — 2026-08-02 — HMBC and TOCSY
 
 The last two 2D experiments, and the end of the tier-1 list from the gap

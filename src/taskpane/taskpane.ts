@@ -88,7 +88,7 @@ import { predictPka, PkaResult } from "../lib/pka";
 import { resolveNameOnline, OpsinResult } from "../lib/opsin";
 import { computeMassSpec, MassSpecResult } from "../lib/massspec";
 import { predictNmr, deptBehaviour, DeptClass, NmrResult, Nucleus } from "../lib/nmr";
-import { predictCoupling, predictCosy, predictHsqc, Cosy2D, Hsqc2D } from "../lib/nmr2d";
+import { predictCoupling, predictCosy, predictHsqc, predictHmbc, predictTocsy, Cosy2D, Hsqc2D, Hmbc2D, Tocsy2D } from "../lib/nmr2d";
 import { solveEquation, differentiate, integrate, parseExpr, evalAst } from "../lib/solve";
 import { solveSystem, splitEquations } from "../lib/systems";
 import { limit, taylorSeries, parseLimitRequest, parseSeriesRequest } from "../lib/analysis";
@@ -187,7 +187,7 @@ import { describeCrash, crashAdvice } from "../lib/crashReport";
 import { parseDelimited, gridToFieldText, describeGrid } from "../lib/dataimport";
 import { pca, trapz } from "../lib/pca";
 import { fitCurve } from "../lib/curvefit";
-import { nmrChartSvg, irChartSvg, msChartSvg, cosyChartSvg, hsqcChartSvg, jcampChartSvg, decimateTrace, SPECTRUM_CHART_SIZE, SPECTRUM_2D_SIZE } from "../lib/spectraChart";
+import { nmrChartSvg, irChartSvg, msChartSvg, cosyChartSvg, hsqcChartSvg, hmbcChartSvg, tocsyChartSvg, jcampChartSvg, decimateTrace, SPECTRUM_CHART_SIZE, SPECTRUM_2D_SIZE } from "../lib/spectraChart";
 import { buildPeptide } from "../lib/peptide";
 import {
   describe as statDescribe,
@@ -15417,7 +15417,7 @@ function massSpecAsText(spec: MassSpecResult | null): string {
 // additivity rules; the disclaimer is part of the feature, not decoration.
 // ---------------------------------------------------------------------------
 
-type SpectrumKind = "1H" | "13C" | "ir" | "uvvis" | "ms" | "cosy" | "hsqc";
+type SpectrumKind = "1H" | "13C" | "ir" | "uvvis" | "ms" | "cosy" | "hsqc" | "hmbc" | "tocsy";
 
 /** The currently displayed prediction, kept for the insert buttons. */
 let currentSpectrum:
@@ -15426,6 +15426,8 @@ let currentSpectrum:
   | { kind: "uvvis"; uv: UvResult }
   | { kind: "ms"; ms: FragmentResult }
   | { kind: "cosy"; cosy: Cosy2D }
+  | { kind: "hmbc"; hmbc: Hmbc2D }
+  | { kind: "tocsy"; tocsy: Tocsy2D }
   | { kind: "hsqc"; hsqc: Hsqc2D }
   | null = null;
 let currentSpectrumSvg: string | null = null;
@@ -15461,13 +15463,16 @@ function buildSpectrumSvg(): string | null {
   if (cur.kind === "ms") return msChartSvg(cur.ms);
   if (cur.kind === "uvvis") return null; // a single λmax is a number, not a spectrum
   if (cur.kind === "cosy") return cosyChartSvg(cur.cosy);
+  if (cur.kind === "hmbc") return hmbcChartSvg(cur.hmbc);
+  if (cur.kind === "tocsy") return tocsyChartSvg(cur.tocsy);
   if (cur.kind === "hsqc") return hsqcChartSvg(cur.hsqc);
   return nmrChartSvg(cur.nmr);
 }
 
 /** The pixel size of the current chart — 2D maps are square and larger. */
 function currentChartSize(): { width: number; height: number } {
-  return currentSpectrum && (currentSpectrum.kind === "cosy" || currentSpectrum.kind === "hsqc")
+  const twoD = ["cosy", "hsqc", "hmbc", "tocsy"];
+  return currentSpectrum && twoD.includes(currentSpectrum.kind)
     ? SPECTRUM_2D_SIZE
     : SPECTRUM_CHART_SIZE;
 }
@@ -15573,6 +15578,48 @@ function updateSpectra(): void {
           specResult.appendChild(specRow([p.f2.toFixed(2), p.f1.toFixed(1), p.label.split(":")[0], ""]));
         }
       }
+    } else if (kind === "hmbc") {
+      const r = predictHmbc(text);
+      if (!r) return fail("No structure found. Try a name (ethanol), a formula, or a SMILES.");
+      currentSpectrum = { kind, hmbc: r };
+      specResult.appendChild(
+        msEyebrow(`Predicted ¹H–¹³C HMBC — ${r.peaks.length} correlation${r.peaks.length === 1 ? "" : "s"}`),
+      );
+      if (!r.peaks.length) {
+        const hint = document.createElement("div");
+        hint.className = "ms-hint";
+        hint.textContent = "No 2- or 3-bond ¹H–¹³C correlations in this structure.";
+        specResult.appendChild(hint);
+      } else {
+        specResult.appendChild(specRow(["δ ¹H", "δ ¹³C", "bonds", ""], "spec-row spec-head"));
+        for (const p of r.peaks) {
+          specResult.appendChild(specRow([p.f2.toFixed(2), p.f1.toFixed(1), p.label.split(":")[0], ""]));
+        }
+      }
+    } else if (kind === "tocsy") {
+      const r = predictTocsy(text);
+      if (!r) return fail("No structure found. Try a name (ethanol), a formula, or a SMILES.");
+      currentSpectrum = { kind, tocsy: r };
+      const multi = r.spinSystems.filter((g) => g.length > 1);
+      specResult.appendChild(
+        msEyebrow(
+          `Predicted ¹H–¹H TOCSY — ${r.spinSystems.length} spin system${r.spinSystems.length === 1 ? "" : "s"}`,
+        ),
+      );
+      if (!multi.length) {
+        const hint = document.createElement("div");
+        hint.className = "ms-hint";
+        hint.textContent = "Every proton environment is isolated — no spin system spans more than one signal.";
+        specResult.appendChild(hint);
+      } else {
+        // The spin systems ARE the result here: which protons belong together
+        // is what the experiment is run to find out.
+        specResult.appendChild(specRow(["system", "δ values (ppm)", "", ""], "spec-row spec-head"));
+        multi.forEach((g, i) => {
+          const sorted = [...g].sort((a, b) => b - a).map((x) => x.toFixed(2));
+          specResult.appendChild(specRow([String(i + 1), sorted.join(", "), "", ""]));
+        });
+      }
     } else if (kind === "ir") {
       const r = predictIr(text);
       if (!r) return fail("No structure found. Try a name (acetone), a formula, or a SMILES.");
@@ -15646,7 +15693,11 @@ function updateSpectra(): void {
             ? cur.cosy.caveats
             : cur.kind === "hsqc"
               ? cur.hsqc.caveats
-              : cur.nmr.caveats;
+              : cur.kind === "hmbc"
+                ? cur.hmbc.caveats
+                : cur.kind === "tocsy"
+                  ? cur.tocsy.caveats
+                  : cur.nmr.caveats;
   specResult.appendChild(specCaveats([...caveats, "Predicted from structure — verify against an acquired spectrum."]));
 
   specInsertBtn.disabled = false;

@@ -36,6 +36,7 @@ import {
   aromaticRingDistances,
   parseToMolecule,
   isPlainAlkylCarbon,
+  distancesFrom,
 } from "./molgraph";
 import { predictNmr, NmrResult, NmrSignal } from "./nmr";
 
@@ -378,4 +379,182 @@ export function predictHsqc(input: string): Hsqc2D | null {
     ...h.caveats,
   ];
   return { smiles: h.smiles, peaks, caveats };
+}
+
+export interface Hmbc2D {
+  smiles: string;
+  peaks: Peak2D[];
+  caveats: string[];
+}
+
+/**
+ * ¹H–¹³C HMBC: correlations across TWO AND THREE bonds.
+ *
+ * WHY IT IS THE MOST USEFUL 2D EXPERIMENT OF THE FOUR, and why the topology
+ * here is worth having even though the shifts are estimates: HSQC can only see
+ * a carbon that carries a proton. HMBC reaches the ones that do not — the
+ * quaternary carbons, the carbonyls, the ipso carbon of a substituted ring —
+ * by correlating a proton to carbons two and three bonds away. Those are
+ * exactly the atoms an additivity model places least well and a chemist most
+ * needs to connect, and they are where a structure is actually stitched
+ * together across a heteroatom or a quaternary centre.
+ *
+ * The bond counting is from the PROTON: H-C is one bond (that is HSQC's ¹J and
+ * is deliberately excluded here), H-C-C is two, H-C-X-C is three. So from the
+ * proton-bearing carbon the correlated carbons are one or two bonds away,
+ * counted through any atom — crossing oxygen, nitrogen and sulfur is the whole
+ * point, not an edge case.
+ *
+ * TWO-BOND CORRELATIONS ARE UNRELIABLE IN PRACTICE and are marked weak. Real
+ * HMBC is optimised for a long-range coupling around 8 Hz, which favours ³J;
+ * ²J is often absent from a real spectrum entirely. Reporting both without the
+ * distinction would suggest a confidence the experiment does not have.
+ */
+export function predictHmbc(input: string): Hmbc2D | null {
+  const h = predictNmr(input, "1H");
+  const cSpec = predictNmr(input, "13C");
+  if (!h || !cSpec) return null;
+  const parsed = parseToMolecule(input);
+  const mol = parsed?.mol ?? null;
+  if (!mol) return null;
+
+  const carbonShift = new Map<number, number>();
+  for (const cs of cSpec.signals) for (const at of cs.atoms) carbonShift.set(at, cs.shift);
+
+  const peaks: Peak2D[] = [];
+  const seen = new Set<string>();
+  for (const s of h.signals) {
+    if (s.variable) continue; // an exchangeable X-H gives no reliable HMBC
+    const home = s.atoms[0];
+    if (mol.getAtomicNo(home) !== 6) continue;
+    // Distances through EVERY atom: the correlations that matter most are the
+    // ones that cross a heteroatom.
+    const dist = distancesFrom(mol, home);
+    for (let c = 0; c < mol.getAllAtoms(); c++) {
+      if (mol.getAtomicNo(c) !== 6) continue;
+      const d = dist[c];
+      if (d !== 1 && d !== 2) continue; // 2- and 3-bond from the proton
+      const dC = carbonShift.get(c);
+      if (dC === undefined) continue;
+      const key = `${s.shift.toFixed(2)}|${dC.toFixed(1)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const bonds = d + 1;
+      peaks.push({
+        f2: s.shift,
+        f1: dC,
+        label: `${bonds}J: δH ${s.shift.toFixed(2)} / δC ${dC.toFixed(1)}`,
+        kind: "cross",
+        weak: bonds === 2,
+      });
+    }
+  }
+
+  const caveats = [
+    "HMBC shows 2- and 3-bond ¹H-¹³C correlations, so it reaches QUATERNARY carbons that HSQC " +
+      "cannot see. The connectivity is read exactly from the structure; the shifts are additivity estimates.",
+    "Two-bond correlations are drawn faint because a real HMBC is optimised for a long-range " +
+      "coupling near 8 Hz, which favours the 3-bond ones; a 2-bond peak is often absent altogether.",
+    "Correlation intensity is not predicted at all. A real spectrum's peak sizes vary with the " +
+      "actual coupling constant, and this map says only which correlations should exist.",
+    ...h.caveats,
+  ];
+  return { smiles: h.smiles, peaks, caveats };
+}
+
+export interface Tocsy2D {
+  smiles: string;
+  peaks: Peak2D[];
+  /** One entry per spin system: the proton shifts it contains. */
+  spinSystems: number[][];
+  caveats: string[];
+}
+
+/**
+ * ¹H–¹H TOCSY: every proton correlated to every other proton in its SPIN
+ * SYSTEM, not merely to its immediate neighbours.
+ *
+ * THE DIFFERENCE FROM COSY IS THE WHOLE POINT. COSY shows one step of the
+ * coupling graph, so tracing a chain means following cross-peaks hop by hop and
+ * hoping none is buried under another signal. TOCSY shows the TRANSITIVE
+ * CLOSURE: one look tells you which protons belong to the same contiguous
+ * coupled fragment. That is how a sugar ring or an amino-acid side chain gets
+ * separated from everything else in the molecule.
+ *
+ * The spin systems are computed exactly, because they are a property of the
+ * bond graph rather than of any shift estimate: two protons are in the same
+ * system when a path of couplings connects them, and a heteroatom or a
+ * quaternary carbon breaks the chain.
+ */
+export function predictTocsy(input: string): Tocsy2D | null {
+  const coupling = predictCoupling(input);
+  const h = predictNmr(input, "1H");
+  if (!coupling || !h) return null;
+
+  // Union-find over the coupling graph: signals joined by any coupling share a
+  // spin system.
+  const n = coupling.signals.length;
+  const parent = Array.from({ length: n }, (_, i) => i);
+  const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i])));
+  const union = (a: number, b: number): void => {
+    const ra = find(a);
+    const rb = find(b);
+    if (ra !== rb) parent[ra] = rb;
+  };
+  // `couplings` already carries the partner's INDEX into signals, so the graph
+  // is read directly rather than rebuilt from atom numbers.
+  coupling.signals.forEach((sig, i) => {
+    for (const c of sig.couplings) union(i, c.partner);
+  });
+
+  const groups = new Map<number, number[]>();
+  coupling.signals.forEach((_, i) => {
+    const r = find(i);
+    if (!groups.has(r)) groups.set(r, []);
+    groups.get(r)!.push(i);
+  });
+
+  const peaks: Peak2D[] = [];
+  const spinSystems: number[][] = [];
+  for (const members of groups.values()) {
+    const shifts = members.map((i) => coupling.signals[i].shift);
+    spinSystems.push(shifts);
+    for (const a of members) {
+      const sa = coupling.signals[a];
+      peaks.push({
+        f2: sa.shift,
+        f1: sa.shift,
+        label: `diagonal δ ${sa.shift.toFixed(2)}`,
+        kind: "diagonal",
+      });
+      for (const b of members) {
+        if (a === b) continue;
+        const sb = coupling.signals[b];
+        // Direct partners are what COSY would also show; the rest are the
+        // relayed correlations TOCSY adds, and they are drawn faint because
+        // relay intensity falls off along the chain with the mixing time.
+        const direct = sa.couplings.some((c) => c.partner === b);
+        peaks.push({
+          f2: sa.shift,
+          f1: sb.shift,
+          label: `${direct ? "direct" : "relayed"}: δ ${sa.shift.toFixed(2)} / δ ${sb.shift.toFixed(2)}`,
+          kind: "cross",
+          weak: !direct,
+        });
+      }
+    }
+  }
+
+  const multi = spinSystems.filter((g) => g.length > 1).length;
+  const caveats = [
+    `TOCSY correlates every proton to every other proton in the same SPIN SYSTEM — ${spinSystems.length} ` +
+      `system${spinSystems.length === 1 ? "" : "s"} here, ${multi} with more than one signal. Unlike COSY, ` +
+      "one look shows the whole contiguous coupled fragment rather than a single coupling step.",
+    "Relayed correlations are drawn faint: in a real experiment their intensity depends on the " +
+      "mixing time, and a long chain may not transfer all the way at a short one.",
+    "The spin systems themselves are exact, being a property of the bond graph. The shifts " +
+      "positioning them are additivity estimates.",
+    ...h.caveats,
+  ];
+  return { smiles: h.smiles, peaks, spinSystems, caveats };
 }

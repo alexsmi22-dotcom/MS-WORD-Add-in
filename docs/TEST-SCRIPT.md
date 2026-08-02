@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.71.0)
+# JurisLab — Manual Test Script (v2.72.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -1090,6 +1090,25 @@ Engineering mode. **Energy & power** grows 8 → 16; the mode must state
 - [ ] **Wind + altitude**: blank the density, set altitude 2000 m → the result notes
   density **1.0065 kg/m³ from the ISA** — the same atmosphere the aviation tools use.
 - [ ] All eight new tools insert, subscripts and superscripts intact (O₂, m², kVAR).
+
+---
+
+## 0ag. New in v2.72.0 — HMBC and TOCSY
+
+- [ ] **Spectra** now lists **HMBC** and **TOCSY** in the dropdown (eight
+  predictions in total).
+- [ ] **HMBC** on methyl acetate (`CC(=O)OC`): correlations must appear to the
+  **carbonyl carbon near 170 ppm** — the carbon HSQC shows nothing for, because
+  it carries no proton. Switch to HSQC and confirm that carbon really is absent
+  there. That contrast is the whole point of the experiment.
+- [ ] In the HMBC table, every row is labelled **2J** or **3J**, and on the chart
+  the 2J points are drawn faint.
+- [ ] **TOCSY** on propan-1-ol (`CCCO`): exactly **one** spin system containing
+  three signals, with the OH separate. On methyl acetate: two systems, neither
+  with more than one signal.
+- [ ] Compare TOCSY with COSY on `CCCO`: TOCSY must show **more** cross-peaks,
+  because it relates the first and third protons that COSY does not.
+- [ ] Both insert as text, and both insert as a chart.
 
 ---
 

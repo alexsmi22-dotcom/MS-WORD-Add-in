@@ -14,7 +14,7 @@
 import { NmrResult, nmrSticks } from "./nmr";
 import { IrBand, irTransmittanceCurve } from "./ir";
 import { FragmentResult, Likelihood } from "./fragment";
-import { Cosy2D, Hsqc2D } from "./nmr2d";
+import { Cosy2D, Hsqc2D, Hmbc2D, Tocsy2D } from "./nmr2d";
 import { buildPlotSvg, Series, Point } from "./plot";
 import { minOf, maxOf } from "./minmax";
 
@@ -220,3 +220,47 @@ export function jcampChartSvg(s: MeasuredTrace): string | null {
 
 export const SPECTRUM_CHART_SIZE = { width: WIDTH, height: HEIGHT };
 export const SPECTRUM_2D_SIZE = { width: SIZE_2D, height: SIZE_2D };
+
+/**
+ * 1H-13C HMBC map. Same axes as HSQC, different meaning: these are 2- and
+ * 3-bond correlations, so a carbon with NO proton of its own still appears —
+ * which is the reason to run the experiment at all.
+ */
+export function hmbcChartSvg(r: Hmbc2D): string | null {
+  if (!r.peaks.length) return null;
+  const strong = r.peaks.filter((p) => !p.weak).map((p) => ({ x: -p.f2, y: -p.f1 }));
+  const weak = r.peaks.filter((p) => p.weak).map((p) => ({ x: -p.f2, y: -p.f1 }));
+  const series: Series[] = [];
+  if (strong.length) series.push({ points: strong, type: "scatter", color: "#2563eb", label: "3J (C,H)" });
+  if (weak.length) series.push({ points: weak, type: "scatter", color: "#93c5fd", label: "2J (often weak)" });
+  return buildPlotSvg(series, {
+    title: "Predicted 1H-13C HMBC (estimate)",
+    xlabel: "d 1H (ppm) - increases leftward",
+    ylabel: "d 13C (ppm) - increases downward",
+    width: SIZE_2D,
+    height: SIZE_2D,
+  });
+}
+
+/**
+ * 1H-1H TOCSY map. Unlike COSY, a cross-peak appears between EVERY pair in a
+ * spin system, so a contiguous coupled fragment shows as a filled block rather
+ * than a chain of single steps.
+ */
+export function tocsyChartSvg(r: Tocsy2D): string | null {
+  if (!r.peaks.length) return null;
+  const map = (p: { f2: number; f1: number }): Point => ({ x: -p.f2, y: -p.f1 });
+  const diagonal = r.peaks.filter((p) => p.kind === "diagonal").map(map);
+  const direct = r.peaks.filter((p) => p.kind === "cross" && !p.weak).map(map);
+  const relayed = r.peaks.filter((p) => p.kind === "cross" && p.weak).map(map);
+  const series: Series[] = [{ points: diagonal, type: "scatter", color: "#94a3b8", label: "diagonal" }];
+  if (direct.length) series.push({ points: direct, type: "scatter", color: "#2563eb", label: "direct" });
+  if (relayed.length) series.push({ points: relayed, type: "scatter", color: "#93c5fd", label: "relayed" });
+  return buildPlotSvg(series, {
+    title: "Predicted 1H-1H TOCSY (estimate)",
+    xlabel: "d (ppm) - increases leftward",
+    ylabel: "d (ppm) - increases downward",
+    width: SIZE_2D,
+    height: SIZE_2D,
+  });
+}

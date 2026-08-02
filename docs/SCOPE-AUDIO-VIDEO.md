@@ -4,12 +4,10 @@
 > Video & display v2.75.0 (6 calcs). Engineering is now **100 calculators
 > across 18 disciplines**, all live-verified.
 >
-> **One item deliberately NOT shipped: colour-space gamut coverage.** It needs
-> the chromaticity primaries of sRGB / Rec.709 / Rec.2020 / DCI-P3, and per §5
-> below those must be fetched from a citable source, script-extracted and
-> cross-checked in a committed test — the treatment `flame.ts` got. It waits
-> rather than shipping on remembered numbers. That is the only outstanding
-> piece of this scope.
+> **Colour gamut coverage SHIPPED in v2.76.0** on primaries fetched from the
+> colour-science datasets, script-extracted and cross-checked (sRGB and Rec.709
+> came back identical, as the standard requires). **This scope is complete:
+> Engineering is 101 calculators across 18 disciplines.**
 
 Proposed as a **seventeenth Engineering discipline**, on the same
 computable-versus-data-blocked test the Energy & power suite passed. Scoped

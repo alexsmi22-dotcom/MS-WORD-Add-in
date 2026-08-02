@@ -6,6 +6,37 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.76.0] — 2026-08-02 — Colour gamut coverage, on fetched primaries
+
+Closes the one item the audio/video scope deliberately left open. Engineering
+is now **101 calculators across 18 disciplines**.
+
+**The data came in the way the scope required.** The chromaticity primaries for
+sRGB, Rec.709, DCI-P3 and Rec.2020 were fetched from the colour-science
+project's dataset modules — which cite IEC 61966-2-1 and ITU-R BT.709-6 /
+BT.2020 — extracted by a script, and validated by a committed cross-check
+against facts known independently of that file. The strongest of those: **sRGB
+and Rec.709 came back with identical primaries**, which is true by construction
+of the sRGB standard and would break instantly on a transcription slip. Also
+checked: every primary is a physically possible chromaticity, Rec.2020's red
+sits on the spectral locus as its monochromatic definition requires, and the
+size ordering is Rec.2020 > DCI-P3 > sRGB.
+
+**COVERAGE and AREA RATIO are reported separately**, because conflating them is
+the standard marketing move. DCI-P3 is **126% of sRGB by area** and covers
+**exactly 100%** of it — it encloses sRGB entirely, so the extra area is in
+colours sRGB never had. Quoting the ratio as "coverage" would claim 126% of a
+space it merely contains. Coverage is computed as a real polygon intersection
+(Sutherland-Hodgman), not an area comparison.
+
+**Two claims I wrote were disproved by the data and corrected in the code, not
+just the tests.** I had asserted that DCI-P3 fails to cover parts of sRGB — it
+does not, it contains it — and that CIE u'v' always gives the smaller figure
+than xy. The second is simply false: sRGB covers 52.9% of Rec.2020 in xy and
+58.0% in u'v'. The direction depends on where the gamuts differ. What holds is
+that the two metrics disagree materially, which is why both are shown and u'v'
+is the one to quote. Both corrections are recorded in the module.
+
 ## [2.75.0] — 2026-08-02 — Video & display
 
 Third step of the audio/video bench: an **eighteenth Engineering discipline**,

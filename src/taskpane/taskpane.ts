@@ -430,6 +430,7 @@ import {
   DbQuantity,
 } from "../lib/audio";
 import { samplingCheck as audioSamplingCheck } from "../lib/biomed";
+import { gamutCoverage, gamutAreaUv, GAMUTS } from "../lib/colourspace";
 import {
   bitrate,
   resolution,
@@ -15195,6 +15196,51 @@ const ENG_CALCS: EngCalc[] = [
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "video-gamut",
+    name: "Colour gamut coverage",
+    group: "Video & display",
+    hint:
+      "COVERAGE and AREA RATIO are different numbers and both are shown: DCI-P3 is 126% of sRGB " +
+      "by area and covers exactly 100% of it, because it encloses sRGB entirely. Quote the u'v' " +
+      "figure — CIE 1931 xy over-weights greens the eye discriminates poorly.",
+    fields: [
+      {
+        key: "g", label: "Colour space", default: "dcip3", kind: "select",
+        options: GAMUTS.map((x) => ({ value: x.id, label: x.label })),
+      },
+      {
+        key: "ref", label: "Measured against", default: "srgb", kind: "select",
+        options: GAMUTS.map((x) => ({ value: x.id, label: x.label })),
+      },
+    ],
+    compute: (r) => {
+      const res = gamutCoverage(r("g"), r("ref"));
+      if (!res.ok) return { text: res.error, ok: false };
+      const lines = [
+        `${res.gamut} measured against ${res.reference}`,
+        "",
+        `  Coverage (u'v')     ${engNum(res.coverageUv * 100, 4)} %`,
+        `  Coverage (xy)       ${engNum(res.coverageXy * 100, 4)} %`,
+        `  Area ratio (u'v')   ${engNum(res.areaRatioUv * 100, 4)} %`,
+        `  Outside the reference   ${engNum(res.outsideReferenceUv * 100, 4)} % of ${res.gamut}`,
+        "",
+        "  Every space by area (u'v'), sRGB = 100%",
+        // gamutAreaUv gives each triangle's absolute area, so the landscape can
+        // be shown independently of whichever reference is selected.
+        ...GAMUTS.map((x) => {
+          const a = gamutAreaUv(x.id);
+          const base = gamutAreaUv("srgb");
+          return a === null || base === null || base === 0
+            ? `    ${x.label}`
+            : `    ${x.label.padEnd(18)} ${engNum((a / base) * 100, 4)} %`;
+        }),
+      ];
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_SAME_UNIT_NOTE);
       return { text: plainDashes(lines.join("\n")) };
     },
   },

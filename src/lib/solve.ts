@@ -1421,9 +1421,12 @@ export interface AntiderivativeResult {
  * Symbolic integration is the one operation where a wrong answer is trivially
  * checkable, so there is no excuse for asserting one unchecked.
  *
- * Returns null when no closed form is found — which is the common case and not
- * a failure. Most elementary-looking integrands (exp(-x²), sin(x)/x) genuinely
- * have no elementary antiderivative, and saying so is the correct answer.
+ * Returns null when no closed form is FOUND. Two quite different things hide
+ * behind that, and conflating them would be a lie about mathematics: some
+ * integrands (exp(-x²), sin(x)/x) provably have no elementary antiderivative,
+ * while others simply exceed what this integrator can do — sin(x)², sec(x) and
+ * exp(x)·cos(x) all have standard answers a first-year student produces by
+ * hand. This function cannot tell the two apart, so it claims neither.
  */
 export function antiderivative(input: string, variable?: string): AntiderivativeResult | null {
   let e: Expr;
@@ -1432,12 +1435,42 @@ export function antiderivative(input: string, variable?: string): Antiderivative
   const x = variable ?? (vars.length === 1 ? vars[0] : "x");
 
   const simplified = simplify(e);
+
+  // IS THE INTEGRAND A FUNCTION AT ALL? sqrt(-1), ln(-1), asin(2) and 1/0 are
+  // constants that evaluate to NaN or Infinity, and the constant rule
+  // (∫ c dx = c·x) accepts them happily — producing "NaN*x + C", which the pane
+  // would then INSERT INTO THE DOCUMENT, because NaN is not the em-dash the
+  // insert guard scans for. The definite branch of this same module already
+  // refuses these by name; the indefinite one must not be more permissive than
+  // its own sibling.
+  const SAMPLE = [0.37, 0.83, 1.29, 2.11, -0.61, -1.73];
+  const finiteSomewhere = (expr: Expr): boolean => {
+    const others = freeVars(expr).filter((v) => v !== x);
+    for (const p of SAMPLE) {
+      const env: Record<string, number> = { [x]: p };
+      others.forEach((v, i) => { env[v] = 1.7 + i * 0.9; });
+      try {
+        if (Number.isFinite(evalAst(expr, env))) return true;
+      } catch {
+        /* try the next point */
+      }
+    }
+    return false;
+  };
+  // Not "finite everywhere" — 1/x is a perfectly good integrand that blows up
+  // at one point. The test is whether it is finite ANYWHERE.
+  if (!finiteSomewhere(simplified)) return null;
+
   const cas = symbolicIntegrate(simplified, x, derivative);
   const F = cas?.F ?? symbolicAntideriv(simplified, x);
   if (!F) return null;
 
   const Fs = simplify(F);
+  if (!finiteSomewhere(Fs)) return null;
   const fs = format(Fs);
+  // A belt-and-braces guard on the rendered text: whatever route produced it,
+  // a printed NaN or Infinity must never leave this function.
+  if (/\bNaN\b|\bInfinity\b/.test(fs)) return null;
   // Differentiate the answer back. The CAS path has already done this
   // internally and discarded any candidate that failed; doing it again here is
   // what lets the check be DISPLAYED, and it also covers the older rule table,
@@ -1456,8 +1489,12 @@ export function antiderivative(input: string, variable?: string): Antiderivative
   // reproduced from a bug report. Points that make either side undefined are
   // skipped rather than counted as failures, and a run where nothing could be
   // evaluated is reported as unverified rather than as a pass.
-  let verified: "symbolic" | "numeric" | "unverified" = cas ? "symbolic" : "unverified";
-  if (!cas && back) {
+  // "symbolic" ONLY when the CAS actually proved it. `symbolicIntegrate` also
+  // accepts a candidate on eight float samples when canonical comparison is
+  // inconclusive, and treating that as a proof was an overclaim on every answer
+  // the simplifier could not settle — tan(x) and sqrt(x) among them.
+  let verified: "symbolic" | "numeric" | "unverified" = cas?.verified ? "symbolic" : "unverified";
+  if (!cas?.verified && back) {
     const others0 = vars.filter((v) => v !== x);
     let agreed = 0;
     let compared = 0;

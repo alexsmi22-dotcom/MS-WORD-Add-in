@@ -538,7 +538,14 @@ export function symbolicIntegrate(e: Expr, x: string, deriv: Deriv): AntiderivRe
   // Inconclusive or unequal — decide numerically before discarding, because
   // canonical equality is only as strong as the module's cancellation power
   // (it will not, for instance, prove sin²+cos² = 1).
-  if (numericallyEqual(back, e, x)) return { F, verified: true };
+  //
+  // `verified` IS FALSE HERE, and that distinction is the whole point of the
+  // flag. It used to be `true` on this branch too, which made the field a
+  // constant and its doc comment false — and a caller that reported "proved
+  // identically zero" on the strength of it was overclaiming for every answer
+  // canonical equality could not settle. tan(x), tanh(x) and sqrt(x) all land
+  // here: they survive on eight float samples, which is evidence and not proof.
+  if (numericallyEqual(back, e, x)) return { F, verified: false };
   return null;
 }
 

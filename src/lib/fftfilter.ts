@@ -52,8 +52,11 @@ export interface FilterOptions {
    * Width of the transition band, in Hz. Default: 10% of the cutoff. Set to 0
    * for a brick wall — which rings. See the module header.
    *
-   * For a designed response this is the passband-to-stopband gap: the stopband
-   * edge sits this far past the cutoff, and the order follows from it.
+   * For a designed response this is the passband-to-stopband gap: the passband
+   * edge IS the cutoff you gave, and the stopband edge sits this far past it —
+   * above it for a low-pass, below it for a high-pass, and outwards from each
+   * edge of a band filter. A stopband edge that would land at or below zero is
+   * refused rather than clamped.
    */
   transition?: number;
   /** Edge shape. Defaults to `cosine`, which is what this module always did. */
@@ -159,18 +162,37 @@ function designedGain(
   // transition would demand infinite order, which is the brick wall again.
   if (!(t > 0)) return null;
 
-  const build = (k: "lowpass" | "highpass", edge: number) => {
-    const wp = TWO_PI * (k === "lowpass" ? edge : edge + t / 2);
-    const ws = TWO_PI * (k === "lowpass" ? edge + t : Math.max(1e-9, edge - t / 2));
-    if (!(wp > 0) || !(ws > 0)) return null;
-    const d = designFilter({ family, kind: k, wp, ws, ap, as });
+  // ONE MEANING FOR "TRANSITION WIDTH", both ways round. The passband edge is
+  // the cutoff you typed and the stopband edge sits `t` past it — BELOW it for
+  // a high-pass, which is what "past" means when the passband is above. The
+  // two kinds used to use different conventions (t for one, t/2 either side for
+  // the other), so the same two typed numbers meant different filters and a
+  // designed high-pass was already 12 dB down at its own stated cutoff.
+  //
+  // AND A STOPBAND EDGE AT OR BELOW ZERO IS NOT A SPECIFICATION. Clamping it to
+  // a tiny positive number, as this did, invents a filter nobody asked for and
+  // then quotes its attenuation: a high-pass at 2 Hz with a 10 Hz transition
+  // implies a stopband edge at −8 Hz, and the clamp reported "order 1, 191 dB"
+  // for something passing 14% of the amplitude at 0.5 Hz. Two unrelated
+  // specifications both reported 195 dB, which is the giveaway — the number was
+  // a function of the clamp, not of the design. Refused instead.
+  const build = (k: "lowpass" | "highpass", edge: number, ripple: number) => {
+    const stop = k === "lowpass" ? edge + t : edge - t;
+    if (!(edge > 0) || !(stop > 0)) return null;
+    const d = designFilter({ family, kind: k, wp: TWO_PI * edge, ws: TWO_PI * stop, ap: ripple, as });
     return d.ok ? d : null;
   };
+
+  // CASCADED SECTIONS MULTIPLY THEIR RIPPLE. A band filter is two designs in
+  // series, so two 1 dB-ripple Chebyshev sections deliver 2 dB — double what
+  // was asked for. Each section is designed to half the budget so the pair
+  // meets it.
+  const halfRipple = ap / 2;
 
   switch (kind) {
     case "lowpass":
     case "highpass": {
-      const d = build(kind, lo);
+      const d = build(kind, lo, ap);
       if (!d) return null;
       return {
         gain: (f) => magnitudeAt(d.num, d.den, TWO_PI * f),
@@ -178,24 +200,42 @@ function designedGain(
       };
     }
     case "bandpass": {
-      const h = build("highpass", lo);
-      const l = build("lowpass", hi);
+      // In SERIES: a signal must get through both to pass.
+      const h = build("highpass", lo, halfRipple);
+      const l = build("lowpass", hi, halfRipple);
       if (!h || !l) return null;
       return {
         gain: (f) => magnitudeAt(h.num, h.den, TWO_PI * f) * magnitudeAt(l.num, l.den, TWO_PI * f),
-        describe: `${family} order ${h.order} high-pass x order ${l.order} low-pass`,
+        describe: `${family} order ${h.order} high-pass x order ${l.order} low-pass, in series`,
       };
     }
     case "bandstop": {
-      // The complement of the band-pass, built from the same two designed
-      // sections so both edges are specified.
-      const h = build("highpass", lo);
-      const l = build("lowpass", hi);
-      if (!h || !l) return null;
+      // IN PARALLEL, NOT AS ONE MINUS THE BAND-PASS.
+      //
+      // The complement looks obvious and is structurally broken: the notch
+      // depth of 1 − |HP|·|LP| is set by how close that product gets to 1,
+      // which the PASSBAND RIPPLE bounds. At 1 dB of ripple the product dips to
+      // 0.891 at every trough, so 1 − product can never beat about −19 dB no
+      // matter what stopband attenuation is requested. Measured, it rejected
+      // only 0.5 dB at one band edge and reached the requested 40 dB across 1%
+      // of the band — worse than the ad-hoc cosine ramp it was meant to improve
+      // on, while a caveat claimed the quoted attenuation was really achieved.
+      //
+      // A band-stop passes what is BELOW the low edge or ABOVE the high edge,
+      // so it is the two sections in parallel, and each one's own stopband
+      // attenuation then governs the notch.
+      const l = build("lowpass", lo, halfRipple);
+      const h = build("highpass", hi, halfRipple);
+      if (!l || !h) return null;
       return {
-        gain: (f) =>
-          1 - magnitudeAt(h.num, h.den, TWO_PI * f) * magnitudeAt(l.num, l.den, TWO_PI * f),
-        describe: `${family} order ${h.order} / ${l.order}, complemented`,
+        gain: (f) => {
+          const g = magnitudeAt(l.num, l.den, TWO_PI * f) + magnitudeAt(h.num, h.den, TWO_PI * f);
+          // Where the two transitions overlap the sum can exceed unity, which
+          // would AMPLIFY. Capped, because a filter that boosts a band it was
+          // told to remove is worse than one that removes too little.
+          return g > 1 ? 1 : g;
+        },
+        describe: `${family} order ${l.order} low-pass + order ${h.order} high-pass, in parallel`,
       };
     }
   }

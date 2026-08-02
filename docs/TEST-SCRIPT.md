@@ -1170,6 +1170,37 @@ Six separate places. Nothing here adds a calculator, so the counts do not move.
   no sixty-digit fraction appears anywhere in the output.
 - [ ] `reflect xy then reflect xy (1,2,3)` returns **(1, 2, 3)**.
 
+**What the independent adversarial pass found (all fixed - re-check these)**
+
+- [ ] **Solve > Integral**, both limits blank, `sqrt(-1)`: the "no closed-form
+  antiderivative" message. It used to print **`NaN*x + C`** and insert it -
+  `NaN` is not the em-dash the guard scans for. Same for `ln(-1)`, `asin(2)`,
+  `1/0`.
+- [ ] `tan(x)` indefinite: says "Checked **NUMERICALLY** ... Strong evidence,
+  not a proof", NOT "Verified symbolically". Same for `sqrt(x)`. But `x^2` and
+  `sin(x)` DO say symbolically.
+- [ ] `sin(x)^2`: the no-answer message must NOT claim such integrands
+  "genuinely have none" - it has a standard antiderivative.
+- [ ] **FFT filter**, band-stop 20 to 70 Hz, transition 10, Chebyshev, stopband
+  40 dB: rejection in the middle of the band must exceed **40 dB**. It used to
+  cap at about **18 dB** - worse than the raised cosine.
+- [ ] **FFT filter**, high-pass cutoff **2**, transition **10** (stopband would
+  be at -8 Hz), Butterworth: falls back and does NOT quote an attenuation. It
+  used to report **191 dB** for a filter passing 14% at 0.5 Hz.
+- [ ] **Solve > Geometry**: `rotate about x 90 (1,2,3)` -> **(1, -3, 2)**. It
+  used to rotate about **z**. Also `rotate x 90`, `rotate 90 x-axis`.
+- [ ] `rotate 1e3 z (1,0,0)` rotates **1000 degrees**, not 1.
+  `scale 1/2 (2,2,2)` -> **(1,1,1)**, not (2,2,2).
+- [ ] `mirror the point (1,2,3) in the yz plane` -> **(-1, 2, 3)**. The plane
+  written after the point used to be thrown away.
+- [ ] `rotate 90 (1,2,3)`, `reflect (1,2,3)`, `scale 2 3 (1,1,1)` and
+  `rotate 90 z, scale 2 (1,0,0)` are each **REFUSED by name** rather than
+  silently given a substituted transformation.
+- [ ] `reflect xy (1,2,3)` shows **determinant -1** and **volume scale factor
+  1** on separate lines. It used to print "volume scale factor = -1  ~ 1".
+- [ ] **Beam** with `point -30 at 3` (an upward load): the wording must match
+  the sign - no "-30 kN down".
+
 **Engineering > Structural & solids > Cross-section**
 
 - [ ] Set the shape to **Circular hollow** with a wall thicker than half the

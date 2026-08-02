@@ -90,6 +90,63 @@ calls `qqPoints` to draw the Q-Q diagnostic plot for every regression. Nothing
 to surface and nothing to delete — the entry was mistaken, and the document now
 says so rather than quietly dropping it.
 
+**Ten defects, caught by the independent adversarial pass before release.** The
+61-check suite was green when it ran. What it found, all fixed and all now
+pinned as tests:
+
+1. **`antiderivative` printed `NaN` and would have inserted it into a document.**
+   `sqrt(-1)`, `ln(-1)`, `asin(2)` and `1/0` are constants that evaluate to NaN
+   or Infinity, and the constant rule ∫c dx = c·x accepted them, producing
+   `NaN*x + C`. `NaN` is not the em-dash the insert guard scans for, so nothing
+   blocked it. The **definite** branch of the same module already refuses these
+   by name — the new one was more permissive than its own sibling.
+2. **The designed band-stop was structurally broken and ~20 dB *worse* than the
+   ad-hoc ramp it replaced.** Built as `1 − |HP|·|LP|`, its notch depth is
+   bounded by the *passband ripple*, not by the requested attenuation: at 1 dB
+   of ripple it can never beat about −19 dB however much is asked for. Measured,
+   it delivered 40 dB across 1% of the band where the cosine managed 83%. It is
+   now the two sections **in parallel**, `LP(lo) + HP(hi)`, where each section's
+   own stopband attenuation governs the notch — 56 dB at mid-band where the
+   complement gave 18.
+3. **A stopband edge at or below zero was clamped to 1e−9 and its attenuation
+   quoted anyway.** A high-pass at 2 Hz with a 10 Hz transition implies a
+   stopband edge at −8 Hz; the clamp reported "order 1, 191 dB" for a filter
+   passing 14% of the amplitude at 0.5 Hz. Two unrelated specifications both
+   reported 195 dB — the number was a function of the clamp, not the design.
+   Refused now.
+4. **`verified: "symbolic"` claimed a proof that was never performed.**
+   `symbolicIntegrate` accepts a candidate either by canonical proof *or* by
+   eight float samples when the simplifier cannot settle it, and set
+   `verified: true` on both paths — making the flag a constant and its own doc
+   comment false. `tan(x)`, `tanh(x)` and `sqrt(x)` were all reported as "proved
+   identically zero" on the strength of samples. Fixed at the source in
+   `casint.ts`; the `numeric` tier, which nothing could previously report, is
+   now reachable and lands on exactly those cases.
+5. **The 3-D transform parser silently substituted different transformations.**
+   An axis it could not read became `z` (so `rotate about x 90` rotated about
+   z), `1e3` was read as 1, `1/2` as 1, a two-factor scale quietly dropped one,
+   a plane written after the point was discarded, and a comma between operations
+   dropped the second. Every one of those now either parses correctly or
+   **refuses by name**.
+6. **`volume scale factor = -1  ≈ 1`** — one row carried `|det|` as its value and
+   the *signed* determinant as its exact string, and the renderer prints both
+   when they differ. A volume scale factor is non-negative by definition; the
+   determinant now has its own row and keeps the sign.
+7. **"genuinely have none" was false for most refusals.** Of the integrands the
+   engine returns nothing for, the majority — `sin(x)²`, `sec(x)`,
+   `exp(x)·cos(x)` among them — have standard answers a first-year student
+   produces by hand. Telling a student that sin(x)² has no antiderivative blames
+   mathematics for an engine gap. The message now distinguishes what is provably
+   impossible from what this integrator merely could not find, and claims
+   neither when it cannot tell.
+8. **The typed cutoff meant different things for a low-pass and a high-pass** —
+   `t` past the edge for one, `t/2` either side for the other — so a designed
+   high-pass was 12 dB down at its own stated cutoff. One convention now.
+9. **A cascaded Chebyshev delivered double its ripple budget**, because two 1 dB
+   sections in series give 2 dB. Each section is designed to half.
+10. **The beam equilibrium check hard-coded "down" and "up"**, printing
+    "-30 kN down" for a legal upward load.
+
 **The real-bundle audit now drives every non-default dropdown option, and found
 a bug on its first run.** Three of the changes above are new select options, and
 the audit only ever exercised each tool on its *defaults* — so a dropdown was

@@ -12,7 +12,7 @@
 
 import { parseExpr, Expr } from "./solve";
 import {
-  Rat, ratAdd, ratMul, ratNeg, ratInt, ratDiv, ratFromNumber, ratIsZero, RAT_ZERO, ratToNumber,
+  Rat, ratAdd, ratMul, ratNeg, ratInt, ratDiv, ratFromNumber, ratIsZero, RAT_ZERO, ratToNumber, ratSign,
 } from "./cas";
 import {
   v3, Vec3, vSub, dot, cross, norm, normSquared, angleBetween, project, isZeroVec,
@@ -549,58 +549,115 @@ const rnum = (r: { n: bigint; d: bigint }): number => evalFrac(fmtRat(r));
  * every length and angle, yet no rotation can reproduce it.
  *
  * Accepts, in any combination and order:
- *   rotate 90 z (1,2,3)
- *   scale 2 3 4 (1,2,3)          scale 2 (1,2,3) for uniform
- *   reflect xy (1,2,3)
+ *   rotate 90 z (1,2,3)          rotate 90 about the x-axis (1,2,3)
+ *   scale 2 3 4 (1,2,3)          scale 1/2 (1,2,3) for uniform
+ *   reflect xy (1,2,3)           mirror the point (1,2,3) in the yz plane
  *   rotate 90 z then scale 2 then reflect xy (1,2,3)
+ *
+ * Operations are separated by `then` or `;` — NOT by a comma, because a comma
+ * already separates the factors of `scale 2, 3, 4`.
  *
  * ORDER MATTERS and the composition is stated: operations are applied left to
  * right, so the matrix is the product in the reverse of the reading order.
  * Rotation then reflection is not reflection then rotation, and quietly
  * choosing one convention would be the kind of silent decision this product
  * refuses elsewhere.
+ *
+ * IT REFUSES RATHER THAN SUBSTITUTING. Every earlier failure here was silent:
+ * an axis it could not read became `z`, a scale factor it could not read became
+ * the first number it recognised, and a two-factor scale quietly dropped one.
+ * A transformation the user did not ask for, reported as though they had, is
+ * worse than no answer.
  */
 function transformRequest(raw: string, lower: string, P: Vec3[]): GeoResult | null {
   if (!P.length) return null;
   const point = P[0];
-  // Strip the point(s) so their numbers cannot be read as transform arguments.
-  const head = raw.slice(0, raw.indexOf("(") >= 0 ? raw.indexOf("(") : raw.length);
-  const headLower = head.toLowerCase();
+  // Remove only the COORDINATE TRIPLES, keeping any words written after them —
+  // "mirror the point (1,2,3) in the yz plane" puts the plane at the end, and
+  // cutting the string at the first "(" threw it away and silently reflected in
+  // xy instead.
+  const numPat = String.raw`-?\d+(?:\.\d+)?(?:\/\d+)?`;
+  const tripleRe = new RegExp(String.raw`\(\s*${numPat}\s*,\s*${numPat}\s*,\s*${numPat}\s*\)`, "g");
+  const headLower = lower.replace(tripleRe, " ");
   const steps: string[] = [];
   const caveats: string[] = [];
   const applied: string[] = [];
 
-  // Split on "then" (or a comma between operations) and read each operation.
   const parts = headLower.split(/\bthen\b|;/).map((s) => s.trim()).filter(Boolean);
   if (!parts.length) return null;
 
+  /** Numbers a user might reasonably type: 90, 1.5, -3, 1/2, 1e3. */
+  const readNums = (s: string): number[] =>
+    (s.match(/-?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?(?:\/\d+(?:\.\d+)?)?/g) || []).map((tok) => {
+      if (tok.includes("/")) {
+        const [a, b] = tok.split("/").map(Number);
+        return b === 0 ? NaN : a / b;
+      }
+      return Number(tok);
+    });
+
   let m: Mat3 | null = null;
   let anyNumeric = false;
+  let refused: string | null = null;
   for (const part of parts) {
-    const nums = (part.match(/-?\d+(?:\.\d+)?/g) || []).map(Number);
+    // TWO OPERATIONS IN ONE PART MEANS A MISSING SEPARATOR. "rotate 90 z, scale
+    // 2" reads as one step, and the first keyword matched used to win while the
+    // other was dropped without a word. A comma cannot be the separator here,
+    // because a comma already separates the factors of "scale 2, 3, 4" — so the
+    // user is told which word to use instead.
+    const verbs = (part.match(/\b(rotate|rotation|scale|dilate|reflect|mirror)\b/g) || []).length;
+    if (verbs > 1) {
+      refused =
+        `"${part.trim()}" names more than one transformation at once. Separate them with ` +
+        `"then" (or a semicolon) — a comma cannot do it, because a comma already separates the ` +
+        "three factors of a scale.";
+      break;
+    }
+    const nums = readNums(part);
     let step: Mat3 | null = null;
     if (/\brotate|rotation\b/.test(part)) {
-      const axisM = part.match(/\b(?:about\s+)?(?:the\s+)?([xyz])\b(?!\s*[-\d])/);
-      const axis = (axisM ? axisM[1] : "z") as "x" | "y" | "z";
-      if (!nums.length) {
-        caveats.push(`"${part.trim()}" gives no angle, so it was skipped.`);
-        continue;
+      // An axis letter may be written on its own, hyphenated ("x-axis"), or
+      // followed by a number. The old guard rejected the last two and fell back
+      // to z WITHOUT SAYING SO, so "rotate about x 90" silently rotated about z.
+      const axisM = /(?:^|[^a-z])([xyz])(?:[-\s]?axis)?(?![a-z])/.exec(part);
+      if (!nums.length || !Number.isFinite(nums[0])) {
+        refused = `"${part.trim()}" does not give a rotation angle I can read.`;
+        break;
       }
-      step = rotationMatrix(axis, nums[0]);
+      if (!axisM) {
+        refused =
+          `"${part.trim()}" does not name an axis. Write x, y or z — a rotation in space is ` +
+          "meaningless without one, and guessing would silently give you a different rotation.";
+        break;
+      }
+      step = rotationMatrix(axisM[1] as "x" | "y" | "z", nums[0]);
       anyNumeric = true;
-      applied.push(`rotate ${nums[0]}° about ${axis}`);
+      applied.push(`rotate ${nums[0]}° about ${axisM[1]}`);
     } else if (/\bscale|dilate\b/.test(part)) {
-      if (!nums.length) {
-        caveats.push(`"${part.trim()}" gives no factor, so it was skipped.`);
-        continue;
+      if (!nums.length || nums.some((v) => !Number.isFinite(v))) {
+        refused = `"${part.trim()}" does not give a scale factor I can read.`;
+        break;
       }
-      const [sx, sy, sz] = nums.length >= 3 ? nums : [nums[0], nums[0], nums[0]];
+      if (nums.length === 2 || nums.length > 3) {
+        refused =
+          `"${part.trim()}" gives ${nums.length} scale factors. Give ONE for a uniform scale or ` +
+          "THREE for x, y and z; anything else would mean discarding a number you typed.";
+        break;
+      }
+      const [sx, sy, sz] = nums.length === 3 ? nums : [nums[0], nums[0], nums[0]];
       step = scaleMatrix(sx, sy, sz);
-      applied.push(nums.length >= 3 ? `scale (${sx}, ${sy}, ${sz})` : `scale ×${sx} uniformly`);
+      applied.push(nums.length === 3 ? `scale (${sx}, ${sy}, ${sz})` : `scale ×${sx} uniformly`);
+      // A non-integer factor goes through the float layer like a rotation does.
+      if (![sx, sy, sz].every(Number.isInteger)) anyNumeric = true;
     } else if (/\breflect|mirror\b/.test(part)) {
-      const pm = part.match(/\b(xy|yx|yz|zy|zx|xz)\b/);
-      const raw2 = pm ? pm[1] : "xy";
-      const plane = (raw2 === "yx" ? "xy" : raw2 === "zy" ? "yz" : raw2 === "xz" ? "zx" : raw2) as
+      const pm = /\b(xy|yx|yz|zy|zx|xz)\b/.exec(part);
+      if (!pm) {
+        refused =
+          `"${part.trim()}" does not name a plane. Write xy, yz or zx — reflecting needs a ` +
+          "mirror, and picking one for you would silently give a different transformation.";
+        break;
+      }
+      const plane = (pm[1] === "yx" ? "xy" : pm[1] === "zy" ? "yz" : pm[1] === "xz" ? "zx" : pm[1]) as
         | "xy"
         | "yz"
         | "zx";
@@ -612,7 +669,16 @@ function transformRequest(raw: string, lower: string, P: Vec3[]): GeoResult | nu
     // LEFT of everything already accumulated.
     m = m === null ? step : mat3Mul(step, m);
   }
+  if (refused) {
+    return { title: "Transformation", values: [], steps: [], caveats: [], degenerate: refused };
+  }
   if (!m || !applied.length) return null;
+  if (P.length > 1) {
+    caveats.push(
+      `${P.length} points were given; only the first, ${fmtVec(point)}, was transformed. Ask for ` +
+        "one point at a time.",
+    );
+  }
 
   const out = mat3Apply(m, point);
   const eff = transformEffect(m);
@@ -665,13 +731,26 @@ function transformRequest(raw: string, lower: string, P: Vec3[]): GeoResult | nu
     );
   }
 
+  // THE SIGNED AND UNSIGNED QUANTITIES ARE DIFFERENT ROWS.
+  //
+  // These used to be one: the value was |det| while the exact string was the
+  // SIGNED determinant, and the renderer prints "label = exact ≈ value"
+  // whenever the two differ — so a reflection displayed, and INSERTED into the
+  // document, "volume scale factor = -1  ≈ 1". A volume scale factor is
+  // non-negative by definition. The sign belongs to the determinant, so the
+  // determinant gets its own row and keeps it.
+  const detNumeric = num(eff.det);
+  const absDetExact = anyNumeric
+    ? undefined
+    : fmtRat(ratSign(eff.det) < 0 ? ratNeg(eff.det) : eff.det);
   return {
     title: `Transform of ${showVec(point)}`,
     values: [
       V3("x", num(out.x), show(out.x)),
       V3("y", num(out.y), show(out.y)),
       V3("z", num(out.z), show(out.z)),
-      V3("volume scale factor", eff.volumeScale, show(eff.det)),
+      V3("determinant", detNumeric, show(eff.det)),
+      V3("volume scale factor", eff.volumeScale, absDetExact),
     ],
     steps,
     caveats,

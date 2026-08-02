@@ -8852,8 +8852,14 @@ const ENG_CALCS: EngCalc[] = [
       const scale = Math.max(Math.abs(applied), Math.abs(carried), 1);
       lines.push("");
       lines.push("Equilibrium check");
-      lines.push(`  Total applied load  ${engNum(applied)} ${fu} down`);
-      lines.push(`  Sum of reactions    ${engNum(carried)} ${fu} up`);
+      // The words must follow the SIGN. An upward point load (`point -30 at 3`)
+      // is perfectly legal, and hard-coding "down"/"up" printed "-30 kN down"
+      // against a load that acts upwards — the display contradicting the number
+      // beside it, in a product whose stated rule is that display is a contract.
+      const dir = (v: number, pos: string, neg: string): string =>
+        v === 0 ? "" : ` ${v > 0 ? pos : neg}`;
+      lines.push(`  Total applied load  ${engNum(Math.abs(applied))} ${fu}${dir(applied, "down", "up")}`);
+      lines.push(`  Sum of reactions    ${engNum(Math.abs(carried))} ${fu}${dir(carried, "up", "down")}`);
       if (Math.abs(residual) <= 1e-9 * scale) {
         lines.push("  Balance             exact");
       } else {
@@ -17840,9 +17846,10 @@ function updateSolve(): void {
         if (!ar) {
           return void solveResult.appendChild(
             solveLine(
-              "No closed-form antiderivative was found. That is often the correct answer rather " +
-                "than a failure: exp(-x^2), sin(x)/x and many other elementary-looking integrands " +
-                "genuinely have none. Enter limits above to integrate it numerically instead.",
+              "No closed-form antiderivative was found. That may be because there is none — " +
+                "exp(-x^2) and sin(x)/x provably have no elementary antiderivative — or because " +
+                "this integrator could not find one that does exist. It cannot tell those apart, " +
+                "so it does not claim to. Enter limits above to integrate numerically instead.",
             ),
           );
         }

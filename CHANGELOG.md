@@ -6,6 +6,36 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.65.0] — 2026-08-01 — Your document is a data source
+
+Tier 1 of the gap analysis, first release: **getting data in, and finding what
+is already there.**
+
+**Use table at cursor.** Every field that holds a table, list or matrix — 83 of
+them across Stats, Analyze and the rest — now has a button that reads the Word
+table your cursor is in, straight into the field. The reader had existed since
+Table -> Chart shipped and was bound to that one mode, so a user whose numbers
+were already in the document they were writing had to select, copy and paste
+them into a pane box to run statistics on them. That was the one workflow a Word
+add-in should own outright and the one that did not exist. Both callers now
+share ONE reader rather than a second copy that could drift.
+
+**Open CSV.** The same fields take a `.csv` / `.tsv` / `.txt` file. The parser
+handles quoted cells properly — a label containing a comma, an escaped quote, an
+embedded newline — because a naive split shifts every column after the offending
+cell and produces a table that looks plausible and is wrong. Excel writes such
+files by default. Delimiter is sniffed (tab, then semicolon, then comma), and
+the 8 MB ceiling matches the existing sequence reader.
+
+**Search finds tools and calculators.** The box indexed formulas and compounds
+only, so none of the 26 tools and none of the 162 calculators could be found by
+name — while a comment beside the home filter claimed "every tool stays
+reachable from the dropdown and the search box". Both are indexed now, from the
+same registries that render them, so a new calculator is searchable the day it
+ships. A hit routes THROUGH the mode's own select and fires a real change event,
+so panel rendering, live compute and the discipline panels follow exactly as
+they do when a user picks by hand.
+
 ## [2.64.0] — 2026-08-01 — The eight live defects from the gap analysis
 
 A full gap analysis (`docs/GAP-ANALYSIS-2026-08-01.md`) separated things that are

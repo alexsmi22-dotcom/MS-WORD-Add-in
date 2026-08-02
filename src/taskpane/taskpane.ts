@@ -175,6 +175,7 @@ import {
 } from "../lib/thermo";
 import { parseMeasured, resultFigures } from "../lib/units";
 import { describeCrash, crashAdvice } from "../lib/crashReport";
+import { parseDelimited, gridToFieldText, describeGrid } from "../lib/dataimport";
 import { nmrChartSvg, irChartSvg, msChartSvg, cosyChartSvg, hsqcChartSvg, jcampChartSvg, decimateTrace, SPECTRUM_CHART_SIZE, SPECTRUM_2D_SIZE } from "../lib/spectraChart";
 import { buildPeptide } from "../lib/peptide";
 import {
@@ -1615,6 +1616,12 @@ const TOTAL_TOOLS = HOME_GROUPS.reduce((n, g) => n + g.items.length, 0);
  * clutter and conclude it isn't for them. The chips filter the CARDS ONLY —
  * every tool stays reachable from the dropdown and the search box — so this is
  * a lens, not a paywall, and the count line says so out loud.
+ *
+ * That claim was HALF FALSE until v2.65.0: the search box indexed formulas and
+ * compounds only, so no tool and none of the 162 calculators could be found by
+ * name. Both are indexed now, from the same registries that render them. A
+ * comment asserting a property is worth nothing unless something enforces it —
+ * `searchIndex.test.ts` does.
  */
 function renderHomeFilter(shown: number): void {
   homeFilterEl.replaceChildren();
@@ -1738,15 +1745,43 @@ function setMode(mode: Mode): void {
 // ---------------------------------------------------------------------------
 
 interface SearchEntry {
-  type: "formula" | "compound";
+  type: "formula" | "compound" | "tool" | "calculator";
   label: string;
   sub: string;
   value: string;
   mode: Mode;
+  /** For a calculator: the registry id to select once the mode is open. */
+  calcId?: string;
 }
 
 let searchIndex: SearchEntry[] = [];
 
+/**
+ * The five calculator registries, paired with the mode they live in and the
+ * <select> that chooses between them. Declared as a function rather than a
+ * const because the registries are defined further down the file.
+ */
+function calcRegistries(): { mode: Mode; group: string; list: { id: string; name: string }[] }[] {
+  return [
+    { mode: "engineering", group: "Engineering", list: ENG_CALCS },
+    { mode: "stats", group: "Stats", list: STAT_CALCS },
+    { mode: "analyze", group: "Analyze", list: ANALYZE_CALCS },
+    { mode: "finance", group: "Finance", list: FIN_CALCS },
+    { mode: "assay", group: "Bio/Assay", list: ASSAY_CALCS },
+  ];
+}
+
+/**
+ * Everything the search box can find.
+ *
+ * IT USED TO INDEX FORMULAS AND COMPOUNDS ONLY — so not one of the 26 tools and
+ * not one of the 162 calculators was findable by name, and a comment beside the
+ * home filter claimed the opposite ("every tool stays reachable from the
+ * dropdown and the search box"). With a bench this size, a calculator reachable
+ * only by guessing which of sixteen discipline panels holds it is, in practice,
+ * not reachable. Tools and calculators are indexed here from the SAME registries
+ * that render them, so a new one is searchable the day it ships.
+ */
 function buildSearchIndex(): void {
   const entries: SearchEntry[] = [];
   for (const cat of FORMULA_LIBRARY) {
@@ -1754,10 +1789,38 @@ function buildSearchIndex(): void {
       entries.push({ type: "formula", label: f.label, sub: cat.name, value: f.expr, mode: "math" });
     }
   }
+  for (const g of HOME_GROUPS) {
+    for (const item of g.items) {
+      entries.push({ type: "tool", label: item.label, sub: g.title, value: "", mode: item.mode });
+    }
+  }
+  for (const reg of calcRegistries()) {
+    for (const c of reg.list) {
+      entries.push({ type: "calculator", label: c.name, sub: reg.group, value: "", mode: reg.mode, calcId: c.id });
+    }
+  }
   for (const name of Object.keys(NAME_TO_SMILES)) {
     entries.push({ type: "compound", label: name, sub: "compound", value: name, mode: "chemical" });
   }
   searchIndex = entries;
+}
+
+/** The <select> that picks a calculator within a mode, if that mode has one. */
+function calcSelectFor(mode: Mode): HTMLSelectElement | null {
+  switch (mode) {
+    case "engineering":
+      return engineeringCalcSelect;
+    case "stats":
+      return statsCalcSelect;
+    case "analyze":
+      return analyzeCalcSelect;
+    case "finance":
+      return finCalcSelect;
+    case "assay":
+      return assayCalcSelect;
+    default:
+      return null;
+  }
 }
 
 function updateSearchResults(): void {
@@ -1788,6 +1851,7 @@ function updateSearchResults(): void {
       const badge = document.createElement("span");
       badge.className = `search-item-type ${e.type === "compound" ? "compound" : ""}`.trim();
       badge.textContent = e.type === "compound" ? "compound" : e.sub;
+      badge.title = e.type === "calculator" ? `${e.sub} calculator` : e.type;
       item.append(text, badge);
       item.addEventListener("mousedown", (ev) => {
         ev.preventDefault(); // keep blur from firing before click
@@ -1811,10 +1875,30 @@ function matchScore(haystack: string, needle: string): number {
 
 function applySearchEntry(entry: SearchEntry): void {
   setMode(entry.mode);
-  inputEl.value = entry.value;
-  onInputChanged();
   searchInput.value = "";
   closeSearch();
+
+  // A tool or calculator hit opens the thing itself; only a formula or compound
+  // has text to put in the formula box.
+  if (entry.type === "tool" || entry.type === "calculator") {
+    if (entry.calcId) {
+      const sel = calcSelectFor(entry.mode);
+      if (sel) {
+        sel.value = entry.calcId;
+        // Through a real change event, so the panel rendering, the live compute
+        // and the Engineering discipline panels all follow the select exactly
+        // as they do when a user picks from it. Two controls would drift; a
+        // control and a state holder cannot.
+        sel.dispatchEvent(new Event("change"));
+        sel.focus();
+        return;
+      }
+    }
+    return;
+  }
+
+  inputEl.value = entry.value;
+  onInputChanged();
   inputEl.focus();
 }
 
@@ -2875,39 +2959,63 @@ function isPictureKind(kind: RenderKind): boolean {
 }
 
 /** Reads the table the cursor / selection sits in and parses it. */
+/**
+ * Reads the table the cursor or selection sits in, or explains why it could not.
+ *
+ * EXTRACTED so that Table -> Chart and every data-bearing calculator field share
+ * ONE reader. The logic that distinguishes a collapsed cursor from a dragged
+ * selection is subtle enough that a second copy would drift, and this reader was
+ * previously bound to a single mode — which is exactly why a user with a table
+ * in their document could not run statistics on it without copying it out.
+ */
+async function readTableUnderCursor(): Promise<{ rows: string[][] } | { error: string }> {
+  let out: { rows: string[][] } | { error: string } = {
+    error: "Click anywhere inside a table in your document first, then try again.",
+  };
+  await Word.run(async (context) => {
+    const selection = context.document.getSelection();
+    const tables = selection.tables;
+    tables.load("items");
+    const parent = selection.parentTableOrNullObject;
+    parent.load("isNullObject");
+    await context.sync();
+
+    // A collapsed cursor inside a table reports no tables in the range but
+    // does have a parent table; a dragged selection reports the former.
+    let table: Word.Table | null = tables.items.length ? tables.items[0] : null;
+    if (!table && !parent.isNullObject) table = parent;
+    if (!table) return;
+
+    table.load("values");
+    await context.sync();
+    const rows = cleanTableRows(table.values);
+    if (!rows.length || !rows[0].length) {
+      out = { error: "That table is empty." };
+      return;
+    }
+    out = { rows };
+  });
+  return out;
+}
+
 async function loadSelectedTable(): Promise<void> {
   pptLoadBtn.disabled = true;
   try {
-    await Word.run(async (context) => {
-      const selection = context.document.getSelection();
-      const tables = selection.tables;
-      tables.load("items");
-      const parent = selection.parentTableOrNullObject;
-      parent.load("isNullObject");
-      await context.sync();
-
-      // A collapsed cursor inside a table reports no tables in the range but
-      // does have a parent table; a dragged selection reports the former.
-      let table: Word.Table | null = tables.items.length ? tables.items[0] : null;
-      if (!table && !parent.isNullObject) table = parent;
-      if (!table) {
+    {
+      const read = await readTableUnderCursor();
+      if ("error" in read) {
         currentTableRows = null;
         currentTableChart = null;
         updatePptPreview();
-        setStatus("Click anywhere inside a table in your document first, then press “Read selected table”.", "error");
+        setStatus(
+          read.error === "That table is empty."
+            ? "The selected table is empty."
+            : "Click anywhere inside a table in your document first, then press “Read selected table”.",
+          "error",
+        );
         return;
       }
-
-      table.load("values");
-      await context.sync();
-      const rows = cleanTableRows(table.values);
-      if (!rows.length || !rows[0].length) {
-        currentTableRows = null;
-        currentTableChart = null;
-        updatePptPreview();
-        setStatus("The selected table is empty.", "error");
-        return;
-      }
+      const rows = read.rows;
       currentTableRows = rows;
       currentTableChart = null;
       currentTableChartError = "";
@@ -2923,7 +3031,7 @@ async function loadSelectedTable(): Promise<void> {
       pptKindSelect.value = rec.kind;
       setStatus(rec.reason, "success");
       updatePptPreview();
-    });
+    }
   } catch (e) {
     currentTableRows = null;
     currentTableChart = null;
@@ -5722,9 +5830,106 @@ function renderCalcFields(
     input.addEventListener("input", onChange);
     input.addEventListener("change", onChange);
     row.append(label, input);
+    if (f.kind !== undefined && DATA_FIELD_KINDS.has(f.kind)) {
+      row.appendChild(buildDataSourceBar(input as HTMLInputElement | HTMLTextAreaElement, f.kind, onChange));
+    }
     container.appendChild(row);
   }
   onChange();
+}
+
+/**
+ * Field kinds that hold DATA rather than a single value, and can therefore be
+ * filled from a table or a file. Deliberately not every multiline kind: an
+ * expression box or a group definition takes syntax, not a grid, and offering
+ * to paste a table into one would be an invitation to a parse error.
+ */
+const DATA_FIELD_KINDS = new Set(["block", "list", "matrix"]);
+
+/**
+ * The two buttons that make a document a data source.
+ *
+ * The reader for the first has existed since Table -> Chart shipped and was
+ * bound to that one mode; the second is a file input over the delimited parser.
+ * Both write into the field's own text, so everything downstream — the parsers,
+ * the live recompute, the insert path — is untouched and cannot drift.
+ */
+function buildDataSourceBar(
+  input: HTMLInputElement | HTMLTextAreaElement,
+  kind: string,
+  onChange: () => void,
+): HTMLElement {
+  const bar = document.createElement("div");
+  bar.className = "data-source-bar";
+
+  const fill = (rows: string[][], sourceLabel: string): void => {
+    const text = gridToFieldText(rows, kind);
+    if (!text) {
+      setStatus(`${sourceLabel} held no data this field could use.`, "error");
+      return;
+    }
+    input.value = text;
+    onChange();
+    setStatus(`Loaded ${describeGrid(rows)} from ${sourceLabel}.`, "success");
+  };
+
+  const tableBtn = document.createElement("button");
+  tableBtn.type = "button";
+  tableBtn.className = "insert-btn secondary data-source-btn";
+  tableBtn.textContent = "Use table at cursor";
+  tableBtn.title = "Read the Word table your cursor is in, straight into this field";
+  tableBtn.addEventListener("click", async () => {
+    tableBtn.disabled = true;
+    try {
+      const read = await readTableUnderCursor();
+      if ("error" in read) {
+        setStatus(read.error, "error");
+        return;
+      }
+      fill(read.rows, "the table at your cursor");
+    } catch (e) {
+      setStatus(e instanceof Error ? e.message : "Couldn't read that table.", "error");
+    } finally {
+      tableBtn.disabled = false;
+    }
+  });
+
+  const fileInput = document.createElement("input");
+  fileInput.type = "file";
+  fileInput.accept = ".csv,.tsv,.txt";
+  fileInput.hidden = true;
+  fileInput.addEventListener("change", () => {
+    const file = fileInput.files?.[0];
+    if (!file) return;
+    // Same 8 MB ceiling the sequence reader uses: a spreadsheet export past
+    // that is not a pane-sized analysis, and reading it would freeze the host.
+    if (file.size > 8 * 1024 * 1024) {
+      setStatus("That file is over 8 MB — too large to load into the pane.", "error");
+      fileInput.value = "";
+      return;
+    }
+    const reader = new FileReader();
+    reader.onerror = () => setStatus("That file could not be read.", "error");
+    reader.onload = () => {
+      try {
+        fill(parseDelimited(String(reader.result ?? "")), file.name);
+      } catch (e) {
+        setStatus(e instanceof Error ? e.message : "That file could not be parsed.", "error");
+      }
+      fileInput.value = ""; // so re-choosing the same file fires again
+    };
+    reader.readAsText(file);
+  });
+
+  const fileBtn = document.createElement("button");
+  fileBtn.type = "button";
+  fileBtn.className = "insert-btn secondary data-source-btn";
+  fileBtn.textContent = "Open CSV…";
+  fileBtn.title = "Load a CSV or tab-separated file into this field";
+  fileBtn.addEventListener("click", () => fileInput.click());
+
+  bar.append(tableBtn, fileBtn, fileInput);
+  return bar;
 }
 
 /** Field kinds that need room for more than one line. */

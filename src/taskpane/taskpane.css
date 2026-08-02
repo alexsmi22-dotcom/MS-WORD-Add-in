@@ -2080,3 +2080,22 @@ select {
   overflow: auto;
   user-select: all;
 }
+
+/* Data-source buttons under a field that holds a table, list or matrix —
+   "Use table at cursor" and "Open CSV…". Sits under the input at full width so
+   the 320px pane never pushes them off the right edge (check:pane guards that). */
+.data-source-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 4px 0 0;
+  width: 100%;
+}
+
+.data-source-btn {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 4px 8px;
+  font-size: 11.5px;
+  white-space: nowrap;
+}

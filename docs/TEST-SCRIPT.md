@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.64.0)
+# JurisLab — Manual Test Script (v2.65.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -1090,6 +1090,34 @@ Engineering mode. **Energy & power** grows 8 → 16; the mode must state
 - [ ] **Wind + altitude**: blank the density, set altitude 2000 m → the result notes
   density **1.0065 kg/m³ from the ISA** — the same atmosphere the aviation tools use.
 - [ ] All eight new tools insert, subscripts and superscripts intact (O₂, m², kVAR).
+
+---
+
+## 0z. New in v2.65.0 — your document is a data source
+
+The three changes here are all about getting data in and finding tools. Have a
+Word table of numbers in the document before you start.
+
+- [ ] **Stats → Descriptive statistics.** Under the data field there must now be
+  two buttons: **Use table at cursor** and **Open CSV…**. Click inside your Word
+  table, then press **Use table at cursor** — the field fills and the status line
+  reports "Loaded N rows × M columns from the table at your cursor". Results
+  recompute immediately.
+- [ ] Put the cursor OUTSIDE any table and press it: a clear message asks you to
+  click inside a table — not a silent failure.
+- [ ] **Analyze → Data insights**, same buttons. A table with a text header row
+  and numeric columns must load with the header intact.
+- [ ] **Analyze → matrix tools** (e.g. Determinant): **Use table at cursor** on a
+  square numeric table fills it space-separated, one row per line, header dropped.
+- [ ] **Open CSV…** with a file whose labels contain commas (e.g. `"Smith, J.",42`).
+  The columns must NOT shift — the quoted cell stays one cell.
+- [ ] A file over 8 MB is refused with a message rather than freezing the pane.
+- [ ] **Table → Chart** still works exactly as before (it now shares the same reader).
+- [ ] **Search box**: type `Betz` → the wind turbine calculator appears and
+  selecting it opens Engineering with that calculator chosen. Try `ANOVA`,
+  `Kaplan`, `Black-Scholes`, `flue`. Try a tool name: `Citations`, `Spectra`.
+  Formulas and compounds (`quadratic`, `benzene`) must still work.
+- [ ] The search placeholder mentions tools and calculators, not just formulas.
 
 ---
 

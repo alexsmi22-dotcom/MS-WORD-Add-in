@@ -6,6 +6,35 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.66.0] — 2026-08-01 — Wiring what was already built
+
+Tier 1 release B: capability that existed in tested code with no way to reach
+it, and the one cross-tool gap that was a correctness hazard rather than a
+convenience.
+
+**The fatigue notch factor is applied instead of delegated.** The mean-stress
+tool's σa field said "already multiplied by Kf" — the product computing a factor
+in one calculator and requiring you to apply it by hand before typing it into
+the next. Forgetting it is NON-CONSERVATIVE: the part reads safer than it is,
+the one direction a safety factor must never err in. Kf is now a field, applied
+internally, with the result stating that mean-stress concentration (Kfm) is
+taken as 1 and why.
+
+**Substrate inhibition can now be fitted.** `substrateInhibitionV` shipped and
+was tested with no fitter and no caller, so an enzyme inhibited by its own
+substrate had only Michaelis-Menten — which does not fail on such data, it
+converges on a depressed Vmax and a distorted Km. On the reference curve now in
+the tests, true Vmax 100 comes back from MM as 51.6 with R² 0.60. The new fit
+recovers all three parameters exactly and reports the PEAK velocity and the
+substrate concentration producing it, since Vmax here is an asymptote the enzyme
+never attains.
+
+**Five finance calculators that existed only as functions.** Straight-line
+depreciation — the more common method, absent while declining balance shipped —
+plus level annuities (PV and FV), level and growing perpetuities, rate
+conversions across nominal/effective/continuous, and CAGR. Finance goes 19 to
+24; Bio/Assay 15 to 16.
+
 ## [2.65.0] — 2026-08-01 — Your document is a data source
 
 Tier 1 of the gap analysis, first release: **getting data in, and finding what

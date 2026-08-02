@@ -27,6 +27,7 @@ import {
   type ErrorBarKind,
 } from "../lib/plot";
 import {
+  fitSubstrateInhibition,
   fitMichaelisMenten,
   fitHill,
   fitDoseResponse,
@@ -72,6 +73,14 @@ import {
   annualizedReturn,
   annualizedVolatility,
   sharpeRatio,
+  straightLineDepreciation,
+  annuityPV,
+  annuityFV,
+  perpetuity,
+  growingPerpetuity,
+  continuousCompound,
+  nominalAnnualRate,
+  cagr,
 } from "../lib/finance";
 import { renderStructure, nameForIdcode, StructureResult } from "../lib/structures";
 import { computeProperties, PhysChemProperties, RuleResult } from "../lib/properties";
@@ -5731,6 +5740,145 @@ const FIN_CALCS: FinCalc[] = [
     },
   },
   {
+    // STRAIGHT LINE WAS MISSING WHILE DECLINING BALANCE SHIPPED — and it is the
+    // more common method by a wide margin. `straightLineDepreciation` had been
+    // written and tested the whole time with nothing able to call it, so the
+    // pane offered the harder method and not the ordinary one.
+    id: "depr-sl",
+    name: "Depreciation (straight line)",
+    fields: [
+      { key: "cost", label: "Cost", default: "10000" },
+      { key: "salvage", label: "Salvage value", default: "1000" },
+      { key: "life", label: "Useful life (years)", default: "5" },
+    ],
+    compute: (r) => {
+      const cost = +r("cost");
+      const salvage = +r("salvage");
+      const life = +r("life");
+      const annual = straightLineDepreciation(cost, salvage, life);
+      if (!Number.isFinite(annual) || life <= 0) return "Useful life must be a positive number of years.";
+      const lines = [`Annual depreciation  ${finMoney(annual)}`, ""];
+      let book = cost;
+      for (let y = 1; y <= Math.min(Math.floor(life), 60); y++) {
+        book -= annual;
+        lines.push(`Year ${y}:  dep ${finMoney(annual)}   book ${finMoney(book)}`);
+      }
+      lines.push("");
+      lines.push("The charge is the same every year by definition; the book value reaches salvage in");
+      lines.push("the final year. Declining balance front-loads the same total instead.");
+      return lines.join("\n");
+    },
+  },
+  {
+    // The five time-value identities below all existed as tested exports with
+    // no way to reach them. Each answers a question the existing TVM tools
+    // cannot: a level payment stream, a perpetual one, growth in perpetuity,
+    // continuous compounding, and the nominal rate behind a quoted effective.
+    id: "annuity",
+    name: "Annuity (level payments)",
+    fields: [
+      { key: "pmt", label: "Payment per period", default: "1000" },
+      { key: "rate", label: "Rate % per period", default: "5" },
+      { key: "n", label: "Number of periods", default: "20" },
+    ],
+    compute: (r) => {
+      const pmt = +r("pmt");
+      const rate = +r("rate") / 100;
+      const n = +r("n");
+      const pv = annuityPV(pmt, rate, n);
+      const fv = annuityFV(pmt, rate, n);
+      if (!Number.isFinite(pv) || !Number.isFinite(fv)) return "Check the rate and the number of periods.";
+      return [
+        `Present value   ${finMoney(pv)}`,
+        `Future value    ${finMoney(fv)}`,
+        `Total paid in   ${finMoney(pmt * n)}`,
+        "",
+        "Ordinary annuity: payments at the END of each period. For payments at the start",
+        `(an annuity due), multiply both by (1 + rate) — here ${finMoney(pv * (1 + rate))} and ${finMoney(fv * (1 + rate))}.`,
+      ].join("\n");
+    },
+  },
+  {
+    id: "perpetuity",
+    name: "Perpetuity (with optional growth)",
+    fields: [
+      { key: "pmt", label: "Payment next period", default: "1000" },
+      { key: "rate", label: "Discount rate %", default: "8" },
+      { key: "g", label: "Growth rate % (0 = level)", default: "3" },
+    ],
+    compute: (r) => {
+      const pmt = +r("pmt");
+      const rate = +r("rate") / 100;
+      const g = +r("g") / 100;
+      if (g >= rate) {
+        return (
+          "Growth must be below the discount rate. At or above it the sum does not converge — the " +
+          "value is infinite, which is a statement about the assumption rather than about the asset."
+        );
+      }
+      const level = perpetuity(pmt, rate);
+      const growing = growingPerpetuity(pmt, rate, g);
+      return [
+        `Level perpetuity     ${finMoney(level)}`,
+        `Growing perpetuity   ${finMoney(growing)}`,
+        "",
+        "The growing form is the Gordon growth model, and it is extremely sensitive near",
+        `r = g: at ${finPct(g)} growth against ${finPct(rate)} discount, one point of growth`,
+        `moves the value to ${finMoney(growingPerpetuity(pmt, rate, Math.min(g + 0.01, rate - 0.0001)))}.`,
+      ].join("\n");
+    },
+  },
+  {
+    id: "rate-forms",
+    name: "Rate conversions (nominal, effective, continuous)",
+    fields: [
+      { key: "principal", label: "Principal", default: "10000" },
+      { key: "rate", label: "Annual rate %", default: "6" },
+      { key: "years", label: "Years", default: "10" },
+      { key: "m", label: "Compounds per year", default: "12" },
+    ],
+    compute: (r) => {
+      const p = +r("principal");
+      const rate = +r("rate") / 100;
+      const years = +r("years");
+      const m = +r("m");
+      if (!(m > 0)) return "Compounds per year must be positive.";
+      const cont = continuousCompound(p, rate, years);
+      const eff = effectiveAnnualRate(rate, m);
+      const nominal = nominalAnnualRate(eff, m);
+      return [
+        `Continuous compounding   ${finMoney(cont)}`,
+        `Discrete, ${m}× per year${m < 10 ? " " : ""}     ${finMoney(p * Math.pow(1 + rate / m, m * years))}`,
+        "",
+        `Effective annual rate    ${finPct(eff)}  (from ${finPct(rate)} nominal)`,
+        `Nominal behind it        ${finPct(nominal)}  (round-trips back)`,
+        "",
+        "Continuous compounding is the ceiling: more frequent compounding approaches it and",
+        "never exceeds it, which is why the two figures above bracket every discrete case.",
+      ].join("\n");
+    },
+  },
+  {
+    id: "cagr",
+    name: "CAGR (compound annual growth)",
+    fields: [
+      { key: "begin", label: "Beginning value", default: "10000" },
+      { key: "end", label: "Ending value", default: "18000" },
+      { key: "years", label: "Years", default: "5" },
+    ],
+    compute: (r) => {
+      const g = cagr(+r("begin"), +r("end"), +r("years"));
+      if (!Number.isFinite(g)) return "Beginning value and years must be positive.";
+      return [
+        `CAGR  ${finPct(g)}`,
+        "",
+        "The single growth rate that connects the two endpoints. It says nothing about the",
+        "path between them: a holding that halved and then quadrupled reports the same CAGR",
+        "as one that grew smoothly, and only the second was ever a comfortable thing to own.",
+      ].join("\n");
+    },
+  },
+  {
     id: "returns",
     name: "Return stats (annualized)",
     fields: [
@@ -10664,7 +10812,15 @@ const ENG_CALCS: EngCalc[] = [
       "first-cycle YIELD check runs alongside them — none of the fatigue criteria knows about " +
       "static yield, so a high mean stress can pass Goodman and still yield immediately.",
     fields: [
-      { key: "sa", label: "Alternating stress σa, MPa (already multiplied by Kf)", default: "100", kind: "text" },
+      { key: "sa", label: "Nominal alternating stress σa, MPa", default: "100", kind: "text" },
+      // THE HAZARD THIS FIELD REMOVES. σa used to be labelled "already
+      // multiplied by Kf" — the product computing a factor in one tool and
+      // requiring the user to apply it by hand before typing it into the next.
+      // Forgetting it is NON-CONSERVATIVE: the part looks safer than it is,
+      // which is the one direction a safety factor must never be wrong in.
+      // Applying it here makes the omission impossible; 1 means no notch, or a
+      // σa you have already corrected yourself.
+      { key: "kf", label: "Fatigue notch factor Kf (1 = none, or already applied)", default: "1", kind: "text" },
       { key: "sm", label: "Mean stress σm, MPa (negative = compressive)", default: "200", kind: "text" },
       { key: "se", label: "Corrected endurance limit Se, MPa", default: "250", kind: "text" },
       { key: "sut", label: "Ultimate tensile strength Sut, MPa", default: "700", kind: "text" },
@@ -10683,8 +10839,14 @@ const ENG_CALCS: EngCalc[] = [
       },
     ],
     compute: (r) => {
+      const kf = Number(r("kf") || "1");
+      if (!Number.isFinite(kf) || kf < 1 || kf > 10) {
+        return { text: "The notch factor Kf is 1 or greater (1 = unnotched); values above ~5 are unusual.", ok: false };
+      }
+      const saNominal = Number(r("sa") || "0");
+      const saEffective = saNominal * kf;
       const res = meanStressAnalysis(
-        Number(r("sa") || "0"),
+        saEffective,
         Number(r("sm") || "0"),
         Number(r("se") || "0"),
         Number(r("sut") || "0"),
@@ -10694,7 +10856,10 @@ const ENG_CALCS: EngCalc[] = [
       if (!res.ok) return { text: res.error, ok: false };
 
       const lines: string[] = [];
-      lines.push(`Mean-stress analysis, σa = ${engNum(Number(r("sa")))} MPa, σm = ${engNum(Number(r("sm")))} MPa`);
+      lines.push(`Mean-stress analysis, σa = ${engNum(saEffective)} MPa, σm = ${engNum(Number(r("sm")))} MPa`);
+      if (kf !== 1) {
+        lines.push(`  σa = ${engNum(saNominal)} MPa nominal × Kf ${engNum(kf, 3)} = ${engNum(saEffective)} MPa applied`);
+      }
       lines.push("");
       lines.push(`GOVERNING factor of safety = ${engNum(res.nGoverning)}, governed by ${res.governedBy}`);
       lines.push("");
@@ -10709,6 +10874,14 @@ const ENG_CALCS: EngCalc[] = [
       for (const c of res.comparison) {
         lines.push(`  ${c.criterion.padEnd(14)} n = ${engNum(c.n)}`);
       }
+      lines.push(
+        kf === 1
+          ? "Note: Kf = 1, so σa was used as typed. If the part has a notch, enter its Kf here rather " +
+              "than multiplying by hand — the endurance-limit tool computes it for you."
+          : "Note: Kf was applied to the ALTERNATING stress only. Mean-stress concentration (Kfm) is " +
+              "taken as 1, the usual assumption for a ductile material that yields locally at the notch " +
+              "root; for a brittle material apply it to σm as well.",
+      );
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_FATIGUE_UNIT_NOTE);
       return { text: plainDashes(lines.join("\n")) };
@@ -16255,6 +16428,49 @@ const ASSAY_CALCS: AssayCalc[] = [
         `Michaelis–Menten fit\n` +
         `Vmax = ${assayValSE(fit.vmax, fit.vmaxSE)}\n` +
         `Km = ${assayValSE(fit.km, fit.kmSE)}\n` +
+        `R² = ${assaySig(fit.rsquared, 4)}`;
+      return { text, caveats: fit.caveats, plot: { data: pts, predict: fit.predict, xlabel: "[S]", ylabel: "v" } };
+    },
+  },
+  {
+    // SUBSTRATE INHIBITION was the model with no fitter. `substrateInhibitionV`
+    // shipped and was tested while nothing could call it, so a user whose
+    // enzyme is inhibited by its own substrate had only Michaelis-Menten - and
+    // MM does not fail on such data, it converges on a depressed Vmax and a
+    // distorted Km. On the reference curve in the tests, true Vmax 100 comes
+    // back from MM as 51.6. A confident wrong number is exactly what this
+    // module exists to prevent.
+    id: "substrate-inhibition",
+    name: "Substrate inhibition (Ksi)",
+    fields: [
+      { key: "s", label: "[S] substrate (one per value)", default: "0.5, 1, 2, 3, 5, 8, 12, 20, 30, 50, 80, 120", kind: "list" },
+      {
+        key: "v",
+        label: "v velocity (matching [S])",
+        default: "8.85, 16.1, 27.0, 34.6, 43.5, 50.0, 54.1, 57.1, 55.6, 47.6, 36.4, 26.5",
+        kind: "list",
+      },
+    ],
+    compute: (r) => {
+      const s = assayList(r("s"));
+      const v = assayList(r("v"));
+      const pts = assayPairXY(s, v, 4);
+      if (!pts) return { text: "Enter equal-length [S] and v lists (≥ 4 points — three parameters need them).", ok: false };
+      const fit = fitSubstrateInhibition(s, v);
+      if (!fit.converged || !(fit.vmax > 0) || !(fit.km > 0)) {
+        return {
+          text:
+            "Fit did not converge. If the curve never turns over, there is no substrate inhibition " +
+            "to fit — use Michaelis–Menten instead.",
+          ok: false,
+        };
+      }
+      const text =
+        `Substrate inhibition fit\n` +
+        `Vmax = ${assayValSE(fit.vmax, fit.vmaxSE)}  (asymptote, never reached)\n` +
+        `Km = ${assayValSE(fit.km, fit.kmSE)}\n` +
+        `Ksi = ${assayValSE(fit.ksi, fit.ksiSE)}\n` +
+        `Peak velocity ${assaySig(fit.vPeak, 4)} at [S] = ${assaySig(fit.sOptimal, 4)}\n` +
         `R² = ${assaySig(fit.rsquared, 4)}`;
       return { text, caveats: fit.caveats, plot: { data: pts, predict: fit.predict, xlabel: "[S]", ylabel: "v" } };
     },

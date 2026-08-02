@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.65.0)
+# JurisLab — Manual Test Script (v2.66.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -1090,6 +1090,30 @@ Engineering mode. **Energy & power** grows 8 → 16; the mode must state
 - [ ] **Wind + altitude**: blank the density, set altitude 2000 m → the result notes
   density **1.0065 kg/m³ from the ISA** — the same atmosphere the aviation tools use.
 - [ ] All eight new tools insert, subscripts and superscripts intact (O₂, m², kVAR).
+
+---
+
+## 0aa. New in v2.66.0 — wiring what was already built
+
+- [ ] **Engineering → Fatigue → Mean stress & factor of safety.** The σa field
+  must read "**Nominal** alternating stress" — NOT "already multiplied by Kf" —
+  and there must be a **Kf** field defaulting to 1. At the defaults the answer
+  matches the old one. Set Kf = 2: σa doubles internally, the report shows
+  "100 MPa nominal × Kf 2 = 200 MPa applied", and the factor of safety falls.
+  Set Kf = 0.5: **refused** (Kf is 1 or greater).
+- [ ] **Bio/Assay → Substrate inhibition (Ksi)** exists. At the defaults it fits
+  and reports Vmax, Km, Ksi, and a **peak velocity at an [S]** — with a caveat
+  saying Vmax is an asymptote the enzyme never reaches. The plotted curve must
+  RISE then FALL.
+- [ ] Paste plain saturating data into it (no descending limb): it must warn that
+  inhibition cannot be established, or refuse — not report three confident parameters.
+- [ ] **Finance** now lists **24** calculators. Check the five new ones:
+  **Depreciation (straight line)** — 10000/1000/5 gives 1800 a year;
+  **Annuity** — PV and FV of a level stream; **Perpetuity** — set growth ≥ the
+  discount rate and it must refuse with the divergence explanation;
+  **Rate conversions** — continuous must exceed every discrete figure;
+  **CAGR** — 10000 → 18000 over 5 years.
+- [ ] All five insert.
 
 ---
 

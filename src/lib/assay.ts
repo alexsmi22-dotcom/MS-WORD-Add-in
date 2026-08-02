@@ -651,6 +651,102 @@ export function substrateInhibitionV(vmax: number, km: number, ksi: number, s: n
   return (vmax * s) / (km + s + (s * s) / ksi);
 }
 
+export interface SubstrateInhibitionFit extends FitResult {
+  vmax: number;
+  km: number;
+  /** Substrate inhibition constant; larger means weaker inhibition. */
+  ksi: number;
+  vmaxSE: number;
+  kmSE: number;
+  ksiSE: number;
+  /** Substrate concentration at peak velocity, sqrt(Km·Ksi). */
+  sOptimal: number;
+  /** Velocity at that peak — the highest the enzyme actually reaches. */
+  vPeak: number;
+}
+
+/**
+ * Fits v = Vmax·[S]/(Km + [S] + [S]²/Ksi) to substrate/velocity data.
+ *
+ * WHY THIS EXISTS AS ITS OWN FIT. `substrateInhibitionV` shipped, was tested,
+ * and had no fitter and no caller for months — so the one model that describes
+ * a descending limb was unreachable, and a user with acetylcholinesterase data
+ * had only Michaelis-Menten, which converges happily on a depressed Vmax and a
+ * distorted Km rather than failing. A quiet wrong answer is the failure mode
+ * this whole module is written against.
+ *
+ * THE PEAK IS THE USEFUL OUTPUT. Vmax here is a model asymptote the enzyme
+ * never attains; what a bench scientist needs is the substrate concentration
+ * that maximises rate, sqrt(Km·Ksi), and the velocity there. Both are derived
+ * exactly rather than read off the data.
+ *
+ * Starting estimates come from the data's own shape: Km from the rising limb,
+ * Ksi from where the curve has fallen back. A poor start on a three-parameter
+ * fit is the usual cause of a converged-but-wrong answer, so they are computed
+ * rather than constant.
+ */
+export function fitSubstrateInhibition(s: number[], v: number[]): SubstrateInhibitionFit {
+  const peakIdx = v.reduce((best, val, i) => (val > v[best] ? i : best), 0);
+  const sPeak = s[peakIdx] || 1;
+  const vPeakObs = v[peakIdx] || 1;
+  // At the peak, s = sqrt(Km·Ksi). Split that product using the rising limb to
+  // estimate Km (roughly the s at half the peak velocity) and back out Ksi.
+  const half = v.findIndex((val, i) => i <= peakIdx && val >= vPeakObs / 2);
+  const km0 = half >= 0 && s[half] > 0 ? s[half] : sPeak / 2;
+  const ksi0 = Math.max((sPeak * sPeak) / km0, km0);
+  // Vmax exceeds the observed peak — how far depends on Km/Ksi; 2x is a safe,
+  // deliberately over-estimating start for a parameter the data bounds below.
+  const vmax0 = vPeakObs * 2;
+
+  const fit = levenbergMarquardt(
+    s,
+    v,
+    ([vmax, km, ksi], x) => substrateInhibitionV(vmax, km, ksi, x),
+    [vmax0, km0, ksi0],
+  );
+  const [vmax, km, ksi] = fit.params;
+  const sOptimal = km > 0 && ksi > 0 ? Math.sqrt(km * ksi) : NaN;
+  const vPeak = Number.isFinite(sOptimal) ? substrateInhibitionV(vmax, km, ksi, sOptimal) : NaN;
+
+  const caveats = [...fit.caveats];
+  if (!(ksi > 0) || !Number.isFinite(ksi)) {
+    caveats.unshift(
+      "Ksi did not converge to a positive value — this data may show no substrate inhibition at " +
+        "all, in which case plain Michaelis-Menten is the right model and will fit it better.",
+    );
+  } else if (ksi > 100 * Math.max(...s)) {
+    caveats.unshift(
+      `Ksi (${ksi.toPrecision(3)}) is far above the highest substrate tested, so the descending ` +
+        "limb is barely constrained: the data may not actually show inhibition. Compare the fit " +
+        "against Michaelis-Menten before reporting three parameters.",
+    );
+  }
+  if (peakIdx === v.length - 1) {
+    caveats.unshift(
+      "The highest velocity is at the LAST point, so no descending limb was measured. Substrate " +
+        "inhibition cannot be established from a curve that has not turned over — extend the " +
+        "substrate range.",
+    );
+  }
+  caveats.push(
+    "Vmax here is a model asymptote the enzyme never reaches; the peak velocity and the substrate " +
+      "concentration that produces it are the reportable figures.",
+  );
+
+  return {
+    ...fit,
+    vmax,
+    km,
+    ksi,
+    vmaxSE: fit.se[0],
+    kmSE: fit.se[1],
+    ksiSE: fit.se[2],
+    sOptimal,
+    vPeak,
+    caveats,
+  };
+}
+
 export interface InhibitionFit extends FitResult {
   vmax: number;
   km: number;

@@ -186,6 +186,7 @@ import { parseMeasured, resultFigures } from "../lib/units";
 import { describeCrash, crashAdvice } from "../lib/crashReport";
 import { parseDelimited, gridToFieldText, describeGrid } from "../lib/dataimport";
 import { pca, trapz } from "../lib/pca";
+import { fitCurve } from "../lib/curvefit";
 import { nmrChartSvg, irChartSvg, msChartSvg, cosyChartSvg, hsqcChartSvg, jcampChartSvg, decimateTrace, SPECTRUM_CHART_SIZE, SPECTRUM_2D_SIZE } from "../lib/spectraChart";
 import { buildPeptide } from "../lib/peptide";
 import {
@@ -377,7 +378,7 @@ import {
   type PulseShape,
   type PhotonUnit,
 } from "../lib/optics";
-import { pureTwoQubit, chsh, wernerState, bb84KeyRate, cx } from "../lib/quantum";
+import { BELL_STATES, pureTwoQubit, chsh, wernerState, bb84KeyRate, cx } from "../lib/quantum";
 import { switchingPower, junctionTemperature, interconnectDelay, timingCheck } from "../lib/chips";
 import { atmosphere, pressureAltitude, airspeeds, dragPolar, levelTurn, climbGlide } from "../lib/aero";
 import {
@@ -7465,6 +7466,74 @@ const ANALYZE_CALCS: AnalyzeCalc[] = [
     },
   },
   {
+    // THE ENGINE HAD NO DOOR. Levenberg-Marquardt with analytic covariance has
+    // shipped since the assay work, reachable only through five hard-coded
+    // biochemistry models — so an exponential decay, a logistic curve, a power
+    // law or a Gaussian peak had nothing, and that is the most-used numerical
+    // verb after "plot". Nothing here improves the engine; it opens it.
+    id: "curvefit",
+    name: "Fit a model to data (nonlinear least squares)",
+    hint:
+      "Type any model in x with named parameters, e.g. a*exp(-b*x) + c. Starting values matter: a " +
+      "nonlinear fit finds a local minimum near where it starts, so a poor result is often a " +
+      "starting-value problem rather than a wrong model.",
+    fields: [
+      { key: "x", label: "x values", default: "0, 0.5, 1, 1.5, 2, 3, 4, 5, 6, 8", kind: "block", rows: 2 },
+      {
+        key: "y",
+        label: "y values (matching x)",
+        default: "6.2, 4.7, 3.7, 2.9, 2.4, 1.8, 1.5, 1.35, 1.28, 1.22",
+        kind: "block",
+        rows: 2,
+      },
+      { key: "model", label: "Model (a function of x)", default: "a*exp(-b*x) + c", kind: "text" },
+      { key: "start", label: "Starting values, e.g. a=5, b=1, c=1 (blank = all 1)", default: "a=5, b=1, c=1", kind: "text" },
+    ],
+    compute: (r) => {
+      const xs = statList(r("x"));
+      const ys = statList(r("y"));
+      // "a=5, b=1" -> { a: 5, b: 1 }. Anything unparseable is left out, which
+      // makes it default to 1 and be reported as defaulted.
+      const start: Record<string, number> = {};
+      for (const part of r("start").split(/[,;\n]+/)) {
+        const m = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(-?[\d.eE+-]+)\s*$/.exec(part);
+        if (m && Number.isFinite(Number(m[2]))) start[m[1]] = Number(m[2]);
+      }
+      const res = fitCurve(xs, ys, r("model"), { start });
+      if (!res.ok) return { text: plainDashes(res.error), ok: false };
+
+      const lines = res.names.map(
+        (n, i) => `  ${n} = ${formatNum(res.values[i], 6)}  ± ${formatNum(res.errors[i], 4)}`,
+      );
+      const lo = Math.min(...xs);
+      const hi = Math.max(...xs);
+      const curve = Array.from({ length: 120 }, (_, i) => {
+        const x = lo + ((hi - lo) * i) / 119;
+        return { x, y: res.predict(x) };
+      }).filter((p) => Number.isFinite(p.y));
+      const svg = buildPlotSvg(
+        [
+          { points: xs.map((x, i) => ({ x, y: ys[i] })), type: "scatter", color: "#0f172a", label: "data" },
+          { points: curve, type: "line", color: "#2563eb", label: "fit" },
+        ],
+        { title: "Fitted model", xlabel: "x", ylabel: "y" },
+      );
+      return analyzeResultOf([
+        { kind: "line", text: `Fit of ${r("model").trim()}` },
+        { kind: "line", text: "" },
+        ...lines.map((t) => ({ kind: "line" as const, text: t })),
+        { kind: "line", text: "" },
+        { kind: "line", text: `  R² = ${formatNum(res.rSquared, 6)}   RMSE = ${formatNum(res.rmse, 6)}` },
+        {
+          kind: "line",
+          text: `  ${res.converged ? "Converged" : "DID NOT CONVERGE"} in ${res.iterations} iterations`,
+        },
+        { kind: "plot", svg, caption: "Fitted model", alt: "Nonlinear fit over the data", w: 380, h: 270 },
+        ...res.notes.map((n) => ({ kind: "line" as const, text: plainDashes(`Note: ${n}`) })),
+      ]);
+    },
+  },
+  {
     // The trapezoid rule existed only inside pk.ts as a private AUC helper, so
     // anyone integrating a chromatogram, a power trace or a stress-strain curve
     // had nothing. This is the counterpart to Solve's adaptive Simpson, which
@@ -13288,6 +13357,22 @@ const ENG_CALCS: EngCalc[] = [
       "of (|00>+|01>+|10>+|11>)/2 are a product state, and flipping one sign makes it maximally " +
       "entangled. The state is normalised for you.",
     fields: [
+      // BELL_STATES shipped tested and uncalled while the pane made users type
+      // four amplitudes by hand to reach the four states everyone actually
+      // wants. "Custom" keeps the typed amplitudes as the default path.
+      {
+        key: "preset",
+        label: "Preset",
+        default: "custom",
+        kind: "select",
+        options: [
+          { value: "custom", label: "Custom (use the amplitudes below)" },
+          { value: "Phi+", label: "Bell |Φ+> = (|00> + |11>)/√2" },
+          { value: "Phi-", label: "Bell |Φ-> = (|00> − |11>)/√2" },
+          { value: "Psi+", label: "Bell |Ψ+> = (|01> + |10>)/√2" },
+          { value: "Psi-", label: "Bell |Ψ-> = (|01> − |10>)/√2 (singlet)" },
+        ],
+      },
       { key: "a", label: "Amplitude of |00>", default: "0.7071", kind: "text" },
       { key: "b", label: "Amplitude of |01>", default: "0", kind: "text" },
       { key: "c", label: "Amplitude of |10>", default: "0", kind: "text" },
@@ -13313,11 +13398,22 @@ const ENG_CALCS: EngCalc[] = [
         const im = imRaw === "+" ? 1 : imRaw === "-" ? -1 : Number(imRaw);
         return Number.isFinite(re) && Number.isFinite(im) ? { re, im } : null;
       };
-      const amps = ["a", "b", "c", "d"].map((k) => parse(r(k)));
-      if (amps.some((v) => v === null)) {
-        return { text: 'An amplitude could not be read. Use forms like "0.5", "-0.7071", "0.5i" or "0.5+0.5i".', ok: false };
+      const preset = r("preset");
+      let A: { re: number; im: number };
+      let B: { re: number; im: number };
+      let C: { re: number; im: number };
+      let D: { re: number; im: number };
+      if (preset && preset !== "custom" && BELL_STATES[preset]) {
+        // Straight from the tested table rather than four hand-typed numbers.
+        const [pa, pb, pc, pd] = BELL_STATES[preset];
+        [A, B, C, D] = [pa, pb, pc, pd].map((z) => ({ re: z.re, im: z.im }));
+      } else {
+        const amps = ["a", "b", "c", "d"].map((k) => parse(r(k)));
+        if (amps.some((v) => v === null)) {
+          return { text: 'An amplitude could not be read. Use forms like "0.5", "-0.7071", "0.5i" or "0.5+0.5i".', ok: false };
+        }
+        [A, B, C, D] = amps as { re: number; im: number }[];
       }
-      const [A, B, C, D] = amps as { re: number; im: number }[];
       const res = pureTwoQubit(cx(A.re, A.im), cx(B.re, B.im), cx(C.re, C.im), cx(D.re, D.im));
       if (!res) return { text: "All four amplitudes are zero, which is not a state.", ok: false };
 

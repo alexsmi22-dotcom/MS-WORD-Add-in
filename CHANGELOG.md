@@ -6,6 +6,35 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.69.0] — 2026-08-02 — The engine had no door
+
+Tier 1 release E: **fit any model you can type**, plus the last of the wiring.
+
+A real Levenberg-Marquardt engine with analytic covariance has shipped since the
+assay work, reachable only through five hard-coded biochemistry models. So an
+exponential decay, a logistic curve, a power law or a Gaussian peak had nothing,
+and that is the most-used numerical verb after "plot". Nothing here improves the
+engine; it opens it. Type a model in x with named parameters, get values with
+standard errors, R², RMSE and the fit drawn over your data.
+
+The honesty is in the starting values, which are the hard part of nonlinear
+fitting: a converged fit from a poor start is the classic silently-wrong result.
+Supply them and it says so; leave them blank and every parameter starts at 1 and
+the result says THAT, with the reason a poor fit is usually a starting-value
+problem rather than a wrong model. It also flags any parameter whose standard
+error exceeds its own value (that parameter is not determined by your data), and
+always states that R² on a nonlinear fit is descriptive only.
+
+**Three dead exports surfaced.** The four **Bell states** are now presets in the
+two-qubit tool, which previously required typing four complex amplitudes by hand
+to reach the states everyone actually wants. `rayleighDamping` is now CALLED by
+the modal code that had been repeating its formula inline — two statements of one
+equation, one of them dead, which is how they drift apart. And with the finance
+and assay work from v2.66.0, the dead-export ratchet drops from 27 to **18**; a
+ratchet is only worth having if it is tightened when the debt is actually paid.
+
+Analyze goes 22 to 23.
+
 ## [2.68.1] — 2026-08-02 — The em-dash sentinel, one layer out
 
 PCA and the trapezoid tool shipped with em dashes in their note and error

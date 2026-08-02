@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.68.1)
+# JurisLab — Manual Test Script (v2.69.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -1090,6 +1090,24 @@ Engineering mode. **Energy & power** grows 8 → 16; the mode must state
 - [ ] **Wind + altitude**: blank the density, set altitude 2000 m → the result notes
   density **1.0065 kg/m³ from the ISA** — the same atmosphere the aviation tools use.
 - [ ] All eight new tools insert, subscripts and superscripts intact (O₂, m², kVAR).
+
+---
+
+## 0ad. New in v2.69.0 — fit any model you can type
+
+- [ ] **Analyze → Fit a model to data.** At the defaults it fits
+  `a*exp(-b*x) + c`, reports each parameter with a **± standard error**, R²,
+  RMSE, whether it converged, and draws the fit through the scattered data.
+- [ ] Clear the starting values: it must still fit, and a note must say they
+  **defaulted to 1** and that a poor fit is usually a starting-value problem.
+- [ ] Try another model on the same data, e.g. `m*x + b` — the parameter names
+  in the output follow whatever you typed.
+- [ ] Type `wibble(x)*a`: refused, naming the functions that DO exist.
+- [ ] Type `2*x` (no parameters): refused with that reason.
+- [ ] **Engineering → Quantum optics → Two-qubit state.** There is now a
+  **Preset** dropdown with the four Bell states. Selecting |Φ+> must give
+  concurrence **1**; |Ψ-> likewise. "Custom" still uses the typed amplitudes.
+- [ ] **Insert** works on the fit (no em dash in its notes).
 
 ---
 

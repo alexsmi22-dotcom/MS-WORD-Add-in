@@ -866,10 +866,15 @@ export function modalForcedResponse(
     if (!Number.isFinite(alpha) || !Number.isFinite(beta) || alpha < 0 || beta < 0)
       return { ok: false, error: "Rayleigh alpha and beta must both be finite and zero or greater." };
     let rigid = false;
+    // CALLS the helper rather than repeating its formula. This loop used to
+    // carry its own copy of alpha/(2w) + beta*w/2 while `rayleighDamping` sat
+    // exported, tested and uncalled — two statements of one equation, one of
+    // them dead, which is how they drift apart.
+    const ratios = rayleighDamping(alpha, beta, modal.frequencies);
     for (let i = 0; i < n; i++) {
       const wn = modal.frequencies[i];
       damp.push(alpha + beta * wn * wn);
-      zeta.push(wn > 0 ? alpha / (2 * wn) + (beta * wn) / 2 : 0);
+      zeta.push(ratios[i]);
       if (wn === 0) rigid = true;
     }
     // A rigid-body mode IS damped under Rayleigh — its coefficient is alpha —

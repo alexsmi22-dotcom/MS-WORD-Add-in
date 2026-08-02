@@ -7,6 +7,7 @@
 >   calculators.
 > - **TIER 1.5 (fatigue Kf), 1.6 (substrate inhibition) and the finance half of
 >   1.7c shipped in v2.66.0** (`f48d172`, live-verified).
+> - **TIER 1.7b (FFT windowing) shipped in v2.67.0** (`2e33369`, live-verified).
 > - **TIER 2.1 (claim-set hygiene) DECLINED by the user — do not build it.**
 >
 > **Still open in Tier 1:**
@@ -15,8 +16,8 @@
 > - 1.6 remainder: `BELL_STATES` preset, `rayleighDamping` (dead AND duplicated
 >   inline at vibration.ts:869), `totalLoad`, `formatSeqIdRefs`
 > - 1.7 NMR DEPT / HMBC / TOCSY + non-aromatic "contributed nothing" caveats
-> - 1.7b FFT windowing (leakage in every spectrum drawn) and
->   `filter.ts -> fftFilter` to retire the documented brick-wall ringing
+> - ~~1.7b FFT windowing~~ SHIPPED v2.67.0 (`2e33369`). Still open: the
+>   `filter.ts -> fftFilter` half, to retire the documented brick-wall ringing
 > - 1.7c remainder: 6 `geometry3d` transform exports, `probit`
 > - 1.8 general curve fitting (promote `levenbergMarquardt`), `trapz` on data,
 >   PCA on the existing SVD, an indefinite-integral entry point

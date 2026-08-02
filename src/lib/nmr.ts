@@ -568,16 +568,79 @@ function heteroatomProton(mol: Molecule, a: number): { shift: number; assignment
 const MULT_NAMES = ["s", "d", "t", "q", "quint", "sext", "sept"];
 
 /**
+ * Nuclei that couple strongly to ¹H and are NOT exchangeable.
+ *
+ * THIS IS THE DISTINCTION THE NEIGHBOUR FILTER USED TO MISS. Skipping every
+ * non-carbon neighbour is right for O and N — an OH or NH proton exchanges fast
+ * enough that its coupling is usually washed out — and WRONG for fluorine and
+ * phosphorus, which are spin-½, effectively 100% abundant, and do not exchange.
+ * ²J(H–C–F) is about 47 Hz, larger than any proton-proton coupling in a typical
+ * spectrum, so a fluorinated CH₂ is a clean doublet in reality and was being
+ * reported as a singlet with no warning at all.
+ *
+ * The multiplicity model here is proton-proton only, so rather than invent a
+ * heteronuclear splitting tree the affected environments are NAMED in a caveat.
+ * That keeps the rule this module is built on: an answer the model cannot give
+ * is said out loud rather than quietly omitted.
+ */
+const HETERO_COUPLERS: Record<number, string> = { 9: "¹⁹F", 15: "³¹P" };
+
+/**
+ * Heteronuclear couplers within three bonds of the proton-bearing atom.
+ *
+ * THE SECOND HOP DELIBERATELY WALKS THROUGH ANY ATOM, NOT JUST CARBON. The
+ * first draft of this restricted it to carbon by reflex, which missed the most
+ * common phosphorus motif in the whole subject: a phosphate ester is
+ * H-C-O-P, so the path to P runs THROUGH the oxygen. Triethyl phosphate came
+ * back with no warning at all, and ³J(H-C-O-P) is a real 7-8 Hz splitting.
+ * Caught by a probe, not by reading the code.
+ */
+function heteroCouplersNear(mol: Molecule, a: number): string[] {
+  const found = new Set<string>();
+  for (const nb of neighbors(mol, a)) {
+    const two = HETERO_COUPLERS[mol.getAtomicNo(nb.atom)];
+    if (two) found.add(two);
+    for (const nb2 of neighbors(mol, nb.atom)) {
+      if (nb2.atom === a) continue;
+      const three = HETERO_COUPLERS[mol.getAtomicNo(nb2.atom)];
+      if (three) found.add(three);
+    }
+  }
+  return [...found];
+}
+
+/**
  * Multiplicity from the n+1 rule, counting protons on adjacent carbons. Returns
  * "m" when the coupling partners are inequivalent (the n+1 rule does not apply).
+ *
+ * Records a caveat when a non-exchangeable heteronuclear coupler sits close
+ * enough to split this signal — see HETERO_COUPLERS.
  */
-function multiplicity(mol: Molecule, a: number): string {
+function multiplicity(mol: Molecule, a: number, caveats: Set<string>): string {
   mol.ensureHelperArrays(Molecule.cHelperSymmetrySimple);
   const selfRank = mol.getSymmetryRank(a);
   const partners: number[] = [];
   const ranks = new Set<number>();
+
+  const hetero = heteroCouplersNear(mol, a);
+  if (hetero.length) {
+    // Name a magnitude for whichever nucleus is actually present — quoting the
+    // fluorine figure for a phosphine would be its own small dishonesty.
+    const scale = hetero.includes("¹⁹F")
+      ? "²J(H-C-F) is around 47 Hz, larger than any H-H coupling here"
+      : "²J and ³J to ³¹P run from a few Hz to around 20 Hz";
+    caveats.add(
+      `${hetero.join(" and ")} coupling is NOT included in the multiplicities shown. ` +
+        "These nuclei are spin-½ and do not exchange, so they genuinely split the " +
+        `proton signals — ${scale}. Expect additional splitting this model does not predict.`
+    );
+  }
+
   for (const nb of neighbors(mol, a)) {
-    if (mol.getAtomicNo(nb.atom) !== 6) continue; // ignore exchangeable OH/NH coupling
+    // Exchangeable OH/NH coupling is washed out and is correctly ignored; the
+    // non-exchangeable heteronuclei are caveated above rather than dropped in
+    // silence.
+    if (mol.getAtomicNo(nb.atom) !== 6) continue;
     const h = mol.getAllHydrogens(nb.atom);
     if (h === 0) continue;
     // Protons equivalent to these ones do not split them — coupling between
@@ -643,7 +706,7 @@ export function predictNmr(input: string, nucleus: Nucleus): NmrResult | null {
     const count = hPer * group.length;
     if (mol.getAtomicNo(rep) === 6) {
       const { shift, assignment } = shift1HonCarbon(mol, rep, caveats);
-      signals.push({ shift, count, multiplicity: multiplicity(mol, rep), assignment, atoms: group });
+      signals.push({ shift, count, multiplicity: multiplicity(mol, rep, caveats), assignment, atoms: group });
     } else {
       const het = heteroatomProton(mol, rep);
       if (!het) continue;

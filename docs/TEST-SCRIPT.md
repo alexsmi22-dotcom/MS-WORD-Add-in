@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.63.0)
+# JurisLab — Manual Test Script (v2.64.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -1090,6 +1090,32 @@ Engineering mode. **Energy & power** grows 8 → 16; the mode must state
 - [ ] **Wind + altitude**: blank the density, set altitude 2000 m → the result notes
   density **1.0065 kg/m³ from the ISA** — the same atmosphere the aviation tools use.
 - [ ] All eight new tools insert, subscripts and superscripts intact (O₂, m², kVAR).
+
+---
+
+## 0y. New in v2.64.0 — the eight live defects
+
+Fixes from `docs/GAP-ANALYSIS-2026-08-01.md`. Most are visible without leaving
+the Home screen.
+
+- [ ] **Home screen**: the Engineering tile reads **"87 calculators across 16
+  disciplines"** — not 36, not nine. It is counted from the registry, so it
+  should track any future addition automatically.
+- [ ] **Home screen**: click the **science** filter chip. **Finance must still be
+  visible** (it was hidden behind the legal chip).
+- [ ] **Spectra → ¹H NMR** on a fluorine compound (SMILES `OCCF`): a caveat must
+  say **¹⁹F coupling is NOT included in the multiplicities**. Try a phosphate
+  ester (`CCOP(=O)(OCC)OCC`) — same warning for **³¹P**, reached through the
+  oxygen. Then check `CCO` (ethanol): **no such warning** — it must stay specific.
+- [ ] **Analyze → Data insights**, paste six or more numeric columns of junk. The
+  narrative must state **how many pairs were tested**, name
+  **Benjamini-Hochberg**, and report an **adjusted** p beside the raw one. Any
+  correlation reported must be followed by the **causation** caveat.
+- [ ] **Align**, paste a two-record FASTA (`>a` / `>b`) into either box: a caveat
+  must say the records were **joined into one sequence**. A single-record FASTA
+  must produce no such warning.
+- [ ] **Insert** from Insights and from Spectra — the new caveat lines must land
+  in the document with the rest of the report.
 
 ---
 

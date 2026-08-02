@@ -11,6 +11,7 @@
 // to an input cell.
 
 import { mean, median, stdev, tTestP, linearRegression } from "./stats";
+import { adjustPValues } from "./stats2";
 import { minOf, maxOf } from "./minmax";
 
 export type ColumnType = "numeric" | "categorical";
@@ -40,8 +41,25 @@ export interface Correlation {
   r: number;
   /** Spearman rank correlation. */
   rho: number;
-  /** Two-tailed p-value for Pearson r ≠ 0. */
+  /** Two-tailed p-value for Pearson r ≠ 0, UNCORRECTED. */
   p: number;
+  /**
+   * Benjamini-Hochberg adjusted p across every pair tested in this table.
+   *
+   * WHY THIS FIELD EXISTS. Scanning a table correlates every pair at once: ten
+   * numeric columns is 45 simultaneous tests, and at p < 0.05 roughly two of
+   * them come back "significant" from pure noise. Reporting the raw p in that
+   * setting is the same family-wise error the ANOVA post-hoc tools exist to
+   * prevent — and this is the tool aimed at the reader least likely to catch
+   * it, because it prints its findings as sentences.
+   *
+   * BH rather than Bonferroni deliberately: exploratory scanning wants the
+   * false DISCOVERY rate, not the family-wise error rate. Bonferroni over 45
+   * tests would hide real structure this tool exists to surface.
+   */
+  pAdjusted: number;
+  /** How many pairwise tests the adjustment was made across. */
+  comparisons: number;
   n: number;
 }
 
@@ -212,7 +230,10 @@ export function correlate(a: string, b: string, xs: number[], ys: number[]): Cor
   const rho = spearman(xs, ys);
   const t = Math.abs(r) >= 1 ? Infinity : Math.abs(r) * Math.sqrt((n - 2) / (1 - r * r));
   const p = tTestP(t, n - 2);
-  return { a, b, r, rho, p, n };
+  // A correlation computed on its own is not a multiple-comparison problem, so
+  // it starts equal to the raw p; `analyzeData` overwrites both fields once it
+  // knows how many pairs were tested together.
+  return { a, b, r, rho, p, pAdjusted: p, comparisons: 1, n };
 }
 
 /** Aligned numeric pairs across two columns, using rows where both are numbers. */
@@ -266,6 +287,15 @@ export function analyzeData(input: string): InsightsReport | null {
       if (cor) correlations.push(cor);
     }
   }
+  // EVERY pair was tested at once, so the p-values are a family and are
+  // corrected as one. Done here rather than in `correlate`, because a single
+  // correlation computed on its own is not a multiple-comparison problem —
+  // the multiplicity is created by this loop, so this is where it is answered.
+  const adjusted = adjustPValues(correlations.map((c) => c.p), "bh");
+  correlations.forEach((c, i) => {
+    c.pAdjusted = adjusted[i];
+    c.comparisons = correlations.length;
+  });
   correlations.sort((a, b) => Math.abs(b.r) - Math.abs(a.r));
 
   // Trend of each numeric column against row order (a proxy for time/sequence).
@@ -308,18 +338,42 @@ function buildInsights(
       `(${numeric.length} numeric).`,
   );
 
-  // Significant correlations — the headline actionable finding.
-  const sig = correlations.filter((c) => c.p < 0.05);
+  // Correlations that survive the multiple-comparison correction. Judged on the
+  // ADJUSTED p: with every pair tested at once, the raw p answers a question
+  // nobody asked ("would this pair alone have been significant?").
+  const sig = correlations.filter((c) => c.pAdjusted < 0.05);
+  const many = correlations.length > 1;
   if (sig.length) {
     for (const c of sig.slice(0, 3)) {
       const dir = c.r > 0 ? "positively" : "negatively";
+      const pPart = many
+        ? `${strength(c.r)}: r = ${fmt(c.r)}, ${pStr(c.p)}, adjusted ${pStr(c.pAdjusted)}`
+        : `${strength(c.r)}: r = ${fmt(c.r)}, ${pStr(c.p)}`;
       out.push(
-        `${c.a} and ${c.b} are ${dir} correlated (${strength(c.r)}: r = ${fmt(c.r)}, ${pStr(c.p)}). ` +
+        `${c.a} and ${c.b} are ${dir} correlated (${pPart}). ` +
           `As one rises, the other tends to ${c.r > 0 ? "rise" : "fall"}.`,
       );
     }
+    out.push(
+      "Correlation is not causation: a third variable driving both, or the way the rows " +
+        "were selected, produces exactly this pattern. Treat these as leads to test, not findings.",
+    );
   } else if (correlations.length) {
-    out.push("No pair of numeric columns is significantly correlated (all p ≥ 0.05).");
+    out.push(
+      many
+        ? "No pair of numeric columns survives correction for multiple comparisons."
+        : "No pair of numeric columns is significantly correlated (p ≥ 0.05).",
+    );
+  }
+  if (many) {
+    const raw = correlations.filter((c) => c.p < 0.05).length;
+    out.push(
+      `${correlations.length} pairs were tested at once, so the p-values are corrected ` +
+        `(Benjamini-Hochberg). ${raw} pair${raw === 1 ? "" : "s"} would look significant on the ` +
+        `uncorrected p; ${sig.length} survive${sig.length === 1 ? "s" : ""} correction. Testing ` +
+        "every pair guarantees some will pass by chance — with 20 pairs at p < 0.05, one false " +
+        "positive is the expectation, not bad luck.",
+    );
   }
 
   // Trends over row order.

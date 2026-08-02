@@ -174,6 +174,7 @@ import {
   ProcessKind,
 } from "../lib/thermo";
 import { parseMeasured, resultFigures } from "../lib/units";
+import { describeCrash, crashAdvice } from "../lib/crashReport";
 import { nmrChartSvg, irChartSvg, msChartSvg, cosyChartSvg, hsqcChartSvg, jcampChartSvg, decimateTrace, SPECTRUM_CHART_SIZE, SPECTRUM_2D_SIZE } from "../lib/spectraChart";
 import { buildPeptide } from "../lib/peptide";
 import {
@@ -793,6 +794,47 @@ let subGroupWrap: HTMLElement | null = null;
 let currentStructure: StructureResult | null = null;
 /** The molecule currently shown in the Build preview, or null. */
 let currentBuild: BuildResult | null = null;
+
+/**
+ * GLOBAL CRASH BANNER — installed at module scope, before Office.onReady, so it
+ * is already listening during initialisation. That ordering is the point: a
+ * failure while the pane is wiring itself up is exactly the case that renders
+ * an empty pane with no explanation, and it happens before any handler inside
+ * onReady could have been attached.
+ *
+ * Renders into a banner of its own rather than the status paragraph, because
+ * the status element may not exist yet when this fires.
+ */
+function showCrashBanner(err: unknown, source: string): void {
+  try {
+    const info = describeCrash(err, source, __APP_VERSION__);
+    let host = document.getElementById("crash-banner");
+    if (!host) {
+      host = document.createElement("div");
+      host.id = "crash-banner";
+      host.setAttribute("role", "alert");
+      document.body.insertBefore(host, document.body.firstChild);
+    }
+    // Built with DOM calls, not innerHTML: the message can contain arbitrary
+    // text from a thrown value, and an error banner must not be an injection
+    // point. textContent also renders the stack's newlines literally.
+    host.textContent = "";
+    const h = document.createElement("strong");
+    h.textContent = info.headline;
+    const p = document.createElement("p");
+    p.textContent = crashAdvice();
+    const pre = document.createElement("pre");
+    pre.textContent = info.report;
+    host.append(h, p, pre);
+  } catch {
+    // A crash handler that throws is worse than none. Swallow deliberately.
+  }
+}
+
+window.addEventListener("error", (e) => showCrashBanner(e.error ?? e.message, "an uncaught error"));
+window.addEventListener("unhandledrejection", (e) =>
+  showCrashBanner((e as PromiseRejectionEvent).reason, "an unhandled promise rejection"),
+);
 
 Office.onReady((info) => {
   if (info.host !== Office.HostType.Word) {
@@ -1496,10 +1538,22 @@ const HOME_GROUPS: HomeGroup[] = [
         mode: "engineering",
         audience: ["science"],
         label: "Engineering",
-        // Named the two structural calculators for a long time after this tile
-        // grew to 36 across nine disciplines, so the pane undersold its own
-        // largest tool to the person deciding whether to open it.
-        desc: "36 calculators: beams, stress, fluids, thermal, circuits, control, vibration, PK",
+        // COUNTED, NOT TYPED. This tile said "36 calculators across nine
+        // disciplines" for twenty-odd releases while the bench grew to 87 across
+        // 16 — the pane undersold its own largest tool by 58% to the person
+        // deciding whether to open it, and every doc gate passed because they
+        // check the DOCS against the registry and never the pane. Deriving both
+        // numbers from ENG_CALCS and ENG_GROUP_ORDER makes the drift impossible
+        // rather than merely fixed.
+        //
+        // A GETTER, because HOME_GROUPS is declared above ENG_CALCS and a plain
+        // template literal would read it during module init, before it exists.
+        // Property access happens at render, by which time it is populated.
+        get desc(): string {
+          return `${ENG_CALCS.length} calculators across ${
+            new Set(ENG_CALCS.map((c) => c.group)).size
+          } disciplines: beams, stress, fluids, thermal, energy, circuits, control, PK`;
+        },
       },
     ],
   },
@@ -1507,7 +1561,13 @@ const HOME_GROUPS: HomeGroup[] = [
     title: "Data & figures",
     items: [
       { mode: "ppt", label: "Table → Chart", desc: "Charts, diagrams, table figures, PPT" },
-      { mode: "finance", audience: ["legal"], label: "Finance", desc: "TVM, DCF, bonds, options + Greeks, amortization" },
+      // NO audience tag, deliberately. This was tagged ["legal"], which hid TVM,
+      // DCF, bonds, options and Greeks from anyone using the science chip —
+      // damages models, royalty rates and NPV are legal work, but so is every
+      // engineering-economics and lab-budget question on the science side. An
+      // untagged tile shows to everyone, which is the honest answer for a tool
+      // neither audience owns.
+      { mode: "finance", label: "Finance", desc: "TVM, DCF, bonds, options + Greeks, amortization" },
     ],
   },
   {

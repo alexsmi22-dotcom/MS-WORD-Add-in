@@ -2042,3 +2042,41 @@ select {
   color: var(--ink);
   font-weight: 600;
 }
+
+/* Crash banner — inserted at the top of <body> by the global error handlers in
+   taskpane.ts. Uses the existing error token so it is theme-correct in both
+   light and dark, and is styled here rather than inline so themeContrast.test
+   can see it like any other pair. */
+#crash-banner {
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--error);
+  border-left-width: 4px;
+  border-radius: 6px;
+  background: var(--ground-2);
+  color: var(--ink);
+  font-size: 12.5px;
+}
+
+#crash-banner strong {
+  display: block;
+  color: var(--error);
+  margin-bottom: 4px;
+}
+
+#crash-banner p {
+  margin: 0 0 6px;
+}
+
+#crash-banner pre {
+  margin: 0;
+  padding: 6px 8px;
+  background: var(--ground);
+  border-radius: 4px;
+  font-size: 11px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 160px;
+  overflow: auto;
+  user-select: all;
+}

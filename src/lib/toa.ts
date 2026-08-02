@@ -2,8 +2,14 @@
 // and de-duplicates them, and produces a grouped, alphabetized authorities list
 // (Cases / Statutes / Regulations / Patents / Other Authorities) ready to insert.
 //
-// Page numbers are intentionally omitted — a text scan can't reliably recover
-// them from Word; the drafter adds pages or uses Word's native TA/TOA fields.
+// Page numbers: a text scan cannot recover them, so they arrive by one of the
+// two routes this module provides rather than being guessed — Word's native
+// TA/TOA fields (which paginate themselves on F9), or `parseToaPages`, which
+// reads the pages back out of a generated table and feeds them to
+// `toaStaticOoxml` for the static brief-template version. This comment used to
+// say pages were "intentionally omitted"; that stopped being true when those
+// two paths shipped, and a stale refusal is how a capability gets re-refused
+// by the next reader.
 //
 // Pure logic — no Office.js — fully unit-testable.
 

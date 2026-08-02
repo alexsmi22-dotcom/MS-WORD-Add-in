@@ -280,9 +280,14 @@ export function isSymmetric(m: Matrix, tol = 1e-9): boolean {
 /**
  * Eigenvalues and eigenvectors of a SYMMETRIC matrix by the cyclic Jacobi
  * rotation method (always real, always convergent for symmetric input).
- * Returns null for a non-symmetric matrix — general non-symmetric eigenvalues
- * can be complex and are intentionally out of scope. Values are returned in
- * descending order with their eigenvectors as the columns of `vectors`.
+ * Returns null for a non-symmetric matrix — not because that case is out of
+ * scope (it is not: `eigenvaluesGeneral` below solves it by Francis double-shift
+ * QR and ships as the "eigen-general" tool), but because THIS routine's
+ * guarantees only hold for symmetric input. Jacobi rotation returns real
+ * eigenvalues and orthogonal eigenvectors; handing it a non-symmetric matrix
+ * would silently forfeit both. Refusing sends the caller to the right engine.
+ * Values are returned in descending order with their eigenvectors as the
+ * columns of `vectors`.
  */
 export function eigenSymmetric(m: Matrix): Eigen | null {
   if (!isSymmetric(m)) return null;

@@ -6,6 +6,45 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.64.0] — 2026-08-01 — The eight live defects from the gap analysis
+
+A full gap analysis (`docs/GAP-ANALYSIS-2026-08-01.md`) separated things that are
+MISSING from things that are WRONG. This release is the second list.
+
+**Two were correctness defects.** ¹H NMR skipped every non-carbon neighbour under
+a comment reading "ignore exchangeable OH/NH coupling" — right for O and N, wrong
+for **fluorine and phosphorus**, which do not exchange and couple hard
+(²J(H-C-F) ≈ 47 Hz). A fluorinated CH₂ was reported as a confident singlet with no
+warning. Those environments are now named in a caveat. And **Insights** correlated
+every pair of pasted columns and called them "significantly correlated" on the
+UNCORRECTED p — 45 simultaneous tests on ten columns, in the surface aimed at the
+least statistical reader the product has. Correlations now carry a
+Benjamini-Hochberg adjusted p, the narrative reports how many pairs were tested,
+and a causation caveat rides along.
+
+**One was a silent data defect.** Align concatenated a multi-record FASTA into a
+chimera and aligned it. `countFastaRecords` had been written for exactly this
+("&gt;1 means the caller should warn") and had no caller; DNA and Sequence Map both
+warned already.
+
+**One was a missing safety net.** There was no `window.onerror` and no
+`unhandledrejection` handler anywhere, so an uncaught error in an Office task pane
+rendered *nothing* — a pane that silently stopped, with no message and no way to
+report it. A crash banner now names the failure, says the document is untouched,
+and shows a pasteable report with the version in it. Nothing is transmitted.
+
+**Four were claims that had drifted.** The Engineering tile advertised "36
+calculators" against 87 — it now COUNTS them from the registry, so it cannot drift
+again. Finance was tagged legal-only and invisible to science users. `landing/
+science.html` sold restriction sites on sequence *maps* (they live in DNA mode).
+And three stale refusals were corrected in place: `toa.ts` still refused page
+numbers the product ships, `linalg.ts` called general eigenvalues out of scope
+after they shipped, and the ROADMAP header said v1.96.0.
+
+Found while fixing: my own first cut of the heteronuclear detector walked the
+second bond through carbon only, which misses **H-C-O-P** — the most common
+phosphorus motif there is. A probe caught it; a phosphate ester test now pins it.
+
 ## [2.63.0] — 2026-08-01 — Adiabatic flame temperature, the honest way
 
 The one energy calculator that needed real thermodynamic data, built under

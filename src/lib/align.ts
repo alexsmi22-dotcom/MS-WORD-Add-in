@@ -186,6 +186,24 @@ export function align(seqA: string, seqB: string, opts: AlignOptions = {}): Alig
   const b = cleanSequence(seqB);
   if (!a.length || !b.length) return null;
 
+  // A MULTI-RECORD FASTA IS NOT ONE SEQUENCE, AND SILENTLY TREATING IT AS ONE
+  // IS THE WORST AVAILABLE ANSWER. `cleanSequence` strips '>' header lines and
+  // concatenates whatever follows, so pasting a two-record FASTA produced a
+  // confident alignment of a chimera that exists in no organism. DNA mode and
+  // Sequence Map both already warn about exactly this; `countFastaRecords` was
+  // written for it ("&gt;1 means the caller should warn") and had no caller.
+  const preCaveats: string[] = [];
+  for (const [label, raw] of [["first", seqA], ["second", seqB]] as const) {
+    const records = countFastaRecords(raw);
+    if (records > 1) {
+      preCaveats.push(
+        `The ${label} input holds ${records} FASTA records — they were joined into one ` +
+          "sequence before aligning, which is almost never what you want. Align one record " +
+          "against one record."
+      );
+    }
+  }
+
   const mode: AlignMode = opts.mode ?? "global";
   const kind: SeqKind = opts.kind ?? (guessKind(a) === "dna" && guessKind(b) === "dna" ? "dna" : "protein");
   const gapOpen = opts.gapOpen ?? 10;
@@ -336,7 +354,9 @@ export function align(seqA: string, seqB: string, opts: AlignOptions = {}): Alig
   const aStart = local ? bi - outA.filter((c) => c !== "-").length + 1 : 1;
   const bStart = local ? bj - outB.filter((c) => c !== "-").length + 1 : 1;
 
-  const caveats: string[] = [];
+  // The multi-record warning goes FIRST: it says the input was not what the
+  // user thought, which changes how every number below it should be read.
+  const caveats: string[] = [...preCaveats];
   caveats.push(
     mode === "global"
       ? "Global (Needleman-Wunsch): forces an end-to-end alignment. If the two sequences " +

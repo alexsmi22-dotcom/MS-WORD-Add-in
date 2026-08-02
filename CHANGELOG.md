@@ -6,6 +6,33 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.70.0] — 2026-08-02 — DEPT, and the sp3 substituents that vanished
+
+Tier 1 release F, chemistry half.
+
+**DEPT.** Every ¹³C signal now carries its class — C, CH, CH₂ or CH₃ — and the
+result spells out what DEPT-135 and DEPT-90 would show for the classes actually
+present. The distinction that makes it worth having: this classification is
+**exact**, read straight off the structure's own hydrogen count, while the shift
+printed beside it is an estimate with a stated error. DEPT is precisely the
+experiment that resolves the assignments an additivity model is least sure of,
+and the information was already in the graph.
+
+Stated rather than assumed: a peak in the decoupled spectrum with nothing at its
+shift in DEPT is the diagnostic for a **quaternary** carbon, not a missing signal.
+
+**The sp3 path now names substituents it ignored.** A group with no tabulated
+increment contributes ZERO, so the shift comes out as if it were not attached at
+all. `aromaticCaveats` had named that case on a ring since it was written; the
+sp3 path stayed silent about the identical failure. It now reports which
+attachment was ignored and that the carbon's value is unreliable — the same
+class of fix as the ¹⁹F/³¹P caveat in v2.64.0.
+
+Caught during this work: `deptBehaviour` was initially used only by its tests
+while the pane restated the phases in its own words. Two copies of one fact,
+one of them dead. The reachability ratchet failed the build, the pane now
+derives its text from the helper, and the ratchet holds at 18.
+
 ## [2.69.1] — 2026-08-02 — The empty plot box in Bio/Assay
 
 Reported from real use: Bio/Assay showed a plot box with nothing in it.

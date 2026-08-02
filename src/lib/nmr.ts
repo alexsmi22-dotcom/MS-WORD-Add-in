@@ -44,6 +44,37 @@ import {
 
 export type Nucleus = "1H" | "13C";
 
+/** How many protons a carbon carries — the quantity DEPT separates. */
+export type DeptClass = "C" | "CH" | "CH2" | "CH3";
+
+/** DEPT class of a carbon, read exactly from the structure. */
+export function deptClass(mol: Molecule, a: number): DeptClass {
+  const h = mol.getAllHydrogens(a);
+  return h === 0 ? "C" : h === 1 ? "CH" : h === 2 ? "CH2" : "CH3";
+}
+
+/**
+ * What the two standard DEPT experiments show for a given carbon.
+ *
+ * DEPT-135: CH and CH₃ point UP, CH₂ points DOWN, quaternary carbons are
+ * ABSENT. DEPT-90: only CH appears. Between them and the proton-decoupled
+ * spectrum, every carbon's proton count is determined — which is exactly the
+ * information an additivity model like this one is worst at guessing and a
+ * spectrometer gets for free.
+ */
+export function deptBehaviour(cls: DeptClass): { dept135: string; dept90: string } {
+  switch (cls) {
+    case "C":
+      return { dept135: "absent", dept90: "absent" };
+    case "CH":
+      return { dept135: "up", dept90: "present" };
+    case "CH2":
+      return { dept135: "DOWN", dept90: "absent" };
+    default:
+      return { dept135: "up", dept90: "absent" };
+  }
+}
+
 export interface NmrSignal {
   /** Predicted chemical shift, ppm (TMS = 0). */
   shift: number;
@@ -55,6 +86,18 @@ export interface NmrSignal {
   assignment: string;
   /** Atom indices contributing to this signal. */
   atoms: number[];
+  /**
+   * DEPT class for a ¹³C signal: how many protons the carbon carries.
+   *
+   * EXACT, NOT PREDICTED — unlike the shift. It is read straight off the
+   * structure's own hydrogen count, so while the ppm value is an estimate with
+   * a stated error, this classification is simply true of the molecule you
+   * typed. That distinction is worth keeping visible: DEPT is the experiment
+   * that resolves the assignments this module's shifts are least sure about.
+   *
+   * Undefined for ¹H signals.
+   */
+  dept?: DeptClass;
   /** True when the value is a nominal range rather than an additivity estimate (OH/NH). */
   variable?: boolean;
 }
@@ -390,6 +433,7 @@ function shift13C(mol: Molecule, a: number, caveats: Set<string>): { shift: numb
     }
   }
   let shift = -2.3 + 9.1 * nA + 9.4 * nB - 2.5 * nG + 0.3 * nD;
+  const unknownSp3 = new Set<string>();
 
   // Substituent increments: for each skeleton carbon within γ of `a`, every
   // neighbour that is NOT part of the skeleton is a substituent root. Its
@@ -401,9 +445,25 @@ function shift13C(mol: Molecule, a: number, caveats: Set<string>): { shift: numb
       if (skeleton[nb.atom] >= 0) continue; // still the skeleton, already counted
       const key = classifySubstituent(mol, nb.atom, s);
       const inc = SP3_13C[key];
-      if (!inc) continue;
+      // SAME SILENCE THE AROMATIC PATH ALREADY BREAKS. A substituent with no
+      // tabulated increment contributes ZERO, so the shift comes out as if the
+      // group were not attached at all — and until now the sp3 path said
+      // nothing about it, while `aromaticCaveats` named the equivalent case on
+      // a ring. A silent omission is worse the further it is from a chemist's
+      // expectation, and an unusual group is exactly where they would check.
+      if (!inc) {
+        unknownSp3.add(mol.getAtomLabel(nb.atom));
+        continue;
+      }
       shift += inc[d];
     }
+  }
+  if (unknownSp3.size) {
+    caveats.add(
+      `Substituent${unknownSp3.size > 1 ? "s" : ""} attached via ${[...unknownSp3].join(", ")} ` +
+        "have no tabulated sp3 increment, so they contributed NOTHING to this shift — it is " +
+        "predicted as if they were absent. Treat that carbon's value as unreliable.",
+    );
   }
 
   const label = hCount === 3 ? "CH3" : hCount === 2 ? "CH2" : hCount === 1 ? "CH" : "C (quaternary)";
@@ -688,6 +748,7 @@ export function predictNmr(input: string, nucleus: Nucleus): NmrResult | null {
         multiplicity: "s", // proton-decoupled, the standard 13C experiment
         assignment,
         atoms: group,
+        dept: deptClass(mol, rep),
       });
     }
     signals.sort((x, y) => y.shift - x.shift);

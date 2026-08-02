@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.69.1)
+# JurisLab — Manual Test Script (v2.70.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -1090,6 +1090,22 @@ Engineering mode. **Energy & power** grows 8 → 16; the mode must state
 - [ ] **Wind + altitude**: blank the density, set altitude 2000 m → the result notes
   density **1.0065 kg/m³ from the ISA** — the same atmosphere the aviation tools use.
 - [ ] All eight new tools insert, subscripts and superscripts intact (O₂, m², kVAR).
+
+---
+
+## 0ae. New in v2.70.0 — DEPT
+
+- [ ] **Spectra → ¹³C NMR** on ethanol (`CCO`): each line now shows a **class**
+  beside the shift — CH3 and CH2 here — and a **DEPT** block underneath gives the
+  tally plus what DEPT-135 and DEPT-90 would show.
+- [ ] Toluene (`Cc1ccccc1`): the ipso carbon must read **C** (quaternary), the
+  ring carbons **CH**, the methyl **CH3**. In the DEPT-135 line, CH2 (if present)
+  must read **DOWN** while CH and CH3 read up.
+- [ ] tert-butanol (`CC(C)(C)O`): a **C** and **CH3**, no CH2.
+- [ ] Propan-2-ol (`CC(O)C`) shows a **CH**; propan-1-ol (`CCCO`) shows a **CH2**
+  — the pair DEPT-90 exists to separate.
+- [ ] **¹H** spectra must NOT show a class column (DEPT is a carbon experiment).
+- [ ] The ¹³C table still inserts.
 
 ---
 

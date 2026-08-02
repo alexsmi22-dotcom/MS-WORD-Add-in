@@ -87,7 +87,7 @@ import { computeProperties, PhysChemProperties, RuleResult } from "../lib/proper
 import { predictPka, PkaResult } from "../lib/pka";
 import { resolveNameOnline, OpsinResult } from "../lib/opsin";
 import { computeMassSpec, MassSpecResult } from "../lib/massspec";
-import { predictNmr, NmrResult, Nucleus } from "../lib/nmr";
+import { predictNmr, deptBehaviour, DeptClass, NmrResult, Nucleus } from "../lib/nmr";
 import { predictCoupling, predictCosy, predictHsqc, Cosy2D, Hsqc2D } from "../lib/nmr2d";
 import { solveEquation, differentiate, integrate, parseExpr, evalAst } from "../lib/solve";
 import { solveSystem, splitEquations } from "../lib/systems";
@@ -15534,18 +15534,57 @@ function spectrumAsText(): string {
 
   if (cur.kind === "1H" || cur.kind === "13C") {
     const r = cur.nmr;
+    /**
+     * What DEPT-135 and DEPT-90 would show, grouped by class.
+     *
+     * Worth spelling out rather than leaving the reader to remember: DEPT-135
+     * puts CH and CH3 UP, CH2 DOWN, and quaternary carbons vanish entirely —
+     * so a peak in the decoupled spectrum with nothing at its shift in DEPT is
+     * the diagnostic for a quaternary carbon, not a missing signal.
+     */
+    const deptSummaryLines = (res: NmrResult): string[] => {
+      const byClass = new Map<string, number>();
+      for (const s of res.signals) {
+        if (!s.dept) continue;
+        byClass.set(s.dept, (byClass.get(s.dept) ?? 0) + 1);
+      }
+      if (!byClass.size) return [];
+      const order: DeptClass[] = ["C", "CH", "CH2", "CH3"];
+      const part = (k: DeptClass): string => `${byClass.get(k) ?? 0} ${k}`;
+      // DERIVED from deptBehaviour rather than restated here. Writing the
+      // phases out a second time is how the two copies drift, and it would
+      // also have left the exported helper dead — the exact debt the
+      // reachability ratchet exists to stop growing.
+      const phase = (which: "dept135" | "dept90"): string =>
+        order
+          .filter((k) => byClass.has(k))
+          .map((k) => `${k} ${deptBehaviour(k)[which]}`)
+          .join(", ");
+      return [
+        "",
+        `DEPT: ${order.map(part).join(", ")}`,
+        `  DEPT-135  ${phase("dept135")}`,
+        `  DEPT-90   ${phase("dept90")}`,
+        "  These classes are exact (counted from the structure); the shifts beside them are not.",
+      ];
+    };
     // For 1H, fold the resolved multiplet + J into each line.
     const cpl = r.nucleus === "1H" ? predictCoupling(r.smiles) : null;
     const lines = [
       `Predicted ${r.nucleus} NMR — ${r.smiles}`,
       ...r.signals.map((s, i) => {
         if (r.nucleus !== "1H") {
-          return `  δ ${s.shift.toFixed(1)}  ${s.assignment}${s.count > 1 ? `  (${s.count} equivalent C)` : ""}`;
+          // DEPT class is EXACT — read off the structure's own hydrogen count —
+          // unlike the shift beside it, and it pins down exactly the
+          // assignments an additivity model is least sure of.
+          const d = s.dept ? `  ${s.dept.padEnd(3)}` : "";
+          return `  δ ${s.shift.toFixed(1)}${d}  ${s.assignment}${s.count > 1 ? `  (${s.count} equivalent C)` : ""}`;
         }
         const cs = cpl?.signals[i];
         const mult = cs ? formatMultiplet(cs.multiplet, cs.J) : s.multiplicity;
         return `  δ ${s.shift.toFixed(2)}  (${s.count}H, ${mult})  ${s.assignment}`;
       }),
+      ...(r.nucleus === "13C" ? deptSummaryLines(r) : []),
       ...r.caveats.map((c) => `Note: ${c}`),
       tail,
     ];

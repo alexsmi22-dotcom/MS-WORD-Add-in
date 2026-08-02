@@ -14,8 +14,14 @@ import {
   combustion,
   lcoe,
   capacityFactor,
+  windShear,
+  weibullWind,
+  flueGas,
+  storageSizing,
+  solarGeometry,
   BETZ_LIMIT,
 } from "../energy";
+import { threePhase, pfCorrection, voltageDrop } from "../grid";
 
 /** Deterministic LCG so a failure reproduces. */
 function rng(seed: number): () => number {
@@ -125,6 +131,110 @@ describe("no calculator ever reports a non-finite number or a blank refusal", ()
         if (bad) failures.push(`"${f.slice(0, 30)}" hhv=${hhv}: ${bad}`);
       }
     expect(failures).toEqual([]);
+  });
+});
+
+describe("v2.62.0 engines: no non-finite number or blank refusal ever escapes", () => {
+  it("wind shear and Weibull over the hostile grid", () => {
+    const failures: string[] = [];
+    for (const a of HOSTILE)
+      for (const b of HOSTILE) {
+        for (const [name, res] of [
+          ["shear", windShear({ refSpeed: a, refHeight: b, targetHeight: 80, alpha: 0.2, roughnessM: 0.03 })],
+          ["shear2", windShear({ refSpeed: 6, refHeight: 10, targetHeight: a, alpha: b, roughnessM: b })],
+          ["weibull", weibullWind({ shape: a, scale: b })],
+          ["weibull2", weibullWind({ shape: 2, meanSpeed: a, airDensity: b })],
+        ] as const) {
+          const bad = nonFiniteIn(res);
+          if (bad) failures.push(`${name} a=${a} b=${b}: ${bad}`);
+        }
+      }
+    expect(failures).toEqual([]);
+  });
+
+  it("Weibull with hostile turbine bands", () => {
+    const failures: string[] = [];
+    for (const ci of HOSTILE)
+      for (const rated of [3.0000001, 12, 1e300, NaN]) {
+        const bad = nonFiniteIn(
+          weibullWind({ shape: 2, scale: 8, turbine: { cutIn: ci, rated, cutOut: rated * 2 } })
+        );
+        if (bad) failures.push(`ci=${ci} rated=${rated}: ${bad}`);
+      }
+    expect(failures).toEqual([]);
+  });
+
+  it("flue gas over hostile readings and formulas", () => {
+    const failures: string[] = [];
+    for (const o2 of HOSTILE)
+      for (const f of ["CH4", "C", "H2", "CH3SH", "CO2", "", "xyz"]) {
+        const bad = nonFiniteIn(flueGas({ formula: f, o2DryPct: o2 }));
+        if (bad) failures.push(`"${f}" o2=${o2}: ${bad}`);
+      }
+    expect(failures).toEqual([]);
+  });
+
+  it("storage over the hostile grid — the degradation pow and the year loop", () => {
+    const failures: string[] = [];
+    for (const load of HOSTILE)
+      for (const capex of HOSTILE) {
+        const bad = nonFiniteIn(
+          storageSizing({
+            dailyLoadKWh: load, autonomyDays: 2, depthOfDischarge: 0.8, roundTripEff: 0.9,
+            economics: { capex, annualOpex: 100, cyclesPerYear: 300, lifetimeYears: 100, discountRate: 0, degradationRate: 0.99 },
+          })
+        );
+        if (bad) failures.push(`load=${load} capex=${capex}: ${bad}`);
+      }
+    expect(failures).toEqual([]);
+  });
+
+  it("solar geometry over every latitude/day corner, including the poles", () => {
+    const failures: string[] = [];
+    for (const lat of [-90, -89.999, -66.5, -23.45, 0, 23.45, 66.5, 89.999, 90, NaN, Infinity, 91])
+      for (const day of [1, 81, 172, 266, 355, 366, 0, 367, 172.5, NaN]) {
+        const bad = nonFiniteIn(solarGeometry({ latitudeDeg: lat, dayOfYear: day, solarHour: 12 }));
+        if (bad) failures.push(`lat=${lat} day=${day}: ${bad}`);
+      }
+    expect(failures).toEqual([]);
+  });
+
+  it("grid: three-phase, PF correction and voltage drop over the hostile grid", () => {
+    const failures: string[] = [];
+    for (const a of HOSTILE)
+      for (const b of HOSTILE) {
+        for (const [name, res] of [
+          ["3ph", threePhase({ lineVoltage: a, lineCurrentA: b, powerFactor: 0.8 })],
+          ["3ph2", threePhase({ lineVoltage: 400, realPowerW: a, powerFactor: b })],
+          ["pfc", pfCorrection({ realPowerW: a, pfBefore: 0.7, pfAfter: 0.95, lineVoltage: b, frequencyHz: 50 })],
+          ["drop", voltageDrop({ material: "copper", kind: "dc", lengthM: a, currentA: b, sectionMm2: 2.5 })],
+          ["drop2", voltageDrop({ material: "aluminium", kind: "three-phase", lengthM: 10, currentA: a, sectionMm2: b, supplyVoltage: 400, maxDropFraction: 0.03 })],
+        ] as const) {
+          const bad = nonFiniteIn(res);
+          if (bad) failures.push(`${name} a=${a} b=${b}: ${bad}`);
+        }
+      }
+    expect(failures).toEqual([]);
+  });
+
+  it("hostile AWG numbers are refused, never misread", () => {
+    for (const awg of [41, -4, 12.5, NaN, Infinity, -Infinity, 1e300]) {
+      const r = voltageDrop({ material: "copper", kind: "dc", lengthM: 10, currentA: 10, awg });
+      expect(r.ok).toBe(false);
+    }
+  });
+
+  it("time budget: the Weibull CF integration stays fast under repetition", () => {
+    const start = Date.now();
+    let sink = 0;
+    for (let i = 0; i < 500; i++) {
+      const r = weibullWind({ shape: 1.5 + (i % 10) / 10, scale: 5 + (i % 7), turbine: { cutIn: 3, rated: 12, cutOut: 25 } });
+      sink += r.ok ? 1 : 0;
+    }
+    const ms = Date.now() - start;
+    expect(sink).toBe(500);
+    // 500 keystroke-shaped calls; generous under parallel-suite load.
+    expect(ms).toBeLessThan(3000);
   });
 });
 

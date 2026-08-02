@@ -112,7 +112,12 @@ function betacf(x: number, a: number, b: number): number {
   return h;
 }
 
-function gammaln(x: number): number {
+/**
+ * Log-gamma (Lanczos), x > 0. Exported so Weibull wind statistics in
+ * energy.ts use THIS implementation rather than a second copy that could
+ * disagree with the one already under every p-value in the product.
+ */
+export function gammaln(x: number): number {
   const cof = [
     76.18009172947146, -86.50532032941677, 24.01409824083091, -1.231739572450155, 0.1208650973866179e-2,
     -0.5395239384953e-5,

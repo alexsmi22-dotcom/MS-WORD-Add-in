@@ -6,6 +6,28 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.62.0] — 2026-08-01 — Energy depth & grid power
+
+The gap analysis, built: Energy & power grows 8 → 16 calculators (Engineering
+is now 86). New `src/lib/grid.ts` — three-phase power (P = √3·V·I·pf on line
+quantities, connection-independent), power factor correction (the real power
+does not change; correction relieves the wires — delta and wye capacitor
+sizing, differing by exactly 3), and cable voltage drop (copper at the
+definitional 100% IACS, AWG computed from the gauge's exact geometric law,
+√3-vs-2 path factor stated). Extended `energy.ts` — wind shear to hub height
+(power law AND log law, disagreement reported, the control.ts two-methods
+doctrine), Weibull wind statistics with the energy pattern factor and a
+capacity-factor estimate (via the same Lanczos gammaln that sits under every
+p-value, now exported from stats.ts), flue-gas analysis (measured dry O₂
+inverted to excess air in closed form, on the same 3.76 air convention as the
+combustion tool so the two cannot disagree), off-grid storage sizing + LCOS
+(losses compound upstream; charging energy explicitly excluded), and sun
+position / day length / H₀ from pure astronomy (polar day and night are
+answers, not errors; same 1361 W/m² solar constant as the PV bound).
+
+The wind tool now fills air density from the ISA at a given altitude — the
+same atmosphere the aviation tools fly on, so the two benches cannot disagree.
+
 ## [2.61.0] — 2026-08-01 — Scientifically correct formatting in the energy suite
 
 You pointed out H2O must never display as "H2O". Every chemical species in the

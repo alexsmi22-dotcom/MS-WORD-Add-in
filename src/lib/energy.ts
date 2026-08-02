@@ -23,6 +23,7 @@
 import { atomicNumber, atomicWeight } from "./periodic";
 import { parseFormula } from "./massspec";
 import { G } from "./fluids";
+import { gammaln } from "./stats";
 
 export interface EnergyError {
   ok: false;
@@ -1124,6 +1125,678 @@ export function capacityFactor(
     capacityFactor: cf,
     maximumMWh: maxMWh,
     equivalentFullLoadHours: cf * periodHours,
+    notes,
+  };
+  if (!allFinite(res as unknown as Record<string, unknown>)) {
+    return { ok: false, error: "These inputs overflow — check the magnitudes and units." };
+  }
+  return res;
+}
+
+// --- Wind shear --------------------------------------------------------------
+
+export interface WindShearInput {
+  /** Measured speed, m/s, at the reference height. */
+  refSpeed: number;
+  /** Reference (measurement) height, m. */
+  refHeight: number;
+  /** Target (hub) height, m. */
+  targetHeight: number;
+  /** Power-law exponent (1/7 open terrain is the classic default). */
+  alpha?: number;
+  /** Roughness length for the log law, m (0.03 open grass, 0.5+ suburbs). */
+  roughnessM?: number;
+}
+
+export interface WindShearResult {
+  ok: true;
+  /** Speed at target height by the power law — null if no alpha given. */
+  powerLawSpeed: number | null;
+  /** Speed at target height by the log law — null if no roughness given. */
+  logLawSpeed: number | null;
+  /** Fractional disagreement between the two — null unless both ran. */
+  disagreement: number | null;
+  /** Cube of the speed ratio (power law preferred, else log) — the energy factor. */
+  powerRatio: number;
+  notes: string[];
+}
+
+/**
+ * Extrapolates a measured wind speed to hub height — the gap the wind-power
+ * tool itself points at: resource is measured at 10 m and turbines live at
+ * 80–120 m, and the CUBE law turns a modest speed correction into a large
+ * energy one.
+ *
+ * TWO INDEPENDENT MODELS, BOTH REPORTED. The power law (v ∝ h^α) and the log
+ * law (v ∝ ln(h/z0)) are different physics fitted to the same layer; when the
+ * user supplies both parameters the two answers and their disagreement are
+ * shown, because agreement is evidence and disagreement means the site's
+ * profile is not textbook — the same design as Routh vs eigenvalues in
+ * control.ts. Both parameters are SITE measurements taken as input.
+ */
+export function windShear(inp: WindShearInput): WindShearResult | EnergyError {
+  const bad = finitePositive([
+    ["measured speed", inp.refSpeed],
+    ["reference height", inp.refHeight],
+    ["target height", inp.targetHeight],
+  ]);
+  if (bad) return bad;
+  if (inp.alpha === undefined && inp.roughnessM === undefined) {
+    return {
+      ok: false,
+      error:
+        "Give a power-law exponent (1/7 = 0.143 for open terrain) or a roughness length " +
+        "(0.03 m open grass), or both to compare the two models.",
+    };
+  }
+
+  const notes: string[] = [];
+  let vPower: number | null = null;
+  if (inp.alpha !== undefined) {
+    if (!Number.isFinite(inp.alpha) || inp.alpha <= 0 || inp.alpha > 1) {
+      return { ok: false, error: "The shear exponent is a fraction, typically 0.1–0.4 (1/7 = 0.143 open terrain)." };
+    }
+    vPower = inp.refSpeed * Math.pow(inp.targetHeight / inp.refHeight, inp.alpha);
+  }
+
+  let vLog: number | null = null;
+  if (inp.roughnessM !== undefined) {
+    if (!Number.isFinite(inp.roughnessM) || inp.roughnessM <= 0) {
+      return { ok: false, error: "The roughness length must be a positive number of metres (0.0002 open sea to ~1 city)." };
+    }
+    if (inp.refHeight <= inp.roughnessM || inp.targetHeight <= inp.roughnessM) {
+      return {
+        ok: false,
+        error:
+          `The log law is undefined at or below the roughness length (${inp.roughnessM} m) — ` +
+          "both heights must be above it, and a roughness of that size next to these heights " +
+          "usually means the unit is wrong.",
+      };
+    }
+    vLog = (inp.refSpeed * Math.log(inp.targetHeight / inp.roughnessM)) / Math.log(inp.refHeight / inp.roughnessM);
+  }
+
+  let disagreement: number | null = null;
+  if (vPower !== null && vLog !== null) {
+    disagreement = Math.abs(vPower - vLog) / ((vPower + vLog) / 2);
+    if (disagreement > 0.1) {
+      notes.push(
+        "The two models disagree by more than 10% — the parameters describe different " +
+          "terrain. Neither answer should be trusted for an energy estimate until the site's " +
+          "own measured profile settles which is right."
+      );
+    } else {
+      notes.push("The two models agree closely, which is evidence the extrapolation is reasonable for this terrain.");
+    }
+  }
+
+  const vBest = vPower ?? vLog!;
+  const powerRatio = Math.pow(vBest / inp.refSpeed, 3);
+  notes.push(
+    "Both laws describe a NEUTRALLY STRATIFIED boundary layer averaged over time; a single " +
+      "gust or a stable night profile follows neither. The exponent and roughness are site " +
+      "measurements, not constants of nature — 1/7 is a habit, not a law.",
+    "The energy consequence is the CUBE of the speed ratio, shown as the power ratio — a 15% " +
+      "speed gain at hub height is a 52% power gain."
+  );
+
+  const res: WindShearResult = {
+    ok: true,
+    powerLawSpeed: vPower,
+    logLawSpeed: vLog,
+    disagreement,
+    powerRatio,
+    notes,
+  };
+  if (!allFinite(res as unknown as Record<string, unknown>)) {
+    return { ok: false, error: "These inputs overflow — check the magnitudes and units." };
+  }
+  return res;
+}
+
+// --- Weibull wind resource ---------------------------------------------------
+
+/** Γ(x) for x > 0, via the same Lanczos log-gamma under every p-value. */
+function gammaFn(x: number): number {
+  return Math.exp(gammaln(x));
+}
+
+export interface WeibullInput {
+  /** Weibull shape k (site measurement; ~2 inland, higher offshore). */
+  shape: number;
+  /** Give ONE of: scale c (m/s) or the measured mean speed (m/s). */
+  scale?: number;
+  meanSpeed?: number;
+  /** Air density, kg/m^3. */
+  airDensity?: number;
+  /** Optional turbine for a capacity-factor estimate. */
+  turbine?: {
+    cutIn: number;
+    rated: number;
+    cutOut: number;
+  };
+}
+
+export interface WeibullResult {
+  ok: true;
+  shape: number;
+  scale: number;
+  meanSpeed: number;
+  /** Most probable speed, m/s — null for k <= 1 (mode at zero). */
+  mostProbableSpeed: number | null;
+  /** Mean wind power density, W/m^2: ½ρc³Γ(1+3/k). */
+  meanPowerDensity: number;
+  /** Ratio of mean-cube to cube-of-mean — why mean speed understates energy. */
+  energyPatternFactor: number;
+  /** Capacity-factor estimate — null without a turbine. */
+  capacityFactor: number | null;
+  /** Fraction of hours inside the operating band — null without a turbine. */
+  availabilityFraction: number | null;
+  notes: string[];
+}
+
+/**
+ * Weibull statistics of a wind site, and the capacity factor they imply.
+ *
+ * THE MEAN SPEED UNDERSTATES THE RESOURCE, always. Power goes as v³ and the
+ * cube of the mean is less than the mean of the cube for any spread; the
+ * energy pattern factor Γ(1+3/k)/Γ(1+1/k)³ quantifies it — about 1.9 at the
+ * common k = 2, meaning a site holds nearly twice the energy its mean speed
+ * suggests. This single fact is why resource assessment fits a distribution
+ * instead of quoting an average.
+ *
+ * The capacity factor integrates the Weibull density against the STANDARD
+ * SIMPLIFIED power curve — cubic rise from cut-in to rated, flat to cut-out
+ * (stated, because a real curve's knee is softer and real CF runs a little
+ * lower). k and the mean/scale are SITE measurements taken as input.
+ */
+export function weibullWind(inp: WeibullInput): WeibullResult | EnergyError {
+  const k = inp.shape;
+  if (!Number.isFinite(k) || k <= 0.5 || k > 10) {
+    return { ok: false, error: "The Weibull shape k is a site measurement, typically 1.5–3 (2 is the Rayleigh case)." };
+  }
+  if ((inp.scale === undefined) === (inp.meanSpeed === undefined)) {
+    return { ok: false, error: "Give the scale c OR the mean speed — each determines the other through Γ(1+1/k)." };
+  }
+  const g1 = gammaFn(1 + 1 / k);
+  let c: number;
+  if (inp.scale !== undefined) {
+    const b = finitePositive([["scale parameter", inp.scale]]);
+    if (b) return b;
+    c = inp.scale;
+  } else {
+    const b = finitePositive([["mean speed", inp.meanSpeed!]]);
+    if (b) return b;
+    c = inp.meanSpeed! / g1;
+  }
+  if (c > 50) {
+    return { ok: false, error: `A scale of ${c.toFixed(1)} m/s is beyond any wind climate on Earth — check the unit.` };
+  }
+  const rho = inp.airDensity ?? RHO_AIR_SL;
+  const bRho = finitePositive([["air density", rho]]);
+  if (bRho) return bRho;
+  if (rho > 2 || rho < 0.1) {
+    return { ok: false, error: `An air density of ${rho} kg/m³ is outside Earth's atmosphere — this field wants kg/m³.` };
+  }
+
+  const mean = c * g1;
+  const g3 = gammaFn(1 + 3 / k);
+  const meanPowerDensity = 0.5 * rho * c * c * c * g3;
+  const epf = g3 / (g1 * g1 * g1);
+  const mostProbable = k > 1 ? c * Math.pow((k - 1) / k, 1 / k) : null;
+
+  const notes: string[] = [
+    `The energy pattern factor is ${epf.toFixed(2)}: the site holds ${epf.toFixed(2)}× the energy ` +
+      "its mean speed suggests, because power goes as v³ and the spread contributes " +
+      "disproportionately. Quoting mean speed alone always undersells a windy site.",
+  ];
+
+  let cf: number | null = null;
+  let avail: number | null = null;
+  if (inp.turbine) {
+    const { cutIn, rated, cutOut } = inp.turbine;
+    const b = finitePositive([
+      ["cut-in speed", cutIn],
+      ["rated speed", rated],
+      ["cut-out speed", cutOut],
+    ]);
+    if (b) return b;
+    if (!(cutIn < rated && rated < cutOut)) {
+      return { ok: false, error: "Turbine speeds must satisfy cut-in < rated < cut-out." };
+    }
+    const F = (v: number): number => 1 - Math.exp(-Math.pow(v / c, k));
+    // Cubic-rise band, integrated numerically with a FIXED bounded step count.
+    const STEPS = 4000;
+    let sum = 0;
+    const ci3 = cutIn ** 3;
+    const denom = rated ** 3 - ci3;
+    for (let i = 0; i < STEPS; i++) {
+      const v = cutIn + ((i + 0.5) / STEPS) * (rated - cutIn);
+      const pdf = (k / c) * Math.pow(v / c, k - 1) * Math.exp(-Math.pow(v / c, k));
+      sum += ((v ** 3 - ci3) / denom) * pdf;
+    }
+    cf = sum * ((rated - cutIn) / STEPS) + (F(cutOut) - F(rated));
+    avail = F(cutOut) - F(cutIn);
+    notes.push(
+      "The capacity factor uses the standard simplified power curve — cubic from cut-in to " +
+        "rated, flat to cut-out, dead outside. A real curve's knee is softer, so the real CF " +
+        "runs somewhat lower; for a bankable figure integrate the manufacturer's curve.",
+      "Availability here is hours inside the operating band, not mechanical availability — " +
+        "maintenance downtime is on top."
+    );
+  }
+
+  const res: WeibullResult = {
+    ok: true,
+    shape: k,
+    scale: c,
+    meanSpeed: mean,
+    mostProbableSpeed: mostProbable,
+    meanPowerDensity,
+    energyPatternFactor: epf,
+    capacityFactor: cf,
+    availabilityFraction: avail,
+    notes,
+  };
+  if (!allFinite(res as unknown as Record<string, unknown>)) {
+    return { ok: false, error: "These inputs overflow — check the magnitudes and units." };
+  }
+  return res;
+}
+
+// --- Flue-gas analysis -------------------------------------------------------
+
+export interface FlueGasInput {
+  /** Fuel molecular formula, as in the combustion tool. */
+  formula: string;
+  /** Measured O2 in the DRY flue gas, percent (what an analyser reads). */
+  o2DryPct: number;
+}
+
+export interface FlueGasResult {
+  ok: true;
+  /** Excess air solved from the measurement, as a fraction. */
+  excessAir: number;
+  afrActual: number;
+  /** Dry flue composition at the solved excess air, mole percent. */
+  dryCO2Pct: number;
+  dryO2Pct: number;
+  dryN2Pct: number;
+  drySO2Pct: number | null;
+  /** The maximum ("ultimate") dry CO2 percent, at exactly stoichiometric air. */
+  ultimateCO2Pct: number;
+  notes: string[];
+}
+
+/**
+ * Excess air from a flue-gas oxygen measurement — the practical direction.
+ *
+ * Nobody sets excess air by guessing: the analyser reads the DRY flue O₂ and
+ * the excess follows from stoichiometry. This inverts the combustion tool's
+ * arithmetic in closed form, on the same air convention (1 O₂ : 3.76 N₂), so
+ * the two tools cannot disagree — the fraction of O₂ in the model air,
+ * 1/4.76, is DERIVED from that ratio rather than typed as 20.9.
+ */
+export function flueGas(inp: FlueGasInput): FlueGasResult | EnergyError {
+  const base = combustion({ formula: inp.formula });
+  if (!base.ok) return base;
+  const f = inp.o2DryPct / 100;
+  const o2AirFraction = 1 / (1 + AIR_N2_PER_O2);
+  if (!Number.isFinite(inp.o2DryPct) || inp.o2DryPct < 0) {
+    return { ok: false, error: "The flue O₂ reading must be zero or a positive percentage." };
+  }
+  if (f >= o2AirFraction) {
+    return {
+      ok: false,
+      error:
+        `${inp.o2DryPct}% O₂ is at or above air itself (${(o2AirFraction * 100).toFixed(1)}% in the ` +
+        "dry-air model) — the analyser is reading air, not flue gas, or the probe is leaking.",
+    };
+  }
+
+  const counts = base.composition;
+  const nC = counts.C ?? 0;
+  const nN = counts.N ?? 0;
+  const nS = counts.S ?? 0;
+  const a = base.o2PerMolFuel;
+  // Dry flue at excess e (per mol fuel): CO2 = nC, SO2 = nS, O2 = e·a,
+  // N2 = 3.76·a·(1+e) + nN/2. Solving f = e·a / (dry total) for e is linear.
+  const dryBase = nC + nS + AIR_N2_PER_O2 * a + nN / 2;
+  const denomE = a * (1 - f * (1 + AIR_N2_PER_O2));
+  const e = (f * dryBase) / denomE;
+  if (!Number.isFinite(e) || e < 0) {
+    return { ok: false, error: "This O₂ reading is not reachable for this fuel — check the fuel formula and the reading." };
+  }
+  if (e > 10) {
+    return {
+      ok: false,
+      error:
+        `${inp.o2DryPct}% flue O₂ implies ${(e * 100).toFixed(0)}% excess air — the burner is ` +
+        "mostly heating air. Readings this close to air usually mean dilution before the probe.",
+    };
+  }
+
+  const dryTotal = nC + nS + e * a + AIR_N2_PER_O2 * a * (1 + e) + nN / 2;
+  const stoichTotal = nC + nS + AIR_N2_PER_O2 * a + nN / 2;
+  const notes = [
+    "DRY basis throughout — the analyser condenses the water out, which is why the O₂ and " +
+      "CO₂ percentages both read higher than in the wet stack gas.",
+    "Same air convention as the combustion tool (1 O₂ : 3.76 N₂, derived not retyped), " +
+      "complete combustion assumed. CO in the flue means the excess-air figure here is an " +
+      "underestimate — fix the combustion before trusting the number.",
+    "The ultimate CO₂ is this fuel's fingerprint: the dry CO₂ can never exceed it, and " +
+      "the gap between measured and ultimate CO₂ is the classic cross-check on the O₂ reading.",
+  ];
+
+  const res: FlueGasResult = {
+    ok: true,
+    excessAir: e,
+    afrActual: base.afrStoich * (1 + e),
+    dryCO2Pct: (100 * nC) / dryTotal,
+    dryO2Pct: (100 * e * a) / dryTotal,
+    dryN2Pct: (100 * (AIR_N2_PER_O2 * a * (1 + e) + nN / 2)) / dryTotal,
+    drySO2Pct: nS > 0 ? (100 * nS) / dryTotal : null,
+    ultimateCO2Pct: (100 * nC) / stoichTotal,
+    notes,
+  };
+  if (!allFinite(res as unknown as Record<string, unknown>)) {
+    return { ok: false, error: "These inputs overflow — check the magnitudes and units." };
+  }
+  return res;
+}
+
+// --- Storage sizing + LCOS ---------------------------------------------------
+
+export interface StorageInput {
+  /** Daily load to be served, kWh. */
+  dailyLoadKWh: number;
+  /** Days the bank must carry the load with no input. */
+  autonomyDays: number;
+  /** Usable depth of discharge, 0-1. */
+  depthOfDischarge: number;
+  /** Round-trip efficiency of the storage itself, 0-1. */
+  roundTripEff: number;
+  /** Inverter/conversion efficiency, 0-1 (blank = 1). */
+  inverterEff?: number;
+  /** DC bus voltage, V — enables the Ah figure. */
+  busVoltage?: number;
+  /** Optional economics for LCOS. */
+  economics?: {
+    capex: number;
+    annualOpex: number;
+    cyclesPerYear: number;
+    lifetimeYears: number;
+    discountRate: number;
+    /** Capacity fade per year, fraction (blank = none). */
+    degradationRate?: number;
+  };
+}
+
+export interface StorageResult {
+  ok: true;
+  /** Nameplate bank energy required, kWh. */
+  bankKWh: number;
+  usableKWh: number;
+  bankAh: number | null;
+  /** Energy that must be supplied to recharge one day's load, kWh. */
+  dailyChargeKWh: number;
+  /** Levelized cost per kWh DISCHARGED — null without economics. */
+  lcosPerKWh: number | null;
+  presentValueCosts: number | null;
+  presentValueKWh: number | null;
+  notes: string[];
+}
+
+/**
+ * Battery bank sizing from the load, and the levelized cost of storage.
+ *
+ * THE LOSSES COMPOUND UPSTREAM: the bank must be sized for the load AFTER
+ * the inverter takes its cut, and the charger must supply the load divided
+ * by the whole efficiency chain. Sizing on the nameplate kWh with the DoD
+ * and efficiencies left out — the spreadsheet default — undersizes an
+ * off-grid bank by a third or more.
+ *
+ * LCOS divides discounted costs by discounted DISCHARGED energy, the same
+ * algebra as LCOE. It deliberately EXCLUDES the cost of the charging energy,
+ * and says so — with a charging price, add price × annual charge energy to
+ * the operating cost and the formula carries it.
+ */
+export function storageSizing(inp: StorageInput): StorageResult | EnergyError {
+  const bad = finitePositive([
+    ["daily load", inp.dailyLoadKWh],
+    ["autonomy days", inp.autonomyDays],
+  ]);
+  if (bad) return bad;
+  for (const [name, v] of [
+    ["depth of discharge", inp.depthOfDischarge],
+    ["round-trip efficiency", inp.roundTripEff],
+  ] as const) {
+    if (!Number.isFinite(v) || v <= 0 || v > 1) {
+      return { ok: false, error: `The ${name} must be a fraction between 0 and 1.` };
+    }
+  }
+  const invEff = inp.inverterEff ?? 1;
+  if (!Number.isFinite(invEff) || invEff <= 0 || invEff > 1) {
+    return { ok: false, error: "The inverter efficiency must be a fraction between 0 and 1." };
+  }
+  if (inp.autonomyDays > 60) {
+    return { ok: false, error: "More than 60 days of autonomy is a fuel dump, not a battery bank — check the number." };
+  }
+
+  // Discharge-side efficiency: the square root convention splits round-trip
+  // losses evenly between charge and discharge, and is stated.
+  const dischargeEff = Math.sqrt(inp.roundTripEff);
+  const usableNeeded = (inp.dailyLoadKWh * inp.autonomyDays) / (invEff * dischargeEff);
+  const bankKWh = usableNeeded / inp.depthOfDischarge;
+  const dailyCharge = inp.dailyLoadKWh / (invEff * inp.roundTripEff);
+
+  let bankAh: number | null = null;
+  if (inp.busVoltage !== undefined) {
+    const b = finitePositive([["bus voltage", inp.busVoltage]]);
+    if (b) return b;
+    bankAh = (bankKWh * 1000) / inp.busVoltage;
+  }
+
+  const notes = [
+    "Round-trip losses are split evenly between charge and discharge (the square-root " +
+      "convention, stated because datasheets rarely say which side their number lives on).",
+    "Sized for the END of the autonomy period at the stated DoD — cycling to that depth " +
+      "daily is a different, harder duty than surviving it occasionally; check the cycle " +
+      "life at this DoD on the cell datasheet.",
+  ];
+
+  let lcos: number | null = null;
+  let pvCosts: number | null = null;
+  let pvKWh: number | null = null;
+  if (inp.economics) {
+    const ec = inp.economics;
+    const b = finitePositive([
+      ["capital cost", ec.capex],
+      ["cycles per year", ec.cyclesPerYear],
+    ]);
+    if (b) return b;
+    const bOpex = finiteNonNegative([["annual operating cost", ec.annualOpex]]);
+    if (bOpex) return bOpex;
+    if (!Number.isInteger(ec.lifetimeYears) || ec.lifetimeYears < 1 || ec.lifetimeYears > 100) {
+      return { ok: false, error: "The lifetime must be a whole number of years from 1 to 100." };
+    }
+    if (!Number.isFinite(ec.discountRate) || ec.discountRate < 0 || ec.discountRate > 0.5) {
+      return { ok: false, error: "The discount rate is a fraction, typically 0.03–0.12." };
+    }
+    if (ec.cyclesPerYear > 2000) {
+      return { ok: false, error: "More than 2000 cycles a year is more than five a day — check the number." };
+    }
+    const deg = ec.degradationRate ?? 0;
+    if (!Number.isFinite(deg) || deg < 0 || deg >= 1) {
+      return { ok: false, error: "Degradation is a small fraction per year (0.02 = 2%)." };
+    }
+    const dischargedPerCycle = bankKWh * inp.depthOfDischarge * dischargeEff;
+    let costs = ec.capex;
+    let energy = 0;
+    for (let t = 1; t <= ec.lifetimeYears; t++) {
+      const df = Math.pow(1 + ec.discountRate, -t);
+      costs += ec.annualOpex * df;
+      energy += ec.cyclesPerYear * dischargedPerCycle * Math.pow(1 - deg, t - 1) * df;
+    }
+    if (energy <= 0 || !Number.isFinite(energy) || !Number.isFinite(costs)) {
+      return { ok: false, error: "These economics produce no discounted throughput — check the magnitudes." };
+    }
+    lcos = costs / energy;
+    pvCosts = costs;
+    pvKWh = energy;
+    notes.push(
+      "LCOS excludes the cost of the CHARGING energy on purpose — it prices the storage " +
+        "service alone. To include it, add electricity price × annual charge energy " +
+        `(${(ec.cyclesPerYear * (dischargedPerCycle / inp.roundTripEff)).toFixed(0)} kWh/yr here) to the operating cost.`,
+      "Cycle life and calendar life both bound the real lifetime; the shorter one governs, " +
+        "and the cycle count at THIS depth of discharge is the datasheet number to check."
+    );
+  }
+
+  const res: StorageResult = {
+    ok: true,
+    bankKWh,
+    usableKWh: bankKWh * inp.depthOfDischarge,
+    bankAh,
+    dailyChargeKWh: dailyCharge,
+    lcosPerKWh: lcos,
+    presentValueCosts: pvCosts,
+    presentValueKWh: pvKWh,
+    notes,
+  };
+  if (!allFinite(res as unknown as Record<string, unknown>)) {
+    return { ok: false, error: "These inputs overflow — check the magnitudes and units." };
+  }
+  return res;
+}
+
+// --- Solar geometry ----------------------------------------------------------
+
+export interface SolarGeometryInput {
+  /** Latitude, degrees, north positive. */
+  latitudeDeg: number;
+  /** Day of year, 1–366. */
+  dayOfYear: number;
+  /** Solar time, hours 0–24 — enables position at that hour. */
+  solarHour?: number;
+}
+
+export interface SolarGeometryResult {
+  ok: true;
+  declinationDeg: number;
+  /** Day length, hours — 0 for polar night, 24 for polar day. */
+  dayLengthHours: number;
+  /** Solar elevation at solar noon, degrees. */
+  noonElevationDeg: number;
+  /** Daily extraterrestrial irradiation on a horizontal plane, kWh/m². */
+  extraterrestrialKWhM2: number;
+  /** Elevation/azimuth at the given hour — null without an hour. */
+  hourElevationDeg: number | null;
+  /** Azimuth measured from north, clockwise, degrees. */
+  hourAzimuthDeg: number | null;
+  notes: string[];
+}
+
+/** Modern total solar irradiance, W/m² — same constant the PV tool's bound uses. */
+export const SOLAR_CONSTANT = 1361;
+
+const DEG = Math.PI / 180;
+
+/**
+ * Sun position and day length from latitude and date — pure astronomy, no
+ * site data, which is exactly why it can be computed while insolation cannot.
+ *
+ * Declination uses Cooper's equation (±0.5° against the ephemeris — stated,
+ * and irrelevant next to weather for energy purposes). POLAR CASES ARE REAL
+ * ANSWERS, NOT ERRORS: above the polar circle the sunset equation's cosine
+ * leaves [−1, 1], and the honest result is a 0- or 24-hour day, named.
+ *
+ * The daily extraterrestrial total H₀ is the ceiling the ATMOSPHERE then
+ * discounts — a clear day delivers ~70–75% of it at the surface. It uses the
+ * same 1361 W/m² solar constant as the PV tool's irradiance bound, so the two
+ * tools cannot disagree about the Sun.
+ */
+export function solarGeometry(inp: SolarGeometryInput): SolarGeometryResult | EnergyError {
+  const lat = inp.latitudeDeg;
+  if (!Number.isFinite(lat) || lat < -90 || lat > 90) {
+    return { ok: false, error: "Latitude runs -90 to 90 degrees (north positive)." };
+  }
+  if (!Number.isFinite(inp.dayOfYear) || !Number.isInteger(inp.dayOfYear) || inp.dayOfYear < 1 || inp.dayOfYear > 366) {
+    return { ok: false, error: "The day of year is a whole number from 1 to 366 (Jun 21 is 172)." };
+  }
+
+  const n = inp.dayOfYear;
+  const decl = 23.45 * Math.sin(DEG * ((360 * (284 + n)) / 365));
+  const phi = lat * DEG;
+  const delta = decl * DEG;
+
+  const notes: string[] = [
+    "Declination by Cooper's equation, within ±0.5° of the ephemeris — negligible next to " +
+      "weather for any energy purpose. Times are SOLAR time; clock time differs by the " +
+      "equation of time (±16 min through the year) plus 4 minutes per degree of longitude " +
+      "off the zone meridian.",
+  ];
+
+  // Sunset hour angle: cos ωs = −tanφ·tanδ. Out of range = polar day/night.
+  const x = -Math.tan(phi) * Math.tan(delta);
+  let omegaS: number;
+  let dayLength: number;
+  if (x <= -1) {
+    omegaS = Math.PI;
+    dayLength = 24;
+    notes.push("The Sun does not set on this date at this latitude — polar day; the 24-hour figure is the real answer.");
+  } else if (x >= 1) {
+    omegaS = 0;
+    dayLength = 0;
+    notes.push("The Sun does not rise on this date at this latitude — polar night; zero hours is the real answer.");
+  } else {
+    omegaS = Math.acos(x);
+    dayLength = (2 * omegaS) / DEG / 15;
+  }
+
+  const noonElevation = 90 - Math.abs(lat - decl);
+  // H0 = (24/π)·Gsc·E0·(cosφcosδ·sinωs + ωs·sinφsinδ), J/m² with Gsc in W and
+  // the leading 24 h in seconds — expressed directly in kWh/m².
+  const e0 = 1 + 0.033 * Math.cos(DEG * ((360 * n) / 365));
+  const h0Wh =
+    ((24 / Math.PI) * SOLAR_CONSTANT * e0 * (Math.cos(phi) * Math.cos(delta) * Math.sin(omegaS) + omegaS * Math.sin(phi) * Math.sin(delta))) /
+    1;
+  const h0 = Math.max(0, h0Wh) / 1000;
+
+  let hourElev: number | null = null;
+  let hourAz: number | null = null;
+  if (inp.solarHour !== undefined) {
+    if (!Number.isFinite(inp.solarHour) || inp.solarHour < 0 || inp.solarHour > 24) {
+      return { ok: false, error: "The solar hour runs 0 to 24 (12 = solar noon)." };
+    }
+    const omega = (inp.solarHour - 12) * 15 * DEG;
+    const sinElev = Math.sin(phi) * Math.sin(delta) + Math.cos(phi) * Math.cos(delta) * Math.cos(omega);
+    hourElev = Math.asin(Math.max(-1, Math.min(1, sinElev))) / DEG;
+    // Azimuth from north, clockwise, via atan2 — no quadrant ambiguity.
+    const az = Math.atan2(
+      Math.sin(omega),
+      Math.cos(omega) * Math.sin(phi) - Math.tan(delta) * Math.cos(phi)
+    );
+    hourAz = ((az / DEG + 180) % 360 + 360) % 360;
+    if (hourElev < 0) {
+      notes.push("At this hour the Sun is below the horizon — the elevation is reported as negative rather than clipped.");
+    }
+  }
+
+  notes.push(
+    "H₀ is the extraterrestrial DAILY total on a horizontal plane — the hard ceiling before " +
+      "the atmosphere. A clear day at the surface delivers roughly 70–75% of it; your site's " +
+      "measured peak-sun-hours figure is the number that already includes the weather."
+  );
+
+  const res: SolarGeometryResult = {
+    ok: true,
+    declinationDeg: decl,
+    dayLengthHours: dayLength,
+    noonElevationDeg: noonElevation,
+    extraterrestrialKWhM2: h0,
+    hourElevationDeg: hourElev,
+    hourAzimuthDeg: hourAz,
     notes,
   };
   if (!allFinite(res as unknown as Record<string, unknown>)) {

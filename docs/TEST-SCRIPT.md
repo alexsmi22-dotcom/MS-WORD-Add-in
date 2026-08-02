@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.61.0)
+# JurisLab — Manual Test Script (v2.62.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -728,7 +728,7 @@ Chemical mode, **Periodic table &amp; atomic structure**.
 ## 0q. New in v2.54.0 — optics, photonics and entanglement
 
 Engineering mode. The dropdown must now show two new groups, **Optics & photonics**
-(8 tools) and **Quantum optics** (4), and the mode must state **78 calculators**.
+(8 tools) and **Quantum optics** (4), and the mode must state **86 calculators**.
 
 - [ ] **Photon relations.** `1064` as a wavelength in nm must give **1.16526 eV**,
   **281.76 THz** and **9398.5 cm⁻¹**. Switch the selector to eV and type `1.16526`:
@@ -790,7 +790,7 @@ Engineering mode. The dropdown must now show two new groups, **Optics & photonic
 ## 0r. New in v2.55.0 — chips & semiconductors
 
 Engineering mode. A new **Chips & semiconductors** group of 4, and the mode must now
-state **78 calculators** across **sixteen disciplines**.
+state **86 calculators** across **sixteen disciplines**.
 
 - [ ] **Power.** 500 pF, 0.9 V, 2 GHz, α = 0.1: dynamic power **81 mW**
   (0.1 × 500e-12 × 0.81 × 2e9). Energy per 0→1 transition must be **405 fJ**, and the
@@ -845,7 +845,7 @@ state **78 calculators** across **sixteen disciplines**.
 ## 0s. New in v2.56.0 — aviation & avionics
 
 Engineering mode. A new **Aviation & avionics** group of 5; the mode must now state
-**78 calculators** across **sixteen disciplines**.
+**86 calculators** across **sixteen disciplines**.
 
 - [ ] **Atmosphere at 0 m**: 288.15 K, 101325 Pa, 1.225 kg/m³, 340.3 m/s, σ = 1. These
   are the defining constants and must come back exactly.
@@ -886,7 +886,7 @@ Engineering mode. A new **Aviation & avionics** group of 5; the mode must now st
 ## 0t. New in v2.57.0 — robotics & kinematics
 
 Engineering mode. A new **Robotics & kinematics** group of 6; the mode must state
-**78 calculators** across **sixteen disciplines**.
+**86 calculators** across **sixteen disciplines**.
 
 - [ ] **Forward kinematics** with links `0.5, 0.4, 0.2` at `30, 45, -20`: note the tip
   position, then confirm the tip orientation is the **sum** of the angles (55°) — that is
@@ -955,7 +955,7 @@ Engineering mode. A new **Robotics & kinematics** group of 6; the mode must stat
 ## 0u. New in v2.58.0 — computation & information
 
 Engineering mode. A new **Computation & information** group of 6, completing the four
-domains. The mode must state **78 calculators** across **sixteen disciplines**.
+domains. The mode must state **86 calculators** across **sixteen disciplines**.
 
 - [ ] **Speedup**, p = 0.95 on 16 processors: Amdahl **9.14x**, Gustafson **15.25x**,
   ceiling **20x**. Both must be shown — reporting one alone answers half the question.
@@ -1005,7 +1005,7 @@ domains. The mode must state **78 calculators** across **sixteen disciplines**.
 ## 0v. New in v2.60.0 — energy & power
 
 Engineering mode. A new **Energy & power** group of 8. The mode must state
-**78 calculators** across **sixteen disciplines**.
+**86 calculators** across **sixteen disciplines**.
 
 - [ ] **Wind** at the defaults (90 m rotor, 8 m/s, Cp 0.45): swept area **6362 m²**,
   power in the wind **1995 kW**, Betz bound **1182 kW**, output **897.8 kW**. The
@@ -1052,6 +1052,44 @@ Engineering mode. A new **Energy & power** group of 8. The mode must state
 - [ ] **`mWh` must be REFUSED** rather than read as megawatt-hours — a lowercase
   fallback would turn a coin-cell energy into a 10⁹ error. `MWh` cased correctly works.
 - [ ] `1 gal` → L must be **3.785**, and a flow typed as `gal/min` converts.
+
+---
+
+## 0w. New in v2.62.0 — energy depth & grid power
+
+Engineering mode. **Energy & power** grows 8 → 16; the mode must state
+**86 calculators** across **sixteen disciplines**.
+
+- [ ] **Three-phase** at the defaults (400 V, 100 A, pf 0.8): S **69.28 kVA**,
+  P **55.43 kW**, Q **41.57 kVAR**, wye phase voltage **230.9 V**. Enter the power
+  instead of the current: the current comes back as **100 A**.
+- [ ] **PF correction** at the defaults (100 kW, 0.7 → 0.95, 400 V, 50 Hz): bank
+  **69.15 kVAR**, current 206.2 → **151.9 A**, loss reduction **45.7 %**, delta
+  capacitance **458.6 µF** per phase (wye exactly 3× that). Target below present:
+  refused with the reason.
+- [ ] **Cable drop** at the defaults (Cu, DC, 20 m, 16 A, 2.5 mm², 230 V, 3% target):
+  drop **4.414 V = 1.919 %**, loss **70.6 W**. The computed drop is UNDER the 3%
+  target, so the minimum section reads **1.60 mm²** — smaller than the entered 2.5,
+  which is the consistent answer, not a bug. Switch to AWG 12 (blank the mm²):
+  section **3.309 mm²**.
+- [ ] **Wind shear** at the defaults (6 m/s, 10 → 80 m, α 0.143, z₀ 0.03): power law
+  **8.078 m/s**, log law **8.148 m/s**, disagreement under **1 %**, power ratio
+  **2.44×**. Both models shown, neither chosen.
+- [ ] **Weibull** at the defaults (k 2, c 8, turbine 3/12/25): mean **7.09 m/s**,
+  energy pattern factor **1.91**, capacity factor **0.30**, hours in band **86.9 %**
+  — and CF must be BELOW the hours-in-band figure.
+- [ ] **Flue gas** at the defaults (CH4, 3% dry O₂): excess air **14.9 %**, dry CO₂
+  **10.06 %** with ultimate **11.74 %**, and the dry percentages sum to 100.
+  Enter 21%: refused — the probe is reading air.
+- [ ] **Storage** at the defaults (10 kWh/day, 2 days, DoD 0.8, rt 0.9, inv 0.95,
+  48 V, no capex): bank **27.74 kWh / 577.9 Ah**, daily charge **11.70 kWh**. Add
+  capex 10000: LCOS appears, and its note says charging energy is EXCLUDED.
+- [ ] **Sun position** at the defaults (40°, day 172): declination **23.45°**, day
+  length **14.85 h**, noon elevation **73.4°**, H₀ **11.59 kWh/m²** (ceiling, before
+  the atmosphere). Latitude 78, day 355: day length **0 h** as an answer, not an error.
+- [ ] **Wind + altitude**: blank the density, set altitude 2000 m → the result notes
+  density **1.0065 kg/m³ from the ISA** — the same atmosphere the aviation tools use.
+- [ ] All eight new tools insert, subscripts and superscripts intact (O₂, m², kVAR).
 
 ---
 

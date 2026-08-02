@@ -397,7 +397,13 @@ import {
   lcoe,
   capacityFactor,
   formatFormula,
+  windShear,
+  weibullWind,
+  flueGas,
+  storageSizing,
+  solarGeometry,
 } from "../lib/energy";
+import { threePhase, pfCorrection, voltageDrop, ConductorMaterial, CircuitKind } from "../lib/grid";
 import { statVars, statVarLineProblem } from "../lib/uncertaintyParse";
 import {
   planParagraphNumbering,
@@ -12867,6 +12873,7 @@ const ENG_CALCS: EngCalc[] = [
       { key: "d", label: "Rotor diameter, m", default: "90", kind: "text" },
       { key: "v", label: "Wind speed at hub height, m/s", default: "8", kind: "text" },
       { key: "rho", label: "Air density, kg/m³ (blank = sea level 1.225)", default: "", kind: "text" },
+      { key: "alt", label: "Site altitude, m (fills density from the ISA when density is blank)", default: "", kind: "text" },
       { key: "cp", label: "Power coefficient Cp (blank = Betz bound)", default: "0.45", kind: "text" },
       { key: "rpm", label: "Rotor speed, rpm (blank to skip tip-speed ratio)", default: "", kind: "text" },
       { key: "cf", label: "Capacity factor 0-1 (blank to skip annual energy)", default: "", kind: "text" },
@@ -12875,9 +12882,19 @@ const ENG_CALCS: EngCalc[] = [
       const u = engUnits(r);
       const d = u.req("d", "m", "Rotor diameter");
       const v = u.req("v", "m/s", "Wind speed");
-      const rho = u.optNull("rho", "kg/m³", "Air density");
+      let rho = u.optNull("rho", "kg/m³", "Air density");
+      const alt = u.optNull("alt", "m", "Site altitude");
       const rpm = u.optNull("rpm", "rpm", "Rotor speed");
       if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      let densityNote: string | null = null;
+      if (rho === null && alt !== null) {
+        // Same ISA the aviation tools fly on — the two benches cannot disagree
+        // about the atmosphere.
+        const atm = atmosphere(alt);
+        if (!atm) return { text: "Site altitude: the standard atmosphere is defined up to 84,852 m.", ok: false };
+        rho = atm.densityKgM3;
+        densityNote = `Air density ${engNum(rho, 5)} kg/m³ from the ISA at ${engNum(alt, 5)} m (the same atmosphere the aviation tools use).`;
+      }
       const readFrac = (key: string, label: string): number | null | { err: string } => {
         const raw = r(key).trim();
         if (!raw) return null;
@@ -12916,6 +12933,7 @@ const ENG_CALCS: EngCalc[] = [
         lines.push(`  Annual energy       ${engNum(res.annualEnergyKWh / 1000, sig)} MWh`);
       }
       u.report(lines);
+      if (densityNote) lines.push(`Note: ${densityNote}`);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
       return { text: plainDashes(lines.join("\n")) };
@@ -13308,6 +13326,449 @@ const ENG_CALCS: EngCalc[] = [
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "energy-three-phase",
+    name: "Three-phase power (P, Q, S)",
+    group: "Energy & power",
+    hint:
+      "P = √3·V·I·pf on LINE quantities — the same expression for wye and delta, which is why " +
+      "line values are the ones worth quoting. Give the current to get power, or the power to " +
+      "size the feeder current.",
+    fields: [
+      { key: "v", label: "Line-to-line voltage, V", default: "400", kind: "text" },
+      { key: "i", label: "Line current, A (blank if giving power)", default: "100", kind: "text" },
+      { key: "p", label: "Real power, W (blank if giving current; kW converts)", default: "", kind: "text" },
+      { key: "pf", label: "Power factor, 0-1", default: "0.8", kind: "text" },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const v = u.req("v", "V", "Line voltage");
+      const i = u.optNull("i", "A", "Line current");
+      const p = u.optNull("p", "W", "Real power");
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const pf = Number(r("pf"));
+      if (!r("pf").trim() || !Number.isFinite(pf)) return { text: "Power factor must be a number between 0 and 1.", ok: false };
+      const res = threePhase({
+        lineVoltage: v,
+        lineCurrentA: i ?? undefined,
+        realPowerW: p ?? undefined,
+        powerFactor: pf,
+      });
+      if (!res.ok) return { text: res.error, ok: false };
+      const sig = engFigures([r("v"), r("i") || r("p")]);
+      const lines = [
+        "Three-phase power",
+        "",
+        `  Real power P        ${engNum(res.realPowerW / 1000, sig)} kW`,
+        `  Reactive power Q    ${engNum(res.reactivePowerVAR / 1000, sig)} kVAR`,
+        `  Apparent power S    ${engNum(res.apparentPowerVA / 1000, sig)} kVA`,
+        `  Line current        ${engNum(res.lineCurrentA, sig)} A`,
+        `  Phase voltage (wye)     ${engNum(res.phaseVoltageWye, sig)} V`,
+        `  Phase current (delta)   ${engNum(res.phaseCurrentDelta, sig)} A`,
+      ];
+      u.report(lines);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "energy-pf-correction",
+    name: "Power factor correction (kVAR & capacitors)",
+    group: "Energy & power",
+    hint:
+      "Qc = P·(tanφ₁ − tanφ₂). The real power does not change — correction relieves the WIRES, " +
+      "not the motor: current falls by pf₁/pf₂ and I²R losses by its square. Give voltage and " +
+      "frequency to size the capacitors, delta and wye both.",
+    fields: [
+      { key: "p", label: "Real power, W (kW converts)", default: "100 kW", kind: "text" },
+      { key: "pf1", label: "Present power factor", default: "0.7", kind: "text" },
+      { key: "pf2", label: "Target power factor", default: "0.95", kind: "text" },
+      { key: "v", label: "Line voltage, V (blank to skip capacitor sizing)", default: "400", kind: "text" },
+      { key: "f", label: "Frequency, Hz", default: "50", kind: "text" },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const p = u.req("p", "W", "Real power");
+      const v = u.optNull("v", "V", "Line voltage");
+      const f = u.optNull("f", "Hz", "Frequency");
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const pf1 = Number(r("pf1"));
+      const pf2 = Number(r("pf2"));
+      if (!Number.isFinite(pf1) || !Number.isFinite(pf2)) {
+        return { text: "Both power factors must be numbers between 0 and 1.", ok: false };
+      }
+      const res = pfCorrection({
+        realPowerW: p,
+        pfBefore: pf1,
+        pfAfter: pf2,
+        lineVoltage: v ?? undefined,
+        frequencyHz: f ?? undefined,
+      });
+      if (!res.ok) return { text: res.error, ok: false };
+      const lines = [
+        "Power factor correction",
+        "",
+        `  Capacitor bank        ${engNum(res.bankVAR / 1000, 4)} kVAR (total, three-phase)`,
+        `  Current reduction     ${engNum(res.currentReduction * 100, 3)} %`,
+        `  I²R loss reduction    ${engNum(res.lossReduction * 100, 3)} %`,
+      ];
+      if (res.currentBefore !== null && res.currentAfter !== null) {
+        lines.push(`  Line current          ${engNum(res.currentBefore, 4)} A  →  ${engNum(res.currentAfter, 4)} A`);
+      }
+      if (res.capacitanceDeltaF !== null && res.capacitanceWyeF !== null) {
+        lines.push(`  Capacitance per phase   delta ${engNum(res.capacitanceDeltaF * 1e6, 4)} µF   wye ${engNum(res.capacitanceWyeF * 1e6, 4)} µF`);
+      }
+      u.report(lines);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "energy-voltage-drop",
+    name: "Cable voltage drop & sizing",
+    group: "Energy & power",
+    hint:
+      "Resistance-only drop at 20 °C: out-and-back (×2) for DC and single-phase, √3 for balanced " +
+      "three-phase — using the wrong factor missizes the cable by 15%. Copper is 100% IACS by " +
+      "definition; AWG sizes are computed from the gauge's exact geometric law, not a table.",
+    fields: [
+      {
+        key: "mat", label: "Conductor", default: "copper", kind: "select",
+        options: [
+          { value: "copper", label: "Copper (100% IACS)" },
+          { value: "aluminium", label: "Aluminium (61% IACS)" },
+        ],
+      },
+      {
+        key: "kind", label: "Circuit", default: "dc", kind: "select",
+        options: [
+          { value: "dc", label: "DC" },
+          { value: "single-phase", label: "Single-phase AC" },
+          { value: "three-phase", label: "Three-phase AC (balanced)" },
+        ],
+      },
+      { key: "len", label: "One-way run length, m", default: "20", kind: "text" },
+      { key: "i", label: "Load current, A", default: "16", kind: "text" },
+      { key: "sec", label: "Section, mm² (blank if giving AWG)", default: "2.5", kind: "text" },
+      { key: "awg", label: "AWG number (0 = 1/0 … -3 = 4/0)", default: "", kind: "text" },
+      { key: "vs", label: "Supply voltage, V (blank to skip %)", default: "230", kind: "text" },
+      { key: "target", label: "Max drop fraction (0.03 = 3%; blank to skip sizing)", default: "0.03", kind: "text" },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const len = u.req("len", "m", "Run length");
+      const i = u.req("i", "A", "Load current");
+      const sec = u.optNull("sec", "mm²", "Conductor section");
+      const vs = u.optNull("vs", "V", "Supply voltage");
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const awgRaw = r("awg").trim();
+      const awg = awgRaw ? Number(awgRaw) : undefined;
+      if (awgRaw && !Number.isFinite(awg as number)) return { text: "The AWG number must be a whole number.", ok: false };
+      const targetRaw = r("target").trim();
+      const target = targetRaw ? Number(targetRaw) : undefined;
+      if (targetRaw && !Number.isFinite(target as number)) return { text: "The target drop is a fraction like 0.03.", ok: false };
+      const res = voltageDrop({
+        material: r("mat") as ConductorMaterial,
+        kind: r("kind") as CircuitKind,
+        lengthM: len,
+        currentA: i,
+        sectionMm2: sec ?? undefined,
+        awg,
+        supplyVoltage: vs ?? undefined,
+        maxDropFraction: target,
+      });
+      if (!res.ok) return { text: res.error, ok: false };
+      const sig = engFigures([r("len"), r("i")]);
+      const lines = [
+        "Cable voltage drop",
+        "",
+        `  Conductor section    ${engNum(res.sectionMm2, 4)} mm²`,
+        `  Path resistance      ${engNum(res.pathResistance * 1000, 4)} mΩ`,
+        `  Voltage drop         ${engNum(res.dropV, sig)} V${res.dropFraction !== null ? `  =  ${engNum(res.dropFraction * 100, 3)} %` : ""}`,
+        `  Conductor loss       ${engNum(res.lossW, sig)} W`,
+      ];
+      if (res.minSectionMm2 !== null) {
+        lines.push(`  Minimum section for the target drop   ${engNum(res.minSectionMm2, 4)} mm²`);
+      }
+      u.report(lines);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "energy-wind-shear",
+    name: "Wind shear to hub height",
+    group: "Energy & power",
+    hint:
+      "Resource is measured at 10 m; turbines live at 80-120 m, and the cube law turns the " +
+      "correction into a large energy factor. Power law and log law are computed SEPARATELY and " +
+      "compared — agreement is evidence, disagreement means the terrain is not textbook.",
+    fields: [
+      { key: "v", label: "Measured speed, m/s", default: "6", kind: "text" },
+      { key: "h1", label: "Measurement height, m", default: "10", kind: "text" },
+      { key: "h2", label: "Hub height, m", default: "80", kind: "text" },
+      { key: "alpha", label: "Shear exponent α (0.143 open terrain; blank to skip)", default: "0.143", kind: "text" },
+      { key: "z0", label: "Roughness length, m (0.03 grass; blank to skip)", default: "0.03", kind: "text" },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const v = u.req("v", "m/s", "Measured speed");
+      const h1 = u.req("h1", "m", "Measurement height");
+      const h2 = u.req("h2", "m", "Hub height");
+      const z0 = u.optNull("z0", "m", "Roughness length");
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const aRaw = r("alpha").trim();
+      const alpha = aRaw ? Number(aRaw) : undefined;
+      if (aRaw && !Number.isFinite(alpha as number)) return { text: "The shear exponent must be a plain number.", ok: false };
+      const res = windShear({
+        refSpeed: v,
+        refHeight: h1,
+        targetHeight: h2,
+        alpha,
+        roughnessM: z0 ?? undefined,
+      });
+      if (!res.ok) return { text: res.error, ok: false };
+      const sig = engFigures([r("v"), r("h1"), r("h2")]);
+      const lines = [`Wind shear, ${engNum(h1, 4)} m → ${engNum(h2, 4)} m`, ""];
+      if (res.powerLawSpeed !== null) lines.push(`  Power law     ${engNum(res.powerLawSpeed, sig)} m/s`);
+      if (res.logLawSpeed !== null) lines.push(`  Log law       ${engNum(res.logLawSpeed, sig)} m/s`);
+      if (res.disagreement !== null) lines.push(`  Disagreement  ${engNum(res.disagreement * 100, 3)} %`);
+      lines.push(`  Power ratio   ${engNum(res.powerRatio, 4)}× the power at the measurement height`);
+      u.report(lines);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "energy-weibull",
+    name: "Weibull wind resource & capacity factor",
+    group: "Energy & power",
+    hint:
+      "The mean speed ALWAYS undersells a site: power goes as v³, so the spread contributes " +
+      "disproportionately — about 1.9× at the common k = 2. Add a turbine's three speeds for a " +
+      "capacity-factor estimate on the standard simplified power curve.",
+    fields: [
+      { key: "k", label: "Weibull shape k (site fit; 2 = Rayleigh)", default: "2", kind: "text" },
+      { key: "c", label: "Scale c, m/s (blank if giving mean)", default: "8", kind: "text" },
+      { key: "vm", label: "Mean speed, m/s (blank if giving scale)", default: "", kind: "text" },
+      { key: "rho", label: "Air density, kg/m³ (blank = 1.225)", default: "", kind: "text" },
+      { key: "vci", label: "Turbine cut-in, m/s (blank to skip CF)", default: "3", kind: "text" },
+      { key: "vr", label: "Rated speed, m/s", default: "12", kind: "text" },
+      { key: "vco", label: "Cut-out speed, m/s", default: "25", kind: "text" },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const c = u.optNull("c", "m/s", "Scale");
+      const vm = u.optNull("vm", "m/s", "Mean speed");
+      const rho = u.optNull("rho", "kg/m³", "Air density");
+      const vci = u.optNull("vci", "m/s", "Cut-in");
+      const vr = u.optNull("vr", "m/s", "Rated speed");
+      const vco = u.optNull("vco", "m/s", "Cut-out");
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const k = Number(r("k"));
+      if (!r("k").trim() || !Number.isFinite(k)) return { text: "The shape k must be a plain number (typically 1.5-3).", ok: false };
+      const given = [vci, vr, vco].filter((x) => x !== null).length;
+      if (given !== 0 && given !== 3) {
+        return { text: "A capacity factor needs all three turbine speeds (cut-in, rated, cut-out) — or leave all three blank.", ok: false };
+      }
+      const res = weibullWind({
+        shape: k,
+        scale: c ?? undefined,
+        meanSpeed: vm ?? undefined,
+        airDensity: rho ?? undefined,
+        turbine: given === 3 ? { cutIn: vci!, rated: vr!, cutOut: vco! } : undefined,
+      });
+      if (!res.ok) return { text: res.error, ok: false };
+      const lines = [
+        "Weibull wind resource",
+        "",
+        `  Shape k / scale c       ${engNum(res.shape, 4)} / ${engNum(res.scale, 4)} m/s`,
+        `  Mean speed              ${engNum(res.meanSpeed, 4)} m/s`,
+      ];
+      if (res.mostProbableSpeed !== null) lines.push(`  Most probable speed     ${engNum(res.mostProbableSpeed, 4)} m/s`);
+      lines.push(`  Mean power density      ${engNum(res.meanPowerDensity, 4)} W/m²`);
+      lines.push(`  Energy pattern factor   ${engNum(res.energyPatternFactor, 4)}`);
+      if (res.capacityFactor !== null && res.availabilityFraction !== null) {
+        lines.push(`  Capacity factor         ${engNum(res.capacityFactor, 4)}  =  ${engNum(res.capacityFactor * 100, 4)} %`);
+        lines.push(`  Hours in operating band ${engNum(res.availabilityFraction * 100, 4)} %`);
+      }
+      u.report(lines);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "energy-flue-gas",
+    name: "Flue gas: excess air from measured O₂",
+    group: "Energy & power",
+    hint:
+      "The practical direction: the analyser reads the DRY flue O₂ and the excess air follows " +
+      "from stoichiometry, on the same air convention as the combustion tool so the two cannot " +
+      "disagree. The ultimate CO₂ is the fuel's fingerprint — measured CO₂ can never exceed it.",
+    fields: [
+      { key: "formula", label: "Fuel formula (CH₄, C₈H₁₈ — plain digits fine)", default: "CH4", kind: "text" },
+      { key: "o2", label: "Measured O₂ in dry flue gas, %", default: "3", kind: "text" },
+    ],
+    compute: (r) => {
+      const o2 = Number(r("o2"));
+      if (!r("o2").trim() || !Number.isFinite(o2)) return { text: "The O₂ reading must be a percentage.", ok: false };
+      const res = flueGas({ formula: r("formula"), o2DryPct: o2 });
+      if (!res.ok) return { text: res.error, ok: false };
+      const lines = [
+        `Flue gas of ${formatFormula(r("formula").trim())} at ${engNum(o2, 3)}% dry O₂`,
+        "",
+        `  Excess air          ${engNum(res.excessAir * 100, 4)} %`,
+        `  Actual AFR          ${engNum(res.afrActual, 4)} kg air / kg fuel`,
+        `  Dry CO₂             ${engNum(res.dryCO2Pct, 4)} %   (ultimate ${engNum(res.ultimateCO2Pct, 4)} %)`,
+        `  Dry N₂              ${engNum(res.dryN2Pct, 4)} %`,
+      ];
+      if (res.drySO2Pct !== null) lines.push(`  Dry SO₂             ${engNum(res.drySO2Pct, 4)} %`);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_SAME_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "energy-storage",
+    name: "Storage sizing & levelized cost (LCOS)",
+    group: "Energy & power",
+    hint:
+      "The losses compound UPSTREAM: the bank serves the load after the inverter's cut, and the " +
+      "charger supplies the load over the whole efficiency chain — sizing on nameplate kWh " +
+      "undersizes an off-grid bank by a third. Fill the economics to get cost per kWh discharged.",
+    fields: [
+      { key: "load", label: "Daily load, kWh", default: "10", kind: "text" },
+      { key: "days", label: "Days of autonomy", default: "2", kind: "text" },
+      { key: "dod", label: "Depth of discharge, 0-1", default: "0.8", kind: "text" },
+      { key: "rt", label: "Round-trip efficiency, 0-1", default: "0.9", kind: "text" },
+      { key: "inv", label: "Inverter efficiency, 0-1 (blank = 1)", default: "0.95", kind: "text" },
+      { key: "vbus", label: "Bus voltage, V (blank to skip Ah)", default: "48", kind: "text" },
+      { key: "capex", label: "Capital cost (blank to skip LCOS)", default: "", kind: "text" },
+      { key: "opex", label: "Annual operating cost", default: "0", kind: "text" },
+      { key: "cycles", label: "Cycles per year", default: "300", kind: "text" },
+      { key: "years", label: "Lifetime, years", default: "10", kind: "text" },
+      { key: "rate", label: "Discount rate, fraction", default: "0.07", kind: "text" },
+      { key: "deg", label: "Capacity fade, fraction/yr (blank = none)", default: "", kind: "text" },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const load = u.req("load", "kWh", "Daily load");
+      const vbus = u.optNull("vbus", "V", "Bus voltage");
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const nums: Record<string, number> = {};
+      for (const [key, label] of [
+        ["days", "Days of autonomy"],
+        ["dod", "Depth of discharge"],
+        ["rt", "Round-trip efficiency"],
+      ] as const) {
+        const x = Number(r(key));
+        if (!r(key).trim() || !Number.isFinite(x)) return { text: `${label} must be a plain number.`, ok: false };
+        nums[key] = x;
+      }
+      const invRaw = r("inv").trim();
+      const inv = invRaw ? Number(invRaw) : undefined;
+      if (invRaw && !Number.isFinite(inv as number)) return { text: "Inverter efficiency must be a fraction.", ok: false };
+      let economics;
+      const capexRaw = r("capex").trim();
+      if (capexRaw) {
+        const ec: Record<string, number> = {};
+        for (const [key, label] of [
+          ["capex", "Capital cost"],
+          ["opex", "Annual operating cost"],
+          ["cycles", "Cycles per year"],
+          ["years", "Lifetime"],
+          ["rate", "Discount rate"],
+        ] as const) {
+          const x = Number(r(key));
+          if (!r(key).trim() || !Number.isFinite(x)) return { text: `${label} must be a plain number.`, ok: false };
+          ec[key] = x;
+        }
+        const degRaw = r("deg").trim();
+        const deg = degRaw ? Number(degRaw) : undefined;
+        if (degRaw && !Number.isFinite(deg as number)) return { text: "Capacity fade must be a small fraction per year.", ok: false };
+        economics = {
+          capex: ec.capex,
+          annualOpex: ec.opex,
+          cyclesPerYear: ec.cycles,
+          lifetimeYears: ec.years,
+          discountRate: ec.rate,
+          degradationRate: deg,
+        };
+      }
+      const res = storageSizing({
+        dailyLoadKWh: load,
+        autonomyDays: nums.days,
+        depthOfDischarge: nums.dod,
+        roundTripEff: nums.rt,
+        inverterEff: inv,
+        busVoltage: vbus ?? undefined,
+        economics,
+      });
+      if (!res.ok) return { text: res.error, ok: false };
+      const lines = [
+        "Battery bank sizing",
+        "",
+        `  Bank (nameplate)     ${engNum(res.bankKWh, 4)} kWh`,
+        `  Usable at this DoD   ${engNum(res.usableKWh, 4)} kWh`,
+      ];
+      if (res.bankAh !== null) lines.push(`  At the bus voltage   ${engNum(res.bankAh, 4)} Ah`);
+      lines.push(`  Daily charge input   ${engNum(res.dailyChargeKWh, 4)} kWh`);
+      if (res.lcosPerKWh !== null) {
+        lines.push("");
+        lines.push(`  LCOS                 ${engNum(res.lcosPerKWh, 4)} per kWh discharged`);
+        lines.push(`  PV of costs          ${engNum(res.presentValueCosts!, 5)}`);
+        lines.push(`  PV of discharged     ${engNum(res.presentValueKWh!, 5)} kWh`);
+      }
+      u.report(lines);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "energy-solar-geometry",
+    name: "Sun position, day length & H₀",
+    group: "Energy & power",
+    hint:
+      "Pure astronomy — declination, day length, noon elevation, sun position at an hour, and " +
+      "the extraterrestrial daily total H₀, the hard ceiling before the atmosphere. Polar day " +
+      "and night are answers, not errors. Times are SOLAR time.",
+    fields: [
+      { key: "lat", label: "Latitude, degrees (north positive)", default: "40", kind: "text" },
+      { key: "day", label: "Day of year, 1-366 (Jun 21 = 172)", default: "172", kind: "text" },
+      { key: "hour", label: "Solar hour, 0-24 (blank to skip position)", default: "", kind: "text" },
+    ],
+    compute: (r) => {
+      const lat = Number(r("lat"));
+      const day = Number(r("day"));
+      if (!r("lat").trim() || !Number.isFinite(lat)) return { text: "Latitude must be a number of degrees.", ok: false };
+      if (!r("day").trim() || !Number.isFinite(day)) return { text: "The day of year must be a whole number, 1-366.", ok: false };
+      const hourRaw = r("hour").trim();
+      const hour = hourRaw ? Number(hourRaw) : undefined;
+      if (hourRaw && !Number.isFinite(hour as number)) return { text: "The solar hour must be a number, 0-24.", ok: false };
+      const res = solarGeometry({ latitudeDeg: lat, dayOfYear: day, solarHour: hour });
+      if (!res.ok) return { text: res.error, ok: false };
+      const lines = [
+        `Solar geometry at ${engNum(lat, 4)}°, day ${engNum(day, 3)}`,
+        "",
+        `  Declination            ${engNum(res.declinationDeg, 4)}°`,
+        `  Day length             ${engNum(res.dayLengthHours, 4)} h`,
+        `  Noon elevation         ${engNum(res.noonElevationDeg, 4)}°`,
+        `  Extraterrestrial H₀    ${engNum(res.extraterrestrialKWhM2, 4)} kWh/m² per day`,
+      ];
+      if (res.hourElevationDeg !== null && res.hourAzimuthDeg !== null) {
+        lines.push(`  At solar hour ${engNum(hour!, 4)}:  elevation ${engNum(res.hourElevationDeg, 4)}°, azimuth ${engNum(res.hourAzimuthDeg, 4)}° from north`);
+      }
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_SAME_UNIT_NOTE);
       return { text: plainDashes(lines.join("\n")) };
     },
   },

@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.66.0)
+# JurisLab — Manual Test Script (v2.67.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -1090,6 +1090,25 @@ Engineering mode. **Energy & power** grows 8 → 16; the mode must state
 - [ ] **Wind + altitude**: blank the density, set altitude 2000 m → the result notes
   density **1.0065 kg/m³ from the ISA** — the same atmosphere the aviation tools use.
 - [ ] All eight new tools insert, subscripts and superscripts intact (O₂, m², kVAR).
+
+---
+
+## 0ab. New in v2.67.0 — FFT windowing
+
+- [ ] **Analyze → FFT / frequency spectrum.** There is now a **Window** dropdown
+  defaulting to **Hann**. At the defaults the tool still reports the same
+  dominant frequency, and a note names the window and what it trades.
+- [ ] Switch to **None (rectangular: leakage)**: the note changes to explain the
+  wrap-around discontinuity. Compare the two spectra on a longer signal — the
+  Hann one has visibly less energy in the skirts either side of the peak.
+- [ ] Paste a two-tone signal (50 Hz and 120 Hz sampled at 1000 Hz). **Dominant
+  frequencies must list TWO different tones**, not the same peak twice from
+  adjacent bins. Check this under every window.
+- [ ] Paste a constant signal (e.g. eight copies of 5): dominant frequencies must
+  be **none** under every window, not a spurious tone.
+- [ ] Add a large constant offset to a real signal: the tone must still be found.
+- [ ] **Insert result** must work — the note text contains no em dash, which
+  would disable it.
 
 ---
 

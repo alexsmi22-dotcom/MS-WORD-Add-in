@@ -6,6 +6,36 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.67.0] — 2026-08-01 — Every spectrum had leakage in it
+
+Tier 1 release C (first part): **FFT windowing.**
+
+`spectrum()` zero-padded and applied no window at all, so every spectrum this
+product has ever drawn carried leakage. The cause is always present rather than
+an edge case: an FFT assumes the record repeats forever, and unless the signal
+holds a whole number of cycles the wrap-around leaves a discontinuity whose
+energy smears one real tone across every bin. The skirts look like structure.
+
+Hann is now the default, with Hamming, Blackman and an explicit "none" offered.
+Amplitudes are corrected for the window's coherent gain, so a sinusoid of
+amplitude A still reads A, and an off-bin tone actually reads MORE accurately
+than it did before (scalloping loss falls). The result states which window ran
+and what it trades.
+
+**Two defects the change exposed, both fixed here.** A window widens the main
+lobe, so `dominantFrequencies` — which took the top N *bins* — began reporting
+one tone twice from adjacent bins and dropping the second tone off the list. It
+now picks local maxima and excludes anything inside the main lobe of a peak
+already taken: peaks, not bins. And a windowed CONSTANT signal is no longer
+constant (it becomes the shape of the window), which made a flat input report a
+confident dominant frequency where the old code correctly reported none; the
+mean is now removed before peak-finding, which is standard practice anyway and
+also stops a large DC offset drowning a real tone.
+
+The em-dash sentinel bit once more during this work: prose punctuation in the
+new note and in a dropdown label would have silently disabled "Insert result"
+for the whole tool. Caught by the gate that exists for it.
+
 ## [2.66.0] — 2026-08-01 — Wiring what was already built
 
 Tier 1 release B: capability that existed in tested code with no way to reach

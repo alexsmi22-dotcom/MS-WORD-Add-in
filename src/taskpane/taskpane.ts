@@ -332,7 +332,7 @@ import {
 import { analyzeData } from "../lib/insights";
 import { parseDefinitions, evalMatrixExpression } from "../lib/matrixExpr";
 import { nelderMead } from "../lib/optimize";
-import { spectrum, dominantFrequencies } from "../lib/fft";
+import { spectrum, dominantFrequencies, WindowKind } from "../lib/fft";
 import { solveOde, OdeMethod, OdeEvent } from "../lib/ode";
 import { parseOdeSystem, rewriteStateExpression, parseTimeList } from "../lib/odeParse";
 import { isNewerVersion } from "../lib/version";
@@ -7494,14 +7494,27 @@ const ANALYZE_CALCS: AnalyzeCalc[] = [
         rows: 6,
       },
       { key: "fs", label: "Sample rate (e.g. Hz)", default: "8", kind: "text" },
+      {
+        key: "window",
+        label: "Window",
+        default: "hann",
+        kind: "select",
+        options: [
+          { value: "hann", label: "Hann (general purpose)" },
+          { value: "hamming", label: "Hamming (lower first side lobe)" },
+          { value: "blackman", label: "Blackman (quietest, widest)" },
+          { value: "none", label: "None (rectangular: leakage)" },
+        ],
+      },
     ],
     compute: (r) => {
       const signal = statList(r("signal"));
       const fs = Number(r("fs"));
       if (signal.length < 2) return { text: "Enter at least two samples.", ok: false };
       if (!Number.isFinite(fs) || fs <= 0) return { text: "Enter a positive sample rate.", ok: false };
-      const bins = spectrum(signal, fs);
-      const dom = dominantFrequencies(signal, fs, 3);
+      const win = (r("window") || "hann") as WindowKind;
+      const bins = spectrum(signal, fs, win);
+      const dom = dominantFrequencies(signal, fs, 3, win);
       const pts: Point[] = bins.map((b) => ({ x: b.freq, y: b.magnitude }));
       const svg = buildPlotSvg([{ points: pts, type: "line", color: "#2563eb", label: "|X(f)|" }], {
         title: "Amplitude spectrum",
@@ -7514,6 +7527,24 @@ const ANALYZE_CALCS: AnalyzeCalc[] = [
       return analyzeResultOf([
         { kind: "line", text: `Dominant frequencies: ${domText}` },
         { kind: "plot", svg, caption: "Amplitude spectrum", alt: "FFT amplitude spectrum", w: 380, h: 270 },
+        {
+          kind: "line",
+          // NO EM DASHES IN THIS STRING. The Analyze reader blocks Insert when
+          // the result text contains one, because an em dash is also the
+          // sentinel formatNum prints for a non-finite value, and the check is
+          // a whole-text scan. Prose punctuation here would silently disable
+          // "Insert result" for the whole tool.
+          text:
+            win === "none"
+              ? "Note: no window. Unless the record holds a whole number of cycles, the FFT's " +
+                "assumed wrap-around leaves a discontinuity, and one real tone smears across every " +
+                "bin as skirts that look like structure. A window suppresses that."
+              : `Note: ${win} window applied, with the amplitudes corrected for it, so a sinusoid ` +
+                "of amplitude A still reads A. A window widens the main lobe (two very close tones " +
+                "are harder to separate) in exchange for far lower side lobes (a weak tone beside a " +
+                "strong one stops being buried). Dominant frequencies are picked as peaks rather " +
+                "than bins, so one tone is never reported twice.",
+        },
       ]);
     },
   },

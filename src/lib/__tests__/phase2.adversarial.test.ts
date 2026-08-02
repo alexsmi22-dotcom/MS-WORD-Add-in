@@ -39,11 +39,26 @@ describe("FFT edge cases", () => {
     for (let i = x.length; i < 8; i++) expect(back.re[i]).toBeCloseTo(0, 9); // padding stays zero
   });
   it("constant signal → all energy at DC, no non-zero dominant frequency", () => {
-    const s = spectrum([5, 5, 5, 5], 4);
+    // WITHOUT A WINDOW this is the exact DFT identity, and it still holds.
+    const s = spectrum([5, 5, 5, 5], 4, "none");
     expect(s[0].freq).toBe(0);
     expect(s[0].magnitude).toBeCloseTo(5, 9);
     for (let k = 1; k < s.length; k++) expect(s[k].magnitude).toBeCloseTo(0, 9);
-    expect(dominantFrequencies([5, 5, 5, 5], 4, 3)).toHaveLength(0);
+
+    // WITH a window (the default since v2.67.0) a constant is no longer
+    // constant — it becomes the shape of the window, which necessarily has
+    // energy beside DC. That is the price of suppressing leakage and is not a
+    // defect, so it is asserted rather than hidden.
+    const windowed = spectrum([5, 5, 5, 5], 4);
+    expect(windowed[0].magnitude).toBeCloseTo(5, 6); // DC amplitude still right
+    expect(windowed.slice(1).some((b) => b.magnitude > 1e-6)).toBe(true);
+
+    // What the USER sees must be unchanged: a flat signal has no oscillation to
+    // report, whichever window is in force. dominantFrequencies removes the
+    // mean first precisely so this stays true.
+    for (const w of ["none", "hann", "hamming", "blackman"] as const) {
+      expect(dominantFrequencies([5, 5, 5, 5], 4, 3, w)).toHaveLength(0);
+    }
   });
   it("too-short signal yields an empty spectrum", () => {
     expect(spectrum([42], 10)).toEqual([]);

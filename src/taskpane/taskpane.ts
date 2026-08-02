@@ -274,7 +274,7 @@ import {
 } from "../lib/dna";
 import { auditDocument, AuditReport } from "../lib/audit";
 import { parseReaction, composeReactionScheme, Rendered } from "../lib/reactions";
-import { formatSeqIdRef } from "../lib/seqid";
+import { formatSeqIdRef, formatSeqIdRefs } from "../lib/seqid";
 import { getPrefs, setPref, HomeFilter } from "../lib/prefs";
 import { parseTableData, cleanTableRows, buildChartPreviewSvg, TableChart, ChartKind, ChartStyle } from "../lib/tablechart";
 import { buildDiagramSvg, DiagramKind } from "../lib/tablediagram";
@@ -534,6 +534,8 @@ let seqListEl: HTMLElement;
 let seqOutput: HTMLTextAreaElement;
 let seqWarningsEl: HTMLElement;
 let seqAddBtn: HTMLButtonElement;
+let seqImportBtn: HTMLButtonElement;
+let seqImportFile: HTMLInputElement;
 let seqGenerateBtn: HTMLButtonElement;
 let seqDownloadBtn: HTMLButtonElement;
 let seqCopyBtn: HTMLButtonElement;
@@ -929,6 +931,8 @@ Office.onReady((info) => {
   seqOutput = document.getElementById("seq-output") as HTMLTextAreaElement;
   seqWarningsEl = document.getElementById("seq-warnings") as HTMLElement;
   seqAddBtn = document.getElementById("seq-add-btn") as HTMLButtonElement;
+  seqImportBtn = document.getElementById("seq-import-btn") as HTMLButtonElement;
+  seqImportFile = document.getElementById("seq-import-file") as HTMLInputElement;
   seqGenerateBtn = document.getElementById("seq-generate-btn") as HTMLButtonElement;
   seqDownloadBtn = document.getElementById("seq-download-btn") as HTMLButtonElement;
   seqCopyBtn = document.getElementById("seq-copy-btn") as HTMLButtonElement;
@@ -1187,6 +1191,8 @@ Office.onReady((info) => {
   insertGalleryBtn.addEventListener("click", insertGallery);
 
   seqAddBtn.addEventListener("click", () => addSequenceCard());
+  seqImportBtn.addEventListener("click", () => seqImportFile.click());
+  seqImportFile.addEventListener("change", () => void importSequenceFiles());
   seqGenerateBtn.addEventListener("click", generateSequenceXml);
   seqDownloadBtn.addEventListener("click", downloadSequenceXml);
   seqCopyBtn.addEventListener("click", copySequenceXml);
@@ -2590,7 +2596,16 @@ async function insertGallery(): Promise<void> {
 // ---------------------------------------------------------------------------
 
 /** Appends an editable sequence card (molecule type, organism, residues + readout). */
-function addSequenceCard(): void {
+/**
+ * A sequence card, optionally pre-filled from a parsed record.
+ *
+ * The prefill path exists because `parseSequenceFile` — which reads FASTA and
+ * GenBank and has been tested since the Sequence Map work — was reachable from
+ * ONE mode. An attorney preparing an ST.26 listing for a biotech application
+ * with forty sequences was retyping or pasting them one card at a time, while
+ * the reader that could have loaded the whole file sat one import away.
+ */
+function addSequenceCard(prefill?: { residues?: string; organism?: string; molType?: MolType }): void {
   const card = document.createElement("div");
   card.className = "seq-card";
 
@@ -2668,7 +2683,95 @@ function addSequenceCard(): void {
   addFeat.addEventListener("click", () => featuresBox.appendChild(makeSequenceFeatureRow()));
 
   card.append(head, residues, readout, featuresBox, addFeat);
+  if (prefill) {
+    if (prefill.molType) moltype.value = prefill.molType;
+    if (prefill.organism) organism.value = prefill.organism;
+    if (prefill.residues) residues.value = prefill.residues;
+    // Through real events so the mol_type option list and the residue readout
+    // update exactly as they do when a user types, rather than being set by a
+    // second code path that could drift.
+    moltype.dispatchEvent(new Event("change"));
+    residues.dispatchEvent(new Event("input"));
+  }
   seqListEl.appendChild(card);
+}
+
+/**
+ * Guesses ST.26's molecule type from the residues themselves.
+ *
+ * Deliberately conservative and stated in the result: DNA unless there is a U
+ * with no T (RNA), or letters outside the nucleotide alphabet (protein). A
+ * short peptide of only GATC-type letters is genuinely ambiguous — "CAT" is a
+ * valid tripeptide and a valid codon — so it reads as DNA and the user changes
+ * the dropdown. Guessing silently would be worse than guessing visibly.
+ */
+function guessMolType(residues: string): MolType {
+  const r = residues.toUpperCase().replace(/[^A-Z]/g, "");
+  if (!r) return "DNA";
+  const nucleotide = /^[ACGTUNRYKMSWBDHV]+$/.test(r);
+  if (!nucleotide) return "AA";
+  return r.includes("U") && !r.includes("T") ? "RNA" : "DNA";
+}
+
+/**
+ * Loads FASTA / GenBank files into sequence cards.
+ *
+ * Every record becomes its own card, because ST.26 lists sequences
+ * individually; a multi-record file is the normal case rather than the
+ * exception, and it is exactly what the hand-typed path made painful.
+ */
+async function importSequenceFiles(): Promise<void> {
+  const files = Array.from(seqImportFile.files ?? []);
+  seqImportFile.value = ""; // so re-choosing the same file fires again
+  if (!files.length) return;
+
+  let added = 0;
+  const problems: string[] = [];
+  for (const file of files) {
+    if (file.size > 8 * 1024 * 1024) {
+      problems.push(`${file.name}: over 8 MB, too large to load into the pane.`);
+      continue;
+    }
+    let text: string;
+    try {
+      text = await file.text();
+    } catch {
+      problems.push(`${file.name}: could not be read.`);
+      continue;
+    }
+    const parsed = parseSequenceFile(text);
+    if (!parsed.ok) {
+      problems.push(`${file.name}: ${parsed.error}`);
+      continue;
+    }
+    for (const rec of parsed.records) {
+      if (!rec.sequence) continue;
+      addSequenceCard({
+        residues: rec.sequence,
+        molType: guessMolType(rec.sequence),
+        // GenBank carries an organism in its source feature; FASTA does not,
+        // and an empty box means "synthetic construct" per the placeholder.
+        organism: rec.features.find((f) => f.type === "source")?.qualifiers?.organism ?? "",
+      });
+      added++;
+    }
+  }
+
+  // Remove the blank starter card, but only if it is still blank — never
+  // discard something the user typed.
+  const cards = Array.from(seqListEl.querySelectorAll(".seq-card"));
+  if (added > 0 && cards.length > added) {
+    for (const c of cards.slice(0, cards.length - added)) {
+      const ta = c.querySelector<HTMLTextAreaElement>(".seq-residues");
+      if (ta && !ta.value.trim()) c.remove();
+    }
+  }
+
+  const parts: string[] = [];
+  if (added) parts.push(`Loaded ${added} sequence${added === 1 ? "" : "s"}.`);
+  if (problems.length) parts.push(problems.join(" "));
+  if (!added && !problems.length) parts.push("No sequences were found in that file.");
+  seqWarningsEl.textContent = parts.join(" ");
 }
 
 /** A feature-annotation row: key, location, and the common qualifiers. */
@@ -4963,12 +5066,37 @@ function renderAuditReport(report: AuditReport): void {
 
 /** Inserts a canonical "SEQ ID NO: N" reference at the selection. */
 async function insertSeqIdRef(): Promise<void> {
-  const n = parseInt(seqRefNum.value, 10);
-  if (!Number.isFinite(n) || n < 1) {
-    setStatus("Enter a SEQ ID number ≥ 1.", "error");
+  // ACCEPTS A LIST OR A RANGE, not just one number. `formatSeqIdRefs` was
+  // written to collapse 1,2,3,7 into "SEQ ID NOs: 1-3 and 7" and had no caller,
+  // so a specification citing a run of sequences — the normal case in a biotech
+  // application — got them one insertion at a time.
+  const raw = seqRefNum.value.trim();
+  const nums: number[] = [];
+  for (const part of raw.split(/[,;\s]+/).filter(Boolean)) {
+    const range = /^(\d+)\s*[-–]\s*(\d+)$/.exec(part);
+    if (range) {
+      const lo = parseInt(range[1], 10);
+      const hi = parseInt(range[2], 10);
+      if (lo < 1 || hi < lo || hi - lo > 999) {
+        setStatus(`"${part}" is not a usable range of SEQ ID numbers.`, "error");
+        return;
+      }
+      for (let i = lo; i <= hi; i++) nums.push(i);
+      continue;
+    }
+    const n = parseInt(part, 10);
+    if (!Number.isFinite(n) || n < 1 || String(n) !== part) {
+      setStatus(`"${part}" is not a SEQ ID number.`, "error");
+      return;
+    }
+    nums.push(n);
+  }
+  if (!nums.length) {
+    setStatus("Enter a SEQ ID number ≥ 1, a list (1, 2, 5) or a range (1-3).", "error");
     return;
   }
-  await insertPlainText(formatSeqIdRef(n), "SEQ ID reference");
+  const text = nums.length === 1 ? formatSeqIdRef(nums[0]) : formatSeqIdRefs(nums);
+  await insertPlainText(text, "SEQ ID reference");
 }
 
 // ---------------------------------------------------------------------------

@@ -77,7 +77,9 @@ describe("everything shipped is reachable", () => {
     // 26 at HEAD ec1d802. Lower this when you surface or delete one; never raise
     // it without a reason written next to the change.
     //
-    // 18 as of v2.69.0. The tier-1 wiring releases surfaced NINE of these:
+    // 17 as of v2.71.0: seqid.formatSeqIdRefs (SEQ ID ranges) is now called by the
+    // pane. 18 as of v2.69.0; the tier-1 wiring releases
+    // surfaced nine before that:
     // the eight finance functions (annuities, perpetuities, CAGR, rate
     // conversions, straight-line depreciation) now have calculators,
     // assay.substrateInhibitionV has a fitter, align.countFastaRecords warns,
@@ -91,7 +93,7 @@ describe("everything shipped is reachable", () => {
     // identity). The engine itself only needs h(T); cp is exported so the
     // data's provenance stays verifiable, which is the condition under which
     // bundled thermodynamic data was accepted at all.
-    const BASELINE = 18;
+    const BASELINE = 17;
     const dead = deadExports();
     expect({ count: dead.length, over: dead.length > BASELINE ? dead : [] }).toEqual({
       count: dead.length <= BASELINE ? dead.length : BASELINE,

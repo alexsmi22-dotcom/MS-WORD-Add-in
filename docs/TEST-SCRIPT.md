@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.70.0)
+# JurisLab — Manual Test Script (v2.71.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -1090,6 +1090,27 @@ Engineering mode. **Energy & power** grows 8 → 16; the mode must state
 - [ ] **Wind + altitude**: blank the density, set altitude 2000 m → the result notes
   density **1.0065 kg/m³ from the ISA** — the same atmosphere the aviation tools use.
 - [ ] All eight new tools insert, subscripts and superscripts intact (O₂, m², kVAR).
+
+---
+
+## 0af. New in v2.71.0 — import a sequence file
+
+- [ ] **Sequence** mode: beside "+ Add sequence" there is now
+  **Import FASTA / GenBank…**. Load a multi-record FASTA — every record must
+  become its own card, with residues filled and the count shown under each.
+- [ ] The molecule-type dropdown must be guessed: a DNA sequence reads **DNA**,
+  one containing U but no T reads **RNA**, a protein sequence reads
+  **Protein (AA)**. Correct it by hand where the guess is wrong.
+- [ ] Load a **GenBank** file: the organism from its source feature must appear
+  in the organism box.
+- [ ] Import when the only card is blank: that blank card disappears. Type
+  something into a card first, then import: **your typed card must survive**.
+- [ ] A file over 8 MB, and a file that is neither format, are each reported by
+  name rather than failing silently.
+- [ ] **In-text reference**: the SEQ ID box now takes `1-3` or `1, 2, 5` as well
+  as a single number, and inserts ONE citation covering them. Nonsense input is
+  refused with a message.
+- [ ] Generate the ST.26 XML after an import and confirm the sequences are in it.
 
 ---
 

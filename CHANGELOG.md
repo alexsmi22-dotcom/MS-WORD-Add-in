@@ -6,6 +6,35 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.71.0] — 2026-08-02 — Import a sequence file into the ST.26 listing
+
+Tier 1 release G: the sequence workflow.
+
+**Import FASTA / GenBank.** `parseSequenceFile` has read both formats, with
+tests, since the Sequence Map work — and was reachable from that one mode. So an
+attorney preparing an ST.26 listing for a biotech application carrying forty
+sequences was pasting them into cards one at a time, while the reader that could
+have loaded the whole file sat one import away. Multiple files at once; every
+record becomes its own card, because ST.26 lists sequences individually and a
+multi-record file is the normal case.
+
+Molecule type is guessed from the residues and shown in the dropdown for you to
+correct: RNA when there is a U and no T, protein when letters fall outside the
+nucleotide alphabet, DNA otherwise. A short peptide spelled only in GATC letters
+is genuinely ambiguous — "CAT" is a valid tripeptide and a valid codon — so it
+reads as DNA and the guess is visible rather than silent. GenBank's organism is
+carried across from the source feature.
+
+The blank starter card is removed after an import, but **only if it is still
+blank** — never anything typed.
+
+**SEQ ID references take a list or a range.** `formatSeqIdRefs` was written to
+collapse 1, 2, 3, 7 into a single citation and had no caller, so a specification
+citing a run of sequences inserted them one at a time. The field now accepts
+`1-3`, `1, 2, 5` or a plain number.
+
+One more dead export paid off; the ratchet drops to 17.
+
 ## [2.70.0] — 2026-08-02 — DEPT, and the sp3 substituents that vanished
 
 Tier 1 release F, chemistry half.

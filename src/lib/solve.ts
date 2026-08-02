@@ -1383,6 +1383,150 @@ export interface IntegralResult {
   caveats: string[];
 }
 
+export interface AntiderivativeResult {
+  variable: string;
+  /** F(x), without the constant — the caller adds "+ C". */
+  antiderivative: string;
+  /** d/dx of the answer, re-derived and simplified: the proof it is right. */
+  checkDerivative: string;
+  /**
+   * How the answer was checked.
+   *
+   * `symbolic` — the CAS proved d/dx F − f ≡ 0 and discarded any candidate that
+   * failed, so this is a proof rather than evidence.
+   * `numeric` — the rule table produced F and differentiating it back agrees
+   * with the integrand at every sampled point. Strong evidence, not a proof.
+   * `unverified` — neither check could be completed. Treat with suspicion.
+   *
+   * The distinction is reported rather than flattened because the printed
+   * derivative often does not LOOK like the integrand even when it equals it:
+   * d/dx ln|x| simplifies to x/|x|², which is 1/x for every real x ≠ 0 and does
+   * not resemble it on the page.
+   */
+  verified: "symbolic" | "numeric" | "unverified";
+  method: string;
+  caveats: string[];
+}
+
+/**
+ * The INDEFINITE integral — an antiderivative, with no limits.
+ *
+ * The definite version has shipped since the beginning, and the engine behind
+ * it already computes F(x) and throws it away after subtracting. This is the
+ * entry point that hands F(x) back.
+ *
+ * IT IS SELF-VERIFYING, and the verification is shown rather than claimed: the
+ * answer is differentiated again and the derivative reported beside it, so the
+ * reader can confirm it returns the integrand instead of trusting the table.
+ * Symbolic integration is the one operation where a wrong answer is trivially
+ * checkable, so there is no excuse for asserting one unchecked.
+ *
+ * Returns null when no closed form is found — which is the common case and not
+ * a failure. Most elementary-looking integrands (exp(-x²), sin(x)/x) genuinely
+ * have no elementary antiderivative, and saying so is the correct answer.
+ */
+export function antiderivative(input: string, variable?: string): AntiderivativeResult | null {
+  let e: Expr;
+  try { e = parseExpr(input); } catch { return null; }
+  const vars = freeVars(e);
+  const x = variable ?? (vars.length === 1 ? vars[0] : "x");
+
+  const simplified = simplify(e);
+  const cas = symbolicIntegrate(simplified, x, derivative);
+  const F = cas?.F ?? symbolicAntideriv(simplified, x);
+  if (!F) return null;
+
+  const Fs = simplify(F);
+  const fs = format(Fs);
+  // Differentiate the answer back. The CAS path has already done this
+  // internally and discarded any candidate that failed; doing it again here is
+  // what lets the check be DISPLAYED, and it also covers the older rule table,
+  // which does not self-verify.
+  let backText = "";
+  let back: Expr | null = null;
+  try {
+    back = simplify(derivative(Fs, x));
+    backText = format(back);
+  } catch {
+    backText = "";
+  }
+
+  // Does the re-derived derivative actually agree with the integrand? Fixed
+  // sample points, not random ones — a check that varies run to run cannot be
+  // reproduced from a bug report. Points that make either side undefined are
+  // skipped rather than counted as failures, and a run where nothing could be
+  // evaluated is reported as unverified rather than as a pass.
+  let verified: "symbolic" | "numeric" | "unverified" = cas ? "symbolic" : "unverified";
+  if (!cas && back) {
+    const others0 = vars.filter((v) => v !== x);
+    let agreed = 0;
+    let compared = 0;
+    for (const p of [0.37, 0.83, 1.29, 2.11, 3.57, -0.61, -1.73, -2.89]) {
+      const env: Record<string, number> = { [x]: p };
+      // Any other symbols are constants; pin them at distinct fixed values so a
+      // coincidence at 1 cannot pass for an identity.
+      others0.forEach((v, i) => { env[v] = 1.7 + i * 0.9; });
+      let lhs: number;
+      let rhs: number;
+      try {
+        lhs = evalAst(back, env);
+        rhs = evalAst(simplified, env);
+      } catch {
+        continue;
+      }
+      if (!Number.isFinite(lhs) || !Number.isFinite(rhs)) continue;
+      compared++;
+      if (Math.abs(lhs - rhs) <= 1e-8 * Math.max(1, Math.abs(rhs))) agreed++;
+    }
+    if (compared >= 3 && agreed === compared) verified = "numeric";
+  }
+
+  const caveats: string[] = [
+    "An antiderivative is only defined up to an additive constant, which is what the + C is. " +
+      "Any two antiderivatives of the same function differ by a constant, so a different-looking " +
+      "answer is not necessarily a different one.",
+  ];
+  const others = vars.filter((v) => v !== x);
+  if (others.length) {
+    caveats.push(
+      `${others.join(", ")} ${others.length === 1 ? "was" : "were"} treated as a constant, since ` +
+        `the integration is with respect to ${x}.`,
+    );
+  }
+  // THE CONSTANT IS NOT ALWAYS ONE CONSTANT. Across a pole the antiderivative
+  // has separate branches and the constants are independent, which is the
+  // standard omission in every table.
+  if (/\bln\b|\blog\b|\/\s*[a-z(]|tan|sec|cot|csc/.test(fs)) {
+    caveats.push(
+      "If F has a pole or a branch cut inside the interval you care about, the constant is NOT " +
+        "shared across it: the antiderivative is a different branch on each side, each with its " +
+        "own constant. That is why the definite integral needs continuity, not just an F.",
+    );
+  }
+
+  if (verified === "unverified") {
+    caveats.push(
+      "This answer could NOT be checked by differentiating it back. Verify it yourself before " +
+        "relying on it — symbolic integration is the one operation where a wrong answer is " +
+        "trivially checkable, so an unchecked one should not be trusted.",
+    );
+  }
+
+  return {
+    variable: x,
+    antiderivative: fs,
+    checkDerivative: backText,
+    verified,
+    method:
+      verified === "symbolic"
+        ? "exact (symbolic; d/dx F − f proved identically zero)"
+        : verified === "numeric"
+          ? "exact (rule table; derivative checked back numerically)"
+          : "rule table, UNVERIFIED",
+    caveats,
+  };
+}
+
 const V = (name: string): Expr => ({ t: "var", name });
 const near = (v: number, t: number): boolean => Math.abs(v - t) < 1e-12;
 const lnAbs = (u: Expr): Expr => ({ t: "fn", name: "ln", arg: { t: "fn", name: "abs", arg: u } });

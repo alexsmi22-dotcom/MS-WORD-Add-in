@@ -89,7 +89,7 @@ import { resolveNameOnline, OpsinResult } from "../lib/opsin";
 import { computeMassSpec, MassSpecResult } from "../lib/massspec";
 import { predictNmr, deptBehaviour, DeptClass, NmrResult, Nucleus } from "../lib/nmr";
 import { predictCoupling, predictCosy, predictHsqc, predictHmbc, predictTocsy, Cosy2D, Hsqc2D, Hmbc2D, Tocsy2D } from "../lib/nmr2d";
-import { solveEquation, differentiate, integrate, parseExpr, evalAst } from "../lib/solve";
+import { solveEquation, differentiate, integrate, antiderivative, parseExpr, evalAst } from "../lib/solve";
 import { solveSystem, splitEquations } from "../lib/systems";
 import { limit, taylorSeries, parseLimitRequest, parseSeriesRequest } from "../lib/analysis";
 import { solveInequality } from "../lib/inequalities";
@@ -106,7 +106,7 @@ import { buildCircularMapSvg } from "../lib/seqmapcirc";
 import { parseSnapGeneDna, looksLikeDna } from "../lib/seqdna";
 import { ENZYMES, findSites, summarise, uniqueCutters, formatSite, methylationWarnings } from "../lib/enzymes";
 import { digest, describeDigest, gelBands } from "../lib/digest";
-import { analyzeBeam, parseSupports, parseLoads, parseLength } from "../lib/beam";
+import { analyzeBeam, parseSupports, parseLoads, parseLength, totalLoad } from "../lib/beam";
 import { beamDiagramSvg, BEAM_CHART_SIZE } from "../lib/beamChart";
 import { sectionProperties, bendingStress, SectionSpec } from "../lib/section";
 import { parseNetlist, parseValue, solveDc, solveAc, frequencySweep, dB } from "../lib/circuit";
@@ -211,7 +211,7 @@ import {
   CorrectionMethod,
 } from "../lib/stats2";
 import { tukeyHSD } from "../lib/tukey";
-import { fftFilter, FilterKind } from "../lib/fftfilter";
+import { fftFilter, FilterKind, FilterResponse } from "../lib/fftfilter";
 import { build, BuildFormat, BuildResult } from "../lib/builder";
 import { formatCodeBlock, CodeStyle } from "../lib/codeblock";
 import {
@@ -7906,7 +7906,7 @@ const ANALYZE_CALCS: AnalyzeCalc[] = [
     // was written, tested, caveated, and never wired to anything.
     id: "fftfilter",
     name: "FFT filter (de-noise a signal)",
-    hint: "Removes a frequency band from a uniformly sampled signal. The transition band is a raised cosine, not a brick wall, because a brick wall rings.",
+    hint: "Removes a frequency band from a uniformly sampled signal. The transition band is a raised cosine, not a brick wall, because a brick wall rings. Or pick a DESIGNED Butterworth/Chebyshev edge: the order is computed from your transition width and stopband target, so the attenuation quoted is one the filter actually achieves.",
     fields: [
       { key: "signal", label: "Signal samples", default: "0.0000, 0.7362, 0.2071, 1.2774, 1.0000, 0.5703, 1.2071, 0.0291, -0.0000, -0.0291, -1.2071, -0.5703, -1.0000, -1.2774, -0.2071, -0.7362, -0.0000, 0.7362, 0.2071, 1.2774, 1.0000, 0.5703, 1.2071, 0.0291, -0.0000, -0.0291, -1.2071, -0.5703, -1.0000, -1.2774, -0.2071, -0.7362", kind: "block", rows: 6 },
       { key: "fs", label: "Sample rate (Hz)", default: "64", kind: "text" },
@@ -7925,6 +7925,18 @@ const ANALYZE_CALCS: AnalyzeCalc[] = [
       { key: "cutoff", label: "Cutoff / low edge (Hz)", default: "8", kind: "text" },
       { key: "cutoffHigh", label: "High edge (Hz, band filters only)", default: "", kind: "text" },
       { key: "transition", label: "Transition width (Hz, blank = 10% of cutoff)", default: "", kind: "text" },
+      {
+        key: "response",
+        label: "Edge shape",
+        default: "cosine",
+        kind: "select",
+        options: [
+          { value: "cosine", label: "Raised cosine (smooth, no specification)" },
+          { value: "butterworth", label: "Butterworth (flat passband, designed order)" },
+          { value: "chebyshev", label: "Chebyshev (steeper, ripple in the passband)" },
+        ],
+      },
+      { key: "stopband", label: "Stopband attenuation (dB, designed shapes)", default: "40", kind: "text" },
     ],
     compute: (r) => {
       const signal = statList(r("signal"));
@@ -7944,7 +7956,13 @@ const ANALYZE_CALCS: AnalyzeCalc[] = [
       if (cutoff >= fs / 2)
         return { text: `The cutoff must be below the Nyquist frequency (${formatNum(fs / 2, 4)} Hz); nothing above it was ever sampled.`, ok: false };
 
-      const res = fftFilter(signal, fs, kind, { cutoff, cutoffHigh, transition });
+      const response = (r("response") || "cosine") as FilterResponse;
+      const sbRaw = r("stopband").trim();
+      const stopbandDb = sbRaw ? Number(sbRaw) : undefined;
+      if (sbRaw && (!Number.isFinite(stopbandDb) || (stopbandDb as number) <= 0))
+        return { text: "The stopband attenuation must be a positive number of decibels.", ok: false };
+
+      const res = fftFilter(signal, fs, kind, { cutoff, cutoffHigh, transition, response, stopbandDb });
       if (!res) return { text: "Could not filter that; check the samples, sample rate and cutoffs.", ok: false };
 
       const t = (k: number): number => k / fs;
@@ -8816,6 +8834,38 @@ const ENG_CALCS: EngCalc[] = [
           line += `, fixed-end moment ${engNum(re.moment)} ${mu} (${re.moment < 0 ? "hogging" : "sagging"})`;
         lines.push(line);
       }
+      // THE EQUILIBRIUM CHECK, which the report never printed.
+      //
+      // Vertical equilibrium is the one identity every one of these results
+      // must satisfy: the reactions have to carry exactly the load applied. It
+      // is not a re-derivation of the answer — it is an INDEPENDENT sum, over
+      // the parsed loads rather than the solved system, so a load the parser
+      // mis-read or a support the solver mishandled shows up here as a residual
+      // instead of passing silently. Applied couples contribute no vertical
+      // force, which is why they are absent from the total and the moment
+      // equilibrium is a separate matter.
+      const applied = totalLoad(lds.loads);
+      const carried = res.reactions.reduce((s, re) => s + re.force, 0);
+      const residual = carried - applied;
+      // A tolerance relative to the numbers involved, not an absolute one: a
+      // beam in newtons and a beam in kilonewtons have different roundings.
+      const scale = Math.max(Math.abs(applied), Math.abs(carried), 1);
+      lines.push("");
+      lines.push("Equilibrium check");
+      lines.push(`  Total applied load  ${engNum(applied)} ${fu} down`);
+      lines.push(`  Sum of reactions    ${engNum(carried)} ${fu} up`);
+      if (Math.abs(residual) <= 1e-9 * scale) {
+        lines.push("  Balance             exact");
+      } else {
+        lines.push(`  Balance             OUT BY ${engNum(residual)} ${fu}`);
+        lines.push(
+          "  That residual should be zero. Vertical equilibrium is an identity, not an " +
+            "approximation, so a non-zero value here means the loads were not read as intended " +
+            "or this result should not be trusted. Check the load list before using any number " +
+            "above it.",
+        );
+      }
+
       lines.push("");
       lines.push(`Max shear: ${engNum(res.maxShear.value)} ${fu} at x = ${engNum(res.maxShear.x)} ${lu}`);
       const govern =
@@ -11655,9 +11705,40 @@ const ENG_CALCS: EngCalc[] = [
     fields: [
       { key: "psurf", label: "Absolute pressure on the liquid surface, Pa", default: "101325", kind: "text" },
       { key: "pvap", label: "Vapour pressure at the pumping temperature, Pa", default: "2339", kind: "text" },
-      { key: "rho", label: "Density, kg/m³", default: "998", kind: "text" },
+      // THE TWO HANDOFFS. Density and the suction-line loss are both numbers
+      // this product computes elsewhere and used to make the user carry across
+      // by hand. Density comes from the shipped water table; the loss comes
+      // from the same pipe engine the Fluids panel runs. Vapour pressure stays
+      // an input on purpose - see the note the tool prints.
+      {
+        key: "rhosrc",
+        label: "Density from",
+        default: "typed",
+        kind: "select",
+        options: [
+          { value: "typed", label: "A density I type below" },
+          { value: "water", label: "Water at the temperature below (shipped table)" },
+        ],
+      },
+      { key: "rho", label: "Density, kg/m³ (typed source only)", default: "998", kind: "text" },
+      { key: "tempC", label: "Water temperature, °C (water source, 0-100)", default: "20", kind: "text" },
       { key: "hstat", label: "Static head, m (positive = liquid ABOVE the pump)", default: "2", kind: "text" },
-      { key: "hloss", label: "Suction-line losses, m", default: "0.5", kind: "text" },
+      {
+        key: "hlsrc",
+        label: "Suction-line losses from",
+        default: "typed",
+        kind: "select",
+        options: [
+          { value: "typed", label: "A head loss I type below" },
+          { value: "pipe", label: "Pipe geometry below (Colebrook, computed here)" },
+        ],
+      },
+      { key: "hloss", label: "Suction-line losses, m (typed source only)", default: "0.5", kind: "text" },
+      { key: "sD", label: "Suction pipe internal diameter, m (pipe source)", default: "0.1", kind: "text" },
+      { key: "sL", label: "Suction pipe length, m (pipe source)", default: "12", kind: "text" },
+      { key: "sQ", label: "Flow through the suction line, m³/s (pipe source)", default: "0.015", kind: "text" },
+      { key: "sEps", label: "Absolute roughness, m (pipe source)", default: "4.5e-5", kind: "text" },
+      { key: "sK", label: "Sum of minor-loss K (bends, valves, entry)", default: "2.5", kind: "text" },
       { key: "npshr", label: "NPSH required by the pump, m (from its curve)", default: "3", kind: "text" },
       { key: "Q", label: "Flow, m³/s (blank to skip power)", default: "", kind: "text" },
       { key: "head", label: "Total head delivered, m", default: "", kind: "text" },
@@ -11665,12 +11746,68 @@ const ENG_CALCS: EngCalc[] = [
     ],
     compute: (r) => {
       const u = engUnits(r);
+      const handoffs: string[] = [];
+
+      // --- density: typed, or the shipped water table -----------------------
+      const fromWater = r("rhosrc") === "water";
+      let rho = fromWater ? NaN : u.req("rho", "kg/m^3", "Density");
+      const tempC = fromWater ? u.req("tempC", "°C", "Water temperature") : 20;
+      if (fromWater && Number.isFinite(tempC)) {
+        const wp = waterProperties(tempC);
+        if (!wp) {
+          return {
+            text: `The shipped water table covers 0-100 °C; ${engNum(tempC, 4)} °C is outside it.`,
+            ok: false,
+          };
+        }
+        rho = wp.rho;
+        handoffs.push(
+          `Density taken from the shipped water table at ${engNum(tempC, 4)} °C: ` +
+            `${engNum(wp.rho, 5)} kg/m³ (viscosity ${engNum(wp.mu, 4)} Pa·s), rather than re-typed.`,
+        );
+      }
+
+      // --- suction losses: typed, or computed from the pipe ------------------
+      const fromPipe = r("hlsrc") === "pipe";
+      let hLoss = fromPipe ? NaN : u.opt("hloss", "m", "Suction losses", 0);
+      if (fromPipe) {
+        const D = u.req("sD", "m", "Suction pipe diameter");
+        const L = u.req("sL", "m", "Suction pipe length");
+        const Q = u.req("sQ", "m^3/s", "Suction line flow");
+        const eps = u.req("sEps", "m", "Absolute roughness");
+        const sumK = u.opt("sK", "", "Sum of minor-loss K", 0);
+        if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+        // The pipe engine needs a viscosity. When the density came from the
+        // water table its viscosity comes with it; otherwise it must be asked
+        // for rather than assumed, because a guessed viscosity moves the
+        // friction factor and therefore the verdict.
+        const wp = waterProperties(fromWater ? tempC : 20);
+        if (!wp) return { text: "Could not obtain a viscosity for the suction-line calculation.", ok: false };
+        const pipe = analyzePipe({ D, L, Q, eps, rho: Number.isFinite(rho) ? rho : wp.rho, mu: wp.mu, sumK });
+        if (!pipe.ok) return { text: `Suction line: ${pipe.error}`, ok: false };
+        hLoss = pipe.hTotal;
+        handoffs.push(
+          `Suction-line loss computed here from the pipe geometry rather than carried across: ` +
+            `${engNum(pipe.hMajor, 4)} m friction + ${engNum(pipe.hMinor, 4)} m fittings = ` +
+            `${engNum(pipe.hTotal, 4)} m, at ${engNum(pipe.V, 4)} m/s and Re ${engNum(pipe.Re, 4)} ` +
+            `(${pipe.regime}), Colebrook friction factor ${engNum(pipe.f, 4)}.`,
+        );
+        if (!fromWater) {
+          handoffs.push(
+            "The viscosity for that pipe calculation was taken as water at 20 °C, because the " +
+              "density above was typed rather than drawn from the water table. If the liquid is " +
+              "not water near room temperature, switch the density source or compute the loss " +
+              "yourself in the pipe-flow tool.",
+          );
+        }
+      }
+
       const res = npshAnalysis({
         pSurface: u.req("psurf", "Pa", "Surface pressure"),
         pVapour: u.req("pvap", "Pa", "Vapour pressure"),
-        rho: u.req("rho", "kg/m^3", "Density"),
+        rho,
         staticHead: u.opt("hstat", "m", "Static head", 0),
-        suctionLosses: u.opt("hloss", "m", "Suction losses", 0),
+        suctionLosses: hLoss,
         npshRequired: u.req("npshr", "m", "Required NPSH"),
         Q: r("Q").trim() ? Number(r("Q")) : undefined,
         head: r("head").trim() ? Number(r("head")) : undefined,
@@ -11692,7 +11829,25 @@ const ENG_CALCS: EngCalc[] = [
         lines.push(`Hydraulic power = ${engNum(res.hydraulicPower)} W`);
         if (res.shaftPower !== null) lines.push(`Shaft power required = ${engNum(res.shaftPower)} W`);
       }
+      lines.push("");
+      lines.push(`Density used        ${engNum(rho, 5)} kg/m³`);
+      lines.push(`Suction-line loss   ${engNum(hLoss, 5)} m`);
+      for (const h of handoffs) lines.push(`Note: ${h}`);
       for (const note of res.notes) lines.push(`Note: ${note}`);
+      // WHY VAPOUR PRESSURE IS NOT FILLED IN FOR YOU. It is the one number on
+      // this panel the product will not invent. Density and viscosity come from
+      // a table that ships with a source; a saturation-pressure correlation
+      // would have to be typed from memory, and that is exactly the class of
+      // unverifiable constant this product refuses - the same reason no steam
+      // tables are built in. It matters more than the others, too: NPSH
+      // available falls as the liquid warms, entirely through this term.
+      lines.push(
+        "Note: vapour pressure is YOUR input and is deliberately not filled in. Density and " +
+          "viscosity come from a shipped water table; a saturation-pressure correlation would " +
+          "have to be reconstructed from memory, which is the one thing this product will not " +
+          "do with a physical constant. Look it up at your pumping temperature - and note it is " +
+          "the term through which NPSH available collapses as the liquid gets hotter.",
+      );
       lines.push(ENG_UNIT_NOTE);
       return { text: plainDashes(lines.join("\n")) };
     },
@@ -11943,7 +12098,29 @@ const ENG_CALCS: EngCalc[] = [
       "resistances are in K/W and are entered as plain numbers. A datasheet θja already bundles " +
       "an assumed board and must not be added to these.",
     fields: [
-      { key: "P", label: "Dissipated power, W", default: "15", kind: "text" },
+      // THE HANDOFF. The switching-power tool computes exactly the number this
+      // one needs, and the product used to require the user to read it off one
+      // panel and re-type it into the next. Copying a number by hand between
+      // two calculators in the same bench is where a digit goes missing, so
+      // this tool will compute it from the same inputs instead. Same remedy as
+      // the fatigue Kf field: put the upstream quantity where the downstream
+      // tool can produce it, rather than trusting the transcription.
+      {
+        key: "psrc",
+        label: "Dissipated power from",
+        default: "typed",
+        kind: "select",
+        options: [
+          { value: "typed", label: "A power I type below" },
+          { value: "switching", label: "Switching parameters (C, V, f) computed here" },
+        ],
+      },
+      { key: "P", label: "Dissipated power, W (typed source only)", default: "15", kind: "text" },
+      { key: "C", label: "Switched capacitance, F (switching source)", default: "2 nF", kind: "text" },
+      { key: "V", label: "Supply voltage, V (switching source)", default: "1.1", kind: "text" },
+      { key: "f", label: "Clock frequency, Hz (switching source)", default: "2 GHz", kind: "text" },
+      { key: "act", label: "Activity factor, 0->1 transitions per cycle", default: "0.15", kind: "text" },
+      { key: "leak", label: "Leakage current, A (measured, not predicted)", default: "0", kind: "text" },
       { key: "Ta", label: "Ambient temperature, °C", default: "25", kind: "text" },
       { key: "jc", label: "θ junction-to-case, K/W", default: "0.5", kind: "text" },
       { key: "cs", label: "θ case-to-sink (interface), K/W", default: "0.2", kind: "text" },
@@ -11952,10 +12129,38 @@ const ENG_CALCS: EngCalc[] = [
     ],
     compute: (r) => {
       const u = engUnits(r);
-      const P = u.req("P", "W", "Dissipated power");
+      const fromSwitching = r("psrc") === "switching";
+      const P = fromSwitching ? NaN : u.req("P", "W", "Dissipated power");
       const Ta = u.req("Ta", "°C", "Ambient temperature");
       const tjMax = u.optNull("max", "°C", "Maximum junction temperature");
+      // Read the switching inputs only when they are the chosen source, so a
+      // stale value in a hidden-by-convention field cannot affect a typed run.
+      const swC = fromSwitching ? u.req("C", "F", "Switched capacitance") : 0;
+      const swV = fromSwitching ? u.req("V", "V", "Supply voltage") : 0;
+      const swF = fromSwitching ? u.req("f", "Hz", "Clock frequency") : 0;
+      const swA = fromSwitching ? u.opt("act", "", "Activity factor", 1) : 1;
+      const swL = fromSwitching ? u.opt("leak", "A", "Leakage current", 0) : 0;
       if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+
+      let power = P;
+      let powerNote: string | null = null;
+      if (fromSwitching) {
+        const pw = switchingPower(swC, swV, swF, swA, swL);
+        if (!pw) {
+          return {
+            text:
+              "Those switching parameters do not give a power: capacitance and voltage must be " +
+              "positive, and frequency, activity and leakage zero or more.",
+            ok: false,
+          };
+        }
+        power = pw.totalW;
+        powerNote =
+          `Power computed here from the switching parameters rather than re-typed: ` +
+          `${engNum(pw.dynamicW, 4)} W dynamic + ${engNum(pw.staticW, 4)} W leakage = ` +
+          `${engNum(pw.totalW, 4)} W. Carrying that number across from the power tool by hand is ` +
+          "where a digit goes missing, so it is computed from the same inputs instead.";
+      }
       // A BLANK FIELD MUST NOT BECOME ZERO. Number("") is 0, which is finite and
       // non-negative, so a cleared theta sailed through this guard and quietly
       // deleted a whole thermal stage: clearing the heatsink took the default case
@@ -11978,12 +12183,13 @@ const ENG_CALCS: EngCalc[] = [
         }
         th.push(v);
       }
-      const res = junctionTemperature(P, Ta, th[0], th[1], th[2], tjMax === null ? undefined : tjMax);
+      const res = junctionTemperature(power, Ta, th[0], th[1], th[2], tjMax === null ? undefined : tjMax);
       if (!res) return { text: "Power and the thermal resistances must not be negative.", ok: false };
 
       const lines = [
         "Thermal path",
         "",
+        `  Dissipated power   ${engNum(power, 5)} W`,
         `  Ambient            ${engNum(Ta, 5)} °C`,
         `  Sink               ${engNum(res.sinkC, 5)} °C`,
         `  Case               ${engNum(res.caseC, 5)} °C`,
@@ -11996,7 +12202,22 @@ const ENG_CALCS: EngCalc[] = [
         if (res.maxPowerW !== null) lines.push(`  Power at the limit ${engNum(res.maxPowerW, 5)} W`);
       }
       u.report(lines);
+      if (powerNote) lines.push(`Note: ${powerNote}`);
       for (const note of res.notes) lines.push(`Note: ${note}`);
+      // THE REVERSE LEG OF THE LOOP, STATED RATHER THAN MODELLED. Leakage is
+      // exponential in temperature, so a junction running far above wherever
+      // the leakage was measured draws more than was entered, which raises the
+      // junction further. Predicting that needs a process model this product
+      // deliberately does not have, so it is named instead of guessed at.
+      if (fromSwitching && swL > 0) {
+        lines.push(
+          "Note: leakage is EXPONENTIAL in temperature, and the current you entered was measured " +
+            `at some particular temperature. If the junction here (${engNum(res.junctionC, 4)} °C) is ` +
+            "well above that, the real leakage is higher, the real power is higher, and the real " +
+            "junction is hotter still. That loop is not modelled: predicting leakage needs a " +
+            "process model, so it stays a measured input and the feedback is stated instead.",
+        );
+      }
       lines.push(ENG_UNIT_NOTE);
       return { text: plainDashes(lines.join("\n")) };
     },
@@ -17609,6 +17830,48 @@ function updateSolve(): void {
     }
 
     if (kind === "integral") {
+      // BOTH LIMITS BLANK MEANS THE INDEFINITE INTEGRAL. The engine already
+      // computed F(x) on the way to every definite answer and threw it away
+      // after subtracting; this is the route that hands it back. Clearing the
+      // two limit boxes is the discoverable way to ask for it, and it cannot
+      // collide with a definite request because a definite one needs numbers.
+      if (!solveA.value.trim() && !solveB.value.trim()) {
+        const ar = antiderivative(text);
+        if (!ar) {
+          return void solveResult.appendChild(
+            solveLine(
+              "No closed-form antiderivative was found. That is often the correct answer rather " +
+                "than a failure: exp(-x^2), sin(x)/x and many other elementary-looking integrands " +
+                "genuinely have none. Enter limits above to integrate it numerically instead.",
+            ),
+          );
+        }
+        solveResult.appendChild(msEyebrow("Indefinite integral"));
+        const fx = `∫ (${text}) d${ar.variable} = ${ar.antiderivative} + C`;
+        solveResult.appendChild(solveLine(fx, "ms-masses"));
+        say("Indefinite integral:", "heading");
+        sayMath(`int(${text}, ${ar.variable}) = ${ar.antiderivative} + C`, fx);
+        // SHOW THE CHECK. The derivative is printed back so the reader can see
+        // the answer returns the integrand, and the status says whether that
+        // was proved or merely sampled — because the printed form often does
+        // not LOOK like the integrand even when it equals it.
+        if (ar.checkDerivative) {
+          const chk = `check: d/d${ar.variable} of that = ${ar.checkDerivative}`;
+          solveResult.appendChild(solveLine(chk));
+          say(chk);
+        }
+        solveResult.appendChild(
+          solveLine(
+            ar.verified === "symbolic"
+              ? "Verified SYMBOLICALLY: the derivative of the answer minus the integrand was proved identically zero."
+              : ar.verified === "numeric"
+                ? "Checked NUMERICALLY: the derivative agrees with the integrand at every sampled point. Strong evidence, not a proof."
+                : "NOT verified. Check this yourself before relying on it.",
+          ),
+        );
+        solveResult.appendChild(solveLine(`Method: ${ar.method}`));
+        return finish(ar.caveats);
+      }
       const a = parseBound(solveA.value.trim() || "0");
       const b = parseBound(solveB.value.trim() || "1");
       if (!Number.isFinite(a) || !Number.isFinite(b)) return void solveResult.appendChild(solveLine("Enter numeric limits (numbers, or expressions like pi/2)."));

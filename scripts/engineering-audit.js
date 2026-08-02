@@ -140,6 +140,7 @@ function run() {
   const defaults = lines.filter((l) => l.startsWith("DEFAULT "));
   const blanks = lines.filter((l) => l.startsWith("BLANK "));
   const oneBlanks = lines.filter((l) => l.startsWith("ONEBLANK "));
+  const options = lines.filter((l) => l.startsWith("OPTION "));
   const junk = lines.filter((l) => l.startsWith("JUNK "));
   const inserts = lines.filter((l) => l.startsWith("INSERT "));
 
@@ -256,6 +257,27 @@ function run() {
     console.log("  do NOT say anything — that is the silent-zero defect.");
     const worst = [...byTool.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8);
     for (const [tool, n] of worst) console.log(`      ${tool.padEnd(20)} ${n}`);
+  }
+
+  // EVERY NON-DEFAULT DROPDOWN CHOICE, driven in the real bundle.
+  //
+  // A select is how this bench offers an alternative MODEL — a designed filter
+  // edge, a density from a table, a power computed rather than typed — and the
+  // defaults pass only ever sees whichever option the tool opens on. Every
+  // other option is a code path nothing else in this audit enters, so a branch
+  // that throws or returns nothing stays invisible until a user picks it.
+  console.log("\n--- Every non-default select option ---------------------------");
+  if (!options.length) {
+    console.log("  ok    no tool has a second option to try");
+  } else {
+    const bad = options.filter((l) => !/ issues=ok /.test(l));
+    for (const l of bad) findings.push(l);
+    console.log(`  ${options.length - bad.length} of ${options.length} non-default options computed cleanly.`);
+    for (const l of bad) {
+      const parts = l.split(" ");
+      console.log(`  FLAG  ${parts[1]} ${parts[2]}  ${(/issues=(\S+)/.exec(l) || [, "?"])[1]}`);
+      console.log(`        ${l.split(":: ")[1] || ""}`);
+    }
   }
 
   console.log("\n--- Rubbish in every field ------------------------------------");

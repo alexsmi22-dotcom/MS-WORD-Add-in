@@ -296,6 +296,57 @@
       }
     });
 
+    // ---- 1b. EVERY NON-DEFAULT SELECT OPTION. ---------------------------
+    //
+    // Pass 1 drives each tool on its defaults, which means a dropdown is only
+    // ever exercised at whatever it opens on. That is a real hole: a select is
+    // how this bench offers alternative MODELS — a designed filter edge, a
+    // density taken from a table, a power computed from switching parameters —
+    // and each of those is a code path pass 1 never enters. A branch that
+    // throws, returns nothing, or prints a sentinel is invisible until someone
+    // picks that option, and by then it is in front of a user.
+    //
+    // One option at a time, everything else left at its default, so a failure
+    // names the choice that caused it.
+    tools.forEach(function (t) {
+      try {
+        selectTool(t);
+        var sels = fields().filter(function (el) { return el.tagName === "SELECT"; });
+        sels.forEach(function (sel) {
+          var key = sel.getAttribute("data-key");
+          var original = sel.value;
+          var opts = [].slice.call(sel.options).map(function (o) { return o.value; });
+          opts.forEach(function (v) {
+            if (v === original) return;
+            try {
+              // Re-select the tool each time so the other fields are back at
+              // their defaults; otherwise a previous option's edits persist.
+              selectTool(t);
+              var s2 = fields().filter(function (el) { return el.getAttribute("data-key") === key; })[0];
+              if (!s2) return;
+              s2.value = v;
+              fire(s2);
+              var text = textNow();
+              var bad = [];
+              if (badNumbers(text)) bad.push("BADNUMBER");
+              if (/not finite/i.test(text)) bad.push("notfinite");
+              if (text.indexOf("—") >= 0) bad.push("EMDASH");
+              if (/^Couldn't compute/i.test(text)) bad.push("THREW");
+              if (!text.length) bad.push("EMPTY");
+              push(
+                "OPTION " + t + " " + key + "=" + v + " insert=" + (insertBtn.disabled ? "OFF" : "on") +
+                  " issues=" + (bad.length ? bad.join("+") : "ok") + " :: " + text.slice(0, 110)
+              );
+            } catch (e) {
+              push("OPTION " + t + " " + key + "=" + v + " EXCEPTION " + (e && e.message));
+            }
+          });
+        });
+      } catch (e) {
+        push("OPTION " + t + " EXCEPTION " + (e && e.message));
+      }
+    });
+
     // ---- 2. Every field blank. ------------------------------------------
     tools.forEach(function (t) {
       try {

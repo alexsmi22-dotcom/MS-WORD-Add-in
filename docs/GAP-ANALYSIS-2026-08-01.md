@@ -18,16 +18,37 @@
 > - **TIER 1.7 (HMBC + TOCSY) shipped in v2.72.0** (`cbe5f30`, live-verified).
 > - **TIER 2.1 (claim-set hygiene) DECLINED by the user — do not build it.**
 >
-> **Still open in Tier 1:**
-> - 1.5 remainder: `chips-power -> chips-thermal`, `pipe -> pump-npsh` handoffs
-> - 1.6 remainder: `totalLoad` only (Bell presets, rayleighDamping and
->   formatSeqIdRefs all shipped)
-> - ~~1.7~~ DONE: DEPT + caveats v2.70.0, HMBC + TOCSY v2.72.0.
-> - ~~1.7b FFT windowing~~ SHIPPED v2.67.0 (`2e33369`). Still open: the
->   `filter.ts -> fftFilter` half, to retire the documented brick-wall ringing
-> - 1.7c remainder: 6 `geometry3d` transform exports, `probit`
-> - 1.8 remainder: general curve fitting (promote `levenbergMarquardt`) and an
->   indefinite-integral entry point. ~~PCA~~ and ~~trapz~~ shipped v2.68.0.
+> - **TIER 1 IS COMPLETE as of v2.78.0.** The last six items shipped together:
+>   - **1.5** both remaining handoffs. `chips-thermal` can compute its
+>     dissipated power from switching parameters via `switchingPower` instead of
+>     having it re-typed; `pump-npsh` can take density from `waterProperties`
+>     and its suction-line loss from `analyzePipe`. Same remedy as the fatigue
+>     Kf field: put the upstream quantity where the downstream tool can produce
+>     it, rather than trusting the transcription.
+>   - **1.6** `totalLoad` — every beam report now prints a vertical-equilibrium
+>     check, summed over the PARSED loads rather than the solved system, so a
+>     load the parser could not read shows up as a residual instead of silently
+>     vanishing.
+>   - **1.7b** the `filter.ts -> fftFilter` half. The FFT filter now offers a
+>     DESIGNED Butterworth or Chebyshev edge whose order is computed from the
+>     transition width and stopband target, reporting the attenuation it
+>     actually achieves. The raised cosine remains the default, so no existing
+>     result changes.
+>   - **1.7c** the 6 `geometry3d` transform exports, reachable from Solve's
+>     geometry input ("rotate 90 z then scale 2 (1,0,0)"), reporting the
+>     determinant and naming both orientation flips and singular collapses.
+>   - **1.8** the indefinite-integral entry point: leaving both limits blank in
+>     Solve's integral mode returns F(x) + C, with the derivative shown back and
+>     the verification status stated.
+>
+>   Dead-export ratchet **17 -> 10**.
+>
+> **A FOURTH CLAIM FROM THE SWEEPS WAS WRONG.** `regression.ts probit` is listed
+> below as dead. **It is not.** It is called by `qqPoints` (`regression.ts:363`),
+> which the pane calls at `taskpane.ts:6430` to draw the Q-Q diagnostic plot for
+> every regression. It is a reachable internal helper, and the ratchet does not
+> list it. Nothing to surface and nothing to delete — the entry was simply
+> mistaken, and it is corrected here rather than quietly dropped.
 >
 > Plus all of Tier 2 apart from 2.1.
 
@@ -198,7 +219,9 @@ and denominator coefficients (`:74`), so applying a designed response inside
   `reflectionMatrix`, `rotationMatrix`, `transformEffect`) — a complete, tested
   3-D linear-transform toolkit that is uninvokable. The module walk passes because
   `geometryParse.ts` imports the module.
-- `regression.ts` `probit` — dead.
+- ~~`regression.ts` `probit` — dead.~~ **WRONG, corrected in the status block
+  above:** `probit` is called by `qqPoints`, which the pane calls to draw the
+  Q-Q diagnostic plot. It is reachable and always was.
 
 ### 1.7d Stale comment contradicting shipped behaviour
 `linalg.ts:284` still says non-symmetric eigenvalues "can be complex and are

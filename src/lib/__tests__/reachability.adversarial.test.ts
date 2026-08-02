@@ -77,6 +77,18 @@ describe("everything shipped is reachable", () => {
     // 26 at HEAD ec1d802. Lower this when you surface or delete one; never raise
     // it without a reason written next to the change.
     //
+    // 10 as of v2.78.0, the last of the Tier-1 wiring: beam.totalLoad now
+    // prints an INDEPENDENT vertical-equilibrium check under every beam report
+    // (summed over the parsed loads, not the solved system, so a mis-read load
+    // shows as a residual rather than passing silently), and the six
+    // geometry3d transform exports — mat3Apply, mat3Mul, scaleMatrix,
+    // reflectionMatrix, rotationMatrix, transformEffect — are reachable from
+    // Solve's geometry input ("rotate 90 z then scale 2 (1,0,0)"). That toolkit
+    // was complete and tested and had no way in; an import edge from
+    // geometryParse.ts was keeping the module-orphan check happy while every
+    // function in it stayed uninvokable, which is the exact trap this ratchet
+    // exists to catch and the module check cannot.
+    //
     // 17 as of v2.71.0: seqid.formatSeqIdRefs (SEQ ID ranges) is now called by the
     // pane. 18 as of v2.69.0; the tier-1 wiring releases
     // surfaced nine before that:
@@ -93,7 +105,7 @@ describe("everything shipped is reachable", () => {
     // identity). The engine itself only needs h(T); cp is exported so the
     // data's provenance stays verifiable, which is the condition under which
     // bundled thermodynamic data was accepted at all.
-    const BASELINE = 17;
+    const BASELINE = 10;
     const dead = deadExports();
     expect({ count: dead.length, over: dead.length > BASELINE ? dead : [] }).toEqual({
       count: dead.length <= BASELINE ? dead.length : BASELINE,

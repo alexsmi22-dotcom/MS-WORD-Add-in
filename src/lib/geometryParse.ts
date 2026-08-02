@@ -12,13 +12,14 @@
 
 import { parseExpr, Expr } from "./solve";
 import {
-  Rat, ratAdd, ratMul, ratNeg, ratInt, ratDiv, ratFromNumber, ratIsZero, RAT_ZERO,
+  Rat, ratAdd, ratMul, ratNeg, ratInt, ratDiv, ratFromNumber, ratIsZero, RAT_ZERO, ratToNumber,
 } from "./cas";
 import {
   v3, Vec3, vSub, dot, cross, norm, normSquared, angleBetween, project, isZeroVec,
   planeFrom3, pointPlaneDistance, anglePlanes, fmtPlane, lineFrom2, classifyLines,
   linePlaneIntersect, tetrahedronVolume, parallelepipedVolume, triangleArea3,
   sphereFrom4, fmtVec, vectorReport,
+  Mat3, mat3Apply, mat3Mul, scaleMatrix, reflectionMatrix, rotationMatrix, transformEffect,
 } from "./geometry3d";
 import {
   pt, Pt, GeoResult, GeoValue, distance, midpoint, lineThrough, lineIntersect,
@@ -536,10 +537,158 @@ const rnum = (r: { n: bigint; d: bigint }): number => evalFrac(fmtRat(r));
  * 3D geometry from typed input. Returns null when the string contains no
  * coordinate triples, so the 2D grammar gets its turn.
  */
+/**
+ * Linear transformations of a point in space.
+ *
+ * A complete, tested 3-D transform toolkit shipped in `geometry3d.ts` with no
+ * way for anyone to invoke it. This is the route in: a chain of named
+ * operations applied to a point, composed by matrix multiplication, with the
+ * determinant reported — because the determinant is the part people get wrong.
+ * It is the volume scale factor, and its SIGN says whether the transformation
+ * turned the space inside out. A reflection has determinant −1 and preserves
+ * every length and angle, yet no rotation can reproduce it.
+ *
+ * Accepts, in any combination and order:
+ *   rotate 90 z (1,2,3)
+ *   scale 2 3 4 (1,2,3)          scale 2 (1,2,3) for uniform
+ *   reflect xy (1,2,3)
+ *   rotate 90 z then scale 2 then reflect xy (1,2,3)
+ *
+ * ORDER MATTERS and the composition is stated: operations are applied left to
+ * right, so the matrix is the product in the reverse of the reading order.
+ * Rotation then reflection is not reflection then rotation, and quietly
+ * choosing one convention would be the kind of silent decision this product
+ * refuses elsewhere.
+ */
+function transformRequest(raw: string, lower: string, P: Vec3[]): GeoResult | null {
+  if (!P.length) return null;
+  const point = P[0];
+  // Strip the point(s) so their numbers cannot be read as transform arguments.
+  const head = raw.slice(0, raw.indexOf("(") >= 0 ? raw.indexOf("(") : raw.length);
+  const headLower = head.toLowerCase();
+  const steps: string[] = [];
+  const caveats: string[] = [];
+  const applied: string[] = [];
+
+  // Split on "then" (or a comma between operations) and read each operation.
+  const parts = headLower.split(/\bthen\b|;/).map((s) => s.trim()).filter(Boolean);
+  if (!parts.length) return null;
+
+  let m: Mat3 | null = null;
+  let anyNumeric = false;
+  for (const part of parts) {
+    const nums = (part.match(/-?\d+(?:\.\d+)?/g) || []).map(Number);
+    let step: Mat3 | null = null;
+    if (/\brotate|rotation\b/.test(part)) {
+      const axisM = part.match(/\b(?:about\s+)?(?:the\s+)?([xyz])\b(?!\s*[-\d])/);
+      const axis = (axisM ? axisM[1] : "z") as "x" | "y" | "z";
+      if (!nums.length) {
+        caveats.push(`"${part.trim()}" gives no angle, so it was skipped.`);
+        continue;
+      }
+      step = rotationMatrix(axis, nums[0]);
+      anyNumeric = true;
+      applied.push(`rotate ${nums[0]}° about ${axis}`);
+    } else if (/\bscale|dilate\b/.test(part)) {
+      if (!nums.length) {
+        caveats.push(`"${part.trim()}" gives no factor, so it was skipped.`);
+        continue;
+      }
+      const [sx, sy, sz] = nums.length >= 3 ? nums : [nums[0], nums[0], nums[0]];
+      step = scaleMatrix(sx, sy, sz);
+      applied.push(nums.length >= 3 ? `scale (${sx}, ${sy}, ${sz})` : `scale ×${sx} uniformly`);
+    } else if (/\breflect|mirror\b/.test(part)) {
+      const pm = part.match(/\b(xy|yx|yz|zy|zx|xz)\b/);
+      const raw2 = pm ? pm[1] : "xy";
+      const plane = (raw2 === "yx" ? "xy" : raw2 === "zy" ? "yz" : raw2 === "xz" ? "zx" : raw2) as
+        | "xy"
+        | "yz"
+        | "zx";
+      step = reflectionMatrix(plane);
+      applied.push(`reflect in the ${plane} plane`);
+    }
+    if (!step) continue;
+    // Left to right application means the newest operation multiplies on the
+    // LEFT of everything already accumulated.
+    m = m === null ? step : mat3Mul(step, m);
+  }
+  if (!m || !applied.length) return null;
+
+  const out = mat3Apply(m, point);
+  const eff = transformEffect(m);
+
+  // A ROTATION'S ENTRIES ARE NOT RATIONAL, and pretending otherwise is
+  // unreadable rather than merely imprecise: cos 90° arrives as 6.1e-17, whose
+  // faithful exact form is a sixty-digit fraction over a sixty-digit
+  // denominator. The rational layer exists so these compose with the exact
+  // ones, not so the noise gets printed. Numeric results are therefore shown as
+  // decimals, and only genuinely exact ones keep their fraction.
+  const num = (v: Rat): number => ratToNumber(v);
+  const show = (v: Rat): string | undefined => (anyNumeric ? undefined : fmtRat(v));
+  const showVec = (v: { x: Rat; y: Rat; z: Rat }): string =>
+    anyNumeric
+      ? `(${[v.x, v.y, v.z].map((c) => Number(num(c).toPrecision(6))).join(", ")})`
+      : fmtVec(v);
+  const detText = anyNumeric ? String(Number(num(eff.det).toPrecision(6))) : fmtRat(eff.det);
+
+  steps.push(`Applied to ${showVec(point)}, in order: ${applied.join(", then ")}.`);
+  steps.push(`Result: ${showVec(out)}.`);
+  steps.push(
+    `Determinant ${detText} — the factor by which the transformation multiplies VOLUME.`,
+  );
+  if (eff.singular) {
+    steps.push(
+      "The determinant is ZERO, so this transformation COLLAPSES space onto a plane, line or " +
+        "point. It cannot be undone: different points before it now share the same image.",
+    );
+  } else if (eff.flipsOrientation) {
+    steps.push(
+      "The determinant is NEGATIVE, so the transformation FLIPS ORIENTATION — it turns a " +
+        "right-handed frame into a left-handed one. A reflection does this while preserving " +
+        "every length and angle, which is why no rotation can ever reproduce one.",
+    );
+  } else {
+    steps.push("The determinant is positive, so orientation is preserved: this is a proper motion.");
+  }
+  if (applied.length > 1) {
+    caveats.push(
+      "ORDER MATTERS. These were applied left to right as written, so the matrix is the product " +
+        "in the reverse of the reading order. Rotating then reflecting is not the same as " +
+        "reflecting then rotating.",
+    );
+  }
+  if (anyNumeric) {
+    caveats.push(
+      "A rotation's entries are cosines and sines, which are irrational for all but a few " +
+        "angles, so this result is NUMERIC rather than exact. The determinant is 1 up to " +
+        "floating-point error rather than exactly 1.",
+    );
+  }
+
+  return {
+    title: `Transform of ${showVec(point)}`,
+    values: [
+      V3("x", num(out.x), show(out.x)),
+      V3("y", num(out.y), show(out.y)),
+      V3("z", num(out.z), show(out.z)),
+      V3("volume scale factor", eff.volumeScale, show(eff.det)),
+    ],
+    steps,
+    caveats,
+  };
+}
+
 export function solveGeometry3D(raw: string, lower: string): GeoResult | null {
   const P = parseTriples(raw);
   if (P.length === 0) return null;
   const kw = (lower.match(/^[a-z-]+/) || [""])[0];
+
+  // Transformations, checked early: their keyword is unambiguous and they take
+  // numeric arguments before the point, which the other branches would misread.
+  if (/^(rotate|rotation|scale|dilate|reflect|mirror|transform)\b/.test(lower)) {
+    const t = transformRequest(raw, lower, P);
+    if (t) return t;
+  }
 
   // Explicit vector operations on two triples.
   if ((kw === "vector" || kw === "vectors" || kw === "dot" || kw === "cross" || kw === "angle") && P.length >= 2) {

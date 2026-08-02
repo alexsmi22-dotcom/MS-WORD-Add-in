@@ -150,7 +150,11 @@ function sectionPropertiesRaw(spec: SectionSpec): SectionProps | { error: string
     case "pipe": {
       const { d, t } = spec;
       if (!finite(d, t)) return { error: "Diameter and wall thickness must both be positive." };
-      if (2 * t >= d) return { error: "Wall thickness is too large — this is a solid bar. Use a solid circle." };
+      // No em dash in this string, deliberately: the pane prints "—" for a
+      // non-finite number and blocks Insert on finding one anywhere in the
+      // result, so an em dash used as punctuation is indistinguishable from a
+      // broken value. Found by the audit's select-option sweep.
+      if (2 * t >= d) return { error: "Wall thickness is too large; this is a solid bar. Use a solid circle." };
       const di = d - 2 * t;
       const A = (Math.PI * (d * d - di * di)) / 4;
       const I = (Math.PI * (d ** 4 - di ** 4)) / 64;

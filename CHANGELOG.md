@@ -6,6 +6,102 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.78.0] — 2026-08-02 — Tier 1 closed
+
+The last six items of the 2026-08-01 gap analysis, shipped together. **Tier 1 is
+now complete.** Dead-export ratchet **17 → 10**.
+
+**Two composition handoffs, removing a transcription step each.** The product
+was telling users to read a number off one calculator and type it into the next,
+which is where a digit goes missing. **`chips-thermal`** can now compute its
+dissipated power from the switching parameters (C, V, f, activity, leakage) via
+the same `switchingPower` engine the power tool uses, instead of having the
+answer re-typed. **`pump-npsh`** can take its density from the shipped water
+table and its **suction-line loss from the pipe engine** — diameter, length,
+flow, roughness and fitting K in, Colebrook friction factor and head loss out —
+rather than requiring a separate run of the pipe tool and a hand-carry. Both
+copy the remedy the fatigue Kf field already shipped: put the upstream quantity
+where the downstream tool can produce it.
+
+**Vapour pressure is still yours, and now says why.** It is the one number on the
+NPSH panel the product will not fill in. Density and viscosity come from a table
+that ships with a source; a saturation-pressure correlation would have to be
+reconstructed from memory, which is exactly the class of unverifiable constant
+this product refuses — the same reason no steam tables are built in. It matters
+more than the others, too, because NPSH available collapses as the liquid warms
+almost entirely through that term.
+
+**The reverse leg of the electrothermal loop is stated, not modelled.** Leakage
+is exponential in temperature, so a junction running far above wherever the
+leakage was measured draws more than was entered, which heats it further.
+Predicting that needs a process model this product deliberately does not have,
+so the feedback is named rather than guessed at.
+
+**Every beam report now carries an equilibrium check.** The reactions must carry
+exactly the applied load — that is an identity, not an approximation. The check
+sums the **parsed loads**, independently of the solved system, so a load line the
+parser could not read shows up as a residual instead of silently vanishing from
+a report that otherwise looks complete. Applied couples contribute no vertical
+force, which is why they are absent from the total.
+
+**The FFT filter's edge can now be DESIGNED rather than chosen.** The raised
+cosine was smooth — so it did not ring — but it was an ad-hoc shape: you could
+not say what attenuation it achieved anywhere. Picking **Butterworth** or
+**Chebyshev** hands the specification to `filter.ts`, which computes the minimum
+order from your transition width and stopband target, and the magnitude response
+of that design is applied bin by bin. The order and the attenuation **actually
+achieved** are reported. Chebyshev reaches the same specification at a lower
+order and pays for it in passband ripple, which is the entire reason both
+families exist. **The raised cosine remains the default, so no result anyone has
+already produced changes.** A zero transition band cannot be designed to — that
+is the brick wall — and the tool falls back and says the filter is not the one
+you asked for.
+
+**The 3-D transform toolkit is reachable at last.** `mat3Apply`, `mat3Mul`,
+`scaleMatrix`, `reflectionMatrix`, `rotationMatrix` and `transformEffect` were
+complete, tested, and uninvokable — an import edge from `geometryParse.ts` kept
+the module-orphan check happy while every function in it stayed unreachable,
+which is precisely the trap a module-level check cannot catch. Solve's geometry
+input now takes `rotate 90 z then scale 2 (1,0,0)`, composing operations left to
+right and **saying that order matters**. The determinant is reported as the
+volume scale factor, a **negative** one is named as flipping orientation — a
+reflection preserves every length and angle yet no rotation can reproduce it —
+and a **zero** one is named as collapsing space rather than returned as an
+ordinary answer. Rotation entries are cosines, so those results are shown as
+decimals: the rational layer exists so rotations *compose* with the exact
+transforms, not so cos 90° gets printed as a sixty-digit fraction.
+
+**Indefinite integrals.** Leaving both limit boxes blank in Solve's integral mode
+returns F(x) + C. The engine already computed F on the way to every definite
+answer and discarded it after subtracting; this is the entry point that hands it
+back. **The check is shown, not claimed:** the answer is differentiated again and
+the derivative printed beside it, with the status stated — `symbolic` when the
+CAS proved d/dx F − f identically zero, `numeric` when a rule-table answer agreed
+with the integrand at every sampled point. The distinction is reported rather
+than flattened because the printed derivative often does not *look* like the
+integrand even when it equals it: d/dx ln|x| simplifies to x/|x|², which is 1/x
+for every real x ≠ 0 and does not resemble it on the page. No closed form is
+reported as such rather than as a failure — exp(−x²) and sin(x)/x genuinely have
+none.
+
+**A fourth claim from the original sweeps was wrong.** The gap analysis listed
+`regression.ts probit` as dead. It is not: `qqPoints` calls it, and the pane
+calls `qqPoints` to draw the Q-Q diagnostic plot for every regression. Nothing
+to surface and nothing to delete — the entry was mistaken, and the document now
+says so rather than quietly dropping it.
+
+**The real-bundle audit now drives every non-default dropdown option, and found
+a bug on its first run.** Three of the changes above are new select options, and
+the audit only ever exercised each tool on its *defaults* — so a dropdown was
+only tested at whichever choice it opened on. That is a real hole, because a
+select is precisely how this bench offers an alternative *model*, and every other
+option is a code path nothing else in the audit entered. The sweep drives all 137
+non-default options in the production bundle, one at a time. It immediately
+flagged a pre-existing defect it was not written for: the cross-section tool's
+"circular hollow" refusal used an **em dash**, which is the pane's non-finite
+sentinel and therefore **disables Insert for the whole result**. Reworded.
+
+
 ## [2.77.1] — 2026-08-02 — The wind triangle's second solution
 
 **A doctrine violation shipped in v2.77.0, found on review and fixed.** The

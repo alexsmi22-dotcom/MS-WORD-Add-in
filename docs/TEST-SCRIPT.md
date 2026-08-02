@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.77.1)
+# JurisLab — Manual Test Script (v2.78.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -1090,6 +1090,106 @@ Engineering mode. **Energy & power** grows 8 → 16; the mode must state
 - [ ] **Wind + altitude**: blank the density, set altitude 2000 m → the result notes
   density **1.0065 kg/m³ from the ISA** — the same atmosphere the aviation tools use.
 - [ ] All eight new tools insert, subscripts and superscripts intact (O₂, m², kVAR).
+
+---
+
+## 0am. New in v2.78.0 - Tier 1 closed
+
+Six separate places. Nothing here adds a calculator, so the counts do not move.
+
+**Engineering > Chips & semiconductors > Junction temperature**
+
+- [ ] On its defaults (power source **typed**, 15 W): junction **55 °C**,
+  exactly as before. The new fields must not change the old answer.
+- [ ] Switch "Dissipated power from" to **Switching parameters**: with the
+  defaults (2 nF, 1.1 V, 2 GHz, activity 0.15) the power comes out **0.726 W**
+  and the junction drops to about **26.5 °C**. The note must say the power was
+  computed here rather than re-typed, and show the dynamic/leakage split.
+- [ ] Set the leakage to **0.05 A**: the power rises, and a note must appear
+  saying leakage is EXPONENTIAL in temperature and that the feedback loop is
+  stated rather than modelled.
+
+**Engineering > Fluids > Pump NPSH & cavitation**
+
+- [ ] Defaults (both sources **typed**): unchanged from before.
+- [ ] Switch "Density from" to **Water**: at 20 °C the density reads
+  **998.2 kg/m³** and a note says it came from the shipped table.
+- [ ] Set the temperature to **150**: refused, because the table covers 0-100 °C.
+- [ ] Switch "Suction-line losses from" to **Pipe geometry**: the loss is
+  computed from the defaults and the note must quote the friction and fitting
+  halves, the velocity, the Reynolds number and the Colebrook friction factor.
+- [ ] Change the suction pipe diameter from **0.1** to **0.15**: the head loss
+  must fall STEEPLY - more than fivefold. That is why the fix for cavitation is
+  a bigger suction line.
+- [ ] With density **typed** and losses **from pipe**, a note must disclose that
+  the viscosity was taken as water at 20 °C.
+- [ ] A note must always explain that **vapour pressure is deliberately not
+  filled in**, and that NPSH available collapses with temperature through it.
+
+**Engineering > Structural & solids > Beam**
+
+- [ ] Any beam: an **Equilibrium check** block appears, with the total applied
+  load, the sum of the reactions, and **Balance exact**.
+- [ ] `point 30 at 2` + `udl 10 from 0 to 4` on a 6 m beam: total applied
+  **70 kN**, reactions summing to **70 kN**.
+- [ ] A propped cantilever (`fixed 0`, `roller 6`, `udl 24 from 0 to 6`): total
+  **144 kN**, and the balance is still exact - the check does not depend on the
+  beam being determinate.
+- [ ] Add an applied couple (`couple 50 at 3`): the total applied load does NOT
+  change, because a couple carries no vertical force.
+- [ ] Type a load line the parser cannot read, e.g. `ramp 0 12 from 0 to 4`
+  (the real syntax is `udl 0 to 12 from 0 to 4`): it is reported as an error.
+  This is the case the equilibrium check exists for.
+
+**Analyze > FFT filter**
+
+- [ ] On the defaults, with **Edge shape = Raised cosine**: the filtered samples
+  must be EXACTLY what this tool produced before v2.78.0. The default changing
+  would be a regression.
+- [ ] Switch to **Butterworth**: a caveat appears naming the ORDER and the dB
+  actually achieved at the stopband edge.
+- [ ] Switch to **Chebyshev**: the order is LOWER than Butterworth's for the
+  same settings, which is the trade the two families exist to offer.
+- [ ] Raise the stopband attenuation from **40** to **60**: the order rises.
+- [ ] Set the transition width to **0** with a designed shape selected: it falls
+  back and says the filter is **not the one you asked for**.
+- [ ] A caveat must say the MAGNITUDE is applied but the phase is not.
+
+**Solve > Geometry (3-D transforms)**
+
+- [ ] `rotate 90 z (1,0,0)` -> about **(0, 1, 0)**, determinant **1**.
+- [ ] `scale 2 3 4 (1,1,1)` -> **(2, 3, 4)**, volume scale factor **24**, and
+  the coordinates shown as EXACT integers.
+- [ ] `reflect xy (1,2,3)` -> **(1, 2, -3)**, determinant **-1**, and the text
+  must say it **FLIPS ORIENTATION**.
+- [ ] `scale 0 (1,2,3)` -> the text must say the transform **COLLAPSES** space.
+- [ ] `rotate 90 z then scale 2 3 4 (1,0,0)` gives y = **3**, while
+  `scale 2 3 4 then rotate 90 z (1,0,0)` gives y = **2**. A caveat must say
+  ORDER MATTERS.
+- [ ] `rotate 30 z (1,0,0)`: a caveat says the result is NUMERIC, not exact, and
+  no sixty-digit fraction appears anywhere in the output.
+- [ ] `reflect xy then reflect xy (1,2,3)` returns **(1, 2, 3)**.
+
+**Engineering > Structural & solids > Cross-section**
+
+- [ ] Set the shape to **Circular hollow** with a wall thicker than half the
+  diameter: the refusal must contain **no em dash**. It used to, and an em dash
+  anywhere in a result is the pane's non-finite sentinel, so it disabled Insert.
+
+**Solve > Integral (indefinite)**
+
+- [ ] Type `x^2` and **clear both limit boxes**: the answer is
+  **∫ (x^2) dx = x^3/3 + C**, with the check derivative shown and "Verified
+  SYMBOLICALLY".
+- [ ] `x*exp(x)` -> **x*exp(x) - exp(x)**. `1/(x^2+1)` -> **atan(x)**.
+  `tan(x)` -> **-ln(abs(cos(x)))**.
+- [ ] `exp(-x^2)` -> reported as having **no closed-form antiderivative**, with
+  the message saying that is often the correct answer rather than a failure.
+- [ ] `1/x` -> **ln(abs(x))**, and a caveat must warn that the constant is
+  **NOT shared across a pole**.
+- [ ] Put limits back in (0 and 1): the definite integral works exactly as
+  before. The indefinite path must not have broken it.
+- [ ] It inserts, with the integral sign typeset.
 
 ---
 

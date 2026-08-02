@@ -11,6 +11,8 @@
 > - **TIER 1.8 (PCA, trapz) shipped in v2.68.0/.1** (`2cea653`, live-verified).
 > - **TIER 1.8 general curve fitting + Bell presets + rayleighDamping shipped in
 >   v2.69.0** (`a9716bf`, live-verified). Dead-export ratchet 27 -> 18.
+> - **TIER 1.7 partial (DEPT + non-aromatic caveats) shipped in v2.70.0**
+>   (`8a3394a`). HMBC/TOCSY still open.
 > - **TIER 2.1 (claim-set hygiene) DECLINED by the user — do not build it.**
 >
 > **Still open in Tier 1:**
@@ -18,7 +20,8 @@
 > - 1.5 remainder: `chips-power -> chips-thermal`, `pipe -> pump-npsh` handoffs
 > - 1.6 remainder: `BELL_STATES` preset, `rayleighDamping` (dead AND duplicated
 >   inline at vibration.ts:869), `totalLoad`, `formatSeqIdRefs`
-> - 1.7 NMR DEPT / HMBC / TOCSY + non-aromatic "contributed nothing" caveats
+> - 1.7 remainder: HMBC and TOCSY. ~~DEPT~~ and ~~non-aromatic caveats~~ shipped
+>   v2.70.0.
 > - ~~1.7b FFT windowing~~ SHIPPED v2.67.0 (`2e33369`). Still open: the
 >   `filter.ts -> fftFilter` half, to retire the documented brick-wall ringing
 > - 1.7c remainder: 6 `geometry3d` transform exports, `probit`

@@ -8,6 +8,7 @@
 > - **TIER 1.5 (fatigue Kf), 1.6 (substrate inhibition) and the finance half of
 >   1.7c shipped in v2.66.0** (`f48d172`, live-verified).
 > - **TIER 1.7b (FFT windowing) shipped in v2.67.0** (`2e33369`, live-verified).
+> - **TIER 1.8 (PCA, trapz) shipped in v2.68.0/.1** (`2cea653`, live-verified).
 > - **TIER 2.1 (claim-set hygiene) DECLINED by the user — do not build it.**
 >
 > **Still open in Tier 1:**
@@ -19,8 +20,8 @@
 > - ~~1.7b FFT windowing~~ SHIPPED v2.67.0 (`2e33369`). Still open: the
 >   `filter.ts -> fftFilter` half, to retire the documented brick-wall ringing
 > - 1.7c remainder: 6 `geometry3d` transform exports, `probit`
-> - 1.8 general curve fitting (promote `levenbergMarquardt`), `trapz` on data,
->   PCA on the existing SVD, an indefinite-integral entry point
+> - 1.8 remainder: general curve fitting (promote `levenbergMarquardt`) and an
+>   indefinite-integral entry point. ~~PCA~~ and ~~trapz~~ shipped v2.68.0.
 >
 > Plus all of Tier 2 apart from 2.1.
 

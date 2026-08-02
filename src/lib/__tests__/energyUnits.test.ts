@@ -53,6 +53,24 @@ describe("collision guards", () => {
   });
 });
 
+describe("superscript unit text parses — the display must round-trip", () => {
+  // Labels and results print m², m³/s and W/m² with real superscripts; a user
+  // pasting a displayed unit back into a field is typing what we showed them.
+  it("m³, m² and W/m² convert identically to their caret forms", () => {
+    expect(convert(1, "m³/s", "L/s")).toBeCloseTo(1000, 9);
+    expect(convert(1, "W/m²", "W/m^2")).toBe(1);
+    expect(convert(1, "kg/m³", "kg/m^3")).toBe(1);
+    expect(convert(1, "m⁻¹", "1/m")).toBeNull(); // "1" is not a unit — unchanged behaviour
+    expect(convert(1, "s⁻¹", "Hz")).toBe(1); // negative superscript exponent
+  });
+
+  it("parseMeasured accepts a superscripted unit against a superscripted target", () => {
+    const r = parseMeasured("500 gal/min", "m³/s");
+    expect("error" in r).toBe(false);
+    if (!("error" in r)) expect(r.inTarget).toBeCloseTo((500 * 3.785411784e-3) / 60, 9);
+  });
+});
+
 describe("the bare-number identity holds for every energy target unit", () => {
   // parseMeasured(bare, unit).inTarget === Number(bare) exactly — the contract
   // that makes unit-aware reading a provable no-op for unitless input.

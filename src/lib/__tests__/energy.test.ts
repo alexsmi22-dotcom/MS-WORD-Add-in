@@ -11,6 +11,7 @@ import {
   combustion,
   lcoe,
   capacityFactor,
+  formatFormula,
   BETZ_LIMIT,
   G_STANDARD,
 } from "../energy";
@@ -210,6 +211,34 @@ describe("combustion", () => {
     for (const f of ["CO2", "H2O", "N2", "Fe2O3", "NaCl", "", "xyz"]) {
       expect(combustion({ formula: f }).ok).toBe(false);
     }
+  });
+
+  it("a formula typed WITH subscripts round-trips to the same answer", () => {
+    // The pane displays CH₄; pasting that display back in must not be refused.
+    const ascii = okOrFail(combustion({ formula: "C8H18" }));
+    const sub = okOrFail(combustion({ formula: "C₈H₁₈" }));
+    expect(sub.afrStoich).toBe(ascii.afrStoich);
+    expect(sub.molarMass).toBe(ascii.molarMass);
+  });
+});
+
+describe("formula display", () => {
+  it("subscripts counts, and only counts", () => {
+    expect(formatFormula("CH4")).toBe("CH₄");
+    expect(formatFormula("C8H18")).toBe("C₈H₁₈");
+    expect(formatFormula("C2H5OH")).toBe("C₂H₅OH");
+    expect(formatFormula("(NH4)2SO4")).toBe("(NH₄)₂SO₄");
+  });
+
+  it("a hydrate coefficient stays full size — 5H2O is five waters, not H52O", () => {
+    expect(formatFormula("CuSO4·5H2O")).toBe("CuSO₄·5H₂O");
+    expect(formatFormula("CuSO4.5H2O")).toBe("CuSO₄·5H₂O");
+  });
+
+  it("already-subscripted and non-formula text pass through unmangled", () => {
+    expect(formatFormula("C₈H₁₈")).toBe("C₈H₁₈");
+    expect(formatFormula("123")).toBe("123");
+    expect(formatFormula("")).toBe("");
   });
 });
 

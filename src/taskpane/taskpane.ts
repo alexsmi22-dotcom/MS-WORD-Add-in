@@ -396,6 +396,7 @@ import {
   combustion,
   lcoe,
   capacityFactor,
+  formatFormula,
 } from "../lib/energy";
 import { statVars, statVarLineProblem } from "../lib/uncertaintyParse";
 import {
@@ -12865,7 +12866,7 @@ const ENG_CALCS: EngCalc[] = [
     fields: [
       { key: "d", label: "Rotor diameter, m", default: "90", kind: "text" },
       { key: "v", label: "Wind speed at hub height, m/s", default: "8", kind: "text" },
-      { key: "rho", label: "Air density, kg/m^3 (blank = sea level 1.225)", default: "", kind: "text" },
+      { key: "rho", label: "Air density, kg/m³ (blank = sea level 1.225)", default: "", kind: "text" },
       { key: "cp", label: "Power coefficient Cp (blank = Betz bound)", default: "0.45", kind: "text" },
       { key: "rpm", label: "Rotor speed, rpm (blank to skip tip-speed ratio)", default: "", kind: "text" },
       { key: "cf", label: "Capacity factor 0-1 (blank to skip annual energy)", default: "", kind: "text" },
@@ -12874,7 +12875,7 @@ const ENG_CALCS: EngCalc[] = [
       const u = engUnits(r);
       const d = u.req("d", "m", "Rotor diameter");
       const v = u.req("v", "m/s", "Wind speed");
-      const rho = u.optNull("rho", "kg/m^3", "Air density");
+      const rho = u.optNull("rho", "kg/m³", "Air density");
       const rpm = u.optNull("rpm", "rpm", "Rotor speed");
       if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
       const readFrac = (key: string, label: string): number | null | { err: string } => {
@@ -12901,7 +12902,7 @@ const ENG_CALCS: EngCalc[] = [
       const lines = [
         "Wind turbine power",
         "",
-        `  Swept area          ${engNum(res.sweptArea, sig)} m^2`,
+        `  Swept area          ${engNum(res.sweptArea, sig)} m²`,
         `  Power in the wind   ${engNum(res.windPower / 1000, sig)} kW`,
         `  Betz bound (16/27)  ${engNum(res.betzPower / 1000, sig)} kW`,
       ];
@@ -12929,8 +12930,8 @@ const ENG_CALCS: EngCalc[] = [
       "~0.35-0.45%/°C. Irradiance and peak sun hours are SITE measurements (PVGIS, NREL) — " +
       "this tool computes from your numbers, it does not contain an insolation model.",
     fields: [
-      { key: "g", label: "Irradiance, W/m^2 (1000 = full sun)", default: "1000", kind: "text" },
-      { key: "a", label: "Array area, m^2", default: "20", kind: "text" },
+      { key: "g", label: "Irradiance, W/m² (1000 = full sun)", default: "1000", kind: "text" },
+      { key: "a", label: "Array area, m²", default: "20", kind: "text" },
       { key: "eff", label: "Module efficiency, fraction (0.21 = 21%)", default: "0.21", kind: "text" },
       { key: "gamma", label: "Temperature coefficient, %/°C (datasheet)", default: "-0.35", kind: "text" },
       { key: "ta", label: "Ambient temperature, °C (blank to skip derating)", default: "30", kind: "text" },
@@ -12940,8 +12941,8 @@ const ENG_CALCS: EngCalc[] = [
     ],
     compute: (r) => {
       const u = engUnits(r);
-      const g = u.req("g", "W/m^2", "Irradiance");
-      const a = u.req("a", "m^2", "Array area");
+      const g = u.req("g", "W/m²", "Irradiance");
+      const a = u.req("a", "m²", "Array area");
       const ta = u.optNull("ta", "°C", "Ambient temperature");
       const noct = u.optNull("noct", "°C", "NOCT");
       if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
@@ -13037,9 +13038,9 @@ const ENG_CALCS: EngCalc[] = [
     hint:
       "P = η·ρ·g·Q·H on the NET head — gross head is geography, net head is what the turbine " +
       "sees after penstock friction (the Fluids pipe tool computes that loss from the actual " +
-      "pipe; subtract it here). At η = 1, one m^3/s falling 1 m is 9.81 kW.",
+      "pipe; subtract it here). At η = 1, one m³/s falling 1 m is 9.81 kW.",
     fields: [
-      { key: "q", label: "Flow, m^3/s", default: "2", kind: "text" },
+      { key: "q", label: "Flow, m³/s", default: "2", kind: "text" },
       { key: "h", label: "Gross head, m", default: "25", kind: "text" },
       { key: "hl", label: "Penstock head loss, m (blank = none)", default: "", kind: "text" },
       { key: "eff", label: "Water-to-wire efficiency, fraction", default: "0.85", kind: "text" },
@@ -13047,7 +13048,7 @@ const ENG_CALCS: EngCalc[] = [
     ],
     compute: (r) => {
       const u = engUnits(r);
-      const q = u.req("q", "m^3/s", "Flow");
+      const q = u.req("q", "m³/s", "Flow");
       const h = u.req("h", "m", "Gross head");
       const hl = u.optNull("hl", "m", "Head loss");
       if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
@@ -13169,9 +13170,9 @@ const ENG_CALCS: EngCalc[] = [
     hint:
       "Stoichiometric air and combustion products computed EXACTLY from the fuel's molecular " +
       "formula and the real IUPAC atomic weights. The heating value is a MEASURED property of " +
-      "the actual fuel and is taken as input — supply the HHV to get LHV and CO2 intensity.",
+      "the actual fuel and is taken as input — supply the HHV to get LHV and CO₂ intensity.",
     fields: [
-      { key: "formula", label: "Fuel formula (CH4, C8H18, C2H5OH...)", default: "CH4", kind: "text" },
+      { key: "formula", label: "Fuel formula (CH₄, C₈H₁₈, C₂H₅OH — plain digits fine)", default: "CH4", kind: "text" },
       { key: "excess", label: "Excess air, fraction (0 = stoichiometric)", default: "0", kind: "text" },
       { key: "hhv", label: "Higher heating value, MJ/kg (blank to skip)", default: "", kind: "text" },
     ],
@@ -13191,23 +13192,23 @@ const ENG_CALCS: EngCalc[] = [
       });
       if (!res.ok) return { text: res.error, ok: false };
       const lines = [
-        `Combustion of ${r("formula").trim()}`,
+        `Combustion of ${formatFormula(r("formula").trim())}`,
         "",
         `  Molar mass             ${engNum(res.molarMass, 6)} g/mol`,
-        `  O2 required            ${engNum(res.o2PerMolFuel, 5)} mol per mol fuel`,
+        `  O₂ required            ${engNum(res.o2PerMolFuel, 5)} mol per mol fuel`,
         `  Stoichiometric AFR     ${engNum(res.afrStoich, 4)} kg air / kg fuel`,
       ];
       if (res.afrActual !== res.afrStoich) {
         lines.push(`  AFR at ${engNum((excess ?? 0) * 100, 3)}% excess air  ${engNum(res.afrActual, 4)} kg air / kg fuel`);
       }
-      lines.push(`  CO2 produced           ${engNum(res.co2PerKgFuel, 4)} kg per kg fuel`);
-      lines.push(`  H2O produced           ${engNum(res.h2oPerKgFuel, 4)} kg per kg fuel`);
+      lines.push(`  CO₂ produced           ${engNum(res.co2PerKgFuel, 4)} kg per kg fuel`);
+      lines.push(`  H₂O produced           ${engNum(res.h2oPerKgFuel, 4)} kg per kg fuel`);
       if (res.so2PerKgFuel !== null) {
-        lines.push(`  SO2 produced           ${engNum(res.so2PerKgFuel, 4)} kg per kg fuel`);
+        lines.push(`  SO₂ produced           ${engNum(res.so2PerKgFuel, 4)} kg per kg fuel`);
       }
       if (res.lhvMJPerKg !== null && res.co2PerKWh !== null) {
         lines.push(`  LHV (from your HHV)    ${engNum(res.lhvMJPerKg, 4)} MJ/kg`);
-        lines.push(`  CO2 intensity          ${engNum(res.co2PerKWh, 4)} kg CO2 / kWh fuel energy (HHV basis)`);
+        lines.push(`  CO₂ intensity          ${engNum(res.co2PerKWh, 4)} kg CO₂ / kWh fuel energy (HHV basis)`);
       }
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);

@@ -6,6 +6,20 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.61.0] — 2026-08-01 — Scientifically correct formatting in the energy suite
+
+You pointed out H2O must never display as "H2O". Every chemical species in the
+combustion tool now typesets with real subscripts — the title echoes your
+formula as C₈H₁₈, the product lines read O₂/CO₂/H₂O/SO₂ — and the energy
+tools' units display as m², m³/s, W/m², kg/m³, matching the rest of the bench.
+
+The display is also a CONTRACT: what we show must parse back. parseFormula now
+accepts Unicode subscript digits (pasting the displayed CH₄ works), and the
+unit reader accepts superscript exponents (typing m³/s converts exactly like
+m^3/s). Refusing ₄ while displaying ₄ would have made the correct rendering a
+round-trip trap. A hydrate coefficient stays full size — 5H₂O is five waters,
+not H₅₂O.
+
 ## [2.60.0] — 2026-08-01 — Energy & power
 
 A sixteenth Engineering discipline: **Energy & power**, 8 calculators

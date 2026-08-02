@@ -132,8 +132,8 @@ export function windPower(inp: WindInput): WindResult | EnergyError {
     return {
       ok: false,
       error:
-        `An air density of ${rho} kg/m^3 is outside anything in Earth's atmosphere ` +
-        "(sea level is 1.225). Check the unit — this field wants kg/m^3.",
+        `An air density of ${rho} kg/m³ is outside anything in Earth's atmosphere ` +
+        "(sea level is 1.225). Check the unit — this field wants kg/m³.",
     };
   }
 
@@ -292,8 +292,8 @@ export function solarPV(inp: SolarInput): SolarResult | EnergyError {
     return {
       ok: false,
       error:
-        `${inp.irradiance} W/m^2 exceeds terrestrial sunlight (the solar constant is 1361 ` +
-        "W/m^2 above the atmosphere; ground-level peak is ~1000–1200). Check the unit.",
+        `${inp.irradiance} W/m² exceeds terrestrial sunlight (the solar constant is 1361 ` +
+        "W/m² above the atmosphere; ground-level peak is ~1000–1200). Check the unit.",
     };
   }
 
@@ -480,7 +480,7 @@ export function hydroPower(inp: HydroInput): HydroResult | EnergyError {
   if (rho < 900 || rho > 1200) {
     return {
       ok: false,
-      error: `${rho} kg/m^3 is not a water density (fresh water is ~1000). Check the unit.`,
+      error: `${rho} kg/m³ is not a water density (fresh water is ~1000). Check the unit.`,
     };
   }
   const loss = inp.headLoss ?? 0;
@@ -610,7 +610,7 @@ export function batteryPack(inp: BatteryInput): BatteryResult | EnergyError {
       ok: false,
       error:
         `${inp.cellVoltage} V is above any single electrochemical cell (Li-ion is 3.6–3.7 ` +
-        "nominal, LiFePO4 3.2, lead-acid 2.0). If this is a pack voltage, enter the CELL " +
+        "nominal, LiFePO₄ 3.2, lead-acid 2.0). If this is a pack voltage, enter the CELL " +
         "voltage and the series count instead.",
     };
   }
@@ -733,6 +733,52 @@ export function batteryPack(inp: BatteryInput): BatteryResult | EnergyError {
  */
 export const AIR_N2_PER_O2 = 3.76;
 
+const DIGIT_TO_SUBSCRIPT: Record<string, string> = {
+  "0": "₀", "1": "₁", "2": "₂", "3": "₃", "4": "₄",
+  "5": "₅", "6": "₆", "7": "₇", "8": "₈", "9": "₉",
+};
+
+/**
+ * A molecular formula typeset the way chemistry writes it: CH4 → CH₄,
+ * C8H18 → C₈H₁₈, (NH4)2SO4 → (NH₄)₂SO₄.
+ *
+ * ONLY a count is a subscript. A digit run after an element symbol or a
+ * closing bracket is a count; a LEADING coefficient — the 5 in CuSO₄·5H₂O —
+ * multiplies the whole hydrate part and stays full size, because 5H₂O and
+ * H₅₂O are different statements. Anything that does not look like a formula
+ * is returned unchanged rather than half-typeset.
+ */
+export function formatFormula(formula: string): string {
+  const t = formula.trim();
+  if (!t) return formula;
+  let out = "";
+  let prevEndsGroup = false; // just closed an element symbol or bracket group
+  let atPartStart = true; // start of the formula or of a hydrate part
+  for (let i = 0; i < t.length; i++) {
+    const ch = t[i];
+    if (/[0-9]/.test(ch)) {
+      out += prevEndsGroup && !atPartStart ? DIGIT_TO_SUBSCRIPT[ch] : ch;
+      continue; // a digit run keeps its role, so both flags stay as they are
+    }
+    if (/[₀-₉]/.test(ch)) {
+      out += ch; // already a subscript — keep it
+      prevEndsGroup = true;
+      atPartStart = false;
+      continue;
+    }
+    if (/[·•.*]/.test(ch)) {
+      out += "·";
+      prevEndsGroup = false;
+      atPartStart = true; // the next digit run is a hydrate coefficient
+      continue;
+    }
+    out += ch;
+    prevEndsGroup = /[A-Za-z)\]}]/.test(ch);
+    atPartStart = false;
+  }
+  return out;
+}
+
 export interface CombustionInput {
   /** Fuel molecular formula, e.g. "CH4", "C8H18", "C2H5OH". */
   formula: string;
@@ -784,7 +830,7 @@ export function combustion(inp: CombustionInput): CombustionResult | EnergyError
   const counts = parseFormula(inp.formula ?? "");
   const symbols = Object.keys(counts);
   if (symbols.length === 0) {
-    return { ok: false, error: `"${inp.formula}" does not parse as a molecular formula (e.g. CH4, C8H18, C2H5OH).` };
+    return { ok: false, error: `"${inp.formula}" does not parse as a molecular formula (e.g. CH₄, C₈H₁₈, C₂H₅OH).` };
   }
   const allowed = new Set(["C", "H", "O", "N", "S"]);
   const outside = symbols.filter((s) => !allowed.has(s));
@@ -831,7 +877,7 @@ export function combustion(inp: CombustionInput): CombustionResult | EnergyError
       ok: false,
       error:
         "This formula is too large to be a molecular fuel. For a polymer, use the repeat " +
-        "unit (polyethylene → C2H4) — the ratios, AFR and CO2 per kg are identical.",
+        "unit (polyethylene → C₂H₄) — the ratios, AFR and CO₂ per kg are identical.",
     };
   }
 
@@ -867,9 +913,9 @@ export function combustion(inp: CombustionInput): CombustionResult | EnergyError
   const so2 = nS > 0 ? (nS * (wS + 2 * wO)) / M : null;
 
   const notes: string[] = [
-    "Air is modelled as 1 mol O2 : 3.76 mol N2 (the textbook convention lumping argon " +
+    "Air is modelled as 1 mol O₂ : 3.76 mol N₂ (the textbook convention lumping argon " +
       "into 'atmospheric nitrogen'); AFR shifts by ~1% under other conventions.",
-    "Complete combustion is assumed: all C → CO2, H → H2O, S → SO2, fuel N → N2. Real " +
+    "Complete combustion is assumed: all C → CO₂, H → H₂O, S → SO₂, fuel N → N₂. Real " +
       "flames make CO under rich conditions and NOx at high temperature — neither is " +
       "modelled here.",
   ];
@@ -900,17 +946,17 @@ export function combustion(inp: CombustionInput): CombustionResult | EnergyError
     // kg CO2 per kWh of fuel energy, HHV basis: 1 kWh = 3.6 MJ.
     co2PerKWh = co2 / (inp.hhvMJPerKg / 3.6);
     notes.push(
-      "LHV = HHV − latent heat of the combustion water (2.4417 MJ per kg of H2O at " +
+      "LHV = HHV − latent heat of the combustion water (2.4417 MJ per kg of H₂O at " +
         "25 °C) — derived from the formula's hydrogen content. Condensing appliances " +
         "recover part of that difference; everything else is bounded by LHV.",
-      "CO2 intensity is per kWh of FUEL energy (HHV basis), not per kWh of electricity — " +
+      "CO₂ intensity is per kWh of FUEL energy (HHV basis), not per kWh of electricity — " +
         "divide by the plant efficiency for the generation figure."
     );
   } else {
     notes.push(
       "Heating values are MEASURED properties of the actual fuel blend and are taken as " +
         "input, not predicted — formula-based correlations (Dulong) carry several percent " +
-        "error. Supply the HHV to get LHV and CO2 intensity."
+        "error. Supply the HHV to get LHV and CO₂ intensity."
     );
   }
 

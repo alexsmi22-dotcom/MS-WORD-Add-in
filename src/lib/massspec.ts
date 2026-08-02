@@ -79,7 +79,18 @@ export function parseFormula(formula: string): Record<string, number> {
   //
   // Each dot-separated part is parsed on its own and multiplied by its leading
   // coefficient, which is what the notation means.
-  const parts = formula.split(/[·•.*]/).filter((t) => t.trim() !== "");
+  //
+  // UNICODE SUBSCRIPT DIGITS ARE ACCEPTED AS DIGITS. The pane displays every
+  // formula scientifically — CH₄, C₈H₁₈ — and Word's own autocorrect produces
+  // the same characters, so a user copying a displayed formula back into a
+  // field is typing exactly what we showed them. Refusing ₄ while displaying
+  // ₄ would make the correct rendering a round-trip trap.
+  const SUB_DIGITS: Record<string, string> = {
+    "₀": "0", "₁": "1", "₂": "2", "₃": "3", "₄": "4",
+    "₅": "5", "₆": "6", "₇": "7", "₈": "8", "₉": "9",
+  };
+  const normalized = formula.replace(/[₀₁₂₃₄₅₆₇₈₉]/g, (c) => SUB_DIGITS[c]);
+  const parts = normalized.split(/[·•.*]/).filter((t) => t.trim() !== "");
   for (const part of parts) {
     const trimmed = part.trim();
     // A leading integer multiplies the whole part: the 5 in "5H2O" is five waters.

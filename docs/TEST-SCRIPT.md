@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.60.0)
+# JurisLab — Manual Test Script (v2.61.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -1032,6 +1032,12 @@ Engineering mode. A new **Energy & power** group of 8. The mode must state
   **50.02 MJ/kg** — the published methane figure — and CO₂ intensity **0.1779 kg/kWh**.
 - [ ] C8H18: AFR **15.03** (the gasoline number), CO₂ **3.083 kg/kg**. CO2 as the
   formula: refused — it has nothing left to oxidise.
+- [ ] **Formatting (v2.61.0):** the combustion title typesets your formula — typing
+  `C8H18` must display **C₈H₁₈** — and every species line reads **O₂ / CO₂ / H₂O /
+  SO₂** with real subscripts, in the pane AND in the inserted text. Paste the
+  displayed **C₈H₁₈** back into the field: same answer, not a refusal. Unit labels
+  read **m², m³/s, W/m², kg/m³** with real superscripts, and typing `m³/s` as a
+  unit converts the same as `m^3/s`.
 - [ ] **LCOE** at the defaults (1.5 M capex, 30 k opex, 3500 MWh, 7%, 25 yr):
   **45.35 per MWh** (0.04535 per kWh), PV of costs **1,849,609**, PV of energy
   **40,788 MWh**. The notes must say the energy is discounted and why.

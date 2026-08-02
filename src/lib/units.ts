@@ -435,7 +435,7 @@ function splitTopLevel(expr: string): string[] | null {
  * dressed as a unit.
  */
 export function parseCompoundUnit(expr: string): CompoundUnit | null {
-  const parts = splitTopLevel(expr.trim());
+  const parts = splitTopLevel(normalizeUnitText(expr.trim()));
   if (!parts) return null;
   if (!parts[0].trim()) return null;
   for (let i = 1; i < parts.length; i++) if (!parts[i].trim()) return null; // reject empty denominator / trailing "/"
@@ -466,12 +466,35 @@ function sameDims(a: Record<string, number>, b: Record<string, number>): boolean
   return true;
 }
 
+const SUPERSCRIPT_TO_ASCII: Record<string, string> = {
+  "⁰": "0", "¹": "1", "²": "2", "³": "3", "⁴": "4",
+  "⁵": "5", "⁶": "6", "⁷": "7", "⁸": "8", "⁹": "9", "⁻": "-",
+};
+
+/**
+ * Unit text written the way the PANE DISPLAYS it must also parse. Every label
+ * and result line prints m², m³/s and W/(m²·K) with real superscripts — the
+ * scientifically correct form — so a user who copies a unit out of a result
+ * and pastes it into a field is typing exactly what we showed them. Refusing
+ * "m³" while displaying "m³" would make the correct display a trap. A
+ * superscript run becomes one ^exponent (⁻¹ → ^-1).
+ */
+function normalizeUnitText(expr: string): string {
+  return expr.replace(/[⁰¹²³⁴⁵⁶⁷⁸⁹⁻]+/g, (run) => {
+    let out = "^";
+    for (const ch of run) out += SUPERSCRIPT_TO_ASCII[ch] ?? "";
+    return out;
+  });
+}
+
 /**
  * Converts a value between two compatible units, or null if incompatible/unknown.
  * Single units use the affine-aware path (handles °C/°F); compound units like
  * "km/h" → "m/s" are converted by matching dimension signatures.
  */
 export function convert(value: number, from: string, to: string): number | null {
+  from = normalizeUnitText(from);
+  to = normalizeUnitText(to);
   const f = lookup(from);
   const t = lookup(to);
   if (f && t) {

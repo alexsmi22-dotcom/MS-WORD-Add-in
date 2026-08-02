@@ -39,6 +39,7 @@ const PINNED: Record<string, string> = {
   "Measured spectra — JCAMP-DX": "2.19.0",
   "BVP / PDE / DAE": "2.19.0",
   "The numerics cannot freeze the pane": "2.20.0",
+  Formatting: "2.61.0",
 };
 
 describe("the manual test script's version tags are history, not a moving target", () => {

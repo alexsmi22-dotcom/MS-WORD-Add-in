@@ -404,6 +404,7 @@ import {
   solarGeometry,
 } from "../lib/energy";
 import { threePhase, pfCorrection, voltageDrop, ConductorMaterial, CircuitKind } from "../lib/grid";
+import { flameTemperature } from "../lib/flame";
 import { statVars, statVarLineProblem } from "../lib/uncertaintyParse";
 import {
   planParagraphNumbering,
@@ -13769,6 +13770,64 @@ const ENG_CALCS: EngCalc[] = [
       }
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_SAME_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "energy-flame-temp",
+    name: "Adiabatic flame temperature (no dissociation)",
+    group: "Energy & power",
+    hint:
+      "The classical textbook figure: all of the fuel's LHV heats the complete-combustion " +
+      "products, properties from GRI-Mech 3.0 NASA polynomials cross-checked against JANAF " +
+      "landmarks in the suite. Near stoichiometric it OVERSTATES a real flame by ~100-200 K " +
+      "because dissociation is not modelled — the result says so. Heating value stays YOUR input.",
+    fields: [
+      { key: "formula", label: "Fuel formula (CH₄, C₃H₈ — C/H/O/N only)", default: "CH4", kind: "text" },
+      { key: "hv", label: "Heating value, MJ/kg (BTU/lb converts)", default: "50.0", kind: "text" },
+      {
+        key: "basis", label: "Heating value basis", default: "LHV", kind: "select",
+        options: [
+          { value: "LHV", label: "LHV (lower / net)" },
+          { value: "HHV", label: "HHV (higher / gross)" },
+        ],
+      },
+      { key: "excess", label: "Excess air, fraction (0 = stoichiometric)", default: "0", kind: "text" },
+      { key: "preheat", label: "Air preheat, °C (25 = none)", default: "", kind: "text" },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const hv = u.req("hv", "MJ/kg", "Heating value");
+      const preheat = u.optNull("preheat", "°C", "Air preheat");
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const exRaw = r("excess").trim();
+      const excess = exRaw ? Number(exRaw) : undefined;
+      if (exRaw && !Number.isFinite(excess as number)) {
+        return { text: "Excess air must be a fraction (0.2 = 20% excess).", ok: false };
+      }
+      const res = flameTemperature({
+        formula: r("formula"),
+        heatingValueMJPerKg: hv,
+        basis: r("basis") === "HHV" ? "HHV" : "LHV",
+        excessAir: excess,
+        airPreheatC: preheat ?? undefined,
+      });
+      if (!res.ok) return { text: res.error, ok: false };
+      const lines = [
+        `Adiabatic flame temperature of ${formatFormula(r("formula").trim())}`,
+        "",
+        `  Flame temperature    ${engNum(res.flameTempK, 4)} K  =  ${engNum(res.flameTempC, 4)} °C`,
+        `  LHV used             ${engNum(res.lhvUsedMJPerKg, 4)} MJ/kg`,
+      ];
+      if (res.preheatMJPerKg > 0) {
+        lines.push(`  Preheat contribution ${engNum(res.preheatMJPerKg, 4)} MJ per kg fuel`);
+      }
+      lines.push(
+        `  Products per mol fuel   CO₂ ${engNum(res.products.co2, 4)}, H₂O ${engNum(res.products.h2o, 4)}, N₂ ${engNum(res.products.n2, 4)}${res.products.o2 > 0 ? `, O₂ ${engNum(res.products.o2, 4)}` : ""}`
+      );
+      u.report(lines);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_UNIT_NOTE);
       return { text: plainDashes(lines.join("\n")) };
     },
   },

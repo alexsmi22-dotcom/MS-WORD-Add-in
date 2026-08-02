@@ -76,7 +76,14 @@ describe("everything shipped is reachable", () => {
   test("dead exports do not increase", () => {
     // 26 at HEAD ec1d802. Lower this when you surface or delete one; never raise
     // it without a reason written next to the change.
-    const BASELINE = 26;
+    //
+    // 27 as of v2.63.0: flame.cpMolar is exported FOR the committed data
+    // cross-check (flame.crosscheck.test.ts validates the fetched NASA-7
+    // coefficients against CODATA/JANAF cp landmarks and a cp-integration
+    // identity). The engine itself only needs h(T); cp is exported so the
+    // data's provenance stays verifiable, which is the condition under which
+    // bundled thermodynamic data was accepted at all.
+    const BASELINE = 27;
     const dead = deadExports();
     expect({ count: dead.length, over: dead.length > BASELINE ? dead : [] }).toEqual({
       count: dead.length <= BASELINE ? dead.length : BASELINE,

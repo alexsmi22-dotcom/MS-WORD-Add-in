@@ -6,6 +6,24 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.63.0] — 2026-08-01 — Adiabatic flame temperature, the honest way
+
+The one energy calculator that needed real thermodynamic data, built under
+the data mandate: NASA-7 polynomials for CO₂/H₂O/N₂/O₂ taken MECHANICALLY
+from GRI-Mech 3.0 (Cantera's gri30.yaml, fetched and script-extracted — no
+coefficient typed by hand) and validated by a committed cross-check suite
+against independent JANAF/CODATA landmarks, range-junction continuity, and a
+cp-integration identity that would catch any transcription slip. The heating
+value stays the user's measured input; the polynomials supply only sensible
+enthalpies of four pure gases.
+
+Honest limits carried in every result: no dissociation (overstates a
+stoichiometric hydrocarbon-air flame by ~100–200 K, and says so), LHV basis
+forced by the physics, sulfur fuels refused rather than answered with data
+the tables do not contain, and a balance that cannot close below the 3500 K
+polynomial wall is refused rather than extrapolated. Optional air preheat
+(recuperator) and excess-air dilution. Energy & power is 17; Engineering 87.
+
 ## [2.62.0] — 2026-08-01 — Energy depth & grid power
 
 The gap analysis, built: Energy & power grows 8 → 16 calculators (Engineering

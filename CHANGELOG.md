@@ -6,6 +6,26 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.69.1] — 2026-08-02 — The empty plot box in Bio/Assay
+
+Reported from real use: Bio/Assay showed a plot box with nothing in it.
+
+`.structure-preview` carries a 120px min-height, a border and a fixed white
+paper background — it previews black-on-white artwork, so it deliberately does
+not follow the theme. An empty one is therefore not invisible; it is a framed
+blank panel. **Eleven of the sixteen Bio/Assay calculators never return a plot**
+(Cheng-Prusoff, Beer-Lambert, dilutions, A260/A280, buffer ratio and the rest),
+and the code cleared the panel's contents without ever hiding the panel. So most
+of the mode rendered an empty white frame under its numbers.
+
+The panel is now hidden whenever there is nothing to draw, on both paths — the
+no-plot branch and the incomplete-form branch — and the "Insert plot" button is
+hidden with it rather than sitting there permanently disabled.
+
+Pre-existing, not from the recent tier-1 work. Found by reading the render path
+after the report rather than by any gate: no automated check can see that a
+correctly-cleared element is still a visible box.
+
 ## [2.69.0] — 2026-08-02 — The engine had no door
 
 Tier 1 release E: **fit any model you can type**, plus the last of the wiring.

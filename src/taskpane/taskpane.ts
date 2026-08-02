@@ -17100,6 +17100,10 @@ function updateAssayPreview(): void {
   if (calc.fields.some((f) => f.kind !== "select" && read(f.key).trim() === "")) {
     assayResult.innerHTML = '<span class="hint">Enter all values to compute.</span>';
     assayPreview.innerHTML = "";
+    // The same blank-box rule as below: an incomplete form must not show an
+    // empty framed panel either.
+    assayPreview.style.display = "none";
+    assayInsertPlotBtn.hidden = true;
     currentAssayText = "";
     currentAssayPlotSvg = "";
     assayInsertBtn.disabled = true;
@@ -17144,10 +17148,22 @@ function updateAssayPreview(): void {
     ];
     const svg = buildPlotSvg(series, { xlabel, ylabel });
     assayPreview.innerHTML = svg;
+    // SHOWN ONLY WHEN THERE IS SOMETHING TO SHOW. `.structure-preview` carries a
+    // 120px min-height, a border and a fixed white paper background, so an empty
+    // one is not invisible — it is a framed blank box. Eleven of the sixteen
+    // Bio/Assay calculators never produce a plot (Cheng-Prusoff, Beer-Lambert,
+    // dilutions, A260/A280 and the rest), and every one of them was rendering
+    // that box under its numbers. Clearing innerHTML was never enough.
+    assayPreview.style.display = "";
+    assayInsertPlotBtn.hidden = false;
     currentAssayPlotSvg = svg;
     assayInsertPlotBtn.disabled = false;
   } else {
     assayPreview.innerHTML = "";
+    assayPreview.style.display = "none";
+    // A permanently disabled "Insert plot" button beside a calculator that has
+    // no plot is the same noise one control down.
+    assayInsertPlotBtn.hidden = true;
     currentAssayPlotSvg = "";
     assayInsertPlotBtn.disabled = true;
   }

@@ -45,8 +45,27 @@ export interface SectionProps {
   /** Section moduli I/c. Equal for a doubly-symmetric section. */
   sTop: number;
   sBot: number;
-  /** Radius of gyration sqrt(I/A). */
+  /** Radius of gyration sqrt(I/A) about the horizontal (bending) axis. */
   r: number;
+  /**
+   * Second moment about the VERTICAL centroidal axis — the minor axis for
+   * every shape here except a circle or pipe, where the two are equal.
+   *
+   * IT IS THE MINOR AXIS THAT BUCKLES. A column bends about whichever axis is
+   * weakest, and for an I-beam that is emphatically not the axis it is designed
+   * to bend about: a typical section has an Iy an order of magnitude below its
+   * Ix. Quoting the bending I to a buckling check overstates the critical load
+   * by that whole factor, and the answer looks entirely reasonable.
+   *
+   * Exact for all six shapes. Every strip decomposition here is symmetric about
+   * the vertical centreline, so each strip's own centroid sits on that axis and
+   * the parallel-axis terms all vanish.
+   */
+  Iy: number;
+  /** Radius of gyration about the vertical axis, sqrt(Iy/A). */
+  ry: number;
+  /** The smaller of I and Iy — the one a column check needs. */
+  Imin: number;
   /** First moment of the area above the neutral axis — the Q in tau = VQ/(It). */
   Q: number;
   /** Width of the section AT the neutral axis — the t in tau = VQ/(It). */
@@ -141,6 +160,12 @@ function sectionPropertiesRaw(spec: SectionSpec): SectionProps | { error: string
         sTop: I / c,
         sBot: I / c,
         r: Math.sqrt(I / A),
+        // Axisymmetric, so every centroidal axis is the same and there is no
+        // weak one. That is precisely why a round column has no preferred
+        // buckling direction while an I-beam emphatically does.
+        Iy: I,
+        ry: Math.sqrt(I / A),
+        Imin: I,
         Q: d ** 3 / 12,
         tNA: d,
         symmetric: true,
@@ -169,6 +194,9 @@ function sectionPropertiesRaw(spec: SectionSpec): SectionProps | { error: string
         sTop: I / c,
         sBot: I / c,
         r: Math.sqrt(I / A),
+        Iy: I,
+        ry: Math.sqrt(I / A),
+        Imin: I,
         Q: (d ** 3 - di ** 3) / 12,
         tNA: 2 * t,
         symmetric: true,
@@ -195,6 +223,15 @@ function guardProps<T extends SectionProps>(p: T): T | { error: string } {
         "These dimensions underflow the second moment of area to zero, so no stress can be computed from them. " +
         "Try the same section in larger units, for example mm rather than km.",
     };
+  // The minor axis gets the same guard as the major one. It is the axis a
+  // column buckles about, so an underflowed Iy would hand a buckling check a
+  // zero and produce a critical load of zero for a perfectly sound section.
+  if (!Number.isFinite(p.Iy) || p.Iy <= 0)
+    return {
+      error:
+        "These dimensions underflow the MINOR-axis second moment to zero. That is the axis a " +
+        "column buckles about, so nothing here would be safe to use. Try larger units.",
+    };
   return p;
 }
 
@@ -213,6 +250,12 @@ function fromStrips(name: string, strips: Strip[], depth: number): SectionProps 
     const a = s.sign * s.b * s.h;
     I += s.sign * ((s.b * s.h ** 3) / 12) + a * (s.yc - yBar) ** 2;
   }
+
+  // Minor axis. Every strip is centred on the vertical centreline for all four
+  // strip-built shapes, so there is no parallel-axis term to add here — the
+  // whole sum is the strips' own second moments about that shared axis.
+  let Iy = 0;
+  for (const s of strips) Iy += s.sign * ((s.h * s.b ** 3) / 12);
 
   // Q: first moment about the neutral axis of everything above it, by clipping
   // each strip to [yBar, top]. Exact per strip, so a void is subtracted correctly.
@@ -252,6 +295,9 @@ function fromStrips(name: string, strips: Strip[], depth: number): SectionProps 
     sTop: I / cTop,
     sBot: I / cBot,
     r: Math.sqrt(I / A),
+    Iy,
+    ry: Math.sqrt(Iy / A),
+    Imin: Math.min(I, Iy),
     Q,
     tNA,
     symmetric,

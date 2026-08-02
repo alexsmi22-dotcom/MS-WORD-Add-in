@@ -109,6 +109,21 @@ import { digest, describeDigest, gelBands } from "../lib/digest";
 import { analyzeBeam, parseSupports, parseLoads, parseLength, totalLoad } from "../lib/beam";
 import { beamDiagramSvg, BEAM_CHART_SIZE } from "../lib/beamChart";
 import { sectionProperties, bendingStress, SectionSpec } from "../lib/section";
+import {
+  mohrCircleSvg,
+  goodmanDiagramSvg,
+  sectionShapeSvg,
+  columnCurveSvg,
+  trussSvg,
+  torsionProfileSvg,
+  MOHR_CHART_SIZE,
+  GOODMAN_CHART_SIZE,
+  SECTION_CHART_SIZE,
+  COLUMN_CHART_SIZE,
+  TRUSS_CHART_SIZE,
+  TORSION_CHART_SIZE,
+  SectionStrip,
+} from "../lib/mechchart";
 import { parseNetlist, parseValue, solveDc, solveAc, frequencySweep, dB } from "../lib/circuit";
 import { analyzeStress, transformPlane, factorOfSafety, analyzeTorsion, analyzeColumn, EndCondition } from "../lib/stress";
 import { analyzeTruss, parseTruss } from "../lib/truss";
@@ -9003,6 +9018,22 @@ const ENG_CALCS: EngCalc[] = [
         lines.push(`Section modulus, bottom fibre = ${engNum(p.sBot, figs)} (c = ${engNum(p.cBot, figs)})`);
       }
       lines.push(`Radius of gyration r = ${engNum(p.r, figs)}`);
+      // THE MINOR AXIS, because that is the one a column buckles about. An
+      // I-beam's Iy is routinely an order of magnitude below its Ix - the
+      // default section here is 12.6 times - so handing the bending I to a
+      // buckling check overstates the critical load by that whole factor while
+      // looking entirely reasonable.
+      lines.push(
+        `Minor axis: Iy = ${engNum(p.Iy, figs)} ${dimUnit}^4, ry = ${engNum(p.ry, figs)} ${dimUnit}`,
+      );
+      if (p.Iy < p.I) {
+        lines.push(
+          `  Iy is ${engNum(p.I / p.Iy, 3)}x smaller than I. A column buckles about the WEAKER ` +
+            `axis, so a buckling check needs Iy = ${engNum(p.Iy, figs)}, not I.`,
+        );
+      } else {
+        lines.push("  This section is axisymmetric, so there is no weaker axis to buckle about.");
+      }
       lines.push(`First moment Q at the neutral axis = ${engNum(p.Q, figs)}, width there = ${engNum(p.tNA, figs)}`);
 
       const mRaw = r("M").trim();
@@ -9058,12 +9089,41 @@ const ENG_CALCS: EngCalc[] = [
       // what section tables print — while the column tool works in metres. It
       // now converts, so say so here, where the numbers are.
       lines.push(
-        `To check buckling, carry A and I to the column tool WITH their units ` +
-          `("${engNum(p.A, figs)} ${dimUnit}^2", "${engNum(p.I, figs)} ${dimUnit}^4") — it converts them. ` +
-          "Use the SMALLER principal I unless that axis is separately braced.",
+        "Better still, do not carry them at all: the column tool can compute this same section " +
+          "itself and takes the MINOR axis automatically. Set its \"Section properties from\" to " +
+          "the section shape. That removes the paste, which is where the factor of 10^12 used to " +
+          "come from.",
       );
       lines.push(ENG_UNIT_NOTE);
-      return { text: plainDashes(lines.join("\n")) };
+
+      // The section itself, drawn to scale with its neutral axis.
+      const strips: SectionStrip[] = [];
+      let circle: { d: number; bore?: number } | undefined;
+      if (shape === "rect") strips.push({ b: d[0], h: d[1], yc: d[1] / 2, sign: 1 });
+      else if (shape === "circle") circle = { d: d[0] };
+      else if (shape === "pipe") circle = { d: d[0], bore: d[0] - 2 * d[1] };
+      else if (shape === "box") {
+        strips.push({ b: d[0], h: d[1], yc: d[1] / 2, sign: 1 });
+        strips.push({ b: d[0] - 2 * d[2], h: d[1] - 2 * d[2], yc: d[1] / 2, sign: -1 });
+      } else if (shape === "ibeam") {
+        strips.push({ b: d[0], h: d[1], yc: d[1] / 2, sign: 1 });
+        strips.push({ b: d[3], h: d[2] - 2 * d[1], yc: d[2] / 2, sign: 1 });
+        strips.push({ b: d[0], h: d[1], yc: d[2] - d[1] / 2, sign: 1 });
+      } else {
+        strips.push({ b: d[3], h: d[2] - d[1], yc: (d[2] - d[1]) / 2, sign: 1 });
+        strips.push({ b: d[0], h: d[1], yc: d[2] - d[1] / 2, sign: 1 });
+      }
+      const depth = shape === "circle" ? d[0] : shape === "pipe" ? d[0] : shape === "rect" ? d[1] : shape === "box" ? d[1] : d[2];
+      return engReport(lines, [
+        {
+          kind: "plot",
+          svg: sectionShapeSvg({ name: p.name, strips, depth, yBar: p.yBar, circle, unit: dimUnit }),
+          caption: `${p.name} — to scale`,
+          alt: "Cross-section outline with its neutral axis",
+          w: SECTION_CHART_SIZE.w,
+          h: SECTION_CHART_SIZE.h,
+        },
+      ]);
     },
   },
   {
@@ -9323,7 +9383,34 @@ const ENG_CALCS: EngCalc[] = [
         `Quoted to ${figs} significant figures, the fewest any input carries.`,
       );
       lines.push(ENG_SAME_UNIT_NOTE);
-      return { text: plainDashes(lines.join("\n")) };
+      // MOHR'S CIRCLE, at last. The tool has always computed the centre and the
+      // radius and named the construction in its own output without ever
+      // drawing it - and it is the most recognisable diagram in mechanics of
+      // materials. Only a plane-stress state has an in-plane circle to draw; a
+      // full 3-D state has three, which is a different figure and is not
+      // claimed here.
+      const blocks: AnalyzeBlock[] =
+        res.mohrCentre !== null && res.mohrRadius !== null && res.inPlane
+          ? [
+              {
+                kind: "plot",
+                svg: mohrCircleSvg({
+                  sigmaX: state.sx,
+                  sigmaY: state.sy,
+                  tauXY: state.txy,
+                  sigma1: res.inPlane[0],
+                  sigma2: res.inPlane[1],
+                  centre: res.mohrCentre,
+                  radius: res.mohrRadius,
+                }),
+                caption: "Mohr's circle",
+                alt: "Mohr's circle for the in-plane stress state",
+                w: MOHR_CHART_SIZE.w,
+                h: MOHR_CHART_SIZE.h,
+              },
+            ]
+          : [];
+      return engReport(lines, blocks);
     },
   },
   {
@@ -9402,7 +9489,22 @@ const ENG_CALCS: EngCalc[] = [
           "divided by an irrational length.",
       );
       lines.push(ENG_EXACT_UNIT_NOTE);
-      return { text: plainDashes(lines.join("\n")) };
+      // The truss drawn in its own geometry, members coloured by what they
+      // carry. Zero-force members are the reason: they look structurally
+      // essential and carry nothing, and a list of names does not show that.
+      return engReport(lines, [
+        {
+          kind: "plot",
+          svg: trussSvg(
+            parsed.input.joints.map((j) => ({ name: j.name, x: ratNum(j.x), y: ratNum(j.y) })),
+            res.members.map((m) => ({ a: m.a, b: m.b, force: m.force })),
+          ),
+          caption: "Truss member forces",
+          alt: "Truss geometry with members coloured by tension, compression or zero force",
+          w: TRUSS_CHART_SIZE.w,
+          h: TRUSS_CHART_SIZE.h,
+        },
+      ]);
     },
   },
   {
@@ -9418,8 +9520,54 @@ const ENG_CALCS: EngCalc[] = [
     fields: [
       { key: "L", label: "Unbraced length, m", default: "3", kind: "text" },
       { key: "E", label: "Young's modulus, Pa", default: "200e9", kind: "text" },
-      { key: "I", label: "Second moment of area (minor axis), m^4", default: "1e-6", kind: "text" },
-      { key: "A", label: "Cross-sectional area, m^2", default: "2e-3", kind: "text" },
+      // THE HANDOFF, AND THE WORST TRAP IN THE BENCH. The cross-section tool
+      // computes exactly the I and A this needs - and reports them in mm^4 and
+      // mm^2, because that is what every section table prints, while this tool
+      // works in m^4 and m^2. Pasting the bare number across is wrong by 10^12
+      // and produces an entirely plausible buckling load. The unit contract
+      // only half closes it: "1e6 mm^4" converts, but a bare "1e6" is assumed
+      // to be m^4 already. Computing the section here removes the paste, and
+      // takes the MINOR axis automatically, which is the other half of the
+      // mistake - an I-beam's Iy is routinely 12x below its Ix.
+      {
+        key: "src",
+        label: "Section properties from",
+        default: "typed",
+        kind: "select",
+        options: [
+          { value: "typed", label: "I and A I type below" },
+          { value: "section", label: "A section shape below (computed here, minor axis)" },
+        ],
+      },
+      { key: "I", label: "Second moment of area (minor axis), m^4 (typed source)", default: "1e-6", kind: "text" },
+      { key: "A", label: "Cross-sectional area, m^2 (typed source)", default: "2e-3", kind: "text" },
+      {
+        key: "shape",
+        label: "Section shape (section source)",
+        default: "ibeam",
+        kind: "select",
+        options: [
+          { value: "rect", label: "Rectangle (b, h)" },
+          { value: "circle", label: "Solid circle (d)" },
+          { value: "pipe", label: "Circular hollow (d, wall t)" },
+          { value: "box", label: "Rectangular hollow (b, h, wall t)" },
+          { value: "ibeam", label: "I-beam (bf, tf, depth, tw)" },
+          { value: "tee", label: "Tee (bf, tf, depth, tw)" },
+        ],
+      },
+      { key: "dims", label: "Dimensions, comma separated, in the order above", default: "100, 10, 200, 6", kind: "text" },
+      {
+        key: "dimUnit",
+        label: "Dimension unit (section source)",
+        default: "mm",
+        kind: "select",
+        options: [
+          { value: "mm", label: "mm" },
+          { value: "cm", label: "cm" },
+          { value: "m", label: "m" },
+          { value: "in", label: "inches" },
+        ],
+      },
       { key: "Fy", label: "Yield strength, Pa (blank to skip)", default: "250e6", kind: "text" },
       {
         key: "end",
@@ -9439,11 +9587,52 @@ const ENG_CALCS: EngCalc[] = [
     compute: (r) => {
       const figs = engFigures([r("L"), r("E"), r("I"), r("A"), r("Fy")]);
       const u = engUnits(r);
+      const fromSection = r("src") === "section";
+
+      let Ival = fromSection ? NaN : u.req("I", "m^4", "Second moment of area");
+      let Aval = fromSection ? NaN : u.req("A", "m^2", "Cross-sectional area");
+      let sectionNote: string | null = null;
+      if (fromSection) {
+        const shape = r("shape") || "ibeam";
+        const dimUnit = r("dimUnit") || "mm";
+        const d = r("dims").split(/[,\s]+/).filter(Boolean).map(Number);
+        if (d.some((v) => !Number.isFinite(v))) return { text: "Every section dimension must be a number.", ok: false };
+        const need: Record<string, number> = { rect: 2, circle: 1, pipe: 2, box: 3, ibeam: 4, tee: 4 };
+        if (d.length !== need[shape])
+          return { text: `That shape needs ${need[shape]} dimension(s); ${d.length} given.`, ok: false };
+        let spec: SectionSpec;
+        if (shape === "rect") spec = { kind: "rect", b: d[0], h: d[1] };
+        else if (shape === "circle") spec = { kind: "circle", d: d[0] };
+        else if (shape === "pipe") spec = { kind: "pipe", d: d[0], t: d[1] };
+        else if (shape === "box") spec = { kind: "box", b: d[0], h: d[1], t: d[2] };
+        else if (shape === "ibeam") spec = { kind: "ibeam", bf: d[0], tf: d[1], d: d[2], tw: d[3] };
+        else spec = { kind: "tee", bf: d[0], tf: d[1], d: d[2], tw: d[3] };
+        const p = sectionProperties(spec);
+        if ("error" in p) return { text: p.error, ok: false };
+        // Converted here, once, in code — which is the entire point. The unit
+        // is carried through the fourth and second powers rather than trusted
+        // to a paste.
+        const toM = convert(1, dimUnit, "m") ?? 1;
+        Ival = p.Imin * Math.pow(toM, 4);
+        Aval = p.A * Math.pow(toM, 2);
+        sectionNote =
+          `Section computed here: ${p.name}, A = ${engNum(p.A, 5)} ${dimUnit}² and ` +
+          `Iy = ${engNum(p.Iy, 5)} ${dimUnit}⁴, converted to ${engNum(Aval, 5)} m² and ` +
+          `${engNum(Ival, 5)} m⁴. The MINOR axis was used, because that is the one a column ` +
+          `buckles about` +
+          (p.Iy < p.I
+            ? ` — here it is ${engNum(p.I / p.Iy, 3)}x smaller than the bending axis, so using I ` +
+              "would have overstated the critical load by that factor."
+            : "; this section is axisymmetric, so both axes are the same.");
+      }
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+
+      const Eval = u.req("E", "Pa", "Young's modulus");
       const res = analyzeColumn({
         L: u.req("L", "m", "Unbraced length"),
-        E: u.req("E", "Pa", "Young's modulus"),
-        I: u.req("I", "m^4", "Second moment of area"),
-        A: u.req("A", "m^2", "Cross-sectional area"),
+        E: Eval,
+        I: Ival,
+        A: Aval,
         Fy: u.opt("Fy", "Pa", "Yield strength", 0),
         end: (r("end") || "pinned") as EndCondition,
         kCustom: Number(r("K") || "1"),
@@ -9453,6 +9642,7 @@ const ENG_CALCS: EngCalc[] = [
 
       const lines: string[] = [];
       lines.push("Column buckling");
+      if (sectionNote) lines.push(`Note: ${sectionNote}`);
       lines.push(`Effective length factor K = ${engNum(res.K, figs)}, effective length = ${engNum(res.Le, figs)} m`);
       lines.push(`Radius of gyration r = ${engNum(res.r, figs)} m`);
       lines.push(`Slenderness ratio Le/r = ${engNum(res.slenderness, figs)}`);
@@ -9477,7 +9667,25 @@ const ENG_CALCS: EngCalc[] = [
       for (const note of res.notes) lines.push(`Note: ${note}`);
       u.report(lines);
       lines.push(ENG_UNIT_NOTE);
-      return { text: plainDashes(lines.join("\n")) };
+      // The two curves and where this column sits on them. Drawn because the
+      // reason the Johnson parabola exists is invisible in a table and obvious
+      // in a picture: Euler runs off to infinity as the column gets stumpy.
+      return engReport(lines, [
+        {
+          kind: "plot",
+          svg: columnCurveSvg({
+            E: Eval,
+            Fy: res.pSquash !== null && Aval > 0 ? res.pSquash / Aval : null,
+            slenderness: res.slenderness,
+            sigmaCritical: Aval > 0 ? res.pCritical / Aval : res.sigmaEuler,
+            transition: res.slendernessTransition,
+          }),
+          caption: "Euler and Johnson curves",
+          alt: "Critical stress against slenderness, with this column marked",
+          w: COLUMN_CHART_SIZE.w,
+          h: COLUMN_CHART_SIZE.h,
+        },
+      ]);
     },
   },
   {
@@ -9498,10 +9706,12 @@ const ENG_CALCS: EngCalc[] = [
     compute: (r) => {
       const figs = engFigures([r("T"), r("d"), r("di"), r("L"), r("G")]);
       const u = engUnits(r);
+      const odM = u.req("d", "m", "Outer diameter");
+      const boreM = u.opt("di", "m", "Bore diameter", 0);
       const res = analyzeTorsion({
         T: u.req("T", "N*m", "Torque"),
-        d: u.req("d", "m", "Outer diameter"),
-        di: u.opt("di", "m", "Bore diameter", 0),
+        d: odM,
+        di: boreM,
         L: u.opt("L", "m", "Length", 0),
         G: u.opt("G", "Pa", "Shear modulus", 0),
       });
@@ -9523,7 +9733,18 @@ const ENG_CALCS: EngCalc[] = [
       for (const note of res.notes) lines.push(`Note: ${note}`);
       u.report(lines);
       lines.push(ENG_UNIT_NOTE);
-      return { text: plainDashes(lines.join("\n")) };
+      // Shear against radius. Linear from zero at the axis, which is the whole
+      // argument for a hollow shaft and is one glance in a picture.
+      return engReport(lines, [
+        {
+          kind: "plot",
+          svg: torsionProfileSvg(odM, boreM, res.tauMax / 1e6),
+          caption: "Shear stress across the radius",
+          alt: "Torsional shear rising linearly from the axis to the surface",
+          w: TORSION_CHART_SIZE.w,
+          h: TORSION_CHART_SIZE.h,
+        },
+      ]);
     },
   },
   {
@@ -11265,7 +11486,59 @@ const ENG_CALCS: EngCalc[] = [
       // σa you have already corrected yourself.
       { key: "kf", label: "Fatigue notch factor Kf (1 = none, or already applied)", default: "1", kind: "text" },
       { key: "sm", label: "Mean stress σm, MPa (negative = compressive)", default: "200", kind: "text" },
-      { key: "se", label: "Corrected endurance limit Se, MPa", default: "250", kind: "text" },
+      // THE SECOND HAND-CARRY ON THIS PAIR. Kf was closed first because
+      // forgetting it is non-conservative; so is this. Se is the ENTIRE output
+      // of the endurance tool - six Marin factors multiplied together - and
+      // nobody re-derives it, so it gets pasted. Too high an Se makes the part
+      // look safer than it is, which is the one direction a safety factor must
+      // never be wrong in.
+      {
+        key: "sesrc",
+        label: "Endurance limit from",
+        default: "typed",
+        kind: "select",
+        options: [
+          { value: "typed", label: "An Se I type below" },
+          { value: "marin", label: "Marin factors below (computed here)" },
+        ],
+      },
+      { key: "se", label: "Corrected endurance limit Se, MPa (typed source)", default: "250", kind: "text" },
+      {
+        key: "mclass",
+        label: "Material class (Marin source)",
+        default: "steel",
+        kind: "select",
+        options: [
+          { value: "steel", label: "Steel (has a true endurance limit)" },
+          { value: "nonferrous", label: "Aluminium / copper / other non-ferrous (has NONE)" },
+        ],
+      },
+      {
+        key: "surface",
+        label: "Surface finish (Marin source)",
+        default: "machined",
+        kind: "select",
+        options: [
+          { value: "ground", label: "Ground" },
+          { value: "machined", label: "Machined / cold-drawn" },
+          { value: "hotrolled", label: "Hot-rolled" },
+          { value: "forged", label: "As-forged" },
+        ],
+      },
+      { key: "mdia", label: "Diameter or equivalent dimension, mm (Marin source)", default: "25", kind: "text" },
+      {
+        key: "mload",
+        label: "Loading (Marin source)",
+        default: "bending",
+        kind: "select",
+        options: [
+          { value: "bending", label: "Bending (kc = 1)" },
+          { value: "axial", label: "Axial (kc = 0.85, no size factor)" },
+          { value: "torsion", label: "Torsion (kc = 0.59)" },
+        ],
+      },
+      { key: "mtemp", label: "Operating temperature, °C (Marin source)", default: "20", kind: "text" },
+      { key: "mrel", label: "Reliability, 0-1 (Marin source; 0.5 gives ke = 1)", default: "0.9", kind: "text" },
       { key: "sut", label: "Ultimate tensile strength Sut, MPa", default: "700", kind: "text" },
       { key: "sy", label: "Yield strength Sy, MPa", default: "500", kind: "text" },
       {
@@ -11288,10 +11561,38 @@ const ENG_CALCS: EngCalc[] = [
       }
       const saNominal = Number(r("sa") || "0");
       const saEffective = saNominal * kf;
+
+      // Se: typed, or the Marin chain computed here from the same inputs the
+      // endurance tool takes.
+      const fromMarin = r("sesrc") === "marin";
+      let seVal = Number(r("se") || "0");
+      let marinNote: string | null = null;
+      if (fromMarin) {
+        const sutM = Number(r("sut") || "0");
+        const relM = Number(r("mrel") || "0.9");
+        const end = enduranceLimit({
+          sut: sutM,
+          materialClass: (r("mclass") || "steel") as MaterialClass,
+          surface: (r("surface") || "machined") as SurfaceFinish,
+          diameter: Number(r("mdia") || "25"),
+          load: (r("mload") || "bending") as LoadKind,
+          tempC: Number(r("mtemp") || "20"),
+          reliability: relM,
+        });
+        if (!end.ok) return { text: `Endurance limit: ${end.error}`, ok: false };
+        seVal = end.se;
+        marinNote =
+          `Se computed here rather than re-typed: Se' = ${engNum(end.sePrime, 4)} MPa corrected by ` +
+          `ka ${engNum(end.ka, 3)} × kb ${engNum(end.kb, 3)} × kc ${engNum(end.kc, 3)} × ` +
+          `kd ${engNum(end.kd, 3)} × ke ${engNum(end.ke, 3)} = ${engNum(end.se, 4)} MPa. Carrying ` +
+          "that across by hand is where it goes wrong, and too HIGH an Se makes the part look " +
+          "safer than it is.";
+      }
+
       const res = meanStressAnalysis(
         saEffective,
         Number(r("sm") || "0"),
-        Number(r("se") || "0"),
+        seVal,
         Number(r("sut") || "0"),
         Number(r("sy") || "0"),
         (r("crit") || "goodman") as Criterion,
@@ -11300,6 +11601,8 @@ const ENG_CALCS: EngCalc[] = [
 
       const lines: string[] = [];
       lines.push(`Mean-stress analysis, σa = ${engNum(saEffective)} MPa, σm = ${engNum(Number(r("sm")))} MPa`);
+      lines.push(`  Se = ${engNum(seVal)} MPa`);
+      if (marinNote) lines.push(`Note: ${marinNote}`);
       if (kf !== 1) {
         lines.push(`  σa = ${engNum(saNominal)} MPa nominal × Kf ${engNum(kf, 3)} = ${engNum(saEffective)} MPa applied`);
       }
@@ -11318,6 +11621,11 @@ const ENG_CALCS: EngCalc[] = [
         lines.push(`  ${c.criterion.padEnd(14)} n = ${engNum(c.n)}`);
       }
       lines.push(
+        "  Those four are drawn below with the operating point on them. The spread between them " +
+          "IS the result: a table says they differ, the diagram says by how much and in which " +
+          "direction, and whether this point sits where the choice of criterion decides the answer.",
+      );
+      lines.push(
         kf === 1
           ? "Note: Kf = 1, so σa was used as typed. If the part has a notch, enter its Kf here rather " +
               "than multiplying by hand — the endurance-limit tool computes it for you."
@@ -11327,7 +11635,50 @@ const ENG_CALCS: EngCalc[] = [
       );
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_FATIGUE_UNIT_NOTE);
-      return { text: plainDashes(lines.join("\n")) };
+
+      // THE GOODMAN DIAGRAM. Each locus is that criterion at n = 1 - the
+      // failure boundary - so the operating point's position relative to them
+      // IS the margin. Gerber and the ASME ellipse are sampled because they are
+      // curves; Goodman, Soderberg and Langer are straight and need two points.
+      const sutV = Number(r("sut") || "0");
+      const syV = Number(r("sy") || "0");
+      // Compressive mean is drawn at zero, matching what the engine computes.
+      const smV = Math.max(0, Number(r("sm") || "0"));
+      const sample = (f: (m: number) => number, mMax: number): { m: number; a: number }[] =>
+        Array.from({ length: 41 }, (_, i) => {
+          const m = (mMax * i) / 40;
+          return { m, a: f(m) };
+        }).filter((q) => Number.isFinite(q.a) && q.a >= 0);
+      const goodBlocks: AnalyzeBlock[] =
+        seVal > 0 && sutV > 0 && syV > 0
+          ? [
+              {
+                kind: "plot",
+                svg: goodmanDiagramSvg({
+                  sigmaM: smV,
+                  sigmaA: saEffective,
+                  sutMPa: sutV,
+                  seMPa: seVal,
+                  lines: [
+                    { name: "Modified Goodman", colour: "#2563eb", points: [{ m: 0, a: seVal }, { m: sutV, a: 0 }] },
+                    { name: "Soderberg", colour: "#7c3aed", points: [{ m: 0, a: seVal }, { m: syV, a: 0 }] },
+                    { name: "Gerber", colour: "#059669", points: sample((m) => seVal * (1 - (m / sutV) ** 2), sutV) },
+                    {
+                      name: "ASME elliptic",
+                      colour: "#d97706",
+                      points: sample((m) => seVal * Math.sqrt(Math.max(0, 1 - (m / syV) ** 2)), syV),
+                    },
+                    { name: "Langer yield", colour: "#b91c1c", points: [{ m: 0, a: syV }, { m: syV, a: 0 }] },
+                  ],
+                }),
+                caption: "Mean-stress (Goodman) diagram",
+                alt: "Goodman, Soderberg, Gerber, ASME elliptic and Langer yield loci with the operating point",
+                w: GOODMAN_CHART_SIZE.w,
+                h: GOODMAN_CHART_SIZE.h,
+              },
+            ]
+          : [];
+      return engReport(lines, goodBlocks);
     },
   },
   {
@@ -16045,7 +16396,16 @@ function engReport(lines: EngLine[], extra: AnalyzeBlock[] = []): AnalyzeOutput 
       ? { kind: "line" as const, text: plainDashes(l) }
       : { kind: "math" as const, math: l.math, fallback: plainDashes(l.fallback) },
   );
-  blocks.push(...extra);
+  // A FIGURE'S CAPTION IS PART OF THE RESULT TEXT, and the insert guard scans
+  // the whole of it for the em dash it uses as the non-finite sentinel. The
+  // lines above were already cleaned and the captions were not, so one em dash
+  // in a caption disabled Insert for a tool whose numbers were all fine. Every
+  // caption every figure will ever carry goes through the same cleaning.
+  blocks.push(
+    ...extra.map((b) =>
+      b.kind === "plot" ? { ...b, caption: plainDashes(b.caption), alt: plainDashes(b.alt) } : b,
+    ),
+  );
   return { blocks, text: analyzeBlocksToText(blocks) };
 }
 

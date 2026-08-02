@@ -71,27 +71,40 @@ describe("substrate inhibition: the model that had no fitter", () => {
 });
 
 describe("the fatigue notch factor is applied, not delegated to the user", () => {
+  /**
+   * The fatigue-safety calculator's OWN source, bounded by where the next
+   * calculator begins.
+   *
+   * This used to be a fixed 4000-character window from the id, which is a
+   * brittle way to say "inside this tool": adding fields to the calculator
+   * pushed the code being asserted past the cut-off and three green tests went
+   * red without anything regressing. A semantic bound cannot drift, and it is
+   * no weaker - it still looks only inside this one calculator.
+   */
+  const fatigueSafetyBody = (): string => {
+    const start = pane.indexOf('id: "fatigue-safety"');
+    if (start < 0) return "";
+    const next = pane.indexOf('    id: "', start + 10);
+    return pane.slice(start, next > start ? next : pane.length);
+  };
   it("the hazardous label is gone and a Kf field exists", () => {
     expect(pane).not.toMatch(/already multiplied by Kf/);
     expect(pane).toMatch(/key: "kf", label: "Fatigue notch factor Kf/);
   });
 
   it("Kf multiplies the alternating stress inside the tool", () => {
-    const start = pane.indexOf('id: "fatigue-safety"');
-    const body = pane.slice(start, start + 4000);
+    const body = fatigueSafetyBody();
     expect(body).toMatch(/const saEffective = saNominal \* kf/);
     expect(body).toMatch(/meanStressAnalysis\(\s*saEffective/);
   });
 
   it("an out-of-range Kf is refused rather than silently used", () => {
-    const start = pane.indexOf('id: "fatigue-safety"');
-    const body = pane.slice(start, start + 4000);
+    const body = fatigueSafetyBody();
     expect(body).toMatch(/kf < 1 \|\| kf > 10/);
   });
 
   it("the report states that Kfm on the mean stress is NOT applied", () => {
-    const start = pane.indexOf('id: "fatigue-safety"');
-    const body = pane.slice(start, start + 5000);
+    const body = fatigueSafetyBody();
     expect(body).toMatch(/Kfm/);
   });
 });

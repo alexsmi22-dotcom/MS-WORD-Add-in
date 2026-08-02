@@ -296,6 +296,46 @@ function run() {
   console.log("  NOTE: a mock always says yes. This proves the pane ATTEMPTS the right");
   console.log("        objects in the right order; it cannot prove Word honours them.");
 
+  // ---------------------------------------------------------------------------
+  // EVERY CALCULATOR SHOULD DRAW SOMETHING. A RATCHET, so it only goes up.
+  //
+  // The goal is a figure on every Engineering tool: a number in a document is
+  // worth more beside the picture it came from, and for most of these the
+  // picture IS the conventional way the result is communicated - a Mohr's
+  // circle, a Goodman diagram, a drag polar, a P-v diagram.
+  //
+  // A ratchet on a COUNT rather than a list of names, matching how the
+  // dead-export gate works and for the same reason: a hardcoded list stops
+  // covering anything added after it was written.
+  //
+  // Raise this as disciplines are completed. Never lower it without a reason
+  // written next to the change.
+  const FIGURE_BASELINE = 16;
+  const withFigure = inserts.filter((l) => /preview\[fig=[1-9]/.test(l));
+  console.log("\n--- Figures (ratchet) -----------------------------------------");
+  console.log(
+    `  ${withFigure.length} of ${inserts.length} tools insert a figure (baseline ${FIGURE_BASELINE}).`,
+  );
+  if (withFigure.length < FIGURE_BASELINE) {
+    findings.push(
+      `FIGURES ${withFigure.length} tools draw, below the baseline of ${FIGURE_BASELINE} - a figure was removed`,
+    );
+    console.log(`  FLAG  a figure was LOST: ${withFigure.length} < ${FIGURE_BASELINE}`);
+  } else if (withFigure.length > FIGURE_BASELINE) {
+    console.log(`  RAISE the baseline to ${withFigure.length} in scripts/engineering-audit.js.`);
+  }
+  {
+    const none = inserts
+      .filter((l) => /preview\[fig=0/.test(l))
+      .map((l) => l.split(" ")[1]);
+    if (none.length) {
+      console.log(`  Still text-only (${none.length}):`);
+      for (let i = 0; i < none.length; i += 6) {
+        console.log("      " + none.slice(i, i + 6).join("  "));
+      }
+    }
+  }
+
   console.log("\n===============================================================");
   if (findings.length) {
     console.log(`${findings.length} finding(s) to look at.`);

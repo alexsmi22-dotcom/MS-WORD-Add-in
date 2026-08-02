@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.78.0)
+# JurisLab — Manual Test Script (v2.79.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -1090,6 +1090,61 @@ Engineering mode. **Energy & power** grows 8 → 16; the mode must state
 - [ ] **Wind + altitude**: blank the density, set altitude 2000 m → the result notes
   density **1.0065 kg/m³ from the ISA** — the same atmosphere the aviation tools use.
 - [ ] All eight new tools insert, subscripts and superscripts intact (O₂, m², kVAR).
+
+---
+
+## 0an. New in v2.79.0 - Structural & solids draws
+
+Engineering > Structural & solids. All six tools now insert a figure.
+
+**The minor axis, and the section -> column handoff**
+
+- [ ] **Cross-section** on its defaults (I-beam 100, 10, 200, 6 mm): the report
+  now includes **Iy** and **ry**, and says Iy is about **12.6x** smaller than I
+  with the reason - a column buckles about the WEAKER axis.
+- [ ] A **solid circle**: the report says it is axisymmetric and has no weaker
+  axis. Iy must equal I.
+- [ ] The **figure** shows the section drawn to scale with a dashed neutral axis
+  and both c_top and c_bot. On a **Tee** the neutral axis must sit visibly ABOVE
+  mid-depth, which is why its two section moduli differ.
+- [ ] **Column buckling**, "Section properties from" = **A section shape**, with
+  the default I-beam: it computes A and Iy itself, converts mm to m, and the
+  note says the MINOR axis was used and by what factor that matters.
+- [ ] Compare against typing the bare **mm⁴** number into the typed source: the
+  critical load differs by about **10¹²**. That paste is what this removes.
+
+**The two diagrams**
+
+- [ ] **Stress state** on its defaults: a **Mohr's circle** inserts. It must be
+  a CIRCLE, not an ellipse. σ₁ and σ₂ are marked where it crosses the σ axis,
+  the applied state and its conjugate are joined by a dashed line through the
+  centre, and τmax is labelled as the radius.
+- [ ] Set τxy to **0**: the circle still draws, with the two principal points at
+  σx and σy.
+- [ ] Set σx = σy and τxy = 0 (hydrostatic): a zero-radius circle, no crash.
+- [ ] **Mean stress & factor of safety**, "Endurance limit from" = **Marin
+  factors**: Se is computed in place and the note shows the full ka x kb x kc x
+  kd x ke chain. It must NOT need re-typing from the endurance tool.
+- [ ] The **Goodman diagram** inserts, with five loci (Modified Goodman,
+  Soderberg, Gerber, ASME elliptic, Langer yield), a legend, the operating point
+  and the dashed load line from the origin. The 45° region must look like 45°.
+
+**The rest of the discipline**
+
+- [ ] **Truss**: the figure draws the truss in its own geometry. Members in
+  tension are red, compression blue, and **zero-force members are dashed and
+  grey**. Line thickness scales with force. Member angles must look right - the
+  scale is equal on both axes.
+- [ ] **Shaft torsion**: shear against radius, rising linearly to τmax at the
+  surface. With a **bore**, the bore region is shaded and the line starts at the
+  bore rather than at zero.
+- [ ] **Beam** still inserts its shear/moment figure, unchanged.
+- [ ] Every one of the six inserts BOTH the numbers and a figure.
+
+**Contract**
+
+- [ ] No em dash appears in any of the new captions - a caption is part of the
+  result text, and an em dash there used to disable Insert for the whole tool.
 
 ---
 

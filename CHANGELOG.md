@@ -6,6 +6,76 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.79.0] — 2026-08-02 — Structural & solids: every tool draws, and two hand-carries close
+
+First release against `docs/ENGINEERING-DEEP-DIVE-2026-08-02.md`. **Every one of
+the six Structural & solids calculators now inserts a figure**, and the two
+worst composition gaps in the bench are closed.
+
+**The minor axis was missing, and it is the axis that buckles.** The
+cross-section tool computed the second moment about the bending axis only.
+A column bends about whichever axis is *weakest*, and for an I-beam that is
+emphatically not the one it was designed to bend about — the default section
+here has an **Ix 12.6 times its Iy**. Quoting the bending I to a buckling check
+overstates the critical load by that whole factor, and the answer looks
+entirely reasonable. `Iy`, `ry` and `Imin` are now computed for all six shapes,
+exactly: every strip decomposition is symmetric about the vertical centreline,
+so the parallel-axis terms vanish and the sum is closed-form.
+
+**`section` → `column`, the worst trap in the bench.** The column tool needs I
+in m⁴ and A in m²; the section tool reports them in mm⁴ and mm², because that
+is what every section table in the world prints. Pasting the bare number across
+is wrong by **10¹²**. The unit contract only half closed it — `1e6 mm^4`
+converts, a bare `1e6` is assumed to already be in m⁴. The column tool can now
+compute the section itself, taking the **minor** axis automatically, which
+removes the paste and the wrong-axis mistake in one move.
+
+**`fatigue-endurance` → `fatigue-safety`, the half nobody had noticed.** The Kf
+hazard on this pair was closed in v2.66.0; the deep dive found a **second**
+hand-carry on the same pair that no sweep had flagged. `Se` — the entire output
+of the endurance tool, six Marin factors multiplied together — was still typed
+in by hand. Nobody re-derives that chain, so it gets pasted, and too *high* an
+Se makes the part look safer than it is. It can now be computed in place.
+
+**Mohr's circle.** The stress tool has always computed the circle's centre and
+radius and named the construction in its own output without ever drawing the
+most recognisable diagram in mechanics of materials. It draws it now, with both
+principal stresses marked, the applied state and its conjugate joined through
+the centre, and the radius shown as what it is — the maximum in-plane shear.
+
+**The Goodman diagram.** The whole reason to show four mean-stress criteria is
+that they *disagree*, and the disagreement is a picture: four loci and one
+operating point. Modified Goodman, Soderberg, Gerber, the ASME ellipse and the
+Langer yield line are drawn together at n = 1, with the load line from the
+origin — because the factor of safety is measured **along** that line, not
+vertically.
+
+**And the rest of the discipline.** The cross-section drawn to scale with its
+neutral axis and both extreme-fibre distances, which is where an unsymmetric
+tee's two different section moduli come from. The Euler hyperbola and Johnson
+parabola against slenderness with this column marked, which makes the reason
+the parabola exists impossible to miss — Euler runs off to infinity as the
+column gets stumpy. The truss in its own geometry with members coloured by
+tension, compression and **zero force**, because a zero-force member looks
+structurally essential on a sketch. And torsional shear against radius, linear
+from zero at the axis, which is the entire argument for a hollow shaft.
+
+**Both new chart families use an equal aspect ratio deliberately**, which is why
+they do not go through `buildPlotSvg`: that plotter scales x and y
+independently, and a Mohr's *circle* drawn as an ellipse is not a Mohr's circle.
+
+**A figure ratchet.** The audit now counts how many tools insert a figure and
+fails if the number drops. **16 of 114** today. The goal is all of them, and the
+audit prints the remaining 98 by name each run.
+
+**Two defects fixed on the way, both found by the new work rather than shipped.**
+A non-finite operating stress put `NaN` into three coordinate attributes of the
+Goodman SVG — artwork that goes into a document and renders as nothing; every
+coordinate is now checked. And a figure's **caption** was not passing through
+`plainDashes`, so a single em dash in a caption disabled Insert for a tool whose
+numbers were all fine. Captions and alt text are now cleaned like every other
+line, which matters more with ~100 figures still to come than it did with ten.
+
 ## [2.78.0] — 2026-08-02 — Tier 1 closed
 
 The last six items of the 2026-08-01 gap analysis, shipped together. **Tier 1 is

@@ -1,5 +1,16 @@
 # Scope — Audio & video engineering bench
 
+> **STATUS: BUILT.** Units v2.73.0, Audio & acoustics v2.74.0 (7 calcs),
+> Video & display v2.75.0 (6 calcs). Engineering is now **100 calculators
+> across 18 disciplines**, all live-verified.
+>
+> **One item deliberately NOT shipped: colour-space gamut coverage.** It needs
+> the chromaticity primaries of sRGB / Rec.709 / Rec.2020 / DCI-P3, and per §5
+> below those must be fetched from a citable source, script-extracted and
+> cross-checked in a committed test — the treatment `flame.ts` got. It waits
+> rather than shipping on remembered numbers. That is the only outstanding
+> piece of this scope.
+
 Proposed as a **seventeenth Engineering discipline**, on the same
 computable-versus-data-blocked test the Energy & power suite passed. Scoped
 2026-08-02 against v2.72.0. Nothing here is built yet.

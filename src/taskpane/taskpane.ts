@@ -441,6 +441,24 @@ import {
   latencyBudget,
   ChromaSubsampling,
 } from "../lib/video";
+import {
+  vacuumShot,
+  dragShot,
+  aimForRange,
+  impactEnergy,
+  multiAxisMove,
+  sCurveProfile,
+  greatCircle,
+  windTriangle,
+} from "../lib/trajectory";
+import {
+  BODIES,
+  circularOrbit,
+  ellipticalOrbit,
+  hohmannTransfer,
+  rocketEquation,
+  escapeSpeed,
+} from "../lib/orbital";
 import { statVars, statVarLineProblem } from "../lib/uncertaintyParse";
 import {
   planParagraphNumbering,
@@ -8467,6 +8485,7 @@ const ENG_GROUP_ORDER = [
   "Electronics",
   "Chips & semiconductors",
   "Aviation & avionics",
+  "Trajectory & orbits",
   "Robotics & kinematics",
   "Computation & information",
   "Control systems",
@@ -15241,6 +15260,534 @@ const ENG_CALCS: EngCalc[] = [
       ];
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_SAME_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "traj-vacuum",
+    name: "Projectile in a vacuum",
+    group: "Trajectory & orbits",
+    hint:
+      "45° IS OPTIMAL ONLY WHEN LAUNCH AND LANDING HEIGHTS MATCH. Throwing from a height the " +
+      "best angle is lower, because the drop buys flight time for free. The maximum-range angle " +
+      "for YOUR height is reported alongside the shot you asked for.",
+    fields: [
+      { key: "v", label: "Launch speed, m/s (km/h, kt convert)", default: "20", kind: "text" },
+      { key: "ang", label: "Launch angle, degrees", default: "45", kind: "text" },
+      { key: "h", label: "Launch height above landing, m", default: "0", kind: "text" },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const v = u.req("v", "m/s", "Launch speed");
+      const ang = u.req("ang", "deg", "Launch angle");
+      const h = u.opt("h", "m", "Launch height", 0);
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const res = vacuumShot(v, ang, h);
+      if (!res.ok) return { text: res.error, ok: false };
+      const lines = [
+        `Vacuum projectile, ${engNum(v, 4)} m/s at ${engNum(ang, 4)}°`,
+        "",
+        `  Range               ${engNum(res.rangeM, 5)} m`,
+        `  Apex                ${engNum(res.apexM, 5)} m`,
+        `  Flight time         ${engNum(res.flightTimeS, 5)} s`,
+        `  Impact speed        ${engNum(res.impactSpeedMs, 5)} m/s`,
+        `  Impact angle        ${engNum(res.impactAngleDeg, 4)}° below horizontal`,
+        "",
+        `  Best angle here     ${engNum(res.optimumAngleDeg, 4)}°`,
+        `  Range at that angle ${engNum(res.maxRangeM, 5)} m`,
+      ];
+      u.report(lines);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "traj-drag",
+    name: "Projectile with air drag",
+    group: "Trajectory & orbits",
+    hint:
+      "DRAG IS NOT A CORRECTION, IT IS THE DOMINANT TERM for anything small or fast — a rifle " +
+      "bullet flies a small fraction of its vacuum range. Integrated numerically, stopping " +
+      "exactly at ground contact. Cd is YOUR input: it varies with shape, Mach and Reynolds.",
+    fields: [
+      { key: "v", label: "Launch speed, m/s (km/h, kt convert)", default: "800", kind: "text" },
+      { key: "ang", label: "Launch angle, degrees", default: "30", kind: "text" },
+      { key: "m", label: "Mass, kg (g, lb convert)", default: "0.01", kind: "text" },
+      { key: "a", label: "Frontal area, m^2 (cm^2 converts)", default: "5e-5", kind: "text" },
+      { key: "cd", label: "Drag coefficient Cd (sphere 0.47)", default: "0.3", kind: "text" },
+      { key: "h", label: "Launch height, m", default: "0", kind: "text" },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const v = u.req("v", "m/s", "Launch speed");
+      const ang = u.req("ang", "deg", "Launch angle");
+      const m = u.req("m", "kg", "Mass");
+      const a = u.req("a", "m^2", "Frontal area");
+      const h = u.opt("h", "m", "Launch height", 0);
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const cd = Number(r("cd"));
+      if (!Number.isFinite(cd)) return { text: "The drag coefficient must be a number.", ok: false };
+      const res = dragShot(v, ang, m, a, cd, h);
+      if (!res.ok) return { text: res.error, ok: false };
+      const lines = [
+        `Projectile with drag, ${engNum(v, 4)} m/s at ${engNum(ang, 4)}°, Cd ${engNum(cd, 3)}`,
+        "",
+        `  Range               ${engNum(res.rangeM, 5)} m`,
+        // Both are null only when there is no vacuum figure to quote, which is
+        // stated rather than printed as a non-finite number.
+        `  Range in a vacuum   ${res.vacuumRangeM === null ? "not applicable" : engNum(res.vacuumRangeM, 5) + " m"}`,
+        `  Fraction achieved   ${res.rangeFraction === null ? "not applicable" : engNum(res.rangeFraction * 100, 4) + " %"}`,
+        `  Apex                ${engNum(res.apexM, 5)} m`,
+        `  Flight time         ${engNum(res.flightTimeS, 5)} s`,
+        `  Impact speed        ${engNum(res.impactSpeedMs, 5)} m/s`,
+      ];
+      u.report(lines);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_UNIT_NOTE);
+      const svg = buildPlotSvg(
+        [{ points: res.path.map((p) => ({ x: p.x, y: p.y })), type: "line", color: "#2563eb", label: "with drag" }],
+        { width: 380, height: 240, xlabel: "Range (m)", ylabel: "Height (m)", title: "Trajectory with drag" },
+      );
+      return engReport(lines, [
+        {
+          kind: "plot",
+          svg,
+          caption: "Trajectory with drag",
+          alt: "Height against range for a projectile with air drag",
+          w: 380,
+          h: 240,
+        },
+      ]);
+    },
+  },
+  {
+    id: "traj-aim",
+    name: "Launch angle for a target",
+    group: "Trajectory & orbits",
+    hint:
+      "THERE ARE ALWAYS TWO ANSWERS — a flat, direct shot and a high, lofted one — and both are " +
+      "given rather than one chosen for you. They coincide at maximum range, and past it the " +
+      "tool REFUSES rather than clamping to 45° and returning a number that cannot happen.",
+    fields: [
+      { key: "v", label: "Launch speed, m/s (km/h, kt convert)", default: "20", kind: "text" },
+      { key: "d", label: "Target range, m (km converts)", default: "30", kind: "text" },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const v = u.req("v", "m/s", "Launch speed");
+      const d = u.req("d", "m", "Target range");
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const res = aimForRange(v, d);
+      if (!res.ok) return { text: res.error, ok: false };
+      const lines = [
+        `Aiming ${engNum(v, 4)} m/s at a target ${engNum(d, 5)} m away`,
+        "",
+        `  Low (direct) angle  ${engNum(res.lowAngleDeg, 4)}°   flight ${engNum(res.lowFlightTimeS, 4)} s`,
+        `  High (lofted) angle ${engNum(res.highAngleDeg, 4)}°   flight ${engNum(res.highFlightTimeS, 4)} s`,
+        "",
+        `  Maximum range       ${engNum(res.maxRangeM, 5)} m at this speed`,
+      ];
+      u.report(lines);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "traj-impact",
+    name: "Impact speed, energy & momentum",
+    group: "Trajectory & orbits",
+    hint:
+      "IMPACT ENERGY SATURATES. In a vacuum it grows without limit with drop height; in air the " +
+      "object reaches terminal speed and the energy stops rising — a hailstone falling five " +
+      "kilometres hits no harder than one falling two hundred metres.",
+    fields: [
+      { key: "m", label: "Mass, kg (g, lb convert)", default: "0.0045", kind: "text" },
+      { key: "h", label: "Drop height, m (km, ft convert)", default: "1000", kind: "text" },
+      { key: "a", label: "Frontal area, m^2 (cm^2 converts)", default: "3.14e-4", kind: "text" },
+      { key: "cd", label: "Drag coefficient Cd (sphere 0.47)", default: "0.47", kind: "text" },
+      { key: "alt", label: "Altitude for air density, m", default: "0", kind: "text" },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const m = u.req("m", "kg", "Mass");
+      const h = u.req("h", "m", "Drop height");
+      const a = u.req("a", "m^2", "Frontal area");
+      const alt = u.opt("alt", "m", "Altitude", 0);
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const cd = Number(r("cd"));
+      if (!Number.isFinite(cd)) return { text: "The drag coefficient must be a number.", ok: false };
+      const res = impactEnergy(m, h, a, cd, alt);
+      if (!res.ok) return { text: res.error, ok: false };
+      const lines = [
+        `Falling ${engNum(h, 5)} m, mass ${engNum(m, 4)} kg, Cd ${engNum(cd, 3)}`,
+        "",
+        `  Impact speed        ${engNum(res.impactSpeedMs, 5)} m/s`,
+        `  Terminal speed      ${engNum(res.terminalSpeedMs, 5)} m/s`,
+        `  Speed in a vacuum   ${engNum(res.vacuumSpeedMs, 5)} m/s`,
+        `  Fall time           ${engNum(res.fallTimeS, 5)} s`,
+        "",
+        `  Kinetic energy      ${engNum(res.energyJ, 5)} J`,
+        `  Energy ceiling      ${engNum(res.ceilingEnergyJ, 5)} J  (${engNum(res.energyFraction * 100, 4)} % reached)`,
+        `  Momentum            ${engNum(res.momentumNs, 5)} N·s`,
+      ];
+      u.report(lines);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "orbit-circular",
+    name: "Circular orbit",
+    group: "Trajectory & orbits",
+    hint:
+      "A LOWER ORBIT IS A FASTER ORBIT — v = √(μ/r), so speed rises as radius falls. Adding " +
+      "energy raises the orbit and SLOWS you down. Gravitational parameters are IAU 2009 values " +
+      "extracted from a published source and cross-checked against the sidereal day.",
+    fields: [
+      {
+        key: "body", label: "Central body", default: "earth", kind: "select",
+        options: BODIES.map((b) => ({ value: b.id, label: b.label })),
+      },
+      { key: "alt", label: "Altitude above the surface, m (km converts)", default: "400 km", kind: "text" },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const alt = u.req("alt", "m", "Altitude");
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const res = circularOrbit(r("body"), alt);
+      if (!res.ok) return { text: res.error, ok: false };
+      const lines = [
+        `Circular orbit of ${res.body} at ${engNum(res.altitudeM / 1000, 5)} km`,
+        "",
+        `  Orbital radius      ${engNum(res.radiusM / 1000, 6)} km`,
+        `  Speed               ${engNum(res.speedMs, 5)} m/s  (${engNum(res.speedMs / 1000, 4)} km/s)`,
+        `  Period              ${engNum(res.periodS, 6)} s  (${engNum(res.periodS / 60, 5)} min)`,
+        `  Mean motion         ${engNum(res.meanMotion, 5)} rad/s`,
+        `  Escape speed here   ${engNum(res.escapeSpeedMs, 5)} m/s`,
+      ];
+      u.report(lines);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "orbit-elliptical",
+    name: "Elliptical orbit & vis-viva",
+    group: "Trajectory & orbits",
+    hint:
+      "THE PERIOD DEPENDS ONLY ON THE SEMI-MAJOR AXIS. A near-circular orbit and a wildly " +
+      "eccentric one with the same a take exactly the same time round — eccentricity does not " +
+      "enter Kepler's third law at all.",
+    fields: [
+      {
+        key: "body", label: "Central body", default: "earth", kind: "select",
+        options: BODIES.map((b) => ({ value: b.id, label: b.label })),
+      },
+      { key: "peri", label: "Periapsis altitude, m (km converts)", default: "300 km", kind: "text" },
+      { key: "apo", label: "Apoapsis altitude, m (km converts)", default: "35786 km", kind: "text" },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const peri = u.req("peri", "m", "Periapsis altitude");
+      const apo = u.req("apo", "m", "Apoapsis altitude");
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const res = ellipticalOrbit(r("body"), peri, apo);
+      if (!res.ok) return { text: res.error, ok: false };
+      const lines = [
+        `Elliptical orbit of ${res.body}`,
+        "",
+        `  Semi-major axis     ${engNum(res.semiMajorAxisM / 1000, 6)} km`,
+        `  Eccentricity        ${engNum(res.eccentricity, 5)}`,
+        `  Periapsis           ${engNum(res.periapsisAltitudeM / 1000, 5)} km altitude, ` +
+          `${engNum(res.periapsisSpeedMs, 5)} m/s`,
+        `  Apoapsis            ${engNum(res.apoapsisAltitudeM / 1000, 5)} km altitude, ` +
+          `${engNum(res.apoapsisSpeedMs, 5)} m/s`,
+        `  Period              ${engNum(res.periodS, 6)} s  (${engNum(res.periodS / 60, 5)} min)`,
+      ];
+      u.report(lines);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "orbit-hohmann",
+    name: "Hohmann transfer",
+    group: "Trajectory & orbits",
+    hint:
+      "TO CATCH SOMETHING AHEAD OF YOU IN THE SAME ORBIT, YOU MUST SLOW DOWN. Firing forwards " +
+      "raises your orbit, which lengthens your period, so you fall further behind. Both burns, " +
+      "the total Δv, the transfer time and the required phase angle are given.",
+    fields: [
+      {
+        key: "body", label: "Central body", default: "earth", kind: "select",
+        options: BODIES.map((b) => ({ value: b.id, label: b.label })),
+      },
+      { key: "from", label: "Starting altitude, m (km converts)", default: "300 km", kind: "text" },
+      { key: "to", label: "Target altitude, m (km converts)", default: "35786 km", kind: "text" },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const from = u.req("from", "m", "Starting altitude");
+      const to = u.req("to", "m", "Target altitude");
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const res = hohmannTransfer(r("body"), from, to);
+      if (!res.ok) return { text: res.error, ok: false };
+      const lines = [
+        `Hohmann transfer at ${res.body}, ${engNum(res.fromAltitudeM / 1000, 5)} km to ` +
+          `${engNum(res.toAltitudeM / 1000, 5)} km`,
+        "",
+        `  Burn 1 (departure)  ${engNum(res.burn1Ms, 5)} m/s`,
+        `  Burn 2 (arrival)    ${engNum(res.burn2Ms, 5)} m/s`,
+        `  Total Δv            ${engNum(res.totalDeltaVMs, 5)} m/s`,
+        `  Transfer time       ${engNum(res.transferTimeS, 5)} s  (${engNum(res.transferTimeS / 3600, 5)} h)`,
+        `  Phase angle         ${engNum(res.phaseAngleDeg, 4)}°`,
+      ];
+      u.report(lines);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "orbit-rocket",
+    name: "Rocket equation (Tsiolkovsky)",
+    group: "Trajectory & orbits",
+    hint:
+      "Δv IS EXPONENTIAL IN MASS RATIO — doubling Δv squares the mass ratio rather than doubling " +
+      "the propellant, so the last increment of performance costs by far the most. That is the " +
+      "whole reason staging exists instead of one bigger tank.",
+    fields: [
+      { key: "isp", label: "Specific impulse, s", default: "450", kind: "text" },
+      { key: "m0", label: "Initial mass, kg (t, lb convert)", default: "100", kind: "text" },
+      { key: "mf", label: "Final (dry) mass, kg", default: "20", kind: "text" },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const isp = u.req("isp", "s", "Specific impulse");
+      const m0 = u.req("m0", "kg", "Initial mass");
+      const mf = u.req("mf", "kg", "Final mass");
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const res = rocketEquation(isp, m0, mf);
+      if (!res.ok) return { text: res.error, ok: false };
+      const lines = [
+        `Rocket equation, Isp ${engNum(isp, 4)} s`,
+        "",
+        `  Exhaust velocity    ${engNum(res.exhaustVelocityMs, 5)} m/s`,
+        `  Mass ratio          ${engNum(res.massRatio, 5)}`,
+        `  Δv                  ${engNum(res.deltaVMs, 5)} m/s`,
+        `  Propellant fraction ${engNum(res.propellantFraction * 100, 4)} % of the initial mass`,
+      ];
+      if (res.propellantMassKg !== null) {
+        lines.push(`  Propellant mass     ${engNum(res.propellantMassKg, 5)} kg`);
+      }
+      u.report(lines);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "orbit-escape",
+    name: "Escape speed",
+    group: "Trajectory & orbits",
+    hint:
+      "ESCAPE SPEED DOES NOT DEPEND ON DIRECTION — straight up or sideways, it is the same " +
+      "number, because it is an energy condition rather than a trajectory one. It is exactly √2 " +
+      "times circular speed, so leaving from orbit costs about 41% more, not twice as much.",
+    fields: [
+      {
+        key: "body", label: "Body", default: "earth", kind: "select",
+        options: BODIES.map((b) => ({ value: b.id, label: b.label })),
+      },
+      { key: "alt", label: "Altitude above the surface, m (km converts)", default: "0", kind: "text" },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const alt = u.opt("alt", "m", "Altitude", 0);
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const res = escapeSpeed(r("body"), alt);
+      if (!res.ok) return { text: res.error, ok: false };
+      const lines = [
+        `Escape from ${res.body} at ${engNum(alt / 1000, 5)} km altitude`,
+        "",
+        `  Escape speed        ${engNum(res.escapeSpeedMs, 5)} m/s  (${engNum(res.escapeSpeedMs / 1000, 4)} km/s)`,
+        `  Circular speed      ${engNum(res.circularSpeedMs, 5)} m/s`,
+        `  Extra from orbit    ${engNum(res.additionalFromOrbitMs, 5)} m/s`,
+        `  Radius used         ${engNum(res.fromRadiusM / 1000, 6)} km`,
+      ];
+      u.report(lines);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "traj-scurve",
+    name: "Jerk-limited (S-curve) profile",
+    group: "Trajectory & orbits",
+    hint:
+      "THE S-CURVE IS SLOWER, AND THAT IS THE POINT. A trapezoidal profile steps acceleration " +
+      "instantaneously — infinite jerk, a broadband impulse that rings every structural mode. " +
+      "The trapezoidal time is shown alongside so the price is explicit.",
+    fields: [
+      { key: "d", label: "Move distance, m (mm converts)", default: "1", kind: "text" },
+      { key: "v", label: "Maximum speed, m/s", default: "0.5", kind: "text" },
+      { key: "a", label: "Maximum acceleration, m/s^2", default: "2", kind: "text" },
+      { key: "j", label: "Maximum jerk, m/s^3", default: "10", kind: "text" },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const d = u.req("d", "m", "Move distance");
+      const v = u.req("v", "m/s", "Maximum speed");
+      const a = u.req("a", "m/s^2", "Maximum acceleration");
+      const j = u.req("j", "m/s^3", "Maximum jerk");
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const res = sCurveProfile(d, v, a, j);
+      if (!res.ok) return { text: res.error, ok: false };
+      const lines = [
+        `S-curve move of ${engNum(d, 5)} m`,
+        "",
+        `  Total time          ${engNum(res.totalTimeS, 5)} s`,
+        `  Trapezoidal time    ${engNum(res.trapezoidalTimeS, 5)} s`,
+        `  Time paid for jerk  ${engNum(res.totalTimeS - res.trapezoidalTimeS, 4)} s`,
+        `  Accelerate for      ${engNum(res.accelTimeS, 5)} s`,
+        `  Cruise for          ${engNum(res.cruiseTimeS, 5)} s`,
+        `  Peak speed          ${engNum(res.peakSpeedMs, 5)} m/s`,
+      ];
+      u.report(lines);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "traj-multiaxis",
+    name: "Multi-axis coordination",
+    group: "Trajectory & orbits",
+    hint:
+      "SYNCHRONISING IS WHAT MAKES THE PATH STRAIGHT. Run every axis flat out and each finishes " +
+      "at a different moment, tracing a dog-leg. Throttling the fast axes to match the slowest " +
+      "costs NOTHING in cycle time — the slowest axis sets that regardless.",
+    fields: [
+      {
+        key: "axes",
+        label: "One axis per line: name, distance, max speed, max acceleration",
+        default: "X, 1.0, 1.0, 2\nY, 0.2, 1.0, 2\nZ, 0.05, 0.3, 1",
+        kind: "block",
+        rows: 5,
+      },
+    ],
+    compute: (r) => {
+      const specs: { label: string; distanceM: number; vmax: number; amax: number }[] = [];
+      const rows = r("axes").split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+      for (const row of rows) {
+        const parts = row.split(",").map((s) => s.trim());
+        if (parts.length !== 4) {
+          return { text: `"${row}" needs four comma-separated values: name, distance, max speed, max acceleration.`, ok: false };
+        }
+        const [label, d, v, a] = parts;
+        const nums = [d, v, a].map(Number);
+        if (nums.some((n) => !Number.isFinite(n))) {
+          return { text: `"${row}": distance, speed and acceleration must all be numbers.`, ok: false };
+        }
+        specs.push({ label, distanceM: nums[0], vmax: nums[1], amax: nums[2] });
+      }
+      const res = multiAxisMove(specs);
+      if (!res.ok) return { text: res.error, ok: false };
+      const lines = [
+        `Coordinated move over ${specs.length} axes`,
+        "",
+        `  Move time           ${engNum(res.moveTimeS, 5)} s`,
+        `  Limiting axis       ${res.limitingAxis}`,
+        `  Fastest axis alone  ${engNum(res.earliestFinishS, 5)} s`,
+        "",
+        "  Axis      Distance   Command speed   Command accel   Uses",
+        ...res.axes.map(
+          (a) =>
+            `  ${a.label.padEnd(9)} ${engNum(a.distanceM, 4).padEnd(10)} ` +
+            `${engNum(a.scaledVmax, 4).padEnd(15)} ${engNum(a.scaledAmax, 4).padEnd(15)} ` +
+            `${engNum(a.utilisation * 100, 3)}%${a.limiting ? "  (limiting)" : ""}`,
+        ),
+      ];
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_SAME_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "nav-greatcircle",
+    name: "Great-circle distance & bearing",
+    group: "Trajectory & orbits",
+    hint:
+      "THE INITIAL BEARING IS NOT THE FINAL BEARING. A great circle changes heading continuously, " +
+      "which is why the shortest route looks curved on a Mercator chart and why long flights " +
+      "drift far north of the straight line drawn on a map.",
+    fields: [
+      { key: "lat1", label: "From latitude, degrees (+N)", default: "51.4775", kind: "text" },
+      { key: "lon1", label: "From longitude, degrees (+E)", default: "-0.4614", kind: "text" },
+      { key: "lat2", label: "To latitude, degrees (+N)", default: "40.6413", kind: "text" },
+      { key: "lon2", label: "To longitude, degrees (+E)", default: "-73.7781", kind: "text" },
+    ],
+    compute: (r) => {
+      const vals: number[] = [];
+      for (const k of ["lat1", "lon1", "lat2", "lon2"]) {
+        const x = Number(r(k));
+        if (!Number.isFinite(x)) return { text: `${k} must be a number of degrees.`, ok: false };
+        vals.push(x);
+      }
+      const res = greatCircle(vals[0], vals[1], vals[2], vals[3]);
+      if (!res.ok) return { text: res.error, ok: false };
+      const lines = [
+        "Great-circle route",
+        "",
+        `  Distance            ${engNum(res.distanceM / 1000, 6)} km`,
+        `  Distance            ${engNum(res.distanceNmi, 6)} nmi`,
+        `  Initial bearing     ${engNum(res.initialBearingDeg, 4)}°`,
+        `  Final bearing       ${engNum(res.finalBearingDeg, 4)}°`,
+      ];
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_SAME_UNIT_NOTE);
+      return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "nav-windtriangle",
+    name: "Wind triangle",
+    group: "Trajectory & orbits",
+    hint:
+      "YOU STEER INTO THE WIND, AND THE CORRECTION IS NOT THE WIND DIRECTION — it depends on the " +
+      "ratio of wind to airspeed. When no heading makes the track good, this REFUSES rather than " +
+      "returning an angle that cannot fly. Wind direction is where it comes FROM.",
+    fields: [
+      { key: "track", label: "Desired track, degrees from north", default: "90", kind: "text" },
+      { key: "tas", label: "True airspeed, m/s (kt, km/h convert)", default: "50", kind: "text" },
+      { key: "wdir", label: "Wind FROM, degrees", default: "180", kind: "text" },
+      { key: "wspd", label: "Wind speed, m/s (kt converts)", default: "10", kind: "text" },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const track = u.req("track", "deg", "Desired track");
+      const tas = u.req("tas", "m/s", "True airspeed");
+      const wdir = u.req("wdir", "deg", "Wind direction");
+      const wspd = u.opt("wspd", "m/s", "Wind speed", 0);
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const res = windTriangle(track, tas, wdir, wspd);
+      if (!res.ok) return { text: res.error, ok: false };
+      const lines = [
+        `Wind triangle for a track of ${engNum(track, 4)}°`,
+        "",
+        `  Heading to steer    ${engNum(res.headingDeg, 4)}°`,
+        `  Wind correction     ${engNum(res.driftAngleDeg, 4)}°`,
+        `  Ground speed        ${engNum(res.groundSpeedMs, 5)} m/s  (${engNum(res.groundSpeedMs * 1.9438444924406, 4)} kt)`,
+      ];
+      u.report(lines);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_UNIT_NOTE);
       return { text: plainDashes(lines.join("\n")) };
     },
   },

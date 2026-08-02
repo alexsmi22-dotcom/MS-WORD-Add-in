@@ -6,6 +6,124 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.77.0] — 2026-08-02 — Trajectory & orbits
+
+A **nineteenth** Engineering discipline, and the whole suite scoped in
+`docs/SCOPE-TRAJECTORY.md` delivered in one release rather than three.
+Engineering is now **114 calculators across 19 disciplines**.
+
+**Ballistic (4).** Projectile motion in a vacuum, where **45° is optimal only
+when the launch and landing heights match** — throw from 10 m at 20 m/s and the
+best angle is **39.3°**, because the drop buys flight time for free and trading
+elevation for horizontal speed pays. The familiar 45° is the special case of
+h = 0, and the tool reports the optimum for *your* height beside the shot you
+asked for. The same shot **with air drag**, integrated numerically through
+`ode.ts` with a terminal event on ground contact and ISA density from `aero.ts`,
+which shows that **drag is not a correction but the dominant term**: the default
+bullet-like case flies **2970 m** against a vacuum range of **56518 m**, or
+5.3%. The inverse aiming problem returns **both** the flat and the lofted angle
+(23.67° and 66.33° for 30 m at 20 m/s, summing to 90°) and **REFUSES** a target
+beyond maximum range rather than clamping to 45° — the same doctrine as the 2R
+arm returning both IK branches. And impact speed, energy and momentum, where
+**the energy saturates**: a 4.5 g hailstone reaches terminal speed, so falling
+5000 m delivers the same **1.099 J** as falling 1000 m while the vacuum answer
+climbs from 140 m/s to 313 m/s.
+
+**Orbital (5).** Circular orbits, where **a lower orbit is a faster one**;
+elliptical orbits by vis-viva, where **the period depends only on the semi-major
+axis** and not at all on eccentricity; the **Hohmann transfer**, which carries
+the best result in the subject — **to catch something ahead of you in the same
+orbit you must slow down**, because firing forwards raises your orbit and
+lengthens your period; the Tsiolkovsky rocket equation, where Δv is
+**exponential** in mass ratio so the last increment costs by far the most, which
+is why staging exists rather than one bigger tank; and escape speed, which is
+**independent of direction** and exactly √2 times circular, so leaving from
+orbit costs 41% more rather than twice as much.
+
+**The gravitational parameters came in the way the data doctrine requires.** μ
+and the body radii for Earth, the Moon, Mars, the Sun and Jupiter were
+script-extracted from the poliastro constants module (IAU 2009) — the same
+treatment `flame.ts` gave the NASA-7 polynomials and `colourspace.ts` gave the
+chromaticity primaries — and validated by a committed cross-check against facts
+known **independently** of that file. The strongest of those: **μ_Earth
+reproduces the sidereal day at geostationary altitude**, 86164.0 s from a
+published 35786 km, which a transcription slip could not survive. Also checked:
+surface gravity 9.80 m/s², the ISS period at 92.6 min, escape at 11.18 km/s, and
+the Moon at about a sixth of Earth's gravity.
+
+**Profiles & navigation (4).** Jerk-limited **S-curve profiles**, which are
+**slower on purpose** — 2.450 s against a trapezoidal 2.250 s — because a
+trapezoidal profile steps acceleration instantaneously, and infinite jerk is a
+broadband impulse that excites every structural mode the machine has. Multi-axis
+coordination, where **throttling the fast axes costs nothing** in cycle time (the
+slowest axis sets it regardless) and is what makes the path straight instead of a
+dog-leg. Great-circle distance and bearing, where **the initial bearing is not
+the final bearing** — Heathrow to JFK departs on 287.9° and arrives on 231.3°.
+And the wind triangle, which closes a named gap from the aviation build and
+**refuses** when no heading makes the track good rather than returning an angle
+that cannot fly.
+
+**Drag coefficients remain user inputs**, deliberately: Cd depends on shape, Mach
+number and Reynolds number, and a built-in table would be wrong for every
+projectile except the one it was measured on. Also not built, and said so in the
+scope: 6-DOF simulation, guidance laws, N-body perturbations and re-entry
+heating.
+
+**Seven defects, and the author's own suite found none of them.** The 59-check
+oracle suite was green when an **independent** adversarial pass was run over the
+diff — the standing rule, and the reason it exists. What it found, all fixed and
+all now pinned as tests in `trajectory.adversarial.test.ts`:
+
+1. **`dragShot` returned a mid-air position labelled as ground impact.** The
+   integration horizon was a multiple of the vacuum flight time, on the stated
+   assumption that the vacuum time is an upper bound once drag is on. **It is
+   not.** Drag shortens the ascent but *lengthens* the descent, because the fall
+   settles towards terminal speed instead of accelerating without limit — a
+   ping-pong ball off a 1000 m cliff takes **118 s** against a vacuum 14 s. The
+   tool reported 43.8 s with the ball **627 m in the air**, and `solveOde`
+   returned `completed: true` while doing it, so a solver-success check would
+   never have caught it. The horizon now grows until the ground event actually
+   fires, and if it never does the tool refuses rather than reporting where the
+   projectile happened to be.
+2. **`dragShot` returned `NaN` and a fully subterranean path** for a level or
+   downward launch from ground level: the ground event needs a strict sign
+   change, so starting at y = 0 it never fired. A `NaN` reaches the pane as an
+   em-dash, and the em-dash blocks insertion. Now refused by name.
+3. **The apex was 15–40% low.** It was the maximum over the solver's samples,
+   and RK45 integrates a near-ballistic arc so accurately that it takes only a
+   handful of enormous steps — none near the vertex. A shot put's apex read
+   3.48 m against a true 4.11 m. The apex is now a second, non-terminal event
+   on the vertical velocity, bisected to solver tolerance.
+4. **Above the ISA ceiling, drag was silently zero.** `atmosphere` returns null
+   above 84,852 m and that was read as vacuum, so a high shot integrated 94 km
+   of flight with no air while the notes claimed standard-atmosphere density.
+   Now refused, which is what the aviation bench does at the same altitude.
+5. **The Hohmann phase angle was never wrapped**, so a descending transfer
+   reported **−1078.75°** for GEO to LEO. The field is documented as a lead
+   angle; it now lands in (−180, 180] and reads +1.25°. Ascending transfers
+   were correct throughout, which is why it went unnoticed.
+6. **`multiAxisMove` asserted a dog-leg its own numbers disproved** when every
+   axis already finished together, and emitted zero limits for a zero-distance
+   axis — a plan this same function then refused as input.
+7. **Overflow with finite, legal inputs.** A launch speed of 1e155, an orbital
+   radius past 5.6e102, a mass ratio of 1e600: each returned `ok: true` with an
+   Infinity or a NaN in a numeric field. All now refuse.
+
+**And one the author's own pass did catch first.** `impactEnergy` computed fall
+time by inverting v = v_t·tanh(gt/v_t) — exact on paper, useless in floating
+point: past a few hundred metres v/v_t rounds to exactly 1.0 and the time
+**saturated at 39.7 s for any drop height**, 5.7× below the physical floor of
+h/v_t. Fixing it introduced a mirror failure at the *other* end, which the
+adversarial pass then found: as x → 0 the `arccosh(e^x)` form loses all its
+precision and eventually returned a flat **zero** for a fall that plainly takes
+time. All three regimes are now explicit — asymptote when deep, series when
+shallow, closed form between — and `fallTime ≥ h/v_t` is pinned as an invariant
+across fourteen orders of magnitude of drag.
+
+`ode.ts`, `aero.ts`, `fluids.G` and `solve.ts` are reused rather than
+reimplemented, so the trajectory bench and the aviation bench cannot disagree
+about gravity or the air.
+
 ## [2.76.0] — 2026-08-02 — Colour gamut coverage, on fetched primaries
 
 Closes the one item the audio/video scope deliberately left open. Engineering

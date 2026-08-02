@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.76.0)
+# JurisLab — Manual Test Script (v2.77.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -1090,6 +1090,140 @@ Engineering mode. **Energy & power** grows 8 → 16; the mode must state
 - [ ] **Wind + altitude**: blank the density, set altitude 2000 m → the result notes
   density **1.0065 kg/m³ from the ISA** — the same atmosphere the aviation tools use.
 - [ ] All eight new tools insert, subscripts and superscripts intact (O₂, m², kVAR).
+
+---
+
+## 0al. New in v2.77.0 - trajectory & orbits
+
+Engineering mode. A **nineteenth** discipline, **Trajectory & orbits** (13); the
+mode must state **114 calculators** across **nineteen disciplines**. Every value
+below is the tool's own default, so each check is a single click.
+
+**Ballistic**
+
+- [ ] **Projectile in a vacuum**, 20 m/s at 45°, height 0: range **40.79 m**
+  (which is exactly v²/g), apex **10.20 m**, flight **2.884 s**, impact speed
+  **20 m/s** - equal to the launch speed, because energy is conserved. Best
+  angle **45°**.
+- [ ] Change the launch height to **10**: the best angle drops to **39.32°**,
+  NOT 45°, and the note must say so. Range at that angle **49.79 m**, better
+  than the **49.10 m** the 45° shot gives. This is the headline result.
+- [ ] **Projectile with air drag** on its defaults (800 m/s, 30°, 0.01 kg,
+  5e-5 m², Cd 0.3): range **2970 m** against a vacuum range of **56518 m** -
+  only **5.26%**. Drag is the dominant term, not a correction.
+- [ ] A **trajectory plot** inserts, and the curve **ends at the ground** - no
+  part of it dips below zero.
+- [ ] Set Cd to **10**: refused as outside any physical range, not computed.
+- [ ] **Launch angle for a target**, 20 m/s at 30 m: **two** answers, **23.67°**
+  and **66.33°**, which sum to 90°. The lofted one takes longer (3.736 s vs
+  1.638 s). Maximum range **40.79 m**.
+- [ ] Ask for **1000 m** at 20 m/s: **REFUSED** as beyond maximum range, with
+  the word "refused rather than clamped". It must not return 45°.
+- [ ] **Impact speed, energy & momentum** on its defaults (4.5 g hailstone,
+  1000 m): impact **22.10 m/s**, terminal **22.10 m/s**, but the vacuum figure
+  is **140.0 m/s**. Energy **1.099 J**, at **100%** of the ceiling.
+- [ ] Change the drop height to **5000**: the energy is still **1.099 J** and
+  the speed still **22.10 m/s**, while the vacuum speed rises to **313.2 m/s**.
+  Five times the height, no extra energy - the saturation result.
+- [ ] The fall time must RISE with height (46.8 s at 1000 m, about 228 s at
+  5000 m). A fall time that stops growing is the bug this check exists for.
+
+**Orbital**
+
+- [ ] **Circular orbit**, Earth at 400 km: speed **7669 m/s**, period **5554 s**
+  (**92.56 min**), escape speed here **10845 m/s**.
+- [ ] Set the altitude to **35786 km**: period **86164 s** = **23.934 h**. That
+  is the **sidereal day**, which is the definition of geostationary - and it is
+  the cross-check that the fetched μ is right.
+- [ ] Compare 300 km with 20000 km: the **lower** orbit is the **faster** one,
+  and the note must say adding energy slows you down.
+- [ ] **Elliptical orbit**, 300 x 35786 km: semi-major axis **24421 km**,
+  eccentricity **0.7265**, periapsis speed **10151 m/s**, apoapsis speed
+  **1608 m/s**, period **37980 s**.
+- [ ] Enter equal apsides (500 and 500 km): eccentricity **0**, and the period
+  matches the circular-orbit tool at 500 km exactly.
+- [ ] Enter the apsides **swapped** (35786 periapsis, 300 apoapsis): refused
+  with the word "swapped", not silently reordered.
+- [ ] **Hohmann transfer**, 300 km to 35786 km: burns **2426** and **1467** m/s,
+  total **3893 m/s**, transfer **18990 s** (**5.275 h**), phase angle **100.7°**.
+- [ ] Reverse it (35786 to 300 km): both burns turn **negative** and the total
+  Δv is the **same**. Lowering costs what raising costs.
+- [ ] Transfer 300 km to 400 km: the note must say **SLOW DOWN** to catch
+  something ahead of you.
+- [ ] **Rocket equation**, Isp 450 s, 100 kg to 20 kg: exhaust **4413 m/s**,
+  mass ratio **5**, Δv **7102 m/s**, propellant **80 kg** (**80%**).
+- [ ] Set the final mass **equal to or above** the initial: refused.
+- [ ] **Escape speed**, Earth at 0 km: **11180 m/s** - the familiar 11.2 km/s.
+  Circular **7905 m/s**, extra from orbit **3275 m/s**, which is **41%** more
+  and not twice as much. The note must say escape is independent of direction.
+- [ ] Switch the body to the **Moon**: everything rescales, and the Moon's
+  surface gravity works out at about a sixth of Earth's.
+
+**Profiles & navigation**
+
+- [ ] **Jerk-limited (S-curve) profile**, 1 m at 0.5 m/s, 2 m/s², jerk 10:
+  total **2.450 s** against a trapezoidal **2.250 s**. It is **slower**, and
+  the note must explain that this is deliberate.
+- [ ] Raise the jerk to **100000**: the S-curve time converges on the
+  trapezoidal one. Lower it to **2**: the gap widens.
+- [ ] **Multi-axis coordination** on its three default axes: move time
+  **1.500 s**, limiting axis **X**, fastest axis alone **0.447 s**. Y is
+  throttled to **0.4216 m/s** and **0.3556 m/s²** (**42.2%** used), Z to
+  **0.0894 m/s** and **0.0889 m/s²** (**29.8%**). X stays at **100%**.
+- [ ] The note must say throttling the fast axes costs **nothing** in cycle
+  time and mention the **dog-leg** it avoids.
+- [ ] Give a row with only three values: refused by name, with the row quoted.
+- [ ] **Great-circle**, Heathrow to JFK on the defaults: **5539 km** /
+  **2991 nmi**, initial bearing **287.9°**, final bearing **231.3°**. Those two
+  DIFFER by more than 50° - the point of the tool.
+- [ ] Enter the same point twice: distance **0**, no crash.
+- [ ] **Wind triangle** on its defaults (track 090, TAS 50, wind from 180 at
+  10): heading **101.5°**, ground speed **48.99 m/s**, drift **11.54°**. You
+  steer INTO the wind, so the heading is south of the track.
+- [ ] Set the wind to **from 090 at 10** (pure headwind): drift **0°**, ground
+  speed exactly **40 m/s**. Set it to **from 270**: **60 m/s**.
+- [ ] Set TAS **10** and wind **50 from 180**: **REFUSED** - no heading makes
+  that track good. It must not return an angle.
+
+**What the independent adversarial pass found (all fixed - re-check these)**
+
+- [ ] **Projectile with drag**, 1 m/s at 0.001°, 2.7 g, 0.00126 m², Cd 0.5,
+  height **1000**: a ping-pong ball off a cliff. Flight time must be **over
+  100 s** and the plotted curve must **reach the ground**. It used to stop at
+  43.8 s with the ball still **627 m in the air**, because the vacuum flight
+  time was used as an upper bound - and it is not one, since drag lengthens the
+  descent even though it shortens the ascent.
+- [ ] **Projectile with drag** at a **negative** angle from height **0**:
+  refused with "no flight". It used to return a fraction of **NaN** and a
+  trajectory **50 m underground**.
+- [ ] The same shot from a height of **50**: accepted, lands, and the apex
+  equals the launch height.
+- [ ] **Projectile with drag**, 14 m/s at 40°, 7.26 kg, 0.0113 m², Cd 0.47 (a
+  shot put): apex **4.11 m**. It used to report **3.48 m** - the maximum over
+  the solver's samples rather than the real vertex, 15% low.
+- [ ] **Projectile with drag**, 2000 m/s at 80°, 100 kg: refused for leaving the
+  **standard atmosphere**. It used to integrate 94 km of flight as a vacuum
+  while the notes claimed ISA density.
+- [ ] **Hohmann transfer**, 35786 km **down to** 300 km: phase angle **1.25°**.
+  It used to read **-1078.75°**, which is not a lead angle anyone can use.
+- [ ] **Multi-axis coordination** with two **identical** axes (`X, 1, 1, 2` and
+  `Y, 1, 1, 2`): both at **100%**, and the note must say they already finish
+  together. It used to claim a **dog-leg** that its own numbers disproved.
+- [ ] Add a zero-distance axis (`Z, 0, 0.3, 1`): Z keeps its own limits rather
+  than being throttled to zero. Paste the resulting plan back in as input - it
+  must be **accepted**, not refused.
+- [ ] **Impact energy** with a frontal area of **1e-16**: fall time about
+  **0.45 s**, not **0**. The deep-drop fix had broken the shallow end.
+
+**Contract**
+
+- [ ] Every one of the 13 tools inserts into Word, with **°**, **Δv**, **m/s²**,
+  **N·s** and **√2** intact and no em-dash placeholder anywhere.
+- [ ] Typing a unit on a converting field works: **"72 km/h"** as a launch
+  speed, **"500 kt"** as an airspeed, **"35786 km"** as an altitude, **"1 lb"**
+  as a mass. Each is converted and the conversion is REPORTED.
+- [ ] Typing a unit of the **wrong quantity** (a length where a mass belongs)
+  is refused by name rather than ignored.
 
 ---
 

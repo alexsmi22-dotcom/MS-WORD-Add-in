@@ -15,14 +15,14 @@
 >   (`8a3394a`). HMBC/TOCSY still open.
 > - **TIER 1.4 (ST.26 import) + formatSeqIdRefs shipped in v2.71.0** (`3b50f1d`,
 >   live-verified). Ratchet 18 -> 17.
+> - **TIER 1.7 (HMBC + TOCSY) shipped in v2.72.0** (`cbe5f30`, live-verified).
 > - **TIER 2.1 (claim-set hygiene) DECLINED by the user — do not build it.**
 >
 > **Still open in Tier 1:**
 > - 1.5 remainder: `chips-power -> chips-thermal`, `pipe -> pump-npsh` handoffs
 > - 1.6 remainder: `totalLoad` only (Bell presets, rayleighDamping and
 >   formatSeqIdRefs all shipped)
-> - 1.7 remainder: HMBC and TOCSY. ~~DEPT~~ and ~~non-aromatic caveats~~ shipped
->   v2.70.0.
+> - ~~1.7~~ DONE: DEPT + caveats v2.70.0, HMBC + TOCSY v2.72.0.
 > - ~~1.7b FFT windowing~~ SHIPPED v2.67.0 (`2e33369`). Still open: the
 >   `filter.ts -> fftFilter` half, to retire the documented brick-wall ringing
 > - 1.7c remainder: 6 `geometry3d` transform exports, `probit`

@@ -6,7 +6,7 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
-## [2.72.0] — 2026-08-02 — HMBC and TOCSY: tier 1 complete
+## [2.72.0] — 2026-08-02 — HMBC and TOCSY
 
 The last two 2D experiments, and the end of the tier-1 list from the gap
 analysis.
@@ -32,7 +32,14 @@ they are a property of the bond graph — while the shifts positioning them are
 estimates, and relayed correlations are marked weak because their intensity
 depends on the mixing time.
 
-Spectra now offers eight predictions. **Tier 1 of the gap analysis is complete.**
+Spectra now offers eight predictions.
+
+**Correction to this entry as first written:** it claimed tier 1 was complete.
+It is not. Five small items remain and are listed in the gap analysis — the
+chips and pipe composition handoffs, `totalLoad`, the `filter.ts -> fftFilter`
+ringing fix, the geometry3d transforms, and an indefinite-integral entry
+point. A changelog that rounds up is the same defect class as a landing page
+that overstates a count.
 
 ## [2.71.0] — 2026-08-02 — Import a sequence file into the ST.26 listing
 

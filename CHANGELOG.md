@@ -6,6 +6,20 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.68.1] — 2026-08-02 — The em-dash sentinel, one layer out
+
+PCA and the trapezoid tool shipped with em dashes in their note and error
+strings, which would have disabled "Insert result" for both — the guard is a
+whole-text scan, and an em dash is also the sentinel a non-finite value prints.
+
+The reason it got through is worth recording: the gate that catches this
+(`analyzeCalcText.test.ts`) scans the REGISTRY SOURCE in taskpane.ts, and these
+notes are built in `pca.ts`. A library module's prose is invisible to it. Both
+tools now run library notes and errors through `plainDashes` at the point the
+result text is assembled, and a test pins that they do.
+
+Caught by checking the deployed bundle rather than by any gate.
+
 ## [2.68.0] — 2026-08-02 — PCA, and integrating data you measured
 
 Tier 1 release D. Both additions are thin layers over engines that already

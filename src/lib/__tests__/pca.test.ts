@@ -165,3 +165,24 @@ describe("trapz", () => {
     expect(trapz([1, NaN], [1, 2]).ok).toBe(false);
   });
 });
+
+describe("the em-dash sentinel — notes from THIS module reach an insertable result", () => {
+  // The registry-scanning gate in analyzeCalcText.test.ts reads taskpane.ts and
+  // therefore cannot see note strings built here. An em dash anywhere in an
+  // Analyze result disables Insert for the whole tool, so the pane runs these
+  // through plainDashes. This test pins that the pane still does it.
+  const pane = require("fs").readFileSync(
+    require("path").resolve(__dirname, "..", "..", "taskpane", "taskpane.ts"),
+    "utf8",
+  ) as string;
+
+  for (const id of ["pca", "trapz"]) {
+    it(`${id} passes library notes through plainDashes`, () => {
+      const start = pane.indexOf(`id: "${id}"`);
+      expect(start).toBeGreaterThan(-1);
+      const body = pane.slice(start, pane.indexOf("\n  },", start));
+      expect(body).toMatch(/plainDashes\(`Note: \$\{n\}`\)/);
+      expect(body).toMatch(/plainDashes\(res\.error\)/);
+    });
+  }
+});

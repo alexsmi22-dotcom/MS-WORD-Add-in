@@ -7423,7 +7423,7 @@ const ANALYZE_CALCS: AnalyzeCalc[] = [
     compute: (r) => {
       const M = readMatrix(r("M"));
       const res = pca(M, r("basis") !== "cov");
-      if (!res.ok) return { text: res.error, ok: false };
+      if (!res.ok) return { text: plainDashes(res.error), ok: false };
 
       const rows = res.explained.map((e, i) =>
         `  PC${i + 1}   variance ${formatNum(res.variance[i], 5)}   ${formatNum(e * 100, 4)}%   cumulative ${formatNum(
@@ -7455,7 +7455,11 @@ const ANALYZE_CALCS: AnalyzeCalc[] = [
         { kind: "plot", svg, caption: "Scree plot", alt: "PCA scree plot", w: 380, h: 270 },
         { kind: "matrix", label: "Loadings (variables x components) =", m: res.loadings },
         { kind: "matrix", label: "Scores (observations x components) =", m: res.scores },
-        ...res.notes.map((n) => ({ kind: "line" as const, text: `Note: ${n}` })),
+        // plainDashes: these notes are built in pca.ts, which the em-dash
+        // source gate cannot see (it scans the registry in this file). An em
+        // dash anywhere in the result text disables Insert for the whole
+        // tool, so the punctuation is swapped and the wording kept.
+        ...res.notes.map((n) => ({ kind: "line" as const, text: plainDashes(`Note: ${n}`) })),
       ];
       return analyzeResultOf(blocks);
     },
@@ -7482,7 +7486,7 @@ const ANALYZE_CALCS: AnalyzeCalc[] = [
       const xs = statList(r("x"));
       const ys = statList(r("y"));
       const res = trapz(xs, ys);
-      if (!res.ok) return { text: res.error, ok: false };
+      if (!res.ok) return { text: plainDashes(res.error), ok: false };
       const svg = buildPlotSvg(
         [
           { points: xs.map((x, i) => ({ x, y: ys[i] })), type: "line", color: "#2563eb", label: "y" },
@@ -7495,7 +7499,7 @@ const ANALYZE_CALCS: AnalyzeCalc[] = [
         { kind: "line", text: `  Integral    ${formatNum(res.area, 6)}` },
         { kind: "line", text: `  Mean value  ${formatNum(res.meanValue, 6)}` },
         { kind: "plot", svg, caption: "Data and running integral", alt: "Trapezoidal integration", w: 380, h: 270 },
-        ...res.notes.map((n) => ({ kind: "line" as const, text: `Note: ${n}` })),
+        ...res.notes.map((n) => ({ kind: "line" as const, text: plainDashes(`Note: ${n}`) })),
       ]);
     },
   },

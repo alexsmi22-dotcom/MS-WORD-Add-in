@@ -6,6 +6,35 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.68.0] — 2026-08-02 — PCA, and integrating data you measured
+
+Tier 1 release D. Both additions are thin layers over engines that already
+shipped and were reachable only from one place.
+
+**Principal component analysis**, built on the SVD of the centred data rather
+than an eigen-decomposition of the covariance matrix. That is the same choice
+regression makes in using QR: forming XᵀX squares the condition number and
+destroys precisely the small components a scree plot exists to judge. Reports
+variance and cumulative variance per component, how many components reach 95%,
+loadings, scores, and a scree plot drawn by the real plot engine. Standardising
+is offered as an explicit choice rather than a hidden default, because on raw
+covariance a variable measured in millimetres dominates the same quantity in
+metres purely through its units — and the result says which basis ran. Three
+things it always states: component signs are arbitrary, PCA finds variance and
+not importance, and loadings are unstable when observations are scarce.
+
+**Trapezoidal integration of measured data** — the counterpart to Solve's
+adaptive Simpson, which needs an expression you can evaluate anywhere. The
+trapezoid rule existed only inside the pharmacokinetics module as a private AUC
+helper, so anyone integrating a chromatogram, a power trace or a stress-strain
+curve had nothing. x need not be evenly spaced; a decreasing x yields a negative
+area, which is the correct signed integral and is reported rather than silently
+flipped; and the result flags non-monotonic x and very uneven spacing. Both the
+data and the running integral are plotted.
+
+Analyze goes 20 to 22 calculators. Both new fields carry the v2.65.0 data-source
+buttons, so a measured trace can come straight from a Word table or a CSV.
+
 ## [2.67.0] — 2026-08-01 — Every spectrum had leakage in it
 
 Tier 1 release C (first part): **FFT windowing.**

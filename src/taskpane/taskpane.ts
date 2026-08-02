@@ -185,6 +185,7 @@ import {
 import { parseMeasured, resultFigures } from "../lib/units";
 import { describeCrash, crashAdvice } from "../lib/crashReport";
 import { parseDelimited, gridToFieldText, describeGrid } from "../lib/dataimport";
+import { pca, trapz } from "../lib/pca";
 import { nmrChartSvg, irChartSvg, msChartSvg, cosyChartSvg, hsqcChartSvg, jcampChartSvg, decimateTrace, SPECTRUM_CHART_SIZE, SPECTRUM_2D_SIZE } from "../lib/spectraChart";
 import { buildPeptide } from "../lib/peptide";
 import {
@@ -7385,6 +7386,116 @@ const ANALYZE_CALCS: AnalyzeCalc[] = [
         { kind: "line", text: `Singular values = ${sv}` },
         { kind: "matrix", label: "U =", m: U },
         { kind: "matrix", label: "V =", m: V },
+      ]);
+    },
+  },
+  {
+    // PCA is a thin layer on the SVD directly above, and was the largest
+    // everyday-analysis gap left in Analyze. Built on the SVD of the CENTRED
+    // data rather than an eigen-decomposition of the covariance matrix, for the
+    // same reason regression uses QR: forming XtX squares the condition number
+    // and destroys exactly the small components a scree plot exists to judge.
+    id: "pca",
+    name: "Principal component analysis (PCA)",
+    hint:
+      "Rows are observations, columns are variables. Standardising puts every variable on equal " +
+      "footing (right for mixed units); covariance keeps the original scales. Paste a table, or " +
+      "read one straight from your document.",
+    fields: [
+      {
+        key: "M",
+        label: "Data (rows = observations)",
+        default: "5.1 3.5 1.4\n4.9 3.0 1.4\n6.7 3.1 4.7\n6.0 2.9 4.5\n6.3 3.3 6.0\n5.8 2.7 5.1",
+        kind: "block",
+        rows: 6,
+      },
+      {
+        key: "basis",
+        label: "Basis",
+        default: "corr",
+        kind: "select",
+        options: [
+          { value: "corr", label: "Standardised (correlation)" },
+          { value: "cov", label: "Covariance (original scales)" },
+        ],
+      },
+    ],
+    compute: (r) => {
+      const M = readMatrix(r("M"));
+      const res = pca(M, r("basis") !== "cov");
+      if (!res.ok) return { text: res.error, ok: false };
+
+      const rows = res.explained.map((e, i) =>
+        `  PC${i + 1}   variance ${formatNum(res.variance[i], 5)}   ${formatNum(e * 100, 4)}%   cumulative ${formatNum(
+          res.cumulative[i] * 100,
+          4,
+        )}%`,
+      );
+      // Scree plot from the real engine, same plot layer as everything else.
+      const svg = buildPlotSvg(
+        [
+          {
+            points: res.explained.map((e, i) => ({ x: i + 1, y: e * 100 })),
+            type: "line",
+            color: "#2563eb",
+            label: "% variance",
+          },
+        ],
+        { title: "Scree plot", xlabel: "Component", ylabel: "% of variance" },
+      );
+      const blocks: AnalyzeBlock[] = [
+        { kind: "line", text: `PCA on ${res.n} observations of ${res.p} variables` },
+        { kind: "line", text: "" },
+        ...rows.map((t) => ({ kind: "line" as const, text: t })),
+        { kind: "line", text: "" },
+        {
+          kind: "line",
+          text: `${res.componentsFor95} component${res.componentsFor95 === 1 ? "" : "s"} reach 95% of the variance.`,
+        },
+        { kind: "plot", svg, caption: "Scree plot", alt: "PCA scree plot", w: 380, h: 270 },
+        { kind: "matrix", label: "Loadings (variables x components) =", m: res.loadings },
+        { kind: "matrix", label: "Scores (observations x components) =", m: res.scores },
+        ...res.notes.map((n) => ({ kind: "line" as const, text: `Note: ${n}` })),
+      ];
+      return analyzeResultOf(blocks);
+    },
+  },
+  {
+    // The trapezoid rule existed only inside pk.ts as a private AUC helper, so
+    // anyone integrating a chromatogram, a power trace or a stress-strain curve
+    // had nothing. This is the counterpart to Solve's adaptive Simpson, which
+    // needs an expression rather than measurements.
+    id: "trapz",
+    name: "Integrate measured data (trapezoid)",
+    hint:
+      "Area under data you have, rather than a function you can evaluate. x need not be evenly " +
+      "spaced. A decreasing x gives a negative area, which is the correct signed integral and is " +
+      "reported rather than silently flipped.",
+    fields: [
+      // "block" rather than a one-line list so these fields get the data-source
+      // buttons: integrating a measured trace is exactly the case where the
+      // numbers are already in the document or in a CSV.
+      { key: "x", label: "x values", default: "0, 1, 2, 3, 4, 5, 6", kind: "block", rows: 2 },
+      { key: "y", label: "y values (matching x)", default: "0, 0.84, 0.91, 0.14, -0.76, -0.96, -0.28", kind: "block", rows: 2 },
+    ],
+    compute: (r) => {
+      const xs = statList(r("x"));
+      const ys = statList(r("y"));
+      const res = trapz(xs, ys);
+      if (!res.ok) return { text: res.error, ok: false };
+      const svg = buildPlotSvg(
+        [
+          { points: xs.map((x, i) => ({ x, y: ys[i] })), type: "line", color: "#2563eb", label: "y" },
+          { points: xs.map((x, i) => ({ x, y: res.cumulative[i] })), type: "line", color: "#c2410c", label: "cumulative area" },
+        ],
+        { title: "Data and running integral", xlabel: "x", ylabel: "y" },
+      );
+      return analyzeResultOf([
+        { kind: "line", text: `Area from x = ${formatNum(res.xStart, 6)} to ${formatNum(res.xEnd, 6)}` },
+        { kind: "line", text: `  Integral    ${formatNum(res.area, 6)}` },
+        { kind: "line", text: `  Mean value  ${formatNum(res.meanValue, 6)}` },
+        { kind: "plot", svg, caption: "Data and running integral", alt: "Trapezoidal integration", w: 380, h: 270 },
+        ...res.notes.map((n) => ({ kind: "line" as const, text: `Note: ${n}` })),
       ]);
     },
   },

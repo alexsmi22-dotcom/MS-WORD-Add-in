@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.67.0)
+# JurisLab — Manual Test Script (v2.68.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -1090,6 +1090,27 @@ Engineering mode. **Energy & power** grows 8 → 16; the mode must state
 - [ ] **Wind + altitude**: blank the density, set altitude 2000 m → the result notes
   density **1.0065 kg/m³ from the ISA** — the same atmosphere the aviation tools use.
 - [ ] All eight new tools insert, subscripts and superscripts intact (O₂, m², kVAR).
+
+---
+
+## 0ac. New in v2.68.0 — PCA and data integration
+
+- [ ] **Analyze → Principal component analysis.** At the defaults it reports a
+  variance table, the number of components reaching 95%, a **scree plot**,
+  loadings and scores. The percentages must sum to 100 and the cumulative column
+  must never decrease.
+- [ ] Switch **Basis** to Covariance and back: the note changes to name which
+  basis ran, and the numbers change with it.
+- [ ] Paste data with a **constant column** and standardised basis: refused with
+  the "never vary" reason, not a divide-by-zero or a silent result.
+- [ ] Use **Use table at cursor** to load a numeric Word table straight into it.
+- [ ] The notes must always say component **signs are arbitrary**.
+- [ ] **Analyze → Integrate measured data (trapezoid).** At the defaults it gives
+  an area, a mean value, and a chart showing both the data and the **running
+  integral**. Enter x = 0..10 with y = x: the area must be exactly **50**.
+- [ ] Reverse the x order: the area becomes **negative** and a note says so.
+- [ ] Give x values that go up and down: it must flag **non-monotonic** x.
+- [ ] Both insert.
 
 ---
 

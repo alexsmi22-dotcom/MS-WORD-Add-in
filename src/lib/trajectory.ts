@@ -858,6 +858,19 @@ export interface WindTriangleResult {
   groundSpeedMs: number;
   /** Wind correction angle applied, degrees (positive = steer right of track). */
   driftAngleDeg: number;
+  /**
+   * The SECOND heading that also makes the track good, when one exists.
+   *
+   * Null in ordinary conditions. When the wind exceeds the airspeed with a
+   * component along the track, both roots of sin(wca) are real and both close
+   * the vector triangle: you can fly the track forwards, or point backwards
+   * into the air and still be blown along it. Returned rather than discarded,
+   * the same doctrine as `aimForRange` giving both the flat and the lofted
+   * angle.
+   */
+  alternateHeadingDeg: number | null;
+  alternateGroundSpeedMs: number | null;
+  alternateDriftAngleDeg: number | null;
   notes: string[];
 }
 
@@ -898,11 +911,25 @@ export function windTriangle(
         "can crab against.",
     };
   }
-  const wca = Math.asin(sinWca);
-  const heading = ((trackDeg + wca / DEG) % 360 + 360) % 360;
-  const groundSpeed = trueAirspeedMs * Math.cos(wca) - windSpeedMs * Math.cos(windAngle);
+  // BOTH ROOTS OF sin(wca), not just the arcsine one. The second, π − wca, is
+  // usually spurious — it makes good the RECIPROCAL track and shows up as a
+  // negative ground speed, which is the test that rejects it. But when the wind
+  // exceeds the airspeed with a component along the track, both roots give a
+  // positive ground speed and both genuinely close the vector triangle: one
+  // flies the track forwards, the other points backwards into the air and is
+  // blown along the track anyway. Discarding that silently would hide a real
+  // solution, which is exactly what `aimForRange` refuses to do.
+  const solve = (wca: number) => ({
+    wca,
+    heading: ((trackDeg + wca / DEG) % 360 + 360) % 360,
+    groundSpeed: trueAirspeedMs * Math.cos(wca) - windSpeedMs * Math.cos(windAngle),
+  });
+  const roots = [solve(Math.asin(sinWca)), solve(Math.PI - Math.asin(sinWca))]
+    .filter((r) => r.groundSpeed > 0)
+    // Fastest first: that is the one a pilot actually wants.
+    .sort((a, b) => b.groundSpeed - a.groundSpeed);
 
-  if (groundSpeed <= 0) {
+  if (!roots.length) {
     return {
       ok: false,
       error:
@@ -910,19 +937,35 @@ export function windTriangle(
         "backwards. The track cannot be made good.",
     };
   }
+  const primary = roots[0];
+  const alternate = roots.length > 1 ? roots[1] : null;
+
+  const notes: string[] = [
+    "You steer INTO the wind, and the correction angle is not the wind direction — it depends " +
+      "on the ratio of wind speed to airspeed and on the angle between them, so a strong " +
+      "crosswind on a slow aircraft can demand tens of degrees.",
+    "Wind direction is where the wind comes FROM, the meteorological convention. Using the " +
+      "direction it blows towards reverses the correction.",
+    "True airspeed, not indicated: at altitude the two differ substantially, and the aviation " +
+      "airspeed tool converts between them.",
+  ];
+  if (alternate) {
+    notes.push(
+      `THERE ARE TWO ANSWERS HERE. The wind (${windSpeedMs} m/s) exceeds the airspeed ` +
+        `(${trueAirspeedMs} m/s) with a component along the track, so a second heading of ` +
+        `${alternate.heading.toFixed(1)}° also makes the track good, at ${alternate.groundSpeed.toFixed(1)} m/s. ` +
+        "That one points backwards relative to the air and lets the wind carry you along the " +
+        "track — real for a balloon or a very slow aircraft, and given rather than discarded.",
+    );
+  }
   return {
     ok: true,
-    headingDeg: heading,
-    groundSpeedMs: groundSpeed,
-    driftAngleDeg: wca / DEG,
-    notes: [
-      "You steer INTO the wind, and the correction angle is not the wind direction — it depends " +
-        "on the ratio of wind speed to airspeed and on the angle between them, so a strong " +
-        "crosswind on a slow aircraft can demand tens of degrees.",
-      "Wind direction is where the wind comes FROM, the meteorological convention. Using the " +
-        "direction it blows towards reverses the correction.",
-      "True airspeed, not indicated: at altitude the two differ substantially, and the aviation " +
-        "airspeed tool converts between them.",
-    ],
+    headingDeg: primary.heading,
+    groundSpeedMs: primary.groundSpeed,
+    driftAngleDeg: primary.wca / DEG,
+    alternateHeadingDeg: alternate ? alternate.heading : null,
+    alternateGroundSpeedMs: alternate ? alternate.groundSpeed : null,
+    alternateDriftAngleDeg: alternate ? alternate.wca / DEG : null,
+    notes,
   };
 }

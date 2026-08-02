@@ -6,6 +6,29 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.77.1] — 2026-08-02 — The wind triangle's second solution
+
+**A doctrine violation shipped in v2.77.0, found on review and fixed.** The
+adversarial pass had flagged it and explicitly declined to call it a defect,
+because the number returned was correct. It is a defect: the product's stated
+rule is that when two solutions exist, **both** are returned rather than one
+chosen silently — `aimForRange` does exactly this in the same release, and its
+doc comment cites the 2R arm's inverse-kinematics branches as the precedent.
+
+`windTriangle` kept only the arcsine root. The other, π − wca, is usually
+spurious — it makes good the **reciprocal** track and shows up as a negative
+ground speed, which is the test that rejects it. But when the wind exceeds the
+airspeed with a component along the track, **both roots give a positive ground
+speed and both genuinely close the vector triangle**. Track 090 at 50 m/s with
+80 m/s from 240 can be flown on **143.1° at 99.3 m/s** or on **216.9° at
+39.3 m/s** — the second pointing backwards relative to the air while the wind
+carries you along the track. Real for a balloon or a very slow aircraft.
+
+Both are now returned, fastest first, with a note. Verified by an independent
+check that flies each heading, adds the wind vector, and confirms the resulting
+ground track closes on the requested one to twelve figures — and that ordinary
+conditions still yield exactly one.
+
 ## [2.77.0] — 2026-08-02 — Trajectory & orbits
 
 A **nineteenth** Engineering discipline, and the whole suite scoped in

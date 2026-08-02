@@ -15785,6 +15785,15 @@ const ENG_CALCS: EngCalc[] = [
         `  Wind correction     ${engNum(res.driftAngleDeg, 4)}°`,
         `  Ground speed        ${engNum(res.groundSpeedMs, 5)} m/s  (${engNum(res.groundSpeedMs * 1.9438444924406, 4)} kt)`,
       ];
+      if (res.alternateHeadingDeg !== null) {
+        lines.push(
+          "",
+          "  Second solution (the wind exceeds the airspeed)",
+          `    Heading           ${engNum(res.alternateHeadingDeg, 4)}°`,
+          `    Wind correction   ${engNum(res.alternateDriftAngleDeg as number, 4)}°`,
+          `    Ground speed      ${engNum(res.alternateGroundSpeedMs as number, 5)} m/s`,
+        );
+      }
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);

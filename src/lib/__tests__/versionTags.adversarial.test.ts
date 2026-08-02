@@ -40,6 +40,7 @@ const PINNED: Record<string, string> = {
   "BVP / PDE / DAE": "2.19.0",
   "The numerics cannot freeze the pane": "2.20.0",
   Formatting: "2.61.0",
+  "TWO ANSWERS": "2.77.1",
 };
 
 describe("the manual test script's version tags are history, not a moving target", () => {

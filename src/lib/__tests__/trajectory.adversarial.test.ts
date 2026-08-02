@@ -15,6 +15,7 @@ import {
   aimForRange,
   impactEnergy,
   multiAxisMove,
+  windTriangle,
   ISA_CEILING_M,
 } from "../trajectory";
 import { circularOrbit, ellipticalOrbit, hohmannTransfer, rocketEquation } from "../orbital";
@@ -300,6 +301,70 @@ describe("multiAxisMove: the notes must not contradict the numbers", () => {
       }
       expect(Number.isFinite(r.moveTimeS)).toBe(true);
     }
+  });
+});
+
+describe("windTriangle returns BOTH branches, like aimForRange", () => {
+  // The reviewer declined to call this a defect because the numbers were right.
+  // It is one: the product's stated doctrine is that when two solutions exist
+  // both are returned, and this tool silently kept the arcsine root.
+
+  it("a strong quartering tailwind has TWO valid headings", () => {
+    const r = ok(windTriangle(90, 50, 240, 80));
+    expect(r.headingDeg).toBeCloseTo(143.13, 1);
+    expect(r.groundSpeedMs).toBeCloseTo(99.28, 1);
+    expect(r.alternateHeadingDeg).toBeCloseTo(216.87, 1);
+    expect(r.alternateGroundSpeedMs).toBeCloseTo(39.28, 1);
+  });
+
+  it("BOTH headings really do close the vector triangle on the track", () => {
+    // The independent check: fly the heading, add the wind, and see where the
+    // ground track actually points. Both must come back to 90 degrees.
+    const track = 90;
+    const tas = 50;
+    const from = 240;
+    const w = 80;
+    const r = ok(windTriangle(track, tas, from, w));
+    for (const [hdg, gs] of [
+      [r.headingDeg, r.groundSpeedMs],
+      [r.alternateHeadingDeg!, r.alternateGroundSpeedMs!],
+    ]) {
+      const rad = (d: number) => (d * Math.PI) / 180;
+      // Wind blows TOWARDS from+180.
+      const gx = tas * Math.sin(rad(hdg)) + w * Math.sin(rad(from + 180));
+      const gy = tas * Math.cos(rad(hdg)) + w * Math.cos(rad(from + 180));
+      const madeGood = ((Math.atan2(gx, gy) * 180) / Math.PI + 360) % 360;
+      expect(madeGood).toBeCloseTo(track, 6);
+      expect(Math.hypot(gx, gy)).toBeCloseTo(gs, 6);
+    }
+  });
+
+  it("a tailwind stronger than the airspeed also gives two", () => {
+    const r = ok(windTriangle(90, 10, 270, 30));
+    expect(r.groundSpeedMs).toBeCloseTo(40, 6);
+    expect(r.alternateGroundSpeedMs).toBeCloseTo(20, 6);
+  });
+
+  it("the faster solution is reported first", () => {
+    const r = ok(windTriangle(90, 50, 240, 80));
+    expect(r.groundSpeedMs).toBeGreaterThan(r.alternateGroundSpeedMs!);
+  });
+
+  it("says so in the notes when there are two", () => {
+    expect(ok(windTriangle(90, 50, 240, 80)).notes.join(" ")).toMatch(/TWO ANSWERS/);
+  });
+
+  it("ORDINARY conditions still give exactly ONE — the second root is spurious", () => {
+    // Its ground speed is negative: it makes good the RECIPROCAL track.
+    const r = ok(windTriangle(90, 50, 180, 10));
+    expect(r.alternateHeadingDeg).toBeNull();
+    expect(r.alternateGroundSpeedMs).toBeNull();
+    expect(r.notes.join(" ")).not.toMatch(/TWO ANSWERS/);
+  });
+
+  it("an unflyable quartering headwind is still refused outright", () => {
+    expect(windTriangle(90, 10, 120, 50).ok).toBe(false);
+    expect(windTriangle(90, 10, 90, 30).ok).toBe(false);
   });
 });
 

@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.77.0)
+# JurisLab — Manual Test Script (v2.77.1)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -1184,6 +1184,15 @@ below is the tool's own default, so each check is a single click.
   speed exactly **40 m/s**. Set it to **from 270**: **60 m/s**.
 - [ ] Set TAS **10** and wind **50 from 180**: **REFUSED** - no heading makes
   that track good. It must not return an angle.
+- [ ] **TWO ANSWERS (v2.77.1).** Track **090**, TAS **50**, wind **from 240** at
+  **80**: heading **143.1°** at **99.28 m/s**, AND a **second solution** of
+  **216.9°** at **39.28 m/s**. Both genuinely make the track good - the second
+  points backwards relative to the air and lets the wind carry you along. The
+  note must say so.
+- [ ] Track **090**, TAS **10**, wind **from 270** at **30**: ground speeds
+  **40** and **20 m/s**.
+- [ ] The ordinary default (wind from 180 at 10) shows **no** second solution -
+  its other root makes good the reciprocal track and is correctly discarded.
 
 **What the independent adversarial pass found (all fixed - re-check these)**
 

@@ -5,8 +5,23 @@
 > - **TIER 1.1 / 1.2 / 1.3 shipped in v2.65.0** (`cc85b36`, live-verified):
 >   Word table -> every data field, CSV/TSV import, search over tools and
 >   calculators.
+> - **TIER 1.5 (fatigue Kf), 1.6 (substrate inhibition) and the finance half of
+>   1.7c shipped in v2.66.0** (`f48d172`, live-verified).
 > - **TIER 2.1 (claim-set hygiene) DECLINED by the user — do not build it.**
-> - Still open: Tier 1.4-1.8, and Tier 2 apart from 2.1.
+>
+> **Still open in Tier 1:**
+> - 1.4 ST.26 sequence import (`parseSequenceFile` reaches Seq Map only)
+> - 1.5 remainder: `chips-power -> chips-thermal`, `pipe -> pump-npsh` handoffs
+> - 1.6 remainder: `BELL_STATES` preset, `rayleighDamping` (dead AND duplicated
+>   inline at vibration.ts:869), `totalLoad`, `formatSeqIdRefs`
+> - 1.7 NMR DEPT / HMBC / TOCSY + non-aromatic "contributed nothing" caveats
+> - 1.7b FFT windowing (leakage in every spectrum drawn) and
+>   `filter.ts -> fftFilter` to retire the documented brick-wall ringing
+> - 1.7c remainder: 6 `geometry3d` transform exports, `probit`
+> - 1.8 general curve fitting (promote `levenbergMarquardt`), `trapz` on data,
+>   PCA on the existing SVD, an indefinite-integral entry point
+>
+> Plus all of Tier 2 apart from 2.1.
 
 Six parallel code sweeps (legal, life-science, stats, math/numerics, engineering,
 infrastructure) plus independent verification of every load-bearing claim.

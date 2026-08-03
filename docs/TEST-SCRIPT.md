@@ -1102,8 +1102,11 @@ All seven new tools insert a figure.
 
 - [ ] Defaults (orifice, D 100 mm, d 50 mm, 20 kPa, water, Cd 0.61): flow about
   **0.00783 m³/s**, β **0.5**, approach factor **1.0328**.
-- [ ] Switch to **venturi** with Cd **0.98**: the PERMANENT loss must fall from
-  about **94%** of the differential to about **12%**. That contrast is the point.
+- [ ] Leave the loss fraction **blank**: no permanent-loss figure is reported,
+  and a note says it is not predicted and why. It must NOT invent one.
+- [ ] Type **0.62** into the loss fraction: the loss is reported as 62% of the
+  differential and the note says the figure is the one you supplied.
+- [ ] Type **1.2**: refused - a meter cannot lose more pressure than it develops.
 - [ ] Set the throat to **75 mm** (β 0.75): the approach factor rises above
   **1.19**, and a note warns that standards cap around there.
 - [ ] Set the throat equal to or larger than the pipe: **REFUSED**.
@@ -1114,7 +1117,12 @@ All seven new tools insert a figure.
 - [ ] Defaults: operating point about **0.0756 m³/s at 21.4 m**. The figure shows
   both curves crossing there.
 - [ ] The throttled point must have **LESS flow at MORE head** (about 0.060 m³/s
-  at 31.8 m) and report about **12.3 kW** burned at the valve.
+  at 31.8 m) and report about **8.58 kW** burned at the valve.
+- [ ] Change ONLY the efficiency, 0.4 to 1.0: the burned figure must NOT move.
+  It is hydraulic power destroyed in the valve, and the pump's efficiency has
+  nothing to do with it.
+- [ ] Set the resistance **K to 0**: no throttled block at all. Multiplying zero
+  by three moves nothing, and it used to announce a rise and a fall of zero.
 - [ ] Set the static lift **above** the shut-off head: refused, saying no valve
   setting helps.
 
@@ -1140,13 +1148,19 @@ All seven new tools insert a figure.
   square root is why fracture is a threshold.
 - [ ] Set the thickness to **5 mm**: it must say the assessment is CONSERVATIVE
   because a thin plate is TOUGHER.
-- [ ] Set stress **400 MPa**, crack **0.2 mm**, K_IC **200e6**, yield **250 MPa**:
-  **REFUSED** because the plastic zone is not small - LEFM does not apply.
+- [ ] Set stress **800 MPa** against a **500 MPa** yield: **REFUSED** because the
+  section has yielded through. It used to answer "safety on stress 2.58".
+- [ ] Set Y **4**, stress 400 MPa, crack **0.2 mm**, K_IC 400e6, yield 500 MPa:
+  refused because the plastic zone is not small - LEFM does not apply.
 
 **Crack growth (Paris law)**
 
 - [ ] Defaults: about **180 000 cycles**, final crack about **28 mm**, and the
   first doubling takes about **40%** of the whole life.
+- [ ] Set the initial crack to **20 mm**: it must say the crack reaches critical
+  size before it can double, NOT that the first doubling is 100% of the life.
+- [ ] Set **m = 1**: the "most of the life while the crack is small" claim must
+  NOT appear - it is false below m = 2, and it used to contradict its own number.
 - [ ] It must NOT report something like 1.8e-13 cycles. C is quoted for ΔK in
   MPa√m, and using pascals is wrong by 10^18 at m = 3.
 - [ ] Set the threshold ΔK to **5e6** with a 0.1 mm crack at 20 MPa: refused,

@@ -12369,8 +12369,14 @@ const ENG_CALCS: EngCalc[] = [
         `  Growth rate, start   ${engNum(res.rateInitial, 4)} m/cycle`,
         `  Growth rate, end     ${engNum(res.rateFinal, 4)} m/cycle`,
         "",
-        `  First doubling takes ${engNum(res.cyclesToDouble, 5)} cycles — ${engNum(res.firstDoublingFraction * 100, 4)} % of the whole life`,
       ];
+      if (res.cyclesToDouble !== null && res.firstDoublingFraction !== null) {
+        lines.push(
+          `  First doubling takes ${engNum(res.cyclesToDouble, 5)} cycles - ${engNum(res.firstDoublingFraction * 100, 4)} % of the whole life`,
+        );
+      } else {
+        lines.push("  The crack reaches critical size before it can double, so there is no doubling figure.");
+      }
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
@@ -13006,9 +13012,10 @@ const ENG_CALCS: EngCalc[] = [
     name: "Orifice, venturi & nozzle metering",
     group: "Fluids",
     hint:
-      "A differential meter measures a PRESSURE DROP, not a flow. The PERMANENT loss is not the " +
-      "differential it reads: a venturi's diffuser recovers most of it and an orifice recovers " +
-      "almost none, which is the entire argument for paying for a venturi.",
+      "A differential meter measures a PRESSURE DROP, not a flow, and the velocity-of-approach " +
+      "factor is not optional - at β = 0.75 it is 1.21, so omitting it under-reads by 17%. The " +
+      "permanent loss is NOT the differential the meter reads, and is reported only if you " +
+      "supply the fraction: it is not predicted here.",
     fields: [
       {
         key: "kind",
@@ -13027,6 +13034,7 @@ const ENG_CALCS: EngCalc[] = [
       { key: "rho", label: "Density, kg/m³", default: "998", kind: "text" },
       { key: "cd", label: "Discharge coefficient (measured; ~0.61 orifice, ~0.98 venturi)", default: "0.61", kind: "text" },
       { key: "eps", label: "Expansibility factor (1 for a liquid)", default: "1", kind: "text" },
+      { key: "loss", label: "Permanent loss as a fraction of the differential (blank = not reported)", default: "", kind: "text" },
     ],
     compute: (r) => {
       const u = engUnits(r);
@@ -13041,7 +13049,12 @@ const ENG_CALCS: EngCalc[] = [
         return { text: "The discharge coefficient and expansibility must both be numbers.", ok: false };
       }
       const kind = (r("kind") || "orifice") as MeterKind;
-      const res = flowMeter({ kind, pipeD, throatD, deltaP, rho, cd, epsilon: eps });
+      const lossRaw = r("loss").trim();
+      const lossFraction = lossRaw ? Number(lossRaw) : undefined;
+      if (lossRaw && !Number.isFinite(lossFraction)) {
+        return { text: "The permanent-loss fraction must be a number between 0 and 1.", ok: false };
+      }
+      const res = flowMeter({ kind, pipeD, throatD, deltaP, rho, cd, epsilon: eps, lossFraction });
       if (!res.ok) return { text: res.error, ok: false };
 
       const lines = [
@@ -13053,30 +13066,44 @@ const ENG_CALCS: EngCalc[] = [
         `  Pipe velocity        ${engNum(res.pipeVelocity, 5)} m/s`,
         "",
         `  Velocity-of-approach ${engNum(res.approachFactor, 5)}`,
-        `  PERMANENT loss       ${engNum(res.permanentLoss, 5)} Pa  (${engNum(res.lossFraction * 100, 4)} % of the differential)`,
       ];
+      if (res.permanentLoss !== null && res.lossFraction !== null) {
+        lines.push(
+          `  PERMANENT loss       ${engNum(res.permanentLoss, 5)} Pa  (${engNum(res.lossFraction * 100, 4)} % of the differential)`,
+        );
+      }
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
 
-      // Permanent loss against beta, for all three meters, with this one on it.
-      const series: Series[] = (["orifice", "venturi", "nozzle"] as MeterKind[]).map((mk, i) => ({
-        points: Array.from({ length: 61 }, (_, j) => {
-          const b = 0.15 + (j / 60) * 0.7;
-          const m = flowMeter({ kind: mk, pipeD, throatD: pipeD * b, deltaP, rho, cd, epsilon: eps });
-          return { x: b, y: m.ok ? m.lossFraction * 100 : NaN };
-        }).filter((p) => Number.isFinite(p.y)),
-        type: "line" as const,
-        color: ["#b91c1c", "#059669", "#d97706"][i],
-        label: mk,
-      }));
-      series.push({ points: [{ x: res.beta, y: res.lossFraction * 100 }], type: "scatter", color: "#111111", label: "this meter" });
+      // FLOW AGAINST DIFFERENTIAL, not the permanent loss the tool no longer
+      // predicts. The square root is the point: a meter with four times the
+      // differential passes only twice the flow, so the scale is compressed at
+      // the top of the range and stretched at the bottom.
+      const series: Series[] = [
+        {
+          points: Array.from({ length: 61 }, (_, j) => {
+            const dpj = (deltaP * 2 * j) / 60;
+            const m = flowMeter({ kind, pipeD, throatD, deltaP: dpj, rho, cd, epsilon: eps });
+            return { x: dpj / 1000, y: m.ok ? m.Q * 3600 : NaN };
+          }).filter((pt) => Number.isFinite(pt.y)),
+          type: "line" as const,
+          color: "#2563eb",
+          label: "flow",
+        },
+        {
+          points: [{ x: deltaP / 1000, y: res.Q * 3600 }],
+          type: "scatter" as const,
+          color: "#111111",
+          label: "this reading",
+        },
+      ];
       const svg = buildPlotSvg(series, {
         width: 380,
         height: 260,
-        xlabel: "Diameter ratio beta = d/D",
-        ylabel: "Permanent loss (% of differential)",
-        title: "What each meter costs to run",
+        xlabel: "Differential (kPa)",
+        ylabel: "Flow (m³/h)",
+        title: `Square-root response, beta = ${res.beta.toFixed(3)}`,
       });
       return engReport(lines, [
         {

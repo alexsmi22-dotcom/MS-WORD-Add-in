@@ -12,11 +12,13 @@
 // S-N curves build, where damage accumulates smoothly, and it is why a
 // found-crack assessment is a different calculation rather than a correction.
 //
-// MOST OF THE LIFE IS SPENT WHILE THE CRACK IS SMALL. Paris-law growth goes as
-// (ΔK)^m with m typically 3 to 4, and ΔK goes as √a, so the growth rate rises
-// steeply as the crack lengthens. The final doubling takes almost no cycles at
-// all. An inspection interval set from the total life is therefore worthless;
-// it has to be set from the time between detectable and critical.
+// MOST OF THE LIFE IS SPENT WHILE THE CRACK IS SMALL, FOR THE USUAL EXPONENT.
+// Paris-law growth goes as (ΔK)^m and ΔK goes as √a, so for m above 2 the rate
+// rises steeply as the crack lengthens and the final doubling takes almost no
+// cycles at all. An inspection interval set from the total life is therefore
+// worthless; it has to be set from the time between detectable and critical.
+// Below m = 2 that is not true, and the tool says so instead — the claim is
+// conditional on the exponent rather than a slogan.
 //
 // A THIN PLATE IS TOUGHER THAN A THICK ONE OF THE SAME MATERIAL. Plane strain
 // suppresses through-thickness yielding and gives the lowest toughness, which
@@ -133,6 +135,17 @@ export function stressIntensity(inp: StressIntensityInput): StressIntensityResul
   const ratio = K / inp.kic;
   const criticalCrack = (1 / Math.PI) * Math.pow(inp.kic / (inp.Y * inp.stress), 2);
   const criticalStress = inp.kic / (inp.Y * Math.sqrt(Math.PI * inp.crack));
+  // A vanishing stress or geometry factor sends the critical crack to infinity,
+  // and the note then read "the crack becomes critical at Infinity mm" while
+  // the pane fed that straight into an axis limit and emitted MNaN,NaN.
+  if (![criticalCrack, criticalStress].every(Number.isFinite)) {
+    return {
+      ok: false,
+      error:
+        "Those inputs give no finite critical crack size - the stress or the geometry factor is " +
+        "so small that no crack is ever critical. Check the magnitudes.",
+    };
+  }
 
   let plasticZone: number | null = null;
   let thicknessRequired: number | null = null;
@@ -145,13 +158,41 @@ export function stressIntensity(inp: StressIntensityInput): StressIntensityResul
     }
     // Plane-strain plastic zone radius.
     plasticZone = (1 / (6 * Math.PI)) * Math.pow(K / inp.yieldStrength, 2);
-    // The standard validity requirement, applied to crack, thickness and ligament.
+    // The standard 2.5(K_IC/sy)^2 size requirement. It is checked against the
+    // THICKNESS only. The comment here used to claim crack and ligament too:
+    // the crack is checked against a far looser plastic-zone criterion below,
+    // and the ligament cannot be checked at all because this geometry has no
+    // width input. Saying otherwise was a claim the code did not honour.
     thicknessRequired = 2.5 * Math.pow(inp.kic / inp.yieldStrength, 2);
+    if (![plasticZone, thicknessRequired].every(Number.isFinite)) {
+      return {
+        ok: false,
+        error:
+          "Those inputs overflow the plane-strain checks. Check the toughness and yield strength.",
+      };
+    }
     if (inp.thickness !== undefined) {
       if (!(inp.thickness > 0) || !Number.isFinite(inp.thickness)) {
         return { ok: false, error: "The thickness must be greater than zero." };
       }
       planeStrainValid = inp.thickness >= thicknessRequired;
+    }
+    // NET-SECTION YIELD FIRST. The plastic-zone test below reduces to a
+    // condition on stress alone, and it let a part loaded at 800 MPa against a
+    // 500 MPa yield through with "safety on stress 2.58" and no mention of
+    // yielding. A section stressed past its yield strength has already failed
+    // by a mechanism this tool does not model, and LEFM assumes the body is
+    // elastic away from the tip.
+    if (inp.stress >= inp.yieldStrength) {
+      return {
+        ok: false,
+        error:
+          `The applied stress (${(inp.stress / 1e6).toPrecision(4)} MPa) is at or above the yield ` +
+          `strength (${(inp.yieldStrength / 1e6).toPrecision(4)} MPa), so the section has yielded ` +
+          "through. Linear elastic fracture mechanics assumes the body is elastic away from the " +
+          "crack tip, and a factor of safety against fracture would be meaningless here - the " +
+          "part has already failed by a mechanism this tool does not model.",
+      };
     }
     // LEFM needs the plastic zone to be small compared with the crack.
     if (plasticZone > inp.crack * 0.5) {
@@ -268,10 +309,14 @@ export interface ParisResult {
   /** Growth rate at the start and end, m/cycle. */
   rateInitial: number;
   rateFinal: number;
-  /** Cycles used to reach twice the initial crack length. */
-  cyclesToDouble: number;
-  /** Fraction of the total life spent in that first doubling. */
-  firstDoublingFraction: number;
+  /**
+   * Cycles to reach twice the initial crack length — null when the crack
+   * reaches its critical size before it can double, which is an ordinary
+   * outcome for a large starting flaw.
+   */
+  cyclesToDouble: number | null;
+  /** Fraction of the total life spent in that first doubling; null likewise. */
+  firstDoublingFraction: number | null;
   /** Sampled crack length against cycles, for plotting. */
   curve: { n: number; a: number }[];
   notes: string[];
@@ -353,8 +398,11 @@ export function parisGrowth(inp: ParisInput): ParisResult | FractureError {
   if (!Number.isFinite(cycles) || cycles <= 0) {
     return { ok: false, error: "Those inputs give no finite crack-growth life. Check C, m and the stress range." };
   }
-  const doubleAt = Math.min(inp.initialCrack * 2, finalCrack);
-  const cyclesToDouble = cyclesBetween(inp.initialCrack, doubleAt);
+  // The crack cannot always double before it fractures. Clamping to the final
+  // size and still calling the result "the first doubling" reported the WHOLE
+  // life to failure as 100% of a doubling that never happens.
+  const canDouble = finalCrack > inp.initialCrack * 2;
+  const cyclesToDouble = canDouble ? cyclesBetween(inp.initialCrack, inp.initialCrack * 2) : null;
 
   // Crack length against cycles, inverted from the same closed form.
   const curve: { n: number; a: number }[] = [];
@@ -375,18 +423,32 @@ export function parisGrowth(inp: ParisInput): ParisResult | FractureError {
   const rateOf = (a: number): number => inp.C * Math.pow(dkOf(a) / 1e6, inp.m);
   const rateInitial = rateOf(inp.initialCrack);
   const rateFinal = rateOf(finalCrack);
-  const frac = cyclesToDouble / cycles;
+  const frac = cyclesToDouble === null ? null : cyclesToDouble / cycles;
 
   const notes: string[] = [
     `The crack grows from ${(inp.initialCrack * 1000).toPrecision(3)} mm to ` +
       `${(finalCrack * 1000).toPrecision(3)} mm in ${cycles.toPrecision(4)} cycles, at which point ` +
       "fast fracture takes over.",
-    `MOST OF THE LIFE IS SPENT WHILE THE CRACK IS SMALL: the first doubling alone takes ` +
-      `${(frac * 100).toFixed(1)}% of it. The growth rate rises from ` +
-      `${rateInitial.toPrecision(3)} to ${rateFinal.toPrecision(3)} m/cycle - a factor of ` +
-      `${(rateFinal / rateInitial).toPrecision(3)} - so the final doubling takes almost no cycles ` +
-      "at all. An inspection interval set from the TOTAL life is worthless; it has to come from " +
-      "the time between detectable and critical.",
+    // CONDITIONAL, because the headline is only true for m > 2. Below that the
+    // growth rate rises slowly enough with crack length that the late life is
+    // NOT compressed, and the unconditional sentence contradicted its own
+    // number - "the first doubling alone takes 0.8% of it ... so the final
+    // doubling takes almost no cycles at all".
+    frac !== null && inp.m > 2
+      ? `MOST OF THE LIFE IS SPENT WHILE THE CRACK IS SMALL: the first doubling alone takes ` +
+        `${(frac * 100).toFixed(1)}% of it. The growth rate rises from ` +
+        `${rateInitial.toPrecision(3)} to ${rateFinal.toPrecision(3)} m/cycle - a factor of ` +
+        `${(rateFinal / rateInitial).toPrecision(3)} - so the final doubling takes almost no ` +
+        "cycles at all. An inspection interval set from the TOTAL life is worthless; it has to " +
+        "come from the time between detectable and critical."
+      : frac !== null
+        ? `The first doubling takes ${(frac * 100).toFixed(1)}% of the life, and the growth rate ` +
+          `rises by a factor of ${(rateFinal / rateInitial).toPrecision(3)} over the whole ` +
+          `growth. At m = ${inp.m}, which is below 2, the late life is NOT compressed the way it ` +
+          "is for the usual m of 3 to 4 - the rate does not run away as the crack lengthens."
+        : `This crack reaches its critical size at ${(finalCrack * 1000).toPrecision(3)} mm, before ` +
+          "it can double, so there is no first-doubling figure to quote. The growth rate still " +
+          `rises by a factor of ${(rateFinal / rateInitial).toPrecision(3)} on the way.`,
     "C IS QUOTED FOR ΔK IN MPa√m and that is how it is used here - a coefficient of a power law " +
       "is meaningless without the units of its argument, and feeding a handbook C a ΔK in " +
       "pascals inflates the growth rate by 10^(6m), a factor of 10^18 at m = 3.",

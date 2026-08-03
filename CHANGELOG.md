@@ -14,15 +14,18 @@ inserts a figure. Ratchet **21 → 29 of 125**.
 
 ### Fluids
 
-**Differential-pressure metering** — orifice, venturi and nozzle. Two results
-the numbers alone hide. The **velocity-of-approach factor** is not optional: the
-ideal derivation assumes the fluid arrives at rest and it does not, and at
-β = 0.75 the correction is 1.19, so omitting it under-reads the flow by 16%. And
-**the permanent loss is not the differential the meter reads** — a venturi's
-diffuser recovers most of the pressure it took to accelerate the flow, losing
-about 12%, where an orifice reading the same flow loses about 94%. That gap is
-the entire argument for paying for a venturi, and it is invisible if you only
-compare the flows they report.
+**Differential-pressure metering** — orifice, venturi and nozzle. The
+**velocity-of-approach factor** is not optional: the ideal derivation assumes
+the fluid arrives at rest and it does not, and at β = 0.75 the correction is
+**1.2095**, so omitting it under-reads the flow by **17.3%**.
+
+**The permanent loss is not the differential the meter reads** — but this tool
+will not tell you what it is. A venturi's diffuser recovers most of the pressure
+it took to accelerate the flow and an orifice recovers much less, and that
+difference is the entire argument for paying for a venturi; the actual fraction
+comes from the meter standard for your geometry or from the manufacturer.
+Supply it and it is applied. **It is not predicted**, for the same reason Cd is
+not.
 
 **Pump and system curves.** A pump has no flow rate of its own: it has a curve,
 the system has another, and the machine runs where they cross — which is why the
@@ -30,8 +33,8 @@ same pump moves different amounts in different installations and why a datasheet
 flow figure alone means nothing. **Throttling moves the operating point UP the
 pump curve**, not down: closing a valve steepens the system curve, so flow falls
 while head *rises*, and the extra head is burned across the valve doing nothing.
-On the default case that is **12.3 kW**, which is the number that justifies a
-variable-speed drive.
+On the default case that is **8.58 kW** of hydraulic power, which is the number
+that justifies a variable-speed drive.
 
 **The affinity laws**, which say how much: flow scales with speed, head with its
 square, and **power with its cube** — so a 20% speed reduction leaves exactly

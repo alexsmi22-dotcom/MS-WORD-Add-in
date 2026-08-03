@@ -59,15 +59,36 @@ describe("stress intensity and the critical crack", () => {
     expect(thick.notes.join(" ")).toMatch(/thick enough for plane strain/);
   });
 
+  it("REFUSES A SECTION LOADED PAST YIELD rather than quoting it a safety factor", () => {
+    // With Y = 1 the plastic-zone test reduces to sigma > sqrt(3)*sy, so a part
+    // at 800 MPa against a 500 MPa yield sailed through it and was told
+    // "safety on stress 2.58" with no mention of having yielded through.
+    const r = stressIntensity({ stress: 800e6, crack: 0.003, Y: 1, kic: 200e6, yieldStrength: 500e6 });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.error).toMatch(/at or above the yield strength/);
+      expect(r.error).toMatch(/already failed by a mechanism this tool does not model/);
+    }
+    // And just below yield it is still assessed.
+    expect(stressIntensity({ stress: 400e6, crack: 0.003, Y: 1, kic: 200e6, yieldStrength: 500e6 }).ok).toBe(true);
+  });
+
   it("REFUSES when the plastic zone is not small — LEFM does not apply there", () => {
-    // A tough, low-yield material with a tiny crack: the tip yields over a
-    // region comparable to the crack itself, so every formula here is invalid.
-    const r = stressIntensity({ stress: 400e6, crack: 0.0002, Y: 1.12, kic: 200e6, yieldStrength: 250e6 });
+    // Reachable below yield only for a large geometry factor: the criterion is
+    // sigma > sy*sqrt(3)/Y, so Y must exceed sqrt(3) for it to bite first.
+    const r = stressIntensity({ stress: 400e6, crack: 0.0002, Y: 4, kic: 400e6, yieldStrength: 500e6 });
     expect(r.ok).toBe(false);
     if (!r.ok) {
       expect(r.error).toMatch(/plastic zone/);
       expect(r.error).toMatch(/J-integral or CTOD/);
     }
+  });
+
+  it("refuses inputs that give no finite critical crack size", () => {
+    // A vanishing stress made the note read "critical at Infinity mm" and the
+    // pane's figure emit MNaN,NaN.
+    expect(stressIntensity({ stress: 1e-160, crack: 0.003, Y: 1.12, kic: 50e6 }).ok).toBe(false);
+    expect(stressIntensity({ stress: 200e6, crack: 0.003, Y: 1e-160, kic: 50e6 }).ok).toBe(false);
   });
 
   it("refuses a compressive or zero stress, which does not open a crack", () => {
@@ -99,6 +120,23 @@ describe("Paris-law crack growth", () => {
     const r = ok(parisGrowth(base));
     expect(r.cycles).toBeGreaterThan(1e4);
     expect(r.cycles).toBeLessThan(1e7);
+  });
+
+  it("says nothing about a first doubling when the crack cannot double", () => {
+    // finalCrack < 2*a0, so the whole life was being reported as 100% of a
+    // doubling that never happens.
+    const r = ok(parisGrowth({ ...base, initialCrack: 0.02 }));
+    expect(r.cyclesToDouble).toBeNull();
+    expect(r.firstDoublingFraction).toBeNull();
+    expect(r.notes.join(" ")).toMatch(/before it can double/);
+  });
+
+  it("DOES NOT CLAIM the late life is compressed when m is below 2", () => {
+    // The headline holds for the usual m of 3 to 4 and is false below 2, where
+    // the unconditional sentence contradicted its own number.
+    const low = ok(parisGrowth({ ...base, initialCrack: 1e-5, m: 1 }));
+    expect(low.notes.join(" ")).not.toMatch(/MOST OF THE LIFE IS SPENT/);
+    expect(low.notes.join(" ")).toMatch(/below 2, the late life is NOT compressed/);
   });
 
   it("MOST OF THE LIFE IS SPENT WHILE THE CRACK IS SMALL", () => {

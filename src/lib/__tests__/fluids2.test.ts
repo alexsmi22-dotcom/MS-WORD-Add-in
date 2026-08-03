@@ -30,7 +30,7 @@ describe("differential-pressure flow meters", () => {
     // The ideal derivation assumes the fluid arrives at rest; it does not.
     const wide = ok(flowMeter({ ...base, throatD: 0.075 }));
     expect(wide.beta).toBeCloseTo(0.75, 12);
-    expect(wide.approachFactor).toBeGreaterThan(1.19);
+    expect(wide.approachFactor).toBeCloseTo(1.2095, 4);
     // Omitting it would under-read by that factor.
     expect(wide.approachFactor).toBeCloseTo(1 / Math.sqrt(1 - 0.75 ** 4), 12);
   });
@@ -44,25 +44,28 @@ describe("differential-pressure flow meters", () => {
     expect(r.throatVelocity / r.pipeVelocity).toBeCloseTo(4, 9);
   });
 
-  it("A VENTURI RECOVERS MOST OF THE PRESSURE AND AN ORIFICE DOES NOT", () => {
-    // The entire argument for paying for a venturi, and it is invisible if you
-    // only look at the flow both of them report.
-    const orifice = ok(flowMeter(base));
-    const venturi = ok(flowMeter({ ...base, kind: "venturi", cd: 0.98 }));
-    expect(venturi.lossFraction).toBeLessThan(0.25);
-    expect(orifice.lossFraction).toBeGreaterThan(0.8);
-    expect(venturi.permanentLoss).toBeLessThan(orifice.permanentLoss / 3);
+  it("THE PERMANENT LOSS IS NOT INVENTED — it is reported only if supplied", () => {
+    // The first version carried three hand-fitted polynomials in beta under a
+    // comment calling them "the standard fractions". They were not: they
+    // disagreed with the published relative-loss expression by twenty points
+    // at beta 0.5, and above beta 0.98 they crossed so a venturi came out
+    // lossier than a nozzle, which a diffuser makes impossible.
+    const silent = ok(flowMeter(base));
+    expect(silent.lossFraction).toBeNull();
+    expect(silent.permanentLoss).toBeNull();
+    expect(silent.notes.join(" ")).toMatch(/will not invent it/);
   });
 
-  it("the permanent loss is a FRACTION of the differential, never more", () => {
-    for (const kind of ["orifice", "venturi", "nozzle"] as const) {
-      for (const throatD of [0.02, 0.05, 0.075, 0.09]) {
-        const r = ok(flowMeter({ ...base, kind, throatD }));
-        expect(r.lossFraction).toBeGreaterThan(0);
-        expect(r.lossFraction).toBeLessThanOrEqual(1);
-        expect(r.permanentLoss).toBeLessThanOrEqual(base.deltaP + 1e-9);
-      }
-    }
+  it("and is applied faithfully when it is", () => {
+    const given = ok(flowMeter({ ...base, lossFraction: 0.62 }));
+    expect(given.lossFraction).toBeCloseTo(0.62, 12);
+    expect(given.permanentLoss).toBeCloseTo(0.62 * base.deltaP, 9);
+    expect(given.notes.join(" ")).toMatch(/using the fraction you supplied/);
+  });
+
+  it("refuses a loss fraction outside 0 to 1 — a meter cannot lose more than it develops", () => {
+    expect(flowMeter({ ...base, lossFraction: 1.2 }).ok).toBe(false);
+    expect(flowMeter({ ...base, lossFraction: -0.1 }).ok).toBe(false);
   });
 
   it("more differential means more flow, monotonically", () => {
@@ -86,6 +89,8 @@ describe("differential-pressure flow meters", () => {
 
   it("refuses a discharge coefficient above 1 and a negative differential", () => {
     expect(flowMeter({ ...base, cd: 1.5 }).ok).toBe(false);
+    // The message says "above 1", so the gate is at 1 rather than 1.05.
+    expect(flowMeter({ ...base, cd: 1.05 }).ok).toBe(false);
     expect(flowMeter({ ...base, deltaP: -100 }).ok).toBe(false);
   });
 

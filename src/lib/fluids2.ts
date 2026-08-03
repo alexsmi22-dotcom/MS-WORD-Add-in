@@ -71,6 +71,22 @@ export interface MeterInput {
   cd: number;
   /** Expansibility factor for a compressible fluid; 1 for a liquid. */
   epsilon?: number;
+  /**
+   * Permanent pressure loss as a fraction of the measured differential — a
+   * MEASURED OR CERTIFIED input, not a prediction.
+   *
+   * The first version of this module carried three hand-written polynomials in
+   * β and called them "the standard fractions". They were nothing of the kind:
+   * they were invented, they disagreed with the published relative-loss
+   * expression by twenty points at β = 0.5, and above β ≈ 0.98 they crossed so
+   * that a venturi was reported as lossier than a nozzle — which a diffuser
+   * makes impossible. A fabricated correlation presented as a standard is worse
+   * than no number at all, and this bench refuses to invent Cd, emissivity and
+   * Thiele-Small parameters for exactly the same reason.
+   *
+   * Omit it and the tool reports no loss figure and says why.
+   */
+  lossFraction?: number;
 }
 
 export interface MeterResult {
@@ -86,10 +102,10 @@ export interface MeterResult {
   /** Mean velocity in the throat and in the pipe, m/s. */
   throatVelocity: number;
   pipeVelocity: number;
-  /** Permanent pressure loss, Pa — NOT the measured differential. */
-  permanentLoss: number;
-  /** Permanent loss as a fraction of the differential. */
-  lossFraction: number;
+  /** Permanent pressure loss, Pa; null when no loss fraction was supplied. */
+  permanentLoss: number | null;
+  /** The loss fraction actually used; null when none was supplied. */
+  lossFraction: number | null;
   notes: string[];
 }
 
@@ -99,8 +115,9 @@ export interface MeterResult {
  * THE VELOCITY-OF-APPROACH FACTOR IS NOT OPTIONAL. The ideal derivation assumes
  * the fluid arrives at rest, and it does not — it is already moving in the
  * pipe. The correction 1/sqrt(1 − β⁴) is negligible for a small bore and
- * emphatically not for a large one: at β = 0.75 it is 1.19, so leaving it out
- * under-reads the flow by 16%.
+ * emphatically not for a large one: at β = 0.75 it is 1.2095, so leaving it out
+ * under-reads the flow by 17.3%. (The first draft of this comment said 1.19 and
+ * 16%, contradicting the figure the code printed one line below it.)
  */
 export function flowMeter(inp: MeterInput): MeterResult | Fluids2Error {
   const bad = positive([
@@ -123,7 +140,7 @@ export function flowMeter(inp: MeterInput): MeterResult | Fluids2Error {
         "no differential to measure. Check which diameter is which.",
     };
   }
-  if (inp.cd > 1.05) {
+  if (inp.cd > 1) {
     return {
       ok: false,
       error:
@@ -133,7 +150,7 @@ export function flowMeter(inp: MeterInput): MeterResult | Fluids2Error {
     };
   }
   const eps = inp.epsilon ?? 1;
-  if (!Number.isFinite(eps) || eps <= 0 || eps > 1.0001) {
+  if (!Number.isFinite(eps) || eps <= 0 || eps > 1) {
     return { ok: false, error: "The expansibility factor must be above 0 and at most 1 (use 1 for a liquid)." };
   }
 
@@ -143,34 +160,48 @@ export function flowMeter(inp: MeterInput): MeterResult | Fluids2Error {
   const aThroat = (Math.PI * inp.throatD * inp.throatD) / 4;
   const aPipe = (Math.PI * inp.pipeD * inp.pipeD) / 4;
   const Q = inp.cd * eps * approach * aThroat * Math.sqrt((2 * inp.deltaP) / inp.rho);
-  if (!Number.isFinite(Q)) {
-    return { ok: false, error: "Those inputs overflow the arithmetic. Check the magnitudes." };
+  // Q alone is not enough: a throat diameter small enough to underflow its own
+  // AREA leaves Q at 0 and the velocity at 0/0. Every reported quantity is
+  // checked, not just the headline one.
+  if (![Q, aThroat, aPipe, approach].every(Number.isFinite) || aThroat <= 0 || aPipe <= 0) {
+    return { ok: false, error: "Those diameters overflow or underflow the arithmetic. Check the magnitudes." };
   }
 
-  // Permanent loss. The orifice recovers almost nothing; the venturi's diffuser
-  // recovers most of it. These are the standard fractions of the measured
-  // differential, and the venturi one is why venturis exist at all.
-  let lossFraction: number;
-  if (inp.kind === "venturi") lossFraction = 0.1 + 0.05 * beta;
-  else if (inp.kind === "nozzle") lossFraction = 1 - b4 * 0.75 - beta * 0.15;
-  else lossFraction = 1 - b4 * 0.6 - beta * 0.05;
-  lossFraction = Math.min(1, Math.max(0.05, lossFraction));
+  // THE PERMANENT LOSS IS NOT INVENTED HERE. See the note on `lossFraction`:
+  // three hand-fitted polynomials used to stand in for it under a comment
+  // calling them "the standard fractions", which they were not.
+  let lossFraction: number | null = null;
+  if (inp.lossFraction !== undefined) {
+    if (!Number.isFinite(inp.lossFraction) || inp.lossFraction < 0 || inp.lossFraction > 1) {
+      return {
+        ok: false,
+        error:
+          "The permanent-loss fraction is a fraction of the measured differential, so it must be " +
+          "between 0 and 1. A meter cannot lose more pressure than it develops.",
+      };
+    }
+    lossFraction = inp.lossFraction;
+  }
 
   const notes: string[] = [
     `β = d/D = ${beta.toFixed(3)}, and the velocity-of-approach factor is ${approach.toFixed(4)}. ` +
       "The ideal derivation assumes the fluid arrives at rest and it does not - it is already " +
-      "moving in the pipe. Leaving that factor out under-reads the flow, by 16% at β = 0.75.",
+      `moving in the pipe. Leaving that factor out under-reads the flow by ${((approach - 1) * 100).toFixed(1)}% here.`,
     `Cd = ${inp.cd} is YOUR measured or certified value, not a prediction. It absorbs the vena ` +
       "contracta - the jet keeps contracting past the hole, so the smallest flow area is not the " +
       "hole's area - and the friction the ideal derivation omits. It depends on geometry, " +
       "Reynolds number and the tappings, so a built-in figure would be wrong for every " +
       "installation but one.",
-    `PERMANENT LOSS IS ${(lossFraction * 100).toFixed(0)}% OF THE DIFFERENTIAL, not all of it. ` +
-      (inp.kind === "venturi"
-        ? "A venturi's diffuser recovers most of the pressure it took to accelerate the flow, " +
-          "which is the entire reason to pay for one."
-        : "An orifice recovers very little - the jet dissipates into the downstream turbulence. " +
-          "A venturi reading the same flow would lose a small fraction of this."),
+    lossFraction !== null
+      ? `PERMANENT LOSS IS ${(lossFraction * 100).toFixed(0)}% OF THE DIFFERENTIAL, using the ` +
+        "fraction you supplied. That is the pressure the pump pays for continuously; the rest of " +
+        "the differential is recovered downstream."
+      : "PERMANENT LOSS IS NOT THE DIFFERENTIAL THIS METER READS, and it is not reported here " +
+        "because it is not predicted. Most of the pressure a venturi takes to accelerate the " +
+        "flow is recovered in its diffuser; an orifice recovers much less, and a nozzle sits " +
+        "between them. The actual fraction comes from the meter standard for your geometry or " +
+        "from the manufacturer - supply it and it will be applied. This tool will not invent it, " +
+        "for the same reason it will not invent Cd.",
   ];
   if (beta > 0.75) {
     notes.push(
@@ -180,8 +211,8 @@ export function flowMeter(inp: MeterInput): MeterResult | Fluids2Error {
   }
   if (beta < 0.2) {
     notes.push(
-      `β = ${beta.toFixed(2)} is very small, so the differential is large and so is the permanent ` +
-        "loss. That pressure is paid for continuously by the pump.",
+      `β = ${beta.toFixed(2)} is very small, so the differential is large - and the permanent ` +
+        "loss grows with it, which is pressure the pump pays for continuously.",
     );
   }
   if (eps < 1) {
@@ -199,7 +230,7 @@ export function flowMeter(inp: MeterInput): MeterResult | Fluids2Error {
     massFlow: Q * inp.rho,
     throatVelocity: Q / aThroat,
     pipeVelocity: Q / aPipe,
-    permanentLoss: lossFraction * inp.deltaP,
+    permanentLoss: lossFraction === null ? null : lossFraction * inp.deltaP,
     lossFraction,
     notes,
   };
@@ -281,7 +312,9 @@ export function pumpSystemCurve(inp: PumpSystemInput): PumpSystemResult | Fluids
   const eta = inp.efficiency ?? 0;
   if (eta < 0 || eta > 1) return { ok: false, error: "The efficiency must be between 0 and 1." };
   const rho = inp.rho ?? 998;
-  if (!(rho > 0)) return { ok: false, error: "The density must be greater than zero." };
+  if (!(rho > 0) || !Number.isFinite(rho)) {
+    return { ok: false, error: "The density must be a finite number greater than zero." };
+  }
 
   // Pump: h = H0 * (1 - (Q/Qmax)^2). System: h = hstat + K*Q^2.
   // Setting them equal is a quadratic in Q^2, solvable in closed form.
@@ -311,21 +344,38 @@ export function pumpSystemCurve(inp: PumpSystemInput): PumpSystemResult | Fluids
       // The head the valve destroys is the difference between where the pump
       // now sits and the head the unthrottled system needs at that same flow.
       const systemNeeds = inp.staticHead + inp.resistanceK * t.q * t.q;
-      const wasted = eta > 0 ? (rho * G * t.q * (t.h - systemNeeds)) / eta : null;
-      throttled = { flow: t.q, head: t.h, shaftPower: tShaft, wastedW: wasted };
+      // HYDRAULIC, NOT SHAFT. The head difference is destroyed IN THE VALVE, and
+      // the pump's efficiency has nothing to do with what a valve dissipates.
+      // Dividing by eta made the valve's loss depend on the pump driving it -
+      // 21.5 kW at eta 0.4 and 8.6 kW at eta 1.0, for an identical valve
+      // passing an identical flow and destroying an identical head.
+      const wasted = rho * G * t.q * (t.h - systemNeeds);
+      // A throttle that does not move the operating point has not throttled
+      // anything. With K = 0 the multiplier leaves the system curve unchanged,
+      // and the note below would otherwise announce a rise and a fall of zero.
+      const moved = Math.abs(t.q - op.q) > 1e-12 * Math.max(op.q, 1e-30);
+      throttled = moved
+        ? { flow: t.q, head: t.h, shaftPower: tShaft, wastedW: Number.isFinite(wasted) ? wasted : null }
+        : null;
     }
   }
 
   const N = 60;
   const qMax = Math.max(inp.maxFlow, op.q * 1.3);
+  if (!Number.isFinite(qMax) || !Number.isFinite(hyd)) {
+    return { ok: false, error: "Those inputs overflow the arithmetic. Check the magnitudes." };
+  }
   const pumpCurve = Array.from({ length: N + 1 }, (_, i) => {
     const q = (qMax * i) / N;
     return { q, h: Math.max(0, H0 - a * q * q) };
-  });
+  }).filter((pt) => Number.isFinite(pt.q) && Number.isFinite(pt.h));
   const systemCurve = Array.from({ length: N + 1 }, (_, i) => {
     const q = (qMax * i) / N;
     return { q, h: inp.staticHead + inp.resistanceK * q * q };
-  });
+  }).filter((pt) => Number.isFinite(pt.q) && Number.isFinite(pt.h));
+  if (systemCurve.length < 2 || pumpCurve.length < 2) {
+    return { ok: false, error: "Those inputs give no finite curves to plot. Check the magnitudes." };
+  }
 
   const notes: string[] = [
     "A PUMP HAS NO FLOW RATE OF ITS OWN. It has a curve, the system has another, and the machine " +
@@ -344,7 +394,8 @@ export function pumpSystemCurve(inp: PumpSystemInput): PumpSystemResult | Fluids
     );
     if (throttled.wastedW !== null) {
       notes.push(
-        `${(throttled.wastedW / 1000).toPrecision(3)} kW is burned across the valve doing nothing. ` +
+        `${(throttled.wastedW / 1000).toPrecision(3)} kW of HYDRAULIC power is burned across the ` +
+          "valve doing nothing. " +
           "That number is the argument for a variable-speed drive - see the affinity laws, where " +
           "power scales with the CUBE of speed.",
       );
@@ -431,7 +482,15 @@ export function affinityLaws(inp: AffinityInput): AffinityResult | Fluids2Error 
   if (![flow2, head2, power2].every(Number.isFinite)) {
     return { ok: false, error: "Those ratios overflow the arithmetic. Check the magnitudes." };
   }
-  const frac = inp.power1 > 0 ? power2 / inp.power1 : NaN;
+  if (inp.power1 <= 0) {
+    return {
+      ok: false,
+      error:
+        "The known power must be greater than zero - the affinity laws scale a power, and there " +
+        "is no fraction of zero. Give the power the machine draws at the known operating point.",
+    };
+  }
+  const frac = power2 / inp.power1;
 
   const notes: string[] = [
     `Speed ratio ${n.toFixed(4)}: flow scales with it, head with its SQUARE and power with its ` +
@@ -551,6 +610,9 @@ export function bodyDrag(inp: BodyDragInput): BodyDragResult | Fluids2Error {
       return { ok: false, error: "The viscosity and the characteristic length must both be greater than zero." };
     }
     re = (inp.rho * Math.abs(inp.velocity) * inp.length) / inp.mu;
+    if (!Number.isFinite(re)) {
+      return { ok: false, error: "Those inputs overflow the Reynolds number. Check the length and viscosity." };
+    }
   }
 
   const notes: string[] = [

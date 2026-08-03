@@ -1117,6 +1117,324 @@ export function powerTriangleSvg(pKw: number, qKvar: number, sKva: number, pf: n
   return p.join("");
 }
 
+export const ORBIT_CHART_SIZE = { w: 360, h: 340 };
+
+export interface OrbitConic {
+  /** Semi-major axis, m. */
+  a: number;
+  /** Eccentricity; 0 draws a circle. */
+  e: number;
+  colour: string;
+  label?: string;
+  /** Draw only the transfer half (periapsis to apoapsis). */
+  half?: boolean;
+  dashed?: boolean;
+}
+
+export interface OrbitMarker {
+  /** Radius from the focus, m, along the +x (periapsis) or -x axis. */
+  rM: number;
+  side: 1 | -1;
+  label: string;
+  colour: string;
+}
+
+/**
+ * Orbits about a body, EQUAL ASPECT with the body at the shared focus. A
+ * circular orbit drawn as an ellipse is wrong twice over here — the shape IS
+ * the claim, and the focus offset of an ellipse is the physics the tool
+ * exists to show.
+ */
+export function orbitChartSvg(bodyRadiusM: number, conics: OrbitConic[], markers: OrbitMarker[], title: string): string {
+  const { w: W, h: H } = ORBIT_CHART_SIZE;
+  if (!Number.isFinite(bodyRadiusM) || bodyRadiusM <= 0 || !conics.length) {
+    return emptyChart(W, H, "The orbit inputs do not define a figure");
+  }
+  for (const c of conics) {
+    if (!Number.isFinite(c.a) || c.a <= 0 || !Number.isFinite(c.e) || c.e < 0 || c.e >= 1) {
+      return emptyChart(W, H, "The orbit inputs do not define a figure");
+    }
+  }
+  const ML = 10;
+  const MT = 24;
+  const MB = 14;
+  const pw = W - 2 * ML;
+  const ph = H - MT - MB;
+  // Extent: every conic's apoapsis and periapsis, plus the body. Guarded —
+  // a semi-major axis near MAX_VALUE overflows the padding to Infinity and
+  // scale 0 turns the polyline into NaN arithmetic.
+  const ext = Math.max(bodyRadiusM, ...conics.map((c) => c.a * (1 + c.e))) * 1.08;
+  if (!Number.isFinite(ext) || ext <= 0) return emptyChart(W, H, "The orbit inputs do not define a figure");
+  const scale = Math.min(pw, ph) / (2 * ext);
+  const cx = W / 2;
+  const cy = MT + ph / 2;
+  const X = (x: number): number => cx + x * scale;
+  const Y = (y: number): number => cy - y * scale;
+
+  const p: string[] = [];
+  p.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`);
+  p.push(`<rect width="${W}" height="${H}" fill="${PAPER}"/>`);
+  p.push(`<g font-family="sans-serif" font-size="9" fill="${INK}">`);
+  p.push(`<text x="${(W / 2).toFixed(1)}" y="15" text-anchor="middle" font-size="11">${esc(title)}</text>`);
+
+  // The body, at the focus.
+  p.push(`<circle cx="${X(0).toFixed(1)}" cy="${Y(0).toFixed(1)}" r="${Math.max(bodyRadiusM * scale, 2).toFixed(1)}" fill="#d1d5db" stroke="${RULE}"/>`);
+
+  for (const c of conics) {
+    const b = c.a * Math.sqrt(1 - c.e * c.e);
+    const cOff = c.a * c.e; // focus at origin; centre at -c along x toward apoapsis
+    const pts: string[] = [];
+    const span = c.half ? Math.PI : 2 * Math.PI;
+    for (let i = 0; i <= 120; i++) {
+      const th = (span * i) / 120;
+      const x = c.a * Math.cos(th) - cOff;
+      const y = b * Math.sin(th);
+      pts.push(`${X(x).toFixed(1)},${Y(y).toFixed(1)}`);
+    }
+    p.push(
+      `<polyline points="${pts.join(" ")}" fill="none" stroke="${c.colour}" stroke-width="1.6"${c.dashed ? ' stroke-dasharray="5 3"' : ""}/>`,
+    );
+    if (c.label) {
+      p.push(labelText(X(-cOff), Y(b) - 4, c.label, { anchor: "middle", fill: c.colour, size: 8 }));
+    }
+  }
+
+  for (const mk of markers) {
+    if (!Number.isFinite(mk.rM)) continue;
+    const mx = X(mk.side * mk.rM);
+    p.push(`<circle cx="${mx.toFixed(1)}" cy="${Y(0).toFixed(1)}" r="3" fill="${mk.colour}"/>`);
+    // Anchored AWAY from the nearer edge, whatever side the marker is on — an
+    // apoapsis label anchored end at the left rim ran off the canvas.
+    const estW = mk.label.length * 8 * 0.56 + 4;
+    const outward = mk.side > 0 ? mx + 5 : mx - 5;
+    const fits = mk.side > 0 ? outward + estW <= W - 2 : outward - estW >= 2;
+    if (fits) {
+      p.push(labelText(outward, Y(0) + (mk.side > 0 ? -6 : 12), mk.label, { fill: mk.colour, size: 8, anchor: mk.side > 0 ? "start" : "end" }));
+    } else {
+      p.push(labelText(mk.side > 0 ? mx - 5 : mx + 5, Y(0) + (mk.side > 0 ? -6 : 12), mk.label, { fill: mk.colour, size: 8, anchor: mk.side > 0 ? "end" : "start" }));
+    }
+  }
+  p.push("</g></svg>");
+  return p.join("");
+}
+
+export const VECTOR_TRIANGLE_SIZE = { w: 340, h: 320 };
+
+export interface TriangleVector {
+  /** Components in the drawing plane (x right, y up). */
+  dx: number;
+  dy: number;
+  colour: string;
+  label: string;
+  dashed?: boolean;
+}
+
+/**
+ * Vectors drawn tip-to-tail with the resultant closing the figure, EQUAL
+ * ASPECT because the angles between the legs are the entire content — a wind
+ * triangle's drift angle or a climb triangle's γ read straight off the page
+ * only when both axes share one scale.
+ */
+export function vectorTriangleSvg(legs: TriangleVector[], resultant: TriangleVector, title: string, note?: string): string {
+  const { w: W, h: H } = VECTOR_TRIANGLE_SIZE;
+  const all = [...legs, resultant];
+  if (!all.length || !all.every((v) => Number.isFinite(v.dx) && Number.isFinite(v.dy))) {
+    return emptyChart(W, H, "The vectors do not define a triangle");
+  }
+  // Tip-to-tail positions.
+  const pts: { x: number; y: number }[] = [{ x: 0, y: 0 }];
+  for (const v of legs) {
+    const last = pts[pts.length - 1];
+    pts.push({ x: last.x + v.dx, y: last.y + v.dy });
+  }
+  const xs = pts.map((q) => q.x);
+  const ys = pts.map((q) => q.y);
+  const lo = { x: Math.min(0, ...xs), y: Math.min(0, ...ys) };
+  const hi = { x: Math.max(0, ...xs), y: Math.max(0, ...ys) };
+  const span = Math.max(hi.x - lo.x, hi.y - lo.y, 1e-9) * 1.25;
+  const ML = 14;
+  const MT = 26;
+  const MB = note ? 30 : 16;
+  const pw = W - 2 * ML;
+  const ph = H - MT - MB;
+  const scale = Math.min(pw, ph) / span;
+  const ox = ML + (pw - (hi.x - lo.x) * scale) / 2 - lo.x * scale;
+  const oy = MT + (ph + (hi.y - lo.y) * scale) / 2 + lo.y * scale;
+  const X = (x: number): number => ox + x * scale;
+  const Y = (y: number): number => oy - y * scale;
+
+  const arrow = (x0: number, y0: number, x1: number, y1: number, colour: string, dashed?: boolean): string => {
+    const ang = Math.atan2(Y(y1) - Y(y0), X(x1) - X(x0));
+    const hx = X(x1);
+    const hy = Y(y1);
+    const a1 = ang + Math.PI - 0.4;
+    const a2 = ang + Math.PI + 0.4;
+    return (
+      `<line x1="${X(x0).toFixed(1)}" y1="${Y(y0).toFixed(1)}" x2="${hx.toFixed(1)}" y2="${hy.toFixed(1)}" stroke="${colour}" stroke-width="2"${dashed ? ' stroke-dasharray="5 3"' : ""}/>` +
+      `<line x1="${hx.toFixed(1)}" y1="${hy.toFixed(1)}" x2="${(hx + 8 * Math.cos(a1)).toFixed(1)}" y2="${(hy + 8 * Math.sin(a1)).toFixed(1)}" stroke="${colour}" stroke-width="2"/>` +
+      `<line x1="${hx.toFixed(1)}" y1="${hy.toFixed(1)}" x2="${(hx + 8 * Math.cos(a2)).toFixed(1)}" y2="${(hy + 8 * Math.sin(a2)).toFixed(1)}" stroke="${colour}" stroke-width="2"/>`
+    );
+  };
+
+  const p: string[] = [];
+  p.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`);
+  p.push(`<rect width="${W}" height="${H}" fill="${PAPER}"/>`);
+  p.push(`<g font-family="sans-serif" font-size="9" fill="${INK}">`);
+  p.push(`<text x="${(W / 2).toFixed(1)}" y="15" text-anchor="middle" font-size="11">${esc(title)}</text>`);
+
+  // Labels sit OFF their vectors, pushed along each vector's screen-space
+  // perpendicular — legs one way, the resultant the other — because a
+  // shallow triangle (small drift, small climb angle) lays its legs almost
+  // on top of the resultant and midpoint labels collided exactly there.
+  const perpLabel = (x0: number, y0: number, x1: number, y1: number, txt: string, colour: string, side: 1 | -1): string => {
+    const mx = (X(x0) + X(x1)) / 2;
+    const my = (Y(y0) + Y(y1)) / 2;
+    let px = -(Y(y1) - Y(y0));
+    let py = X(x1) - X(x0);
+    const n = Math.hypot(px, py) || 1;
+    px = (px / n) * 14 * side;
+    py = (py / n) * 14 * side;
+    return labelText(mx + px, my + py, txt, { fill: colour, size: 8, anchor: "middle" });
+  };
+  legs.forEach((v, i) => {
+    const from = pts[i];
+    const to = pts[i + 1];
+    p.push(arrow(from.x, from.y, to.x, to.y, v.colour, v.dashed));
+    p.push(perpLabel(from.x, from.y, to.x, to.y, v.label, v.colour, 1));
+  });
+  p.push(arrow(0, 0, resultant.dx, resultant.dy, resultant.colour, resultant.dashed));
+  p.push(perpLabel(0, 0, resultant.dx, resultant.dy, resultant.label, resultant.colour, -1));
+  if (note) p.push(labelText(W / 2, H - 8, note, { anchor: "middle", size: 8, fill: RULE }));
+  p.push("</g></svg>");
+  return p.join("");
+}
+
+export const ARM_CHART_SIZE = { w: 360, h: 330 };
+
+export interface ArmChain {
+  joints: { x: number; y: number }[];
+  colour: string;
+  label?: string;
+  dashed?: boolean;
+}
+
+export interface ArmCircle {
+  r: number;
+  cx?: number;
+  cy?: number;
+  dashed?: boolean;
+  colour?: string;
+}
+
+export interface ArmEllipse {
+  cx: number;
+  cy: number;
+  /** Semi-axes and rotation of the major axis, radians. */
+  a: number;
+  b: number;
+  phi: number;
+  colour: string;
+}
+
+/**
+ * Linkages in the plane: chains of joints, reference circles (reach, wheel
+ * tracks), a target cross, an optional ellipse (manipulability). EQUAL
+ * ASPECT — the joint angles and the ellipse's eccentricity are the content.
+ */
+export function armSvg(
+  chains: ArmChain[],
+  circles: ArmCircle[],
+  opts: {
+    title: string;
+    target?: { x: number; y: number };
+    ellipse?: ArmEllipse;
+    note?: string;
+    /**
+     * Floor on the drawn span, in data units. Two views of the SAME chain
+     * (plan and elevation) must pass each other's extent here, or the same
+     * link reads two different lengths across the pair.
+     */
+    minSpan?: number;
+  },
+): string {
+  const { w: W, h: H } = ARM_CHART_SIZE;
+  const xs: number[] = [0];
+  const ys: number[] = [0];
+  for (const ch of chains)
+    for (const j of ch.joints) {
+      if (!Number.isFinite(j.x) || !Number.isFinite(j.y)) return emptyChart(W, H, "The linkage has a non-finite joint");
+      xs.push(j.x);
+      ys.push(j.y);
+    }
+  for (const c of circles) {
+    if (!Number.isFinite(c.r) || c.r < 0) continue;
+    xs.push((c.cx ?? 0) - c.r, (c.cx ?? 0) + c.r);
+    ys.push((c.cy ?? 0) - c.r, (c.cy ?? 0) + c.r);
+  }
+  if (opts.target) {
+    xs.push(opts.target.x);
+    ys.push(opts.target.y);
+  }
+  if (opts.ellipse) {
+    const m = Math.max(opts.ellipse.a, opts.ellipse.b);
+    xs.push(opts.ellipse.cx - m, opts.ellipse.cx + m);
+    ys.push(opts.ellipse.cy - m, opts.ellipse.cy + m);
+  }
+  const lo = { x: Math.min(...xs), y: Math.min(...ys) };
+  const hi = { x: Math.max(...xs), y: Math.max(...ys) };
+  const span = Math.max(hi.x - lo.x, hi.y - lo.y, opts.minSpan ?? 0, 1e-9) * 1.12;
+  const ML = 12;
+  const MT = 24;
+  const MB = opts.note ? 28 : 14;
+  const pw = W - 2 * ML;
+  const ph = H - MT - MB;
+  const scale = Math.min(pw, ph) / span;
+  const ox = ML + (pw - (hi.x - lo.x) * scale) / 2 - lo.x * scale;
+  const oy = MT + (ph + (hi.y - lo.y) * scale) / 2 + lo.y * scale;
+  const X = (x: number): number => ox + x * scale;
+  const Y = (y: number): number => oy - y * scale;
+
+  const p: string[] = [];
+  p.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`);
+  p.push(`<rect width="${W}" height="${H}" fill="${PAPER}"/>`);
+  p.push(`<g font-family="sans-serif" font-size="9" fill="${INK}">`);
+  p.push(`<text x="${(W / 2).toFixed(1)}" y="15" text-anchor="middle" font-size="11">${esc(opts.title)}</text>`);
+
+  for (const c of circles) {
+    if (!Number.isFinite(c.r) || c.r <= 0) continue;
+    p.push(
+      `<circle cx="${X(c.cx ?? 0).toFixed(1)}" cy="${Y(c.cy ?? 0).toFixed(1)}" r="${(c.r * scale).toFixed(1)}" fill="none" stroke="${c.colour ?? FAINT}"${c.dashed !== false ? ' stroke-dasharray="4 3"' : ""}/>`,
+    );
+  }
+  if (opts.ellipse) {
+    const el = opts.ellipse;
+    const deg = (el.phi * 180) / Math.PI;
+    p.push(
+      `<ellipse cx="${X(el.cx).toFixed(1)}" cy="${Y(el.cy).toFixed(1)}" rx="${Math.max(el.a * scale, 0.75).toFixed(1)}" ry="${Math.max(el.b * scale, 0.75).toFixed(1)}" transform="rotate(${(-deg).toFixed(1)} ${X(el.cx).toFixed(1)} ${Y(el.cy).toFixed(1)})" fill="${el.colour}" fill-opacity="0.15" stroke="${el.colour}" stroke-width="1.6"/>`,
+    );
+  }
+  for (const ch of chains) {
+    const pts = ch.joints.map((j) => `${X(j.x).toFixed(1)},${Y(j.y).toFixed(1)}`).join(" ");
+    p.push(`<polyline points="${pts}" fill="none" stroke="${ch.colour}" stroke-width="3" stroke-linecap="round"${ch.dashed ? ' stroke-dasharray="6 4"' : ""}/>`);
+    for (const j of ch.joints) {
+      p.push(`<circle cx="${X(j.x).toFixed(1)}" cy="${Y(j.y).toFixed(1)}" r="3.4" fill="${PAPER}" stroke="${ch.colour}" stroke-width="1.6"/>`);
+    }
+    if (ch.label && ch.joints.length) {
+      const tip = ch.joints[ch.joints.length - 1];
+      p.push(labelText(X(tip.x) + 6, Y(tip.y) - 6, ch.label, { fill: ch.colour, size: 8 }));
+    }
+  }
+  if (opts.target) {
+    const tx = X(opts.target.x);
+    const ty = Y(opts.target.y);
+    p.push(`<line x1="${(tx - 5).toFixed(1)}" y1="${ty.toFixed(1)}" x2="${(tx + 5).toFixed(1)}" y2="${ty.toFixed(1)}" stroke="${POINT}" stroke-width="2"/>`);
+    p.push(`<line x1="${tx.toFixed(1)}" y1="${(ty - 5).toFixed(1)}" x2="${tx.toFixed(1)}" y2="${(ty + 5).toFixed(1)}" stroke="${POINT}" stroke-width="2"/>`);
+  }
+  if (opts.note) p.push(labelText(W / 2, H - 8, opts.note, { anchor: "middle", size: 8, fill: RULE }));
+  p.push("</g></svg>");
+  return p.join("");
+}
+
 export const LADDER_CHART_SIZE_W = 400;
 
 export interface LadderRow {

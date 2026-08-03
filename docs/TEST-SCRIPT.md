@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.88.0)
+# JurisLab — Manual Test Script (v2.89.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -1092,6 +1092,37 @@ Engineering mode. **Energy & power** grows 8 → 16; the mode must state
 - [ ] All eight new tools insert, subscripts and superscripts intact (O₂, m², kVAR).
 
 ---
+
+## 0ax. New in v2.89.0 - EVERY calculator draws (130 of 130)
+
+The final 24 tools insert figures; the ratchet closes at 130 of 130.
+Spot-check the geometric ones — equal aspect is the thing to eyeball:
+
+- [ ] **Circular orbit**, defaults (Earth, 400 km) → a grey disc with a thin
+  blue ring hugging it — the ring must be a CIRCLE, and barely off the
+  surface (that closeness is the point).
+- [ ] **Hohmann transfer**, defaults (300 → 35 786 km) → two dashed circles,
+  a blue half-ellipse tangent to both, "burn 1" on the INNER circle and
+  "burn 2" on the outer. Swap the altitudes (35786 → 300) → burn 1 moves to
+  the OUTER circle, because that is now the departure orbit.
+- [ ] **Wind triangle**, defaults → three arrows closing exactly: blue air
+  vector, red wind vector, green ground vector; drift 11.3° noted below.
+- [ ] **Differential drive**, defaults (left 0.8, right 1.2) → three
+  concentric circles about a red cross to the LEFT of the robot (faster
+  right wheel = left turn), the faster wheel on the OUTER dashed circle.
+  Swap the wheel speeds → the whole construction mirrors to the right.
+- [ ] **2R inverse kinematics**, defaults → two arms (solid and dashed) from
+  the base to the same target cross inside the annulus. Set the target to
+  (2, 0) → NO arm, just the annulus and the stranded cross, captioned with
+  the miss distance.
+- [ ] **DH forward kinematics**, defaults → TWO figures, plan and elevation;
+  the first link leaves the plane so it is short in plan and tall in
+  elevation — and the second link must be the SAME drawn length in both
+  views (shared scale).
+- [ ] **Signal sampling** (Biomedical), defaults (500 Hz, 550 Hz tone) → the
+  fold diagram with the orange interference dot at (550, 50): folded to
+  50 Hz, dead inside an ECG's band. Set fs **150** → the red "signal max
+  FOLDS" dot shows the signal's own top aliasing — the unfixable case.
 
 ## 0aw. New in v2.88.0 - Computation, chips, optics and quantum draw
 

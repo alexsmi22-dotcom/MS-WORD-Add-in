@@ -6,6 +6,47 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.89.0] — 2026-08-03 — EVERY calculator draws: 130 of 130
+
+The final twenty-four, and the figure ratchet closes at **130 of 130**. Every
+Engineering calculator now inserts its data AND its picture — the standing
+requirement, met.
+
+Three new equal-aspect builders finish the family: **orbitChartSvg** (conics
+about a body at the shared focus — the focus offset of an ellipse is the
+physics, and a circular orbit must be a circle), **vectorTriangleSvg**
+(tip-to-tail vectors whose angles read truthfully), and **armSvg** (planar
+linkages, reference circles, targets, ellipses). One additive engine change:
+`DhResult` now exposes every intermediate joint frame, because a chain the
+engine walked can be drawn only if the engine says where it went.
+
+The figures: the Rankine and refrigeration **energy ledgers**; your arc
+against the **optimum arc for your height**; the **two ways to hit one
+target**; impact energy **saturating at terminal speed**; the **S-curve
+against its trapezoid** (rebuilt from the engine's own phase times); every
+axis's throttled profile **finishing together**; orbits, ellipse and
+**Hohmann transfer to scale**; the **tyranny of the rocket equation**;
+escape at **√2 × circular** on every radius; the great circle **bowing
+poleward** past its chart line (split at the antimeridian); the **wind
+triangle** north-up; the **climb triangle** with γ to scale; one TAS
+becoming **three airspeeds** with altitude; the arm in its reach circle;
+**both IK branches** (an unreachable target still draws — the annulus and
+the stranded cross are the most informative picture the tool has); the
+**manipulability ellipse**; the DH chain in **two orthographic views at one
+shared scale**; the triangular profile **peaking below its commanded
+speed**; the differential drive's **turning circles about the true ICC**;
+the **r⁻⁴ stenosis curve**; the joint's **force bars**; and the biosignal
+**fold diagram**, which now draws the inadequate case too — the signal's
+own top folding back into its band, the unfixable failure.
+
+The adversarial pass earned its keep one last time: **two blockers invisible
+at the defaults** — the differential drive drew every clockwise turn
+mirrored (the engine's turn radius is signed, and re-applying the sign of ω
+flipped it), and the Hohmann burn labels swapped orbits on any descending
+transfer. Plus the Rankine ledger double-counting the pump work its net-work
+figure already contained, the two DH views drifting to different scales, an
+orbit-builder overflow guard, and the biosignal gap. All fixed before ship.
+
 ## [2.88.0] — 2026-08-03 — Computation, chips, optics and quantum draw
 
 Sixth figure batch of the day and the largest: twenty-two tools across four

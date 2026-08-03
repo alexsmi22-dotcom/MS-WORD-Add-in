@@ -318,6 +318,13 @@ export interface DhResult {
   /** Roll, pitch, yaw in radians (ZYX convention), null at gimbal lock. */
   rpy: [number, number, number] | null;
   gimbalLock: boolean;
+  /**
+   * The origin of every intermediate frame, base [0,0,0] first, tip last —
+   * length rows + 1. Added so the chain can be DRAWN; the tip alone cannot
+   * be, and re-deriving the walk outside the engine would be a second
+   * implementation free to disagree with this one.
+   */
+  joints: [number, number, number][];
   notes: string[];
 }
 
@@ -350,6 +357,7 @@ export function dhForward(rows: DhRow[]): DhResult | null {
     return O;
   };
 
+  const joints: [number, number, number][] = [[0, 0, 0]];
   for (const r of rows) {
     const ct = Math.cos(r.theta);
     const st = Math.sin(r.theta);
@@ -362,6 +370,7 @@ export function dhForward(rows: DhRow[]): DhResult | null {
       0, 0, 0, 1,
     ];
     T = mul(T, A);
+    joints.push([T[3], T[7], T[11]]);
   }
 
   const rotation = [T[0], T[1], T[2], T[4], T[5], T[6], T[8], T[9], T[10]];
@@ -391,7 +400,7 @@ export function dhForward(rows: DhRow[]): DhResult | null {
     rpy = [roll, pitch, yaw];
   }
 
-  return { position, rotation, rpy, gimbalLock, notes };
+  return { position, rotation, rpy, gimbalLock, joints, notes };
 }
 
 export interface ProfileResult {

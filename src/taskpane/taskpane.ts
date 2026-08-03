@@ -134,6 +134,13 @@ import {
   GAMUT_CHART_SIZE,
   gamutTriangleSvg,
   ladderSvg,
+  ORBIT_CHART_SIZE,
+  orbitChartSvg,
+  VECTOR_TRIANGLE_SIZE,
+  vectorTriangleSvg,
+  ARM_CHART_SIZE,
+  armSvg,
+  type ArmChain,
   SectionStrip,
 } from "../lib/mechchart";
 import { parseNetlist, parseValue, solveDc, solveAc, frequencySweep, dB } from "../lib/circuit";
@@ -505,6 +512,7 @@ import {
   sCurveProfile,
   greatCircle,
   windTriangle,
+  EARTH_MEAN_RADIUS,
 } from "../lib/trajectory";
 import {
   BODIES,
@@ -12215,6 +12223,32 @@ const ENG_CALCS: EngCalc[] = [
         lines.push(`Back-work ratio (pump / turbine) = ${engNum(res.backWorkRatio * 100)}%`);
         lines.push(`  Energy balance: Qin - Qout - Wnet = ${engNum(res.heatIn - res.heatOut - res.netWork)} kJ/kg (should be zero)`);
         for (const note of res.notes) lines.push(`Note: ${note}`);
+        lines.push(ENG_THERMO_UNIT_NOTE);
+        // The enthalpy ledger: heat in, heat rejected, and what is left as
+        // net work. The pump bar is ~0.3% of the turbine's — that
+        // near-invisibility IS the back-work-ratio lesson, and the value
+        // label carries what the 0.75 px floor cannot.
+        return engReport(lines, [
+          {
+            kind: "plot",
+            // Qin − Qout = Wnet EXACTLY — netWork already carries the pump
+            // inside it, and an extra pump rung made the waterfall land at
+            // netWork + pumpWork while the result bar ended at netWork,
+            // contradicting the tool's own printed zero balance.
+            svg: ladderSvg(
+              [
+                { name: "heat in (boiler)", delta: res.heatIn, gain: true },
+                { name: "heat out (condenser)", delta: -res.heatOut, gain: false },
+                { name: "net work", delta: res.netWork, gain: true, result: true },
+              ],
+              { title: "The Rankine energy ledger", axisLabel: "specific energy (kJ/kg)", fmt: (v2) => v2.toFixed(0) },
+            ),
+            caption: `Where the boiler heat goes; efficiency ${engNum(res.efficiency * 100, 3)}%, back-work ratio ${engNum(res.backWorkRatio * 100, 3)}%`,
+            alt: "Energy waterfall from heat in through heat rejected to net work",
+            w: 400,
+            h: 56 + 3 * 34 + 12,
+          },
+        ]);
       } else if (which === "fridge") {
         const res = refrigerationFromEnthalpies(
           Number(r("h1") || "0"),
@@ -12231,6 +12265,27 @@ const ENG_CALCS: EngCalc[] = [
         lines.push(`COP as a refrigerator = ${engNum(res.copRefrigerator)}`);
         lines.push(`COP as a heat pump = ${engNum(res.copHeatPump)}`);
         for (const note of res.notes) lines.push(`Note: ${note}`);
+        lines.push(ENG_THERMO_UNIT_NOTE);
+        // The energy balance of the cycle: effect + work = rejection,
+        // exactly — which is why a heat pump's COP always beats the same
+        // machine's refrigerator COP by exactly one.
+        return engReport(lines, [
+          {
+            kind: "plot",
+            svg: ladderSvg(
+              [
+                { name: "refrigeration effect", delta: res.refrigerationEffect, gain: true },
+                { name: "compressor work", delta: res.compressorWork, gain: true },
+                { name: "heat rejected", delta: res.heatRejected, gain: true, result: true },
+              ],
+              { title: "The refrigeration energy balance", axisLabel: "specific energy (kJ/kg)", fmt: (v2) => v2.toFixed(0) },
+            ),
+            caption: `Effect plus work equals rejection; COP ${engNum(res.copRefrigerator, 4)} as a refrigerator`,
+            alt: "Energy bars showing refrigeration effect plus compressor work equalling heat rejected",
+            w: 400,
+            h: 56 + 3 * 34 + 12,
+          },
+        ]);
       } else {
         const tunit = (r("tunit") || "C") as TempUnit;
         const th = toKelvin(Number(r("th") || "0"), tunit);
@@ -14709,6 +14764,68 @@ const ENG_CALCS: EngCalc[] = [
         lines.push(`Reynolds number = ${engNum(res.reynolds)}${res.turbulent ? " — TURBULENT" : " — laminar"}`);
         lines.push(`Wall shear stress = ${engNum(res.wallShearStress)} Pa`);
         for (const note of res.notes) lines.push(`Note: ${note}`);
+        lines.push(ENG_BIOMED_UNIT_NOTE);
+        // The r⁻⁴ law on a log resistance axis, this vessel marked, with the
+        // engine's own two teaching multipliers as unlabeled stems: 80% of
+        // the radius is ×2.4 the resistance, half the radius is ×16. Each
+        // point re-asks the engine.
+        {
+          const radius0 = Number(r("radius") || "0");
+          if (radius0 > 0 && Number.isFinite(res.resistance) && res.resistance > 0) {
+            const sweepR: Point[] = [];
+            for (let i2 = 0; i2 <= 60; i2++) {
+              const rk = radius0 * (0.4 + (1.2 * i2) / 60);
+              const r2 = vesselFlow({
+                radius: rk,
+                length: Number(r("length") || "0"),
+                flow: Number(r("flow") || "0"),
+                viscosity: Number(r("mu") || "0"),
+                density: Number(r("rho") || "0"),
+              });
+              if (r2.ok && Number.isFinite(r2.resistance) && r2.resistance > 0) sweepR.push({ x: rk * 1000, y: r2.resistance });
+            }
+            if (sweepR.length > 10) {
+              const yTop = Math.max(...sweepR.map((pt) => pt.y));
+              const rSeries: Series[] = [
+                { points: sweepR, type: "line", color: "#2563eb", label: "resistance ∝ r⁻⁴" },
+                { points: [{ x: radius0 * 1000, y: res.resistance }], type: "scatter", color: "#b91c1c", label: "this vessel" },
+              ];
+              for (const frac of [0.8, 0.5]) {
+                const rr = radius0 * frac;
+                if (rr * 1000 >= sweepR[0].x) {
+                  rSeries.push({
+                    points: [
+                      { x: rr * 1000, y: res.resistance },
+                      { x: rr * 1000, y: Math.min(res.resistance / Math.pow(frac, 4), yTop) },
+                    ],
+                    type: "line",
+                    color: "#9ca3af",
+                  });
+                }
+              }
+              const svg = buildPlotSvg(rSeries, {
+                width: 380,
+                height: 250,
+                yScale: "log",
+                xlabel: "vessel radius (mm)",
+                ylabel: "hydraulic resistance (Pa·s/m³)",
+                title: "A modest narrowing is not modest",
+              });
+              return engReport(lines, [
+                {
+                  kind: "plot",
+                  svg,
+                  caption:
+                    "Resistance against radius on a log axis; the stems mark 80% of the radius (×2.4) and half (×16)",
+                  alt: "Fourth-power resistance curve with this vessel and two narrowing markers",
+                  w: 380,
+                  h: 250,
+                },
+              ]);
+            }
+          }
+        }
+        return { text: plainDashes(lines.join("\n")) };
       } else {
         const res = circulation({
           mapMmHg: Number(r("map") || "0"),
@@ -14766,6 +14883,36 @@ const ENG_CALCS: EngCalc[] = [
       lines.push(`JOINT REACTION FORCE = ${engNum(res.jointReaction)} N`);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_BIOMED_UNIT_NOTE);
+
+      // The forces as bars — one shared newton scale, because the 7× gap
+      // between the load and the muscle force IS the third-class-lever
+      // story, and the joint reaction bigger than either is the number a
+      // prosthesis must survive.
+      {
+        const rows = [
+          { name: "external load", value: Number(r("load") || "0"), colour: "#2563eb" },
+          { name: "muscle force", value: res.muscleForce, colour: "#b91c1c" },
+          { name: "joint reaction", value: res.jointReaction, colour: "#d97706" },
+        ];
+        const segWv = r("segW").trim() ? Number(r("segW")) : 0;
+        if (segWv > 0) rows.splice(1, 0, { name: "segment weight", value: segWv, colour: "#9ca3af" });
+        if (rows.every((rw) => Number.isFinite(rw.value))) {
+          const svg = hBarSvg(rows, {
+            title: `Forces about the joint (advantage ${engNum(res.mechanicalAdvantage, 3)})`,
+            unit: "N",
+          });
+          return engReport(lines, [
+            {
+              kind: "plot",
+              svg,
+              caption: "The load, the muscle force that balances it, and the joint reaction that exceeds both",
+              alt: "Force bars for the external load, muscle force and joint reaction",
+              w: 400,
+              h: 46 + rows.length * HBAR_ROW_H + 18,
+            },
+          ]);
+        }
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -14805,6 +14952,66 @@ const ENG_CALCS: EngCalc[] = [
       }
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_BIOMED_UNIT_NOTE);
+
+      // The same fold diagram the audio door draws — one engine, one figure
+      // family. The signal band's top and the fold of the checked tone both
+      // sit on the sawtooth; the default 550 Hz tone landing at 50 Hz, dead
+      // inside an ECG's band, is the textbook case. No spectrum is invented:
+      // the engine holds no amplitudes.
+      {
+        const fsV = Number(r("fs") || "0");
+        const fmaxV = Number(r("fmax") || "0");
+        if (fsV > 0) {
+          // The sweep parameter must stay below Nyquist or the engine
+          // early-returns the same fold for every point — so an INADEQUATE
+          // setup sweeps with a nominal in-band fmax and marks where the
+          // real signal top folds to, in red, inside its own band.
+          const sweepFmax = res.adequate ? fmaxV : res.nyquist * 0.5;
+          const fold: Point[] = [];
+          for (let i2 = 1; i2 <= 200; i2++) {
+            const f = (2.5 * fsV * i2) / 200;
+            const r2 = samplingCheck(fsV, sweepFmax, undefined, f);
+            if (r2.ok && r2.aliasedTo !== null && Number.isFinite(r2.aliasedTo)) fold.push({ x: f, y: r2.aliasedTo });
+          }
+          if (fold.length > 20) {
+            const sigFold = samplingCheck(fsV, sweepFmax, undefined, Math.min(fmaxV, 2.5 * fsV));
+            const sigY = sigFold.ok && sigFold.aliasedTo !== null ? sigFold.aliasedTo : fmaxV;
+            const foldSeries: Series[] = [
+              { points: fold, type: "line", color: "#2563eb", label: "lands at" },
+              {
+                points: [{ x: Math.min(fmaxV, 2.5 * fsV), y: sigY }],
+                type: "scatter",
+                color: res.adequate ? "#059669" : "#b91c1c",
+                label: res.adequate ? "signal max" : "signal max FOLDS",
+              },
+              { points: [{ x: res.nyquist, y: res.nyquist }], type: "scatter", color: "#9ca3af", label: "Nyquist" },
+            ];
+            const interfV = r("interf").trim() ? Number(r("interf")) : null;
+            if (interfV !== null && res.aliasedTo !== null && interfV <= 2.5 * fsV) {
+              foldSeries.push({ points: [{ x: interfV, y: res.aliasedTo }], type: "scatter", color: "#d97706", label: "your interference" });
+            }
+            const svg = buildPlotSvg(foldSeries, {
+              width: 380,
+              height: 260,
+              xlabel: "input frequency (Hz)",
+              ylabel: "apparent frequency after sampling (Hz)",
+              title: "Where every frequency lands",
+            });
+            return engReport(lines, [
+              {
+                kind: "plot",
+                svg,
+                caption: res.adequate
+                  ? "The fold diagram; the marked interference lands inside the signal band after sampling"
+                  : "The fold diagram; the signal's own top folds back into the band — the unfixable failure",
+                alt: "Apparent frequency against input frequency with the fold markers",
+                w: 380,
+                h: 260,
+              },
+            ]);
+          }
+        }
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -15915,7 +16122,30 @@ const ENG_CALCS: EngCalc[] = [
       });
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_SAME_UNIT_NOTE);
-      return { text: plainDashes(lines.join("\n")) };
+
+      // The arm DRAWN, equal aspect, inside its faint reach circle — the
+      // joint angles are the content, and they only read truthfully at one
+      // scale. The joints come from the engine's own walk.
+      {
+        const svg = armSvg(
+          [{ joints: res.joints, colour: "#2563eb", label: "tip" }],
+          [{ r: res.maxReach }],
+          {
+            title: "The chain in the plane",
+            note: `tip (${engNum(res.tip.x, 4)}, ${engNum(res.tip.y, 4)}) m, reach ${engNum(res.maxReach, 4)} m`,
+          },
+        );
+        return engReport(lines, [
+          {
+            kind: "plot",
+            svg,
+            caption: "The chain at these joint angles, inside its maximum-reach circle",
+            alt: "Planar linkage drawn to scale with the reach envelope",
+            w: ARM_CHART_SIZE.w,
+            h: ARM_CHART_SIZE.h,
+          },
+        ]);
+      }
     },
   },
   {
@@ -15966,7 +16196,48 @@ const ENG_CALCS: EngCalc[] = [
       }
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_SAME_UNIT_NOTE);
-      return { text: plainDashes(lines.join("\n")) };
+
+      // Both branches drawn to the same target inside the workspace annulus.
+      // UNREACHABLE is still drawn — the annulus and the stranded target are
+      // the most informative picture this tool has. Elbow positions are
+      // derived from the engine's own angles.
+      {
+        const chains: ArmChain[] = res.solutions.map((s, i2) => ({
+          joints: [
+            { x: 0, y: 0 },
+            { x: vals.l1 * Math.cos(s.theta1), y: vals.l1 * Math.sin(s.theta1) },
+            { x: vals.x, y: vals.y },
+          ],
+          colour: i2 === 0 ? "#2563eb" : "#059669",
+          label: s.branch,
+          dashed: i2 === 1,
+        }));
+        const svg = armSvg(
+          chains,
+          [{ r: res.outerReach }, ...(res.innerReach > 0 ? [{ r: res.innerReach }] : [])],
+          {
+            title: res.reachable ? "Both ways to reach the target" : "The target is outside the workspace",
+            target: { x: vals.x, y: vals.y },
+            note: res.reachable
+              ? res.singular
+                ? "the two branches coincide here (singular)"
+                : "solid and dashed: the two elbow branches"
+              : `outside the annulus by ${engNum(res.missM, 4)} m`,
+          },
+        );
+        return engReport(lines, [
+          {
+            kind: "plot",
+            svg,
+            caption: res.reachable
+              ? "The two solution branches inside the workspace annulus"
+              : "The workspace annulus and the unreachable target",
+            alt: "Two-link arm solutions and the reachable annulus",
+            w: ARM_CHART_SIZE.w,
+            h: ARM_CHART_SIZE.h,
+          },
+        ]);
+      }
     },
   },
   {
@@ -16036,7 +16307,44 @@ const ENG_CALCS: EngCalc[] = [
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
-      return { text: plainDashes(lines.join("\n")) };
+
+      // The manipulability ellipse at the tip. The axis LENGTHS are the
+      // engine's singular values; the ORIENTATION is not returned, so it is
+      // derived from J·Jᵀ (the 2×2 whose eigenvectors are the ellipse axes)
+      // over the same matrix entries the engine printed. Singular → the
+      // ellipse honestly collapses to a segment. Equal aspect, because the
+      // eccentricity IS the content.
+      {
+        const t1r = (t1 * Math.PI) / 180;
+        const t2r = (t2 * Math.PI) / 180;
+        const elbow = { x: l1 * Math.cos(t1r), y: l1 * Math.sin(t1r) };
+        const tip = { x: elbow.x + l2 * Math.cos(t1r + t2r), y: elbow.y + l2 * Math.sin(t1r + t2r) };
+        const a2 = res.j[0] * res.j[0] + res.j[1] * res.j[1];
+        const b2 = res.j[0] * res.j[2] + res.j[1] * res.j[3];
+        const c2 = res.j[2] * res.j[2] + res.j[3] * res.j[3];
+        const phi = 0.5 * Math.atan2(2 * b2, a2 - c2);
+        const svg = armSvg(
+          [{ joints: [{ x: 0, y: 0 }, elbow, tip], colour: "#2563eb" }],
+          [],
+          {
+            title: "The manipulability ellipse",
+            ellipse: { cx: tip.x, cy: tip.y, a: res.singularValues[0], b: res.singularValues[1], phi, colour: "#b91c1c" },
+            note: res.singular
+              ? "rank 1: no tip velocity across the collapsed axis"
+              : `condition number ${engNum(res.conditionNumber, 4)}`,
+          },
+        );
+        return engReport(lines, [
+          {
+            kind: "plot",
+            svg,
+            caption: "Tip velocity per unit joint rate, in every direction — the singular values are the axes",
+            alt: "Two-link arm with the manipulability ellipse at the tip",
+            w: ARM_CHART_SIZE.w,
+            h: ARM_CHART_SIZE.h,
+          },
+        ]);
+      }
     },
   },
   {
@@ -16100,6 +16408,51 @@ const ENG_CALCS: EngCalc[] = [
       }
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_SAME_UNIT_NOTE);
+
+      // A 3D chain shown honestly: TWO orthographic projections — plan (x-y)
+      // and elevation (x-z) — each equal aspect, never an isometric that
+      // invites reading a foreshortened link length off the page. The joints
+      // are the engine's own accumulated frames.
+      if (res.joints.length >= 2) {
+        const plan = res.joints.map((jt) => ({ x: jt[0], y: jt[1] }));
+        const elev = res.joints.map((jt) => ({ x: jt[0], y: jt[2] }));
+        // ONE scale for both views, or the same link reads two lengths: each
+        // view is floored to the larger extent of the pair.
+        const extent = (pts: { x: number; y: number }[]): number => {
+          const xs2 = pts.map((q) => q.x);
+          const ys2 = pts.map((q) => q.y);
+          return Math.max(Math.max(0, ...xs2) - Math.min(0, ...xs2), Math.max(0, ...ys2) - Math.min(0, ...ys2));
+        };
+        const shared = Math.max(extent(plan), extent(elev));
+        const planSvg = armSvg([{ joints: plan, colour: "#2563eb", label: "tip" }], [], {
+          title: "Plan view (x-y)",
+          note: `tip x ${engNum(res.position[0], 4)}, y ${engNum(res.position[1], 4)} m`,
+          minSpan: shared,
+        });
+        const elevSvg = armSvg([{ joints: elev, colour: "#059669", label: "tip" }], [], {
+          title: "Elevation (x-z)",
+          note: `tip x ${engNum(res.position[0], 4)}, z ${engNum(res.position[2], 4)} m`,
+          minSpan: shared,
+        });
+        return engReport(lines, [
+          {
+            kind: "plot",
+            svg: planSvg,
+            caption: "Plan view of the chain (x-y); a joint leaving the plane shows in the elevation below",
+            alt: "Top-down projection of the DH chain",
+            w: ARM_CHART_SIZE.w,
+            h: ARM_CHART_SIZE.h,
+          },
+          {
+            kind: "plot",
+            svg: elevSvg,
+            caption: "Elevation of the same chain (x-z)",
+            alt: "Side projection of the DH chain",
+            w: ARM_CHART_SIZE.w,
+            h: ARM_CHART_SIZE.h,
+          },
+        ]);
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -16142,6 +16495,57 @@ const ENG_CALCS: EngCalc[] = [
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
+
+      // v(t) from the engine's own four breakpoints, with the COMMANDED
+      // speed as a dashed reference — when the move is triangular that line
+      // floats above the peak, which is the entire warning in the hint. The
+      // profile plots res.peakSpeed, never the commanded v.
+      if (res.totalTimeS > 0 && res.peakSpeed > 0) {
+        const svg = buildPlotSvg(
+          [
+            {
+              points: [
+                { x: 0, y: 0 },
+                { x: res.accelTimeS, y: res.peakSpeed },
+                { x: res.accelTimeS + res.cruiseTimeS, y: res.peakSpeed },
+                { x: res.totalTimeS, y: 0 },
+              ],
+              type: "line",
+              color: "#2563eb",
+              label: `${res.shape} profile`,
+            },
+            {
+              points: [
+                { x: 0, y: v },
+                { x: res.totalTimeS, y: v },
+              ],
+              type: "line",
+              color: "#9ca3af",
+              label: "commanded vmax",
+            },
+          ],
+          {
+            width: 380,
+            height: 250,
+            xlabel: "time (s)",
+            ylabel: "speed (m/s)",
+            title: res.shape === "triangular" ? "The move never reaches the commanded speed" : "The trapezoidal profile",
+          },
+        );
+        return engReport(lines, [
+          {
+            kind: "plot",
+            svg,
+            caption:
+              res.shape === "triangular"
+                ? "The triangular profile peaking below the commanded speed — the case that goes wrong"
+                : "The velocity profile against the commanded maximum",
+            alt: "Velocity against time with the commanded speed as a reference line",
+            w: 380,
+            h: 250,
+          },
+        ]);
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -16213,7 +16617,99 @@ const ENG_CALCS: EngCalc[] = [
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
-      return { text: plainDashes(lines.join("\n")) };
+
+      // The path: the body's circle about its instantaneous centre with the
+      // two wheel tracks either side — the pair of concentric circles IS the
+      // differential. Straight-ahead (infinite radius) draws parallel tracks
+      // instead; spin-in-place draws the wheels circling the body. The ICC
+      // side follows the SIGN of the yaw rate; a mirrored guess would mirror
+      // the motion.
+      {
+        const halfW = W / 2;
+        if (!Number.isFinite(res.turnRadius)) {
+          const len = Math.max(W * 3, 1);
+          const svg = armSvg(
+            [
+              {
+                joints: [
+                  { x: -halfW, y: 0 },
+                  { x: halfW, y: 0 },
+                ],
+                colour: "#2563eb",
+                label: "robot",
+              },
+              {
+                joints: [
+                  { x: -halfW, y: 0 },
+                  { x: -halfW, y: len },
+                ],
+                colour: "#9ca3af",
+                dashed: true,
+              },
+              {
+                joints: [
+                  { x: halfW, y: 0 },
+                  { x: halfW, y: len },
+                ],
+                colour: "#9ca3af",
+                dashed: true,
+              },
+            ],
+            [],
+            { title: "Straight ahead", note: "equal wheels: infinite turn radius, parallel tracks" },
+          );
+          return engReport(lines, [
+            {
+              kind: "plot",
+              svg,
+              caption: "Equal wheel speeds drive parallel tracks — an infinite turn radius, not zero",
+              alt: "Robot track lines running straight and parallel",
+              w: ARM_CHART_SIZE.w,
+              h: ARM_CHART_SIZE.h,
+            },
+          ]);
+        }
+        // The engine's turnRadius is SIGNED (v/ω), and that sign already
+        // carries the turn direction: with the robot on the x axis heading
+        // +y, the centre is at x = −turnRadius, full stop. Re-applying the
+        // sign of ω on top of it mirrored every clockwise turn — the faster
+        // wheel ended up on the INNER circle, which is the mirrored motion
+        // this comment warns about. Caught by the adversarial pass, not the
+        // audit, because the defaults happen to turn left.
+        const icc = { x: -res.turnRadius, y: 0 };
+        const svg = armSvg(
+          [
+            {
+              joints: [
+                { x: -halfW, y: 0 },
+                { x: halfW, y: 0 },
+              ],
+              colour: "#2563eb",
+              label: "robot",
+            },
+          ],
+          [
+            { r: Math.abs(res.turnRadius), cx: icc.x, cy: icc.y, dashed: false, colour: "#2563eb" },
+            { r: Math.abs(res.turnRadius - halfW), cx: icc.x, cy: icc.y, colour: "#9ca3af" },
+            { r: Math.abs(res.turnRadius + halfW), cx: icc.x, cy: icc.y, colour: "#9ca3af" },
+          ],
+          {
+            title: "The turning circles",
+            target: icc,
+            note: `turn radius ${engNum(Math.abs(res.turnRadius), 4)} m about the marked centre; dashed circles are the wheel tracks`,
+          },
+        );
+        return engReport(lines, [
+          {
+            kind: "plot",
+            svg,
+            caption: "The body's circle about the instantaneous centre, with a wheel track either side",
+            alt: "Concentric turning circles of the robot body and its two wheels",
+            w: ARM_CHART_SIZE.w,
+            h: ARM_CHART_SIZE.h,
+          },
+        ]);
+      }
     },
   },
 
@@ -16371,6 +16867,65 @@ const ENG_CALCS: EngCalc[] = [
       u.report(lines);
       for (const note of s.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
+
+      // The three speeds at FIXED TAS swept over altitude — fixed TAS because
+      // TAS is the tool's own input, and a fixed-CAS sweep would need an
+      // inversion the engine does not expose. TAS is the flat line; EAS and
+      // CAS falling away from it with altitude is why "airspeed" needs four
+      // names. Each point re-asks both engines.
+      {
+        const tasPts: Point[] = [];
+        const easPts: Point[] = [];
+        const casPts: Point[] = [];
+        const zTop = Math.min(Math.max(20000, z * 1.2), 84000);
+        for (let i2 = 0; i2 <= 60; i2++) {
+          const zz = (zTop * i2) / 60;
+          const a2 = atmosphere(zz, dT);
+          if (!a2) continue;
+          const s2 = airspeeds(V, a2.densityKgM3, a2.pressurePa);
+          if (!s2) continue;
+          const km = zz / 1000;
+          tasPts.push({ x: s2.tasMs, y: km });
+          easPts.push({ x: s2.easMs, y: km });
+          casPts.push({ x: s2.casMs, y: km });
+        }
+        if (tasPts.length > 10) {
+          const svg = buildPlotSvg(
+            [
+              { points: tasPts, type: "line", color: "#9ca3af", label: "TAS (held)" },
+              { points: easPts, type: "line", color: "#2563eb", label: "EAS" },
+              { points: casPts, type: "line", color: "#b91c1c", label: "CAS" },
+              {
+                points: [
+                  { x: s.tasMs, y: z / 1000 },
+                  { x: s.easMs, y: z / 1000 },
+                  { x: s.casMs, y: z / 1000 },
+                ],
+                type: "scatter",
+                color: "#059669",
+                label: "this altitude",
+              },
+            ],
+            {
+              width: 380,
+              height: 260,
+              xlabel: "speed (m/s)",
+              ylabel: "altitude (km)",
+              title: "One TAS, three airspeeds",
+            },
+          );
+          return engReport(lines, [
+            {
+              kind: "plot",
+              svg,
+              caption: "EAS and CAS falling away from a held TAS as the air thins",
+              alt: "True, equivalent and calibrated airspeeds against altitude",
+              w: 380,
+              h: 260,
+            },
+          ]);
+        }
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -16642,7 +17197,34 @@ const ENG_CALCS: EngCalc[] = [
       u.report(lines);
       for (const note of c.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
-      return { text: plainDashes(lines.join("\n")) };
+
+      // The velocity triangle: the airspeed vector at the flight-path angle,
+      // decomposed into its horizontal leg and the rate of climb. NOT a
+      // rate-of-climb-vs-speed curve — drag here is a fixed input, not a
+      // model, and that curve would be a dishonest straight line. Equal
+      // aspect so γ reads as γ; a descent points DOWN.
+      {
+        const rad = (c.angleDeg * Math.PI) / 180;
+        const svg = vectorTriangleSvg(
+          [
+            { dx: V * Math.cos(rad), dy: 0, colour: "#9ca3af", label: `ground leg ${engNum(V * Math.cos(rad), 4)} m/s` },
+            { dx: 0, dy: c.rocMs, colour: "#b91c1c", label: `climb ${engNum(c.rocMs, 4)} m/s` },
+          ],
+          { dx: V * Math.cos(rad), dy: c.rocMs, colour: "#2563eb", label: `V = ${engNum(V, 4)} m/s at γ ${engNum(c.angleDeg, 3)}°` },
+          c.rocMs >= 0 ? "The climb triangle" : "The descent triangle",
+          `sin γ = (T − D)/W = ${engNum((T - D) / W, 4)}`,
+        );
+        return engReport(lines, [
+          {
+            kind: "plot",
+            svg,
+            caption: "The airspeed vector split into its ground leg and the rate of climb, γ to scale",
+            alt: "Velocity triangle of airspeed, horizontal leg and climb rate",
+            w: VECTOR_TRIANGLE_SIZE.w,
+            h: VECTOR_TRIANGLE_SIZE.h,
+          },
+        ]);
+      }
     },
   },
 
@@ -20931,6 +21513,44 @@ const ENG_CALCS: EngCalc[] = [
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
+
+      // Your shot and the optimum arc for THIS height on one plot — which is
+      // the tool's whole doctrine: 45° is only right when the heights match.
+      // Both arcs are the closed-form parabola off the engine's own numbers.
+      if (res.flightTimeS > 0 && res.rangeM > 0) {
+        const arc = (angDeg: number, tEnd: number): Point[] => {
+          const rad = (angDeg * Math.PI) / 180;
+          const pts: Point[] = [];
+          for (let i2 = 0; i2 <= 120; i2++) {
+            const t = (tEnd * i2) / 120;
+            pts.push({ x: v * Math.cos(rad) * t, y: Math.max(0, h + v * Math.sin(rad) * t - 4.903325 * t * t) });
+          }
+          return pts;
+        };
+        const optRad = (res.optimumAngleDeg * Math.PI) / 180;
+        const optT = (v * Math.sin(optRad) + Math.sqrt(v * v * Math.sin(optRad) ** 2 + 2 * 9.80665 * h)) / 9.80665;
+        const trajSeries: Series[] = [
+          { points: arc(ang, res.flightTimeS), type: "line", color: "#2563eb", label: `your ${engNum(ang, 3)}°` },
+          { points: arc(res.optimumAngleDeg, optT), type: "line", color: "#9ca3af", label: `optimum ${engNum(res.optimumAngleDeg, 3)}°` },
+        ];
+        const svg = buildPlotSvg(trajSeries, {
+          width: 380,
+          height: 240,
+          xlabel: "range (m)",
+          ylabel: "height (m)",
+          title: "Your shot against the optimum for this height",
+        });
+        return engReport(lines, [
+          {
+            kind: "plot",
+            svg,
+            caption: "The launched arc and the maximum-range arc for this launch height",
+            alt: "Two projectile arcs, the entered angle and the optimum angle",
+            w: 380,
+            h: 240,
+          },
+        ]);
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -21023,6 +21643,45 @@ const ENG_CALCS: EngCalc[] = [
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
+
+      // Both answers, drawn: the flat direct arc and the high lofted one,
+      // meeting at the same target. At maximum range the two curves merge
+      // into one — which is exactly the engine's own boundary case.
+      if (res.lowFlightTimeS > 0 && res.highFlightTimeS > 0) {
+        const arc = (angDeg: number, tEnd: number): Point[] => {
+          const rad = (angDeg * Math.PI) / 180;
+          const pts: Point[] = [];
+          for (let i2 = 0; i2 <= 120; i2++) {
+            const t = (tEnd * i2) / 120;
+            pts.push({ x: v * Math.cos(rad) * t, y: Math.max(0, v * Math.sin(rad) * t - 4.903325 * t * t) });
+          }
+          return pts;
+        };
+        const svg = buildPlotSvg(
+          [
+            { points: arc(res.lowAngleDeg, res.lowFlightTimeS), type: "line", color: "#2563eb", label: `low ${engNum(res.lowAngleDeg, 3)}°` },
+            { points: arc(res.highAngleDeg, res.highFlightTimeS), type: "line", color: "#b91c1c", label: `high ${engNum(res.highAngleDeg, 3)}°` },
+            { points: [{ x: d, y: 0 }], type: "scatter", color: "#059669", label: "target" },
+          ],
+          {
+            width: 380,
+            height: 240,
+            xlabel: "range (m)",
+            ylabel: "height (m)",
+            title: "The two ways to hit the same target",
+          },
+        );
+        return engReport(lines, [
+          {
+            kind: "plot",
+            svg,
+            caption: "The direct and lofted solutions, both ending on the target",
+            alt: "Two projectile arcs of different angles reaching the same range",
+            w: 380,
+            h: 240,
+          },
+        ]);
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -21067,6 +21726,57 @@ const ENG_CALCS: EngCalc[] = [
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
+
+      // Energy against drop height by the engine's own documented closed
+      // form v(H) = v_t·√(1 − e^(−2gH/v_t²)): the drag curve saturating at
+      // the ceiling while the vacuum line runs off — the saturation IS the
+      // "why more height stops mattering" claim in the numbers above.
+      if (res.terminalSpeedMs > 0 && Number.isFinite(res.ceilingEnergyJ) && h > 0) {
+        const vt = res.terminalSpeedMs;
+        const g = 9.80665;
+        const air: Point[] = [];
+        const vac: Point[] = [];
+        for (let i2 = 0; i2 <= 60; i2++) {
+          const H = (2 * h * i2) / 60;
+          const vH = vt * Math.sqrt(1 - Math.exp((-2 * g * H) / (vt * vt)));
+          air.push({ x: H, y: 0.5 * m * vH * vH });
+          vac.push({ x: H, y: m * g * H });
+        }
+        const yCap = res.ceilingEnergyJ * 3;
+        const svg = buildPlotSvg(
+          [
+            { points: air, type: "line", color: "#2563eb", label: "in air" },
+            { points: vac.filter((pt) => pt.y <= yCap), type: "line", color: "#9ca3af", label: "vacuum" },
+            {
+              points: [
+                { x: 0, y: res.ceilingEnergyJ },
+                { x: 2 * h, y: res.ceilingEnergyJ },
+              ],
+              type: "line",
+              color: "#059669",
+              label: "ceiling",
+            },
+            { points: [{ x: h, y: res.energyJ }], type: "scatter", color: "#b91c1c", label: "this drop" },
+          ],
+          {
+            width: 380,
+            height: 250,
+            xlabel: "drop height (m)",
+            ylabel: "impact energy (J)",
+            title: "Energy saturates at terminal speed",
+          },
+        );
+        return engReport(lines, [
+          {
+            kind: "plot",
+            svg,
+            caption: "Impact energy against drop height, saturating at the terminal-speed ceiling",
+            alt: "Impact energy curves in air and vacuum with the ceiling and this drop marked",
+            w: 380,
+            h: 250,
+          },
+        ]);
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -21103,6 +21813,32 @@ const ENG_CALCS: EngCalc[] = [
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
+
+      // The orbit and the body to one scale — a LEO ring hugging the planet
+      // IS the fact that a 400 km orbit is barely off the ground. The body
+      // radius comes back out of the engine's own numbers (radius − altitude),
+      // never a second lookup.
+      {
+        const bodyR = res.radiusM - res.altitudeM;
+        if (bodyR > 0) {
+          const svg = orbitChartSvg(
+            bodyR,
+            [{ a: res.radiusM, e: 0, colour: "#2563eb", label: `${engNum(res.altitudeM / 1000, 4)} km orbit` }],
+            [],
+            `Circular orbit of ${res.body}`,
+          );
+          return engReport(lines, [
+            {
+              kind: "plot",
+              svg,
+              caption: "The orbit and the body at one scale",
+              alt: "Circular orbit drawn to scale around the central body",
+              w: ORBIT_CHART_SIZE.w,
+              h: ORBIT_CHART_SIZE.h,
+            },
+          ]);
+        }
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -21143,6 +21879,34 @@ const ENG_CALCS: EngCalc[] = [
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
+
+      // The ellipse with the body at the FOCUS — that offset is the physics,
+      // and it only reads truthfully at equal aspect. Periapsis and apoapsis
+      // carry their speeds, fast side against slow side.
+      {
+        const bodyR = res.periapsisRadiusM - res.periapsisAltitudeM;
+        if (bodyR > 0 && res.eccentricity < 1) {
+          const svg = orbitChartSvg(
+            bodyR,
+            [{ a: res.semiMajorAxisM, e: res.eccentricity, colour: "#2563eb", label: `e = ${engNum(res.eccentricity, 3)}` }],
+            [
+              { rM: res.periapsisRadiusM, side: 1, label: `peri ${engNum(res.periapsisSpeedMs / 1000, 3)} km/s`, colour: "#b91c1c" },
+              { rM: res.apoapsisRadiusM, side: -1, label: `apo ${engNum(res.apoapsisSpeedMs / 1000, 3)} km/s`, colour: "#059669" },
+            ],
+            `Elliptical orbit of ${res.body}`,
+          );
+          return engReport(lines, [
+            {
+              kind: "plot",
+              svg,
+              caption: "The ellipse with the body at the focus; fastest at periapsis, slowest at apoapsis",
+              alt: "Elliptical orbit to scale with periapsis and apoapsis speeds marked",
+              w: ORBIT_CHART_SIZE.w,
+              h: ORBIT_CHART_SIZE.h,
+            },
+          ]);
+        }
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -21182,6 +21946,47 @@ const ENG_CALCS: EngCalc[] = [
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
+
+      // Both circles and the half-ellipse that bridges them, burns at the
+      // two tangent points. The result carries only altitudes, so the body
+      // radius comes from the same registry the select was built from.
+      {
+        const body = BODIES.find((b) => b.id === r("body"));
+        if (body && body.radius > 0) {
+          const r1 = body.radius + res.fromAltitudeM;
+          const r2 = body.radius + res.toAltitudeM;
+          const rIn = Math.min(r1, r2);
+          const rOut = Math.max(r1, r2);
+          const svg = orbitChartSvg(
+            body.radius,
+            [
+              { a: rIn, e: 0, colour: "#9ca3af", dashed: true },
+              { a: rOut, e: 0, colour: "#9ca3af", dashed: true },
+              { a: (rIn + rOut) / 2, e: (rOut - rIn) / (rOut + rIn), colour: "#2563eb", label: "transfer", half: true },
+            ],
+            [
+              // Burn 1 belongs to the DEPARTURE orbit, wherever that lies: a
+              // descending transfer departs from the OUTER circle, and the
+              // engine supports both directions. Pinning burn 1 to the inner
+              // circle put the labels on the wrong orbits for every
+              // orbit-lowering — invisible at the LEO-to-GEO defaults.
+              { rM: r1, side: r1 <= r2 ? 1 : -1, label: `burn 1: ${engNum(res.burn1Ms, 4)} m/s`, colour: "#b91c1c" },
+              { rM: r2, side: r1 <= r2 ? -1 : 1, label: `burn 2: ${engNum(res.burn2Ms, 4)} m/s`, colour: "#059669" },
+            ],
+            `Hohmann transfer at ${res.body}`,
+          );
+          return engReport(lines, [
+            {
+              kind: "plot",
+              svg,
+              caption: "The two circular orbits and the transfer half-ellipse, burns at the tangent points",
+              alt: "Hohmann transfer geometry drawn to scale",
+              w: ORBIT_CHART_SIZE.w,
+              h: ORBIT_CHART_SIZE.h,
+            },
+          ]);
+        }
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -21220,6 +22025,41 @@ const ENG_CALCS: EngCalc[] = [
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
+
+      // The tyranny drawn: Δv = vₑ·ln(MR) flattening as the mass ratio
+      // climbs, this vehicle on the curve. The sweep starts at 1 — below it
+      // the logarithm has nothing physical to say.
+      if (res.exhaustVelocityMs > 0 && res.massRatio >= 1) {
+        const mrTop = Math.max(1.5 * res.massRatio, 10);
+        const curve: Point[] = [];
+        for (let i2 = 0; i2 <= 80; i2++) {
+          const mr = 1 + ((mrTop - 1) * i2) / 80;
+          curve.push({ x: mr, y: (res.exhaustVelocityMs * Math.log(mr)) / 1000 });
+        }
+        const svg = buildPlotSvg(
+          [
+            { points: curve, type: "line", color: "#2563eb", label: "Δv = vₑ ln(MR)" },
+            { points: [{ x: res.massRatio, y: res.deltaVMs / 1000 }], type: "scatter", color: "#b91c1c", label: "this vehicle" },
+          ],
+          {
+            width: 380,
+            height: 250,
+            xlabel: "mass ratio m₀/mf",
+            ylabel: "Δv (km/s)",
+            title: "The tyranny of the rocket equation",
+          },
+        );
+        return engReport(lines, [
+          {
+            kind: "plot",
+            svg,
+            caption: "Δv against mass ratio; the flattening is why staging exists",
+            alt: "The rocket equation curve with this vehicle's mass ratio marked",
+            w: 380,
+            h: 250,
+          },
+        ]);
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -21255,6 +22095,47 @@ const ENG_CALCS: EngCalc[] = [
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
+
+      // Escape and circular speed against radius, with μ derived from the
+      // reported numbers themselves (v_esc²·r/2) so the curves cannot
+      // disagree with them. The constant √2 gap IS the hint.
+      if (res.fromRadiusM > 0 && res.escapeSpeedMs > 0) {
+        const mu = (res.escapeSpeedMs * res.escapeSpeedMs * res.fromRadiusM) / 2;
+        const rBody = res.fromRadiusM - alt;
+        const rLo = Math.max(rBody, 1);
+        const esc2: Point[] = [];
+        const circ: Point[] = [];
+        for (let i2 = 0; i2 <= 80; i2++) {
+          const rr = rLo * Math.pow(10, i2 / 80);
+          esc2.push({ x: rr / 1000, y: Math.sqrt((2 * mu) / rr) / 1000 });
+          circ.push({ x: rr / 1000, y: Math.sqrt(mu / rr) / 1000 });
+        }
+        const svg = buildPlotSvg(
+          [
+            { points: esc2, type: "line", color: "#b91c1c", label: "escape" },
+            { points: circ, type: "line", color: "#2563eb", label: "circular" },
+            { points: [{ x: res.fromRadiusM / 1000, y: res.escapeSpeedMs / 1000 }], type: "scatter", color: "#059669", label: "from here" },
+          ],
+          {
+            width: 380,
+            height: 250,
+            xScale: "log",
+            xlabel: "radius from the centre (km)",
+            ylabel: "speed (km/s)",
+            title: "Escape is always √2 × circular",
+          },
+        );
+        return engReport(lines, [
+          {
+            kind: "plot",
+            svg,
+            caption: "Escape and circular speeds against radius; the gap is a constant factor of √2",
+            alt: "Two speed curves falling with radius, the departure point marked",
+            w: 380,
+            h: 250,
+          },
+        ]);
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -21294,6 +22175,70 @@ const ENG_CALCS: EngCalc[] = [
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
+
+      // Both velocity profiles on one axis: the rounded S-curve and the
+      // sharp-cornered trapezoid it replaces. The S-curve's corners are the
+      // jerk limit doing its work, and the horizontal gap at the end is the
+      // time paid for it — the price the text makes explicit. The S-curve is
+      // rebuilt from the engine's own phase times (tj = min(a/j, Ta/2)
+      // covers both the trapezoidal- and triangular-acceleration branches).
+      if (res.totalTimeS > 0 && res.peakSpeedMs > 0 && res.accelTimeS > 0) {
+        const Ta = res.accelTimeS;
+        const vp = res.peakSpeedMs;
+        const tj = Math.min(a / j, Ta / 2);
+        const aPk = j * tj;
+        const vAt = (t: number): number => {
+          if (t <= 0) return 0;
+          if (t >= Ta) return vp;
+          if (t <= tj) return (j * t * t) / 2;
+          if (t <= Ta - tj) return (j * tj * tj) / 2 + aPk * (t - tj);
+          const tb = Ta - t;
+          return vp - (j * tb * tb) / 2;
+        };
+        const sPts: Point[] = [];
+        for (let i2 = 0; i2 <= 140; i2++) {
+          const t = (res.totalTimeS * i2) / 140;
+          let y: number;
+          if (t <= Ta) y = vAt(t);
+          else if (t <= Ta + res.cruiseTimeS) y = vp;
+          else y = vAt(res.totalTimeS - t);
+          if (Number.isFinite(y)) sPts.push({ x: t, y });
+        }
+        // The trapezoid, from the same closed forms the engine's comparison
+        // time uses: peak min(v, √(a·d)), accelerate at a, cruise, mirror.
+        const vT = Math.min(v, Math.sqrt(a * d));
+        const tA2 = vT / a;
+        const tC2 = Math.max(0, (d - (vT * vT) / a) / vT);
+        const trap: Point[] = [
+          { x: 0, y: 0 },
+          { x: tA2, y: vT },
+          { x: tA2 + tC2, y: vT },
+          { x: 2 * tA2 + tC2, y: 0 },
+        ];
+        const svg = buildPlotSvg(
+          [
+            { points: sPts, type: "line", color: "#2563eb", label: "S-curve" },
+            { points: trap, type: "line", color: "#9ca3af", label: "trapezoidal" },
+          ],
+          {
+            width: 380,
+            height: 250,
+            xlabel: "time (s)",
+            ylabel: "speed (m/s)",
+            title: "The jerk limit rounds the corners",
+          },
+        );
+        return engReport(lines, [
+          {
+            kind: "plot",
+            svg,
+            caption: "The S-curve against the trapezoid it replaces; the later finish is the price of finite jerk",
+            alt: "Velocity profiles of the jerk-limited and trapezoidal moves",
+            w: 380,
+            h: 250,
+          },
+        ]);
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -21348,6 +22293,51 @@ const ENG_CALCS: EngCalc[] = [
       ];
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_SAME_UNIT_NOTE);
+
+      // Every axis's commanded velocity trapezoid on one time axis, all
+      // ending together at the move time — that shared endpoint IS the
+      // coordination. Zero-distance axes have no profile and are skipped
+      // (the engine leaves them unthrottled).
+      if (res.moveTimeS > 0) {
+        const axisColours = ["#2563eb", "#b91c1c", "#059669", "#d97706", "#7c3aed", "#0e7490"];
+        const axSeries: Series[] = [];
+        res.axes.forEach((ax, i2) => {
+          if (!(ax.distanceM > 0) || !(ax.scaledVmax > 0) || !(ax.scaledAmax > 0)) return;
+          const vT = Math.min(ax.scaledVmax, Math.sqrt(ax.scaledAmax * ax.distanceM));
+          const tA2 = vT / ax.scaledAmax;
+          const tC2 = Math.max(0, (ax.distanceM - (vT * vT) / ax.scaledAmax) / vT);
+          axSeries.push({
+            points: [
+              { x: 0, y: 0 },
+              { x: tA2, y: vT },
+              { x: tA2 + tC2, y: vT },
+              { x: 2 * tA2 + tC2, y: 0 },
+            ],
+            type: "line",
+            color: axisColours[i2 % axisColours.length],
+            label: `${ax.label}${ax.limiting ? " (limiting)" : ""}`,
+          });
+        });
+        if (axSeries.length) {
+          const svg = buildPlotSvg(axSeries, {
+            width: 380,
+            height: 250,
+            xlabel: "time (s)",
+            ylabel: "commanded speed",
+            title: "Every axis finishes together",
+          });
+          return engReport(lines, [
+            {
+              kind: "plot",
+              svg,
+              caption: "The throttled velocity profiles, all ending at the coordinated move time",
+              alt: "Velocity trapezoids for each axis sharing one finish time",
+              w: 380,
+              h: 250,
+            },
+          ]);
+        }
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -21384,6 +22374,76 @@ const ENG_CALCS: EngCalc[] = [
       ];
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_SAME_UNIT_NOTE);
+
+      // The route on longitude-latitude axes (equirectangular — the caption
+      // says so) against the straight chart line, the bend between them
+      // being the hint's whole point. The track is the spherical
+      // interpolation of the same two endpoints the engine measured; it is
+      // split at the antimeridian rather than smeared across the map.
+      {
+        const dEarth = res.distanceM / EARTH_MEAN_RADIUS;
+        if (dEarth > 1e-9 && dEarth < Math.PI - 1e-9) {
+          const toVec = (latD: number, lonD: number): [number, number, number] => {
+            const la = (latD * Math.PI) / 180;
+            const lo2 = (lonD * Math.PI) / 180;
+            return [Math.cos(la) * Math.cos(lo2), Math.cos(la) * Math.sin(lo2), Math.sin(la)];
+          };
+          const v1 = toVec(vals[0], vals[1]);
+          const v2 = toVec(vals[2], vals[3]);
+          const segs: Point[][] = [[]];
+          let prevLon: number | null = null;
+          for (let i2 = 0; i2 <= 100; i2++) {
+            const f2 = i2 / 100;
+            const A2 = Math.sin((1 - f2) * dEarth) / Math.sin(dEarth);
+            const B2 = Math.sin(f2 * dEarth) / Math.sin(dEarth);
+            const x = A2 * v1[0] + B2 * v2[0];
+            const y = A2 * v1[1] + B2 * v2[1];
+            const z = A2 * v1[2] + B2 * v2[2];
+            const lat = (Math.atan2(z, Math.hypot(x, y)) * 180) / Math.PI;
+            const lon = (Math.atan2(y, x) * 180) / Math.PI;
+            if (prevLon !== null && Math.abs(lon - prevLon) > 180) segs.push([]);
+            segs[segs.length - 1].push({ x: lon, y: lat });
+            prevLon = lon;
+          }
+          const gcSeries: Series[] = segs
+            .filter((s2) => s2.length > 1)
+            .map((s2, i2) => ({ points: s2, type: "line" as const, color: "#2563eb", label: i2 === 0 ? "great circle" : undefined }));
+          gcSeries.push({
+            points: [
+              { x: vals[1], y: vals[0] },
+              { x: vals[3], y: vals[2] },
+            ],
+            type: "line",
+            color: "#9ca3af",
+            label: "straight on the chart",
+          });
+          gcSeries.push({
+            points: [
+              { x: vals[1], y: vals[0] },
+              { x: vals[3], y: vals[2] },
+            ],
+            type: "scatter",
+            color: "#b91c1c",
+          });
+          const svg = buildPlotSvg(gcSeries, {
+            width: 380,
+            height: 260,
+            xlabel: "longitude (°E)",
+            ylabel: "latitude (°N)",
+            title: "The shortest route bends poleward",
+          });
+          return engReport(lines, [
+            {
+              kind: "plot",
+              svg,
+              caption: "The great circle against the straight chart line, on an equirectangular grid",
+              alt: "Great-circle track bowing away from the straight line between the endpoints",
+              w: 380,
+              h: 260,
+            },
+          ]);
+        }
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -21429,7 +22489,40 @@ const ENG_CALCS: EngCalc[] = [
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
-      return { text: plainDashes(lines.join("\n")) };
+
+      // The triangle itself, compass convention (north up, bearings
+      // clockwise), at one scale so the drift angle reads truthfully: the
+      // air vector along the heading, the wind vector blowing FROM its
+      // direction, and the resultant along the track at the ground speed.
+      {
+        const compass = (deg: number, len: number): { dx: number; dy: number } => {
+          const rad = (deg * Math.PI) / 180;
+          return { dx: len * Math.sin(rad), dy: len * Math.cos(rad) };
+        };
+        const air = compass(res.headingDeg, tas);
+        const wind = compass(wdir + 180, wspd);
+        const ground = compass(track, res.groundSpeedMs);
+        const svg = vectorTriangleSvg(
+          [
+            { ...air, colour: "#2563eb", label: `air ${engNum(tas, 4)} m/s hdg ${engNum(res.headingDeg, 4)}°` },
+            { ...wind, colour: "#b91c1c", label: `wind ${engNum(wspd, 3)} m/s` },
+          ],
+          { ...ground, colour: "#059669", label: `ground ${engNum(res.groundSpeedMs, 4)} m/s trk ${engNum(track, 4)}°` },
+          "The wind triangle",
+          `drift ${engNum(res.driftAngleDeg, 3)}°, north up` +
+            (res.alternateHeadingDeg !== null ? "; a second solution exists (see the text)" : ""),
+        );
+        return engReport(lines, [
+          {
+            kind: "plot",
+            svg,
+            caption: "Heading plus wind equals track; the angle between air and ground vectors is the drift",
+            alt: "Wind triangle of air, wind and ground vectors, north up",
+            w: VECTOR_TRIANGLE_SIZE.w,
+            h: VECTOR_TRIANGLE_SIZE.h,
+          },
+        ]);
+      }
     },
   },
 ];

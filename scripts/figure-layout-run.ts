@@ -24,6 +24,9 @@ import {
   powerTriangleSvg,
   gamutTriangleSvg,
   ladderSvg,
+  orbitChartSvg,
+  vectorTriangleSvg,
+  armSvg,
 } from "../src/lib/mechchart";
 import { buildPlotSvg, Series } from "../src/lib/plot";
 import { weibullFit, reliabilityBlock, kOutOfN, redundancy, availability } from "../src/lib/reliability";
@@ -888,5 +891,171 @@ figures.push([
     ),
   ]);
 }
+
+// --- v2.89.0: the final 24 — orbits, triangles, arms and ledgers -------------
+
+figures.push([
+  "orbit leo",
+  orbitChartSvg(6371000, [{ a: 6771000, e: 0, colour: "#2563eb", label: "400 km orbit" }], [], "Circular orbit of Earth"),
+]);
+figures.push([
+  "orbit gto",
+  orbitChartSvg(
+    6371000,
+    [{ a: 24371000, e: 0.7306, colour: "#2563eb", label: "e = 0.731" }],
+    [
+      { rM: 6671000, side: 1, label: "peri 10.2 km/s", colour: "#b91c1c" },
+      { rM: 42164000, side: -1, label: "apo 1.6 km/s", colour: "#059669" },
+    ],
+    "Elliptical orbit of Earth",
+  ),
+]);
+figures.push([
+  "orbit hohmann",
+  orbitChartSvg(
+    6371000,
+    [
+      { a: 6671000, e: 0, colour: "#9ca3af", dashed: true },
+      { a: 42164000, e: 0, colour: "#9ca3af", dashed: true },
+      { a: 24417500, e: 0.7268, colour: "#2563eb", label: "transfer", half: true },
+    ],
+    [
+      { rM: 6671000, side: 1, label: "burn 1: 2440 m/s", colour: "#b91c1c" },
+      { rM: 42164000, side: -1, label: "burn 2: 1472 m/s", colour: "#059669" },
+    ],
+    "Hohmann transfer at Earth",
+  ),
+]);
+
+figures.push([
+  "wind triangle",
+  vectorTriangleSvg(
+    [
+      { dx: 49.0, dy: -9.9, colour: "#2563eb", label: "air 50 m/s hdg 101.3°" },
+      { dx: 0, dy: 10, colour: "#b91c1c", label: "wind 10 m/s" },
+    ],
+    { dx: 49.0, dy: 0.1, colour: "#059669", label: "ground 49 m/s trk 90°" },
+    "The wind triangle",
+    "drift 11.3°, north up",
+  ),
+]);
+figures.push([
+  "climb triangle",
+  vectorTriangleSvg(
+    [
+      { dx: 79.6, dy: 0, colour: "#9ca3af", label: "ground leg 79.6 m/s" },
+      { dx: 0, dy: 8, colour: "#b91c1c", label: "climb 8.0 m/s" },
+    ],
+    { dx: 79.6, dy: 8, colour: "#2563eb", label: "V = 80 m/s at γ 5.74°" },
+    "The climb triangle",
+    "sin γ = (T − D)/W = 0.1",
+  ),
+]);
+
+figures.push([
+  "arm fk",
+  armSvg(
+    [
+      {
+        joints: [
+          { x: 0, y: 0 },
+          { x: 0.433, y: 0.25 },
+          { x: 0.537, y: 0.636 },
+          { x: 0.712, y: 0.667 },
+        ],
+        colour: "#2563eb",
+        label: "tip",
+      },
+    ],
+    [{ r: 1.1 }],
+    { title: "The chain in the plane", note: "tip (0.712, 0.667) m, reach 1.1 m" },
+  ),
+]);
+figures.push([
+  "arm ik unreachable",
+  armSvg([], [{ r: 0.9 }, { r: 0.1 }], {
+    title: "The target is outside the workspace",
+    target: { x: 1.1, y: 0.4 },
+    note: "outside the annulus by 0.27 m",
+  }),
+]);
+figures.push([
+  "arm ellipse",
+  armSvg(
+    [
+      {
+        joints: [
+          { x: 0, y: 0 },
+          { x: 0.433, y: 0.25 },
+          { x: 0.433, y: 0.65 },
+        ],
+        colour: "#2563eb",
+      },
+    ],
+    [],
+    {
+      title: "The manipulability ellipse",
+      ellipse: { cx: 0.433, cy: 0.65, a: 0.82, b: 0.21, phi: 1.2, colour: "#b91c1c" },
+      note: "condition number 3.9",
+    },
+  ),
+]);
+figures.push([
+  "diffdrive circles",
+  armSvg(
+    [
+      {
+        joints: [
+          { x: -0.2, y: 0 },
+          { x: 0.2, y: 0 },
+        ],
+        colour: "#2563eb",
+        label: "robot",
+      },
+    ],
+    [
+      { r: 1.0, cx: -1.0, cy: 0, dashed: false, colour: "#2563eb" },
+      { r: 0.8, cx: -1.0, cy: 0, colour: "#9ca3af" },
+      { r: 1.2, cx: -1.0, cy: 0, colour: "#9ca3af" },
+    ],
+    { title: "The turning circles", target: { x: -1.0, y: 0 }, note: "turn radius 1.0 m about the marked centre" },
+  ),
+]);
+
+figures.push([
+  "rankine ledger",
+  ladderSvg(
+    [
+      { name: "heat in (boiler)", delta: 3019, gain: true },
+      { name: "heat out (condenser)", delta: -1908.2, gain: false },
+      { name: "pump work in", delta: 3.2, gain: true },
+      { name: "net work", delta: 1110.8, gain: true, result: true },
+    ],
+    { title: "The Rankine energy ledger", axisLabel: "specific energy (kJ/kg)", fmt: (v) => v.toFixed(0) },
+  ),
+]);
+
+// The great-circle track with its chord, and the S-curve pair.
+figures.push([
+  "great circle",
+  buildPlotSvg(
+    [
+      { points: Array.from({ length: 101 }, (_, i) => { const f = i / 100; const lat = 51.4775 + (40.6413 - 51.4775) * f + 12 * Math.sin(Math.PI * f); const lon = -0.4614 + (-73.7781 + 0.4614) * f; return { x: lon, y: lat }; }), type: "line", color: "#2563eb", label: "great circle" },
+      { points: [{ x: -0.4614, y: 51.4775 }, { x: -73.7781, y: 40.6413 }], type: "line", color: "#9ca3af", label: "straight on the chart" },
+      { points: [{ x: -0.4614, y: 51.4775 }, { x: -73.7781, y: 40.6413 }], type: "scatter", color: "#b91c1c" },
+    ],
+    { width: 380, height: 260, xlabel: "longitude (°E)", ylabel: "latitude (°N)", title: "The shortest route bends poleward" },
+  ),
+]);
+figures.push([
+  "scurve pair",
+  buildPlotSvg(
+    [
+      { points: Array.from({ length: 141 }, (_, i) => { const t = (2.55 * i) / 140; const Ta = 0.45, vp = 0.5, cruise = 1.35; const va = (tt: number) => (tt <= 0 ? 0 : tt >= Ta ? vp : tt <= 0.2 ? 25 * tt * tt : tt <= 0.25 ? 0.5 * (tt - 0.1) * 4 - 0 + 25 * 0.04 - 1 * 0 : vp - 25 * (Ta - tt) * (Ta - tt)); const y = t <= Ta ? va(t) : t <= Ta + cruise ? vp : va(2.55 - t); return { x: t, y: Math.max(0, Math.min(vp, y)) }; }), type: "line", color: "#2563eb", label: "S-curve" },
+      { points: [{ x: 0, y: 0 }, { x: 0.25, y: 0.5 }, { x: 2.05, y: 0.5 }, { x: 2.3, y: 0 }], type: "line", color: "#9ca3af", label: "trapezoidal" },
+    ],
+    { width: 380, height: 250, xlabel: "time (s)", ylabel: "speed (m/s)", title: "The jerk limit rounds the corners" },
+  ),
+]);
 
 process.exit(runAudit(figures) ? 1 : 0);

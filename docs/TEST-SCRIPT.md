@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.79.0)
+# JurisLab — Manual Test Script (v2.80.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -1090,6 +1090,79 @@ Engineering mode. **Energy & power** grows 8 → 16; the mode must state
 - [ ] **Wind + altitude**: blank the density, set altitude 2000 m → the result notes
   density **1.0065 kg/m³ from the ISA** — the same atmosphere the aviation tools use.
 - [ ] All eight new tools insert, subscripts and superscripts intact (O₂, m², kVAR).
+
+---
+
+## 0ao. New in v2.80.0 - Thermal breadth, and legible graphs
+
+Engineering > Thermal is now **9 calculators**; the mode must state **118**.
+
+**The graph formatting fix - check this on ANY plot in the product**
+
+- [ ] Any tool with a **legend** (Analyze > FFT, Plot, the new Thermal ones):
+  the legend box must be **solid white**. Curves used to show straight through
+  it and strike out the labels naming them.
+- [ ] A plot with **large y values** (millions or more): the y-axis numbers must
+  not touch or overlap the rotated y-axis title. The left margin now grows to
+  fit them.
+
+**Exchanger rating (effectiveness-NTU)** - new
+
+- [ ] Defaults: Cr **0.75**, NTU **2**, effectiveness about **72%**, hot outlet
+  about **106 °C**, cold outlet about **87 °C**. Hot and cold duties must agree.
+- [ ] Set both capacity rates **equal**: effectiveness must be exactly
+  **NTU/(1+NTU)** = 66.7% at NTU 2. That case is 0/0 in the textbook formula and
+  must NOT come back as an error or a blank.
+- [ ] Set the hot capacity rate to **1e9** (a condensing stream): every
+  arrangement gives the same effectiveness, and a note explains why.
+- [ ] Switch to **parallel** with a huge area: effectiveness stops at **50%**
+  and the note says counterflow has no such ceiling.
+- [ ] Raise the area until NTU is above 5: a note must say doubling the area
+  from there buys almost nothing.
+- [ ] The figure shows effectiveness against NTU for all four arrangements with
+  **this exchanger marked**.
+
+**Fin efficiency & effectiveness** - new
+
+- [ ] Defaults (aluminium, h = 40): efficiency about **90%**, effectiveness
+  about **31**. A note says fins pay when h is LOW.
+- [ ] Set **h = 5000, k = 15, L = 0.01, t = 0.01**: effectiveness drops
+  **below 1**, and the note must say the fin removes LESS heat than the bare
+  surface. That is the result the tool exists for.
+- [ ] Make the fin very long (L = 0.5): a note says a longer fin adds weight and
+  no heat transfer.
+- [ ] The figure shows temperature falling from the base to the tip.
+
+**Transient cooling (lumped capacitance)** - new
+
+- [ ] Defaults: Biot about **1.7e-4**, time constant about **203 s**,
+  temperature at 600 s about **34 °C**.
+- [ ] Set **h = 5000, k = 1, V = 1e-3**: **REFUSED**, with the Biot number
+  quoted and the reason - a single exponential is the wrong SHAPE of answer.
+- [ ] Set the initial temperature BELOW ambient: it heats instead, and the curve
+  never overshoots.
+- [ ] The figure shows the cooling curve against a flat ambient line.
+
+**Radiation exchange & shields** - new
+
+- [ ] Defaults (527 °C to 27 °C, ε = 0.8, one shield at ε = 0.05): the shield
+  must cut the exchange by more than **tenfold** against no shield.
+- [ ] Set the shield emissivity to **0.8** and shields to **1**: the exchange is
+  cut by exactly **2**. Two shields: **3**. That is the N+1 rule.
+- [ ] Switch to **small object in large surroundings**: changing emissivity 2
+  must make NO difference, and a note says why.
+- [ ] Set both temperatures **equal**: Q is zero and nothing is non-finite.
+- [ ] A note must state the Celsius-to-kelvin conversion and say the fourth
+  power makes Celsius wrong by orders of magnitude rather than by an offset.
+- [ ] The figure shows radiation rising as the fourth power against a straight
+  convection line.
+
+**The five existing Thermal tools**
+
+- [ ] **Heat exchanger (LMTD)** now inserts a temperature profile. On
+  **counterflow** the gap between the curves stays roughly constant; switch to
+  **parallel** and it collapses towards the outlet.
+- [ ] All nine Thermal tools insert BOTH numbers and a figure.
 
 ---
 

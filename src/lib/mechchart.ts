@@ -71,6 +71,37 @@ function ticks(lo: number, hi: number, step: number, cap = 200): number[] {
   return out;
 }
 
+/**
+ * A text label ON AN OPAQUE BACKING, so nothing drawn under it shows through.
+ *
+ * SVG paints in document order, so an annotation added after the curves is
+ * already on top — but "on top" of a stroke is not the same as legible. A
+ * 1.6 px line running through the middle of a 8 px label strikes it out, and
+ * that is the single most common way one of these figures becomes unreadable.
+ * A backing rectangle in paper colour is what a chart library does and what
+ * this now does.
+ *
+ * `anchor` follows the SVG convention, and the backing follows the anchor.
+ */
+function labelText(
+  x: number,
+  y: number,
+  text: string,
+  opts: { size?: number; fill?: string; anchor?: "start" | "middle" | "end" } = {},
+): string {
+  const size = opts.size ?? 8;
+  const fill = opts.fill ?? INK;
+  const anchor = opts.anchor ?? "start";
+  // A conservative advance for a sans-serif face; over-estimating only pads.
+  const w = text.length * size * 0.56 + 3;
+  const h = size * 1.05;
+  const bx = anchor === "middle" ? x - w / 2 : anchor === "end" ? x - w : x - 1.5;
+  return (
+    `<rect x="${bx.toFixed(1)}" y="${(y - size * 0.82).toFixed(1)}" width="${w.toFixed(1)}" height="${h.toFixed(1)}" fill="${PAPER}"/>` +
+    `<text x="${x.toFixed(1)}" y="${y.toFixed(1)}" text-anchor="${anchor}" font-size="${size}" fill="${fill}">${esc(text)}</text>`
+  );
+}
+
 /** A placeholder that SAYS why it is empty, instead of a blank white box. */
 function emptyChart(W: number, H: number, message: string): string {
   return (
@@ -158,13 +189,17 @@ export function mohrCircleSvg(inp: MohrInput): string {
     p.push(`<line x1="${X(0).toFixed(1)}" y1="${MT}" x2="${X(0).toFixed(1)}" y2="${H - MB}" stroke="${FAINT}" stroke-width="1"/>`);
   }
 
-  // Ticks on sigma.
+  // Ticks on sigma. The MARKS go here; the LABELS are held back and emitted
+  // last, because the line joining the applied state to its conjugate sweeps
+  // well below the axis and would otherwise strike one of them out. A backing
+  // rectangle only hides what was painted before it.
   const step = niceStep(xHi - xLo, 5);
+  const tickLabels: string[] = [];
   for (const t of ticks(Math.ceil(xLo / step) * step, xHi, step)) {
     const x = X(t);
     if (x < ML - 0.5 || x > W - MR + 0.5) continue;
     p.push(`<line x1="${x.toFixed(1)}" y1="${y0.toFixed(1)}" x2="${x.toFixed(1)}" y2="${(y0 + 4).toFixed(1)}" stroke="${RULE}"/>`);
-    p.push(`<text x="${x.toFixed(1)}" y="${(y0 + 14).toFixed(1)}" text-anchor="middle" fill="${INK}">${esc(n1(t))}</text>`);
+    tickLabels.push(labelText(x, y0 + 14, n1(t), { anchor: "middle", size: 9 }));
   }
 
   // The circle itself.
@@ -180,12 +215,12 @@ export function mohrCircleSvg(inp: MohrInput): string {
   const bx = X(inp.sigmaY);
   const by = Y(-inp.tauXY);
   p.push(`<line x1="${ax.toFixed(1)}" y1="${ay.toFixed(1)}" x2="${bx.toFixed(1)}" y2="${by.toFixed(1)}" stroke="${POINT}" stroke-width="1.2" stroke-dasharray="4 3"/>`);
-  for (const [px, py, label] of [
-    [ax, ay, `(σx, τxy)`],
-    [bx, by, `(σy, −τxy)`],
+  for (const [px, py, lbl] of [
+    [ax, ay, "(σx, τxy)"],
+    [bx, by, "(σy, −τxy)"],
   ] as [number, number, string][]) {
     p.push(`<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="3" fill="${POINT}"/>`);
-    p.push(`<text x="${(px + 5).toFixed(1)}" y="${(py - 5).toFixed(1)}" fill="${POINT}" font-size="8">${esc(label)}</text>`);
+    p.push(labelText((px + 5), (py - 5), lbl, { fill: POINT, size: 8 }));
   }
 
   // Principal stresses, where the circle meets the sigma axis.
@@ -202,8 +237,9 @@ export function mohrCircleSvg(inp: MohrInput): string {
   // is the single most useful thing the picture says.
   const topY = Y(R);
   p.push(`<line x1="${X(c).toFixed(1)}" y1="${y0.toFixed(1)}" x2="${X(c).toFixed(1)}" y2="${topY.toFixed(1)}" stroke="${CIRCLE}" stroke-width="1" stroke-dasharray="2 2"/>`);
-  p.push(`<text x="${(X(c) + 4).toFixed(1)}" y="${((y0 + topY) / 2).toFixed(1)}" fill="${CIRCLE}" font-size="8">τmax = R = ${esc(n1(R))}</text>`);
+  p.push(labelText(X(c) + 4, (y0 + topY) / 2, "τmax = R = " + n1(R), { fill: CIRCLE, size: 8 }));
 
+  p.push(...tickLabels);
   p.push(`<text x="${W / 2}" y="${H - 6}" text-anchor="middle" fill="${INK}">σ${unit ? " (" + esc(unit) + ")" : ""}</text>`);
   p.push(`<text x="12" y="${MT + ph / 2}" text-anchor="middle" fill="${INK}" transform="rotate(-90 12 ${MT + ph / 2})">τ${unit ? " (" + esc(unit) + ")" : ""}</text>`);
   p.push("</g></svg>");
@@ -262,7 +298,7 @@ export interface GoodmanInput {
 export function goodmanDiagramSvg(inp: GoodmanInput): string {
   const { w: W, h: H } = GOODMAN_CHART_SIZE;
   const ML = 52;
-  const MR = 74; // room for the legend
+  const MR = 96; // room for the legend, measured against its longest entry
   const MT = 24;
   const MB = 40;
   const pw = W - ML - MR;
@@ -338,7 +374,7 @@ export function goodmanDiagramSvg(inp: GoodmanInput): string {
       inp.yieldSigmaM !== undefined &&
       Number.isFinite(inp.yieldSigmaM) &&
       Math.abs(inp.yieldSigmaM - inp.sigmaM) > 1e-9;
-    p.push(`<text x="${(px + 6).toFixed(1)}" y="${(py - 5).toFixed(1)}" fill="${POINT}" font-size="8">${twoPoints ? "fatigue point" : "operating point"}</text>`);
+    p.push(labelText(px + 6, py - 5, twoPoints ? "fatigue point" : "operating point", { fill: POINT, size: 8 }));
     // The yield check sees a different mean when the applied one is
     // compressive, so it gets its own marker rather than being read off the
     // fatigue one — which is how the picture came to contradict the text.
@@ -347,7 +383,7 @@ export function goodmanDiagramSvg(inp: GoodmanInput): string {
       const qy = Y(inp.sigmaA);
       p.push(`<circle cx="${qx.toFixed(1)}" cy="${qy.toFixed(1)}" r="3.4" fill="none" stroke="${POINT}" stroke-width="1.6"/>`);
       p.push(`<line x1="${px.toFixed(1)}" y1="${py.toFixed(1)}" x2="${qx.toFixed(1)}" y2="${qy.toFixed(1)}" stroke="${POINT}" stroke-width="0.9" stroke-dasharray="2 2"/>`);
-      p.push(`<text x="${(qx + 6).toFixed(1)}" y="${(qy + 10).toFixed(1)}" fill="${POINT}" font-size="8">yield point (|σm|)</text>`);
+      p.push(labelText(qx + 6, qy + 10, "yield point (|σm|)", { fill: POINT, size: 8 }));
     }
   }
 
@@ -556,7 +592,7 @@ export function columnCurveSvg(inp: ColumnCurveInput): string {
   }
 
   p.push(`<circle cx="${X(inp.slenderness).toFixed(1)}" cy="${Y(inp.sigmaCritical).toFixed(1)}" r="3.4" fill="${POINT}"/>`);
-  p.push(`<text x="${(X(inp.slenderness) + 6).toFixed(1)}" y="${(Y(inp.sigmaCritical) - 5).toFixed(1)}" fill="${POINT}" font-size="8">this column</text>`);
+  p.push(labelText(X(inp.slenderness) + 6, Y(inp.sigmaCritical) - 5, "this column", { fill: POINT, size: 8 }));
   p.push(`<text x="${(ML + pw / 2).toFixed(1)}" y="${H - 6}" text-anchor="middle">slenderness Le/r</text>`);
   p.push(`<text x="12" y="${MT + ph / 2}" text-anchor="middle" transform="rotate(-90 12 ${MT + ph / 2})">critical stress (MPa)</text>`);
   p.push("</g></svg>");
@@ -620,7 +656,7 @@ export function trussSvg(joints: TrussDrawJoint[], members: TrussDrawMember[]): 
   }
   for (const j of good) {
     p.push(`<circle cx="${X(j.x).toFixed(1)}" cy="${Y(j.y).toFixed(1)}" r="3" fill="${PAPER}" stroke="${INK}" stroke-width="1.2"/>`);
-    p.push(`<text x="${(X(j.x) + 5).toFixed(1)}" y="${(Y(j.y) - 5).toFixed(1)}" font-size="7.5">${esc(j.name)}</text>`);
+    p.push(labelText(X(j.x) + 5, Y(j.y) - 5, j.name, { size: 7.5 }));
   }
 
   let ly = MT + 6;
@@ -629,7 +665,7 @@ export function trussSvg(joints: TrussDrawJoint[], members: TrussDrawMember[]): 
     p.push(`<text x="${(ML + pw + 29).toFixed(1)}" y="${ly + 3}" font-size="7.5">${esc(label)}</text>`);
     ly += 13;
   }
-  p.push(`<text x="${(ML + pw + 10).toFixed(1)}" y="${ly + 6}" font-size="7">thickness scales with force</text>`);
+  p.push(labelText(ML + pw + 10, ly + 6, "width follows force", { size: 7 }));
   p.push("</g></svg>");
   return p.join("");
 }
@@ -678,8 +714,8 @@ export function torsionProfileSvg(
   }
   p.push(`<polyline points="${X(ri).toFixed(1)},${Y((tauMax * ri) / ro).toFixed(1)} ${X(ro).toFixed(1)},${Y(tauMax).toFixed(1)}" fill="none" stroke="${CIRCLE}" stroke-width="1.8"/>`);
   p.push(`<circle cx="${X(ro).toFixed(1)}" cy="${Y(tauMax).toFixed(1)}" r="3.2" fill="${POINT}"/>`);
-  p.push(`<text x="${(X(ro) - 4).toFixed(1)}" y="${(Y(tauMax) - 6).toFixed(1)}" text-anchor="end" fill="${POINT}" font-size="8">τmax = ${esc(n1(tauMax))}</text>`);
-  if (ri === 0) p.push(`<text x="${(ML + 4).toFixed(1)}" y="${(MT + ph - 6).toFixed(1)}" fill="${RULE}" font-size="7.5">zero at the axis</text>`);
+  p.push(labelText(X(ro) - 4, Y(tauMax) - 6, "τmax = " + n1(tauMax), { anchor: "end", fill: POINT, size: 8 }));
+  if (ri === 0) p.push(labelText(ML + 4, MT + ph - 6, "zero at the axis", { fill: RULE, size: 7.5 }));
 
   const st = niceStep(yTop, 4);
   for (const t of ticks(0, yTop, st)) {

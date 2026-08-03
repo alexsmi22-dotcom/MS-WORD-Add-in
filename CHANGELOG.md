@@ -6,6 +6,91 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.80.0] — 2026-08-02 — Thermal breadth, and the graphs made legible
+
+Second release against the engineering deep dive. **Thermal goes from 5
+calculators to 9**, Engineering to **118**, and every figure in the product was
+measured for legibility rather than eyeballed.
+
+### The graphs
+
+**Reported: "text overlaps, lines going through the text."** Rather than hunt by
+eye, the fix started with an instrument — `scripts/figure-layout-audit.js` now
+parses every figure, gives each `<text>` a bounding box from its position,
+anchor, font size and content, and reports three measurable faults: **labels
+overlapping**, **a line crossing a label**, and **a label running off the
+canvas**. It models paint order, so a line hidden behind an opaque legend is
+correctly *not* a fault. It self-tests on known-bad payloads first, because a
+checker that reports "all clear" for something it cannot see is worse than none.
+
+It found **22 issues**, and two root causes explained most of them:
+
+- **The legend backing was 82% transparent.** Every curve showed straight
+  through it and struck out the labels naming those very curves — the literal
+  "lines going through the text". A legend is an annotation over a plot, not a
+  tint on it. Now opaque.
+- **The left margin was a fixed 48 px.** Ample for "0" and "100", far too little
+  for "1.0e+8", which ran back over the rotated y-axis title. It is now computed
+  from the widest tick label the data will actually produce — knowable before
+  drawing, because tick values depend only on the range.
+
+Both live in `buildPlotSvg`, so **every plot in the product** benefits, not just
+the new ones. The remaining thirteen were annotations in the mechanical charts,
+all fixed by giving each label an opaque backing, widening the Goodman legend to
+fit its longest entry, and deferring Mohr's tick labels until after the line
+that was crossing them. **All 19 test figures are now clean, and the audit is a
+QC gate**, so this cannot silently return.
+
+### Thermal
+
+**ε-NTU, the rating problem.** The exchanger tool was **LMTD-only**, and LMTD
+answers the *design* question — I know all four terminal temperatures, what area
+do I need? The commoner question is the *rating* one: I have this exchanger and
+these two inlets, what comes out? LMTD cannot answer it directly, because the
+log mean it needs is built from the outlets you are trying to find. Closed form
+per arrangement, with both removable singularities taken explicitly: **Cr = 1 is
+0/0 whose limit is NTU/(1+NTU)** and is an entirely ordinary balanced design,
+and **Cr → 0 is a phase change** — a boiling or condensing stream holds its
+temperature, which is why a condenser's performance does not depend on whether
+it is counterflow or parallel.
+
+**Fins, including the result nobody expects: a fin can REDUCE heat transfer.**
+It adds area, which helps, and adds a conduction path with its own resistance,
+which does not. An effectiveness below 1 means the second effect wins and the
+finned surface loses *less* heat than the bare one — which is why fins appear on
+the air side of a radiator and never on the water side.
+
+**Transient cooling, which REFUSES above Biot 0.1** rather than caveating. The
+lumped model assumes no internal gradient, and above that the interior genuinely
+lags the surface: a single exponential is the wrong *shape* of answer, not an
+imprecise one, and a caveated wrong curve is still a wrong curve in somebody's
+document.
+
+**Radiation exchange and shields.** Temperature enters as the fourth power of an
+**absolute** temperature, so Celsius is not a shifted scale here — using it is
+wrong by orders of magnitude, and the conversion is stated. A radiation shield
+**does not insulate**: it is thin, conducts well and touches nothing, and works
+purely by adding surfaces that must each re-radiate. N equal shields cut the
+exchange by N+1, which is why multilayer insulation is dozens of sheets of
+metallised film rather than one thick blanket. Emissivity stays a measured
+input.
+
+**A defect caught by its own limit check.** The crossflow ε-NTU correlation has
+two different exponents — 0.22 outside and 0.78 inside — and the first draft
+used NTU^1.22 in the inner term. That does not reduce to 1 − exp(−NTU) as Cr
+goes to zero, and gave 0.934 where every other arrangement gave 0.865. The
+exponents sum to 1 precisely so the Cr terms cancel in that limit, which is what
+made the error visible.
+
+**All five existing Thermal tools now draw too**, plus the four new ones: the
+exchanger's temperature profile along its length (which is what makes the LMTD
+visible, and shows a counterflow gap staying roughly constant where a parallel
+one collapses), effectiveness against NTU for every arrangement with this
+exchanger marked, temperature along the fin, the cooling curve against its
+ambient asymptote, and radiation against convection as the surface heats.
+
+**Figure ratchet 16 → 21 of 118.**
+
 ## [2.79.0] — 2026-08-02 — Structural & solids: every tool draws, and two hand-carries close
 
 First release against `docs/ENGINEERING-DEEP-DIVE-2026-08-02.md`. **Every one of

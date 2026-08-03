@@ -130,6 +130,14 @@ import { analyzeTruss, parseTruss } from "../lib/truss";
 import { analyzePipe, waterProperties, ROUGHNESS } from "../lib/fluids";
 import { analyzeWall, analyzeExchanger, CONDUCTIVITY, Layer } from "../lib/heat";
 import {
+  effectivenessNtu,
+  finPerformance,
+  lumpedCapacitance,
+  radiationExchange,
+  NtuFlow,
+  RadGeometry,
+} from "../lib/heat2";
+import {
   parseTf,
   analyzeStability,
   timeResponse,
@@ -10066,7 +10074,410 @@ const ENG_CALCS: EngCalc[] = [
       for (const note of res.notes) lines.push(`Note: ${note}`);
       u.report(lines);
       lines.push(ENG_UNIT_NOTE);
-      return { text: plainDashes(lines.join("\n")) };
+      // Both streams along the exchanger. This is what makes the LMTD visible:
+      // the gap between the curves IS the driving difference, and on a
+      // counterflow exchanger it stays roughly constant while on parallel flow
+      // it collapses towards the outlet.
+      {
+        const counter = (r("flow") || "counter") === "counter";
+        const N = 60;
+        const TH_IN = u.opt("thIn", "°C", "Hot inlet", 0);
+        const TH_OUT = u.opt("thOut", "°C", "Hot outlet", 0);
+        const TC_IN = u.opt("tcIn", "°C", "Cold inlet", 0);
+        const TC_OUT = u.opt("tcOut", "°C", "Cold outlet", 0);
+        const hot = Array.from({ length: N + 1 }, (_, i) => ({
+          x: i / N,
+          y: TH_IN + ((TH_OUT - TH_IN) * i) / N,
+        }));
+        const cold = Array.from({ length: N + 1 }, (_, i) => ({
+          x: i / N,
+          // Counterflow: the cold stream runs the other way, so its inlet is at
+          // x = 1. Drawing both left to right would misplace every gap.
+          y: counter ? TC_OUT + ((TC_IN - TC_OUT) * i) / N : TC_IN + ((TC_OUT - TC_IN) * i) / N,
+        }));
+        const svg = buildPlotSvg(
+          [
+            { points: hot, type: "line", color: "#b91c1c", label: "hot" },
+            { points: cold, type: "line", color: "#2563eb", label: "cold" },
+          ],
+          {
+            width: 380,
+            height: 250,
+            xlabel: "Fraction along the exchanger",
+            ylabel: "Temperature (deg C)",
+            title: `${counter ? "Counterflow" : "Parallel flow"} temperature profile`,
+          },
+        );
+        return engReport(lines, [
+          {
+            kind: "plot",
+            svg,
+            caption: "Temperature profile",
+            alt: "Hot and cold stream temperatures along the exchanger",
+            w: 380,
+            h: 250,
+          },
+        ]);
+      }
+    },
+  },
+  {
+    id: "hx-ntu",
+    name: "Exchanger rating (effectiveness-NTU)",
+    group: "Thermal",
+    hint:
+      "The RATING problem: you have this exchanger and these two inlets, what comes out? LMTD " +
+      "cannot answer it directly, because the log mean it needs is built from the outlets you are " +
+      "trying to find. Effectiveness is a property of the exchanger, not of the temperatures.",
+    fields: [
+      {
+        key: "flow",
+        label: "Arrangement",
+        default: "counter",
+        kind: "select",
+        options: [
+          { value: "counter", label: "Counterflow" },
+          { value: "parallel", label: "Parallel flow" },
+          { value: "crossboth", label: "Crossflow, both streams unmixed" },
+          { value: "shell", label: "One shell pass, 2/4/6 tube passes" },
+        ],
+      },
+      { key: "ch", label: "Hot capacity rate ṁ·cp, W/K", default: "2000", kind: "text" },
+      { key: "cc", label: "Cold capacity rate ṁ·cp, W/K", default: "1500", kind: "text" },
+      { key: "th", label: "Hot inlet, °C", default: "150", kind: "text" },
+      { key: "tc", label: "Cold inlet, °C", default: "30", kind: "text" },
+      { key: "U", label: "Overall coefficient U, W/(m²·K)", default: "250", kind: "text" },
+      { key: "A", label: "Area, m²", default: "12", kind: "text" },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const cHot = u.req("ch", "W/K", "Hot capacity rate");
+      const cCold = u.req("cc", "W/K", "Cold capacity rate");
+      const thIn = u.req("th", "°C", "Hot inlet");
+      const tcIn = u.req("tc", "°C", "Cold inlet");
+      const U = u.req("U", "W/(m^2*K)", "Overall coefficient");
+      const A = u.req("A", "m^2", "Area");
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const flow = (r("flow") || "counter") as NtuFlow;
+      const res = effectivenessNtu({ flow, cHot, cCold, thIn, tcIn, U, A });
+      if (!res.ok) return { text: res.error, ok: false };
+
+      const lines = [
+        `Exchanger rating, ${flow} flow`,
+        "",
+        `  Cmin / Cmax         ${engNum(res.cMin, 5)} / ${engNum(res.cMax, 5)} W/K`,
+        `  Capacity ratio Cr   ${engNum(res.cr, 4)}`,
+        `  NTU = U·A/Cmin      ${engNum(res.ntu, 4)}`,
+        `  Effectiveness ε     ${engNum(res.effectiveness * 100, 4)} %`,
+        "",
+        `  Heat transferred    ${engNum(res.Q / 1000, 5)} kW  (of a possible ${engNum(res.qMax / 1000, 5)} kW)`,
+        `  Hot outlet          ${engNum(res.thOut, 5)} °C`,
+        `  Cold outlet         ${engNum(res.tcOut, 5)} °C`,
+      ];
+      u.report(lines);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_UNIT_NOTE);
+
+      // Effectiveness against NTU for every arrangement, with this exchanger on
+      // it. The diminishing return past NTU 3 is the point, and it is a curve.
+      const series: Series[] = (["counter", "parallel", "crossboth", "shell"] as NtuFlow[]).map((f, i) => ({
+        points: Array.from({ length: 121 }, (_, j) => {
+          const n = (j * 6) / 120;
+          const e = effectivenessNtu({ flow: f, cHot, cCold, thIn, tcIn, U: 1, A: n * res.cMin || 1e-9 });
+          return { x: n, y: e.ok ? e.effectiveness * 100 : NaN };
+        }).filter((p) => Number.isFinite(p.y)),
+        type: "line" as const,
+        color: ["#2563eb", "#b91c1c", "#059669", "#d97706"][i],
+        label: f,
+      }));
+      series.push({
+        points: [{ x: res.ntu, y: res.effectiveness * 100 }],
+        type: "scatter" as const,
+        color: "#111111",
+        label: "this exchanger",
+      } as never);
+      const svg = buildPlotSvg(series, {
+        width: 380,
+        height: 260,
+        xlabel: "NTU = U·A / Cmin",
+        ylabel: "Effectiveness (%)",
+        title: `Effectiveness vs NTU at Cr = ${res.cr.toFixed(2)}`,
+      });
+      return engReport(lines, [
+        {
+          kind: "plot",
+          svg,
+          caption: "Effectiveness against NTU",
+          alt: "Effectiveness curves for each arrangement with this exchanger marked",
+          w: 380,
+          h: 260,
+        },
+      ]);
+    },
+  },
+  {
+    id: "fin",
+    name: "Fin efficiency & effectiveness",
+    group: "Thermal",
+    hint:
+      "A FIN CAN REDUCE HEAT TRANSFER. It adds area, which helps, and adds a conduction path with " +
+      "its own resistance, which does not. An effectiveness below 1 means the fin is doing harm — " +
+      "which is why fins appear on the air side of a radiator and never on the water side.",
+    fields: [
+      { key: "h", label: "Convection coefficient h, W/(m²·K)", default: "40", kind: "text" },
+      { key: "k", label: "Fin conductivity k, W/(m·K)", default: "200", kind: "text" },
+      { key: "L", label: "Fin length from the base, m", default: "0.05", kind: "text" },
+      { key: "t", label: "Fin thickness, m", default: "0.003", kind: "text" },
+      { key: "w", label: "Fin width into the page, m", default: "1", kind: "text" },
+      { key: "dT", label: "Base temperature above ambient, K", default: "60", kind: "text" },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const h = u.req("h", "W/(m^2*K)", "Convection coefficient");
+      const k = u.req("k", "W/(m*K)", "Conductivity");
+      const L = u.req("L", "m", "Fin length");
+      const t = u.req("t", "m", "Fin thickness");
+      const w = u.req("w", "m", "Fin width");
+      const dT = u.req("dT", "K", "Base excess temperature");
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const res = finPerformance({ h, k, L, t, width: w, excessK: dT });
+      if (!res.ok) return { text: res.error, ok: false };
+
+      const lines = [
+        "Straight rectangular fin",
+        "",
+        `  Fin parameter m     ${engNum(res.m, 5)} 1/m`,
+        `  Corrected length    ${engNum(res.lCorrected, 5)} m`,
+        `  mLc                 ${engNum(res.mLc, 4)}`,
+        `  Efficiency          ${engNum(res.efficiency * 100, 4)} %`,
+        "",
+        `  Heat with the fin   ${engNum(res.qFin, 5)} W`,
+        `  Heat with no fin    ${engNum(res.qBare, 5)} W`,
+        `  Effectiveness       ${engNum(res.effectiveness, 4)}`,
+      ];
+      u.report(lines);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_UNIT_NOTE);
+
+      // Temperature along the fin, adiabatic tip: theta/theta_b =
+      // cosh(m(Lc-x))/cosh(mLc). The tip approaching ambient is what says a
+      // longer fin would be wasted metal.
+      const pts = Array.from({ length: 61 }, (_, i) => {
+        const x = (res.lCorrected * i) / 60;
+        return { x, y: dT * (Math.cosh(res.m * (res.lCorrected - x)) / Math.cosh(res.mLc)) };
+      });
+      const svg = buildPlotSvg([{ points: pts, type: "line", color: "#b91c1c", label: "excess over ambient" }], {
+        width: 380,
+        height: 250,
+        xlabel: "Distance from the base (m)",
+        ylabel: "Temperature above ambient (K)",
+        title: `Temperature along the fin, efficiency ${(res.efficiency * 100).toFixed(1)}%`,
+      });
+      return engReport(lines, [
+        {
+          kind: "plot",
+          svg,
+          caption: "Temperature along the fin",
+          alt: "Excess temperature falling from the base to the tip",
+          w: 380,
+          h: 250,
+        },
+      ]);
+    },
+  },
+  {
+    id: "lumped",
+    name: "Transient cooling (lumped capacitance)",
+    group: "Thermal",
+    hint:
+      "Newtonian cooling of a body treated as isothermal. It REFUSES above Biot 0.1 rather than " +
+      "warning: past that the interior lags the surface and a single exponential is the wrong " +
+      "SHAPE of answer, not merely an imprecise one.",
+    fields: [
+      { key: "h", label: "Convection coefficient h, W/(m²·K)", default: "20", kind: "text" },
+      { key: "k", label: "Body conductivity k, W/(m·K)", default: "200", kind: "text" },
+      { key: "rho", label: "Density, kg/m³", default: "2700", kind: "text" },
+      { key: "cp", label: "Specific heat, J/(kg·K)", default: "900", kind: "text" },
+      { key: "V", label: "Volume, m³", default: "1e-4", kind: "text" },
+      { key: "As", label: "Surface area, m²", default: "0.06", kind: "text" },
+      { key: "Ti", label: "Initial temperature, °C", default: "200", kind: "text" },
+      { key: "Ta", label: "Ambient temperature, °C", default: "25", kind: "text" },
+      { key: "time", label: "Report at time, s", default: "600", kind: "text" },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const res = lumpedCapacitance({
+        h: u.req("h", "W/(m^2*K)", "Convection coefficient"),
+        k: u.req("k", "W/(m*K)", "Conductivity"),
+        rho: u.req("rho", "kg/m^3", "Density"),
+        cp: u.req("cp", "J/(kg*K)", "Specific heat"),
+        volume: u.req("V", "m^3", "Volume"),
+        area: u.req("As", "m^2", "Surface area"),
+        tInit: u.req("Ti", "°C", "Initial temperature"),
+        tAmbient: u.req("Ta", "°C", "Ambient temperature"),
+        timeS: u.req("time", "s", "Time"),
+      });
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      if (!res.ok) return { text: res.error, ok: false };
+
+      const lines = [
+        "Transient cooling",
+        "",
+        `  Characteristic length V/A  ${engNum(res.lc, 5)} m`,
+        `  Biot number                ${engNum(res.biot, 4)}  (must be under 0.1)`,
+        `  Time constant τ            ${engNum(res.tau, 5)} s`,
+        "",
+        `  Temperature at that time   ${engNum(res.temperature, 5)} °C`,
+        `  Fraction of excess left    ${engNum(res.fractionRemaining * 100, 4)} %`,
+        `  Time to 99% of the way     ${engNum(res.timeTo99, 5)} s`,
+        `  Energy removed by then     ${engNum(res.energyJ / 1000, 5)} kJ`,
+      ];
+      u.report(lines);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_UNIT_NOTE);
+
+      // The body's curve against the ambient it is heading for. The asymptote
+      // is worth drawing: it is what makes "five time constants" mean anything.
+      const ambient = u.opt("Ta", "°C", "Ambient temperature", 0);
+      const coolSeries: Series[] = [
+        { points: res.curve.map((c) => ({ x: c.t, y: c.T })), type: "line", color: "#2563eb", label: "body" },
+        {
+          points: [
+            { x: res.curve[0].t, y: ambient },
+            { x: res.curve[res.curve.length - 1].t, y: ambient },
+          ],
+          type: "line",
+          color: "#888888",
+          label: "ambient",
+        },
+      ];
+      const svg = buildPlotSvg(coolSeries, {
+        width: 380,
+        height: 250,
+        xlabel: "Time (s)",
+        ylabel: "Temperature (deg C)",
+        title: `Cooling curve, tau = ${res.tau.toPrecision(3)} s`,
+      });
+      return engReport(lines, [
+        {
+          kind: "plot",
+          svg,
+          caption: "Cooling curve",
+          alt: "Exponential approach to ambient temperature",
+          w: 380,
+          h: 250,
+        },
+      ]);
+    },
+  },
+  {
+    id: "radiation",
+    name: "Radiation exchange & shields",
+    group: "Thermal",
+    hint:
+      "Temperature enters as the FOURTH POWER of an absolute temperature, so Celsius is not a " +
+      "shifted scale here — using it is wrong by orders of magnitude. A radiation shield does not " +
+      "insulate: it works by adding surfaces that must each re-radiate.",
+    fields: [
+      {
+        key: "geom",
+        label: "Geometry",
+        default: "large",
+        kind: "select",
+        options: [
+          { value: "large", label: "Small object in large surroundings" },
+          { value: "parallel", label: "Two large parallel surfaces" },
+          { value: "shields", label: "Parallel surfaces with radiation shields" },
+        ],
+      },
+      { key: "t1", label: "Surface 1 temperature, °C", default: "527", kind: "text" },
+      { key: "t2", label: "Surface 2 / surroundings, °C", default: "27", kind: "text" },
+      { key: "e1", label: "Emissivity 1 (measured, 0-1)", default: "0.8", kind: "text" },
+      { key: "e2", label: "Emissivity 2 (measured, 0-1)", default: "0.8", kind: "text" },
+      { key: "A", label: "Area of surface 1, m²", default: "1", kind: "text" },
+      { key: "ns", label: "Number of shields (shields geometry)", default: "1", kind: "text" },
+      { key: "es", label: "Shield emissivity, both faces", default: "0.05", kind: "text" },
+      { key: "hc", label: "Convection coefficient for comparison, W/(m²·K) (0 to skip)", default: "10", kind: "text" },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const t1C = u.req("t1", "°C", "Surface 1 temperature");
+      const t2C = u.req("t2", "°C", "Surface 2 temperature");
+      const area = u.req("A", "m^2", "Area");
+      const hConv = u.opt("hc", "W/(m^2*K)", "Convection coefficient", 0);
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const nums: Record<string, number> = {};
+      for (const [k, label] of [["e1", "Emissivity 1"], ["e2", "Emissivity 2"], ["ns", "Shields"], ["es", "Shield emissivity"]] as const) {
+        const v = Number(r(k));
+        if (!Number.isFinite(v)) return { text: `${label} must be a number.`, ok: false };
+        nums[k] = v;
+      }
+      const geometry = (r("geom") || "large") as RadGeometry;
+      const res = radiationExchange({
+        geometry,
+        t1C,
+        t2C,
+        eps1: nums.e1,
+        eps2: nums.e2,
+        area,
+        shields: nums.ns,
+        epsShield: nums.es,
+        hConv,
+      });
+      if (!res.ok) return { text: res.error, ok: false };
+
+      const lines = [
+        "Radiant exchange",
+        "",
+        `  Exchange factor      ${engNum(res.factor, 5)}`,
+        `  Net radiation Q      ${engNum(res.Q, 5)} W  (${engNum(res.Q / 1000, 4)} kW)`,
+        `  Flux                 ${engNum(res.flux, 5)} W/m²`,
+        `  Equivalent h_rad     ${engNum(res.hRadiation, 5)} W/(m²·K)`,
+      ];
+      if (res.qConvection !== null) {
+        lines.push(`  Convection for comparison  ${engNum(res.qConvection, 5)} W`);
+      }
+      u.report(lines);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_UNIT_NOTE);
+
+      // Radiation against convection as surface 1 heats up. The fourth power is
+      // invisible in a single number and unmissable as a curve.
+      const tHi = Math.max(t1C, t2C + 100) * 1.3 + 100;
+      const rad = Array.from({ length: 81 }, (_, i) => {
+        const T = t2C + ((tHi - t2C) * i) / 80;
+        const q = radiationExchange({ geometry, t1C: T, t2C, eps1: nums.e1, eps2: nums.e2, area, shields: nums.ns, epsShield: nums.es });
+        return { x: T, y: q.ok ? q.Q / 1000 : NaN };
+      }).filter((p) => Number.isFinite(p.y));
+      const series: Series[] = [
+        { points: rad, type: "line", color: "#b91c1c", label: "radiation" },
+      ];
+      if (hConv > 0) {
+        series.push({
+          points: rad.map((p) => ({ x: p.x, y: (hConv * area * (p.x - t2C)) / 1000 })),
+          type: "line",
+          color: "#2563eb",
+          label: "convection",
+        });
+      }
+      series.push({ points: [{ x: t1C, y: res.Q / 1000 }], type: "scatter", color: "#111111", label: "this case" });
+      const svg = buildPlotSvg(series, {
+        width: 380,
+        height: 260,
+        xlabel: "Surface 1 temperature (deg C)",
+        ylabel: "Heat rate (kW)",
+        title: "Radiation against convection",
+      });
+      return engReport(lines, [
+        {
+          kind: "plot",
+          svg,
+          caption: "Radiation against convection",
+          alt: "Radiant heat rising as the fourth power against a linear convection line",
+          w: 380,
+          h: 260,
+        },
+      ]);
     },
   },
   {

@@ -5,6 +5,7 @@
 #    2. Unit tests (jest)         6. Manifest validation         10. Pane layout
 #    3. Compound dictionary       7. Headless render check       11. Engineering audit
 #    4. Compound vs PubChem       8. Landing-page layout        12. Task-pane id wiring audit
+#   4b. Figure layout
 #
 # (11 Invoke-Step gates plus the id-wiring audit at the end. This list had itself
 # gone stale, naming eight steps for a file that ran eleven — the same drift the
@@ -86,6 +87,15 @@ Invoke-Step "Pane layout"         { node scripts/check-pane-layout.js }
 # Word mock — and self-tests its own predicates first, since three earlier runs
 # of it reported the harness rather than the product.
 Invoke-Step "Engineering audit"   { node scripts/engineering-audit.js }
+
+# 4b. Figure layout — do the figures we insert actually READ?
+#
+# The unit suite checks an SVG is well formed, carries no NaN and follows no
+# theme. None of that catches what a reader sees first: a tick label sitting on
+# an axis title, or a curve drawn straight through the legend entry that names
+# it. Those are measurable, not matters of taste, so they are measured. The
+# analyser self-tests on known-bad payloads before it reports anything.
+Invoke-Step "Figure layout"       { npx ts-node --compiler-options '{\"module\":\"commonjs\"}' scripts/figure-layout-run.ts }
 
 # 5. Task-pane id wiring audit — every getElementById has a matching HTML id.
 Write-Host ""

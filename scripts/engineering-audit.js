@@ -310,7 +310,7 @@ function run() {
   //
   // Raise this as disciplines are completed. Never lower it without a reason
   // written next to the change.
-  const FIGURE_BASELINE = 16;
+  const FIGURE_BASELINE = 21;
   const withFigure = inserts.filter((l) => /preview\[fig=[1-9]/.test(l));
   console.log("\n--- Figures (ratchet) -----------------------------------------");
   console.log(

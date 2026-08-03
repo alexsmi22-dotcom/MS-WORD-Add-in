@@ -394,10 +394,52 @@ export function combineSvgs(parts: string[], gap = 8): { svg: string; width: num
   };
 }
 
+/**
+ * How much room the y-axis tick labels need on the left.
+ *
+ * Measured from the labels themselves rather than guessed: the tick VALUES
+ * depend only on the data range and the scale, both of which are known before
+ * any drawing happens, so the widest label can be formatted and counted up
+ * front. 6 px per character at 10 px sans-serif is a safe over-estimate, and
+ * the floor keeps small-number plots looking as they always have.
+ */
+function leftMarginFor(series: Series[], options: PlotOptions): number {
+  const ys: number[] = [];
+  for (const s of series) for (const p of s.points) if (Number.isFinite(p.y)) ys.push(p.y);
+  if (!ys.length) return 48;
+  let lo = minOf(ys);
+  let hi = maxOf(ys);
+  if (!(hi > lo)) {
+    hi = lo + Math.abs(lo || 1) * 0.1;
+    lo = lo - Math.abs(lo || 1) * 0.1;
+  }
+  let widest = 0;
+  if (options.yScale === "log") {
+    const { major } = logTicks(Math.max(lo, Number.MIN_VALUE), Math.max(hi, Number.MIN_VALUE));
+    for (const v of major) widest = Math.max(widest, fmtLogTick(v).length);
+  } else {
+    const step = niceStep(hi - lo, 5);
+    // Bounded: the same walk the drawing code does, but it must not be able to
+    // spin here either.
+    for (let i = 0, t = Math.ceil(lo / step) * step; i <= 40 && t <= hi + 1e-9; i++, t += step) {
+      widest = Math.max(widest, fmtTick(t).length);
+    }
+  }
+  // label width + the 7 px gap to the axis + room for the rotated axis title.
+  const needed = widest * 6 + 7 + (options.ylabel ? 16 : 4);
+  return Math.min(Math.max(48, Math.ceil(needed)), 120);
+}
+
 export function buildPlotSvg(series: Series[], options: PlotOptions = {}): string {
   const W = options.width ?? 380;
   const H = options.height ?? 270;
-  const ml = 48;
+  // THE LEFT MARGIN HAS TO FIT THE LABELS THAT GO IN IT. A fixed 48 px is
+  // ample for "0" and "100" and far too little for "1.0e+8", which then ran
+  // back over the rotated y-axis title sitting at x = 12. The margin is
+  // therefore computed from the WIDEST tick label this data will actually
+  // produce, which is knowable before anything is drawn because the tick
+  // values depend only on the data range.
+  const ml = leftMarginFor(series, options);
   const mr = 14;
   const mt = options.title ? 26 : 12;
   // The error-bar declaration needs its own line, or it lands on the x label.
@@ -548,7 +590,11 @@ export function buildPlotSvg(series: Series[], options: PlotOptions = {}): strin
     const lw = Math.min(14 + maxOf(shown.map((s) => labelOf(s).length)) * 6 + 8, pw - 8);
     const lx = ml + pw - lw - 4;
     const ly = mt + 4;
-    parts.push(`<rect x="${lx}" y="${ly}" width="${lw}" height="${shown.length * lh + 6}" fill="#fff" fill-opacity="0.82" stroke="#ccc"/>`);
+    // OPAQUE, NOT TRANSLUCENT. At 82% the curves showed straight through the
+    // legend and struck out the very labels they belonged to - which is what a
+    // reader notices first and what "lines going through the text" means. A
+    // legend is an annotation over the plot, not a tint on it.
+    parts.push(`<rect x="${lx}" y="${ly}" width="${lw}" height="${shown.length * lh + 6}" fill="#ffffff" stroke="#ccc"/>`);
     shown.forEach((s, i) => {
       const color = s.color ?? palette[series.indexOf(s) % palette.length];
       const cyl = ly + 9 + i * lh;

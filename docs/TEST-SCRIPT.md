@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.80.0)
+# JurisLab — Manual Test Script (v2.81.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -1090,6 +1090,76 @@ Engineering mode. **Energy & power** grows 8 → 16; the mode must state
 - [ ] **Wind + altitude**: blank the density, set altitude 2000 m → the result notes
   density **1.0065 kg/m³ from the ISA** — the same atmosphere the aviation tools use.
 - [ ] All eight new tools insert, subscripts and superscripts intact (O₂, m², kVAR).
+
+---
+
+## 0ap. New in v2.81.0 - Fluids breadth and fracture mechanics
+
+Engineering: **Fluids 8**, **Fatigue & machine design 6**, mode states **125**.
+All seven new tools insert a figure.
+
+**Orifice, venturi & nozzle metering**
+
+- [ ] Defaults (orifice, D 100 mm, d 50 mm, 20 kPa, water, Cd 0.61): flow about
+  **0.00783 m³/s**, β **0.5**, approach factor **1.0328**.
+- [ ] Switch to **venturi** with Cd **0.98**: the PERMANENT loss must fall from
+  about **94%** of the differential to about **12%**. That contrast is the point.
+- [ ] Set the throat to **75 mm** (β 0.75): the approach factor rises above
+  **1.19**, and a note warns that standards cap around there.
+- [ ] Set the throat equal to or larger than the pipe: **REFUSED**.
+- [ ] Set Cd to **1.5**: refused as above the frictionless ideal.
+
+**Pump & system curve**
+
+- [ ] Defaults: operating point about **0.0756 m³/s at 21.4 m**. The figure shows
+  both curves crossing there.
+- [ ] The throttled point must have **LESS flow at MORE head** (about 0.060 m³/s
+  at 31.8 m) and report about **12.3 kW** burned at the valve.
+- [ ] Set the static lift **above** the shut-off head: refused, saying no valve
+  setting helps.
+
+**Affinity laws**
+
+- [ ] Defaults (1450 -> 1160 rpm): flow **80**, head **32**, power **10 240 W**,
+  and power fraction exactly **51.2%**.
+- [ ] Set the new speed to **725**: power fraction **12.5%**.
+- [ ] The figure shows flow, head and power against speed, with power pulling
+  away as the cube.
+
+**Drag on a body**
+
+- [ ] Defaults (car at 30 m/s): drag about **364 N**, power about **10.9 kW**.
+- [ ] Set the velocity to **60**: power must be **eight times** the 30 m/s value.
+- [ ] Clear the mass: terminal velocity is omitted rather than invented.
+
+**Stress intensity & critical crack size**
+
+- [ ] Defaults (200 MPa, 3 mm, Y 1.12, K_IC 50 MPa√m): K about **21.7 MPa√m**,
+  critical crack about **15.9 mm**, critical stress about **460 MPa**.
+- [ ] Set the crack to **12 mm** (four times): K must only **double**. That
+  square root is why fracture is a threshold.
+- [ ] Set the thickness to **5 mm**: it must say the assessment is CONSERVATIVE
+  because a thin plate is TOUGHER.
+- [ ] Set stress **400 MPa**, crack **0.2 mm**, K_IC **200e6**, yield **250 MPa**:
+  **REFUSED** because the plastic zone is not small - LEFM does not apply.
+
+**Crack growth (Paris law)**
+
+- [ ] Defaults: about **180 000 cycles**, final crack about **28 mm**, and the
+  first doubling takes about **40%** of the whole life.
+- [ ] It must NOT report something like 1.8e-13 cycles. C is quoted for ΔK in
+  MPa√m, and using pascals is wrong by 10^18 at m = 3.
+- [ ] Set the threshold ΔK to **5e6** with a 0.1 mm crack at 20 MPa: refused,
+  saying the crack does not grow at all.
+- [ ] Set the initial crack to **50 mm**: refused as already past critical.
+
+**Yielding or fracture**
+
+- [ ] Defaults: transition crack about **2.54 mm**, and at 3 mm **fracture**
+  governs.
+- [ ] Set K_IC to **150e6**: the transition size grows to about **22.8 mm** -
+  what toughness actually buys.
+- [ ] The figure shows the two failure-stress curves crossing at that size.
 
 ---
 

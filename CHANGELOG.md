@@ -6,6 +6,82 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.81.0] — 2026-08-02 — Fluids breadth, and fracture mechanics
+
+Third release against the engineering deep dive. **Fluids 4 → 8, Fatigue &
+machine design 3 → 6**, Engineering to **125**. Every one of the seven new tools
+inserts a figure. Ratchet **21 → 29 of 125**.
+
+### Fluids
+
+**Differential-pressure metering** — orifice, venturi and nozzle. Two results
+the numbers alone hide. The **velocity-of-approach factor** is not optional: the
+ideal derivation assumes the fluid arrives at rest and it does not, and at
+β = 0.75 the correction is 1.19, so omitting it under-reads the flow by 16%. And
+**the permanent loss is not the differential the meter reads** — a venturi's
+diffuser recovers most of the pressure it took to accelerate the flow, losing
+about 12%, where an orifice reading the same flow loses about 94%. That gap is
+the entire argument for paying for a venturi, and it is invisible if you only
+compare the flows they report.
+
+**Pump and system curves.** A pump has no flow rate of its own: it has a curve,
+the system has another, and the machine runs where they cross — which is why the
+same pump moves different amounts in different installations and why a datasheet
+flow figure alone means nothing. **Throttling moves the operating point UP the
+pump curve**, not down: closing a valve steepens the system curve, so flow falls
+while head *rises*, and the extra head is burned across the valve doing nothing.
+On the default case that is **12.3 kW**, which is the number that justifies a
+variable-speed drive.
+
+**The affinity laws**, which say how much: flow scales with speed, head with its
+square, and **power with its cube** — so a 20% speed reduction leaves exactly
+51.2% of the power and halving the speed leaves an eighth.
+
+**Drag on a body**, with terminal velocity and Reynolds number. Power goes as
+the **cube** of speed, so doubling it takes eight times the power to hold.
+
+### Fracture mechanics
+
+`fatigue.ts` was entirely S-N: the product could say when a smooth part would
+*initiate* a crack and had nothing to say once one was **found**. That half is
+now here.
+
+**Stress intensity and the critical crack size.** The useful number is not K but
+*"this flaw becomes critical at 15.9 mm and yours is 3 mm"* — that is an
+inspection interval. **Fracture is a threshold, not a gradual degradation:** K
+rises only as the square root of crack length, so quadrupling a crack merely
+doubles K, and a flaw comfortably safe at one stress is catastrophic at one
+modestly higher, without warning.
+
+**Paris-law crack growth**, integrated in closed form, with the m = 2 case taken
+as a logarithm rather than a division by zero. **Most of the life is spent while
+the crack is small** — the first doubling alone takes 40% of it while the growth
+rate rises 53-fold — so an inspection interval set from the *total* life is
+worthless; it has to come from the time between detectable and critical.
+
+**The yielding-or-fracture transition**, the single number that decides which
+calculation is even relevant. Below it the section yields first and a strength
+check governs; above it the part snaps while nominally elastic. A tougher
+material has a *larger* transition size, which is precisely what toughness buys.
+
+**Three validity gates refuse rather than caveat.** The plastic zone must stay
+small, or LEFM does not apply at all and the case needs J-integral or CTOD. The
+section must be thick enough for plane strain, and when it is not the assessment
+is flagged as **conservative** — a thin plate is *tougher* than a thick one of
+the same material. And a crack below the threshold ΔK **does not grow**, which
+is an answer rather than a failure and is the basis of damage-tolerant design.
+
+**A unit trap caught before release.** Paris constants are universally quoted
+for ΔK in **MPa√m**, and the first draft documented strict SI. A pasted handbook
+C inflated the growth rate by 10^(6m) — a factor of 10¹⁸ at m = 3 — reporting a
+life of **1.8×10⁻¹³ cycles**. C is now taken exactly as published and converted
+inside; the same case gives **180,100 cycles**, matching a hand-integrated
+oracle.
+
+K_IC, the geometry factor Y, and C and m are all **user inputs**. Y depends on
+the crack's shape and position; C and m depend on the material, environment and
+stress ratio and scatter by orders of magnitude across sources.
+
 ## [2.80.0] — 2026-08-02 — Thermal breadth, and the graphs made legible
 
 Second release against the engineering deep dive. **Thermal goes from 5
@@ -89,12 +165,17 @@ goes to zero, and gave 0.934 where every other arrangement gave 0.865. The
 exponents sum to 1 precisely so the Cr terms cancel in that limit, which is what
 made the error visible.
 
-**All five existing Thermal tools now draw too**, plus the four new ones: the
-exchanger's temperature profile along its length (which is what makes the LMTD
-visible, and shows a counterflow gap staying roughly constant where a parallel
-one collapses), effectiveness against NTU for every arrangement with this
-exchanger marked, temperature along the fin, the cooling curve against its
-ambient asymptote, and radiation against convection as the surface heats.
+**The four new tools draw, and so does the LMTD exchanger:** its temperature
+profile along the length, which is what makes the LMTD visible and shows a
+counterflow gap staying roughly constant where a parallel one collapses; then
+effectiveness against NTU for every arrangement with this exchanger marked,
+temperature along the fin, the cooling curve against its ambient asymptote, and
+radiation against convection as the surface heats.
+
+*Corrected: the first draft of this entry said all five existing Thermal tools
+now draw. Only the exchanger does. `wall`, `thermo-process`, `thermo-cycle` and
+`thermo-vapour` are still text-only and are named in the audit's remaining list
+every run.*
 
 **Figure ratchet 16 → 21 of 118.**
 

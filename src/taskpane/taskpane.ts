@@ -128,6 +128,13 @@ import { parseNetlist, parseValue, solveDc, solveAc, frequencySweep, dB } from "
 import { analyzeStress, transformPlane, factorOfSafety, analyzeTorsion, analyzeColumn, EndCondition } from "../lib/stress";
 import { analyzeTruss, parseTruss } from "../lib/truss";
 import { analyzePipe, waterProperties, ROUGHNESS } from "../lib/fluids";
+import {
+  flowMeter,
+  pumpSystemCurve,
+  affinityLaws,
+  bodyDrag,
+  MeterKind,
+} from "../lib/fluids2";
 import { analyzeWall, analyzeExchanger, CONDUCTIVITY, Layer } from "../lib/heat";
 import {
   effectivenessNtu,
@@ -191,6 +198,7 @@ import {
   SurfaceFinish,
   Criterion,
 } from "../lib/fatigue";
+import { stressIntensity, parisGrowth, fractureTransition } from "../lib/fracture";
 import {
   toKelvin,
   GASES as THERMO_GASES,
@@ -9836,9 +9844,11 @@ const ENG_CALCS: EngCalc[] = [
 
       const vRaw = r("V").trim();
       const qRaw = r("Q").trim();
+      const pipeD = u.req("D", "m", "Internal diameter");
+      const pipeL = u.req("L", "m", "Pipe length");
       const res = analyzePipe({
-        D: u.req("D", "m", "Internal diameter"),
-        L: u.req("L", "m", "Pipe length"),
+        D: pipeD,
+        L: pipeL,
         V: vRaw ? u.req("V", "m/s", "Mean velocity") : undefined,
         Q: !vRaw && qRaw ? u.req("Q", "m^3/s", "Volumetric flow rate") : undefined,
         eps,
@@ -12228,6 +12238,262 @@ const ENG_CALCS: EngCalc[] = [
     },
   },
   {
+    id: "fracture-k",
+    name: "Stress intensity & critical crack size",
+    group: "Fatigue & machine design",
+    hint:
+      "The damage-tolerance half of fatigue: given a flaw of this size, is the part safe NOW? " +
+      "FRACTURE IS A THRESHOLD — K rises only as the square root of crack length, so a flaw that " +
+      "is comfortably safe at one stress is catastrophic at one modestly higher, without warning.",
+    fields: [
+      { key: "s", label: "Remote stress, Pa (MPa converts)", default: "200 MPa", kind: "text" },
+      { key: "a", label: "Crack length a, m (mm converts)", default: "3 mm", kind: "text" },
+      { key: "Y", label: "Geometry factor Y (1.12 edge, 1.0 central through)", default: "1.12", kind: "text" },
+      { key: "kic", label: "Fracture toughness K_IC, Pa·√m (50e6 = 50 MPa√m)", default: "50e6", kind: "text" },
+      { key: "sy", label: "Yield strength, Pa (blank to skip the validity checks)", default: "500 MPa", kind: "text" },
+      { key: "B", label: "Section thickness, m (blank to skip the plane-strain check)", default: "50 mm", kind: "text" },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const stress = u.req("s", "Pa", "Stress");
+      const crack = u.req("a", "m", "Crack length");
+      const kic = u.req("kic", "Pa", "Fracture toughness");
+      const syRaw = r("sy").trim();
+      const bRaw = r("B").trim();
+      const yieldStrength = syRaw ? u.opt("sy", "Pa", "Yield strength", 0) : undefined;
+      const thickness = bRaw ? u.opt("B", "m", "Thickness", 0) : undefined;
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const Y = Number(r("Y"));
+      if (!Number.isFinite(Y)) return { text: "The geometry factor must be a number.", ok: false };
+      const res = stressIntensity({ stress, crack, Y, kic, yieldStrength, thickness });
+      if (!res.ok) return { text: res.error, ok: false };
+
+      const lines = [
+        "Stress intensity at the crack",
+        "",
+        `  K                    ${engNum(res.K / 1e6, 5)} MPa·√m`,
+        `  K / K_IC             ${engNum(res.ratio, 4)}${res.fractures ? "   FRACTURES" : ""}`,
+        `  Safety on stress     ${engNum(res.safetyOnStress, 4)}`,
+        "",
+        `  Critical crack size  ${engNum(res.criticalCrack * 1000, 5)} mm  (yours is ${engNum(crack * 1000, 5)} mm)`,
+        `  Critical stress      ${engNum(res.criticalStress / 1e6, 5)} MPa`,
+      ];
+      if (res.plasticZone !== null) lines.push(`  Plastic zone radius  ${engNum(res.plasticZone * 1000, 4)} mm`);
+      if (res.thicknessRequired !== null) {
+        lines.push(`  Plane strain needs   ${engNum(res.thicknessRequired * 1000, 4)} mm of thickness`);
+      }
+      u.report(lines);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_UNIT_NOTE);
+
+      // K against crack length, with toughness as the ceiling. The square root
+      // is what makes the threshold nature visible.
+      const aMax = Math.max(res.criticalCrack * 1.6, crack * 2);
+      const kPts = Array.from({ length: 81 }, (_, i) => {
+        const a = (aMax * i) / 80;
+        return { x: a * 1000, y: (Y * stress * Math.sqrt(Math.PI * a)) / 1e6 };
+      });
+      const svg = buildPlotSvg(
+        [
+          { points: kPts, type: "line", color: "#2563eb", label: "K at this stress" },
+          {
+            points: [{ x: 0, y: kic / 1e6 }, { x: aMax * 1000, y: kic / 1e6 }],
+            type: "line",
+            color: "#b91c1c",
+            label: "toughness K_IC",
+          },
+          { points: [{ x: crack * 1000, y: res.K / 1e6 }], type: "scatter", color: "#111111", label: "this flaw" },
+        ],
+        {
+          width: 380,
+          height: 260,
+          xlabel: "Crack length (mm)",
+          ylabel: "Stress intensity (MPa·sqrt(m))",
+          title: "Where this flaw becomes critical",
+        },
+      );
+      return engReport(lines, [
+        {
+          kind: "plot",
+          svg,
+          caption: "Stress intensity against crack length",
+          alt: "Stress intensity rising as a square root towards the toughness ceiling",
+          w: 380,
+          h: 260,
+        },
+      ]);
+    },
+  },
+  {
+    id: "fracture-paris",
+    name: "Crack growth to failure (Paris law)",
+    group: "Fatigue & machine design",
+    hint:
+      "MOST OF THE LIFE IS SPENT WHILE THE CRACK IS SMALL — the final doubling takes almost no " +
+      "cycles at all, so an inspection interval set from the TOTAL life is worthless. C is quoted " +
+      "for ΔK in MPa√m, which is how it is used here.",
+    fields: [
+      { key: "a0", label: "Initial crack length, m (mm converts)", default: "2 mm", kind: "text" },
+      { key: "ds", label: "Stress range Δσ, Pa (MPa converts)", default: "150 MPa", kind: "text" },
+      { key: "Y", label: "Geometry factor Y", default: "1.12", kind: "text" },
+      { key: "C", label: "Paris C (da/dN in m/cycle for ΔK in MPa√m)", default: "6.9e-12", kind: "text" },
+      { key: "m", label: "Paris exponent m (typically 3 to 4)", default: "3", kind: "text" },
+      { key: "kic", label: "Fracture toughness K_IC, Pa·√m", default: "50e6", kind: "text" },
+      { key: "dkth", label: "Threshold ΔK, Pa·√m (blank to assume growth always)", default: "", kind: "text" },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const initialCrack = u.req("a0", "m", "Initial crack length");
+      const stressRange = u.req("ds", "Pa", "Stress range");
+      const kic = u.req("kic", "Pa", "Fracture toughness");
+      const thRaw = r("dkth").trim();
+      const deltaKth = thRaw ? u.opt("dkth", "Pa", "Threshold", 0) : undefined;
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const Y = Number(r("Y"));
+      const C = Number(r("C"));
+      const m = Number(r("m"));
+      if (![Y, C, m].every(Number.isFinite)) {
+        return { text: "The geometry factor and both Paris constants must be numbers.", ok: false };
+      }
+      const res = parisGrowth({ initialCrack, stressRange, Y, C, m, kic, deltaKth });
+      if (!res.ok) return { text: res.error, ok: false };
+
+      const lines = [
+        "Crack growth to fast fracture",
+        "",
+        `  Cycles to failure    ${engNum(res.cycles, 5)}`,
+        `  Final crack size     ${engNum(res.finalCrack * 1000, 5)} mm`,
+        "",
+        `  ΔK at the start      ${engNum(res.deltaKInitial / 1e6, 4)} MPa·√m`,
+        `  ΔK at the end        ${engNum(res.deltaKFinal / 1e6, 4)} MPa·√m`,
+        `  Growth rate, start   ${engNum(res.rateInitial, 4)} m/cycle`,
+        `  Growth rate, end     ${engNum(res.rateFinal, 4)} m/cycle`,
+        "",
+        `  First doubling takes ${engNum(res.cyclesToDouble, 5)} cycles — ${engNum(res.firstDoublingFraction * 100, 4)} % of the whole life`,
+      ];
+      u.report(lines);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_UNIT_NOTE);
+
+      const svg = buildPlotSvg(
+        [
+          {
+            points: res.curve.map((c) => ({ x: c.n, y: c.a * 1000 })),
+            type: "line",
+            color: "#2563eb",
+            label: "crack length",
+          },
+          {
+            points: [{ x: 0, y: res.finalCrack * 1000 }, { x: res.cycles, y: res.finalCrack * 1000 }],
+            type: "line",
+            color: "#b91c1c",
+            label: "critical size",
+          },
+        ],
+        {
+          width: 380,
+          height: 260,
+          xlabel: "Cycles",
+          ylabel: "Crack length (mm)",
+          title: "Nearly flat, then vertical",
+        },
+      );
+      return engReport(lines, [
+        {
+          kind: "plot",
+          svg,
+          caption: "Crack length against cycles",
+          alt: "Crack growing slowly then accelerating to the critical size",
+          w: 380,
+          h: 260,
+        },
+      ]);
+    },
+  },
+  {
+    id: "fracture-transition",
+    name: "Yielding or fracture: which governs",
+    group: "Fatigue & machine design",
+    hint:
+      "BELOW THE TRANSITION CRACK SIZE, FRACTURE MECHANICS IS THE WRONG TOOL — the section yields " +
+      "before it fractures and a yield check governs. Above it the part snaps while nominally " +
+      "elastic, and only a toughness assessment sees it coming.",
+    fields: [
+      { key: "kic", label: "Fracture toughness K_IC, Pa·√m", default: "50e6", kind: "text" },
+      { key: "sy", label: "Yield strength, Pa (MPa converts)", default: "500 MPa", kind: "text" },
+      { key: "Y", label: "Geometry factor Y", default: "1.12", kind: "text" },
+      { key: "a", label: "A crack size to assess, m (blank for the size alone)", default: "3 mm", kind: "text" },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const kic = u.req("kic", "Pa", "Fracture toughness");
+      const yieldStrength = u.req("sy", "Pa", "Yield strength");
+      const aRaw = r("a").trim();
+      const crack = aRaw ? u.opt("a", "m", "Crack length", 0) : undefined;
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const Y = Number(r("Y"));
+      if (!Number.isFinite(Y)) return { text: "The geometry factor must be a number.", ok: false };
+      const res = fractureTransition({ kic, yieldStrength, Y, crack });
+      if (!res.ok) return { text: res.error, ok: false };
+
+      const lines = [
+        "Yielding or fracture",
+        "",
+        `  Transition crack size  ${engNum(res.transitionCrack * 1000, 5)} mm`,
+        `  Governs here           ${res.governs}`,
+      ];
+      if (res.fractureStress !== null) {
+        lines.push(`  Fracture stress        ${engNum(res.fractureStress / 1e6, 5)} MPa`);
+        lines.push(`  Yield strength         ${engNum(yieldStrength / 1e6, 5)} MPa`);
+      }
+      u.report(lines);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_UNIT_NOTE);
+
+      // The failure stress by each mechanism against crack size. Where they
+      // cross IS the transition, and the lower curve always governs.
+      const aMax = Math.max(res.transitionCrack * 5, (crack ?? res.transitionCrack) * 2);
+      const fracPts = Array.from({ length: 121 }, (_, i) => {
+        const a = (aMax * (i + 1)) / 121;
+        return { x: a * 1000, y: kic / (Y * Math.sqrt(Math.PI * a)) / 1e6 };
+      }).filter((p) => p.y <= (yieldStrength / 1e6) * 2.5);
+      const series: Series[] = [
+        { points: fracPts, type: "line", color: "#b91c1c", label: "fracture" },
+        {
+          points: [{ x: 0, y: yieldStrength / 1e6 }, { x: aMax * 1000, y: yieldStrength / 1e6 }],
+          type: "line",
+          color: "#2563eb",
+          label: "yield",
+        },
+      ];
+      if (crack !== undefined && res.fractureStress !== null) {
+        series.push({
+          points: [{ x: crack * 1000, y: Math.min(res.fractureStress, yieldStrength) / 1e6 }],
+          type: "scatter",
+          color: "#111111",
+          label: "this crack",
+        });
+      }
+      const svg = buildPlotSvg(series, {
+        width: 380,
+        height: 260,
+        xlabel: "Crack length (mm)",
+        ylabel: "Failure stress (MPa)",
+        title: "The lower curve governs",
+      });
+      return engReport(lines, [
+        {
+          kind: "plot",
+          svg,
+          caption: "Failure stress by each mechanism",
+          alt: "Fracture and yield stresses crossing at the transition crack size",
+          w: 380,
+          h: 260,
+        },
+      ]);
+    },
+  },
+  {
     id: "opamp",
     name: "Op-amp circuits",
     group: "Electronics",
@@ -12698,7 +12964,396 @@ const ENG_CALCS: EngCalc[] = [
       lines.push(res.choked ? "The flow is CHOKED." : "The flow is not choked.");
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_THERMO_UNIT_NOTE);
-      return { text: plainDashes(lines.join("\n")) };
+      // Mass flow against pressure ratio, with the choke plateau visible. The
+      // flat part IS the result: past the critical ratio, lowering the
+      // downstream pressure buys nothing.
+      {
+        const k = Number(r("k") || "1.4");
+        const crit = Math.pow(2 / (k + 1), k / (k - 1));
+        const pts = Array.from({ length: 81 }, (_, i) => {
+          const pr = 1 - (i / 80) * 0.999;
+          const flow =
+            pr <= crit
+              ? 1
+              : Math.sqrt(
+                  (Math.pow(pr, 2 / k) - Math.pow(pr, (k + 1) / k)) /
+                    (Math.pow(crit, 2 / k) - Math.pow(crit, (k + 1) / k)),
+                );
+          return { x: pr, y: Number.isFinite(flow) ? flow : 0 };
+        });
+        const svg = buildPlotSvg([{ points: pts, type: "line", color: "#2563eb", label: "mass flow" }], {
+          width: 380,
+          height: 250,
+          xlabel: "Downstream / upstream pressure",
+          ylabel: "Mass flow (fraction of choked)",
+          title: `Choking at p*/p0 = ${crit.toFixed(4)}`,
+        });
+        return engReport(lines, [
+          {
+            kind: "plot",
+            svg,
+            caption: "Mass flow against pressure ratio",
+            alt: "Mass flow rising then flattening at the choked plateau",
+            w: 380,
+            h: 250,
+          },
+        ]);
+      }
+    },
+  },
+  {
+    id: "flow-meter",
+    name: "Orifice, venturi & nozzle metering",
+    group: "Fluids",
+    hint:
+      "A differential meter measures a PRESSURE DROP, not a flow. The PERMANENT loss is not the " +
+      "differential it reads: a venturi's diffuser recovers most of it and an orifice recovers " +
+      "almost none, which is the entire argument for paying for a venturi.",
+    fields: [
+      {
+        key: "kind",
+        label: "Meter",
+        default: "orifice",
+        kind: "select",
+        options: [
+          { value: "orifice", label: "Sharp-edged orifice plate" },
+          { value: "venturi", label: "Venturi (recovers most of the pressure)" },
+          { value: "nozzle", label: "Flow nozzle" },
+        ],
+      },
+      { key: "D", label: "Pipe internal diameter, m", default: "0.1", kind: "text" },
+      { key: "d", label: "Throat / bore diameter, m", default: "0.05", kind: "text" },
+      { key: "dp", label: "Measured differential, Pa", default: "20 kPa", kind: "text" },
+      { key: "rho", label: "Density, kg/m³", default: "998", kind: "text" },
+      { key: "cd", label: "Discharge coefficient (measured; ~0.61 orifice, ~0.98 venturi)", default: "0.61", kind: "text" },
+      { key: "eps", label: "Expansibility factor (1 for a liquid)", default: "1", kind: "text" },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const pipeD = u.req("D", "m", "Pipe diameter");
+      const throatD = u.req("d", "m", "Throat diameter");
+      const deltaP = u.req("dp", "Pa", "Differential pressure");
+      const rho = u.req("rho", "kg/m^3", "Density");
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const cd = Number(r("cd"));
+      const eps = Number(r("eps") || "1");
+      if (!Number.isFinite(cd) || !Number.isFinite(eps)) {
+        return { text: "The discharge coefficient and expansibility must both be numbers.", ok: false };
+      }
+      const kind = (r("kind") || "orifice") as MeterKind;
+      const res = flowMeter({ kind, pipeD, throatD, deltaP, rho, cd, epsilon: eps });
+      if (!res.ok) return { text: res.error, ok: false };
+
+      const lines = [
+        `${kind} meter, β = ${engNum(res.beta, 4)}`,
+        "",
+        `  Volumetric flow      ${engNum(res.Q, 5)} m³/s  (${engNum(res.Q * 3600, 5)} m³/h)`,
+        `  Mass flow            ${engNum(res.massFlow, 5)} kg/s`,
+        `  Throat velocity      ${engNum(res.throatVelocity, 5)} m/s`,
+        `  Pipe velocity        ${engNum(res.pipeVelocity, 5)} m/s`,
+        "",
+        `  Velocity-of-approach ${engNum(res.approachFactor, 5)}`,
+        `  PERMANENT loss       ${engNum(res.permanentLoss, 5)} Pa  (${engNum(res.lossFraction * 100, 4)} % of the differential)`,
+      ];
+      u.report(lines);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_UNIT_NOTE);
+
+      // Permanent loss against beta, for all three meters, with this one on it.
+      const series: Series[] = (["orifice", "venturi", "nozzle"] as MeterKind[]).map((mk, i) => ({
+        points: Array.from({ length: 61 }, (_, j) => {
+          const b = 0.15 + (j / 60) * 0.7;
+          const m = flowMeter({ kind: mk, pipeD, throatD: pipeD * b, deltaP, rho, cd, epsilon: eps });
+          return { x: b, y: m.ok ? m.lossFraction * 100 : NaN };
+        }).filter((p) => Number.isFinite(p.y)),
+        type: "line" as const,
+        color: ["#b91c1c", "#059669", "#d97706"][i],
+        label: mk,
+      }));
+      series.push({ points: [{ x: res.beta, y: res.lossFraction * 100 }], type: "scatter", color: "#111111", label: "this meter" });
+      const svg = buildPlotSvg(series, {
+        width: 380,
+        height: 260,
+        xlabel: "Diameter ratio beta = d/D",
+        ylabel: "Permanent loss (% of differential)",
+        title: "What each meter costs to run",
+      });
+      return engReport(lines, [
+        {
+          kind: "plot",
+          svg,
+          caption: "Permanent loss against diameter ratio",
+          alt: "Permanent pressure loss for each meter type against beta",
+          w: 380,
+          h: 260,
+        },
+      ]);
+    },
+  },
+  {
+    id: "pump-system",
+    name: "Pump & system curve (operating point)",
+    group: "Fluids",
+    hint:
+      "A PUMP HAS NO FLOW RATE OF ITS OWN — it has a curve, the system has another, and the " +
+      "machine runs where they cross. THROTTLING MOVES THE POINT UP THE PUMP CURVE: closing a " +
+      "valve gives less flow at MORE head, and the extra head is burned across the valve.",
+    fields: [
+      { key: "H0", label: "Pump shut-off head (at zero flow), m", default: "50", kind: "text" },
+      { key: "Qmax", label: "Flow at which the head reaches zero, m³/s", default: "0.1", kind: "text" },
+      { key: "hstat", label: "Static lift, m", default: "10", kind: "text" },
+      { key: "K", label: "System resistance K in h = hstat + K·Q², s²/m⁵", default: "2000", kind: "text" },
+      { key: "eta", label: "Pump efficiency, 0-1", default: "0.7", kind: "text" },
+      { key: "rho", label: "Density, kg/m³", default: "998", kind: "text" },
+      { key: "thr", label: "Throttle: multiply K by this (1 = wide open)", default: "3", kind: "text" },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const shutOffHead = u.req("H0", "m", "Shut-off head");
+      const maxFlow = u.req("Qmax", "m^3/s", "Maximum flow");
+      const staticHead = u.opt("hstat", "m", "Static lift", 0);
+      const rho = u.opt("rho", "kg/m^3", "Density", 998);
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const nums: Record<string, number> = {};
+      for (const [k, label] of [["K", "Resistance"], ["eta", "Efficiency"], ["thr", "Throttle factor"]] as const) {
+        const v = Number(r(k));
+        if (!Number.isFinite(v)) return { text: `${label} must be a number.`, ok: false };
+        nums[k] = v;
+      }
+      const res = pumpSystemCurve({
+        shutOffHead,
+        maxFlow,
+        staticHead,
+        resistanceK: nums.K,
+        efficiency: nums.eta,
+        rho,
+        throttleFactor: nums.thr,
+      });
+      if (!res.ok) return { text: res.error, ok: false };
+
+      const lines = [
+        "Operating point",
+        "",
+        `  Flow                 ${engNum(res.flow, 5)} m³/s  (${engNum(res.flow * 3600, 5)} m³/h)`,
+        `  Head                 ${engNum(res.head, 5)} m`,
+        `  Hydraulic power      ${engNum(res.hydraulicPower / 1000, 5)} kW`,
+      ];
+      if (res.shaftPower !== null) lines.push(`  Shaft power          ${engNum(res.shaftPower / 1000, 5)} kW`);
+      if (res.throttled) {
+        lines.push("");
+        lines.push("Throttled");
+        lines.push(`  Flow                 ${engNum(res.throttled.flow, 5)} m³/s`);
+        lines.push(`  Head                 ${engNum(res.throttled.head, 5)} m  (HIGHER, not lower)`);
+        if (res.throttled.wastedW !== null) {
+          lines.push(`  Burned at the valve  ${engNum(res.throttled.wastedW / 1000, 5)} kW`);
+        }
+      }
+      u.report(lines);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_UNIT_NOTE);
+
+      const series: Series[] = [
+        { points: res.pumpCurve.map((p) => ({ x: p.q, y: p.h })), type: "line", color: "#b91c1c", label: "pump" },
+        { points: res.systemCurve.map((p) => ({ x: p.q, y: p.h })), type: "line", color: "#2563eb", label: "system" },
+        { points: [{ x: res.flow, y: res.head }], type: "scatter", color: "#111111", label: "operating point" },
+      ];
+      if (res.throttled) {
+        series.push({
+          points: res.pumpCurve.map((p) => ({ x: p.q, y: staticHead + nums.K * nums.thr * p.q * p.q })),
+          type: "line",
+          color: "#7c3aed",
+          label: "throttled system",
+        });
+        series.push({
+          points: [{ x: res.throttled.flow, y: res.throttled.head }],
+          type: "scatter",
+          color: "#7c3aed",
+          label: "throttled point",
+        });
+      }
+      const svg = buildPlotSvg(series, {
+        width: 380,
+        height: 270,
+        xlabel: "Flow (m³/s)",
+        ylabel: "Head (m)",
+        title: "Where the pump actually runs",
+      });
+      return engReport(lines, [
+        {
+          kind: "plot",
+          svg,
+          caption: "Pump and system curves",
+          alt: "Pump and system curves crossing at the operating point",
+          w: 380,
+          h: 270,
+        },
+      ]);
+    },
+  },
+  {
+    id: "affinity",
+    name: "Affinity laws (speed & impeller)",
+    group: "Fluids",
+    hint:
+      "Flow scales with speed, head with its SQUARE and POWER WITH ITS CUBE — so a 20% speed " +
+      "reduction leaves about half the power. That single exponent is the whole economic case for " +
+      "a variable-speed drive over a throttling valve.",
+    fields: [
+      { key: "Q1", label: "Known flow", default: "100", kind: "text" },
+      { key: "H1", label: "Known head", default: "50", kind: "text" },
+      { key: "P1", label: "Known power, W", default: "20000", kind: "text" },
+      { key: "N1", label: "Original speed", default: "1450", kind: "text" },
+      { key: "N2", label: "New speed", default: "1160", kind: "text" },
+      { key: "D1", label: "Original impeller diameter (blank = unchanged)", default: "", kind: "text" },
+      { key: "D2", label: "New impeller diameter", default: "", kind: "text" },
+    ],
+    compute: (r) => {
+      const nums: Record<string, number> = {};
+      for (const [k, label] of [["Q1", "Flow"], ["H1", "Head"], ["P1", "Power"], ["N1", "Original speed"], ["N2", "New speed"]] as const) {
+        const v = Number(r(k));
+        if (!Number.isFinite(v)) return { text: `${label} must be a number.`, ok: false };
+        nums[k] = v;
+      }
+      const d1Raw = r("D1").trim();
+      const d2Raw = r("D2").trim();
+      const res = affinityLaws({
+        flow1: nums.Q1,
+        head1: nums.H1,
+        power1: nums.P1,
+        speed1: nums.N1,
+        speed2: nums.N2,
+        diameter1: d1Raw ? Number(d1Raw) : undefined,
+        diameter2: d2Raw ? Number(d2Raw) : undefined,
+      });
+      if (!res.ok) return { text: res.error, ok: false };
+
+      const lines = [
+        `Affinity scaling, speed ratio ${engNum(res.speedRatio, 5)}`,
+        "",
+        `  Flow                 ${engNum(res.flow2, 5)}`,
+        `  Head                 ${engNum(res.head2, 5)}`,
+        `  Power                ${engNum(res.power2, 5)} W`,
+        `  Power as a fraction  ${engNum(res.powerFraction * 100, 4)} %`,
+      ];
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_SAME_UNIT_NOTE);
+
+      // Flow, head and power against speed, all relative. The cube pulling away
+      // from the other two is the whole point.
+      const pts = (exp: number) =>
+        Array.from({ length: 81 }, (_, i) => {
+          const n = 0.3 + (i / 80) * 0.9;
+          return { x: n * 100, y: Math.pow(n, exp) * 100 };
+        });
+      const svg = buildPlotSvg(
+        [
+          { points: pts(1), type: "line", color: "#2563eb", label: "flow (N)" },
+          { points: pts(2), type: "line", color: "#059669", label: "head (N²)" },
+          { points: pts(3), type: "line", color: "#b91c1c", label: "power (N³)" },
+          {
+            points: [{ x: res.speedRatio * 100, y: Math.pow(res.speedRatio, 3) * 100 }],
+            type: "scatter",
+            color: "#111111",
+            label: "this case",
+          },
+        ],
+        {
+          width: 380,
+          height: 260,
+          xlabel: "Speed (% of original)",
+          ylabel: "Quantity (% of original)",
+          title: "Why power is the one that matters",
+        },
+      );
+      return engReport(lines, [
+        {
+          kind: "plot",
+          svg,
+          caption: "Affinity scaling",
+          alt: "Flow, head and power against speed, with power as the cube",
+          w: 380,
+          h: 260,
+        },
+      ]);
+    },
+  },
+  {
+    id: "body-drag",
+    name: "Drag on a body & terminal velocity",
+    group: "Fluids",
+    hint:
+      "POWER GOES AS THE CUBE OF SPEED — doubling the speed takes EIGHT times the power to hold " +
+      "it. Cd is YOUR measured input: it varies with shape, Reynolds number and Mach number, and " +
+      "a built-in table would be wrong for every body except the one it was measured on.",
+    fields: [
+      { key: "V", label: "Relative velocity, m/s (km/h, kt convert)", default: "30", kind: "text" },
+      { key: "rho", label: "Fluid density, kg/m³", default: "1.225", kind: "text" },
+      { key: "A", label: "Frontal area, m²", default: "2.2", kind: "text" },
+      { key: "cd", label: "Drag coefficient Cd (sphere 0.47, car ~0.3)", default: "0.30", kind: "text" },
+      { key: "m", label: "Mass, kg (blank to skip terminal velocity)", default: "1500", kind: "text" },
+      { key: "mu", label: "Dynamic viscosity, Pa·s (blank to skip Reynolds)", default: "1.8e-5", kind: "text" },
+      { key: "L", label: "Characteristic length, m (with the viscosity)", default: "4.5", kind: "text" },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const velocity = u.req("V", "m/s", "Velocity");
+      const rho = u.req("rho", "kg/m^3", "Density");
+      const area = u.req("A", "m^2", "Frontal area");
+      const massRaw = r("m").trim();
+      const muRaw = r("mu").trim();
+      const lenRaw = r("L").trim();
+      const mass = massRaw ? u.opt("m", "kg", "Mass", 0) : undefined;
+      const mu = muRaw ? u.opt("mu", "Pa*s", "Viscosity", 0) : undefined;
+      const length = lenRaw ? u.opt("L", "m", "Characteristic length", 0) : undefined;
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const cd = Number(r("cd"));
+      if (!Number.isFinite(cd)) return { text: "The drag coefficient must be a number.", ok: false };
+      const res = bodyDrag({ velocity, rho, area, cd, mass, mu, length });
+      if (!res.ok) return { text: res.error, ok: false };
+
+      const lines = [
+        `Drag at ${engNum(velocity, 4)} m/s`,
+        "",
+        `  Dynamic pressure     ${engNum(res.dynamicPressure, 5)} Pa`,
+        `  Drag force           ${engNum(res.drag, 5)} N`,
+        `  Power to overcome    ${engNum(res.power / 1000, 5)} kW`,
+      ];
+      if (res.terminalVelocity !== null) lines.push(`  Terminal velocity    ${engNum(res.terminalVelocity, 5)} m/s`);
+      if (res.reynolds !== null) lines.push(`  Reynolds number      ${engNum(res.reynolds, 5)}`);
+      u.report(lines);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_UNIT_NOTE);
+
+      const vMax = Math.max(velocity * 2, 1);
+      const dragPts = Array.from({ length: 81 }, (_, i) => {
+        const v = (vMax * i) / 80;
+        return { x: v, y: 0.5 * rho * v * v * cd * area };
+      });
+      const powerPts = dragPts.map((p) => ({ x: p.x, y: (p.y * p.x) / 1000 }));
+      const svg = buildPlotSvg(
+        [
+          { points: dragPts, type: "line", color: "#2563eb", label: "drag (N)" },
+          { points: powerPts, type: "line", color: "#b91c1c", label: "power (kW)" },
+          { points: [{ x: velocity, y: res.drag }], type: "scatter", color: "#111111", label: "this speed" },
+        ],
+        {
+          width: 380,
+          height: 260,
+          xlabel: "Speed (m/s)",
+          ylabel: "Drag (N) and power (kW)",
+          title: "Drag squares, power cubes",
+        },
+      );
+      return engReport(lines, [
+        {
+          kind: "plot",
+          svg,
+          caption: "Drag and power against speed",
+          alt: "Drag rising as the square and power as the cube of speed",
+          w: 380,
+          h: 260,
+        },
+      ]);
     },
   },
   {

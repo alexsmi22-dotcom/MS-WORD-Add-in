@@ -23,6 +23,7 @@ import {
   logicWaveSvg,
   powerTriangleSvg,
   gamutTriangleSvg,
+  ladderSvg,
 } from "../src/lib/mechchart";
 import { buildPlotSvg, Series } from "../src/lib/plot";
 import { weibullFit, reliabilityBlock, kOutOfN, redundancy, availability } from "../src/lib/reliability";
@@ -756,5 +757,136 @@ figures.push([
     { width: 380, height: 220, xlabel: "mode frequency (Hz)", ylabel: "audibility rank", title: "The mode map" },
   ),
 ]);
+
+// --- v2.88.0: comp, chips, optics and quantum figures ------------------------
+
+// The generic ladder in both conventions: a thermal ladder that must stay
+// LEFT of its limit, and a timing budget that must end RIGHT of zero.
+figures.push([
+  "thermal ladder",
+  ladderSvg(
+    [
+      { name: "ambient", delta: 25, gain: true },
+      { name: "θ sink-to-ambient", delta: 19.5, gain: true },
+      { name: "θ case-to-sink", delta: 3, gain: true },
+      { name: "θ junction-to-case", delta: 7.5, gain: true },
+      { name: "junction", delta: 55, gain: true, result: true },
+    ],
+    { title: "The thermal ladder", axisLabel: "temperature (°C)", fmt: (v) => v.toFixed(1), limit: 125, limitLabel: "Tj max 125 °C", limitOkAbove: false, okText: "within limit", failText: "OVER LIMIT" },
+  ),
+]);
+figures.push([
+  "timing ladder",
+  ladderSvg(
+    [
+      { name: "clock period", delta: 1000, gain: true },
+      { name: "clock-to-Q", delta: -100, gain: false },
+      { name: "longest logic", delta: -700, gain: false },
+      { name: "setup time", delta: -80, gain: false },
+      { name: "clock skew", delta: 0, gain: true },
+      { name: "setup slack", delta: 120, gain: true, result: true },
+    ],
+    { title: "The setup budget", axisLabel: "time (ps)", fmt: (v) => `${Math.round(v)}`, limit: 0, limitLabel: "slack = 0", limitOkAbove: true, okText: "PASS", failText: "FAIL" },
+  ),
+]);
+figures.push([
+  "timing ladder FAIL",
+  ladderSvg(
+    [
+      { name: "clock period", delta: 500, gain: true },
+      { name: "clock-to-Q", delta: -100, gain: false },
+      { name: "longest logic", delta: -700, gain: false },
+      { name: "setup slack", delta: -300, gain: true, result: true },
+    ],
+    { title: "The setup budget", axisLabel: "time (ps)", fmt: (v) => `${Math.round(v)}`, limit: 0, limitLabel: "slack = 0", limitOkAbove: true, okText: "PASS", failText: "FAIL" },
+  ),
+]);
+
+// The stability diagram's parametric hyperbola with the axes as series.
+{
+  const G = 3;
+  const hyp: { x: number; y: number }[] = [];
+  for (let i = 0; i <= 80; i++) {
+    const t = -Math.log(G) + (2 * Math.log(G) * i) / 80;
+    hyp.push({ x: Math.exp(t), y: Math.exp(-t) });
+  }
+  figures.push([
+    "stability diagram",
+    buildPlotSvg(
+      [
+        { points: hyp, type: "line", color: "#2563eb", label: "g₁g₂ = 1" },
+        { points: hyp.map((p) => ({ x: -p.x, y: -p.y })), type: "line", color: "#2563eb" },
+        { points: [{ x: -G, y: 0 }, { x: G, y: 0 }], type: "line", color: "#9ca3af" },
+        { points: [{ x: 0, y: -G }, { x: 0, y: G }], type: "line", color: "#9ca3af" },
+        { points: [{ x: 0.5, y: 0.5 }], type: "scatter", color: "#059669", label: "this cavity (stable)" },
+      ],
+      { width: 380, height: 270, xlabel: "g₁ = 1 − L/R₁", ylabel: "g₂ = 1 − L/R₂", title: "The stability diagram" },
+    ),
+  ]);
+}
+
+// The CHSH stem chart: bounds as lines, S saturating Tsirelson exactly.
+figures.push([
+  "chsh stems",
+  buildPlotSvg(
+    [
+      { points: [{ x: -0.6, y: 0 }, { x: 4.6, y: 0 }], type: "line", color: "#9ca3af" },
+      { points: [{ x: -0.6, y: 2 }, { x: 4.6, y: 2 }], type: "line", color: "#d97706", label: "classical ±2" },
+      { points: [{ x: -0.6, y: -2 }, { x: 4.6, y: -2 }], type: "line", color: "#d97706" },
+      { points: [{ x: -0.6, y: 2.8284 }, { x: 4.6, y: 2.8284 }], type: "line", color: "#059669", label: "Tsirelson ±2√2" },
+      { points: [{ x: -0.6, y: -2.8284 }, { x: 4.6, y: -2.8284 }], type: "line", color: "#059669" },
+      { points: [{ x: 0, y: 0 }, { x: 0, y: 2.8284 }], type: "line", color: "#b91c1c", label: "S" },
+      { points: [{ x: 1, y: 0 }, { x: 1, y: 0.7071 }], type: "line", color: "#2563eb" },
+      { points: [{ x: 2, y: 0 }, { x: 2, y: 0.7071 }], type: "line", color: "#2563eb" },
+      { points: [{ x: 3, y: 0 }, { x: 3, y: 0.7071 }], type: "line", color: "#2563eb" },
+      { points: [{ x: 4, y: 0 }, { x: 4, y: 0.7071 }], type: "line", color: "#2563eb" },
+    ],
+    { width: 380, height: 260, xlabel: "S, then the four contributions", ylabel: "correlation sum", title: "S against both bounds" },
+  ),
+]);
+
+// The Snell sweep stopping at the critical angle.
+{
+  const snell: { x: number; y: number }[] = [];
+  for (let deg = 0; deg <= 41.5; deg += 0.5) {
+    const s = (1.5 / 1.0) * Math.sin((deg * Math.PI) / 180);
+    if (s <= 1) snell.push({ x: deg, y: (Math.asin(s) * 180) / Math.PI });
+  }
+  figures.push([
+    "snell sweep",
+    buildPlotSvg(
+      [
+        { points: snell, type: "line", color: "#2563eb", label: "Snell" },
+        { points: [{ x: 41.81, y: 0 }, { x: 41.81, y: 90 }], type: "line", color: "#9ca3af", label: "critical angle" },
+        { points: [{ x: 30, y: 48.59 }], type: "scatter", color: "#b91c1c", label: "your angle" },
+        { points: [{ x: 33.69, y: 56.3 }], type: "scatter", color: "#059669", label: "Brewster" },
+      ],
+      { width: 380, height: 260, xlabel: "angle of incidence (°)", ylabel: "angle of refraction (°)", title: "Snell's law at this interface" },
+    ),
+  ]);
+}
+
+// The birthday curve with its far-left working point.
+{
+  const space = Math.pow(2, 64);
+  const curve: { x: number; y: number }[] = [];
+  for (let i = 0; i <= 60; i++) {
+    const k = Math.max(1, Math.round(Math.pow(5.06e10, i / 60)));
+    const p = 1 - Math.exp((-k * (k - 1)) / 2 / space);
+    curve.push({ x: k, y: p });
+  }
+  figures.push([
+    "birthday curve",
+    buildPlotSvg(
+      [
+        { points: curve, type: "line", color: "#2563eb", label: "P(collision)" },
+        { points: [{ x: 1, y: 0.5 }, { x: 5.06e10, y: 0.5 }], type: "line", color: "#9ca3af" },
+        { points: [{ x: 1e6, y: 2.7e-8 }], type: "scatter", color: "#b91c1c", label: "this count" },
+        { points: [{ x: 5.06e9, y: 0.5 }], type: "scatter", color: "#059669", label: "50% crossing" },
+      ],
+      { width: 380, height: 250, xScale: "log", xlabel: "items (log scale)", ylabel: "P(at least one collision)", title: "The birthday curve" },
+    ),
+  ]);
+}
 
 process.exit(runAudit(figures) ? 1 : 0);

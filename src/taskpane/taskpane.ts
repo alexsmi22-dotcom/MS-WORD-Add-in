@@ -133,6 +133,7 @@ import {
   powerTriangleSvg,
   GAMUT_CHART_SIZE,
   gamutTriangleSvg,
+  ladderSvg,
   SectionStrip,
 } from "../lib/mechchart";
 import { parseNetlist, parseValue, solveDc, solveAc, frequencySweep, dB } from "../lib/circuit";
@@ -416,6 +417,7 @@ import {
   qFromBeam,
   beamFromQ,
   propagateQ,
+  elementMatrix,
   resonator,
   pulseMetrics,
   refraction,
@@ -445,6 +447,7 @@ import {
 import {
   parallelSpeedup,
   shannonEntropy,
+  binaryEntropyBits,
   channelCapacity,
   bscCapacity,
   collisionProbability,
@@ -14855,6 +14858,54 @@ const ENG_CALCS: EngCalc[] = [
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
+
+      // Power against clock frequency: dynamic rises linearly, leakage sits
+      // flat — that flatness is the lesson, and it only earns a legend row
+      // when there IS leakage. With none entered, one honest curve.
+      if (f > 0 && Number.isFinite(res.totalW)) {
+        const dynPts: Point[] = [];
+        const statPts: Point[] = [];
+        const totPts: Point[] = [];
+        for (let i2 = 0; i2 <= 60; i2++) {
+          const fk = (2 * f * i2) / 60;
+          const r2 = switchingPower(C, V, fk, a, I);
+          if (!r2) continue;
+          dynPts.push({ x: fk / 1e9, y: r2.dynamicW });
+          statPts.push({ x: fk / 1e9, y: r2.staticW });
+          totPts.push({ x: fk / 1e9, y: r2.totalW });
+        }
+        if (totPts.length > 10) {
+          const powerSeries: Series[] =
+            res.staticW > 0
+              ? [
+                  { points: dynPts, type: "line", color: "#2563eb", label: "dynamic" },
+                  { points: statPts, type: "line", color: "#9ca3af", label: "leakage (flat)" },
+                  { points: totPts, type: "line", color: "#b91c1c", label: "total" },
+                ]
+              : [{ points: totPts, type: "line", color: "#2563eb", label: "dynamic power" }];
+          powerSeries.push({ points: [{ x: f / 1e9, y: res.totalW }], type: "scatter", color: "#059669", label: "this clock" });
+          const svg = buildPlotSvg(powerSeries, {
+            width: 380,
+            height: 250,
+            xlabel: "clock frequency (GHz)",
+            ylabel: "power (W)",
+            title: res.staticW > 0 ? "Where the power goes against clock" : "Dynamic power against clock",
+          });
+          return engReport(lines, [
+            {
+              kind: "plot",
+              svg,
+              caption:
+                res.staticW > 0
+                  ? "Dynamic power rising with clock while leakage sits flat"
+                  : "Dynamic power rising linearly with the clock",
+              alt: "Power against clock frequency with the working clock marked",
+              w: 380,
+              h: 250,
+            },
+          ]);
+        }
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -14988,7 +15039,41 @@ const ENG_CALCS: EngCalc[] = [
         );
       }
       lines.push(ENG_UNIT_NOTE);
-      return { text: plainDashes(lines.join("\n")) };
+
+      // The temperature ladder, ambient to junction, each θ stage a rung and
+      // the Tj limit the line the last bar must stay LEFT of — the inverse of
+      // the NPSH ledger's convention, which is why the builder takes a flag.
+      {
+        const ladder = ladderSvg(
+          [
+            { name: "ambient", delta: Ta, gain: true },
+            { name: "θ sink-to-ambient", delta: power * th[2], gain: true },
+            { name: "θ case-to-sink", delta: power * th[1], gain: true },
+            { name: "θ junction-to-case", delta: power * th[0], gain: true },
+            { name: "junction", delta: res.junctionC, gain: true, result: true },
+          ],
+          {
+            title: "The thermal ladder",
+            axisLabel: "temperature (°C)",
+            fmt: (v2) => v2.toFixed(1),
+            limit: tjMax === null ? undefined : tjMax,
+            limitLabel: tjMax === null ? undefined : `Tj max ${engNum(tjMax, 4)} °C`,
+            limitOkAbove: false,
+            okText: "within limit",
+            failText: "OVER LIMIT",
+          },
+        );
+        return engReport(lines, [
+          {
+            kind: "plot",
+            svg: ladder,
+            caption: "Ambient to junction, one bar per thermal resistance; the dashed line is the limit",
+            alt: "Temperature waterfall from ambient through sink and case to the junction",
+            w: 400,
+            h: 56 + 5 * 34 + 12,
+          },
+        ]);
+      }
     },
   },
   {
@@ -15027,6 +15112,49 @@ const ENG_CALCS: EngCalc[] = [
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
+
+      // Delay against wire length as a MULTIPLE of the entered wire — Rw and
+      // Cw are totals, so there is no honest metre axis, but scaling both
+      // together is exactly "the same wire, longer", and the wire term going
+      // as the square of length is the lesson. Values in ps or the axis
+      // would read 3.5e-11.
+      {
+        const totPts: Point[] = [];
+        const elmorePts: Point[] = [];
+        for (let i2 = 0; i2 <= 60; i2++) {
+          const k = (2 * i2) / 60;
+          const r2 = interconnectDelay(Rd, k * Rw, k * Cw, Cl);
+          if (!r2) continue;
+          totPts.push({ x: k, y: r2.totalFiftyS * 1e12 });
+          elmorePts.push({ x: k, y: r2.wireElmoreS * 1e12 });
+        }
+        if (totPts.length > 10) {
+          const svg = buildPlotSvg(
+            [
+              { points: totPts, type: "line", color: "#b91c1c", label: "50% delay" },
+              { points: elmorePts, type: "line", color: "#9ca3af", label: "wire Elmore bound" },
+              { points: [{ x: 1, y: res.totalFiftyS * 1e12 }], type: "scatter", color: "#2563eb", label: "this wire" },
+            ],
+            {
+              width: 380,
+              height: 250,
+              xlabel: "wire length (× the wire you entered)",
+              ylabel: "delay (ps)",
+              title: "RC delay grows as the square of length",
+            },
+          );
+          return engReport(lines, [
+            {
+              kind: "plot",
+              svg,
+              caption: "Delay against wire length; the wire term is quadratic because R and C both grow",
+              alt: "RC delay against wire length multiple with the entered wire marked",
+              w: 380,
+              h: 250,
+            },
+          ]);
+        }
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -15079,7 +15207,44 @@ const ENG_CALCS: EngCalc[] = [
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
-      return { text: plainDashes(lines.join("\n")) };
+
+      // The SETUP budget as a ledger, in picoseconds: the period paid out to
+      // clock-to-Q, logic and setup, skew signed, and what is left is the
+      // slack — which must end at or right of the zero line. Setup only: the
+      // hold check has no period term and belongs to a different scale, so it
+      // stays in the text.
+      {
+        const ladder = ladderSvg(
+          [
+            { name: "clock period", delta: T * 1e12, gain: true },
+            { name: "clock-to-Q", delta: -cq * 1e12, gain: false },
+            { name: "longest logic", delta: -dmax * 1e12, gain: false },
+            { name: "setup time", delta: -su * 1e12, gain: false },
+            { name: "clock skew", delta: sk * 1e12, gain: sk >= 0 },
+            { name: "setup slack", delta: res.setupSlackS * 1e12, gain: true, result: true },
+          ],
+          {
+            title: "The setup budget",
+            axisLabel: "time (ps)",
+            fmt: (v2) => `${Math.round(v2)}`,
+            limit: 0,
+            limitLabel: "slack = 0",
+            limitOkAbove: true,
+            okText: "PASS",
+            failText: "FAIL",
+          },
+        );
+        return engReport(lines, [
+          {
+            kind: "plot",
+            svg: ladder,
+            caption: "Where the clock period goes; the last bar is the setup slack (hold is in the text — it has no period term)",
+            alt: "Timing waterfall from the clock period through clock-to-Q, logic and setup to the slack",
+            w: 400,
+            h: 56 + 6 * 34 + 12,
+          },
+        ]);
+      }
     },
   },
 
@@ -15128,6 +15293,58 @@ const ENG_CALCS: EngCalc[] = [
       if (res.karpFlatt !== null) lines.push(`  Karp-Flatt serial fraction ${engNum(res.karpFlatt, 5)}`);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_SAME_UNIT_NOTE);
+
+      // Both laws against processor count on a log axis, the Amdahl ceiling
+      // flat above (omitted entirely when the fraction is exactly 1 and the
+      // ceiling is infinite), this machine on the Amdahl curve.
+      if (n >= 1) {
+        const amdahlPts: Point[] = [];
+        const gustPts: Point[] = [];
+        const nTop = Math.max(64, 4 * n);
+        for (let i2 = 0; i2 <= 40; i2++) {
+          const N = Math.max(1, Math.round(Math.pow(nTop, i2 / 40)));
+          const r2 = parallelSpeedup(p, N);
+          if (!r2) continue;
+          amdahlPts.push({ x: N, y: r2.amdahl });
+          gustPts.push({ x: N, y: r2.gustafson });
+        }
+        if (amdahlPts.length > 10) {
+          const spSeries: Series[] = [
+            { points: amdahlPts, type: "line", color: "#2563eb", label: "Amdahl (fixed problem)" },
+            { points: gustPts, type: "line", color: "#059669", label: "Gustafson (fixed time)" },
+          ];
+          if (Number.isFinite(res.amdahlCeiling)) {
+            spSeries.push({
+              points: [
+                { x: 1, y: res.amdahlCeiling },
+                { x: nTop, y: res.amdahlCeiling },
+              ],
+              type: "line",
+              color: "#9ca3af",
+              label: "Amdahl ceiling",
+            });
+          }
+          spSeries.push({ points: [{ x: n, y: res.amdahl }], type: "scatter", color: "#b91c1c", label: "this machine" });
+          const svg = buildPlotSvg(spSeries, {
+            width: 380,
+            height: 260,
+            xScale: "log",
+            xlabel: "processors",
+            ylabel: "speedup",
+            title: "The two laws diverge",
+          });
+          return engReport(lines, [
+            {
+              kind: "plot",
+              svg,
+              caption: "Amdahl bending toward its ceiling while Gustafson keeps climbing",
+              alt: "Speedup against processor count for both scaling laws",
+              w: 380,
+              h: 260,
+            },
+          ]);
+        }
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -15170,6 +15387,69 @@ const ENG_CALCS: EngCalc[] = [
       }
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_SAME_UNIT_NOTE);
+
+      // Two symbols get THE curve — H(p) with this distribution on it; more
+      // get their per-symbol contributions as bars against the uniform
+      // maximum, normalised over the same total the engine used so the bars
+      // sum to the entropy exactly.
+      {
+        const totalW = w.reduce((s2, x) => s2 + x, 0);
+        if (w.length === 2 && totalW > 0) {
+          const p1 = w[0] / totalW;
+          const hCurve: Point[] = [];
+          for (let i2 = 1; i2 < 200; i2++) {
+            const pp = i2 / 200;
+            const y = binaryEntropyBits(pp);
+            if (Number.isFinite(y)) hCurve.push({ x: pp, y });
+          }
+          const svg = buildPlotSvg(
+            [
+              { points: hCurve, type: "line", color: "#2563eb", label: "H(p)" },
+              { points: [{ x: p1, y: res.entropyBits }], type: "scatter", color: "#b91c1c", label: "this source" },
+            ],
+            {
+              width: 380,
+              height: 250,
+              xlabel: "probability of the first symbol",
+              ylabel: "entropy (bits/symbol)",
+              title: "The binary entropy curve",
+            },
+          );
+          return engReport(lines, [
+            {
+              kind: "plot",
+              svg,
+              caption: "The binary entropy function, peaking at one bit for a fair coin",
+              alt: "Entropy against symbol probability with this source marked",
+              w: 380,
+              h: 250,
+            },
+          ]);
+        }
+        if (w.length > 2 && totalW > 0) {
+          const rows = w.map((x, i2) => {
+            const pp = x / totalW;
+            return {
+              name: `symbol ${i2 + 1} (p=${engNum(pp, 3)})`,
+              value: pp > 0 ? -pp * Math.log2(pp) : 0,
+              colour: "#2563eb",
+            };
+          });
+          if (rows.every((rw) => Number.isFinite(rw.value))) {
+            const svg = hBarSvg(rows, { title: `Contribution to H = ${engNum(res.entropyBits, 4)} bits`, unit: "bits" });
+            return engReport(lines, [
+              {
+                kind: "plot",
+                svg,
+                caption: "Each symbol's contribution to the entropy; rare symbols carry little",
+                alt: "Per-symbol entropy contribution bars",
+                w: 400,
+                h: 46 + Math.min(rows.length, 24) * HBAR_ROW_H + 18,
+              },
+            ]);
+          }
+        }
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -15219,6 +15499,50 @@ const ENG_CALCS: EngCalc[] = [
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
+
+      // Capacity against SNR — near-linear in dB at high SNR with the knee at
+      // the left, this channel marked. The BSC number stays OFF this plot:
+      // bits per channel use and bits per second on one axis is exactly the
+      // confusion the tool warns against.
+      {
+        const capPts: Point[] = [];
+        // CLAMPED to ±300 dB: the sweep is one iteration per dB, and an SNR
+        // typed as 1e15 would otherwise be 1e15 iterations — a frozen Word,
+        // not a chart. Every point past ~3000 dB overflows to Infinity and is
+        // dropped anyway; the marker below still sits at the true value.
+        const snrC = Math.max(-300, Math.min(300, snr));
+        const sLo = Math.min(0, snrC - 20);
+        const sHi = snrC + 20;
+        for (let s2 = sLo; s2 <= sHi; s2++) {
+          const r2 = channelCapacity(B, s2);
+          if (r2 && Number.isFinite(r2.capacityBps)) capPts.push({ x: s2, y: r2.capacityBps / 1e6 });
+        }
+        if (capPts.length > 10) {
+          const svg = buildPlotSvg(
+            [
+              { points: capPts, type: "line", color: "#2563eb", label: "Shannon-Hartley" },
+              { points: [{ x: res.snrDb, y: res.capacityBps / 1e6 }], type: "scatter", color: "#b91c1c", label: "this channel" },
+            ],
+            {
+              width: 380,
+              height: 250,
+              xlabel: "SNR (dB)",
+              ylabel: "capacity (Mbit/s)",
+              title: "Capacity against SNR at this bandwidth",
+            },
+          );
+          return engReport(lines, [
+            {
+              kind: "plot",
+              svg,
+              caption: "Shannon-Hartley capacity against SNR; near-linear per dB once past the knee",
+              alt: "Channel capacity against signal-to-noise ratio with this channel marked",
+              w: 380,
+              h: 250,
+            },
+          ]);
+        }
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -15277,6 +15601,62 @@ const ENG_CALCS: EngCalc[] = [
       ];
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_SAME_UNIT_NOTE);
+
+      // The birthday curve on a LOG item axis — on a linear one the default
+      // case is a flat zero line, because a million items against 2^64 sits
+      // eight decades left of the 50% point. The axis top comes from the
+      // engine's own fiftyPercentCount, capped so the sweep stays bounded.
+      if (res.fiftyPercentCount > 0 && Number.isFinite(res.fiftyPercentCount)) {
+        const kTop = Math.min(10 * res.fiftyPercentCount, 1e15);
+        const seen = new Set<number>();
+        const curve: Point[] = [];
+        for (let i2 = 0; i2 <= 60; i2++) {
+          const k = Math.max(1, Math.round(Math.pow(kTop, i2 / 60)));
+          if (seen.has(k)) continue;
+          seen.add(k);
+          const r2 = collisionProbability(k, space);
+          if (r2 && Number.isFinite(r2.probability)) curve.push({ x: k, y: Math.min(r2.probability, 1) });
+        }
+        if (curve.length > 10) {
+          const xEnd = curve[curve.length - 1].x;
+          const collSeries: Series[] = [
+            { points: curve, type: "line", color: "#2563eb", label: "P(collision)" },
+            {
+              points: [
+                { x: 1, y: 0.5 },
+                { x: xEnd, y: 0.5 },
+              ],
+              type: "line",
+              color: "#9ca3af",
+            },
+            { points: [{ x: Math.max(1, n), y: Math.min(res.probability, 1) }], type: "scatter", color: "#b91c1c", label: "this count" },
+          ];
+          if (res.fiftyPercentCount <= kTop) {
+            collSeries.push({ points: [{ x: res.fiftyPercentCount, y: 0.5 }], type: "scatter", color: "#059669", label: "50% crossing" });
+          }
+          const svg = buildPlotSvg(collSeries, {
+            width: 380,
+            height: 250,
+            xScale: "log",
+            xlabel: "items (log scale)",
+            ylabel: "P(at least one collision)",
+            title: "The birthday curve",
+          });
+          return engReport(lines, [
+            {
+              kind: "plot",
+              svg,
+              caption:
+                kTop < 10 * res.fiftyPercentCount
+                  ? "The birthday curve (axis capped at 10^15 items; the 50% point lies beyond it)"
+                  : "The birthday curve on a log item axis, the 50% crossing marked",
+              alt: "Collision probability rising along a log item count axis",
+              w: 380,
+              h: 250,
+            },
+          ]);
+        }
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -15324,6 +15704,51 @@ const ENG_CALCS: EngCalc[] = [
       }
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_SAME_UNIT_NOTE);
+
+      // The ULP staircase on log-log: spacing between doubles against
+      // magnitude, your value and machine epsilon at 1.0 six decades apart —
+      // which IS the "epsilon is not an absolute bound" argument. The
+      // cancellation factor stays off the plot (it can be Infinity).
+      {
+        // v = 0 still gets the staircase (centred on magnitude 1); only the
+        // "your value" marker has nowhere to sit on a log axis.
+        const eCentre = v !== 0 ? Math.floor(Math.log10(Math.abs(v))) : 0;
+        const eLo = Math.max(-300, eCentre - 9);
+        const eHi = Math.min(300, eCentre + 9);
+        const stair: Point[] = [];
+        for (let e2 = eLo; e2 <= eHi; e2++) {
+          const m = Math.pow(10, e2);
+          const r2 = floatPrecision(m);
+          if (r2 && Number.isFinite(r2.ulp) && r2.ulp > 0) stair.push({ x: m, y: r2.ulp });
+        }
+        if (stair.length > 6) {
+          const stairSeries: Series[] = [{ points: stair, type: "line", color: "#2563eb", label: "1 ULP" }];
+          if (v !== 0) stairSeries.push({ points: [{ x: Math.abs(v), y: res.ulp }], type: "scatter", color: "#b91c1c", label: "your value" });
+          stairSeries.push({ points: [{ x: 1, y: res.epsilon }], type: "scatter", color: "#059669", label: "ε at 1.0" });
+          const svg = buildPlotSvg(
+            stairSeries,
+            {
+              width: 380,
+              height: 250,
+              xScale: "log",
+              yScale: "log",
+              xlabel: "magnitude",
+              ylabel: "spacing between doubles (1 ULP)",
+              title: "The gap scales with the magnitude",
+            },
+          );
+          return engReport(lines, [
+            {
+              kind: "plot",
+              svg,
+              caption: "ULP against magnitude on log-log; machine epsilon holds only at 1.0",
+              alt: "Spacing between representable doubles rising with magnitude",
+              w: 380,
+              h: 250,
+            },
+          ]);
+        }
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -15377,6 +15802,65 @@ const ENG_CALCS: EngCalc[] = [
       }
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_SAME_UNIT_NOTE);
+
+      // The fit on log-log, where a power law is a straight line of slope k,
+      // against a k = 1 reference through the first measurement. The
+      // prefactor comes from the fitted exponent and the first point, so the
+      // line passes through both measurements by construction.
+      if (vals.n1 > 0 && vals.t1 > 0 && Number.isFinite(res.exponent)) {
+        const aPre = vals.t1 / Math.pow(vals.n1, res.exponent);
+        const nLo = Math.min(vals.n1, vals.n2) / 2;
+        const nHi = Math.max(vals.n2, nt ?? vals.n2) * 2;
+        const fit: Point[] = [];
+        const ref: Point[] = [];
+        for (let i2 = 0; i2 <= 60; i2++) {
+          const nn = nLo * Math.pow(nHi / nLo, i2 / 60);
+          const yFit = aPre * Math.pow(nn, res.exponent);
+          const yRef = vals.t1 * (nn / vals.n1);
+          if (Number.isFinite(yFit) && yFit > 0) fit.push({ x: nn, y: yFit });
+          if (Number.isFinite(yRef) && yRef > 0) ref.push({ x: nn, y: yRef });
+        }
+        if (fit.length > 10) {
+          const scalingSeries: Series[] = [
+            { points: fit, type: "line", color: "#2563eb", label: `fit: n^${engNum(res.exponent, 3)}` },
+            { points: ref, type: "line", color: "#9ca3af", label: "linear (k = 1)" },
+            {
+              points: [
+                { x: vals.n1, y: vals.t1 },
+                { x: vals.n2, y: vals.t2 },
+              ],
+              type: "scatter",
+              color: "#b91c1c",
+              label: "measured",
+            },
+          ];
+          if (res.predicted !== null && nt !== undefined && res.predicted > 0) {
+            scalingSeries.push({ points: [{ x: nt, y: res.predicted }], type: "scatter", color: "#059669", label: "prediction" });
+          }
+          const svg = buildPlotSvg(scalingSeries, {
+            width: 380,
+            height: 260,
+            xScale: "log",
+            yScale: "log",
+            xlabel: "input size n",
+            ylabel: "runtime (your units)",
+            // plainDashes never sees SVG text, and the insert guard scans the
+            // whole result DOM for the em-dash sentinel — a hyphen, and the
+            // class name cleaned, or the audit flags the tool.
+            title: plainDashes(`t ∝ n^${engNum(res.exponent, 3)} - ${res.nearestClass}`),
+          });
+          return engReport(lines, [
+            {
+              kind: "plot",
+              svg,
+              caption: "The fitted power law on log-log against a linear reference, both measurements on it",
+              alt: "Runtime against input size on log-log with the fit, reference and prediction",
+              w: 380,
+              h: 260,
+            },
+          ]);
+        }
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -16212,6 +16696,46 @@ const ENG_CALCS: EngCalc[] = [
       ];
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_PHOTON_UNIT_NOTE);
+
+      // E against λ on log-log — a straight line of slope −1, because
+      // E = hc/λ. Swept around the VACUUM wavelength the engine computed
+      // (the entered value may be THz or eV), each point re-asked with n = 1
+      // since the result is already in vacuum.
+      if (res.wavelengthNm > 0 && Number.isFinite(res.energyEv)) {
+        const ePts: Point[] = [];
+        for (let i2 = 0; i2 <= 60; i2++) {
+          const lam2 = (res.wavelengthNm / 5) * Math.pow(25, i2 / 60);
+          const r2 = photonRelations(lam2, "nm", 1);
+          if (r2 && Number.isFinite(r2.energyEv)) ePts.push({ x: lam2, y: r2.energyEv });
+        }
+        if (ePts.length > 10) {
+          const svg = buildPlotSvg(
+            [
+              { points: ePts, type: "line", color: "#2563eb", label: "E = hc/λ" },
+              { points: [{ x: res.wavelengthNm, y: res.energyEv }], type: "scatter", color: "#b91c1c", label: "this photon" },
+            ],
+            {
+              width: 380,
+              height: 250,
+              xScale: "log",
+              yScale: "log",
+              xlabel: "vacuum wavelength (nm)",
+              ylabel: "photon energy (eV)",
+              title: "Energy against wavelength",
+            },
+          );
+          return engReport(lines, [
+            {
+              kind: "plot",
+              svg,
+              caption: "E = hc/λ on log-log — a straight line of slope −1, this photon marked",
+              alt: "Photon energy against vacuum wavelength",
+              w: 380,
+              h: 250,
+            },
+          ]);
+        }
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -16277,6 +16801,65 @@ const ENG_CALCS: EngCalc[] = [
       u.report(lines);
       for (const note of g.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
+
+      // The caustic: ±w(z) through the waist, the Rayleigh range as stems,
+      // this z marked. Every point re-asks the engine; LINEAR axes only —
+      // z runs negative and the lower branch is −w.
+      if (g.rayleighM > 0 && Number.isFinite(g.wAtZ)) {
+        const zMax = Math.max(3 * g.rayleighM, 1.2 * Math.abs(z));
+        const upper: Point[] = [];
+        const lower: Point[] = [];
+        for (let i2 = 0; i2 <= 120; i2++) {
+          const zz = -zMax + (2 * zMax * i2) / 120;
+          const g2 = gaussianBeam({ w0, lambda: lam, m2, z: zz });
+          if (g2 && Number.isFinite(g2.wAtZ)) {
+            upper.push({ x: zz, y: g2.wAtZ * 1e3 });
+            lower.push({ x: zz, y: -g2.wAtZ * 1e3 });
+          }
+        }
+        if (upper.length > 20) {
+          const wR = upper.find((pt) => pt.x >= g.rayleighM)?.y ?? g.wAtZ * 1e3;
+          const beamSeries: Series[] = [
+            { points: upper, type: "line", color: "#2563eb", label: "w(z)" },
+            { points: lower, type: "line", color: "#2563eb" },
+            {
+              points: [
+                { x: g.rayleighM, y: -wR },
+                { x: g.rayleighM, y: wR },
+              ],
+              type: "line",
+              color: "#9ca3af",
+              label: "z_R",
+            },
+            {
+              points: [
+                { x: -g.rayleighM, y: -wR },
+                { x: -g.rayleighM, y: wR },
+              ],
+              type: "line",
+              color: "#9ca3af",
+            },
+            { points: [{ x: z, y: g.wAtZ * 1e3 }], type: "scatter", color: "#b91c1c", label: "this z" },
+          ];
+          const svg = buildPlotSvg(beamSeries, {
+            width: 380,
+            height: 250,
+            xlabel: "distance from the waist z (m)",
+            ylabel: "beam radius (mm)",
+            title: "The beam caustic",
+          });
+          return engReport(lines, [
+            {
+              kind: "plot",
+              svg,
+              caption: "The ±w(z) envelope through the waist, Rayleigh range marked",
+              alt: "Gaussian beam radius against distance with the Rayleigh range stems",
+              w: 380,
+              h: 250,
+            },
+          ]);
+        }
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -16368,8 +16951,11 @@ const ENG_CALCS: EngCalc[] = [
       const lam = u.optNull("lam", "m", "Wavelength");
       const w = u.optNull("w", "m", "Input beam radius");
       if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      let traceRin = Infinity;
+      let traceNIn = 1;
       if (lam !== null && w !== null && Number.isFinite(lam) && Number.isFinite(w)) {
         const Rin = u.opt("R", "m", "Input wavefront radius", Infinity);
+        traceRin = Rin;
         // THE MEDIUM AT EACH END MATTERS. Im(1/q) carries the index, so tracing in
         // with n = 1 and out with n = 1 through a system that ENDS in glass
         // overstates the output radius by sqrt(n_out) — about 22% — with no error
@@ -16377,6 +16963,7 @@ const ENG_CALCS: EngCalc[] = [
         // is already printed above, so the exit index is derived from it rather
         // than assumed.
         const nIn = Number(r("nin") || "1");
+        traceNIn = Number.isFinite(nIn) && nIn > 0 ? nIn : 1;
         const det = m[0] * m[3] - m[1] * m[2];
         const nOut = Number.isFinite(nIn) && nIn > 0 && det !== 0 ? nIn / det : NaN;
         const q0 = Number.isFinite(nOut) && nOut > 0 ? qFromBeam(w, Rin, lam, 1, nIn) : null;
@@ -16404,6 +16991,69 @@ const ENG_CALCS: EngCalc[] = [
           "and no error, which is why the order is fixed here rather than left to the caller.",
       );
       lines.push(ENG_UNIT_NOTE);
+
+      // w(z) walked THROUGH the system: spaces subdivided, thin elements as
+      // stems, the RUNNING index carried across every flat/curved surface —
+      // beamFromQ with the endpoint index instead is off by √n inside glass,
+      // which is the engine's own warning.
+      if (lam !== null && w !== null && els.some((e) => e.kind === "space")) {
+        let q: ReturnType<typeof qFromBeam> | null = qFromBeam(w, traceRin, lam, 1, traceNIn);
+        let nRun = traceNIn;
+        let zPos = 0;
+        const traceW: Point[] = [{ x: 0, y: w * 1e3 }];
+        const elementZ: number[] = [];
+        for (const el of els) {
+          if (!q) break;
+          if (el.kind === "space") {
+            const steps = 40;
+            for (let s2 = 0; s2 < steps && q; s2++) {
+              q = propagateQ(q, [1, el.d / steps, 0, 1]);
+              zPos += el.d / steps;
+              const b2 = q ? beamFromQ(q, lam, 1, nRun) : null;
+              if (b2 && Number.isFinite(b2.w)) traceW.push({ x: zPos, y: b2.w * 1e3 });
+            }
+          } else {
+            const em = elementMatrix(el);
+            if (!em) break;
+            q = propagateQ(q, em);
+            elementZ.push(zPos);
+            if (el.kind === "flat" || el.kind === "curved") nRun = el.n2;
+            const b2 = q ? beamFromQ(q, lam, 1, nRun) : null;
+            if (b2 && Number.isFinite(b2.w)) traceW.push({ x: zPos, y: b2.w * 1e3 });
+          }
+        }
+        if (traceW.length > 5 && zPos > 0) {
+          const yTop = Math.max(...traceW.map((pt) => pt.y));
+          const abcdSeries: Series[] = [{ points: traceW, type: "line", color: "#2563eb", label: "w(z)" }];
+          for (const ez of elementZ) {
+            abcdSeries.push({
+              points: [
+                { x: ez, y: 0 },
+                { x: ez, y: yTop },
+              ],
+              type: "line",
+              color: "#9ca3af",
+            });
+          }
+          const svg = buildPlotSvg(abcdSeries, {
+            width: 380,
+            height: 250,
+            xlabel: "distance through the system (m)",
+            ylabel: "beam radius (mm)",
+            title: "The beam through the system",
+          });
+          return engReport(lines, [
+            {
+              kind: "plot",
+              svg,
+              caption: "Beam radius walked through every element; grey lines are the thin elements",
+              alt: "Beam radius against distance through the optical system",
+              w: 380,
+              h: 250,
+            },
+          ]);
+        }
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -16456,7 +17106,67 @@ const ENG_CALCS: EngCalc[] = [
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
-      return { text: plainDashes(lines.join("\n")) };
+
+      // The g1-g2 stability diagram: the region between the axes and the
+      // hyperbola g2 = 1/g1, sampled parametrically so the branch near the
+      // pole is not starved, this cavity marked (clamped to the frame — the
+      // diagram is most useful precisely when the cavity is far outside).
+      {
+        const G = Math.min(10, Math.max(3, 1.3 * Math.abs(res.g1), 1.3 * Math.abs(res.g2)));
+        const hypPos: Point[] = [];
+        const hypNeg: Point[] = [];
+        for (let i2 = 0; i2 <= 80; i2++) {
+          const t = -Math.log(G) + (2 * Math.log(G) * i2) / 80;
+          const g1v = Math.exp(t);
+          const g2v = Math.exp(-t);
+          if (g1v <= G && g2v <= G) hypPos.push({ x: g1v, y: g2v });
+          if (g1v <= G && g2v <= G) hypNeg.push({ x: -g1v, y: -g2v });
+        }
+        const gSeries: Series[] = [
+          { points: hypPos, type: "line", color: "#2563eb", label: "g₁g₂ = 1" },
+          { points: hypNeg, type: "line", color: "#2563eb" },
+          {
+            points: [
+              { x: -G, y: 0 },
+              { x: G, y: 0 },
+            ],
+            type: "line",
+            color: "#9ca3af",
+          },
+          {
+            points: [
+              { x: 0, y: -G },
+              { x: 0, y: G },
+            ],
+            type: "line",
+            color: "#9ca3af",
+          },
+          {
+            points: [{ x: Math.max(-G, Math.min(G, res.g1)), y: Math.max(-G, Math.min(G, res.g2)) }],
+            type: "scatter",
+            color: res.stable ? "#059669" : "#b91c1c",
+            label: res.stable ? "this cavity (stable)" : "this cavity (unstable)",
+          },
+        ];
+        const svg = buildPlotSvg(gSeries, {
+          width: 380,
+          height: 270,
+          xlabel: "g₁ = 1 − L/R₁",
+          ylabel: "g₂ = 1 − L/R₂",
+          title: "The stability diagram",
+        });
+        return engReport(lines, [
+          {
+            kind: "plot",
+            svg,
+            caption:
+              "The g₁-g₂ diagram: stable between the axes and the g₁g₂ = 1 hyperbola, this cavity marked",
+            alt: "Resonator stability diagram with the cavity's g parameters plotted",
+            w: 380,
+            h: 270,
+          },
+        ]);
+      }
     },
   },
   {
@@ -16511,6 +17221,38 @@ const ENG_CALCS: EngCalc[] = [
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
+
+      // The three shapes' peak powers at the same energy and duration — the
+      // 0.939 / 0.881 / 1.0 family the hint names, each bar re-asked of the
+      // engine because those factors live inside it and are not exported.
+      {
+        const shapes: PulseShape[] = ["gaussian", "sech2", "rectangular"];
+        const rows = shapes
+          .map((s2) => {
+            const r2 = pulseMetrics(E, tau, f, s2, w === null ? undefined : w);
+            return r2
+              ? {
+                  name: s2 + (s2 === r("shape") ? " (selected)" : ""),
+                  value: r2.peakPowerW / 1000,
+                  colour: s2 === r("shape") ? "#2563eb" : "#9ca3af",
+                }
+              : null;
+          })
+          .filter((x): x is NonNullable<typeof x> => x !== null && Number.isFinite(x.value));
+        if (rows.length === 3) {
+          const svg = hBarSvg(rows, { title: "Peak power by pulse shape, same E and τ", unit: "kW" });
+          return engReport(lines, [
+            {
+              kind: "plot",
+              svg,
+              caption: "The shape factors: a Gaussian of the same FWHM peaks at 0.939 of E/τ",
+              alt: "Peak power bars for Gaussian, sech-squared and rectangular pulse shapes",
+              w: 400,
+              h: 46 + 3 * HBAR_ROW_H + 18,
+            },
+          ]);
+        }
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -16545,6 +17287,58 @@ const ENG_CALCS: EngCalc[] = [
       ];
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_SAME_UNIT_NOTE);
+
+      // The Snell sweep: refraction angle against incidence, each point
+      // re-asked of the engine, the curve simply STOPPING at the critical
+      // angle — which is the honest drawing of total internal reflection.
+      // The sweep stays below 90° because the engine refuses 90 itself.
+      {
+        const snell: Point[] = [];
+        for (let deg = 0; deg <= 89.5; deg += 0.5) {
+          const r2 = refraction(n1, n2, deg);
+          if (r2 && r2.thetaTDeg !== null && Number.isFinite(r2.thetaTDeg)) snell.push({ x: deg, y: r2.thetaTDeg });
+        }
+        if (snell.length > 10) {
+          const refrSeries: Series[] = [{ points: snell, type: "line", color: "#2563eb", label: "Snell" }];
+          if (res.criticalDeg !== null) {
+            refrSeries.push({
+              points: [
+                { x: res.criticalDeg, y: 0 },
+                { x: res.criticalDeg, y: 90 },
+              ],
+              type: "line",
+              color: "#9ca3af",
+              label: "critical angle",
+            });
+          }
+          refrSeries.push(
+            res.tir
+              ? { points: [{ x: th, y: 90 }], type: "scatter", color: "#b91c1c", label: "your angle: TIR" }
+              : { points: [{ x: th, y: res.thetaTDeg ?? 0 }], type: "scatter", color: "#b91c1c", label: "your angle" },
+          );
+          refrSeries.push({ points: [{ x: res.brewsterDeg, y: snell.find((pt) => pt.x >= res.brewsterDeg)?.y ?? 0 }], type: "scatter", color: "#059669", label: "Brewster" });
+          const svg = buildPlotSvg(refrSeries, {
+            width: 380,
+            height: 260,
+            xlabel: "angle of incidence (°)",
+            ylabel: "angle of refraction (°)",
+            title: "Snell's law at this interface",
+          });
+          return engReport(lines, [
+            {
+              kind: "plot",
+              svg,
+              caption:
+                res.criticalDeg !== null
+                  ? "The refraction curve ends at the critical angle; past it there is only reflection"
+                  : "The refraction curve across all incidence angles",
+              alt: "Refraction angle against incidence angle with the critical and Brewster angles marked",
+              w: 380,
+              h: 260,
+            },
+          ]);
+        }
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -16582,6 +17376,7 @@ const ENG_CALCS: EngCalc[] = [
       }
 
       const lpm = r("g").trim();
+      let gratingOrders: { m: number; angleDeg: number }[] | null = null;
       if (lpm) {
         const gr = grating(lam, Number(lpm), Number(r("gi") || "0"));
         if (!gr) {
@@ -16595,11 +17390,92 @@ const ENG_CALCS: EngCalc[] = [
           }
           lines.push(`  Highest existing order: ${gr.maxOrder}`);
           for (const note of gr.notes) lines.push(`Note: ${note}`);
+          gratingOrders = gr.orders;
         }
       }
       u.report(lines);
       for (const note of a.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
+
+      // The orders that EXIST, at their angles, as unit stems — the caption
+      // says out loud that the height carries no intensity, because neither
+      // engine returns an intensity profile and this bench does not invent
+      // one. With no grating, the Airy half-angle against aperture instead.
+      if (gratingOrders && gratingOrders.length) {
+        const stems: Series[] = [
+          {
+            points: [
+              { x: -90, y: 0 },
+              { x: 90, y: 0 },
+            ],
+            type: "line",
+            color: "#9ca3af",
+          },
+        ];
+        for (const o of gratingOrders) {
+          stems.push({
+            points: [
+              { x: o.angleDeg, y: 0 },
+              { x: o.angleDeg, y: 1 },
+            ],
+            type: "line",
+            color: o.m === 0 ? "#b91c1c" : "#2563eb",
+          });
+        }
+        const svg = buildPlotSvg(stems, {
+          width: 380,
+          height: 220,
+          xlabel: "diffraction angle (°)",
+          ylabel: "order exists",
+          title: "Where the grating sends the light",
+        });
+        return engReport(lines, [
+          {
+            kind: "plot",
+            svg,
+            caption:
+              "The orders that exist, at their angles (m = 0 in red); the stem height carries NO intensity",
+            alt: "Grating diffraction orders as vertical stems by angle",
+            w: 380,
+            h: 220,
+          },
+        ]);
+      }
+      {
+        const airyPts: Point[] = [];
+        for (let i2 = 0; i2 <= 60; i2++) {
+          const DD = (D / 5) * Math.pow(25, i2 / 60);
+          const a2 = airy(lam, DD);
+          if (a2 && Number.isFinite(a2.airyHalfAngleRad)) airyPts.push({ x: DD * 1000, y: a2.airyHalfAngleRad * 1e6 });
+        }
+        if (airyPts.length > 10) {
+          const svg = buildPlotSvg(
+            [
+              { points: airyPts, type: "line", color: "#2563eb", label: "1.22 λ/D" },
+              { points: [{ x: D * 1000, y: a.airyHalfAngleRad * 1e6 }], type: "scatter", color: "#b91c1c", label: "this aperture" },
+            ],
+            {
+              width: 380,
+              height: 250,
+              xScale: "log",
+              yScale: "log",
+              xlabel: "aperture diameter (mm)",
+              ylabel: "Airy half-angle (µrad)",
+              title: "Resolution against aperture",
+            },
+          );
+          return engReport(lines, [
+            {
+              kind: "plot",
+              svg,
+              caption: "The 1.22 λ/D law on log-log — a straight line of slope −1",
+              alt: "Airy half-angle against aperture diameter",
+              w: 380,
+              h: 250,
+            },
+          ]);
+        }
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -16644,6 +17520,64 @@ const ENG_CALCS: EngCalc[] = [
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
+
+      // V against wavelength with the 2.405 single-mode line and the cutoff
+      // stem: where the curve crosses the line IS the cutoff the text
+      // reports, and the range brackets both the operating wavelength and the
+      // cutoff so neither marker can land off-frame.
+      if (res.cutoffWavelengthM > 0 && lam > 0) {
+        const lamLo = 0.6 * Math.min(lam, res.cutoffWavelengthM);
+        const lamHi = 1.8 * Math.max(lam, res.cutoffWavelengthM);
+        const vPts: Point[] = [];
+        for (let i2 = 0; i2 <= 150; i2++) {
+          const l2 = lamLo + ((lamHi - lamLo) * i2) / 150;
+          const r2 = fibre(Number(r("nc")), Number(r("ncl")), a, l2);
+          if (r2 && Number.isFinite(r2.vNumber)) vPts.push({ x: l2 * 1e9, y: r2.vNumber });
+        }
+        if (vPts.length > 20) {
+          const vMax = Math.max(...vPts.map((pt) => pt.y));
+          const svg = buildPlotSvg(
+            [
+              { points: vPts, type: "line", color: "#2563eb", label: "V(λ)" },
+              {
+                points: [
+                  { x: lamLo * 1e9, y: 2.405 },
+                  { x: lamHi * 1e9, y: 2.405 },
+                ],
+                type: "line",
+                color: "#9ca3af",
+                label: "V = 2.405",
+              },
+              {
+                points: [
+                  { x: res.cutoffWavelengthM * 1e9, y: 0 },
+                  { x: res.cutoffWavelengthM * 1e9, y: vMax },
+                ],
+                type: "line",
+                color: "#d97706",
+              },
+              { points: [{ x: lam * 1e9, y: res.vNumber }], type: "scatter", color: "#b91c1c", label: "this wavelength" },
+            ],
+            {
+              width: 380,
+              height: 250,
+              xlabel: "wavelength (nm)",
+              ylabel: "V number",
+              title: "The single-mode boundary",
+            },
+          );
+          return engReport(lines, [
+            {
+              kind: "plot",
+              svg,
+              caption: "V against wavelength; the crossing with 2.405 is the cutoff the text reports",
+              alt: "Fibre V number against wavelength with the single-mode line and cutoff marked",
+              w: 380,
+              h: 250,
+            },
+          ]);
+        }
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -16731,6 +17665,68 @@ const ENG_CALCS: EngCalc[] = [
       ];
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_QUANTUM_UNIT_NOTE);
+
+      // The four basis probabilities and the two Schmidt eigenvalues as
+      // stems, one 0-1 axis. The engine normalises internally and keeps the
+      // amplitudes to itself, so the probabilities are re-derived over the
+      // SAME resolved A..D the engine was handed. Linear y — exact zeros are
+      // half the story for a Bell state.
+      {
+        const norm2 = [A, B, C, D].reduce((s2, z) => s2 + z.re * z.re + z.im * z.im, 0);
+        if (norm2 > 0 && Number.isFinite(norm2)) {
+          const probs = [A, B, C, D].map((z) => (z.re * z.re + z.im * z.im) / norm2);
+          const stems: Series[] = [
+            {
+              points: [
+                { x: -0.5, y: 0 },
+                { x: 6.5, y: 0 },
+              ],
+              type: "line",
+              color: "#9ca3af",
+            },
+          ];
+          probs.forEach((pv, i2) => {
+            stems.push({
+              points: [
+                { x: i2, y: 0 },
+                { x: i2, y: pv },
+              ],
+              type: "line",
+              color: "#2563eb",
+              label: i2 === 0 ? "P(basis state)" : undefined,
+            });
+          });
+          res.schmidt.forEach((sv, i2) => {
+            stems.push({
+              points: [
+                { x: 5 + i2, y: 0 },
+                { x: 5 + i2, y: sv },
+              ],
+              type: "line",
+              color: "#059669",
+              label: i2 === 0 ? "Schmidt λ" : undefined,
+            });
+          });
+          const svg = buildPlotSvg(stems, {
+            width: 380,
+            height: 250,
+            xlabel: "x = 0..3: P(|00⟩ |01⟩ |10⟩ |11⟩); x = 5,6: Schmidt",
+            ylabel: "probability",
+            title: "The state, as probabilities",
+          });
+          return engReport(lines, [
+            {
+              kind: "plot",
+              svg,
+              caption:
+                "Basis probabilities (blue, |00⟩ |01⟩ |10⟩ |11⟩ left to right) and the two Schmidt eigenvalues (green); equal Schmidt halves mean maximal entanglement",
+              alt: "Stem chart of the four basis-state probabilities and the Schmidt spectrum",
+              w: 380,
+              h: 250,
+            },
+          ]);
+        }
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -16787,7 +17783,83 @@ const ENG_CALCS: EngCalc[] = [
       if (res.sigmas !== null) lines.push(`  ${engNum(res.sigmas, 4)} standard errors beyond the classical bound`);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_QUANTUM_UNIT_NOTE);
-      return { text: plainDashes(lines.join("\n")) };
+
+      // S against its two bounds, plus the four CONTRIBUTIONS (E2 enters
+      // subtracted, so the stem shows −E2 — a raw-e2 stem beside the sum
+      // would read as a sign error). The bounds come from the result fields,
+      // never retyped. No angle sweep exists: the engine holds measured
+      // correlations, not a correlation function, and inventing −cos θ would
+      // be new physics.
+      {
+        const contribs = [res.s, nums[0], -nums[1], nums[2], nums[3]];
+        const stems: Series[] = [
+          {
+            points: [
+              { x: -0.6, y: 0 },
+              { x: 4.6, y: 0 },
+            ],
+            type: "line",
+            color: "#9ca3af",
+          },
+        ];
+        for (const bound of [res.classicalBound, -res.classicalBound]) {
+          stems.push({
+            points: [
+              { x: -0.6, y: bound },
+              { x: 4.6, y: bound },
+            ],
+            type: "line",
+            color: "#d97706",
+            label: bound > 0 ? "classical ±2" : undefined,
+          });
+        }
+        for (const bound of [res.tsirelsonBound, -res.tsirelsonBound]) {
+          stems.push({
+            points: [
+              { x: -0.6, y: bound },
+              { x: 4.6, y: bound },
+            ],
+            type: "line",
+            color: "#059669",
+            label: bound > 0 ? "Tsirelson ±2√2" : undefined,
+          });
+        }
+        contribs.forEach((cv, i2) => {
+          stems.push({
+            points: [
+              { x: i2, y: 0 },
+              { x: i2, y: cv },
+            ],
+            type: "line",
+            color: i2 === 0 ? "#b91c1c" : "#2563eb",
+            label: i2 === 0 ? "S" : undefined,
+          });
+        });
+        // The measured uncertainty rides ON the S stem when it was given —
+        // whether the bar clears the classical line is the entire claim.
+        if (sd !== undefined) {
+          stems.push({ points: [{ x: 0, y: res.s, err: sd }], type: "scatter", color: "#b91c1c" });
+        }
+        const svg = buildPlotSvg(stems, {
+          width: 380,
+          height: 260,
+          xlabel: "S, then the four contributions (+E₁, −E₂, +E₃, +E₄)",
+          ylabel: "correlation sum",
+          title: "S against both bounds",
+          errorBars: sd !== undefined ? "custom" : undefined,
+        });
+        return engReport(lines, [
+          {
+            kind: "plot",
+            svg,
+            caption:
+              "S (red) against the classical and Tsirelson bounds; the blue stems are the four contributions, E(a,b') entering subtracted",
+            alt: "CHSH S value and its contributions against the classical and quantum bounds",
+            w: 380,
+            h: 260,
+          },
+        ]);
+      }
     },
   },
   {
@@ -16814,6 +17886,71 @@ const ENG_CALCS: EngCalc[] = [
       ];
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_QUANTUM_UNIT_NOTE);
+
+      // Concurrence against p with BOTH thresholds — found by sweeping the
+      // same engine and watching its own verdicts flip, so the stems cannot
+      // disagree with the booleans in the text. The kink at 1/3 is the real
+      // max(0, ·) clamp, not a plotting artefact; linear axes because a
+      // third of the curve is exactly zero.
+      {
+        const conc: Point[] = [];
+        let entangleFlip: number | null = null;
+        let chshFlip: number | null = null;
+        let prev: ReturnType<typeof wernerState> = null;
+        for (let i2 = 0; i2 <= 200; i2++) {
+          const pp = i2 / 200;
+          const r2 = wernerState(pp);
+          if (!r2) continue;
+          conc.push({ x: pp, y: r2.concurrence });
+          if (prev && !prev.entangled && r2.entangled) entangleFlip = pp;
+          if (prev && !prev.violatesChsh && r2.violatesChsh) chshFlip = pp;
+          prev = r2;
+        }
+        if (conc.length > 50) {
+          const wSeries: Series[] = [{ points: conc, type: "line", color: "#2563eb", label: "concurrence" }];
+          if (entangleFlip !== null) {
+            wSeries.push({
+              points: [
+                { x: entangleFlip, y: 0 },
+                { x: entangleFlip, y: 1 },
+              ],
+              type: "line",
+              color: "#9ca3af",
+              label: "entangled past here",
+            });
+          }
+          if (chshFlip !== null) {
+            wSeries.push({
+              points: [
+                { x: chshFlip, y: 0 },
+                { x: chshFlip, y: 1 },
+              ],
+              type: "line",
+              color: "#d97706",
+              label: "CHSH-visible past here",
+            });
+          }
+          wSeries.push({ points: [{ x: res.p, y: res.concurrence }], type: "scatter", color: "#b91c1c", label: "this p" });
+          const svg = buildPlotSvg(wSeries, {
+            width: 380,
+            height: 260,
+            xlabel: "Bell-state fraction p",
+            ylabel: "concurrence",
+            title: "Two thresholds, and the gap between them",
+          });
+          return engReport(lines, [
+            {
+              kind: "plot",
+              svg,
+              caption:
+                "Concurrence against p; the kink at p = 1/3 is the real max(0, .) clamp, and between the two stems the state is entangled yet no Bell test can show it",
+              alt: "Werner state concurrence with the entanglement and CHSH thresholds marked",
+              w: 380,
+              h: 260,
+            },
+          ]);
+        }
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -16843,6 +17980,51 @@ const ENG_CALCS: EngCalc[] = [
       ];
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_QUANTUM_UNIT_NOTE);
+
+      // Key rate against QBER over the expression's whole domain [0, 0.5],
+      // the threshold stem where the engine's own bisection put it — never a
+      // hard-coded 11%. The flat zero past the threshold is the real clamp,
+      // so the axes stay linear. A QBER past 50% marks at the frame edge.
+      {
+        const rate: Point[] = [];
+        for (let i2 = 0; i2 <= 200; i2++) {
+          const qq = i2 / 400;
+          const r2 = bb84KeyRate(qq);
+          if (r2 && Number.isFinite(r2.keyRate)) rate.push({ x: qq * 100, y: r2.keyRate });
+        }
+        if (rate.length > 50) {
+          const qkdSeries: Series[] = [
+            { points: rate, type: "line", color: "#2563eb", label: "r = 1 − 2h(Q)" },
+            {
+              points: [
+                { x: res.thresholdQber * 100, y: 0 },
+                { x: res.thresholdQber * 100, y: 1 },
+              ],
+              type: "line",
+              color: "#9ca3af",
+              label: "threshold",
+            },
+            { points: [{ x: Math.min(pct, 50), y: res.keyRate }], type: "scatter", color: "#b91c1c", label: "this QBER" },
+          ];
+          const svg = buildPlotSvg(qkdSeries, {
+            width: 380,
+            height: 250,
+            xlabel: "QBER (%)",
+            ylabel: "secure bits per sifted bit",
+            title: "The Shor-Preskill bound",
+          });
+          return engReport(lines, [
+            {
+              kind: "plot",
+              svg,
+              caption: "Key rate against QBER; the threshold stem is the root the engine bisected, not a quoted 11%",
+              alt: "BB84 secure key rate falling to zero at the threshold QBER",
+              w: 380,
+              h: 250,
+            },
+          ]);
+        }
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },

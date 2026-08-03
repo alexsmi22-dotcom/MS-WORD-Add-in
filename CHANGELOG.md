@@ -6,6 +6,43 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.88.0] — 2026-08-03 — Computation, chips, optics and quantum draw
+
+Sixth figure batch of the day and the largest: twenty-two tools across four
+disciplines. Ratchet **84 → 106 of 130**. A generic **ledger builder** joins
+mechchart (the NPSH waterfall with the strings and number format as
+parameters — a temperature ladder in °C and a timing budget in picoseconds
+need the same bars and neither survives a formatter hardwired to metres of
+head).
+
+Chips: power against clock (leakage flat — the lesson), the **thermal ladder**
+ambient→junction against the Tj limit, RC delay **quadratic in wire length**,
+and the **setup budget** ledger ending at the slack (hold stays in the text —
+it has no period term). Computation: **Amdahl against Gustafson** on log
+processors, the **binary entropy curve** or per-symbol contribution bars,
+**capacity against SNR**, the **birthday curve** on log items (a linear axis
+is a flat-zero lie at the defaults), the **ULP staircase** on log-log
+(machine epsilon holds only at 1.0), and the **fitted power law** against a
+k = 1 reference. Optics: E = hc/λ as the straight line it is, the beam
+**caustic** with its Rayleigh stems, **w(z) walked through the ABCD system**
+carrying the running index, the **g₁g₂ stability diagram** (drawn precisely
+when the cavity is unstable and the text has least to say), the three
+pulse-shape peak powers, the **Snell sweep that simply stops at the critical
+angle**, grating orders as stems whose caption says the height carries no
+intensity, and the fibre **V-against-λ** crossing 2.405 exactly at the
+reported cutoff. Quantum: the state as **probability stems** with its Schmidt
+spectrum, **S against both Bell bounds** with the measured uncertainty riding
+on the S stem, the Werner **two-threshold curve** (thresholds found by
+watching the engine's own verdicts flip, never retyped), and the
+**Shor-Preskill bound** with the threshold where the engine bisected it.
+
+The adversarial pass found one blocker — the capacity sweep iterated once per
+dB of the USER'S SNR, so a pasted 1e15 dB was a frozen Word (the brief itself
+embedded the bug; the no-unbounded-loops rule outranks the brief) — plus an
+em dash in a plot title that turned the audit gate red, and four
+brief-fidelity gaps. All fixed; the ledger builder now guarantees its result
+row survives any row cap, which is the latency-chart lesson generalised.
+
 ## [2.87.0] — 2026-08-03 — Audio and video draw
 
 Fifth figure batch of the day: all fourteen **Audio & acoustics** and

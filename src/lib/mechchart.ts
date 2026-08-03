@@ -1117,6 +1117,117 @@ export function powerTriangleSvg(pKw: number, qKvar: number, sKva: number, pf: n
   return p.join("");
 }
 
+export const LADDER_CHART_SIZE_W = 400;
+
+export interface LadderRow {
+  name: string;
+  /** Signed contribution; the result row's delta is its absolute position. */
+  delta: number;
+  gain: boolean;
+  /** The final bar, drawn from zero to delta. */
+  result?: boolean;
+}
+
+/**
+ * A generic waterfall ledger — the npshLadderSvg shape with the strings and
+ * the number format as parameters, because a temperature ladder in °C, a
+ * timing budget in picoseconds and an enthalpy ledger in kJ/kg all need the
+ * same bars and none of them survives a formatter hardwired to one decimal
+ * of a metre of head.
+ */
+export function ladderSvg(
+  rows: LadderRow[],
+  opts: {
+    title: string;
+    axisLabel: string;
+    fmt: (v: number) => string;
+    limit?: number;
+    limitLabel?: string;
+    /** true: the result bar must END AT OR ABOVE the limit; false: at or below. */
+    limitOkAbove?: boolean;
+    okText?: string;
+    failText?: string;
+  },
+): string {
+  const W = LADDER_CHART_SIZE_W;
+  // The RESULT row survives any cap: a ledger whose bottom line was silently
+  // sliced off would be the latency-chart defect all over again.
+  const resultRows = rows.filter((rw) => rw.result);
+  const shown = rows.length <= 10 ? rows : [...rows.filter((rw) => !rw.result).slice(0, 10 - resultRows.length), ...resultRows];
+  const H = 56 + shown.length * 34 + 12;
+  if (!shown.length || !shown.every((rw) => Number.isFinite(rw.delta)) || (opts.limit !== undefined && !Number.isFinite(opts.limit))) {
+    return emptyChart(W, 180, "The inputs do not define a ledger");
+  }
+
+  // Running edges.
+  let run = 0;
+  const bars = shown.map((rw) => {
+    if (rw.result) return { ...rw, from: 0, to: rw.delta };
+    const from = run;
+    run += rw.delta;
+    return { ...rw, from, to: run };
+  });
+  const edges = bars.flatMap((b) => [b.from, b.to]);
+  const lo = Math.min(0, ...edges, opts.limit ?? 0);
+  const hi = Math.max(1e-9, ...edges, opts.limit ?? 0) * 1.12;
+  if (!(hi > lo) || !Number.isFinite(hi - lo)) return emptyChart(W, 180, "The inputs do not define a ledger");
+
+  const ML = 118;
+  const MR = 16;
+  const MT = 26;
+  const MB = 30;
+  const pw = W - ML - MR;
+  const ph = H - MT - MB;
+  const X = (v: number): number => ML + ((v - lo) / (hi - lo)) * pw;
+
+  const p: string[] = [];
+  p.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`);
+  p.push(`<rect width="${W}" height="${H}" fill="${PAPER}"/>`);
+  p.push(`<g font-family="sans-serif" font-size="9" fill="${INK}">`);
+  p.push(`<text x="${(ML + pw / 2).toFixed(1)}" y="15" text-anchor="middle" font-size="11">${esc(opts.title)}</text>`);
+
+  const step = niceStep(hi - lo, 5);
+  for (const t of ticks(Math.ceil(lo / step) * step, hi, step)) {
+    p.push(`<line x1="${X(t).toFixed(1)}" y1="${MT}" x2="${X(t).toFixed(1)}" y2="${MT + ph}" stroke="#f0f0f0"/>`);
+    p.push(`<text x="${X(t).toFixed(1)}" y="${MT + ph + 12}" text-anchor="middle">${esc(opts.fmt(t))}</text>`);
+  }
+  p.push(`<line x1="${X(0).toFixed(1)}" y1="${MT}" x2="${X(0).toFixed(1)}" y2="${MT + ph}" stroke="${RULE}"/>`);
+
+  // The limit line goes UNDER the bars and labels, as npshLadderSvg learned.
+  let ok = true;
+  if (opts.limit !== undefined) {
+    const resultBar = bars.find((b) => b.result);
+    if (resultBar) ok = opts.limitOkAbove ? resultBar.to >= opts.limit : resultBar.to <= opts.limit;
+    p.push(`<line x1="${X(opts.limit).toFixed(1)}" y1="${MT}" x2="${X(opts.limit).toFixed(1)}" y2="${MT + ph}" stroke="${POINT}" stroke-dasharray="4 3" stroke-width="1.4"/>`);
+  }
+
+  const rowH = ph / bars.length;
+  bars.forEach((b, i) => {
+    const y = MT + i * rowH + rowH * 0.2;
+    const h = rowH * 0.6;
+    const x0 = Math.min(X(b.from), X(b.to));
+    const wBar = Math.max(Math.abs(X(b.to) - X(b.from)), 0.75);
+    const fill = b.result ? (opts.limit !== undefined ? (ok ? "#059669" : POINT) : "#059669") : b.gain ? CIRCLE : POINT;
+    p.push(`<rect x="${x0.toFixed(1)}" y="${y.toFixed(1)}" width="${wBar.toFixed(1)}" height="${h.toFixed(1)}" fill="${fill}" fill-opacity="${b.result ? "1" : "0.75"}"/>`);
+    p.push(labelText(ML - 6, y + h / 2 + 3, b.name, { anchor: "end" }));
+    const delta = b.result ? b.to : b.to - b.from;
+    const txt = `${delta >= 0 && !b.result ? "+" : ""}${opts.fmt(delta)}`;
+    const wantX = Math.max(X(b.from), X(b.to)) + 4;
+    const estW = txt.length * 8 * 0.56 + 4;
+    if (wantX + estW <= W - 2) p.push(labelText(wantX, y + h / 2 + 3, txt, { size: 8 }));
+    else p.push(labelText(Math.max(X(b.from), X(b.to)) - 4, y + h / 2 + 3, txt, { size: 8, anchor: "end" }));
+  });
+
+  if (opts.limit !== undefined && opts.limitLabel) {
+    const half = (opts.limitLabel.length * 8 * 0.56) / 2 + 3;
+    p.push(labelText(Math.min(Math.max(X(opts.limit), half + 2), W - half - 2), MT - 3, opts.limitLabel, { anchor: "middle", fill: POINT }));
+    p.push(labelText(ML + pw - 2, MT + ph - 4, ok ? (opts.okText ?? "within limit") : (opts.failText ?? "OVER LIMIT"), { anchor: "end", fill: ok ? "#059669" : POINT, size: 9 }));
+  }
+  p.push(`<text x="${(ML + pw / 2).toFixed(1)}" y="${H - 6}" text-anchor="middle">${esc(opts.axisLabel)}</text>`);
+  p.push("</g></svg>");
+  return p.join("");
+}
+
 export const NPSH_CHART_SIZE = { w: 400, h: 240 };
 
 export interface NpshLadderInput {

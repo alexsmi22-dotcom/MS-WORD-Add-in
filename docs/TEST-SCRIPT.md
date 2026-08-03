@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.87.0)
+# JurisLab — Manual Test Script (v2.88.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -1092,6 +1092,33 @@ Engineering mode. **Energy & power** grows 8 → 16; the mode must state
 - [ ] All eight new tools insert, subscripts and superscripts intact (O₂, m², kVAR).
 
 ---
+
+## 0aw. New in v2.88.0 - Computation, chips, optics and quantum draw
+
+Twenty-two more tools insert figures (ratchet 84 → 106 of 130). Spot-check:
+
+- [ ] **Junction temperature**, defaults → "The thermal ladder": four blue
+  bars stacking 25 → 44.5 → 47.5 → 55 °C, green junction bar, dashed red
+  line at 125 °C far right, "within limit".
+- [ ] **Setup/hold timing**, defaults → "The setup budget": period bar 1000
+  ps, three red take-away bars, green "setup slack 120" bar ending right of
+  the dashed slack = 0 line, "PASS".
+- [ ] **Parallel speedup**, defaults → "The two laws diverge": Amdahl bending
+  toward the grey ceiling at 20×, Gustafson climbing straight on log
+  processors, red dot at 16.
+- [ ] **Hash collision**, defaults (1e6 items, 64 bits) → "The birthday
+  curve" on a LOG item axis: S-curve crossing the 0.5 line at ~5×10⁹, red
+  dot far left at 10⁶ — visibly nowhere near a collision.
+- [ ] **Laser cavity stability**, defaults (g₁ = g₂ = 0.5) → "The stability
+  diagram": both hyperbola branches, axes, green dot inside the first
+  quadrant's stable region. Set L **3** (g = −2) → red dot outside, labelled
+  unstable.
+- [ ] **CHSH Bell test**, defaults → "S against both bounds": red S stem
+  reaching exactly the green Tsirelson line at 2.83, four blue contribution
+  stems at 0.7071 each, orange classical lines at ±2.
+- [ ] **BB84 key rate**, defaults (2%) → "The Shor-Preskill bound": rate
+  curve falling from 1 to the flat zero tail, grey threshold stem at 11%,
+  red dot at (2, 0.717).
 
 ## 0av. New in v2.87.0 - Audio and video draw
 

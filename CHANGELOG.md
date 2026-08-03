@@ -6,7 +6,40 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
-## [2.82.0] — 2026-08-02 — Reliability, a discipline the bench did not have
+## [2.82.1] — 2026-08-03 — The legend moves outside the plot
+
+User report: "the legend/key should not be inside, it should be outside so
+that it does not block the data." Correct, and now true everywhere.
+
+### Legends no longer cover data
+
+`buildPlotSvg` — the shared plotter behind Plot mode, Solve, Analyze, Stats
+diagnostics, Engineering, Spectra and Bio/Assay figures — drew its legend as an
+opaque box inside the top-right of the plot area. Opacity had been the fix for
+curves striking through the labels (v2.80.0); it also meant the box hid
+whatever data sat under it. The legend now lives in its own gutter **to the
+right of the plot frame**, and the gutter is paid for by **widening the
+canvas**, not by shrinking the plot — the data area of every figure is
+pixel-identical to before, and unlabeled plots are byte-identical. (The other
+chart families — table charts, heatmaps, candlesticks, the Goodman diagram —
+already kept their legends outside.)
+
+### The insert paths that would have squashed the wider figure
+
+The independent adversarial pass over the diff found the real defects where
+they usually are: not in the geometry but in its consumers. Five insert paths
+rasterised the SVG into the **nominal** 380×270 (or 300×300) box instead of
+the SVG's own size, which would have squashed every labeled figure
+horizontally by 12–30% — Plot mode with two functions, every Bio/Assay fitted
+curve, all four 2D NMR maps (a square COSY inserting 30% narrower than tall,
+every scatter circle an ellipse), and the Analyze/Engineering rich-block path
+including both Bode plots. All five now read the SVG's intrinsic dimensions
+(the pattern the stats, PPT and solve inserts already used). The legend width
+estimate also grew from 6 to 7 px per character: outside the frame there is no
+plot-area slack left to absorb a capital-heavy label, and the canvas edge
+would have clipped it.
+
+
 
 Fourth release against the engineering deep dive, and the first that adds a
 **discipline** rather than depth in an existing one. Engineering **125 → 130**

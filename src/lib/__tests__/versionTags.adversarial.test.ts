@@ -41,6 +41,7 @@ const PINNED: Record<string, string> = {
   "The numerics cannot freeze the pane": "2.20.0",
   Formatting: "2.61.0",
   "TWO ANSWERS": "2.77.1",
+  "LEGEND OUTSIDE": "2.82.1",
 };
 
 describe("the manual test script's version tags are history, not a moving target", () => {

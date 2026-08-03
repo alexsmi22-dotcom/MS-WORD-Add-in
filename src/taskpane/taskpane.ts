@@ -5571,11 +5571,15 @@ async function insertPlot(): Promise<void> {
   plotInsertBtn.disabled = true;
   setStatus("Inserting plot…");
   try {
-    const base64 = await renderFigurePng(currentPlotSvg, 380, 270);
+    // Intrinsic size, not the 380×270 the plot was ASKED for: a labeled plot
+    // grows a legend gutter, and rasterising the wider SVG into the old box
+    // squashes the plot area the gutter exists to protect.
+    const plotDims = readSvgDims(currentPlotSvg, 380, 270);
+    const base64 = await renderFigurePng(currentPlotSvg, plotDims.w, plotDims.h);
     await Word.run(async (context) => {
       const range = context.document.getSelection();
       const picture = range.insertInlinePictureFromBase64(base64, Word.InsertLocation.after);
-      sizeFigure(picture, 380, 270);
+      sizeFigure(picture, plotDims.w, plotDims.h);
       picture.altTextDescription = `Plot: ${plotFn.value.trim() || "data"}`;
       range.select(Word.SelectionMode.end);
       await context.sync();
@@ -18311,10 +18315,18 @@ async function insertResultBlocks(text: string, blocksIn: AnalyzeBlock[] | null,
   insertTextBusy = true;
   try {
     // Render any plot SVGs to PNG before entering Word.run (the conversion is async).
+    // Rasterise and size at the SVG's INTRINSIC dimensions, not the block's
+    // declared w/h: blocks pin the size the plot was asked for, but a labeled
+    // plot grows a legend gutter and comes back wider — drawing it into the
+    // declared box squashes the plot area horizontally.
     const images: Record<number, string> = {};
+    const imageDims: Record<number, { w: number; h: number }> = {};
     for (let i = 0; i < blocks.length; i++) {
       const b = blocks[i];
-      if (b.kind === "plot") images[i] = await renderFigurePng(b.svg, b.w, b.h);
+      if (b.kind === "plot") {
+        imageDims[i] = readSvgDims(b.svg, b.w, b.h);
+        images[i] = await renderFigurePng(b.svg, imageDims[i].w, imageDims[i].h);
+      }
     }
     let picturesConfirmed: number | null = null;
     await Word.run(async (context) => {
@@ -18509,7 +18521,8 @@ async function insertResultBlocks(text: string, blocksIn: AnalyzeBlock[] | null,
           // picture count before shipping it.
           const para = anchor.insertParagraph(block.caption, Word.InsertLocation.after);
           const pic = para.insertInlinePictureFromBase64(images[i], Word.InsertLocation.end);
-          sizeFigure(pic, block.w, block.h);
+          const dims = imageDims[i] ?? { w: block.w, h: block.h };
+          sizeFigure(pic, dims.w, dims.h);
           pic.altTextDescription = block.alt;
           anchor = para.getRange(Word.RangeLocation.end);
           continue;
@@ -19325,12 +19338,17 @@ async function insertSpectrumChart(): Promise<void> {
   specInsertChartBtn.disabled = true;
   setStatus("Inserting spectrum…");
   try {
+    // Intrinsic size, not currentChartSize(): the 2D maps (COSY/HSQC/HMBC/
+    // TOCSY) carry legends, which widen the SVG past the nominal square — and a
+    // square shift-shift map rasterised into a 300×300 box inserts 30% narrower
+    // than tall, with every scatter circle drawn as an ellipse.
     const size = currentChartSize();
-    const base64 = await renderFigurePng(currentSpectrumSvg, size.width, size.height);
+    const specDims = readSvgDims(currentSpectrumSvg, size.width, size.height);
+    const base64 = await renderFigurePng(currentSpectrumSvg, specDims.w, specDims.h);
     await Word.run(async (context) => {
       const range = context.document.getSelection();
       const picture = range.insertInlinePictureFromBase64(base64, Word.InsertLocation.after);
-      sizeFigure(picture, size.width, size.height);
+      sizeFigure(picture, specDims.w, specDims.h);
       picture.altTextDescription = `Predicted spectrum (${specKind.value}) for ${specInput.value.trim()} — estimate from additivity rules`;
       range.select(Word.SelectionMode.end);
       await context.sync();
@@ -19474,12 +19492,15 @@ async function insertJcampChart(): Promise<void> {
   jcampInsertChartBtn.disabled = true;
   setStatus("Inserting spectrum…");
   try {
-    const size = SPECTRUM_CHART_SIZE;
-    const base64 = await renderFigurePng(currentJcampSvg, size.width, size.height);
+    // Intrinsic size (today it equals SPECTRUM_CHART_SIZE — the trace carries
+    // no legend — but every path that trusted a nominal size over the SVG's
+    // own has eventually inserted a squashed figure).
+    const jd = readSvgDims(currentJcampSvg, SPECTRUM_CHART_SIZE.width, SPECTRUM_CHART_SIZE.height);
+    const base64 = await renderFigurePng(currentJcampSvg, jd.w, jd.h);
     await Word.run(async (context) => {
       const range = context.document.getSelection();
       const picture = range.insertInlinePictureFromBase64(base64, Word.InsertLocation.after);
-      sizeFigure(picture, size.width, size.height);
+      sizeFigure(picture, jd.w, jd.h);
       picture.altTextDescription =
         `Measured ${currentJcamp?.dataType || "spectrum"} from a JCAMP-DX file` +
         ` — ${currentJcamp?.xUnits} vs ${currentJcamp?.yUnits}`;
@@ -20834,11 +20855,13 @@ async function insertAssayPlot(): Promise<void> {
   assayInsertPlotBtn.disabled = true;
   setStatus("Inserting fit plot…");
   try {
-    const base64 = await renderFigurePng(currentAssayPlotSvg, 380, 270);
+    // Intrinsic size — the "data"/"fit" legend widens this SVG past 380.
+    const fitDims = readSvgDims(currentAssayPlotSvg, 380, 270);
+    const base64 = await renderFigurePng(currentAssayPlotSvg, fitDims.w, fitDims.h);
     await Word.run(async (context) => {
       const range = context.document.getSelection();
       const picture = range.insertInlinePictureFromBase64(base64, Word.InsertLocation.after);
-      sizeFigure(picture, 380, 270);
+      sizeFigure(picture, fitDims.w, fitDims.h);
       const calc = ASSAY_CALCS.find((c) => c.id === assayCalcSelect.value);
       picture.altTextDescription = `Assay fit: ${calc?.name ?? "curve"}`;
       range.select(Word.SelectionMode.end);

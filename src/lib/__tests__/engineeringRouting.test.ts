@@ -781,10 +781,16 @@ describe("every non-text block kind reaches the rich insert path", () => {
     expect(routine).toContain("inserted.getRange(Word.RangeLocation.after)");
   });
 
-  test("the figure branch is exactly the five statements that worked", () => {
+  test("the figure branch is exactly the six statements that worked", () => {
     // Pinned as a whole, not statement by statement, because every regression
     // here came from adding ONE more thing to a sequence that was already
     // correct. If this needs to change, it needs a picture count proving it.
+    //
+    // Grew from five statements to six when legends moved OUTSIDE the plot
+    // frame: a labeled plot's SVG is now wider than the block's declared w, so
+    // the picture is sized from the rasterised intrinsic dimensions
+    // (imageDims, read where the PNG is rendered) — sizing it from block.w
+    // squashed the plot area horizontally.
     const body = figureBranch();
     const code = body
       .split("\n")
@@ -793,7 +799,8 @@ describe("every non-text block kind reaches the rich insert path", () => {
     expect(code).toEqual([
       "const para = anchor.insertParagraph(block.caption, Word.InsertLocation.after);",
       "const pic = para.insertInlinePictureFromBase64(images[i], Word.InsertLocation.end);",
-      "sizeFigure(pic, block.w, block.h);",
+      "const dims = imageDims[i] ?? { w: block.w, h: block.h };",
+      "sizeFigure(pic, dims.w, dims.h);",
       "pic.altTextDescription = block.alt;",
       "anchor = para.getRange(Word.RangeLocation.end);",
     ]);

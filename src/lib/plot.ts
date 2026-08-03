@@ -563,6 +563,28 @@ export function buildPlotSvg(series: Series[], options: PlotOptions = {}): strin
     return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><rect width="${W}" height="${H}" fill="#fff"/><text x="${W / 2}" y="${H / 2}" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#999">No data to plot</text></svg>`;
   }
 
+  // THE LEGEND LIVES OUTSIDE THE PLOT FRAME, in a gutter to its right. It used
+  // to sit inside the top-right corner of the plot area, where the only
+  // defensible rendering is an opaque box — and an opaque box over the plot is
+  // data covered by its own key. The gutter is paid for by WIDENING THE
+  // CANVAS, not by shrinking the plot: Word inserts figures at the SVG's
+  // intrinsic size, so the data area every caller laid out for stays exactly
+  // as large as it was, and an unlabeled plot's canvas does not change at all.
+  const LEGEND_LH = 14;
+  const legendLabelOf = (s: Series): string => {
+    const maxChars = 22;
+    const t = (s.label as string).trim();
+    return t.length > maxChars ? t.slice(0, maxChars - 1) + "…" : t;
+  };
+  const labeled = series.filter((s) => s.label && s.label.trim());
+  const legendRows = labeled.slice(0, Math.max(1, Math.floor((ph - 10) / LEGEND_LH)));
+  // 7 px per character, not 6: a 10 px sans glyph averages ~5.5 px but runs to
+  // ~9.4 px for "M"/"W", and out here the canvas edge is 4 px past the box —
+  // there is no plot-frame slack left to absorb an underestimate, so a
+  // capital-heavy label would be cut off by the viewport.
+  const legendW = legendRows.length ? Math.ceil(14 + maxOf(legendRows.map((s) => legendLabelOf(s).length)) * 7 + 10) : 0;
+  const outW = legendRows.length ? W + 4 + legendW + 4 : W;
+
   // Everything below works in TRANSFORMED space: on a log axis the domain, the
   // padding and the tick placement are all computed on log10 values, which is
   // what makes a decade occupy equal width. Only tick LABELS return to data
@@ -599,7 +621,7 @@ export function buildPlotSvg(series: Series[], options: PlotOptions = {}): strin
   const sx = (x: number): number => ml + ((tx(x) - xmin) / (xmax - xmin)) * pw;
   const sy = (y: number): number => mt + ph - ((ty(y) - ymin) / (ymax - ymin)) * ph;
 
-  const parts: string[] = [`<rect width="${W}" height="${H}" fill="#fff"/>`];
+  const parts: string[] = [`<rect width="${outW}" height="${H}" fill="#fff"/>`];
   // Plot frame.
   parts.push(`<rect x="${ml}" y="${mt}" width="${pw}" height="${ph}" fill="none" stroke="#888" stroke-width="1"/>`);
 
@@ -685,30 +707,20 @@ export function buildPlotSvg(series: Series[], options: PlotOptions = {}): strin
     }
   });
 
-  // Legend (top-right inside the plot area) for any labeled series.
-  const labeled = series.filter((s) => s.label && s.label.trim());
-  if (labeled.length) {
-    const lh = 14;
-    const maxChars = 22;
-    const labelOf = (s: Series): string => {
-      const t = (s.label as string).trim();
-      return t.length > maxChars ? t.slice(0, maxChars - 1) + "…" : t;
-    };
-    const maxRows = Math.max(1, Math.floor((ph - 10) / lh));
-    const shown = labeled.slice(0, maxRows);
-    const lw = Math.min(14 + maxOf(shown.map((s) => labelOf(s).length)) * 6 + 8, pw - 8);
-    const lx = ml + pw - lw - 4;
+  // Legend, in the gutter right of the plot frame — outside the data area, so
+  // it can never cover a curve. (Its predecessor sat inside the frame; opacity
+  // kept the curves from striking out the labels, but the box still hid
+  // whatever data lay beneath it.) ml + pw + mr === W, so x = W is the first
+  // pixel past the tick-overhang reserve and the gutter begins there.
+  if (legendRows.length) {
+    const lx = W + 4;
     const ly = mt + 4;
-    // OPAQUE, NOT TRANSLUCENT. At 82% the curves showed straight through the
-    // legend and struck out the very labels they belonged to - which is what a
-    // reader notices first and what "lines going through the text" means. A
-    // legend is an annotation over the plot, not a tint on it.
-    parts.push(`<rect x="${lx}" y="${ly}" width="${lw}" height="${shown.length * lh + 6}" fill="#ffffff" stroke="#ccc"/>`);
-    shown.forEach((s, i) => {
+    parts.push(`<rect x="${lx}" y="${ly}" width="${legendW}" height="${legendRows.length * LEGEND_LH + 6}" fill="#ffffff" stroke="#ccc"/>`);
+    legendRows.forEach((s, i) => {
       const color = s.color ?? palette[series.indexOf(s) % palette.length];
-      const cyl = ly + 9 + i * lh;
+      const cyl = ly + 9 + i * LEGEND_LH;
       parts.push(`<line x1="${lx + 6}" y1="${cyl}" x2="${lx + 20}" y2="${cyl}" stroke="${color}" stroke-width="2"/>`);
-      parts.push(`<text x="${lx + 24}" y="${cyl + 3.5}" font-family="sans-serif" font-size="10" fill="#333">${escapeXml(labelOf(s))}</text>`);
+      parts.push(`<text x="${lx + 24}" y="${cyl + 3.5}" font-family="sans-serif" font-size="10" fill="#333">${escapeXml(legendLabelOf(s))}</text>`);
     });
   }
 
@@ -732,5 +744,5 @@ export function buildPlotSvg(series: Series[], options: PlotOptions = {}): strin
     parts.push(`<text x="${cx}" y="${cy}" text-anchor="middle" font-family="sans-serif" font-size="${Y_TITLE_SIZE}" fill="#333" transform="rotate(-90 ${cx} ${cy})">${escapeXml(options.ylabel)}</text>`);
   }
 
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${parts.join("")}</svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${outW}" height="${H}" viewBox="0 0 ${outW} ${H}">${parts.join("")}</svg>`;
 }

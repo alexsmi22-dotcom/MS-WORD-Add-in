@@ -195,7 +195,7 @@ describe("the left margin fits the labels that go in it", () => {
     expect(svg).toMatch(/>0</);
   });
 
-  it("a legend is opaque, so the curves under it do not strike out its labels", () => {
+  it("the legend sits OUTSIDE the plot frame, so it cannot cover data or be struck by curves", () => {
     const series: Series[] = [0, 1, 2].map((i) => ({
       points: Array.from({ length: 80 }, (_, j) => ({ x: j, y: 100 - j * (i + 1) })),
       type: "line" as const,
@@ -205,6 +205,15 @@ describe("the left margin fits the labels that go in it", () => {
     const svg = buildPlotSvg(series, { width: 380, height: 250, xlabel: "x", ylabel: "y", title: "t" });
     expect(findings(svg)).toEqual([]);
     expect(svg).not.toMatch(/fill-opacity="0\.8/);
+    // The legend box starts at or past the requested canvas width — the gutter
+    // widens the canvas rather than shrinking the plot — so every curve pixel
+    // (all of which lie left of x = 380) is clear of it.
+    const legendBox = svg.match(/<rect x="(\d+(?:\.\d+)?)" y="\d+(?:\.\d+)?" width="\d+" height="\d+" fill="#ffffff" stroke="#ccc"\/>/);
+    expect(legendBox).not.toBeNull();
+    expect(parseFloat((legendBox as RegExpMatchArray)[1])).toBeGreaterThanOrEqual(380);
+    // And the widened canvas declares its true size, so nothing is clipped.
+    const width = svg.match(/<svg[^>]*\bwidth="(\d+)"/);
+    expect(parseFloat((width as RegExpMatchArray)[1])).toBeGreaterThan(380);
   });
 });
 

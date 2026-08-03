@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.82.0)
+# JurisLab — Manual Test Script (v2.82.1)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -2387,6 +2387,10 @@ Engineering mode, Energy & power (now 17; the mode must state **101 calculators*
 ## 4. Plot
 - [ ] Function `sin(x)/x ; cos(x)`, x from `-10` to `10` → preview shows **two
   curves with a legend** → **Insert plot** (image inserts).
+- [ ] **LEGEND OUTSIDE (v2.82.1).** In that same preview and in the inserted
+  image, the legend box sits **to the right of the plot frame**, covering no
+  part of either curve — and the inserted plot is NOT squashed: the plot frame
+  is wider than it is tall, and a circle marker would read as a circle.
 - [ ] Data box: `0 1` / `1 2 0.1` / `2 4` (one per line) → scatter with an error bar.
 - [ ] Bad function (`sin(`) → shows an error hint, insert disabled.
 

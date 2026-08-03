@@ -11743,6 +11743,46 @@ const ENG_CALCS: EngCalc[] = [
       lines.push(`  First law check: ΔU + W = ${engNum(res.deltaU + res.work)} J, which is Q.`);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_THERMO_UNIT_NOTE);
+
+      // The process on the P-v plane — the area under this path IS the
+      // boundary work the numbers report. Isochoric (n = ∞) is a vertical
+      // segment and isobaric a horizontal one; everything else is the
+      // polytropic curve sampled between the two states.
+      const pvPath: Point[] = [];
+      if (!Number.isFinite(res.n) || res.n === 0 || res.v1 === res.v2) {
+        pvPath.push({ x: res.v1, y: res.p1 / 1000 }, { x: res.v2, y: res.p2 / 1000 });
+      } else {
+        for (let i = 0; i <= 48; i++) {
+          const v = res.v1 * Math.pow(res.v2 / res.v1, i / 48);
+          pvPath.push({ x: v, y: (res.p1 * Math.pow(res.v1 / v, res.n)) / 1000 });
+        }
+      }
+      if (pvPath.every((p) => Number.isFinite(p.x) && Number.isFinite(p.y))) {
+        const svg = buildPlotSvg(
+          [
+            { points: pvPath, type: "line", color: "#2563eb", label: "process path" },
+            { points: [{ x: res.v1, y: res.p1 / 1000 }], type: "scatter", color: "#059669", label: "state 1" },
+            { points: [{ x: res.v2, y: res.p2 / 1000 }], type: "scatter", color: "#b91c1c", label: "state 2" },
+          ],
+          {
+            width: 380,
+            height: 260,
+            xlabel: "volume (m³)",
+            ylabel: "pressure (kPa)",
+            title: `${r("kind") || "isentropic"} process on the P-v plane`,
+          },
+        );
+        return engReport(lines, [
+          {
+            kind: "plot",
+            svg,
+            caption: "The process on the P-v plane; the area under the path is the boundary work",
+            alt: "Pressure against volume from state 1 to state 2",
+            w: 380,
+            h: 260,
+          },
+        ]);
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -11838,6 +11878,88 @@ const ENG_CALCS: EngCalc[] = [
       }
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_THERMO_UNIT_NOTE);
+
+      // The cycle on the P-v plane, in ratios (V over the clearance volume
+      // for Otto and Diesel, over the intake volume for Brayton; P over P1),
+      // because the air-standard relations fix the SHAPE without needing an
+      // absolute pressure. Otto and Brayton need the temperature
+      // pair to place the heat-addition leg, so their figure appears exactly
+      // when the temperature section above does; Diesel's shape needs only
+      // the two ratios. Log pressure, because r^k alone is ~18 at r = 8 and a
+      // linear axis flattens the intake leg into the axis.
+      const kGas = THERMO_GASES.find((g) => g.id === gas)?.k ?? 1.4;
+      const cyclePath: Point[] = [];
+      const corners: Point[] = [];
+      const rV = Number(r("r") || "0");
+      const rcV = Number(r("rc") || "0");
+      const rpV = Number(r("rp") || "0");
+      const isen = (from: Point, vTo: number, samples = 30): void => {
+        // p·v^k constant from `from`, sampled to vTo (ratio space).
+        for (let i = 1; i <= samples; i++) {
+          const v = from.x * Math.pow(vTo / from.x, i / samples);
+          cyclePath.push({ x: v, y: from.y * Math.pow(from.x / v, kGas) });
+        }
+      };
+      if (which === "otto" && res.temperatures.length === 4 && rV > 1) {
+        const T2 = res.temperatures[1].t;
+        const T3 = res.temperatures[2].t;
+        const s1 = { x: rV, y: 1 };
+        cyclePath.push(s1);
+        isen(s1, 1); // 1→2 compression
+        const p2 = Math.pow(rV, kGas);
+        const p3 = p2 * (T3 / T2);
+        cyclePath.push({ x: 1, y: p3 }); // 2→3 isochoric heat addition
+        isen({ x: 1, y: p3 }, rV); // 3→4 expansion
+        cyclePath.push(s1); // 4→1 isochoric rejection
+        corners.push(s1, { x: 1, y: p2 }, { x: 1, y: p3 }, { x: rV, y: p3 * Math.pow(1 / rV, kGas) });
+      } else if (which === "diesel" && rV > 1 && rcV > 1 && rcV < rV) {
+        const s1 = { x: rV, y: 1 };
+        const p2 = Math.pow(rV, kGas);
+        cyclePath.push(s1);
+        isen(s1, 1); // 1→2 compression
+        cyclePath.push({ x: rcV, y: p2 }); // 2→3 isobaric heat addition
+        isen({ x: rcV, y: p2 }, rV); // 3→4 expansion
+        cyclePath.push(s1); // 4→1 isochoric rejection
+        corners.push(s1, { x: 1, y: p2 }, { x: rcV, y: p2 }, { x: rV, y: p2 * Math.pow(rcV / rV, kGas) });
+      } else if (which === "brayton" && res.temperatures.length === 4 && rpV > 1) {
+        const T2 = res.temperatures[1].t;
+        const T3 = res.temperatures[2].t;
+        const v2 = Math.pow(rpV, -1 / kGas);
+        const v3 = v2 * (T3 / T2);
+        const s1 = { x: 1, y: 1 };
+        cyclePath.push(s1);
+        isen(s1, v2); // 1→2 compression
+        cyclePath.push({ x: v3, y: rpV }); // 2→3 isobaric heat addition
+        isen({ x: v3, y: rpV }, v3 * Math.pow(rpV, 1 / kGas)); // 3→4 expansion
+        cyclePath.push(s1); // 4→1 isobaric rejection
+        corners.push(s1, { x: v2, y: rpV }, { x: v3, y: rpV }, { x: v3 * Math.pow(rpV, 1 / kGas), y: 1 });
+      }
+      if (cyclePath.length > 3 && cyclePath.every((p) => Number.isFinite(p.x) && Number.isFinite(p.y) && p.y > 0)) {
+        const svg = buildPlotSvg(
+          [
+            { points: cyclePath, type: "line", color: "#2563eb", label: "cycle path" },
+            { points: corners, type: "scatter", color: "#b91c1c", label: "states 1-4" },
+          ],
+          {
+            width: 380,
+            height: 270,
+            yScale: "log",
+            xlabel: "volume ratio",
+            ylabel: "pressure ratio P/P₁",
+            title: `${res.name.split(" (")[0]} cycle on the P-v plane`,
+          },
+        );
+        return engReport(lines, [
+          {
+            kind: "plot",
+            svg,
+            caption: "The cycle on the P-v plane; the enclosed area is the net work",
+            alt: "Pressure ratio against volume ratio around the four states of the cycle",
+            w: 380,
+            h: 270,
+          },
+        ]);
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -15366,6 +15488,54 @@ const ENG_CALCS: EngCalc[] = [
       u.report(lines);
       for (const note of a.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
+
+      // The profile the number was read off: temperature, pressure and
+      // density as fractions of their sea-level values, altitude vertical as
+      // an atmosphere is always drawn. Pressure and density fall smoothly;
+      // temperature shows the layer structure — the kinks ARE the model.
+      const a0 = atmosphere(0, dT);
+      if (a0) {
+        const zTop = Math.min(Math.max(20000, z * 1.5), 84000);
+        const tSeries: Point[] = [];
+        const pSeries: Point[] = [];
+        const dSeries: Point[] = [];
+        for (let i = 0; i <= 60; i++) {
+          const zz = (zTop * i) / 60;
+          const az = atmosphere(zz, dT);
+          if (!az) continue;
+          const km = zz / 1000;
+          tSeries.push({ x: az.temperatureK / a0.temperatureK, y: km });
+          pSeries.push({ x: az.pressurePa / a0.pressurePa, y: km });
+          dSeries.push({ x: az.densityKgM3 / a0.densityKgM3, y: km });
+        }
+        if (tSeries.length > 10) {
+          const svg = buildPlotSvg(
+            [
+              { points: tSeries, type: "line", color: "#b91c1c", label: "T / T₀" },
+              { points: pSeries, type: "line", color: "#2563eb", label: "p / p₀" },
+              { points: dSeries, type: "line", color: "#059669", label: "ρ / ρ₀" },
+              { points: [{ x: a.densityKgM3 / a0.densityKgM3, y: z / 1000 }], type: "scatter", color: "#111111", label: "this altitude" },
+            ],
+            {
+              width: 380,
+              height: 270,
+              xlabel: "fraction of sea-level value",
+              ylabel: "altitude (km)",
+              title: "Standard atmosphere profile",
+            },
+          );
+          return engReport(lines, [
+            {
+              kind: "plot",
+              svg,
+              caption: "Temperature, pressure and density against altitude, as fractions of sea level",
+              alt: "Standard atmosphere profiles with the queried altitude marked on the density curve",
+              w: 380,
+              h: 270,
+            },
+          ]);
+        }
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -15485,6 +15655,58 @@ const ENG_CALCS: EngCalc[] = [
       u.report(lines);
       for (const note of p.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
+
+      // The drag polar itself, CL vertical as it is always drawn. The ray
+      // from the origin tangent to the polar IS best L/D — where it touches
+      // is the green point, and this flight is the red one. The same
+      // CD0 + k·CL² the engine used, so the two cannot disagree.
+      const kInd = 1 / (Math.PI * nums.AR * nums.e);
+      const clTop = Math.min(
+        clmax !== undefined ? clmax * 1.05 : Infinity,
+        Math.max(p.cl, p.clAtBestLd) * 1.4,
+      );
+      if (Number.isFinite(kInd) && kInd > 0 && Number.isFinite(clTop) && clTop > 0) {
+        const polar: Point[] = [];
+        for (let i = 0; i <= 50; i++) {
+          const cl = (clTop * i) / 50;
+          polar.push({ x: nums.cd0 + kInd * cl * cl, y: cl });
+        }
+        const cdBest = nums.cd0 + kInd * p.clAtBestLd * p.clAtBestLd;
+        const rayScale = Math.min(1.25, clTop / p.clAtBestLd);
+        const svg = buildPlotSvg(
+          [
+            { points: polar, type: "line", color: "#2563eb", label: "drag polar" },
+            {
+              points: [
+                { x: 0, y: 0 },
+                { x: cdBest * rayScale, y: p.clAtBestLd * rayScale },
+              ],
+              type: "line",
+              color: "#9ca3af",
+              label: "best L/D ray",
+            },
+            { points: [{ x: p.cd, y: p.cl }], type: "scatter", color: "#b91c1c", label: "this flight" },
+            { points: [{ x: cdBest, y: p.clAtBestLd }], type: "scatter", color: "#059669", label: "best L/D" },
+          ],
+          {
+            width: 380,
+            height: 270,
+            xlabel: "CD",
+            ylabel: "CL",
+            title: "Drag polar",
+          },
+        );
+        return engReport(lines, [
+          {
+            kind: "plot",
+            svg,
+            caption: "The drag polar, with this flight and the best-L/D tangency",
+            alt: "CL against CD with the operating point and the best lift-to-drag point",
+            w: 380,
+            h: 270,
+          },
+        ]);
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -15540,6 +15762,48 @@ const ENG_CALCS: EngCalc[] = [
       u.report(lines);
       for (const note of t.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
+
+      // Turn radius against bank at this speed, on a LOG radius axis — the
+      // curve spans two orders of magnitude between 5° and 85°, and a linear
+      // axis flattens everything past 30° into the floor. Each point comes
+      // from the same levelTurn the headline number did.
+      //
+      // STRICTLY POSITIVE, not merely finite: a denormal airspeed can
+      // underflow the radius to exactly 0 at high bank, and log10(0) is
+      // -Infinity — one such marker poisons every coordinate on the log axis.
+      if (Number.isFinite(t.radiusM) && t.radiusM > 0 && phi > 0) {
+        const radii: Point[] = [];
+        for (let deg = 5; deg <= 85; deg++) {
+          const tt = levelTurn(deg, V);
+          if (tt && Number.isFinite(tt.radiusM) && tt.radiusM > 0) radii.push({ x: deg, y: tt.radiusM });
+        }
+        if (radii.length > 10) {
+          const svg = buildPlotSvg(
+            [
+              { points: radii, type: "line", color: "#2563eb", label: "turn radius" },
+              { points: [{ x: phi, y: t.radiusM }], type: "scatter", color: "#b91c1c", label: "this bank" },
+            ],
+            {
+              width: 380,
+              height: 250,
+              yScale: "log",
+              xlabel: "bank angle (°)",
+              ylabel: "turn radius (m)",
+              title: "Turn radius against bank",
+            },
+          );
+          return engReport(lines, [
+            {
+              kind: "plot",
+              svg,
+              caption: "Turn radius against bank angle at this speed (log radius)",
+              alt: "Turn radius falling with bank angle, current bank marked",
+              w: 380,
+              h: 250,
+            },
+          ]);
+        }
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },

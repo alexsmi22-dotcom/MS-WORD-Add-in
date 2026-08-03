@@ -6,6 +6,33 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.84.0] — 2026-08-03 — Thermo and aero draw
+
+Second figure batch of the day; ratchet **40 → 45 of 130**.
+
+- **Ideal-gas process** — the process on the **P–v plane**, states 1 and 2
+  marked; the area under the path is the boundary work the numbers report.
+  Isothermal is sampled as the hyperbola it is; isochoric is the vertical
+  segment it is.
+- **Power cycles** — Otto, Diesel and Brayton on the **P–v plane** in ratio
+  space, log pressure (r^k alone is ~18 at r = 8), all four corner states
+  marked. Corner pressures verified against the engine's temperature ratios
+  to machine precision.
+- **Standard atmosphere** — T/T₀, p/p₀ and ρ/ρ₀ against altitude, drawn the
+  way an atmosphere is always drawn (altitude vertical); the kinks in the
+  temperature trace ARE the layer structure.
+- **Lift, drag polar & stall speed** — the **drag polar** with the
+  origin-tangent ray that IS best L/D, this flight in red, the tangency in
+  green.
+- **Level turn** — turn radius against bank on a log axis (34 m to 4.4 km
+  between 85° and 5° at 120 kt), current bank marked.
+
+The adversarial pass verified every figure against the engines (corner
+pressures to 2×10⁻¹⁶) and found one real defect: a denormal airspeed can
+underflow the turn radius to exactly zero, and log10(0) through the marker
+guard would have put NaN in every coordinate. The guard now requires a
+strictly positive radius.
+
 ## [2.83.0] — 2026-08-03 — Fluids, thermal and fatigue draw
 
 Continuing the standing requirement that **every calculator inserts data and a

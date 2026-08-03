@@ -364,4 +364,96 @@ figures.push([
   ]);
 }
 
+// --- v2.84.0: thermo and aero figures ---------------------------------------
+
+// P-v process path: isentropic compression 10:1 — steep curve into the corner
+// where the state-2 label lives.
+{
+  const p1 = 100, v1 = 0.8614, n = 1.4, v2 = 0.1663;
+  const path = Array.from({ length: 49 }, (_, i) => {
+    const v = v1 * Math.pow(v2 / v1, i / 48);
+    return { x: v, y: p1 * Math.pow(v1 / v, n) };
+  });
+  figures.push([
+    "pv process",
+    buildPlotSvg(
+      [
+        { points: path, type: "line", color: "#2563eb", label: "process path" },
+        { points: [{ x: v1, y: p1 }], type: "scatter", color: "#059669", label: "state 1" },
+        { points: [{ x: v2, y: 1000 }], type: "scatter", color: "#b91c1c", label: "state 2" },
+      ],
+      { width: 380, height: 260, xlabel: "volume (m³)", ylabel: "pressure (kPa)", title: "isentropic process on the P-v plane" },
+    ),
+  ]);
+}
+
+// Otto cycle on log pressure — the full four-leg loop with corner markers.
+{
+  const k = 1.4, r = 8, p2 = Math.pow(r, k), p3 = p2 * (1800.15 / 689.2);
+  const path: { x: number; y: number }[] = [{ x: r, y: 1 }];
+  for (let i = 1; i <= 30; i++) { const v = r * Math.pow(1 / r, i / 30); path.push({ x: v, y: Math.pow(r / v, k) }); }
+  path.push({ x: 1, y: p3 });
+  for (let i = 1; i <= 30; i++) { const v = Math.pow(r, i / 30); path.push({ x: v, y: p3 * Math.pow(1 / v, k) }); }
+  path.push({ x: r, y: 1 });
+  figures.push([
+    "otto cycle",
+    buildPlotSvg(
+      [
+        { points: path, type: "line", color: "#2563eb", label: "cycle path" },
+        { points: [{ x: r, y: 1 }, { x: 1, y: p2 }, { x: 1, y: p3 }, { x: r, y: p3 * Math.pow(1 / r, k) }], type: "scatter", color: "#b91c1c", label: "states 1-4" },
+      ],
+      { width: 380, height: 270, yScale: "log", xlabel: "volume ratio", ylabel: "pressure ratio P/P₁", title: "Otto cycle on the P-v plane" },
+    ),
+  ]);
+}
+
+// ISA profile: three ratio curves that converge at (1, 0) — label crowding at
+// the shared origin is the case to police.
+{
+  const t = (zkm: number) => Math.max(0.75, 1 - 0.0226 * zkm);
+  const pr = (zkm: number) => Math.exp(-zkm / 7.3);
+  figures.push([
+    "isa profile",
+    buildPlotSvg(
+      [
+        { points: Array.from({ length: 61 }, (_, i) => ({ x: t(i / 3), y: i / 3 })), type: "line", color: "#b91c1c", label: "T / T₀" },
+        { points: Array.from({ length: 61 }, (_, i) => ({ x: pr(i / 3), y: i / 3 })), type: "line", color: "#2563eb", label: "p / p₀" },
+        { points: Array.from({ length: 61 }, (_, i) => ({ x: pr(i / 3) / t(i / 3), y: i / 3 })), type: "line", color: "#059669", label: "ρ / ρ₀" },
+        { points: [{ x: 0.34, y: 10 }], type: "scatter", color: "#111111", label: "this altitude" },
+      ],
+      { width: 380, height: 270, xlabel: "fraction of sea-level value", ylabel: "altitude (km)", title: "Standard atmosphere profile" },
+    ),
+  ]);
+}
+
+// Drag polar with the tangent ray and two markers near the curve.
+{
+  const cd0 = 0.02, kInd = 1 / (Math.PI * 9 * 0.8);
+  const polar = Array.from({ length: 51 }, (_, i) => { const cl = (0.95 * i) / 50; return { x: cd0 + kInd * cl * cl, y: cl }; });
+  figures.push([
+    "drag polar",
+    buildPlotSvg(
+      [
+        { points: polar, type: "line", color: "#2563eb", label: "drag polar" },
+        { points: [{ x: 0, y: 0 }, { x: 0.05, y: 0.841 }], type: "line", color: "#9ca3af", label: "best L/D ray" },
+        { points: [{ x: 0.028, y: 0.425 }], type: "scatter", color: "#b91c1c", label: "this flight" },
+        { points: [{ x: 0.04, y: 0.673 }], type: "scatter", color: "#059669", label: "best L/D" },
+      ],
+      { width: 380, height: 270, xlabel: "CD", ylabel: "CL", title: "Drag polar" },
+    ),
+  ]);
+}
+
+// Turn radius on a log axis, spanning 34 m to 4.4 km.
+figures.push([
+  "turn radius",
+  buildPlotSvg(
+    [
+      { points: Array.from({ length: 81 }, (_, i) => { const deg = 5 + i; return { x: deg, y: (61.7 * 61.7) / (9.80665 * Math.tan((deg * Math.PI) / 180)) }; }), type: "line", color: "#2563eb", label: "turn radius" },
+      { points: [{ x: 45, y: 389 }], type: "scatter", color: "#b91c1c", label: "this bank" },
+    ],
+    { width: 380, height: 250, yScale: "log", xlabel: "bank angle (°)", ylabel: "turn radius (m)", title: "Turn radius against bank" },
+  ),
+]);
+
 process.exit(runAudit(figures) ? 1 : 0);

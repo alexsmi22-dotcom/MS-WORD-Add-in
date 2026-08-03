@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.83.0)
+# JurisLab — Manual Test Script (v2.84.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -1092,6 +1092,32 @@ Engineering mode. **Energy & power** grows 8 → 16; the mode must state
 - [ ] All eight new tools insert, subscripts and superscripts intact (O₂, m², kVAR).
 
 ---
+
+## 0as. New in v2.84.0 - Thermo and aero draw
+
+Five more Engineering tools insert a figure (ratchet 40 → 45 of 130).
+
+- [ ] **Ideal-gas process**, defaults (isentropic, air, 1 bar → 10 bar) →
+  "isentropic process on the P-v plane": a steep curve from the green
+  `state 1` (0.86 m³, 100 kPa) up-left to the red `state 2` (0.17 m³,
+  1000 kPa). Switch to Isothermal with the same fields → a shallower
+  hyperbola. Isochoric with end T 327 → a vertical segment.
+- [ ] **Power cycles**, defaults (Otto, r 8, 27/1527 °C) → "Otto cycle on the
+  P-v plane": a closed four-leg loop on a LOG pressure axis, red markers at
+  the four corner states, top-left corner at pressure ratio ~48. Switch to
+  Diesel → the top of the loop is a horizontal (isobaric) leg. Brayton → the
+  loop's top AND bottom are horizontal.
+- [ ] **Standard atmosphere**, defaults (10 000 m) → "Standard atmosphere
+  profile": red T/T₀ with a visible kink at 11 km, blue p/p₀ and green ρ/ρ₀
+  falling smoothly, black `this altitude` marker on the green curve at 10 km
+  (ρ/ρ₀ ≈ 0.34).
+- [ ] **Lift, drag polar & stall speed**, defaults → "Drag polar": blue
+  polar, grey ray from the origin touching it at the green `best L/D` point
+  (CL 0.67), red `this flight` point lower on the curve (CL 0.43).
+- [ ] **Level turn**, defaults (45°, 120 kt) → "Turn radius against bank":
+  falling curve on a log radius axis, red `this bank` point at 45° / ~389 m.
+- [ ] Every legend in the five figures sits OUTSIDE its plot frame, covering
+  no data.
 
 ## 0ar. New in v2.83.0 - Fluids, thermal and fatigue draw
 

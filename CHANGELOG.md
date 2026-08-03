@@ -6,6 +6,34 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.87.0] — 2026-08-03 — Audio and video draw
+
+Fifth figure batch of the day: all fourteen **Audio & acoustics** and
+**Video & display** tools insert figures. Ratchet **70 → 84 of 130**.
+
+Audio: the **fold diagram** (where every input frequency lands after
+sampling — the sawtooth IS aliasing); the **6.02n + 1.76 line** with this
+converter on it; **both decibel conventions** on one log-ratio axis; the
+**inverse-square falloff** as the straight line it is on log distance; the
+Sabine and Eyring **decay slopes to −60 dB**; the **room-mode map** ranked
+by audibility; and the **comb response** with its floored notches (the −30 dB
+floor is load-bearing — the response is −∞ at every notch, and an unfloored
+point would vanish from the very figure that exists to show it).
+
+Video: the **chroma-scheme bars** (4:2:0 halves the data, not quarters it);
+**retina distance against screen size**; the **absolute PQ curve** on log
+nits; **PSNR against error**; the **buffer timeline** (fill on the surplus,
+drain through an outage); the **latency budget bars** with the worst stage
+in red and the refresh-quantised delivery; and both **gamut triangles on the
+u′v′ chromaticity plane** — a new equal-aspect builder, u′v′ because CIE xy
+over-weights greens the eye discriminates poorly, which is the tool's own
+argument drawn.
+
+The adversarial pass found no blockers and three fit-and-finish items (the
+24-row cap could drop the latency chart's own point, duplicate stage names
+both turned red, a far-out-of-band tone flattened the fold diagram) — all
+fixed before ship.
+
 ## [2.86.0] — 2026-08-03 — All seventeen Energy tools draw
 
 Fourth figure batch of the day and the biggest: the entire **Energy & power**

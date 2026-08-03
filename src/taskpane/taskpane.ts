@@ -131,6 +131,8 @@ import {
   logicWaveSvg,
   POWER_TRIANGLE_SIZE,
   powerTriangleSvg,
+  GAMUT_CHART_SIZE,
+  gamutTriangleSvg,
   SectionStrip,
 } from "../lib/mechchart";
 import { parseNetlist, parseValue, solveDc, solveAc, frequencySweep, dB } from "../lib/circuit";
@@ -479,7 +481,7 @@ import {
   DbQuantity,
 } from "../lib/audio";
 import { samplingCheck as audioSamplingCheck } from "../lib/biomed";
-import { gamutCoverage, gamutAreaUv, GAMUTS } from "../lib/colourspace";
+import { gamutCoverage, gamutAreaUv, GAMUTS, gamutById, xyToUv } from "../lib/colourspace";
 import {
   bitrate,
   resolution,
@@ -488,6 +490,7 @@ import {
   psnr,
   streamBuffer,
   latencyBudget,
+  bitsPerPixel,
   ChromaSubsampling,
 } from "../lib/video";
 import {
@@ -18632,6 +18635,51 @@ const ENG_CALCS: EngCalc[] = [
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
+
+      // The fold diagram: where every input frequency LANDS after sampling.
+      // Below Nyquist the engine hands the frequency back — the identity leg
+      // — and above it the sawtooth fold, each point asked of the same engine
+      // that folded the headline tone. Drawn only when the setup is adequate;
+      // an inadequate one folds the signal itself and the flat line it
+      // produces would just restate the warning.
+      if (res.adequate && fs > 0) {
+        const fold: Point[] = [];
+        for (let i2 = 1; i2 <= 200; i2++) {
+          const f = (2.5 * fs * i2) / 200;
+          const r2 = audioSamplingCheck(fs, fmax, undefined, f);
+          if (r2.ok && r2.aliasedTo !== null && Number.isFinite(r2.aliasedTo)) fold.push({ x: f, y: r2.aliasedTo });
+        }
+        if (fold.length > 20) {
+          const foldSeries: Series[] = [
+            { points: fold, type: "line", color: "#2563eb", label: "lands at" },
+            { points: [{ x: fmax, y: fmax }], type: "scatter", color: "#059669", label: "signal max" },
+            { points: [{ x: res.nyquist, y: res.nyquist }], type: "scatter", color: "#b91c1c", label: "Nyquist" },
+          ];
+          // The tone marker joins the plot only when it lies within the swept
+          // range — a 10 MHz tone against a 48 kHz rate would stretch the
+          // axis a hundredfold and flatten the sawtooth into the margin.
+          if (interf !== null && res.aliasedTo !== null && interf <= 2.5 * fs) {
+            foldSeries.push({ points: [{ x: interf, y: res.aliasedTo }], type: "scatter", color: "#d97706", label: "your tone" });
+          }
+          const svg = buildPlotSvg(foldSeries, {
+            width: 380,
+            height: 260,
+            xlabel: "input frequency (Hz)",
+            ylabel: "apparent frequency after sampling (Hz)",
+            title: "The fold diagram",
+          });
+          return engReport(lines, [
+            {
+              kind: "plot",
+              svg,
+              caption: "Where every input frequency lands after sampling; the sawtooth is the fold",
+              alt: "Apparent frequency against input frequency, folding at each Nyquist multiple",
+              w: 380,
+              h: 260,
+            },
+          ]);
+        }
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -18675,6 +18723,43 @@ const ENG_CALCS: EngCalc[] = [
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
+
+      // The 6.02n + 1.76 line drawn across bit depths, each point asked of
+      // the engine, this converter marked. The line being straight IS the
+      // claim in the hint — one bit is always 6.02 dB.
+      {
+        const snrPts: Point[] = [];
+        const nTop = Math.min(64, Math.max(24, res.bits));
+        for (let n2 = 1; n2 <= nTop; n2++) {
+          const r2 = quantisation(n2);
+          if (r2.ok && Number.isFinite(r2.snrDb)) snrPts.push({ x: n2, y: r2.snrDb });
+        }
+        if (snrPts.length > 5) {
+          const svg = buildPlotSvg(
+            [
+              { points: snrPts, type: "line", color: "#2563eb", label: "6.02n + 1.76 dB" },
+              { points: [{ x: res.bits, y: res.snrDb }], type: "scatter", color: "#b91c1c", label: "this converter" },
+            ],
+            {
+              width: 380,
+              height: 250,
+              xlabel: "bit depth (bits)",
+              ylabel: "theoretical SNR (dB)",
+              title: "SNR against bit depth",
+            },
+          );
+          return engReport(lines, [
+            {
+              kind: "plot",
+              svg,
+              caption: "The quantisation SNR line, 6.02 dB per bit, this converter marked",
+              alt: "Theoretical SNR rising linearly with bit depth",
+              w: 380,
+              h: 250,
+            },
+          ]);
+        }
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -18718,6 +18803,54 @@ const ENG_CALCS: EngCalc[] = [
       ];
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_SAME_UNIT_NOTE);
+
+      // BOTH conventions on one log-ratio axis, this ratio marked on each —
+      // the constant factor-of-two gap between the lines is the whole
+      // commonest-error-in-audio story the tool exists to tell.
+      if (res.ratio > 0 && Number.isFinite(res.ratio)) {
+        const rLo = res.ratio / 10;
+        const rHi = res.ratio * 10;
+        const fieldPts: Point[] = [];
+        const powerPts: Point[] = [];
+        for (let i2 = 0; i2 <= 120; i2++) {
+          const rr = rLo * Math.pow(rHi / rLo, i2 / 120);
+          fieldPts.push({ x: rr, y: 20 * Math.log10(rr) });
+          powerPts.push({ x: rr, y: 10 * Math.log10(rr) });
+        }
+        const svg = buildPlotSvg(
+          [
+            { points: fieldPts, type: "line", color: "#2563eb", label: "field, 20·log₁₀" },
+            { points: powerPts, type: "line", color: "#059669", label: "power, 10·log₁₀" },
+            {
+              points: [
+                { x: res.ratio, y: res.db },
+                { x: res.ratio, y: res.dbIfOtherConvention },
+              ],
+              type: "scatter",
+              color: "#b91c1c",
+              label: "this ratio",
+            },
+          ],
+          {
+            width: 380,
+            height: 250,
+            xScale: "log",
+            xlabel: "linear ratio",
+            ylabel: "decibels (dB)",
+            title: "The two decibel conventions",
+          },
+        );
+        return engReport(lines, [
+          {
+            kind: "plot",
+            svg,
+            caption: "Field and power conventions over a decade each way, this ratio marked on both",
+            alt: "The 20-log and 10-log lines against log ratio with two markers at the entered ratio",
+            w: 380,
+            h: 250,
+          },
+        ]);
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -18768,6 +18901,51 @@ const ENG_CALCS: EngCalc[] = [
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
+
+      // Inverse-square falloff on a log distance axis, where it is a straight
+      // line at −6 dB per doubling — closed form from the reference level the
+      // engine used, both distances marked.
+      if (d0 > 0 && d1 > 0) {
+        const xLo = Math.min(d0, d1) / 4;
+        const xHi = Math.max(d0, d1) * 4;
+        const falloff: Point[] = [];
+        for (let i2 = 0; i2 <= 96; i2++) {
+          const x = xLo * Math.pow(xHi / xLo, i2 / 96);
+          falloff.push({ x, y: res.levelDb - 20 * Math.log10(x / d0) });
+        }
+        const svg = buildPlotSvg(
+          [
+            { points: falloff, type: "line", color: "#2563eb", label: "free-field level" },
+            {
+              points: [
+                { x: d0, y: res.levelDb },
+                { x: d1, y: res.atDistanceDb },
+              ],
+              type: "scatter",
+              color: "#b91c1c",
+              label: "your two distances",
+            },
+          ],
+          {
+            width: 380,
+            height: 250,
+            xScale: "log",
+            xlabel: "distance (m)",
+            ylabel: "level (dB SPL)",
+            title: "6 dB per doubling of distance",
+          },
+        );
+        return engReport(lines, [
+          {
+            kind: "plot",
+            svg,
+            caption: "The inverse-square falloff — a straight line on a log distance axis",
+            alt: "Sound level against log distance with the reference and target distances marked",
+            w: 380,
+            h: 250,
+          },
+        ]);
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -18805,6 +18983,50 @@ const ENG_CALCS: EngCalc[] = [
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
+
+      // Both decay slopes to -60 dB. The two lines diverging as the room gets
+      // dead is the Sabine-vs-Eyring argument made visible: they cross the
+      // -60 line at different times, and those crossings ARE the two RT60s.
+      if (res.sabineS > 0 && res.eyringS > 0) {
+        const tEnd = 1.25 * Math.max(res.sabineS, res.eyringS);
+        const slope = (rt: number): Point[] =>
+          Array.from({ length: 40 }, (_, i2) => {
+            const t = (tEnd * i2) / 39;
+            return { x: t, y: Math.max(-70, (-60 * t) / rt) };
+          });
+        const svg = buildPlotSvg(
+          [
+            { points: slope(res.sabineS), type: "line", color: "#2563eb", label: "Sabine" },
+            { points: slope(res.eyringS), type: "line", color: "#059669", label: "Eyring" },
+            {
+              points: [
+                { x: res.sabineS, y: -60 },
+                { x: res.eyringS, y: -60 },
+              ],
+              type: "scatter",
+              color: "#b91c1c",
+              label: "RT60",
+            },
+          ],
+          {
+            width: 380,
+            height: 250,
+            xlabel: "time (s)",
+            ylabel: "level below steady state (dB)",
+            title: "The decay to -60 dB",
+          },
+        );
+        return engReport(lines, [
+          {
+            kind: "plot",
+            svg,
+            caption: "Sabine and Eyring decay slopes; the -60 dB crossings are the two RT60s",
+            alt: "Two linear decay lines with markers where each reaches minus sixty decibels",
+            w: 380,
+            h: 250,
+          },
+        ]);
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -18848,6 +19070,40 @@ const ENG_CALCS: EngCalc[] = [
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
+
+      // The mode map: every mode at its frequency, ranked by how much it is
+      // heard — axial on top, oblique at the bottom. Clusters and gaps read
+      // straight off the horizontal axis, which is what the RATIOS advice in
+      // the hint is about.
+      if (res.modes.length) {
+        const rank: Record<string, number> = { axial: 3, tangential: 2, oblique: 1 };
+        const byKind = (kind: string): Point[] =>
+          res.modes.filter((m) => m.kind === kind).map((m) => ({ x: m.frequency, y: rank[kind] }));
+        const modeSeries: Series[] = [];
+        for (const kind of ["axial", "tangential", "oblique"] as const) {
+          const pts = byKind(kind);
+          if (pts.length) modeSeries.push({ points: pts, type: "scatter", color: kind === "axial" ? "#b91c1c" : kind === "tangential" ? "#2563eb" : "#9ca3af", label: kind });
+        }
+        if (modeSeries.length) {
+          const svg = buildPlotSvg(modeSeries, {
+            width: 380,
+            height: 220,
+            xlabel: "mode frequency (Hz)",
+            ylabel: "audibility rank",
+            title: "The mode map",
+          });
+          return engReport(lines, [
+            {
+              kind: "plot",
+              svg,
+              caption: "Every room mode at its frequency; axial modes (top row) are the boom",
+              alt: "Room modes as points by frequency, one row per mode family",
+              w: 380,
+              h: 220,
+            },
+          ]);
+        }
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -18884,6 +19140,46 @@ const ENG_CALCS: EngCalc[] = [
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
+
+      // The comb itself. The response is -Infinity at every notch, so the
+      // -30 dB floor is load-bearing, not cosmetic — an unfloored point would
+      // be dropped and the notch would vanish from the very figure that
+      // exists to show it.
+      if (res.delayMs > 0 && res.peaks.length >= 5 && res.firstNotchHz > 0) {
+        const tSec = res.delayMs / 1000;
+        const fLo = res.firstNotchHz / 5;
+        const fHi = res.peaks[4] * 2;
+        const comb: Point[] = [];
+        for (let i2 = 0; i2 <= 400; i2++) {
+          const f = fLo * Math.pow(fHi / fLo, i2 / 400);
+          comb.push({ x: f, y: Math.max(-30, 20 * Math.log10(Math.abs(2 * Math.cos(Math.PI * f * tSec)))) });
+        }
+        const svg = buildPlotSvg(
+          [
+            { points: comb, type: "line", color: "#2563eb", label: "response" },
+            { points: res.notches.map((f) => ({ x: f, y: -30 })), type: "scatter", color: "#b91c1c", label: "cancellations" },
+            { points: res.peaks.map((f) => ({ x: f, y: 6.02 })), type: "scatter", color: "#059669", label: "reinforcements" },
+          ],
+          {
+            width: 380,
+            height: 250,
+            xScale: "log",
+            xlabel: "frequency (Hz)",
+            ylabel: "response (dB, floored at -30)",
+            title: "The comb",
+          },
+        );
+        return engReport(lines, [
+          {
+            kind: "plot",
+            svg,
+            caption: "The comb response of the delayed copy; notches at odd multiples, peaks at every 1/t",
+            alt: "Comb filter frequency response with cancellation and reinforcement markers",
+            w: 380,
+            h: 250,
+          },
+        ]);
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -18938,6 +19234,33 @@ const ENG_CALCS: EngCalc[] = [
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
+
+      // The three chroma schemes at THIS resolution, frame rate and depth —
+      // the 50%-not-25% claim in the hint as three bars, the selected scheme
+      // in blue. Rates come from the engine's own bitsPerPixel table.
+      if (Number.isFinite(res.pixelRate) && nums.ratio > 0) {
+        const chromaRows = (["4:4:4", "4:2:2", "4:2:0"] as ChromaSubsampling[]).map((cs) => ({
+          name: cs + (cs === r("chroma") ? " (selected)" : ""),
+          value: (res.pixelRate * bitsPerPixel(nums.depth, cs)) / 1e6 / nums.ratio,
+          colour: cs === r("chroma") ? "#2563eb" : "#9ca3af",
+        }));
+        if (chromaRows.every((rw) => Number.isFinite(rw.value))) {
+          const svg = hBarSvg(chromaRows, {
+            title: `Rate at ${nums.w}×${nums.h}, ${engNum(fps, 4)} fps, ${nums.depth}-bit`,
+            unit: "Mbit/s",
+          });
+          return engReport(lines, [
+            {
+              kind: "plot",
+              svg,
+              caption: "The three chroma schemes at this format; 4:2:0 halves the data, not quarters it",
+              alt: "Bitrate bars for 4:4:4, 4:2:2 and 4:2:0 chroma subsampling",
+              w: 400,
+              h: 46 + chromaRows.length * HBAR_ROW_H + 18,
+            },
+          ]);
+        }
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -18975,6 +19298,45 @@ const ENG_CALCS: EngCalc[] = [
       }
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_SAME_UNIT_NOTE);
+
+      // Retina distance against screen size at this pixel count — the eye is
+      // the limit, and the line shows how fast the safe distance grows with
+      // the diagonal. Each point re-asks the engine.
+      if (diag !== undefined && res.retinaDistanceM !== null) {
+        const retinaPts: Point[] = [];
+        for (let i2 = 0; i2 <= 60; i2++) {
+          const d = 0.2 * diag + ((3 * diag - 0.2 * diag) * i2) / 60;
+          const r2 = resolution(w, h, d);
+          if (r2.ok && r2.retinaDistanceM !== null && Number.isFinite(r2.retinaDistanceM)) {
+            retinaPts.push({ x: d, y: r2.retinaDistanceM });
+          }
+        }
+        if (retinaPts.length > 10) {
+          const svg = buildPlotSvg(
+            [
+              { points: retinaPts, type: "line", color: "#2563eb", label: `${w}×${h}` },
+              { points: [{ x: diag, y: res.retinaDistanceM }], type: "scatter", color: "#b91c1c", label: "this display" },
+            ],
+            {
+              width: 380,
+              height: 250,
+              xlabel: "diagonal (inches)",
+              ylabel: "grid invisible past (m)",
+              title: "Where the eye stops resolving the grid",
+            },
+          );
+          return engReport(lines, [
+            {
+              kind: "plot",
+              svg,
+              caption: "The retina distance against screen size at this pixel count",
+              alt: "Distance beyond which the pixel grid is unresolvable, against diagonal size",
+              w: 380,
+              h: 250,
+            },
+          ]);
+        }
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -19019,6 +19381,46 @@ const ENG_CALCS: EngCalc[] = [
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
+
+      // The PQ curve itself on a log luminance axis, this display's peak on
+      // it. Half the code range covering a sliver of the nits IS the picture;
+      // the sweep starts just above zero because pqToNits(0) is exactly 0 and
+      // a log axis cannot hold it. Contrast and stops stay OFF the axes —
+      // both are Infinity for a self-emissive black.
+      {
+        const pq: Point[] = [];
+        for (let i2 = 0; i2 <= 200; i2++) {
+          const code = 0.005 + (0.995 * i2) / 200;
+          const nits = pqToNits(code);
+          if (Number.isFinite(nits) && nits > 0) pq.push({ x: code, y: nits });
+        }
+        if (pq.length > 20) {
+          const svg = buildPlotSvg(
+            [
+              { points: pq, type: "line", color: "#2563eb", label: "ST 2084 (PQ)" },
+              { points: [{ x: res.pqAtPeak, y: res.peakNits }], type: "scatter", color: "#b91c1c", label: "this peak" },
+            ],
+            {
+              width: 380,
+              height: 250,
+              yScale: "log",
+              xlabel: "PQ code value (0-1)",
+              ylabel: "luminance (nits)",
+              title: "The absolute PQ curve",
+            },
+          );
+          return engReport(lines, [
+            {
+              kind: "plot",
+              svg,
+              caption: "The PQ transfer curve with this display's peak marked; the axis is log nits",
+              alt: "Luminance against PQ code value on a log axis with the peak marked",
+              w: 380,
+              h: 250,
+            },
+          ]);
+        }
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -19049,6 +19451,44 @@ const ENG_CALCS: EngCalc[] = [
       ];
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_SAME_UNIT_NOTE);
+
+      // PSNR against MSE over two decades each way, log error axis — a
+      // straight line at -10 dB per decade, this encode marked. Each point
+      // re-asks the engine; res.mse is strictly positive (zero is refused).
+      if (res.mse > 0) {
+        const psnrPts: Point[] = [];
+        for (let i2 = 0; i2 <= 120; i2++) {
+          const m = (res.mse / 100) * Math.pow(1e4, i2 / 120);
+          const r2 = psnr(m, res.bitDepth);
+          if (r2.ok && Number.isFinite(r2.psnrDb)) psnrPts.push({ x: m, y: r2.psnrDb });
+        }
+        if (psnrPts.length > 20) {
+          const svg = buildPlotSvg(
+            [
+              { points: psnrPts, type: "line", color: "#2563eb", label: `${res.bitDepth}-bit` },
+              { points: [{ x: res.mse, y: res.psnrDb }], type: "scatter", color: "#b91c1c", label: "this encode" },
+            ],
+            {
+              width: 380,
+              height: 250,
+              xScale: "log",
+              xlabel: "mean squared error",
+              ylabel: "PSNR (dB)",
+              title: "PSNR against error",
+            },
+          );
+          return engReport(lines, [
+            {
+              kind: "plot",
+              svg,
+              caption: "PSNR falling 10 dB per decade of error, this encode marked",
+              alt: "PSNR against log mean squared error",
+              w: 380,
+              h: 250,
+            },
+          ]);
+        }
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -19084,6 +19524,47 @@ const ENG_CALCS: EngCalc[] = [
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
+
+      // The buffer's life drawn as a timeline: filling on the bandwidth
+      // surplus, then draining through an outage at the stream rate. The two
+      // slopes differing is the latency-for-robustness trade the hint names.
+      // Skipped when the bandwidth cannot exceed the rate — the buffer never
+      // fills and the engine says so with an infinite startup delay.
+      if (Number.isFinite(res.startupDelayS) && rate > 0 && res.bufferSeconds > 0) {
+        const svg = buildPlotSvg(
+          [
+            {
+              points: [
+                { x: 0, y: 0 },
+                { x: res.startupDelayS, y: res.bufferSeconds },
+                { x: res.startupDelayS + res.drainS, y: 0 },
+              ],
+              type: "line",
+              color: "#2563eb",
+              label: "buffer held",
+            },
+            { points: [{ x: res.startupDelayS, y: res.bufferSeconds }], type: "scatter", color: "#059669", label: "playback starts" },
+            { points: [{ x: res.startupDelayS + res.drainS, y: 0 }], type: "scatter", color: "#b91c1c", label: "stall if outage" },
+          ],
+          {
+            width: 380,
+            height: 250,
+            xlabel: "time (s)",
+            ylabel: "buffer held (s of video)",
+            title: "Fill on the surplus, drain through an outage",
+          },
+        );
+        return engReport(lines, [
+          {
+            kind: "plot",
+            svg,
+            caption: "The buffer filling on surplus bandwidth, then draining through a total outage",
+            alt: "Buffer occupancy over time with playback start and stall points marked",
+            w: 380,
+            h: 250,
+          },
+        ]);
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -19127,6 +19608,38 @@ const ENG_CALCS: EngCalc[] = [
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
+
+      // The budget as bars: every stage, the worst one in red, then the sum
+      // and what the display actually delivers after quantising to a refresh
+      // boundary — the gap between those last two is the hint's point.
+      if (res.stages.length) {
+        // Stages capped at 22 so "sum" and "delivered" — the figure's point —
+        // can never be the rows the bar chart's 24-row cap silently drops.
+        // The worst row is matched by OBJECT IDENTITY, not name: two stages
+        // both called "network" must not both turn red.
+        const latRows = [
+          ...res.stages.slice(0, 22).map((s) => ({
+            name: s.name,
+            value: s.ms,
+            colour: s === res.worst ? "#b91c1c" : "#2563eb",
+          })),
+          { name: "sum", value: res.totalMs, colour: "#9ca3af" },
+          { name: "delivered", value: res.quantisedMs, colour: "#059669" },
+        ];
+        if (latRows.every((rw) => Number.isFinite(rw.value))) {
+          const svg = hBarSvg(latRows, { title: `Latency budget at ${engNum(hz, 4)} Hz`, unit: "ms" });
+          return engReport(lines, [
+            {
+              kind: "plot",
+              svg,
+              caption: "Each stage's share, the worst in red, and the refresh-quantised delivery",
+              alt: "Latency bars per pipeline stage with the sum and delivered totals",
+              w: 400,
+              h: 46 + Math.min(latRows.length, 24) * HBAR_ROW_H + 18,
+            },
+          ]);
+        }
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -19172,6 +19685,31 @@ const ENG_CALCS: EngCalc[] = [
       ];
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_SAME_UNIT_NOTE);
+
+      // The two triangles on the u'v' plane — the coverage claim as the area
+      // relationship it is, at one scale on both axes.
+      {
+        const gDef = gamutById(r("g"));
+        const refDef = gamutById(r("ref"));
+        if (gDef && refDef) {
+          return engReport(lines, [
+            {
+              kind: "plot",
+              svg: gamutTriangleSvg({
+                gamutLabel: res.gamut,
+                refLabel: res.reference,
+                gamutPrimaries: gDef.primaries,
+                refPrimaries: refDef.primaries,
+                coverageUv: res.coverageUv,
+              }),
+              caption: "Both gamuts on the u'v' chromaticity plane; the solid triangle is the measured space",
+              alt: "Two colour gamut triangles on the uniform chromaticity diagram",
+              w: GAMUT_CHART_SIZE.w,
+              h: GAMUT_CHART_SIZE.h,
+            },
+          ]);
+        }
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },

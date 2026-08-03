@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.86.0)
+# JurisLab — Manual Test Script (v2.87.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -1092,6 +1092,26 @@ Engineering mode. **Energy & power** grows 8 → 16; the mode must state
 - [ ] All eight new tools insert, subscripts and superscripts intact (O₂, m², kVAR).
 
 ---
+
+## 0av. New in v2.87.0 - Audio and video draw
+
+All 14 Audio & acoustics and Video & display tools insert figures (ratchet
+70 → 84 of 130). Spot-check four:
+
+- [ ] **Sampling & aliasing**, defaults (44.1 kHz, 20 kHz) → "The fold
+  diagram": a sawtooth rising to 22 050 Hz and folding back down, twice
+  more across the axis; green dot at (20k, 20k), red dot at the first peak.
+- [ ] **Delay & comb filtering**, defaults (1 ms) → "The comb": a scalloped
+  response on a log frequency axis, red dots on the −30 dB floor at 500,
+  1500, 2500… Hz, green dots at +6 dB at 1000, 2000… Hz.
+- [ ] **Colour gamut coverage**, defaults (DCI-P3 vs sRGB) → two triangles
+  on u′v′ axes, the dashed sRGB triangle entirely INSIDE the solid blue
+  P3 one; title says 100.0% coverage. Swap to sRGB vs BT.2020 → the solid
+  triangle now sits inside the dashed one.
+- [ ] **End-to-end latency budget**, defaults → bars for the four stages
+  with network (30 ms) in red, then grey "sum 63 ms" and green "delivered
+  66.67 ms" — the delivered bar longer than the sum, because the display
+  quantises to the next refresh.
 
 ## 0au. New in v2.86.0 - All seventeen Energy tools draw
 

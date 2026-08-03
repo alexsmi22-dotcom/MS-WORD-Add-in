@@ -13,6 +13,8 @@
 // follow the pane's theme. `insertedFiguresIgnoreTheme.test.ts` scans the
 // SOURCE for that, so this comment cannot name the keyword either.
 
+import { xyToUv, Chromaticity } from "./colourspace";
+
 const INK = "#111111";
 const RULE = "#888888";
 const PAPER = "#ffffff";
@@ -949,6 +951,89 @@ export function logicWaveSvg(inp: LogicWaveInput): string {
   for (let c = 0; c < cols; c += every) {
     p.push(`<text x="${(X(c) + colW / 2).toFixed(1)}" y="${H - 8}" text-anchor="middle" fill="${RULE}" font-size="7.5">${c}</text>`);
   }
+  p.push("</g></svg>");
+  return p.join("");
+}
+
+export const GAMUT_CHART_SIZE = { w: 380, h: 330 };
+
+export interface GamutTriangleInput {
+  gamutLabel: string;
+  refLabel: string;
+  /** CIE 1931 xy primaries, R G B order. */
+  gamutPrimaries: Chromaticity[];
+  refPrimaries: Chromaticity[];
+  /** Coverage fraction (u'v'), for the title. */
+  coverageUv: number;
+}
+
+/**
+ * Two gamut triangles on the u'v' chromaticity plane — u'v' because CIE 1931
+ * xy over-weights greens the eye discriminates poorly, which is the exact
+ * point the tool's own numbers make. EQUAL ASPECT: coverage is an AREA claim,
+ * and areas compare honestly only when both axes share one scale.
+ */
+export function gamutTriangleSvg(inp: GamutTriangleInput): string {
+  const { w: W, h: H } = GAMUT_CHART_SIZE;
+  if (inp.gamutPrimaries.length !== 3 || inp.refPrimaries.length !== 3) {
+    return emptyChart(W, H, "The gamut primaries do not define triangles");
+  }
+  const g = inp.gamutPrimaries.map(xyToUv);
+  const rf = inp.refPrimaries.map(xyToUv);
+  if (![...g, ...rf].every((c) => Number.isFinite(c.x) && Number.isFinite(c.y))) {
+    return emptyChart(W, H, "The gamut primaries do not define triangles");
+  }
+
+  // Fixed domain covering every broadcast gamut's u'v' extent, padded.
+  const uLo = 0;
+  const uHi = 0.63;
+  const vLo = 0;
+  const vHi = 0.6;
+  const ML = 44;
+  const MR = 14;
+  const MT = 28;
+  const MB = 36;
+  const pw = W - ML - MR;
+  const ph = H - MT - MB;
+  const scale = Math.min(pw / (uHi - uLo), ph / (vHi - vLo));
+  const ox = ML + (pw - (uHi - uLo) * scale) / 2;
+  const oy = MT + (ph - (vHi - vLo) * scale) / 2;
+  const X = (uu: number): number => ox + (uu - uLo) * scale;
+  const Y = (vv: number): number => oy + (vHi - vv) * scale;
+
+  const tri = (pts: Chromaticity[]): string =>
+    pts.map((c, i) => `${i === 0 ? "M" : "L"}${X(c.x).toFixed(1)},${Y(c.y).toFixed(1)}`).join(" ") + " Z";
+
+  const p: string[] = [];
+  p.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`);
+  p.push(`<rect width="${W}" height="${H}" fill="${PAPER}"/>`);
+  p.push(`<g font-family="sans-serif" font-size="9" fill="${INK}">`);
+  p.push(
+    `<text x="${(ML + pw / 2).toFixed(1)}" y="15" text-anchor="middle" font-size="11">${esc(
+      `${inp.gamutLabel} vs ${inp.refLabel}: ${(inp.coverageUv * 100).toFixed(1)}% coverage (u'v')`,
+    )}</text>`,
+  );
+  p.push(`<rect x="${X(uLo).toFixed(1)}" y="${Y(vHi).toFixed(1)}" width="${((uHi - uLo) * scale).toFixed(1)}" height="${((vHi - vLo) * scale).toFixed(1)}" fill="none" stroke="${FAINT}"/>`);
+
+  for (const t of [0, 0.2, 0.4, 0.6]) {
+    if (t <= uHi) p.push(`<text x="${X(t).toFixed(1)}" y="${(Y(vLo) + 12).toFixed(1)}" text-anchor="middle">${t.toFixed(1)}</text>`);
+    if (t <= vHi) p.push(`<text x="${(X(uLo) - 4).toFixed(1)}" y="${(Y(t) + 3).toFixed(1)}" text-anchor="end">${t.toFixed(1)}</text>`);
+  }
+
+  p.push(`<path d="${tri(rf)}" fill="none" stroke="${RULE}" stroke-width="1.4" stroke-dasharray="5 3"/>`);
+  p.push(`<path d="${tri(g)}" fill="#2563eb" fill-opacity="0.10" stroke="${CIRCLE}" stroke-width="1.8"/>`);
+
+  const vertexColours = ["#b91c1c", "#059669", "#2563eb"];
+  const vertexNames = ["R", "G", "B"];
+  g.forEach((c, i) => {
+    p.push(`<circle cx="${X(c.x).toFixed(1)}" cy="${Y(c.y).toFixed(1)}" r="3.2" fill="${vertexColours[i]}"/>`);
+    p.push(labelText(X(c.x) + 5, Y(c.y) - 4, vertexNames[i], { size: 8, fill: vertexColours[i] }));
+  });
+
+  p.push(labelText(ML + 4, MT + 12, `solid: ${inp.gamutLabel}`, { size: 8, fill: CIRCLE }));
+  p.push(labelText(ML + 4, MT + 24, `dashed: ${inp.refLabel}`, { size: 8, fill: RULE }));
+  p.push(`<text x="${(ML + pw / 2).toFixed(1)}" y="${H - 6}" text-anchor="middle">u′</text>`);
+  p.push(`<text x="12" y="${(MT + ph / 2).toFixed(1)}" text-anchor="middle" transform="rotate(-90 12 ${(MT + ph / 2).toFixed(1)})">v′</text>`);
   p.push("</g></svg>");
   return p.join("");
 }

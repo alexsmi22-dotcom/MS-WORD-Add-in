@@ -22,9 +22,11 @@ import {
   hBarSvg,
   logicWaveSvg,
   powerTriangleSvg,
+  gamutTriangleSvg,
 } from "../src/lib/mechchart";
 import { buildPlotSvg, Series } from "../src/lib/plot";
 import { weibullFit, reliabilityBlock, kOutOfN, redundancy, availability } from "../src/lib/reliability";
+import { GAMUTS as GAMUT_DEFS } from "../src/lib/colourspace";
 
 const figures: [string, string][] = [];
 
@@ -632,6 +634,126 @@ figures.push([
       { name: "N₂ + unused O₂ out", value: -13.2, colour: "#9ca3af" },
     ],
     { title: "Mass balance per kg of fuel", unit: "kg" },
+  ),
+]);
+
+// --- v2.87.0: audio + video figures -----------------------------------------
+
+// The gamut triangles: an enclosing pair and a partial-coverage pair.
+{
+  const by = (id: string) => GAMUT_DEFS.find((g) => g.id === id)!;
+  figures.push([
+    "gamut dcip3 vs srgb",
+    gamutTriangleSvg({
+      gamutLabel: "DCI-P3",
+      refLabel: "sRGB",
+      gamutPrimaries: by("dcip3").primaries,
+      refPrimaries: by("srgb").primaries,
+      coverageUv: 1,
+    }),
+  ]);
+  figures.push([
+    "gamut srgb vs bt2020",
+    gamutTriangleSvg({
+      gamutLabel: "sRGB",
+      refLabel: "BT.2020",
+      gamutPrimaries: by("srgb").primaries,
+      refPrimaries: by("bt2020").primaries,
+      coverageUv: 0.52,
+    }),
+  ]);
+}
+
+// The fold diagram — the sawtooth plus three markers near its teeth.
+{
+  const fs = 44100;
+  const fold = Array.from({ length: 200 }, (_, i) => {
+    const f = (2.5 * fs * (i + 1)) / 200;
+    const m = f % fs;
+    return { x: f, y: m <= fs / 2 ? m : fs - m };
+  });
+  figures.push([
+    "fold diagram",
+    buildPlotSvg(
+      [
+        { points: fold, type: "line", color: "#2563eb", label: "lands at" },
+        { points: [{ x: 20000, y: 20000 }], type: "scatter", color: "#059669", label: "signal max" },
+        { points: [{ x: 22050, y: 22050 }], type: "scatter", color: "#b91c1c", label: "Nyquist" },
+      ],
+      { width: 380, height: 260, xlabel: "input frequency (Hz)", ylabel: "apparent frequency after sampling (Hz)", title: "The fold diagram" },
+    ),
+  ]);
+}
+
+// The comb with its floored notches on a log axis.
+{
+  const t = 0.001;
+  const comb = Array.from({ length: 401 }, (_, i) => {
+    const f = 100 * Math.pow(20, i / 400);
+    return { x: f, y: Math.max(-30, 20 * Math.log10(Math.abs(2 * Math.cos(Math.PI * f * t)))) };
+  });
+  figures.push([
+    "comb response",
+    buildPlotSvg(
+      [
+        { points: comb, type: "line", color: "#2563eb", label: "response" },
+        { points: [500, 1500, 2500, 3500, 4500].map((f) => ({ x: f, y: -30 })), type: "scatter", color: "#b91c1c", label: "cancellations" },
+        { points: [1000, 2000, 3000, 4000, 5000].map((f) => ({ x: f, y: 6.02 })), type: "scatter", color: "#059669", label: "reinforcements" },
+      ],
+      { width: 380, height: 250, xScale: "log", xlabel: "frequency (Hz)", ylabel: "response (dB, floored at -30)", title: "The comb" },
+    ),
+  ]);
+}
+
+// The PQ curve on log nits.
+figures.push([
+  "pq curve",
+  buildPlotSvg(
+    [
+      { points: Array.from({ length: 201 }, (_, i) => { const code = 0.005 + (0.995 * i) / 200; const m1 = 0.1593017578125, m2 = 78.84375, c1 = 0.8359375, c2 = 18.8515625, c3 = 18.6875; const cp = Math.pow(code, 1 / m2); const n = Math.max(cp - c1, 0) / (c2 - c3 * cp); return { x: code, y: 10000 * Math.pow(n, 1 / m1) }; }).filter((p) => p.y > 0), type: "line", color: "#2563eb", label: "ST 2084 (PQ)" },
+      { points: [{ x: 0.751, y: 1000 }], type: "scatter", color: "#b91c1c", label: "this peak" },
+    ],
+    { width: 380, height: 250, yScale: "log", xlabel: "PQ code value (0-1)", ylabel: "luminance (nits)", title: "The absolute PQ curve" },
+  ),
+]);
+
+// The buffer timeline and the latency bars.
+figures.push([
+  "buffer timeline",
+  buildPlotSvg(
+    [
+      { points: [{ x: 0, y: 0 }, { x: 13.33, y: 8 }, { x: 21.33, y: 0 }], type: "line", color: "#2563eb", label: "buffer held" },
+      { points: [{ x: 13.33, y: 8 }], type: "scatter", color: "#059669", label: "playback starts" },
+      { points: [{ x: 21.33, y: 0 }], type: "scatter", color: "#b91c1c", label: "stall if outage" },
+    ],
+    { width: 380, height: 250, xlabel: "time (s)", ylabel: "buffer held (s of video)", title: "Fill on the surplus, drain through an outage" },
+  ),
+]);
+figures.push([
+  "latency bars",
+  hBarSvg(
+    [
+      { name: "capture", value: 5, colour: "#2563eb" },
+      { name: "encode", value: 20, colour: "#2563eb" },
+      { name: "network", value: 30, colour: "#b91c1c" },
+      { name: "decode", value: 8, colour: "#2563eb" },
+      { name: "sum", value: 63, colour: "#9ca3af" },
+      { name: "delivered", value: 66.67, colour: "#059669" },
+    ],
+    { title: "Latency budget at 60 Hz", unit: "ms" },
+  ),
+]);
+
+// The mode map: three scatter rows with crowded low-frequency axials.
+figures.push([
+  "mode map",
+  buildPlotSvg(
+    [
+      { points: [34.3, 42.9, 68.6, 68.6, 85.8, 102.9, 137.2].map((f) => ({ x: f, y: 3 })), type: "scatter", color: "#b91c1c", label: "axial" },
+      { points: [54.9, 77.4, 80.9, 98.6, 110.1, 123.5].map((f) => ({ x: f, y: 2 })), type: "scatter", color: "#2563eb", label: "tangential" },
+      { points: [89.5, 112.3, 130.7, 145.2].map((f) => ({ x: f, y: 1 })), type: "scatter", color: "#9ca3af", label: "oblique" },
+    ],
+    { width: 380, height: 220, xlabel: "mode frequency (Hz)", ylabel: "audibility rank", title: "The mode map" },
   ),
 ]);
 

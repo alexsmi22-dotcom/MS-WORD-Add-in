@@ -5,9 +5,34 @@ not against prose: every count below was extracted from `ENG_CALCS` and every
 "absent" claim was checked against a module's **export list**, not by grepping
 for a word that might be spelled differently.
 
-**Verified baseline:** 114 calculators across 19 disciplines · 10 of them insert
-a figure · 5 insert a real Word equation · dead-export ratchet at 10 · suite
-8,553 across 258 files · QC 12/12.
+**Verified baseline when written:** 114 calculators across 19 disciplines · 10 of
+them insert a figure · 5 insert a real Word equation · dead-export ratchet at 10
+· suite 8,553 across 258 files · QC 12/12.
+
+> **PROGRESS**
+>
+> - **v2.79.0** — §2.1, §2.2 and §3's two headline diagrams. Every **Structural
+>   & solids** tool draws. The minor-axis second moment was missing entirely and
+>   was added; `section → column` and the `Se` half of
+>   `fatigue-endurance → fatigue-safety` now compose. Figures 10 → 16.
+> - **v2.80.0** — §4.1 **Thermal** in full: ε-NTU, fins, lumped capacitance and
+>   radiation, taking Thermal 5 → 9 and Engineering to **118**. Every Thermal
+>   tool draws. Figures 16 → **21 of 118**.
+>
+>   Also, on a user report of overlapping text and lines through labels, a
+>   **figure-legibility audit** was built and wired into QC. It found 22 issues
+>   product-wide, two root causes in `buildPlotSvg` (a translucent legend
+>   backing and a fixed left margin), and all are fixed.
+>
+> - **NEW STANDING REQUIREMENT (user, 2026-08-02):** *every* calculator must
+>   insert data **and a graph**. Tracked by the figure ratchet in
+>   `scripts/engineering-audit.js`, which prints the remaining text-only tools
+>   by name on every run. That reframes §3 from a nice-to-have into the spine of
+>   the remaining work.
+>
+> Next: §4.2 **Fluids** (engines built in `src/lib/fluids2.ts` — flow
+> measurement, pump/system curves, affinity laws, body drag), then §4.4
+> fracture mechanics, §4.5 reliability, §4.3 pressure vessels.
 
 ---
 

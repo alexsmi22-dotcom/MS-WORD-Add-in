@@ -25,10 +25,9 @@ checker that reports "all clear" for something it cannot see is worse than none.
 
 It found **22 issues**, and two root causes explained most of them:
 
-- **The legend backing was 82% transparent.** Every curve showed straight
-  through it and struck out the labels naming those very curves — the literal
-  "lines going through the text". A legend is an annotation over a plot, not a
-  tint on it. Now opaque.
+- **The legend backing was 82% transparent**, so gridlines and error bars showed
+  through it and struck out the labels beside them. A legend is an annotation
+  over a plot, not a tint on it. Now opaque.
 - **The left margin was a fixed 48 px.** Ample for "0" and "100", far too little
   for "1.0e+8", which ran back over the rotated y-axis title. It is now computed
   from the widest tick label the data will actually produce — knowable before
@@ -38,8 +37,16 @@ Both live in `buildPlotSvg`, so **every plot in the product** benefits, not just
 the new ones. The remaining thirteen were annotations in the mechanical charts,
 all fixed by giving each label an opaque backing, widening the Goodman legend to
 fit its longest entry, and deferring Mohr's tick labels until after the line
-that was crossing them. **All 19 test figures are now clean, and the audit is a
+that was crossing them. **All 18 sampled figures are clean, and the audit is a
 QC gate**, so this cannot silently return.
+
+*Two claims in the first draft of this entry were wrong and are corrected
+above.* It said "19 test figures" where the driver runs 18, and it credited the
+legend detection to the data curves — which the instrument could not see at the
+time, because it did not parse `<path>`. What actually tripped the check was
+the gridlines and error bars. Both were caught by the adversarial pass and are
+fixed below; the sampled set is 18 hand-picked builder outputs, not "every
+figure in the product".
 
 ### Thermal
 
@@ -90,6 +97,49 @@ exchanger marked, temperature along the fin, the cooling curve against its
 ambient asymptote, and radiation against convection as the surface heats.
 
 **Figure ratchet 16 → 21 of 118.**
+
+### Ten defects, caught by the independent adversarial pass before release
+
+Two were blockers, and one of them was in the new instrument itself.
+
+1. **The fin figure emitted `NaN` into its SVG path.** `Math.cosh` overflows
+   past an argument of about 710, so `cosh(m(Lc−x))/cosh(mLc)` became
+   `Infinity/Infinity` for a long, thin, poorly conducting fin — **56 `NaN`
+   tokens** in the path, with the numbers above it all correct so nothing
+   hinted at it. And this tool actively *invites* bad fins, since a bad fin is
+   the result it exists to demonstrate. Now evaluated as
+   `e^(A−B)·(1+e^−2A)/(1+e^−2B)`, where every exponent is non-positive.
+2. **"Radiation carries NaN% of the total"** appeared in a user-facing note
+   whenever both surfaces were at the same temperature — 0/0, reachable by
+   typing one temperature twice, because the tool's own default convection
+   coefficient is non-zero.
+3. **The layout instrument could not see `<path>`**, which is every data curve
+   `buildPlotSvg` draws. It reported a *gridline* crossing a legend entry and
+   missed the *curve* that entry names. A gate blind to the thing it was built
+   for is worse than no gate, because it is believed. It now parses paths, and
+   its self-test carries a path payload so it can catch that blind spot again.
+4. **The margin calculation ignored error bars**, which the drawing code
+   includes unconditionally. Pasting a third column into the Plot tab produced
+   exactly the collision this release claims to have fixed.
+5. **And it walked a different range than the drawing code** — no 6% padding,
+   a different degenerate expansion — under-sizing **2.6%** of margins over
+   20,000 random plots and pushing 36 labels off the canvas.
+6. **The y-title reserve was 16 px for a title that reaches 18.3 px.** The two
+   now share their constants so they cannot drift apart again.
+7. **Axis labels read `-2.8e-17` where `0` belongs**, in about 2% of ranges
+   straddling the origin — meaningless, and wide enough to cause (5).
+8. **Fin effectiveness returned `NaN` for a base at ambient**, an ordinary
+   input, and silently dropped all three effectiveness notes with it.
+   Effectiveness is η·A_fin/A_c and does not depend on the driving temperature
+   at all.
+9. **The audit's own thresholds were too lax** — up to 2.2 characters of
+   overlap went unreported, and the glyph-width estimate was 7% *under*, when a
+   collision detector must over-estimate. Tightened; every figure still passes.
+10. `lumpedCapacitance` could return an infinite time constant and a `NaN`
+    energy at extreme magnitudes. It refuses now.
+
+The sweep that found (5) and (7) is now a test: **400 random ranges and 300
+zero-crossing ones, with no clipping, no collision and no spurious label.**
 
 ## [2.79.0] — 2026-08-02 — Structural & solids: every tool draws, and two hand-carries close
 

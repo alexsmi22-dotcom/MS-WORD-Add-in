@@ -318,7 +318,14 @@ export function finPerformance(inp: FinInput): FinResult | Heat2Error {
   const aFin = P * lc;
   const qFin = efficiency * inp.h * aFin * inp.excessK;
   const qBare = inp.h * Ac * inp.excessK;
-  const effectiveness = qBare === 0 ? NaN : qFin / qBare;
+  // EFFECTIVENESS DOES NOT DEPEND ON THE DRIVING TEMPERATURE. It is
+  // eta * A_fin / A_c: the excess temperature appears in both heat rates and
+  // cancels. Computing it as a ratio of the two returned 0/0 = NaN for a base
+  // AT ambient — an ordinary input, since excess temperature is legitimately
+  // allowed to be zero — and then dropped all three effectiveness notes with
+  // it. This module's own header says removable singularities take their
+  // limits explicitly; this is one of them.
+  const effectiveness = (efficiency * aFin) / Ac;
 
   const notes: string[] = [
     `Efficiency ${(efficiency * 100).toFixed(1)}% is how close the fin comes to being ISOTHERMAL. ` +
@@ -457,17 +464,38 @@ export function lumpedCapacitance(inp: LumpedInput): LumpedResult | Heat2Error {
   }
 
   const tau = (inp.rho * inp.volume * inp.cp) / (inp.h * inp.area);
+  if (!Number.isFinite(tau) || tau <= 0) {
+    return {
+      ok: false,
+      error:
+        "Those properties overflow the time constant, so nothing below would be a finite number. " +
+        "Check the magnitudes of the density, specific heat and volume.",
+    };
+  }
   const theta0 = inp.tInit - inp.tAmbient;
   const frac = Math.exp(-inp.timeS / tau);
   const temperature = inp.tAmbient + theta0 * frac;
   const timeTo99 = tau * Math.log(100);
   const energy = inp.rho * inp.volume * inp.cp * (inp.tInit - temperature);
+  if (![temperature, frac, timeTo99, energy].every(Number.isFinite)) {
+    return {
+      ok: false,
+      error:
+        "Those inputs overflow the arithmetic and give a result that is not a finite number. " +
+        "Check the magnitudes.",
+    };
+  }
 
+  // Divide BEFORE multiplying: (span * i) / 80 overflows for a span past about
+  // 2.2e306 and silently fills the curve with non-finite points.
   const span = Math.max(inp.timeS, timeTo99) * 1.05;
   const curve = Array.from({ length: 81 }, (_, i) => {
-    const t = (span * i) / 80;
+    const t = (span / 80) * i;
     return { t, T: inp.tAmbient + theta0 * Math.exp(-t / tau) };
-  });
+  }).filter((pt) => Number.isFinite(pt.t) && Number.isFinite(pt.T));
+  if (!curve.length) {
+    return { ok: false, error: "Those inputs give no finite cooling curve. Check the magnitudes." };
+  }
 
   const notes: string[] = [
     `Biot ${biot.toPrecision(3)} is below 0.1, so treating the body as isothermal is defensible. ` +
@@ -631,11 +659,23 @@ export function radiationExchange(inp: RadiationInput): RadiationResult | Heat2E
       "dominant in a furnace, and the crossover is lower than most people expect.",
   );
   if (qConv !== null) {
-    const share = Math.abs(Q) / (Math.abs(Q) + Math.abs(qConv));
-    notes.push(
-      `Against the convection you gave, radiation carries ${(share * 100).toFixed(1)}% of the ` +
-        "total. Leaving it out entirely is the usual simplification and the usual error.",
-    );
+    // AT EQUAL TEMPERATURES BOTH MODES CARRY ZERO and the share is 0/0. The
+    // tool's own default convection coefficient is non-zero, so simply typing
+    // the same temperature twice produced "radiation carries NaN% of the
+    // total" in a note that goes straight into the document.
+    const total = Math.abs(Q) + Math.abs(qConv);
+    if (total > 0) {
+      notes.push(
+        `Against the convection you gave, radiation carries ${((Math.abs(Q) / total) * 100).toFixed(1)}% of ` +
+          "the total. Leaving it out entirely is the usual simplification and the usual error.",
+      );
+    } else {
+      notes.push(
+        "Both surfaces are at the same temperature, so neither radiation nor convection carries " +
+          "anything and there is no split to report. Net exchange is zero by symmetry, not by " +
+          "either mechanism being absent.",
+      );
+    }
   }
   notes.push(
     "Grey diffuse surfaces: emissivity independent of wavelength and direction. EMISSIVITY IS " +

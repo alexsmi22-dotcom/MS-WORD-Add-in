@@ -10262,9 +10262,23 @@ const ENG_CALCS: EngCalc[] = [
       // Temperature along the fin, adiabatic tip: theta/theta_b =
       // cosh(m(Lc-x))/cosh(mLc). The tip approaching ambient is what says a
       // longer fin would be wasted metal.
+      // cosh(A)/cosh(B) WITHOUT EVER FORMING EITHER COSH. Math.cosh overflows to
+      // Infinity above an argument of about 710, so the direct ratio becomes
+      // Infinity/Infinity = NaN for a long, thin, poorly conducting fin — and
+      // this tool actively invites those, since a bad fin is the result it
+      // exists to demonstrate. The numbers were right and only the figure was
+      // poisoned, which is the worst way for it to fail: 56 NaN tokens in the
+      // path and nothing in the text to hint at it.
+      //
+      //   cosh A / cosh B = e^(A-B) · (1 + e^-2A) / (1 + e^-2B),  0 <= A <= B
+      //
+      // Every exponent there is non-positive, so nothing overflows and the
+      // large-mLc limit falls out as exp(-m·x) on its own.
+      const coshRatio = (A: number, B: number): number =>
+        Math.exp(A - B) * ((1 + Math.exp(-2 * A)) / (1 + Math.exp(-2 * B)));
       const pts = Array.from({ length: 61 }, (_, i) => {
         const x = (res.lCorrected * i) / 60;
-        return { x, y: dT * (Math.cosh(res.m * (res.lCorrected - x)) / Math.cosh(res.mLc)) };
+        return { x, y: dT * coshRatio(res.m * (res.lCorrected - x), res.mLc) };
       });
       const svg = buildPlotSvg([{ points: pts, type: "line", color: "#b91c1c", label: "excess over ambient" }], {
         width: 380,

@@ -25,10 +25,13 @@
 
 const path = require("path");
 
-// Average advance of a sans-serif glyph as a fraction of the font size. Real
-// faces vary; 0.52 is close for digits and lower case, which is what these
-// figures are almost entirely made of.
-const ADVANCE = 0.52;
+// Average advance of a sans-serif glyph as a fraction of the font size.
+//
+// DELIBERATELY AN OVER-ESTIMATE. A real sans digit runs about 0.556 em, and the
+// first value here was 0.52 — which made every box ~7% narrow. For a collision
+// detector "conservative" has to mean over-estimating the boxes, or the check
+// quietly misses the marginal overlaps that are exactly the ones in dispute.
+const ADVANCE = 0.58;
 // Cap height plus a little, again as a fraction of the font size.
 const LINE = 0.78;
 
@@ -113,6 +116,37 @@ function segments(svg) {
       out.push({ x1: pts[i - 1][0], y1: pts[i - 1][1], x2: pts[i][0], y2: pts[i][1], at: m.index });
     }
   }
+  // AND <path>, WHICH IS EVERY DATA CURVE buildPlotSvg DRAWS.
+  //
+  // Leaving it out was not a small gap: it made the instrument blind to
+  // precisely the element it was built to police. A line crossing a legend
+  // entry was reported when the line was a gridline and missed when it was the
+  // curve the entry names. Only the M/L subset appears in these figures, and
+  // anything richer is deliberately ignored rather than half-parsed.
+  const pathRe = /<path\s[^>]*\bd="([^"]*)"/g;
+  while ((m = pathRe.exec(svg))) {
+    const d = m[1];
+    if (/[^MLmlZz0-9.,\-+eE\s]/.test(d)) continue; // curves and arcs: not handled, not guessed at
+    const pts = [];
+    const cmdRe = /([MLml])\s*(-?[\d.]+(?:[eE][-+]?\d+)?)[,\s]+(-?[\d.]+(?:[eE][-+]?\d+)?)/g;
+    let c;
+    let cx = 0;
+    let cy = 0;
+    while ((c = cmdRe.exec(d))) {
+      const rel = c[1] === "l" || c[1] === "m";
+      const x = Number(c[2]);
+      const y = Number(c[3]);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) { pts.length = 0; break; }
+      cx = rel ? cx + x : x;
+      cy = rel ? cy + y : y;
+      pts.push([cx, cy, c[1].toUpperCase() === "M"]);
+    }
+    for (let i = 1; i < pts.length; i++) {
+      // A move-to lifts the pen; only draw-to segments are strokes.
+      if (pts[i][2]) continue;
+      out.push({ x1: pts[i - 1][0], y1: pts[i - 1][1], x2: pts[i][0], y2: pts[i][1], at: m.index });
+    }
+  }
   return out;
 }
 
@@ -188,13 +222,14 @@ function auditSvg(name, svg) {
   for (let i = 0; i < boxes.length; i++) {
     for (let j = i + 1; j < boxes.length; j++) {
       const a = overlapArea(boxes[i], boxes[j]);
-      // A few square pixels is antialiasing; a third of the smaller glyph box
-      // is a label sitting on another label.
+      // A few square pixels is antialiasing. The fraction was 0.22, which
+      // allowed up to 2.2 whole characters of overlap to pass unreported at
+      // every font size these figures use; 0.06 is about half a character.
       const smaller = Math.min(
         (boxes[i].x1 - boxes[i].x0) * (boxes[i].y1 - boxes[i].y0),
         (boxes[j].x1 - boxes[j].x0) * (boxes[j].y1 - boxes[j].y0),
       );
-      if (a > Math.max(6, smaller * 0.22)) {
+      if (a > Math.max(4, smaller * 0.06)) {
         found.push(
           `COLLISION  "${boxes[i].text.slice(0, 22)}" over "${boxes[j].text.slice(0, 22)}" (${a.toFixed(0)} px²)`,
         );
@@ -264,6 +299,12 @@ function runAudit(figures) {
       "strikethrough",
       '<svg width="200" height="100"><g font-size="10"><line x1="0" y1="48" x2="200" y2="48" stroke="#000"/>' +
         '<text x="50" y="50">struck out</text></g></svg>',
+      /STRIKETHROUGH/,
+    ],
+    [
+      "strikethrough via path",
+      '<svg width="200" height="100"><g font-size="10"><path d="M0,48 L200,48" stroke="#000" fill="none"/>' +
+        '<text x="50" y="50">struck out by a path</text></g></svg>',
       /STRIKETHROUGH/,
     ],
     [

@@ -6,6 +6,55 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.85.0] — 2026-08-03 — Control, vibration and electronics draw
+
+Third figure batch of the day; ratchet **45 → 53 of 130**. Three new reusable
+builders (a pole-zero map, a generic horizontal bar chart, a logic-waveform
+lane drawer) join `mechchart.ts`.
+
+- **Poles, zeros & stability** — the **pole-zero map** on the s-plane, right
+  half plane shaded: a × in the shading IS the instability the verdict names.
+  Equal scale on both axes, because a pole pair's damping ratio is the cosine
+  of an angle that lies on stretched axes.
+- **PID & closed loop** — the **closed-loop step response** with this tuning;
+  an unstable loop honestly diverges on the plot.
+- **Natural frequencies & mode shapes** — the **mode shapes drawn** (first
+  five), anchor point included for a grounded chain.
+- **Forced response (multi-DOF)** — the **FRF of the loudest DOF** on a log
+  amplitude axis, resonances as peaks, the working frequency marked; every
+  sweep point re-solves the same modal problem.
+- **Op-amp circuits** — **gain against frequency**: flat-then-roll-off closed
+  loop meeting the open-loop GBW line, or the integrator/differentiator slope
+  with its unity-gain corner.
+- **Analogue filter design** — the **magnitude response with the spec drawn
+  on it**: passband and stopband edge points sit on the plot, so "delivered
+  vs asked for" is visible rather than asserted.
+- **DC operating point** — **power per element** as horizontal bars off a
+  shared zero line; delivery left, dissipation right, and the two sides
+  balance because Tellegen says they must.
+- **Truth table & minimisation** — the table drawn as **logic-analyser
+  waveforms** (up to five variables), output lane at the bottom.
+
+### The bug the figure caught
+
+The adversarial pass found that an **odd-order Chebyshev filter at a band
+edge past a few thousand rad/s was built one degree too high**: the
+prototype's real pole carries a ~7×10⁻¹⁷ floating-point residue in its
+imaginary part, the band-edge scaling grew it past the ABSOLUTE 1e-12
+classification epsilon in `denominatorFromPoles`, and the "real" pole went in
+as a full conjugate-pair quadratic. A near-default Chebyshev highpass
+(ωp = 4000) delivered −80 dB at the edge the spec puts at −1 dB, and the
+reported stopband attenuation was ~3× the truth. **The new figure drew the
+spec point 79 dB off the curve — that is how it was found.** The epsilon is
+now relative to the pole's own magnitude, with a regression test at the
+exact failing specs.
+
+Also fixed before ship: `buildPlotSvg` now sanitises non-finite x AND y at
+the door (one overflowed sweep bound used to poison the whole plot's domain
+— this ends that class for every present and future caller), the bar chart
+survives a value span that overflows Infinity, and an op-amp sweep bound is
+clamped.
+
 ## [2.84.0] — 2026-08-03 — Thermo and aero draw
 
 Second figure batch of the day; ratchet **40 → 45 of 130**.

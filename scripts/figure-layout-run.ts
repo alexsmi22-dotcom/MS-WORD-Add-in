@@ -18,6 +18,9 @@ import {
   trussSvg,
   torsionProfileSvg,
   npshLadderSvg,
+  poleZeroSvg,
+  hBarSvg,
+  logicWaveSvg,
 } from "../src/lib/mechchart";
 import { buildPlotSvg, Series } from "../src/lib/plot";
 import { weibullFit, reliabilityBlock, kOutOfN, redundancy, availability } from "../src/lib/reliability";
@@ -455,5 +458,90 @@ figures.push([
     { width: 380, height: 250, yScale: "log", xlabel: "bank angle (°)", ylabel: "turn radius (m)", title: "Turn radius against bank" },
   ),
 ]);
+
+// --- v2.85.0: control, vibration and electronics figures --------------------
+
+// Pole-zero maps: a stable triple, an unstable pair in the shaded half plane,
+// and a cluster hugging the imaginary axis where labels crowd the boundary.
+figures.push(["pz stable", poleZeroSvg([{ re: -1, im: 0 }, { re: -0.5, im: 1.2 }, { re: -0.5, im: -1.2 }], [{ re: -2, im: 0 }])]);
+figures.push(["pz unstable", poleZeroSvg([{ re: 0.3, im: 2 }, { re: 0.3, im: -2 }, { re: -3, im: 0 }], [])]);
+figures.push(["pz axis-hugging", poleZeroSvg([{ re: -0.01, im: 0.5 }, { re: -0.01, im: -0.5 }, { re: 0, im: 0 }], [{ re: 0.02, im: 0 }])]);
+
+// Power bars: milliwatt values (the formatter case), and a mixed-sign budget.
+figures.push(["power bars", hBarSvg([
+  { name: "V1", value: -8.33e-3, colour: "#059669" },
+  { name: "R1", value: 2.78e-3, colour: "#2563eb" },
+  { name: "R2", value: 5.56e-3, colour: "#2563eb" },
+], { title: "Power per element", unit: "W" })]);
+figures.push(["long bars", hBarSvg(
+  Array.from({ length: 12 }, (_, i) => ({ name: `element-${i + 1}`, value: (i - 4) * 1.7 })),
+  { title: "A longer mixed-sign budget", unit: "kJ" },
+)]);
+
+// Logic waveforms at the default four variables (16 columns).
+figures.push(["logic waves", logicWaveSvg({
+  variables: ["A", "B", "C", "D"],
+  rows: Array.from({ length: 16 }, (_, i) => ({
+    inputs: [8, 4, 2, 1].map((b) => (i & b) !== 0),
+    output: [0, 1, 2, 5, 6, 7, 8, 9, 10, 14].includes(i),
+  })),
+})]);
+
+// The FRF with resonance peaks on a log axis and the operating point off-peak.
+{
+  const frf = Array.from({ length: 90 }, (_, i) => {
+    const w = (14 * (i + 1)) / 90;
+    const den = (wn: number) => Math.sqrt((wn * wn - w * w) ** 2 + (2 * 0.02 * wn * w) ** 2);
+    return { x: w, y: 10 / den(6.18) + 4 / den(16.18) };
+  });
+  figures.push([
+    "mdof frf",
+    buildPlotSvg(
+      [
+        { points: frf, type: "line", color: "#2563eb", label: "DOF 1" },
+        { points: [{ x: 8, y: 0.34 }], type: "scatter", color: "#b91c1c", label: "this frequency" },
+      ],
+      { width: 380, height: 250, yScale: "log", xlabel: "forcing frequency ω (rad/s)", ylabel: "steady-state amplitude", title: "Frequency response, DOF 1" },
+    ),
+  ]);
+}
+
+// Mode shapes: five modes of a five-mass chain, legend at its row cap.
+figures.push([
+  "mode shapes",
+  buildPlotSvg(
+    Array.from({ length: 5 }, (_, j) => ({
+      points: Array.from({ length: 6 }, (_, i) => ({ x: i, y: i === 0 ? 0 : Math.sin(((j + 1) * Math.PI * i) / 5.5) })),
+      type: "line" as const,
+      color: ["#2563eb", "#b91c1c", "#059669", "#d97706", "#7c3aed"][j],
+      label: `mode ${j + 1} (${(1.1 * (j + 1)).toFixed(2)} Hz)`,
+    })),
+    { width: 380, height: 250, xlabel: "degree of freedom (0 = anchor)", ylabel: "mass-normalised amplitude", title: "Mode shapes" },
+  ),
+]);
+
+// Op-amp gain: closed loop meeting the open-loop roll-off, both log axes.
+{
+  const bw = 1e4;
+  const pts = Array.from({ length: 61 }, (_, i) => {
+    const f = 10 * Math.pow(1e5, i / 60);
+    return { x: f, y: 20 * Math.log10(100 / Math.sqrt(1 + (f / bw) ** 2)) };
+  });
+  const ol = Array.from({ length: 61 }, (_, i) => {
+    const f = 10 * Math.pow(1e5, i / 60);
+    return { x: f, y: 20 * Math.log10(1e6 / f) };
+  }).filter((p) => p.y > -0.1);
+  figures.push([
+    "opamp gain",
+    buildPlotSvg(
+      [
+        { points: pts, type: "line", color: "#2563eb", label: "closed-loop gain" },
+        { points: ol, type: "line", color: "#9ca3af", label: "open-loop roll-off" },
+        { points: [{ x: bw, y: 20 * Math.log10(100) - 3 }], type: "scatter", color: "#b91c1c", label: "-3 dB" },
+      ],
+      { width: 380, height: 250, xScale: "log", xlabel: "frequency (Hz)", ylabel: "gain (dB)", title: "Gain against frequency" },
+    ),
+  ]);
+}
 
 process.exit(runAudit(figures) ? 1 : 0);

@@ -124,6 +124,11 @@ import {
   TORSION_CHART_SIZE,
   NPSH_CHART_SIZE,
   npshLadderSvg,
+  POLE_ZERO_SIZE,
+  poleZeroSvg,
+  hBarSvg,
+  HBAR_ROW_H,
+  logicWaveSvg,
   SectionStrip,
 } from "../lib/mechchart";
 import { parseNetlist, parseValue, solveDc, solveAc, frequencySweep, dB } from "../lib/circuit";
@@ -9230,6 +9235,26 @@ const ENG_CALCS: EngCalc[] = [
       );
       for (const n of res.notes) lines.push(`Note: ${n}`);
       lines.push(ENG_SAME_UNIT_NOTE);
+
+      // The power balance, drawn: dissipation right in blue, delivery left in
+      // green, one bar per element off the shared zero line. The two sides
+      // visibly match because the totals do — that IS Tellegen's theorem.
+      const powerRows = res.power
+        .filter((p) => Number.isFinite(p.watts))
+        .map((p) => ({ name: p.name, value: p.watts, colour: p.watts >= 0 ? "#2563eb" : "#059669" }));
+      if (powerRows.length) {
+        const svg = hBarSvg(powerRows, { title: "Power per element", unit: "W" });
+        return engReport(lines, [
+          {
+            kind: "plot",
+            svg,
+            caption: "Power per element; delivery left of the zero line, dissipation right",
+            alt: "Horizontal bars of each element's power, delivered against dissipated",
+            w: 400,
+            h: 46 + Math.min(powerRows.length, 24) * HBAR_ROW_H + 18,
+          },
+        ]);
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -10701,6 +10726,25 @@ const ENG_CALCS: EngCalc[] = [
       }
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_CONTROL_UNIT_NOTE);
+
+      // The pole-zero map: the verdict, drawn. A × in the shaded half plane
+      // IS the instability the text names, and conjugate pairs mirror about
+      // the real axis because the builder keeps both axes to one scale.
+      const finitePz =
+        res.poles.every((p) => Number.isFinite(p.re) && Number.isFinite(p.im)) &&
+        res.zeros.every((z) => Number.isFinite(z.re) && Number.isFinite(z.im));
+      if (res.poles.length && finitePz) {
+        return engReport(lines, [
+          {
+            kind: "plot",
+            svg: poleZeroSvg(res.poles, res.zeros),
+            caption: "Pole-zero map; the shaded half plane is instability",
+            alt: "Poles and zeros of the transfer function on the s-plane",
+            w: POLE_ZERO_SIZE.w,
+            h: POLE_ZERO_SIZE.h,
+          },
+        ]);
+      }
       return engReport(lines);
     },
   },
@@ -10949,6 +10993,43 @@ const ENG_CALCS: EngCalc[] = [
       }
       for (const note of st.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_CONTROL_UNIT_NOTE);
+
+      // The closed-loop step response — what this tuning actually DOES to a
+      // setpoint change. Window from the slowest closed-loop mode, exactly as
+      // the step tool chooses it; an unstable loop honestly diverges on the
+      // plot instead of being hidden.
+      const slowest = st.poles.length
+        ? Math.min(...st.poles.map((p) => Math.abs(p.re)).filter((v) => v > 1e-9))
+        : NaN;
+      const tEnd = Number.isFinite(slowest) && slowest > 0 ? 6 / slowest : 10;
+      const sim = timeResponse(closed, "step", tEnd, 400);
+      if (sim.ok) {
+        const pts = sim.t
+          .map((t, i) => ({ x: t, y: sim.y[i] }))
+          .filter((p) => Number.isFinite(p.y));
+        if (pts.length > 10) {
+          const svg = buildPlotSvg(
+            [{ points: pts, type: "line", color: "#2563eb", label: "y(t)" }],
+            {
+              width: 380,
+              height: 240,
+              xlabel: "Time (s)",
+              ylabel: "Output",
+              title: "Closed-loop step response",
+            },
+          );
+          return engReport(lines, [
+            {
+              kind: "plot",
+              svg,
+              caption: "Closed-loop step response with this tuning",
+              alt: "Response of the closed loop to a unit step in the setpoint",
+              w: 380,
+              h: 240,
+            },
+          ]);
+        }
+      }
       return engReport(lines);
     },
   },
@@ -11539,6 +11620,50 @@ const ENG_CALCS: EngCalc[] = [
       }
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_VIB_UNIT_NOTE);
+
+      // The mode shapes DRAWN — the pattern is the whole point of a mass-
+      // normalised shape, and a row of signed decimals hides it. A grounded
+      // chain gets its anchor at DOF 0 so the first spring's stretch shows.
+      // Legends hold five entries legibly; a bigger model keeps its first
+      // five modes and the caption says so.
+      const shownModes = Math.min(n, 5);
+      const grounded = (r("mode") || "chain") === "chain" && r("ground") !== "free";
+      const palette5 = ["#2563eb", "#b91c1c", "#059669", "#d97706", "#7c3aed"];
+      const modeSeries: Series[] = [];
+      for (let j = 0; j < shownModes; j++) {
+        const pts: Point[] = grounded ? [{ x: 0, y: 0 }] : [];
+        for (let i = 0; i < n; i++) pts.push({ x: i + 1, y: res.modes[i][j] });
+        if (pts.every((p) => Number.isFinite(p.y))) {
+          modeSeries.push({
+            points: pts,
+            type: "line",
+            color: palette5[j % palette5.length],
+            label: `mode ${j + 1} (${engNum(res.frequenciesHz[j], 3)} Hz)`,
+          });
+        }
+      }
+      if (modeSeries.length) {
+        const svg = buildPlotSvg(modeSeries, {
+          width: 380,
+          height: 250,
+          xlabel: grounded ? "degree of freedom (0 = anchor)" : "degree of freedom",
+          ylabel: "mass-normalised amplitude",
+          title: "Mode shapes",
+        });
+        return engReport(lines, [
+          {
+            kind: "plot",
+            svg,
+            caption:
+              n > shownModes
+                ? `Mode shapes (first ${shownModes} of ${n} modes; the rest are in the table)`
+                : "Mode shapes",
+            alt: "Each mode's displacement pattern across the degrees of freedom",
+            w: 380,
+            h: 250,
+          },
+        ]);
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -11652,6 +11777,51 @@ const ENG_CALCS: EngCalc[] = [
       lines.push(`Mode ${res.dominantMode} dominates the largest response.`);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_VIB_UNIT_NOTE);
+
+      // The FRF of the loudest degree of freedom: amplitude against forcing
+      // frequency, resonances as peaks, THIS frequency marked. Each sweep
+      // point re-solves the same modal problem the headline numbers used, so
+      // the curve cannot disagree with them. Log amplitude, because a
+      // resonance three decades above the floor is the story being told.
+      const wns = res.contributions.map((c) => c.wn).filter((v) => Number.isFinite(v) && v > 0);
+      if (wns.length) {
+        let dofMax = 0;
+        for (let j = 1; j < res.amplitude.length; j++) if (res.amplitude[j] > res.amplitude[dofMax]) dofMax = j;
+        const wTop = Math.max(...wns, w) * 1.4;
+        const frf: Point[] = [];
+        for (let i = 1; i <= 90; i++) {
+          const ww = (wTop * i) / 90;
+          const rr = modalForcedResponse(M, K, F, ww, damping);
+          if (rr.ok && Number.isFinite(rr.amplitude[dofMax]) && rr.amplitude[dofMax] > 0)
+            frf.push({ x: ww, y: rr.amplitude[dofMax] });
+        }
+        if (frf.length > 20 && res.amplitude[dofMax] > 0) {
+          const svg = buildPlotSvg(
+            [
+              { points: frf, type: "line", color: "#2563eb", label: `DOF ${dofMax + 1}` },
+              { points: [{ x: w, y: res.amplitude[dofMax] }], type: "scatter", color: "#b91c1c", label: "this frequency" },
+            ],
+            {
+              width: 380,
+              height: 250,
+              yScale: "log",
+              xlabel: "forcing frequency ω (rad/s)",
+              ylabel: "steady-state amplitude",
+              title: `Frequency response, DOF ${dofMax + 1}`,
+            },
+          );
+          return engReport(lines, [
+            {
+              kind: "plot",
+              svg,
+              caption: `Frequency response of DOF ${dofMax + 1}, the largest responder; peaks are the resonances`,
+              alt: "Steady-state amplitude against forcing frequency with the working frequency marked",
+              w: 380,
+              h: 250,
+            },
+          ]);
+        }
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -13413,6 +13583,81 @@ const ENG_CALCS: EngCalc[] = [
       }
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_ELEC_UNIT_NOTE);
+
+      // Gain against frequency, in dB over log f — the picture the GBW note
+      // is about. A resistive stage is flat until the noise gain meets the
+      // open-loop roll-off; an integrator or differentiator IS a slope, with
+      // its unity-gain corner marked. Everything drawn comes from the same
+      // single-pole model the bandwidth number used.
+      const gbwV = r("gbw").trim() ? Number(r("gbw")) : NaN;
+      const toDb = (g: number): number => 20 * Math.log10(Math.max(g, 1e-12));
+      const gainSeries: Series[] = [];
+      let fLo = NaN;
+      let fHi = NaN;
+      if (res.cornerFrequency !== null && Number.isFinite(res.cornerFrequency) && res.cornerFrequency > 0) {
+        const fc = res.cornerFrequency;
+        fLo = fc / 100;
+        fHi = fc * 100;
+        const isInt = res.config === "integrator";
+        const pts: Point[] = [];
+        for (let i = 0; i <= 60; i++) {
+          const f = fLo * Math.pow(fHi / fLo, i / 60);
+          pts.push({ x: f, y: toDb(isInt ? fc / f : f / fc) });
+        }
+        gainSeries.push({ points: pts, type: "line", color: "#2563eb", label: isInt ? "integrator gain" : "differentiator gain" });
+        gainSeries.push({ points: [{ x: fc, y: 0 }], type: "scatter", color: "#b91c1c", label: "unity gain" });
+      } else if (res.bandwidth !== null && Number.isFinite(res.bandwidth) && res.bandwidth > 0) {
+        const bw = res.bandwidth;
+        const sigGain = Math.abs(res.gain) > 0 ? Math.abs(res.gain) : res.noiseGain;
+        fLo = bw / 1000;
+        // Clamped: an absurd-but-accepted GBW makes bw·100 overflow, and an
+        // Infinity in the sweep bound turns every log-spaced sample Infinity.
+        fHi = Math.min(bw * 100, 1e300);
+        const pts: Point[] = [];
+        for (let i = 0; i <= 60; i++) {
+          const f = fLo * Math.pow(fHi / fLo, i / 60);
+          pts.push({ x: f, y: toDb(sigGain / Math.sqrt(1 + (f / bw) * (f / bw))) });
+        }
+        gainSeries.push({ points: pts, type: "line", color: "#2563eb", label: "closed-loop gain" });
+        if (Number.isFinite(gbwV) && gbwV > 0) {
+          const ol: Point[] = [];
+          for (let i = 0; i <= 60; i++) {
+            const f = fLo * Math.pow(fHi / fLo, i / 60);
+            const g = toDb(gbwV / f);
+            if (g > toDb(sigGain) - 40) ol.push({ x: f, y: g });
+          }
+          gainSeries.push({ points: ol, type: "line", color: "#9ca3af", label: "open-loop roll-off" });
+        }
+        gainSeries.push({ points: [{ x: bw, y: toDb(sigGain) - 3.01 }], type: "scatter", color: "#b91c1c", label: "-3 dB" });
+        if (res.fullPowerBandwidth !== null && res.fullPowerBandwidth > fLo && res.fullPowerBandwidth < fHi) {
+          gainSeries.push({
+            points: [{ x: res.fullPowerBandwidth, y: toDb(sigGain / Math.sqrt(1 + (res.fullPowerBandwidth / bw) ** 2)) }],
+            type: "scatter",
+            color: "#d97706",
+            label: "full-power limit",
+          });
+        }
+      }
+      if (gainSeries.length) {
+        const svg = buildPlotSvg(gainSeries, {
+          width: 380,
+          height: 250,
+          xScale: "log",
+          xlabel: "frequency (Hz)",
+          ylabel: "gain (dB)",
+          title: "Gain against frequency",
+        });
+        return engReport(lines, [
+          {
+            kind: "plot",
+            svg,
+            caption: "Gain against frequency from the single-pole model the bandwidth figures use",
+            alt: "Closed-loop gain in decibels against log frequency",
+            w: 380,
+            h: 250,
+          },
+        ]);
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -13478,6 +13723,44 @@ const ENG_CALCS: EngCalc[] = [
       lines.push(`The other family would need order ${res.alternativeOrder} for the same specification.`);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_ELEC_UNIT_NOTE);
+
+      // The magnitude response against the specification it was designed to
+      // meet: the passband-edge and stopband-edge points are drawn ON the
+      // plot, so "delivered vs asked for" is visible rather than asserted.
+      // Same evaluation path as the control tools' Bode plot.
+      const freqs = autoFrequencies(tf, 300);
+      const resp = frequencyResponse(tf, freqs).filter((p) => Number.isFinite(p.magnitudeDb));
+      const wpV = Number(r("wp") || "0");
+      const wsV = Number(r("ws") || "0");
+      const apV = Number(r("ap") || "0");
+      const asV = Number(r("as") || "0");
+      if (resp.length > 20 && wpV > 0 && wsV > 0) {
+        const svg = buildPlotSvg(
+          [
+            { points: resp.map((p) => ({ x: p.w, y: p.magnitudeDb })), type: "line", color: "#2563eb", label: "|H(jω)|" },
+            { points: [{ x: wpV, y: -apV }], type: "scatter", color: "#059669", label: "passband edge" },
+            { points: [{ x: wsV, y: -asV }], type: "scatter", color: "#b91c1c", label: "stopband edge" },
+          ],
+          {
+            width: 380,
+            height: 250,
+            xScale: "log",
+            xlabel: "ω (rad/s)",
+            ylabel: "magnitude (dB)",
+            title: `${res.family} order ${res.order} against its specification`,
+          },
+        );
+        return engReport(lines, [
+          {
+            kind: "plot",
+            svg,
+            caption: "Magnitude response with the passband and stopband specification points",
+            alt: "Filter magnitude in decibels against log frequency, spec edges marked",
+            w: 380,
+            h: 250,
+          },
+        ]);
+      }
       return engReport(lines);
     },
   },
@@ -13541,6 +13824,24 @@ const ENG_CALCS: EngCalc[] = [
       for (const note of t.notes) lines.push(`Note: ${note}`);
       for (const note of m.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_ELEC_UNIT_NOTE);
+
+      // The truth table as logic-analyser waveforms — the same rows, drawn.
+      // Where the output lane is high is exactly the minterm list above, and
+      // the eye finds the pattern in a way a column of bits does not. Capped
+      // at five variables (32 columns); past that the lanes are illegible and
+      // the table is the better artifact anyway.
+      if (t.variables.length <= 5 && t.rows.length >= 2) {
+        return engReport(lines, [
+          {
+            kind: "plot",
+            svg: logicWaveSvg({ variables: t.variables, rows: t.rows }),
+            caption: "The truth table as waveforms; the bottom lane is the output",
+            alt: "Input variables counting through every row with the output waveform beneath",
+            w: 400,
+            h: 40 + (t.variables.length + 1) * 26 + 20,
+          },
+        ]);
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },

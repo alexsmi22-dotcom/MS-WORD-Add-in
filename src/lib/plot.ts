@@ -557,8 +557,20 @@ export function buildPlotSvg(series: Series[], options: PlotOptions = {}): strin
   const pw = W - ml - mr;
   const ph = H - mt - mb;
 
+  // ONE NON-FINITE COORDINATE POISONS THE WHOLE PLOT. The domain below is
+  // min/max over every point, and drawing filtered only non-finite y — so an
+  // Infinity that reached x (an overflowed sweep bound; measured twice in one
+  // release) made xmax Infinity and every coordinate NaN. Sanitised HERE, at
+  // the one place all callers share, rather than at each of the fifty call
+  // sites that would otherwise each need the same guard. A non-finite err is
+  // kept as a point but loses its bar, because the point itself is plottable.
   const all: Point[] = [];
-  for (const s of series) for (const p of s.points) all.push(p);
+  for (const s of series)
+    for (const p of s.points) {
+      if (Number.isFinite(p.x) && Number.isFinite(p.y)) {
+        all.push(p.err !== undefined && !Number.isFinite(p.err) ? { x: p.x, y: p.y } : p);
+      }
+    }
   if (!all.length) {
     return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><rect width="${W}" height="${H}" fill="#fff"/><text x="${W / 2}" y="${H / 2}" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#999">No data to plot</text></svg>`;
   }
@@ -674,13 +686,15 @@ export function buildPlotSvg(series: Series[], options: PlotOptions = {}): strin
   const palette = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf"];
   series.forEach((sObj, idx) => {
     const color = sObj.color ?? palette[idx % palette.length];
-    const pts = sObj.points.filter((p) => Number.isFinite(p.y));
+    // Both coordinates, matching the domain filter above — a finite-y point
+    // with Infinity x otherwise draws "LNaN,…" into the path.
+    const pts = sObj.points.filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y));
     if (sObj.type === "line") {
       const d = pts.map((p, k) => `${k === 0 ? "M" : "L"}${sx(p.x).toFixed(1)},${sy(p.y).toFixed(1)}`).join(" ");
       parts.push(`<path d="${d}" fill="none" stroke="${color}" stroke-width="1.6"/>`);
     } else {
       for (const p of pts) {
-        if (p.err) {
+        if (p.err && Number.isFinite(p.err)) {
           // On a log axis, y - err can be <= 0 where log is undefined; the bar
           // is drawn from the point itself rather than off the chart.
           const lo = logY && !(p.y - p.err > 0) ? p.y : p.y - p.err;

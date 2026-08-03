@@ -151,6 +151,32 @@ describe("filter design", () => {
     expect(f.order).toBeGreaterThan(0);
   });
 
+  // THE SCALED REAL POLE STAYS A REAL POLE. denominatorFromPoles classified
+  // poles with an ABSOLUTE imaginary-part epsilon (1e-12); the odd-order
+  // Chebyshev prototype's real pole carries a ~7e-17 float residue that a
+  // band edge of a few thousand rad/s grew past it. The "real" pole was then
+  // multiplied in as a conjugate-pair quadratic: denominator one degree too
+  // high, |H| at the passband edge -80 dB where the spec says -1 dB, and a
+  // reported stopband attenuation ~3x the truth. Found by the adversarial
+  // pass THROUGH THE NEW FIGURE, which drew the spec point 79 dB off the
+  // curve. The epsilon is now relative to the pole's own magnitude.
+  test("an odd-order Chebyshev at a large band edge keeps its degree and meets its spec", () => {
+    for (const spec of [
+      { kind: "highpass" as const, wp: 4000, ws: 1000 },
+      { kind: "lowpass" as const, wp: 15000, ws: 60000 },
+    ]) {
+      const f = design({ family: "chebyshev", ...spec, ap: 1, as: 40 });
+      expect(f.order % 2).toBe(1); // the trap only exists for odd orders
+      expect(f.den.length).toBe(f.order + 1); // degree == order, not order+1
+      const atPass = 20 * Math.log10(mag(f, spec.wp));
+      const atStop = 20 * Math.log10(mag(f, spec.ws));
+      expect(atPass).toBeGreaterThanOrEqual(-1 - 0.01);
+      expect(atStop).toBeLessThanOrEqual(-40);
+      // The reported attenuation is the truth, not three times it.
+      expect(Math.abs(-atStop - f.stopbandAttenuation)).toBeLessThan(0.5);
+    }
+  });
+
   // THE INDEPENDENT CHECK: does the designed filter meet its own spec?
   test("a Butterworth meets its passband and stopband specification", () => {
     const f = design();

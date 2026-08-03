@@ -731,6 +731,228 @@ export function torsionProfileSvg(
   return p.join("");
 }
 
+export const POLE_ZERO_SIZE = { w: 340, h: 300 };
+
+export interface PoleZeroPoint {
+  re: number;
+  im: number;
+}
+
+/**
+ * The pole-zero map on the s-plane: poles as ×, zeros as ○, the right half
+ * plane shaded because THAT is what the map exists to show — a mark in the
+ * shading is the instability the verdict names.
+ *
+ * EQUAL SCALE ON BOTH AXES. Conjugate pairs must mirror visibly, and the
+ * damping ratio of a pole pair is the cosine of the angle it subtends at the
+ * origin — an angle that lies about its cosine on unequal axes.
+ */
+export function poleZeroSvg(poles: PoleZeroPoint[], zeros: PoleZeroPoint[]): string {
+  const { w: W, h: H } = POLE_ZERO_SIZE;
+  const all = [...poles, ...zeros];
+  if (!all.length || !all.every((p) => Number.isFinite(p.re) && Number.isFinite(p.im))) {
+    return emptyChart(W, H, "There are no finite poles or zeros to draw");
+  }
+  const ML = 46;
+  const MR = 12;
+  const MT = 22;
+  const MB = 34;
+  const pw = W - ML - MR;
+  const ph = H - MT - MB;
+
+  // One scale for both axes, centred on the data with the origin always in
+  // view — the imaginary axis is the boundary the reader is reading against.
+  const maxAbs = Math.max(1e-9, ...all.map((p) => Math.max(Math.abs(p.re), Math.abs(p.im))));
+  const span = maxAbs * 2.4;
+  const scale = Math.min(pw, ph) / span;
+  const cx = ML + pw / 2;
+  const cy = MT + ph / 2;
+  const X = (re: number): number => cx + re * scale;
+  const Y = (im: number): number => cy - im * scale;
+
+  const p: string[] = [];
+  p.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`);
+  p.push(`<rect width="${W}" height="${H}" fill="${PAPER}"/>`);
+  p.push(`<g font-family="sans-serif" font-size="9" fill="${INK}">`);
+  p.push(`<text x="${(ML + pw / 2).toFixed(1)}" y="14" text-anchor="middle" font-size="11">Pole-zero map</text>`);
+
+  // The right half plane, shaded from the imaginary axis to the frame edge.
+  if (X(0) < ML + pw) {
+    p.push(`<rect x="${X(0).toFixed(1)}" y="${MT}" width="${(ML + pw - X(0)).toFixed(1)}" height="${ph}" fill="#fef2f2"/>`);
+    p.push(`<text x="${(ML + pw - 4).toFixed(1)}" y="${MT + 11}" text-anchor="end" fill="${POINT}" font-size="7.5">unstable</text>`);
+  }
+  p.push(`<rect x="${ML}" y="${MT}" width="${pw}" height="${ph}" fill="none" stroke="${RULE}"/>`);
+  p.push(`<line x1="${X(0).toFixed(1)}" y1="${MT}" x2="${X(0).toFixed(1)}" y2="${MT + ph}" stroke="${INK}" stroke-width="1"/>`);
+  p.push(`<line x1="${ML}" y1="${Y(0).toFixed(1)}" x2="${(ML + pw).toFixed(1)}" y2="${Y(0).toFixed(1)}" stroke="${RULE}"/>`);
+
+  // n1() rounds to one decimal, and a map whose only content sits at the
+  // origin has ticks at ±1e-9 — which n1 prints as "-0.0". Small magnitudes
+  // get exponent form instead.
+  const tickLabel = (t: number): string => (Math.abs(t) >= 0.01 ? n1(t) : t.toExponential(0));
+  const step = niceStep(span, 4);
+  for (const t of ticks(Math.ceil(-span / 2 / step) * step, span / 2, step)) {
+    if (Math.abs(t) < step * 1e-6) continue;
+    if (X(t) >= ML && X(t) <= ML + pw) {
+      p.push(`<line x1="${X(t).toFixed(1)}" y1="${(Y(0) - 3).toFixed(1)}" x2="${X(t).toFixed(1)}" y2="${(Y(0) + 3).toFixed(1)}" stroke="${RULE}"/>`);
+      p.push(`<text x="${X(t).toFixed(1)}" y="${MT + ph + 12}" text-anchor="middle">${esc(tickLabel(t))}</text>`);
+    }
+    if (Y(t) >= MT && Y(t) <= MT + ph) {
+      p.push(`<line x1="${(X(0) - 3).toFixed(1)}" y1="${Y(t).toFixed(1)}" x2="${(X(0) + 3).toFixed(1)}" y2="${Y(t).toFixed(1)}" stroke="${RULE}"/>`);
+      p.push(`<text x="${ML - 4}" y="${(Y(t) + 3).toFixed(1)}" text-anchor="end">${esc(tickLabel(t))}</text>`);
+    }
+  }
+
+  for (const z of zeros) {
+    p.push(`<circle cx="${X(z.re).toFixed(1)}" cy="${Y(z.im).toFixed(1)}" r="4" fill="none" stroke="${CIRCLE}" stroke-width="1.8"/>`);
+  }
+  for (const po of poles) {
+    const x = X(po.re);
+    const y = Y(po.im);
+    const colour = po.re > 0 ? POINT : "#111111";
+    p.push(`<line x1="${(x - 4).toFixed(1)}" y1="${(y - 4).toFixed(1)}" x2="${(x + 4).toFixed(1)}" y2="${(y + 4).toFixed(1)}" stroke="${colour}" stroke-width="1.8"/>`);
+    p.push(`<line x1="${(x - 4).toFixed(1)}" y1="${(y + 4).toFixed(1)}" x2="${(x + 4).toFixed(1)}" y2="${(y - 4).toFixed(1)}" stroke="${colour}" stroke-width="1.8"/>`);
+  }
+
+  p.push(labelText(ML + 4, MT + 11, "× pole   ○ zero", { size: 8 }));
+  p.push(`<text x="${(ML + pw / 2).toFixed(1)}" y="${H - 6}" text-anchor="middle">Re(s)</text>`);
+  p.push(`<text x="12" y="${(MT + ph / 2).toFixed(1)}" text-anchor="middle" transform="rotate(-90 12 ${(MT + ph / 2).toFixed(1)})">Im(s)</text>`);
+  p.push("</g></svg>");
+  return p.join("");
+}
+
+export const HBAR_ROW_H = 22;
+
+export interface HBarRow {
+  name: string;
+  value: number;
+  /** Literal hex; defaults to blue for positive, red for negative. */
+  colour?: string;
+}
+
+/**
+ * A horizontal bar chart — the figure for results that are a LIST of named
+ * quantities rather than a curve: per-element power, an energy budget, a
+ * timing ledger. Height grows with the row count so twenty rows do not
+ * crush into an unreadable stripe.
+ */
+export function hBarSvg(rows: HBarRow[], opts: { title: string; unit: string; w?: number }): string {
+  const W = opts.w ?? 400;
+  const shown = rows.slice(0, 24);
+  const H = 46 + shown.length * HBAR_ROW_H + 18;
+  if (!shown.length || !shown.every((r) => Number.isFinite(r.value))) {
+    return emptyChart(W, 160, "There are no finite values to chart");
+  }
+  const longest = Math.max(...shown.map((r) => r.name.length));
+  const ML = Math.min(150, Math.max(60, longest * 5.6 + 10));
+  const MR = 58;
+  const MT = 26;
+  const pw = W - ML - MR;
+  const lo = Math.min(0, ...shown.map((r) => r.value));
+  const hi = Math.max(0, ...shown.map((r) => r.value));
+  // hi and lo are each finite, but hi - lo can still overflow to Infinity
+  // (two values near ±1.8e308), and Infinity/Infinity is the NaN this file
+  // must never emit. Halve into range rather than refuse: the bars stay
+  // proportionally true at half scale.
+  let span = hi - lo || 1;
+  if (!Number.isFinite(span)) span = Math.max(Math.abs(hi / 2 - lo / 2), 1) * 2;
+  const X = (v: number): number => ML + ((v / 2 - lo / 2) / (span / 2)) * pw;
+
+  // n1() rounds to one decimal, and a milliwatt bar labelled "0.0 W" is a
+  // lie. Three significant figures, with plain decimals where they stay
+  // short and exponent form where they would not.
+  const fmtVal = (v: number): string => {
+    const a = Math.abs(v);
+    if (a === 0) return "0";
+    if (a >= 1e5 || a < 1e-3) return v.toExponential(2);
+    if (a >= 100) return v.toFixed(0);
+    return v.toPrecision(3);
+  };
+
+  const p: string[] = [];
+  p.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`);
+  p.push(`<rect width="${W}" height="${H}" fill="${PAPER}"/>`);
+  p.push(`<g font-family="sans-serif" font-size="9" fill="${INK}">`);
+  p.push(`<text x="${(ML + pw / 2).toFixed(1)}" y="15" text-anchor="middle" font-size="11">${esc(opts.title)}</text>`);
+  p.push(`<line x1="${X(0).toFixed(1)}" y1="${MT}" x2="${X(0).toFixed(1)}" y2="${MT + shown.length * HBAR_ROW_H}" stroke="${RULE}"/>`);
+  shown.forEach((rw, i) => {
+    const y = MT + i * HBAR_ROW_H + 4;
+    const h = HBAR_ROW_H - 8;
+    const x0 = Math.min(X(0), X(rw.value));
+    const wBar = Math.max(Math.abs(X(rw.value) - X(0)), 0.75);
+    const fill = rw.colour ?? (rw.value >= 0 ? CIRCLE : POINT);
+    p.push(`<rect x="${x0.toFixed(1)}" y="${y.toFixed(1)}" width="${wBar.toFixed(1)}" height="${h}" fill="${fill}" fill-opacity="0.85"/>`);
+    p.push(labelText(ML - 5, y + h / 2 + 3, rw.name, { anchor: "end" }));
+    const txt = `${fmtVal(rw.value)} ${opts.unit}`;
+    const wantX = Math.max(X(0), X(rw.value)) + 4;
+    const estW = txt.length * 8 * 0.56 + 4;
+    if (wantX + estW <= W - 2) p.push(labelText(wantX, y + h / 2 + 3, txt, { size: 8 }));
+    else p.push(labelText(Math.max(X(0), X(rw.value)) - 4, y + h / 2 + 3, txt, { size: 8, anchor: "end" }));
+  });
+  if (rows.length > shown.length) {
+    p.push(labelText(ML, H - 6, `…and ${rows.length - shown.length} more (see the table above)`, { size: 8, fill: RULE }));
+  }
+  p.push("</g></svg>");
+  return p.join("");
+}
+
+export interface LogicWaveInput {
+  /** Input variable names, in order. */
+  variables: string[];
+  /** One row per minterm index: the input bits, and the output bit. */
+  rows: { inputs: boolean[]; output: boolean }[];
+}
+
+/**
+ * The truth table drawn as logic-analyser waveforms: one lane per input
+ * counting through the rows in order, the output lane at the bottom. The
+ * same information as the table — which is the point; a glance shows WHERE
+ * the output is high, which a column of 0s and 1s does not.
+ */
+export function logicWaveSvg(inp: LogicWaveInput): string {
+  const n = inp.variables.length;
+  const cols = inp.rows.length;
+  const W = 400;
+  const laneH = 26;
+  const H = 40 + (n + 1) * laneH + 20;
+  if (!n || !cols || cols > 64 || inp.rows.some((r) => r.inputs.length !== n)) {
+    return emptyChart(W, 160, "The truth table is too large to draw as waveforms");
+  }
+  const ML = 44;
+  const MR = 10;
+  const MT = 30;
+  const pw = W - ML - MR;
+  const colW = pw / cols;
+  const X = (c: number): number => ML + c * colW;
+
+  const p: string[] = [];
+  p.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`);
+  p.push(`<rect width="${W}" height="${H}" fill="${PAPER}"/>`);
+  p.push(`<g font-family="sans-serif" font-size="9" fill="${INK}">`);
+  p.push(`<text x="${(ML + pw / 2).toFixed(1)}" y="15" text-anchor="middle" font-size="11">Truth table as waveforms</text>`);
+
+  const lane = (idx: number, name: string, bits: boolean[], colour: string): void => {
+    const yHigh = MT + idx * laneH + 4;
+    const yLow = MT + idx * laneH + laneH - 6;
+    p.push(labelText(ML - 5, (yHigh + yLow) / 2 + 3, name, { anchor: "end" }));
+    const pts: string[] = [];
+    for (let c = 0; c < bits.length; c++) {
+      const y = bits[c] ? yHigh : yLow;
+      pts.push(`${X(c).toFixed(1)},${y.toFixed(1)}`, `${X(c + 1).toFixed(1)},${y.toFixed(1)}`);
+    }
+    p.push(`<polyline points="${pts.join(" ")}" fill="none" stroke="${colour}" stroke-width="1.5"/>`);
+  };
+  for (let v = 0; v < n; v++) lane(v, inp.variables[v], inp.rows.map((r) => r.inputs[v]), CIRCLE);
+  lane(n, "out", inp.rows.map((r) => r.output), POINT);
+
+  // Minterm indices along the bottom, thinned so they stay legible.
+  const every = cols > 32 ? 8 : cols > 16 ? 4 : cols > 8 ? 2 : 1;
+  for (let c = 0; c < cols; c += every) {
+    p.push(`<text x="${(X(c) + colW / 2).toFixed(1)}" y="${H - 8}" text-anchor="middle" fill="${RULE}" font-size="7.5">${c}</text>`);
+  }
+  p.push("</g></svg>");
+  return p.join("");
+}
+
 export const NPSH_CHART_SIZE = { w: 400, h: 240 };
 
 export interface NpshLadderInput {

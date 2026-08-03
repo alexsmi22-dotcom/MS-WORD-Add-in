@@ -42,6 +42,7 @@ const PINNED: Record<string, string> = {
   Formatting: "2.61.0",
   "TWO ANSWERS": "2.77.1",
   "LEGEND OUTSIDE": "2.82.1",
+  "CHEBYSHEV REGRESSION": "2.85.0",
 };
 
 describe("the manual test script's version tags are history, not a moving target", () => {

@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.84.0)
+# JurisLab — Manual Test Script (v2.85.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -1092,6 +1092,41 @@ Engineering mode. **Energy & power** grows 8 → 16; the mode must state
 - [ ] All eight new tools insert, subscripts and superscripts intact (O₂, m², kVAR).
 
 ---
+
+## 0at. New in v2.85.0 - Control, vibration and electronics draw
+
+Eight more tools insert a figure (ratchet 45 → 53 of 130).
+
+- [ ] **Poles, zeros & stability**, defaults (1 / s³+3s²+2s+1) → "Pole-zero
+  map": three × marks LEFT of the vertical axis, pink shading to its right
+  labelled "unstable", conjugate pair mirrored exactly about the horizontal
+  axis. Change the denominator to `s^2-s+1` → two × in the shading, red.
+- [ ] **PID & closed loop**, defaults (plant 1/(s³+3s²+2s), Kp 1) →
+  "Closed-loop step response": rises and settles near 1.
+- [ ] **Natural frequencies & mode shapes**, defaults (2-mass chain) → "Mode
+  shapes": two curves from the anchor at DOF 0, mode 1 both masses same
+  sign, mode 2 opposite signs.
+- [ ] **Forced response**, defaults (ω 8) → "Frequency response, DOF …": two
+  sharp peaks (the resonances) on a log amplitude axis, red point at ω = 8
+  between them.
+- [ ] **Op-amp circuits**, defaults (non-inverting, GBW 1 MHz) → "Gain
+  against frequency": flat blue line at 40 dB meeting the grey open-loop
+  roll-off, red −3 dB point at the corner (10 kHz). Switch to Integrator →
+  a single falling line crossing 0 dB at the corner frequency.
+- [ ] **Analogue filter design**, defaults (Butterworth low-pass) → response
+  curve with the green passband point ON the curve at ω 1000 and the red
+  stopband point at or ABOVE the curve at ω 4000.
+- [ ] **CHEBYSHEV REGRESSION (v2.85.0).** Family Chebyshev, type High-pass,
+  ωp **4000**, ωs **1000**, ripple 1, attenuation 40 → the passband-edge
+  marker sits ON the curve at −1 dB (previously the curve was 79 dB below
+  it: an odd-order filter was built one degree too high), and the delivered
+  stopband attenuation reads ~42 dB, not ~120.
+- [ ] **DC operating point**, defaults (5 V divider) → "Power per element":
+  V1 bar LEFT of the zero line (green, delivering), R1 and R2 bars right
+  (blue), R2's bar twice R1's length, labels in mW-range numbers.
+- [ ] **Truth table & minimisation**, defaults (4 variables) → "Truth table
+  as waveforms": lanes A-D counting in binary, `out` lane at the bottom
+  high exactly at the listed minterms.
 
 ## 0as. New in v2.84.0 - Thermo and aero draw
 

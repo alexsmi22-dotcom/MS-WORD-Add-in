@@ -95,7 +95,17 @@ function denominatorFromPoles(poles: { re: number; im: number }[]): number[] {
   for (let i = 0; i < poles.length; i++) {
     if (used[i]) continue;
     const p = poles[i];
-    if (Math.abs(p.im) < 1e-12) {
+    // RELATIVE epsilons, because the poles arrive already SCALED by the band
+    // edge. The odd-order Chebyshev prototype's real pole carries a floating-
+    // point residue of ~7e-17 in its imaginary part, and multiplying by
+    // wp = 4000 rad/s grew that past the old ABSOLUTE 1e-12 test — the pole
+    // was then treated as one half of a conjugate pair, multiplied in as a
+    // full quadratic, and the filter shipped one degree too high with a
+    // stopband figure ~3x the truth. Every threshold here scales with the
+    // pole's own magnitude, so the classification is invariant to the edge
+    // frequency, which is exactly the property the absolute test lacked.
+    const mag = Math.max(Math.hypot(p.re, p.im), 1e-300);
+    if (Math.abs(p.im) < 1e-9 * mag) {
       used[i] = true;
       den = polyMul(den, [1, -p.re]);
       continue;
@@ -104,7 +114,7 @@ function denominatorFromPoles(poles: { re: number; im: number }[]): number[] {
     // multiplying two complex factors and hoping the imaginary parts cancel.
     let j = -1;
     for (let k = i + 1; k < poles.length; k++) {
-      if (!used[k] && Math.abs(poles[k].re - p.re) < 1e-9 && Math.abs(poles[k].im + p.im) < 1e-9) {
+      if (!used[k] && Math.abs(poles[k].re - p.re) < 1e-6 * mag && Math.abs(poles[k].im + p.im) < 1e-6 * mag) {
         j = k;
         break;
       }

@@ -953,6 +953,85 @@ export function logicWaveSvg(inp: LogicWaveInput): string {
   return p.join("");
 }
 
+export const POWER_TRIANGLE_SIZE = { w: 360, h: 280 };
+
+/**
+ * The power triangle: P along the base, Q upward, S the hypotenuse, φ the
+ * angle whose cosine is the power factor. EQUAL SCALE on both axes, because
+ * φ IS the content and an angle drawn on stretched axes has the wrong
+ * cosine. At pf = 1 the triangle collapses onto the base — drawn anyway,
+ * with the label saying so, because that collapse is the fact.
+ */
+export function powerTriangleSvg(pKw: number, qKvar: number, sKva: number, pf: number): string {
+  const { w: W, h: H } = POWER_TRIANGLE_SIZE;
+  if (![pKw, qKvar, sKva, pf].every(Number.isFinite) || sKva <= 0) {
+    return emptyChart(W, H, "The power inputs do not define a triangle");
+  }
+  const ML = 50;
+  const MR = 16;
+  const MT = 26;
+  const MB = 40;
+  const pw = W - ML - MR;
+  const ph = H - MT - MB;
+  const scale = Math.min(pw / Math.max(pKw, 1e-9), ph / Math.max(qKvar, pKw * 0.2, 1e-9));
+  if (!Number.isFinite(scale) || scale <= 0) return emptyChart(W, H, "The power inputs do not define a triangle");
+  const ox = ML;
+  const oy = MT + ph;
+  const X = (v: number): number => ox + v * scale;
+  const Y = (v: number): number => oy - v * scale;
+
+  const p: string[] = [];
+  p.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`);
+  p.push(`<rect width="${W}" height="${H}" fill="${PAPER}"/>`);
+  p.push(`<g font-family="sans-serif" font-size="9" fill="${INK}">`);
+  p.push(`<text x="${(ML + pw / 2).toFixed(1)}" y="15" text-anchor="middle" font-size="11">The power triangle</text>`);
+
+  p.push(`<line x1="${X(0).toFixed(1)}" y1="${Y(0).toFixed(1)}" x2="${X(pKw).toFixed(1)}" y2="${Y(0).toFixed(1)}" stroke="${CIRCLE}" stroke-width="2.4"/>`);
+  p.push(`<line x1="${X(pKw).toFixed(1)}" y1="${Y(0).toFixed(1)}" x2="${X(pKw).toFixed(1)}" y2="${Y(qKvar).toFixed(1)}" stroke="${POINT}" stroke-width="2.4"/>`);
+  p.push(`<line x1="${X(0).toFixed(1)}" y1="${Y(0).toFixed(1)}" x2="${X(pKw).toFixed(1)}" y2="${Y(qKvar).toFixed(1)}" stroke="#059669" stroke-width="2"/>`);
+
+  // The angle arc at the origin, radius fixed in pixels.
+  const phi = Math.acos(Math.min(Math.max(pf, 0), 1));
+  if (phi > 1e-4) {
+    const rArc = Math.min(36, pKw * scale * 0.45);
+    const ax = ox + rArc * Math.cos(phi);
+    const ay = oy - rArc * Math.sin(phi);
+    p.push(`<path d="M ${(ox + rArc).toFixed(1)} ${oy.toFixed(1)} A ${rArc.toFixed(1)} ${rArc.toFixed(1)} 0 0 0 ${ax.toFixed(1)} ${ay.toFixed(1)}" fill="none" stroke="${RULE}"/>`);
+    p.push(labelText(ox + rArc + 5, oy - 6, `φ = ${n1((phi * 180) / Math.PI)}°`, { size: 8 }));
+  }
+
+  // Three significant figures, not n1's one decimal: a 20 W load labelled
+  // "0.0 kW" is the same lie hBarSvg's formatter exists to prevent.
+  const sig3 = (v: number): string => {
+    const a2 = Math.abs(v);
+    if (a2 === 0) return "0";
+    if (a2 >= 1e5 || a2 < 1e-3) return v.toExponential(2);
+    if (a2 >= 100) return v.toFixed(0);
+    return v.toPrecision(3);
+  };
+  p.push(labelText(X(pKw / 2), Y(0) + 13, `P = ${sig3(pKw)} kW`, { anchor: "middle", fill: CIRCLE }));
+  // RELATIVE collapse test: a unity power factor entered by POWER round-trips
+  // through S = √3·V·I and picks up ~2e-8·P of float residue in Q — an
+  // absolute epsilon missed it and drew "Q = 0.0 kVAR" instead of saying the
+  // triangle collapsed.
+  if (qKvar > 1e-9 * sKva && pf < 1) {
+    // The Q label sits right of its leg when there is room and inside-left of
+    // it when there is not — the audit caught it running off the canvas.
+    const qTxt = `Q = ${sig3(qKvar)} kVAR`;
+    const estW = qTxt.length * 8 * 0.56 + 4;
+    if (X(pKw) + 4 + estW <= W - 2) p.push(labelText(X(pKw) + 4, Y(qKvar / 2) + 3, qTxt, { fill: POINT }));
+    else p.push(labelText(X(pKw) - 4, Y(qKvar / 2) + 3, qTxt, { anchor: "end", fill: POINT }));
+    p.push(labelText(X(pKw / 2) - 6, Y(qKvar / 2) - 6, `S = ${sig3(sKva)} kVA`, { anchor: "end", fill: "#059669" }));
+  } else {
+    // Collapsed triangle: S lies exactly on P, so ONE line says both — two
+    // labels on the same segment collided in the audit.
+    p.push(labelText(X(pKw / 2), Y(0) - 8, `S = P = ${sig3(sKva)} kVA: unity power factor, the triangle collapses`, { anchor: "middle", fill: RULE }));
+  }
+  p.push(labelText(ML, H - 8, `power factor = cos φ = ${pf.toFixed(3)}`, { size: 8 }));
+  p.push("</g></svg>");
+  return p.join("");
+}
+
 export const NPSH_CHART_SIZE = { w: 400, h: 240 };
 
 export interface NpshLadderInput {

@@ -19,11 +19,18 @@ Conventions for every conversion (verified across all 5 briefs):
   content needs a custom equal-aspect builder in mechchart.ts (copy trussSvg's scale
   math: s = min(pw/dx, ph/dy) with 1e-9 floor, centred ox/oy). Literal hex only
   (insertedFiguresIgnoreTheme.test.ts scans lib sources with <svg).
-- NEW SHARED BUILDER NEEDED (used by chips-thermal, chips-timing, thermo-vapour,
-  energy-hydro, energy-combustion, energy-storage): generalise npshLadderSvg into
-  `ladderSvg(rows: {name, delta, gain}[], opts {title, axisLabel, fmt, limit?,
-  limitLabel?, limitOkAbove?, resultName, okText?, failText?})` — npshLadderSvg's
-  private n1=toFixed(1) prints "0.0" for picoseconds/milliwatts, so fmt is a param.
+- NEW SHARED BUILDER STILL OWED (for chips-thermal, chips-timing, thermo-vapour):
+  generalise npshLadderSvg into `ladderSvg(rows: {name, delta, gain}[], opts
+  {title, axisLabel, fmt, limit?, limitLabel?, limitOkAbove?, resultName,
+  okText?, failText?})` — npshLadderSvg's private n1=toFixed(1) prints "0.0" for
+  picoseconds/milliwatts, so fmt is a param. RECORDED DEVIATION (v2.86.0): the
+  three ENERGY ledger tools shipped WITHOUT it — energy-combustion as signed
+  hBarSvg mass-balance rows (conservation-exact, judged equivalent), energy-hydro
+  and energy-storage via their brief-sanctioned plot alternatives. The chips/
+  thermo-vapour batch must still build ladderSvg. Second recorded deviation:
+  energy-wind-shear ships only the (v, h1) measurement marker, not the briefed
+  h2 markers — at h2 there are TWO candidate speeds (one per law) and a marker
+  pair there implied a false precision; the curves end at 1.25·h2 regardless.
 
 ## ENERGY (17)
 

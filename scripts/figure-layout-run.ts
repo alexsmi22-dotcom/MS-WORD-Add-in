@@ -21,6 +21,7 @@ import {
   poleZeroSvg,
   hBarSvg,
   logicWaveSvg,
+  powerTriangleSvg,
 } from "../src/lib/mechchart";
 import { buildPlotSvg, Series } from "../src/lib/plot";
 import { weibullFit, reliabilityBlock, kOutOfN, redundancy, availability } from "../src/lib/reliability";
@@ -543,5 +544,95 @@ figures.push([
     ),
   ]);
 }
+
+// --- v2.86.0: energy figures -------------------------------------------------
+
+// The power triangle at the default 0.8 pf, at unity (collapsed), and at a
+// heavily reactive 0.3 where the arc label crowds the hypotenuse.
+figures.push(["power triangle", powerTriangleSvg(55.4, 41.6, 69.3, 0.8)]);
+figures.push(["power triangle unity", powerTriangleSvg(69.3, 0, 69.3, 1)]);
+figures.push(["power triangle reactive", powerTriangleSvg(20.8, 66.1, 69.3, 0.3)]);
+
+// The cube-law wind curve: four series, three of them near-coincident at the
+// left where the legend used to sit.
+figures.push([
+  "wind cube law",
+  buildPlotSvg(
+    [
+      { points: Array.from({ length: 51 }, (_, i) => { const v = (25 * i) / 50; return { x: v, y: 1994 * Math.pow(v / 8, 3) }; }), type: "line", color: "#9ca3af", label: "in the wind" },
+      { points: Array.from({ length: 51 }, (_, i) => { const v = (25 * i) / 50; return { x: v, y: 1181 * Math.pow(v / 8, 3) }; }), type: "line", color: "#2563eb", label: "Betz bound 16/27" },
+      { points: Array.from({ length: 51 }, (_, i) => { const v = (25 * i) / 50; return { x: v, y: 897 * Math.pow(v / 8, 3) }; }), type: "line", color: "#059669", label: "Cp = 0.45" },
+      { points: [{ x: 8, y: 897 }], type: "scatter", color: "#b91c1c", label: "this wind speed" },
+    ],
+    { width: 380, height: 260, xlabel: "hub-height wind speed (m/s)", ylabel: "power (kW)", title: "Power goes as the cube of wind speed" },
+  ),
+]);
+
+// The Weibull pdf with three unlabeled stems and two markers near the peak.
+{
+  const k = 2, c = 8;
+  const pdf = (v: number) => (k / c) * Math.pow(v / c, k - 1) * Math.exp(-Math.pow(v / c, k));
+  const curve = Array.from({ length: 120 }, (_, i) => { const v = 0.05 + (27.95 * i) / 119; return { x: v, y: pdf(v) }; });
+  const yCap = Math.max(...curve.map((p) => p.y));
+  figures.push([
+    "weibull pdf",
+    buildPlotSvg(
+      [
+        { points: curve, type: "line", color: "#2563eb", label: "Weibull k=2, c=8" },
+        { points: [{ x: 3, y: 0 }, { x: 3, y: yCap * 0.85 }], type: "line", color: "#9ca3af" },
+        { points: [{ x: 12, y: 0 }, { x: 12, y: yCap * 0.85 }], type: "line", color: "#9ca3af" },
+        { points: [{ x: 25, y: 0 }, { x: 25, y: yCap * 0.85 }], type: "line", color: "#9ca3af" },
+        { points: [{ x: 7.09, y: pdf(7.09) }, { x: 5.66, y: pdf(5.66) }], type: "scatter", color: "#b91c1c", label: "mean / mode" },
+      ],
+      { width: 380, height: 260, xlabel: "wind speed (m/s)", ylabel: "probability density (per m/s)", title: "The fitted wind distribution" },
+    ),
+  ]);
+}
+
+// Battery runtime log-log with two curves and a marker.
+figures.push([
+  "battery runtime",
+  buildPlotSvg(
+    [
+      { points: Array.from({ length: 49 }, (_, i) => { const I = 1 * Math.pow(100, i / 48); return { x: I, y: 18 / I }; }), type: "line", color: "#2563eb", label: "ideal Ah / I" },
+      { points: Array.from({ length: 49 }, (_, i) => { const I = 1 * Math.pow(100, i / 48); return { x: I, y: 18 / Math.pow(I, 1.15) }; }), type: "line", color: "#b91c1c", label: "Peukert-corrected" },
+      { points: [{ x: 10, y: 1.8 }], type: "scatter", color: "#059669", label: "this load" },
+    ],
+    { width: 380, height: 250, xScale: "log", yScale: "log", xlabel: "discharge current (A)", ylabel: "runtime (h)", title: "Runtime against discharge current" },
+  ),
+]);
+
+// The solar day curve crossing the horizon twice, markers at the crossings.
+{
+  const elev = (h: number) => 73.4 * Math.sin((Math.PI * (h - 4.7)) / 14.6) - 10;
+  const day = Array.from({ length: 97 }, (_, i) => { const h = (24 * i) / 96; return { x: h, y: Math.max(-35, elev(h)) }; });
+  figures.push([
+    "solar day",
+    buildPlotSvg(
+      [
+        { points: day, type: "line", color: "#d97706", label: "solar elevation" },
+        { points: [{ x: 0, y: 0 }, { x: 24, y: 0 }], type: "line", color: "#9ca3af" },
+        { points: [{ x: 12, y: 63.4 }], type: "scatter", color: "#b91c1c", label: "solar noon" },
+        { points: [{ x: 4.7, y: 0 }, { x: 19.3, y: 0 }], type: "scatter", color: "#2563eb", label: "sunrise / sunset" },
+      ],
+      { width: 380, height: 260, xlabel: "solar time (h)", ylabel: "sun elevation (°)", title: "The sun's day at this latitude" },
+    ),
+  ]);
+}
+
+// The combustion mass-balance bars, with the long balance-row name.
+figures.push([
+  "combustion balance",
+  hBarSvg(
+    [
+      { name: "fuel in", value: 1, colour: "#059669" },
+      { name: "air in", value: 17.2, colour: "#059669" },
+      { name: "CO₂ out", value: -2.74, colour: "#b91c1c" },
+      { name: "H₂O out", value: -2.25, colour: "#2563eb" },
+      { name: "N₂ + unused O₂ out", value: -13.2, colour: "#9ca3af" },
+    ],
+    { title: "Mass balance per kg of fuel", unit: "kg" },
+  ),
+]);
 
 process.exit(runAudit(figures) ? 1 : 0);

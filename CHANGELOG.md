@@ -6,6 +6,36 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.86.0] — 2026-08-03 — All seventeen Energy tools draw
+
+Fourth figure batch of the day and the biggest: the entire **Energy & power**
+discipline now inserts figures. Ratchet **53 → 70 of 130** — past halfway.
+
+The conventional picture for each: the wind **cube law** with the Betz bound;
+solar output **rated against temperature-derated**; the PV **fill factor as
+the area ratio it is** (no invented I-V curve — four datasheet points do not
+define one); hydro's two straight lines through the origin; battery **runtime
+against current on log-log** with the Peukert sag; the combustion **mass
+balance** as bars fixed by conservation; **LCOE against the discount rate**;
+capacity factor as **actual against flat-out generation**; the three-phase
+**power triangle** (a new equal-aspect builder — φ must read as the angle
+whose cosine is the power factor); the pf-correction **cost-of-chasing-unity
+knee**; cable **drop against run length** with the acceptance-limit crossing;
+the **wind-shear profile** with height vertical, both laws; the fitted
+**Weibull density** with the turbine's operating band; the
+**combustion-analysis chart** (dry CO₂ and O₂ against excess air); storage's
+**1/DoD sizing hyperbola**; the **sun's day** with sunrise and sunset where
+the curve crosses the horizon; and **flame temperature against excess air**.
+
+Every curve is either re-asked of the engine point by point or scaled off the
+computed result in closed form — nothing is re-derived, so no figure can
+disagree with its own table. The adversarial pass found no blockers and four
+fit-and-finish defects (a float-residue unity-power-factor branch, one-decimal
+labels on small loads, a flue-gas marker that could stretch the axis five
+times past the curve, an unbounded voltage-drop axis) — all fixed, plus the
+layout audit caught two label collisions in the new triangle builder before
+any user saw them.
+
 ## [2.85.0] — 2026-08-03 — Control, vibration and electronics draw
 
 Third figure batch of the day; ratchet **45 → 53 of 130**. Three new reusable

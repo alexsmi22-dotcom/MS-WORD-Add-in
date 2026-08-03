@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.85.0)
+# JurisLab — Manual Test Script (v2.86.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -1092,6 +1092,28 @@ Engineering mode. **Energy & power** grows 8 → 16; the mode must state
 - [ ] All eight new tools insert, subscripts and superscripts intact (O₂, m², kVAR).
 
 ---
+
+## 0au. New in v2.86.0 - All seventeen Energy tools draw
+
+The whole Energy & power discipline inserts figures (ratchet 53 → 70 of 130).
+Spot-check five; the rest follow the same pattern (figure + data, legend
+outside the frame, working point marked in red).
+
+- [ ] **Wind turbine power**, defaults → "Power goes as the cube of wind
+  speed": three rising curves (grey wind, blue Betz, green Cp = 0.45) with
+  the red point ON the green curve at 8 m/s.
+- [ ] **Three-phase power**, defaults (400 V, 100 A, pf 0.8) → "The power
+  triangle": blue base P = 55.4 kW, red vertical Q = 41.6 kVAR, green
+  hypotenuse S = 69.3 kVA, arc φ = 36.9°. Set pf **1** → the triangle
+  collapses to one line and SAYS so.
+- [ ] **Power factor correction**, defaults → "The cost of chasing unity":
+  rising curve with the knee steepening toward pf 1.0, red point at 0.95.
+- [ ] **Weibull wind resource**, defaults → the density curve with three grey
+  vertical lines (cut-in 3, rated 12, cut-out 25) and red mean/mode dots
+  near the peak.
+- [ ] **Sun position**, defaults (40°, day 172) → the elevation arc peaking
+  at 73.4° at noon, blue sunrise/sunset dots where it crosses the grey
+  horizon line, night below.
 
 ## 0at. New in v2.85.0 - Control, vibration and electronics draw
 

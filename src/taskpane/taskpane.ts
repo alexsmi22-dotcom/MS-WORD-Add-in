@@ -129,6 +129,8 @@ import {
   hBarSvg,
   HBAR_ROW_H,
   logicWaveSvg,
+  POWER_TRIANGLE_SIZE,
+  powerTriangleSvg,
   SectionStrip,
 } from "../lib/mechchart";
 import { parseNetlist, parseValue, solveDc, solveAc, frequencySweep, dB } from "../lib/circuit";
@@ -16916,6 +16918,48 @@ const ENG_CALCS: EngCalc[] = [
       if (densityNote) lines.push(`Note: ${densityNote}`);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
+
+      // The cube law drawn: power in the wind, the Betz bound, and the rotor's
+      // own curve, all scaled off the computed values so the plot cannot
+      // disagree with the table. Everything ∝ v³, which is the whole story.
+      if (v > 0 && Number.isFinite(res.windPower)) {
+        const vTop = Math.max(25, v * 1.5);
+        const cube = (base: number): Point[] =>
+          Array.from({ length: 51 }, (_, i) => {
+            const vv = (vTop * i) / 50;
+            return { x: vv, y: (base / 1000) * Math.pow(vv / v, 3) };
+          });
+        const windSeries: Series[] = [
+          { points: cube(res.windPower), type: "line", color: "#9ca3af", label: "in the wind" },
+          { points: cube(res.betzPower), type: "line", color: "#2563eb", label: "Betz bound 16/27" },
+        ];
+        if (res.outputPower !== null && res.cpUsed !== null) {
+          windSeries.push({ points: cube(res.outputPower), type: "line", color: "#059669", label: `Cp = ${engNum(res.cpUsed, 3)}` });
+        }
+        windSeries.push({
+          points: [{ x: v, y: (res.outputPower ?? res.betzPower) / 1000 }],
+          type: "scatter",
+          color: "#b91c1c",
+          label: "this wind speed",
+        });
+        const svg = buildPlotSvg(windSeries, {
+          width: 380,
+          height: 260,
+          xlabel: "hub-height wind speed (m/s)",
+          ylabel: "power (kW)",
+          title: "Power goes as the cube of wind speed",
+        });
+        return engReport(lines, [
+          {
+            kind: "plot",
+            svg,
+            caption: "The cube-law power curve, with the Betz bound and this rotor's coefficient",
+            alt: "Power against wind speed for the wind itself, the Betz limit and the turbine output",
+            w: 380,
+            h: 260,
+          },
+        ]);
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -16990,6 +17034,55 @@ const ENG_CALCS: EngCalc[] = [
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
+
+      // Output against irradiance: the rated line and the temperature-derated
+      // curve under it. The gap widens with irradiance because the cells run
+      // hotter in stronger sun — each derated point re-asks the engine.
+      if (g > 0 && Number.isFinite(res.powerStc)) {
+        const rated: Point[] = [];
+        const derated: Point[] = [];
+        const gTop = Math.min(Math.max(1200, g), 1500);
+        for (let i = 1; i <= 48; i++) {
+          const GG = 50 + ((gTop - 50) * (i - 1)) / 47;
+          rated.push({ x: GG, y: (res.powerStc / 1000) * (GG / g) });
+          if (ta !== null && noct !== null) {
+            const r2 = solarPV({
+              irradiance: GG,
+              area: a,
+              efficiency: eff,
+              tempCoeffPctPerC: gamma ?? undefined,
+              ambientC: ta,
+              noctC: noct,
+            });
+            if (r2.ok && r2.powerDerated !== null) derated.push({ x: GG, y: r2.powerDerated / 1000 });
+          }
+        }
+        const solarSeries: Series[] = [{ points: rated, type: "line", color: "#9ca3af", label: "at 25 °C cells" }];
+        if (derated.length > 5) solarSeries.push({ points: derated, type: "line", color: "#2563eb", label: "temperature-derated" });
+        solarSeries.push({
+          points: [{ x: g, y: (res.powerDerated ?? res.powerStc) / 1000 }],
+          type: "scatter",
+          color: "#b91c1c",
+          label: "this irradiance",
+        });
+        const svg = buildPlotSvg(solarSeries, {
+          width: 380,
+          height: 260,
+          xlabel: "plane-of-array irradiance (W/m²)",
+          ylabel: "array output (kW)",
+          title: "Rated against temperature-derated output",
+        });
+        return engReport(lines, [
+          {
+            kind: "plot",
+            svg,
+            caption: "Array output against irradiance, rated and temperature-derated",
+            alt: "Output power against irradiance with and without thermal derating",
+            w: 380,
+            h: 260,
+          },
+        ]);
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -17026,7 +17119,63 @@ const ENG_CALCS: EngCalc[] = [
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
-      return { text: plainDashes(lines.join("\n")) };
+
+      // The fill factor AS the area ratio it is: the Voc·Isc bound and the
+      // Vmp·Imp rectangle inside it. No I-V curve is drawn because none is
+      // computable from four datasheet points without a diode model this
+      // product refuses to invent — the two rectangles are exactly the data.
+      {
+        const svg = buildPlotSvg(
+          [
+            {
+              points: [
+                { x: 0, y: isc },
+                { x: voc, y: isc },
+                { x: voc, y: 0 },
+              ],
+              type: "line",
+              color: "#9ca3af",
+              label: "Voc × Isc bound",
+            },
+            {
+              points: [
+                { x: 0, y: imp },
+                { x: vmp, y: imp },
+                { x: vmp, y: 0 },
+              ],
+              type: "line",
+              color: "#2563eb",
+              label: "Vmp × Imp = Pmp",
+            },
+            {
+              points: [
+                { x: 0, y: isc },
+                { x: vmp, y: imp },
+                { x: voc, y: 0 },
+              ],
+              type: "scatter",
+              color: "#b91c1c",
+            },
+          ],
+          {
+            width: 380,
+            height: 250,
+            xlabel: "voltage (V)",
+            ylabel: "current (A)",
+            title: `Fill factor = ${engNum(res.fillFactor, 3)} of the bounding rectangle`,
+          },
+        );
+        return engReport(lines, [
+          {
+            kind: "plot",
+            svg,
+            caption: "The fill factor as an area ratio: the maximum-power rectangle inside the Voc-Isc bound",
+            alt: "Two nested rectangles on voltage-current axes with the three datasheet points marked",
+            w: 380,
+            h: 250,
+          },
+        ]);
+      }
     },
   },
   {
@@ -17081,6 +17230,42 @@ const ENG_CALCS: EngCalc[] = [
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
+
+      // Power against flow: two straight lines through the origin — hydraulic
+      // at net head and electrical after conversion — scaled off the computed
+      // values. The vertical gap at any flow is the machine loss; both lines
+      // being straight is itself the physics (P = η·ρ·g·Q·H).
+      if (q > 0 && Number.isFinite(res.hydraulicPower) && Number.isFinite(res.outputPower)) {
+        const qTop = 2 * q;
+        const ray = (peak: number): Point[] => [
+          { x: 0, y: 0 },
+          { x: qTop, y: (peak / 1000) * (qTop / q) },
+        ];
+        const svg = buildPlotSvg(
+          [
+            { points: ray(res.hydraulicPower), type: "line", color: "#9ca3af", label: "hydraulic (net head)" },
+            { points: ray(res.outputPower), type: "line", color: "#2563eb", label: "electrical output" },
+            { points: [{ x: q, y: res.outputPower / 1000 }], type: "scatter", color: "#b91c1c", label: "this flow" },
+          ],
+          {
+            width: 380,
+            height: 250,
+            xlabel: "flow (m³/s)",
+            ylabel: "power (kW)",
+            title: "Power is linear in flow",
+          },
+        );
+        return engReport(lines, [
+          {
+            kind: "plot",
+            svg,
+            caption: "Hydraulic and electrical power against flow; the gap is the water-to-wire loss",
+            alt: "Two straight power lines against flow with the working point marked",
+            w: 380,
+            h: 250,
+          },
+        ]);
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -17158,6 +17343,60 @@ const ENG_CALCS: EngCalc[] = [
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
+
+      // Runtime against discharge current, log-log — the ideal Ah/I line is
+      // straight there, and the Peukert correction (when an exponent was
+      // given) visibly sags below it at high current, which is the whole
+      // reason the exponent exists. Peukert points re-ask the engine, because
+      // its 20-hour reference rate lives inside it.
+      if (res.packCapacityAh > 0 && res.packEnergyWh > 0) {
+        const dodFrac = res.usableEnergyWh / res.packEnergyWh;
+        const iLo = 0.05 * res.packCapacityAh;
+        const iHi = 5 * res.packCapacityAh;
+        const ideal: Point[] = [];
+        const peukertPts: Point[] = [];
+        for (let i = 0; i <= 48; i++) {
+          const I = iLo * Math.pow(iHi / iLo, i / 48);
+          ideal.push({ x: I, y: (res.packCapacityAh * dodFrac) / I });
+          if (pk !== undefined) {
+            const r2 = batteryPack({
+              cellVoltage: vc,
+              cellCapacityAh: cap,
+              series: s,
+              parallel: p,
+              depthOfDischarge: dod,
+              loadCurrentA: I,
+              peukertExponent: pk,
+            });
+            if (r2.ok && r2.runtimePeukertHours !== null && r2.runtimePeukertHours > 0)
+              peukertPts.push({ x: I, y: r2.runtimePeukertHours });
+          }
+        }
+        const battSeries: Series[] = [{ points: ideal, type: "line", color: "#2563eb", label: "ideal Ah / I" }];
+        if (peukertPts.length > 5) battSeries.push({ points: peukertPts, type: "line", color: "#b91c1c", label: "Peukert-corrected" });
+        if (res.loadCurrentA !== null && res.runtimeHours !== null && res.runtimeHours > 0) {
+          battSeries.push({ points: [{ x: res.loadCurrentA, y: res.runtimeHours }], type: "scatter", color: "#059669", label: "this load" });
+        }
+        const svg = buildPlotSvg(battSeries, {
+          width: 380,
+          height: 250,
+          xScale: "log",
+          yScale: "log",
+          xlabel: "discharge current (A)",
+          ylabel: "runtime (h)",
+          title: "Runtime against discharge current",
+        });
+        return engReport(lines, [
+          {
+            kind: "plot",
+            svg,
+            caption: "Runtime against discharge current; the Peukert curve sags below the ideal line",
+            alt: "Log-log runtime against current with the working load marked",
+            w: 380,
+            h: 250,
+          },
+        ]);
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -17211,6 +17450,34 @@ const ENG_CALCS: EngCalc[] = [
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
+
+      // The mass balance drawn: what goes into the flame per kg of fuel and
+      // what comes out. The N₂-and-unused-O₂ balance row is computed by
+      // conservation from the other rows, so the two sides agree exactly —
+      // no constant enters that the engine did not already supply.
+      if (Number.isFinite(res.afrActual) && Number.isFinite(res.co2PerKgFuel)) {
+        const so2 = res.so2PerKgFuel ?? 0;
+        const balance = 1 + res.afrActual - res.co2PerKgFuel - res.h2oPerKgFuel - so2;
+        const rows = [
+          { name: "fuel in", value: 1, colour: "#059669" },
+          { name: "air in", value: res.afrActual, colour: "#059669" },
+          { name: "CO₂ out", value: -res.co2PerKgFuel, colour: "#b91c1c" },
+          { name: "H₂O out", value: -res.h2oPerKgFuel, colour: "#2563eb" },
+        ];
+        if (so2 > 0) rows.push({ name: "SO₂ out", value: -so2, colour: "#b91c1c" });
+        rows.push({ name: "N₂ + unused O₂ out", value: -balance, colour: "#9ca3af" });
+        const svg = hBarSvg(rows, { title: "Mass balance per kg of fuel", unit: "kg" });
+        return engReport(lines, [
+          {
+            kind: "plot",
+            svg,
+            caption: "Mass in and out per kg of fuel; the balance row is fixed by conservation",
+            alt: "Horizontal bars of fuel and air in against combustion products out",
+            w: 400,
+            h: 46 + rows.length * HBAR_ROW_H + 18,
+          },
+        ]);
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -17271,6 +17538,50 @@ const ENG_CALCS: EngCalc[] = [
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
+
+      // LCOE against the discount rate — the sensitivity every LCOE argument
+      // is really about. Each point re-runs the same discounting the headline
+      // number used; the sweep stays inside the engine's own 0-0.5 bound.
+      {
+        const lcoeCurve: Point[] = [];
+        for (let i = 0; i <= 50; i++) {
+          const rr = i / 100;
+          const r2 = lcoe({
+            capex: nums.capex,
+            annualOpex: nums.opex,
+            annualEnergyMWh: e,
+            discountRate: rr,
+            lifetimeYears: nums.life,
+            degradationRate: deg,
+          });
+          if (r2.ok && Number.isFinite(r2.lcoePerMWh)) lcoeCurve.push({ x: rr * 100, y: r2.lcoePerMWh });
+        }
+        if (lcoeCurve.length > 10) {
+          const svg = buildPlotSvg(
+            [
+              { points: lcoeCurve, type: "line", color: "#2563eb", label: "LCOE" },
+              { points: [{ x: nums.rate * 100, y: res.lcoePerMWh }], type: "scatter", color: "#b91c1c", label: "this rate" },
+            ],
+            {
+              width: 380,
+              height: 250,
+              xlabel: "discount rate (%)",
+              ylabel: "LCOE (per MWh)",
+              title: "LCOE against the discount rate",
+            },
+          );
+          return engReport(lines, [
+            {
+              kind: "plot",
+              svg,
+              caption: "The discount-rate sensitivity, with this project's rate marked",
+              alt: "LCOE per MWh rising with the discount rate",
+              w: 380,
+              h: 250,
+            },
+          ]);
+        }
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -17306,6 +17617,55 @@ const ENG_CALCS: EngCalc[] = [
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
+
+      // Cumulative energy against elapsed hours: the flat-out nameplate line
+      // and the actual line under it. Where the flat-out line reaches the
+      // energy actually generated IS the equivalent-full-load-hours mark —
+      // the definition, drawn. The period is recovered from the engine's own
+      // maximum (maximumMWh / mw), never re-assumed.
+      if (mw > 0 && Number.isFinite(res.maximumMWh)) {
+        const hrs = res.maximumMWh / mw;
+        const svg = buildPlotSvg(
+          [
+            {
+              points: [
+                { x: 0, y: 0 },
+                { x: hrs, y: res.maximumMWh },
+              ],
+              type: "line",
+              color: "#9ca3af",
+              label: "nameplate, flat out",
+            },
+            {
+              points: [
+                { x: 0, y: 0 },
+                { x: hrs, y: mwh },
+              ],
+              type: "line",
+              color: "#2563eb",
+              label: "actual",
+            },
+            { points: [{ x: res.equivalentFullLoadHours, y: mwh }], type: "scatter", color: "#b91c1c", label: "full-load hours" },
+          ],
+          {
+            width: 380,
+            height: 250,
+            xlabel: "hours into the period",
+            ylabel: "energy (MWh)",
+            title: "Actual against flat-out generation",
+          },
+        );
+        return engReport(lines, [
+          {
+            kind: "plot",
+            svg,
+            caption: "Cumulative energy against the nameplate running flat out; the marker is the equivalent full-load hours",
+            alt: "Two straight cumulative-energy lines with the full-load-hours point marked",
+            w: 380,
+            h: 250,
+          },
+        ]);
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -17352,7 +17712,19 @@ const ENG_CALCS: EngCalc[] = [
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
-      return { text: plainDashes(lines.join("\n")) };
+
+      // The power triangle, at one scale on both axes so φ reads as the
+      // angle whose cosine is the power factor — which is the entire figure.
+      return engReport(lines, [
+        {
+          kind: "plot",
+          svg: powerTriangleSvg(res.realPowerW / 1000, res.reactivePowerVAR / 1000, res.apparentPowerVA / 1000, pf),
+          caption: "The power triangle: P along the base, Q upward, S the hypotenuse",
+          alt: "Power triangle with real, reactive and apparent power and the phase angle",
+          w: POWER_TRIANGLE_SIZE.w,
+          h: POWER_TRIANGLE_SIZE.h,
+        },
+      ]);
     },
   },
   {
@@ -17405,6 +17777,44 @@ const ENG_CALCS: EngCalc[] = [
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
+
+      // Capacitor bank against the target power factor: the knee near unity
+      // is why nobody corrects past 0.95-0.98, and each point re-runs the
+      // same engine call. The sweep never reaches 1.0, where tan φ diverges.
+      if (pf1 > 0 && pf1 < 1) {
+        const bankCurve: Point[] = [];
+        for (let i2 = 0; i2 <= 60; i2++) {
+          const t = pf1 + 0.005 + ((0.995 - pf1 - 0.005) * i2) / 60;
+          if (t <= pf1 || t > 0.995) continue;
+          const r2 = pfCorrection({ realPowerW: p, pfBefore: pf1, pfAfter: t, lineVoltage: v ?? undefined, frequencyHz: f ?? undefined });
+          if (r2.ok && Number.isFinite(r2.bankVAR)) bankCurve.push({ x: t, y: r2.bankVAR / 1000 });
+        }
+        if (bankCurve.length > 10) {
+          const svg = buildPlotSvg(
+            [
+              { points: bankCurve, type: "line", color: "#2563eb", label: "capacitor bank" },
+              { points: [{ x: pf2, y: res.bankVAR / 1000 }], type: "scatter", color: "#b91c1c", label: "this target" },
+            ],
+            {
+              width: 380,
+              height: 250,
+              xlabel: "target power factor",
+              ylabel: "capacitor bank (kVAR)",
+              title: "The cost of chasing unity",
+            },
+          );
+          return engReport(lines, [
+            {
+              kind: "plot",
+              svg,
+              caption: "Required kVAR against the target power factor; the knee near 1.0 is the practical limit",
+              alt: "Capacitor bank size rising steeply as the target power factor approaches unity",
+              w: 380,
+              h: 250,
+            },
+          ]);
+        }
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -17478,6 +17888,67 @@ const ENG_CALCS: EngCalc[] = [
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
+
+      // Drop against run length — exactly linear, which is the point worth
+      // seeing: the line is scaled off the computed drop, the acceptance
+      // limit is horizontal, and where they cross is the longest run this
+      // cable can serve. The axis extends far enough to show that crossing.
+      if (len > 0 && Number.isFinite(res.dropV)) {
+        const asPct = res.dropFraction !== null && vs !== null;
+        const dropAt = (L: number): number => (asPct ? ((100 * res.dropV * (L / len)) / (vs as number)) : res.dropV * (L / len));
+        let xMax = 2.5 * len;
+        if (asPct && target !== undefined && res.dropFraction! > 0) {
+          // Capped relative to the run: a grossly oversized cable puts the
+          // limit crossing thousands of kilometres out, and a 2,300 km axis
+          // for a one-metre run is an absurd figure, not a helpful one.
+          xMax = Math.min(Math.max(xMax, 1.15 * len * (target / res.dropFraction!)), 1e4 * len);
+        }
+        const dropSeries: Series[] = [
+          {
+            points: [
+              { x: 0, y: 0 },
+              { x: xMax, y: dropAt(xMax) },
+            ],
+            type: "line",
+            color: "#2563eb",
+            label: "voltage drop",
+          },
+        ];
+        if (asPct && target !== undefined) {
+          dropSeries.push({
+            points: [
+              { x: 0, y: target * 100 },
+              { x: xMax, y: target * 100 },
+            ],
+            type: "line",
+            color: "#b91c1c",
+            label: "acceptance limit",
+          });
+        }
+        dropSeries.push({
+          points: [{ x: len, y: asPct ? res.dropFraction! * 100 : res.dropV }],
+          type: "scatter",
+          color: "#059669",
+          label: "this run",
+        });
+        const svg = buildPlotSvg(dropSeries, {
+          width: 380,
+          height: 250,
+          xlabel: "one-way run length (m)",
+          ylabel: asPct ? "drop (% of supply)" : "drop (V)",
+          title: "Voltage drop against run length",
+        });
+        return engReport(lines, [
+          {
+            kind: "plot",
+            svg,
+            caption: "Drop against run length for this cable; the crossing is the longest acceptable run",
+            alt: "Linear voltage drop against length with the acceptance limit line",
+            w: 380,
+            h: 250,
+          },
+        ]);
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -17523,6 +17994,48 @@ const ENG_CALCS: EngCalc[] = [
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
+
+      // The wind profile drawn the way an atmosphere always is — height on
+      // the vertical. Both laws are swept through the same engine, so where
+      // they diverge on the page is exactly the disagreement the text
+      // quantifies. The log law refuses heights at or below z0, so the sweep
+      // starts above it and skips refusals.
+      {
+        const powerPts: Point[] = [];
+        const logPts: Point[] = [];
+        const hLo = Math.max(1, (z0 ?? 0) * 2);
+        const hTop = 1.25 * h2;
+        for (let i2 = 0; i2 <= 60; i2++) {
+          const hh = hLo + ((hTop - hLo) * i2) / 60;
+          const r2 = windShear({ refSpeed: v, refHeight: h1, targetHeight: hh, alpha, roughnessM: z0 ?? undefined });
+          if (!r2.ok) continue;
+          if (r2.powerLawSpeed !== null && Number.isFinite(r2.powerLawSpeed)) powerPts.push({ x: r2.powerLawSpeed, y: hh });
+          if (r2.logLawSpeed !== null && Number.isFinite(r2.logLawSpeed)) logPts.push({ x: r2.logLawSpeed, y: hh });
+        }
+        const shearSeries: Series[] = [];
+        if (powerPts.length > 5) shearSeries.push({ points: powerPts, type: "line", color: "#2563eb", label: `power law α = ${engNum(alpha ?? NaN, 3)}` });
+        if (logPts.length > 5) shearSeries.push({ points: logPts, type: "line", color: "#059669", label: `log law z₀ = ${engNum(z0 ?? NaN, 3)} m` });
+        if (shearSeries.length) {
+          shearSeries.push({ points: [{ x: v, y: h1 }], type: "scatter", color: "#b91c1c", label: "measurement" });
+          const svg = buildPlotSvg(shearSeries, {
+            width: 380,
+            height: 260,
+            xlabel: "wind speed (m/s)",
+            ylabel: "height above ground (m)",
+            title: "The wind profile, both laws",
+          });
+          return engReport(lines, [
+            {
+              kind: "plot",
+              svg,
+              caption: "Wind speed against height by the power law and the log law, measurement marked",
+              alt: "Two wind shear profiles with height vertical and the measurement point",
+              w: 380,
+              h: 260,
+            },
+          ]);
+        }
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -17582,6 +18095,64 @@ const ENG_CALCS: EngCalc[] = [
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
+
+      // The fitted distribution itself, from the engine's own k and c —
+      // closed form, no constants — with the turbine's operating band as
+      // unlabeled stems. The sweep starts strictly above zero because the
+      // density diverges there for k < 1.
+      if (res.shape > 0 && res.scale > 0) {
+        const kk = res.shape;
+        const cc = res.scale;
+        const pdf = (vv: number): number => (kk / cc) * Math.pow(vv / cc, kk - 1) * Math.exp(-Math.pow(vv / cc, kk));
+        const vTop = Math.max(3 * cc, (vco ?? 0) + 3);
+        const curve: Point[] = [];
+        for (let i2 = 1; i2 <= 120; i2++) {
+          const vv = 0.05 + ((vTop - 0.05) * (i2 - 1)) / 119;
+          const y = pdf(vv);
+          if (Number.isFinite(y)) curve.push({ x: vv, y });
+        }
+        if (curve.length > 20) {
+          const yCap = Math.max(...curve.map((pt) => pt.y));
+          const weibullSeries: Series[] = [{ points: curve, type: "line", color: "#2563eb", label: `Weibull k=${engNum(kk, 3)}, c=${engNum(cc, 3)}` }];
+          for (const bandV of [vci, vr, vco]) {
+            if (bandV !== null && bandV > 0 && bandV <= vTop) {
+              weibullSeries.push({
+                points: [
+                  { x: bandV, y: 0 },
+                  { x: bandV, y: yCap * 0.85 },
+                ],
+                type: "line",
+                color: "#9ca3af",
+              });
+            }
+          }
+          const markers: Point[] = [{ x: res.meanSpeed, y: pdf(res.meanSpeed) }];
+          if (res.mostProbableSpeed !== null) markers.push({ x: res.mostProbableSpeed, y: pdf(res.mostProbableSpeed) });
+          weibullSeries.push({ points: markers.filter((pt) => Number.isFinite(pt.y)), type: "scatter", color: "#b91c1c", label: "mean / mode" });
+          const svg = buildPlotSvg(weibullSeries, {
+            width: 380,
+            height: 260,
+            xlabel: "wind speed (m/s)",
+            ylabel: "probability density (per m/s)",
+            title: "The fitted wind distribution",
+          });
+          return engReport(lines, [
+            {
+              kind: "plot",
+              svg,
+              caption:
+                given === 3
+                  ? "The Weibull density with the turbine's cut-in, rated and cut-out speeds as vertical lines"
+                  : res.mostProbableSpeed !== null
+                    ? "The Weibull density, mean and most probable speeds marked"
+                    : "The Weibull density, mean speed marked (no mode exists for this shape)",
+              alt: "Weibull probability density of wind speed with operating-band markers",
+              w: 380,
+              h: 260,
+            },
+          ]);
+        }
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -17613,6 +18184,72 @@ const ENG_CALCS: EngCalc[] = [
       if (res.drySO2Pct !== null) lines.push(`  Dry SO₂             ${engNum(res.drySO2Pct, 4)} %`);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_SAME_UNIT_NOTE);
+
+      // The combustion-analysis chart: dry CO₂ falling and O₂ rising with
+      // excess air, the fuel's ultimate CO₂ as the ceiling, this reading
+      // marked on both curves. The engine is parameterised by O₂, so the
+      // sweep drives O₂ and reads excess air back out of the same result.
+      {
+        const co2Pts: Point[] = [];
+        const o2Pts: Point[] = [];
+        for (let i2 = 0; i2 <= 70; i2++) {
+          const o2s = (20.5 * i2) / 70;
+          const r2 = flueGas({ formula: r("formula"), o2DryPct: o2s });
+          if (!r2.ok) continue;
+          const ex = r2.excessAir * 100;
+          if (!Number.isFinite(ex) || ex > 200) continue;
+          co2Pts.push({ x: ex, y: r2.dryCO2Pct });
+          o2Pts.push({ x: ex, y: r2.dryO2Pct });
+        }
+        // A reading near ambient O₂ puts the marker at up to 1000% excess
+        // while the curve is capped at 200 — the domain would stretch five
+        // times past the informative knee. Past the cap the figure is
+        // skipped; the numbers above still tell the story.
+        if (co2Pts.length > 10 && res.excessAir * 100 <= 200) {
+          const xEnd = Math.max(...co2Pts.map((pt) => pt.x));
+          const svg = buildPlotSvg(
+            [
+              { points: co2Pts, type: "line", color: "#2563eb", label: "dry CO₂" },
+              { points: o2Pts, type: "line", color: "#059669", label: "dry O₂" },
+              {
+                points: [
+                  { x: 0, y: res.ultimateCO2Pct },
+                  { x: xEnd, y: res.ultimateCO2Pct },
+                ],
+                type: "line",
+                color: "#9ca3af",
+                label: "ultimate CO₂",
+              },
+              {
+                points: [
+                  { x: res.excessAir * 100, y: res.dryCO2Pct },
+                  { x: res.excessAir * 100, y: res.dryO2Pct },
+                ],
+                type: "scatter",
+                color: "#b91c1c",
+                label: "this reading",
+              },
+            ],
+            {
+              width: 380,
+              height: 260,
+              xlabel: "excess air (%)",
+              ylabel: "dry flue gas (mole %)",
+              title: "The combustion-analysis chart",
+            },
+          );
+          return engReport(lines, [
+            {
+              kind: "plot",
+              svg,
+              caption: "Dry CO₂ and O₂ against excess air, with the fuel's ultimate CO₂ ceiling",
+              alt: "Flue-gas composition curves against excess air with this reading marked",
+              w: 380,
+              h: 260,
+            },
+          ]);
+        }
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -17710,6 +18347,50 @@ const ENG_CALCS: EngCalc[] = [
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
+
+      // Bank size against depth of discharge — the 1/DoD hyperbola that
+      // explains why a lead-acid bank at 0.5 DoD is nearly twice a lithium
+      // bank at 0.9 for the same load. Economics omitted from the sweep so it
+      // works whether or not a capital cost was given.
+      {
+        const dodCurve: Point[] = [];
+        for (let i2 = 0; i2 <= 40; i2++) {
+          const dd = 0.2 + (0.8 * i2) / 40;
+          const r2 = storageSizing({
+            dailyLoadKWh: load,
+            autonomyDays: nums.days,
+            depthOfDischarge: dd,
+            roundTripEff: nums.rt,
+            inverterEff: inv,
+          });
+          if (r2.ok && Number.isFinite(r2.bankKWh)) dodCurve.push({ x: dd, y: r2.bankKWh });
+        }
+        if (dodCurve.length > 10) {
+          const svg = buildPlotSvg(
+            [
+              { points: dodCurve, type: "line", color: "#2563eb", label: "bank size" },
+              { points: [{ x: nums.dod, y: res.bankKWh }], type: "scatter", color: "#b91c1c", label: "this DoD" },
+            ],
+            {
+              width: 380,
+              height: 250,
+              xlabel: "depth of discharge",
+              ylabel: "bank size (kWh nameplate)",
+              title: "Bank size against depth of discharge",
+            },
+          );
+          return engReport(lines, [
+            {
+              kind: "plot",
+              svg,
+              caption: "The 1/DoD sizing curve for this load and autonomy, this design marked",
+              alt: "Bank size falling hyperbolically as allowed depth of discharge rises",
+              w: 380,
+              h: 250,
+            },
+          ]);
+        }
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -17749,6 +18430,65 @@ const ENG_CALCS: EngCalc[] = [
       }
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_SAME_UNIT_NOTE);
+
+      // The day's elevation curve, hour by hour through the same astronomy.
+      // Negative elevation IS the night and stays on the plot — polar day and
+      // night are answers here, and clipping at the horizon would hide them.
+      {
+        const dayCurve: Point[] = [];
+        for (let i2 = 0; i2 <= 96; i2++) {
+          const hh = (24 * i2) / 96;
+          const r2 = solarGeometry({ latitudeDeg: lat, dayOfYear: day, solarHour: hh });
+          if (r2.ok && r2.hourElevationDeg !== null && Number.isFinite(r2.hourElevationDeg)) {
+            dayCurve.push({ x: hh, y: r2.hourElevationDeg });
+          }
+        }
+        if (dayCurve.length > 20) {
+          const sgSeries: Series[] = [
+            { points: dayCurve, type: "line", color: "#d97706", label: "solar elevation" },
+            {
+              points: [
+                { x: 0, y: 0 },
+                { x: 24, y: 0 },
+              ],
+              type: "line",
+              color: "#9ca3af",
+            },
+            { points: [{ x: 12, y: res.noonElevationDeg }], type: "scatter", color: "#b91c1c", label: "solar noon" },
+          ];
+          if (res.dayLengthHours > 0 && res.dayLengthHours < 24) {
+            sgSeries.push({
+              points: [
+                { x: 12 - res.dayLengthHours / 2, y: 0 },
+                { x: 12 + res.dayLengthHours / 2, y: 0 },
+              ],
+              type: "scatter",
+              color: "#2563eb",
+              label: "sunrise / sunset",
+            });
+          }
+          if (hour !== undefined && res.hourElevationDeg !== null) {
+            sgSeries.push({ points: [{ x: hour, y: res.hourElevationDeg }], type: "scatter", color: "#059669", label: "this hour" });
+          }
+          const svg = buildPlotSvg(sgSeries, {
+            width: 380,
+            height: 260,
+            xlabel: "solar time (h)",
+            ylabel: "sun elevation (°)",
+            title: "The sun's day at this latitude",
+          });
+          return engReport(lines, [
+            {
+              kind: "plot",
+              svg,
+              caption: `Solar elevation through day ${engNum(day, 3)}; below the horizon line is night`,
+              alt: "Sun elevation against solar time with noon and the sunrise and sunset crossings marked",
+              w: 380,
+              h: 260,
+            },
+          ]);
+        }
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -17807,6 +18547,51 @@ const ENG_CALCS: EngCalc[] = [
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
+
+      // The conventional curve: flame temperature falling with excess air as
+      // the extra nitrogen dilutes the heat. Each point re-runs the same
+      // energy balance; points the engine refuses (a balance that will not
+      // close below its ceiling) are skipped, and the figure only appears if
+      // enough of the sweep survived to be a curve.
+      {
+        const flamePts: Point[] = [];
+        for (let i2 = 0; i2 <= 60; i2++) {
+          const ee = (1.5 * i2) / 60;
+          const r2 = flameTemperature({
+            formula: r("formula"),
+            heatingValueMJPerKg: hv,
+            basis: r("basis") === "HHV" ? "HHV" : "LHV",
+            excessAir: ee,
+            airPreheatC: preheat ?? undefined,
+          });
+          if (r2.ok && Number.isFinite(r2.flameTempK)) flamePts.push({ x: ee * 100, y: r2.flameTempK });
+        }
+        if (flamePts.length >= 5) {
+          const svg = buildPlotSvg(
+            [
+              { points: flamePts, type: "line", color: "#b91c1c", label: "adiabatic flame" },
+              { points: [{ x: (excess ?? 0) * 100, y: res.flameTempK }], type: "scatter", color: "#2563eb", label: "this mixture" },
+            ],
+            {
+              width: 380,
+              height: 250,
+              xlabel: "excess air (%)",
+              ylabel: "flame temperature (K)",
+              title: "Flame temperature against excess air",
+            },
+          );
+          return engReport(lines, [
+            {
+              kind: "plot",
+              svg,
+              caption: "Adiabatic flame temperature falling with excess air; dissociation is not modelled",
+              alt: "Flame temperature against excess air with the entered mixture marked",
+              w: 380,
+              h: 250,
+            },
+          ]);
+        }
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },

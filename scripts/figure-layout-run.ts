@@ -17,6 +17,7 @@ import {
   columnCurveSvg,
   trussSvg,
   torsionProfileSvg,
+  npshLadderSvg,
 } from "../src/lib/mechchart";
 import { buildPlotSvg, Series } from "../src/lib/plot";
 import { weibullFit, reliabilityBlock, kOutOfN, redundancy, availability } from "../src/lib/reliability";
@@ -246,6 +247,121 @@ for (const [mtbf, mttr] of [[2000, 8], [1e6, 0.5]] as [number, number][]) {
       ),
     ]);
   }
+}
+
+// --- v2.83.0: fluids, thermal and fatigue figures --------------------------
+
+// The S-N sketch, both material classes — log x, two legend entries, and the
+// steel knee that pushes a flat segment to the right edge.
+for (const mclass of ["steel", "non-ferrous"] as const) {
+  const sut = 700;
+  const mk = (limit: number) => {
+    const s1000 = 0.9 * sut;
+    const b = -Math.log10(s1000 / limit) / 3;
+    const a = s1000 / Math.pow(1000, b);
+    const endExp = mclass === "steel" ? 6 : Math.log10(5e8);
+    const pts = Array.from({ length: 61 }, (_, i) => {
+      const N = Math.pow(10, 3 + ((endExp - 3) * i) / 60);
+      return { x: N, y: a * Math.pow(N, b) };
+    });
+    if (mclass === "steel") pts.push({ x: 1e7, y: limit });
+    return pts;
+  };
+  figures.push([
+    `sn ${mclass}`,
+    buildPlotSvg(
+      [
+        { points: mk(350), type: "line", color: "#9ca3af", label: "uncorrected Se'" },
+        { points: mk(178), type: "line", color: "#2563eb", label: "corrected Se" },
+      ],
+      { width: 380, height: 260, xScale: "log", xlabel: "cycles to failure N", ylabel: "alternating stress (MPa)", title: "Estimated S-N curve" },
+    ),
+  ]);
+}
+
+// The specific-energy diagram: four legend entries, two scatter points close
+// to the curve's nose where labels like to collide.
+{
+  const Q = 8.6;
+  const g = 9.80665;
+  const A = (y: number) => (3 + 2 * y) * y; // trapezoid b=3, z=2
+  const curve = Array.from({ length: 60 }, (_, i) => {
+    const y = (2.7 * (i + 1)) / 60;
+    return { x: y + (Q * Q) / (2 * g * A(y) * A(y)), y };
+  }).filter((p) => p.x <= 5);
+  figures.push([
+    "spec energy",
+    buildPlotSvg(
+      [
+        { points: curve, type: "line", color: "#2563eb", label: "E(y) at this Q" },
+        { points: [{ x: 0, y: 0 }, { x: 2.7, y: 2.7 }], type: "line", color: "#9ca3af", label: "E = y" },
+        { points: [{ x: 1.31, y: 1.2 }], type: "scatter", color: "#b91c1c", label: "this flow" },
+        { points: [{ x: 1.24, y: 0.83 }], type: "scatter", color: "#059669", label: "critical depth" },
+      ],
+      { width: 380, height: 270, xlabel: "specific energy E (m)", ylabel: "depth y (m)", title: "Specific energy diagram" },
+    ),
+  ]);
+}
+
+// The NPSH ledger: healthy, cavitating, a pump far above the liquid (drives
+// the bars hard right — the case that clipped a value label), and a
+// requirement far past every bar (drives ITS label to the edge).
+figures.push(["npsh ledger", npshLadderSvg({ surfaceHead: 10.35, staticHead: 2, vapourHead: 0.24, losses: 0.5, npshAvailable: 11.61, npshRequired: 3 })]);
+figures.push(["npsh cavitating", npshLadderSvg({ surfaceHead: 10.35, staticHead: -6, vapourHead: 3.8, losses: 1.9, npshAvailable: -1.35, npshRequired: 3 })]);
+figures.push(["npsh deep lift", npshLadderSvg({ surfaceHead: 10.35, staticHead: -50, vapourHead: 0.24, losses: 0.5, npshAvailable: -40.39, npshRequired: 3 })]);
+figures.push(["npsh big requirement", npshLadderSvg({ surfaceHead: 10.35, staticHead: 2, vapourHead: 0.24, losses: 0.5, npshAvailable: 11.61, npshRequired: 120 })]);
+
+// The system head curve — quadratic-ish sweep with the working point on it.
+figures.push([
+  "system head",
+  buildPlotSvg(
+    [
+      { points: Array.from({ length: 36 }, (_, i) => { const q = 15.7 * (0.1 + (1.9 * (i + 1)) / 36); return { x: q, y: 0.052 * q * q }; }), type: "line", color: "#2563eb", label: "system head" },
+      { points: [{ x: 15.7, y: 12.8 }], type: "scatter", color: "#b91c1c", label: "this flow" },
+    ],
+    { width: 380, height: 260, xlabel: "flow rate (L/s)", ylabel: "head loss (m)", title: "System head curve" },
+  ),
+]);
+
+// The wall temperature profile — vertical film steps at both faces.
+figures.push([
+  "wall profile",
+  buildPlotSvg(
+    [{ points: [{ x: 0, y: 20 }, { x: 0, y: 12.4 }, { x: 200, y: 8.1 }, { x: 250, y: -3.9 }, { x: 250, y: -5 }], type: "line", color: "#b91c1c" }],
+    { width: 380, height: 250, xlabel: "distance from inner surface (mm)", ylabel: "temperature (°C)", title: "Temperature through the wall" },
+  ),
+]);
+
+// NPSH against flow: three series, one of them a flat requirement line.
+figures.push([
+  "npsh vs flow",
+  buildPlotSvg(
+    [
+      { points: Array.from({ length: 36 }, (_, i) => { const q = 15 * (0.1 + (1.9 * (i + 1)) / 36); return { x: q, y: 12.1 - 0.02 * q * q }; }), type: "line", color: "#2563eb", label: "NPSH available" },
+      { points: [{ x: 1.5, y: 3 }, { x: 30, y: 3 }], type: "line", color: "#b91c1c", label: "NPSH required" },
+      { points: [{ x: 15, y: 7.6 }], type: "scatter", color: "#059669", label: "this flow" },
+    ],
+    { width: 380, height: 250, xlabel: "flow (L/s)", ylabel: "NPSH (m)", title: "NPSH available against flow" },
+  ),
+]);
+
+// Load blocks over the S-N line — scatter points deliberately ON the curve.
+{
+  const sut = 700, se = 250, s1000 = 0.9 * sut;
+  const b = -Math.log10(s1000 / se) / 3;
+  const a = s1000 / Math.pow(1000, b);
+  const line = Array.from({ length: 61 }, (_, i) => { const N = Math.pow(10, 3 + (3 * i) / 60); return { x: N, y: a * Math.pow(N, b) }; });
+  line.push({ x: 1e7, y: se });
+  figures.push([
+    "sn blocks",
+    buildPlotSvg(
+      [
+        { points: line, type: "line", color: "#2563eb", label: "S-N line" },
+        { points: [{ x: 1000, y: 420 }, { x: 20000, y: 350 }, { x: 500000, y: 280 }], type: "scatter", color: "#b91c1c", label: "applied blocks" },
+      ],
+      { width: 380, height: 260, xScale: "log", xlabel: "cycles N", ylabel: "alternating stress (MPa)", title: "Load blocks against the S-N line" },
+    ),
+  ]);
 }
 
 process.exit(runAudit(figures) ? 1 : 0);

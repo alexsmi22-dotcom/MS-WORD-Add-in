@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.82.1)
+# JurisLab — Manual Test Script (v2.83.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -1092,6 +1092,44 @@ Engineering mode. **Energy & power** grows 8 → 16; the mode must state
 - [ ] All eight new tools insert, subscripts and superscripts intact (O₂, m², kVAR).
 
 ---
+
+## 0ar. New in v2.83.0 - Fluids, thermal and fatigue draw
+
+Six formerly text-only Engineering tools now insert a figure with their data
+(ratchet 34 → 40 of 130). Every legend sits OUTSIDE its plot frame (v2.82.1).
+
+- [ ] **Endurance limit & notch factor**, defaults (Sut 700, machined, 25 mm,
+  bending, 0.99) → inserts the text AND an "Estimated S-N curve" figure with
+  TWO lines: grey `uncorrected Se'` above blue `corrected Se`, both starting
+  at the same point at 10³ cycles, the blue one flattening at 10⁶. Switch the
+  material class to non-ferrous → NEITHER line flattens; both keep falling to
+  the right edge.
+- [ ] **Finite life & cumulative damage**, defaults (three blocks) → "Load
+  blocks against the S-N line": blue S-N line, three red points BELOW or ON
+  it — the 280 MPa block sits essentially ON the line (and carries the
+  biggest damage share in the table), the 420 one well under it.
+- [ ] **Pipe flow & head loss**, defaults → "System head curve": a rising,
+  steepening blue curve with the red `this flow` point ON the curve (15.7 L/s,
+  ~3.8 m).
+- [ ] **Composite wall / pipe insulation**, defaults → "Temperature through
+  the wall": a falling profile from 20 °C to −5 °C with a vertical drop at
+  x = 0 (inside film), a shallow slope across the brick, a steep one across
+  the mineral wool, and a final vertical drop at the outer face.
+- [ ] **Open-channel flow**, defaults → "Specific energy diagram": a C-shaped
+  blue curve, grey `E = y` line, red `this flow` point on the UPPER
+  (subcritical) arm above the green `critical depth` point.
+- [ ] **Pump NPSH & cavitation**, defaults (typed losses) → "Where the suction
+  head goes": five horizontal bars — surface pressure and static head building
+  right, vapour pressure and suction losses cutting back, the green NPSH
+  available bar, the dashed red NPSH-required line left of its end, and
+  "clears NPSHr" in the corner.
+- [ ] Same tool, losses from **Pipe geometry** → a SECOND figure, "NPSH
+  available against flow": blue curve falling with flow, flat red requirement
+  line, green working point between them.
+- [ ] Same tool, static head **-8** (pump above the liquid), vapour pressure
+  **101000** (near-boiling water) → refused or CAVITATES verdict; if a figure
+  inserts, its NPSH-available bar is RED and the corner says "CAVITATES", and
+  no label runs off the right edge of the image.
 
 ## 0aq. New in v2.82.0 - Reliability
 

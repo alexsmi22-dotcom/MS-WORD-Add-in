@@ -6,6 +6,40 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.83.0] — 2026-08-03 — Fluids, thermal and fatigue draw
+
+Continuing the standing requirement that **every calculator inserts data and a
+graph**. Six more tools draw; the figure ratchet rises **34 → 40 of 130**.
+
+- **Endurance limit & notch factor** — the estimated **S-N curve**, uncorrected
+  against corrected, so the Marin knockdown is visible as the gap between the
+  two lines. A steel gets its knee at 10⁶ and runs flat; a non-ferrous alloy
+  has no knee to draw, so its line honestly keeps falling to 5×10⁸.
+- **Finite life & cumulative damage** — the load spectrum plotted over the
+  S-N line it is consuming, each block at its stress and applied cycles.
+- **Pipe flow & head loss** — the **system head curve**: the same pipe swept
+  over flow with Colebrook re-solved at every point, and this flow marked.
+- **Composite wall / pipe insulation** — the **temperature profile** through
+  the layers, film drops as vertical steps; slope IS resistance, so the
+  insulation is the steep segment.
+- **Open-channel flow** — the **specific energy diagram** E(y) at this
+  discharge, with the working depth, the critical depth and the E = y
+  asymptote; which arm the point sits on is the regime the text names.
+- **Pump NPSH & cavitation** — the **NPSH ledger**, a waterfall of where the
+  suction head comes from and where it is spent, against the NPSHr line
+  (drawn for BOTH loss sources — typed losses have no flow axis, and this is
+  the picture that still exists); with the pipe source active, a second
+  figure shows **NPSH available falling with flow** while the requirement
+  stands still.
+
+The independent adversarial pass found one blocker before ship — the S-N
+coefficient (0.9·Sut)²/Se overflows to Infinity for absurd-but-accepted
+strengths, and one non-finite y poisons the whole plot's domain — plus a
+verdict mismatch at exactly zero margin (the engine calls that cavitation;
+the figure said clear), a value label pushed off the canvas by a deep
+suction lift, and a text-order regression in the wall tool's unit report.
+All fixed; the layout audit's corpus grew the shapes that caught them.
+
 ## [2.82.1] — 2026-08-03 — The legend moves outside the plot
 
 User report: "the legend/key should not be inside, it should be outside so

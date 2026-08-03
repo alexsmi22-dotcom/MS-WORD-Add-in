@@ -730,3 +730,112 @@ export function torsionProfileSvg(
   p.push("</g></svg>");
   return p.join("");
 }
+
+export const NPSH_CHART_SIZE = { w: 400, h: 240 };
+
+export interface NpshLadderInput {
+  /** Surface-pressure head pSurface/(ρg), m. */
+  surfaceHead: number;
+  /** Static head, m; negative when the pump sits above the liquid. */
+  staticHead: number;
+  /** Vapour-pressure head pVapour/(ρg), m. Spent. */
+  vapourHead: number;
+  /** Suction-line losses, m. Spent. */
+  losses: number;
+  npshAvailable: number;
+  npshRequired: number;
+}
+
+/**
+ * The NPSH ledger: how the available head is assembled and where it is spent,
+ * against the head the pump demands.
+ *
+ * A waterfall rather than a curve because with TYPED losses there is no flow
+ * axis to draw — the tool may know nothing about the pipe. What the reader
+ * needs is WHERE the head went: surface pressure in, static head in or out,
+ * vapour pressure and friction out, and whether what is left clears NPSHr.
+ */
+export function npshLadderSvg(inp: NpshLadderInput): string {
+  const { w: W, h: H } = NPSH_CHART_SIZE;
+  const vals = [inp.surfaceHead, inp.staticHead, inp.vapourHead, inp.losses, inp.npshAvailable, inp.npshRequired];
+  if (!vals.every(Number.isFinite)) return emptyChart(W, H, "The NPSH inputs do not define a chart");
+
+  // Running edges of the waterfall.
+  const c1 = inp.surfaceHead;
+  const c2 = c1 + inp.staticHead;
+  const c3 = c2 - inp.vapourHead;
+  const c4 = c3 - inp.losses;
+  const rows = [
+    { name: "surface pressure", from: 0, to: c1, gain: true, result: false },
+    { name: "static head", from: c1, to: c2, gain: inp.staticHead >= 0, result: false },
+    { name: "vapour pressure", from: c2, to: c3, gain: false, result: false },
+    { name: "suction losses", from: c3, to: c4, gain: false, result: false },
+    { name: "NPSH available", from: 0, to: c4, gain: true, result: true },
+  ];
+  // STRICTLY greater, because the engine calls a margin of exactly zero
+  // cavitation (fluids.ts: margin <= 0) — the figure must never contradict
+  // the verdict printed beside it.
+  const ok = inp.npshAvailable > inp.npshRequired;
+
+  const ML = 104;
+  const MR = 16;
+  const MT = 26;
+  const MB = 30;
+  const pw = W - ML - MR;
+  const ph = H - MT - MB;
+  const lo = Math.min(0, c1, c2, c3, c4);
+  const hi = Math.max(0.001, c1, c2, c3, c4, inp.npshRequired) * 1.12;
+  if (!(hi > lo) || !Number.isFinite(hi - lo)) return emptyChart(W, H, "The NPSH inputs do not define a chart");
+  const X = (v: number): number => ML + ((v - lo) / (hi - lo)) * pw;
+
+  const p: string[] = [];
+  p.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`);
+  p.push(`<rect width="${W}" height="${H}" fill="${PAPER}"/>`);
+  p.push(`<g font-family="sans-serif" font-size="9" fill="${INK}">`);
+  p.push(`<text x="${(ML + pw / 2).toFixed(1)}" y="15" text-anchor="middle" font-size="11">Where the suction head goes</text>`);
+
+  // Axis + gridlines, in metres of head.
+  const step = niceStep(hi - lo, 5);
+  for (const t of ticks(Math.ceil(lo / step) * step, hi, step)) {
+    p.push(`<line x1="${X(t).toFixed(1)}" y1="${MT}" x2="${X(t).toFixed(1)}" y2="${MT + ph}" stroke="#f0f0f0"/>`);
+    p.push(`<text x="${X(t).toFixed(1)}" y="${MT + ph + 12}" text-anchor="middle">${esc(n1(t))}</text>`);
+  }
+  p.push(`<line x1="${X(0).toFixed(1)}" y1="${MT}" x2="${X(0).toFixed(1)}" y2="${MT + ph}" stroke="${RULE}"/>`);
+
+  // NPSH required, the line the last bar must clear — drawn UNDER the bars
+  // and their value labels, because a line drawn after an opaque-backed label
+  // strikes it out (the audit caught exactly that on a deep suction lift).
+  p.push(`<line x1="${X(inp.npshRequired).toFixed(1)}" y1="${MT}" x2="${X(inp.npshRequired).toFixed(1)}" y2="${MT + ph}" stroke="${POINT}" stroke-dasharray="4 3" stroke-width="1.4"/>`);
+
+  const rowH = ph / rows.length;
+  rows.forEach((rw, i) => {
+    const y = MT + i * rowH + rowH * 0.2;
+    const h = rowH * 0.6;
+    const x0 = Math.min(X(rw.from), X(rw.to));
+    const wBar = Math.max(Math.abs(X(rw.to) - X(rw.from)), 0.75);
+    const fill = rw.result ? (ok ? "#059669" : POINT) : rw.gain ? CIRCLE : POINT;
+    p.push(`<rect x="${x0.toFixed(1)}" y="${y.toFixed(1)}" width="${wBar.toFixed(1)}" height="${h.toFixed(1)}" fill="${fill}" fill-opacity="${rw.result ? "1" : "0.75"}"/>`);
+    p.push(labelText(ML - 6, y + h / 2 + 3, rw.name, { anchor: "end" }));
+    const delta = rw.result ? rw.to : rw.to - rw.from;
+    const deltaTxt = `${delta >= 0 && !rw.result ? "+" : ""}${n1(delta)} m`;
+    // Clamped to the canvas: a bar driven hard right by a large negative
+    // static head would otherwise push its value label past the viewBox,
+    // where it is silently cropped. If it does not fit outside the bar it
+    // goes INSIDE it, right-aligned.
+    const wantX = Math.max(X(rw.from), X(rw.to)) + 4;
+    const estW = deltaTxt.length * 8 * 0.56 + 4;
+    if (wantX + estW <= W - 2) p.push(labelText(wantX, y + h / 2 + 3, deltaTxt, { size: 8 }));
+    else p.push(labelText(Math.max(X(rw.from), X(rw.to)) - 4, y + h / 2 + 3, deltaTxt, { size: 8, anchor: "end" }));
+  });
+
+  // The requirement's label rides above everything; clamped so a requirement
+  // near either edge cannot hang off the canvas.
+  const reqTxt = `NPSH required ${n1(inp.npshRequired)} m`;
+  const reqHalf = (reqTxt.length * 8 * 0.56) / 2 + 3;
+  p.push(labelText(Math.min(Math.max(X(inp.npshRequired), reqHalf + 2), W - reqHalf - 2), MT - 3, reqTxt, { anchor: "middle", fill: POINT }));
+  p.push(labelText(ML + pw - 2, MT + ph - 4, ok ? "clears NPSHr" : "CAVITATES", { anchor: "end", fill: ok ? "#059669" : POINT, size: 9 }));
+
+  p.push(`<text x="${(ML + pw / 2).toFixed(1)}" y="${H - 6}" text-anchor="middle">head (m)</text>`);
+  p.push("</g></svg>");
+  return p.join("");
+}

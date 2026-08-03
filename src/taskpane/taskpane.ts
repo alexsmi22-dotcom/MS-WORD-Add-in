@@ -122,6 +122,8 @@ import {
   COLUMN_CHART_SIZE,
   TRUSS_CHART_SIZE,
   TORSION_CHART_SIZE,
+  NPSH_CHART_SIZE,
+  npshLadderSvg,
   SectionStrip,
 } from "../lib/mechchart";
 import { parseNetlist, parseValue, solveDc, solveAc, frequencySweep, dB } from "../lib/circuit";
@@ -9925,6 +9927,50 @@ const ENG_CALCS: EngCalc[] = [
       );
       u.report(lines);
       lines.push(ENG_UNIT_NOTE);
+
+      // The system head curve: the same pipe swept over flow, with this flow
+      // on it. Head loss grows roughly with Q² (exactly with Q through the
+      // Colebrook factor, which is why each point re-solves it), and where a
+      // pump curve crosses this line is where the system will actually run.
+      const sweep: Point[] = [];
+      for (let i = 1; i <= 36; i++) {
+        const q = res.Q * (0.1 + (1.9 * i) / 36);
+        const p2 = analyzePipe({
+          D: pipeD,
+          L: pipeL,
+          Q: q,
+          eps,
+          rho,
+          mu,
+          sumK: Number(r("K") || "0"),
+        });
+        if (p2.ok && Number.isFinite(p2.hTotal)) sweep.push({ x: q * 1000, y: p2.hTotal });
+      }
+      if (sweep.length > 5) {
+        const svg = buildPlotSvg(
+          [
+            { points: sweep, type: "line", color: "#2563eb", label: "system head" },
+            { points: [{ x: res.Q * 1000, y: res.hTotal }], type: "scatter", color: "#b91c1c", label: "this flow" },
+          ],
+          {
+            width: 380,
+            height: 260,
+            xlabel: "flow rate (L/s)",
+            ylabel: "head loss (m)",
+            title: "System head curve",
+          },
+        );
+        return engReport(lines, [
+          {
+            kind: "plot",
+            svg,
+            caption: "Head loss against flow for this pipe, with the working point",
+            alt: "System head curve from repeated Colebrook solutions, current flow marked",
+            w: 380,
+            h: 260,
+          },
+        ]);
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -10016,14 +10062,22 @@ const ENG_CALCS: EngCalc[] = [
       // back, and it must be the CONVERTED value — printing the raw field would
       // say 68 next to a chain computed at 20.
       const tInSi = u.req("tIn", "°C", "Inside temperature");
+      // Hoisted IN THE ORIGINAL READ ORDER (A/r1/L before the films), because
+      // engUnits records conversions and errors in the order the fields are
+      // read, and that order is part of the visible report text.
+      const AV = geom === "plane" ? u.req("A", "m^2", "Area") : undefined;
+      const r1V = geom === "cylinder" ? u.req("r1", "m", "Inner radius") : undefined;
+      const LcV = geom === "cylinder" ? u.req("Lc", "m", "Length") : undefined;
+      const hInV = u.opt("hIn", "W/m^2/K", "Inside film coefficient", 0);
+      const hOutV = u.opt("hOut", "W/m^2/K", "Outside film coefficient", 0);
       const res = analyzeWall({
         geometry: geom,
         layers,
-        A: geom === "plane" ? u.req("A", "m^2", "Area") : undefined,
-        r1: geom === "cylinder" ? u.req("r1", "m", "Inner radius") : undefined,
-        L: geom === "cylinder" ? u.req("Lc", "m", "Length") : undefined,
-        hIn: u.opt("hIn", "W/m^2/K", "Inside film coefficient", 0),
-        hOut: u.opt("hOut", "W/m^2/K", "Outside film coefficient", 0),
+        A: AV,
+        r1: r1V,
+        L: LcV,
+        hIn: hInV,
+        hOut: hOutV,
         tIn: tInSi,
         tOut: u.req("tOut", "°C", "Outside temperature"),
       });
@@ -10057,6 +10111,53 @@ const ENG_CALCS: EngCalc[] = [
       );
       u.report(lines);
       lines.push(ENG_UNIT_NOTE);
+
+      // The temperature profile through the wall. Slope IS resistance here: a
+      // steep drop across a thin layer is the insulation earning its keep, and
+      // the vertical steps at each face are the films. The walk is positional
+      // — steps come back in chain order (inside film if present, each layer,
+      // outside film if present), which this compute built itself.
+      const profile: Point[] = [{ x: 0, y: tInSi }];
+      let stepIdx = 0;
+      let xmm = 0;
+      let profileOk = true;
+      if (hInV > 0) {
+        if (res.steps[stepIdx]) profile.push({ x: 0, y: res.steps[stepIdx].tAfter });
+        else profileOk = false;
+        stepIdx++;
+      }
+      for (const l of layers) {
+        xmm += l.t * 1000;
+        if (res.steps[stepIdx]) profile.push({ x: xmm, y: res.steps[stepIdx].tAfter });
+        else profileOk = false;
+        stepIdx++;
+      }
+      if (hOutV > 0) {
+        if (res.steps[stepIdx]) profile.push({ x: xmm, y: res.steps[stepIdx].tAfter });
+        else profileOk = false;
+      }
+      if (profileOk && profile.length >= 2 && profile.every((p) => Number.isFinite(p.x) && Number.isFinite(p.y))) {
+        const svg = buildPlotSvg(
+          [{ points: profile, type: "line", color: "#b91c1c" }],
+          {
+            width: 380,
+            height: 250,
+            xlabel: geom === "plane" ? "distance from inner surface (mm)" : "radial distance from inner surface (mm)",
+            ylabel: "temperature (°C)",
+            title: "Temperature through the wall",
+          },
+        );
+        return engReport(lines, [
+          {
+            kind: "plot",
+            svg,
+            caption: "Temperature profile, inside fluid to outside fluid",
+            alt: "Temperature against distance through each layer of the wall",
+            w: 380,
+            h: 250,
+          },
+        ]);
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -11910,9 +12011,11 @@ const ENG_CALCS: EngCalc[] = [
       { key: "q", label: "Notch sensitivity q, 0-1 (1 is conservative)", default: "1", kind: "text" },
     ],
     compute: (r) => {
+      const sutV = Number(r("sut") || "0");
+      const mclassV = (r("mclass") || "steel") as MaterialClass;
       const res = enduranceLimit({
-        sut: Number(r("sut") || "0"),
-        materialClass: (r("mclass") || "steel") as MaterialClass,
+        sut: sutV,
+        materialClass: mclassV,
         surface: (r("surface") || "machined") as SurfaceFinish,
         diameter: Number(r("dia") || "0"),
         load: (r("load") || "bending") as LoadKind,
@@ -11950,6 +12053,59 @@ const ENG_CALCS: EngCalc[] = [
       }
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_FATIGUE_UNIT_NOTE);
+
+      // The S-N sketch the Marin factors imply. Both curves leave 0.9·Sut at
+      // 10^3 cycles; the gap between them IS the correction — usually the
+      // surface finish doing the damage. A steel gets its knee at 10^6 and
+      // runs flat; a non-ferrous alloy has no knee to draw, so its line keeps
+      // falling to 5x10^8, which is the honest picture.
+      const snSketch = (limit: number): Point[] => {
+        const s1000 = 0.9 * sutV;
+        if (!(limit > 0) || !(s1000 > limit) || !Number.isFinite(limit)) return [];
+        const bExp = -Math.log10(s1000 / limit) / 3;
+        // aCoef is (0.9·Sut)²/Se in disguise, and THAT can overflow to
+        // Infinity for absurd-but-accepted strengths — one non-finite y
+        // poisons the whole plot's domain, so the coefficient is checked
+        // rather than the 61 points it would contaminate.
+        const aCoef = s1000 / Math.pow(1000, bExp);
+        if (!Number.isFinite(aCoef)) return [];
+        const endExp = mclassV === "steel" ? 6 : Math.log10(5e8);
+        const pts: Point[] = [];
+        for (let i = 0; i <= 60; i++) {
+          const N = Math.pow(10, 3 + ((endExp - 3) * i) / 60);
+          pts.push({ x: N, y: aCoef * Math.pow(N, bExp) });
+        }
+        if (mclassV === "steel") pts.push({ x: 1e7, y: limit });
+        return pts.filter((p) => Number.isFinite(p.y));
+      };
+      const snCorrected = snSketch(res.se);
+      const snUncorrected = snSketch(res.sePrime);
+      if (snCorrected.length && snUncorrected.length) {
+        const svg = buildPlotSvg(
+          [
+            { points: snUncorrected, type: "line", color: "#9ca3af", label: "uncorrected Se'" },
+            { points: snCorrected, type: "line", color: "#2563eb", label: "corrected Se" },
+          ],
+          {
+            width: 380,
+            height: 260,
+            xScale: "log",
+            xlabel: "cycles to failure N",
+            ylabel: "alternating stress (MPa)",
+            title: "Estimated S-N curve",
+          },
+        );
+        return engReport(lines, [
+          {
+            kind: "plot",
+            svg,
+            caption: "Estimated S-N curve, uncorrected against corrected",
+            alt: "S-N curves before and after the Marin corrections",
+            w: 380,
+            h: 260,
+          },
+        ]);
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -12268,6 +12424,56 @@ const ENG_CALCS: EngCalc[] = [
       );
       for (const note of dmg.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_FATIGUE_UNIT_NOTE);
+
+      // The load blocks against the S-N line they are consuming. A point left
+      // of the line has life in hand at that stress; a point at or past it has
+      // spent this block's share on its own. Same construction as the engine:
+      // 0.9·Sut at 10^3 to Se at 10^6, flat past the knee only for steel.
+      const s1000 = 0.9 * sut;
+      const applied: Point[] = dmg.blocks
+        .filter((b) => Number.isFinite(b.applied) && b.applied > 0 && Number.isFinite(b.sigmaA) && b.sigmaA > 0)
+        .map((b) => ({ x: b.applied, y: b.sigmaA }));
+      if (se > 0 && s1000 > se && applied.length) {
+        const bExp = -Math.log10(s1000 / se) / 3;
+        // Same overflow guard as the endurance tool: aCoef is (0.9·Sut)²/Se
+        // and Infinity here becomes NaN in every SVG coordinate.
+        const aCoef = s1000 / Math.pow(1000, bExp);
+        if (!Number.isFinite(aCoef)) return { text: plainDashes(lines.join("\n")) };
+        const endExp = mclass === "steel" ? 6 : Math.max(Math.log10(5e8), ...applied.map((p) => Math.log10(p.x)));
+        let snLine: Point[] = [];
+        for (let i = 0; i <= 60; i++) {
+          const N = Math.pow(10, 3 + ((endExp - 3) * i) / 60);
+          snLine.push({ x: N, y: aCoef * Math.pow(N, bExp) });
+        }
+        if (mclass === "steel") {
+          snLine.push({ x: Math.max(1e7, ...applied.map((p) => p.x * 1.5)), y: se });
+        }
+        snLine = snLine.filter((p) => Number.isFinite(p.y));
+        const svg = buildPlotSvg(
+          [
+            { points: snLine, type: "line", color: "#2563eb", label: "S-N line" },
+            { points: applied, type: "scatter", color: "#b91c1c", label: "applied blocks" },
+          ],
+          {
+            width: 380,
+            height: 260,
+            xScale: "log",
+            xlabel: "cycles N",
+            ylabel: "alternating stress (MPa)",
+            title: "Load blocks against the S-N line",
+          },
+        );
+        return engReport(lines, [
+          {
+            kind: "plot",
+            svg,
+            caption: "Load spectrum against the S-N line",
+            alt: "S-N line with each applied load block plotted at its stress and cycle count",
+            w: 380,
+            h: 260,
+          },
+        ]);
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -13255,17 +13461,15 @@ const ENG_CALCS: EngCalc[] = [
       const sel = MANNING_N.find((m) => m.id === r("nsel")) ?? MANNING_N[2];
       const n = r("n").trim() ? Number(r("n")) : sel.typical;
       const u = engUnits(r);
-      const res = openChannelFlow({
-        shape: (r("shape") || "trapezoidal") as ChannelShape,
-        // Lengths convert; the side slope, Manning's n and the bed slope are
-        // dimensionless ratios with nothing to convert.
-        b: u.opt("b", "m", "Bed width", 0),
-        z: Number(r("z") || "0"),
-        D: u.opt("D", "m", "Diameter", 0),
-        y: u.req("y", "m", "Flow depth"),
-        n,
-        S: Number(r("S") || "0"),
-      });
+      const shapeV = (r("shape") || "trapezoidal") as ChannelShape;
+      // Lengths convert; the side slope, Manning's n and the bed slope are
+      // dimensionless ratios with nothing to convert.
+      const bV = u.opt("b", "m", "Bed width", 0);
+      const zV = Number(r("z") || "0");
+      const DV = u.opt("D", "m", "Diameter", 0);
+      const yV = u.req("y", "m", "Flow depth");
+      const SV = Number(r("S") || "0");
+      const res = openChannelFlow({ shape: shapeV, b: bV, z: zV, D: DV, y: yV, n, S: SV });
       if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
       if (!res.ok) return { text: res.error, ok: false };
 
@@ -13286,6 +13490,65 @@ const ENG_CALCS: EngCalc[] = [
       lines.push(`Specific energy = ${engNum(res.specificEnergy)} m`);
       for (const note of res.notes) lines.push(`Note: ${note}`);
       lines.push(ENG_UNIT_NOTE);
+
+      // The specific-energy diagram at THIS discharge: E(y) = y + Q²/(2gA²),
+      // depth on the vertical as it is always drawn. The two arms meeting at
+      // the critical depth are the two ways the channel can carry the same
+      // water, and which arm this flow sits on is the regime the text names.
+      // A(y) is re-asked of the engine per depth so every section shape is
+      // priced by the same geometry code, not re-derived here.
+      const Qd = res.discharge;
+      const g = 9.80665;
+      let yTop = 2.2 * Math.max(yV, res.criticalDepth ?? yV);
+      if (shapeV === "circular") yTop = Math.min(yTop, DV * 0.98);
+      const eCap = Math.max(res.specificEnergy * 2.5, yTop * 1.6);
+      const eCurve: Point[] = [];
+      for (let i = 1; i <= 60; i++) {
+        const yy = (yTop * i) / 60;
+        const geo = openChannelFlow({ shape: shapeV, b: bV, z: zV, D: DV, y: yy, n, S: SV });
+        if (!geo.ok || !(geo.area > 0)) continue;
+        const E = yy + (Qd * Qd) / (2 * g * geo.area * geo.area);
+        if (Number.isFinite(E) && E <= eCap) eCurve.push({ x: E, y: yy });
+      }
+      if (eCurve.length > 10 && Number.isFinite(res.specificEnergy)) {
+        const series: Series[] = [
+          { points: eCurve, type: "line", color: "#2563eb", label: "E(y) at this Q" },
+          {
+            points: [
+              { x: 0, y: 0 },
+              { x: yTop, y: yTop },
+            ],
+            type: "line",
+            color: "#9ca3af",
+            label: "E = y",
+          },
+          { points: [{ x: res.specificEnergy, y: yV }], type: "scatter", color: "#b91c1c", label: "this flow" },
+        ];
+        if (res.criticalDepth !== null) {
+          const gc = openChannelFlow({ shape: shapeV, b: bV, z: zV, D: DV, y: res.criticalDepth, n, S: SV });
+          if (gc.ok && gc.area > 0) {
+            const Ec = res.criticalDepth + (Qd * Qd) / (2 * g * gc.area * gc.area);
+            if (Number.isFinite(Ec)) series.push({ points: [{ x: Ec, y: res.criticalDepth }], type: "scatter", color: "#059669", label: "critical depth" });
+          }
+        }
+        const svg = buildPlotSvg(series, {
+          width: 380,
+          height: 270,
+          xlabel: "specific energy E (m)",
+          ylabel: "depth y (m)",
+          title: "Specific energy diagram",
+        });
+        return engReport(lines, [
+          {
+            kind: "plot",
+            svg,
+            caption: "Specific energy against depth at this discharge",
+            alt: "Specific energy diagram with the working depth and the critical depth marked",
+            w: 380,
+            h: 270,
+          },
+        ]);
+      }
       return { text: plainDashes(lines.join("\n")) };
     },
   },
@@ -13365,6 +13628,9 @@ const ENG_CALCS: EngCalc[] = [
       // --- suction losses: typed, or computed from the pipe ------------------
       const fromPipe = r("hlsrc") === "pipe";
       let hLoss = fromPipe ? NaN : u.opt("hloss", "m", "Suction losses", 0);
+      // Filled inside the pipe branch, where the geometry lives; used for the
+      // NPSH-against-flow figure at the bottom.
+      let suctionSweep: { D: number; L: number; Q: number; eps: number; sumK: number; rho: number; mu: number } | null = null;
       if (fromPipe) {
         const D = u.req("sD", "m", "Suction pipe diameter");
         const L = u.req("sL", "m", "Suction pipe length");
@@ -13381,6 +13647,7 @@ const ENG_CALCS: EngCalc[] = [
         const pipe = analyzePipe({ D, L, Q, eps, rho: Number.isFinite(rho) ? rho : wp.rho, mu: wp.mu, sumK });
         if (!pipe.ok) return { text: `Suction line: ${pipe.error}`, ok: false };
         hLoss = pipe.hTotal;
+        suctionSweep = { D, L, Q, eps, sumK, rho: Number.isFinite(rho) ? rho : wp.rho, mu: wp.mu };
         handoffs.push(
           `Suction-line loss computed here from the pipe geometry rather than carried across: ` +
             `${engNum(pipe.hMajor, 4)} m friction + ${engNum(pipe.hMinor, 4)} m fittings = ` +
@@ -13397,13 +13664,17 @@ const ENG_CALCS: EngCalc[] = [
         }
       }
 
+      const pSurfaceV = u.req("psurf", "Pa", "Surface pressure");
+      const pVapourV = u.req("pvap", "Pa", "Vapour pressure");
+      const staticHeadV = u.opt("hstat", "m", "Static head", 0);
+      const npshrV = u.req("npshr", "m", "Required NPSH");
       const res = npshAnalysis({
-        pSurface: u.req("psurf", "Pa", "Surface pressure"),
-        pVapour: u.req("pvap", "Pa", "Vapour pressure"),
+        pSurface: pSurfaceV,
+        pVapour: pVapourV,
         rho,
-        staticHead: u.opt("hstat", "m", "Static head", 0),
+        staticHead: staticHeadV,
         suctionLosses: hLoss,
-        npshRequired: u.req("npshr", "m", "Required NPSH"),
+        npshRequired: npshrV,
         Q: r("Q").trim() ? Number(r("Q")) : undefined,
         head: r("head").trim() ? Number(r("head")) : undefined,
         eta: r("eta").trim() ? Number(r("eta")) : undefined,
@@ -13444,7 +13715,72 @@ const ENG_CALCS: EngCalc[] = [
           "the term through which NPSH available collapses as the liquid gets hotter.",
       );
       lines.push(ENG_UNIT_NOTE);
-      return { text: plainDashes(lines.join("\n")) };
+
+      // The NPSH ledger draws for BOTH loss sources — typed losses have no
+      // flow axis, and where the head went is the picture that matters.
+      const gAcc = 9.80665;
+      const figBlocks: AnalyzeBlock[] = [
+        {
+          kind: "plot",
+          svg: npshLadderSvg({
+            surfaceHead: pSurfaceV / (rho * gAcc),
+            staticHead: staticHeadV,
+            vapourHead: pVapourV / (rho * gAcc),
+            losses: hLoss,
+            npshAvailable: res.npshAvailable,
+            npshRequired: npshrV,
+          }),
+          caption: "The NPSH ledger: head assembled, spent, and demanded",
+          alt: "Waterfall of suction head contributions against the required NPSH",
+          w: NPSH_CHART_SIZE.w,
+          h: NPSH_CHART_SIZE.h,
+        },
+      ];
+      // With the pipe source there IS a flow axis, so the second figure shows
+      // the real hazard: NPSH available falling with the square of flow while
+      // the requirement stands still. Each point re-solves Colebrook.
+      if (suctionSweep) {
+        const base = pSurfaceV / (rho * gAcc) + staticHeadV - pVapourV / (rho * gAcc);
+        const avail: Point[] = [];
+        for (let i = 1; i <= 36; i++) {
+          const q = suctionSweep.Q * (0.1 + (1.9 * i) / 36);
+          const p2 = analyzePipe({ ...suctionSweep, Q: q });
+          if (p2.ok && Number.isFinite(p2.hTotal)) avail.push({ x: q * 1000, y: base - p2.hTotal });
+        }
+        if (avail.length > 5) {
+          const svg = buildPlotSvg(
+            [
+              { points: avail, type: "line", color: "#2563eb", label: "NPSH available" },
+              {
+                points: [
+                  { x: avail[0].x, y: npshrV },
+                  { x: avail[avail.length - 1].x, y: npshrV },
+                ],
+                type: "line",
+                color: "#b91c1c",
+                label: "NPSH required",
+              },
+              { points: [{ x: suctionSweep.Q * 1000, y: res.npshAvailable }], type: "scatter", color: "#059669", label: "this flow" },
+            ],
+            {
+              width: 380,
+              height: 250,
+              xlabel: "flow (L/s)",
+              ylabel: "NPSH (m)",
+              title: "NPSH available against flow",
+            },
+          );
+          figBlocks.push({
+            kind: "plot",
+            svg,
+            caption: "NPSH available falling with flow, against the requirement",
+            alt: "NPSH available versus flow with the required NPSH line and the working point",
+            w: 380,
+            h: 250,
+          });
+        }
+      }
+      return engReport(lines, figBlocks);
     },
   },
   {

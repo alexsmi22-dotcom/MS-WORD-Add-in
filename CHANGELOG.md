@@ -6,6 +6,167 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.82.0] — 2026-08-02 — Reliability, a discipline the bench did not have
+
+Fourth release against the engineering deep dive, and the first that adds a
+**discipline** rather than depth in an existing one. Engineering **125 → 130**
+across **twenty** disciplines. All five new tools insert a figure; ratchet
+**29 → 34 of 130**.
+
+Everything here is arithmetic over rates and lives **you** supply. There is no
+built-in failure-rate handbook and there will not be one: a failure rate is a
+property of a part in a duty cycle in an environment, and a table of them would
+be wrong for every application except the one it was measured in — the same
+refusal this bench already makes for Cd, emissivity and Thiele-Small parameters.
+
+### Life data: Weibull fit
+
+Fitted by **maximum likelihood**, not by regression on a probability plot.
+Median-rank regression needs a plotting-position approximation with fitted
+constants in it, and the likelihood equation is exact and needs nothing but the
+data. The plot is still drawn — the points use the mean plotting position
+i/(n+1), which is a theorem rather than an approximation — but nothing reported
+comes from it.
+
+**Units still running are entered as suspensions and used IN the fit.** A unit
+that has not failed says the life is *at least* that long, which is real
+information; discarding it biases the fitted life short. Johnson rank adjustment
+handles the censored ranks for the plot.
+
+**The shape parameter is the answer, not the mean life.** Below 1 the hazard
+falls with age, so the parts are dying young: burn-in helps and scheduled
+replacement actively *hurts*, because it swaps a proven part for a fresh one.
+Above 1 the hazard rises and replacing on a schedule buys something. At 1 the
+hazard is constant and replacing on age achieves nothing at all — and that is
+the only case where quoting a single failure rate is defensible.
+
+**The regime is read from a likelihood-ratio confidence interval, not from the
+point estimate.** The shipped default fits β = 1.640 with an interval of 0.827
+to 2.786. That interval straddles 1, so the answer is **constant hazard** — not
+wear-out, which the point estimate on its own would have claimed. Two units with
+a fitted β of 2.62 come back the same way, on an interval of 0.57 to 7.07. A
+fitted β above 1 from a handful of failures is a statement about the sample size,
+not about the parts, and only an interval clear of 1 is evidence of anything.
+
+**MTTF ≠ MTBF ≠ 1/λ.** MTTF is the mean of a life distribution and equals 1/λ
+only when β = 1; MTBF is time *between* failures on a repairable item, and only
+that reading belongs in an availability calculation. The module keeps them apart
+in its own naming and says which is which in its output.
+
+### Series and parallel systems
+
+Failure rates add in series, so a system is always worse than its worst part —
+and the **component carrying most of the rate is named**, because improving
+anything else is close to wasted effort until that one moves.
+
+In parallel the system outlives every part, but the mean life grows only as
+1 + 1/2 + 1/3 + …: the second unit buys half what the first did, the tenth buys
+a tenth. **The independence assumption is doing all the work**, and a shared
+supply, a shared cooling loop, a common design error or one maintenance mistake
+takes out every branch at once.
+
+Where the parallel mean life cannot be computed accurately — thirteen or more
+units at differing rates, where the exact expression is an alternating sum over
+every subset — it is **not reported, and it says why**. The reliability at the
+mission time stays exact.
+
+### k-out-of-n, standby spares, availability
+
+**k-out-of-n** for voting logic and pump trains, on log-gamma binomials so
+n = 500 does not overflow. Requiring all n is a series system wearing redundant
+clothing and is *worse* than one unit; requiring 1 of n is full parallel.
+
+**Active against standby.** Standby beats active because of two assumptions and
+not because it is better engineering: the spare is assumed not to age while it
+waits, and the switch is assumed never to fail. A switch with its own failure
+rate can make standby **worse** than active, because it puts a single point of
+failure in front of every spare. The mean life grows **linearly** with standby
+units and only **harmonically** with active ones.
+
+**Availability**, labelled what it is: **inherent**. It counts the repair and
+nothing else. Waiting for a spare, a technician, a maintenance window or
+permission is real downtime and none of it is in this number, so the operational
+figure is always lower. Availability also **multiplies down a series** — five
+99.6% units in series is 98.0%, which is 173 h down a year against 35.
+
+### Two product-wide plot fixes
+
+**A tiny axis range drew half a million ticks.** Both tick walks in the shared
+plotter ended at `t <= max + 1e-9` — an **absolute** epsilon, on axes whose whole
+range may be far smaller than 1e-9. Femtoseconds and nanoamps are ordinary pasted
+data, and at an x span of 1e-14 that slack is a billion steps wide: measured,
+**500,007 tick labels and a 128 MB SVG** for a single plot, every extra tick off
+the canvas. In a task pane that is not a bad-looking chart, it is a frozen Word.
+The slack is now relative to the step, and both loops are counted. Pre-existing,
+not introduced here, and reachable from Plot mode with any pasted column in small
+units.
+
+**The right margin of every plot in JurisLab was a flat 14 px** while the left
+has been computed from its widest label since the margin work. X tick labels are
+centred on their tick, so a tick on the right edge hung half its width off the
+canvas — and "2.5e+4" is 36 px wide. Found on a reliability figure whose x axis
+runs to a 25,000-hour mission; the defect was in the shared plotter and affected
+every plot with wide numbers on the x axis. The right margin is now computed the
+same way the left one is.
+
+### Caught by the independent adversarial pass, before any of it shipped
+
+Ten findings over the diff, behind a fully green suite and thirteen passing
+gates. The three that mattered:
+
+- **Two letters meant two things, and the parser picked.** "s" is seconds and
+  also "suspended"; "d" is days and also "dead". `412 s` was read as 412 **hours,
+  suspended** and `412 d` as 412 hours **failed** — a factor of 3600 and of 24,
+  silently, in the one field of this discipline that does not go through the
+  shared unit layer, under a unit note claiming every duration converts. Both are
+  now refused by name, and the life table properly converts h/min/sec/day.
+- **`Motor, 1,200, 2` became a component called "Motor 1" failing 200 times an
+  hour.** Comma fields are now read positionally and a fourth field is refused
+  as a thousands separator.
+- **The regime claim in this changelog was wrong.** It said a fitted β of 1.3
+  from eight units is reported as "not resolved". It is reported as **constant
+  hazard**, because the interval straddles 1 — the right behaviour, the wrong
+  word. Corrected here and on both landing pages.
+
+Also fixed: a never-failing branch with more than twelve units was told its mean
+life was unreportable "because the alternating sum loses accuracy", three lines
+under a reliability of 100.0000 %; the short-mission note printed **"0 active, 0
+standby"** for the two probabilities in the sentence saying that is where the
+difference lives (they are 1e-31 and 1e-37, and only the subtraction destroyed
+them); the redundancy figure stopped at 20 units while n may be 200; the parallel
+figure compared against the *worst* part when the claim being made is that the
+system outlives *every* part; `rel-koon` accepted a typed reliability and a
+failure rate that disagreed and printed two confident numbers about two different
+components; and Reliability was missing from the README, FEATURES.md and the
+index tagline, which listed 16 names under a claim of twenty.
+
+### Caught while building, before any of it shipped
+
+- **`Math.max(...array)` blew the stack** at 600,000 units. In a task pane an
+  uncaught throw is not an error message, it is a dead pane. Quantities are now
+  multipliers rather than expanded entries, and every reduction is a loop.
+- The redundancy gain ratio printed **"not finitex"** where the system failure
+  probability underflowed to zero.
+- The life-data parser **refused "900 +"** — a space before the suspension mark
+  — in an error message that told the reader to use a trailing +.
+- The Weibull fit was capped at 20,000 units, measured: 20,000 fits in 0.4 s and
+  100,000 in 2 s, which is a visibly hung pane for a data set nobody types.
+
+### Gates
+
+`ENG_RELIABILITY_UNIT_NOTE` is a **new unit contract** — every duration converts
+(h, day, min, s) and failure rates do not, because the unit layer carries no
+reciprocal time and "1e-5 /h" is refused rather than misread. "Year" is
+deliberately not accepted: it means 8760 h, 8766 h or 2000 operating hours
+depending on who is asking. The contract gate was **widened from a two-way split
+to a named set of converting contracts** rather than exempting the five tools,
+so a reliability tool still cannot read hours with `Number()`. A further
+assertion pins that every duration is read with hours as its target.
+
+Every closed form is checked against an independent second path: a 2-D grid
+maximisation of the likelihood, an exhaustive enumeration over every up/down
+combination, and numerical integration of the survival function. 36 new tests.
+
 ## [2.81.0] — 2026-08-02 — Fluids breadth, and fracture mechanics
 
 Third release against the engineering deep dive. **Fluids 4 → 8, Fatigue &

@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.81.0)
+# JurisLab — Manual Test Script (v2.82.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -1090,6 +1090,121 @@ Engineering mode. **Energy & power** grows 8 → 16; the mode must state
 - [ ] **Wind + altitude**: blank the density, set altitude 2000 m → the result notes
   density **1.0065 kg/m³ from the ISA** — the same atmosphere the aviation tools use.
 - [ ] All eight new tools insert, subscripts and superscripts intact (O₂, m², kVAR).
+
+---
+
+## 0aq. New in v2.82.0 - Reliability
+
+Engineering: a **twentieth discipline**, **Reliability (5)**, and the mode states
+**130**. All five insert a figure.
+
+### Life data: Weibull fit
+These are the strings the pane prints, not rounded versions of them. A mismatch
+in the last digit is a real failure, not a tolerance.
+
+- [ ] Defaults (8 failures, 4 units still running at 2000 h) → beta **1.64**, eta
+  **1750.7 h**, B10 **443.84 h**, median **1400.1 h**, mean life **1566.3 h**,
+  hazard **constant hazard**, interval on beta **0.8268 to 2.786**, failures
+  **8 of 12**. The figure is a probability plot: points close to a straight line,
+  with the fitted line through them.
+- [ ] The "Report reliability at this age" default of 1000 h → **67.09 %**.
+- [ ] That interval straddles 1, so it must NOT claim wear-out. A beta of 1.64
+  from eight failures is not evidence of anything — that is the point of the
+  interval.
+- [ ] The output states **4 of the 12 units had not failed** and that they are in
+  the likelihood rather than discarded.
+- [ ] Change every `+` to `F` (pretend the survivors failed at 2000 h) → **eta
+  falls from 1750.7 h to 1454.4 h**. That is the bias the suspensions exist to
+  prevent.
+- [ ] Type just two lines, `100 F` and `250 F` → it still fits, and reports the
+  regime as **constant hazard** with an interval running from about **0.57 to
+  7.07**. A fitted beta of 2.6 from two units is NOT wear-out, and it must not say
+  it is.
+- [ ] Type `900 maybe` on a line → refused, naming `"maybe"`, and the message
+  offers 1/F, 0/+ and a duration unit.
+- [ ] **The two ambiguous letters must be refused, not guessed.** `412 s` → refused,
+  naming *seconds, or "suspended"*. `412 d` → refused, naming *days, or "dead"*.
+  Reading either one silently is a factor of 3600 or 24.
+- [ ] Units on the time DO convert here: `3 day` and `3day` are both **72 h**,
+  `412 sec` is **0.1144 h**, `412 h` is 412. Write `sec` and `day` in full.
+- [ ] `0x10 F` → refused. It is not a life in hours, whatever `Number()` thinks.
+- [ ] Delete every `F` so nothing has failed → **"Nothing has failed yet"**.
+- [ ] Leave one failure and censor the rest → **"One failure cannot fix both a
+  shape and a scale."**
+- [ ] Set all four times to the same number → refused, naming the shape parameter
+  running to infinity.
+
+### Series and parallel systems
+- [ ] Defaults, **series**, 8760 h → **10 units**, reliability **1.0698 %**,
+  chance of failure **0.9893**, system rate **5.180e-4 per hour**, MTTF
+  **1930.5 h**. The **"Where the failures come from"** block reads **Pump 46.3 %,
+  Control valve 29.0 %, Sensor 23.2 %, Controller 1.5 %**. Figure: system curve
+  BELOW the **worst** single unit.
+- [ ] Switch to **parallel** → reliability **99.9996 %**, chance of failure
+  **3.645e-6**, MTTF **146190 h**. No system failure rate is quoted, because a
+  parallel system has no constant one. The **common-cause** note is present.
+- [ ] The parallel figure compares against the **best** single unit, not the
+  worst — the claim is that the system outlives *every* part, and only the best
+  part tests that. The legend and caption must both say "best single unit".
+- [ ] Set a quantity to `2.5` → refused, naming the whole quantity.
+- [ ] Write a line as `Pump 1.2e-4 2` with no commas → still read.
+- [ ] `Bearing 6205 1.5e-5` (a part number in the name, no commas) → read as one
+  bearing at 1.5e-5/h. It must NOT complain that 1.5e-5 is not a quantity.
+- [ ] `Motor, 1,200, 2` → refused, naming the **four** comma fields and the
+  thousands separator. Silently reading it as 200 failures an hour is the defect
+  this refusal exists for.
+- [ ] Set one component's rate to `0` and add enough others to exceed 12 units →
+  the note must say **a branch never fails**, not that an alternating sum lost
+  accuracy.
+- [ ] Enter thirteen components at differing rates, parallel → the mean time to
+  failure is **not reported**, and it says why. Reliability is still shown.
+
+### k-out-of-n
+- [ ] Defaults 2 of 3 → one unit **64.5326 %** (derived from the rate and the
+  mission, and it says so), system **71.1850 %**, chance of failure **0.2881**,
+  mean life factor **0.8333**, MTTF **16667 h**. Figure: a curve above the
+  diagonal with the operating point marked in red.
+- [ ] Set k = 3 (all of them) → **26.8743 %**, which is BELOW one unit's
+  64.5326 %, and the note calls it **a SERIES system wearing redundant
+  clothing**.
+- [ ] Type a unit reliability of `0.9` while leaving the rate at 5e-5 → a note
+  says **THE TWO FIELDS DISAGREE** and names both numbers. Two inconsistent
+  inputs must not produce two confident numbers in silence.
+- [ ] Set k = 5, n = 3 → refused: **you cannot need more units than you have**.
+- [ ] Set n = 500, k = 250, unit reliability 0.6 → a real number, not `NaN`.
+
+### Active or standby spares
+- [ ] Defaults → single **60.6531 %**, active **93.9084 %**, standby **98.5612 %**;
+  mean lives **10000 / 18333 / 30000 h**. The figure shows a straight standby
+  line against a flattening active curve.
+- [ ] Set the rate to `1e-7`, n to `10`, the mission to `10000 h` → the
+  short-mission note compares FAILURE probabilities and they are **9.95e-31
+  active** and **2.75e-37 standby**, not `0`. Two zeroes in the sentence that
+  says "that is where the difference lives" is the failure.
+- [ ] Set n to `200` → the figure's x axis reaches **200**, so the arrangement
+  asked about is on the figure the caption describes.
+- [ ] The notes state BOTH assumptions — the spare **does not age**, the switch
+  **never fails** — and that a switch with its own rate can make standby worse.
+- [ ] Set n = 1 → all three agree, and it says there is no spare.
+- [ ] Set the rate to 0 → nothing overflows; it says nothing ever fails.
+
+### Availability
+- [ ] Defaults (MTBF 2000 h, MTTR 8 h, 8760 h) → **99.6016 %**, unavailability
+  **0.003984**, up **8725.1 h**, down **34.9 h**, **4.363 failures expected**.
+  The note says **INHERENT** and names what is not counted.
+- [ ] Enter 5 in series → **98.0238 %** and **173.12 h down**, against 34.9 for
+  one.
+- [ ] Set MTTR to `0` → availability exactly 100 %, and the note says **by
+  construction**.
+- [ ] Set MTBF to `0` → refused.
+
+### Units, on every tool in this discipline
+- [ ] Enter a mission time of `3 day` → read as **72 h**, and the "Units read"
+  block says so.
+- [ ] Enter `5 yr` → **refused by name**. A year is 8760 h, 8766 h or 2000
+  operating hours depending on who is asking, and the tool will not pick.
+- [ ] Enter a failure rate as `1e-5 /h` → refused. Rates are plain numbers per
+  hour, and the unit note says so.
 
 ---
 

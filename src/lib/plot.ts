@@ -441,7 +441,7 @@ function leftMarginFor(series: Series[], options: PlotOptions): number {
   } else {
     const step = niceStep(ymax - ymin, 5);
     // Bounded, because `Number.isFinite` on the inputs is not a bound.
-    for (let i = 0, t = Math.ceil(ymin / step) * step; i <= 60 && t <= ymax + 1e-9; i++, t += step) {
+    for (let i = 0, t = Math.ceil(ymin / step) * step; i <= TICK_CAP && t <= ymax + step * TICK_EPS; i++, t += step) {
       widest = Math.max(widest, fmtTick(snapNearZero(t, step)).length);
     }
   }
@@ -456,6 +456,70 @@ function leftMarginFor(series: Series[], options: PlotOptions): number {
   const needed = widest * 6 + 7 + (options.ylabel ? titleRight + 4 : 4);
   return Math.min(Math.max(48, Math.ceil(needed)), 130);
 }
+
+/**
+ * How much room the LAST x tick label needs to the right of the plot frame.
+ *
+ * The left margin has been computed from its widest label since the margin
+ * work; the right one was a flat 14 px, and x tick labels are centred on their
+ * tick. A tick sitting on the right edge therefore hangs half its width off the
+ * canvas, and "2.5e+4" is 36 px wide — the reliability figures put a 25,000-hour
+ * mission on the x axis and clipped, but the defect is in the shared plotter
+ * and every wide-numbered x axis in the product had it.
+ *
+ * Conservative by design: it assumes the last tick lands exactly on the edge
+ * rather than solving for where it lands, because that solve depends on the
+ * margin being computed. The cost of the assumption is a few pixels of plot
+ * width on the plots that need it and nothing at all on the ones that do not.
+ */
+function rightMarginFor(series: Series[], options: PlotOptions): number {
+  const DEFAULT = 14;
+  const logX = options.xScale === "log";
+  const tx = (x: number): number => (logX ? Math.log10(x) : x);
+  const all: Point[] = [];
+  for (const s of series) for (const p of s.points) all.push(p);
+  const xs = all.map((p) => tx(p.x)).filter((v) => Number.isFinite(v));
+  if (!xs.length) return DEFAULT;
+  let xmin = minOf(xs);
+  let xmax = maxOf(xs);
+  if (xmin === xmax) {
+    xmin -= 1;
+    xmax += 1;
+  }
+  if (!Number.isFinite(xmin) || !Number.isFinite(xmax)) return DEFAULT;
+
+  let widest = 0;
+  if (logX) {
+    const { major } = logTicks(xmin, xmax);
+    for (const v of major) widest = Math.max(widest, fmtLogTick(v).length);
+  } else {
+    const step = niceStep(xmax - xmin, 6);
+    // Bounded, for the same reason the left margin's walk is bounded.
+    for (let i = 0, t = Math.ceil(xmin / step) * step; i <= TICK_CAP && t <= xmax + step * TICK_EPS; i++, t += step) {
+      widest = Math.max(widest, fmtTick(snapNearZero(t, step)).length);
+    }
+  }
+  return Math.min(Math.max(DEFAULT, Math.ceil((widest * 6) / 2) + 2), 60);
+}
+
+/**
+ * THE TICK LOOPS ARE BOUNDED, AND THEIR SLACK IS RELATIVE.
+ *
+ * Both walks used `t <= max + 1e-9` — an ABSOLUTE epsilon, on axes whose whole
+ * range may be far smaller than 1e-9. Femtoseconds and nanoamps are ordinary
+ * pasted data, and at an x span of 1e-14 that slack is a billion steps wide:
+ * measured, 500,007 tick labels and a 128 MB SVG for one plot, every one of the
+ * extra ticks off the canvas. In a task pane that is not a bad-looking chart,
+ * it is a frozen Word.
+ *
+ * Relative slack makes the epsilon mean what it was meant to mean — "include a
+ * tick that floating-point arithmetic landed a hair past the end" — at every
+ * magnitude. The count cap is the backstop, because a slack that depends on the
+ * step being sane is not a bound. Six or seven ticks is the design; 200 is far
+ * past anything legible and still finite.
+ */
+const TICK_CAP = 200;
+const TICK_EPS = 1e-6;
 
 /** Where the rotated y-axis title is drawn, and how big. Used by both the
  *  margin calculation and the drawing code, so they cannot drift apart. */
@@ -485,7 +549,7 @@ export function buildPlotSvg(series: Series[], options: PlotOptions = {}): strin
   // produce, which is knowable before anything is drawn because the tick
   // values depend only on the data range.
   const ml = leftMarginFor(series, options);
-  const mr = 14;
+  const mr = rightMarginFor(series, options);
   const mt = options.title ? 26 : 12;
   // The error-bar declaration needs its own line, or it lands on the x label.
   const hasErrNote = !!options.errorBars && series.some((s) => s.points.some((p) => p.err !== undefined));
@@ -554,7 +618,7 @@ export function buildPlotSvg(series: Series[], options: PlotOptions = {}): strin
     }
   } else {
     const xstep = niceStep(xmax - xmin, 6);
-    for (let t = Math.ceil(xmin / xstep) * xstep; t <= xmax + 1e-9; t += xstep) {
+    for (let i = 0, t = Math.ceil(xmin / xstep) * xstep; i <= TICK_CAP && t <= xmax + xstep * TICK_EPS; i++, t += xstep) {
       const px = sx(t);
       parts.push(`<line x1="${px.toFixed(1)}" y1="${mt}" x2="${px.toFixed(1)}" y2="${mt + ph}" stroke="#eee"/>`);
       parts.push(`<line x1="${px.toFixed(1)}" y1="${mt + ph}" x2="${px.toFixed(1)}" y2="${mt + ph + 4}" stroke="#888"/>`);
@@ -575,7 +639,7 @@ export function buildPlotSvg(series: Series[], options: PlotOptions = {}): strin
     }
   } else {
     const ystep = niceStep(ymax - ymin, 5);
-    for (let t = Math.ceil(ymin / ystep) * ystep; t <= ymax + 1e-9; t += ystep) {
+    for (let i = 0, t = Math.ceil(ymin / ystep) * ystep; i <= TICK_CAP && t <= ymax + ystep * TICK_EPS; i++, t += ystep) {
       const py = sy(t);
       parts.push(`<line x1="${ml}" y1="${py.toFixed(1)}" x2="${ml + pw}" y2="${py.toFixed(1)}" stroke="#eee"/>`);
       parts.push(`<line x1="${ml - 4}" y1="${py.toFixed(1)}" x2="${ml}" y2="${py.toFixed(1)}" stroke="#888"/>`);

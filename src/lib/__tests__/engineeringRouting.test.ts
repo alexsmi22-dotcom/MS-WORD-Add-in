@@ -63,6 +63,11 @@ const EXPECTED: { id: string; calls: string[]; module: string }[] = [
   { id: "fracture-k", calls: ["stressIntensity("], module: "../lib/fracture" },
   { id: "fracture-paris", calls: ["parisGrowth("], module: "../lib/fracture" },
   { id: "fracture-transition", calls: ["fractureTransition("], module: "../lib/fracture" },
+  { id: "rel-weibull", calls: ["weibullFit(", "parseLifeData("], module: "../lib/reliability" },
+  { id: "rel-rbd", calls: ["reliabilityBlock(", "parseComponentList("], module: "../lib/reliability" },
+  { id: "rel-koon", calls: ["kOutOfN("], module: "../lib/reliability" },
+  { id: "rel-redundancy", calls: ["redundancy("], module: "../lib/reliability" },
+  { id: "rel-availability", calls: ["availability("], module: "../lib/reliability" },
   { id: "wall", calls: ["analyzeWall("], module: "../lib/heat" },
   { id: "hx", calls: ["analyzeExchanger("], module: "../lib/heat" },
   { id: "hx-ntu", calls: ["effectivenessNtu("], module: "../lib/heat2" },
@@ -285,6 +290,7 @@ const UNIT_NOTES = [
   "ENG_BIOMED_UNIT_NOTE",
   "ENG_PHOTON_UNIT_NOTE",
   "ENG_QUANTUM_UNIT_NOTE",
+  "ENG_RELIABILITY_UNIT_NOTE",
 ] as const;
 
 /** Which contract each tool is on, asserted rather than inferred. */
@@ -303,6 +309,13 @@ const CONTRACT: Record<string, (typeof UNIT_NOTES)[number]> = {
   "fracture-k": "ENG_UNIT_NOTE",
   "fracture-paris": "ENG_UNIT_NOTE",
   "fracture-transition": "ENG_UNIT_NOTE",
+  // Reliability is on its own contract: durations convert, rates and
+  // probabilities do not, because the unit layer carries no reciprocal time.
+  "rel-weibull": "ENG_RELIABILITY_UNIT_NOTE",
+  "rel-rbd": "ENG_RELIABILITY_UNIT_NOTE",
+  "rel-koon": "ENG_RELIABILITY_UNIT_NOTE",
+  "rel-redundancy": "ENG_RELIABILITY_UNIT_NOTE",
+  "rel-availability": "ENG_RELIABILITY_UNIT_NOTE",
   wall: "ENG_UNIT_NOTE",
   hx: "ENG_UNIT_NOTE",
   "hx-ntu": "ENG_UNIT_NOTE",
@@ -435,10 +448,19 @@ describe("every Engineering tool declares one unit contract", () => {
     expect(unlisted).toEqual([]);
   });
 
+  // WHICH CONTRACTS CONVERT. This was a two-way split - ENG_UNIT_NOTE converts,
+  // everything else does not - until Reliability arrived, which is honestly
+  // hybrid: every DURATION goes through the unit layer, and failure rates do
+  // not, because the parser carries no reciprocal time and "1e-5 /h" is refused
+  // rather than misread. Naming the converting contracts is the tightening
+  // form of that change; exempting the five tools would have been the loosening
+  // form, and would have let a reliability tool read hours with Number().
+  const CONVERTING: string[] = ["ENG_UNIT_NOTE", "ENG_RELIABILITY_UNIT_NOTE"];
+
   // A tool that claims to convert must actually read its fields through the
   // unit layer. This is the assertion that would have caught the original bug:
   // column DECLARED SI and read with Number().
-  test.each(Object.keys(CONTRACT).filter((id) => CONTRACT[id] === "ENG_UNIT_NOTE"))(
+  test.each(Object.keys(CONTRACT).filter((id) => CONVERTING.includes(CONTRACT[id])))(
     "%s actually parses units rather than only claiming to",
     (id) => {
       const body = ENG.find((e) => e.id === id)!.body;
@@ -448,11 +470,22 @@ describe("every Engineering tool declares one unit contract", () => {
   );
 
   // The converse: a tool that says it does NOT convert must not quietly convert.
-  test.each(Object.keys(CONTRACT).filter((id) => CONTRACT[id] !== "ENG_UNIT_NOTE"))(
+  test.each(Object.keys(CONTRACT).filter((id) => !CONVERTING.includes(CONTRACT[id])))(
     "%s does not convert behind its own declaration",
     (id) => {
       const body = ENG.find((e) => e.id === id)!.body;
       expect({ id, converts: body.includes("engUnits(") }).toEqual({ id, converts: false });
+    },
+  );
+
+  // And the half of the reliability contract the check above cannot see: every
+  // duration is read with hours as the target unit, so "3 day" is 72 h rather
+  // than 3 of something.
+  test.each(Object.keys(CONTRACT).filter((id) => CONTRACT[id] === "ENG_RELIABILITY_UNIT_NOTE"))(
+    "%s reads its durations in hours through the unit layer",
+    (id) => {
+      const body = ENG.find((e) => e.id === id)!.body;
+      expect({ id, hours: /u\.(req|opt|optNull)\("[a-z]+", "h",/.test(body) }).toEqual({ id, hours: true });
     },
   );
 

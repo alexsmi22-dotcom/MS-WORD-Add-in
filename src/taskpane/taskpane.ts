@@ -200,6 +200,15 @@ import {
 } from "../lib/fatigue";
 import { stressIntensity, parisGrowth, fractureTransition } from "../lib/fracture";
 import {
+  weibullFit,
+  reliabilityBlock,
+  kOutOfN,
+  redundancy,
+  availability,
+  parseLifeData,
+  parseComponentList,
+} from "../lib/reliability";
+import {
   toKelvin,
   GASES as THERMO_GASES,
   idealGasProcess,
@@ -8526,6 +8535,7 @@ function populateAnalyzeCalcs(): void {
 const ENG_GROUP_ORDER = [
   "Structural & solids",
   "Fatigue & machine design",
+  "Reliability",
   "Fluids",
   "Thermal",
   "Energy & power",
@@ -8757,6 +8767,26 @@ const ENG_FATIGUE_UNIT_NOTE =
   "Sut and Sy are asked for rather than looked up in a table, because they move by a factor of " +
   "three with heat treatment for the same alloy designation — take them from your drawing or " +
   "material certificate.";
+
+/**
+ * Reliability: hours convert, rates and probabilities do not.
+ *
+ * A DELIBERATELY DIFFERENT CONTRACT from the rest of the bench, because the
+ * unit layer does not carry reciprocal time. "1e-5 /h" is refused by the
+ * parser, so the failure rates are read as plain numbers with the unit stated
+ * on the field instead of guessed at. Every duration goes through the unit
+ * layer as normal, so h/day/min/s all convert. Years do NOT: a "year" is 8760 h
+ * to a reliability engineer, 365.25 days to an astronomer and 2000 h to anyone
+ * counting operating hours on a single shift, and this bench does not pick
+ * silently between three answers that differ by a factor of four.
+ */
+const ENG_RELIABILITY_UNIT_NOTE =
+  "Units: every duration converts — h, day, min, s — and hours are the default when none is " +
+  "written. Failure rates are plain numbers PER HOUR and are not converted, because the unit " +
+  "layer does not carry reciprocal time; a rate quoted per million hours must be divided by 1e6 " +
+  "before it is typed. Reliabilities and availabilities are probabilities between 0 and 1. " +
+  "\"Year\" is deliberately not accepted: it means 8760 h, 8766 h or 2000 operating hours " +
+  "depending on who is asking, and those differ by a factor of four.";
 
 /** Electronics: SI throughout, and the notation question matters more than units. */
 const ENG_ELEC_UNIT_NOTE =
@@ -12493,6 +12523,482 @@ const ENG_CALCS: EngCalc[] = [
           svg,
           caption: "Failure stress by each mechanism",
           alt: "Fracture and yield stresses crossing at the transition crack size",
+          w: 380,
+          h: 260,
+        },
+      ]);
+    },
+  },
+  {
+    id: "rel-weibull",
+    name: "Life data: Weibull fit",
+    group: "Reliability",
+    hint:
+      "THE SHAPE PARAMETER IS THE ANSWER, not the mean life. Below 1 the parts are dying young and " +
+      "burn-in helps; above 1 they are wearing out and scheduled replacement helps; at 1 neither does " +
+      "anything at all. Units still running are entered with a trailing + and belong in the fit — " +
+      "throwing them away biases the life short.",
+    fields: [
+      {
+        key: "data",
+        label: "One unit per line: hours, then 1/F for failed or 0/S/+ for still running",
+        default:
+          "412 F\n598 F\n742 F\n801 F\n955 F\n1120 F\n1204 F\n1580 F\n2000 +\n2000 +\n2000 +\n2000 +",
+        kind: "block",
+        rows: 9,
+      },
+      { key: "t", label: "Report reliability at this age (blank to skip)", default: "1000 h", kind: "text" },
+    ],
+    compute: (r) => {
+      const parsed = parseLifeData(r("data"));
+      if ("error" in parsed) return { text: parsed.error, ok: false };
+      const u = engUnits(r);
+      const at = r("t").trim() ? u.opt("t", "h", "Age", 0) : null;
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const res = weibullFit(parsed);
+      if (!res.ok) return { text: res.error, ok: false };
+
+      const lines = [
+        "Weibull life, fitted by maximum likelihood",
+        "",
+        `  Shape  beta          ${engNum(res.beta, 4)}`,
+        `  Scale  eta           ${engNum(res.eta, 5)} h`,
+        `  Hazard                ${res.regime}`,
+        "",
+        `  B10 life              ${engNum(res.b10, 5)} h`,
+        `  Median life           ${engNum(res.medianLife, 5)} h`,
+      ];
+      lines.push(
+        res.mttf === null
+          ? "  Mean life             not reported at this shape (see the note below)"
+          : `  Mean life  MTTF       ${engNum(res.mttf, 5)} h`,
+      );
+      lines.push("");
+      lines.push(
+        res.betaLow !== null && res.betaHigh !== null
+          ? `  95 % interval on beta  ${engNum(res.betaLow, 4)} to ${engNum(res.betaHigh, 4)}`
+          : "  95 % interval on beta  not resolved from this data",
+      );
+      lines.push(`  Failures / units      ${res.failures} of ${res.failures + res.censored}`);
+      if (at !== null && at > 0) {
+        const R = Math.exp(-Math.pow(at / res.eta, res.beta));
+        lines.push("");
+        lines.push(`  Surviving at ${engNum(at, 5)} h    ${(R * 100).toFixed(2)} %`);
+      }
+      lines.push("");
+      u.report(lines);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_RELIABILITY_UNIT_NOTE);
+
+      const svg = buildPlotSvg(
+        [
+          { points: res.points, type: "scatter", color: "#2563eb", label: "observed" },
+          { points: res.fitLine, type: "line", color: "#b91c1c", label: "maximum likelihood" },
+        ],
+        {
+          width: 380,
+          height: 260,
+          xlabel: "ln(life in hours)",
+          ylabel: "ln(−ln(1 − F))",
+          title: "Straight means Weibull fits",
+        },
+      );
+      return engReport(lines, [
+        {
+          kind: "plot",
+          svg,
+          caption: "Weibull probability plot; the slope of the line is beta",
+          alt: "Life data plotted on Weibull axes against the fitted straight line",
+          w: 380,
+          h: 260,
+        },
+      ]);
+    },
+  },
+  {
+    id: "rel-rbd",
+    name: "Series and parallel systems",
+    group: "Reliability",
+    hint:
+      "IN SERIES THE RATES ADD, so a system is always worse than its worst part and one component " +
+      "usually carries most of the failures. In parallel the system outlives every part — but only " +
+      "if the branches fail independently, which a shared supply or a common design fault destroys.",
+    fields: [
+      {
+        key: "parts",
+        label: "One per line: name, failure rate per hour, quantity",
+        default: "Pump, 1.2e-4, 2\nControl valve, 5.0e-5, 3\nController, 8.0e-6, 1\nSensor, 3.0e-5, 4",
+        kind: "block",
+        rows: 6,
+      },
+      {
+        key: "cfg",
+        label: "Arrangement",
+        default: "series",
+        kind: "select",
+        options: [
+          { value: "series", label: "Series — every one must work" },
+          { value: "parallel", label: "Parallel — any one is enough" },
+        ],
+      },
+      { key: "t", label: "Mission time", default: "8760 h", kind: "text" },
+    ],
+    compute: (r) => {
+      const parts = parseComponentList(r("parts"));
+      if ("error" in parts) return { text: parts.error, ok: false };
+      const u = engUnits(r);
+      const timeH = u.req("t", "h", "Mission time");
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const cfg = r("cfg") === "parallel" ? "parallel" : "series";
+      const res = reliabilityBlock({ components: parts, configuration: cfg, timeH });
+      if (!res.ok) return { text: res.error, ok: false };
+
+      const lines = [
+        cfg === "series" ? "Series system" : "Parallel system",
+        "",
+        `  Units in the system   ${res.totalUnits}`,
+        `  Reliability at ${engNum(timeH, 5)} h  ${(res.reliability * 100).toFixed(4)} %`,
+        `  Chance of failure     ${engNum(res.unreliability, 4)}`,
+      ];
+      if (res.systemLambda !== null) {
+        lines.push(`  System failure rate   ${engNum(res.systemLambda, 4)} per hour`);
+      }
+      lines.push(
+        res.mttf === null ? "  Mean time to failure  not reported (see the notes)" : `  Mean time to failure  ${engNum(res.mttf, 5)} h`,
+      );
+      if (res.contributions.length) {
+        lines.push("");
+        lines.push("Where the failures come from");
+        for (const c of res.contributions) {
+          lines.push(`  ${c.name.padEnd(20).slice(0, 20)} ${(c.share * 100).toFixed(1)} %`);
+        }
+      }
+      lines.push("");
+      u.report(lines);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_RELIABILITY_UNIT_NOTE);
+
+      const svg = buildPlotSvg(
+        [
+          { points: res.curve.map((c) => ({ x: c.t, y: c.R })), type: "line", color: "#2563eb", label: "system" },
+          { points: res.unitCurve.map((c) => ({ x: c.t, y: c.R })), type: "line", color: "#b91c1c", label: res.unitCurveLabel },
+        ],
+        {
+          width: 380,
+          height: 260,
+          xlabel: "Hours",
+          ylabel: "Surviving",
+          title: cfg === "series" ? "The system falls faster than any part" : "The system outlives every part",
+        },
+      );
+      return engReport(lines, [
+        {
+          kind: "plot",
+          svg,
+          // The comparison curve is the WORST part in series and the BEST part
+          // in parallel, because those are the two curves that actually
+          // demonstrate the claim each title makes.
+          caption: `System reliability against the ${res.unitCurveLabel}`,
+          alt: `Two survival curves, the system and its ${res.unitCurveLabel}`,
+          w: 380,
+          h: 260,
+        },
+      ]);
+    },
+  },
+  {
+    id: "rel-koon",
+    name: "k-out-of-n redundancy",
+    group: "Reliability",
+    hint:
+      "Two of three, three of four — the arrangement behind voting logic and pump trains. Requiring " +
+      "all n is a series system with extra steps and is WORSE than one unit; requiring 1 of n is full " +
+      "redundancy. Leave the unit reliability blank to work it out from the failure rate and mission.",
+    fields: [
+      { key: "n", label: "Units installed, n", default: "3", kind: "text" },
+      { key: "k", label: "Units that must work, k", default: "2", kind: "text" },
+      { key: "R", label: "Reliability of ONE unit over the mission (blank to derive it)", default: "", kind: "text" },
+      { key: "lam", label: "Failure rate of one unit, per hour", default: "5e-5", kind: "text" },
+      { key: "t", label: "Mission time", default: "8760 h", kind: "text" },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const timeH = u.req("t", "h", "Mission time");
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const n = Number(r("n"));
+      const k = Number(r("k"));
+      const lamRaw = r("lam").trim();
+      const lam = lamRaw ? Number(lamRaw) : NaN;
+      if (lamRaw && !Number.isFinite(lam)) {
+        return { text: "The failure rate must be a number of failures per hour.", ok: false };
+      }
+      const rRaw = r("R").trim();
+      let unitReliability: number;
+      let derived = false;
+      if (rRaw) {
+        unitReliability = Number(rRaw);
+        if (!Number.isFinite(unitReliability)) {
+          return { text: "The unit reliability must be a probability between 0 and 1.", ok: false };
+        }
+      } else {
+        if (!lamRaw) {
+          return {
+            text:
+              "Give either the reliability of one unit over the mission, or a failure rate per hour " +
+              "and a mission time to work it out from.",
+            ok: false,
+          };
+        }
+        if (lam < 0) return { text: "The failure rate must be zero or more per hour.", ok: false };
+        unitReliability = Math.exp(-lam * timeH);
+        derived = true;
+        if (!Number.isFinite(unitReliability)) {
+          return { text: "That failure rate and mission time overflow when multiplied.", ok: false };
+        }
+      }
+      const res = kOutOfN({ n, k, unitReliability, lambda: lamRaw ? lam : undefined });
+      if (!res.ok) return { text: res.error, ok: false };
+      // BOTH FIELDS FILLED IS TWO ANSWERS TO THE SAME QUESTION. The typed
+      // reliability drives the system reliability and the rate drives the mean
+      // life, so a pair that disagrees produces two numbers about two different
+      // components with nothing on screen saying so.
+      const implied = lamRaw && lam >= 0 ? Math.exp(-lam * timeH) : null;
+      const disagrees =
+        !derived &&
+        implied !== null &&
+        Number.isFinite(implied) &&
+        Math.abs(implied - unitReliability) > 0.005 * Math.max(implied, unitReliability, 1e-12);
+
+      const lines = [
+        `${k} out of ${n} must work`,
+        "",
+        `  One unit survives     ${(unitReliability * 100).toFixed(4)} %${derived ? "  (from the rate and mission)" : ""}`,
+        `  System survives       ${(res.systemReliability * 100).toFixed(4)} %`,
+        `  System fails          ${engNum(res.systemUnreliability, 4)}`,
+        "",
+        `  Mean life factor      ${engNum(res.mttfFactor, 4)} / (failure rate)`,
+      ];
+      lines.push(
+        res.mttf === null
+          ? "  Mean time to failure  needs a failure rate above zero"
+          : `  Mean time to failure  ${engNum(res.mttf, 5)} h`,
+      );
+      lines.push("");
+      u.report(lines);
+      if (disagrees && implied !== null) {
+        lines.push(
+          `Note: THE TWO FIELDS DISAGREE. The typed unit reliability is ${engNum(unitReliability, 5)}, but the ` +
+            `failure rate over this mission implies ${engNum(implied, 5)}. The system reliability above comes ` +
+            "from what you typed and the mean time to failure comes from the rate, so those two lines are " +
+            "describing different components. Clear one field.",
+        );
+      }
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_RELIABILITY_UNIT_NOTE);
+
+      const svg = buildPlotSvg(
+        [
+          {
+            points: res.curve.map((c) => ({ x: c.unitR, y: c.R })),
+            type: "line",
+            color: "#2563eb",
+            label: `${k} of ${n}`,
+          },
+          {
+            points: [{ x: 0, y: 0 }, { x: 1, y: 1 }],
+            type: "line",
+            color: "#94a3b8",
+            label: "one unit alone",
+          },
+          {
+            points: [{ x: unitReliability, y: res.systemReliability }],
+            type: "scatter",
+            color: "#b91c1c",
+            label: "this system",
+          },
+        ],
+        {
+          width: 380,
+          height: 260,
+          xlabel: "Reliability of one unit",
+          ylabel: "Reliability of the system",
+          title: "Redundancy only pays where units are good",
+        },
+      );
+      return engReport(lines, [
+        {
+          kind: "plot",
+          svg,
+          caption: `System reliability against unit reliability for ${k} of ${n}`,
+          alt: "System reliability curve above the diagonal, with the operating point marked",
+          w: 380,
+          h: 260,
+        },
+      ]);
+    },
+  },
+  {
+    id: "rel-redundancy",
+    name: "Active spares or standby spares",
+    group: "Reliability",
+    hint:
+      "STANDBY LOOKS BETTER THAN IT IS. It beats active redundancy only because the spare is assumed " +
+      "not to age while waiting and the switch is assumed never to fail. The mean life grows LINEARLY " +
+      "with standby units and only as 1 + 1/2 + 1/3 with active ones — which is why the fourth spare " +
+      "is nearly worthless in an active arrangement.",
+    fields: [
+      { key: "lam", label: "Failure rate of one unit, per hour", default: "1e-4", kind: "text" },
+      { key: "n", label: "Units in total, including the one in use", default: "3", kind: "text" },
+      { key: "t", label: "Mission time", default: "5000 h", kind: "text" },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const timeH = u.req("t", "h", "Mission time");
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const lambda = Number(r("lam"));
+      const n = Number(r("n"));
+      if (!Number.isFinite(lambda)) return { text: "The failure rate must be a number of failures per hour.", ok: false };
+      const res = redundancy({ lambda, n, timeH });
+      if (!res.ok) return { text: res.error, ok: false };
+
+      const lines = [
+        `One unit against ${n} in parallel and ${n} with cold spares`,
+        "",
+        `  Surviving ${engNum(timeH, 5)} h`,
+        `    single unit         ${(res.singleR * 100).toFixed(4)} %`,
+        `    ${n} active            ${(res.activeR * 100).toFixed(4)} %`,
+        `    ${n} standby           ${(res.standbyR * 100).toFixed(4)} %`,
+        "",
+        "  Mean time to failure",
+      ];
+      lines.push(
+        res.singleMttf === null
+          ? "    nothing ever fails at a rate of zero"
+          : `    single unit         ${engNum(res.singleMttf, 5)} h`,
+      );
+      if (res.activeMttf !== null) lines.push(`    ${n} active            ${engNum(res.activeMttf, 5)} h`);
+      if (res.standbyMttf !== null) lines.push(`    ${n} standby           ${engNum(res.standbyMttf, 5)} h`);
+      lines.push("");
+      u.report(lines);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_RELIABILITY_UNIT_NOTE);
+
+      const svg = res.activeSweep.length
+        ? buildPlotSvg(
+            [
+              {
+                points: res.standbySweep.map((p) => ({ x: p.n, y: p.mttf })),
+                type: "line",
+                color: "#2563eb",
+                label: "standby (perfect switch)",
+              },
+              {
+                points: res.activeSweep.map((p) => ({ x: p.n, y: p.mttf })),
+                type: "line",
+                color: "#b91c1c",
+                label: "active",
+              },
+            ],
+            {
+              width: 380,
+              height: 260,
+              xlabel: "Units in total",
+              ylabel: "Mean time to failure (h)",
+              title: "Linear against harmonic",
+            },
+          )
+        : buildPlotSvg(
+            [
+              {
+                points: [{ x: 0, y: res.singleR }, { x: 1, y: res.activeR }, { x: 2, y: res.standbyR }],
+                type: "scatter",
+                color: "#2563eb",
+                label: "reliability",
+              },
+            ],
+            { width: 380, height: 260, xlabel: "single, active, standby", ylabel: "Surviving", title: "Nothing fails at a rate of zero" },
+          );
+      return engReport(lines, [
+        {
+          kind: "plot",
+          svg,
+          caption: "Mean life against the number of units, both schemes",
+          alt: "A straight standby line rising above a flattening active curve",
+          w: 380,
+          h: 260,
+        },
+      ]);
+    },
+  },
+  {
+    id: "rel-availability",
+    name: "Availability, uptime and downtime",
+    group: "Reliability",
+    hint:
+      "THIS IS INHERENT AVAILABILITY — it counts the repair and nothing else. Waiting for a spare, a " +
+      "technician or a maintenance window is real downtime and is not in it, so the operational figure " +
+      "is always worse. Availability also multiplies down a series, which is why long chains of highly " +
+      "available parts are not highly available.",
+    fields: [
+      { key: "mtbf", label: "Mean time between failures", default: "2000 h", kind: "text" },
+      { key: "mttr", label: "Mean time to repair", default: "8 h", kind: "text" },
+      { key: "win", label: "Report downtime over this window", default: "8760 h", kind: "text" },
+      { key: "n", label: "How many of these in series, all needed (blank for one)", default: "", kind: "text" },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const mtbfH = u.req("mtbf", "h", "Mean time between failures");
+      const mttrH = u.req("mttr", "h", "Mean time to repair");
+      const windowH = u.req("win", "h", "Reporting window");
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const nRaw = r("n").trim();
+      const unitsInSeries = nRaw ? Number(nRaw) : undefined;
+      if (nRaw && !Number.isFinite(unitsInSeries as number)) {
+        return { text: "The number in series must be a whole number.", ok: false };
+      }
+      const res = availability({ mtbfH, mttrH, windowH, unitsInSeries });
+      if (!res.ok) return { text: res.error, ok: false };
+
+      const lines = [
+        "Inherent availability",
+        "",
+        `  Availability          ${(res.availability * 100).toFixed(4)} %`,
+        `  Unavailability        ${engNum(res.unavailability, 4)}`,
+        "",
+        `  Over ${engNum(windowH, 5)} h`,
+        `    up                  ${engNum(res.uptimeH, 5)} h`,
+        `    down                ${engNum(res.downtimeH, 5)} h`,
+        `    failures expected   ${engNum(res.failuresInWindow, 4)}`,
+      ];
+      if (res.systemAvailability !== null) {
+        lines.push("");
+        lines.push(`  ${unitsInSeries} in series          ${(res.systemAvailability * 100).toFixed(4)} %`);
+        lines.push(`    down                ${engNum((1 - res.systemAvailability) * windowH, 5)} h`);
+      }
+      lines.push("");
+      u.report(lines);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_RELIABILITY_UNIT_NOTE);
+
+      const svg = buildPlotSvg(
+        [
+          { points: res.curve.map((c) => ({ x: c.mttr, y: c.A })), type: "line", color: "#2563eb", label: "availability" },
+          { points: [{ x: mttrH, y: res.availability }], type: "scatter", color: "#b91c1c", label: "this repair time" },
+        ],
+        {
+          width: 380,
+          height: 260,
+          xlabel: "Mean time to repair (h)",
+          ylabel: "Availability",
+          title: "Repair time is the lever",
+        },
+      );
+      return engReport(lines, [
+        {
+          kind: "plot",
+          svg,
+          caption: "Availability against repair time, with the operating point",
+          alt: "Availability falling as repair time rises, with the current point marked",
           w: 380,
           h: 260,
         },

@@ -60,6 +60,9 @@ describe("the layout instrument sees what it claims to", () => {
   });
 });
 
+/** A fixed seed, so a failure is reproducible from the report. */
+const railSeed = 8675309;
+
 describe("the left margin fits the labels that go in it", () => {
   it("ACCOUNTS FOR ERROR BARS, which the drawing code includes unconditionally", () => {
     // Three points at y = 0 with ±30000 bars: the ticks run to five figures
@@ -123,6 +126,73 @@ describe("the left margin fits the labels that go in it", () => {
       );
       expect(svg).not.toMatch(/>-?\d\.\de-(1[0-9]|[2-9]\d)</);
     }
+  });
+
+  it("THE RIGHT MARGIN FITS THE LAST X TICK, which was a flat 14 px", () => {
+    // x tick labels are centred on their tick, so a tick on the right edge
+    // hangs half its width off the canvas. The left margin has been computed
+    // from its widest label for a while; the right one was a constant, and
+    // "2.5e+4" is 36 px wide. Found on a reliability figure whose x axis runs
+    // to a 25,000 hour mission, but the defect is in the shared plotter.
+    const svg = buildPlotSvg(
+      [{ points: Array.from({ length: 81 }, (_, i) => ({ x: (25000 * i) / 80, y: Math.exp(-i / 20) })), type: "line", color: "#2563eb", label: "system" }],
+      { width: 380, height: 260, xlabel: "Hours", ylabel: "Surviving", title: "t" },
+    );
+    expect(findings(svg)).toEqual([]);
+    expect(svg).toContain("2.5e+4");
+  });
+
+  it("no x tick is clipped over a wide sweep of magnitudes", () => {
+    let seed = railSeed;
+    const rnd = (): number => {
+      seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+      return seed / 0x7fffffff;
+    };
+    const bad: string[] = [];
+    for (let i = 0; i < 300; i++) {
+      const top = rnd() * Math.pow(10, Math.floor(rnd() * 14) - 6);
+      const svg = buildPlotSvg(
+        [{ points: [{ x: 0, y: 0 }, { x: top, y: 1 }], type: "line", color: "#000" }],
+        { width: 380, height: 250, xlabel: "Time (s)", ylabel: "Signal (counts)" },
+      );
+      const f = findings(svg);
+      if (f.length) bad.push(`x up to ${top}: ${f[0]}`);
+    }
+    expect(bad).toEqual([]);
+  });
+
+  it("A TINY AXIS RANGE DOES NOT DRAW HALF A MILLION TICKS", () => {
+    // Both tick walks ended at `t <= max + 1e-9` - an ABSOLUTE epsilon, on axes
+    // whose whole range may be far smaller than 1e-9. Femtoseconds and nanoamps
+    // are ordinary pasted data, and at an x span of 1e-14 that slack was a
+    // billion steps wide: 500,007 tick labels and a 128 MB SVG for one plot.
+    // That is not a bad-looking chart in a task pane, it is a frozen Word.
+    for (const span of [1e-6, 1e-8, 1e-9, 1e-10, 1e-12, 1e-14, 1e-20]) {
+      for (const axis of ["x", "y"] as const) {
+        const pts = axis === "x" ? [{ x: 0, y: 0 }, { x: span, y: 1 }] : [{ x: 0, y: 0 }, { x: 1, y: span }];
+        const svg = buildPlotSvg([{ points: pts, type: "line", color: "#000" }], {
+          width: 380,
+          height: 260,
+          xlabel: "t",
+          ylabel: "y",
+        });
+        const labels = (svg.match(/<text /g) || []).length;
+        expect({ span, axis, labels: labels < 40 }).toEqual({ span, axis, labels: true });
+        expect({ span, axis, bytes: svg.length < 20000 }).toEqual({ span, axis, bytes: true });
+        expect(findings(svg)).toEqual([]);
+      }
+    }
+  });
+
+  it("the tick slack still includes a tick that floating point landed a hair past the end", () => {
+    // The relative epsilon must not have thrown away the tick the absolute one
+    // was there to keep: 0 to 1 in steps of 0.2 must still print a "1".
+    const svg = buildPlotSvg(
+      [{ points: [{ x: 0, y: 0 }, { x: 1, y: 1 }], type: "line", color: "#000" }],
+      { width: 380, height: 250, xlabel: "x", ylabel: "y" },
+    );
+    expect(svg).toMatch(/>1</);
+    expect(svg).toMatch(/>0</);
   });
 
   it("a legend is opaque, so the curves under it do not strike out its labels", () => {

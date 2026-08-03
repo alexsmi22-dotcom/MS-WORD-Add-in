@@ -19,6 +19,7 @@ import {
   torsionProfileSvg,
 } from "../src/lib/mechchart";
 import { buildPlotSvg, Series } from "../src/lib/plot";
+import { weibullFit, reliabilityBlock, kOutOfN, redundancy, availability } from "../src/lib/reliability";
 
 const figures: [string, string][] = [];
 
@@ -159,5 +160,92 @@ figures.push([
     { width: 380, height: 250, xlabel: "A rather long x axis label", ylabel: "A rather long y axis label", title: "A title that is also quite long" },
   ),
 ]);
+
+// The Reliability release. These are built FROM THE ENGINES rather than from
+// hand-made points, because the layout hazards here come from what the engines
+// actually produce: a probability plot whose y axis is ln(-ln(1-F)) and runs
+// negative, availabilities that sit at 0.996 so every tick needs four decimals,
+// and mean lives that reach 1e5 hours.
+const wf = weibullFit({
+  times: [412, 598, 742, 801, 955, 1120, 1204, 1580, 2000, 2000, 2000, 2000],
+  events: [1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0],
+});
+if (wf.ok) {
+  figures.push([
+    "rel weibull plot",
+    buildPlotSvg(
+      [
+        { points: wf.points, type: "scatter", color: "#2563eb", label: "observed" },
+        { points: wf.fitLine, type: "line", color: "#b91c1c", label: "maximum likelihood" },
+      ],
+      { width: 380, height: 260, xlabel: "ln(life in hours)", ylabel: "ln(-ln(1 - F))", title: "Straight means Weibull fits" },
+    ),
+  ]);
+}
+for (const cfg of ["series", "parallel"] as const) {
+  const rb = reliabilityBlock({
+    components: [
+      { name: "Pump", lambda: 1.2e-4, quantity: 2 },
+      { name: "Control valve", lambda: 5e-5, quantity: 3 },
+      { name: "Sensor", lambda: 3e-5, quantity: 4 },
+    ],
+    configuration: cfg,
+    timeH: 8760,
+  });
+  if (rb.ok) {
+    figures.push([
+      `rel rbd ${cfg}`,
+      buildPlotSvg(
+        [
+          { points: rb.curve.map((c) => ({ x: c.t, y: c.R })), type: "line", color: "#2563eb", label: "system" },
+          { points: rb.unitCurve.map((c) => ({ x: c.t, y: c.R })), type: "line", color: "#b91c1c", label: rb.unitCurveLabel },
+        ],
+        { width: 380, height: 260, xlabel: "Hours", ylabel: "Surviving", title: "The system outlives every part" },
+      ),
+    ]);
+  }
+}
+const kn = kOutOfN({ n: 3, k: 2, unitReliability: Math.exp(-5e-5 * 8760), lambda: 5e-5 });
+if (kn.ok) {
+  figures.push([
+    "rel koon",
+    buildPlotSvg(
+      [
+        { points: kn.curve.map((c) => ({ x: c.unitR, y: c.R })), type: "line", color: "#2563eb", label: "2 of 3" },
+        { points: [{ x: 0, y: 0 }, { x: 1, y: 1 }], type: "line", color: "#94a3b8", label: "one unit alone" },
+        { points: [{ x: Math.exp(-5e-5 * 8760), y: kn.systemReliability }], type: "scatter", color: "#b91c1c", label: "this system" },
+      ],
+      { width: 380, height: 260, xlabel: "Reliability of one unit", ylabel: "Reliability of the system", title: "Redundancy only pays where units are good" },
+    ),
+  ]);
+}
+const rd = redundancy({ lambda: 1e-4, n: 3, timeH: 5000 });
+if (rd.ok) {
+  figures.push([
+    "rel redundancy",
+    buildPlotSvg(
+      [
+        { points: rd.standbySweep.map((p) => ({ x: p.n, y: p.mttf })), type: "line", color: "#2563eb", label: "standby (perfect switch)" },
+        { points: rd.activeSweep.map((p) => ({ x: p.n, y: p.mttf })), type: "line", color: "#b91c1c", label: "active" },
+      ],
+      { width: 380, height: 260, xlabel: "Units in total", ylabel: "Mean time to failure (h)", title: "Linear against harmonic" },
+    ),
+  ]);
+}
+for (const [mtbf, mttr] of [[2000, 8], [1e6, 0.5]] as [number, number][]) {
+  const av = availability({ mtbfH: mtbf, mttrH: mttr, windowH: 8760, unitsInSeries: 5 });
+  if (av.ok) {
+    figures.push([
+      `rel availability ${mtbf}/${mttr}`,
+      buildPlotSvg(
+        [
+          { points: av.curve.map((c) => ({ x: c.mttr, y: c.A })), type: "line", color: "#2563eb", label: "availability" },
+          { points: [{ x: mttr, y: av.availability }], type: "scatter", color: "#b91c1c", label: "this repair time" },
+        ],
+        { width: 380, height: 260, xlabel: "Mean time to repair (h)", ylabel: "Availability", title: "Repair time is the lever" },
+      ),
+    ]);
+  }
+}
 
 process.exit(runAudit(figures) ? 1 : 0);

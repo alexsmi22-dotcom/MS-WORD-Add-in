@@ -68,6 +68,52 @@ independently, and a Mohr's *circle* drawn as an ellipse is not a Mohr's circle.
 fails if the number drops. **16 of 114** today. The goal is all of them, and the
 audit prints the remaining 98 by name each run.
 
+**Ten defects, caught by the independent adversarial pass before release.** Two
+would have frozen Word:
+
+1. **`niceStep` had no postcondition and five tick loops trusted it.** It could
+   return `Infinity` (from an infinite span) or exactly `0` (from a subnormal
+   one, where `10^floor(log10 x)` underflows), and every caller was an open
+   `for (t = lo; t <= hi; t += step)`. `t += Infinity` sticks; `t += 0` never
+   advances. `analyzeColumn` returns `transition = Infinity` for a vanishing
+   yield strength and the chart fed it straight into its axis limit — **4 GB of
+   heap before the process died**. In a task pane that is a frozen Word, not an
+   error. The helper now has a finite-positive postcondition, and every tick
+   walk is a **bounded array** rather than an open loop, because
+   `Number.isFinite` on the inputs is not a bound.
+2. **Four of the six builders returned a blank white box** on a degenerate
+   input — 118 bytes, no message — which inserts into the document as artwork
+   and renders as nothing. **Zero torque is a perfectly legal input** that
+   produced one. All six now say why they are empty.
+3. **The column tool's section note quoted a number it had not converted:** it
+   printed `Iy` while converting `Imin`, internally inconsistent by a factor of
+   62 on a wide tee, in a note whose entire job is to show the conversion. The
+   value handed to the engine was right throughout.
+4. **The Goodman diagram contradicted its own factor of safety** for a
+   compressive mean stress. The four fatigue criteria clamp a compressive mean
+   to zero; the Langer yield line uses its *magnitude*. One marker served both,
+   so a case the text reported as **failing** was plotted comfortably inside
+   the yield line. The two families now get their own markers.
+5. **"`Iy` is the minor axis" was false in four places.** It holds for a tall
+   section and fails for any section wider than it is deep — a 200×50 plate on
+   edge has `Iy` well *above* `I` — and the first draft told the user such a
+   plate had **no weak axis at all**. Which axis is weaker is a fact about the
+   dimensions, so `minorAxis` is now computed and reported by name.
+6. **The Marin shortcut dropped every warning the endurance engine returns**,
+   including *"this material has NO true endurance limit"* for a non-ferrous
+   alloy. It printed an infinite-life factor of safety, for a material that has
+   no infinite life, with no caveat.
+7. The torsion figure's radius axis was passed metres and formatted to one
+   decimal, so a 20 mm shaft's outer surface read **"0.0"** on an axis with no
+   unit.
+8. The material-class option value was `nonferrous` where the type is
+   `non-ferrous` — harmless today only because the engine branches on `steel`,
+   and hidden by a cast.
+9. An em-dash error message in `section.ts` became reachable from a second tool.
+10. The figure ratchet would have counted a blank white box as a figure. Fixed
+    at the source by (2), and pinned by a test asserting every degenerate output
+    carries text.
+
 **Two defects fixed on the way, both found by the new work rather than shipped.**
 A non-finite operating stress put `NaN` into three coordinate attributes of the
 Goodman SVG — artwork that goes into a document and renders as nothing; every

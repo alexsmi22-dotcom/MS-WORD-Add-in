@@ -28,14 +28,57 @@ const esc = (s: string): string =>
 
 const n1 = (v: number): string => (Math.abs(v) < 1e-9 ? "0" : v.toFixed(1));
 
-/** A tick step that lands on 1, 2 or 5 times a power of ten. */
+/**
+ * A tick step that lands on 1, 2 or 5 times a power of ten.
+ *
+ * IT MUST RETURN A FINITE, STRICTLY POSITIVE NUMBER, and that is a
+ * postcondition rather than a hope. The first version could return `Infinity`
+ * (from an infinite span) or exactly `0` (from a subnormal one, where
+ * `10^floor(log10 x)` underflows), and every caller is a
+ * `for (t = lo; t <= hi; t += step)` loop. `t += Infinity` sticks; `t += 0`
+ * never advances. Either way the loop does not terminate, and in a Word task
+ * pane a loop that does not terminate is a FROZEN WORD, not an error — one of
+ * them was reproduced here as a 4 GB heap exhaustion.
+ */
 function niceStep(span: number, target: number): number {
-  if (!(span > 0) || !(target > 0)) return 1;
+  if (!Number.isFinite(span) || !Number.isFinite(target) || span <= 0 || target <= 0) return 1;
   const raw = span / target;
+  if (!Number.isFinite(raw) || raw <= 0) return 1;
   const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+  if (!Number.isFinite(mag) || mag <= 0) return 1;
   const norm = raw / mag;
   const mult = norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 5 ? 5 : 10;
-  return mult * mag;
+  const step = mult * mag;
+  return Number.isFinite(step) && step > 0 ? step : 1;
+}
+
+/**
+ * The tick positions for one axis, as a bounded ARRAY rather than an open loop.
+ *
+ * `Number.isFinite` on the inputs is not a bound — the repo has learned that
+ * before. Even with a sane step, `lo` and `hi` far apart, or a `lo` so large
+ * that `lo + step === lo` in floating point, can spin forever. This caps the
+ * count outright, so no caller can hang however it is fed.
+ */
+function ticks(lo: number, hi: number, step: number, cap = 200): number[] {
+  const out: number[] = [];
+  if (![lo, hi, step].every(Number.isFinite) || step <= 0 || hi < lo) return out;
+  for (let i = 0; i <= cap; i++) {
+    const t = lo + i * step;
+    if (t > hi + step * 1e-9) break;
+    out.push(t);
+  }
+  return out;
+}
+
+/** A placeholder that SAYS why it is empty, instead of a blank white box. */
+function emptyChart(W: number, H: number, message: string): string {
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">` +
+    `<rect width="${W}" height="${H}" fill="${PAPER}"/>` +
+    `<text x="${W / 2}" y="${H / 2}" text-anchor="middle" font-family="sans-serif" font-size="11" fill="${RULE}">${esc(message)}</text>` +
+    "</svg>"
+  );
 }
 
 export interface MohrInput {
@@ -80,7 +123,7 @@ export function mohrCircleSvg(inp: MohrInput): string {
     Number.isFinite(v),
   );
   if (!allFinite || R < 0) {
-    return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><rect width="${W}" height="${H}" fill="${PAPER}"/><text x="${W / 2}" y="${H / 2}" text-anchor="middle" font-family="sans-serif" font-size="12" fill="${RULE}">Mohr's circle needs a finite stress state</text></svg>`;
+    return emptyChart(W, H, "Mohr's circle needs a finite stress state");
   }
 
   // EQUAL SCALE ON BOTH AXES. The domain is squared off around the circle and
@@ -117,7 +160,7 @@ export function mohrCircleSvg(inp: MohrInput): string {
 
   // Ticks on sigma.
   const step = niceStep(xHi - xLo, 5);
-  for (let t = Math.ceil(xLo / step) * step; t <= xHi + 1e-9; t += step) {
+  for (const t of ticks(Math.ceil(xLo / step) * step, xHi, step)) {
     const x = X(t);
     if (x < ML - 0.5 || x > W - MR + 0.5) continue;
     p.push(`<line x1="${x.toFixed(1)}" y1="${y0.toFixed(1)}" x2="${x.toFixed(1)}" y2="${(y0 + 4).toFixed(1)}" stroke="${RULE}"/>`);
@@ -181,9 +224,21 @@ export interface GoodmanCriterionLine {
 }
 
 export interface GoodmanInput {
-  /** The operating point. */
+  /** The operating point the FATIGUE criteria see. */
   sigmaM: number;
   sigmaA: number;
+  /**
+   * The mean stress the YIELD check sees, when it differs.
+   *
+   * It differs for a compressive mean: the fatigue criteria clamp it to zero,
+   * because compression closes cracks and helps, while the Langer yield line
+   * uses its MAGNITUDE, because a large compressive mean yields the part just
+   * as readily as a tensile one. Drawing one point against both families made
+   * the figure contradict the very factor of safety printed above it — a point
+   * plotted at m = 0 looked comfortably inside a Langer line the text had
+   * already reported as failing.
+   */
+  yieldSigmaM?: number;
   lines: GoodmanCriterionLine[];
   /** Axis limits; computed from the lines when omitted. */
   sutMPa?: number;
@@ -217,12 +272,13 @@ export function goodmanDiagramSvg(inp: GoodmanInput): string {
   const xs: number[] = [inp.sigmaM, 0];
   const ys: number[] = [inp.sigmaA, 0];
   for (const l of inp.lines) for (const pt of l.points) { xs.push(pt.m); ys.push(pt.a); }
+  if (inp.yieldSigmaM !== undefined) xs.push(inp.yieldSigmaM);
   if (inp.sutMPa) xs.push(inp.sutMPa);
   if (inp.seMPa) ys.push(inp.seMPa);
   const finiteX = xs.filter(Number.isFinite);
   const finiteY = ys.filter(Number.isFinite);
   if (!finiteX.length || !finiteY.length) {
-    return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><rect width="${W}" height="${H}" fill="${PAPER}"/><text x="${W / 2}" y="${H / 2}" text-anchor="middle" font-family="sans-serif" font-size="12" fill="${RULE}">Nothing to plot</text></svg>`;
+    return emptyChart(W, H, "Nothing to plot");
   }
   const xHi = Math.max(...finiteX) * 1.08 || 1;
   const yHi = Math.max(...finiteY) * 1.12 || 1;
@@ -242,14 +298,14 @@ export function goodmanDiagramSvg(inp: GoodmanInput): string {
   p.push(`<line x1="${ML}" y1="${MT}" x2="${ML}" y2="${MT + ph}" stroke="${RULE}"/>`);
 
   const sx = niceStep(xHi, 4);
-  for (let t = 0; t <= xHi + 1e-9; t += sx) {
+  for (const t of ticks(0, xHi, sx)) {
     const x = X(t);
     if (x > ML + pw + 0.5) break;
     p.push(`<line x1="${x.toFixed(1)}" y1="${MT + ph}" x2="${x.toFixed(1)}" y2="${MT + ph + 4}" stroke="${RULE}"/>`);
     p.push(`<text x="${x.toFixed(1)}" y="${MT + ph + 14}" text-anchor="middle">${esc(n1(t))}</text>`);
   }
   const sy = niceStep(yHi, 4);
-  for (let t = 0; t <= yHi + 1e-9; t += sy) {
+  for (const t of ticks(0, yHi, sy)) {
     const y = Y(t);
     if (y < MT - 0.5) break;
     p.push(`<line x1="${ML - 4}" y1="${y.toFixed(1)}" x2="${ML}" y2="${y.toFixed(1)}" stroke="${RULE}"/>`);
@@ -278,7 +334,21 @@ export function goodmanDiagramSvg(inp: GoodmanInput): string {
     const py = Y(inp.sigmaA);
     p.push(`<line x1="${X(0).toFixed(1)}" y1="${Y(0).toFixed(1)}" x2="${px.toFixed(1)}" y2="${py.toFixed(1)}" stroke="${RULE}" stroke-width="1" stroke-dasharray="3 3"/>`);
     p.push(`<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="3.4" fill="${POINT}"/>`);
-    p.push(`<text x="${(px + 6).toFixed(1)}" y="${(py - 5).toFixed(1)}" fill="${POINT}" font-size="8">operating point</text>`);
+    const twoPoints =
+      inp.yieldSigmaM !== undefined &&
+      Number.isFinite(inp.yieldSigmaM) &&
+      Math.abs(inp.yieldSigmaM - inp.sigmaM) > 1e-9;
+    p.push(`<text x="${(px + 6).toFixed(1)}" y="${(py - 5).toFixed(1)}" fill="${POINT}" font-size="8">${twoPoints ? "fatigue point" : "operating point"}</text>`);
+    // The yield check sees a different mean when the applied one is
+    // compressive, so it gets its own marker rather than being read off the
+    // fatigue one — which is how the picture came to contradict the text.
+    if (twoPoints) {
+      const qx = X(inp.yieldSigmaM as number);
+      const qy = Y(inp.sigmaA);
+      p.push(`<circle cx="${qx.toFixed(1)}" cy="${qy.toFixed(1)}" r="3.4" fill="none" stroke="${POINT}" stroke-width="1.6"/>`);
+      p.push(`<line x1="${px.toFixed(1)}" y1="${py.toFixed(1)}" x2="${qx.toFixed(1)}" y2="${qy.toFixed(1)}" stroke="${POINT}" stroke-width="0.9" stroke-dasharray="2 2"/>`);
+      p.push(`<text x="${(qx + 6).toFixed(1)}" y="${(qy + 10).toFixed(1)}" fill="${POINT}" font-size="8">yield point (|σm|)</text>`);
+    }
   }
 
   // Legend.
@@ -348,7 +418,7 @@ export function sectionShapeSvg(inp: SectionShapeInput): string {
     : Math.max(...inp.strips.filter((s) => s.sign > 0).map((s) => s.b), 0);
   const depth = inp.depth;
   if (![widest, depth, inp.yBar].every(Number.isFinite) || widest <= 0 || depth <= 0) {
-    return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><rect width="${W}" height="${H}" fill="${PAPER}"/></svg>`;
+    return emptyChart(W, H, "The section dimensions do not define a shape to draw");
   }
   // EQUAL SCALE. A section drawn with stretched axes is a different section.
   const scale = Math.min(pw / widest, ph / depth);
@@ -419,12 +489,20 @@ export function columnCurveSvg(inp: ColumnCurveInput): string {
 
   const { E, Fy } = inp;
   if (![E, inp.slenderness, inp.sigmaCritical].every(Number.isFinite) || E <= 0 || inp.slenderness <= 0) {
-    return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><rect width="${W}" height="${H}" fill="${PAPER}"/></svg>`;
+    return emptyChart(W, H, "The column inputs do not define a curve to draw");
   }
-  const xHi = Math.max(inp.slenderness * 1.6, (inp.transition ?? 0) * 1.8, 60);
+  // THE TRANSITION SLENDERNESS FEEDS xHi AND WAS NOT CHECKED. A vanishing yield
+  // strength sends it to Infinity — `analyzeColumn` returns that quite happily
+  // — and an infinite axis limit then produced an infinite tick step and a loop
+  // that exhausted four gigabytes. Treated as absent rather than trusted.
+  const transition =
+    inp.transition !== null && Number.isFinite(inp.transition) && inp.transition > 0
+      ? inp.transition
+      : null;
+  const xHi = Math.max(inp.slenderness * 1.6, (transition ?? 0) * 1.8, 60);
   const yHi = (Fy && Fy > 0 ? Fy : inp.sigmaCritical) * 1.35;
   if (!(yHi > 0) || !Number.isFinite(yHi)) {
-    return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><rect width="${W}" height="${H}" fill="${PAPER}"/></svg>`;
+    return emptyChart(W, H, "The column inputs do not define a curve to draw");
   }
   const X = (v: number): number => ML + (v / xHi) * pw;
   const Y = (v: number): number => MT + ph - (Math.min(v, yHi) / yHi) * ph;
@@ -438,13 +516,13 @@ export function columnCurveSvg(inp: ColumnCurveInput): string {
   p.push(`<line x1="${ML}" y1="${MT}" x2="${ML}" y2="${MT + ph}" stroke="${RULE}"/>`);
 
   const sx = niceStep(xHi, 4);
-  for (let t = 0; t <= xHi + 1e-9; t += sx) {
+  for (const t of ticks(0, xHi, sx)) {
     if (X(t) > ML + pw + 0.5) break;
     p.push(`<line x1="${X(t).toFixed(1)}" y1="${MT + ph}" x2="${X(t).toFixed(1)}" y2="${MT + ph + 4}" stroke="${RULE}"/>`);
     p.push(`<text x="${X(t).toFixed(1)}" y="${MT + ph + 14}" text-anchor="middle">${esc(n1(t))}</text>`);
   }
   const syStep = niceStep(yHi / 1e6, 4) * 1e6;
-  for (let t = 0; t <= yHi + 1e-9; t += syStep) {
+  for (const t of ticks(0, yHi, syStep)) {
     if (Y(t) < MT - 0.5) break;
     p.push(`<line x1="${ML - 4}" y1="${Y(t).toFixed(1)}" x2="${ML}" y2="${Y(t).toFixed(1)}" stroke="${RULE}"/>`);
     p.push(`<text x="${ML - 6}" y="${(Y(t) + 3).toFixed(1)}" text-anchor="end">${esc(n1(t / 1e6))}</text>`);
@@ -462,10 +540,10 @@ export function columnCurveSvg(inp: ColumnCurveInput): string {
   }
   if (euler.length > 1) p.push(`<polyline points="${euler.join(" ")}" fill="none" stroke="${CIRCLE}" stroke-width="1.5"/>`);
 
-  if (Fy && Fy > 0 && inp.transition && Number.isFinite(inp.transition)) {
+  if (Fy && Fy > 0 && transition !== null) {
     const john: string[] = [];
     for (let i = 0; i <= 140; i++) {
-      const lam = (inp.transition * i) / 140;
+      const lam = (transition * i) / 140;
       const sg = Fy - ((Fy * lam) / (2 * Math.PI)) ** 2 / E;
       if (!Number.isFinite(sg) || sg < 0) continue;
       john.push(`${X(lam).toFixed(1)},${Y(sg).toFixed(1)}`);
@@ -473,8 +551,8 @@ export function columnCurveSvg(inp: ColumnCurveInput): string {
     if (john.length > 1) p.push(`<polyline points="${john.join(" ")}" fill="none" stroke="#059669" stroke-width="1.5"/>`);
     p.push(`<line x1="${ML}" y1="${Y(Fy).toFixed(1)}" x2="${(ML + pw).toFixed(1)}" y2="${Y(Fy).toFixed(1)}" stroke="${FAINT}" stroke-dasharray="3 3"/>`);
     p.push(`<text x="${(ML + pw - 2).toFixed(1)}" y="${(Y(Fy) - 3).toFixed(1)}" text-anchor="end" fill="${RULE}" font-size="7.5">yield</text>`);
-    p.push(`<line x1="${X(inp.transition).toFixed(1)}" y1="${MT}" x2="${X(inp.transition).toFixed(1)}" y2="${MT + ph}" stroke="${FAINT}" stroke-dasharray="2 3"/>`);
-    p.push(`<text x="${(X(inp.transition) + 3).toFixed(1)}" y="${MT + 10}" fill="${RULE}" font-size="7.5">transition</text>`);
+    p.push(`<line x1="${X(transition).toFixed(1)}" y1="${MT}" x2="${X(transition).toFixed(1)}" y2="${MT + ph}" stroke="${FAINT}" stroke-dasharray="2 3"/>`);
+    p.push(`<text x="${(X(transition) + 3).toFixed(1)}" y="${MT + 10}" fill="${RULE}" font-size="7.5">transition</text>`);
   }
 
   p.push(`<circle cx="${X(inp.slenderness).toFixed(1)}" cy="${Y(inp.sigmaCritical).toFixed(1)}" r="3.4" fill="${POINT}"/>`);
@@ -505,7 +583,7 @@ export function trussSvg(joints: TrussDrawJoint[], members: TrussDrawMember[]): 
   const ph = H - MT - MB;
   const good = joints.filter((j) => Number.isFinite(j.x) && Number.isFinite(j.y));
   if (good.length < 2) {
-    return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><rect width="${W}" height="${H}" fill="${PAPER}"/></svg>`;
+    return emptyChart(W, H, "A truss needs at least two joints with finite coordinates");
   }
   const xs = good.map((j) => j.x);
   const ys = good.map((j) => j.y);
@@ -563,7 +641,13 @@ export function trussSvg(joints: TrussDrawJoint[], members: TrussDrawMember[]): 
  * linearly with radius — which is the entire argument for a hollow shaft: the
  * material near the centre carries almost nothing while weighing the same.
  */
-export function torsionProfileSvg(outerD: number, boreD: number, tauMax: number, unit = "MPa"): string {
+export function torsionProfileSvg(
+  outerD: number,
+  boreD: number,
+  tauMax: number,
+  unit = "MPa",
+  radiusUnit = "m",
+): string {
   const { w: W, h: H } = TORSION_CHART_SIZE;
   const ML = 54;
   const MR = 20;
@@ -572,7 +656,7 @@ export function torsionProfileSvg(outerD: number, boreD: number, tauMax: number,
   const pw = W - ML - MR;
   const ph = H - MT - MB;
   if (![outerD, boreD, tauMax].every(Number.isFinite) || outerD <= 0 || tauMax <= 0 || boreD < 0) {
-    return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><rect width="${W}" height="${H}" fill="${PAPER}"/></svg>`;
+    return emptyChart(W, H, "There is no shear to plot for these inputs");
   }
   const ro = outerD / 2;
   const ri = Math.min(Math.max(0, boreD / 2), ro);
@@ -598,14 +682,14 @@ export function torsionProfileSvg(outerD: number, boreD: number, tauMax: number,
   if (ri === 0) p.push(`<text x="${(ML + 4).toFixed(1)}" y="${(MT + ph - 6).toFixed(1)}" fill="${RULE}" font-size="7.5">zero at the axis</text>`);
 
   const st = niceStep(yTop, 4);
-  for (let t = 0; t <= yTop + 1e-9; t += st) {
+  for (const t of ticks(0, yTop, st)) {
     if (Y(t) < MT - 0.5) break;
     p.push(`<line x1="${ML - 4}" y1="${Y(t).toFixed(1)}" x2="${ML}" y2="${Y(t).toFixed(1)}" stroke="${RULE}"/>`);
     p.push(`<text x="${ML - 6}" y="${(Y(t) + 3).toFixed(1)}" text-anchor="end">${esc(n1(t))}</text>`);
   }
   p.push(`<text x="${ML}" y="${MT + ph + 14}" text-anchor="middle">0</text>`);
   p.push(`<text x="${X(ro).toFixed(1)}" y="${MT + ph + 14}" text-anchor="middle">${esc(n1(ro))}</text>`);
-  p.push(`<text x="${(ML + pw / 2).toFixed(1)}" y="${H - 6}" text-anchor="middle">radius</text>`);
+  p.push(`<text x="${(ML + pw / 2).toFixed(1)}" y="${H - 6}" text-anchor="middle">radius (${esc(radiusUnit)})</text>`);
   p.push(`<text x="12" y="${MT + ph / 2}" text-anchor="middle" transform="rotate(-90 12 ${MT + ph / 2})">τ (${esc(unit)})</text>`);
   p.push("</g></svg>");
   return p.join("");

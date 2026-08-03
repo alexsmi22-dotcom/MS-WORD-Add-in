@@ -48,24 +48,37 @@ export interface SectionProps {
   /** Radius of gyration sqrt(I/A) about the horizontal (bending) axis. */
   r: number;
   /**
-   * Second moment about the VERTICAL centroidal axis — the minor axis for
-   * every shape here except a circle or pipe, where the two are equal.
+   * Second moment about the VERTICAL centroidal axis.
    *
-   * IT IS THE MINOR AXIS THAT BUCKLES. A column bends about whichever axis is
-   * weakest, and for an I-beam that is emphatically not the axis it is designed
-   * to bend about: a typical section has an Iy an order of magnitude below its
-   * Ix. Quoting the bending I to a buckling check overstates the critical load
-   * by that whole factor, and the answer looks entirely reasonable.
+   * NOT NECESSARILY THE MINOR ONE — that was the first draft's mistake, and it
+   * is false for any section wider than it is deep. A 200 x 50 plate on edge
+   * has Iy well ABOVE I. Which axis is weaker is a fact about the dimensions,
+   * not about which letter the axis got, so `Imin` exists separately and is the
+   * one a buckling check needs.
    *
-   * Exact for all six shapes. Every strip decomposition here is symmetric about
-   * the vertical centreline, so each strip's own centroid sits on that axis and
-   * the parallel-axis terms all vanish.
+   * Every shape here has an axis of symmetry, so the horizontal and vertical
+   * pair really are the principal axes and the smaller of the two really is the
+   * minimum over all directions.
+   *
+   * Exact for all six shapes: every strip decomposition is symmetric about the
+   * vertical centreline, so each strip's own centroid sits on that axis and the
+   * parallel-axis terms all vanish.
    */
   Iy: number;
   /** Radius of gyration about the vertical axis, sqrt(Iy/A). */
   ry: number;
-  /** The smaller of I and Iy — the one a column check needs. */
+  /**
+   * The smaller of I and Iy — THE ONE A COLUMN CHECK NEEDS.
+   *
+   * A column bends about whichever axis is weakest, and for an I-beam that is
+   * emphatically not the axis it was designed to bend about: the section can
+   * have a bending I an order of magnitude above its weak one. Quoting the
+   * bending value to a buckling check overstates the critical load by that
+   * whole factor, and the answer looks entirely reasonable.
+   */
   Imin: number;
+  /** Which axis `Imin` is about, so a report can say so rather than assume. */
+  minorAxis: "horizontal" | "vertical" | "equal";
   /** First moment of the area above the neutral axis — the Q in tau = VQ/(It). */
   Q: number;
   /** Width of the section AT the neutral axis — the t in tau = VQ/(It). */
@@ -104,8 +117,13 @@ function sectionPropertiesRaw(spec: SectionSpec): SectionProps | { error: string
     case "box": {
       const { b, h, t } = spec;
       if (!finite(b, h, t)) return { error: "Width, depth and wall thickness must all be positive." };
+      // No em dash: the pane prints one for a non-finite number and blocks
+      // Insert on finding one anywhere in a result, so an em dash used as
+      // punctuation is indistinguishable from a broken value. The pipe message
+      // below was fixed for this; this one was missed, and the column tool now
+      // surfaces it too.
       if (2 * t >= b || 2 * t >= h)
-        return { error: "Wall thickness is too large — the walls meet in the middle. Use a solid rectangle." };
+        return { error: "Wall thickness is too large; the walls meet in the middle. Use a solid rectangle." };
       return fromStrips(
         "Rectangular hollow section",
         [
@@ -166,6 +184,7 @@ function sectionPropertiesRaw(spec: SectionSpec): SectionProps | { error: string
         Iy: I,
         ry: Math.sqrt(I / A),
         Imin: I,
+        minorAxis: "equal" as const,
         Q: d ** 3 / 12,
         tNA: d,
         symmetric: true,
@@ -197,6 +216,7 @@ function sectionPropertiesRaw(spec: SectionSpec): SectionProps | { error: string
         Iy: I,
         ry: Math.sqrt(I / A),
         Imin: I,
+        minorAxis: "equal" as const,
         Q: (d ** 3 - di ** 3) / 12,
         tNA: 2 * t,
         symmetric: true,
@@ -229,8 +249,9 @@ function guardProps<T extends SectionProps>(p: T): T | { error: string } {
   if (!Number.isFinite(p.Iy) || p.Iy <= 0)
     return {
       error:
-        "These dimensions underflow the MINOR-axis second moment to zero. That is the axis a " +
-        "column buckles about, so nothing here would be safe to use. Try larger units.",
+        "These dimensions underflow the second moment about the vertical axis to zero. A column " +
+        "buckles about whichever axis is weaker, so nothing here would be safe to use. Try " +
+        "larger units.",
     };
   return p;
 }
@@ -298,6 +319,11 @@ function fromStrips(name: string, strips: Strip[], depth: number): SectionProps 
     Iy,
     ry: Math.sqrt(Iy / A),
     Imin: Math.min(I, Iy),
+    // Which one is weaker is a fact about the dimensions, not about which
+    // letter the axis got. A plate on edge is weakest about the HORIZONTAL
+    // axis, and calling Iy "the minor axis" would be wrong for it.
+    minorAxis:
+      Math.abs(I - Iy) <= 1e-12 * Math.max(I, Iy, 1) ? "equal" : I < Iy ? "horizontal" : "vertical",
     Q,
     tNA,
     symmetric,

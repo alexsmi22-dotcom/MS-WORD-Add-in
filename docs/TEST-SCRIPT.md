@@ -1141,10 +1141,37 @@ Engineering > Structural & solids. All six tools now insert a figure.
 - [ ] **Beam** still inserts its shear/moment figure, unchanged.
 - [ ] Every one of the six inserts BOTH the numbers and a figure.
 
+**What the independent adversarial pass found (all fixed - re-check these)**
+
+- [ ] **Column buckling** with a yield strength of **1e-300**: it must return
+  promptly. It used to consume **4 GB** and die - the transition slenderness
+  came back Infinity, the tick step became Infinity, and the loop never ended.
+  In a task pane that is a frozen Word.
+- [ ] **Shaft torsion** with a torque of **0**: the figure must SAY there is no
+  shear to plot. It used to insert a blank white 380x240 box captioned "Shear
+  stress across the radius" - artwork that renders as nothing.
+- [ ] **Cross-section**, rectangle **200, 50** (a plate on edge): the report
+  must name the **horizontal** axis as the weaker one. It used to say the
+  section was axisymmetric and had no weak axis at all.
+- [ ] A **square** 100, 100: it must say both axes are equal, not name one.
+- [ ] **Column buckling** from a section, using a **wide tee** (200, 20, 40,
+  10): the note must quote the SAME number it converted. It used to print Iy
+  while converting Imin - inconsistent by a factor of 62.
+- [ ] **Mean stress**, "Endurance limit from" = **Marin**, material
+  **non-ferrous**: the warning "THIS MATERIAL HAS NO TRUE ENDURANCE LIMIT" must
+  appear. It used to print an infinite-life factor of safety with no caveat.
+- [ ] **Mean stress** with σm = **-400** (compressive) and σa = 200: the figure
+  must show BOTH a "fatigue point" and a separate "yield point (|σm|)". With one
+  marker the picture said "safe" while the text said the part fails.
+- [ ] The **torsion** figure's radius axis reads **mm** with real numbers, not
+  "0.0" on an unlabelled axis.
+
 **Contract**
 
 - [ ] No em dash appears in any of the new captions - a caption is part of the
   result text, and an em dash there used to disable Insert for the whole tool.
+- [ ] **Cross-section**, box with wall **60** on a 100x200: the refusal carries
+  no em dash. The column tool surfaces this same message now.
 
 ---
 

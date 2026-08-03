@@ -9023,16 +9023,25 @@ const ENG_CALCS: EngCalc[] = [
       // default section here is 12.6 times - so handing the bending I to a
       // buckling check overstates the critical load by that whole factor while
       // looking entirely reasonable.
+      // WHICH AXIS IS WEAKER IS A FACT ABOUT THE DIMENSIONS, not about which
+      // letter it got. Calling Iy "the minor axis" is false for any section
+      // wider than it is deep - a 200x50 plate on edge has Iy well ABOVE I -
+      // and the first draft of this told the user such a plate had no weak
+      // axis at all.
       lines.push(
-        `Minor axis: Iy = ${engNum(p.Iy, figs)} ${dimUnit}^4, ry = ${engNum(p.ry, figs)} ${dimUnit}`,
+        `Vertical axis: Iy = ${engNum(p.Iy, figs)} ${dimUnit}^4, ry = ${engNum(p.ry, figs)} ${dimUnit}`,
       );
-      if (p.Iy < p.I) {
+      if (p.minorAxis === "equal") {
         lines.push(
-          `  Iy is ${engNum(p.I / p.Iy, 3)}x smaller than I. A column buckles about the WEAKER ` +
-            `axis, so a buckling check needs Iy = ${engNum(p.Iy, figs)}, not I.`,
+          "  Both axes have the same second moment, so there is no weaker one to buckle about.",
         );
       } else {
-        lines.push("  This section is axisymmetric, so there is no weaker axis to buckle about.");
+        const ratio = Math.max(p.I, p.Iy) / p.Imin;
+        lines.push(
+          `  WEAKER AXIS: the ${p.minorAxis} one, with I = ${engNum(p.Imin, figs)} ${dimUnit}^4 ` +
+            `(${engNum(ratio, 3)}x smaller than the other). A column buckles about that one, so a ` +
+            "buckling check needs this value rather than the bending one.",
+        );
       }
       lines.push(`First moment Q at the neutral axis = ${engNum(p.Q, figs)}, width there = ${engNum(p.tNA, figs)}`);
 
@@ -9615,15 +9624,20 @@ const ENG_CALCS: EngCalc[] = [
         const toM = convert(1, dimUnit, "m") ?? 1;
         Ival = p.Imin * Math.pow(toM, 4);
         Aval = p.A * Math.pow(toM, 2);
+        // The sentence must quote the number the code actually converted. The
+        // first draft printed Iy while converting Imin, which are different
+        // whenever Iy > I - internally inconsistent by a factor of 62 on a
+        // wide tee, in a note whose entire job is to show the conversion.
         sectionNote =
           `Section computed here: ${p.name}, A = ${engNum(p.A, 5)} ${dimUnit}² and ` +
-          `Iy = ${engNum(p.Iy, 5)} ${dimUnit}⁴, converted to ${engNum(Aval, 5)} m² and ` +
-          `${engNum(Ival, 5)} m⁴. The MINOR axis was used, because that is the one a column ` +
-          `buckles about` +
-          (p.Iy < p.I
-            ? ` — here it is ${engNum(p.I / p.Iy, 3)}x smaller than the bending axis, so using I ` +
-              "would have overstated the critical load by that factor."
-            : "; this section is axisymmetric, so both axes are the same.");
+          `I = ${engNum(p.Imin, 5)} ${dimUnit}⁴ about the ` +
+          (p.minorAxis === "equal" ? "either (both equal)" : p.minorAxis) +
+          ` axis, converted to ${engNum(Aval, 5)} m² and ${engNum(Ival, 5)} m⁴. The WEAKER axis ` +
+          "was used, because that is the one a column buckles about" +
+          (p.minorAxis === "equal"
+            ? "; both axes are the same here, so the choice does not bite."
+            : `, and here it is ${engNum(Math.max(p.I, p.Iy) / p.Imin, 3)}x smaller than the other ` +
+              "one, so using the stronger axis would have overstated the critical load by that factor.");
       }
       if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
 
@@ -9738,7 +9752,10 @@ const ENG_CALCS: EngCalc[] = [
       return engReport(lines, [
         {
           kind: "plot",
-          svg: torsionProfileSvg(odM, boreM, res.tauMax / 1e6),
+          // Millimetres, not metres. The radius labels format to one decimal
+          // place, so a 20 mm shaft's outer surface printed as "0.0" - a tick
+          // that says nothing at all - and the axis carried no unit either.
+          svg: torsionProfileSvg(odM * 1000, boreM * 1000, res.tauMax / 1e6, "MPa", "mm"),
           caption: "Shear stress across the radius",
           alt: "Torsional shear rising linearly from the axis to the surface",
           w: TORSION_CHART_SIZE.w,
@@ -11510,7 +11527,7 @@ const ENG_CALCS: EngCalc[] = [
         kind: "select",
         options: [
           { value: "steel", label: "Steel (has a true endurance limit)" },
-          { value: "nonferrous", label: "Aluminium / copper / other non-ferrous (has NONE)" },
+          { value: "non-ferrous", label: "Aluminium / copper / other non-ferrous (has NONE)" },
         ],
       },
       {
@@ -11567,6 +11584,7 @@ const ENG_CALCS: EngCalc[] = [
       const fromMarin = r("sesrc") === "marin";
       let seVal = Number(r("se") || "0");
       let marinNote: string | null = null;
+      let marinNotes: string[] = [];
       if (fromMarin) {
         const sutM = Number(r("sut") || "0");
         const relM = Number(r("mrel") || "0.9");
@@ -11581,6 +11599,14 @@ const ENG_CALCS: EngCalc[] = [
         });
         if (!end.ok) return { text: `Endurance limit: ${end.error}`, ok: false };
         seVal = end.se;
+        // EVERY WARNING THE ENDURANCE ENGINE RETURNS COMES WITH IT. The first
+        // draft read only the numbers, so selecting a non-ferrous material -
+        // which has NO true endurance limit, and whose note says every result
+        // must be read as a finite-life estimate rather than a guarantee of
+        // survival - printed an infinite-life factor of safety with no caveat
+        // at all. The standalone endurance tool surfaces these; taking the
+        // shortcut must not lose them.
+        marinNotes = end.notes;
         marinNote =
           `Se computed here rather than re-typed: Se' = ${engNum(end.sePrime, 4)} MPa corrected by ` +
           `ka ${engNum(end.ka, 3)} × kb ${engNum(end.kb, 3)} × kc ${engNum(end.kc, 3)} × ` +
@@ -11603,6 +11629,7 @@ const ENG_CALCS: EngCalc[] = [
       lines.push(`Mean-stress analysis, σa = ${engNum(saEffective)} MPa, σm = ${engNum(Number(r("sm")))} MPa`);
       lines.push(`  Se = ${engNum(seVal)} MPa`);
       if (marinNote) lines.push(`Note: ${marinNote}`);
+      for (const mn of marinNotes) lines.push(`Note: ${mn}`);
       if (kf !== 1) {
         lines.push(`  σa = ${engNum(saNominal)} MPa nominal × Kf ${engNum(kf, 3)} = ${engNum(saEffective)} MPa applied`);
       }
@@ -11657,6 +11684,10 @@ const ENG_CALCS: EngCalc[] = [
                 svg: goodmanDiagramSvg({
                   sigmaM: smV,
                   sigmaA: saEffective,
+                  // The Langer line uses the MAGNITUDE of the mean, while the
+                  // four fatigue criteria clamp a compressive one to zero, so
+                  // the two families see different points and both are drawn.
+                  yieldSigmaM: Math.abs(Number(r("sm") || "0")),
                   sutMPa: sutV,
                   seMPa: seVal,
                   lines: [

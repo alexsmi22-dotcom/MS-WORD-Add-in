@@ -283,9 +283,18 @@ describe("0.31 — claims in the pane match the shipped product", () => {
   });
 
   it("declining-balance depreciation states that it is not MACRS", () => {
+    // SCOPED TO THE ENTRY, not to a fixed 1,600 characters after its id.
+    //
+    // The byte window was a proxy for "inside this calculator" and it broke the
+    // first time the calculator grew — adding a figure pushed the `assumes:`
+    // disclosure past the cut-off, and the test failed while the disclosure was
+    // exactly where it had always been. A gate that fires when unrelated code
+    // is added near it teaches people to widen the number and move on, which is
+    // how a real regression gets waved through next time.
     const i = pane.indexOf('id: "depr",');
     expect(i).toBeGreaterThan(0);
-    const region = pane.slice(i, i + 1600);
+    const next = pane.indexOf('    id: "', i + 10);
+    const region = pane.slice(i, next < 0 ? pane.length : next);
     expect(region).toMatch(/assumes:/);
     expect(region).toMatch(/NOT MACRS/);
   });

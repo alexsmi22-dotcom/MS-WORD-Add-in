@@ -5862,6 +5862,171 @@ function finList(s: string): number[] {
     .filter((n) => !Number.isNaN(n));
 }
 
+/**
+ * A money-over-time curve: one point per period, drawn from a closed-form
+ * valuation the caller supplies.
+ *
+ * WHY A HELPER. Six Finance calculators answer "what is this worth after n
+ * periods", and the picture that makes each of them useful is the same one —
+ * the path, not just the endpoint. Compounding is the case in point: "Amount =
+ * 1,647" gives no sense that the curve bends, and the bend is the entire
+ * subject. A shared builder also means these six cannot drift into drawing the
+ * same idea six slightly different ways.
+ *
+ * THE PERIOD COUNT IS A USER NUMBER, so it is clamped. A pane that recomputes
+ * on every keystroke and is asked for 1e9 periods is a frozen Word, not a slow
+ * chart; and past a couple of hundred points the curve gains nothing a reader
+ * can see. `valueAt` is called per point rather than the result being scaled,
+ * so the curve is the engine's own arithmetic at every step.
+ */
+function moneyOverTimeSvg(o: {
+  periods: number;
+  valueAt: (k: number) => number;
+  title: string;
+  xlabel: string;
+  ylabel?: string;
+  label?: string;
+}): string | undefined {
+  const n = Math.floor(o.periods);
+  if (!Number.isFinite(n) || n < 1) return undefined;
+  const CAP = 200;
+  const shown = Math.min(n, CAP);
+  const stride = Math.max(1, Math.ceil(n / shown));
+  const pts: Point[] = [];
+  for (let k = 0; k <= n; k += stride) {
+    const y = o.valueAt(k);
+    if (Number.isFinite(y)) pts.push({ x: k, y });
+  }
+  // Always land on the final period; a curve that stops one stride short of the
+  // answer printed beside it invites the reader to think they disagree.
+  if (pts.length && pts[pts.length - 1].x !== n) {
+    const y = o.valueAt(n);
+    if (Number.isFinite(y)) pts.push({ x: n, y });
+  }
+  if (pts.length < 2) return undefined;
+  return buildPlotSvg(
+    [{ points: pts, type: "line", color: "#2563eb", label: o.label ?? "value" }],
+    {
+      width: 360,
+      height: 240,
+      title: o.title,
+      xlabel: o.xlabel,
+      ylabel: o.ylabel ?? "amount",
+    },
+  );
+}
+
+/**
+ * A discounted cash-flow ledger: what each flow contributes in today's money,
+ * with the resulting total as the last bar.
+ *
+ * THE DISCOUNTED BARS, NOT THE RAW FLOWS. The raw numbers are already on the
+ * user's screen — they typed them. What the calculation adds is how much each
+ * one is actually WORTH once discounting is applied, and the shrinking of the
+ * later bars is the finding: a project carried by year-eight cash is a very
+ * different proposition from one carried by year-one cash, and both can share
+ * an NPV.
+ *
+ * `ladderSvg` keeps the result row whatever the row cap does, so the bottom
+ * line of the ledger can never be the thing that gets sliced off.
+ */
+function cashFlowLadderSvg(flows: number[], discounted: number[], title: string): string | undefined {
+  if (!flows.length || flows.length !== discounted.length) return undefined;
+  if (!discounted.every((v) => Number.isFinite(v))) return undefined;
+  const total = discounted.reduce((a, v) => a + v, 0);
+  if (!Number.isFinite(total)) return undefined;
+  return ladderSvg(
+    [
+      ...discounted.map((v, k) => ({ name: `t=${k}`, delta: v, gain: v >= 0 })),
+      { name: "total", delta: total, gain: total >= 0, result: true },
+    ],
+    { title, axisLabel: "present value", fmt: (v) => finMoney(v) },
+  );
+}
+
+/**
+ * Price against yield — the curve every bond calculator is really about.
+ *
+ * A price is one point on it, and the point tells you nothing about the two
+ * things that matter: that the relationship is INVERSE (a fact people
+ * reliably get backwards) and that it is CONVEX, so a fall in yield helps more
+ * than the same rise hurts. Duration and convexity are numerical summaries of
+ * this shape; drawing it makes them legible.
+ *
+ * The yield window is a fixed span around the quoted yield rather than
+ * anything derived from an unbounded user number, and the engine is re-called
+ * per point rather than the price being scaled by an approximation.
+ */
+function bondPriceCurveSvg(o: {
+  face: number;
+  coupon: number;
+  ytm: number;
+  years: number;
+  freq: number;
+  price: number;
+}): string | undefined {
+  if (![o.face, o.coupon, o.ytm, o.years, o.freq, o.price].every(Number.isFinite)) return undefined;
+  const lo = Math.max(0, o.ytm - 0.05);
+  const hi = o.ytm + 0.05;
+  const pts: Point[] = [];
+  for (let k = 0; k <= 60; k++) {
+    const y = lo + ((hi - lo) * k) / 60;
+    const v = bondPrice(o.face, o.coupon, y, o.years, o.freq);
+    if (Number.isFinite(v)) pts.push({ x: y * 100, y: v });
+  }
+  if (pts.length < 2) return undefined;
+  return buildPlotSvg(
+    [
+      { points: pts, type: "line", color: "#2563eb", label: "price" },
+      { points: [{ x: o.ytm * 100, y: o.price }], type: "scatter", color: "#b91c1c", label: "this bond" },
+    ],
+    { width: 360, height: 240, title: "Price against yield", xlabel: "yield to maturity (%)", ylabel: "price" },
+  );
+}
+
+/**
+ * Option value against the underlying price, with the position marked.
+ *
+ * A Black-Scholes price is one point on a curve whose SHAPE is the whole
+ * subject: how far the option is from the money, how much of its value is
+ * intrinsic versus time value, and how sharply the payoff turns. The intrinsic
+ * line is drawn alongside so the gap between the two IS the time value — the
+ * quantity people ask about and no single number shows.
+ *
+ * The spot window is a fixed proportion of the strike, so no user number
+ * becomes a loop bound, and the engine is re-called per point.
+ */
+function optionCurveSvg(o: {
+  type: OptionType;
+  s: number;
+  k: number;
+  t: number;
+  r: number;
+  sig: number;
+  price: number;
+}): string | undefined {
+  if (![o.s, o.k, o.t, o.r, o.sig, o.price].every(Number.isFinite) || !(o.k > 0)) return undefined;
+  const lo = o.k * 0.5;
+  const hi = o.k * 1.5;
+  const value: Point[] = [];
+  const intrinsic: Point[] = [];
+  for (let i = 0; i <= 60; i++) {
+    const x = lo + ((hi - lo) * i) / 60;
+    const v = blackScholes(o.type, x, o.k, o.t, o.r, o.sig);
+    if (Number.isFinite(v)) value.push({ x, y: v });
+    intrinsic.push({ x, y: o.type === "call" ? Math.max(0, x - o.k) : Math.max(0, o.k - x) });
+  }
+  if (value.length < 2) return undefined;
+  return buildPlotSvg(
+    [
+      { points: value, type: "line", color: "#2563eb", label: "option value" },
+      { points: intrinsic, type: "line", color: "#6b7280", label: "intrinsic" },
+      { points: [{ x: o.s, y: o.price }], type: "scatter", color: "#b91c1c", label: "this option" },
+    ],
+    { width: 380, height: 250, title: "Value against the underlying", xlabel: "spot price", ylabel: "option value" },
+  );
+}
+
 const FIN_CALCS: FinCalc[] = [
   {
     id: "fv",
@@ -5871,7 +6036,19 @@ const FIN_CALCS: FinCalc[] = [
       { key: "rate", label: "Rate % per period", default: "5" },
       { key: "n", label: "Number of periods", default: "10" },
     ],
-    compute: (r) => `FV = ${finMoney(futureValue(+r("pv"), +r("rate") / 100, +r("n")))}`,
+    compute: (r) => ({
+      text: `FV = ${finMoney(futureValue(+r("pv"), +r("rate") / 100, +r("n")))}`,
+      // The path to the answer. Compound growth is the thing everyone knows the
+      // name of and few people picture correctly - the curve is nearly flat for
+      // the first third and then bends hard, which is the whole argument for
+      // starting early and is invisible in a single endpoint.
+      svg: moneyOverTimeSvg({
+        periods: +r("n"),
+        valueAt: (k) => futureValue(+r("pv"), +r("rate") / 100, k),
+        title: "Value over time",
+        xlabel: "period",
+      }),
+    }),
   },
   {
     id: "pv",
@@ -5881,7 +6058,20 @@ const FIN_CALCS: FinCalc[] = [
       { key: "rate", label: "Rate % per period", default: "5" },
       { key: "n", label: "Number of periods", default: "10" },
     ],
-    compute: (r) => `PV = ${finMoney(presentValue(+r("fv"), +r("rate") / 100, +r("n")))}`,
+    compute: (r) => ({
+      text: `PV = ${finMoney(presentValue(+r("fv"), +r("rate") / 100, +r("n")))}`,
+      // What the same future sum is worth if received k periods from now. The
+      // decay is what discounting MEANS, and reading it off the curve is how a
+      // user sees that a cash flow twenty periods out is worth a fraction of
+      // one arriving next year - the intuition the whole method rests on.
+      svg: moneyOverTimeSvg({
+        periods: +r("n"),
+        valueAt: (k) => presentValue(+r("fv"), +r("rate") / 100, k),
+        title: "Present value by delay",
+        xlabel: "periods until received",
+        label: "present value",
+      }),
+    }),
   },
   {
     id: "compound",
@@ -5892,7 +6082,18 @@ const FIN_CALCS: FinCalc[] = [
       { key: "m", label: "Compounds / year", default: "12" },
       { key: "t", label: "Years", default: "10" },
     ],
-    compute: (r) => `Amount = ${finMoney(compoundInterest(+r("p"), +r("rate") / 100, +r("m"), +r("t")))}`,
+    compute: (r) => ({
+      text: `Amount = ${finMoney(compoundInterest(+r("p"), +r("rate") / 100, +r("m"), +r("t")))}`,
+      // Year by year rather than compounding period by period: the answer moves
+      // with the number of compounds per year, but the SHAPE a reader wants is
+      // the balance over the years they will actually hold it.
+      svg: moneyOverTimeSvg({
+        periods: +r("t"),
+        valueAt: (k) => compoundInterest(+r("p"), +r("rate") / 100, +r("m"), k),
+        title: `Balance, compounded ${finFixed(+r("m"), 0)}x per year`,
+        xlabel: "year",
+      }),
+    }),
   },
   {
     id: "loan",
@@ -5905,7 +6106,26 @@ const FIN_CALCS: FinCalc[] = [
     ],
     compute: (r) => {
       const m = +r("m");
-      return `Payment = ${finMoney(loanPayment(+r("p"), +r("rate") / 100 / m, +r("t") * m))} per period`;
+      const sched = amortizationSchedule(+r("p"), +r("rate") / 100 / m, +r("t") * m);
+      return {
+        text: `Payment = ${finMoney(loanPayment(+r("p"), +r("rate") / 100 / m, +r("t") * m))} per period`,
+        // THE BALANCE CURVE. A level payment does not pay the loan down at a
+        // level rate: the balance barely moves for years and then falls away,
+        // because early payments are mostly interest. That is the single most
+        // useful thing to know about a mortgage and a payment figure cannot say
+        // it. Drawn from the engine's own schedule, thinned to keep the shape.
+        svg: (() => {
+          const CAP = 240;
+          const stride = Math.max(1, Math.ceil(sched.length / CAP));
+          const pick = sched.filter((_, k) => k % stride === 0);
+          if (sched.length && pick[pick.length - 1] !== sched[sched.length - 1]) pick.push(sched[sched.length - 1]);
+          if (pick.length < 2) return undefined;
+          return buildPlotSvg(
+            [{ points: pick.map((x) => ({ x: x.period, y: x.balance })), type: "line", color: "#2563eb", label: "balance" }],
+            { width: 360, height: 240, title: "Balance remaining", xlabel: "payment number", ylabel: "balance" },
+          );
+        })(),
+      };
     },
   },
   {
@@ -5915,19 +6135,47 @@ const FIN_CALCS: FinCalc[] = [
       { key: "rate", label: "Discount rate % per period", default: "10" },
       { key: "cf", label: "Cash flows (t=0 first)", default: "-1000, 500, 500, 500", kind: "list" },
     ],
-    compute: (r) => `NPV = ${finMoney(npv(+r("rate") / 100, finList(r("cf"))))}`,
+    compute: (r) => {
+      const rate = +r("rate") / 100;
+      const flows = finList(r("cf"));
+      return {
+        text: `NPV = ${finMoney(npv(rate, flows))}`,
+        // Each flow in today's money, with the total as the bottom line. The
+        // shrinking of the later bars is the finding: two projects can share an
+        // NPV while one is carried by cash arriving next year and the other by
+        // cash promised in year eight.
+        svg: cashFlowLadderSvg(
+          flows,
+          flows.map((c, k) => c / Math.pow(1 + rate, k)),
+          "Cash flows in today's money",
+        ),
+      };
+    },
   },
   {
     id: "irr",
     name: "Internal rate of return",
     fields: [{ key: "cf", label: "Cash flows (t=0 first)", default: "-1000, 500, 500, 500", kind: "list" }],
     compute: (r) => {
-      const v = irr(finList(r("cf")));
+      const flows = finList(r("cf"));
+      const v = irr(flows);
       // NAME THE RANGE. "no solution" alone reads as "this cash flow has no
       // IRR", which is a much stronger claim than "no rate in the interval I
       // searched zeroes the NPV". The old ceiling was 1000%, so an ordinary
       // venture-style 20x single-period return came back as no solution.
-      return v === null ? `IRR = no solution (searched ${IRR_SEARCH_RANGE_TEXT})` : `IRR = ${finPct(v)}`;
+      if (v === null) return `IRR = no solution (searched ${IRR_SEARCH_RANGE_TEXT})`;
+      return {
+        text: `IRR = ${finPct(v)}`,
+        // DISCOUNTED AT THE IRR ITSELF, which is what an IRR MEANS: the rate at
+        // which the ledger comes to zero. Drawing it that way turns the
+        // definition into something a reader can check by eye - the bars
+        // visibly cancel - rather than a number they take on trust.
+        svg: cashFlowLadderSvg(
+          flows,
+          flows.map((c, k) => c / Math.pow(1 + v, k)),
+          "Cash flows discounted at the IRR",
+        ),
+      };
     },
     assumes:
       "IRR assumes every interim cash flow is reinvested AT THE IRR — usually optimistic. "+
@@ -5956,7 +6204,18 @@ const FIN_CALCS: FinCalc[] = [
       { key: "sig", label: "Volatility % (annual)", default: "20" },
     ],
     compute: (r) =>
-      `Price = ${finMoney(blackScholes(r("type") as OptionType, +r("s"), +r("k"), +r("t"), +r("r") / 100, +r("sig") / 100))}`,
+      ({
+        text: `Price = ${finMoney(blackScholes(r("type") as OptionType, +r("s"), +r("k"), +r("t"), +r("r") / 100, +r("sig") / 100))}`,
+        svg: optionCurveSvg({
+          type: r("type") as OptionType,
+          s: +r("s"),
+          k: +r("k"),
+          t: +r("t"),
+          r: +r("r") / 100,
+          sig: +r("sig") / 100,
+          price: blackScholes(r("type") as OptionType, +r("s"), +r("k"), +r("t"), +r("r") / 100, +r("sig") / 100),
+        }),
+      }),
     assumes:
       "EUROPEAN exercise (expiry only) and NO dividends. An American option cannot " +
       "be priced with this: early exercise makes an American put worth MORE than " +
@@ -5979,7 +6238,18 @@ const FIN_CALCS: FinCalc[] = [
       // price silently rounded 10.25, 10.4 and 10.5 years to the same answer.
       const why = bondPeriodRefusal(+r("years"), +r("freq"));
       if (why) return why;
-      return `Price = ${finMoney(bondPrice(+r("face"), +r("coupon") / 100, +r("ytm") / 100, +r("years"), +r("freq")))}`;
+      const price = bondPrice(+r("face"), +r("coupon") / 100, +r("ytm") / 100, +r("years"), +r("freq"));
+      return {
+        text: `Price = ${finMoney(price)}`,
+        svg: bondPriceCurveSvg({
+          face: +r("face"),
+          coupon: +r("coupon") / 100,
+          ytm: +r("ytm") / 100,
+          years: +r("years"),
+          freq: +r("freq"),
+          price,
+        }),
+      };
     },
     assumes:
       "CLEAN price — accrued interest is not included, so this matches a quoted price, "+
@@ -5993,7 +6263,28 @@ const FIN_CALCS: FinCalc[] = [
       { key: "nom", label: "Nominal annual rate %", default: "12" },
       { key: "m", label: "Compounds / year", default: "12" },
     ],
-    compute: (r) => `Effective annual rate = ${finPct(effectiveAnnualRate(+r("nom") / 100, +r("m")))}`,
+    compute: (r) => ({
+      text: `Effective annual rate = ${finPct(effectiveAnnualRate(+r("nom") / 100, +r("m")))}`,
+      // HOW THE EFFECTIVE RATE SATURATES as compounding gets more frequent.
+      // The useful fact here is one a single percentage cannot carry: almost
+      // all the gain from compounding more often is captured by the time you
+      // reach monthly, and daily versus continuous is a rounding difference.
+      // Someone comparing two quoted rates needs to know that.
+      svg: (() => {
+        const nom = +r("nom") / 100;
+        const freqs = [1, 2, 4, 12, 52, 365];
+        return hBarSvg(
+          freqs
+            .map((f) => ({
+              name: { 1: "annual", 2: "semi", 4: "quarterly", 12: "monthly", 52: "weekly", 365: "daily" }[f] as string,
+              value: effectiveAnnualRate(nom, f) * 100,
+              colour: f === Math.round(+r("m")) ? "#b91c1c" : "#2563eb",
+            }))
+            .filter((row) => Number.isFinite(row.value)),
+          { title: "Effective annual rate by compounding frequency (%)", unit: "", w: 360 },
+        );
+      })(),
+    }),
   },
   {
     id: "amort",
@@ -6078,7 +6369,21 @@ const FIN_CALCS: FinCalc[] = [
       { key: "g", label: "Growth rate % / period", default: "5" },
       { key: "n", label: "Number of periods", default: "10" },
     ],
-    compute: (r) => `PV = ${finMoney(growingAnnuityPV(+r("pmt"), +r("rate") / 100, +r("g") / 100, +r("n")))}`,
+    compute: (r) => ({
+      text: `PV = ${finMoney(growingAnnuityPV(+r("pmt"), +r("rate") / 100, +r("g") / 100, +r("n")))}`,
+      // The payment stream itself, growing period by period. A single present
+      // value hides the thing that decides whether the assumption is sane: by
+      // period n a 3%-growing payment is a very different sum from the first
+      // one, and seeing how far it has climbed is how a user notices they have
+      // extrapolated growth further than they meant to.
+      svg: moneyOverTimeSvg({
+        periods: +r("n"),
+        valueAt: (k) => (k < 1 ? NaN : +r("pmt") * Math.pow(1 + +r("g") / 100, k - 1)),
+        title: "Payment in each period",
+        xlabel: "period",
+        label: "payment",
+      }),
+    }),
   },
   {
     id: "dcf",
@@ -6089,8 +6394,24 @@ const FIN_CALCS: FinCalc[] = [
       { key: "g", label: "Terminal growth % / period", default: "3" },
     ],
     compute: (r) => {
-      const v = dcf(+r("rate") / 100, finList(r("cf")), +r("g") / 100);
-      return Number.isFinite(v) ? `Value = ${finMoney(v)}` : "Value = — (need rate > terminal growth)";
+      const rate = +r("rate") / 100;
+      const flows = finList(r("cf"));
+      const v = dcf(rate, flows, +r("g") / 100);
+      if (!Number.isFinite(v)) return "Value = — (need rate > terminal growth)";
+      return {
+        text: `Value = ${finMoney(v)}`,
+        // The explicit forecast period only. The TERMINAL value is deliberately
+        // not drawn as one more bar beside these: on a typical DCF it dwarfs
+        // every forecast year, and a chart that made it look like just another
+        // period would flatten the years the user actually reasoned about into
+        // invisibility. The ladder shows the part that was forecast; the total
+        // above includes the part that was assumed.
+        svg: cashFlowLadderSvg(
+          flows,
+          flows.map((c, k) => c / Math.pow(1 + rate, k + 1)),
+          "Explicit forecast, discounted",
+        ),
+      };
     },
     assumes:
       "The Gordon terminal value typically dominates this number and is extremely sensitive "+
@@ -6108,7 +6429,23 @@ const FIN_CALCS: FinCalc[] = [
     compute: (r) => {
       const v = xirr(finList(r("cf")), finList(r("days")));
       // Same reasoning as IRR above.
-      return v === null ? `XIRR = no solution (searched ${IRR_SEARCH_RANGE_TEXT})` : `XIRR = ${finPct(v)} / year`;
+      if (v === null) return `XIRR = no solution (searched ${IRR_SEARCH_RANGE_TEXT})`;
+      // Discounted at the solved annual rate over the ACTUAL day counts, which
+      // is what makes this different from IRR: irregular timing is the whole
+      // reason to reach for it, and the bars show the timing doing the work.
+      const cfs = finList(r("cf"));
+      const days = finList(r("days"));
+      return {
+        text: `XIRR = ${finPct(v)} / year`,
+        svg:
+          cfs.length === days.length
+            ? cashFlowLadderSvg(
+                cfs,
+                cfs.map((c, k) => c / Math.pow(1 + v, days[k] / 365)),
+                "Cash flows discounted at the XIRR",
+              )
+            : undefined,
+      };
     },
     assumes:
       "Same reinvestment assumption and multiple-root caveat as IRR, on actual dates. "+
@@ -6127,7 +6464,21 @@ const FIN_CALCS: FinCalc[] = [
     ],
     compute: (r) => {
       const y = bondYTM(+r("price"), +r("face"), +r("coupon") / 100, +r("years"), +r("freq"));
-      return y === null ? "YTM = no solution" : `YTM = ${finPct(y)}`;
+      if (y === null) return "YTM = no solution";
+      return {
+        text: `YTM = ${finPct(y)}`,
+        // The same curve as the pricing tool, read the other way round: the
+        // solver found where the quoted price meets it, and the marked point IS
+        // the answer rather than an illustration of it.
+        svg: bondPriceCurveSvg({
+          face: +r("face"),
+          coupon: +r("coupon") / 100,
+          ytm: y,
+          years: +r("years"),
+          freq: +r("freq"),
+          price: +r("price"),
+        }),
+      };
     },
     assumes:
       "Assumes settlement on a coupon date, a flat curve, and no default. YTM is a redemption "+
@@ -6156,12 +6507,27 @@ const FIN_CALCS: FinCalc[] = [
       const why = bondPeriodRefusal(years, freq);
       if (why) return why;
       const a = bondAnalytics(+r("face"), +r("coupon") / 100, +r("ytm") / 100, years, freq);
-      return [
-        `Price      ${finMoney(a.price)}`,
-        `Macaulay   ${finFixed(a.macaulay, 3)} yrs`,
-        `Modified   ${finFixed(a.modified, 3)} yrs`,
-        `Convexity  ${finFixed(a.convexity, 2)}`,
-      ].join("\n");
+      return {
+        text: [
+          `Price      ${finMoney(a.price)}`,
+          `Macaulay   ${finFixed(a.macaulay, 3)} yrs`,
+          `Modified   ${finFixed(a.modified, 3)} yrs`,
+          `Convexity  ${finFixed(a.convexity, 2)}`,
+        ].join("\n"),
+        // Duration and convexity are the first two derivatives of THIS curve,
+        // so drawing it is drawing what they summarise. The straight-line
+        // duration estimate is the tangent at the quoted yield; the gap between
+        // that tangent and the real curve at the edges IS convexity, and it is
+        // why duration alone understates a big fall in yield.
+        svg: bondPriceCurveSvg({
+          face: +r("face"),
+          coupon: +r("coupon") / 100,
+          ytm: +r("ytm") / 100,
+          years,
+          freq,
+          price: a.price,
+        }),
+      };
     },
     assumes:
       "Duration and convexity are first- and second-order sensitivities to a PARALLEL "+
@@ -6190,21 +6556,47 @@ const FIN_CALCS: FinCalc[] = [
     ],
     compute: (r) => {
       const g = blackScholesGreeks(r("type") as OptionType, +r("s"), +r("k"), +r("t"), +r("r") / 100, +r("sig") / 100);
-      return [
-        // finFixed, not toFixed: every other line here is already guarded, and
-        // this one rendered a literal "Delta NaN" beside four "—" sentinels.
-        // The pane happened to block the insert because of those dashes, which
-        // means the NaN was kept out of the document by ACCIDENT rather than by
-        // the guard that exists for it.
-        `Delta  ${finFixed(g.delta, 4)}`,
-        `Gamma  ${finFixed(g.gamma, 5)}`,
-        `Vega   ${finMoney(g.vega / 100)} per 1% vol`,
-        // Four decimals, not finMoney's two: a per-day theta is commonly a
-        // couple of cents, and 2 dp rounded -0.017573 to -0.02 — a 14% error on
-        // the number itself.
-        `Theta  ${finFixed(g.theta / 365, 4)} per day`,
-        `Rho    ${finMoney(g.rho / 100)} per 1% rate`,
-      ].join("\n");
+      return {
+        text: [
+          // finFixed, not toFixed: every other line here is already guarded, and
+          // this one rendered a literal "Delta NaN" beside four "—" sentinels.
+          // The pane happened to block the insert because of those dashes, which
+          // means the NaN was kept out of the document by ACCIDENT rather than by
+          // the guard that exists for it.
+          `Delta  ${finFixed(g.delta, 4)}`,
+          `Gamma  ${finFixed(g.gamma, 5)}`,
+          `Vega   ${finMoney(g.vega / 100)} per 1% vol`,
+          // Four decimals, not finMoney's two: a per-day theta is commonly a
+          // couple of cents, and 2 dp rounded -0.017573 to -0.02 — a 14% error on
+          // the number itself.
+          `Theta  ${finFixed(g.theta / 365, 4)} per day`,
+          `Rho    ${finMoney(g.rho / 100)} per 1% rate`,
+        ].join("\n"),
+        // Delta across the underlying, which is the Greek people actually
+        // reason with. Its S-shape IS the option's character: near zero far out
+        // of the money, near one deep in, and steepest at the strike - where
+        // gamma peaks and a hedge needs the most attention. The other Greeks
+        // are numbers; this is the one whose shape carries the intuition.
+        svg: (() => {
+          const type = r("type") as OptionType;
+          const k = +r("k");
+          if (!(k > 0)) return undefined;
+          const pts: Point[] = [];
+          for (let i = 0; i <= 60; i++) {
+            const x = k * 0.5 + ((k * 1.0) * i) / 60;
+            const gg = blackScholesGreeks(type, x, k, +r("t"), +r("r") / 100, +r("sig") / 100);
+            if (Number.isFinite(gg.delta)) pts.push({ x, y: gg.delta });
+          }
+          if (pts.length < 2) return undefined;
+          return buildPlotSvg(
+            [
+              { points: pts, type: "line", color: "#2563eb", label: "delta" },
+              { points: [{ x: +r("s"), y: g.delta }], type: "scatter", color: "#b91c1c", label: "this option" },
+            ],
+            { width: 360, height: 240, title: "Delta against the underlying", xlabel: "spot price", ylabel: "delta" },
+          );
+        })(),
+      };
     },
     assumes:
       "Same EUROPEAN, no-dividend model as the Black–Scholes price above — these Greeks "+
@@ -6234,7 +6626,32 @@ const FIN_CALCS: FinCalc[] = [
     ],
     compute: (r) => {
       const v = impliedVolatility(r("type") as OptionType, +r("price"), +r("s"), +r("k"), +r("t"), +r("r") / 100);
-      return v === null ? "Implied vol = no solution" : `Implied vol = ${finPct(v)}`;
+      if (v === null) return "Implied vol = no solution";
+      return {
+        text: `Implied vol = ${finPct(v)}`,
+        // The curve the solver walked: option value against volatility, with
+        // the quoted price marked. Its SLOPE is vega, so a nearly flat curve
+        // means the price barely constrains the volatility - a deep in- or
+        // out-of-the-money option, where an implied vol is a fragile number.
+        // That fragility is invisible in a percentage.
+        svg: (() => {
+          const type = r("type") as OptionType;
+          const pts: Point[] = [];
+          for (let k = 1; k <= 60; k++) {
+            const sig = (2 * k) / 60;
+            const val = blackScholes(type, +r("s"), +r("k"), +r("t"), +r("r") / 100, sig);
+            if (Number.isFinite(val)) pts.push({ x: sig * 100, y: val });
+          }
+          if (pts.length < 2) return undefined;
+          return buildPlotSvg(
+            [
+              { points: pts, type: "line", color: "#2563eb", label: "option value" },
+              { points: [{ x: v * 100, y: +r("price") }], type: "scatter", color: "#b91c1c", label: "quoted price" },
+            ],
+            { width: 360, height: 240, title: "Value against volatility", xlabel: "volatility (%)", ylabel: "option value" },
+          );
+        })(),
+      };
     },
     assumes:
       "Solves the EUROPEAN, no-dividend Black–Scholes price for sigma. Feeding it a real "+
@@ -6254,7 +6671,17 @@ const FIN_CALCS: FinCalc[] = [
     compute: (r) => {
       const rows = decliningBalanceSchedule(+r("cost"), +r("salvage"), +r("life"), +r("factor"));
       if (!rows.length) return "—";
-      return rows.map((x) => `Year ${x.year}:  dep ${finMoney(x.depreciation)}   book ${finMoney(x.bookValue)}`).join("\n");
+      return {
+        text: rows.map((x) => `Year ${x.year}:  dep ${finMoney(x.depreciation)}   book ${finMoney(x.bookValue)}`).join("\n"),
+        // Book value down the asset's life. Declining balance is front-loaded
+        // by design, and the curve shows exactly how front-loaded - which is
+        // the whole reason to choose it over straight line, and the thing a
+        // column of year rows makes the reader reconstruct.
+        svg: buildPlotSvg(
+          [{ points: rows.map((x) => ({ x: x.year, y: x.bookValue })), type: "line", color: "#2563eb", label: "book value" }],
+          { width: 360, height: 240, title: "Book value over the asset's life", xlabel: "year", ylabel: "book value" },
+        ),
+      };
     },
     // Nine of the finance calculators carry an `assumes`; this one did not, and
     // it is the one where the missing sentence changes what the number means —
@@ -6312,7 +6739,21 @@ const FIN_CALCS: FinCalc[] = [
       }
       lines.push("The charge is the same every year by definition; the book value reaches salvage at");
       lines.push("the end of the useful life. Declining balance front-loads the same total instead.");
-      return lines.join("\n");
+      return {
+        text: lines.join("\n"),
+        // The same picture as declining balance, deliberately, so the two can
+        // be compared: straight line is the diagonal that method is measured
+        // against, and seeing them as the same kind of chart is what makes the
+        // choice between them concrete.
+        svg: moneyOverTimeSvg({
+          periods: life,
+          valueAt: (k) => cost - annual * k,
+          title: "Book value over the asset's life",
+          xlabel: "year",
+          ylabel: "book value",
+          label: "book value",
+        }),
+      };
     },
   },
   {
@@ -6334,18 +6775,32 @@ const FIN_CALCS: FinCalc[] = [
       const pv = annuityPV(pmt, rate, n);
       const fv = annuityFV(pmt, rate, n);
       if (!Number.isFinite(pv) || !Number.isFinite(fv)) return "Check the rate and the number of periods.";
-      return [
-        `Present value   ${finMoney(pv)}`,
-        `Future value    ${finMoney(fv)}`,
-        `Total paid in   ${finMoney(pmt * n)}`,
-        "",
-        "Ordinary annuity: payments at the END of each period. For payments at the start",
-        // PRE-EXISTING, found while extending the em-dash guard to Finance: this
-        // is a SUCCESSFUL result, and the em dash in it made "Insert result"
-        // silently unavailable for every annuity calculation. Same defect class
-        // the guard was written for, one registry over from where it looked.
-        `(an annuity due), multiply both by (1 + rate): here ${finMoney(pv * (1 + rate))} and ${finMoney(fv * (1 + rate))}.`,
-      ].join("\n");
+      return {
+        text: [
+          `Present value   ${finMoney(pv)}`,
+          `Future value    ${finMoney(fv)}`,
+          `Total paid in   ${finMoney(pmt * n)}`,
+          "",
+          "Ordinary annuity: payments at the END of each period. For payments at the start",
+          // PRE-EXISTING, found while extending the em-dash guard to Finance: this
+          // is a SUCCESSFUL result, and the em dash in it made "Insert result"
+          // silently unavailable for every annuity calculation. Same defect class
+          // the guard was written for, one registry over from where it looked.
+          `(an annuity due), multiply both by (1 + rate): here ${finMoney(pv * (1 + rate))} and ${finMoney(fv * (1 + rate))}.`,
+        ].join("\n"),
+        // WHAT THE STREAM IS WORTH IF YOU STOP AT PERIOD k, in today's money.
+        // Present and future value are two numbers at the ends of this curve,
+        // and the curve is what shows the flattening: each additional payment
+        // adds less than the one before, because it is discounted harder. Where
+        // it flattens is where extending the term stops buying much.
+        svg: moneyOverTimeSvg({
+          periods: n,
+          valueAt: (k) => annuityPV(pmt, rate, k),
+          title: "Present value by number of payments",
+          xlabel: "payments",
+          label: "present value",
+        }),
+      };
     },
   },
   {
@@ -6375,17 +6830,33 @@ const FIN_CALCS: FinCalc[] = [
       const bumped = Math.min(g + 0.01, rate - 0.0001);
       const bumpPoints = (bumped - g) * 100;
       const clamped = bumped < g + 0.01 - 1e-12;
-      return [
-        `Level perpetuity     ${finMoney(level)}`,
-        `Growing perpetuity   ${finMoney(growing)}`,
-        "",
-        "The growing form is the Gordon growth model, and it is extremely sensitive near",
-        `r = g: at ${finPct(g)} growth against ${finPct(rate)} discount, raising growth by`,
-        clamped
-          ? `${finFixed(bumpPoints, 2)} points (a full point would not converge) moves the value to ` +
-            `${finMoney(growingPerpetuity(pmt, rate, bumped))}.`
-          : `one point moves the value to ${finMoney(growingPerpetuity(pmt, rate, bumped))}.`,
-      ].join("\n");
+      return {
+        text: [
+          `Level perpetuity     ${finMoney(level)}`,
+          `Growing perpetuity   ${finMoney(growing)}`,
+          "",
+          "The growing form is the Gordon growth model, and it is extremely sensitive near",
+          `r = g: at ${finPct(g)} growth against ${finPct(rate)} discount, raising growth by`,
+          clamped
+            ? `${finFixed(bumpPoints, 2)} points (a full point would not converge) moves the value to ` +
+              `${finMoney(growingPerpetuity(pmt, rate, bumped))}.`
+            : `one point moves the value to ${finMoney(growingPerpetuity(pmt, rate, bumped))}.`,
+        ].join("\n"),
+        // HOW MUCH OF A PERPETUITY'S VALUE COMES FROM THE FIRST n PERIODS.
+        // A perpetuity is an infinite sum, which is exactly the thing people
+        // distrust about it, and the honest reassurance is that the tail is
+        // small: on a level perpetuity most of the value arrives within a few
+        // decades. When it does NOT - a growth rate close to the discount rate
+        // - this curve refuses to flatten, which is the warning the caveats
+        // give in words.
+        svg: moneyOverTimeSvg({
+          periods: 60,
+          valueAt: (k) => (Number.isFinite(g) && g !== 0 ? growingAnnuityPV(pmt, rate, g, k) : annuityPV(pmt, rate, k)),
+          title: "Value accumulated by period k",
+          xlabel: "periods included",
+          label: "present value",
+        }),
+      };
     },
   },
   {
@@ -6406,16 +6877,33 @@ const FIN_CALCS: FinCalc[] = [
       const cont = continuousCompound(p, rate, years);
       const eff = effectiveAnnualRate(rate, m);
       const nominal = nominalAnnualRate(eff, m);
-      return [
-        `Continuous compounding   ${finMoney(cont)}`,
-        `Discrete, ${m}× per year${m < 10 ? " " : ""}     ${finMoney(p * Math.pow(1 + rate / m, m * years))}`,
-        "",
-        `Effective annual rate    ${finPct(eff)}  (from ${finPct(rate)} nominal)`,
-        `Nominal behind it        ${finPct(nominal)}  (round-trips back)`,
-        "",
-        "Continuous compounding is the ceiling: more frequent compounding approaches it and",
-        "never exceeds it, which is why the two figures above bracket every discrete case.",
-      ].join("\n");
+      return {
+        text: [
+          `Continuous compounding   ${finMoney(cont)}`,
+          `Discrete, ${m}× per year${m < 10 ? " " : ""}     ${finMoney(p * Math.pow(1 + rate / m, m * years))}`,
+          "",
+          `Effective annual rate    ${finPct(eff)}  (from ${finPct(rate)} nominal)`,
+          `Nominal behind it        ${finPct(nominal)}  (round-trips back)`,
+          "",
+          "Continuous compounding is the ceiling: more frequent compounding approaches it and",
+          "never exceeds it, which is why the two figures above bracket every discrete case.",
+        ].join("\n"),
+        // The same nominal rate under each compounding convention, side by
+        // side. The point of this tool is that the differences are SMALL and
+        // people argue about them anyway; bars settle it, and show that the gap
+        // between daily and continuous is a rounding error next to the gap
+        // between annual and monthly.
+        svg: hBarSvg(
+          [
+            { name: "annual", value: compoundInterest(p, rate, 1, years) },
+            { name: "quarterly", value: compoundInterest(p, rate, 4, years) },
+            { name: "monthly", value: compoundInterest(p, rate, 12, years) },
+            { name: "daily", value: compoundInterest(p, rate, 365, years) },
+            { name: "continuous", value: cont, colour: "#b91c1c" },
+          ].filter((row) => Number.isFinite(row.value)),
+          { title: "Amount after " + finFixed(years, 0) + " years, by compounding", unit: "", w: 360 },
+        ),
+      };
     },
   },
   {
@@ -6429,13 +6917,28 @@ const FIN_CALCS: FinCalc[] = [
     compute: (r) => {
       const g = cagr(+r("begin"), +r("end"), +r("years"));
       if (!Number.isFinite(g)) return "Beginning value and years must be positive.";
-      return [
-        `CAGR  ${finPct(g)}`,
-        "",
-        "The single growth rate that connects the two endpoints. It says nothing about the",
-        "path between them: a holding that halved and then quadrupled reports the same CAGR",
-        "as one that grew smoothly, and only the second was ever a comfortable thing to own.",
-      ].join("\n");
+      return {
+        text: [
+          `CAGR  ${finPct(g)}`,
+          "",
+          "The single growth rate that connects the two endpoints. It says nothing about the",
+          "path between them: a holding that halved and then quadrupled reports the same CAGR",
+          "as one that grew smoothly, and only the second was ever a comfortable thing to own.",
+        ].join("\n"),
+        // THE SMOOTH PATH THE CAGR DESCRIBES, drawn precisely because it is
+        // the path that probably did not happen. The text says a holding that
+        // halved then quadrupled reports the same CAGR as one that grew
+        // steadily; the curve is what that claim looks like, and labelling it
+        // as the implied path rather than the actual one keeps the figure
+        // honest about being a model.
+        svg: moneyOverTimeSvg({
+          periods: +r("years"),
+          valueAt: (k) => +r("begin") * Math.pow(1 + g, k),
+          title: "The steady path this CAGR implies",
+          xlabel: "year",
+          label: "implied value",
+        }),
+      };
     },
   },
   {
@@ -6449,15 +6952,25 @@ const FIN_CALCS: FinCalc[] = [
     compute: (r) => {
       const rets = finList(r("rets")).map((x) => x / 100);
       const ppy = +r("ppy");
-      return [
-        `Annualized return  ${finPct(annualizedReturn(rets, ppy))}`,
-        `Annualized vol     ${finPct(annualizedVolatility(rets, ppy))}`,
-        // finFixed, not toFixed. A constant return series gives a zero standard
-        // deviation and a NaN Sharpe ratio; this is the same "Sharpe ratio NaN"
-        // that was fixed once in finPct and left un-fixed on the line that
-        // actually prints it.
-        `Sharpe ratio       ${finFixed(sharpeRatio(rets, +r("rf") / 100, ppy), 3)}`,
-      ].join("\n");
+      return {
+        text: [
+          `Annualized return  ${finPct(annualizedReturn(rets, ppy))}`,
+          `Annualized vol     ${finPct(annualizedVolatility(rets, ppy))}`,
+          // finFixed, not toFixed. A constant return series gives a zero standard
+          // deviation and a NaN Sharpe ratio; this is the same "Sharpe ratio NaN"
+          // that was fixed once in finPct and left un-fixed on the line that
+          // actually prints it.
+          `Sharpe ratio       ${finFixed(sharpeRatio(rets, +r("rf") / 100, ppy), 3)}`,
+        ].join("\n"),
+        // The return series the three summary numbers came from. An annualized
+        // return and a volatility describe a distribution; only the series
+        // shows whether the losses were scattered or arrived together, and a
+        // run of consecutive negatives is what a drawdown actually feels like.
+        svg: buildPlotSvg(
+          [{ points: rets.map((v, k) => ({ x: k + 1, y: v * 100 })), type: "line", color: "#2563eb", label: "return" }],
+          { width: 360, height: 240, title: "Return by period", xlabel: "period", ylabel: "return (%)" },
+        ),
+      };
     },
   },
 ];

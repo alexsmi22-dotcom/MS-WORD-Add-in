@@ -63,11 +63,11 @@ const BASELINES = {
   // BIO/ASSAY IS COMPLETE: 16 of 16. The eleven that were added are not curve
   // fits, which is why `AssayOutput` grew a raw `svg` route beside `plot`.
   assay: { label: "Bio/Assay", figures: 16, total: 16 },
-  // The plumbing proof: FinCalc.compute could return only a bare string, so
-  // Finance had nowhere to put a figure. One wired calculator (amortisation)
-  // lands with the type change, so the path is proven before 23 more are
-  // written against it.
-  finance: { label: "Finance", figures: 1, total: 24 },
+  // FINANCE IS COMPLETE: 24 of 24, and it was 0 of 24 because FinCalc.compute
+  // could return only a bare string - there was nowhere to put a figure. The
+  // type change landed with ONE wired calculator so the path was proven before
+  // 23 more were written against it.
+  finance: { label: "Finance", figures: 24, total: 24 },
 };
 
 function findBrowser() {

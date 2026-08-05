@@ -5,15 +5,17 @@
 #    2. Unit tests (jest)         6. Manifest validation         10. Pane layout
 #    3. Compound dictionary       7. Headless render check       11. Engineering audit
 #    4. Compound vs PubChem       8. Landing-page layout        12. Task-pane id wiring audit
-#   4b. Figure layout
+#   4b. Figure layout            8b. Pane audit (the other
+#                                    four calculator registries)
 #
-# (12 Invoke-Step gates. This list had itself gone stale, naming eight steps for
-# a file that ran eleven — the same drift the gates below exist to catch, in the
-# header describing them. The id-wiring audit was inline PowerShell until
-# 2026-08-05 and is now scripts/check-id-wiring.js, so it runs in CI too.)
+# (14 Invoke-Step gates. This list has now gone stale TWICE — it named eight
+# steps for a file that ran eleven, was corrected to twelve, and was left at
+# twelve on the day a thirteenth and fourteenth were added, in the very comment
+# that congratulates itself for catching drift. Count the Invoke-Step lines
+# before trusting this block.)
 #
 # Exit codes: 0 all passed - 1 something failed - 3 nothing failed but a gate was
-# SKIPPED (the two headless gates need a Chromium-family browser).
+# SKIPPED (the headless gates need a Chromium-family browser).
 #
 # Prints a PASS/FAIL summary and exits non-zero if anything fails. The remaining
 # in-Word functional pass is the manual checklist in docs\TEST-SCRIPT.md — step 6

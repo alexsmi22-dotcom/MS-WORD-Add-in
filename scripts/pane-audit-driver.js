@@ -38,6 +38,22 @@
     return /\bNaN\b|\bInfinity\b|\bundefined\b/.test(stripped);
   }
 
+  // "The tool threw and the pane caught it" — in whichever wording the registry
+  // uses.
+  //
+  // THE FIRST VERSION MATCHED ONLY /^Couldn't compute/, which is Analyze's and
+  // Engineering's wording. Statistics and Bio/Assay say "Could not compute —
+  // check the inputs", so across two of the four registries this detector could
+  // never fire — and worse, that string contains an em dash, so a thrown
+  // exception was being reported as a mere punctuation note.
+  //
+  // Derived from the pane's actual strings rather than from memory; if a
+  // registry invents a third wording, the INSERT pass still catches it as
+  // NOTHING_INSERTED, but this is what names it.
+  function threw(text) {
+    return /^(Couldn't compute|Could not compute)/i.test(text);
+  }
+
   // Control characters invalidate a whole OOXML package, so this has to be
   // detected — but the OBVIOUS way to write it is a character-class regex full
   // of backslash escapes, and this repo has already shipped a bug where exactly
@@ -53,11 +69,33 @@
     var str = String(s);
     for (var i = 0; i < str.length; i++) {
       var c = str.charCodeAt(i);
-      // Tab (9), LF (10) and CR (13) are legal in XML; everything below 32 and
-      // the DEL range are not.
+      // Tab (9), LF (10) and CR (13) are legal in XML. Everything else below 32
+      // is illegal; so are the C1 controls (128-159). DEL (127) is a legal XML
+      // 1.0 character and is deliberately NOT flagged — the comment here used
+      // to claim "the DEL range" was checked when the code checked only c < 32,
+      // and a comment a reader trusts over the code is how a gap survives.
       if (c < 32 && c !== 9 && c !== 10 && c !== 13) return true;
+      if (c >= 128 && c <= 159) return true;
     }
     return false;
+  }
+
+  // How many INDEPENDENT figures are in this element.
+  //
+  // ONLY TOP-LEVEL <svg> ROOTS COUNT, and this cost a false alarm on the very
+  // first run. `combineSvgs` (plot.ts:427) stacks a multi-panel figure by
+  // NESTING each child <svg> inside one outer <svg>, so the regression
+  // diagnostics are five <svg> tags and exactly one picture. A naive
+  // querySelectorAll("svg") read that as "the preview showed 5 and the insert
+  // delivered 1" and reported an insert-path defect in code that is correct.
+  //
+  // Defined here, at file scope, so the self-test below exercises THIS function
+  // rather than a copy of it.
+  function countRoots(host) {
+    if (!host) return 0;
+    return [].slice.call(host.querySelectorAll("svg")).filter(function (el) {
+      return !(el.parentNode && el.parentNode.closest && el.parentNode.closest("svg"));
+    }).length;
   }
 
   // The registries, in the order the campaign works through them.
@@ -194,11 +232,12 @@
       // control of its own. A counter that reads 0 for everything would report
       // the entire campaign as unfinished forever; one that reads >0 for
       // everything would report it as finished on day one. Both are silent.
-      var roots = function (host) {
-        return [].slice.call(host.querySelectorAll("svg")).filter(function (el) {
-          return !(el.parentNode && el.parentNode.closest && el.parentNode.closest("svg"));
-        }).length;
-      };
+      // THE REAL COUNTER, not a copy of it. This self-test first exercised a
+      // byte-identical duplicate, which meant editing the counter and not the
+      // duplicate would leave the negative controls green over a broken
+      // counter — a harness testing itself rather than the thing it measures,
+      // which is the exact failure this whole block exists to prevent.
+      var roots = countRoots;
       var probe = document.createElement("div");
       probe.innerHTML = '<svg width="10" height="10"><text>x</text></svg>';
       if (roots(probe) !== 1) bad.push("figure-counter-blind");
@@ -228,8 +267,32 @@
       }
       var reg = queue.shift();
 
+      // THE MODE MUST ACTUALLY BE REACHABLE, not merely present in the DOM.
+      //
+      // All four dropdowns are populated at boot, so this driver can find
+      // `#fin-calc` by id and drive all 24 Finance calculators perfectly even
+      // if the Finance option were deleted from `#mode-select` or the change
+      // handler stopped revealing the section — the audit would report the
+      // whole registry clean while no user could open it. That is this repo's
+      // recorded "routing vs engine tests" failure: a green engine suite proves
+      // nothing about whether the pane can REACH the engine.
+      var option = modeSel.querySelector('option[value="' + reg.mode + '"]');
+      if (!option) {
+        push("REGISTRY " + reg.mode + " BROKEN no option for it in #mode-select");
+        nextRegistry();
+        return;
+      }
       modeSel.value = reg.mode;
       modeSel.dispatchEvent(new Event("change", { bubbles: true }));
+
+      // offsetParent is null for a hidden element; a section that never shows
+      // means the mode did not open however healthy its controls look.
+      var sectionEl = document.getElementById(reg.mode === "finance" ? "finance-section" : reg.mode + "-section");
+      if (sectionEl && sectionEl.offsetParent === null) {
+        push("REGISTRY " + reg.mode + " BROKEN the section never became visible");
+        nextRegistry();
+        return;
+      }
 
       var calcSel = document.getElementById(reg.calc);
       var resultEl = document.getElementById(reg.result);
@@ -272,22 +335,8 @@
       // beside it. Both count; neither is assumed.
       //
       // ONLY TOP-LEVEL <svg> ELEMENTS COUNT, and this cost a false alarm on the
-      // very first run. `combineSvgs` (plot.ts:427) stacks a multi-panel figure
-      // by NESTING each child <svg> inside one outer <svg> — so the regression
-      // diagnostics are five <svg> tags and exactly one picture. A naive
-      // querySelectorAll("svg") read that as "the preview showed 5 figures and
-      // the insert delivered 1" and reported a insert-path defect in code that
-      // is correct.
-      //
-      // A harness reports itself first. What is wanted is the number of
-      // INDEPENDENT figures, which is the number of svg roots with no svg
-      // ancestor.
-      function countRoots(host) {
-        if (!host) return 0;
-        return [].slice.call(host.querySelectorAll("svg")).filter(function (el) {
-          return !(el.parentNode && el.parentNode.closest && el.parentNode.closest("svg"));
-        }).length;
-      }
+      // very first run — see countRoots, which is defined at the top of this
+      // file so the self-test can exercise the same function this pass uses.
       function figuresNow() {
         return countRoots(resultEl) + countRoots(figureEl);
       }
@@ -301,21 +350,23 @@
           var flags = [];
           if (badNumbers(text)) flags.push("BADNUMBER");
           if (/not finite/i.test(text)) flags.push("notfinite");
-          if (/^Couldn't compute/i.test(text)) flags.push("THREW");
+          if (threw(text)) flags.push("THREW");
           if (!text.length) flags.push("EMPTY");
-          // AN EM DASH IS REPORTED, BUT IT IS NOT A FINDING ON ITS OWN.
+          // AN EM DASH IS A FINDING ONLY WHEN IT BLOCKS THE INSERT.
           //
-          // It matters only when it reaches the pane's "not computable"
-          // sentinel scan and kills the Insert button — and whether it does
-          // depends on WHERE it sits. Finance appends its `assumes:` disclosure
-          // AFTER the insertability decision is made, so five Finance tools
-          // carry an em dash and insert perfectly well.
+          // Whether it does depends on WHERE it sits. Finance computes its
+          // insertability from the result text and only THEN appends the
+          // `assumes:` disclosure to the DOM, so five Finance tools carry an em
+          // dash and insert perfectly well; flagging those would be a gate
+          // crying wolf, and a gate that cries wolf gets switched off.
           //
-          // Flagging those as defects would be a gate crying wolf, and a gate
-          // that cries wolf gets switched off. The INSERT pass below measures
-          // the actual consequence (NOTHING_INSERTED), so that is the gate and
-          // this is the diagnostic that explains it.
-          if (text.indexOf("—") >= 0) flags.push("note:emdash");
+          // But the first version downgraded it UNCONDITIONALLY, which blinded
+          // this pass to the exact defect the audit was built to find — the
+          // t-tests and ANOVA whose Insert button the sentinel had killed. The
+          // rule below is the one the OPTION pass already used.
+          if (text.indexOf("—") >= 0) {
+            flags.push(insertBtn.disabled ? "EMDASH_BLOCKS_INSERT" : "note:emdash");
+          }
           push(
             "DEFAULT " + reg.mode + " " + t + " len=" + text.length + " fig=" + figuresNow() +
               " insert=" + (insertBtn.disabled ? "OFF" : "on") +
@@ -353,7 +404,7 @@
                 var bad = [];
                 if (badNumbers(text)) bad.push("BADNUMBER");
                 if (/not finite/i.test(text)) bad.push("notfinite");
-                if (/^Couldn't compute/i.test(text)) bad.push("THREW");
+                if (threw(text)) bad.push("THREW");
                 if (!text.length) bad.push("EMPTY");
                 // An em dash matters only when it BLOCKS an otherwise good
                 // result. With Insert still enabled it is punctuation; with
@@ -426,7 +477,7 @@
           // question of style; whether "abc" can reach a document is not.
           // Flagging the style would make ten matrix tools fail a gate for
           // behaving properly, and a gate that cries wolf gets switched off.
-          if (/^Couldn't compute/i.test(text) && !insertBtn.disabled) bad.push("THREW_BUT_INSERTABLE");
+          if (threw(text) && !insertBtn.disabled) bad.push("THREW_BUT_INSERTABLE");
           push(
             "JUNK " + reg.mode + " " + t + " insert=" + (insertBtn.disabled ? "OFF" : "on") +
               " issues=" + (bad.length ? bad.join("+") : "ok") + " :: " + text.slice(0, 110)

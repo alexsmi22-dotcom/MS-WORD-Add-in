@@ -157,11 +157,25 @@ describe("0.6 — Finance cannot insert a non-finite number", () => {
   });
 
   it("the insertability gate blocks NaN and Infinity", () => {
-    const i = pane.indexOf("const insertable =");
+    // The check moved but got STRONGER, so this moved with it rather than
+    // being deleted. Finance's inline gate was the only one that blocked NaN
+    // and Infinity by name; Statistics, Analyze and Bio/Assay ran on the em
+    // dash alone, and that gap let "variance = Infinity" become insertable the
+    // moment an unrelated fix removed the em dash that had been blocking it by
+    // accident. All four now share `insertableResultText`.
+    //
+    // Asserted on the helper, and separately on Finance still using it, so
+    // neither half can drift away from the other.
+    const i = pane.indexOf("function insertableResultText");
     expect(i).toBeGreaterThan(0);
     const region = pane.slice(i, i + 400);
     expect(region).toMatch(/!text\.includes\("NaN"\)/);
     expect(region).toMatch(/!text\.includes\("Infinity"\)/);
+
+    const fin = pane.indexOf("const insertable = insertableResultText(text)");
+    expect(fin).toBeGreaterThan(0);
+    // Finance's own extra condition must survive the move.
+    expect(pane.slice(fin, fin + 200)).toMatch(/no solution/);
   });
 });
 

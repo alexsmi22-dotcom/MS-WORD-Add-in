@@ -48,7 +48,7 @@ describe("prose spliced into a result cannot disable Insert", () => {
   test("the pane's sentinel scan still works the way this test assumes", () => {
     // If the reader stops blocking on the sentinel, this file is obsolete
     // rather than wrong. Pin the behaviour it defends.
-    expect(PANE).toContain('!out.text.includes("');
+    expect(PANE).toContain("function insertableResultText");
     expect(PANE).toContain("function plainDashes");
   });
 
@@ -82,12 +82,72 @@ describe("prose spliced into a result cannot disable Insert", () => {
     expect(PANE).toContain('if (!Number.isFinite(x)) return "' + EM_DASH + '"');
   });
 
-  test("no call site launders the numbers along with the prose", () => {
-    // plainDashes applied to a whole assembled result at one of these sites
-    // would be the bad fix. Catch it by shape.
-    const bad = PANE.split(/\r?\n/).filter((l) =>
-      /plainDashes\(\s*`/.test(l) && /describeAssumptions/.test(l),
+  // THERE IS NO "DOES A CALL SITE LAUNDER THE NUMBERS" TEST HERE, and the two
+  // attempts at one are worth recording rather than a third.
+  //
+  // The first was vacuous — it required `plainDashes(` and
+  // `describeAssumptions` on the SAME source line, which at every real call
+  // site they never are, so it could only pass. An adversarial pass caught it.
+  //
+  // The second was wrong in the other direction: "the argument to plainDashes
+  // is never a template literal" flags five legitimate sites that wrap ONE
+  // prose note, `plainDashes(\`Note: ${n}\`)`, which is exactly the correct
+  // usage. A gate that fires on correct code gets switched off.
+  //
+  // The property actually worth protecting is not "where is plainDashes
+  // called", it is "can a non-finite value reach a document" — and that is
+  // enforced directly, and much more strongly, by the gate tested below. A
+  // structural proxy for a property you can assert outright is not worth the
+  // false positives.
+});
+
+// ---------------------------------------------------------------------------
+describe("a non-finite value cannot reach a document by a route the dash misses", () => {
+  // FOUND BY AN ADVERSARIAL PASS OVER THE FIX ABOVE, which is the whole reason
+  // this repo insists on one: the plainDashes fix was correct about prose and
+  // removed an ACCIDENTAL guard while it was there.
+  //
+  // describeAssumptions prints the variance ratio with a bare toFixed, and the
+  // ratio is max/min over the group variances — Infinity as soon as one group
+  // is constant. toFixed renders that as the literal "Infinity", never as the
+  // "—" sentinel. Before the fix that note happened to carry an em dash
+  // elsewhere and was blocked; after it, "largest/smallest variance = Infinity"
+  // was insertable.
+  test("describeAssumptions really can emit a literal Infinity", () => {
+    const constant = [7, 7, 7, 7, 7, 7, 7, 7, 7, 7];
+    const spread = [1, 3, 9, 14, 22, 31, 45, 60, 80, 110];
+    const notes = describeAssumptions([constant, spread]).join("\n");
+    expect(notes).toContain("Infinity");
+    // And it is NOT the em-dash sentinel, which is the point.
+    expect(/Infinity/.test(notes.replace(/—/g, ""))).toBe(true);
+  });
+
+  test("the pane's gate blocks NaN and Infinity by name, not just the dash", () => {
+    expect(PANE).toContain("function insertableResultText");
+    // EVERY registry goes through the shared gate. The recorded failure this
+    // prevents is a guard that lags the defect by one registry: the em-dash
+    // check covered Analyze, was extended to Stats after a regression, and
+    // still missed Finance and Bio/Assay.
+    const legacy = PANE.split(/\r?\n/).filter(
+      (l) => /const insertable\b/.test(l) && !/insertableResultText/.test(l),
     );
-    expect(bad).toEqual([]);
+    expect(legacy).toEqual([]);
+  });
+
+  test("the gate accepts an ordinary result and rejects each bad shape", () => {
+    // A source scan proves the call sites; this proves the predicate. Both are
+    // needed — a correctly-wired wrong function passes the first on its own.
+    // The source is TypeScript, so the one type annotation is stripped before
+    // it is evaluated. Nothing else in the function is TS.
+    const src = /function insertableResultText\([\s\S]*?\n\}/
+      .exec(PANE)![0]
+      .replace("(text: string): boolean", "(text)");
+    // eslint-disable-next-line no-new-func
+    const gate = new Function(`${src}; return insertableResultText;`)() as (t: string) => boolean;
+    expect(gate("t(8) = 2.31, p = .049")).toBe(true);
+    expect(gate("")).toBe(false);
+    expect(gate("ratio = Infinity")).toBe(false);
+    expect(gate("d = NaN")).toBe(false);
+    expect(gate("value = —")).toBe(false);
   });
 });

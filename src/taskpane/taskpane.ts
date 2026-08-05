@@ -146,6 +146,7 @@ import {
   type ArmChain,
   SectionStrip,
 } from "../lib/mechchart";
+import { boxPlotSvg, forestPlotSvg, groupedBarSvg } from "../lib/statchart";
 import { parseNetlist, parseValue, solveDc, solveAc, frequencySweep, dB } from "../lib/circuit";
 import { analyzeStress, transformPlane, factorOfSafety, analyzeTorsion, analyzeColumn, EndCondition } from "../lib/stress";
 import { analyzeTruss, parseTruss } from "../lib/truss";
@@ -5011,15 +5012,30 @@ async function insertAlignmentText(): Promise<void> {
 
 let insertTextBusy = false;
 
-async function insertPlainText(text: string, label: string): Promise<void> {
+/**
+ * Returns TRUE only if the text actually reached the document.
+ *
+ * It used to return `void` while catching its own errors, which made every
+ * caller that wanted to do something afterwards guess. Two of them guessed
+ * wrong: the Stats and Bio/Assay "insert the result AND its figure" handlers
+ * both carried a comment saying "only if the text went in — insertPlainText
+ * reports its own failure", and neither could tell. A failed text insert still
+ * appended the picture, and the handler then overwrote the error message with
+ * "Result and chart inserted."
+ *
+ * The busy branch matters just as much: a second click returns false, so the
+ * caller stops instead of falling through and inserting the FIGURE a second
+ * time beside one copy of the text.
+ */
+async function insertPlainText(text: string, label: string): Promise<boolean> {
   if (!text.trim()) {
     setStatus(`Nothing to insert for ${label.toLowerCase()}.`, "error");
-    return;
+    return false;
   }
   if (insertTextBusy) {
     // Was a silent `return`, so a second click looked like nothing happened.
     setStatus("Still inserting the last result — one moment.", "error");
-    return;
+    return false;
   }
   insertTextBusy = true;
   setStatus(`Inserting ${label.toLowerCase()}…`);
@@ -5036,8 +5052,10 @@ async function insertPlainText(text: string, label: string): Promise<void> {
       await context.sync();
     });
     setStatus(`${label} inserted. Ctrl/⌘+Z undoes it.`, "success");
+    return true;
   } catch (error) {
     setStatus(`Could not insert ${label.toLowerCase()}: ${(error as Error).message}`, "error");
+    return false;
   } finally {
     insertTextBusy = false;
   }
@@ -6594,12 +6612,9 @@ function updateFinancePreview(): void {
   // A belt-and-braces gate. finMoney/finPct/finFixed all render a non-finite
   // value as "—", but any calculator that formats a number by some other route
   // can still produce these, and a document is the wrong place to find out.
-  const insertable =
-    !!text &&
-    !text.includes("—") &&
-    !text.includes("no solution") &&
-    !text.includes("NaN") &&
-    !text.includes("Infinity");
+  // The shared gate, plus the one condition that is Finance's alone: a solver
+  // that reports "no solution" has produced a sentence, not a result.
+  const insertable = insertableResultText(text) && !text.includes("no solution");
   if (!text) {
     finResult.innerHTML = '<span class="hint">Enter values to compute.</span>';
   } else {
@@ -6713,6 +6728,40 @@ function plainDashes(text: string): string {
   return text.replace(/\u2014/g, "-");
 }
 
+/**
+ * Is this result text safe to put in a document?
+ *
+ * THE EM DASH ALONE IS NOT ENOUGH, and relying on it produced a regression in
+ * the very change that added this. `formatNum` and `assaySig` render a
+ * non-finite value as "\u2014", so the dash catches everything that goes through
+ * them \u2014 and nothing that does not. `describeAssumptions` prints its variance
+ * ratio with a bare `toFixed`, and `Math.max(...)/Math.min(...)` is `Infinity`
+ * the moment one group has zero variance, which `toFixed` renders as the
+ * literal string "Infinity".
+ *
+ * That text used to be blocked, but only by ACCIDENT: it happened to carry an
+ * em dash elsewhere in the same paragraph. Making the prose dashes plain \u2014 the
+ * correct fix for a different defect \u2014 removed the accident and let
+ * "largest/smallest variance = Infinity" through to the document.
+ *
+ * Finance had already worked this out (its own gate has blocked "NaN" and
+ * "Infinity" by name for some time). Statistics, Analyze and Bio/Assay were
+ * still running on the dash alone. One helper now, so the next registry cannot
+ * be the one that missed it.
+ *
+ * Reproduction, and the regression test that holds it:
+ *   group A = ten identical values, group B = anything spread out
+ *   -> Welch's t and p are both finite, so no earlier guard fires.
+ */
+function insertableResultText(text: string): boolean {
+  return (
+    !!text &&
+    !text.includes("\u2014") &&
+    !text.includes("NaN") &&
+    !text.includes("Infinity")
+  );
+}
+
 /** Shared text report for any least-squares fit. */
 function regressionReport(res: {
   coefficients: { name: string; estimate: number; standardError: number; t: number; p: number }[];
@@ -6800,6 +6849,15 @@ const STAT_CALCS: StatCalc[] = [
           `Median = ${assaySig(d.median)} · Min = ${assaySig(d.min)} · Max = ${assaySig(d.max)}\n` +
           `95% CI = [${assaySig(d.ci95[0])}, ${assaySig(d.ci95[1])}]\n` +
           `CV = ${cvText}`,
+        // The distribution the summary above summarises. Mean and SD cannot
+        // distinguish a bimodal sample from a flat one — they can be identical
+        // for both — and this calculator is most often run on the handful of
+        // values where that difference decides whether any later test means
+        // anything.
+        svg: boxPlotSvg([{ label: "data", values: xs }], {
+          title: "Distribution",
+          ylabel: "value",
+        }),
       };
     },
   },
@@ -6847,6 +6905,17 @@ const STAT_CALCS: StatCalc[] = [
         text:
           `${label} two-sample t-test\n${reportT(res)}\nMean difference = ${assaySig(res.meanDifference)}` +
           (notes.length ? "\n\n" + notes.join("\n") : ""),
+        // The two distributions the test compares. A significant p with the
+        // groups drawn side by side is a claim a reader can check; the same p
+        // on its own is one they have to take on trust — and the assumption
+        // warnings printed above are about exactly the shapes this shows.
+        svg: boxPlotSvg(
+          [
+            { label: "group 1", values: a },
+            { label: "group 2", values: b },
+          ],
+          { title: `${label} two-sample t-test`, ylabel: "value" },
+        ),
       };
     },
   },
@@ -6870,6 +6939,19 @@ const STAT_CALCS: StatCalc[] = [
         text:
           `Paired t-test\n${reportT(res)}\nMean difference = ${assaySig(res.meanDifference)}` +
           (notes.length ? "\n\n" + notes.join("\n") : ""),
+        // THE DIFFERENCES GET THEIR OWN BOX, because they are what a paired
+        // test actually examines. Drawing the two conditions alone would invite
+        // the reader to compare them as if they were independent groups, which
+        // is the misreading the paired design exists to avoid: two heavily
+        // overlapping conditions can still have every difference the same sign.
+        svg: boxPlotSvg(
+          [
+            { label: "cond. 1", values: a },
+            { label: "cond. 2", values: b },
+            { label: "difference", values: a.map((v, i) => v - b[i]) },
+          ],
+          { title: "Paired t-test", ylabel: "value" },
+        ),
       };
     },
   },
@@ -7299,6 +7381,14 @@ const STAT_CALCS: StatCalc[] = [
         text:
           `One-way ANOVA (${groups.length} groups)\n${reportF(res)}\n${effect}` +
           (advice.length ? `\n\n${advice.join("\n")}` : ""),
+        // ANOVA answers only "are these all the same?", and an F with a p is
+        // the least informative honest answer to that. The boxes show WHICH
+        // group moved, which is the question the user actually had — and which
+        // the omnibus test cannot answer at all.
+        svg: boxPlotSvg(
+          groups.map((g, i) => ({ label: `group ${i + 1}`, values: g })),
+          { title: `One-way ANOVA (${groups.length} groups)`, ylabel: "value" },
+        ),
       };
     },
   },
@@ -7374,6 +7464,27 @@ const STAT_CALCS: StatCalc[] = [
           // hand to find that out. It runs here now \u2014 which was only safe once
           // describeAssumptions stopped testing the pooled marginal.
           (tukeyAdvice.length ? "\n\n" + tukeyAdvice.join("\n") : ""),
+        ),
+        // THE FIGURE A POST-HOC TEST IS FOR. Tukey's output IS a list of
+        // confidence intervals, and the only question asked of each one is
+        // whether it crosses zero — which the table above makes the reader
+        // work out row by row, and the chart answers for every pair at once.
+        //
+        // The intervals are the test's own, not recomputed: drawing a picture
+        // from separately derived numbers would let the chart and the table
+        // disagree, and the chart is the one people would believe.
+        svg: forestPlotSvg(
+          res.pairs.map((pr) => ({
+            label: `${pr.i + 1} vs ${pr.j + 1}`,
+            estimate: pr.difference,
+            low: pr.ciLow,
+            high: pr.ciHigh,
+          })),
+          {
+            title: `Tukey HSD - ${ciPct}% CI on each difference`,
+            xlabel: "difference in means",
+            zero: 0,
+          },
         ),
       };
     },
@@ -7526,6 +7637,18 @@ const STAT_CALCS: StatCalc[] = [
       return {
         text: `Chi-square goodness of fit\nχ² = ${assaySig(res.chi2)}, df = ${res.df}, ${formatP(res.p)}`,
         caveats: res.warnings,
+        // χ² says the table departs from the model; it cannot say WHERE, and
+        // "where" is what the user wanted to know. Observed against expected
+        // answers it directly, and it also shows the low expected counts the
+        // caveats warn about rather than only asserting them.
+        svg: groupedBarSvg(
+          obs.map((_, i) => `cat ${i + 1}`),
+          [
+            { label: "observed", values: obs },
+            { label: "expected", values: exp },
+          ],
+          { title: "Goodness of fit", ylabel: "count" },
+        ),
       };
     },
   },
@@ -7694,7 +7817,7 @@ function updateStatsPreview(): void {
   }
   // Exclude the "—" no-value sentinel (from a non-finite computation) so a
   // dash placeholder is never inserted into the document.
-  const insertable = out.ok !== false && !!out.text && !out.text.includes("—");
+  const insertable = out.ok !== false && insertableResultText(out.text);
   statsResult.innerHTML =
     esc(out.text).replace(/\n/g, "<br>") +
     // The SVG is generated by this code, never from user input.
@@ -7732,11 +7855,14 @@ async function insertStatsResult(): Promise<void> {
     setStatus("Nothing to insert for statistics.", "error");
     return;
   }
-  await insertPlainText(currentStatsText, "Statistics");
-  // Only if the text went in — insertPlainText reports its own failure, and
-  // appending a picture after a failed insert would put it somewhere unexpected.
-  if (currentStatsSvg) {
-    await insertStatsChart();
+  // Same contract as Bio/Assay: proceed only if the text actually landed, and
+  // claim success only if the figure did too. Previously this could not tell —
+  // insertPlainText returned void and swallowed its own error — so a failed
+  // text insert still appended the chart, and this line wrote "Result and chart
+  // inserted" over the error explaining that it had not been.
+  if (!(await insertPlainText(currentStatsText, "Statistics"))) return;
+  if (!currentStatsSvg) return;
+  if (await insertStatsChart()) {
     setStatus("Result and chart inserted.", "success");
   }
 }
@@ -7748,10 +7874,10 @@ function svgNaturalSize(svg: string): { width: number; height: number } {
   return { width: w, height: h };
 }
 
-async function insertStatsChart(): Promise<void> {
+async function insertStatsChart(): Promise<boolean> {
   if (!currentStatsSvg) {
     setStatus("No chart available for this result.", "error");
-    return;
+    return false;
   }
   statsInsertChartBtn.disabled = true;
   setStatus("Inserting chart…");
@@ -7773,8 +7899,10 @@ async function insertStatsChart(): Promise<void> {
       await tagInserted(context, picture.getRange(), "formula-inserter:stats-chart");
     });
     setStatus("Chart inserted.", "success");
+    return true;
   } catch (error) {
     setStatus(`Could not insert chart: ${(error as Error).message}`, "error");
+    return false;
   } finally {
     statsInsertChartBtn.disabled = !currentStatsSvg;
   }
@@ -23140,7 +23268,7 @@ function updateEngineeringPreview(): void {
   // Same em-dash sentinel guard as Stats and Analyze. Every string this mode
   // builds is passed through plainDashes() where it is assembled, so the prose
   // can stay readable without silently disabling the button.
-  const insertable = out.ok !== false && !!out.text && !out.text.includes("—");
+  const insertable = out.ok !== false && insertableResultText(out.text);
   engineeringResult.innerHTML =
     out.blocks && insertable ? analyzeBlocksToPreviewHtml(out.blocks) : esc(out.text).replace(/\n/g, "<br>");
   currentEngText = insertable ? out.text : "";
@@ -23183,7 +23311,7 @@ function updateAnalyzePreview(): void {
   // disables Insert AND suppresses the rich preview (the reader falls back to the
   // plain-text branch below, so plots vanish). If you are writing a calculator,
   // use a comma or a hyphen in prose. analyzeCalcText.test.ts pins this.
-  const insertable = out.ok !== false && !!out.text && !out.text.includes("—");
+  const insertable = out.ok !== false && insertableResultText(out.text);
   analyzeResult.innerHTML =
     out.blocks && insertable ? analyzeBlocksToPreviewHtml(out.blocks) : esc(out.text).replace(/\n/g, "<br>");
   currentAnalyzeText = insertable ? out.text : "";
@@ -25898,7 +26026,7 @@ function updateAssayPreview(): void {
   }
   // Exclude the "—" no-value sentinel (from a non-finite computation) so a
   // dash placeholder is never inserted into the document.
-  const insertable = out.ok !== false && !!out.text && !out.text.includes("—");
+  const insertable = out.ok !== false && insertableResultText(out.text);
   assayResult.innerHTML = esc(out.text).replace(/\n/g, "<br>");
 
   // Show the fit's own warnings under the numbers. Without this, a substrate
@@ -25987,20 +26115,24 @@ async function insertAssayResult(): Promise<void> {
     setStatus("Nothing to insert for this assay.", "error");
     return;
   }
-  await insertPlainText(currentAssayText, "Assay result");
-  // Only if the text went in — insertPlainText reports its own failure, and
-  // appending a picture after a failed insert would put it somewhere
-  // unexpected. Same ordering rule as insertStatsResult.
-  if (currentAssayPlotSvg) {
-    await insertAssayPlot();
+  // ONLY IF THE TEXT ACTUALLY WENT IN. Appending a picture after a failed
+  // insert puts it somewhere the user did not ask for, and a second rapid click
+  // would otherwise fall through the "still inserting" branch and add the
+  // figure twice beside one copy of the text.
+  if (!(await insertPlainText(currentAssayText, "Assay result"))) return;
+  if (!currentAssayPlotSvg) return;
+  // The success message is only claimed if the figure also landed; otherwise
+  // insertAssayPlot's own error message is what the user should be left with,
+  // not a cheerful sentence written over the top of it.
+  if (await insertAssayPlot()) {
     setStatus("Result and fit plot inserted.", "success");
   }
 }
 
-async function insertAssayPlot(): Promise<void> {
+async function insertAssayPlot(): Promise<boolean> {
   if (!currentAssayPlotSvg) {
     setStatus("No fitted plot to insert.", "error");
-    return;
+    return false;
   }
   assayInsertPlotBtn.disabled = true;
   setStatus("Inserting fit plot…");
@@ -26019,8 +26151,10 @@ async function insertAssayPlot(): Promise<void> {
       await tagInserted(context, picture.getRange(), "formula-inserter:assay");
     });
     setStatus("Fit plot inserted.", "success");
+    return true;
   } catch (error) {
     setStatus(`Could not insert fit plot: ${(error as Error).message}`, "error");
+    return false;
   } finally {
     assayInsertPlotBtn.disabled = false;
   }

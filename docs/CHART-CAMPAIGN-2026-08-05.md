@@ -31,7 +31,7 @@ it — **the detector was wrong before the product was**).
 |---|---|---|---|
 | Engineering | 130 | 130 | 0 |
 | Statistics | 5 | 21 | **16** |
-| Analyze | 9 | 23 | **14** |
+| Analyze | 9 (source) / **8 measured** | 23 | **14** |
 | Assay | 5 | 16 | **11** |
 | Finance | 0 | 24 | **24** |
 | **Total (calculators)** | **149** | **214** | **65** |
@@ -111,6 +111,38 @@ and 13 QC gates called clean, it found:
 switched off: an em dash that leaves Insert enabled (Finance appends its
 `assumes:` disclosure after the insertability decision, so five Finance tools
 carry one harmlessly), and a clean refusal of deliberate rubbish input.
+
+## Phase 2 (in progress) — Statistics 5 → 11 of 21
+
+`src/lib/statchart.ts` carries the three figures the 16 missing Statistics
+calculators need. They are not sixteen different pictures; they are three, used
+repeatedly — which is what makes the rest of this batch mechanical.
+
+Wired so far: `descriptive`, `twosample`, `paired`, `anova` (box plots),
+`tukey` (forest), `chigof` (grouped bars). Remaining in Statistics:
+`kruskal`, `friedman`, `mannwhitney`, `wilcoxon`, `assumptions`, `dunnett`,
+`multcomp`, `chiind`, `twoway`, `uncertainty`.
+
+**Two things the layout gate caught that no reviewer would have:**
+
+- Twelve groups with long labels produced **22 overlapping label pairs**. The
+  first fix rotated labels 45° and made it **worse (34)** — a 45° label still
+  advances by most of its own width, *and* the layout auditor models only
+  `rotate(-90`, so it was being measured as though horizontal. Fighting the
+  instrument instead of the layout would have produced a figure that scores well
+  and reads badly.
+- With `-90` the collisions went to zero and the auditor then reported the axis
+  line striking through every label — because it models a rotated label as
+  **centred on its anchor** while `text-anchor="end"` draws the glyphs downward
+  from it. Two different rectangles. Centring the label makes what the gate
+  measures and what a reader sees the same thing.
+
+**And the independent adversarial pass over phase 1 found that phase 1's own fix
+had opened a hole** — see the CHANGELOG entry. Making the prose em dashes plain
+was right, and it removed an *accidental* guard that had been keeping a literal
+`Infinity` out of documents. That is this repo's recurring shape, now recorded
+twice in one campaign: **a fix can be worse than the defect, and only
+measurement tells you.**
 
 ## The rule this campaign is enforcing
 

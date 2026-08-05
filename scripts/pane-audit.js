@@ -44,11 +44,17 @@ const DIST = path.join(ROOT, "dist");
 // is most of the way to not being one — check-figures.js was left at 120 while
 // the corpus held 135, and fifteen figures could have been deleted silently.
 //
-// `total` is the tool count each registry had when the baseline was taken. It
-// is not a gate on its own; it is what lets the report say "5 of 21" rather
-// than "5", so a registry that LOSES a calculator is visible too.
+// `total` is the tool count each registry had when the baseline was taken, and
+// it IS enforced below. It was documented as making "a registry that loses a
+// calculator visible" and then never read — the report printed the measured
+// count against the measured count, so a registry could silently lose ten
+// calculators and still print a tidy "5 of 11 draw" and pass. A field that
+// describes a guarantee nothing implements is worse than no field.
 const BASELINES = {
-  stats: { label: "Statistics", figures: 5, total: 21 },
+  // 5 -> 11 with the first wiring batch: descriptive, both t-tests and ANOVA
+  // draw box plots, Tukey draws the forest plot of its own intervals, and
+  // chi-square goodness of fit draws observed against expected.
+  stats: { label: "Statistics", figures: 11, total: 21 },
   // 11, not the 9 a source scan counts. The measured number was 8 before this
   // gate existed: the heat, wave and Laplace solvers each BUILT a figure that
   // an em dash in their own output suppressed before it could be drawn, and a
@@ -213,13 +219,26 @@ function run() {
 
   // `note:` flags are diagnostics, not findings — see the em-dash reasoning in
   // the driver. A line carrying only notes is clean.
-  const benign = (list) =>
-    list
-      .split("+")
-      .filter(Boolean)
-      .every((f) => f === "clean" || f === "ok" || f.indexOf("note:") === 0);
-  const onlyNotes = (l) => benign((/flags=(\S+)/.exec(l) || [, ""])[1]);
-  const noIssues = (l) => benign((/issues=(\S+)/.exec(l) || [, ""])[1]);
+  // A MISSING VERDICT IS NOT A PASS.
+  //
+  // The first version defaulted the token to "" when the regex did not match,
+  // and `"".split("+").filter(Boolean)` is the empty array, on which `.every`
+  // is vacuously true. Driver EXCEPTION lines carry neither `flags=` nor
+  // `issues=` — so a calculator that THREW while being selected was reported
+  // "ok" by four of the six sections. A gate whose default is "pass" is the
+  // "empty page cannot overlap itself" failure wearing different clothes.
+  const benign = (list) => {
+    if (list === null) return false; // no verdict at all: report it, never pass it
+    const parts = list.split("+").filter(Boolean);
+    if (!parts.length) return false;
+    return parts.every((f) => f === "clean" || f === "ok" || f.indexOf("note:") === 0);
+  };
+  const token = (l, key) => {
+    const m = new RegExp(key + "=(\\S+)").exec(l);
+    return m ? m[1] : null;
+  };
+  const onlyNotes = (l) => benign(token(l, "flags"));
+  const noIssues = (l) => benign(token(l, "issues"));
 
   section(
     "On their own defaults",
@@ -281,6 +300,16 @@ function run() {
       );
     }
     if (drawn.length > base.figures) raise.push(`${mode} -> ${drawn.length}`);
+    // A LOST CALCULATOR IS A FINDING, not a smaller denominator. Gaining one is
+    // ordinary and only prompts the baseline to be updated.
+    if (mine.length < base.total) {
+      findings.push(
+        `TOOLS ${mode}: ${mine.length} calculators driven, was ${base.total} — one has been LOST`,
+      );
+      console.log(`  FLAG  ${base.label.padEnd(12)} ${mine.length} calculators, down from ${base.total}`);
+    } else if (mine.length > base.total) {
+      raise.push(`${mode}.total -> ${mine.length}`);
+    }
     console.log(
       `  ${flag ? "FLAG" : "ok  "}  ${base.label.padEnd(12)} ${String(drawn.length).padStart(3)} of ${String(mine.length).padStart(3)} draw` +
         `   (baseline ${base.figures}${drawn.length > base.figures ? ", RAISE IT" : ""})`

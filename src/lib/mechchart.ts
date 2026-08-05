@@ -42,7 +42,7 @@ const n1 = (v: number): string => (Math.abs(v) < 1e-9 ? "0" : v.toFixed(1));
  * pane a loop that does not terminate is a FROZEN WORD, not an error — one of
  * them was reproduced here as a 4 GB heap exhaustion.
  */
-function niceStep(span: number, target: number): number {
+export function niceStep(span: number, target: number): number {
   if (!Number.isFinite(span) || !Number.isFinite(target) || span <= 0 || target <= 0) return 1;
   const raw = span / target;
   if (!Number.isFinite(raw) || raw <= 0) return 1;
@@ -62,7 +62,7 @@ function niceStep(span: number, target: number): number {
  * that `lo + step === lo` in floating point, can spin forever. This caps the
  * count outright, so no caller can hang however it is fed.
  */
-function ticks(lo: number, hi: number, step: number, cap = 200): number[] {
+export function ticks(lo: number, hi: number, step: number, cap = 200): number[] {
   const out: number[] = [];
   if (![lo, hi, step].every(Number.isFinite) || step <= 0 || hi < lo) return out;
   for (let i = 0; i <= cap; i++) {

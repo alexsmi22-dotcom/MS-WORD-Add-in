@@ -40,6 +40,7 @@ import {
 import { buildPlotSvg, Series } from "../src/lib/plot";
 import { weibullFit, reliabilityBlock, kOutOfN, redundancy, availability } from "../src/lib/reliability";
 import { GAMUTS as GAMUT_DEFS } from "../src/lib/colourspace";
+import { boxPlotSvg, forestPlotSvg, groupedBarSvg } from "../src/lib/statchart";
 // --- the non-Engineering half, added 2026-08-05 ------------------------------
 import { parseTableData, buildChartPreviewSvg, ChartKind } from "../src/lib/tablechart";
 import { buildTableFigureSvg } from "../src/lib/tablefigure";
@@ -1421,6 +1422,60 @@ ORIGIN
     pts.push([Math.cos(a) + 0.03 * Math.sin(7 * a), Math.sin(a) + 0.03 * Math.cos(5 * a)]);
   }
   figures.push(["persistence barcode", barcodeSvg(persistentHomology(pts, { maxDim: 1 }))]);
+}
+
+// --- The statistics charts ----------------------------------------------------
+//
+// Stress entries, not happy paths. Each one is the case that crowds the layout:
+// the longest labels, the most rows, the widest magnitude spread - because a
+// figure that reads at three tidy groups can still be unreadable at twelve.
+{
+  figures.push([
+    "box plot 2 groups",
+    boxPlotSvg(
+      [
+        { label: "control", values: [5, 6, 7, 8, 9] },
+        { label: "treated", values: [10, 11, 12, 13, 40] },
+      ],
+      { title: "Response by group", ylabel: "response (mg/L)" },
+    ),
+  ]);
+  // Twelve groups is the cap: the tightest the category labels ever get.
+  figures.push([
+    "box plot at the cap",
+    boxPlotSvg(
+      Array.from({ length: 12 }, (_, i) => ({
+        label: "condition " + (i + 1),
+        values: [i, i + 1, i + 2, i + 3, i + 9],
+      })),
+      { title: "Twelve groups, long labels", ylabel: "value" },
+    ),
+  ]);
+  // A forest plot whose labels are long AND whose intervals span both sides of
+  // the null line, so the tick labels and the row labels compete for margin.
+  figures.push([
+    "forest plot pairwise",
+    forestPlotSvg(
+      [
+        { label: "control vs low dose", estimate: -2.5, low: -4.1, high: -0.9 },
+        { label: "control vs mid dose", estimate: -0.4, low: -2.2, high: 1.4 },
+        { label: "control vs high dose", estimate: 3.8, low: 1.9, high: 5.7 },
+        { label: "low dose vs high dose", estimate: 6.3, low: 4.0, high: 8.6 },
+      ],
+      { title: "Tukey HSD, 95% CI on the difference", xlabel: "difference in means" },
+    ),
+  ]);
+  figures.push([
+    "grouped bars obs vs exp",
+    groupedBarSvg(
+      ["strongly agree", "agree", "neutral", "disagree", "strongly disagree"],
+      [
+        { label: "observed", values: [42, 31, 18, 7, 2] },
+        { label: "expected", values: [20, 20, 20, 20, 20] },
+      ],
+      { title: "Goodness of fit", ylabel: "count" },
+    ),
+  ]);
 }
 
 export { figures };

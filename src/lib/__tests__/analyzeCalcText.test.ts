@@ -48,8 +48,21 @@ function entries(name: string): { id: string; body: string }[] {
 describe("the em-dash sentinel hazard is contained", () => {
   test("the guard still works the way this test assumes", () => {
     // If the reader stops scanning text for the sentinel, this test is obsolete
-    // rather than wrong — so pin the line it is defending against.
-    expect(PANE).toContain('!out.text.includes("');
+    // rather than wrong — so pin the behaviour it is defending against.
+    //
+    // The scan used to be four copies of `!out.text.includes("—")`, one per
+    // registry, and is now the shared `insertableResultText` — which still
+    // rejects the em dash and additionally rejects a literal NaN or Infinity.
+    // The hazard this file guards is unchanged: prose punctuation can still
+    // cost a calculator its Insert button.
+    expect(PANE).toContain("function insertableResultText");
+    // EITHER SPELLING. The source may write the sentinel as the literal
+    // character or as its — escape — they are the same character to the
+    // compiler, and this file already keeps EM_PATTERNS for that reason. A test
+    // that accepts only one spelling fails on a reformat and teaches nothing.
+    expect(
+      EM_PATTERNS.some((p) => PANE.includes(`!text.includes("${p}")`)),
+    ).toBe(true);
     expect(PANE).toContain("HAZARD, learned the hard way");
   });
 

@@ -6,6 +6,48 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [Unreleased] — 2026-08-05 — the chart campaign, phase 2: Statistics starts drawing
+
+### Added
+- **`src/lib/statchart.ts`** — the three figures a statistics result needs that
+  `buildPlotSvg` cannot draw, because one axis is categorical: a **box plot**
+  (group comparisons), a **forest plot** (pairwise intervals against a null
+  line, with the null at 1 for ratio comparisons), and **grouped bars**
+  (observed against expected). 29 property-based tests.
+- **Six Statistics calculators now draw** (5 → 11 of 21, measured by the pane
+  audit): descriptive statistics, both t-tests and one-way ANOVA get box plots;
+  **Tukey HSD gets the forest plot of its own intervals** — the figure a
+  post-hoc test exists for, and the one its own caveat used to send the user
+  elsewhere for; chi-square goodness of fit gets observed against expected,
+  which answers the "where does it differ" question χ² structurally cannot.
+
+### Fixed — found by an independent adversarial pass over phase 1
+- **A non-finite value could reach a document, caused by phase 1's own fix.**
+  `describeAssumptions` prints its variance ratio with a bare `toFixed`, and the
+  ratio is `Infinity` whenever one group is constant — rendered as the literal
+  string "Infinity", never as the em-dash sentinel. That text had been blocked
+  only by ACCIDENT, by an em dash elsewhere in the same note; making the prose
+  dashes plain removed the accident. Finance had blocked NaN and Infinity by
+  name for some time while Statistics, Analyze and Bio/Assay ran on the dash
+  alone; **all four now share one `insertableResultText` gate.**
+- **`insertPlainText` returned `void` while swallowing its own errors**, so both
+  "insert the result AND its figure" handlers claimed success over a failure and
+  appended the picture anyway. It returns a boolean now — which also closes a
+  double-insert: a second rapid click no longer falls past the busy branch and
+  adds the figure twice beside one copy of the text.
+- **The audit reported every `EXCEPTION` line as `ok`** — a missing verdict
+  token defaulted to the empty list, and `[].every()` is true.
+- **The audit's `THREW` detector was dead for two of four registries** (it
+  matched only Analyze's wording), and its DEFAULT pass downgraded a
+  blocked-insert em dash unconditionally — blinding it to the very defect it was
+  built to find.
+- The audit could pass with a mode that no user can reach (its dropdowns are
+  populated at boot, so it found them by id regardless), its self-test exercised
+  a *copy* of the figure counter rather than the counter, and its per-registry
+  `total` documented a "lost calculator" guarantee that nothing implemented.
+
+---
+
 ## [Unreleased] — 2026-08-05 — the chart campaign, phase 1: the instrument
 
 Opened because of user feedback — *"charts are missing from stats, solve,

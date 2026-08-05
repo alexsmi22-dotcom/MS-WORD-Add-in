@@ -287,8 +287,19 @@
 
       // offsetParent is null for a hidden element; a section that never shows
       // means the mode did not open however healthy its controls look.
-      var sectionEl = document.getElementById(reg.mode === "finance" ? "finance-section" : reg.mode + "-section");
-      if (sectionEl && sectionEl.offsetParent === null) {
+      //
+      // A SECTION THAT CANNOT BE FOUND IS A FINDING, NOT A SKIP. Written first
+      // as `if (sectionEl && ...)`, which turns the whole routing guard off the
+      // moment a section is renamed — the same "a missing verdict is a pass"
+      // shape that made the runner report every EXCEPTION line as ok.
+      var sectionId = reg.mode === "finance" ? "finance-section" : reg.mode + "-section";
+      var sectionEl = document.getElementById(sectionId);
+      if (!sectionEl) {
+        push("REGISTRY " + reg.mode + " BROKEN no #" + sectionId + " in the pane");
+        nextRegistry();
+        return;
+      }
+      if (sectionEl.offsetParent === null) {
         push("REGISTRY " + reg.mode + " BROKEN the section never became visible");
         nextRegistry();
         return;
@@ -557,10 +568,28 @@
             // Insert dead after one use, which no single-click test can detect.
             if (!issues.length) {
               var before = ops.length;
+              var firstRun = ops.length; // what ONE insert costs, measured above
               insertBtn.click();
               insertBtn.click();
               settle(function () {
-                if (ops.length - before === 0) issues.push("SECOND_INSERT_DEAD");
+                var second = ops.length - before;
+                if (second === 0) issues.push("SECOND_INSERT_DEAD");
+                // AND AN UPPER BOUND, which the first version lacked entirely:
+                // it asserted only that a second click did SOMETHING, so
+                // double-insertion was undetectable. That is not hypothetical
+                // here — "insert the result and its figure" handlers fall
+                // through the pane's busy branch if the text insert reports no
+                // failure, and add the picture twice beside one copy of the
+                // text.
+                //
+                // Two clicks may legitimately produce up to two more inserts;
+                // more than that means one click is inserting more than once.
+                // The bound is in units of a measured single insert rather than
+                // a guessed constant, so it holds for a one-paragraph result
+                // and a five-figure report alike.
+                if (firstRun > 0 && second > firstRun * 2 + 2) {
+                  issues.push("DOUBLE_INSERT " + second + ">2x" + firstRun);
+                }
                 report(issues);
               });
               return;

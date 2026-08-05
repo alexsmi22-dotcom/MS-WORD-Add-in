@@ -240,6 +240,33 @@ function run() {
   const onlyNotes = (l) => benign(token(l, "flags"));
   const noIssues = (l) => benign(token(l, "issues"));
 
+  // THE RUNNER'S OWN NEGATIVE CONTROL.
+  //
+  // The driver self-tests every predicate it owns on a known-bad payload; this
+  // verdict logic had none, and that is exactly where the worst bug in the
+  // first version lived — an EXCEPTION line carries neither `flags=` nor
+  // `issues=`, the token defaulted to "", and `[].every()` is true, so a
+  // calculator that threw during selection was reported clean by four of the
+  // six sections. It took a hand-simulation by a reviewer to find. It does not
+  // need to again.
+  {
+    const broken = [];
+    const exceptionLine = "DEFAULT stats foo EXCEPTION Cannot read properties of null";
+    if (onlyNotes(exceptionLine)) broken.push("a verdict-less EXCEPTION line reads as ok");
+    if (noIssues(exceptionLine)) broken.push("a verdict-less line passes the issues check");
+    if (!onlyNotes("DEFAULT stats foo len=10 fig=1 flags=clean :: x")) broken.push("a clean line reads as a finding");
+    if (!onlyNotes("DEFAULT stats foo len=10 fig=0 flags=note:emdash :: x")) broken.push("a note-only line reads as a finding");
+    if (onlyNotes("DEFAULT stats foo len=10 fig=0 flags=BADNUMBER :: x")) broken.push("a real flag reads as ok");
+    if (!noIssues("BLANK stats foo insert=OFF issues=ok :: x")) broken.push("an ok line reads as a finding");
+    if (noIssues("BLANK stats foo insert=on issues=EMDASH_BLOCKS_INSERT :: x")) broken.push("a real issue reads as ok");
+    if (broken.length) {
+      console.log(`  FLAG  runner self-test: ${broken.join("; ")} — every verdict below is worthless.\n`);
+      findings.push(`RUNNER SELFTEST BROKEN=${broken.join(",")}`);
+    } else {
+      console.log("  ok    runner self-test: a verdict-less line is a finding, not a pass.");
+    }
+  }
+
   section(
     "On their own defaults",
     "DEFAULT ",

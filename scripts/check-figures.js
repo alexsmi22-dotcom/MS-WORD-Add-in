@@ -45,7 +45,13 @@ const CORPUS = path.join(__dirname, "figure-layout-run.ts");
 // figures. It was left at 120 on the way past, which let fifteen of the newly
 // covered figures be removed without the gate noticing — a ratchet that trails
 // the thing it ratchets is most of the way to not being one.
-const CORPUS_FLOOR = 130;
+// 139 as of 2026-08-05, when the chart campaign added four statchart stress
+// figures. AND THE FLOOR WAS LEFT AT 130 WHILE THAT HAPPENED — the identical
+// mistake the paragraph above records, made again by the person who had just
+// read it. The gate stays green when the count RISES, so nothing complains;
+// the four new figures could then have been deleted silently. Re-derive this
+// number whenever figures are added, not only when they are removed.
+const CORPUS_FLOOR = 139;
 
 // --- The allowance ratchet ----------------------------------------------------
 //

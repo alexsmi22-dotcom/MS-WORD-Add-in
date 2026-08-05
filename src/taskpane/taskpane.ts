@@ -137,6 +137,7 @@ import {
   GAMUT_CHART_SIZE,
   gamutTriangleSvg,
   ladderSvg,
+  LadderRow,
   ORBIT_CHART_SIZE,
   orbitChartSvg,
   VECTOR_TRIANGLE_SIZE,
@@ -5887,21 +5888,25 @@ function moneyOverTimeSvg(o: {
   ylabel?: string;
   label?: string;
 }): string | undefined {
-  const n = Math.floor(o.periods);
-  if (!Number.isFinite(n) || n < 1) return undefined;
+  // THE EXACT FINAL PERIOD, NOT ITS FLOOR. Flooring meant the curve stopped
+  // short of the printed answer whenever the horizon was fractional — and on
+  // straight-line depreciation over 7.5 years it stopped at a book value of
+  // 1,600 directly beneath a sentence saying the book value reaches salvage at
+  // the end of the useful life. The figure denied the prose beside it.
+  const end = o.periods;
+  if (!Number.isFinite(end) || !(end > 0)) return undefined;
   const CAP = 200;
-  const shown = Math.min(n, CAP);
-  const stride = Math.max(1, Math.ceil(n / shown));
+  const whole = Math.floor(end);
+  const stride = Math.max(1, Math.ceil(whole / Math.min(Math.max(whole, 1), CAP)));
   const pts: Point[] = [];
-  for (let k = 0; k <= n; k += stride) {
+  for (let k = 0; k <= whole; k += stride) {
     const y = o.valueAt(k);
     if (Number.isFinite(y)) pts.push({ x: k, y });
   }
-  // Always land on the final period; a curve that stops one stride short of the
-  // answer printed beside it invites the reader to think they disagree.
-  if (pts.length && pts[pts.length - 1].x !== n) {
-    const y = o.valueAt(n);
-    if (Number.isFinite(y)) pts.push({ x: n, y });
+  // Land on the real end, whether or not it is a whole period.
+  if (!pts.length || pts[pts.length - 1].x !== end) {
+    const y = o.valueAt(end);
+    if (Number.isFinite(y)) pts.push({ x: end, y });
   }
   if (pts.length < 2) return undefined;
   return buildPlotSvg(
@@ -5930,18 +5935,48 @@ function moneyOverTimeSvg(o: {
  * `ladderSvg` keeps the result row whatever the row cap does, so the bottom
  * line of the ledger can never be the thing that gets sliced off.
  */
-function cashFlowLadderSvg(flows: number[], discounted: number[], title: string): string | undefined {
+function cashFlowLadderSvg(
+  flows: number[],
+  discounted: number[],
+  title: string,
+  opts: { resultLabel?: string; firstPeriod?: number } = {},
+): string | undefined {
   if (!flows.length || flows.length !== discounted.length) return undefined;
   if (!discounted.every((v) => Number.isFinite(v))) return undefined;
   const total = discounted.reduce((a, v) => a + v, 0);
   if (!Number.isFinite(total)) return undefined;
-  return ladderSvg(
-    [
-      ...discounted.map((v, k) => ({ name: `t=${k}`, delta: v, gain: v >= 0 })),
-      { name: "total", delta: total, gain: total >= 0, result: true },
-    ],
-    { title, axisLabel: "present value", fmt: (v) => finMoney(v) },
-  );
+
+  // THE FIRST PERIOD IS A PARAMETER, because it is not the same for every
+  // caller. NPV and IRR take `cf[0]` as the t=0 flow; DCF's own field says
+  // "Cash flows (t=1 first)" and its engine discounts flow k at exponent k+1.
+  // Hardcoding `t=${k}` labelled every DCF bar one period early — the figure
+  // agreed with the arithmetic and lied about the dates.
+  const t0 = opts.firstPeriod ?? 0;
+
+  // AND THE ROWS ARE CAPPED HERE, VISIBLY, rather than left to ladderSvg's
+  // silent slice at ten. That cap drops the tenth flow onward with no ellipsis
+  // and no note, while the total keeps summing all of them — so an eleven-flow
+  // project drew nine bars ending at -105 above a total bar sitting at zero.
+  // A waterfall whose bars do not reach its own total is worse than no
+  // waterfall: it looks like an arithmetic error in the product.
+  const ROOM = 8;
+  const rows: LadderRow[] = [];
+  if (discounted.length <= ROOM + 1) {
+    discounted.forEach((v, k) => rows.push({ name: `t=${t0 + k}`, delta: v, gain: v >= 0 }));
+  } else {
+    discounted.slice(0, ROOM).forEach((v, k) => rows.push({ name: `t=${t0 + k}`, delta: v, gain: v >= 0 }));
+    const restFrom = t0 + ROOM;
+    const restTo = t0 + discounted.length - 1;
+    const rest = discounted.slice(ROOM).reduce((a, v) => a + v, 0);
+    rows.push({ name: `t=${restFrom}..${restTo}`, delta: rest, gain: rest >= 0 });
+  }
+  rows.push({
+    name: opts.resultLabel ?? "total",
+    delta: total,
+    gain: total >= 0,
+    result: true,
+  });
+  return ladderSvg(rows, { title, axisLabel: "present value", fmt: (v) => finMoney(v) });
 }
 
 /**
@@ -5966,12 +6001,21 @@ function bondPriceCurveSvg(o: {
   price: number;
 }): string | undefined {
   if (![o.face, o.coupon, o.ytm, o.years, o.freq, o.price].every(Number.isFinite)) return undefined;
-  const lo = Math.max(0, o.ytm - 0.05);
+  // WHOLE COUPON PERIODS, because `bondPrice` refuses a partial one and returns
+  // NaN. `bondYTM` already rounds internally, so a 10.25-year bond solved
+  // against 10.5 years produced a perfectly good yield and then a curve of
+  // sixty NaNs — no figure at all, and nothing said why.
+  const years = o.freq > 0 ? Math.round(o.years * o.freq) / o.freq : o.years;
+  // THE WINDOW IS CENTRED ON THE QUOTED YIELD AND NOT CLAMPED AT ZERO. Clamping
+  // `lo` while leaving the marked point at the real yield put the point outside
+  // the curve entirely for a negative-yielding bond, which is an ordinary
+  // instrument rather than a corner case.
+  const lo = o.ytm - 0.05;
   const hi = o.ytm + 0.05;
   const pts: Point[] = [];
   for (let k = 0; k <= 60; k++) {
     const y = lo + ((hi - lo) * k) / 60;
-    const v = bondPrice(o.face, o.coupon, y, o.years, o.freq);
+    const v = bondPrice(o.face, o.coupon, y, years, o.freq);
     if (Number.isFinite(v)) pts.push({ x: y * 100, y: v });
   }
   if (pts.length < 2) return undefined;
@@ -6090,7 +6134,10 @@ const FIN_CALCS: FinCalc[] = [
       svg: moneyOverTimeSvg({
         periods: +r("t"),
         valueAt: (k) => compoundInterest(+r("p"), +r("rate") / 100, +r("m"), k),
-        title: `Balance, compounded ${finFixed(+r("m"), 0)}x per year`,
+        // The frequency as GIVEN, not rounded: a title reading "13x per year"
+        // over a curve computed at 12.5 asserts a parameter the chart was not
+        // drawn with.
+        title: `Balance, compounded ${finFixed(+r("m"), 2)}x per year`,
         xlabel: "year",
       }),
     }),
@@ -6107,8 +6154,26 @@ const FIN_CALCS: FinCalc[] = [
     compute: (r) => {
       const m = +r("m");
       const sched = amortizationSchedule(+r("p"), +r("rate") / 100 / m, +r("t") * m);
+      // THE TEXT REPORTS THE PAYMENT THE FIGURE WAS DRAWN FROM.
+      //
+      // `amortizationSchedule` silently clamps to MAX_AMORT_PERIODS = 12000 and
+      // RECOMPUTES its own payment from the clamped count, while `loanPayment`
+      // uses the count as typed. On a 40-year daily loan (14,600 periods) the
+      // text said 31.69 and the curve was drawn from a loan paying 33.96 and
+      // finishing seven years early. Two different loans, no indication.
+      //
+      // Taking the schedule's own first payment when one exists makes them the
+      // same loan by construction; the clamp is then disclosed rather than
+      // hidden, because the horizon on the axis stops where the schedule does.
+      const periodsAsked = +r("t") * m;
+      const clamped = sched.length > 0 && sched.length < Math.floor(periodsAsked);
+      const payment = sched.length ? sched[0].payment : loanPayment(+r("p"), +r("rate") / 100 / m, periodsAsked);
       return {
-        text: `Payment = ${finMoney(loanPayment(+r("p"), +r("rate") / 100 / m, +r("t") * m))} per period`,
+        text:
+          `Payment = ${finMoney(payment)} per period` +
+          (clamped
+            ? `\n(Schedule capped at ${sched.length} periods; the payment shown is for that horizon.)`
+            : ""),
         // THE BALANCE CURVE. A level payment does not pay the loan down at a
         // level rate: the balance barely moves for years and then falls away,
         // because early payments are mostly interest. That is the single most
@@ -6333,6 +6398,13 @@ const FIN_CALCS: FinCalc[] = [
           const stride = Math.max(1, Math.ceil(rows.length / CAP));
           const pick = rows.filter((_, k) => k % stride === 0);
           if (pick[pick.length - 1] !== rows[rows.length - 1]) pick.push(rows[rows.length - 1]);
+          // A ONE-ROW SCHEDULE DRAWS NOTHING, so draw nothing rather than a
+          // frame. buildPlotSvg emits a single point as `<path d="M216,198"/>`
+          // — a moveto with no lineto, which renders as empty space inside a
+          // fully labelled chart with both legend entries. `loan` guarded this
+          // and these two did not. A one-year, one-payment-a-year loan is an
+          // ordinary thing to type.
+          if (pick.length < 2) return undefined;
           return buildPlotSvg(
             [
               {
@@ -6406,10 +6478,17 @@ const FIN_CALCS: FinCalc[] = [
         // period would flatten the years the user actually reasoned about into
         // invisibility. The ladder shows the part that was forecast; the total
         // above includes the part that was assumed.
+        // THE BOTTOM ROW IS NOT "total", and calling it that was a defect
+        // visible on the shipped defaults: the ladder read 272.73 under a
+        // printed Value of 1,610.39, because the terminal value is deliberately
+        // excluded from the bars (it dwarfs every forecast year) and the shared
+        // helper hardcoded the label. Naming the row for what it sums makes the
+        // exclusion the point of the figure rather than an apparent error.
         svg: cashFlowLadderSvg(
           flows,
           flows.map((c, k) => c / Math.pow(1 + rate, k + 1)),
-          "Explicit forecast, discounted",
+          "Explicit forecast, discounted (excludes terminal value)",
+          { resultLabel: "forecast", firstPeriod: 1 },
         ),
       };
     },
@@ -6677,10 +6756,15 @@ const FIN_CALCS: FinCalc[] = [
         // by design, and the curve shows exactly how front-loaded - which is
         // the whole reason to choose it over straight line, and the thing a
         // column of year rows makes the reader reconstruct.
-        svg: buildPlotSvg(
-          [{ points: rows.map((x) => ({ x: x.year, y: x.bookValue })), type: "line", color: "#2563eb", label: "book value" }],
-          { width: 360, height: 240, title: "Book value over the asset's life", xlabel: "year", ylabel: "book value" },
-        ),
+        // Same one-row guard as the amortisation schedule: a single year draws
+        // a moveto with no lineto, which is an empty frame wearing a legend.
+        svg:
+          rows.length < 2
+            ? undefined
+            : buildPlotSvg(
+                [{ points: rows.map((x) => ({ x: x.year, y: x.bookValue })), type: "line", color: "#2563eb", label: "book value" }],
+                { width: 360, height: 240, title: "Book value over the asset's life", xlabel: "year", ylabel: "book value" },
+              ),
       };
     },
     // Nine of the finance calculators carry an `assumes`; this one did not, and
@@ -6901,7 +6985,8 @@ const FIN_CALCS: FinCalc[] = [
             { name: "daily", value: compoundInterest(p, rate, 365, years) },
             { name: "continuous", value: cont, colour: "#b91c1c" },
           ].filter((row) => Number.isFinite(row.value)),
-          { title: "Amount after " + finFixed(years, 0) + " years, by compounding", unit: "", w: 360 },
+          // Unrounded, for the same reason as the compounding title above.
+          { title: "Amount after " + finFixed(years, 2) + " years, by compounding", unit: "", w: 360 },
         ),
       };
     },

@@ -98,6 +98,40 @@
     }).length;
   }
 
+  // Does this figure actually DRAW anything?
+  //
+  // THE RATCHET COUNTED PRESENCE AND CALLED IT CORRECTNESS. `fig=1` meant an
+  // <svg> element existed, and an adversarial pass found two calculators
+  // shipping a fully labelled chart — title, both axes with ticks, both legend
+  // entries — whose only marks were `<path d="M216,198"/>`: a moveto with no
+  // lineto, which renders as empty space. A one-row schedule produced it, the
+  // text beside it was correct and insertable, and the audit reported "1 of 1
+  // draws".
+  //
+  // So a figure now has to contain a mark with EXTENT. A path needs a drawing
+  // command beyond its opening moveto; a circle, rect, line or polyline counts
+  // on its own. Axis rules are `<line>`, so this is deliberately not "any
+  // <line> anywhere" — the frame alone must not qualify a blank plot.
+  function isBlankFigure(svg) {
+    var marks = 0;
+    var paths = svg.querySelectorAll("path");
+    for (var i = 0; i < paths.length; i++) {
+      var d = paths[i].getAttribute("d") || "";
+      // Anything after the leading moveto's coordinates: L, C, Q, A, H, V, Z…
+      if (/[LlCcQqAaHhVvSsTtZz]/.test(d)) marks++;
+      // Multiple movetos also draw (a scatter is often drawn that way).
+      else if ((d.match(/[Mm]/g) || []).length > 1) marks++;
+    }
+    marks += svg.querySelectorAll("circle, polyline, polygon, ellipse").length;
+    // A bar chart is rects; exclude the paper background, which every builder
+    // emits as a full-bleed rect.
+    var rects = [].slice.call(svg.querySelectorAll("rect")).filter(function (rr) {
+      return rr.getAttribute("fill") !== "#ffffff";
+    });
+    marks += rects.length;
+    return marks === 0;
+  }
+
   // The registries, in the order the campaign works through them.
   //
   // `figureHost` is separate from `result` because Bio/Assay renders its fit
@@ -253,6 +287,27 @@
       if (stacked.querySelectorAll("svg").length !== 3) bad.push("figure-counter-nesting-assumption-wrong");
       if (roots(stacked) !== 1) bad.push("figure-counter-counts-nested-panels");
 
+      // THE BLANK-FIGURE DETECTOR, on the exact payload that fooled the old
+      // ratchet: a titled, axed, legended chart whose only mark is a moveto
+      // with no lineto. If this check ever stops firing, every "N of N draw"
+      // below is a presence count again.
+      var blank = document.createElement("div");
+      blank.innerHTML =
+        '<svg width="60" height="40"><rect width="60" height="40" fill="#ffffff"/>' +
+        '<text x="5" y="10">Where each payment goes</text>' +
+        '<path d="M216.0,198.3" fill="none" stroke="#b91c1c"/></svg>';
+      if (!isBlankFigure(blank.querySelector("svg"))) bad.push("blank-figure-detector-blind");
+      var drawn = document.createElement("div");
+      drawn.innerHTML =
+        '<svg width="60" height="40"><rect width="60" height="40" fill="#ffffff"/>' +
+        '<path d="M6,30 L54,10" fill="none" stroke="#2563eb"/></svg>';
+      if (isBlankFigure(drawn.querySelector("svg"))) bad.push("blank-figure-detector-trigger-happy");
+      var bars = document.createElement("div");
+      bars.innerHTML =
+        '<svg width="60" height="40"><rect width="60" height="40" fill="#ffffff"/>' +
+        '<rect x="4" y="8" width="10" height="24" fill="#2563eb"/></svg>';
+      if (isBlankFigure(bars.querySelector("svg"))) bad.push("blank-figure-detector-misses-bars");
+
       push("SELFTEST " + (bad.length ? "BROKEN=" + bad.join(",") : "ok"));
     }
     selfTest();
@@ -351,6 +406,21 @@
       function figuresNow() {
         return countRoots(resultEl) + countRoots(figureEl);
       }
+      // Figures that are present and draw nothing. Counted separately from the
+      // total so the ratchet keeps measuring "how many figures" while this
+      // measures "are any of them empty" - two different questions that were
+      // being answered by one number.
+      function blankFiguresNow() {
+        var n = 0;
+        [resultEl, figureEl].forEach(function (host) {
+          if (!host) return;
+          [].slice.call(host.querySelectorAll("svg")).forEach(function (el) {
+            if (el.parentNode && el.parentNode.closest && el.parentNode.closest("svg")) return;
+            if (isBlankFigure(el)) n++;
+          });
+        });
+        return n;
+      }
 
       // ---- 1. Every tool on its own defaults. ---------------------------
       tools.forEach(function (t) {
@@ -378,6 +448,8 @@
           if (text.indexOf("—") >= 0) {
             flags.push(insertBtn.disabled ? "EMDASH_BLOCKS_INSERT" : "note:emdash");
           }
+          var blanks = blankFiguresNow();
+          if (blanks) flags.push("BLANK_FIGURE x" + blanks);
           push(
             "DEFAULT " + reg.mode + " " + t + " len=" + text.length + " fig=" + figuresNow() +
               " insert=" + (insertBtn.disabled ? "OFF" : "on") +

@@ -892,6 +892,7 @@ let currentTableChart: TableChart | null = null;
 let currentTableChartError = "";
 /** The finance result text from the most recent computation, for insertion. */
 let currentFinText = "";
+let currentFinSvg = "";
 /** The assay result text and fitted-curve SVG from the most recent computation. */
 let currentAssayText = "";
 let currentAssayPlotSvg = "";
@@ -1385,7 +1386,7 @@ Office.onReady((info) => {
 
   populateFinanceCalcs();
   finCalcSelect.addEventListener("change", renderFinanceInputs);
-  finInsertBtn.addEventListener("click", () => insertPlainText(currentFinText, "Result"));
+  finInsertBtn.addEventListener("click", () => void insertFinanceResult());
 
   msInput.addEventListener("input", updateMassSpec);
   msInsertBtn.addEventListener("click", () => insertPlainText(massSpecAsText(currentMassSpec), "MS data"));
@@ -5804,11 +5805,25 @@ interface FinField {
   kind?: "number" | "select" | "list";
   options?: { value: string; label: string }[];
 }
+/**
+ * What a Finance calculator returns.
+ *
+ * IT USED TO BE A BARE `string`, and that is why Finance was the last registry
+ * in the product with no figures at all: there was nowhere to put one. The
+ * other three registries each had a slot (`StatOutput.svg`, `AssayOutput.plot`,
+ * an Analyze `plot` block) and had drawn something for years.
+ *
+ * A plain string is still accepted, so the twenty-odd calculators that have
+ * nothing useful to draw stay exactly as they were and the change is provably a
+ * no-op for them.
+ */
+type FinResult = string | { text: string; svg?: string };
+
 interface FinCalc {
   id: string;
   name: string;
   fields: FinField[];
-  compute: (read: (k: string) => string) => string;
+  compute: (read: (k: string) => string) => FinResult;
   /**
    * The modelling assumptions this calculator silently makes — shown under the
    * result, and carried into the inserted text.
@@ -5999,11 +6014,59 @@ const FIN_CALCS: FinCalc[] = [
       if (!rows.length) return "—";
       const interest = rows.reduce((a, x) => a + x.interest, 0);
       const paid = rows.reduce((a, x) => a + x.payment, 0);
-      return [
-        `Payment        ${finMoney(rows[0].payment)} / period`,
-        `Total interest ${finMoney(interest)}`,
-        `Total paid     ${finMoney(paid)}`,
-      ].join("\n");
+      return {
+        text: [
+          `Payment        ${finMoney(rows[0].payment)} / period`,
+          `Total interest ${finMoney(interest)}`,
+          `Total paid     ${finMoney(paid)}`,
+        ].join("\n"),
+        // WHERE THE MONEY GOES, PERIOD BY PERIOD — the fact about a long loan
+        // that the three totals above cannot convey and that surprises almost
+        // everyone: on a 30-year mortgage the early payments are nearly all
+        // interest, and the crossover to mostly-principal falls well past the
+        // halfway mark. "Total interest 186,512" is a number people read and
+        // move past; the two curves crossing is the thing they remember, and it
+        // is the whole argument for overpaying early.
+        //
+        // Drawn from the engine's own schedule rows, so the curves add up to
+        // exactly the totals printed above rather than to a second calculation.
+        //
+        // THINNED, NOT TRUNCATED. A weekly 30-year loan is 1,560 rows and the
+        // period count comes straight from user numbers, so every point would
+        // be 1,560 circles rebuilt on each keystroke. Taking every Nth row
+        // keeps the SHAPE, which is the entire content of this figure, and the
+        // final row is appended unconditionally so the curve always reaches the
+        // end of the loan instead of stopping short of it.
+        svg: (() => {
+          const CAP = 240;
+          const stride = Math.max(1, Math.ceil(rows.length / CAP));
+          const pick = rows.filter((_, k) => k % stride === 0);
+          if (pick[pick.length - 1] !== rows[rows.length - 1]) pick.push(rows[rows.length - 1]);
+          return buildPlotSvg(
+            [
+              {
+                points: pick.map((x) => ({ x: x.period, y: x.interest })),
+                type: "line",
+                color: "#b91c1c",
+                label: "interest",
+              },
+              {
+                points: pick.map((x) => ({ x: x.period, y: x.principal })),
+                type: "line",
+                color: "#2563eb",
+                label: "principal",
+              },
+            ],
+            {
+              width: 380,
+              height: 250,
+              title: "Where each payment goes",
+              xlabel: "payment number",
+              ylabel: "amount",
+            },
+          );
+        })(),
+      };
     },
   },
   {
@@ -6605,10 +6668,18 @@ function updateFinancePreview(): void {
     return;
   }
   let text = "";
+  let svg = "";
   try {
-    text = calc.compute(read);
+    const out = calc.compute(read);
+    if (typeof out === "string") {
+      text = out;
+    } else {
+      text = out.text;
+      svg = out.svg ?? "";
+    }
   } catch {
     text = "";
+    svg = "";
   }
   // A belt-and-braces gate. finMoney/finPct/finFixed all render a non-finite
   // value as "—", but any calculator that formats a number by some other route
@@ -6635,6 +6706,21 @@ function updateFinancePreview(): void {
   // document is where it gets relied on. pkaAsText already does this.
   currentFinText = insertable ? (calc.assumes ? `${text}\nAssumes: ${calc.assumes}` : text) : "";
   finInsertBtn.disabled = !insertable;
+
+  // THE FIGURE, under the number and the assumptions.
+  //
+  // Gated on `insertable` and not merely on the SVG existing: a result blocked
+  // for being non-finite must not leave a chart behind as the one thing a user
+  // can still put in a document. That exact defect was found in the Statistics
+  // registry by an adversarial pass and is not being reproduced here.
+  currentFinSvg = insertable ? svg : "";
+  if (currentFinSvg) {
+    const figure = document.createElement("div");
+    figure.className = "stats-figure";
+    // Generated by this code from the user's numbers, never from their text.
+    figure.innerHTML = currentFinSvg;
+    finResult.appendChild(figure);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -8089,6 +8175,50 @@ async function insertStatsResult(): Promise<void> {
   if (!currentStatsSvg) return;
   if (await insertStatsChart()) {
     setStatus("Result and chart inserted.", "success");
+  }
+}
+
+/**
+ * Inserts the finance result — TEXT AND FIGURE TOGETHER.
+ *
+ * The same contract Statistics and Bio/Assay already use, and written the same
+ * way for the same reasons: proceed only if the text actually landed (so a
+ * picture is never appended after a failed insert, and a second rapid click
+ * cannot fall past the busy branch and add the figure twice), and claim success
+ * only if the figure landed too, so an error message is never overwritten with
+ * a cheerful sentence.
+ *
+ * Finance has no separate "insert chart" button. It does not need one: unlike a
+ * fitted curve, none of these figures is meaningful without the number it was
+ * derived from — an amortisation split with no loan terms beside it is a
+ * picture of nothing in particular.
+ */
+async function insertFinanceResult(): Promise<void> {
+  if (!currentFinText) {
+    setStatus("Nothing to insert.", "error");
+    return;
+  }
+  if (!(await insertPlainText(currentFinText, "Result"))) return;
+  if (!currentFinSvg) return;
+  try {
+    // Intrinsic size from the SVG itself, never the size it was asked for: a
+    // legend outside the plot frame widens the canvas, and pinning the nominal
+    // size would squash every labelled figure.
+    const dims = readSvgDims(currentFinSvg, 380, 250);
+    const base64 = await renderFigurePng(currentFinSvg, dims.w * 2, dims.h * 2);
+    await Word.run(async (context) => {
+      const range = context.document.getSelection();
+      const picture = range.insertInlinePictureFromBase64(base64, Word.InsertLocation.after);
+      sizeFigure(picture, dims.w, dims.h);
+      const calc = FIN_CALCS.find((c) => c.id === finCalcSelect.value);
+      picture.altTextDescription = `Finance chart: ${calc?.name ?? "result"}`;
+      range.select(Word.SelectionMode.end);
+      await context.sync();
+      await tagInserted(context, picture.getRange(), "formula-inserter:finance-chart");
+    });
+    setStatus("Result and chart inserted.", "success");
+  } catch (error) {
+    setStatus(`Could not insert chart: ${(error as Error).message}`, "error");
   }
 }
 

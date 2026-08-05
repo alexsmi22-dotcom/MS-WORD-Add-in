@@ -6,7 +6,7 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
-## [Unreleased] — 2026-08-05 — the chart campaign is COMPLETE: 84 of 84
+## [2.90.0] — 2026-08-05 — the chart campaign is COMPLETE: 84 of 84
 
 Every calculator outside Engineering now inserts data AND a graph. With
 Engineering's 130/130 that is **214 calculators**, each with its own ratchet in
@@ -45,7 +45,7 @@ per keystroke is a frozen Word, not a slow chart.
 
 ---
 
-## [Unreleased] — 2026-08-05 — the chart campaign, phase 2: Statistics starts drawing
+### v2.90.0 detail — phase 2: Statistics starts drawing
 
 ### Added
 - **`src/lib/statchart.ts`** — the three figures a statistics result needs that
@@ -87,7 +87,7 @@ per keystroke is a frozen Word, not a slow chart.
 
 ---
 
-## [Unreleased] — 2026-08-05 — the chart campaign, phase 1: the instrument
+### v2.90.0 detail — phase 1: the instrument
 
 Opened because of user feedback — *"charts are missing from stats, solve,
 analyze, spectra, finance… the landing page shows them but yet jurislab does not
@@ -125,7 +125,7 @@ draws" a fact covers **only** Engineering. See
 
 ---
 
-## [Unreleased] — 2026-08-05 — the non-Engineering half, repaired
+### v2.90.0 detail — the non-Engineering half, repaired (the 2026-08-05 gap analysis)
 
 The 2026-08-05 gap analysis (`docs/GAP-ANALYSIS-2026-08-05.md`) swept everything
 outside Engineering and Citations — a surface that gained **43** Engineering

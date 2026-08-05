@@ -44,6 +44,19 @@ export interface SeqRecord {
   features: SeqFeature[];
   /** DEFINITION line, when present. */
   description?: string;
+  /**
+   * Source organism, when the file states one. GENBANK ONLY — a FASTA file
+   * carries no organism, so this stays undefined rather than being guessed at.
+   *
+   * This field exists because its absence was silently mis-filing patent
+   * applications. The pane fed the ST.26 builder an organism read from the
+   * `source` FEATURE, which this reader has always removed (SKIP_FEATURES), so
+   * the value was always "" and `sequence.ts` substituted its default —
+   * "synthetic construct" — onto every imported record, including 40 real
+   * GenBank sequences from real organisms. That is a statement of record in a
+   * filed application, and WIPO will not reject it because the value is legal.
+   */
+  organism?: string;
   /** Which reader produced this. */
   format: "fasta" | "genbank";
 }
@@ -249,6 +262,21 @@ function parseGenBankRecord(text: string): SeqRecord | null {
     description = parts.join(" ").trim().replace(/\.$/, "") || undefined;
   }
 
+  // --- SOURCE / ORGANISM ---------------------------------------------------
+  //
+  //   SOURCE      Homo sapiens (human)
+  //     ORGANISM  Homo sapiens
+  //               Eukaryota; Metazoa; Chordata; Craniata; …
+  //
+  // The ORGANISM line carries the scientific name on its OWN line; every line
+  // indented below it is the taxonomic LINEAGE, which is not part of the name.
+  // Swallowing the continuation lines would file "Homo sapiens Eukaryota;
+  // Metazoa; Chordata; …" as the organism of record, so only the ORGANISM line
+  // itself is read.
+  let organism: string | undefined;
+  const orgIdx = lines.findIndex((l) => /^\s{1,6}ORGANISM\s+\S/.test(l));
+  if (orgIdx >= 0) organism = cleanOrganism(lines[orgIdx].replace(/^\s*ORGANISM\s+/, ""));
+
   // --- ORIGIN: the sequence ------------------------------------------------
   const originIdx = lines.findIndex((l) => /^ORIGIN/.test(l));
   let sequence = "";
@@ -272,7 +300,14 @@ function parseGenBankRecord(text: string): SeqRecord | null {
     let cur: { key: string; loc: string[]; quals: string[] } | null = null;
     const flush = () => {
       if (!cur) return;
-      const f = buildFeature(cur.key, cur.loc.join(""), cur.quals, sequence.length);
+      const quals = parseQualifiers(cur.quals);
+      // The `source` feature is still kept OFF the map (it spans the whole
+      // sequence and is structural noise there) — but its /organism qualifier is
+      // read before it is dropped. Many exporters (SnapGene among them) write a
+      // source feature and no ORGANISM header line, so dropping the feature
+      // without reading it is what made every import "synthetic construct".
+      if (cur.key === "source" && !organism) organism = cleanOrganism(quals.organism ?? "");
+      const f = buildFeature(cur.key, cur.loc.join(""), quals, sequence.length);
       if (f) features.push(f);
       cur = null;
     };
@@ -299,6 +334,14 @@ function parseGenBankRecord(text: string): SeqRecord | null {
     flush();
   }
 
+  // Last resort: the SOURCE line. It is read only if neither the ORGANISM line
+  // nor a source feature gave one, because SOURCE routinely carries a common
+  // name in parentheses ("Homo sapiens (human)") that the other two do not.
+  if (!organism) {
+    const srcIdx = lines.findIndex((l) => /^SOURCE\s+\S/.test(l));
+    if (srcIdx >= 0) organism = cleanOrganism(lines[srcIdx].replace(/^SOURCE\s+/, ""));
+  }
+
   return {
     name: name || "unnamed",
     description,
@@ -306,15 +349,28 @@ function parseGenBankRecord(text: string): SeqRecord | null {
     length: sequence.length,
     circular,
     features,
+    organism,
     format: "genbank",
   };
 }
 
-function buildFeature(key: string, locText: string, quals: string[], seqLen: number): SeqFeature | null {
-  if (SKIP_FEATURES.has(key)) return null;
-  const loc = parseLocation(locText);
-  if (!loc) return null;
+/**
+ * Normalises an organism string, and returns undefined for the placeholders
+ * GenBank uses when it does not know: "." and "Unknown." Filing "." or
+ * "unknown" as the organism of record is not better than filing nothing, and
+ * an empty value lets the caller make its own decision.
+ */
+function cleanOrganism(raw: string): string | undefined {
+  // NB: a trailing "." is NOT stripped in general — "Bacillus sp." is a real
+  // organism name and "Bacillus sp" is not one.
+  const s = raw.replace(/\s+/g, " ").trim();
+  if (!s || s === ".") return undefined;
+  if (/^unknown\.?$/i.test(s) || /^unclassified\.?$/i.test(s)) return undefined;
+  return s;
+}
 
+/** Splits raw `/key="value"` qualifier lines into a map; first value wins. */
+function parseQualifiers(quals: string[]): Record<string, string> {
   const qualifiers: Record<string, string> = {};
   for (const q of quals) {
     const m = /^\/([^=]+)(?:=(.*))?$/.exec(q);
@@ -325,6 +381,18 @@ function buildFeature(key: string, locText: string, quals: string[], seqLen: num
     if (v.startsWith('"')) v = v.replace(/^"/, "").replace(/"$/, "");
     qualifiers[k] = v;
   }
+  return qualifiers;
+}
+
+function buildFeature(
+  key: string,
+  locText: string,
+  qualifiers: Record<string, string>,
+  seqLen: number
+): SeqFeature | null {
+  if (SKIP_FEATURES.has(key)) return null;
+  const loc = parseLocation(locText);
+  if (!loc) return null;
 
   const label = LABEL_KEYS.map((k) => qualifiers[k]).find((v) => v && v.trim()) || key;
   const start = minOf(loc.segments.map((s) => s.start));

@@ -35,6 +35,78 @@ const ADVANCE = 0.58;
 // Cap height plus a little, again as a fraction of the font size.
 const LINE = 0.78;
 
+/**
+ * FLATTEN `<g transform="translate(tx,ty)">` BEFORE MEASURING ANYTHING.
+ *
+ * Every extractor below reads raw x/y attributes. A group translation makes
+ * those attributes local coordinates, and reading them as absolute ones does not
+ * degrade gracefully — it reports confident nonsense. The persistence barcode
+ * puts its three legend keys in three translated groups, all at a local
+ * `x="18" y="0"`, so the analyser saw three labels stacked at the same point
+ * outside the canvas and produced three COLLISIONs and three CLIPPEDs that do
+ * not exist in the rendered figure.
+ *
+ * Only `translate` is handled, and deliberately: a scale or a matrix would need
+ * the font size and stroke widths transformed too, and half-transforming is how
+ * you get a checker that is confidently wrong. Anything else is left in place,
+ * where it is simply not understood rather than misread.
+ *
+ * Innermost group first, repeatedly, so nesting composes.
+ */
+function flattenTranslates(svg) {
+  const num = "(-?[\\d.]+(?:[eE][-+]?\\d+)?)";
+  const shift = (frag, tx, ty) => {
+    let out = frag.replace(
+      new RegExp(`\\b(x|x1|x2|cx)="${num}"`, "g"),
+      (_m, k, v) => `${k}="${Number(v) + tx}"`,
+    );
+    out = out.replace(
+      new RegExp(`\\b(y|y1|y2|cy)="${num}"`, "g"),
+      (_m, k, v) => `${k}="${Number(v) + ty}"`,
+    );
+    out = out.replace(/\bpoints="([^"]*)"/g, (_m, pts) => {
+      const moved = pts
+        .trim()
+        .split(/\s+/)
+        .map((p) => {
+          const [px, py] = p.split(",").map(Number);
+          return Number.isFinite(px) && Number.isFinite(py) ? `${px + tx},${py + ty}` : p;
+        })
+        .join(" ");
+      return `points="${moved}"`;
+    });
+    out = out.replace(/\bd="([^"]*)"/g, (m, d) => {
+      // Absolute M/L only. A relative command is already an offset and needs no
+      // shift after the first point; anything richer is not handled here and is
+      // not handled downstream either.
+      if (/[^MLZz0-9.,\-+eE\s]/.test(d)) return m;
+      const moved = d.replace(
+        new RegExp(`([ML])\\s*${num}[,\\s]+${num}`, "g"),
+        (_mm, cmd, px, py) => `${cmd}${Number(px) + tx},${Number(py) + ty}`,
+      );
+      return `d="${moved}"`;
+    });
+    return out;
+  };
+
+  let s = svg;
+  for (let pass = 0; pass < 12; pass++) {
+    // The LAST opening <g …translate…> before its matching close is the
+    // innermost one, so scan for a translate group containing no further <g.
+    const re = /<g\b([^>]*\btransform="translate\(\s*(-?[\d.]+)(?:[,\s]+(-?[\d.]+))?\s*\)"[^>]*)>((?:(?!<g\b)[\s\S])*?)<\/g>/;
+    const m = re.exec(s);
+    if (!m) break;
+    const tx = Number(m[2]);
+    const ty = m[3] === undefined ? 0 : Number(m[3]);
+    if (!Number.isFinite(tx) || !Number.isFinite(ty)) break;
+    // Keep the group's other attributes (font-size is inherited by its children)
+    // but drop the transform, since it has now been baked into the coordinates.
+    const attrs = m[1].replace(/\btransform="translate\([^"]*\)"/, "").trim();
+    s = s.slice(0, m.index) + `<g ${attrs}>` + shift(m[4], tx, ty) + "</g>" + s.slice(m.index + m[0].length);
+  }
+  return s;
+}
+
 function decodeEntities(s) {
   return s
     .replace(/&lt;/g, "<")
@@ -212,12 +284,29 @@ function segmentHitsBox(s, b) {
 }
 
 /** Findings for one figure. */
-function auditSvg(name, svg) {
+function auditSvg(name, rawSvg) {
   const found = [];
+  const svg = flattenTranslates(rawSvg);
   const boxes = textBoxes(svg);
+  // THE CANVAS IS THE viewBox WHEN THERE IS ONE, NOT width/height.
+  //
+  // Every coordinate inside an SVG is in USER units — the viewBox's system.
+  // width/height are the DISPLAY size the figure is scaled to. The Engineering
+  // builders happen to emit width == viewBox width, so reading width/height was
+  // right by coincidence for them. It is wrong for tablefigure, tablediagram and
+  // every other builder that lays out at its natural size and then scales down
+  // to the 380 px pane: `width="380" height="92" viewBox="0 0 596 144"`. Measured
+  // against 380x92, every label past x=380 was reported CLIPPED when it is in
+  // fact on the canvas and merely drawn small — 39 phantom findings across the
+  // corpus, which is the failure mode this file's occlusion handling already
+  // guards against in the other direction. A clip is a coordinate outside the
+  // viewBox; nothing else is.
+  const vb = /<svg[^>]*\bviewBox="\s*(-?[\d.]+)[\s,]+(-?[\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)/.exec(svg);
   const size = /<svg[^>]*width="([\d.]+)"[^>]*height="([\d.]+)"/.exec(svg);
-  const W = size ? Number(size[1]) : 0;
-  const H = size ? Number(size[2]) : 0;
+  const X0 = vb ? Number(vb[1]) : 0;
+  const Y0 = vb ? Number(vb[2]) : 0;
+  const W = vb ? X0 + Number(vb[3]) : size ? Number(size[1]) : 0;
+  const H = vb ? Y0 + Number(vb[4]) : size ? Number(size[2]) : 0;
 
   for (let i = 0; i < boxes.length; i++) {
     for (let j = i + 1; j < boxes.length; j++) {
@@ -265,8 +354,25 @@ function auditSvg(name, svg) {
 
   if (W && H) {
     for (const b of boxes) {
-      if (b.x0 < -1 || b.x1 > W + 1 || b.y0 < -1 || b.y1 > H + 1) {
-        found.push(`CLIPPED  "${b.text.slice(0, 26)}" runs outside the ${W}x${H} canvas`);
+      // THE TOLERANCE IS THE ESTIMATOR'S OWN ERROR BAR, NOT A CONVENIENCE.
+      //
+      // ADVANCE is 0.58 against a real sans advance of about 0.556 — a
+      // deliberate ~4.3% over-estimate, because for a COLLISION detector
+      // conservative has to mean boxes that are too big. For a CLIP detector it
+      // means the opposite: a box that exceeds the canvas by less than the
+      // over-estimate is not evidence of anything. `K:1` end-anchored at x=14 in
+      // the Bohr diagram measures 15.7 px wide and so reports −1.7; at the real
+      // advance it is 15.0 and sits exactly on the edge. Flagging that is the
+      // detector reporting its own margin back as a defect.
+      //
+      // This is NOT a licence to widen the collision threshold — that one is
+      // tuned in the other direction and is the check that catches real overlap.
+      const padX = Math.max(1, (b.x1 - b.x0) * 0.045);
+      const padY = Math.max(1, (b.y1 - b.y0) * 0.045);
+      if (b.x0 < X0 - padX || b.x1 > W + padX || b.y0 < Y0 - padY || b.y1 > H + padY) {
+        found.push(
+          `CLIPPED  "${b.text.slice(0, 26)}" runs outside the ${W - X0}x${H - Y0} canvas`,
+        );
       }
     }
   }
@@ -311,6 +417,38 @@ function runAudit(figures) {
       "clipped",
       '<svg width="200" height="100"><g font-size="10"><text x="190" y="50">runs off the edge</text></g></svg>',
       /CLIPPED/,
+    ],
+    [
+      // A translated group whose contents land OFF the canvas once the
+      // translation is applied. The local coordinates alone look innocent.
+      "translate is applied — real clip",
+      '<svg width="200" height="100" viewBox="0 0 200 100"><g font-size="10">' +
+        '<g transform="translate(196,50)"><text x="0" y="0">off the edge</text></g></g></svg>',
+      /CLIPPED/,
+    ],
+    [
+      // Three keys at the same LOCAL x/y, spread apart by their translations.
+      // Read without the transform these stack into phantom collisions.
+      "translate is applied — no phantom collision",
+      '<svg width="200" height="100" viewBox="0 0 200 100"><g font-size="10">' +
+        '<g transform="translate(10,20)"><text x="18" y="0">H0</text></g>' +
+        '<g transform="translate(10,45)"><text x="18" y="0">H1</text></g>' +
+        '<g transform="translate(10,70)"><text x="18" y="0">H2</text></g></g></svg>',
+      null,
+    ],
+    [
+      "clipped past the viewBox",
+      '<svg width="380" height="92" viewBox="0 0 596 144"><g font-size="10">' +
+        '<text x="590" y="50">runs off the real edge</text></g></svg>',
+      /CLIPPED/,
+    ],
+    [
+      // The other half of the same fact, and the one that was producing phantom
+      // findings: a label past width=380 but inside viewBox=596 is ON the canvas.
+      "scaled-down canvas is not a clip",
+      '<svg width="380" height="92" viewBox="0 0 596 144"><g font-size="10">' +
+        '<text x="400" y="50">drawn small, not clipped</text></g></svg>',
+      null,
     ],
     [
       "occlusion respected",

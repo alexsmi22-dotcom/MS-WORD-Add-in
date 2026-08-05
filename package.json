@@ -20,6 +20,10 @@
     "check:overlap": "node scripts/check-landing-overlap.js",
     "check:toolpages": "node scripts/check-tool-pages.js",
     "check:pane": "node scripts/check-pane-layout.js",
+    "check:figures": "node scripts/check-figures.js",
+    "check:idwiring": "node scripts/check-id-wiring.js",
+    "fuzz": "node scripts/fuzz-exports.js",
+    "fuzz:extreme": "node scripts/fuzz-exports.js --extreme",
     "pane-shot": "node scripts/pane-shot.js",
     "verify:compounds": "node scripts/verify-compounds-pubchem.mjs --offline"
   },

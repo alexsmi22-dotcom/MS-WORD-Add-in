@@ -46,6 +46,53 @@ export function carbonylOxygen(mol: Molecule, c: number): number {
   return -1;
 }
 
+/**
+ * True if atom `a` has a carbon bonded to it, by any bond order.
+ *
+ * The predicate a "C-X" assignment actually needs. IR was adding a "C-Cl
+ * stretch" on the strength of the chlorine ALONE, so sodium chloride — in the
+ * dictionary as "sodium chloride", "salt" and "table salt" — came back with
+ * exactly one predicted band, a C-Cl stretch it does not have and cannot have.
+ * Same for hydrochloric acid and for hexafluorophosphate's "C-F stretch". A
+ * bond to carbon is what makes the vibration a C-X vibration; the element on
+ * its own says nothing.
+ */
+export function hasCarbonNeighbour(mol: Molecule, a: number): boolean {
+  return neighbors(mol, a).some((nb) => mol.getAtomicNo(nb.atom) === 6);
+}
+
+/**
+ * True if `a` carries two or more double bonds — a CUMULATED centre: O=C=O,
+ * S=C=S, R-N=C=S, a ketene's central carbon, an allene's central carbon.
+ *
+ * Cumulated centres are not ordinary sp2 atoms and none of the sp2 increment
+ * tables in this codebase apply to them. Their shifts sit tens to a hundred ppm
+ * away from anything an alkene or C=N increment scheme would give — carbon
+ * dioxide is ≈125 and carbon disulfide ≈193, and the generic sp2 fallback used
+ * to answer 160.0 for both, with the same label and no caveat.
+ *
+ * Aromatic atoms are excluded: a Kekulé double bond inside a ring is not
+ * cumulation.
+ */
+export function isCumulatedCentre(mol: Molecule, a: number): boolean {
+  if (mol.isAromaticAtom(a)) return false;
+  return neighbors(mol, a).filter((nb) => nb.order === 2).length >= 2;
+}
+
+/**
+ * True for the nitrogen of an ISOCYANIDE (R-N≡C), as against a nitrile's (R-C≡N).
+ *
+ * The two differ only in which atom carries the R group, and every predictor
+ * that sees a C≡N must ask: an isocyanide's carbon is ≈158 ppm in ¹³C and its
+ * stretch is near 2150 cm-1, against a nitrile's ≈118 ppm and 2245 cm-1. Shared
+ * here so IR and NMR cannot answer the question differently for one structure.
+ */
+export function isIsocyanideNitrogen(mol: Molecule, n: number): boolean {
+  if (mol.getAtomicNo(n) !== 7) return false;
+  if (mol.getConnAtoms(n) < 2) return false;
+  return neighbors(mol, n).some((nb) => nb.order === 3 && mol.getAtomicNo(nb.atom) === 6);
+}
+
 /** True if `n` is an amide nitrogen (single-bonded to a carbonyl carbon). */
 export function isAmideN(mol: Molecule, n: number): boolean {
   if (mol.getAtomicNo(n) !== 7) return false;

@@ -180,9 +180,15 @@ describe("the plain-language verdict", () => {
   });
 
   test("names Wilcoxon for a paired design", () => {
+    // The two conditions must DIFFER. A paired design's normality assumption is
+    // about the differences, so `[skewed, skewed]` is now a column of exact
+    // zeros — which the constant-data refusal correctly declines to test rather
+    // than a non-normal sample. Halving the second condition keeps the
+    // differences as skewed as the raw scores.
     const skewed = Array.from({ length: 60 }, (_, i) => Math.exp(i / 12));
-    const notes = describeAssumptions([skewed, skewed], { paired: true });
+    const notes = describeAssumptions([skewed, skewed.map((v) => v * 0.5)], { paired: true });
     expect(notes.join(" ")).toContain("Wilcoxon");
+    expect(notes.join(" ")).toContain("paired differences");
   });
 
   test("names Welch when two groups have unequal variances", () => {

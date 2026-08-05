@@ -60,16 +60,69 @@ export function npv(rate: number, cashflows: number[]): number {
  * no root exists in range. (When a stream has multiple IRRs, the lowest is the
  * conventional choice — the ambiguity is inherent to the IRR metric.)
  */
+/**
+ * The rate range `irr` scans, and the sentence that names it.
+ *
+ * A REFUSAL THAT DOES NOT NAME ITS BOUND IS NOT A REFUSAL, IT IS A WRONG ANSWER.
+ * The scan used to stop at 10 (1000%), so `irr([-1, 20])` — a 20× return, entirely
+ * ordinary in venture cash flows — came back null and the pane printed "IRR = no
+ * solution". True IRR: 1900%. The user reads that as "this cash flow has no IRR",
+ * which is false. The ceiling is now 100 (10,000%), which covers that case, and it
+ * is exported so the surface reporting the refusal can say what was searched
+ * instead of implying the mathematics came up empty.
+ */
+export const IRR_SEARCH_MIN = -0.99;
+export const IRR_SEARCH_MAX = 100;
+
+/**
+ * The searched range in the words the refusal has to use.
+ *
+ * DATA, not a function, and deliberately: it is one constant string that belongs
+ * beside the two numbers it describes. It is also NOT YET READ by anything — the
+ * surface that prints "IRR = no solution" is taskpane.ts, which must append this.
+ * Note that the dead-export ratchet in reachability.adversarial.test.ts counts
+ * exported FUNCTIONS and const-arrow-functions only, so an unwired string constant
+ * is invisible to it: nothing will remind anyone that this is unused. That is
+ * exactly the "computed, tested, and never read" shape this release is fixing
+ * elsewhere, so it is written down here rather than left to be discovered.
+ */
+export const IRR_SEARCH_RANGE_TEXT = "-99% to 10,000% per period";
+
+/**
+ * A WIDER RANGE AT THE SAME STEP IS A SLOWER PANE, AND THE SCAN IS SYNCHRONOUS.
+ *
+ * Widening the ceiling from 10 to 100 at the original 0.5% step multiplies the
+ * npv evaluations by ten, and each one is O(cash flows) — a list this field
+ * accepts by paste. Measured on an all-positive list (no sign change, so the scan
+ * runs to the very end, which is the worst case):
+ *
+ *     flows      old ceiling 10      ceiling 100 at 0.5%
+ *      1,000            151 ms                  1,252 ms
+ *      5,000            594 ms                  5,134 ms
+ *     20,000          1,999 ms                 14,187 ms
+ *
+ * Fourteen seconds inside a task pane is not a slow answer, it is Word frozen.
+ * So the resolution is spent where it buys something: the original 0.5% step below
+ * 1000%, where conventional IRRs live and where the lowest-root convention has to
+ * be exact, and 5% above it, where the question is only whether a venture-scale
+ * return exists at all. A sign change found on the coarse grid is still bisected
+ * to full precision, so the ANSWER is not coarser — only the search for a bracket
+ * is. Total iterations are fixed at about 4,000 whatever the cash flows, against
+ * 2,200 before and 20,200 at a uniform fine step.
+ */
+const IRR_FINE_UNTIL = 10;
+const IRR_FINE_STEP = 0.005;
+const IRR_COARSE_STEP = 0.05;
+
 export function irr(cashflows: number[]): number | null {
   if (cashflows.length < 2) return null;
   const f = (r: number): number => npv(r, cashflows);
-  const start = -0.99;
-  const end = 10; // up to 1000%
-  const step = 0.005; // 0.5% scan resolution
+  const start = IRR_SEARCH_MIN;
+  const end = IRR_SEARCH_MAX;
   let prevR = start;
   let prevV = f(start);
   if (prevV === 0) return prevR;
-  for (let r = start + step; r <= end + 1e-9; r += step) {
+  for (let r = start + IRR_FINE_STEP; r <= end + 1e-9; r += r < IRR_FINE_UNTIL ? IRR_FINE_STEP : IRR_COARSE_STEP) {
     const v = f(r);
     if (v === 0) return r;
     if (prevV * v < 0) {
@@ -125,10 +178,96 @@ export function blackScholes(type: OptionType, S: number, K: number, t: number, 
 }
 
 /**
+ * Why a maturity is refused, or null when it is priceable.
+ *
+ * `Math.round(years * freq)` used to hide a partial coupon period: at two coupons
+ * a year, 10.25 years (20.5 periods), 10.4 years (20.8) and 10.5 years (21) ALL
+ * priced at 922.92. Three different bonds, one price, and nothing said why.
+ *
+ * Only two of those three are wrong. 10.5 × 2 = 21 exactly, so 10.5 years IS a
+ * whole number of coupon periods and must keep working; a refusal that swept it up
+ * would break a perfectly ordinary maturity.
+ *
+ * The other two are refused rather than caveated because pricing them is not a
+ * rounding question at all — a bond bought part-way through a coupon period is
+ * priced with accrued interest, and "CLEAN price only, accrued interest is not
+ * included" is already this module's standing, stated refusal. Rounding to the
+ * nearest whole period does not approximate that calculation, it answers a
+ * different question and labels it with the user's number.
+ */
+export const MAX_COUPON_PERIODS = 12000;
+
+export function bondPeriodRefusal(years: number, freq: number): string | null {
+  const exact = years * freq;
+  // AN UNBOUNDED COUPON LOOP IS A FROZEN WORD, NOT AN ERROR.
+  //
+  // "Years to maturity" is a free-text field. `periods` was Math.round(years*freq)
+  // with only a `< 1` guard, so Infinity — or 1e9, which a fat-fingered entry
+  // produces just as easily — walked `for (k = 1; k <= periods; k++)` forever.
+  // Measured: neither returns within five million iterations. In a task pane that
+  // is not a slow answer, it is a dead Word with the user's work in it.
+  // Number.isFinite is not a bound, so there is a number here as well.
+  // SIGN AND ZERO, BEFORE ANYTHING ELSE. `exact = years * freq` is the only
+  // quantity checked below, and it is a PRODUCT — so two negatives cancelled and
+  // sailed through every later test. Measured: bondPrice(1000, 0.05, 0.06, -10,
+  // -2) returned a confident 1139.82 for a bond with a negative maturity paying
+  // coupons a negative number of times a year. A price for an instrument that
+  // cannot exist is the worst thing this module can produce, and it looked
+  // entirely ordinary. Zero is refused for the same reason: a bond with no
+  // maturity and no coupon dates is not a thing to price.
+  if (!Number.isFinite(years) || years <= 0) {
+    return "Years to maturity must be a positive number.";
+  }
+  if (!Number.isFinite(freq) || freq <= 0) {
+    return "Coupons per year must be a positive number — 1 (annual), 2 (semiannual), 4 or 12.";
+  }
+  if (!Number.isFinite(exact)) {
+    // NAME THE ARGUMENT THAT IS ACTUALLY BAD, and never interpolate a non-finite
+    // number into user-facing text. `bondPeriodRefusal(10, NaN)` used to read
+    // "A maturity of 10 years is not a number of coupon periods" — blaming a
+    // maturity that was fine — and `(NaN, 2)` put the literal "NaN years" on
+    // screen, which the display contract forbids.
+    if (!Number.isFinite(freq) || freq <= 0) {
+      return "Coupons per year must be a positive number — 1 (annual), 2 (semiannual), 4 or 12.";
+    }
+    return "Years to maturity must be a positive number.";
+  }
+  if (exact > MAX_COUPON_PERIODS) {
+    return (
+      `${years} years at ${freq} coupon${freq === 1 ? "" : "s"} per year is ${exact} coupon periods. ` +
+      `This prices at most ${MAX_COUPON_PERIODS} periods — past any instrument that exists, and past what ` +
+      `can be summed without stalling. Check the maturity and the coupon frequency.`
+    );
+  }
+  if (Math.abs(exact - Math.round(exact)) <= 1e-9) return null;
+  // A REFUSAL IS OUTPUT, AND OUTPUT IS A CONTRACT. Dividing back by freq lands on
+  // float noise for any frequency that is not a power of two — at 3 coupons a year
+  // the advice read "the nearest whole-period maturities are 2.3333333333333335 and
+  // 2.6666666666666665 years", which is not a number anyone types. And the lower
+  // suggestion is only usable if it is a real bond: below one whole period there is
+  // nothing to price, so it is dropped rather than offered.
+  const tidy = (v: number): string => String(Number(v.toPrecision(10)));
+  const loPeriods = Math.floor(exact);
+  const suggestions = [loPeriods >= 1 ? tidy(loPeriods / freq) : null, tidy(Math.ceil(exact) / freq)]
+    .filter((s): s is string => s !== null);
+  return (
+    `${tidy(years)} years at ${freq} coupon${freq === 1 ? "" : "s"} per year is ${tidy(exact)} coupon ` +
+    `periods — a partial period. Settling part-way through a period is an ACCRUED INTEREST calculation, ` +
+    `and this reports the clean price only, so no price is given rather than one for a bond you did not ` +
+    `describe. ` +
+    (suggestions.length === 1
+      ? `The nearest whole-period maturity is ${suggestions[0]} year${suggestions[0] === "1" ? "" : "s"}.`
+      : `The nearest whole-period maturities are ${suggestions[0]} and ${suggestions[1]} years.`)
+  );
+}
+
+/**
  * Price of a coupon bond. `couponRate` and `ytm` are annual decimals; coupons pay
- * `freq` times per year for `years`.
+ * `freq` times per year for `years`. Returns NaN when the maturity leaves a partial
+ * coupon period — see bondPeriodRefusal for the reason, and call it for the text.
  */
 export function bondPrice(face: number, couponRate: number, ytm: number, years: number, freq = 2): number {
+  if (bondPeriodRefusal(years, freq)) return NaN;
   const periods = Math.round(years * freq);
   if (periods < 1) return NaN;
   const coupon = (face * couponRate) / freq;
@@ -292,10 +431,33 @@ export function xirr(cashflows: number[], days: number[]): number | null {
 
 // --- bond analytics ----------------------------------------------------------
 
-/** Yield to maturity that prices a coupon bond at `price` (annual, or null). */
+/**
+ * Yield to maturity that prices a coupon bond at `price` (annual, or null).
+ *
+ * ROUNDS THE MATURITY TO WHOLE PERIODS, deliberately, and does NOT inherit
+ * bondPrice's partial-period refusal.
+ *
+ * bondPrice returns NaN for a partial period, so a YTM search over it found no
+ * root and returned null for every fractional maturity — 10.25y/2 and 3.5y/1
+ * went from a correct 5.637% and 6.458% to "no solution". That reads as "the
+ * mathematics came up empty" for input the tool priced fine yesterday, which is
+ * the wrong-refusal shape bondPeriodRefusal exists to prevent, not an instance
+ * of it. The pane compounds it: its insertability gate blocks any text
+ * containing "no solution", so Insert died too.
+ *
+ * The two cases genuinely differ. A partial period is refused for PRICE because
+ * the clean price omits accrued interest and quoting it would answer a question
+ * the user did not ask. A YIELD is a rate, and the honest whole-period yield is
+ * a useful answer; the caller (and bondPeriodRefusal) still say what was
+ * assumed. Non-finite and absurd inputs are refused here as everywhere.
+ */
 export function bondYTM(price: number, face: number, couponRate: number, years: number, freq = 2): number | null {
   if (price <= 0) return null;
-  return findRoot((y) => bondPrice(face, couponRate, y, years, freq) - price, -0.99, 2, 3000);
+  const exact = years * freq;
+  if (!Number.isFinite(exact) || exact < 1 || exact > MAX_COUPON_PERIODS) return null;
+  const periods = Math.round(exact);
+  const wholeYears = periods / freq;
+  return findRoot((y) => bondPrice(face, couponRate, y, wholeYears, freq) - price, -0.99, 2, 3000);
 }
 
 export interface BondRisk {
@@ -308,8 +470,12 @@ export interface BondRisk {
   convexity: number;
 }
 
-/** Price, Macaulay/modified duration, and convexity of a coupon bond. */
+/**
+ * Price, Macaulay/modified duration, and convexity of a coupon bond. Refuses a
+ * partial coupon period on the same grounds as bondPrice — see bondPeriodRefusal.
+ */
 export function bondAnalytics(face: number, couponRate: number, ytm: number, years: number, freq = 2): BondRisk {
+  if (bondPeriodRefusal(years, freq)) return { price: NaN, macaulay: NaN, modified: NaN, convexity: NaN };
   const periods = Math.round(years * freq);
   if (periods < 1) return { price: NaN, macaulay: NaN, modified: NaN, convexity: NaN };
   const coupon = (face * couponRate) / freq;

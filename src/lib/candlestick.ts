@@ -27,7 +27,7 @@
 
 import { TableChart } from "./tablechart";
 import { INK } from "./chartPalette";
-import { niceStep, fmtTick } from "./plot";
+import { niceStep, fmtTick, TICK_CAP, TICK_EPS } from "./plot";
 
 /** Up and down, from the reserved status palette. Never carries meaning alone. */
 const UP = "#0ca30c";
@@ -268,7 +268,11 @@ export function buildCandlestickSvg(
   // Price gridlines — recessive, behind the candles.
   const step = niceStep(hi - lo, 6);
   const first = Math.ceil(lo / step) * step;
-  for (let v = first; v <= hi + 1e-9; v += step) {
+  // BOUNDED, AND THE SLACK IS RELATIVE — plot.ts's TICK_CAP / TICK_EPS carry the
+  // full explanation. The absolute `1e-9` this used to carry is wider than the
+  // WHOLE AXIS on prices quoted at 1e-15 magnitude, which produced 2,000,014 tick
+  // labels and a 458 MB SVG built synchronously in the task pane.
+  for (let i = 0, v = first; i <= TICK_CAP && v <= hi + step * TICK_EPS; i++, v += step) {
     const y = yOf(v);
     parts.push(
       `<line x1="${plotX}" y1="${y.toFixed(1)}" x2="${(plotX + plotW).toFixed(1)}" y2="${y.toFixed(1)}" ` +

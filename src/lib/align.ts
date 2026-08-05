@@ -117,6 +117,52 @@ export const BLOSUM62 = { order: B62_ORDER, rows: B62_ROWS };
 const NEG = -1e9; // stands in for -Infinity without NaN risk in arithmetic
 
 /**
+ * The largest dynamic-programming matrix this will attempt, in cells (n × m).
+ *
+ * Gotoh needs SIX (n+1)×(m+1) arrays, so the cost is not the 4 million cells —
+ * it is 24 million JS numbers, allocated synchronously on the task pane's UI
+ * thread. Measured before this bound existed:
+ *
+ *   1 kb × 1 kb   0.4 s    100 MB
+ *   3 kb × 3 kb   2.2 s    659 MB
+ *   5 kb × 5 kb   8.3 s   1.81 GB
+ *
+ * and the pane re-runs the whole alignment on every keystroke (`input`), so a
+ * pasted 5 kb plasmid is not a slow answer, it is a FROZEN WORD — which this
+ * product treats as worse than any wrong answer. 4M cells is roughly 2 kb × 2 kb,
+ * which covers an ordinary gene-sized comparison and still returns in well under
+ * a second.
+ *
+ * The bound lives HERE, on the function that allocates, not on the caller: a
+ * check in a different file from the loop is the arrangement that fails for the
+ * next caller (see `serialDilution`, which learned the same lesson).
+ */
+export const MAX_ALIGN_CELLS = 4_000_000;
+
+/**
+ * The refusal message for an over-large pair, or null when the pair is fine.
+ *
+ * `align()` enforces the bound itself and returns null past it; this exists so
+ * the caller can SAY WHY. Without it the pane's null branch reads "Nothing
+ * alignable in one of the inputs", which is false and sends the user looking for
+ * a problem in their sequence.
+ */
+export function alignSizeRefusal(seqA: string, seqB: string): string | null {
+  const n = cleanSequence(seqA).length;
+  const m = cleanSequence(seqB).length;
+  if (!n || !m || n * m <= MAX_ALIGN_CELLS) return null;
+  const millions = (n * m) / 1e6;
+  return (
+    `Too large to align here: ${n.toLocaleString("en-US")} × ${m.toLocaleString("en-US")} = ` +
+    `${millions.toFixed(1)} million matrix cells, above the ${(MAX_ALIGN_CELLS / 1e6).toFixed(0)} million ` +
+    "this pane will attempt. A full-matrix alignment of that size takes seconds and gigabytes, " +
+    "and it runs in the same thread as Word's task pane — it would not be slow, it would be frozen. " +
+    "Align a shorter region instead (the exon, domain or insert you actually care about), or run " +
+    "whole plasmids through a dedicated aligner such as EMBOSS needle/water or BLAST."
+  );
+}
+
+/**
  * Cleans an input sequence: drop FASTA/comment headers, then uppercase and strip
  * whitespace, digits and gap characters.
  *
@@ -185,6 +231,10 @@ export function align(seqA: string, seqB: string, opts: AlignOptions = {}): Alig
   const a = cleanSequence(seqA);
   const b = cleanSequence(seqB);
   if (!a.length || !b.length) return null;
+  // Refuse BEFORE allocating. Six (n+1)×(m+1) arrays past this size is seconds
+  // of synchronous work and gigabytes of heap on the pane's UI thread; the
+  // caller gets the reason from `alignSizeRefusal`.
+  if (a.length * b.length > MAX_ALIGN_CELLS) return null;
 
   // A MULTI-RECORD FASTA IS NOT ONE SEQUENCE, AND SILENTLY TREATING IT AS ONE
   // IS THE WORST AVAILABLE ANSWER. `cleanSequence` strips '>' header lines and

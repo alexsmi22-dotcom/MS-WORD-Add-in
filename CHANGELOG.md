@@ -6,6 +6,79 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [Unreleased] — 2026-08-05 — the non-Engineering half, repaired
+
+The 2026-08-05 gap analysis (`docs/GAP-ANALYSIS-2026-08-05.md`) swept everything
+outside Engineering and Citations — a surface that gained **43** Engineering
+calculators and **zero** statistics calculators over the preceding 26 releases.
+It found 31 live defects. All are fixed, with a named regression test each.
+
+**Wrong content that was reaching the document.** A GenBank import declared every
+sequence a *synthetic construct* in the filed ST.26 listing, because the reader
+skips the `source` feature the pane read the organism from — now parsed from the
+`ORGANISM` header and verified end-to-end into the XML. Every predicted spectrum
+drew a **negative** axis (¹H NMR ticks read −4 … −1 ppm; IR read −4000 cm⁻¹): the
+data is negated so δ increases leftward, and nothing un-negated the tick labels.
+A pole-crossing integral typeset `= NaN` into Word while the pane correctly said
+there was no value. Finance's insert gate blocked `"—"` but not `NaN`, so a
+constant return series inserted `Sharpe ratio NaN`.
+
+**Wrong numbers on screen.** The statistical assumption checker tested the pooled
+marginal instead of the within-group residuals, so it declared non-normality
+*because* there was a real effect — 2.1e-5 on two clean groups separated by 4 SD.
+IR assigned C–halogen bands from the element alone, so sodium chloride returned a
+"C–Cl stretch". NMR invented δ 160 for any carbonyl-like carbon it could not name
+and read carbon monoxide as an alkyne. UV-Vis applied Woodward–Fieser to
+β-carotene (534 nm against a real 450) while claiming ±5 nm, and called caffeine
+and riboflavin colourless benzene.
+
+**Frozen Word.** Two unbounded tick loops built a **510 MB** SVG from
+femtosecond-magnitude data; alignment allocated 1.81 GB on a 5 kb × 5 kb paste and
+re-ran on every keystroke; `buildDiagramSvg` emitted **23 MB** for a large pasted
+table; `bondPrice` never returned for a non-finite maturity.
+
+**Honesty that existed and was thrown away.** ¹H coupling caveats, the isotope
+exclusion note, heat-map and candlestick renderer warnings, the log-axis
+point-drop note, and every caveat on an empty spectrum were computed and then
+dropped before the screen or the document. The dose–response and saturation
+binding fits — the two most-used pharmacology tools — shipped with no caveats at
+all. Three catch blocks told the user the document was untouched at the moment it
+was half-modified.
+
+**Gates.** The figure ratchet was Engineering-only: nothing outside it would have
+caught a Spectra, Stats or Table→Chart regression. The figure corpus goes 4 → 13
+modules and 71 → 135 figures, deriving its coverage from the filesystem so a new
+chart module fails the gate until it has a figure. The whole-library fuzzer that
+found seven frozen-Word bugs at v2.18.0 had **never been committed**, and the
+library had grown 97 → 151 modules since; it is now `npm run fuzz` (16,560 calls,
+zero hangs) plus `fuzz:extreme` for valid-but-large input. A pane id-wiring audit
+and the tool-page and figure gates now run on the publish path, and `ts-node` —
+which was in neither `devDependencies` nor `node_modules`, so the figure gate
+could not run offline at all — is replaced by a require hook built on the
+TypeScript already on disk.
+
+**Four independent adversarial passes** over the diff, none by the agents that
+wrote it, found 19 further defects including 8 introduced by the fixes. Two fixes
+were rejected *after measurement* and rebuilt: the first `primerTm` repair was
+worse than the defect (−9 °C against −1.8 °C) and was replaced by exact
+enumeration of the degenerate pool; the obvious residual-normality repair fires on
+100 % of normal data at three groups of three, and was replaced by a transform
+through the exact Beta distribution of a studentized residual (61–100 % → ~8 %).
+
+The final round caught four more: a Unicode fold that routed *around* a deliberate
+ambiguity refusal, so `1/2π` answered where `1/2pi` correctly refuses; an exact
+root displayed rounded while still flagged `exact: true`; a bond priced at a
+confident 1139.82 for a **negative** maturity, because the only quantity checked
+was the product `years × freq` and two negatives cancelled; and a summary sentence
+able to hijack the Brief Description section and report a correctly-described
+figure as missing. Found along the way: the Inhibition (Ki) and annuity
+calculators had been permanently **un-insertable** because a stray em dash
+collides with the pane's "not computable" sentinel, and `StatOutput.svg`'s
+"Display only" comment had outlived the "Insert chart" button — a stale comment
+that made an audit report a working feature as absent.
+
+Suite: **281 files · 9,332 tests · 0 failures**, 13/13 QC gates green.
+
 ## [2.89.0] — 2026-08-03 — EVERY calculator draws: 130 of 130
 
 The final twenty-four, and the figure ratchet closes at **130 of 130**. Every

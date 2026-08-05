@@ -42,7 +42,7 @@ describe("buildSt26Xml — XML safety", () => {
     const bell = String.fromCharCode(7); // U+0007, illegal in XML 1.0
     const xml = buildSt26Xml(
       { applicantName: "Acme Corp", inventionTitle: "Wid" + bell + "get", productionDate: "2026-06-17" },
-      [{ moltype: "DNA", residues: "acgt" }],
+      [{ moltype: "DNA", residues: "acgtacgtac" }],
     );
     expect(xml).toContain("Widget");
     expect(xml).not.toContain(bell);
@@ -98,10 +98,10 @@ describe("buildSt26Xml", () => {
 
   it("uses a chosen ST.26 mol_type (mRNA) and rejects an invalid one", () => {
     const m: SequenceListingMeta = { applicantName: "A", inventionTitle: "B", productionDate: "2026-06-17" };
-    const mrna = buildSt26Xml(m, [{ moltype: "RNA", residues: "acgu", sourceMolType: "mRNA" }]);
+    const mrna = buildSt26Xml(m, [{ moltype: "RNA", residues: "acguacguac", sourceMolType: "mRNA" }]);
     expect(mrna).toContain("<INSDQualifier_value>mRNA</INSDQualifier_value>");
     // An invalid value for the molecule falls back to the default.
-    const bad = buildSt26Xml(m, [{ moltype: "DNA", residues: "acgt", sourceMolType: "mRNA" }]);
+    const bad = buildSt26Xml(m, [{ moltype: "DNA", residues: "acgtacgtac", sourceMolType: "mRNA" }]);
     expect(bad).toContain("<INSDQualifier_value>genomic DNA</INSDQualifier_value>");
     expect(bad).not.toContain(">mRNA<");
   });
@@ -109,7 +109,7 @@ describe("buildSt26Xml", () => {
   it("omits ApplicationIdentification when no office/number/date given", () => {
     const slim = buildSt26Xml(
       { applicantName: "A", inventionTitle: "B", productionDate: "2026-06-17" },
-      [{ moltype: "DNA", residues: "acgt" }],
+      [{ moltype: "DNA", residues: "acgtacgtac" }],
     );
     expect(slim).not.toContain("<ApplicationIdentification>");
     expect(slim).toContain("<SequenceTotalQuantity>1</SequenceTotalQuantity>");
@@ -124,12 +124,17 @@ describe("translateCds", () => {
   });
 });
 
+// NOTE on the fixture lengths in this file: ST.26 paragraph 8 excludes any
+// sequence with fewer than ten specifically defined nucleotides (four amino
+// acids), and `buildSt26Xml` now enforces that — a 4-mer or a 9-mer is not a
+// listable sequence, so the toy fixtures were lengthened past the minimum. The
+// exclusion behaviour itself is pinned in st26Compliance.test.ts.
 describe("ST.26 features (CDS / annotation)", () => {
   const meta: SequenceListingMeta = { applicantName: "A", inventionTitle: "B", productionDate: "2026-07-05" };
 
   it("auto-generates /translation and /codon_start for a CDS", () => {
     const xml = buildSt26Xml(meta, [
-      { moltype: "DNA", residues: "atgggttaa", features: [{ key: "CDS", location: "1..9", qualifiers: [{ name: "gene", value: "abc" }] }] },
+      { moltype: "DNA", residues: "atgggttaacgt", features: [{ key: "CDS", location: "1..9", qualifiers: [{ name: "gene", value: "abc" }] }] },
     ]);
     expect(xml).toContain("<INSDFeature_key>CDS</INSDFeature_key>");
     expect(xml).toContain("<INSDFeature_location>1..9</INSDFeature_location>");
@@ -142,7 +147,7 @@ describe("ST.26 features (CDS / annotation)", () => {
 
   it("does not override a drafter-supplied /translation", () => {
     const xml = buildSt26Xml(meta, [
-      { moltype: "DNA", residues: "atgggttaa", features: [{ key: "CDS", location: "1..9", qualifiers: [{ name: "translation", value: "XY" }] }] },
+      { moltype: "DNA", residues: "atgggttaacgt", features: [{ key: "CDS", location: "1..9", qualifiers: [{ name: "translation", value: "XY" }] }] },
     ]);
     expect(xml).toContain("<INSDQualifier_value>XY</INSDQualifier_value>");
     expect(xml).not.toContain("<INSDQualifier_value>MG</INSDQualifier_value>");
@@ -150,7 +155,7 @@ describe("ST.26 features (CDS / annotation)", () => {
 
   it("emits well-formed XML with features", () => {
     const xml = buildSt26Xml(meta, [
-      { moltype: "DNA", residues: "atgggttaa", features: [{ key: "CDS", location: "1..9", qualifiers: [{ name: "product", value: "P & Q <x>" }] }] },
+      { moltype: "DNA", residues: "atgggttaacgt", features: [{ key: "CDS", location: "1..9", qualifiers: [{ name: "product", value: "P & Q <x>" }] }] },
     ]);
     // Strip the DOCTYPE (external DTD) so the parser doesn't try to fetch it.
     const doc = new DOMParser().parseFromString(xml.replace(/<!DOCTYPE[^>]*>/, ""), "application/xml");
@@ -159,8 +164,8 @@ describe("ST.26 features (CDS / annotation)", () => {
   });
 
   it("warns on a CDS whose length is not a multiple of 3", () => {
-    expect(featureWarnings({ moltype: "DNA", residues: "atgggttaa", features: [{ key: "CDS", location: "1..8", qualifiers: [] }] }))
+    expect(featureWarnings({ moltype: "DNA", residues: "atgggttaacgt", features: [{ key: "CDS", location: "1..8", qualifiers: [] }] }))
       .toEqual([expect.stringContaining("not a multiple of 3")]);
-    expect(featureWarnings({ moltype: "DNA", residues: "atgggttaa", features: [{ key: "CDS", location: "1..9", qualifiers: [] }] })).toEqual([]);
+    expect(featureWarnings({ moltype: "DNA", residues: "atgggttaacgt", features: [{ key: "CDS", location: "1..9", qualifiers: [] }] })).toEqual([]);
   });
 });

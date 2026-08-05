@@ -10,7 +10,7 @@
  *
  * The pane spans two audiences that barely overlap — a chemist has no use for
  * Bluebook citations, and a litigator has none for mass spectrometry. Showing
- * everyone all 22 tools makes each of them read the other half as clutter and
+ * everyone every tool makes each of them read the other half as clutter and
  * conclude the tool isn't for them.
  *
  * This filters the Home CARDS only. Every tool stays reachable from the mode

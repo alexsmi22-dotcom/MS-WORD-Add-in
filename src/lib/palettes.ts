@@ -23,8 +23,17 @@ export const MATH_PALETTE: PaletteGroup[] = [
       { label: "a/b", snippet: "()/()", caret: 1, title: "Fraction" },
       { label: "√", snippet: "sqrt()", caret: 5, title: "Square root" },
       { label: "ⁿ√", snippet: "root(3, )", caret: 8, title: "n-th root" },
-      { label: "xⁿ", snippet: "^", caret: 1, title: "Superscript / power" },
-      { label: "xₙ", snippet: "_", caret: 1, title: "Subscript" },
+      // BRACED, WITH THE CARET INSIDE. This was `{ snippet: "^", caret: 1 }`, and
+      // "^" alone binds to ONE token: a user who clicked it and typed n-1 got
+      // x^n − 1, not x^(n−1). There was no braced-group snippet anywhere in this
+      // file, so the palette could not express a multi-token exponent at all —
+      // while the formula library and the app's own help both teach the braced form.
+      // Braces are grouping only in mathParse, so they leave no bracket in the
+      // typeset output (a paren exponent would render x^((n−1))).
+      { label: "xⁿ", snippet: "^{}", caret: 2, title: "Superscript / power" },
+      // Same one-token defect as the superscript above, same fix: "_" alone
+      // binds to a single token, so clicking it and typing i+1 gave x_i + 1.
+      { label: "xₙ", snippet: "_{}", caret: 2, title: "Subscript" },
       { label: "( )", snippet: "()", caret: 1, title: "Parentheses" },
       { label: "|x|", snippet: "abs()", caret: 4, title: "Absolute value" },
       { label: "x̄", snippet: "bar()", caret: 4, title: "Overbar (mean)" },

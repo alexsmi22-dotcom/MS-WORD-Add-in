@@ -87,7 +87,9 @@ describe("buildPeptide", () => {
     expect(buildPeptide("")).toBeNull();
     expect(buildPeptide("123")).toBeNull();
   });
-  it("aminoAcidTable lists all 20", () => {
-    expect(aminoAcidTable()).toHaveLength(20);
+  it("aminoAcidTable lists all 20 standard residues, plus Sec and Pyl flagged", () => {
+    const table = aminoAcidTable();
+    expect(table.filter((a) => !a.nonstandard)).toHaveLength(20);
+    expect(table).toHaveLength(22); // U (Sec) and O (Pyl) — see proteinResiduesReported.test.ts
   });
 });

@@ -16,7 +16,10 @@ After installing, open Word → **Insert** tab → **Add-ins** → **JurisLab**
 (or the **Insert Formula** button on the Home tab). The pane opens on the side.
 
 > First open needs an internet connection (the add-in's code is served over HTTPS).
-> After that it works offline; your document content never leaves your machine.
+> After that it normally runs from your browser cache, so it keeps working without a
+> connection — but that cache is not a guaranteed offline install, and a new release
+> has to be fetched once before it will run offline again. **The computing is always
+> offline; the delivery is not yet.** Your document content never leaves your machine.
 
 ---
 
@@ -67,7 +70,10 @@ text** — you should get H₂O in your document.
 
 ## Troubleshooting
 - **Pane is blank / "can't load the add-in":** you need an internet connection the
-  first time it loads (code is served over HTTPS). After that it works offline.
+  first time it loads (code is served over HTTPS). After that it normally runs from
+  the browser cache without a connection — but the cache can be evicted, and each new
+  release must be fetched once. The computing is always offline; the delivery is not
+  yet guaranteed.
 - **Not listed under Add-ins after installing:** make sure Word was *fully* closed
   (Windows) / quit with ⌘Q (Mac), then reopen.
 - **macOS "can't be opened" / no Open button:** right-click → **Open** (not a

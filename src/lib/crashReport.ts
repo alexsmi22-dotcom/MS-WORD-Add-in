@@ -94,14 +94,23 @@ export function describeCrash(err: unknown, source: string, version: string): Cr
 }
 
 /**
- * The user-facing paragraph. Says what happened, what is safe (their document),
- * and what to do — in that order, because the first question anyone asks after
- * a crash in a word processor is whether they lost work.
+ * The user-facing paragraph. Says what happened, what to check, and what to do —
+ * in that order, because the first question anyone asks after a crash in a word
+ * processor is whether they lost work.
+ *
+ * IT DOES NOT PROMISE THE DOCUMENT IS UNTOUCHED. It used to open with "Your
+ * document has not been changed by this error", unconditionally — but this
+ * banner is raised by a global handler that cannot know where the failure
+ * happened, and several insert paths commit in more than one flush (a table
+ * writes its content, then its style, then detaches list formatting). A throw
+ * between those flushes leaves the document half-modified, and the banner would
+ * have told the user it was fine. Telling someone their work is safe when it
+ * might not be is worse than saying nothing.
  */
 export function crashAdvice(): string {
   return (
-    "Your document has not been changed by this error — nothing is inserted unless you " +
-    `press an Insert button. Close and reopen the pane to recover. If it keeps happening, ` +
-    `the details below identify it: ${CRASH_CONTACT}`
+    "If you were inserting something when this happened, check the document — part of it may " +
+    "have been written. Press Ctrl/⌘+Z until it looks right. Close and reopen the pane to " +
+    `recover. If it keeps happening, the details below identify it: ${CRASH_CONTACT}`
   );
 }

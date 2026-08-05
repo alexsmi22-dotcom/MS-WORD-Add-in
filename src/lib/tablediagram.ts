@@ -70,6 +70,25 @@ const MAX_STEPS = 30;
 const MAX_LEAVES = 24;
 const MAX_DEPTH = 6;
 
+/**
+ * Rows the hierarchy will read. THE BOUND LIVES ON THE FUNCTION, not the caller.
+ *
+ * The flowchart half of this module has capped at MAX_STEPS since it was
+ * written; the hierarchy half capped DEPTH and leaf density but never the row
+ * count, and MAX_LEAVES only ever produced the cosmetic "labels may be small"
+ * warning before drawing all of them anyway. Measured: a 20,000 x 3 table
+ * through `buildDiagramSvg` — which is the entry point the pane calls when a
+ * user picks "Block diagram" for a table they just read out of their document —
+ * produced a 23 MB SVG string, assigned straight to innerHTML on the UI thread.
+ * In a task pane that is a frozen Word, not a dense diagram.
+ *
+ * 200 is far above any diagram that is legible at 380 px (a real block diagram
+ * or org chart is tens of rows) and far below the size that hurts. Pasting a
+ * 20,000-row table and asking for a block diagram is a mis-click, and the
+ * honest response is to draw the beginning of it and say so.
+ */
+const MAX_TREE_ROWS = 200;
+
 function esc(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
@@ -385,7 +404,11 @@ export function buildTree(rows: string[][]): { roots: TreeNode[]; warnings: stri
   const warnings: string[] = [];
   const roots: TreeNode[] = [];
   let prev: string[] = [];
-  for (const row of rows) {
+  const used = rows.length > MAX_TREE_ROWS ? rows.slice(0, MAX_TREE_ROWS) : rows;
+  if (used.length < rows.length) {
+    warnings.push(`Only the first ${MAX_TREE_ROWS} of ${rows.length} rows are drawn.`);
+  }
+  for (const row of used) {
     let last = -1;
     row.forEach((c, j) => {
       if (c) last = j;

@@ -227,9 +227,43 @@ describe("the rendered figure", () => {
   });
 });
 
+// REGRESSION (gap analysis 2026-08-05, defect 0.1). The price-gridline loop stepped
+// by `step` with an ABSOLUTE `1e-9` slack and no count cap — the exact form plot.ts
+// documents at length as a frozen Word. Measured before the fix on 1e-15 values:
+// 2,000,014 <text> elements and a 458 MB SVG built on the UI thread.
+describe("the price-gridline loop is bounded at every magnitude", () => {
+  test.each([1e-10, 1e-13, 1e-15, 1e-18, 1e-300])("prices at magnitude %p", (mag) => {
+    const r = buildCandlestickSvg(
+      mk(
+        ["t1", "t2"],
+        [
+          ["Open", [10 * mag, 12 * mag]],
+          ["High", [13 * mag, 14 * mag]],
+          ["Low", [9 * mag, 11 * mag]],
+          ["Close", [12 * mag, 13 * mag]],
+        ],
+      ),
+      "",
+      {},
+      620,
+      420,
+    );
+    expect(r.error).toBeNull();
+    expect((r.svg.match(/<text /g) || []).length).toBeLessThan(260);
+    expect(r.svg.length).toBeLessThan(200_000);
+  });
+
+  test("ordinary prices still get their gridlines", () => {
+    const r = buildCandlestickSvg(OK, "", {}, 620, 420);
+    const labels = (r.svg.match(/<text /g) || []).length;
+    expect(labels).toBeGreaterThan(4);
+    expect(labels).toBeLessThan(40);
+  });
+});
+
 describe("it is reachable, and its refusals are visible", () => {
   test('buildChartPreviewSvg dispatches kind "candlestick"', () => {
-    const svg = buildChartPreviewSvg(OK, "candlestick", "ACME", {});
+    const { svg } = buildChartPreviewSvg(OK, "candlestick", "ACME", {});
     expect(svg.startsWith("<svg")).toBe(true);
     expect(svg).toMatch(/hollow = close at or above open/);
   });
@@ -238,13 +272,67 @@ describe("it is reachable, and its refusals are visible", () => {
     // A blank frame is indistinguishable from a bug and gives the reader nothing to
     // act on. The message has to survive into the inserted picture.
     const wrong = mk(["a"], [["c1", [10]], ["c2", [9]], ["c3", [14]], ["c4", [13]]]);
-    const svg = buildChartPreviewSvg(wrong, "candlestick", "", {});
+    const { svg } = buildChartPreviewSvg(wrong, "candlestick", "", {});
     expect(svg).toMatch(/This chart cannot be drawn/);
     expect(svg).toMatch(/could not be identified/);
   });
 
   test("the patent style renders without the status colours", () => {
-    const bw = buildChartPreviewSvg(OK, "candlestick", "ACME", { patent: true });
+    const bw = buildChartPreviewSvg(OK, "candlestick", "ACME", { patent: true }).svg;
     expect(bw).not.toMatch(/#0ca30c|#d03b3b/);
+  });
+
+  // REGRESSION (gap analysis 2026-08-05, defect 0.20). The dispatcher returned
+  // `r.svg` and dropped `r.notes`, so every one of these — computed, worded and
+  // unit-tested one module away — died at the routing layer. Rows disappeared
+  // from a chart the user then inserted into a document, with no notice at all.
+  describe("the renderer's notes survive the dispatcher", () => {
+    test("an impossible row is REPORTED, not just skipped", () => {
+      const bad = mk(
+        ["mon", "tue"],
+        [
+          ["Open", [10, 10]],
+          ["High", [12, 9]], // tuesday's high is below its open — impossible
+          ["Low", [9, 8]],
+          ["Close", [11, 10]],
+        ],
+      );
+      const { svg, warnings } = buildChartPreviewSvg(bad, "candlestick", "", {});
+      expect(svg.startsWith("<svg")).toBe(true);
+      expect(warnings.join(" ")).toMatch(/could not be drawn because the high is not/);
+      expect(warnings.join(" ")).toMatch(/data error rather than a market event/);
+    });
+
+    test("a positional column reading is REPORTED", () => {
+      const unnamed = mk(
+        ["mon"],
+        [
+          ["c1", [10]],
+          ["c2", [12]],
+          ["c3", [9]],
+          ["c4", [11]],
+        ],
+      );
+      const { warnings } = buildChartPreviewSvg(unnamed, "candlestick", "", {});
+      expect(warnings.join(" ")).toMatch(/not named open\/high\/low\/close/);
+    });
+
+    test("a missing value is REPORTED — the gap is not silently closed up", () => {
+      const gappy = mk(
+        ["mon", "tue"],
+        [
+          ["Open", [10, null]],
+          ["High", [12, 13]],
+          ["Low", [9, 9]],
+          ["Close", [11, 12]],
+        ],
+      );
+      const { warnings } = buildChartPreviewSvg(gappy, "candlestick", "", {});
+      expect(warnings.join(" ")).toMatch(/missing one or more of the four values/);
+    });
+
+    test("a clean chart reports nothing", () => {
+      expect(buildChartPreviewSvg(OK, "candlestick", "ACME", {}).warnings).toEqual([]);
+    });
   });
 });

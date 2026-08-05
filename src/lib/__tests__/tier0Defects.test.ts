@@ -159,7 +159,27 @@ describe("0.5 the crash reporter survives whatever is thrown at it", () => {
   });
 
   it("the advice answers the question a user actually has first", () => {
-    expect(crashAdvice()).toMatch(/document has not been changed/i);
+    const advice = crashAdvice();
+    // The first question after a crash in a word processor is about the
+    // document, so the advice must speak to it and give a concrete next step.
+    expect(advice).toMatch(/document/i);
+    expect(advice).toMatch(/Ctrl\/⌘\+Z/);
+    expect(advice).toMatch(/reopen the pane/i);
+  });
+
+  it("the advice does NOT promise the document is untouched", () => {
+    // This assertion used to require the OPPOSITE: `/document has not been
+    // changed/`. That promise was unconditional, and it was false — this banner
+    // is raised by a global handler that cannot know where the failure happened,
+    // and several insert paths commit in more than one flush (a table writes
+    // content, then style, then detaches list formatting). A throw between those
+    // leaves the document half-modified while the banner said it was fine.
+    //
+    // Telling someone their work is safe when it might not be is worse than
+    // saying nothing, so the guarantee is gone and this test pins its absence.
+    const advice = crashAdvice();
+    expect(advice).not.toMatch(/has not been changed/i);
+    expect(advice).not.toMatch(/nothing is inserted/i);
   });
 });
 

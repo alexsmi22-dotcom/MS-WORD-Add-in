@@ -11,7 +11,7 @@
 //
 // Pure logic — no Office.js, no PptxGenJS — fully unit-testable.
 
-import { niceStep, fmtTick } from "./plot";
+import { niceStep, fmtTick, TICK_CAP, TICK_EPS } from "./plot";
 import { buildHeatmapSvg } from "./heatmap";
 import { buildCandlestickSvg } from "./candlestick";
 
@@ -373,7 +373,27 @@ function errorSvg(message: string, W: number, H: number): string {
   );
 }
 
-export function buildChartPreviewSvg(chart: TableChart, kind: ChartKind, title = "", style: ChartStyle = {}): string {
+/**
+ * A rendered chart AND anything the renderer needs the reader told.
+ *
+ * `warnings` USED TO BE THROWN AWAY. The candlestick and heat-map renderers both
+ * compute notes about what they could not draw — "3 rows could not be drawn
+ * because the high is not the largest of its four values", "7 cells are not
+ * numeric and are left blank; they are NOT counted as zero", "the columns are not
+ * named, so the first four were read positionally" — and this function returned
+ * `r.svg`, dropping every one of them. Rows silently vanished from a chart the
+ * user then inserted into a document.
+ *
+ * These are the RENDERER's notes only. `TableChart.warnings` (from parsing) is a
+ * separate list the caller already has and must surface itself; returning it here
+ * too would only get it printed twice.
+ */
+export interface ChartPreview {
+  svg: string;
+  warnings: string[];
+}
+
+export function buildChartPreviewSvg(chart: TableChart, kind: ChartKind, title = "", style: ChartStyle = {}): ChartPreview {
   const W = 380;
   const figLabel = (style.figLabel ?? "").trim();
   const H = 260 + (figLabel ? 26 : 0);
@@ -383,17 +403,20 @@ export function buildChartPreviewSvg(chart: TableChart, kind: ChartKind, title =
     const r = buildCandlestickSvg(chart, title, { grey: style.patent === true }, W, H);
     if (r.error) {
       // A refusal must be VISIBLE in the figure, not swallowed into a blank frame.
-      return errorSvg(r.error, W, H);
+      // The notes still travel: the refusal explains the frame, and the notes
+      // explain what was already known about the data before it was refused.
+      return { svg: errorSvg(r.error, W, H), warnings: r.notes };
     }
-    return r.svg;
+    return { svg: r.svg, warnings: r.notes };
   }
   if (kind === "heatmap") {
     // A heat map is neither an axis chart nor a pie: rows AND columns are both
     // categorical and the value is the fill, so it has its own renderer.
-    return buildHeatmapSvg(chart, title, { grey: style.patent === true }, W, H).svg;
+    const r = buildHeatmapSvg(chart, title, { grey: style.patent === true }, W, H);
+    return { svg: r.svg, warnings: r.notes };
   }
-  if (kind === "pie" || kind === "doughnut") return buildPieSvg(chart, kind, title, style, W, H);
-  return buildAxisSvg(chart, kind, title, style, W, H);
+  if (kind === "pie" || kind === "doughnut") return { svg: buildPieSvg(chart, kind, title, style, W, H), warnings: [] };
+  return { svg: buildAxisSvg(chart, kind, title, style, W, H), warnings: [] };
 }
 
 function svgShell(W: number, H: number, style: ChartStyle, inner: string): string {
@@ -521,7 +544,13 @@ function buildAxisSvg(chart: TableChart, kind: ChartKind, title: string, style: 
   // Value-axis ticks. The patent style keeps tick marks but drops the interior
   // gridlines — patent drawings want clean line art.
   const step = niceStep(vmax - vmin, horizontal ? 6 : 5);
-  for (let t = Math.ceil(vmin / step) * step; t <= vmax + 1e-9; t += step) {
+  // BOUNDED, AND THE SLACK IS RELATIVE — the constants and the reasoning are
+  // plot.ts's (see TICK_CAP / TICK_EPS there). This loop had the absolute
+  // `t <= vmax + 1e-9` form with no count cap, so a table of femtosecond pulse
+  // widths or femtofarad capacitances — units this product ships — produced
+  // 2,000,011 tick labels and a 510 MB SVG, assigned to innerHTML on the UI
+  // thread. That is not an ugly chart, it is a frozen Word.
+  for (let i = 0, t = Math.ceil(vmin / step) * step; i <= TICK_CAP && t <= vmax + step * TICK_EPS; i++, t += step) {
     if (horizontal) {
       const px = ml + vPos(t);
       if (!patent) {

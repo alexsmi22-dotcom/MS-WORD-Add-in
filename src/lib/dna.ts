@@ -274,13 +274,40 @@ export function findOrfs(seq: string, options: OrfOptions = {}): Orf[] {
 // --- Primer / oligo melting temperature -------------------------------------
 
 export interface PrimerTm {
+  /** TRUE oligo length — degenerate bases are part of the oligo and are counted. */
   length: number;
+  /** (G+C) over the SPECIFICALLY DEFINED bases only; see `ambiguous`. */
   gcPercent: number;
-  /** Melting temperature, °C. Nearest-neighbour unless `method` says otherwise. */
+  /** How many bases were IUPAC-ambiguous (or otherwise not A/C/G/T). */
+  ambiguous: number;
+  /**
+   * Set when no Tm could be computed at all — the degenerate pool is larger than
+   * `MAX_POOL_MEMBERS`, or a letter is not a base at all. `tm` is then 0 and MUST
+   * NOT be displayed — show this instead.
+   */
+  refusal?: string;
+  /**
+   * Melting temperature, °C. For a fully defined oligo this is ITS Tm. For a
+   * degenerate oligo it is `tmMin` — the exact Tm of the lowest-melting member of
+   * the pool, which is the member that decides whether the reaction anneals. It
+   * is always a real member's Tm, never an average or an interpolation.
+   */
   tm: number;
+  /**
+   * The pool's exact Tm range, present only when the oligo is degenerate. Both
+   * endpoints are the Tm of an actual concrete member, computed by the same
+   * nearest-neighbour model — nothing is estimated between them.
+   */
+  tmMin?: number;
+  tmMax?: number;
+  /** How many concrete sequences the oligo stands for. Absent when fully defined. */
+  poolSize?: number;
   /** Which model produced `tm`. */
   method: "nearest-neighbour" | "wallace";
-  /** Enthalpy and entropy of duplex formation (NN only): kcal/mol and cal/mol·K. */
+  /**
+   * Enthalpy and entropy of duplex formation (NN only): kcal/mol and cal/mol·K.
+   * Omitted for a degenerate pool — a mixture of sequences has no single ΔH.
+   */
   deltaH?: number;
   deltaS?: number;
   caveats: string[];
@@ -326,6 +353,97 @@ const INIT_AT: [number, number] = [2.3, 4.1];
 /** Gas constant, cal/(mol·K). */
 const R_CAL = 1.987;
 
+/**
+ * The largest degenerate pool `primerTm` will enumerate.
+ *
+ * THIS IS A COST BOUND, NOT A THERMODYNAMIC ONE. It says nothing about accuracy —
+ * every enumerated member is scored exactly. It exists because `primerTm` runs on
+ * every keystroke in the DNA pane (`taskpane.ts` binds `updateDnaPreview` to
+ * `input`), so the whole enumeration has to fit in a few milliseconds. Measured
+ * on this machine, enumerate + score:
+ *
+ *      256 members    3 ms
+ *     4096 members    9 ms
+ *    65536 members  128 ms      — visible lag on every keypress
+ *  1048576 members  2986 ms     — a frozen pane
+ *
+ * 4096 covers six fully-degenerate N positions, or twelve two-fold codes
+ * (R/Y/S/W/K/M), which is past any primer a person actually orders — a textbook
+ * degenerate primer like GGNTGGCANAARGGNTTYCA is 256. Beyond this the oligo is a
+ * library rather than a primer, and the function says so instead of guessing.
+ *
+ * The constant it replaced (`MAX_SKIPPED_NN_STEPS = 4`) claimed to bound ERROR at
+ * "~8 °C" and did not: at exactly four skipped steps the quoted Tm measured 12.3 °C
+ * below the pool midpoint and 8.8 °C below the coldest member of the pool. Do not
+ * reintroduce an error budget expressed as a count of skipped steps.
+ */
+export const MAX_POOL_MEMBERS = 4096;
+
+/**
+ * The second half of the cost bound: total BASES scored, i.e. members × length.
+ *
+ * `MAX_POOL_MEMBERS` alone is not a bound on work, and an adversarial pass caught
+ * exactly that. The DNA pane hands `primerTm` the WHOLE pasted sequence, not a
+ * primer — so a 5,000 nt paste carrying six N is a 4,096-member pool of 5,000 nt
+ * strings. Measured before this bound existed:
+ *
+ *      20 nt × 4096 members  =    81,920 bases      8 ms
+ *     100 nt × 4096 members  =   409,600 bases    530 ms
+ *    1000 nt × 4096 members  = 4,096,000 bases   3572 ms
+ *    5000 nt × 4096 members  = 20,480,000 bases 15378 ms   — a frozen Word
+ *
+ * ~10,500 bases per millisecond, so 150,000 keeps the per-keystroke path inside
+ * ~15 ms. Like `MAX_POOL_MEMBERS` this is a COST bound and says nothing about
+ * accuracy: everything inside it is scored exactly.
+ */
+export const MAX_SCORED_BASES = 150_000;
+
+/**
+ * Expands an IUPAC string into every concrete ACGT sequence it stands for.
+ *
+ * Returns the members, or a reason it cannot: a letter that is not a base at all
+ * (`unresolvable`), a pool past `MAX_POOL_MEMBERS` (`too-large`), or a pool whose
+ * members are individually fine but collectively too much work (`too-costly`).
+ * Both bounds are checked BEFORE building, so an absurd input costs a
+ * multiplication rather than 20 MB of strings.
+ */
+type PoolExpansion =
+  | { kind: "ok"; members: string[] }
+  | { kind: "unresolvable"; letters: string[] }
+  | { kind: "too-large"; size: number }
+  | { kind: "too-costly"; size: number; length: number };
+
+export function expandIupac(s: string): PoolExpansion {
+  const bad: Record<string, true> = {};
+  let size = 1;
+  for (const ch of s) {
+    const exp = IUPAC[ch];
+    if (!exp) {
+      bad[ch] = true;
+      continue;
+    }
+    size *= exp.length;
+    // Stop multiplying once it is hopeless; the caller only needs to know it is
+    // past the bound, and 4^5000 is not a number anyone needs exactly.
+    if (size > MAX_POOL_MEMBERS * 1024) break;
+  }
+  const letters = Object.keys(bad);
+  if (letters.length) return { kind: "unresolvable", letters };
+  if (size > MAX_POOL_MEMBERS) return { kind: "too-large", size };
+  if (size > 1 && size * s.length > MAX_SCORED_BASES) {
+    return { kind: "too-costly", size, length: s.length };
+  }
+
+  let members: string[] = [""];
+  for (const ch of s) {
+    const exp = IUPAC[ch];
+    const next: string[] = [];
+    for (const prefix of members) for (const b of exp) next.push(prefix + b);
+    members = next;
+  }
+  return { kind: "ok", members };
+}
+
 /** True if the oligo is its own reverse complement (changes the concentration term). */
 function isSelfComplementary(s: string): boolean {
   const comp: Record<string, string> = { A: "T", T: "A", G: "C", C: "G" };
@@ -358,8 +476,18 @@ function isSelfComplementary(s: string): boolean {
  * its own reverse complement, and the SantaLucia salt correction
  * ΔS' = ΔS + 0.368·(N−1)·ln([Na⁺]).
  */
-export function primerTm(seq: string, opts: PrimerTmOptions = {}): PrimerTm {
-  const s = seq.toUpperCase().replace(/[^ACGTU]/g, "").replace(/U/g, "T");
+/**
+ * Tm of a FULLY DEFINED (ACGT-only) oligo — the one place the physics lives.
+ *
+ * Everything above this function is bookkeeping about which concrete sequences a
+ * user's string stands for; this is the only code that turns a sequence into a
+ * temperature, so a degenerate pool and a plain primer cannot drift apart.
+ */
+function concreteTm(
+  s: string,
+  sodium: number,
+  primer: number
+): { tm: number; method: "nearest-neighbour" | "wallace"; deltaH?: number; deltaS?: number; selfComp: boolean } {
   const n = s.length;
   let gc = 0;
   let at = 0;
@@ -367,31 +495,20 @@ export function primerTm(seq: string, opts: PrimerTmOptions = {}): PrimerTm {
     if (ch === "G" || ch === "C") gc++;
     else at++;
   }
-  const gcPercent = n ? (gc / n) * 100 : 0;
-  const caveats: string[] = [];
-
-  if (n === 0) return { length: 0, gcPercent: 0, tm: 0, method: "wallace", caveats: ["Empty sequence."] };
+  const selfComp = isSelfComplementary(s);
 
   // Below ~8 nt the NN model's initiation terms dominate and the duplex is barely
-  // stable; the Wallace rule is the honest answer there, and saying which model
-  // produced the number matters more than pretending one covers everything.
-  if (n < 8) {
-    caveats.push(
-      `Only ${n} nt: too short for the nearest-neighbour model to mean much, so this is the ` +
-        "Wallace rule (2·AT + 4·GC) — a rule of thumb, not thermodynamics. Expect several °C of error."
-    );
-    return { length: n, gcPercent, tm: 2 * at + 4 * gc, method: "wallace", caveats };
-  }
-
-  const sodium = opts.sodium ?? 0.05;
-  const primer = opts.primer ?? 0.25e-6;
+  // stable; the Wallace rule is the honest answer there.
+  if (n < 8) return { tm: 2 * at + 4 * gc, method: "wallace", selfComp };
 
   let dH = 0;
   let dS = 0;
-  let unknown = 0;
   for (let i = 0; i < n - 1; i++) {
+    // `s` is concrete, so every step is tabulated. No step is ever skipped here:
+    // skipping was the previous design and it under-reported the Tm by ~2 °C a
+    // step while the salt term below kept scaling with the full length.
     const p = NN_PARAMS[s.slice(i, i + 2)];
-    if (!p) { unknown++; continue; }
+    if (!p) continue;
     dH += p[0];
     dS += p[1];
   }
@@ -404,17 +521,173 @@ export function primerTm(seq: string, opts: PrimerTmOptions = {}): PrimerTm {
   // Salt correction (SantaLucia 1998). Applied to entropy, not to Tm directly.
   dS += 0.368 * (n - 1) * Math.log(sodium);
 
-  const selfComp = isSelfComplementary(s);
   const ctTerm = selfComp ? primer : primer / 4;
   const tm = (dH * 1000) / (dS + R_CAL * Math.log(ctTerm)) - 273.15;
+  return { tm, method: "nearest-neighbour", deltaH: dH, deltaS: dS, selfComp };
+}
 
-  caveats.push(
-    `Nearest-neighbour (SantaLucia 1998) at [Na⁺] ${(sodium * 1000).toFixed(0)} mM and ` +
-      `${(primer * 1e6).toFixed(2)} µM primer. Tm moves with BOTH — quoting a Tm without them ` +
-      "is meaningless, and different suppliers' calculators assume different defaults."
-  );
-  if (selfComp) {
-    caveats.push("This oligo is self-complementary (its own reverse complement), so it will form a hairpin/dimer with itself. The concentration term is adjusted, but the oligo is a poor primer regardless.");
+export function primerTm(seq: string, opts: PrimerTmOptions = {}): PrimerTm {
+  // A DEGENERATE OLIGO IS A MIXTURE, AND NO SINGLE NUMBER DESCRIBES IT.
+  //
+  // Two earlier designs both tried to make one anyway, and both were wrong:
+  //
+  //  1. DELETING the ambiguity codes (`.replace(/[^ACGTU]/g, "")`) joined the two
+  //     bases flanking an R into a stacking step the oligo does not contain, and
+  //     under-reported its length — a 20-mer read "length 18".
+  //  2. SKIPPING the steps that contain one dropped real stacking from the sum
+  //     while the salt term kept scaling with the full length, so the number came
+  //     back systematically low. Measured against the pool the oligo actually is,
+  //     skipping was WORSE than the deletion it replaced: −5.8 vs −2.8 °C for one
+  //     N, −12.3 vs −5.1 °C for two.
+  //
+  // So this does neither. Every IUPAC code expands to a known set of bases, so the
+  // pool is enumerated and each member scored exactly. What comes back is a RANGE
+  // whose endpoints are real members' Tm values. Nothing is interpolated, there is
+  // no error budget to calibrate, and a wide range is self-describing: a user who
+  // sees "44–65 °C" can see for themselves that this is not one primer.
+  const s = seq.toUpperCase().replace(/[^A-Z]/g, "").replace(/U/g, "T");
+  const n = s.length;
+  let gc = 0;
+  let at = 0;
+  let ambiguous = 0;
+  for (const ch of s) {
+    if (ch === "G" || ch === "C") gc++;
+    else if (ch === "A" || ch === "T") at++;
+    else ambiguous++;
+  }
+  // GC% is over the DEFINED bases: an R is A or G, so counting it as either a GC
+  // or an AT would be a coin flip reported as a measurement.
+  const defined = gc + at;
+  const gcPercent = defined ? (gc / defined) * 100 : 0;
+  const caveats: string[] = [];
+
+  if (n === 0) {
+    return { length: 0, gcPercent: 0, ambiguous: 0, tm: 0, method: "wallace", caveats: ["Empty sequence."] };
+  }
+
+  const sodium = opts.sodium ?? 0.05;
+  const primer = opts.primer ?? 0.25e-6;
+  const fallbackMethod: "nearest-neighbour" | "wallace" = n < 8 ? "wallace" : "nearest-neighbour";
+  // `caveats` stays EMPTY on a refusal. It used to also carry the refusal text,
+  // and the pane renders `refusal` and then `caveats` one after the other — so the
+  // same paragraph was printed to the user twice. That was survivable while
+  // refusals were rare; this version adds two more of them, so it is not.
+  const refuse = (refusal: string): PrimerTm => ({
+    length: n,
+    gcPercent,
+    ambiguous,
+    tm: 0,
+    method: fallbackMethod,
+    refusal,
+    caveats: [],
+  });
+
+  // Both concentrations appear inside a logarithm, so zero is not "very dilute",
+  // it is undefined. At exactly 0 the entropy term goes to −∞ and the formula
+  // returns −273.15 °C — absolute zero, finite, and indistinguishable from data,
+  // so the finite-check further down cannot catch it. A negative value gives NaN.
+  // The pane never passes these today, which is precisely why it would have gone
+  // unnoticed if it ever started to.
+  if (!(sodium > 0) || !(primer > 0)) {
+    return refuse(
+      "No Tm could be computed from these conditions — the salt and primer concentrations " +
+        "must both be greater than zero (both appear inside a logarithm, so zero has no meaning here)."
+    );
+  }
+
+  const pool = expandIupac(s);
+  if (pool.kind === "unresolvable") {
+    // A letter that is not a base at all. It used to be treated as an ambiguity
+    // code, so "ACETACGTACGTACGTACGT" quietly returned 49.07 °C for a string that
+    // is not a nucleic acid.
+    return refuse(
+      `“${pool.letters.join(", ")}” ${pool.letters.length === 1 ? "is not a nucleotide" : "are not nucleotides"} — ` +
+        "expected A, C, G, T/U or an IUPAC ambiguity code (R, Y, S, W, K, M, B, D, H, V, N). " +
+        "No Tm was computed."
+    );
+  }
+  if (pool.kind === "too-large") {
+    return refuse(
+      `This oligo has ${ambiguous} ambiguous position(s), so it stands for ${pool.size.toLocaleString("en-US")} ` +
+        `different sequences — past the ${MAX_POOL_MEMBERS.toLocaleString("en-US")} this tool will score ` +
+        "individually. That is a library rather than a primer, and its members' Tm values span " +
+        "tens of degrees, so no single number and no range would be useful. Reduce the degeneracy, " +
+        "or compute the Tm of the specific members you care about."
+    );
+  }
+  if (pool.kind === "too-costly") {
+    return refuse(
+      `This is ${pool.length.toLocaleString("en-US")} nt long with ${ambiguous} ambiguous position(s), ` +
+        `so scoring every one of its ${pool.size.toLocaleString("en-US")} variants would mean reading ` +
+        `${(pool.size * pool.length).toLocaleString("en-US")} bases and would hang the pane. A melting ` +
+        "temperature is a measurement about a PRIMER — paste just the primer, or the region you are " +
+        "amplifying from, rather than the whole sequence."
+    );
+  }
+
+  // Score every member exactly. `tm` is reported as the pool MINIMUM: it is a real
+  // member's Tm rather than an average, and it is the member that anneals least
+  // readily, which is the one that decides the annealing temperature.
+  let tmMin = Infinity;
+  let tmMax = -Infinity;
+  let anySelfComp = false;
+  let method: "nearest-neighbour" | "wallace" = fallbackMethod;
+  let deltaH: number | undefined;
+  let deltaS: number | undefined;
+  for (const member of pool.members) {
+    const r = concreteTm(member, sodium, primer);
+    method = r.method; // every member has the same length, so the same model
+    if (r.selfComp) anySelfComp = true;
+    if (r.tm < tmMin) {
+      tmMin = r.tm;
+      deltaH = r.deltaH;
+      deltaS = r.deltaS;
+    }
+    if (r.tm > tmMax) tmMax = r.tm;
+  }
+
+  // A non-finite Tm is not a temperature. It cannot happen for a normal oligo (the
+  // denominator is a sum of negative entropies), but a caller can pass a zero or
+  // negative concentration and get Infinity or NaN out — and NaN reaching the
+  // document is its own defect class in this product.
+  if (!Number.isFinite(tmMin) || !Number.isFinite(tmMax)) {
+    return refuse(
+      "No Tm could be computed from these conditions — check that the salt and primer " +
+        "concentrations are both above zero."
+    );
+  }
+
+  const degenerate = pool.members.length > 1;
+  if (degenerate) {
+    // FIRST, because it says the thing above it is one end of a range rather than
+    // a measurement of the oligo as a whole.
+    caveats.push(
+      `Degenerate oligo: ${ambiguous} ambiguous position(s) stand for ${pool.members.length} sequences, ` +
+        `whose Tm spans ${tmMin.toFixed(1)}–${tmMax.toFixed(1)} °C (a ${(tmMax - tmMin).toFixed(1)} °C spread). ` +
+        "Both ends are the exact Tm of an actual member — every member was scored, none estimated. " +
+        `The ${tmMin.toFixed(1)} °C quoted above is the pool MINIMUM, the member that anneals least ` +
+        "readily; design your annealing temperature against it. GC% is over the specifically " +
+        "defined bases only."
+    );
+  }
+  if (method === "wallace") {
+    caveats.push(
+      `Only ${n} nt: too short for the nearest-neighbour model to mean much, so this is the ` +
+        "Wallace rule (2·AT + 4·GC) — a rule of thumb, not thermodynamics. Expect several °C of error."
+    );
+  } else {
+    caveats.push(
+      `Nearest-neighbour (SantaLucia 1998) at [Na⁺] ${(sodium * 1000).toFixed(0)} mM and ` +
+        `${(primer * 1e6).toFixed(2)} µM primer. Tm moves with BOTH — quoting a Tm without them ` +
+        "is meaningless, and different suppliers' calculators assume different defaults."
+    );
+  }
+  if (anySelfComp) {
+    caveats.push(
+      (degenerate ? "At least one member of this pool is" : "This oligo is") +
+        " self-complementary (its own reverse complement), so it will form a hairpin/dimer with " +
+        "itself. The concentration term is adjusted, but the oligo is a poor primer regardless."
+    );
   }
   caveats.push(
     "Assumes a perfectly matched duplex in a two-state transition. It does not model " +
@@ -422,12 +695,21 @@ export function primerTm(seq: string, opts: PrimerTmOptions = {}): PrimerTm {
       "whether the primer is SPECIFIC to your template — a perfect Tm on a primer that " +
       "binds in three places will still fail."
   );
-  if (sodium > 0 && !opts.sodium) {
+  if (sodium > 0 && !opts.sodium && method === "nearest-neighbour") {
     caveats.push("Salt defaults to 50 mM Na⁺ (a typical PCR buffer). Mg²⁺ is NOT accounted for; a high-Mg buffer raises the real Tm above this.");
   }
-  if (unknown) caveats.push(`${unknown} dinucleotide step(s) contained a non-ACGT base and were skipped — the Tm is an underestimate.`);
 
-  return { length: n, gcPercent, tm, method: "nearest-neighbour", deltaH: dH, deltaS: dS, caveats };
+  const result: PrimerTm = { length: n, gcPercent, ambiguous, tm: tmMin, method, caveats };
+  if (degenerate) {
+    result.tmMin = tmMin;
+    result.tmMax = tmMax;
+    result.poolSize = pool.members.length;
+    // ΔH/ΔS of a mixture is not a quantity; deliberately omitted (see the interface).
+  } else {
+    result.deltaH = deltaH;
+    result.deltaS = deltaS;
+  }
+  return result;
 }
 
 // --- Restriction sites ------------------------------------------------------
@@ -498,7 +780,29 @@ const PKA_POS: Record<string, number> = { Nterm: 7.5, K: 10.8, R: 12.5, H: 6.5 }
 const PKA_NEG: Record<string, number> = { Cterm: 3.6, D: 3.9, E: 4.1, C: 8.5, Y: 10.1 };
 
 export interface ProteinProperties {
+  /** Residues that HAVE a mass and were counted — the basis of mw/pI/GRAVY. */
   length: number;
+  /**
+   * Residue letters supplied (stop symbols excluded, see `stops`). When this is
+   * larger than `length`, some of the input was not used.
+   */
+  inputLength: number;
+  /** Distinct residue letters with no tabulated mass, e.g. X from a degenerate codon. */
+  skipped: string[];
+  /** How many residues were skipped (not distinct — the count). */
+  skippedCount: number;
+  /** How many "*" stop symbols were present (a translated ORF can carry them). */
+  stops: number;
+  /**
+   * Stops that are NOT the final symbol — the actionable half of `stops`.
+   *
+   * A trailing "*" is the ordinary end of a coding sequence and says nothing is
+   * wrong. A stop in the MIDDLE says this reading frame is not a single open
+   * reading frame at all, which is the one thing a reader needs to be told. A
+   * bare total cannot distinguish them, so reporting the total alone would be
+   * ambiguous in exactly the direction that misleads.
+   */
+  internalStops: number;
   /** Molecular weight in daltons. */
   mw: number;
   /** Isoelectric point (estimated). */
@@ -520,16 +824,40 @@ function netCharge(counts: Record<string, number>, pH: number): number {
   return c;
 }
 
-/** Molecular weight, isoelectric point, and GRAVY for a one-letter protein sequence. */
+/**
+ * Molecular weight, isoelectric point, and GRAVY for a one-letter protein
+ * sequence.
+ *
+ * Residues with no tabulated mass (X above all, which `resolveCodon` emits for
+ * every degenerate codon it cannot resolve) cannot be weighed, so they are
+ * skipped — but they are REPORTED, unlike before. `MKVLSPADKTNVKAAWXXXX` used to
+ * return `{length: 16, mw: 1759.1}`, byte-identical to the 16-residue sequence
+ * with the X's deleted: a 20-residue peptide silently described as a 16-residue
+ * one. `cleanDna`, `cleanResidues` and `parseSequence` all report what they drop;
+ * this is the same contract.
+ */
 export function proteinProperties(aa: string): ProteinProperties {
-  const seq = aa.toUpperCase().replace(/[^A-Z]/g, "");
+  const upper = aa.toUpperCase();
+  const seq = upper.replace(/[^A-Z]/g, "");
+  const stops = (upper.match(/\*/g) ?? []).length;
+  // "Internal" is judged against the residue/stop stream with anything that is
+  // neither (whitespace, digits) removed, so a trailing "*\n" still reads as
+  // terminal rather than being miscounted as a stop in the middle.
+  const symbols = upper.replace(/[^A-Z*]/g, "");
+  const internalStops = (symbols.slice(0, -1).match(/\*/g) ?? []).length;
   let mw = WATER_MASS;
   let gravy = 0;
   let gravyN = 0;
   let n = 0;
+  let skippedCount = 0;
+  const skippedSet: Record<string, true> = {};
   const counts: Record<string, number> = {};
   for (const ch of seq) {
-    if (RESIDUE_MASS[ch] === undefined) continue;
+    if (RESIDUE_MASS[ch] === undefined) {
+      skippedCount++;
+      skippedSet[ch] = true;
+      continue;
+    }
     mw += RESIDUE_MASS[ch];
     if (HYDROPATHY[ch] !== undefined) {
       gravy += HYDROPATHY[ch];
@@ -538,7 +866,10 @@ export function proteinProperties(aa: string): ProteinProperties {
     counts[ch] = (counts[ch] ?? 0) + 1;
     n++;
   }
-  if (n === 0) return { length: 0, mw: 0, pI: 0, gravy: 0 };
+  const skipped = Object.keys(skippedSet);
+  if (n === 0) {
+    return { length: 0, inputLength: seq.length, skipped, skippedCount, stops, internalStops, mw: 0, pI: 0, gravy: 0 };
+  }
   // Bisection for the pH where net charge crosses zero.
   let lo = 0;
   let hi = 14;
@@ -549,6 +880,11 @@ export function proteinProperties(aa: string): ProteinProperties {
   }
   return {
     length: n,
+    inputLength: seq.length,
+    skipped,
+    skippedCount,
+    stops,
+    internalStops,
     mw: Math.round(mw * 100) / 100,
     pI: Math.round(((lo + hi) / 2) * 100) / 100,
     gravy: gravyN ? gravy / gravyN : 0,

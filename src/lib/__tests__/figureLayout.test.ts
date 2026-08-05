@@ -75,6 +75,47 @@ describe("the left margin fits the labels that go in it", () => {
     expect(findings(svg)).toEqual([]);
   });
 
+  // The two things added to the bottom of the figure in the 2026-08-05 pass: the
+  // "kind not stated" declaration that now fires by DEFAULT on any scatter with
+  // error bars, and the footnote block that carries a caveat into the picture.
+  // Both live in the strip below the plot frame, which is where the x label
+  // already is — so they are exactly the kind of addition this instrument exists
+  // to check.
+  it("the undeclared-bars line does not land on the x axis label", () => {
+    const svg = buildPlotSvg(
+      [{ points: parseData("1 10 2\n2 14 1.5\n3 19 3"), type: "scatter", color: "#2563eb" }],
+      { width: 380, height: 250, xlabel: "Dose (mg/kg)", ylabel: "Response" },
+    );
+    expect(svg).toMatch(/kind not stated/);
+    expect(findings(svg)).toEqual([]);
+  });
+
+  it("a footnote block lays out cleanly, wrapped and inside its own canvas", () => {
+    const svg = buildPlotSvg(
+      [{ points: parseData("1 10 2\n2 14 1.5\n3 19 3"), type: "scatter", color: "#2563eb", label: "titration" }],
+      {
+        width: 380,
+        height: 250,
+        xlabel: "log10[Agonist] (M)",
+        ylabel: "Response (% max)",
+        errorBars: "sem",
+        notes: [
+          "⚠ 3 points not plotted: a logarithmic x axis cannot show zero or negative values.",
+          "The zero-concentration control is one of them.",
+        ],
+      },
+    );
+    expect(findings(svg)).toEqual([]);
+    // Every glyph of every note is inside the declared canvas — the whole point
+    // of growing the height rather than drawing past it.
+    const H = Number(/height="([\d.]+)"/.exec(svg)![1]);
+    const W = Number(/width="([\d.]+)"/.exec(svg)![1]);
+    for (const m of svg.matchAll(/<text x="8" y="([\d.]+)"[^>]*font-size="9"[^>]*>([^<]*)</g)) {
+      expect(Number(m[1]) + 3).toBeLessThanOrEqual(H);
+      expect(8 + m[2].length * 6.3).toBeLessThanOrEqual(W);
+    }
+  });
+
   it("walks the SAME padded range the drawing code walks", () => {
     // The deterministic case the reviewer reduced: a range straddling zero,
     // where the margin came out at the 48 px floor and the leftmost label ran

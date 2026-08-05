@@ -9,7 +9,7 @@ import { mathToHtml } from "../lib/mathHtml";
 import { parseMathAst } from "../lib/mathParse";
 import { figureScale, figurePoints } from "../lib/figures";
 import { latexToDsl, astToLatex } from "../lib/latex";
-import { formatQuantityHtml, convert, formatSig } from "../lib/units";
+import { formatQuantityHtml, convert, formatSig, formatUnit } from "../lib/units";
 import { parseJcamp, JcampSpectrum } from "../lib/jcamp";
 import { solveBvp, BvpMethod } from "../lib/bvp";
 import { solveHeat, solveWave, solveLaplace, HeatScheme, PdeOutcome } from "../lib/pde";
@@ -43,6 +43,7 @@ import {
   serialDilution,
   nucleicAcidConc,
   proteinConcFromA280,
+  extinctionCoefficient,
   NucleicAcidKind,
   fitInhibition,
   lineweaverBurk,
@@ -81,6 +82,8 @@ import {
   continuousCompound,
   nominalAnnualRate,
   cagr,
+  bondPeriodRefusal,
+  IRR_SEARCH_RANGE_TEXT,
 } from "../lib/finance";
 import { renderStructure, nameForIdcode, StructureResult } from "../lib/structures";
 import { computeProperties, PhysChemProperties, RuleResult } from "../lib/properties";
@@ -277,6 +280,7 @@ import {
   buildSt26Xml,
   cleanResidues,
   featureWarnings,
+  st26Exclusions,
   MolType,
   MOL_TYPE_OPTIONS,
   St26Feature,
@@ -339,7 +343,7 @@ import { parseTableData, cleanTableRows, buildChartPreviewSvg, TableChart, Chart
 import { buildDiagramSvg, DiagramKind } from "../lib/tablediagram";
 import { buildTableFigureSvg, prepareTableFigure } from "../lib/tablefigure";
 import { classifyTable } from "../lib/tableclassify";
-import { align, formatAlignment, AlignMode, SeqKind } from "../lib/align";
+import { align, alignSizeRefusal, formatAlignment, AlignMode, SeqKind } from "../lib/align";
 import {
   CITATIONS,
   SIGNALS,
@@ -404,7 +408,7 @@ declare const __APP_VERSION__: string;
 import type { Mode } from "../lib/modes";
 import { toolIcon } from "./icons";
 import { resolveTheme, hostTheme, type ThemePref } from "../lib/theme";
-import { describeAssumptions, normalityTest, varianceHomogeneity } from "../lib/diagnostics";
+import { describeAssumptions, normalityTest, varianceHomogeneity, normalityCheckSample } from "../lib/diagnostics";
 import { kruskalWallis, dunnTest, friedman } from "../lib/nonparametric";
 import { dunnettTest } from "../lib/dunnett";
 import { multipleRegression, polynomialRegression, qqPoints } from "../lib/regression";
@@ -1399,8 +1403,16 @@ Office.onReady((info) => {
   // derivation on screen, and the same engine drives Math mode, so shipping it
   // to the document as flat ASCII was leaving the best part behind.
   solveInsertBtn.addEventListener("click", () => insertSolveResult());
-  alignA.addEventListener("input", updateAlign);
-  alignB.addEventListener("input", updateAlign);
+  // DEBOUNCED, unlike every other input handler here, because alignment is
+  // O(n·m) in the two sequence lengths and runs synchronously on the UI thread.
+  // Measured before the clamp in align.ts: 3 kb x 3 kb took 2.2 s and 659 MB,
+  // 5 kb x 5 kb took 8.3 s and 1.81 GB — and a plasmid or CDS of that size is
+  // completely ordinary. Re-running that per keystroke is a frozen Word.
+  // align() now refuses above its own cell cap, but the debounce is what stops
+  // a legal-but-large pair being recomputed on every character.
+  const debouncedAlign = debounce(updateAlign, 250);
+  alignA.addEventListener("input", debouncedAlign);
+  alignB.addEventListener("input", debouncedAlign);
   alignModeSel.addEventListener("change", updateAlign);
   alignKindSel.addEventListener("change", updateAlign);
   alignInsertBtn.addEventListener("click", insertAlignmentText);
@@ -2553,7 +2565,10 @@ function updateChemValidation(): void {
   if (v.valid) {
     const charge = v.charge ? `, charge ${v.charge > 0 ? "+" + v.charge : v.charge}` : "";
     chemValidateEl.className = "build-readout";
-    chemValidateEl.textContent = `✓ Valid — ${v.hill}, M = ${v.mass!.toFixed(3)} g/mol${charge}`;
+    // hillFormula() emits ASCII ("H2O"). Displaying that breaks the product's
+    // own rule in its flagship chemistry tool, and it is the string the user is
+    // most likely to copy back into the box.
+    chemValidateEl.textContent = `✓ Valid — ${formatFormula(v.hill)}, M = ${v.mass!.toFixed(3)} g/mol${charge}`;
   } else {
     chemValidateEl.className = "build-readout warn";
     chemValidateEl.textContent = `⚠ ${v.errors.join("; ")}`;
@@ -2853,9 +2868,14 @@ async function importSequenceFiles(): Promise<void> {
       addSequenceCard({
         residues: rec.sequence,
         molType: guessMolType(rec.sequence),
-        // GenBank carries an organism in its source feature; FASTA does not,
-        // and an empty box means "synthetic construct" per the placeholder.
-        organism: rec.features.find((f) => f.type === "source")?.qualifiers?.organism ?? "",
+        // Read from the record's own ORGANISM header, which parseGenBank now
+        // captures. This used to look for a `source` FEATURE — which seqio.ts
+        // deliberately SKIPS (SKIP_FEATURES), so the lookup could never succeed.
+        // It silently returned "" for every GenBank file, and sequence.ts turns
+        // an empty organism into "synthetic construct": an attorney importing 40
+        // real records filed a listing declaring all 40 synthetic. FASTA still
+        // carries no organism, and that stays blank rather than being guessed.
+        organism: rec.organism ?? "",
       });
       added++;
     }
@@ -2969,12 +2989,30 @@ function generateSequenceXml(): void {
     return;
   }
 
-  // Soft warnings: ST.26 excludes short sequences and flags invalid residues.
+  // ST.26 EXCLUSIONS ARE A HARD STOP, not a soft warning.
+  //
+  // This used to warn "SEQ n: only 3 residues" and then build the listing
+  // anyway, numbering and counting the entry in SequenceTotalQuantity — so the
+  // pane produced a document it had already said was non-compliant, and the
+  // document audit reconciled the specification's SEQ ID NOs against that same
+  // inflated count. WIPO validates this rule, so the file could not be filed.
+  //
+  // `st26Exclusions` also applies the real criterion (specifically DEFINED
+  // residues, ST.26 ¶8) rather than raw length, so a 30-mer that is mostly `n`
+  // is caught here instead of being silently dropped and renumbered later.
+  const exclusions = st26Exclusions(entries);
+  if (exclusions.length) {
+    seqWarningsEl.className = "seq-warnings error";
+    seqWarningsEl.textContent =
+      exclusions.map((x) => `SEQ ${x.index + 1}: ${x.reason}`).join(" ") +
+      " ST.26 does not list these, so numbering would shift. Remove or lengthen them, then build again.";
+    return;
+  }
+
+  // Soft warnings: things worth knowing that do not make the listing unfilable.
   const warnings: string[] = [];
   entries.forEach((e, i) => {
-    const { length, invalid } = cleanResidues(e.moltype, e.residues);
-    const min = e.moltype === "AA" ? 4 : 10;
-    if (length < min) warnings.push(`SEQ ${i + 1}: only ${length} residues (ST.26 lists ≥ ${min}).`);
+    const { invalid } = cleanResidues(e.moltype, e.residues);
     if (invalid.length) warnings.push(`SEQ ${i + 1}: ignored invalid residues (${invalid.join(" ")}).`);
     for (const w of featureWarnings(e)) warnings.push(`SEQ ${i + 1}: ${w}`);
   });
@@ -3288,7 +3326,14 @@ function renderTableGraphic(): { svg: string; warnings: string[] } | { svg: null
   if (!currentTableChart) {
     return { svg: null, error: currentTableChartError || "" };
   }
-  return { svg: buildChartPreviewSvg(currentTableChart, kind, title, style), warnings: currentTableChart.warnings };
+  // TWO sources of warnings, and both matter. `currentTableChart.warnings` are
+  // PARSE-time ("column 3 isn't numeric"); the preview's are RENDER-time, and
+  // those were being dropped on the floor — "N rows could not be drawn because
+  // the high is not the largest of its four values", "N cells are not numeric
+  // and are NOT counted as zero". Rows vanished from a chart with no notice,
+  // which is the graph-that-lies case these renderers were written to prevent.
+  const preview = buildChartPreviewSvg(currentTableChart, kind, title, style);
+  return { svg: preview.svg, warnings: [...currentTableChart.warnings, ...preview.warnings] };
 }
 
 /** Refreshes the preview, info line, and warnings for the loaded table. */
@@ -3869,7 +3914,15 @@ function updateAlign(): void {
     r = null;
   }
   if (!r) {
-    alignResult.innerHTML = '<span class="hint">Nothing alignable in one of the inputs.</span>';
+    // align() returns null for two different reasons, and they need different
+    // messages. Past MAX_ALIGN_CELLS it refuses on SIZE — reporting that as
+    // "nothing alignable" would blame the user's sequences for a limit, on
+    // input that is perfectly valid. Below the cap, null really does mean the
+    // input had nothing in it.
+    const tooBig = alignSizeRefusal(a, b);
+    alignResult.innerHTML = tooBig
+      ? `<span class="hint">${esc(tooBig)}</span>`
+      : '<span class="hint">Nothing alignable in one of the inputs.</span>';
     return;
   }
 
@@ -4592,6 +4645,17 @@ function renderNumeralFindings(
   for (const c of findings.collisions) {
     items.push(`Numeral (${c.numeral}) is reused for: ${c.elements.map(esc).join(", ")}`);
   }
+  // THE INVERSE CHECK, and the more common real drafting defect: one element
+  // given two different numerals — "housing (12)" in one place and
+  // "housing (14)" in another. Without this branch a duplicates-only report
+  // rendered "0 issues found" in red with an empty list, because `ok` was
+  // already false.
+  for (const d of findings.duplicates) {
+    items.push(
+      `“${esc(d.element)}” is given more than one numeral: ${d.numerals.map((n) => `(${n})`).join(", ")}` +
+        " — if these are different parts, name them apart (e.g. “first housing” / “second housing”).",
+    );
+  }
   if (findings.gaps.length) {
     items.push(`Skipped numeral${findings.gaps.length === 1 ? "" : "s"}: ${findings.gaps.join(", ")}`);
   }
@@ -4642,6 +4706,26 @@ async function insertNumeralList(): Promise<void> {
   } finally {
     numInsertListBtn.disabled = false;
   }
+}
+
+/**
+ * Runs `fn` only after `ms` of quiet. For handlers whose work is superlinear in
+ * the input, where recomputing per keystroke is not merely wasteful but can
+ * exceed the time a task pane may block for.
+ *
+ * Deliberately NOT applied wholesale to the other input handlers: most of them
+ * are cheap, and a delayed readout on a cheap calculation reads as lag. Use it
+ * where the cost is real.
+ */
+function debounce<T extends unknown[]>(fn: (...args: T) => void, ms: number): (...args: T) => void {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return (...args: T) => {
+    if (timer !== undefined) clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = undefined;
+      fn(...args);
+    }, ms);
+  };
 }
 
 /** Minimal HTML escape for findings text. */
@@ -4699,12 +4783,37 @@ function updateDnaPreview(): void {
   // concentration is not a fact about the oligo — it moves ~10 °C between 10 mM and
   // 1 M Na⁺, and different suppliers' calculators assume different defaults, which
   // is exactly why two people "get different Tm" for the same primer.
-  dnaTm.textContent =
-    `Primer Tm ≈ ${tm.tm.toFixed(1)} °C · ${tm.gcPercent.toFixed(0)}% GC · ${tm.length} nt` +
-    (tm.method === "nearest-neighbour" ? " · nearest-neighbour, 50 mM Na⁺, 0.25 µM" : " · Wallace rule (too short for NN)");
+  //
+  // A REFUSAL IS NOT A NUMBER. Too many ambiguity codes and there is no honest
+  // Tm to quote — every skipped nearest-neighbour step costs roughly 2 °C, so a
+  // heavily degenerate primer reads tens of degrees low. `tm.tm` is 0 in that
+  // case and must not be shown as though it were a measurement.
+  const tmHead = tm.refusal
+    ? `Primer Tm: ${tm.refusal}`
+    : `Primer Tm ≈ ${tm.tm.toFixed(1)} °C · ${tm.gcPercent.toFixed(0)}% GC · ${tm.length} nt` +
+      (tm.method === "nearest-neighbour" ? " · nearest-neighbour, 50 mM Na⁺, 0.25 µM" : " · Wallace rule (too short for NN)") +
+      (tm.ambiguous ? ` · ${tm.ambiguous} ambiguity code${tm.ambiguous === 1 ? "" : "s"}` : "");
+  // The caveats exist precisely for the degenerate and short-oligo cases, and
+  // nothing was showing them. Same element rather than a new one: an added id
+  // has to be wired, and this readout is already the place a user looks.
+  dnaTm.textContent = tm.caveats.length ? `${tmHead}\n${tm.caveats.join(" ")}` : tmHead;
   const props = proteinProperties(protein);
   dnaProteinProps.textContent = props.length
-    ? `Protein (this frame): ${props.length} aa · MW ${props.mw.toLocaleString("en-US")} Da · pI ${props.pI} · GRAVY ${props.gravy.toFixed(2)}`
+    ? `Protein (this frame): ${props.length} aa · MW ${props.mw.toLocaleString("en-US")} Da · pI ${props.pI} · GRAVY ${props.gravy.toFixed(2)}` +
+      // Residues with no tabulated mass are skipped by proteinProperties. Saying
+      // so is the difference between "16 aa" and "16 of the 20 you pasted" —
+      // translate() emits X for any codon a degenerate base leaves unresolved,
+      // so this is common rather than exotic.
+      (props.skippedCount
+        ? ` · ${props.skippedCount} of ${props.inputLength} residue${props.inputLength === 1 ? "" : "s"} skipped (${props.skipped.join(", ")})`
+        : "") +
+      // INTERNAL stops only. A trailing "*" is the normal end of a CDS; an
+      // internal one means this frame is not a single open reading frame, which
+      // is the thing worth saying. Reporting a terminal stop as a problem would
+      // be a false alarm on correct input.
+      (props.internalStops
+        ? ` · ${props.internalStops} internal stop codon${props.internalStops === 1 ? "" : "s"}: this frame is not a single ORF`
+        : "")
     : "";
 
   dnaRevcompInsert.disabled = false;
@@ -4960,7 +5069,10 @@ async function insertDerivation(blocks: DerivationBlock[], plain: string, label:
       await context.sync();
       await tagInserted(context, inserted, "formula-inserter:solution");
     });
-    setStatus(`${label} inserted as editable equations. Ctrl/⌘+Z undoes it.`, "success");
+    // "more than once": the content flushes, then tagInserted() commits the
+    // tracking content control in a SECOND flush, so one Ctrl+Z strips the tag
+    // and leaves the equations behind. Promising single-step undo was wrong.
+    setStatus(`${label} inserted as editable equations. Ctrl/⌘+Z undoes it — press it more than once.`, "success");
   } catch (error) {
     // OOXML refused by the host — the derivation is still worth having as text.
     insertTextBusy = false;
@@ -4990,7 +5102,9 @@ async function insertSolveResult(): Promise<void> {
       pic.altTextDescription = "Persistence barcode: each bar is a topological feature, spanning the range of scales over which it exists.";
       await context.sync();
     });
-    setStatus("Solution and barcode inserted. Ctrl/⌘+Z undoes it.", "success");
+    // Two separate Word.run batches (derivation, then figure), and the
+    // derivation itself commits twice — so this needs several undos.
+    setStatus("Solution and barcode inserted. Ctrl/⌘+Z undoes it — press it more than once.", "success");
   } catch (error) {
     // The text already landed; say the figure did not rather than failing silently.
     setStatus(`Solution inserted, but the barcode figure could not be: ${(error as Error).message}`, "error");
@@ -5086,6 +5200,16 @@ function updateReactionPreview(): void {
   const svg = composeReactionScheme(stages, { over: spec.over, under: spec.under, arrows: spec.arrows });
   const dims = svg.match(/width="(\d+)" height="(\d+)"/);
   reactionPreviewEl.innerHTML = svg;
+  // `arrowWarning` was computed and unit-tested and never read by anything, so
+  // "A ->> B" had its stray ">" stripped and drew as though the arrow were
+  // fine — the precise outcome the warning exists to prevent. The scheme still
+  // draws; the user is told what was ignored.
+  if (spec.arrowWarning) {
+    const warn = document.createElement("div");
+    warn.className = "hint";
+    warn.textContent = spec.arrowWarning;
+    reactionPreviewEl.appendChild(warn);
+  }
   currentReactionSvg = {
     svg,
     width: dims ? parseInt(dims[1], 10) : 400,
@@ -5152,14 +5276,23 @@ async function runAudit(): Promise<void> {
 
 /** Renders the audit report grouped by section. */
 function renderAuditReport(report: AuditReport): void {
+  // THREE states, not two. A section with no issues used to render a green "✓"
+  // whether it had passed or could not be checked at all, which is a false
+  // all-clear. `notes` carries the "not checked, and here is why" case — the
+  // sequence section hit it on every fresh Word session, where the listing lives
+  // only in the pane's DOM and is empty until something is loaded.
+  const noteList = (s: { notes?: string[] }): string =>
+    s.notes?.length ? `<ul>${s.notes.map((n) => `<li>${esc(n)}</li>`).join("")}</ul>` : "";
   const blocks = report.sections.map((s) => {
     if (!s.issues.length) {
-      return `<div class="audit-block ok"><strong>✓ ${esc(s.title)}</strong></div>`;
+      const cls = s.notes?.length ? "audit-block" : "audit-block ok";
+      const mark = s.notes?.length ? "•" : "✓";
+      return `<div class="${cls}"><strong>${mark} ${esc(s.title)}</strong>${noteList(s)}</div>`;
     }
     return (
       `<div class="audit-block error"><strong>${esc(s.title)} — ${s.issues.length} issue${
         s.issues.length === 1 ? "" : "s"
-      }</strong><ul>${s.issues.map((i) => `<li>${esc(i)}</li>`).join("")}</ul></div>`
+      }</strong><ul>${s.issues.map((i) => `<li>${esc(i)}</li>`).join("")}</ul>${noteList(s)}</div>`
     );
   });
   const header = report.ok
@@ -5261,7 +5394,17 @@ function doConvert(): void {
   }
   const r = convert(value, from, to);
   if (r === null) {
-    convResult.textContent = `Can't convert ${from} → ${to} (unknown or incompatible units).`;
+    // Two fixes here. (1) The units are typeset: this product's display rule
+    // covers ERROR messages too, and echoing the raw text put "m/s^2" on screen.
+    // (2) parseMeasured already distinguishes "not a unit this recognises" from
+    // "not compatible with X — check which quantity this field wants", which is
+    // a far more useful sentence than the merged "unknown or incompatible" and
+    // was previously unreachable from this pane.
+    const why = parseMeasured(`${value} ${from}`, to);
+    const detail = "error" in why ? why.error : "";
+    convResult.textContent = detail
+      ? `Can't convert ${formatUnit(from)} → ${formatUnit(to)}: ${detail}`
+      : `Can't convert ${formatUnit(from)} → ${formatUnit(to)} (incompatible quantities).`;
     return;
   }
   currentConvHtml = formatQuantityHtml(`${formatSig(r)} ${to}`);
@@ -5506,7 +5649,16 @@ function updatePlotPreview(): void {
     return;
   }
 
-  const svg = buildPlotSvg(filtered.series, opts);
+  // THE NOTES GO INTO THE PICTURE, not beside it. They used to be rendered into
+  // a <div> next to the SVG while `currentPlotSvg` held the bare chart, so the
+  // figure that landed in the paper carried no trace of the discarded points —
+  // exactly the titration-with-a-zero-control case plot.ts:239-249 names, and
+  // the opposite of the principle tablechart.ts:349 already set ("the message
+  // goes into the picture so it survives being inserted").
+  //
+  // The canvas grows to fit them, so the insert path must keep sizing from
+  // readSvgDims on the actual SVG rather than from any nominal height.
+  const svg = buildPlotSvg(filtered.series, { ...opts, notes });
   plotPreview.innerHTML = notes.length
     ? `${svg}<div class="hint" style="margin-top:4px">${esc(notes.join(" "))}</div>`
     : svg;
@@ -5577,8 +5729,14 @@ async function applyParagraphNumbers(): Promise<void> {
       paraFindings.textContent = `Numbered ${plan.numbered} paragraph${plan.numbered === 1 ? "" : "s"}. Undo (Ctrl+Z) reverses it.`;
     });
   } catch (e) {
+    // This runs AFTER a flush that queued one insertText per paragraph, so a
+    // mid-batch host failure leaves some marks applied. The old text said
+    // "Nothing was changed — press Ctrl+Z if anything looks off", which is
+    // self-contradictory and actively harmful: if nothing had changed, Ctrl+Z
+    // would undo the user's own previous edit. Say what is actually true.
     paraFindings.textContent =
-      "Could not number the document. Nothing was changed — press Ctrl+Z if anything looks off, and try again.";
+      "Could not number the document. Some paragraphs may already have been numbered — " +
+      "press Ctrl+Z until the document looks right, then try again.";
     console.error("paragraph numbering failed", e);
   } finally {
     currentParaPlan = null;
@@ -5650,7 +5808,17 @@ function finMoney(x: number): string {
   return x.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 function finPct(x: number): string {
+  // Same non-finite guard as finMoney. Without it, a constant return series
+  // (sharpeRatio divides by a zero standard deviation) rendered "NaN%", and the
+  // insertability gate below only blocked on the em dash — so "Sharpe ratio NaN"
+  // went into the user's document as though it were a number.
+  if (!Number.isFinite(x)) return "—";
   return (x * 100).toFixed(2) + "%";
+}
+/** Fixed-decimal formatting that cannot emit "NaN" or "Infinity". */
+function finFixed(x: number, dp: number): string {
+  if (!Number.isFinite(x)) return "—";
+  return x.toFixed(dp);
 }
 function finList(s: string): number[] {
   return s
@@ -5721,7 +5889,11 @@ const FIN_CALCS: FinCalc[] = [
     fields: [{ key: "cf", label: "Cash flows (t=0 first)", default: "-1000, 500, 500, 500", kind: "list" }],
     compute: (r) => {
       const v = irr(finList(r("cf")));
-      return v === null ? "IRR = no solution" : `IRR = ${finPct(v)}`;
+      // NAME THE RANGE. "no solution" alone reads as "this cash flow has no
+      // IRR", which is a much stronger claim than "no rate in the interval I
+      // searched zeroes the NPV". The old ceiling was 1000%, so an ordinary
+      // venture-style 20x single-period return came back as no solution.
+      return v === null ? `IRR = no solution (searched ${IRR_SEARCH_RANGE_TEXT})` : `IRR = ${finPct(v)}`;
     },
     assumes:
       "IRR assumes every interim cash flow is reinvested AT THE IRR — usually optimistic. "+
@@ -5767,8 +5939,14 @@ const FIN_CALCS: FinCalc[] = [
       { key: "years", label: "Years to maturity", default: "10" },
       { key: "freq", label: "Coupons / year", default: "2" },
     ],
-    compute: (r) =>
-      `Price = ${finMoney(bondPrice(+r("face"), +r("coupon") / 100, +r("ytm") / 100, +r("years"), +r("freq")))}`,
+    compute: (r) => {
+      // Same refusal as Bond duration & convexity: a fractional coupon period
+      // means accrued interest, and this is a clean-price model. Without it the
+      // price silently rounded 10.25, 10.4 and 10.5 years to the same answer.
+      const why = bondPeriodRefusal(+r("years"), +r("freq"));
+      if (why) return why;
+      return `Price = ${finMoney(bondPrice(+r("face"), +r("coupon") / 100, +r("ytm") / 100, +r("years"), +r("freq")))}`;
+    },
     assumes:
       "CLEAN price — accrued interest is not included, so this matches a quoted price, "+
       "not the cash you would pay to settle. Assumes a flat yield curve, no credit risk, "+
@@ -5847,7 +6025,8 @@ const FIN_CALCS: FinCalc[] = [
     ],
     compute: (r) => {
       const v = xirr(finList(r("cf")), finList(r("days")));
-      return v === null ? "XIRR = no solution" : `XIRR = ${finPct(v)} / year`;
+      // Same reasoning as IRR above.
+      return v === null ? `XIRR = no solution (searched ${IRR_SEARCH_RANGE_TEXT})` : `XIRR = ${finPct(v)} / year`;
     },
     assumes:
       "Same reinvestment assumption and multiple-root caveat as IRR, on actual dates. "+
@@ -5884,12 +6063,22 @@ const FIN_CALCS: FinCalc[] = [
       { key: "freq", label: "Coupons / year", default: "2" },
     ],
     compute: (r) => {
-      const a = bondAnalytics(+r("face"), +r("coupon") / 100, +r("ytm") / 100, +r("years"), +r("freq"));
+      const years = +r("years");
+      const freq = +r("freq");
+      // A maturity that is not a whole number of coupon periods used to be
+      // silently rounded, so 10.25, 10.4 and 10.5 years all returned the same
+      // price with nothing said. The engine now refuses instead — a partial
+      // period means accrued interest, which this clean-price model does not
+      // carry. Without this branch the refusal reaches the UI as "NaN yrs",
+      // because only finMoney gates non-finite values.
+      const why = bondPeriodRefusal(years, freq);
+      if (why) return why;
+      const a = bondAnalytics(+r("face"), +r("coupon") / 100, +r("ytm") / 100, years, freq);
       return [
         `Price      ${finMoney(a.price)}`,
-        `Macaulay   ${a.macaulay.toFixed(3)} yrs`,
-        `Modified   ${a.modified.toFixed(3)} yrs`,
-        `Convexity  ${a.convexity.toFixed(2)}`,
+        `Macaulay   ${finFixed(a.macaulay, 3)} yrs`,
+        `Modified   ${finFixed(a.modified, 3)} yrs`,
+        `Convexity  ${finFixed(a.convexity, 2)}`,
       ].join("\n");
     },
     assumes:
@@ -5921,16 +6110,20 @@ const FIN_CALCS: FinCalc[] = [
       const g = blackScholesGreeks(r("type") as OptionType, +r("s"), +r("k"), +r("t"), +r("r") / 100, +r("sig") / 100);
       return [
         `Delta  ${g.delta.toFixed(4)}`,
-        `Gamma  ${g.gamma.toFixed(5)}`,
+        `Gamma  ${finFixed(g.gamma, 5)}`,
         `Vega   ${finMoney(g.vega / 100)} per 1% vol`,
-        `Theta  ${finMoney(g.theta / 365)} per day`,
+        // Four decimals, not finMoney's two: a per-day theta is commonly a
+        // couple of cents, and 2 dp rounded -0.017573 to -0.02 — a 14% error on
+        // the number itself.
+        `Theta  ${finFixed(g.theta / 365, 4)} per day`,
         `Rho    ${finMoney(g.rho / 100)} per 1% rate`,
       ].join("\n");
     },
     assumes:
       "Same EUROPEAN, no-dividend model as the Black–Scholes price above — these Greeks "+
-      "do not describe an American option or a dividend payer. Theta is per YEAR here; "+
-      "trading desks usually quote it per day (divide by 365)."
+      "do not describe an American option or a dividend payer. Theta is shown PER DAY "+
+      "(the model's per-year value divided by 365), which is how trading desks quote it; "+
+      "multiply by 365 for the per-year figure."
   },
   {
     id: "iv",
@@ -5976,6 +6169,14 @@ const FIN_CALCS: FinCalc[] = [
       if (!rows.length) return "—";
       return rows.map((x) => `Year ${x.year}:  dep ${finMoney(x.depreciation)}   book ${finMoney(x.bookValue)}`).join("\n");
     },
+    // Nine of the finance calculators carry an `assumes`; this one did not, and
+    // it is the one where the missing sentence changes what the number means —
+    // a US filer reading "Depreciation (declining balance)" may well assume
+    // MACRS or an automatic switch to straight line, and gets neither.
+    assumes:
+      "Plain declining balance at the factor given, stopping at salvage. This is NOT MACRS and " +
+      "does NOT switch to straight line when that would be faster, which is what US tax " +
+      "schedules and most accounting conventions do — so it is a book method, not a filing.",
   },
   {
     // STRAIGHT LINE WAS MISSING WHILE DECLINING BALANCE SHIPPED — and it is the
@@ -5996,14 +6197,34 @@ const FIN_CALCS: FinCalc[] = [
       const annual = straightLineDepreciation(cost, salvage, life);
       if (!Number.isFinite(annual) || life <= 0) return "Useful life must be a positive number of years.";
       const lines = [`Annual depreciation  ${finMoney(annual)}`, ""];
+      // A fractional life used to be truncated by Math.floor while the closing
+      // sentence still asserted the book value "reaches salvage in the final
+      // year" — at life 7.5 the schedule stopped 600 above salvage and said it
+      // had landed on it. Emit the part-year explicitly instead.
+      const whole = Math.min(Math.floor(life), 60);
+      const truncated = life > 60;
       let book = cost;
-      for (let y = 1; y <= Math.min(Math.floor(life), 60); y++) {
+      for (let y = 1; y <= whole; y++) {
         book -= annual;
         lines.push(`Year ${y}:  dep ${finMoney(annual)}   book ${finMoney(book)}`);
       }
+      const fraction = life - Math.floor(life);
+      if (!truncated && fraction > 1e-9) {
+        const part = annual * fraction;
+        book -= part;
+        lines.push(
+          `Year ${whole + 1}:  dep ${finMoney(part)}   book ${finMoney(book)}   ` +
+            // No em dash: it is the pane's "not computable" sentinel, and the
+          // insertability gate blocks any result containing one.
+          `(part year: ${finFixed(fraction, 2)} of a full year)`,
+        );
+      }
       lines.push("");
-      lines.push("The charge is the same every year by definition; the book value reaches salvage in");
-      lines.push("the final year. Declining balance front-loads the same total instead.");
+      if (truncated) {
+        lines.push(`Schedule truncated at 60 years; the useful life entered is ${finFixed(life, 2)}.`);
+      }
+      lines.push("The charge is the same every year by definition; the book value reaches salvage at");
+      lines.push("the end of the useful life. Declining balance front-loads the same total instead.");
       return lines.join("\n");
     },
   },
@@ -6032,7 +6253,11 @@ const FIN_CALCS: FinCalc[] = [
         `Total paid in   ${finMoney(pmt * n)}`,
         "",
         "Ordinary annuity: payments at the END of each period. For payments at the start",
-        `(an annuity due), multiply both by (1 + rate) — here ${finMoney(pv * (1 + rate))} and ${finMoney(fv * (1 + rate))}.`,
+        // PRE-EXISTING, found while extending the em-dash guard to Finance: this
+        // is a SUCCESSFUL result, and the em dash in it made "Insert result"
+        // silently unavailable for every annuity calculation. Same defect class
+        // the guard was written for, one registry over from where it looked.
+        `(an annuity due), multiply both by (1 + rate): here ${finMoney(pv * (1 + rate))} and ${finMoney(fv * (1 + rate))}.`,
       ].join("\n");
     },
   },
@@ -6056,13 +6281,23 @@ const FIN_CALCS: FinCalc[] = [
       }
       const level = perpetuity(pmt, rate);
       const growing = growingPerpetuity(pmt, rate, g);
+      // The sensitivity line used to promise "one point of growth" and then
+      // silently clamp to whatever still converges, so at r=8%/g=7.5% it showed
+      // the value for 0.49 points as though it were one — a 50x overstatement
+      // presented as a fact. If the full point does not fit, SAY what was used.
+      const bumped = Math.min(g + 0.01, rate - 0.0001);
+      const bumpPoints = (bumped - g) * 100;
+      const clamped = bumped < g + 0.01 - 1e-12;
       return [
         `Level perpetuity     ${finMoney(level)}`,
         `Growing perpetuity   ${finMoney(growing)}`,
         "",
         "The growing form is the Gordon growth model, and it is extremely sensitive near",
-        `r = g: at ${finPct(g)} growth against ${finPct(rate)} discount, one point of growth`,
-        `moves the value to ${finMoney(growingPerpetuity(pmt, rate, Math.min(g + 0.01, rate - 0.0001)))}.`,
+        `r = g: at ${finPct(g)} growth against ${finPct(rate)} discount, raising growth by`,
+        clamped
+          ? `${finFixed(bumpPoints, 2)} points (a full point would not converge) moves the value to ` +
+            `${finMoney(growingPerpetuity(pmt, rate, bumped))}.`
+          : `one point moves the value to ${finMoney(growingPerpetuity(pmt, rate, bumped))}.`,
       ].join("\n");
     },
   },
@@ -6347,7 +6582,15 @@ function updateFinancePreview(): void {
   } catch {
     text = "";
   }
-  const insertable = !!text && !text.includes("—") && !text.includes("no solution");
+  // A belt-and-braces gate. finMoney/finPct/finFixed all render a non-finite
+  // value as "—", but any calculator that formats a number by some other route
+  // can still produce these, and a document is the wrong place to find out.
+  const insertable =
+    !!text &&
+    !text.includes("—") &&
+    !text.includes("no solution") &&
+    !text.includes("NaN") &&
+    !text.includes("Infinity");
   if (!text) {
     finResult.innerHTML = '<span class="hint">Enter values to compute.</span>';
   } else {
@@ -6386,8 +6629,17 @@ interface StatOutput {
   ok?: boolean;
   /**
    * Optional diagram shown under the result — currently the regression residual
-   * and Q-Q plots. Display only: `text` remains what gets inserted, so adding
-   * this cannot change any existing calculator's output.
+   * and Q-Q plots, and the curve-fit plot.
+   *
+   * IT IS NO LONGER DISPLAY ONLY. This said "Display only: `text` remains what
+   * gets inserted", and that was true when the field was added and false once
+   * "Insert chart" shipped: `currentStatsSvg` (:840) feeds `insertStatsChart()`
+   * (:7712) behind its own button (:1432). The comment outlived the behaviour,
+   * and an audit read it as evidence that Stats figures could never reach a
+   * document — which is exactly the cost of a stale comment.
+   *
+   * `text` is still what the main Insert button writes; the figure is a second,
+   * separate insertion.
    */
   svg?: string;
 }
@@ -6906,16 +7158,44 @@ const STAT_CALCS: StatCalc[] = [
     compute: (r) => {
       const groups = statGroups(r("groups"));
       if (!groups.length) return { text: "Enter at least one group.", ok: false };
-      const pooled = groups.reduce<number[]>((acc, g) => acc.concat(g), []);
+      // WITHIN-GROUP RESIDUALS, not the pooled raw values. t-tests and ANOVA
+      // assume the residuals are normal; the pooled marginal of two normal
+      // groups with different means is BIMODAL, so testing it fired the warning
+      // *because* there was a real effect — and fired harder the larger the
+      // effect. Measured before this fix: two textbook-normal groups separated
+      // by 4 SD gave a pooled p of 2.1e-5 while each group alone gave 0.975.
+      // The variance check below always did this correctly (it takes `groups`).
+      //
+      // Shared with describeAssumptions rather than recomputed here: an inline
+      // copy divided 0/0 on an empty group, and two implementations of one
+      // definition is how they drift apart.
+      //
+      // normalityCheckSample, NOT withinGroupResiduals. Raw pooled residuals
+      // are leptokurtic when groups have different spread, and measured that
+      // rejected normal data 61% of the time at sd 1:5 and 100% at three groups
+      // of 1/1/10. This re-expresses each group's residuals as normal scores
+      // through the exact Beta distribution of a studentized residual, so the
+      // pooled vector is standard normal whatever the group variances are; the
+      // same measurement falls to ~8%. It handles the paired and single-group
+      // cases internally.
+      const residuals = normalityCheckSample(groups);
 
       const lines: string[] = ["Assumption check"];
-      const norm = normalityTest(pooled);
+      const norm = normalityTest(residuals);
       if (norm.ok) {
         lines.push(
           `Normality (D'Agostino-Pearson): K\u00b2 = ${assaySig(norm.k2, 4)}, ${formatP(norm.p)} - ` +
             `${norm.normal ? "consistent with normal" : "NOT normal"}`,
         );
         lines.push(`  skewness = ${assaySig(norm.skewness, 3)}, kurtosis = ${assaySig(norm.kurtosis, 3)} (normal \u2248 3)`);
+        // Say WHAT was tested. These moments describe the pooled within-group
+        // normal scores, not the raw numbers the user pasted \u2014 and with more
+        // than one group they are not interchangeable.
+        lines.push(
+          groups.length > 1
+            ? "  tested on the within-group residuals, re-expressed so groups of different spread are comparable"
+            : "  tested on the within-group residuals, which is what the assumption is about",
+        );
       } else {
         lines.push("Normality: " + (norm.reason ?? "not tested"));
       }
@@ -6963,7 +7243,34 @@ const STAT_CALCS: StatCalc[] = [
       const res = oneWayAnova(groups);
       if (!Number.isFinite(res.f) || !Number.isFinite(res.p))
         return { text: "ANOVA is undefined — every group has zero within-group variance (identical values).", ok: false };
-      return { text: `One-way ANOVA (${groups.length} groups)\n${reportF(res)}` };
+      // EFFECT SIZE, because a p-value alone does not say how big the difference
+      // is. The product already MANDATES Cohen's d for every t-test and then
+      // reported a significant ANOVA with no magnitude at all. omega-squared is
+      // the less biased of the two, so both are shown and the difference stated.
+      // assaySig() returns the "—" SENTINEL for a non-finite value, and the
+      // insertability gate blocks any result containing one — so a NaN effect
+      // size would silently kill "Insert result" with nothing on screen saying
+      // why. It happens when ssWithin overflows (group values above ~1e154):
+      // f and p stay finite so the guard above passes, while ω² is NaN.
+      const effectSize = (v: number, dp: number): string =>
+        Number.isFinite(v) ? assaySig(v, dp) : "not computable at this magnitude";
+      const effect =
+        `η² = ${effectSize(res.etaSquared, 3)} (share of variance explained), ` +
+        `ω² = ${effectSize(res.omegaSquared, 3)}` +
+        // NO EM DASH. "—" is the sentinel this pane uses for "not computable",
+        // and the insertability gate blocks any result containing one — so an
+        // em dash in ordinary prose here would make every ANOVA result
+        // permanently un-insertable. analyzeCalcText.test.ts guards this.
+        `\nω² corrects η²'s upward bias; at small n they can differ a lot, and ω² may be negative, which means no detectable effect.`;
+      // The same assumption check the t-tests carry. It could not be wired here
+      // until the pooled-normality defect was fixed, or it would have spread a
+      // warning that fires BECAUSE there is an effect to three more surfaces.
+      const advice = describeAssumptions(groups);
+      return {
+        text:
+          `One-way ANOVA (${groups.length} groups)\n${reportF(res)}\n${effect}` +
+          (advice.length ? `\n\n${advice.join("\n")}` : ""),
+      };
     },
   },
   {
@@ -7006,10 +7313,13 @@ const STAT_CALCS: StatCalc[] = [
       // picking a significant pair out of a non-significant ANOVA.
       const omnibus = oneWayAnova(groups);
       const omniLine = Number.isFinite(omnibus.p)
-        ? `One-way ANOVA: ${reportF(omnibus)}`
+        ? `One-way ANOVA: ${reportF(omnibus)}  ·  η² = ${
+            Number.isFinite(omnibus.etaSquared) ? assaySig(omnibus.etaSquared, 3) : "n/a"
+          }, ω² = ${Number.isFinite(omnibus.omegaSquared) ? assaySig(omnibus.omegaSquared, 3) : "n/a"}`
         : "One-way ANOVA: undefined (no within-group variance)";
       const ciPct = res.alpha === 0.01 ? "99" : res.alpha === 0.1 ? "90" : "95";
 
+      const tukeyAdvice = describeAssumptions(groups);
       const rows = res.pairs.map(
         (pr) =>
           `Group ${pr.i + 1} vs ${pr.j + 1}:  diff = ${assaySig(pr.difference)}` +
@@ -7028,7 +7338,12 @@ const STAT_CALCS: StatCalc[] = [
           (anySig ? `\n\n* significant at alpha = ${res.alpha}` : "\n\nNo pair is significant at this level.") +
           // tukeyHSD already emits the family-wise warning, and better than a
           // hand-written one — showing both said the same thing twice.
-          (res.caveats.length ? "\n\n" + res.caveats.map((c) => `\u2022 ${c}`).join("\n") : ""),
+          (res.caveats.length ? "\n\n" + res.caveats.map((c) => `\u2022 ${c}`).join("\n") : "") +
+          // Tukey assumes normal residuals AND equal variances, and its own
+          // caveat used to tell the user to go run a different calculator by
+          // hand to find that out. It runs here now \u2014 which was only safe once
+          // describeAssumptions stopped testing the pooled marginal.
+          (tukeyAdvice.length ? "\n\n" + tukeyAdvice.join("\n") : ""),
         ),
       };
     },
@@ -7059,7 +7374,10 @@ const STAT_CALCS: StatCalc[] = [
       // cost a degree of freedom.
       const se = res.n > 2 ? Math.sqrt(sse / (res.n - 2)) : 0;
       const standardizedResiduals = residuals.map((r2) => (se > 0 ? r2 / se : 0));
-      const xs = [Math.min(...x), Math.max(...x)];
+      // Reduction, not spread: this field accepts "Open CSV…", whose ceiling is
+      // 8 MB, and Math.min(...xs) throws RangeError past ~125,000 arguments.
+      // See minmax.ts — the failure is a CLIFF, not a curve.
+      const xs = [minOf(x), maxOf(x)];
       const fitPlot = buildPlotSvg(
         [
           { type: "scatter", points: x.map((v, i) => ({ x: v, y: y[i] })), color: "#0369a1" },
@@ -7172,7 +7490,13 @@ const STAT_CALCS: StatCalc[] = [
       // total — a counts-vs-proportions mix-up, which is the obvious mistake in a
       // free-text expected-counts field. Say so instead of formatting NaN.
       if (res.reason) return { text: res.reason, ok: false };
-      return { text: `Chi-square goodness of fit\nχ² = ${assaySig(res.chi2)}, df = ${res.df}, ${formatP(res.p)}` };
+      // The expected-count warnings are the whole point of the new fields: the
+      // χ² approximation degrades as expected counts fall, and the pane used to
+      // format the p-value unconditionally with nothing said about it.
+      return {
+        text: `Chi-square goodness of fit\nχ² = ${assaySig(res.chi2)}, df = ${res.df}, ${formatP(res.p)}`,
+        caveats: res.warnings,
+      };
     },
   },
   {
@@ -7186,7 +7510,23 @@ const STAT_CALCS: StatCalc[] = [
       if (table.length < 2 || table[0].length < 2) return { text: "Enter a table with at least 2 rows and 2 columns.", ok: false };
       if (table.some((row) => row.length !== table[0].length)) return { text: "Every row must have the same number of columns.", ok: false };
       const res = chiSquareIndependence(table);
-      return { text: `Chi-square test of independence (${table.length}×${table[0].length})\nχ² = ${assaySig(res.chi2)}, df = ${res.df}, ${formatP(res.p)}` };
+      // ON A 2×2 THE EXACT TEST IS THE ANSWER, and it is the one to report.
+      // Measured on [[1,9],[8,2]] — all expected counts between 4.5 and 5.5 —
+      // the χ² p is 0.00165 against Fisher's 0.00548, so the shipped number was
+      // anti-conservative by 3.3x, and the gap widens as counts fall. That is
+      // exactly the small pilot experiment someone types into a pane.
+      const exact =
+        res.pFisher !== undefined
+          ? // No em dash: see the note in the ANOVA calculator above.
+            `\nFisher's exact (two-sided): ${formatP(res.pFisher)} (report this one on a 2×2)` +
+            (res.pYates !== undefined ? `\nYates-corrected χ² = ${assaySig(res.chi2Yates!)}, ${formatP(res.pYates)}` : "")
+          : "";
+      return {
+        text:
+          `Chi-square test of independence (${table.length}×${table[0].length})\n` +
+          `χ² = ${assaySig(res.chi2)}, df = ${res.df}, ${formatP(res.p)}${exact}`,
+        caveats: res.warnings,
+      };
     },
   },
   {
@@ -7567,7 +7907,12 @@ const ANALYZE_CALCS: AnalyzeCalc[] = [
   {
     id: "eigen",
     name: "Eigenvalues (symmetric matrix)",
-    hint: "Enter a symmetric square matrix (e.g. a covariance/correlation matrix). Non-symmetric matrices are out of scope — their eigenvalues can be complex.",
+    // This hint used to say non-symmetric matrices were "out of scope". They
+    // are not, and have not been since eigenvaluesGeneral shipped — the
+    // "Eigenvalues (any square matrix)" calculator is fifteen lines below this
+    // one. The same false sentence was corrected in linalg.ts and left here,
+    // where users actually read it, so anyone needing it stopped scrolling.
+    hint: "Enter a symmetric square matrix (e.g. a covariance/correlation matrix). This uses Jacobi rotation, which needs symmetry; for a non-symmetric matrix use “Eigenvalues (any square matrix)” below, which handles complex-conjugate pairs.",
     fields: [{ key: "M", label: "Symmetric matrix", default: "2 1\n1 2", kind: "block", rows: 4 }],
     compute: (r) => {
       const M = readMatrix(r("M"));
@@ -7741,8 +8086,9 @@ const ANALYZE_CALCS: AnalyzeCalc[] = [
       const lines = res.names.map(
         (n, i) => `  ${n} = ${formatNum(res.values[i], 6)}  ± ${formatNum(res.errors[i], 4)}`,
       );
-      const lo = Math.min(...xs);
-      const hi = Math.max(...xs);
+      // Reduction, not spread — same 8 MB CSV ceiling as the regression plot.
+      const lo = minOf(xs);
+      const hi = maxOf(xs);
       const curve = Array.from({ length: 120 }, (_, i) => {
         const x = lo + ((hi - lo) * i) / 119;
         return { x, y: res.predict(x) };
@@ -23227,7 +23573,10 @@ function updateMassSpec(): void {
   for (const [k, v] of [
     ["Monoisotopic mass", spec.monoisotopicMass.toFixed(4)],
     ["Average mass", spec.averageMass.toFixed(2)],
-    ["Formula", spec.formula],
+    // Typeset, like the INSERT path already was. The pane used to show C7H8
+    // while the document received C₇H₈ — preview and insert disagreeing, and
+    // the pane half breaking the display rule.
+    ["Formula", formatFormula(spec.formula)],
   ] as [string, string][]) {
     const kk = document.createElement("span");
     kk.className = "ms-mass-k";
@@ -23300,11 +23649,21 @@ function updateMassSpec(): void {
 function massSpecAsText(spec: MassSpecResult | null): string {
   if (!spec) return "";
   const lines = [
-    `Mass spectrometry — ${spec.formula}`,
+    `Mass spectrometry — ${formatFormula(spec.formula)}`,
     `Monoisotopic mass: ${spec.monoisotopicMass.toFixed(4)}`,
     `Average mass: ${spec.averageMass.toFixed(2)}`,
     "Isotope pattern (relative intensity):",
     ...spec.pattern.map((p) => `  ${p.offset === 0 ? "M" : "M+" + p.offset}  ${p.mass.toFixed(4)}  ${p.intensity.toFixed(1)}%`),
+    // The pane shows this exclusion; the DOCUMENT did not. Chlorophyll a's
+    // pattern is computed as though the magnesium were not there (²⁵Mg 10%,
+    // ²⁶Mg 11% simply missing), and the table landed in a manuscript with
+    // nothing saying so. A caveat that only survives on screen is not a caveat.
+    ...(spec.unsupportedInPattern.length
+      ? [
+          `  Pattern excludes ${spec.unsupportedInPattern.join(", ")} (not in the isotope table); ` +
+            "masses and adducts are still exact.",
+        ]
+      : []),
     ...(spec.netCharge !== 0
       ? [`Adducts: n/a (input carries a net charge of ${spec.netCharge > 0 ? "+" : "−"}${Math.abs(spec.netCharge)}; ESI adducts assume a neutral molecule)`]
       : ["Adducts (m/z):", ...spec.adducts.map((a) => `  ${a.name}  ${a.mz.toFixed(4)}`)]),
@@ -23325,7 +23684,12 @@ type SpectrumKind = "1H" | "13C" | "ir" | "uvvis" | "ms" | "cosy" | "hsqc" | "hm
 
 /** The currently displayed prediction, kept for the insert buttons. */
 let currentSpectrum:
-  | { kind: "1H" | "13C"; nmr: NmrResult }
+  // `coupling` rides along for ¹H because its J values are DISPLAYED in the
+  // multiplet column and inserted into the document, while its caveats — the
+  // Karplus average, the alkene cis/trans ambiguity, the first-order
+  // assumption — were being dropped on the floor. A cinnamaldehyde showed
+  // "d (12.0)" with no note anywhere, against a real trans J of ~16 Hz.
+  | { kind: "1H" | "13C"; nmr: NmrResult; coupling?: ReturnType<typeof predictCoupling> }
   | { kind: "ir"; ir: IrResult }
   | { kind: "uvvis"; uv: UvResult }
   | { kind: "ms"; ms: FragmentResult }
@@ -23381,6 +23745,12 @@ function currentChartSize(): { width: number; height: number } {
     : SPECTRUM_CHART_SIZE;
 }
 
+/** First occurrence wins; used where two predictors emit overlapping caveats. */
+function dedupe(xs: string[]): string[] {
+  const seen = new Set<string>();
+  return xs.filter((x) => (seen.has(x) ? false : (seen.add(x), true)));
+}
+
 /** Formats a refined multiplet with its coupling constants, e.g. "dd (7.8, 1.5)". */
 function formatMultiplet(multiplet: string, J: number[]): string {
   return J.length ? `${multiplet} (${J.map((j) => j.toFixed(1)).join(", ")})` : multiplet;
@@ -23404,23 +23774,30 @@ function updateSpectra(): void {
     return;
   }
 
-  const fail = (msg: string) => {
+  const fail = (msg: string, caveats: string[] = []) => {
     const hint = document.createElement("div");
     hint.className = "ms-hint";
     hint.textContent = msg;
     specResult.appendChild(hint);
+    // AN EMPTY RESULT IS THE CASE THAT MOST NEEDS ITS CAVEATS. The predictors
+    // explain precisely why nothing was predicted — that it is a REFUSAL rather
+    // than a prediction of a featureless spectrum, and that an ionic salt, an
+    // untabulated small molecule and an IR-inactive diatomic are different
+    // situations this model cannot tell apart. All of that was being discarded,
+    // so the most careful sentence in the module was the one nobody could read.
+    if (caveats.length) specResult.appendChild(specCaveats(caveats));
   };
 
   try {
     if (kind === "1H" || kind === "13C") {
       const r = predictNmr(text, kind as Nucleus);
       if (!r) return fail("No structure found. Try a name (toluene), a formula, or a SMILES.");
-      if (!r.signals.length) return fail("No signals predicted for this structure.");
-      currentSpectrum = { kind, nmr: r };
+      if (!r.signals.length) return fail("No signals predicted for this structure.", r.caveats);
       // For 1H, resolve scalar couplings so the table can show J and a refined
       // multiplet (dd, td, ...) instead of the plain n+1 letter. Signals from
       // predictCoupling align by index with predictNmr's (same input, same order).
       const cpl = kind === "1H" ? predictCoupling(text) : null;
+      currentSpectrum = { kind, nmr: r, coupling: cpl ?? undefined };
       specResult.appendChild(msEyebrow(`Predicted ${kind} NMR — ${r.signals.length} signals`));
       const head = specRow(["δ (ppm)", kind === "1H" ? "H" : "C", kind === "1H" ? "mult. (J/Hz)" : "", "assignment"], "spec-row spec-head");
       specResult.appendChild(head);
@@ -23527,7 +23904,7 @@ function updateSpectra(): void {
     } else if (kind === "ir") {
       const r = predictIr(text);
       if (!r) return fail("No structure found. Try a name (acetone), a formula, or a SMILES.");
-      if (!r.bands.length) return fail("No characteristic IR bands predicted for this structure.");
+      if (!r.bands.length) return fail("No characteristic IR bands predicted for this structure.", r.caveats);
       currentSpectrum = { kind, ir: r };
       specResult.appendChild(msEyebrow(`Predicted IR — ${r.bands.length} characteristic bands`));
       specResult.appendChild(specRow(["cm⁻¹", "range", "int.", "assignment"], "spec-row spec-head"));
@@ -23550,10 +23927,22 @@ function updateSpectra(): void {
       val.className = "ms-masses";
       const kk = document.createElement("span");
       kk.className = "ms-mass-k";
-      kk.textContent = r.transparent ? "λmax" : "λmax (π→π*)";
+      // A REFUSAL MUST NOT BE LABELLED WITH A TRANSITION. "λmax (π→π*)" above
+      // "not predicted" claims to know which transition it declined to compute.
+      kk.textContent = r.outOfDomain || r.transparent ? "λmax" : "λmax (π→π*)";
       const vv = document.createElement("span");
       vv.className = "ms-mass-v";
-      vv.textContent = r.lambdaMax === null ? "none above 200 nm" : `${r.lambdaMax} nm`;
+      // THREE states, not two. `lambdaMax === null` used to mean only one thing
+      // — transparent above 200 nm — and now also means "this chromophore is
+      // outside Woodward–Fieser's calibration". Reporting an out-of-domain
+      // polyene as "none above 200 nm" would be a NEW false statement in place
+      // of the old one (β-carotene absorbs at ~450 nm and is bright orange).
+      vv.textContent =
+        r.lambdaMax !== null
+          ? `${r.lambdaMax} nm`
+          : r.outOfDomain
+            ? "not predicted — outside this model's range"
+            : "none above 200 nm";
       val.append(kk, vv);
       const ck = document.createElement("span");
       ck.className = "ms-mass-k";
@@ -23573,11 +23962,23 @@ function updateSpectra(): void {
       const r = predictFragments(text);
       if (!r) return fail("No structure found. Try a name (toluene), a formula, or a SMILES.");
       currentSpectrum = { kind, ms: r };
-      specResult.appendChild(msEyebrow(`Predicted EI fragments — ${r.formula}`));
+      // Every formula here is typeset, matching what the insert path emits via
+      // formulaHtml(). formatFormula returns Unicode text, so it is safe for the
+      // textContent these rows use.
+      specResult.appendChild(msEyebrow(`Predicted EI fragments — ${formatFormula(r.formula)}`));
       specResult.appendChild(specRow(["m/z", "formula", "rank", "pathway"], "spec-row spec-head"));
-      specResult.appendChild(specRow([r.molecularIon.toFixed(4), r.formula, "M⁺•", "molecular ion"]));
+      specResult.appendChild(
+        specRow([r.molecularIon.toFixed(4), formatFormula(r.formula), "M⁺•", "molecular ion"]),
+      );
       for (const f of r.fragments) {
-        specResult.appendChild(specRow([f.mz.toFixed(4), f.formula, f.likelihood, `${f.pathway} (−${f.neutralLoss})`]));
+        specResult.appendChild(
+          specRow([
+            f.mz.toFixed(4),
+            formatFormula(f.formula),
+            f.likelihood,
+            `${f.pathway} (−${formatFormula(f.neutralLoss)})`,
+          ]),
+        );
       }
     }
   } catch (error) {
@@ -23601,8 +24002,13 @@ function updateSpectra(): void {
                 ? cur.hmbc.caveats
                 : cur.kind === "tocsy"
                   ? cur.tocsy.caveats
-                  : cur.nmr.caveats;
-  specResult.appendChild(specCaveats([...caveats, "Predicted from structure — verify against an acquired spectrum."]));
+                  : // The coupling predictor's caveats explain the very numbers in
+                    // the multiplet column, so they belong with them. De-duplicated
+                    // because both predictors emit some of the same general notes.
+                    [...cur.nmr.caveats, ...(cur.coupling?.caveats ?? [])];
+  specResult.appendChild(
+    specCaveats([...dedupe(caveats), "Predicted from structure — verify against an acquired spectrum."]),
+  );
 
   specInsertBtn.disabled = false;
   currentSpectrumSvg = buildSpectrumSvg();
@@ -23668,7 +24074,10 @@ function spectrumAsText(): string {
         return `  δ ${s.shift.toFixed(2)}  (${s.count}H, ${mult})  ${s.assignment}`;
       }),
       ...(r.nucleus === "13C" ? deptSummaryLines(r) : []),
-      ...r.caveats.map((c) => `Note: ${c}`),
+      // The coupling caveats explain the J values printed two lines up, so they
+      // travel with them into the document. Without this the inserted table
+      // carried a nominal alkene J with nothing saying it was nominal.
+      ...dedupe([...r.caveats, ...(cpl?.caveats ?? [])]).map((c) => `Note: ${c}`),
       tail,
     ];
     return lines.join("\n");
@@ -23721,9 +24130,13 @@ function spectrumAsText(): string {
     return [
       `Predicted UV-Vis — ${r.smiles}`,
       `  Chromophore: ${r.chromophore}`,
-      r.lambdaMax === null
-        ? "  λmax: none above 200 nm (transparent in the usual UV-Vis window)"
-        : `  λmax: ${r.lambdaMax} nm`,
+      // Same three-way distinction as the pane — see the note there. An
+      // out-of-domain refusal must not be inserted as "transparent".
+      r.lambdaMax !== null
+        ? `  λmax: ${r.lambdaMax} nm`
+        : r.outOfDomain
+          ? "  λmax: not predicted — this chromophore is outside the model's range"
+          : "  λmax: none above 200 nm (transparent in the usual UV-Vis window)",
       ...(r.contributions.length ? ["  Build-up:", ...r.contributions.map((c) => `    ${c.nm > 0 ? "+" : ""}${c.nm} nm  ${c.label}`)] : []),
       ...r.caveats.map((c) => `Note: ${c}`),
       tail,
@@ -24107,11 +24520,18 @@ function updateSolveUi(): void {
     word: "twice a number plus 7 is 15",
   };
   const hints: Record<SolveKind, string> = {
-    equation: "Use ^ for powers — type x^2 for x². Functions: sqrt, sin, cos, exp, ln; constants pi, e. Pasted superscripts like x² also work. A formula with several symbols — F = m*a — offers a choice of which one to solve for.",
+    // INEQUALITIES were routed and working with nothing anywhere in the pane,
+    // the HTML or the examples mentioning that this box accepts a comparison
+    // sign — a shipped feature with zero discoverability.
+    equation: "Use ^ for powers — type x^2 for x². Functions: sqrt, sin, cos, exp, ln; constants pi, e (π and √ are accepted too). Pasted superscripts like x² also work. A formula with several symbols — F = m*a — offers a choice of which one to solve for. INEQUALITIES work here as well: x^3 - x >= 0 gives the solution set as intervals, with the sign analysis shown.",
     derivative: "Use ^ for powers — e.g. x^2, exp(x), sin(x^2). Pasted superscripts like x² also work. " +
       "This box also takes LIMITS — limit sin(x)/x as x -> 0, lim 1/x as x -> inf, limit 1/x as x -> 0+ — " +
       "and SERIES: taylor exp(x) order 5, maclaurin sin(x), series sqrt(x) about 1 order 4.",
-    integral: "Use ^ for powers. The limits may be numbers or expressions like pi/2.",
+    // The INDEFINITE integral shipped as "leave both limit boxes blank" and was
+    // named nowhere — while the dropdown says "Definite integral" and the two
+    // boxes carry placeholders that read as defaults rather than as something
+    // to clear.
+    integral: "Use ^ for powers. The limits may be numbers or expressions like pi/2. LEAVE BOTH LIMIT BOXES EMPTY for the indefinite integral — F(x) + C, with the derivative shown back as a check.",
     geometry:
       "Shapes: circle r=3 · sphere r=2 · cylinder r=2 h=5 · box 1 2 3 · polygon n=6 a=2. " +
       "Triangles: triangle 3 4 5 (SSS) · triangle b=4 c=3 A=90 (SAS) · triangle A=30 B=60 c=10 (ASA) · " +
@@ -24120,7 +24540,12 @@ function updateSolveUi(): void {
       "Or just type a conic: x^2/9 + y^2/4 = 1. " +
       "3D uses coordinate TRIPLES: vector (1,0,0) (0,1,0) · lines (0,0,0) (1,0,0) (0,0,1) (1,1,2) " +
       "(identical / parallel / intersecting / skew, with the distance) · (0,0,0) (1,0,0) (0,1,0) (0,0,1) " +
-      "for a tetrahedron volume and its circumscribed sphere.",
+      "for a tetrahedron volume and its circumscribed sphere. " +
+      // The 3-D transform toolkit was wired up in v2.78.0 and then named in no
+      // hint, no HTML and no example — the dead-export ratchet was lowered on
+      // the strength of it being "surfaced".
+      "TRANSFORMS: rotate 90 z then scale 2 (1,0,0) — also reflect and combinations; " +
+      "the determinant is reported, and orientation flips and singular collapses are named.",
     topology:
       "Integral homology of a simplicial complex — computed over ℤ, so TORSION is kept " +
       "(a field would silently discard it). Named spaces: torus · Klein bottle · sphere · " +
@@ -24132,7 +24557,11 @@ function updateSolveUi(): void {
       "ADVANCED: w(RP^5) and chern CP^3 for characteristic classes · does RP^5 bound (cobordism — " +
       "a genuinely decidable question) · cellular rp2. Ask about spectral sequences, stable homotopy, " +
       "the fundamental group or homeomorphism and it explains what is and is not computable, rather than guessing. " +
-      "KNOTS: knot trefoil · jones 1 1 1 (a braid word) · braid 1 -2 1 -2 (figure-eight) · pi1 trefoil. " +
+      "KNOTS: knot trefoil · jones 1 1 1 (a braid word) · braid 1 -2 1 -2 (figure-eight) · pi1 trefoil · " +
+      // Both of these were routed and working while appearing in no hint, no
+      // HTML and no example anywhere in the product.
+      "alexander polynomial of trefoil (with the knot determinant). " +
+      "K-THEORY: k theory of S2 — complex K-theory, Bott-periodic. " +
       "The Jones polynomial is exact but NOT a complete invariant, and it says so.",
     word: "Plain English — e.g. “12 is what percent of 48?” or “twice a number plus 7 is 15”.",
   };
@@ -24419,7 +24848,20 @@ function updateSolve(): void {
       solveResult.appendChild(solveLine(val, "ms-masses"));
       say("Definite integral:", "heading");
       // A real ∫ with its limits, typeset — the notation is the whole point.
-      sayMath(`int(${lo}, ${hi}, ${text}) = ${r.value.toPrecision(8).replace(/\.?0+$/, "")}`, val);
+      //
+      // The typeset block is what INSERTS. It has to branch on the same test the
+      // readout branches on: `r.value` is NaN when the integrand is undefined
+      // inside the interval, and `NaN.toPrecision(8)` is the string "NaN", which
+      // mathToOmml() happily typesets without throwing. That put a Word equation
+      // reading "= NaN" into the user's document while the pane, two lines above,
+      // correctly said there was no value. Preview is not insert.
+      if (Number.isFinite(r.value)) {
+        sayMath(`int(${lo}, ${hi}, ${text}) = ${r.value.toPrecision(8).replace(/\.?0+$/, "")}`, val);
+      } else {
+        // Prose, not math: there is no equation to typeset when there is no value.
+        sayMath(`int(${lo}, ${hi}, ${text})`, val);
+        say(val);
+      }
       if (r.antiderivative) {
         // Show the work: the exact antiderivative F(x) behind an exact result.
         const fx = `antiderivative F(${r.variable}) = ${r.antiderivative} + C`;
@@ -24928,7 +25370,12 @@ const ASSAY_CALCS: AssayCalc[] = [
       // order: [vmax, km, ki] and [vmax, km, ki, kiPrime] for mixed.
       const se = (k: number): number => (Number.isFinite(fit.se[k]) ? fit.se[k] : NaN);
       const lines = [
-        `Inhibition fit \u2014 ${mode}`,
+        // NOT an em dash. "\u2014" is this pane's "not computable" sentinel and the
+        // assay insert gate blocks any result containing one, so this heading
+        // silently disabled "Insert result" for EVERY successful inhibition fit
+        // \u2014 a working Ki that could never reach the document. Found by widening
+        // the em-dash guard from Stats to the other calculator registries.
+        `Inhibition fit (${mode})`,
         `Vmax = ${assayValSE(fit.vmax, se(0))}`,
         `Km = ${assayValSE(fit.km, se(1))}`,
         `Ki = ${assayValSE(fit.ki, se(2))}`,
@@ -25029,7 +25476,12 @@ const ASSAY_CALCS: AssayCalc[] = [
         `Hill slope = ${assaySig(fit.hill, 3)}\n` +
         `Bottom = ${assaySig(fit.bottom, 3)}, Top = ${assaySig(fit.top, 3)}\n` +
         `R² = ${assaySig(fit.rsquared, 4)}`;
-      return { text, plot: { data: pts, predict: fit.predict, xlabel: "concentration", ylabel: "response" } };
+      // assay.ts states the contract for these fits: "Conditions that make these
+      // numbers untrustworthy. The UI must show them." Four of the six honoured
+      // it; this one and `binding` dropped the key entirely, so the standard-error
+      // and local-optimiser warnings never rendered for the two most-used
+      // pharmacology tools in the bench.
+      return { text, caveats: fit.caveats, plot: { data: pts, predict: fit.predict, xlabel: "concentration", ylabel: "response" } };
     },
   },
   {
@@ -25052,7 +25504,8 @@ const ASSAY_CALCS: AssayCalc[] = [
         `Bmax = ${assayValSE(fit.bmax, fit.bmaxSE)}\n` +
         `Kd = ${assayValSE(fit.kd, fit.kdSE)}\n` +
         `R² = ${assaySig(fit.rsquared, 4)}`;
-      return { text, plot: { data: pts, predict: fit.predict, xlabel: "[Ligand]", ylabel: "Bound" } };
+      // See the note on `dose` above — same dropped contract.
+      return { text, caveats: fit.caveats, plot: { data: pts, predict: fit.predict, xlabel: "[Ligand]", ylabel: "Bound" } };
     },
   },
   {
@@ -25240,10 +25693,45 @@ const ASSAY_CALCS: AssayCalc[] = [
     name: "Protein conc. (A280)",
     fields: [
       { key: "a280", label: "A280", default: "1" },
-      { key: "eps", label: "ε molar (M⁻¹cm⁻¹)", default: "43824" },
+      { key: "seq", label: "Protein sequence (optional — computes ε)", default: "" },
+      { key: "eps", label: "ε molar (M⁻¹cm⁻¹) — used if no sequence", default: "43824" },
       { key: "l", label: "Path length l (cm)", default: "1" },
     ],
-    compute: (r) => ({ text: `Concentration = ${assaySig(proteinConcFromA280(+r("a280"), +r("eps"), +r("l")))} M` }),
+    // ε USED TO BE THE USER'S PROBLEM. The tool demanded a molar extinction
+    // coefficient while the product could already compute MW, pI and GRAVY from
+    // the same sequence — so the one number that needs looking up was the one it
+    // would not derive. Gill & von Hippel needs only the W/Y/C counts.
+    compute: (r) => {
+      const seq = r("seq").trim();
+      if (!seq) {
+        return { text: `Concentration = ${assaySig(proteinConcFromA280(+r("a280"), +r("eps"), +r("l")))} M` };
+      }
+      const eps = extinctionCoefficient(seq);
+      // ε = 0 when the sequence has no Trp, Tyr or Cys at all. Dividing by it
+      // would report an infinite concentration, so refuse: such a protein does
+      // not absorb usefully at 280 nm and A280 is the wrong assay for it.
+      if (!(eps.reduced > 0)) {
+        return {
+          text:
+            "This sequence has no tryptophan, tyrosine or cysteine, so ε₂₈₀ is zero — " +
+            "A280 cannot measure its concentration. Use a colourimetric assay (BCA, Bradford) instead.",
+          ok: false,
+        };
+      }
+      const a280 = +r("a280");
+      const l = +r("l");
+      // Both cysteine states, because which one applies is the user's to decide
+      // and the difference is real — picking one silently would be inventing a
+      // condition the experiment did not state.
+      return {
+        text:
+          `ε (reduced cysteines)  = ${eps.reduced.toLocaleString("en-US")} M⁻¹cm⁻¹\n` +
+          `  → concentration = ${assaySig(proteinConcFromA280(a280, eps.reduced, l))} M\n` +
+          `ε (cystine bridges)    = ${eps.cystines.toLocaleString("en-US")} M⁻¹cm⁻¹\n` +
+          `  → concentration = ${assaySig(proteinConcFromA280(a280, eps.cystines, l))} M`,
+        caveats: eps.caveats,
+      };
+    },
   },
 ];
 
@@ -25341,7 +25829,17 @@ function updateAssayPreview(): void {
     assayInsertPlotBtn.disabled = true;
   }
 
-  currentAssayText = insertable ? out.text : "";
+  // THE CAVEATS TRAVEL WITH THE NUMBER. They were rendered in the pane and then
+  // dropped from `currentAssayText`, which is all the Insert button writes — so
+  // "EC50 = 8.13e-7" reached the document and "it is an extrapolation past the
+  // end of your data, not a measured midpoint" did not. These are the strongest
+  // warnings in the mode and the document is where they matter most; Table→Chart
+  // and the periodic table already carry their notes across.
+  currentAssayText = insertable
+    ? out.caveats?.length
+      ? `${out.text}\n${out.caveats.map((c) => `Note: ${c}`).join("\n")}`
+      : out.text
+    : "";
   assayInsertBtn.disabled = !insertable;
 }
 

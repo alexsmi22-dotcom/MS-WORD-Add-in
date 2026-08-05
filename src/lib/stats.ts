@@ -258,6 +258,43 @@ export interface AnovaResult {
   dfBetween: number;
   dfWithin: number;
   p: number;
+  /** Between-groups sum of squares. */
+  ssBetween: number;
+  /** Within-groups (error) sum of squares. */
+  ssWithin: number;
+  /** ssBetween + ssWithin. */
+  ssTotal: number;
+  /** Error mean square, ssWithin / dfWithin. */
+  msWithin: number;
+  /**
+   * η² — the fraction of total variance lying between the groups,
+   * ssBetween / ssTotal.
+   *
+   * WHY AN EFFECT SIZE IS NOT OPTIONAL HERE. This module already MANDATES
+   * Cohen's d for both t-tests, with a comment explaining that the effect size
+   * describes the data rather than the test. The ANOVA beside it returned an F
+   * and a p and nothing else, so a significant result arrived with no magnitude
+   * at all — and p shrinks with sample size whether the effect is interesting or
+   * trivial. NaN when there is no variance to apportion, rather than 0/0.
+   *
+   * η² is the SAMPLE proportion and is biased upward as an estimate of the
+   * population value; that is what ω² below is for.
+   */
+  etaSquared: number;
+  /**
+   * ω² — the less biased population estimate,
+   * (ssBetween − dfBetween·msWithin) / (ssTotal + msWithin).
+   *
+   * DELIBERATELY NOT CLAMPED AT ZERO. ω² goes negative whenever the between-
+   * groups variation is smaller than chance alone predicts, which is a real and
+   * informative outcome (it says: no detectable effect). Clamping it silently
+   * would print "ω² = 0" beside a positive η² computed from the same sums of
+   * squares — one document, two answers, which is the exact defect shape this
+   * release is fixing in the correlations table. Display rule for the caller: a
+   * negative ω² is reported as "≈ 0 — no effect detectable above the noise",
+   * with the computed value shown, never rewritten.
+   */
+  omegaSquared: number;
 }
 
 /** One-way ANOVA across ≥2 groups. */
@@ -276,8 +313,22 @@ export function oneWayAnova(groups: number[][]): AnovaResult {
   }
   const dfBetween = k - 1;
   const dfWithin = n - k;
-  const f = ssBetween / dfBetween / (ssWithin / dfWithin);
-  return { f, dfBetween, dfWithin, p: fTestP(f, dfBetween, dfWithin) };
+  const msWithin = ssWithin / dfWithin;
+  const f = ssBetween / dfBetween / msWithin;
+  const ssTotal = ssBetween + ssWithin;
+  return {
+    f,
+    dfBetween,
+    dfWithin,
+    p: fTestP(f, dfBetween, dfWithin),
+    ssBetween,
+    ssWithin,
+    ssTotal,
+    msWithin,
+    etaSquared: ssTotal > 0 ? ssBetween / ssTotal : NaN,
+    omegaSquared:
+      ssTotal > 0 ? (ssBetween - dfBetween * msWithin) / (ssTotal + msWithin) : NaN,
+  };
 }
 
 export interface RegressionResult {

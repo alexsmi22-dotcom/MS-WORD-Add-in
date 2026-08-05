@@ -39,7 +39,7 @@ import {
   DIVERGING_WARM,
   DIVERGING_COOL,
 } from "./chartPalette";
-import { niceStep, fmtTick } from "./plot";
+import { fmtTick } from "./plot";
 
 export interface HeatmapOptions {
   /** Sequential (magnitude) or diverging (polarity about a midpoint). */
@@ -311,10 +311,6 @@ export function buildHeatmapSvg(
         "figure, or use fewer rows and columns.",
     );
   }
-
-  // niceStep is imported for the tick machinery this shares with the other charts;
-  // referencing it keeps the dependency honest if the tick logic is extended.
-  void niceStep;
 
   return { svg: parts.join(""), notes };
 }

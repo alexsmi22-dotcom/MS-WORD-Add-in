@@ -91,6 +91,91 @@ export function cleanResidues(moltype: MolType, raw: string): CleanedResidues {
   return { residues, length: residues.length, invalid: Object.keys(invalid) };
 }
 
+// --- ST.26 minimum length ---------------------------------------------------
+//
+// WIPO ST.26 paragraph 8: a sequence with fewer than ten SPECIFICALLY DEFINED
+// nucleotides, or fewer than four specifically defined amino acids, is not
+// included in the listing at all. "Specifically defined" is the load-bearing
+// phrase — an IUPAC ambiguity code (n, r, y…) and an X are not specifically
+// defined residues, so a 30-mer of mostly n does not qualify on length.
+
+/** Minimum number of specifically defined residues for a sequence to be listed. */
+export const ST26_MIN_DEFINED: Record<MolType, number> = { DNA: 10, RNA: 10, AA: 4 };
+
+const DEFINED_DNA = "acgt";
+const DEFINED_RNA = "acgu";
+// The 20 standard residues plus Sec (U) and Pyl (O). B, Z, J and X are ambiguity
+// codes, not specifically defined amino acids.
+const DEFINED_AA = "ACDEFGHIKLMNPQRSTVWYUO";
+const DEFINED: Record<MolType, string> = { DNA: DEFINED_DNA, RNA: DEFINED_RNA, AA: DEFINED_AA };
+
+/** Counts residues that are specifically defined (not IUPAC-ambiguous, not X). */
+export function definedResidueCount(moltype: MolType, residues: string): number {
+  const allowed = DEFINED[moltype];
+  let n = 0;
+  for (const ch of residues) if (allowed.indexOf(ch) >= 0) n++;
+  return n;
+}
+
+export interface St26Exclusion {
+  /** 0-based position in the `entries` array handed to the builder. */
+  index: number;
+  moltype: MolType;
+  /** Total cleaned residues. */
+  length: number;
+  /** How many of those are specifically defined. */
+  defined: number;
+  /** The ST.26 minimum for this molecule type. */
+  minimum: number;
+  /** Plain-language reason, ready to show. */
+  reason: string;
+}
+
+/**
+ * The entries ST.26 will not let you list, and why.
+ *
+ * THIS LIST IS THE SAFETY MECHANISM, not a decoration. `buildSt26Xml` drops
+ * these entries, which means every SEQUENCE AFTER ONE OF THEM IS RENUMBERED:
+ * the third box in the pane stops being SEQ ID NO: 3, and the specification's
+ * "SEQ ID NO: 3" then points at a different molecule. That is the same class of
+ * silent wrong-statement-of-record as filing the wrong organism, so the caller
+ * must surface this list and make the user resolve it — not print it as a soft
+ * warning beside a downloadable file.
+ */
+export function st26Exclusions(entries: SequenceEntry[]): St26Exclusion[] {
+  const out: St26Exclusion[] = [];
+  entries.forEach((e, index) => {
+    const { residues, length } = cleanResidues(e.moltype, e.residues);
+    const defined = definedResidueCount(e.moltype, residues);
+    const minimum = ST26_MIN_DEFINED[e.moltype];
+    if (defined >= minimum) return;
+    const unit = e.moltype === "AA" ? "amino acid" : "nucleotide";
+    const detail =
+      defined === length
+        ? `${length} ${unit}${length === 1 ? "" : "s"}`
+        : `${length} residues, only ${defined} specifically defined (ambiguity codes do not count)`;
+    out.push({
+      index,
+      moltype: e.moltype,
+      length,
+      defined,
+      minimum,
+      reason:
+        `SEQ ${index + 1} has ${detail} — ST.26 does not list a sequence with fewer than ` +
+        `${minimum} specifically defined ${unit}s, so it is EXCLUDED from the listing and the ` +
+        "sequences after it are renumbered. Lengthen it or remove it, and check every SEQ ID NO " +
+        "reference in the specification.",
+    });
+  });
+  return out;
+}
+
+/** True when this entry is short of the ST.26 minimum and must not be listed. */
+function belowSt26Minimum(entry: SequenceEntry): boolean {
+  const { residues } = cleanResidues(entry.moltype, entry.residues);
+  return definedResidueCount(entry.moltype, residues) < ST26_MIN_DEFINED[entry.moltype];
+}
+
 const MOL_TYPE_QUAL: Record<MolType, string> = {
   DNA: "genomic DNA",
   RNA: "genomic RNA",
@@ -214,8 +299,28 @@ export function featureWarnings(entry: SequenceEntry): string[] {
     const region = cdsRegion(f.location, residues);
     if (region === null) {
       warnings.push(`CDS location "${f.location}" isn't a simple start..end range — add /translation manually and verify in WIPO Sequence.`);
-    } else if (region.length % 3 !== 0) {
-      warnings.push(`CDS (${f.location || "whole"}) length ${region.length} is not a multiple of 3 — check the reading frame.`);
+      continue;
+    }
+    // /codon_start says which base of the region is the first base of the first
+    // codon, so the CODABLE length is region.length − (codon_start − 1). Testing
+    // region.length alone contradicted `translateCds`, which does apply it: a
+    // correct 1..61 CDS with /codon_start=2 (60 codable bases) emitted a perfect
+    // 20-aa translation AND "length 61 is not a multiple of 3", while a genuinely
+    // broken 60-nt CDS with /codon_start=2 (59 codable) drew no warning at all.
+    const supplied = (f.qualifiers ?? []).find((q) => q.name.trim().toLowerCase() === "codon_start");
+    const codonStart = readCodonStart(supplied?.value);
+    const codable = region.length - (codonStart - 1);
+    const frame = codonStart === 1 ? "" : ` from /codon_start=${codonStart}`;
+    if (codable <= 0) {
+      warnings.push(
+        `CDS (${f.location || "whole"}) has ${region.length} base(s), which is not enough to hold one ` +
+          `codon${frame} — check the location and the reading frame.`
+      );
+    } else if (codable % 3 !== 0) {
+      warnings.push(
+        `CDS (${f.location || "whole"}) length ${region.length}${frame} leaves ${codable} codable base(s), ` +
+          "which is not a multiple of 3 — check the reading frame."
+      );
     }
   }
   return warnings;
@@ -262,13 +367,22 @@ export function buildSt26Xml(meta: SequenceListingMeta, entries: SequenceEntry[]
     ? el("ApplicantFileReference", meta.applicantFileReference)
     : "";
 
+  // Sequences below the ST.26 minimum are EXCLUDED — not numbered, not counted.
+  // They were previously emitted anyway, numbered and counted in
+  // SequenceTotalQuantity, after the pane had already told the user they were too
+  // short: the document declared itself compliant while carrying entries the
+  // standard forbids. Of the two consistent behaviours, exclusion is the one that
+  // produces a filable document; the cost is renumbering, which is exactly what
+  // `st26Exclusions` exists to make the caller confront BEFORE it builds.
+  const listed = entries.filter((e) => !belowSt26Minimum(e));
+
   const body =
     appId +
     fileRef +
     `<ApplicantName languageCode="en">${escapeXml(meta.applicantName)}</ApplicantName>` +
     `<InventionTitle languageCode="en">${escapeXml(meta.inventionTitle)}</InventionTitle>` +
-    el("SequenceTotalQuantity", String(entries.length)) +
-    entries.map((e, i) => sequenceData(e, i + 1)).join("");
+    el("SequenceTotalQuantity", String(listed.length)) +
+    listed.map((e, i) => sequenceData(e, i + 1)).join("");
 
   return (
     '<?xml version="1.0" encoding="UTF-8"?>\n' +

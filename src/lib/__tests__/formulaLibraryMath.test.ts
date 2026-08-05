@@ -50,6 +50,16 @@ function toJs(src: string): string {
 
   let s = src;
 
+  // Braced groups -> parentheses. The library writes a multi-token exponent as
+  // `e^{-x}` (braces are grouping only in mathParse, so Word typesets no bracket;
+  // the paren form `e^(-x)` renders a spurious one). For ARITHMETIC the two are the
+  // same thing, so the brace is simply a paren here.
+  //
+  // FIRST, before anything is parked: the generated loop bodies below contain real
+  // JavaScript braces, and rewriting those would produce a syntax error that reads
+  // like a broken formula.
+  s = s.replace(/\{/g, "(").replace(/\}/g, ")");
+
   // sum(i=1, n, body) / prod(k=1, n, body) -> an accumulator loop, parked.
   const reduceRe = /\b(sum|prod)\(\s*([A-Za-z]\w*)\s*=\s*([^,]+?),\s*([^,]+?),\s*/;
   for (let guard = 0; guard < 20; guard++) {

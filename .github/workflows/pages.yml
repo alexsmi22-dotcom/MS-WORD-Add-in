@@ -47,11 +47,30 @@ jobs:
         run: npm run validate:compounds
       - name: Validate manifest
         run: npx office-addin-manifest validate manifest.xml
-      # The headless render and landing-layout checks are deliberately NOT run
-      # here: both need a Chromium-family browser and both SKIP without one.
-      # Adding them to a runner with no browser would add two green ticks that
+      # NEEDS NO BROWSER AND NO NETWORK, so it belongs on the publish path.
+      # check-tool-pages.js is the gate that was written BECAUSE a tool page
+      # shipped broken for ten releases — and it was guarding nothing here.
+      - name: Tool pages
+        run: npm run check:toolpages
+      # Same: a pure-Node figure-geometry audit. It caught the class of defect
+      # where a legend outside the plot frame gets clipped or overlapped.
+      # Its corpus coverage is derived from src/lib, so a new chart module with
+      # no figure in the corpus fails here rather than shipping ungated.
+      - name: Figure layout
+        run: npm run check:figures
+      # And the third: every getElementById in the pane must have a matching id.
+      # A miss is a null at runtime and a control that silently does nothing,
+      # which no type check and no unit test can see. This was inline PowerShell
+      # in scripts/qc.ps1, so it ran only on a Windows machine and never on the
+      # publish path. It is plain Node and needs neither browser nor network.
+      - name: Task-pane id wiring
+        run: npm run check:idwiring
+      # The headless RENDER and landing-layout checks are still deliberately NOT
+      # run here: both need a Chromium-family browser and both SKIP without one.
+      # Adding them to a runner with no browser would add green ticks that
       # checked nothing — the exact failure this block exists to prevent. They
-      # run in `npm run qc` locally, where a browser exists.
+      # run in `npm run qc` locally, where a browser exists. The two checks
+      # above are different: they are plain Node and fail honestly.
 
   deploy:
     name: Build and publish

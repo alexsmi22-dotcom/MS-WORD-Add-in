@@ -16,6 +16,14 @@ interface AminoAcid {
   side: string;
   /** Proline's ring folds the backbone nitrogen in, so its unit is special. */
   special?: string;
+  /**
+   * Genetically encoded but not one of the 20 — Sec (U) and Pyl (O). Flagged so
+   * the UI can label them, not to exclude them: they are real residues, they are
+   * in `sequence.ts`'s ST.26 alphabet and in `dna.ts`'s mass table, and this
+   * module used to be the only place that rejected them — which truncated a
+   * selenoprotein peptide silently at the first U.
+   */
+  nonstandard?: boolean;
 }
 
 // Side chains are written as the branch hanging off the alpha carbon Cα.
@@ -40,6 +48,13 @@ const AMINO_ACIDS: AminoAcid[] = [
   { one: "K", three: "Lys", name: "Lysine", side: "CCCCN" },
   { one: "R", three: "Arg", name: "Arginine", side: "CCCNC(=N)N" },
   { one: "H", three: "His", name: "Histidine", side: "Cc1c[nH]cn1" },
+  // The 21st and 22nd proteinogenic residues. Sec is cysteine with selenium in
+  // place of sulfur (C3H7NO2Se, 168.05). Pyl is lysine whose ε-amine is acylated
+  // by (4R,5R)-4-methylpyrroline-5-carboxylate (C12H21N3O3, 255.32); as
+  // everywhere in this module the ring stereocentres are left unspecified rather
+  // than asserted.
+  { one: "U", three: "Sec", name: "Selenocysteine", side: "C[SeH]", nonstandard: true },
+  { one: "O", three: "Pyl", name: "Pyrrolysine", side: "CCCCNC(=O)C1C(C)CC=N1", nonstandard: true },
 ];
 
 const BY_ONE: Record<string, AminoAcid> = {};
@@ -82,6 +97,10 @@ export function parseSequence(input: string): ParsedSequence {
     const t = tokens[0];
     // A lone token that is exactly a known three-letter code = that one residue;
     // otherwise it's a bare one-letter sequence ("ACDEFG"), read per character.
+    // THREE-LETTER WINS, deliberately and consistently: "ALA" and "CYS" have
+    // always read as one residue rather than A-L-A and C-Y-S, and adding Sec and
+    // Pyl extends that to "SEC" and "PYL". Anyone meaning the tripeptide can
+    // space or hyphenate it ("S E C"), which is unambiguous either way.
     if (t.length === 3 && BY_THREE[t.toUpperCase()]) pushThree(t);
     else for (const ch of t) pushOne(ch);
     return { codes, invalid };
@@ -135,7 +154,10 @@ export function buildPeptide(input: string): PeptideResult | null {
   return { sequence: codes.join(""), smiles, length: codes.length, invalid };
 }
 
-/** The 20 standard amino acids, for a reference/legend in the UI. */
-export function aminoAcidTable(): { one: string; three: string; name: string }[] {
-  return AMINO_ACIDS.map((a) => ({ one: a.one, three: a.three, name: a.name }));
+/**
+ * The proteinogenic amino acids, for a reference/legend in the UI — the 20
+ * standard ones plus Sec and Pyl, flagged.
+ */
+export function aminoAcidTable(): { one: string; three: string; name: string; nonstandard: boolean }[] {
+  return AMINO_ACIDS.map((a) => ({ one: a.one, three: a.three, name: a.name, nonstandard: !!a.nonstandard }));
 }

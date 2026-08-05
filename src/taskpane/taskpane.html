@@ -752,7 +752,7 @@
         </p>
         <span class="field-label" id="engineering-groups-label">Calculation</span>
         <!--
-          One panel per discipline, instead of a 36-item dropdown. The <select>
+          One panel per discipline, instead of one enormous dropdown. The <select>
           below is still the single source of truth for which calculation is
           selected — the panels set its value and fire `change`, so every
           downstream path (input rendering, compute, insert, the routing gates
@@ -863,7 +863,7 @@
         <select id="solve-kind" class="mode-select">
           <option value="equation">Solve an equation</option>
           <option value="derivative">Differentiate</option>
-          <option value="integral">Definite integral</option>
+          <option value="integral">Integral (definite or indefinite)</option>
           <option value="geometry">Geometry</option>
           <option value="topology">Topology (homology)</option>
           <option value="word">Word problem</option>

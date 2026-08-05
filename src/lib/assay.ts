@@ -13,7 +13,7 @@
 
 // --- linear algebra helpers --------------------------------------------------
 
-import { maxOf } from "./minmax";
+import { maxOf, minOf } from "./minmax";
 
 /** Solves the linear system A·x = b (A is n×n, row-major) by Gaussian
  *  elimination with partial pivoting. Returns null if A is singular. */
@@ -518,6 +518,81 @@ export interface DoseResponseFit extends FitResult {
  * curve fits with the same positive-hill model), and EC50 is seeded at the
  * concentration nearest the mid-response.
  */
+/**
+ * Model-specific caveats for a 4PL fit.
+ *
+ * The failure this catches is the common one and the invisible one: an EC50/IC50
+ * that lands OUTSIDE the concentrations actually tested. The optimiser is happy
+ * to place the inflection beyond the last dose — the data is then all on one
+ * shoulder of the curve, R² comes back ≈ 0.998, and the number quoted in the
+ * paper is an extrapolation dressed as a measurement. `fitMichaelisMenten`
+ * already refuses to let the identical failure pass silently (`kineticsCaveats`);
+ * this is the same check for the two most-used fits in the mode.
+ */
+function doseResponseCaveats(
+  conc: number[],
+  ec50: number,
+  ec50SE: number,
+  bottom: number,
+  top: number
+): string[] {
+  const out: string[] = [];
+  const positive = conc.filter((c) => c > 0);
+  const lo = positive.length ? minOf(positive) : NaN;
+  const hi = positive.length ? maxOf(positive) : NaN;
+
+  if (!Number.isFinite(ec50) || ec50 <= 0) {
+    out.push(
+      "The fitted EC50/IC50 is not a positive concentration, so the curve did not resolve a " +
+        "midpoint from this data. Do not report it."
+    );
+  } else if (Number.isFinite(hi) && ec50 > hi) {
+    out.push(
+      `EC50/IC50 (${ec50.toPrecision(3)}) is ABOVE the highest concentration tested ` +
+        `(${hi.toPrecision(3)}) — it is an extrapolation past the end of your data, not a measured ` +
+        "midpoint. Every point sits on one shoulder of the curve, which is why R² can still look " +
+        "excellent. Test higher concentrations, up to a clear upper plateau."
+    );
+  } else if (Number.isFinite(lo) && ec50 < lo) {
+    out.push(
+      `EC50/IC50 (${ec50.toPrecision(3)}) is BELOW the lowest concentration tested ` +
+        `(${lo.toPrecision(3)}) — it is extrapolated off the bottom of your data. The lower plateau ` +
+        "was never observed, so both it and the midpoint are guesses. Test lower concentrations."
+    );
+  } else if (Number.isFinite(lo) && Number.isFinite(hi) && hi / Math.max(lo, Number.MIN_VALUE) < 100) {
+    out.push(
+      `The tested range spans only ${(hi / lo).toPrecision(2)}-fold. A 4-parameter logistic needs ` +
+        "both plateaus to pin four parameters; a conventional dose-response covers 4–6 log units " +
+        "(a 10 000-fold range or more)."
+    );
+  }
+
+  if (ec50 !== 0 && Number.isFinite(ec50SE) && Math.abs(ec50SE / ec50) > 0.2) {
+    out.push(
+      `EC50/IC50 has a standard error of ${(Math.abs(ec50SE / ec50) * 100).toFixed(0)}% of the ` +
+        "estimate — this data does not pin the midpoint down, whatever R² says."
+    );
+  }
+
+  if (Number.isFinite(bottom) && Number.isFinite(top) && Math.abs(top - bottom) > 0) {
+    out.push(
+      bottom < top
+        ? "Fitted as an INCREASING curve (bottom < top), so this is an EC50. Both plateaus are " +
+          "fitted parameters: if the data never reached one of them, that plateau — and the EC50 " +
+          "that depends on it — is extrapolation."
+        : "Fitted as a DECREASING curve (bottom > top), so this is an IC50. Both plateaus are " +
+          "fitted parameters: if the data never reached one of them, that plateau — and the IC50 " +
+          "that depends on it — is extrapolation."
+    );
+  }
+
+  out.push(
+    "Concentrations must be LINEAR here, not log-transformed, and the Hill slope is a shape " +
+      "parameter — it is not evidence of the number of binding sites."
+  );
+  return out;
+}
+
 export function fitDoseResponse(conc: number[], response: number[]): DoseResponseFit {
   let iLo = 0;
   let iHi = 0;
@@ -552,6 +627,13 @@ export function fitDoseResponse(conc: number[], response: number[]): DoseRespons
     ec50,
     hill: fit.params[3],
     pEC50: ec50 > 0 ? -Math.log10(ec50) : NaN,
+    // Design caveats FIRST, as in fitMichaelisMenten: a midpoint outside the
+    // tested range matters more than the generic warnings, and a reader stops
+    // after the first bullet or two.
+    caveats: [
+      ...doseResponseCaveats(conc, ec50, fit.se[2], fit.params[0], fit.params[1]),
+      ...fit.caveats,
+    ],
   };
 }
 
@@ -835,6 +917,57 @@ export interface BindingFit extends FitResult {
   kdSE: number;
 }
 
+/**
+ * Model-specific caveats for a saturation-binding fit.
+ *
+ * Identical in kind to `kineticsCaveats` — the hyperbola is the same one — but
+ * stated for (Bmax, Kd): if the ligand range never approaches saturation, Bmax is
+ * an extrapolation to infinite ligand and Kd rides on it. R² does not carry that
+ * signal; only the standard errors and the design do.
+ */
+function bindingCaveats(ligand: number[], kd: number, bmax: number, bmaxSE: number, kdSE: number): string[] {
+  const out: string[] = [];
+  const hi = ligand.length ? maxOf(ligand) : NaN;
+  const ratio = kd > 0 ? hi / kd : Infinity;
+
+  if (!(kd > 0) || !Number.isFinite(kd)) {
+    out.push("The fitted Kd is not a positive concentration — this data did not determine it. Do not report it.");
+  } else if (!Number.isFinite(ratio) || ratio < 1) {
+    out.push(
+      `LIGAND RANGE TOO LOW: your highest [L] (${hi.toPrecision(3)}) is BELOW the fitted Kd ` +
+        `(${kd.toPrecision(3)}), so the curve never approaches saturation. Bmax and Kd are NOT ` +
+        "separately determined here — only their ratio is — and a high R² does not change that. " +
+        "Points up to ~5×Kd are what pin Bmax."
+    );
+  } else if (ratio < 3) {
+    out.push(
+      `Ligand range is marginal: the highest [L] is only ${ratio.toFixed(1)}×Kd, so the plateau is ` +
+        "barely approached and Bmax leans on extrapolation. Points up to ~5×Kd would tighten it."
+    );
+  }
+
+  if (bmax !== 0 && Number.isFinite(bmaxSE) && Math.abs(bmaxSE / bmax) > 0.2) {
+    out.push(
+      `Bmax has a standard error of ${(Math.abs(bmaxSE / bmax) * 100).toFixed(0)}% — it is an ` +
+        "extrapolation to infinite ligand, not something this data measured directly."
+    );
+  }
+  if (kd !== 0 && Number.isFinite(kdSE) && Math.abs(kdSE / kd) > 0.2) {
+    out.push(
+      `Kd has a standard error of ${(Math.abs(kdSE / kd) * 100).toFixed(0)}% of the estimate — ` +
+        "the affinity is not pinned down by these points."
+    );
+  }
+
+  out.push(
+    "This is the ONE-SITE model on SPECIFIC binding. If the input is total binding, Bmax and Kd " +
+      "are both inflated by the non-specific component — subtract it first. Two site classes, " +
+      "cooperativity, or ligand depletion (bound is a large fraction of added ligand) each break " +
+      "this equation, and none of them announce themselves in R²."
+  );
+  return out;
+}
+
 /** Fits one-site saturation binding (Bmax, Kd) to ligand/bound data. */
 export function fitSaturationBinding(ligand: number[], bound: number[]): BindingFit {
   // Same hyperbola as Michaelis-Menten, so reuse its stable seeding.
@@ -842,7 +975,16 @@ export function fitSaturationBinding(ligand: number[], bound: number[]): Binding
   const bmax0 = seed.vmax > 0 ? seed.vmax : maxOf(bound);
   const kd0 = seed.km > 0 ? seed.km : ligand[Math.floor(ligand.length / 2)] || 1;
   const fit = levenbergMarquardt(ligand, bound, ([bmax, kd], x) => oneSiteBinding(bmax, kd, x), [bmax0, kd0]);
-  return { ...fit, bmax: fit.params[0], kd: fit.params[1], bmaxSE: fit.se[0], kdSE: fit.se[1] };
+  const [bmax, kd] = fit.params;
+  return {
+    ...fit,
+    bmax,
+    kd,
+    bmaxSE: fit.se[0],
+    kdSE: fit.se[1],
+    // Design caveats first, as in fitMichaelisMenten.
+    caveats: [...bindingCaveats(ligand, kd, bmax, fit.se[0], fit.se[1]), ...fit.caveats],
+  };
 }
 
 // --- everyday lab calculators (closed form) ---------------------------------
@@ -916,7 +1058,116 @@ export function nucleicAcidConc(a260: number, kind: NucleicAcidKind, dilution = 
 /**
  * Protein concentration (M) from A280 via Beer-Lambert with a known molar
  * extinction coefficient ε (M⁻¹cm⁻¹) and path length l (cm).
+ *
+ * If you do not know ε, `extinctionCoefficient` computes it from the sequence.
  */
 export function proteinConcFromA280(a280: number, epsilon: number, l = 1): number {
   return epsilon === 0 ? NaN : a280 / (epsilon * l);
+}
+
+// --- molar extinction coefficient from sequence (Gill & von Hippel 1989) -----
+
+/** Per-residue contributions to ε₂₈₀, M⁻¹cm⁻¹ (Gill & von Hippel 1989). */
+export const EPSILON_280 = { tryptophan: 5500, tyrosine: 1490, cystine: 125 };
+
+export interface ExtinctionCoefficient {
+  /** ε₂₈₀ (M⁻¹cm⁻¹) with every cysteine REDUCED — no disulfides. */
+  reduced: number;
+  /** ε₂₈₀ (M⁻¹cm⁻¹) assuming every pair of cysteines forms a cystine. */
+  cystines: number;
+  /**
+   * Absorbance of a 1 mg/mL solution (ε/MW), for each cysteine assumption —
+   * null when no MW was supplied. Both are given for the same reason ε is.
+   */
+  a280_1mgPerMl: { reduced: number; cystines: number } | null;
+  /** Residue counts the calculation used. */
+  counts: { W: number; Y: number; C: number; cystinePairs: number };
+  /** Residue letters in the input that are not standard amino acids. */
+  skipped: string[];
+  caveats: string[];
+}
+
+/**
+ * Molar extinction coefficient at 280 nm from the sequence alone
+ * (Gill & von Hippel 1989, as used by Expasy ProtParam):
+ *
+ *   ε₂₈₀ = 5500·n(Trp) + 1490·n(Tyr) + 125·n(cystine)
+ *
+ * The cysteine state is NOT decided here. A reduced protein and the same protein
+ * fully disulfide-bonded have different ε, and picking one silently would put a
+ * few percent of systematic error into every concentration computed from it — so
+ * both are returned and the assumption is stated as a caveat for the user to make.
+ *
+ * `mw` is optional and only used for the 1 mg/mL absorbance (ε/MW); pass the value
+ * `proteinProperties` already computes from the same string.
+ */
+export function extinctionCoefficient(sequence: string, mw?: number): ExtinctionCoefficient {
+  const seq = sequence.toUpperCase().replace(/[^A-Z]/g, "");
+  const standard = "ACDEFGHIKLMNPQRSTVWY";
+  let w = 0;
+  let y = 0;
+  let c = 0;
+  const skippedSet: Record<string, true> = {};
+  for (const ch of seq) {
+    if (ch === "W") w++;
+    else if (ch === "Y") y++;
+    else if (ch === "C") c++;
+    if (standard.indexOf(ch) < 0) skippedSet[ch] = true;
+  }
+  const pairs = Math.floor(c / 2);
+  const reduced = EPSILON_280.tryptophan * w + EPSILON_280.tyrosine * y;
+  const cystines = reduced + EPSILON_280.cystine * pairs;
+
+  const caveats: string[] = [];
+  caveats.push(
+    "Two values, because the CYSTEINE STATE changes the answer: `reduced` assumes free thiols " +
+      "(a protein in DTT/TCEP or an intracellular one), `cystines` assumes every pair of " +
+      "cysteines forms a disulfide. Choose the one that matches your sample — this cannot be " +
+      "read off the sequence."
+  );
+  if (reduced === 0) {
+    caveats.push(
+      "NO TRYPTOPHAN AND NO TYROSINE: this protein barely absorbs at 280 nm, so A280 cannot " +
+        "measure its concentration at all. Use a colorimetric assay (BCA, Bradford) or A205/A214."
+    );
+  } else if (w === 0) {
+    caveats.push(
+      "No tryptophan. Gill & von Hippel is least reliable for Trp-free proteins — the published " +
+        "error is around ±10% rather than the usual ±5%."
+    );
+  }
+  caveats.push(
+    "Gill & von Hippel was calibrated on DENATURED protein (6 M guanidine·HCl). A folded protein " +
+      "buries some of its aromatics, so the native ε differs, typically by a few percent."
+  );
+  caveats.push(
+    "Sequence-only: it accounts for no non-protein chromophore. Haem, flavin, pyridoxal, a bound " +
+      "nucleotide, or nucleic-acid contamination all absorb near 280 nm and will inflate the " +
+      "concentration. Check A260/A280 — near 0.57 for pure protein, near 2.0 for nucleic acid."
+  );
+  const skipped = Object.keys(skippedSet);
+  if (skipped.length) {
+    // X/B/Z/J stand for a residue we do not know, and the one they hide may be a
+    // Trp or a Tyr — that is a hole in ε. U (Sec) and O (Pyl) are known residues
+    // that simply do not absorb at 280 nm, so they cost nothing; saying they
+    // might is a false alarm.
+    const unresolved = skipped.filter((c) => c !== "U" && c !== "O");
+    caveats.push(
+      unresolved.length
+        ? `Ignored ${unresolved.join(", ")} — ambiguity codes stand for a residue this cannot ` +
+          "identify, and if any of them is a Trp or a Tyr then ε is too low by 5 500 or " +
+          "1 490 M⁻¹cm⁻¹ apiece."
+        : `Sec (U) and Pyl (O) are present and contribute nothing to ε₂₈₀ — neither absorbs ` +
+          "there. That is correct, not an omission."
+    );
+  }
+
+  return {
+    reduced,
+    cystines,
+    a280_1mgPerMl: mw && mw > 0 ? { reduced: reduced / mw, cystines: cystines / mw } : null,
+    counts: { W: w, Y: y, C: c, cystinePairs: pairs },
+    skipped,
+    caveats,
+  };
 }

@@ -5,6 +5,13 @@
 // Syntax reminders: a/b fraction · x^2 / a_n super/subscript · sqrt(x), root(n,x)
 // · sum(lo,hi,body) Σ · int(lo,hi,body) ∫ · prod, lim(x->0,body) · abs(x)/|x|
 // · bar(x) hat(x) vec(x) accents · sin(x)…log/ln functions · n! factorial · +- → ±.
+//
+// A MULTI-TOKEN EXPONENT USES BRACES, NOT PARENTHESES: e^{-x}, not e^(-x).
+// mathParse's `(` builds a DELIMITER node that keeps its brackets, while `{` is
+// grouping only — so e^(-x) typeset in Word as e^((-x)) and the Sigmoid entry read
+// σ(x) = 1/(1 + e^((−x))). Eleven entries here used the paren form while the app's
+// own help (examples.ts) and every Finance entry used braces; the library was
+// inconsistent with itself. bracedExponents.test.ts sweeps every entry for `^(`.
 
 export interface Formula {
   label: string;
@@ -31,7 +38,7 @@ export const FORMULA_LIBRARY: FormulaCategory[] = [
         expr:
           "r = sum(i=1, n, (x_i - bar(x))(y_i - bar(y))) / sqrt(sum(i=1, n, (x_i - bar(x))^2) sum(i=1, n, (y_i - bar(y))^2))",
       },
-      { label: "Normal distribution (PDF)", expr: "f(x) = (1/(sigma sqrt(2 pi))) e^(-(x - mu)^2/(2 sigma^2))" },
+      { label: "Normal distribution (PDF)", expr: "f(x) = (1/(sigma sqrt(2 pi))) e^{-(x - mu)^2/(2 sigma^2)}" },
       { label: "Combinations (n choose k)", expr: "C(n, k) = n!/(k!(n - k)!)" },
     ],
   },
@@ -57,7 +64,7 @@ export const FORMULA_LIBRARY: FormulaCategory[] = [
       { label: "Slope-intercept line", expr: "y = m x + b" },
       { label: "Difference of squares", expr: "a^2 - b^2 = (a - b)(a + b)" },
       { label: "Square of a binomial", expr: "(a + b)^2 = a^2 + 2 a b + b^2" },
-      { label: "Product of powers", expr: "a^m a^n = a^(m + n)" },
+      { label: "Product of powers", expr: "a^m a^n = a^{m + n}" },
       { label: "Logarithm of a product", expr: "log(x y) = log(x) + log(y)" },
       { label: "Change of base", expr: "log_b(x) = ln(x)/ln(b)" },
     ],
@@ -78,7 +85,7 @@ export const FORMULA_LIBRARY: FormulaCategory[] = [
     name: "Calculus",
     formulas: [
       { label: "Derivative (limit definition)", expr: "(df)/(dx) = lim(h -> 0, (f(x + h) - f(x))/h)" },
-      { label: "Power rule", expr: "(d/dx) x^n = n x^(n - 1)" },
+      { label: "Power rule", expr: "(d/dx) x^n = n x^{n - 1}" },
       { label: "Fundamental theorem", expr: "int(a, b, f(x)) = F(b) - F(a)" },
       { label: "Sum of first n integers", expr: "sum(i=1, n, i) = n(n + 1)/2" },
       { label: "Geometric series", expr: "sum(n=0, infinity, r^n) = 1/(1 - r)" },
@@ -94,7 +101,7 @@ export const FORMULA_LIBRARY: FormulaCategory[] = [
       { label: "Modular exponentiation", expr: "y = g^x mod p" },
       { label: "Diffie–Hellman shared secret", expr: "K = B^a mod p" },
       { label: "Congruence (mod n)", expr: "a ≡ b (mod n)" },
-      { label: "Birthday bound", expr: "p ≈ 1 - e^(-(k^2)/(2 N))" },
+      { label: "Birthday bound", expr: "p ≈ 1 - e^{-(k^2)/(2 N)}" },
     ],
   },
   {
@@ -102,8 +109,8 @@ export const FORMULA_LIBRARY: FormulaCategory[] = [
     formulas: [
       { label: "Shannon entropy", expr: "H(X) = -sum(i=1, n, p_i log(p_i))" },
       { label: "Cross-entropy", expr: "H(p, q) = -sum(i=1, n, p_i log(q_i))" },
-      { label: "Sigmoid", expr: "σ(x) = 1/(1 + e^(-x))" },
-      { label: "Softmax", expr: "softmax(x_i) = e^(x_i)/sum(j=1, n, e^(x_j))" },
+      { label: "Sigmoid", expr: "σ(x) = 1/(1 + e^{-x})" },
+      { label: "Softmax", expr: "softmax(x_i) = e^{x_i}/sum(j=1, n, e^{x_j})" },
       { label: "Gradient-descent update", expr: "θ = θ - α ∇J(θ)" },
       { label: "Mean squared error", expr: "MSE = (1/n) sum(i=1, n, (y_i - hat(y)_i)^2)" },
       { label: "Asymptotic bound", expr: "T(n) = O(n log(n))" },
@@ -165,8 +172,8 @@ export const FORMULA_LIBRARY: FormulaCategory[] = [
   {
     name: "Hyperbolic functions",
     formulas: [
-      { label: "Sinh", expr: "sinh(x) = (e^x - e^(-x))/2" },
-      { label: "Cosh", expr: "cosh(x) = (e^x + e^(-x))/2" },
+      { label: "Sinh", expr: "sinh(x) = (e^x - e^{-x})/2" },
+      { label: "Cosh", expr: "cosh(x) = (e^x + e^{-x})/2" },
       { label: "Tanh", expr: "tanh(x) = sinh(x)/cosh(x)" },
       { label: "Sech", expr: "sech(x) = 1/cosh(x)" },
       { label: "Inverse sinh", expr: "arsinh(x) = ln(x + sqrt(x^2 + 1))" },
@@ -180,14 +187,14 @@ export const FORMULA_LIBRARY: FormulaCategory[] = [
       { label: "Exponential", expr: "exp(x) = e^x" },
       { label: "Change of base", expr: "log_b(x) = ln(x)/ln(b)" },
       { label: "Log of a power", expr: "log(x^n) = n log(x)" },
-      { label: "Logistic / sigmoid", expr: "σ(x) = 1/(1 + e^(-x))" },
+      { label: "Logistic / sigmoid", expr: "σ(x) = 1/(1 + e^{-x})" },
     ],
   },
   {
     name: "Special functions",
     formulas: [
       { label: "Gamma function", expr: "Γ(n) = (n - 1)!" },
-      { label: "Error function", expr: "erf(x) = (2/sqrt(π)) int(0, x, e^(-t^2))" },
+      { label: "Error function", expr: "erf(x) = (2/sqrt(π)) int(0, x, e^{-t^2})" },
       { label: "Riemann zeta", expr: "ζ(s) = sum(n=1, infinity, 1/n^s)" },
       { label: "Sign function", expr: "sgn(x)" },
       { label: "Factorial", expr: "n! = prod(k=1, n, k)" },
@@ -198,7 +205,7 @@ export const FORMULA_LIBRARY: FormulaCategory[] = [
     formulas: [
       { label: "Combinations (n choose k)", expr: "C(n, k) = n!/(k!(n - k)!)" },
       { label: "Permutations", expr: "P(n, k) = n!/(n - k)!" },
-      { label: "Binomial theorem", expr: "(x + y)^n = sum(k=0, n, C(n, k) x^(n - k) y^k)" },
+      { label: "Binomial theorem", expr: "(x + y)^n = sum(k=0, n, C(n, k) x^{n - k} y^k)" },
       { label: "GCD / LCM relation", expr: "gcd(a, b) lcm(a, b) = a b" },
       { label: "Modulo", expr: "a mod n" },
       { label: "Floor & ceiling", expr: "floor(x) <= x <= ceil(x)" },

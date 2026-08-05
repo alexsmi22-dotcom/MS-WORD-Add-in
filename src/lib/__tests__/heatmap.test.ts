@@ -255,15 +255,36 @@ describe("it is reachable from the chart dispatcher", () => {
   // A green renderer test proves nothing about whether the pane can call it — the
   // routing-versus-engine lesson this repo has already paid for twice.
   test('buildChartPreviewSvg dispatches kind "heatmap" to the heat-map renderer', () => {
-    const svg = buildChartPreviewSvg(SALES, "heatmap", "Sales", {});
+    const { svg } = buildChartPreviewSvg(SALES, "heatmap", "Sales", {});
     expect(svg.startsWith("<svg")).toBe(true);
     expect(svg).toMatch(/low to high/); // the heat-map colour bar, not an axis chart
     expect(svg).not.toMatch(/NaN|Infinity/);
   });
 
+  // REGRESSION (gap analysis 2026-08-05, defect 0.20). `buildChartPreviewSvg`
+  // returned `buildHeatmapSvg(...).svg` and dropped `.notes`, so the renderer's
+  // one guard against a reader treating a blank cell as a zero never arrived.
+  test("the 'not counted as zero' note survives the dispatcher", () => {
+    const gappy = mk(
+      ["north", "south"],
+      [
+        ["Q1", [10, null]],
+        ["Q2", [20, 30]],
+      ],
+    );
+    const { svg, warnings } = buildChartPreviewSvg(gappy, "heatmap", "Sales", {});
+    expect(svg.startsWith("<svg")).toBe(true);
+    expect(warnings.join(" ")).toMatch(/not numeric and (is|are) left blank/);
+    expect(warnings.join(" ")).toMatch(/NOT counted as zero/);
+  });
+
+  test("a heat map with nothing to say says nothing", () => {
+    expect(buildChartPreviewSvg(SALES, "heatmap", "Sales", {}).warnings).toEqual([]);
+  });
+
   test("the patent (black-and-white) style renders in grey, not in blue", () => {
-    const colour = buildChartPreviewSvg(SALES, "heatmap", "Sales", {});
-    const bw = buildChartPreviewSvg(SALES, "heatmap", "Sales", { patent: true });
+    const colour = buildChartPreviewSvg(SALES, "heatmap", "Sales", {}).svg;
+    const bw = buildChartPreviewSvg(SALES, "heatmap", "Sales", { patent: true }).svg;
     expect(bw).not.toBe(colour);
     // No blue fills survive in the black-and-white rendering.
     const blues = [...bw.matchAll(/fill="(#[0-9a-f]{6})"/g)]

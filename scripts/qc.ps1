@@ -7,9 +7,10 @@
 #    4. Compound vs PubChem       8. Landing-page layout        12. Task-pane id wiring audit
 #   4b. Figure layout
 #
-# (11 Invoke-Step gates plus the id-wiring audit at the end. This list had itself
-# gone stale, naming eight steps for a file that ran eleven — the same drift the
-# gates below exist to catch, in the header describing them.)
+# (12 Invoke-Step gates. This list had itself gone stale, naming eight steps for
+# a file that ran eleven — the same drift the gates below exist to catch, in the
+# header describing them. The id-wiring audit was inline PowerShell until
+# 2026-08-05 and is now scripts/check-id-wiring.js, so it runs in CI too.)
 #
 # Exit codes: 0 all passed - 1 something failed - 3 nothing failed but a gate was
 # SKIPPED (the two headless gates need a Chromium-family browser).
@@ -95,29 +96,23 @@ Invoke-Step "Engineering audit"   { node scripts/engineering-audit.js }
 # an axis title, or a curve drawn straight through the legend entry that names
 # it. Those are measurable, not matters of taste, so they are measured. The
 # analyser self-tests on known-bad payloads before it reports anything.
-Invoke-Step "Figure layout"       { npx ts-node --compiler-options '{\"module\":\"commonjs\"}' scripts/figure-layout-run.ts }
+#
+# THIS USED TO READ `npx ts-node …`, AND ts-node WAS NEVER INSTALLED — not in
+# devDependencies, not in node_modules. Offline this step could not run at all;
+# online it network-installed on every QC run. It now goes through the same
+# `check:figures` entry point as the CI gate in .github/workflows/pages.yml, so
+# there is ONE invocation path rather than two that can drift apart, and it
+# loads TypeScript through the `typescript` devDependency already on disk.
+Invoke-Step "Figure layout"       { node scripts/check-figures.js }
 
 # 5. Task-pane id wiring audit — every getElementById has a matching HTML id.
-Write-Host ""
-Write-Host "==> Task-pane id wiring audit" -ForegroundColor Cyan
-$ts = Get-Content "src\taskpane\taskpane.ts" -Raw
-$html = Get-Content "src\taskpane\taskpane.html" -Raw
-$tsIds = [regex]::Matches($ts, 'getElementById\("([^"]+)"\)') | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique
-$htmlIds = [regex]::Matches($html, 'id="([^"]+)"') | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique
-# Some elements are created at runtime rather than authored in the HTML (e.g. the
-# update banner: the code assigns `bar.id = "update-banner"` and the matching
-# getElementById is only a guard against creating it twice). Those ids are wired
-# correctly and must not be reported as missing.
-$dynamicIds = [regex]::Matches($ts, '\.id\s*=\s*"([^"]+)"') | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique
-$knownIds = @($htmlIds) + @($dynamicIds)
-$missing = $tsIds | Where-Object { $_ -notin $knownIds }
-$idOk = (@($missing).Count -eq 0)
-$results["Id wiring audit"] = $(if ($idOk) { "PASS" } else { "FAIL" })
-if ($idOk) {
-  Write-Host ("    PASS: all {0} ids matched" -f @($tsIds).Count) -ForegroundColor Green
-} else {
-  Write-Host ("    FAIL: ids with no matching HTML element -> {0}" -f ($missing -join ", ")) -ForegroundColor Red
-}
+#
+# THIS WAS ~15 LINES OF INLINE POWERSHELL, so it ran only on a Windows machine
+# and only when somebody ran `npm run qc`. It needs no browser and no network, so
+# there was no reason for it to be absent from the publish path — and it was.
+# It now lives in scripts/check-id-wiring.js, runs in the GitHub Pages gate, and
+# self-tests its predicate on a known-bad payload before reporting.
+Invoke-Step "Id wiring audit"     { node scripts/check-id-wiring.js }
 
 # Summary
 Write-Host ""

@@ -94,6 +94,79 @@ describe("the em-dash sentinel hazard is contained", () => {
     return keep;
   }
 
+  /**
+   * Drops the lines of any `return` whose whole expression is string literals —
+   * no template interpolation, no number formatter.
+   *
+   * FIN_CALCS has no `ok: false` channel: its `compute` returns a bare string,
+   * so a REFUSAL is just an early `return "…"`. Those refusals are supposed to
+   * carry the em dash — that is what makes them non-insertable, which is the
+   * correct outcome for a message that is not a result. The perpetuity
+   * divergence notice ("the sum does not converge") is exactly this.
+   *
+   * A real RESULT always interpolates a computed value or calls a formatter, so
+   * "the return contains a template interpolation or one of the finMoney /
+   * finPct / finFixed / assaySig / toFixed / toLocaleString formatters" is the
+   * discriminator. It is deliberately conservative: a literal line sitting
+   * inside a return that DOES compute something — the annuity block's prose —
+   * stays in scope, which is how the pre-existing annuity defect was caught.
+   */
+  /**
+   * The `compute:` property's body only — the text that becomes a RESULT.
+   *
+   * Everything else in a calculator entry (field labels, `hint`, and above all
+   * `assumes`) is either not shown as a result or is appended after the
+   * insertability decision has already been made, so a sentinel there is
+   * harmless and flagging it would be noise that gets the guard switched off.
+   */
+  function computeBody(body: string): string {
+    const i = body.indexOf("compute:");
+    if (i < 0) return "";
+    const rest = body.slice(i);
+    let depth = 0;
+    let started = false;
+    for (let k = 0; k < rest.length; k++) {
+      const ch = rest[k];
+      if ("([{".includes(ch)) {
+        depth++;
+        started = true;
+      } else if (")]}".includes(ch)) {
+        depth--;
+        if (started && depth <= 0) return rest.slice(0, k + 1);
+      }
+    }
+    return rest;
+  }
+
+  function literalOnlyReturnsRemoved(lines: string[]): string[] {
+    const FORMATTER = /finMoney|finPct|finFixed|assaySig|toFixed|toLocaleString|\$\{/;
+    const keep: string[] = [];
+    let i = 0;
+    while (i < lines.length) {
+      if (!/^\s*return\b/.test(lines[i])) {
+        keep.push(lines[i]);
+        i++;
+        continue;
+      }
+      // Collect the return statement: to its terminating ";" at the same nesting.
+      let depth = 0;
+      let j = i;
+      const block: string[] = [];
+      for (; j < lines.length; j++) {
+        block.push(lines[j]);
+        for (const ch of lines[j]) {
+          if ("([{".includes(ch)) depth++;
+          else if (")]}".includes(ch)) depth--;
+        }
+        if (depth <= 0 && lines[j].trimEnd().endsWith(";")) break;
+      }
+      const text = block.join("\n");
+      if (FORMATTER.test(text)) keep.push(...block);
+      i = j + 1;
+    }
+    return keep;
+  }
+
   test("no Analyze calculator emits an em dash into an insertable result", () => {
     const offenders: string[] = [];
     for (const e of entries("ANALYZE_CALCS")) {
@@ -124,6 +197,48 @@ describe("the em-dash sentinel hazard is contained", () => {
       }
     }
     expect(offenders).toEqual([]);
+  });
+
+  test("no Finance or Assay calculator emits an em dash into an insertable result", () => {
+    // THE GUARD KEPT LAGGING THE DEFECT BY ONE REGISTRY. It was written for
+    // ANALYZE_CALCS, extended to STAT_CALCS after the v2.2.0 regression, and
+    // still did not cover Finance — where three successful results carried an
+    // em dash and were therefore silently un-insertable: `annuity` (pre-existing,
+    // every annuity calculation), plus `depr-sl` and `perpetuity`. Covering the
+    // remaining two registries is the only version of this guard that closes
+    // the class rather than the instance.
+    const offenders: string[] = [];
+    for (const reg of ["FIN_CALCS", "ASSAY_CALCS"] as const) {
+      for (const e of entries(reg)) {
+        // ONLY the compute body. `assumes:` is appended AFTER the insertability
+        // decision (taskpane.ts computes `insertable` from `text` alone), and
+        // field `label:`/`key:` strings are never part of a result — an em dash
+        // in either is correct prose, not a sentinel collision.
+        for (const line of literalOnlyReturnsRemoved(insertableLines(computeBody(e.body)))) {
+          if (line.includes("plainDashes")) continue;
+          // `return "—"` and `Value = —` are the SENTINEL itself, deliberately
+          // marking a result as not computable. That is the mechanism working.
+          const t = line.trim();
+          if (/^return "—";?$/.test(t) || t.includes("Value = —")) continue;
+          for (const pat of EM_PATTERNS) {
+            if (line.includes(pat)) offenders.push(`${e.id}: ${t.slice(0, 80)}`);
+          }
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  test("the Finance/Assay scan actually reads both registries (guard against a vacuous pass)", () => {
+    // The scan above is only worth having if it finds the calculators at all.
+    const fin = entries("FIN_CALCS").map((e) => e.id);
+    const assay = entries("ASSAY_CALCS").map((e) => e.id);
+    expect(fin).toContain("annuity");
+    expect(fin).toContain("perpetuity");
+    expect(fin).toContain("depr-sl");
+    expect(fin.length).toBeGreaterThan(15);
+    expect(assay).toContain("dose");
+    expect(assay.length).toBeGreaterThan(10);
   });
 
   test("the Stats scan actually reads the registry (guard against a vacuous pass)", () => {

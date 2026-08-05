@@ -35,6 +35,8 @@ import {
   aromaticSubstituents,
   aromaticRingDistances,
   isFusedAromatic,
+  isCumulatedCentre,
+  isIsocyanideNitrogen,
   classifySubstituent,
   isPlainAlkylCarbon,
   parseToMolecule,
@@ -324,14 +326,72 @@ function aromaticCaveats(mol: Molecule, a: number, dist: number[], caveats: Set<
 // 13C
 // ---------------------------------------------------------------------------
 
-function shift13C(mol: Molecule, a: number, caveats: Set<string>): { shift: number; assignment: string } {
+/**
+ * The caveat text for a carbon this model refuses to place. One string, so the
+ * Set collapses however many such carbons a structure has into one message.
+ */
+const CUMULATED_OMITTED =
+  "Carbon environment(s) OMITTED from this spectrum. This model refuses a shift for any of: a cumulated " +
+  "double bond (O=C=O, S=C=S, a ketene, an allene, an isothiocyanate) and an acyl carbon it cannot " +
+  "classify (a phosgene-type dihalide, an acyl silane, a selenoester). One of those classes is present " +
+  "here. None of the increment tables covers them, and the generic sp² value this model would otherwise " +
+  "print is wrong by tens of ppm — carbon dioxide is ≈125 ppm and carbon disulfide ≈193 ppm, and a single " +
+  "fallback cannot be both.";
+
+const ISOCYANIDE_OMITTED =
+  "An isocyanide carbon (R-N≡C) is OMITTED. It is not a nitrile: the substituent sits on the NITROGEN, and " +
+  "the carbon resonates near 158 ppm against a nitrile's ≈118 ppm. No value is tabulated for it here.";
+
+const CUMULATED_H_OMITTED =
+  "Proton environment(s) OMITTED from this spectrum: the protons sit on a cumulated double bond (a ketene " +
+  "or an allene), where the alkene increments do not apply. No ¹H shift is predicted for them rather than " +
+  "the alkene value, which is about 2.7 ppm out for a ketene.";
+
+const EXOTIC_TRIPLE_OMITTED =
+  "A carbon triple-bonded to neither carbon nor nitrogen — carbon monoxide is the one a user will actually " +
+  "type — is neither an alkyne nor a nitrile, and no ¹³C shift is tabulated for it here (the real value is " +
+  "≈184 ppm, against the ≈84 ppm an alkyne would give). That carbon is OMITTED.";
+
+/**
+ * The ¹³C shift of carbon `a`, or NULL when this model has no honest value for it.
+ *
+ * The null is the point. carbonylKind deliberately refuses to name cumulenes and
+ * unrecognised acyl environments so that callers "predict nothing for it", and
+ * ir.ts obeys — but this function used to test `if (kind)` and then fall THROUGH
+ * to the generic sp2 branch, so every carbon carbonylKind refused to name came
+ * back as a confident δ 160.0 labelled "sp2 C (C=N / C=S)", with no caveat.
+ * Measured: carbon dioxide, carbon disulfide and phosgene — real values ≈125,
+ * ≈193 and ≈142 — all three printed 160.0 and the same label.
+ */
+function shift13C(
+  mol: Molecule,
+  a: number,
+  caveats: Set<string>
+): { shift: number; assignment: string } | null {
   const hyb = hybridization(mol, a);
   const hCount = mol.getAllHydrogens(a);
 
-  // --- Nitrile ------------------------------------------------------------
+  // --- Nitrile / alkyne ----------------------------------------------------
   const triple = neighbors(mol, a).find((nb) => nb.order === 3);
   if (triple) {
-    if (mol.getAtomicNo(triple.atom) === 7) return { shift: 118.0, assignment: "C≡N (nitrile)" };
+    const partner = mol.getAtomicNo(triple.atom);
+    if (partner === 7) {
+      // A SUBSTITUTED nitrogen makes this an isocyanide, not a nitrile — the same
+      // distinction ir.ts draws for the 2245 cm-1 band. Answering 118 ppm here
+      // while IR refused the band would have the two modules disagreeing about
+      // one structure.
+      if (isIsocyanideNitrogen(mol, triple.atom)) {
+        caveats.add(ISOCYANIDE_OMITTED);
+        return null;
+      }
+      return { shift: 118.0, assignment: "C≡N (nitrile)" };
+    }
+    // "Not nitrogen" is not the same as "carbon". Carbon monoxide is in the
+    // dictionary as [C-]#[O+] and came back as an alkyne at δ 84.
+    if (partner !== 6) {
+      caveats.add(EXOTIC_TRIPLE_OMITTED);
+      return null;
+    }
     // Alkyne: terminal CH ~ 68, substituted ~ 84.
     return hCount >= 1
       ? { shift: 68.0, assignment: "≡CH (terminal alkyne)" }
@@ -340,6 +400,12 @@ function shift13C(mol: Molecule, a: number, caveats: Set<string>): { shift: numb
 
   // --- Carbonyl -----------------------------------------------------------
   const kind = carbonylKind(mol, a);
+  // A C=O carbonylKind would not name, or any cumulated centre (S=C=S, R-N=C=S,
+  // an allene's middle carbon): refuse, exactly as ir.ts already does.
+  if (!kind && (isCarbonyl(mol, a) || isCumulatedCentre(mol, a))) {
+    caveats.add(CUMULATED_OMITTED);
+    return null;
+  }
   if (kind) {
     let shift = CARBONYL_13C[kind] ?? 200;
     // Conjugation to an aromatic ring or C=C shifts C=O upfield ~6 ppm.
@@ -387,6 +453,13 @@ function shift13C(mol: Molecule, a: number, caveats: Set<string>): { shift: numb
   if (hyb === "sp2") {
     const dbl = neighbors(mol, a).find((nb) => nb.order === 2 && mol.getAtomicNo(nb.atom) === 6);
     if (dbl) {
+      // A terminal carbon of a cumulene is NOT an ordinary alkene carbon: allene's
+      // =CH2 is δ 74.8, not the ≈123 the ethylene increments give. Refuse it too,
+      // or the guard above would only catch half of each cumulene.
+      if (isCumulatedCentre(mol, dbl.atom)) {
+        caveats.add(CUMULATED_OMITTED);
+        return null;
+      }
       // Ethylene 123.3 + α (this carbon) − β (far carbon) increments.
       let shift = 123.3;
       for (const nb of neighbors(mol, a)) {
@@ -522,8 +595,15 @@ function alkeneBeta(key: SubstKey): number {
 // 1H
 // ---------------------------------------------------------------------------
 
-/** Shift of the protons attached to carbon `a`. */
-function shift1HonCarbon(mol: Molecule, a: number, caveats: Set<string>): { shift: number; assignment: string } {
+/**
+ * Shift of the protons attached to carbon `a`, or NULL when this model has no
+ * honest value for them (the ¹H counterpart of shift13C's null).
+ */
+function shift1HonCarbon(
+  mol: Molecule,
+  a: number,
+  caveats: Set<string>
+): { shift: number; assignment: string } | null {
   const hCount = mol.getAllHydrogens(a);
   const nbrs = neighbors(mol, a);
 
@@ -554,6 +634,12 @@ function shift1HonCarbon(mol: Molecule, a: number, caveats: Set<string>): { shif
   // Alkene H.
   const dbl = nbrs.find((nb) => nb.order === 2 && mol.getAtomicNo(nb.atom) === 6);
   if (dbl) {
+    // A ketene's or allene's protons are not alkene protons. Ketene's =CH2 is
+    // ≈2.5 ppm; the alkene base alone puts it at 5.25 with no caveat.
+    if (isCumulatedCentre(mol, a) || isCumulatedCentre(mol, dbl.atom)) {
+      caveats.add(CUMULATED_H_OMITTED);
+      return null;
+    }
     let shift = 5.25;
     for (const nb of nbrs) {
       if (nb.atom === dbl.atom) continue;
@@ -572,13 +658,33 @@ function shift1HonCarbon(mol: Molecule, a: number, caveats: Set<string>): { shif
   const base = hCount === 3 ? 0.87 : hCount === 2 ? 1.2 : 1.55;
   let shift = base;
   let alphaCount = 0;
+  const unknownAlpha = new Set<string>();
   for (const nb of nbrs) {
     const key = classifySubstituent(mol, nb.atom, a);
     const inc = SP3_1H[key];
     if (inc !== undefined) {
       shift += inc;
       alphaCount++;
+      continue;
     }
+    // THE SILENCE THE ¹³C PATH ALREADY BREAKS (see the sp3 sweep in shift13C).
+    // A substituent with no tabulated α increment contributes ZERO, so the shift
+    // comes out as if the group were not attached. Measured: CC(=O)[SiH3] and
+    // CC(=O)[Se]C were told "contributed NOTHING" in carbon and nothing at all in
+    // proton, and methyl isothiocyanate's CH3 printed the bare alkane base 0.87
+    // against a real ≈3.1.
+    //
+    // A plain alkane carbon is NOT such a substituent — the base value already
+    // accounts for the skeleton, and flagging it would put this warning on
+    // ethane. Only groups that were meant to carry an increment are reported.
+    if (!isPlainAlkylCarbon(mol, nb.atom)) unknownAlpha.add(mol.getAtomLabel(nb.atom));
+  }
+  if (unknownAlpha.size) {
+    caveats.add(
+      `Substituent${unknownAlpha.size > 1 ? "s" : ""} attached via ${[...unknownAlpha].join(", ")} ` +
+        "have no tabulated ¹H increment, so they contributed NOTHING to this shift — it is predicted as if " +
+        "they were absent. Treat those protons' values as unreliable."
+    );
   }
   // β effects: substituents on the adjacent SKELETON carbon only. Walking into
   // a neighbour that is itself the α substituent (an aryl ipso carbon, a
@@ -741,7 +847,12 @@ export function predictNmr(input: string, nucleus: Nucleus): NmrResult | null {
     const signals: NmrSignal[] = [];
     for (const group of symmetryClasses(mol, carbons)) {
       const rep = group[0];
-      const { shift, assignment } = shift13C(mol, rep, caveats);
+      // null = this model has no honest shift for that environment. It is left
+      // OUT of the signal list and named in the caveats, never filled in with a
+      // plausible-looking generic value.
+      const predicted = shift13C(mol, rep, caveats);
+      if (!predicted) continue;
+      const { shift, assignment } = predicted;
       signals.push({
         shift,
         count: group.length,
@@ -766,7 +877,9 @@ export function predictNmr(input: string, nucleus: Nucleus): NmrResult | null {
     const hPer = mol.getAllHydrogens(rep);
     const count = hPer * group.length;
     if (mol.getAtomicNo(rep) === 6) {
-      const { shift, assignment } = shift1HonCarbon(mol, rep, caveats);
+      const predicted = shift1HonCarbon(mol, rep, caveats);
+      if (!predicted) continue; // omitted and caveated, not invented
+      const { shift, assignment } = predicted;
       signals.push({ shift, count, multiplicity: multiplicity(mol, rep, caveats), assignment, atoms: group });
     } else {
       const het = heteroatomProton(mol, rep);

@@ -125,6 +125,59 @@ describe("carbonyl classification distinguishes the classes that matter", () => 
   });
 });
 
+// THE ASSERTION THIS FILE WAS MISSING.
+//
+// carbonylKind carries a twenty-line comment explaining that it returns null —
+// deliberately — for every acyl environment it cannot positively NAME, so that
+// callers predict nothing rather than a plausible wrong band. Every test above
+// pins a kind it DOES name. None pinned the null, which is the behaviour the
+// comment exists to defend, and that gap is why nmr.ts could quietly fall
+// through to a generic sp2 δ 160.0 for carbon dioxide behind four green spectra
+// suites (gap analysis 0.12).
+describe("carbonylKind returns NULL for what it cannot name — the contract callers rely on", () => {
+  /** carbonylKind for every carbon, nulls included, in atom order. */
+  function everyCarbon(smiles: string): (CarbonylKind | null)[] {
+    const m = mol(smiles);
+    const out: (CarbonylKind | null)[] = [];
+    for (let a = 0; a < m.getAllAtoms(); a++) {
+      if (m.getAtomicNo(a) !== 6) continue;
+      out.push(carbonylKind(m, a));
+    }
+    return out;
+  }
+
+  test("carbon dioxide's carbon is null, not a ketone and not any other name", () => {
+    // Reachable from the dictionary by typing "CO2" or "carbon dioxide".
+    expect(everyCarbon("O=C=O")).toEqual([null]);
+  });
+
+  test("a ketene's carbonyl carbon is null", () => {
+    expect(everyCarbon("C=C=O")).toEqual([null, null]);
+  });
+
+  test("carbon suboxide is two nulls, not two ketones", () => {
+    expect(everyCarbon("O=C=C=C=O")).toEqual([null, null, null]);
+  });
+
+  test("an acyl silane's acyl carbon is null — a ketone needs two carbons on it", () => {
+    // CH3 first, then the acyl carbon: only the acyl carbon is a candidate.
+    expect(everyCarbon("CC(=O)[SiH3]")).toEqual([null, null]);
+  });
+
+  test("a selenoester's acyl carbon is null", () => {
+    expect(everyCarbon("CC(=O)[Se]C")).toEqual([null, null, null]);
+  });
+
+  test("phosgene is null — two halides is not an acid halide", () => {
+    expect(everyCarbon("O=C(Cl)Cl")).toEqual([null]);
+  });
+
+  test("an isocyanate IS named, because its band is real and distinctive", () => {
+    // The null is for the unnamed; the cumulene branch still names R-N=C=O.
+    expect(everyCarbon("CN=C=O")).toEqual([null, "isocyanate"]);
+  });
+});
+
 describe("alkyl and conjugation", () => {
   test("a methyl on a chain is plain alkyl; a carbonyl carbon is not", () => {
     const m = mol("CCC(C)=O");

@@ -1,5 +1,15 @@
 # JurisLab — complete gap analysis, 2026-08-01 (v2.63.0)
 
+> ## SUPERSEDED for everything outside Engineering and Citations
+>
+> **See [GAP-ANALYSIS-2026-08-05.md](GAP-ANALYSIS-2026-08-05.md)**, written at v2.89.0,
+> which re-verified this file item by item. Several claims below are now **wrong** —
+> §0.5 (a global error handler now exists and is tested), §1.1 (Stats and Analyze do
+> read the Word table), §2.6 (limits and Taylor series ship), §2.7 (the deploy gate
+> runs 4 checks, not 5) — and §0.2 is only half closed. The newer document carries a
+> corrections table; do not cite this file for the non-Engineering surface without
+> checking there first. Its Engineering and Citations sections are not superseded.
+>
 > **STATUS**
 > - **TIER 0 — all eight shipped in v2.64.0** (`edc3424`, live-verified).
 > - **TIER 1.1 / 1.2 / 1.3 shipped in v2.65.0** (`cc85b36`, live-verified):

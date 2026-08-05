@@ -13,6 +13,7 @@
 import { mean, median, stdev, tTestP, linearRegression } from "./stats";
 import { adjustPValues } from "./stats2";
 import { minOf, maxOf } from "./minmax";
+import { parseDelimited } from "./dataimport";
 
 export type ColumnType = "numeric" | "categorical";
 
@@ -28,6 +29,27 @@ export interface ColumnSummary {
   min: number;
   median: number;
   max: number;
+  /**
+   * Cells that were PRESENT but could not be read as a number, and were
+   * therefore excluded from every statistic above.
+   *
+   * WHY THIS IS NOT FOLDED INTO `missing`. `missing` counts blanks, and a blank
+   * is a different event from a value the instrument recorded and this parser
+   * could not use. Measured before this field existed:
+   * `summarizeColumn("conc", ["1","2","3","4","ND"])` returned
+   * `{n: 4, missing: 0, mean: 2.5}` — the "ND" left no trace anywhere in the
+   * report. The censored readings every real lab dataset carries (`ND`, `<LOD`,
+   * `n.d.`, `BQL`, `>100`) are precisely the EXTREME observations, so silently
+   * dropping them biases the mean toward the middle while the data-quality line
+   * says nothing is wrong. Always 0 for a categorical column, where "not a
+   * number" is the normal case rather than a loss.
+   *
+   * The invariant `n + missing + nonNumeric === column length` holds for a
+   * numeric column.
+   */
+  nonNumeric: number;
+  /** Up to three distinct unreadable values, so the warning can name them. */
+  nonNumericExamples?: string[];
   /** Count of values beyond 1.5×IQR from the quartiles (Tukey fences). */
   outliers: number;
   /** Distinct value count (categorical) — undefined for numeric. */
@@ -65,9 +87,36 @@ export interface Correlation {
 
 export interface Trend {
   column: string;
+  /** Change per ROW INDEX — the true row number, blanks included. */
   slope: number;
   rSquared: number;
+  /** Two-tailed p for slope ≠ 0, UNCORRECTED. */
   p: number;
+  /**
+   * Benjamini-Hochberg adjusted p across every column scanned for a trend.
+   *
+   * WHY. Analyze regresses EVERY numeric column against row order in one pass,
+   * which is the same family-wise problem the correlation half of this module
+   * was corrected for — and it was left uncorrected here. Measured on 8 columns
+   * × 30 rows of pure noise, one report contained both "V8 shows a significant
+   * increasing trend over the rows (p = 0.022)" and, four lines below, "28 pairs
+   * were tested at once, so the p-values are corrected… 0 survive correction."
+   * BH rather than Bonferroni for the reason argued at `Correlation.pAdjusted`.
+   */
+  pAdjusted: number;
+  /** How many columns the adjustment was made across. */
+  comparisons: number;
+  /** Rows contributing to the fit (blank and unreadable cells excluded). */
+  n: number;
+  /**
+   * Lag-1 autocorrelation of the fit's residuals, or NaN when it cannot be
+   * formed. An OLS p-value assumes the errors are independent, which sequential
+   * data routinely is not; this is reported as a caveat and NEVER used to gate
+   * `direction`, because at n = 30 the usual 2/√n threshold flags roughly one
+   * noise series in twenty and that is fine for a warning and wrong for a test.
+   */
+  lag1Autocorrelation: number;
+  /** Judged on the ADJUSTED p — "flat" means "nothing survives correction". */
   direction: "increasing" | "decreasing" | "flat";
 }
 
@@ -89,28 +138,54 @@ export interface InsightsReport {
   text: string;
 }
 
+/** Reads as a number under the same rule the statistics below use. */
+function isNumericText(c: string): boolean {
+  return c !== "" && Number.isFinite(Number(c));
+}
+
 /**
- * Parses a delimited table. Delimiter is auto-detected per line (tab, comma, or
- * runs of whitespace). The first row is treated as a header when it is
- * non-numeric in every cell; otherwise columns are named C1, C2, …. Ragged rows
- * are padded with blanks so every column has one entry per data row.
+ * Parses a pasted data table.
+ *
+ * QUOTED CELLS ARE HANDLED, because this used to be a `split(",")` and that is a
+ * silent-wrongness bug rather than a limitation. `dataimport.parseDelimited` had
+ * already been written, tested, and documented with the reason — "Excel writes
+ * such files by default whenever a label contains a comma, so this is the common
+ * case rather than an edge case", and a naive split "silently shifts every
+ * column after the offending cell, producing a table that looks plausible and is
+ * wrong". Both parsers shipped, in the same pane: "Open CSV…" routed to the
+ * correct one and "Paste a data table" to this one. Measured on
+ * `sample,conc` / `"Smith, John",5` / …: three rows × two columns became four
+ * rows × three columns, headers `C1 C2 C3`, and the header row itself was
+ * counted as an observation — which manufactured a "C3 shows a significant
+ * increasing trend (p < 0.001)" out of the column numbering. So this delegates.
+ *
+ * Whitespace-separated text has no delimiter for `parseDelimited` to sniff, so
+ * that one case is still split here on runs of whitespace.
+ *
+ * A HEADER IS A ROW THAT LABELS A NUMERIC COLUMN, not a row that is entirely
+ * non-numeric. The old all-cells rule meant a wide-format export headed
+ * `Time,1,2,3` was treated as data, so its own column labels were counted as an
+ * extra observation in every column. Ragged rows are padded with blanks so every
+ * column has one entry per data row.
  */
 export function parseTable(text: string): ParsedTable {
-  const lines = text.split(/\r?\n/).map((l) => l.replace(/\s+$/, "")).filter((l) => l.trim().length > 0);
-  if (!lines.length) return { headers: [], columns: [], rowCount: 0 };
+  const firstLine = text.split(/\r?\n/).find((l) => l.trim() !== "") ?? "";
+  const cells: string[][] = /[\t;,]/.test(firstLine)
+    ? parseDelimited(text).map((r) => r.map((c) => c.trim()))
+    : text
+        .split(/\r?\n/)
+        .filter((l) => l.trim().length > 0)
+        .map((l) => l.trim().split(/\s+/));
+  if (!cells.length) return { headers: [], columns: [], rowCount: 0 };
 
-  const split = (line: string): string[] => {
-    if (line.includes("\t")) return line.split("\t").map((c) => c.trim());
-    if (line.includes(",")) return line.split(",").map((c) => c.trim());
-    return line.trim().split(/\s+/);
-  };
-
-  const cells = lines.map(split);
   const width = maxOf(cells.map((r) => r.length));
   for (const r of cells) while (r.length < width) r.push("");
 
-  const firstAllNonNumeric = cells[0].every((c) => c !== "" && !Number.isFinite(Number(c)));
-  const hasHeader = firstAllNonNumeric && cells.length > 1;
+  const hasHeader =
+    cells.length > 1 &&
+    cells[0].some(
+      (c, j) => c !== "" && !isNumericText(c) && cells.slice(1).some((r) => isNumericText(r[j])),
+    );
   const headers = hasHeader ? cells[0].map((c, i) => c || `C${i + 1}`) : cells[0].map((_, i) => `C${i + 1}`);
   const dataRows = hasHeader ? cells.slice(1) : cells;
 
@@ -155,14 +230,20 @@ export function summarizeColumn(name: string, col: string[]): ColumnSummary {
   const nonBlank = col.filter((c) => c !== "");
   const missing = col.length - nonBlank.length;
   const nums = numericValues(col);
+  // Present, but unusable: these were being discarded without a trace. See
+  // ColumnSummary.nonNumeric for why they are counted apart from the blanks.
+  const unreadable = nonBlank.filter((c) => !isNumericText(c));
   // Treat as numeric only when the clear majority of present cells parse as numbers.
   const isNumeric = nonBlank.length > 0 && nums.length >= 0.8 * nonBlank.length;
   if (isNumeric && nums.length > 0) {
+    const examples = [...new Set(unreadable)].slice(0, 3);
     return {
       name,
       type: "numeric",
       n: nums.length,
       missing,
+      nonNumeric: unreadable.length,
+      ...(examples.length ? { nonNumericExamples: examples } : {}),
       mean: mean(nums),
       sd: nums.length > 1 ? stdev(nums) : NaN,
       min: minOf(nums),
@@ -176,6 +257,8 @@ export function summarizeColumn(name: string, col: string[]): ColumnSummary {
     type: "categorical",
     n: nonBlank.length,
     missing,
+    // A word in a text column is the column's content, not a lost measurement.
+    nonNumeric: 0,
     mean: NaN,
     sd: NaN,
     min: NaN,
@@ -219,6 +302,34 @@ function ranks(xs: number[]): number[] {
 
 function spearman(x: number[], y: number[]): number {
   return pearson(ranks(x), ranks(y));
+}
+
+/**
+ * Lag-1 autocorrelation of a straight-line fit's residuals.
+ *
+ * A regression p-value assumes each row's error is independent of the one
+ * before it. Sequential data — a time course, an instrument log, a titration —
+ * is precisely where that fails, and a positively autocorrelated series makes an
+ * OLS p-value far too small. There was no autocorrelation code anywhere in this
+ * library, so a trend over row order was reported with nothing checking or even
+ * mentioning the assumption it rests on.
+ *
+ * Reported, never enforced: it feeds a caveat, not the significance decision.
+ */
+function lag1Autocorrelation(
+  xs: number[],
+  ys: number[],
+  slope: number,
+  intercept: number,
+): number {
+  const n = ys.length;
+  if (n < 3 || !Number.isFinite(slope) || !Number.isFinite(intercept)) return NaN;
+  const e = ys.map((y, i) => y - (intercept + slope * xs[i]));
+  let num = 0;
+  let den = 0;
+  for (let i = 0; i < n; i++) den += e[i] * e[i];
+  for (let i = 1; i < n; i++) num += e[i] * e[i - 1];
+  return den === 0 ? NaN : num / den;
 }
 
 /** Pearson + Spearman + p-value for two numeric columns aligned by row. */
@@ -299,16 +410,50 @@ export function analyzeData(input: string): InsightsReport | null {
   correlations.sort((a, b) => Math.abs(b.r) - Math.abs(a.r));
 
   // Trend of each numeric column against row order (a proxy for time/sequence).
+  //
+  // AGAINST THE TRUE ROW NUMBER. This used to take the column's numeric values
+  // with the blanks removed and THEN number them 1..k, so a column blank at row
+  // 3 of 6 was regressed against 1,2,3,4,5 for real rows 1,2,4,5,6. Measured: a
+  // true slope of 10 per row reported as 13 per row, and still labelled "per
+  // row". The x axis is the row the value came from.
   const trends: Trend[] = [];
   for (const { c, j } of numericCols) {
-    const ys = numericValues(table.columns[j]);
+    const col = table.columns[j];
+    const xs: number[] = [];
+    const ys: number[] = [];
+    for (let i = 0; i < col.length; i++) {
+      const v = Number(col[i]);
+      if (col[i] !== "" && Number.isFinite(v)) {
+        xs.push(i + 1);
+        ys.push(v);
+      }
+    }
     if (ys.length < 3) continue;
-    const xs = ys.map((_, i) => i + 1);
     const reg = linearRegression(xs, ys);
-    const direction: Trend["direction"] =
-      reg.slopeP < 0.05 && reg.slope !== 0 ? (reg.slope > 0 ? "increasing" : "decreasing") : "flat";
-    trends.push({ column: c.name, slope: reg.slope, rSquared: reg.rSquared, p: reg.slopeP, direction });
+    trends.push({
+      column: c.name,
+      slope: reg.slope,
+      rSquared: reg.rSquared,
+      p: reg.slopeP,
+      // Overwritten below, once the size of the family is known.
+      pAdjusted: reg.slopeP,
+      comparisons: 1,
+      n: ys.length,
+      lag1Autocorrelation: lag1Autocorrelation(xs, ys, reg.slope, reg.intercept),
+      direction: "flat",
+    });
   }
+  // Every numeric column was scanned in the same pass, so these p-values are one
+  // family and are corrected as one — the multiplicity is created by this loop,
+  // exactly as it is for the correlations above. `direction` is judged on the
+  // ADJUSTED p, so "flat" means "nothing here survives correction".
+  const adjustedTrendP = adjustPValues(trends.map((t) => t.p), "bh");
+  trends.forEach((t, i) => {
+    t.pAdjusted = adjustedTrendP[i];
+    t.comparisons = trends.length;
+    t.direction =
+      t.pAdjusted < 0.05 && t.slope !== 0 ? (t.slope > 0 ? "increasing" : "decreasing") : "flat";
+  });
 
   const insights = buildInsights(columns, correlations, trends, table.rowCount);
   const text = renderReport(table, columns, correlations, trends, insights);
@@ -377,11 +522,46 @@ function buildInsights(
   }
 
   // Trends over row order.
-  for (const t of trends.filter((t) => t.direction !== "flat").slice(0, 3)) {
+  const liveTrends = trends.filter((t) => t.direction !== "flat");
+  const manyTrends = trends.length > 1;
+  for (const t of liveTrends.slice(0, 3)) {
     out.push(
       `${t.column} shows a significant ${t.direction} trend over the rows ` +
-        `(slope = ${fmt(t.slope)} per row, R² = ${fmt(t.rSquared)}, ${pStr(t.p)}).`,
+        `(slope = ${fmt(t.slope)} per row, R² = ${fmt(t.rSquared)}, ${pStr(t.p)}` +
+        (manyTrends ? `, adjusted ${pStr(t.pAdjusted)}` : "") +
+        `).`,
     );
+  }
+  if (manyTrends) {
+    const rawTrend = trends.filter((t) => t.p < 0.05).length;
+    if (rawTrend > liveTrends.length)
+      out.push(
+        `${trends.length} columns were each tested for a trend over row order, so those ` +
+          `p-values are corrected as one family too (Benjamini-Hochberg): ${rawTrend} ` +
+          `would look significant uncorrected; ${liveTrends.length} survive` +
+          `${liveTrends.length === 1 ? "s" : ""} correction.`,
+      );
+  }
+  if (liveTrends.length) {
+    // The caveat BH cannot supply. A dose ladder's trend is real, survives any
+    // correction, and is still not a discovery — it is the design.
+    out.push(
+      "A trend over row order is a straight-line fit that assumes each row's error is " +
+        "independent of the one before it, which is exactly what sequential data is not; " +
+        "the p-value is optimistic when it is not. And if the rows are ordered by something " +
+        "you set — a dose ladder, a dilution series, a time course — the trend is your own " +
+        "design showing up in the output, not a finding.",
+    );
+    const correlated = liveTrends.filter(
+      (t) => Number.isFinite(t.lag1Autocorrelation) && Math.abs(t.lag1Autocorrelation) > 2 / Math.sqrt(t.n),
+    );
+    if (correlated.length)
+      out.push(
+        `Consecutive residuals are correlated in ${correlated
+          .map((t) => `${t.column} (lag-1 r = ${fmt(t.lag1Autocorrelation, 2)})`)
+          .join(", ")}, which is a concrete sign that the independence assumption above does ` +
+          `not hold there — treat that p-value as an upper bound on how surprised to be.`,
+      );
   }
 
   // Data-quality flags worth acting on before drawing conclusions.
@@ -390,6 +570,16 @@ function buildInsights(
     out.push(
       `Missing data: ${missing.map((c) => `${c.name} (${c.missing})`).join(", ")}. ` +
         `Consider whether those rows bias the results.`,
+    );
+  const unreadable = columns.filter((c) => c.nonNumeric > 0);
+  if (unreadable.length)
+    out.push(
+      `Values that could not be read as numbers were EXCLUDED, not treated as zero: ` +
+        `${unreadable
+          .map((c) => `${c.name} (${c.nonNumeric}: ${(c.nonNumericExamples ?? []).join(", ")})`)
+          .join("; ")}. Censored readings such as ND, <LOD or >100 are usually the most ` +
+        `extreme observations, so dropping them pulls the mean toward the middle — decide ` +
+        `how to handle them rather than letting them disappear.`,
     );
   const outlierCols = numeric.filter((c) => c.outliers > 0);
   if (outlierCols.length)
@@ -426,7 +616,10 @@ function renderReport(
         `  ${c.name}: n=${c.n}, mean=${fmt(c.mean)}, sd=${fmt(c.sd)}, ` +
           `min=${fmt(c.min)}, median=${fmt(c.median)}, max=${fmt(c.max)}` +
           (c.outliers ? `, outliers=${c.outliers}` : "") +
-          (c.missing ? `, missing=${c.missing}` : ""),
+          (c.missing ? `, missing=${c.missing}` : "") +
+          (c.nonNumeric
+            ? `, not numeric=${c.nonNumeric} (${(c.nonNumericExamples ?? []).join(", ")}), excluded`
+            : ""),
       );
     } else {
       lines.push(`  ${c.name}: categorical, ${c.n} values, ${c.distinct} distinct` + (c.missing ? `, missing=${c.missing}` : ""));
@@ -436,8 +629,21 @@ function renderReport(
   if (correlations.length) {
     lines.push("");
     lines.push("Correlations (strongest first):");
+    // THE TABLE MUST AGREE WITH THE PROSE. This printed the uncorrected p while
+    // the insight two inches below said the p-values had been corrected — one
+    // document, two answers, and the table is the half a reader copies into a
+    // paper. Both are shown, each labelled, whenever there is a family to
+    // correct across; a single pair has nothing to adjust and says so by not
+    // printing an adjusted column at all.
+    const many = correlations.length > 1;
     for (const c of correlations.slice(0, 8)) {
-      lines.push(`  ${c.a} ~ ${c.b}: r=${fmt(c.r)}, rho=${fmt(c.rho)}, ${pStr(c.p)} (n=${c.n})`);
+      lines.push(
+        `  ${c.a} ~ ${c.b}: r=${fmt(c.r)}, rho=${fmt(c.rho)}, ` +
+          (many
+            ? `uncorrected ${pStr(c.p)}, adj. ${pStr(c.pAdjusted)} (BH, ${c.comparisons} pairs)`
+            : pStr(c.p)) +
+          ` (n=${c.n})`,
+      );
     }
   }
 
@@ -445,8 +651,15 @@ function renderReport(
   if (activeTrends.length) {
     lines.push("");
     lines.push("Trends over row order:");
+    const manyTrends = trends.length > 1;
     for (const t of activeTrends) {
-      lines.push(`  ${t.column}: ${t.direction}, slope=${fmt(t.slope)}/row, R²=${fmt(t.rSquared)}, ${pStr(t.p)}`);
+      lines.push(
+        `  ${t.column}: ${t.direction}, slope=${fmt(t.slope)}/row, R²=${fmt(t.rSquared)}, ` +
+          (manyTrends
+            ? `uncorrected ${pStr(t.p)}, adj. ${pStr(t.pAdjusted)} (BH, ${t.comparisons} columns)`
+            : pStr(t.p)) +
+          `, n=${t.n}`,
+      );
     }
   }
 

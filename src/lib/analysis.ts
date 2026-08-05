@@ -49,6 +49,17 @@ export interface LimitResult {
   value?: number;
   /** Exact form when the CAS could produce one. */
   exact?: string;
+  /**
+   * How many significant figures of `value` the numeric evidence actually supports.
+   *
+   * Set ONLY on the numeric-fallback branch, where the answer is the last sample of
+   * a probe that was accepted because its tail agreed to within a tolerance — not a
+   * derivation. `value` is already rounded to this many figures, so a caller that
+   * ignores this field still prints a right answer; the field is here so a caller
+   * can say how precise it is. Absent means "not tolerance-limited": direct
+   * substitution and L'Hôpital produce the value exactly.
+   */
+  significantDigits?: number;
   kind: "finite" | "infinite" | "does-not-exist" | "undetermined";
   steps: string[];
   caveats: string[];
@@ -92,8 +103,54 @@ function probe(e: Expr, x: string, p: LimitPoint, side: Side): number[] {
   return out.filter((v) => !Number.isNaN(v));
 }
 
+/**
+ * The convergence tolerance the numeric branch accepts a tail under, and the way
+ * it is written for the user. `String(1e-4)` is "0.0001", which reads as a
+ * different, tighter number than the one in the code — so the text is spelled out
+ * rather than interpolated.
+ */
+const SETTLE_TOL = 1e-4;
+const SETTLE_TOL_TEXT = "1e-4";
+
+/** Never claim more than this, whatever the samples happen to agree to. */
+const MAX_DIGITS = 12;
+
+/**
+ * How many significant figures an uncertain value can be printed to.
+ *
+ * NOT "how small is the error" — how many digits are DETERMINED. A value v known
+ * only to ±u may round two different ways at a given precision, and then the last
+ * digit printed is a coin toss rather than information. So the largest d for which
+ * v−u and v+u round to the SAME d-figure number is the answer, which is a fact
+ * about the interval rather than a rule of thumb.
+ *
+ * Worked on the shipped defect: limit (1+1/x)^x as x→∞ settled at 2.7185234960 with
+ * a tail spread of 2.43e-4. At four figures the interval [2.71828, 2.71877] rounds
+ * to 2.718 at one end and 2.719 at the other — undetermined, and 2.719 is exactly
+ * the wrong digit the product printed. At three, both ends give 2.72, which is what
+ * e is to three figures. Rounding-error arithmetic ("u is under half an ulp, so
+ * four figures are fine") gets this WRONG; only asking whether the digits are
+ * determined gets it right.
+ */
+function justifiedDigits(value: number, uncertainty: number): number {
+  if (!Number.isFinite(value) || !Number.isFinite(uncertainty) || uncertainty <= 0) return MAX_DIGITS;
+  const lo = value - uncertainty;
+  const hi = value + uncertainty;
+  for (let d = MAX_DIGITS; d >= 1; d--) {
+    if (Number(lo.toPrecision(d)) === Number(hi.toPrecision(d))) return d;
+  }
+  // ZERO IS A REAL ANSWER HERE, AND FLOORING AT 1 WAS A LIE.
+  //
+  // Falling through means not even the FIRST figure is determined — the samples do
+  // not agree on the magnitude, and where the band straddles zero they do not agree
+  // on the sign. Returning 1 made the caller print a number and a caveat claiming
+  // it "supports 1 significant figure". Measured: limit tan(x)*1e-6 as x → ∞ came
+  // back as -8e-7 with that claim attached, for a limit that does not exist.
+  return 0;
+}
+
 /** Does a probe sequence settle on a value? */
-function settles(vals: number[]): { value: number } | { diverges: 1 | -1 } | null {
+function settles(vals: number[]): { value: number; spread?: number } | { diverges: 1 | -1 } | null {
   if (vals.length < 3) return null;
   const tail = vals.slice(-4);
   const last = tail[tail.length - 1];
@@ -152,7 +209,15 @@ function settles(vals: number[]): { value: number } | { diverges: 1 | -1 } | nul
     return null; // oscillating with a steady envelope: no limit
   }
 
-  if (spread <= 1e-4 * (1 + Math.abs(last))) return { value: last };
+  // THE TOLERANCE THIS PASSES UNDER IS PART OF THE ANSWER.
+  //
+  // Accepting here says "the last four samples agree to about 1e-4"; it does not
+  // say the last sample IS the limit. The caller used to print it to eight
+  // significant figures anyway, so limit (1+1/x)^x as x→∞ read 2.7185235 against
+  // e = 2.7182818 — wrong from the fifth figure, shown with eight, and a student
+  // checking the textbook could not tell which was wrong. The observed spread of
+  // the tail travels with the value so the caller can round to what it supports.
+  if (spread <= SETTLE_TOL * (1 + Math.abs(last))) return { value: last, spread };
   // A tail marching steadily toward zero IS a limit of zero, even if the last
   // few values are still spread out on an absolute scale.
   if (tail.every((v, i) => i === 0 || Math.abs(v) < Math.abs(tail[i - 1]))) {
@@ -306,13 +371,40 @@ export function limit(input: string, variable = "x", point: LimitPoint = 0, side
     }
   }
 
-  // Fall back to what the numbers say, and be explicit that it is numeric.
+  // Fall back to what the numbers say, and be explicit that it is numeric —
+  // including about HOW numeric. The existing caveat speaks to provenance
+  // ("evidence, not a derivation"); the digits are a separate promise, and this is
+  // the only branch where the value is a sampled number rather than a computed one.
   if (settled && "value" in settled) {
+    const digits = justifiedDigits(settled.value, settled.spread ?? 0);
+    // Not one figure is determined, so there is no value to report. The samples
+    // were accepted by a tolerance with an absolute floor in it — `spread <= 1e-4 *
+    // (1 + |last|)` — which any tail below about 1e-4 passes however wildly it
+    // swings, so this branch is reachable with samples that do not even agree on
+    // the sign. Reporting the last of them, to any precision, is a guess.
+    if (digits === 0) {
+      caveats.push(
+        "The values sampled near the point do not agree even to one significant figure, so no limit is reported. Approaching from closer in does not settle them."
+      );
+      return { ...base, kind: "undetermined", caveats };
+    }
+    const rounded = digits >= MAX_DIGITS ? settled.value : Number(settled.value.toPrecision(digits));
     steps.push(`No symbolic rule applied; the value is approached numerically.`);
     caveats.push(
       "NUMERIC ONLY: this value comes from evaluating the expression closer and closer to the point, not from a proof. It is evidence, not a derivation."
     );
-    return { ...base, kind: "finite", value: settled.value, steps };
+    if (digits < MAX_DIGITS) {
+      caveats.push(
+        `PRECISION: the samples were accepted as converged at a relative tolerance of ${SETTLE_TOL_TEXT}, which supports ${digits} significant figure${digits === 1 ? "" : "s"} — so the value is rounded to ${digits}. Digits beyond that are not established.`
+      );
+    }
+    return {
+      ...base,
+      kind: "finite",
+      value: rounded,
+      steps,
+      ...(digits < MAX_DIGITS ? { significantDigits: digits } : {}),
+    };
   }
   if (settled && "diverges" in settled) {
     steps.push(`The value grows without bound.`);

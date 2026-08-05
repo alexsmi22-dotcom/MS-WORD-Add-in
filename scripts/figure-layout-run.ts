@@ -1,15 +1,24 @@
 // Drives the figure-layout audit over every chart builder we ship.
 //
-//   npx ts-node --compiler-options '{"module":"commonjs"}' scripts/figure-layout-run.ts
+//   npm run check:figures
 //
-// The analyser lives in figure-layout-audit.js; the LIST is here because the
-// builders are TypeScript. Cases are chosen to stress layout rather than to be
-// pretty: long labels, many legend entries, values that need wide tick text,
-// and curves that sweep through the corners where labels live.
-
-declare const require: (m: string) => { runAudit: (figures: [string, string][]) => number };
-declare const process: { exit(code: number): never };
-const { runAudit } = require("./figure-layout-audit.js");
+// This file is the CORPUS. The analyser lives in figure-layout-audit.js and the
+// runner in check-figures.js; the list is here because the builders are
+// TypeScript. Cases are chosen to stress layout rather than to be pretty: long
+// labels, many legend entries, values that need wide tick text, and curves that
+// sweep through the corners where labels live.
+//
+// IT USED TO BE INVOKED AS `npx ts-node …`, AND ts-node WAS NOT INSTALLED.
+// Offline the gate could not run at all; online it network-installed on every QC
+// run. It now loads through scripts/ts-require.js, which uses the `typescript`
+// devDependency that is already on disk. No network, no new dependency.
+//
+// THE CORPUS WAS ENGINEERING-ONLY UNTIL 2026-08-05. It imported mechchart, plot,
+// reliability and colourspace — so a Table→Chart, Spectra, heat-map, candlestick,
+// sequence-map, beam or periodic-table figure had no geometry gate of any kind.
+// check-figures.js now derives the list of SVG-producing modules FROM THE
+// FILESYSTEM and fails if any of them is missing from this file's imports, so a
+// new chart module cannot be added without a figure landing here.
 import {
   mohrCircleSvg,
   goodmanDiagramSvg,
@@ -31,6 +40,34 @@ import {
 import { buildPlotSvg, Series } from "../src/lib/plot";
 import { weibullFit, reliabilityBlock, kOutOfN, redundancy, availability } from "../src/lib/reliability";
 import { GAMUTS as GAMUT_DEFS } from "../src/lib/colourspace";
+// --- the non-Engineering half, added 2026-08-05 ------------------------------
+import { parseTableData, buildChartPreviewSvg, ChartKind } from "../src/lib/tablechart";
+import { buildTableFigureSvg } from "../src/lib/tablefigure";
+import { buildFlowchartSvg, buildHierarchySvg } from "../src/lib/tablediagram";
+import { buildHeatmapSvg } from "../src/lib/heatmap";
+import { buildCandlestickSvg } from "../src/lib/candlestick";
+import {
+  nmrChartSvg,
+  irChartSvg,
+  msChartSvg,
+  cosyChartSvg,
+  hsqcChartSvg,
+  hmbcChartSvg,
+  tocsyChartSvg,
+  jcampChartSvg,
+} from "../src/lib/spectraChart";
+import { predictNmr } from "../src/lib/nmr";
+import { predictIr } from "../src/lib/ir";
+import { predictFragments } from "../src/lib/fragment";
+import { predictCosy, predictHsqc, predictHmbc, predictTocsy } from "../src/lib/nmr2d";
+import { beamDiagramSvg } from "../src/lib/beamChart";
+import { analyzeBeam, BeamInput, BeamResult, Support, Load } from "../src/lib/beam";
+import { Rat, ratInt, ratDiv } from "../src/lib/cas";
+import { buildPeriodicTableSvg, buildBohrSvg, buildOrbitalSvg } from "../src/lib/periodicChart";
+import { buildLinearMapSvg } from "../src/lib/seqmap";
+import { buildCircularMapSvg } from "../src/lib/seqmapcirc";
+import { parseGenBank } from "../src/lib/seqio";
+import { persistentHomology, barcodeSvg } from "../src/lib/persistence";
 
 const figures: [string, string][] = [];
 
@@ -1058,4 +1095,332 @@ figures.push([
   ),
 ]);
 
-process.exit(runAudit(figures) ? 1 : 0);
+// =============================================================================
+// THE NON-ENGINEERING HALF
+// =============================================================================
+// Everything above this line is Engineering. Everything below is the half of the
+// product that had no figure gate at all until 2026-08-05 — Table→Chart, the
+// table figure and diagrams, heat maps, candlesticks, predicted and measured
+// spectra, beams, the periodic table, sequence maps and the persistence barcode.
+//
+// Inputs are built THROUGH THE REAL PARSERS AND ENGINES (`parseTableData`,
+// `predictNmr`, `analyzeBeam`, `parseGenBank`, `persistentHomology`) rather than
+// hand-assembled, for the same reason the Reliability block above does it: a
+// hand-made object that does not match what the pane actually passes produces a
+// figure nobody ever sees, and a corpus of those is a gate that measures nothing.
+
+// --- Table → Chart ------------------------------------------------------------
+// Long category labels, a five-series legend, thousands separators and a unit
+// suffix — the four things that make the tick column and the legend fight.
+const SALES: string[][] = [
+  ["Fiscal quarter", "North America", "Europe, Middle East & Africa", "Asia-Pacific", "Latin America", "Rest of world"],
+  ["Q1 2024 (restated)", "1,204,500", "886,000", "1,455,900", "212,400", "18,900"],
+  ["Q2 2024", "1,318,750", "902,300", "1,502,100", "244,050", "21,300"],
+  ["Q3 2024", "1,101,200", "1,044,800", "1,688,400", "198,700", "17,050"],
+  ["Q4 2024 (preliminary)", "1,590,300", "1,120,600", "1,742,250", "301,900", "26,400"],
+  ["Q1 2025", "1,622,100", "1,208,400", "1,811,000", "288,300", "24,800"],
+];
+const salesChart = parseTableData(SALES);
+for (const kind of [
+  "column",
+  "bar",
+  "line",
+  "area",
+  "scatter",
+  "stacked-column",
+  "stacked-bar",
+  "stacked-area",
+  "pie",
+  "doughnut",
+] as ChartKind[]) {
+  figures.push([
+    `tablechart ${kind}`,
+    buildChartPreviewSvg(salesChart, kind, "Revenue by region and quarter, in reporting currency").svg,
+  ]);
+}
+// Mixed signs with a zero crossing, which moves the baseline off the frame edge.
+const SWING = parseTableData([
+  ["Month", "Net cash flow", "Cumulative"],
+  ["January", "-48200", "-48200"],
+  ["February", "12400", "-35800"],
+  ["March", "-6050", "-41850"],
+  ["April", "88100", "46250"],
+  ["May", "-2.5", "46247.5"],
+]);
+figures.push(["tablechart signed", buildChartPreviewSvg(SWING, "column", "Net cash flow, signed").svg]);
+// FEMTO MAGNITUDES. This is gap-analysis defect 0.1: an absolute 1e-9 tick slack
+// with no count cap built 2,000,011 tick labels and a 510 MB SVG here. The
+// product deliberately ships fs, fF and fJ units, so this input is ordinary.
+// It stays in the corpus as the regression guard: if the cap is ever removed,
+// this figure alone will take the gate from seconds to never.
+const FEMTO = parseTableData([
+  ["Pulse", "Width (s)", "Energy (J)"],
+  ["seed", "1.2e-15", "3.4e-15"],
+  ["amplified", "8.7e-15", "9.1e-15"],
+  ["compressed", "4.4e-15", "6.8e-15"],
+]);
+figures.push(["tablechart femto", buildChartPreviewSvg(FEMTO, "column", "Femtosecond pulse train").svg]);
+// A patent-drawing rendering with a figure label: hatching, markers and an extra
+// caption band beneath the frame.
+figures.push([
+  "tablechart patent",
+  buildChartPreviewSvg(salesChart, "column", "Revenue by region", { patent: true, figLabel: "FIG. 4" }).svg,
+]);
+
+// --- The table figure and the two diagram kinds -------------------------------
+figures.push(["tablefigure", buildTableFigureSvg(SALES, "Table 1 — quarterly revenue").svg]);
+figures.push([
+  "tablefigure narrow",
+  buildTableFigureSvg(
+    [
+      ["Step", "Reagent", "Conditions", "Yield"],
+      ["1", "n-BuLi in THF at -78 °C under argon", "45 min", "88%"],
+      ["2", "Pd(PPh₃)₄, K₂CO₃, dioxane/water 4:1", "12 h reflux", "61%"],
+      ["3", "TBAF in THF", "2 h, 0 °C to rt", "94%"],
+    ],
+    "Table 2 — a synthesis with long condition cells",
+  ).svg,
+]);
+const FLOW: string[][] = [
+  ["Step", "Description", "Next"],
+  ["1", "Receive the Office Action and docket the three-month statutory period", "2"],
+  ["2", "Map every rejection to its claim set", "3"],
+  ["3", "Pull and read each cited reference in full", "4"],
+  ["4", "Is the rejection well founded on the reference as a whole?", "5,6"],
+  ["5", "Draft distinguishing arguments with pin cites", "7"],
+  ["6", "Draft claim amendments under 37 CFR 1.121", "7"],
+  ["7", "File the response and confirm the acknowledgement receipt", ""],
+];
+figures.push(["diagram flowchart", buildFlowchartSvg(FLOW, "Office Action response workflow").svg]);
+// A hierarchy is COLUMN-INDEXED: depth is the column a cell sits in, not a level
+// number in a column of its own. Getting that wrong builds a tree of orphans that
+// still renders — which is why check-figures.js refuses a blank figure but cannot
+// refuse a wrong-shaped one, and why these inputs go through the real parser.
+const TREE: string[][] = [
+  ["Independent claim 1 — an optical assembly"],
+  ["", "Claim 2 — wherein the lens is aspheric"],
+  ["", "", "Claim 3 — wherein the aspheric surface is diamond-turned"],
+  ["", "Claim 4 — wherein the housing is anodised aluminium"],
+  ["", "", "Claim 5 — wherein the anodising is type III hard coat"],
+  ["", "", "Claim 6 — wherein a gasket seals the housing to IP67"],
+  ["Independent claim 7 — a method of assembling the optical assembly"],
+  ["", "Claim 8 — wherein the assembling includes active alignment"],
+];
+figures.push(["diagram hierarchy", buildHierarchySvg(TREE, "Claim dependency tree").svg]);
+
+// --- Heat map -----------------------------------------------------------------
+const CORR = parseTableData([
+  ["Assay", "IC50 (nM)", "Hill slope", "Emax (%)", "Selectivity ratio"],
+  ["Kinase A binding", "12.4", "1.02", "97.5", "1.0"],
+  ["Kinase B binding", "1180", "0.88", "62.1", "95.2"],
+  ["Cell proliferation", "44.9", "1.41", "88.0", "3.6"],
+  ["Whole blood", "302.7", "1.15", "71.4", "24.4"],
+  ["Off-target hERG patch clamp", "9840", "0.79", "18.2", "793.5"],
+]);
+figures.push(["heatmap sequential", buildHeatmapSvg(CORR, "Assay panel, sequential scale").svg]);
+figures.push([
+  "heatmap diverging",
+  buildHeatmapSvg(
+    parseTableData([
+      ["Gene", "0 h", "6 h", "24 h", "72 h"],
+      ["TP53", "-2.41", "0.12", "1.88", "3.04"],
+      ["MYC", "3.19", "-0.44", "-2.90", "-3.55"],
+      ["CDKN1A", "0.02", "2.71", "2.44", "0.81"],
+      ["BAX", "-0.15", "-1.02", "0.36", "1.99"],
+    ]),
+    "Log₂ fold change against time",
+    { scale: "diverging", midpoint: 0 },
+  ).svg,
+]);
+figures.push(["heatmap grey", buildHeatmapSvg(CORR, "Assay panel, print rendering", { grey: true }).svg]);
+
+// --- Candlestick --------------------------------------------------------------
+const OHLC = parseTableData([
+  ["Session", "Open", "High", "Low", "Close"],
+  ["2025-01-06", "184.20", "188.95", "183.10", "188.02"],
+  ["2025-01-07", "188.40", "189.10", "181.75", "182.30"],
+  ["2025-01-08", "182.05", "186.60", "180.90", "186.11"],
+  ["2025-01-09", "186.30", "192.44", "185.80", "191.90"],
+  ["2025-01-10", "191.75", "191.80", "176.20", "177.45"],
+  ["2025-01-13", "177.10", "180.05", "174.65", "179.88"],
+]);
+figures.push(["candlestick", buildCandlestickSvg(OHLC, "Six sessions").svg]);
+figures.push(["candlestick grey", buildCandlestickSvg(OHLC, "Six sessions, print", { grey: true }).svg]);
+figures.push([
+  "candlestick redIsUp",
+  buildCandlestickSvg(OHLC, "Six sessions, East Asian convention", { redIsUp: true }).svg,
+]);
+// Same femtoscale guard as above: candlestick carried the identical tick loop.
+figures.push([
+  "candlestick femto",
+  buildCandlestickSvg(
+    parseTableData([
+      ["Shot", "Open", "High", "Low", "Close"],
+      ["1", "1.20e-15", "1.44e-15", "1.02e-15", "1.31e-15"],
+      ["2", "1.31e-15", "1.52e-15", "1.19e-15", "1.22e-15"],
+      ["3", "1.22e-15", "1.38e-15", "1.10e-15", "1.36e-15"],
+    ]),
+    "Femtojoule shot energies",
+  ).svg,
+]);
+
+// --- Predicted and measured spectra -------------------------------------------
+// Toluene, ethanol, aspirin and 2-hexanone: enough signals to crowd an axis, and
+// the shifts are real predictions rather than invented coordinates.
+//
+// The axes here are FLIPPED (δ and wavenumber increase leftward), and gap-analysis
+// defect 0.4 was that every one of these drew a NEGATIVE axis for eight months.
+// A tick label reading "-4" is not a layout defect, so this corpus cannot catch
+// it — spectraChart.test.ts asserts on the tick VALUES. What the corpus catches
+// is the other half: a stick spectrum whose assignment labels sit on top of each
+// other, which is what a dense aromatic region produces.
+for (const [name, smiles, nucleus] of [
+  ["nmr toluene 1H", "Cc1ccccc1", "1H"],
+  ["nmr aspirin 1H", "CC(=O)Oc1ccccc1C(=O)O", "1H"],
+  ["nmr aspirin 13C", "CC(=O)Oc1ccccc1C(=O)O", "13C"],
+  ["nmr ethanol 1H", "CCO", "1H"],
+] as [string, string, "1H" | "13C"][]) {
+  const r = predictNmr(smiles, nucleus);
+  const svg = r ? nmrChartSvg(r) : null;
+  if (svg) figures.push([name, svg]);
+}
+{
+  const ir = predictIr("CC(=O)Oc1ccccc1C(=O)O");
+  const svg = ir ? irChartSvg(ir.bands) : null;
+  if (svg) figures.push(["ir aspirin", svg]);
+}
+{
+  const fr = predictFragments("CCCC(=O)C");
+  const svg = fr ? msChartSvg(fr) : null;
+  if (svg) figures.push(["ms hexanone", svg]);
+}
+{
+  const c = predictCosy("CCO");
+  if (c) { const s = cosyChartSvg(c); if (s) figures.push(["cosy ethanol", s]); }
+  const h = predictHsqc("Cc1ccccc1");
+  if (h) { const s = hsqcChartSvg(h); if (s) figures.push(["hsqc toluene", s]); }
+  const b = predictHmbc("Cc1ccccc1");
+  if (b) { const s = hmbcChartSvg(b); if (s) figures.push(["hmbc toluene", s]); }
+  const t = predictTocsy("CCCCO");
+  if (t) { const s = tocsyChartSvg(t); if (s) figures.push(["tocsy butanol", s]); }
+}
+// A measured trace, as a JCAMP-DX import delivers it: 900 points, four-digit
+// wavenumbers, and a title long enough to reach the frame edge.
+{
+  const pts = Array.from({ length: 900 }, (_, i) => {
+    const x = 4000 - (3500 * i) / 899;
+    const band = (c: number, w: number, d: number) => d * Math.exp(-(((x - c) / w) ** 2));
+    return { x, y: 100 - band(3300, 180, 45) - band(2950, 60, 30) - band(1715, 25, 78) - band(1240, 30, 52) };
+  });
+  const s = jcampChartSvg({
+    title: "Acetylsalicylic acid, KBr disc, 4 cm⁻¹ resolution",
+    kind: "ir",
+    xUnits: "wavenumber (cm⁻¹)",
+    yUnits: "transmittance (%)",
+    points: pts,
+  });
+  if (s) figures.push(["jcamp measured ir", s]);
+}
+
+// --- The beam diagram ---------------------------------------------------------
+{
+  const R = (n: number, d = 1): Rat => ratDiv(ratInt(n), ratInt(d));
+  const beam = (name: string, supports: Support[], loads: Load[], ei: Rat | null): void => {
+    const input: BeamInput = { length: R(8), supports, loads, ei };
+    const r = analyzeBeam(input);
+    if (!r.ok) return;
+    figures.push([
+      name,
+      beamDiagramSvg({
+        result: r as BeamResult,
+        supports,
+        loads,
+        forceUnit: "kN",
+        momentUnit: "kN·m",
+        lengthUnit: "m",
+      }),
+    ]);
+  };
+  beam("beam udl", [{ kind: "pin", x: R(0) }, { kind: "roller", x: R(8) }], [{ kind: "udl", a: R(0), b: R(8), w: R(5) }], null);
+  beam(
+    "beam cantilever point",
+    [{ kind: "fixed", x: R(0) }],
+    [{ kind: "point", x: R(8), p: R(12) }],
+    null,
+  );
+  beam(
+    "beam mixed loads",
+    [{ kind: "pin", x: R(0) }, { kind: "roller", x: R(8) }],
+    [
+      { kind: "udl", a: R(0), b: R(3), w: R(9) },
+      { kind: "point", x: R(5), p: R(24) },
+      { kind: "moment", x: R(6), m: R(15) },
+      { kind: "ramp", a: R(6), b: R(8), w1: R(0), w2: R(11) },
+    ],
+    null,
+  );
+  // Tiny magnitudes: the value labels become exponential and grow wide.
+  beam(
+    "beam micro",
+    [{ kind: "pin", x: R(0) }, { kind: "roller", x: R(8) }],
+    [{ kind: "udl", a: R(0), b: R(8), w: ratDiv(ratInt(1), ratInt(1000000)) }],
+    null,
+  );
+}
+
+// --- The periodic table and the two atom views --------------------------------
+figures.push(["periodic table", buildPeriodicTableSvg("Fe").svg]);
+figures.push(["periodic table no highlight", buildPeriodicTableSvg().svg]);
+for (const [name, z] of [["bohr H", 1], ["bohr Fe", 26], ["bohr U", 92]] as [string, number][]) {
+  const r = buildBohrSvg(z);
+  if (r) figures.push([name, r.svg]);
+}
+for (const [name, z] of [["orbital C", 6], ["orbital Fe", 26], ["orbital U", 92]] as [string, number][]) {
+  const r = buildOrbitalSvg(z);
+  if (r) figures.push([name, r.svg]);
+}
+
+// --- Sequence maps, linear and circular ---------------------------------------
+{
+  const GB = `LOCUS       pEXAMPLE                 900 bp    DNA     circular SYN 05-AUG-2026
+DEFINITION  An example construct for the figure corpus.
+FEATURES             Location/Qualifiers
+     CDS             40..480
+                     /label="a rather long coding sequence label"
+     promoter        1..38
+                     /label="Ptac"
+     terminator      500..560
+                     /label="rrnB T1"
+     misc_feature    complement(600..720)
+                     /label="reverse element with a long name"
+     primer_bind     complement(861..880)
+                     /label="M13rev"
+     rep_origin      740..850
+                     /label="ColE1"
+ORIGIN
+        1 ${"acgt".repeat(225)}
+//
+`;
+  const parsed = parseGenBank(GB);
+  if (parsed.ok && parsed.records.length) {
+    const rec = parsed.records[0];
+    const lin = buildLinearMapSvg(rec);
+    if (lin) figures.push(["seqmap linear", lin]);
+    const circ = buildCircularMapSvg(rec);
+    if (circ) figures.push(["seqmap circular", circ]);
+  }
+}
+
+// --- The persistence barcode --------------------------------------------------
+{
+  // A noisy circle: one long H1 bar plus a spray of short ones, which is exactly
+  // the case where the bar labels crowd the left margin.
+  const pts: number[][] = [];
+  for (let i = 0; i < 14; i++) {
+    const a = (2 * Math.PI * i) / 14;
+    pts.push([Math.cos(a) + 0.03 * Math.sin(7 * a), Math.sin(a) + 0.03 * Math.cos(5 * a)]);
+  }
+  figures.push(["persistence barcode", barcodeSvg(persistentHomology(pts, { maxDim: 1 }))]);
+}
+
+export { figures };

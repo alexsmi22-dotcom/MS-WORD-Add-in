@@ -15,11 +15,33 @@ import { NmrResult, nmrSticks } from "./nmr";
 import { IrBand, irTransmittanceCurve } from "./ir";
 import { FragmentResult, Likelihood } from "./fragment";
 import { Cosy2D, Hsqc2D, Hmbc2D, Tocsy2D } from "./nmr2d";
-import { buildPlotSvg, Series, Point } from "./plot";
+import { buildPlotSvg, Series, Point, fmtTick } from "./plot";
 import { minOf, maxOf } from "./minmax";
 
 const WIDTH = 380;
 const HEIGHT = 240;
+
+/**
+ * A NEGATED AXIS MUST BE LABELLED BACK.
+ *
+ * The negation in the builders below is a DRAWING device: buildPlotSvg draws x
+ * ascending rightward and nothing else, so an axis that runs the other way is fed
+ * −x. The LABEL is a separate question, and it went unasked: the ticks were
+ * formatted from the plotted coordinate, so every predicted spectrum in this
+ * product read `-4 -3.5 -3 …` beneath "δ (ppm) — increases leftward", and IR read
+ * −4000 to −500 cm⁻¹.
+ *
+ * That is not a figure a reader can dismiss as a glitch: δ = −3.5 ppm is a real
+ * upfield-of-TMS shift and −500 cm⁻¹ is not, but both look like data. Undoing the
+ * negation for the LABEL only is the whole fix, and it belongs here beside the
+ * negation rather than inside the plotter, because only this module knows the
+ * axis was flipped.
+ */
+const unflip = (v: number): string => fmtTick(-v);
+/** For 1-D spectra: x is flipped, y is the ordinary direction. */
+const FLIP_X = { xTickLabel: unflip } as const;
+/** For 2-D maps: both shift axes are flipped. */
+const FLIP_BOTH = { xTickLabel: unflip, yTickLabel: unflip } as const;
 
 /** Stick spectrum for a predicted 1H/13C spectrum, δ increasing leftward. */
 export function nmrChartSvg(r: NmrResult): string | null {
@@ -48,6 +70,7 @@ export function nmrChartSvg(r: NmrResult): string | null {
     ylabel: r.nucleus === "1H" ? "rel. integration" : "",
     width: WIDTH,
     height: HEIGHT,
+    ...FLIP_X,
   });
 }
 
@@ -61,6 +84,7 @@ export function irChartSvg(bands: IrBand[]): string | null {
     ylabel: "transmittance (%)",
     width: WIDTH,
     height: HEIGHT,
+    ...FLIP_X,
   });
 }
 
@@ -124,6 +148,7 @@ export function cosyChartSvg(r: Cosy2D): string | null {
     ylabel: "δ (ppm) — increases downward",
     width: SIZE_2D,
     height: SIZE_2D,
+    ...FLIP_BOTH,
   });
 }
 
@@ -141,6 +166,7 @@ export function hsqcChartSvg(r: Hsqc2D): string | null {
     ylabel: "δ ¹³C (ppm) — increases downward",
     width: SIZE_2D,
     height: SIZE_2D,
+    ...FLIP_BOTH,
   });
 }
 
@@ -215,6 +241,9 @@ export function jcampChartSvg(s: MeasuredTrace): string | null {
     ylabel: s.yUnits || "",
     width: WIDTH,
     height: HEIGHT,
+    // Only the flipped kinds get the label transform; a UV-Vis or MS trace is
+    // plotted in its own direction and its ticks are already the real values.
+    ...(flip ? FLIP_X : {}),
   });
 }
 
@@ -231,14 +260,15 @@ export function hmbcChartSvg(r: Hmbc2D): string | null {
   const strong = r.peaks.filter((p) => !p.weak).map((p) => ({ x: -p.f2, y: -p.f1 }));
   const weak = r.peaks.filter((p) => p.weak).map((p) => ({ x: -p.f2, y: -p.f1 }));
   const series: Series[] = [];
-  if (strong.length) series.push({ points: strong, type: "scatter", color: "#2563eb", label: "3J (C,H)" });
-  if (weak.length) series.push({ points: weak, type: "scatter", color: "#93c5fd", label: "2J (often weak)" });
+  if (strong.length) series.push({ points: strong, type: "scatter", color: "#2563eb", label: "³J(C,H)" });
+  if (weak.length) series.push({ points: weak, type: "scatter", color: "#93c5fd", label: "²J (often weak)" });
   return buildPlotSvg(series, {
-    title: "Predicted 1H-13C HMBC (estimate)",
-    xlabel: "d 1H (ppm) - increases leftward",
-    ylabel: "d 13C (ppm) - increases downward",
+    title: "Predicted ¹H–¹³C HMBC (estimate)",
+    xlabel: "δ ¹H (ppm) — increases leftward",
+    ylabel: "δ ¹³C (ppm) — increases downward",
     width: SIZE_2D,
     height: SIZE_2D,
+    ...FLIP_BOTH,
   });
 }
 
@@ -257,10 +287,11 @@ export function tocsyChartSvg(r: Tocsy2D): string | null {
   if (direct.length) series.push({ points: direct, type: "scatter", color: "#2563eb", label: "direct" });
   if (relayed.length) series.push({ points: relayed, type: "scatter", color: "#93c5fd", label: "relayed" });
   return buildPlotSvg(series, {
-    title: "Predicted 1H-1H TOCSY (estimate)",
-    xlabel: "d (ppm) - increases leftward",
-    ylabel: "d (ppm) - increases downward",
+    title: "Predicted ¹H–¹H TOCSY (estimate)",
+    xlabel: "δ (ppm) — increases leftward",
+    ylabel: "δ (ppm) — increases downward",
     width: SIZE_2D,
     height: SIZE_2D,
+    ...FLIP_BOTH,
   });
 }

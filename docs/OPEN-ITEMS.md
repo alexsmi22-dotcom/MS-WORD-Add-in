@@ -1,5 +1,20 @@
 # JurisLab — Open Items
 
+> ## PARTLY SUPERSEDED — re-verified at v2.89.0 on 2026-08-05
+>
+> **See [GAP-ANALYSIS-2026-08-05.md](GAP-ANALYSIS-2026-08-05.md)** for the current
+> status of everything outside Engineering and Citations. Items below now known to be
+> **wrong as written**: §3 (`molgraph.ts` has ~25 direct tests), §4 (`optimize.ts`,
+> `matrixExpr.ts`, `ode.ts` and `mathParse.ts` all have dedicated suites), §6 (fixed in
+> `linalg.ts`, but the same false sentence is still live in the pane), §10 (typed error
+> bars shipped), §11 (`combineSvgs` composes; only sub-panel labels are missing), §13
+> (min-length and CDS-frame advisories ship; only DTD validation is absent), and §1
+> (in-Word pass provenance is resolved). Still accurate: §1b (offline), §2 (the `.dna`
+> reader), §9 (raster figures), §12 (accessibility), and the P1 statistics,
+> chemistry and topology lists.
+>
+> This file is no longer "the current status" for that surface; the newer document is.
+
 _Compiled 2026-07-27 at **v2.22.0**, verified against the source rather than against
 the older lists' checkboxes._
 

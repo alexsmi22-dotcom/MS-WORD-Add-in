@@ -69,9 +69,183 @@ const SUB: Record<string, string> = {
   "₅": "5", "₆": "6", "₇": "7", "₈": "8", "₉": "9",
 };
 
-/** Rewrites Unicode super/subscripts to the ASCII grammar (x² → x^(2), x₁ → x_1). */
+/**
+ * Unicode operators that mean exactly one ASCII operator.
+ *
+ * These are what Word's Symbol dialog inserts and what a PDF paste carries, and
+ * every one of them used to fail with `Unexpected character "−"` — an error that
+ * reads like the expression is wrong when the arithmetic is fine and only the glyph
+ * differs. U+2212 MINUS SIGN in particular is emitted by this product's own display
+ * layer, so refusing it broke the rule that whatever is shown must parse back if
+ * the user retypes it.
+ *
+ * The dashes are here because a word processor autocorrects a typed hyphen into an
+ * en dash between spaces; "5 – 3" is a subtraction the user believes they wrote.
+ */
+const UNICODE_OPS: Record<string, string> = {
+  "−": "-", "–": "-", "—": "-",            // minus sign, en dash, em dash
+  "×": "*", "·": "*", "∙": "*", "⋅": "*", // times, middle dot, bullet operator, dot operator
+  "÷": "/",
+};
+
+/**
+ * Rewrites every `√` into `sqrt(…)` with the radicand EXPLICITLY BRACKETED.
+ *
+ * A regex cannot do this, and the version that tried got three inputs wrong three
+ * different ways. Replacing the glyph alone makes `√4` into `sqrt4`, which atom()
+ * reads as an identifier and hands back as a VARIABLE — silently. Grabbing the
+ * following identifier instead turns `√sin(x)` into `sqrt(sin)(x)`, whose error
+ * ("sin is a function, so it needs brackets") names a problem the user does not
+ * have. Neither form handles `√√4`.
+ *
+ * So this is a scanner, and `√` is treated as what it is — a prefix operator over
+ * ONE radicand, where a radicand is:
+ *   a bracketed group   √(x + 1) → sqrt(x + 1)   (the user's own brackets, reused)
+ *   a function call     √sin(x)  → sqrt(sin(x))
+ *   one number or name  √4, √x   → sqrt(4), sqrt(x)
+ *   another radical     √√4      → sqrt(sqrt(4))
+ * and anything else leaves a bare `sqrt`, which atom() rejects with its "needs
+ * brackets around its argument" message rather than inventing a variable.
+ *
+ * Taking ONE atom rather than the rest of the line is the rule this parser already
+ * applies to exponents, so `√2x` is sqrt(2)·x — the reading a typeset radical
+ * shows, where the bar covers the 2 and nothing more.
+ */
+/** Sticky, so a radicand can be matched AT an index without copying the tail. */
+const ID_RE = /[A-Za-z_][A-Za-z0-9_]*/y;
+const NUM_RE = /\d*\.?\d+(?:[eE][+-]?\d+)?/y;
+
+/**
+ * More radicals than any expression a person writes. Past this the input is not a
+ * formula, and the work of scoping each one is not work worth doing: leaving the
+ * glyphs alone hands the string straight to the parser, which rejects the first one
+ * by name. A BOUND ON THE SHAPE IS NOT A BOUND ON THE COST — the scan was made
+ * linear (a precomputed bracket map, sticky regexes that do not copy the tail) and a
+ * 200,000-character paste of "√(" STILL took 13 s synchronously, which in a task
+ * pane is a frozen Word. So there is a number here as well.
+ */
+const MAX_RADICALS = 1000;
+
+function expandRadicals(s: string): string {
+  if (!s.includes("√")) return s; // the overwhelmingly common case, untouched
+  let radicals = 0;
+  for (let k = 0; k < s.length; k++) {
+    if (s[k] === "√" && ++radicals > MAX_RADICALS) return s;
+  }
+
+  // MATCHING BRACKETS ARE PRECOMPUTED, ONCE, IN ONE PASS.
+  //
+  // Scanning forward for the closing bracket from inside `radicand` is O(n) per √,
+  // and on UNBALANCED input every one of them scans to end-of-string — so the cost
+  // is quadratic in a field that accepts a paste. Measured before this, inside
+  // normalizeUnicodeMath alone: "√(" ×50,000 took 6.6 s and ×100,000 took 27.3 s,
+  // synchronously, before the parser or the ambiguity gate ever ran. 200,000
+  // characters is one paste, and 27 seconds in a task pane is a frozen Word.
+  const close = new Map<number, number>();
+  const stack: number[] = [];
+  for (let k = 0; k < s.length; k++) {
+    if (s[k] === "(") stack.push(k);
+    else if (s[k] === ")") {
+      const open = stack.pop();
+      if (open !== undefined) close.set(open, k);
+    }
+  }
+  /** A balanced bracket group starting at s[j] === "(", or null. */
+  const group = (j: number): { text: string; next: number } | null => {
+    const end = close.get(j);
+    if (s[j] !== "(" || end === undefined) return null; // unbalanced: the parser says so
+    return { text: s.slice(j, end + 1), next: end + 1 };
+  };
+  /** The radicand starting at j, already bracketed, or null if there is none. */
+  const radicand = (j: number): { text: string; next: number } | null => {
+    // A RUN OF RADICALS IS COUNTED, NOT RECURSED THROUGH.
+    //
+    // One recursion per √ overflowed the stack at about 6,000 of them in Node
+    // (`RangeError: Maximum call stack size exceeded`), and a Word WebView stack is
+    // smaller than Node's, so the real ceiling is lower. A crash is not a parse
+    // error: it escapes as an unhandled exception rather than a message the user
+    // can act on. The nesting is regular, so it is counted and wrapped afterwards.
+    let depth = 0;
+    while (true) {
+      while (s[j] === " ") j++;
+      if (s[j] !== "√") break;
+      depth++;
+      j++;
+    }
+    const inner = radicandAtom(j);
+    if (!inner) return null;
+    let text = inner.text;
+    for (let d = 0; d < depth; d++) text = `(sqrt${text})`;
+    return { text, next: inner.next };
+  };
+  /** One radicand with no leading √: a group, a call, a name, or a number. */
+  const radicandAtom = (j: number): { text: string; next: number } | null => {
+    while (s[j] === " ") j++;
+    const g = group(j);
+    if (g) return g;
+    // STICKY, NOT SLICED. `regex.exec(s.slice(j))` copies the rest of the string
+    // for every √ in the input, which is the other half of the quadratic — it cost
+    // 8.9 s on a 200,000-character paste even after the bracket scan was made
+    // linear. A sticky regex matches in place, at an index, and copies nothing.
+    ID_RE.lastIndex = j;
+    const id = ID_RE.exec(s);
+    if (id) {
+      const after = j + id[0].length;
+      const call = group(after);
+      if (call) return { text: `(${id[0]}${call.text})`, next: call.next };
+      return { text: `(${id[0]})`, next: after };
+    }
+    NUM_RE.lastIndex = j;
+    const num = NUM_RE.exec(s);
+    if (num) return { text: `(${num[0]})`, next: j + num[0].length };
+    return null;
+  };
+  let out = "";
+  let i = 0;
+  while (i < s.length) {
+    if (s[i] !== "√") {
+      out += s[i++];
+      continue;
+    }
+    // SEPARATE FROM WHAT PRECEDES IT, exactly as the π fold does, and for the
+    // same reason. Without the space, an identifier immediately to the left
+    // fused with the substitution: "x√" became the single token "xsqrt", which
+    // Solve then treated as an equation in an unknown VARIABLE of that name —
+    // silently inventing one, which the docstring promises never happens. And
+    // "a√b" became the call "asqrt(b)", an error naming a function the user
+    // never typed. A leading space is inert everywhere else in this grammar.
+    if (out.length && /[A-Za-z0-9_)\]]$/.test(out)) out += " ";
+    const r = radicand(i + 1);
+    if (!r) {
+      out += "sqrt"; // nothing usable follows — let atom() say so, by name
+      i++;
+      continue;
+    }
+    out += `sqrt${r.text}`;
+    i = r.next;
+  }
+  return out;
+}
+
+/**
+ * Rewrites Unicode math to the ASCII grammar: x² → x^(2), x₁ → x_1, π → pi,
+ * √4 → sqrt(4), 2 × 3 → 2 * 3, 5 − 3 → 5 - 3.
+ *
+ * `π` cannot be replaced by the bare text "pi", because it is glued to whatever is
+ * adjacent: "xπ" would become the single identifier "xpi" — a made-up variable,
+ * silently. It is padded with a space instead, and space is already this parser's
+ * implicit-multiplication separator, so "2π" → "2 pi" → 2·π. The one place that
+ * padding must NOT go is after an underscore, where the letters belong to a
+ * subscripted NAME: unconditional padding turned x_π into "x_ pi", a variable
+ * called `x_` times π, with no error — the same silent invention the padding
+ * prevents everywhere else.
+ *
+ * `∞` maps to "inf" ON PURPOSE, so the DELIBERATE refusal in atom() ("inf is not a
+ * value this can solve for") fires by name. A better error message, not a new
+ * capability: infinity is still not a value this solver accepts.
+ */
 export function normalizeUnicodeMath(input: string): string {
-  return input
+  const folded = input
     .replace(/[⁰¹²³⁴-⁹⁺⁻⁽⁾ⁿ]+/g, (run) => {
       const decoded = [...run].map((c) => SUP[c] ?? "").join("");
       return decoded ? `^(${decoded})` : "";
@@ -79,7 +253,21 @@ export function normalizeUnicodeMath(input: string): string {
     .replace(/[₀-₉]+/g, (run) => {
       const decoded = [...run].map((c) => SUB[c] ?? "").join("");
       return decoded ? `_${decoded}` : "";
-    });
+    })
+    .replace(/[−–—×·∙⋅÷]/g, (c) => UNICODE_OPS[c])
+    // A SUBSCRIPT BINDS ON EITHER SIDE. The padding that stops "xπ" becoming the
+    // invented variable "xpi" must not run between π and a subscript that belongs
+    // to it: subscripts are folded first, so "π₁" arrives here as "π_1" and blanket
+    // padding made it " pi _1" — π times a variable called "_1". Worse than a bad
+    // message, because solveEquation would then take "_1" as the unknown and solve
+    // an equation the user never wrote.
+    .replace(/π/g, (_m: string, off: number, str: string) => {
+      const lead = str[off - 1] === "_" ? "" : " ";
+      const trail = str[off + 1] === "_" ? "" : " ";
+      return `${lead}pi${trail}`;
+    })
+    .replace(/∞/g, " inf ");
+  return expandRadicals(folded);
 }
 
 // ---------------------------------------------------------------------------
@@ -255,9 +443,24 @@ export function parseExpr(s: string): Expr {
   // REFUSED RATHER THAN GUESSED AT. `1/2x` has no agreed reading, and this file and
   // mathParse.ts had picked opposite ones — so the same text meant two different
   // functions in two parts of the product. See lib/ambiguous.ts.
-  const ambiguous = ambiguousImplicitProduct(s);
+  //
+  // THE GATE MUST SEE WHAT THE PARSER WILL SEE, NOT WHAT THE USER TYPED.
+  //
+  // The Unicode fold used to run inside the Parser constructor, i.e. AFTER this
+  // check, so a fold could carry an expression around the refusal. Measured:
+  // `1/2pi` was refused while `1/2π` returned 1.5707963267948966 — the same
+  // expression in two notations, one a refusal and one an answer, and the answer
+  // silently picked the (1/2)·π reading that ambiguous.ts exists to say is not
+  // settled. π is exactly the character a student takes from Word's Symbol dialog,
+  // so the notation that defeats the gate is the one the gate was written for.
+  //
+  // Folding first also means `√` and the operator glyphs are gated on equal terms.
+  // normalizeUnicodeMath is idempotent — nothing it emits is a Unicode operator —
+  // so the Parser re-folding this string is a no-op.
+  const folded = normalizeUnicodeMath(s);
+  const ambiguous = ambiguousImplicitProduct(folded);
   if (ambiguous) throw new Error(ambiguous);
-  return new Parser(s).parse();
+  return new Parser(folded).parse();
 }
 
 // ---------------------------------------------------------------------------
@@ -722,12 +925,55 @@ function trimPoly(c: number[]): number[] {
   return out;
 }
 
+/**
+ * A complex root, in the ONE convention this product uses.
+ *
+ * This used to build the string itself, and got it wrong twice in the same line.
+ *
+ * 1. IT MIXED TWO MINUS CHARACTERS. The sign between the parts was U+2212 while
+ *    fmtNum emits an ASCII hyphen, so `x^3 - 2 = 0` displayed
+ *    `-0.629960525 − 1.091123636i` — both glyphs in one string. Feeding that back
+ *    into this file's own parseExpr threw `Unexpected character "−"`, breaking the
+ *    rule that whatever is displayed must parse back if the user retypes it.
+ *    (normalizeUnicodeMath now accepts U+2212 as well, so both halves of that are
+ *    closed; this half makes the emitted string self-consistent.)
+ *
+ * 2. IT WROTE THE IMAGINARY UNIT AS `0 + 1i`. linalg.formatComplex — which renders
+ *    eigenvalues in the SAME pane, one tab away — already special-cases a zero real
+ *    part and a unit magnitude and gives `i` / `-i`. Two formatters, two
+ *    conventions, one product. So this delegates rather than reimplementing.
+ *
+ * The 12 significant figures are fmtNum's own precision, passed through, so the
+ * digits are unchanged. formatNum and fmtNum agree at 12 figures over the range
+ * roots actually land in; they diverge only for integers of 13+ digits, where
+ * fmtNum prints every digit and formatNum rounds to 12 (1234567890123 →
+ * 1234567890120). No quadratic or Durand–Kerner root reaches that, and a root with
+ * a non-zero imaginary part reaches it even less, but a non-finite value is kept on
+ * fmtNum's wording regardless — formatNum renders those as "—", which is not
+ * something a solver should offer as a root.
+ */
 function fmtRoot(re: number, im: number): string {
   const r = Math.abs(re) < 1e-10 ? 0 : re;
   const i = Math.abs(im) < 1e-10 ? 0 : im;
   if (i === 0) return fmtNum(r);
-  const sign = i < 0 ? "−" : "+";
-  return `${fmtNum(r)} ${sign} ${fmtNum(Math.abs(i))}i`;
+  // THE CONVENTIONS ARE BORROWED. THE DIGITS ARE NOT.
+  //
+  // Calling formatComplex outright looked like the tidier reuse and quietly
+  // truncated exact roots: formatNum rounds to a significant-figure count, so
+  // `x^2 + 2^94 = 0` displayed 140737488355000i for an imaginary part of
+  // 140737488355328 — and did it on an object carrying `exact: true`. A rounded
+  // number under an exactness flag is worse than either mistake alone, because the
+  // flag is what tells the reader not to check.
+  //
+  // fmtNum prints an integer in full, so the digits below are the file's own and
+  // unchanged. What is copied from formatComplex is only its SHAPE: a zero real
+  // part gives a bare `i`/`-i`, a unit magnitude drops the redundant 1, and the
+  // sign is an ASCII hyphen so the string re-parses. Kept in step by test, not by
+  // a call that also decides precision.
+  const mag = fmtNum(Math.abs(i));
+  const imPart = mag === "1" ? "i" : `${mag}i`;
+  if (r === 0) return i < 0 ? `-${imPart}` : imPart;
+  return `${fmtNum(r)} ${i < 0 ? "-" : "+"} ${imPart}`;
 }
 
 /** Exact roots of a linear or quadratic; null if degree is not 1 or 2. */

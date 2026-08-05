@@ -1,4 +1,11 @@
-import { parseNumberCell, parseTableData, buildChartPreviewSvg, ChartKind } from "../tablechart";
+import { parseNumberCell, parseTableData, buildChartPreviewSvg, ChartKind, ChartStyle, TableChart } from "../tablechart";
+
+/**
+ * The markup only. buildChartPreviewSvg returns { svg, warnings } — the renderer
+ * notes used to be dropped on the floor — and these tests are about the drawing.
+ */
+const previewSvg = (chart: TableChart, kind: ChartKind, title = "", style: ChartStyle = {}): string =>
+  buildChartPreviewSvg(chart, kind, title, style).svg;
 
 describe("parseNumberCell", () => {
   test("plain integers and decimals", () => {
@@ -242,7 +249,7 @@ describe("buildChartPreviewSvg", () => {
   ];
 
   test.each(kinds)("%s renders valid-looking SVG", (kind) => {
-    const svg = buildChartPreviewSvg(chart, kind, "My chart");
+    const svg = previewSvg(chart, kind, "My chart");
     expect(svg.startsWith("<svg")).toBe(true);
     expect(svg.endsWith("</svg>")).toBe(true);
     expect(svg).toContain("My chart");
@@ -256,7 +263,7 @@ describe("buildChartPreviewSvg", () => {
       ["2022", "100", "80"],
       ["2023", "150", "90"],
     ]);
-    const svg = buildChartPreviewSvg(c, "stacked-column");
+    const svg = previewSvg(c, "stacked-column");
     expect(svg).toMatch(/>2[0-9][0-9]</); // an axis tick ≥ 200 (sum 240) — impossible when grouped
     // Two series × two categories = 4 stacked segments.
     const rects = svg.match(/<rect /g) || [];
@@ -264,25 +271,25 @@ describe("buildChartPreviewSvg", () => {
   });
 
   test("scatter draws markers but no connecting lines", () => {
-    const svg = buildChartPreviewSvg(chart, "scatter");
+    const svg = previewSvg(chart, "scatter");
     expect((svg.match(/<polyline /g) || []).length).toBe(0);
     expect((svg.match(/<circle /g) || []).length).toBeGreaterThan(0);
   });
 
   test("column chart draws one rect per numeric cell (plus frame and legend)", () => {
-    const svg = buildChartPreviewSvg(chart, "column");
+    const svg = previewSvg(chart, "column");
     const rects = svg.match(/<rect /g) || [];
     // background + frame + 6 bars + 2 legend swatches
     expect(rects.length).toBe(10);
   });
 
   test("line chart draws one polyline per series", () => {
-    const svg = buildChartPreviewSvg(chart, "line");
+    const svg = previewSvg(chart, "line");
     expect((svg.match(/<polyline /g) || []).length).toBe(2);
   });
 
   test("pie uses only positive values of the first series", () => {
-    const svg = buildChartPreviewSvg(chart, "pie");
+    const svg = previewSvg(chart, "pie");
     // 2022 and 2023 are positive; -30 (2024) is excluded → 2 slices
     expect((svg.match(/<path /g) || []).length).toBe(2);
     expect(svg).toContain("first data column only");
@@ -291,7 +298,7 @@ describe("buildChartPreviewSvg", () => {
   test("patent style is pure black & white with hatching and a FIG. label", () => {
     const kinds: ChartKind[] = ["column", "bar", "pie", "doughnut", "area"];
     for (const kind of kinds) {
-      const svg = buildChartPreviewSvg(chart, kind, "", { patent: true, figLabel: "FIG. 2" });
+      const svg = previewSvg(chart, kind, "", { patent: true, figLabel: "FIG. 2" });
       expect(svg).toContain("<pattern");
       expect(svg).toContain("FIG. 2");
       for (const color of ["#1f77b4", "#d62728", "#2ca02c"]) {
@@ -301,7 +308,7 @@ describe("buildChartPreviewSvg", () => {
   });
 
   test("patent line charts use dashes and marker shapes instead of color", () => {
-    const svg = buildChartPreviewSvg(chart, "line", "", { patent: true });
+    const svg = previewSvg(chart, "line", "", { patent: true });
     expect(svg).toContain("stroke-dasharray");
     expect(svg).toContain("<circle"); // series-1 markers
     expect(svg).not.toContain("#1f77b4");
@@ -310,11 +317,52 @@ describe("buildChartPreviewSvg", () => {
   });
 
   test("FIG. label extends the canvas height", () => {
-    const plain = buildChartPreviewSvg(chart, "column");
-    const labeled = buildChartPreviewSvg(chart, "column", "", { figLabel: "FIG. 3" });
+    const plain = previewSvg(chart, "column");
+    const labeled = previewSvg(chart, "column", "", { figLabel: "FIG. 3" });
     expect(plain).toContain('height="260"');
     expect(labeled).toContain('height="286"');
     expect(labeled).toContain("FIG. 3");
+  });
+
+  // REGRESSION (gap analysis 2026-08-05, defect 0.1). The value-axis loop stepped
+  // by `step` with an ABSOLUTE `1e-9` slack and no count cap. On data whose whole
+  // range is smaller than 1e-9 — femtoseconds, femtofarads, femtojoules, all units
+  // this product ships — that slack is billions of steps wide. Measured before the
+  // fix: 2,000,011 <text> elements and a 510 MB string, built synchronously and
+  // assigned to innerHTML. That is a frozen Word, which this repo ranks as its
+  // worst failure mode.
+  describe("the tick loop is bounded at every magnitude", () => {
+    const tiny = (mag: number): ReturnType<typeof parseTableData> =>
+      parseTableData([
+        ["Sample", "Value"],
+        ["a", String(1 * mag)],
+        ["b", String(2 * mag)],
+        ["c", String(3 * mag)],
+      ]);
+
+    test.each([1e-10, 1e-12, 1e-13, 1e-15, 1e-18, 1e-300])(
+      "data at magnitude %p produces a legible number of ticks",
+      (mag) => {
+        const svg = previewSvg(tiny(mag), "column");
+        const texts = (svg.match(/<text /g) || []).length;
+        // Six or seven ticks is the design; the cap is 200. Anything in the
+        // thousands is the runaway, whatever it renders as.
+        expect(texts).toBeLessThan(260);
+        expect(svg.length).toBeLessThan(200_000);
+      },
+    );
+
+    test("a horizontal bar chart is bounded too (its own branch of the same loop)", () => {
+      const svg = previewSvg(tiny(1e-15), "bar");
+      expect((svg.match(/<text /g) || []).length).toBeLessThan(260);
+    });
+
+    test("ordinary data is unaffected — the ticks are still there", () => {
+      const svg = previewSvg(tiny(1), "column");
+      const texts = (svg.match(/<text /g) || []).length;
+      expect(texts).toBeGreaterThan(4);
+      expect(texts).toBeLessThan(40);
+    });
   });
 
   test("labels are XML-escaped", () => {
@@ -322,7 +370,7 @@ describe("buildChartPreviewSvg", () => {
       ["Year", "P&L", "R&D"],
       ["2022", "5", "3"],
     ]);
-    const svg = buildChartPreviewSvg(c, "column", `A "<b>" title`);
+    const svg = previewSvg(c, "column", `A "<b>" title`);
     expect(svg).toContain("P&amp;L"); // series names appear in the legend
     expect(svg).toContain("&quot;&lt;b&gt;&quot;");
     expect(svg).not.toContain("<b>");

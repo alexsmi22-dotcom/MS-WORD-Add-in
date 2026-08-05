@@ -271,7 +271,16 @@ export function predictCoupling(input: string): CouplingResult | null {
     );
   if (sawAlkene)
     caveats.add(
-      "Alkene 3J depends on double-bond geometry (cis ~6-12 Hz, trans ~12-18 Hz); a nominal value is shown because the configuration is not specified in the structure."
+      // DO NOT BLAME THE INPUT FOR THIS TOOL'S LIMITATION.
+      //
+      // This used to read "…because the configuration is not specified in the
+      // structure" — and said it even when the user HAD specified it: the
+      // explicitly trans C/C=C/C(=O)O still produced the nominal J. The caveat
+      // fires on seeing any alkene, before anything reads the geometry, so the
+      // sentence was never about the input at all. Refusing to guess a value is
+      // right; telling the user their structure is incomplete when it is not is a
+      // claim about their work that happens to be false.
+      "Alkene 3J depends on double-bond geometry (cis ~6-12 Hz, trans ~12-18 Hz). This tool does not read double-bond configuration when assigning couplings, so a nominal value is shown for either geometry — check it against the configuration you intend."
     );
   if (sawCH2)
     caveats.add(

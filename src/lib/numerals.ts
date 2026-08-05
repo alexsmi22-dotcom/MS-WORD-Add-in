@@ -21,13 +21,28 @@ export interface NumeralEntry {
 export interface NumeralFindings {
   /** A numeral assigned to more than one distinct element in the table. */
   collisions: { numeral: number; elements: string[] }[];
+  /**
+   * The INVERSE of a collision: one element name carrying more than one numeral —
+   * "housing (12)" here and "housing (14)" there.
+   *
+   * This check did not exist. Only elementsByNumeral was built, so the direction
+   * that a drafter actually gets wrong most often passed clean: renumbering a
+   * figure, or copying a paragraph from a sibling application, leaves the same
+   * part called out under two numbers, and every downstream cross-reference then
+   * points at whichever one the reader happens to hit first.
+   *
+   * Advisory like the rest of this module: two genuinely different parts SHOULD be
+   * named apart ("first housing" / "second housing"), which is exactly what this
+   * asks the drafter to do.
+   */
+  duplicates: { element: string; numerals: number[] }[];
   /** Expected numbers missing from the numbering grid (skipped numerals). */
   gaps: number[];
   /** Numerals called out in the document but not defined in the table. */
   orphans: number[];
   /** Table entries whose numeral never appears in the document. */
   unused: NumeralEntry[];
-  /** True when there are no collisions, gaps, orphans, or unused entries. */
+  /** True when there are no collisions, duplicates, gaps, orphans, or unused entries. */
   ok: boolean;
 }
 
@@ -108,6 +123,7 @@ function tableNumerals(entries: NumeralEntry[]): number[] {
 /**
  * Reconciles the numeral table against the numerals found in the document.
  * - collisions: one numeral assigned two different element names.
+ * - duplicates: one element name assigned two different numerals (the inverse).
  * - gaps: missing numbers on the inferred grid. The step is 2 when every numeral
  *   is even (the common 10/12/14 patent convention), otherwise 1.
  * - orphans: numerals called out in the document with no table entry.
@@ -145,6 +161,25 @@ export function reconcileNumerals(entries: NumeralEntry[], documentNumerals: num
     if (bucket.norm.size > 1) collisions.push({ numeral, elements: bucket.display });
   }
   collisions.sort((a, b) => a.numeral - b.numeral);
+
+  // Duplicates: the same element name under two numerals. Keyed on normalize(), so
+  // "Housing" and " housing " are the same part — the whole point of the check is
+  // that the drafter believes they are naming one thing.
+  const numeralsByElement = new Map<string, { display: string; numerals: Set<number> }>();
+  for (const e of defined) {
+    const el = e.element.trim();
+    const key = normalize(el);
+    const bucket = numeralsByElement.get(key) ?? { display: el, numerals: new Set<number>() };
+    bucket.numerals.add(e.numeral);
+    numeralsByElement.set(key, bucket);
+  }
+  const duplicates: { element: string; numerals: number[] }[] = [];
+  for (const bucket of numeralsByElement.values()) {
+    if (bucket.numerals.size > 1) {
+      duplicates.push({ element: bucket.display, numerals: [...bucket.numerals].sort((a, b) => a - b) });
+    }
+  }
+  duplicates.sort((a, b) => a.numerals[0] - b.numerals[0]);
 
   // Gaps, reported only WITHIN a contiguous run.
   //
@@ -200,10 +235,16 @@ export function reconcileNumerals(entries: NumeralEntry[], documentNumerals: num
 
   return {
     collisions,
+    duplicates,
     gaps,
     orphans,
     unused,
-    ok: collisions.length === 0 && gaps.length === 0 && orphans.length === 0 && unused.length === 0,
+    ok:
+      collisions.length === 0 &&
+      duplicates.length === 0 &&
+      gaps.length === 0 &&
+      orphans.length === 0 &&
+      unused.length === 0,
   };
 }
 

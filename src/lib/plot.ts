@@ -212,8 +212,57 @@ export interface PlotOptions {
    * which is why they get chosen. Every journal and every marking scheme
    * requires the choice to be stated, so the figure states it rather than
    * leaving it to a caption nobody writes.
+   *
+   * Leaving this unset does NOT buy silence: bars come from the data, so a
+   * figure that has them and no kind says "kind not stated" — see
+   * ERROR_BAR_UNSTATED. The only way to a figure with no declaration is a figure
+   * with no bars.
    */
   errorBars?: ErrorBarKind;
+  /**
+   * How a tick VALUE becomes a tick LABEL — for axes whose plotted coordinate is
+   * not the quantity the reader is meant to see.
+   *
+   * WHY THIS EXISTS. An axis that runs backwards (NMR δ, IR wavenumber: both
+   * increase LEFTWARD by convention) is drawn by negating the coordinate, because
+   * this plotter draws x ascending rightward and nothing else. The labels were
+   * then formatted from the negated coordinate, so every predicted spectrum in
+   * the product carried a NEGATIVE axis: `-4 -3.5 -3 …` under the label
+   * "δ (ppm) — increases leftward", and −3.5 ppm is a real upfield shift, so it
+   * reads as data rather than as a rendering fault.
+   *
+   * The function receives the value actually plotted (already snapped to zero
+   * where float drift put it near zero) and returns the text drawn. A flipped
+   * axis passes `v => fmtTick(-v)`. Left unset, labelling is byte-identical to
+   * what it has always been.
+   *
+   * It governs the WIDTH MEASUREMENT as well as the drawing: the margins are
+   * sized from the widest label, and sizing them from text the figure does not
+   * contain is how a column comes out too narrow.
+   */
+  xTickLabel?: (v: number) => string;
+  yTickLabel?: (v: number) => string;
+  /**
+   * Short notes drawn INTO the figure, beneath everything else.
+   *
+   * WHY THEY GO IN THE PICTURE. A caveat rendered next to the SVG in the task
+   * pane does not exist for the reader of the document: the insert path takes the
+   * SVG and nothing else. The case this was built for is the log axis — see
+   * dropForScales, whose contract is that the caller MUST surface what was
+   * discarded — where "3 points not plotted: a logarithmic x axis cannot show
+   * zero or negative values" was computed correctly, shown in a <div>, and then
+   * left behind. A titration series with a zero-concentration control hits it on
+   * the first try, and the published figure is the one that lies.
+   *
+   * They STACK BELOW the error-bar declaration, in the same 9 px face, and they
+   * are paid for by GROWING THE CANVAS — the same rule the legend gutter follows.
+   * Word sizes an inserted picture from the SVG's own width/height, so a note
+   * drawn outside the declared height is a note cropped off the figure.
+   *
+   * Long notes are wrapped; the block is bounded, because an unbounded caller
+   * could otherwise ask for a canvas thousands of pixels tall.
+   */
+  notes?: string[];
 }
 
 /** What an error bar represents. `custom` is for a half-width the caller computed. */
@@ -226,6 +275,24 @@ const ERROR_BAR_LABEL: Record<ErrorBarKind, string> = {
   range: "Error bars: full range",
   custom: "Error bars: as supplied",
 };
+
+/**
+ * What a figure says when bars were drawn and no kind was given.
+ *
+ * The comment on `errorBars` above said every figure states what its bars mean.
+ * It was not true of the DEFAULT: bars are drawn from `p.err` alone, the
+ * declaration was gated on `options.errorBars`, and the pane leaves that empty
+ * until the user picks something — so out of the box a journal figure carried
+ * undeclared bars, the exact thing the comment says cannot happen.
+ *
+ * The alternative was to refuse to draw the bars at all. Rejected: this function
+ * returns a bare string, so there is NO channel to tell the caller why a column
+ * of the user's data vanished, and a silent drop is the failure mode the log-axis
+ * rule (see dropForScales) exists to forbid. Drawing them under an explicit
+ * "not stated" invents nothing — it says exactly what is and is not known, and
+ * puts the missing choice in front of the person who can make it.
+ */
+const ERROR_BAR_UNSTATED = "Error bars: kind not stated";
 
 /** What a log axis had to discard, so the caller can say so. */
 export interface ScaleFilterResult {
@@ -435,14 +502,17 @@ function leftMarginFor(series: Series[], options: PlotOptions): number {
   if (!Number.isFinite(ymin) || !Number.isFinite(ymax)) return 48;
 
   let widest = 0;
+  // The labels this axis will REALLY carry, transform and all — see xTickLabel.
   if (logY) {
     const { major } = logTicks(ymin, ymax);
-    for (const v of major) widest = Math.max(widest, fmtLogTick(v).length);
+    const lab = options.yTickLabel ?? fmtLogTick;
+    for (const v of major) widest = Math.max(widest, lab(v).length);
   } else {
     const step = niceStep(ymax - ymin, 5);
+    const lab = options.yTickLabel ?? fmtTick;
     // Bounded, because `Number.isFinite` on the inputs is not a bound.
     for (let i = 0, t = Math.ceil(ymin / step) * step; i <= TICK_CAP && t <= ymax + step * TICK_EPS; i++, t += step) {
-      widest = Math.max(widest, fmtTick(snapNearZero(t, step)).length);
+      widest = Math.max(widest, lab(snapNearZero(t, step)).length);
     }
   }
   // Label width, the 7 px gap to the axis, and room for the rotated title.
@@ -491,12 +561,14 @@ function rightMarginFor(series: Series[], options: PlotOptions): number {
   let widest = 0;
   if (logX) {
     const { major } = logTicks(xmin, xmax);
-    for (const v of major) widest = Math.max(widest, fmtLogTick(v).length);
+    const lab = options.xTickLabel ?? fmtLogTick;
+    for (const v of major) widest = Math.max(widest, lab(v).length);
   } else {
     const step = niceStep(xmax - xmin, 6);
+    const lab = options.xTickLabel ?? fmtTick;
     // Bounded, for the same reason the left margin's walk is bounded.
     for (let i = 0, t = Math.ceil(xmin / step) * step; i <= TICK_CAP && t <= xmax + step * TICK_EPS; i++, t += step) {
-      widest = Math.max(widest, fmtTick(snapNearZero(t, step)).length);
+      widest = Math.max(widest, lab(snapNearZero(t, step)).length);
     }
   }
   return Math.min(Math.max(DEFAULT, Math.ceil((widest * 6) / 2) + 2), 60);
@@ -517,9 +589,15 @@ function rightMarginFor(series: Series[], options: PlotOptions): number {
  * magnitude. The count cap is the backstop, because a slack that depends on the
  * step being sane is not a bound. Six or seven ticks is the design; 200 is far
  * past anything legible and still finite.
+ *
+ * EXPORTED because this module is not the only one that walks an axis:
+ * tablechart.ts and candlestick.ts have their own tick loops, and both shipped
+ * with the absolute-epsilon, no-cap form this comment describes — 2,000,011 tick
+ * labels and a 510 MB SVG on femtosecond-magnitude data. One pair of constants,
+ * one explanation, three loops that cannot drift apart.
  */
-const TICK_CAP = 200;
-const TICK_EPS = 1e-6;
+export const TICK_CAP = 200;
+export const TICK_EPS = 1e-6;
 
 /** Where the rotated y-axis title is drawn, and how big. Used by both the
  *  margin calculation and the drawing code, so they cannot drift apart. */
@@ -539,6 +617,70 @@ function snapNearZero(t: number, step: number): number {
   return Math.abs(t) < Math.abs(step) * 1e-6 ? 0 : t;
 }
 
+/** The footnote block's face and line height — the error-bar declaration's face. */
+const NOTE_SIZE = 9;
+const NOTE_LH = 12;
+/**
+ * A bound on the footnote block.
+ *
+ * The canvas grows to fit the notes, so an unbounded list is an unbounded height:
+ * a caller looping over "row N could not be drawn" would produce a figure taller
+ * than the document. Twelve lines is more than any real caveat needs, and the cut
+ * SAYS it was cut rather than quietly ending.
+ */
+const NOTE_MAX_LINES = 12;
+
+/**
+ * Greedy word wrap at 6.3 px per character in the 9 px face.
+ *
+ * 6.3 IS A BOUND, NOT AN AVERAGE — the legend's "7 px per character, not 6"
+ * reasoning, in the smaller face. A 9 px sans glyph averages ~5 px and runs to
+ * ~8.5 px for "M"/"W", and this block starts at x = 8 and runs toward the canvas
+ * edge with no frame slack to absorb an underestimate. A caveat clipped off the
+ * right of the figure is the very defect these notes exist to fix.
+ */
+function wrapNote(text: string, maxChars: number): string[] {
+  const out: string[] = [];
+  let cur = "";
+  for (const raw of text.split(/\s+/)) {
+    let w = raw;
+    if (!w) continue;
+    // A single token longer than the line is hard-split; letting it run would put
+    // it off the canvas, which is the one thing this block exists to prevent.
+    while (w.length > maxChars) {
+      if (cur) {
+        out.push(cur);
+        cur = "";
+      }
+      out.push(w.slice(0, maxChars));
+      w = w.slice(maxChars);
+    }
+    if (!cur) cur = w;
+    else if (cur.length + 1 + w.length <= maxChars) cur += ` ${w}`;
+    else {
+      out.push(cur);
+      cur = w;
+    }
+  }
+  if (cur) out.push(cur);
+  return out;
+}
+
+/** Wraps and bounds the notes for a figure `width` px wide. */
+function layoutNotes(notes: string[] | undefined, width: number): string[] {
+  if (!notes || !notes.length) return [];
+  const maxChars = Math.max(20, Math.floor((width - 16) / 6.3));
+  const lines: string[] = [];
+  for (const n of notes) {
+    if (!n || !n.trim()) continue;
+    lines.push(...wrapNote(n.trim(), maxChars));
+  }
+  if (lines.length <= NOTE_MAX_LINES) return lines;
+  const kept = lines.slice(0, NOTE_MAX_LINES - 1);
+  kept.push(`(+${lines.length - (NOTE_MAX_LINES - 1)} more lines not shown)`);
+  return kept;
+}
+
 export function buildPlotSvg(series: Series[], options: PlotOptions = {}): string {
   const W = options.width ?? 380;
   const H = options.height ?? 270;
@@ -552,10 +694,35 @@ export function buildPlotSvg(series: Series[], options: PlotOptions = {}): strin
   const mr = rightMarginFor(series, options);
   const mt = options.title ? 26 : 12;
   // The error-bar declaration needs its own line, or it lands on the x label.
-  const hasErrNote = !!options.errorBars && series.some((s) => s.points.some((p) => p.err !== undefined));
+  //
+  // The predicate is EXACTLY the one the drawing code uses further down, not
+  // `p.err !== undefined`: bars are drawn only for SCATTER series and only for a
+  // truthy finite err, so a line series with an err column, an `err: 0` or an
+  // `err: NaN` puts no bar on the figure — and a declaration about bars that are
+  // not there is its own small lie. (This matters now that the declaration fires
+  // by default: the pane's Plot mode reads a third column into `err` whatever
+  // series type the user picked.)
+  const hasErrNote = series.some((s) => s.type !== "line" && s.points.some((p) => !!p.err && Number.isFinite(p.err)));
   const mb = (options.xlabel ? 42 : 30) + (hasErrNote ? 13 : 0);
   const pw = W - ml - mr;
   const ph = H - mt - mb;
+  // The footnote block is paid for by GROWING THE CANVAS, not by shrinking the
+  // plot — the legend gutter's rule, for the legend gutter's reason: every caller
+  // laid out for the data area it asked for, and Word sizes the picture from the
+  // SVG's own height, so the growth is what keeps the notes on the figure.
+  // Wrapped to W rather than to the widened canvas, so the block stays in the
+  // plot's own column whether or not there is a legend.
+  const noteLines = layoutNotes(options.notes, W);
+  const notesH = noteLines.length ? noteLines.length * NOTE_LH + 4 : 0;
+  const outH = H + notesH;
+  /** The footnote block, drawn below the plot canvas in both return paths. */
+  const notesSvg = (): string =>
+    noteLines
+      .map(
+        (line, i) =>
+          `<text x="8" y="${H + 11 + i * NOTE_LH}" font-family="sans-serif" font-size="${NOTE_SIZE}" fill="#555">${escapeXml(line)}</text>`,
+      )
+      .join("");
 
   // ONE NON-FINITE COORDINATE POISONS THE WHOLE PLOT. The domain below is
   // min/max over every point, and drawing filtered only non-finite y — so an
@@ -572,7 +739,10 @@ export function buildPlotSvg(series: Series[], options: PlotOptions = {}): strin
       }
     }
   if (!all.length) {
-    return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><rect width="${W}" height="${H}" fill="#fff"/><text x="${W / 2}" y="${H / 2}" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#999">No data to plot</text></svg>`;
+    // The notes are drawn HERE TOO. "No data to plot" with the explanation left
+    // behind is the worst version of this figure: a log axis that discarded every
+    // point produces exactly that, and the reason is the only useful thing on it.
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${outH}" viewBox="0 0 ${W} ${outH}"><rect width="${W}" height="${outH}" fill="#fff"/><text x="${W / 2}" y="${H / 2}" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#999">No data to plot</text>${notesSvg()}</svg>`;
   }
 
   // THE LEGEND LIVES OUTSIDE THE PLOT FRAME, in a gutter to its right. It used
@@ -633,11 +803,16 @@ export function buildPlotSvg(series: Series[], options: PlotOptions = {}): strin
   const sx = (x: number): number => ml + ((tx(x) - xmin) / (xmax - xmin)) * pw;
   const sy = (y: number): number => mt + ph - ((ty(y) - ymin) / (ymax - ymin)) * ph;
 
-  const parts: string[] = [`<rect width="${outW}" height="${H}" fill="#fff"/>`];
+  const parts: string[] = [`<rect width="${outW}" height="${outH}" fill="#fff"/>`];
   // Plot frame.
   parts.push(`<rect x="${ml}" y="${mt}" width="${pw}" height="${ph}" fill="none" stroke="#888" stroke-width="1"/>`);
 
-  // Ticks + gridlines.
+  // Ticks + gridlines. The label functions are the ones the margin calculation
+  // measured with, so the reserved column always fits the text that lands in it.
+  const xLab = options.xTickLabel ?? fmtTick;
+  const yLab = options.yTickLabel ?? fmtTick;
+  const xLogLab = options.xTickLabel ?? fmtLogTick;
+  const yLogLab = options.yTickLabel ?? fmtLogTick;
   if (logX) {
     const { major, minor } = logTicks(xmin, xmax);
     for (const v of minor) {
@@ -648,7 +823,7 @@ export function buildPlotSvg(series: Series[], options: PlotOptions = {}): strin
       const px = sx(v);
       parts.push(`<line x1="${px.toFixed(1)}" y1="${mt}" x2="${px.toFixed(1)}" y2="${mt + ph}" stroke="#eee"/>`);
       parts.push(`<line x1="${px.toFixed(1)}" y1="${mt + ph}" x2="${px.toFixed(1)}" y2="${mt + ph + 4}" stroke="#888"/>`);
-      parts.push(`<text x="${px.toFixed(1)}" y="${mt + ph + 16}" text-anchor="middle" font-family="sans-serif" font-size="10" fill="#333">${fmtLogTick(v)}</text>`);
+      parts.push(`<text x="${px.toFixed(1)}" y="${mt + ph + 16}" text-anchor="middle" font-family="sans-serif" font-size="10" fill="#333">${escapeXml(xLogLab(v))}</text>`);
     }
   } else {
     const xstep = niceStep(xmax - xmin, 6);
@@ -656,7 +831,7 @@ export function buildPlotSvg(series: Series[], options: PlotOptions = {}): strin
       const px = sx(t);
       parts.push(`<line x1="${px.toFixed(1)}" y1="${mt}" x2="${px.toFixed(1)}" y2="${mt + ph}" stroke="#eee"/>`);
       parts.push(`<line x1="${px.toFixed(1)}" y1="${mt + ph}" x2="${px.toFixed(1)}" y2="${mt + ph + 4}" stroke="#888"/>`);
-      parts.push(`<text x="${px.toFixed(1)}" y="${mt + ph + 16}" text-anchor="middle" font-family="sans-serif" font-size="10" fill="#333">${fmtTick(snapNearZero(t, xstep))}</text>`);
+      parts.push(`<text x="${px.toFixed(1)}" y="${mt + ph + 16}" text-anchor="middle" font-family="sans-serif" font-size="10" fill="#333">${escapeXml(xLab(snapNearZero(t, xstep)))}</text>`);
     }
   }
   if (logY) {
@@ -669,7 +844,7 @@ export function buildPlotSvg(series: Series[], options: PlotOptions = {}): strin
       const py = sy(v);
       parts.push(`<line x1="${ml}" y1="${py.toFixed(1)}" x2="${ml + pw}" y2="${py.toFixed(1)}" stroke="#eee"/>`);
       parts.push(`<line x1="${ml - 4}" y1="${py.toFixed(1)}" x2="${ml}" y2="${py.toFixed(1)}" stroke="#888"/>`);
-      parts.push(`<text x="${ml - 7}" y="${(py + 3).toFixed(1)}" text-anchor="end" font-family="sans-serif" font-size="10" fill="#333">${fmtLogTick(v)}</text>`);
+      parts.push(`<text x="${ml - 7}" y="${(py + 3).toFixed(1)}" text-anchor="end" font-family="sans-serif" font-size="10" fill="#333">${escapeXml(yLogLab(v))}</text>`);
     }
   } else {
     const ystep = niceStep(ymax - ymin, 5);
@@ -677,7 +852,7 @@ export function buildPlotSvg(series: Series[], options: PlotOptions = {}): strin
       const py = sy(t);
       parts.push(`<line x1="${ml}" y1="${py.toFixed(1)}" x2="${ml + pw}" y2="${py.toFixed(1)}" stroke="#eee"/>`);
       parts.push(`<line x1="${ml - 4}" y1="${py.toFixed(1)}" x2="${ml}" y2="${py.toFixed(1)}" stroke="#888"/>`);
-      parts.push(`<text x="${ml - 7}" y="${(py + 3).toFixed(1)}" text-anchor="end" font-family="sans-serif" font-size="10" fill="#333">${fmtTick(snapNearZero(t, ystep))}</text>`);
+      parts.push(`<text x="${ml - 7}" y="${(py + 3).toFixed(1)}" text-anchor="end" font-family="sans-serif" font-size="10" fill="#333">${escapeXml(yLab(snapNearZero(t, ystep)))}</text>`);
     }
   }
 
@@ -744,7 +919,7 @@ export function buildPlotSvg(series: Series[], options: PlotOptions = {}): strin
   }
   if (hasErrNote) {
     parts.push(
-      `<text x="${ml + pw / 2}" y="${H - 8}" text-anchor="middle" font-family="sans-serif" font-size="9" fill="#555">${escapeXml(ERROR_BAR_LABEL[options.errorBars as ErrorBarKind])}</text>`,
+      `<text x="${ml + pw / 2}" y="${H - 8}" text-anchor="middle" font-family="sans-serif" font-size="9" fill="#555">${escapeXml(options.errorBars ? ERROR_BAR_LABEL[options.errorBars] : ERROR_BAR_UNSTATED)}</text>`,
     );
   }
   if (options.xlabel) {
@@ -758,5 +933,7 @@ export function buildPlotSvg(series: Series[], options: PlotOptions = {}): strin
     parts.push(`<text x="${cx}" y="${cy}" text-anchor="middle" font-family="sans-serif" font-size="${Y_TITLE_SIZE}" fill="#333" transform="rotate(-90 ${cx} ${cy})">${escapeXml(options.ylabel)}</text>`);
   }
 
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${outW}" height="${H}" viewBox="0 0 ${outW} ${H}">${parts.join("")}</svg>`;
+  parts.push(notesSvg());
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${outW}" height="${outH}" viewBox="0 0 ${outW} ${outH}">${parts.join("")}</svg>`;
 }

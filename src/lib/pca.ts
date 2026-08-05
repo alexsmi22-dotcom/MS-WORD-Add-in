@@ -13,6 +13,10 @@
 // ones a reader is looking at the scree plot to judge.
 
 import { svd, Matrix } from "./linalg";
+// Math.min(...xs)/Math.max(...xs) throw RangeError past ~125,000 arguments, and a
+// 200,000-point measured trace is an ordinary paste into this integrator, not a
+// pathological one. See minmax.ts: the failure is a CLIFF, not a curve.
+import { minOf, maxOf } from "./minmax";
 
 export interface PcaResult {
   ok: true;
@@ -221,8 +225,11 @@ export function trapz(xs: number[], ys: number[]): TrapzResult | PcaError {
     );
   }
   const gaps = xs.slice(1).map((x, i) => Math.abs(x - xs[i]));
-  const maxGap = Math.max(...gaps);
-  const minGap = Math.min(...gaps.filter((g) => g > 0), maxGap);
+  const maxGap = maxOf(gaps);
+  const minGap = minOf(
+    gaps.filter((g) => g > 0),
+    maxGap,
+  );
   if (maxGap > 5 * minGap) {
     notes.push(
       "The spacing is very uneven (widest gap is more than five times the narrowest), so most of " +

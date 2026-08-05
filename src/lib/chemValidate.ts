@@ -56,6 +56,76 @@ const isUpper = (c: string): boolean => c >= "A" && c <= "Z";
 const isLower = (c: string): boolean => c >= "a" && c <= "z";
 const isDigit = (c: string): boolean => c >= "0" && c <= "9";
 
+const SUB_DIGITS: Record<string, string> = {
+  "₀": "0", "₁": "1", "₂": "2", "₃": "3", "₄": "4",
+  "₅": "5", "₆": "6", "₇": "7", "₈": "8", "₉": "9",
+};
+const SUP_CHARS: Record<string, string> = {
+  "⁰": "0", "¹": "1", "²": "2", "³": "3", "⁴": "4",
+  "⁵": "5", "⁶": "6", "⁷": "7", "⁸": "8", "⁹": "9",
+  "⁺": "+", "⁻": "-",
+};
+
+/**
+ * Folds the typeset forms this product DISPLAYS back into the ASCII the parser
+ * reads: subscript digits become plain counts, and a run of superscripts becomes
+ * the parser's caret charge notation.
+ *
+ * THE CARET MATTERS. A superscript run is a CHARGE, and this parser spells a
+ * charge "^2-" (see the `^` branch in parseSegment). Folding SO₄²⁻ to "SO42-"
+ * would read the 2 as part of the oxygen count — a silently wrong formula, which
+ * is worse than the refusal this function exists to remove. So the run is
+ * emitted as "^2-", which the mono-ion path and the caret path both handle
+ * identically to the ASCII spellings users already type.
+ *
+ * Anything else is left alone so it still reaches the parser's own error
+ * messages — this normalises notation, it does not silently repair typos.
+ */
+export function normalizeFormulaText(input: string): string {
+  return (
+    input
+      .replace(/[₀₁₂₃₄₅₆₇₈₉]/g, (c) => SUB_DIGITS[c])
+      // ONLY A WELL-FORMED CHARGE IS FOLDED: digits then at most one sign, or a
+      // bare sign. A run that is anything else is left alone deliberately, so
+      // `superscriptComplaint` below can say what is actually wrong instead of
+      // the parser blaming a caret the user never typed.
+      // The MAXIMAL run, not a greedy sub-match: matching "digits then one sign"
+      // per occurrence split Fe³⁺⁺ into ³⁺ and ⁺, folded both, and summed them
+      // to +4 — silently accepting a malformed charge and disagreeing with the
+      // ASCII spelling. One run in, one decision out.
+      .replace(/[⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻]+/g, (run) => {
+        const ascii = [...run].map((c) => SUP_CHARS[c]).join("");
+        return /^\d*[+-]$/.test(ascii) ? "^" + ascii : run;
+      })
+      .replace(/−/g, "-")
+  );
+}
+
+/**
+ * A specific complaint about superscripts that are not a charge, or null.
+ *
+ * Two real cases, both of which previously produced a message naming a "^" the
+ * user never typed, because the fold had already rewritten their input:
+ *
+ *   ¹⁴C, ²H, H₂¹⁸O   an ISOTOPE prefix. This parser has no isotope support at
+ *                    all — mass numbers are not in PERIODIC — so the honest
+ *                    answer names the limitation rather than the syntax.
+ *   Fe³⁺⁺            a malformed charge. Silently summing the two signs gave
+ *                    +4, while the ASCII spelling Fe3++ gave +2: the same
+ *                    notation meaning two different things is exactly what the
+ *                    round-trip rule exists to prevent, so it is refused.
+ */
+function superscriptComplaint(src: string): string | null {
+  if (!/[⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻]/.test(src)) return null;
+  if (/[⁰¹²³⁴⁵⁶⁷⁸⁹]+\s*[A-Z]/.test(src)) {
+    return (
+      "Isotope notation such as ¹⁴C is not supported — this tool uses standard atomic weights, " +
+      "so enter the element without its mass number."
+    );
+  }
+  return "That superscript is not a charge. Write a charge as digits then one sign, e.g. SO₄²⁻ or Fe³⁺.";
+}
+
 /** Parses one hydrate segment (no leading coefficient) into counts + charge. */
 function parseSegment(body: string): SegmentResult {
   const errors: string[] = [];
@@ -157,8 +227,23 @@ function parseSegment(body: string): SegmentResult {
  * is not a real element, brackets are unbalanced, or the syntax is malformed.
  */
 export function validateFormula(input: string): FormulaValidation {
-  const src = input.trim();
+  // UNICODE SUB/SUPERSCRIPTS ARE ACCEPTED, for the same reason massspec.ts
+  // accepts them (see its SUB_DIGITS comment): the pane displays every formula
+  // scientifically — H₂O, C₈H₁₈ — Word's autocorrect produces the same
+  // characters, and Engineering's formatFormula() renders CH₄. A user pasting
+  // any of those back into this box is typing exactly what we showed them.
+  // Refusing ₂ while displaying ₂ makes the correct rendering a round-trip trap,
+  // and it did: "H₂O" returned 'Unexpected character "₂"' with no mass.
+  //
+  // Superscripts are folded too, because a displayed charge (SO₄²⁻) is subject
+  // to the identical trap.
+  const src = normalizeFormulaText(input).trim();
   const errors: string[] = [];
+  // Any superscript that survived the fold was not a charge. Say what it was.
+  const supComplaint = superscriptComplaint(src);
+  if (supComplaint) {
+    return { valid: false, errors: [supComplaint], counts: {}, charge: 0, mass: null, hill: "" };
+  }
   const counts: Record<string, number> = {};
   let charge = 0;
 

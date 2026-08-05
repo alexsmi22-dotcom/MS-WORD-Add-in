@@ -180,8 +180,16 @@ export function boxPlotSvg(
   const MB = rotate ? Math.min(104, 16 + widest * 5.4) : 44;
   const ph = H - MT - MB;
 
-  let lo = Math.min(...all);
-  let hi = Math.max(...all);
+  // REDUCED, NOT SPREAD. `Math.min(...all)` throws RangeError past roughly
+  // 125,000 arguments, and `all` is every observation the user pasted across
+  // every group - which is exactly the size that reaches this builder from a
+  // descriptive-statistics paste. A crash here is a dead pane, not a bad chart.
+  let lo = Infinity;
+  let hi = -Infinity;
+  for (const v of all) {
+    if (v < lo) lo = v;
+    if (v > hi) hi = v;
+  }
   if (!(hi > lo)) {
     // A single distinct value: give it a band so the box has somewhere to sit.
     const pad = Math.abs(hi) > 0 ? Math.abs(hi) * 0.1 : 1;
@@ -447,6 +455,7 @@ export interface BarSeries {
  */
 export function groupedBarSvg(
   categories: string[],
+  // eslint-disable-next-line prefer-const
   series: BarSeries[],
   opts: { title?: string; ylabel?: string; w?: number; h?: number },
 ): string {
@@ -502,7 +511,17 @@ export function groupedBarSvg(
     );
   }
 
-  const palette = [BLUE, RED, "#059669", "#d97706"];
+  // EIGHT DISTINCT COLOURS, AND A HARD CAP AT EIGHT SERIES.
+  //
+  // The palette had four and the series count was unbounded, so a two-way ANOVA
+  // with six levels of factor B drew levels 1 and 5 in the same blue and 2 and 6
+  // in the same red. On an interaction plot the colour IS the mapping, so two
+  // levels sharing one is not a cosmetic clash — the figure stops being
+  // readable as data. Capping and saying so beats drawing a lie quietly.
+  const palette = [BLUE, RED, "#059669", "#d97706", "#7c3aed", "#0891b2", "#be185d", "#4d7c0f"];
+  const allSeries = series;
+  series = series.slice(0, palette.length);
+  const droppedSeries = allSeries.length - series.length;
   const slot = pw / cats.length;
   const bw = Math.max(2, Math.min(18, (slot * 0.7) / series.length));
   cats.forEach((cat, i) => {
@@ -534,10 +553,13 @@ export function groupedBarSvg(
         `fill="${INK}">${esc(s.label.slice(0, 16))}</text>`,
     );
   });
-  if (clipped > 0) {
+  const notes: string[] = [];
+  if (clipped > 0) notes.push(`${clipped} more category(s) not shown`);
+  if (droppedSeries > 0) notes.push(`${droppedSeries} more series not shown`);
+  if (notes.length) {
     parts.push(
       `<text x="${W - MR}" y="${MT + ph + 26}" text-anchor="end" font-family="Segoe UI, Arial" ` +
-        `font-size="9" fill="${RED}">${clipped} more category(s) not shown</text>`,
+        `font-size="9" fill="${RED}">${esc(notes.join(", "))}</text>`,
     );
   }
   parts.push("</svg>");

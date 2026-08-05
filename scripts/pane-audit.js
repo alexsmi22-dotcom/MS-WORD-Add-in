@@ -60,7 +60,9 @@ const BASELINES = {
   // BUILT a figure that an em dash in their own output suppressed before it
   // could be drawn. Measuring, not counting, is the whole point of this file.
   analyze: { label: "Analyze", figures: 23, total: 23 },
-  assay: { label: "Bio/Assay", figures: 5, total: 16 },
+  // BIO/ASSAY IS COMPLETE: 16 of 16. The eleven that were added are not curve
+  // fits, which is why `AssayOutput` grew a raw `svg` route beside `plot`.
+  assay: { label: "Bio/Assay", figures: 16, total: 16 },
   finance: { label: "Finance", figures: 0, total: 24 },
 };
 

@@ -7378,12 +7378,27 @@ const STAT_CALCS: StatCalc[] = [
         // picture is the only evidence available, and a reader can still see a
         // clear skew or a long tail in twelve points.
         //
-        // Drawn on `normalityCheckSample` — the same residuals the tests above
-        // were run on, not the raw values. Using the raw pooled data would show
-        // a bimodal cloud whenever the groups genuinely differ, which is an
-        // effect, not a violation.
+        // Drawn on `residuals` — the SAME array the verdict above was computed
+        // from, reused rather than recomputed. `normalityCheckSample` runs an
+        // incompleteBeta per element and was already being called twice per
+        // keystroke (here and inside describeAssumptions); a third call for the
+        // figure raised the transcendental work by half for a value already in
+        // scope. Using the raw pooled data would be wrong as well as slower: it
+        // shows a bimodal cloud whenever the groups genuinely differ, which is
+        // an effect, not a violation.
+        //
+        // CAPPED. Every other figure in this registry bounds its point count;
+        // this one did not, and it sits on a path that recomputes on every
+        // keystroke with no debounce. Measured at 40,000 pasted values: a 2.1 MB
+        // SVG with 40,000 circles, assigned to innerHTML per keystroke, ~5 s a
+        // character. A Q-Q plot is read for its SHAPE, and 1,200 evenly spaced
+        // quantiles show the same tails and the same curvature as 40,000 — so
+        // the cap costs the reader nothing and is stated on the figure.
         svg: (() => {
-          const pts = qqPoints(normalityCheckSample(groups));
+          const CAP = 1200;
+          const all = qqPoints(residuals);
+          const stride = Math.max(1, Math.ceil(all.length / CAP));
+          const pts = stride === 1 ? all : all.filter((_, i) => i % stride === 0);
           return buildPlotSvg(
             [
               {
@@ -7395,7 +7410,10 @@ const STAT_CALCS: StatCalc[] = [
             {
               width: 320,
               height: 220,
-              title: "Normal Q-Q of the residuals",
+              title:
+                stride === 1
+                  ? "Normal Q-Q of the residuals"
+                  : `Normal Q-Q of the residuals (every ${stride}th of ${all.length})`,
               xlabel: "Theoretical quantile",
               ylabel: "Sample quantile",
             },
@@ -7646,18 +7664,29 @@ const STAT_CALCS: StatCalc[] = [
             `${formula} = ${assaySig(res.value)} ± ${assaySig(res.uncertainty, 3)}\n` +
             `Largest contribution: ${dominant.name}`,
           // THE UNCERTAINTY BUDGET, which is what this calculation is FOR. The
-          // combined figure tells you how well you know the answer; the budget
-          // tells you which measurement to improve to make it better, and that
-          // is the actionable half. The text names only the largest term, so
+          // combined figure says how well you know the answer; the budget says
+          // which measurement to improve to make it better, and that is the
+          // actionable half. The text names only the largest term, so
           // everything below first place was computed and thrown away.
           //
-          // Bars, not a waterfall: contributions add in QUADRATURE, not
-          // linearly, so a ladder of stacked deltas would draw a total that is
-          // not the reported total. Each bar is the term's own contribution to
-          // the variance and the bars are honestly not summed on the page.
+          // SQUARE-ROOTED, because `contribution` is a VARIANCE — stats.ts:628
+          // stores `(partial * u)²`, in (result units)². Plotting it raw put
+          // bars of 0.16 under a title reading "contribution to combined
+          // uncertainty" beside a printed ± of 0.693, and no reader could get
+          // from one to the other. `√contribution` is |∂f/∂x|·u, in the
+          // result's own units, which is what the title claims and what
+          // "display is a contract" requires.
+          //
+          // Bars rather than a stacked ladder: these add in quadrature, so a
+          // stack would draw a total taller than the reported ±. (The variances
+          // DO add linearly — it is taking the root that makes the bars
+          // non-additive, and that is the trade for having them in real units.)
           svg: hBarSvg(
-            res.contributions.map((c) => ({ name: c.name, value: c.contribution })),
-            { title: "Contribution to combined uncertainty", unit: "" },
+            res.contributions.map((c) => ({
+              name: c.name,
+              value: Math.sqrt(Math.max(0, c.contribution)),
+            })),
+            { title: "Contribution to combined uncertainty (same units as the result)", unit: "" },
           ),
         };
       } catch (e) {
@@ -7710,13 +7739,20 @@ const STAT_CALCS: StatCalc[] = [
         // The differences get their own box, as in the paired t-test: this test
         // ranks the paired differences, and two heavily overlapping conditions
         // can still have every difference the same sign.
+        //
+        // ZERO DIFFERENCES ARE EXCLUDED, because the test excludes them
+        // (stats2.ts drops tied pairs and reports the reduced n). Drawing them
+        // put "n=8" on the difference box directly beneath text reading
+        // "n = 7" — on the SHIPPED DEFAULT, which has one tied pair. A figure
+        // that contradicts the number beside it is worse than no figure, and
+        // the count on the box is exactly the n the test used.
         svg: boxPlotSvg(
           [
             { label: "cond. 1", values: a },
             { label: "cond. 2", values: b },
-            { label: "difference", values: a.map((v, i) => v - b[i]) },
+            { label: "difference", values: a.map((v, i) => v - b[i]).filter((d) => d !== 0) },
           ],
-          { title: "Wilcoxon signed-rank", ylabel: "value" },
+          { title: "Wilcoxon signed-rank (tied pairs excluded)", ylabel: "value" },
         ),
       };
     },
@@ -7773,6 +7809,21 @@ const STAT_CALCS: StatCalc[] = [
       const table = statTable(r("table"));
       if (table.length < 2 || table[0].length < 2) return { text: "Enter a table with at least 2 rows and 2 columns.", ok: false };
       if (table.some((row) => row.length !== table[0].length)) return { text: "Every row must have the same number of columns.", ok: false };
+      // A TABLE OF ZEROS IS NOT A NON-SIGNIFICANT RESULT, it is no experiment.
+      //
+      // With a zero grand total every expected count is NaN, the engine's
+      // `expected[i][j] > 0` guards skip every cell, and it returns
+      // χ² = 0, df = 1, p = 1 with no warning — text containing no NaN, no
+      // Infinity and no em dash, so the insertability gate passes it and "p =
+      // 1" goes into a document as though the data showed no association. The
+      // figure beside it drew four observed bars, silently skipped every
+      // expected bar as non-finite, and still printed a legend promising both.
+      //
+      // Refuse instead. Nothing here is salvageable by drawing it more
+      // carefully; the table has no observations in it.
+      if (table.every((row) => row.every((v) => v === 0))) {
+        return { text: "Every count is zero — there is nothing to test.", ok: false };
+      }
       const res = chiSquareIndependence(table);
       // ON A 2×2 THE EXACT TEST IS THE ANSWER, and it is the one to report.
       // Measured on [[1,9],[8,2]] — all expected counts between 4.5 and 5.5 —
@@ -7990,7 +8041,16 @@ function updateStatsPreview(): void {
   currentStatsText = insertable ? out.text : "";
   currentStatsSvg = out.svg ?? "";
   statsInsertBtn.disabled = !insertable;
-  statsInsertChartBtn.disabled = !currentStatsSvg;
+  // THE CHART BUTTON OBEYS THE TEXT GATE TOO.
+  //
+  // It used to depend only on whether an SVG existed, which was harmless while
+  // ten of these calculators produced none — and stopped being harmless the
+  // moment they all did. Concretely: uncertainty with a zero denominator gives
+  // an infinite value and a NaN uncertainty, the text is correctly blocked, and
+  // `hBarSvg` returns its "there are no finite values to chart" placeholder.
+  // The button stayed enabled, so the one thing a user could still insert was a
+  // picture saying the answer does not exist.
+  statsInsertChartBtn.disabled = !insertable || !currentStatsSvg;
 }
 
 /**
@@ -25898,6 +25958,17 @@ interface AssayPlot {
 interface AssayOutput {
   text: string;
   plot?: AssayPlot;
+  /**
+   * A figure this calculator built itself, for results that are not curve fits.
+   *
+   * `plot` above describes a FIT: data points plus a predictor, which the pane
+   * samples into a curve. Most of Bio/Assay is not that shape — Beer-Lambert is
+   * a calibration line through the origin, a serial dilution is a ladder, and a
+   * Henderson-Hasselbalch result is one point on a titration curve. Those have
+   * no "data" to scatter, and inventing some so they could use `plot` would be
+   * putting made-up points in front of a reader.
+   */
+  svg?: string;
   /** False for a validation message (blocks insertion). Defaults to true. */
   ok?: boolean;
   /**
@@ -25939,6 +26010,58 @@ function assayValSE(val: number, se: number): string {
 function assayPairXY(xs: number[], ys: number[], minPts: number): Point[] | null {
   if (xs.length < minPts || xs.length !== ys.length) return null;
   return xs.map((x, i) => ({ x, y: ys[i] }));
+}
+
+/**
+ * A proportional law drawn as a line, with the user's own measurement on it.
+ *
+ * Shared by the assays that are a single multiplication — Beer-Lambert, A260
+ * nucleic acid, and anything else of the form y = slope·x. The value of the
+ * picture is not the number, which is already printed beside it, but WHERE the
+ * measurement sits: an absorbance up at 2 is off the linear range of most
+ * instruments and one at 0.005 is in the noise, and neither is visible from
+ * "c = 1e-4 M".
+ *
+ * The line is the USER'S calibration (their ε, their path length, their
+ * dilution), not a generic illustration — so what is drawn is the assumption
+ * their number rests on.
+ *
+ * The window is anchored on the measurement itself and clamped, because it is
+ * built from a user number: an absorbance of 1e300 must not produce a sweep
+ * that never returns. A non-finite slope or point draws nothing rather than a
+ * misleading straight line through the origin.
+ */
+function assayLineSvg(o: {
+  slope: number;
+  x: number;
+  y: number;
+  xlabel: string;
+  ylabel: string;
+  title: string;
+}): string | undefined {
+  if (!Number.isFinite(o.slope) || !Number.isFinite(o.x) || !Number.isFinite(o.y)) return undefined;
+  // Span a little past the measurement so the point is not on the frame edge.
+  // `Math.abs(o.x) || 1` keeps a zero measurement drawable.
+  const hi = Math.min(1e12, Math.abs(o.x) * 1.6 || 1);
+  const pts: Point[] = [];
+  const N = 60;
+  for (let i = 0; i <= N; i++) {
+    const x = (hi * i) / N;
+    const y = o.slope * x;
+    if (Number.isFinite(y)) pts.push({ x, y });
+  }
+  if (pts.length < 2) return undefined;
+  const series: Series[] = [
+    { points: pts, type: "line", color: "#2563eb", label: "the law" },
+    { points: [{ x: o.x, y: o.y }], type: "scatter", color: "#b91c1c", label: "your reading" },
+  ];
+  return buildPlotSvg(series, {
+    width: 360,
+    height: 240,
+    title: o.title,
+    xlabel: o.xlabel,
+    ylabel: o.ylabel,
+  });
 }
 
 const ASSAY_CALCS: AssayCalc[] = [
@@ -26062,6 +26185,56 @@ const ASSAY_CALCS: AssayCalc[] = [
       lines.push(`R\u00b2 = ${assaySig(fit.rsquared, 4)}`);
       return {
         text: lines.join("\n"),
+        // THE MEASURED VELOCITIES AGAINST THE FITTED SURFACE, split by inhibitor
+        // concentration. An inhibition experiment varies TWO things at once,
+        // and a single scatter of v against [S] would pile every [I] on top of
+        // itself - which is exactly the picture that hides a bad mode choice.
+        // One curve per distinct [I] is what makes the pattern legible: the
+        // curves shift differently for competitive, uncompetitive and
+        // non-competitive inhibition, and that difference is the evidence for
+        // the mode the caveat says is the user's claim rather than the data's.
+        //
+        // Drawn through the fit's OWN predictor, so the curves cannot disagree
+        // with the constants printed above. Distinct [I] values are capped so a
+        // pasted 500-row experiment cannot draw 500 curves.
+        svg: (() => {
+          const levels = [...new Set(i)].sort((a, b) => a - b).slice(0, 6);
+          const colours = ["#2563eb", "#b91c1c", "#059669", "#d97706", "#7c3aed", "#0891b2"];
+          // Index kept alongside, because predict() is indexed by it.
+          const idxOf = s.map((sv, k) => ({ k, sv, vv: v[k], iv: i[k] }));
+          const series: Series[] = [];
+          levels.forEach((iv, k) => {
+            const pts = idxOf.filter((row) => row.iv === iv).map((row) => ({ x: row.sv, y: row.vv }));
+            series.push({ points: pts, type: "scatter", color: colours[k % colours.length], label: `[I] = ${assaySig(iv, 3)}` });
+            // THE FITTED VALUES AT THE MEASURED POINTS, joined - not a smooth
+            // curve sampled from the model.
+            //
+            // `fit.predict` takes an INDEX into the (s, i, v) triples, because
+            // the LM engine underneath is single-x and the model closure reads
+            // the real s and i out of the arrays. There is no way to ask it for
+            // "v at an arbitrary [S] and this [I]", and the alternative -
+            // writing the competitive/uncompetitive/mixed rate law out again
+            // here - would put a second copy of the physics in the pane, free
+            // to drift from the one that produced the constants above.
+            //
+            // So the line joins points the ENGINE produced. It is denser where
+            // the experiment sampled densely, which is honest about where the
+            // fit is actually constrained.
+            const curve: Point[] = idxOf
+              .filter((row) => row.iv === iv)
+              .map((row) => ({ x: row.sv, y: fit.predict(row.k) }))
+              .filter((q) => Number.isFinite(q.y))
+              .sort((q1, q2) => q1.x - q2.x);
+            if (curve.length > 1) series.push({ points: curve, type: "line", color: colours[k % colours.length] });
+          });
+          return buildPlotSvg(series, {
+            width: 380,
+            height: 260,
+            title: `Inhibition fit (${mode})`,
+            xlabel: "[S]",
+            ylabel: "v",
+          });
+        })(),
         caveats: [
           ...fit.caveats,
           "The MODE is chosen by you, not determined by the fit. Every mode returns numbers; compare the fits, and the linearized plots, before trusting one \u2014 a Ki from the wrong mode is confidently wrong.",
@@ -26103,6 +26276,49 @@ const ASSAY_CALCS: AssayCalc[] = [
           row("Eadie-Hofstee (v vs v/[S])", eh),
           row("Hanes-Woolf ([S]/v vs [S])", hw),
         ].join("\n"),
+        // THE TRANSFORM ITSELF, which is what "linearize" MEANS. This tool
+        // exists to let a reader judge a fit by eye, and it was the one
+        // calculator in the product whose entire output was a picture -
+        // delivered as three lines of text.
+        //
+        // Lineweaver-Burk is drawn because it is the one people recognise, and
+        // it is also the one that misleads: reciprocals compress the
+        // high-substrate points into a cluster near the origin and stretch the
+        // low-substrate points, so the fit is dominated by the least precise
+        // measurements. That is visible here and invisible in "R2 = 0.998",
+        // which is why the caveats below say to prefer the direct fit.
+        svg: (() => {
+          const pts: Point[] = s.map((sv, k) => ({ x: 1 / sv, y: 1 / v[k] }));
+          // minOf/maxOf REDUCE; Math.min(...xs) throws RangeError past about
+          // 125,000 arguments, and a pasted kinetics run can be longer than
+          // that. `gapFixes.2026-08-05` gates this whole class and caught it
+          // here on the first run.
+          const xs = pts.map((q) => q.x);
+          const xmin = minOf(xs);
+          const xmax = maxOf(xs);
+          // The fitted line from the transform's OWN Vmax and Km, so the line
+          // and the numbers above it cannot disagree.
+          const line: Point[] = [];
+          if (Number.isFinite(lb.vmax) && Number.isFinite(lb.km) && lb.vmax !== 0) {
+            for (let k = 0; k <= 40; k++) {
+              const x = xmin + ((xmax - xmin) * k) / 40;
+              line.push({ x, y: 1 / lb.vmax + (lb.km / lb.vmax) * x });
+            }
+          }
+          const series: Series[] = [
+            { points: pts, type: "scatter", color: "#b91c1c", label: "1/v" },
+          ];
+          if (line.length) {
+            series.push({ points: line, type: "line", color: "#2563eb", label: "fit" });
+          }
+          return buildPlotSvg(series, {
+            width: 360,
+            height: 250,
+            title: "Lineweaver-Burk",
+            xlabel: "1/[S]",
+            ylabel: "1/v",
+          });
+        })(),
         caveats: [
           "These are DIAGNOSTIC, not a substitute for the nonlinear fit. Each transform reweights the errors differently \u2014 Lineweaver-Burk in particular inflates the influence of the smallest, noisiest velocities \u2014 so the three will disagree on real data. Judge the data by the spread between them, and take Vmax and Km from the Michaelis-Menten fit.",
           "Widely differing estimates, or a curved Eadie-Hofstee plot, suggest the simple model does not hold \u2014 cooperativity, substrate inhibition, or a second enzyme form.",
@@ -26245,6 +26461,27 @@ const ASSAY_CALCS: AssayCalc[] = [
       };
       return {
         text: `Ki = ${assaySig(ki)}\n${note[mode]}`,
+        // HOW THE ANSWER DEPENDS ON THE ASSUMPTION, which is the whole risk
+        // this calculator carries and which its own caveat spells out in
+        // words: applying the competitive relationship to a non-competitive
+        // inhibitor at [S] = 10x Km returns a Ki eleven times too low, and the
+        // number looks perfectly reasonable.
+        //
+        // The three modes are computed from the SAME IC50, [S] and Km through
+        // the engine's own kiFromIc50, so the spread on this chart IS the cost
+        // of choosing wrongly, in the units of the user's own experiment. A
+        // reader who sees three bars an order of magnitude apart knows the mode
+        // is doing the work; one who sees "Ki = 100" does not.
+        svg: hBarSvg(
+          (["competitive", "uncompetitive", "noncompetitive"] as InhibitionMode[])
+            .map((m) => ({
+              name: m === mode ? `${m} (yours)` : m,
+              value: kiFromIc50(+r("ic50"), +r("s"), +r("km"), m),
+              colour: m === mode ? "#b91c1c" : "#6b7280",
+            }))
+            .filter((row) => Number.isFinite(row.value)),
+          { title: "Ki under each assumed mechanism", unit: "", w: 360 },
+        ),
         caveats: [
           "The MODE is your claim, not the data's. Cheng–Prusoff is the COMPETITIVE " +
             "relationship; applying it to a non-competitive inhibitor at [S] = 10×Km returns " +
@@ -26268,7 +26505,25 @@ const ASSAY_CALCS: AssayCalc[] = [
     ],
     compute: (r) => {
       const kc = kcat(+r("vmax"), +r("e"));
-      return { text: `kcat = ${assaySig(kc)}\nkcat/Km = ${assaySig(catalyticEfficiency(kc, +r("km")))}` };
+      const keff = catalyticEfficiency(kc, +r("km"));
+      return {
+        text: `kcat = ${assaySig(kc)}\nkcat/Km = ${assaySig(keff)}`,
+        // WHERE THIS ENZYME SITS AGAINST THE DIFFUSION LIMIT. kcat/Km has a
+        // hard physical ceiling - an enzyme cannot turn over substrate faster
+        // than the two can meet, about 1e8 to 1e9 per molar per second - and a
+        // bare number gives a reader no way to know whether 1e5 is excellent or
+        // ordinary. Against the limit it is one glance.
+        //
+        // The ceiling is a measured physical constant, not a fitted or invented
+        // value, and it is labelled as the bound rather than drawn as data.
+        svg: hBarSvg(
+          [
+            { name: "this enzyme", value: keff },
+            { name: "diffusion limit", value: 1e9, colour: "#6b7280" },
+          ],
+          { title: "kcat/Km against the diffusion limit (M^-1 s^-1)", unit: "", w: 360 },
+        ),
+      };
     },
   },
   {
@@ -26279,7 +26534,46 @@ const ASSAY_CALCS: AssayCalc[] = [
       { key: "base", label: "[A⁻] conjugate base", default: "0.1" },
       { key: "acid", label: "[HA] acid", default: "0.1" },
     ],
-    compute: (r) => ({ text: `pH = ${assaySig(hendersonHasselbalch(+r("pka"), +r("base"), +r("acid")), 4)}` }),
+    compute: (r) => {
+      const pka = +r("pka");
+      const base = +r("base");
+      const acid = +r("acid");
+      const ph = hendersonHasselbalch(pka, base, acid);
+      return {
+        text: `pH = ${assaySig(ph, 4)}`,
+        // THE TITRATION CURVE, with this buffer marked on it. The number alone
+        // does not say the thing a bench scientist actually needs: how much the
+        // pH will move if the ratio drifts. That is the SLOPE, and it is nearly
+        // flat at the pKa and steep at the ends — which is the whole reason a
+        // buffer is made near its pKa. A pH sitting on the steep part is a
+        // buffer that will not hold.
+        //
+        // Swept over the ratio, which is what the equation is a function of;
+        // the sweep bounds are fixed decades and carry no user number, so no
+        // input can make this loop long.
+        svg: (() => {
+          const pts: Point[] = [];
+          for (let i = 0; i <= 120; i++) {
+            const logR = -2 + (4 * i) / 120; // ratio 0.01 .. 100
+            pts.push({ x: logR, y: pka + logR });
+          }
+          const here = base > 0 && acid > 0 ? Math.log10(base / acid) : NaN;
+          const series: Series[] = [
+            { points: pts, type: "line", color: "#2563eb", label: "pH = pKa + log([A-]/[HA])" },
+          ];
+          if (Number.isFinite(here) && Number.isFinite(ph)) {
+            series.push({ points: [{ x: here, y: ph }], type: "scatter", color: "#b91c1c", label: "this buffer" });
+          }
+          return buildPlotSvg(series, {
+            width: 360,
+            height: 240,
+            title: "Buffer curve",
+            xlabel: "log10([A-]/[HA])",
+            ylabel: "pH",
+          });
+        })(),
+      };
+    },
   },
   {
     // The inverse of the entry above, and the direction a bench scientist
@@ -26312,6 +26606,41 @@ const ASSAY_CALCS: AssayCalc[] = [
           `[A-]/[HA] = ${assaySig(ratio, 4)}`,
           `Mix ${assaySig(basePct, 3)}% conjugate base with ${assaySig(100 - basePct, 3)}% acid.`,
         ].join("\n"),
+        // THE TITRATION CURVE WITH THE TARGET ON IT, which is the only way to
+        // see the thing the caveat above only asserts: buffer capacity. The
+        // curve is flat at the pKa and steep away from it, so a target pH more
+        // than a unit out lands visibly on the steep part - where a small
+        // addition of acid or base moves the pH a long way and the buffer does
+        // not do its job. "The ratio is extreme" is a sentence; the slope is
+        // the evidence.
+        //
+        // Swept over fixed decades of ratio, so no user number enters a loop
+        // bound.
+        svg: (() => {
+          const pts: Point[] = [];
+          for (let k = 0; k <= 120; k++) {
+            const logR = -2 + (4 * k) / 120;
+            pts.push({ x: logR, y: pka + logR });
+          }
+          const series: Series[] = [
+            { points: pts, type: "line", color: "#2563eb", label: "buffer curve" },
+          ];
+          if (Number.isFinite(ratio) && ratio > 0) {
+            series.push({
+              points: [{ x: Math.log10(ratio), y: ph }],
+              type: "scatter",
+              color: "#b91c1c",
+              label: "your target",
+            });
+          }
+          return buildPlotSvg(series, {
+            width: 360,
+            height: 240,
+            title: `Buffer curve, pKa ${assaySig(pka, 4)}`,
+            xlabel: "log10([A-]/[HA])",
+            ylabel: "pH",
+          });
+        })(),
         caveats,
       };
     },
@@ -26324,7 +26653,28 @@ const ASSAY_CALCS: AssayCalc[] = [
       { key: "eps", label: "ε (M⁻¹cm⁻¹)", default: "6500" },
       { key: "l", label: "Path length l (cm)", default: "1" },
     ],
-    compute: (r) => ({ text: `c = ${assaySig(beerLambert({ a: +r("a"), epsilon: +r("eps"), l: +r("l") }))} M` }),
+    compute: (r) => {
+      const c = beerLambert({ a: +r("a"), epsilon: +r("eps"), l: +r("l") });
+      return {
+        text: `c = ${assaySig(c)} M`,
+        // THE CALIBRATION LINE THE LAW ASSERTS, with this measurement on it.
+        // Beer-Lambert is A = epsilon*l*c, and the useful thing to see is not
+        // the single number but WHERE the reading sits on that line: an
+        // absorbance up near 2 is off the linear range of most instruments, and
+        // one down near 0.01 is in the noise. Both are invisible in "c = ...".
+        //
+        // The line is drawn from the user's own epsilon and l, so it is their
+        // instrument's calibration, not a generic illustration.
+        svg: assayLineSvg({
+          slope: +r("eps") * +r("l"),
+          x: c,
+          y: +r("a"),
+          xlabel: "concentration (M)",
+          ylabel: "absorbance A",
+          title: "Beer-Lambert: A = " + String(+r("eps")) + " x " + String(+r("l")) + " x c",
+        }),
+      };
+    },
   },
   {
     id: "dilution",
@@ -26336,7 +26686,24 @@ const ASSAY_CALCS: AssayCalc[] = [
     ],
     compute: (r) => {
       const v1 = stockVolumeNeeded(+r("c1"), +r("c2"), +r("v2"));
-      return { text: `V1 (stock) = ${assaySig(v1)}\nDiluent to add = ${assaySig(+r("v2") - v1)}` };
+      const vFinal = +r("v2");
+      return {
+        text: `V1 (stock) = ${assaySig(v1)}\nDiluent to add = ${assaySig(vFinal - v1)}`,
+        // THE TWO VOLUMES AGAINST THE FINAL VOLUME, which is the check a bench
+        // scientist makes before pipetting: does the stock volume look sane
+        // next to the tube it has to go into? A stock volume LARGER than the
+        // final volume means the requested dilution is impossible - you cannot
+        // concentrate by adding diluent - and beside "V1 = 12, diluent = -2"
+        // that is a minus sign; on the chart it is a bar sticking out.
+        svg: hBarSvg(
+          [
+            { name: "stock (V1)", value: v1 },
+            { name: "diluent", value: vFinal - v1 },
+            { name: "final (V2)", value: vFinal },
+          ],
+          { title: "Volumes to combine", unit: "", w: 360 },
+        ),
+      };
     },
   },
   {
@@ -26356,7 +26723,35 @@ const ASSAY_CALCS: AssayCalc[] = [
       }
       const steps = serialDilution(start, fold, Math.min(n, 50)); // cap to keep the readout sane
       const note = n > 50 ? `\n(showing first 50 of ${n} steps)` : "";
-      return { text: "Serial dilution\n" + steps.map((s) => `Step ${s.step}: ${assaySig(s.concentration)}`).join("\n") + note };
+      return {
+        text: "Serial dilution\n" + steps.map((s) => `Step ${s.step}: ${assaySig(s.concentration)}`).join("\n") + note,
+        // A LOG Y AXIS, because that is what a serial dilution IS. On a linear
+        // axis a ten-fold series is one tall bar and a row of flat nothing -
+        // the six steps a user typed become visually five. On a log axis the
+        // constant fold-change is a straight line, so a mis-typed fold or a
+        // step that breaks the series is immediately visible as a kink.
+        //
+        // The step count is already capped at 50 by the engine call above, so
+        // this sweep carries no unbounded user number.
+        svg: buildPlotSvg(
+          [
+            {
+              points: steps.map((st) => ({ x: st.step, y: st.concentration })),
+              type: "line",
+              color: "#2563eb",
+              label: "concentration",
+            },
+          ],
+          {
+            width: 360,
+            height: 240,
+            title: `Serial dilution, ${assaySig(fold)}-fold per step`,
+            xlabel: "step",
+            ylabel: "concentration",
+            yScale: "log",
+          },
+        ),
+      };
     },
   },
   {
@@ -26379,6 +26774,21 @@ const ASSAY_CALCS: AssayCalc[] = [
     ],
     compute: (r) => ({
       text: `Concentration = ${assaySig(nucleicAcidConc(+r("a260"), r("kind") as NucleicAcidKind, +r("dil")))} µg/mL`,
+      // The same calibration line as Beer-Lambert, in the units this assay
+      // uses. The factor is the conversion this nucleic-acid type carries
+      // (50 µg/mL per A260 for double-stranded DNA, 40 for RNA, and so on),
+      // multiplied by the dilution — so the slope IS the assumption being
+      // made, drawn rather than buried.
+      svg: assayLineSvg({
+        slope: +r("a260") > 0
+          ? nucleicAcidConc(+r("a260"), r("kind") as NucleicAcidKind, +r("dil")) / +r("a260")
+          : NaN,
+        x: +r("a260"),
+        y: nucleicAcidConc(+r("a260"), r("kind") as NucleicAcidKind, +r("dil")),
+        xlabel: "A260",
+        ylabel: "concentration (µg/mL)",
+        title: "A260 calibration",
+      }),
     }),
   },
   {
@@ -26397,7 +26807,23 @@ const ASSAY_CALCS: AssayCalc[] = [
     compute: (r) => {
       const seq = r("seq").trim();
       if (!seq) {
-        return { text: `Concentration = ${assaySig(proteinConcFromA280(+r("a280"), +r("eps"), +r("l")))} M` };
+        // NO SEQUENCE: the epsilon is the one the user typed, so there is no
+        // composition to break down — but there is still the calibration line
+        // it defines, and where their A280 sits on it. This branch is the
+        // DEFAULT view of the calculator (the sequence field is optional and
+        // ships empty), so leaving it text-only would have meant the tool drew
+        // nothing until you gave it something it does not require.
+        return {
+          text: `Concentration = ${assaySig(proteinConcFromA280(+r("a280"), +r("eps"), +r("l")))} M`,
+          svg: assayLineSvg({
+            slope: +r("eps") * +r("l"),
+            x: proteinConcFromA280(+r("a280"), +r("eps"), +r("l")),
+            y: +r("a280"),
+            xlabel: "concentration (M)",
+            ylabel: "A280",
+            title: "A280 calibration",
+          }),
+        };
       }
       const eps = extinctionCoefficient(seq);
       // ε = 0 when the sequence has no Trp, Tyr or Cys at all. Dividing by it
@@ -26423,6 +26849,29 @@ const ASSAY_CALCS: AssayCalc[] = [
           `ε (cystine bridges)    = ${eps.cystines.toLocaleString("en-US")} M⁻¹cm⁻¹\n` +
           `  → concentration = ${assaySig(proteinConcFromA280(a280, eps.cystines, l))} M`,
         caveats: eps.caveats,
+        // WHERE THE EXTINCTION COEFFICIENT COMES FROM, which is the number the
+        // whole measurement rests on and the one a user is least able to check.
+        // Epsilon at 280 nm is a sum of residue contributions, and the
+        // PROPORTIONS decide how trustworthy it is: a protein whose absorbance
+        // is carried by one tryptophan has an epsilon that a single sequencing
+        // error moves by a third, while one with a dozen is robust. None of
+        // that is visible in a five-digit total.
+        //
+        // Counts come from the engine and the cystine bar is the engine's own
+        // difference between its two epsilon values, so the bars sum to exactly
+        // the number printed above rather than to a re-derivation of it.
+        svg: hBarSvg(
+          [
+            { name: `tryptophan x${eps.counts.W}`, value: eps.counts.W * 5500 },
+            { name: `tyrosine x${eps.counts.Y}`, value: eps.counts.Y * 1490 },
+            {
+              name: `cystines x${eps.counts.cystinePairs}`,
+              value: eps.cystines - eps.reduced,
+              colour: "#6b7280",
+            },
+          ].filter((row) => Number.isFinite(row.value) && row.value > 0),
+          { title: "What makes up epsilon at 280 nm (M^-1 cm^-1)", unit: "", w: 360 },
+        ),
       };
     },
   },
@@ -26484,8 +26933,24 @@ function updateAssayPreview(): void {
     assayResult.appendChild(specCaveats(out.caveats));
   }
 
-  // Draw the fitted curve over the raw data when the calculator produced one.
-  if (out.plot && insertable) {
+  // Draw the calculator's own figure, or the fitted curve over its raw data.
+  //
+  // TWO ROUTES ON PURPOSE, because the eleven calculators that had no figure are
+  // not curve fits. `plot` is the fitted shape (data + a predictor) and suits
+  // Michaelis-Menten, Hill, dose-response and binding. `svg` is anything else:
+  // a Beer-Lambert calibration line, a dilution ledger, a pH curve. Forcing the
+  // second group through the first would have meant inventing "data points" for
+  // results that have none.
+  //
+  // A calculator supplies one or the other; `plot` wins if both are present,
+  // since a fit is the more specific claim.
+  if (out.svg && !out.plot && insertable) {
+    assayPreview.innerHTML = out.svg;
+    assayPreview.style.display = "";
+    assayInsertPlotBtn.hidden = false;
+    currentAssayPlotSvg = out.svg;
+    assayInsertPlotBtn.disabled = false;
+  } else if (out.plot && insertable) {
     const { data, predict, xlabel, ylabel } = out.plot;
     const xs = data.map((p) => p.x);
     const xmin = minOf(xs);

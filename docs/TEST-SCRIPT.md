@@ -114,6 +114,28 @@ stretched figure means a size was pinned to the asked-for value rather than
 read from the SVG. Note anything that reads badly at Word's default zoom —
 "it computes correctly" is not the bar here, legibility is.
 
+### RUN 2026-08-05 — figures VERIFIED IN REAL WORD at build 2.90.1
+
+**0ay-1 PASSED.** The user generated every figure and reported them all good:
+*"All the charts look great. i generated each one."* That covers the whole of
+0ay-1 — one figure per registry, inserted into a real document, in the
+production build. It is the only evidence that exists for the campaign's
+central claim, because every automated gate proves the pane ASKS Word for a
+picture and a mock always says yes.
+
+Recorded here rather than left in a chat log because a pass that leaves no
+trace is, from the repo's point of view, indistinguishable from one that never
+happened — and OPEN-ITEMS.md §1 has been re-flagging exactly that for months.
+The BUILD is the load-bearing part: a regression found in Word later can now be
+tied to 2.90.1 rather than to "some recent version".
+
+**Still outstanding at this build:** 0ay-2 (the six cases where a figure was
+caught contradicting its own text), 0ay-3 (what must stay un-insertable) and
+0ay-4 (the shared insert path, whose contract changed across ten modes).
+Solve is being tested separately.
+
+Tester: the user  ·  Date: 2026-08-05  ·  Build (version.json): 2.90.1
+
 Tester: ______________  Date: __________  Build (version.json): __________
 
 

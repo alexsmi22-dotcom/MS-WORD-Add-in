@@ -7154,7 +7154,8 @@ const STAT_CALCS: StatCalc[] = [
       for (const c of res.comparisons) {
         lines.push(
           `Treatment ${c.treatment + 1} − control = ${assaySig(c.meanDifference)}  ` +
-            `t = ${assaySig(c.t, 3)}, ${formatP(c.p)}${c.significant ? " *" : ""}`,
+            `t = ${assaySig(c.t, 3)}, ${formatP(c.p)}` +
+            `  95% CI [${assaySig(c.ciLow)}, ${assaySig(c.ciHigh)}]${c.significant ? " *" : ""}`,
         );
       }
       // Why this rather than Tukey — the whole reason the test exists.
@@ -7164,7 +7165,25 @@ const STAT_CALCS: StatCalc[] = [
           `${(groups.length * (groups.length - 1)) / 2} pairs. That is what makes it more powerful than Tukey ` +
           "when the control is the only thing you wanted to compare against.",
       );
-      return { text: plainDashes(lines.join("\n") + "\n\n" + res.caveats.join("\n")) };
+      return {
+        text: plainDashes(lines.join("\n") + "\n\n" + res.caveats.join("\n")),
+        // The same figure as Tukey, for the same reason — but on the SIMULTANEOUS
+        // intervals the engine now reports, which are wider than ordinary t
+        // intervals and agree with the family-wise p beside them.
+        svg: forestPlotSvg(
+          res.comparisons.map((c) => ({
+            label: `treat. ${c.treatment + 1} vs ctrl`,
+            estimate: c.meanDifference,
+            low: c.ciLow,
+            high: c.ciHigh,
+          })),
+          {
+            title: "Dunnett - simultaneous 95% CI vs control",
+            xlabel: "treatment - control",
+            zero: 0,
+          },
+        ),
+      };
     },
   },
   {
@@ -7211,7 +7230,17 @@ const STAT_CALCS: StatCalc[] = [
         "Compares distributions by rank, so it assumes no particular shape. It does NOT " +
           "compare means - a significant result says the groups differ in location, not by how much.",
       );
-      return { text: plainDashes(lines.join("\n")) };
+      return {
+        text: plainDashes(lines.join("\n")),
+        // A rank test asks whether the DISTRIBUTIONS differ, so the boxes are a
+        // closer picture of its hypothesis than they are for ANOVA. This test
+        // is usually reached for because the data are skewed or carry outliers
+        // — exactly what a box plot shows and a mean with an SD hides.
+        svg: boxPlotSvg(
+          groups.map((g, i) => ({ label: `group ${i + 1}`, values: g })),
+          { title: `Kruskal-Wallis (${groups.length} groups)`, ylabel: "value" },
+        ),
+      };
     },
   },
   {
@@ -7243,6 +7272,17 @@ const STAT_CALCS: StatCalc[] = [
           res.meanRanks.map((m, i) => `condition ${i + 1} = ${assaySig(m, 4)}`).join(" \u00b7 ") +
           "\n\nUse when the SAME subjects are measured under every condition. A between-groups " +
           "test on this data would ignore the pairing and lose most of its power.",
+        ),
+        // BY CONDITION, which means transposing: the input is one row per
+        // subject, and what the test compares is the columns. Drawing the rows
+        // would show the spread between SUBJECTS, which is precisely the
+        // variation a repeated-measures design exists to set aside.
+        svg: boxPlotSvg(
+          Array.from({ length: res.treatments }, (_, j) => ({
+            label: `cond. ${j + 1}`,
+            values: rows.map((row) => row[j]).filter((v) => Number.isFinite(v)),
+          })),
+          { title: `Friedman - ${res.blocks} subjects x ${res.treatments} conditions`, ylabel: "value" },
         ),
       };
     },
@@ -7325,7 +7365,42 @@ const STAT_CALCS: StatCalc[] = [
         lines.push("");
         lines.push("No assumption problems found. A parametric test (t-test / ANOVA) is appropriate.");
       }
-      return { text: plainDashes(lines.join("\n")) };
+      return {
+        text: plainDashes(lines.join("\n")),
+        // A Q-Q PLOT IS THE EVIDENCE FOR THE VERDICT THIS TOOL PRINTS, and
+        // inserting the verdict without it inserts the weaker half — the same
+        // argument already recorded for the regression diagnostics.
+        //
+        // It matters more here than anywhere else in the registry, because this
+        // calculator REFUSES to test normality below n = 20 rather than return
+        // a powerless p that reads as reassurance. In exactly that case the
+        // picture is the only evidence available, and a reader can still see a
+        // clear skew or a long tail in twelve points.
+        //
+        // Drawn on `normalityCheckSample` — the same residuals the tests above
+        // were run on, not the raw values. Using the raw pooled data would show
+        // a bimodal cloud whenever the groups genuinely differ, which is an
+        // effect, not a violation.
+        svg: (() => {
+          const pts = qqPoints(normalityCheckSample(groups));
+          return buildPlotSvg(
+            [
+              {
+                type: "scatter",
+                points: pts.map((p) => ({ x: p.theoretical, y: p.sample })),
+                color: "#0369a1",
+              },
+            ],
+            {
+              width: 320,
+              height: 220,
+              title: "Normal Q-Q of the residuals",
+              xlabel: "Theoretical quantile",
+              ylabel: "Sample quantile",
+            },
+          );
+        })(),
+      };
     },
   },
   {
@@ -7569,6 +7644,20 @@ const STAT_CALCS: StatCalc[] = [
             `Uncertainty propagation\n` +
             `${formula} = ${assaySig(res.value)} ± ${assaySig(res.uncertainty, 3)}\n` +
             `Largest contribution: ${dominant.name}`,
+          // THE UNCERTAINTY BUDGET, which is what this calculation is FOR. The
+          // combined figure tells you how well you know the answer; the budget
+          // tells you which measurement to improve to make it better, and that
+          // is the actionable half. The text names only the largest term, so
+          // everything below first place was computed and thrown away.
+          //
+          // Bars, not a waterfall: contributions add in QUADRATURE, not
+          // linearly, so a ladder of stacked deltas would draw a total that is
+          // not the reported total. Each bar is the term's own contribution to
+          // the variance and the bars are honestly not summed on the page.
+          svg: hBarSvg(
+            res.contributions.map((c) => ({ name: c.name, value: c.contribution })),
+            { title: "Contribution to combined uncertainty", unit: "" },
+          ),
         };
       } catch (e) {
         return { text: `Couldn't evaluate: ${(e as Error).message}`, ok: false };
@@ -7589,6 +7678,16 @@ const STAT_CALCS: StatCalc[] = [
       const res = mannWhitneyU(a, b);
       return {
         text: `Mann–Whitney U test (two independent samples)\nU = ${assaySig(res.statistic)}, z = ${assaySig(res.z, 3)}, ${formatP(res.p)}\n(normal approximation, tie- and continuity-corrected)`,
+        // The two distributions, which is what a rank test compares. U and z
+        // say nothing about shape, and shape is usually why this test was
+        // chosen over a t-test in the first place.
+        svg: boxPlotSvg(
+          [
+            { label: "group 1", values: a },
+            { label: "group 2", values: b },
+          ],
+          { title: "Mann-Whitney U", ylabel: "value" },
+        ),
       };
     },
   },
@@ -7607,6 +7706,17 @@ const STAT_CALCS: StatCalc[] = [
       if (res.n1 === 0) return { text: "All paired differences are zero — the test is undefined.", ok: false };
       return {
         text: `Wilcoxon signed-rank test (paired)\nW = ${assaySig(res.statistic)}, n = ${res.n1}, z = ${assaySig(res.z, 3)}, ${formatP(res.p)}\n(normal approximation, tie- and continuity-corrected)`,
+        // The differences get their own box, as in the paired t-test: this test
+        // ranks the paired differences, and two heavily overlapping conditions
+        // can still have every difference the same sign.
+        svg: boxPlotSvg(
+          [
+            { label: "cond. 1", values: a },
+            { label: "cond. 2", values: b },
+            { label: "difference", values: a.map((v, i) => v - b[i]) },
+          ],
+          { title: "Wilcoxon signed-rank", ylabel: "value" },
+        ),
       };
     },
   },
@@ -7679,6 +7789,23 @@ const STAT_CALCS: StatCalc[] = [
           `Chi-square test of independence (${table.length}×${table[0].length})\n` +
           `χ² = ${assaySig(res.chi2)}, df = ${res.df}, ${formatP(res.p)}${exact}`,
         caveats: res.warnings,
+        // Cell by cell, observed against the counts independence predicts.
+        // The statistic says the table departs from independence; only this
+        // says WHICH cell carries the departure, which is the finding a reader
+        // writes up. It also shows the small expected counts that decide
+        // whether the exact test above is the one to trust.
+        //
+        // `res.expected` is the engine's own table, not a re-derivation: a
+        // figure computed a second way could disagree with the p-value beside
+        // it, and the figure is the one people believe.
+        svg: groupedBarSvg(
+          table.flatMap((row, i) => row.map((_, j) => `r${i + 1}c${j + 1}`)),
+          [
+            { label: "observed", values: table.flat() },
+            { label: "expected", values: res.expected.flat() },
+          ],
+          { title: "Observed vs expected under independence", ylabel: "count" },
+        ),
       };
     },
   },
@@ -7705,6 +7832,28 @@ const STAT_CALCS: StatCalc[] = [
           text:
             `Two-way ANOVA (A: ${aLevels.join("/")} × B: ${bLevels.join("/")})\n` +
             `${row("Factor A", res.factorA)}\n${row("Factor B", res.factorB)}\n${row("A × B interaction", res.interaction)}`,
+          // THE INTERACTION PLOT — the one figure this test genuinely requires.
+          // A significant interaction means the effect of A DEPENDS on the level
+          // of B, and that is a statement about the shape of these lines: they
+          // are parallel when there is no interaction and cross or diverge when
+          // there is. Three F statistics cannot convey which, and reporting a
+          // main effect while an interaction is present is the classic misreading
+          // this picture prevents.
+          //
+          // Drawn as grouped cell means rather than a line chart because factor
+          // levels are categories with no order — joining them with a line would
+          // imply a trend between arbitrary labels.
+          svg: groupedBarSvg(
+            aLevels,
+            bLevels.map((bl, j) => ({
+              label: `B = ${bl}`,
+              values: aLevels.map((_, i) => {
+                const reps = (cells[i]?.[j] ?? []).filter(Number.isFinite);
+                return reps.length ? reps.reduce((s, v) => s + v, 0) / reps.length : NaN;
+              }),
+            })),
+            { title: "Cell means (A x B)", ylabel: "mean value" },
+          ),
         };
       } catch (e) {
         return { text: `${(e as Error).message}`, ok: false };
@@ -7740,7 +7889,22 @@ const STAT_CALCS: StatCalc[] = [
         bonferroni: "Bonferroni",
       };
       const lines = p.map((raw, i) => `  p = ${assaySig(raw, 3)} → ${assaySig(adj[i], 3)}${adj[i] < 0.05 ? " *" : ""}`);
-      return { text: `${names[method]} adjusted p-values\n${lines.join("\n")}\n(* significant at 0.05 after correction)` };
+      return {
+        text: `${names[method]} adjusted p-values\n${lines.join("\n")}\n(* significant at 0.05 after correction)`,
+        // Raw beside adjusted, which is the entire point of running a
+        // correction: the reader can see HOW FAR each p moved and therefore
+        // which conclusions survived multiplicity and which were an artefact of
+        // testing many things at once. A column of adjusted values alone hides
+        // the size of the correction, and the size is the argument.
+        svg: groupedBarSvg(
+          p.map((_, i) => `test ${i + 1}`),
+          [
+            { label: "raw p", values: p },
+            { label: `adjusted (${method})`, values: adj },
+          ],
+          { title: `${names[method]} correction`, ylabel: "p-value" },
+        ),
+      };
     },
   },
 ];

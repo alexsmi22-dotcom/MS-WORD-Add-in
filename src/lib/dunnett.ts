@@ -176,6 +176,24 @@ export interface DunnettComparison {
   /** Family-wise adjusted p (single-step Dunnett). */
   p: number;
   significant: boolean;
+  /**
+   * The SIMULTANEOUS confidence interval on this difference — the interval
+   * whose family-wise coverage is 1 − alpha across every treatment-vs-control
+   * comparison at once, `diff ± critical × se`.
+   *
+   * Reported by the engine rather than reconstructed by a caller, because the
+   * only way back to it from the numbers above is `se = diff / t`, which is
+   * Infinity for a treatment whose mean happens to equal the control's — a
+   * perfectly ordinary result, and the one where a chart would be drawn
+   * infinitely wide.
+   *
+   * NOT the ordinary two-sample t interval: `critical` is Dunnett's own
+   * multiplicity-corrected value, so this interval is WIDER, and it agrees with
+   * the adjusted p beside it. Two intervals that disagreed about significance
+   * in the same result would be worse than none.
+   */
+  ciLow: number;
+  ciHigh: number;
 }
 
 export interface DunnettResult {
@@ -259,7 +277,18 @@ export function dunnettTest(
     // Single-step adjusted p: the chance the LARGEST of the k statistics is at
     // least this extreme, which is what controls the family-wise error rate.
     const p = 1 - dunnettProbability(Math.abs(t), lambdas, dfWithin, twoSided);
-    return { treatment: i, meanDifference: diff, t, p: Math.min(1, Math.max(0, p)), significant: p < alpha };
+    return {
+      treatment: i,
+      meanDifference: diff,
+      t,
+      p: Math.min(1, Math.max(0, p)),
+      significant: p < alpha,
+      // Filled in below, once the critical value is known: it depends on the
+      // whole family, not on this comparison.
+      se,
+      ciLow: NaN,
+      ciHigh: NaN,
+    };
   });
 
   // Critical value by bisection on the same probability function.
@@ -282,6 +311,16 @@ export function dunnettTest(
     // Bounded so a long session cannot grow it without limit.
     if (criticalCache.size > 200) criticalCache.clear();
     criticalCache.set(key, critical);
+  }
+
+  // The simultaneous intervals, now that the family-wide critical value exists.
+  // `se` was carried on each comparison only to get here and is dropped again,
+  // so the published shape stays the interval rather than the ingredients.
+  for (const c of comparisons as (DunnettComparison & { se?: number })[]) {
+    const se = c.se ?? NaN;
+    c.ciLow = c.meanDifference - critical * se;
+    c.ciHigh = c.meanDifference + critical * se;
+    delete c.se;
   }
 
   const caveats = [

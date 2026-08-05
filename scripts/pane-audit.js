@@ -51,10 +51,10 @@ const DIST = path.join(ROOT, "dist");
 // calculators and still print a tidy "5 of 11 draw" and pass. A field that
 // describes a guarantee nothing implements is worse than no field.
 const BASELINES = {
-  // 5 -> 11 with the first wiring batch: descriptive, both t-tests and ANOVA
-  // draw box plots, Tukey draws the forest plot of its own intervals, and
-  // chi-square goodness of fit draws observed against expected.
-  stats: { label: "Statistics", figures: 11, total: 21 },
+  // STATISTICS IS COMPLETE: 21 of 21. Raise this only if a calculator is added,
+  // and a new one must ship with a figure or this count passes it silently at
+  // 22 — the same rule the Engineering baseline carries.
+  stats: { label: "Statistics", figures: 21, total: 21 },
   // 11, not the 9 a source scan counts. The measured number was 8 before this
   // gate existed: the heat, wave and Laplace solvers each BUILT a figure that
   // an em dash in their own output suppressed before it could be drawn, and a

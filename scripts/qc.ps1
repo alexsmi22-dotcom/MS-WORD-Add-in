@@ -89,6 +89,19 @@ Invoke-Step "Pane layout"         { node scripts/check-pane-layout.js }
 # of it reported the harness rather than the product.
 Invoke-Step "Engineering audit"   { node scripts/engineering-audit.js }
 
+# 4a-bis. The same instrument, aimed at the other four registries.
+#
+# The Engineering audit hardcodes `sel.value = "engineering"`, so Statistics,
+# Analyze, Bio/Assay and Finance — 84 more calculators — had no equivalent gate
+# at all. On its first run this one found five Bio/Assay fit plots that were
+# drawn in the pane and never inserted, three PDE charts suppressed before they
+# could be drawn, and the two-sample t-test, paired t-test and one-way ANOVA
+# permanently un-insertable. None of that was visible to 9,332 unit tests.
+#
+# It carries a per-registry figure ratchet for the chart campaign; raise the
+# baselines in the script as each batch lands.
+Invoke-Step "Pane audit"          { node scripts/pane-audit.js }
+
 # 4b. Figure layout — do the figures we insert actually READ?
 #
 # The unit suite checks an SVG is well formed, carries no NaN and follows no

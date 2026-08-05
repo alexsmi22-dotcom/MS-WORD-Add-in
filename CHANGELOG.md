@@ -6,6 +6,44 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [Unreleased] — 2026-08-05 — the chart campaign, phase 1: the instrument
+
+Opened because of user feedback — *"charts are missing from stats, solve,
+analyze, spectra, finance… the landing page shows them but yet jurislab does not
+seem to have them"* — and because the gap analysis had independently ranked the
+same thing top: the figure ratchet that made "every Engineering calculator
+draws" a fact covers **only** Engineering. See
+`docs/CHART-CAMPAIGN-2026-08-05.md`.
+
+### Added
+- **`npm run audit:pane`** (`scripts/pane-audit.js` + `pane-audit-driver.js`),
+  now also a `npm run qc` step. Drives Statistics, Analyze, Bio/Assay and
+  Finance in the real production bundle: every calculator on its defaults, every
+  non-default dropdown option, every field blanked, rubbish in every field, then
+  a real insert against a recording Word mock. Carries a **per-registry figure
+  ratchet** and self-tests every predicate on a known-bad payload first.
+
+### Fixed — all found by that audit on its first run, none visible to 9,332 tests
+- **Bio/Assay inserted the numbers without the curve.** Michaelis-Menten, Hill,
+  dose-response, binding and substrate inhibition drew a fit in the pane and
+  inserted no picture. The plot is part of the result — for a fit it is the half
+  that shows whether the model describes the data.
+- **The heat, wave and Laplace solvers drew charts nobody could get.** A `NaN`
+  placeholder in the corner of the sampled grid rendered as the "not computable"
+  sentinel and suppressed the entire result, chart included.
+- **Two-sample t-test, paired t-test and one-way ANOVA were un-insertable**, from
+  prose em dashes spliced in from `describeAssumptions` at run time. The
+  existing guard is a source scan and cannot see punctuation that arrives from
+  another module. Two more latent call sites fixed with them.
+- **`insights`, `linearize` and the Cheng-Prusoff non-competitive result** were
+  un-insertable for the same reason.
+- **`greeks` Delta and `returns` Sharpe ratio printed a literal `NaN`** where
+  every neighbouring line was already guarded.
+- **`protein280` could not compute on its own defaults** — a field labelled
+  optional was treated as required. `AssayField.optional` now declares it.
+
+---
+
 ## [Unreleased] — 2026-08-05 — the non-Engineering half, repaired
 
 The 2026-08-05 gap analysis (`docs/GAP-ANALYSIS-2026-08-05.md`) swept everything

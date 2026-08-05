@@ -1445,7 +1445,7 @@ Office.onReady((info) => {
 
   populateAssayCalcs();
   assayCalcSelect.addEventListener("change", renderAssayInputs);
-  assayInsertBtn.addEventListener("click", () => insertPlainText(currentAssayText, "Assay result"));
+  assayInsertBtn.addEventListener("click", () => void insertAssayResult());
   assayInsertPlotBtn.addEventListener("click", insertAssayPlot);
 
   populateCitationTypes();
@@ -6109,7 +6109,12 @@ const FIN_CALCS: FinCalc[] = [
     compute: (r) => {
       const g = blackScholesGreeks(r("type") as OptionType, +r("s"), +r("k"), +r("t"), +r("r") / 100, +r("sig") / 100);
       return [
-        `Delta  ${g.delta.toFixed(4)}`,
+        // finFixed, not toFixed: every other line here is already guarded, and
+        // this one rendered a literal "Delta NaN" beside four "—" sentinels.
+        // The pane happened to block the insert because of those dashes, which
+        // means the NaN was kept out of the document by ACCIDENT rather than by
+        // the guard that exists for it.
+        `Delta  ${finFixed(g.delta, 4)}`,
         `Gamma  ${finFixed(g.gamma, 5)}`,
         `Vega   ${finMoney(g.vega / 100)} per 1% vol`,
         // Four decimals, not finMoney's two: a per-day theta is commonly a
@@ -6365,7 +6370,11 @@ const FIN_CALCS: FinCalc[] = [
       return [
         `Annualized return  ${finPct(annualizedReturn(rets, ppy))}`,
         `Annualized vol     ${finPct(annualizedVolatility(rets, ppy))}`,
-        `Sharpe ratio       ${sharpeRatio(rets, +r("rf") / 100, ppy).toFixed(3)}`,
+        // finFixed, not toFixed. A constant return series gives a zero standard
+        // deviation and a NaN Sharpe ratio; this is the same "Sharpe ratio NaN"
+        // that was fixed once in finPct and left un-fixed on the line that
+        // actually prints it.
+        `Sharpe ratio       ${finFixed(sharpeRatio(rets, +r("rf") / 100, ppy), 3)}`,
       ].join("\n");
     },
   },
@@ -6822,7 +6831,18 @@ const STAT_CALCS: StatCalc[] = [
       // The assumptions the test rests on, checked against the actual data. A
       // p-value from a test whose conditions failed is the quiet kind of wrong
       // this product exists to avoid.
-      const notes = describeAssumptions([a, b]);
+      // plainDashes on the NOTES ONLY, never on the numbers beside them.
+      // describeAssumptions writes ordinary prose ("almost no power - it will
+      // fail to reject almost any data", diagnostics.ts:93), and an em dash in
+      // ordinary prose collides with the "not computable" sentinel that
+      // assaySig emits for a non-finite value. The whole-text scan then blocked
+      // Insert, so the two-sample t-test could not be inserted at all.
+      //
+      // Running plainDashes over the assembled text INCLUDING the numbers would
+      // clear the block and destroy the sentinel with it, letting a genuinely
+      // non-computable result through as "-". The dash is only made plain where
+      // it is punctuation.
+      const notes = describeAssumptions([a, b]).map(plainDashes);
       return {
         text:
           `${label} two-sample t-test\n${reportT(res)}\nMean difference = ${assaySig(res.meanDifference)}` +
@@ -6844,7 +6864,8 @@ const STAT_CALCS: StatCalc[] = [
       const res = pairedTTest(a, b);
       if (!Number.isFinite(res.t) || !Number.isFinite(res.p))
         return { text: "Paired t-test is undefined — the paired differences have zero variance (all identical).", ok: false };
-      const notes = describeAssumptions([a, b], { paired: true });
+      // Notes only, for the reason given on the two-sample t-test above.
+      const notes = describeAssumptions([a, b], { paired: true }).map(plainDashes);
       return {
         text:
           `Paired t-test\n${reportT(res)}\nMean difference = ${assaySig(res.meanDifference)}` +
@@ -7213,7 +7234,8 @@ const STAT_CALCS: StatCalc[] = [
         }
       }
 
-      const advice = describeAssumptions(groups);
+      // Notes only, never the numbers — see the two-sample t-test above.
+      const advice = describeAssumptions(groups).map(plainDashes);
       if (advice.length) {
         lines.push("");
         for (const a of advice) lines.push(a);
@@ -7265,7 +7287,14 @@ const STAT_CALCS: StatCalc[] = [
       // The same assumption check the t-tests carry. It could not be wired here
       // until the pooled-normality defect was fixed, or it would have spread a
       // warning that fires BECAUSE there is an effect to three more surfaces.
-      const advice = describeAssumptions(groups);
+      //
+      // AND IT REINTRODUCED THE EXACT DEFECT THE COMMENT ABOVE WARNS ABOUT.
+      // The effect-size line was carefully written without an em dash; then
+      // this call was added below it, describeAssumptions writes prose em
+      // dashes of its own, and every ANOVA result became un-insertable again.
+      // A trap documented at one site does not protect the site added next to
+      // it — hence plainDashes here, on the prose only.
+      const advice = describeAssumptions(groups).map(plainDashes);
       return {
         text:
           `One-way ANOVA (${groups.length} groups)\n${reportF(res)}\n${effect}` +
@@ -7319,7 +7348,8 @@ const STAT_CALCS: StatCalc[] = [
         : "One-way ANOVA: undefined (no within-group variance)";
       const ciPct = res.alpha === 0.01 ? "99" : res.alpha === 0.1 ? "90" : "95";
 
-      const tukeyAdvice = describeAssumptions(groups);
+      // Notes only, never the numbers — see the two-sample t-test above.
+      const tukeyAdvice = describeAssumptions(groups).map(plainDashes);
       const rows = res.pairs.map(
         (pr) =>
           `Group ${pr.i + 1} vs ${pr.j + 1}:  diff = ${assaySig(pr.difference)}` +
@@ -8213,7 +8243,14 @@ const ANALYZE_CALCS: AnalyzeCalc[] = [
     compute: (r) => {
       const report = analyzeData(r("data"));
       if (!report) return { text: "Enter a data table with at least one row of values.", ok: false };
-      return { text: report.text };
+      // insights.ts writes a narrative ("Data analysis - 6 rows x 2 columns",
+      // "the trend is your own - a dose ladder, a dilution series"), and every
+      // em dash in it is PUNCTUATION: its own non-computable marker is the
+      // string "n/a" (insights.ts:367), never the dash. So making the dashes
+      // plain here cannot disarm a sentinel, and without it the whole report
+      // was un-insertable — the tool whose entire output is that narrative
+      // could not put it in a document.
+      return { text: plainDashes(report.text) };
     },
   },
   {
@@ -8721,13 +8758,17 @@ const ANALYZE_CALCS: AnalyzeCalc[] = [
       for (const s of res.steps) blocks.push({ kind: "line", text: plainDashes(s) });
       // A 41x41 field is not a table anyone reads; show a coarse sample of it.
       const stride = Math.max(1, Math.floor(res.x.length / 8));
-      const grid: Matrix = [];
-      const header = [NaN, ...res.x.filter((_, i) => i % stride === 0)];
-      grid.push(header);
-      for (let j = 0; j < res.y!.length; j += stride) {
-        grid.push([res.y![j], ...res.u[j].filter((_, i) => i % stride === 0)]);
-      }
-      blocks.push({ kind: "matrix", label: "u sampled (first row is x, first column is y):", m: grid });
+      const yPick: number[] = [];
+      for (let j = 0; j < res.y!.length; j += stride) yPick.push(j);
+      blocks.push(
+        ...fieldBlocks(
+          res.x.filter((_, i) => i % stride === 0),
+          "x",
+          yPick.map((j) => res.y![j]),
+          "y",
+          yPick.map((j) => res.u[j].filter((_, i) => i % stride === 0)),
+        ),
+      );
       // Draw a few horizontal slices - a contour plot is not available here, and
       // slices are honest about being slices.
       const colors = ["#2563eb", "#dc2626", "#059669", "#d97706", "#7c3aed"];
@@ -8848,6 +8889,46 @@ const ANALYZE_CALCS: AnalyzeCalc[] = [
  * surface plot is not available here and a table of 60 × 400 values is not
  * something anyone reads.
  */
+/**
+ * Emits a sampled PDE field as an axis line plus a clean numeric grid.
+ *
+ * WHY IT IS NOT ONE MATRIX WITH A HEADER ROW. It was, and the header row began
+ * with `NaN` as a placeholder for the empty top-left corner — the way a printed
+ * table leaves that cell blank. `formatNum` renders any non-finite value as the
+ * em dash it uses for "not computable" (linalg.ts:73), the pane blocks
+ * insertion on a whole-text scan for that sentinel, and so EVERY heat, wave and
+ * Laplace result was un-insertable. Not just the number: the text, the grid and
+ * THE CHART all went with it, which is how a PDE solver that draws a perfectly
+ * good figure showed nothing in the document.
+ *
+ * A `Matrix` is `number[][]`, so there is no way to put a blank in that corner.
+ * The corner is a label, not data, so the fix is to stop pretending otherwise:
+ * the across-axis becomes its own line and the grid carries only real values.
+ *
+ * The alternative — running plainDashes over the rendered matrix — would have
+ * cleared the block by disarming the sentinel on genuine non-finite results
+ * too, which is the fix being worse than the defect.
+ */
+function fieldBlocks(
+  across: number[],
+  acrossName: string,
+  down: number[],
+  downName: string,
+  rows: number[][],
+): AnalyzeBlock[] {
+  return [
+    {
+      kind: "line",
+      text: `${acrossName} = ${across.map((v) => formatNum(v, 4)).join(", ")}`,
+    },
+    {
+      kind: "matrix",
+      label: `u sampled (first column is ${downName}):`,
+      m: rows.map((r, k) => [down[k], ...r]),
+    },
+  ];
+}
+
 function pdeBlocks(out: PdeOutcome, title: string, ylabel: string): AnalyzeOutput | { text: string; ok: false } {
   if (!out.ok) return { text: out.error, ok: false };
   const res = out.result;
@@ -8869,10 +8950,15 @@ function pdeBlocks(out: PdeOutcome, title: string, ylabel: string): AnalyzeOutpu
   const svg = buildPlotSvg(series, { title, xlabel: "x", ylabel, width: 380, height: 270 });
 
   const xStride = Math.max(1, Math.floor(res.x.length / 8));
-  const grid: Matrix = [];
-  grid.push([NaN, ...res.x.filter((_, i) => i % xStride === 0)]);
-  for (const k of pick) grid.push([times[k] ?? 0, ...res.u[k].filter((_, i) => i % xStride === 0)]);
-  blocks.push({ kind: "matrix", label: "u sampled (first row is x, first column is t):", m: grid });
+  blocks.push(
+    ...fieldBlocks(
+      res.x.filter((_, i) => i % xStride === 0),
+      "x",
+      pick.map((k) => times[k] ?? 0),
+      "t",
+      pick.map((k) => res.u[k].filter((_, i) => i % xStride === 0)),
+    ),
+  );
   blocks.push({ kind: "plot", svg, caption: title, alt: title, w: 380, h: 270 });
   for (const c of res.caveats) blocks.push({ kind: "line", text: plainDashes(`! ${c}`) });
   return analyzeResultOf(blocks);
@@ -25211,6 +25297,21 @@ interface AssayField {
   default: string;
   kind?: "number" | "list" | "select";
   options?: { value: string; label: string }[];
+  /**
+   * May be left blank without blocking the calculation.
+   *
+   * Needed because the preview refuses to compute while ANY non-select field is
+   * empty, and the A280 protein calculator ships a sequence field whose label
+   * says "optional" and whose default is the empty string. The two rules
+   * together meant it showed "Enter all values to compute" on its own defaults
+   * and could never be run at all without typing a sequence — even though it
+   * also ships a default extinction coefficient precisely so that you need not.
+   *
+   * Declared rather than inferred from the label: "the label contains the word
+   * optional" is a hint, and this repo's own rule is that a hint string is not
+   * a guard.
+   */
+  optional?: boolean;
 }
 /** A fitted curve to overlay on the Plot engine: the data plus a predictor. */
 interface AssayPlot {
@@ -25417,7 +25518,12 @@ const ASSAY_CALCS: AssayCalc[] = [
         `${name}: Vmax = ${assaySig(l.vmax)}, Km = ${assaySig(l.km)}, R\u00b2 = ${assaySig(l.rsquared, 4)}`;
       return {
         text: [
-          "Linearized kinetics \u2014 three transforms of the same data",
+          // A HYPHEN, NOT AN EM DASH. The em dash is this pane's "not
+          // computable" sentinel and the insertability scan reads the whole
+          // result, so this title alone made every linearization
+          // un-insertable. The guard that catches this in the Analyze and
+          // Stats registries does not reach Bio/Assay.
+          "Linearized kinetics - three transforms of the same data",
           row("Lineweaver-Burk (1/v vs 1/[S])", lb),
           row("Eadie-Hofstee (v vs v/[S])", eh),
           row("Hanes-Woolf ([S]/v vs [S])", hw),
@@ -25538,7 +25644,14 @@ const ASSAY_CALCS: AssayCalc[] = [
       if (mode === "mixed") {
         return {
           text:
-            "Mixed inhibition has TWO constants — Ki (free enzyme) and Ki' (ES complex).\n" +
+            // A hyphen, even though this is a refusal and `ok: false` below
+            // already blocks it. With an em dash here, insertion was blocked
+            // TWICE — once by the declared refusal and once, incidentally, by
+            // punctuation colliding with the sentinel. Two mechanisms that
+            // agree today hide which one is load-bearing: drop `ok: false` and
+            // the refusal would still appear to work, right up until someone
+            // reworded the sentence.
+            "Mixed inhibition has TWO constants - Ki (free enzyme) and Ki' (ES complex).\n" +
             "A single IC50 at a single [S] cannot separate them, so there is no Ki to report here.\n" +
             "Measure velocities across a range of [S] and [I] and fit the mixed model instead.",
           ok: false,
@@ -25548,7 +25661,12 @@ const ASSAY_CALCS: AssayCalc[] = [
       const note: Record<string, string> = {
         competitive: "Ki = IC50 / (1 + [S]/Km). Raising [S] out-competes the inhibitor.",
         uncompetitive: "Ki' = IC50 / (1 + Km/[S]). The inhibitor binds ES, so MORE substrate makes it worse.",
-        noncompetitive: "Ki = IC50. A pure non-competitive inhibitor binds E and ES equally, so [S] does not enter — your [S] and Km are ignored here, deliberately.",
+        // A HYPHEN. This is a computed RESULT ("Ki = 100"), not a refusal, and
+        // an em dash in its explanatory clause collided with the "not
+        // computable" sentinel and disabled Insert for the whole non-competitive
+        // mode. The mixed-mode message below keeps its em dash on purpose: that
+        // one IS a refusal, and being non-insertable is the correct outcome.
+        noncompetitive: "Ki = IC50. A pure non-competitive inhibitor binds E and ES equally, so [S] does not enter - your [S] and Km are ignored here, deliberately.",
       };
       return {
         text: `Ki = ${assaySig(ki)}\n${note[mode]}`,
@@ -25693,7 +25811,7 @@ const ASSAY_CALCS: AssayCalc[] = [
     name: "Protein conc. (A280)",
     fields: [
       { key: "a280", label: "A280", default: "1" },
-      { key: "seq", label: "Protein sequence (optional — computes ε)", default: "" },
+      { key: "seq", label: "Protein sequence (optional — computes ε)", default: "", optional: true },
       { key: "eps", label: "ε molar (M⁻¹cm⁻¹) — used if no sequence", default: "43824" },
       { key: "l", label: "Path length l (cm)", default: "1" },
     ],
@@ -25758,7 +25876,7 @@ function updateAssayPreview(): void {
     const el = assayInputs.querySelector<HTMLInputElement | HTMLSelectElement>(`[data-key="${k}"]`);
     return el ? el.value : "";
   };
-  if (calc.fields.some((f) => f.kind !== "select" && read(f.key).trim() === "")) {
+  if (calc.fields.some((f) => f.kind !== "select" && !f.optional && read(f.key).trim() === "")) {
     assayResult.innerHTML = '<span class="hint">Enter all values to compute.</span>';
     assayPreview.innerHTML = "";
     // The same blank-box rule as below: an incomplete form must not show an
@@ -25844,6 +25962,41 @@ function updateAssayPreview(): void {
 }
 
 /** Rasterizes the fitted-curve plot and inserts it as an inline picture. */
+/**
+ * Inserts the assay result — TEXT AND FITTED CURVE TOGETHER.
+ *
+ * "Insert result" inserted the text only, and the fitted curve needed a second
+ * button beside it. The pane audit measured the consequence directly: five
+ * calculators (Michaelis-Menten, Hill, dose-response, binding, substrate
+ * inhibition) showed a curve in the pane and attempted `pic=0` when the result
+ * was inserted.
+ *
+ * That is the same defect Stats already fixed, for the same reason recorded
+ * there: the plot is part of the result, not decoration. For a fit it is the
+ * stronger half — the R² beside the curve is what shows whether the model
+ * describes the data, and inserting the parameters alone inserts the half a
+ * reader cannot check.
+ *
+ * It is also the user's report, from the other end: "the landing page shows
+ * them but yet jurislab does not seem to have them."
+ *
+ * The separate plot button stays, for when only the picture is wanted.
+ */
+async function insertAssayResult(): Promise<void> {
+  if (!currentAssayText) {
+    setStatus("Nothing to insert for this assay.", "error");
+    return;
+  }
+  await insertPlainText(currentAssayText, "Assay result");
+  // Only if the text went in — insertPlainText reports its own failure, and
+  // appending a picture after a failed insert would put it somewhere
+  // unexpected. Same ordering rule as insertStatsResult.
+  if (currentAssayPlotSvg) {
+    await insertAssayPlot();
+    setStatus("Result and fit plot inserted.", "success");
+  }
+}
+
 async function insertAssayPlot(): Promise<void> {
   if (!currentAssayPlotSvg) {
     setStatus("No fitted plot to insert.", "error");

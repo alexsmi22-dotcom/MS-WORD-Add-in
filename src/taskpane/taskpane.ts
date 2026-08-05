@@ -25093,7 +25093,32 @@ function buildSpectrumSvg(): string | null {
   if (!cur) return null;
   if (cur.kind === "ir") return irChartSvg(cur.ir.bands);
   if (cur.kind === "ms") return msChartSvg(cur.ms);
-  if (cur.kind === "uvvis") return null; // a single λmax is a number, not a spectrum
+  if (cur.kind === "uvvis") {
+    // NOT A SIMULATED ABSORPTION BAND. This returned null with the note "a
+    // single λmax is a number, not a spectrum", and that reasoning was right
+    // about the band: drawing a Gaussian at λmax would invent a width, a shape
+    // and an intensity the rules do not predict, which is the "all data must be
+    // real" mandate broken in the most plausible-looking way possible.
+    //
+    // But it was wrong that there is nothing to draw. Woodward-Fieser IS an
+    // arithmetic — a base value plus one increment per substituent — and that
+    // ledger is real, computed, and already shown as text. As a waterfall it
+    // becomes checkable against a textbook line by line, and it shows at a
+    // glance which substituent is doing the work.
+    const uv = cur.uv;
+    if (uv.lambdaMax === null || !uv.contributions?.length) return null;
+    return ladderSvg(
+      [
+        ...uv.contributions.map((c) => ({ name: c.label, delta: c.nm, gain: c.nm >= 0 })),
+        { name: "λmax", delta: uv.lambdaMax, gain: true, result: true },
+      ],
+      {
+        title: "Woodward-Fieser increments",
+        axisLabel: "wavelength (nm)",
+        fmt: (v) => `${Math.round(v)}`,
+      },
+    );
+  }
   if (cur.kind === "cosy") return cosyChartSvg(cur.cosy);
   if (cur.kind === "hmbc") return hmbcChartSvg(cur.hmbc);
   if (cur.kind === "tocsy") return tocsyChartSvg(cur.tocsy);
@@ -25958,6 +25983,119 @@ function parseBound(s: string): number {
 }
 
 /** Computes and renders the current solve request. */
+/**
+ * Plots one or two expressions over a window, optionally marking points.
+ *
+ * WHY SOLVE NEEDS THIS AT ALL. Solve was the last mode in the product with no
+ * figure of any kind: it had the plumbing (`currentSolveSvg` is rasterised and
+ * inserted) but only the topology barcode ever filled it. A root is a place
+ * where a curve crosses zero, a derivative is a slope, and an integral is an
+ * area — three things that are pictures by nature and were arriving as text.
+ *
+ * THE WINDOW IS ALWAYS BOUNDED AND NEVER TAKEN RAW FROM USER INPUT. It is
+ * derived from the marked points when there are any, and is a fixed [-10, 10]
+ * otherwise; the sample count is a constant. This runs on every keystroke, so
+ * an unbounded window here would not be a bad chart, it would be a frozen Word.
+ *
+ * `evalFormula` is the same evaluator the rest of the pane uses, so the curve
+ * is the same arithmetic that produced the answer rather than a second reading
+ * of the user's expression. Anything it cannot evaluate yields no figure at
+ * all — a plot with a silent hole in it would be worse than none.
+ */
+function solveFunctionSvg(o: {
+  exprs: { expr: string; label: string; color: string }[];
+  variable: string;
+  window?: { lo: number; hi: number };
+  marks?: { x: number; y: number; label: string }[];
+  shadeBetween?: { lo: number; hi: number };
+  title: string;
+}): string | null {
+  const marks = (o.marks ?? []).filter((m) => Number.isFinite(m.x) && Number.isFinite(m.y));
+  let lo: number;
+  let hi: number;
+  if (o.window && Number.isFinite(o.window.lo) && Number.isFinite(o.window.hi) && o.window.hi > o.window.lo) {
+    lo = o.window.lo;
+    hi = o.window.hi;
+  } else if (marks.length) {
+    // Span the marked points with a margin, so every root is comfortably
+    // inside the frame rather than sitting on its edge.
+    let mlo = Infinity;
+    let mhi = -Infinity;
+    for (const m of marks) {
+      if (m.x < mlo) mlo = m.x;
+      if (m.x > mhi) mhi = m.x;
+    }
+    const pad = Math.max(1, (mhi - mlo) * 0.6);
+    lo = mlo - pad;
+    hi = mhi + pad;
+  } else {
+    lo = -10;
+    hi = 10;
+  }
+  // Clamped hard: the span can still come from a root at 1e300.
+  if (!Number.isFinite(lo) || !Number.isFinite(hi) || !(hi > lo)) return null;
+  const span = hi - lo;
+  if (!Number.isFinite(span) || span > 1e12) return null;
+
+  const N = 200;
+  const series: Series[] = [];
+  for (const e of o.exprs) {
+    const pts: Point[] = [];
+    for (let i = 0; i <= N; i++) {
+      const x = lo + (span * i) / N;
+      let y: number;
+      try {
+        y = evalFormula(e.expr, { [o.variable]: x });
+      } catch {
+        return null;
+      }
+      // buildPlotSvg drops non-finite points at the door, but a pole would
+      // otherwise join across the discontinuity as a near-vertical line that
+      // looks like a real feature.
+      if (Number.isFinite(y)) pts.push({ x, y });
+    }
+    if (pts.length < 2) return null;
+    series.push({ points: pts, type: "line", color: e.color, label: e.label });
+  }
+  if (o.shadeBetween) {
+    // The integrated interval drawn as its own segment of the curve. Not a
+    // filled polygon: `buildPlotSvg` draws lines and scatters, and a fake fill
+    // assembled here would be a second renderer to keep in step with the first.
+    const a = Math.max(lo, o.shadeBetween.lo);
+    const b = Math.min(hi, o.shadeBetween.hi);
+    if (b > a) {
+      const pts: Point[] = [];
+      for (let i = 0; i <= 60; i++) {
+        const x = a + ((b - a) * i) / 60;
+        try {
+          const y = evalFormula(o.exprs[0].expr, { [o.variable]: x });
+          if (Number.isFinite(y)) pts.push({ x, y });
+        } catch {
+          break;
+        }
+      }
+      if (pts.length > 1) {
+        series.push({ points: pts, type: "line", color: "#b91c1c", label: "integrated" });
+      }
+    }
+  }
+  if (marks.length) {
+    series.push({
+      points: marks.map((m) => ({ x: m.x, y: m.y })),
+      type: "scatter",
+      color: "#b91c1c",
+      label: marks[0].label,
+    });
+  }
+  return buildPlotSvg(series, {
+    width: 380,
+    height: 250,
+    title: o.title,
+    xlabel: o.variable,
+    ylabel: "value",
+  });
+}
+
 function updateSolve(): void {
   const kind = solveKind.value as SolveKind;
   const text = solveInput.value.trim();
@@ -26105,6 +26243,36 @@ function updateSolve(): void {
       for (const s of r.steps) solveResult.appendChild(solveLine(s));
       say(`Method: ${r.method}`);
       for (const s of r.steps) say(s);
+      // THE CURVE, WITH THE ROOTS ON IT. A root is where the function crosses
+      // zero, and the list of values does not say how many crossings there
+      // were, whether two of them nearly coincide, or that the solver searched
+      // a range at all. Only real roots are marked - a complex root has no
+      // place on a real axis, and drawing it would be a lie about where it is.
+      //
+      // Plotted as LHS minus RHS so zero is the thing being crossed, which is
+      // the same rearrangement the solver did.
+      {
+        // Real roots only: `im` near zero. A symbolic root (a = F/m) has NaN
+        // for both parts and is filtered out by the finiteness check, which is
+        // correct - there is no point on a number line to put it at.
+        const realRoots = r.roots
+          .filter((root) => Number.isFinite(root.re) && Math.abs(root.im) < 1e-9)
+          .map((root) => root.re);
+        const sides = text.split("=");
+        const fx = sides.length === 2 ? `(${sides[0]}) - (${sides[1]})` : text;
+        currentSolveSvg = solveFunctionSvg({
+          exprs: [{ expr: fx, label: "f", color: "#2563eb" }],
+          variable: r.variable,
+          marks: realRoots.map((x) => ({ x, y: 0, label: "root" })),
+          title: realRoots.length ? "Where the function crosses zero" : "The function over the search range",
+        });
+        if (currentSolveSvg) {
+          const fig = document.createElement("div");
+          fig.className = "stats-figure";
+          fig.innerHTML = currentSolveSvg;
+          solveResult.appendChild(fig);
+        }
+      }
       return finish(r.caveats);
     }
 
@@ -26149,6 +26317,32 @@ function updateSolve(): void {
       say(`Derivative with respect to ${r.variable}:`, "heading");
       sayMath(`f(${r.variable}) = ${r.expression}`);
       sayMath(`f'(${r.variable}) = ${r.derivative}`);
+      // BOTH CURVES TOGETHER, which is the only way to see what a derivative
+      // IS rather than what it evaluates to: f' crosses zero exactly where f
+      // turns, and is above the axis exactly where f rises. A student reading
+      // "f'(x) = 2x cos(x^2)" learns the answer; a student seeing the two
+      // curves learns the relationship, and this is the mode the audience is
+      // most likely to be a student in.
+      //
+      // Drawn from the derivative the engine RETURNED, not from a numerical
+      // difference of f - so if the symbolic result were wrong, the picture
+      // would show it disagreeing with the shape of f rather than hiding it.
+      {
+        currentSolveSvg = solveFunctionSvg({
+          exprs: [
+            { expr: r.expression, label: "f", color: "#2563eb" },
+            { expr: r.derivative, label: "f'", color: "#b91c1c" },
+          ],
+          variable: r.variable,
+          title: "f and its derivative",
+        });
+        if (currentSolveSvg) {
+          const fig = document.createElement("div");
+          fig.className = "stats-figure";
+          fig.innerHTML = currentSolveSvg;
+          solveResult.appendChild(fig);
+        }
+      }
       return finish(r.caveats);
     }
 
@@ -26234,6 +26428,31 @@ function updateSolve(): void {
       }
       solveResult.appendChild(solveLine(`Method: ${r.method}`));
       say(`Method: ${r.method}`);
+      // THE AREA THE NUMBER MEASURES. An integral is an area, and the sign is
+      // the part people get wrong: a curve that dips below the axis SUBTRACTS,
+      // so a definite integral of 0 over a symmetric interval is not "nothing
+      // happened". The integrated stretch is drawn in its own colour against
+      // the rest of the curve, so what was and was not included is visible.
+      //
+      // A window wider than the limits, so the interval is seen in context
+      // rather than filling the frame - and padded from the limits themselves,
+      // which are already finite (checked above) and therefore safe to widen.
+      if (Number.isFinite(r.value)) {
+        const pad = Math.max(1e-9, Math.abs(b - a) * 0.35);
+        currentSolveSvg = solveFunctionSvg({
+          exprs: [{ expr: text, label: "f", color: "#94a3b8" }],
+          variable: r.variable,
+          window: { lo: Math.min(a, b) - pad, hi: Math.max(a, b) + pad },
+          shadeBetween: { lo: Math.min(a, b), hi: Math.max(a, b) },
+          title: `Area from ${lo} to ${hi}`,
+        });
+        if (currentSolveSvg) {
+          const fig = document.createElement("div");
+          fig.className = "stats-figure";
+          fig.innerHTML = currentSolveSvg;
+          solveResult.appendChild(fig);
+        }
+      }
       return finish(r.caveats);
     }
 

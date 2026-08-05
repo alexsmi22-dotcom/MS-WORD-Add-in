@@ -6,6 +6,45 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [Unreleased] — 2026-08-05 — the chart campaign is COMPLETE: 84 of 84
+
+Every calculator outside Engineering now inserts data AND a graph. With
+Engineering's 130/130 that is **214 calculators**, each with its own ratchet in
+`scripts/pane-audit.js` enforced by `npm run qc`, so a lost figure fails the
+build and a new calculator must ship with one.
+
+| Registry | Was | Now |
+|---|---|---|
+| Statistics | 5 of 21 | **21 of 21** |
+| Analyze | 8 of 23 | **23 of 23** |
+| Bio/Assay | 5 of 16 | **16 of 16** |
+| Finance | 0 of 24 | **24 of 24** |
+
+### Added
+- **Finance can draw at all.** `FinCalc.compute` returned a bare `string`, so it
+  was the one registry with nowhere to put a figure; it now returns
+  `string | { text, svg? }`, and a plain string still works so the unwired
+  calculators were provably unchanged. The type change landed with exactly ONE
+  wired calculator so the insert path was proven before 23 more were written
+  against it.
+- **`src/lib/statchart.ts`** — box plot, forest plot and grouped bars, the three
+  figures a statistics result needs that a continuous-axis plotter cannot draw.
+- Shared Finance builders: a money-over-time curve, a discounted cash-flow
+  ledger, a price-against-yield curve and an option-value curve.
+- **`AssayOutput.svg`** beside `plot`, because the eleven Bio/Assay calculators
+  that had no figure are not curve fits.
+- `dunnett.ts` reports `ciLow`/`ciHigh`; `optimize.ts` records a convergence
+  history — both so a figure can be drawn from the engine's own numbers rather
+  than reconstructed.
+
+### The rule every figure follows
+Drawn from the SAME engine call that produced the printed text, so the picture
+cannot disagree with the number beside it; and every sweep bound containing a
+user number is clamped, because a period count of 1e9 on a pane that recomputes
+per keystroke is a frozen Word, not a slow chart.
+
+---
+
 ## [Unreleased] — 2026-08-05 — the chart campaign, phase 2: Statistics starts drawing
 
 ### Added

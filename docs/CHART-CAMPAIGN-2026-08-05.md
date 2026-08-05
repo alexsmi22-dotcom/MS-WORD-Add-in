@@ -3,6 +3,31 @@
 _Opened 2026-08-05 at v2.89.0. The counterpart to the Engineering figure campaign
 (v2.82.1 → v2.89.0), which closed at 130 of 130._
 
+> ## CLOSED — 84 of 84, on the day it opened
+>
+> | Registry | Was | Now |
+> |---|---|---|
+> | Statistics | 5 of 21 | **21 of 21** |
+> | Analyze | 8 of 23 (measured) | **23 of 23** |
+> | Bio/Assay | 5 of 16 | **16 of 16** |
+> | Finance | 0 of 24 | **24 of 24** |
+>
+> With Engineering's 130/130 that is **214 calculators, every one of which
+> inserts data and a graph.** Each registry has its own ratchet in
+> `scripts/pane-audit.js`, enforced by `npm run qc`, so a figure that is ever
+> lost fails the build — and a NEW calculator must ship with one, or the count
+> passes it silently.
+>
+> The numbers are **measured** by driving the real production bundle and
+> pressing Insert, not counted from source. That distinction paid immediately:
+> a source scan said Analyze drew 9, the instrument said 8, and the missing one
+> was a chart the product built on every keystroke and threw away.
+>
+> Suite 285 files / 9,384 tests, 14/14 QC gates. **Not pushed** — the version is
+> deliberately still 2.89.0, because bumping it breaks `installPacks` and
+> `manifestVersion` until the install packs are regenerated, which is a release
+> step and the user's call.
+
 ## Why
 
 Two independent signals, and they agree.

@@ -1471,7 +1471,20 @@ export function ladderSvg(
   // The RESULT row survives any cap: a ledger whose bottom line was silently
   // sliced off would be the latency-chart defect all over again.
   const resultRows = rows.filter((rw) => rw.result);
-  const shown = rows.length <= 10 ? rows : [...rows.filter((rw) => !rw.result).slice(0, 10 - resultRows.length), ...resultRows];
+  // ROOM CLAMPED AT ZERO. Written as `slice(0, 10 - resultRows.length)`, a
+  // ledger with more than ten result rows made the end argument NEGATIVE, and
+  // a negative end counts from the tail instead of truncating — so the cap
+  // silently stopped applying and 70,000 result rows produced a 28 MB SVG
+  // 2.4 million pixels tall.
+  const room = Math.max(0, 10 - resultRows.length);
+  const normalRows = rows.filter((rw) => !rw.result);
+  const shown =
+    rows.length <= 10 ? rows : [...normalRows.slice(0, room), ...resultRows.slice(0, 10)];
+  // AND THE TRUNCATION IS REPORTED. It was silent: forty rows in, ten bars out,
+  // nothing on the artwork saying so — which reads as "that is all the data
+  // there was". `hBarSvg` next door has said "…and N more" since it was
+  // written; this did not.
+  const droppedRows = rows.length - shown.length;
   const H = 56 + shown.length * 34 + 12;
   if (!shown.length || !shown.every((rw) => Number.isFinite(rw.delta)) || (opts.limit !== undefined && !Number.isFinite(opts.limit))) {
     return emptyChart(W, 180, "The inputs do not define a ledger");
@@ -1542,6 +1555,14 @@ export function ladderSvg(
     p.push(labelText(ML + pw - 2, MT + ph - 4, ok ? (opts.okText ?? "within limit") : (opts.failText ?? "OVER LIMIT"), { anchor: "end", fill: ok ? "#059669" : POINT, size: 9 }));
   }
   p.push(`<text x="${(ML + pw / 2).toFixed(1)}" y="${H - 6}" text-anchor="middle">${esc(opts.axisLabel)}</text>`);
+  // SAY WHAT WAS DROPPED. The row cap was silent: forty rows in, ten bars out,
+  // nothing on the artwork — which reads as "that is all the data there was".
+  // Worse on a WATERFALL than on a bar chart, because the running edges then
+  // stop short of the total bar and the ledger appears not to add up.
+  // hBarSvg next door has carried its "…and N more" since it was written.
+  if (droppedRows > 0) {
+    p.push(labelText(ML + pw, H - 6, `…and ${droppedRows} more`, { size: 8, anchor: "end", fill: POINT }));
+  }
   p.push("</g></svg>");
   return p.join("");
 }

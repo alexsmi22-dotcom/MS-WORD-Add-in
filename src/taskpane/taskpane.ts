@@ -1387,7 +1387,7 @@ Office.onReady((info) => {
 
   populateFinanceCalcs();
   finCalcSelect.addEventListener("change", renderFinanceInputs);
-  finInsertBtn.addEventListener("click", () => void insertFinanceResult());
+  finInsertBtn.addEventListener("click", () => void runCompositeInsert(finInsertBtn, insertFinanceResult));
 
   msInput.addEventListener("input", updateMassSpec);
   msInsertBtn.addEventListener("click", () => insertPlainText(massSpecAsText(currentMassSpec), "MS data"));
@@ -1406,7 +1406,7 @@ Office.onReady((info) => {
   // Inserts real, editable Word equations (OMML) — the pane already typeset the
   // derivation on screen, and the same engine drives Math mode, so shipping it
   // to the document as flat ASCII was leaving the best part behind.
-  solveInsertBtn.addEventListener("click", () => insertSolveResult());
+  solveInsertBtn.addEventListener("click", () => void runCompositeInsert(solveInsertBtn, insertSolveResult));
   // DEBOUNCED, unlike every other input handler here, because alignment is
   // O(n·m) in the two sequence lengths and runs synchronously on the UI thread.
   // Measured before the clamp in align.ts: 3 kb x 3 kb took 2.2 s and 659 MB,
@@ -1432,7 +1432,7 @@ Office.onReady((info) => {
 
   populateStatsCalcs();
   statsCalcSelect.addEventListener("change", renderStatsInputs);
-  statsInsertBtn.addEventListener("click", () => void insertStatsResult());
+  statsInsertBtn.addEventListener("click", () => void runCompositeInsert(statsInsertBtn, insertStatsResult));
   statsInsertChartBtn.addEventListener("click", () => void insertStatsChart());
 
   populateAnalyzeCalcs();
@@ -1449,7 +1449,7 @@ Office.onReady((info) => {
 
   populateAssayCalcs();
   assayCalcSelect.addEventListener("change", renderAssayInputs);
-  assayInsertBtn.addEventListener("click", () => void insertAssayResult());
+  assayInsertBtn.addEventListener("click", () => void runCompositeInsert(assayInsertBtn, insertAssayResult));
   assayInsertPlotBtn.addEventListener("click", insertAssayPlot);
 
   populateCitationTypes();
@@ -5016,6 +5016,47 @@ async function insertAlignmentText(): Promise<void> {
 let insertTextBusy = false;
 
 /**
+ * Runs a composite "text AND figure" insert under a guard that spans BOTH
+ * halves, and disables its button while it runs.
+ *
+ * WHY `insertTextBusy` IS NOT ENOUGH, and why four comments in this file said
+ * otherwise until an adversarial pass measured it. `insertPlainText` releases
+ * that flag in its own `finally` — which fires when the TEXT is done, before
+ * the caller has rasterised anything. The figure phase then runs
+ * `renderFigurePng`, tens of milliseconds of canvas work, with the flag CLEAR.
+ * A second click in that window sails through the guard, inserts the text
+ * again, and the two figures land after both texts:
+ *
+ *     text1, text2, fig1, fig2
+ *
+ * — every figure divorced from the result it belongs to. For an amortisation
+ * split or a Q-Q plot that is a wrong document, not an untidy one.
+ *
+ * The guard is separate from `insertTextBusy` rather than an extension of it,
+ * because the two answer different questions: that one protects a single Word
+ * batch from re-entry, this one protects a multi-batch USER ACTION. Disabling
+ * the button as well is what makes the state visible instead of merely safe.
+ */
+let compositeInsertBusy = false;
+async function runCompositeInsert(btn: HTMLButtonElement, fn: () => Promise<void>): Promise<void> {
+  if (compositeInsertBusy) {
+    setStatus("Still inserting the last result — one moment.", "error");
+    return;
+  }
+  compositeInsertBusy = true;
+  const wasDisabled = btn.disabled;
+  btn.disabled = true;
+  try {
+    await fn();
+  } finally {
+    compositeInsertBusy = false;
+    // Restore rather than force-enable: the result may legitimately have become
+    // un-insertable while this ran (the user can type in the pane during it).
+    btn.disabled = wasDisabled;
+  }
+}
+
+/**
  * Returns TRUE only if the text actually reached the document.
  *
  * It used to return `void` while catching its own errors, which made every
@@ -5069,14 +5110,14 @@ async function insertPlainText(text: string, label: string): Promise<boolean> {
  * ASCII. Falls back to the plain-text path if the host rejects the OOXML, so
  * the button always does something.
  */
-async function insertDerivation(blocks: DerivationBlock[], plain: string, label: string): Promise<void> {
+async function insertDerivation(blocks: DerivationBlock[], plain: string, label: string): Promise<boolean> {
   if (!blocks.length) {
     setStatus(`Nothing to insert for ${label.toLowerCase()}.`, "error");
-    return;
+    return false;
   }
   if (insertTextBusy) {
     setStatus("Still inserting the last result — one moment.", "error");
-    return;
+    return false;
   }
   insertTextBusy = true;
   setStatus(`Inserting ${label.toLowerCase()}…`);
@@ -5094,11 +5135,13 @@ async function insertDerivation(blocks: DerivationBlock[], plain: string, label:
     // tracking content control in a SECOND flush, so one Ctrl+Z strips the tag
     // and leaves the equations behind. Promising single-step undo was wrong.
     setStatus(`${label} inserted as editable equations. Ctrl/⌘+Z undoes it — press it more than once.`, "success");
+    return true;
   } catch (error) {
     // OOXML refused by the host — the derivation is still worth having as text.
+    // The fallback's own verdict is the answer: if the text did not land
+    // either, the caller must not go on to append a figure to nothing.
     insertTextBusy = false;
-    await insertPlainText(plain, label);
-    return;
+    return await insertPlainText(plain, label);
   } finally {
     insertTextBusy = false;
   }
@@ -5110,7 +5153,14 @@ async function insertDerivation(blocks: DerivationBlock[], plain: string, label:
  * entering Word.run, because that conversion is async and Word.run batches.
  */
 async function insertSolveResult(): Promise<void> {
-  await insertDerivation(currentSolveBlocks, currentSolveText, "solution");
+  // ONLY IF THE DERIVATION LANDED. This function was the one text-plus-figure
+  // handler left out of that contract: `insertDerivation` returned void, so a
+  // second rapid click hit its "still inserting" branch, returned nothing, and
+  // this went on to insert the FIGURE anyway — leaving an orphan picture, no
+  // second derivation, and a green "Solution and figure inserted" written over
+  // the error. The same hole let a figure land alone when the host rejected the
+  // OOXML and the plain-text fallback failed too.
+  if (!(await insertDerivation(currentSolveBlocks, currentSolveText, "solution"))) return;
   if (!currentSolveSvg) return;
   try {
     const svg = currentSolveSvg;
@@ -7440,6 +7490,37 @@ function plainDashes(text: string): string {
  *   group A = ten identical values, group B = anything spread out
  *   -> Welch's t and p are both finite, so no earlier guard fires.
  */
+/**
+ * Names the dominant uncertainty term, or says there is not one.
+ *
+ * WHY IT IS NOT `contributions[0].name`. The shipped default is `a*b/c` with
+ * every relative uncertainty at 1%, so all three contributions are EXACTLY
+ * 0.16 — mathematically tied. `propagateUncertainty` computes its partials by
+ * central differences, which leaves c at 0.16000000001630724 and a and b at
+ * 0.15999999998788558; the sort then ranks c first and the pane printed
+ * "Largest contribution: c" beside three bars of identical length.
+ *
+ * A reader acts on that sentence — it is the whole point of an uncertainty
+ * budget, the answer to "which measurement should I improve". Naming a winner
+ * chosen by finite-difference noise is worse than declining to name one.
+ *
+ * The tolerance is relative and generous (0.1%), because the noise floor here
+ * is a property of the differencing step, not of the user's data.
+ */
+function largestContributionLine(contributions: { name: string; contribution: number }[]): string {
+  const finite = contributions.filter((c) => Number.isFinite(c.contribution) && c.contribution > 0);
+  if (!finite.length) return "No term dominates: every contribution is zero or not computable.";
+  const top = finite[0].contribution;
+  const tied = finite.filter((c) => Math.abs(c.contribution - top) <= Math.abs(top) * 1e-3);
+  if (tied.length === finite.length && finite.length > 1) {
+    return `No single dominant term: ${tied.map((c) => c.name).join(", ")} contribute equally.`;
+  }
+  if (tied.length > 1) {
+    return `Largest contribution: ${tied.map((c) => c.name).join(" and ")} (equal).`;
+  }
+  return `Largest contribution: ${finite[0].name}`;
+}
+
 function insertableResultText(text: string): boolean {
   return (
     !!text &&
@@ -8343,12 +8424,11 @@ const STAT_CALCS: StatCalc[] = [
       if (!formula || !Object.keys(vars).length) return { text: "Enter a formula and at least one variable.", ok: false };
       try {
         const res = propagateUncertainty(formula, vars);
-        const dominant = res.contributions[0];
         return {
           text:
             `Uncertainty propagation\n` +
             `${formula} = ${assaySig(res.value)} ± ${assaySig(res.uncertainty, 3)}\n` +
-            `Largest contribution: ${dominant.name}`,
+            largestContributionLine(res.contributions),
           // THE UNCERTAINTY BUDGET, which is what this calculation is FOR. The
           // combined figure says how well you know the answer; the budget says
           // which measurement to improve to make it better, and that is the
@@ -8818,7 +8898,11 @@ async function insertFinanceResult(): Promise<void> {
     });
     setStatus("Result and chart inserted.", "success");
   } catch (error) {
-    setStatus(`Could not insert chart: ${(error as Error).message}`, "error");
+    // THE TEXT ALREADY LANDED — say so. "Could not insert chart" on its own
+    // reads as "nothing was inserted", and the reasonable response to that is
+    // to click again, which duplicates the result. Solve words this correctly
+    // and Finance did not.
+    setStatus(`Result inserted, but the chart could not be: ${(error as Error).message}`, "error");
   }
 }
 
@@ -8848,7 +8932,13 @@ async function insertStatsChart(): Promise<boolean> {
       const range = context.document.getSelection();
       const picture = range.insertInlinePictureFromBase64(base64, Word.InsertLocation.after);
       sizeFigure(picture, natural.width, natural.height);
-      picture.altTextDescription = `Statistics diagnostic plot for ${statsCalcSelect.value}`;
+      // THE HUMAN NAME, not the registry slug. `statsCalcSelect.value` is the
+      // entry's `id`, so a screen-reader user was getting "Statistics
+      // diagnostic plot for multiregress". Finance and Bio/Assay both resolve
+      // through their calc table two lines from here; Stats did not, in the
+      // release whose own commit message was about honest alt text.
+      const statsCalc = STAT_CALCS.find((c) => c.id === statsCalcSelect.value);
+      picture.altTextDescription = `Statistics figure: ${statsCalc?.name ?? "diagnostic plot"}`;
       range.select(Word.SelectionMode.end);
       await context.sync();
       await tagInserted(context, picture.getRange(), "formula-inserter:stats-chart");
@@ -26084,6 +26174,46 @@ function parseBound(s: string): number {
   }
 }
 
+/**
+ * Pulls the longest parseable equation out of a sentence.
+ *
+ * A user asking a question very often writes the equation inside it — "Solve
+ * for x: 3x + 5 = 20", "if 2y - 4 = 10 what is y". The word-problem templates
+ * matched none of those and the pane refused, which is what "Solve did not
+ * respond" actually looked like from the outside.
+ *
+ * Deliberately narrow: it takes the text around the FIRST "=" and trims words
+ * off each end until both sides parse. It returns null rather than guessing, so
+ * a sentence with no equation in it still reaches the honest refusal.
+ */
+function extractEquation(text: string): string | null {
+  const eq = text.indexOf("=");
+  if (eq < 0) return null;
+  // Work on one line: an equation does not span a sentence break.
+  const lineStart = text.lastIndexOf("\n", eq) + 1;
+  const lineEndRaw = text.indexOf("\n", eq);
+  const line = text.slice(lineStart, lineEndRaw < 0 ? text.length : lineEndRaw);
+  const at = line.indexOf("=");
+  const leftWords = line.slice(0, at).split(/\s+/).filter(Boolean);
+  const rightWords = line.slice(at + 1).split(/\s+/).filter(Boolean);
+  // Longest first: prefer the fullest expression that still parses.
+  for (let l = 0; l < leftWords.length; l++) {
+    for (let rgt = rightWords.length; rgt > 0; rgt--) {
+      const cand = `${leftWords.slice(l).join(" ")} = ${rightWords.slice(0, rgt).join(" ")}`;
+      // Strip trailing punctuation a sentence leaves behind.
+      const clean = cand.replace(/[?.,;:]+\s*$/, "").trim();
+      if (!/[0-9a-zA-Z]/.test(clean)) continue;
+      try {
+        const probe = solveEquation(clean);
+        if (probe && (probe.roots.length > 0 || probe.method === "identity")) return clean;
+      } catch {
+        // keep trimming
+      }
+    }
+  }
+  return null;
+}
+
 /** Computes and renders the current solve request. */
 /**
  * Plots one or two expressions over a window, optionally marking points.
@@ -26704,8 +26834,53 @@ function updateSolve(): void {
     // word problem
     const r = solveWordProblem(text);
     if (!r) {
+      // BEFORE REFUSING, TRY THE EQUATION THE USER ACTUALLY WROTE.
+      //
+      // Reported as "Solve is not working right - I tried multiple questions
+      // and it did not respond", and reproduced by driving the real bundle:
+      // Solve was not broken, it was REFUSING almost everything. "Solve for x:
+      // 3x + 5 = 20" came back as "this isn't one of the offline templates"
+      // while the equation solver two dropdown positions away answers it
+      // instantly. Four narrow templates, and no fallback to the general
+      // solver sitting in the same file.
+      //
+      // A sentence wrapped around an equation is still an equation. Pull out
+      // the longest run that parses and hand it over; if that fails too, THEN
+      // refuse — and say something a reader can act on.
+      const embedded = extractEquation(text);
+      const viaEq = embedded ? solveEquation(embedded) : null;
+      if (viaEq && viaEq.roots.length) {
+        solveResult.appendChild(msEyebrow(`Solve for ${viaEq.variable}`));
+        say(`Solve for ${viaEq.variable}:`, "heading");
+        sayMath(embedded as string);
+        solveResult.appendChild(
+          solveLine(`Read as: ${embedded}`),
+        );
+        for (const root of viaEq.roots) {
+          const line = `${viaEq.variable} = ${root.display}`;
+          solveResult.appendChild(solveLine(line, "ms-masses"));
+          if (/[i\u00d7]/.test(root.display)) say(line);
+          else sayMath(line);
+        }
+        for (const st of viaEq.steps) {
+          solveResult.appendChild(solveLine(st));
+          say(st);
+        }
+        return finish(viaEq.caveats);
+      }
       solveResult.appendChild(
-        solveLine("This isn't one of the offline templates (percentage; distance = rate × time; successive shares, e.g. “guest k takes k% of what's left”; or a simple 'a number …' sentence). Rephrase, or an online AI solver can be added.")
+        solveLine(
+          "No equation found in that, and it does not match one of the built-in word-problem " +
+            "shapes: a percentage, distance = rate \u00d7 time, successive shares, or a simple " +
+            "\"a number \u2026\" sentence.",
+        ),
+      );
+      solveResult.appendChild(
+        solveLine(
+          "Try writing the equation itself \u2014 e.g. \"0.8x = 40\" \u2014 and the solver will " +
+            "take it from here. Everything here runs offline, so free-form questions are not " +
+            "answered rather than guessed at.",
+        ),
       );
       return;
     }
@@ -26930,6 +27105,20 @@ interface AssayPlot {
   predict: (x: number) => number;
   xlabel: string;
   ylabel: string;
+  /**
+   * Draw the concentration axis logarithmically, and sample the fitted curve
+   * logarithmically with it.
+   *
+   * A dose-response curve is a sigmoid IN LOG CONCENTRATION — that is what
+   * makes it a sigmoid at all, and what the Hill slope is the slope OF. On the
+   * shipped default (`0.01 … 100`) a linear axis put six of the seven points
+   * inside the leftmost 10% of the plot and the EC50 the text reports at 2% of
+   * the width, so the figure could show neither of the two numbers printed
+   * beside it.
+   */
+  logX?: boolean;
+  /** A vertical marker with a label — the fitted EC50/IC50/Km/Kd. */
+  markX?: { x: number; label: string };
 }
 interface AssayOutput {
   text: string;
@@ -27174,7 +27363,9 @@ const ASSAY_CALCS: AssayCalc[] = [
         // with the constants printed above. Distinct [I] values are capped so a
         // pasted 500-row experiment cannot draw 500 curves.
         svg: (() => {
-          const levels = [...new Set(i)].sort((a, b) => a - b).slice(0, 6);
+          const allLevels = [...new Set(i)].sort((a, b) => a - b);
+          const levels = allLevels.slice(0, 6);
+          const droppedLevels = allLevels.length - levels.length;
           const colours = ["#2563eb", "#b91c1c", "#059669", "#d97706", "#7c3aed", "#0891b2"];
           // Index kept alongside, because predict() is indexed by it.
           const idxOf = s.map((sv, k) => ({ k, sv, vv: v[k], iv: i[k] }));
@@ -27206,7 +27397,14 @@ const ASSAY_CALCS: AssayCalc[] = [
           return buildPlotSvg(series, {
             width: 380,
             height: 260,
-            title: `Inhibition fit (${mode})`,
+            // SAY WHAT WAS DROPPED. The fit uses every measurement; the figure
+            // draws at most six inhibitor concentrations, and it said nothing —
+            // so two whole [I] levels could vanish from a picture captioned as
+            // the fit. Every other builder in this codebase states its cap.
+            title:
+              droppedLevels > 0
+                ? `Inhibition fit (${mode}) - ${levels.length} of ${allLevels.length} [I] levels shown`
+                : `Inhibition fit (${mode})`,
             xlabel: "[S]",
             ylabel: "v",
           });
@@ -27354,7 +27552,24 @@ const ASSAY_CALCS: AssayCalc[] = [
       // it; this one and `binding` dropped the key entirely, so the standard-error
       // and local-optimiser warnings never rendered for the two most-used
       // pharmacology tools in the bench.
-      return { text, caveats: fit.caveats, plot: { data: pts, predict: fit.predict, xlabel: "concentration", ylabel: "response" } };
+      return {
+        text,
+        caveats: fit.caveats,
+        // LOG CONCENTRATION. A dose-response curve is a sigmoid IN LOG
+        // concentration - that is what makes it a sigmoid, and what the Hill
+        // slope is the slope OF. On the shipped default (0.01 to 100) a linear
+        // axis put six of seven points inside the leftmost tenth and the EC50
+        // at 2% of the width, so the figure could show neither number printed
+        // beside it.
+        plot: {
+          data: pts,
+          predict: fit.predict,
+          xlabel: "concentration (log scale)",
+          ylabel: "response",
+          logX: true,
+          markX: { x: fit.ec50, label: "EC50/IC50" },
+        },
+      };
     },
   },
   {
@@ -27451,12 +27666,19 @@ const ASSAY_CALCS: AssayCalc[] = [
         svg: hBarSvg(
           (["competitive", "uncompetitive", "noncompetitive"] as InhibitionMode[])
             .map((m) => ({
-              name: m === mode ? `${m} (yours)` : m,
+              name:
+                (m === "uncompetitive" ? "uncompetitive (Ki')" : m) +
+                (m === mode ? " - yours" : ""),
               value: kiFromIc50(+r("ic50"), +r("s"), +r("km"), m),
               colour: m === mode ? "#b91c1c" : "#6b7280",
             }))
             .filter((row) => Number.isFinite(row.value)),
-          { title: "Ki under each assumed mechanism", unit: "", w: 360 },
+          // "Ki OR Ki'", because they are not the same constant and the result
+          // text says so two lines up: the uncompetitive branch explicitly
+          // reports `Ki' = IC50 / (1 + Km/[S])`. Putting a Ki' on a bar labelled
+          // Ki under a title reading "Ki under each mechanism" asserts an
+          // equivalence the product elsewhere refuses to make.
+          { title: "Ki (or Ki' for uncompetitive) under each mechanism", unit: "", w: 360 },
         ),
         caveats: [
           "The MODE is your claim, not the data's. Cheng–Prusoff is the COMPETITIVE " +
@@ -27699,8 +27921,17 @@ const ASSAY_CALCS: AssayCalc[] = [
       }
       const steps = serialDilution(start, fold, Math.min(n, 50)); // cap to keep the readout sane
       const note = n > 50 ? `\n(showing first 50 of ${n} steps)` : "";
+      // A LOG AXIS DISCARDS zero and negative values, so say so in the RESULT
+      // rather than letting the figure quietly hold fewer points than the list
+      // above it. A negative fold is the ordinary way to reach this.
+      const unplottable = steps.filter((st) => !(st.concentration > 0)).length;
+      const logNote =
+        unplottable > 0
+          ? `\n${unplottable} step(s) are zero or negative and cannot be drawn on a ` +
+            "logarithmic axis; they are omitted from the figure only, never from the numbers above."
+          : "";
       return {
-        text: "Serial dilution\n" + steps.map((s) => `Step ${s.step}: ${assaySig(s.concentration)}`).join("\n") + note,
+        text: "Serial dilution\n" + steps.map((s) => `Step ${s.step}: ${assaySig(s.concentration)}`).join("\n") + note + logNote,
         // A LOG Y AXIS, because that is what a serial dilution IS. On a linear
         // axis a ten-fold series is one tall bar and a row of flat nothing -
         // the six steps a user typed become visually five. On a log axis the
@@ -27709,24 +27940,36 @@ const ASSAY_CALCS: AssayCalc[] = [
         //
         // The step count is already capped at 50 by the engine call above, so
         // this sweep carries no unbounded user number.
-        svg: buildPlotSvg(
-          [
-            {
-              points: steps.map((st) => ({ x: st.step, y: st.concentration })),
-              type: "line",
-              color: "#2563eb",
-              label: "concentration",
-            },
-          ],
-          {
+        // DROP-FOR-SCALES FIRST. plot.ts states the contract — every caller
+        // passing a log scale must run `dropForScales` — and this one did not,
+        // so a zero or negative fold gave log(x) = NaN for every point and
+        // emitted `d="M48,NaN L147,NaN …"`: a framed, titled, EMPTY chart
+        // beside a text listing every step. That is the identical defect the
+        // pharmacokinetics plot 14,000 lines above already fixed and wrote up;
+        // the fix was simply not carried across.
+        svg: (() => {
+          const opts = {
             width: 360,
             height: 240,
             title: `Serial dilution, ${assaySig(fold)}-fold per step`,
             xlabel: "step",
             ylabel: "concentration",
-            yScale: "log",
-          },
-        ),
+            yScale: "log" as const,
+          };
+          const series = [
+            {
+              points: steps.map((st) => ({ x: st.step, y: st.concentration })),
+              type: "line" as const,
+              color: "#2563eb",
+              label: "concentration",
+            },
+          ];
+          const filtered = dropForScales(series, opts);
+          // Fewer than two survivors is not a line; draw nothing rather than a
+          // frame with a legend and no curve.
+          if (!filtered.series.some((sr) => sr.points.length > 1)) return undefined;
+          return buildPlotSvg(filtered.series, opts);
+        })(),
       };
     },
   },
@@ -27927,21 +28170,55 @@ function updateAssayPreview(): void {
     currentAssayPlotSvg = out.svg;
     assayInsertPlotBtn.disabled = false;
   } else if (out.plot && insertable) {
-    const { data, predict, xlabel, ylabel } = out.plot;
+    const { data, predict, xlabel, ylabel, logX, markX } = out.plot;
     const xs = data.map((p) => p.x);
     const xmin = minOf(xs);
     const xmax = maxOf(xs);
+    // SAMPLE THE CURVE THE WAY THE AXIS DRAWS IT. On a log axis a linear grid
+    // puts almost every sample in the top decade, so the whole sub-EC50 region
+    // — the informative half — was a single straight chord between two points.
+    const positive = xs.filter((v) => v > 0);
+    const useLog = logX === true && positive.length > 1 && minOf(positive) > 0;
     const fitPts: Point[] = [];
-    const N = 120;
-    for (let i = 0; i <= N; i++) {
-      const x = xmin + ((xmax - xmin) * i) / N;
-      fitPts.push({ x, y: predict(x) });
+    const N = 160;
+    if (useLog) {
+      const lo = Math.log10(minOf(positive));
+      const hi = Math.log10(maxOf(positive));
+      for (let i = 0; i <= N; i++) {
+        const x = Math.pow(10, lo + ((hi - lo) * i) / N);
+        const y = predict(x);
+        if (Number.isFinite(y)) fitPts.push({ x, y });
+      }
+    } else {
+      for (let i = 0; i <= N; i++) {
+        const x = xmin + ((xmax - xmin) * i) / N;
+        const y = predict(x);
+        if (Number.isFinite(y)) fitPts.push({ x, y });
+      }
     }
-    const series: Series[] = [
+    const calcNow = ASSAY_CALCS.find((c) => c.id === assayCalcSelect.value);
+    const plotOpts = {
+      xlabel,
+      ylabel,
+      // A TITLE. All five fitted figures had none, so a Michaelis-Menten fit
+      // and a 4PL dose-response were indistinguishable once inserted.
+      title: calcNow?.name ?? "Fit",
+      ...(useLog ? { xScale: "log" as const } : {}),
+    };
+    const baseSeries: Series[] = [
       { points: data, type: "scatter", label: "data" },
       { points: fitPts, type: "line", label: "fit" },
     ];
-    const svg = buildPlotSvg(series, { xlabel, ylabel });
+    // The fitted midpoint drawn ON the curve, so the number in the text can be
+    // found in the picture.
+    if (markX && Number.isFinite(markX.x) && (!useLog || markX.x > 0)) {
+      const my = predict(markX.x);
+      if (Number.isFinite(my)) {
+        baseSeries.push({ points: [{ x: markX.x, y: my }], type: "scatter", label: markX.label });
+      }
+    }
+    const filtered = dropForScales(baseSeries, plotOpts);
+    const svg = buildPlotSvg(filtered.series, plotOpts);
     assayPreview.innerHTML = svg;
     // SHOWN ONLY WHEN THERE IS SOMETHING TO SHOW. `.structure-preview` carries a
     // 120px min-height, a border and a fixed white paper background, so an empty

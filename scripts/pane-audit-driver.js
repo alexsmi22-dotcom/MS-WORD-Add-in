@@ -123,10 +123,21 @@
       else if ((d.match(/[Mm]/g) || []).length > 1) marks++;
     }
     marks += svg.querySelectorAll("circle, polyline, polygon, ellipse").length;
-    // A bar chart is rects; exclude the paper background, which every builder
-    // emits as a full-bleed rect.
+    // A bar chart is rects. Exclude the paper background and the plot frame —
+    // AND MATCH EVERY SPELLING OF WHITE, which is where the first version failed
+    // completely. It excluded only "#ffffff"; plot.ts writes its background as
+    // "#fff" and its frame as fill="none", so neither was excluded, marks was
+    // always >= 2, and the detector could not fire on ANY buildPlotSvg figure —
+    // roughly 37 of the 84 figure sites, including the one-point line its own
+    // comment was written about. The driver's self-test passed because its
+    // hand-written payload used a spelling plot.ts never emits.
     var rects = [].slice.call(svg.querySelectorAll("rect")).filter(function (rr) {
-      return rr.getAttribute("fill") !== "#ffffff";
+      var f = String(rr.getAttribute("fill") || "").trim().toLowerCase();
+      if (f === "#ffffff" || f === "#fff" || f === "white" || f === "none") return false;
+      // A zero-area rect draws nothing however it is filled.
+      var w = parseFloat(rr.getAttribute("width") || "0");
+      var h = parseFloat(rr.getAttribute("height") || "0");
+      return w > 0 && h > 0;
     });
     marks += rects.length;
     return marks === 0;
@@ -302,6 +313,18 @@
         '<svg width="60" height="40"><rect width="60" height="40" fill="#ffffff"/>' +
         '<path d="M6,30 L54,10" fill="none" stroke="#2563eb"/></svg>';
       if (isBlankFigure(drawn.querySelector("svg"))) bad.push("blank-figure-detector-trigger-happy");
+      // THE SPELLING plot.ts ACTUALLY EMITS. The first self-test used "#ffffff"
+      // throughout, which is why it stayed green over a detector that could not
+      // fire on the product's most-used builder. This payload is copied from
+      // real buildPlotSvg output: "#fff" background, fill="none" frame, and a
+      // single moveto with no lineto.
+      var plotBlank = document.createElement("div");
+      plotBlank.innerHTML =
+        '<svg width="380" height="240"><rect width="380" height="240" fill="#fff"/>' +
+        '<rect x="40" y="10" width="330" height="200" fill="none" stroke="#111"/>' +
+        '<text x="10" y="20">Where each payment goes</text>' +
+        '<path d="M216.0,198.3" fill="none" stroke="#b91c1c"/></svg>';
+      if (!isBlankFigure(plotBlank.querySelector("svg"))) bad.push("blank-figure-blind-to-plot-ts");
       var bars = document.createElement("div");
       bars.innerHTML =
         '<svg width="60" height="40"><rect width="60" height="40" fill="#ffffff"/>' +

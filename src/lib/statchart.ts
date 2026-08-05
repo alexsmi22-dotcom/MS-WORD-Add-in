@@ -45,8 +45,34 @@ export const BOX_CHART_SIZE = { w: 380, h: 280 };
 export const FOREST_CHART_SIZE = { w: 400, h: 240 };
 export const GROUPED_BAR_SIZE = { w: 380, h: 260 };
 
-const esc = (s: string): string =>
-  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+/**
+ * XML-escape, AND remove characters XML cannot carry at all.
+ *
+ * Escaping `& < >` is not enough: a C0 control character is not representable
+ * in XML 1.0 in any form, escaped or raw, so one in a label makes the whole
+ * SVG not-well-formed. The pane's `innerHTML` preview is lenient and renders it
+ * fine; `svgToPngBase64` is not, and rejects — so the chart looks perfect on
+ * screen and the insert fails with "could not rasterize". Preview is not
+ * insert, again.
+ *
+ * REACHABLE: two-way ANOVA takes its factor levels as raw user substrings, and
+ * `statTwoWay` splits on `[\s,]+` which does not remove 0x00-0x08 or 0x0E-0x1F.
+ * The realistic vector is 0x07 (BEL) — Word's own table-cell marker — which
+ * arrives by pasting a cell out of a Word table as a factor level.
+ *
+ * Written with char codes rather than an escape class: this repo has shipped a
+ * defect where backslash escapes were eaten on the way into the file and became
+ * literal control characters, and it recurred twice during this campaign.
+ */
+const esc = (s: string): string => {
+  let out = "";
+  for (const ch of String(s)) {
+    const c = ch.charCodeAt(0);
+    if ((c < 32 && c !== 9 && c !== 10 && c !== 13) || (c >= 127 && c <= 159)) continue;
+    out += ch === "&" ? "&amp;" : ch === "<" ? "&lt;" : ch === ">" ? "&gt;" : ch;
+  }
+  return out;
+};
 
 /** Significant figures without exponent noise, and never "NaN". */
 function fmt(v: number): string {
@@ -73,6 +99,94 @@ function emptyChart(w: number, h: number, why: string): string {
     `<text x="${w / 2}" y="${h / 2}" text-anchor="middle" font-family="Segoe UI, Arial" ` +
     `font-size="12" fill="${GREY}">${esc(why)}</text></svg>`
   );
+}
+
+/**
+ * A plotting range that survives values near the ends of the double range.
+ *
+ * WHY THIS EXISTS. `hi - lo` overflows to `Infinity` for two finite values near
+ * ±1.8e308, and every scale of the form `(v - lo) / span` is then
+ * `Infinity / Infinity` = **NaN**, which goes straight into the markup and into
+ * a Word document. `hBarSvg` has carried this guard since the Engineering
+ * campaign (mechchart.ts:854); statchart did not inherit it.
+ *
+ * IT IS REACHABLE, and by an ordinary route rather than a contrived one: a RANK
+ * test is immune to magnitude by construction, so Mann-Whitney on
+ * `1.7e308 -1.7e308 1 2 3` returns a perfectly finite U, z and p. The
+ * insertability gate sees clean text and enables the button; the box plot
+ * beside it emits `cy="NaN"`. Kruskal-Wallis, Friedman and Wilcoxon are the
+ * same shape.
+ *
+ * Halve into range rather than refuse, as hBarSvg does — the figure stays
+ * proportionally true at half scale. `mid` is the pre-halved origin, so callers
+ * scale with `(v/2 - mid)` and never re-form the overflowing difference.
+ *
+ * The SECOND failure this prevents is not a NaN: with a span of 3.4e308, a
+ * `niceStep` of 1 satisfies its postcondition (finite, strictly positive) and
+ * still yields 201 gridlines that are all the same pixel and 201 tick labels
+ * that all read the same number. The step is derived from the HALVED span for
+ * that reason.
+ */
+interface AxisRange {
+  /** Half of the lower bound — callers compare against `v / 2`. */
+  mid: number;
+  /** Half of the span; always finite and strictly positive. */
+  half: number;
+  /** Tick positions in ORIGINAL units. */
+  tickAt: number[];
+  /** Formats a tick in original units. */
+  label: (v: number) => string;
+}
+
+function axisRange(lo: number, hi: number, targetTicks = 5): AxisRange {
+  let l = Number.isFinite(lo) ? lo : 0;
+  let h = Number.isFinite(hi) ? hi : 0;
+  if (!(h > l)) {
+    // A single distinct value needs a band to sit in.
+    const pad = Math.abs(h) > 0 ? Math.abs(h) * 0.1 : 1;
+    l -= pad;
+    h += pad;
+  }
+  // EVERYTHING IS COMPUTED IN HALF-SPACE, including the tick step.
+  //
+  // Halving only the scale is not enough, and the first version made exactly
+  // that mistake: it derived the step from `half * 2`, which is the overflowing
+  // product again. `niceStep(Infinity, 5)` honours its postcondition and
+  // returns 1 — and a step of 1 across a 3.4e308 span gives 201 gridlines that
+  // are all the same pixel and 201 labels that all read the same number,
+  // because `1.7e308 + 1 === 1.7e308`. A well-formed, insertable, unreadable
+  // figure.
+  const midLo = l / 2;
+  const midHi = h / 2;
+  const spanHalf = midHi - midLo;
+  const stepHalf = niceStep(Number.isFinite(spanHalf) && spanHalf > 0 ? spanHalf : 1, targetTicks);
+  // ROUNDING OUT TO NICE BOUNDS CAN OVERFLOW ALL BY ITSELF. Half the range is
+  // 1.7e308, which is finite; rounding it out to the next 5e307 gives ±1e308,
+  // whose difference is 2e308 = Infinity. Falling back to `half = 1` there is
+  // far worse than not rounding: the scale then explodes and every coordinate
+  // comes out -Infinity, which is how the first version of this fix still
+  // emitted NaN. When the rounded bounds do not fit, use the exact ones.
+  let mid = Math.floor(midLo / stepHalf) * stepHalf;
+  let half = Math.ceil(midHi / stepHalf) * stepHalf - mid;
+  if (!Number.isFinite(half) || half <= 0) {
+    mid = midLo;
+    half = Number.isFinite(spanHalf) && spanHalf > 0 ? spanHalf : 1;
+  }
+  const axLoHalf = mid;
+  const axHiHalf = mid + half;
+
+  // Ticks live in half-space and are doubled back for their labels. The double
+  // can itself overflow at the very top of the range, so non-finite labels are
+  // dropped rather than printed.
+  const tickAt = ticks(axLoHalf, axHiHalf, stepHalf)
+    .map((t) => t * 2)
+    .filter((v) => Number.isFinite(v));
+  return {
+    mid: axLoHalf,
+    half,
+    tickAt: tickAt.length >= 2 ? tickAt : [l, h],
+    label: (v: number) => fmt(v),
+  };
 }
 
 /** The five-number summary, plus whisker ends and the points beyond them. */
@@ -103,7 +217,12 @@ export function boxStats(values: number[]): BoxStats | null {
     const h = (xs.length - 1) * p;
     const lo = Math.floor(h);
     const hi = Math.ceil(h);
-    return xs[lo] + (xs[hi] - xs[lo]) * (h - lo);
+    // Interpolate as a WEIGHTED MEAN, not `a + (b - a) * f`. The difference
+    // form overflows for two values near opposite ends of the double range and
+    // returns Infinity for a quartile of perfectly finite data. This form
+    // stays finite and is identical for every ordinary input.
+    const f = h - lo;
+    return xs[lo] * (1 - f) + xs[hi] * f;
   };
   const q1 = q(0.25);
   const median = q(0.5);
@@ -190,17 +309,10 @@ export function boxPlotSvg(
     if (v < lo) lo = v;
     if (v > hi) hi = v;
   }
-  if (!(hi > lo)) {
-    // A single distinct value: give it a band so the box has somewhere to sit.
-    const pad = Math.abs(hi) > 0 ? Math.abs(hi) * 0.1 : 1;
-    lo -= pad;
-    hi += pad;
-  }
-  const step = niceStep(hi - lo, 5);
-  const axLo = Math.floor(lo / step) * step;
-  const axHi = Math.ceil(hi / step) * step;
-  const span = axHi - axLo || 1;
-  const y = (v: number): number => MT + ph - ((v - axLo) / span) * ph;
+  // Overflow-safe: see axisRange. `v / 2 - ax.mid` never re-forms the
+  // difference that would become Infinity.
+  const ax = axisRange(lo, hi, 5);
+  const y = (v: number): number => MT + ph - ((v / 2 - ax.mid) / ax.half) * ph;
 
   const parts: string[] = [
     `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`,
@@ -213,7 +325,7 @@ export function boxPlotSvg(
     );
   }
 
-  for (const t of ticks(axLo, axHi, step)) {
+  for (const t of ax.tickAt) {
     const yy = y(t);
     parts.push(`<line x1="${ML}" y1="${yy.toFixed(1)}" x2="${ML + pw}" y2="${yy.toFixed(1)}" stroke="${FAINT}" stroke-width="1"/>`);
     parts.push(
@@ -252,7 +364,11 @@ export function boxPlotSvg(
     // The observations. Spread across the box width by INDEX, not at random:
     // a chart must be identical every time it is drawn from the same data, or
     // the same result inserted twice gives two different pictures.
-    const pts = g.values.filter(Number.isFinite).slice(0, 60);
+    // 60 points drawn at most — and the count below says so when it bites.
+    // Printing `n=200` beside sixty dots is the figure contradicting its own
+    // caption, which is the defect already fixed once on the Wilcoxon box.
+    const finiteVals = g.values.filter(Number.isFinite);
+    const pts = finiteVals.slice(0, 60);
     pts.forEach((v, k) => {
       const off = pts.length === 1 ? 0 : ((k % 5) - 2) * (bw / 6);
       const isOut = s.outliers.includes(v);
@@ -263,7 +379,8 @@ export function boxPlotSvg(
     });
 
     const label = g.label.slice(0, 12);
-    const n = g.values.filter(Number.isFinite).length;
+    const n = finiteVals.length;
+    const nText = pts.length < n ? `n=${n} (${pts.length} shown)` : `n=${n}`;
     if (rotate) {
       // ROTATED, because horizontal labels COLLIDE once the groups get narrow.
       // Found by the figure-layout corpus, not by eye: twelve groups labelled
@@ -303,7 +420,7 @@ export function boxPlotSvg(
       );
       parts.push(
         `<text x="${cx.toFixed(1)}" y="${MT + ph + 26}" text-anchor="middle" ` +
-          `font-family="Segoe UI, Arial" font-size="9" fill="${GREY}">n=${n}</text>`,
+          `font-family="Segoe UI, Arial" font-size="9" fill="${GREY}">${esc(nText)}</text>`,
       );
     }
   });
@@ -361,18 +478,10 @@ export function forestPlotSvg(
   const MR = 18;
   const pw = W - ML - MR;
 
-  let lo = Math.min(zero, ...finite.map((r) => r.low));
-  let hi = Math.max(zero, ...finite.map((r) => r.high));
-  if (!(hi > lo)) {
-    const pad = Math.abs(hi) > 0 ? Math.abs(hi) * 0.1 : 1;
-    lo -= pad;
-    hi += pad;
-  }
-  const step = niceStep(hi - lo, 5);
-  const axLo = Math.floor(lo / step) * step;
-  const axHi = Math.ceil(hi / step) * step;
-  const span = axHi - axLo || 1;
-  const x = (v: number): number => ML + ((v - axLo) / span) * pw;
+  const lo = Math.min(zero, ...finite.map((r) => r.low));
+  const hi = Math.max(zero, ...finite.map((r) => r.high));
+  const ax = axisRange(lo, hi, 5);
+  const x = (v: number): number => ML + ((v / 2 - ax.mid) / ax.half) * pw;
 
   const parts: string[] = [
     `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`,
@@ -386,7 +495,7 @@ export function forestPlotSvg(
   }
 
   const yBase = MT + shown.length * ROW_H;
-  for (const t of ticks(axLo, axHi, step)) {
+  for (const t of ax.tickAt) {
     parts.push(
       `<text x="${x(t).toFixed(1)}" y="${yBase + 15}" text-anchor="middle" ` +
         `font-family="Segoe UI, Arial" font-size="10" fill="${GREY}">${esc(fmt(t))}</text>`,
@@ -464,6 +573,12 @@ export function groupedBarSvg(
   const CAP = 16;
   const cats = categories.slice(0, CAP);
   const clipped = categories.length - cats.length;
+  // THE SERIES CAP HAPPENS FIRST. It used to be applied 44 lines below this,
+  // after `vals` had already spread every series into Math.max — and a spread
+  // of ~128,000 arguments is a RangeError, not a slow chart.
+  const SERIES_CAP = 8;
+  const droppedSeries = Math.max(0, series.length - SERIES_CAP);
+  series = series.slice(0, SERIES_CAP);
   const vals = series.flatMap((s) => s.values.slice(0, CAP)).filter(Number.isFinite);
   if (!cats.length || !series.length || !vals.length) {
     return emptyChart(W, H, "There are no finite values to chart");
@@ -476,13 +591,14 @@ export function groupedBarSvg(
   const pw = W - ML - MR;
   const ph = H - MT - MB;
 
-  const hi = Math.max(0, ...vals);
-  const lo = Math.min(0, ...vals);
-  const step = niceStep(hi - lo || 1, 5);
-  const axHi = Math.ceil(hi / step) * step;
-  const axLo = Math.floor(lo / step) * step;
-  const span = axHi - axLo || 1;
-  const y = (v: number): number => MT + ph - ((v - axLo) / span) * ph;
+  let hi = 0;
+  let lo = 0;
+  for (const v of vals) {
+    if (v > hi) hi = v;
+    if (v < lo) lo = v;
+  }
+  const ax = axisRange(lo, hi, 5);
+  const y = (v: number): number => MT + ph - ((v / 2 - ax.mid) / ax.half) * ph;
 
   const parts: string[] = [
     `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`,
@@ -494,7 +610,7 @@ export function groupedBarSvg(
         `font-size="12" fill="${INK}">${esc(opts.title)}</text>`,
     );
   }
-  for (const t of ticks(axLo, axHi, step)) {
+  for (const t of ax.tickAt) {
     const yy = y(t);
     parts.push(`<line x1="${ML}" y1="${yy.toFixed(1)}" x2="${ML + pw}" y2="${yy.toFixed(1)}" stroke="${FAINT}" stroke-width="1"/>`);
     parts.push(
@@ -518,10 +634,9 @@ export function groupedBarSvg(
   // in the same red. On an interaction plot the colour IS the mapping, so two
   // levels sharing one is not a cosmetic clash — the figure stops being
   // readable as data. Capping and saying so beats drawing a lie quietly.
+  // Eight distinct colours, one per capped series: two levels sharing a colour
+  // on an interaction plot is not a clash, it is a wrong figure.
   const palette = [BLUE, RED, "#059669", "#d97706", "#7c3aed", "#0891b2", "#be185d", "#4d7c0f"];
-  const allSeries = series;
-  series = series.slice(0, palette.length);
-  const droppedSeries = allSeries.length - series.length;
   const slot = pw / cats.length;
   const bw = Math.max(2, Math.min(18, (slot * 0.7) / series.length));
   cats.forEach((cat, i) => {

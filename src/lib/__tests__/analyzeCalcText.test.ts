@@ -66,6 +66,41 @@ describe("the em-dash sentinel hazard is contained", () => {
     expect(PANE).toContain("HAZARD, learned the hard way");
   });
 
+  test("computeBody returns a real body, and the old one did not", () => {
+    // THE NEGATIVE CONTROL THIS FILE LACKED. Its anti-vacuity tests asserted
+    // that `entries()` found the ids and that `insertableLines` worked on a
+    // FULL body — neither touched `computeBody`, so a extractor returning 12
+    // characters passed everything for the entire life of the guard.
+    for (const registry of ["FIN_CALCS", "ASSAY_CALCS", "STAT_CALCS", "ANALYZE_CALCS"]) {
+      for (const e of entries(registry)) {
+        const body = computeBody(e.body);
+        expect({ registry, id: e.id, len: body.length }).toEqual({
+          registry,
+          id: e.id,
+          len: body.length,
+        });
+        // A real compute body is never a bare signature.
+        expect(body.length).toBeGreaterThan(60);
+        expect(computeBodyBroken(e.body).length).toBeLessThan(body.length);
+      }
+    }
+  });
+
+  test("the guard would now catch the historical annuity defect", () => {
+    // The exact line that made every annuity result un-insertable, re-injected.
+    // The old extractor could not see it; the new one must.
+    const annuity = entries("FIN_CALCS").find((e) => e.id === "annuity");
+    expect(annuity).toBeDefined();
+    const broken = annuity!.body.replace(
+      "(an annuity due), multiply both by (1 + rate)",
+      "(an annuity due) — multiply both by (1 + rate)",
+    );
+    // The replacement must actually have applied, or this proves nothing.
+    expect(broken).not.toBe(annuity!.body);
+    expect(computeBody(broken)).toContain(EM_DASH);
+    expect(computeBodyBroken(broken)).not.toContain(EM_DASH);
+  });
+
   test("formatNum still uses the em dash as its non-finite sentinel", () => {
     const linalg = fs.readFileSync(path.join(__dirname, "..", "linalg.ts"), "utf8");
     expect(linalg).toContain("if (!Number.isFinite(x)) return");
@@ -89,6 +124,15 @@ describe("the em-dash sentinel hazard is contained", () => {
       if (t.startsWith("//") || t.startsWith("*") || t.startsWith("/*")) continue;
       if (/^(hint|label):/.test(t)) continue;
       if (t.includes("ok: false")) continue;
+      // A ONE-LINE GUARDED REFUSAL: `if (cond) return "…";`.
+      //
+      // FIN_CALCS has no `ok: false` channel — a refusal there is just an early
+      // return of a bare string, and it is SUPPOSED to carry the sentinel,
+      // because that is what makes it non-insertable. `literalOnlyReturnsRemoved`
+      // below handles the multi-line form but keys on a line STARTING with
+      // `return`, so `if (!rows.length) return "—";` slipped past it and the
+      // depreciation calculator's correct refusal read as a defect.
+      if (/^if\s*\(.*\)\s*return\s+"[^"]*";$/.test(t)) continue;
       // A line whose em dash is the ARGUMENT to a replace() is removing the
       // sentinel, not emitting it.
       if (/replace\(\s*\/\\u2014/.test(t)) continue;
@@ -132,7 +176,97 @@ describe("the em-dash sentinel hazard is contained", () => {
    * insertability decision has already been made, so a sentinel there is
    * harmless and flagging it would be noise that gets the guard switched off.
    */
+  /**
+   * THIS RETURNED TWELVE CHARACTERS.
+   *
+   * The brace scan counted `(` as an opener, so on the universal shape
+   * `compute: (r) => {` it opened on the arrow function's PARAMETER LIST and
+   * closed on that list's own `)`. Every call returned the literal string
+   * `"compute: (r)"` — measured at 12 characters for all 24 FIN_CALCS and all
+   * 16 ASSAY_CALCS entries, against real bodies of 871 to 6,021 characters.
+   *
+   * So the em-dash guard for Finance and Bio/Assay scanned nothing at all, and
+   * that is the guard holding the two defects this file was extended to catch:
+   * the Inhibition (Ki) and annuity calculators had been permanently
+   * un-insertable. Re-injecting the historical annuity line proves the shipped
+   * test could not see it; the test below pins exactly that.
+   *
+   * The fix is to start the scan at the body's opening brace, after the
+   * parameter list — and, because a `(` inside the body must not close it, to
+   * count only braces.
+   */
   function computeBody(body: string): string {
+    const i = body.indexOf("compute:");
+    if (i < 0) return "";
+    const open = body.indexOf("{", i);
+    if (open < 0) {
+      // A concise arrow body: `compute: (r) => ({ text: … })` or an expression.
+      // Everything to the end of the entry is in scope, which is conservative
+      // in the safe direction.
+      return body.slice(i);
+    }
+    let braces = 0;
+    for (let k = open; k < body.length; k++) {
+      const ch = body[k];
+      if (ch === "{") braces++;
+      else if (ch === "}") {
+        braces--;
+        if (braces === 0) return withoutCaveats(body.slice(i, k + 1));
+      }
+    }
+    return withoutCaveats(body.slice(i));
+  }
+
+  /**
+   * Removes `caveats: [ … ]` blocks, for the same reason `assumes` is out of
+   * scope: they are appended AFTER the insertability decision is taken.
+   *
+   * Verified in the pane rather than assumed — `insertable` is computed from
+   * `out.text` alone (taskpane.ts, Bio/Assay ~:27901 and Stats ~:8722), and
+   * `currentAssayText` only then concatenates the caveats (~:28032). So an em
+   * dash in a caveat travels into the document as ordinary prose and blocks
+   * nothing, which is correct and wanted — these are the strongest warnings in
+   * the product and the document is where they matter most.
+   *
+   * This exclusion only became necessary once `computeBody` started returning a
+   * real body: for the whole life of the broken extractor, nothing was in scope
+   * to be excluded.
+   */
+  function withoutCaveats(src: string): string {
+    // Two forms, because both are used: the `caveats: [ … ]` literal handed
+    // straight back in the result object, and a locally built
+    // `const caveats: string[] = []` filled by `caveats.push( … )` — which is
+    // how bufferratio, inhibition and chengprusoff write theirs.
+    const OPENERS: { needle: RegExp; open: string; close: string }[] = [
+      { needle: /caveats:\s*\[/g, open: "[", close: "]" },
+      { needle: /caveats\.push\(/gi, open: "(", close: ")" },
+    ];
+    let out = src;
+    for (const { needle, open, close } of OPENERS) {
+      let guard = 0;
+      for (;;) {
+        needle.lastIndex = 0;
+        const m = needle.exec(out);
+        if (!m || guard++ > 200) break;
+        const start = out.indexOf(open, m.index);
+        if (start < 0) break;
+        let depth = 0;
+        let end = start;
+        for (; end < out.length; end++) {
+          if (out[end] === open) depth++;
+          else if (out[end] === close) {
+            depth--;
+            if (depth === 0) break;
+          }
+        }
+        out = out.slice(0, m.index) + out.slice(end + 1);
+      }
+    }
+    return out;
+  }
+
+  /** The original, kept ONLY so the test below can show it was blind. */
+  function computeBodyBroken(body: string): string {
     const i = body.indexOf("compute:");
     if (i < 0) return "";
     const rest = body.slice(i);

@@ -236,10 +236,20 @@ describe("0.21 — the two most-used pharmacology fits carry their caveats", () 
   it("dose–response and saturation binding both pass fit.caveats through", () => {
     // assay.ts states the contract: "The UI must show them." Four of six fits
     // honoured it; these two dropped the key entirely.
-    for (const anchor of ['xlabel: "concentration", ylabel: "response"', 'xlabel: "[Ligand]", ylabel: "Bound"']) {
-      const i = pane.indexOf(anchor);
-      expect(i).toBeGreaterThan(0);
-      expect(pane.slice(i - 300, i)).toMatch(/caveats: fit\.caveats/);
+    // SCOPED TO THE CALCULATOR, not to a literal plot-options string. The
+    // anchor used to be `xlabel: "concentration", ylabel: "response"`, which
+    // stopped existing the moment the dose-response plot gained a log axis and
+    // an EC50 marker — the test failed while the contract it defends was still
+    // honoured. A gate keyed to incidental formatting fails on refactors and
+    // teaches people to delete it.
+    for (const id of ["dose", "binding"]) {
+      const at = pane.indexOf(`id: "${id}",`);
+      expect(at).toBeGreaterThan(0);
+      const next = pane.indexOf('    id: "', at + 10);
+      const body = pane.slice(at, next < 0 ? pane.length : next);
+      expect({ id, passes: /caveats: fit\.caveats/.test(body) }).toEqual({ id, passes: true });
+      // And it still draws, which is the other half of what these two carry.
+      expect({ id, draws: /plot: \{/.test(body) }).toEqual({ id, draws: true });
     }
   });
 });

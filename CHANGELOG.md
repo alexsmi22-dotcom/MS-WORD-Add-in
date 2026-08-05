@@ -6,6 +6,71 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.90.1] — 2026-08-05 — Solve answers questions again, and eight figure defects
+
+### Fixed — reported from real use
+- **Solve appeared not to respond to questions.** It was not broken, it was
+  REFUSING: the word-problem mode has four narrow templates and no fallback, so
+  `Solve for x: 3x + 5 = 20` came back as "this isn't one of the offline
+  templates" while the equation solver two dropdown positions away answers it
+  instantly. Word mode now pulls any embedded equation out of the sentence and
+  hands it to the real solver, and the refusal — when it is genuinely a
+  refusal — says what to type instead. Reproduced by driving the shipped
+  bundle before diagnosing.
+
+### Fixed — found by a deep-dive bug hunt over v2.90.0
+- **A finite result could put `NaN` in a chart, and the text gate could never
+  catch it.** `hi - lo` overflows to Infinity for two finite values near the
+  ends of the double range, so every scale became Infinity/Infinity. Reachable
+  by an ordinary route: a RANK test is immune to magnitude, so Mann-Whitney on
+  `1.7e308 -1.7e308 1 2 3` returns a perfectly finite U, z and p and enables
+  Insert. `hBarSvg` had carried this guard since the Engineering campaign;
+  `statchart` did not inherit it.
+- **Serial dilution rendered a framed, titled, EMPTY chart.** A log axis with no
+  `dropForScales` gave `d="M48,NaN L147,NaN …"` — the identical defect the
+  pharmacokinetics plot fixed and documented 14,000 lines earlier.
+- **Uncertainty propagation named a winner that does not exist.** On the shipped
+  default all three contributions are exactly tied; finite-difference noise
+  ranked one first and the pane printed "Largest contribution: c" beside three
+  identical bars.
+- **The dose-response curve could not show its own EC50** — a sigmoid in log
+  concentration drawn on a linear axis put six of seven points in the leftmost
+  tenth. Now log-scaled, sampled logarithmically, with the fitted midpoint
+  marked. All five fitted assay figures also gained a title; they had none, so
+  a Michaelis-Menten fit and a 4PL were indistinguishable once inserted.
+- **Cheng-Prusoff labelled a Ki′ as a Ki** on the uncompetitive bar, an
+  equivalence the result text explicitly denies two lines above.
+- **The inhibition figure dropped [I] levels silently**, and the ladder dropped
+  rows silently — so a waterfall's bars stopped short of its own total.
+- Control characters in a factor level (0x07 is Word's own table-cell marker,
+  so pasting a table cell as a factor level is the vector) made the whole SVG
+  not-well-formed: the pane rendered it and the insert failed. Now removed.
+- The `ladderSvg` row cap could be escaped entirely by a negative slice end.
+
+### Fixed — insert path
+- **Solve could insert an orphan figure and report success.** `insertDerivation`
+  returned `void`, so it was the one text-plus-figure handler that could not
+  tell whether its text had landed.
+- **The busy guard did not span the figure phase**, in any of the four handlers
+  whose comments said it did: `insertPlainText` releases the flag when the TEXT
+  is done, and the rasterisation that follows ran unguarded. Two clicks gave
+  `text, text, figure, figure`. A composite guard now covers the whole action
+  and disables the button while it runs.
+- Statistics figure alt text was the registry SLUG ("diagnostic plot for
+  multiregress"), and Finance reported a failed chart as a failed result.
+
+### Fixed — gates that could not fail
+- **The em-dash guard for Finance and Bio/Assay scanned 12 characters.** Its
+  body extractor counted `(` as an opener, so on `compute: (r) => {` it closed
+  on the parameter list and returned `"compute: (r)"` for all 40 calculators —
+  the guard holding the two defects it was extended to catch. Re-injecting the
+  historical annuity defect proves the old one was blind and the new one is not.
+- **The blank-figure detector could not fire on `buildPlotSvg` figures** —
+  roughly half the product's figure sites. It excluded only `#ffffff` and
+  `plot.ts` writes `#fff`, so marks was always non-zero. Its self-test passed
+  because the payload used a spelling `plot.ts` never emits.
+- Two tests keyed to a fixed byte window read past the code they named.
+
 ## [2.90.0] — 2026-08-05 — the chart campaign is COMPLETE: 84 of 84
 
 Every calculator outside Engineering now inserts data AND a graph. With

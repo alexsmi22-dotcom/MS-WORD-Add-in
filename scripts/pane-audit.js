@@ -55,12 +55,11 @@ const BASELINES = {
   // and a new one must ship with a figure or this count passes it silently at
   // 22 — the same rule the Engineering baseline carries.
   stats: { label: "Statistics", figures: 21, total: 21 },
-  // 11, not the 9 a source scan counts. The measured number was 8 before this
-  // gate existed: the heat, wave and Laplace solvers each BUILT a figure that
-  // an em dash in their own output suppressed before it could be drawn, and a
-  // source scan sees the builder and calls it a figure. Measuring found three
-  // charts the product had already paid for and was not delivering.
-  analyze: { label: "Analyze", figures: 11, total: 23 },
+  // ANALYZE IS COMPLETE: 23 of 23. It measured 8 when this gate was written —
+  // a source scan counted 9, because the heat, wave and Laplace solvers each
+  // BUILT a figure that an em dash in their own output suppressed before it
+  // could be drawn. Measuring, not counting, is the whole point of this file.
+  analyze: { label: "Analyze", figures: 23, total: 23 },
   assay: { label: "Bio/Assay", figures: 5, total: 16 },
   finance: { label: "Finance", figures: 0, total: 24 },
 };

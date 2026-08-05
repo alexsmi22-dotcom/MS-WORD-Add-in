@@ -13,6 +13,20 @@ export interface OptimizeResult {
   iterations: number;
   /** True if the simplex converged within tolerance before the iteration cap. */
   converged: boolean;
+  /**
+   * Best objective value at the START of each iteration, oldest first.
+   *
+   * Recorded because "converged: false" and "converged: true" are the same two
+   * words for very different situations, and the shape of this curve is what
+   * separates them: a run that flattened out long before the cap has found its
+   * minimum whatever the flag says, while one still descending steeply at the
+   * last iteration was simply cut off and should be re-run with a higher cap.
+   * Neither is visible from a final value alone.
+   *
+   * Bounded by `maxIter` (one number per iteration), so it cannot grow without
+   * limit however badly the objective behaves.
+   */
+  history: number[];
 }
 
 export interface OptimizeOptions {
@@ -61,7 +75,12 @@ export function nelderMead(f: (x: number[]) => number, x0: number[], opts: Optim
   const combine = (a: number[], b: number[], t: number): number[] => a.map((av, j) => av + t * (b[j] - av));
 
   let converged = false;
+  const history: number[] = [];
   for (; iter < maxIter; iter++) {
+    // The best value entering this iteration. Recorded before the simplex is
+    // reordered so the series is monotone non-increasing, which is what makes
+    // a flattening curve readable as convergence.
+    history.push(Math.min(...fvals));
     // order vertices best → worst
     const order = Array.from({ length: n + 1 }, (_, i) => i).sort((a, b) => fvals[a] - fvals[b]);
     const s2: number[][] = order.map((i) => simplex[i]);
@@ -123,7 +142,7 @@ export function nelderMead(f: (x: number[]) => number, x0: number[], opts: Optim
 
   let best = 0;
   for (let k = 1; k <= n; k++) if (fvals[k] < fvals[best]) best = k;
-  return { x: simplex[best].slice(), fx: fvals[best], iterations: iter, converged };
+  return { x: simplex[best].slice(), fx: fvals[best], iterations: iter, converged, history };
 }
 
 function norm(v: number[]): number {

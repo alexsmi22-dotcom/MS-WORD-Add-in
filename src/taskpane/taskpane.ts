@@ -341,6 +341,7 @@ import { parseReaction, composeReactionScheme, Rendered } from "../lib/reactions
 import { formatSeqIdRef, formatSeqIdRefs } from "../lib/seqid";
 import { getPrefs, setPref, HomeFilter } from "../lib/prefs";
 import { parseTableData, cleanTableRows, buildChartPreviewSvg, TableChart, ChartKind, ChartStyle } from "../lib/tablechart";
+import { buildHeatmapSvg } from "../lib/heatmap";
 import { buildDiagramSvg, DiagramKind } from "../lib/tablediagram";
 import { buildTableFigureSvg, prepareTableFigure } from "../lib/tablefigure";
 import { classifyTable } from "../lib/tableclassify";
@@ -8169,6 +8170,53 @@ function analyzeBlocksToPreviewHtml(blocks: AnalyzeBlock[]): string {
     .join("<br>");
 }
 
+/**
+ * A matrix drawn as a heat map, as an AnalyzeBlock ready to push.
+ *
+ * WHY A HEAT MAP AND NOT A TABLE. The matrix is ALREADY inserted as a Word
+ * table by the block beside this one, so a second copy of the numbers would add
+ * nothing. What a table cannot show is structure: which entries dominate,
+ * whether the result is symmetric, banded, near-diagonal, or has a row that
+ * blew up. On an inverse that is the difference between a well-conditioned
+ * answer and one that should not be trusted, and it is visible at a glance.
+ *
+ * A DIVERGING SCALE ABOUT ZERO, deliberately. Sign is meaningful in every
+ * matrix this is used for, and a sequential ramp renders −5 and +5 as different
+ * shades of the same colour — which would make a symmetric result look
+ * lopsided and hide the sign pattern entirely.
+ *
+ * Cells are labelled by INDEX, not by any header: an Analyze matrix has no
+ * column names, and inventing "A", "B", "C" would suggest a meaning the data
+ * does not carry.
+ */
+function matrixHeatBlock(m: Matrix, caption: string): AnalyzeBlock | null {
+  const rows = m.length;
+  const cols = rows ? m[0].length : 0;
+  // A single cell is a number, not a picture, and a heat map of one value is a
+  // coloured square with no scale to read it against.
+  if (rows < 1 || cols < 1 || (rows === 1 && cols === 1)) return null;
+  // Ragged input would misalign every column against the wrong label. It cannot
+  // arise from the linear-algebra engines, which is exactly why it is checked
+  // rather than assumed — the day it can, the figure would be silently wrong.
+  if (m.some((r) => r.length !== cols)) return null;
+
+  const chart: TableChart = {
+    categories: Array.from({ length: rows }, (_, i) => `r${i + 1}`),
+    series: Array.from({ length: cols }, (_, j) => ({
+      name: `c${j + 1}`,
+      values: m.map((r) => (Number.isFinite(r[j]) ? r[j] : null)),
+    })),
+    categoryLabel: "",
+    hasHeader: false,
+    rows: [],
+    warnings: [],
+  };
+  const W = 360;
+  const H = Math.max(160, Math.min(320, 60 + rows * 26));
+  const out = buildHeatmapSvg(chart, caption, { scale: "diverging", midpoint: 0 }, W, H);
+  return { kind: "plot", svg: out.svg, caption, alt: caption, w: W, h: H };
+}
+
 /** Wraps blocks into an AnalyzeOutput, deriving the text form once. */
 function analyzeResultOf(blocks: AnalyzeBlock[]): AnalyzeOutput {
   return { blocks, text: analyzeBlocksToText(blocks) };
@@ -8189,7 +8237,24 @@ const ANALYZE_CALCS: AnalyzeCalc[] = [
       if (matRows(A) !== matCols(A)) return { text: "A must be square.", ok: false };
       const x = solve(A, b);
       if (!x) return { text: "No unique solution — A is singular or b has the wrong length.", ok: false };
-      return analyzeResultOf([{ kind: "matrix", label: "Solution x =", m: x }]);
+      return analyzeResultOf(
+        [
+          { kind: "matrix" as const, label: "Solution x =", m: x },
+          // The solution as bars: which unknowns are large, which are near
+          // zero, and whether any single component dominates the answer.
+          {
+            kind: "plot" as const,
+            svg: hBarSvg(
+              x.map((row, i) => ({ name: `x${i + 1}`, value: row[0] })),
+              { title: "Solution vector", unit: "", w: 360 },
+            ),
+            caption: "Solution vector",
+            alt: "Each unknown in the solution",
+            w: 360,
+            h: 46 + x.length * 22 + 18,
+          },
+        ].filter(Boolean) as AnalyzeBlock[],
+      );
     },
   },
   {
@@ -8202,7 +8267,16 @@ const ANALYZE_CALCS: AnalyzeCalc[] = [
       if (matRows(M) !== matCols(M)) return { text: "Matrix must be square.", ok: false };
       const inv = inverse(M);
       if (!inv) return { text: "Matrix is singular — no inverse exists (determinant = 0).", ok: false };
-      return analyzeResultOf([{ kind: "matrix", label: "Inverse =", m: inv }]);
+      return analyzeResultOf(
+        [
+          { kind: "matrix" as const, label: "Inverse =", m: inv },
+          // The inverse's STRUCTURE, which the table of numbers beside it
+          // cannot show: a near-singular matrix inverts to entries that are
+          // orders of magnitude apart, and that is visible here long before
+          // anyone checks a condition number.
+          matrixHeatBlock(inv, "Inverse"),
+        ].filter(Boolean) as AnalyzeBlock[],
+      );
     },
   },
   {
@@ -8223,7 +8297,15 @@ const ANALYZE_CALCS: AnalyzeCalc[] = [
       } else {
         lines.push("(determinant & trace need a square matrix)");
       }
-      return { text: lines.join("\n") };
+      return analyzeResultOf(
+        [
+          ...lines.map((t) => ({ kind: "line" as const, text: t })),
+          // The matrix whose determinant, rank and trace are being reported.
+          // Rank is a statement about STRUCTURE - which rows are dependent -
+          // and a heat map is where a duplicated or near-zero row shows up.
+          matrixHeatBlock(M, "The matrix"),
+        ].filter(Boolean) as AnalyzeBlock[],
+      );
     },
   },
   {
@@ -8242,10 +8324,29 @@ const ANALYZE_CALCS: AnalyzeCalc[] = [
       const e = eigenSymmetric(M);
       if (!e) return { text: "Matrix is not symmetric — only symmetric matrices are supported (real eigenvalues).", ok: false };
       const vals = e.values.map((v) => formatNum(v, 6)).join(", ");
-      return analyzeResultOf([
-        { kind: "line", text: `Eigenvalues (descending) = ${vals}` },
-        { kind: "matrix", label: "Eigenvectors (columns) =", m: e.vectors },
-      ]);
+      return analyzeResultOf(
+        [
+          { kind: "line" as const, text: `Eigenvalues (descending) = ${vals}` },
+          { kind: "matrix" as const, label: "Eigenvectors (columns) =", m: e.vectors },
+          // THE SPECTRUM, which is what a symmetric eigendecomposition is read
+          // for. On a covariance or correlation matrix the question is almost
+          // never "what is the third eigenvalue" but "how fast do they decay" -
+          // how many directions carry the variance - and a bar chart answers
+          // that immediately where a comma-separated list does not.
+          {
+            kind: "plot" as const,
+            svg: hBarSvg(
+              e.values.map((v, i) => ({ name: `lambda ${i + 1}`, value: v })),
+              { title: "Eigenvalue spectrum", unit: "", w: 360 },
+            ),
+            caption: "Eigenvalue spectrum",
+            alt: "Eigenvalues in descending order",
+            w: 360,
+            h: 46 + e.values.length * 22 + 18,
+          },
+          matrixHeatBlock(e.vectors, "Eigenvectors (columns)"),
+        ].filter(Boolean) as AnalyzeBlock[],
+      );
     },
   },
   {
@@ -8260,7 +8361,45 @@ const ANALYZE_CALCS: AnalyzeCalc[] = [
       if (!vals) return { text: "Matrix must be square.", ok: false };
       const anyComplex = vals.some((c) => Math.abs(c.im) > 1e-12);
       const listed = vals.map((c) => formatComplex(c, 6)).join(", ");
-      return { text: `Eigenvalues = ${listed}` + (anyComplex ? "\n(complex-conjugate pair present)" : "") };
+      const listedLine =
+        `Eigenvalues = ${listed}` +
+        (anyComplex ? "\n(complex-conjugate pair present)" : "");
+      return analyzeResultOf([
+        { kind: "line", text: listedLine },
+        // THE COMPLEX PLANE, because that is where the information is. A list
+        // of "a + bi" strings makes the reader assemble the picture that
+        // matters: conjugate pairs sitting symmetrically about the real axis,
+        // and whether anything lies to the RIGHT of it - which for the system
+        // x' = Ax is the difference between stable and not.
+        //
+        // A scatter rather than the control bench's pole-zero map: that one is
+        // labelled for poles and zeros on the s-plane and would name these
+        // something they are not.
+        {
+          kind: "plot",
+          svg: buildPlotSvg(
+            [
+              {
+                type: "scatter",
+                points: vals.map((c) => ({ x: c.re, y: c.im })),
+                color: "#b91c1c",
+                label: "eigenvalue",
+              },
+            ],
+            {
+              width: 340,
+              height: 260,
+              title: "Eigenvalues in the complex plane",
+              xlabel: "Re",
+              ylabel: "Im",
+            },
+          ),
+          caption: "Eigenvalues in the complex plane",
+          alt: "Each eigenvalue plotted as real part against imaginary part",
+          w: 340,
+          h: 260,
+        },
+      ]);
     },
   },
   {
@@ -8271,10 +8410,18 @@ const ANALYZE_CALCS: AnalyzeCalc[] = [
     compute: (r) => {
       const M = readMatrix(r("M"));
       const { Q, R } = qrDecompose(M);
-      return analyzeResultOf([
-        { kind: "matrix", label: "Q =", m: Q },
-        { kind: "matrix", label: "R =", m: R },
-      ]);
+      return analyzeResultOf(
+        [
+          { kind: "matrix" as const, label: "Q =", m: Q },
+          matrixHeatBlock(Q, "Q (orthogonal)"),
+          { kind: "matrix" as const, label: "R =", m: R },
+          // R IS UPPER TRIANGULAR, and that is the whole claim of a QR
+          // decomposition. On a heat map the zero lower triangle is a solid
+          // block - so the property is checkable at a glance rather than by
+          // reading every entry below the diagonal and confirming it is 0.
+          matrixHeatBlock(R, "R (upper triangular)"),
+        ].filter(Boolean) as AnalyzeBlock[],
+      );
     },
   },
   {
@@ -8286,11 +8433,28 @@ const ANALYZE_CALCS: AnalyzeCalc[] = [
       const M = readMatrix(r("M"));
       const { U, S, V } = svd(M);
       const sv = S.map((x) => formatNum(x, 6)).join(", ");
-      return analyzeResultOf([
-        { kind: "line", text: `Singular values = ${sv}` },
-        { kind: "matrix", label: "U =", m: U },
-        { kind: "matrix", label: "V =", m: V },
-      ]);
+      return analyzeResultOf(
+        [
+          { kind: "line" as const, text: `Singular values = ${sv}` },
+          // THE SCREE PLOT IS THE ANSWER an SVD is usually run for. The decay
+          // of the singular values is the numerical rank, the conditioning and
+          // the number of components worth keeping, all in one shape; U and V
+          // below are the machinery.
+          {
+            kind: "plot" as const,
+            svg: hBarSvg(
+              S.map((x, i) => ({ name: `sigma ${i + 1}`, value: x })),
+              { title: "Singular values", unit: "", w: 360 },
+            ),
+            caption: "Singular values",
+            alt: "Singular values in descending order",
+            w: 360,
+            h: 46 + S.length * 22 + 18,
+          },
+          { kind: "matrix" as const, label: "U =", m: U },
+          { kind: "matrix" as const, label: "V =", m: V },
+        ].filter(Boolean) as AnalyzeBlock[],
+      );
     },
   },
   {
@@ -8490,7 +8654,12 @@ const ANALYZE_CALCS: AnalyzeCalc[] = [
       const out = evalMatrixExpression(r("expr"), defs.env);
       if (!out.ok) return { text: out.error, ok: false };
       if (out.value.kind === "scalar") return { text: `Result = ${formatNum(out.value.s, 6)}` };
-      return analyzeResultOf([{ kind: "matrix", label: "Result =", m: out.value.m }]);
+      return analyzeResultOf(
+        [
+          { kind: "matrix" as const, label: "Result =", m: out.value.m },
+          matrixHeatBlock(out.value.m, "Result"),
+        ].filter(Boolean) as AnalyzeBlock[],
+      );
     },
   },
   {
@@ -8506,7 +8675,12 @@ const ANALYZE_CALCS: AnalyzeCalc[] = [
       const B = readMatrix(r("B"));
       const p = multiply(A, B);
       if (!p) return { text: `Can't multiply: columns of A (${matCols(A)}) ≠ rows of B (${matRows(B)}).`, ok: false };
-      return analyzeResultOf([{ kind: "matrix", label: "A·B =", m: p }]);
+      return analyzeResultOf(
+        [
+          { kind: "matrix" as const, label: "A·B =", m: p },
+          matrixHeatBlock(p, "A·B"),
+        ].filter(Boolean) as AnalyzeBlock[],
+      );
     },
   },
   {
@@ -8516,7 +8690,13 @@ const ANALYZE_CALCS: AnalyzeCalc[] = [
     fields: [{ key: "M", label: "Matrix", default: "1 2 3\n4 5 6", kind: "block", rows: 3 }],
     compute: (r) => {
       const M = readMatrix(r("M"));
-      return analyzeResultOf([{ kind: "matrix", label: "Transpose =", m: transpose(M) }]);
+      const t = transpose(M);
+      return analyzeResultOf(
+        [
+          { kind: "matrix" as const, label: "Transpose =", m: t },
+          matrixHeatBlock(t, "Transpose"),
+        ].filter(Boolean) as AnalyzeBlock[],
+      );
     },
   },
   {
@@ -8542,7 +8722,80 @@ const ANALYZE_CALCS: AnalyzeCalc[] = [
       // plain here cannot disarm a sentinel, and without it the whole report
       // was un-insertable — the tool whose entire output is that narrative
       // could not put it in a document.
-      return { text: plainDashes(report.text) };
+      // THE CORRELATION MATRIX, for the tool whose entire output is
+      // correlations and which showed none of them. This is the one place in
+      // the product where the figure IS the analysis: a reader scanning a
+      // triangle of coloured cells finds the related pairs in a second, where
+      // the same information as sentences has to be read in full and held in
+      // the head.
+      //
+      // Built from `report.correlations` - the engine's own Pearson r, with the
+      // engine's own pairing - so the picture cannot disagree with the prose.
+      // Only the numeric columns that actually appear in a pair are shown; a
+      // free-text column has no r and would otherwise draw an empty row.
+      const names: string[] = [];
+      for (const c of report.correlations) {
+        if (!names.includes(c.a)) names.push(c.a);
+        if (!names.includes(c.b)) names.push(c.b);
+      }
+      const rOf = (a: string, b: string): number | null => {
+        if (a === b) return 1;
+        const hit = report.correlations.find(
+          (c) => (c.a === a && c.b === b) || (c.a === b && c.b === a),
+        );
+        return hit && Number.isFinite(hit.r) ? hit.r : null;
+      };
+      // Fewer than two variables means there is no matrix to draw, only a
+      // single cell reading 1 against itself.
+      const corrSvg =
+        names.length >= 2
+          ? buildHeatmapSvg(
+              {
+                categories: names,
+                series: names.map((b) => ({ name: b, values: names.map((a) => rOf(a, b)) })),
+                categoryLabel: "",
+                hasHeader: false,
+                rows: [],
+                warnings: [],
+              },
+              "Correlation matrix (Pearson r)",
+              // DIVERGING ABOUT ZERO, and it has to be: r = -0.9 and r = +0.9
+              // are opposite findings of equal strength, and a sequential ramp
+              // would draw the negative one as though it were weak.
+              { scale: "diverging", midpoint: 0 },
+              360,
+              Math.max(160, Math.min(320, 70 + names.length * 26)),
+            ).svg
+          : null;
+      // A PLOT BLOCK, NOT THE INHERITED `svg` FIELD — and the first version
+      // used `svg`, which is silently ignored here.
+      //
+      // `AnalyzeOutput extends StatOutput`, so `svg` is inherited, compiles,
+      // and looks like the way to attach a figure. But the Analyze renderer
+      // (`updateAnalyzePreview`) branches only on `blocks` or `text`, and the
+      // insert path follows it — so the correlation matrix was built on every
+      // keystroke and thrown away. Nothing failed; the figure simply never
+      // appeared. The pane audit measured it as "insights: text-only" while the
+      // source plainly contained a chart, which is the only reason it was
+      // caught. `analyzeSvgFieldIsDead.test.ts` now guards the whole registry.
+      const heat: AnalyzeBlock[] = corrSvg
+        ? [
+            {
+              kind: "plot",
+              svg: corrSvg,
+              caption: "Correlation matrix (Pearson r)",
+              alt: "Pearson correlation between every pair of numeric columns",
+              w: 360,
+              h: Math.max(160, Math.min(320, 70 + names.length * 26)),
+            },
+          ]
+        : [];
+      return analyzeResultOf([
+        ...plainDashes(report.text)
+          .split("\n")
+          .map((t) => ({ kind: "line" as const, text: t })),
+        ...heat,
+      ]);
     },
   },
   {
@@ -8573,7 +8826,37 @@ const ANALYZE_CALCS: AnalyzeCalc[] = [
       const note = res.converged
         ? `converged in ${res.iterations} iterations`
         : `stopped after ${res.iterations} iterations, so this may not be a true minimum`;
-      return { text: `Minimum f = ${formatNum(res.fx, 6)}\nat ${at}\n(${note})` };
+      return analyzeResultOf([
+        { kind: "line", text: `Minimum f = ${formatNum(res.fx, 6)}` },
+        { kind: "line", text: `at ${at}` },
+        { kind: "line", text: `(${note})` },
+        // THE CONVERGENCE CURVE, which is the only thing that separates a run
+        // that genuinely found a minimum from one that merely ran out of
+        // iterations. "converged: false" and "converged: true" are two words
+        // for very different situations: a curve that flattened long before the
+        // cap has found its answer whatever the flag says, and one still
+        // descending at the last step was simply cut off and wants a higher cap.
+        //
+        // The optimizer's own best-so-far series, unsmoothed and not refitted.
+        {
+          kind: "plot",
+          svg: buildPlotSvg(
+            [
+              {
+                type: "line",
+                points: res.history.map((v, i) => ({ x: i, y: v })),
+                color: "#2563eb",
+                label: "best f",
+              },
+            ],
+            { width: 360, height: 220, title: "Convergence", xlabel: "iteration", ylabel: "objective" },
+          ),
+          caption: "Convergence",
+          alt: "Best objective value against iteration",
+          w: 360,
+          h: 220,
+        },
+      ]);
     },
   },
   {

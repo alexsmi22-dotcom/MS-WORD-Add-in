@@ -10,6 +10,113 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
 
+## 0ay. NEW — EVERY calculator draws, everywhere (84 of 84 outside Engineering)
+
+**This is the section to run first, and the only gate that can prove any of it.**
+Statistics, Analyze, Bio/Assay and Finance went from 34 figures between them to
+all 84; Solve and UV-Vis were wired too. Automated gates prove the pane *asks*
+Word for a picture — `npm run audit:pane` presses Insert against a recording
+mock — but **a mock always says yes.** Whether the picture lands in the document
+is exactly what four consecutive defects in v2.31.1–v2.31.4 got wrong, and none
+of them was visible to any test.
+
+**The insert path itself changed**, which is why this matters more than usual:
+`insertPlainText` now returns whether it succeeded, and Statistics, Bio/Assay
+and Finance each insert TEXT AND FIGURE from one button. `insertPlainText` is
+the shared path for mass spec, spectra, properties, stats, finance, assay,
+solve, analyze, cross-references and SEQ ID refs — so §0ay-4 is a regression
+check on all of them, not only on the new work.
+
+### 0ay-1. The figure reaches the document — one per registry
+
+For each, click **Insert result** ONCE and look at the document, not the pane.
+
+- [ ] **Stats → Descriptive statistics**, defaults → the numbers, then a box
+  plot beneath them with a red median line inside a blue box and the
+  observations as grey dots. Both must be in the document.
+- [ ] **Stats → Tukey HSD**, defaults → the table of pairwise differences AND a
+  forest plot: one horizontal interval per pair with a dashed red line at
+  zero. Intervals that cross the line are grey, those that clear it blue.
+- [ ] **Analyze → Data insights**, defaults → the narrative AND a correlation
+  matrix, red/blue diverging, 1.0 down the diagonal.
+- [ ] **Analyze → Matrix inverse**, defaults → the matrix as a Word TABLE and a
+  heat map of the same numbers. Two objects, not one.
+- [ ] **Bio/Assay → Michaelis–Menten**, defaults → Vmax/Km/R² AND the fitted
+  curve through the data points. **This one was broken:** the curve was drawn
+  in the pane and "Insert result" wrote only the text.
+- [ ] **Bio/Assay → Beer–Lambert**, defaults → the concentration AND a
+  calibration line with your reading marked in red on it.
+- [ ] **Finance → Loan amortization (summary)**, defaults → the three totals AND
+  a chart with interest falling and principal rising, crossing about two
+  thirds of the way along. **Finance could not draw at all before this.**
+- [ ] **Finance → NPV**, defaults → the NPV AND a waterfall whose bars end at
+  the total bar. If the bars do not reach the total, stop and report it.
+- [ ] **Solve → equation**, `x^2 - 5x + 6 = 0` → roots 2 and 3 AND a curve
+  crossing zero at exactly those two places.
+- [ ] **Solve → derivative**, `sin(x^2)` → f and f′ overlaid; f′ crosses zero
+  where f turns.
+- [ ] **Spectra → UV-Vis**, any enone (e.g. `CC1=C(C(CCC1)(C)C)/C=C/C(=O)C`) →
+  the λmax AND an increment waterfall ending on it. It must be a LEDGER of
+  base value plus substituent increments — **not** a smooth absorption band.
+  A band would be invented data and is a FAIL.
+
+### 0ay-2. The figure matches the number beside it
+
+Every one of these was a real defect found by review; each is the figure
+disagreeing with its own text.
+
+- [ ] **Finance → DCF valuation**, defaults → `Value = 1,610.39`, and the
+  ladder's bottom bar is labelled **forecast** (not "total") at ≈272.73,
+  with rows starting at **t=1**. A bar labelled "total" showing 272.73 under
+  a Value of 1,610.39 is the defect.
+- [ ] **Finance → IRR**, paste `-1000, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200`
+  → eight `t=` bars, then one row reading `t=8..10`, then the total at ≈0.
+  No flow may vanish silently.
+- [ ] **Finance → Loan amortization**, `p=200000, rate=5, t=1, m=1` → ONE
+  payment. There must be **no chart at all** — an empty titled frame with a
+  legend and nothing drawn is the defect.
+- [ ] **Finance → Depreciation (straight line)**, `cost=10000, salvage=1000,
+  life=7.5` → the curve must reach **1000**, matching the sentence about
+  reaching salvage. Stopping at 1600 is the defect.
+- [ ] **Stats → Wilcoxon signed-rank**, defaults → the text says `n = 7` and the
+  "difference" box says `n=7`. Two different n values is the defect.
+- [ ] **Stats → Uncertainty propagation**, defaults → `40 ± 0.693`, and the bars
+  are ≈0.4 each (same units as the ±), not ≈0.16 (squared units).
+
+### 0ay-3. Nothing wrong can be inserted
+
+- [ ] **Stats → Two-sample t-test**, group A `7 7 7 7 7 7 7 7 7 7`, group B
+  `1 3 9 14 22 31 45 60 80 110` → **Insert must be DISABLED.** The
+  assumption note contains a literal `Infinity`, and it must not reach a
+  document. (This one regressed once already, from an unrelated fix.)
+- [ ] **Stats → Chi-square independence**, a table of all zeros → refuses with
+  "Every count is zero". A confident `p = 1` is the defect.
+- [ ] **Stats → any calculator whose Insert is disabled** → the **Insert chart**
+  button beside it must be disabled too.
+
+### 0ay-4. The shared insert path still behaves (regression)
+
+- [ ] **Mass Spec**, any formula → Insert result → text lands, status says
+  inserted. (`insertPlainText`'s return type changed; every caller is affected.)
+- [ ] **Stats → Regression**, defaults → Insert result ONCE → text and the
+  diagnostic figure, **one copy of each**. Click Insert result TWICE quickly →
+  you must NOT get one text and two pictures.
+- [ ] **Bio/Assay → Hill**, defaults → Insert result, then **Insert fit plot** →
+  the plot appears a second time, deliberately. That button still works.
+- [ ] Any calculator where insertion FAILS (e.g. with the document locked) →
+  the status must say it could not insert. A green "Result and chart
+  inserted" over a failure is the defect.
+
+### 0ay-5. Sign-off
+
+Figures are inserted as pictures at their intrinsic size; a squashed or
+stretched figure means a size was pinned to the asked-for value rather than
+read from the SVG. Note anything that reads badly at Word's default zoom —
+"it computes correctly" is not the bar here, legibility is.
+
+Tester: ______________  Date: __________  Build (version.json): __________
+
+
 ## 0a. What changed in v1.97-2.4.0 — check this first
 
 The pane was restyled to match the landing page. Nothing about what the tools

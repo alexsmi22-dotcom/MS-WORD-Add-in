@@ -5120,15 +5120,17 @@ async function insertSolveResult(): Promise<void> {
       const range = context.document.getSelection();
       const pic = range.insertInlinePictureFromBase64(png, Word.InsertLocation.after);
       sizeFigure(pic, w, h);
-      pic.altTextDescription = "Persistence barcode: each bar is a topological feature, spanning the range of scales over which it exists.";
+      // The caption the producing branch set, never a hardcoded one: Solve now
+      // draws four different figures through this single path.
+      pic.altTextDescription = currentSolveAlt || "Figure for the solution above.";
       await context.sync();
     });
     // Two separate Word.run batches (derivation, then figure), and the
     // derivation itself commits twice — so this needs several undos.
-    setStatus("Solution and barcode inserted. Ctrl/⌘+Z undoes it — press it more than once.", "success");
+    setStatus("Solution and figure inserted. Ctrl/⌘+Z undoes it — press it more than once.", "success");
   } catch (error) {
     // The text already landed; say the figure did not rather than failing silently.
-    setStatus(`Solution inserted, but the barcode figure could not be: ${(error as Error).message}`, "error");
+    setStatus(`Solution inserted, but the figure could not be: ${(error as Error).message}`, "error");
   }
 }
 
@@ -25919,6 +25921,21 @@ let currentSolveText = "";
 let currentSolveBlocks: DerivationBlock[] = [];
 /** A figure to insert alongside the text (currently the persistence barcode). */
 let currentSolveSvg: string | null = null;
+/**
+ * What the current Solve figure actually SHOWS.
+ *
+ * It travels with the SVG because the alt text and the status message used to
+ * be hardcoded to "persistence barcode" — true while the topology barcode was
+ * the only thing that ever filled `currentSolveSvg`, and false the moment a
+ * root plot, an f/f' pair and a shaded integral started flowing through the
+ * same insert path. A root plot was landing in a document describing itself as
+ * a topological feature diagram.
+ *
+ * Alt text that lies is worse than no alt text: it is the one description a
+ * screen-reader user gets, and the only one a sighted reader sees if the
+ * picture fails to load.
+ */
+let currentSolveAlt = "";
 /** Target variable chosen via the "solve for …" chips; cleared on new input. */
 let solveVarChoice: string | null = null;
 
@@ -26188,6 +26205,7 @@ function updateSolve(): void {
   currentSolveText = "";
   currentSolveBlocks = [];
   currentSolveSvg = null;
+  currentSolveAlt = "";
   solveInsertBtn.disabled = true;
 
   if (!text) {
@@ -26351,6 +26369,9 @@ function updateSolve(): void {
           marks: realRoots.map((x) => ({ x, y: 0, label: "root" })),
           title: realRoots.length ? "Where the function crosses zero" : "The function over the search range",
         });
+        currentSolveAlt = realRoots.length
+          ? `Plot of ${text} rearranged to f = 0, with its ${realRoots.length} real root${realRoots.length === 1 ? "" : "s"} marked where the curve crosses zero.`
+          : `Plot of ${text} rearranged to f = 0 over the range searched; no real root was found in it.`;
         if (currentSolveSvg) {
           const fig = document.createElement("div");
           fig.className = "stats-figure";
@@ -26421,6 +26442,9 @@ function updateSolve(): void {
           variable: r.variable,
           title: "f and its derivative",
         });
+        currentSolveAlt =
+          `Plot of f(${r.variable}) = ${r.expression} together with its derivative ` +
+          `f'(${r.variable}) = ${r.derivative}. The derivative crosses zero where f turns.`;
         if (currentSolveSvg) {
           const fig = document.createElement("div");
           fig.className = "stats-figure";
@@ -26531,6 +26555,9 @@ function updateSolve(): void {
           shadeBetween: { lo: Math.min(a, b), hi: Math.max(a, b) },
           title: `Area from ${lo} to ${hi}`,
         });
+        currentSolveAlt =
+          `Plot of ${text} with the interval from ${lo} to ${hi} picked out; ` +
+          `the integral is the signed area of that stretch.`;
         if (currentSolveSvg) {
           const fig = document.createElement("div");
           fig.className = "stats-figure";
@@ -26624,6 +26651,8 @@ function updateSolve(): void {
         say(counts);
         // The barcode itself, drawn in the pane and carried to the document.
         currentSolveSvg = barcodeSvg(pr);
+        currentSolveAlt =
+          "Persistence barcode: each bar is a topological feature, spanning the range of scales over which it exists.";
         const fig = document.createElement("div");
         fig.className = "solve-figure";
         fig.innerHTML = currentSolveSvg;

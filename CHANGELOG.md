@@ -6,6 +6,34 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.93.0] — 2026-08-06 — Draw structures like ChemDraw
+
+The most-requested capability from users: Build mode now opens on a **Draw
+tab** hosting OpenChemLib's interactive canvas editor — drag-and-drop atoms,
+bonds, ring templates, chains, charges and wedge/hash stereo, entirely
+offline. Every edit derives the insertable figure through the same
+BuildResult pipeline as the typed builder, so the formula/SMILES readout,
+R-group legends, Markush flagging, provenance alt-text and Insert all work
+identically from a drawing. The typed atom/bond + molfile surface is intact
+under a Text tab, and Chemical mode gains **Edit in Draw** (look a compound
+up, then modify it on canvas).
+
+### Fidelity (hardened by two independent adversarial review passes)
+- Drawn structures record to history as `idcode: <code> <coords>` — the one
+  text form that round-trips the Markush/fragment flag, query features,
+  R-groups and layout (a molfile silently drops the first two). The builder
+  gains an `idcode:` parser with a decode→re-encode canonicality guard,
+  because OCL otherwise "decodes" junk into confident fabricated molecules.
+- An R-group forces **generic** on every path — drawn, typed, `idcode:`, and
+  now pasted molfiles too. No more concrete formulas counting R at mass 0.
+- R-group legend definitions survive tab peeks and mid-drawing transients;
+  history records are captured at Insert-click time, not after the awaits.
+
+### Changed
+- The bundle ships OpenChemLib **full** (the only build with the editor) via
+  a webpack alias — one OCL copy, task pane bundle ~4.3 → 5 MB, still fully
+  offline.
+
 ## [2.92.0] — 2026-08-05 — Solve reads all sixteen textbook word problems
 
 Completes the run that started at **0 of 15**. Against the verbatim worked

@@ -201,6 +201,9 @@
           <button id="insert-props-btn" class="insert-btn secondary" type="button" disabled>
             Insert properties
           </button>
+          <button id="edit-in-draw-btn" class="insert-btn secondary" type="button" disabled>
+            Edit in Draw
+          </button>
 
           <div id="opsin-block" class="opsin-block">
             <div class="opsin-title">Can't find it offline?</div>
@@ -242,32 +245,54 @@
         </section>
       </section>
 
-      <!-- Build a molecule from a molfile or atom/bond list -->
+      <!-- Build a molecule: draw it on canvas, or type a molfile / atom/bond list -->
       <section id="build-section">
-        <span class="palette-group-label">Common structures</span>
-        <div id="build-templates" class="palette-group"></div>
-
-        <span class="palette-group-label">Bonds</span>
-        <div id="build-bonds" class="palette-group"></div>
-
-        <span class="palette-group-label">Markush / query atoms</span>
-        <div id="build-markush" class="palette-group"></div>
-
-        <div class="build-format-row">
-          <label for="build-format" class="field-label">Input</label>
-          <select id="build-format" class="build-format">
-            <option value="auto">Auto-detect</option>
-            <option value="atombond">Atom / bond list</option>
-            <option value="molfile">Molfile (MDL)</option>
-          </select>
+        <div class="build-tab-row" role="tablist" aria-label="Build method">
+          <button id="build-tab-draw" class="build-tab active" type="button" role="tab" aria-selected="true">
+            Draw
+          </button>
+          <button id="build-tab-text" class="build-tab" type="button" role="tab" aria-selected="false">
+            Text
+          </button>
         </div>
-        <textarea
-          id="build-input"
-          class="build-input"
-          rows="7"
-          spellcheck="false"
-          placeholder="atoms: C O O&#10;bonds: 1=2 1=3&#10;&#10;…or paste an MDL molfile here"
-        ></textarea>
+
+        <!-- Interactive drawing surface (OpenChemLib canvas editor): drag-and-drop
+             atoms, bonds, ring templates, chains, charges, wedge/hash stereo. -->
+        <div id="build-draw-wrap">
+          <div id="build-editor" aria-label="Structure drawing canvas"></div>
+          <label class="build-markush-toggle" for="build-draw-fragment">
+            <input type="checkbox" id="build-draw-fragment" />
+            Markush / query structure (generic)
+          </label>
+        </div>
+
+        <div id="build-text-wrap" style="display: none">
+          <span class="palette-group-label">Common structures</span>
+          <div id="build-templates" class="palette-group"></div>
+
+          <span class="palette-group-label">Bonds</span>
+          <div id="build-bonds" class="palette-group"></div>
+
+          <span class="palette-group-label">Markush / query atoms</span>
+          <div id="build-markush" class="palette-group"></div>
+
+          <div class="build-format-row">
+            <label for="build-format" class="field-label">Input</label>
+            <select id="build-format" class="build-format">
+              <option value="auto">Auto-detect</option>
+              <option value="atombond">Atom / bond list</option>
+              <option value="molfile">Molfile (MDL)</option>
+              <option value="idcode">OCL ID code</option>
+            </select>
+          </div>
+          <textarea
+            id="build-input"
+            class="build-input"
+            rows="7"
+            spellcheck="false"
+            placeholder="atoms: C O O&#10;bonds: 1=2 1=3&#10;&#10;…or paste an MDL molfile here"
+          ></textarea>
+        </div>
 
         <div class="build-readout">
           <span><strong>Formula:</strong> <span id="build-formula">—</span></span>

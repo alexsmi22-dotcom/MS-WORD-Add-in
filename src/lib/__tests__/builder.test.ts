@@ -1,4 +1,5 @@
-import { build, buildFromAtomBondList } from "../builder";
+import { Molecule } from "openchemlib";
+import { build, buildFromAtomBondList, resultFromMolecule, rgroupLabels } from "../builder";
 
 describe("builder — concrete molecules", () => {
   it("builds CO2 with double bonds", () => {
@@ -128,5 +129,201 @@ describe("builder — errors", () => {
   });
   it("rejects a malformed bond", () => {
     expect(() => buildFromAtomBondList("atoms: C O\nbonds: 1*2")).toThrow(/Could not parse bond/);
+  });
+});
+
+describe("builder — resultFromMolecule (canvas-editor bridge)", () => {
+  it("derives the same result as the typed path for the same molecule", () => {
+    const typed = build("atoms: C C O\nbonds: 1-2 2-3", "auto");
+    const mol = Molecule.fromSmiles("CCO");
+    mol.inventCoordinates();
+    const drawn = resultFromMolecule(mol);
+    expect(drawn.formula).toBe(typed.formula);
+    expect(drawn.idcode).toBe(typed.idcode);
+    expect(drawn.mw).toBe(typed.mw);
+    expect(drawn.svg).toContain("<svg");
+  });
+
+  it("does not mutate the editor's live molecule", () => {
+    const mol = Molecule.fromSmiles("c1ccccc1");
+    mol.inventCoordinates();
+    const before = mol.getIDCode();
+    resultFromMolecule(mol);
+    expect(mol.getIDCode()).toBe(before);
+    expect(mol.getAllAtoms()).toBe(6);
+  });
+
+  it("throws on an empty canvas", () => {
+    expect(() => resultFromMolecule(new Molecule(8, 8))).toThrow(/Nothing drawn/);
+  });
+
+  it("reports a fragment-flagged molecule as generic", () => {
+    const mol = Molecule.fromSmiles("CC");
+    mol.setFragment(true);
+    const r = resultFromMolecule(mol);
+    expect(r.generic).toBe(true);
+    expect(r.formula).toBe("generic structure");
+  });
+
+  it("round-trips a concrete drawn molecule through its molfile", () => {
+    const mol = Molecule.fromSmiles("CC(=O)Oc1ccccc1C(=O)O"); // aspirin
+    mol.inventCoordinates();
+    const drawn = resultFromMolecule(mol);
+    const reloaded = build(mol.toMolfile(), "auto");
+    expect(reloaded.idcode).toBe(drawn.idcode);
+    expect(reloaded.formula).toBe(drawn.formula);
+  });
+});
+
+describe("builder — rgroupLabels", () => {
+  it("finds R-groups set as custom labels (typed builds)", () => {
+    const mol = Molecule.fromSmiles("CC");
+    mol.setAtomCustomLabel(1, "R1");
+    expect(rgroupLabels(mol)).toEqual(["R1"]);
+  });
+
+  it("finds R-groups drawn as R atoms (canvas editor, atomicNo 129–144)", () => {
+    const mol = Molecule.fromSmiles("CC");
+    // In OpenChemLib the editor's R1 and R2 atoms are real atomic numbers whose
+    // labels are "R1"/"R2" (142 = R1, 143 = R2).
+    const r1 = mol.addAtom(142);
+    mol.addBond(0, r1);
+    const r2 = mol.addAtom(143);
+    mol.addBond(1, r2);
+    expect(rgroupLabels(mol)).toEqual(["R1", "R2"]);
+  });
+
+  it("does not mistake Ru/Rb or plain atoms for R-groups", () => {
+    const mol = Molecule.fromSmiles("CC");
+    mol.addAtom(Molecule.getAtomicNoFromLabel("Ru"));
+    mol.addAtom(Molecule.getAtomicNoFromLabel("Rb"));
+    expect(rgroupLabels(mol)).toEqual([]);
+  });
+
+  it("feeds drawn R-groups into resultFromMolecule", () => {
+    const mol = Molecule.fromSmiles("c1ccccc1");
+    mol.inventCoordinates();
+    const r1 = mol.addAtom(142);
+    mol.addBond(0, r1);
+    expect(resultFromMolecule(mol).rgroups).toEqual(["R1"]);
+  });
+});
+
+describe("builder — idcode format (drawn-structure history fidelity)", () => {
+  /** A drawn-style genus: benzene + R1 atom, fragment flag, one query feature. */
+  function drawnGenus(): Molecule {
+    const mol = Molecule.fromSmiles("c1ccccc1");
+    mol.inventCoordinates();
+    const r1 = mol.addAtom(142); // editor's R1 atom
+    mol.addBond(0, r1);
+    mol.setFragment(true);
+    mol.setAtomQueryFeature(1, Molecule.cAtomQFAromatic, true);
+    return mol;
+  }
+
+  it("round-trips fragment flag, query features and R-groups through `idcode:` (what a molfile drops)", () => {
+    const mol = drawnGenus();
+    const drawn = resultFromMolecule(mol);
+    const enc = mol.getIDCodeAndCoordinates();
+    const reloaded = build(`idcode: ${enc.idCode} ${enc.coordinates}`, "auto");
+    expect(reloaded.generic).toBe(true);
+    expect(reloaded.idcode).toBe(drawn.idcode);
+    expect(reloaded.rgroups).toEqual(["R1"]);
+    expect(reloaded.formula).toBe("generic structure");
+  });
+
+  it("documents WHY molfile is not the history format: it loses the fragment flag", () => {
+    // A genus with NO R atom (R-groups are now re-detected even from a molfile;
+    // the fragment flag and query features are what a molfile still drops).
+    const mol = Molecule.fromSmiles("c1ccccc1");
+    mol.inventCoordinates();
+    mol.setFragment(true);
+    mol.setAtomQueryFeature(1, Molecule.cAtomQFAromatic, true);
+    expect(resultFromMolecule(mol).generic).toBe(true);
+    expect(build(mol.toMolfile(), "auto").generic).toBe(false); // the defect idcode avoids
+  });
+
+  it("parses an idcode without coordinates by inventing a layout", () => {
+    const mol = Molecule.fromSmiles("CCO");
+    const r = build(`idcode: ${mol.getIDCode()}`, "auto");
+    expect(r.formula).toBe("C2H6O");
+    expect(r.svg).toContain("<svg");
+  });
+
+  it("honors the explicit idcode format and rejects junk", () => {
+    const mol = Molecule.fromSmiles("CCO");
+    expect(build(`idcode: ${mol.getIDCode()}`, "idcode").formula).toBe("C2H6O");
+    expect(() => build("idcode:", "auto")).toThrow(/No ID code/);
+    expect(() => build("idcode: !!!not-an-idcode!!!", "auto")).toThrow(/Could not read|no atoms/i);
+  });
+
+  it("does not auto-detect ordinary atom lists or molfiles as idcodes", () => {
+    expect(build("atoms: C O O\nbonds: 1=2 1=3", "auto").formula).toBe("CO2");
+  });
+});
+
+describe("builder — R-groups force generic on every path", () => {
+  it("treats a drawn R-group as generic even without the fragment flag", () => {
+    const mol = Molecule.fromSmiles("CC");
+    mol.inventCoordinates();
+    const r1 = mol.addAtom(142);
+    mol.addBond(0, r1);
+    expect(mol.isFragment()).toBe(false); // user never ticked the Markush box
+    const r = resultFromMolecule(mol);
+    expect(r.generic).toBe(true);
+    expect(r.formula).toBe("generic structure"); // NOT a bogus "C2H5R1" with R at mass 0
+    expect(r.mw).toBe(0);
+  });
+
+  it("agrees with the typed path for the same genus", () => {
+    const typed = build("atoms: C C R1\nbonds: 1-2 2-3", "auto");
+    const mol = Molecule.fromSmiles("CC");
+    mol.inventCoordinates();
+    const r1 = mol.addAtom(142);
+    mol.addBond(1, r1);
+    const drawn = resultFromMolecule(mol);
+    expect(drawn.generic).toBe(typed.generic);
+    expect(drawn.formula).toBe(typed.formula);
+  });
+});
+
+describe("builder — idcode canonicality guard (no confident fictions)", () => {
+  it("rejects junk strings OCL would silently 'decode' into fabricated molecules", () => {
+    expect(() => build("idcode: hello", "auto")).toThrow(/valid ID code/i);
+    expect(() => build("idcode: xyz", "auto")).toThrow(/valid ID code/i);
+  });
+
+  it("rejects a truncated real idcode instead of rendering the wrong molecule", () => {
+    const full = Molecule.fromSmiles("CC(=O)Oc1ccccc1C(=O)O").getIDCode();
+    expect(() => build(`idcode: ${full.slice(0, -4)}`, "auto")).toThrow(/valid ID code|Could not read|no atoms/i);
+  });
+
+  it("still accepts every machine-recorded code (canonical by construction)", () => {
+    const mol = Molecule.fromSmiles("c1ccncc1");
+    mol.inventCoordinates();
+    mol.setFragment(true);
+    const enc = mol.getIDCodeAndCoordinates();
+    expect(build(`idcode: ${enc.idCode} ${enc.coordinates}`, "auto").generic).toBe(true);
+  });
+});
+
+describe("builder — molfile path joins the R-group⇒generic invariant", () => {
+  it("treats a pasted molfile containing an R atom as generic with a legend entry", () => {
+    const mol = Molecule.fromSmiles("c1ccccc1");
+    mol.inventCoordinates();
+    const r1 = mol.addAtom(142);
+    mol.addBond(0, r1);
+    const r = build(mol.toMolfile(), "auto");
+    expect(r.generic).toBe(true);
+    expect(r.formula).toBe("generic structure");
+    expect(r.rgroups).toEqual(["R1"]);
+  });
+
+  it("leaves concrete molfiles untouched", () => {
+    const mol = Molecule.fromSmiles("CCO");
+    mol.inventCoordinates();
+    const r = build(mol.toMolfile(), "auto");
+    expect(r.generic).toBe(false);
+    expect(r.formula).toBe("C2H6O");
   });
 });

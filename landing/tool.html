@@ -301,8 +301,9 @@
         {in:"cash flows -1000, 500, 500, 500", out:"NPV / IRR"},
         {in:"S, K, r, σ, T", out:"Black–Scholes price + Δ Γ Θ ν ρ"}
       ] },
-    build: { title:"Build", tagline:"Build a 2D structure from a typed atom/bond list or a molfile, including Markush/generic genus structures for patents.",
+    build: { title:"Build", tagline:"Draw a 2D structure on an interactive canvas (ChemDraw-style), or build one from a typed atom/bond list or a molfile — including Markush/generic genus structures for patents.",
       does:[
+        "<b>Drawing canvas</b> — drag-and-drop atoms, bonds, ring templates, chains, charges and wedge/hash stereo; the inserted figure derives from exactly what you drew.",
         "Atom/bond list or a pasted MDL molfile; bonds single/double/triple/undefined/stereo, atom charges, auto hydrogens.",
         "<b>Markush / generic</b> atoms — [C,N] lists, X halogen, A any atom, Q heteroatom, R/R1/R2 R-groups.",
         "<b>R-group legends</b> — \"where R1 = …\" as a line or a structured R-group | Definition table; nested (sub-generic) R-groups auto-detected.",

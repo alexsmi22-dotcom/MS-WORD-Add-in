@@ -39,6 +39,11 @@ module.exports = async (env, options) => {
     },
     resolve: {
       extensions: [".ts", ".js", ".html"],
+      // Every `import ... from "openchemlib"` resolves to the FULL build — the
+      // only one that ships CanvasEditor (the interactive drawing surface).
+      // Aliasing here (rather than changing 27 import sites) also guarantees a
+      // single OCL copy in the bundle; mixing core and full would double it.
+      alias: { openchemlib$: path.resolve(__dirname, "node_modules/openchemlib/full.js") },
       // PptxGenJS references Node builtins on its (unused) Node code paths;
       // stub them out for the browser bundle.
       fallback: { fs: false, https: false, os: false, path: false },

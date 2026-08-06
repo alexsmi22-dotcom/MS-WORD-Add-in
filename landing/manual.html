@@ -177,13 +177,15 @@
     <p class="out"><b>Inserts:</b> formatted formula (text), structure (picture with provenance), recognised name (text), or the properties + pKa block (text with its caveats).</p>
     <div class="note"><b>Honest about estimates.</b> cLogP/logS are model predictions (RMSE ≈ 0.4 / 0.7 log units; shown as <i>n/a</i> for inorganics). pKa detection is exact, and for <b>aromatic acids/bases and aliphatic acids the value is substituent-corrected</b> — a Hammett (ρ·Σσ) or inductive adjustment specific to your molecule, shown with its derivation (e.g. p-nitrophenol ≈ 7.15, not phenol’s 9.99). Other groups still use the typical group value. Online IUPAC lookup (OPSIN) is the one feature that leaves the machine, and it always asks first.</p>
 
-    <h3>Build — structures from atoms/bonds, Markush &amp; molfiles</h3>
-    <p>Draw a structure by describing it, or paste an MDL molfile. Built for patent genus/Markush work.</p>
+    <h3>Build — draw structures on canvas; atoms/bonds, Markush &amp; molfiles</h3>
+    <p>Draw a structure with the mouse (ChemDraw-style), describe it in text, or paste an MDL molfile. Built for patent genus/Markush work.</p>
     <ul>
-      <li><b>Atom/bond DSL:</b> <code>atoms: C C O</code> (1-indexed) and <code>bonds: 1-2 2=3</code> where <code>-</code>/<code>=</code>/<code>#</code> are single/double/triple, <code>~</code> is any, <code>i&gt;j</code>/<code>i&lt;j</code> are wedge/hash. Atoms carry charge (<code>N+</code>, <code>Fe2+</code>); hydrogens auto-fill.</li>
+      <li><b>Draw tab:</b> an interactive drawing canvas (OpenChemLib’s editor) — click and drag atoms, bonds, ring templates, chains, charges and wedge/hash stereo bonds directly. The preview below the canvas is the exact figure that inserts, and the formula/SMILES readout, R-group legend and Insert button all work from the drawing. A <i>Markush / query structure</i> checkbox marks the drawing generic. Structures from Chemical mode open here via <b>Edit in Draw</b>.</li>
+      <li><b>Atom/bond DSL</b> (Text tab): <code>atoms: C C O</code> (1-indexed) and <code>bonds: 1-2 2=3</code> where <code>-</code>/<code>=</code>/<code>#</code> are single/double/triple, <code>~</code> is any, <code>i&gt;j</code>/<code>i&lt;j</code> are wedge/hash. Atoms carry charge (<code>N+</code>, <code>Fe2+</code>); hydrogens auto-fill.</li>
       <li><b>Markush / generic atoms:</b> <code>[C,N]</code> variable-atom list, <code>X</code> halogen, <code>A</code> any atom, <code>Q</code> any heteroatom, <code>R1</code>/<code>R2</code>… R-groups.</li>
       <li><b>Query features</b> in trailing braces: <code>{ar}</code> aromatic, <code>{r6}</code> ring size 6, <code>{har}</code> heteroaromatic, <code>{ring}</code>/<code>{chain}</code>, substitution constraints — on atoms and bonds.</li>
       <li><b>Molfile:</b> paste any MDL V2000/V3000 (auto-detected).</li>
+      <li><b>OCL ID code:</b> <code>idcode: &lt;code&gt; [&lt;coords&gt;]</code> — OpenChemLib’s canonical encoding, the form drawn structures are saved to history in (it round-trips Markush flags and query features, which a molfile drops).</li>
       <li><b>R-group legend</b> generated as an inline line or a two-column table, with shorthand expansion (<code>C1-6 alkyl</code> → C₁–C₆ alkyl, <code>opt sub phenyl</code> → optionally substituted phenyl).</li>
     </ul>
     <div class="try"><b>Try it:</b> <code>atoms: C O O</code> / <code>bonds: 1=2 1=3</code> → CO₂. A ring with <code>[C,N]</code> spans benzene and pyridine and is reported as a <i>generic structure</i>.</div>

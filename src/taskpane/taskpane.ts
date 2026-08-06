@@ -276,7 +276,10 @@ import {
 } from "../lib/stats2";
 import { tukeyHSD } from "../lib/tukey";
 import { fftFilter, FilterKind, FilterResponse } from "../lib/fftfilter";
-import { build, BuildFormat, BuildResult } from "../lib/builder";
+import { build, BuildFormat, BuildResult, resultFromMolecule } from "../lib/builder";
+// The full OCL build (aliased over "openchemlib" in webpack, so this adds no
+// second copy) — the only build that ships the interactive canvas editor.
+import { CanvasEditor, Molecule as OclMolecule } from "openchemlib/full";
 import { formatCodeBlock, CodeStyle } from "../lib/codeblock";
 import {
   buildSt26Xml,
@@ -630,6 +633,24 @@ let buildSmilesEl: HTMLElement;
 let buildPreviewEl: HTMLElement;
 let buildRgroupsEl: HTMLElement;
 let insertBuildBtn: HTMLButtonElement;
+let buildTabDrawBtn: HTMLButtonElement;
+let buildTabTextBtn: HTMLButtonElement;
+let buildDrawWrap: HTMLElement;
+let buildTextWrap: HTMLElement;
+let buildFragmentToggle: HTMLInputElement;
+let editInDrawBtn: HTMLButtonElement;
+
+/** Which Build-mode input surface is active: the drawing canvas or typed text. */
+let buildTab: "draw" | "text" = "draw";
+
+/** The interactive structure editor — created lazily on first use, because it
+ *  measures its host element and so must be constructed while visible. */
+let drawEditor: CanvasEditor | null = null;
+
+/** While true, an empty structure does NOT wipe stored R-group definitions —
+ *  set around transient refreshes (tab peeks, mid-drawing states) where the
+ *  user's typed legend must survive. */
+let keepRgroupValues = false;
 let codeSection: HTMLElement;
 let codeStyleSelect: HTMLSelectElement;
 let codeTitleInput: HTMLInputElement;
@@ -1028,6 +1049,12 @@ Office.onReady((info) => {
   buildPreviewEl = document.getElementById("build-preview") as HTMLElement;
   buildRgroupsEl = document.getElementById("build-rgroups") as HTMLElement;
   insertBuildBtn = document.getElementById("insert-build-btn") as HTMLButtonElement;
+  buildTabDrawBtn = document.getElementById("build-tab-draw") as HTMLButtonElement;
+  buildTabTextBtn = document.getElementById("build-tab-text") as HTMLButtonElement;
+  buildDrawWrap = document.getElementById("build-draw-wrap") as HTMLElement;
+  buildTextWrap = document.getElementById("build-text-wrap") as HTMLElement;
+  buildFragmentToggle = document.getElementById("build-draw-fragment") as HTMLInputElement;
+  editInDrawBtn = document.getElementById("edit-in-draw-btn") as HTMLButtonElement;
   codeSection = document.getElementById("code-section") as HTMLElement;
   codeStyleSelect = document.getElementById("code-style") as HTMLSelectElement;
   codeTitleInput = document.getElementById("code-title") as HTMLInputElement;
@@ -1292,6 +1319,10 @@ Office.onReady((info) => {
   buildInput.addEventListener("input", updateBuildPreview);
   buildFormatSelect.addEventListener("change", updateBuildPreview);
   insertBuildBtn.addEventListener("click", insertBuild);
+  buildTabDrawBtn.addEventListener("click", () => setBuildTab("draw"));
+  buildTabTextBtn.addEventListener("click", () => setBuildTab("text"));
+  buildFragmentToggle.addEventListener("change", onFragmentToggle);
+  editInDrawBtn.addEventListener("click", openInDraw);
 
   codeInput.addEventListener("input", updateCodePreview);
   codeStyleSelect.addEventListener("change", updateCodePreview);
@@ -1648,7 +1679,7 @@ const HOME_GROUPS: HomeGroup[] = [
     title: "Chemistry & structures",
     items: [
       { mode: "chemical", audience: ["science", "legal"], label: "Chemical", desc: "Formulas & 2D structures" },
-      { mode: "build", audience: ["science", "legal"], label: "Build", desc: "Structures from atoms/bonds; Markush" },
+      { mode: "build", audience: ["science", "legal"], label: "Build", desc: "Draw structures on canvas; Markush" },
       { mode: "reaction", audience: ["science"], label: "Reaction", desc: "Reaction schemes" },
       { mode: "massspec", audience: ["science"], label: "Mass Spec", desc: "Exact mass, isotope pattern, adducts" },
       { mode: "spectra", audience: ["science"], label: "Spectra", desc: "Predicted NMR, IR, UV-Vis, fragmentation" },
@@ -2156,6 +2187,11 @@ function historyGroup(title: string, entries: HistoryEntry[], favorited: boolean
 function loadHistoryEntry(entry: HistoryEntry): void {
   setMode(entry.kind);
   if (entry.kind === "build") {
+    // History stores the typed text (or a drawn structure's `idcode:` record),
+    // so the Text tab is the surface that can actually show and re-parse it —
+    // on auto-detect, since the entry's format need not match the last-used one.
+    setBuildTab("text");
+    buildFormatSelect.value = "auto";
     buildInput.value = entry.value;
     updateBuildPreview();
     buildInput.focus();
@@ -2512,7 +2548,7 @@ function onInputChanged(): void {
     return; // audit runs on demand via the button
   }
   if (mode === "build") {
-    updateBuildPreview();
+    refreshBuildPreview();
     updateGalleryPreview();
     return;
   }
@@ -3708,6 +3744,7 @@ function updateStructurePreview(): void {
   renderStructureInfo(result.formula, result.mw, result.smiles, result.source, text);
   renderProperties(text);
   insertStructureBtn.disabled = false;
+  editInDrawBtn.disabled = false;
 
   // Dictionary name lookup (recognized compounds only).
   currentStructureName = nameForIdcode(result.idcode) ?? "";
@@ -3770,6 +3807,7 @@ function showStructureHint(message: string): void {
   insertNameBtn.disabled = true;
   insertStructureBtn.disabled = true;
   insertPropsBtn.disabled = true;
+  editInDrawBtn.disabled = true;
 }
 
 /** One-line druglikeness verdict for a rule screen. */
@@ -4100,6 +4138,7 @@ function renderResolvedSmiles(result: OpsinResult, name: string): void {
   renderStructureInfo(structure.formula, structure.mw, structure.smiles);
   renderProperties(result.smiles);
   insertStructureBtn.disabled = false;
+  editInDrawBtn.disabled = false;
   // The user typed the name, so offer it for insertion directly.
   currentStructureName = name;
   structureNameEl.textContent = `Name: ${name}`;
@@ -4267,6 +4306,169 @@ async function insertStructure(): Promise<void> {
   }
 }
 
+/** Switches Build mode between the drawing canvas and the typed-text surface. */
+function setBuildTab(tab: "draw" | "text"): void {
+  buildTab = tab;
+  const draw = tab === "draw";
+  buildTabDrawBtn.classList.toggle("active", draw);
+  buildTabTextBtn.classList.toggle("active", !draw);
+  buildTabDrawBtn.setAttribute("aria-selected", String(draw));
+  buildTabTextBtn.setAttribute("aria-selected", String(!draw));
+  buildDrawWrap.style.display = draw ? "block" : "none";
+  buildTextWrap.style.display = draw ? "none" : "block";
+  if (draw) {
+    ensureDrawEditor();
+    // Creation can fail and fall back to the Text tab; only refresh if it stuck.
+    if (drawEditor) updateDrawPreview();
+  } else {
+    // Peeking at the other tab must not wipe typed R-group definitions just
+    // because that tab's input happens to be empty.
+    keepRgroupValues = true;
+    try {
+      updateBuildPreview();
+    } finally {
+      keepRgroupValues = false;
+    }
+  }
+}
+
+/** Creates the canvas editor on first use (it measures its host, so the host
+ *  must be visible). If the webview can't host it, falls back to the Text tab. */
+function ensureDrawEditor(): void {
+  if (drawEditor) return;
+  const host = document.getElementById("build-editor") as HTMLElement;
+  try {
+    drawEditor = new CanvasEditor(host, { initialMode: "molecule" });
+    drawEditor.setOnChangeListener((event) => {
+      if (event.type === "molecule") updateDrawPreview();
+    });
+  } catch (error) {
+    drawEditor = null;
+    // The constructor appends its root element before the steps that can throw —
+    // clear it so a retried click doesn't stack dead editor shells in the host.
+    host.replaceChildren();
+    // Switch first, THEN report: the tab switch refreshes the Text preview,
+    // which clears the status line and would swallow this message.
+    setBuildTab("text");
+    setStatus(`Drawing canvas unavailable here: ${(error as Error).message}`, "error");
+  }
+}
+
+/** Refreshes whichever Build-mode surface is active (used at mode entry). */
+function refreshBuildPreview(): void {
+  if (buildTab === "draw") {
+    ensureDrawEditor();
+    if (drawEditor) updateDrawPreview();
+  } else {
+    updateBuildPreview();
+  }
+}
+
+/** Marks the drawn structure generic (a Markush query) or specific again. */
+function onFragmentToggle(): void {
+  if (!drawEditor) return;
+  const mol = drawEditor.getMolecule();
+  mol.setFragment(buildFragmentToggle.checked);
+  // moleculeChanged() synchronously fires the change listener, which refreshes
+  // the preview — no explicit refresh here or it runs twice.
+  drawEditor.moleculeChanged();
+}
+
+/**
+ * Derives the insertable result from the drawn molecule — the same BuildResult
+ * pipeline as the typed builder, so the preview below the canvas is exactly the
+ * figure that will insert (the canvas itself is the editing view, not the
+ * insert artifact).
+ */
+function updateDrawPreview(): void {
+  currentBuild = null;
+  insertBuildBtn.disabled = true;
+  const mol = drawEditor ? drawEditor.getMolecule() : null;
+
+  // Canvas editing is fluid — deleting an R1 atom to redraw it must not throw
+  // away the definition the user typed for it, so R-group values persist
+  // through every transient state of the drawing.
+  keepRgroupValues = true;
+  try {
+    if (!mol || mol.getAllAtoms() === 0) {
+      // An empty canvas has no genus: clear an orphaned fragment flag (from
+      // ticking the box before drawing) so the flag and the unchecked box
+      // can't contradict — otherwise the next plain drawing would surface as
+      // "generic structure" out of nowhere.
+      if (mol && mol.isFragment()) mol.setFragment(false);
+      buildFragmentToggle.checked = false;
+      buildPreviewEl.replaceChildren();
+      const hint = document.createElement("span");
+      hint.className = "hint";
+      hint.textContent =
+        "Draw a structure on the canvas above — the toolbar has atom, bond, ring and template tools.";
+      buildPreviewEl.appendChild(hint);
+      buildFormulaEl.textContent = "—";
+      buildSmilesEl.textContent = "—";
+      renderRgroupInputs([]);
+      setStatus("");
+      return;
+    }
+
+    try {
+      const result = resultFromMolecule(mol, STRUCTURE_W, STRUCTURE_H);
+      currentBuild = result;
+      // Reflect the result, not just the flag: a drawn R-group makes the
+      // structure generic even when the user never ticked the box.
+      buildFragmentToggle.checked = result.generic;
+      buildPreviewEl.innerHTML = result.svg;
+      buildFormulaEl.textContent = result.formula + (result.mw ? ` (MW ${result.mw})` : "");
+      buildSmilesEl.textContent = result.smiles || "—";
+      renderRgroupInputs(result.rgroups);
+      insertBuildBtn.disabled = false;
+      setStatus("");
+    } catch (error) {
+      buildFragmentToggle.checked = mol.isFragment();
+      buildPreviewEl.replaceChildren();
+      const hint = document.createElement("span");
+      hint.className = "hint";
+      hint.textContent = (error as Error).message;
+      buildPreviewEl.appendChild(hint);
+      buildFormulaEl.textContent = "—";
+      buildSmilesEl.textContent = "—";
+      renderRgroupInputs([]);
+    }
+  } finally {
+    keepRgroupValues = false;
+  }
+}
+
+/** Loads the Chemical-mode structure into the Draw canvas for modification. */
+function openInDraw(): void {
+  const s = currentStructure;
+  if (!s) return;
+  setMode("build");
+  setBuildTab("draw");
+  if (!drawEditor) return; // canvas unavailable — already fell back to Text
+  try {
+    // The ID code is the canonical structure (stereo and all); it carries no
+    // 2D coordinates, so lay it out before handing it to the editor. A blank
+    // idcode "parses" to an empty molecule, so fall through to SMILES on
+    // empty as well as on error.
+    let mol: OclMolecule | null = null;
+    if (s.idcode) {
+      try {
+        mol = OclMolecule.fromIDCode(s.idcode);
+      } catch {
+        mol = null;
+      }
+    }
+    if (!mol || mol.getAllAtoms() === 0) mol = OclMolecule.fromSmiles(s.smiles);
+    if (mol.getAllAtoms() === 0) throw new Error("the structure is empty.");
+    mol.inventCoordinates();
+    drawEditor.setMolecule(mol);
+    updateDrawPreview();
+    setStatus("Structure loaded into the drawing canvas.", "success");
+  } catch (error) {
+    setStatus(`Could not load the structure into the canvas: ${(error as Error).message}`, "error");
+  }
+}
+
 /** Builds a molecule from the Build textarea and shows its structure, formula, and SMILES. */
 function updateBuildPreview(): void {
   const text = buildInput.value;
@@ -4359,12 +4561,17 @@ function collectSubGroups(): string[] {
 function syncSubGroups(): void {
   if (!subGroupWrap) return;
   const subs = collectSubGroups();
-  // Prune stored values that are neither a current main group nor a live sub-group.
-  const valid: Record<string, true> = {};
-  for (const l of mainRgroups) valid[l] = true;
-  for (const l of subs) valid[l] = true;
-  for (const key of Object.keys(rgroupValues)) {
-    if (!valid[key]) delete rgroupValues[key];
+  // Prune stored values that are neither a current main group nor a live
+  // sub-group — but not during a transient refresh (mid-drawing states, tab
+  // peeks), where deleting an R2 atom to reattach it must not erase the
+  // definition the user typed for R2.
+  if (!keepRgroupValues) {
+    const valid: Record<string, true> = {};
+    for (const l of mainRgroups) valid[l] = true;
+    for (const l of subs) valid[l] = true;
+    for (const key of Object.keys(rgroupValues)) {
+      if (!valid[key]) delete rgroupValues[key];
+    }
   }
   const existing: Record<string, HTMLElement> = {};
   for (const child of Array.from(subGroupWrap.children)) {
@@ -4388,8 +4595,11 @@ function renderRgroupInputs(rgroups: string[]): void {
   mainRgroups = rgroups.slice();
   subGroupWrap = null;
   if (!rgroups.length) {
-    // No R-groups: drop every stored definition (sub-groups exist only via mains).
-    for (const key of Object.keys(rgroupValues)) delete rgroupValues[key];
+    // No R-groups: drop every stored definition (sub-groups exist only via
+    // mains) — unless this is a transient state a definition must survive.
+    if (!keepRgroupValues) {
+      for (const key of Object.keys(rgroupValues)) delete rgroupValues[key];
+    }
     return;
   }
   // Drop values for main R-groups no longer present (keep referenced sub-groups).
@@ -4446,6 +4656,26 @@ async function insertBuild(): Promise<void> {
     return;
   }
 
+  // Capture the history record NOW, before the awaits below — the user can keep
+  // drawing (or switch tabs) while the insert is in flight, and history must
+  // store what was inserted, not what the surface holds a second later. A drawn
+  // structure is recorded as `idcode: …` (OCL's canonical encoding with layout):
+  // the ONE text form that round-trips the Markush/fragment flag and query
+  // features — a molfile silently drops both.
+  let recorded: string;
+  if (buildTab === "draw" && drawEditor) {
+    // Encode a copy carrying the same generic flag the derived result (and the
+    // inserted provenance) carries — a drawn R-group forces generic even when
+    // the live molecule's fragment bit was never ticked, and the recorded ID
+    // code must name the structure that was actually inserted.
+    const forRecord = drawEditor.getMolecule().getCompactCopy();
+    if (molecule.generic) forRecord.setFragment(true);
+    const enc = forRecord.getIDCodeAndCoordinates();
+    recorded = `idcode: ${enc.idCode} ${enc.coordinates}`;
+  } else {
+    recorded = buildInput.value;
+  }
+
   insertBuildBtn.disabled = true;
   setStatus("Inserting structure…");
 
@@ -4476,7 +4706,7 @@ async function insertBuild(): Promise<void> {
       await tagInserted(context, picture.getRange(), "formula-inserter:structure");
     });
     setStatus(hasLegend ? "Structure + R-group legend inserted." : "Structure inserted.", "success");
-    recordInsert("build", buildInput.value, label);
+    recordInsert("build", recorded, label);
   } catch (error) {
     setStatus(`Could not insert structure: ${(error as Error).message}`, "error");
   } finally {

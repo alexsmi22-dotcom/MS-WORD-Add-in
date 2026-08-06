@@ -59,7 +59,7 @@ const SHORTHANDS: Record<string, string[]> = {
   X: ["F", "Cl", "Br", "I"], // halogen
 };
 
-export type BuildFormat = "auto" | "atombond" | "molfile";
+export type BuildFormat = "auto" | "atombond" | "molfile" | "idcode";
 
 const BOND_ORDER: Record<string, number> = { "-": 1, "=": 2, "#": 3 };
 
@@ -289,6 +289,38 @@ export function buildFromAtomBondList(text: string, width = 300, height = 230): 
   return finish(mol, width, height, true, rgroups);
 }
 
+/**
+ * R-group labels present on a molecule's atoms (e.g. ["R1","R2"]), whether the
+ * R-group was set as a custom label (typed builds) or drawn as an R atom in the
+ * canvas editor (where it arrives as the atom's own label, e.g. "R1"/"R").
+ */
+export function rgroupLabels(mol: Molecule): string[] {
+  const labels: string[] = [];
+  for (let i = 0; i < mol.getAllAtoms(); i++) {
+    const custom = mol.getAtomCustomLabel(i);
+    if (custom && /^R\d{0,2}$/.test(custom)) {
+      labels.push(custom);
+      continue;
+    }
+    const label = mol.getAtomLabel(i);
+    if (/^R\d{0,2}$/.test(label)) labels.push(label);
+  }
+  return uniqueSorted(labels);
+}
+
+/**
+ * Converts an in-memory molecule (e.g. from the interactive canvas editor) to a
+ * BuildResult via the same depiction/derivation path as the typed builder, so a
+ * drawn structure inserts identically to a typed one. Editor molecules carry
+ * their own coordinates, so none are invented.
+ */
+export function resultFromMolecule(mol: Molecule, width = 300, height = 230): BuildResult {
+  if (mol.getAllAtoms() === 0) throw new Error("Nothing drawn yet.");
+  // The caller (editor) owns and live-mutates this molecule — derive from a copy.
+  const copy = mol.getCompactCopy();
+  return finish(copy, width, height, false, rgroupLabels(copy));
+}
+
 function uniqueSorted(values: string[]): string[] {
   const set: Record<string, true> = {};
   for (const v of values) set[v] = true;
@@ -298,11 +330,46 @@ function uniqueSorted(values: string[]): string[] {
 export function buildFromMolfile(molfile: string, width = 300, height = 230): BuildResult {
   const mol = Molecule.fromMolfile(molfile);
   if (mol.getAllAtoms() === 0) throw new Error("Molfile contains no atoms.");
-  // Molfiles carry their own coordinates, so don't reinvent them.
-  return finish(mol, width, height, false, []);
+  // Molfiles carry their own coordinates, so don't reinvent them. R atoms in a
+  // pasted molfile (e.g. a ChemDraw export) are scanned like every other path,
+  // so an R-group makes the structure generic here too.
+  return finish(mol, width, height, false, rgroupLabels(mol));
+}
+
+/**
+ * Parses `idcode: <IDCode> [<coordinates>]` — OpenChemLib's canonical structure
+ * encoding. This is the ONE text format that round-trips everything the canvas
+ * editor can express: the Markush/fragment flag, atom lists, query features and
+ * stereo all survive, where a molfile silently drops them. Drawn structures are
+ * recorded to history in this form for exactly that reason.
+ */
+export function buildFromIdcode(text: string, width = 300, height = 230): BuildResult {
+  const body = text.trim().replace(/^idcode\s*:\s*/i, "");
+  const [idcode, coordinates] = body.split(/\s+/);
+  if (!idcode) throw new Error("No ID code after “idcode:”.");
+  let mol: Molecule;
+  try {
+    mol = coordinates ? Molecule.fromIDCode(idcode, coordinates) : Molecule.fromIDCode(idcode);
+  } catch (error) {
+    throw new Error(`Could not read the ID code: ${(error as Error).message}`);
+  }
+  if (mol.getAllAtoms() === 0) throw new Error("ID code contains no atoms.");
+  // OCL's decoder happily "decodes" junk or truncated strings into fabricated
+  // molecules without throwing. An ID code is canonical, so a genuine one
+  // re-encodes to itself; anything that doesn't was never a real structure —
+  // refuse it rather than render a confident fiction.
+  if (mol.getIDCode() !== idcode) {
+    throw new Error("Not a valid ID code (the decoded structure does not re-encode to it).");
+  }
+  return finish(mol, width, height, !coordinates, rgroupLabels(mol));
 }
 
 function finish(mol: Molecule, width: number, height: number, needCoords: boolean, rgroups: string[]): BuildResult {
+  // An R-group attachment point makes the structure a genus whatever the
+  // fragment flag says — a "concrete" formula/MW counting R at mass 0 would be
+  // wrong. The typed atom/bond path already flags this; drawn and ID-code
+  // molecules arrive here without it.
+  if (rgroups.length && !mol.isFragment()) mol.setFragment(true);
   if (needCoords) {
     try {
       mol.inventCoordinates();
@@ -360,10 +427,18 @@ export function looksLikeMolfile(text: string): boolean {
   return /\bV[23]000\b/.test(text) || /^M\s+END\s*$/m.test(text);
 }
 
+/** Does this text carry an OpenChemLib ID code (the `idcode:` keyword form)? */
+export function looksLikeIdcode(text: string): boolean {
+  return /^idcode\s*:/i.test(text);
+}
+
 /** Builds a molecule from text, choosing the parser by format (or auto-detecting). */
 export function build(text: string, format: BuildFormat, width = 300, height = 230): BuildResult {
   const trimmed = text.trim();
   if (!trimmed) throw new Error("Nothing to build yet.");
+  if (format === "idcode" || (format === "auto" && looksLikeIdcode(trimmed))) {
+    return buildFromIdcode(trimmed, width, height);
+  }
   const useMolfile = format === "molfile" || (format === "auto" && looksLikeMolfile(trimmed));
   return useMolfile ? buildFromMolfile(text, width, height) : buildFromAtomBondList(text, width, height);
 }

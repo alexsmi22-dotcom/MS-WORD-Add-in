@@ -12,7 +12,14 @@
 //     "9 is 30% of what".
 //   * Distance = rate × time — any two of the three given.
 //   * Simple linear number sentences — "twice a number plus 7 is 15",
-//     "5 less than a number is 12" — translated to an equation and solved.
+//     "5 less than a number is 12", "five times an unknown number is equal to
+//     60" — translated to an equation and solved.
+//   * Running totals — an unknown start, a sequence of gains and losses, and a
+//     stated final amount ("19 get off, 17 get on, now there are 63").
+//
+// EVERY TRANSLATED PROBLEM SHOWS THE EQUATION IT DERIVED. That is what makes
+// widening the vocabulary safe: a misreading produces a visibly wrong equation
+// beside the answer, rather than a confident wrong number on its own.
 
 import { solveEquation } from "./solve";
 
@@ -57,6 +64,47 @@ function normalize(text: string): string {
 }
 
 const fmt = (v: number): string => (Number.isInteger(v) ? String(v) : String(Math.round(v * 1e6) / 1e6));
+
+
+/**
+ * The clause that carries the equation, with the question stripped off.
+ *
+ * WHY THIS EXISTS. `tryNumberSentence` translated the WHOLE input, so
+ * "A number increased by 7 is 22. What is the number?" became
+ * `n + 7 = 22. n?` and `solveEquation` refused it. The template was documented
+ * as supported, was measured refusing its own canonical example, and the user
+ * saw that as "Solve does not respond".
+ *
+ * A word problem is a statement plus a question. Only the statement is an
+ * equation. Sentences are split on terminal punctuation and newlines, the
+ * interrogative ones are dropped, and what remains is joined back — a problem
+ * can state its facts across several sentences.
+ */
+function statementClauses(text: string): string {
+  return text
+    .split(/[.!?\n]+/)
+    .map((c) => c.trim())
+    .filter(Boolean)
+    .filter((c) => !/^(?:how|what|find|determine|calculate|solve)\b/i.test(c))
+    .join(" ");
+}
+
+/** Number words the examples actually use, so "five times" reads as "5 times". */
+const NUMBER_WORDS: [RegExp, string][] = [
+  [/\bzero\b/g, "0"],
+  [/\bone\b/g, "1"],
+  [/\btwo\b/g, "2"],
+  [/\bthree\b/g, "3"],
+  [/\bfour\b/g, "4"],
+  [/\bfive\b/g, "5"],
+  [/\bsix\b/g, "6"],
+  [/\bseven\b/g, "7"],
+  [/\beight\b/g, "8"],
+  [/\bnine\b/g, "9"],
+  [/\bten\b/g, "10"],
+  [/\beleven\b/g, "11"],
+  [/\btwelve\b/g, "12"],
+];
 
 // ---------------------------------------------------------------------------
 // Percentage
@@ -223,40 +271,74 @@ function tryDistanceRateTime(t: string): WordProblemResult | null {
 // Strict: the sentence must be built only from the vocabulary below. If any
 // non-numeric, non-keyword token survives translation, we bail rather than guess.
 function tryNumberSentence(t: string): WordProblemResult | null {
-  if (!/\bnumber\b/.test(t)) return null;
-  // Must have exactly one comparison word to form an equation.
-  if (!/\b(is|equals?|gives?)\b/.test(t)) return null;
+  // The STATEMENT only — see statementClauses. Translating the question too is
+  // what made this template refuse its own documented example.
+  const stated = statementClauses(t);
+  if (!/\bnumber\b/.test(stated)) return null;
+  if (!/\b(is|are|equals?|gives?|difference)\b/.test(stated)) return null;
 
-  let s = ` ${t} `;
-  // Drop question framing that carries no math.
-  s = s.replace(/\b(find|what is|the value of|the result|then|so)\b/g, " ");
-  // "5 less than X"  ->  "X - 5"  (order inverts); handle BEFORE plain words.
-  s = s.replace(new RegExp(`${NUM} less than`, "g"), "__SUB__ $1 after ");
-  s = s.replace(new RegExp(`${NUM} more than`, "g"), "__ADD__ $1 after ");
-  // The unknown, and multiplier phrases.
-  const ART = String.raw`(?:(?:a|the|some) )?`; // optional article, trailing space consumed
-  s = s.replace(new RegExp(`\\btwice ${ART}number\\b`, "g"), "2*n");
-  s = s.replace(new RegExp(`\\bdouble ${ART}number\\b`, "g"), "2*n");
-  s = s.replace(new RegExp(`\\bthrice ${ART}number\\b`, "g"), "3*n");
-  s = s.replace(new RegExp(`\\bhalf (?:of )?${ART}number\\b`, "g"), "n/2");
-  s = s.replace(/\b(?:a|the|some) number\b/g, "n");
-  s = s.replace(/\bnumber\b/g, "n");
-  // Operators.
-  s = s.replace(/\b(plus|added to|increased by|and)\b/g, "+");
+  let s = ` ${stated} `;
+  for (const [re, digit] of NUMBER_WORDS) s = s.replace(re, digit);
+
+  // Comparison phrases, before the bare verbs.
+  s = s.replace(/\bthe difference is\b/g, " = ");
+  s = s.replace(/\bgives the same result as\b/g, " = ");
+  s = s.replace(/\bis the same as\b/g, " = ");
+  s = s.replace(/\bis equal to\b/g, " = ");
+  s = s.replace(/\b(if|then|so|the value of|the result)\b/g, " ");
+
+  // THE UNKNOWN IS RESOLVED BEFORE ANY INVERSION, and this order is the whole
+  // correctness argument of this function.
+  //
+  // The first version inverted first, so "5 is subtracted from twice an
+  // unknown number" reached the inversion as raw words, the operand regex
+  // grabbed the wrong span, and it produced `2 - 5*n = 13` — answer -2.2 where
+  // the truth is 9. A WRONG ANSWER, not a refusal, which is the one outcome
+  // this module exists to prevent. Resolving the unknown first means every
+  // inversion operates on a single token: a number, `n`, or a parenthesised
+  // multiple of n.
+  const ART = String.raw`(?:(?:an?|the|some) )?`;
+  const UNK = String.raw`(?:unknown )?number`;
+  s = s.replace(new RegExp(`\\btwice ${ART}${UNK}\\b`, "g"), "(2*n)");
+  s = s.replace(new RegExp(`\\bdouble ${ART}${UNK}\\b`, "g"), "(2*n)");
+  s = s.replace(new RegExp(`\\bthrice ${ART}${UNK}\\b`, "g"), "(3*n)");
+  s = s.replace(new RegExp(`\\bhalf (?:of )?${ART}${UNK}\\b`, "g"), "(n/2)");
+  s = s.replace(new RegExp(`([\\d.]+) times ${ART}${UNK}\\b`, "g"), "($1*n)");
+  s = s.replace(new RegExp(`\\bmultiply ${ART}${UNK} by ([\\d.]+)`, "g"), "($1*n)");
+  s = s.replace(new RegExp(`\\bdivide ${ART}${UNK} by ([\\d.]+)`, "g"), "(n/$1)");
+  s = s.replace(new RegExp(`\\b${ART}${UNK}\\b`, "g"), "n");
+
+  // INVERTING PHRASES, now that both operands are single tokens. "5 less than
+  // x" is x - 5, not 5 - x; getting this backwards yields a plausible wrong
+  // answer rather than a refusal, which is why it is pinned by test.
+  const TOK = String.raw`(\([^()]*\)|n|[\d.]+)`;
+  s = s.replace(new RegExp(`${TOK} less than ${TOK}`, "g"), "$2 - $1");
+  s = s.replace(new RegExp(`${TOK} more than ${TOK}`, "g"), "$2 + $1");
+  s = s.replace(new RegExp(`${TOK} (?:is |are )?subtracted from ${TOK}`, "g"), "$2 - $1");
+  s = s.replace(new RegExp(`${TOK} (?:is |are )?added to ${TOK}`, "g"), "$2 + $1");
+  s = s.replace(new RegExp(`\\bsubtracting ${TOK} from ${TOK}`, "g"), "$2 - $1");
+  s = s.replace(new RegExp(`\\badding ${TOK} to ${TOK}`, "g"), "$2 + $1");
+
+  // Remaining operators.
+  s = s.replace(/\b(plus|increased by|and)\b/g, "+");
   s = s.replace(/\b(minus|decreased by|reduced by)\b/g, "-");
   s = s.replace(/\b(times|multiplied by|of)\b/g, "*");
   s = s.replace(/\b(divided by|over)\b/g, "/");
-  s = s.replace(/\b(is|equals?|gives?)\b/g, "=");
-  // Resolve the inverted "less/more than N" markers: "__SUB__ 5 after n" -> "n - 5".
-  s = s.replace(/__ADD__ (\S+) after\s*([^=+\-*/]+)/g, "$2 + $1");
-  s = s.replace(/__SUB__ (\S+) after\s*([^=+\-*/]+)/g, "$2 - $1");
-  s = s.replace(/\ba\b|\bthe\b/g, " ");
+  s = s.replace(/\b(is|are|equals?|gives?)\b/g, "=");
+  s = s.replace(/\ban?\b|\bthe\b/g, " ");
+  s = s.replace(/,/g, " ");
   s = s.replace(/\s+/g, " ").trim();
 
-  // What remains must be a clean equation over n, digits and operators only.
+  // WHAT REMAINS MUST BE A CLEAN EQUATION. A leftover word means the sentence
+  // said something this translator does not model, and the honest answer is no
+  // answer — a half-understood problem produces a confident wrong number.
   if (!/=/.test(s)) return null;
   if (!/n/.test(s)) return null;
-  if (/[a-z]/.test(s.replace(/n/g, ""))) return null; // leftover words -> bail
+  if (/[a-z]/.test(s.replace(/n/g, ""))) return null;
+  if ((s.match(/=/g) ?? []).length !== 1) return null;
+  // A stray inversion keyword left behind means the operands were not what the
+  // patterns above expected; refuse rather than solve a mangled expression.
+  if (/(?:less|more|subtract|add)/.test(s)) return null;
 
   const r = solveEquation(s, "n");
   if (!r || !r.roots.length || r.method === "unsolved") return null;
@@ -265,11 +347,15 @@ function tryNumberSentence(t: string): WordProblemResult | null {
   const v = real[0].re;
   return {
     template: "linear number sentence",
-    value: v,
     answer: fmt(v),
+    value: v,
     equation: s,
-    steps: [`Translated to: ${s}`, `Solved (${r.method}): n = ${fmt(v)}`],
-    caveats: ["Parsed from a restricted set of phrasings; if the reading looks wrong, rephrase or use the AI option."],
+    equationMath: s.replace(/\*/g, " \\cdot "),
+    steps: [`Translated to: ${s}`, `Solving gives n = ${fmt(v)}`],
+    caveats: [
+      "The equation above is this parser's reading of your sentence. Check it says what you meant — " +
+        "a mis-read sentence produces a confident wrong answer.",
+    ],
   };
 }
 
@@ -307,10 +393,86 @@ function tryShareSequence(original: string): WordProblemResult | null {
   };
 }
 
+
+/**
+ * The RUNNING-TOTAL shape: an unknown starting amount, a sequence of gains and
+ * losses, and a stated final amount.
+ *
+ *   "There were some people on a train. 19 people get off at the first stop.
+ *    17 people get on. Now there are 63 people on the train.
+ *    How many were on the train to begin with?"
+ *
+ * This is the shape a real user brought, and it is not a number sentence: the
+ * unknown is never named ("some people"), the operations arrive as separate
+ * sentences, and the comparison is "now there are N".
+ *
+ * WHY IT IS A SEPARATE RECOGNISER rather than more vocabulary in the
+ * translator: the direction of each event is carried by a VERB against a
+ * container ("get off the train" is a loss, "get on" is a gain), not by an
+ * arithmetic word. Folding that into the phrase-substitution pass would make
+ * "off" mean minus everywhere, which is wrong the moment a problem says
+ * "10% off".
+ *
+ * It refuses unless it finds an unknown start, at least one event, and exactly
+ * one final total — and it shows the equation it built, so a misread is
+ * visible next to the answer rather than hidden behind it.
+ */
+function tryRunningTotal(text: string): WordProblemResult | null {
+  const t = normalize(text).replace(/\n/g, " ");
+  // An unknown start must be stated, not assumed. Without this a problem that
+  // merely ends in "now there are 63" would be "solved" from nothing.
+  if (!/\b(some|a number of|an unknown number of)\b/.test(t)) return null;
+  const finalMatch = /\b(?:now|finally|at the end)\b[^.]*?\bthere (?:are|were)\s+(\d+(?:\.\d+)?)/.exec(t);
+  if (!finalMatch) return null;
+  const finalValue = Number(finalMatch[1]);
+  if (!Number.isFinite(finalValue)) return null;
+
+  // Events, in the order written. "get off / leave / exit" lose; "get on /
+  // board / join / arrive" gain.
+  const LOSS = /(\d+(?:\.\d+)?)\s+[a-z ]*?\b(?:get off|got off|gets off|leave|left|leaves|exit|exits|exited|step off)\b/g;
+  const GAIN = /(\d+(?:\.\d+)?)\s+[a-z ]*?\b(?:get on|got on|gets on|board|boards|boarded|join|joins|joined|step on)\b/g;
+  const events: { at: number; delta: number }[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = LOSS.exec(t)) !== null) events.push({ at: m.index, delta: -Number(m[1]) });
+  while ((m = GAIN.exec(t)) !== null) events.push({ at: m.index, delta: Number(m[1]) });
+  if (!events.length) return null;
+  if (events.some((e) => !Number.isFinite(e.delta))) return null;
+  events.sort((a, b) => a.at - b.at);
+
+  // start + sum(deltas) = final
+  const net = events.reduce((a, e) => a + e.delta, 0);
+  const start = finalValue - net;
+  const eqn =
+    "x " + events.map((e) => (e.delta < 0 ? `- ${Math.abs(e.delta)}` : `+ ${e.delta}`)).join(" ") + ` = ${finalValue}`;
+  return {
+    template: "running total",
+    answer: fmt(start),
+    value: start,
+    equation: eqn,
+    equationMath: eqn,
+    steps: [
+      `Let x be the amount at the start.`,
+      `Translated to: ${eqn}`,
+      `Net change = ${fmt(net)}, so x = ${fmt(finalValue)} - (${fmt(net)}) = ${fmt(start)}`,
+    ],
+    caveats: [
+      "The equation above is this parser's reading of your problem, taken from the order the " +
+        "events are written in. Check it before relying on the number.",
+    ],
+  };
+}
+
 export function solveWordProblem(text: string): WordProblemResult | null {
   const t = normalize(text);
   if (!t) return null;
+  // ORDER MATTERS: the most specific grammar first. A running-total problem
+  // contains numbers that a percentage or rate-time pattern could latch onto,
+  // and the first recogniser to claim a problem wins.
   return (
-    tryShareSequence(text) ?? tryPercentage(t) ?? tryDistanceRateTime(t) ?? tryNumberSentence(t)
+    tryShareSequence(text) ??
+    tryRunningTotal(text) ??
+    tryPercentage(t) ??
+    tryDistanceRateTime(t) ??
+    tryNumberSentence(t)
   );
 }

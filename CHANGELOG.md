@@ -6,6 +6,44 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.91.0] — 2026-08-05 — Solve reads word problems
+
+Asked for by the user, with two sources and a problem of their own (a train
+with an unknown number of passengers). **Measured against the eleven verbatim
+worked examples on LibreTexts 1.20 plus four of ours, driven through the
+shipped bundle: 0 of 15 solved.** The module's own documented "a number …"
+template was refusing its canonical example, because it translated the question
+along with the statement.
+
+**Now 8 of 15, and the other 7 refuse cleanly** — all five of the page's
+translation problems (Example 18.2 a–e), two simple number sentences, and the
+running-total shape.
+
+### Added
+- **Statement/question splitting.** A word problem is facts plus a question;
+  only the facts are an equation.
+- **The page's own vocabulary** — "an unknown number", "is equal to", "the
+  difference is", "gives the same result as", "multiply … by", number words.
+- **A running-total recogniser** — an unknown start, a sequence of gains and
+  losses, a stated final amount. Separate from the translator because each
+  event's direction comes from a verb against a container ("get off" vs "get
+  on"), not from an arithmetic word.
+
+### The failure worth recording
+The first working version answered two of the five with **wrong numbers**
+(−2.2 for 9, −0.75 for 8) because the inverting phrases were resolved before
+the unknown was substituted. A wrong answer is the one outcome this module
+exists to prevent. Every inversion is now pinned by a test asserting the
+**equation**, not just the answer — a reversed subtraction solves happily to a
+plausible wrong number.
+
+### Still refused, deliberately
+Percentage-increase, work-rate, partition, proportion and perimeter problems
+each need a concept the translator does not have, and are pinned as refusals so
+that if one ever starts answering it does so with a test written for it. Every
+translated problem shows the equation it derived, which is what makes widening
+the vocabulary safe.
+
 ## [2.90.1] — 2026-08-05 — Solve answers questions again, and eight figure defects
 
 ### Fixed — reported from real use

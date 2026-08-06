@@ -132,28 +132,104 @@ describe("running totals — the shape a real user brought", () => {
   });
 });
 
-describe("it refuses rather than guesses", () => {
-  // These are the LibreTexts problems that need a concept the translator does
-  // not have — a percentage increase, a work rate, a partition, a proportion, a
-  // perimeter. Refusing is the CORRECT behaviour today, and this test exists so
-  // that if any of them starts answering, it does so deliberately and with a
-  // test written for it rather than by accident.
-  const OUT_OF_SCOPE = [
-    "Due to inflation, the price of a loaf of bread has increased by 5%. How much does the loaf of bread cost now, when its price was $2.40 last year?",
-    "To complete a job, three workers get paid at a rate of $12 per hour. If the total pay for the job was $180, then how many hours did the three workers spend on the job?",
-    "A farmer cuts a 300 foot fence into two pieces of different sizes. The longer piece should be four times as long as the shorter piece. How long are the two pieces?",
-    "If 4 blocks weigh 28 ounces, how many blocks weigh 70 ounces?",
-    "If a rectangle has a length that is three more than twice the width and the perimeter is 20 in, what are the dimensions of the rectangle?",
-    "The perimeter of an equilateral triangle is 60 meters. How long is each side?",
+describe("LibreTexts 1.20, Example 18.3 — real-world applications", () => {
+  // These each need a CONCEPT the phrase translator does not have — what a
+  // perimeter is, that a proportion holds two ratios equal, that a percentage
+  // increase multiplies — so each has its own recogniser. This block was
+  // originally a list of expected REFUSALS with a note that if any started
+  // answering it should do so "deliberately and with a test written for it".
+  // This is that test.
+  const CASES: [string, string, number][] = [
+    [
+      "3a percentage increase",
+      "Due to inflation, the price of a loaf of bread has increased by 5%. How much does the loaf of bread cost now, when its price was $2.40 last year?",
+      2.52,
+    ],
+    [
+      "3b work at an hourly rate",
+      "To complete a job, three workers get paid at a rate of $12 per hour. If the total pay for the job was $180, then how many hours did the three workers spend on the job?",
+      5,
+    ],
+    [
+      "3c partition",
+      "A farmer cuts a 300 foot fence into two pieces of different sizes. The longer piece should be four times as long as the shorter piece. How long are the two pieces?",
+      60,
+    ],
+    ["3d proportion", "If 4 blocks weigh 28 ounces, how many blocks weigh 70 ounces?", 10],
+    [
+      "3g equilateral triangle",
+      "The perimeter of an equilateral triangle is 60 meters. How long is each side?",
+      20,
+    ],
+    [
+      "exit proportion",
+      "A car uses 12 gallons of gas to travel 100 miles. How many gallons would be needed to travel 450 miles?",
+      54,
+    ],
   ];
 
-  for (const text of OUT_OF_SCOPE) {
-    test(`refuses: ${text.slice(0, 52)}…`, () => {
-      expect(answer(text)).toBeNull();
+  for (const [label, text, want] of CASES) {
+    test(label, () => {
+      expect({ label, got: answer(text) }).toEqual({ label, got: want });
     });
   }
 
-  test("and refuses a question with no mathematics in it at all", () => {
+  test("3e rectangle: width 7/3 and length 23/3", () => {
+    const r = solveWordProblem(
+      "If a rectangle has a length that is three more than twice the width and the perimeter is 20 in, what are the dimensions of the rectangle?",
+    );
+    expect(r).not.toBeNull();
+    expect(r!.value).toBeCloseTo(7 / 3, 6);
+    expect(r!.answer).toContain("7.666667"); // the length, 23/3
+  });
+
+  test("3h: the perimeter is stated as a budget and a unit price, never named", () => {
+    // "$600 to spend on a fence which costs $10 per linear foot" is 60 feet of
+    // fence, and the fence IS the perimeter — two steps, both from the text.
+    const r = solveWordProblem(
+      "If a gardener has $600 to spend on a fence which costs $10 per linear foot and the area to be fenced in is rectangular and should be twice as long as it is wide, what are the dimensions of the largest fenced in area?",
+    );
+    expect(r).not.toBeNull();
+    expect(r!.value).toBeCloseTo(10, 9);
+    expect(r!.answer).toContain("20");
+  });
+
+  test("the partition reports BOTH pieces, not just the one it solved for", () => {
+    const r = solveWordProblem(
+      "A farmer cuts a 300 foot fence into two pieces of different sizes. The longer piece should be four times as long as the shorter piece.",
+    );
+    expect(r!.answer).toBe("60 and 240");
+  });
+});
+
+describe("the guards that keep these from guessing", () => {
+  // Each recogniser can produce a confident wrong number if it fills in a
+  // missing quantity. These pin the refusals that prevent that.
+  test("work rate refuses without an explicit head count", () => {
+    // Defaulting to one worker gave 15 hours where the truth is 5, the moment
+    // the count was spelled out as a word rather than a digit.
+    expect(
+      answer("Workers get paid at a rate of $12 per hour. If the total pay for the job was $180, how many hours?"),
+    ).toBeNull();
+  });
+
+  test("a budget with no unit price says nothing about length", () => {
+    expect(
+      answer("If a gardener has $600 to spend on a fence and the area is rectangular and should be twice as long as it is wide, what are the dimensions?"),
+    ).toBeNull();
+  });
+
+  test("partition refuses without a measured total", () => {
+    expect(
+      answer("A farmer cuts a fence into two pieces. The longer piece should be four times as long as the shorter piece."),
+    ).toBeNull();
+  });
+
+  test("a rectangle with no stated length relation is refused", () => {
+    expect(answer("If a rectangle has a perimeter of 20 in, what are the dimensions of the rectangle?")).toBeNull();
+  });
+
+  test("and a question with no mathematics in it at all", () => {
     expect(answer("What is the capital of France?")).toBeNull();
     expect(answer("How many moles are in 18 grams of water?")).toBeNull();
   });

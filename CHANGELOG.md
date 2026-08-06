@@ -6,6 +6,38 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.92.0] — 2026-08-05 — Solve reads all sixteen textbook word problems
+
+Completes the run that started at **0 of 15**. Against the verbatim worked
+examples of LibreTexts 1.20 plus the user's own train problem: **16 of 16
+correct, 0 wrong, 0 refused.**
+
+### Added — five recognisers, one per concept the translator lacks
+| family | example | answer |
+|---|---|---|
+| proportion | 4 blocks weigh 28 oz — how many weigh 70 oz? | 10 |
+| percentage change | bread up 5% from $2.40 | 2.52 |
+| partition | 300 ft fence, longer 4× shorter | 60 and 240 |
+| perimeter | equilateral triangle, P = 60 | 20 |
+| | rectangle, length 3 more than twice the width, P = 20 | 7/3 and 23/3 |
+| | gardener: $600 at $10 per linear foot, twice as long as wide | 10 × 20 |
+| work at an hourly rate | 3 workers, $12/h, $180 total | 5 hours |
+
+Each is its own recogniser rather than more vocabulary in the sentence
+translator: a translator that "sort of" understands geometry produces a
+confident wrong number.
+
+### Fixed — three defects, all one family: a quantity spelled as a WORD
+- **"three workers … $12 per hour" answered 15 hours where the truth is 5.**
+  The head count matched no digit and silently defaulted to one. Number words
+  are now converted for every recogniser, and the work-rate recogniser refuses
+  without an explicit count rather than assuming one.
+- That normalisation then turned "into two pieces" into "into 2 pieces" and
+  broke the partition guard — a normalisation step silently invalidating a
+  guard downstream of it.
+- The partition total matched the first number anywhere in the sentence,
+  including the multiplier. It now requires a unit.
+
 ## [2.91.0] — 2026-08-05 — Solve reads word problems
 
 Asked for by the user, with two sources and a problem of their own (a train

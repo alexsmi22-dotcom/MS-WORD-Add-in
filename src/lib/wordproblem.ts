@@ -16,6 +16,11 @@
 //     60" — translated to an equation and solved.
 //   * Running totals — an unknown start, a sequence of gains and losses, and a
 //     stated final amount ("19 get off, 17 get on, now there are 63").
+//   * Proportion, percentage change, partition into two parts, perimeter
+//     (equilateral triangle / square / rectangle with a stated length relation)
+//     and work at an hourly rate — the "real-world application" families from
+//     the same textbook section. Each needs a CONCEPT the phrase translator
+//     does not have, so each is its own recogniser with its own guards.
 //
 // EVERY TRANSLATED PROBLEM SHOWS THE EQUATION IT DERIVED. That is what makes
 // widening the vocabulary safe: a misreading produces a visibly wrong equation
@@ -53,14 +58,42 @@ export interface WordProblemResult {
 
 const NUM = String.raw`(\d+(?:\.\d+)?)`;
 
+/** Number words the examples actually use, so "five times" reads as "5 times". */
+const NUMBER_WORDS: [RegExp, string][] = [
+  [/\bzero\b/g, "0"],
+  [/\bone\b/g, "1"],
+  [/\btwo\b/g, "2"],
+  [/\bthree\b/g, "3"],
+  [/\bfour\b/g, "4"],
+  [/\bfive\b/g, "5"],
+  [/\bsix\b/g, "6"],
+  [/\bseven\b/g, "7"],
+  [/\beight\b/g, "8"],
+  [/\bnine\b/g, "9"],
+  [/\bten\b/g, "10"],
+  [/\beleven\b/g, "11"],
+  [/\btwelve\b/g, "12"],
+];
+
 /** Normalises whitespace and a few spellings so the patterns below stay simple. */
 function normalize(text: string): string {
-  return text
+  let t = text
     .toLowerCase()
     .replace(/\s+/g, " ")
     .replace(/\bpercent\b/g, "%")
     .replace(/[?.!]+$/g, "")
     .trim();
+  // NUMBER WORDS BECOME DIGITS HERE, for every recogniser rather than only the
+  // sentence translator. Three of the textbook's problems were being missed or
+  // — worse — MISREAD purely because their quantities were spelled out:
+  // "three workers get paid at a rate of $12 per hour" matched no digit, the
+  // worker count silently defaulted to one, and the answer came back 15 hours
+  // where the truth is 5. A wrong answer from a missing word list.
+  for (const [re, digit] of NUMBER_WORDS) t = t.replace(re, digit);
+  // "twice the width" is "2 times the width" — the geometry recognisers below
+  // read a multiplier, and this is the ordinary way English writes it.
+  t = t.replace(/\btwice the\b/g, "2 times the");
+  return t;
 }
 
 const fmt = (v: number): string => (Number.isInteger(v) ? String(v) : String(Math.round(v * 1e6) / 1e6));
@@ -89,22 +122,7 @@ function statementClauses(text: string): string {
     .join(" ");
 }
 
-/** Number words the examples actually use, so "five times" reads as "5 times". */
-const NUMBER_WORDS: [RegExp, string][] = [
-  [/\bzero\b/g, "0"],
-  [/\bone\b/g, "1"],
-  [/\btwo\b/g, "2"],
-  [/\bthree\b/g, "3"],
-  [/\bfour\b/g, "4"],
-  [/\bfive\b/g, "5"],
-  [/\bsix\b/g, "6"],
-  [/\bseven\b/g, "7"],
-  [/\beight\b/g, "8"],
-  [/\bnine\b/g, "9"],
-  [/\bten\b/g, "10"],
-  [/\beleven\b/g, "11"],
-  [/\btwelve\b/g, "12"],
-];
+
 
 // ---------------------------------------------------------------------------
 // Percentage
@@ -462,15 +480,316 @@ function tryRunningTotal(text: string): WordProblemResult | null {
   };
 }
 
+
+// ---------------------------------------------------------------------------
+// The "real-world application" families from LibreTexts 1.20 Example 18.3.
+//
+// Each of these needs a CONCEPT the phrase translator does not have — what a
+// perimeter is, that a proportion holds two ratios equal, that a percentage
+// increase multiplies. So each is its own recogniser with its own guards,
+// rather than more vocabulary in tryNumberSentence: a translator that "sort of"
+// understands geometry produces a confident wrong number, which is the outcome
+// this whole module exists to avoid.
+//
+// Every one of them returns the equation it built. Every one returns null the
+// moment the sentence stops being unambiguous.
+// ---------------------------------------------------------------------------
+
+/** A number that may carry a leading currency symbol. */
+const MONEY = String.raw`\$?(\d+(?:\.\d+)?)`;
+
+/**
+ * Proportion — two quantities in a fixed ratio, one of them asked for.
+ *
+ *   "If 4 blocks weigh 28 ounces, how many blocks weigh 70 ounces?"
+ *   "A car uses 12 gallons of gas to travel 100 miles. How many gallons would
+ *    be needed to travel 450 miles?"
+ *
+ * Both are `given ⁿ⁄ₘ, find x such that x/target = n/m`. THE UNITS ARE CHECKED,
+ * not assumed: the unit asked about in the question must be the unit paired
+ * with the first number in the statement, or the two ratios are not the same
+ * ratio and the answer would be silently meaningless.
+ */
+function tryProportion(t: string): WordProblemResult | null {
+  // "N1 <thing> ... N2 <per-thing>" in the statement, "N3 <per-thing>" in the
+  // question, asking for <thing>.
+  const q = /\bhow many\s+([a-z]+)\b/.exec(t);
+  if (!q) return null;
+  const asked = q[1];
+
+  // Statement: the first pairing of a number with the asked-for unit, then a
+  // second number with a different unit.
+  const first = new RegExp(String.raw`(\d+(?:\.\d+)?)\s+${asked}\b`).exec(t);
+  if (!first) return null;
+  const after = t.slice(first.index + first[0].length);
+  const second = /(\d+(?:\.\d+)?)\s+([a-z]+)\b/.exec(after);
+  if (!second) return null;
+  const perUnit = second[2];
+
+  // The question must restate the SAME per-unit with a new amount.
+  const target = new RegExp(String.raw`(\d+(?:\.\d+)?)\s+${perUnit}\b`, "g");
+  const targets: number[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = target.exec(t)) !== null) targets.push(Number(m[1]));
+  // The statement's own value plus exactly one more: the one being asked about.
+  if (targets.length !== 2) return null;
+
+  const n1 = Number(first[1]);
+  const n2 = Number(second[1]);
+  const n3 = targets[1];
+  if (![n1, n2, n3].every(Number.isFinite) || n2 === 0) return null;
+  const v = (n1 * n3) / n2;
+  if (!Number.isFinite(v)) return null;
+  const eqn = `x / ${n3} = ${n1} / ${n2}`;
+  return {
+    template: "proportion",
+    answer: `${fmt(v)} ${asked}`,
+    value: v,
+    equation: eqn,
+    equationMath: `\\frac{x}{${n3}} = \\frac{${n1}}{${n2}}`,
+    steps: [
+      `${n1} ${asked} per ${n2} ${perUnit}.`,
+      `x = ${n1} × ${n3} ÷ ${n2} = ${fmt(v)}`,
+    ],
+    caveats: [
+      "Assumes the two quantities are in direct proportion — that doubling one doubles the other. " +
+        "Check that is true of your situation before relying on it.",
+    ],
+  };
+}
+
+/**
+ * Percentage increase or decrease applied to a stated starting value.
+ *
+ *   "the price … has increased by 5% … its price was $2.40 last year"
+ */
+function tryPercentChange(t: string): WordProblemResult | null {
+  const dir = /\b(increased|decreased|risen|fallen|gone up|gone down)\b/.exec(t);
+  if (!dir) return null;
+  const pct = /\b(?:by\s+)?(\d+(?:\.\d+)?)\s*%/.exec(t);
+  if (!pct) return null;
+  const base = new RegExp(String.raw`\bwas\s+${MONEY}`).exec(t) ?? new RegExp(String.raw`\bfrom\s+${MONEY}`).exec(t);
+  if (!base) return null;
+  const p = Number(pct[1]);
+  const v0 = Number(base[1]);
+  if (!Number.isFinite(p) || !Number.isFinite(v0)) return null;
+  const down = /decreased|fallen|gone down/.test(dir[1]);
+  const v = down ? v0 * (1 - p / 100) : v0 * (1 + p / 100);
+  const sign = down ? "-" : "+";
+  const eqn = `x = ${v0} × (1 ${sign} ${p}/100)`;
+  return {
+    template: down ? "percentage decrease" : "percentage increase",
+    answer: fmt(v),
+    value: v,
+    equation: eqn,
+    equationMath: `x = ${v0} \\cdot \\left(1 ${sign} \\frac{${p}}{100}\\right)`,
+    steps: [
+      `${p}% of ${v0} = ${fmt((v0 * p) / 100)}`,
+      `${v0} ${sign} ${fmt((v0 * p) / 100)} = ${fmt(v)}`,
+    ],
+    caveats: [],
+  };
+}
+
+/**
+ * Partition — one total split into two parts, one a stated multiple of the
+ * other.
+ *
+ *   "cuts a 300 foot fence into two pieces … the longer piece should be four
+ *    times as long as the shorter piece"
+ */
+function tryPartition(t: string): WordProblemResult | null {
+  // DIGITS TOO. `normalize` now turns number words into digits for every
+  // recogniser, so "into two pieces" arrives here as "into 2 pieces" — and
+  // this guard, written against the original wording, rejected the very
+  // problem it was written for. A normalisation step that silently
+  // invalidates a guard downstream of it is the kind of thing only
+  // measurement finds.
+  if (!/\b(?:two|2) (?:pieces|parts)\b|\binto (?:two|2)\b/.test(t)) return null;
+  // THE TOTAL MUST CARRY A UNIT. Without that the regex matched the first
+  // number anywhere in the sentence — including the multiplier — and produced
+  // a confident split of the wrong quantity.
+  const total = /(\d+(?:\.\d+)?)[\s-]*(?:foot|feet|ft|meters?|metres?|inch|inches|cm|mm|km|yards?|pounds?|kg|g)\b/.exec(t);
+  if (!total) return null;
+  const mult = /\b(\d+(?:\.\d+)?)\s+times as (?:long|big|large|heavy|much)\b/.exec(t);
+  if (!mult) return null;
+  const T = Number(total[1]);
+  const k = Number(mult[1]);
+  if (!Number.isFinite(T) || !Number.isFinite(k) || k <= 0 || T <= 0) return null;
+  const shorter = T / (k + 1);
+  const longer = T - shorter;
+  const eqn = `x + ${k}x = ${T}`;
+  return {
+    template: "partition into two parts",
+    answer: `${fmt(shorter)} and ${fmt(longer)}`,
+    value: shorter,
+    equation: eqn,
+    equationMath: `x + ${k}x = ${T}`,
+    steps: [
+      `Let x be the shorter piece; the longer is ${k}x.`,
+      `x + ${k}x = ${T}, so ${k + 1}x = ${T}`,
+      `shorter = ${fmt(shorter)}, longer = ${fmt(longer)}`,
+    ],
+    caveats: [],
+  };
+}
+
+/**
+ * Perimeter problems: an equilateral triangle, a square, or a rectangle whose
+ * length is stated in terms of its width.
+ *
+ *   "The perimeter of an equilateral triangle is 60 meters."
+ *   "a rectangle has a length that is three more than twice the width and the
+ *    perimeter is 20 in"
+ */
+function tryPerimeter(t: string): WordProblemResult | null {
+  const per = /\bperimeter (?:is|of[^.]*?is)\s*(\d+(?:\.\d+)?)/.exec(t) ?? /\bperimeter[^.]*?\b(\d+(?:\.\d+)?)/.exec(t);
+  let P = per ? Number(per[1]) : NaN;
+  if (!per) {
+    // A BUDGET AND A PER-LENGTH PRICE STATE A PERIMETER WITHOUT NAMING ONE:
+    // "$600 to spend on a fence which costs $10 per linear foot" is 60 feet
+    // of fence, and the fence IS the perimeter. BOTH halves must be present —
+    // a budget with no unit price says nothing at all about length.
+    const budget = new RegExp(String.raw`\bhas\s+${MONEY}\s+to spend`).exec(t);
+    const unit = new RegExp(
+      String.raw`costs?\s+${MONEY}\s+per (?:linear )?(?:foot|feet|meter|metre|yard|ft|m)\b`,
+    ).exec(t);
+    if (!budget || !unit) return null;
+    const b = Number(budget[1]);
+    const u = Number(unit[1]);
+    if (!Number.isFinite(b) || !Number.isFinite(u) || u <= 0) return null;
+    P = b / u;
+  }
+  if (!Number.isFinite(P) || P <= 0) return null;
+
+  if (/\bequilateral triangle\b/.test(t)) {
+    const v = P / 3;
+    return {
+      template: "perimeter of an equilateral triangle",
+      answer: fmt(v),
+      value: v,
+      equation: `3s = ${P}`,
+      equationMath: `3s = ${P}`,
+      steps: [`All three sides are equal, so 3s = ${P}`, `s = ${fmt(v)}`],
+      caveats: [],
+    };
+  }
+  if (/\bsquare\b/.test(t)) {
+    const v = P / 4;
+    return {
+      template: "perimeter of a square",
+      answer: fmt(v),
+      value: v,
+      equation: `4s = ${P}`,
+      equationMath: `4s = ${P}`,
+      steps: [`All four sides are equal, so 4s = ${P}`, `s = ${fmt(v)}`],
+      caveats: [],
+    };
+  }
+  // "rectangular" as well as "rectangle" — the textbook writes "the area to be
+  // fenced in is rectangular", and a shape word missing one inflection is not a
+  // reason to refuse a problem the recogniser otherwise fully understands.
+  if (/\brectangle\b|\brectangular\b/.test(t)) {
+    // "length that is A more than B times the width", or "twice as long as it
+    // is wide" (A = 0, B = 2).
+    let A = 0;
+    let B = 1;
+    const rel = /\blength[^.]*?\b(\d+(?:\.\d+)?)\s+more than\s+(\d+(?:\.\d+)?)\s+times the width\b/.exec(t);
+    const plain = /\blength[^.]*?\bis\s+(\d+(?:\.\d+)?)\s+times the width\b/.exec(t);
+    const twice = /\b2 times as long as (?:it is )?wide\b|\btwice as long as (?:it is )?wide\b/.exec(t);
+    if (rel) {
+      A = Number(rel[1]);
+      B = Number(rel[2]);
+    } else if (plain) {
+      A = 0;
+      B = Number(plain[1]);
+    } else if (twice) {
+      A = 0;
+      B = 2;
+    } else {
+      return null;
+    }
+    if (!Number.isFinite(A) || !Number.isFinite(B)) return null;
+    // 2(w + (B·w + A)) = P
+    const denom = 2 * (1 + B);
+    if (denom === 0) return null;
+    const w = (P - 2 * A) / denom;
+    const l = B * w + A;
+    if (!Number.isFinite(w) || w <= 0) return null;
+    const eqn = `2(w + ${B}w + ${A}) = ${P}`;
+    return {
+      template: "perimeter of a rectangle",
+      answer: `width ${fmt(w)}, length ${fmt(l)}`,
+      value: w,
+      equation: eqn,
+      equationMath: eqn,
+      steps: [
+        `Let w be the width; the length is ${B}w${A ? ` + ${A}` : ""}.`,
+        `${eqn}`,
+        `w = ${fmt(w)}, length = ${fmt(l)}`,
+      ],
+      caveats: [],
+    };
+  }
+  return null;
+}
+
+/**
+ * Work paid at a rate: total pay ÷ (workers × rate) = hours.
+ *
+ *   "three workers get paid at a rate of $12 per hour. If the total pay for the
+ *    job was $180, then how many hours did the three workers spend?"
+ */
+function tryWorkRate(t: string): WordProblemResult | null {
+  const rate = new RegExp(String.raw`\brate of\s+${MONEY}\s*(?:per|an|a)\s*hour`).exec(t);
+  if (!rate) return null;
+  const total = new RegExp(String.raw`\btotal pay[^.]*?\bwas\s+${MONEY}`).exec(t);
+  if (!total) return null;
+  // AN EXPLICIT HEAD COUNT, or nothing. Defaulting to one worker is a guess,
+  // and it produced 15 hours where the answer is 5 the moment the count was
+  // spelled out as a word. A singular "worker" is an explicit one.
+  const workers = /\b(\d+(?:\.\d+)?)\s+workers?\b/.exec(t);
+  const singular = /\ba worker\b|\bone worker\b/.test(t);
+  if (!workers && !singular) return null;
+  const n = workers ? Number(workers[1]) : 1;
+  const r = Number(rate[1]);
+  const T = Number(total[1]);
+  if (![n, r, T].every(Number.isFinite) || n <= 0 || r <= 0) return null;
+  const hours = T / (n * r);
+  if (!Number.isFinite(hours)) return null;
+  const eqn = `${n} × ${r} × h = ${T}`;
+  return {
+    template: "work at an hourly rate",
+    answer: `${fmt(hours)} hours`,
+    value: hours,
+    equation: eqn,
+    equationMath: `${n} \\cdot ${r} \\cdot h = ${T}`,
+    steps: [
+      `${n} worker(s) at ${r} per hour costs ${fmt(n * r)} per hour.`,
+      `h = ${T} ÷ ${fmt(n * r)} = ${fmt(hours)}`,
+    ],
+    caveats: ["Assumes every worker is paid the same rate and works the same hours."],
+  };
+}
+
 export function solveWordProblem(text: string): WordProblemResult | null {
   const t = normalize(text);
   if (!t) return null;
   // ORDER MATTERS: the most specific grammar first. A running-total problem
   // contains numbers that a percentage or rate-time pattern could latch onto,
   // and the first recogniser to claim a problem wins.
+  // ORDER MATTERS: the most specific grammar first. A running-total or geometry
+  // problem contains numbers that a percentage or rate-time pattern could latch
+  // onto, and the first recogniser to claim a problem wins. The bare
+  // number-sentence translator is last precisely because it is the greediest.
   return (
     tryShareSequence(text) ??
     tryRunningTotal(text) ??
+    tryPerimeter(t) ??
+    tryPartition(t) ??
+    tryWorkRate(t) ??
+    tryPercentChange(t) ??
+    tryProportion(t) ??
     tryPercentage(t) ??
     tryDistanceRateTime(t) ??
     tryNumberSentence(t)

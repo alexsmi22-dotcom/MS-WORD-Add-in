@@ -736,6 +736,12 @@ h1 {
   touch-action: none;
 }
 
+.draw-btn-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
 .draw-pop-btn {
   margin-top: 6px;
   padding: 6px 12px;
@@ -749,6 +755,23 @@ h1 {
 
 .draw-pop-btn:hover {
   border-color: var(--accent);
+}
+
+/* The structure-compliance note under the canvas: empty when the drawing is
+   compliant, so it takes no space until there is something to say. */
+.draw-compliance {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.draw-compliance:empty {
+  display: none;
+}
+
+.draw-compliance.bad {
+  color: var(--warn);
 }
 
 .build-draw-hint {

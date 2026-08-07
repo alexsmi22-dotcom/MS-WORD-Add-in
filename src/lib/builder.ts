@@ -422,6 +422,111 @@ function finish(mol: Molecule, width: number, height: number, needCoords: boolea
   return { svg, smiles, formula, generic, idcode, mw, rgroups };
 }
 
+/** One problem found by complianceIssues(). */
+export interface ComplianceIssue {
+  kind: "valence" | "overlap" | "charge";
+  /** "error" = chemically non-compliant; "note" = legitimate but worth flagging. */
+  severity: "error" | "note";
+  /** True when regenerating clean coordinates (Clean structure) fixes it. */
+  fixableByClean: boolean;
+  message: string;
+}
+
+/**
+ * Checks the structural rules of OpenChemLib's own validate() — exceeded
+ * valence, atoms drawn on top of each other, net charge — but reports every
+ * problem (validate() throws on the first) and grades them: valence and
+ * overlap are non-compliant, while a nonzero net charge is only a note, since
+ * a deliberately drawn ion is real chemistry (validate() rejects acetate
+ * outright). validate()'s stereo checks are deliberately NOT mirrored: they
+ * flag the same racemic molecule or not depending on how the object was
+ * constructed (a SMILES-parsed alanine passes, its own molfile round-trip
+ * fails), so their verdicts aren't trustworthy enough to show a user.
+ *
+ * Messages name elements but never atom numbers: helper-array preparation
+ * re-sorts explicit hydrogens, so internal indices need not match the order
+ * the user drew — and the canvas displays no numbering to anchor them to.
+ */
+export function complianceIssues(mol: Molecule): ComplianceIssue[] {
+  const issues: ComplianceIssue[] = [];
+  if (mol.getAllAtoms() === 0) return issues;
+  // The caller (canvas editor) owns and live-mutates this molecule — derive
+  // from a copy so helper-array recomputation never touches the editing state.
+  const m = mol.getCompactCopy();
+  m.ensureHelperArrays(Molecule.cHelperNeighbours);
+
+  // Valence: more bonding than the element allows (charge-adjusted), e.g. a
+  // pentavalent carbon. Identical findings collapse into one message.
+  const valenceMsgs: Record<string, true> = {};
+  for (let a = 0; a < m.getAtoms(); a++) {
+    const occupied = m.getOccupiedValence(a);
+    const max = m.getMaxValence(a);
+    if (occupied > max) {
+      const message = `A ${m.getAtomLabel(a)} atom is drawn with valence ${occupied} — the maximum for ${m.getAtomLabel(a)} is ${max}.`;
+      if (valenceMsgs[message]) continue;
+      valenceMsgs[message] = true;
+      issues.push({ kind: "valence", severity: "error", fixableByClean: false, message });
+    }
+  }
+
+  // Overlap: two atoms closer than a quarter of the average bond length — the
+  // same threshold validate() uses. Clean structure re-lays these out.
+  const avbl = m.getAverageBondLength(false);
+  const minDistSq = (avbl * avbl) / 16;
+  const pairs: Array<[number, number]> = [];
+  for (let a = 1; a < m.getAllAtoms(); a++) {
+    for (let b = 0; b < a; b++) {
+      const dx = m.getAtomX(a) - m.getAtomX(b);
+      const dy = m.getAtomY(a) - m.getAtomY(b);
+      const dz = m.getAtomZ(a) - m.getAtomZ(b);
+      if (dx * dx + dy * dy + dz * dz < minDistSq) pairs.push([b, a]);
+    }
+  }
+  if (pairs.length === 1) {
+    const [b, a] = pairs[0];
+    issues.push({
+      kind: "overlap",
+      severity: "error",
+      fixableByClean: true,
+      message: `Two atoms (${m.getAtomLabel(b)} and ${m.getAtomLabel(a)}) are drawn on top of each other.`,
+    });
+  } else if (pairs.length > 1) {
+    issues.push({
+      kind: "overlap",
+      severity: "error",
+      fixableByClean: true,
+      message: `${pairs.length} pairs of atoms are drawn on top of each other.`,
+    });
+  }
+
+  // Net charge: legitimate for an ion, so a note rather than non-compliance.
+  let net = 0;
+  for (let a = 0; a < m.getAllAtoms(); a++) net += m.getAtomCharge(a);
+  if (net !== 0) {
+    const signed = net > 0 ? `+${net}` : `−${-net}`;
+    issues.push({
+      kind: "charge",
+      severity: "note",
+      fixableByClean: false,
+      message: `Net charge ${signed} — correct for an ion; a neutral compound needs its charges balanced (or counter-ions drawn).`,
+    });
+  }
+
+  return issues;
+}
+
+/**
+ * A layout-cleaned copy of a drawn molecule: identical atoms, bonds, charges,
+ * stereochemistry and query features, with fresh machine-generated 2D
+ * coordinates (OCL's deterministic CoordinateInventor, which also rebuilds the
+ * wedge/hash bonds from the recorded parities — drawn stereo survives).
+ */
+export function cleanedCopy(mol: Molecule): Molecule {
+  const copy = mol.getCompactCopy();
+  copy.inventCoordinates();
+  return copy;
+}
+
 /** Heuristic: does this text look like an MDL molfile rather than an atom/bond list? */
 export function looksLikeMolfile(text: string): boolean {
   return /\bV[23]000\b/.test(text) || /^M\s+END\s*$/m.test(text);

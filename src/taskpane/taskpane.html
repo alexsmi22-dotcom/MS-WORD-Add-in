@@ -260,9 +260,18 @@
              atoms, bonds, ring templates, chains, charges, wedge/hash stereo. -->
         <div id="build-draw-wrap">
           <div id="build-editor" aria-label="Structure drawing canvas"></div>
-          <button id="open-draw-dialog-btn" class="draw-pop-btn" type="button">
-            Open large canvas ⤢
-          </button>
+          <div class="draw-btn-row">
+            <button id="open-draw-dialog-btn" class="draw-pop-btn" type="button">
+              Open large canvas ⤢
+            </button>
+            <button id="clean-structure-btn" class="draw-pop-btn" type="button">
+              Clean structure
+            </button>
+            <button id="reset-canvas-btn" class="draw-pop-btn" type="button">
+              Reset canvas
+            </button>
+          </div>
+          <p id="draw-compliance" class="draw-compliance" role="status" aria-live="polite"></p>
           <p class="build-draw-hint">
             <b>Pick a tool on the left, then click or drag on the canvas.</b>
             E.g. choose a ring and click where it goes; with the bond tool, drag to draw

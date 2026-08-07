@@ -276,7 +276,15 @@ import {
 } from "../lib/stats2";
 import { tukeyHSD } from "../lib/tukey";
 import { fftFilter, FilterKind, FilterResponse } from "../lib/fftfilter";
-import { build, BuildFormat, BuildResult, resultFromMolecule } from "../lib/builder";
+import {
+  build,
+  BuildFormat,
+  BuildResult,
+  cleanedCopy,
+  ComplianceIssue,
+  complianceIssues,
+  resultFromMolecule,
+} from "../lib/builder";
 // The full OCL build (aliased over "openchemlib" in webpack, so this adds no
 // second copy) — the only build that ships the interactive canvas editor.
 import { CanvasEditor, Molecule as OclMolecule } from "openchemlib/full";
@@ -640,6 +648,9 @@ let buildTextWrap: HTMLElement;
 let buildFragmentToggle: HTMLInputElement;
 let editInDrawBtn: HTMLButtonElement;
 let openDrawDialogBtn: HTMLButtonElement;
+let cleanStructureBtn: HTMLButtonElement;
+let resetCanvasBtn: HTMLButtonElement;
+let drawComplianceEl: HTMLElement;
 
 /** Which Build-mode input surface is active: the drawing canvas or typed text. */
 let buildTab: "draw" | "text" = "draw";
@@ -1057,6 +1068,9 @@ Office.onReady((info) => {
   buildFragmentToggle = document.getElementById("build-draw-fragment") as HTMLInputElement;
   editInDrawBtn = document.getElementById("edit-in-draw-btn") as HTMLButtonElement;
   openDrawDialogBtn = document.getElementById("open-draw-dialog-btn") as HTMLButtonElement;
+  cleanStructureBtn = document.getElementById("clean-structure-btn") as HTMLButtonElement;
+  resetCanvasBtn = document.getElementById("reset-canvas-btn") as HTMLButtonElement;
+  drawComplianceEl = document.getElementById("draw-compliance") as HTMLElement;
   codeSection = document.getElementById("code-section") as HTMLElement;
   codeStyleSelect = document.getElementById("code-style") as HTMLSelectElement;
   codeTitleInput = document.getElementById("code-title") as HTMLInputElement;
@@ -1326,6 +1340,8 @@ Office.onReady((info) => {
   buildFragmentToggle.addEventListener("change", onFragmentToggle);
   editInDrawBtn.addEventListener("click", openInDraw);
   openDrawDialogBtn.addEventListener("click", openDrawDialog);
+  cleanStructureBtn.addEventListener("click", onCleanStructure);
+  resetCanvasBtn.addEventListener("click", onResetCanvas);
 
   codeInput.addEventListener("input", updateCodePreview);
   codeStyleSelect.addEventListener("change", updateCodePreview);
@@ -4343,7 +4359,10 @@ function ensureDrawEditor(): void {
   try {
     drawEditor = new CanvasEditor(host, { initialMode: "molecule" });
     drawEditor.setOnChangeListener((event) => {
-      if (event.type === "molecule") updateDrawPreview();
+      // Programmatic changes (setMolecule after Clean / dialog return / Edit in
+      // Draw) fire a DEFERRED non-user event; the status those paths just set
+      // must survive that late refresh, or it is wiped one frame later.
+      if (event.type === "molecule") updateDrawPreview(!event.isUserEvent);
     });
   } catch (error) {
     drawEditor = null;
@@ -4372,9 +4391,75 @@ function onFragmentToggle(): void {
   if (!drawEditor) return;
   const mol = drawEditor.getMolecule();
   mol.setFragment(buildFragmentToggle.checked);
-  // moleculeChanged() synchronously fires the change listener, which refreshes
-  // the preview — no explicit refresh here or it runs twice.
+  // moleculeChanged() fires the change listener (deferred, as a NON-user
+  // event), which refreshes the preview — no explicit refresh here or it runs
+  // twice. Non-user refreshes preserve the status line, but this toggle IS a
+  // user action, so clear any stale status the old refresh used to clear.
+  setStatus("");
   drawEditor.moleculeChanged();
+}
+
+/** Wipes the drawing canvas back to a fresh start (recoverable via the editor's undo). */
+function onResetCanvas(): void {
+  if (!drawEditor) return;
+  drawEditor.clearAll(); // stores an undo state first, so a mis-click is recoverable
+  // A reset is a fresh start, so the Markush flag goes too (clearAll preserves
+  // it, mirroring the toolbar's clear tool). Typed R-group definitions are NOT
+  // wiped: undo restores only the molecule, so deleting them here would make a
+  // mis-click permanently destroy typed legend text — they stay, invisible,
+  // exactly as when the R1 atom itself is erased and redrawn.
+  drawEditor.getMolecule().setFragment(false);
+  // clearAll's own change event is deferred — and absent on an already-empty
+  // canvas — so reflect the reset now (unchecks the Markush box).
+  updateDrawPreview();
+}
+
+/**
+ * Re-lays out the drawn structure with machine-generated clean coordinates
+ * (untangles overlaps and distorted rings; connectivity, charges and stereo
+ * are untouched). Problems clean-up cannot fix — an exceeded valence, an
+ * unbalanced charge — stay reported in the compliance note under the canvas.
+ */
+function onCleanStructure(): void {
+  if (!drawEditor) return;
+  const mol = drawEditor.getMolecule();
+  if (mol.getAllAtoms() === 0) {
+    setStatus("Nothing to clean — the canvas is empty.", "error");
+    return;
+  }
+  try {
+    // setMolecule stores an undo state, so the hand-drawn layout is one
+    // Ctrl+Z away if the machine layout is worse.
+    drawEditor.setMolecule(cleanedCopy(mol));
+  } catch (error) {
+    setStatus(`Could not clean the structure: ${(error as Error).message}`, "error");
+    return;
+  }
+  updateDrawPreview();
+  let remaining = false;
+  try {
+    remaining = complianceIssues(drawEditor.getMolecule()).some((i) => i.severity === "error");
+  } catch {
+    // A failed re-check must not turn a successful clean into a thrown click.
+  }
+  if (remaining) {
+    setStatus("Layout cleaned — but the structure itself is not compliant (see the note below the canvas).", "error");
+  } else {
+    setStatus("Structure cleaned.", "success");
+  }
+}
+
+/** Renders the compliance note under the canvas (empty = nothing to report). */
+function renderCompliance(issues: ComplianceIssue[]): void {
+  drawComplianceEl.replaceChildren();
+  drawComplianceEl.classList.remove("bad");
+  if (!issues.length) return;
+  const errors = issues.some((i) => i.severity === "error");
+  if (errors) drawComplianceEl.classList.add("bad");
+  const head = document.createElement("b");
+  head.textContent = errors ? "Not compliant: " : "Note: ";
+  drawComplianceEl.appendChild(head);
+  drawComplianceEl.appendChild(document.createTextNode(issues.map((i) => i.message).join(" ")));
 }
 
 /**
@@ -4383,7 +4468,7 @@ function onFragmentToggle(): void {
  * figure that will insert (the canvas itself is the editing view, not the
  * insert artifact).
  */
-function updateDrawPreview(): void {
+function updateDrawPreview(preserveStatus = false): void {
   currentBuild = null;
   insertBuildBtn.disabled = true;
   const mol = drawEditor ? drawEditor.getMolecule() : null;
@@ -4409,7 +4494,8 @@ function updateDrawPreview(): void {
       buildFormulaEl.textContent = "—";
       buildSmilesEl.textContent = "—";
       renderRgroupInputs([]);
-      setStatus("");
+      renderCompliance([]);
+      if (!preserveStatus) setStatus("");
       return;
     }
 
@@ -4423,8 +4509,14 @@ function updateDrawPreview(): void {
       buildFormulaEl.textContent = result.formula + (result.mw ? ` (MW ${result.mw})` : "");
       buildSmilesEl.textContent = result.smiles || "—";
       renderRgroupInputs(result.rgroups);
+      // The compliance note must never take the preview down with it.
+      try {
+        renderCompliance(complianceIssues(mol));
+      } catch {
+        renderCompliance([]);
+      }
       insertBuildBtn.disabled = false;
-      setStatus("");
+      if (!preserveStatus) setStatus("");
     } catch (error) {
       buildFragmentToggle.checked = mol.isFragment();
       buildPreviewEl.replaceChildren();
@@ -4435,6 +4527,7 @@ function updateDrawPreview(): void {
       buildFormulaEl.textContent = "—";
       buildSmilesEl.textContent = "—";
       renderRgroupInputs([]);
+      renderCompliance([]);
     }
   } finally {
     keepRgroupValues = false;

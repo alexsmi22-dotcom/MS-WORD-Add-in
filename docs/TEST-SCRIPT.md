@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.94.0)
+# JurisLab — Manual Test Script (v2.95.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -2739,6 +2739,15 @@ Engineering mode, Energy & power (now 17; the mode must state **101 calculators*
 - [ ] Clear a numeric field → result shows "Enter all values", insert disabled.
 
 ## 6. Build
+- [ ] **Draw tab:** draw a ring on the canvas → preview + formula update live below.
+- [ ] **Clean structure** on a deliberately messy drawing (dragged-out bond angles)
+  → layout straightens; formula/SMILES unchanged; one **undo** (editor toolbar)
+  restores the hand-drawn layout. Status reads "Structure cleaned." and STAYS.
+- [ ] Drag one atom on top of another → note under the canvas reads **Not
+  compliant: Two atoms … drawn on top of each other** → **Clean structure**
+  clears it.
+- [ ] **Reset canvas** → canvas empties, Markush box unchecks; editor **undo**
+  brings the drawing back.
 - [ ] Input `atoms: C O O` / `bonds: 1=2 1=3` → structure of **CO₂**, Formula `CO2`.
 - [ ] Add an R-group (e.g. `atoms: C N R1 …`), fill `R1 = methyl, ethyl`, choose
   **Table** → **Insert** adds the structure + an R-group legend table.

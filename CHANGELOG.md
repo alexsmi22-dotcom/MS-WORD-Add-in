@@ -6,6 +6,34 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.95.0] — 2026-08-07 — Reset, Clean structure, and a compliance note
+
+### Added
+- **Reset canvas** — wipes the drawing (and the Markush flag) back to a
+  fresh start. Recoverable via the editor's undo; typed R-group definitions
+  deliberately survive, since undo cannot bring those back.
+- **Clean structure** — re-lays the drawing out with machine-generated
+  coordinates (untangles overlaps and distorted rings). Connectivity,
+  charges and stereochemistry are untouched — the canonical ID code is
+  identical before and after — and the hand-drawn layout is one undo away.
+- **Compliance note** under the canvas, always current while drawing: an
+  exceeded valence (e.g. a pentavalent carbon) or atoms drawn on top of
+  each other reads **Not compliant**; a nonzero net charge is a *note*
+  (an ion is real chemistry — OCL's own validate() would reject acetate).
+  OCL's stereo validations are deliberately not surfaced: the same racemic
+  molecule passes or fails them depending on how the object was built, and
+  a verdict that flips on provenance is not one to show a user.
+
+### Fixed (adversarial pass over this diff)
+- Messages name elements, never atom indices — internal helper arrays
+  re-sort hydrogens, so indices need not match the drawn order.
+- Programmatic canvas refreshes (Clean, dialog return, Edit in Draw) no
+  longer wipe the just-set status line one frame later — the deferred
+  editor event now preserves it; user edits still clear stale status.
+- Reset no longer erases typed R-group definitions (undo could not restore
+  them); a compliance re-check failure cannot turn a successful clean into
+  a thrown click.
+
 ## [2.94.0] — 2026-08-06 — A big canvas for real drawing
 
 Second round of in-Word feedback: it draws, but the canvas is cramped.

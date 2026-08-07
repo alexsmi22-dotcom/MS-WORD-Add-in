@@ -304,6 +304,8 @@
     build: { title:"Build", tagline:"Draw a 2D structure on an interactive canvas (ChemDraw-style), or build one from a typed atom/bond list or a molfile — including Markush/generic genus structures for patents.",
       does:[
         "<b>Drawing canvas</b> — pick a tool, then click or drag: atoms, bonds, ring templates, chains, charges and wedge/hash stereo; the inserted figure derives from exactly what you drew. Resizable in the pane, or pop out a near-full-screen <b>large canvas</b> window and send the drawing back with one click.",
+        "<b>Clean structure</b> — one click re-lays out a messy drawing with machine coordinates: overlaps untangled, ring angles straightened, and the chemistry untouched (connectivity, charges and stereo are provably identical). One undo restores your hand-drawn layout. <b>Reset canvas</b> wipes to a fresh start, also undo-recoverable.",
+        "<b>Live compliance note</b> — as you draw, an exceeded valence (a five-bonded carbon) or two atoms sitting on top of each other reads <i>Not compliant</i> under the canvas; a deliberately drawn ion's net charge is a note, not a rejection.",
         "Atom/bond list or a pasted MDL molfile; bonds single/double/triple/undefined/stereo, atom charges, auto hydrogens.",
         "<b>Markush / generic</b> atoms — [C,N] lists, X halogen, A any atom, Q heteroatom, R/R1/R2 R-groups.",
         "<b>R-group legends</b> — \"where R1 = …\" as a line or a structured R-group | Definition table; nested (sub-generic) R-groups auto-detected.",

@@ -6,6 +6,27 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.94.0] — 2026-08-06 — A big canvas for real drawing
+
+Second round of in-Word feedback: it draws, but the canvas is cramped.
+
+### Added
+- **Open large canvas** — pops the same editor into a near-full-screen
+  Office dialog window. The pane's molecule rides along (full-fidelity
+  idcode encoding, Markush flag included); draw at size, click **Use this
+  drawing**, and it lands back in the pane ready to insert. Oversized
+  structures that cannot ride the URL open a blank canvas with both windows
+  saying so (never a silent replace).
+- The in-pane canvas is taller (400px) and **resizable** — drag the handle
+  at its bottom-right corner (the editor re-lays-out live).
+
+### Fixed (adversarial pass over this diff)
+- The dialog readout honors the R-group⇒generic display contract — no
+  concrete formula counting R at mass 0 — and shows the formula immediately
+  on seeding, not only after the first edit.
+- The large-canvas button disarms while a dialog is open (no raw Office
+  error on a double click) and re-arms when the dialog closes either way.
+
 ## [2.93.1] — 2026-08-06 — First real-Word feedback on the Draw canvas
 
 The user's first in-Word pass read as "does not work": the Markush box

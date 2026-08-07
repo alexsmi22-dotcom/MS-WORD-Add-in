@@ -639,6 +639,7 @@ let buildDrawWrap: HTMLElement;
 let buildTextWrap: HTMLElement;
 let buildFragmentToggle: HTMLInputElement;
 let editInDrawBtn: HTMLButtonElement;
+let openDrawDialogBtn: HTMLButtonElement;
 
 /** Which Build-mode input surface is active: the drawing canvas or typed text. */
 let buildTab: "draw" | "text" = "draw";
@@ -1055,6 +1056,7 @@ Office.onReady((info) => {
   buildTextWrap = document.getElementById("build-text-wrap") as HTMLElement;
   buildFragmentToggle = document.getElementById("build-draw-fragment") as HTMLInputElement;
   editInDrawBtn = document.getElementById("edit-in-draw-btn") as HTMLButtonElement;
+  openDrawDialogBtn = document.getElementById("open-draw-dialog-btn") as HTMLButtonElement;
   codeSection = document.getElementById("code-section") as HTMLElement;
   codeStyleSelect = document.getElementById("code-style") as HTMLSelectElement;
   codeTitleInput = document.getElementById("code-title") as HTMLInputElement;
@@ -1323,6 +1325,7 @@ Office.onReady((info) => {
   buildTabTextBtn.addEventListener("click", () => setBuildTab("text"));
   buildFragmentToggle.addEventListener("change", onFragmentToggle);
   editInDrawBtn.addEventListener("click", openInDraw);
+  openDrawDialogBtn.addEventListener("click", openDrawDialog);
 
   codeInput.addEventListener("input", updateCodePreview);
   codeStyleSelect.addEventListener("change", updateCodePreview);
@@ -4436,6 +4439,77 @@ function updateDrawPreview(): void {
   } finally {
     keepRgroupValues = false;
   }
+}
+
+/**
+ * Pops the drawing canvas out into a large Office dialog window — the same
+ * editor at ~85% of the screen instead of 400px of pane. The current molecule
+ * rides along in the URL (idcode + coordinates, the full-fidelity encoding);
+ * "Use this drawing" in the dialog hands the result back the same way.
+ */
+function openDrawDialog(): void {
+  const ui = Office.context?.ui;
+  if (!ui || typeof ui.displayDialogAsync !== "function") {
+    setStatus("This Word host does not support pop-out dialog windows.", "error");
+    return;
+  }
+  let url = new URL("drawdialog.html", window.location.href).href;
+  if (drawEditor) {
+    const mol = drawEditor.getMolecule();
+    if (mol.getAllAtoms() > 0) {
+      try {
+        // Seed the same generic-forced encoding the insert path records, so a
+        // never-ticked drawn genus arrives in the dialog correctly flagged.
+        const forSeed = mol.getCompactCopy();
+        if (currentBuild?.generic) forSeed.setFragment(true);
+        const enc = forSeed.getIDCodeAndCoordinates();
+        const seeded = `${url}?mol=${encodeURIComponent(`${enc.idCode} ${enc.coordinates}`)}`;
+        // Dialog URLs have host-dependent length limits; a molecule too big to
+        // fit opens a blank large canvas — with both windows saying so, since
+        // "Use this drawing" from a blank canvas REPLACES the pane's molecule.
+        if (seeded.length < 1800) {
+          url = seeded;
+        } else {
+          url = `${url}?tooLarge=1`;
+          setStatus("Structure too large to carry into the large canvas — it opens blank.", "error");
+        }
+      } catch {
+        /* open blank */
+      }
+    }
+  }
+  openDrawDialogBtn.disabled = true;
+  ui.displayDialogAsync(url, { height: 85, width: 85 }, (result) => {
+    if (result.status !== Office.AsyncResultStatus.Succeeded) {
+      openDrawDialogBtn.disabled = false;
+      setStatus(`Could not open the large canvas: ${result.error?.message ?? "unknown error"}`, "error");
+      return;
+    }
+    const dialog = result.value;
+    dialog.addEventHandler(Office.EventType.DialogMessageReceived, (arg) => {
+      dialog.close();
+      openDrawDialogBtn.disabled = false;
+      const msg = (arg as { message?: string }).message;
+      if (!msg) return;
+      try {
+        const data = JSON.parse(msg) as { mol?: string; cancel?: boolean };
+        if (data.cancel || !data.mol) return;
+        const [idcode, coords] = data.mol.split(/\s+/);
+        const mol = coords ? OclMolecule.fromIDCode(idcode, coords) : OclMolecule.fromIDCode(idcode);
+        setBuildTab("draw");
+        if (!drawEditor) return;
+        drawEditor.setMolecule(mol);
+        updateDrawPreview();
+        setStatus("Drawing brought back from the large canvas.", "success");
+      } catch (error) {
+        setStatus(`Could not read the drawing back: ${(error as Error).message}`, "error");
+      }
+    });
+    // The user closing the dialog window (X) arrives here — re-arm the button.
+    dialog.addEventHandler(Office.EventType.DialogEventReceived, () => {
+      openDrawDialogBtn.disabled = false;
+    });
+  });
 }
 
 /** Loads the Chemical-mode structure into the Draw canvas for modification. */

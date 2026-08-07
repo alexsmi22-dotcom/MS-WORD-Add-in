@@ -260,10 +260,15 @@
              atoms, bonds, ring templates, chains, charges, wedge/hash stereo. -->
         <div id="build-draw-wrap">
           <div id="build-editor" aria-label="Structure drawing canvas"></div>
+          <button id="open-draw-dialog-btn" class="draw-pop-btn" type="button">
+            Open large canvas ⤢
+          </button>
           <p class="build-draw-hint">
             <b>Pick a tool on the left, then click or drag on the canvas.</b>
             E.g. choose a ring and click where it goes; with the bond tool, drag to draw
-            bonds; click an atom with an element symbol selected to change it.
+            bonds; click an atom with an element symbol selected to change it. Drag the
+            handle at the canvas's bottom-right corner to grow it, or use the large
+            canvas for room to work.
           </p>
           <label class="build-markush-toggle" for="build-draw-fragment">
             <input type="checkbox" id="build-draw-fragment" />

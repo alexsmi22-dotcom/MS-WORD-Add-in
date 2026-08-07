@@ -4391,12 +4391,12 @@ function updateDrawPreview(): void {
   keepRgroupValues = true;
   try {
     if (!mol || mol.getAllAtoms() === 0) {
-      // An empty canvas has no genus: clear an orphaned fragment flag (from
-      // ticking the box before drawing) so the flag and the unchecked box
-      // can't contradict — otherwise the next plain drawing would surface as
-      // "generic structure" out of nowhere.
-      if (mol && mol.isFragment()) mol.setFragment(false);
-      buildFragmentToggle.checked = false;
+      // The box MIRRORS the molecule's fragment flag, so ticking it on an
+      // empty canvas pre-arms Markush for the drawing about to happen (a real
+      // user read the old snap-back-to-unchecked as "the box does not check").
+      // Mirroring keeps the two from ever contradicting — the defect the old
+      // behavior was guarding against.
+      buildFragmentToggle.checked = !!mol && mol.isFragment();
       buildPreviewEl.replaceChildren();
       const hint = document.createElement("span");
       hint.className = "hint";

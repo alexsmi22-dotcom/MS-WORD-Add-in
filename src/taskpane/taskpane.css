@@ -731,6 +731,13 @@ h1 {
   touch-action: none;
 }
 
+.build-draw-hint {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
 .build-markush-toggle {
   display: flex;
   align-items: center;

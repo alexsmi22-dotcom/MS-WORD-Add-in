@@ -6,6 +6,21 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.93.1] — 2026-08-06 — First real-Word feedback on the Draw canvas
+
+The user's first in-Word pass read as "does not work": the Markush box
+snapped back off (by design, on an empty canvas) and the toolbar would not
+drag (it is select-a-tool-then-draw, and nothing said so). Verified with
+real CDP input events against the production bundle at 1× and 1.5× display
+scaling that drawing itself works in the WebView2 engine.
+
+### Fixed
+- The Markush checkbox now MIRRORS the molecule's fragment flag, so it can
+  be ticked on an empty canvas to pre-arm a genus before drawing — instead
+  of snapping back unchecked, which a real user correctly read as broken.
+- A hint under the canvas explains the interaction model: pick a tool on
+  the left, then click or drag on the canvas.
+
 ## [2.93.0] — 2026-08-06 — Draw structures like ChemDraw
 
 The most-requested capability from users: Build mode now opens on a **Draw

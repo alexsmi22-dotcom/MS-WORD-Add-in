@@ -26912,6 +26912,10 @@ function updateSolve(): void {
     // Stacked-fraction pastes only make sense where a fraction does; a
     // topology point cloud or a word problem is multi-line for its own reasons.
     stackedFractions: kind === "equation" || kind === "derivative" || kind === "integral",
+    // A pasted PROBLEM STATEMENT (equation + question prose + choices) keeps
+    // its equation and drops the prose — equation kind only, where prose has
+    // no other meaning (word problems ARE prose).
+    extractFromProse: kind === "equation",
   });
   const text = folded.text.trim();
   solvePasteNoteEl.textContent = text ? folded.notes.join(" ") : "";

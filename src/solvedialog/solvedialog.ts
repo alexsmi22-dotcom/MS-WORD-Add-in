@@ -344,6 +344,7 @@ Office.onReady(() => {
     const folded = foldPastedMath(input.value.trim(), {
       geometry: kind === "geometry",
       stackedFractions: kind !== "geometry",
+      extractFromProse: kind === "equation",
     });
     pasteNote.textContent = input.value.trim() ? folded.notes.join(" ") : "";
     renderTypeset(folded.text);

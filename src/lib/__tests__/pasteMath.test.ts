@@ -180,6 +180,84 @@ describe("adversarial regressions — silent wrong readings the review caught", 
   });
 });
 
+describe("a pasted problem statement keeps its equation, drops the prose", () => {
+  const SAT =
+    "C=59(F−32)\n\n" +
+    "The equation above shows how temperature F, measured in degrees Fahrenheit, " +
+    "relates to a temperature C, measured in degrees Celsius. Based on the equation, " +
+    "which of the following must be true?\n\n" +
+    "A temperature increase of 1 degree Fahrenheit is equivalent to a temperature increase of 59 degree Celsius.\n" +
+    "A temperature increase of 1 degree Celsius is equivalent to a temperature increase of 1.8 degrees Fahrenheit.\n" +
+    "A temperature increase of 59 degree Fahrenheit is equivalent to a temperature increase of 1 degree Celsius.";
+
+  test("the SAT paste that failed: the equation is found and solves", () => {
+    const folded = foldPastedMath(SAT, { extractFromProse: true, stackedFractions: true });
+    expect(folded.text).toBe("C=59(F−32)".normalize());
+    expect(folded.notes.some((n) => n.includes("Found the equation"))).toBe(true);
+    expect(folded.notes.some((n) => n.includes("ignored"))).toBe(true);
+    // …and the kept equation actually solves, chips for C and F.
+    const r = solveEquation(folded.text);
+    expect(r).not.toBeNull();
+    expect(r!.unknowns).toEqual(expect.arrayContaining(["C", "F"]));
+  });
+
+  test("a genuine system is never filtered (nothing dropped, no note)", () => {
+    const folded = foldPastedMath("x + y = 3\nx - y = 1", { extractFromProse: true });
+    expect(folded.text).toBe("x + y = 3\nx - y = 1");
+    expect(folded.notes).toEqual([]);
+  });
+
+  test("prose with no equation at all is left alone for the normal error path", () => {
+    const folded = foldPastedMath("no math here\njust words", { extractFromProse: true });
+    expect(folded.text).toContain("no math here");
+    expect(folded.notes).toEqual([]);
+  });
+
+  test("two equations amid prose both survive (a solvable system)", () => {
+    const folded = foldPastedMath("Given that\nx + y = 3\nand also\nx - y = 1\nfind x and y.", {
+      extractFromProse: true,
+    });
+    expect(folded.text).toBe("x + y = 3\nx - y = 1");
+    expect(folded.notes.some((n) => n.includes("2 equations"))).toBe(true);
+  });
+
+  test("single-line input is untouched (no lines to drop)", () => {
+    const folded = foldPastedMath("C = (5/9)(F - 32)", { extractFromProse: true });
+    expect(folded.notes).toEqual([]);
+  });
+
+  test("stacked-fraction option still composes (extraction leaves it alone)", () => {
+    const folded = foldPastedMath("3\nx+3\n​\n =8", { extractFromProse: true, stackedFractions: true });
+    expect(folded.notes.some((n) => n.includes("stacked fraction"))).toBe(true);
+  });
+
+  test("a deliberately-REFUSED equation is kept, never silently deleted", () => {
+    // y = 1/2x trips the ambiguity gate on purpose; deleting it and solving
+    // the leftover x = 3 would be a confident answer to the wrong problem.
+    const folded = foldPastedMath("y = 1/2x\nx = 3\nfind y.", { extractFromProse: true });
+    expect(folded.text).toContain("y = 1/2x");
+    expect(folded.text).toContain("x = 3");
+    expect(folded.text).not.toContain("find y");
+  });
+
+  test("textbook framing strips: 'Let y = 2x + 1 / and x = 3' becomes a solvable system", () => {
+    const folded = foldPastedMath("Let y = 2x + 1\nand x = 3\nfind y.", { extractFromProse: true });
+    expect(folded.text).toBe("y = 2x + 1\nx = 3");
+    const eqs = folded.text.split("\n");
+    expect(eqs).toHaveLength(2);
+  });
+
+  test("prose around a bare < is not certified as an equation", () => {
+    const folded = foldPastedMath("x < 3 means x is small\nx + 1 = 4", { extractFromProse: true });
+    expect(folded.text).toBe("x + 1 = 4");
+  });
+
+  test("a genuine strict inequality amid prose IS kept", () => {
+    const folded = foldPastedMath("Solve the following inequality.\nx^2 - 4 > 0", { extractFromProse: true });
+    expect(folded.text).toBe("x^2 - 4 > 0");
+  });
+});
+
 describe("the fold never throws", () => {
   test("garbage, lone surrogates, huge input", () => {
     for (const probe of ["\\frac{", "{{{", "\uD835", "𝕏".repeat(5000), "\\unknowncmd{x}", ""]) {

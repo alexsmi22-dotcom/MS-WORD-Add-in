@@ -14,6 +14,7 @@
 // silent guess.
 
 import { latexToDsl } from "./latex";
+import { parseExpr } from "./solve";
 
 export interface FoldedMath {
   text: string;
@@ -168,6 +169,72 @@ export interface FoldOptions {
    *  topology point cloud or simplex list is ALSO multi-line, and must
    *  never be folded into a fraction. */
   stackedFractions?: boolean;
+  /** Extract equation lines out of a pasted problem statement, dropping the
+   *  prose around them. Equation kind only. */
+  extractFromProse?: boolean;
+}
+
+/** Textbook framing that glues onto an equation line and would otherwise
+ *  parse as variables ("Let y" is the implicit product Let·y). */
+const FRAMING =
+  /^(?:let|if|then|where|given(?:\s+that)?|and(?:\s+also)?|so|thus|hence|therefore|suppose|assume|note\s+that|we\s+have)\b[,:]?\s*/i;
+
+/**
+ * Classifies a line for extraction, returning the line to KEEP (framing
+ * words stripped) or null for prose.
+ *
+ * A comparison-shaped line whose side REFUSES to parse is kept, not dropped:
+ * the refusal may be a deliberate, named one (the 1/2x ambiguity gate), and
+ * deleting the line would silently convert a helpful error into a confident
+ * solve of the leftover equations — the exact dishonesty this module bans.
+ */
+function equationLine(raw: string): string | null {
+  let line = raw;
+  for (let i = 0; i < 3; i++) {
+    const stripped = line.replace(FRAMING, "");
+    if (stripped === line) break;
+    line = stripped;
+  }
+  const parts = line.split(/=|≤|≥|≠|<=|>=|!=|<|>/).map((p) => p.trim());
+  if (parts.length < 2 || parts.some((p) => !p)) return null;
+  // Bare < / > appear inside ordinary prose ("x < 3 means x is small"), and
+  // an implicit-product parser will happily read the prose tail as math. A
+  // STRICT-inequality side longer than a few tokens is prose, not algebra.
+  if (!/[=≤≥≠]|<=|>=|!=/.test(line) && parts.some((p) => p.split(/\s+/).length > 4)) return null;
+  try {
+    for (const p of parts) parseExpr(p);
+    return line;
+  } catch {
+    return line; // comparison-shaped but refused — keep it and let the refusal speak
+  }
+}
+
+/**
+ * A whole PROBLEM STATEMENT pasted into the equation kind — "C=(5/9)(F−32)
+ * ⏎ The equation above shows how temperature…" plus answer choices — used to
+ * die on the first prose word. The equation is in there; find it. Lines that
+ * parse as equations are kept, prose lines are dropped, and the note says
+ * exactly what was kept and what was ignored. Runs ONLY when there is prose
+ * to drop — a pure system of equations passes through untouched.
+ */
+export function extractEquationsFromProse(text: string): { text: string; note: string | null } {
+  if (!text.includes("\n")) return { text, note: null };
+  const lines = text
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+  if (lines.length < 2) return { text, note: null };
+  const equations = lines.map(equationLine).filter((l): l is string => l !== null);
+  const dropped = lines.length - equations.length;
+  // Nothing to extract, or nothing dropped (a genuine system): leave it alone.
+  if (!equations.length || !dropped) return { text, note: null };
+  return {
+    text: equations.join("\n"),
+    note:
+      equations.length === 1
+        ? `Found the equation ${equations[0]} in the pasted text; ${dropped} line${dropped === 1 ? "" : "s"} of prose around it ignored.`
+        : `Found ${equations.length} equations in the pasted text; ${dropped} prose line${dropped === 1 ? "" : "s"} ignored.`,
+  };
 }
 
 /**
@@ -294,8 +361,16 @@ export function foldPastedMath(input: string, opts: FoldOptions = {}): FoldedMat
     if (s.includes(ch)) notes.push(why + ".");
   }
 
-  // Stacked-fraction reassembly LAST, over the cleaned lines (the zero-width
-  // strut line a renderer emits has become whitespace by now and drops out).
+  // Structure recovery LAST, over the cleaned lines (the zero-width strut
+  // line a renderer emits has become whitespace by now and drops out):
+  // prose stripping first, then stacked-fraction reassembly.
+  if (opts.extractFromProse) {
+    const extracted = extractEquationsFromProse(s);
+    if (extracted.note) {
+      s = extracted.text;
+      notes.push(extracted.note);
+    }
+  }
   if (opts.stackedFractions) s = reassembleStacked(s, notes);
 
   return { text: s, notes };

@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.100.0)
+# JurisLab — Manual Test Script (v2.101.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -9,6 +9,16 @@ scanning, and layout. Budget ~30 minutes for the full pass.
 Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
+
+## 0be. New in v2.101.0 — paste the whole problem
+
+- [ ] Paste a full problem (equation + question prose + answer choices, e.g. the
+  SAT Celsius/Fahrenheit question) into Solve → note "Found the equation … lines
+  of prose around it ignored"; the equation solves with its chips.
+- [ ] Paste `Let y = 2x + 1` ⏎ `and x = 3` ⏎ `find y.` → framing stripped, the
+  system solves to y = 7.
+- [ ] A pasted equation the parser refuses on purpose (`y = 1/2x`) stays visible
+  with its ambiguity message — never silently dropped.
 
 ## 0bd. New in v2.100.0 — fraction equations
 

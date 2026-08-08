@@ -6,6 +6,27 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.101.0] — 2026-08-08 — Paste the whole problem
+
+Driven by a real paste that failed with "unexpected character '='": a
+full SAT-style problem — equation, question prose, answer choices — read
+line by line as mathematics.
+
+### Added
+- **Equation extraction from problem statements** (equation kind): lines
+  that read as equations are kept (textbook framing like "Let …" and
+  "and …" stripped, so "Let y = 2x + 1 / and x = 3" becomes a solvable
+  system), prose is dropped, and the note says exactly what was kept and
+  what was ignored. A pure system passes through untouched.
+
+### Fixed (adversarial pass: 3 findings)
+- An equation the parser deliberately REFUSES (the 1/2x ambiguity gate)
+  is KEPT so its named refusal reaches the user — extraction was
+  silently deleting it and confidently solving the leftover equations.
+- "x < 3 means x is small" is no longer certified as "the equation" —
+  strict-inequality sides longer than a few tokens are prose.
+- Framing words no longer become variables ("Let y" parsed as Let·y).
+
 ## [2.100.0] — 2026-08-08 — Fraction equations, from paste to worked answer
 
 Driven by a real paste that failed: a rendered 3/(x+3) = 8 copied from a

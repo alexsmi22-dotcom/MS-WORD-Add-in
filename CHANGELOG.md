@@ -6,6 +6,41 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.97.0] — 2026-08-08 — The equation canvas: pop out, draw, real symbols
+
+The follow-up asks, delivered: a large canvas pop-out for Solve, the
+equation DRAWN as real mathematics while it is composed, and symbols
+instead of plain-english spellings — the √ sign itself, not "sqrt".
+
+### Added
+- **Open equation canvas ⤢** (Solve): the composer in a large Office
+  dialog — the current input rides along, the equation drawn LARGE at the
+  top as it is built, the full palette and equation library at working
+  size, and a live "Reads as…" line validated by the SAME engines the
+  pane solves with. "Use this equation" hands it back; the pane restores
+  the kind the canvas was opened for. For the geometry kind the canvas
+  draws the COMPOSITE FIGURE live as it is described.
+- **Real symbols in the palette**: √() inserts the radical sign (the
+  parser reads √(x+1), √4, √sin(x) natively), x²/x³ insert real
+  superscripts, ≤ ≥ ≠ insert the glyphs — input can now look like the
+  mathematics it is.
+- **Live typeset preview in the pane**: the Solve input draws itself as
+  real mathematics (radical bars, stacked fractions, relation glyphs)
+  under the box while typing — powered by a new solve-grammar →
+  typesetting bridge (src/lib/solveTypeset.ts) that the OMML insert path
+  accepts too.
+
+### Fixed (adversarial pass over this diff)
+- Limit/Taylor PROSE (`limit sin(x)/x as x -> 0`) is recognised as prose:
+  the canvas's validation line now reads it the way the pane does instead
+  of calling valid input unreadable, and neither surface "typesets" the
+  keywords as juxtaposed variables pretending to be mathematics.
+- Switching the Solve kind while the canvas is open no longer pastes the
+  result into the wrong kind — the return restores the kind the canvas
+  was opened for (the draw canvas's own guard, applied here).
+- The geometry canvas hides the empty equation strip instead of showing a
+  blank band above the live figure.
+
 ## [2.96.0] — 2026-08-07 — Solve grows a composer and composite geometry
 
 The Solve upgrade requested alongside the drawing canvas: build equations

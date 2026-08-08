@@ -757,6 +757,22 @@ h1 {
   border-color: var(--accent);
 }
 
+/* The Solve input drawn as real mathematics, live. Empty (hidden) whenever
+   the current text has no typeset reading. */
+.solve-typeset {
+  margin: 6px 0 0;
+  padding: 6px 10px;
+  font-size: 17px;
+  border: 1px dashed var(--border);
+  border-radius: 4px;
+  background: var(--paper);
+  overflow-x: auto;
+}
+
+.solve-typeset:empty {
+  display: none;
+}
+
 /* The structure-compliance note under the canvas: empty when the drawing is
    compliant, so it takes no space until there is something to say. */
 .draw-compliance {

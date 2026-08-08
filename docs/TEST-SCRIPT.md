@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.96.0)
+# JurisLab — Manual Test Script (v2.97.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -9,6 +9,24 @@ scanning, and layout. Budget ~30 minutes for the full pass.
 Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
+
+## 0ba. New in v2.97.0 — Solve: equation canvas pop-out + real symbols
+
+### 0ba-1. Symbols, not spellings
+- [ ] Solve → Solve an equation: click **√** in the palette → the input shows `√()` (the sign,
+  not `sqrt`); type `x+1` inside and ` = 3` after → the box below the input DRAWS the
+  equation as real mathematics (radical bar over x+1) and the result solves x = 8.
+- [ ] Type `x` then click **x²** → input shows `x²`; add `= 4` → roots ±2.
+- [ ] Click **≤** between `x²` and `4` (fresh input `x² ≤ 4`) → interval [−2, 2] with sign analysis.
+
+### 0ba-2. The equation canvas
+- [ ] **Open equation canvas ⤢** → a large dialog: the current input rides along, the equation
+  drawn LARGE at the top, palette + equation library below, a live "Reads as…" status line.
+- [ ] Click **PV = nRT** in the library → drawn at size; **Use this equation** → back in the
+  pane with chips for P, V, n, R, T.
+- [ ] Geometry kind → **Open equation canvas** → shape templates; click **Rect − triangle** →
+  the composite FIGURE draws live in the dialog; Use → pane shows the same result + figure.
+- [ ] Cancel and the ✕ close both re-arm the button (no dead "Open equation canvas").
 
 ## 0az. New in v2.96.0 — Solve: composite geometry + equation composer
 

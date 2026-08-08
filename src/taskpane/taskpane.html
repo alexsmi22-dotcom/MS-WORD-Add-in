@@ -915,6 +915,11 @@
         <label class="field-label" for="solve-input" id="solve-input-label">Equation</label>
         <textarea id="solve-input" class="rgroup-input solve-input" rows="1" autocomplete="off"
           spellcheck="false" placeholder="x^2 - 5x + 6 = 0"></textarea>
+        <!-- The input, drawn as real mathematics (√, stacked fractions) while typing. -->
+        <div id="solve-typeset" class="solve-typeset" aria-live="polite"></div>
+        <button id="solve-open-canvas-btn" class="draw-pop-btn" type="button">
+          Open equation canvas ⤢
+        </button>
         <!-- Equation composer: caret-insert symbols and whole-equation /
              whole-figure templates, per solve kind (like Build's palette). -->
         <div id="solve-palette" class="palette"></div>

@@ -27,6 +27,7 @@ module.exports = async (env, options) => {
       taskpane: ["./src/taskpane/taskpane.ts"],
       commands: ["./src/commands/commands.ts"],
       drawdialog: ["./src/drawdialog/drawdialog.ts"],
+      solvedialog: ["./src/solvedialog/solvedialog.ts"],
     },
     output: {
       clean: true,
@@ -113,6 +114,11 @@ module.exports = async (env, options) => {
         filename: "drawdialog.html",
         template: "./src/drawdialog/drawdialog.html",
         chunks: ["drawdialog"],
+      }),
+      new HtmlWebpackPlugin({
+        filename: "solvedialog.html",
+        template: "./src/solvedialog/solvedialog.html",
+        chunks: ["solvedialog"],
       }),
       new CopyWebpackPlugin({
         patterns: [

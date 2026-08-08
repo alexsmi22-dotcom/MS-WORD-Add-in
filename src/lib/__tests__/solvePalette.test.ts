@@ -47,10 +47,14 @@ describe("every shape template resolves in one of the two geometry engines", () 
 describe("symbol snippets are the Solve grammar, not the Math-mode DSL", () => {
   test("structure snippets with their caret placeholders filled parse", () => {
     // What a user gets after clicking the button and typing "x" in the gap.
+    // The structure buttons insert REAL glyphs (√, ², ³) — the parser reads
+    // them natively, which is the whole point of symbols over plain english.
     const filled: Record<string, string> = {
       "()/()": "(x)/(2)",
       "^()": "x^(2)",
-      "sqrt()": "sqrt(x)",
+      "√()": "√(x)",
+      "²": "x²",
+      "³": "x³",
       "abs()": "abs(x)",
       "()": "(x)",
       "sin()": "sin(x)",
@@ -80,7 +84,9 @@ describe("symbol snippets are the Solve grammar, not the Math-mode DSL", () => {
   });
 
   test("relation snippets solve as inequalities when wrapped around an expression", () => {
-    for (const probe of ["x^2 - 4 >= 0", "x < 3", "x != 2", "x^3 - x <= 0", "x > -1"]) {
+    // The buttons now insert the real glyphs — the inequality engine reads
+    // both spellings, and the pane's dispatch regex recognises ≤ ≥ ≠.
+    for (const probe of ["x^2 - 4 ≥ 0", "x < 3", "x ≠ 2", "x^3 - x ≤ 0", "x > -1", "x^2 - 4 >= 0"]) {
       expect(solveInequality(probe)).not.toBeNull();
     }
   });

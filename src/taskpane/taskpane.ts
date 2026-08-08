@@ -317,6 +317,7 @@ import {
 } from "../lib/palettes";
 import { solveComposite, qtyToNumber, qtyExact } from "../lib/compositeGeometry";
 import { compositeShapeSvg } from "../lib/geometryChart";
+import { solveInputToTypesetLines, isProseRequest } from "../lib/solveTypeset";
 import { NAME_TO_SMILES } from "../lib/compounds";
 import {
   HistoryEntry,
@@ -867,6 +868,8 @@ let solveB: HTMLInputElement;
 let solveResult: HTMLElement;
 let solveInsertBtn: HTMLButtonElement;
 let solvePaletteEl: HTMLElement;
+let solveTypesetEl: HTMLElement;
+let solveOpenCanvasBtn: HTMLButtonElement;
 /** MS readout for the most recent input, for insertion. */
 let currentMassSpec: MassSpecResult | null = null;
 let statsSection: HTMLElement;
@@ -1258,6 +1261,8 @@ Office.onReady((info) => {
   solveResult = document.getElementById("solve-result") as HTMLElement;
   solveInsertBtn = document.getElementById("solve-insert") as HTMLButtonElement;
   solvePaletteEl = document.getElementById("solve-palette") as HTMLElement;
+  solveTypesetEl = document.getElementById("solve-typeset") as HTMLElement;
+  solveOpenCanvasBtn = document.getElementById("solve-open-canvas-btn") as HTMLButtonElement;
   statsSection = document.getElementById("stats-section") as HTMLElement;
   statsCalcSelect = document.getElementById("stats-calc") as HTMLSelectElement;
   statsInputs = document.getElementById("stats-inputs") as HTMLElement;
@@ -1457,6 +1462,7 @@ Office.onReady((info) => {
   jcampInsertBtn.addEventListener("click", () => insertPlainText(jcampAsText(), "measured spectrum data"));
   jcampInsertChartBtn.addEventListener("click", insertJcampChart);
   solveKind.addEventListener("change", () => { solveVarChoice = null; updateSolveUi(); updateSolve(); });
+  solveOpenCanvasBtn.addEventListener("click", openSolveDialog);
   solveInput.addEventListener("input", () => { solveVarChoice = null; updateSolve(); });
   solveA.addEventListener("input", updateSolve);
   solveB.addEventListener("input", updateSolve);
@@ -26630,6 +26636,96 @@ function updateSolveUi(): void {
   solveHint.textContent = hints[kind];
   solveBounds.style.display = kind === "integral" ? "block" : "none";
   renderSolvePalette(kind);
+  // The pop-out equation canvas serves the composing kinds; topology and
+  // word-problem inputs are prose, which the canvas adds nothing to.
+  const canvasKinds: SolveKind[] = ["equation", "derivative", "integral", "geometry"];
+  solveOpenCanvasBtn.style.display = canvasKinds.includes(kind) ? "inline-block" : "none";
+  if (!canvasKinds.includes(kind)) solveTypesetEl.replaceChildren();
+}
+
+/** Draws the Solve input as real mathematics under the box (√, stacked
+ *  fractions, relation glyphs) — empty and hidden when there is no reading. */
+function renderSolveTypeset(kind: SolveKind, text: string): void {
+  solveTypesetEl.replaceChildren();
+  if (!text || (kind !== "equation" && kind !== "derivative" && kind !== "integral")) return;
+  // Limit/series PROSE is not an expression — bridging it would draw the
+  // keywords as juxtaposed variables and present that as mathematics.
+  if (isProseRequest(text)) return;
+  for (const line of solveInputToTypesetLines(text)) {
+    try {
+      const div = document.createElement("div");
+      div.innerHTML = mathToHtml(line);
+      solveTypesetEl.appendChild(div);
+    } catch {
+      // A mid-edit state with no typeset reading simply draws nothing —
+      // the parse error itself belongs to the result area, not here.
+    }
+  }
+}
+
+/**
+ * Pops the Solve input out into a large equation-canvas dialog — the same
+ * palettes at working size, the equation drawn as real mathematics while it
+ * is composed (and the composite figure drawn live for geometry). "Use this
+ * equation" hands the text back and the pane solves it.
+ */
+function openSolveDialog(): void {
+  const ui = Office.context?.ui;
+  if (!ui || typeof ui.displayDialogAsync !== "function") {
+    setStatus("This Word host does not support pop-out dialog windows.", "error");
+    return;
+  }
+  const kind = solveKind.value as SolveKind;
+  let url = new URL("solvedialog.html", window.location.href).href;
+  const expr = solveInput.value;
+  const seeded = `${url}?kind=${encodeURIComponent(kind)}&expr=${encodeURIComponent(expr)}`;
+  if (!expr.trim()) {
+    url = `${url}?kind=${encodeURIComponent(kind)}`;
+  } else if (seeded.length < 1800) {
+    url = seeded;
+  } else {
+    // Dialog URLs have host-dependent length limits — same rule as the
+    // drawing canvas: open blank and SAY so in both windows.
+    url = `${url}?kind=${encodeURIComponent(kind)}&tooLarge=1`;
+    setStatus("Input too large to carry into the equation canvas — it opens blank.", "error");
+  }
+  solveOpenCanvasBtn.disabled = true;
+  ui.displayDialogAsync(url, { height: 75, width: 70 }, (result) => {
+    if (result.status !== Office.AsyncResultStatus.Succeeded) {
+      solveOpenCanvasBtn.disabled = false;
+      setStatus(`Could not open the equation canvas: ${result.error?.message ?? "unknown error"}`, "error");
+      return;
+    }
+    const dialog = result.value;
+    dialog.addEventHandler(Office.EventType.DialogMessageReceived, (arg) => {
+      dialog.close();
+      solveOpenCanvasBtn.disabled = false;
+      const msg = (arg as { message?: string }).message;
+      if (!msg) return;
+      try {
+        const data = JSON.parse(msg) as { expr?: string; cancel?: boolean };
+        if (data.cancel || typeof data.expr !== "string") return;
+        // The pane stays interactive under the dialog — restore the kind the
+        // canvas was opened FOR before pasting, or "Use" after switching the
+        // dropdown solves the equation under the wrong kind (the draw canvas
+        // guards its return the same way with setBuildTab).
+        if (solveKind.value !== kind) {
+          solveKind.value = kind;
+          updateSolveUi();
+        }
+        solveInput.value = data.expr;
+        solveVarChoice = null; // a new equation's chips belong to the new equation
+        updateSolve();
+        setStatus("Equation brought back from the canvas.", "success");
+      } catch (error) {
+        setStatus(`Could not read the equation back: ${(error as Error).message}`, "error");
+      }
+    });
+    // The user closing the dialog window (X) arrives here — re-arm the button.
+    dialog.addEventHandler(Office.EventType.DialogEventReceived, () => {
+      solveOpenCanvasBtn.disabled = false;
+    });
+  });
 }
 
 /** Formats a number for the pane: up to 8 significant digits, no trailing zeros. */
@@ -26804,6 +26900,7 @@ function solveFunctionSvg(o: {
 function updateSolve(): void {
   const kind = solveKind.value as SolveKind;
   const text = solveInput.value.trim();
+  renderSolveTypeset(kind, text);
   solveResult.replaceChildren();
   currentSolveText = "";
   currentSolveBlocks = [];

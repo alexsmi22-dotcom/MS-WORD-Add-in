@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>JurisLab — Equation canvas</title>
+    <script type="text/javascript" src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        font-family: "Segoe UI", system-ui, sans-serif;
+        background: #fff;
+        display: flex;
+        flex-direction: column;
+      }
+      #typeset {
+        flex: 0 0 auto;
+        min-height: 96px;
+        max-height: 30vh;
+        overflow: auto;
+        padding: 18px 20px;
+        font-size: 26px;
+        border-bottom: 1px solid #e2e2e2;
+        background: #fcfcfb;
+      }
+      #typeset .line {
+        margin: 4px 0;
+      }
+      #typeset .hint {
+        font-size: 14px;
+        color: #888;
+      }
+      #figure {
+        flex: 0 0 auto;
+        max-height: 42vh;
+        overflow: auto;
+        padding: 8px 20px;
+        border-bottom: 1px solid #e2e2e2;
+        display: none;
+        text-align: center;
+      }
+      #figure svg {
+        max-width: 100%;
+        height: auto;
+      }
+      #input {
+        flex: 0 0 auto;
+        width: 100%;
+        border: none;
+        border-bottom: 1px solid #e2e2e2;
+        padding: 12px 20px;
+        font-size: 18px;
+        font-family: "Cascadia Code", Consolas, monospace;
+        resize: none;
+        outline: none;
+        min-height: 74px;
+      }
+      #status {
+        flex: 0 0 auto;
+        padding: 4px 20px 6px;
+        font-size: 13px;
+        color: #555;
+        min-height: 24px;
+      }
+      #status.bad {
+        color: #b00020;
+      }
+      #palette {
+        flex: 1 1 auto;
+        overflow: auto;
+        padding: 8px 16px 12px;
+      }
+      .group-label {
+        margin: 10px 0 4px;
+        font-size: 11.5px;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        color: #666;
+      }
+      .group {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+      .pal-btn {
+        padding: 7px 12px;
+        font-size: 15px;
+        border: 1px solid #d0d0d0;
+        border-radius: 4px;
+        background: #fff;
+        cursor: pointer;
+      }
+      .pal-btn:hover {
+        border-color: #0c4a6e;
+      }
+      #bar {
+        flex: 0 0 auto;
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        padding: 10px 12px;
+        border-top: 1px solid #d0d0d0;
+        background: #f7f7f7;
+      }
+      #use-btn {
+        padding: 8px 18px;
+        font-size: 14px;
+        font-weight: 600;
+        border: none;
+        border-radius: 4px;
+        background: #38bdf8;
+        color: #062033;
+        cursor: pointer;
+      }
+      #cancel-btn {
+        padding: 8px 14px;
+        font-size: 14px;
+        border: 1px solid #c0c0c0;
+        border-radius: 4px;
+        background: #fff;
+        cursor: pointer;
+      }
+      #error {
+        color: #b00020;
+        font-size: 13px;
+        padding: 6px 12px;
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="typeset" aria-live="polite"></div>
+    <div id="figure" aria-live="polite"></div>
+    <textarea id="input" rows="3" spellcheck="false" autocomplete="off"
+      placeholder="Type or click symbols below — √, ², π and ≤ are all understood"></textarea>
+    <div id="status" aria-live="polite"></div>
+    <div id="palette"></div>
+    <div id="error"></div>
+    <div id="bar">
+      <button id="use-btn" type="button">Use this equation</button>
+      <button id="cancel-btn" type="button">Cancel</button>
+      <span style="margin-left:auto;font-size:12.5px;color:#555" id="info"></span>
+    </div>
+  </body>
+</html>

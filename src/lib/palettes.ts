@@ -299,9 +299,14 @@ export const SOLVE_SYMBOLS: PaletteGroup[] = [
   {
     name: "Structures",
     items: [
+      // Real glyphs, not plain-english spellings: the parser reads √, ², ³
+      // and friends natively (normalizeUnicodeMath), so the input can LOOK
+      // like the mathematics it is.
       { label: "a/b", snippet: "()/()", caret: 1, title: "Fraction" },
-      { label: "xⁿ", snippet: "^()", caret: 2, title: "Power" },
-      { label: "√", snippet: "sqrt()", caret: 5, title: "Square root" },
+      { label: "√", snippet: "√()", caret: 2, title: "Square root — the sign itself; √(x+1), √4 and √sin(x) all read" },
+      { label: "x²", snippet: "²", title: "Squared (type the base first)" },
+      { label: "x³", snippet: "³", title: "Cubed (type the base first)" },
+      { label: "xⁿ", snippet: "^()", caret: 2, title: "Any power" },
       { label: "|x|", snippet: "abs()", caret: 4, title: "Absolute value" },
       { label: "( )", snippet: "()", caret: 1, title: "Parentheses" },
       { label: "π", snippet: "π", title: "Pi" },
@@ -324,11 +329,11 @@ export const SOLVE_SYMBOLS: PaletteGroup[] = [
     name: "Relations",
     items: [
       { label: "=", snippet: " = " },
-      { label: "≤", snippet: " <= ", title: "Less than or equal (inequality solving)" },
-      { label: "≥", snippet: " >= ", title: "Greater than or equal" },
+      { label: "≤", snippet: " ≤ ", title: "Less than or equal (inequality solving)" },
+      { label: "≥", snippet: " ≥ ", title: "Greater than or equal" },
       { label: "<", snippet: " < " },
       { label: ">", snippet: " > " },
-      { label: "≠", snippet: " != ", title: "Not equal" },
+      { label: "≠", snippet: " ≠ ", title: "Not equal" },
     ],
   },
 ];

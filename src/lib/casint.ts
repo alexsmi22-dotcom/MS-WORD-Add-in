@@ -429,11 +429,101 @@ function integ(e0: Expr, x: string, deriv: Deriv, depth: number): Expr | null {
   const viaSub = trySubstitution(e, x, deriv, depth);
   if (viaSub) return viaSub;
 
+  // Power reduction: sin²/cos² rewritten via the double angle — the identity
+  // canonical form cannot prove is APPLIED instead, and the differentiate-back
+  // gate downstream still owns correctness.
+  const viaTrigPower = tryTrigPower(e, x, deriv, depth);
+  if (viaTrigPower) return viaTrigPower;
+
+  // Cyclic-by-parts family: ∫e^(ax+b)·sin/cos(cx+d) in closed form. Plain
+  // by-parts loops on these (each pass returns the original integral), which
+  // is why they were refused for so long.
+  const viaExpTrig = tryExpTrig(e, x, deriv);
+  if (viaExpTrig) return viaExpTrig;
+
   // Integration by parts.
   const viaParts = tryByParts(e, x, deriv, depth);
   if (viaParts) return viaParts;
 
   return null;
+}
+
+/** e as a·x + b with both free of x, via differentiation — or null. */
+function linearIn(e: Expr, x: string, deriv: Deriv): { a: Expr; b: Expr } | null {
+  let a: Expr;
+  try {
+    a = simp(deriv(e, x));
+  } catch {
+    return null;
+  }
+  if (mentions(a, x) || isZero(a)) return null;
+  const b = sub(e, mul(a, V(x)));
+  if (mentions(simp(b), x)) return null;
+  return { a, b: simp(b) };
+}
+
+/**
+ * sin(u)² → (1 − cos(2u))/2 and cos(u)² → (1 + cos(2u))/2, then integrate
+ * the rewrite. The rewrite is exact for EVERY u; whether the result
+ * integrates is the recursion's problem (linear u does, via the existing
+ * machinery), and the final differentiate-back check guards the whole.
+ */
+function tryTrigPower(e: Expr, x: string, deriv: Deriv, depth: number): Expr | null {
+  if (depth >= MAX_DEPTH) return null;
+  if (e.t !== "pow" || e.l.t !== "fn" || !isZero(sub(e.r, N(2)))) return null;
+  const u = e.l.arg;
+  if (!mentions(u, x)) return null;
+  let rewritten: Expr | null = null;
+  if (e.l.name === "sin") rewritten = div(sub(N(1), fn("cos", mul(N(2), u))), N(2));
+  else if (e.l.name === "cos") rewritten = div(add(N(1), fn("cos", mul(N(2), u))), N(2));
+  if (!rewritten) return null;
+  return integ(rewritten, x, deriv, depth + 1);
+}
+
+/**
+ * ∫e^(ax+b)·sin(cx+d) dx = e^(ax+b)·(a·sin(cx+d) − c·cos(cx+d))/(a²+c²),
+ * and the cos twin with (a·cos + c·sin). The classic "solve for the
+ * integral" result of applying by parts twice — emitted directly, verified
+ * by differentiating back like every other candidate.
+ */
+function tryExpTrig(e: Expr, x: string, deriv: Deriv): Expr | null {
+  // Flatten the product, splitting off x-free constant factors.
+  const factors: Expr[] = [];
+  let constant: Expr = N(1);
+  let sign = 1;
+  const walk = (n: Expr): void => {
+    if (n.t === "mul") {
+      walk(n.l);
+      walk(n.r);
+    } else if (n.t === "neg") {
+      sign = -sign;
+      walk(n.e);
+    } else if (!mentions(n, x)) {
+      constant = mul(constant, n);
+    } else {
+      factors.push(n);
+    }
+  };
+  walk(e);
+  if (factors.length !== 2) return null;
+  const expF = factors.find((f) => f.t === "fn" && f.name === "exp");
+  const trigF = factors.find((f) => f.t === "fn" && (f.name === "sin" || f.name === "cos"));
+  if (!expF || !trigF || expF === trigF || expF.t !== "fn" || trigF.t !== "fn") return null;
+  const L1 = linearIn(expF.arg, x, deriv);
+  const L2 = linearIn(trigF.arg, x, deriv);
+  if (!L1 || !L2) return null;
+  const a = L1.a;
+  const c = L2.a;
+  const denom = add(mul(a, a), mul(c, c));
+  if (isZero(denom)) return null;
+  const s = fn("sin", trigF.arg);
+  const co = fn("cos", trigF.arg);
+  const core =
+    trigF.name === "sin"
+      ? div(mul(expF, sub(mul(a, s), mul(c, co))), denom)
+      : div(mul(expF, add(mul(a, co), mul(c, s))), denom);
+  const withConst = mul(constant, core);
+  return sign < 0 ? neg(withConst) : withConst;
 }
 
 function trySubstitution(e: Expr, x: string, deriv: Deriv, depth: number): Expr | null {

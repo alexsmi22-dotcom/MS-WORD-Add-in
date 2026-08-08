@@ -6,6 +6,33 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.105.0] — 2026-08-08 — The two integration gaps, closed
+
+The two refusals casint.ts has carried since v2.6.0:
+
+### Added
+- **Trig power reduction**: ∫sin²x = x/2 − sin(2x)/4 and the cos² twin,
+  by applying the double-angle identity the canonical form cannot prove
+  and integrating the rewrite — for any inner function the machinery can
+  then handle (sin²(3x) works; sin²(x²) still refuses honestly).
+- **The cyclic-by-parts family**: ∫e^(ax+b)·sin(cx+d) and the cos twin
+  in closed form — e^(ax)(a·sin cx − c·cos cx)/(a²+c²) — the "apply by
+  parts twice and solve for the integral" result, with signs, ordering,
+  constants and phase shifts all handled. Verified CANONICALLY (a
+  symbolic proof, not sample evidence). By-parts reach compounds:
+  ∫x·sin²x and ∫eˣ·sin²x now also work.
+- **Cross-engine win**: the ODE y' = sin(x) − y, previously refused
+  because its integrating-factor integral was, now solves and verifies.
+- Higher powers (sin⁴), exp of nonlinear arguments, and triple products
+  still refuse by name — sec(x) and ln(x)² are now the honest exemplars
+  in the engine-gap test.
+
+### Notes
+- Adversarial pass: zero defects found — every sign/order/constant
+  permutation probed exact at off-sample points; near-miss forms refuse
+  fast; baseline snapshots unchanged (nothing had pinned the old
+  refusals); the verified-flag wording stays truthful on both paths.
+
 ## [2.104.0] — 2026-08-08 — Solve with units
 
 The last item on the CAS roadmap's list: equations whose knowns carry

@@ -524,11 +524,12 @@ describe("indefinite integrals", () => {
   });
 
   it("DOES NOT CLAIM 'no elementary antiderivative exists' — most refusals are engine gaps", () => {
-    // Of the integrands this returns null for, the majority have standard
-    // answers a first-year student produces by hand. Blaming mathematics for
-    // an integrator's reach would tell a student that sin(x)^2 - the first
-    // integration-by-identity exercise there is - has no antiderivative.
-    const solvableByHand = ["sin(x)^2", "sec(x)", "exp(x)*cos(x)", "ln(x)^2"];
+    // Of the integrands this returns null for, some have standard answers a
+    // student produces by hand — blaming mathematics for an integrator's
+    // reach would be a false claim. sin(x)^2 and exp(x)*cos(x) GRADUATED off
+    // this list in v2.105.0 (power reduction + the cyclic-by-parts family);
+    // sec(x) and ln(x)^2 remain the honest exemplars of the gap.
+    const solvableByHand = ["sec(x)", "ln(x)^2"];
     const missed = solvableByHand.filter((f) => antiderivative(f) === null);
     expect(missed.length).toBeGreaterThan(0); // the engine really does miss these
     // So no doc or message may assert that a refusal means none exists.

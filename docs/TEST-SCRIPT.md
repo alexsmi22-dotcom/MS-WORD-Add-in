@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.104.0)
+# JurisLab — Manual Test Script (v2.105.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -9,6 +9,16 @@ scanning, and layout. Budget ~30 minutes for the full pass.
 Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
+
+## 0bi. New in v2.105.0 — the integration gaps closed
+
+- [ ] Integral kind, `sin(x)^2` from 0 to pi → **π/2 exact** with F(x) shown
+  (previously numeric Simpson).
+- [ ] `exp(x)*sin(x)`, no bounds → F = eˣ(sin x − cos x)/2 + C, "checked by
+  differentiating back (symbolic)".
+- [ ] ODE kind, `y' = sin(x) - y` → now SOLVES via the integrating factor
+  (previously refused naming ∫eˣ sin x).
+- [ ] `sin(x)^4` still refuses honestly (numeric integration offered with bounds).
 
 ## 0bh. New in v2.104.0 — solve with units
 

@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.97.0)
+# JurisLab — Manual Test Script (v2.98.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -9,6 +9,25 @@ scanning, and layout. Budget ~30 minutes for the full pass.
 Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
+
+## 0bb. New in v2.98.0 — the canvas becomes a workbench
+
+### 0bb-1. Paste from anywhere
+- [ ] Copy an equation OUT of a rendered Word equation (or paste `𝑥² − 5𝑥 + 6 = 0` with
+  math-italic x) into Solve → note under the input says styled letters were read; roots 3 and 2.
+- [ ] Paste LaTeX: `\frac{1}{x} + \frac{1}{x+1} = 1` → "Read as LaTeX." note; solves.
+- [ ] Type `A = θ r²` (Greek θ from the palette) → chips offer A, theta, r; solve for θ → A/r².
+- [ ] Paste something with ± → the note explains ± means two expressions; nothing is guessed.
+
+### 0bb-2. The canvas solves and graphs live
+- [ ] Open equation canvas → type `x^2 = 2x + 1` → the SOLUTION appears in the canvas
+  (roots 1 ± √2) AND the graph shows both curves crossing at the roots.
+- [ ] Graph `sin(x)` + `cos(x)` on two lines → two labelled curves; change x-window → redraw.
+- [ ] Graph `1/x` → the pole at 0 is a GAP, not a wall.
+- [ ] Integral kind in the canvas: bounds boxes; `x^2` from 0 to 3 → 9 exact with F(x);
+  clear bounds → antiderivative + "checked by differentiating back".
+- [ ] Search box: type "gas" → only PV = nRT (and matches) remain; clear → all groups return.
+- [ ] Derivative kind: calculus templates (limit → 0, Taylor…) load prose that solves.
 
 ## 0ba. New in v2.97.0 — Solve: equation canvas pop-out + real symbols
 

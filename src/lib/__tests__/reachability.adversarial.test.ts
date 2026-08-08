@@ -28,14 +28,24 @@ const ROOT = path.join(__dirname, "..", "..", "..");
 const LIB = path.join(ROOT, "src", "lib");
 const read = (p: string): string => fs.readFileSync(p, "utf8").replace(/\r\n/g, "\n");
 
-/** Every module in src/lib, plus the pane. */
+/** Every module in src/lib, plus every SHIPPED entry surface. The pane is not
+ *  the only consumer any more: the draw and equation-canvas dialogs are their
+ *  own webpack entries, and an export used only from a dialog is reachable —
+ *  the audit reading only taskpane.ts would call the canvas's own engine dead. */
 function sources(): { lib: Map<string, string>; all: string } {
   const lib = new Map<string, string>();
   for (const f of fs.readdirSync(LIB)) {
     if (f.endsWith(".ts")) lib.set(f.replace(/\.ts$/, ""), read(path.join(LIB, f)));
   }
-  const pane = read(path.join(ROOT, "src", "taskpane", "taskpane.ts"));
-  return { lib, all: pane + "\n" + [...lib.values()].join("\n") };
+  const entries = [
+    path.join(ROOT, "src", "taskpane", "taskpane.ts"),
+    path.join(ROOT, "src", "drawdialog", "drawdialog.ts"),
+    path.join(ROOT, "src", "solvedialog", "solvedialog.ts"),
+  ]
+    .filter((p) => fs.existsSync(p))
+    .map(read)
+    .join("\n");
+  return { lib, all: entries + "\n" + [...lib.values()].join("\n") };
 }
 
 /**

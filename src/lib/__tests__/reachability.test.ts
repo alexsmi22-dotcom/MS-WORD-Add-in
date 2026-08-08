@@ -26,6 +26,10 @@ const LIB = path.join(ROOT, "src", "lib");
 const ENTRIES = [
   path.join(ROOT, "src", "taskpane", "taskpane.ts"),
   path.join(ROOT, "src", "commands", "commands.ts"),
+  // The dialogs are their own webpack entries — modules only they import
+  // (graphCalc, from the equation canvas) are shipped, not orphaned.
+  path.join(ROOT, "src", "drawdialog", "drawdialog.ts"),
+  path.join(ROOT, "src", "solvedialog", "solvedialog.ts"),
 ];
 
 /**

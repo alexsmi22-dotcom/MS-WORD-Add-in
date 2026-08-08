@@ -336,6 +336,43 @@ export const SOLVE_SYMBOLS: PaletteGroup[] = [
       { label: "≠", snippet: " ≠ ", title: "Not equal" },
     ],
   },
+  {
+    name: "Greek",
+    items: [
+      // Real Greek characters — the paste-folding layer reads them as
+      // variables the engines solve for symbolically, and the typesetter
+      // draws them back as Greek.
+      { label: "θ", snippet: "θ", title: "theta — a solvable variable" },
+      { label: "α", snippet: "α", title: "alpha" },
+      { label: "β", snippet: "β", title: "beta" },
+      { label: "γ", snippet: "γ", title: "gamma" },
+      { label: "λ", snippet: "λ", title: "lambda (wavelength)" },
+      { label: "μ", snippet: "μ", title: "mu (coefficient of friction, mean)" },
+      { label: "ρ", snippet: "ρ", title: "rho (density)" },
+      { label: "σ", snippet: "σ", title: "sigma (stress, s.d.)" },
+      { label: "τ", snippet: "τ", title: "tau (torque, time constant)" },
+      { label: "φ", snippet: "φ", title: "phi (phase)" },
+      { label: "ω", snippet: "ω", title: "omega (angular frequency)" },
+      { label: "Δ", snippet: "Δ", title: "Delta — a solvable variable (e.g. ΔT)" },
+      { label: "Ω", snippet: "Ω", title: "Omega" },
+    ],
+  },
+];
+
+/** Whole-input calculus templates for the Differentiate kind — the prose the
+ *  engine reads for limits and series, loaded ready to edit. */
+export const SOLVE_CALCULUS: PaletteGroup[] = [
+  {
+    name: "Limits & series",
+    items: [
+      { label: "limit → 0", snippet: "limit sin(x)/x as x -> 0", title: "Two-sided limit" },
+      { label: "limit → ∞", snippet: "limit 1/x as x -> inf", title: "Limit at infinity" },
+      { label: "one-sided", snippet: "limit 1/x as x -> 0+", title: "From above (also 0-)" },
+      { label: "Taylor", snippet: "taylor exp(x) order 5", title: "Taylor series, exact coefficients" },
+      { label: "Maclaurin", snippet: "maclaurin sin(x)", title: "Series about 0" },
+      { label: "series about a", snippet: "series sqrt(x) about 1 order 4", title: "Expansion about a point" },
+    ],
+  },
 ];
 
 /** Whole-input equation templates: click → the input becomes this equation,
@@ -363,15 +400,47 @@ export const SOLVE_EQUATIONS: PaletteGroup[] = [
     ],
   },
   {
-    name: "Physics",
+    name: "Mechanics",
     items: [
       { label: "F = ma", snippet: "F = m a", title: "Newton's second law — solve for F, m or a" },
       { label: "v = u + at", snippet: "v = u + a t", title: "Kinematics — solve for any symbol" },
       { label: "s = ut + ½at²", snippet: "s = u t + (1/2) a t^2", title: "Kinematics displacement" },
-      { label: "E = mc²", snippet: "E = m c^2", title: "Mass–energy" },
+      { label: "v² = u² + 2as", snippet: "v^2 = u^2 + 2 a s", title: "Kinematics, no time" },
+      { label: "p = mv", snippet: "p = m v", title: "Momentum" },
+      { label: "W = Fd", snippet: "W = F d", title: "Work" },
+      { label: "P = W/t", snippet: "P = W/t", title: "Power" },
       { label: "K = ½mv²", snippet: "K = (1/2) m v^2", title: "Kinetic energy" },
+      { label: "U = mgh", snippet: "U = m g h", title: "Gravitational potential energy" },
+      { label: "F = kx", snippet: "F = k x", title: "Hooke's law" },
+      { label: "Gravitation", snippet: "F = G m M / r^2", title: "Newton's law of gravitation" },
+      { label: "τ = Fr", snippet: "τ = F r", title: "Torque (τ is a solvable variable)" },
+      { label: "E = mc²", snippet: "E = m c^2", title: "Mass–energy" },
+    ],
+  },
+  {
+    name: "Electricity & waves",
+    items: [
       { label: "V = IR", snippet: "V = I R", title: "Ohm's law" },
+      { label: "P = IV", snippet: "P = I V", title: "Electrical power" },
+      { label: "P = I²R", snippet: "P = I^2 R", title: "Power dissipated in a resistance" },
+      { label: "Q = CV", snippet: "Q = C V", title: "Capacitor charge" },
+      { label: "E = ½CV²", snippet: "E = (1/2) C V^2", title: "Capacitor energy" },
+      { label: "Coulomb", snippet: "F = k q1 q2 / r^2", title: "Coulomb's law" },
+      { label: "v = fλ", snippet: "v = f λ", title: "Wave speed — λ is a solvable variable" },
+      { label: "T = 1/f", snippet: "T = 1/f", title: "Period and frequency" },
+      { label: "E = hf", snippet: "E = h f", title: "Photon energy" },
+      { label: "ω = 2πf", snippet: "ω = 2 π f", title: "Angular frequency" },
+    ],
+  },
+  {
+    name: "Thermo & chemistry",
+    items: [
       { label: "PV = nRT", snippet: "P V = n R T", title: "Ideal gas — solve for any symbol" },
+      { label: "Q = mcΔT", snippet: "Q = m c (T2 - T1)", title: "Sensible heat — ΔT written out so both temperatures solve" },
+      { label: "Dilution", snippet: "C1 V1 = C2 V2", title: "Dilution — solve for any of the four" },
+      { label: "Beer's law", snippet: "A = ε l c", title: "Absorbance — ε is a solvable variable" },
+      { label: "n = m/M", snippet: "n = m/M", title: "Moles from mass and molar mass" },
+      { label: "ρ = m/V", snippet: "ρ = m/V", title: "Density — ρ is a solvable variable" },
     ],
   },
   {
@@ -379,6 +448,7 @@ export const SOLVE_EQUATIONS: PaletteGroup[] = [
     items: [
       { label: "Simple interest", snippet: "I = P r t", title: "Solve for any symbol" },
       { label: "Compound growth", snippet: "A = P (1 + r)^t", title: "Solve for A or P (r and t need logs — stated honestly)" },
+      { label: "Compound, n/yr", snippet: "A = P (1 + r/n)^(n t)", title: "Compounded n times per year" },
     ],
   },
 ];

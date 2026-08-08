@@ -6,6 +6,50 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.98.0] — 2026-08-08 — Paste from anywhere; the canvas becomes a workbench
+
+"It's limiting… almost like the ability to write it or copy and paste
+from another source" — so now it reads what people actually paste, and
+the canvas solves and graphs while you work.
+
+### Added
+- **Paste from anywhere** (src/lib/pasteMath.ts): equations copied out of
+  rendered Word equations, PDFs and web pages just work — math-italic
+  letters (𝑥 → x, every Unicode style by codepoint arithmetic), Greek
+  variables (θ → theta, solvable symbolically and typeset back as θ),
+  **LaTeX** (\frac, \sqrt, ^{}, $-delimiters), vulgar fractions (½ and
+  1⁄2, mixed numbers read as ten-AND-a-half), invisible characters and
+  typographic spaces. Every transformation is REPORTED in a note under
+  the input; what has no single faithful reading (±, ∂, ℝ, Σ) is named,
+  never guessed.
+- **The canvas solves live**: roots with solve-for chips, systems with
+  their classification, inequalities as intervals, limits and Taylor
+  series, derivative, antiderivative with its differentiate-back check,
+  definite integrals with new bounds boxes — the same engines the pane
+  inserts from.
+- **The canvas graphs like a graphing calculator** (src/lib/graphCalc.ts):
+  one curve per line, `y = …` entries, an equation graphs BOTH sides so
+  the crossings are the solutions, window under your control, poles stay
+  gaps (1/x is two branches, never a wall), every ungraphable line says
+  why.
+- **Searchable equation library**, tripled: mechanics, electricity &
+  waves, thermo & chemistry (dilution C₁V₁ = C₂V₂, Beer's law with ε),
+  growth & finance — every formula loading ready to solve for any symbol,
+  Greek included. Greek palette group; calculus templates for the
+  Differentiate kind.
+
+### Fixed (adversarial pass: 7 findings, all value-pinned in tests)
+- LaTeX letter runs were becoming single invented identifiers — E = mc²
+  solved for a variable called "mc", \sin x read as sin·x. The converter
+  now keeps letter atoms separate products and gives \sin-family commands
+  their argument.
+- Precomposed ½ (what Word autoformat writes) was unread; 10½ now reads
+  as ten-and-a-half, not 10·½ = 5.
+- Bold digamma no longer misread as Alpha/Beta (Greek run bound), x_θ
+  keeps its subscript binding, adjacent Greek letters stay separate
+  variables, and geometry inputs no longer receive the equation-side
+  advice about ″ and ° that the geometry engine reads natively.
+
 ## [2.97.0] — 2026-08-08 — The equation canvas: pop out, draw, real symbols
 
 The follow-up asks, delivered: a large canvas pop-out for Solve, the

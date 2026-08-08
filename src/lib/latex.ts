@@ -51,6 +51,13 @@ const SIMPLE: Record<string, string> = {
 };
 
 const NARY: Record<string, string> = { sum: "sum", prod: "prod", int: "int", oint: "oint", iint: "iint", iiint: "iiint" };
+
+/** \sin-family commands: the following token is their ARGUMENT, not a factor. */
+const FUNC_CMDS = new Set([
+  "sin", "cos", "tan", "csc", "sec", "cot",
+  "arcsin", "arccos", "arctan", "sinh", "cosh", "tanh",
+  "ln", "log", "exp",
+]);
 const NARY_GLYPH: Record<string, string> = { sum: "∑", prod: "∏", int: "∫", oint: "∮", iint: "∬", iiint: "∭" };
 const MATRIX_ENV: Record<string, string> = {
   matrix: "matrix", pmatrix: "pmatrix", bmatrix: "bmatrix", Bmatrix: "bmatrix", vmatrix: "vmatrix", array: "matrix",
@@ -149,10 +156,21 @@ export function latexToDsl(src: string): string {
       }
       parts.push(atom());
     }
-    // LaTeX math ignores whitespace, so concatenate with no separator — this also
-    // keeps multi-digit numbers ("100") and decimals ("3.14") intact instead of
-    // splitting them into separate DSL tokens.
-    return parts.filter((p) => p !== "").join("");
+    // LaTeX math ignores whitespace, so concatenate with no separator — this
+    // keeps multi-digit numbers ("100") and decimals ("3.14") intact instead
+    // of splitting them into separate DSL tokens. EXCEPT between two letters:
+    // in LaTeX, `mc` is the product m·c (every letter its own atom), and a
+    // tight join invents a single identifier "mc" — which the Solve grammar
+    // then solves for, a silently wrong reading of E = mc². A space between
+    // letter-letter (and letter-after-}) boundaries preserves the product;
+    // digits and punctuation still join tight.
+    const kept = parts.filter((p) => p !== "");
+    let out = "";
+    for (const p of kept) {
+      if (out && /[A-Za-z}]$/.test(out) && /^[A-Za-z]/.test(p)) out += " ";
+      out += p;
+    }
+    return out;
   }
 
   function atom(): string {
@@ -241,7 +259,22 @@ export function latexToDsl(src: string): string {
       return "";
     }
     if (SIMPLE[name] !== undefined) return SIMPLE[name];
-    // Unknown command (e.g. a function like \sin): strip the backslash.
+    // Function commands: \sin x applies to the NEXT single token (TeX's own
+    // binding), so it must become sin(x) — bare "sin x" reads as the product
+    // sin·x downstream. A braced or parenthesised argument already carries
+    // its own brackets and needs no wrapping.
+    if (FUNC_CMDS.has(name)) {
+      const next = peek();
+      if (next?.t === "char" && /^[A-Za-z0-9.]$/.test(next.v)) {
+        eat();
+        return `${name}(${next.v})`;
+      }
+      if (next?.t === "lbrace") {
+        return `${name}(${group()})`;
+      }
+      return name; // \sin(x+1): the "(" atom follows and joins tight
+    }
+    // Unknown command: strip the backslash.
     return name;
   }
 

@@ -3,8 +3,10 @@
 // same family as the routing-vs-engine traps: the engine being green proves
 // nothing about what the pane feeds it.
 
-import { SOLVE_SYMBOLS, SOLVE_EQUATIONS, SOLVE_SHAPES } from "../palettes";
+import { SOLVE_SYMBOLS, SOLVE_EQUATIONS, SOLVE_SHAPES, SOLVE_CALCULUS } from "../palettes";
 import { solveEquation, differentiate, normalizeUnicodeMath, parseExpr } from "../solve";
+import { parseLimitRequest, parseSeriesRequest } from "../analysis";
+import { foldPastedMath } from "../pasteMath";
 import { solveInequality } from "../inequalities";
 import { splitEquations, solveSystem } from "../systems";
 import { solveGeometry } from "../geometryParse";
@@ -13,21 +15,41 @@ import { solveComposite } from "../compositeGeometry";
 describe("every equation-library template solves", () => {
   const all = SOLVE_EQUATIONS.flatMap((g) => g.items.map((i) => ({ group: g.name, ...i })));
   test.each(all.map((i) => [i.label, i.snippet] as const))("%s: %s", (_label, snippet) => {
-    if (/[<>]=?|!=/.test(snippet)) {
-      expect(solveInequality(snippet)).not.toBeNull();
+    // Templates ride the SAME pipeline as typed/pasted input: fold first.
+    // Greek in a formula (v = f λ) is the paste-folding layer's job.
+    const text = foldPastedMath(snippet).text;
+    if (/[<>]=?|!=|[≤≥≠]/.test(text)) {
+      expect(solveInequality(text)).not.toBeNull();
       return;
     }
-    if (snippet.includes("\n")) {
-      const eqs = splitEquations(snippet);
+    if (text.includes("\n")) {
+      const eqs = splitEquations(text);
       expect(eqs.length).toBeGreaterThan(1);
       const sys = solveSystem(eqs);
       expect(sys).not.toBeNull();
       return;
     }
-    const r = solveEquation(snippet);
+    const r = solveEquation(text);
     expect(r).not.toBeNull();
     // A formula template's whole point is the solve-for chips: several unknowns.
     expect((r!.unknowns ?? [r!.variable]).length).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe("every calculus template is read as the prose it is", () => {
+  const all = SOLVE_CALCULUS.flatMap((g) => g.items);
+  test.each(all.map((i) => [i.label, i.snippet] as const))("%s: %s", (_label, snippet) => {
+    expect(parseLimitRequest(snippet) !== null || parseSeriesRequest(snippet) !== null).toBe(true);
+  });
+});
+
+describe("Greek palette characters fold into solvable variables", () => {
+  test("every Greek button's character survives fold → parse", () => {
+    const greek = SOLVE_SYMBOLS.find((g) => g.name === "Greek")!;
+    for (const item of greek.items) {
+      const folded = foldPastedMath(`${item.snippet} + 1`);
+      expect(() => parseExpr(normalizeUnicodeMath(folded.text))).not.toThrow();
+    }
   });
 });
 

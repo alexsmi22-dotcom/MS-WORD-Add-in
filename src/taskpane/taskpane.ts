@@ -312,12 +312,14 @@ import {
   SOLVE_SYMBOLS,
   SOLVE_EQUATIONS,
   SOLVE_SHAPES,
+  SOLVE_CALCULUS,
   PaletteGroup,
   PaletteItem,
 } from "../lib/palettes";
 import { solveComposite, qtyToNumber, qtyExact } from "../lib/compositeGeometry";
 import { compositeShapeSvg } from "../lib/geometryChart";
 import { solveInputToTypesetLines, isProseRequest } from "../lib/solveTypeset";
+import { foldPastedMath } from "../lib/pasteMath";
 import { NAME_TO_SMILES } from "../lib/compounds";
 import {
   HistoryEntry,
@@ -870,6 +872,7 @@ let solveInsertBtn: HTMLButtonElement;
 let solvePaletteEl: HTMLElement;
 let solveTypesetEl: HTMLElement;
 let solveOpenCanvasBtn: HTMLButtonElement;
+let solvePasteNoteEl: HTMLElement;
 /** MS readout for the most recent input, for insertion. */
 let currentMassSpec: MassSpecResult | null = null;
 let statsSection: HTMLElement;
@@ -1263,6 +1266,7 @@ Office.onReady((info) => {
   solvePaletteEl = document.getElementById("solve-palette") as HTMLElement;
   solveTypesetEl = document.getElementById("solve-typeset") as HTMLElement;
   solveOpenCanvasBtn = document.getElementById("solve-open-canvas-btn") as HTMLButtonElement;
+  solvePasteNoteEl = document.getElementById("solve-paste-note") as HTMLElement;
   statsSection = document.getElementById("stats-section") as HTMLElement;
   statsCalcSelect = document.getElementById("stats-calc") as HTMLSelectElement;
   statsInputs = document.getElementById("stats-inputs") as HTMLElement;
@@ -26514,7 +26518,7 @@ function renderSolvePalette(kind: SolveKind): void {
   const snippetGroups: PaletteGroup[] =
     kind === "equation" || kind === "derivative" || kind === "integral" ? SOLVE_SYMBOLS : [];
   const templateGroups: PaletteGroup[] =
-    kind === "equation" ? SOLVE_EQUATIONS : kind === "geometry" ? SOLVE_SHAPES : [];
+    kind === "equation" ? SOLVE_EQUATIONS : kind === "geometry" ? SOLVE_SHAPES : kind === "derivative" ? SOLVE_CALCULUS : [];
   solvePaletteEl.replaceChildren();
   solvePaletteEl.style.display = snippetGroups.length || templateGroups.length ? "block" : "none";
 
@@ -26899,7 +26903,12 @@ function solveFunctionSvg(o: {
 
 function updateSolve(): void {
   const kind = solveKind.value as SolveKind;
-  const text = solveInput.value.trim();
+  // Fold pasted mathematics FIRST — math-italic 𝑥, Greek θ, LaTeX, the
+  // fraction slash — so paste-from-anywhere just works, and say what was
+  // read. The input box keeps the user's own characters.
+  const folded = foldPastedMath(solveInput.value.trim(), { geometry: kind === "geometry" });
+  const text = folded.text.trim();
+  solvePasteNoteEl.textContent = text ? folded.notes.join(" ") : "";
   renderSolveTypeset(kind, text);
   solveResult.replaceChildren();
   currentSolveText = "";

@@ -6,6 +6,39 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.104.0] — 2026-08-08 — Solve with units
+
+The last item on the CAS roadmap's list: equations whose knowns carry
+units, with the answer's unit DERIVED, never assumed.
+
+### Added
+- **Units-aware solving** (equation kind, src/lib/unitSolve.ts): formula
+  on the first line, knowns below — F = m a / m = 3 kg / a = 2 m/s² →
+  **F = 6 N** (kg·m/s²). Symbolic rearrangement first (same CAS path,
+  conditions and all), SI conversion exactly once and REPORTED
+  (3 km → 3000 m), then dimension-aware evaluation: adding quantities of
+  different dimensions is refused naming the exact subtrees and units;
+  sin of metres is refused with guidance (sin of an ANGLE works — the
+  tool converted your degrees itself); exponents must be pure numbers;
+  √ halves dimensions (pendulum period comes out in seconds). Named
+  units where unambiguous (N, Pa, J, W, C, V, Ω — deliberately not Hz:
+  bare s⁻¹ is also rad/s and Bq). Multiple algebraic branches are
+  evaluated and the physically usual (positive) one presented, with the
+  others DISCLOSED by value. Plain systems without units are untouched.
+
+### Fixed (adversarial pass: 9 findings)
+- The engine's dim key is `temp`, not `temperature` — kelvins were being
+  silently DROPPED from displayed units (Q/(m·ΔT) showed m²/s², and a
+  bare temperature showed no unit at all). Unknown dim keys now render
+  under their own names, never dropped.
+- v = −3 m/s was presented as THE speed (the −√ branch is ordered
+  first), with a caveat falsely claiming the branches "differ in sign".
+  The positive branch is now chosen and the alternative shown by value.
+- Fraction knowns (m = 1/2 kg) were dead code (regex alternation order);
+  trig of a converted angle was refused self-contradictorily; mismatch
+  messages named "(…)-part" instead of the offending subtree; fractional
+  dimensions rendered garbled; duplicate ≠-conditions deduped.
+
 ## [2.103.0] — 2026-08-08 — Symbolic ODEs, and three known limits closed
 
 ### Added

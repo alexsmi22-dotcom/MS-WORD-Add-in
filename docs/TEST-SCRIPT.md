@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.103.0)
+# JurisLab — Manual Test Script (v2.104.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -9,6 +9,19 @@ scanning, and layout. Budget ~30 minutes for the full pass.
 Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
+
+## 0bh. New in v2.104.0 — solve with units
+
+- [ ] Solve → equation kind, three lines: `F = m a` ⏎ `m = 3 kg` ⏎ `a = 2 m/s^2`
+  → rearrangement shown, **F = 6 N (kg·m/s²)** — the unit derived, not assumed.
+- [ ] `v = d/t` ⏎ `d = 3 km` ⏎ `t = 0.5 h` → "Converted to SI first: 3 km → 3000 m…",
+  v ≈ 1.667 m/s.
+- [ ] `v = u + a*t` ⏎ `u = 3 m` ⏎ `a = 2 m/s^2` ⏎ `t = 4 s` → REFUSED naming the
+  clash (u carries m where m/s is needed) — no number invented.
+- [ ] `T = 2 π sqrt(L/g)` ⏎ `L = 2 m` ⏎ `g = 9.8 m/s^2` → T in seconds (√ halves dims).
+- [ ] A plain two-line system without units still solves as a system.
+- [ ] The equation canvas shows the same units result; Insert puts the worked
+  lines into Word.
 
 ## 0bg. New in v2.103.0 — symbolic ODEs + known-limit fixes
 

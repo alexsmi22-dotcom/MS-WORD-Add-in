@@ -404,6 +404,11 @@ export const SOLVE_EQUATIONS: PaletteGroup[] = [
       { label: "System 3×3", snippet: "x + y + z = 6\n2x - y + z = 3\nx + 2y - z = 2", title: "Three equations, one per line" },
       { label: "Inequality", snippet: "x^2 - 4 >= 0", title: "Solution intervals" },
       { label: "Rational", snippet: "1/x + 1/(x+1) = 1", title: "Excluded values stated" },
+      {
+        label: "With units",
+        snippet: "F = m a\nm = 3 kg\na = 2 m/s^2",
+        title: "Formula + knowns with units — the answer's unit is derived (6 N); mismatches refused by name",
+      },
     ],
   },
   {

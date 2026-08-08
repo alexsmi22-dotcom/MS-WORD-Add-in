@@ -28,6 +28,7 @@ import { buildPlotSvg } from "../lib/plot";
 import { solveEquation, differentiate, antiderivative, integrate, parseExpr, evalAst } from "../lib/solve";
 import { equationWork, derivativeWork, definiteIntegralWork, WorkLine } from "../lib/showWork";
 import { solveOdeSymbolic } from "../lib/odeSymbolic";
+import { solveWithUnits } from "../lib/unitSolve";
 import { limit as evalLimit, taylorSeries, parseLimitRequest, parseSeriesRequest } from "../lib/analysis";
 import { solveInequality } from "../lib/inequalities";
 import { splitEquations, solveSystem } from "../lib/systems";
@@ -201,6 +202,16 @@ Office.onReady(() => {
           line(resultEl, `${iq.variable} ∈ ${iq.display}`, "result-title");
           for (const s of iq.steps.slice(0, 4)) line(resultEl, s, "result-line");
           return;
+        }
+        if (folded.includes(String.fromCharCode(10))) {
+          const us = solveWithUnits(folded);
+          if (us) {
+            line(resultEl, `Solve with units — for ${us.unknown}`, "result-title");
+            workLines(resultEl, us.steps);
+            if (us.refusal) line(resultEl, us.refusal, "caveat");
+            for (const c of us.caveats) line(resultEl, c, "caveat");
+            return;
+          }
         }
         const eqs = splitEquations(folded);
         if (eqs.length > 1) {

@@ -323,6 +323,7 @@ import { solveInputToTypesetLines, solveToTypesetDsl, isProseRequest } from "../
 import { foldPastedMath } from "../lib/pasteMath";
 import { equationWork, derivativeWork, definiteIntegralWork, WorkLine } from "../lib/showWork";
 import { solveOdeSymbolic } from "../lib/odeSymbolic";
+import { solveWithUnits } from "../lib/unitSolve";
 import { NAME_TO_SMILES } from "../lib/compounds";
 import {
   HistoryEntry,
@@ -26588,7 +26589,7 @@ function updateSolveUi(): void {
     // INEQUALITIES were routed and working with nothing anywhere in the pane,
     // the HTML or the examples mentioning that this box accepts a comparison
     // sign — a shipped feature with zero discoverability.
-    equation: "Use ^ for powers — type x^2 for x². Functions: sqrt, sin, cos, exp, ln; constants pi, e (π and √ are accepted too). Pasted superscripts like x² also work. A formula with several symbols — F = m*a — offers a choice of which one to solve for. INEQUALITIES work here as well: x^3 - x >= 0 gives the solution set as intervals, with the sign analysis shown.",
+    equation: "Use ^ for powers — type x^2 for x². Functions: sqrt, sin, cos, exp, ln; constants pi, e (π and √ are accepted too). Pasted superscripts like x² also work. A formula with several symbols — F = m*a — offers a choice of which one to solve for. INEQUALITIES work here as well: x^3 - x >= 0 gives the solution set as intervals, with the sign analysis shown. WITH UNITS: put the formula on the first line and the knowns below it — F = m a ⏎ m = 3 kg ⏎ a = 2 m/s^2 — and the answer comes back with its unit DERIVED (6 N); mismatched dimensions are refused by name.",
     derivative: "Use ^ for powers — e.g. x^2, exp(x), sin(x^2). Pasted superscripts like x² also work. " +
       "This box also takes LIMITS — limit sin(x)/x as x -> 0, lim 1/x as x -> inf, limit 1/x as x -> 0+ — " +
       "and SERIES: taylor exp(x) order 5, maclaurin sin(x), series sqrt(x) about 1 order 4.",
@@ -27010,6 +27011,22 @@ function updateSolve(): void {
 
       // SEVERAL equations means a SYSTEM. Two or more lines each containing an
       // "=" is unambiguous — a single equation never spans lines.
+      // Units-aware: a formula plus knowns that carry units (F = m a ⏎
+      // m = 3 kg ⏎ a = 2 m/s^2) solves with the unit DERIVED — before the
+      // system path, which would read "kg" as an unknown variable.
+      if (text.includes("\n")) {
+        const us = solveWithUnits(text);
+        if (us) {
+          solveResult.appendChild(msEyebrow(`Solve with units — for ${us.unknown}`));
+          say(`Solve with units — for ${us.unknown}:`, "heading");
+          sayWork(us.steps);
+          if (us.refusal) {
+            solveResult.appendChild(solveLine(us.refusal, "ms-masses"));
+            say(us.refusal);
+          }
+          return finish(us.caveats);
+        }
+      }
       const eqs = splitEquations(text);
       if (eqs.length > 1) {
         const sys = solveSystem(eqs);

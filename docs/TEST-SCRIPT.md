@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.95.0)
+# JurisLab — Manual Test Script (v2.96.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -9,6 +9,25 @@ scanning, and layout. Budget ~30 minutes for the full pass.
 Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
+
+## 0az. New in v2.96.0 — Solve: composite geometry + equation composer
+
+### 0az-1. The motivating request, in prose
+- [ ] Solve → Geometry, type: `take a rectangle that is 10" x 5" with a triangle inside, base 4" height 3"`
+  → the pane shows **rectangle area (cutouts still counted) = 50 in²**, **− triangle = 6 in²**,
+  **area without the cutouts = 44 in²**, the placement caveat, AND a drawn figure
+  (blue rectangle, hatched red triangle, caption `base area 50 in² · removed 6 in² · net 44 in²`).
+- [ ] **Insert result** → the derivation lands as real Word equations AND the figure follows it.
+- [ ] `rectangle 8 x 6 minus circle r=2` → net shows **48 - 4*pi ≈ 35.43** — π survives to the document.
+- [ ] `rectangle 10" x 5" with a triangle inside` (no dims) → asks for base/height, Insert stays disabled.
+
+### 0az-2. The equation composer
+- [ ] Solve → Solve an equation: a palette appears under the input (Structures / Functions /
+  Relations / Algebra / Geometry formulas / Physics / Growth & finance).
+- [ ] Click **F = ma** in Physics → input becomes `F = m a`, chips offer F / m / a; pick `a` → `a = F/m` with m ≠ 0.
+- [ ] Click **√** with the cursor mid-expression → `sqrt()` lands at the cursor, caret inside the parens.
+- [ ] Switch to Geometry kind → the palette swaps to Composite figures / Single shapes templates;
+  Topology and Word problem kinds show no palette.
 
 ## 0ay. NEW — EVERY calculator draws, everywhere (84 of 84 outside Engineering)
 

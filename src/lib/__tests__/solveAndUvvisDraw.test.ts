@@ -65,6 +65,18 @@ describe("Solve draws for every kind that has something to draw", () => {
     expect(produced).toBe(3);
   });
 
+  test("the geometry branch draws composite figures (ratchet raised, not lowered)", () => {
+    const src = updateSolveSource();
+    // Composite figures came with their own builder; the branch must wire it
+    // to the same figure state the insert path reads, with its own alt text.
+    expect(src).toContain("currentSolveSvg = compositeShapeSvg(");
+    expect(src).toMatch(/currentSolveAlt =[\s\S]{0,300}placement of inner shapes illustrative/);
+    // And PREVIEW it in the pane — a figure first seen inside the document is
+    // the preview-is-not-insert trap inverted.
+    const at = src.indexOf("compositeShapeSvg(");
+    expect(src.slice(at, at + 700)).toContain("fig.innerHTML = currentSolveSvg");
+  });
+
   test("every figure carries a caption written by the branch that made it", () => {
     // ALT TEXT THAT LIES IS WORSE THAN NONE. The insert path hardcoded
     // "Persistence barcode: each bar is a topological feature" — true while the

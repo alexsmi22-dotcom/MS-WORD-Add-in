@@ -915,6 +915,9 @@
         <label class="field-label" for="solve-input" id="solve-input-label">Equation</label>
         <textarea id="solve-input" class="rgroup-input solve-input" rows="1" autocomplete="off"
           spellcheck="false" placeholder="x^2 - 5x + 6 = 0"></textarea>
+        <!-- Equation composer: caret-insert symbols and whole-equation /
+             whole-figure templates, per solve kind (like Build's palette). -->
+        <div id="solve-palette" class="palette"></div>
         <div id="solve-bounds" style="display: none;">
           <label class="field-label" for="solve-a">Integrate from</label>
           <input id="solve-a" type="text" class="rgroup-input" autocomplete="off" placeholder="0" />

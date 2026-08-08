@@ -309,9 +309,14 @@ import {
   BUILD_TEMPLATES,
   BUILD_BONDS,
   BUILD_MARKUSH,
+  SOLVE_SYMBOLS,
+  SOLVE_EQUATIONS,
+  SOLVE_SHAPES,
   PaletteGroup,
   PaletteItem,
 } from "../lib/palettes";
+import { solveComposite, qtyToNumber, qtyExact } from "../lib/compositeGeometry";
+import { compositeShapeSvg } from "../lib/geometryChart";
 import { NAME_TO_SMILES } from "../lib/compounds";
 import {
   HistoryEntry,
@@ -861,6 +866,7 @@ let solveA: HTMLInputElement;
 let solveB: HTMLInputElement;
 let solveResult: HTMLElement;
 let solveInsertBtn: HTMLButtonElement;
+let solvePaletteEl: HTMLElement;
 /** MS readout for the most recent input, for insertion. */
 let currentMassSpec: MassSpecResult | null = null;
 let statsSection: HTMLElement;
@@ -1251,6 +1257,7 @@ Office.onReady((info) => {
   solveB = document.getElementById("solve-b") as HTMLInputElement;
   solveResult = document.getElementById("solve-result") as HTMLElement;
   solveInsertBtn = document.getElementById("solve-insert") as HTMLButtonElement;
+  solvePaletteEl = document.getElementById("solve-palette") as HTMLElement;
   statsSection = document.getElementById("stats-section") as HTMLElement;
   statsCalcSelect = document.getElementById("stats-calc") as HTMLSelectElement;
   statsInputs = document.getElementById("stats-inputs") as HTMLElement;
@@ -26479,6 +26486,71 @@ function solveLine(text: string, cls = "ms-hint"): HTMLElement {
 }
 
 /** Adjusts the input label and the visibility of the integral bounds. */
+/** Inserts a snippet at the Solve input's caret (the composer's symbol buttons). */
+function solveInsertAtCursor(snippet: string, caret?: number): void {
+  const start = solveInput.selectionStart ?? solveInput.value.length;
+  const end = solveInput.selectionEnd ?? solveInput.value.length;
+  solveInput.value = solveInput.value.slice(0, start) + snippet + solveInput.value.slice(end);
+  const pos = start + (caret ?? snippet.length);
+  solveInput.focus();
+  solveInput.setSelectionRange(pos, pos);
+  updateSolve();
+}
+
+/**
+ * The Solve composer: symbol buttons insert at the caret; equation/figure
+ * TEMPLATES load a complete working input (and reset the solve-for choice,
+ * because the old choice belonged to the old equation). Which groups show
+ * depends on the kind — expression kinds get symbols, the equation kind adds
+ * the equation library, geometry gets shape and composite-figure templates.
+ */
+function renderSolvePalette(kind: SolveKind): void {
+  const snippetGroups: PaletteGroup[] =
+    kind === "equation" || kind === "derivative" || kind === "integral" ? SOLVE_SYMBOLS : [];
+  const templateGroups: PaletteGroup[] =
+    kind === "equation" ? SOLVE_EQUATIONS : kind === "geometry" ? SOLVE_SHAPES : [];
+  solvePaletteEl.replaceChildren();
+  solvePaletteEl.style.display = snippetGroups.length || templateGroups.length ? "block" : "none";
+
+  const renderGroups = (groups: PaletteGroup[], template: boolean, indexBase: number): void => {
+    groups.forEach((group, i) => {
+      const details = document.createElement("details");
+      details.className = "palette-acc";
+      details.open = paletteGroupOpen(`solve.${kind}`, group.name, indexBase + i);
+      details.addEventListener("toggle", () => setPaletteGroupOpen(`solve.${kind}`, group.name, details.open));
+      const summary = document.createElement("summary");
+      summary.className = "palette-group-label";
+      summary.textContent = group.name;
+      details.appendChild(summary);
+      const items = document.createElement("div");
+      items.className = "palette-group";
+      for (const item of group.items) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "palette-btn";
+        btn.textContent = item.label;
+        if (item.title) btn.title = item.title;
+        btn.addEventListener("mousedown", (e) => e.preventDefault());
+        btn.addEventListener("click", () => {
+          if (template) {
+            solveInput.value = item.snippet;
+            solveVarChoice = null;
+            solveInput.focus();
+            updateSolve();
+          } else {
+            solveInsertAtCursor(item.snippet, item.caret);
+          }
+        });
+        items.appendChild(btn);
+      }
+      details.appendChild(items);
+      solvePaletteEl.appendChild(details);
+    });
+  };
+  renderGroups(snippetGroups, false, 0);
+  renderGroups(templateGroups, true, snippetGroups.length);
+}
+
 function updateSolveUi(): void {
   const kind = solveKind.value as SolveKind;
   const labels: Record<SolveKind, string> = {
@@ -26511,6 +26583,9 @@ function updateSolveUi(): void {
     // to clear.
     integral: "Use ^ for powers. The limits may be numbers or expressions like pi/2. LEAVE BOTH LIMIT BOXES EMPTY for the indefinite integral — F(x) + C, with the derivative shown back as a check.",
     geometry:
+      "COMPOSITE figures — a shape with cutouts or additions, exact, with a drawn figure: " +
+      "rectangle 10in x 5in minus triangle b=4in h=3in (also plus to join shapes; units in/ft/cm/mm/m/yd " +
+      "carry through, and prose like “a rectangle 10\" x 5\" with a triangle inside” reads the same). " +
       "Shapes: circle r=3 · sphere r=2 · cylinder r=2 h=5 · box 1 2 3 · polygon n=6 a=2. " +
       "Triangles: triangle 3 4 5 (SSS) · triangle b=4 c=3 A=90 (SAS) · triangle A=30 B=60 c=10 (ASA) · " +
       "triangle a=6 b=8 A=30 (SSA — may give TWO answers). Points: triangle (0,0) (4,0) (0,3) · " +
@@ -26554,6 +26629,7 @@ function updateSolveUi(): void {
   solveInput.rows = kind === "word" ? 5 : kind === "equation" ? 3 : kind === "geometry" || kind === "topology" ? 2 : 1;
   solveHint.textContent = hints[kind];
   solveBounds.style.display = kind === "integral" ? "block" : "none";
+  renderSolvePalette(kind);
 }
 
 /** Formats a number for the pane: up to 8 significant digits, no trailing zeros. */
@@ -27096,11 +27172,53 @@ function updateSolve(): void {
     }
 
     if (kind === "geometry") {
+      // Composite figures (a base shape minus/plus other shapes) are tried
+      // FIRST: their connective words are unambiguous, and plain solveGeometry
+      // has no reading for them.
+      const comp = solveComposite(text);
+      if (comp) {
+        solveResult.appendChild(msEyebrow(comp.title));
+        // Named shapes with a missing dimension: say exactly what is missing
+        // and stop — no insert, no figure, no guessed numbers.
+        if (comp.incomplete) {
+          return void solveResult.appendChild(solveLine(`Almost there — ${comp.incomplete}.`));
+        }
+        say(comp.title, "heading");
+        for (const v of comp.values) {
+          const unit = v.unit ? ` ${v.unit}` : "";
+          const interesting = v.exact && v.exact !== trimNum(v.value);
+          const shown = interesting
+            ? `${v.label} = ${v.exact}${unit}  ≈ ${trimNum(v.value)}${unit}`
+            : `${v.label} = ${trimNum(v.value)}${unit}`;
+          solveResult.appendChild(solveLine(shown, "ms-masses"));
+          if (interesting && /[a-z(]/i.test(v.exact!)) sayMath(`${v.label} = ${v.exact}`, shown);
+          else say(shown);
+        }
+        for (const s of comp.steps) {
+          solveResult.appendChild(solveLine(s));
+          say(s);
+        }
+        currentSolveSvg = compositeShapeSvg(comp);
+        currentSolveAlt =
+          `${comp.title} — base area ${trimNum(qtyToNumber(comp.baseArea))}, ` +
+          `net area ${trimNum(qtyToNumber(comp.netArea))}${comp.unit ? ` ${comp.unit}²` : ""} ` +
+          `(exact: ${qtyExact(comp.netArea)}); placement of inner shapes illustrative.`;
+        // Preview the figure IN THE PANE — what inserts must be what was seen.
+        if (currentSolveSvg) {
+          const fig = document.createElement("div");
+          fig.className = "stats-figure";
+          fig.innerHTML = currentSolveSvg;
+          solveResult.appendChild(fig);
+        }
+        return finish(comp.caveats);
+      }
+
       const g = solveGeometry(text);
       if (!g) {
         return void solveResult.appendChild(
           solveLine(
-            "Couldn't read that as geometry. Try a shape (circle r=3), a triangle " +
+            "Couldn't read that as geometry. Try a shape (circle r=3), a composite figure " +
+            "(rectangle 10 x 5 minus triangle b=4 h=3), a triangle " +
             "(triangle 3 4 5, or triangle a=6 b=8 A=30), a point list " +
             "(triangle (0,0) (4,0) (0,3)), or a conic equation (x^2/9 + y^2/4 = 1)."
           )

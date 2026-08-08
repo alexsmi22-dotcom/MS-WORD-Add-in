@@ -6,6 +6,49 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.96.0] — 2026-08-07 — Solve grows a composer and composite geometry
+
+The Solve upgrade requested alongside the drawing canvas: build equations
+by click the way Build draws structures, and answer real drafting-room
+geometry ("a 10″ × 5″ rectangle with a triangle inside — area with and
+without the triangle").
+
+### Added
+- **Composite plane figures** (Solve → Geometry): a base shape minus
+  cutouts / plus additions — `rectangle 10in x 5in minus triangle b=4in
+  h=3in` → area with the cutouts still counted (50 in²) AND without
+  (44 in²), exactly. π and surds survive (`rectangle 8 x 6 minus circle
+  r=2` → 48 − 4π; Heron triangles keep their root until it resolves).
+  Units in/ft/cm/mm/m/yd, mixed units converted exactly (1 ft = 12 in as
+  rationals, never floats). Prose accepted — the request above works
+  verbatim, inch marks and all. Shapes: rectangle, square, circle,
+  semicircle, triangle (b/h or three sides), trapezoid.
+- **The figure draws**: base to scale, cutouts hatched, additions
+  attached, dimension labels, area caption — and the placement
+  disclaimer on its face (the areas do not depend on where cutouts sit).
+  Previewed in the pane before insert; the alt text carries the exact form.
+- **Equation composer** (Solve → equation/derivative/integral): a palette
+  of structures (fractions, powers, roots), functions and relations that
+  insert at the caret, plus an **equation library** — F = ma, PV = nRT,
+  Pythagoras, kinematics, compound growth… — loading complete formulas
+  the solve-for chips can rearrange for any symbol. Geometry gets shape
+  and composite-figure templates.
+- Honesty built in: a shape with missing dimensions is asked for them by
+  name; an impossible triangle or a cutout larger than its base is
+  refused; perimeter is only reported where the dimensions determine it.
+
+### Fixed (adversarial pass over this diff — two were silent wrong numbers)
+- Decimal dimensions survived sentence-punctuation stripping: `10.5` was
+  becoming `10 5` and solving a different rectangle, behind green tests
+  that only checked for NaN. Values are now asserted exactly.
+- "with a semicircle attached / added / on top" computed a SUBTRACTION —
+  the advertised addition prose now adds.
+- Point-list triangles and SSA (angle-named) triangles are declined by the
+  composite parser instead of being misread as side lengths — they belong
+  to the classic geometry grammar and now fall through to it.
+- The composite figure previews in the pane rather than being first seen
+  inside the document (preview-is-not-insert, inverted).
+
 ## [2.95.0] — 2026-08-07 — Reset, Clean structure, and a compliance note
 
 ### Added

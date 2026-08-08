@@ -69,8 +69,21 @@ import { buildLinearMapSvg } from "../src/lib/seqmap";
 import { buildCircularMapSvg } from "../src/lib/seqmapcirc";
 import { parseGenBank } from "../src/lib/seqio";
 import { persistentHomology, barcodeSvg } from "../src/lib/persistence";
+import { solveComposite } from "../src/lib/compositeGeometry";
+import { compositeShapeSvg } from "../src/lib/geometryChart";
 
 const figures: [string, string][] = [];
+
+// Composite plane figures (Solve → geometry). The three layout regimes: a
+// cutout row that fits, one that must shrink to stay legible, and additions.
+{
+  const rectTri = solveComposite("rectangle 10in x 5in minus triangle b=4in h=3in");
+  if (rectTri) figures.push(["composite rect minus triangle", compositeShapeSvg(rectTri)]);
+  const crowded = solveComposite("rectangle 6 x 3 minus circle r=1.4 minus square s=2 minus triangle b=2 h=2");
+  if (crowded) figures.push(["composite crowded cutouts", compositeShapeSvg(crowded)]);
+  const lshape = solveComposite("rectangle 8 x 3 plus rectangle 3 x 5 plus semicircle r=1.5");
+  if (lshape) figures.push(["composite additions", compositeShapeSvg(lshape)]);
+}
 
 figures.push([
   "mohr",

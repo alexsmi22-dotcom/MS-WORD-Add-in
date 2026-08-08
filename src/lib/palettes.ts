@@ -282,3 +282,128 @@ export const CHEM_PALETTE: PaletteGroup[] = [
     ],
   },
 ];
+
+// ---------------------------------------------------------------------------
+// Solve mode. Two kinds of button, matching how Build's palette splits:
+// SNIPPETS insert at the caret (structures, functions, operators, shape
+// fragments); TEMPLATES load a complete, working input the user then edits
+// (a whole equation, a whole composite figure). Snippets are written in the
+// SOLVE grammar (solve.ts parseExpr / geometryParse) — NOT the Math-mode DSL:
+// `^()` not `^{}`, `pi` via the π character (normalizeUnicodeMath folds it
+// with its own spaces, so it can never glue onto a neighbouring identifier),
+// ASCII `<=`/`>=` for inequalities.
+
+/** Caret-insert snippets, shown for the expression-like kinds (equation,
+ *  derivative, integral). */
+export const SOLVE_SYMBOLS: PaletteGroup[] = [
+  {
+    name: "Structures",
+    items: [
+      { label: "a/b", snippet: "()/()", caret: 1, title: "Fraction" },
+      { label: "xⁿ", snippet: "^()", caret: 2, title: "Power" },
+      { label: "√", snippet: "sqrt()", caret: 5, title: "Square root" },
+      { label: "|x|", snippet: "abs()", caret: 4, title: "Absolute value" },
+      { label: "( )", snippet: "()", caret: 1, title: "Parentheses" },
+      { label: "π", snippet: "π", title: "Pi" },
+      { label: "e", snippet: "e", title: "Euler's number" },
+      { label: "∞", snippet: "∞", title: "Infinity (integral bounds, limits)" },
+    ],
+  },
+  {
+    name: "Functions",
+    items: [
+      { label: "sin", snippet: "sin()", caret: 4 },
+      { label: "cos", snippet: "cos()", caret: 4 },
+      { label: "tan", snippet: "tan()", caret: 4 },
+      { label: "ln", snippet: "ln()", caret: 3, title: "Natural log" },
+      { label: "log", snippet: "log()", caret: 4, title: "Log base 10" },
+      { label: "exp", snippet: "exp()", caret: 4, title: "eˣ" },
+    ],
+  },
+  {
+    name: "Relations",
+    items: [
+      { label: "=", snippet: " = " },
+      { label: "≤", snippet: " <= ", title: "Less than or equal (inequality solving)" },
+      { label: "≥", snippet: " >= ", title: "Greater than or equal" },
+      { label: "<", snippet: " < " },
+      { label: ">", snippet: " > " },
+      { label: "≠", snippet: " != ", title: "Not equal" },
+    ],
+  },
+];
+
+/** Whole-input equation templates: click → the input becomes this equation,
+ *  and the "Solve for" chips offer every symbol in it. The full suite. */
+export const SOLVE_EQUATIONS: PaletteGroup[] = [
+  {
+    name: "Algebra",
+    items: [
+      { label: "Quadratic", snippet: "x^2 - 5x + 6 = 0", title: "Both roots, exactly" },
+      { label: "Cubic", snippet: "x^3 - 6x^2 + 11x - 6 = 0", title: "Every real and complex root" },
+      { label: "System 2×2", snippet: "2x + y = 7\nx - y = 2", title: "Two equations, one per line" },
+      { label: "System 3×3", snippet: "x + y + z = 6\n2x - y + z = 3\nx + 2y - z = 2", title: "Three equations, one per line" },
+      { label: "Inequality", snippet: "x^2 - 4 >= 0", title: "Solution intervals" },
+      { label: "Rational", snippet: "1/x + 1/(x+1) = 1", title: "Excluded values stated" },
+    ],
+  },
+  {
+    name: "Geometry formulas",
+    items: [
+      { label: "Circle area", snippet: "A = π r^2", title: "Solve for A or r" },
+      { label: "Sphere volume", snippet: "V = (4/3) π r^3", title: "Solve for V or r" },
+      { label: "Cylinder volume", snippet: "V = π r^2 h", title: "Solve for V, r or h" },
+      { label: "Pythagoras", snippet: "c^2 = a^2 + b^2", title: "Solve for any side" },
+      { label: "Triangle area", snippet: "A = (1/2) b h", title: "Solve for A, b or h" },
+    ],
+  },
+  {
+    name: "Physics",
+    items: [
+      { label: "F = ma", snippet: "F = m a", title: "Newton's second law — solve for F, m or a" },
+      { label: "v = u + at", snippet: "v = u + a t", title: "Kinematics — solve for any symbol" },
+      { label: "s = ut + ½at²", snippet: "s = u t + (1/2) a t^2", title: "Kinematics displacement" },
+      { label: "E = mc²", snippet: "E = m c^2", title: "Mass–energy" },
+      { label: "K = ½mv²", snippet: "K = (1/2) m v^2", title: "Kinetic energy" },
+      { label: "V = IR", snippet: "V = I R", title: "Ohm's law" },
+      { label: "PV = nRT", snippet: "P V = n R T", title: "Ideal gas — solve for any symbol" },
+    ],
+  },
+  {
+    name: "Growth & finance",
+    items: [
+      { label: "Simple interest", snippet: "I = P r t", title: "Solve for any symbol" },
+      { label: "Compound growth", snippet: "A = P (1 + r)^t", title: "Solve for A or P (r and t need logs — stated honestly)" },
+    ],
+  },
+];
+
+/** Whole-input geometry templates (kind = geometry): single shapes in the
+ *  solveGeometry grammar, composite figures in the compositeGeometry grammar. */
+export const SOLVE_SHAPES: PaletteGroup[] = [
+  {
+    name: "Composite figures",
+    items: [
+      {
+        label: "Rect − triangle",
+        snippet: "rectangle 10in x 5in minus triangle b=4in h=3in",
+        title: "Area with and without the cutout, exact, with a drawn figure",
+      },
+      { label: "Rect − circle", snippet: "rectangle 8 x 6 minus circle r=2", title: "Exact: 48 − 4π" },
+      { label: "Washer", snippet: "circle r=5 minus circle r=3", title: "Annulus between two circles" },
+      { label: "Two cutouts", snippet: "rectangle 12 x 8 minus square s=2 minus circle d=3", title: "Several holes at once" },
+      { label: "L-shape (add)", snippet: "rectangle 8 x 3 plus rectangle 3 x 5", title: "Shapes joined together" },
+    ],
+  },
+  {
+    name: "Single shapes",
+    items: [
+      { label: "Circle", snippet: "circle r=3" },
+      { label: "Rectangle", snippet: "rectangle a=10 b=5" },
+      { label: "Triangle (sides)", snippet: "triangle 3 4 5" },
+      { label: "Triangle (vertices)", snippet: "triangle (0,0) (4,0) (0,3)", title: "From its corner points — also gives the centres" },
+      { label: "Polygon", snippet: "polygon n=6 a=2", title: "Regular polygon, n sides of length a" },
+      { label: "Conic", snippet: "x^2/9 + y^2/4 = 1", title: "Classified with axes, foci, eccentricity" },
+    ],
+  },
+];

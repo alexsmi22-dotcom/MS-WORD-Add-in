@@ -318,8 +318,9 @@ import {
 } from "../lib/palettes";
 import { solveComposite, qtyToNumber, qtyExact } from "../lib/compositeGeometry";
 import { compositeShapeSvg } from "../lib/geometryChart";
-import { solveInputToTypesetLines, isProseRequest } from "../lib/solveTypeset";
+import { solveInputToTypesetLines, solveToTypesetDsl, isProseRequest } from "../lib/solveTypeset";
 import { foldPastedMath } from "../lib/pasteMath";
+import { equationWork, derivativeWork, definiteIntegralWork, WorkLine } from "../lib/showWork";
 import { NAME_TO_SMILES } from "../lib/compounds";
 import {
   HistoryEntry,
@@ -26943,6 +26944,20 @@ function updateSolve(): void {
     currentSolveBlocks = blocks;
     solveInsertBtn.disabled = !currentSolveText;
   };
+  // "Show your work": renders derivation lines in the pane AND into the
+  // insert blocks. Work lines are verified against the engine's own answer
+  // by their producers (showWork.ts) — no work is better than wrong work.
+  const sayWork = (work: WorkLine[]): void => {
+    for (const w of work) {
+      // Work math is Solve grammar (^(n-1) exponents); the typeset bridge
+      // turns it into what mathToHtml/mathToOmml render properly — without
+      // it, the pane's fallback raises only the "(" of a superscript.
+      const math = w.math ? solveToTypesetDsl(w.math) : undefined;
+      solveResult.appendChild(solveWorkLine({ text: w.text, math }));
+      if (math) sayMath(math, w.text ?? w.math);
+      else if (w.text) say(w.text);
+    }
+  };
 
   try {
     if (kind === "equation") {
@@ -27022,6 +27037,9 @@ function updateSolve(): void {
       solveResult.appendChild(msEyebrow(`Solve for ${r.variable}`));
       say(`Solve for ${r.variable}:`, "heading");
       sayMath(text);
+      // Show the work: collect/divide for linear, factoring or the formula
+      // for quadratics, full factorisation when every root is rational.
+      sayWork(equationWork(text, r));
       if (!r.roots.length) {
         // "unsolved" is NOT "no roots" — it means the solver could not isolate a
         // single unknown (e.g. F = m*a has three). Saying "No real roots found."
@@ -27131,6 +27149,9 @@ function updateSolve(): void {
       solveResult.appendChild(solveLine(`f'(${r.variable}) = ${r.derivative}`, "ms-masses"));
       say(`Derivative with respect to ${r.variable}:`, "heading");
       sayMath(`f(${r.variable}) = ${r.expression}`);
+      // The rules applied, level by level — chain, product, power — ending in
+      // the engine's own assembled result.
+      sayWork(derivativeWork(text, r.variable));
       sayMath(`f'(${r.variable}) = ${r.derivative}`);
       // BOTH CURVES TOGETHER, which is the only way to see what a derivative
       // IS rather than what it evaluates to: f' crosses zero exactly where f
@@ -27239,10 +27260,12 @@ function updateSolve(): void {
         say(val);
       }
       if (r.antiderivative) {
-        // Show the work: the exact antiderivative F(x) behind an exact result.
+        // Show the work: the exact antiderivative F(x) behind an exact result,
+        // then F evaluated at both bounds — the fundamental theorem, written out.
         const fx = `antiderivative F(${r.variable}) = ${r.antiderivative} + C`;
         solveResult.appendChild(solveLine(fx));
         sayMath(`F(${r.variable}) = ${r.antiderivative} + C`, fx);
+        sayWork(definiteIntegralWork(r, a, b, lo, hi));
       }
       solveResult.appendChild(solveLine(`Method: ${r.method}`));
       say(`Method: ${r.method}`);

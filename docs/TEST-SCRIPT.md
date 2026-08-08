@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.98.0)
+# JurisLab — Manual Test Script (v2.99.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -9,6 +9,23 @@ scanning, and layout. Budget ~30 minutes for the full pass.
 Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
+
+## 0bc. New in v2.99.0 — show your work
+
+- [ ] Solve `3x + 7 = 22` → the pane shows the WORK: "Collect… 3x = 15",
+  "Divide both sides by 3", x = 5 — then **Insert result** puts the same worked
+  lines into Word as real equations.
+- [ ] `x^2 - 5x + 6 = 0` → factoring work: (x − 3)(x − 2) = 0 and the
+  zero-product line, then both roots.
+- [ ] `x^2 - 2x - 1 = 0` → quadratic formula with numbers substituted
+  (… ± sqrt(8)) — the ± line inserts as text, the rest as equations.
+- [ ] Differentiate `sin(x^2)` → chain-rule work (u = x², d/du sin(u) = cos(u),
+  u′ = 2x) with superscripts drawn properly, then f′.
+- [ ] Integral `x^2` from 0 to 3 → F(x) = x³/3 + C and
+  "F(3) − F(0) = 9 − (0) = 9".
+- [ ] Integral `1/x^2` from −1 to 1 → NO fundamental-theorem work (the pole
+  caveat instead) — and nothing reading "= NaN" anywhere.
+- [ ] The equation canvas shows the same work above its roots.
 
 ## 0bb. New in v2.98.0 — the canvas becomes a workbench
 

@@ -394,7 +394,7 @@ export const MODE_EXAMPLES: Record<ExampleMode, string> = {
       Solve equations and basic calculus — offline, on your machine:
     </p>
     <ul>
-      <li><strong>Solve an equation:</strong> <code>x^2 - 5x + 6 = 0</code> → x = 3, 2 (exact); <code>x^3 - 1 = 0</code> → all three roots, real and complex; <code>cos(x) = 0</code> → numeric roots.</li>
+      <li><strong>Solve an equation — with the work shown:</strong> <code>x^2 - 5x + 6 = 0</code> → the factoring ((x − 3)(x − 2) = 0, "a product is zero when a factor is zero") then x = 3, 2; <code>3x + 7 = 22</code> → collect, divide, x = 5; irrational cases show the quadratic formula with the numbers substituted. The worked lines insert into Word as real equations.</li>
       <li><strong>Systems:</strong> type several equations, one per line — <code>x + y = 3</code> / <code>x - y = 1</code> → x = 2, y = 1, exactly. It says whether there is one solution, none, or <strong>infinitely many</strong> (naming the free variables) rather than inventing a single answer.</li>
       <li><strong>Rearrange a formula:</strong> <code>F = m*a</code> → chips let you solve for <em>F</em>, <em>m</em> or <em>a</em>; picking <em>a</em> gives <code>a = F/m</code> with the condition <code>m ≠ 0</code>.</li>
       <li><strong>Limits:</strong> <code>limit sin(x)/x as x -> 0</code> → 1; <code>limit abs(x)/x as x -> 0</code> → says the limit does <strong>not exist</strong> rather than picking a side.</li>

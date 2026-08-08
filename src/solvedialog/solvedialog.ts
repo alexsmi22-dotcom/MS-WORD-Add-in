@@ -25,6 +25,7 @@ import { foldPastedMath } from "../lib/pasteMath";
 import { graphSeries, GraphWindow } from "../lib/graphCalc";
 import { buildPlotSvg } from "../lib/plot";
 import { solveEquation, differentiate, antiderivative, integrate, parseExpr, evalAst } from "../lib/solve";
+import { equationWork, derivativeWork, definiteIntegralWork, WorkLine } from "../lib/showWork";
 import { limit as evalLimit, taylorSeries, parseLimitRequest, parseSeriesRequest } from "../lib/analysis";
 import { solveInequality } from "../lib/inequalities";
 import { splitEquations, solveSystem } from "../lib/systems";
@@ -88,6 +89,13 @@ Office.onReady(() => {
       div.textContent = fallback;
     }
     parent.appendChild(div);
+  };
+  /** Show-your-work lines: prose as prose, mathematics typeset. */
+  const workLines = (parent: HTMLElement, work: WorkLine[]): void => {
+    for (const w of work) {
+      if (w.math) mathLine(parent, w.math, w.math);
+      else if (w.text) line(parent, w.text, "result-line");
+    }
   };
 
   /** The typeset view: every input line drawn as mathematics. */
@@ -207,6 +215,7 @@ Office.onReady(() => {
           return;
         }
         line(resultEl, `Solved for ${r.variable} (${r.method})`, "result-title");
+        workLines(resultEl, equationWork(folded, r));
         for (const root of r.roots.slice(0, 6)) {
           mathLine(resultEl, `${r.variable} = ${root.display}`, `${r.variable} = ${root.display}`);
         }
@@ -259,6 +268,7 @@ Office.onReady(() => {
           parseExpr(folded); // throws with the real reason
           return;
         }
+        workLines(resultEl, derivativeWork(folded, d.variable));
         mathLine(resultEl, `d/d${d.variable}: ${d.derivative}`, d.derivative);
         for (const c of d.caveats.slice(0, 2)) line(resultEl, c, "caveat");
         return;
@@ -292,6 +302,7 @@ Office.onReady(() => {
       }
       line(resultEl, `∫ = ${ig.value} (${ig.method})`, "result-title");
       if (ig.antiderivative) mathLine(resultEl, `F = ${ig.antiderivative}`, ig.antiderivative);
+      workLines(resultEl, definiteIntegralWork(ig, av, bv));
       for (const c of ig.caveats.slice(0, 2)) line(resultEl, c, "caveat");
     } catch (error) {
       status.classList.add("bad");

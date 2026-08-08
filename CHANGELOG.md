@@ -6,6 +6,43 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.99.0] — 2026-08-08 — Show your work
+
+Solve results now carry the derivation a student would be required to
+write — in the pane, in the equation canvas, and in the inserted Word
+equations.
+
+### Added
+- **Worked equations** (src/lib/showWork.ts): linear solves show
+  collect → divide → answer; quadratics FACTOR when a student could
+  ((x − 2)(x − 3) = 0, "a product is zero exactly when a factor is
+  zero") and otherwise show the quadratic formula with the numbers
+  substituted; a zero discriminant is named as one repeated root; cubics
+  and higher factor completely when every root is rational.
+- **Worked derivatives**: the rule applied at each level — term by term,
+  constant factors carried through, product/quotient rule with u, v, u′,
+  v′ written out, power rule, chain rule with the derivative table line —
+  ending in the engine's own assembled result.
+- **Worked integrals**: F(b) − F(a) with both values substituted — the
+  fundamental theorem written out, using the pane's own bound labels
+  (F(pi), not F(3.14159)).
+- The work is DERIVED FROM the engine's answer and verified against it;
+  on any mismatch the work is withheld — no work beats wrong work.
+
+### Fixed (adversarial pass: 6 findings)
+- An integral the engine says does not exist (∫1/x² across its pole) no
+  longer gets fundamental-theorem work ending "= NaN" — a NaN slipped
+  past a subtraction-style guard, reintroducing the exact
+  NaN-into-Word-equation failure documented ten lines above it.
+- d/dx (sin(3) + x) no longer fabricates a rule line about sin(x) —
+  constant subtrees now differentiate to a stated 0.
+- u′ lines and the assembled line are simplified like the engine's
+  answer (no `2*x^(2 - 1)*1` presented as "simplified").
+- Work-line superscripts render properly in the pane (the typeset bridge
+  now runs on work math; previously only the "(" was raised), "term by
+  term" is said once, x² = 0 shows its repeated root instead of
+  (0 ± √0)/2, and factored forms never print "-1(" or "(x - 0)".
+
 ## [2.98.0] — 2026-08-08 — Paste from anywhere; the canvas becomes a workbench
 
 "It's limiting… almost like the ability to write it or copy and paste

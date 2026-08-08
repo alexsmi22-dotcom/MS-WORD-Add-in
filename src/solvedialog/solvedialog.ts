@@ -17,6 +17,7 @@ import {
   SOLVE_EQUATIONS,
   SOLVE_SHAPES,
   SOLVE_CALCULUS,
+  SOLVE_ODES,
   PaletteGroup,
 } from "../lib/palettes";
 import { mathToHtml } from "../lib/mathHtml";
@@ -26,6 +27,7 @@ import { graphSeries, GraphWindow } from "../lib/graphCalc";
 import { buildPlotSvg } from "../lib/plot";
 import { solveEquation, differentiate, antiderivative, integrate, parseExpr, evalAst } from "../lib/solve";
 import { equationWork, derivativeWork, definiteIntegralWork, WorkLine } from "../lib/showWork";
+import { solveOdeSymbolic } from "../lib/odeSymbolic";
 import { limit as evalLimit, taylorSeries, parseLimitRequest, parseSeriesRequest } from "../lib/analysis";
 import { solveInequality } from "../lib/inequalities";
 import { splitEquations, solveSystem } from "../lib/systems";
@@ -33,7 +35,7 @@ import { solveGeometry } from "../lib/geometryParse";
 import { solveComposite } from "../lib/compositeGeometry";
 import { compositeShapeSvg } from "../lib/geometryChart";
 
-type Kind = "equation" | "derivative" | "integral" | "geometry";
+type Kind = "equation" | "derivative" | "integral" | "ode" | "geometry";
 
 function byId<T extends HTMLElement>(id: string): T {
   return document.getElementById(id) as T;
@@ -112,7 +114,9 @@ Office.onReady(() => {
       typeset.appendChild(hint);
       return;
     }
-    if (kind === "geometry") {
+    if (kind === "geometry" || kind === "ode") {
+      // Geometry input is a shape DSL; ODE primes (y′) have no typeset
+      // reading — the worked result below is the mathematics.
       typeset.style.display = "none";
       return;
     }
@@ -171,6 +175,22 @@ Office.onReady(() => {
           status.textContent =
             "Not readable as geometry yet — try a shape (circle r=3) or a composite (rectangle 10 x 5 minus triangle b=4 h=3).";
         }
+        return;
+      }
+
+      if (kind === "ode") {
+        const r = solveOdeSymbolic(folded);
+        if (!r) {
+          status.textContent = "Type an ODE — y' = x*y, dy/dx = cos(x), or y'' + 3y' + 2y = 0.";
+          return;
+        }
+        line(resultEl, `ODE — ${r.classification}`, "result-title");
+        workLines(resultEl, r.steps);
+        if (r.solution) {
+          mathLine(resultEl, r.solution, r.solution);
+          if (r.verified === "verified") line(resultEl, "Verified by substituting back.", "result-line");
+        }
+        for (const c of r.caveats) line(resultEl, c, "caveat");
         return;
       }
 
@@ -316,7 +336,12 @@ Office.onReady(() => {
   function renderGraph(foldedText?: string): void {
     if (kind === "geometry") return;
     graphEl.replaceChildren();
-    const raw = foldedText ?? foldPastedMath(input.value.trim(), { stackedFractions: true }).text;
+    let raw = foldedText ?? foldPastedMath(input.value.trim(), { stackedFractions: true }).text;
+    // For an ODE, the graphable thing is the SOLUTION family, not the input.
+    if (kind === "ode") {
+      const r = raw.trim() ? solveOdeSymbolic(raw) : null;
+      raw = r && r.family.length ? r.family.map((f) => f.expr).join("\n") : "";
+    }
     if (!raw.trim() || isProseRequest(raw)) {
       graphEl.style.display = "none";
       return;
@@ -343,7 +368,8 @@ Office.onReady(() => {
   function refresh(): void {
     const folded = foldPastedMath(input.value.trim(), {
       geometry: kind === "geometry",
-      stackedFractions: kind !== "geometry",
+      ode: kind === "ode",
+      stackedFractions: kind !== "geometry" && kind !== "ode",
       extractFromProse: kind === "equation",
     });
     pasteNote.textContent = input.value.trim() ? folded.notes.join(" ") : "";
@@ -415,6 +441,7 @@ Office.onReady(() => {
     renderGroups(SOLVE_SYMBOLS, false);
     if (kind === "equation") renderGroups(SOLVE_EQUATIONS, true);
     if (kind === "derivative") renderGroups(SOLVE_CALCULUS, true);
+    if (kind === "ode") renderGroups(SOLVE_ODES, true);
   }
   search.addEventListener("input", () => {
     const q = search.value.trim().toLowerCase();

@@ -60,9 +60,17 @@ function updateSolveSource(): string {
 describe("Solve draws for every kind that has something to draw", () => {
   test("the equation, derivative and integral branches each produce a figure", () => {
     const src = updateSolveSource();
-    // Three calls to the shared plotter, plus the topology barcode elsewhere.
+    // Four calls to the shared plotter (equation, derivative, integral, and
+    // the ODE solution family), plus the topology barcode elsewhere.
     const produced = (src.match(/currentSolveSvg = solveFunctionSvg\(/g) ?? []).length;
-    expect(produced).toBe(3);
+    expect(produced).toBe(4);
+  });
+
+  test("the ODE branch draws its solution family with its own caption", () => {
+    const src = updateSolveSource();
+    const at = src.indexOf("Solution family of");
+    expect(at).toBeGreaterThan(0);
+    expect(src.slice(at - 800, at + 400)).toContain("solveFunctionSvg");
   });
 
   test("the geometry branch draws composite figures (ratchet raised, not lowered)", () => {

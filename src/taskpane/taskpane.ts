@@ -313,6 +313,7 @@ import {
   SOLVE_EQUATIONS,
   SOLVE_SHAPES,
   SOLVE_CALCULUS,
+  SOLVE_ODES,
   PaletteGroup,
   PaletteItem,
 } from "../lib/palettes";
@@ -321,6 +322,7 @@ import { compositeShapeSvg } from "../lib/geometryChart";
 import { solveInputToTypesetLines, solveToTypesetDsl, isProseRequest } from "../lib/solveTypeset";
 import { foldPastedMath } from "../lib/pasteMath";
 import { equationWork, derivativeWork, definiteIntegralWork, WorkLine } from "../lib/showWork";
+import { solveOdeSymbolic } from "../lib/odeSymbolic";
 import { NAME_TO_SMILES } from "../lib/compounds";
 import {
   HistoryEntry,
@@ -26418,7 +26420,7 @@ async function insertJcampChart(): Promise<void> {
 // never answered with a guess.
 // ---------------------------------------------------------------------------
 
-type SolveKind = "equation" | "derivative" | "integral" | "geometry" | "topology" | "word";
+type SolveKind = "equation" | "derivative" | "integral" | "ode" | "geometry" | "topology" | "word";
 
 /** Plain-text form of the current result, for insertion into Word. */
 let currentSolveText = "";
@@ -26519,7 +26521,7 @@ function renderSolvePalette(kind: SolveKind): void {
   const snippetGroups: PaletteGroup[] =
     kind === "equation" || kind === "derivative" || kind === "integral" ? SOLVE_SYMBOLS : [];
   const templateGroups: PaletteGroup[] =
-    kind === "equation" ? SOLVE_EQUATIONS : kind === "geometry" ? SOLVE_SHAPES : kind === "derivative" ? SOLVE_CALCULUS : [];
+    kind === "equation" ? SOLVE_EQUATIONS : kind === "geometry" ? SOLVE_SHAPES : kind === "derivative" ? SOLVE_CALCULUS : kind === "ode" ? SOLVE_ODES : [];
   solvePaletteEl.replaceChildren();
   solvePaletteEl.style.display = snippetGroups.length || templateGroups.length ? "block" : "none";
 
@@ -26568,6 +26570,7 @@ function updateSolveUi(): void {
     equation: "Equation (e.g. x^2 - 5x + 6 = 0)",
     derivative: "Differentiate, take a limit, or expand a series",
     integral: "Integrand (e.g. x^2)",
+    ode: "Differential equation in y(x) — y' = …, or y'' + a y' + b y = 0",
     geometry: "Geometry — a shape, points, or an equation in x and y",
     topology: "Topology — a named space, or a list of maximal simplices",
     word: "Word problem (e.g. 12 is what percent of 48?)",
@@ -26576,6 +26579,7 @@ function updateSolveUi(): void {
     equation: "x^2 - 5x + 6 = 0",
     derivative: "sin(x^2)",
     integral: "x^2",
+    ode: "y' = x*y",
     geometry: "triangle 3 4 5",
     topology: "torus",
     word: "twice a number plus 7 is 15",
@@ -26593,6 +26597,13 @@ function updateSolveUi(): void {
     // boxes carry placeholders that read as defaults rather than as something
     // to clear.
     integral: "Use ^ for powers. The limits may be numbers or expressions like pi/2. LEAVE BOTH LIMIT BOXES EMPTY for the indefinite integral — F(x) + C, with the derivative shown back as a check.",
+    ode:
+      "Symbolic, exact, with the work shown and every solution verified by substituting back. " +
+      "Four families: y' = f(x) (direct integration) · y' = f(x)*g(y) (separable — y' = 2y gives y = C·e^(2x)) · " +
+      "y' = q(x) − p(x)*y (linear first order, via the integrating factor) · a*y'' + b*y' + c*y = 0 " +
+      "(constant coefficients — real, repeated or complex roots). Write y' or dy/dx; the unknown is y(x). " +
+      "Anything outside these families is refused by name. For NUMERIC initial-value problems (stiff systems, " +
+      "any f(t, y)), use Analyze → ODE solving.",
     geometry:
       "COMPOSITE figures — a shape with cutouts or additions, exact, with a drawn figure: " +
       "rectangle 10in x 5in minus triangle b=4in h=3in (also plus to join shapes; units in/ft/cm/mm/m/yd " +
@@ -26643,7 +26654,7 @@ function updateSolveUi(): void {
   renderSolvePalette(kind);
   // The pop-out equation canvas serves the composing kinds; topology and
   // word-problem inputs are prose, which the canvas adds nothing to.
-  const canvasKinds: SolveKind[] = ["equation", "derivative", "integral", "geometry"];
+  const canvasKinds: SolveKind[] = ["equation", "derivative", "integral", "ode", "geometry"];
   solveOpenCanvasBtn.style.display = canvasKinds.includes(kind) ? "inline-block" : "none";
   if (!canvasKinds.includes(kind)) solveTypesetEl.replaceChildren();
 }
@@ -26909,9 +26920,13 @@ function updateSolve(): void {
   // read. The input box keeps the user's own characters.
   const folded = foldPastedMath(solveInput.value.trim(), {
     geometry: kind === "geometry",
+    ode: kind === "ode",
     // Stacked-fraction pastes only make sense where a fraction does; a
     // topology point cloud or a word problem is multi-line for its own reasons.
     stackedFractions: kind === "equation" || kind === "derivative" || kind === "integral",
+    // In the pane's expression kinds, two bare lines have no other reading —
+    // the canvas keeps its one-curve-per-line idiom instead.
+    bareStackedPairs: kind === "equation" || kind === "derivative" || kind === "integral",
     // A pasted PROBLEM STATEMENT (equation + question prose + choices) keeps
     // its equation and drops the prose — equation kind only, where prose has
     // no other meaning (word problems ARE prose).
@@ -27299,6 +27314,52 @@ function updateSolve(): void {
         currentSolveAlt =
           `Plot of ${text} with the interval from ${lo} to ${hi} picked out; ` +
           `the integral is the signed area of that stretch.`;
+        if (currentSolveSvg) {
+          const fig = document.createElement("div");
+          fig.className = "stats-figure";
+          fig.innerHTML = currentSolveSvg;
+          solveResult.appendChild(fig);
+        }
+      }
+      return finish(r.caveats);
+    }
+
+    if (kind === "ode") {
+      const r = solveOdeSymbolic(text);
+      if (!r) {
+        return void solveResult.appendChild(
+          solveLine("Type an ODE — y' = x*y, dy/dx = cos(x), or y'' + 3y' + 2y = 0. The unknown is y(x)."),
+        );
+      }
+      solveResult.appendChild(msEyebrow(`ODE — ${r.classification}`));
+      say(`ODE — ${r.classification}:`, "heading");
+      say(text); // primes don't typeset; the input line stays prose
+      sayWork(r.steps);
+      if (r.solution) {
+        solveResult.appendChild(solveLine(r.solution, "ms-masses"));
+        sayMath(r.solution);
+        if (r.verified === "verified") {
+          const v = "Verified by substituting the solution back into the equation.";
+          solveResult.appendChild(solveLine(v));
+          say(v);
+        }
+      }
+      // THE FAMILY, DRAWN. A general solution is a family of curves, and three
+      // members with their C values labelled show what the constant does —
+      // the one thing the formula alone cannot.
+      if (r.family.length) {
+        currentSolveSvg = solveFunctionSvg({
+          exprs: r.family.map((f, i) => ({
+            expr: f.expr,
+            label: f.label,
+            color: ["#2563eb", "#b91c1c", "#15803d"][i % 3],
+          })),
+          variable: "x",
+          title: "Three members of the solution family",
+        });
+        currentSolveAlt =
+          `Solution family of ${text}: ${r.family.map((f) => f.label).join(", ")} — ` +
+          `general solution ${r.solution || "(refused)"}.`;
         if (currentSolveSvg) {
           const fig = document.createElement("div");
           fig.className = "stats-figure";

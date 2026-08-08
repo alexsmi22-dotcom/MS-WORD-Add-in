@@ -65,7 +65,7 @@ type Dir = 1 | -1 | 0;
 
 function dirOf(word: string): Dir {
   const w = word.toLowerCase();
-  return w === "increase" ? 1 : w === "decrease" ? -1 : 0;
+  return w.startsWith("increas") ? 1 : w.startsWith("decreas") ? -1 : 0;
 }
 
 function dirWord(d: Dir): string {
@@ -84,8 +84,21 @@ interface Claim {
   line: string;
 }
 
-const CLAIM_RE =
-  /(increase|decrease|change)\s+of\s+([\d./]+)\s+(?:degrees?|units?)?\s*([A-Za-z]+)[^.\n]*?(increase|decrease|change)\s+of\s+([\d./]+)\s+(?:degrees?|units?)?\s*([A-Za-z]+)/i;
+const VERB = String.raw`(increase[sd]?|increasing|decrease[sd]?|decreasing|change[sd]?|changing)`;
+/** An amount: integer, decimal, or fraction — a SENTENCE-ENDING period stays
+ *  outside the capture ("increases by 2." must yield 2, not the unparseable
+ *  "2."). */
+const AMOUNT = String.raw`(\d+(?:\.\d+)?(?:\s*/\s*\d+(?:\.\d+)?)?)`;
+/** Noun form: "an increase of a degrees U1 … an increase of b degrees U2". */
+const CLAIM_RE = new RegExp(
+  String.raw`${VERB}\s+of\s+${AMOUNT}\s+(?:degrees?|units?)?\s*([A-Za-z]+)[^.\n]*?${VERB}\s+of\s+${AMOUNT}\s+(?:degrees?|units?)?\s*([A-Za-z]+)`,
+  "i",
+);
+/** Verb-first form: "when U1 increases by a, U2 increases by b". */
+const CLAIM_RE_VERB = new RegExp(
+  String.raw`\b([A-Za-z]+)\s+${VERB}\s+by\s+${AMOUNT}[^.\n]*?\b([A-Za-z]+)\s+${VERB}\s+by\s+${AMOUNT}`,
+  "i",
+);
 
 /** Parses one answer-choice line into a checkable claim, if it has the shape.
  *  The direction words are CAPTURED — "an increase of 1 in F is a DECREASE of
@@ -93,24 +106,33 @@ const CLAIM_RE =
  *  as if both sides said "increase" gives wrong verdicts whenever the
  *  directions mix or the slope is negative. */
 function parseClaim(line: string, units: Map<string, string>): Claim | null {
+  // Noun form: verb-word, amount, unit … verb-word, amount, unit.
+  let verb1: string, amount1: string, unit1: string, verb2: string, amount2: string, unit2: string;
   const m = CLAIM_RE.exec(line);
-  if (!m) return null;
-  const fromVar = units.get(m[3].toLowerCase());
-  const toVar = units.get(m[6].toLowerCase());
+  if (m) {
+    [verb1, amount1, unit1, verb2, amount2, unit2] = [m[1], m[2], m[3], m[4], m[5], m[6]];
+  } else {
+    // Verb-first form: unit, verb-word, amount … unit, verb-word, amount.
+    const v = CLAIM_RE_VERB.exec(line);
+    if (!v) return null;
+    [unit1, verb1, amount1, unit2, verb2, amount2] = [v[1], v[2], v[3], v[4], v[5], v[6]];
+  }
+  const fromVar = units.get(unit1.toLowerCase());
+  const toVar = units.get(unit2.toLowerCase());
   if (!fromVar || !toVar || fromVar === toVar) return null;
   try {
-    const a = evalAst(parseExpr(m[2]), {});
-    const b = evalAst(parseExpr(m[5]), {});
+    const a = evalAst(parseExpr(amount1), {});
+    const b = evalAst(parseExpr(amount2), {});
     if (!Number.isFinite(a) || !Number.isFinite(b)) return null;
     return {
       a,
-      aShown: m[2],
+      aShown: amount1,
       fromVar,
-      fromDir: dirOf(m[1]),
+      fromDir: dirOf(verb1),
       b,
-      bShown: m[5],
+      bShown: amount2,
       toVar,
-      toDir: dirOf(m[4]),
+      toDir: dirOf(verb2),
       line: line.trim(),
     };
   } catch {
@@ -129,7 +151,7 @@ function fmtVal(v: number): string {
  * conservative-templates contract of the word-problem engine.
  */
 export function tryRateInterpretation(text: string): WordProblemResult | null {
-  if (!/\b(?:increase|decrease|change)\b/i.test(text)) return null;
+  if (!/\b(?:increas|decreas|chang)(?:e[sd]?|ing)?\b/i.test(text)) return null;
   const lines = text
     .split("\n")
     .map((l) => l.trim())
@@ -207,11 +229,11 @@ export function tryRateInterpretation(text: string): WordProblemResult | null {
   let unreadable = 0;
   for (const line of lines) {
     if (line === eq.line) continue;
-    if (!/\b(?:increase|decrease|change)/i.test(line)) continue;
-    // A CLAIM_RE-shaped line whose unit words never got named in prose still
+    if (!/\b(?:increas|decreas|chang)/i.test(line)) continue;
+    // A claim-shaped line whose unit words never got named in prose still
     // COUNTS — silently dropping it would break the "listed, never guessed
     // at" promise.
-    if (!mentionsQuantity(line) && !CLAIM_RE.test(line)) continue;
+    if (!mentionsQuantity(line) && !CLAIM_RE.test(line) && !CLAIM_RE_VERB.test(line)) continue;
     const claim = parseClaim(line, units);
     if (!claim) {
       unreadable++;

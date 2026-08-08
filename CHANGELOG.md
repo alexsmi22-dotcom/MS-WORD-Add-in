@@ -6,6 +6,42 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.103.0] — 2026-08-08 — Symbolic ODEs, and three known limits closed
+
+### Added
+- **Symbolic differential equations** (Solve → Differential equation,
+  src/lib/odeSymbolic.ts): exact solutions with the work shown for the
+  four first-course families — y' = f(x) (direct integration),
+  y' = f(x)·g(y) (separable, with y' = ky exponentiated to y = C·e^(kx)
+  and lost constant solutions named), y' = q(x) − p(x)·y (integrating
+  factor, worked), and a·y'' + b·y' + c·y = 0 (characteristic equation:
+  real, repeated or complex roots). EVERY solution is verified by
+  substituting back into the ORIGINAL equation before it is shown; the
+  three-member solution family (C = −1, ½, 2) is DRAWN; anything outside
+  the families — nonlinear, variable coefficients, third order — is
+  refused by name with the supported list. Eight palette templates; the
+  equation canvas solves and graphs the family live. (Numeric/stiff IVPs
+  remain in Analyze → ODE solving, which this deliberately does not touch.)
+- **Known limits closed**: two-line stacked-fraction pastes reassemble in
+  the pane's expression kinds (the canvas keeps one-curve-per-line); the
+  unrecoverable 5/9→59 collapse now gets a heads-up note when the input
+  shows real paste artifacts (never a rewrite, never on clean typed
+  input); the rate template reads inflected and verb-first phrasing
+  ("When x increases by 1, y increases by 2").
+
+### Fixed (adversarial pass: 6 findings)
+- A nonhomogeneous second-order equation whose forcing term vanished at
+  the classifier's two sample points was solved as homogeneous and
+  CERTIFIED VERIFIED — the verifier re-derived truth from the extracted
+  coefficients. It now substitutes into the original equation (the
+  "sampling cannot find poles" lesson, again).
+- ODE inputs no longer get the false "′ has no reading" note (the prime
+  IS the reading there), and named-unreadable characters alone no longer
+  arm the 5/9 nudge.
+- y''' is refused by name instead of "unbalanced parentheses"; y'' = 0
+  no longer displays exp(0 x); fraction amounts with decimal
+  denominators (1/2.5) evaluate instead of silently misreading as 1/2.
+
 ## [2.102.0] — 2026-08-08 — SAT-style word problems: rates judged, choices checked
 
 ### Added

@@ -164,6 +164,8 @@ export interface FoldOptions {
   /** Geometry inputs READ ′/″ as feet/inches and angles as degrees — the
    *  equation-kind advice about those characters would be actively wrong. */
   geometry?: boolean;
+  /** ODE inputs READ the prime (y′ is dy/dx) — the no-reading note is false there. */
+  ode?: boolean;
   /** Reassemble a rendered stacked fraction copied as separate lines
    *  ("3 ⏎ x+3 ⏎ =8" → (3)/(x+3) = 8). Equation-shaped kinds only — a
    *  topology point cloud or simplex list is ALSO multi-line, and must
@@ -172,6 +174,11 @@ export interface FoldOptions {
   /** Extract equation lines out of a pasted problem statement, dropping the
    *  prose around them. Equation kind only. */
   extractFromProse?: boolean;
+  /** Also reassemble the TWO-line stacked shape (numerator ⏎ denominator,
+   *  no "=" anywhere). Safe in the pane's expression kinds, where two bare
+   *  lines have no other reading — but NOT in the canvas, whose graphing
+   *  idiom is one curve per line (sin(x) ⏎ cos(x) means two curves). */
+  bareStackedPairs?: boolean;
 }
 
 /** Textbook framing that glues onto an equation line and would otherwise
@@ -245,18 +252,22 @@ export function extractEquationsFromProse(text: string): { text: string; note: s
  * unambiguous: a genuine system has "=" in EVERY line, so two =-free lines
  * followed by a bare "= rhs" line can only be a stacked fraction.
  */
-function reassembleStacked(s: string, notes: string[]): string {
+function reassembleStacked(s: string, notes: string[], barePairs: boolean): string {
   if (!s.includes("\n")) return s;
   const lines = s
     .split("\n")
     .map((l) => l.trim())
     .filter(Boolean);
-  // ONLY the three-line "num / den / = rhs" shape is reassembled. Two bare
-  // lines are ambiguous with the graphing calculator's one-curve-per-line
-  // idiom (sin(x) ⏎ cos(x) means two curves, not their quotient) — an
-  // ambiguous paste is left alone rather than guessed.
+  // The three-line "num / den / = rhs" shape is unambiguous everywhere.
   if (lines.length === 3 && /^=/.test(lines[2]) && !lines[0].includes("=") && !lines[1].includes("=")) {
     const rebuilt = `(${lines[0]})/(${lines[1]}) ${lines[2]}`;
+    notes.push(`Read the pasted stacked fraction as ${rebuilt}.`);
+    return rebuilt;
+  }
+  // The two-line bare shape only where the caller says two lines cannot mean
+  // anything else (the pane's expression kinds; never the graphing canvas).
+  if (barePairs && lines.length === 2 && !lines[0].includes("=") && !lines[1].includes("=")) {
+    const rebuilt = `(${lines[0]})/(${lines[1]})`;
     notes.push(`Read the pasted stacked fraction as ${rebuilt}.`);
     return rebuilt;
   }
@@ -353,13 +364,15 @@ export function foldPastedMath(input: string, opts: FoldOptions = {}): FoldedMat
   });
   if (greekSeen.size) notes.push(`Greek letters read as variables: ${[...greekSeen].join(", ")}.`);
 
+  const beforeNamed = notes.length;
   // Characters that stay AND get named — the parse error will point at them,
   // and the note says why no automatic reading is offered. Geometry reads
   // ′/″/° natively (feet, inches, degrees), so those notes stay equation-side.
   for (const [ch, why] of Object.entries(NAMED_UNREADABLE)) {
-    if (opts.geometry && EQUATION_ONLY_NOTES.has(ch)) continue;
+    if ((opts.geometry || opts.ode) && EQUATION_ONLY_NOTES.has(ch)) continue;
     if (s.includes(ch)) notes.push(why + ".");
   }
+  const namedNotes = notes.length - beforeNamed;
 
   // Structure recovery LAST, over the cleaned lines (the zero-width strut
   // line a renderer emits has become whitespace by now and drops out):
@@ -371,7 +384,23 @@ export function foldPastedMath(input: string, opts: FoldOptions = {}): FoldedMat
       notes.push(extracted.note);
     }
   }
-  if (opts.stackedFractions) s = reassembleStacked(s, notes);
+  if (opts.stackedFractions) s = reassembleStacked(s, notes, !!opts.bareStackedPairs);
+
+  // The one collapse NO code can undo: a rendered inline 5/9 pastes as the
+  // bytes "59", indistinguishable from fifty-nine. When the input already
+  // shows paste artifacts AND carries a two-digit coefficient glued to a
+  // bracket or variable, NUDGE — never rewrite: the typeset preview shows
+  // exactly what was read, and only the user knows what the source showed.
+  // Armed by REAL transformations (styled letters, Greek, LaTeX, extraction,
+  // reassembly) — a named-unreadable character alone is not paste evidence.
+  if (notes.length - namedNotes > 0 && !opts.geometry) {
+    const m = /(?<![\d.])([1-9])([1-9])(?=\s*[(A-Za-z])/.exec(s);
+    if (m) {
+      notes.push(
+        `Heads-up: “${m[1]}${m[2]}” multiplies what follows — if the source showed a stacked fraction there, it may have been ${m[1]}/${m[2]}. The drawn preview shows exactly what was read.`,
+      );
+    }
+  }
 
   return { text: s, notes };
 }

@@ -151,6 +151,18 @@ describe("honest refusals and guards", () => {
     expect(all).toContain("NOT judged");
   });
 
+  test("verb-first phrasing works: 'when x increases by 1, y increases by 2'", () => {
+    const r = tryRateInterpretation("y = 2x\nWhen x increases by 1, y increases by 2.")!;
+    expect(r.steps.join("\n")).toMatch(/^TRUE/m);
+  });
+
+  test("inflected verbs in the mixed-direction case stay signed", () => {
+    const r = tryRateInterpretation("y = -2x\nWhen x increases by 1, y decreases by 2.")!;
+    expect(r.steps.join("\n")).toMatch(/^TRUE/m);
+    const wrong = tryRateInterpretation("y = 2x\nWhen x increases by 1, y decreases by 2.")!;
+    expect(wrong.steps.join("\n")).toMatch(/^FALSE/m);
+  });
+
   test("existing word-problem templates are untouched", () => {
     expect(solveWordProblem("what is 15% of 200")?.template).not.toBe("rate-interpretation");
     expect(solveWordProblem("twice a number plus 7 is 15")).not.toBeNull();

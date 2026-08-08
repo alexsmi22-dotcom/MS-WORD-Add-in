@@ -258,6 +258,48 @@ describe("a pasted problem statement keeps its equation, drops the prose", () =>
   });
 });
 
+describe("known-limit fixes: bare pairs and the 59 nudge", () => {
+  test("two bare lines reassemble WHERE the caller says pairs are safe (pane kinds)", () => {
+    const folded = foldPastedMath("3\nx+3", { stackedFractions: true, bareStackedPairs: true });
+    expect(folded.text).toBe("(3)/(x+3)");
+    expect(folded.notes.some((n) => n.includes("stacked fraction"))).toBe(true);
+  });
+
+  test("without the option (the graphing canvas), two lines stay two curves", () => {
+    const folded = foldPastedMath("sin(x)\ncos(x)", { stackedFractions: true });
+    expect(folded.text).toContain("\n");
+  });
+
+  test("the 59 collapse gets a NUDGE, never a rewrite — and only on paste-artifact input", () => {
+    // The pasted SAT equation carries a unicode minus (a paste artifact),
+    // so the two-digit coefficient earns the heads-up.
+    const folded = foldPastedMath("C=59(F−32)\nprose about an increase\nmore prose", {
+      extractFromProse: true,
+      stackedFractions: true,
+    });
+    expect(folded.text).toContain("59(F−32)"); // NOT rewritten
+    expect(folded.notes.some((n) => n.includes("59") && n.includes("5/9"))).toBe(true);
+    // Clean typed input with no other fold notes stays nudge-free: a typed
+    // 12(x+1) is almost certainly twelve.
+    const clean = foldPastedMath("y = 12(x+1)");
+    expect(clean.notes).toEqual([]);
+  });
+});
+
+describe("ode-kind notes (adversarial regression)", () => {
+  test("y′ with a unicode prime gets neither the false no-reading note nor the nudge", () => {
+    const folded = foldPastedMath("y′ = 23y", { ode: true });
+    expect(folded.notes.every((n) => !n.includes("′"))).toBe(true);
+    expect(folded.notes.every((n) => !n.includes("2/3"))).toBe(true);
+  });
+
+  test("a lone ± note does not arm the 59 nudge (named characters aren't paste evidence)", () => {
+    const folded = foldPastedMath("x = 23(y ± 1)");
+    expect(folded.notes.some((n) => n.includes("±"))).toBe(true);
+    expect(folded.notes.every((n) => !n.includes("2/3"))).toBe(true);
+  });
+});
+
 describe("the fold never throws", () => {
   test("garbage, lone surrogates, huge input", () => {
     for (const probe of ["\\frac{", "{{{", "\uD835", "𝕏".repeat(5000), "\\unknowncmd{x}", ""]) {

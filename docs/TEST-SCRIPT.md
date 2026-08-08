@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.102.0)
+# JurisLab — Manual Test Script (v2.103.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -9,6 +9,25 @@ scanning, and layout. Budget ~30 minutes for the full pass.
 Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
+
+## 0bg. New in v2.103.0 — symbolic ODEs + known-limit fixes
+
+### 0bg-1. Differential equations (Solve → Differential equation)
+- [ ] `y' = 2y` → separable work (separate, integrate, exponentiate), y = C·e^(2x),
+  "verified by substituting back", and THREE family curves drawn (C = −1, ½, 2).
+- [ ] `y' = x - y` → integrating-factor work (μ = e^x), y = x − 1 + C·e^(−x), family drawn.
+- [ ] `y'' + 3y' + 2y = 0` → characteristic equation, roots −1 and −2, C1/C2 solution, family.
+- [ ] `y'' + 4y = 0` → cos(2x) and sin(2x).
+- [ ] `y' = x + y^2` → refused BY NAME with the list of solved families (no fake answer).
+- [ ] **Insert result** → classification, work, solution and figure land in Word.
+- [ ] The palette shows eight ODE templates; the equation canvas graphs the family.
+
+### 0bg-2. Known-limit fixes
+- [ ] Two-line stacked fraction (`3` ⏎ `x+3`) pastes in the PANE as (3)/(x+3); in the
+  CANVAS two lines still mean two curves.
+- [ ] A pasted equation with unicode minus AND a two-digit coefficient (C=59(F−32))
+  shows the "may have been 5/9" heads-up; typed `y = 12(x+1)` shows nothing.
+- [ ] Word kind: "When x increases by 1, y increases by 2." with `y = 2x` → TRUE.
 
 ## 0bf. New in v2.102.0 — SAT word problems
 

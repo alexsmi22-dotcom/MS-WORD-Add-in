@@ -359,6 +359,23 @@ export const SOLVE_SYMBOLS: PaletteGroup[] = [
   },
 ];
 
+/** Whole-input ODE templates: one per family Release 1 solves. */
+export const SOLVE_ODES: PaletteGroup[] = [
+  {
+    name: "Differential equations",
+    items: [
+      { label: "Growth y′ = ky", snippet: "y' = 2y", title: "Separable → y = C·e^(2x)" },
+      { label: "Direct y′ = f(x)", snippet: "y' = cos(x)", title: "Integrate both sides" },
+      { label: "Separable", snippet: "y' = x/y", title: "Implicit solution shown honestly" },
+      { label: "Linear 1st order", snippet: "y' = x - y", title: "Integrating-factor method, worked" },
+      { label: "2nd order, real roots", snippet: "y'' + 3y' + 2y = 0", title: "Characteristic equation" },
+      { label: "Oscillator", snippet: "y'' + 4y = 0", title: "Complex roots → cos and sin" },
+      { label: "Damped", snippet: "y'' + 2y' + 5y = 0", title: "Envelope × oscillation" },
+      { label: "Critical damping", snippet: "y'' - 2y' + y = 0", title: "Repeated root — the x factor" },
+    ],
+  },
+];
+
 /** Whole-input calculus templates for the Differentiate kind — the prose the
  *  engine reads for limits and series, loaded ready to edit. */
 export const SOLVE_CALCULUS: PaletteGroup[] = [

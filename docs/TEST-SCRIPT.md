@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.99.0)
+# JurisLab — Manual Test Script (v2.100.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -9,6 +9,19 @@ scanning, and layout. Budget ~30 minutes for the full pass.
 Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
+
+## 0bd. New in v2.100.0 — fraction equations
+
+- [ ] Type `3/(x+3) = 8` → work shows "Multiply both sides by (x + 3)…", the
+  cleared linear, collect/divide, **x = −21/8**; the x ≠ −3 condition appears.
+- [ ] Paste a rendered fraction from a web page (or type the three lines
+  `3` ⏎ `x+3` ⏎ `=8`) → note "Read the pasted stacked fraction as
+  (3)/(x+3) =8" and the same solution.
+- [ ] `6/x = 5 - x` → clears to a quadratic and FACTORS: (x − 2)(x − 3).
+- [ ] `1/x + 1/(x+1) = 1` → multiply-through by both denominators, quadratic
+  formula work, both roots.
+- [ ] A real two-line system (`x + y = 3` ⏎ `x - y = 1`) still solves as a
+  system — never reassembled into a fraction.
 
 ## 0bc. New in v2.99.0 — show your work
 

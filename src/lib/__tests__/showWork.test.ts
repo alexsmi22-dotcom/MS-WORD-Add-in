@@ -3,6 +3,7 @@
 // contract is that no work is ever shown that disagrees with the result.
 
 import { equationWork, derivativeWork, definiteIntegralWork } from "../showWork";
+import { foldPastedMath } from "../pasteMath";
 import { solveEquation, integrate, differentiate, parseExpr, evalAst, format } from "../solve";
 import { exprEqual, casSimplify } from "../cas";
 import { mathToHtml } from "../mathHtml";
@@ -199,6 +200,87 @@ describe("adversarial regressions — wrong work the review caught", () => {
     const r = integrate("sin(x)", 0, Math.PI)!;
     const work = definiteIntegralWork(r, 0, Math.PI, "0", "pi");
     if (work.length) expect(work[work.length - 1].math).toContain("F(pi) - F(0)");
+  });
+});
+
+describe("fraction equations show the multiply-through (the user's own case)", () => {
+  test("3/(x+3) = 8 multiplies both sides by (x+3), then solves the linear", () => {
+    const r = solveEquation("3/(x+3) = 8")!;
+    expect(r.roots[0].display).toBe("-21/8");
+    const work = equationWork("3/(x+3) = 8", r);
+    const text = joined(work);
+    expect(text).toContain("Multiply both sides by (x + 3)");
+    expect(text).toContain("nonzero");
+    // …and the cleared linear then gets its own collect/divide work,
+    // ending in the engine's exact root.
+    expect(work[work.length - 1].math).toBe("x = -21/8");
+  });
+
+  test("1/x + 1/(x+1) = 1 clears BOTH denominators into a quadratic", () => {
+    const r = solveEquation("1/x + 1/(x+1) = 1")!;
+    const text = joined(equationWork("1/x + 1/(x+1) = 1", r));
+    expect(text).toContain("Multiply both sides by");
+    expect(text).toContain("(x)");
+    expect(text).toContain("(x + 1)");
+  });
+
+  test("(x+1)/(x-2) = 4 works through to x = 3", () => {
+    const r = solveEquation("(x+1)/(x-2) = 4")!;
+    const work = equationWork("(x+1)/(x-2) = 4", r);
+    expect(work.length).toBeGreaterThan(0);
+    expect(work[work.length - 1].math).toBe("x = 3");
+  });
+
+  test("clearing that would introduce an excluded root stops at the caution line", () => {
+    // (x^2-4)/(x-2) = 0: clearing gives x²−4 with roots ±2, but x = 2 is a
+    // pole — the engine reports one root, and formula-style work would
+    // present the excluded value as a solution.
+    const r = solveEquation("(x^2-4)/(x-2) = 0");
+    if (r && r.roots.length === 1) {
+      const text = joined(equationWork("(x^2-4)/(x-2) = 0", r));
+      // The neutral wording: it never claims WHY candidates dropped (pole vs
+      // complex) because either can be the reason — committing was the bug.
+      if (text) expect(text).toContain("candidates that actually satisfy the original equation");
+    }
+  });
+
+  test("cleared-fraction quadratics with rational roots get the FACTORING display", () => {
+    // rootValue threading: rearrangement-path roots carry NaN re, which
+    // silently killed the factoring sample-check.
+    const r = solveEquation("6/x = 5 - x")!;
+    const text = joined(equationWork("6/x = 5 - x", r));
+    expect(text).toMatch(/\(x - 2\)\(x - 3\)|\(x - 3\)\(x - 2\)/);
+  });
+
+  test("x = pi shows no redundant collect line", () => {
+    const r = solveEquation("x = pi")!;
+    expect(equationWork("x = pi", r)).toEqual([]);
+  });
+});
+
+describe("stacked-fraction pastes reassemble (the clipboard shape that failed)", () => {
+  test("the exact pasted bytes: '3 ⏎ x+3 ⏎ ZWSP ⏎  =8' solves to -21/8", () => {
+    // What a rendered 3/(x+3)=8 actually put on the clipboard.
+    const folded = foldPastedMath("3\nx+3\n​\n =8", { stackedFractions: true });
+    expect(folded.notes.some((n) => n.includes("stacked fraction"))).toBe(true);
+    const r = solveEquation(folded.text)!;
+    expect(r.roots[0].display).toBe("-21/8");
+  });
+
+  test("without the option, multi-line input is left alone (topology safety)", () => {
+    const folded = foldPastedMath("3\nx+3\n =8");
+    expect(folded.text).toContain("\n");
+  });
+
+  test("a real system is never reassembled (every line has =)", () => {
+    const folded = foldPastedMath("x + y = 3\nx - y = 1", { stackedFractions: true });
+    expect(folded.text).toContain("\n");
+    expect(folded.notes).toEqual([]);
+  });
+
+  test("two bare lines stay two lines (one curve per line in the graph)", () => {
+    const folded = foldPastedMath("sin(x)\ncos(x)", { stackedFractions: true });
+    expect(folded.text).toContain("\n");
   });
 });
 

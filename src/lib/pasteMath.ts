@@ -163,6 +163,37 @@ export interface FoldOptions {
   /** Geometry inputs READ ′/″ as feet/inches and angles as degrees — the
    *  equation-kind advice about those characters would be actively wrong. */
   geometry?: boolean;
+  /** Reassemble a rendered stacked fraction copied as separate lines
+   *  ("3 ⏎ x+3 ⏎ =8" → (3)/(x+3) = 8). Equation-shaped kinds only — a
+   *  topology point cloud or simplex list is ALSO multi-line, and must
+   *  never be folded into a fraction. */
+  stackedFractions?: boolean;
+}
+
+/**
+ * A fraction rendered by MathJax/KaTeX/Word copies to the clipboard as its
+ * LAYOUT: numerator line, denominator line, then "= rhs" — with zero-width
+ * struts in between. Solve reads multiple lines as a system of equations, so
+ * the paste dead-ends. Exactly ONE shape is reassembled, because it is
+ * unambiguous: a genuine system has "=" in EVERY line, so two =-free lines
+ * followed by a bare "= rhs" line can only be a stacked fraction.
+ */
+function reassembleStacked(s: string, notes: string[]): string {
+  if (!s.includes("\n")) return s;
+  const lines = s
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+  // ONLY the three-line "num / den / = rhs" shape is reassembled. Two bare
+  // lines are ambiguous with the graphing calculator's one-curve-per-line
+  // idiom (sin(x) ⏎ cos(x) means two curves, not their quotient) — an
+  // ambiguous paste is left alone rather than guessed.
+  if (lines.length === 3 && /^=/.test(lines[2]) && !lines[0].includes("=") && !lines[1].includes("=")) {
+    const rebuilt = `(${lines[0]})/(${lines[1]}) ${lines[2]}`;
+    notes.push(`Read the pasted stacked fraction as ${rebuilt}.`);
+    return rebuilt;
+  }
+  return s;
 }
 
 /** Characters whose "no reading here" advice applies to EQUATIONS only. */
@@ -262,6 +293,10 @@ export function foldPastedMath(input: string, opts: FoldOptions = {}): FoldedMat
     if (opts.geometry && EQUATION_ONLY_NOTES.has(ch)) continue;
     if (s.includes(ch)) notes.push(why + ".");
   }
+
+  // Stacked-fraction reassembly LAST, over the cleaned lines (the zero-width
+  // strut line a renderer emits has become whitespace by now and drops out).
+  if (opts.stackedFractions) s = reassembleStacked(s, notes);
 
   return { text: s, notes };
 }

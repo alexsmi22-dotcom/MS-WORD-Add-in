@@ -49,6 +49,18 @@ function rationalDisplay(d: string): boolean {
   return /^-?\d+(\/\d+)?$/.test(d);
 }
 
+/** A root's numeric value. The symbolic-rearrangement path (which is how
+ *  fraction equations solve) leaves re/im as NaN and carries the exact value
+ *  only in `display` — evaluate it rather than declaring it unverifiable. */
+function rootValue(root: { re: number; display: string }): number {
+  if (Number.isFinite(root.re)) return root.re;
+  try {
+    return evalAst(parseExpr(root.display), {});
+  } catch {
+    return NaN;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Equations.
 
@@ -58,6 +70,32 @@ function rationalDisplay(d: string): boolean {
  * return [] — their honest work is the engine's own verified isolation steps,
  * already reported.
  */
+/** Every distinct denominator containing `v` — the fractions to clear. */
+function denominatorsIn(e: Expr, v: string): Expr[] {
+  const found = new Map<string, Expr>();
+  const walk = (n: Expr): void => {
+    switch (n.t) {
+      case "div":
+        if (freeVars(n.r).includes(v)) found.set(format(n.r), n.r);
+        walk(n.l);
+        walk(n.r);
+        return;
+      case "neg":
+        return walk(n.e);
+      case "fn":
+        return walk(n.arg);
+      case "num":
+      case "var":
+        return;
+      default:
+        walk(n.l);
+        walk(n.r);
+    }
+  };
+  walk(e);
+  return [...found.values()];
+}
+
 export function equationWork(input: string, result: EquationResult): WorkLine[] {
   if (!result.roots.length) return [];
   const sides = input.split("=");
@@ -71,7 +109,60 @@ export function equationWork(input: string, result: EquationResult): WorkLine[] 
   const v = result.variable;
   if (freeVars(e).some((x) => x !== v)) return []; // symbolic rearrangement — engine steps own it
   const coeffs = polyCoeffs(e, v);
-  if (!coeffs) return [];
+  if (coeffs) return polyWork(input, coeffs, result, v);
+
+  // A FRACTION equation — the unknown in a denominator. Show the move a
+  // student makes: multiply both sides by each denominator, then solve the
+  // cleared polynomial.
+  const dens = denominatorsIn(e, v);
+  if (!dens.length) return [];
+  let clearedExpr: Expr = e;
+  for (const d of dens) clearedExpr = { t: "mul", l: clearedExpr, r: d };
+  let cleared: Expr;
+  try {
+    cleared = simplify(simplify(clearedExpr));
+  } catch {
+    return [];
+  }
+  const clearedCoeffs = polyCoeffs(cleared, v);
+  if (!clearedCoeffs) return [];
+  // The engine's roots must satisfy the cleared polynomial — the proof the
+  // clearing was legitimate algebra and not a plausible fabrication.
+  const P = (x: number): number => clearedCoeffs.reduce((acc, c, i) => acc + c * Math.pow(x, i), 0);
+  for (const r of result.roots) {
+    const val = rootValue(r);
+    if (!Number.isFinite(val)) return [];
+    if (!(Math.abs(P(val)) <= 1e-6 * Math.max(1, ...clearedCoeffs.map(Math.abs)))) return [];
+  }
+  const denNames = dens.map((d) => `(${format(d)})`).join(" and ");
+  const lines: WorkLine[] = [
+    {
+      text: `Multiply both sides by ${denNames} to clear the fraction${dens.length > 1 ? "s" : ""} — allowed because a solution must keep ${denNames} nonzero:`,
+    },
+    { math: `${format(cleared)} = 0` },
+  ];
+  const trimmed = clearedCoeffs.slice();
+  while (trimmed.length > 1 && Math.abs(trimmed[trimmed.length - 1]) < TOL) trimmed.pop();
+  // Only continue into the polynomial's own work when the engine found
+  // exactly as many roots as its degree — a mismatch means clearing
+  // introduced a value a denominator excludes, and formula-style work would
+  // present the excluded value as a solution.
+  if (trimmed.length - 1 >= 2 && result.roots.length !== trimmed.length - 1) {
+    // The missing candidates may be pole values OR complex/unfound roots —
+    // committing to one explanation here would sometimes be false.
+    lines.push({
+      text: "Solving this polynomial gives the candidate values; the roots below are the candidates that actually satisfy the original equation.",
+    });
+    return lines;
+  }
+  return lines.concat(polyWork(null, clearedCoeffs, result, v));
+}
+
+/** The polynomial derivation shared by plain and cleared-fraction equations.
+ *  `input` is the user's original text when the polynomial IS the equation
+ *  (used only to skip work for trivially-solved forms); null after clearing. */
+function polyWork(input: string | null, coeffsIn: number[], result: EquationResult, v: string): WorkLine[] {
+  const coeffs = coeffsIn.slice();
   // Trim trailing zero coefficients to the true degree.
   while (coeffs.length > 1 && Math.abs(coeffs[coeffs.length - 1]) < TOL) coeffs.pop();
   const degree = coeffs.length - 1;
@@ -82,9 +173,12 @@ export function equationWork(input: string, result: EquationResult): WorkLine[] 
     const root = rhs / c1;
     // The final line must BE the engine's answer.
     const engineRoot = result.roots[0];
-    if (!Number.isFinite(engineRoot.re) || Math.abs(engineRoot.re - root) > 1e-6 * Math.max(1, Math.abs(root))) return [];
-    // "x = 5" needs no work — showing "collect… x = 5" then "x = 5" again is noise.
-    if (c1 === 1 && /^\s*[A-Za-z]\w*\s*=/.test(input)) return [];
+    const engineVal = rootValue(engineRoot);
+    if (!Number.isFinite(engineVal) || Math.abs(engineVal - root) > 1e-6 * Math.max(1, Math.abs(root))) return [];
+    // "x = 5" (or "x = pi") needs no work — the freeVars guard upstream
+    // already ensured the RHS carries no other unknowns, so any input of the
+    // shape "x = …" here is trivially solved as typed.
+    if (c1 === 1 && input !== null && /^\s*[A-Za-z]\w*\s*=[^=]+$/.test(input)) return [];
     const lines: WorkLine[] = [];
     lines.push({ text: `Collect the ${v} terms on the left and the constants on the right:` });
     lines.push({ math: `${coefTerm(c1, v)} = ${fmtN(rhs)}` });
@@ -109,8 +203,10 @@ export function equationWork(input: string, result: EquationResult): WorkLine[] 
     const leadPrefix = (a: number): string => (a === 1 ? "" : a === -1 ? "-" : fmtN(a));
     if (r1 && r2 && rationalDisplay(r1.display) && rationalDisplay(r2.display)) {
       const shown = `${leadPrefix(c2)}${factor(r1.display)}${factor(r2.display)}`;
+      const v1 = rootValue(r1);
+      const v2 = rootValue(r2);
       const ok = [0.7, 1.3, -2.1].every((x) => {
-        const lhs = c2 * (x - r1.re) * (x - r2.re);
+        const lhs = c2 * (x - v1) * (x - v2);
         const rhs = c2 * x * x + c1 * x + c0;
         return Math.abs(lhs - rhs) <= 1e-6 * Math.max(1, Math.abs(rhs));
       });
@@ -145,7 +241,7 @@ export function equationWork(input: string, result: EquationResult): WorkLine[] 
     const factor = (d: string): string => (d === "0" ? v : d.startsWith("-") ? `(${v} + ${d.slice(1)})` : `(${v} - ${d})`);
     const shown = `${lead === 1 ? "" : lead === -1 ? "-" : fmtN(lead)}${result.roots.map((r) => factor(r.display)).join("")}`;
     const ok = [0.7, 1.3, -2.1].every((x) => {
-      const lhs = lead * result.roots.reduce((acc, r) => acc * (x - r.re), 1);
+      const lhs = lead * result.roots.reduce((acc, r) => acc * (x - rootValue(r)), 1);
       const rhs = coeffs.reduce((acc, c, i) => acc + c * Math.pow(x, i), 0);
       return Math.abs(lhs - rhs) <= 1e-6 * Math.max(1, Math.abs(rhs));
     });

@@ -310,12 +310,14 @@ Office.onReady(() => {
     }
   }
 
-  /** The graphing calculator: every line a curve, the window the user's. */
-  function renderGraph(): void {
+  /** The graphing calculator: every line a curve, the window the user's.
+   *  Runs on the FOLDED text, so a reassembled stacked-fraction paste graphs
+   *  as its two sides rather than as three broken lines. */
+  function renderGraph(foldedText?: string): void {
     if (kind === "geometry") return;
     graphEl.replaceChildren();
-    const raw = input.value;
-    if (!raw.trim() || isProseRequest(foldPastedMath(raw.trim()).text)) {
+    const raw = foldedText ?? foldPastedMath(input.value.trim(), { stackedFractions: true }).text;
+    if (!raw.trim() || isProseRequest(raw)) {
       graphEl.style.display = "none";
       return;
     }
@@ -339,11 +341,14 @@ Office.onReady(() => {
   }
 
   function refresh(): void {
-    const folded = foldPastedMath(input.value.trim(), { geometry: kind === "geometry" });
+    const folded = foldPastedMath(input.value.trim(), {
+      geometry: kind === "geometry",
+      stackedFractions: kind !== "geometry",
+    });
     pasteNote.textContent = input.value.trim() ? folded.notes.join(" ") : "";
     renderTypeset(folded.text);
     renderResult(folded.text.trim());
-    renderGraph();
+    renderGraph(folded.text);
   }
 
   function insertAtCursor(snippet: string, caret?: number): void {
@@ -428,8 +433,8 @@ Office.onReady(() => {
     varChoice = null;
     refresh();
   });
-  graphFrom.addEventListener("input", renderGraph);
-  graphTo.addEventListener("input", renderGraph);
+  graphFrom.addEventListener("input", () => renderGraph());
+  graphTo.addEventListener("input", () => renderGraph());
   boundA.addEventListener("input", refresh);
   boundB.addEventListener("input", refresh);
   refresh();

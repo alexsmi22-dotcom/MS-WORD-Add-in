@@ -26907,7 +26907,12 @@ function updateSolve(): void {
   // Fold pasted mathematics FIRST — math-italic 𝑥, Greek θ, LaTeX, the
   // fraction slash — so paste-from-anywhere just works, and say what was
   // read. The input box keeps the user's own characters.
-  const folded = foldPastedMath(solveInput.value.trim(), { geometry: kind === "geometry" });
+  const folded = foldPastedMath(solveInput.value.trim(), {
+    geometry: kind === "geometry",
+    // Stacked-fraction pastes only make sense where a fraction does; a
+    // topology point cloud or a word problem is multi-line for its own reasons.
+    stackedFractions: kind === "equation" || kind === "derivative" || kind === "integral",
+  });
   const text = folded.text.trim();
   solvePasteNoteEl.textContent = text ? folded.notes.join(" ") : "";
   renderSolveTypeset(kind, text);

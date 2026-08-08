@@ -6,6 +6,39 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.100.0] — 2026-08-08 — Fraction equations, from paste to worked answer
+
+Driven by a real paste that failed: a rendered 3/(x+3) = 8 copied from a
+web page arrives as its LAYOUT — numerator line, denominator line, "=8" —
+and Solve read the lines as a system.
+
+### Added
+- **Stacked-fraction paste reassembly**: the unambiguous three-line
+  clipboard shape (two =-free lines, then a bare "= rhs") rebuilds as
+  (num)/(den) = rhs, with a note saying exactly how it was read. A real
+  system (every line carries =), a topology point cloud, and two-line
+  graph entries are never touched — an ambiguous paste is left alone
+  rather than guessed.
+- **Worked fraction equations**: 3/(x+3) = 8 now shows the student's
+  move — "Multiply both sides by (x + 3) — allowed because a solution
+  must keep it nonzero" → the cleared polynomial → collect → divide →
+  x = −21/8. Two denominators clear into their quadratic (with factoring
+  when the roots are rational: 6/x = 5 − x → (x − 2)(x − 3)); when
+  clearing changes the root count, the work stops at a neutral caution
+  instead of presenting an excluded or complex candidate as a solution.
+- The canvas graphs a reassembled fraction paste as its two sides — the
+  crossing IS the solution on screen.
+
+### Fixed (adversarial pass: 4 findings)
+- The caution line no longer claims dropped candidates were pole values
+  when they may be complex roots ("discarding any value that makes a
+  denominator zero" was false for 1/x + x² = 0).
+- Symbolic-path roots (re = NaN, value only in `display`) are evaluated
+  for the factoring verification — cleared quadratics now factor instead
+  of silently falling to the formula.
+- "x = pi" no longer gets a redundant collect line restating itself as a
+  rounded decimal.
+
 ## [2.99.0] — 2026-08-08 — Show your work
 
 Solve results now carry the derivation a student would be required to

@@ -7,9 +7,11 @@
 //
 // What is computable EXACTLY here: for a linear relation, the exchange rate
 // each way (dC/dF = 5/9, dF/dC = 9/5), and the truth of any statement of the
-// form "an increase of a in X is an increase of b in Y" — checked as
-// a·(dY/dX) = b. Statements that don't match that shape are listed as not
-// judged, never guessed at. Nonlinear relations are refused by name: their
+// form "an increase/decrease of a in X is an increase/decrease of b in Y" —
+// checked with SIGNED deltas, (±a)·(dY/dX) = ±b, so mixed-direction claims
+// and negative slopes judge correctly. Statements that don't match that shape
+// are listed as not judged, never guessed at. Nonlinear relations are refused
+// by name: their
 // exchange rate depends on where you are, so no single number answers the
 // question.
 //
@@ -19,7 +21,7 @@
 // the premise is checkable at a glance.
 
 import { parseExpr, evalAst, derivative, simplify, format, freeVars, Expr } from "./solve";
-import { WordProblemResult, WorkStep } from "./wordproblem";
+import type { WordProblemResult, WorkStep } from "./wordproblem";
 
 const TOL = 1e-9;
 
@@ -39,8 +41,11 @@ function findEquation(lines: string[]): { line: string; expr: Expr } | null {
 }
 
 /** unit word (lowercased) → variable letter, from prose like
- *  "temperature F, measured in degrees Fahrenheit" plus a first-letter
- *  fallback (fahrenheit → F) so unnamed pairings still resolve. */
+ *  "temperature F, measured in degrees Fahrenheit". The variable's own letter
+ *  always resolves; a full unit word ("fahrenheit") resolves ONLY when the
+ *  prose names the pairing — there is deliberately no first-letter guessing,
+ *  so an unnamed unit word makes its statement unjudgeable (and disclosed as
+ *  such), never misattributed. */
 function unitMap(text: string, vars: string[]): Map<string, string> {
   const map = new Map<string, string>();
   const re = /\b([A-Za-z])\s*,\s*measured in (?:degrees?\s+)?([A-Za-z]+)/g;
@@ -54,31 +59,60 @@ function unitMap(text: string, vars: string[]): Map<string, string> {
   return map;
 }
 
+/** Direction a claim's verb carries: +1 increase, −1 decrease, 0 for the
+ *  direction-neutral "change". */
+type Dir = 1 | -1 | 0;
+
+function dirOf(word: string): Dir {
+  const w = word.toLowerCase();
+  return w === "increase" ? 1 : w === "decrease" ? -1 : 0;
+}
+
+function dirWord(d: Dir): string {
+  return d === 1 ? "an increase" : d === -1 ? "a decrease" : "a change";
+}
+
 interface Claim {
   a: number;
   aShown: string;
   fromVar: string;
+  fromDir: Dir;
   b: number;
   bShown: string;
   toVar: string;
+  toDir: Dir;
   line: string;
 }
 
 const CLAIM_RE =
-  /(?:increase|decrease|change)\s+of\s+([\d./]+)\s+(?:degrees?|units?)?\s*([A-Za-z]+)[^.\n]*?(?:increase|decrease|change)\s+of\s+([\d./]+)\s+(?:degrees?|units?)?\s*([A-Za-z]+)/i;
+  /(increase|decrease|change)\s+of\s+([\d./]+)\s+(?:degrees?|units?)?\s*([A-Za-z]+)[^.\n]*?(increase|decrease|change)\s+of\s+([\d./]+)\s+(?:degrees?|units?)?\s*([A-Za-z]+)/i;
 
-/** Parses one answer-choice line into a checkable claim, if it has the shape. */
+/** Parses one answer-choice line into a checkable claim, if it has the shape.
+ *  The direction words are CAPTURED — "an increase of 1 in F is a DECREASE of
+ *  5/9 in C" is a different claim from the both-increase form, and judging it
+ *  as if both sides said "increase" gives wrong verdicts whenever the
+ *  directions mix or the slope is negative. */
 function parseClaim(line: string, units: Map<string, string>): Claim | null {
   const m = CLAIM_RE.exec(line);
   if (!m) return null;
-  const fromVar = units.get(m[2].toLowerCase());
-  const toVar = units.get(m[4].toLowerCase());
+  const fromVar = units.get(m[3].toLowerCase());
+  const toVar = units.get(m[6].toLowerCase());
   if (!fromVar || !toVar || fromVar === toVar) return null;
   try {
-    const a = evalAst(parseExpr(m[1]), {});
-    const b = evalAst(parseExpr(m[3]), {});
+    const a = evalAst(parseExpr(m[2]), {});
+    const b = evalAst(parseExpr(m[5]), {});
     if (!Number.isFinite(a) || !Number.isFinite(b)) return null;
-    return { a, aShown: m[1], fromVar, b, bShown: m[3], toVar, line: line.trim() };
+    return {
+      a,
+      aShown: m[2],
+      fromVar,
+      fromDir: dirOf(m[1]),
+      b,
+      bShown: m[5],
+      toVar,
+      toDir: dirOf(m[4]),
+      line: line.trim(),
+    };
   } catch {
     return null;
   }
@@ -162,28 +196,61 @@ export function tryRateInterpretation(text: string): WordProblemResult | null {
 
   // Judge the answer-choice statements that match the checkable shape.
   const units = unitMap(text, vars);
+  // A line COUNTS as a statement when it talks about an increase/decrease and
+  // names one of the quantities — whether or not it can be judged. Question
+  // prose ("which of the following must be true?") mentions neither and is
+  // passed over silently.
+  const mentionsQuantity = (line: string): boolean =>
+    [...units.keys()].some((u) => new RegExp(`\\b${u}\\b`, "i").test(line)) ||
+    vars.some((v) => new RegExp(`\\b${v}\\b`).test(line));
   let judged = 0;
   let unreadable = 0;
   for (const line of lines) {
     if (line === eq.line) continue;
-    if (!CLAIM_RE.test(line)) continue;
+    if (!/\b(?:increase|decrease|change)/i.test(line)) continue;
+    // A CLAIM_RE-shaped line whose unit words never got named in prose still
+    // COUNTS — silently dropping it would break the "listed, never guessed
+    // at" promise.
+    if (!mentionsQuantity(line) && !CLAIM_RE.test(line)) continue;
     const claim = parseClaim(line, units);
     if (!claim) {
       unreadable++;
       continue;
     }
-    judged++;
     const slope = claim.fromVar === P ? vQP : vPQ;
-    const expected = claim.a * slope;
-    const truth = Math.abs(expected - claim.b) <= TOL * Math.max(1, Math.abs(expected));
+    if (claim.fromDir === 0 || claim.toDir === 0) {
+      if (claim.fromDir === 0 && claim.toDir === 0) {
+        // "change of a … change of b": direction-neutral both sides, so the
+        // claim is about magnitude only.
+        judged++;
+        const expectedMag = Math.abs(claim.a * slope);
+        const truth = Math.abs(expectedMag - claim.b) <= TOL * Math.max(1, expectedMag);
+        const verdict = truth
+          ? `TRUE — a change of ${claim.aShown} in ${claim.fromVar} is a change of ${claim.bShown} in ${claim.toVar} (in magnitude).`
+          : `FALSE — a change of ${claim.aShown} in ${claim.fromVar} changes ${claim.toVar} by ${fmtVal(expectedMag)} in magnitude, not ${claim.bShown}.`;
+        steps.push(`${verdict}  (statement: “${claim.line}”)`);
+        work.push({ text: verdict });
+      } else {
+        // A neutral "change" paired with a signed increase/decrease can't be
+        // judged without guessing which way the change went.
+        unreadable++;
+      }
+      continue;
+    }
+    judged++;
+    // Signed deltas: the claim says a move of (fromDir·a) in fromVar comes
+    // with a move of (toDir·b) in toVar. What actually happens is slope·Δ.
+    const expected = claim.fromDir * claim.a * slope;
+    const claimed = claim.toDir * claim.b;
+    const truth = Math.abs(expected - claimed) <= TOL * Math.max(1, Math.abs(expected));
     const verdict = truth
-      ? `TRUE — an increase of ${claim.aShown} in ${claim.fromVar} is an increase of ${claim.bShown} in ${claim.toVar}.`
-      : `FALSE — an increase of ${claim.aShown} in ${claim.fromVar} changes ${claim.toVar} by ${fmtVal(expected)}, not ${claim.bShown}.`;
+      ? `TRUE — ${dirWord(claim.fromDir)} of ${claim.aShown} in ${claim.fromVar} is ${dirWord(claim.toDir)} of ${claim.bShown} in ${claim.toVar}.`
+      : `FALSE — ${dirWord(claim.fromDir)} of ${claim.aShown} in ${claim.fromVar} changes ${claim.toVar} by ${fmtVal(expected)}, not ${fmtVal(claimed)}.`;
     steps.push(`${verdict}  (statement: “${claim.line}”)`);
     work.push({ text: verdict });
   }
   if (unreadable) {
-    const note = `${unreadable} statement${unreadable === 1 ? "" : "s"} mentioning an increase could not be read in the a-to-b shape and ${unreadable === 1 ? "was" : "were"} NOT judged.`;
+    const note = `${unreadable} statement${unreadable === 1 ? "" : "s"} mentioning an increase could not be read as a checkable a-to-b claim and ${unreadable === 1 ? "was" : "were"} NOT judged.`;
     steps.push(note);
     work.push({ text: note });
     caveats.push("Unjudged statements are listed, never guessed at.");
@@ -195,9 +262,7 @@ export function tryRateInterpretation(text: string): WordProblemResult | null {
 
   return {
     template: "rate-interpretation",
-    answer: judged
-      ? `${rate1} ${rate2}`
-      : `${rate1} ${rate2}`,
+    answer: `${rate1} ${rate2}`,
     value: vQP,
     equation: eq.line,
     equationMath: eq.line,

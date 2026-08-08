@@ -29,6 +29,7 @@
 import { solveEquation } from "./solve";
 
 import { parseShareProblem, solveShares } from "./sharesequence";
+import { tryRateInterpretation } from "./rateInterpretation";
 
 /**
  * One line of shown work. `text` is prose; `math` is the pane's formula DSL, so
@@ -783,6 +784,10 @@ export function solveWordProblem(text: string): WordProblemResult | null {
   // onto, and the first recogniser to claim a problem wins. The bare
   // number-sentence translator is last precisely because it is the greediest.
   return (
+    // Rate interpretation first: it is the ONLY template keyed on an explicit
+    // equation in the text, so it can never steal a problem from the prose
+    // templates — and their number-greedy patterns could easily steal from it.
+    tryRateInterpretation(text) ??
     tryShareSequence(text) ??
     tryRunningTotal(text) ??
     tryPerimeter(t) ??

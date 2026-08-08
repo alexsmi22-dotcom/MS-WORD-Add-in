@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.101.0)
+# JurisLab — Manual Test Script (v2.102.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -9,6 +9,16 @@ scanning, and layout. Budget ~30 minutes for the full pass.
 Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
+
+## 0bf. New in v2.102.0 — SAT word problems
+
+- [ ] Solve → Word problem, paste the full Celsius/Fahrenheit SAT question (with
+  a correctly-written 5/9) → both exchange rates exact (5/9 and 9/5), and the
+  three choices judged TRUE / TRUE / FALSE, the false one showing 0.308642.
+- [ ] The caveat restates the equation used and warns that 5/9 can paste as 59.
+- [ ] `A = 3.14 r^2` + an "increase of 1" question → refused by name: the
+  exchange rate is not constant for a nonlinear relation.
+- [ ] Insert result → equation, rates, and verdicts land in Word.
 
 ## 0be. New in v2.101.0 — paste the whole problem
 

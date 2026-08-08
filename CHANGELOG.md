@@ -6,6 +6,37 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.102.0] — 2026-08-08 — SAT-style word problems: rates judged, choices checked
+
+### Added
+- **Rate-interpretation problems** (Word problem kind): paste the whole
+  question — equation, prose, answer choices. For a linear relation the
+  exchange rate is computed EXACTLY both ways (dC/dF = 5/9, dF/dC = 9/5,
+  by implicit differentiation with CAS-exact display), and every answer
+  choice matching the "increase of a in X is an increase of b in Y" shape
+  is judged TRUE or FALSE with the arithmetic shown — signed: increase vs
+  decrease verbs are honored, so mixed-direction claims and negative
+  slopes judge correctly. Direction-neutral "change of" claims judge
+  magnitude; a neutral change mixed with a signed verb is refused as
+  unjudgeable. Statements that can't be read in the checkable shape are
+  COUNTED and disclosed, never guessed at. Nonlinear relations are
+  refused by name — their exchange rate depends on where you start.
+- Every verdict restates the equation it followed from, with the caveat
+  that rendered fractions can collapse in the clipboard (5/9 pastes
+  as 59) — the premise is checkable at a glance.
+
+### Fixed (adversarial pass: 3 fixed in place, 3 disclosed)
+- Mixed-direction claims were judged as if both sides said "increase" —
+  "an increase of 1 in x is a decrease of 2 in y" got the WRONG verdict
+  on both positive and negative slopes. Verbs are now captured and the
+  comparison is fully signed.
+- Statements whose unit words were never named in the prose were
+  silently skipped instead of counted as unjudged.
+- The unit map's comment claimed a first-letter fallback that never
+  existed — semantics now stated truthfully (no guessing, deliberately).
+- Also wires rateInterpretation into solveWordProblem (v2.101.0 shipped
+  the module a commit early, unreferenced).
+
 ## [2.101.0] — 2026-08-08 — Paste the whole problem
 
 Driven by a real paste that failed with "unexpected character '='": a

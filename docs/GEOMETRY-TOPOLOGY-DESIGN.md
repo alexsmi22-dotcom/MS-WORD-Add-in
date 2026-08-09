@@ -167,6 +167,22 @@ oracle (β of a torus is 1,2,1; H₁(ℝP²) = ℤ/2).
 arbitrary field coefficients, Mayer–Vietoris helpers, cell complexes beyond
 simplicial.
 
+> **STATUS (v2.106.0, 2026-08-09): the geometry gaps this brief still carried
+> are CLOSED.** The Tier-1 circle toolkit (arc, sector, segment, chord, tangent
+> length, inscribed angle) shipped at last; solids grew past the original four
+> (hemisphere, pyramid, prism, frustum, spherical cap, torus, ellipsoid,
+> regular tetrahedron); triangles report inradius/circumradius; conics surface
+> their vertices AND directrices, and the parabola its vertex/focus/directrix
+> even when rotated; Tier 4's second half — 2D transformations with
+> homogeneous-coordinate translation — is live (exact at quarter turns),
+> reusing geometry3d's Mat3 rather than growing a second matrix implementation;
+> `pointInPolygon` is finally routed (`inside …` / `… contains …`). And plain
+> geometry DRAWS: triangles (both SSA solutions), point sets, all four conic
+> kinds and the circle toolkit render to scale in pane, canvas and document.
+> Still deliberately unbuilt: loci, similarity/congruence proofs, solids of
+> revolution, 3D composites/nets, and general 2D reflection about an arbitrary
+> line ax+by=c (the four named mirror lines cover the requests seen so far).
+>
 > **STATUS (v2.12.0): T3 (knot polynomials) and T4 (π₁ presentations) SHIPPED**
 > in `src/lib/knots.ts` — Jones via the Kauffman bracket, exact; Wirtinger
 > presentation plus abelianisation, never identification. That completes every

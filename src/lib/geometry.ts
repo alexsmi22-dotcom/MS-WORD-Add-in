@@ -32,6 +32,53 @@ export interface GeoValue {
   unit?: string;
 }
 
+/**
+ * Data for a drawable figure, attached by the branch that computed the result.
+ * DATA ONLY — the SVG builders live in geometryChart.ts, so the engine stays
+ * free of rendering and the chart module free of arithmetic.
+ */
+export type GeoFigure =
+  | {
+      kind: "triangle";
+      /** One per solution — SSA can legitimately carry two. */
+      triangles: { a: number; b: number; c: number; A: number; B: number; C: number }[];
+    }
+  | {
+      kind: "points";
+      pts: { x: number; y: number }[];
+      hull?: { x: number; y: number }[];
+      centroid?: { x: number; y: number };
+      /** Drawn as a closed polygon (true) or a bare point set (false). */
+      closed: boolean;
+      /** A point-in-polygon probe, marked with its verdict. */
+      probe?: { x: number; y: number; verdict: "inside" | "outside" | "boundary" };
+    }
+  | {
+      kind: "conic";
+      conic: "circle" | "ellipse" | "hyperbola" | "parabola";
+      centre?: { x: number; y: number };
+      vertex?: { x: number; y: number };
+      /** Semi-axis a, or the focal parameter for a parabola. */
+      a: number;
+      b?: number;
+      /** Whether the major/transverse axis lies along the rotated x'-axis. */
+      alongX?: boolean;
+      rotationDeg: number;
+      foci?: { x: number; y: number }[];
+      /** Parabola: unit vector from the vertex toward the focus. */
+      axis?: { x: number; y: number };
+      /** Extra points to mark (e.g. the three defining points of a circle). */
+      marks?: { x: number; y: number }[];
+    }
+  | {
+      kind: "circle-feature";
+      feature: "sector" | "segment" | "arc" | "tangent";
+      r: number;
+      angleDeg?: number;
+      /** Tangent: distance from the external point to the centre. */
+      d?: number;
+    };
+
 export interface GeoResult {
   title: string;
   values: GeoValue[];
@@ -39,6 +86,8 @@ export interface GeoResult {
   caveats: string[];
   /** Distinguishes a genuine result from a named degenerate outcome. */
   degenerate?: string;
+  /** Present when the result has a faithful picture; see geometryChart.ts. */
+  figure?: GeoFigure;
 }
 
 export type Pt = { x: Rat; y: Rat };
@@ -367,6 +416,12 @@ export interface SolvedTriangle {
   area: number;
   /** Exact area when the sides are rational and Heron's radicand is rational. */
   areaExact?: string;
+  /** Radius of the inscribed circle, r = area / s. */
+  inradius: number;
+  inradiusExact?: string;
+  /** Radius of the circumscribed circle, R = abc / (4·area). */
+  circumradius: number;
+  circumradiusExact?: string;
 }
 
 export interface TriangleSolution {
@@ -381,13 +436,27 @@ const DEG = 180 / Math.PI;
 const toRad = (d: number) => d / DEG;
 
 function finishFromSides(a: number, b: number, c: number): SolvedTriangle {
-  const A = Math.acos((b * b + c * c - a * a) / (2 * b * c)) * DEG;
-  const B = Math.acos((a * a + c * c - b * b) / (2 * a * c)) * DEG;
+  // CLAMPED law of cosines: an SSA solution built from floats can put a side a
+  // few ulps past the triangle inequality (a=1, b=1, A=0.0001° gives
+  // c = 2.00000000009), and acos of 1+ε is NaN — which then rode into the pane,
+  // the figure and the inserted document. The clamp turns that sliver into the
+  // honest flat triangle (0°, 0°, 180°) instead of NaN.
+  const clamp = (x: number): number => Math.min(1, Math.max(-1, x));
+  const A = Math.acos(clamp((b * b + c * c - a * a) / (2 * b * c))) * DEG;
+  const B = Math.acos(clamp((a * a + c * c - b * b) / (2 * a * c))) * DEG;
   const C = 180 - A - B;
   const s = (a + b + c) / 2;
   const area = Math.sqrt(Math.max(0, s * (s - a) * (s - b) * (s - c)));
-  const out: SolvedTriangle = { a, b, c, A, B, C, area };
+  const out: SolvedTriangle = {
+    a, b, c, A, B, C, area,
+    inradius: s > 0 ? area / s : NaN,
+    // A flat triangle has no circumcircle; abc/(4·0) = Infinity would read as
+    // a huge-but-real radius, so the undefined quantity is NaN per GeoValue.
+    circumradius: area > 0 ? (a * b * c) / (4 * area) : NaN,
+  };
   // Heron exactly, when the sides are rational: area = √(s(s−a)(s−b)(s−c)).
+  // The two radii ride the same radicand: r = √rad / s and R = abc / (4·√rad),
+  // so r² = rad/s² and R² = (abc)²/(16·rad) are rational whenever rad is.
   try {
     const rs = [a, b, c].map(ratFromNumber);
     const S = ratMul(ratAdd(ratAdd(rs[0], rs[1]), rs[2]), ratMake(1n, 2n));
@@ -397,6 +466,12 @@ function finishFromSides(a: number, b: number, c: number): SolvedTriangle {
     );
     const ex = fmtSqrtRat(rad);
     if (ex) out.areaExact = ex;
+    if (ex && ratSign(rad) > 0) {
+      out.inradiusExact = fmtSqrtRat(ratDiv(rad, R2(S))) ?? undefined;
+      const abc = ratMul(ratMul(rs[0], rs[1]), rs[2]);
+      out.circumradiusExact =
+        fmtSqrtRat(ratDiv(R2(abc), ratMul(ratInt(16), rad))) ?? undefined;
+    }
   } catch {
     /* leave it numeric */
   }
@@ -522,7 +597,21 @@ export interface ConicResult {
   eccentricity?: number;
   foci?: { x: number; y: number }[];
   vertices?: { x: number; y: number }[];
+  /** Parabola only: the vertex (a parabola has no centre). */
+  vertex?: { x: number; y: number };
+  /**
+   * Whether the MAJOR (or transverse) axis lies along the rotated x'-axis.
+   * The semi-major length alone cannot say which way the conic points: for
+   * 25x² + 4y² = 100 the major axis is along y, and a drawing that assumes
+   * x' puts both foci outside its own ellipse.
+   */
+  majorAlongX?: boolean;
   asymptotes?: string[];
+  /**
+   * The directrix lines, described with their distance: a/e from the centre for
+   * an ellipse or hyperbola, the focal parameter from the vertex for a parabola.
+   */
+  directrices?: string[];
   canonical: string;
   steps: string[];
   caveats: string[];
@@ -614,14 +703,45 @@ export function classifyConic(
     // Parabola.
     steps.push("δ = 0 with Δ ≠ 0: a parabola.");
     // In rotated coords one squared term vanishes; the other gives 4p.
-    const sq = Math.abs(nA) > Math.abs(nC) ? nA : nC;
-    const lin = Math.abs(nA) > Math.abs(nC) ? nE : nD;
+    const xCase = Math.abs(nA) > Math.abs(nC);
+    const sq = xCase ? nA : nC;
+    const lin = xCase ? nE : nD;
     const p = lin !== 0 ? -lin / (4 * sq) : NaN;
+    // Vertex: complete the square in the rotated frame, then rotate back.
+    // x'² case: nA·u² + nD·u + nE·v + nF = 0 → u₀ = −nD/(2nA),
+    //           v₀ = −(nF − nD²/(4nA))/nE. The y'² case swaps the roles.
+    let vertex: { x: number; y: number } | undefined;
+    let focus: { x: number; y: number } | undefined;
+    let directrices: string[] | undefined;
+    if (Number.isFinite(p) && p !== 0) {
+      const u0 = xCase ? -nD / (2 * nA) : -(nF - (nE * nE) / (4 * nC)) / nD;
+      const v0 = xCase ? -(nF - (nD * nD) / (4 * nA)) / nE : -nE / (2 * nC);
+      vertex = { x: u0 * cos - v0 * sin, y: u0 * sin + v0 * cos };
+      // The axis direction: the parabola opens along the LINEAR variable's
+      // axis, toward the side that makes the square's sign work out.
+      const open = xCase ? Math.sign(-nA / nE) : Math.sign(-nC / nD);
+      const ax = (xCase ? -sin : cos) * open;
+      const ay = (xCase ? cos : sin) * open;
+      const pd = Math.abs(p);
+      focus = { x: vertex.x + pd * ax, y: vertex.y + pd * ay };
+      directrices = [
+        `the line perpendicular to the axis at distance ${pd.toPrecision(6)} behind the vertex ` +
+        `(through (${(vertex.x - pd * ax).toPrecision(6)}, ${(vertex.y - pd * ay).toPrecision(6)}))`,
+      ];
+      steps.push(
+        `Vertex (${vertex.x.toPrecision(6)}, ${vertex.y.toPrecision(6)}); ` +
+        `focus (${focus.x.toPrecision(6)}, ${focus.y.toPrecision(6)}); ` +
+        `the directrix mirrors the focus across the vertex.`
+      );
+    }
     return {
       kind: "parabola", degenerate: false, rotationDeg,
       a: Number.isFinite(p) ? Math.abs(p) : undefined,
       eccentricity: 1,
-      canonical: Math.abs(nA) > Math.abs(nC)
+      vertex,
+      foci: focus ? [focus] : undefined,
+      directrices,
+      canonical: xCase
         ? `${nA.toPrecision(6)}·x'² + ${nE.toPrecision(6)}·y' + ${nF.toPrecision(6)} = 0`
         : `${nC.toPrecision(6)}·y'² + ${nD.toPrecision(6)}·x' + ${nF.toPrecision(6)} = 0`,
       steps, caveats: [...caveats, "A parabola has eccentricity exactly 1 and no centre."],
@@ -658,8 +778,14 @@ export function classifyConic(
     return {
       kind: isCircle ? "circle" : "ellipse", degenerate: false, rotationDeg, centre,
       a: aa, b: bb, eccentricity: ecc,
+      majorAlongX: r1 >= r2,
       foci: fociFor(centre!, cdist, rotationDeg, r1 >= r2),
       vertices: verticesFor(centre!, aa, rotationDeg, r1 >= r2),
+      // A circle has eccentricity 0, so its directrices are at infinity —
+      // reporting none is the honest reading, not an omission.
+      directrices: ecc > 1e-12
+        ? [`two lines perpendicular to the major axis at distance a/e = ${(aa / ecc).toPrecision(6)} either side of the centre`]
+        : undefined,
       canonical: `x'²/${(Math.max(r1, r2)).toPrecision(6)} + y'²/${(Math.min(r1, r2)).toPrecision(6)} = 1`,
       steps, caveats,
     };
@@ -678,8 +804,12 @@ export function classifyConic(
     kind: "hyperbola", degenerate: false, rotationDeg, centre,
     a: aa, b: bb,
     eccentricity: aa > 0 ? cdist / aa : NaN,
+    majorAlongX: r1 > 0,
     foci: fociFor(centre!, cdist, rotationDeg, r1 > 0),
     vertices: verticesFor(centre!, aa, rotationDeg, r1 > 0),
+    directrices: aa > 0
+      ? [`two lines perpendicular to the transverse axis at distance a/e = ${((aa * aa) / cdist).toPrecision(6)} either side of the centre`]
+      : undefined,
     asymptotes: [`slope ±${(bb / aa).toFixed(6)} through the centre (in the rotated frame)`],
     canonical: `x'²/${Math.abs(posR).toPrecision(6)} − y'²/${Math.abs(negR).toPrecision(6)} = 1`,
     steps, caveats,
@@ -743,6 +873,12 @@ export function shapeMetrics(spec: ShapeSpec): GeoResult | null {
   const rExactMul = (...ns: number[]): string => fmtRat(rmul(...ns));
   const sqrtOfSquares = (...ns: number[]): string | undefined =>
     fmtSqrtRat(ns.map((n) => ratMul(R(n), R(n))).reduce(ratAdd, RAT_ZERO)) ?? undefined;
+  // A named refusal is an ANSWER (a degenerate outcome), not a parse failure —
+  // returning null here would make the pane say "couldn't read that" about
+  // input it read perfectly well.
+  const refuse = (title: string, msg: string): GeoResult =>
+    ({ title, values: [], steps: [], caveats: [], degenerate: msg });
+  const cap = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
 
   switch (spec.shape) {
     case "circle": {
@@ -826,6 +962,256 @@ export function shapeMetrics(spec: ShapeSpec): GeoResult | null {
           V("space diagonal", Math.hypot(a, b, c), sqrtOfSquares(a, b, c)),
         ],
         steps: ["V = abc, S = 2(ab+bc+ca)."], caveats: [],
+      };
+    }
+    // -----------------------------------------------------------------------
+    // The circle toolkit — the half of Tier 1 the design brief named and no
+    // release built: arc, sector, segment, chord, tangent, inscribed angle.
+    // Angles are in DEGREES, stated in every step line.
+    // -----------------------------------------------------------------------
+    case "sector": case "segment": case "arc": {
+      if (!need("r", "angle")) return null;
+      const { r, angle } = d;
+      if (angle > 360) {
+        return refuse(`${cap(spec.shape)}, r = ${r}`,
+          `An angle of ${angle}° is more than a full turn. Angles here are central angles in degrees, 0 to 360.`);
+      }
+      const th = (angle * Math.PI) / 180;
+      const frac = ratDiv(R(angle), ratInt(360));
+      const arcCoef = ratMul(frac, rmul(2, r));
+      const arcVal = (angle / 180) * Math.PI * r;
+      const chord = 2 * r * Math.sin(th / 2);
+      const caveats: string[] = [];
+      if (angle === 360) caveats.push("A 360° central angle is the whole circle; the chord degenerates to a point.");
+      if (spec.shape === "sector") {
+        const areaCoef = ratMul(frac, rmul(r, r));
+        return {
+          title: `Circular sector, r = ${r}, central angle ${angle}°`,
+          values: [
+            V("area", (th / 2) * r * r, `${fmtRat(areaCoef)}*pi`),
+            V("arc length", arcVal, `${fmtRat(arcCoef)}*pi`),
+            V("chord", chord),
+            V("perimeter", arcVal + 2 * r),
+          ],
+          steps: ["Area = (θ/360)·πr², arc = (θ/360)·2πr, chord = 2r·sin(θ/2), perimeter = arc + 2r. θ in degrees."],
+          caveats,
+        };
+      }
+      if (spec.shape === "segment") {
+        return {
+          title: `Circular segment, r = ${r}, central angle ${angle}°`,
+          values: [
+            V("area", (r * r / 2) * (th - Math.sin(th))),
+            V("chord", chord),
+            V("arc length", arcVal, `${fmtRat(arcCoef)}*pi`),
+            V("height", r * (1 - Math.cos(th / 2))),
+          ],
+          steps: [
+            "Area = r²/2·(θ − sin θ) with θ in radians — the sector minus the triangle.",
+            "Height (sagitta) = r·(1 − cos(θ/2)); chord = 2r·sin(θ/2).",
+          ],
+          caveats,
+        };
+      }
+      return {
+        title: `Circular arc, r = ${r}, central angle ${angle}°`,
+        values: [
+          V("arc length", arcVal, `${fmtRat(arcCoef)}*pi`),
+          V("chord", chord),
+          V("fraction of the circle", angle / 360, fmtRat(frac)),
+        ],
+        steps: ["Arc = (θ/360)·2πr; chord = 2r·sin(θ/2). θ in degrees."],
+        caveats,
+      };
+    }
+    case "tangent": {
+      if (!need("r", "d")) return null;
+      const { r } = d;
+      const dist = d.d;
+      if (dist < r) {
+        return refuse(`Tangent from a point, r = ${r}, d = ${dist}`,
+          `The point is INSIDE the circle (d = ${dist} < r = ${r}), so no tangent line passes through it.`);
+      }
+      const t2 = ratSub(R2(R(dist)), R2(R(r)));
+      const values: GeoValue[] = [
+        V("tangent length", Math.sqrt(Math.max(0, dist * dist - r * r)), fmtSqrtRat(t2) ?? undefined),
+      ];
+      const steps = ["Tangent length t = √(d² − r²) — the tangent meets the radius at a right angle (Pythagoras)."];
+      const caveats: string[] = [];
+      if (dist === r) {
+        caveats.push("The point lies ON the circle: the tangent length is 0 and there is exactly one tangent line, not two.");
+      } else {
+        values.push(V("angle between the two tangents (deg)", 2 * Math.asin(r / dist) * DEG));
+        steps.push("Two tangents exist from an external point; the angle between them is 2·asin(r/d).");
+      }
+      return { title: `Tangent from a point, r = ${r}, d = ${dist}`, values, steps, caveats };
+    }
+    case "inscribed": {
+      if (!need("angle")) return null;
+      const { angle } = d;
+      if (angle >= 360) {
+        return refuse(`Inscribed angle, central angle ${angle}°`,
+          `A central angle of ${angle}° is not less than a full turn, so it subtends no arc an inscribed angle could share.`);
+      }
+      const steps = [
+        "Inscribed angle theorem: an angle inscribed in a circle is HALF the central angle subtending the same arc.",
+      ];
+      if (angle === 180) steps.push("Thales' theorem is the special case: an angle inscribed in a semicircle is a right angle.");
+      return {
+        title: `Inscribed angle, central angle ${angle}°`,
+        values: [V("inscribed angle (deg)", angle / 2, fmtRat(ratDiv(R(angle), ratInt(2))))],
+        steps, caveats: [],
+      };
+    }
+    // -----------------------------------------------------------------------
+    // Solids beyond the original four (sphere, cylinder, cone, box).
+    // -----------------------------------------------------------------------
+    case "hemisphere": {
+      if (!need("r")) return null;
+      const r = d.r;
+      return {
+        title: `Hemisphere, r = ${r}`,
+        values: [
+          V("volume", (2 / 3) * Math.PI * r ** 3, `${fmtRat(ratMul(ratMake(2n, 3n), rmul(r, r, r)))}*pi`),
+          V("curved surface area", 2 * Math.PI * r * r, `${rExactMul(2, r, r)}*pi`),
+          V("total surface area", 3 * Math.PI * r * r, `${rExactMul(3, r, r)}*pi`),
+        ],
+        steps: ["V = 2πr³/3; curved S = 2πr²; total S = 3πr² (the flat disc adds πr²)."], caveats: [],
+      };
+    }
+    case "pyramid": {
+      // Right square pyramid: base edge a, height h.
+      if (!need("a", "h")) return null;
+      const { a, h } = d;
+      const slant2 = ratAdd(R2(R(h)), ratDiv(R2(R(a)), ratInt(4)));
+      const slant = Math.sqrt(h * h + (a * a) / 4);
+      const lat2 = ratMul(ratInt(4), ratMul(rmul(a, a), slant2));
+      const latExact = fmtSqrtRat(lat2) ?? undefined;
+      const lateral = 2 * a * slant;
+      return {
+        title: `Square pyramid, base ${a}, height ${h}`,
+        values: [
+          V("volume", (a * a * h) / 3, fmtRat(ratDiv(rmul(a, a, h), ratInt(3)))),
+          V("slant height", slant, fmtSqrtRat(slant2) ?? undefined),
+          V("lateral surface area", lateral, latExact),
+          V("total surface area", a * a + lateral, latExact ? `${rExactMul(a, a)} + ${latExact}` : undefined),
+        ],
+        steps: ["V = a²h/3; slant l = √(h² + (a/2)²); lateral = 2al; total = a² + 2al."],
+        caveats: [],
+      };
+    }
+    case "prism": {
+      // Triangular prism: cross-section a triangle of base b and height h,
+      // extruded to length l.
+      if (!need("b", "h", "l")) return null;
+      const { b, h, l } = d;
+      return {
+        title: `Triangular prism, base ${b}, height ${h}, length ${l}`,
+        values: [V("volume", (b * h * l) / 2, fmtRat(ratDiv(rmul(b, h, l), ratInt(2))))],
+        steps: ["V = (½·b·h)·l — the cross-section's area times the length."],
+        caveats: [
+          "Surface area needs the triangle's three SIDE lengths, which b and h alone do not determine — so it is not reported rather than guessed.",
+        ],
+      };
+    }
+    case "frustum": {
+      // Cone frustum: radii r1 (one face) and r2 (the other), height h.
+      if (!need("r1", "r2", "h")) return null;
+      const { r1, r2, h } = d;
+      const slant2 = ratAdd(R2(R(h)), R2(ratSub(R(r1), R(r2))));
+      const slant = Math.sqrt(h * h + (r1 - r2) * (r1 - r2));
+      const lat2 = ratMul(R2(ratAdd(R(r1), R(r2))), slant2);
+      const latSqrt = fmtSqrtRat(lat2);
+      const caveats: string[] = [];
+      if (r1 === r2) caveats.push("The two radii are equal, so this frustum is a cylinder — the formulas agree.");
+      return {
+        title: `Cone frustum, r₁ = ${r1}, r₂ = ${r2}, h = ${h}`,
+        values: [
+          V("volume", (Math.PI * h * (r1 * r1 + r1 * r2 + r2 * r2)) / 3,
+            `${fmtRat(ratDiv(ratMul(R(h), ratAdd(ratAdd(rmul(r1, r1), rmul(r1, r2)), rmul(r2, r2))), ratInt(3)))}*pi`),
+          V("slant height", slant, fmtSqrtRat(slant2) ?? undefined),
+          V("lateral surface area", Math.PI * (r1 + r2) * slant, latSqrt ? `${latSqrt}*pi` : undefined),
+          V("total surface area", Math.PI * (r1 + r2) * slant + Math.PI * (r1 * r1 + r2 * r2)),
+        ],
+        steps: ["V = πh(r₁² + r₁r₂ + r₂²)/3; slant l = √(h² + (r₁−r₂)²); lateral = π(r₁+r₂)l; total adds the two discs πr₁² + πr₂²."],
+        caveats,
+      };
+    }
+    case "cap": {
+      // Spherical cap: sphere radius r, cap height h (0 < h ≤ 2r).
+      if (!need("r", "h")) return null;
+      const { r, h } = d;
+      if (h > 2 * r) {
+        return refuse(`Spherical cap, r = ${r}, h = ${h}`,
+          `A cap of height ${h} cannot be cut from a sphere of radius ${r} — the height cannot exceed the diameter ${2 * r}.`);
+      }
+      const base2 = ratMul(R(h), ratSub(rmul(2, r), R(h)));
+      const caveats: string[] = [];
+      if (h === 2 * r) caveats.push("The cap height equals the diameter: this 'cap' is the whole sphere, and the base circle degenerates to a point.");
+      return {
+        title: `Spherical cap, sphere r = ${r}, cap height ${h}`,
+        values: [
+          V("volume", (Math.PI * h * h * (3 * r - h)) / 3,
+            `${fmtRat(ratDiv(ratMul(R2(R(h)), ratSub(rmul(3, r), R(h))), ratInt(3)))}*pi`),
+          V("curved surface area", 2 * Math.PI * r * h, `${rExactMul(2, r, h)}*pi`),
+          V("base radius", Math.sqrt(Math.max(0, h * (2 * r - h))), fmtSqrtRat(base2) ?? undefined),
+        ],
+        steps: ["V = πh²(3r − h)/3; curved S = 2πrh; base radius = √(h(2r − h))."],
+        caveats,
+      };
+    }
+    case "torus": {
+      // Ring torus: R from the centre of the hole to the centre of the tube,
+      // r the tube's own radius.
+      if (!need("R", "r")) return null;
+      const RR = d.R, r = d.r;
+      if (RR < r) {
+        return refuse(`Torus, R = ${RR}, r = ${r}`,
+          `With R = ${RR} < r = ${r} the tube overlaps itself (a spindle torus), and the standard formulas count the overlap twice — refused rather than reported wrong.`);
+      }
+      const caveats: string[] = [];
+      if (RR === r) caveats.push("R = r is the horn torus: the hole closes to a point. The formulas remain valid.");
+      return {
+        title: `Torus, R = ${RR}, r = ${r}`,
+        values: [
+          V("volume", 2 * Math.PI * Math.PI * RR * r * r, `${fmtRat(ratMul(ratInt(2), rmul(RR, r, r)))}*pi^2`),
+          V("surface area", 4 * Math.PI * Math.PI * RR * r, `${fmtRat(ratMul(ratInt(4), rmul(RR, r)))}*pi^2`),
+        ],
+        steps: ["V = 2π²Rr², S = 4π²Rr (Pappus: the tube's disc and circle swept around a circle of radius R)."],
+        caveats,
+      };
+    }
+    case "ellipsoid": {
+      if (!need("a", "b", "c")) return null;
+      const { a, b, c } = d;
+      // Thomsen's approximation, p ≈ 1.6075 — no closed form exists.
+      const p = 1.6075;
+      const S = 4 * Math.PI * Math.pow(
+        (Math.pow(a * b, p) + Math.pow(a * c, p) + Math.pow(b * c, p)) / 3, 1 / p);
+      return {
+        title: `Ellipsoid, semi-axes ${a}, ${b}, ${c}`,
+        values: [
+          V("volume", (4 / 3) * Math.PI * a * b * c, `${fmtRat(ratMul(ratMake(4n, 3n), rmul(a, b, c)))}*pi`),
+          V("surface area (approximate)", S),
+        ],
+        steps: ["V = 4πabc/3, exact. Surface area has NO closed form — Thomsen's approximation (p ≈ 1.6075) is used, accurate to about 1%."],
+        caveats: ["The surface area is an approximation; the volume is exact."],
+      };
+    }
+    case "tetrahedron": {
+      // Regular tetrahedron with edge a.
+      if (!need("a")) return null;
+      const a = d.a;
+      const a2 = rmul(a, a);
+      return {
+        title: `Regular tetrahedron, edge ${a}`,
+        values: [
+          V("volume", (a ** 3) * Math.SQRT2 / 12, fmtSqrtRat(ratDiv(ratMul(a2, ratMul(a2, a2)), ratInt(72))) ?? undefined),
+          V("surface area", Math.sqrt(3) * a * a, fmtSqrtRat(ratMul(ratInt(3), ratMul(a2, a2))) ?? undefined),
+          V("height", a * Math.sqrt(2 / 3), fmtSqrtRat(ratDiv(ratMul(ratInt(2), a2), ratInt(3))) ?? undefined),
+        ],
+        steps: ["V = a³√2/12; S = √3·a² (four equilateral faces); height = a·√(2/3)."],
+        caveats: [],
       };
     }
     case "regular-polygon": {

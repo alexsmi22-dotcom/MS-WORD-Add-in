@@ -85,6 +85,19 @@ describe("Solve draws for every kind that has something to draw", () => {
     expect(src.slice(at, at + 700)).toContain("fig.innerHTML = currentSolveSvg");
   });
 
+  test("PLAIN geometry draws too (ratchet raised again in v2.106.0)", () => {
+    // Composite was the only geometry that drew; triangles, point sets, conics
+    // and the circle toolkit were text-only — the founding complaint of this
+    // file, reproduced one registry over. The branch must wire the figure
+    // builder to the same state the insert path reads, with alt text written
+    // by the same branch.
+    const src = updateSolveSource();
+    expect(src).toContain("currentSolveSvg = geometryFigureSvg(");
+    expect(src).toContain("currentSolveAlt = geometryFigureAlt(");
+    const at = src.indexOf("geometryFigureSvg(");
+    expect(src.slice(at, at + 700)).toContain("fig.innerHTML = currentSolveSvg");
+  });
+
   test("every figure carries a caption written by the branch that made it", () => {
     // ALT TEXT THAT LIES IS WORSE THAN NONE. The insert path hardcoded
     // "Persistence barcode: each bar is a topological feature" — true while the

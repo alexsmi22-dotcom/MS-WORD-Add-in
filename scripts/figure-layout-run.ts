@@ -70,7 +70,8 @@ import { buildCircularMapSvg } from "../src/lib/seqmapcirc";
 import { parseGenBank } from "../src/lib/seqio";
 import { persistentHomology, barcodeSvg } from "../src/lib/persistence";
 import { solveComposite } from "../src/lib/compositeGeometry";
-import { compositeShapeSvg } from "../src/lib/geometryChart";
+import { compositeShapeSvg, geometryFigureSvg } from "../src/lib/geometryChart";
+import { solveGeometry } from "../src/lib/geometryParse";
 
 const figures: [string, string][] = [];
 
@@ -83,6 +84,30 @@ const figures: [string, string][] = [];
   if (crowded) figures.push(["composite crowded cutouts", compositeShapeSvg(crowded)]);
   const lshape = solveComposite("rectangle 8 x 3 plus rectangle 3 x 5 plus semicircle r=1.5");
   if (lshape) figures.push(["composite additions", compositeShapeSvg(lshape)]);
+}
+
+// Plain geometry figures (v2.106.0): each drawable kind at least once, plus the
+// stress cases — a thin sliver triangle (labels crowd), the SSA pair (two
+// panels), a reflex sector, and a hyperbola (two branches).
+{
+  const push = (name: string, input: string): void => {
+    const g = solveGeometry(input);
+    if (g?.figure) figures.push([name, geometryFigureSvg(g.figure)]);
+  };
+  push("geometry triangle sss", "triangle 3 4 5");
+  push("geometry triangle sliver", "triangle 10 10 19.6");
+  push("geometry triangle ssa pair", "triangle a=6 b=8 A=30");
+  push("geometry polygon points", "polygon (0,0) (4,0) (5,3) (2,5) (-1,3)");
+  push("geometry point in polygon", "inside (1,1) polygon (0,0) (4,0) (4,4) (0,4)");
+  push("geometry conic ellipse", "x^2/9 + y^2/4 = 1");
+  push("geometry conic hyperbola", "x^2/4 - y^2/9 = 1");
+  push("geometry conic parabola", "y = x^2/8");
+  push("geometry circle through 3 points", "circle (1,0) (0,1) (-1,0)");
+  push("geometry sector", "sector r=5 angle=60");
+  push("geometry sector reflex", "sector r=5 angle=300");
+  push("geometry segment", "segment r=4 angle=90");
+  push("geometry arc", "arc r=6 angle=120");
+  push("geometry tangent", "tangent r=3 d=5");
 }
 
 figures.push([

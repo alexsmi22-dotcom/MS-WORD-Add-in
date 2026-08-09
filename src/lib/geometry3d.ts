@@ -300,6 +300,68 @@ export function rotationMatrix(axis: "x" | "y" | "z", degrees: number): Mat3 {
   return [c, ratNeg(s), RAT_ZERO, s, c, RAT_ZERO, RAT_ZERO, RAT_ZERO, one];
 }
 
+// ---------------------------------------------------------------------------
+// 2D transformations as HOMOGENEOUS 3×3 matrices — the second half of Tier 4
+// (docs/GEOMETRY-TOPOLOGY-DESIGN.md). Reusing Mat3 is the point: translation
+// becomes a matrix like everything else, composition is mat3Mul, and the
+// bottom row stays (0, 0, 1) so mat3Det IS the 2×2 linear part's determinant —
+// the AREA scale factor.
+// ---------------------------------------------------------------------------
+
+/** The point (x, y) as the homogeneous column (x, y, 1). */
+export const hom2Point = (x: Rat, y: Rat): Vec3 => ({ x, y, z: ratInt(1) });
+
+export function hom2Translate(dx: Rat, dy: Rat): Mat3 {
+  const one = ratInt(1);
+  return [one, RAT_ZERO, dx, RAT_ZERO, one, dy, RAT_ZERO, RAT_ZERO, one];
+}
+
+export function hom2Scale(sx: Rat, sy: Rat): Mat3 {
+  return [sx, RAT_ZERO, RAT_ZERO, RAT_ZERO, sy, RAT_ZERO, RAT_ZERO, RAT_ZERO, ratInt(1)];
+}
+
+/**
+ * 2D rotation about the origin. EXACT at multiples of 90°, where cos and sin
+ * are 0 and ±1 — the angles people actually type deserve exact answers, and
+ * "rotate 90" answering (6.1e-17, 1) fails the reader who knows it is (0, 1).
+ * Everything else is numeric through the rational layer, and `exactQuarter`
+ * tells the caller which case it got.
+ */
+export function hom2Rotate(degrees: number): { m: Mat3; exactQuarter: boolean } {
+  const one = ratInt(1);
+  const mod = ((degrees % 360) + 360) % 360;
+  const QUARTER: Record<number, [number, number]> = { 0: [1, 0], 90: [0, 1], 180: [-1, 0], 270: [0, -1] };
+  if (mod in QUARTER) {
+    const [c, s] = QUARTER[mod];
+    return {
+      m: [ratInt(c), ratInt(-s), RAT_ZERO, ratInt(s), ratInt(c), RAT_ZERO, RAT_ZERO, RAT_ZERO, one],
+      exactQuarter: true,
+    };
+  }
+  const t = (degrees * Math.PI) / 180;
+  const c = ratFromNumber(Math.cos(t)), s = ratFromNumber(Math.sin(t));
+  return { m: [c, ratNeg(s), RAT_ZERO, s, c, RAT_ZERO, RAT_ZERO, RAT_ZERO, one], exactQuarter: false };
+}
+
+/** Reflection in a named 2D mirror line through the origin — exact (entries ±1). */
+export function hom2Reflect(axis: "x" | "y" | "y=x" | "y=-x"): Mat3 {
+  const one = ratInt(1), neg = ratInt(-1);
+  switch (axis) {
+    case "x": return [one, RAT_ZERO, RAT_ZERO, RAT_ZERO, neg, RAT_ZERO, RAT_ZERO, RAT_ZERO, one];
+    case "y": return [neg, RAT_ZERO, RAT_ZERO, RAT_ZERO, one, RAT_ZERO, RAT_ZERO, RAT_ZERO, one];
+    case "y=x": return [RAT_ZERO, one, RAT_ZERO, one, RAT_ZERO, RAT_ZERO, RAT_ZERO, RAT_ZERO, one];
+    case "y=-x": return [RAT_ZERO, neg, RAT_ZERO, neg, RAT_ZERO, RAT_ZERO, RAT_ZERO, RAT_ZERO, one];
+  }
+}
+
+/** Shear: "x" slides x by k·y (horizontal shear); "y" slides y by k·x. Exact. */
+export function hom2Shear(dir: "x" | "y", k: Rat): Mat3 {
+  const one = ratInt(1);
+  return dir === "x"
+    ? [one, k, RAT_ZERO, RAT_ZERO, one, RAT_ZERO, RAT_ZERO, RAT_ZERO, one]
+    : [one, RAT_ZERO, RAT_ZERO, k, one, RAT_ZERO, RAT_ZERO, RAT_ZERO, one];
+}
+
 /** How a transformation changes volume, and whether it flips orientation. */
 export function transformEffect(m: Mat3): { det: Rat; volumeScale: number; flipsOrientation: boolean; singular: boolean } {
   const det = mat3Det(m);

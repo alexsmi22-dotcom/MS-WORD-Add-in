@@ -500,7 +500,42 @@ export const SOLVE_SHAPES: PaletteGroup[] = [
       { label: "Triangle (sides)", snippet: "triangle 3 4 5" },
       { label: "Triangle (vertices)", snippet: "triangle (0,0) (4,0) (0,3)", title: "From its corner points — also gives the centres" },
       { label: "Polygon", snippet: "polygon n=6 a=2", title: "Regular polygon, n sides of length a" },
-      { label: "Conic", snippet: "x^2/9 + y^2/4 = 1", title: "Classified with axes, foci, eccentricity" },
+      { label: "Conic", snippet: "x^2/9 + y^2/4 = 1", title: "Classified with axes, foci, eccentricity, directrices — and drawn" },
+    ],
+  },
+  {
+    name: "Circle toolkit",
+    items: [
+      { label: "Sector", snippet: "sector r=5 angle=60", title: "Area, arc length, chord, perimeter — exact where π carries; drawn" },
+      { label: "Segment", snippet: "segment r=4 angle=90", title: "Area between chord and arc, sagitta height" },
+      { label: "Arc", snippet: "arc r=6 angle=120", title: "Arc length (exact ·π) and chord" },
+      { label: "Tangent", snippet: "tangent r=3 d=5", title: "Tangent length from an external point d from the centre" },
+      { label: "Inscribed angle", snippet: "inscribed angle=80", title: "Half the central angle (Thales at 180°)" },
+    ],
+  },
+  {
+    name: "Solids",
+    items: [
+      { label: "Hemisphere", snippet: "hemisphere r=3" },
+      { label: "Pyramid", snippet: "pyramid a=6 h=4", title: "Right square pyramid: volume, slant, surface" },
+      { label: "Cone frustum", snippet: "frustum r1=2 r2=5 h=4", title: "Volume, slant, lateral and total surface" },
+      { label: "Spherical cap", snippet: "cap r=5 h=2", title: "Sphere radius r, cap height h" },
+      { label: "Torus", snippet: "torus R=5 r=2", title: "Ring torus — exact ·π² volume and surface" },
+      { label: "Ellipsoid", snippet: "ellipsoid a=1 b=2 c=3", title: "Exact volume; surface honestly approximate" },
+      { label: "Tetrahedron", snippet: "tetrahedron a=2", title: "Regular: volume, surface, height as exact surds" },
+      { label: "Prism", snippet: "prism b=4 h=3 l=10", title: "Triangular cross-section b×h, length l" },
+    ],
+  },
+  {
+    name: "Transforms & point tests",
+    items: [
+      { label: "Rotate", snippet: "rotate 90 (2,3)", title: "Quarter turns are EXACT; chain with then" },
+      { label: "Rotate about", snippet: "rotate 45 about (1,1) (2,3)", title: "Rotation about a point, via homogeneous matrices" },
+      { label: "Reflect", snippet: "reflect y=x (2,3)", title: "Mirror lines: x, y, y=x, y=-x" },
+      { label: "Translate", snippet: "translate 3 -2 (2,3)", title: "Translation as a matrix — homogeneous coordinates" },
+      { label: "Shear", snippet: "shear x 1/2 (2,3)", title: "Determinant 1: area preserved, angles not" },
+      { label: "Chained", snippet: "rotate 90 then translate 1 0 then reflect y (2,3)", title: "Composed left to right; order matters and is stated" },
+      { label: "Point in polygon", snippet: "inside (1,1) polygon (0,0) (4,0) (4,4) (0,4)", title: "inside / outside / boundary, by exact winding number" },
     ],
   },
 ];

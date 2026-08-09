@@ -20,9 +20,10 @@ import {
   linePlaneIntersect, tetrahedronVolume, parallelepipedVolume, triangleArea3,
   sphereFrom4, fmtVec, vectorReport,
   Mat3, mat3Apply, mat3Mul, scaleMatrix, reflectionMatrix, rotationMatrix, transformEffect,
+  hom2Point, hom2Translate, hom2Scale, hom2Rotate, hom2Reflect, hom2Shear,
 } from "./geometry3d";
 import {
-  pt, Pt, GeoResult, GeoValue, distance, midpoint, lineThrough, lineIntersect,
+  pt, Pt, GeoResult, GeoValue, GeoFigure, distance, midpoint, lineThrough, lineIntersect,
   pointLineDistance, polygonArea, polygonCentroid, isConvex, convexHull,
   triangleCentres, circleFrom3Points, solveTriangle, classifyConic, shapeMetrics,
   fmtRat, fmtSqrtRat, sqrtRatToNumber, distanceSquared, collinear, pointInPolygon,
@@ -254,6 +255,20 @@ export function solveGeometry(input: string): GeoResult | null {
   // 2. Keyword-led shapes.
   const kw = (lower.match(/^[a-z-]+/) || [""])[0];
 
+  // 2D transformations — a transform keyword with coordinate PAIRS. Triples
+  // were already claimed by the 3D branch above, so there is no ambiguity.
+  if (/^(rotate|rotation|scale|dilate|reflect|mirror|shear|translate)\b/.test(lower)) {
+    const t = transform2dRequest(raw, lower, pts);
+    if (t) return t;
+  }
+
+  // Point-in-polygon. Two natural word orders, each with a fixed reading:
+  // "inside (1,1) polygon (0,0) (4,0) (4,4)" — the probe is the FIRST pair;
+  // "polygon (0,0) (4,0) (4,4) contains (1,1)" — the probe is the LAST.
+  if ((kw === "inside" || /\bcontains?\b/.test(lower)) && pts.length >= 4) {
+    return insideRequest(kw === "inside", pts);
+  }
+
   if (kw === "triangle") return triangleRequest(raw, named, bare, pts);
 
   if (kw === "distance") {
@@ -332,6 +347,12 @@ export function solveGeometry(input: string): GeoResult | null {
       ],
       steps: ["Centre = the circumcentre (intersection of the perpendicular bisectors), computed exactly."],
       caveats: [],
+      figure: {
+        kind: "conic", conic: "circle", rotationDeg: 0,
+        centre: { x: evalFrac(fmtRat(c.centre.x)), y: evalFrac(fmtRat(c.centre.y)) },
+        a: sqrtRatToNumber(r2),
+        marks: pts.slice(0, 3).map((p) => ({ x: evalFrac(fmtRat(p.x)), y: evalFrac(fmtRat(p.y)) })),
+      },
     };
   }
 
@@ -339,18 +360,71 @@ export function solveGeometry(input: string): GeoResult | null {
   const SHAPES: Record<string, string[]> = {
     square: ["a"], rectangle: ["a", "b"], sphere: ["r"], box: ["a", "b", "c"],
     cylinder: ["r", "h"], cone: ["r", "h"],
+    // The circle toolkit — central angles in degrees.
+    sector: ["r", "angle"], segment: ["r", "angle"], arc: ["r", "angle"],
+    tangent: ["r", "d"], inscribed: ["angle"],
+    // Solids beyond the original four.
+    hemisphere: ["r"], pyramid: ["a", "h"], prism: ["b", "h", "l"],
+    frustum: ["r1", "r2", "h"], cap: ["r", "h"], torus: ["R", "r"],
+    ellipsoid: ["a", "b", "c"], tetrahedron: ["a"],
   };
-  if (kw in SHAPES) {
-    const keys = SHAPES[kw];
+  const shapeKw = kw === "spherical-cap" ? "cap" : kw;
+  if (shapeKw in SHAPES) {
+    const keys = SHAPES[shapeKw];
+    // Friendly aliases, resolved before the positional fill: theta for angle,
+    // and r/R for a frustum's r1/r2.
+    if (named.theta !== undefined && named.angle === undefined) named.angle = named.theta;
+    if (shapeKw === "frustum" && named.r1 === undefined && named.r !== undefined && named.R !== undefined) {
+      named.r1 = named.r; named.r2 = named.R;
+    }
     const dims: Record<string, number> = {};
     keys.forEach((k, i) => { dims[k] = named[k] ?? bare[i]; });
     // Exactness must survive the positional form too: `box 1/2 1/3 1/4` has no
     // name=value pairs at all, so the fractions live only in the bare list.
     const exact: Record<string, Rat> = parseNamedExact(raw);
+    if (exact.theta !== undefined && exact.angle === undefined) exact.angle = exact.theta;
+    if (shapeKw === "frustum" && exact.r1 === undefined && exact.r !== undefined && exact.R !== undefined) {
+      exact.r1 = exact.r; exact.r2 = exact.R;
+    }
     const bareEx = bareRats(raw);
     keys.forEach((k, i) => { if (exact[k] === undefined && bareEx[i] !== undefined) exact[k] = bareEx[i]; });
-    const res = shapeMetrics({ shape: kw, dims, exact });
-    if (res) return res;
+    // A zero or negative dimension that was TYPED deserves a named refusal —
+    // shapeMetrics returning null here would make the pane claim it couldn't
+    // read input it read perfectly well.
+    const nonPositive = keys.filter((k) => typeof dims[k] === "number" && !(dims[k] > 0));
+    if (nonPositive.length && keys.every((k) => typeof dims[k] === "number")) {
+      return {
+        title: `${shapeKw.charAt(0).toUpperCase()}${shapeKw.slice(1)}`,
+        values: [], steps: [], caveats: [],
+        degenerate:
+          `${nonPositive.map((k) => `${k} = ${dims[k]}`).join(", ")} — every dimension here ` +
+          "must be strictly positive. A zero or negative length or angle names no " +
+          `${shapeKw}, and inventing one would be worse than refusing.`,
+      };
+    }
+    const res = shapeMetrics({ shape: shapeKw, dims, exact });
+    if (res) {
+      // Units are carried in COMPOSITE figures; this grammar reads bare
+      // numbers. Someone typing "sector r=5in" would otherwise get a unitless
+      // answer that LOOKS unit-checked.
+      if (/\d\s*(?:in|ft|cm|mm|m|yd)\b/.test(raw)) {
+        res.caveats.push(
+          "A unit was typed but this form treats dimensions as unitless numbers — units carry " +
+          "through in composite figures (rectangle 10in x 5in minus …), not here."
+        );
+      }
+      // The circle toolkit results have faithful pictures; the solids do not
+      // pretend to (a labelled 3D sketch would imply proportions it may not
+      // honour at every aspect ratio).
+      if (!res.degenerate) {
+        if (shapeKw === "sector" || shapeKw === "segment" || shapeKw === "arc") {
+          res.figure = { kind: "circle-feature", feature: shapeKw, r: dims.r, angleDeg: dims.angle };
+        } else if (shapeKw === "tangent") {
+          res.figure = { kind: "circle-feature", feature: "tangent", r: dims.r, d: dims.d };
+        }
+      }
+      return res;
+    }
     return null;
   }
 
@@ -421,10 +495,27 @@ function triangleRequest(
     values.push(
       V(`a${tag}`, t.a), V(`b${tag}`, t.b), V(`c${tag}`, t.c),
       V(`A${tag}`, t.A), V(`B${tag}`, t.B), V(`C${tag}`, t.C),
-      { label: `area${tag}`, value: t.area, exact: t.areaExact }
+      { label: `area${tag}`, value: t.area, exact: t.areaExact },
+      { label: `inradius${tag}`, value: t.inradius, exact: t.inradiusExact },
+      { label: `circumradius${tag}`, value: t.circumradius, exact: t.circumradiusExact }
     );
   });
-  return { title: `Triangle (${sol.kind})`, values, steps, caveats: sol.caveats };
+  steps.push("Inradius r = area/s (s the semi-perimeter); circumradius R = abc/(4·area).");
+  // Only triangles whose every part is finite AND whose area is genuinely
+  // positive are drawable — a float-degenerate flat "triangle" would render as
+  // a line (or, before the clamp above, as an all-NaN path).
+  const drawable = sol.triangles.filter(
+    (t) => [t.a, t.b, t.c, t.A, t.B, t.C].every(Number.isFinite) && t.area > 0
+  );
+  return {
+    title: `Triangle (${sol.kind})`, values, steps, caveats: sol.caveats,
+    figure: drawable.length
+      ? {
+          kind: "triangle",
+          triangles: drawable.map((t) => ({ a: t.a, b: t.b, c: t.c, A: t.A, B: t.B, C: t.C })),
+        }
+      : undefined,
+  };
 }
 
 function polygonRequest(kw: string, pts: Pt[]): GeoResult {
@@ -472,7 +563,296 @@ function polygonRequest(kw: string, pts: Pt[]): GeoResult {
       if (circ) values.push(V("circumradius", sqrtRatToNumber(circ.r2), fmtSqrtRat(circ.r2) ?? undefined));
     }
   }
-  return { title: `${kw === "triangle" ? "Triangle" : "Polygon"} from ${pts.length} points`, values, steps, caveats };
+  const toNum = (p: Pt): { x: number; y: number } => ({ x: evalFrac(fmtRat(p.x)), y: evalFrac(fmtRat(p.y)) });
+  const centNum = cent ? toNum(cent) : undefined;
+  return {
+    title: `${kw === "triangle" ? "Triangle" : "Polygon"} from ${pts.length} points`, values, steps, caveats,
+    figure: {
+      kind: "points",
+      pts: pts.map(toNum),
+      hull: hull.length >= 3 && hull.length < pts.length ? hull.map(toNum) : undefined,
+      centroid: centNum,
+      closed: true,
+    },
+  };
+}
+
+/**
+ * Point-in-polygon, by exact winding number. `probeFirst` fixes which pair is
+ * the probe: first for "inside …", last for "… contains …". The verdict has
+ * three honest values — "boundary" is reported as itself, not rounded to
+ * either side, because a point ON the fence is the case people argue about.
+ */
+function insideRequest(probeFirst: boolean, pts: Pt[]): GeoResult {
+  const probe = probeFirst ? pts[0] : pts[pts.length - 1];
+  const poly = probeFirst ? pts.slice(1) : pts.slice(0, -1);
+  const verdict = pointInPolygon(probe, poly);
+  const toNum = (p: Pt): { x: number; y: number } => ({ x: evalFrac(fmtRat(p.x)), y: evalFrac(fmtRat(p.y)) });
+  const caveats: string[] = [];
+  if (ratIsZero(polygonArea(poly))) {
+    caveats.push("The polygon's vertices are collinear (zero area); inside/outside is still answered by winding, but the region is degenerate.");
+  }
+  return {
+    title: `Point ${fmtPt(probe)} vs polygon of ${poly.length} vertices`,
+    values: [],
+    steps: [
+      `The point is ${verdict === "boundary" ? "ON THE BOUNDARY of" : verdict.toUpperCase()} the polygon.`,
+      "Computed by exact winding number, so a point exactly on an edge is reported as boundary rather than flickering between sides.",
+    ],
+    caveats,
+    figure: {
+      kind: "points", pts: poly.map(toNum), closed: true,
+      probe: { ...toNum(probe), verdict },
+    },
+  };
+}
+
+/**
+ * 2D transformations — the design brief's Tier 4 second half, now with
+ * TRANSLATION, which only homogeneous coordinates can express as a matrix.
+ *
+ * Accepts, chained with `then` or `;`, applied to the LAST coordinate pair:
+ *   rotate 90 (2,3)                    rotate 45 about (1,1) (2,3)
+ *   reflect x (2,3)                    reflect y=x (2,3)
+ *   scale 2 (2,3)                      scale 2 3 about (1,1) (2,3)
+ *   shear x 1/2 (2,3)                  translate 3 -2 (2,3)
+ *   rotate 90 then translate 1 0 then reflect y (2,3)
+ *
+ * The same refusal philosophy as the 3D toolkit: an axis, factor or angle it
+ * cannot read is refused BY NAME, never silently substituted. Quarter-turn
+ * rotations are EXACT (their entries are 0 and ±1); other angles are numeric
+ * and say so. The determinant here is the AREA scale factor.
+ */
+function transform2dRequest(raw: string, lower: string, P: Pt[]): GeoResult | null {
+  if (!P.length) {
+    return {
+      title: "2D transformation", values: [], steps: [], caveats: [],
+      degenerate:
+        "Give the point to transform as a coordinate pair, e.g. rotate 90 (2,3) — " +
+        "or as a triple (x,y,z) for the 3D toolkit.",
+    };
+  }
+  const numPat = String.raw`-?\d+(?:\.\d+)?(?:\/\d+)?`;
+  const pairRe = new RegExp(String.raw`\(\s*(${numPat})\s*,\s*(${numPat})\s*\)`, "g");
+  const aboutRe = new RegExp(String.raw`\b(?:about|around)\s*\(\s*(${numPat})\s*,\s*(${numPat})\s*\)`);
+  const steps: string[] = [];
+  const caveats: string[] = [];
+  const applied: string[] = [];
+
+  const parts = lower.split(/\bthen\b|;/).map((s) => s.trim()).filter(Boolean);
+  if (!parts.length) return null;
+
+  // THE POINT TRANSFORMED IS THE LAST PAIR *THAT IS NOT AN about-CENTRE*.
+  // Taking the raw last pair let "rotate 90 (2,3) about (1,1)" quietly rotate
+  // the centre (1,1) about itself and report a fixed point — the point the
+  // user typed was dropped without a word. Each about/around claims exactly
+  // ONE occurrence of its pair, so "rotate 90 about (2,3) (2,3)" still means
+  // "rotate the point (2,3) about itself".
+  const candidates = P.slice();
+  for (const part of parts) {
+    const am = aboutRe.exec(part);
+    if (!am) continue;
+    const cx = fmtRat(ratOf(am[1])), cy = fmtRat(ratOf(am[2]));
+    const i = candidates.findIndex((q) => fmtRat(q.x) === cx && fmtRat(q.y) === cy);
+    if (i >= 0) candidates.splice(i, 1);
+  }
+  if (!candidates.length) {
+    return {
+      title: "2D transformation", values: [], steps: [], caveats: [],
+      degenerate:
+        "Every coordinate pair given is a rotation or scale centre (after about/around). " +
+        "Give the point to transform as its own pair, e.g. rotate 90 about (1,1) (2,3).",
+    };
+  }
+  const point = candidates[candidates.length - 1];
+
+  let m: Mat3 | null = null;
+  let anyNumeric = false;
+  let refused: string | null = null;
+
+  for (const part of parts) {
+    const verbs = (part.match(/\b(rotate|rotation|scale|dilate|reflect|mirror|shear|translate)\b/g) || []).length;
+    if (verbs > 1) {
+      refused =
+        `"${part.trim()}" names more than one transformation at once. Separate them with ` +
+        `"then" (or a semicolon).`;
+      break;
+    }
+    // A pair written after "about"/"around" is this operation's centre.
+    const aboutM = aboutRe.exec(part);
+    const centre: Pt | null = aboutM ? pt(ratOf(aboutM[1]), ratOf(aboutM[2])) : null;
+    // Numbers OUTSIDE coordinate pairs are the operation's own arguments.
+    // The argument pattern accepts scientific notation — under the plain
+    // pattern "rotate 1e3" tokenised as 1 and 3 and rotated by 1° silently.
+    const argText = part.replace(pairRe, " ");
+    const argNumPat = String.raw`-?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?(?:\/\d+(?:\.\d+)?)?`;
+    const toks = argText.match(new RegExp(argNumPat, "g")) || [];
+    const rats = toks.map(ratOf);
+    const nums = toks.map((t) => (t.includes("/") ? numOf(t) : Number(t)));
+
+    /** Conjugates a linear step with translations when a centre is given. */
+    const about = (step: Mat3): Mat3 =>
+      centre
+        ? mat3Mul(hom2Translate(centre.x, centre.y), mat3Mul(step, hom2Translate(ratNeg(centre.x), ratNeg(centre.y))))
+        : step;
+
+    let step: Mat3 | null = null;
+    if (/\brotate|rotation\b/.test(part)) {
+      if (!nums.length || !Number.isFinite(nums[0])) {
+        refused = `"${part.trim()}" does not give a rotation angle I can read.`;
+        break;
+      }
+      if (nums.length > 1) {
+        refused =
+          `"${part.trim()}" gives ${nums.length} numbers, but a rotation takes ONE angle in ` +
+          "degrees. Dropping the others would silently rotate by something you did not ask for.";
+        break;
+      }
+      const rot = hom2Rotate(nums[0]);
+      if (!rot.exactQuarter) anyNumeric = true;
+      step = about(rot.m);
+      applied.push(`rotate ${nums[0]}°${centre ? ` about (${fmtRat(centre.x)}, ${fmtRat(centre.y)})` : ""}`);
+    } else if (/\bscale|dilate\b/.test(part)) {
+      if (!nums.length || nums.some((v) => !Number.isFinite(v))) {
+        refused = `"${part.trim()}" does not give a scale factor I can read.`;
+        break;
+      }
+      if (nums.length > 2) {
+        refused =
+          `"${part.trim()}" gives ${nums.length} scale factors. Give ONE for a uniform scale or ` +
+          "TWO for x and y; anything else would mean discarding a number you typed.";
+        break;
+      }
+      const [sx, sy] = nums.length === 2 ? rats : [rats[0], rats[0]];
+      step = about(hom2Scale(sx, sy));
+      applied.push(
+        (nums.length === 2 ? `scale (${nums[0]}, ${nums[1]})` : `scale ×${nums[0]} uniformly`) +
+        (centre ? ` about (${fmtRat(centre.x)}, ${fmtRat(centre.y)})` : "")
+      );
+    } else if (/\breflect|mirror\b/.test(part)) {
+      // Order matters in the match: y=-x before y=x before the bare axes.
+      const axis = /y\s*=\s*-\s*x/.test(part) ? "y=-x"
+        : /y\s*=\s*x/.test(part) ? "y=x"
+        : /(?:^|[^a-z=])x(?:[-\s]?axis)?(?![a-z=])/.test(part) ? "x"
+        : /(?:^|[^a-z=])y(?:[-\s]?axis)?(?![a-z=])/.test(part) ? "y"
+        : null;
+      if (!axis) {
+        refused =
+          `"${part.trim()}" does not name a mirror line. Write x, y, y=x or y=-x — ` +
+          "picking one for you would silently give a different transformation.";
+        break;
+      }
+      step = hom2Reflect(axis);
+      applied.push(`reflect in ${axis === "x" ? "the x-axis" : axis === "y" ? "the y-axis" : `the line ${axis}`}`);
+    } else if (/\bshear\b/.test(part)) {
+      const dirM = /(?:^|[^a-z])([xy])(?![a-z=])/.exec(part.replace(/\bshear\b/, " "));
+      if (!dirM) {
+        refused = `"${part.trim()}" does not say which direction to shear. Write shear x k or shear y k.`;
+        break;
+      }
+      if (!nums.length || !Number.isFinite(nums[0])) {
+        refused = `"${part.trim()}" does not give a shear factor I can read.`;
+        break;
+      }
+      if (nums.length > 1) {
+        refused =
+          `"${part.trim()}" gives ${nums.length} numbers, but a shear takes ONE factor ` +
+          "(shear x k). Dropping the others would silently shear by something you did not ask for.";
+        break;
+      }
+      step = hom2Shear(dirM[1] as "x" | "y", rats[0]);
+      applied.push(`shear ${dirM[1]} by ${nums[0]}`);
+    } else if (/\btranslate\b/.test(part)) {
+      if (nums.length !== 2 || nums.some((v) => !Number.isFinite(v))) {
+        refused =
+          `"${part.trim()}" needs exactly TWO offsets, dx and dy — e.g. translate 3 -2. ` +
+          `${nums.length} number${nums.length === 1 ? " was" : "s were"} given.`;
+        break;
+      }
+      step = hom2Translate(rats[0], rats[1]);
+      applied.push(`translate by (${nums[0]}, ${nums[1]})`);
+    }
+    if (!step) continue;
+    // Left to right application: the newest operation multiplies on the LEFT.
+    m = m === null ? step : mat3Mul(step, m);
+  }
+  if (refused) {
+    return { title: "2D transformation", values: [], steps: [], caveats: [], degenerate: refused };
+  }
+  if (!m || !applied.length) return null;
+  if (candidates.length > 1) {
+    caveats.push(
+      `${candidates.length} coordinate pairs are not centres; the LAST, ${fmtPt(point)}, is the point ` +
+      "transformed. Ask for one point at a time.",
+    );
+  }
+
+  const out = mat3Apply(m, hom2Point(point.x, point.y));
+  const eff = transformEffect(m);
+
+  const num = (v: Rat): number => ratToNumber(v);
+  const show = (v: Rat): string | undefined => (anyNumeric ? undefined : fmtRat(v));
+  const showPt = (x: Rat, y: Rat): string =>
+    anyNumeric
+      ? `(${[x, y].map((c) => Number(num(c).toPrecision(6))).join(", ")})`
+      : `(${fmtRat(x)}, ${fmtRat(y)})`;
+  const detText = anyNumeric ? String(Number(num(eff.det).toPrecision(6))) : fmtRat(eff.det);
+
+  steps.push(`Applied to ${showPt(point.x, point.y)}, in order: ${applied.join(", then ")}.`);
+  steps.push(`Result: ${showPt(out.x, out.y)}.`);
+  steps.push(
+    `Determinant ${detText} — the factor by which the transformation multiplies AREA ` +
+    "(translation contributes nothing to it: the homogeneous matrix keeps its bottom row (0, 0, 1)).",
+  );
+  if (eff.singular) {
+    steps.push(
+      "The determinant is ZERO, so this transformation COLLAPSES the plane onto a line or point. " +
+      "It cannot be undone: different points before it now share the same image.",
+    );
+  } else if (eff.flipsOrientation) {
+    steps.push(
+      "The determinant is NEGATIVE, so the transformation FLIPS ORIENTATION — a counter-clockwise " +
+      "triangle comes out clockwise. A reflection does this while preserving every length and angle.",
+    );
+  } else {
+    steps.push("The determinant is positive, so orientation is preserved.");
+  }
+  if (applied.length > 1) {
+    caveats.push(
+      "ORDER MATTERS. These were applied left to right as written; rotating then translating is not " +
+      "the same as translating then rotating.",
+    );
+  }
+  if (anyNumeric) {
+    caveats.push(
+      "A rotation's entries are cosines and sines, irrational for all but quarter turns, so this " +
+      "result is NUMERIC rather than exact. Quarter-turn rotations (90°, 180°, 270°) ARE exact.",
+    );
+  }
+
+  const detNumeric = num(eff.det);
+  const absDetExact = anyNumeric
+    ? undefined
+    : fmtRat(ratSign(eff.det) < 0 ? ratNeg(eff.det) : eff.det);
+  return {
+    title: `2D transform of ${showPt(point.x, point.y)}`,
+    values: [
+      V("x", num(out.x), show(out.x)),
+      V("y", num(out.y), show(out.y)),
+      V("determinant", detNumeric, show(eff.det)),
+      V("area scale factor", Math.abs(detNumeric), absDetExact),
+    ],
+    steps,
+    caveats,
+    figure: {
+      kind: "points",
+      pts: [
+        { x: num(point.x), y: num(point.y) },
+        { x: num(out.x), y: num(out.y) },
+      ],
+      closed: false,
+    },
+  };
 }
 
 function tryConic(raw: string): GeoResult | null {
@@ -496,10 +876,18 @@ function tryConic(raw: string): GeoResult | null {
   if (r.centre) {
     values.push(V("centre x", r.centre.x), V("centre y", r.centre.y));
   }
+  if (r.vertex) values.push(V("vertex", NaN, `(${r.vertex.x.toFixed(6)}, ${r.vertex.y.toFixed(6)})`));
   if (typeof r.a === "number") values.push(V(r.kind === "parabola" ? "focal parameter" : "semi-axis a", r.a));
   if (typeof r.b === "number") values.push(V("semi-axis b", r.b));
   if (typeof r.eccentricity === "number") values.push(V("eccentricity", r.eccentricity));
-  if (r.foci) r.foci.forEach((f, i) => values.push(V(`focus ${i + 1}`, NaN, `(${f.x.toFixed(6)}, ${f.y.toFixed(6)})`)));
+  if (r.foci) {
+    r.foci.forEach((f, i) => values.push(
+      V(r.foci!.length === 1 ? "focus" : `focus ${i + 1}`, NaN, `(${f.x.toFixed(6)}, ${f.y.toFixed(6)})`)
+    ));
+  }
+  if (r.vertices) {
+    r.vertices.forEach((v, i) => values.push(V(`vertex ${i + 1}`, NaN, `(${v.x.toFixed(6)}, ${v.y.toFixed(6)})`)));
+  }
   if (Math.abs(r.rotationDeg) > 1e-9) values.push(V("rotation (deg)", r.rotationDeg));
 
   const steps = [
@@ -508,11 +896,33 @@ function tryConic(raw: string): GeoResult | null {
     `Canonical form: ${r.canonical}.`,
   ];
   if (r.asymptotes) steps.push(`Asymptotes: ${r.asymptotes.join("; ")}.`);
+  if (r.directrices) steps.push(`Directrix: ${r.directrices.join("; ")}.`);
+
+  // A non-degenerate conic has a faithful curve to draw.
+  let figure: GeoFigure | undefined;
+  if (!r.degenerate && (r.kind === "circle" || r.kind === "ellipse" || r.kind === "hyperbola") &&
+      r.centre && typeof r.a === "number" && typeof r.b === "number") {
+    figure = {
+      kind: "conic", conic: r.kind, centre: r.centre, a: r.a, b: r.b,
+      alongX: r.majorAlongX ?? true,
+      rotationDeg: r.rotationDeg, foci: r.foci,
+    };
+  } else if (!r.degenerate && r.kind === "parabola" && r.vertex && r.foci?.length === 1 && typeof r.a === "number" && r.a > 0) {
+    const dx = r.foci[0].x - r.vertex.x, dy = r.foci[0].y - r.vertex.y;
+    const len = Math.hypot(dx, dy);
+    if (len > 0) {
+      figure = {
+        kind: "conic", conic: "parabola", vertex: r.vertex, a: r.a,
+        rotationDeg: r.rotationDeg, foci: r.foci, axis: { x: dx / len, y: dy / len },
+      };
+    }
+  }
 
   return {
     title: `Conic: ${r.kind}${r.degenerate ? " (degenerate)" : ""}`,
     values, steps, caveats: r.caveats,
     degenerate: r.degenerate ? `This is a degenerate conic: ${r.canonical}.` : undefined,
+    figure,
   };
 }
 

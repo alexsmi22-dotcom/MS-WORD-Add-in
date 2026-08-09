@@ -34,7 +34,7 @@ import { solveInequality } from "../lib/inequalities";
 import { splitEquations, solveSystem } from "../lib/systems";
 import { solveGeometry } from "../lib/geometryParse";
 import { solveComposite } from "../lib/compositeGeometry";
-import { compositeShapeSvg } from "../lib/geometryChart";
+import { compositeShapeSvg, geometryFigureSvg } from "../lib/geometryChart";
 
 type Kind = "equation" | "derivative" | "integral" | "ode" | "geometry";
 
@@ -167,9 +167,19 @@ Office.onReady(() => {
         }
         const g = solveGeometry(folded);
         if (g) {
+          // Plain geometry draws live in the canvas too — same builder,
+          // same figure the pane will preview and Word will receive.
+          const gsvg = g.figure ? geometryFigureSvg(g.figure) : "";
+          if (gsvg) {
+            figure.innerHTML = gsvg;
+            figure.style.display = "block";
+          }
           line(resultEl, g.title, "result-title");
           for (const v of g.values) {
-            line(resultEl, `${v.label} = ${v.exact ?? v.value}${v.unit ? ` ${v.unit}` : ""}`, "result-line");
+            // Mirror the pane: an undefined quantity shows as "—", never as a
+            // raw "NaN" or "Infinity" presented like a number.
+            const shown = v.exact ?? (Number.isFinite(v.value) ? String(v.value) : "—");
+            line(resultEl, `${v.label} = ${shown}${v.unit ? ` ${v.unit}` : ""}`, "result-line");
           }
           if (g.degenerate) line(resultEl, g.degenerate, "caveat");
         } else {

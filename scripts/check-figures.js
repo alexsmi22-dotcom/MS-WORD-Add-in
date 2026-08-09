@@ -51,7 +51,11 @@ const CORPUS = path.join(__dirname, "figure-layout-run.ts");
 // read it. The gate stays green when the count RISES, so nothing complains;
 // the four new figures could then have been deleted silently. Re-derive this
 // number whenever figures are added, not only when they are removed.
-const CORPUS_FLOOR = 139;
+// 156 as of 2026-08-09 (v2.106.0): the geometry suite added 14 plain-geometry
+// figures (triangles incl. the SSA pair and a sliver, polygon/point-in-polygon,
+// three conics, circle-through-3-points, sector/reflex/segment/arc/tangent) —
+// and the floor was raised IN THE SAME COMMIT, per the two paragraphs above.
+const CORPUS_FLOOR = 156;
 
 // --- The allowance ratchet ----------------------------------------------------
 //

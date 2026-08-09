@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.105.0)
+# JurisLab — Manual Test Script (v2.106.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -9,6 +9,35 @@ scanning, and layout. Budget ~30 minutes for the full pass.
 Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
+
+## 0bj. New in v2.106.0 — the comprehensive geometry suite
+
+All in Solve → Geometry kind. The point of this pass is the FIGURES: plain
+geometry now draws, and what the pane previews must be what Word receives.
+
+- [ ] `triangle 3 4 5` → sides, angles, area, **inradius = 1, circumradius = 5/2**,
+  and a triangle DRAWN to scale (side labels outside, angles in the caption).
+  **Insert** → derivation AND figure land in Word; alt text describes a triangle.
+- [ ] `triangle a=6 b=8 A=30` → TWO solutions, and the figure shows BOTH
+  triangles side by side, labelled solution 1 / solution 2.
+- [ ] `sector r=5 angle=60` → area 25/6·π exact, arc, chord, perimeter; a filled
+  wedge drawn on a dashed circle. `tangent r=3 d=5` → length exactly 4, both
+  tangent lines drawn. `tangent r=5 d=3` → refused: point INSIDE the circle.
+- [ ] `x^2/9 + y^2/4 = 1` → ellipse with foci, **vertices, directrix distance**,
+  and the curve drawn with foci marked ×. `y = x^2/8` → parabola with
+  **vertex (0,0), focus (0,2)** and the curve drawn.
+- [ ] Solids: `frustum r1=2 r2=5 h=4` → slant exactly 5, V = 52π;
+  `torus R=3 r=1` → 6π² exact; `torus R=1 r=3` → refused by name (spindle);
+  `cap r=5 h=2` → 52/3·π. No figures for solids — deliberate, stated here.
+- [ ] `rotate 90 (1,0)` → **exactly (0, 1)** (not 6.1e-17); `rotate 45 (1,0)`
+  → numeric AND says so. `rotate 90 then translate 1 0 (1,0)` → (1,1) with the
+  order-matters caveat. `reflect y=x (2,3)` → (3,2), determinant −1,
+  orientation-flip named. Before → after figure drawn.
+- [ ] `inside (1,1) polygon (0,0) (4,0) (4,4) (0,4)` → INSIDE, probe marked on
+  the drawn polygon; `inside (2,0) …` → ON THE BOUNDARY (not rounded).
+- [ ] The pop-out canvas (Open canvas) draws the same figures live.
+- [ ] The palette groups **Circle toolkit / Solids / Transforms & point tests**
+  insert working snippets.
 
 ## 0bi. New in v2.105.0 — the integration gaps closed
 

@@ -6,6 +6,74 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.106.0] — 2026-08-09 — The comprehensive geometry suite
+
+The unbuilt half of docs/GEOMETRY-TOPOLOGY-DESIGN.md, shipped at once — and
+plain geometry finally DRAWS.
+
+### Added
+- **Circle toolkit** (the Tier-1 half named in the brief and never built):
+  `sector r=5 angle=60` · `segment r=4 angle=90` · `arc r=6 angle=120` ·
+  `tangent r=3 d=5` (tangent length √(d²−r²), the two-tangent angle; a
+  point INSIDE the circle refused by name) · `inscribed angle=80` (half
+  the central angle, Thales named at 180°). Area/arc exact with π;
+  angles in degrees; >360° refused, =360° answered as the whole circle.
+- **Eight new solids**: hemisphere · square pyramid (exact surd slant) ·
+  triangular prism (surface honestly refused — b and h don't determine
+  the sides) · cone frustum (r1/r2, r/R alias; r1=r2 named a cylinder) ·
+  spherical cap (h>2r refused, h=2r named the whole sphere) · torus
+  (exact `·π²` forms; spindle R<r refused rather than double-counted) ·
+  ellipsoid (exact volume, Thomsen surface labelled approximate) ·
+  regular tetrahedron (volume/surface/height as exact surds).
+- **Triangle radii**: every solved triangle now reports inradius and
+  circumradius, exact when Heron's radicand is rational (3-4-5: r = 1,
+  R = 5/2), in both SSA solutions too.
+- **Conics completed**: vertices surfaced (they were computed and
+  dropped), directrices reported (a/e for ellipse/hyperbola), and the
+  parabola finally has its anatomy — vertex by completing the square in
+  the rotated frame, focus, directrix — even with an xy term.
+- **2D transformations, homogeneous** (Tier 4's missing half): rotate
+  (EXACT at quarter turns — rotate 90 (1,0) answers (0,1), not
+  (6.1e-17, 1)), reflect in x / y / y=x / y=-x, scale, shear, and
+  TRANSLATE as a matrix — chained with `then`, `about (cx,cy)`
+  conjugation, determinant reported as the area factor, orientation
+  flips and collapses named, refusals by name never substitution.
+- **Point-in-polygon routed**: `inside (1,1) polygon (0,0) (4,0) (4,4)
+  (0,4)` (and `… contains (x,y)`), by the exact winding number that has
+  sat exported-but-unreachable since Tier 2 — boundary reported as
+  boundary, not rounded to a side.
+- **Plain geometry draws** — the headline. Composite figures were the
+  only geometry that drew; triangles (BOTH SSA solutions, side by
+  side), point sets/polygons (centroid, hull, probe verdict), all four
+  conic kinds, circle-through-3-points, and the circle toolkit now
+  attach figure data and render to scale in the pane, the pop-out
+  canvas and the inserted document, each with alt text written by the
+  branch that drew it. The solve-draw ratchet is RAISED accordingly,
+  and 14 new figures joined the layout corpus (floor 139 → 156).
+
+### Fixed
+- The figure-layout gate caught 9 label strikethroughs in the first cut
+  of the triangle/point figures (a sliver triangle has no interior room
+  for vertex labels): side labels now offset perpendicular to their own
+  edge, angle readouts moved to the caption, point labels push outward.
+
+### Notes
+- 118 new tests (oracle suite, figure suite, adversarial pass) plus an
+  exact-string re-parse sweep: every displayed exact form parses back in
+  the product's own grammar and evaluates to its own decimal.
+- Independent adversarial pass: 4 real defects behind green tests, all
+  fixed and pinned — (1) a major-along-y ellipse/hyperbola DREW along x,
+  putting both foci outside its own curve (values were right, the
+  picture lied); (2) near-degenerate SSA leaked NaN angles, an Infinity
+  circumradius and an all-NaN figure (law-of-cosines clamp + no-figure
+  guard + the canvas now shows "—" for undefined); (3) "rotate 90 (2,3)
+  about (1,1)" silently transformed the CENTRE and reported its own
+  fixed point; (4) "rotate 90 45" silently dropped the 45, and "rotate
+  1e3" tokenised as 1° — both now refuse or read correctly. Plus two
+  honesty upgrades from the same pass: zero/negative dimensions get a
+  named refusal instead of "couldn't read that", and a typed unit
+  (sector r=5in) is flagged as dropped rather than silently ignored.
+
 ## [2.105.0] — 2026-08-08 — The two integration gaps, closed
 
 The two refusals casint.ts has carried since v2.6.0:

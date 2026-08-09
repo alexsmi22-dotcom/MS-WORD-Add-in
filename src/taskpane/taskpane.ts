@@ -318,7 +318,7 @@ import {
   PaletteItem,
 } from "../lib/palettes";
 import { solveComposite, qtyToNumber, qtyExact } from "../lib/compositeGeometry";
-import { compositeShapeSvg } from "../lib/geometryChart";
+import { compositeShapeSvg, geometryFigureSvg, geometryFigureAlt } from "../lib/geometryChart";
 import { solveInputToTypesetLines, solveToTypesetDsl, isProseRequest } from "../lib/solveTypeset";
 import { foldPastedMath } from "../lib/pasteMath";
 import { equationWork, derivativeWork, definiteIntegralWork, WorkLine } from "../lib/showWork";
@@ -26610,17 +26610,26 @@ function updateSolveUi(): void {
       "rectangle 10in x 5in minus triangle b=4in h=3in (also plus to join shapes; units in/ft/cm/mm/m/yd " +
       "carry through, and prose like “a rectangle 10\" x 5\" with a triangle inside” reads the same). " +
       "Shapes: circle r=3 · sphere r=2 · cylinder r=2 h=5 · box 1 2 3 · polygon n=6 a=2. " +
-      "Triangles: triangle 3 4 5 (SSS) · triangle b=4 c=3 A=90 (SAS) · triangle A=30 B=60 c=10 (ASA) · " +
-      "triangle a=6 b=8 A=30 (SSA — may give TWO answers). Points: triangle (0,0) (4,0) (0,3) · " +
-      "polygon (0,0) (4,0) (4,4) (0,4) · distance (0,0) (3,4) · line (0,0) (2,4) · circle (1,0) (0,1) (-1,0). " +
-      "Or just type a conic: x^2/9 + y^2/4 = 1. " +
+      "CIRCLE TOOLKIT (drawn): sector r=5 angle=60 · segment r=4 angle=90 · arc r=6 angle=120 · " +
+      "tangent r=3 d=5 (tangent length from an external point) · inscribed angle=80. " +
+      "SOLIDS: hemisphere r=3 · pyramid a=6 h=4 · frustum r1=2 r2=5 h=4 · cap r=5 h=2 · " +
+      "torus R=5 r=2 · ellipsoid a=1 b=2 c=3 · tetrahedron a=2 · prism b=4 h=3 l=10. " +
+      "Triangles (drawn, with inradius and circumradius): triangle 3 4 5 (SSS) · triangle b=4 c=3 A=90 (SAS) · " +
+      "triangle A=30 B=60 c=10 (ASA) · " +
+      "triangle a=6 b=8 A=30 (SSA — may give TWO answers, and BOTH are drawn). Points: triangle (0,0) (4,0) (0,3) · " +
+      "polygon (0,0) (4,0) (4,4) (0,4) · distance (0,0) (3,4) · line (0,0) (2,4) · circle (1,0) (0,1) (-1,0) · " +
+      "inside (1,1) polygon (0,0) (4,0) (4,4) (0,4) — inside/outside/boundary by exact winding. " +
+      "Or just type a conic: x^2/9 + y^2/4 = 1 — classified, DRAWN, with foci, vertices and directrices. " +
+      "2D TRANSFORMS (homogeneous, so translate is a matrix too): rotate 90 (2,3) — quarter turns EXACT · " +
+      "rotate 45 about (1,1) (2,3) · reflect y=x (2,3) · translate 3 -2 (2,3) · shear x 1/2 (2,3) · " +
+      "chain with then; the determinant (area factor) is reported. " +
       "3D uses coordinate TRIPLES: vector (1,0,0) (0,1,0) · lines (0,0,0) (1,0,0) (0,0,1) (1,1,2) " +
       "(identical / parallel / intersecting / skew, with the distance) · (0,0,0) (1,0,0) (0,1,0) (0,0,1) " +
       "for a tetrahedron volume and its circumscribed sphere. " +
       // The 3-D transform toolkit was wired up in v2.78.0 and then named in no
       // hint, no HTML and no example — the dead-export ratchet was lowered on
       // the strength of it being "surfaced".
-      "TRANSFORMS: rotate 90 z then scale 2 (1,0,0) — also reflect and combinations; " +
+      "3D TRANSFORMS: rotate 90 z then scale 2 (1,0,0) — also reflect and combinations; " +
       "the determinant is reported, and orientation flips and singular collapses are named.",
     topology:
       "Integral homology of a simplicial complex — computed over ℤ, so TORSION is kept " +
@@ -27433,10 +27442,12 @@ function updateSolve(): void {
       if (!g) {
         return void solveResult.appendChild(
           solveLine(
-            "Couldn't read that as geometry. Try a shape (circle r=3), a composite figure " +
+            "Couldn't read that as geometry. Try a shape (circle r=3, sector r=5 angle=60, " +
+            "hemisphere r=3), a composite figure " +
             "(rectangle 10 x 5 minus triangle b=4 h=3), a triangle " +
             "(triangle 3 4 5, or triangle a=6 b=8 A=30), a point list " +
-            "(triangle (0,0) (4,0) (0,3)), or a conic equation (x^2/9 + y^2/4 = 1)."
+            "(triangle (0,0) (4,0) (0,3)), a transform (rotate 90 (2,3)), " +
+            "or a conic equation (x^2/9 + y^2/4 = 1)."
           )
         );
       }
@@ -27459,6 +27470,20 @@ function updateSolve(): void {
       for (const s of g.steps) {
         solveResult.appendChild(solveLine(s));
         say(s);
+      }
+      // Plain geometry draws too: triangles, point sets, conics and the
+      // circle toolkit attach figure DATA, and the branch that shows the
+      // numbers also shows the picture — with its own alt text, because a
+      // caption written by a different branch describes a different figure.
+      if (g.figure) {
+        currentSolveSvg = geometryFigureSvg(g.figure);
+        if (currentSolveSvg) {
+          currentSolveAlt = geometryFigureAlt(g.figure, g.title);
+          const fig = document.createElement("div");
+          fig.className = "stats-figure";
+          fig.innerHTML = currentSolveSvg;
+          solveResult.appendChild(fig);
+        }
       }
       return finish(g.caveats);
     }

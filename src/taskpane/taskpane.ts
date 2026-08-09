@@ -26611,7 +26611,11 @@ function updateSolveUi(): void {
     equation: "Use ^ for powers — type x^2 for x². Functions: sqrt, sin, cos, exp, ln; constants pi, e (π and √ are accepted too). Pasted superscripts like x² also work. A formula with several symbols — F = m*a — offers a choice of which one to solve for. INEQUALITIES work here as well: x^3 - x >= 0 gives the solution set as intervals, with the sign analysis shown. WITH UNITS: put the formula on the first line and the knowns below it — F = m a ⏎ m = 3 kg ⏎ a = 2 m/s^2 — and the answer comes back with its unit DERIVED (6 N); mismatched dimensions are refused by name. " +
       "SKETCH DATA → FUNCTION: Open canvas → “Sketch data → function” — click points on a grid and every " +
       "candidate fit (linear/quadratic/cubic/exponential/logarithmic/power) is offered with its adjusted R²; " +
-      "YOU choose, and the chosen formula flows back here to solve, graph and insert.",
+      "YOU choose, and the chosen formula flows back here to solve, graph and insert. " +
+      "EXACT ANSWERS: x^2 = 2 → ±sqrt(2) · 3x = 1 → 1/3 · 5^x = 3 → ln(3)/ln(5) · 2^x = 8 → 3. " +
+      "TRIG solves give the GENERAL families: sin(x) = 1/2 → x = pi/6 + 2πn and 5pi/6 + 2πn " +
+      "(sec/csc/cot too, and ½-style glyphs read fine). " +
+      "CHAINED inequalities: -3 < 2x+1 <= 7 → (-2, 3] · ABSOLUTE VALUE: abs(x-1) < 3 · abs(x) >= 2.",
     derivative: "Use ^ for powers — e.g. x^2, exp(x), sin(x^2). Pasted superscripts like x² also work. " +
       "This box also takes LIMITS — limit sin(x)/x as x -> 0, lim 1/x as x -> inf, limit 1/x as x -> 0+ — " +
       "and SERIES: taylor exp(x) order 5, maclaurin sin(x), series sqrt(x) about 1 order 4.",
@@ -27137,13 +27141,25 @@ function updateSolve(): void {
         solveResult.appendChild(solveLine(msg, "ms-masses"));
         say(msg);
       } else {
-        for (const root of r.roots) {
+        // CAP THE FLOOD. A numeric scan of a periodic equation can return
+        // hundreds of roots, and one line each turned the pane — and the Word
+        // insert — into a 600-line wall. Trig shapes now answer with their
+        // general families instead, but anything that still floods is capped
+        // with an honest count.
+        const ROOT_LINES_MAX = 24;
+        const shownRoots = r.roots.slice(0, ROOT_LINES_MAX);
+        for (const root of shownRoots) {
           solveResult.appendChild(solveLine(`${r.variable} = ${root.display}`, "ms-masses"));
           // A root is an equation — typeset it. Complex roots (0 + 1i) and
           // multiplicity markers (×2) are not linear math, so those stay text.
           const plain = `${r.variable} = ${root.display}`;
           if (/[i×]/.test(root.display)) say(plain);
           else sayMath(plain);
+        }
+        if (r.roots.length > ROOT_LINES_MAX) {
+          const more = `… and ${r.roots.length - ROOT_LINES_MAX} more roots in the range searched (${r.roots.length} total) — not listed one per line.`;
+          solveResult.appendChild(solveLine(more, "ms-masses"));
+          say(more);
         }
       }
       // Multi-unknown equations get a chip per unknown; the rearranger solves

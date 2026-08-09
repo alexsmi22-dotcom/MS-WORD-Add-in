@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.109.0)
+# JurisLab — Manual Test Script (v2.110.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -9,6 +9,27 @@ scanning, and layout. Budget ~30 minutes for the full pass.
 Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
+
+## 0bn. New in v2.110.0 — the equation engine, comprehensive
+
+Solve → Equation kind.
+
+- [ ] `x^2 = 2` → **±sqrt(2)** exact (typeset), ≈ decimals alongside — not
+  1.4142 wearing an [exact] tag. `3x = 1` → **1/3**. `x^2 - x - 1 = 0` →
+  1/2 ± sqrt(5)/2.
+- [ ] `sin(x) = 1/2` → the TWO general families x = π/6 + 2πn, 5π/6 + 2πn and
+  two principal roots — not hundreds of lines. `sin(2x) = 1` → π/4;
+  `sec(x) = 2` → ±π/3; `2sin(x)^2 + sin(x) - 1 = 0` → three families.
+- [ ] `2^x = 8` → exactly 3; `5^x = 3` → ln(3)/ln(5); `ln(x) = 1` → exp(1).
+- [ ] `abs(x) = -1` → "No real solution exists: |·| is never negative" (not
+  "in the range searched"). `sin(x) = 2` similar.
+- [ ] Inequalities: `-3 < 2x+1 <= 7` → (−2, 3]; `abs(x-1) < 3` → (−2, 4);
+  `abs(x) >= 2` → two rays; `(x^2-1)/(x-1) >= 0` → **[−1, 1) ∪ (1, ∞)** — the
+  hole at 1 excluded.
+- [ ] `(x-1)/(x-1) = 1` → identity EXCEPT x = 1, named.
+- [ ] Type ½ via Word AutoFormat (`sin(x) = ½`) → solves as 1/2.
+- [ ] Insert a trig result → the families and principal roots land in Word,
+  not a 600-line list.
 
 ## 0bm. New in v2.109.0 — sketch data → function
 

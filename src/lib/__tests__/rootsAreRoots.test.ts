@@ -91,40 +91,59 @@ describe("soundness: every root returned satisfies the equation", () => {
 });
 
 describe("completeness: tightening the test must not lose real answers", () => {
-  test("every analytically known solution is still found", () => {
-    // Values from closed form, not from this code.
-    const cases: Array<[string, number[]]> = [
+  test("every analytically known solution is still found (via roots or families)", () => {
+    // Values from closed form, not from this code. TRIG equations now answer
+    // with their GENERAL solution families (v2.110.0) — the principal roots
+    // plus a stated period — so completeness for them means the family COVERS
+    // the analytic value, not that it appears as its own list entry.
+    const nonTrig: Array<[string, number[]]> = [
       ["exp(x) = 2", [Math.LN2]],
       ["ln(x) = 1", [Math.E]],
       ["sqrt(x) = 3", [9]],
-      ["cos(x) = 1", [0]],
-      ["sin(x) = 0", [0, Math.PI, -Math.PI, 2 * Math.PI]],
-      ["tan(x) = 2", [Math.atan(2), Math.atan(2) + Math.PI, Math.atan(2) - Math.PI]],
-      ["sin(x) = 0.5", [Math.asin(0.5), Math.PI - Math.asin(0.5)]],
       ["x*exp(x) = 1", [0.5671432904097838]],            // the Omega constant
       ["cos(x) = x", [0.7390851332151607]],              // the Dottie number
       ["exp(-x) = x", [0.5671432904097838]],
     ];
-    for (const [eq, expected] of cases) {
+    for (const [eq, expected] of nonTrig) {
       const r = solveEquation(eq)!;
       for (const want of expected) {
         const found = r.roots.some((k) => Math.abs(k.re - want) < 1e-6 * Math.max(1, Math.abs(want)));
         expect({ eq, want, found }).toEqual({ eq, want, found: true });
       }
     }
+    const trig: Array<[string, number, number[]]> = [
+      // [equation, family period, analytic values the families must cover]
+      ["cos(x) = 1", 2 * Math.PI, [0, 2 * Math.PI, -2 * Math.PI]],
+      ["sin(x) = 0", 2 * Math.PI, [0, Math.PI, -Math.PI, 2 * Math.PI]],
+      ["tan(x) = 2", Math.PI, [Math.atan(2), Math.atan(2) + Math.PI, Math.atan(2) - Math.PI]],
+      ["sin(x) = 0.5", 2 * Math.PI, [Math.asin(0.5), Math.PI - Math.asin(0.5), Math.asin(0.5) + 2 * Math.PI]],
+    ];
+    for (const [eq, period, expected] of trig) {
+      const r = solveEquation(eq)!;
+      expect(r.method).toBe("trig (general solution)");
+      for (const want of expected) {
+        const covered = r.roots.some((k) => {
+          const n = Math.round((want - k.re) / period);
+          return Math.abs(k.re + n * period - want) < 1e-9;
+        });
+        expect({ eq, want, covered }).toEqual({ eq, want, covered: true });
+      }
+    }
   });
 
-  test("the count of real solutions to tan(x) = 2 is unchanged by the fix", () => {
-    // Before the fix this returned 1176 candidates: 588 real solutions and 588
-    // asymptotes, alternating. Removing the asymptotes must leave the 588 real
-    // ones, not 587. (588 rather than the analytic ~637 in this range is a
-    // pre-existing limit of a 0.5-spaced scan against a period of pi — the caveat
-    // on the result says so, and this fix neither improved nor worsened it.)
+  test("tan(x) = 2 answers ONE principal root and a family that is all genuine solutions", () => {
+    // The numeric scan used to return 588 of the ~637 roots in range — an 8%
+    // systematic miss where a root and pole shared a grid cell, rendered one
+    // line per root. The family x = atan(2) + πn has NO misses: every member
+    // is a solution, and every solution is a member.
     const r = solveEquation("tan(x) = 2")!;
-    expect(r.roots.length).toBe(588);
-    // and every one of them is genuinely a solution
-    for (const k of r.roots) {
-      expect(residual("tan(x) = 2", k.re)).toBeLessThan(1e-6 * Math.max(1, Math.abs(k.re)));
+    expect(r.method).toBe("trig (general solution)");
+    expect(r.roots.length).toBe(1);
+    expect(r.roots[0].re).toBeCloseTo(Math.atan(2), 12);
+    expect(r.steps.join(" ")).toContain("pi*n");
+    // Sample the family deep into the old range: all genuine, none missed.
+    for (let n = -300; n <= 300; n += 37) {
+      expect(residual("tan(x) = 2", r.roots[0].re + n * Math.PI)).toBeLessThan(1e-6);
     }
   });
 
@@ -257,10 +276,13 @@ describe("an identity is an identity, not four thousand roots", () => {
     // argument the other way, when sqrt(x)^2 over [-1,1] went from a caveated
     // number to a refusal because a caveated number is still a number in the
     // document. 510 of them is the same mistake at scale.
+    // v2.110.0 upgraded this refusal again: exp(x) = 0 is now PROVABLY
+    // impossible by range (exp is strictly positive), which is a stronger
+    // statement than "the candidates were artefacts" — the scan never runs.
     const r = solveEquation("exp(x) = 0")!;
     expect(r.roots).toEqual([]);
-    expect(r.method).toBe("no reliable root found");
-    expect(r.caveats.join(" ")).toMatch(/artefacts of double precision/);
+    expect(r.method).toBe("no-solution");
+    expect(r.caveats.join(" ")).toMatch(/strictly positive/);
   });
 
   test("a function with zeros ON the grid is NOT mistaken for an identity", () => {

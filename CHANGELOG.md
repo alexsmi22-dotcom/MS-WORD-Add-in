@@ -6,6 +6,70 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.110.0] — 2026-08-09 — The equation engine, comprehensive
+
+An audit of the whole solve surface (~70 probes, all verified by
+substitution) found four wrong answers and ranked the missing forms.
+This release fixes every wrong answer and builds the top of the list.
+
+### Fixed (wrong answers)
+- **(x²−1)/(x−1) ≥ 0 included x = 1** — the point where the expression
+  is 0/0. The canonicaliser's GCD cancellation erased the hole before
+  the pole scan saw it; the UNREDUCED expression is now the authority
+  (new `domainHoles`), so the answer is [−1, 1) ∪ (1, ∞), and the
+  identity path names its holes too: "(x−1)/(x−1) = 1" now answers
+  "every value EXCEPT x = 1".
+- **Decimals wearing the [exact] tag**: x² = 2 answered
+  "1.41421356237 [exact]". Rational-coefficient linear/quadratics now
+  ride an exact-rational twin of the coefficient extractor and answer
+  in TRUE exact forms — 1/3, ±sqrt(2), 1/2 ± sqrt(5)/2, 2/3·i —
+  every display re-parsing to its own value; irrational-coefficient
+  equations (2πr = 10) keep their decimal and honestly DROP the flag.
+- **x^(1/3) = −2 found nothing** while cbrt(x) = −2 answered −8: a
+  negative base to an odd p/q power now evaluates to its real root.
+- **Provably impossible equations blamed "the range searched"**:
+  abs(x) = −1, sin(x) = 2, sqrt(x) = −2, exp(x) = 0 are now refused by
+  the RANGE argument itself ("|·| is never negative…"), before any scan.
+
+### Added
+- **Trig equations answer with their GENERAL solutions**: sin(x) = 1/2
+  is x = π/6 + 2πn and 5π/6 + 2πn — exact at the special angles,
+  numeric principal values elsewhere, linear arguments folded through
+  (sin(2x) = 1 → π/4), quadratics in one trig atom solved on both
+  branches, tan on its own π period. This replaces the 637-numeric-root
+  wall (which was also silently missing ~8% of them near poles); any
+  remaining numeric flood is capped in the pane with an honest count.
+- **Exponential/log closed forms**: 2^x = 8 → exactly 3; 5^x = 3 →
+  ln(3)/ln(5); exp(2x) = 5 → ln(5)/2; ln(x) = 1 → exp(1); every answer
+  verified by substitution before it is returned. (The old scan MISSED
+  ln(x) = −1 entirely; it now answers exp(−1).)
+- **Chained inequalities**: −3 < 2x+1 ≤ 7 → (−2, 3], both directions,
+  mixed directions refused by name, three-comparator chains not misread.
+- **Absolute-value inequalities** by definition, not case-guessing:
+  |x−1| < 3 → (−2, 4); |x| ≥ 2 → (−∞, −2] ∪ [2, ∞); negative
+  right-hand sides answered immediately in both directions.
+- **sec/csc/cot** parse, evaluate, differentiate, and FOLD to their
+  primary functions for solving (sec(x) = 2 → the exact ±π/3 families;
+  sec(x) = 0.5 → refused by range); **½-style vulgar fraction glyphs**
+  (what Word's AutoFormat produces) now parse.
+
+### Notes
+- The behavioural baseline diff was reviewed line by line: 15 changes,
+  every one an intended improvement, including one silently-wrong old
+  result (ln(x) = −1 → no roots) now correct.
+- Independent adversarial pass: the exact-display contract held over a
+  440-equation sweep (729 roots re-parsed and substitution-verified,
+  zero failures), the trig battery (40 shapes, families verified seven
+  periods deep) and 33 brute-verified inequalities came back clean. It
+  found 2 real defects, fixed and pinned: (1) the exp/log exact path
+  had no display cap — 2^x = 1e300 put a 309-character "exact" line
+  into the pane (now the same 48-char cap as quadratics, decimal +
+  no tag past it); (2) a quadratic-in-trig root computed EXACTLY as
+  1 + 1e-13 was clamped to 1 and answered ±π/2 [exact] for an
+  unsolvable equation — exact out-of-range t now refuses, and only
+  float-noise t within 1e-12 of ±1 clamps, with a caveat saying so.
+  Also: the integer-power fold now reaches 2^x = 2^94.
+
 ## [2.109.0] — 2026-08-09 — Sketch data → function
 
 ### Added

@@ -26,7 +26,11 @@
 // symbolic rearrangement (F = m·a solved for a gives a = F/m, with m ≠ 0
 // stated), verified by substituting the solution back.
 
-import { casSimplify, CasBail, solveRationalInVar } from "./cas";
+import {
+  casSimplify, CasBail, solveRationalInVar,
+  Rat, ratMake, ratInt, ratAdd, ratSub, ratMul, ratDiv, ratNeg, ratIsZero, ratSign, ratToNumber,
+} from "./cas";
+import { fmtSqrtRat, sqrtRatToNumber, fmtRat } from "./geometry";
 import { symbolicIntegrate } from "./casint";
 import { ambiguousImplicitProduct } from "./ambiguous";
 
@@ -52,6 +56,12 @@ const EVAL_FN: Record<string, (x: number) => number> = {
   sinh: Math.sinh, cosh: Math.cosh, tanh: Math.tanh,
   exp: Math.exp, ln: Math.log, log: Math.log10, log10: Math.log10, log2: Math.log2,
   sqrt: Math.sqrt, cbrt: Math.cbrt, abs: Math.abs,
+  // The reciprocal trio — long a KNOWN silent-null gap: sec(x) = 2 parsed to
+  // nothing. Division at a zero of the base function gives ±Infinity, which
+  // the callers already treat as "undefined here" (poles, refused samples).
+  sec: (v: number) => 1 / Math.cos(v),
+  csc: (v: number) => 1 / Math.sin(v),
+  cot: (v: number) => Math.cos(v) / Math.sin(v),
 };
 
 const CONSTANTS: Record<string, number> = { pi: Math.PI, e: Math.E };
@@ -244,8 +254,18 @@ function expandRadicals(s: string): string {
  * value this can solve for") fires by name. A better error message, not a new
  * capability: infinity is still not a value this solver accepts.
  */
+const VULGAR: Record<string, string> = {
+  "½": "(1/2)", "⅓": "(1/3)", "⅔": "(2/3)", "¼": "(1/4)", "¾": "(3/4)",
+  "⅕": "(1/5)", "⅖": "(2/5)", "⅗": "(3/5)", "⅘": "(4/5)",
+  "⅙": "(1/6)", "⅚": "(5/6)", "⅛": "(1/8)", "⅜": "(3/8)", "⅝": "(5/8)", "⅞": "(7/8)",
+};
+
 export function normalizeUnicodeMath(input: string): string {
   const folded = input
+    // Vulgar-fraction glyphs first — Word's AutoFormat turns a typed 1/2 into
+    // ½, so "sin(x) = ½" is what the product's own display habit produces, and
+    // it parsed to NOTHING. Parenthesised so it stays one number.
+    .replace(/[½⅓⅔¼¾⅕⅖⅗⅘⅙⅚⅛⅜⅝⅞]/g, (c) => VULGAR[c])
     .replace(/[⁰¹²³⁴-⁹⁺⁻⁽⁾ⁿ]+/g, (run) => {
       const decoded = [...run].map((c) => SUP[c] ?? "").join("");
       return decoded ? `^(${decoded})` : "";
@@ -479,7 +499,25 @@ export function evalAst(e: Expr, vars: Record<string, number>): number {
     case "sub": return evalAst(e.l, vars) - evalAst(e.r, vars);
     case "mul": return evalAst(e.l, vars) * evalAst(e.r, vars);
     case "div": return evalAst(e.l, vars) / evalAst(e.r, vars);
-    case "pow": return Math.pow(evalAst(e.l, vars), evalAst(e.r, vars));
+    case "pow": {
+      const base = evalAst(e.l, vars);
+      const exp = evalAst(e.r, vars);
+      // A negative base to a p/q power with ODD q has a real value —
+      // (−8)^(1/3) = −2 — but Math.pow answers NaN, which cost x^(1/3) = −2
+      // its solution while cbrt(x) = −2 worked one notation over. Recover the
+      // real odd-root value when the exponent is (numerically) such a fraction.
+      if (base < 0 && !Number.isInteger(exp) && Number.isFinite(exp)) {
+        for (let q = 3; q <= 15; q += 2) {
+          const pNum = exp * q;
+          const pRound = Math.round(pNum);
+          if (pRound !== 0 && Math.abs(pNum - pRound) < 1e-9) {
+            const mag = Math.pow(-base, exp);
+            return pRound % 2 === 0 ? mag : -mag;
+          }
+        }
+      }
+      return Math.pow(base, exp);
+    }
     case "fn": return EVAL_FN[e.name](evalAst(e.arg, vars));
   }
 }
@@ -585,6 +623,11 @@ function derivFn(name: string, u: Expr): Expr {
     case "cosh": return { t: "fn", name: "sinh", arg: u };
     case "tanh": return { t: "div", l: N(1), r: { t: "pow", l: { t: "fn", name: "cosh", arg: u }, r: N(2) } };
     case "abs": return { t: "div", l: u, r: { t: "fn", name: "abs", arg: u } }; // sign(u); undefined at 0
+    // The reciprocal trio, added with their EVAL_FN entries — the tables stay
+    // in step or differentiate() throws from the pane.
+    case "sec": return { t: "mul", l: { t: "fn", name: "sec", arg: u }, r: { t: "fn", name: "tan", arg: u } };
+    case "csc": return { t: "neg", e: { t: "mul", l: { t: "fn", name: "csc", arg: u }, r: { t: "fn", name: "cot", arg: u } } };
+    case "cot": return { t: "neg", e: { t: "div", l: N(1), r: { t: "pow", l: { t: "fn", name: "sin", arg: u }, r: N(2) } } };
     default: throw new Error(`No derivative rule for "${name}".`);
   }
 }
@@ -873,6 +916,213 @@ export function polyCoeffs(e: Expr, x: string): number[] | null {
 }
 
 // ---------------------------------------------------------------------------
+// EXACT (rational) coefficient extraction — the twin of polyCoeffs.
+// ---------------------------------------------------------------------------
+
+/**
+ * A constant subtree as an EXACT rational, or null if anything irrational
+ * (pi, e, a function value) appears. Number literals go through their
+ * shortest-round-trip decimal string, so the 0.1 a user typed becomes 1/10 —
+ * not the 3602879701896397/36028797018963968 its double faithfully is.
+ */
+function constRat(e: Expr): Rat | null {
+  switch (e.t) {
+    case "num": {
+      if (!Number.isFinite(e.v)) return null;
+      const s = String(e.v);
+      // Shortest-round-trip decimal, INCLUDING exponent notation — String(1e-10)
+      // is "1e-10", and rejecting it cost 0.0000000001·x² its exact reading.
+      const m = /^(-?)(\d+)(?:\.(\d+))?(?:e([+-]?\d+))?$/i.exec(s);
+      if (!m) return null;
+      const sign = m[1] === "-" ? -1n : 1n;
+      const whole = BigInt(m[2]);
+      const fracDigits = m[3] ?? "";
+      const exp = m[4] ? Number(m[4]) : 0;
+      if (Math.abs(exp) > 400) return null;
+      let n = sign * (whole * 10n ** BigInt(fracDigits.length) + BigInt(fracDigits || "0"));
+      let d = 10n ** BigInt(fracDigits.length);
+      if (exp > 0) n *= 10n ** BigInt(exp);
+      else if (exp < 0) d *= 10n ** BigInt(-exp);
+      return ratMake(n, d);
+    }
+    case "neg": {
+      const v = constRat(e.e);
+      return v ? ratNeg(v) : null;
+    }
+    case "add": case "sub": case "mul": case "div": {
+      const l = constRat(e.l), r = constRat(e.r);
+      if (!l || !r) return null;
+      if (e.t === "add") return ratAdd(l, r);
+      if (e.t === "sub") return ratSub(l, r);
+      if (e.t === "mul") return ratMul(l, r);
+      return ratIsZero(r) ? null : ratDiv(l, r);
+    }
+    case "pow": {
+      const base = constRat(e.l), p = constRat(e.r);
+      if (!base || !p || p.d !== 1n) return null;
+      const k = Number(p.n);
+      // 512, not 64: x² + 2^94 = 0 is a pinned display-contract case, and a
+      // constant power is one bigint multiply per step.
+      if (!Number.isInteger(k) || Math.abs(k) > 512) return null;
+      let acc = ratInt(1);
+      for (let i = 0; i < Math.abs(k); i++) acc = ratMul(acc, base);
+      if (k < 0) {
+        if (ratIsZero(acc)) return null;
+        return ratDiv(ratInt(1), acc);
+      }
+      return acc;
+    }
+    default:
+      return null; // var (pi, e, …) or fn — not rational
+  }
+}
+
+/**
+ * Exact rational coefficients [c0, c1, …] when the polynomial's constants are
+ * all rational; null otherwise (the float path then handles it). This is what
+ * lets x² = 2 answer sqrt(2), and x/3 = 5 answer 15, instead of decimals
+ * wearing an [exact] tag they had not earned.
+ */
+function polyCoeffsRat(e: Expr, x: string): Rat[] | null {
+  if (!containsVar(e, x)) {
+    const v = constRat(e);
+    return v ? [v] : null;
+  }
+  switch (e.t) {
+    case "var": return e.name === x ? [ratInt(0), ratInt(1)] : null;
+    case "neg": {
+      const c = polyCoeffsRat(e.e, x);
+      return c ? c.map(ratNeg) : null;
+    }
+    case "add": case "sub": {
+      const a = polyCoeffsRat(e.l, x), b = polyCoeffsRat(e.r, x);
+      if (!a || !b) return null;
+      const out: Rat[] = new Array(Math.max(a.length, b.length)).fill(ratInt(0));
+      a.forEach((v, k) => (out[k] = ratAdd(out[k], v)));
+      b.forEach((v, k) => (out[k] = e.t === "add" ? ratAdd(out[k], v) : ratSub(out[k], v)));
+      return out;
+    }
+    case "mul": {
+      const a = polyCoeffsRat(e.l, x), b = polyCoeffsRat(e.r, x);
+      if (!a || !b) return null;
+      const out: Rat[] = new Array(a.length + b.length - 1).fill(ratInt(0));
+      a.forEach((av, i) => b.forEach((bv, j) => (out[i + j] = ratAdd(out[i + j], ratMul(av, bv)))));
+      return out;
+    }
+    case "div": {
+      const denom = polyCoeffsRat(e.r, x);
+      if (!denom || denom.length !== 1 || ratIsZero(denom[0])) return null;
+      const num = polyCoeffsRat(e.l, x);
+      return num ? num.map((v) => ratDiv(v, denom[0])) : null;
+    }
+    case "pow": {
+      if (containsVar(e.r, x)) return null;
+      const p = constRat(e.r);
+      if (!p || p.d !== 1n) return null;
+      const k = Number(p.n);
+      if (!Number.isInteger(k) || k < 0 || k > 64) return null;
+      const base = polyCoeffsRat(e.l, x);
+      if (!base) return null;
+      let acc: Rat[] = [ratInt(1)];
+      for (let i = 0; i < k; i++) {
+        const out: Rat[] = new Array(acc.length + base.length - 1).fill(ratInt(0));
+        acc.forEach((av, ii) => base.forEach((bv, jj) => (out[ii + jj] = ratAdd(out[ii + jj], ratMul(av, bv)))));
+        acc = out;
+      }
+      return acc;
+    }
+    default:
+      return null;
+  }
+}
+
+/**
+ * Points where the expression is UNDEFINED because a denominator vanishes —
+ * including denominators the canonicaliser would cancel away. (x²−1)/(x−1)
+ * has a hole at x = 1 whether or not the algebra later removes the factor,
+ * and an answer set that includes the hole is wrong, not merely unpolished.
+ */
+export function domainHoles(e: Expr, x: string): number[] {
+  const out: number[] = [];
+  const walk = (n: Expr): void => {
+    switch (n.t) {
+      case "num": case "var": return;
+      case "neg": return walk(n.e);
+      case "fn": return walk(n.arg);
+      case "add": case "sub": case "mul": case "pow":
+        walk(n.l); walk(n.r); return;
+      case "div": {
+        walk(n.l); walk(n.r);
+        if (!containsVar(n.r, x)) return;
+        const den = polyCoeffs(n.r, x);
+        if (!den) return; // transcendental denominator — the scan handles its poles
+        const trimmed = trimPoly(den);
+        if (trimmed.length - 1 < 1) return;
+        const roots = trimmed.length - 1 <= 2 ? solvePolyExactFloat(trimmed) : allPolyRoots(trimmed);
+        for (const r of roots ?? []) {
+          if (Math.abs(r.im) < 1e-9 && Number.isFinite(r.re)) out.push(r.re);
+        }
+        return;
+      }
+    }
+  };
+  walk(e);
+  const uniq: number[] = [];
+  for (const v of out.sort((a, b) => a - b)) {
+    if (!uniq.length || Math.abs(v - uniq[uniq.length - 1]) > 1e-9) uniq.push(v);
+  }
+  return uniq.slice(0, 8);
+}
+
+/**
+ * "No real solution EXISTS" when one side is a function whose range provably
+ * excludes the other side's constant value: |·| is never negative, sin never
+ * leaves [−1, 1], exp never reaches 0. Blaming "the range searched" for these
+ * was a wrong excuse — the search range has nothing to do with it.
+ */
+function impossibleByRange(fnSide: Expr, constSide: Expr, x: string): string | null {
+  if (containsVar(constSide, x) || !containsVar(fnSide, x)) return null;
+  let c: number;
+  try { c = evalAst(constSide, {}); } catch { return null; }
+  if (!Number.isFinite(c)) return null;
+  if (fnSide.t === "fn") {
+    const name = fnSide.name;
+    if (name === "abs" && c < 0) {
+      return `No real solution exists: |·| is never negative, and the other side is ${fmtNum(c)}.`;
+    }
+    if (name === "sqrt" && c < 0) {
+      return `No real solution exists: √ never returns a negative value, and the other side is ${fmtNum(c)}.`;
+    }
+    if (name === "exp" && c <= 0) {
+      return `No real solution exists: exp(·) is always strictly positive, and the other side is ${fmtNum(c)}.`;
+    }
+    if ((name === "sin" || name === "cos") && Math.abs(c) > 1) {
+      return `No real solution exists: ${name}(·) never leaves [−1, 1], and the other side is ${fmtNum(c)}.`;
+    }
+    if (name === "cosh" && c < 1) {
+      return `No real solution exists: cosh(·) is never below 1, and the other side is ${fmtNum(c)}.`;
+    }
+  }
+  // An even power of a real expression is never negative.
+  if (fnSide.t === "pow" && !containsVar(fnSide.r, x) && c < 0) {
+    try {
+      const p = evalAst(fnSide.r, {});
+      if (Number.isInteger(p) && p > 0 && p % 2 === 0) {
+        return `No real solution exists: an even power is never negative, and the other side is ${fmtNum(c)}.`;
+      }
+    } catch { /* not constant */ }
+  }
+  return null;
+}
+
+/** Trailing-zero trim for exact coefficients; null when everything vanishes. */
+function trimRat(c: Rat[]): Rat[] | null {
+  let end = c.length;
+  while (end > 0 && ratIsZero(c[end - 1])) end--;
+  return end === 0 ? null : c.slice(0, end);
+}
+
+// ---------------------------------------------------------------------------
 // Root finding.
 // ---------------------------------------------------------------------------
 
@@ -976,9 +1226,113 @@ function fmtRoot(re: number, im: number): string {
   return `${fmtNum(r)} ${i < 0 ? "-" : "+"} ${imPart}`;
 }
 
+/**
+ * TRUE exact displays for rational-coefficient linear/quadratics: 1/3 stays
+ * 1/3, x² = 2 answers sqrt(2), x² − x − 1 answers 1/2 + sqrt(5)/2. The float
+ * value rides alongside for the ≈ readout. Returns null when the exact string
+ * would be unreadable (a 60-digit fraction is faithful noise, not an answer) —
+ * the caller then falls back to the decimal display WITHOUT the exact flag.
+ */
+const EXACT_DISPLAY_MAX = 48;
+
+/** "n" or "n/d" (fmtSqrtRat's rational output) back into a Rat. */
+function parseRatString(s: string): Rat | null {
+  const m = /^(-?\d+)(?:\/(\d+))?$/.exec(s);
+  if (!m) return null;
+  return ratMake(BigInt(m[1]), BigInt(m[2] ?? "1"));
+}
+
+function exactRootsFromRat(rc: Rat[]): Root[] | null {
+  const deg = rc.length - 1;
+  const ok = (s: string): boolean => s.length <= EXACT_DISPLAY_MAX;
+  if (deg === 1) {
+    const root = ratDiv(ratNeg(rc[0]), rc[1]);
+    const disp = fmtRat(root);
+    return ok(disp) ? [{ display: disp, re: ratToNumber(root), im: 0, exact: true }] : null;
+  }
+  if (deg !== 2) return null;
+  const [cc, b, a] = rc;
+  const twoA = ratMul(ratInt(2), a);
+  const p = ratDiv(ratNeg(b), twoA); // −b/2a
+  const disc = ratSub(ratMul(b, b), ratMul(ratInt(4), ratMul(a, cc)));
+  // The surd folds the /2a in: √disc/(2a) = √(disc/4a²) — one clean radical.
+  const q2 = ratDiv(disc, ratMul(twoA, twoA));
+  const pv = ratToNumber(p);
+  if (ratIsZero(disc)) {
+    const disp = fmtRat(p);
+    return ok(disp) ? [{ display: disp, re: pv, im: 0, exact: true }] : null;
+  }
+  if (ratSign(disc) > 0) {
+    const s = fmtSqrtRat(q2);
+    if (!s) return null;
+    const sv = sqrtRatToNumber(q2);
+    // A PERFECT-SQUARE discriminant means the surd is a plain rational — the
+    // roots must be ADDED into single fractions, not displayed as the
+    // unsimplified sum ("-1/2 + 5/2" for the root 2 — the baseline caught it).
+    const rationalS = !s.includes("sqrt") ? parseRatString(s) : null;
+    if (rationalS) {
+      const r1 = ratAdd(p, rationalS), r2 = ratSub(p, rationalS);
+      const d1 = fmtRat(r1), d2 = fmtRat(r2);
+      if (!ok(d1) || !ok(d2)) return null;
+      return [
+        { display: d1, re: ratToNumber(r1), im: 0, exact: true },
+        { display: d2, re: ratToNumber(r2), im: 0, exact: true },
+      ];
+    }
+    const zeroP = ratIsZero(p);
+    const d1 = zeroP ? s : `${fmtRat(p)} + ${s}`;
+    const d2 = zeroP ? `-${s}` : `${fmtRat(p)} - ${s}`;
+    if (!ok(d1) || !ok(d2)) return null;
+    return [
+      { display: d1, re: pv + sv, im: 0, exact: true },
+      { display: d2, re: pv - sv, im: 0, exact: true },
+    ];
+  }
+  // Complex pair: −b/2a ± √(−disc/4a²)·i, in the product's complex conventions
+  // (bare i for a unit part, no "0 +", ASCII hyphen).
+  const s = fmtSqrtRat(ratNeg(q2));
+  if (!s) return null;
+  const sv = sqrtRatToNumber(ratNeg(q2));
+  // "2/3i" re-parses as 2/(3·i) — worse, it trips the deliberate 1/2x
+  // ambiguity refusal. Only a bare integer may juxtapose the i; a fraction or
+  // surd multiplies it explicitly.
+  const imPart = s === "1" ? "i" : /^\d+$/.test(s) ? `${s}i` : `${s}*i`;
+  const zeroP = ratIsZero(p);
+  const d1 = zeroP ? imPart : `${fmtRat(p)} + ${imPart}`;
+  const d2 = zeroP ? `-${imPart}` : `${fmtRat(p)} - ${imPart}`;
+  if (!ok(d1) || !ok(d2)) return null;
+  return [
+    { display: d1, re: pv, im: sv, exact: true },
+    { display: d2, re: pv, im: -sv, exact: true },
+  ];
+}
+
 /** Exact roots of a linear or quadratic; null if degree is not 1 or 2. */
-function solvePolyExact(coeffs: number[]): Root[] | null {
+function solvePolyExact(coeffs: number[], rat?: Rat[] | null): Root[] | null {
   const c = trimPoly(coeffs);
+  const deg = c.length - 1;
+  // The exact-rational route first: same degree required, so float-noise
+  // trimming disagreements fall back to the numeric display honestly.
+  if (rat) {
+    const rc = trimRat(rat);
+    if (rc && rc.length - 1 === deg && deg >= 1 && deg <= 2) {
+      const exact = exactRootsFromRat(rc);
+      if (exact) return exact;
+      // Exact form too unwieldy: decimal display, and NO exact flag — a
+      // rounded decimal of an irrational value is not an exact answer.
+      const numeric = solvePolyExactFloat(c);
+      return numeric ? numeric.map((r) => ({ ...r, exact: false })) : null;
+    }
+  }
+  const viaFloat = solvePolyExactFloat(c);
+  if (!viaFloat) return null;
+  // No rational reading of the coefficients (π, e, function values …): the
+  // roots are genuine but the DISPLAY is a rounded decimal — labelling that
+  // [exact] was the mislabel the audit caught (2πr = 10 → “1.59… exact”).
+  return rat === undefined ? viaFloat : viaFloat.map((r) => ({ ...r, exact: false }));
+}
+
+function solvePolyExactFloat(c: number[]): Root[] | null {
   const deg = c.length - 1;
   if (deg === 1) {
     const root = -c[0] / c[1];
@@ -1199,6 +1553,378 @@ function numericRealRoots(f: (x: number) => number, lo: number, hi: number, step
 }
 
 // ---------------------------------------------------------------------------
+// Trigonometric equations — GENERAL solutions, not a wall of numeric roots.
+//
+// sin(x) = 1/2 has infinitely many solutions, and the numeric scan reported
+// 637 of them — one line each, into the pane and into Word. The mathematics
+// is two FAMILIES: x = π/6 + 2πn and x = 5π/6 + 2πn. This section detects
+// trig(a·x + b) = c (and quadratics in one trig atom), answers with the exact
+// families — special angles exact, others as asin/acos/atan values — and
+// reports the principal solutions as the roots.
+// ---------------------------------------------------------------------------
+
+/** "n·π/d" rendered cleanly: 0, pi, -pi/6, 5*pi/6, 2*pi. Always re-parseable. */
+function piStr(n: number, d: number): string {
+  if (n === 0) return "0";
+  // Reduce.
+  const g = ((): number => { let a = Math.abs(n), b = d; while (b) { const t = a % b; a = b; b = t; } return a || 1; })();
+  const nn = n / g, dd = d / g;
+  const core = Math.abs(nn) === 1 ? "pi" : `${Math.abs(nn)}*pi`;
+  const frac = dd === 1 ? core : `${core}/${dd}`;
+  return nn < 0 ? `-${frac}` : frac;
+}
+
+/**
+ * u₀ for trig(u) = t: an exact rational multiple of π when t is a special
+ * value (pi = [n, d] meaning u₀ = n·π/d), else the numeric principal value.
+ */
+function principalAngle(
+  fn: "sin" | "cos" | "tan", t: number
+): { disp: string; val: number; exact: boolean; pi?: [number, number] } | null {
+  const near = (a: number, b: number): boolean => Math.abs(a - b) < 1e-12;
+  const withPi = (n: number, d: number): { disp: string; val: number; exact: true; pi: [number, number] } =>
+    ({ disp: piStr(n, d), val: (n * Math.PI) / d, exact: true, pi: [n, d] });
+  if (fn === "tan") {
+    const TAN_PI: [number, [number, number]][] = [[0, [0, 1]], [Math.sqrt(3) / 3, [1, 6]], [1, [1, 4]], [Math.sqrt(3), [1, 3]]];
+    for (const [tv, [n, d]] of TAN_PI) {
+      if (near(Math.abs(t), tv)) return withPi(t < 0 ? -n : n, d);
+    }
+    const v = Math.atan(t);
+    return { disp: fmtNum(v), val: v, exact: false };
+  }
+  if (Math.abs(t) > 1) return null;
+  if (fn === "sin") {
+    const SIN_PI: [number, [number, number]][] = [[0, [0, 1]], [0.5, [1, 6]], [Math.SQRT2 / 2, [1, 4]], [Math.sqrt(3) / 2, [1, 3]], [1, [1, 2]]];
+    for (const [tv, [n, d]] of SIN_PI) {
+      if (near(Math.abs(t), tv)) return withPi(t < 0 ? -n : n, d);
+    }
+    const v = Math.asin(t);
+    return { disp: fmtNum(v), val: v, exact: false };
+  }
+  const COS_PI: [number, [number, number]][] = [
+    [1, [0, 1]], [Math.sqrt(3) / 2, [1, 6]], [Math.SQRT2 / 2, [1, 4]], [0.5, [1, 3]], [0, [1, 2]],
+    [-0.5, [2, 3]], [-Math.SQRT2 / 2, [3, 4]], [-Math.sqrt(3) / 2, [5, 6]], [-1, [1, 1]],
+  ];
+  for (const [tv, [n, d]] of COS_PI) {
+    if (near(t, tv)) return withPi(n, d);
+  }
+  const v = Math.acos(t);
+  return { disp: fmtNum(v), val: v, exact: false };
+}
+
+/** Finds the single trig atom trig(a·x+b) the expression is a polynomial in. */
+function trigAtomOf(e: Expr, x: string): { fn: "sin" | "cos" | "tan"; arg: Expr; key: string } | null {
+  let found: { fn: "sin" | "cos" | "tan"; arg: Expr; key: string } | null = null;
+  let bad = false;
+  const walk = (n: Expr): void => {
+    if (bad) return;
+    switch (n.t) {
+      case "num": case "var": return;
+      case "neg": return walk(n.e);
+      case "fn": {
+        if ((n.name === "sin" || n.name === "cos" || n.name === "tan") && containsVar(n.arg, x)) {
+          const key = `${n.name}(${format(n.arg)})`;
+          if (found && found.key !== key) { bad = true; return; }
+          if (!found) found = { fn: n.name, arg: n.arg, key };
+          return; // do not walk inside — the atom is opaque
+        }
+        if (containsVar(n.arg, x)) { bad = true; return; }
+        return;
+      }
+      default: walk(n.l); walk(n.r);
+    }
+  };
+  walk(e);
+  return bad ? null : found;
+}
+
+/** Replaces every occurrence of the atom with a fresh variable. */
+function substAtom(e: Expr, key: string, x: string, t: string): Expr {
+  switch (e.t) {
+    case "num": case "var": return e;
+    case "neg": return { t: "neg", e: substAtom(e.e, key, x, t) };
+    case "fn":
+      if (`${e.name}(${format(e.arg)})` === key) return { t: "var", name: t };
+      return { t: "fn", name: e.name, arg: substAtom(e.arg, key, x, t) };
+    default:
+      return { t: e.t, l: substAtom(e.l, key, x, t), r: substAtom(e.r, key, x, t) } as Expr;
+  }
+}
+
+/**
+ * General solutions for equations that are a (≤ quadratic) polynomial in ONE
+ * trig atom with a LINEAR argument. Returns null when the shape does not
+ * match, so the numeric scan keeps its jurisdiction.
+ */
+function tryTrigGeneral(f: Expr, x: string, vars: string[]): EquationResult | null {
+  const atom = trigAtomOf(f, x);
+  if (!atom) return null;
+  const argC = polyCoeffs(atom.arg, x);
+  if (!argC) return null;
+  const argT = trimPoly(argC);
+  if (argT.length !== 2) return null; // linear argument only
+  const [b, a] = argT;
+  if (!Number.isFinite(a) || a === 0) return null;
+
+  const T = "__trig_t";
+  const inT = substAtom(f, atom.key, x, T);
+  if (containsVar(inT, x)) return null; // x survives outside the atom
+  const poly = polyCoeffs(inT, T);
+  if (!poly) return null;
+  const pt = trimPoly(poly);
+  const deg = pt.length - 1;
+  if (deg < 1 || deg > 2) return null;
+
+  // Solve the polynomial for t = trig(u), exactly where possible.
+  const tRoots = solvePolyExact(pt, polyCoeffsRat(inT, T)) ?? [];
+  const steps: string[] = [];
+  const caveats: string[] = [];
+  if (deg === 2) {
+    steps.push(`Substituting t = ${atom.key}: the equation is quadratic in t.`);
+  }
+  const period = (2 * Math.PI) / Math.abs(a);
+  const periodTxt = atom.fn === "tan"
+    ? (a === 1 ? "pi" : `pi/${fmtNum(Math.abs(a))}`)
+    : (a === 1 ? "2*pi" : `2*pi/${fmtNum(Math.abs(a))}`);
+
+  const roots: Root[] = [];
+  const families: string[] = [];
+  let anyReal = false;
+
+  for (const tr of tRoots) {
+    if (Math.abs(tr.im) > 1e-10) {
+      steps.push(`t = ${tr.display} is complex — no real ${atom.fn} value reaches it.`);
+      continue;
+    }
+    let t = tr.re;
+    let clampedNoise = false;
+    if (atom.fn !== "tan" && Math.abs(t) > 1) {
+      // EXACT t outside [−1, 1] is a refusal, full stop — an exactly-computed
+      // 1 + 1e-13 means the equation has NO solution, and clamping it to 1
+      // answered ±π/2 [exact] for an unsolvable equation. Only a FLOAT-path t
+      // within double-precision noise of ±1 is treated as ±1, and it says so.
+      if (tr.exact || Math.abs(t) - 1 > 1e-12) {
+        steps.push(`t = ${tr.display} lies outside [−1, 1] — ${atom.fn}(·) never reaches it.`);
+        continue;
+      }
+      caveats.push(
+        `t = ${tr.display} exceeds ${t > 0 ? "1" : "−1"} by less than double-precision noise and was treated as ` +
+        `${t > 0 ? "1" : "−1"}. If your coefficients are exact, this branch has NO solution.`
+      );
+      t = Math.sign(t);
+      clampedNoise = true;
+    }
+    // No clamp for tan — clamping turned every |t| > 1 into tan = 1 and
+    // answered π/4 for tan(x) = 2.
+    const p0 = principalAngle(atom.fn, t);
+    if (!p0) continue;
+    if (clampedNoise) p0.exact = false;
+    anyReal = true;
+
+    // u families, then x = (u − b)/a.
+    const uFamilies: { disp: string; val: number; pi?: [number, number] }[] = [];
+    uFamilies.push({ disp: p0.disp, val: p0.val, pi: p0.pi });
+    if (atom.fn === "sin" && Math.abs(t) < 1 - 1e-12) {
+      // The reflection family: π − u₀, folded into one clean π fraction
+      // (π − π/6 is 5π/6, not the unsimplified difference).
+      const alt = Math.PI - p0.val;
+      uFamilies.push(
+        p0.pi
+          ? { disp: piStr(p0.pi[1] - p0.pi[0], p0.pi[1]), val: alt, pi: [p0.pi[1] - p0.pi[0], p0.pi[1]] }
+          : { disp: fmtNum(alt), val: alt }
+      );
+    } else if (atom.fn === "cos" && Math.abs(t) < 1 - 1e-12) {
+      uFamilies.push(
+        p0.pi
+          ? { disp: piStr(-p0.pi[0], p0.pi[1]), val: -p0.val, pi: [-p0.pi[0], p0.pi[1]] }
+          : { disp: fmtNum(-p0.val), val: -p0.val }
+      );
+    }
+
+    for (const u of uFamilies) {
+      // x = (u − b)/a, period 2π/|a| (π/|a| for tan).
+      const xv = (u.val - b) / a;
+      const simple = a === 1 && b === 0;
+      let baseDisp: string;
+      let isExact = p0.exact && simple;
+      if (simple) {
+        baseDisp = u.disp;
+      } else if (b === 0 && u.pi && Number.isInteger(a)) {
+        // An exact π fraction divides through: (π/2)/2 is π/4, not a nest.
+        baseDisp = piStr(a > 0 ? u.pi[0] : -u.pi[0], u.pi[1] * Math.abs(a));
+        isExact = p0.exact;
+      } else if (b === 0) {
+        baseDisp = `(${u.disp})/${fmtNum(a)}`;
+      } else if (a === 1) {
+        baseDisp = `${u.disp} ${b < 0 ? "+" : "-"} ${fmtNum(Math.abs(b))}`;
+      } else {
+        baseDisp = `(${u.disp} ${b < 0 ? "+" : "-"} ${fmtNum(Math.abs(b))})/${fmtNum(a)}`;
+      }
+      families.push(`${x} = ${baseDisp} + ${periodTxt}*n`);
+      roots.push({
+        display: baseDisp,
+        re: xv,
+        im: 0,
+        exact: isExact,
+      });
+    }
+  }
+
+  if (!tRoots.length || (!anyReal && tRoots.length)) {
+    if (!anyReal && tRoots.length) {
+      return {
+        variable: x, roots: [], method: "no-solution", steps,
+        caveats: [`No real solution exists: every value ${atom.key} would need is outside its range.`],
+        unknowns: vars,
+      };
+    }
+    return null;
+  }
+
+  steps.push(`General solution famil${families.length === 1 ? "y" : "ies"} (n any integer): ${families.join(" ; ")}.`);
+  caveats.push(
+    `A trigonometric equation has infinitely many solutions. The root${roots.length === 1 ? "" : "s"} shown ` +
+    `${roots.length === 1 ? "is" : "are"} the principal one${roots.length === 1 ? "" : "s"} (n = 0); ` +
+    `add ${periodTxt}·n for every integer n.`
+  );
+  return {
+    variable: x,
+    roots: roots.sort((p, q) => p.re - q.re),
+    method: "trig (general solution)",
+    steps,
+    caveats,
+    unknowns: vars,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Exponential and logarithmic equations — EXACT closed forms.
+//
+// 5^x = 3 is x = ln(3)/ln(5), not 0.682606194486; 2^x = 8 is exactly 3.
+// The shapes handled: exp(u) = c, a^u = c, ln(u) = c, log10(u) = c,
+// log2(u) = c with u LINEAR in x and the other side constant. Everything
+// else keeps its numeric path.
+// ---------------------------------------------------------------------------
+
+function tryExpLogExact(fnSide: Expr, constSide: Expr, x: string, vars: string[], f: Expr): EquationResult | null {
+  if (containsVar(constSide, x) || !containsVar(fnSide, x)) return null;
+  let c: number;
+  try { c = evalAst(constSide, {}); } catch { return null; }
+  if (!Number.isFinite(c)) return null;
+  const cRat = constRat(constSide);
+
+  /** Solves linear u(x) = value and packages the result. */
+  const finish = (
+    u: Expr, uDisp: string, uVal: number, uExact: boolean, method: string, steps: string[]
+  ): EquationResult | null => {
+    const uc = polyCoeffs(u, x);
+    if (!uc) return null;
+    const ut = trimPoly(uc);
+    if (ut.length !== 2 || ut[1] === 0) return null;
+    const [b, a] = ut;
+    const xv = (uVal - b) / a;
+    const simple = a === 1 && b === 0;
+    let disp: string;
+    // A plain-rational u folds all the way through: 3^(x+1) = 81 answers 3,
+    // not ((4) - 1)/1.
+    const uRatStr = /^-?\d+(?:\/\d+)?$/.test(uDisp) ? parseRatString(uDisp) : null;
+    const bRat = constRat({ t: "num", v: b } as Expr);
+    const aRat2 = constRat({ t: "num", v: a } as Expr);
+    if (uRatStr && bRat && aRat2 && !ratIsZero(aRat2)) {
+      disp = fmtRat(ratDiv(ratSub(uRatStr, bRat), aRat2));
+    } else if (simple) {
+      disp = uDisp;
+    } else if (b === 0) {
+      disp = `${uDisp.includes(" ") ? `(${uDisp})` : uDisp}/${fmtNum(a)}`;
+    } else if (a === 1) {
+      disp = `${uDisp} ${b < 0 ? "+" : "-"} ${fmtNum(Math.abs(b))}`;
+    } else {
+      disp = `(${uDisp} ${b < 0 ? "+" : "-"} ${fmtNum(Math.abs(b))})/${fmtNum(a)}`;
+    }
+    // Verify by substitution — an exact-looking answer that does not satisfy
+    // the equation is worse than a numeric one.
+    try {
+      const resid = evalAst(f, { [x]: xv });
+      if (!Number.isFinite(resid) || Math.abs(resid) > 1e-6 * Math.max(1, Math.abs(c))) return null;
+    } catch { return null; }
+    // The SAME display cap the quadratic exact path honours: 2^x = 1e300 has
+    // the exact answer ln(10^300)/ln(2), whose 301-digit literal is faithful
+    // noise, not an answer — decimal display, no exact flag.
+    let exactFlag = uExact;
+    if (disp.length > EXACT_DISPLAY_MAX) {
+      disp = fmtNum(xv);
+      exactFlag = false;
+    }
+    return {
+      variable: x,
+      roots: [{ display: disp, re: xv, im: 0, exact: exactFlag }],
+      method,
+      steps,
+      caveats: [],
+      unknowns: vars,
+    };
+  };
+
+  if (fnSide.t === "fn" && containsVar(fnSide.arg, x)) {
+    if (fnSide.name === "exp") {
+      if (c <= 0) return null; // impossibleByRange already names this
+      const uDisp = c === 1 ? "0" : cRat ? `ln(${fmtRat(cRat)})` : fmtNum(Math.log(c));
+      return finish(fnSide.arg, uDisp, Math.log(c), !!cRat || c === 1,
+        "exact (exponential)", [`exp(u) = ${fmtNum(c)} ⇒ u = ln(${fmtNum(c)}).`]);
+    }
+    if (fnSide.name === "ln") {
+      const uDisp = c === 0 ? "1" : cRat ? `exp(${fmtRat(cRat)})` : fmtNum(Math.exp(c));
+      return finish(fnSide.arg, uDisp, Math.exp(c), !!cRat,
+        "exact (logarithmic)", [`ln(u) = ${fmtNum(c)} ⇒ u = e^${fmtNum(c)}.`]);
+    }
+    if (fnSide.name === "log10" || fnSide.name === "log2") {
+      const base = fnSide.name === "log10" ? 10 : 2;
+      const uVal = Math.pow(base, c);
+      const uDisp = Number.isInteger(c) && Math.abs(c) <= 30
+        ? fmtNum(uVal)
+        : cRat ? `${base}^(${fmtRat(cRat)})` : fmtNum(uVal);
+      return finish(fnSide.arg, uDisp, uVal, Number.isInteger(c),
+        "exact (logarithmic)", [`${fnSide.name}(u) = ${fmtNum(c)} ⇒ u = ${base}^${fmtNum(c)}.`]);
+    }
+    return null;
+  }
+
+  // a^u = c with a positive rational constant base.
+  if (fnSide.t === "pow" && !containsVar(fnSide.l, x) && containsVar(fnSide.r, x)) {
+    const aRat = constRat(fnSide.l);
+    let aVal: number;
+    try { aVal = evalAst(fnSide.l, {}); } catch { return null; }
+    if (!Number.isFinite(aVal) || aVal <= 0 || aVal === 1) return null;
+    if (c <= 0) {
+      return {
+        variable: x, roots: [], method: "no-solution", steps: [],
+        caveats: [`No real solution exists: ${fmtNum(aVal)}^u is always strictly positive, and the other side is ${fmtNum(c)}.`],
+        unknowns: vars,
+      };
+    }
+    // Clean integer power first: 2^x = 8 is exactly 3, not ln(8)/ln(2).
+    // ±128, so 2^x = 2^94 folds to 94 instead of a 29-digit ln fraction.
+    if (aRat && cRat) {
+      for (let k = -128; k <= 128; k++) {
+        let acc = ratInt(1);
+        const steps = Math.abs(k);
+        for (let i = 0; i < steps; i++) acc = ratMul(acc, aRat);
+        const powK = k >= 0 ? acc : ratDiv(ratInt(1), acc);
+        if (ratIsZero(ratSub(powK, cRat))) {
+          return finish(fnSide.r, String(k), k, true,
+            "exact (exponential)", [`${fmtRat(aRat)}^u = ${fmtRat(cRat)} ⇒ u = ${k} exactly.`]);
+        }
+      }
+    }
+    const uVal = Math.log(c) / Math.log(aVal);
+    const uDisp = aRat && cRat ? `ln(${fmtRat(cRat)})/ln(${fmtRat(aRat)})` : fmtNum(uVal);
+    return finish(fnSide.r, uDisp, uVal, !!(aRat && cRat),
+      "exact (exponential)", [`${fmtNum(aVal)}^u = ${fmtNum(c)} ⇒ u = ln(${fmtNum(c)})/ln(${fmtNum(aVal)}).`]);
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
 // Public: equation solving
 // ---------------------------------------------------------------------------
 
@@ -1295,7 +2021,7 @@ export function solveEquation(input: string, variable?: string, range = 1000): E
         caveats: [identity ? "Every value of the variable satisfies this equation (an identity)." : "No value of the variable satisfies this equation."],
       };
     }
-    const exact = solvePolyExact(trimmed);
+    const exact = solvePolyExact(trimmed, polyCoeffsRat(f, x));
     if (exact) {
       const terms = trimmed.map((c, k) => `${fmtNum(c)}·${x}^${k}`).reverse().join(" + ");
       steps.push(`Polynomial form: ${terms} = 0.`);
@@ -1479,6 +2205,13 @@ export function solveEquation(input: string, variable?: string, range = 1000): E
     sideProbe.length >= 30 &&
     sideProbe.every((p) => p.agrees);
   if (agreesEverywhere) {
+    // An identity CAN still have holes: (x−1)/(x−1) = 1 agrees at every sample
+    // because no irrational-offset sample lands on x = 1 — but at x = 1 the
+    // left side is 0/0. "Every value" with the holes unnamed is a wrong answer.
+    const holes = domainHoles(f, x);
+    const holeTxt = holes.length
+      ? ` EXCEPT ${holes.map((h) => `${x} = ${fmtNum(h)}`).join(", ")}, where a denominator vanishes and the expression is undefined,`
+      : "";
     return {
       variable: x,
       roots: [],
@@ -1488,9 +2221,9 @@ export function solveEquation(input: string, variable?: string, range = 1000): E
           `across [−${range}, ${range}].`,
       ],
       caveats: [
-        `Every value of ${x} satisfies this equation (an identity), so there is no ` +
+        `Every value of ${x}${holeTxt} satisfies this equation (an identity), so there is no ` +
           `particular root to report.` +
-          (sideProbe.length < 41
+          (sideProbe.length < 41 && !holes.length
             ? ` The expression is undefined at some points — where a denominator vanishes, ` +
               `for example — and those are excluded.`
             : ""),
@@ -1498,6 +2231,43 @@ export function solveEquation(input: string, variable?: string, range = 1000): E
       unknowns: vars,
     };
   }
+
+  // PROVABLY IMPOSSIBLE before any search: a range argument beats a range excuse.
+  const impossible = impossibleByRange(lhs, rhs, x) ?? impossibleByRange(rhs, lhs, x);
+  if (impossible) {
+    return { variable: x, roots: [], method: "no-solution", steps, caveats: [impossible], unknowns: vars };
+  }
+
+  // Reciprocal trig folds into the primary function first: sec(u) = c is
+  // cos(u) = 1/c, so sec(x) = 2 earns the exact π/3 families and sec(x) = 0.5
+  // earns the range refusal — both instead of a numeric scan.
+  let trigF: Expr = f;
+  {
+    const recip = (side: Expr, other: Expr): Expr | null => {
+      if (side.t !== "fn" || !containsVar(side.arg, x) || containsVar(other, x)) return null;
+      let c: number;
+      try { c = evalAst(other, {}); } catch { return null; }
+      if (!Number.isFinite(c)) return null;
+      const inv: Expr = { t: "div", l: N(1), r: other };
+      if (side.name === "sec") return { t: "sub", l: { t: "fn", name: "cos", arg: side.arg }, r: c === 0 ? N(2) : inv };
+      if (side.name === "csc") return { t: "sub", l: { t: "fn", name: "sin", arg: side.arg }, r: c === 0 ? N(2) : inv };
+      if (side.name === "cot") {
+        // cot(u) = 0 is cos(u) = 0; otherwise tan(u) = 1/c.
+        return c === 0
+          ? { t: "sub", l: { t: "fn", name: "cos", arg: side.arg }, r: N(0) }
+          : { t: "sub", l: { t: "fn", name: "tan", arg: side.arg }, r: inv };
+      }
+      return null;
+    };
+    trigF = recip(lhs, rhs) ?? recip(rhs, lhs) ?? f;
+  }
+
+  // Trig equations answer with their GENERAL solution families, not a wall of
+  // numeric roots; exp/log shapes answer in exact closed form.
+  const trig = tryTrigGeneral(trigF, x, vars);
+  if (trig) return trig;
+  const expLog = tryExpLogExact(lhs, rhs, x, vars, f) ?? tryExpLogExact(rhs, lhs, x, vars, f);
+  if (expLog) return expLog;
 
   // Transcendental: numeric root-finding.
   steps.push(`Not a polynomial in ${x}; solving numerically for real roots in [−${range}, ${range}].`);

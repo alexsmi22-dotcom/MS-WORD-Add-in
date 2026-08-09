@@ -35,6 +35,11 @@ import { splitEquations, solveSystem } from "../lib/systems";
 import { solveGeometry } from "../lib/geometryParse";
 import { solveComposite } from "../lib/compositeGeometry";
 import { compositeShapeSvg, geometryFigureSvg } from "../lib/geometryChart";
+import {
+  DrawPt, DrawTool, HandleRef, emptyDrawState, setTool, clickAt, closePolygon, undo, clearAll,
+  hitHandle, dragHandle, emitDsl, describePending, renderDrawSvg, snapPt, WORLD_W, WORLD_H,
+  DRAW_VIEW,
+} from "../lib/geometryDraw";
 
 type Kind = "equation" | "derivative" | "integral" | "ode" | "geometry";
 
@@ -110,7 +115,7 @@ Office.onReady(() => {
       hint.className = "hint";
       hint.textContent =
         kind === "geometry"
-          ? "The figure draws below as you describe it."
+          ? "DRAW on the grid below (or type) — the request writes itself, solves live, and the figure follows."
           : "Type, click symbols, or PASTE from anywhere — a paper, Word, LaTeX. It draws here as real mathematics.";
       typeset.appendChild(hint);
       return;
@@ -477,6 +482,157 @@ Office.onReady(() => {
     for (const l of labels) l.style.display = visibleLabels.has(l) ? "" : "none";
     for (const r of rendered) r.row.style.display = ""; // rows collapse naturally
   });
+
+  // ---- Draw-to-solve (geometry kind only) -----------------------------------
+  //
+  // The drawing surface is an INPUT METHOD: every gesture becomes text in the
+  // geometry grammar (src/lib/geometryDraw.ts), written into the input box so
+  // the ordinary live-solve path runs on it — one engine, one source of truth,
+  // and the user sees the request they could have typed. Events are deferred
+  // to requestAnimationFrame, the pattern the chemistry CanvasEditor settled
+  // on: pointermove at input rate re-rendered synchronously janks the dialog.
+  if (kind === "geometry") {
+    const wrap = byId<HTMLElement>("draw-wrap");
+    const toolsEl = byId<HTMLElement>("draw-tools");
+    const surface = byId<HTMLElement>("draw-surface");
+    const note = byId<HTMLElement>("draw-note");
+    wrap.style.display = "block";
+
+    let draw = emptyDrawState("triangle");
+    let hover: DrawPt | null = null;
+    let dragging: HandleRef | null = null;
+    let frame = 0;
+    let needSync = false;
+
+    const TOOL_DEFS: { id: DrawTool | "close" | "undo" | "clear"; label: string; title: string }[] = [
+      { id: "select", label: "Select", title: "Drag any handle to reshape — the numbers follow" },
+      { id: "triangle", label: "Triangle", title: "Three clicks" },
+      { id: "rectangle", label: "Rectangle", title: "Two opposite corners" },
+      { id: "circle", label: "Circle", title: "Click the centre, then the rim" },
+      { id: "polygon", label: "Polygon", title: "Click vertices; double-click or Close to finish" },
+      { id: "segment", label: "Segment", title: "Two endpoints — a second segment intersects the two lines" },
+      { id: "close", label: "Close shape", title: "Finish the pending polygon" },
+      { id: "undo", label: "Undo", title: "Remove the last point or shape" },
+      { id: "clear", label: "Clear", title: "Start over" },
+    ];
+    const toolBtns = new Map<string, HTMLButtonElement>();
+    const markActive = (): void => {
+      for (const [id, b] of toolBtns) b.classList.toggle("is-on", id === draw.tool);
+    };
+
+    const paint = (): void => {
+      surface.innerHTML = renderDrawSvg(draw, hover);
+      note.textContent = draw.pending.length || !draw.shapes.length
+        ? describePending(draw)
+        : emitDsl(draw).note;
+    };
+    const syncInput = (): void => {
+      // Unconditional: a WITHHELD emission (self-crossing polygon → "") must
+      // clear the previous request, not leave stale numbers under a drawing
+      // that no longer means them.
+      input.value = emitDsl(draw).text;
+      varChoice = null;
+      refresh();
+    };
+    const schedule = (sync: boolean): void => {
+      if (sync) needSync = true;
+      if (frame) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        paint();
+        if (needSync) {
+          needSync = false;
+          syncInput();
+        }
+      });
+    };
+
+    for (const def of TOOL_DEFS) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "draw-btn";
+      btn.textContent = def.label;
+      btn.title = def.title;
+      btn.addEventListener("click", () => {
+        if (def.id === "close") draw = closePolygon(draw);
+        else if (def.id === "undo") draw = undo(draw);
+        else if (def.id === "clear") draw = clearAll(draw);
+        else draw = setTool(draw, def.id);
+        markActive();
+        schedule(true);
+      });
+      toolsEl.appendChild(btn);
+      toolBtns.set(def.id, btn);
+    }
+    markActive();
+
+    const toWorld = (ev: PointerEvent): DrawPt => {
+      // Through the viewBox, not the world box: the SVG carries a grid-free
+      // footer strip below the canvas, so rect.height covers MORE than
+      // WORLD_H units and mapping straight to WORLD_H would skew every y.
+      const svg = surface.querySelector("svg");
+      const r = (svg ?? surface).getBoundingClientRect();
+      const unitsPerPx = DRAW_VIEW.w / WORLD_W; // svg px per world unit
+      const svgX = ((ev.clientX - r.left) / Math.max(1, r.width)) * DRAW_VIEW.w;
+      const svgY = ((ev.clientY - r.top) / Math.max(1, r.height)) * DRAW_VIEW.h;
+      return { x: svgX / unitsPerPx, y: WORLD_H - svgY / unitsPerPx };
+    };
+
+    surface.addEventListener("pointerdown", (ev) => {
+      const w = toWorld(ev);
+      // The footer strip (below the grid) maps to y < 0 — clicking the
+      // coordinate readout must not mint a clamped vertex on the x-axis.
+      if (w.y < 0) return;
+      if (draw.tool === "select") {
+        dragging = hitHandle(draw, w);
+        if (dragging) surface.setPointerCapture(ev.pointerId);
+        return;
+      }
+      draw = clickAt(draw, w);
+      schedule(true);
+    });
+    surface.addEventListener("pointermove", (ev) => {
+      const w = toWorld(ev);
+      hover = w.y < 0 ? null : snapPt(w);
+      if (dragging) {
+        const next = dragHandle(draw, dragging, w);
+        if (next !== draw) {
+          draw = next;
+          schedule(true);
+          return;
+        }
+      }
+      schedule(false);
+    });
+    surface.addEventListener("pointerup", () => {
+      if (dragging) {
+        dragging = null;
+        schedule(true);
+      }
+    });
+    surface.addEventListener("pointercancel", () => {
+      // A cancelled pointer (touch scroll, window switch) must not leave a
+      // phantom drag that follows the next hover with no button held.
+      dragging = null;
+      schedule(false);
+    });
+    surface.addEventListener("pointerleave", () => {
+      hover = null;
+      schedule(false);
+    });
+    surface.addEventListener("dblclick", () => {
+      draw = closePolygon(draw);
+      schedule(true);
+    });
+    window.addEventListener("keydown", (ev) => {
+      if (ev.key === "Escape" && draw.pending.length) {
+        draw = setTool(draw, draw.tool); // clears pending, keeps the tool
+        schedule(false);
+      }
+    });
+
+    paint();
+  }
 
   input.addEventListener("input", () => {
     varChoice = null;

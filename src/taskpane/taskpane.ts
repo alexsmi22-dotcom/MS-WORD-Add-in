@@ -26606,6 +26606,10 @@ function updateSolveUi(): void {
       "Anything outside these families is refused by name. For NUMERIC initial-value problems (stiff systems, " +
       "any f(t, y)), use Analyze → ODE solving.",
     geometry:
+      "DRAW IT: Open canvas gives you a drawing surface — click out a triangle, rectangle, " +
+      "circle, polygon or segments on a snapped grid; the request writes itself and solves live, " +
+      "and dragging a vertex updates every number. Shapes inside a rectangle or circle base " +
+      "read as cutouts (composite). Or type: " +
       "COMPOSITE figures — a shape with cutouts or additions, exact, with a drawn figure: " +
       "rectangle 10in x 5in minus triangle b=4in h=3in (also plus to join shapes; units in/ft/cm/mm/m/yd " +
       "carry through, and prose like “a rectangle 10\" x 5\" with a triangle inside” reads the same). " +

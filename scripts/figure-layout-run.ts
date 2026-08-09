@@ -72,6 +72,7 @@ import { persistentHomology, barcodeSvg } from "../src/lib/persistence";
 import { solveComposite } from "../src/lib/compositeGeometry";
 import { compositeShapeSvg, geometryFigureSvg } from "../src/lib/geometryChart";
 import { solveGeometry } from "../src/lib/geometryParse";
+import { emptyDrawState, setTool, clickAt, renderDrawSvg, DrawState } from "../src/lib/geometryDraw";
 
 const figures: [string, string][] = [];
 
@@ -108,6 +109,22 @@ const figures: [string, string][] = [];
   push("geometry segment", "segment r=4 angle=90");
   push("geometry arc", "arc r=6 angle=120");
   push("geometry tangent", "tangent r=3 d=5");
+}
+
+// The draw-to-solve surface (v2.107.0): grid + shapes + hover readout, and the
+// composite (cutout) coloring state.
+{
+  const clicksAt = (state: DrawState, pts: [number, number][]): DrawState =>
+    pts.reduce((s, [x, y]) => clickAt(s, { x, y }), state);
+  const tri = clicksAt(emptyDrawState("triangle"), [[1, 1], [9, 1], [3, 7]]);
+  figures.push(["draw surface triangle", renderDrawSvg(tri, { x: 6, y: 4 })]);
+  const composite = clicksAt(
+    setTool(clicksAt(emptyDrawState("rectangle"), [[1, 1], [11, 8]]), "circle"),
+    [[5, 4.5], [6.5, 4.5]]
+  );
+  figures.push(["draw surface composite", renderDrawSvg(composite, { x: 13, y: 9 })]);
+  const pendingCircle = clicksAt(emptyDrawState("circle"), [[8, 5]]);
+  figures.push(["draw surface pending", renderDrawSvg(pendingCircle, { x: 11, y: 5 })]);
 }
 
 figures.push([

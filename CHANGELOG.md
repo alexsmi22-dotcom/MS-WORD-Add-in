@@ -6,6 +6,54 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.107.0] — 2026-08-09 — Draw to solve
+
+The geometry canvas grows a DRAWING SURFACE: click out a shape and it is
+solved as you draw it.
+
+### Added
+- **Draw-to-solve** (Solve → Geometry → Open canvas): a snapped half-unit
+  grid with Triangle / Rectangle / Circle / Polygon / Segment tools, a
+  Select tool whose handles DRAG (every number updates live), rubber-band
+  previews, a live coordinate readout, undo/clear, double-click or Close
+  to finish a polygon, Esc to abandon a half-built shape.
+- **The drawing is an input method, not a second engine**: every gesture
+  becomes text in the existing geometry grammar, written into the input
+  box — so the exact arithmetic, the figures, the insert path and the
+  user's own eyes all run on ONE request, and the surface teaches the
+  grammar as it goes. Snapping to halves keeps every emitted dimension
+  exact (7/2, never 3.4999…).
+- **Composites by drawing**: rectangle/circle shapes drawn fully inside a
+  rectangle or circle base read as CUTOUTS (painted red on the surface
+  exactly when the solver will read them so) and emit the composite
+  grammar; two segments read as a line-intersection question. Anything
+  more exotic solves the first shape and says so, rather than guessing.
+- The pane hint and canvas hint both name drawing; 38 new tests including
+  the anti-button-shaped-bug sweep (every emittable request — including
+  every one-handle drag of every test state — must be ACCEPTED by the
+  engines) and 3 new figure-corpus entries (floor 156 → 159).
+
+### Notes
+- The coordinate readout lives in a grid-free footer strip: text laid
+  over a full-bleed grid always crosses a grid line, and the layout gate
+  rightly refused the first cut.
+- Independent adversarial pass (408-emission fuzz came back clean on the
+  architecture) found 3 real picture-vs-arithmetic defects, all fixed
+  and pinned: (1) OVERLAPPING or nested cutouts emitted a composite that
+  subtracts the shared region twice while the surface painted them as a
+  faithful reading — cutouts must now be pairwise disjoint (tangency
+  fine), decided by the ONE function both the emitter and the painter
+  call; (2) a self-crossing polygon was filled as an enclosed region
+  while the shoelace request reported the signed area (a bowtie claimed
+  area 0 "because collinear") — the request is now withheld with the
+  reason, the polygon paints hollow, and the engine's zero-area caveat
+  distinguishes collinear from self-crossing; (3) a circle's radius grip
+  could leave the 16×10 world and become permanently unreachable — the
+  grip now flips to whichever compass side fits, radii clamp at
+  creation, and a stranding centre-move refuses. Plus: footer clicks no
+  longer mint y=0 vertices, pointercancel clears a phantom drag, and the
+  two-line slope arrives reduced (it printed 4/4).
+
 ## [2.106.0] — 2026-08-09 — The comprehensive geometry suite
 
 The unbuilt half of docs/GEOMETRY-TOPOLOGY-DESIGN.md, shipped at once — and

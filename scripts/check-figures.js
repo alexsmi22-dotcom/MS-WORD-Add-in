@@ -55,7 +55,9 @@ const CORPUS = path.join(__dirname, "figure-layout-run.ts");
 // figures (triangles incl. the SSA pair and a sliver, polygon/point-in-polygon,
 // three conics, circle-through-3-points, sector/reflex/segment/arc/tangent) —
 // and the floor was raised IN THE SAME COMMIT, per the two paragraphs above.
-const CORPUS_FLOOR = 156;
+// 159 as of 2026-08-09 (v2.107.0): three draw-to-solve surface states
+// (triangle, composite with a cutout, pending circle with the rubber preview).
+const CORPUS_FLOOR = 159;
 
 // --- The allowance ratchet ----------------------------------------------------
 //

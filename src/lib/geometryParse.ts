@@ -12,7 +12,7 @@
 
 import { parseExpr, Expr } from "./solve";
 import {
-  Rat, ratAdd, ratMul, ratNeg, ratInt, ratDiv, ratFromNumber, ratIsZero, RAT_ZERO, ratToNumber, ratSign,
+  Rat, ratAdd, ratSub, ratMul, ratNeg, ratInt, ratDiv, ratFromNumber, ratIsZero, RAT_ZERO, ratToNumber, ratSign,
 } from "./cas";
 import {
   v3, Vec3, vSub, dot, cross, norm, normSquared, angleBetween, project, isZeroVec,
@@ -300,7 +300,8 @@ export function solveGeometry(input: string): GeoResult | null {
     const steps = [`Line through ${fmtPt(pts[0])} and ${fmtPt(pts[1])}: ${fmtRat(l.a)}x + ${fmtRat(l.b)}y = ${fmtRat(l.c)}.`];
     const vals: GeoValue[] = [];
     if (!ratIsZero(l.b)) {
-      const slope = { n: -l.a.n * l.b.d, d: l.a.d * l.b.n } as Rat;
+      // ratDiv normalises — the hand-built Rat printed "slope = 4/4".
+      const slope = ratDiv(ratNeg(l.a), l.b);
       vals.push(V("slope", evalFrac(fmtRat(normRat(slope))), fmtRat(normRat(slope))));
     } else steps.push("The line is vertical, so its slope is undefined.");
     if (pts.length >= 4) {
@@ -535,7 +536,16 @@ function polygonRequest(kw: string, pts: Pt[]): GeoResult {
     values.push(V("centroid x", evalFrac(fmtRat(cent.x)), fmtRat(cent.x)));
     values.push(V("centroid y", evalFrac(fmtRat(cent.y)), fmtRat(cent.y)));
   } else {
-    caveats.push("The points enclose zero area (they are collinear), so there is no centroid.");
+    // Zero signed area has TWO causes and only one is "collinear" — a bowtie's
+    // lobes cancel exactly too, and calling (0,0) (4,4) (4,0) (0,4) collinear
+    // was a false statement under a true number.
+    const base = pts.find((q) => !(ratIsZero(ratSub(q.x, pts[0].x)) && ratIsZero(ratSub(q.y, pts[0].y))));
+    const allCollinear = !base || pts.every((q) => collinear(pts[0], base, q));
+    caveats.push(
+      allCollinear
+        ? "The points enclose zero area (they are collinear), so there is no centroid."
+        : "The SIGNED area is zero — the boundary crosses itself and the shoelace lobes cancel; there is no centroid, and the area of the painted region is not zero."
+    );
   }
   steps.push(`Convex: ${isConvex(pts) ? "yes" : "no"}.`);
 

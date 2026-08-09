@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.106.0)
+# JurisLab — Manual Test Script (v2.107.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -9,6 +9,27 @@ scanning, and layout. Budget ~30 minutes for the full pass.
 Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
+
+## 0bk. New in v2.107.0 — draw to solve
+
+Solve → Geometry → **Open canvas**. The drawing surface sits above the input.
+
+- [ ] Triangle tool: three clicks → the request `triangle (…) (…) (…)` appears
+  in the input, the full solution (sides, angles, area, radii) renders below,
+  and the to-scale figure draws.
+- [ ] **Select** tool: drag a vertex — the text, numbers and figure all follow
+  live. Drag onto another vertex or collinear → the drag refuses (shape holds).
+- [ ] Rectangle (two corners) then Circle (centre + rim) fully inside it → the
+  circle paints RED and the input reads `rectangle W x H minus circle r=R`;
+  drag the circle out of the base → red clears, note says only the first shape
+  solves.
+- [ ] Segment twice → `line (…) (…) (…) (…)` with the intersection point.
+- [ ] Polygon: clicks + double-click (or Close shape) to finish; Esc abandons a
+  half-built shape; Undo removes last point, then last shape.
+- [ ] Grid snap: click anywhere — coordinates land on halves (the readout at
+  the bottom-left shows the snapped point).
+- [ ] **Use this equation** carries the drawn request back to the pane; Insert
+  puts derivation + figure into Word.
 
 ## 0bj. New in v2.106.0 — the comprehensive geometry suite
 

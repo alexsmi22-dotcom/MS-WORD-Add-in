@@ -6,6 +6,22 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.113.0] — 2026-08-09 — The PLOT tool learns the same notation
+
+The user's "Unknown function f" turned out to come from the PLOT tool —
+which has its own parser and never got v2.112.0's notation fixes.
+Found by driving the real bundle headlessly with the exact input after
+every engine probe came back clean: the error's SOURCE file, not the
+assumed one, was the fix site.
+
+### Added
+- Plot accepts f(x) = |x + 4| (and y = …): the definition prefix is
+  stripped — this is a plotter, the definition IS the curve — and
+  |·| bars fold to abs via the same lexer Solve uses. Known function
+  names never count as a prefix (sin(x) = 1 stays refused: an equation
+  is not a curve), and the stripped argument must be x, the plot
+  variable. All pinned.
+
 ## [2.112.0] — 2026-08-09 — Textbook notation: |bars| and f(x) = …
 
 Straight from a user hitting the wall with f(x) = |x + 4|.

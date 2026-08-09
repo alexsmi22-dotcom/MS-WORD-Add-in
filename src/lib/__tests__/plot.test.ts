@@ -38,6 +38,30 @@ describe("evalExpr", () => {
   });
 });
 
+describe("textbook notation in the plotter (user-reported: 'Unknown function f')", () => {
+  test("f(x) = |x + 4| plots — definition prefix stripped, bars folded", () => {
+    expect(evalExpr("f(x) = |x + 4|", -4)).toBe(0);
+    expect(evalExpr("f(x) = |x + 4|", 1)).toBe(5);
+    expect(evalExpr("|x + 4|", -6)).toBe(2);
+    expect(evalExpr("y = |x+4|", 0)).toBe(4);
+    // The stripped argument must be x — the plot variable. g(t)= is refused.
+    expect(() => evalExpr("g(t) = 2", 3)).toThrow(/Unknown/);
+  });
+
+  test("the vertex of the drawn V sits at the fold point", () => {
+    const ys = samplePlot("f(x) = |x + 4|", -10, 2, 5).map((p) => p.y);
+    expect(ys).toEqual([6, 3, 0, 3, 6]);
+  });
+
+  test("known function names are never mistaken for a definition prefix", () => {
+    // sin(x) = 1 is an EQUATION, not a curve — the plotter refuses it whole
+    // rather than silently drawing the constant 1.
+    expect(() => evalExpr("sin(x) = 1", 0)).toThrow();
+    // and Sin(x) = 1 (Word's auto-capitalisation) equally.
+    expect(() => evalExpr("Sin(x) = 1", 0)).toThrow();
+  });
+});
+
 describe("samplePlot", () => {
   it("samples a function across the domain", () => {
     const pts = samplePlot("x^2", -2, 2, 5);

@@ -17,6 +17,8 @@ function factorial(n: number): number {
   return r;
 }
 
+import { foldAbsBars } from "./solve";
+
 const FUNCS: Record<string, (x: number) => number> = {
   sin: Math.sin, cos: Math.cos, tan: Math.tan, asin: Math.asin, acos: Math.acos, atan: Math.atan,
   sinh: Math.sinh, cosh: Math.cosh, tanh: Math.tanh, exp: Math.exp, sqrt: Math.sqrt, cbrt: Math.cbrt, abs: Math.abs,
@@ -46,9 +48,28 @@ const CONSTS: Record<string, number> = { pi: Math.PI, e: Math.E, tau: Math.PI * 
  * minus, parentheses, the functions in FUNCS, and the constants pi/e/tau. Throws
  * on a malformed expression.
  */
+/**
+ * Textbook notation the plotter's own grammar lacks, folded before parsing:
+ * a leading "f(x) =" / "y =" definition prefix (this is a PLOTTER — the
+ * definition is exactly what the user wants drawn), and |·| bars → abs(·).
+ * Known function names never count as a definition prefix, so "sin(x) = …"
+ * is untouched (and still refused, since an equation is not a curve).
+ */
+function normalizePlotExpr(expr: string): string {
+  let s = foldAbsBars(expr);
+  const def = /^\s*([A-Za-z_]\w*)\s*\(\s*x\s*\)\s*=\s*([^=]+)$/.exec(s);
+  if (def && !(def[1].toLowerCase() in FUNCS) && !(def[1].toLowerCase() in FUNCS_N)) {
+    s = def[2];
+  } else {
+    const yDef = /^\s*y\s*=\s*([^=]+)$/.exec(s);
+    if (yDef) s = yDef[1];
+  }
+  return s;
+}
+
 export function evalExpr(expr: string, x: number): number {
   let i = 0;
-  const s = expr.replace(/\s+/g, "");
+  const s = normalizePlotExpr(expr).replace(/\s+/g, "");
 
   function parseExpr(): number {
     let v = parseTerm();

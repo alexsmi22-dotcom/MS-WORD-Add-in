@@ -321,8 +321,9 @@ import { solveComposite, qtyToNumber, qtyExact } from "../lib/compositeGeometry"
 import { compositeShapeSvg, geometryFigureSvg, geometryFigureAlt, drawnShapesSvg } from "../lib/geometryChart";
 import { DrawShape, sanitizeShapes, emitDsl as emitDrawDsl, shapesDescribeEmit } from "../lib/geometryDraw";
 import { trySum, tryAlgebraVerb } from "../lib/algebraTools";
+import { tryStatsIntent } from "../lib/statsIntent";
 import { solveInputToTypesetLines, solveToTypesetDsl, isProseRequest } from "../lib/solveTypeset";
-import { foldPastedMath, extractSingleEquation, extractExpression } from "../lib/pasteMath";
+import { foldPastedMath, extractSingleEquation, extractExpression, normalizeTaskProse } from "../lib/pasteMath";
 import { equationWork, derivativeWork, definiteIntegralWork, WorkLine } from "../lib/showWork";
 import { solveOdeSymbolic } from "../lib/odeSymbolic";
 import { solveWithUnits } from "../lib/unitSolve";
@@ -26617,6 +26618,10 @@ function updateSolveUi(): void {
       "TRIG solves give the GENERAL families: sin(x) = 1/2 → x = pi/6 + 2πn and 5pi/6 + 2πn " +
       "(sec/csc/cot too, and ½-style glyphs read fine). " +
       "CHAINED inequalities: -3 < 2x+1 <= 7 → (-2, 3] · ABSOLUTE VALUE: abs(x-1) < 3 · abs(x) >= 2. " +
+      "PASTE THE WHOLE QUESTION: prose is read, the equation dug out, and the TASK obeyed — " +
+      "“Find the derivative of f(x) = 3x² + 4x − 2” differentiates, “limit of sin(x)/x as x approaches 0” " +
+      "takes the limit, “mean of 3, 5, 8 and 12” / “Is A: 1,2,3 different from B: 4,5,6?” answer from the " +
+      "statistics engines (values listed back; sample vs population SD stated). " +
       "SUMS: sum of 1 to 100 · sum k^2 from 1 to n (closed forms; Σ1/k refused by name). " +
       "VERBS: factor x^2-5x+6 · expand (x+1)^3 · simplify (x^2-1)/(x-1) — every result verified " +
       "by multiplying back. POWERS rearrange: V = (4/3)π r^3 solves for r as a cube root; " +
@@ -27032,10 +27037,41 @@ function updateSolve(): void {
           return;
         }
       }
+      // LIMITS phrased as prose route to the derivative kind, which owns them.
+      const taskText = normalizeTaskProse(text);
+      if (/\blim(it)?\b/i.test(taskText) && parseLimitRequest(taskText)) {
+        solveKind.value = "derivative";
+        updateSolveUi();
+        updateSolve();
+        solveResult.insertBefore(
+          solveLine("The question asks for a LIMIT — switched to the Derivative kind (which evaluates limits) and answered."),
+          solveResult.firstChild
+        );
+        return;
+      }
+
+      // STATISTICS questions pasted as prose ("mean of 3, 5, 8", "is A
+      // different from B") answer from the real stats engines, inline.
+      // "average rate of change" is calculus, not statistics — excluded.
+      if (!/\brate of change\b/i.test(text)) {
+        const st = tryStatsIntent(text);
+        if (st) {
+          solveResult.appendChild(msEyebrow(st.title));
+          say(st.title, "heading");
+          for (const l of st.lines) {
+            solveResult.appendChild(solveLine(l, "ms-masses"));
+            say(l);
+          }
+          for (const s of st.steps) { solveResult.appendChild(solveLine(s)); say(s); }
+          return finish(st.caveats);
+        }
+      }
+
       // FINITE SUMS ("sum k^2 from 1 to n") and the ALGEBRA VERBS
       // (factor / expand / simplify) are word-led and unambiguous — checked
-      // before anything could misread them as equations.
-      const sum = trySum(text);
+      // before anything could misread them as equations. Task verbiage
+      // ("Find the sum of…", "Factor the expression…") is stripped first.
+      const sum = trySum(taskText) ?? trySum(text);
       if (sum) {
         solveResult.appendChild(msEyebrow(sum.title));
         say(sum.title, "heading");
@@ -27046,7 +27082,7 @@ function updateSolve(): void {
         for (const s of sum.steps) { solveResult.appendChild(solveLine(s)); say(s); }
         return finish(sum.caveats);
       }
-      const verb = tryAlgebraVerb(text);
+      const verb = tryAlgebraVerb(taskText) ?? tryAlgebraVerb(text);
       if (verb) {
         solveResult.appendChild(msEyebrow(verb.title));
         say(verb.title, "heading");
@@ -27252,7 +27288,7 @@ function updateSolve(): void {
     if (kind === "derivative") {
       // "limit ... as x -> 0" and "taylor ..." share this kind: it is where the
       // calculus lives, and both are unambiguous from their leading keyword.
-      const lim = parseLimitRequest(text);
+      const lim = parseLimitRequest(normalizeTaskProse(text));
       if (lim) {
         const lr = limit(lim.expr, lim.variable, lim.point, lim.side);
         if (!lr) return void solveResult.appendChild(solveLine("Couldn't parse that limit. Try: limit sin(x)/x as x -> 0"));
@@ -27270,7 +27306,7 @@ function updateSolve(): void {
         for (const st of lr.steps) { solveResult.appendChild(solveLine(st)); say(st); }
         return finish(lr.caveats);
       }
-      const ser = parseSeriesRequest(text);
+      const ser = parseSeriesRequest(normalizeTaskProse(text));
       if (ser) {
         const sr = taylorSeries(ser.expr, ser.variable, ser.centre, ser.order);
         if (!sr) return void solveResult.appendChild(solveLine("Couldn't expand that as a series — check it is differentiable at the centre. Try: taylor exp(x) order 5"));

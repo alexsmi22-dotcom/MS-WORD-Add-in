@@ -22,7 +22,7 @@ import {
 } from "../lib/palettes";
 import { mathToHtml } from "../lib/mathHtml";
 import { solveInputToTypesetLines, solveToTypesetDsl, isProseRequest } from "../lib/solveTypeset";
-import { foldPastedMath, extractSingleEquation, extractExpression } from "../lib/pasteMath";
+import { foldPastedMath, extractSingleEquation, extractExpression, normalizeTaskProse } from "../lib/pasteMath";
 import { graphSeries, GraphWindow } from "../lib/graphCalc";
 import { buildPlotSvg } from "../lib/plot";
 import { solveEquation, differentiate, antiderivative, integrate, parseExpr, evalAst } from "../lib/solve";
@@ -42,6 +42,7 @@ import {
 } from "../lib/geometryDraw";
 import { fitSketch, SketchPt, FitResult } from "../lib/sketchFit";
 import { trySum, tryAlgebraVerb } from "../lib/algebraTools";
+import { tryStatsIntent } from "../lib/statsIntent";
 import { sketchSurfaceSvg, sketchFitSvg, skSnapPt, SK_VIEW, SK_X0, SK_X1, SK_Y0, SK_Y1 } from "../lib/sketchChart";
 
 type Kind = "equation" | "derivative" | "integral" | "ode" | "geometry";
@@ -235,9 +236,34 @@ Office.onReady(() => {
             return;
           }
         }
+        // Statistics prose answers inline from the real engines (the canvas
+        // cannot switch modes). "average rate of change" is calculus.
+        if (!/\brate of change\b/i.test(folded)) {
+          const st = tryStatsIntent(folded);
+          if (st) {
+            line(resultEl, st.title, "result-title");
+            for (const l of st.lines) line(resultEl, l, "result-line");
+            for (const s of st.steps.slice(0, 3)) line(resultEl, s, "result-line");
+            for (const c of st.caveats.slice(0, 2)) line(resultEl, c, "caveat");
+            return;
+          }
+        }
+        // Limits phrased as prose answer inline too.
+        const taskText = normalizeTaskProse(folded);
+        const limReq = parseLimitRequest(taskText);
+        if (limReq) {
+          const lv = evalLimit(limReq.expr, limReq.variable, limReq.point, limReq.side);
+          if (lv) {
+            const shown = lv.exact ?? (lv.value !== undefined ? String(lv.value) : null);
+            line(resultEl, `Limit as ${limReq.variable} → ${limReq.point}`, "result-title");
+            line(resultEl, shown !== null ? `limit = ${shown}` : "The limit could not be established.", "result-line");
+            for (const c of lv.caveats.slice(0, 2)) line(resultEl, c, "caveat");
+            return;
+          }
+        }
         // Sums and algebra verbs first — word-led, unambiguous (same order as
-        // the pane's dispatch).
-        const sum = trySum(folded);
+        // the pane's dispatch). Task verbiage stripped first.
+        const sum = trySum(taskText) ?? trySum(folded);
         if (sum) {
           line(resultEl, sum.title, "result-title");
           mathLine(resultEl, `= ${sum.display}`, `= ${sum.display}`);
@@ -245,7 +271,7 @@ Office.onReady(() => {
           for (const c of sum.caveats.slice(0, 2)) line(resultEl, c, "caveat");
           return;
         }
-        const verb = tryAlgebraVerb(folded);
+        const verb = tryAlgebraVerb(taskText) ?? tryAlgebraVerb(folded);
         if (verb) {
           line(resultEl, verb.title, "result-title");
           for (const l of verb.lines) mathLine(resultEl, l.text, l.text);

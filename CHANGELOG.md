@@ -6,6 +6,43 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.116.0] — 2026-08-09 — Statistics from prose, and the task layer widens
+
+### Added
+- **Statistics questions pasted as prose** answer from the real stats
+  engines, inline in Solve and the canvas: "Find the mean of 3, 5, 8
+  and 12" (asked statistic first, full summary after, the VALUES READ
+  listed back — a comma is always a separator, never a thousands
+  mark); "standard deviation of …" states SAMPLE (n − 1) and shows the
+  population figure alongside; mode reports ties or "no mode"
+  honestly; "Is A: 1,2,3,4,5 different from B: 6,7,8,9,10?" runs
+  Welch's t-test (paired on request, equal lengths enforced by name);
+  "correlation between x: … and y: …" gives r, r², p and the fit line.
+  Refusals are named: a stats question with no numbers, mismatched
+  pair lengths, or SD of one value says exactly what is missing. The
+  full toolset (diagnostics, ANOVA, survival…) remains the Stats mode.
+- **The task layer widens**: "Evaluate the limit of sin(x)/x as x
+  approaches 0" routes to the limit engine (pane switches kind with a
+  note; canvas answers inline); "Find the sum of 1 to 100" and
+  "Factor the expression x² − 5x + 6" now work with their task
+  verbiage attached — prose words parse as innocent-looking variables,
+  so extraction runs BEFORE parsing, where a parse that cannot fail
+  could never trigger it.
+
+### Notes
+- Independent adversarial pass: the engines verified numerically clean
+  (54 descriptive lists, Welch/paired t against independent
+  implementations, correlation signs) — the defect was the TRIGGER.
+  Keyword + any stray number stole equations and word problems with
+  confident wrong statistics ("x − mean = 4" → "mean = 4"; "the mean
+  of 5 numbers is 12…" → "mean = 9"). Fixed and pinned: descriptive
+  intents now require a CONTIGUOUS comma/and-separated list of ≥ 2
+  values and never fire on text carrying =, <, > — word problems get
+  a named refusal pointing at the Word-problem kind, and prose-stray
+  numbers (dates, counts) can no longer join the list. Zero-variance
+  correlation refuses by name instead of showing the impossible
+  "r = 0 (r² = 1)".
+
 ## [2.115.0] — 2026-08-09 — The question says what to DO
 
 "Find the derivative of f(x) = 3x² + 4x − 2" pasted into the equation

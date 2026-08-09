@@ -18,6 +18,7 @@ import {
   ratFunctionInVar, ratPolyRoots, casSimplify, CasBail,
 } from "./cas";
 import { fmtRat } from "./geometry";
+import { extractExpression, hasProseWords } from "./pasteMath";
 
 export interface SumResult {
   title: string;
@@ -305,9 +306,17 @@ export function tryAlgebraVerb(input: string): VerbResult | null {
     caveats: [why],
   });
 
+  // "factor the expression x² − 5x + 6": prose words PARSE as variables
+  // (the·expression·x²), so the extraction must run BEFORE parsing — a parse
+  // that cannot fail can never trigger a fallback.
+  let effBody = body;
+  if (hasProseWords(body)) {
+    const ex = extractExpression(body);
+    if (ex) effBody = ex;
+  }
   let e: Expr;
   try {
-    e = parseExpr(body);
+    e = parseExpr(effBody);
   } catch (err) {
     return refuse(`Couldn't parse the expression: ${(err as Error).message}`);
   }

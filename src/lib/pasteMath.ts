@@ -468,11 +468,37 @@ export function foldPastedMath(input: string, opts: FoldOptions = {}): FoldedMat
  * prose. The longest word-suffix that parses (and actually contains the
  * makings of mathematics) is the reading.
  */
+/**
+ * Strips task verbiage so word-led engines see their own grammar:
+ * "Find the sum of 1 to 100" → "sum of 1 to 100";
+ * "Evaluate the limit of sin(x)/x as x approaches 0" → "limit sin(x)/x as x -> 0".
+ */
+export function normalizeTaskProse(text: string): string {
+  let s = text.trim();
+  for (let i = 0; i < 4; i++) {
+    const next = s.replace(/^(please\s+)?(find|what is|what's|evaluate|compute|calculate|determine|give|state)\s+(the\s+)?(value of\s+)?/i, "");
+    if (next === s) break;
+    s = next;
+  }
+  return s
+    .replace(/^limit of\s+/i, "limit ")
+    .replace(/\bapproaches\b/gi, "->")
+    .replace(/\btends to\b/gi, "->");
+}
+
 const MATH_WORDS = new Set([
   "sin", "cos", "tan", "asin", "acos", "atan", "sinh", "cosh", "tanh",
   "sec", "csc", "cot", "exp", "ln", "log", "log10", "log2",
   "sqrt", "cbrt", "abs", "pi", "theta", "alpha", "beta", "gamma", "omega",
 ]);
+
+/** Does the text contain multi-letter words that are NOT known math names?
+ *  Such words parse as innocent-looking VARIABLES ("the·expression·x²"), so
+ *  callers must extract before parsing, not after a parse that cannot fail. */
+export function hasProseWords(text: string): boolean {
+  const words = text.match(/[a-zA-Z]{2,}/g) ?? [];
+  return words.some((w) => !MATH_WORDS.has(w.toLowerCase()));
+}
 
 export function extractExpression(text: string): string | null {
   const line = text.split("\n").find((l) => /[0-9^]/.test(l)) ?? text;

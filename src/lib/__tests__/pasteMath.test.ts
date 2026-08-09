@@ -1,8 +1,8 @@
 // Paste-from-anywhere: foldPastedMath must turn what real sources put on the
 // clipboard into input the Solve engines accept — and say what it did.
 
-import { foldPastedMath, looksLikeLatex } from "../pasteMath";
-import { solveEquation, parseExpr, evalAst } from "../solve";
+import { foldPastedMath, looksLikeLatex, extractSingleEquation, extractExpression } from "../pasteMath";
+import { solveEquation, parseExpr, evalAst, differentiate } from "../solve";
 import { solveInequality } from "../inequalities";
 
 /** Fold then solve — the whole journey a paste takes. */
@@ -10,6 +10,74 @@ function foldSolve(input: string, variable?: string) {
   const folded = foldPastedMath(input);
   return { folded, result: solveEquation(folded.text, variable) };
 }
+
+describe("degraded superscripts from web copy (3x2 → 3x², user workflow)", () => {
+  test("the GeeksforGeeks practice questions paste whole and answer correctly", () => {
+    // Q1: coefficient shape. Q2: coefficient-less 1/x2 (bare-letter rule).
+    const q1 = foldPastedMath("Find the derivative of the function f(x) = 3x2 + 4x - 2.", { stackedFractions: true });
+    expect(q1.text).toContain("3x^2 + 4x - 2");
+    expect(q1.notes.join(" ")).toMatch(/superscript/);
+    expect(differentiate(extractSingleEquation(q1.text)!)!.derivative).toBe("6*x + 4");
+    const q2 = foldPastedMath("Find the derivative of g(x) = 1/x2.", { stackedFractions: true });
+    expect(differentiate(extractSingleEquation(q2.text)!)!.derivative).toBe("-2/x^3");
+    const q3 = foldPastedMath("Find the derivative of f(x) = 5x3 - 2x2 + 7x - 9.", { stackedFractions: true });
+    expect(differentiate(extractSingleEquation(q3.text)!)!.derivative).toBe("15*x^2 - 4*x + 7");
+  });
+
+  test("a SYSTEM's x1/x2 variables are never rewritten, across lines included", () => {
+    // \s* in the repair regex crossed the newline and welded "= 3⏎x1" into
+    // "3x^1", destroying both equations — caught before ship, pinned forever.
+    const sys = foldPastedMath("x1 + x2 = 3\nx1 - x2 = 1", { stackedFractions: true });
+    expect(sys.text).toBe("x1 + x2 = 3\nx1 - x2 = 1");
+    expect(sys.notes.join(" ")).not.toMatch(/superscript/);
+  });
+
+  test("prose without an equals extracts the trailing expression only", () => {
+    const t = foldPastedMath("the derivative of 5x3 - 2x2 + 7x - 9", { stackedFractions: true }).text;
+    expect(extractExpression(t)).toBe("5x^3 - 2x^2 + 7x - 9");
+    // Prose words never leak into the expression as fake variables.
+    expect(extractExpression("only words here")).toBeNull();
+  });
+});
+
+describe("equation extraction from a pasted sentence (user-reported)", () => {
+  test("prose before the equation is dug out, not the user's deletion job", () => {
+    const paste = "A function f is defined by f(x) = 3x² + 4x - 2. For what values of x does f(x) = 0?";
+    const folded = foldPastedMath(paste, { extractFromProse: true }).text;
+    const ex = extractSingleEquation(folded);
+    expect(ex).toBe("f(x) = 3x² + 4x - 2");
+    const r = solveEquation(ex!);
+    expect(r!.method).toBe("exact (symbolic rearrangement)");
+    expect(r!.roots).toHaveLength(2);
+  });
+
+  test("a DEFINITION with no closed-form solve still extracts (the |x+4| case)", () => {
+    const ex = extractSingleEquation("A function f is defined by f(x) = |x + 4|.");
+    expect(ex).toBe("f(x) = |x + 4|");
+  });
+
+  test("pure prose with no equation extracts nothing", () => {
+    expect(extractSingleEquation("For what values of x is the graph not differentiable?")).toBeNull();
+  });
+});
+
+describe("trailing sentence punctuation (user-reported: 'f(x)=|x+ 4|.' answered NOTHING)", () => {
+  test("a full stop pasted from a problem statement is stripped, with a note", () => {
+    const f = foldPastedMath("f(x)=|x+ 4|.");
+    expect(f.text).toBe("f(x)=|x+ 4|");
+    expect(f.notes.join(" ")).toMatch(/punctuation/);
+    // …and the whole pipeline answers now.
+    expect(solveEquation(f.text)).not.toBeNull();
+    expect(solveEquation(foldPastedMath("x^2 = 4.").text)!.roots.map((r) => r.display)).toEqual(["2", "-2"]);
+  });
+
+  test("decimals and interior punctuation are untouched", () => {
+    expect(foldPastedMath("x = 4.5").text).toBe("x = 4.5");
+    expect(foldPastedMath("f(2.5, 3.5)").text).toBe("f(2.5, 3.5)");
+    // Only the END is stripped — a lone period input degrades to empty-safe.
+    expect(foldPastedMath("x = 4.5;").text).toBe("x = 4.5");
+  });
+});
 
 describe("math-italic letters (what a rendered equation copies as)", () => {
   test("𝑥² − 5𝑥 + 6 = 0 solves to 3 and 2", () => {

@@ -22,7 +22,7 @@ import {
 } from "../lib/palettes";
 import { mathToHtml } from "../lib/mathHtml";
 import { solveInputToTypesetLines, solveToTypesetDsl, isProseRequest } from "../lib/solveTypeset";
-import { foldPastedMath } from "../lib/pasteMath";
+import { foldPastedMath, extractSingleEquation } from "../lib/pasteMath";
 import { graphSeries, GraphWindow } from "../lib/graphCalc";
 import { buildPlotSvg } from "../lib/plot";
 import { solveEquation, differentiate, antiderivative, integrate, parseExpr, evalAst } from "../lib/solve";
@@ -279,15 +279,38 @@ Office.onReady(() => {
           for (const c of sys.caveats.slice(0, 2)) line(resultEl, c, "caveat");
           return;
         }
-        const r = solveEquation(folded, varChoice ?? undefined);
+        let dialogText = folded;
+        let r = solveEquation(dialogText, varChoice ?? undefined);
+        if (!r) {
+          // A pasted SENTENCE with the equation inside: dig it out, same as
+          // the pane. Deleting the prose by hand must not be the user's job.
+          const extracted = extractSingleEquation(dialogText);
+          if (extracted) {
+            r = solveEquation(extracted, varChoice ?? undefined);
+            if (r) {
+              dialogText = extracted;
+              line(resultEl, `Read the equation out of the sentence: ${extracted}`, "result-line");
+            }
+          }
+        }
         if (!r) {
           // An expression mid-composition is not an error — say what it needs.
-          parseExpr(folded.replace(/=[^\n]*$/, "").trim() || folded);
-          status.textContent = "Parses — add “= …” to make it an equation.";
+          // The probe parse can THROW (that is its purpose), but its raw
+          // message ('Unknown function "f"') must not be the whole answer:
+          // name the situation and the way out.
+          try {
+            parseExpr(folded.replace(/=[^\n]*$/, "").trim() || folded);
+            status.textContent = "Parses — add “= …” to make it an equation.";
+          } catch (probeErr) {
+            status.classList.add("bad");
+            status.textContent =
+              `Couldn't read this as an equation (${(probeErr as Error).message}) — ` +
+              "if it was pasted from a sentence, keep just the formula.";
+          }
           return;
         }
         line(resultEl, `Solved for ${r.variable} (${r.method})`, "result-title");
-        workLines(resultEl, equationWork(folded, r));
+        workLines(resultEl, equationWork(dialogText, r));
         for (const root of r.roots.slice(0, 6)) {
           mathLine(resultEl, `${r.variable} = ${root.display}`, `${r.variable} = ${root.display}`);
         }

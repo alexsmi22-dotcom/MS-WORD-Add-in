@@ -6,6 +6,41 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.114.0] — 2026-08-09 — The trailing full stop
+
+The REAL root cause of the user's report, found only when the probe
+used their EXACT pasted text: "f(x)=|x+ 4|." — with the sentence's
+full stop. One character made the pane answer NOTHING and the canvas
+surface a raw parser error. Every earlier probe had quietly tested the
+cleaned string; the instrument was lying about the input.
+
+### Fixed
+- Trailing sentence punctuation (. ; , ?) at the very end of pasted
+  input is stripped by the paste folder, with a note saying so.
+  Decimals and interior punctuation untouched (x = 4.5 stays 9/2).
+- The canvas's mid-composition probe no longer surfaces a raw
+  'Unknown function "f"' — it names the situation and the way out
+  ("if it was pasted from a sentence, keep just the formula").
+- **Prose before the equation is dug out** — "A function f is defined
+  by f(x) = 3x² + 4x − 2. For what values …" pasted whole now solves,
+  in the pane AND the canvas, with a step showing what was read out of
+  the sentence. Deleting the prose by hand is no longer the user's
+  job. The extractor also accepts function DEFINITIONS with no
+  closed-form solve (f(x) = |x+4|), and it moved out of the taskpane
+  into src/lib where the canvas can share it and the tests can see it.
+- **The Derivative box takes pasted questions whole** — "Find the
+  derivative of the function f(x) = 3x2 + 4x − 2." answers 6x + 4 with
+  the read-out-of-the-sentence step. Works with or without an "=" (the
+  =-less extractor rejects candidates still containing prose words,
+  which otherwise parse as fake variables).
+- **Degraded superscripts repaired** — many sites copy x² as plain
+  "3x2", which parsed as 3·(a variable named x2), silently wrong. The
+  paste folder rewrites digit·letter·digit shapes (3x2 → 3x²) and
+  coefficient-less ones (1/x2) when the same letter appears standalone
+  — always with a note, and never touching a system's genuine x1/x2
+  variables (a mid-development regex crossed a newline and welded a
+  two-line system into garbage; caught before ship and pinned).
+
 ## [2.113.0] — 2026-08-09 — The PLOT tool learns the same notation
 
 The user's "Unknown function f" turned out to come from the PLOT tool —

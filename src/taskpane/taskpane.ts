@@ -322,7 +322,7 @@ import { compositeShapeSvg, geometryFigureSvg, geometryFigureAlt, drawnShapesSvg
 import { DrawShape, sanitizeShapes, emitDsl as emitDrawDsl, shapesDescribeEmit } from "../lib/geometryDraw";
 import { trySum, tryAlgebraVerb } from "../lib/algebraTools";
 import { solveInputToTypesetLines, solveToTypesetDsl, isProseRequest } from "../lib/solveTypeset";
-import { foldPastedMath } from "../lib/pasteMath";
+import { foldPastedMath, extractSingleEquation, extractExpression } from "../lib/pasteMath";
 import { equationWork, derivativeWork, definiteIntegralWork, WorkLine } from "../lib/showWork";
 import { solveOdeSymbolic } from "../lib/odeSymbolic";
 import { solveWithUnits } from "../lib/unitSolve";
@@ -26820,33 +26820,10 @@ function parseBound(s: string): number {
  * off each end until both sides parse. It returns null rather than guessing, so
  * a sentence with no equation in it still reaches the honest refusal.
  */
-function extractEquation(text: string): string | null {
-  const eq = text.indexOf("=");
-  if (eq < 0) return null;
-  // Work on one line: an equation does not span a sentence break.
-  const lineStart = text.lastIndexOf("\n", eq) + 1;
-  const lineEndRaw = text.indexOf("\n", eq);
-  const line = text.slice(lineStart, lineEndRaw < 0 ? text.length : lineEndRaw);
-  const at = line.indexOf("=");
-  const leftWords = line.slice(0, at).split(/\s+/).filter(Boolean);
-  const rightWords = line.slice(at + 1).split(/\s+/).filter(Boolean);
-  // Longest first: prefer the fullest expression that still parses.
-  for (let l = 0; l < leftWords.length; l++) {
-    for (let rgt = rightWords.length; rgt > 0; rgt--) {
-      const cand = `${leftWords.slice(l).join(" ")} = ${rightWords.slice(0, rgt).join(" ")}`;
-      // Strip trailing punctuation a sentence leaves behind.
-      const clean = cand.replace(/[?.,;:]+\s*$/, "").trim();
-      if (!/[0-9a-zA-Z]/.test(clean)) continue;
-      try {
-        const probe = solveEquation(clean);
-        if (probe && (probe.roots.length > 0 || probe.method === "identity")) return clean;
-      } catch {
-        // keep trimming
-      }
-    }
-  }
-  return null;
-}
+// extractEquation moved to src/lib/pasteMath.ts (extractSingleEquation) so
+// the CANVAS can use it too and it is finally testable — a parser buried in
+// the taskpane is invisible to the whole suite (the recorded trap).
+const extractEquation = extractSingleEquation;
 
 /** Computes and renders the current solve request. */
 /**
@@ -26981,7 +26958,9 @@ function updateSolve(): void {
     // no other meaning (word problems ARE prose).
     extractFromProse: kind === "equation",
   });
-  const text = folded.text.trim();
+  // `let`, not `const`: the equation branch may narrow this to the equation
+  // it extracted from a pasted sentence.
+  let text = folded.text.trim();
   solvePasteNoteEl.textContent = text ? folded.notes.join(" ") : "";
   renderSolveTypeset(kind, text);
   solveResult.replaceChildren();
@@ -27142,7 +27121,23 @@ function updateSolve(): void {
       }
 
       let r = solveEquation(text);
+      let extracted: string | null = null;
+      if (!r) {
+        // "A function f is defined by f(x) = 3x² + 4x − 2. For what…" — the
+        // equation is IN there; deleting the prose by hand must not be the
+        // user's job. The word-problem kind's extractor digs it out.
+        extracted = extractEquation(text);
+        if (extracted) {
+          r = solveEquation(extracted);
+          text = extracted;
+        }
+      }
       if (!r) return void solveResult.appendChild(solveLine("Couldn't parse that equation. Try e.g. x^2 - 5x + 6 = 0."));
+      if (extracted) {
+        const note = `Read the equation out of the sentence: ${extracted}`;
+        solveResult.appendChild(solveLine(note));
+        say(note);
+      }
       // A chip choice re-solves for that unknown — the symbolic rearrangement
       // path (F = m*a solved for a gives a = F/m).
       if (solveVarChoice && r.unknowns && r.unknowns.length > 1 && r.unknowns.includes(solveVarChoice)) {
@@ -27268,7 +27263,21 @@ function updateSolve(): void {
         for (const st of sr.steps) { solveResult.appendChild(solveLine(st)); say(st); }
         return finish(sr.caveats);
       }
-      const r = differentiate(text);
+      let r = differentiate(text);
+      if (!r) {
+        // "Find the derivative of the function f(x) = 3x² + 4x − 2." pasted
+        // whole — dig the function out of the sentence, like the equation kind.
+        const ex = extractSingleEquation(text) ?? extractExpression(text);
+        if (ex) {
+          r = differentiate(ex);
+          if (r) {
+            const note = `Read out of the sentence: ${ex}`;
+            solveResult.appendChild(solveLine(note));
+            say(note);
+            text = ex;
+          }
+        }
+      }
       if (!r) return void solveResult.appendChild(solveLine("Couldn't parse that expression. Try e.g. sin(x^2)."));
       solveResult.appendChild(msEyebrow(`Derivative with respect to ${r.variable}`));
       solveResult.appendChild(solveLine(`f(${r.variable}) = ${r.expression}`, "ms-masses"));

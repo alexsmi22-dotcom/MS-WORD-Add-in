@@ -14,7 +14,7 @@
 // silent guess.
 
 import { latexToDsl } from "./latex";
-import { parseExpr } from "./solve";
+import { parseExpr, solveEquation } from "./solve";
 
 export interface FoldedMath {
   text: string;
@@ -402,5 +402,129 @@ export function foldPastedMath(input: string, opts: FoldOptions = {}): FoldedMat
     }
   }
 
+  // DEGRADED SUPERSCRIPTS: many sites render x² but their text copies as
+  // plain "3x2" — which would parse as 3·(a variable named x2), a silently
+  // WRONG reading. digit·letter·digit is unambiguous (a coefficient times a
+  // variable to a power); it is rewritten with a note. A bare "x2" without a
+  // coefficient is left alone — x2 is a legitimate variable name in systems.
+  if (opts.stackedFractions) {
+    let degraded = 0;
+    // [ \t]*, NOT \s*: \s crosses newlines, and "… = 3\nx1 …" — a two-line
+    // SYSTEM — was welded into "3x^1", destroying both equations at once.
+    s = s.replace(/(\d)[ \t]*([a-zA-Z])(\d+)\b/g, (_m, c: string, v: string, p: string) => {
+      degraded++;
+      return `${c}${v}^${p}`;
+    });
+    // The coefficient-less shape (1/x2, g(x) = 1/x2) rewrites only when the
+    // SAME letter also appears standalone in the input — that is what marks
+    // x2 as a degraded x² rather than a variable named x2 (a system's
+    // x1, x2 has no standalone x anywhere and is left alone).
+    for (const letter of new Set([...s.matchAll(/\b([a-zA-Z])(?=\d)/g)].map((m) => m[1]))) {
+      const standalone = new RegExp(`\\b${letter}\\b(?!\\d)`);
+      if (!standalone.test(s)) continue;
+      s = s.replace(new RegExp(`\\b(${letter})(\\d+)\\b`, "g"), (_m, v: string, p: string) => {
+        degraded++;
+        return `${v}^${p}`;
+      });
+    }
+    if (degraded) {
+      notes.push(
+        `Read ${degraded === 1 ? "a power that lost its superscript" : `${degraded} powers that lost their superscripts`} in the paste (3x2 → 3x²). If a variable named x2 was meant, write x_2.`
+      );
+    }
+  }
+
+  // TRAILING SENTENCE PUNCTUATION IS PROSE RESIDUE. A user pasting
+  // "f(x)=|x+4|." out of a problem statement carries the full stop along,
+  // and that one character made the pane answer NOTHING and the canvas show
+  // a raw parser error. The strip happens only at the very end of the input,
+  // so decimals and interior punctuation are untouched.
+  const stripped = s.replace(/\s*[.;,?]+\s*$/, "");
+  if (stripped !== s && stripped.trim()) {
+    notes.push("Trailing sentence punctuation was ignored.");
+    s = stripped;
+  }
+
   return { text: s, notes };
+}
+
+/**
+ * Digs the equation out of a single pasted SENTENCE: "A function f is defined
+ * by f(x) = 3x² + 4x − 2. For what values …" → "f(x) = 3x² + 4x − 2".
+ *
+ * Longest-parsing-candidate search around the "=", validated by actually
+ * SOLVING: a candidate counts when it has roots, is an identity, or is a
+ * function DEFINITION (which is a complete reading even when nothing
+ * isolates — f(x) = |x+4| has no closed-form x, and rejecting it made
+ * extraction fail exactly on the input a student pastes).
+ *
+ * Lives here (not the taskpane) so the pop-out canvas shares it and the test
+ * suite can see it — a parser buried in the taskpane is invisible to all
+ * 10,000 tests, a trap this repo has recorded.
+ */
+/**
+ * The =-less sibling of extractSingleEquation: "the derivative of
+ * 5x³ − 2x² + 7x − 9" has no equation, just an expression at the END of the
+ * prose. The longest word-suffix that parses (and actually contains the
+ * makings of mathematics) is the reading.
+ */
+const MATH_WORDS = new Set([
+  "sin", "cos", "tan", "asin", "acos", "atan", "sinh", "cosh", "tanh",
+  "sec", "csc", "cot", "exp", "ln", "log", "log10", "log2",
+  "sqrt", "cbrt", "abs", "pi", "theta", "alpha", "beta", "gamma", "omega",
+]);
+
+export function extractExpression(text: string): string | null {
+  const line = text.split("\n").find((l) => /[0-9^]/.test(l)) ?? text;
+  const words = line.trim().replace(/[?.,;:]+\s*$/, "").split(/\s+/).filter(Boolean);
+  for (let start = 0; start < words.length; start++) {
+    const cand = words.slice(start).join(" ");
+    if (!/[0-9^(]/.test(cand)) continue; // pure words are prose, not math
+    // PROSE WORDS PARSE AS VARIABLES — "the derivative of 5x^3" reads as
+    // the·derivative·of·5x³ and "parses" perfectly, then differentiates to
+    // garbage. Any multi-letter word that is not a known function or
+    // constant marks the candidate as still containing prose.
+    const alphaWords = cand.match(/[a-zA-Z]{2,}/g) ?? [];
+    if (alphaWords.some((w) => !MATH_WORDS.has(w.toLowerCase()))) continue;
+    try {
+      parseExpr(cand);
+      return cand;
+    } catch {
+      // shift right and retry
+    }
+  }
+  return null;
+}
+
+export function extractSingleEquation(text: string): string | null {
+  const eq = text.indexOf("=");
+  if (eq < 0) return null;
+  // Work on one line: an equation does not span a sentence break.
+  const lineStart = text.lastIndexOf("\n", eq) + 1;
+  const lineEndRaw = text.indexOf("\n", eq);
+  const line = text.slice(lineStart, lineEndRaw < 0 ? text.length : lineEndRaw);
+  const at = line.indexOf("=");
+  const leftWords = line.slice(0, at).split(/\s+/).filter(Boolean);
+  const rightWords = line.slice(at + 1).split(/\s+/).filter(Boolean);
+  // Longest first: prefer the fullest expression that still parses.
+  for (let l = 0; l < leftWords.length; l++) {
+    for (let rgt = rightWords.length; rgt > 0; rgt--) {
+      const cand = `${leftWords.slice(l).join(" ")} = ${rightWords.slice(0, rgt).join(" ")}`;
+      // Strip trailing punctuation a sentence leaves behind.
+      const clean = cand.replace(/[?.,;:]+\s*$/, "").trim();
+      if (!/[0-9a-zA-Z]/.test(clean)) continue;
+      try {
+        const probe = solveEquation(clean);
+        if (
+          probe &&
+          (probe.roots.length > 0 ||
+            probe.method === "identity" ||
+            probe.steps.some((s2) => s2.includes("function DEFINITION")))
+        ) return clean;
+      } catch {
+        // keep trimming
+      }
+    }
+  }
+  return null;
 }

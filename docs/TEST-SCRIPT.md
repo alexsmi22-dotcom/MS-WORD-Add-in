@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.110.0)
+# JurisLab — Manual Test Script (v2.111.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -9,6 +9,19 @@ scanning, and layout. Budget ~30 minutes for the full pass.
 Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
+
+## 0bo. New in v2.111.0 — powers, sums, verbs
+
+Solve → Equation kind.
+
+- [ ] `V = (4/3)*pi*r^3` → solve-for chips; pick r → `cbrt(3*V/4/pi)` with the
+  odd-root note. `E = s*T^4` → T gives the ± pair + the ≥ 0 condition.
+- [ ] `sum of 1 to 100` → 5050. `sum k^2 from 1 to n` → n(n+1)(2n+1)/6 typeset.
+  `sum 1/k from 1 to n` → refused by name (harmonic).
+- [ ] `factor x^2 - 5x + 6` → (x − 2)(x − 3); `factor x^2 - 2` → unchanged with
+  "no RATIONAL roots" stated; `expand (x+1)^3` → x³ + 3x² + 3x + 1;
+  `simplify (x^2-1)/(x-1)` → x + 1.
+- [ ] Insert a factored result → lands typeset in Word.
 
 ## 0bn. New in v2.110.0 — the equation engine, comprehensive
 

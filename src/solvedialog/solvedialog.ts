@@ -41,6 +41,7 @@ import {
   DRAW_VIEW, shapesDescribeEmit,
 } from "../lib/geometryDraw";
 import { fitSketch, SketchPt, FitResult } from "../lib/sketchFit";
+import { trySum, tryAlgebraVerb } from "../lib/algebraTools";
 import { sketchSurfaceSvg, sketchFitSvg, skSnapPt, SK_VIEW, SK_X0, SK_X1, SK_Y0, SK_Y1 } from "../lib/sketchChart";
 
 type Kind = "equation" | "derivative" | "integral" | "ode" | "geometry";
@@ -219,6 +220,23 @@ Office.onReady(() => {
       }
 
       if (kind === "equation") {
+        // Sums and algebra verbs first — word-led, unambiguous (same order as
+        // the pane's dispatch).
+        const sum = trySum(folded);
+        if (sum) {
+          line(resultEl, sum.title, "result-title");
+          mathLine(resultEl, `= ${sum.display}`, `= ${sum.display}`);
+          for (const s of sum.steps.slice(0, 3)) line(resultEl, s, "result-line");
+          for (const c of sum.caveats.slice(0, 2)) line(resultEl, c, "caveat");
+          return;
+        }
+        const verb = tryAlgebraVerb(folded);
+        if (verb) {
+          line(resultEl, verb.title, "result-title");
+          for (const l of verb.lines) mathLine(resultEl, l.text, l.text);
+          for (const c of verb.caveats.slice(0, 2)) line(resultEl, c, "caveat");
+          return;
+        }
         if (/[<>≤≥≠]|!=/.test(folded) && !folded.includes("\n")) {
           const iq = solveInequality(folded);
           if (!iq) return void (status.textContent = "Not readable as an inequality yet.");

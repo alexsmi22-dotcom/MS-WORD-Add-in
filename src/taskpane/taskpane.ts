@@ -320,6 +320,7 @@ import {
 import { solveComposite, qtyToNumber, qtyExact } from "../lib/compositeGeometry";
 import { compositeShapeSvg, geometryFigureSvg, geometryFigureAlt, drawnShapesSvg } from "../lib/geometryChart";
 import { DrawShape, sanitizeShapes, emitDsl as emitDrawDsl, shapesDescribeEmit } from "../lib/geometryDraw";
+import { trySum, tryAlgebraVerb } from "../lib/algebraTools";
 import { solveInputToTypesetLines, solveToTypesetDsl, isProseRequest } from "../lib/solveTypeset";
 import { foldPastedMath } from "../lib/pasteMath";
 import { equationWork, derivativeWork, definiteIntegralWork, WorkLine } from "../lib/showWork";
@@ -26615,7 +26616,11 @@ function updateSolveUi(): void {
       "EXACT ANSWERS: x^2 = 2 → ±sqrt(2) · 3x = 1 → 1/3 · 5^x = 3 → ln(3)/ln(5) · 2^x = 8 → 3. " +
       "TRIG solves give the GENERAL families: sin(x) = 1/2 → x = pi/6 + 2πn and 5pi/6 + 2πn " +
       "(sec/csc/cot too, and ½-style glyphs read fine). " +
-      "CHAINED inequalities: -3 < 2x+1 <= 7 → (-2, 3] · ABSOLUTE VALUE: abs(x-1) < 3 · abs(x) >= 2.",
+      "CHAINED inequalities: -3 < 2x+1 <= 7 → (-2, 3] · ABSOLUTE VALUE: abs(x-1) < 3 · abs(x) >= 2. " +
+      "SUMS: sum of 1 to 100 · sum k^2 from 1 to n (closed forms; Σ1/k refused by name). " +
+      "VERBS: factor x^2-5x+6 · expand (x+1)^3 · simplify (x^2-1)/(x-1) — every result verified " +
+      "by multiplying back. POWERS rearrange: V = (4/3)π r^3 solves for r as a cube root; " +
+      "even powers give the ± pair with the ≥ 0 condition stated.",
     derivative: "Use ^ for powers — e.g. x^2, exp(x), sin(x^2). Pasted superscripts like x² also work. " +
       "This box also takes LIMITS — limit sin(x)/x as x -> 0, lim 1/x as x -> inf, limit 1/x as x -> 0+ — " +
       "and SERIES: taylor exp(x) order 5, maclaurin sin(x), series sqrt(x) about 1 order 4.",
@@ -27029,6 +27034,31 @@ function updateSolve(): void {
 
   try {
     if (kind === "equation") {
+      // FINITE SUMS ("sum k^2 from 1 to n") and the ALGEBRA VERBS
+      // (factor / expand / simplify) are word-led and unambiguous — checked
+      // before anything could misread them as equations.
+      const sum = trySum(text);
+      if (sum) {
+        solveResult.appendChild(msEyebrow(sum.title));
+        say(sum.title, "heading");
+        const line = `= ${sum.display}${sum.numeric !== undefined && sum.display !== trimNum(sum.numeric) ? `  ≈ ${trimNum(sum.numeric)}` : ""}`;
+        solveResult.appendChild(solveLine(line, "ms-masses"));
+        if (/[a-z(]/i.test(sum.display)) sayMath(`${sum.title}: ${sum.display}`, line);
+        else say(line);
+        for (const s of sum.steps) { solveResult.appendChild(solveLine(s)); say(s); }
+        return finish(sum.caveats);
+      }
+      const verb = tryAlgebraVerb(text);
+      if (verb) {
+        solveResult.appendChild(msEyebrow(verb.title));
+        say(verb.title, "heading");
+        for (const l of verb.lines) {
+          solveResult.appendChild(solveLine(l.text, "ms-masses"));
+          if (l.math) sayMath(l.text, l.text);
+          else say(l.text);
+        }
+        return finish(verb.caveats);
+      }
       // An INEQUALITY is unambiguous from its comparison sign.
       if (/[<>≤≥≠]|!=/.test(text) && !text.includes("\n")) {
         const iq = solveInequality(text);

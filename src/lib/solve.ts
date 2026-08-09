@@ -2080,8 +2080,11 @@ export function solveEquation(input: string, variable?: string, range = 1000): E
         symbolic: true,
       }));
       steps.push(
-        `${sym.kind === "linear" ? "Linear" : "Quadratic"} in ${x} once rearranged; solved in closed form` +
-          (others.length ? ` with ${others.join(", ")} carried through symbolically.` : ".")
+        sym.kind === "power"
+          ? `Isolated ${x}^${sym.power} and took the ${sym.power! % 2 ? "odd" : "even"} root` +
+            (others.length ? `, with ${others.join(", ")} carried through symbolically.` : ".")
+          : `${sym.kind === "linear" ? "Linear" : "Quadratic"} in ${x} once rearranged; solved in closed form` +
+            (others.length ? ` with ${others.join(", ")} carried through symbolically.` : ".")
       );
       steps.push(
         sym.verified
@@ -2089,10 +2092,22 @@ export function solveEquation(input: string, variable?: string, range = 1000): E
           : "Verified by substituting back at sample values of the other symbols."
       );
       for (const c of sym.nonzeroConditions) {
+        // A condition that EVALUATES to a nonzero constant (4π/3) is trivially
+        // true — stating it as a requirement is noise that trains people to
+        // skip the real ones.
+        try {
+          const v = evalAst(c, {});
+          if (Number.isFinite(v) && v !== 0) continue;
+        } catch { /* has symbols — a genuine condition */ }
         caveats.push(`Requires ${format(c)} ≠ 0 — the rearrangement divides by it.`);
       }
       if (sym.discriminant) {
         caveats.push(`The two roots are the ± branches of the quadratic formula; they are real when ${format(sym.discriminant)} ≥ 0.`);
+      }
+      if (sym.realityCondition) {
+        caveats.push(`An even power is never negative, so the ± pair is real only when ${format(sym.realityCondition)} ≥ 0.`);
+      } else if (sym.kind === "power") {
+        caveats.push(`An odd power has exactly ONE real root, for any sign of the right-hand side.`);
       }
       return { variable: x, roots, method: "exact (symbolic rearrangement)", steps, caveats, unknowns: vars };
     }

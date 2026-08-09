@@ -6,6 +6,51 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.111.0] — 2026-08-09 — Powers, sums and the algebra verbs
+
+The rest of the equation audit's ranked list.
+
+### Added
+- **Power isolation in symbolic rearrangement**: V = (4/3)πr³ solves
+  for r → cbrt(3V/(4π)); E = σT⁴ for T → the ± fourth-root pair with
+  "an even power is never negative, so the pair is real only when
+  E/σ ≥ 0" STATED; odd powers note their single real root. Numeric
+  power equations keep the complete Durand–Kerner path (x³ = 8 still
+  returns all three roots); a middle term still refuses honestly.
+- **Finite sums with closed forms**: sum of 1 to 100 → 5050 (exact
+  bigints, any bounds incl. negative; the empty sum says it is empty);
+  sum k^2 from 1 to n → n(n+1)(2n+1)/6; k³ as the squared triangular
+  number; geometric series exact for numeric bases and as the formula
+  (r ≠ 1 stated) for symbolic ones. Σ 1/k is REFUSED BY NAME — the
+  harmonic series has no elementary closed form, and saying so is the
+  answer.
+- **factor / expand / simplify verbs**, routed to machinery the CAS
+  has had all along: rational-root factoring with multiplicity
+  ((x−1)³ recognised, common factors pulled, x⁴−1 →
+  (x−1)(x+1)(x²+1)), exact expansion, CAS canonicalisation. Factor
+  claims only RATIONAL factorisation and says whether "no rational
+  roots" was proven or capped. EVERY factored and expanded result is
+  verified by multiplying back before it is shown — a factorisation
+  that does not multiply back is discarded, not displayed.
+
+### Notes
+- Independent adversarial pass (400-case sum fuzz vs brute force clean;
+  every power-isolation root verified at positive AND negative
+  parameters; factor/expand outputs independently re-multiplied) found
+  5 defects, fixed and pinned: (1) HIGH — negative sum bounds looped
+  once per term, so a pasted "sum k from -1000000000 to 0" was a
+  frozen Word; the negative prefix is now a closed form (instant);
+  (2) a zero-denominator geometric base threw a raw CasBail;
+  (3) equations whose VARIABLE is named sum/factor ("sum = 4") were
+  stolen from the equation solver — no sum/verb grammar contains "=",
+  so they now fall through; (4) a malformed base ("2.5.3") was
+  silently misread as 2.5; (5) correct big expansions ((x+1)^58+) were
+  refused by their own float verification — verification is exact now,
+  and coefficients past 2⁵³ carry a precision caveat instead of a
+  refusal. Plus: −1 leads factor as a bare minus, trivially-true
+  ≠ 0 conditions (4π/3) are no longer stated, and simplify carries a
+  0/0 domain caveat when it cancels a division.
+
 ## [2.110.0] — 2026-08-09 — The equation engine, comprehensive
 
 An audit of the whole solve surface (~70 probes, all verified by

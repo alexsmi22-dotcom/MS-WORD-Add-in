@@ -776,7 +776,11 @@ export interface SymbolicSolution {
   nonzeroConditions: Expr[];
   /** For quadratics: the discriminant, which must be ≥ 0 for real roots. */
   discriminant?: Expr;
-  kind: "linear" | "quadratic";
+  kind: "linear" | "quadratic" | "power";
+  /** For the power kind: the isolated exponent n in x^n = RHS. */
+  power?: number;
+  /** For an EVEN power: the RHS, which must be ≥ 0 for the ± pair to be real. */
+  realityCondition?: Expr;
   /** True when substitution back into f gives canonical 0 (linear only —
    *  quadratics are verified numerically by the caller). */
   verified: boolean;
@@ -822,9 +826,45 @@ export function solveRationalInVar(f: Expr, x: string): SymbolicSolution | null 
     byDeg.set(k, list);
   }
   const deg = Math.max(...byDeg.keys(), 0);
-  if (deg < 1 || deg > 2) return null;
   const coeff = (k: number): Poly => pNorm(byDeg.get(k) ?? []);
   const b0 = coeff(0), b1 = coeff(1);
+
+  if (deg > 2) {
+    // MONOMIAL isolation: bN·x^n + b0 = 0 with nothing in between — the shape
+    // of V = (4/3)πr³ solved for r, E = σT⁴ solved for T. An odd power has ONE
+    // real root; an even power a ± pair that is real only when the isolated
+    // power comes out ≥ 0 — a condition that is STATED, never assumed.
+    const middle = [...byDeg.keys()].some((k) => k !== 0 && k !== deg && coeff(k).length > 0);
+    if (middle || deg > 64) return null;
+    const bN = coeff(deg);
+    if (!bN.length) return null;
+    if (!pIsConst(bN)) nonzeroConditions.push(condExpr(bN));
+    const rhs = rfNorm(pNeg(b0), bN); // x^n = rhs
+    const rhsExpr = rfToExpr(rhs, ctx);
+    const simp = (e: Expr): Expr => {
+      try { return casSimplify(e); } catch (err) {
+        if (err instanceof CasBail) return e;
+        throw err;
+      }
+    };
+    const root: Expr = deg === 3
+      ? { t: "fn", name: "cbrt", arg: rhsExpr }
+      : deg === 2
+        ? { t: "fn", name: "sqrt", arg: rhsExpr }
+        : { t: "pow", l: rhsExpr, r: { t: "div", l: N(1), r: N(deg) } };
+    if (deg % 2 === 1) {
+      return { roots: [simp(root)], nonzeroConditions, kind: "power", power: deg, verified: false };
+    }
+    return {
+      roots: [simp(root), { t: "neg", e: simp(root) }],
+      nonzeroConditions,
+      kind: "power",
+      power: deg,
+      realityCondition: rhsExpr,
+      verified: false,
+    };
+  }
+  if (deg < 1) return null;
 
   if (deg === 1) {
     // b1·x + b0 = 0  →  x = −b0/b1, requiring b1 ≠ 0.

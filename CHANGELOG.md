@@ -6,6 +6,20 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.115.0] — 2026-08-09 — The question says what to DO
+
+"Find the derivative of f(x) = 3x² + 4x − 2" pasted into the equation
+kind was answered by SOLVING the equation — technically responsive,
+actually wrong (user-reported).
+
+### Added
+- Intent routing: when the pasted prose names the task (derivative /
+  differentiate, integral / integrate / antiderivative), the pane
+  SWITCHES to that kind, says so, and answers the question that was
+  asked. The pop-out canvas (whose kind is fixed) answers inline with
+  the same note. The switch happens only when the extracted content
+  actually differentiates/integrates — garbage never flips the kind.
+
 ## [2.114.0] — 2026-08-09 — The trailing full stop
 
 The REAL root cause of the user's report, found only when the probe

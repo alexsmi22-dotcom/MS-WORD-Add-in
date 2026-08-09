@@ -27013,6 +27013,25 @@ function updateSolve(): void {
 
   try {
     if (kind === "equation") {
+      // THE QUESTION SAYS WHAT TO DO. "Find the derivative of f(x) = …"
+      // pasted into the equation kind was answered by SOLVING the equation —
+      // technically responsive, actually wrong. When the prose names the
+      // task, switch to that kind and answer the question that was asked.
+      const wantsDerivative = /\b(derivative|differentiate)\b/i.test(text);
+      const wantsIntegral = /\b(integral|integrate|antiderivative)\b/i.test(text);
+      if (wantsDerivative || wantsIntegral) {
+        const ex = extractSingleEquation(text) ?? extractExpression(text);
+        const works = ex && (wantsDerivative ? differentiate(ex) !== null : antiderivative(ex) !== null);
+        if (works) {
+          const target: SolveKind = wantsDerivative ? "derivative" : "integral";
+          solveKind.value = target;
+          updateSolveUi();
+          updateSolve();
+          const note = `The question asks for ${wantsDerivative ? "a DERIVATIVE" : "an INTEGRAL"} — switched to the ${wantsDerivative ? "Derivative" : "Integral"} kind and answered that.`;
+          solveResult.insertBefore(solveLine(note), solveResult.firstChild);
+          return;
+        }
+      }
       // FINITE SUMS ("sum k^2 from 1 to n") and the ALGEBRA VERBS
       // (factor / expand / simplify) are word-led and unambiguous — checked
       // before anything could misread them as equations.

@@ -22,7 +22,7 @@ import {
 } from "../lib/palettes";
 import { mathToHtml } from "../lib/mathHtml";
 import { solveInputToTypesetLines, solveToTypesetDsl, isProseRequest } from "../lib/solveTypeset";
-import { foldPastedMath, extractSingleEquation } from "../lib/pasteMath";
+import { foldPastedMath, extractSingleEquation, extractExpression } from "../lib/pasteMath";
 import { graphSeries, GraphWindow } from "../lib/graphCalc";
 import { buildPlotSvg } from "../lib/plot";
 import { solveEquation, differentiate, antiderivative, integrate, parseExpr, evalAst } from "../lib/solve";
@@ -220,6 +220,21 @@ Office.onReady(() => {
       }
 
       if (kind === "equation") {
+        // The question says what to DO: "Find the derivative of …" pasted
+        // here must answer with the derivative, not solve the equation the
+        // prose happens to contain. The canvas cannot switch kinds (its kind
+        // is fixed by the URL), so it answers inline.
+        if (/\b(derivative|differentiate)\b/i.test(folded)) {
+          const ex = extractSingleEquation(folded) ?? extractExpression(folded);
+          const d = ex ? differentiate(ex) : null;
+          if (d) {
+            line(resultEl, "The question asks for a DERIVATIVE — answered as one.", "result-line");
+            line(resultEl, `Read out of the sentence: ${ex}`, "result-line");
+            mathLine(resultEl, `f'(${d.variable}) = ${d.derivative}`, `f'(${d.variable}) = ${d.derivative}`);
+            for (const c of d.caveats.slice(0, 2)) line(resultEl, c, "caveat");
+            return;
+          }
+        }
         // Sums and algebra verbs first — word-led, unambiguous (same order as
         // the pane's dispatch).
         const sum = trySum(folded);

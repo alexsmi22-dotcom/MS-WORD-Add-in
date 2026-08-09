@@ -6,7 +6,7 @@
 // closed forms, chained and absolute-value inequalities, reciprocal trig,
 // vulgar-fraction glyphs.
 
-import { solveEquation, parseExpr, evalAst } from "../solve";
+import { solveEquation, parseExpr, evalAst, differentiate, antiderivative } from "../solve";
 import { solveInequality } from "../inequalities";
 
 const displays = (eq: string): string[] => solveEquation(eq)!.roots.map((r) => r.display);
@@ -225,6 +225,54 @@ describe("input forms", () => {
   test("Word's own ½ glyph parses", () => {
     const r = solveEquation("sin(x) = ½")!;
     expect(r.roots.map((k) => k.display)).toEqual(["pi/6", "5*pi/6"]);
+  });
+
+  test("textbook |·| bars fold to abs, nested in BOTH orientations (user-reported)", () => {
+    expect(solveEquation("|x + 4| = 2")!.roots.map((k) => k.display)).toEqual(["-2", "-6"]);
+    expect(solveEquation("||x| - 2| = 1")!.roots.map((k) => k.display).sort()).toEqual(["-1", "-3", "1", "3"]);
+    // The other orientation — inner group at the END — broke the first cut.
+    expect(solveEquation("|5 - |x|| = 3")!.roots.map((k) => Number(k.display)).sort((a, b) => a - b))
+      .toEqual([-8, -2, 2, 8]);
+    const iq = solveInequality("|x - 1| < 3")!;
+    expect(iq.display).toBe("(-2, 4)");
+    // NESTED-abs inequalities are beyond the one-layer case split — they
+    // refuse (null → the pane's named message) rather than answer wrong.
+    // The nested EQUATION above does solve; this asymmetry is a recorded
+    // limitation, not an accident.
+    expect(solveInequality("|5 - |x|| < 3")).toBeNull();
+    // A stray single bar is refused, not guessed at.
+    expect(solveEquation("|x + 4 = 2")).toBeNull();
+    // Sums and products of bars keep their own pairs.
+    expect(solveEquation("|x| + |x - 2| = 2")).not.toBeNull();
+  });
+
+  test("Word's auto-capitalised Sin(x) stays an EQUATION-shaped refusal, never a definition", () => {
+    // "Sin(x) = 1/2" answered y = 1/2 [exact] in the first cut.
+    expect(solveEquation("Sin(x) = 1/2")).toBeNull();
+    expect(solveEquation("Log(x) = 100")).toBeNull();
+  });
+
+  test("a definition solves for ITS variable by default, and integrates too", () => {
+    const r = solveEquation("f(x) = 2*x + 1")!;
+    expect(r.variable).toBe("x");
+    expect(r.roots.length).toBeGreaterThan(0); // x = (y − 1)/2, symbolic
+    const anti = antiderivative("f(x) = x^2");
+    expect(anti).not.toBeNull();
+    expect(anti!.antiderivative).toContain("x^3");
+  });
+
+  test("f(x) = … is read as a function DEFINITION (user-reported)", () => {
+    const r = solveEquation("f(x) = abs(x + 4)")!;
+    expect(r.steps[0]).toMatch(/function DEFINITION/);
+    // Solving the definition for x carries y through symbolically.
+    const solved = solveEquation("f(x) = x^2 - 4", "x")!;
+    expect(solved.roots.length).toBe(2);
+    expect(solved.roots[0].display).toContain("sqrt");
+    // sin(x) = 1/2 is an EQUATION, not a definition named sin.
+    expect(solveEquation("sin(x) = 1/2")!.method).toBe("trig (general solution)");
+    // The derivative box takes the pasted definition whole.
+    const d = differentiate("f(x) = |x + 4|")!;
+    expect(d.derivative).toBe("(x + 4)/abs(x + 4)");
   });
 
   test("sec/csc/cot differentiate too — the fn tables stay in step", () => {

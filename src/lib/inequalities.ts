@@ -16,7 +16,7 @@
 // numerator is INCLUDED for ≤ and ≥ and EXCLUDED for < and >; a root of the
 // denominator is excluded either way.
 
-import { parseExpr, evalAst, format, Expr, domainHoles } from "./solve";
+import { parseExpr, evalAst, format, Expr, domainHoles, foldAbsBars } from "./solve";
 import {
   Rat, ratToNumber, ratIsZero, ratFromNumber,
   ratFunctionInVar, ratPolyRoots, ratPolyEval,
@@ -251,7 +251,11 @@ function solveAbsInequality(text: string, variable?: string): InequalityResult |
  * Returns null when the expression is not a rational function of one variable —
  * transcendental inequalities are refused rather than approximated.
  */
-export function solveInequality(text: string, variable?: string): InequalityResult | null {
+export function solveInequality(textRaw: string, variable?: string): InequalityResult | null {
+  // |x − 1| < 3 must reach the abs machinery, whose shape test reads the TEXT
+  // — so the bar fold happens here, before any dispatch, not only in the
+  // parser.
+  const text = foldAbsBars(textRaw);
   // Chained (-3 < 2x+1 <= 7) and absolute-value shapes first — both reduce to
   // ordinary inequalities and set operations on the results.
   const chained = solveChained(text, variable);

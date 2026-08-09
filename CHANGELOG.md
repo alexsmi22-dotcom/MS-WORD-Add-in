@@ -6,6 +6,36 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.112.0] — 2026-08-09 — Textbook notation: |bars| and f(x) = …
+
+Straight from a user hitting the wall with f(x) = |x + 4|.
+
+### Added
+- **Vertical-bar absolute value**: |x + 4| = 2 now parses everywhere —
+  folded innermost-first so nested bars work (||x| − 2| = 1 answers all
+  four roots), in equations, inequalities (|x − 1| < 3 reaches the
+  abs machinery), and every other box. A stray single bar is refused,
+  not guessed at.
+- **Function-definition notation**: f(x) = x² − 4 is read as the
+  DEFINITION it is — a step says "y stands for the output f(x)", it
+  solves for the definition's own variable by default, the solve-for
+  chips offer y, and the derivative, antiderivative and integral boxes
+  all accept the pasted definition whole. sin(x) = 1/2 is still an
+  equation — known function names never trigger the definition reading.
+
+### Notes
+- Independent adversarial pass found 2 defects in the first cut, fixed
+  and pinned: (1) nesting only held one orientation — |5 − |x|| = 3
+  mangled and refused (the fold is now a proper open/close bar lexer,
+  with adjacent bars inheriting their neighbour's role); (2) Word's
+  sentence-start AutoCorrect made "Sin(x) = 1/2" read as a definition
+  and answer y = 1/2 with confidence — function-name matching is
+  case-insensitive now, so it refuses informatively again. It also
+  verified the bar fold cannot touch any other grammar (logic OR,
+  matrix determinants, geometry, units all use their own tokenizers).
+  Recorded limitation: NESTED-abs inequalities refuse (one case-split
+  layer) while the nested equations solve.
+
 ## [2.111.0] — 2026-08-09 — Powers, sums and the algebra verbs
 
 The rest of the equation audit's ranked list.

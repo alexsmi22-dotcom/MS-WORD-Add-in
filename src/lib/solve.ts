@@ -260,8 +260,64 @@ const VULGAR: Record<string, string> = {
   "⅙": "(1/6)", "⅚": "(5/6)", "⅛": "(1/8)", "⅜": "(3/8)", "⅝": "(5/8)", "⅞": "(7/8)",
 };
 
+/**
+ * |x + 4| → abs(x + 4), with nesting in BOTH orientations: ||x| − 2| and
+ * |5 − |x|| both fold correctly. A leftmost-pair regex cannot do this — in
+ * |5 − |x|| it pairs the first two bars around "5 − " — so each bar is
+ * classified as OPENING or CLOSING the way a lexer would: a bar after an
+ * operator, an open paren, or at the start OPENS; a bar after a value CLOSES
+ * the most recent open. Unmatched bars are left for the parser to refuse by
+ * name — guessing where the other bar "should" be would silently change the
+ * expression.
+ */
+export function foldAbsBars(s: string): string {
+  if (!s.includes("|")) return s;
+  const chars = [...s];
+  const openStack: number[] = [];
+  const pairs: [number, number][] = [];
+  // A bar directly after another bar INHERITS that bar's role: in ||x| − 2|
+  // the second bar opens (its neighbour opened); in |5 − |x|| the last bar
+  // closes (its neighbour closed). Without this, adjacent bars mispair.
+  let lastRole: "open" | "close" | null = null;
+  for (let i = 0; i < chars.length; i++) {
+    if (chars[i] !== "|") continue;
+    // The previous non-space character decides the role.
+    let j = i - 1;
+    while (j >= 0 && chars[j] === " ") j--;
+    const prev = j >= 0 ? chars[j] : "";
+    const opens =
+      openStack.length === 0 ||
+      prev === "" || "(+-*/^,=<>".includes(prev) ||
+      (prev === "|" && lastRole === "open");
+    if (opens) {
+      openStack.push(i);
+      lastRole = "open";
+    } else {
+      pairs.push([openStack.pop()!, i]);
+      lastRole = "close";
+    }
+  }
+  if (!pairs.length) return s;
+  // Per-character substitution — an opening bar becomes "abs(", a closing bar
+  // ")". No index ever shifts, so nesting needs no bookkeeping at all.
+  const openAt = new Set<number>();
+  const closeAt = new Set<number>();
+  for (const [a, b] of pairs) {
+    if (b - a < 2) continue; // "||" — empty, left for the parser to refuse
+    openAt.add(a);
+    closeAt.add(b);
+  }
+  let out = "";
+  for (let i = 0; i < chars.length; i++) {
+    if (openAt.has(i)) out += "abs(";
+    else if (closeAt.has(i)) out += ")";
+    else out += chars[i];
+  }
+  return out;
+}
+
 export function normalizeUnicodeMath(input: string): string {
-  const folded = input
+  const folded = foldAbsBars(input)
     // Vulgar-fraction glyphs first — Word's AutoFormat turns a typed 1/2 into
     // ½, so "sin(x) = ½" is what the product's own display habit produces, and
     // it parsed to NOTHING. Parenthesised so it stays one number.
@@ -1977,7 +2033,39 @@ function verifySymbolicRoots(f: Expr, x: string, roots: Expr[], others: string[]
  * is treated as "= 0"). Linear/quadratic are exact; anything else is solved
  * numerically over a real interval. Returns null if the input cannot be parsed.
  */
+/**
+ * "f(x) = body" is a FUNCTION DEFINITION, the textbook's own notation — and
+ * it parsed to NOTHING ('Unknown function "f"'). When the name is a single
+ * unknown function of one bare variable, the definition is read as
+ * y = body (or the function's own name if y is taken), with a step saying so.
+ */
+function readFnDefinition(input: string): { rewritten: string; arg: string; body: string; note: string } | null {
+  const m = /^\s*([a-zA-Z]\w*)\s*\(\s*([a-zA-Z]\w*)\s*\)\s*=\s*([^=]+)$/.exec(input);
+  if (!m) return null;
+  const [, name, arg, body] = m;
+  // CASE-INSENSITIVE: Word's sentence-start AutoCorrect makes "Sin(x) = 1/2"
+  // routine, and reading it as a definition answered y = 1/2 with confidence.
+  const lower = name.toLowerCase();
+  if (lower in EVAL_FN || lower === "pi" || lower === "e") return null; // sin(x) = 1/2 is an EQUATION
+  if (!body.trim()) return null;
+  const out = body.includes("y") || arg === "y" ? name : "y";
+  return {
+    rewritten: `${out} = ${body}`,
+    arg,
+    body,
+    note: `Read “${name}(${arg}) = …” as a function DEFINITION: ${out} stands for the output ${name}(${arg}).`,
+  };
+}
+
 export function solveEquation(input: string, variable?: string, range = 1000): EquationResult | null {
+  const fnDef = readFnDefinition(input);
+  if (fnDef) {
+    // Default to the DEFINITION'S variable: f(x) = 2x + 1 solves for x
+    // straight away (the solve-for chips still offer y).
+    const inner = solveEquation(fnDef.rewritten, variable ?? fnDef.arg, range);
+    if (!inner) return null;
+    return { ...inner, steps: [fnDef.note, ...inner.steps] };
+  }
   let lhs: Expr, rhs: Expr;
   try {
     const parts = input.split("=");
@@ -2378,6 +2466,10 @@ export interface DerivativeResult {
 
 /** Symbolic derivative of `input` with respect to `variable` (default: the sole free variable, else x). */
 export function differentiate(input: string, variable?: string): DerivativeResult | null {
+  // "f(x) = |x + 4|" pasted whole into the derivative box: differentiate the
+  // BODY of the definition (with respect to its stated variable).
+  const fnDef = readFnDefinition(input);
+  if (fnDef) return differentiate(fnDef.body, variable ?? fnDef.arg);
   let e: Expr;
   try { e = parseExpr(input); } catch { return null; }
   const vars = freeVars(e);
@@ -2460,6 +2552,10 @@ export interface AntiderivativeResult {
  * hand. This function cannot tell the two apart, so it claims neither.
  */
 export function antiderivative(input: string, variable?: string): AntiderivativeResult | null {
+  // The same courtesy differentiate() extends: a pasted definition
+  // f(x) = body integrates its body.
+  const fnDef = readFnDefinition(input);
+  if (fnDef) return antiderivative(fnDef.body, variable ?? fnDef.arg);
   let e: Expr;
   try { e = parseExpr(input); } catch { return null; }
   const vars = freeVars(e);
@@ -3087,6 +3183,8 @@ function signContradiction(e: Expr, x: string, a: number, b: number, value: numb
  * closed-form antiderivative. Returns null if the input cannot be parsed.
  */
 export function integrate(input: string, a: number, b: number, variable?: string): IntegralResult | null {
+  const fnDef = readFnDefinition(input);
+  if (fnDef) return integrate(fnDef.body, a, b, variable ?? fnDef.arg);
   let e: Expr;
   try { e = parseExpr(input); } catch { return null; }
   if (!Number.isFinite(a) || !Number.isFinite(b)) return null;

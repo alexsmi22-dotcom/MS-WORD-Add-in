@@ -9,6 +9,7 @@ import {
   DrawState, emptyDrawState, setTool, clickAt, closePolygon, undo, clearAll,
   hitHandle, dragHandle, emitDsl, describePending, renderDrawSvg, snap, snapPt,
   handlesOf, polygonSelfIntersects, compositeReading, circleGrip, WORLD_W, WORLD_H,
+  measurePending, measureHovered, sanitizeShapes, shapesDescribeEmit,
 } from "../geometryDraw";
 import { solveGeometry } from "../geometryParse";
 import { solveComposite } from "../compositeGeometry";
@@ -322,6 +323,87 @@ describe("defects found by the independent adversarial pass (v2.107.0), pinned",
     const r = solveGeometry("line (0,0) (4,4)")!;
     const slope = r.values.find((v) => v.label === "slope");
     expect(slope!.exact).toBe("1");
+  });
+});
+
+describe("live measurements (v2.108.0) — in the footer, never on the grid", () => {
+  test("the rectangle preview reads w × h and area before the second corner", () => {
+    const s = clicks(emptyDrawState("rectangle"), [[1, 1]]);
+    expect(measurePending(s, { x: 5, y: 4 })).toBe("4 × 3 — area 12");
+  });
+
+  test("the circle preview reads the snapped radius and area", () => {
+    const s = clicks(emptyDrawState("circle"), [[5, 5]]);
+    const m = measurePending(s, { x: 7.5, y: 5 });
+    expect(m).toContain("r = 2.5");
+    expect(m).toContain(String(Math.round(Math.PI * 6.25 * 100) / 100));
+  });
+
+  test("the polygon preview includes the area-if-closed-now", () => {
+    const s = clicks(emptyDrawState("polygon"), [[0, 0], [4, 0]]);
+    expect(measurePending(s, { x: 4, y: 3 })).toContain("area if closed 6");
+  });
+
+  test("Select hover reads the nearest edge's length, the circle's radius", () => {
+    const tri = setTool(clicks(emptyDrawState("triangle"), [[0, 0], [4, 0], [0, 3]]), "select");
+    expect(measureHovered(tri, { x: 2, y: 0.1 })).toContain(": 4");
+    const c = setTool(clicks(emptyDrawState("circle"), [[5, 5], [7, 5]]), "select");
+    expect(measureHovered(c, { x: 5, y: 7.1 })).toBe("circle r = 2");
+    expect(measureHovered(c, { x: 15, y: 9 })).toBe("");
+  });
+
+  test("the measurement lands in the SVG footer readout", () => {
+    const s = clicks(emptyDrawState("rectangle"), [[1, 1]]);
+    const svg = renderDrawSvg(s, { x: 5, y: 4 });
+    expect(svg).toContain("4 × 3 — area 12");
+  });
+});
+
+describe("v2.108.0 independent-pass pins", () => {
+  test("1: a first-shape-only fallback is NOT carryable — no ignored shapes in figures", () => {
+    let s = clicks(emptyDrawState("rectangle"), [[1, 1], [11, 8]]);
+    s = clicks(setTool(s, "circle"), [[4, 4.5], [5.5, 4.5]]);
+    s = clicks(s, [[4.5, 4.5], [6, 4.5]]); // overlapping cutouts → fallback emit
+    expect(emitDsl(s).note).toMatch(/OVERLAP/);
+    expect(shapesDescribeEmit(s.shapes)).toBe(false);
+    // A genuine composite, a single shape, and the segment pair ARE carryable.
+    const good = clicks(setTool(clicks(emptyDrawState("rectangle"), [[1, 1], [11, 8]]), "circle"), [[4, 4.5], [5.5, 4.5]]);
+    expect(shapesDescribeEmit(good.shapes)).toBe(true);
+    expect(shapesDescribeEmit(clicks(emptyDrawState("circle"), [[5, 5], [7, 5]]).shapes)).toBe(true);
+    expect(shapesDescribeEmit(clicks(clicks(emptyDrawState("segment"), [[0, 0], [4, 4]]), [[0, 4], [4, 0]]).shapes)).toBe(true);
+  });
+
+  test("4: the circle preview measurement carries the same cap the click commits", () => {
+    const s = clicks(emptyDrawState("circle"), [[8, 5]]);
+    const m = measurePending(s, { x: 16, y: 0 });
+    expect(m).toContain("r = 8"); // maxGripR((8,5)) — not the raw 9.5
+    const committed = clickAt(s, { x: 16, y: 0 });
+    expect((committed.shapes[0] as { r: number }).r).toBe(8);
+  });
+});
+
+describe("sanitizeShapes — the dialog→pane payload guard", () => {
+  test("a round-trip through JSON survives intact", () => {
+    const s = clicks(setTool(clicks(emptyDrawState("rectangle"), [[1, 1], [9, 7]]), "circle"), [[4, 4], [5.5, 4]]);
+    const back = sanitizeShapes(JSON.parse(JSON.stringify(s.shapes)));
+    expect(back).toEqual(s.shapes);
+    // …and the round-tripped shapes emit the identical request.
+    expect(emitDsl({ tool: "select", shapes: back!, pending: [] }).text).toBe(emitDsl(s).text);
+  });
+
+  test("malformed payloads return null, never a partial list", () => {
+    expect(sanitizeShapes(null)).toBeNull();
+    expect(sanitizeShapes([])).toBeNull();
+    expect(sanitizeShapes([{ kind: "circle", c: { x: 1, y: 1 }, r: -2 }])).toBeNull();
+    expect(sanitizeShapes([{ kind: "circle", c: { x: NaN, y: 1 }, r: 2 }])).toBeNull();
+    expect(sanitizeShapes([{ kind: "triangle", pts: [{ x: 0, y: 0 }, { x: 1, y: 1 }] }])).toBeNull();
+    expect(sanitizeShapes([{ kind: "blob" }])).toBeNull();
+    expect(sanitizeShapes([{ kind: "rectangle", a: { x: 0, y: 0 } }])).toBeNull();
+    // One bad shape poisons the whole list — no silent partial acceptance.
+    expect(sanitizeShapes([
+      { kind: "circle", c: { x: 1, y: 1 }, r: 2 },
+      { kind: "circle", c: { x: 1, y: 1 } },
+    ])).toBeNull();
   });
 });
 

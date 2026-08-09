@@ -38,7 +38,7 @@ import { compositeShapeSvg, geometryFigureSvg } from "../lib/geometryChart";
 import {
   DrawPt, DrawTool, HandleRef, emptyDrawState, setTool, clickAt, closePolygon, undo, clearAll,
   hitHandle, dragHandle, emitDsl, describePending, renderDrawSvg, snapPt, WORLD_W, WORLD_H,
-  DRAW_VIEW,
+  DRAW_VIEW, shapesDescribeEmit,
 } from "../lib/geometryDraw";
 
 type Kind = "equation" | "derivative" | "integral" | "ode" | "geometry";
@@ -67,6 +67,12 @@ Office.onReady(() => {
 
   /** The solve-for choice for multi-unknown equations (chips below the result). */
   let varChoice: string | null = null;
+  /**
+   * When the geometry input was DRAWN and still matches the drawing, "Use this
+   * equation" carries the shapes back so the pane can render the figure at the
+   * TRUE drawn placement instead of disclaiming "placement illustrative".
+   */
+  let drawingToCarry: () => unknown = () => undefined;
 
   if (params.get("tooLarge")) {
     const err = byId<HTMLElement>("error");
@@ -631,6 +637,14 @@ Office.onReady(() => {
       }
     });
 
+    // Only a drawing that still MATCHES the text AND is fully described by it
+    // travels — the first-shape-only fallback (overlapping cutouts, strays)
+    // must not carry shapes the answer ignores into the inserted figure.
+    drawingToCarry = () =>
+      shapesDescribeEmit(draw.shapes) && emitDsl(draw).text === input.value.trim()
+        ? draw.shapes
+        : undefined;
+
     paint();
   }
 
@@ -652,7 +666,7 @@ Office.onReady(() => {
       err.style.display = "block";
       return;
     }
-    Office.context.ui.messageParent(JSON.stringify({ expr: input.value }));
+    Office.context.ui.messageParent(JSON.stringify({ expr: input.value, drawing: drawingToCarry() }));
   });
 
   byId<HTMLButtonElement>("cancel-btn").addEventListener("click", () => {

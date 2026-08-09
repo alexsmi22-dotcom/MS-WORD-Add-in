@@ -57,7 +57,11 @@ const CORPUS = path.join(__dirname, "figure-layout-run.ts");
 // and the floor was raised IN THE SAME COMMIT, per the two paragraphs above.
 // 159 as of 2026-08-09 (v2.107.0): three draw-to-solve surface states
 // (triangle, composite with a cutout, pending circle with the rubber preview).
-const CORPUS_FLOOR = 159;
+// 162 as of 2026-08-09 (v2.108.0): three placement-faithful drawn figures
+// (composite at true placement, single circle, segment pair).
+// 164 same day: the two layouts the independent pass broke (asymmetric
+// segment crossing, touching tiny cutouts), pinned in the corpus.
+const CORPUS_FLOOR = 164;
 
 // --- The allowance ratchet ----------------------------------------------------
 //

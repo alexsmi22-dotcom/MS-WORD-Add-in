@@ -334,6 +334,58 @@ export function compositeReading(shapes: DrawShape[]): "composite" | "overlap" |
   return "composite";
 }
 
+/**
+ * Rebuilds a DrawShape[] from untrusted JSON (the dialog → pane message).
+ * Structural and numeric validation only — anything off-shape returns null,
+ * and the pane then simply falls back to the generic figure.
+ */
+export function sanitizeShapes(raw: unknown): DrawShape[] | null {
+  if (!Array.isArray(raw) || raw.length === 0 || raw.length > 50) return null;
+  const num = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
+  const readPt = (q: unknown): DrawPt | null => {
+    const o = q as { x?: unknown; y?: unknown };
+    return o && num(o.x) && num(o.y) ? { x: o.x, y: o.y } : null;
+  };
+  const out: DrawShape[] = [];
+  for (const s of raw) {
+    const o = s as { kind?: unknown; pts?: unknown; a?: unknown; b?: unknown; c?: unknown; r?: unknown };
+    if (o.kind === "triangle" || o.kind === "polygon") {
+      if (!Array.isArray(o.pts)) return null;
+      const pts = o.pts.map(readPt);
+      if (pts.some((q) => !q) || pts.length < 3 || pts.length > 32) return null;
+      if (o.kind === "triangle" && pts.length !== 3) return null;
+      out.push(o.kind === "triangle"
+        ? { kind: "triangle", pts: pts as [DrawPt, DrawPt, DrawPt] }
+        : { kind: "polygon", pts: pts as DrawPt[] });
+    } else if (o.kind === "rectangle" || o.kind === "segment") {
+      const a = readPt(o.a), b = readPt(o.b);
+      if (!a || !b) return null;
+      out.push(o.kind === "rectangle" ? { kind: "rectangle", a, b } : { kind: "segment", a, b });
+    } else if (o.kind === "circle") {
+      const c = readPt(o.c);
+      if (!c || !num(o.r) || !(o.r > 0)) return null;
+      out.push({ kind: "circle", c, r: o.r });
+    } else {
+      return null;
+    }
+  }
+  return out;
+}
+
+/**
+ * Does the emitted request describe EVERY drawn shape? True for a single
+ * shape, the two-segment line reading, and a genuine composite. False for the
+ * first-shape-only fallback (overlapping cutouts, shapes outside the base) —
+ * where carrying the drawing forward would insert a figure showing shapes the
+ * answer ignores.
+ */
+export function shapesDescribeEmit(shapes: DrawShape[]): boolean {
+  if (!shapes.length) return false;
+  if (shapes.length === 1) return true;
+  if (shapes.length === 2 && shapes[0].kind === "segment" && shapes[1].kind === "segment") return true;
+  return compositeReading(shapes) === "composite";
+}
+
 export interface EmittedDsl {
   text: string;
   /** Guidance shown next to the surface — why the reading is what it is. */
@@ -443,6 +495,106 @@ function single(s: DrawShape): EmittedDsl {
   }
 }
 
+const fmt2 = (v: number): string => String(Math.round(v * 100) / 100);
+
+/** Shoelace area of a click list, unsigned — for the closed-now preview. */
+function loopArea(pts: DrawPt[]): number {
+  let acc = 0;
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[i], b = pts[(i + 1) % pts.length];
+    acc += a.x * b.y - b.x * a.y;
+  }
+  return Math.abs(acc / 2);
+}
+
+/**
+ * The live measurement for the gesture in progress, shown in the footer as
+ * you draw — the rectangle's w × h before the second corner lands, the
+ * circle's radius before the rim click, the polygon's area if closed now.
+ * Never drawn ON the canvas: text over a full-bleed grid always crosses a
+ * grid line, which the layout gate rightly refuses.
+ */
+export function measurePending(state: DrawState, hover: DrawPt | null): string {
+  if (!hover || !state.pending.length) return "";
+  const p0 = state.pending[0];
+  const last = state.pending[state.pending.length - 1];
+  switch (state.tool) {
+    case "rectangle": {
+      const w = Math.abs(hover.x - p0.x), h = Math.abs(hover.y - p0.y);
+      return w > 0 && h > 0 ? `${fmt2(w)} × ${fmt2(h)} — area ${fmt2(w * h)}` : "";
+    }
+    case "circle": {
+      // The SAME cap the click applies — a preview promising r = 9.5 when the
+      // click will commit r = 8 is a measurement that lies.
+      const r = Math.min(snap(dist(p0, hover)), maxGripR(p0));
+      return r > 0 ? `r = ${fmt2(r)} — area ≈ ${fmt2(Math.PI * r * r)}` : "";
+    }
+    case "segment":
+      return samePt(last, hover) ? "" : `length ${fmt2(dist(last, hover))}`;
+    case "triangle":
+    case "polygon": {
+      const loop = [...state.pending, hover];
+      const bits: string[] = [`side ${fmt2(dist(last, hover))}`];
+      if (loop.length >= 3) bits.push(`area if closed ${fmt2(loopArea(loop))}`);
+      return bits.join(" — ");
+    }
+    default:
+      return "";
+  }
+}
+
+/**
+ * With Select active, hovering near an edge or handle reads out that part's
+ * measurement — the length of the edge, the circle's radius.
+ */
+export function measureHovered(state: DrawState, hover: DrawPt | null, tol = 0.4): string {
+  if (!hover || state.tool !== "select") return "";
+  // Nearest edge across all shapes.
+  const distToSeg = (a: DrawPt, b: DrawPt, q: DrawPt): number => {
+    const vx = b.x - a.x, vy = b.y - a.y;
+    const len2 = vx * vx + vy * vy;
+    const t = len2 > 0 ? Math.max(0, Math.min(1, ((q.x - a.x) * vx + (q.y - a.y) * vy) / len2)) : 0;
+    return dist(q, { x: a.x + t * vx, y: a.y + t * vy });
+  };
+  let best: { d: number; text: string } | null = null;
+  const consider = (d: number, text: string): void => {
+    if (d <= tol && (!best || d < best.d)) best = { d, text };
+  };
+  for (const s of state.shapes) {
+    switch (s.kind) {
+      case "triangle":
+      case "polygon": {
+        const n = s.pts.length;
+        for (let i = 0; i < n; i++) {
+          const a = s.pts[i], b = s.pts[(i + 1) % n];
+          consider(distToSeg(a, b, hover), `edge ${fmtPt(a)}→${fmtPt(b)}: ${fmt2(dist(a, b))}`);
+        }
+        break;
+      }
+      case "rectangle": {
+        const { w, h } = rectDims(s);
+        const x0 = Math.min(s.a.x, s.b.x), x1 = Math.max(s.a.x, s.b.x);
+        const y0 = Math.min(s.a.y, s.b.y), y1 = Math.max(s.a.y, s.b.y);
+        const corners: DrawPt[] = [{ x: x0, y: y0 }, { x: x1, y: y0 }, { x: x1, y: y1 }, { x: x0, y: y1 }];
+        for (let i = 0; i < 4; i++) {
+          const a = corners[i], b = corners[(i + 1) % 4];
+          // The hovered EDGE's own length leads (like every other shape);
+          // the rectangle's dims follow for context.
+          consider(distToSeg(a, b, hover), `edge ${fmt2(dist(a, b))} — rectangle ${fmt2(w)} × ${fmt2(h)}`);
+        }
+        break;
+      }
+      case "circle":
+        consider(Math.abs(dist(s.c, hover) - s.r), `circle r = ${fmt2(s.r)}`);
+        break;
+      case "segment":
+        consider(distToSeg(s.a, s.b, hover), `segment length ${fmt2(dist(s.a, s.b))}`);
+        break;
+    }
+  }
+  return best ? (best as { text: string }).text : "";
+}
+
 /** One status line describing where the current gesture stands. */
 export function describePending(state: DrawState): string {
   const n = state.pending.length;
@@ -479,6 +631,7 @@ const HANDLE = "#0c4a6e";
 
 const X = (x: number): number => x * PX_PER_UNIT;
 const Y = (y: number): number => (WORLD_H - y) * PX_PER_UNIT;
+const esc2 = (s: string): string => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 function shapeSvg(s: DrawShape, cut: boolean): string {
   const edge = cut ? CUT_EDGE : SHAPE_EDGE;
@@ -547,7 +700,8 @@ export function renderDrawSvg(state: DrawState, hover: DrawPt | null): string {
   if (state.pending.length && hover) {
     const last = state.pending[state.pending.length - 1];
     if (state.tool === "circle") {
-      const r = dist(state.pending[0], hover);
+      // Preview the radius the click would COMMIT (capped), not the raw one.
+      const r = Math.min(dist(state.pending[0], hover), maxGripR(state.pending[0]));
       if (r > 0) p.push(`<circle cx="${X(state.pending[0].x)}" cy="${Y(state.pending[0].y)}" r="${r * PX_PER_UNIT}" fill="none" stroke="${PEND}" stroke-width="1.5" stroke-dasharray="5 4"/>`);
     } else if (state.tool === "rectangle") {
       const x0 = Math.min(state.pending[0].x, hover.x), y1 = Math.max(state.pending[0].y, hover.y);
@@ -562,11 +716,13 @@ export function renderDrawSvg(state: DrawState, hover: DrawPt | null): string {
     }
   }
 
-  // Crosshair on the canvas; the coordinate readout lives in the grid-free
-  // footer strip, where no line can cross it.
+  // Crosshair on the canvas; the coordinate readout AND the live measurement
+  // live in the grid-free footer strip, where no line can cross them.
   if (hover) {
     p.push(`<circle cx="${X(hover.x)}" cy="${Y(hover.y)}" r="3.5" fill="none" stroke="${PEND}" stroke-width="1.5"/>`);
-    p.push(`<text x="6" y="${GRID_H + FOOTER_H - 7}" font-family="sans-serif" font-size="12" fill="#555">(${fmtN(hover.x)}, ${fmtN(hover.y)})</text>`);
+    const measure = measurePending(state, hover) || measureHovered(state, hover);
+    const readout = `(${fmtN(hover.x)}, ${fmtN(hover.y)})${measure ? `   ${measure}` : ""}`;
+    p.push(`<text x="6" y="${GRID_H + FOOTER_H - 7}" font-family="sans-serif" font-size="12" fill="#555">${esc2(readout)}</text>`);
   }
 
   p.push("</svg>");

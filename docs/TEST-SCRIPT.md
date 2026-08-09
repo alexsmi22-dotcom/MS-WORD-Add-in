@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.107.0)
+# JurisLab — Manual Test Script (v2.108.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -9,6 +9,24 @@ scanning, and layout. Budget ~30 minutes for the full pass.
 Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
+
+## 0bl. New in v2.108.0 — measurements + drawn placement
+
+Solve → Geometry → **Open canvas**.
+
+- [ ] Rectangle tool, first corner placed: moving the mouse shows `w × h — area`
+  live in the footer next to the coordinates; circle shows `r — area`; polygon
+  shows `area if closed`.
+- [ ] Select tool: hover an edge → the footer reads that edge's length; hover a
+  circle's rim → `circle r = …`.
+- [ ] Draw rectangle + circle inside → **Use this equation** → in the PANE the
+  composite figure now shows YOUR placement (hatched circle where you drew it)
+  captioned "placement as drawn — to scale", NOT the generic "placement
+  illustrative" figure. **Insert** → that same figure lands in Word.
+- [ ] Edit the request text by hand in the pane (change a number) → the figure
+  falls back to the generic illustrative one (the drawing no longer matches).
+- [ ] Draw a single rectangle or circle → Use → the pane shows a to-scale drawn
+  figure (these had NO figure before); segments pair inserts its crossing.
 
 ## 0bk. New in v2.107.0 — draw to solve
 

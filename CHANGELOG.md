@@ -6,6 +6,41 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.108.0] — 2026-08-09 — The canvas measures, and the figure keeps your placement
+
+### Added
+- **Live measurements while drawing** (in the canvas's grid-free footer,
+  next to the coordinates): the rectangle's w × h and area before the
+  second corner lands, the circle's radius and area at the rim, the
+  segment's length, the polygon's area-if-closed-now — and with Select,
+  hovering an edge reads out that edge's length, a circle its radius.
+- **Placement-faithful figures**: a request that came from the DRAWING
+  carries its shapes back to the pane, and the figure that previews and
+  INSERTS shows the user's actual construction to scale — labelled base
+  and hatched cutouts at their true positions, captioned "placement as
+  drawn". The generic composite figure's "placement illustrative"
+  disclaimer exists because typed input has no positions; a drawn one
+  does, so the disclaimer goes. Drawn rectangles, circles and segment
+  pairs — which had no figure at all — now insert one too. The shapes
+  travel only while they still MATCH the text (edit the request by hand
+  and the pane falls back to the generic figure), and the payload is
+  structurally validated on arrival.
+
+### Notes
+- Independent adversarial pass found 4 real defects, fixed and pinned:
+  (1) a first-shape-only fallback (overlapping cutouts) still carried
+  ALL drawn shapes into the inserted figure — shapes the answer ignores;
+  the carry now requires the emitted text to describe every shape, gated
+  at both ends of the channel; (2) segment labels survived only the
+  symmetric X the corpus tested — any asymmetric crossing struck or
+  collided them, so segment lengths moved to the caption strip, which
+  nothing can cross; (3) touching tiny cutouts collided their labels —
+  labels now sidestep each other; (4) the circle preview promised
+  r = 9.5 where the click commits r = 8 — the preview now carries the
+  same cap as the click, in the readout AND the rubber circle. The two
+  breaking layouts joined the figure corpus (floor 162 → 164), and the
+  hovered-rectangle readout now leads with the edge's own length.
+
 ## [2.107.0] — 2026-08-09 — Draw to solve
 
 The geometry canvas grows a DRAWING SURFACE: click out a shape and it is

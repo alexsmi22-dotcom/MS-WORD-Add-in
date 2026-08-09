@@ -4,7 +4,7 @@
 // figure with the marks and labels the caption promises. What it cannot prove:
 // that Word honours the insert — that stays with docs/TEST-SCRIPT.md, as ever.
 
-import { geometryFigureSvg, geometryFigureAlt } from "../geometryChart";
+import { geometryFigureSvg, geometryFigureAlt, drawnShapesSvg } from "../geometryChart";
 import { solveGeometry } from "../geometryParse";
 import { GeoFigure } from "../geometry";
 
@@ -131,6 +131,85 @@ describe("circle-toolkit figures", () => {
     const tangentLines = (svg.match(/stroke="#b91c1c" stroke-width="1.4"/g) ?? []).length;
     expect(tangentLines).toBe(2);
     expect(svg).toContain("right angle");
+  });
+});
+
+describe("drawnShapesSvg — figures at the TRUE drawn placement (v2.108.0)", () => {
+  const composite: Parameters<typeof drawnShapesSvg>[0] = [
+    { kind: "rectangle", a: { x: 1, y: 1 }, b: { x: 11, y: 8 } },
+    { kind: "circle", c: { x: 3.5, y: 4.5 }, r: 1.5 },
+  ];
+
+  test("a drawn composite renders base + hatched cutout with labels and NO disclaimer", () => {
+    const svg = drawnShapesSvg(composite, ["base area 70   ·   net 62.93"]);
+    isSvg(svg);
+    expect(svg).toContain("10 × 7");
+    expect(svg).toContain("− r = 1.5");
+    expect(svg).toContain("drawnCutHatch");
+    expect(svg).toContain("placement as drawn");
+    expect(svg).not.toContain("illustrative");
+  });
+
+  test("the cutout decision is the shared one — moved outside, nothing hatches", () => {
+    const apart: typeof composite = [
+      composite[0],
+      { kind: "circle", c: { x: 14, y: 4.5 }, r: 1.5 },
+    ];
+    const svg = drawnShapesSvg(apart, ["two shapes"]);
+    expect(svg).not.toContain("url(#drawnCutHatch)");
+  });
+
+  test("single drawn shapes and segment pairs render to scale with captions", () => {
+    const c = drawnShapesSvg([{ kind: "circle", c: { x: 5, y: 5 }, r: 2.5 }], ["Circle, r = 2.5"]);
+    isSvg(c);
+    expect(c).toContain("r = 2.5");
+    const segs = drawnShapesSvg(
+      [
+        { kind: "segment", a: { x: 0, y: 0 }, b: { x: 4, y: 4 } },
+        { kind: "segment", a: { x: 0, y: 4 }, b: { x: 4, y: 0 } },
+      ],
+      ["Line"]
+    );
+    isSvg(segs);
+    // Segment lengths live in the CAPTION — a crossing defeats every local
+    // on-canvas placement (independent pass, v2.108.0).
+    expect(segs).toContain("segment lengths: 5.66, 5.66");
+  });
+
+  test("touching tiny cutouts stack their labels instead of colliding (pinned)", () => {
+    const svg = drawnShapesSvg(
+      [
+        { kind: "rectangle", a: { x: 1, y: 1 }, b: { x: 11, y: 8 } },
+        { kind: "circle", c: { x: 5, y: 4 }, r: 0.5 },
+        { kind: "circle", c: { x: 6, y: 4 }, r: 0.5 },
+      ],
+      ["base area 70"]
+    );
+    const labels = [...svg.matchAll(/<text x="([\d.]+)" y="([\d.]+)"[^>]*>− r = 0\.5<\/text>/g)];
+    expect(labels).toHaveLength(2);
+    const [a, b] = labels.map((m) => ({ x: Number(m[1]), y: Number(m[2]) }));
+    // Distinct rows or well-separated columns — never the same spot.
+    expect(Math.abs(a.y - b.y) >= 11 || Math.abs(a.x - b.x) >= 46).toBe(true);
+  });
+
+  test("asymmetric segment crossings carry no on-canvas labels at all (pinned)", () => {
+    const svg = drawnShapesSvg(
+      [
+        { kind: "segment", a: { x: 0, y: 0 }, b: { x: 16, y: 8 } },
+        { kind: "segment", a: { x: 0, y: 4 }, b: { x: 16, y: 0 } },
+      ],
+      ["Line"]
+    );
+    // The only "length" text is in the caption strip, below the drawing.
+    const lengthTexts = [...svg.matchAll(/<text[^>]*>segment lengths[^<]*<\/text>/g)];
+    expect(lengthTexts).toHaveLength(1);
+    expect(svg).toContain("segment lengths: 17.89, 16.49");
+  });
+
+  test("hostile inputs stay finite", () => {
+    const svg = drawnShapesSvg([{ kind: "rectangle", a: { x: 0, y: 0 }, b: { x: 0.5, y: 0.5 } }], ["tiny"]);
+    expect(svg).not.toContain("NaN");
+    expect(drawnShapesSvg([], ["nothing"])).toBe("");
   });
 });
 

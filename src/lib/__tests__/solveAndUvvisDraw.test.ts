@@ -98,6 +98,19 @@ describe("Solve draws for every kind that has something to draw", () => {
     expect(src.slice(at, at + 700)).toContain("fig.innerHTML = currentSolveSvg");
   });
 
+  test("DRAWN geometry renders its true placement (ratchet raised, v2.108.0)", () => {
+    // The generic composite figure says "placement illustrative" because a
+    // typed request has no positions. A DRAWN request does — so the branch
+    // must use the drawn-placement builder, and that figure must never carry
+    // the illustrative disclaimer it exists to remove.
+    const src = updateSolveSource();
+    expect(src).toContain("currentSolveSvg = drawnShapesSvg(");
+    expect(src).toMatch(/drawn placement, to scale/);
+    expect(src).toContain("drawnFor(text)");
+    const at = src.indexOf("currentSolveSvg = drawnShapesSvg(");
+    expect(src.slice(at, at + 400)).not.toContain("illustrative");
+  });
+
   test("every figure carries a caption written by the branch that made it", () => {
     // ALT TEXT THAT LIES IS WORSE THAN NONE. The insert path hardcoded
     // "Persistence barcode: each bar is a topological feature" — true while the

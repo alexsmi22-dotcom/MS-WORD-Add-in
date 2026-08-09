@@ -70,7 +70,7 @@ import { buildCircularMapSvg } from "../src/lib/seqmapcirc";
 import { parseGenBank } from "../src/lib/seqio";
 import { persistentHomology, barcodeSvg } from "../src/lib/persistence";
 import { solveComposite } from "../src/lib/compositeGeometry";
-import { compositeShapeSvg, geometryFigureSvg } from "../src/lib/geometryChart";
+import { compositeShapeSvg, geometryFigureSvg, drawnShapesSvg } from "../src/lib/geometryChart";
 import { solveGeometry } from "../src/lib/geometryParse";
 import { emptyDrawState, setTool, clickAt, renderDrawSvg, DrawState } from "../src/lib/geometryDraw";
 
@@ -125,6 +125,58 @@ const figures: [string, string][] = [];
   figures.push(["draw surface composite", renderDrawSvg(composite, { x: 13, y: 9 })]);
   const pendingCircle = clicksAt(emptyDrawState("circle"), [[8, 5]]);
   figures.push(["draw surface pending", renderDrawSvg(pendingCircle, { x: 11, y: 5 })]);
+
+  // Placement-faithful drawn figures (v2.108.0) — what actually inserts when
+  // the request came from the drawing.
+  figures.push([
+    "drawn composite true placement",
+    drawnShapesSvg(
+      [
+        { kind: "rectangle", a: { x: 1, y: 1 }, b: { x: 11, y: 8 } },
+        { kind: "circle", c: { x: 3.5, y: 4.5 }, r: 1.5 },
+        { kind: "rectangle", a: { x: 7, y: 3 }, b: { x: 9.5, y: 6 } },
+      ],
+      ["base area 70   ·   removed 14.57   ·   net 55.43"]
+    ),
+  ]);
+  figures.push([
+    "drawn single circle",
+    drawnShapesSvg([{ kind: "circle", c: { x: 5, y: 5 }, r: 2.5 }], ["Circle, r = 2.5"]),
+  ]);
+  figures.push([
+    "drawn segment pair",
+    drawnShapesSvg(
+      [
+        { kind: "segment", a: { x: 0, y: 0 }, b: { x: 4, y: 4 } },
+        { kind: "segment", a: { x: 0, y: 4 }, b: { x: 4, y: 0 } },
+      ],
+      ["Line — intersection (2, 2)"]
+    ),
+  ]);
+  // The two layouts the independent pass broke (v2.108.0): an asymmetric
+  // crossing (labels used to be struck) and touching tiny cutouts (labels
+  // used to collide).
+  figures.push([
+    "drawn asymmetric crossing",
+    drawnShapesSvg(
+      [
+        { kind: "segment", a: { x: 0, y: 0 }, b: { x: 16, y: 8 } },
+        { kind: "segment", a: { x: 0, y: 4 }, b: { x: 16, y: 0 } },
+      ],
+      ["Line"]
+    ),
+  ]);
+  figures.push([
+    "drawn touching tiny cutouts",
+    drawnShapesSvg(
+      [
+        { kind: "rectangle", a: { x: 1, y: 1 }, b: { x: 11, y: 8 } },
+        { kind: "circle", c: { x: 5, y: 4 }, r: 0.5 },
+        { kind: "circle", c: { x: 6, y: 4 }, r: 0.5 },
+      ],
+      ["base area 70   ·   removed 1.57   ·   net 68.43"]
+    ),
+  ]);
 }
 
 figures.push([

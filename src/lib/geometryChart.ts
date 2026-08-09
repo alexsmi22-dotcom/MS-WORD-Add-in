@@ -9,6 +9,7 @@
 
 import { CompositeResult, CompositeShape, qtyToNumber } from "./compositeGeometry";
 import { GeoFigure } from "./geometry";
+import { DrawShape, compositeReading } from "./geometryDraw";
 
 const INK = "#111111";
 const RULE = "#888888";
@@ -514,6 +515,147 @@ export function geometryFigureSvg(fig: GeoFigure): string {
       break;
     }
   }
+  p.push("</svg>");
+  return p.join("");
+}
+
+/**
+ * A figure built from shapes the user DREW, at their true positions.
+ *
+ * The generic composite figure must say "placement illustrative", because a
+ * typed request carries no positions. A drawn one does — so this builder
+ * exists to stop disclaiming knowledge the product has. Cutout status comes
+ * from the SAME compositeReading the canvas and emitter use.
+ */
+export function drawnShapesSvg(shapes: DrawShape[], captionLines: string[]): string {
+  if (!shapes.length) return "";
+  const { w: W, h: H } = COMPOSITE_CHART_SIZE;
+  const MT = 26, ML = 20, MR = 20;
+  // Segment lengths go in the CAPTION, not on the canvas: crossing segments
+  // defeat every local label placement (the auditor proved it on asymmetric
+  // crossings), and the caption strip cannot be crossed by anything.
+  const segLengths = shapes
+    .filter((s): s is Extract<DrawShape, { kind: "segment" }> => s.kind === "segment")
+    .map((s) => round2(Math.hypot(s.a.x - s.b.x, s.a.y - s.b.y)));
+  const lines = [
+    ...captionLines.slice(0, segLengths.length ? 1 : 2),
+    ...(segLengths.length ? [`segment length${segLengths.length > 1 ? "s" : ""}: ${segLengths.join(", ")}`] : []),
+  ];
+  const MB = 26 + 14 * lines.length;
+
+  const boxOf = (s: DrawShape): { x0: number; x1: number; y0: number; y1: number } => {
+    switch (s.kind) {
+      case "triangle":
+      case "polygon": {
+        const xs = s.pts.map((q) => q.x), ys = s.pts.map((q) => q.y);
+        return { x0: Math.min(...xs), x1: Math.max(...xs), y0: Math.min(...ys), y1: Math.max(...ys) };
+      }
+      case "rectangle":
+      case "segment":
+        return {
+          x0: Math.min(s.a.x, s.b.x), x1: Math.max(s.a.x, s.b.x),
+          y0: Math.min(s.a.y, s.b.y), y1: Math.max(s.a.y, s.b.y),
+        };
+      case "circle":
+        return { x0: s.c.x - s.r, x1: s.c.x + s.r, y0: s.c.y - s.r, y1: s.c.y + s.r };
+    }
+  };
+  const boxes = shapes.map(boxOf);
+  const minX = Math.min(...boxes.map((b) => b.x0)), maxX = Math.max(...boxes.map((b) => b.x1));
+  const minY = Math.min(...boxes.map((b) => b.y0)), maxY = Math.max(...boxes.map((b) => b.y1));
+  const pad = Math.max(maxX - minX, maxY - minY, 1) * 0.06;
+  const { X, Y, s: scale } = fitBox(minX - pad, maxX + pad, minY - pad, maxY + pad, ML, W - MR, MT + 8, H - MB);
+
+  const cut = compositeReading(shapes) === "composite";
+  const p: string[] = [];
+  p.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`);
+  p.push(`<rect width="${W}" height="${H}" fill="${PAPER}"/>`);
+  p.push(
+    `<defs><pattern id="drawnCutHatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">` +
+    `<line x1="0" y1="0" x2="0" y2="6" stroke="${CUT_EDGE}" stroke-width="1" opacity="0.55"/></pattern></defs>`
+  );
+
+  const shapeLabel = (s: DrawShape): string => {
+    switch (s.kind) {
+      case "rectangle": return `${round2(Math.abs(s.a.x - s.b.x))} × ${round2(Math.abs(s.a.y - s.b.y))}`;
+      case "circle": return `r = ${round2(s.r)}`;
+      case "segment": return `length ${round2(Math.hypot(s.a.x - s.b.x, s.a.y - s.b.y))}`;
+      case "triangle": return "triangle";
+      case "polygon": return `${s.pts.length}-gon`;
+    }
+  };
+
+  // Placed label boxes, so a second label sidesteps the first (two touching
+  // tiny cutouts put "− r = 0.5" over "− r = 0.5" until this existed).
+  const placed: { x0: number; x1: number; y0: number; y1: number }[] = [];
+  const labelAt = (text: string, lx: number, ly: number, down: boolean, color: string): void => {
+    const halfW = text.length * 2.7;
+    let y = ly;
+    for (let tries = 0; tries < 3; tries++) {
+      const box = { x0: lx - halfW, x1: lx + halfW, y0: y - 9, y1: y + 2 };
+      if (!placed.some((b) => box.x0 < b.x1 && b.x0 < box.x1 && box.y0 < b.y1 && b.y0 < box.y1)) {
+        placed.push(box);
+        p.push(
+          `<text x="${lx}" y="${y}" text-anchor="middle" font-family="sans-serif" font-size="9" fill="${color}">${esc(text)}</text>`
+        );
+        return;
+      }
+      y += down ? 12 : -12;
+    }
+    placed.push({ x0: lx - halfW, x1: lx + halfW, y0: y - 9, y1: y + 2 });
+    p.push(
+      `<text x="${lx}" y="${y}" text-anchor="middle" font-family="sans-serif" font-size="9" fill="${color}">${esc(text)}</text>`
+    );
+  };
+
+  shapes.forEach((s, i) => {
+    const isCut = cut && i > 0;
+    const edge = isCut ? CUT_EDGE : BASE_EDGE;
+    const fill = isCut ? "url(#drawnCutHatch)" : BASE_FILL;
+    switch (s.kind) {
+      case "triangle":
+      case "polygon": {
+        const d = s.pts.map((q, k) => `${k ? "L" : "M"}${X(q.x)} ${Y(q.y)}`).join(" ") + " Z";
+        p.push(`<path d="${d}" fill="${fill}" stroke="${edge}" stroke-width="1.6"/>`);
+        break;
+      }
+      case "rectangle": {
+        const b = boxes[i];
+        p.push(
+          `<rect x="${X(b.x0)}" y="${Y(b.y1)}" width="${(b.x1 - b.x0) * scale}" height="${(b.y1 - b.y0) * scale}" ` +
+          `fill="${fill}" stroke="${edge}" stroke-width="1.6"/>`
+        );
+        break;
+      }
+      case "circle":
+        p.push(`<circle cx="${X(s.c.x)}" cy="${Y(s.c.y)}" r="${s.r * scale}" fill="${fill}" stroke="${edge}" stroke-width="1.6"/>`);
+        break;
+      case "segment":
+        p.push(`<line x1="${X(s.a.x)}" y1="${Y(s.a.y)}" x2="${X(s.b.x)}" y2="${Y(s.b.y)}" stroke="${edge}" stroke-width="1.8"/>`);
+        break;
+    }
+    // Label: base above its box, cutouts below theirs — the composite idiom.
+    // Segments have NO on-canvas label; their lengths are in the caption.
+    if (s.kind !== "segment") {
+      const b = boxes[i];
+      labelAt(
+        `${isCut ? "− " : ""}${shapeLabel(s)}`,
+        X((b.x0 + b.x1) / 2),
+        isCut ? Y(b.y0) + 13 : Y(b.y1) - 6,
+        isCut,
+        isCut ? CUT_EDGE : BASE_EDGE
+      );
+    }
+  });
+
+  lines.forEach((linetext, i) => {
+    p.push(
+      `<text x="${W / 2}" y="${H - MB + 16 + i * 14}" text-anchor="middle" font-family="sans-serif" font-size="10" fill="${INK}">${esc(linetext)}</text>`
+    );
+  });
+  p.push(
+    `<text x="${W / 2}" y="${H - 6}" text-anchor="middle" font-family="sans-serif" font-size="8.5" fill="${RULE}">placement as drawn — to scale</text>`
+  );
   p.push("</svg>");
   return p.join("");
 }

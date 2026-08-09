@@ -318,7 +318,8 @@ import {
   PaletteItem,
 } from "../lib/palettes";
 import { solveComposite, qtyToNumber, qtyExact } from "../lib/compositeGeometry";
-import { compositeShapeSvg, geometryFigureSvg, geometryFigureAlt } from "../lib/geometryChart";
+import { compositeShapeSvg, geometryFigureSvg, geometryFigureAlt, drawnShapesSvg } from "../lib/geometryChart";
+import { DrawShape, sanitizeShapes, emitDsl as emitDrawDsl, shapesDescribeEmit } from "../lib/geometryDraw";
 import { solveInputToTypesetLines, solveToTypesetDsl, isProseRequest } from "../lib/solveTypeset";
 import { foldPastedMath } from "../lib/pasteMath";
 import { equationWork, derivativeWork, definiteIntegralWork, WorkLine } from "../lib/showWork";
@@ -26430,6 +26431,24 @@ let currentSolveBlocks: DerivationBlock[] = [];
 /** A figure to insert alongside the text (currently the persistence barcode). */
 let currentSolveSvg: string | null = null;
 /**
+ * Shapes carried back from the drawing canvas, used to render figures at the
+ * TRUE drawn placement. Valid only while the input still matches what the
+ * drawing emits — drawnFor() re-checks on every solve.
+ */
+let lastDrawnShapes: DrawShape[] | null = null;
+
+/** The drawn shapes, but ONLY if they still describe this exact request. */
+function drawnFor(text: string): DrawShape[] | null {
+  if (!lastDrawnShapes) return null;
+  // Belt and braces with the dialog's own gate: every shape must be part of
+  // the reading the text describes — a first-shape-only fallback must never
+  // put ignored shapes into the inserted figure.
+  if (!shapesDescribeEmit(lastDrawnShapes)) return null;
+  return emitDrawDsl({ tool: "select", shapes: lastDrawnShapes, pending: [] }).text === text
+    ? lastDrawnShapes
+    : null;
+}
+/**
  * What the current Solve figure actually SHOWS.
  *
  * It travels with the SVG because the alt text and the status message used to
@@ -26733,8 +26752,12 @@ function openSolveDialog(): void {
       const msg = (arg as { message?: string }).message;
       if (!msg) return;
       try {
-        const data = JSON.parse(msg) as { expr?: string; cancel?: boolean };
+        const data = JSON.parse(msg) as { expr?: string; cancel?: boolean; drawing?: unknown };
         if (data.cancel || typeof data.expr !== "string") return;
+        // A drawn geometry request carries its shapes so the figure can show
+        // the TRUE placement; anything malformed degrades to the generic
+        // figure rather than erroring.
+        lastDrawnShapes = data.drawing ? sanitizeShapes(data.drawing) : null;
         // The pane stays interactive under the dialog — restore the kind the
         // canvas was opened FOR before pasting, or "Use" after switching the
         // dropdown solves the equation under the wrong kind (the draw canvas
@@ -27427,11 +27450,25 @@ function updateSolve(): void {
           solveResult.appendChild(solveLine(s));
           say(s);
         }
-        currentSolveSvg = compositeShapeSvg(comp);
-        currentSolveAlt =
-          `${comp.title} — base area ${trimNum(qtyToNumber(comp.baseArea))}, ` +
-          `net area ${trimNum(qtyToNumber(comp.netArea))}${comp.unit ? ` ${comp.unit}²` : ""} ` +
-          `(exact: ${qtyExact(comp.netArea)}); placement of inner shapes illustrative.`;
+        // When the request was DRAWN, the placement is known — the figure
+        // shows the user's actual construction and drops the "illustrative"
+        // disclaimer, which would be a false modesty here.
+        const drawn = drawnFor(text);
+        if (drawn) {
+          const capBits = [`base area ${trimNum(qtyToNumber(comp.baseArea))}`];
+          if (qtyToNumber(comp.removedArea) > 0) capBits.push(`removed ${trimNum(qtyToNumber(comp.removedArea))}`);
+          capBits.push(`net ${trimNum(qtyToNumber(comp.netArea))}`);
+          currentSolveSvg = drawnShapesSvg(drawn, [capBits.join("   ·   ")]);
+          currentSolveAlt =
+            `${comp.title} — net area ${trimNum(qtyToNumber(comp.netArea))} ` +
+            `(exact: ${qtyExact(comp.netArea)}); drawn placement, to scale.`;
+        } else {
+          currentSolveSvg = compositeShapeSvg(comp);
+          currentSolveAlt =
+            `${comp.title} — base area ${trimNum(qtyToNumber(comp.baseArea))}, ` +
+            `net area ${trimNum(qtyToNumber(comp.netArea))}${comp.unit ? ` ${comp.unit}²` : ""} ` +
+            `(exact: ${qtyExact(comp.netArea)}); placement of inner shapes illustrative.`;
+        }
         // Preview the figure IN THE PANE — what inserts must be what was seen.
         if (currentSolveSvg) {
           const fig = document.createElement("div");
@@ -27487,6 +27524,20 @@ function updateSolve(): void {
           fig.className = "stats-figure";
           fig.innerHTML = currentSolveSvg;
           solveResult.appendChild(fig);
+        }
+      } else {
+        // No engine figure (mensuration shapes, a bare distance) — but if the
+        // request was DRAWN, the drawing itself is a faithful figure.
+        const drawn = drawnFor(text);
+        if (drawn) {
+          currentSolveSvg = drawnShapesSvg(drawn, [g.title]);
+          if (currentSolveSvg) {
+            currentSolveAlt = `${g.title} — the drawn construction, to scale.`;
+            const fig = document.createElement("div");
+            fig.className = "stats-figure";
+            fig.innerHTML = currentSolveSvg;
+            solveResult.appendChild(fig);
+          }
         }
       }
       return finish(g.caveats);

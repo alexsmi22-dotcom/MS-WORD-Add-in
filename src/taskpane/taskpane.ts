@@ -26608,7 +26608,10 @@ function updateSolveUi(): void {
     // INEQUALITIES were routed and working with nothing anywhere in the pane,
     // the HTML or the examples mentioning that this box accepts a comparison
     // sign — a shipped feature with zero discoverability.
-    equation: "Use ^ for powers — type x^2 for x². Functions: sqrt, sin, cos, exp, ln; constants pi, e (π and √ are accepted too). Pasted superscripts like x² also work. A formula with several symbols — F = m*a — offers a choice of which one to solve for. INEQUALITIES work here as well: x^3 - x >= 0 gives the solution set as intervals, with the sign analysis shown. WITH UNITS: put the formula on the first line and the knowns below it — F = m a ⏎ m = 3 kg ⏎ a = 2 m/s^2 — and the answer comes back with its unit DERIVED (6 N); mismatched dimensions are refused by name.",
+    equation: "Use ^ for powers — type x^2 for x². Functions: sqrt, sin, cos, exp, ln; constants pi, e (π and √ are accepted too). Pasted superscripts like x² also work. A formula with several symbols — F = m*a — offers a choice of which one to solve for. INEQUALITIES work here as well: x^3 - x >= 0 gives the solution set as intervals, with the sign analysis shown. WITH UNITS: put the formula on the first line and the knowns below it — F = m a ⏎ m = 3 kg ⏎ a = 2 m/s^2 — and the answer comes back with its unit DERIVED (6 N); mismatched dimensions are refused by name. " +
+      "SKETCH DATA → FUNCTION: Open canvas → “Sketch data → function” — click points on a grid and every " +
+      "candidate fit (linear/quadratic/cubic/exponential/logarithmic/power) is offered with its adjusted R²; " +
+      "YOU choose, and the chosen formula flows back here to solve, graph and insert.",
     derivative: "Use ^ for powers — e.g. x^2, exp(x), sin(x^2). Pasted superscripts like x² also work. " +
       "This box also takes LIMITS — limit sin(x)/x as x -> 0, lim 1/x as x -> inf, limit 1/x as x -> 0+ — " +
       "and SERIES: taylor exp(x) order 5, maclaurin sin(x), series sqrt(x) about 1 order 4.",

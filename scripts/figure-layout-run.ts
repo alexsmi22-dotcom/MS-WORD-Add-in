@@ -73,6 +73,8 @@ import { solveComposite } from "../src/lib/compositeGeometry";
 import { compositeShapeSvg, geometryFigureSvg, drawnShapesSvg } from "../src/lib/geometryChart";
 import { solveGeometry } from "../src/lib/geometryParse";
 import { emptyDrawState, setTool, clickAt, renderDrawSvg, DrawState } from "../src/lib/geometryDraw";
+import { fitSketch } from "../src/lib/sketchFit";
+import { sketchSurfaceSvg, sketchFitSvg } from "../src/lib/sketchChart";
 
 const figures: [string, string][] = [];
 
@@ -177,6 +179,19 @@ const figures: [string, string][] = [];
       ["base area 70   ·   removed 1.57   ·   net 68.43"]
     ),
   ]);
+}
+
+// Sketch data → function (v2.109.0): the click surface and the fit overlay.
+{
+  // SNAPPED, IN-WORLD points only — the first pin here carried (3, 6.8) with
+  // y beyond the surface's own clamp, an exemplar the UI cannot produce.
+  const linePts = [{ x: -3, y: -4.5 }, { x: -1, y: -1.5 }, { x: 0, y: 0.5 }, { x: 2, y: 3 }, { x: 3, y: 4.5 }];
+  figures.push(["sketch surface", sketchSurfaceSvg(linePts, { x: 1, y: 2 })]);
+  const lin = fitSketch(linePts).fits.find((f) => f.model === "linear");
+  if (lin) figures.push(["sketch fit linear overlay", sketchFitSvg(linePts, lin)]);
+  const logPts = [{ x: 0.5, y: 0.3 }, { x: 1, y: 1 }, { x: 2, y: 1.7 }, { x: 4, y: 2.4 }];
+  const lg = fitSketch(logPts).fits.find((f) => f.model === "logarithmic");
+  if (lg) figures.push(["sketch fit log overlay", sketchFitSvg(logPts, lg)]);
 }
 
 figures.push([

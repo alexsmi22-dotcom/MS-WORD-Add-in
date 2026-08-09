@@ -40,6 +40,8 @@ import {
   hitHandle, dragHandle, emitDsl, describePending, renderDrawSvg, snapPt, WORLD_W, WORLD_H,
   DRAW_VIEW, shapesDescribeEmit,
 } from "../lib/geometryDraw";
+import { fitSketch, SketchPt, FitResult } from "../lib/sketchFit";
+import { sketchSurfaceSvg, sketchFitSvg, skSnapPt, SK_VIEW, SK_X0, SK_X1, SK_Y0, SK_Y1 } from "../lib/sketchChart";
 
 type Kind = "equation" | "derivative" | "integral" | "ode" | "geometry";
 
@@ -646,6 +648,161 @@ Office.onReady(() => {
         : undefined;
 
     paint();
+  }
+
+  // ---- Sketch data → function (equation kind only) --------------------------
+  //
+  // Click points on a four-quadrant grid; every model that legitimately runs
+  // is presented as a chip with its adjusted R² — NEVER auto-picked. Choosing
+  // a chip shows the overlay (points + that exact curve) and writes
+  // "y = <expression>" into the input, so Use / typeset / insert all run on
+  // the formula the user chose. The R² beside each formula is computed FROM
+  // the displayed expression (rounded coefficients), not a hidden one.
+  if (kind === "equation") {
+    const wrap = byId<HTMLElement>("draw-wrap");
+    const toolsEl = byId<HTMLElement>("draw-tools");
+    const surface = byId<HTMLElement>("draw-surface");
+    const note = byId<HTMLElement>("draw-note");
+
+    let sketchOn = false;
+    let pts: SketchPt[] = [];
+    let hover: SketchPt | null = null;
+    let chosen: FitResult | null = null;
+    let frame = 0;
+
+    const toggleBtn = document.createElement("button");
+    toggleBtn.type = "button";
+    toggleBtn.className = "draw-btn";
+    toggleBtn.textContent = "Sketch data → function";
+    toggleBtn.title = "Click data points on a grid; candidate fits are ranked by adjusted R² — you choose";
+    const clearBtn = document.createElement("button");
+    clearBtn.type = "button";
+    clearBtn.className = "draw-btn";
+    clearBtn.textContent = "Clear points";
+    clearBtn.style.display = "none";
+    const chips = document.createElement("div");
+    chips.className = "chip-row";
+    toolsEl.appendChild(toggleBtn);
+    toolsEl.appendChild(clearBtn);
+    toolsEl.appendChild(chips);
+    wrap.style.display = "block";
+    surface.style.display = "none";
+
+    const paint = (): void => {
+      surface.innerHTML = sketchSurfaceSvg(pts, hover);
+    };
+    const renderFits = (): void => {
+      chips.replaceChildren();
+      // Changing the data invalidates the chosen fit — and the OVERLAY must
+      // go with it, or it keeps plotting points that are no longer the drawn
+      // set (its own stated rule, applied to itself).
+      if (chosen) figure.style.display = "none";
+      chosen = null;
+      if (pts.length < 3) {
+        note.textContent = pts.length
+          ? `${pts.length} point${pts.length === 1 ? "" : "s"} — three or more unlock the fits.`
+          : "Click points on the grid; the candidate functions appear here.";
+        return;
+      }
+      const outcome = fitSketch(pts);
+      if (outcome.refusal) {
+        note.textContent = outcome.refusal;
+        return;
+      }
+      for (const fit of outcome.fits) {
+        const chip = document.createElement("button");
+        chip.type = "button";
+        chip.className = "chip";
+        chip.textContent = Number.isFinite(fit.adjR2)
+          ? `${fit.model} R²adj ${Math.round(fit.adjR2 * 1000) / 1000}`
+          : `${fit.model} R² ${Math.round(fit.r2 * 1000) / 1000} (adj n/a)`;
+        chip.title = `y = ${fit.expr}`;
+        chip.addEventListener("click", () => {
+          chosen = fit;
+          for (const c of chips.children) c.classList.toggle("is-on", c === chip);
+          figure.innerHTML = sketchFitSvg(pts, fit);
+          figure.style.display = "block";
+          input.value = `y = ${fit.expr}`;
+          varChoice = null;
+          refresh();
+          note.textContent = fit.caveats.join(" ") ||
+            "Ranked by ADJUSTED R² — extra parameters always flatter plain R². The choice stays yours.";
+        });
+        chips.appendChild(chip);
+      }
+      const skippedTxt = outcome.skipped.map((s) => `${s.model} (${s.reason})`).join("; ");
+      note.textContent =
+        `${outcome.fits.length} fit${outcome.fits.length === 1 ? "" : "s"} — click one to see it and use it.` +
+        (skippedTxt ? ` Skipped: ${skippedTxt}.` : "");
+    };
+    const schedule = (): void => {
+      if (frame) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        paint();
+      });
+    };
+
+    toggleBtn.addEventListener("click", () => {
+      sketchOn = !sketchOn;
+      toggleBtn.classList.toggle("is-on", sketchOn);
+      surface.style.display = sketchOn ? "block" : "none";
+      clearBtn.style.display = sketchOn ? "inline-block" : "none";
+      if (sketchOn) {
+        paint();
+        renderFits();
+      } else {
+        note.textContent = "";
+        chips.replaceChildren();
+      }
+    });
+    clearBtn.addEventListener("click", () => {
+      pts = [];
+      chosen = null;
+      figure.style.display = "none";
+      paint();
+      renderFits();
+    });
+
+    const toSketchWorld = (ev: PointerEvent): SketchPt => {
+      const svg = surface.querySelector("svg");
+      const r = (svg ?? surface).getBoundingClientRect();
+      const unitsPerPx = SK_VIEW.w / (SK_X1 - SK_X0);
+      const svgX = ((ev.clientX - r.left) / Math.max(1, r.width)) * SK_VIEW.w;
+      const svgY = ((ev.clientY - r.top) / Math.max(1, r.height)) * SK_VIEW.h;
+      return { x: SK_X0 + svgX / unitsPerPx, y: SK_Y1 - svgY / unitsPerPx };
+    };
+
+    surface.addEventListener("pointerdown", (ev) => {
+      if (!sketchOn) return;
+      const w = toSketchWorld(ev);
+      if (w.y < SK_Y0) return; // the footer strip
+      const q = skSnapPt(w);
+      const at = pts.findIndex((z) => z.x === q.x && z.y === q.y);
+      if (at >= 0) pts.splice(at, 1); // click a point to remove it
+      else pts.push(q);
+      paint();
+      renderFits();
+    });
+    surface.addEventListener("pointermove", (ev) => {
+      if (!sketchOn) return;
+      const w = toSketchWorld(ev);
+      hover = w.y < SK_Y0 ? null : skSnapPt(w);
+      schedule();
+    });
+    surface.addEventListener("pointerleave", () => {
+      hover = null;
+      schedule();
+    });
+    // A hand-edited input no longer means the chosen fit — the overlay must
+    // not keep asserting a curve the request stopped describing.
+    input.addEventListener("input", () => {
+      if (chosen && input.value.trim() !== `y = ${chosen.expr}`) {
+        chosen = null;
+        figure.style.display = "none";
+        for (const c of chips.children) c.classList.remove("is-on");
+      }
+    });
   }
 
   input.addEventListener("input", () => {

@@ -61,7 +61,9 @@ const CORPUS = path.join(__dirname, "figure-layout-run.ts");
 // (composite at true placement, single circle, segment pair).
 // 164 same day: the two layouts the independent pass broke (asymmetric
 // segment crossing, touching tiny cutouts), pinned in the corpus.
-const CORPUS_FLOOR = 164;
+// 167 as of 2026-08-09 (v2.109.0): sketch-data surface + two fit overlays
+// (linear, and a log fit whose curve breaks honestly at x ≤ 0).
+const CORPUS_FLOOR = 167;
 
 // --- The allowance ratchet ----------------------------------------------------
 //

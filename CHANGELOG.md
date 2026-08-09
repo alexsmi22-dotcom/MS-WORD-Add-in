@@ -6,6 +6,49 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.109.0] — 2026-08-09 — Sketch data → function
+
+### Added
+- **Sketch data → function** (Solve → Equation → Open canvas): click data
+  points on a four-quadrant snapped grid (click a point again to remove
+  it), and every model that legitimately runs — linear, quadratic, cubic,
+  exponential, logarithmic, power — is offered as a chip with its
+  adjusted R². NOTHING is auto-picked: a model chosen by software is a
+  conclusion the user did not draw. Choosing a chip shows the overlay
+  (the points with exactly that curve) and writes `y = <expression>`
+  into the input, so rearrange/graph/insert all run on the formula the
+  user chose.
+- **The honesty rules**, enforced by construction: the R² beside each
+  formula is recomputed FROM the displayed (rounded) expression via the
+  product's own parser — the number describes exactly the formula shown;
+  models with domain requirements are SKIPPED BY NAME (exponential needs
+  every y > 0 — it is fitted through log y, and says so), never
+  force-fitted; two points sharing an x with different y are refused
+  ("no function of x passes through both"); exact interpolation (as many
+  parameters as points) is labelled "not evidence of the model"; ranking
+  uses ADJUSTED R² because plain R² always flatters extra parameters;
+  a hand-edited input clears the overlay (a curve the request stopped
+  describing must not keep asserting itself); a log fit's curve BREAKS
+  at x ≤ 0 instead of drawing through the undefined region.
+- 22 new tests (generator-recovery oracles, the R²-reproducibility
+  contract, named refusals, the x^(-0.5) parenthesisation trap) and
+  3 figure-corpus entries (floor 164 → 167).
+
+### Notes
+- Independent adversarial pass: the core contract HELD under 11,665
+  fits across 4,000 random point sets (reported R² vs an independent
+  recompute — max difference zero; a good-claimed-but-wrong R² is
+  impossible by construction) and no model can silently vanish. It
+  found 3 defects, fixed and pinned: (1) when n ≤ params + 1 the
+  "adjusted R²" chip silently showed PLAIN R² — handing the win to the
+  biggest model exactly where flattery is strongest; adjusted is now
+  honestly undefined (n/a), such models rank last and carry a caveat,
+  and interpolation is caveated even when rounding degrades its R²;
+  (2) adding/removing a point left the previous fit's overlay and
+  formula asserting themselves over the new data — the overlay now
+  clears when the data changes; (3) the corpus's own surface exemplar
+  contained a point the surface cannot produce (y beyond its clamp).
+
 ## [2.108.0] — 2026-08-09 — The canvas measures, and the figure keeps your placement
 
 ### Added

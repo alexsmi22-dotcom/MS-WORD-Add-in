@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.108.0)
+# JurisLab — Manual Test Script (v2.109.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -9,6 +9,26 @@ scanning, and layout. Budget ~30 minutes for the full pass.
 Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
+
+## 0bm. New in v2.109.0 — sketch data → function
+
+Solve → **Equation** kind → Open canvas → click **Sketch data → function**.
+
+- [ ] Click ~5 points roughly on a line across the four-quadrant grid → chips
+  appear: linear/quadratic/cubic (and exp/log/power only when the data allows,
+  otherwise named in the skip note). Linear's adjusted R² tops the list.
+- [ ] Click the linear chip → the overlay shows the points + that exact curve,
+  captioned with the expression, R², adjusted R², RMSE — and the input now
+  reads `y = <expression>`.
+- [ ] Click a drawn point again → it disappears; fits recompute.
+- [ ] Put two points at the same x, different y → refusal names it: "no
+  function of x passes through both".
+- [ ] Points with negative y → the skip note says exponential/power need
+  positive values; nothing is force-fitted.
+- [ ] Edit the input by hand → the overlay clears (the request no longer means
+  that fit).
+- [ ] **Use this equation** → the pane gets `y = <expr>` with solve-for chips;
+  Insert works as any equation.
 
 ## 0bl. New in v2.108.0 — measurements + drawn placement
 

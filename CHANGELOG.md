@@ -6,6 +6,46 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.117.0] — 2026-08-09 — Survey percentages, and word problems route themselves
+
+### Added
+- **Survey percentage questions** ("In a survey of 20 people, 8 people
+  said they liked chocolate ice cream, and 12 liked vanilla. What is
+  the percentage of people who like chocolate ice cream?") are a new
+  word-problem template: the count is read from the clause that names
+  the asked category and that clause is QUOTED in the working, the
+  whole must be stated in the text ("a survey of 20", "out of 50",
+  "30 students were asked") — a total is never inferred by summing
+  categories, because a respondent may pick several options or none.
+  Ambiguity (two clauses tying different counts to the category), a
+  negated question ("did NOT like…" — the complement is only 100% − x
+  for disjoint, exhaustive categories), and a count above the total
+  each return nothing rather than a guess, per this module's charter.
+- **Word problems pasted into the equation kind route themselves**: the
+  pane switches to the Word problem kind with a note and answers —
+  the same pattern as the derivative and limit switches — and the
+  canvas answers inline. Only prose can leave: text carrying =, <, >
+  or several lines is algebra and never enters, and the switch fires
+  only when the word-problem engine will actually answer. This also
+  unlocks the whole existing family ("what is 15% of 200", rate ×
+  time, running totals, number sentences) for paste-the-question use.
+
+### Notes
+- Independent adversarial pass: the ROUTING was verified clean on both
+  surfaces (nothing previously answerable is intercepted; every
+  earlier claimant in the dispatch still fires first) — the defects
+  were in the new recogniser, six confident wrong answers on natural
+  survey prose, all fixed and pinned: a stated RATE read as a head
+  count ("30% said…" in a survey of 40 → 75%, truth 30%); thousands
+  commas severed by the clause split ("2,500 said…" → counted 500);
+  best-partial category scoring answering a "vanilla ice cream"
+  question with the CHOCOLATE ice cream count (now every word of the
+  category must match); "likely" stemming to "like" (an adverb became
+  a category; "-ly" extensions no longer match); the question regex
+  matching a STATEMENT sentence instead of the question (now the last
+  percent sentence); and multi-number clauses ("8 out of every 10
+  said…", "between 5 and 8") committing to one number (now refused).
+
 ## [2.116.0] — 2026-08-09 — Statistics from prose, and the task layer widens
 
 ### Added

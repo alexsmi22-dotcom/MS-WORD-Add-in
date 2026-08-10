@@ -22,7 +22,8 @@ import {
 } from "../lib/palettes";
 import { mathToHtml } from "../lib/mathHtml";
 import { solveInputToTypesetLines, solveToTypesetDsl, isProseRequest } from "../lib/solveTypeset";
-import { foldPastedMath, extractSingleEquation, extractExpression, normalizeTaskProse } from "../lib/pasteMath";
+import { foldPastedMath, extractSingleEquation, extractExpression, normalizeTaskProse, hasProseWords } from "../lib/pasteMath";
+import { solveWordProblem } from "../lib/wordproblem";
 import { graphSeries, GraphWindow } from "../lib/graphCalc";
 import { buildPlotSvg } from "../lib/plot";
 import { solveEquation, differentiate, antiderivative, integrate, parseExpr, evalAst } from "../lib/solve";
@@ -277,6 +278,19 @@ Office.onReady(() => {
           for (const l of verb.lines) mathLine(resultEl, l.text, l.text);
           for (const c of verb.caveats.slice(0, 2)) line(resultEl, c, "caveat");
           return;
+        }
+        // Word problems answer inline (the canvas cannot switch kinds). Only
+        // prose enters: comparison signs and multi-line input are algebra.
+        if (!/[=<>≤≥≠]/.test(folded) && !folded.includes("\n") && hasProseWords(folded)) {
+          const wp = solveWordProblem(folded);
+          if (wp) {
+            line(resultEl, "Read as a word problem.", "result-title");
+            line(resultEl, `answer = ${wp.answer}`, "result-line");
+            if (wp.equation) line(resultEl, wp.equation, "result-line");
+            for (const s of wp.steps.slice(0, 3)) line(resultEl, s, "result-line");
+            for (const c of wp.caveats.slice(0, 2)) line(resultEl, c, "caveat");
+            return;
+          }
         }
         if (/[<>≤≥≠]|!=/.test(folded) && !folded.includes("\n")) {
           const iq = solveInequality(folded);

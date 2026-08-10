@@ -323,7 +323,7 @@ import { DrawShape, sanitizeShapes, emitDsl as emitDrawDsl, shapesDescribeEmit }
 import { trySum, tryAlgebraVerb } from "../lib/algebraTools";
 import { tryStatsIntent } from "../lib/statsIntent";
 import { solveInputToTypesetLines, solveToTypesetDsl, isProseRequest } from "../lib/solveTypeset";
-import { foldPastedMath, extractSingleEquation, extractExpression, normalizeTaskProse } from "../lib/pasteMath";
+import { foldPastedMath, extractSingleEquation, extractExpression, normalizeTaskProse, hasProseWords } from "../lib/pasteMath";
 import { equationWork, derivativeWork, definiteIntegralWork, WorkLine } from "../lib/showWork";
 import { solveOdeSymbolic } from "../lib/odeSymbolic";
 import { solveWithUnits } from "../lib/unitSolve";
@@ -26621,7 +26621,8 @@ function updateSolveUi(): void {
       "PASTE THE WHOLE QUESTION: prose is read, the equation dug out, and the TASK obeyed — " +
       "“Find the derivative of f(x) = 3x² + 4x − 2” differentiates, “limit of sin(x)/x as x approaches 0” " +
       "takes the limit, “mean of 3, 5, 8 and 12” / “Is A: 1,2,3 different from B: 4,5,6?” answer from the " +
-      "statistics engines (values listed back; sample vs population SD stated). " +
+      "statistics engines (values listed back; sample vs population SD stated), and a pasted WORD PROBLEM " +
+      "(“In a survey of 20 people, 8 liked… What percentage…?”) switches itself to the Word problem kind and answers. " +
       "SUMS: sum of 1 to 100 · sum k^2 from 1 to n (closed forms; Σ1/k refused by name). " +
       "VERBS: factor x^2-5x+6 · expand (x+1)^3 · simplify (x^2-1)/(x-1) — every result verified " +
       "by multiplying back. POWERS rearrange: V = (4/3)π r^3 solves for r as a cube root; " +
@@ -27092,6 +27093,22 @@ function updateSolve(): void {
           else say(l.text);
         }
         return finish(verb.caveats);
+      }
+      // A WORD PROBLEM pasted into the equation kind ("In a survey of 20
+      // people, 8 … What is the percentage …?") switches to the Word problem
+      // kind, which owns it — the same pattern as the derivative and limit
+      // switches above. Only prose can leave: text carrying a comparison
+      // sign or several lines is algebra and never enters, and the switch
+      // fires only when the word-problem engine will actually answer.
+      if (!/[=<>≤≥≠]/.test(text) && !text.includes("\n") && hasProseWords(text) && solveWordProblem(text)) {
+        solveKind.value = "word";
+        updateSolveUi();
+        updateSolve();
+        solveResult.insertBefore(
+          solveLine("This reads as a WORD PROBLEM — switched to the Word problem kind and answered."),
+          solveResult.firstChild
+        );
+        return;
       }
       // An INEQUALITY is unambiguous from its comparison sign.
       if (/[<>≤≥≠]|!=/.test(text) && !text.includes("\n")) {

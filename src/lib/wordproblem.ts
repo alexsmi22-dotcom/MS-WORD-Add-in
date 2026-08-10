@@ -560,6 +560,126 @@ function tryProportion(t: string): WordProblemResult | null {
 }
 
 /**
+ * Percentage of a surveyed group — counts stated in prose, the share of one
+ * category asked for.
+ *
+ *   "In a survey of 20 people, 8 people said they liked chocolate ice cream,
+ *    and 12 said they liked vanilla. What is the percentage of people who
+ *    like chocolate ice cream?"
+ *
+ * Runs on the ORIGINAL text (clauses are quoted back, and lowercasing them
+ * would misquote the user). Commitments, in this module's spirit:
+ *   - the whole must be STATED ("a survey of 20", "out of 50", "30 students
+ *    were asked") — a total is never inferred by adding categories, because
+ *    a respondent may pick several options or none;
+ *   - the count must sit in a clause that names the asked category, and that
+ *     clause is quoted in the working so the reading is checkable;
+ *   - two clauses tying DIFFERENT counts to the category, a negated question
+ *     ("did NOT like…" — the complement is only 100% − x for disjoint,
+ *     exhaustive categories, which a survey sentence cannot promise), or a
+ *     count above the total each return null rather than a guess.
+ */
+const SURVEY_STOP = new Set([
+  "the", "a", "an", "of", "to", "in", "on", "at", "for", "is", "are", "was",
+  "were", "be", "and", "or", "who", "that", "which", "they", "them", "their",
+  "said", "say", "says", "people", "person", "student", "students",
+  "respondents", "participants", "customers", "voters", "it", "have", "has",
+  "had", "with", "what", "percentage", "percent", "do", "does", "did",
+]);
+
+/** Inflection-only stem match: equal, or a short (≤3-char) suffix extension of
+ *  a ≥4-char stem — "like"~"liked", "prefer"~"preferred", "student"~"students".
+ *  Never a "-ly" extension: "likely" is NOT "like" (the adversarial pass caught
+ *  one stray adverb turning into a category count). */
+const surveyWordMatch = (a: string, b: string): boolean => {
+  if (a === b) return true;
+  const [s, l] = a.length <= b.length ? [a, b] : [b, a];
+  return s.length >= 4 && l.startsWith(s) && l.length - s.length <= 3 && !l.endsWith("ly");
+};
+
+function trySurveyPercent(text: string): WordProblemResult | null {
+  if (/[=<>≤≥]/.test(text)) return null;
+  // "between 5 and 8 people said…" — a range is never a single count.
+  if (/\bbetween\s+\d/i.test(text)) return null;
+  // Sentences, decimal-safe: a period between digits is a decimal point, so
+  // "2.5" must not be severed into "2" and "5 said…".
+  const sentences = text.split(/[!?\n]+|\.(?!\d)/).map((s) => s.trim()).filter(Boolean);
+  // The QUESTION is the LAST percent sentence. A statement can mention a
+  // percentage too ("The percentage of people who liked chocolate was
+  // unknown…") — matching the first would answer a different question than
+  // the one asked.
+  const qSentence = [...sentences].reverse().find((s) => /%|\bpercent(?:age)?\b/i.test(s));
+  if (!qSentence) return null;
+  const q = qSentence.match(/percent(?:age)?\s+of\s+(?:the\s+)?[\w\s-]*?\b(?:who|that|which)\s+(.+)$/i);
+  if (!q) return null;
+  if (/\b(?:not|never|dislike\w*)\b|n't\b/i.test(q[1])) return null;
+  const PN = String.raw`\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?`;
+  const totalM =
+    text.match(new RegExp(String.raw`\b(?:survey|sample|poll|class|group|study)\s+of\s+(${PN})`, "i")) ??
+    text.match(new RegExp(String.raw`\btotal\s+of\s+(${PN})`, "i")) ??
+    text.match(new RegExp(String.raw`\bout\s+of\s+(?:the\s+)?(${PN})\b`, "i")) ??
+    text.match(new RegExp(String.raw`\b(${PN})\s+(?:people|students|respondents|participants|customers|voters|patients|employees)\s+(?:were\s+)?(?:surveyed|polled|asked|interviewed|responded)`, "i"));
+  if (!totalM) return null;
+  const total = Number(totalM[1].replace(/,/g, ""));
+  if (!(total > 0)) return null;
+  const keys = q[1].toLowerCase().split(/[^a-z0-9-]+/)
+    .filter((w) => w.length >= 3 && !SURVEY_STOP.has(w));
+  if (keys.length === 0) return null;
+  // Counts live in percent-free STATEMENT sentences: the question sentence
+  // repeats the category words with no count, and a sentence stating a RATE
+  // ("30% said they liked…") holds a percentage, not a head count — reading
+  // its 30 as 30 people answered 75% where the truth was 30%. Clauses split
+  // on ";", "and", and commas that are not thousands separators ("2,500"
+  // must survive the split, or its count reads as 500).
+  const clauses = sentences
+    .filter((s) => !/%|\bpercent(?:age)?\b/i.test(s))
+    .flatMap((s) => s.split(/;|,(?!\d{3}(?!\d))|\band\b/i))
+    .map((c) => c.trim())
+    .filter(Boolean);
+  const cands: { clause: string; n: number }[] = [];
+  for (const c of clauses) {
+    // The total's own span is blanked, not the whole clause — a count and
+    // the total often share a clause ("8 students in a class of 25 …").
+    const cc = c.replace(totalM[0], " ");
+    const nums = cc.match(new RegExp(String.raw`(?<![\w.])(?:${PN})(?!\s*%)(?![\w])`, "g")) ?? [];
+    // A clause carrying several numbers ("8 out of every 10 said…") cannot
+    // commit to one of them as the count.
+    if (nums.length !== 1) continue;
+    const words = cc.toLowerCase().split(/[^a-z0-9-]+/).filter(Boolean);
+    // EVERY key must match. Best-partial-match scoring answered a "vanilla
+    // ice cream" question with the CHOCOLATE ice cream count (2 of 3 words).
+    if (keys.every((k) => words.some((w) => surveyWordMatch(w, k)))) {
+      cands.push({ clause: c, n: Number(nums[0].replace(/,/g, "")) });
+    }
+  }
+  if (cands.length === 0) return null;
+  const nums = [...new Set(cands.map((c) => c.n))];
+  if (nums.length !== 1) return null;
+  const part = nums[0];
+  if (part > total) return null;
+  const v = (100 * part) / total;
+  const frac = Number.isInteger(part) && Number.isInteger(total)
+    ? (() => { let a = part, b = total; while (b) { [a, b] = [b, a % b]; } return a || 1; })()
+    : 1;
+  const reduced = frac > 1 ? ` (${part}/${total} = ${part / frac}/${total / frac} of the whole)` : "";
+  return {
+    template: "survey percentage",
+    answer: `${fmt(v)}%`,
+    value: v,
+    equation: `${part}/${total} × 100 = ${fmt(v)}%`,
+    equationMath: `\\frac{${part}}{${total}} \\cdot 100 = ${fmt(v)}\\%`,
+    steps: [
+      `Count for "${q[1].trim()}": ${part} — from "${cands[0].clause}"`,
+      `Whole: ${total} — from "${totalM[0]}"`,
+      `${part}/${total} × 100 = ${fmt(v)}%${reduced}`,
+    ],
+    caveats: [
+      "Counted the clause quoted above as the match for the asked category — check that reading.",
+    ],
+  };
+}
+
+/**
  * Percentage increase or decrease applied to a stated starting value.
  *
  *   "the price … has increased by 5% … its price was $2.40 last year"
@@ -790,6 +910,11 @@ export function solveWordProblem(text: string): WordProblemResult | null {
     tryRateInterpretation(text) ??
     tryShareSequence(text) ??
     tryRunningTotal(text) ??
+    // Survey percentages next, on the ORIGINAL text: the gate (a
+    // "percentage of … who …" question plus a stated total) is unambiguous,
+    // and the category counts it needs are numbers the greedier percentage
+    // and rate-time patterns below could latch onto.
+    trySurveyPercent(text) ??
     tryPerimeter(t) ??
     tryPartition(t) ??
     tryWorkRate(t) ??

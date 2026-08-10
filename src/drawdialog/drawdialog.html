@@ -18,9 +18,80 @@
         display: flex;
         flex-direction: column;
       }
+      #tabs {
+        flex: 0 0 auto;
+        display: flex;
+        gap: 2px;
+        padding: 8px 12px 0;
+        border-bottom: 1px solid #d0d0d0;
+        background: #f7f7f7;
+      }
+      .tab-btn {
+        padding: 7px 16px;
+        font-size: 13.5px;
+        border: 1px solid #d0d0d0;
+        border-bottom: none;
+        border-radius: 6px 6px 0 0;
+        background: #ececec;
+        cursor: pointer;
+        color: #444;
+      }
+      .tab-btn.active {
+        background: #fff;
+        font-weight: 600;
+        color: #111;
+        position: relative;
+        top: 1px;
+      }
       #editor {
         flex: 1 1 auto;
         min-height: 0;
+      }
+      #view3d-wrap {
+        flex: 1 1 auto;
+        min-height: 0;
+        display: none;
+        flex-direction: column;
+      }
+      #view3d-controls {
+        flex: 0 0 auto;
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        padding: 8px 12px;
+        font-size: 13px;
+        background: #fbfbfb;
+        border-bottom: 1px solid #e4e4e4;
+        flex-wrap: wrap;
+      }
+      #view3d-controls label {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        cursor: pointer;
+      }
+      #style3d {
+        font-size: 13px;
+        padding: 3px 6px;
+      }
+      #canvas3d {
+        flex: 1 1 auto;
+        min-height: 0;
+        width: 100%;
+        cursor: grab;
+        touch-action: none;
+        display: block;
+      }
+      #canvas3d:active {
+        cursor: grabbing;
+      }
+      #note3d {
+        flex: 0 0 auto;
+        font-size: 12px;
+        color: #666;
+        padding: 6px 12px;
+        border-top: 1px solid #eee;
+        min-height: 20px;
       }
       #bar {
         flex: 0 0 auto;
@@ -31,7 +102,8 @@
         border-top: 1px solid #d0d0d0;
         background: #f7f7f7;
       }
-      #use-btn {
+      #use-btn,
+      #use3d-btn {
         padding: 8px 18px;
         font-size: 14px;
         font-weight: 600;
@@ -41,13 +113,22 @@
         color: #062033;
         cursor: pointer;
       }
-      #cancel-btn {
+      #use3d-btn {
+        display: none;
+      }
+      #cancel-btn,
+      #clean-btn,
+      #reset3d-btn {
         padding: 8px 14px;
         font-size: 14px;
         border: 1px solid #c0c0c0;
         border-radius: 4px;
         background: #fff;
         cursor: pointer;
+      }
+      #reset3d-btn {
+        padding: 4px 10px;
+        font-size: 12.5px;
       }
       #info {
         margin-left: auto;
@@ -63,10 +144,33 @@
     </style>
   </head>
   <body>
+    <div id="tabs">
+      <button id="tab-2d" class="tab-btn active" type="button" aria-selected="true">2D editor</button>
+      <button id="tab-3d" class="tab-btn" type="button" aria-selected="false">3D model</button>
+    </div>
     <div id="editor" aria-label="Structure drawing canvas"></div>
+    <div id="view3d-wrap">
+      <div id="view3d-controls">
+        <label>Style
+          <select id="style3d">
+            <option value="ballstick" selected>Ball and stick</option>
+            <option value="stick">Stick</option>
+            <option value="spacefill">Space-filling</option>
+          </select>
+        </label>
+        <label><input type="checkbox" id="show-h" checked /> Hydrogens</label>
+        <label><input type="checkbox" id="spin3d" /> Spin</label>
+        <button id="reset3d-btn" type="button">Reset view</button>
+        <span style="color:#888">drag to rotate · scroll to zoom</span>
+      </div>
+      <canvas id="canvas3d" aria-label="3D molecular model"></canvas>
+      <div id="note3d"></div>
+    </div>
     <div id="error"></div>
     <div id="bar">
       <button id="use-btn" type="button">Use this drawing</button>
+      <button id="use3d-btn" type="button">Insert 3D picture</button>
+      <button id="clean-btn" type="button">Clean structure</button>
       <button id="cancel-btn" type="button">Cancel</button>
       <span id="info"></span>
     </div>

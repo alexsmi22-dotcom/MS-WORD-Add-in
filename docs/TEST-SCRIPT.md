@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.117.0)
+# JurisLab — Manual Test Script (v2.118.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -9,6 +9,34 @@ scanning, and layout. Budget ~30 minutes for the full pass.
 Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
+
+## 0bq. New in v2.118.0 — 3D model in the drawing canvas
+
+Build → Draw tab → "Open large canvas / 3D ⤢".
+
+- [ ] Draw (or carry in) ibuprofen-ish structure → "3D model" tab → conformer
+  appears in ball-and-stick, colored by element (O red, N blue, C gray).
+- [ ] Drag rotates smoothly; scroll zooms; "Spin" auto-rotates; "Reset view"
+  recenters. Style switch to Stick and Space-filling redraws.
+- [ ] Untick "Hydrogens" → H spheres and their bonds vanish, model refits.
+- [ ] The note names the conformer honestly (MMFF94s-minimised, one of many).
+- [ ] "Insert 3D picture" → figure lands in Word in the SAME orientation the
+  canvas showed, on white, with alt text carrying formula + OCL-ID.
+- [ ] Draw a structure with an R-group → 3D tab refuses BY NAME (generic
+  structure), no blank canvas, no crash.
+- [ ] 2D tab: "Clean structure" works in the dialog; formula + MW shown
+  bottom-right; "Use this drawing" still round-trips to the pane.
+
+## 0bp. New in v2.117.0 — survey percentages + word-problem routing
+
+Solve → Equation kind.
+
+- [ ] Paste: `In a survey of 20 people, 8 people said they liked chocolate ice
+  cream, and 12 people said they liked vanilla. What is the percentage of
+  people who like chocolate ice cream?` → switches to Word problem kind with a
+  note → 40%, quoting the chocolate clause and "survey of 20".
+- [ ] `What is 15% of 200?` in the equation kind → routes to Word problem → 30.
+- [ ] `x^2 - 4 = 0` still solves as an equation (no word-problem theft).
 
 ## 0bo. New in v2.111.0 — powers, sums, verbs
 

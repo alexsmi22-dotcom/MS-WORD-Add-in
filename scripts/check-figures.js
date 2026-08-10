@@ -63,7 +63,9 @@ const CORPUS = path.join(__dirname, "figure-layout-run.ts");
 // segment crossing, touching tiny cutouts), pinned in the corpus.
 // 167 as of 2026-08-09 (v2.109.0): sketch-data surface + two fit overlays
 // (linear, and a log fit whose curve breaks honestly at x ≤ 0).
-const CORPUS_FLOOR = 167;
+// 171 as of 2026-08-09 (v2.118.0): four 3D molecular model figures (mol3d:
+// benzene ball-and-stick + spacefill, ethanol stick + hidden-H refit).
+const CORPUS_FLOOR = 171;
 
 // --- The allowance ratchet ----------------------------------------------------
 //

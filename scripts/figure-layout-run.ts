@@ -75,6 +75,8 @@ import { solveGeometry } from "../src/lib/geometryParse";
 import { emptyDrawState, setTool, clickAt, renderDrawSvg, DrawState } from "../src/lib/geometryDraw";
 import { fitSketch } from "../src/lib/sketchFit";
 import { sketchSurfaceSvg, sketchFitSvg } from "../src/lib/sketchChart";
+import { generate3d, isMol3dError, projectScene, opsToSvg, defaultMol3dView, formulaSubscripts } from "../src/lib/mol3d";
+import { Molecule as OclMoleculeForCorpus } from "openchemlib/full";
 
 const figures: [string, string][] = [];
 
@@ -192,6 +194,30 @@ const figures: [string, string][] = [];
   const logPts = [{ x: 0.5, y: 0.3 }, { x: 1, y: 1 }, { x: 2, y: 1.7 }, { x: 4, y: 2.4 }];
   const lg = fitSketch(logPts).fits.find((f) => f.model === "logarithmic");
   if (lg) figures.push(["sketch fit log overlay", sketchFitSvg(logPts, lg)]);
+}
+
+// 3D molecular models (v2.118.0): the dialog's draw list emitted as the
+// inserted SVG, across all three styles and the H-hidden refit.
+{
+  const benzene = OclMoleculeForCorpus.fromSmiles("c1ccccc1");
+  const ethanol = OclMoleculeForCorpus.fromSmiles("CCO");
+  const b3 = generate3d(benzene.getIDCode());
+  const e3 = generate3d(ethanol.getIDCode());
+  // Same recipe as the pane's insertDraw3d: scene in the band above the
+  // caption line, caption stating formula (subscripted), style, provenance.
+  const fig = (m: ReturnType<typeof generate3d>, view: Parameters<typeof projectScene>[1], style: string): string => {
+    if (isMol3dError(m)) throw new Error(m.error);
+    const caption = `${formulaSubscripts(m.formula)} — ${style}, MMFF94s conformer`;
+    return opsToSvg(projectScene(m, view, 640, 454), 640, 480, caption);
+  };
+  if (!isMol3dError(b3)) {
+    figures.push(["mol3d benzene ballstick", fig(b3, defaultMol3dView(), "ball-and-stick")]);
+    figures.push(["mol3d benzene spacefill", fig(b3, { ...defaultMol3dView(), style: "spacefill" }, "space-filling")]);
+  }
+  if (!isMol3dError(e3)) {
+    figures.push(["mol3d ethanol stick", fig(e3, { ...defaultMol3dView(), style: "stick" }, "stick")]);
+    figures.push(["mol3d ethanol no-H", fig(e3, { ...defaultMol3dView(), showH: false }, "ball-and-stick, hydrogens hidden")]);
+  }
 }
 
 figures.push([

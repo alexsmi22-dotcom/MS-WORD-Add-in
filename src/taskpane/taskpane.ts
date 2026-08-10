@@ -324,6 +324,7 @@ import { trySum, tryAlgebraVerb } from "../lib/algebraTools";
 import { tryStatsIntent } from "../lib/statsIntent";
 import { solveInputToTypesetLines, solveToTypesetDsl, isProseRequest } from "../lib/solveTypeset";
 import { foldPastedMath, extractSingleEquation, extractExpression, normalizeTaskProse, hasProseWords } from "../lib/pasteMath";
+import { generate3d, isMol3dError, projectScene, opsToSvg, defaultMol3dView, formulaSubscripts, Mol3dView, Mol3dStyle } from "../lib/mol3d";
 import { equationWork, derivativeWork, definiteIntegralWork, WorkLine } from "../lib/showWork";
 import { solveOdeSymbolic } from "../lib/odeSymbolic";
 import { solveWithUnits } from "../lib/unitSolve";
@@ -4609,8 +4610,13 @@ function openDrawDialog(): void {
       const msg = (arg as { message?: string }).message;
       if (!msg) return;
       try {
-        const data = JSON.parse(msg) as { mol?: string; cancel?: boolean };
-        if (data.cancel || !data.mol) return;
+        const data = JSON.parse(msg) as { mol?: string; mol3d?: Draw3dPayload; cancel?: boolean };
+        if (data.cancel) return;
+        if (data.mol3d) {
+          void insertDraw3d(data.mol3d);
+          return;
+        }
+        if (!data.mol) return;
         const [idcode, coords] = data.mol.split(/\s+/);
         const mol = coords ? OclMolecule.fromIDCode(idcode, coords) : OclMolecule.fromIDCode(idcode);
         setBuildTab("draw");
@@ -4627,6 +4633,77 @@ function openDrawDialog(): void {
       openDrawDialogBtn.disabled = false;
     });
   });
+}
+
+/** The 3D view the large canvas hands back: idcode + how the user oriented it. */
+interface Draw3dPayload {
+  idcode: string;
+  style: Mol3dStyle;
+  showH: boolean;
+  rot: number[];
+  zoom: number;
+}
+
+/**
+ * Inserts the 3D model the large canvas composed. The conformer is REGENERATED
+ * here from the idcode (fixed seed — identical coordinates to what the dialog
+ * displayed), then rendered through the same projectScene/opsToSvg pair the
+ * dialog's live view uses, in the exact orientation the user chose. What you
+ * saw is what inserts.
+ */
+async function insertDraw3d(payload: Draw3dPayload): Promise<void> {
+  setStatus("Generating 3D conformer for the figure…");
+  // Let the status paint before the synchronous generation blocks the pane.
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  try {
+    const model = generate3d(payload.idcode);
+    if (isMol3dError(model)) {
+      setStatus(model.error, "error");
+      return;
+    }
+    const W3D = 640, H3D = 480;
+    const rotOk = Array.isArray(payload.rot) && payload.rot.length === 9 && payload.rot.every((v) => Number.isFinite(v));
+    const view: Mol3dView = {
+      rot: rotOk ? payload.rot : defaultMol3dView().rot,
+      zoom: typeof payload.zoom === "number" && Number.isFinite(payload.zoom) && payload.zoom > 0 ? Math.min(5, payload.zoom) : 1,
+      showH: payload.showH !== false,
+      style: payload.style === "stick" || payload.style === "spacefill" ? payload.style : "ballstick",
+    };
+    const styleName = view.style === "ballstick" ? "ball-and-stick" : view.style === "spacefill" ? "space-filling" : "stick";
+    // The scene projects into the band above the caption line, so the
+    // molecule can never sit on its own caption.
+    const ops = projectScene(model, view, W3D, H3D - 26);
+    if (ops.length === 0) {
+      // An all-hydrogen molecule with hydrogens hidden has nothing to show —
+      // a blank white rectangle must never insert as if it were a figure.
+      setStatus("Nothing visible to insert — every atom is hidden (hydrogens off).", "error");
+      return;
+    }
+    const caption = `${formulaSubscripts(model.formula)} — ${styleName}, MMFF94s conformer`;
+    const svg = opsToSvg(ops, W3D, H3D, caption);
+    const d = readSvgDims(svg, W3D, H3D);
+    const base64 = await renderFigurePng(svg, d.w, d.h);
+    const alt = provenanceAltText(
+      `3D model (${styleName}, MMFF94s conformer) of ${model.formula}`,
+      model.formula,
+      0,
+      "",
+      payload.idcode,
+    );
+    await Word.run(async (context) => {
+      const range = context.document.getSelection();
+      const picture = range.insertInlinePictureFromBase64(base64, Word.InsertLocation.after);
+      sizeFigure(picture, d.w / 2, d.h / 2);
+      picture.altTextDescription = alt;
+      range.select(Word.SelectionMode.end);
+      await context.sync();
+      await tagInserted(context, picture.getRange(), "formula-inserter:structure3d");
+    });
+    setStatus("3D model inserted.", "success");
+    recordInsert("chemical", `3D ${model.formula}`, `3D ${model.formula}`);
+  } catch (error) {
+    setStatus(`Could not insert the 3D model: ${(error as Error).message}`, "error");
+  }
 }
 
 /** Loads the Chemical-mode structure into the Draw canvas for modification. */

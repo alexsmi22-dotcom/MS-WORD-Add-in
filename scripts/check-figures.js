@@ -65,7 +65,9 @@ const CORPUS = path.join(__dirname, "figure-layout-run.ts");
 // (linear, and a log fit whose curve breaks honestly at x ≤ 0).
 // 171 as of 2026-08-09 (v2.118.0): four 3D molecular model figures (mol3d:
 // benzene ball-and-stick + spacefill, ethanol stick + hidden-H refit).
-const CORPUS_FLOOR = 171;
+// 172 as of 2026-08-09 (v2.119.0): acetone pins the parallel-rod double bond
+// and the heteroatom label.
+const CORPUS_FLOOR = 172;
 
 // --- The allowance ratchet ----------------------------------------------------
 //

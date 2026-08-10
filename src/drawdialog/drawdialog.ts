@@ -16,9 +16,13 @@
 import { CanvasEditor, Molecule } from "openchemlib/full";
 import { rgroupLabels, cleanedCopy } from "../lib/builder";
 import {
-  generate3d, isMol3dError, Mol3dModel, Mol3dView, Mol3dStyle,
-  defaultMol3dView, rotateView, projectScene, paintOps,
+  generate3d, isMol3dError, Mol3dModel, Mol3dView, Mol3dStyle, DrawOp,
+  defaultMol3dView, rotateView, projectScene, paintOps, hitTest,
 } from "../lib/mol3d";
+import {
+  changeElement, deleteAtomIn, setBondOrderIn, deleteBondIn, attachFragment,
+  addTemplate, MOL_TEMPLATES, ATTACH_GROUPS, EDIT_ELEMENTS, Mol3dEditResult,
+} from "../lib/mol3dEdit";
 
 function byId<T extends HTMLElement>(id: string): T {
   return document.getElementById(id) as T;
@@ -109,11 +113,26 @@ Office.onReady(() => {
   const useBtn = byId<HTMLButtonElement>("use-btn");
   const cleanBtn = byId<HTMLButtonElement>("clean-btn");
 
+  const labelsBox = byId<HTMLInputElement>("labels3d");
+  const editBar = byId<HTMLElement>("edit3d-bar");
+  const editWhat = byId<HTMLElement>("edit3d-what");
+  const elemWrap = byId<HTMLElement>("elem3d");
+  const attachSel = byId<HTMLSelectElement>("attach3d");
+  const bondBtns = byId<HTMLElement>("bond3d-btns");
+  const delAtomBtn = byId<HTMLButtonElement>("del-atom3d");
+  const tpl3dSel = byId<HTMLSelectElement>("tpl3d");
+  const tpl2dSel = byId<HTMLSelectElement>("tpl2d");
+
   let model3d: Mol3dModel | null = null;
   let model3dIdcode = "";
   let computingIdcode = ""; // a pending generation; re-entry must not duplicate it
   let view3d: Mol3dView = defaultMol3dView();
   let spinHandle = 0;
+  let lastOps: DrawOp[] = [];
+  /** Selected atom or bond, as indices into fromIDCode(model3dIdcode) — the
+   *  order pin ("LOAD-BEARING" test in mol3d.test.ts) guarantees these match
+   *  the conformer's own indices for heavy atoms and their bonds. */
+  let sel: { atom?: number; bond?: number } | null = null;
 
   function render3d(): void {
     if (!model3d) return;
@@ -130,14 +149,36 @@ Office.onReady(() => {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     view3d.style = styleSel.value as Mol3dStyle;
     view3d.showH = showHBox.checked;
+    view3d.showLabels = labelsBox.checked;
     const ops = projectScene(model3d, view3d, w, h);
+    lastOps = ops;
     paintOps(ctx, ops, w, h);
+    // Selection halo, drawn OVER the scene (never part of the insert).
+    if (sel) {
+      ctx.strokeStyle = "#0ea5e9";
+      ctx.lineWidth = 2.5;
+      ctx.setLineDash([5, 4]);
+      for (const op of ops) {
+        if (sel.atom !== undefined && op.kind === "sphere" && op.atom === sel.atom) {
+          ctx.beginPath();
+          ctx.arc(op.x, op.y, op.r + 4, 0, 2 * Math.PI);
+          ctx.stroke();
+        }
+        if (sel.bond !== undefined && op.kind === "rod" && op.bond === sel.bond) {
+          ctx.beginPath();
+          ctx.moveTo(op.x1, op.y1);
+          ctx.lineTo(op.x2, op.y2);
+          ctx.stroke();
+        }
+      }
+      ctx.setLineDash([]);
+    }
     // An all-hydrogen molecule with hydrogens hidden shows nothing — say so,
     // and never offer to insert a blank white rectangle.
     if (ops.length === 0) {
       note3d.textContent = "Nothing visible — every atom is a hydrogen and hydrogens are hidden.";
       use3dBtn.disabled = true;
-    } else {
+    } else if (!sel) {
       note3d.textContent = model3d.caveats.join(" ");
       use3dBtn.disabled = false;
     }
@@ -180,7 +221,9 @@ Office.onReady(() => {
       }
       model3d = r;
       model3dIdcode = idcode;
-      view3d = { ...defaultMol3dView(), style: styleSel.value as Mol3dStyle, showH: showHBox.checked };
+      sel = null;
+      updateEditBar();
+      view3d = { ...defaultMol3dView(), style: styleSel.value as Mol3dStyle, showH: showHBox.checked, showLabels: labelsBox.checked };
       note3d.textContent = r.caveats.join(" ");
       use3dBtn.disabled = false;
       render3d();
@@ -196,36 +239,128 @@ Office.onReady(() => {
     wrap3d.style.display = threeD ? "flex" : "none";
     useBtn.style.display = threeD ? "none" : "inline-block";
     cleanBtn.style.display = threeD ? "none" : "inline-block";
+    tpl2dSel.style.display = threeD ? "none" : "inline-block";
     use3dBtn.style.display = threeD ? "inline-block" : "none";
     if (threeD) {
       refresh3d();
-    } else if (spinBox.checked) {
-      spinBox.checked = false;
-      stopSpin();
+    } else {
+      deselect();
+      if (spinBox.checked) {
+        spinBox.checked = false;
+        stopSpin();
+      }
     }
   }
   tab2dBtn.addEventListener("click", () => setTab(false));
   tab3dBtn.addEventListener("click", () => setTab(true));
 
-  // Drag to rotate; wheel to zoom.
+  // -----------------------------------------------------------------------
+  // Building IN the 3D view: click an atom or bond to select it, then use
+  // the edit bar. Edits run on Molecule.fromIDCode(model3dIdcode) — the
+  // molecule whose atom order the conformer provably shares — and flow
+  // through editor.setMolecule, so the 2D tab, the undo stack, and the 3D
+  // regeneration stay one chain. Hydrogens are implicit in that molecule:
+  // clicking one is answered, not silently ignored.
+  // -----------------------------------------------------------------------
+  function updateEditBar(): void {
+    if (!sel || !model3d) {
+      editBar.style.display = "none";
+      return;
+    }
+    editBar.style.display = "flex";
+    const isAtom = sel.atom !== undefined;
+    elemWrap.style.display = isAtom ? "inline" : "none";
+    attachSel.style.display = isAtom ? "inline-block" : "none";
+    delAtomBtn.style.display = isAtom ? "inline-block" : "none";
+    bondBtns.style.display = isAtom ? "none" : "inline";
+    if (isAtom) {
+      editWhat.textContent = `${model3d.atoms[sel.atom!].el} atom:`;
+    } else {
+      const b = model3d.bonds[sel.bond!];
+      editWhat.textContent = `${model3d.atoms[b.a].el}–${model3d.atoms[b.b].el} bond:`;
+    }
+  }
+
+  function deselect(): void {
+    sel = null;
+    updateEditBar();
+    render3d();
+  }
+
+  function applyEdit(r: Mol3dEditResult): void {
+    if (r.error) {
+      note3d.textContent = r.error;
+      return;
+    }
+    if (!r.mol) return;
+    sel = null;
+    updateEditBar();
+    editor.setMolecule(r.mol); // undo state stored; 2D stays in sync
+    updateInfo();
+    refresh3d(); // idcode changed → regenerate the conformer
+  }
+
+  /** The molecule the 3D indices address. Null only if the idcode is stale. */
+  function editBase(): Molecule | null {
+    if (!model3dIdcode) return null;
+    try {
+      return Molecule.fromIDCode(model3dIdcode);
+    } catch {
+      return null;
+    }
+  }
+
+  function pick(x: number, y: number): void {
+    if (!model3d) return;
+    const hit = hitTest(lastOps, x, y);
+    if (!hit) {
+      deselect();
+      return;
+    }
+    const base = editBase();
+    if (!base) return;
+    if (hit.atom !== undefined && hit.atom >= base.getAllAtoms()) {
+      deselect();
+      note3d.textContent =
+        "That is a hydrogen — hydrogens are implicit and re-derive automatically; select a heavy atom to edit.";
+      return;
+    }
+    if (hit.bond !== undefined && hit.bond >= base.getAllBonds()) {
+      deselect();
+      note3d.textContent = "That bond goes to an implicit hydrogen — edit the heavy atom instead.";
+      return;
+    }
+    sel = hit;
+    updateEditBar();
+    render3d();
+  }
+
+  // Drag to rotate; a CLICK (no meaningful movement) picks for editing.
   let dragging = false;
+  let moved = 0;
   let lastX = 0;
   let lastY = 0;
   canvas3d.addEventListener("pointerdown", (e) => {
     dragging = true;
+    moved = 0;
     lastX = e.clientX;
     lastY = e.clientY;
     canvas3d.setPointerCapture(e.pointerId);
   });
   canvas3d.addEventListener("pointermove", (e) => {
     if (!dragging) return;
+    moved += Math.abs(e.clientX - lastX) + Math.abs(e.clientY - lastY);
     view3d = rotateView(view3d, e.clientX - lastX, e.clientY - lastY);
     lastX = e.clientX;
     lastY = e.clientY;
     render3d();
   });
-  canvas3d.addEventListener("pointerup", () => {
+  canvas3d.addEventListener("pointerup", (e) => {
     dragging = false;
+    if (moved < 5) {
+      const rect = canvas3d.getBoundingClientRect();
+      pick(e.clientX - rect.left, e.clientY - rect.top);
+    }
   });
   // A cancelled drag (touch interruption, window switch) must not leave
   // `dragging` stuck true — that would silently pause the spin loop forever.
@@ -259,11 +394,98 @@ Office.onReady(() => {
 
   styleSel.addEventListener("change", render3d);
   showHBox.addEventListener("change", render3d);
+  labelsBox.addEventListener("change", render3d);
   byId<HTMLButtonElement>("reset3d-btn").addEventListener("click", () => {
-    view3d = { ...defaultMol3dView(), style: styleSel.value as Mol3dStyle, showH: showHBox.checked };
+    view3d = { ...defaultMol3dView(), style: styleSel.value as Mol3dStyle, showH: showHBox.checked, showLabels: labelsBox.checked };
     render3d();
   });
   window.addEventListener("resize", render3d);
+
+  // ----- Edit bar wiring -----
+  for (const el of EDIT_ELEMENTS) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "elem3d-btn";
+    btn.textContent = el.symbol;
+    btn.title = `Change the selected atom to ${el.symbol}`;
+    btn.addEventListener("click", () => {
+      const base = editBase();
+      if (base && sel?.atom !== undefined) applyEdit(changeElement(base, sel.atom, el.atomicNo));
+    });
+    elemWrap.appendChild(btn);
+  }
+  const attachPlaceholder = document.createElement("option");
+  attachPlaceholder.value = "";
+  attachPlaceholder.textContent = "Attach group…";
+  attachSel.appendChild(attachPlaceholder);
+  for (const g of ATTACH_GROUPS) {
+    const o = document.createElement("option");
+    o.value = g.smiles;
+    o.textContent = g.name;
+    attachSel.appendChild(o);
+  }
+  attachSel.addEventListener("change", () => {
+    const smiles = attachSel.value;
+    attachSel.value = "";
+    const base = editBase();
+    if (smiles && base && sel?.atom !== undefined) applyEdit(attachFragment(base, sel.atom, smiles));
+  });
+  delAtomBtn.addEventListener("click", () => {
+    const base = editBase();
+    if (base && sel?.atom !== undefined) applyEdit(deleteAtomIn(base, sel.atom));
+  });
+  for (const order of [1, 2, 3] as const) {
+    byId<HTMLButtonElement>(`bond3d-${order}`).addEventListener("click", () => {
+      const base = editBase();
+      if (base && sel?.bond !== undefined) applyEdit(setBondOrderIn(base, sel.bond, order));
+    });
+  }
+  byId<HTMLButtonElement>("del-bond3d").addEventListener("click", () => {
+    const base = editBase();
+    if (base && sel?.bond !== undefined) applyEdit(deleteBondIn(base, sel.bond));
+  });
+  byId<HTMLButtonElement>("deselect3d").addEventListener("click", deselect);
+
+  // ----- Template menus (both tabs; grouped) -----
+  function fillTemplates(select: HTMLSelectElement, placeholder: string): void {
+    const ph = document.createElement("option");
+    ph.value = "";
+    ph.textContent = placeholder;
+    select.appendChild(ph);
+    let group = "";
+    let og: HTMLOptGroupElement | null = null;
+    for (const t of MOL_TEMPLATES) {
+      if (t.group !== group) {
+        group = t.group;
+        og = document.createElement("optgroup");
+        og.label = t.group;
+        select.appendChild(og);
+      }
+      const o = document.createElement("option");
+      o.value = t.smiles;
+      o.textContent = t.name;
+      (og ?? select).appendChild(o);
+    }
+  }
+  fillTemplates(tpl2dSel, "Insert template…");
+  fillTemplates(tpl3dSel, "Add template…");
+  function onTemplate(select: HTMLSelectElement): void {
+    const smiles = select.value;
+    select.value = "";
+    if (!smiles) return;
+    const current = editor.getMolecule();
+    const r = addTemplate(current.getAllAtoms() > 0 ? current : null, smiles);
+    if (r.error) {
+      showError(r.error);
+      return;
+    }
+    clearError();
+    editor.setMolecule(r.mol!);
+    updateInfo();
+    if (wrap3d.style.display !== "none") refresh3d();
+  }
+  tpl2dSel.addEventListener("change", () => onTemplate(tpl2dSel));
+  tpl3dSel.addEventListener("change", () => onTemplate(tpl3dSel));
 
   // -------------------------------------------------------------------------
   // Buttons
@@ -308,6 +530,7 @@ Office.onReady(() => {
         idcode: model3dIdcode,
         style: styleSel.value,
         showH: showHBox.checked,
+        showLabels: labelsBox.checked,
         rot: view3d.rot,
         zoom: view3d.zoom,
       },

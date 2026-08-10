@@ -6,6 +6,57 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.119.0] — 2026-08-09 — Refined 3D, building in 3D, and template libraries
+
+### Added
+- **Rendering quality**: depth-cue fog (back atoms dim — baked into the
+  shared draw list, so the live view and the inserted figure shade
+  identically), specular sphere shading with a limb outline,
+  cylinder-shaded bond rods, and DOUBLE/TRIPLE bonds as parallel rods
+  — bond order is chemistry and is now visible. Heteroatoms wear
+  their element symbol (toggleable), colored for contrast.
+- **Building in 3D**: click an atom or bond in the 3D model to select
+  it (drag still rotates — a click is a click). A selected atom takes
+  an element change (C/N/O/P/S/F/Cl/Br/I), an attached group, or
+  deletion; a selected bond takes single/double/triple or deletion.
+  Every edit runs on the same molecule the 2D editor holds — the
+  idcode's atom order provably matches the conformer's (pinned by
+  test) — so the 2D tab, the undo stack (Ctrl+Z restores), and the
+  regenerated 3D stay one chain. Edits that would create impossible
+  chemistry (a fifth bond on carbon, a double bond to fluorine) are
+  refused BY NAME via the same compliance engine as the pane; edits
+  are verified in tests by canonical idcode (benzene + OH IS phenol,
+  benzene C→N IS pyridine, benzene + nitro IS nitrobenzene).
+- **Template and group libraries**: 33 templates (rings, heterocycles,
+  and named scaffolds — adamantane, cubane, porphine, 18-crown-6,
+  glucose) insertable in both tabs, and 27 attachable groups (methyl
+  through trifluoromethyl, nitro, sulfonic acid) with the
+  first-atom-bonds convention pinned by test (methoxy attaches
+  through oxygen: anisole, exactly). All real published chemistry —
+  formulas spot-checked (porphine C20H14N4, 18-crown-6 C12H24O6).
+
+### Notes
+- Fixed en route: OCL's SMILES parser books an unfilled bracket-atom
+  valence slot as a RADICAL (nitro's N arrives with radical state 32)
+  and that bookkeeping survives fragment attachment — left in place
+  it fails valence checks and encodes a different idcode than the
+  same molecule drawn whole. Attachment now clears it, and the
+  compliance delta check runs AFTER coordinate re-layout so freshly
+  added atoms are not refused for "overlapping" at the origin. The
+  QC layout audit also caught stick-style rods striking through atom
+  letters — rods now stop short of a labeled atom, the same
+  convention as a 2D drawing.
+- Independent adversarial pass: NO wrong-atom edit could be produced
+  — the conformer/idcode order pin held against charged species,
+  isotopes, drawn explicit hydrogens, two-fragment molecules, and
+  successive edits (the pin test now covers those cases). Its
+  hardenings shipped: labels center by dy (WebKit's
+  dominant-baseline support is patchy — a Mac insert would have sat
+  every letter high), and an ion's caption now carries its charge
+  (OCL's formula string is charge-blind: phenolate read "C6H5O" —
+  now C₆H₅O⁻). All 27 attach groups are now pinned idcode-exact
+  against the drawn-whole molecule.
+
 ## [2.118.0] — 2026-08-09 — 3D molecular models in the drawing canvas
 
 ### Added

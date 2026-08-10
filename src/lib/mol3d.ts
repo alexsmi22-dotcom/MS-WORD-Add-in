@@ -46,6 +46,8 @@ export interface Mol3dModel {
   atoms: Atom3d[];
   bonds: Bond3d[];
   formula: string;
+  /** Net charge — an ion's caption must say C₆H₅O⁻, not the neutral formula. */
+  netCharge: number;
   /** Count of non-hydrogen atoms, for display. */
   heavyAtoms: number;
   caveats: string[];
@@ -275,7 +277,21 @@ export function generate3d(idcode: string, coordinates?: string): Mol3dModel | M
   } catch {
     // formula stays empty
   }
-  return { atoms, bonds, formula, heavyAtoms: heavy, caveats };
+  // OCL's formula string is CHARGE-BLIND (phenolate reports "C6H5O", the
+  // neutral radical's formula) — the net charge rides separately so captions
+  // can display the ion honestly.
+  let netCharge = 0;
+  for (let i = 0; i < conf.getAllAtoms(); i++) netCharge += conf.getAtomCharge(i);
+  return { atoms, bonds, formula, netCharge, heavyAtoms: heavy, caveats };
+}
+
+/** Net charge as a formula superscript: 0 → "", −1 → "⁻", +2 → "²⁺". */
+export function chargeSuperscript(charge: number): string {
+  if (charge === 0) return "";
+  const SUP = "⁰¹²³⁴⁵⁶⁷⁸⁹";
+  const mag = Math.abs(charge);
+  const digits = mag === 1 ? "" : String(mag).split("").map((d) => SUP[Number(d)]).join("");
+  return digits + (charge > 0 ? "⁺" : "⁻");
 }
 
 // ---------------------------------------------------------------------------
@@ -291,11 +307,34 @@ export interface Mol3dView {
   zoom: number;
   showH: boolean;
   style: Mol3dStyle;
+  /** Element symbols on heteroatoms (ball-and-stick / stick). Default true. */
+  showLabels?: boolean;
 }
 
 export function defaultMol3dView(): Mol3dView {
-  return { rot: [1, 0, 0, 0, 1, 0, 0, 0, 1], zoom: 1, showH: true, style: "ballstick" };
+  return { rot: [1, 0, 0, 0, 1, 0, 0, 0, 1], zoom: 1, showH: true, style: "ballstick", showLabels: true };
 }
+
+// Color helpers — used by projectScene (fog baking) and both painters.
+const shade = (hex: string, f: number): string => {
+  const v = parseInt(hex.slice(1), 16);
+  const c = (x: number): number => Math.max(0, Math.min(255, Math.round(x * f)));
+  const r = c((v >> 16) & 255), g = c((v >> 8) & 255), b = c(v & 255);
+  return `#${((1 << 24) | (r << 16) | (g << 8) | b).toString(16).slice(1)}`;
+};
+
+/** Mixes toward white — a specular highlight, not just a brighter diffuse. */
+const tint = (hex: string, f: number): string => {
+  const v = parseInt(hex.slice(1), 16);
+  const c = (x: number): number => Math.round(x + (255 - x) * f);
+  const r = c((v >> 16) & 255), g = c((v >> 8) & 255), b = c(v & 255);
+  return `#${((1 << 24) | (r << 16) | (g << 8) | b).toString(16).slice(1)}`;
+};
+
+const luminance = (hex: string): number => {
+  const v = parseInt(hex.slice(1), 16);
+  return 0.299 * ((v >> 16) & 255) + 0.587 * ((v >> 8) & 255) + 0.114 * (v & 255);
+};
 
 const matMul = (a: number[], b: number[]): number[] => {
   const r = new Array(9).fill(0);
@@ -340,6 +379,8 @@ export interface SphereOp {
   r: number;
   color: string;
   depth: number;
+  /** Index into the model's atom list — the editor hit-tests on this. */
+  atom: number;
 }
 
 export interface RodOp {
@@ -351,9 +392,21 @@ export interface RodOp {
   r: number;
   color: string;
   depth: number;
+  /** Index into the model's bond list — the editor hit-tests on this. */
+  bond: number;
 }
 
-export type DrawOp = SphereOp | RodOp;
+export interface LabelOp {
+  kind: "label";
+  x: number;
+  y: number;
+  size: number;
+  text: string;
+  color: string;
+  depth: number;
+}
+
+export type DrawOp = SphereOp | RodOp | LabelOp;
 
 /** Visual radii in Å by style. Ball-and-stick balls at 30% vdW and rods of
  *  0.12 Å are the conventional proportions; spacefill is the full vdW sphere. */
@@ -397,54 +450,140 @@ export function projectScene(model: Mol3dModel, view: Mol3dView, w: number, h: n
     w / 2 + (pts[i].x - cx) * scale,
     h / 2 - (pts[i].y - cy) * scale,
   ];
+  // Depth cueing ("fog"): atoms toward the back are dimmed, the standard
+  // molecular-graphics cue that makes front/back legible on a still image.
+  // Baked into the op colors here so BOTH painters inherit it for free.
+  let zMin = Infinity, zMax = -Infinity;
+  pts.forEach((p, i) => { if (keep[i]) { zMin = Math.min(zMin, p.z); zMax = Math.max(zMax, p.z); } });
+  const zRange = zMax - zMin;
+  const fog = (z: number): number => (zRange < 1e-9 ? 1 : 0.72 + 0.28 * (z - zMin) / zRange);
+
+  // Heteroatom labels (ball-and-stick and stick only — spacefill is about
+  // volume, and hydrogens/carbons are legible from color alone).
+  const labeled = (i: number): boolean =>
+    view.showLabels !== false && view.style !== "spacefill" &&
+    model.atoms[i].atomicNo !== 6 && !model.atoms[i].isH;
+
   const ops: DrawOp[] = [];
+  const labelSize: number[] = [];
   for (let i = 0; i < model.atoms.length; i++) {
     if (!keep[i]) continue;
     const [x, y] = px(i);
-    ops.push({
-      kind: "sphere",
-      x, y,
-      r: atomRadius(model.atoms[i].atomicNo, view.style) * scale,
-      color: elementColor(model.atoms[i].atomicNo),
-      depth: pts[i].z,
-    });
+    const r = atomRadius(model.atoms[i].atomicNo, view.style) * scale;
+    const color = shade(elementColor(model.atoms[i].atomicNo), fog(pts[i].z));
+    ops.push({ kind: "sphere", x, y, r, color, depth: pts[i].z, atom: i });
+    if (labeled(i)) {
+      const size = Math.max(9, Math.min(22, Math.max(r * 1.1, 12)));
+      labelSize[i] = size;
+      ops.push({
+        kind: "label",
+        x, y,
+        size,
+        text: model.atoms[i].el,
+        // In stick style the "sphere" is rod-thin and the letter sits on the
+        // white page — dark text; in ball-and-stick it sits ON the sphere.
+        color: view.style === "stick" || luminance(elementColor(model.atoms[i].atomicNo)) > 140 ? "#1a1a1a" : "#ffffff",
+        depth: pts[i].z + 1e-4, // right after its own sphere, never behind it
+      });
+    }
   }
   if (view.style !== "spacefill") {
-    const rodR = (view.style === "stick" ? ROD_R_STICK : ROD_R_BALLSTICK) * scale;
-    for (const b of model.bonds) {
+    const baseRod = (view.style === "stick" ? ROD_R_STICK : ROD_R_BALLSTICK) * scale;
+    for (let bi = 0; bi < model.bonds.length; bi++) {
+      const b = model.bonds[bi];
       if (!keep[b.a] || !keep[b.b]) continue;
       const [x1, y1] = px(b.a);
       const [x2, y2] = px(b.b);
-      const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
-      const mz = (pts[b.a].z + pts[b.b].z) / 2;
-      // Each half-rod wears its atom's color and sits at the depth of its own
-      // half, so a bond correctly threads in front of some atoms and behind
-      // others.
-      ops.push({
-        kind: "rod", x1, y1, x2: mx, y2: my, r: rodR,
-        color: elementColor(model.atoms[b.a].atomicNo),
-        depth: (pts[b.a].z + mz) / 2,
-      });
-      ops.push({
-        kind: "rod", x1: mx, y1: my, x2, y2, r: rodR,
-        color: elementColor(model.atoms[b.b].atomicNo),
-        depth: (pts[b.b].z + mz) / 2,
-      });
+      // Bond order is CHEMISTRY and must be visible: double and triple bonds
+      // render as parallel rods, offset perpendicular to the bond on screen.
+      const order = Math.max(1, Math.min(3, b.order));
+      const len = Math.hypot(x2 - x1, y2 - y1) || 1;
+      const ux = -(y2 - y1) / len, uy = (x2 - x1) / len;
+      const offsets = order === 1 ? [0] : order === 2 ? [-0.11, 0.11] : [-0.18, 0, 0.18];
+      const rodR = (order === 1 ? 1 : order === 2 ? 0.62 : 0.5) * baseRod;
+      // In STICK style a labeled atom has no covering sphere, so its rods
+      // stop short of the letter — the same convention as a 2D drawing,
+      // where bonds end at the atom symbol instead of striking through it.
+      const gap = (i: number): number => {
+        if (view.style !== "stick" || !labeled(i)) return 0;
+        return Math.min((labelSize[i] ?? 12) * 0.75, len * 0.35);
+      };
+      const ga = gap(b.a), gb = gap(b.b);
+      const ax = x1 + ((x2 - x1) / len) * ga, ay = y1 + ((y2 - y1) / len) * ga;
+      const bx = x2 - ((x2 - x1) / len) * gb, by = y2 - ((y2 - y1) / len) * gb;
+      for (const off of offsets) {
+        const ox = ux * off * scale, oy = uy * off * scale;
+        const mx = (ax + bx) / 2 + ox, my = (ay + by) / 2 + oy;
+        const mz = (pts[b.a].z + pts[b.b].z) / 2;
+        // Each half-rod wears its atom's color (with fog) and sits at the
+        // depth of its own half, so a bond correctly threads in front of
+        // some atoms and behind others.
+        ops.push({
+          kind: "rod", x1: ax + ox, y1: ay + oy, x2: mx, y2: my, r: rodR,
+          color: shade(elementColor(model.atoms[b.a].atomicNo), fog(pts[b.a].z)),
+          depth: (pts[b.a].z + mz) / 2, bond: bi,
+        });
+        ops.push({
+          kind: "rod", x1: mx, y1: my, x2: bx + ox, y2: by + oy, r: rodR,
+          color: shade(elementColor(model.atoms[b.b].atomicNo), fog(pts[b.b].z)),
+          depth: (pts[b.b].z + mz) / 2, bond: bi,
+        });
+      }
     }
   }
   ops.sort((p, q) => p.depth - q.depth);
   return ops;
 }
 
+/**
+ * What is under (x, y)? Ops are depth-sorted far → near, so the LAST hit is
+ * the front-most — that is the one a click means. The editor uses this for
+ * click-to-select in the 3D view.
+ */
+export function hitTest(ops: DrawOp[], x: number, y: number): { atom?: number; bond?: number } | null {
+  for (let i = ops.length - 1; i >= 0; i--) {
+    const op = ops[i];
+    if (op.kind === "sphere") {
+      if (Math.hypot(x - op.x, y - op.y) <= op.r) return { atom: op.atom };
+    } else if (op.kind === "rod") {
+      const dx = op.x2 - op.x1, dy = op.y2 - op.y1;
+      const L2 = dx * dx + dy * dy;
+      const t = L2 === 0 ? 0 : Math.max(0, Math.min(1, ((x - op.x1) * dx + (y - op.y1) * dy) / L2));
+      const qx = op.x1 + t * dx, qy = op.y1 + t * dy;
+      if (Math.hypot(x - qx, y - qy) <= Math.max(op.r, 5)) return { bond: op.bond };
+    }
+  }
+  return null;
+}
+
 // ---------------------------------------------------------------------------
-// Painters — one draw list, two surfaces
+// Painters — one draw list, two surfaces. The SAME stop recipe feeds the
+// canvas gradients and the SVG gradients, so the live view and the inserted
+// figure shade identically.
 // ---------------------------------------------------------------------------
 
-const shade = (hex: string, f: number): string => {
-  const v = parseInt(hex.slice(1), 16);
-  const c = (x: number): number => Math.max(0, Math.min(255, Math.round(x * f)));
-  const r = c((v >> 16) & 255), g = c((v >> 8) & 255), b = c(v & 255);
-  return `#${((1 << 24) | (r << 16) | (g << 8) | b).toString(16).slice(1)}`;
+/** Sphere shading: specular hotspot → lit body → base → shadowed limb. */
+const sphereStops = (color: string): [number, string][] => [
+  [0, tint(color, 0.75)],
+  [0.28, tint(color, 0.25)],
+  [0.68, color],
+  [1, shade(color, 0.48)],
+];
+
+/** Cylinder shading across the rod width: dark edge → lit centre → dark edge. */
+const rodStops = (color: string): [number, string][] => [
+  [0, shade(color, 0.55)],
+  [0.42, tint(color, 0.3)],
+  [0.58, tint(color, 0.3)],
+  [1, shade(color, 0.5)],
+];
+
+/** Endpoints of the rod's cross-axis gradient (perpendicular, through mid). */
+const rodGradLine = (op: RodOp): [number, number, number, number] => {
+  const len = Math.hypot(op.x2 - op.x1, op.y2 - op.y1) || 1;
+  const ux = -(op.y2 - op.y1) / len, uy = (op.x2 - op.x1) / len;
+  const mx = (op.x1 + op.x2) / 2, my = (op.y1 + op.y2) / 2;
+  return [mx - ux * op.r, my - uy * op.r, mx + ux * op.r, my + uy * op.r];
 };
 
 /** Paints the ops onto a 2D canvas context (the dialog's live view). */
@@ -452,29 +591,37 @@ export function paintOps(ctx: CanvasRenderingContext2D, ops: DrawOp[], w: number
   ctx.clearRect(0, 0, w, h);
   for (const op of ops) {
     if (op.kind === "rod") {
-      ctx.strokeStyle = op.color;
+      const [gx1, gy1, gx2, gy2] = rodGradLine(op);
+      const g = ctx.createLinearGradient(gx1, gy1, gx2, gy2);
+      for (const [o, c] of rodStops(op.color)) g.addColorStop(o, c);
+      ctx.strokeStyle = g;
       ctx.lineWidth = op.r * 2;
       ctx.lineCap = "round";
       ctx.beginPath();
       ctx.moveTo(op.x1, op.y1);
       ctx.lineTo(op.x2, op.y2);
       ctx.stroke();
-      // A darker seam along the lower edge keeps depth readable on white.
-      ctx.strokeStyle = shade(op.color, 0.75);
-      ctx.lineWidth = Math.max(1, op.r * 0.35);
-      ctx.stroke();
-    } else {
+    } else if (op.kind === "sphere") {
       const g = ctx.createRadialGradient(
-        op.x - op.r * 0.35, op.y - op.r * 0.35, op.r * 0.1,
+        op.x - op.r * 0.35, op.y - op.r * 0.35, op.r * 0.08,
         op.x, op.y, op.r,
       );
-      g.addColorStop(0, shade(op.color, 1.35));
-      g.addColorStop(0.7, op.color);
-      g.addColorStop(1, shade(op.color, 0.62));
+      for (const [o, c] of sphereStops(op.color)) g.addColorStop(o, c);
       ctx.fillStyle = g;
       ctx.beginPath();
       ctx.arc(op.x, op.y, op.r, 0, 2 * Math.PI);
       ctx.fill();
+      // A whisper of limb outline keeps overlapping same-color spheres read-
+      // able (the painter's algorithm draws whole spheres, no intersection).
+      ctx.strokeStyle = shade(op.color, 0.42);
+      ctx.lineWidth = Math.max(0.6, op.r * 0.03);
+      ctx.stroke();
+    } else {
+      ctx.fillStyle = op.color;
+      ctx.font = `600 ${op.size}px Segoe UI, sans-serif`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(op.text, op.x, op.y);
     }
   }
 }
@@ -493,31 +640,51 @@ const esc = (s: string): string =>
  *  caption states what the figure IS (formula, style, MMFF94s conformer) so
  *  the honesty travels with the picture. */
 export function opsToSvg(ops: DrawOp[], w: number, h: number, caption?: string): string {
-  const grads = new Map<string, string>();
+  const f = (v: number): string => v.toFixed(2);
+  // Sphere gradients dedupe by color; rod gradients are per-rod (each needs
+  // its own perpendicular axis) — both use the SAME stop recipes as the
+  // canvas painter, so the figure matches the live view.
+  const sphereGrads = new Map<string, string>();
   for (const op of ops) {
-    if (op.kind === "sphere" && !grads.has(op.color)) {
-      grads.set(op.color, `g${grads.size}`);
+    if (op.kind === "sphere" && !sphereGrads.has(op.color)) {
+      sphereGrads.set(op.color, `s${sphereGrads.size}`);
     }
   }
-  const defs = [...grads.entries()]
-    .map(([color, id]) =>
-      `<radialGradient id="${id}" cx="0.35" cy="0.35" r="0.9">` +
-      `<stop offset="0" stop-color="${shade(color, 1.35)}"/>` +
-      `<stop offset="0.7" stop-color="${color}"/>` +
-      `<stop offset="1" stop-color="${shade(color, 0.62)}"/>` +
-      `</radialGradient>`)
-    .join("");
+  const defs: string[] = [...sphereGrads.entries()].map(([color, id]) =>
+    `<radialGradient id="${id}" cx="0.35" cy="0.35" r="0.9">` +
+    sphereStops(color).map(([o, c]) => `<stop offset="${o}" stop-color="${c}"/>`).join("") +
+    `</radialGradient>`);
+  let rodId = 0;
   const body = ops
     .map((op) => {
       if (op.kind === "rod") {
-        const f = (v: number): string => v.toFixed(2);
+        const [gx1, gy1, gx2, gy2] = rodGradLine(op);
+        const id = `r${rodId++}`;
+        defs.push(
+          `<linearGradient id="${id}" gradientUnits="userSpaceOnUse" ` +
+          `x1="${f(gx1)}" y1="${f(gy1)}" x2="${f(gx2)}" y2="${f(gy2)}">` +
+          rodStops(op.color).map(([o, c]) => `<stop offset="${o}" stop-color="${c}"/>`).join("") +
+          `</linearGradient>`,
+        );
         return (
           `<line x1="${f(op.x1)}" y1="${f(op.y1)}" x2="${f(op.x2)}" y2="${f(op.y2)}" ` +
-          `stroke="${op.color}" stroke-width="${f(op.r * 2)}" stroke-linecap="round"/>`
+          `stroke="url(#${id})" stroke-width="${f(op.r * 2)}" stroke-linecap="round"/>`
         );
       }
-      const f = (v: number): string => v.toFixed(2);
-      return `<circle cx="${f(op.x)}" cy="${f(op.y)}" r="${f(op.r)}" fill="url(#${grads.get(op.color)})"/>`;
+      if (op.kind === "sphere") {
+        return (
+          `<circle cx="${f(op.x)}" cy="${f(op.y)}" r="${f(op.r)}" fill="url(#${sphereGrads.get(op.color)})" ` +
+          `stroke="${shade(op.color, 0.42)}" stroke-width="${f(Math.max(0.6, op.r * 0.03))}"/>`
+        );
+      }
+      // dy centering instead of dominant-baseline: WebKit's support for
+      // dominant-baseline in rasterized SVG is patchy, and an insert that
+      // centers on Windows but rides high on Mac would be a silent
+      // preview-vs-insert divergence.
+      return (
+        `<text x="${f(op.x)}" y="${f(op.y)}" dy="0.35em" font-family="Segoe UI, sans-serif" font-weight="600" ` +
+        `font-size="${f(op.size)}" fill="${op.color}" text-anchor="middle">${esc(op.text)}</text>`
+      );
     })
     .join("");
   const cap = caption
@@ -525,6 +692,6 @@ export function opsToSvg(ops: DrawOp[], w: number, h: number, caption?: string):
     : "";
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">` +
-    `<defs>${defs}</defs><rect width="${w}" height="${h}" fill="#ffffff"/>${body}${cap}</svg>`
+    `<defs>${defs.join("")}</defs><rect width="${w}" height="${h}" fill="#ffffff"/>${body}${cap}</svg>`
   );
 }

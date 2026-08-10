@@ -6,7 +6,7 @@ import { Molecule } from "openchemlib/full";
 import {
   generate3d, isMol3dError, Mol3dModel, MOL3D_MAX_HEAVY,
   defaultMol3dView, rotateView, projectScene, opsToSvg,
-  elementColor, elementVdw, formulaSubscripts,
+  elementColor, elementVdw, formulaSubscripts, chargeSuperscript,
 } from "../mol3d";
 
 const idOf = (smiles: string): string => {
@@ -254,7 +254,8 @@ describe("view and projection", () => {
     expect(svg).toContain('height="360"');
     expect(svg).not.toContain("NaN");
     expect((svg.match(/<circle/g) ?? []).length).toBe(ops.filter((o) => o.kind === "sphere").length);
-    expect((svg.match(/<line/g) ?? []).length).toBe(ops.filter((o) => o.kind === "rod").length);
+    // "<line " with the space — "<linearGradient" (one per rod) must not count.
+    expect((svg.match(/<line /g) ?? []).length).toBe(ops.filter((o) => o.kind === "rod").length);
     // White ground for the printed page.
     expect(svg).toContain('fill="#ffffff"');
   });
@@ -268,6 +269,69 @@ describe("view and projection", () => {
     // The scene band (454) keeps the molecule off its own caption line.
     const ys = [...svg.matchAll(/cy="([\d.]+)"/g)].map((x) => Number(x[1]));
     expect(Math.max(...ys)).toBeLessThan(454);
+  });
+
+  test("LOAD-BEARING: conformer order matches fromIDCode(idcode) + appended H — 3D edits depend on it", () => {
+    // The dialog edits Molecule.fromIDCode(idcode) at indices hit-tested on
+    // the conformer. If the generator reordered atoms or bonds, every click
+    // would edit the WRONG atom. Heavy atoms come first in idcode order;
+    // hydrogens are appended after.
+    // Adversarial-pass upgrade: pinned not just on a neutral connected
+    // molecule but on a charged one and a TWO-FRAGMENT one (the exact
+    // template-beside-structure flow the dialog produces).
+    const pinOrder = (smiles: string): void => {
+      const idcode = Molecule.fromSmiles(smiles).getIDCode();
+      const base = Molecule.fromIDCode(idcode);
+      const r = generate3d(idcode);
+      expect(isMol3dError(r)).toBe(false);
+      if (isMol3dError(r)) return;
+      const m = r;
+      for (let i = 0; i < base.getAllAtoms(); i++) {
+        expect(m.atoms[i].atomicNo).toBe(base.getAtomicNo(i));
+      }
+      for (let i = base.getAllAtoms(); i < m.atoms.length; i++) {
+        expect(m.atoms[i].isH).toBe(true);
+      }
+      base.ensureHelperArrays(1); // cHelperNeighbours
+      for (let bi = 0; bi < base.getAllBonds(); bi++) {
+        expect(m.bonds[bi].a).toBe(base.getBondAtom(0, bi));
+        expect(m.bonds[bi].b).toBe(base.getBondAtom(1, bi));
+        expect(m.bonds[bi].order).toBe(base.getBondOrder(bi));
+      }
+    };
+    pinOrder("CC(C)Cc1ccc(cc1)C(C)C(=O)O"); // neutral, connected
+    pinOrder("c1ccccc1[N+](=O)[O-]");        // charged
+    pinOrder("CCO.c1ccccc1");                // two fragments (template flow)
+  });
+
+  test("ADV: an ion's net charge rides with the model, and displays as a superscript", () => {
+    const phenolate = generate3d(idOf("[O-]c1ccccc1"));
+    expect(isMol3dError(phenolate)).toBe(false);
+    if (!isMol3dError(phenolate)) {
+      expect(phenolate.netCharge).toBe(-1);
+      // OCL's formula string is charge-blind — the caption pieces restore it.
+      expect(`${formulaSubscripts(phenolate.formula)}${chargeSuperscript(phenolate.netCharge)}`).toBe("C₆H₅O⁻");
+    }
+    expect(chargeSuperscript(0)).toBe("");
+    expect(chargeSuperscript(1)).toBe("⁺");
+    expect(chargeSuperscript(-2)).toBe("²⁻");
+  });
+
+  test("QC-CAUGHT: stick-style rods stop short of atom letters — no strikethrough", () => {
+    const m = model("CCO");
+    const ops = projectScene(m, { ...defaultMol3dView(), style: "stick" }, 480, 360);
+    const label = ops.find((o) => o.kind === "label" && o.text === "O")!;
+    expect(label).toBeDefined();
+    if (label.kind !== "label") return;
+    for (const op of ops) {
+      if (op.kind !== "rod") continue;
+      const dx = op.x2 - op.x1, dy = op.y2 - op.y1;
+      const L2 = dx * dx + dy * dy;
+      const t = L2 === 0 ? 0 : Math.max(0, Math.min(1, ((label.x - op.x1) * dx + (label.y - op.y1) * dy) / L2));
+      const qx = op.x1 + t * dx, qy = op.y1 + t * dy;
+      // Nearest point of every rod stays outside the letter's core box.
+      expect(Math.hypot(label.x - qx, label.y - qy)).toBeGreaterThan(label.size * 0.5);
+    }
   });
 
   test("formulaSubscripts holds the display contract", () => {

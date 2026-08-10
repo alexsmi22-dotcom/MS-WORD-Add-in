@@ -218,6 +218,11 @@ const figures: [string, string][] = [];
     figures.push(["mol3d ethanol stick", fig(e3, { ...defaultMol3dView(), style: "stick" }, "stick")]);
     figures.push(["mol3d ethanol no-H", fig(e3, { ...defaultMol3dView(), showH: false }, "ball-and-stick, hydrogens hidden")]);
   }
+  // v2.119.0: a carbonyl pins the parallel-rod double bond + the O label.
+  const acetone = generate3d(OclMoleculeForCorpus.fromSmiles("CC(=O)C").getIDCode());
+  if (!isMol3dError(acetone)) {
+    figures.push(["mol3d acetone double bond", fig(acetone, defaultMol3dView(), "ball-and-stick")]);
+  }
 }
 
 figures.push([

@@ -126,9 +126,31 @@
         background: #fff;
         cursor: pointer;
       }
-      #reset3d-btn {
+      #reset3d-btn,
+      .edit3d-btn {
         padding: 4px 10px;
         font-size: 12.5px;
+        border: 1px solid #c0c0c0;
+        border-radius: 4px;
+        background: #fff;
+        cursor: pointer;
+      }
+      .elem3d-btn {
+        padding: 3px 8px;
+        font-size: 12.5px;
+        font-weight: 600;
+        border: 1px solid #c0c0c0;
+        border-radius: 4px;
+        background: #fff;
+        cursor: pointer;
+        margin-right: 2px;
+      }
+      #tpl3d,
+      #tpl2d,
+      #attach3d {
+        font-size: 12.5px;
+        padding: 3px 6px;
+        max-width: 170px;
       }
       #info {
         margin-left: auto;
@@ -159,9 +181,24 @@
           </select>
         </label>
         <label><input type="checkbox" id="show-h" checked /> Hydrogens</label>
+        <label><input type="checkbox" id="labels3d" checked /> Labels</label>
         <label><input type="checkbox" id="spin3d" /> Spin</label>
         <button id="reset3d-btn" type="button">Reset view</button>
-        <span style="color:#888">drag to rotate · scroll to zoom</span>
+        <select id="tpl3d"></select>
+        <span style="color:#888">drag rotates · scroll zooms · click an atom or bond to EDIT</span>
+      </div>
+      <div id="edit3d-bar" style="display:none; flex: 0 0 auto; align-items:center; gap:8px; padding:6px 12px; font-size:13px; background:#eef7fc; border-bottom:1px solid #d5e9f5; flex-wrap:wrap;">
+        <span id="edit3d-what" style="font-weight:600"></span>
+        <span id="elem3d"></span>
+        <select id="attach3d"></select>
+        <button id="del-atom3d" class="edit3d-btn" type="button">Delete atom</button>
+        <span id="bond3d-btns">
+          <button id="bond3d-1" class="edit3d-btn" type="button">Single</button>
+          <button id="bond3d-2" class="edit3d-btn" type="button">Double</button>
+          <button id="bond3d-3" class="edit3d-btn" type="button">Triple</button>
+          <button id="del-bond3d" class="edit3d-btn" type="button">Delete bond</button>
+        </span>
+        <button id="deselect3d" class="edit3d-btn" type="button">Done</button>
       </div>
       <canvas id="canvas3d" aria-label="3D molecular model"></canvas>
       <div id="note3d"></div>
@@ -171,6 +208,7 @@
       <button id="use-btn" type="button">Use this drawing</button>
       <button id="use3d-btn" type="button">Insert 3D picture</button>
       <button id="clean-btn" type="button">Clean structure</button>
+      <select id="tpl2d"></select>
       <button id="cancel-btn" type="button">Cancel</button>
       <span id="info"></span>
     </div>

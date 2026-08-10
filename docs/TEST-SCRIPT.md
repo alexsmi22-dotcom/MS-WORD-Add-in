@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.118.0)
+# JurisLab — Manual Test Script (v2.119.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -9,6 +9,27 @@ scanning, and layout. Budget ~30 minutes for the full pass.
 Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
+
+## 0br. New in v2.119.0 — refined 3D, building in 3D, template libraries
+
+Build → Draw → "Open large canvas / 3D ⤢".
+
+- [ ] 3D looks refined: depth fog (back atoms dimmer), specular spheres,
+  shaded rods, and DOUBLE bonds render as parallel rods (draw acetone).
+  Heteroatoms wear their element symbol; "Labels" toggles them.
+- [ ] CLICK an atom (no drag) → dashed halo + edit bar. Change C→N on
+  benzene → 2D tab shows pyridine, 3D regenerates. Ctrl+Z in 2D restores.
+- [ ] With an atom selected: "Attach group… → Carboxyl" on benzene →
+  benzoic acid in both tabs. Attach a 5th group to a quaternary carbon →
+  refusal NAMES the valence problem, nothing changes.
+- [ ] Click a bond → Single/Double/Triple/Delete bar. Ethane bond → Double
+  → ethene. Setting F–C to Double refuses by name.
+- [ ] Click a hydrogen → message says hydrogens are implicit; no crash.
+- [ ] Templates: 2D bar "Insert template… → Adamantane" lands beside the
+  current structure; 3D "Add template…" regenerates the model. Porphine
+  and 18-crown-6 both generate.
+- [ ] "Insert 3D picture" carries labels + double bonds into the document
+  figure, same orientation as on screen.
 
 ## 0bq. New in v2.118.0 — 3D model in the drawing canvas
 

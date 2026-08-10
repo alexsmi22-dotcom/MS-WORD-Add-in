@@ -324,7 +324,7 @@ import { trySum, tryAlgebraVerb } from "../lib/algebraTools";
 import { tryStatsIntent } from "../lib/statsIntent";
 import { solveInputToTypesetLines, solveToTypesetDsl, isProseRequest } from "../lib/solveTypeset";
 import { foldPastedMath, extractSingleEquation, extractExpression, normalizeTaskProse, hasProseWords } from "../lib/pasteMath";
-import { generate3d, isMol3dError, projectScene, opsToSvg, defaultMol3dView, formulaSubscripts, Mol3dView, Mol3dStyle } from "../lib/mol3d";
+import { generate3d, isMol3dError, projectScene, opsToSvg, defaultMol3dView, formulaSubscripts, chargeSuperscript, Mol3dView, Mol3dStyle } from "../lib/mol3d";
 import { equationWork, derivativeWork, definiteIntegralWork, WorkLine } from "../lib/showWork";
 import { solveOdeSymbolic } from "../lib/odeSymbolic";
 import { solveWithUnits } from "../lib/unitSolve";
@@ -4640,6 +4640,7 @@ interface Draw3dPayload {
   idcode: string;
   style: Mol3dStyle;
   showH: boolean;
+  showLabels?: boolean;
   rot: number[];
   zoom: number;
 }
@@ -4667,6 +4668,7 @@ async function insertDraw3d(payload: Draw3dPayload): Promise<void> {
       rot: rotOk ? payload.rot : defaultMol3dView().rot,
       zoom: typeof payload.zoom === "number" && Number.isFinite(payload.zoom) && payload.zoom > 0 ? Math.min(5, payload.zoom) : 1,
       showH: payload.showH !== false,
+      showLabels: payload.showLabels !== false,
       style: payload.style === "stick" || payload.style === "spacefill" ? payload.style : "ballstick",
     };
     const styleName = view.style === "ballstick" ? "ball-and-stick" : view.style === "spacefill" ? "space-filling" : "stick";
@@ -4679,13 +4681,14 @@ async function insertDraw3d(payload: Draw3dPayload): Promise<void> {
       setStatus("Nothing visible to insert — every atom is hidden (hydrogens off).", "error");
       return;
     }
-    const caption = `${formulaSubscripts(model.formula)} — ${styleName}, MMFF94s conformer`;
+    const ionFormula = `${formulaSubscripts(model.formula)}${chargeSuperscript(model.netCharge)}`;
+    const caption = `${ionFormula} — ${styleName}, MMFF94s conformer`;
     const svg = opsToSvg(ops, W3D, H3D, caption);
     const d = readSvgDims(svg, W3D, H3D);
     const base64 = await renderFigurePng(svg, d.w, d.h);
     const alt = provenanceAltText(
-      `3D model (${styleName}, MMFF94s conformer) of ${model.formula}`,
-      model.formula,
+      `3D model (${styleName}, MMFF94s conformer) of ${ionFormula}`,
+      ionFormula,
       0,
       "",
       payload.idcode,

@@ -6,6 +6,51 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.121.0] — 2026-08-09 — Systematic IUPAC names, for the subset that can be named safely
+
+### Added
+- **An offline systematic IUPAC namer** (structure → name) covering a
+  well-defined subset completely: acyclic hydrocarbons to C12 with
+  -ene/-yne unsaturation and branched alkyl substituents (incl.
+  isopropyl/sec-/tert-butyl and phenyl), ONE kind of principal
+  characteristic group (-oic acid, -amide, -nitrile, -al, -one, -ol,
+  -amine, multiples allowed: -dioic/-diol/-dione), prefix
+  substituents (halo, nitro, hydroxy, oxo, amino, methoxy/ethoxy),
+  plain cycloalkanes and substituted benzenes. Current IUPAC locant
+  style (pent-2-ene, propan-2-ol, hexane-2,4-dione), lowest-locant
+  and alphanumbering rules applied. 27 hand-verified name pins.
+- **Everything outside the subset refuses BY NAME** — esters,
+  N-substituted amines/amides, hetero/fused rings, other elements,
+  ions, isotopes, complex substituents, chains beyond C12 — because a
+  confident wrong name in a patent document is worse than no name.
+  Structures with drawn stereochemistry name constitutionally with
+  "stereodescriptors omitted" stated.
+- **Chemical mode wiring**: the curated dictionary still speaks first
+  (retained names — aspirin, toluene, phenol); the systematic namer
+  fills dictionary misses, labelled "subset namer — verify before
+  filing"; refusals surface as "No name: …".
+
+### Notes
+- Independent adversarial pass (it hand-verified every emitted name
+  against IUPAC rules): the locant/direction/seniority core held —
+  but it found three structural escape hatches producing WRONG names,
+  all closed and pinned: imines silently stripped (ethanimine named
+  "ethane" — a different molecular formula), exocyclic C=C on rings
+  read as saturated alkyl (methylidenecyclohexane →
+  "methylcyclohexane"), and acyl halides/ketene naming as aldehydes
+  ("1-chloroethanal"); urea/carbonic-type carbonyls now refuse
+  instead of dropping their =O. Also fixed: multiplier overflow now
+  refuses (was "7-fold-"/literal "undefined" in a name), one-carbon
+  parents drop all locants cleanly (phenylmethanol,
+  tetrachloromethane), locanted substituents get enclosing marks and
+  bis/tris (4-(propan-2-yl)heptane), the ene/yne tie is broken for
+  the double bond deterministically from either input order, and
+  rings beyond OCL's 7-ring perception refuse at the honest boundary
+  (cyclooctane said "no carbon chain"). Chain selection is documented
+  as traditional (1979) priority — a few 2013 PINs differ, every
+  emitted name is unambiguous general nomenclature. 38 name/refusal
+  pins ship.
+
 ## [2.120.0] — 2026-08-09 — Drawn structures flow into reaction schemes
 
 ### Added

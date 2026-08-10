@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.120.0)
+# JurisLab — Manual Test Script (v2.121.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -9,6 +9,18 @@ scanning, and layout. Budget ~30 minutes for the full pass.
 Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
+
+## 0bs. New in v2.121.0 — systematic IUPAC names (subset)
+
+Chemical mode.
+
+- [ ] Enter SMILES `CCC(C)C(C)CC` → "Systematic name: 3,4-dimethylhexane
+  (subset namer — verify before filing)"; Insert name works.
+- [ ] `CC(=O)CCO` → "Systematic name: 4-hydroxybutan-2-one …".
+- [ ] `aspirin` still shows its DICTIONARY name (retained names win).
+- [ ] An ester (`CC(=O)OCC` — if not in dictionary) → "No name: Ester…
+  outside the namer's subset." — a refusal, never a guess.
+- [ ] A drawn Z-alkene → name appears with "stereodescriptors omitted".
 
 ## 0br. New in v2.119.0 — refined 3D, building in 3D, template libraries
 

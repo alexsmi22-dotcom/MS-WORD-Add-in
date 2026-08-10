@@ -326,6 +326,7 @@ import { tryStatsIntent } from "../lib/statsIntent";
 import { solveInputToTypesetLines, solveToTypesetDsl, isProseRequest } from "../lib/solveTypeset";
 import { foldPastedMath, extractSingleEquation, extractExpression, normalizeTaskProse, hasProseWords } from "../lib/pasteMath";
 import { generate3d, isMol3dError, projectScene, opsToSvg, defaultMol3dView, formulaSubscripts, chargeSuperscript, Mol3dView, Mol3dStyle } from "../lib/mol3d";
+import { iupacName } from "../lib/iupacName";
 import { equationWork, derivativeWork, definiteIntegralWork, WorkLine } from "../lib/showWork";
 import { solveOdeSymbolic } from "../lib/odeSymbolic";
 import { solveWithUnits } from "../lib/unitSolve";
@@ -3794,9 +3795,27 @@ function updateStructurePreview(): void {
   insertStructureBtn.disabled = false;
   editInDrawBtn.disabled = false;
 
-  // Dictionary name lookup (recognized compounds only).
+  // Names: the curated dictionary first (retained names — aspirin, toluene);
+  // on a miss, the offline SYSTEMATIC subset namer speaks if — and only if —
+  // the structure is inside its coverage. A refusal is shown by name, never
+  // a guessed name: this is a patent tool.
   currentStructureName = nameForIdcode(result.idcode) ?? "";
-  structureNameEl.textContent = currentStructureName ? `Name: ${currentStructureName}` : "";
+  if (currentStructureName) {
+    structureNameEl.textContent = `Name: ${currentStructureName}`;
+  } else {
+    try {
+      const sys = iupacName(OclMolecule.fromIDCode(result.idcode));
+      if (sys.name) {
+        currentStructureName = sys.name;
+        const stereoNote = sys.caveats.some((c) => /stereodescriptors/i.test(c)) ? "; stereodescriptors omitted" : "";
+        structureNameEl.textContent = `Systematic name: ${sys.name} (subset namer — verify before filing${stereoNote})`;
+      } else {
+        structureNameEl.textContent = sys.refusal ? `No name: ${sys.refusal}` : "";
+      }
+    } catch {
+      structureNameEl.textContent = "";
+    }
+  }
   insertNameBtn.disabled = !currentStructureName;
 }
 

@@ -117,3 +117,28 @@ describe("round trip: name → structure → name", () => {
     expect(nameForIdcode(idcode)).toBeNull();
   });
 });
+
+describe("the smiles: prefix — a string that IS a structure can say so (v2.120.0 Tier-0)", () => {
+  const { renderStructure } = require("../structures");
+
+  it("bare CO is the dictionary carbon monoxide; smiles:CO is METHANOL", () => {
+    const methanol = Molecule.fromSmiles("CO").getIDCode();
+    const bare = renderStructure("CO")!;
+    const explicit = renderStructure("smiles:CO")!;
+    // The typed-input precedence is pinned as-is (a typed formula stays a
+    // formula) - and the drawn-structure path can now bypass it.
+    expect(bare.idcode).not.toBe(methanol);
+    expect(explicit.idcode).toBe(methanol);
+    expect(explicit.source).toBe("smiles");
+  });
+
+  it("the prefix never resolves names or formulas", () => {
+    expect(renderStructure("smiles:aspirin")).toBeNull();
+    expect(renderStructure("smiles:H2O")).toBeNull();
+  });
+
+  it("ordinary inputs are untouched by the prefix branch", () => {
+    expect(renderStructure("aspirin")).not.toBeNull();
+    expect(renderStructure("c1ccccc1")).not.toBeNull();
+  });
+});

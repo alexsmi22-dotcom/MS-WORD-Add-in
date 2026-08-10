@@ -93,13 +93,23 @@ function safeFromSmiles(smiles: string): Molecule | null {
  * is neither a known name/formula nor a parseable SMILES string.
  */
 export function renderStructure(input: string, width = 280, height = 220): StructureResult | null {
-  const looked = lookupSmiles(input);
+  // An explicit "smiles:" prefix bypasses the name/formula dictionary. The
+  // lookup order (name → formula → SMILES) is right for TYPED input, but a
+  // string that is ALREADY a structure must be able to say so: drawn
+  // methanol arrives as SMILES "CO", and the formula table would silently
+  // render it as carbon monoxide — a different molecule than was drawn.
+  const explicit = input.trim().match(/^smiles:\s*(.+)$/i);
+  const looked = explicit ? null : lookupSmiles(input);
 
   let mol: Molecule | null = null;
   let smiles = "";
   let source: StructureResult["source"] = "smiles";
 
-  if (looked) {
+  if (explicit) {
+    const candidate = explicit[1].trim();
+    mol = safeFromSmiles(candidate);
+    smiles = candidate;
+  } else if (looked) {
     mol = safeFromSmiles(looked.smiles);
     smiles = looked.smiles;
     source = looked.source;

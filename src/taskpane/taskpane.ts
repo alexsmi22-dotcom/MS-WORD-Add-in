@@ -281,6 +281,7 @@ import {
   BuildFormat,
   BuildResult,
   cleanedCopy,
+  reactionComponentSmiles,
   ComplianceIssue,
   complianceIssues,
   resultFromMolecule,
@@ -738,6 +739,7 @@ let dnaRestrictBtn: HTMLButtonElement;
 let dnaRestrictResults: HTMLElement;
 let reactionSection: HTMLElement;
 let reactionInput: HTMLTextAreaElement;
+let reactionDrawBtn: HTMLButtonElement;
 let reactionPreviewEl: HTMLElement;
 let reactionInsertBtn: HTMLButtonElement;
 let auditSection: HTMLElement;
@@ -1148,6 +1150,7 @@ Office.onReady((info) => {
   dnaRestrictResults = document.getElementById("dna-restrict-results") as HTMLElement;
   reactionSection = document.getElementById("reaction-section") as HTMLElement;
   reactionInput = document.getElementById("reaction-input") as HTMLTextAreaElement;
+  reactionDrawBtn = document.getElementById("reaction-draw-btn") as HTMLButtonElement;
   reactionPreviewEl = document.getElementById("reaction-preview") as HTMLElement;
   reactionInsertBtn = document.getElementById("reaction-insert-btn") as HTMLButtonElement;
   auditSection = document.getElementById("audit-section") as HTMLElement;
@@ -1406,6 +1409,7 @@ Office.onReady((info) => {
   dnaRestrictBtn.addEventListener("click", findRestrictionSites);
 
   reactionInput.addEventListener("input", updateReactionPreview);
+  reactionDrawBtn.addEventListener("click", openDrawForReaction);
   reactionInsertBtn.addEventListener("click", insertReaction);
 
   auditRunBtn.addEventListener("click", runAudit);
@@ -4631,6 +4635,79 @@ function openDrawDialog(): void {
     // The user closing the dialog window (X) arrives here — re-arm the button.
     dialog.addEventHandler(Office.EventType.DialogEventReceived, () => {
       openDrawDialogBtn.disabled = false;
+    });
+  });
+}
+
+/**
+ * "Draw a component" in Reaction mode: opens the large canvas blank; the
+ * drawn structure comes back and lands AT THE CURSOR of the reaction input
+ * as verified SMILES (reactionComponentSmiles round-trips it by idcode —
+ * a scheme must never silently show a different molecule than was drawn).
+ */
+function openDrawForReaction(): void {
+  const ui = Office.context?.ui;
+  if (!ui || typeof ui.displayDialogAsync !== "function") {
+    setStatus("This Word host does not support pop-out dialog windows.", "error");
+    return;
+  }
+  const url = new URL("drawdialog.html", window.location.href).href;
+  reactionDrawBtn.disabled = true;
+  ui.displayDialogAsync(url, { height: 85, width: 85 }, (result) => {
+    if (result.status !== Office.AsyncResultStatus.Succeeded) {
+      reactionDrawBtn.disabled = false;
+      setStatus(`Could not open the drawing canvas: ${result.error?.message ?? "unknown error"}`, "error");
+      return;
+    }
+    const dialog = result.value;
+    dialog.addEventHandler(Office.EventType.DialogMessageReceived, (arg) => {
+      dialog.close();
+      reactionDrawBtn.disabled = false;
+      const msg = (arg as { message?: string }).message;
+      if (!msg) return;
+      try {
+        const data = JSON.parse(msg) as { mol?: string; mol3d?: Draw3dPayload; cancel?: boolean };
+        if (data.cancel) return;
+        // Either button in the dialog identifies the molecule — "Use this
+        // drawing" sends idcode+coords, "Insert 3D picture" sends the idcode.
+        const idcode = data.mol ? data.mol.split(/\s+/)[0] : data.mol3d?.idcode;
+        if (!idcode) return;
+        const mol = OclMolecule.fromIDCode(idcode);
+        const r = reactionComponentSmiles(mol);
+        if (r.error || !r.smiles) {
+          setStatus(r.error ?? "Could not read the drawing.", "error");
+          return;
+        }
+        // TIER-0 GUARD (adversarial pass): if this SMILES collides with a
+        // dictionary name/formula that resolves to a DIFFERENT structure,
+        // the renderer would silently swap molecules — drawn methanol emits
+        // "CO", and the formula table's CO is carbon monoxide. Mark such
+        // components explicit; the renderer honors the prefix.
+        let component = r.smiles;
+        const asRendered = renderStructure(component, 80, 60);
+        if (!asRendered || asRendered.idcode !== mol.getIDCode()) {
+          component = `smiles:${component}`;
+        }
+        const el = reactionInput;
+        const start = el.selectionStart ?? el.value.length;
+        const end = el.selectionEnd ?? start;
+        const before = el.value.slice(0, start);
+        const after = el.value.slice(end);
+        const needLeft = before !== "" && !/\s$/.test(before);
+        const needRight = after !== "" && !/^\s/.test(after);
+        const insert = `${needLeft ? " " : ""}${component}${needRight ? " " : ""}`;
+        el.value = before + insert + after;
+        const caret = before.length + insert.length;
+        el.setSelectionRange(caret, caret);
+        el.focus();
+        updateReactionPreview();
+        setStatus("Drawn structure added to the reaction as SMILES.", "success");
+      } catch (error) {
+        setStatus(`Could not read the drawing back: ${(error as Error).message}`, "error");
+      }
+    });
+    dialog.addEventHandler(Office.EventType.DialogEventReceived, () => {
+      reactionDrawBtn.disabled = false;
     });
   });
 }

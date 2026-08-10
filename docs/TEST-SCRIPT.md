@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.119.0)
+# JurisLab — Manual Test Script (v2.120.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -3139,6 +3139,13 @@ New in v1.72.0. Nothing here has been seen in Word.
 - [ ] `CCO + CC(=O)O >> CC(=O)OCC ; H2SO4 ; reflux` → preview shows reactants `+`
   reactants, an arrow with **H2SO4** above / **reflux** below, then the product →
   **Insert reaction scheme** (image).
+- [ ] *(v2.120.0)* "Draw a component ⤢" → large canvas opens blank → draw a
+  structure → "Use this drawing" → its SMILES lands AT THE CURSOR in the
+  reaction box (spaces added as needed) and the preview updates. A drawn
+  Z-alkene keeps its geometry in the scheme. An R-group drawing is refused
+  by name (a genus is not a reagent). Draw METHANOL specifically → it lands
+  as `smiles:CO` and the preview shows methanol, NOT carbon monoxide (the
+  bare string "CO" is the formula table's CO — the prefix is the fix).
 - [ ] Multi-step `A -> B -> C` (use real names/SMILES) → arrow between each stage.
 - [ ] Charged SMILES `C[N+](C)(C)C >> X` → not split on the `+` inside brackets.
 

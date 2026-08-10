@@ -327,3 +327,40 @@ describe("builder — molfile path joins the R-group⇒generic invariant", () =>
     expect(r.formula).toBe("C2H6O");
   });
 });
+
+describe("reactionComponentSmiles — the draw-to-reaction bridge (v2.120.0)", () => {
+  const { reactionComponentSmiles } = require("../builder");
+
+  it("a drawn molecule round-trips to reaction SMILES exactly (idcode-compared)", () => {
+    const mol = Molecule.fromSmiles("CC(=O)OCC"); // ethyl acetate
+    const r = reactionComponentSmiles(mol);
+    expect(r.error).toBeUndefined();
+    expect(Molecule.fromSmiles(r.smiles).getIDCode()).toBe(mol.getIDCode());
+  });
+
+  it("drawn stereochemistry survives the SMILES form (Z-butene stays Z)", () => {
+    const mol = Molecule.fromSmiles("C/C=C\\C");
+    const r = reactionComponentSmiles(mol);
+    expect(r.error).toBeUndefined();
+    expect(Molecule.fromSmiles(r.smiles).getIDCode()).toBe(mol.getIDCode());
+  });
+
+  it("charged species survive (acetate anion)", () => {
+    const mol = Molecule.fromSmiles("CC([O-])=O");
+    const r = reactionComponentSmiles(mol);
+    expect(r.error).toBeUndefined();
+    expect(Molecule.fromSmiles(r.smiles).getIDCode()).toBe(mol.getIDCode());
+  });
+
+  it("a generic (Markush) structure is refused by name — a genus is not a reagent", () => {
+    const frag = Molecule.fromSmiles("c1ccccc1");
+    frag.setFragment(true);
+    const r = reactionComponentSmiles(frag);
+    expect(r.smiles).toBeUndefined();
+    expect(r.error).toMatch(/generic structure/i);
+  });
+
+  it("an empty canvas is refused by name", () => {
+    expect(reactionComponentSmiles(new Molecule(4, 4)).error).toMatch(/empty/i);
+  });
+});

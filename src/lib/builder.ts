@@ -527,6 +527,46 @@ export function cleanedCopy(mol: Molecule): Molecule {
   return copy;
 }
 
+/**
+ * The SMILES a drawn structure contributes to a reaction scheme, verified.
+ *
+ * The reaction DSL carries components as text, so the drawn molecule must
+ * survive a SMILES round-trip EXACTLY (idcode-compared) — a scheme silently
+ * showing a different molecule than the one drawn is the worst outcome.
+ * Generic structures are refused by name: a Markush genus is not a reagent.
+ */
+export function reactionComponentSmiles(mol: Molecule): { smiles?: string; error?: string } {
+  if (mol.getAllAtoms() === 0) return { error: "The canvas is empty — draw a molecule first." };
+  if (mol.isFragment() || rgroupLabels(mol).length > 0) {
+    return {
+      error:
+        "A reaction scheme needs CONCRETE molecules — this drawing is a generic structure " +
+        "(R-groups or query features). Replace them with real atoms first.",
+    };
+  }
+  let smiles = "";
+  try {
+    // toSmiles() NEVER emits stereo (probed: Z-2-butene → "CC=CC");
+    // toIsomericSmiles() carries E/Z and R/S and round-trips exactly. The
+    // copy is laid out first because the encoder reads geometry-derived
+    // parities from coordinates.
+    const src = mol.getCompactCopy();
+    src.inventCoordinates();
+    smiles = src.toIsomericSmiles();
+    const back = Molecule.fromSmiles(smiles);
+    if (back.getIDCode() !== mol.getIDCode()) {
+      return {
+        error:
+          "This structure does not survive the text (SMILES) form a reaction scheme uses — " +
+          "the round-trip changes it. Insert it as a standalone structure instead.",
+      };
+    }
+  } catch (e) {
+    return { error: `Could not express the drawing as SMILES: ${(e as Error).message}` };
+  }
+  return { smiles };
+}
+
 /** Heuristic: does this text look like an MDL molfile rather than an atom/bond list? */
 export function looksLikeMolfile(text: string): boolean {
   return /\bV[23]000\b/.test(text) || /^M\s+END\s*$/m.test(text);

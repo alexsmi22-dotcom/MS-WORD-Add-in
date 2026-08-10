@@ -6,6 +6,34 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.120.0] — 2026-08-09 — Drawn structures flow into reaction schemes
+
+### Added
+- **"Draw a component" in Reaction mode**: opens the large drawing
+  canvas (with its templates, groups, and 3D view); the drawn
+  structure comes back as SMILES at the reaction input's cursor and
+  the scheme preview updates. The SMILES is VERIFIED before it lands
+  — encoded with toIsomericSmiles (plain toSmiles silently drops
+  E/Z, probed: Z-2-butene came back as "CC=CC") and round-tripped by
+  idcode, so the scheme can never silently show a different molecule
+  than was drawn; generic (R-group) drawings are refused by name — a
+  Markush genus is not a reagent.
+
+### Notes
+- Independent adversarial pass, one Tier-0 caught before release: the
+  bridge was faithful but the RENDERER downstream was not — drawn
+  METHANOL emits SMILES "CO", and the reaction renderer's
+  name→formula→SMILES precedence resolved it to the formula table's
+  CO, carbon monoxide: a scheme silently showing a different molecule
+  than drawn. Fixed with an explicit "smiles:" prefix the renderer
+  honors (typed-input precedence unchanged — a typed formula stays a
+  formula); the pane adds the prefix only when it detects the
+  collision, so future dictionary growth is covered. The pass also
+  verified 21 stereo/charge/isotope round-trips exact, the parser
+  seam safe (bracket "+" never splits, /C=C\ survives arrows), and
+  the guard correctly refusing racemic ESR groups that SMILES cannot
+  carry.
+
 ## [2.119.0] — 2026-08-09 — Refined 3D, building in 3D, and template libraries
 
 ### Added

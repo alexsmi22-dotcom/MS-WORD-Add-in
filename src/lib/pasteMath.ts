@@ -539,6 +539,11 @@ export function extractSingleEquation(text: string): string | null {
       // Strip trailing punctuation a sentence leaves behind.
       const clean = cand.replace(/[?.,;:]+\s*$/, "").trim();
       if (!/[0-9a-zA-Z]/.test(clean)) continue;
+      // Prose words parse as VARIABLES — a candidate carrying them would
+      // "solve" with fabricated symbols ("f(x) = x^2 from 1 to 3" produced
+      // exact-labelled roots in `from` and `to`; cross-release sweep).
+      // Rejecting the candidate lets a shorter, prose-free one win.
+      if (/\b(from|to|of|the|is|are|for|when|where|with|and|that|find|what)\b/i.test(clean)) continue;
       try {
         const probe = solveEquation(clean);
         if (

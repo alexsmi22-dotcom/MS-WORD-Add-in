@@ -69,6 +69,11 @@ export function tryStatsIntent(input: string): StatsIntentResult | null {
   const text = input.trim();
   const lower = text.toLowerCase();
 
+  // "Average SPEED/rate/velocity" is physics, not statistics — the word-
+  // problem engine owns it (distance = rate × time) and answers correctly.
+  // Returning null (not a refusal) lets the dispatch fall through to it.
+  if (/\baverage\s+(speed|velocity|rate|acceleration)\b/.test(lower)) return null;
+
   const wantsTTest =
     /\bt-?test\b/.test(lower) ||
     (/\b(different|differs?|significant\w*|compare)\b/.test(lower) &&
@@ -158,11 +163,33 @@ export function tryStatsIntent(input: string): StatsIntentResult | null {
   //   2. The values must be a CONTIGUOUS comma/and-separated run of ≥ 2
   //      numbers ("3, 5, 8 and 12") — prose-embedded strays never qualify.
   if (/[=<>≤≥]/.test(text)) return null;
+  // "The average of 3 NUMBERS is 12…" describes a list it does not give —
+  // that is a word problem even when a stray pair later in the sentence
+  // ("…are 10 and 11") would satisfy the run regex. The cross-release sweep
+  // caught this phrasing producing a confident wrong mean.
+  if (/\b(mean|average|median|mode|variance|range|standard deviation)\s+of\s+(?:the\s+)?\d+\s+(?:numbers?|values?|scores?|observations?|terms?|measurements?|data)/.test(lower)) {
+    return refuse(
+      "This is a statistics question ABOUT numbers it does not list (\"the average of 3 numbers " +
+      "is 12…\") — a word problem, not a computation on given data. Try the Word problem kind.",
+    );
+  }
   const NUM = String.raw`-?\d+(?:\.\d+)?`;
   const runRe = new RegExp(String.raw`(?<![\w.])${NUM}(?:(?:\s*,\s*|\s+and\s+)(?:${NUM}))+(?!\.?\d)`, "g");
   let best: string | null = null;
+  let runCount = 0;
   for (const m of text.matchAll(runRe)) {
+    runCount++;
     if (!best || m[0].length > best.length) best = m[0];
+  }
+  // Two statistics requested over two separate lists ("compare the mean of
+  // 3, 5 with the mean of 8, 12") — answering ONE mean would be confidently
+  // incomplete. Refuse by name toward the Stats mode.
+  const kwMentions = (lower.match(/\b(mean|average|median|mode|variance|standard deviation)\b/g) ?? []).length;
+  if (kwMentions >= 2 && runCount >= 2) {
+    return refuse(
+      "This asks for statistics of MORE THAN ONE list — computed one at a time here. " +
+      "The Stats mode compares groups properly (t-tests, ANOVA).",
+    );
   }
   if (!best) {
     return refuse(

@@ -78,6 +78,33 @@ export function trySum(input: string): SumResult | null {
     return numericPowerSum(1, "k", plain[1], plain[2]);
   }
 
+  // "sum of 3, 5, 8 and 12" — a plain total, added EXACTLY (decimals ride
+  // rationals: 0.1 + 0.2 must display 0.3, not 0.30000000000000004).
+  const list = /^sum\s+of\s+((?:-?\d+(?:\.\d+)?)(?:(?:\s*,\s*|\s+and\s+)-?\d+(?:\.\d+)?)+)[\s.?!]*$/i.exec(text);
+  if (list) {
+    const parts = list[1].split(/\s*,\s*|\s+and\s+/i);
+    let acc = ratInt(0n);
+    for (const p of parts) {
+      const neg = p.startsWith("-");
+      const body = neg ? p.slice(1) : p;
+      let r: Rat;
+      if (body.includes(".")) {
+        const [w, fr] = body.split(".");
+        r = ratMake(BIG(w + fr), 10n ** BigInt(fr.length));
+      } else {
+        r = ratInt(BIG(body));
+      }
+      acc = ratAdd(acc, neg ? ratNeg(r) : r);
+    }
+    return {
+      title: `Sum of ${parts.length} values`,
+      display: fmtRat(acc),
+      numeric: ratToNumber(acc),
+      steps: [`${parts.join(" + ").replace(/\+ -/g, "− ")} = ${fmtRat(acc)}`],
+      caveats: [],
+    };
+  }
+
   // "sum k^p from A to B" with p ∈ {1 (implicit), 2, 3} — A,B numeric or upper symbolic.
   const pow = /^sum\s+([a-z])(?:\s*\^\s*([0-9]+))?\s+from\s+(-?\d+)\s+to\s+([a-z]\w*|-?\d+)$/i.exec(text);
   if (pow) {
@@ -193,16 +220,24 @@ export function trySum(input: string): SumResult | null {
     }
   }
 
-  return {
-    title: "Sum",
-    display: "not read",
-    steps: [],
-    caveats: [
-      "Couldn't read that sum. Accepted: sum of 1 to 100 · sum k^2 from 1 to n · " +
-      "sum k^3 from 1 to 20 · sum r^k from 0 to n · sum 2^k from 0 to 10. " +
-      "Σ 1/k is refused by name (no elementary closed form).",
-    ],
-  };
+  // The syntax help only fires for text that actually LOOKS like sum syntax
+  // ("from … to", a power, a 1/k). Prose that merely starts with "sum of"
+  // ("the sum of the interior angles of a hexagon") falls through to the
+  // layers below instead of being taken hostage by this parser — the
+  // cross-release sweep found every such question dead-ending here.
+  if (/\bfrom\b[\s\S]*\bto\b/i.test(text) || text.includes("^") || /^sum\s+\d*\s*\//i.test(text)) {
+    return {
+      title: "Sum",
+      display: "not read",
+      steps: [],
+      caveats: [
+        "Couldn't read that sum. Accepted: sum of 1 to 100 · sum of 3, 5, 8 and 12 · sum k^2 from 1 to n · " +
+        "sum k^3 from 1 to 20 · sum r^k from 0 to n · sum 2^k from 0 to 10. " +
+        "Σ 1/k is refused by name (no elementary closed form).",
+      ],
+    };
+  }
+  return null;
 }
 
 function numericPowerSum(p: number, varName: string, loS: string, hiS: string): SumResult {

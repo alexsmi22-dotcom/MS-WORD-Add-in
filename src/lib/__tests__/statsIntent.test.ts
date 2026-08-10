@@ -103,6 +103,50 @@ describe("two-group questions", () => {
   });
 });
 
+describe("CROSS-RELEASE SWEEP — seams between the prose layers, pinned", () => {
+  const { solveWordProblem } = require("../wordproblem");
+  const { extractSingleEquation } = require("../pasteMath");
+
+  test("SWEEP-F1: 'average of N numbers' with a stray pair is a WORD PROBLEM, never mean of the strays", () => {
+    // Was answered "mean = 10.5" (of 10 and 11); the right answer is 15.
+    const r = tryStatsIntent("The average of 3 numbers is 12. Two of the numbers are 10 and 11. What is the third number?")!;
+    expect(r.lines).toEqual([]);
+    expect(r.caveats.join(" ")).toMatch(/word problem/i);
+  });
+
+  test("SWEEP-F1b: two statistics over two lists refuses toward Stats mode", () => {
+    const r = tryStatsIntent("Compare the mean of 3, 5 with the mean of 8, 12")!;
+    expect(r.lines).toEqual([]);
+    expect(r.caveats.join(" ")).toMatch(/more than one/i);
+  });
+
+  test("SWEEP-F2: 'average speed' is physics — statsIntent yields, the word-problem engine answers", () => {
+    const q = "A car travels 120 miles in 2 hours. What is its average speed?";
+    expect(tryStatsIntent(q)).toBeNull();
+    expect(solveWordProblem(q)!.value).toBeCloseTo(60, 6);
+  });
+
+  test("SWEEP-F3: extraction never mints prose variables — 'from 1 to 3' cannot become symbols", () => {
+    // Was returning "f(x) = x^2 from 1 to 3", solved with exact-labelled
+    // roots in fabricated variables `from` and `to`.
+    const got = extractSingleEquation("The average rate of change of f(x) = x^2 from 1 to 3");
+    expect(got).toBe("f(x) = x^2");
+  });
+
+  test("SWEEP-F4: 'sum of 3, 5, 8 and 12' ANSWERS (exactly), and non-sum prose falls through", () => {
+    const r = trySum(normalizeTaskProse("What is the sum of 3, 5, 8 and 12?"))!;
+    expect(r.display).toBe("28");
+    // Decimals add exactly — never 0.30000000000000004.
+    const d = trySum("sum of 0.1 and 0.2")!;
+    expect(d.numeric).toBeCloseTo(0.3, 12);
+    expect(d.display).not.toContain("0000");
+    // Prose that merely starts with "sum of" no longer dead-ends here.
+    expect(trySum("sum of the interior angles of a hexagon")).toBeNull();
+    // Real sum syntax keeps its named refusal.
+    expect(trySum("sum 1/k from 1 to n")!.display).toBe("no elementary closed form");
+  });
+});
+
 describe("task-prose normalisation routes the word-led engines", () => {
   test("Find the sum of 1 to 100 reaches the series engine", () => {
     expect(trySum(normalizeTaskProse("Find the sum of 1 to 100"))!.display).toBe("5050");

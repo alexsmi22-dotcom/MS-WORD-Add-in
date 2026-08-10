@@ -235,7 +235,15 @@ describe("0.3 / 0.4 / 0.8 / 0.9 — claims that had drifted", () => {
 
   it("0.9 the New-badge promise matches what is actually badged", () => {
     const idx = read("landing/index.html");
-    expect(idx).toMatch(/are disciplines added since v2\.55/);
+    // v2.122.0: the lede now promises "the most recent additions" — so ONLY
+    // the newest tiles may wear the badge. The five discipline tiles from
+    // the v2.55–2.60 era had kept stale badges; they are retired, and this
+    // pin counts the badges so a stale one can never silently return.
+    expect(idx).toMatch(/are the most recent additions/);
+    expect(idx).not.toMatch(/are disciplines added since v2\.55/);
     expect(idx).not.toMatch(/arrived in the last few releases/);
+    const badges = (idx.match(/<h3>[^<]*<span class="is-new">New<\/span><\/h3>/g) ?? []).length;
+    expect(badges).toBeGreaterThan(0);
+    expect(badges).toBeLessThanOrEqual(5);
   });
 });

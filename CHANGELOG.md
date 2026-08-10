@@ -6,6 +6,38 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.122.0] — 2026-08-09 — Cross-release hardening, and the landing pages catch up
+
+### Fixed
+- A dedicated CROSS-RELEASE adversarial sweep probed the seams between
+  today's eleven releases (no single-release pass covers how the
+  layers interact). Four real defects, fixed and pinned:
+  "The average of 3 numbers is 12. Two of the numbers are 10 and
+  11..." was answered "mean = 10.5" by the stats layer (the stray
+  "10 and 11" satisfied the list rule) — the "average of N numbers"
+  phrasing is now recognised as a word problem; "average speed"
+  questions were claimed and refused by statistics one layer above
+  the rate×time engine that answers them (now it yields — 60 mph
+  comes back); "average rate of change of f(x) = x² from 1 to 3"
+  produced exact-labelled roots in FABRICATED variables `from` and
+  `to` (extraction candidates carrying prose words are now rejected);
+  and every "sum of…" question dead-ended in sum-syntax help — now
+  "sum of 3, 5, 8 and 12" simply answers 28 (decimals added exactly:
+  0.1 + 0.2 shows 3/10, never 0.30000000000000004) and non-sum prose
+  falls through to the layers below.
+- The sweep also verified CLEAN: the full dispatch canary table, the
+  reaction/dictionary triangle across all 359 compounds (methanol/CO
+  is the only possible collision and the guard catches it), the
+  namer against 40 pathological structures (zero throws, worst case
+  645 ms), all 27 attach groups through 3D generation, and the
+  drawing dialog's message protocol from both consumers.
+
+### Changed
+- Landing pages refreshed for the last eleven releases: new highlight
+  tiles (3D modeling and building, reaction schemes from drawings,
+  systematic IUPAC names, paste-the-whole-question), a rewritten
+  Solve card, and updated students/science pages.
+
 ## [2.121.0] — 2026-08-09 — Systematic IUPAC names, for the subset that can be named safely
 
 ### Added

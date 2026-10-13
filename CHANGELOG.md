@@ -6,6 +6,114 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.124.0] — 2026-10-12 — Discrete mathematics, six engines; the λ-calculus grows up
+
+### Added
+- **A Discrete-math kind in Solve** (`src/lib/discrete.ts`), one box
+  routed by syntax to six engines, each exact, capped by name, and
+  cross-checked where a second route exists:
+  - **Number theory** (`numtheory.ts`): gcd/lcm with Euclid's steps and
+    Bézout coefficients, modular powers (square-and-multiply shown,
+    Fermat shortcut named), inverses, linear congruences with every
+    solution, the Chinese remainder theorem for moduli that need not
+    be coprime, factoring (trial division then Pollard's rho under a
+    budget — an unsplit cofactor is NAMED as unsplit, never called
+    prime), Miller–Rabin primality that is a proof below 3.3 × 10²⁴
+    and says "probable prime" above, sieves, φ, divisors (σ, perfect/
+    abundant/deficient), multiplicative order, primitive roots,
+    Jacobi/Legendre with quadratic residues, Tonelli–Shanks roots, base
+    conversion by repeated division.
+  - **Combinatorics** (`combinatorics.ts`): C, P, n!, multinomials,
+    multiset permutations, derangements, Catalan, Bell, Stirling (both
+    kinds), integer partitions, power sets, and prose word problems
+    with the model named — a sentence carrying a condition the formula
+    ignores is refused, never answered with the unconditioned count.
+    Every count is computed two ways.
+  - **Recurrences** (`recurrence.ts`): linear, constant coefficients,
+    order ≤ 4 — rational roots exactly, a quadratic exactly in ℚ(√D)
+    (Fibonacci → Binet), the rest numeric and labelled; polynomial and
+    exponential forcing by undetermined coefficients with resonance;
+    EVERY closed form verified against direct iteration for n ≤ 15.
+    The master theorem (three cases + the extended log case, regularity
+    checked).
+  - **Propositional logic** (`proplogic.ts`): truth tables, tautology/
+    contingent/contradiction, DNF, CNF, the Quine–McCluskey minimal
+    form (reusing logic.ts), equivalence, entailment with the
+    counterexample row.
+  - **Automata** (`automata.ts`, drawn): DFA/NFA blocks run on test
+    strings with the state sequence, ε-closures, regex → Thompson →
+    subset → minimal DFA, `to dfa`, `minimize` (cross-checked on every
+    string to length 6), `equivalent` with the shortest distinguishing
+    string.
+  - **Graphs** (`graphs.ts`, drawn): degrees, components and SCCs,
+    bipartite with the odd-cycle witness, Eulerian trails (Hierholzer),
+    trees/cycles, topological order, shortest path (Dijkstra, or
+    Bellman–Ford with negative weights; a negative cycle refused by
+    name), Kruskal MST, Hamiltonian by exhaustive search to 12 vertices
+    (refused above as NP-hard), diameter.
+- **λ-calculus extras**: η-reduction (`eta …` for the βη-normal form;
+  a β-normal form that still η-reduces is pointed out in every result,
+  so POW 2 0 = λx.x is now read as Church 1 up to η), SKI translation
+  by bracket abstraction with the η rule (`ski …`, verified by
+  reducing both sides on fresh variables), combinatory reduction by
+  the S/K/I/B/C/W rules alone (`cl …`), Church lists with a `[1, 2, 3]`
+  literal and NIL/CONS/HEAD/TAIL/ISNIL/LENGTH/SUM/MAP (a list normal
+  form is decoded), and `let rec NAME = …` tied with Y.
+- Pane: option, hint, six palette groups (every template pinned to
+  answer), the figure carried to the document for graphs and automata;
+  example, landing tile, Solve card, manual, tool page, FEATURES,
+  README, TEST-SCRIPT.
+
+### Notes
+- Three engines (graphs, automata, combinatorics) were built by parallel
+  builders against a shared contract; an independent adversarial pass
+  then probed the whole release. The algorithms held: 150 random graphs
+  against Floyd–Warshall / brute-force spanning trees / 2ⁿ colourings /
+  permutation Hamiltonian search with zero mismatches, Jacobi against
+  Euler's criterion for 200 values, regex equivalence witnesses re-run
+  on both machines, every recurrence family verified. It found eleven
+  real defects, all closed and pinned (discrete.adversarial.test.ts):
+  a one-line `regex (a|b)*abb` was stolen by logic (its `|`) and
+  errored — automata now routes before logic; initial conditions on
+  their own lines were glued onto the recurrence; combinatorics
+  answered the unconditioned count for "BANANA beginning with B" and
+  "choose a team of 3 and a captain" (gerund conditions and "and
+  <a second requirement>" are now refused); `primes to -5` threw a
+  RangeError from the sieve; the Sorenson–Webster bound itself (a
+  composite that passes all thirteen Miller–Rabin bases) was called
+  prime by `factor` — the deterministic range is strictly below it, and
+  the headline now says "PROBABLE" at or above; NAND/NOR lost their
+  right-hand brackets on display (non-associative); an ill-conditioned
+  order-4 numeric recurrence printed CROSS-CHECK FAILED — it now
+  withholds the closed form and says why; ten-variable logic took
+  1.8 s per keystroke (Quine–McCluskey now runs unasked only to 7
+  variables); `let rec FACT 3` took 0.9 s — the cycle detector was
+  building a de Bruijn STRING per step with nested concatenation,
+  O(size × depth), replaced by a string-free structural hash (now
+  75 ms; FACT 5 still exceeds the work budget and says so, because
+  every Y-unfolding copies the whole body); the displayed `3⁻¹` did
+  not parse back (superscript minus now folds); and `gcd 1,234 56`
+  split the thousands separator into a third argument.
+- Also from the pass: congruence statements (`5 ≡ 2 (mod 3)` → TRUE),
+  `gcd of 84 and 36`, `is 97 a prime number?`, `pow(7,100,13)`,
+  CRT one congruence per line, Fibonacci from F(1), inconsistent or
+  duplicate initial conditions refused, `a(n-1)/2` and `(1/2)a(n-1)`
+  and juxtaposed factors read, `log² n` and `log^2 n` in the master
+  theorem, xor binding tighter than or (as in the digital-logic tool),
+  and a perfect-square discriminant past the divisor cap no longer
+  prints "√1".
+- The figure-layout gate caught both new renderers laying edge labels
+  on the stroke (read as strikethrough) and, once moved aside, other
+  chords and the start arrow crossing them: labels are now placed by
+  trying candidate spots and taking the first no segment crosses, and
+  self-loops point radially outward (tangentially on the start state).
+  Three discrete figures joined the corpus (floor 172 → 175).
+- The λ-calculus's independent evaluator is now an iterative CEK-style
+  machine: the recursive one spent four JS frames per Church-numeral
+  level and overflowed inside a full jest run while passing alone, with
+  the overflow swallowed as "could not decide" — the same
+  stack-capacity signature as the depth cap in v2.123.0.
+
 ## [2.123.0] — 2026-10-12 — The untyped λ-calculus
 
 ### Added

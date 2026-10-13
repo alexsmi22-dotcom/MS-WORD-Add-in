@@ -67,7 +67,9 @@ const CORPUS = path.join(__dirname, "figure-layout-run.ts");
 // benzene ball-and-stick + spacefill, ethanol stick + hidden-H refit).
 // 172 as of 2026-08-09 (v2.119.0): acetone pins the parallel-rod double bond
 // and the heteroatom label.
-const CORPUS_FLOOR = 172;
+// 175 as of 2026-10-12 (v2.124.0): three discrete-math figures (a graph with a
+// highlighted shortest path, the 24-vertex dot-and-radial-label layout, a DFA).
+const CORPUS_FLOOR = 175;
 
 // --- The allowance ratchet ----------------------------------------------------
 //

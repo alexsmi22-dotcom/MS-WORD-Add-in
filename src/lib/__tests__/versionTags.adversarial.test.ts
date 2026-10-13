@@ -44,6 +44,8 @@ const PINNED: Record<string, string> = {
   "LEGEND OUTSIDE": "2.82.1",
   "CHEBYSHEV REGRESSION": "2.85.0",
   "λ-calculus": "2.123.0",
+  "Discrete math": "2.124.0",
+  "λ-calculus extras": "2.124.0",
 };
 
 describe("the manual test script's version tags are history, not a moving target", () => {

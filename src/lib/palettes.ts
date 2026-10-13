@@ -589,3 +589,79 @@ export const SOLVE_LAMBDA: PaletteGroup[] = [
     ],
   },
 ];
+
+/** Whole-input templates for the Discrete-math kind — one per engine form,
+ *  each pinned (discretePalette test) to produce an answer. */
+export const SOLVE_DISCRETE: PaletteGroup[] = [
+  {
+    name: "Number theory",
+    items: [
+      { label: "gcd", snippet: "gcd 84 36", title: "Euclid's algorithm, Bézout coefficients" },
+      { label: "aᵉ mod m", snippet: "7^100 mod 13", title: "Square-and-multiply, Fermat shortcut" },
+      { label: "inverse", snippet: "inverse 3 mod 7", title: "Extended Euclid" },
+      { label: "ax ≡ b", snippet: "3x ≡ 2 mod 7", title: "Linear congruence — every solution" },
+      { label: "CRT", snippet: "x ≡ 2 mod 3, x ≡ 3 mod 5, x ≡ 2 mod 7", title: "Chinese remainder theorem (Sunzi)" },
+      { label: "factor", snippet: "factor 360", title: "Prime factorisation, τ σ φ" },
+      { label: "prime?", snippet: "is 561 prime", title: "Miller–Rabin — a Carmichael number" },
+      { label: "primes to", snippet: "primes to 100", title: "Sieve of Eratosthenes" },
+      { label: "primitive root", snippet: "primitive roots mod 7", title: "Generators of (ℤ/7)*" },
+      { label: "binary", snippet: "255 in binary", title: "Base conversion, shown by repeated division" },
+    ],
+  },
+  {
+    name: "Combinatorics",
+    items: [
+      { label: "n choose k", snippet: "10 choose 3", title: "Combinations, verified two ways" },
+      { label: "P(n,k)", snippet: "P(10,3)", title: "Permutations" },
+      { label: "n!", snippet: "20!", title: "Exact" },
+      { label: "anagrams", snippet: "arrangements of MISSISSIPPI", title: "Multiset permutations" },
+      { label: "derangements", snippet: "derangements 5", title: "!5 = 44" },
+      { label: "Catalan", snippet: "catalan 5", title: "C₅ = 42" },
+      { label: "word problem", snippet: "how many ways to choose 3 of 10 people", title: "The model is named" },
+      { label: "stars and bars", snippet: "distribute 10 identical balls into 3 boxes", title: "C(n+k−1, k−1)" },
+    ],
+  },
+  {
+    name: "Recurrences",
+    items: [
+      { label: "Fibonacci", snippet: "a(n) = a(n-1) + a(n-2), a(0)=0, a(1)=1", title: "Binet, exact in ℚ(√5)" },
+      { label: "first order", snippet: "a(n) = 2a(n-1) + 3, a(0)=1", title: "Particular + homogeneous" },
+      { label: "resonance", snippet: "T(n) = T(n-1) + n, T(0) = 0", title: "Root 1 meets a polynomial forcing" },
+      { label: "repeated root", snippet: "a(n) = 2a(n-1) - a(n-2), a(0)=1, a(1)=3", title: "The n·rⁿ term" },
+      { label: "merge sort", snippet: "T(n) = 2T(n/2) + n", title: "Master theorem, case 2" },
+      { label: "Strassen", snippet: "T(n) = 7T(n/2) + n^2", title: "Master theorem, case 1" },
+    ],
+  },
+  {
+    name: "Logic",
+    items: [
+      { label: "modus tollens", snippet: "(p -> q) & ~q -> ~p", title: "A tautology" },
+      { label: "De Morgan", snippet: "~(p & q) == ~p | ~q", title: "Equivalence question" },
+      { label: "argument", snippet: "p -> q, p |= q", title: "Entailment with counterexample search" },
+      { label: "fallacy", snippet: "p -> q, q |= p", title: "Affirming the consequent — INVALID" },
+      { label: "simplify", snippet: "simplify a & b | a & ~b", title: "Quine–McCluskey minimal DNF" },
+      { label: "dnf / cnf", snippet: "dnf (p -> q) & r", title: "Normal forms from the table" },
+    ],
+  },
+  {
+    name: "Automata",
+    items: [
+      { label: "DFA", snippet: "dfa\nstates: q0 q1 q2\nalphabet: 0 1\nstart: q0\naccept: q2\nq0 0 q0\nq0 1 q1\nq1 0 q0\nq1 1 q2\nq2 0 q2\nq2 1 q2\ntest: 011 0101 11", title: "Run strings, draw the diagram" },
+      { label: "regex", snippet: "regex (a|b)*abb\ntest: abb aabb ab abba", title: "Thompson → subset → minimal DFA" },
+      { label: "NFA → DFA", snippet: "to dfa\nnfa\nstates: p q r\nalphabet: a b\nstart: p\naccept: r\np a p\np b p\np a q\nq b r", title: "Subset construction" },
+      { label: "minimize", snippet: "minimize\ndfa\nstates: A B C D E F\nalphabet: 0 1\nstart: A\naccept: C D E\nA 0 B\nA 1 C\nB 0 A\nB 1 D\nC 0 E\nC 1 F\nD 0 E\nD 1 F\nE 0 E\nE 1 F\nF 0 F\nF 1 F", title: "Partition refinement, cross-checked" },
+      { label: "equivalent?", snippet: "equivalent\nregex a*\n---\nregex (aa)*", title: "NO, with the distinguishing string" },
+    ],
+  },
+  {
+    name: "Graphs",
+    items: [
+      { label: "shortest path", snippet: "shortest path A to F\nA-B 7\nA-C 9\nA-F 14\nB-C 10\nB-D 15\nC-D 11\nC-F 2\nD-E 6\nE-F 9", title: "Dijkstra, path highlighted" },
+      { label: "MST", snippet: "mst\nA-B 4\nA-H 8\nB-C 8\nB-H 11\nC-D 7\nC-F 4\nC-I 2\nD-E 9\nD-F 14\nE-F 10\nF-G 2\nG-H 1\nG-I 6\nH-I 7", title: "Kruskal (CLRS Fig. 23.4) = 37" },
+      { label: "Eulerian", snippet: "eulerian\nA-B\nA-B\nA-C\nA-D\nB-C\nB-D\nC-D", title: "Königsberg: none" },
+      { label: "bipartite", snippet: "bipartite\nA-B\nB-C\nC-D\nD-E\nE-F\nF-A", title: "A 6-cycle: yes" },
+      { label: "toposort", snippet: "topological order\nshirt->tie\ntie->jacket\ntrousers->shoes\ntrousers->belt\nbelt->jacket\nshirt->belt", title: "Kahn on a DAG" },
+      { label: "Hamiltonian", snippet: "hamiltonian\nA-B\nB-C\nC-D\nD-E\nE-A\nA-C", title: "Exhaustive up to 12 vertices" },
+    ],
+  },
+];

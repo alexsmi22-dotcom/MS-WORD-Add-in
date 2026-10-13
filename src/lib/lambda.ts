@@ -267,30 +267,67 @@ function dbHash(s: string): number {
 //   - nested binders print in full (λx.λy.M), so what is displayed is exactly
 //     the structure, and parses back to the same term.
 
-export function show(t: Term): string {
-  const go = (u: Term, ctx: "top" | "fn" | "arg"): string => {
+/** Appends pieces to one array and joins once — O(size). Nested template
+ *  strings were O(size × depth) per call, and a step list calls this per step. */
+export function show(t: Term, limit = Infinity): string {
+  const parts: string[] = [];
+  let len = 0;
+  let cut = false;
+  const push = (s: string): void => { if (cut) return; parts.push(s); len += s.length; if (len > limit) cut = true; };
+  const go = (u: Term, ctx: "top" | "fn" | "arg"): void => {
+    if (cut) return;
     switch (u.kind) {
-      case "var":
-        return u.name;
-      case "lam": {
-        const s = `λ${u.param}.${go(u.body, "top")}`;
-        return ctx === "top" ? s : `(${s})`;
-      }
-      case "app": {
-        const s = `${go(u.fn, "fn")} ${go(u.arg, "arg")}`;
-        return ctx === "arg" ? `(${s})` : s;
-      }
+      case "var": push(u.name); return;
+      case "lam": { const wrap = ctx !== "top"; if (wrap) push("("); push(`λ${u.param}.`); go(u.body, "top"); if (wrap) push(")"); return; }
+      case "app": { const wrap = ctx === "arg"; if (wrap) push("("); go(u.fn, "fn"); push(" "); go(u.arg, "arg"); if (wrap) push(")"); return; }
     }
   };
-  return go(t, "top");
+  go(t, "top");
+  const s = parts.join("");
+  return cut ? s.slice(0, limit) + "…" : s;
 }
 
-/** For step lines: a long term is cut, since the normal form line carries
- *  the full one (and is the line that must parse back). */
+/** For step lines: a long term is cut (and the walk stops there), since the
+ *  normal form line carries the full one (and is the line that must parse back). */
 const STEP_TEXT_MAX = 400;
 function showCut(t: Term): string {
-  const s = show(t);
-  return s.length > STEP_TEXT_MAX ? s.slice(0, STEP_TEXT_MAX) + "…" : s;
+  return show(t, STEP_TEXT_MAX);
+}
+
+/** A structural hash of the de Bruijn form, computed without building the
+ *  string: O(size) with O(1) per variable (a stack of binder depths per name).
+ *  Candidates that collide are confirmed by the full de Bruijn string. */
+function termHash(t: Term): number {
+  const binders = new Map<string, number[]>();
+  let depth = 0;
+  let h = 0x811c9dc5;
+  const mix = (x: number): void => { h ^= x; h = Math.imul(h, 0x01000193) >>> 0; };
+  const mixStr = (s: string): void => { for (let i = 0; i < s.length; i++) mix(s.charCodeAt(i)); };
+  const go = (u: Term): void => {
+    switch (u.kind) {
+      case "var": {
+        const st = binders.get(u.name);
+        if (st && st.length) { mix(1); mix(depth - st[st.length - 1]); }
+        else { mix(2); mixStr(u.name); }
+        return;
+      }
+      case "lam": {
+        mix(3);
+        let st = binders.get(u.param);
+        if (!st) { st = []; binders.set(u.param, st); }
+        st.push(depth);
+        depth++;
+        go(u.body);
+        depth--;
+        st.pop();
+        mix(4);
+        return;
+      }
+      case "app": mix(5); go(u.fn); mix(6); go(u.arg); mix(7); return;
+    }
+  };
+  go(t);
+  return h >>> 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -313,7 +350,7 @@ const WORD_END = "(?![A-Za-z0-9_'′₀-₉α-κμ-ωΑ-ΚΜ-Ω])";
  *  sans variants of U+03BB, read as the binder they are. */
 const LAMBDA_GLYPHS = new Set(["λ", "\\", "𝛌", "𝜆", "𝝀", "𝝺", "𝞴"]);
 
-interface Tok { t: "lam" | "dot" | "lp" | "rp" | "id" | "num"; s: string; pos: number }
+interface Tok { t: "lam" | "dot" | "lp" | "rp" | "id" | "num" | "lb" | "rb" | "comma"; s: string; pos: number }
 
 export class LambdaSyntaxError extends Error {}
 
@@ -331,6 +368,9 @@ function tokenize(src: string): Tok[] {
     if (c === ".") { toks.push({ t: "dot", s: c, pos: i }); i++; continue; }
     if (c === "(") { toks.push({ t: "lp", s: c, pos: i }); i++; continue; }
     if (c === ")") { toks.push({ t: "rp", s: c, pos: i }); i++; continue; }
+    if (c === "[") { toks.push({ t: "lb", s: c, pos: i }); i++; continue; }
+    if (c === "]") { toks.push({ t: "rb", s: c, pos: i }); i++; continue; }
+    if (c === ",") { toks.push({ t: "comma", s: c, pos: i }); i++; continue; }
     if (isDigit(c)) {
       let j = i;
       while (j < chars.length && isDigit(chars[j])) j++;
@@ -482,6 +522,25 @@ export function parseTerm(src: string, notes: ParseNote[] = [], known: Set<strin
       return inner;
     }
     if (t.t === "lam") return parseLambda(bound);
+    if (t.t === "lb") {
+      // A list literal [a, b, c] is CONS a (CONS b (CONS c NIL)) — Church
+      // (right-fold) lists, expanded from the library like any other name.
+      next();
+      const items: Term[] = [];
+      if (peek()?.t !== "rb") {
+        for (;;) {
+          items.push(parseApplication(bound));
+          const sep = peek();
+          if (sep?.t === "comma") { next(); continue; }
+          if (sep?.t === "rb") break;
+          throw new LambdaSyntaxError(`Expected "," or "]" in the list starting at position ${t.pos + 1}.`);
+        }
+      }
+      next(); // ]
+      let list: Term = v("NIL");
+      for (let i = items.length - 1; i >= 0; i--) list = app(app(v("CONS"), items[i]), list);
+      return list;
+    }
     return null;
   };
 
@@ -494,7 +553,7 @@ export function parseTerm(src: string, notes: ParseNote[] = [], known: Set<strin
     let acc = first;
     for (;;) {
       const t = peek();
-      if (!t || t.t === "rp" || t.t === "dot") break;
+      if (!t || t.t === "rp" || t.t === "dot" || t.t === "rb" || t.t === "comma") break;
       const a = parseAtom(bound);
       if (!a) break;
       acc = app(acc, a);
@@ -616,10 +675,11 @@ export function reduce(start: Term, strategy: Strategy = "normal", maxSteps = MA
   // keeping them for the confirming comparison is cheap).
   const seen = new Map<number, { idx: number; term: Term }[]>();
   const remember = (t: Term, idx: number): number | null => {
-    const key = deBruijn(t);
-    const h = dbHash(key);
+    const h = termHash(t);
     const bucket = seen.get(h);
     if (bucket) {
+      // A hash hit is only a candidate: confirm with the full de Bruijn form.
+      const key = deBruijn(t);
       for (const b of bucket) if (deBruijn(b.term) === key) return b.idx;
       bucket.push({ idx, term: t });
     } else {
@@ -696,6 +756,164 @@ export function decodeBoolean(t: Term): boolean | null {
   return null;
 }
 
+/** A Church (right-fold) list λc.λn.c h₁ (c h₂ (… n)) → its elements, each
+ *  decoded as a numeral or boolean where it is one, else shown as a term.
+ *  Null for anything else; the EMPTY list is λc.λn.n, which is also Church 0
+ *  and FALSE, so it is reported as a list only when asked (see the caller). */
+export function decodeList(t: Term): string[] | null {
+  if (t.kind !== "lam" || t.body.kind !== "lam") return null;
+  const c = t.param;
+  const n = t.body.param;
+  if (c === n) return null;
+  const items: { num: number | null; bool: boolean | null; text: string }[] = [];
+  let cur = t.body.body;
+  for (;;) {
+    if (cur.kind === "var") break;
+    if (cur.kind !== "app" || cur.fn.kind !== "app" || cur.fn.fn.kind !== "var" || cur.fn.fn.name !== c) return null;
+    const head = cur.fn.arg;
+    const fv = freeVars(head);
+    if (fv.has(c) || fv.has(n)) return null;
+    const num = decodeNumeral(head);
+    items.push({ num, bool: decodeBoolean(head), text: show(head) });
+    cur = cur.arg;
+  }
+  if (cur.name !== n) return null;
+  // Church 0 and FALSE are one term. In a list that also holds TRUE and no
+  // positive numeral, read it as FALSE; otherwise as 0.
+  const booleanContext = items.some((i) => i.bool === true) && !items.some((i) => i.num !== null && i.num > 0);
+  return items.map((i) => {
+    if (i.num !== null && !(booleanContext && i.num === 0)) return String(i.num);
+    if (i.bool !== null) return i.bool ? "TRUE" : "FALSE";
+    return i.text;
+  });
+}
+
+// ---------------------------------------------------------------------------
+// η-reduction: λx.M x → M when x is not free in M. Applied bottom-up and
+// repeated, on a β-normal form it gives the βη-normal form (η is confluent
+// and terminating on its own).
+
+export function etaStep(t: Term): { term: Term; detail: string } | null {
+  if (t.kind === "lam") {
+    const b = t.body;
+    if (b.kind === "app" && b.arg.kind === "var" && b.arg.name === t.param && !freeVars(b.fn).has(t.param)) {
+      return { term: b.fn, detail: `${show(t)} → ${show(b.fn)}` };
+    }
+    const r = etaStep(t.body);
+    return r ? { term: lam(t.param, r.term), detail: r.detail } : null;
+  }
+  if (t.kind === "app") {
+    const f = etaStep(t.fn);
+    if (f) return { term: app(f.term, t.arg), detail: f.detail };
+    const a = etaStep(t.arg);
+    if (a) return { term: app(t.fn, a.term), detail: a.detail };
+  }
+  return null;
+}
+
+export function etaNormalize(t: Term, maxSteps = 200): { term: Term; steps: string[] } {
+  const steps: string[] = [];
+  let cur = t;
+  for (let i = 0; i < maxSteps; i++) {
+    const r = etaStep(cur);
+    if (!r) break;
+    steps.push(r.detail);
+    cur = r.term;
+  }
+  return { term: cur, steps };
+}
+
+// ---------------------------------------------------------------------------
+// Combinatory logic: bracket abstraction to S, K, I (with the η rule), and
+// reduction by the combinator rules alone — no λ, no substitution.
+
+const CL_NAMES = new Set(["S", "K", "I", "B", "C", "W"]);
+
+/** [x]M, the standard abstraction algorithm with the η shortcut. */
+function bracket(x: string, m: Term): Term {
+  if (!freeVars(m).has(x)) return app(v("K"), m);
+  if (m.kind === "var") return v("I"); // m is x
+  if (m.kind === "app") {
+    if (m.arg.kind === "var" && m.arg.name === x && !freeVars(m.fn).has(x)) return m.fn; // η
+    return app(app(v("S"), bracket(x, m.fn)), bracket(x, m.arg));
+  }
+  // m is λy.N with x free in N: abstract the inner binder first.
+  return bracket(x, bracket(m.param, m.body));
+}
+
+/** Translates a λ-term to S/K/I combinators (free variables stay). */
+export function toSKI(t: Term): Term {
+  switch (t.kind) {
+    case "var": return t;
+    case "app": return app(toSKI(t.fn), toSKI(t.arg));
+    case "lam": return bracket(t.param, toSKI(t.body));
+  }
+}
+
+/** The spine of an application: head and its arguments. */
+function spine(t: Term): { head: Term; args: Term[] } {
+  const args: Term[] = [];
+  let cur = t;
+  while (cur.kind === "app") { args.unshift(cur.arg); cur = cur.fn; }
+  return { head: cur, args };
+}
+function applyAll(head: Term, args: Term[]): Term {
+  let t = head;
+  for (const a of args) t = app(t, a);
+  return t;
+}
+
+/** One leftmost-outermost combinator step: S x y z → x z (y z), K x y → x,
+ *  I x → x, B x y z → x (y z), C x y z → x z y, W x y → x y y. */
+export function clStep(t: Term): { term: Term; detail: string } | null {
+  if (t.kind === "lam") {
+    const r = clStep(t.body);
+    return r ? { term: lam(t.param, r.term), detail: r.detail } : null;
+  }
+  const { head, args } = spine(t);
+  if (head.kind === "var" && CL_NAMES.has(head.name)) {
+    const need: Record<string, number> = { S: 3, K: 2, I: 1, B: 3, C: 3, W: 2 };
+    const k = need[head.name];
+    if (args.length >= k) {
+      const [x, y, z] = args;
+      let red: Term;
+      switch (head.name) {
+        case "S": red = app(app(x, z), app(y, z)); break;
+        case "K": red = x; break;
+        case "I": red = x; break;
+        case "B": red = app(x, app(y, z)); break;
+        case "C": red = app(app(x, z), y); break;
+        default: red = app(app(x, y), y); break; // W
+      }
+      const redex = applyAll(head, args.slice(0, k));
+      return { term: applyAll(red, args.slice(k)), detail: show(redex) };
+    }
+  }
+  // No head redex: reduce the leftmost argument that has one.
+  if (t.kind === "app") {
+    const f = clStep(t.fn);
+    if (f) return { term: app(f.term, t.arg), detail: f.detail };
+    const a = clStep(t.arg);
+    if (a) return { term: app(t.fn, a.term), detail: a.detail };
+  }
+  return null;
+}
+
+export const MAX_CL_STEPS = 500;
+
+export function clReduce(t: Term): { term: Term; steps: string[]; capped: boolean } {
+  const steps: string[] = [];
+  let cur = t;
+  for (let i = 0; i < MAX_CL_STEPS; i++) {
+    const r = clStep(cur);
+    if (!r) return { term: cur, steps, capped: false };
+    steps.push(`${r.detail}  →  ${showCut(r.term)}`);
+    cur = r.term;
+    if (termSize(cur) > MAX_TERM_SIZE) return { term: cur, steps, capped: true };
+  }
+  return { term: cur, steps, capped: true };
+}
+
 // ---------------------------------------------------------------------------
 // Independent evaluator: closures and thunks, lazy, no substitution.
 //
@@ -720,42 +938,89 @@ class Fuel {
   }
 }
 
-function force(th: Thunk, fuel: Fuel): Value {
-  if (th.value) return th.value;
-  if (th.forcing) throw new FuelExhausted(); // a self-referential thunk is a loop
-  th.forcing = true;
-  const val = evaluate(th.term as Term, th.env as Env, fuel);
-  th.forcing = false;
-  th.value = val;
-  return val;
+// The machine is ITERATIVE — an explicit continuation stack, no recursion —
+// because a Church numeral of 1024 is 1024 nested applications and a
+// recursive evaluator spent four JS frames per level: it overflowed inside a
+// full jest run while passing alone, and the overflow was being swallowed as
+// "could not decide". Depth is now bounded by the heap, not the JS stack.
+type Frame =
+  | { k: "arg"; thunk: Thunk }        // apply the incoming value to this thunk
+  | { k: "force"; th: Thunk }         // store the incoming value into this thunk
+  | { k: "prim"; f: Value & { k: "prim" } }; // apply this primitive to the forced value
+
+function runMachine(start: { term: Term; env: Env } | { value: Value }, stack: Frame[], fuel: Fuel): Value {
+  let evalTerm: Term | null = "term" in start ? start.term : null;
+  let env: Env = "term" in start ? start.env : new Map();
+  let val: Value = "value" in start ? start.value : { k: "stuck", name: "" };
+  for (;;) {
+    if (evalTerm) {
+      fuel.tick();
+      const t = evalTerm;
+      switch (t.kind) {
+        case "var": {
+          const th = env.get(t.name);
+          if (!th) { val = { k: "stuck", name: t.name }; evalTerm = null; break; }
+          if (th.value) { val = th.value; evalTerm = null; break; }
+          if (th.forcing) throw new FuelExhausted(); // a self-referential thunk is a loop
+          th.forcing = true;
+          stack.push({ k: "force", th });
+          evalTerm = th.term as Term;
+          env = th.env as Env;
+          break;
+        }
+        case "lam":
+          val = { k: "clo", param: t.param, body: t.body, env };
+          evalTerm = null;
+          break;
+        case "app":
+          stack.push({ k: "arg", thunk: { term: t.arg, env } });
+          evalTerm = t.fn;
+          break;
+      }
+      continue;
+    }
+    // Return mode: deliver `val` to the top frame.
+    const frame = stack.pop();
+    if (!frame) return val;
+    if (frame.k === "force") {
+      frame.th.forcing = false;
+      frame.th.value = val;
+      continue;
+    }
+    if (frame.k === "prim") {
+      val = frame.f.f(val);
+      continue;
+    }
+    // "arg": apply val to the thunk.
+    fuel.tick();
+    if (val.k === "clo") {
+      const env2 = new Map(val.env);
+      env2.set(val.param, frame.thunk);
+      evalTerm = val.body;
+      env = env2;
+      continue;
+    }
+    if (val.k === "prim") {
+      const th = frame.thunk;
+      stack.push({ k: "prim", f: val });
+      if (th.value) { val = th.value; continue; }
+      if (th.forcing) throw new FuelExhausted();
+      th.forcing = true;
+      stack.push({ k: "force", th });
+      evalTerm = th.term as Term;
+      env = th.env as Env;
+      continue;
+    }
+    throw new FuelExhausted(); // applying a number or a free variable: no value
+  }
 }
 
 function evaluate(t: Term, env: Env, fuel: Fuel): Value {
-  fuel.tick();
-  switch (t.kind) {
-    case "var": {
-      const th = env.get(t.name);
-      return th ? force(th, fuel) : { k: "stuck", name: t.name };
-    }
-    case "lam":
-      return { k: "clo", param: t.param, body: t.body, env };
-    case "app": {
-      const f = evaluate(t.fn, env, fuel);
-      const argThunk: Thunk = { term: t.arg, env };
-      return applyValue(f, argThunk, fuel);
-    }
-  }
+  return runMachine({ term: t, env }, [], fuel);
 }
 
 function applyValue(f: Value, arg: Thunk, fuel: Fuel): Value {
-  fuel.tick();
-  if (f.k === "clo") {
-    const env2 = new Map(f.env);
-    env2.set(f.param, arg);
-    return evaluate(f.body, env2, fuel);
-  }
-  if (f.k === "prim") return f.f(force(arg, fuel));
-  throw new FuelExhausted(); // applying a number or a free variable: no value
+  return runMachine({ value: f }, [{ k: "arg", thunk: arg }], fuel);
 }
 
 /** Runs the term as a Church numeral through the closure evaluator.
@@ -941,6 +1206,15 @@ const LIB_SOURCE: [string, string][] = [
   ["PAIR", "λx.λy.λf.f x y"],
   ["FST", "λp.p TRUE"],
   ["SND", "λp.p FALSE"],
+  // Church (right-fold) lists: a list is its own fold, l c n = c h₁ (c h₂ (… n)).
+  ["NIL", "λc.λn.n"],
+  ["CONS", "λh.λt.λc.λn.c h (t c n)"],
+  ["ISNIL", "λl.l (λh.λt.FALSE) TRUE"],
+  ["HEAD", "λl.l (λh.λt.h) FALSE"],
+  ["TAIL", "λl.FST (l (λh.λp.PAIR (SND p) (CONS h (SND p))) (PAIR NIL NIL))"],
+  ["LENGTH", "λl.l (λh.λn.SUCC n) 0"],
+  ["SUM", "λl.l PLUS 0"],
+  ["MAP", "λf.λl.λc.λn.l (λh.λt.c (f h) t) n"],
 ];
 
 export const LIBRARY_NAMES: string[] = LIB_SOURCE.map(([n]) => n);
@@ -999,7 +1273,7 @@ export interface LambdaResult {
 
 export interface LambdaRequest {
   term: Term;
-  verb: "reduce" | "type" | "free" | "alpha";
+  verb: "reduce" | "type" | "free" | "alpha" | "eta" | "ski" | "cl";
   strategy: Strategy;
   other?: Term;
   notes: string[];
@@ -1009,7 +1283,7 @@ export interface LambdaRequest {
 
 const STEP_LINES_SHOWN = 40;
 
-const DEF_RE = /^(?:let\s+)?([A-Za-z_α-κμ-ωΑ-ΚΜ-Ω][A-Za-z0-9_'′₀-₉α-κμ-ωΑ-ΚΜ-Ω]*)\s*(?::=|=)\s*(.+)$/u;
+const DEF_RE = /^(?:let\s+(rec\s+)?)?([A-Za-z_α-κμ-ωΑ-ΚΜ-Ω][A-Za-z0-9_'′₀-₉α-κμ-ωΑ-ΚΜ-Ω]*)\s*(?::=|=)\s*(.+)$/u;
 
 /** Re-throws a syntax error with where it happened, since positions inside
  *  the message count from the start of the TERM being parsed. */
@@ -1054,13 +1328,20 @@ export function parseLambdaRequest(input: string): LambdaRequest | null {
     const { text, no } = lines[i];
     const m = DEF_RE.exec(text);
     if (!m) throw new LambdaSyntaxError(`Line ${no} is not a definition (write NAME = term); only the last line may be the term.`);
+    const isRec = !!m[1];
+    const name = m[2];
     const pn: ParseNote[] = [];
-    const ex = located(`Line ${no}, in the term after "="`, () => expandDefs(parseChecked(m[2], pn), defs));
+    // `let rec F = body` is F = Y (λF.body): the name is bound inside its
+    // own body, and the fixed-point combinator ties the knot.
+    const parsed = located(`Line ${no}, in the term after "="`, () => parseChecked(m[3], pn));
+    const toExpand = isRec ? app(v("Y"), lam(name, parsed)) : parsed;
+    const ex = located(`Line ${no}`, () => expandDefs(toExpand, defs));
     for (const n of pn) notes.push(n.text);
-    for (const r of ex.renames) notes.push(`In ${m[1]}: ${r.from} renamed to ${r.to} so a definition's free variable is not captured.`);
+    for (const r of ex.renames) notes.push(`In ${name}: ${r.from} renamed to ${r.to} so a definition's free variable is not captured.`);
+    if (isRec) notes.push(`${name} is recursive: defined as Y (λ${name}.…), so every use unfolds through the fixed-point combinator.`);
     const fv = freeVars(ex.term);
-    if (fv.size) notes.push(`${m[1]} has free variable${fv.size > 1 ? "s" : ""} ${[...fv].join(", ")} — allowed; it is an open term, and that variable stays free wherever ${m[1]} is used.`);
-    defs.set(m[1], { term: ex.term, fv });
+    if (fv.size) notes.push(`${name} has free variable${fv.size > 1 ? "s" : ""} ${[...fv].join(", ")} — allowed; it is an open term, and that variable stays free wherever ${name} is used.`);
+    defs.set(name, { term: ex.term, fv });
   }
 
   let verb: LambdaRequest["verb"] = "reduce";
@@ -1085,10 +1366,13 @@ export function parseLambdaRequest(input: string): LambdaRequest | null {
   if (lead(new RegExp(`^(?:type(?:\\s+of)?|typecheck|infer(?:\\s+the\\s+type\\s+of)?)${WORD_END}\\s*:?\\s*`, "u"))) verb = "type";
   else if (lead(new RegExp(`^(?:free(?:\\s+vars?|\\s+variables?)?(?:\\s+of)?|fv)${WORD_END}\\s*:?\\s*`, "u"))) verb = "free";
   else if (lead(new RegExp(`^(?:alpha(?:[\\s-]equivalent)?|α(?:[\\s-]equivalent)?|equivalent|same)${WORD_END}\\s*:?\\s*`, "u"))) verb = "alpha";
+  else if (lead(new RegExp(`^(?:eta(?:[\\s-]reduce)?|η(?:[\\s-]reduce)?|beta[\\s-]eta|βη)${WORD_END}\\s*:?\\s*`, "u"))) verb = "eta";
+  else if (lead(new RegExp(`^(?:ski|to\\s+ski|combinators?|bracket(?:\\s+abstraction)?)${WORD_END}\\s*:?\\s*`, "u"))) verb = "ski";
+  else if (lead(new RegExp(`^(?:cl|combinatory|combinator\\s+reduction)${WORD_END}\\s*:?\\s*`, "u"))) verb = "cl";
   for (let i = 0; i < 3 && stripOne(); i++) { /* "type of the normal form of X" */ }
 
   if (!last) throw new LambdaSyntaxError("There is no term after the keyword.");
-  if (verb !== "alpha" && DEF_RE.test(last)) {
+  if (verb !== "alpha" && verb !== "cl" && DEF_RE.test(last)) {
     throw new LambdaSyntaxError("That line is a definition. Put the term to reduce on the line after it (for example a second line reading TWICE SUCC 0).");
   }
   const where = lines.length > 1 ? `Line ${lastNo}` : "In the term";
@@ -1106,6 +1390,14 @@ export function parseLambdaRequest(input: string): LambdaRequest | null {
     const t1 = expand(parts[0]);
     const t2 = expand(parts[1]);
     return { term: t1, other: t2, verb, strategy, notes, shown: `${show(t1)}  vs  ${show(t2)}` };
+  }
+  if (verb === "cl") {
+    // Combinator names are CONSTANTS for this verb: they must not be
+    // expanded to λ-terms, or the reduction would be β, not combinatory.
+    const pn: ParseNote[] = [];
+    const term = located(where, () => parseChecked(last, pn));
+    for (const n of pn) notes.push(n.text);
+    return { term, verb, strategy, notes, shown: show(term) };
   }
   const term = expand(last);
   return { term, verb, strategy, notes, shown: show(term) };
@@ -1153,6 +1445,55 @@ function solveLambdaInner(input: string): LambdaResult | null {
     };
   }
 
+  if (req.verb === "eta") {
+    const beta = reduce(t, "normal");
+    if (beta.status !== "normal") throw new LambdaSyntaxError(`η needs a β-normal form first, and this term has none within the caps (${beta.status === "diverges" ? "it diverges" : (beta as { reason: string }).reason}).`);
+    const eta = etaNormalize(beta.term);
+    const display = [`β-normal form: ${show(beta.term)}`, eta.steps.length ? `βη-normal form: ${show(eta.term)}` : "Already η-normal: no λx.M x with x not free in M."];
+    const num = decodeNumeral(eta.term);
+    const bool = num === null ? decodeBoolean(eta.term) : null;
+    if (num !== null) display.push(`= Church numeral ${num} (after η)`);
+    else if (bool !== null) display.push(`= ${bool ? "TRUE" : "FALSE"} (after η)`);
+    return {
+      title: "βη-reduction",
+      display,
+      steps: [`${beta.steps.filter((s) => s.rule === "β").length} β-steps (not listed — use the plain term for them), then η:`, ...eta.steps.map((s, i) => `${i + 1}. η  ${s}`)],
+      caveats: [...caveats, "η-reduction identifies functions that behave the same on every argument (extensionality); the βη-normal form is unique."],
+    };
+  }
+
+  if (req.verb === "ski") {
+    const ski = toSKI(t);
+    const skiText = show(ski);
+    // Verify extensionally: apply both to as many fresh variables as the
+    // original has leading binders, reduce, and compare up to α.
+    let arity = 0;
+    for (let u = t; u.kind === "lam"; u = u.body) arity++;
+    const fresh = Array.from({ length: arity }, (_, i) => v(`z${toSubscript(i + 1)}`));
+    const lhs = reduce(expandDefs(applyAll(ski, fresh), libraryBindings()).term, "normal");
+    const rhs = reduce(applyAll(t, fresh), "normal");
+    const steps: string[] = [`[x]x = I · [x]M = K M when x ∉ FV(M) · [x](M N) = S ([x]M) ([x]N) · [x](M x) = M when x ∉ FV(M) (η rule).`];
+    const cav = [...caveats];
+    if (lhs.status === "normal" && rhs.status === "normal") {
+      if (alphaEquivalent(lhs.term, rhs.term)) steps.push(`Verified: applied to ${arity} fresh variable${arity === 1 ? "" : "s"}, the combinator term and the original reduce to the same normal form${arity ? ` (${show(rhs.term)})` : ""}.`);
+      else cav.push("CROSS-CHECK FAILED: the combinator term and the original do not agree — a defect in this tool.");
+    } else {
+      cav.push("The translation could not be verified by reduction (no normal form within the caps); it follows the standard algorithm but is unchecked here.");
+    }
+    return { title: "SKI combinators", display: [`Term: ${show(t)}`, `SKI: ${skiText}`, `Size: ${termSize(ski)} nodes.`], steps, caveats: cav };
+  }
+
+  if (req.verb === "cl") {
+    const r = clReduce(req.term);
+    const display = [`Start: ${showCut(req.term)}`, r.capped ? `No combinator normal form within ${MAX_CL_STEPS} steps or the size cap.` : `Normal form: ${show(r.term)}`, `${r.steps.length} combinator step${r.steps.length === 1 ? "" : "s"}.`];
+    return {
+      title: "Combinatory reduction",
+      display,
+      steps: r.steps.slice(0, STEP_LINES_SHOWN).map((s, i) => `${i + 1}. ${s}`).concat(r.steps.length > STEP_LINES_SHOWN ? [`… ${r.steps.length - STEP_LINES_SHOWN} more steps not listed.`] : []),
+      caveats: [...caveats, "Rules: S x y z → x z (y z) · K x y → x · I x → x · B x y z → x (y z) · C x y z → x z y · W x y → x y y. Combinator names are treated as constants here, not expanded to λ-terms."],
+    };
+  }
+
   if (req.verb === "type") {
     const tl = typeLine(t, "Type");
     const fv = [...freeVars(t)];
@@ -1190,6 +1531,9 @@ function solveLambdaInner(input: string): LambdaResult | null {
     const nf = show(out.term);
     result.normalForm = nf;
     display.push(`Normal form: ${nf}`);
+    // The reducer stopped because its stepper found no redex; an independent
+    // scan must agree, or "normal form" is a misnomer.
+    if (!isNormalForm(out.term)) caveats.push("CROSS-CHECK FAILED: the reported normal form still contains a redex — a defect in this tool.");
     display.push(`${plural(betaCount, "β-step")}${alphaCount ? `, ${plural(alphaCount, "α-rename")}` : ""}.`);
     const num = decodeNumeral(out.term);
     const bool = decodeBoolean(out.term);
@@ -1228,7 +1572,21 @@ function solveLambdaInner(input: string): LambdaResult | null {
         result.verified = false;
         caveats.push(`CHECK FAILED: the independent evaluator gives ${check ? "TRUE" : "FALSE"}, the reducer ${bool ? "TRUE" : "FALSE"}. This is a defect in this tool — do not use the result.`);
       }
-    } else if (out.term.kind === "lam" && out.term.body.kind === "var" && out.term.body.name === out.term.param) {
+    } else {
+      const list = decodeList(out.term);
+      if (list) display.push(`= list [${list.join(", ")}]`);
+    }
+    // The η view: a β-normal form may still η-reduce (λx.f x → f), and the
+    // βη-normal form may be what the reader meant — POW 2 0 is λx.x, which
+    // is η-equal to Church 1 but not the same term.
+    const eta = etaNormalize(out.term, 50);
+    if (eta.steps.length) {
+      display.push(`η-reduces further to: ${show(eta.term)}${eta.steps.length > 1 ? ` (${eta.steps.length} η-steps)` : ""}`);
+      const en = decodeNumeral(eta.term);
+      const eb = en === null ? decodeBoolean(eta.term) : null;
+      if (en !== null) display.push(`= Church numeral ${en} up to η (write “eta …” for the βη-normal form).`);
+      else if (eb !== null) display.push(`= ${eb ? "TRUE" : "FALSE"} up to η.`);
+    } else if (out.term.kind === "lam" && out.term.body.kind === "var" && out.term.body.name === out.term.param && num === null) {
       caveats.push("λx.x is η-equivalent to Church numeral 1 (λf.λx.f x) but is not the same term, so nothing is decoded. POW 2 0 lands here.");
     }
     const fv = [...freeVars(out.term)];

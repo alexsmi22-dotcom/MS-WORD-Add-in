@@ -139,3 +139,17 @@ describe("every λ-calculus template is accepted by the λ engine", () => {
     expect(parseTerm(`${lam.snippet}x.x`).kind).toBe("lam");
   });
 });
+
+describe("every Discrete-math template is answered by its engine", () => {
+  const { SOLVE_DISCRETE } = require("../palettes") as typeof import("../palettes");
+  const { solveDiscrete } = require("../discrete") as typeof import("../discrete");
+  const all = SOLVE_DISCRETE.flatMap((g) => g.items.map((i) => ({ group: g.name, ...i })));
+  test.each(all.map((i) => [`${i.group}: ${i.label}`, i.snippet] as const))("%s", (_label, snippet) => {
+    const r = solveDiscrete(snippet);
+    expect(r).not.toBeNull();
+    // A template must never land on the "not recognised" fallback or a failed cross-check.
+    expect(r!.title).not.toBe("Not recognised");
+    expect(r!.caveats.join(" ")).not.toMatch(/FAILED/);
+    expect(r!.display.length).toBeGreaterThan(0);
+  });
+});

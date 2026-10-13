@@ -69,6 +69,8 @@ import { buildLinearMapSvg } from "../src/lib/seqmap";
 import { buildCircularMapSvg } from "../src/lib/seqmapcirc";
 import { parseGenBank } from "../src/lib/seqio";
 import { persistentHomology, barcodeSvg } from "../src/lib/persistence";
+import { tryGraph } from "../src/lib/graphs";
+import { tryAutomata } from "../src/lib/automata";
 import { solveComposite } from "../src/lib/compositeGeometry";
 import { compositeShapeSvg, geometryFigureSvg, drawnShapesSvg } from "../src/lib/geometryChart";
 import { solveGeometry } from "../src/lib/geometryParse";
@@ -1575,6 +1577,29 @@ ORIGIN
     pts.push([Math.cos(a) + 0.03 * Math.sin(7 * a), Math.sin(a) + 0.03 * Math.cos(5 * a)]);
   }
   figures.push(["persistence barcode", barcodeSvg(persistentHomology(pts, { maxDim: 1 }))]);
+}
+
+// --- Discrete math: graphs and state diagrams ----------------------------------
+//
+// The stress cases: a weighted graph with a highlighted path (labels, weights
+// and the halo all compete at the midpoints), the 24-vertex layout switch
+// where names give way to dots and radial labels, and a DFA with self-loops
+// and an opposite-direction pair, which is where arrows overlap if curved badly.
+{
+  const dijkstra = tryGraph([
+    "shortest path A to F", "A-B 7", "A-C 9", "A-F 14", "B-C 10", "B-D 15", "C-D 11", "C-F 2", "D-E 6", "E-F 9",
+  ].join("\n"));
+  if (dijkstra && dijkstra.svg) figures.push(["graph shortest path", dijkstra.svg]);
+  const ring: string[] = [];
+  for (let i = 0; i < 24; i++) ring.push(`v${i}-v${(i + 1) % 24}`);
+  for (let i = 0; i < 24; i += 3) ring.push(`v${i}-v${(i + 12) % 24}`);
+  const big = tryGraph(ring.join("\n"));
+  if (big && big.svg) figures.push(["graph 24 vertices", big.svg]);
+  const dfa = tryAutomata([
+    "dfa", "states: q0 q1 q2", "alphabet: 0 1", "start: q0", "accept: q2",
+    "q0 0 q0", "q0 1 q1", "q1 0 q0", "q1 1 q2", "q2 0 q2", "q2 1 q2", "test: 011 0101 11",
+  ].join("\n"));
+  if (dfa && dfa.svg) figures.push(["dfa state diagram", dfa.svg]);
 }
 
 // --- The statistics charts ----------------------------------------------------

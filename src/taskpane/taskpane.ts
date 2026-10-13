@@ -99,6 +99,7 @@ import { solveInequality } from "../lib/inequalities";
 import { solveGeometry } from "../lib/geometryParse";
 import { solveTopology, BUILTIN_NAMES } from "../lib/homology";
 import { solveLambda, LambdaSyntaxError } from "../lib/lambda";
+import { solveDiscrete, DiscreteError } from "../lib/discrete";
 import { persistentHomology, barcodeSvg } from "../lib/persistence";
 import { solveWordProblem, WorkStep } from "../lib/wordproblem";
 import { predictIr, IrResult } from "../lib/ir";
@@ -318,6 +319,7 @@ import {
   SOLVE_ODES,
   SOLVE_LAMBDA,
   SOLVE_LAMBDA_SYMBOLS,
+  SOLVE_DISCRETE,
   PaletteGroup,
   PaletteItem,
 } from "../lib/palettes";
@@ -26603,7 +26605,7 @@ async function insertJcampChart(): Promise<void> {
 // never answered with a guess.
 // ---------------------------------------------------------------------------
 
-type SolveKind = "equation" | "derivative" | "integral" | "ode" | "geometry" | "topology" | "lambda" | "word";
+type SolveKind = "equation" | "derivative" | "integral" | "ode" | "geometry" | "topology" | "lambda" | "discrete" | "word";
 
 /** Plain-text form of the current result, for insertion into Word. */
 let currentSolveText = "";
@@ -26722,7 +26724,7 @@ function renderSolvePalette(kind: SolveKind): void {
   const snippetGroups: PaletteGroup[] =
     kind === "equation" || kind === "derivative" || kind === "integral" ? SOLVE_SYMBOLS : kind === "lambda" ? SOLVE_LAMBDA_SYMBOLS : [];
   const templateGroups: PaletteGroup[] =
-    kind === "equation" ? SOLVE_EQUATIONS : kind === "geometry" ? SOLVE_SHAPES : kind === "derivative" ? SOLVE_CALCULUS : kind === "ode" ? SOLVE_ODES : kind === "lambda" ? SOLVE_LAMBDA : [];
+    kind === "equation" ? SOLVE_EQUATIONS : kind === "geometry" ? SOLVE_SHAPES : kind === "derivative" ? SOLVE_CALCULUS : kind === "ode" ? SOLVE_ODES : kind === "lambda" ? SOLVE_LAMBDA : kind === "discrete" ? SOLVE_DISCRETE : [];
   solvePaletteEl.replaceChildren();
   solvePaletteEl.style.display = snippetGroups.length || templateGroups.length ? "block" : "none";
 
@@ -26775,6 +26777,7 @@ function updateSolveUi(): void {
     geometry: "Geometry — a shape, points, or an equation in x and y",
     topology: "Topology — a named space, or a list of maximal simplices",
     lambda: "λ-term — definitions on the lines above it (let NAME = …)",
+    discrete: "Discrete math — gcd 84 36 · 10 choose 3 · a(n) = … · (p -> q) & ~q · regex (a|b)*abb · an edge list",
     word: "Word problem (e.g. 12 is what percent of 48?)",
   };
   const placeholders: Record<SolveKind, string> = {
@@ -26785,6 +26788,7 @@ function updateSolveUi(): void {
     geometry: "triangle 3 4 5",
     topology: "torus",
     lambda: "(λx.λy.x) y",
+    discrete: "7^100 mod 13",
     word: "twice a number plus 7 is 15",
   };
   const hints: Record<SolveKind, string> = {
@@ -26887,8 +26891,34 @@ function updateSolveUi(): void {
       "PRED SUB ISZERO LEQ EQ · PAIR FST SND. DEFINITIONS go on the lines above the term: " +
       "let TWICE = λf.λx.f (f x) ⏎ TWICE SUCC 0. QUESTIONS: type λf.λx.f (f x) → the principal " +
       "simple type (α → α) → α → α, or “not simply typable” for λx.x x · free λx.x y → the free " +
-      "variables · alpha λx.x = λy.y → α-equivalence by de Bruijn indices. " +
+      "variables · alpha λx.x = λy.y → α-equivalence by de Bruijn indices · eta λx.f x → the βη-normal form " +
+      "(a β-normal form that still η-reduces is pointed out in every result) · ski λf.λx.f (f x) → S (S (K S) K) I " +
+      "by bracket abstraction, verified by reducing both sides · cl S K K x → reduction by the combinator rules alone. " +
+      "LISTS: [1, 2, 3] is a Church list; HEAD TAIL ISNIL LENGTH SUM MAP are built in and a list result is decoded. " +
+      "RECURSION: let rec FACT = λn.IF (ISZERO n) 1 (MULT n (FACT (PRED n))) ⏎ FACT 3 — ties the knot with Y " +
+      "(small arguments only: every unfolding copies the whole body, so FACT 5 exceeds the work budget and says so). " +
       "Textbook shorthand is read and NOTED: λxy.x binds two variables, and xx inside λx. is x x.",
+    discrete:
+      "Six engines, routed by what you type — no sub-menu. NUMBER THEORY: gcd 84 36 (Euclid + Bézout) · " +
+      "lcm 4 6 · 7^100 mod 13 (square-and-multiply; Fermat shortcut) · inverse 3 mod 7 · 3x ≡ 2 mod 7 · " +
+      "x ≡ 2 mod 3, x ≡ 3 mod 5 (CRT, moduli need not be coprime) · factor 360 (τ σ φ) · is 561 prime " +
+      "(Miller–Rabin, a PROOF below 3.3×10²⁴, “probable prime” above) · primes to 100 · phi 36 · divisors 28 · " +
+      "order of 2 mod 7 · primitive roots mod 7 · jacobi 2 15 · sqrt 2 mod 7 · 255 in binary. " +
+      "COMBINATORICS (exact, cross-checked): 10 choose 3 · P(10,3) · 20! · multinomial 10: 3 2 5 · " +
+      "arrangements of MISSISSIPPI · derangements 5 · catalan 5 · bell 5 · S(5,2) · partitions 10 · " +
+      "prose: “how many ways to choose 3 of 10”, “arrange 5 books”, “committee of 4 from 12”, " +
+      "“distribute 10 identical balls into 3 boxes” — a sentence with a condition the formula ignores is refused, never answered. " +
+      "RECURRENCES: a(n) = a(n-1) + a(n-2), a(0)=0, a(1)=1 → Binet, EXACT in ℚ(√5) and verified against " +
+      "iteration · a(n) = 2a(n-1) + 3, a(0)=1 · T(n) = T(n-1) + n, T(0)=0 (resonance) · MASTER THEOREM: " +
+      "T(n) = 2T(n/2) + n. LOGIC: (p -> q) & ~q -> ~p → truth table, tautology/contingent/contradiction, " +
+      "DNF, CNF and the Quine–McCluskey minimal form · ~(p & q) == ~p | ~q → equivalence · " +
+      "p -> q, p |= q → entailment with the counterexample row when invalid · simplify a & b | a & ~b. " +
+      "AUTOMATA (drawn): a dfa / nfa block (states:, alphabet:, start:, accept:, one transition per line " +
+      "“q0 0 q1”, then test: 0110 1 \"\") · regex (a|b)*abb · to dfa + an nfa · minimize + a dfa (cross-checked " +
+      "on every string to length 6) · equivalent + two machines or regexes (shortest distinguishing string). " +
+      "GRAPHS (drawn): one edge per line — A-B, A->B, A-B 5 — with an optional question first: shortest path " +
+      "A to F · mst · eulerian · hamiltonian (≤ 12 vertices) · bipartite · components · topological order · " +
+      "degree · diameter. Everything exact; every cap named; every answer that can be checked two ways is.",
     word: "Plain English — e.g. “12 is what percent of 48?” or “twice a number plus 7 is 15”.",
   };
   solveInputLabel.textContent = labels[kind];
@@ -26900,7 +26930,8 @@ function updateSolveUi(): void {
   // An equation box now accepts a SYSTEM, one equation per line, so it needs
   // more than one row to be usable.
   // A λ-term may carry definition lines above it.
-  solveInput.rows = kind === "word" ? 5 : kind === "equation" || kind === "lambda" ? 3 : kind === "geometry" || kind === "topology" ? 2 : 1;
+  // Discrete math takes edge lists and automata blocks: many lines.
+  solveInput.rows = kind === "word" || kind === "discrete" ? 5 : kind === "equation" || kind === "lambda" ? 3 : kind === "geometry" || kind === "topology" ? 2 : 1;
   solveHint.textContent = hints[kind];
   solveBounds.style.display = kind === "integral" ? "block" : "none";
   renderSolvePalette(kind);
@@ -27154,7 +27185,8 @@ function updateSolve(): void {
   // NOT for λ-terms: the fold reads the Greek letter λ as the VARIABLE
   // lambda (which it is, in an equation), and λx.x would arrive as lambdax.x.
   // The λ-calculus parser owns its own notation.
-  const folded = kind === "lambda" ? { text: solveInput.value.trim(), notes: [] as string[] } : foldPastedMath(solveInput.value.trim(), {
+  // Nor for discrete math: ≡, |, ->, and edge lists are its own grammar.
+  const folded = kind === "lambda" || kind === "discrete" ? { text: solveInput.value.trim(), notes: [] as string[] } : foldPastedMath(solveInput.value.trim(), {
     geometry: kind === "geometry",
     ode: kind === "ode",
     // Stacked-fraction pastes only make sense where a fraction does; a
@@ -28003,6 +28035,43 @@ function updateSolve(): void {
         say(s);
       }
       return finish(lr.caveats);
+    }
+
+    if (kind === "discrete") {
+      let dr;
+      try {
+        dr = solveDiscrete(text);
+      } catch (err) {
+        // A recognised request that cannot be answered: the reason IS the answer.
+        if (err instanceof DiscreteError) {
+          return void solveResult.appendChild(solveLine(err.message, "ms-masses"));
+        }
+        throw err;
+      }
+      if (!dr) {
+        return void solveResult.appendChild(solveLine("Type something — gcd 84 36, 10 choose 3, a recurrence, a formula, a regex, or an edge list."));
+      }
+      solveResult.appendChild(msEyebrow(dr.title));
+      say(dr.title, "heading");
+      for (const line of dr.display) {
+        solveResult.appendChild(solveLine(line, "ms-masses"));
+        say(line);
+      }
+      // Graphs and automata draw themselves; the figure goes to the pane and
+      // the document, like the persistence barcode.
+      if (dr.svg) {
+        currentSolveSvg = dr.svg;
+        currentSolveAlt = dr.alt ?? dr.title;
+        const fig = document.createElement("div");
+        fig.className = "solve-figure";
+        fig.innerHTML = currentSolveSvg;
+        solveResult.appendChild(fig);
+      }
+      for (const s of dr.steps) {
+        solveResult.appendChild(solveLine(s));
+        say(s);
+      }
+      return finish(dr.caveats);
     }
 
     // word problem

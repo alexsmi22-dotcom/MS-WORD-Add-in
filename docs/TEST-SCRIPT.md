@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.123.0)
+# JurisLab — Manual Test Script (v2.124.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -340,7 +340,7 @@ geometry now draws, and what the pane previews must be what Word receives.
 - [ ] Click **√** with the cursor mid-expression → `sqrt()` lands at the cursor, caret inside the parens.
 - [ ] Switch to Geometry kind → the palette swaps to Composite figures / Single shapes templates;
   Topology and Word problem kinds show no palette; λ-calculus shows its own
-  (Symbols / Reduction / Church encodings / Questions).
+  (Symbols / Reduction / Church encodings / Questions), and Discrete math shows six template groups.
 
 ## 0ay. NEW — EVERY calculator draws, everywhere (84 of 84 outside Engineering)
 
@@ -3010,6 +3010,31 @@ Engineering mode, Energy & power (now 17; the mode must state **101 calculators*
   - `(0,0,0) (1,1,1) (2,2,2)` -> refused as **COLLINEAR**: no plane.
   - `circle r=1/3` -> area **1/9*pi** exactly, and `box 1/2 1/3 1/4` -> volume **1/24**.
     (Typed fractions must stay exact — no long decimals or giant fractions anywhere.)
+- [ ] **Discrete math (v2.124.0).** Switch the dropdown to **Discrete math**. One box, six engines.
+  - `gcd 84 36` -> **12**, the Euclid lines (84 = 2 × 36 + 12 …) and `Bézout: 84 × (1) + 36 × (−2) = 12`.
+  - `7^100 mod 13` -> **7¹⁰⁰ ≡ 9 (mod 13)** plus the Fermat line; `inverse 6 mod 9` -> refused, naming gcd 3.
+  - `x ≡ 2 mod 3, x ≡ 3 mod 5, x ≡ 2 mod 7` -> **x ≡ 23 (mod 105)** and "Verified".
+  - `factor 360` -> 2³ × 3² × 5, τ = 24, σ = 1,170, φ = 96. `is 561 prime` -> composite, 561 = 3 × 187.
+  - `10 choose 3` -> 120 with the formula substituted; `arrangements of MISSISSIPPI` -> 34,650;
+    `how many ways to choose 3 of 10 people` -> 120 and the sentence naming it a combination;
+    `arrange 5 books so that no two are adjacent` -> REFUSED, quoting the condition word.
+  - `a(n) = a(n-1) + a(n-2), a(0)=0, a(1)=1` -> Binet in ℚ(√5), first terms 0, 1, 1, 2, 3, 5, 8 …, and
+    "Verified: the closed form reproduces a(0) … a(15) from direct iteration exactly".
+  - `T(n) = 2T(n/2) + n` -> **Case 2 … Θ(n log n)**.
+  - `(p -> q) & ~q -> ~p` -> TAUTOLOGY with the 4-row table; `p -> q, q |= p` -> INVALID,
+    "Counterexample: p = F, q = T". `simplify a & b | a & ~b` -> a.
+  - `regex (a|b)*abb` + a `test: abb aabb ab` line -> the DFA is DRAWN (double circle on the accept
+    state), abb and aabb ACCEPT, ab REJECT. Insert: the diagram lands in the document.
+  - `shortest path A to F` over the Dijkstra edge list from the palette -> length **11** (A-C-F),
+    the graph DRAWN with the path highlighted. `mst` over the CLRS list -> total **37**.
+  - `hamiltonian` over a 13-vertex list -> refused by name (NP-hard, cap 12). Nothing may hang.
+- [ ] **λ-calculus extras (v2.124.0).** Still the **λ-calculus (reduction)** kind.
+  - `eta λx.λy.g x y` -> βη-normal form **g**, two η-steps listed.
+  - `ski λf.λx.f (f x)` -> **S (S (K S) K) I** and the "Verified: applied to 2 fresh variables" line.
+  - `cl S K K x` -> x in 2 combinator steps, with the rule table in the caveats.
+  - `SUM [1, 2, 3]` -> Church numeral 6; `MAP SUCC [1, 2]` -> = list [2, 3].
+  - `let rec FACT = λn.IF (ISZERO n) 1 (MULT n (FACT (PRED n)))` then `FACT 3` -> 6, verified.
+
 - [ ] **λ-calculus (v2.123.0).** Switch the dropdown to **λ-calculus (reduction)**.
   - `(λx.λy.x) y` -> an **α** line (y renamed to y₁ to avoid capture) then one β-step; normal
     form **λy₁.y** — it must NOT say λy.y. Insert: the λ and the subscript arrive intact.

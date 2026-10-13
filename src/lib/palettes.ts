@@ -661,7 +661,7 @@ export const SOLVE_DISCRETE: PaletteGroup[] = [
       { label: "Eulerian", snippet: "eulerian\nA-B\nA-B\nA-C\nA-D\nB-C\nB-D\nC-D", title: "Königsberg: none" },
       { label: "bipartite", snippet: "bipartite\nA-B\nB-C\nC-D\nD-E\nE-F\nF-A", title: "A 6-cycle: yes" },
       { label: "toposort", snippet: "topological order\nshirt->tie\ntie->jacket\ntrousers->shoes\ntrousers->belt\nbelt->jacket\nshirt->belt", title: "Kahn on a DAG" },
-      { label: "Hamiltonian", snippet: "hamiltonian\nA-B\nB-C\nC-D\nD-E\nE-A\nA-C", title: "Exhaustive up to 12 vertices" },
+      { label: "Hamiltonian", snippet: "hamiltonian\nA-B\nB-C\nC-D\nD-E\nE-A\nA-C", title: "Exhaustive to 16 vertices; certificates above" },
     ],
   },
 ];

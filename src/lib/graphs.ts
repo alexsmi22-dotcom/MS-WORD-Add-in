@@ -9,8 +9,8 @@
 // House rules honoured here:
 //   · every cap is named — MAX_VERTICES, MAX_EDGES, MAX_HAMILTONIAN_VERTICES —
 //     and the pane calls tryGraph on every keystroke, so every routine below is
-//     polynomial in ≤ 60 vertices / ≤ 500 edges (the Hamiltonian search is a
-//     subset DP over ≤ 12 vertices: 2¹² × 12 states, exhaustive and bounded);
+//     polynomial in ≤ 60 vertices / ≤ 500 edges (the exact Hamiltonian search is a
+//     subset DP over ≤ 16 vertices, 2¹⁶ × 16 states; above that, certificates and a bounded search);
 //   · refusals name what was refused and why (the offending line number, the
 //     negative cycle, the directed graph handed to Kruskal, the NP-hard size);
 //   · results that can be checked two ways are: the engine re-sums every path
@@ -26,8 +26,14 @@ import type { DiscreteResult } from "./discrete";
 /** Caps, by name. Above these the request is refused, never attempted. */
 export const MAX_VERTICES = 60;
 export const MAX_EDGES = 500;
-/** Hamiltonian cycle/path is NP-hard; the exhaustive subset DP is run only up to this many vertices. */
-export const MAX_HAMILTONIAN_VERTICES = 12;
+/** Hamiltonian cycle/path is NP-hard; the exhaustive subset DP is run only up
+ *  to this many vertices (2¹⁶ × 16 × 16 ≈ 17 M steps, ~50 ms). Above it the
+ *  engine still answers with a CERTIFICATE where one exists — a cycle found
+ *  (a proof of yes), or a structural obstruction (a proof of no) — and
+ *  otherwise says plainly that "not found" is not a proof. */
+export const MAX_HAMILTONIAN_VERTICES = 16;
+/** Vertex expansions the bounded search may spend above the exact range. */
+export const HAMILTON_SEARCH_BUDGET = 300_000;
 
 export interface GEdge {
   id: number;
@@ -611,7 +617,12 @@ export function hamiltonian(g: Graph, wantCycle: boolean): number[] | null {
   const n = g.names.length;
   if (n > MAX_HAMILTONIAN_VERTICES) return null;
   if (n === 1) return wantCycle ? null : [0];
-  if (wantCycle && n < 3) return null;
+  // A 2-cycle exists only in a digraph with both arcs (an undirected edge is not a cycle).
+  if (wantCycle && n === 2) {
+    if (!g.directed) return null;
+    const ab = g.edges.some((e) => e.u === 0 && e.v === 1), ba = g.edges.some((e) => e.u === 1 && e.v === 0);
+    return ab && ba ? [0, 1] : null;
+  }
   const adjM: boolean[][] = Array.from({ length: n }, () => new Array<boolean>(n).fill(false));
   for (const e of g.edges) {
     if (e.u === e.v) continue;
@@ -646,6 +657,210 @@ export function hamiltonian(g: Graph, wantCycle: boolean): number[] | null {
     return rebuild(v);
   }
   return null;
+}
+
+/** 2-colouring of the simple undirected graph given by neighbour sets, or null. */
+function loopFreeBipartition(adj: Set<number>[]): [number[], number[]] | null {
+  const n = adj.length;
+  const colour = new Array<number>(n).fill(-1);
+  for (let s0 = 0; s0 < n; s0++) {
+    if (colour[s0] >= 0) continue;
+    colour[s0] = 0;
+    const queue = [s0];
+    while (queue.length) {
+      const x = queue.shift() as number;
+      for (const y of adj[x]) {
+        if (y === x) continue;
+        if (colour[y] < 0) { colour[y] = 1 - colour[x]; queue.push(y); }
+        else if (colour[y] === colour[x]) return null;
+      }
+    }
+  }
+  const a: number[] = [], b: number[] = [];
+  colour.forEach((c, i) => (c === 0 ? a : b).push(i));
+  return [a, b];
+}
+
+/** Simple (deduplicated, loop-free) neighbour sets, respecting direction. */
+function simpleAdj(g: Graph): { out: Set<number>[]; inn: Set<number>[] } {
+  const n = g.names.length;
+  const out = Array.from({ length: n }, () => new Set<number>());
+  const inn = Array.from({ length: n }, () => new Set<number>());
+  for (const e of g.edges) {
+    if (e.u === e.v) continue;
+    out[e.u].add(e.v); inn[e.v].add(e.u);
+    if (!g.directed) { out[e.v].add(e.u); inn[e.u].add(e.v); }
+  }
+  return { out, inn };
+}
+
+/** Number of connected components (undirected view) after deleting `removed`. */
+function componentsWithout(g: Graph, removed: Set<number>): number {
+  const n = g.names.length;
+  const seen = new Array<boolean>(n).fill(false);
+  let count = 0;
+  for (let s0 = 0; s0 < n; s0++) {
+    if (seen[s0] || removed.has(s0)) continue;
+    count++;
+    const stack = [s0];
+    seen[s0] = true;
+    while (stack.length) {
+      const x = stack.pop() as number;
+      for (const y of g.nbr[x]) if (!seen[y] && !removed.has(y)) { seen[y] = true; stack.push(y); }
+    }
+  }
+  return count;
+}
+
+export interface HamiltonCertificate {
+  /** "cycle" | "path" the certificate is about. */
+  about: "cycle" | "path";
+  verdict: "yes" | "no";
+  reason: string;
+}
+
+/**
+ * Polynomial-time certificates. A "no" is a proof: the obstruction is named.
+ * A "yes" is a proof of EXISTENCE by a classical sufficient condition (Dirac,
+ * Ore, Bondy–Chvátal closure) — the cycle itself still has to be found.
+ */
+export function hamiltonCertificates(g: Graph): HamiltonCertificate[] {
+  const n = g.names.length;
+  const out: HamiltonCertificate[] = [];
+  const { out: adjOut, inn: adjIn } = simpleAdj(g);
+  const name = (i: number): string => g.names[i];
+  if (n < 3 && !(g.directed && n === 2)) out.push({ about: "cycle", verdict: "no", reason: "a cycle needs at least 3 vertices (2 in a digraph with both arcs)" });
+  if (componentsWithout(g, new Set()) > 1) {
+    out.push({ about: "cycle", verdict: "no", reason: "the graph is disconnected" });
+    out.push({ about: "path", verdict: "no", reason: "the graph is disconnected" });
+    return out;
+  }
+  if (g.directed) {
+    const scc = strongComponents(g).length;
+    if (scc > 1) out.push({ about: "cycle", verdict: "no", reason: `the graph is not strongly connected (${scc} strong components) — a directed Hamiltonian cycle needs one` });
+    for (let i = 0; i < n; i++) {
+      if (adjOut[i].size === 0 && n >= 2) { out.push({ about: "cycle", verdict: "no", reason: `${name(i)} has out-degree 0` }); break; }
+      if (adjIn[i].size === 0 && n >= 2) { out.push({ about: "cycle", verdict: "no", reason: `${name(i)} has in-degree 0` }); break; }
+    }
+    const sources = [...Array(n).keys()].filter((i) => adjIn[i].size === 0);
+    const sinks = [...Array(n).keys()].filter((i) => adjOut[i].size === 0);
+    if (sources.length > 1) out.push({ about: "path", verdict: "no", reason: `${sources.length} vertices have in-degree 0 (${sources.slice(0, 4).map(name).join(", ")}) — a directed Hamiltonian path can start at only one` });
+    if (sinks.length > 1) out.push({ about: "path", verdict: "no", reason: `${sinks.length} vertices have out-degree 0 (${sinks.slice(0, 4).map(name).join(", ")}) — a directed Hamiltonian path can end at only one` });
+    return out;
+  }
+  // Undirected: degrees.
+  const deg = adjOut.map((s0) => s0.size);
+  const low = deg.findIndex((d) => d < 2);
+  if (low >= 0 && n >= 3) out.push({ about: "cycle", verdict: "no", reason: `${name(low)} has degree ${deg[low]} — a cycle passes through every vertex twice` });
+  const leaves = deg.filter((d) => d === 1).length;
+  if (leaves > 2) out.push({ about: "path", verdict: "no", reason: `${leaves} vertices have degree 1 — a path has only two ends` });
+  // Bipartite balance — on the loop-free graph (a self-loop is never on a
+  // Hamiltonian cycle or path, and would otherwise hide the obstruction).
+  const bp = loopFreeBipartition(adjOut);
+  if (bp) {
+    const [a, b] = bp;
+    if (a.length !== b.length && n >= 3) out.push({ about: "cycle", verdict: "no", reason: `bipartite with parts of size ${a.length} and ${b.length} — a Hamiltonian cycle alternates sides, so they must be equal` });
+    if (Math.abs(a.length - b.length) > 1) out.push({ about: "path", verdict: "no", reason: `bipartite with parts of size ${a.length} and ${b.length} — a Hamiltonian path alternates sides, so they differ by at most one` });
+  }
+  // Toughness-type obstructions: removing k vertices must leave ≤ k components
+  // (≤ k + 1 for a path). Singles, pairs and triples (≤ 34,220 sets at 60 vertices).
+  const sets: number[][] = [];
+  for (let i = 0; i < n; i++) sets.push([i]);
+  for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) sets.push([i, j]);
+  if (n <= 60) for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) for (let k = j + 1; k < n; k++) sets.push([i, j, k]);
+  let cycleObstruction: string | null = null;
+  let pathObstruction: string | null = null;
+  for (const S of sets) {
+    if (cycleObstruction && pathObstruction) break;
+    const c = componentsWithout(g, new Set(S));
+    const label = `removing ${S.map(name).join(", ")} leaves ${c} components`;
+    if (!cycleObstruction && c > S.length) cycleObstruction = `${label} (more than ${S.length} — a Hamiltonian cycle minus ${S.length} vertices has at most ${S.length} pieces)`;
+    if (!pathObstruction && c > S.length + 1) pathObstruction = `${label} (more than ${S.length + 1} — a Hamiltonian path minus ${S.length} vertices has at most ${S.length + 1} pieces)`;
+  }
+  if (cycleObstruction && n >= 3) out.push({ about: "cycle", verdict: "no", reason: cycleObstruction });
+  if (pathObstruction) out.push({ about: "path", verdict: "no", reason: pathObstruction });
+  // Sufficient conditions for existence.
+  if (n >= 3 && !out.some((c) => c.about === "cycle")) {
+    const minDeg = Math.min(...deg);
+    if (minDeg * 2 >= n) out.push({ about: "cycle", verdict: "yes", reason: `Dirac's theorem: every degree is at least n/2 (minimum ${minDeg}, n = ${n})` });
+    else {
+      let ore = true;
+      let oreWitness = "";
+      for (let i = 0; i < n && ore; i++) for (let j = i + 1; j < n; j++) {
+        if (adjOut[i].has(j)) continue;
+        if (deg[i] + deg[j] < n) { ore = false; oreWitness = `${name(i)} and ${name(j)} are non-adjacent with degrees ${deg[i]} + ${deg[j]} < ${n}`; break; }
+      }
+      if (ore) out.push({ about: "cycle", verdict: "yes", reason: "Ore's theorem: every non-adjacent pair has degree sum at least n" });
+      else {
+        // Bondy–Chvátal closure: join non-adjacent pairs with degree sum ≥ n until stable; complete ⇒ Hamiltonian.
+        const cl = adjOut.map((s0) => new Set(s0));
+        const d = cl.map((s0) => s0.size);
+        let changed = true;
+        while (changed) {
+          changed = false;
+          for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) {
+            if (!cl[i].has(j) && d[i] + d[j] >= n) { cl[i].add(j); cl[j].add(i); d[i]++; d[j]++; changed = true; }
+          }
+        }
+        if (d.every((x) => x === n - 1)) out.push({ about: "cycle", verdict: "yes", reason: `the Bondy–Chvátal closure is complete (Ore fails directly: ${oreWitness})` });
+      }
+    }
+  }
+  if (!out.some((c) => c.about === "path")) {
+    let ok = n >= 1;
+    for (let i = 0; i < n && ok; i++) for (let j = i + 1; j < n; j++) {
+      if (adjOut[i].has(j)) continue;
+      if (deg[i] + deg[j] < n - 1) { ok = false; break; }
+    }
+    if (ok && n >= 2) out.push({ about: "path", verdict: "yes", reason: "every non-adjacent pair has degree sum at least n − 1 (the path form of Ore's theorem)" });
+  }
+  return out;
+}
+
+/** Bounded depth-first search with Warnsdorff ordering (fewest onward
+ *  options first). A path found is a proof; exhausting the budget is not. */
+export function hamiltonSearch(g: Graph, wantCycle: boolean, budget = HAMILTON_SEARCH_BUDGET): { verts: number[] } | { exhausted: true } | { none: true } {
+  const n = g.names.length;
+  if (n === 0) return { none: true };
+  if (n === 1) return wantCycle ? { none: true } : { verts: [0] };
+  if (wantCycle && n < 3 && !(g.directed && n === 2)) return { none: true };
+  const { out: adj } = simpleAdj(g);
+  const visited = new Array<boolean>(n).fill(false);
+  const path: number[] = [];
+  let left = budget;
+  let exhausted = false;
+  const dfs = (v: number): boolean => {
+    if (--left < 0) { exhausted = true; return false; }
+    path.push(v);
+    visited[v] = true;
+    if (path.length === n) {
+      if (!wantCycle || adj[v].has(path[0])) return true;
+    } else {
+      const cands = [...adj[v]].filter((w) => !visited[w]);
+      // Warnsdorff: try the neighbour with the fewest onward options first.
+      cands.sort((a, b) => {
+        let da = 0, db = 0;
+        for (const x of adj[a]) if (!visited[x]) da++;
+        for (const x of adj[b]) if (!visited[x]) db++;
+        return da - db;
+      });
+      for (const w of cands) {
+        if (dfs(w)) return true;
+        if (exhausted) return false;
+      }
+    }
+    path.pop();
+    visited[v] = false;
+    return false;
+  };
+  const starts = wantCycle ? [0] : [...Array(n).keys()].sort((a, b) => adj[a].size - adj[b].size);
+  for (const s0 of starts) {
+    path.length = 0;
+    visited.fill(false);
+    if (dfs(s0)) return { verts: path.slice() };
+    if (exhausted) return { exhausted: true };
+  }
+  return { none: true };
 }
 
 export interface DiameterResult {
@@ -1314,12 +1529,7 @@ function answerEuler(g: Graph): DiscreteResult {
 
 function answerHamilton(g: Graph): DiscreteResult {
   const n = g.names.length, m = g.edges.length;
-  if (n > MAX_HAMILTONIAN_VERTICES) {
-    throw new DiscreteError(`Hamiltonian cycle/path is NP-hard; this engine searches exhaustively only up to ${MAX_HAMILTONIAN_VERTICES} vertices, and this graph has ${n}.`);
-  }
   const caveats = basicCaveats(g);
-  const cyc = hamiltonian(g, true);
-  const steps = [`Exhaustive search by dynamic programming over all 2^${n} vertex subsets (${1 << n} states × ${n} end-vertices) — every Hamiltonian cycle and path is accounted for.`];
   const fig: FigureOptions = { caption: `Graph: ${vcount(n)}, ${plural(m, "edge")}` };
   const edgesAlong = (verts: number[], closed: boolean): Set<number> => {
     const hi = new Set<number>();
@@ -1331,23 +1541,79 @@ function answerHamilton(g: Graph): DiscreteResult {
     }
     return hi;
   };
-  if (cyc) {
-    fig.highlightEdges = edgesAlong(cyc, true);
-    fig.caption += " — Hamiltonian cycle highlighted";
-    return finish(g, "Hamiltonian cycle", [`Hamiltonian cycle: yes — ${cycleStr(g, cyc)}`, "(a Hamiltonian path exists too: drop any edge of the cycle)"], steps, caveats, fig);
+  const exact = n <= MAX_HAMILTONIAN_VERTICES;
+  const steps: string[] = [];
+  if (exact) {
+    steps.push(`Exhaustive search by dynamic programming over all 2^${n} vertex subsets (${(1 << n).toLocaleString("en-US")} states × ${n} end-vertices) — every Hamiltonian cycle and path is accounted for, so "none" below is a proof.`);
+    const cyc = hamiltonian(g, true);
+    if (cyc) {
+      fig.highlightEdges = edgesAlong(cyc, true);
+      fig.caption += " — Hamiltonian cycle highlighted";
+      return finish(g, "Hamiltonian cycle", [`Hamiltonian cycle: yes — ${cycleStr(g, cyc)}`, "(a Hamiltonian path exists too: drop any edge of the cycle)"], steps, caveats, fig);
+    }
+    const path = hamiltonian(g, false);
+    if (path) {
+      fig.highlightEdges = edgesAlong(path, false);
+      fig.highlightVerts = new Set([path[0], path[path.length - 1]]);
+      fig.caption += " — Hamiltonian path highlighted (no cycle)";
+      return finish(g, "Hamiltonian path", [
+        `Hamiltonian cycle: none exists (proved by exhaustive search${n < 3 ? "; a cycle needs at least 3 vertices" : ""}).`,
+        `Hamiltonian path: yes — ${seqStr(g, path, undefined, false)}`,
+      ], steps, caveats, fig);
+    }
+    fig.caption += " — no Hamiltonian cycle or path";
+    return finish(g, "Hamiltonian path", ["Hamiltonian cycle: none exists.", "Hamiltonian path: none exists (proved by exhaustive search)."], steps, caveats, fig);
   }
-  const path = hamiltonian(g, false);
-  if (path) {
-    fig.highlightEdges = edgesAlong(path, false);
-    fig.highlightVerts = new Set([path[0], path[path.length - 1]]);
-    fig.caption += " — Hamiltonian path highlighted (no cycle)";
-    return finish(g, "Hamiltonian path", [
-      `Hamiltonian cycle: none exists (proved by exhaustive search${n < 3 ? "; a cycle needs at least 3 vertices" : ""}).`,
-      `Hamiltonian path: yes — ${seqStr(g, path, undefined, false)}`,
-    ], steps, caveats, fig);
+
+  // Above the exact range: certificates, then a bounded search.
+  steps.push(`${n} vertices is above the exhaustive range (${MAX_HAMILTONIAN_VERTICES}); the problem is NP-hard, so the answer is a CERTIFICATE where one exists: a cycle or path found (a proof of yes), or a structural obstruction (a proof of no). "Not found" is not a proof.`);
+  const certs = hamiltonCertificates(g);
+  const cycNo = certs.find((c) => c.about === "cycle" && c.verdict === "no");
+  const cycYes = certs.find((c) => c.about === "cycle" && c.verdict === "yes");
+  const pathNo = certs.find((c) => c.about === "path" && c.verdict === "no");
+  const pathYes = certs.find((c) => c.about === "path" && c.verdict === "yes");
+  const display: string[] = [];
+  let title = "Hamiltonian cycle";
+  const budgetNote = `search budget ${HAMILTON_SEARCH_BUDGET.toLocaleString("en-US")} vertex expansions, Warnsdorff order`;
+  if (cycNo) {
+    display.push(`Hamiltonian cycle: NONE — proof: ${cycNo.reason}.`);
+  } else {
+    const found = hamiltonSearch(g, true);
+    if ("verts" in found) {
+      fig.highlightEdges = edgesAlong(found.verts, true);
+      fig.caption += " — Hamiltonian cycle highlighted";
+      display.push(`Hamiltonian cycle: yes — ${cycleStr(g, found.verts)}`);
+      display.push(`(a proof: the cycle is exhibited${cycYes ? `; existence also follows from ${cycYes.reason}` : ""}; a Hamiltonian path exists too)`);
+      return finish(g, title, display, steps, caveats, fig);
+    }
+    if (cycYes) {
+      display.push(`Hamiltonian cycle: EXISTS by ${cycYes.reason} — but the bounded search did not construct one (${budgetNote}).`);
+    } else if ("none" in found) {
+      display.push("Hamiltonian cycle: NONE — the search finished without exhausting its budget, so this is a proof.");
+    } else {
+      display.push(`Hamiltonian cycle: NOT FOUND within the budget (${budgetNote}) — this is NOT a proof that none exists; no structural obstruction (connectivity, degrees, bipartite balance, toughness over ≤ 3 removed vertices) applies either.`);
+    }
   }
-  fig.caption += " — no Hamiltonian cycle or path";
-  return finish(g, "Hamiltonian path", ["Hamiltonian cycle: none exists.", "Hamiltonian path: none exists (proved by exhaustive search)."], steps, caveats, fig);
+  title = "Hamiltonian path";
+  if (pathNo) {
+    display.push(`Hamiltonian path: NONE — proof: ${pathNo.reason}.`);
+  } else {
+    const found = hamiltonSearch(g, false);
+    if ("verts" in found) {
+      fig.highlightEdges = edgesAlong(found.verts, false);
+      fig.highlightVerts = new Set([found.verts[0], found.verts[found.verts.length - 1]]);
+      fig.caption += " — Hamiltonian path highlighted";
+      display.push(`Hamiltonian path: yes — ${seqStr(g, found.verts, undefined, false)} (a proof: the path is exhibited${pathYes ? `; existence also follows from ${pathYes.reason}` : ""}).`);
+    } else if (pathYes) {
+      display.push(`Hamiltonian path: EXISTS by ${pathYes.reason} — but the bounded search did not construct one (${budgetNote}).`);
+    } else if ("none" in found) {
+      display.push("Hamiltonian path: NONE — the search finished without exhausting its budget, so this is a proof.");
+    } else {
+      display.push(`Hamiltonian path: NOT FOUND within the budget (${budgetNote}) — not a proof that none exists.`);
+    }
+  }
+  if (!fig.highlightEdges) fig.caption += " — Hamiltonian search";
+  return finish(g, title, display, steps, caveats, fig);
 }
 
 function answerBipartite(g: Graph): DiscreteResult {

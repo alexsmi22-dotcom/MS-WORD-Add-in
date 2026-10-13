@@ -451,9 +451,11 @@ describe("Hamiltonian", () => {
     expect(hamiltonian(graphOf("A->B\nB->C"), false)).toEqual([0, 1, 2]);
     expect(hamiltonian(graphOf("A->B\nC->B"), false)).toBeNull();
   });
-  test("13 vertices refused by name as NP-hard", () => {
-    const lines = Array.from({ length: 13 }, (_, i) => `v${i}-v${(i + 1) % 13}`).join("\n");
-    expectRefusal("hamiltonian\n" + lines, new RegExp(`NP-hard.*${MAX_HAMILTONIAN_VERTICES} vertices.*13`));
+  test("17 vertices is above the exact range, and is answered with a certificate rather than refused", () => {
+    const lines = Array.from({ length: 17 }, (_, i) => `v${i}-v${(i + 1) % 17}`).join("\n");
+    const r = run("hamiltonian\n" + lines);
+    expect(r.steps[0]).toMatch(new RegExp(`above the exhaustive range \\(${MAX_HAMILTONIAN_VERTICES}\\)`));
+    expect(r.display[0]).toMatch(/^Hamiltonian cycle: yes/);
   });
   test("12 vertices with no Hamiltonian path still answers quickly (worst case for backtracking)", () => {
     // K10 plus two leaves on the same hub: no Hamiltonian path exists.

@@ -6,6 +6,64 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.125.0] — 2026-10-12 — The two known limits, lifted honestly
+
+### Changed
+- **λ-calculus: definitions expand lazily (δ-steps).** PLUS, PRED, a
+  `let` name or a `let rec` name now stays a NAME in the term until it
+  stands where a function is needed, and is expanded there as a δ-step
+  in the trace. The trace reads as the textbook does (`PLUS 2 3` → δ →
+  β …), and the term stays small: an unfolding of Y copies a name, not
+  the forty-node body of PRED.
+- **Normalisation by evaluation backs the step trace.** When the
+  step-by-step reducer hits its budget, the normal form is taken from
+  a second normaliser — closure evaluation with sharing, read back as a
+  term by applying closures to fresh neutral variables. `FACT 5` and
+  `FACT 6` through Y, `FIB 10`, and `2 2 2 2` (= 65,536, read out
+  against a native successor because its normal form is above the
+  print cap) now answer in well under a second. When the trace does
+  finish, NbE must agree with it (a cross-check line), and the
+  numeral/boolean readout stays as the independent confirmation. An
+  oversized read-back is NOT reported as "a normal form exists": `Y f`
+  unfolds forever and says so — the numeral readout is what separates
+  "large" from "infinite".
+- **Hamiltonian cycles and paths above the exhaustive range.** The
+  exact Held–Karp search now runs to 16 vertices. Above that, the
+  answer is a certificate: a cycle or path FOUND by a bounded
+  Warnsdorff search is a proof of yes; a structural obstruction —
+  disconnection, a degree-1 vertex, unbalanced bipartite sides, any
+  one, two or three vertices whose removal leaves more pieces than a
+  cycle allows, no strong connectivity or two sources/sinks when
+  directed — is a proof of no; Dirac, Ore and the Bondy–Chvátal closure
+  certify existence even when the search cannot construct the cycle;
+  and "not found within the budget" is stated, in those words, to be
+  no proof. A random 60-vertex graph gets its cycle in ~80 ms.
+
+### Notes
+- Independent adversarial pass: 4,826 random small graphs checked every
+  certificate, DP answer and search outcome against brute-force
+  permutation search with zero mismatches; 1,000 random closed and
+  open λ-terms agreed across the lazy trace, the eager reducer and
+  NbE. It found nine real defects, all closed and pinned
+  (lambda3.adversarial.test.ts): a β-invented fresh binder could
+  capture a free variable brought by a LATER δ-expansion (and NbE made
+  the same mistake, so the wrong answer was "Verified") — invented
+  names now avoid every name any definition carries; NbE read-back
+  captured a definition's free variable under a closure parameter of
+  the same name; a forward reference (`let AA = λx.BB` before BB) was
+  expanded while a note said BB stayed free — definitions are now
+  parsed in one pass and prepared in a second, with truthful notes;
+  textbook mutual recursion (`let rec EVEN … ODD`, `let rec ODD … EVEN`)
+  reduced correctly and then threw from the eager type expansion — the
+  type line now says why it is not computed; the numeral readout named
+  the node cap when the depth cap had fired; the NbE rescue line
+  repeated the step count; a phantom α-step for a bound name shaped
+  like a definition; `let rec Y = …` looped because the fixed-point
+  combinator was looked up by name (now inlined); and a self-loop hid
+  the bipartite obstruction in the Hamiltonian certificates. Also a
+  directed 2-cycle now counts as a cycle, and redefining a library
+  name says which library entries it changes.
+
 ## [2.124.0] — 2026-10-12 — Discrete mathematics, six engines; the λ-calculus grows up
 
 ### Added

@@ -26895,8 +26895,10 @@ function updateSolveUi(): void {
       "(a β-normal form that still η-reduces is pointed out in every result) · ski λf.λx.f (f x) → S (S (K S) K) I " +
       "by bracket abstraction, verified by reducing both sides · cl S K K x → reduction by the combinator rules alone. " +
       "LISTS: [1, 2, 3] is a Church list; HEAD TAIL ISNIL LENGTH SUM MAP are built in and a list result is decoded. " +
-      "RECURSION: let rec FACT = λn.IF (ISZERO n) 1 (MULT n (FACT (PRED n))) ⏎ FACT 3 — ties the knot with Y " +
-      "(small arguments only: every unfolding copies the whole body, so FACT 5 exceeds the work budget and says so). " +
+      "RECURSION: let rec FACT = λn.IF (ISZERO n) 1 (MULT n (FACT (PRED n))) ⏎ FACT 5 — ties the knot with Y. " +
+      "DEFINITIONS EXPAND LAZILY (δ-steps in the trace), and when the step-by-step trace hits its budget the normal form " +
+      "still comes from normalisation by evaluation (sharing) — FACT 6 and FIB 10 work; a numeral too large to print " +
+      "(2 2 2 2 = 65,536) is still read out. " +
       "Textbook shorthand is read and NOTED: λxy.x binds two variables, and xx inside λx. is x x.",
     discrete:
       "Six engines, routed by what you type — no sub-menu. NUMBER THEORY: gcd 84 36 (Euclid + Bézout) · " +
@@ -26917,7 +26919,7 @@ function updateSolveUi(): void {
       "“q0 0 q1”, then test: 0110 1 \"\") · regex (a|b)*abb · to dfa + an nfa · minimize + a dfa (cross-checked " +
       "on every string to length 6) · equivalent + two machines or regexes (shortest distinguishing string). " +
       "GRAPHS (drawn): one edge per line — A-B, A->B, A-B 5 — with an optional question first: shortest path " +
-      "A to F · mst · eulerian · hamiltonian (≤ 12 vertices) · bipartite · components · topological order · " +
+      "A to F · mst · eulerian · hamiltonian (exhaustive to 16 vertices; above that a cycle FOUND is a proof, a structural obstruction is a proof of none, and “not found” is said to be no proof) · bipartite · components · topological order · " +
       "degree · diameter. Everything exact; every cap named; every answer that can be checked two ways is.",
     word: "Plain English — e.g. “12 is what percent of 48?” or “twice a number plus 7 is 15”.",
   };

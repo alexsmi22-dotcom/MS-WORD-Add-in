@@ -8,23 +8,23 @@
 import {
   parseTerm, show, reduce, substitute, alphaEquivalent, freeVars, deBruijn,
   decodeNumeral, decodeBoolean, evalAsNumeral, evalAsBoolean, principalType,
-  solveLambda, parseLambdaRequest, churchNumeral, termSize, isNormalForm,
+  solveLambda, parseLambdaRequest, expandedTerm, churchNumeral, termSize, isNormalForm,
   LambdaSyntaxError, MAX_STEPS, MAX_TERM_SIZE, MAX_TERM_DEPTH, MAX_LITERAL, LIBRARY_NAMES, library,
   v, lam, app, Term,
 } from "../lambda";
 
 const P = (s: string): Term => parseTerm(s);
 const nf = (s: string): string => {
-  const r = reduce(parseLambdaRequest(s)!.term);
+  const r = reduce(expandedTerm(s));
   if (r.status !== "normal") throw new Error(`no normal form: ${r.status}`);
   return show(r.term);
 };
 const num = (s: string): number | null => {
-  const r = reduce(parseLambdaRequest(s)!.term);
+  const r = reduce(expandedTerm(s));
   return r.status === "normal" ? decodeNumeral(r.term) : null;
 };
 const bool = (s: string): boolean | null => {
-  const r = reduce(parseLambdaRequest(s)!.term);
+  const r = reduce(expandedTerm(s));
   return r.status === "normal" ? decodeBoolean(r.term) : null;
 };
 
@@ -200,16 +200,16 @@ describe("β-reduction: the textbook results", () => {
 
 describe("strategies", () => {
   it("K I OMEGA: normal order answers I, applicative order diverges", () => {
-    const n = reduce(parseLambdaRequest("K I OMEGA")!.term, "normal");
+    const n = reduce(expandedTerm("K I OMEGA"), "normal");
     expect(n.status).toBe("normal");
     if (n.status === "normal") expect(show(n.term)).toBe("λx.x");
-    const a = reduce(parseLambdaRequest("K I OMEGA")!.term, "applicative");
+    const a = reduce(expandedTerm("K I OMEGA"), "applicative");
     expect(a.status).toBe("diverges");
     if (a.status === "diverges") expect(a.cycleLength).toBe(1);
   });
   it("OMEGA itself is a proven cycle of length 1 under both strategies", () => {
     for (const s of ["normal", "applicative"] as const) {
-      const r = reduce(parseLambdaRequest("OMEGA")!.term, s);
+      const r = reduce(expandedTerm("OMEGA"), s);
       expect(r.status).toBe("diverges");
       if (r.status === "diverges") expect(r.cycleLength).toBe(1);
     }
@@ -224,7 +224,7 @@ describe("strategies", () => {
   });
   it("both strategies agree on every normalising library computation", () => {
     for (const s of ["PLUS 2 3", "MULT 2 3", "AND TRUE FALSE", "FST (PAIR 1 2)", "PRED 3"]) {
-      const t = parseLambdaRequest(s)!.term;
+      const t = expandedTerm(s);
       const n = reduce(t, "normal");
       const a = reduce(t, "applicative");
       expect(n.status).toBe("normal");
@@ -264,13 +264,13 @@ describe("the caps bound time, and say which one fired", () => {
   });
   it("the step cap is reported as a cap, never as divergence", () => {
     // A long but terminating computation forced under the cap.
-    const r = reduce(parseLambdaRequest("MULT 30 30")!.term, "normal", 5);
+    const r = reduce(expandedTerm("MULT 30 30"), "normal", 5);
     expect(r.status).toBe("capped");
     if (r.status === "capped") expect(r.reason).toMatch(/within 5 β-steps/);
   });
   it("Y f under normal order is capped (it unfolds forever without repeating)", () => {
     const t0 = Date.now();
-    const r = reduce(parseLambdaRequest("Y f")!.term);
+    const r = reduce(expandedTerm("Y f"));
     expect(Date.now() - t0).toBeLessThan(3000);
     expect(r.status).not.toBe("normal");
   });
@@ -324,16 +324,16 @@ describe("decoding", () => {
 
 describe("the independent evaluator", () => {
   it("agrees with the reducer on arithmetic, by a different mechanism", () => {
-    expect(evalAsNumeral(parseLambdaRequest("PLUS 2 3")!.term)).toBe(5);
-    expect(evalAsNumeral(parseLambdaRequest("MULT 6 7")!.term)).toBe(42);
-    expect(evalAsNumeral(parseLambdaRequest("POW 2 10")!.term)).toBe(1024);
-    expect(evalAsNumeral(parseLambdaRequest("PRED 0")!.term)).toBe(0);
+    expect(evalAsNumeral(expandedTerm("PLUS 2 3"))).toBe(5);
+    expect(evalAsNumeral(expandedTerm("MULT 6 7"))).toBe(42);
+    expect(evalAsNumeral(expandedTerm("POW 2 10"))).toBe(1024);
+    expect(evalAsNumeral(expandedTerm("PRED 0"))).toBe(0);
   });
   it("is lazy: K 3 OMEGA evaluates (the diverging argument is never forced)", () => {
-    expect(evalAsNumeral(parseLambdaRequest("K 3 OMEGA")!.term)).toBe(3);
+    expect(evalAsNumeral(expandedTerm("K 3 OMEGA"))).toBe(3);
   });
   it("returns null, never a number, when it cannot decide", () => {
-    expect(evalAsNumeral(parseLambdaRequest("OMEGA")!.term)).toBeNull();
+    expect(evalAsNumeral(expandedTerm("OMEGA"))).toBeNull();
     expect(evalAsNumeral(P("λx.λy.x"))).toBeNull(); // K succ 0 = succ, not a number
     expect(evalAsNumeral(P("y"))).toBeNull(); // free variable: stuck
     // I is NOT a numeral but I succ 0 = succ 0 = 1 — the evaluator cannot
@@ -343,8 +343,8 @@ describe("the independent evaluator", () => {
     expect(decodeNumeral(P("λx.x"))).toBeNull();
   });
   it("evaluates booleans", () => {
-    expect(evalAsBoolean(parseLambdaRequest("AND TRUE FALSE")!.term)).toBe(false);
-    expect(evalAsBoolean(parseLambdaRequest("ISZERO 0")!.term)).toBe(true);
+    expect(evalAsBoolean(expandedTerm("AND TRUE FALSE"))).toBe(false);
+    expect(evalAsBoolean(expandedTerm("ISZERO 0"))).toBe(true);
   });
 });
 
@@ -358,8 +358,8 @@ describe("simple types", () => {
   });
   it("self-application has no simple type (occurs check)", () => {
     expect(principalType(P("λx.x x"))).toBeNull();
-    expect(principalType(parseLambdaRequest("Y")!.term)).toBeNull();
-    expect(principalType(parseLambdaRequest("OMEGA")!.term)).toBeNull();
+    expect(principalType(expandedTerm("Y"))).toBeNull();
+    expect(principalType(expandedTerm("OMEGA"))).toBeNull();
   });
   it("free variables get type variables", () => {
     // Type variables are named in order of first appearance in the OUTPUT.
@@ -378,14 +378,15 @@ describe("the library", () => {
     const lib = library();
     for (const n of LIBRARY_NAMES) {
       expect(lib.has(n)).toBe(true);
-      expect(freeVars(lib.get(n)!).size).toBe(0);
+      // Closed modulo the library itself: bodies stay lazy and may NAME other entries.
+      expect([...freeVars(lib.get(n)!)].filter((x) => !lib.has(x))).toEqual([]);
     }
     expect(nf("B f g x")).toBe("f (g x)");
     expect(nf("C f x y")).toBe("f y x");
     expect(nf("W f x")).toBe("f x x");
   });
   it("Y is a fixed-point combinator: Y g → g (Y g) in one unfolding", () => {
-    const t = parseLambdaRequest("Y g")!.term;
+    const t = expandedTerm("Y g");
     const r = reduce(t, "normal", 2);
     // After two normal-order steps: g ((λx.g (x x)) (λx.g (x x))), i.e. g applied to the unfolded Y g.
     expect(r.status).toBe("capped");
@@ -397,9 +398,10 @@ describe("the library", () => {
     const r2 = solveLambda("K = λx.λy.y\nK a b")!;
     expect(r2.normalForm).toBe("b");
   });
-  it("definitions carry over by expansion, so recursion through a name is not possible and is left free", () => {
-    const r = solveLambda("let F = λn.F n\nfree F")!;
-    expect(r.display.join(" ")).toMatch(/Free: F/);
+  it("a plain let that names itself is refused with the let rec hint; naming an EARLIER definition expands it", () => {
+    expect(() => solveLambda("let F = λn.F n\nfree F")).toThrow(/write "let rec F = …" for recursion|Write "let rec F = …"/);
+    const r = solveLambda("let F = λx.x\nlet F = λn.F n\nF 3")!;
+    expect(r.decoded?.numeral).toBe(3);
   });
 });
 
@@ -487,7 +489,7 @@ describe("solveLambda — the front door", () => {
     // predecessor runs its argument, so SUB 10 5 takes over a hundred.
     const r = solveLambda("SUB 10 5")!;
     expect(r.outcome!.steps.length).toBeGreaterThan(40);
-    expect(r.steps[r.steps.length - 1]).toMatch(/more steps not listed/);
+    expect(r.steps.some((l) => /more steps not listed/.test(l))).toBe(true);
     expect(r.decoded?.numeral).toBe(5);
   });
   it("every reported result that decodes is verified true, never false, across the library", () => {
@@ -521,7 +523,7 @@ describe("adversarial pass — closed defects", () => {
   it("2. a definition's free variable is never captured by the user's binder", () => {
     const r = solveLambda("let F = λx.y\n(λy.F y) z")!;
     expect(r.normalForm).toBe("y");
-    expect(r.caveats.join(" ")).toMatch(/y renamed to y₁ so a definition's free variable is not captured/);
+    expect(r.caveats.join(" ")).toMatch(/y renamed to y₁ so a definition/);
     const r2 = solveLambda("let F = y\n(λy.λz.F) a b")!;
     expect(r2.normalForm).toBe("y");
   });

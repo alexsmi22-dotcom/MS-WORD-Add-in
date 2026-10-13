@@ -105,9 +105,8 @@ describe("let rec", () => {
     expect(r.verified).toBe(true);
     expect(r.caveats.join(" ")).toMatch(/FACT is recursive: defined as Y \(λFACT\.…\)/);
   });
-  it("a plain let leaves a self-reference free (and says so)", () => {
-    const r = solveLambda("let F = λn.F n\nfree F")!;
-    expect(r.display.join(" ")).toMatch(/Free: F/);
+  it("a plain let that names itself is refused with the let rec hint", () => {
+    expect(() => solveLambda("let F = λn.F n\nfree F")).toThrow(/let rec F/);
   });
   it("the recursive definition is bound, not free", () => {
     const req = parseLambdaRequest("let rec G = λn.G n\nfree G")!;

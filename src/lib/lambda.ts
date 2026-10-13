@@ -171,7 +171,7 @@ function keysOccurringFree(t: Term, keys: Set<string>, out = new Set<string>()):
  * binder's name free in its binding; that check is linear in the body and is
  * made only for binders whose name is free in some binding at all.
  */
-function substituteMany(m: Term, env: Map<string, Binding>, renames: Rename[]): Term {
+function substituteMany(m: Term, env: Map<string, Binding>, renames: Rename[], extraAvoid?: Set<string>): Term {
   const unionFv = (e: Map<string, Binding>): Set<string> => {
     const s = new Set<string>();
     for (const b of e.values()) for (const n of b.fv) s.add(n);
@@ -203,7 +203,10 @@ function substituteMany(m: Term, env: Map<string, Binding>, renames: Rename[]): 
           let captures = false;
           for (const k of used) if ((e2.get(k) as Binding).fv.has(t.param)) { captures = true; break; }
           if (captures) {
-            const avoid = new Set<string>([...allVars(t.body), ...fv2, ...e2.keys()]);
+            // A fresh name must also dodge every name a definition still
+            // inside the body could bring when it is expanded later (the
+            // caller passes those), or the rename captures it.
+            const avoid = new Set<string>([...allVars(t.body), ...fv2, ...e2.keys(), ...(extraAvoid ?? [])]);
             const fresh = freshName(t.param, avoid);
             renames.push({ from: t.param, to: fresh });
             const e3 = new Map(e2);
@@ -589,8 +592,8 @@ export const MAX_WORK = 1_000_000;
 
 export interface Step {
   n: number;
-  /** "β" or "α" */
-  rule: "β" | "α";
+  /** "β" (contraction), "α" (rename), or "δ" (a definition expanded at its use) */
+  rule: "β" | "α" | "δ";
   /** The whole term after the step. */
   term: Term;
   /** For β: the redex that was contracted, as displayed. For α: the rename. */
@@ -602,13 +605,107 @@ export type ReduceOutcome =
   | { status: "diverges"; steps: Step[]; cycleLength: number; term: Term }
   | { status: "capped"; steps: Step[]; term: Term; reason: string };
 
-interface StepResult { term: Term; redex: Term; renames: Rename[] }
+interface StepResult { term: Term; redex: Term; renames: Rename[]; delta?: string }
+
+/** What the steppers know: the definitions in force, and which names are
+ *  bound at the current position (a bound PRED is a variable, not the
+ *  library's PRED). The bound map is mutated on the way down and restored
+ *  on the way up. */
+export interface StepCtx { defs: Map<string, Binding>; bound: Map<string, number> }
+export const NO_DEFS: Map<string, Binding> = new Map();
+function ctxOf(defs: Map<string, Binding>): StepCtx { return { defs, bound: new Map() }; }
+function isDef(name: string, ctx: StepCtx): boolean { return ctx.defs.has(name) && !ctx.bound.get(name); }
+function enter(ctx: StepCtx, p: string): void { ctx.bound.set(p, (ctx.bound.get(p) ?? 0) + 1); }
+function leave(ctx: StepCtx, p: string): void { const c = ctx.bound.get(p) ?? 0; if (c <= 1) ctx.bound.delete(p); else ctx.bound.set(p, c - 1); }
+
+/** The names a definition's body brings with it when expanded: its free
+ *  variables, plus — transitively — those of the definitions it names. A
+ *  binder above an expansion site must not be one of these, or expanding
+ *  would capture. Memoised per definition map. */
+const NEEDS_CACHE = new WeakMap<Map<string, Binding>, Map<string, Set<string>>>();
+export function needsOf(name: string, defs: Map<string, Binding>): Set<string> {
+  let cache = NEEDS_CACHE.get(defs);
+  if (!cache) { cache = new Map(); NEEDS_CACHE.set(defs, cache); }
+  const hit = cache.get(name);
+  if (hit) return hit;
+  const out = new Set<string>();
+  cache.set(name, out); // guards against cycles (there are none, but a guard is cheap)
+  const b = defs.get(name);
+  if (!b) return out;
+  for (const f of b.fv) {
+    out.add(f);
+    if (defs.has(f)) for (const g of needsOf(f, defs)) out.add(g);
+  }
+  return out;
+}
+
+/** Union of needsOf over the definition names occurring free in t. */
+function needsIn(t: Term, defs: Map<string, Binding>, exclude?: Map<string, number>): Set<string> {
+  const out = new Set<string>();
+  if (defs.size === 0) return out;
+  const keys = new Set(defs.keys());
+  if (exclude) for (const [k, c] of exclude) if (c > 0) keys.delete(k);
+  if (keys.size === 0) return out;
+  for (const d of keysOccurringFree(t, keys)) for (const n of needsOf(d, defs)) out.add(n);
+  return out;
+}
+
+/** Everything any definition could bring: the avoid-set for invented names. */
+function allNeeds(defs: Map<string, Binding>): Set<string> {
+  const out = new Set<string>(defs.keys());
+  for (const k of defs.keys()) for (const n of needsOf(k, defs)) out.add(n);
+  return out;
+}
+
+/**
+ * Renames every binder that could capture a later expansion beneath it —
+ * (λFALSE. ISZERO 0): ISZERO's body names FALSE — so that δ-expansion inside
+ * the reducer never has to look upward. Run on the term as typed and on
+ * every definition body when it is stored. Renames are returned for the notes.
+ */
+export function prepareForLazy(t: Term, defs: Map<string, Binding>): { term: Term; renames: Rename[] } {
+  const renames: Rename[] = [];
+  if (defs.size === 0) return { term: t, renames };
+  const keys = new Set(defs.keys());
+  const go = (u: Term, bound: Set<string>): Term => {
+    switch (u.kind) {
+      case "var": return u;
+      case "app": {
+        const f = go(u.fn, bound), a = go(u.arg, bound);
+        return f === u.fn && a === u.arg ? u : app(f, a);
+      }
+      case "lam": {
+        let param = u.param;
+        let body = u.body;
+        // Definition names used free beneath this binder, and what they bring.
+        const refs = keysOccurringFree(body, keys);
+        refs.delete(param); // a binder named like a definition shadows it: no expansion beneath
+        let needs: Set<string> | null = null;
+        for (const r of refs) { if (!needs) needs = new Set(); for (const n of needsOf(r, defs)) needs.add(n); }
+        if (needs && needs.has(param)) {
+          const avoid = new Set<string>([...allVars(body), ...needs, ...keys, ...bound]);
+          const fresh = freshName(param, avoid);
+          renames.push({ from: param, to: fresh });
+          body = substitute(body, param, v(fresh));
+          param = fresh;
+        }
+        const b2 = new Set(bound);
+        b2.add(param);
+        const inner = go(body, b2);
+        return inner === u.body && param === u.param ? u : lam(param, inner);
+      }
+    }
+  };
+  return { term: go(t, new Set()), renames };
+}
 
 class SizeCap extends Error {}
 
 /** Contracts the redex (λx.M) N — unless the result would exceed the size
- *  cap, which one step can do by duplicating N many times over. */
-function contract(fn: Term & { kind: "lam" }, arg: Term): StepResult {
+ *  cap, which one step can do by duplicating N many times over. The names
+ *  a definition in N would bring are treated as free in N, so a binder in M
+ *  that could capture a LATER expansion is renamed now. */
+function contract(fn: Term & { kind: "lam" }, arg: Term, ctx: StepCtx): StepResult {
   const argSize = termSize(arg);
   if (argSize > 1) {
     const deep = termDepth(fn.body) + termDepth(arg);
@@ -623,45 +720,66 @@ function contract(fn: Term & { kind: "lam" }, arg: Term): StepResult {
     }
   }
   const renames: Rename[] = [];
-  const term = substitute(fn.body, fn.param, arg, renames);
+  const fv = freeVars(arg);
+  for (const n of needsIn(arg, ctx.defs, ctx.bound)) fv.add(n);
+  // Names a definition still in the BODY could bring when expanded later:
+  // a fresh binder invented here must not be one of them (nor a definition name).
+  const extraAvoid = ctx.defs.size ? new Set<string>([...ctx.defs.keys(), ...needsIn(fn.body, ctx.defs, ctx.bound)]) : undefined;
+  const term = substituteMany(fn.body, new Map([[fn.param, { term: arg, fv }]]), renames, extraAvoid);
   return { term, redex: app(fn, arg), renames };
 }
 
-/** One leftmost-outermost β-step, or null if the term is in normal form. */
-function stepNormal(t: Term): StepResult | null {
-  if (t.kind === "var") return null;
+/** δ: replace a definition's name by its body (which may name other definitions). */
+function delta(t: Term & { kind: "var" }, ctx: StepCtx): StepResult {
+  const b = ctx.defs.get(t.name) as Binding;
+  return { term: b.term, redex: t, renames: [], delta: t.name };
+}
+
+/** One leftmost-outermost step (β, or δ where a definition stands where a
+ *  function is needed, or anywhere once nothing else is left), or null if
+ *  the term is in normal form. */
+function stepNormal(t: Term, ctx: StepCtx): StepResult | null {
+  if (t.kind === "var") return isDef(t.name, ctx) ? delta(t, ctx) : null;
   if (t.kind === "lam") {
-    const r = stepNormal(t.body);
-    return r ? { term: lam(t.param, r.term), redex: r.redex, renames: r.renames } : null;
+    enter(ctx, t.param);
+    const r = stepNormal(t.body, ctx);
+    leave(ctx, t.param);
+    return r ? { term: lam(t.param, r.term), redex: r.redex, renames: r.renames, delta: r.delta } : null;
   }
-  if (t.fn.kind === "lam") return contract(t.fn, t.arg);
-  const f = stepNormal(t.fn);
-  if (f) return { term: app(f.term, t.arg), redex: f.redex, renames: f.renames };
-  const a = stepNormal(t.arg);
-  if (a) return { term: app(t.fn, a.term), redex: a.redex, renames: a.renames };
+  if (t.fn.kind === "lam") return contract(t.fn, t.arg, ctx);
+  if (t.fn.kind === "var" && isDef(t.fn.name, ctx)) {
+    const d = delta(t.fn, ctx);
+    return { term: app(d.term, t.arg), redex: d.redex, renames: [], delta: d.delta };
+  }
+  const f = stepNormal(t.fn, ctx);
+  if (f) return { term: app(f.term, t.arg), redex: f.redex, renames: f.renames, delta: f.delta };
+  const a = stepNormal(t.arg, ctx);
+  if (a) return { term: app(t.fn, a.term), redex: a.redex, renames: a.renames, delta: a.delta };
   return null;
 }
 
-/** One leftmost-innermost (applicative, call-by-value) β-step. */
-function stepApplicative(t: Term): StepResult | null {
-  if (t.kind === "var") return null;
+/** One leftmost-innermost (applicative, call-by-value) step. */
+function stepApplicative(t: Term, ctx: StepCtx): StepResult | null {
+  if (t.kind === "var") return isDef(t.name, ctx) ? delta(t, ctx) : null;
   if (t.kind === "lam") {
-    const r = stepApplicative(t.body);
-    return r ? { term: lam(t.param, r.term), redex: r.redex, renames: r.renames } : null;
+    enter(ctx, t.param);
+    const r = stepApplicative(t.body, ctx);
+    leave(ctx, t.param);
+    return r ? { term: lam(t.param, r.term), redex: r.redex, renames: r.renames, delta: r.delta } : null;
   }
-  const f = stepApplicative(t.fn);
-  if (f) return { term: app(f.term, t.arg), redex: f.redex, renames: f.renames };
-  const a = stepApplicative(t.arg);
-  if (a) return { term: app(t.fn, a.term), redex: a.redex, renames: a.renames };
-  if (t.fn.kind === "lam") return contract(t.fn, t.arg);
+  const f = stepApplicative(t.fn, ctx);
+  if (f) return { term: app(f.term, t.arg), redex: f.redex, renames: f.renames, delta: f.delta };
+  const a = stepApplicative(t.arg, ctx);
+  if (a) return { term: app(t.fn, a.term), redex: a.redex, renames: a.renames, delta: a.delta };
+  if (t.fn.kind === "lam") return contract(t.fn, t.arg, ctx);
   return null;
 }
 
-export function isNormalForm(t: Term): boolean {
-  return stepNormal(t) === null;
+export function isNormalForm(t: Term, defs: Map<string, Binding> = NO_DEFS): boolean {
+  return stepNormal(t, ctxOf(defs)) === null;
 }
 
-export function reduce(start: Term, strategy: Strategy = "normal", maxSteps = MAX_STEPS): ReduceOutcome {
+export function reduce(start: Term, strategy: Strategy = "normal", maxSteps = MAX_STEPS, defs: Map<string, Binding> = NO_DEFS): ReduceOutcome {
   const steps: Step[] = [];
   const startDepth = termDepth(start);
   if (startDepth > MAX_TERM_DEPTH) {
@@ -687,29 +805,38 @@ export function reduce(start: Term, strategy: Strategy = "normal", maxSteps = MA
     }
     return null;
   };
+  const ctx = ctxOf(defs);
   let cur = start;
   let work = startSize;
   remember(cur, 0);
   const stepper = strategy === "normal" ? stepNormal : stepApplicative;
-  let n = 0;
+  let n = 0; // β-steps (δ-steps are bookkeeping and do not count toward the step cap)
+  let deltas = 0;
   for (;;) {
     let r: StepResult | null;
     try {
-      r = stepper(cur);
+      r = stepper(cur, ctx);
     } catch (e) {
       if (e instanceof SizeCap) return { status: "capped", steps, term: cur, reason: `${e.message} (after ${n} β-steps)` };
       throw e;
     }
     if (!r) return { status: "normal", term: cur, steps };
-    if (n >= maxSteps) {
-      return { status: "capped", steps, term: cur, reason: `no normal form within ${maxSteps} β-steps` };
+    if (r.delta !== undefined) {
+      deltas++;
+      if (deltas > maxSteps * 4) return { status: "capped", steps, term: cur, reason: `no normal form within ${maxSteps * 4} definition expansions` };
+      cur = r.term;
+      steps.push({ n: steps.length + 1, rule: "δ", term: cur, detail: `${r.delta} → ${show((ctx.defs.get(r.delta) as Binding).term, 120)}` });
+    } else {
+      if (n >= maxSteps) {
+        return { status: "capped", steps, term: cur, reason: `no normal form within ${maxSteps} β-steps` };
+      }
+      for (const rn of r.renames) {
+        steps.push({ n: steps.length + 1, rule: "α", term: cur, detail: `${rn.from} renamed to ${rn.to} to avoid capture` });
+      }
+      n++;
+      cur = r.term;
+      steps.push({ n: steps.length + 1, rule: "β", term: cur, detail: showCut(r.redex) });
     }
-    for (const rn of r.renames) {
-      steps.push({ n: steps.length + 1, rule: "α", term: cur, detail: `${rn.from} renamed to ${rn.to} to avoid capture` });
-    }
-    n++;
-    cur = r.term;
-    steps.push({ n: steps.length + 1, rule: "β", term: cur, detail: showCut(r.redex) });
     const size = termSize(cur);
     if (size > MAX_TERM_SIZE) {
       return { status: "capped", steps, term: cur, reason: `the term grew past ${MAX_TERM_SIZE} nodes (${size}) after ${n} β-steps` };
@@ -718,9 +845,9 @@ export function reduce(start: Term, strategy: Strategy = "normal", maxSteps = MA
     if (work > MAX_WORK) {
       return { status: "capped", steps, term: cur, reason: `the reduction exceeded its work budget (${MAX_WORK.toLocaleString("en-US")} node-steps) after ${n} β-steps` };
     }
-    const prev = remember(cur, n);
+    const prev = remember(cur, n + deltas);
     if (prev !== null) {
-      return { status: "diverges", steps, cycleLength: n - prev, term: cur };
+      return { status: "diverges", steps, cycleLength: n + deltas - prev, term: cur };
     }
   }
 }
@@ -926,7 +1053,8 @@ type Value =
   | { k: "nat"; n: number }
   | { k: "bool"; b: boolean }
   | { k: "prim"; name: string; f: (a: Value) => Value }
-  | { k: "stuck"; name: string };
+  /** A free variable applied to arguments — the "stuck" part of a normal form. */
+  | { k: "neu"; name: string; args: Thunk[] };
 interface Thunk { term?: Term; env?: Env; value?: Value; forcing?: boolean }
 type Env = Map<string, Thunk>;
 
@@ -951,7 +1079,7 @@ type Frame =
 function runMachine(start: { term: Term; env: Env } | { value: Value }, stack: Frame[], fuel: Fuel): Value {
   let evalTerm: Term | null = "term" in start ? start.term : null;
   let env: Env = "term" in start ? start.env : new Map();
-  let val: Value = "value" in start ? start.value : { k: "stuck", name: "" };
+  let val: Value = "value" in start ? start.value : { k: "neu", name: "", args: [] };
   for (;;) {
     if (evalTerm) {
       fuel.tick();
@@ -959,7 +1087,7 @@ function runMachine(start: { term: Term; env: Env } | { value: Value }, stack: F
       switch (t.kind) {
         case "var": {
           const th = env.get(t.name);
-          if (!th) { val = { k: "stuck", name: t.name }; evalTerm = null; break; }
+          if (!th) { val = { k: "neu", name: t.name, args: [] }; evalTerm = null; break; }
           if (th.value) { val = th.value; evalTerm = null; break; }
           if (th.forcing) throw new FuelExhausted(); // a self-referential thunk is a loop
           th.forcing = true;
@@ -1000,6 +1128,10 @@ function runMachine(start: { term: Term; env: Env } | { value: Value }, stack: F
       env = env2;
       continue;
     }
+    if (val.k === "neu") {
+      val = { k: "neu", name: val.name, args: [...val.args, frame.thunk] };
+      continue;
+    }
     if (val.k === "prim") {
       const th = frame.thunk;
       stack.push({ k: "prim", f: val });
@@ -1019,17 +1151,101 @@ function evaluate(t: Term, env: Env, fuel: Fuel): Value {
   return runMachine({ term: t, env }, [], fuel);
 }
 
+/** An environment in which every definition is a (recursively shared) thunk. */
+function envOf(defs: Map<string, Binding>): Env {
+  const env: Env = new Map();
+  for (const [name, b] of defs) env.set(name, { term: b.term, env });
+  return env;
+}
+
+// Normalisation by evaluation: evaluate with sharing, then read the value
+// back as a term. A closure is read back by applying it to a fresh neutral
+// variable; a neutral is its name applied to its (forced, read back)
+// arguments. Work is shared across every use of an argument, which is what
+// the step-by-step reducer cannot do — Y-recursion that copies its body on
+// every unfolding costs here only what the computation itself costs.
+class NfTooBig extends Error { constructor(public why: "size" | "depth") { super(why); } }
+
+/** Machine ticks for normalisation by evaluation (~0.5 µs each): enough for
+ *  FACT 6 and FIB 10 through Y, and for the 65,536 readout of 2 2 2 2, while
+ *  an exhausted run costs about a quarter of a second. */
+export const NBE_FUEL = 500_000;
+
+export function nbe(t: Term, defs: Map<string, Binding> = NO_DEFS, fuel = NBE_FUEL): { term: Term } | { tooBig: true; why: "size" | "depth"; numeral: number | null } | null {
+  let value: Value | null = null;
+  const fu = new Fuel(fuel);
+  try {
+    // Fresh binder names must dodge the term's free variables AND every
+    // name a definition body carries (a closure's env may hold the neutral
+    // q of `let BB = λx.q`), or the read-back captures it.
+    const used = new Set<string>([...freeVars(t), ...allNeeds(defs)]);
+    let nodes = 0;
+    const quote = (val: Value, depth: number): Term => {
+      if (++nodes > MAX_TERM_SIZE) throw new NfTooBig("size");
+      if (depth > MAX_TERM_DEPTH) throw new NfTooBig("depth");
+      if (val.k === "clo") {
+        const fresh = used.has(val.param) ? freshName(val.param, used) : val.param;
+        used.add(fresh);
+        const inner = runMachine({ value: val }, [{ k: "arg", thunk: { value: { k: "neu", name: fresh, args: [] } } }], fu);
+        const body = quote(inner, depth + 1);
+        used.delete(fresh);
+        return lam(fresh, body);
+      }
+      if (val.k === "neu") {
+        let out: Term = v(val.name);
+        for (const th of val.args) {
+          const forced = th.value ?? runMachine({ term: th.term as Term, env: th.env as Env }, [], fu);
+          th.value = forced;
+          out = app(out, quote(forced, depth + 1));
+          if (++nodes > MAX_TERM_SIZE) throw new NfTooBig("size");
+        }
+        return out;
+      }
+      throw new FuelExhausted(); // natives never appear here
+    };
+    value = evaluate(t, envOf(defs), fu);
+    return { term: quote(value, 1) };
+  } catch (e) {
+    if (e instanceof NfTooBig) {
+      // The read-back grew past the cap: a large normal form OR an infinite
+      // unfolding (Y f) — the two look the same from here. A numeral readout
+      // of the same value settles the first case: it terminates only when the
+      // term applied to a native successor and zero is a number.
+      let numeral: number | null = null;
+      try {
+        const succ: Value = { k: "prim", name: "succ", f: (a) => (a.k === "nat" ? { k: "nat", n: a.n + 1 } : { k: "neu", name: "succ", args: [] }) };
+        const r1 = runMachine({ value: value as Value }, [{ k: "arg", thunk: { value: succ } }], fu);
+        const r2 = runMachine({ value: r1 }, [{ k: "arg", thunk: { value: { k: "nat", n: 0 } } }], fu);
+        numeral = r2.k === "nat" ? r2.n : null;
+      } catch (e2) {
+        if (!(e2 instanceof FuelExhausted) && !(e2 instanceof RangeError)) throw e2;
+      }
+      return { tooBig: true, why: e.why, numeral };
+    }
+    if (e instanceof FuelExhausted || e instanceof RangeError) return null;
+    throw e;
+  }
+}
+
+/** The request's term with every definition expanded — what the verbs that
+ *  need a closed λ-term work on, and what tests reduce without δ-steps. */
+export function expandedTerm(input: string): Term {
+  const req = parseLambdaRequest(input);
+  if (!req) throw new LambdaSyntaxError("Empty input.");
+  return expandDefs(req.term, req.defs).term;
+}
+
 function applyValue(f: Value, arg: Thunk, fuel: Fuel): Value {
   return runMachine({ value: f }, [{ k: "arg", thunk: arg }], fuel);
 }
 
 /** Runs the term as a Church numeral through the closure evaluator.
  *  null = could not be decided within the fuel (never a wrong number). */
-export function evalAsNumeral(t: Term, fuel = 200000): number | null {
+export function evalAsNumeral(t: Term, fuel = 200000, defs: Map<string, Binding> = NO_DEFS): number | null {
   try {
     const fu = new Fuel(fuel);
-    const f = evaluate(t, new Map(), fu);
-    const succ: Value = { k: "prim", name: "succ", f: (a) => (a.k === "nat" ? { k: "nat", n: a.n + 1 } : { k: "stuck", name: "succ" }) };
+    const f = evaluate(t, envOf(defs), fu);
+    const succ: Value = { k: "prim", name: "succ", f: (a) => (a.k === "nat" ? { k: "nat", n: a.n + 1 } : { k: "neu", name: "succ", args: [] }) };
     const r1 = applyValue(f, { value: succ }, fu);
     const r2 = applyValue(r1, { value: { k: "nat", n: 0 } }, fu);
     return r2.k === "nat" ? r2.n : null;
@@ -1038,10 +1254,10 @@ export function evalAsNumeral(t: Term, fuel = 200000): number | null {
   }
 }
 
-export function evalAsBoolean(t: Term, fuel = 200000): boolean | null {
+export function evalAsBoolean(t: Term, fuel = 200000, defs: Map<string, Binding> = NO_DEFS): boolean | null {
   try {
     const fu = new Fuel(fuel);
-    const f = evaluate(t, new Map(), fu);
+    const f = evaluate(t, envOf(defs), fu);
     const r1 = applyValue(f, { value: { k: "bool", b: true } }, fu);
     const r2 = applyValue(r1, { value: { k: "bool", b: false } }, fu);
     return r2.k === "bool" ? r2.b : null;
@@ -1224,18 +1440,27 @@ export const LIBRARY_NAMES: string[] = LIB_SOURCE.map(([n]) => n);
  *  the user's binders (let F = λx.y ⏎ (λy.F y) z is y, not z). Renames made
  *  on the way are returned so they can be stated. */
 function expandDefs(t: Term, defs: Map<string, Binding>): { term: Term; renames: Rename[] } {
-  const used = keysOccurringFree(t, new Set(defs.keys()));
-  if (used.size === 0) return { term: t, renames: [] };
-  const env = new Map<string, Binding>();
-  for (const k of used) env.set(k, defs.get(k) as Binding);
+  // Definition bodies are kept LAZY (they name other definitions), so a full
+  // expansion iterates; the library is acyclic and `let rec` goes through Y,
+  // so this terminates — the bound is a guard, not a budget.
   const renames: Rename[] = [];
-  return { term: substituteMany(t, env, renames), renames };
+  let cur = t;
+  for (let round = 0; round < 64; round++) {
+    const used = keysOccurringFree(cur, new Set(defs.keys()));
+    if (used.size === 0) return { term: cur, renames };
+    const env = new Map<string, Binding>();
+    for (const k of used) env.set(k, defs.get(k) as Binding);
+    cur = substituteMany(cur, env, renames);
+  }
+  throw new LambdaSyntaxError("The definitions refer to each other in a cycle (mutual recursion), or nest more than 64 deep, so there is no finite expanded term — only reduction handles that.");
 }
 
 function buildLibrary(): Map<string, Binding> {
   const defs = new Map<string, Binding>();
   for (const [name, src] of LIB_SOURCE) {
-    const term = expandDefs(parseTerm(src), defs).term;
+    // Stored as written (other names stay names): the reducer expands a name
+    // at its use, so PRED's forty nodes are copied only when PRED is applied.
+    const term = prepareForLazy(parseTerm(src), defs).term;
     defs.set(name, { term, fv: freeVars(term) });
   }
   return defs;
@@ -1277,6 +1502,8 @@ export interface LambdaRequest {
   strategy: Strategy;
   other?: Term;
   notes: string[];
+  /** The definitions in force (library + let), for the lazy reducer. */
+  defs: Map<string, Binding>;
   /** The term as the user wrote it, after definitions were expanded. */
   shown: string;
 }
@@ -1324,6 +1551,10 @@ export function parseLambdaRequest(input: string): LambdaRequest | null {
   };
   let last = lines[lines.length - 1].text;
   const lastNo = lines[lines.length - 1].no;
+  // Pass 1: parse and store every definition, so that a body may name a
+  // LATER definition (mutual recursion through let rec); pass 2 prepares
+  // each body against the complete set.
+  const pending: { name: string; no: number; isRec: boolean }[] = [];
   for (let i = 0; i < lines.length - 1; i++) {
     const { text, no } = lines[i];
     const m = DEF_RE.exec(text);
@@ -1331,17 +1562,38 @@ export function parseLambdaRequest(input: string): LambdaRequest | null {
     const isRec = !!m[1];
     const name = m[2];
     const pn: ParseNote[] = [];
-    // `let rec F = body` is F = Y (λF.body): the name is bound inside its
-    // own body, and the fixed-point combinator ties the knot.
-    const parsed = located(`Line ${no}, in the term after "="`, () => parseChecked(m[3], pn));
-    const toExpand = isRec ? app(v("Y"), lam(name, parsed)) : parsed;
-    const ex = located(`Line ${no}`, () => expandDefs(toExpand, defs));
+    let parsed = located(`Line ${no}, in the term after "="`, () => parseChecked(m[3], pn));
     for (const n of pn) notes.push(n.text);
-    for (const r of ex.renames) notes.push(`In ${name}: ${r.from} renamed to ${r.to} so a definition's free variable is not captured.`);
+    if (!isRec && freeVars(parsed).has(name)) {
+      const earlier = defs.get(name);
+      if (!earlier) throw new LambdaSyntaxError(`Line ${no}: ${name} is used inside its own definition. Write "let rec ${name} = …" for recursion (a plain let can only refer to an EARLIER ${name}, and there is none).`);
+      // The inner name means the earlier definition: expand it now, so the
+      // new body never refers to itself.
+      parsed = substituteMany(parsed, new Map([[name, earlier]]), []);
+      notes.push(`Inside the new ${name}, the earlier ${name} was expanded (a plain let is not recursive; write let rec for that).`);
+    }
+    if (defs.has(name) && LIBRARY_NAMES.includes(name) && !pending.some((q) => q.name === name)) {
+      const users = LIB_SOURCE.filter(([, src]) => new RegExp(`(^|[^A-Za-z0-9_])${name}(?![A-Za-z0-9_])`).test(src)).map(([n]) => n);
+      if (users.length) notes.push(`${name} redefined: definitions expand where they are used, so the library entries that name ${name} (${users.join(", ")}) now use yours.`);
+    }
+    // `let rec F = body` is F = Y (λF.body) with the library's Y INLINED
+    // (a name would resolve to a user definition called Y).
+    const Yterm = (library().get("Y") as Term);
+    const raw2 = isRec ? app(Yterm, lam(name, parsed)) : parsed;
+    defs.set(name, { term: raw2, fv: freeVars(raw2) });
+    NEEDS_CACHE.delete(defs);
+    pending.push({ name, no, isRec });
+  }
+  for (const { name, no, isRec } of pending) {
+    const b = defs.get(name) as Binding;
+    const ex = located(`Line ${no}`, () => prepareForLazy(b.term, defs));
+    for (const r of ex.renames) notes.push(`In ${name}: ${r.from} renamed to ${r.to} so a definition expanded beneath it is not captured.`);
     if (isRec) notes.push(`${name} is recursive: defined as Y (λ${name}.…), so every use unfolds through the fixed-point combinator.`);
-    const fv = freeVars(ex.term);
-    if (fv.size) notes.push(`${name} has free variable${fv.size > 1 ? "s" : ""} ${[...fv].join(", ")} — allowed; it is an open term, and that variable stays free wherever ${name} is used.`);
-    defs.set(name, { term: ex.term, fv });
+    const fvAll = freeVars(ex.term);
+    const fv = [...fvAll].filter((x) => !defs.has(x));
+    if (fv.length) notes.push(`${name} has free variable${fv.length > 1 ? "s" : ""} ${fv.join(", ")} — allowed; it is an open term, and that variable stays free wherever ${name} is used.`);
+    defs.set(name, { term: ex.term, fv: fvAll });
+    NEEDS_CACHE.delete(defs);
   }
 
   let verb: LambdaRequest["verb"] = "reduce";
@@ -1389,7 +1641,7 @@ export function parseLambdaRequest(input: string): LambdaRequest | null {
     if (parts.length !== 2) throw new LambdaSyntaxError("alpha needs two terms separated by = (e.g. alpha λx.x = λy.y).");
     const t1 = expand(parts[0]);
     const t2 = expand(parts[1]);
-    return { term: t1, other: t2, verb, strategy, notes, shown: `${show(t1)}  vs  ${show(t2)}` };
+    return { term: t1, other: t2, verb, strategy, notes, defs, shown: `${show(t1)}  vs  ${show(t2)}` };
   }
   if (verb === "cl") {
     // Combinator names are CONSTANTS for this verb: they must not be
@@ -1397,10 +1649,18 @@ export function parseLambdaRequest(input: string): LambdaRequest | null {
     const pn: ParseNote[] = [];
     const term = located(where, () => parseChecked(last, pn));
     for (const n of pn) notes.push(n.text);
-    return { term, verb, strategy, notes, shown: show(term) };
+    return { term, verb, strategy, notes, defs, shown: show(term) };
+  }
+  if (verb === "reduce") {
+    // Lazy: names stay names, expanded by δ-steps where they are used.
+    const pn: ParseNote[] = [];
+    const prepared = located(where, () => prepareForLazy(parseChecked(last, pn), defs));
+    for (const n of pn) notes.push(n.text);
+    for (const r of prepared.renames) notes.push(`${r.from} renamed to ${r.to} so a definition expanded beneath it is not captured.`);
+    return { term: prepared.term, verb, strategy, notes, defs, shown: show(prepared.term) };
   }
   const term = expand(last);
-  return { term, verb, strategy, notes, shown: show(term) };
+  return { term, verb, strategy, notes, defs, shown: show(term) };
 }
 
 export function solveLambda(input: string): LambdaResult | null {
@@ -1510,22 +1770,102 @@ function solveLambdaInner(input: string): LambdaResult | null {
     };
   }
 
-  // reduce
-  const out = reduce(t, req.strategy);
+  // reduce — the lazy step reducer for the trace, normalisation by
+  // evaluation (sharing) for the headline whenever the trace is capped.
+  const defs = req.defs;
+  const out = reduce(t, req.strategy, MAX_STEPS, defs);
   const stratName = req.strategy === "normal" ? "normal order (leftmost-outermost)" : "applicative order (call-by-value, arguments first)";
   const steps: string[] = [`Start: ${showCut(t)}`];
   const shown = out.steps.slice(0, STEP_LINES_SHOWN);
   for (const s of shown) {
-    steps.push(s.rule === "β" ? `${s.n}. β  [${s.detail}]  →  ${showCut(s.term)}` : `${s.n}. α  ${s.detail}`);
+    steps.push(s.rule === "β" ? `${s.n}. β  [${s.detail}]  →  ${showCut(s.term)}` : s.rule === "δ" ? `${s.n}. δ  ${s.detail}` : `${s.n}. α  ${s.detail}`);
   }
   if (out.steps.length > STEP_LINES_SHOWN) steps.push(`… ${out.steps.length - STEP_LINES_SHOWN} more steps not listed.`);
 
   const betaCount = out.steps.filter((s) => s.rule === "β").length;
-  const alphaCount = out.steps.length - betaCount;
+  const alphaCount = out.steps.filter((s) => s.rule === "α").length;
+  const deltaCount = out.steps.filter((s) => s.rule === "δ").length;
   const display: string[] = [];
   const result: LambdaResult = { title: "β-reduction", display, steps, caveats, outcome: out };
   display.push(`Strategy: ${stratName}.`);
   const plural = (n: number, w: string): string => `${n} ${w}${n === 1 ? "" : "s"}`;
+  const counts = `${plural(betaCount, "β-step")}${deltaCount ? `, ${plural(deltaCount, "δ-expansion")}` : ""}${alphaCount ? `, ${plural(alphaCount, "α-rename")}` : ""}`;
+
+  // Decodes a normal form into the display; `independent` says whether a
+  // second mechanism confirmed the value.
+  const decodeInto = (nfTerm: Term, viaNbe: boolean): void => {
+    const num = decodeNumeral(nfTerm);
+    const bool = decodeBoolean(nfTerm);
+    result.decoded = {};
+    if (num !== null) {
+      result.decoded.numeral = num;
+      if (num === 0) {
+        result.decoded.boolean = false;
+        display.push("= Church numeral 0, which is the same term as FALSE (the encodings coincide).");
+      } else {
+        display.push(`= Church numeral ${num}`);
+      }
+      const check = evalAsNumeral(t, 200000, defs);
+      if (check === null) {
+        result.verified = null;
+        caveats.push("Independent check: the closure evaluator could not read the value out as a number (it did not finish within its fuel, or the result is not a numeral when applied to a successor), so the numeral is reported from one engine alone.");
+      } else if (check === num) {
+        result.verified = viaNbe ? null : true;
+        display.push(viaNbe
+          ? `Checked: evaluating the term against a native successor also gives ${check} (same evaluation engine, different readout — the step reducer did not finish).`
+          : `Verified: an independent environment-based evaluator also gives ${check}${num === 0 ? " (FALSE)" : ""}.`);
+      } else {
+        result.verified = false;
+        caveats.push(`CHECK FAILED: the evaluator gives ${check}, the normal form ${num}. This is a defect in this tool — do not use the result.`);
+      }
+    } else if (bool !== null) {
+      result.decoded.boolean = bool;
+      display.push(`= ${bool ? "TRUE" : "FALSE"} (Church boolean${bool ? "; the same term as K" : ""})`);
+      const check = evalAsBoolean(t, 200000, defs);
+      if (check === null) {
+        result.verified = null;
+        caveats.push("Independent check: the closure evaluator did not finish within its fuel, so the boolean is reported from one engine alone.");
+      } else if (check === bool) {
+        result.verified = viaNbe ? null : true;
+        display.push(viaNbe
+          ? `Checked: evaluating the term against native booleans also gives ${bool ? "TRUE" : "FALSE"} (same engine, different readout).`
+          : `Verified: an independent environment-based evaluator also gives ${bool ? "TRUE" : "FALSE"}.`);
+      } else {
+        result.verified = false;
+        caveats.push(`CHECK FAILED: the evaluator gives ${check ? "TRUE" : "FALSE"}, the normal form ${bool ? "TRUE" : "FALSE"}. This is a defect in this tool — do not use the result.`);
+      }
+    } else {
+      const list = decodeList(nfTerm);
+      if (list) display.push(`= list [${list.join(", ")}]`);
+    }
+    // The η view: a β-normal form may still η-reduce (λx.f x → f).
+    const eta = etaNormalize(nfTerm, 50);
+    if (eta.steps.length) {
+      display.push(`η-reduces further to: ${show(eta.term)}${eta.steps.length > 1 ? ` (${eta.steps.length} η-steps)` : ""}`);
+      const en = decodeNumeral(eta.term);
+      const eb = en === null ? decodeBoolean(eta.term) : null;
+      if (en !== null) display.push(`= Church numeral ${en} up to η (write “eta …” for the βη-normal form).`);
+      else if (eb !== null) display.push(`= ${eb ? "TRUE" : "FALSE"} up to η.`);
+    } else if (nfTerm.kind === "lam" && nfTerm.body.kind === "var" && nfTerm.body.name === nfTerm.param && num === null) {
+      caveats.push("λx.x is η-equivalent to Church numeral 1 (λf.λx.f x) but is not the same term, so nothing is decoded. POW 2 0 lands here.");
+    }
+    const fv = [...freeVars(nfTerm)];
+    if (fv.length) display.push(`Free variable${fv.length > 1 ? "s" : ""}: ${fv.join(", ")}`);
+  };
+  const typeOfInput = (): void => {
+    // The type is of the term with every definition expanded (a name has no
+    // simple type of its own); the same helper the tests reduce through.
+    try {
+      const expanded = expandedTerm(input);
+      const tl = typeLine(expanded, "Simple type of the term as written");
+      result.type = tl.type;
+      display.push(tl.line);
+    } catch (e) {
+      if (!(e instanceof LambdaSyntaxError)) throw e;
+      result.type = null;
+      display.push("Simple type: not computed — the definitions refer to each other in a cycle (mutual recursion), so there is no finite expanded term to type.");
+    }
+  };
 
   if (out.status === "normal") {
     const nf = show(out.term);
@@ -1533,67 +1873,19 @@ function solveLambdaInner(input: string): LambdaResult | null {
     display.push(`Normal form: ${nf}`);
     // The reducer stopped because its stepper found no redex; an independent
     // scan must agree, or "normal form" is a misnomer.
-    if (!isNormalForm(out.term)) caveats.push("CROSS-CHECK FAILED: the reported normal form still contains a redex — a defect in this tool.");
-    display.push(`${plural(betaCount, "β-step")}${alphaCount ? `, ${plural(alphaCount, "α-rename")}` : ""}.`);
-    const num = decodeNumeral(out.term);
-    const bool = decodeBoolean(out.term);
-    result.decoded = {};
-    if (num !== null) {
-      result.decoded.numeral = num;
-      if (num === 0) {
-        // One term, two readings — say both, since AND TRUE FALSE lands here.
-        result.decoded.boolean = false;
-        display.push("= Church numeral 0, which is the same term as FALSE (the encodings coincide).");
-      } else {
-        display.push(`= Church numeral ${num}`);
+    if (!isNormalForm(out.term, defs)) caveats.push("CROSS-CHECK FAILED: the reported normal form still contains a redex — a defect in this tool.");
+    display.push(`${counts}.`);
+    decodeInto(out.term, false);
+    // Normalisation by evaluation is a second, independent normaliser: it
+    // must reach the same normal form (up to α).
+    if (req.strategy === "normal") {
+      const alt = nbe(t, defs);
+      if (alt && "term" in alt) {
+        if (alphaEquivalent(alt.term, out.term)) steps.push("Verified: normalisation by evaluation (a separate normaliser, with sharing) reaches the same normal form.");
+        else caveats.push("CROSS-CHECK FAILED: normalisation by evaluation reaches a different normal form — a defect in this tool.");
       }
-      const check = evalAsNumeral(t);
-      if (check === null) {
-        result.verified = null;
-        caveats.push("Independent check: the closure evaluator did not finish within its fuel, so the numeral is reported from the reducer alone.");
-      } else if (check === num) {
-        result.verified = true;
-        display.push(`Verified: an independent environment-based evaluator also gives ${check}${num === 0 ? " (FALSE)" : ""}.`);
-      } else {
-        result.verified = false;
-        caveats.push(`CHECK FAILED: the independent evaluator gives ${check}, the reducer ${num}. This is a defect in this tool — do not use the result.`);
-      }
-    } else if (bool !== null) {
-      result.decoded.boolean = bool;
-      display.push(`= ${bool ? "TRUE" : "FALSE"} (Church boolean${bool ? "; the same term as K" : ""})`);
-      const check = evalAsBoolean(t);
-      if (check === null) {
-        result.verified = null;
-        caveats.push("Independent check: the closure evaluator did not finish within its fuel, so the boolean is reported from the reducer alone.");
-      } else if (check === bool) {
-        result.verified = true;
-        display.push(`Verified: an independent environment-based evaluator also gives ${bool ? "TRUE" : "FALSE"}.`);
-      } else {
-        result.verified = false;
-        caveats.push(`CHECK FAILED: the independent evaluator gives ${check ? "TRUE" : "FALSE"}, the reducer ${bool ? "TRUE" : "FALSE"}. This is a defect in this tool — do not use the result.`);
-      }
-    } else {
-      const list = decodeList(out.term);
-      if (list) display.push(`= list [${list.join(", ")}]`);
     }
-    // The η view: a β-normal form may still η-reduce (λx.f x → f), and the
-    // βη-normal form may be what the reader meant — POW 2 0 is λx.x, which
-    // is η-equal to Church 1 but not the same term.
-    const eta = etaNormalize(out.term, 50);
-    if (eta.steps.length) {
-      display.push(`η-reduces further to: ${show(eta.term)}${eta.steps.length > 1 ? ` (${eta.steps.length} η-steps)` : ""}`);
-      const en = decodeNumeral(eta.term);
-      const eb = en === null ? decodeBoolean(eta.term) : null;
-      if (en !== null) display.push(`= Church numeral ${en} up to η (write “eta …” for the βη-normal form).`);
-      else if (eb !== null) display.push(`= ${eb ? "TRUE" : "FALSE"} up to η.`);
-    } else if (out.term.kind === "lam" && out.term.body.kind === "var" && out.term.body.name === out.term.param && num === null) {
-      caveats.push("λx.x is η-equivalent to Church numeral 1 (λf.λx.f x) but is not the same term, so nothing is decoded. POW 2 0 lands here.");
-    }
-    const fv = [...freeVars(out.term)];
-    if (fv.length) display.push(`Free variable${fv.length > 1 ? "s" : ""}: ${fv.join(", ")}`);
-    const tl = typeLine(t, "Simple type of the term as written");
-    result.type = tl.type;
-    display.push(tl.line);
+    typeOfInput();
     if (req.strategy === "normal") {
       caveats.push("Normal order reaches the normal form whenever one exists (standardisation theorem).");
     } else {
@@ -1603,19 +1895,47 @@ function solveLambdaInner(input: string): LambdaResult | null {
     display.push(`DIVERGES: after ${plural(betaCount, "β-step")} the term returned to an earlier form (a cycle of length ${out.cycleLength}), so this reduction never terminates.`);
     display.push(`Cycling term: ${showCut(out.term)}`);
     if (req.strategy === "applicative") {
-      const alt = reduce(t, "normal");
+      const alt = reduce(t, "normal", MAX_STEPS, defs);
       if (alt.status === "normal") {
         display.push(`Normal order DOES terminate on this term: ${showCut(alt.term)} — the arguments-first strategy evaluated a diverging argument that normal order discards.`);
       }
     }
     caveats.push("A cycle is a proof of divergence for this strategy; it says nothing about other strategies unless stated above.");
   } else {
-    display.push(`No normal form found: ${out.reason}.`);
-    display.push(`Last term: ${showCut(out.term)}`);
-    caveats.push("The cap is a limit of this tool, not a theorem: the term may still have a normal form (normalisation is undecidable in general), or it may diverge without ever repeating itself.");
-    if (req.strategy === "applicative") {
-      const alt = reduce(t, "normal");
-      if (alt.status === "normal") display.push(`Normal order DOES terminate on this term: ${showCut(alt.term)}.`);
+    // The trace hit a cap. With sharing, the normal form may still be in reach.
+    const alt = req.strategy === "normal" ? nbe(t, defs) : null;
+    if (alt && "term" in alt) {
+      const nf = show(alt.term);
+      result.normalForm = nf;
+      display.push(`Normal form: ${nf}`);
+      const reasonOnly = out.reason.replace(/\s*\(?after \d+ β-steps\)?\s*$/, "");
+      display.push(`Found by normalisation by evaluation (closure evaluation with sharing, read back as a term); the step-by-step trace stopped first — ${reasonOnly}, after ${counts} in the trace.`);
+      decodeInto(alt.term, true);
+      if (!isNormalForm(alt.term, defs)) caveats.push("CROSS-CHECK FAILED: the read-back normal form still contains a redex — a defect in this tool.");
+      typeOfInput();
+    } else if (alt && "tooBig" in alt) {
+      if (alt.numeral !== null) {
+        result.decoded = { numeral: alt.numeral };
+        const nfNodes = 2 * alt.numeral + 3;
+        const capText = alt.why === "size"
+          ? `its normal form (${nfNodes.toLocaleString("en-US")} nodes) is above the ${MAX_TERM_SIZE.toLocaleString("en-US")}-node print cap`
+          : `its normal form (${nfNodes.toLocaleString("en-US")} nodes, ${(alt.numeral + 2).toLocaleString("en-US")} deep) is above the ${MAX_TERM_DEPTH.toLocaleString("en-US")}-deep print cap`;
+        display.push(`= Church numeral ${alt.numeral.toLocaleString("en-US")} — read out by evaluating the term against a native successor and zero; ${capText}. The step-by-step trace stopped first: ${out.reason}.`);
+        caveats.push("One engine (closure evaluation with sharing) produced this value; the step-by-step reducer could not finish, so there is no second mechanism confirming it.");
+      } else {
+        display.push(`No normal form found: ${out.reason} in the trace, and normalisation by evaluation produced more than ${MAX_TERM_SIZE.toLocaleString("en-US")} nodes of output without finishing — either a normal form larger than the cap or an infinite unfolding (Y f has no normal form at all); the two cannot be told apart here.`);
+        display.push(`Last term in the trace: ${showCut(out.term)}`);
+        caveats.push("The cap is a limit of this tool, not a theorem: normalisation is undecidable in general.");
+      }
+      typeOfInput();
+    } else {
+      display.push(`No normal form found: ${out.reason}.`);
+      display.push(`Last term: ${showCut(out.term)}`);
+      caveats.push("The cap is a limit of this tool, not a theorem: the term may still have a normal form (normalisation is undecidable in general), or it may diverge without ever repeating itself. Normalisation by evaluation did not finish within its fuel either.");
+      if (req.strategy === "applicative") {
+        const alt2 = reduce(t, "normal", MAX_STEPS, defs);
+        if (alt2.status === "normal") display.push(`Normal order DOES terminate on this term: ${showCut(alt2.term)}.`);
+      }
     }
   }
   return result;

@@ -148,12 +148,14 @@ describe("λ-calculus let rec", () => {
     // ~75 ms alone; a gross-freeze bound, since jest's instrumentation and
     // parallel load multiply wall-clock several-fold.
     expect(`FACT 3: ${ms < 2000 ? "fast" : `SLOW ${ms}ms`}`).toBe("FACT 3: fast");
-    // FACT 5 through Y exceeds the work budget (each unfolding copies the whole
-    // body); the result is an honest cap, not a hang and not a wrong number.
+    // FACT 5 through Y exceeds the step trace's work budget (each unfolding
+    // copies the whole body) — and normalisation by evaluation, which shares
+    // that work, still delivers the normal form.
     const t1 = Date.now();
     const r5 = solveLambda(`${def}\nFACT 5`)!;
     expect(Date.now() - t1).toBeLessThan(2000);
     expect(r5.outcome!.status).toBe("capped");
-    expect(r5.display.join(" ")).toMatch(/work budget/);
+    expect(r5.decoded?.numeral).toBe(120);
+    expect(r5.display.join(" ")).toMatch(/Found by normalisation by evaluation/);
   });
 });

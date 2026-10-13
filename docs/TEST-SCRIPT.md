@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.124.0)
+# JurisLab — Manual Test Script (v2.125.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -3010,6 +3010,18 @@ Engineering mode, Energy & power (now 17; the mode must state **101 calculators*
   - `(0,0,0) (1,1,1) (2,2,2)` -> refused as **COLLINEAR**: no plane.
   - `circle r=1/3` -> area **1/9*pi** exactly, and `box 1/2 1/3 1/4` -> volume **1/24**.
     (Typed fractions must stay exact — no long decimals or giant fractions anywhere.)
+- [ ] **Hamiltonian certificates and lazy λ (v2.125.0).**
+  - Discrete math: `hamiltonian` over a 20-vertex PATH list (v0-v1 … v18-v19) -> cycle **NONE — proof:
+    v0 has degree 1**, path **yes** with the path drawn. Over a 20-vertex star -> both NONE with proofs.
+  - A 3-hub / 5-triangle list (hubs h1 h2 h3; each triangle vertex joined to every hub) -> cycle NONE,
+    proof "removing h1, h2, h3 leaves 5 components". With 4 hubs and 6 triangles -> "NOT FOUND within the
+    budget … NOT a proof". Both return in under a second.
+  - λ-calculus: `PLUS 2 3` now shows a **δ** line first (`PLUS → λm.λn.λf.λx.…`) then the β-steps;
+    `let rec FACT = λn.IF (ISZERO n) 1 (MULT n (FACT (PRED n)))` then `FACT 5` -> **Church numeral 120**
+    with the line "Found by normalisation by evaluation"; `FACT 6` -> 720; `2 2 2 2` -> "= Church numeral
+    65,536 — read out …" with the print cap named; `Y f` -> "No normal form found" (it must NOT claim one
+    exists). Each returns in well under a second.
+
 - [ ] **Discrete math (v2.124.0).** Switch the dropdown to **Discrete math**. One box, six engines.
   - `gcd 84 36` -> **12**, the Euclid lines (84 = 2 × 36 + 12 …) and `Bézout: 84 × (1) + 36 × (−2) = 12`.
   - `7^100 mod 13` -> **7¹⁰⁰ ≡ 9 (mod 13)** plus the Fermat line; `inverse 6 mod 9` -> refused, naming gcd 3.
@@ -3027,7 +3039,8 @@ Engineering mode, Energy & power (now 17; the mode must state **101 calculators*
     state), abb and aabb ACCEPT, ab REJECT. Insert: the diagram lands in the document.
   - `shortest path A to F` over the Dijkstra edge list from the palette -> length **11** (A-C-F),
     the graph DRAWN with the path highlighted. `mst` over the CLRS list -> total **37**.
-  - `hamiltonian` over a 13-vertex list -> refused by name (NP-hard, cap 12). Nothing may hang.
+  - `hamiltonian` over a 17-vertex cycle list -> the cycle is exhibited and called a proof; the
+    first working line says 17 is above the exhaustive range (16). Nothing may hang.
 - [ ] **λ-calculus extras (v2.124.0).** Still the **λ-calculus (reduction)** kind.
   - `eta λx.λy.g x y` -> βη-normal form **g**, two η-steps listed.
   - `ski λf.λx.f (f x)` -> **S (S (K S) K) I** and the "Verified: applied to 2 fresh variables" line.

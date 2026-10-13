@@ -46,6 +46,7 @@ const PINNED: Record<string, string> = {
   "λ-calculus": "2.123.0",
   "Discrete math": "2.124.0",
   "λ-calculus extras": "2.124.0",
+  "Hamiltonian certificates and lazy λ": "2.125.0",
 };
 
 describe("the manual test script's version tags are history, not a moving target", () => {

@@ -121,3 +121,21 @@ describe("symbol snippets are the Solve grammar, not the Math-mode DSL", () => {
     }
   });
 });
+
+describe("every λ-calculus template is accepted by the λ engine", () => {
+  const { SOLVE_LAMBDA, SOLVE_LAMBDA_SYMBOLS } = require("../palettes") as typeof import("../palettes");
+  const { solveLambda, parseTerm } = require("../lambda") as typeof import("../lambda");
+  const all = SOLVE_LAMBDA.flatMap((g) => g.items.map((i) => ({ group: g.name, ...i })));
+  test.each(all.map((i) => [i.label, i.snippet] as const))("%s: %s", (_label, snippet) => {
+    // Must not throw (a syntax error is a thrown LambdaSyntaxError) and must answer.
+    const r = solveLambda(snippet);
+    expect(r).not.toBeNull();
+    expect(r!.display.length).toBeGreaterThan(0);
+    // No template may trip the reducer's own cross-check.
+    expect(r!.verified).not.toBe(false);
+  });
+  it("the λ symbol snippet is the glyph the parser reads as a binder", () => {
+    const lam = SOLVE_LAMBDA_SYMBOLS[0].items.find((i) => i.label === "λ")!;
+    expect(parseTerm(`${lam.snippet}x.x`).kind).toBe("lam");
+  });
+});

@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.122.0)
+# JurisLab — Manual Test Script (v2.123.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -339,7 +339,8 @@ geometry now draws, and what the pane previews must be what Word receives.
 - [ ] Click **F = ma** in Physics → input becomes `F = m a`, chips offer F / m / a; pick `a` → `a = F/m` with m ≠ 0.
 - [ ] Click **√** with the cursor mid-expression → `sqrt()` lands at the cursor, caret inside the parens.
 - [ ] Switch to Geometry kind → the palette swaps to Composite figures / Single shapes templates;
-  Topology and Word problem kinds show no palette.
+  Topology and Word problem kinds show no palette; λ-calculus shows its own
+  (Symbols / Reduction / Church encodings / Questions).
 
 ## 0ay. NEW — EVERY calculator draws, everywhere (84 of 84 outside Engineering)
 
@@ -3009,6 +3010,23 @@ Engineering mode, Energy & power (now 17; the mode must state **101 calculators*
   - `(0,0,0) (1,1,1) (2,2,2)` -> refused as **COLLINEAR**: no plane.
   - `circle r=1/3` -> area **1/9*pi** exactly, and `box 1/2 1/3 1/4` -> volume **1/24**.
     (Typed fractions must stay exact — no long decimals or giant fractions anywhere.)
+- [ ] **λ-calculus (v2.123.0).** Switch the dropdown to **λ-calculus (reduction)**.
+  - `(λx.λy.x) y` -> an **α** line (y renamed to y₁ to avoid capture) then one β-step; normal
+    form **λy₁.y** — it must NOT say λy.y. Insert: the λ and the subscript arrive intact.
+  - `PLUS 2 3` -> normal form λf.λx.f (f (f (f (f x)))), **= Church numeral 5**, and the line
+    "Verified: an independent environment-based evaluator also gives 5". Type (α → α) → α → α.
+  - `K I OMEGA` -> **λx.x**. `applicative K I OMEGA` -> **DIVERGES** (cycle of length 1) AND the
+    sentence saying normal order does terminate, giving λx.x. Neither may hang.
+  - `OMEGA` -> DIVERGES after 1 β-step. `Y f` -> "No normal form found: no normal form within
+    1000 β-steps" with the caveat that the cap is not a theorem. Both return in under a second.
+  - `2 2 2 2` -> refused by a cap ("no normal form within 1000 β-steps"), returning at once;
+    `(λx.x x x x x x x x) (λx.x x x x x x x x)` -> the size cap ("grew past 8000 nodes").
+  - `type λf.λx.f (f x)` -> **(α → α) → α → α**; `type λx.x x` -> not simply typable.
+  - Line 1 `let TWICE = λf.λx.f (f x)`, line 2 `TWICE SUCC 0` -> Church numeral 2.
+  - `λx.xx` -> a note saying "xx" was read as x x; `(λx.x` -> a syntax error naming the missing ")".
+  - The palette shows Symbols (λ) and the Reduction / Church encodings / Questions templates;
+    every template button produces an answer, never "Could not solve".
+
 - [ ] **Topology / homology (v2.8.0).** Switch the dropdown to **Topology (homology)**.
   - `torus` -> H_0 = Z, H_1 = Z^2, H_2 = Z; Betti 1, 2, 1; chi = 0.
   - `sphere` -> H_0 = Z, H_1 = 0, H_2 = Z; chi = 2.

@@ -539,3 +539,53 @@ export const SOLVE_SHAPES: PaletteGroup[] = [
     ],
   },
 ];
+
+/** The λ itself, for the λ-calculus kind — the one glyph a keyboard lacks. */
+export const SOLVE_LAMBDA_SYMBOLS: PaletteGroup[] = [
+  {
+    name: "Symbols",
+    items: [
+      { label: "λ", snippet: "λ", title: "Abstraction — λx.x (a backslash works too)" },
+      { label: "λx.", snippet: "λx.", title: "Bind x" },
+      { label: "( )", snippet: "()", caret: 1, title: "Group — application is left-associative" },
+    ],
+  },
+];
+
+/** Whole-input λ-calculus templates: the textbook examples, loaded ready to reduce. */
+export const SOLVE_LAMBDA: PaletteGroup[] = [
+  {
+    name: "Reduction",
+    items: [
+      { label: "Identity", snippet: "(λx.x) y", title: "One β-step" },
+      { label: "Capture", snippet: "(λx.λy.x) y", title: "The binder must be renamed — watch the α-step" },
+      { label: "K I Ω", snippet: "K I OMEGA", title: "Normal order answers I; try applicative" },
+      { label: "Applicative", snippet: "applicative K I OMEGA", title: "Call-by-value diverges here — a proven cycle" },
+      { label: "Ω", snippet: "OMEGA", title: "(λx.x x)(λx.x x): the cycle of length 1" },
+      { label: "S K K", snippet: "S K K a", title: "S K K is the identity" },
+    ],
+  },
+  {
+    name: "Church encodings",
+    items: [
+      { label: "PLUS 2 3", snippet: "PLUS 2 3", title: "Church numerals: integers are literals" },
+      { label: "MULT 3 4", snippet: "MULT 3 4", title: "Decoded and independently verified" },
+      { label: "POW 2 3", snippet: "POW 2 3", title: "Exponentiation is application" },
+      { label: "PRED 5", snippet: "PRED 5", title: "Kleene's predecessor" },
+      { label: "AND TRUE FALSE", snippet: "AND TRUE FALSE", title: "Church booleans" },
+      { label: "ISZERO 0", snippet: "ISZERO 0", title: "Decoded as TRUE" },
+      { label: "Pairs", snippet: "FST (PAIR 3 4)", title: "PAIR / FST / SND" },
+      { label: "let", snippet: "let TWICE = λf.λx.f (f x)\nTWICE SUCC 0", title: "Definitions on the lines above the term" },
+    ],
+  },
+  {
+    name: "Questions",
+    items: [
+      { label: "type", snippet: "type λf.λx.f (f x)", title: "Principal simple type" },
+      { label: "untypable", snippet: "type λx.x x", title: "The occurs check — no simple type" },
+      { label: "free", snippet: "free λx.x y z", title: "Free variables" },
+      { label: "alpha", snippet: "alpha λx.λy.x = λa.λb.a", title: "α-equivalence by de Bruijn indices" },
+      { label: "Y", snippet: "Y f", title: "The fixed-point combinator unfolds forever — capped, and says so" },
+    ],
+  },
+];

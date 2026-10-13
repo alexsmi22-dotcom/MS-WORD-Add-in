@@ -98,6 +98,7 @@ import { limit, taylorSeries, parseLimitRequest, parseSeriesRequest } from "../l
 import { solveInequality } from "../lib/inequalities";
 import { solveGeometry } from "../lib/geometryParse";
 import { solveTopology, BUILTIN_NAMES } from "../lib/homology";
+import { solveLambda, LambdaSyntaxError } from "../lib/lambda";
 import { persistentHomology, barcodeSvg } from "../lib/persistence";
 import { solveWordProblem, WorkStep } from "../lib/wordproblem";
 import { predictIr, IrResult } from "../lib/ir";
@@ -315,6 +316,8 @@ import {
   SOLVE_SHAPES,
   SOLVE_CALCULUS,
   SOLVE_ODES,
+  SOLVE_LAMBDA,
+  SOLVE_LAMBDA_SYMBOLS,
   PaletteGroup,
   PaletteItem,
 } from "../lib/palettes";
@@ -26600,7 +26603,7 @@ async function insertJcampChart(): Promise<void> {
 // never answered with a guess.
 // ---------------------------------------------------------------------------
 
-type SolveKind = "equation" | "derivative" | "integral" | "ode" | "geometry" | "topology" | "word";
+type SolveKind = "equation" | "derivative" | "integral" | "ode" | "geometry" | "topology" | "lambda" | "word";
 
 /** Plain-text form of the current result, for insertion into Word. */
 let currentSolveText = "";
@@ -26717,9 +26720,9 @@ function solveInsertAtCursor(snippet: string, caret?: number): void {
  */
 function renderSolvePalette(kind: SolveKind): void {
   const snippetGroups: PaletteGroup[] =
-    kind === "equation" || kind === "derivative" || kind === "integral" ? SOLVE_SYMBOLS : [];
+    kind === "equation" || kind === "derivative" || kind === "integral" ? SOLVE_SYMBOLS : kind === "lambda" ? SOLVE_LAMBDA_SYMBOLS : [];
   const templateGroups: PaletteGroup[] =
-    kind === "equation" ? SOLVE_EQUATIONS : kind === "geometry" ? SOLVE_SHAPES : kind === "derivative" ? SOLVE_CALCULUS : kind === "ode" ? SOLVE_ODES : [];
+    kind === "equation" ? SOLVE_EQUATIONS : kind === "geometry" ? SOLVE_SHAPES : kind === "derivative" ? SOLVE_CALCULUS : kind === "ode" ? SOLVE_ODES : kind === "lambda" ? SOLVE_LAMBDA : [];
   solvePaletteEl.replaceChildren();
   solvePaletteEl.style.display = snippetGroups.length || templateGroups.length ? "block" : "none";
 
@@ -26771,6 +26774,7 @@ function updateSolveUi(): void {
     ode: "Differential equation in y(x) — y' = …, or y'' + a y' + b y = 0",
     geometry: "Geometry — a shape, points, or an equation in x and y",
     topology: "Topology — a named space, or a list of maximal simplices",
+    lambda: "λ-term — definitions on the lines above it (let NAME = …)",
     word: "Word problem (e.g. 12 is what percent of 48?)",
   };
   const placeholders: Record<SolveKind, string> = {
@@ -26780,6 +26784,7 @@ function updateSolveUi(): void {
     ode: "y' = x*y",
     geometry: "triangle 3 4 5",
     topology: "torus",
+    lambda: "(λx.λy.x) y",
     word: "twice a number plus 7 is 15",
   };
   const hints: Record<SolveKind, string> = {
@@ -26865,6 +26870,25 @@ function updateSolveUi(): void {
       "alexander polynomial of trefoil (with the knot determinant). " +
       "K-THEORY: k theory of S2 — complex K-theory, Bott-periodic. " +
       "The Jones polynomial is exact but NOT a complete invariant, and it says so.",
+    lambda:
+      "The untyped λ-calculus. Write λx.x, \\x.x or lambda x.x; application is by juxtaposition and " +
+      "associates left (a b c = (a b) c); the body of a λ extends as far right as possible. " +
+      "Every β-step is listed with the redex it contracted, and a binder that would CAPTURE a free " +
+      "variable is renamed first (an α-step, shown): (λx.λy.x) y → λy₁.y, never λy.y. " +
+      "NORMAL ORDER by default (it finds the normal form whenever one exists); write " +
+      "applicative … or call by value … for arguments-first — K I OMEGA answers λx.x one way and " +
+      "provably diverges the other. Three honest outcomes: a normal form; a PROVEN divergence " +
+      "(the term returned to itself — a cycle); or a cap (" +
+      "1000 β-steps, 8000 nodes, 1500 deep, or a work budget — all sized so a keystroke never waits), " +
+      "reported as a cap and not as a theorem, because normalisation " +
+      "is undecidable. INTEGERS ARE CHURCH NUMERALS (PLUS 2 3, MULT 3 4, POW 2 3, PRED 5, SUB 7 3); " +
+      "a numeral or boolean result is decoded AND re-computed by an independent evaluator. " +
+      "LIBRARY (uppercase): I K S B C W Y OMEGA · TRUE FALSE AND OR NOT IF · ZERO SUCC PLUS MULT POW " +
+      "PRED SUB ISZERO LEQ EQ · PAIR FST SND. DEFINITIONS go on the lines above the term: " +
+      "let TWICE = λf.λx.f (f x) ⏎ TWICE SUCC 0. QUESTIONS: type λf.λx.f (f x) → the principal " +
+      "simple type (α → α) → α → α, or “not simply typable” for λx.x x · free λx.x y → the free " +
+      "variables · alpha λx.x = λy.y → α-equivalence by de Bruijn indices. " +
+      "Textbook shorthand is read and NOTED: λxy.x binds two variables, and xx inside λx. is x x.",
     word: "Plain English — e.g. “12 is what percent of 48?” or “twice a number plus 7 is 15”.",
   };
   solveInputLabel.textContent = labels[kind];
@@ -26875,7 +26899,8 @@ function updateSolveUi(): void {
   solveInput.classList.toggle("solve-input-tall", kind === "word");
   // An equation box now accepts a SYSTEM, one equation per line, so it needs
   // more than one row to be usable.
-  solveInput.rows = kind === "word" ? 5 : kind === "equation" ? 3 : kind === "geometry" || kind === "topology" ? 2 : 1;
+  // A λ-term may carry definition lines above it.
+  solveInput.rows = kind === "word" ? 5 : kind === "equation" || kind === "lambda" ? 3 : kind === "geometry" || kind === "topology" ? 2 : 1;
   solveHint.textContent = hints[kind];
   solveBounds.style.display = kind === "integral" ? "block" : "none";
   renderSolvePalette(kind);
@@ -27126,7 +27151,10 @@ function updateSolve(): void {
   // Fold pasted mathematics FIRST — math-italic 𝑥, Greek θ, LaTeX, the
   // fraction slash — so paste-from-anywhere just works, and say what was
   // read. The input box keeps the user's own characters.
-  const folded = foldPastedMath(solveInput.value.trim(), {
+  // NOT for λ-terms: the fold reads the Greek letter λ as the VARIABLE
+  // lambda (which it is, in an equation), and λx.x would arrive as lambdax.x.
+  // The λ-calculus parser owns its own notation.
+  const folded = kind === "lambda" ? { text: solveInput.value.trim(), notes: [] as string[] } : foldPastedMath(solveInput.value.trim(), {
     geometry: kind === "geometry",
     ode: kind === "ode",
     // Stacked-fraction pastes only make sense where a fraction does; a
@@ -27946,6 +27974,35 @@ function updateSolve(): void {
         say(s);
       }
       return finish(h.caveats);
+    }
+
+    if (kind === "lambda") {
+      let lr;
+      try {
+        lr = solveLambda(text);
+      } catch (err) {
+        // A syntax error carries its position; a cap or depth refusal its
+        // reason. Either is the answer, not a crash.
+        if (err instanceof LambdaSyntaxError) {
+          return void solveResult.appendChild(solveLine(err.message, "ms-masses"));
+        }
+        throw err;
+      }
+      if (!lr) {
+        return void solveResult.appendChild(solveLine("Type a λ-term — e.g. (λx.λy.x) y, PLUS 2 3, or K I OMEGA."));
+      }
+      solveResult.appendChild(msEyebrow(lr.title));
+      say(lr.title, "heading");
+      // The headline (normal form, decoded value, type) then the working.
+      for (const line of lr.display) {
+        solveResult.appendChild(solveLine(line, "ms-masses"));
+        say(line);
+      }
+      for (const s of lr.steps) {
+        solveResult.appendChild(solveLine(s));
+        say(s);
+      }
+      return finish(lr.caveats);
     }
 
     // word problem

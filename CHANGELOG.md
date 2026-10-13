@@ -6,6 +6,83 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.123.0] — 2026-10-12 — The untyped λ-calculus
+
+### Added
+- **A λ-calculus kind in Solve** (`src/lib/lambda.ts`): parse (λ, \ or
+  the word lambda; application by juxtaposition, left-associative;
+  textbook shorthand λxy.x and xx-inside-λx. read and NOTED), then
+  β-reduce step by step with every contracted redex named and every
+  capture-avoiding α-rename listed as a step of its own
+  ((λx.λy.x) y → λy₁.y, never λy.y; renamed variables carry a subscript
+  that parses back, so the display contract holds).
+- **Normal order by default, applicative order by name** — the one
+  strategy with a theorem (standardisation) versus the one students
+  are taught to compare it with; `applicative K I OMEGA` shows
+  call-by-value provably diverging on a term normal order answers, and
+  says so in the same result.
+- **Three honest outcomes**: a normal form; a PROVEN divergence (the
+  term returned to an earlier form up to α-equivalence — a cycle, found
+  by de Bruijn hashing); or a cap (1000 β-steps, 8000 nodes, 1500 deep, or a
+  work budget of one million node-steps), reported as a cap and not as
+  a theorem, because normalisation is undecidable. The caps bound TIME,
+  since a pane recomputes on every keystroke: `2 2 2 2` (65,536) is
+  refused in milliseconds, not attempted.
+- **Church encodings and a library**: integers are Church numerals;
+  I K S B C W Y OMEGA, TRUE/FALSE/AND/OR/NOT/IF, ZERO/SUCC/PLUS/MULT/
+  POW/PRED/SUB/ISZERO/LEQ/EQ, PAIR/FST/SND are built in, and
+  `let NAME = term` lines above the term define more.
+- **Results checked two independent ways**: a numeral or boolean normal
+  form is decoded structurally AND the original term is re-run through
+  a separate environment-based lazy evaluator (closures and thunks, no
+  substitution at all) applied to native successor/zero; agreement is
+  reported, disagreement is reported as a defect. Same discipline as
+  the Euler-characteristic cross-check in homology.
+- **Questions**: `type …` gives the principal simple type by
+  unification ((α → α) → α → α for Church 2; λx.x x is not simply
+  typable, by the occurs check, and it says so); `free …` lists free
+  variables; `alpha A = B` decides α-equivalence by de Bruijn indices.
+- Palette (λ, plus Reduction / Church encodings / Questions templates,
+  every one pinned to produce an answer), hint, example, landing pages,
+  FEATURES, README and the manual test script all carry it.
+
+### Notes
+- Independent adversarial pass over the first version: the reducer held
+  against 4,000 random terms under both strategies (an independent de
+  Bruijn normaliser compared after EVERY step, zero mismatches), 300
+  random arithmetic expressions all decoded and cross-verified, 15
+  hand-computed principal types matched, and no capture could be
+  constructed. It found seven real defects, all closed and pinned:
+  `let` expansion CAPTURED (a definition's free y substituted under the
+  user's λy — `let F = λx.y ⏎ (λy.F y) z` answered z, correct is y;
+  expansion is now capture-avoiding substitution and says when it
+  renamed); substitution walked a captured body twice per binder,
+  giving phantom α-steps and 2^d time for d nested captures (now one
+  simultaneous pass — 17 nested captures went from 0.9 s to 20 ms);
+  Church 0 under a shadowed binder (λx.λx.x, which POW 0 2 produces)
+  was not decoded; the principal type is a DAG that prints as a tree
+  and was exponential with no cap (PAIR x x nested 22 deep built a
+  67 MB string — now budgeted in both unification work and printed
+  size, "too large to show"); "normal form of X" was parsed as the
+  term `form of X`; the step and size caps bounded time at ~2 s per
+  keystroke, so a WORK budget (total nodes walked, 1,000,000) now
+  bounds it at ~100 ms; and a single β-step could copy its argument
+  thousands of times past the size cap (a 6-million-node term and 12 MB
+  of step text) — the copy count is now checked BEFORE the step, the
+  input is size-checked as written, and step lines are cut at 400
+  characters while the normal-form line stays whole (it is the line
+  that must parse back). Also: real line numbers in errors (blank
+  lines were dropped before counting), located positions, a lone
+  surrogate never shown (math-italic 𝜆 is now read as λ), Greek-letter
+  variables accepted, the undocumented `^`-as-λ removed, defined names
+  never split by the shorthand heuristics, and the not-split case
+  (λxy.xy is ONE variable) now says so.
+- Depth is capped explicitly. The size cap bounds breadth, and the
+  walkers recurse on depth, so a wide application chain under the size
+  cap could still overflow the stack (found when a 2,500-wide chain
+  passed alone and failed inside a full jest run, whose stack is
+  deeper). The cap is set from measured stack capacity with margin.
+
 ## [2.122.0] — 2026-08-09 — Cross-release hardening, and the landing pages catch up
 
 ### Fixed

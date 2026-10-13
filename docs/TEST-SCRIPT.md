@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.125.0)
+# JurisLab — Manual Test Script (v2.126.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -3010,6 +3010,25 @@ Engineering mode, Energy & power (now 17; the mode must state **101 calculators*
   - `(0,0,0) (1,1,1) (2,2,2)` -> refused as **COLLINEAR**: no plane.
   - `circle r=1/3` -> area **1/9*pi** exactly, and `box 1/2 1/3 1/4` -> volume **1/24**.
     (Typed fractions must stay exact — no long decimals or giant fractions anywhere.)
+- [ ] **Complex numbers, partial fractions, parametric systems (v2.126.0).** Solve, Equation kind.
+  - `(2+3i)(1-i)` -> **5 + i** with the "Verified: floating-point evaluation of the original" line (it must NOT
+    solve for i). `(3+4i)/(1-2i)` -> −1 + 2i; `(1+i)^8` -> 16; `abs(3+4i)` -> 5; `arg(1+i)` -> π/4;
+    `sqrt(-4)` -> 2i; `1/(2+i)` -> 2/5 − (1/5)i; `abs(1+i)` -> √(2) ≈ 1.414. Insert: the result lands as a real equation and reads back.
+  - `sqrt(1+i)` -> labelled **NUMERIC** (≈ 1.0986841 + 0.4550899i), not "exact".
+  - `z^2 = 2i` -> z = 1 + i and z = −1 − i, each "substituted back"; `z^3 = i` -> three numeric roots.
+    `x^2 = -1` (no i typed) still goes to the ordinary solver and gives ±i as before.
+  - `partial fractions 1/(x^2-1)` -> 1/2/(x - 1) - 1/2/(x + 1) with the factored denominator and the
+    "recombined to confirm" step; `partial fractions 1/(x*(x+1)^2)` -> 1/x - 1/(x + 1) - 1/(x + 1)^2;
+    `partial fractions x^3/(x^2+1)` -> x - x/(x^2 + 1); `partial fractions 1/(x^4+4)` -> two quadratic terms
+    (x^2 - 2x + 2 and x^2 + 2x + 2); `partial fractions 1/(x^4+1)` -> REFUSED, "irreducible over ℚ".
+  - `(z - i)^3 = 0` -> ONE line z ≈ i with "multiplicity 3"; `i^2 = -1` -> TRUE; `ln(-1)` -> ≈ 3.141592654i
+    (positive); `sinh(i)` -> refused by name, not an error.
+  - Two lines `a x + y = 1` ⏎ `x - y = 2` -> heading "Solved for every value of the parameter a",
+    x = 3/(a + 1), y = (−2a + 1)/(a + 1) for a ∉ {−1}, and the line "a = −1: NO solution". Two lines
+    `x + a y = 1` ⏎ `a x + y = 1` -> x = y = 1/(a + 1) generically, a = 1: infinitely many (free variable
+    named), a = −1: no solution. Two extra letters (`a x + b y = 1` ⏎ `x - y = 2`) -> NOT parametric: the
+    ordinary message that 2 equations in 4 unknowns cannot be solved.
+
 - [ ] **Hamiltonian certificates and lazy λ (v2.125.0).**
   - Discrete math: `hamiltonian` over a 20-vertex PATH list (v0-v1 … v18-v19) -> cycle **NONE — proof:
     v0 has degree 1**, path **yes** with the path drawn. Over a 20-vertex star -> both NONE with proofs.

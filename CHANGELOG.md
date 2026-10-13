@@ -6,6 +6,81 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.126.0] — 2026-10-12 — The deferred equation-engine items
+
+### Added
+- **Complex numbers on input.** `i` is the imaginary unit. Arithmetic
+  over ℂ is exact on Gaussian rationals (+ − × ÷, integer powers,
+  conj/re/im/abs, sqrt where the result is a Gaussian rational, arg at
+  multiples of π/6 and π/4, polar form), and every exact result is
+  cross-checked against floating-point evaluation of the original —
+  a disagreement withdraws the answer. Anything that cannot be exact
+  (√(1+i)) is labelled NUMERIC. Equations in one unknown with complex
+  coefficients are solved over ℂ: degree 1 and 2 exactly when the
+  discriminant has a Gaussian-rational square root, higher degrees by
+  Durand–Kerner, every root substituted back. Before this release
+  `(2+3i)(1-i)` was solved *for i* and `(1+i)^8` returned eight numeric
+  roots — confident wrong answers, now gone. A constant the real
+  evaluator cannot value (`sqrt(-4)`) is answered as 2i; `x^2 = -1`
+  without an i stays with the ordinary solver, which already gives ±i.
+  New `src/lib/complexAlgebra.ts`; conj/re/im/arg added to the parser's
+  function table so they parse.
+- **Partial fractions as a verb.** `partial fractions 1/(x^2-1)` (or
+  `decompose …`): rational roots with multiplicity, one irreducible
+  quadratic with a linear numerator, the polynomial part of an improper
+  fraction stated first. The decomposition is recombined exactly and
+  compared with the original before it is shown; an irreducible factor
+  of degree ≥ 3 is refused by name. `partialFractionDecompose` in
+  casint.ts (shared with the integrator's method), the verb in
+  algebraTools.ts, ASCII output like its sibling verbs.
+- **Parametric linear systems.** A linear system with exactly one letter
+  outside the unknowns x, y, z, w, u, v is solved by row reduction over
+  rational functions of that letter, preferring parameter-free pivots.
+  The output is the generic solution with its condition ("For a ∉ {−1}
+  (a + 1 ≠ 0)") and every special value — rational roots of the forced
+  pivots and of the answer's denominators — classified by substituting
+  it into the ORIGINAL equations and running the exact rational solver:
+  no solution (contradiction shown) or infinitely many (free variable
+  named). Two parameters, or a parameter the unknowns multiply
+  nonlinearly, fall through to the existing paths and are refused by
+  name there. `SystemSolution.kind` gains `"parametric"`.
+
+### Fixed (independent adversarial pass, 16 confirmed defects)
+- Complex: a negative-zero imaginary part flipped every branch cut
+  (`ln(-1)` came back −πi, `(-2)^(1/2)` as −1.414i); the floating
+  cross-check blamed correct exact results ("CROSS-CHECK FAILED") after
+  cancellation, overflow or a square-root branch; unsupported functions
+  (`sinh(i)`) threw out of the verb; Durand–Kerner produced NaN roots
+  from degree 39 and on clustered-root polynomials; repeated roots were
+  shown as three wrong 10-figure values; `(1+i)^100 z = 1` hit the
+  unknown's power cap; exact growth was unbounded (`((1+i)^4096)^4096`
+  ran seconds then threw); `0^i` and `arg(0)` answered 0.
+- Partial fractions: ℚ-factorable denominators (`(x²+1)²`, `x⁴+4`,
+  `x⁶−1`) were refused with a false reason; the rational-root divisor
+  search stopped silently at 10,000 (`10007x − 1` "has no rational
+  root"); "of", missing powers in the factor list, "(1)/(…)".
+- Parametric systems: special values were misclassified as "unsolved" or
+  "nonlinear" whenever the parameter was squared (textual substitution
+  left `(−2)²x`, which the linear parser rejected) or glued to a digit
+  (`2a`); solving time was unbounded (6 unknowns never returned);
+  `1/2a` was displayed; a parameter in a divisor had no "undefined"
+  value; `a² + 1 ≠ 0` raised a false "irrational values" caveat; a
+  pivot's root the generic formula already covers was called special.
+- Judgment calls taken: prose-wrapped complex arithmetic ("What is
+  (2+3i)(1−i)?") is claimed from the task text; `i^2 = -1` is judged
+  TRUE rather than refused; `2^z = i` is refused for the right reason;
+  `x + y = a; x − y = 1` is solved for every a instead of treating a as
+  a third unknown; bare `decompose 12 into primes` falls through.
+
+### Tests
+- New `equationDeferred.test.ts` (324 files): exact complex arithmetic
+  against hand values, display round-trip through foldPastedMath and the
+  parser, the claim rules (an i-free input is never taken from the
+  solver; an equation in two unknowns is not claimed), partial fractions
+  re-evaluated numerically at sample points, parametric systems checked
+  at several parameter values against the direct rational solve, and
+  the special-value classification.
+
 ## [2.125.0] — 2026-10-12 — The two known limits, lifted honestly
 
 ### Changed

@@ -27,14 +27,15 @@
 
 import { parseExpr, evalAst, freeVars, Expr } from "./solve";
 import {
-  Rat, ratMake, ratInt, ratAdd, ratSub, ratMul, ratDiv, ratNeg,
-  ratIsZero, ratSign, ratToNumber, ratFromNumber, RAT_ZERO,
+  Rat, ratMake, ratInt, ratAdd, ratSub, ratMul, ratDiv, ratNeg, ratIsZero, ratSign, ratToNumber, ratFromNumber, RAT_ZERO, ratPolyAdd, ratPolyMul, ratPolyTrim, ratPolyDivMod, ratPolyRoots, ratPolyEval, ratEq, RAT_ONE,
 } from "./cas";
 import { fmtRat } from "./geometry";
 
 export interface SystemSolution {
   variables: string[];
-  kind: "unique" | "infinite" | "none" | "nonlinear" | "unsolved";
+  kind: "unique" | "infinite" | "none" | "nonlinear" | "unsolved" | "parametric";
+  /** For a parametric system: the symbol treated as the parameter. */
+  parameter?: string;
   /** For a unique solution: variable → exact value. */
   exact?: Record<string, string>;
   /** Numeric values, for every solved case. */
@@ -128,6 +129,13 @@ export function linearCoeffs(e: Expr, vars: string[]): { coeff: Map<string, Rat>
         const k = Number(p.n);
         if (k === 0) return { vars: new Map(), constant: ratInt(1) };
         if (k === 1) return walkPure(n.l);
+        const base = constOf(n.l);
+        if (base && Math.abs(k) <= 64 && (k > 0 || !ratIsZero(base))) {
+          // (−2)² x is linear: a substituted parameter value under a power.
+          let acc = ratInt(1);
+          for (let i = 0; i < Math.abs(k); i++) acc = ratMul(acc, base);
+          return { vars: new Map(), constant: k > 0 ? acc : ratDiv(ratInt(1), acc) };
+        }
         return null; // x², and anything higher, is not linear
       }
       default:
@@ -231,6 +239,18 @@ export function solveSystem(equations: string[], varOrder?: string[]): SystemSol
     };
   }
 
+  // A parameter with the unknowns in their conventional letters is read as a
+  // parameter even where the plain linear path could absorb it as one more
+  // unknown ("x + y = a; x − y = 1"): the answer for every a is what was asked.
+  {
+    const unk = variables.filter((v) => UNKNOWN_NAMES.includes(v));
+    const prm = variables.filter((v) => !UNKNOWN_NAMES.includes(v));
+    if (!varOrder && prm.length === 1 && unk.length >= 1 && parsed.length >= unk.length) {
+      const early = parametricSystem(parsed, variables, equations);
+      if (early) return early;
+    }
+  }
+
   // Try the exact linear path first.
   const rowsRat: Rat[][] = [];
   let allLinear = true;
@@ -298,6 +318,12 @@ export function solveSystem(equations: string[], varOrder?: string[]): SystemSol
     };
   }
 
+  // A PARAMETER: one symbol outside the conventional unknown names, with the
+  // equations linear in the unknowns and polynomial in it — solved over the
+  // rational functions ℚ(a), with the values of a where that fails listed.
+  const param = parametricSystem(parsed, variables, equations);
+  if (param) return param;
+
   // Nonlinear: Newton from several starts.
   steps.push(`${parsed.length} equation${parsed.length === 1 ? "" : "s"} in ${variables.length} unknown${variables.length === 1 ? "" : "s"}; at least one is NOT linear, so this is solved numerically by Newton's method.`);
   if (parsed.length !== variables.length) {
@@ -325,6 +351,254 @@ export function solveSystem(equations: string[], varOrder?: string[]): SystemSol
       "Solutions closer together than about 1e-3 are reported as ONE. Where the equations are flat at a root the method cannot localise it more tightly than that, and listing the same root several times over would be worse than merging two genuinely distinct ones.",
     ],
   };
+}
+
+// ---------------------------------------------------------------------------
+// Parametric linear systems: coefficients in ℚ(a).
+// ---------------------------------------------------------------------------
+
+/** Letters conventionally used as unknowns; everything else is a parameter. */
+const UNKNOWN_NAMES = ["x", "y", "z", "w", "u", "v"];
+
+/** A rational function in one parameter: num/den, den monic, gcd reduced. */
+interface RF { num: Rat[]; den: Rat[] }
+const RF_ZERO: RF = { num: [], den: [RAT_ONE] };
+const rfIsZero = (r: RF): boolean => ratPolyTrim(r.num).length === 0;
+function polyGcd(a: Rat[], b: Rat[]): Rat[] {
+  let x = ratPolyTrim(a), y = ratPolyTrim(b);
+  while (y.length) { const { r } = ratPolyDivMod(x, y); x = y; y = ratPolyTrim(r); }
+  if (!x.length) return [RAT_ONE];
+  const lead = x[x.length - 1];
+  return x.map((c) => ratDiv(c, lead));
+}
+function rfNorm(r: RF): RF {
+  let num = ratPolyTrim(r.num), den = ratPolyTrim(r.den);
+  if (!den.length) throw new Error("zero denominator");
+  if (!num.length) return RF_ZERO;
+  const gcd = polyGcd(num, den);
+  if (gcd.length > 1) { num = ratPolyDivMod(num, gcd).q; den = ratPolyDivMod(den, gcd).q; }
+  const lead = den[den.length - 1];
+  return { num: num.map((c) => ratDiv(c, lead)), den: den.map((c) => ratDiv(c, lead)) };
+}
+const rfAdd = (a: RF, b: RF): RF => rfNorm({ num: ratPolyAdd(ratPolyMul(a.num, b.den), ratPolyMul(b.num, a.den)), den: ratPolyMul(a.den, b.den) });
+const rfNeg = (a: RF): RF => ({ num: a.num.map(ratNeg), den: a.den });
+const rfSub = (a: RF, b: RF): RF => rfAdd(a, rfNeg(b));
+const rfMul = (a: RF, b: RF): RF => rfNorm({ num: ratPolyMul(a.num, b.num), den: ratPolyMul(a.den, b.den) });
+function rfDiv(a: RF, b: RF): RF { if (rfIsZero(b)) throw new Error("divide by zero RF"); return rfNorm({ num: ratPolyMul(a.num, b.den), den: ratPolyMul(a.den, b.num) }); }
+const rfConst = (c: Rat): RF => ({ num: ratIsZero(c) ? [] : [c], den: [RAT_ONE] });
+const rfParam: RF = { num: [RAT_ZERO, RAT_ONE], den: [RAT_ONE] };
+
+/** Linear form over ℚ(a): unknown → RF coefficient, plus an RF constant; null if not linear in the unknowns. */
+function linearOverParam(e: Expr, unknowns: string[], a: string): { coeff: Map<string, RF>; constant: RF } | null {
+  type Lin = { vars: Map<string, RF>; constant: RF };
+  const walk = (n: Expr): Lin | null => {
+    switch (n.t) {
+      case "num": return { vars: new Map(), constant: rfConst(ratFromNumber(n.v)) };
+      case "var":
+        if (n.name === a) return { vars: new Map(), constant: rfParam };
+        if (unknowns.includes(n.name)) return { vars: new Map([[n.name, rfConst(ratInt(1))]]), constant: RF_ZERO };
+        return null;
+      case "neg": { const r = walk(n.e); return r ? { vars: new Map([...r.vars].map(([k, v]) => [k, rfNeg(v)])), constant: rfNeg(r.constant) } : null; }
+      case "add": case "sub": {
+        const l = walk(n.l), r = walk(n.r);
+        if (!l || !r) return null;
+        const out = new Map(l.vars);
+        for (const [k, v] of r.vars) out.set(k, n.t === "add" ? rfAdd(out.get(k) ?? RF_ZERO, v) : rfSub(out.get(k) ?? RF_ZERO, v));
+        return { vars: out, constant: n.t === "add" ? rfAdd(l.constant, r.constant) : rfSub(l.constant, r.constant) };
+      }
+      case "mul": {
+        const l = walk(n.l), r = walk(n.r);
+        if (!l || !r) return null;
+        if (l.vars.size && r.vars.size) return null;
+        const k = l.vars.size ? r.constant : l.constant;
+        const lin = l.vars.size ? l : r;
+        return { vars: new Map([...lin.vars].map(([kk, v]) => [kk, rfMul(v, k)])), constant: rfMul(lin.constant, k) };
+      }
+      case "div": {
+        const l = walk(n.l), r = walk(n.r);
+        if (!l || !r || r.vars.size || rfIsZero(r.constant)) return null;
+        return { vars: new Map([...l.vars].map(([kk, v]) => [kk, rfDiv(v, r.constant)])), constant: rfDiv(l.constant, r.constant) };
+      }
+      case "pow": {
+        const base = walk(n.l), ex = walk(n.r);
+        if (!base || !ex || ex.vars.size || !rfIsPolyConst(ex.constant)) return null;
+        const k = Number(ex.constant.num[0]?.n ?? 0n);
+        if (k === 0) return { vars: new Map(), constant: rfConst(ratInt(1)) };
+        if (k === 1) return base;
+        if (base.vars.size || k < 0 || k > 64) return null;
+        let acc = rfConst(ratInt(1));
+        for (let i = 0; i < k; i++) acc = rfMul(acc, base.constant);
+        return { vars: new Map(), constant: acc };
+      }
+      default: return null;
+    }
+  };
+  const r = walk(e);
+  return r ? { coeff: r.vars, constant: r.constant } : null;
+}
+function rfIsPolyConst(r: RF): boolean { return r.den.length === 1 && ratPolyTrim(r.num).length <= 1 && (r.num.length === 0 || r.num[0].d === 1n); }
+
+/** Leading coefficient made positive (for "≠ 0" conditions and root finding). */
+function monic(p: Rat[]): Rat[] {
+  const lead = p[p.length - 1];
+  return ratSign(lead) < 0 ? p.map(ratNeg) : p;
+}
+
+function rfText(r: RF, a: string): string {
+  const num = ratPolyTrim(r.num), den = ratPolyTrim(r.den);
+  if (!num.length) return "0";
+  const n = polyStr(num, a), d = polyStr(den, a);
+  if (den.length === 1 && ratEq(den[0], RAT_ONE)) return n;
+  const wrap = (s: string, p: Rat[]): string => (p.length > 1 && (s.includes(" ") || s.includes("+") || s.includes("−")) ? `(${s})` : s);
+  return `${wrap(n, num)}/${wrap(d, den)}`;
+}
+function polyStr(p: Rat[], a: string): string {
+  const parts: string[] = [];
+  for (let k = p.length - 1; k >= 0; k--) {
+    const c = p[k];
+    if (ratIsZero(c)) continue;
+    const neg = ratSign(c) < 0;
+    const mag = neg ? ratNeg(c) : c;
+    const magS = fmtRat(mag);
+    const coef = ratEq(mag, RAT_ONE) ? "" : mag.d === 1n ? magS : `(${magS})`;
+    const body = k === 0 ? magS : coef + a + (k === 1 ? "" : k === 2 ? "²" : k === 3 ? "³" : `^${k}`);
+    parts.push((parts.length ? (neg ? " − " : " + ") : neg ? "−" : "") + body);
+  }
+  return parts.join("") || "0";
+}
+
+function parametricSystem(parsed: Expr[], variables: string[], equations: string[]): SystemSolution | null {
+  const unknowns = variables.filter((v) => UNKNOWN_NAMES.includes(v));
+  const params = variables.filter((v) => !UNKNOWN_NAMES.includes(v));
+  if (params.length !== 1 || unknowns.length === 0) return null;
+  const a = params[0];
+  const rows: RF[][] = [];
+  for (const e of parsed) {
+    const lc = linearOverParam(e, unknowns, a);
+    if (!lc) return null;
+    rows.push([...unknowns.map((u) => lc.coeff.get(u) ?? RF_ZERO), rfNeg(lc.constant)]);
+  }
+  const n = unknowns.length;
+  const bail = (why: string): SystemSolution => ({ variables: unknowns, kind: "unsolved", steps: [], caveats: [why] });
+  // Exact arithmetic over rational functions grows fast: bounded by name.
+  // Measured before the cap: 5 unknowns with quadratic coefficients 2.7 s,
+  // 6 unknowns 24 s, and 6 unknowns with degree-8 coefficients never
+  // returned — in a task pane that recomputes per keystroke, a frozen Word.
+  const MAX_PARAM_UNKNOWNS = 4, MAX_PARAM_DEGREE = n <= 2 ? 16 : 8;
+  if (n > MAX_PARAM_UNKNOWNS) return bail(`A system with a parameter is solved exactly over rational functions of ${a}, which is bounded to ${MAX_PARAM_UNKNOWNS} unknowns; this one has ${n} (${unknowns.join(", ")}). Give ${a} a value, or reduce the system.`);
+  let maxDeg = 0;
+  for (const row of rows) for (const cell of row) maxDeg = Math.max(maxDeg, ratPolyTrim(cell.num).length - 1, ratPolyTrim(cell.den).length - 1);
+  if (maxDeg > MAX_PARAM_DEGREE) return bail(`A system with a parameter is solved exactly over rational functions of ${a}, bounded to coefficient polynomials of degree ${MAX_PARAM_DEGREE}; this one reaches degree ${maxDeg}.`);
+  // Values of the parameter where the equations themselves are undefined (a divisor vanishes).
+  const undefinedAt = new Map<string, Rat>();
+  for (const row of rows) for (const cell of row) if (ratPolyTrim(cell.den).length > 1) { for (const { root } of ratPolyRoots(cell.den).roots) undefinedAt.set(fmtRat(root), root); }
+  const steps: string[] = [`${parsed.length} equation${parsed.length === 1 ? "" : "s"} in ${n} unknown${n === 1 ? "" : "s"} (${unknowns.join(", ")}) with the parameter ${a}: solved exactly over the rational functions of ${a} by row reduction.`];
+  const caveats: string[] = [];
+  // RREF over RF, recording each pivot's numerator (a polynomial in a) as a "≠ 0" condition.
+  const pivotPolys: Rat[][] = [];
+  const pivots: number[] = [];
+  let r = 0;
+  const m = rows.map((row) => row.slice());
+  for (let col = 0; col < n && r < m.length; col++) {
+    // Prefer a pivot that does not depend on the parameter: a pivot that
+    // does would make its roots look like special values when a constant
+    // alternative in the same column shows they are not.
+    let piv = -1;
+    for (let i = r; i < m.length; i++) if (!rfIsZero(m[i][col]) && ratPolyTrim(m[i][col].num).length === 1) { piv = i; break; }
+    if (piv < 0) for (let i = r; i < m.length; i++) if (!rfIsZero(m[i][col])) { piv = i; break; }
+    if (piv < 0) continue;
+    [m[r], m[piv]] = [m[piv], m[r]];
+    const p = m[r][col];
+    if (ratPolyTrim(p.num).length > 1) pivotPolys.push(monic(ratPolyTrim(p.num)));
+    for (let c = col; c <= n; c++) m[r][c] = rfDiv(m[r][c], p);
+    for (let i = 0; i < m.length; i++) {
+      if (i === r || rfIsZero(m[i][col])) continue;
+      const f = m[i][col];
+      for (let c = col; c <= n; c++) m[i][c] = rfSub(m[i][c], rfMul(f, m[r][c]));
+    }
+    pivots.push(col);
+    r++;
+  }
+  const general: string[] = [];
+  // Consistency in the generic case.
+  for (let i = 0; i < m.length; i++) {
+    if (m[i].slice(0, n).every(rfIsZero) && !rfIsZero(m[i][n])) {
+      general.push(`Generic ${a}: no solution (a row reduces to 0 = ${rfText(m[i][n], a)}).`);
+      // Still worth listing the special values where that right side vanishes.
+      pivotPolys.push(monic(ratPolyTrim(m[i][n].num)));
+      break;
+    }
+  }
+  const freeIdx = [...Array(n).keys()].filter((c) => !pivots.includes(c));
+  const generic: string[] = [];
+  if (!general.length) {
+    pivots.forEach((c, i) => {
+      let rhs = rfText(m[i][n], a);
+      for (const f of freeIdx) {
+        const co = m[i][f];
+        if (rfIsZero(co)) continue;
+        const t = rfText(rfNeg(co), a);
+        rhs += ` + (${t})·${unknowns[f]}`;
+      }
+      generic.push(`${unknowns[c]} = ${rhs.replace(/^0 \+ /, "")}`);
+    });
+    for (const f of freeIdx) generic.push(`${unknowns[f]} is free`);
+  }
+  // Special values: rational roots of every pivot numerator and of the denominators in the answer.
+  const specials = new Map<string, Rat>();
+  let searchCapped = false;
+  const addRoots = (p: Rat[]): void => { const { roots, incomplete } = ratPolyRoots(p); if (incomplete) searchCapped = true; for (const { root } of roots) specials.set(fmtRat(root), root); };
+  for (const p of pivotPolys) addRoots(p);
+  for (const row of m) for (const cell of row) if (ratPolyTrim(cell.den).length > 1) addRoots(cell.den);
+  for (const [k, v] of undefinedAt) specials.set(k, v);
+  const sorted = [...specials.entries()].sort((x, y) => ratToNumber(x[1]) - ratToNumber(y[1]));
+  // Classify each special value by substituting it into the ORIGINAL
+  // equations (a value next to a digit, "2a", needs an explicit ×).
+  const classified: { label: string; line: string; covered: boolean }[] = [];
+  const rfAt = (f: RF, v: Rat): Rat | null => { const d = ratPolyEval(f.den, v); return ratIsZero(d) ? null : ratDiv(ratPolyEval(f.num, v), d); };
+  for (const [labelAscii, value] of sorted) {
+    const label = labelAscii.replace("-", "−");
+    if (undefinedAt.has(labelAscii)) { classified.push({ label, line: `${a} = ${label}: the equations are UNDEFINED (a divisor vanishes).`, covered: false }); continue; }
+    const sub = equations.map((eq) => eq.replace(new RegExp(`(?<![A-Za-z_])${a}(?![A-Za-z0-9_])`, "g"), (_m: string, offset: number, str: string) => (/[0-9)]/.test(str[offset - 1] ?? "") ? `*(${fmtRat(value)})` : `(${fmtRat(value)})`)));
+    const s = solveSystem(sub, unknowns);
+    if (!s) { classified.push({ label, line: `${a} = ${label}: could not be classified.`, covered: false }); continue; }
+    if (s.kind === "unique" && s.exact) {
+      // If the generic formula is defined here and gives this very solution,
+      // the value is not special at all — the pivot choice merely made it
+      // look so. Say nothing and leave it out of the ∉ list.
+      let covered = !general.length && freeIdx.length === 0;
+      if (covered) {
+        pivots.forEach((col, i) => { const v = rfAt(m[i][n], value); if (!v || fmtRat(v) !== s.exact![unknowns[col]]) covered = false; });
+      }
+      classified.push({ label, line: `${a} = ${label}: unique — ${unknowns.map((u) => `${u} = ${s.exact![u]}`).join(", ")}`, covered });
+    }
+    else if (s.kind === "none") classified.push({ label, line: `${a} = ${label}: NO solution (the equations contradict).`, covered: false });
+    else if (s.kind === "infinite") classified.push({ label, line: `${a} = ${label}: INFINITELY MANY — ${(s.general ?? []).join("; ")}`, covered: false });
+    else classified.push({ label, line: `${a} = ${label}: ${s.kind === "nonlinear" ? "not classified (the substituted system was not recognised as linear — a defect, please report the input)" : "could not be classified"}.`, covered: false });
+  }
+  const special = classified.filter((c) => !c.covered);
+  const keptLabels = new Set(special.map((c) => c.label));
+  const liveConditions = pivotPolys
+    .filter((p) => ratPolyRoots(p).roots.some(({ root }) => keptLabels.has(fmtRat(root).replace("-", "−"))))
+    .map((p) => `${polyStr(p, a)} ≠ 0`);
+  if (!general.length) {
+    general.push(`For ${special.length ? `${a} ∉ {${special.map((c) => c.label).join(", ")}}` : `every ${a}`}${liveConditions.length ? ` (${[...new Set(liveConditions)].join(", ")})` : ""}:`);
+    general.push(...generic.map((g) => "  " + g));
+  }
+  for (const c of special) general.push(c.line);
+  // Irrational special values exist only where a pivot polynomial has a real
+  // root that is not rational: a leftover quadratic with negative discriminant
+  // (a² + 1) vanishes nowhere real, and is no caveat.
+  const mayHaveIrrational = pivotPolys.some((p) => {
+    const rest = ratPolyTrim(ratPolyRoots(p).rest);
+    if (rest.length <= 2) return false;
+    if (rest.length === 3) { const disc = ratSub(ratMul(rest[1], rest[1]), ratMul(ratInt(4), ratMul(rest[2], rest[0]))); return ratSign(disc) >= 0; }
+    return true;
+  });
+  if (mayHaveIrrational) caveats.push(`A pivot polynomial may also vanish at irrational values of ${a}; those special cases are not listed by value — substitute the number and solve.`);
+  if (searchCapped) caveats.push(`The search for rational special values of ${a} was capped (large coefficients), so some may be missing.`);
+  caveats.push(`${a} is read as a PARAMETER because it is not one of the usual unknown letters (x, y, z, w, u, v). The generic solution divides by expressions in ${a}; the listed special values are exactly where those vanish, each classified separately.`);
+  return { variables: unknowns, kind: "parametric", parameter: a, general, steps, caveats };
 }
 
 /** Fixed starting values — deterministic, so results never vary between runs. */

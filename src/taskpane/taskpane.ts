@@ -327,6 +327,7 @@ import { solveComposite, qtyToNumber, qtyExact } from "../lib/compositeGeometry"
 import { compositeShapeSvg, geometryFigureSvg, geometryFigureAlt, drawnShapesSvg } from "../lib/geometryChart";
 import { DrawShape, sanitizeShapes, emitDsl as emitDrawDsl, shapesDescribeEmit } from "../lib/geometryDraw";
 import { trySum, tryAlgebraVerb } from "../lib/algebraTools";
+import { tryComplex } from "../lib/complexAlgebra";
 import { tryStatsIntent } from "../lib/statsIntent";
 import { solveInputToTypesetLines, solveToTypesetDsl, isProseRequest } from "../lib/solveTypeset";
 import { foldPastedMath, extractSingleEquation, extractExpression, normalizeTaskProse, hasProseWords } from "../lib/pasteMath";
@@ -26809,9 +26810,13 @@ function updateSolveUi(): void {
       "statistics engines (values listed back; sample vs population SD stated), and a pasted WORD PROBLEM " +
       "(“In a survey of 20 people, 8 liked… What percentage…?”) switches itself to the Word problem kind and answers. " +
       "SUMS: sum of 1 to 100 · sum k^2 from 1 to n (closed forms; Σ1/k refused by name). " +
-      "VERBS: factor x^2-5x+6 · expand (x+1)^3 · simplify (x^2-1)/(x-1) — every result verified " +
-      "by multiplying back. POWERS rearrange: V = (4/3)π r^3 solves for r as a cube root; " +
-      "even powers give the ± pair with the ≥ 0 condition stated.",
+      "VERBS: factor x^2-5x+6 · expand (x+1)^3 · simplify (x^2-1)/(x-1) · partial fractions 1/(x^2-1) — " +
+      "every result verified by multiplying (or recombining) back. POWERS rearrange: V = (4/3)π r^3 solves for r as a cube root; " +
+      "even powers give the ± pair with the ≥ 0 condition stated. " +
+      "COMPLEX NUMBERS: i is the imaginary unit — (2+3i)(1-i) → 5 + i exactly, 1/(2+i), abs(3+4i) → 5, " +
+      "arg(1+i) → π/4, sqrt(-4) → 2i, and z^2 = 2i solves over ℂ with every root substituted back. " +
+      "PARAMETERS: a system with one extra letter — a x + y = 1 ⏎ x − y = 2 — is solved for every value " +
+      "of a, and the special values (where it has no solution or infinitely many) are listed by name.",
     derivative: "Use ^ for powers — e.g. x^2, exp(x), sin(x^2). Pasted superscripts like x² also work. " +
       "This box also takes LIMITS — limit sin(x)/x as x -> 0, lim 1/x as x -> inf, limit 1/x as x -> 0+ — " +
       "and SERIES: taylor exp(x) order 5, maclaurin sin(x), series sqrt(x) about 1 order 4.",
@@ -27321,7 +27326,9 @@ function updateSolve(): void {
         for (const s of sum.steps) { solveResult.appendChild(solveLine(s)); say(s); }
         return finish(sum.caveats);
       }
-      const verb = tryAlgebraVerb(taskText) ?? tryAlgebraVerb(text);
+      // i as the imaginary unit — (2+3i)(1−i), (1+i)z = 2 — is claimed BEFORE
+      // the solver, which would otherwise read i as an unknown and "solve" it.
+      const verb = tryComplex(text) ?? tryComplex(taskText) ?? tryAlgebraVerb(taskText) ?? tryAlgebraVerb(text);
       if (verb) {
         solveResult.appendChild(msEyebrow(verb.title));
         say(verb.title, "heading");
@@ -27406,8 +27413,10 @@ function updateSolve(): void {
             solveResult.appendChild(solveLine(line, "ms-masses"));
             sayMath(line);
           }
-        } else if (sys.kind === "infinite" && sys.general) {
+        } else if ((sys.kind === "infinite" || sys.kind === "parametric") && sys.general) {
           // The GENERAL solution — reporting one point would misrepresent it.
+          // (Parametric: the generic solution in the parameter, then each
+          // special value of the parameter classified on its own.)
           for (const g of sys.general) {
             solveResult.appendChild(solveLine(g, "ms-masses"));
             say(g);

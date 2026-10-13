@@ -12,10 +12,11 @@
 // coefficients before it is shown; a factorisation that does not multiply
 // back is discarded, not displayed.
 
+import { partialFractionDecompose } from "./casint";
 import { parseExpr, evalAst, format, Expr } from "./solve";
 import {
-  Rat, ratMake, ratInt, ratAdd, ratMul, ratNeg, ratIsZero, ratToNumber, ratEq,
-  ratFunctionInVar, ratPolyRoots, casSimplify, CasBail,
+  Rat, ratMake, ratInt, ratAdd, ratMul, ratNeg, ratIsZero, ratToNumber, ratEq, ratSign,
+  ratFunctionInVar, ratPolyRoots, ratPolyTrim, casSimplify, CasBail,
 } from "./cas";
 import { fmtRat } from "./geometry";
 import { extractExpression, hasProseWords } from "./pasteMath";
@@ -308,6 +309,72 @@ function polyString(coeffs: Rat[], varName: string): string {
   return parts.length ? parts.join(" ") : "0";
 }
 
+/** Renders a polynomial over ℚ in x with Unicode powers and signs. */
+function polyText(coeffs: Rat[], x: string): string {
+  return polyString(coeffs, x);
+}
+
+/** partial fractions (x+1)/(x^2-1): the decomposition over ℚ, every piece
+ *  verified by recombining EXACTLY. */
+function partialFractionsVerb(body: string, soft = false): VerbResult | null {
+  const title = `partial fractions ${body}`;
+  const refuse = (why: string): VerbResult | null => (soft ? null : { title, lines: [], caveats: [why] });
+  let effBody = body;
+  if (hasProseWords(body)) { const ex = extractExpression(body); if (ex) effBody = ex; }
+  let e: Expr;
+  try { e = parseExpr(effBody); } catch (err) { return refuse(`Couldn't parse the expression: ${(err as Error).message}`); }
+  const x = soleVar(e);
+  if (!x) return refuse("Partial fractions work on a rational function in ONE variable (pi and e count as constants).");
+  const rf = ratFunctionInVar(e, x);
+  if (!rf) return refuse(`This is not a rational function in ${x} (a ratio of polynomials).`);
+  body = effBody;
+  const den = ratPolyTrim(rf.den);
+  if (den.length <= 1) return refuse("The denominator is a constant — there is nothing to decompose; this is already a polynomial.");
+  const dec = partialFractionDecompose(rf.num, rf.den);
+  if (!dec) return refuse("The decomposition could not be completed (the coefficient system was singular) — please report the input.");
+  if (dec.refusal) return refuse(`Not decomposed: ${dec.refusal}.`);
+  const pieces: string[] = [];
+  if (ratPolyTrim(dec.polyPart).length) pieces.push(polyText(dec.polyPart, x));
+  const lin = (r: Rat): string => (ratIsZero(r) ? x : ratSign(r) > 0 ? `${x} - ${fmtRatText(r)}` : `${x} + ${fmtRatText(ratNeg(r))}`);
+  const sup = (k: number): string => (k === 1 ? "" : `^${k}`);
+  for (const t of dec.terms) {
+    if (t.kind === "linear") {
+      if (ratIsZero(t.A)) continue;
+      const denom = ratIsZero(t.root) ? x : `(${lin(t.root)})`;
+      pieces.push(`${fmtRatText(t.A)}/${denom}${sup(t.power)}`);
+    } else {
+      if (ratIsZero(t.B) && ratIsZero(t.C)) continue;
+      const numer = polyText([t.C, t.B], x);
+      const wrapped = /[ +\-*/^]/.test(numer.replace(/^-/, "")) ? `(${numer})` : numer;
+      pieces.push(`${wrapped}/(${polyText([t.c, t.b, ratInt(1)], x)})${sup(t.power)}`);
+    }
+  }
+  // Pieces carry their own sign; join them as "… − 1/2/(x + 1)", not "… + −1/2/(x + 1)".
+  const rhs = pieces.length
+    ? pieces.map((pc, i) => (pc.startsWith("-") ? (i === 0 ? pc : " - " + pc.slice(1)) : (i === 0 ? pc : " + " + pc))).join("")
+    : "0";
+  const lines: VerbResult["lines"] = [{ text: `${body} = ${rhs}`, math: true }];
+  const steps: string[] = [];
+  if (ratPolyTrim(dec.polyPart).length) steps.push(`Improper fraction: polynomial division first gives the polynomial part ${polyText(dec.polyPart, x)}.`);
+  // One entry per distinct factor, at its highest power.
+  const maxPow = new Map<string, number>();
+  for (const t of dec.terms) {
+    const key = t.kind === "linear" ? (ratIsZero(t.root) ? x : `(${lin(t.root)})`) : `(${polyText([t.c, t.b, ratInt(1)], x)})`;
+    maxPow.set(key, Math.max(maxPow.get(key) ?? 0, t.power));
+  }
+  const factors = [...maxPow.entries()].map(([k, p]) => `${k}${sup(p)}`);
+  const repeated = [...maxPow.values()].some((p) => p > 1);
+  const quads = dec.terms.filter((t) => t.kind === "quadratic").length;
+  steps.push(`Denominator factored over ℚ: ${factors.join("")}${repeated ? " with repeated factors (one term per power)" : ""}${quads ? `; ${quads === 1 ? "the quadratic has" : "the quadratics have"} no rational root, so ${quads === 1 ? "its term keeps a linear numerator" : "their terms keep linear numerators"}` : ""}.`);
+  steps.push("Coefficients found by matching numerators exactly over ℚ, and the pieces were recombined to confirm they give back the original.");
+  for (const s of steps) lines.push({ text: s });
+  return { title, lines, caveats: ["Exact over ℚ. A denominator factor of degree 3 or more with no rational root is refused rather than split with invented algebraic numbers."] };
+}
+
+function fmtRatText(r: Rat): string {
+  return r.d === 1n ? r.n.toString() : `${r.n}/${r.d}`;
+}
+
 /** The single variable of an expression, or null (pi/e are constants). */
 function soleVar(e: Expr): string | null {
   const vars = new Set<string>();
@@ -328,6 +395,14 @@ function soleVar(e: Expr): string | null {
  * a verb with an unusable body returns a NAMED refusal instead.
  */
 export function tryAlgebraVerb(input: string): VerbResult | null {
+  const pf = /^(?:partial\s+fractions?|decompose(?:\s+into\s+partial\s+fractions?)?)\b[:\s]\s*(?:of\s+)?(.+)$/i.exec(input.trim());
+  if (pf && !pf[1].includes("=")) {
+    // A bare "decompose …" that is not a rational function ("decompose 12
+    // into primes") is not this verb's to refuse: fall through.
+    const soft = /^decompose\b/i.test(input.trim()) && !/partial/i.test(input);
+    const r = partialFractionsVerb(pf[1].trim(), soft);
+    if (r) return r;
+  }
   const m = /^(factor|expand|simplify)\b[:\s]\s*(.+)$/i.exec(input.trim());
   if (!m) return null;
   // "factor = 2" is an EQUATION whose variable happens to be named factor —

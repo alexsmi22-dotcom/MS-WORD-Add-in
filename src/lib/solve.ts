@@ -62,6 +62,13 @@ const EVAL_FN: Record<string, (x: number) => number> = {
   sec: (v: number) => 1 / Math.cos(v),
   csc: (v: number) => 1 / Math.sin(v),
   cot: (v: number) => Math.cos(v) / Math.sin(v),
+  // Complex-number functions, so conj(3-4i) PARSES; on a real argument they
+  // are the identity, zero, and the sign's angle. The complex layer
+  // (complexAlgebra.ts) gives them their full meaning when i is present.
+  conj: (v: number) => v,
+  re: (v: number) => v,
+  im: () => 0,
+  arg: (v: number) => (v < 0 ? Math.PI : 0),
 };
 
 const CONSTANTS: Record<string, number> = { pi: Math.PI, e: Math.E };

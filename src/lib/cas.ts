@@ -1092,14 +1092,19 @@ export function ratPolyRoots(coeffs: Rat[]): {
   const ints = p.map((c) => (c.n * lcm) / c.d);
   const a0 = ints.find((v) => v !== 0n) ?? 0n; // lowest nonzero coefficient
   const an = ints[ints.length - 1];
+  let divisorsTruncated = false;
   const divisors = (v: bigint): bigint[] => {
     v = bAbs(v);
     if (v === 0n) return [1n];
-    const out: bigint[] = [];
-    // Bounded trial division: a user-typed polynomial has small coefficients,
-    // and giving up simply means the factor stays unfactored (honest, not wrong).
-    for (let i = 1n; i <= v && i <= 10000n; i++) if (v % i === 0n) out.push(i);
-    return out;
+    const out = new Set<bigint>();
+    // Trial division to √v (both members of each divisor pair), bounded; a
+    // search that gives up is REPORTED as incomplete — the old loop stopped
+    // at 10,000 silently, so 10007x − 1 was declared to have "no rational
+    // root", an impossible statement about a linear factor.
+    let i = 1n;
+    for (; i * i <= v && i <= 200000n; i++) if (v % i === 0n) { out.add(i); out.add(v / i); }
+    if (i * i <= v) divisorsTruncated = true;
+    return [...out].sort((x, y) => (x < y ? -1 : x > y ? 1 : 0));
   };
   // CAP THE CANDIDATE SET, NOT JUST THE DIVISOR SEARCH.
   //
@@ -1152,7 +1157,7 @@ export function ratPolyRoots(coeffs: Rat[]): {
     }
     if (mult) roots.push({ root: c, mult });
   }
-  return { roots, rest: p, incomplete: candidatesTruncated };
+  return { roots, rest: p, incomplete: candidatesTruncated || divisorsTruncated };
 }
 
 /** Does the (composite) atom's expression mention variable `x`? */

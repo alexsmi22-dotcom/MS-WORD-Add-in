@@ -43,6 +43,7 @@ import {
 } from "../lib/geometryDraw";
 import { fitSketch, SketchPt, FitResult } from "../lib/sketchFit";
 import { trySum, tryAlgebraVerb } from "../lib/algebraTools";
+import { tryComplex } from "../lib/complexAlgebra";
 import { tryStatsIntent } from "../lib/statsIntent";
 import { sketchSurfaceSvg, sketchFitSvg, skSnapPt, SK_VIEW, SK_X0, SK_X1, SK_Y0, SK_Y1 } from "../lib/sketchChart";
 
@@ -272,7 +273,7 @@ Office.onReady(() => {
           for (const c of sum.caveats.slice(0, 2)) line(resultEl, c, "caveat");
           return;
         }
-        const verb = tryAlgebraVerb(taskText) ?? tryAlgebraVerb(folded);
+        const verb = tryComplex(folded) ?? tryComplex(taskText) ?? tryAlgebraVerb(taskText) ?? tryAlgebraVerb(folded);
         if (verb) {
           line(resultEl, verb.title, "result-title");
           for (const l of verb.lines) mathLine(resultEl, l.text, l.text);
@@ -322,7 +323,9 @@ Office.onReady(() => {
                   ? `Infinitely many solutions (free: ${(sys.freeVariables ?? []).join(", ") || "—"})`
                   : sys.kind === "nonlinear"
                     ? "Nonlinear system — numeric solutions"
-                    : "System";
+                    : sys.kind === "parametric"
+                      ? `Solved for every value of the parameter ${sys.parameter}`
+                      : "System";
           line(resultEl, heading, "result-title");
           if (sys.exact) {
             for (const [v, val] of Object.entries(sys.exact)) mathLine(resultEl, `${v} = ${val}`, `${v} = ${val}`);

@@ -27,8 +27,7 @@ import {
   Rat, ratMake, ratInt, ratAdd, ratSub, ratMul, ratDiv, ratNeg, ratIsZero, ratIsOne,
   ratToExpr, ratSign, RAT_ZERO, RAT_ONE,
   ratFunctionInVar, ratPolyToExpr, ratPolyAdd, ratPolyMul, ratPolyScale, ratPolyTrim,
-  ratPolyDivMod, ratPolyRoots, ratToNumber,
-} from "./cas";
+  ratPolyDivMod, ratPolyRoots, ratToNumber, ratEq } from "./cas";
 
 type Deriv = (e: Expr, x: string) => Expr;
 
@@ -153,7 +152,172 @@ function substitutionCandidates(e: Expr, x: string, out: Expr[] = []): Expr[] {
 /** One basis term of a partial-fraction decomposition. */
 type PFTerm =
   | { kind: "linear"; root: Rat; power: number }
-  | { kind: "quadratic"; b: Rat; c: Rat }; // x² + b·x + c, irreducible
+  | { kind: "quadratic"; b: Rat; c: Rat; power: number }; // (x² + b·x + c)^power, irreducible over ℚ
+
+/** A solved decomposition: num/den = polyPart + Σ A/(x−r)^k + Σ (Bx+C)/(x²+bx+c)^k. */
+export interface PartialFractions {
+  polyPart: Rat[];
+  terms: ({ kind: "linear"; root: Rat; power: number; A: Rat } | { kind: "quadratic"; b: Rat; c: Rat; power: number; B: Rat; C: Rat })[];
+  /** Why no decomposition was produced (null when terms are valid). */
+  refusal?: string;
+}
+
+/**
+ * Monic quadratic factors of a polynomial over ℚ, with multiplicity, by
+ * bounded trial division: scaled to a primitive integer polynomial, every
+ * quadratic factor can be taken with integer coefficients (Gauss), its
+ * leading coefficient dividing the leading coefficient, its constant term
+ * dividing the constant term, and its middle coefficient bounded by the
+ * Cauchy root bound. Returns the factors found and the cofactor; a cofactor
+ * of degree 3 or 4 left over is then irreducible over ℚ (it has no rational
+ * root and no quadratic factor), while one of degree ≥ 5 merely has no factor
+ * of degree ≤ 2 — the caller words those differently.
+ */
+export function quadraticFactorsOverQ(pIn: Rat[]): { factors: { b: Rat; c: Rat; mult: number }[]; rest: Rat[]; capped: boolean } {
+  let p = ratPolyTrim(pIn);
+  const factors: { b: Rat; c: Rat; mult: number }[] = [];
+  let capped = false;
+  const bAbs = (n: bigint): bigint => (n < 0n ? -n : n);
+  const bGcd = (a: bigint, b: bigint): bigint => { a = bAbs(a); b = bAbs(b); while (b) [a, b] = [b, a % b]; return a; };
+  const smallDivisors = (v: bigint): bigint[] => {
+    v = bAbs(v);
+    if (v === 0n) return [1n];
+    const out = new Set<bigint>();
+    let i = 1n;
+    for (; i * i <= v && i <= 20000n; i++) if (v % i === 0n) { out.add(i); out.add(v / i); }
+    if (i * i <= v) capped = true;
+    return [...out];
+  };
+  let budget = 60000;
+  while (p.length >= 4) {
+    // Primitive integer form.
+    let lcm = 1n;
+    for (const c of p) lcm = (lcm / bGcd(lcm, c.d)) * c.d;
+    let ints = p.map((c) => (c.n * lcm) / c.d);
+    let content = 0n;
+    for (const v of ints) content = bGcd(content, v);
+    if (content > 1n) ints = ints.map((v) => v / content);
+    const n = ints.length - 1;
+    const an = ints[n];
+    let a0 = ints[0];
+    if (a0 === 0n) break; // a rational root (x = 0) — the caller handles those first
+    const R = 1 + Math.max(...ints.slice(0, n).map((v) => Number(bAbs(v)) / Number(bAbs(an))));
+    let found: { b: Rat; c: Rat } | null = null;
+    outer: for (const a of smallDivisors(an)) {
+      const bMax = BigInt(Math.ceil(2 * Number(a) * R)) + 1n;
+      for (const cAbsV of smallDivisors(a0)) {
+        for (const cc of [cAbsV, -cAbsV]) {
+          for (let b = -bMax; b <= bMax; b++) {
+            if (--budget < 0) { capped = true; break outer; }
+            const q: Rat[] = [ratMake(cc, 1n), ratMake(b, 1n), ratMake(a, 1n)];
+            const { r } = ratPolyDivMod(p, q);
+            if (!ratPolyTrim(r).length) { found = { b: ratMake(b, a), c: ratMake(cc, a) }; break outer; }
+          }
+        }
+      }
+    }
+    if (!found) break;
+    const q: Rat[] = [found.c, found.b, RAT_ONE];
+    let mult = 0;
+    for (;;) {
+      const { q: quo, r } = ratPolyDivMod(p, q);
+      if (ratPolyTrim(r).length) break;
+      p = ratPolyTrim(quo);
+      mult++;
+    }
+    factors.push({ b: found.b, c: found.c, mult });
+    a0 = 0n;
+  }
+  return { factors, rest: p, capped };
+}
+
+/**
+ * Partial fractions over ℚ: rational roots of the denominator (with
+ * multiplicity) and one remaining quadratic. A remaining factor of degree
+ * three or more that has no rational root is refused BY NAME — splitting it
+ * would need algebraic numbers, and guessing is worse than refusing.
+ */
+export function partialFractionDecompose(numIn: Rat[], denIn: Rat[]): PartialFractions | null {
+  let num = ratPolyTrim(numIn);
+  const den = ratPolyTrim(denIn);
+  if (!den.length || den.length === 1) return null;
+  let polyPart: Rat[] = [];
+  if (num.length >= den.length) {
+    const { q, r } = ratPolyDivMod(num, den);
+    polyPart = q;
+    num = ratPolyTrim(r);
+  }
+  if (!num.length) return { polyPart, terms: [] };
+  const { roots, rest, incomplete } = ratPolyRoots(den);
+  const terms: PFTerm[] = [];
+  for (const { root, mult } of roots) for (let k = 1; k <= mult; k++) terms.push({ kind: "linear", root, power: k });
+  let restT = ratPolyTrim(rest);
+  if (incomplete && restT.length > 1) {
+    return { polyPart, terms: [], refusal: `the rational-root search for the denominator was capped (its coefficients are too large to factor exhaustively), so the factorisation over ℚ is not established` };
+  }
+  if (restT.length === 3) {
+    const a2 = restT[2];
+    terms.push({ kind: "quadratic", b: ratDiv(restT[1], a2), c: ratDiv(restT[0], a2), power: 1 });
+    restT = [];
+  } else if (restT.length > 3) {
+    const qf = quadraticFactorsOverQ(restT);
+    for (const f of qf.factors) for (let k = 1; k <= f.mult; k++) terms.push({ kind: "quadratic", b: f.b, c: f.c, power: k });
+    restT = ratPolyTrim(qf.rest);
+    if (restT.length === 3) { const a2 = restT[2]; terms.push({ kind: "quadratic", b: ratDiv(restT[1], a2), c: ratDiv(restT[0], a2), power: 1 }); restT = []; }
+    if (restT.length > 1) {
+      const d = restT.length - 1;
+      const why = qf.capped
+        ? `the search for quadratic factors of a degree-${d} factor of the denominator was capped (coefficients too large)`
+        : d <= 4
+          ? `the denominator has a factor of degree ${d} that is irreducible over ℚ (no rational root, no quadratic factor with rational coefficients); splitting it needs algebraic numbers, which this tool does not invent`
+          : `the denominator has a factor of degree ${d} with no rational root and no quadratic factor with rational coefficients; splitting it would need algebraic numbers or a factor of higher degree, which this tool does not search for`;
+      return { polyPart, terms: [], refusal: why };
+    }
+  }
+  if (!terms.length) return null;
+  const unknownCount = terms.reduce((s, t) => s + (t.kind === "linear" ? 1 : 2), 0);
+  const degDen = den.length - 1;
+  if (unknownCount !== degDen) return null;
+  const cols: Rat[][] = [];
+  for (const t of terms) {
+    if (t.kind === "linear") {
+      let acc: Rat[] = [RAT_ONE];
+      for (let k = 0; k < t.power; k++) acc = ratPolyMul(acc, [ratNeg(t.root), RAT_ONE]);
+      const { q, r } = ratPolyDivMod(den, acc);
+      if (r.length) return null;
+      cols.push(q);
+    } else {
+      let acc: Rat[] = [RAT_ONE];
+      for (let k = 0; k < t.power; k++) acc = ratPolyMul(acc, [t.c, t.b, RAT_ONE]);
+      const { q, r } = ratPolyDivMod(den, acc);
+      if (r.length) return null;
+      cols.push(ratPolyMul(q, [RAT_ZERO, RAT_ONE]));
+      cols.push(q);
+    }
+  }
+  const A: Rat[][] = [];
+  for (let r = 0; r < degDen; r++) A.push(cols.map((col) => col[r] ?? RAT_ZERO));
+  const rhs: Rat[] = [];
+  for (let r = 0; r < degDen; r++) rhs.push(num[r] ?? RAT_ZERO);
+  const sol = solveExact(A, rhs);
+  if (!sol) return null;
+  const out: PartialFractions["terms"] = [];
+  let si = 0;
+  for (const t of terms) {
+    if (t.kind === "linear") out.push({ kind: "linear", root: t.root, power: t.power, A: sol[si++] });
+    else { const B = sol[si++]; const C = sol[si++]; out.push({ kind: "quadratic", b: t.b, c: t.c, power: t.power, B, C }); }
+  }
+  // Self-check: the pieces must recombine to num/den exactly.
+  let recombined: Rat[] = [];
+  let ci = 0;
+  for (const t of out) {
+    if (t.kind === "linear") recombined = ratPolyAdd(recombined, ratPolyScale(cols[ci++], t.A));
+    else { recombined = ratPolyAdd(recombined, ratPolyScale(cols[ci++], t.B)); recombined = ratPolyAdd(recombined, ratPolyScale(cols[ci++], t.C)); }
+  }
+  const numT = ratPolyTrim(num), recT = ratPolyTrim(recombined);
+  if (numT.length !== recT.length || !numT.every((c, i) => ratEq(c, recT[i]))) return null;
+  return { polyPart, terms: out };
+}
 
 /** Exact Gaussian elimination; returns null if singular. */
 function solveExact(A: Rat[][], rhs: Rat[]): Rat[] | null {
@@ -213,7 +377,7 @@ function integrateRational(numIn: Rat[], denIn: Rat[], x: string): Expr | null {
     // an irrational-root quadratic still integrates via the same formulas, with
     // the completed square giving a real 's'; that case is handled below).
     const a2 = restT[2];
-    terms.push({ kind: "quadratic", b: ratDiv(restT[1], a2), c: ratDiv(restT[0], a2) });
+    terms.push({ kind: "quadratic", b: ratDiv(restT[1], a2), c: ratDiv(restT[0], a2), power: 1 });
   } else if (restT.length > 1) {
     return null; // an unfactored cubic-or-higher: refuse rather than guess
   }

@@ -980,6 +980,11 @@ x&#179; &minus; 1 = 0
       <p class="lede">Tiles marked <span class="is-new">New</span> are the most recent additions; the rest have grown since you last looked. Every tile opens a full breakdown with worked examples.</p>
     </div>
     <div class="cards">
+      <a class="card" href="tool.html?tool=stats">
+        <h3>Cox regression, repeated measures, exact rank tests <span class="is-new">New</span></h3>
+        <p><b>Cox proportional-hazards regression</b> with hazard ratios, confidence intervals and the proportional-hazards check, drawn as a forest plot on a log axis. <b>Repeated-measures ANOVA</b> with Greenhouse&ndash;Geisser and Huynh&ndash;Feldt corrections. Mann&ndash;Whitney and Wilcoxon now give the <b>exact p</b> at small samples. And the table reader was hardened: a long repeated-measures table, a start/stop survival table, an <code>OS_MONTHS</code> header or a typed <code>1,5</code> used to be misread &mdash; each is now read correctly or refused by name.</p>
+        <div class="spec">Mann&ndash;Whitney 3 v 3: p = 1/10 exact (the normal approximation printed 0.081, which is impossible)</div>
+      </a>
       <a class="card" href="tool.html?tool=solve">
         <h3>Grammars, machines, logic, SAT, type inference <span class="is-new">New</span></h3>
         <p>Type <code>S -&gt; aSb | &epsilon;</code> and the strings to test: the <b>CYK table</b>, a leftmost derivation and the <b>parse tree drawn</b>, each verdict cross-checked by a brute-force search; ambiguity witnesses, FIRST and FOLLOW, left recursion removed. Pushdown automata with the stack drawn and Turing machines with the tape drawn &mdash; <b>"loops" only when a configuration provably repeats</b>, a step cap is "unknown". First-order logic: prenex, Skolem, unification with the occurs check, <b>resolution</b> that says VALID, INVALID with a countermodel, or unknown. DPLL with the search tree, 2-SAT, Horn-SAT. And Hindley&ndash;Milner type inference with let-polymorphism, Algorithm W step by step.</p>
@@ -1001,7 +1006,7 @@ x&#179; &minus; 1 = 0
         <div class="spec">lagrange x y subject to x&sup2; + y&sup2; = 1 &#8594; max 1/2 at (&radic;2/2, &radic;2/2), min &minus;1/2</div>
       </a>
       <a class="card" href="tool.html?tool=solve">
-        <h3>Laplace transforms, initial-value problems, Fourier series <span class="is-new">New</span></h3>
+        <h3>Laplace transforms, initial-value problems, Fourier series</h3>
         <p><code>laplace t^2 exp(3t)</code> gives <b>2/(s &minus; 3)&sup3; for s &gt; 3</b> with the table rule named for each term and the answer <b>checked against the defining integral</b>; the unit step and the impulse are in the table, and what is not (1/t, exp(t&sup2;)) is refused by name. <code>inverse laplace 1/(s*(s+1))</code> returns 1 &minus; e<sup>&minus;t</sup> by partial fractions, with an irrational &omega; kept as a square root rather than a decimal, and every inverse is transformed forward again before it is shown. In the ODE kind, <code>y'' + 4y = sin(t), y(0) = 0, y'(0) = 0</code> is solved by transform, <b>verified by substitution</b>, and drawn. And <code>fourier series t^2 on (-pi, pi)</code> comes back <b>exact in n</b>: a&#8320;/2 = &pi;&sup2;/3, a<sub>n</sub> = 4(&minus;1)<sup>n</sup>/n&sup2;, with the partial sum drawn over f and every jump named with its Gibbs overshoot.</p>
         <div class="spec">y'' + 4y = sin(t), y(0) = 0, y'(0) = 0 &#8594; y = sin(t)/3 &minus; sin(2t)/6</div>
       </a>

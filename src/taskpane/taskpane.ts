@@ -251,7 +251,7 @@ import {
 } from "../lib/thermo";
 import { parseMeasured, resultFigures } from "../lib/units";
 import { describeCrash, crashAdvice } from "../lib/crashReport";
-import { parseDelimited, gridToFieldText, describeGrid } from "../lib/dataimport";
+import { parseDelimited, gridToFieldText, describeGrid, parseCellNumber, isDecimalComma } from "../lib/dataimport";
 import { pca, trapz } from "../lib/pca";
 import { fitCurve } from "../lib/curvefit";
 import { nmrChartSvg, irChartSvg, msChartSvg, cosyChartSvg, hsqcChartSvg, hmbcChartSvg, tocsyChartSvg, jcampChartSvg, decimateTrace, SPECTRUM_CHART_SIZE, SPECTRUM_2D_SIZE } from "../lib/spectraChart";
@@ -277,6 +277,10 @@ import {
   adjustPValues,
   CorrectionMethod,
 } from "../lib/stats2";
+import { rankTestLines } from "../lib/exactRank";
+import { readNumberList, decimalCommaNote } from "../lib/numberList";
+import type { CoxInput } from "../lib/cox";
+import { rmAnovaCalc, rmFieldText, coxCalc } from "../lib/statsBatchCalcs";
 import { tukeyHSD } from "../lib/tukey";
 import { fftFilter, FilterKind, FilterResponse } from "../lib/fftfilter";
 import {
@@ -449,7 +453,7 @@ import { spectrum, dominantFrequencies, WindowKind } from "../lib/fft";
 import { solveOde, OdeMethod, OdeEvent } from "../lib/ode";
 import { parseOdeSystem, rewriteStateExpression, parseTimeList } from "../lib/odeParse";
 import { isNewerVersion } from "../lib/version";
-import { feedTable, type TableShape, type TableFeedResult } from "../lib/tableFeed";
+import { feedTable, readCoxTable, readSubjectsBetween, type TableShape, type TableFeedResult } from "../lib/tableFeed";
 import { powerT, powerAnova, powerProportions, sampleSizeFor, effectLabel, type TTestDesign } from "../lib/power";
 import {
   describeOfflineStatus,
@@ -468,7 +472,7 @@ import { describeAssumptions, normalityTest, varianceHomogeneity, normalityCheck
 import { kruskalWallis, dunnTest, friedman } from "../lib/nonparametric";
 import { dunnettTest } from "../lib/dunnett";
 import { multipleRegression, polynomialRegression, qqPoints } from "../lib/regression";
-import { kaplanMeier, logRankTest, survivalCurvePoints } from "../lib/survival";
+import { kaplanMeier, logRankTest, survivalCurvePoints, readSurvivalRows } from "../lib/survival";
 import { minOf, maxOf } from "../lib/minmax";
 import {
   buildBohrSvg,
@@ -8080,7 +8084,7 @@ function renderCalcFields(
       const shape = f.table;
       row.appendChild(
         buildDataSourceBar(input as HTMLInputElement | HTMLTextAreaElement, f.kind ?? "groups", onChange, (rows) =>
-          feedTable(shape, rows),
+          statFeedTable(shape, rows),
         ),
       );
     }
@@ -8096,6 +8100,35 @@ function renderCalcFields(
  * to paste a table into one would be an invitation to a parse error.
  */
 const DATA_FIELD_KINDS = new Set(["block", "list", "matrix"]);
+
+/**
+ * The Cox table feed's own reading, kept while the field still holds exactly
+ * the text it produced: the field's numbers cannot carry the factor metadata
+ * ("Stage: reference I; II, III, IV as indicators"), so without this a table
+ * read with a text Stage column would lose its "Stage II vs I" labels and its
+ * one-curve-per-stage adjusted survival. Typing over the text drops it
+ * (statsBatchCalcs.readCoxField compares the text).
+ */
+let coxFeedMemo: { text: string; input: CoxInput } | null = null;
+
+/**
+ * feedTable, plus what two shapes need beyond the field's numbers:
+ *  - `subjects-between`: a first line of condition names, so the repeated-
+ *    measures output and profile plot say "Day 1 vs Day 7", not "condition 1";
+ *  - `cox`: the reading itself, memoised against the text (coxFeedMemo).
+ */
+function statFeedTable(shape: TableShape, rows: string[][]): TableFeedResult {
+  const fed = feedTable(shape, rows);
+  if ("error" in fed) return fed;
+  if (shape === "subjects-between") {
+    const r = readSubjectsBetween(rows);
+    if (!("error" in r)) return { ...fed, text: rmFieldText(r.conditions, fed.text) };
+  } else if (shape === "cox") {
+    const r = readCoxTable(rows);
+    coxFeedMemo = "error" in r ? null : { text: fed.text, input: r.input };
+  }
+  return fed;
+}
 
 /**
  * The two buttons that make a document a data source.
@@ -8321,24 +8354,70 @@ interface StatCalc {
   compute: (read: (k: string) => string) => StatOutput;
 }
 
+/**
+ * Every decimal comma the typed-field reader read during ONE compute, keyed by
+ * the text it read (a calculator that parses the same field twice must not
+ * count its commas twice). updateStatsPreview resets it before compute and
+ * turns it into the "1,5 read as 1.5" note — a typed comma is never read
+ * silently (docs/SCOPE-STATS-BATCH.md §E4).
+ */
+const statCommaLog = new Map<string, string>();
+
+/**
+ * A typed list of numbers, under the PRODUCT comma rule (numberList.ts) — the
+ * same rule the table feed applies to a cell. It used to split on /[\s,]+/, so
+ * "1,5 2,3 3,1" typed into Mann–Whitney was SIX values and a confident U on
+ * data nobody had (§A WRONG 8). The comma's role is decided for the text this
+ * call receives: a whole list field, one group, or one row.
+ */
 function statList(s: string): number[] {
-  return s
-    .split(/[\s,]+/)
-    .filter(Boolean)
-    .map(Number)
-    .filter((n) => !Number.isNaN(n));
+  const r = readNumberList(s);
+  // The note is numberList's own sentence for THIS reading (decimalCommaNote),
+  // so whatever the shared reader says it did is exactly what the user reads.
+  const note = decimalCommaNote(r);
+  if (note) statCommaLog.set(s, note);
+  return r.values;
+}
+
+/**
+ * readSurvivalRows reads each row by the same rule (readNumberList) but does
+ * not report its commas; replaying the rows through statList logs them so the
+ * survival calculators carry the same typed-comma note as every other one.
+ */
+function logRowCommas(text: string): void {
+  for (const l of text.split(/[;\n]+/)) if (l.trim()) statList(l);
+}
+
+/** The typed-comma note for the compute just run, or "" when no comma was read as a decimal. */
+function statCommaNote(): string {
+  if (!statCommaLog.size) return "";
+  const said = [...new Set(statCommaLog.values())].join(" ");
+  return (
+    `Note: ${said} Values separated by spaces with one comma each are read as decimal-comma ` +
+    "numbers; type 1, 5 (comma then space) for a list."
+  );
+}
+/** The comma's role is decided over the WHOLE field, not per group: a field
+ *  with "1,2,3" in one group and "4,5 6" in the next is comma-LISTING, so the
+ *  second group is 4, 5, 6 — not 4.5, 6 (v2.134.0 integration review). In
+ *  "cell" mode no group can hold a multi-comma run, so only this direction
+ *  needs forcing. */
+function statFieldCommasAreSeparators(s: string): boolean {
+  return readNumberList(s).commaMode === "separator";
 }
 function statGroups(s: string): number[][] {
+  const sep = statFieldCommasAreSeparators(s);
   return s
     .split(/\n\s*\n|;/)
-    .map((g) => statList(g))
+    .map((g) => statList(sep ? g.replace(/,/g, " ") : g))
     .filter((g) => g.length > 0);
 }
 /** Parses a numeric table: one row per line, entries space/comma separated. */
 function statTable(s: string): number[][] {
+  const sep = statFieldCommasAreSeparators(s);
   return s
     .split(/\n|;/)
-    .map((line) => statList(line))
+    .map((line) => statList(sep ? line.replace(/,/g, " ") : line))
     .filter((row) => row.length > 0);
 }
 
@@ -8349,10 +8428,19 @@ function statTable(s: string): number[][] {
 function statTwoWay(s: string): { cells: number[][][]; aLevels: string[]; bLevels: string[] } {
   const rows: { a: string; b: string; v: number }[] = [];
   for (const line of s.split(/\n|;/)) {
-    const parts = line.trim().split(/[\s,]+/).filter(Boolean);
+    // Whitespace (or ", ") separates "A B value"; a line typed as "A,B,value"
+    // with no spaces falls back to commas. The VALUE is read by the product
+    // comma rule (parseCellNumber), so "lo x 12,5" is 12.5 — the old /[\s,]+/
+    // split made it a fourth token and the value 5.
+    let parts = line.trim().split(/,?\s+|,(?=\s)/).filter(Boolean);
+    if (parts.length < 3) parts = line.trim().split(/\s*,\s*/).filter(Boolean);
     if (parts.length < 3) continue;
-    const v = Number(parts[parts.length - 1]);
+    const last = parts[parts.length - 1];
+    const v = parseCellNumber(last);
     if (!Number.isFinite(v)) continue;
+    if (isDecimalComma(last) && !statCommaLog.has("\u0000twoway")) {
+      statCommaLog.set("\u0000twoway", `Decimal commas in the values read as decimals (${last} → ${v}).`);
+    }
     rows.push({ a: parts[0], b: parts[1], v });
   }
   const aLevels = Array.from(new Set(rows.map((r) => r.a)));
@@ -8646,12 +8734,14 @@ const STAT_CALCS: StatCalc[] = [
       },
     ],
     compute: (r) => {
-      const rows = r("data")
-        .split(/[;\n]+/)
-        .map((l) => statList(l))
-        .filter((v) => v.length >= 2);
-      if (rows.length < 2) return { text: "Enter at least two subjects: time then 1 or 0.", ok: false };
-      const res = kaplanMeier(rows.map((v) => v[0]), rows.map((v) => v[1]));
+      // EXACTLY two numbers per row (readSurvivalRows). It used to take v[0],
+      // v[1] from any row with two or more, so a typed `ID Start Stop Event`
+      // row "1 0 5 1" became time = 1, event = 0 with nothing on screen.
+      const read = readSurvivalRows(r("data"));
+      if ("error" in read) return { text: read.error, ok: false };
+      logRowCommas(r("data"));
+      if (read.times.length < 2) return { text: "Enter at least two subjects: time then 1 or 0.", ok: false };
+      const res = kaplanMeier(read.times, read.events);
       if (!res.ok) return { text: res.reason ?? "Could not compute the curve.", ok: false };
 
       const lines = [
@@ -8695,10 +8785,15 @@ const STAT_CALCS: StatCalc[] = [
         .split(/\n[ \t]*\n|;;/)
         .map((b) => b.trim())
         .filter(Boolean);
-      const groups = blocks.map((b) => {
-        const rows = b.split(/[;\n]+/).map((l) => statList(l)).filter((v) => v.length >= 2);
-        return { times: rows.map((v) => v[0]), events: rows.map((v) => v[1]) };
-      });
+      // One readSurvivalRows per block: exactly "time event" per row, or a
+      // refusal by group and row — never time = an id column.
+      const groups: { times: number[]; events: number[] }[] = [];
+      for (let g = 0; g < blocks.length; g++) {
+        const read = readSurvivalRows(blocks[g]);
+        if ("error" in read) return { text: `Group ${g + 1}: ${read.error}`, ok: false };
+        logRowCommas(blocks[g]);
+        groups.push(read);
+      }
       if (groups.length < 2) {
         return { text: "Enter at least two groups, separated by a blank line.", ok: false };
       }
@@ -8970,6 +9065,66 @@ const STAT_CALCS: StatCalc[] = [
         ),
       };
     },
+  },
+  {
+    // Parametric repeated measures: one within factor, optionally one between
+    // factor (mixed design). Parsing, report and profile plot live in
+    // src/lib/statsBatchCalcs.ts, where they can be tested; the engine is
+    // rmAnova.ts. Default: Field's bushtucker data (§D3), so the shipped
+    // default reproduces the oracle values (F(3, 21) = 3.79, GG p = 0.0626).
+    id: "rmanova",
+    name: "Repeated-measures ANOVA (sphericity, GG/HF)",
+    fields: [
+      {
+        key: "data",
+        label:
+          "Optional first line: condition names. Then one row per subject, one value per condition; " +
+          "an optional group label first makes a mixed design (Drug 10 12 14)",
+        default: "Stick_insect Kangaroo_testicle Fish_eye Witchetty_grub\n8 7 1 6\n9 5 2 5\n6 2 3 8\n5 3 1 9\n8 4 5 8\n7 5 6 7\n10 2 7 2\n12 6 8 1",
+        kind: "groups",
+        table: "subjects-between",
+      },
+      {
+        key: "posthoc",
+        label: "Post-hoc comparisons",
+        default: "holm",
+        kind: "select",
+        options: [
+          { value: "holm", label: "Paired t, Holm-adjusted" },
+          { value: "none", label: "None" },
+        ],
+      },
+    ],
+    compute: (r) => rmAnovaCalc(r("data"), r("posthoc") === "none" ? "none" : "holm"),
+  },
+  {
+    // Cox proportional hazards. The field's first line NAMES the columns
+    // (time, event, covariates), so it is exempt from statDroppedTokens.
+    // Default: Gehan / Freireich 6-MP with a placebo 0/1 column (§D1:
+    // β = 1.5721, HR = 4.817). Figure: HR forest plot on a LOG axis +
+    // adjusted survival curves (statsBatchCalcs.coxFigureSvg).
+    id: "cox",
+    name: "Cox regression (proportional hazards)",
+    fields: [
+      {
+        key: "data",
+        label: "First line: column names (time, event, covariates). Then one row per subject: time, 1 (event) or 0 (censored), covariate values",
+        default: "time status placebo\n6 1 0\n6 1 0\n6 1 0\n6 0 0\n7 1 0\n9 0 0\n10 1 0\n10 0 0\n11 0 0\n13 1 0\n16 1 0\n17 0 0\n19 0 0\n20 0 0\n22 1 0\n23 1 0\n25 0 0\n32 0 0\n32 0 0\n34 0 0\n35 0 0\n1 1 1\n1 1 1\n2 1 1\n2 1 1\n3 1 1\n4 1 1\n4 1 1\n5 1 1\n5 1 1\n8 1 1\n8 1 1\n8 1 1\n8 1 1\n11 1 1\n11 1 1\n12 1 1\n12 1 1\n15 1 1\n17 1 1\n22 1 1\n23 1 1",
+        kind: "groups",
+        table: "cox",
+      },
+      {
+        key: "ties",
+        label: "Tied event times",
+        default: "efron",
+        kind: "select",
+        options: [
+          { value: "efron", label: "Efron (as R coxph)" },
+          { value: "breslow", label: "Breslow (as SAS/Stata)" },
+        ],
+      },
+    ],
+    compute: (r) => coxCalc(r("data"), r("ties") === "breslow" ? "breslow" : "efron", coxFeedMemo),
   },
   {
     id: "assumptions",
@@ -9392,7 +9547,9 @@ const STAT_CALCS: StatCalc[] = [
       if (a.length < 2 || b.length < 2) return { text: "Enter at least two values per group.", ok: false };
       const res = mannWhitneyU(a, b);
       return {
-        text: `Mann–Whitney U test (two independent samples)\nU = ${assaySig(res.statistic)}, z = ${assaySig(res.z, 3)}, ${formatP(res.p)}\n(normal approximation, tie- and continuity-corrected)`,
+        // The EXACT p at small n (v2.134.0): the normal approximation printed
+        // p = 0.081 for 3 v 3, below the smallest p that is possible (0.1).
+        text: ["Mann–Whitney U test (two independent samples)", ...rankTestLines(res, "mann-whitney")].join("\n"),
         // The two distributions, which is what a rank test compares. U and z
         // say nothing about shape, and shape is usually why this test was
         // chosen over a t-test in the first place.
@@ -9420,7 +9577,7 @@ const STAT_CALCS: StatCalc[] = [
       const res = wilcoxonSignedRank(a, b);
       if (res.n1 === 0) return { text: "All paired differences are zero — the test is undefined.", ok: false };
       return {
-        text: `Wilcoxon signed-rank test (paired)\nW = ${assaySig(res.statistic)}, n = ${res.n1}, z = ${assaySig(res.z, 3)}, ${formatP(res.p)}\n(normal approximation, tie- and continuity-corrected)`,
+        text: ["Wilcoxon signed-rank test (paired)", ...rankTestLines(res, "wilcoxon")].join("\n"),
         // The differences get their own box, as in the paired t-test: this test
         // ranks the paired differences, and two heavily overlapping conditions
         // can still have every difference the same sign.
@@ -9835,17 +9992,44 @@ function statDroppedTokens(calc: StatCalc, read: (k: string) => string): string[
   const dropped: string[] = [];
   for (const f of calc.fields) {
     if (f.kind !== "list" && f.kind !== "groups") continue;
-    const tokens = read(f.key).split(/[\s,;]+/).filter(Boolean);
-    if (!tokens.length) continue;
-    const bad = tokens.filter((t) => !Number.isFinite(Number(t)));
+    // Tokens a field reads ON PURPOSE are not dropped values. NARROW, so that
+    // a real "n/a" in a value cell still warns:
+    //  - `cox`: the first line is the header of column names (time, event,
+    //    covariates) — it is how that field names its covariates;
+    //  - `subjects-between` (repeated-measures ANOVA): an optional first line
+    //    of condition names (all non-numeric), and the between-subject label
+    //    that may lead each subject row ("Drug 10 12 14").
+    let text = read(f.key);
+    if (f.table === "cox") {
+      text = text.replace(/^\s*[^\n]*\n?/, "");
+    } else if (f.table === "subjects-between") {
+      const lines = text.split(/\n|;/);
+      if (lines.length && isLabelLine(lines[0])) lines.shift();
+      text = lines.map((l) => l.trim().replace(/^[^\s]+\s+/, (lead) => (isNumberToken(lead.trim()) ? lead : ""))).join("\n");
+    }
+    const reading = readNumberList(text);
+    const bad = reading.dropped;
+    const total = reading.values.length + bad.length;
+    if (!total) continue;
     // Mostly-numeric test. A LABELLED field is majority non-numeric — two-way
     // ANOVA's "lo x 12" per line is two labels to one number, ~67% — whereas a
     // numeric column with a few ND/N-A cells stays well under half. Measured:
     // "2, 4, ND, 5, N/A, 7, 9" is 29% bad, which an earlier 20% threshold
     // wrongly treated as labelled data and stayed silent about.
-    if (bad.length && bad.length < tokens.length * 0.5) dropped.push(...bad);
+    if (bad.length && bad.length < total * 0.5) dropped.push(...bad);
   }
   return dropped;
+}
+
+/** One number as typed, by the product comma rule. */
+function isNumberToken(t: string): boolean {
+  return Number.isFinite(parseCellNumber(t));
+}
+
+/** A line of names only (no numeric token): a header line in a typed field. */
+function isLabelLine(line: string): boolean {
+  const toks = line.trim().split(/\s+/).filter(Boolean);
+  return toks.length > 0 && toks.every((t) => !isNumberToken(t));
 }
 
 function updateStatsPreview(): void {
@@ -9855,11 +10039,16 @@ function updateStatsPreview(): void {
     return el ? el.value : "";
   };
   let out: StatOutput;
+  statCommaLog.clear();
   try {
     out = calc.compute(read);
   } catch {
     out = { text: "Could not compute — check the inputs.", ok: false };
   }
+  // A typed decimal comma is never read silently (§E4): "1,5 2,3" is 1.5 and
+  // 2.3 under the product comma rule, and the result says so.
+  const commaNote = statCommaNote();
+  if (commaNote) out = { ...out, text: `${out.text}\n\n${commaNote}` };
   // Say so when values were dropped. A t-test on n=7 presented as if it were
   // n=10 is the quiet kind of wrong: nothing on screen distinguished them,
   // because the two-sample output reports t(df) and never n.

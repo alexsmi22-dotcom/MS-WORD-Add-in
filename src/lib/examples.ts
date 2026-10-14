@@ -684,7 +684,9 @@ export const MODE_EXAMPLES: Record<ExampleMode, string> = {
       <li><strong>Descriptive</strong> — n, mean, SD, SEM, median, 95% CI, CV from one list</li>
       <li><strong>t-tests</strong> — two-sample (Welch/Student) &amp; paired, with a <strong>p-value</strong> and an APA report (<em>t</em>(18) = 2.41, <em>p</em> = .027)</li>
       <li><strong>One-way ANOVA</strong> and <strong>linear regression</strong> (slope, R², slope p)</li>
-      <li><strong>Non-parametric</strong> — Mann–Whitney U (independent) and Wilcoxon signed-rank (paired)</li>
+      <li><strong>Non-parametric</strong> — Mann–Whitney U (independent) and Wilcoxon signed-rank (paired), with an <strong>exact p</strong> up to n = 60 (conditional on ties) and the normal approximation shown beside it</li>
+      <li><strong>Repeated-measures ANOVA</strong> — one row per subject (optionally a group label first for a mixed design): Mauchly's test, Greenhouse–Geisser and Huynh–Feldt ε with corrected df (GG: <em>F</em>(1.60, 11.19) = 3.794, <em>p</em> = 0.0626 on the default), Holm-adjusted paired comparisons, and a profile plot with within-subject CIs</li>
+      <li><strong>Cox regression</strong> — a header line (<code>time status age …</code>) then one row per subject: β, HR with 95% CI (placebo HR = 4.817, 2.147 to 10.81 on the default), likelihood-ratio/Wald/score tests, concordance and a proportional-hazards check, with a log-axis hazard-ratio forest plot and adjusted survival curves</li>
       <li><strong>Chi-square</strong> — goodness of fit and test of independence (contingency table)</li>
       <li><strong>Two-way ANOVA</strong> (enter <code>factorA factorB value</code> per line) and <strong>multiple-comparison correction</strong> (Bonferroni / Holm / Benjamini–Hochberg)</li>
       <li><strong>Uncertainty propagation</strong> — a formula plus <code>a = 10 ± 0.1</code> lines → result ± combined 1σ</li>
@@ -692,12 +694,14 @@ export const MODE_EXAMPLES: Record<ExampleMode, string> = {
     </ul>
     <p class="examples-note">
       <strong>Use table at cursor</strong> works on every calculator: click inside a Word table and the field fills itself.
-      Groups go one per column (a header row names them) or as label + value rows; repeated measures one row per subject;
-      survival as time and event (1/0) columns, plus a group column for Log-rank; two-way ANOVA as factor A, factor B, value
-      rows or a crosstab. The status line says how the table was read.
+      Groups go one per column (a header row names them) or as label + value rows; repeated measures one row per subject
+      or long format (Subject | Time | Score); survival as time and event (1/0) columns, plus a group column for Log-rank;
+      Cox regression as time, event and covariate columns (text columns become indicators, the reference named);
+      two-way ANOVA as factor A, factor B, value rows or a crosstab. The status line says how the table was read.
     </p>
     <p class="examples-note">
-      Enter numbers separated by spaces, commas, or new lines. Analysis aid — verify before publishing.
+      Enter numbers separated by spaces, commas, or new lines. A comma inside a space-separated value is a decimal comma
+      (<code>1,5 2,3</code> is 1.5 and 2.3, and the result says so); type <code>1, 5</code> for a list. Analysis aid — verify before publishing.
     </p>`,
   analyze: `
     <p class="examples-note">

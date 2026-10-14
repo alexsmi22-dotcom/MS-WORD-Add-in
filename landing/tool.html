@@ -227,6 +227,9 @@
         "<b>Assumption checks</b> \u2014 D'Agostino\u2013Pearson K\u00b2 for normality, Brown\u2013Forsythe for equal variances. Warnings name the alternative to use, and below n = 20 it refuses to report rather than returning a number with no power behind it.",
         "<b>Beyond two groups</b> \u2014 Kruskal\u2013Wallis with Dunn post-hoc, Friedman for repeated measures, and <b>Dunnett</b> for every treatment against one control (which corrects for the comparisons you wanted, not all pairs).",
         "<b>Regression</b> \u2014 multiple and polynomial, solved by QR, with <b>residual and normal Q\u2013Q plots</b> under the result: a curved relationship fitted with a line posts a fine R\u00b2 while being wrong at both ends, and only the residual plot shows it.",
+        "<b>Cox regression</b> \u2014 hazard ratios with 95% confidence intervals, likelihood-ratio, Wald and score tests, Harrell\u2019s C and the proportional-hazards test; Efron ties (Breslow on request); refused by name when there are too few events per parameter or the likelihood diverges; a forest plot on a log axis and adjusted survival curves. Reads OS_MONTHS / OS_STATUS style tables at the cursor.",
+        "<b>Repeated-measures ANOVA</b> \u2014 one within-subject factor or a mixed design, Mauchly\u2019s test (refused by name when undefined), Greenhouse\u2013Geisser and Huynh\u2013Feldt corrections, partial \u03b7\u00b2, Holm post-hoc, and a profile plot; long or wide tables.",
+        "<b>Exact rank tests</b> \u2014 Mann\u2013Whitney and Wilcoxon give the EXACT p (as a fraction) up to 60 observations, conditional on ties, with the normal approximation beside it.",
         "<b>Survival analysis</b> \u2014 Kaplan\u2013Meier with Greenwood intervals, log-rank, hazard ratio. Censored subjects stay at risk up to their time and no further; median survival reads NOT REACHED when the curve never falls to 50%.",
       ],
       examples:[

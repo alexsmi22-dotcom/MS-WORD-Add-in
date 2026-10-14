@@ -71,7 +71,10 @@ const CORPUS = path.join(__dirname, "figure-layout-run.ts");
 // highlighted shortest path, the 24-vertex dot-and-radial-label layout, a DFA).
 // 179 as of 2026-10-14 (v2.131.0): four probability figures (two pmf bar
 // charts, a Bayes tree, a Markov state diagram).
-const CORPUS_FLOOR = 183;
+// 189 as of 2026-10-14 (v2.134.0): six statistics figures (RM ANOVA profile,
+// one-way and mixed; the Cox log-axis forest and adjusted survival panels; two
+// log-axis forest stress cases: three decades with long labels, one decade).
+const CORPUS_FLOOR = 189;
 
 // --- The allowance ratchet ----------------------------------------------------
 //

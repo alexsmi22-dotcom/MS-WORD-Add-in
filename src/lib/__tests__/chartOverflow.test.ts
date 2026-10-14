@@ -37,6 +37,11 @@ describe("the reachable path: a rank test on extreme magnitudes", () => {
     expect(Number.isFinite(res.statistic)).toBe(true);
     expect(Number.isFinite(res.z)).toBe(true);
     expect(Number.isFinite(res.p)).toBe(true);
+    // v2.135.0: the reported p is the exact one (only the ranks matter, so ±1.7e308
+    // cannot overflow it): 19/126, by brute force over C(10,5) = 252 assignments.
+    expect(res.method).toBe("exact");
+    expect(res.p).toBeCloseTo(19 / 126, 12);
+    expect(Number.isFinite(res.pNormal)).toBe(true);
   });
 
   test("and the box plot beside it is clean", () => {

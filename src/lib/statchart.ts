@@ -32,6 +32,7 @@
 // wrong here does not produce a bad chart, it produces a frozen Word.
 
 import { niceStep, ticks } from "./mechchart";
+import { logTicks, fmtLogTick } from "./plot";
 
 const INK = "#111111";
 const RULE = "#888888";
@@ -453,11 +454,18 @@ export interface ForestRow {
  * `zero` is a parameter rather than a constant because a ratio comparison
  * (a hazard ratio, an odds ratio) is null at 1, not at 0. Drawing the line at 0
  * for those would mark every interval as significant.
+ *
+ * `log: true` draws a RATIO on a log₁₀ axis (reference defaults to 1). On a
+ * linear axis HR 0.5 and HR 2 are not equidistant from 1 and every protective
+ * effect looks small — a wrong figure that looks right (scope §E8, finding 7).
+ * A value ≤ 0 cannot sit on a log axis and is REFUSED BY NAME on the artwork,
+ * never dropped. The linear path is byte-identical to what it always was.
  */
 export function forestPlotSvg(
   rows: ForestRow[],
-  opts: { title?: string; xlabel?: string; zero?: number; w?: number },
+  opts: { title?: string; xlabel?: string; zero?: number; w?: number; log?: boolean },
 ): string {
+  if (opts.log) return forestPlotLogSvg(rows, opts);
   const W = opts.w ?? FOREST_CHART_SIZE.w;
   const CAP = 14;
   const shown = rows.slice(0, CAP);
@@ -537,6 +545,173 @@ export function forestPlotSvg(
         `font-family="Segoe UI, Arial" font-size="10" fill="${INK}">${esc(opts.xlabel)}</text>`,
     );
   }
+  if (clipped > 0) {
+    parts.push(
+      `<text x="${W - MR}" y="${H - 8}" text-anchor="end" font-family="Segoe UI, Arial" ` +
+        `font-size="9" fill="${RED}">${clipped} more not shown</text>`,
+    );
+  }
+  parts.push("</svg>");
+  return parts.join("");
+}
+
+/** The decade axis a log-scale forest plot is drawn on. */
+export interface ForestLogAxis {
+  /** Axis ends as decade exponents: the axis runs 10^decLo … 10^decHi. */
+  decLo: number;
+  decHi: number;
+  /** Decade ticks (labelled): 0.1, 1, 10 … */
+  major: number[];
+  /** 2…9 × each decade, inside the axis (a gridline-length tick, no label unless in `labelled`). */
+  minor: number[];
+  /** Every tick that carries a label, with its text. */
+  labelled: { v: number; text: string }[];
+}
+
+/** More decades than this and a forest plot is not a picture of anything. */
+export const FOREST_LOG_MAX_DECADES = 12;
+
+/**
+ * The log axis for ratios spanning [lo, hi] (both > 0): rounded OUT to whole
+ * decades so the ticks are 10ᵏ; when it spans one or two decades only, the
+ * minor ticks at 2 and 5 are labelled too (0.1, 0.2, 0.5, 1, …) — otherwise a
+ * HR of 0.68 would sit between two labels a factor of ten apart. A domain that
+ * sits on a single power of ten (every interval exactly 1) is widened to a
+ * decade each side. A value ≤ 0 or non-finite is refused by the caller.
+ */
+export function forestLogAxis(lo: number, hi: number): ForestLogAxis | { error: string } {
+  if (!(lo > 0) || !(hi > 0) || !Number.isFinite(lo) || !Number.isFinite(hi)) {
+    return { error: "a log axis needs finite positive values" };
+  }
+  // `+ 0` turns Math.ceil's −0 (ceil(−1e−12)) into 0.
+  let decLo = Math.floor(Math.log10(lo) + 1e-12) + 0;
+  let decHi = Math.ceil(Math.log10(hi) - 1e-12) + 0;
+  if (decHi <= decLo) {
+    decLo -= 1;
+    decHi += 1;
+  }
+  if (decHi - decLo > FOREST_LOG_MAX_DECADES) {
+    return { error: `the intervals span ${decHi - decLo} decades (more than ${FOREST_LOG_MAX_DECADES})` };
+  }
+  const t = logTicks(decLo, decHi);
+  const fewDecades = decHi - decLo <= 2;
+  const labelled = t.major.map((v) => ({ v, text: fmtLogTick(v) }));
+  if (fewDecades) {
+    for (const v of t.minor) {
+      const m = Math.round(v / Math.pow(10, Math.floor(Math.log10(v) + 1e-12)));
+      if (m === 2 || m === 5) labelled.push({ v, text: String(Number(v.toPrecision(6))) });
+    }
+    labelled.sort((a, b) => a.v - b.v);
+  }
+  return { decLo, decHi, major: t.major, minor: t.minor, labelled };
+}
+
+/** forestPlotSvg's log-axis path (see `log` there). */
+function forestPlotLogSvg(
+  rows: ForestRow[],
+  opts: { title?: string; xlabel?: string; zero?: number; w?: number },
+): string {
+  const W = opts.w ?? FOREST_CHART_SIZE.w;
+  const CAP = 14;
+  const shown = rows.slice(0, CAP);
+  const clipped = rows.length - shown.length;
+  const ROW_H = 20;
+  const MT = opts.title ? 28 : 14;
+  const MB = 40;
+  const H = MT + Math.max(1, shown.length) * ROW_H + MB;
+
+  const ref = Number.isFinite(opts.zero as number) ? (opts.zero as number) : 1;
+  if (!(ref > 0)) return emptyChart(W, H, `Log axis: the reference line ${fmt(ref)} is not positive`);
+  const finite = shown.filter(
+    (r) => Number.isFinite(r.estimate) && Number.isFinite(r.low) && Number.isFinite(r.high),
+  );
+  if (!finite.length) return emptyChart(W, H, "No finite intervals to chart");
+  // REFUSED BY NAME: a ratio ≤ 0 is not a ratio, and dropping it would draw
+  // the other rows as if it were not there.
+  for (const r of finite) {
+    for (const v of [r.low, r.estimate, r.high]) {
+      if (!(v > 0)) {
+        return emptyChart(W, H, `Log axis cannot show ${r.label.slice(0, 40)}: ${fmt(v)} is not positive`);
+      }
+    }
+  }
+  const lo = Math.min(ref, ...finite.map((r) => r.low));
+  const hi = Math.max(ref, ...finite.map((r) => r.high));
+  const ax = forestLogAxis(lo, hi);
+  if ("error" in ax) return emptyChart(W, H, `Log axis: ${ax.error}`);
+
+  // Row labels are sized at 5.8 px per character (10 px face) and cut with an
+  // ellipsis to the margin they get — a long covariate name ("financial aid
+  // received at release") must never run off the left edge of the picture.
+  const longest = Math.max(...shown.map((r) => r.label.length));
+  const ML = Math.min(170, Math.max(64, longest * 5.8 + 12));
+  const maxChars = Math.max(4, Math.floor((ML - 10) / 5.8));
+  const rowLabel = (s: string): string => (s.length > maxChars ? s.slice(0, maxChars - 1) + "…" : s);
+  const MR = 18;
+  const pw = W - ML - MR;
+  const span = ax.decHi - ax.decLo;
+  const x = (v: number): number => ML + ((Math.log10(v) - ax.decLo) / span) * pw;
+
+  const parts: string[] = [
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`,
+    `<rect width="${W}" height="${H}" fill="${PAPER}"/>`,
+  ];
+  if (opts.title) {
+    parts.push(
+      `<text x="${W / 2}" y="18" text-anchor="middle" font-family="Segoe UI, Arial" ` +
+        `font-size="12" fill="${INK}">${esc(opts.title)}</text>`,
+    );
+  }
+  const yBase = MT + shown.length * ROW_H;
+  // Decade gridlines (faint) and minor ticks on the baseline.
+  for (const v of ax.major) {
+    parts.push(
+      `<line x1="${x(v).toFixed(1)}" y1="${MT - 4}" x2="${x(v).toFixed(1)}" y2="${yBase + 5}" stroke="${FAINT}" stroke-width="1"/>`,
+    );
+  }
+  for (const v of ax.minor) {
+    parts.push(
+      `<line x1="${x(v).toFixed(1)}" y1="${yBase}" x2="${x(v).toFixed(1)}" y2="${yBase + 3}" stroke="${RULE}" stroke-width="1"/>`,
+    );
+  }
+  for (const l of ax.labelled) {
+    parts.push(
+      `<text x="${x(l.v).toFixed(1)}" y="${yBase + 15}" text-anchor="middle" ` +
+        `font-family="Segoe UI, Arial" font-size="10" fill="${GREY}">${esc(l.text)}</text>`,
+    );
+  }
+  parts.push(`<line x1="${ML}" y1="${yBase}" x2="${ML + pw}" y2="${yBase}" stroke="${RULE}" stroke-width="1"/>`);
+  parts.push(
+    `<line x1="${x(ref).toFixed(1)}" y1="${MT - 4}" x2="${x(ref).toFixed(1)}" y2="${yBase}" ` +
+      `stroke="${RED}" stroke-width="1" stroke-dasharray="4 3"/>`,
+  );
+
+  shown.forEach((r, i) => {
+    const cy = MT + ROW_H * i + ROW_H / 2;
+    parts.push(
+      `<text x="${ML - 8}" y="${(cy + 3.5).toFixed(1)}" text-anchor="end" ` +
+        `font-family="Segoe UI, Arial" font-size="10" fill="${INK}">${esc(rowLabel(r.label))}</text>`,
+    );
+    if (!Number.isFinite(r.estimate) || !Number.isFinite(r.low) || !Number.isFinite(r.high)) {
+      parts.push(
+        `<text x="${ML + 6}" y="${(cy + 3.5).toFixed(1)}" font-family="Segoe UI, Arial" ` +
+          `font-size="9" fill="${GREY}">not estimable</text>`,
+      );
+      return;
+    }
+    const crosses = r.low <= ref && r.high >= ref;
+    const c = crosses ? GREY : BLUE;
+    parts.push(`<line x1="${x(r.low).toFixed(1)}" y1="${cy.toFixed(1)}" x2="${x(r.high).toFixed(1)}" y2="${cy.toFixed(1)}" stroke="${c}" stroke-width="1.5"/>`);
+    for (const v of [r.low, r.high]) {
+      parts.push(`<line x1="${x(v).toFixed(1)}" y1="${(cy - 4).toFixed(1)}" x2="${x(v).toFixed(1)}" y2="${(cy + 4).toFixed(1)}" stroke="${c}" stroke-width="1.5"/>`);
+    }
+    parts.push(`<circle cx="${x(r.estimate).toFixed(1)}" cy="${cy.toFixed(1)}" r="3" fill="${c}"/>`);
+  });
+
+  parts.push(
+    `<text x="${ML + pw / 2}" y="${H - 8}" text-anchor="middle" ` +
+      `font-family="Segoe UI, Arial" font-size="10" fill="${INK}">${esc(`${opts.xlabel ?? "ratio"} (log scale)`)}</text>`,
+  );
   if (clipped > 0) {
     parts.push(
       `<text x="${W - MR}" y="${H - 8}" text-anchor="end" font-family="Segoe UI, Arial" ` +

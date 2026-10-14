@@ -5,6 +5,7 @@
 // never a lookup table or approximation shortcut. Pure; no Office.js.
 
 import { mean, fTestP } from "./stats";
+import { EXACT_RANK_MAX_N, ExactRankInfo, exactTails, rankSumNull, signedRankNull } from "./exactRank";
 
 // --- special functions ------------------------------------------------------
 
@@ -141,7 +142,7 @@ export function chiSquareP(chi2: number, df: number): number {
  * "significant". The pane's list parser filters NaN, so this was a
  * library-level hole, and these functions are exported.
  */
-function rankWithTies(xs: number[]): { ranks: number[]; tieSum: number } {
+export function rankWithTies(xs: number[]): { ranks: number[]; tieSum: number } {
   if (xs.some((v) => !Number.isFinite(v))) throw new RangeError("ranks need finite values");
   const idx = xs.map((v, i) => [v, i] as [number, number]).sort((a, b) => a[0] - b[0]);
   const ranks = new Array(xs.length).fill(0);
@@ -162,25 +163,111 @@ function rankWithTies(xs: number[]): { ranks: number[]; tieSum: number } {
 // --- non-parametric tests ---------------------------------------------------
 
 export interface RankTestResult {
-  /** The test statistic (U for Mann–Whitney, W for Wilcoxon). */
+  /** The test statistic (U = min(U₁, U₂) for Mann–Whitney, W = min(W⁺, W⁻) for Wilcoxon). */
   statistic: number;
   /** Normal-approximation z (continuity-corrected, tie-corrected). */
   z: number;
-  /** Two-tailed p-value. */
+  /**
+   * The REPORTED two-sided p: the exact p when the exact path ran (n ≤ 60),
+   * otherwise the normal approximation. Existing callers keep reading `p`.
+   */
   p: number;
+  /** Exact two-sided p (undefined above the n = 60 cap, or when the test is degenerate/undefined). */
+  pExact?: number;
+  /** True when the exact p is conditional on observed ties (midranks). */
+  exactConditional: boolean;
+  /** Normal approximation (tie + continuity corrected), ALWAYS computed — shown beside the exact p. */
+  pNormal: number;
+  /** Which p `p` is. "degenerate": the statistic cannot vary (all values tied / n = 0) — p = 1, said by `note`. */
+  method: "exact" | "normal" | "degenerate";
+  /** Exact-path detail: fractions, one-sided tails, attainable minimum, null distribution. */
+  exact?: ExactRankInfo;
+  /** Mann–Whitney n₁ / Wilcoxon: number of NON-ZERO differences. */
   n1: number;
+  /** Mann–Whitney n₂ / Wilcoxon: same as n1. */
   n2: number;
+  /** Mann–Whitney: U₁ = R₁ − n₁(n₁+1)/2 (group 1) and U₂ = n₁n₂ − U₁. */
+  u1?: number;
+  u2?: number;
+  /** Wilcoxon: rank sums of the positive and negative differences. */
+  wPlus?: number;
+  wMinus?: number;
+  /** Wilcoxon: zero differences dropped before ranking (Wilcoxon's convention, as R). */
+  zerosDropped?: number;
+  /** Set when rounding to the data's own decimal precision merged values that differed only by float noise (said in the text). */
+  tieNote?: string;
+  /** Why the exact path did not run, or the degenerate case by name. */
+  note?: string;
+}
+
+/** Cap on the decimal precision ties are judged at (beyond this a double carries noise, not data). */
+const TIE_DECIMALS_CAP = 12;
+
+/** Decimal places in the shortest round-trip form of x ("1.5e-7" → 8; "1.7e+308" → 0), capped at 12. */
+function decimalPlaces(x: number): number {
+  if (!Number.isFinite(x)) return 0;
+  const s = String(Math.abs(x));
+  const e = s.indexOf("e");
+  const mant = e < 0 ? s : s.slice(0, e);
+  const exp = e < 0 ? 0 : Number(s.slice(e + 1));
+  const dot = mant.indexOf(".");
+  const frac = dot < 0 ? 0 : mant.length - dot - 1;
+  return Math.min(TIE_DECIMALS_CAP, Math.max(0, frac - exp));
+}
+
+/** x rounded to d decimals; values too large for toFixed are already integers at any useful precision. */
+function roundTo(x: number, d: number): number {
+  if (!Number.isFinite(x) || Math.abs(x) >= 1e21) return x;
+  const r = Number(x.toFixed(d));
+  return r === 0 ? 0 : r; // no −0
 }
 
 /**
- * Mann–Whitney U test (two independent samples). Uses the normal approximation
- * with tie correction and a continuity correction — appropriate for the sample
- * sizes a document author typically has.
+ * TIES ARE JUDGED AT THE DATA'S OWN DECIMAL PRECISION, never on raw float
+ * equality (v2.135.0 review defect). Typed 2.1 − 1.8 and 0.9 − 0.7 are both
+ * 0.2 to the user but three different doubles: ranked as distinct they gave
+ * an "exact, untied" p = 0.046875 where the truth, conditional on the ties,
+ * is 0.0625 — a significance crossing. Values are rounded to the maximum
+ * number of decimal places in the inputs (capped at 12) before ranking.
+ * Returns the rounded values and how many distinct raw values were merged.
+ */
+function atDataPrecision(values: number[], inputs: number[]): { values: number[]; decimals: number; merged: boolean } {
+  let d = 0;
+  for (const x of inputs) d = Math.max(d, decimalPlaces(x));
+  const out = values.map((v) => roundTo(v, d));
+  const merged = new Set(out).size < new Set(values.map((v) => (v === 0 ? 0 : v))).size;
+  return { values: out, decimals: d, merged };
+}
+
+function tieNoteText(what: string, d: number): string {
+  return `${what} equal to ${d} decimal place${d === 1 ? "" : "s"} (the data's own precision) are treated as tied; floating-point noise beyond that is not a difference.`;
+}
+
+function toDoubled(ranks: number[]): number[] {
+  // Midranks are k or k + ½, so doubling is exact in floating point.
+  return ranks.map((r) => Math.round(2 * r));
+}
+
+function mwSwitchNote(N: number): string {
+  return `n₁ + n₂ = ${N}, above ${EXACT_RANK_MAX_N}: the normal approximation is accurate here, so it alone is reported.`;
+}
+
+/**
+ * Mann–Whitney U test (two independent samples).
+ *
+ * p is EXACT (v2.135.0) when n₁ + n₂ ≤ 60: the permutation distribution of
+ * group 1's rank sum over all C(N, n₁) assignments, conditional on the
+ * observed midranks when there are ties; two-sided p = min(1, 2·min tail).
+ * The normal approximation (tie + continuity corrected) is always computed
+ * as `pNormal`. Above the cap only the approximation is reported.
  */
 export function mannWhitneyU(a: number[], b: number[]): RankTestResult {
   const n1 = a.length;
   const n2 = b.length;
-  const combined = a.concat(b);
+  const raw = a.concat(b);
+  // Ties at the data's own decimal precision (a caller may pass COMPUTED values).
+  const prec = atDataPrecision(raw, raw);
+  const combined = prec.values;
   const { ranks, tieSum } = rankWithTies(combined);
   let r1 = 0;
   for (let i = 0; i < n1; i++) r1 += ranks[i];
@@ -191,20 +278,91 @@ export function mannWhitneyU(a: number[], b: number[]): RankTestResult {
   const n = n1 + n2;
   const varU = ((n1 * n2) / 12) * (n + 1 - tieSum / (n * (n - 1)));
   const z = varU > 0 ? (u - mu + 0.5) / Math.sqrt(varU) : 0; // continuity correction toward the mean
-  const p = 2 * (1 - normalCdf(Math.abs(z)));
-  return { statistic: u, z, p: Math.min(1, p), n1, n2 };
+  const pNormal = Math.min(1, 2 * (1 - normalCdf(Math.abs(z))));
+  const tieNote = prec.merged ? tieNoteText("Values", prec.decimals) : undefined;
+  const base = { statistic: u, z, pNormal, n1, n2, u1, u2, tieNote };
+  if (n1 === 0 || n2 === 0) {
+    return { ...base, p: 1, method: "degenerate", exactConditional: false, note: "One group is empty: there is nothing to compare; p = 1." };
+  }
+  if (ranks.every((r) => r === ranks[0])) {
+    return {
+      ...base,
+      p: 1,
+      pExact: 1,
+      method: "degenerate",
+      exactConditional: tieSum > 0,
+      note: "Every value is tied: the rank sum cannot vary under any assignment, so the test is degenerate: p = 1.",
+    };
+  }
+  if (n > EXACT_RANK_MAX_N) {
+    return { ...base, p: pNormal, method: "normal", exactConditional: false, note: mwSwitchNote(n) };
+  }
+  const doubled = toDoubled(ranks);
+  // DP on the SMALLER group (cost and count bound); both tails are taken, so
+  // reflecting back to group 1 is exact.
+  const useA = n1 <= n2;
+  const k = useA ? n1 : n2;
+  const totalDoubled = doubled.reduce((s, v) => s + v, 0);
+  let r1Doubled = 0;
+  for (let i = 0; i < n1; i++) r1Doubled += doubled[i];
+  const nul = rankSumNull(doubled, k);
+  const t = exactTails(nul, useA ? r1Doubled : totalDoubled - r1Doubled);
+  // Express everything on group 1's U₁ scale.
+  const support: number[] = [];
+  const probs: number[] = [];
+  for (let i = 0; i < nul.counts.length; i++) {
+    if (nul.counts[i] === 0n) continue;
+    const sDoubled = nul.offset + i; // doubled rank sum of the DP group
+    const g1Doubled = useA ? sDoubled : totalDoubled - sDoubled;
+    support.push(g1Doubled / 2 - (n1 * (n1 + 1)) / 2);
+    probs.push(Number(nul.counts[i]) / Number(nul.total));
+  }
+  if (!useA) {
+    support.reverse();
+    probs.reverse();
+  }
+  const exact: ExactRankInfo = {
+    test: "mann-whitney",
+    conditional: tieSum > 0,
+    twoSided: t.twoSided,
+    // P(U₁ ≤ u₁): group 1 small ⇔ the other group's sum large.
+    lower: useA ? t.lower : t.upper,
+    upper: useA ? t.upper : t.lower,
+    minTwoSided: t.minTwoSided,
+    total: nul.total,
+    support,
+    probs,
+    observed: u1,
+  };
+  return { ...base, p: t.twoSided.value, pExact: t.twoSided.value, method: "exact", exactConditional: tieSum > 0, exact };
 }
 
 /**
- * Wilcoxon signed-rank test (paired samples). Zero differences are dropped;
- * the normal approximation with tie and continuity correction gives the p-value.
+ * Wilcoxon signed-rank test (paired samples). Zero differences are DROPPED
+ * before ranking (Wilcoxon's convention, as R — not Pratt's).
+ *
+ * p is EXACT (v2.135.0) when the number of non-zero differences n ≤ 60: the
+ * distribution of W⁺ over all 2ⁿ sign vectors, conditional on the observed
+ * midranks when |d| has ties; two-sided p = min(1, 2·min tail). The normal
+ * approximation (tie + continuity corrected) is always computed as `pNormal`.
  */
 export function wilcoxonSignedRank(a: number[], b: number[]): RankTestResult {
+  const m = Math.min(a.length, b.length);
+  const rawDiffs: number[] = [];
+  for (let i = 0; i < m; i++) rawDiffs.push(a[i] - b[i]);
+  if (rawDiffs.some((v) => !Number.isFinite(v))) throw new RangeError("ranks need finite values");
+  // Ties AND zeros judged at the data's own decimal precision: typed 2.1 − 1.8
+  // and 0.9 − 0.7 are one difference, 0.2, not two doubles.
+  const prec = atDataPrecision(rawDiffs.map(Math.abs), a.slice(0, m).concat(b.slice(0, m)));
   const diffs: number[] = [];
-  for (let i = 0; i < Math.min(a.length, b.length); i++) {
-    const d = a[i] - b[i];
+  for (let i = 0; i < m; i++) {
+    const d = rawDiffs[i] < 0 ? -prec.values[i] : prec.values[i];
     if (d !== 0) diffs.push(d);
   }
+  const zerosDropped = m - diffs.length;
+  const rawZeros = rawDiffs.filter((v) => v === 0).length;
+  const tieNote =
+    prec.merged || zerosDropped !== rawZeros ? tieNoteText("Differences", prec.decimals) : undefined;
   const n = diffs.length;
   const { ranks, tieSum } = rankWithTies(diffs.map(Math.abs));
   let wPlus = 0;
@@ -214,8 +372,51 @@ export function wilcoxonSignedRank(a: number[], b: number[]): RankTestResult {
   const mu = (n * (n + 1)) / 4;
   const varW = (n * (n + 1) * (2 * n + 1)) / 24 - tieSum / 48;
   const z = varW > 0 ? (w - mu + 0.5) / Math.sqrt(varW) : 0;
-  const p = 2 * (1 - normalCdf(Math.abs(z)));
-  return { statistic: w, z, p: Math.min(1, p), n1: n, n2: n };
+  const pNormal = Math.min(1, 2 * (1 - normalCdf(Math.abs(z))));
+  const base = { statistic: w, z, pNormal, n1: n, n2: n, wPlus, wMinus, zerosDropped, tieNote };
+  if (n === 0) {
+    return {
+      ...base,
+      p: 1,
+      method: "degenerate",
+      exactConditional: false,
+      note: "All paired differences are zero: after dropping zeros nothing is left to rank, so the test is undefined.",
+    };
+  }
+  if (n > EXACT_RANK_MAX_N) {
+    return {
+      ...base,
+      p: pNormal,
+      method: "normal",
+      exactConditional: false,
+      note: `n = ${n} non-zero differences, above ${EXACT_RANK_MAX_N}: the normal approximation is accurate here, so it alone is reported.`,
+    };
+  }
+  const doubled = toDoubled(ranks);
+  const nul = signedRankNull(doubled);
+  let wpDoubled = 0;
+  for (let i = 0; i < n; i++) if (diffs[i] > 0) wpDoubled += doubled[i];
+  const t = exactTails(nul, wpDoubled);
+  const support: number[] = [];
+  const probs: number[] = [];
+  for (let i = 0; i < nul.counts.length; i++) {
+    if (nul.counts[i] === 0n) continue;
+    support.push((nul.offset + i) / 2);
+    probs.push(Number(nul.counts[i]) / Number(nul.total));
+  }
+  const exact: ExactRankInfo = {
+    test: "wilcoxon",
+    conditional: tieSum > 0,
+    twoSided: t.twoSided,
+    lower: t.lower,
+    upper: t.upper,
+    minTwoSided: t.minTwoSided,
+    total: nul.total,
+    support,
+    probs,
+    observed: wPlus,
+  };
+  return { ...base, p: t.twoSided.value, pExact: t.twoSided.value, method: "exact", exactConditional: tieSum > 0, exact };
 }
 
 // --- chi-square -------------------------------------------------------------

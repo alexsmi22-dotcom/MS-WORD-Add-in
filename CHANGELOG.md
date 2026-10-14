@@ -6,6 +6,64 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.134.0] — 2026-10-14 — Statistics: exact rank tests, repeated-measures ANOVA, Cox regression, and table-reading fixes
+
+From `docs/SCOPE-STATS-BATCH.md`. The audit found LIVE WRONG ANSWERS in the
+shipped Stats calculators, and those are this release's first purpose:
+
+### Fixed — wrong numbers that shipped without a warning
+- **A long repeated-measures table was misread into Friedman**: `Subject |
+  Time | Score` became 9 "subjects" × 3 "conditions" and gave χ² 14.73, p =
+  0.0006; the truth is χ²(2) = 6, p = e⁻³ ≈ 0.0498. Long tables are now
+  pivoted (text levels, any order, merged labels filled down and said);
+  a group column in a Friedman request, an Age/Weight column, unheaded ids,
+  summary rows (Total, Mean, SD …) and transposed tables are each named and
+  either excluded or refused — never read as data.
+- **Kaplan–Meier and log-rank used the patient ID as time** on start/stop
+  tables (`ID | Start | Stop | Event`). Single-interval tables now use Stop
+  (or Stop − Start, said); several intervals per subject are refused by
+  name; an id or row counter is never time; underscored headers
+  (`OS_MONTHS`, `time_months`, cBioPortal's `PATIENT_ID | AGE | OS_MONTHS |
+  OS_STATUS`) are read correctly — they used to send the time to Age.
+- **Mann–Whitney and Wilcoxon printed impossible p-values**: the normal
+  approximation gave p = 0.081 for 3 v 3, below the smallest p that exists
+  (0.1). Both tests are now EXACT (BigInt counts, the exact fraction
+  printed) up to 60 observations, conditional on ties, with the normal p
+  shown beside and the switch rule stated. Ties are decided at the data's
+  own decimal precision — floating point had made three differences of
+  0.2 three distinct ranks and printed p = 0.047 as "exact" (truth 0.0625).
+- **A typed decimal comma changed n**: `1,5 2,3 3,1` was six numbers. Typed
+  lists now follow the same rule as the table feed (one shared reader,
+  `numberList.ts`), decided over the whole field and said in a note.
+- Multiple regression no longer fits ordinary least squares to survival
+  times with the event flag as a predictor (the "R² 0.73" Cox impostor).
+
+### Added
+- **Repeated-measures ANOVA** (`rmAnova.ts`): one within-subject factor and
+  the mixed design; Mauchly (refused by name when it is undefined, never a
+  fake p), Greenhouse–Geisser and Huynh–Feldt (Lecoutre's form, as R —
+  said), partial η², Holm post-hoc, a profile plot with Cousineau–Morey
+  intervals. Long or wide tables at the cursor.
+- **Cox proportional-hazards regression** (`cox.ts`): Efron ties (Breslow
+  on request), hazard ratios with 95% CIs, likelihood-ratio / Wald / score
+  tests, Harrell's C, the Schoenfeld proportional-hazards test; refused by
+  name for too few events per parameter, divergence (monotone likelihood),
+  collinearity, an event-free factor level; a forest plot on a LOG axis and
+  adjusted survival curves. Cross-checked: the one-binary-covariate score
+  test equals the log-rank χ².
+- `statchart.ts` gained a log axis (decade ticks, reference line at 1).
+
+### Adversarial pass — independent reviewer (8 wrong/misread + 4 refusals + cosmetics, all closed)
+Oracles: SciPy, statsmodels, lifelines, pingouin and brute force. Found
+NOTHING wrong in the fits themselves (Cox vs statsmodels to 5e-9, RM ANOVA
+vs pingouin to 1e-9, exact Mann–Whitney vs brute force on 400 cases). It
+found the float-split ties above, underscored survival headers, numeric
+subject ids under `Mouse`/`Rat`/`Donor` read as conditions, Total/Mean rows
+read as subjects, the comma rule not decided over the whole field, the
+wrong time column chosen between two, a second endpoint entered as Cox
+covariates, case-split factor levels (M/m/F/f), and a separation rule that
+refused strong but FINITE Cox effects.
+
 ## [2.133.0] — 2026-10-14 — Computation theory: grammars, machines, first-order logic, SAT, Hindley–Milner
 
 The fifth Solve domain on the 2026-10 arc (`docs/SCOPE-COMPUTATION-THEORY.md`).

@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.133.0)
+# JurisLab — Manual Test Script (v2.134.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -9,6 +9,76 @@ scanning, and layout. Budget ~30 minutes for the full pass.
 Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
+
+## 0ca. New in v2.134.0 — Statistics: exact rank tests, repeated-measures ANOVA, Cox regression, and table-reading fixes
+
+Stats mode. The dropdown has 24 calculators (was 22): **Repeated-measures ANOVA (sphericity,
+GG/HF)** and **Cox regression (proportional hazards)** are new; every one still draws.
+
+- [ ] **Mann–Whitney**, Group A `1, 2, 3`, Group B `4, 5, 6` → `U₁ = 0, U₂ = 9 (U = 0), n₁ = 3,
+  n₂ = 3`, **`p = 1/10 = 0.100000, two-sided, exact, over 20 equally likely group assignments`**,
+  the normal approximation `z = −1.75, p = 0.0808556` shown BESIDE it (not reported), the
+  two-sided rule line, and **`With 3 v 3, no two-sided p below 0.100000 is possible.`** The
+  shipped default (`1..5` v `6..10`) reads `p = 1/126 = 0.00793651` (was 0.0122, normal).
+- [ ] **Wilcoxon**, shipped default → `W⁺ = 19, W⁻ = 9 (W = 9), n = 7 non-zero differences`,
+  `1 zero difference dropped before ranking`, **`p = 15/32 = 0.468750 … exact`**, normal
+  approximation `p = 0.446873` beside it.
+- [ ] **Typed decimal commas.** Mann–Whitney, Group A `1,5 2,3 3,1`, Group B `4,2 5,0 6,6` →
+  n₁ = 3, n₂ = 3 (NOT 6 + 6), `p = 1/10 = 0.100000`, and the result ends with **`Note: 3 decimal
+  commas read as decimals (1,5 → 1.5). 3 decimal commas read as decimals (4,2 → 4.2). Values
+  separated by spaces with one comma each are read as decimal-comma numbers; type 1, 5 (comma
+  then space) for a list.`** `1, 2, 3` and `1,2,3` are still lists, with no note.
+- [ ] **Survival (Kaplan–Meier), typed `1 0 5 1` ⏎ `2 0 8 0`** → refused: `Row 1 ("1 0 5 1") has
+  4 numbers; each row is exactly two: time, then 1 (event) or 0 (censored). An id column or
+  start/stop columns must not be typed here …` (it used to read time = 1, event = 0 silently).
+  Log-rank: the same refusal, prefixed `Group 1:`. Both defaults unchanged.
+- [ ] **Repeated-measures ANOVA, shipped default** (Field's bushtucker data, the first line
+  names the conditions) → `Repeated-measures ANOVA: 8 subjects × 4 conditions`;
+  `Conditions: F(3, 21) = 3.794, p = 0.0256 (sphericity assumed); partial η² = 0.3515`;
+  **`Greenhouse–Geisser: F(1.60, 11.19) = 3.794, p = 0.0626 (ε_GG = 0.5328)`**; `Huynh–Feldt:
+  F(2.00, 13.98) = 3.794, p = 0.0483 (ε_HF = 0.6658)`; **`Reported p (Greenhouse–Geisser): p =
+  0.0626`**; `Sphericity: W = 0.1362, χ²(5) = 11.41, p = 0.0468 (Mauchly's W with R's
+  second-order χ² approximation (mauchly.test))`; the Girden lead rule; Holm pairs such as
+  `Stick insect vs Kangaroo testicle: mean difference 3.875, t(7) = 4.775, p = 0.00202, Holm p =
+  0.0101`. The PROFILE PLOT draws: four condition names on x, blue means with error bars, grey
+  subject lines, and the caption naming Cousineau–Morey within-subject 95% CIs.
+- [ ] RM ANOVA, `1 2 4 3` ⏎ `2 3 5 5` ⏎ `1 4 4 6` (3 subjects, 4 conditions) → `Mauchly's test
+  needs at least as many subjects as conditions: 3 < 4 - the covariance of the contrasts is
+  singular.` and **`Reported p (lower bound): p = 0.0816`** — never a W near 0.
+- [ ] RM ANOVA, mixed design: `Drug 10 12 14` ⏎ `Drug 9 11 15` ⏎ `Drug 12 13 16` ⏎ `Drug 8 10 13`
+  ⏎ `Placebo 11 11 12` ⏎ `Placebo 10 12 11` ⏎ `Placebo 12 12 13` ⏎ `Placebo 9 10 10` → `Between
+  groups: F(1, 6) = 0.8982, p = 0.38`, `Conditions: F(2, 12) = 54.41 …`, `Group × conditions:
+  F(2, 12) = 24.68 …`, `Huynh–Feldt 1.2803 (raw; capped at 1 for the df); original SPSS form
+  1.4973`; the plot has one mean line per group (`Drug (n = 4)`, `Placebo (n = 4)`). Change a
+  value to `n/a` → refused: `Subject … "n/a" is not a number. Missing cells are refused, not
+  dropped …`.
+- [ ] RM ANOVA, **Use table at cursor** on a LONG table `Subject | Time | Score` (1/2/3 codes) →
+  status line `Read long format …`, the field gets a first line `Time_1 Time_2 Time_3` and one row
+  per subject; the output names `Time 1`, `Time 2`, `Time 3`. On `Subject | Group | T1 | T2 | T3`
+  the Group column becomes the between factor (`Group_1 …` labels). The same table in Friedman
+  is refused by name, pointing to repeated-measures ANOVA.
+- [ ] **Cox regression, shipped default** (Gehan 6-MP, header `time status placebo`) →
+  `Cox regression (Efron ties): n = 42, 30 events, 1 parameter (30 events per parameter)`;
+  **`placebo: β = 1.5721 (SE 0.4124), HR = 4.817 (95% CI 2.147 to 10.81), z = 3.81, p =
+  0.00014`**; `Likelihood-ratio test: χ²(1) = 16.35, p < 0.0001`; `Wald test: χ²(1) = 14.53`;
+  `Score (log-rank) test: χ²(1) = 17.25`; `Concordance (Harrell's C) = 0.69`; the PH check
+  `placebo: χ²(1) = 0.004312, p = 0.948`; the caveats (Efron, Wald CI, concordance is not
+  calibration, Peto's log-rank HR differs by design). No "non-numeric entries were ignored"
+  warning about the header words. Ties → Breslow: `β = 1.5092 (SE 0.4096)`.
+- [ ] Cox FIGURE: a hazard-ratio forest plot on a **LOG axis** (labels 0.1, 1, 10 …, minor
+  ticks, a red dashed line at 1, `Hazard ratio (log scale)`), and below it the adjusted
+  survival curves `placebo = 0` / `placebo = 1` with the note `Breslow baseline.` Insert →
+  both panels land in Word as one picture.
+- [ ] Cox, **Use table at cursor** on `Time | Status | Age | Stage` with Stage typed I/II/III/IV
+  → status line `… Stage: reference I; II, III and IV as indicators.`; rows read `Stage II vs I`,
+  `Stage IV vs I: … HR = 5.507 (95% CI 2.409 to 12.59)`; four adjusted curves, one per stage.
+  Edit the field text by hand → the labels fall back to `Stage_IV` (the feed's factor reading
+  is kept only while the text is untouched).
+- [ ] Cox refusals are reasons, not crashes: `Time Status Age Dose Sex` with 6 rows → `3 events
+  for 3 parameters (1.0 per parameter); Cox estimates need about 10 events per parameter - drop
+  covariates or collect more events.`; numbers with no header line → `The first line names the
+  columns …`; status coded 1/2 → the existing 1/0 recoding refusal; a start/stop table at the
+  cursor → `… time-varying covariates are not supported; give one row per subject …`.
 
 ## 0bz. New in v2.133.0 — Computation theory: grammars, machines, first-order logic, SAT, Hindley–Milner
 
@@ -3304,6 +3374,8 @@ Engineering mode, Energy & power (now 17; the mode must state **101 calculators*
   - `(0,0,0) (1,1,1) (2,2,2)` -> refused as **COLLINEAR**: no plane.
   - `circle r=1/3` -> area **1/9*pi** exactly, and `box 1/2 1/3 1/4` -> volume **1/24**.
     (Typed fractions must stay exact — no long decimals or giant fractions anywhere.)
+- [ ] **Statistics: exact rank tests, repeated-measures ANOVA, Cox regression, and table-reading fixes (v2.134.0).** Stats — see §0ca.
+  - Mann–Whitney `1, 2, 3` v `4, 5, 6` → `p = 1/10 = 0.100000 … exact`; RM ANOVA default → GG `F(1.60, 11.19) = 3.794, p = 0.0626`; Cox default → `HR = 4.817 (95% CI 2.147 to 10.81)` with a log-axis forest plot.
 - [ ] **Computation theory: grammars, machines, first-order logic, SAT, Hindley–Milner (v2.133.0).** Solve — see §0bz.
 - [ ] **Linear programming, interpolation and splines (v2.132.0).** Solve — see §0by.
 - [ ] **Probability and Markov chains (v2.131.0).** Solve — see §0bx.

@@ -14,6 +14,7 @@
 // is known exactly.
 
 import { chiSquareP, normalCdf } from "./stats2";
+import { readNumberList } from "./numberList";
 
 export interface SurvivalPoint {
   time: number;
@@ -355,6 +356,38 @@ export function survivalCurvePoints(res: KaplanMeierResult): { x: number; y: num
     prev = p.survival;
   }
   return pts;
+}
+
+/**
+ * Typed survival rows ("time event" per line, ";" also ends a line) → arrays.
+ * EXACTLY two numbers per row: the pane used to take v[0], v[1] from any row
+ * with two or more, so a typed `ID Start Stop Event` row "1 0 5 1" became
+ * time = 1 (the ID), event = 0 (the Start) with nothing on screen. A row with
+ * three or more numbers is refused by row number, naming the likely layout.
+ * Numbers follow the product comma rule (numberList.ts: "12,5 1" is 12.5).
+ */
+export function readSurvivalRows(text: string): { times: number[]; events: number[] } | { error: string } {
+  const times: number[] = [];
+  const events: number[] = [];
+  const lines = text.split(/[;\n]+/).map((l) => l.trim());
+  let row = 0;
+  for (const l of lines) {
+    if (!l) continue;
+    row++;
+    const r = readNumberList(l);
+    if (r.dropped.length) return { error: `Row ${row} ("${l}"): "${r.dropped[0]}" is not a number. Each row is: time, then 1 (event) or 0 (censored).` };
+    if (r.values.length !== 2) {
+      return {
+        error:
+          `Row ${row} ("${l}") has ${r.values.length} number${r.values.length === 1 ? "" : "s"}; each row is exactly two: ` +
+          "time, then 1 (event) or 0 (censored)." +
+          (r.values.length > 2 ? " An id column or start/stop columns must not be typed here — use the table feed, which names them." : ""),
+      };
+    }
+    times.push(r.values[0]);
+    events.push(r.values[1]);
+  }
+  return { times, events };
 }
 
 /** Two-sided p for a z, used by the hazard-ratio interval's own reporting. */

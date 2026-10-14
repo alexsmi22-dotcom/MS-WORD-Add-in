@@ -32,12 +32,20 @@ describe("Mann–Whitney with heavy ties", () => {
     const r = mannWhitneyU([5, 5, 5, 5], [5, 5, 5, 5]);
     expect(Number.isFinite(r.z)).toBe(true);
     expect(r.p).toBeGreaterThan(0.5);
+    // v2.135.0: named as degenerate — the rank sum cannot vary, p = 1 exactly.
+    expect(r.method).toBe("degenerate");
+    expect(r.p).toBe(1);
   });
   it("partial ties still produce a finite statistic", () => {
     const r = mannWhitneyU([1, 2, 2, 3], [2, 3, 3, 4]);
     expect(Number.isFinite(r.statistic)).toBe(true);
     expect(r.p).toBeGreaterThanOrEqual(0);
     expect(r.p).toBeLessThanOrEqual(1);
+    // v2.135.0: exact conditional p = 20/70 = 2/7 (U₁ = 3); normal+CC was 0.172.
+    // Oracle: brute-force enumeration of all C(8,4) = 70 assignments of the
+    // midranks (exactRank.adversarial); not a §D2 row — R refuses exactness with ties.
+    expect(r.exactConditional).toBe(true);
+    expect(r.p).toBeCloseTo(2 / 7, 12);
   });
 });
 
@@ -46,6 +54,9 @@ describe("Wilcoxon edge cases", () => {
     const r = wilcoxonSignedRank([1, 2, 3, 4], [1, 5, 3, 1]); // diffs: 0, -3, 0, +3 → n=2
     expect(r.n1).toBe(2);
     expect(Number.isFinite(r.z)).toBe(true);
+    // v2.135.0: zeros dropped and counted; W⁺ = W⁻ = 1.5 → exact p = 1 (brute force: 4 sign vectors).
+    expect(r.zerosDropped).toBe(2);
+    expect(r.p).toBe(1);
   });
 });
 

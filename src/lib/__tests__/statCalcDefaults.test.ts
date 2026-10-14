@@ -12,17 +12,23 @@
 
 import * as fs from "fs";
 import * as path from "path";
+import { parseNumberList } from "../numberList";
 
 const PANE = fs.readFileSync(
   path.join(__dirname, "..", "..", "taskpane", "taskpane.ts"),
   "utf8",
 );
 
-/** The real statGroups() from taskpane.ts, replayed. */
+/**
+ * The real statGroups() from taskpane.ts, replayed. Each group goes through
+ * the product comma rule (parseNumberList), which is what the pane's statList
+ * delegates to since v2.134.0 — the old /[\s,]+/ token split here would pass
+ * while measuring a rule the pane no longer uses.
+ */
 function statGroups(s: string): number[][] {
   return s
     .split(/\n\s*\n|;/)
-    .map((g) => g.split(/[\s,]+/).filter(Boolean).map(Number).filter((n) => !Number.isNaN(n)))
+    .map((g) => parseNumberList(g))
     .filter((g) => g.length > 0);
 }
 
@@ -114,6 +120,9 @@ describe("Stats calculator defaults produce a result, not a validation error", (
     // thing, so pin the source it is imitating.
     expect(PANE).toContain("function statGroups(s: string): number[][] {");
     expect(PANE).toContain(".split(/\\n\\s*\\n|;/)");
+    // statList delegates to the shared reader — no second comma rule in the pane.
+    expect(PANE).toContain("const r = readNumberList(s);");
+    expect(PANE).not.toMatch(/function statList[^}]*split\(\/\[\\s,\]\+\//);
   });
 
   test("the guard fails on the shape that shipped", () => {

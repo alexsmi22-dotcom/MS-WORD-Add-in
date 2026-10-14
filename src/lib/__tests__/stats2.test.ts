@@ -30,10 +30,18 @@ describe("Mann–Whitney U", () => {
     const r = mannWhitneyU([1, 2, 3, 4], [5, 6, 7, 8]);
     expect(r.statistic).toBe(0);
     expect(r.p).toBeLessThan(0.05);
+    // v2.135.0: p is now EXACT = 2/C(8,4) = 1/35 = 0.0285714 — rank-equivalent to the
+    // §D2 4 v 4 row (SciPy mannwhitneyu(method="exact") 0.0285714); brute force in
+    // exactRank.adversarial runs on these exact inputs.
+    expect(r.method).toBe("exact");
+    expect(r.p).toBeCloseTo(1 / 35, 12);
   });
   it("identical distributions give a large p", () => {
     const r = mannWhitneyU([1, 2, 3, 4, 5], [1, 2, 3, 4, 5]);
     expect(r.p).toBeGreaterThan(0.5);
+    // Exact conditional p (ties): U₁ sits at the centre, so 2·min tail ≥ 1 → p = 1
+    // (oracle: brute-force enumeration of all 252 assignments, exactRank.adversarial).
+    expect(r.p).toBe(1);
   });
 });
 
@@ -42,6 +50,9 @@ describe("Wilcoxon signed-rank", () => {
     const r = wilcoxonSignedRank([1, 2, 3, 4, 5], [2, 4, 6, 8, 10]); // all negative diffs
     expect(r.statistic).toBe(0);
     expect(r.p).toBeLessThan(0.1);
+    // v2.135.0: exact = 2/2⁵ = 0.0625 — rank-equivalent to the §D2 n = 5 all-one-sign
+    // row (SciPy wilcoxon(method="exact") 0.0625); brute force in exactRank.adversarial.
+    expect(r.p).toBe(0.0625);
   });
   it("drops zero differences", () => {
     const r = wilcoxonSignedRank([5, 6, 7], [5, 6, 7]); // all zero → n=0

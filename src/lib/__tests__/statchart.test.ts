@@ -15,6 +15,7 @@ import {
   boxStats,
   boxPlotSvg,
   forestPlotSvg,
+  forestLogAxis,
   groupedBarSvg,
 } from "../statchart";
 
@@ -260,6 +261,91 @@ describe("forestPlotSvg", () => {
   test("rows beyond the cap are reported", () => {
     const many = Array.from({ length: 30 }, (_, i) => ({ label: `r${i}`, estimate: 1, low: 0, high: 2 }));
     expect(forestPlotSvg(many, {})).toMatch(/more not shown/);
+  });
+});
+
+describe("forestPlotSvg — LOG axis for ratios (hazard ratios; scope finding 7 / §E8)", () => {
+  // Larynx (§D1): Stage IV 5.507 [2.409, 12.59], age 1.019 [0.991, 1.048].
+  const larynx = [
+    { label: "Stage II vs I", estimate: 1.15032, low: 0.46468, high: 2.84766 },
+    { label: "Stage III vs I", estimate: 1.901, low: 0.94593, high: 3.82036 },
+    { label: "Stage IV vs I", estimate: 5.50678, low: 2.4086, high: 12.59015 },
+    { label: "age", estimate: 1.01921, low: 0.99112, high: 1.0481 },
+  ];
+  /** Tick-label x positions, keyed by label text. */
+  const tickX = (svg: string): Map<string, number> => {
+    const m = new Map<string, number>();
+    const re = /<text x="([\d.]+)" y="[\d.]+" text-anchor="middle" font-family="Segoe UI, Arial" font-size="10" fill="#6b7280">([^<]+)<\/text>/g;
+    let h: RegExpExecArray | null;
+    while ((h = re.exec(svg)) !== null) m.set(h[2], Number(h[1]));
+    return m;
+  };
+
+  test("decade ticks: majors at exact powers of ten, minors at 2–9 × each decade, labels 0.1 / 1 / 10 / 100", () => {
+    const ax = forestLogAxis(0.46468, 12.59015);
+    if ("error" in ax) throw new Error(ax.error);
+    expect([ax.decLo, ax.decHi]).toEqual([-1, 2]);
+    expect(ax.major).toEqual([0.1, 1, 10, 100]);
+    expect(ax.minor.length).toBe(24);
+    expect(ax.minor.slice(0, 3)).toEqual([0.2, 0.30000000000000004, 0.4]);
+    expect(ax.minor).toContain(2);
+    expect(ax.minor).toContain(90);
+    expect(ax.labelled.map((l) => l.text)).toEqual(["0.1", "1", "10", "100"]);
+  });
+
+  test("the drawn decades are EQUIDISTANT and the reference line sits at exactly HR = 1", () => {
+    const svg = forestPlotSvg(larynx, { log: true, title: "Hazard ratios", xlabel: "Hazard ratio" });
+    expect(isRealFigure(svg)).toBe(true);
+    const x = tickX(svg);
+    const step = x.get("1")! - x.get("0.1")!;
+    expect(step).toBeGreaterThan(50);
+    expect(x.get("10")! - x.get("1")!).toBeCloseTo(step, 0);
+    expect(x.get("100")! - x.get("10")!).toBeCloseTo(step, 0);
+    // The dashed reference line is at the "1" label's x.
+    const ref = /<line x1="([\d.]+)" y1="[\d.]+" x2="[\d.]+" y2="[\d.]+" stroke="#b91c1c" stroke-width="1" stroke-dasharray="4 3"\/>/.exec(svg);
+    expect(Number(ref![1])).toBeCloseTo(x.get("1")!, 1);
+    expect(svg).toContain("Hazard ratio (log scale)");
+    // HR 0.5 and HR 2 are equidistant from 1 on this axis — the reason it exists.
+    const two = forestPlotSvg([{ label: "a", estimate: 2, low: 0.5, high: 4 }], { log: true });
+    const xx = tickX(two);
+    expect(xx.get("1")! - xx.get("0.5")!).toBeCloseTo(xx.get("2")! - xx.get("1")!, 0);
+  });
+
+  test("a narrow range (one decade, Rossi fin 0.47–0.99) labels 2 and 5 as well", () => {
+    const ax = forestLogAxis(0.47024, 1);
+    if ("error" in ax) throw new Error(ax.error);
+    expect([ax.decLo, ax.decHi]).toEqual([-1, 0]);
+    expect(ax.labelled.map((l) => l.text)).toEqual(["0.1", "0.2", "0.5", "1"]);
+  });
+
+  test("every value on one power of ten is widened a decade each side", () => {
+    const ax = forestLogAxis(1, 1);
+    if ("error" in ax) throw new Error(ax.error);
+    expect([ax.decLo, ax.decHi]).toEqual([-1, 1]);
+  });
+
+  test("a value ≤ 0 is REFUSED BY NAME on the artwork, not dropped", () => {
+    const svg = forestPlotSvg(
+      [
+        { label: "fine", estimate: 2, low: 1, high: 3 },
+        { label: "Dose difference", estimate: 0.5, low: -0.2, high: 1.1 },
+      ],
+      { log: true },
+    );
+    expect(isRealFigure(svg)).toBe(true);
+    expect(svg).toMatch(/Log axis cannot show Dose difference: -0\.2 is not positive/);
+    expect(forestPlotSvg([{ label: "z", estimate: 0, low: 0, high: 1 }], { log: true })).toMatch(/z: 0 is not positive/);
+    expect("error" in forestLogAxis(0, 1)).toBe(true);
+  });
+
+  test("an absurd span is refused, not drawn as a smear of 600 ticks", () => {
+    expect(forestPlotSvg([{ label: "sep", estimate: 1, low: 1e-200, high: 1e200 }], { log: true })).toMatch(/decades/);
+  });
+
+  test("the linear path is unchanged by the option's existence", () => {
+    const rows = [{ label: "HR", estimate: 1.1, low: 0.8, high: 1.5 }];
+    expect(forestPlotSvg(rows, { zero: 1 })).toBe(forestPlotSvg(rows, { zero: 1, log: false }));
+    expect(forestPlotSvg(rows, { zero: 1 })).not.toContain("log scale");
   });
 });
 

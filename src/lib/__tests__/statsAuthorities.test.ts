@@ -172,6 +172,11 @@ describe("the rank tests refuse non-finite input rather than ranking it", () => 
   test("ordinary input is unaffected", () => {
     const r = mannWhitneyU([1, 2, 3, 4, 5], [6, 7, 8, 9, 10]);
     expect(r.p).toBeLessThan(0.05);
+    // v2.135.0 (the shipped pane default): exact p = 2/252 = 0.00793651, oracle SciPy
+    // mannwhitneyu(method="exact") / R wilcox.test(exact=TRUE) (§D2). The normal+CC
+    // value it replaced, 0.0121858, is still computed as pNormal.
+    expect(r.p).toBeCloseTo(2 / 252, 12);
+    expect(r.pNormal).toBeCloseTo(0.0121858, 6);
   });
 });
 

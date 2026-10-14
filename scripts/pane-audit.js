@@ -55,7 +55,10 @@ const BASELINES = {
   // which draws its power curve). Raise this only if a calculator is added,
   // and a new one must ship with a figure or this count passes it silently at
   // 23 — the same rule the Engineering baseline carries.
-  stats: { label: "Statistics", figures: 22, total: 22 },
+  // v2.134.0: 24 of 24 — repeated-measures ANOVA (profile plot with
+  // within-subject CIs) and Cox regression (log-axis HR forest plot + adjusted
+  // survival curves), both drawing from their shipped defaults.
+  stats: { label: "Statistics", figures: 24, total: 24 },
   // ANALYZE IS COMPLETE: 23 of 23. It measured 8 when this gate was written —
   // a source scan counted 9, because the heat, wave and Laplace solvers each
   // BUILT a figure that an em dash in their own output suppressed before it

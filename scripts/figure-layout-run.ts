@@ -41,6 +41,8 @@ import { buildPlotSvg, Series } from "../src/lib/plot";
 import { weibullFit, reliabilityBlock, kOutOfN, redundancy, availability } from "../src/lib/reliability";
 import { GAMUTS as GAMUT_DEFS } from "../src/lib/colourspace";
 import { boxPlotSvg, forestPlotSvg, groupedBarSvg } from "../src/lib/statchart";
+import { rmAnovaCalc, coxCalc, readCoxField, coxFigureParts } from "../src/lib/statsBatchCalcs";
+import { coxRegression } from "../src/lib/cox";
 // --- the non-Engineering half, added 2026-08-05 ------------------------------
 import { parseTableData, buildChartPreviewSvg, ChartKind } from "../src/lib/tablechart";
 import { buildTableFigureSvg } from "../src/lib/tablefigure";
@@ -1745,6 +1747,71 @@ ORIGIN
       ],
       { title: "Goodness of fit", ylabel: "count" },
     ),
+  ]);
+
+  // v2.134.0 — repeated-measures ANOVA and Cox regression. The figures come
+  // from the SAME functions the pane calls (statsBatchCalcs), on the shipped
+  // defaults, so the corpus checks what a user inserts.
+  const svgOf = (o: { ok: boolean; svg?: string }, what: string): string => {
+    if (!o.ok || !o.svg) throw new Error(`${what}: the calculator did not draw`);
+    return o.svg;
+  };
+  figures.push([
+    "rm anova profile (bushtucker, condition names, CIs)",
+    svgOf(
+      rmAnovaCalc(
+        "Stick_insect Kangaroo_testicle Fish_eye Witchetty_grub\n8 7 1 6\n9 5 2 5\n6 2 3 8\n5 3 1 9\n8 4 5 8\n7 5 6 7\n10 2 7 2\n12 6 8 1",
+        "holm",
+      ),
+      "rm anova",
+    ),
+  ]);
+  figures.push([
+    "rm anova mixed profile (two group means + subject lines)",
+    svgOf(
+      rmAnovaCalc(
+        "Day_1 Day_7 Day_14\nDrug 10 12 14\nDrug 9 11 15\nDrug 12 13 16\nDrug 8 10 13\nPlacebo 11 11 12\nPlacebo 10 12 11\nPlacebo 12 12 13\nPlacebo 9 10 10",
+        "holm",
+      ),
+      "rm anova mixed",
+    ),
+  ]);
+  // The Cox figure is two panels joined by combineSvgs; the analyser does not
+  // follow nested-<svg> offsets, so each panel is measured on its own. The
+  // calculator must also draw (svgOf) from the same default text.
+  const GEHAN =
+    "time status placebo\n6 1 0\n6 1 0\n6 1 0\n6 0 0\n7 1 0\n9 0 0\n10 1 0\n10 0 0\n11 0 0\n13 1 0\n16 1 0\n17 0 0\n19 0 0\n20 0 0\n22 1 0\n23 1 0\n25 0 0\n32 0 0\n32 0 0\n34 0 0\n35 0 0\n1 1 1\n1 1 1\n2 1 1\n2 1 1\n3 1 1\n4 1 1\n4 1 1\n5 1 1\n5 1 1\n8 1 1\n8 1 1\n8 1 1\n8 1 1\n11 1 1\n11 1 1\n12 1 1\n12 1 1\n15 1 1\n17 1 1\n22 1 1\n23 1 1";
+  svgOf(coxCalc(GEHAN, "efron"), "cox");
+  const gehanInput = readCoxField(GEHAN);
+  if ("error" in gehanInput) throw new Error(gehanInput.error);
+  const gehanFit = coxRegression(gehanInput);
+  if (!gehanFit.ok) throw new Error(gehanFit.reason);
+  const [coxForest, coxCurves] = coxFigureParts(gehanFit);
+  figures.push(["cox HR forest, log axis (Gehan default)", coxForest]);
+  figures.push(["cox adjusted survival curves (Gehan default)", coxCurves]);
+  // Log-axis stress: three decades (Larynx Stage IV reaches 12.6), a row inside
+  // one decade below 1, long labels competing with the decade labels.
+  figures.push([
+    "forest plot log axis, three decades, long labels",
+    forestPlotSvg(
+      [
+        { label: "Stage II vs I", estimate: 1.15032, low: 0.46468, high: 2.84766 },
+        { label: "Stage III vs I", estimate: 1.901, low: 0.94593, high: 3.82036 },
+        { label: "Stage IV vs I", estimate: 5.50678, low: 2.4086, high: 12.59015 },
+        { label: "age (per year)", estimate: 1.01921, low: 0.99112, high: 1.0481 },
+        { label: "financial aid received at release", estimate: 0.68426, low: 0.47024, high: 0.99568 },
+      ],
+      { log: true, title: "Hazard ratios (95% CI)", xlabel: "Hazard ratio" },
+    ),
+  ]);
+  // Log-axis stress: inside ONE decade, so 0.2 and 0.5 are labelled too.
+  figures.push([
+    "forest plot log axis, one decade",
+    forestPlotSvg([{ label: "fin", estimate: 0.68426, low: 0.47024, high: 0.99568 }], {
+      log: true,
+      title: "One protective effect",
+      xlabel: "Hazard ratio",
+    }),
   ]);
 }
 

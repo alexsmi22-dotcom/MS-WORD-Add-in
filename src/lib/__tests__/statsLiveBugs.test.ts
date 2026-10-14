@@ -6,7 +6,8 @@
  * wrong χ². Every one of these failed on the code shipped in v2.128.0.
  */
 import { feedSubjects, feedSurvival, feedSurvivalGroups, feedGroups, feedRows, type TableFeedResult } from "../tableFeed";
-import { parseNumberList, readNumberList, decimalCommaNote } from "../numberList";
+import { readNumberList, decimalCommaNote } from "../numberList";
+const parseNumberList = (s: string): number[] => readNumberList(s).values;
 import { friedman } from "../nonparametric";
 import { kaplanMeier, readSurvivalRows } from "../survival";
 import { mannWhitneyU, wilcoxonSignedRank } from "../stats2";

@@ -106,7 +106,14 @@ export function rankSumNull(doubledRanks: number[], k: number): ExactNull {
       if (top + r > reach[j]) reach[j] = top + r;
     }
   }
-  return trim(dp[k]);
+  const out = trim(dp[k]);
+  // Independent check, at run time: the DP must count every one of the
+  // C(N, k) group assignments exactly once. A mismatch is a defect in this
+  // tool, and an exact p computed over the wrong total would be wrong.
+  if (out.total !== binomialBig(N, k)) {
+    throw new RangeError(`exact rank-sum distribution failed its own count check (${out.total} ≠ C(${N}, ${k})) — withheld`);
+  }
+  return out;
 }
 
 /** Distribution of W⁺ (doubled) over all 2ⁿ sign vectors of the given doubled ranks. */

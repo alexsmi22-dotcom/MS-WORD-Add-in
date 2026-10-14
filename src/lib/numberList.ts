@@ -82,11 +82,6 @@ export function readNumberList(text: string): NumberListReading {
   return { values, dropped, commaMode: commaListing ? "separator" : "cell", decimalCommas, example, reread };
 }
 
-/** The values only — the drop-in replacement for the pane's statList. */
-export function parseNumberList(text: string): number[] {
-  return readNumberList(text).values;
-}
-
 /** "2 decimal commas read as decimals (1,5 → 1.5)." — or "" when none were. */
 export function decimalCommaNote(r: NumberListReading): string {
   if (!r.decimalCommas || r.example === undefined) return "";

@@ -16,7 +16,8 @@ import {
   type TableFeedResult,
 } from "../tableFeed";
 import { rmAnova } from "../rmAnova";
-import { parseNumberList } from "../numberList";
+import { readNumberList } from "../numberList";
+const parseNumberList = (s: string): number[] => readNumberList(s).values;
 
 const ok = <T,>(r: T | { error: string }): T => {
   if (typeof r === "object" && r !== null && "error" in r) throw new Error("unexpected error: " + (r as { error: string }).error);

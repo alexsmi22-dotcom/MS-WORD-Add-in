@@ -12,7 +12,8 @@
 
 import * as fs from "fs";
 import * as path from "path";
-import { parseNumberList } from "../numberList";
+import { readNumberList } from "../numberList";
+const parseNumberList = (s: string): number[] => readNumberList(s).values;
 
 const PANE = fs.readFileSync(
   path.join(__dirname, "..", "..", "taskpane", "taskpane.ts"),

@@ -1201,9 +1201,10 @@ export function coxSurvivalAt(fit: CoxFit, x: number[], t: number): number {
 
 /** The adjusted survival step curve for covariate vector x: (0, 1) then one point per event time. */
 export function coxAdjustedSurvival(fit: CoxFit, x: number[]): { time: number; survival: number }[] {
-  const r = Math.exp(linearPredictorAtMeans(fit, x));
+  // One definition of S(t | x): the curve is coxSurvivalAt sampled at every
+  // baseline event time (the Breslow step function changes only there).
   const pts = [{ time: 0, survival: 1 }];
-  for (const b of fit.baseline) pts.push({ time: b.time, survival: Math.exp(-b.cumHazard * r) });
+  for (const b of fit.baseline) pts.push({ time: b.time, survival: coxSurvivalAt(fit, x, b.time) });
   return pts;
 }
 

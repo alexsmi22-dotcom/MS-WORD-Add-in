@@ -17,7 +17,7 @@ describe("the pane reaches the multivariable verbs", () => {
     expect(PANE).toMatch(/import \{ tryMultivar, MULTIVAR_VERB_RE \} from "\.\.\/lib\/multivar";/);
   });
   it("tries the multivariable verbs FIRST in the transform chain, on both the raw and the folded text", () => {
-    expect(PANE).toMatch(/const verb =\s*tryMultivar\(text\) \?\?\s*tryMultivar\(taskText\) \?\?\s*tryLaplace\(taskText\)/);
+    expect(PANE).toMatch(/tryMultivar\(text\) \?\?\s*tryMultivar\(taskText\) \?\?\s*tryLaplace\(taskText\)/);
   });
   it("the prose-switch guard stands aside for a multivariable verb", () => {
     expect(PANE).toMatch(/MULTIVAR_VERB_RE\.test\(text\)/);

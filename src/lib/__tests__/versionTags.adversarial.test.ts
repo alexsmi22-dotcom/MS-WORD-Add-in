@@ -52,6 +52,7 @@ const PINNED: Record<string, string> = {
   "Every statistics calculator reads the table at the cursor; power & sample size": "2.128.0",
   "Laplace transforms, initial-value problems and Fourier series": "2.129.0",
   "Multivariable calculus": "2.130.0",
+  "Probability and Markov chains": "2.131.0",
 };
 
 describe("the manual test script's version tags are history, not a moving target", () => {

@@ -52,7 +52,7 @@ export function normalCdf(z: number): number {
 }
 
 /** Regularized lower incomplete gamma P(a, x) by series/continued fraction. */
-function gammp(a: number, x: number): number {
+export function gammp(a: number, x: number): number {
   if (x < 0 || a <= 0) return NaN;
   if (x === 0) return 0;
   if (x < a + 1) {
@@ -60,7 +60,7 @@ function gammp(a: number, x: number): number {
     let ap = a;
     let sum = 1 / a;
     let del = sum;
-    for (let n = 0; n < 200; n++) {
+    for (let n = 0; n < 200_000; n++) {
       ap++;
       del *= x / ap;
       sum += del;
@@ -74,7 +74,7 @@ function gammp(a: number, x: number): number {
   let c = 1 / FPMIN;
   let d = 1 / b;
   let h = d;
-  for (let i = 1; i < 200; i++) {
+  for (let i = 1; i < 200_000; i++) {
     const an = -i * (i - a);
     b += 2;
     d = an * d + b;
@@ -99,7 +99,7 @@ function gammp(a: number, x: number): number {
  * chiSquareP(100, 1) gave 0 where the answer is 1.5e-23. Zero is not a
  * p-value, and the function is exported.
  */
-function gammq(a: number, x: number): number {
+export function gammq(a: number, x: number): number {
   if (x <= 0) return 1;
   if (x < a + 1) return 1 - gammp(a, x); // series branch is accurate for P
   // Continued fraction: compute Q directly.
@@ -107,7 +107,7 @@ function gammq(a: number, x: number): number {
   let c = 1 / 1e-300;
   let d = 1 / b;
   let h = d;
-  for (let i = 1; i <= 300; i++) {
+  for (let i = 1; i <= 200_000; i++) {
     const an = -i * (i - a);
     b += 2;
     d = an * d + b;

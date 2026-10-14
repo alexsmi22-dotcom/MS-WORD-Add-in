@@ -330,6 +330,8 @@ import { trySum, tryAlgebraVerb } from "../lib/algebraTools";
 import { tryLaplace, solveIvpLaplace, hasInitialConditions } from "../lib/laplace";
 import { tryFourierSeries } from "../lib/fourier";
 import { tryMultivar, MULTIVAR_VERB_RE } from "../lib/multivar";
+import { tryProbability, PROB_VERB_RE } from "../lib/probability";
+import { tryMarkov, MARKOV_VERB_RE } from "../lib/markov";
 import { tryComplex } from "../lib/complexAlgebra";
 import { tryStatsIntent } from "../lib/statsIntent";
 import { solveInputToTypesetLines, solveToTypesetDsl, isProseRequest } from "../lib/solveTypeset";
@@ -27680,7 +27682,9 @@ function updateSolve(): void {
   // `let`, not `const`: the equation branch may narrow this to the equation
   // it extracted from a pasted sentence.
   let text = folded.text.trim();
-  solvePasteNoteEl.textContent = text ? folded.notes.join(" ") : "";
+  // "λ → lambda" is a distribution's own parameter under a probability verb,
+  // not a variable; the fold note would mislead there.
+  solvePasteNoteEl.textContent = text ? folded.notes.filter((n) => !(PROB_VERB_RE.test(text) && /^Greek letters read as variables/.test(n))).join(" ") : "";
   renderSolveTypeset(kind, text);
   solveResult.replaceChildren();
   currentSolveText = "";
@@ -27741,7 +27745,9 @@ function updateSolve(): void {
       // no prose switch below may take it first.
       const transformVerb =
         /^\s*(?:inverse\s+)?laplace\b|^\s*(?:ℒ|L)\s*\{|^\s*(?:ℒ|L)\s*(?:\^\s*[({]?\s*-\s*1|⁻¹)|^\s*fourier\s+series\b/i.test(text) ||
-        MULTIVAR_VERB_RE.test(text);
+        MULTIVAR_VERB_RE.test(text) ||
+        PROB_VERB_RE.test(text) ||
+        MARKOV_VERB_RE.test(text);
       const wantsDerivative = !transformVerb && /\b(derivative|differentiate)\b/i.test(text);
       const wantsIntegral = !transformVerb && /\b(integral|integrate|antiderivative)\b/i.test(text);
       if (wantsDerivative || wantsIntegral) {
@@ -27808,6 +27814,9 @@ function updateSolve(): void {
       // are unambiguous prefixes, and nothing else may read "inverse laplace
       // 1/(s(s+1))" as an equation in s.
       const verb =
+        tryMarkov(text) ??
+        tryProbability(text) ??
+        tryProbability(taskText) ??
         tryMultivar(text) ??
         tryMultivar(taskText) ??
         tryLaplace(taskText) ??
@@ -27834,6 +27843,8 @@ function updateSolve(): void {
             variable: verb.plot.variable,
             window: verb.plot.window,
             title: verb.plot.title,
+            shadeBetween: verb.plot.shadeBetween,
+            marks: verb.plot.marks,
           });
           currentSolveAlt = verb.alt ?? `${verb.title}: ${verb.plot.exprs.map((e) => e.label).join(", ")}.`;
           if (currentSolveSvg) {
@@ -27842,6 +27853,15 @@ function updateSolve(): void {
             fig.innerHTML = currentSolveSvg;
             solveResult.appendChild(fig);
           }
+        } else if (verb.svg) {
+          // A verb that draws its own figure (pmf bars, a probability tree,
+          // a Markov state diagram) — rendered like the discrete kind's.
+          currentSolveSvg = verb.svg;
+          currentSolveAlt = verb.alt ?? verb.title;
+          const fig = document.createElement("div");
+          fig.className = "solve-figure";
+          fig.innerHTML = currentSolveSvg;
+          solveResult.appendChild(fig);
         }
         return finish(verb.caveats);
       }

@@ -153,7 +153,9 @@ describe("λ-calculus let rec", () => {
     // that work, still delivers the normal form.
     const t1 = Date.now();
     const r5 = solveLambda(`${def}\nFACT 5`)!;
-    expect(Date.now() - t1).toBeLessThan(2000);
+    // ~0.3 s alone; 3 s is the gross-freeze bound (missed 2 s by 45 ms under
+    // a 341-file parallel run on 2026-10-14 — same flake class as lambda.test).
+    expect(Date.now() - t1).toBeLessThan(3000);
     expect(r5.outcome!.status).toBe("capped");
     expect(r5.decoded?.numeral).toBe(120);
     expect(r5.display.join(" ")).toMatch(/Found by normalisation by evaluation/);

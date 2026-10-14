@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.130.0)
+# JurisLab — Manual Test Script (v2.131.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -9,6 +9,43 @@ scanning, and layout. Budget ~30 minutes for the full pass.
 Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
+
+## 0bx. New in v2.131.0 — Probability and Markov chains
+
+Solve, Equation kind. The "Probability" palette group holds every verb.
+
+- [ ] `binomial n=10 p=0.4 P(X <= 3)` → **3733209/9765625 ≈ 0.382281** (exact fraction, no
+  decimals in the fraction), "Computed as the cdf F(3)", "Verified: Σ pmf(k)…", and a bar
+  chart with k = 0..3 filled dark. Insert → the fraction lands as a real equation.
+  `binomial n=10 p=0.4 P(X = 3)` shows the formula line **120*(2/5)^3*(3/5)^7**.
+- [ ] `normal mean 100 sd 15 P(X > 120)` → ≈ 0.0912112, **z = (120 − 100)/15 = 1.33333**,
+  "P = 1 − Φ(1.33333)", the pdf drawn with the tail beyond 120 shaded.
+  `normal(100,15) P(X = 120)` → REFUSED ("is 0 for a continuous distribution — did you
+  mean P(X ≤ 120)…").
+- [ ] `quantile normal 0.975` → 1.95996; `critical value chi-square 3 df alpha 0.05` →
+  7.81473; `t 12 df P(T > 2.1)` → 0.0287725 — each with a "Verified: F(…) = …" caveat.
+- [ ] `poisson lambda = 2.5 P(X = 0)` → ≈ 0.082085 with the line **exp(-5/2)*(5/2)^0/1**;
+  the Greek note "λ → lambda" must NOT appear under the input.
+- [ ] `uniform(0, 10) variance` → **25/3** (not 50); `beta(2, 5) mode` → **1/5**;
+  `expected value of a fair die` → **7/2**; `variance of [1,2,3,4,5,6] equally likely` →
+  **35/12** (not 3.5) — the stats-intent must not steal any of these.
+- [ ] `bayes P(A)=0.01, P(B|A)=0.9, P(B|not A)=0.05, P(A|B)` → **2/13 ≈ 0.153846** with
+  "P(B) = … = 117/2000" and a probability tree; `P(A) = 0.3, P(B) = 0.5, P(A|B)` → REFUSED
+  ("Independence is never assumed").
+- [ ] `probability of at least one six in four rolls` → **671/1296**; `a bag has 3 red and 5
+  blue; two drawn without replacement; P(both red)` → **3/28**; `birthday problem 23
+  people` → 0.507297; `probability of drawing two aces from a deck` → REFUSED by name
+  (outside the templates).
+- [ ] `confidence interval 95% mean 50 sd 10 n 30` → z-interval [46.4216, 53.5784] AND
+  t-interval [46.2659, 53.7341], caveat "the wording did not say, so both are shown".
+- [ ] `markov [[0.9, 0.1], [0.5, 0.5]] stationary` → **π = (5/6, 1/6)**, "Irreducible … period 1
+  — aperiodic", "π is also the LIMIT distribution", the state diagram (two nodes, four
+  labelled arrows incl. self-loops). `is the chain [[0,1],[1,0]] irreducible` → period 2,
+  π = (1/2, 1/2), "NO limit distribution". `markov [[0.6, 0.5], [0.5, 0.5]]` → REFUSED
+  "Row 1 sums to 11/10". `absorbing markov chain [[1,0,0],[0.3,0.4,0.3],[0,0,1]] expected
+  steps` → N = [[5/3]], 5/3 steps, absorbed in S1 / S3 with probability 1/2 each.
+- [ ] Nothing regressed: `t = 5`, `F = m a`, `beta = 2`, `f(x) = x^2` still solve as
+  equations; `mean of 3, 5, 8` still answers from the stats engine.
 
 ## 0bw. New in v2.130.0 — Multivariable calculus
 
@@ -3128,6 +3165,9 @@ Engineering mode, Energy & power (now 17; the mode must state **101 calculators*
   - `(0,0,0) (1,1,1) (2,2,2)` -> refused as **COLLINEAR**: no plane.
   - `circle r=1/3` -> area **1/9*pi** exactly, and `box 1/2 1/3 1/4` -> volume **1/24**.
     (Typed fractions must stay exact — no long decimals or giant fractions anywhere.)
+- [ ] **Probability and Markov chains (v2.131.0).** Solve — see §0bx.
+  - `binomial n=10 p=0.4 P(X <= 3)` → 3733209/9765625, exact, pmf drawn.
+  - `markov [[0.9, 0.1], [0.5, 0.5]] stationary` → π = (5/6, 1/6), state diagram drawn.
 - [ ] **Multivariable calculus (v2.130.0).** Solve — see §0bw.
   - `critical points x^3 - 3x + y^2` → (1, 0) local minimum, (−1, 0) saddle point, exact.
   - `lagrange x y subject to x^2 + y^2 = 1` → ±1/2 at (±sqrt(2)/2, ±sqrt(2)/2), max and min declared.

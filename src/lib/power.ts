@@ -40,7 +40,7 @@ export function fCdf(f: number, df1: number, df2: number): number {
 }
 
 /** Smallest x with cdf(x) ≥ p, by bisection over a monotone CDF on [0, hi). */
-function quantile(cdf: (x: number) => number, p: number, lo = 0, hi = 1): number {
+export function quantile(cdf: (x: number) => number, p: number, lo = 0, hi = 1): number {
   while (cdf(hi) < p && hi < 1e6) hi *= 2;
   for (let i = 0; i < 200; i++) {
     const mid = (lo + hi) / 2;

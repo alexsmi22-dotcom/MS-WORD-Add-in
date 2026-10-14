@@ -71,6 +71,8 @@ import { parseGenBank } from "../src/lib/seqio";
 import { persistentHomology, barcodeSvg } from "../src/lib/persistence";
 import { tryGraph } from "../src/lib/graphs";
 import { tryAutomata } from "../src/lib/automata";
+import { tryProbability } from "../src/lib/probability";
+import { tryMarkov } from "../src/lib/markov";
 import { solveComposite } from "../src/lib/compositeGeometry";
 import { compositeShapeSvg, geometryFigureSvg, drawnShapesSvg } from "../src/lib/geometryChart";
 import { solveGeometry } from "../src/lib/geometryParse";
@@ -1600,6 +1602,20 @@ ORIGIN
     "q0 0 q0", "q0 1 q1", "q1 0 q0", "q1 1 q2", "q2 0 q2", "q2 1 q2", "test: 011 0101 11",
   ].join("\n"));
   if (dfa && dfa.svg) figures.push(["dfa state diagram", dfa.svg]);
+}
+
+// Probability figures (v2.131.0): a pmf with the event's bars filled (the
+// 61-bar window stresses the tick thinning), a probability tree, and a
+// Markov state diagram with self-loops and labelled edges.
+{
+  const pmf = tryProbability("binomial n=60 p=0.3 P(X <= 15)");
+  if (pmf && pmf.svg) figures.push(["pmf bars 61 wide", pmf.svg]);
+  const small = tryProbability("hypergeometric N=50 K=5 n=10 P(X=1)");
+  if (small && small.svg) figures.push(["pmf bars hypergeometric", small.svg]);
+  const tree = tryProbability("bayes P(A)=0.01, P(B|A)=0.9, P(B|not A)=0.05, P(A|B)");
+  if (tree && tree.svg) figures.push(["bayes tree", tree.svg]);
+  const chain = tryMarkov("markov [[0.5,0.3,0.2],[0.2,0.6,0.2],[0.1,0.2,0.7]] stationary");
+  if (chain && chain.svg) figures.push(["markov state diagram", chain.svg]);
 }
 
 // --- The statistics charts ----------------------------------------------------

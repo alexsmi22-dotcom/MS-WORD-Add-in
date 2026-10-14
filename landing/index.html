@@ -981,6 +981,11 @@ x&#179; &minus; 1 = 0
     </div>
     <div class="cards">
       <a class="card" href="tool.html?tool=solve">
+        <h3>Probability and Markov chains <span class="is-new">New</span></h3>
+        <p>Fifteen named distributions as verbs: <code>binomial n=10 p=0.4 P(X &le; 3)</code> gives the <b>exact fraction</b> and the formula with the pmf drawn and the event shaded; the normal shows z and &Phi; with the tail shaded; quantiles, critical values, moments and mgfs for t, &chi;&sup2;, F, exponential, gamma, beta, geometric and hypergeometric too. Every value is <b>cross-checked by a route that shares no code</b> and withheld on disagreement. Bayes exact with the probability tree (independence never assumed), expected values of listed outcomes, the classic dice/coin/urn/birthday problems exactly, confidence intervals with the z-or-t choice stated, and <b>Markov chains</b>: the stationary distribution exact, classification and period, limits only when they exist, absorbing chains with expected steps, the state diagram drawn.</p>
+        <div class="spec">markov [[0.9, 0.1], [0.5, 0.5]] stationary &#8594; &pi; = (5/6, 1/6), irreducible, aperiodic</div>
+      </a>
+      <a class="card" href="tool.html?tool=solve">
         <h3>Multivariable calculus <span class="is-new">New</span></h3>
         <p><code>gradient</code>, <code>hessian</code>, <code>jacobian</code>, <code>directional derivative</code>, <code>critical points</code> with the second-derivative test (saddle points named, <b>INCONCLUSIVE</b> said honestly when D = 0), <code>lagrange f subject to g = c</code> with a maximum and minimum declared <b>only when the constraint set is provably bounded</b>, double and triple integrals with bounds that depend on outer variables, <code>divergence</code>, <code>curl</code>, <code>potential</code> and line integrals of conservative fields. Every partial is checked by central differences; every critical point is verified by substitution; numerical candidates are snapped to closed forms only when the exact check passes. Path-dependent line integrals are <b>refused by name</b>.</p>
         <div class="spec">lagrange x y subject to x&sup2; + y&sup2; = 1 &#8594; max 1/2 at (&radic;2/2, &radic;2/2), min &minus;1/2</div>
@@ -1001,7 +1006,7 @@ x&#179; &minus; 1 = 0
         <div class="spec">x &equiv; 2 (mod 3), x &equiv; 3 (mod 5), x &equiv; 2 (mod 7) &#8594; x &equiv; 23 (mod 105)</div>
       </a>
       <a class="card" href="tool.html?tool=solve">
-        <h3>The &lambda;-calculus, step by step <span class="is-new">New</span></h3>
+        <h3>The &lambda;-calculus, step by step</h3>
         <p>A new Solve kind reduces untyped &lambda;-terms one &beta;-step at a time, naming each redex, and <b>renames a binder before it can capture</b> a free variable &mdash; <code>(&lambda;x.&lambda;y.x) y</code> comes back as &lambda;y&#8321;.y, never &lambda;y.y. Normal order by default, applicative order by name, so <code>K I OMEGA</code> answers &lambda;x.x one way and <b>provably diverges</b> the other. Integers are Church numerals, the standard combinators are built in, and a numeral or boolean result is decoded <b>and re-computed by an independent evaluator</b>. Divergence is reported only when the term actually cycles; otherwise a cap is a cap, because normalisation is undecidable. Plus the principal simple type &mdash; and &lambda;x.x x is told it has none.</p>
         <div class="spec">PLUS 2 3 &#8594; &lambda;f.&lambda;x.f (f (f (f (f x)))) = Church numeral 5, verified</div>
       </a>

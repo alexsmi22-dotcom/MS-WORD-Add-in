@@ -409,6 +409,23 @@ export const SOLVE_TRANSFORMS: PaletteGroup[] = [
     ],
   },
   {
+    name: "Probability",
+    items: [
+      { label: "binomial", snippet: "binomial n=10 p=0.4 P(X <= 3)", title: "Exact fraction, the formula, the pmf with the event shaded" },
+      { label: "Poisson", snippet: "poisson lambda = 2.5 P(X >= 3)", title: "Also P(X = k), mean, variance, pmf" },
+      { label: "normal", snippet: "normal mean 100 sd 15 P(X > 120)", title: "z shown, Φ named, the tail shaded; P(85 < X < 115) too" },
+      { label: "z / quantile", snippet: "quantile normal 0.975", title: "invNorm; also quantile t 12 0.975, critical value chi-square 3 df alpha 0.05" },
+      { label: "t / χ² / F", snippet: "t 12 df P(T > 2.1)", title: "chi-square 3 df P(X > 7.81); critical value F 3 20 alpha 0.05" },
+      { label: "exp / gamma", snippet: "exponential rate 0.5 P(X > 3)", title: "gamma shape 2 rate 3 mean; uniform(0, 10) variance; beta(2, 5) mode" },
+      { label: "hypergeom.", snippet: "hypergeometric N=50 K=5 n=10 P(X=1)", title: "Draws without replacement; geometric p=0.2 P(X=3) (trials convention, said)" },
+      { label: "Bayes", snippet: "bayes P(A)=0.01, P(B|A)=0.9, P(B|not A)=0.05, P(A|B)", title: "Exact; the tree drawn; independence never assumed" },
+      { label: "E[X]", snippet: "E[X] for X = 1, 2, 3 with p = 0.2, 0.3, 0.5", title: "Population mean/variance of listed outcomes; 'expected value of a fair die'" },
+      { label: "dice / coins", snippet: "probability of at least one six in four rolls", title: "Also: two dice sum 7; flip a fair coin 10 times, exactly 7 heads; a bag has 3 red and 5 blue …; birthday problem 23 people" },
+      { label: "CLT / CI", snippet: "confidence interval 95% mean 50 sd 10 n 30", title: "z- and t-intervals, the choice stated; clt n = 30 mean 50 sd 10 P(xbar > 52)" },
+      { label: "Markov", snippet: "markov [[0.9, 0.1], [0.5, 0.5]] stationary", title: "Exact π, classification, limit; 'after 3 steps from (1,0)'; absorbing chains" },
+    ],
+  },
+  {
     name: "Multivariable",
     items: [
       { label: "∇f", snippet: "gradient x^2 y + y^3 at (1,2)", title: "Gradient, each partial checked by central differences; |∇f| exact" },

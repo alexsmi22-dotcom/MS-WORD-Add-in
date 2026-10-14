@@ -6,6 +6,134 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.131.0] — 2026-10-14 — Probability and Markov chains
+
+The third Solve domain on the 2026-10 arc (`docs/SCOPE-PROBABILITY-MARKOV.md`).
+The audit probed 73 curriculum inputs: 0 answered, 15 answered WRONG (the
+solver took "poisson lambda = 2.5 P(X = 0)" and replied "lambda = 5/2"; the
+stats intent gave "uniform on (0, 10) variance" the SAMPLE variance of the
+two parameters, 50), 57 refused. A "Probability" palette group beside
+Transforms.
+
+### Added
+- **Distribution kernel** (`src/lib/probdist.ts`): binomial, Bernoulli,
+  Poisson, geometric (trials by default, `failures` switches — said every
+  time), negative binomial, hypergeometric, discrete uniform, normal, t,
+  chi-square, F, exponential (rate; `mean` accepted), uniform, gamma (shape
+  and rate; `scale` accepted), beta — pmf/pdf, cdf, quantile, mean, variance,
+  mode, median, mgf. Numerics REUSED, not re-derived: erf/normalCdf and the
+  regularised incomplete gamma (stats2.ts, now exported), incompleteBeta
+  (stats.ts), tCdf/fCdf and the bisection quantile (power.ts, exported),
+  probit polished by Newton's method (≈1e-15), BigInt binomial coefficients,
+  the exact rationals of cas.ts. Every discrete distribution with rational
+  parameters has an EXACT path (fractions) beside the float path.
+- **Probability verbs** (`src/lib/probability.ts`, tried first in the
+  equation kind's verb chain): `<distribution> <parameters> P(X ≤ k)` /
+  `P(a < X < b)` / `at least k` / `mean and variance` / `mgf` / `pmf` / `cdf
+  at k` / `quantile p`; named, positional and prose parameters; `quantile
+  normal 0.975`, `invNorm`, `z-score for`, `critical value … alpha …`
+  (two-sided on request), `cdf of normal at z`, `P(-1.96 < Z < 1.96)`; the
+  normal shows z and names Φ. **Every value is cross-checked by a route
+  sharing no code** — the exact fraction against the float sum, the cdf
+  against Simpson's rule over the pdf, a tail against its complement — and
+  WITHHELD on disagreement. Figures: the pmf with the event's bars filled,
+  the pdf with the tail shaded (the plotter now takes `shadeBetween` from a
+  verb, and the pane renders a verb's own SVG).
+- **Bayes and conditional probability**, exact: `bayes P(A)=0.01, P(B|A)=0.9,
+  P(B|not A)=0.05, P(A|B)` → 2/13 with P(B) by total probability and the
+  probability tree; `P(A and B) = 0.2, P(B) = 0.5, P(A|B)` → 2/5; several
+  hypotheses; `¬A`, `not A`, `A'`, `A^c`. **Independence is never assumed**:
+  P(A) and P(B) alone are refused by name. Inconsistent inputs (a joint
+  above its marginal, priors not summing to 1) are refused with the numbers.
+- **Expected values** of listed outcomes (`E[X] for X = 1, 2, 3 with p =
+  0.2, 0.3, 0.5` → 23/10; `variance of [1,2,3,4,5,6] equally likely` →
+  35/12; `expected value of a fair die` → 7/2), POPULATION moments and said
+  so, cross-checked by E[X²] − E[X]².
+- **The classic prose problems**, exactly: at least one six in n rolls, two
+  dice sums and doubles, coin flips (fair or `p = …`), urns with and without
+  replacement, the birthday problem. Outside the templates: refused BY NAME
+  with the templates listed — nothing is guessed.
+- **CLT** (`clt n = 30 mean 50 sd 10 P(xbar > 52)`) and **confidence
+  intervals for the mean**: the z-interval and the t-interval are BOTH shown
+  unless the wording says `sigma` or `sample sd`; the choice is explained.
+- **Normal approximation to the binomial** only as an explicit verb, with the
+  continuity correction written out and the exact binomial beside it.
+- **Markov chains** (`src/lib/markov.ts`): `[[…]]`, `;`-rows or line rows,
+  entries read as EXACT rationals (0.1 is 1/10); stationary distribution by
+  rational rref on πP = π, Σπ = 1; classification by strongly connected
+  components (irreducible / closed and transient classes / period by the
+  gcd rule); the limit distribution declared only when irreducible AND
+  aperiodic (`[[0,1],[1,0]]`: period 2, "NO limit distribution", by name); a
+  reducible chain with one closed class gets its unique π with zeros on the
+  transient states, with several closed classes the per-class distributions
+  and "no single π"; `after k steps from (…)` by exact repeated squaring
+  (k ≤ 200), cross-checked against k successive multiplications; absorbing
+  chains with N = (I − Q)⁻¹, expected steps t = N·1 and absorption
+  probabilities B = N·R, exact, verified by (I − Q)·N = I; the state diagram
+  (self-loops, labelled edges) through the graph figure. A row that does not
+  sum to 1 is refused with the sum shown, never rounded; ≤ 12 states.
+- Pane: `PROB_VERB_RE`/`MARKOV_VERB_RE` make the prose switches, the stats
+  intent and the solver stand aside; the "Greek letters read as variables"
+  paste note is suppressed under a probability verb (λ is the parameter).
+
+### Honest limits
+- Exact fractions are shown while they print in ≤ 40 characters; otherwise
+  the correctly rounded decimal, labelled "≈".
+- Continuous quantiles outside the normal/uniform/exponential closed forms
+  are bisection to 1e-9 and say so. No proportion confidence interval yet.
+- Markov: no hitting or first-passage times between arbitrary states (expected return times are given), no continuous-time
+  chains; questions outside stationary / n-step / absorbing / classification
+  are refused by name.
+
+### Adversarial pass — independent reviewer (15 defects + cosmetics, all closed)
+- **Wrong as exact**: a discrete `P(X ≤ k)` over a range wider than 2,000
+  points fell into the infinite-tail branch and returned `1` with a vacuous
+  "verified" (`poisson λ = 10⁶ P(X ≤ 10⁶)` → 1; true 0.500266). Wide ranges
+  now go by the cdf with a capped floating-point pmf sum as the independent
+  check (up to 2·10⁶ terms, else refused by name) — which then exposed the
+  incomplete-gamma routine of stats2.ts running out of iterations at
+  a = 10⁶ (its caps were 200/300; now 200,000, loops still break on
+  convergence).
+- **Hangs**: the exact BigInt sum of 2,001 fractions over 5^10000 ran 90 s;
+  the tail cross-check looped to a user-chosen k (`P(X > 10⁷)`, two
+  minutes). Exact sums are limited to short ranges of small supports; the
+  check sums are capped.
+- **Wrong numbers**: a biased coin asked about TAILS used P(heads) (p = 0.3,
+  "at least 2 tails" → 0.472; true 0.969); the negative binomial ignored
+  `failures`; the binomial mode put 11 outside the support at p = 1 and
+  missed the exact tie at (n+1)p = 7 because the float test saw
+  7.000000000000001 (the tie is now tested on the rational); a confidence
+  level written `0.99` was dropped for 95 %.
+- **Precision claims**: the normal quantile said "≈ 1e-15" on a 1e-7
+  Chebyshev erf (the median came out 3.8·10⁻⁸). A precise erf (Taylor series
+  below 2.5, Lentz continued fraction beyond) now backs the normal cdf and
+  the Newton polish. Simpson's rule over a singular pdf (χ²(1), gamma shape
+  < 1, beta ½,½) missed by 1e-2 and the correct cdf was refused as a "failed
+  cross-check": tanh-sinh quadrature replaces it (1e-12 on x^(−½)).
+- **Mislabelled**: Markov vectors whose fractions were too long were shown
+  as decimals in the "exact" slot; they are now "≈ (…)" with the reason
+  said. `N(100, 15^2)` read 225 as the sd; `^2` is now a variance and
+  `N(100, 15)` says it read an sd.
+- **Different question answered**: Markov hitting times, first-passage
+  times and `P(X_n = j | X_0 = i)` were answered with the stationary
+  distribution — refused by name now; expected return time is answered
+  (1/π). A second `P(…)` on the same line was silently dropped — both are
+  answered. `clt … P(48 < xbar < 52)` returned no probability.
+- **Dead or missing syntax**: `z 0.975`, rows on lines for a matrix,
+  `two-sided` critical values (the stray-word guard rejected the word),
+  `binomial(n=10,p=0.4)`, the question-first form `P(X = 3) for binomial
+  n = 10, p = 0.4` (the brief's own routing example), the proportion
+  interval, `P(not A|B)` (= 11/13), `after three steps`, `P^3`.
+- **Guard steals**: `t 5`, `t(1) = 5`, `f(2) = 3`, `E[X] = 3`, `gamma(5)`,
+  `beta(2)`, `P(x) = x^2 + 1`, `draw y = x^2`, `roll 2x + 3 = 7`, `steady
+  state concentration` were answered or refused by the probability verbs
+  and never reached the solver. A bare name followed by `=` or by prose, a
+  bare number in `E[X] =`, a single-argument `gamma(…)`, an unreadable
+  `P(…) = …` value and a Markov line without a matrix all return null now.
+- Cosmetics: `mode = 0.303030303030303` → `≈ 0.30303`; `P(X = 0) = ≈`;
+  discrete medians are exact; the uniform mgf no longer prints `exp(0*t)`;
+  the exponential "write mean 2" note is dropped when the user wrote it.
+
 ## [2.130.0] — 2026-10-14 — Multivariable calculus
 
 The second Solve domain on the 2026-10 arc (`docs/SCOPE-LAPLACE-MULTIVAR.md`

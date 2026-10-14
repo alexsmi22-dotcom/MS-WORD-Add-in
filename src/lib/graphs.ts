@@ -1084,6 +1084,10 @@ export function graphSvg(g: Graph, opts: FigureOptions, width = 460, height = 32
   const longest = g.names.reduce((m, s) => Math.max(m, s.length), 1);
   let r = Math.max(11, Math.min(22, Math.ceil(longest * 3.1) + 5));
   let R = Math.min(cx, cy) - r - 22;
+  // A self-loop and its label reach r + 40 beyond the ring: pull the ring in
+  // so the label stays on the canvas (a Markov chain's top state once lost
+  // its "1/2" above the frame).
+  if (g.selfLoops > 0) R = Math.min(R, Math.min(cx, cy) - r - 48);
   const spacing = n > 1 ? (2 * Math.PI * R) / n : Infinity;
   const compact = spacing < 2 * r + 3;
   if (compact) { r = 4; R = Math.min(cx, cy) - 44; }

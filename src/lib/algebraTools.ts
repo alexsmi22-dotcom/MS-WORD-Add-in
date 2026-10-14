@@ -292,7 +292,15 @@ export interface VerbResult {
   alt?: string;
   /** For verbs that draw a function of one variable through the pane's own
    *  plotter: expressions in Solve grammar, the variable, and the window. */
-  plot?: { exprs: { expr: string; label: string }[]; variable: string; window: { lo: number; hi: number }; title: string };
+  plot?: {
+    exprs: { expr: string; label: string }[];
+    variable: string;
+    window: { lo: number; hi: number };
+    title: string;
+    /** A shaded region under the first curve (a probability tail) and marked points. */
+    shadeBetween?: { lo: number; hi: number };
+    marks?: { x: number; y: number; label: string }[];
+  };
 }
 
 const fmtCoefTerm = (c: Rat, varName: string, k: number, first: boolean): string => {

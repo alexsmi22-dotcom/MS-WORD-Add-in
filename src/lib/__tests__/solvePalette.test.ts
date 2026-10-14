@@ -154,7 +154,7 @@ describe("every Discrete-math template is answered by its engine", () => {
   });
 });
 
-describe("every transform and multivariable template is answered by its verb (v2.129.0, v2.130.0)", () => {
+describe("every transform, multivariable and probability template is answered by its verb (v2.129.0–v2.131.0)", () => {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const { SOLVE_TRANSFORMS, SOLVE_ODES } = require("../palettes");
   // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -163,11 +163,15 @@ describe("every transform and multivariable template is answered by its verb (v2
   const { tryFourierSeries } = require("../fourier");
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const { tryMultivar } = require("../multivar");
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { tryProbability } = require("../probability");
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { tryMarkov } = require("../markov");
   const all = SOLVE_TRANSFORMS.flatMap((g: { items: { label: string; snippet: string }[] }) => g.items);
   const rows: [string, string][] = all.map((i: { label: string; snippet: string }) => [i.label, i.snippet]);
   test.each(rows)("%s: %s", (_label: string, snippet: string) => {
     const text = foldPastedMath(snippet).text;
-    const v = tryMultivar(text) ?? tryLaplace(text) ?? tryFourierSeries(text);
+    const v = tryMarkov(text) ?? tryProbability(text) ?? tryMultivar(text) ?? tryLaplace(text) ?? tryFourierSeries(text);
     expect(v).not.toBeNull();
     // A template must produce a RESULT line, not a refusal.
     expect(v!.lines.length).toBeGreaterThan(0);

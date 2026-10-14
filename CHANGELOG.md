@@ -6,6 +6,113 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.127.0] — 2026-10-13 — Offline delivery
+
+The product's stated core value — "in grad school you can't always connect to
+the internet" — rested on nothing. Every calculation ran on the user's
+machine, but Word fetched the pane itself from GitHub Pages on every open,
+and the bundle's filename changes on every release, so the first open after
+a deploy always needed the network and an evicted HTTP cache meant a blank
+pane at exactly the moment the promise was being tested. This release makes
+the promise true, and then makes it enforced.
+
+### Added
+- **The pane opens with no network.** A service worker (`src/sw/sw.js`,
+  rendered at build time from the real emitted asset list by
+  `scripts/sw-manifest.js`) precaches the four add-in pages, every JS chunk
+  (lazy ones included — the PPT export must not be the one tool that breaks
+  offline), the stylesheet and the icons, and answers for them cache-first.
+  Matching ignores the query string, because Office appends `?_host_Info=…`
+  to the task-pane URL and an exact-URL lookup misses the cached page every
+  time. `version.json` and `sw.js` are never served from the cache, so the
+  update trigger always reaches the server. The Office.js CDN is cached at
+  runtime (stale-while-revalidate); nothing else cross-origin is touched, so
+  the opt-in OPSIN lookup is never intercepted or cached.
+- **An honest status line under the title.** The pane reports only what the
+  worker can verify: *Preparing offline copy…*, *Offline copy incomplete
+  (17 of 24 files)*, **Offline-ready · v2.127.0**, or — on a host that allows
+  no service worker, which Word for Mac's WKWebView may be — *Offline use
+  depends on this Word's cache*. "Ready" additionally requires Office.js to
+  be in the runtime cache: a pane without it opens to nothing.
+- **The update banner now delivers.** Under a cache-first worker a plain
+  reload would be answered from the OLD cache — the banner would announce an
+  update the reload could not deliver, the same defect the cache-busting
+  query string fixed for the HTTP cache, one layer down. Reload (and the
+  one-time silent self-heal) now downloads the new release, swaps the worker
+  in, and only then navigates. If the download cannot complete, the pane
+  stays on the current release and the banner returns next time.
+- **A QC gate for it** (`npm run check:offline`, gate 15 of `npm run qc`):
+  warms the real built pane online through a local server that mimics Pages'
+  `max-age=600`, verifies against its OWN copy of the manifest that every
+  file is cached, then relaunches on the same browser profile with the server
+  stopped and every hostname unresolvable, and asserts the pane, both dialogs
+  and Office.js itself arrive from the cache. It then does the same on a
+  fresh profile and requires that to FAIL — a predicate that cannot fail
+  proves nothing. Exits SKIPPED, never PASS, without a browser or internet.
+
+### Found by the gate before shipping
+- **First open online, then offline, did not work.** On a first visit the
+  page's own `<script>` tags — Office.js and the host files it pulls in —
+  are fetched before any worker exists, so nothing from the CDN reached the
+  cache until a SECOND online open. The pane now replays every CDN resource
+  it has loaded through the worker (from the resource-timing log), and
+  "ready" waits for it.
+- **Then the replayed files were unusable.** Office.js loads its locale
+  strings and host script with CORS requests, and the browser refuses to
+  answer a CORS request with an opaque response — which is what a no-cors
+  replay stores. The offline pane crashed with "Neither the locale, en-us,
+  provided by the host app nor the fallback locale en-us are supported".
+  Replays are CORS first (the CDN allows it), no-cors only as a fallback, and
+  the gate now rejects a runtime cache holding opaque entries.
+- **`register()` rejects when offline** even though the existing worker is
+  alive and serving the page (its update fetch of `sw.js` fails). A pane
+  controlled by a worker is "supported" whatever `register()` said; without
+  that distinction the status line would have read "depends on this Word's
+  cache" in exactly the offline session it exists for.
+
+### Found by the independent adversarial pass (none by the author's own tests)
+- **A worker swap in one Word window stranded every other window.** Word
+  opens one pane per document window. Window B reloading into a new release
+  made the new worker activate, DELETE the old release's cache, and claim
+  window A, still mid-session on the old bundle — whose lazily-loaded PPT
+  chunk now existed in no cache (404 online, a throw offline), while A's
+  status line went on saying "Offline-ready" for a version no longer stored.
+  Old caches are now swept only when no other window is open (re-checked on
+  every page load), a previous release's chunk is served from its own cache,
+  and a window claimed by a newer worker reports *Newer copy stored (vX) ·
+  reload to use it* instead of ready.
+- **A failed first install read "Preparing offline copy…" for ever.** One
+  file 404ing during a deploy window discards the registration; nothing is in
+  control and no later event arrives. The pane now listens for the install
+  ending redundant and says *Offline copy could not be saved — will retry
+  next time*. The worker also deletes its half-filled cache on failure
+  (a test claimed "a half cache is worse than none"; the code now does it).
+- **The silent self-heal could fire minutes into a session.** It used to be a
+  sub-second reload at open; with a worker it waited for a 10 MB install
+  first and then replaced a pane the user was typing in. It now runs only
+  when the new worker is already installed and waiting; otherwise the
+  download starts in the background and the banner offers the reload.
+- **A failed update looped the banner.** When the swap could not happen the
+  fallback navigation was served from the current cache, landed on the same
+  release, and the banner came straight back saying "Downloading…". The pane
+  now stays put and says the update could not be downloaded.
+- **Pages' edge could pin a mixed-version install.** `cache: "reload"`
+  bypasses the browser's cache, not the CDN edge (max-age=600), which can
+  hand the previous release's taskpane.html to the new worker. The install
+  now verifies every precached page refers only to precached scripts and
+  refuses otherwise; the browser retries on the next open.
+- Smaller: the update check no longer races worker registration; the gate's
+  manifest regex no longer stops at a `]` inside a filename; the offline
+  phases run with the HTTP cache disabled, so a pass proves the WORKER served
+  the page and not the renderer's cache; the unsupported wording fits 320 px.
+
+### Changed
+- `install/README.md`, `landing/manual.html`, `landing/students.html` and
+  `FEATURES.md` now describe offline delivery as it is — including the Mac
+  caveat — rather than "works offline after first load", which the HTTP cache
+  never guaranteed. New manual pass §0bt in `docs/TEST-SCRIPT.md`; the Mac
+  result decides whether that caveat stays.
+
 ## [2.126.0] — 2026-10-12 — The deferred equation-engine items
 
 ### Added

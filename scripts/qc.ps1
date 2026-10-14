@@ -5,10 +5,10 @@
 #    2. Unit tests (jest)         6. Manifest validation         10. Pane layout
 #    3. Compound dictionary       7. Headless render check       11. Engineering audit
 #    4. Compound vs PubChem       8. Landing-page layout        12. Task-pane id wiring audit
-#   4b. Figure layout            8b. Pane audit (the other
+#   4b. Figure layout            8b. Pane audit (the other     13. Offline delivery
 #                                    four calculator registries)
 #
-# (14 Invoke-Step gates. This list has now gone stale TWICE — it named eight
+# (15 Invoke-Step gates. This list has now gone stale TWICE — it named eight
 # steps for a file that ran eleven, was corrected to twelve, and was left at
 # twelve on the day a thirteenth and fourteenth were added, in the very comment
 # that congratulates itself for catching drift. Count the Invoke-Step lines
@@ -128,6 +128,20 @@ Invoke-Step "Figure layout"       { node scripts/check-figures.js }
 # It now lives in scripts/check-id-wiring.js, runs in the GitHub Pages gate, and
 # self-tests its predicate on a known-bad payload before reporting.
 Invoke-Step "Id wiring audit"     { node scripts/check-id-wiring.js }
+
+# 6. Offline delivery — does the built pane open with NO network?
+#
+# "Works offline" was a sentence in the install guide resting on the WebView's
+# evictable HTTP cache; the bundle filename changes on every release, so the
+# first open after a deploy always needed the network. The service worker makes
+# the promise true and this gate makes it ENFORCED: warm the real pane online
+# (local server with Pages' own max-age=600), then relaunch on the same profile
+# with the server stopped and every hostname unresolvable, and assert the pane,
+# both dialogs and Office.js itself all arrive from the cache — then prove the
+# predicate can fail by doing the same on a fresh profile. Needs a browser AND
+# the internet (Office.js comes from Microsoft's CDN); exits 2 (SKIPPED) when
+# either is missing, never a false PASS.
+Invoke-Step "Offline delivery"    { node scripts/check-offline.js }
 
 # Summary
 Write-Host ""

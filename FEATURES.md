@@ -20,7 +20,7 @@ Everything shows a live preview that matches exactly what gets inserted, and the
 - **Search** formulas and compounds by name (e.g. "quadratic", "benzene").
 - **Recents & favorites**, with a one-click **Clear** for confidentiality.
 - **Live preview** = the exact output that's inserted.
-- Runs offline after first load; no document content leaves the machine.
+- **Offline.** Every calculation runs on your machine, and the pane keeps a verified copy of its own files there: once it shows **Offline-ready** under its title it opens with no connection at all. Where the host does not allow that (Word for Mac may not), the pane says so instead. No document content leaves the machine.
 
 ## 🧪 Chemical
 - Format formulas with correct sub/superscripts: `H2O` → H₂O, `SO4^2-` → SO₄²⁻, `Na+` → Na⁺, `Ca(OH)2` → Ca(OH)₂.

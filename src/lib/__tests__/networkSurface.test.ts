@@ -37,7 +37,17 @@ const ALLOWED: { file: string; why: string }[] = [
   },
   {
     file: "taskpane/taskpane.ts",
-    why: "Same-origin GET of version.json to drive the update banner. Carries no document content.",
+    why:
+      "Same-origin GET of version.json to drive the update banner, and (v2.127.0) a replay of the Office.js CDN " +
+      "scripts the page has ALREADY loaded, so they pass through the service worker into its offline cache. " +
+      "Carries no document content; never a new host.",
+  },
+  {
+    file: "sw/sw.js",
+    why:
+      "The offline-delivery service worker: precaches the add-in's own files at install (same origin) and keeps a " +
+      "runtime copy of what Office.js loads from appsforoffice.microsoft.com. Any other origin — the OPSIN lookup " +
+      "included — is passed through untouched; serviceWorker.test.ts pins that.",
   },
 ];
 
@@ -86,10 +96,10 @@ describe("network surface — the offline claim is enforceable", () => {
     expect(offenders).toEqual([]);
   });
 
-  test("the allowlisted files are the only two, and both still exist", () => {
+  test("the allowlisted files are the only three, and all still exist", () => {
     // If a listed file is deleted or renamed the allowlist has silently widened,
     // so pin it from both directions.
-    expect(ALLOWED.length).toBe(2);
+    expect(ALLOWED.length).toBe(3);
     for (const a of ALLOWED) {
       expect(fs.existsSync(path.join(SRC, a.file))).toBe(true);
       expect(a.why.length).toBeGreaterThan(20);

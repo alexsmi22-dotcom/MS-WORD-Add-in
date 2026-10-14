@@ -52,9 +52,10 @@ function functionBody(name: string): string {
 }
 
 describe("the scan is not vacuous", () => {
-  test("both functions this suite depends on still exist", () => {
+  test("the three functions this suite depends on still exist", () => {
     expect(() => functionBody("checkForUpdate")).not.toThrow();
     expect(() => functionBody("showUpdateBanner")).not.toThrow();
+    expect(() => functionBody("reloadIntoVersion")).not.toThrow();
   });
 
   test("the pane still checks a cache-busted version.json", () => {
@@ -74,25 +75,49 @@ describe("reloading for an update cannot be served from cache", () => {
     expect(functionBody("showUpdateBanner")).not.toContain("location.reload()");
   });
 
-  test("the banner button navigates to a URL carrying the new version", () => {
+  // Since v2.127.0 both the banner and the auto-heal go through ONE function,
+  // reloadIntoVersion, which carries the cache-buster AND the service-worker
+  // swap. The scans follow that shape: the two callers must delegate to it,
+  // and it must do both things in the right order.
+  test("the banner button navigates through reloadIntoVersion with the new version", () => {
     const body = functionBody("showUpdateBanner");
-    expect(body).toContain('searchParams.set("v", newVersion)');
-    expect(body).toContain("window.location.replace(");
+    expect(body).toContain("reloadIntoVersion(newVersion)");
+    expect(body).not.toContain("window.location.replace(");
   });
 
-  test("the auto-heal also busts the cache rather than reloading", () => {
+  test("the auto-heal also goes through reloadIntoVersion rather than reloading", () => {
     const body = functionBody("checkForUpdate");
-    expect(body).toContain('searchParams.set("v", data.version)');
+    expect(body).toContain("reloadIntoVersion(data.version)");
+    expect(body).not.toContain("location.reload()");
+    expect(body).not.toContain("window.location.replace(");
+  });
+
+  test("reloadIntoVersion navigates to a URL carrying the new version", () => {
+    const body = functionBody("reloadIntoVersion");
+    expect(body).toContain('searchParams.set("v", newVersion)');
     expect(body).toContain("window.location.replace(");
     expect(body).not.toContain("location.reload()");
+  });
+
+  test("reloadIntoVersion swaps the service worker in BEFORE navigating", () => {
+    // Under a cache-first worker, navigating first would be answered from the
+    // OLD cache: the banner would announce an update the reload cannot
+    // deliver — the HTTP-cache defect of v2.31.5 again, one layer down.
+    const body = functionBody("reloadIntoVersion");
+    const swap = body.indexOf("activatePendingWorker(");
+    const nav = body.indexOf("window.location.replace(");
+    expect(swap).toBeGreaterThan(-1);
+    expect(nav).toBeGreaterThan(-1);
+    expect(swap).toBeLessThan(nav);
+    expect(body.slice(swap - 8, swap)).toContain("await");
   });
 
   test("the cache-buster is the version, not a timestamp", () => {
     // A timestamp would bust the cache on EVERY reload, permanently defeating
     // caching for a file that is otherwise fine to cache. The version busts it
     // exactly once per release, which is the whole requirement.
-    const banner = functionBody("showUpdateBanner");
-    expect(banner).not.toMatch(/searchParams\.set\("v",\s*(Date\.now|String\(Date)/);
+    const body = functionBody("reloadIntoVersion");
+    expect(body).not.toMatch(/searchParams\.set\("v",\s*(Date\.now|String\(Date)/);
   });
 });
 
@@ -106,7 +131,7 @@ describe("the auto-reload cannot loop inside a task pane", () => {
 
   test("the attempt is recorded before the navigation, not after", () => {
     const write = body.indexOf("sessionStorage.setItem");
-    const nav = body.indexOf("window.location.replace(");
+    const nav = body.indexOf("reloadIntoVersion(data.version)");
     expect(write).toBeGreaterThan(-1);
     expect(nav).toBeGreaterThan(-1);
     // Recording after navigating would never execute — the navigation ends the
@@ -136,12 +161,12 @@ describe("the auto-reload cannot loop inside a task pane", () => {
   test("it still falls back to the banner when it has already tried", () => {
     // Otherwise a pane that cannot self-heal goes silent about a real update.
     expect(body).toContain("showUpdateBanner(data.version)");
-    const nav = body.indexOf("window.location.replace(");
+    const nav = body.indexOf("reloadIntoVersion(data.version)");
     expect(body.indexOf("showUpdateBanner(data.version)")).toBeGreaterThan(nav);
   });
 
   test("the guarded branch returns so the banner is not also shown", () => {
-    const nav = body.indexOf("window.location.replace(");
+    const nav = body.indexOf("reloadIntoVersion(data.version)");
     const after = body.slice(nav, nav + 200);
     expect(after).toContain("return;");
   });

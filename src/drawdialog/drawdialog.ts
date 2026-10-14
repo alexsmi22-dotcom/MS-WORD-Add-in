@@ -38,6 +38,12 @@ function clearError(): void {
   byId<HTMLElement>("error").style.display = "none";
 }
 
+// Delivery marker for the offline gate (scripts/check-offline.js): proves this
+// bundle was served and executed with the network cut. Module scope on purpose —
+// Office.onReady reports no host in a plain browser and never gets this far.
+declare const __APP_VERSION__: string;
+document.documentElement.dataset.jurislabVersion = __APP_VERSION__;
+
 Office.onReady(() => {
   let editor: CanvasEditor;
   try {

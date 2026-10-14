@@ -43,7 +43,7 @@ JurisLab is a **client-side Word add-in** that helps authors — chemists and pa
 
 The application is **100% browser/JavaScript** — there is no server backend and no document content ever leaves the user's machine. The chemistry intelligence is provided by the bundled **OpenChemLib** library; everything else is hand-written TypeScript. The codebase is organized around a strict separation between a **pure, unit-testable engine** (`src/lib/*`, no Office.js) and a **thin UI/Office glue layer** (`src/taskpane/taskpane.ts`).
 
-Distribution is the standard Office model: webpack builds static files to `dist/`, GitHub Pages hosts them over HTTPS, and a tiny `manifest.xml` is registered per-user on each Windows desktop Word installation (no admin rights required) via the `HKCU\...\WEF\Developer` registry key.
+Distribution is the standard Office model: webpack builds static files to `dist/`, GitHub Pages hosts them over HTTPS, and a tiny `manifest.xml` is registered per-user on each Windows desktop Word installation (no admin rights required) via the `HKCU\...\WEF\Developer` registry key. Since v2.127.0 the hosted files are also **precached by a service worker** (`src/sw/sw.js`, rendered at build time from the real emitted asset list), so an installed pane opens without a network; the pane shows what the worker can verify ("Offline-ready", or that the host allows no worker) and `scripts/check-offline.js` enforces it in QC.
 
 ---
 

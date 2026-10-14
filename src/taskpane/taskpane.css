@@ -1734,6 +1734,31 @@ a:focus-visible {
   color: var(--ink-3);
   line-height: 1.3;
 }
+/* Offline-delivery status: one quiet line under the subtitle. The dot carries
+   the level so the text can stay short; the title attribute carries the detail. */
+.brand .offline-status {
+  margin: 3px 0 0;
+  font-size: 10.5px;
+  color: var(--ink-3);
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.brand .offline-status::before {
+  content: "●";
+  margin-right: 5px;
+  font-size: 8px;
+  vertical-align: 1px;
+  color: var(--disabled);
+}
+.brand .offline-status[data-level="ready"]::before {
+  color: var(--success);
+}
+.brand .offline-status[data-level="partial"]::before,
+.brand .offline-status[data-level="unsupported"]::before {
+  color: var(--warn);
+}
 
 /* --- Group headings: numbered, like the landing page's benches ----------- */
 .home-group {

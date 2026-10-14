@@ -898,6 +898,9 @@ shipped broken for ten releases, and it still does not guard the publish path.
 
 ### 2.1 Offline delivery is backed by nothing, and two shipped pages now disagree about it
 
+> **CLOSED in v2.127.0 (2026-10-13):** service worker + status line + QC gate
+> (`check:offline`); all four pages now say the same thing. See CHANGELOG.
+
 Sweeps for `serviceWorker`, `workbox`, `cache.addAll`, `caches.open` across `src/`,
 `scripts/`, `webpack.config.js` and both manifests return **zero**. Sharper than
 OPEN-ITEMS 1b states: `webpack.config.js:38` sets `[name].[contenthash].js`

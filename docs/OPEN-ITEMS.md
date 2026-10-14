@@ -68,7 +68,15 @@ there. If the passes are done from an installed `install/*.zip` pack, this is
 already closed and the runbook's caveat should be struck. Worth confirming once,
 then recording the answer rather than re-deriving it.
 
-### [ ] 1b. "Works offline" is a promise nothing in the build guarantees
+### [x] 1b. "Works offline" is a promise nothing in the build guarantees — RESOLVED v2.127.0
+**Resolved 2026-10-13.** A precaching service worker (`src/sw/sw.js`, rendered from
+the real asset list at build time) plus an honest status line in the pane, and
+`scripts/check-offline.js` as QC gate 15: warm online, cut the network, assert the
+pane, both dialogs and Office.js arrive from the cache, and prove a fresh profile
+fails. The one open question is the Mac host (WKWebView may allow no worker); the
+pane names that case rather than claiming offline, and manual pass §0bt records it.
+The original analysis follows.
+
 **Raised 2026-07-27, when the user made offline operation the product's stated core
 value** ("in grad school you can't always connect to the internet… an all-in-one
 tool that works inside Word so the user does not have to leave").

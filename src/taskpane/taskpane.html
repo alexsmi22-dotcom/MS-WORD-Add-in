@@ -49,6 +49,13 @@
         <div class="brand-text">
           <h1>JurisLab</h1>
           <p class="subtitle">STEM &amp; legal authoring for Word.</p>
+          <!--
+            Offline-delivery status. Filled by the pane from what the service
+            worker can VERIFY (src/lib/offline.ts): ready / preparing / partial,
+            or "depends on this Word's cache" where the host allows no worker.
+            Hidden until there is something true to say.
+          -->
+          <p class="offline-status" id="offline-status" data-level="pending" hidden></p>
         </div>
       </header>
 

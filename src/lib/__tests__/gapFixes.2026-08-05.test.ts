@@ -555,13 +555,17 @@ describe("found by the adversarial passes — prose cannot hijack the Brief Desc
 });
 
 describe("2.1 — the offline promise matches what the build guarantees", () => {
-  it("install/README.md no longer promises unqualified offline operation", () => {
+  it("install/README.md describes offline delivery as the build now guarantees it", () => {
     const readme = read("install/README.md");
-    // There is no service worker and no precache anywhere in the repo, and the
-    // bundle filename carries a contenthash, so the URL changes every release.
-    // students.html was already honest about this; these two were not.
+    // v2.127.0 shipped the service worker (src/sw/sw.js) and the Offline-ready
+    // status line, so the honest wording changed: the README must now point the
+    // user at that line and carry the Mac caveat, and must no longer say the
+    // delivery is "not yet" offline — that sentence became false.
     expect(readme).not.toMatch(/After that it works offline\b/);
-    expect(readme).toMatch(/delivery is not yet/i);
+    expect(readme).not.toMatch(/delivery is not yet/i);
+    expect(readme).toMatch(/Offline-ready/);
+    expect(readme).toMatch(/verified copy of itself/);
+    expect(readme).toMatch(/Word for Mac/);
   });
 
   it("the manual no longer says flatly that it runs offline after first open", () => {

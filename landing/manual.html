@@ -153,7 +153,8 @@
       <tr><td><b>The preview is the truth</b></td><td>What you see is what gets inserted. If the preview looks wrong, don’t insert it.</td></tr>
       <tr><td><b>Undo</b></td><td>Every insert is a single undo step.</td></tr>
       <tr><td><b>Fully offline</b></td><td>Nothing you type — no formula, structure, sequence or document text — is sent anywhere. The one exception asks permission first (see below).</td></tr>
-      <tr><td><b>Updates</b></td><td>When a new version ships, a banner appears in the pane. Reload the pane to pick it up; you don’t reinstall.</td></tr>
+      <tr><td><b>Offline-ready</b></td><td>The pane keeps a verified copy of its own files on your machine and says so under its title: <b>Offline-ready</b> means it opens with no connection at all. On Word for Mac it may instead read <i>“Offline use depends on this Word's cache”</i> — that Word does not let an add-in keep its own copy, so opening the pane may need a connection; the computing is still local.</td></tr>
+      <tr><td><b>Updates</b></td><td>When a new version ships, a banner appears in the pane. Reload the pane to pick it up; you don’t reinstall. The new release is downloaded first and swapped in, so the reload lands on it.</td></tr>
       <tr><td><b>Provenance</b></td><td>Inserted structures and figures carry their SMILES and a canonical structure ID in the image’s alt-text, so a figure can always be traced back to what generated it.</td></tr>
     </table>
     <div class="note"><b>The one exception to “offline”.</b> Chemical mode can look up an IUPAC name online when the built-in dictionary doesn’t know it. It is <b>opt-in and asks before it sends any name it has not already sent</b>, showing you the exact name first — and it sends that one chemical name and nothing else, never your document. Looking the same name up twice does not ask twice, because nothing new leaves your machine. Decline it and everything else still works.</div>

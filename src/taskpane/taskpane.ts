@@ -439,6 +439,12 @@ import { spectrum, dominantFrequencies, WindowKind } from "../lib/fft";
 import { solveOde, OdeMethod, OdeEvent } from "../lib/ode";
 import { parseOdeSystem, rewriteStateExpression, parseTimeList } from "../lib/odeParse";
 import { isNewerVersion } from "../lib/version";
+import {
+  describeOfflineStatus,
+  activatePendingWorker,
+  cdnResourcesToWarm,
+  type OfflineProbe,
+} from "../lib/offline";
 
 // Injected at build time (webpack DefinePlugin) from package.json.
 declare const __APP_VERSION__: string;
@@ -1024,7 +1030,256 @@ window.addEventListener("unhandledrejection", (e) =>
   showCrashBanner((e as PromiseRejectionEvent).reason, "an unhandled promise rejection"),
 );
 
+// ---------------------------------------------------------------------------
+// OFFLINE DELIVERY — registered at module scope, like the crash banner, and for
+// the same reason: it must not depend on Office.onReady. The offline gate
+// (scripts/check-offline.js) loads this page in a plain browser where
+// Office.onReady reports no host and the pane deliberately renders nothing;
+// the worker still has to register, and the markers below still have to land,
+// or the gate could never tell a served-from-cache pane from a blank one.
+//
+// `data-jurislab-version` on <html> proves THIS bundle executed; the gate reads
+// it back from a DOM dumped with the network cut. See src/lib/offline.ts for the
+// status model and src/sw/sw.js for the worker.
+
+document.documentElement.dataset.jurislabVersion = __APP_VERSION__;
+// And Office.js — a <script> ahead of this bundle — was delivered and parsed.
+// Outside Word, Office.onReady never fires (there is no host to call it), so
+// its presence is the only thing a plain browser can attest to.
+document.documentElement.dataset.officeLoaded = String(
+  typeof Office !== "undefined" && typeof Office.onReady === "function",
+);
+
+let swRegistration: ServiceWorkerRegistration | null = null;
+let swSupported = false;
+/** Set when this page's own install ended "redundant" with nothing in control. */
+let swInstallFailed = false;
+
+/** Asks the controlling worker how much of its precache it actually holds. */
+function probeOffline(): Promise<OfflineProbe> {
+  return new Promise((resolve) => {
+    const base: OfflineProbe = {
+      supported: swSupported,
+      controlled: false,
+      expected: 0,
+      present: 0,
+      cdn: false,
+      installFailed: swInstallFailed,
+    };
+    const ctl = swSupported ? navigator.serviceWorker.controller : null;
+    if (!ctl) {
+      resolve(base);
+      return;
+    }
+    const ch = new MessageChannel();
+    const timer = window.setTimeout(() => resolve({ ...base, controlled: true }), 3000);
+    ch.port1.onmessage = (ev) => {
+      window.clearTimeout(timer);
+      const d = (ev.data || {}) as { expected?: number; present?: number; cdn?: boolean; version?: string };
+      resolve({
+        supported: true,
+        controlled: true,
+        expected: d.expected ?? 0,
+        present: d.present ?? 0,
+        cdn: d.cdn === true,
+        workerVersion: typeof d.version === "string" ? d.version : null,
+        installFailed: swInstallFailed,
+      });
+    };
+    try {
+      ctl.postMessage({ type: "STATUS" }, [ch.port2]);
+    } catch {
+      window.clearTimeout(timer);
+      resolve({ ...base, controlled: true });
+    }
+  });
+}
+
+const warmedCdn = new Set<string>();
+
+/**
+ * Replays the CDN scripts this page has already loaded THROUGH the worker, so
+ * they land in its runtime cache.
+ *
+ * On a first visit the page's own <script> tags — Office.js and the host files
+ * it pulls in — were fetched before any worker existed, so nothing from the CDN
+ * would be cached until a SECOND open while online. "Opened it once at the
+ * library, then went home with no Wi-Fi" is precisely the scenario the offline
+ * promise is made for, so the first open has to finish the job. force-cache
+ * means the browser serves its own fresh HTTP copy; the fetch exists only to
+ * pass through the worker.
+ */
+async function warmCdnCache(): Promise<void> {
+  if (!swSupported || !navigator.serviceWorker.controller) return;
+  const names = performance.getEntriesByType("resource").map((e) => e.name);
+  const todo = cdnResourcesToWarm(names, warmedCdn);
+  for (const u of todo) warmedCdn.add(u);
+  await Promise.all(todo.map(replayThroughWorker));
+}
+
+/**
+ * CORS first, no-cors as the fallback — and the order is load-bearing.
+ * Office.js pulls its locale strings and host script in with CORS requests,
+ * and the browser refuses to answer a CORS request with an OPAQUE cached
+ * response. A no-cors replay stores exactly that, so the first offline open
+ * then failed with "Neither the locale … nor the fallback locale en-us are
+ * supported" — a cache full of files it was not allowed to use. The CDN sends
+ * Access-Control-Allow-Origin: *, so a CORS replay stores a real, reusable
+ * response that answers either kind of request.
+ */
+async function replayThroughWorker(url: string): Promise<void> {
+  try {
+    await fetch(url, { mode: "cors", cache: "force-cache" });
+    return;
+  } catch {
+    /* a file without CORS headers: keep what we can */
+  }
+  try {
+    await fetch(url, { mode: "no-cors", cache: "force-cache" });
+  } catch {
+    /* offline, or gone — nothing to store */
+  }
+}
+
+/** Writes the one honest line under the brand. Polls while the worker is still
+ *  installing, so a first open ends on "Offline-ready" without a reload. */
+async function renderOfflineStatus(attempt = 0): Promise<void> {
+  const el = document.getElementById("offline-status");
+  if (!el) return;
+  await warmCdnCache();
+  const probe = await probeOffline();
+  const s = describeOfflineStatus(probe, __APP_VERSION__);
+  el.textContent = s.text;
+  el.title = s.title;
+  el.dataset.level = s.level;
+  el.hidden = false;
+  // A ~10 MB precache on a slow link can take a while; keep looking for up to
+  // two minutes, then leave whatever is true on screen.
+  if (s.level === "pending" && attempt < 60) {
+    window.setTimeout(() => void renderOfflineStatus(attempt + 1), 2000);
+  }
+}
+
+async function startOfflineDelivery(): Promise<void> {
+  if (!("serviceWorker" in navigator)) {
+    await renderOfflineStatus();
+    return;
+  }
+  try {
+    // updateViaCache "none": the worker script itself is always revalidated
+    // against the server, so a new release is noticed on the next open even
+    // inside GitHub Pages' ten-minute max-age window.
+    swRegistration = await navigator.serviceWorker.register(new URL("sw.js", window.location.href).href, {
+      updateViaCache: "none",
+    });
+    swSupported = true;
+  } catch {
+    // Two very different reasons land here, and they must not be confused:
+    //  - OFFLINE. register() also runs an update, and the update's fetch of
+    //    sw.js fails without a network — the promise rejects even though the
+    //    existing worker is alive and serving this very page. That is the
+    //    scenario the whole feature exists for, so a controlling worker means
+    //    "supported", whatever register() said.
+    //  - A host with no service workers (Word on Mac's WKWebView may be one).
+    //    No controller, no registration: the status line names it instead of
+    //    pretending.
+    if (navigator.serviceWorker.controller) {
+      swSupported = true;
+      try {
+        swRegistration = (await navigator.serviceWorker.getRegistration()) ?? null;
+      } catch {
+        swRegistration = null;
+      }
+    } else {
+      swSupported = false;
+    }
+  }
+  if (swSupported) {
+    navigator.serviceWorker.addEventListener("controllerchange", () => void renderOfflineStatus());
+    // A first install that fails (one file 404ing during a deploy window, a
+    // dropped connection) leaves NOTHING in control and no event afterwards.
+    // Without this listener the line would read "Preparing…" for ever.
+    const inst = swRegistration?.installing;
+    if (inst) {
+      inst.addEventListener("statechange", () => {
+        if (inst.state === "redundant" && !navigator.serviceWorker.controller) swInstallFailed = true;
+        if (inst.state === "redundant" || inst.state === "activated") void renderOfflineStatus();
+      });
+    }
+  }
+  await renderOfflineStatus();
+}
+
+/** Resolved once registration has been attempted, so the update path never
+ *  races it (see reloadIntoVersion). Bounded: a register() that hangs must
+ *  not hold the update banner hostage. */
+const offlineStarted: Promise<void> = Promise.race([
+  startOfflineDelivery(),
+  new Promise<void>((r) => window.setTimeout(r, 10_000)),
+]);
+
+/** Resolves on the next controllerchange, or rejects after `ms`. */
+function waitForControllerChange(ms: number): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const t = window.setTimeout(() => reject(new Error("controllerchange timeout")), ms);
+    navigator.serviceWorker.addEventListener(
+      "controllerchange",
+      () => {
+        window.clearTimeout(t);
+        resolve();
+      },
+      { once: true },
+    );
+  });
+}
+
+/**
+ * Navigates into `newVersion`, first bringing the new worker to control the
+ * page when one exists. Under a cache-first worker a plain navigation would be
+ * answered from the OLD cache — the banner would announce an update that the
+ * reload could not deliver, which is the same defect the cache-busting query
+ * string fixed for the HTTP cache, one layer down.
+ *
+ * Returns false, WITHOUT navigating, when a worker is in place but the new
+ * release could not be brought in (download failed, install refused). A
+ * navigation then would be served from the current cache and land on the same
+ * release, and the banner would come straight back — a loop that never says
+ * what went wrong. The caller tells the user instead.
+ */
+async function reloadIntoVersion(newVersion: string): Promise<boolean> {
+  await offlineStarted;
+  if (swSupported) {
+    const swapped = await activatePendingWorker(swRegistration, { waitForControllerChange });
+    if (!swapped) return false;
+  }
+  const url = new URL(window.location.href);
+  url.searchParams.set("v", newVersion);
+  window.location.replace(url.toString());
+  return true;
+}
+
+/**
+ * Whether the silent self-heal may run RIGHT NOW. Before the worker existed
+ * the self-heal was a sub-second reload at open, before anyone could type.
+ * With a worker, bringing a release in can take a minute on a slow link, and
+ * a pane that replaces itself mid-sentence is worse than a banner. So the
+ * silent path is taken only when the new worker is already installed and
+ * waiting (zero wait); otherwise the download is kicked off in the background
+ * and the banner offers the reload once it is ready.
+ */
+async function canSwapNow(): Promise<boolean> {
+  await offlineStarted;
+  if (!swSupported) return true;
+  if (!swRegistration) return false;
+  if (swRegistration.waiting) return true;
+  swRegistration.update().catch(() => undefined);
+  return false;
+}
+
 Office.onReady((info) => {
+  // Marker for the offline gate: Office.js itself was delivered and ran. The
+  // host is null outside Word, which is exactly what the gate expects to read.
+  document.documentElement.dataset.officeHost = String(info.host);
   if (info.host !== Office.HostType.Word) {
     return;
   }
@@ -1638,11 +1893,8 @@ async function checkForUpdate(): Promise<void> {
         // without the flag there is nothing to stop the loop.
         alreadyTried = true;
       }
-      if (!alreadyTried) {
-        const url = new URL(window.location.href);
-        url.searchParams.set("v", data.version);
-        window.location.replace(url.toString());
-        return;
+      if (!alreadyTried && (await canSwapNow())) {
+        if (await reloadIntoVersion(data.version)) return;
       }
       showUpdateBanner(data.version);
     }
@@ -1681,10 +1933,16 @@ function showUpdateBanner(newVersion: string): void {
   // Navigating to a URL the cache has never seen forces a real fetch. The new
   // version is the cache-buster, so each update busts exactly once instead of
   // defeating caching forever.
+  // With a service worker in place the new release is downloaded first and
+  // swapped in, then the navigation lands on it (reloadIntoVersion).
   reload.addEventListener("click", () => {
-    const url = new URL(window.location.href);
-    url.searchParams.set("v", newVersion);
-    window.location.replace(url.toString());
+    reload.disabled = true;
+    msg.textContent = `Downloading v${newVersion}…`;
+    void reloadIntoVersion(newVersion).then((ok) => {
+      if (ok) return; // navigating
+      msg.textContent = `v${newVersion} could not be downloaded — check your connection and try again.`;
+      reload.disabled = false;
+    });
   });
   const dismiss = document.createElement("button");
   dismiss.type = "button";

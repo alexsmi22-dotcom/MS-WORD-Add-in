@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.126.0)
+# JurisLab — Manual Test Script (v2.127.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -9,6 +9,31 @@ scanning, and layout. Budget ~30 minutes for the full pass.
 Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
+
+## 0bt. New in v2.127.0 — Offline delivery
+
+Any mode. Needs a machine whose network you can switch off. This is the one
+pass the automated gate cannot do: it proves the promise inside REAL Word.
+
+- [ ] Open the pane online. Under the title a small line appears: "Preparing
+  offline copy…", then within a minute **"Offline-ready · v2.127.0"** with a
+  green dot. Hover it: the tooltip names how many files are stored.
+- [ ] Quit Word fully. Switch the network OFF (Wi-Fi off / cable out). Reopen
+  Word and open the pane → it opens, the line still reads Offline-ready, and a
+  tool computes (Chemical `H2O` → H₂O preview; Insert works).
+- [ ] Still offline: Build → open the large drawing canvas (a dialog) → it
+  opens. Solve → pop-out canvas → it opens. (Dialogs are separate windows and
+  may use a different cache; record what happens.)
+- [ ] Network back on. Nothing changes and no banner appears (no new release).
+- [ ] **Mac (WKWebView):** record what the line says. "Offline use depends on
+  this Word's cache" with an amber dot is the honest outcome for a host that
+  allows no service worker — note it here; the Mac wording in the manual and
+  install README ("may") then stays as is. If it reads Offline-ready instead,
+  repeat the network-off step and record whether the pane opened.
+- [ ] **Update path (at the NEXT release):** with the pane open on this build,
+  the banner "Update available (vX)" appears. Click Reload → the button reads
+  "Downloading vX…", then the pane reloads INTO the new version (the status
+  line shows the new number). No second banner, no loop.
 
 ## 0bs. New in v2.121.0 — systematic IUPAC names (subset)
 
@@ -3010,6 +3035,10 @@ Engineering mode, Energy & power (now 17; the mode must state **101 calculators*
   - `(0,0,0) (1,1,1) (2,2,2)` -> refused as **COLLINEAR**: no plane.
   - `circle r=1/3` -> area **1/9*pi** exactly, and `box 1/2 1/3 1/4` -> volume **1/24**.
     (Typed fractions must stay exact — no long decimals or giant fractions anywhere.)
+- [ ] **Offline delivery (v2.127.0).** Any mode — see §0bt for the full pass.
+  - Online: the line under the title settles on **Offline-ready · v2.127.0** (green dot).
+  - Network off, Word restarted: the pane opens and computes; both pop-out canvases open.
+  - Mac: record whether the line reads Offline-ready or "depends on this Word's cache".
 - [ ] **Complex numbers, partial fractions, parametric systems (v2.126.0).** Solve, Equation kind.
   - `(2+3i)(1-i)` -> **5 + i** with the "Verified: floating-point evaluation of the original" line (it must NOT
     solve for i). `(3+4i)/(1-2i)` -> −1 + 2i; `(1+i)^8` -> 16; `abs(3+4i)` -> 5; `arg(1+i)` -> π/4;

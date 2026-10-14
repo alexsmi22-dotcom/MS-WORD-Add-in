@@ -21,8 +21,8 @@ and fails the build on any call site or destination not listed here.
 
 | Destination | When | Carries | Consent |
 |---|---|---|---|
-| `appsforoffice.microsoft.com` | Every pane load | Nothing — it is a script tag for office.js, required of all Office add-ins | n/a |
-| Your own host (`version.json`) | Every pane open | Nothing. A same-origin GET whose response drives the "update available" banner. Your host sees the request's IP, user agent and timing, as it does for every other file it serves you | n/a — no content leaves |
+| `appsforoffice.microsoft.com` | Every pane load | Nothing — it is a script tag for office.js, required of all Office add-ins. Since v2.127.0 the pane also re-requests the office.js files it has already loaded, so they pass through the service worker into its offline cache; same host, same files, nothing new sent | n/a |
+| Your own host (`version.json`, and since v2.127.0 the service worker's precache of the add-in's own files) | Every pane open | Nothing. Same-origin GETs: the version check drives the "update available" banner, the precache stores the pane's own pages, scripts, stylesheet and icons so it opens offline. Your host sees the request's IP, user agent and timing, as it does for every other file it serves you | n/a — no content leaves |
 | `www.ebi.ac.uk/opsin` | Only when the user clicks **Look up online** in Chemical mode | One chemical **name**, typed by the user. Never a structure, never document text | Explicit, per name — see below |
 
 ### The OPSIN exception

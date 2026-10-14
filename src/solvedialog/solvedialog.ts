@@ -53,6 +53,11 @@ function byId<T extends HTMLElement>(id: string): T {
   return document.getElementById(id) as T;
 }
 
+// Delivery marker for the offline gate (scripts/check-offline.js); see the
+// same lines in drawdialog.ts.
+declare const __APP_VERSION__: string;
+document.documentElement.dataset.jurislabVersion = __APP_VERSION__;
+
 Office.onReady(() => {
   const params = new URLSearchParams(window.location.search);
   const kind = (params.get("kind") as Kind) || "equation";

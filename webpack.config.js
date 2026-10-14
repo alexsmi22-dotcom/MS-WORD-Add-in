@@ -4,7 +4,9 @@ const webpack = require("webpack");
 const HtmlWebpackPlugin = require("html-webpack-plugin");
 const CopyWebpackPlugin = require("copy-webpack-plugin");
 const devCerts = require("office-addin-dev-certs");
+const fs = require("fs");
 const pkg = require("./package.json");
+const { buildServiceWorker } = require("./scripts/sw-manifest.js");
 
 const urlDev = "https://localhost:3000/";
 // The live GitHub Pages host the deployed add-in is served from. Used to stamp
@@ -95,6 +97,32 @@ module.exports = async (env, options) => {
                   "version.json",
                   new webpack.sources.RawSource(JSON.stringify({ version: pkg.version })),
                 );
+              },
+            );
+          });
+        },
+      },
+      // Emit /sw.js — the offline-delivery service worker — from its template
+      // plus the REAL list of emitted assets. This runs at the REPORT stage, the
+      // last one, so every HTML page, hashed chunk, stylesheet and copied icon
+      // already exists in the compilation when the list is taken. The cache
+      // name is a digest of those assets' bytes (scripts/sw-manifest.js), so any
+      // change to any shipped file makes sw.js byte-different, which is what
+      // makes the browser install the new worker. Not hashed itself: the pane
+      // registers it by a fixed name, and the registration is fetched with the
+      // HTTP cache bypassed (updateViaCache: "none").
+      {
+        apply(compiler) {
+          compiler.hooks.thisCompilation.tap("EmitServiceWorker", (compilation) => {
+            compilation.hooks.processAssets.tap(
+              { name: "EmitServiceWorker", stage: webpack.Compilation.PROCESS_ASSETS_STAGE_REPORT },
+              () => {
+                const template = fs.readFileSync(path.resolve(__dirname, "src/sw/sw.js"), "utf8");
+                const assets = compilation
+                  .getAssets()
+                  .map((a) => ({ name: a.name, content: a.source.buffer() }));
+                const { source } = buildServiceWorker(template, assets, pkg.version);
+                compilation.emitAsset("sw.js", new webpack.sources.RawSource(source));
               },
             );
           });

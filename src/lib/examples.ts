@@ -237,6 +237,8 @@ export const MODE_EXAMPLES: Record<ExampleMode, string> = {
       <li><code>Ca(OH)2</code> &rarr; Ca(OH)<sub>2</sub></li>
       <li><code>SO4^2-</code> &rarr; SO<sub>4</sub><sup>2&minus;</sup></li>
       <li><code>Na+</code> &rarr; Na<sup>+</sup></li>
+      <li><code>CuSO4·5H2O</code> &rarr; CuSO<sub>4</sub>·5H<sub>2</sub>O (the hydrate coefficient stays full size; M = 249.677 g/mol); <code>CaSO4·0.5H2O</code> &rarr; M = 145.142 g/mol</li>
+      <li>A reaction typed here is pointed to <strong>Reaction</strong> mode (Formulas) or Solve, where it is balanced.</li>
     </ul>
     <p class="examples-note">
       <strong>2D structures</strong> work from a common name
@@ -357,8 +359,9 @@ export const MODE_EXAMPLES: Record<ExampleMode, string> = {
     <ul>
       <li><strong>Reverse complement</strong> &amp; <strong>mRNA</strong> (transcription, T→U)</li>
       <li><strong>Translation</strong> — pick a reading frame (+1/+2/+3 or reverse −1/−2/−3); stop codons show as <code>*</code></li>
+      <li><strong>Genetic code</strong> — all 27 NCBI tables (gc.prt 4.6): <code>ATGAGATGATGGTAA</code> under table 2 (Vertebrate Mitochondrial) → <code>M*WW*</code>, under the standard code <code>MR*W*</code>; the readout names the table and the codons that differ. Tables 27, 28 and 31 read their context-dependent stops as sense and say so.</li>
       <li><strong>GC content</strong> &amp; base composition / length</li>
-      <li><strong>ORF finder</strong> — six frames, ATG → stop, with a minimum length filter</li>
+      <li><strong>ORF finder</strong> — six frames, ATG → stop, with a minimum length filter; choose the genetic code and whether the table's alternative starts count (read as M): <code>GTGAAACCCGGGTAA</code>, table 11, alternative starts → <code>1..15 MKPG</code></li>
       <li><strong>Tools</strong> — primer Tm, protein MW/pI/GRAVY (of the translation), restriction sites</li>
     </ul>
     <p class="examples-note">
@@ -386,6 +389,7 @@ export const MODE_EXAMPLES: Record<ExampleMode, string> = {
     <ul>
       <li><code>CCO + CC(=O)O &gt;&gt; CC(=O)OCC ; H2SO4 ; reflux</code></li>
       <li>Each component is a name or SMILES (e.g. <code>aspirin</code>, <code>c1ccccc1</code>).</li>
+      <li><strong>Read as Formulas</strong> to balance instead of draw: <code>Fe + O2 -&gt; Fe2O3</code> → 4 Fe + 3 O₂ → 2 Fe₂O₃, with the conservation table and chart; ions as <code>MnO4^-</code>, electrons as <code>e-</code>. <code>C + O2 -&gt; CO + CO2</code> is refused: 2 independent balancings, both shown. The reading is chosen, never guessed — <code>CO</code> is methanol as SMILES and carbon monoxide as a formula.</li>
     </ul>
     <p class="examples-note">Inserts as a single image with provenance — verify before filing.</p>`,
 
@@ -426,6 +430,7 @@ export const MODE_EXAMPLES: Record<ExampleMode, string> = {
       <li><strong>λ-calculus:</strong> <code>(λx.λy.x) y</code> → every β-step shown, the binder <strong>renamed to avoid capture</strong> (an α-step of its own) → <code>λy₁.y</code>; <code>PLUS 2 3</code> → the normal form, decoded as <strong>Church numeral 5</strong> and verified by an independent evaluator; <code>K I OMEGA</code> → <code>λx.x</code> in normal order, and <code>applicative K I OMEGA</code> → a <strong>proven divergence</strong> (the term cycles). <code>type λf.λx.f (f x)</code> → <code>(α → α) → α → α</code>; <code>type λx.x x</code> → not simply typable. <code>Y f</code> is capped and says the cap is not a theorem. Also <code>eta λx.f x</code> → f (βη-normal form), <code>ski λf.λx.f (f x)</code> → <code>S (S (K S) K) I</code> (bracket abstraction, verified by reducing both sides), <code>cl S K K x</code> → x by the combinator rules alone, Church lists (<code>SUM [1, 2, 3]</code> → 6, <code>MAP SUCC [1, 2]</code> → [2, 3]), and <code>let rec FACT = λn.IF (ISZERO n) 1 (MULT n (FACT (PRED n)))</code> / <code>FACT 3</code> → 6 through the Y combinator.</li>
       <li><strong>Computation theory:</strong> <code>S -> aSb | ε</code> then <code>test: aabb ab aab</code> → the CYK table, <code>S ⇒ aSb ⇒ aaSbb ⇒ aabb</code> and the parse tree drawn, cross-checked by brute force; <code>S -> S S | a</code> + <code>is it ambiguous</code> → two trees for aaa; <code>first and follow</code>; <code>remove left recursion</code>; <code>pda</code> blocks with the stack drawn and <code>cfg to pda</code> checked against CYK; <code>tm binary increment 1011</code> → 1100 with the tape drawn — LOOPS only when a configuration repeats, a cap is "UNKNOWN"; <code>prenex ∀x P(x) → ∃y Q(y)</code> → ∃x ∃y (P(x) → Q(y)); <code>unify f(x, g(x)) and f(a, y)</code> → {x ↦ a, y ↦ g(a)}; <code>resolve ∀x (P(x) → Q(x)), P(a) ⊢ Q(a)</code> → VALID with the refutation drawn; <code>dpll …</code>, <code>2sat …</code>, <code>horn …</code>, DIMACS; and in the λ kind <code>hm let id = λx.x in (id 1, id true)</code> → int × bool with id : ∀α. α → α.</li>
       <li><strong>Abstract algebra</strong> (Discrete math kind; typed into the Equation kind it switches there): <code>Z/6</code>, <code>U(8)</code>, <code>S3</code>, <code>D4</code>, <code>Z/2 x Z/4</code> or a typed Cayley table → elements, orders, generators, centre and the Cayley table <strong>drawn</strong> (axioms checked by brute force); <code>subgroup lattice of Z/12</code> → all six subgroups and the Hasse diagram; <code>cosets of &lt;3&gt; in Z/12</code>, <code>is A3 normal in S3</code>, <code>D4 / &lt;r^2&gt;</code> → ℤ/2ℤ × ℤ/2ℤ; <code>Z/6 ≅ Z/2 × Z/3</code> → isomorphic with the explicit CRT map (a “no” always names the invariant); <code>(1 2 3)(1 2)</code> → (1 3), composed right to left, with the cycle diagram; <code>7 * 9 mod 12</code> → 3; <code>factor x^4 + x^2 + 1 over F_2</code> → (x² + x + 1)²; <code>GF(9)</code> → 𝔽₃[x]/(x² + 1) with orders and primitive elements.</li>
+      <li><strong>Balance a reaction</strong> (Equation kind): <code>Fe + O2 -&gt; Fe2O3</code> → 4 Fe + 3 O₂ → 2 Fe₂O₃; <code>KMnO4 + HCl -&gt; KCl + MnCl2 + Cl2 + H2O</code> → 2, 16, 2, 2, 5, 8; ions <code>MnO4^- + Fe^2+ + H^+ -&gt; Mn^2+ + Fe^3+ + H2O</code>; <code>half-reaction MnO4- -&gt; Mn2+ in acid</code> → MnO₄⁻ + 8 H⁺ + 5 e⁻ → Mn²⁺ + 4 H₂O, reduction (gains 5 e⁻); two half-reactions separated by <code>;</code> with <code>in acid</code>/<code>in base</code> are combined. Exact null space with a charge row, a conservation table and chart; <code>C + O2 -&gt; CO + CO2</code> is refused (2 independent balancings, both shown). Mass and charge conservation only.</li>
       <li><strong>Discrete math:</strong> twelve engines behind one kind, routed by what you type. <code>gcd 84 36</code> → 12 with Euclid's steps and Bézout coefficients; <code>7^100 mod 13</code> → 9 by square-and-multiply; <code>x ≡ 2 mod 3, x ≡ 3 mod 5, x ≡ 2 mod 7</code> → 23 (CRT); <code>factor 360</code> → 2³ × 3² × 5 with τ, σ, φ; <code>is 561 prime</code> → composite (a Carmichael number, caught by Miller–Rabin). <code>10 choose 3</code> → 120, <code>arrangements of MISSISSIPPI</code> → 34,650, <code>derangements 5</code> → 44, prose like “how many ways to choose 3 of 10”. <code>a(n) = a(n-1) + a(n-2), a(0)=0, a(1)=1</code> → Binet's formula, <strong>exact in ℚ(√5)</strong> and verified against iteration; <code>T(n) = 2T(n/2) + n</code> → Θ(n log n) by the master theorem. <code>(p -> q) & ~q -> ~p</code> → a tautology, with the table, DNF/CNF and the Quine–McCluskey minimal form; <code>p -> q, q |= p</code> → INVALID with the counterexample row. <code>regex (a|b)*abb</code> → the minimal DFA, <strong>drawn</strong>, with test strings run; an edge list with <code>shortest path A to F</code> on top → Dijkstra with the path highlighted in a drawn graph; <code>mst</code>, <code>eulerian</code>, <code>bipartite</code>, <code>topological order</code>.</li>
       <li><strong>Word problem:</strong> "12 is what percent of 48?", "twice a number plus 7 is 15".</li>
     </ul>
@@ -560,6 +565,7 @@ export const MODE_EXAMPLES: Record<ExampleMode, string> = {
       <li><strong>Dose–response</strong> — 4-parameter logistic → <strong>IC50 / EC50</strong>, Hill slope, pEC50; Cheng–Prusoff K<sub>i</sub></li>
       <li><strong>Binding</strong> — one-site saturation (B<sub>max</sub>, K<sub>d</sub>)</li>
       <li><strong>Lab math</strong> — Henderson–Hasselbalch, Beer–Lambert, dilutions, A260/A280 quantitation</li>
+      <li><strong>Reaction stoichiometry &amp; yield</strong> — <code>2 H2 + O2 -&gt; 2 H2O</code> with <code>H2: 10.0 g</code>, <code>O2: 10.0 g</code> → O₂ limiting (ξ = 0.313 mol), 11.3 g H₂O, 8.74 g H₂ left over, drawn as moles available vs needed. Gas volumes use the STP you pick (IUPAC 22.711 or 1 atm 22.414 L/mol, both named); a liquid volume needs its density</li>
     </ul>
     <p class="examples-note">
       For fits, enter two equal-length lists (e.g. [S] and v), one value per number, separated
@@ -574,6 +580,7 @@ export const MODE_EXAMPLES: Record<ExampleMode, string> = {
       <li><strong>Exact masses</strong> — monoisotopic (for high-res MS) and average</li>
       <li><strong>Isotope pattern</strong> — M, M+1, M+2… peaks with relative intensities (e.g. the ~32% M+2 of a chlorine)</li>
       <li><strong>Adduct m/z</strong> — [M+H]⁺, [M+Na]⁺, [M+K]⁺, [M+NH₄]⁺, [M+2H]²⁺, [M−H]⁻, [M+Cl]⁻, [M+HCOO]⁻, [M−2H]²⁻</li>
+      <li><strong>Formula or SMILES?</strong> <code>Co</code> is cobalt (58.9332), not CH₃O; <code>Fe2O3</code> has masses though no structure; when both readings are valid and differ the one used is said and the other named — <code>formula:</code> or <code>smiles:</code> chooses</li>
     </ul>
     <p class="examples-note">
       Isotope abundances are standard NIST values; the pattern covers the common organic/bio
@@ -672,11 +679,15 @@ export const MODE_EXAMPLES: Record<ExampleMode, string> = {
     <ul>
       <li><strong>One-letter</strong> codes: <code>ACDEFG</code> (spaces optional)</li>
       <li><strong>Three-letter</strong> codes with separators: <code>Ala-Gly-Ser</code> or <code>Met Lys</code></li>
-      <li>Free N- and C-termini; reports residue count, formula, and molecular weight</li>
+      <li>Termini <code>H-</code>/<code>-OH</code>, <code>Ac-</code>, <code>-NH2</code>, <code>pGlu-</code>; head-to-tail <code>cyclo(GRGDSP)</code> → C₂₂H₃₅N₉O₉, monoisotopic 569.2558 Da</li>
+      <li>Modifications in ProForma brackets: <code>AKS[Phospho]PR</code> → +79.966331 (UNIMOD:21), 637.2949 Da; <code>M[Oxidation]</code>, <code>K[Acetyl]</code></li>
+      <li>Disulfides as a clause: <code>CYIQNCPLG-NH2; disulfide 1-6</code> (oxytocin) → C₄₃H₆₆N₁₂O₁₂S₂, 1006.4365 Da, with ε₂₈₀ for the cystines as written</li>
+      <li>Reports formula, <strong>monoisotopic and average</strong> mass and every modification with its Unimod accession and delta; anything it cannot read is refused by name (<code>cycloGRGDSP</code> would be Cys-Tyr-Cys-Leu-Pyl)</li>
     </ul>
     <p class="examples-note">
       The structure shows <strong>connectivity</strong> (stereochemistry isn't drawn, to avoid asserting
-      a wrong configuration). Best for short peptides — long chains get dense. Verify before relying.
+      a wrong configuration). Long peptides (above 250 heavy atoms, about 30 residues) get their masses but no drawing —
+      the 2D layout would freeze Word. Verify before relying.
     </p>`,
   stats: `
     <p class="examples-note">

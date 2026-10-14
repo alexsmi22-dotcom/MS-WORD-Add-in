@@ -5,6 +5,8 @@
 //   Ca(OH)2      -> Ca(OH)₂
 //   H2SO4        -> H₂SO₄
 //   2H2O         -> 2 H₂O              (a leading number is a coefficient: normal size)
+//   CuSO4·5H2O   -> CuSO₄·5H₂O         (so is a number after a hydrate dot · • . *,
+//   CaSO4·0.5H2O -> CaSO₄·0.5H₂O        including a decimal or a/b coefficient)
 //   SO4^2-       -> SO₄ then ²⁻        (^ introduces a superscript charge)
 //   Fe^3+        -> Fe then ³⁺
 //   Na+ / Cl-    -> Na⁺ / Cl⁻          (a trailing +/- is a superscript charge)
@@ -20,16 +22,51 @@ import { Segment, pushSegment } from "./segments";
 
 const isDigit = (ch: string): boolean => ch >= "0" && ch <= "9";
 
+// REACTION SEPARATORS. A whitespace-delimited "+" separates species, and an
+// arrow separates the sides; neither is a charge. Typing "Fe + O2 -> Fe2O3" in
+// Chemical mode used to insert "Fe ⁺ O₂ ⁻>" into the document. Arrows print as
+// → / ⇌ (the forms Reaction mode and the balancer read back); "=" and the other
+// arrow glyphs print as typed.
+const SEPARATORS: Record<string, string> = {
+  "+": "+", "->": "→", "-->": "→", "→": "→", "⟶": "→", "<-": "←", "←": "←",
+  "<->": "⇌", "<=>": "⇌", "⇌": "⇌", "⇋": "⇋", "=": "=",
+};
+
 export function parseChemical(input: string): Segment[] {
   const segments: Segment[] = [];
+  // Each whitespace-delimited token is a species (parsed on its own, so the
+  // monatomic-ion rule applies per species: Mn2+ inside a reaction is Mn²⁺) or a
+  // separator (normal size). Whitespace itself is normal text, so a digit run at
+  // the start of a species still follows a space and stays a full-size
+  // coefficient.
+  for (const piece of input.split(/(\s+)/)) {
+    if (!piece) continue;
+    if (/^\s+$/.test(piece)) pushSegment(segments, piece, "normal");
+    else if (Object.prototype.hasOwnProperty.call(SEPARATORS, piece)) pushSegment(segments, SEPARATORS[piece], "normal");
+    else parseSpeciesInto(segments, piece);
+  }
+  return segments;
+}
+
+function parseSpeciesInto(segments: Segment[], input: string): void {
   let i = 0;
   const n = input.length;
   // A monatomic ion ("Ca2+", "Fe3+") renders the digit as the charge; polyatomic
   // ions ("NH4+", "NO3-") keep the digit as a subscript with a separate ± charge.
-  const isMonatomic = /^[A-Z][a-z]?\d+[+-]$/.test(input);
+  // A leading coefficient does not change that (2Cr3+ in a reaction is 2 Cr³⁺).
+  const isMonatomic = /^\d*[A-Z][a-z]?\d+[+-]$/.test(input);
 
   while (i < n) {
     const ch = input[i];
+
+    // An arrow inside an unspaced token ("Fe2O3->2Fe") is still an arrow: a "-"
+    // followed by ">" is never a charge.
+    const arrow = /^(<->|<=>|-->|->|<-)/.exec(input.slice(i));
+    if (arrow) {
+      pushSegment(segments, SEPARATORS[arrow[1]], "normal");
+      i += arrow[1].length;
+      continue;
+    }
 
     // Explicit charge marker: ^ followed by optional digits and an optional sign.
     if (ch === "^") {
@@ -59,7 +96,21 @@ export function parseChemical(input: string): Segment[] {
         continue;
       }
       const prev = segments[segments.length - 1];
-      const isCoefficient = !prev || prev.text.endsWith(" ");
+      // A digit run right after a hydrate dot (·, •, ., *) is the hydrate's
+      // COEFFICIENT and is full size: CuSO₄·5H₂O, never CuSO₄·₅H₂O. So is the
+      // rest of a decimal or fractional coefficient — the 5 in "·0.5H2O" follows
+      // a ".", and the 2 in "·1/2H2O" follows a "/". The typeset form must
+      // re-parse (display contract), and validateFormula reads it this way.
+      // A digit right after an arrow (unspaced "->2Fe") is a coefficient too.
+      const isCoefficient = !prev || /[\s·•.*/→⇌←]$/.test(prev.text);
+      // A decimal SUBSCRIPT (Cu1.8S → Cu₁.₈S): a count of 0 or 1 right after an
+      // element or group, then "." and digits — the same reading as
+      // validateFormula, where "CuSO4.5H2O" (count 4) stays a hydrate dot.
+      if (!isCoefficient && (num === "0" || num === "1") && /[A-Za-z)\]}]/.test(prevChar) &&
+          input[i] === "." && isDigit(input[i + 1] ?? "")) {
+        num += input[i++];
+        while (i < n && isDigit(input[i])) num += input[i++];
+      }
       pushSegment(segments, num, isCoefficient ? "normal" : "sub");
       continue;
     }
@@ -76,6 +127,4 @@ export function parseChemical(input: string): Segment[] {
     pushSegment(segments, ch, "normal");
     i++;
   }
-
-  return segments;
 }

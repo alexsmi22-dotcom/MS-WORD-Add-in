@@ -7,7 +7,8 @@
 // Sequence tool before filing. Pure string logic — no Office.js, no Date — so it
 // is fully unit-testable; the caller supplies the production date.
 
-import { resolveCodon } from "./dna";
+import { isInitiator, resolveCodon } from "./dna";
+import { type GeneticCode, contextStopNote, findGeneticCode, geneticCodeById, geneticCodeLabel } from "./geneticCode";
 
 export type MolType = "DNA" | "RNA" | "AA";
 
@@ -233,15 +234,129 @@ function sourceFeatureInner(moltype: MolType, length: number, organism: string, 
  * so the listing contradicted its own reading frame. In a filed application that
  * is a wrong protein of record.
  */
-export function translateCds(nucleotides: string, codonStart: 1 | 2 | 3 = 1): string {
+export function translateCds(nucleotides: string, codonStart: 1 | 2 | 3 = 1, options: CdsTranslateOptions = {}): string {
+  const table = options.table ?? 1;
+  const code = geneticCodeById(table);
   const s = nucleotides.toUpperCase().replace(/U/g, "T");
   let protein = "";
-  for (let i = codonStart - 1; i + 3 <= s.length; i += 3) {
-    const aa = resolveCodon(s.substring(i, i + 3));
+  for (let i = codonStart - 1, n = 0; i + 3 <= s.length; i += 3, n++) {
+    const codon = s.substring(i, i + 3);
+    // Initiator rule: a 5′-complete CDS (codon_start 1) whose first codon is an
+    // initiation codon of the table is read from Met — GTG → M under table 11,
+    // ATT → M under table 2. A CDS at codon_start 2/3 is 5′-partial: no rule.
+    let aa = i === 0 && options.initiator && isInitiator(code, codon) ? "M" : resolveCodon(codon, table);
+    // /transl_except is the drafter's explicit per-codon instruction and is
+    // applied LAST, on top of the table and the initiator rule: it always wins.
+    // Applied before the stop test, so (pos:…,aa:Sec) at a TGA reads U and the
+    // translation continues, and aa:TERM ends it.
+    const ex = options.exceptions?.get(n);
+    if (ex !== undefined) aa = ex;
     if (aa === "*") break;
     protein += aa;
   }
   return protein;
+}
+
+export interface CdsTranslateOptions {
+  /** NCBI genetic code id (the /transl_table value). Default 1. */
+  table?: number;
+  /** Apply the initiator rule to the first codon (only ever at codon_start 1). Default false. */
+  initiator?: boolean;
+  /** /transl_except: 0-based codon index (from codon_start) → one-letter residue, "*" for TERM. */
+  exceptions?: ReadonlyMap<number, string>;
+}
+
+/**
+ * INSDC three-letter amino-acid abbreviations accepted in /transl_except
+ * (INSDC Feature Table Definition: the /transl_except qualifier, value
+ * `(pos:location,aa:<amino_acid>)`, and its amino-acid abbreviation list,
+ * with TERM = termination codon and OTHER = any other amino acid).
+ */
+const TRANSL_EXCEPT_AA: Readonly<Record<string, string>> = {
+  ala: "A", arg: "R", asn: "N", asp: "D", cys: "C", gln: "Q", glu: "E", gly: "G", his: "H", ile: "I",
+  leu: "L", lys: "K", met: "M", phe: "F", pro: "P", ser: "S", thr: "T", trp: "W", tyr: "Y", val: "V",
+  sec: "U", pyl: "O", asx: "B", glx: "Z", xle: "J", xaa: "X", other: "X", term: "*",
+};
+
+type TranslExcept = { kind: "ok"; map: Map<number, string> } | { kind: "refused"; message: string };
+
+/**
+ * Reads every /transl_except of a CDS into codon index → residue. INSDC form:
+ * `(pos:<base span>,aa:<abbrev>)`, the span in SEQUENCE coordinates covering
+ * exactly one codon of the CDS reading frame. Anything else (complement(),
+ * a partial 1–2-base terminal codon, a span off the frame or outside the CDS,
+ * an unknown abbreviation, two different values for one codon) is refused, so
+ * no auto-translation is generated and featureWarnings says why — never a
+ * translation that silently ignores the drafter's exception.
+ */
+function readTranslExcept(
+  qualifiers: readonly St26Qualifier[] | undefined,
+  location: string,
+  codonStart: 1 | 2 | 3,
+  regionLength: number,
+): TranslExcept {
+  const map = new Map<number, string>();
+  const values = (qualifiers ?? [])
+    .filter((q) => q.name.trim().toLowerCase() === "transl_except" && q.value.trim())
+    .map((q) => q.value.trim());
+  const locMatch = /^(\d+)\.\.(\d+)$/.exec(location.trim());
+  const cdsStart = location.trim() ? (locMatch ? parseInt(locMatch[1], 10) : NaN) : 1;
+  for (const v of values) {
+    const m = /^\(\s*pos\s*:\s*(\d+)\s*\.\.\s*(\d+)\s*,\s*aa\s*:\s*([A-Za-z]+)\s*\)$/.exec(v);
+    if (!m || !Number.isFinite(cdsStart)) {
+      return { kind: "refused", message: `its /transl_except "${v}" is not a simple (pos:start..end,aa:Xxx) codon this tool can apply` };
+    }
+    const a = parseInt(m[1], 10);
+    const b = parseInt(m[2], 10);
+    const aa = TRANSL_EXCEPT_AA[m[3].toLowerCase()];
+    if (aa === undefined) {
+      return { kind: "refused", message: `its /transl_except names "${m[3]}", which is not an INSDC amino-acid abbreviation` };
+    }
+    const offset = a - cdsStart - (codonStart - 1);
+    if (b - a !== 2 || offset < 0 || offset % 3 !== 0 || b - cdsStart + 1 > regionLength) {
+      return { kind: "refused", message: `its /transl_except "${v}" is not one in-frame codon inside the CDS` };
+    }
+    const idx = offset / 3;
+    const prev = map.get(idx);
+    if (prev !== undefined && prev !== aa) {
+      return { kind: "refused", message: `it carries conflicting /transl_except values for bases ${a}..${b}` };
+    }
+    map.set(idx, aa);
+  }
+  return { kind: "ok", map };
+}
+
+/**
+ * The /transl_table qualifier of a CDS, read ONE way for both the XML and the
+ * warnings (so a junk value can never suppress the translation silently, or warn
+ * while still translating).
+ *   absent  — no qualifier: table 1 by INSDC convention, no initiator rule, so
+ *             every listing without the qualifier is byte-for-byte unchanged;
+ *   ok      — an explicit, valid table: translate with it, initiator rule on;
+ *   refused — junk, a retired/unknown id, conflicting values, or a table whose
+ *             stops depend on context (27, 28, 31): NO /translation is generated
+ *             and the warning says why.
+ */
+type TranslTable = { kind: "absent" } | { kind: "ok"; code: GeneticCode } | { kind: "refused"; message: string };
+
+function readTranslTable(qualifiers: readonly St26Qualifier[] | undefined): TranslTable {
+  const values = (qualifiers ?? [])
+    .filter((q) => q.name.trim().toLowerCase() === "transl_table" && q.value.trim())
+    .map((q) => q.value.trim());
+  if (!values.length) return { kind: "absent" };
+  if (values.some((v) => v !== values[0])) {
+    return { kind: "refused", message: `it carries conflicting /transl_table values (${values.join(", ")})` };
+  }
+  const v = values[0];
+  if (!/^[1-9][0-9]{0,3}$/.test(v)) {
+    return { kind: "refused", message: `its /transl_table value "${v}" is not a genetic-code number` };
+  }
+  const found = findGeneticCode(parseInt(v, 10));
+  if (!found.ok) return { kind: "refused", message: found.message };
+  if (found.code.contextStops.length) {
+    return { kind: "refused", message: contextStopNote(found.code) + " The CDS end cannot be called from the sequence" };
+  }
+  return { kind: "ok", code: found.code };
 }
 
 /** Reads a /codon_start qualifier value; anything not 1/2/3 falls back to 1. */
@@ -272,12 +387,26 @@ function featureInner(feature: St26Feature, moltype: MolType, residues: string):
   if (key.toUpperCase() === "CDS" && moltype !== "AA") {
     const has = (n: string): boolean => quals.some((q) => q.name.toLowerCase() === n);
     const region = cdsRegion(location, residues);
-    if (region !== null && !has("translation")) {
-      // Honour a drafter-supplied /codon_start rather than translating from base
-      // 1 regardless — the two used to disagree in the emitted XML.
-      const supplied = quals.find((q) => q.name.toLowerCase() === "codon_start");
-      const codonStart = readCodonStart(supplied?.value);
-      const protein = translateCds(region, codonStart);
+    // /transl_table used to be ignored: a table-2 CDS was emitted with a
+    // standard-code /translation (MR for M), a table-11 GTG-initiated CDS as
+    // V… where INSDC gives M… — the listing contradicted its own qualifier.
+    // An unusable value now suppresses the auto-translation (featureWarnings
+    // says why) rather than guessing the code. Nothing adds /transl_table: the
+    // drafter's qualifier passes through as typed, and INSDC omits table 1.
+    const tt = readTranslTable(quals);
+    // Honour a drafter-supplied /codon_start rather than translating from base
+    // 1 regardless — the two used to disagree in the emitted XML.
+    const supplied = quals.find((q) => q.name.toLowerCase() === "codon_start");
+    const codonStart = readCodonStart(supplied?.value);
+    const te = region !== null ? readTranslExcept(quals, location, codonStart, region.length) : null;
+    if (region !== null && !has("translation") && tt.kind !== "refused" && te !== null && te.kind === "ok") {
+      // The initiator rule applies only when /transl_table is EXPLICIT (scope §E10):
+      // applying it to qualifier-less table-1 CDSs (TTG/CTG are table-1 starts)
+      // would change emitted XML product-wide and is a separate decision.
+      const protein =
+        tt.kind === "ok"
+          ? translateCds(region, codonStart, { table: tt.code.id, initiator: codonStart === 1, exceptions: te.map })
+          : translateCds(region, codonStart, { exceptions: te.map });
       if (protein) {
         if (!supplied) quals.push({ name: "codon_start", value: "1" });
         quals.push({ name: "translation", value: protein });
@@ -296,10 +425,32 @@ export function featureWarnings(entry: SequenceEntry): string[] {
   const { residues } = cleanResidues(entry.moltype, entry.residues);
   for (const f of entry.features ?? []) {
     if (f.key.trim().toUpperCase() !== "CDS" || entry.moltype === "AA") continue;
+    const tt = readTranslTable(f.qualifiers);
+    if (tt.kind === "refused") {
+      const suppliedTranslation = (f.qualifiers ?? []).some(
+        (q) => q.name.trim().toLowerCase() === "translation" && q.value.trim(),
+      );
+      const why = tt.message.replace(/\.\s*$/, "");
+      warnings.push(
+        suppliedTranslation
+          ? `CDS (${f.location || "whole"}): ${why}. Your /translation was kept as typed; fix the /transl_table qualifier before filing.`
+          : `CDS (${f.location || "whole"}): no /translation was generated — ${why}. Fix the /transl_table qualifier or supply /translation yourself.`,
+      );
+    }
     const region = cdsRegion(f.location, residues);
     if (region === null) {
       warnings.push(`CDS location "${f.location}" isn't a simple start..end range — add /translation manually and verify in WIPO Sequence.`);
       continue;
+    }
+    {
+      const cs = (f.qualifiers ?? []).find((q) => q.name.trim().toLowerCase() === "codon_start");
+      const te = readTranslExcept(f.qualifiers, f.location, readCodonStart(cs?.value), region.length);
+      const hasTranslation = (f.qualifiers ?? []).some((q) => q.name.trim().toLowerCase() === "translation" && q.value.trim());
+      if (te.kind === "refused" && !hasTranslation && tt.kind !== "refused") {
+        warnings.push(
+          `CDS (${f.location || "whole"}): no /translation was generated — ${te.message}. Fix the /transl_except qualifier or supply /translation yourself.`,
+        );
+      }
     }
     // /codon_start says which base of the region is the first base of the first
     // codon, so the CODABLE length is region.length − (codon_start − 1). Testing
@@ -324,6 +475,40 @@ export function featureWarnings(entry: SequenceEntry): string[] {
     }
   }
   return warnings;
+}
+
+/**
+ * Informational notes for each auto-translated CDS that used an explicit
+ * /transl_table: which genetic code was applied and whether the initiator rule
+ * turned the first codon into M. Empty for listings without the qualifier (the
+ * table-1 default) — those are unchanged and need no note.
+ */
+export function featureNotes(entry: SequenceEntry): string[] {
+  const notes: string[] = [];
+  if (entry.moltype === "AA") return notes;
+  const { residues } = cleanResidues(entry.moltype, entry.residues);
+  for (const f of entry.features ?? []) {
+    if (f.key.trim().toUpperCase() !== "CDS") continue;
+    const tt = readTranslTable(f.qualifiers);
+    if (tt.kind !== "ok") continue;
+    const hasTranslation = (f.qualifiers ?? []).some((q) => q.name.trim().toLowerCase() === "translation" && q.value.trim());
+    const region = cdsRegion(f.location, residues);
+    if (hasTranslation || region === null) continue;
+    const supplied = (f.qualifiers ?? []).find((q) => q.name.trim().toLowerCase() === "codon_start" && q.value.trim());
+    const codonStart = readCodonStart(supplied?.value);
+    // Same computation as featureInner: no protein → no /translation emitted → no note.
+    const te = readTranslExcept(f.qualifiers, f.location, codonStart, region.length);
+    if (te.kind === "refused") continue;
+    const protein = translateCds(region, codonStart, { table: tt.code.id, initiator: codonStart === 1, exceptions: te.map });
+    if (!protein) continue;
+    let note = `CDS (${f.location || "whole"}): /translation generated with ${geneticCodeLabel(tt.code)}`;
+    const first = region.toUpperCase().replace(/U/g, "T").substring(0, 3);
+    if (codonStart === 1 && !te.map.has(0) && isInitiator(tt.code, first) && resolveCodon(first, tt.code.id) !== "M") {
+      note += `; the first codon ${first} is an initiation codon of table ${tt.code.id} and is read as M (initiator rule)`;
+    }
+    notes.push(note + ".");
+  }
+  return notes;
 }
 
 function sequenceData(entry: SequenceEntry, idNumber: number): string {

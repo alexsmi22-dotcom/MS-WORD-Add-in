@@ -109,6 +109,7 @@ const UNITS: Record<string, UnitDef> = {
   // length (base m)
   m: { dim: "length", factor: 1 }, km: { dim: "length", factor: 1000 },
   cm: { dim: "length", factor: 0.01 }, mm: { dim: "length", factor: 0.001 },
+  dm: { dim: "length", factor: 0.1 },
   µm: { dim: "length", factor: 1e-6 }, nm: { dim: "length", factor: 1e-9 },
   pm: { dim: "length", factor: 1e-12 },
   in: { dim: "length", factor: 0.0254 }, ft: { dim: "length", factor: 0.3048 },
@@ -140,6 +141,9 @@ const UNITS: Record<string, UnitDef> = {
   // volume (base m^3)
   L: { dim: "volume", factor: 0.001 }, mL: { dim: "volume", factor: 1e-6 },
   µL: { dim: "volume", factor: 1e-9 }, nL: { dim: "volume", factor: 1e-12 }, "m^3": { dim: "volume", factor: 1 },
+  // Cubic decimetre / centimetre: a chemistry text writes mol/dm³ and g/cm³.
+  // The ASCII spellings cm3/dm3/m3/cc are aliases (see ALIASES).
+  "dm^3": { dim: "volume", factor: 1e-3 }, "cm^3": { dim: "volume", factor: 1e-6 },
   // US liquid gallon, exactly 231 in^3 = 3.785411784 L by definition. Hydro and
   // pump flow in US practice is quoted in gal/min, which composes from this.
   gal: { dim: "volume", factor: 3.785411784e-3 },
@@ -256,9 +260,15 @@ const UNITS: Record<string, UnitDef> = {
   // magnetic flux density (base T)
   T: { dim: "bfield", factor: 1 }, mT: { dim: "bfield", factor: 1e-3 }, µT: { dim: "bfield", factor: 1e-6 },
   G: { dim: "bfield", factor: 1e-4 },
-  // molarity (base M = mol/L)
-  M: { dim: "molarity", factor: 1 }, mM: { dim: "molarity", factor: 1e-3 },
-  µM: { dim: "molarity", factor: 1e-6 }, nM: { dim: "molarity", factor: 1e-9 }, pM: { dim: "molarity", factor: 1e-12 },
+  // molarity (base mol/m³ — the SI base, because "molarity" DECOMPOSES to
+  // amount·length⁻³ in BASE below, and the compound path multiplies these
+  // factors against mol and m³). 1 M = 1 mol/L = 1 mol/dm³ = 1000 mol/m³.
+  // These were once quoted relative to M (factor 1), which the single-unit
+  // path did not notice (it only uses ratios) but the compound path did:
+  // convert(0.08, "mol/L", "M") returned 80, a 1000× error in every molarity
+  // written as mol/L, mmol/mL or mol/dm³.
+  M: { dim: "molarity", factor: 1000 }, mM: { dim: "molarity", factor: 1 },
+  µM: { dim: "molarity", factor: 1e-3 }, nM: { dim: "molarity", factor: 1e-6 }, pM: { dim: "molarity", factor: 1e-9 },
   // --- photometry (luminous intensity is the 7th SI base unit) --------------
   //
   // LUMINOUS INTENSITY AND LUMINOUS FLUX ARE KEPT SEPARATE ON PURPOSE, and this
@@ -331,6 +341,7 @@ const ALIASES: Record<string, string> = {
   nanojoule: "nJ", nanojoules: "nJ", millijoule: "mJ", millijoules: "mJ",
   degC: "°C", celsius: "°C", "°c": "°C", degF: "°F", fahrenheit: "°F", "°f": "°F", kelvin: "K",
   litre: "L", liter: "L", l: "L", ml: "mL", ul: "µL", microliter: "µL",
+  cm3: "cm^3", cc: "cm^3", dm3: "dm^3", m3: "m^3",
   atmosphere: "atm", deg: "°", degree: "°", degrees: "°", radian: "rad", radians: "rad",
   millimol: "mmol", millimole: "mmol", micromol: "µmol", umol: "µmol",
   nanometer: "nm", nanometre: "nm", picometer: "pm", picometre: "pm",

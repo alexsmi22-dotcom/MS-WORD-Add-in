@@ -980,6 +980,11 @@ x&#179; &minus; 1 = 0
       <p class="lede">Tiles marked <span class="is-new">New</span> are the most recent additions; the rest have grown since you last looked. Every tile opens a full breakdown with worked examples.</p>
     </div>
     <div class="cards">
+      <a class="card" href="tool.html?tool=chemical">
+        <h3>Reaction balancing, genetic codes, peptides <span class="is-new">New</span></h3>
+        <p><code>balance KMnO4 + HCl -&gt; KCl + MnCl2 + Cl2 + H2O</code> balances by the exact null space of the element and charge matrix, with every element and the charge recounted &mdash; and a reaction with <b>two independent balancings is refused, with both shown</b>, never one picked silently. Half-reactions in acid or base; limiting reagent and yield with units carried. All 27 <b>NCBI genetic codes</b>, honoured in ORFs, translations and sequence listings (<code>/transl_table</code>, <code>/transl_except</code>). Peptides with disulfides, cyclisation and Unimod modifications &mdash; an unknown token is refused with its position, never turned into a residue.</p>
+        <div class="spec">CaSO&#8324;&middot;0.5H&#8322;O &#8594; 145.142 g/mol (was read as 226.209)</div>
+      </a>
       <a class="card" href="tool.html?tool=solve">
         <h3>Exact cubic and quartic roots, radius of convergence <span class="is-new">New</span></h3>
         <p><code>x^3 = 2</code> now gives <b>&#8731;2</b>, not 1.259921&hellip;: cubics by Cardano (three real roots in the trigonometric form, never a complex radical labelled real), quartics by Ferrari, repeated roots exact with their multiplicity &mdash; every closed form <b>proved by an exact identity</b> before it is shown. Fractions in several variables cancel with the factor named; <code>taylor 1/(1+x^2)</code> states <b>R = 1</b> from the complex poles &plusmn;i, as a theorem; proportion intervals (Wilson, Clopper&ndash;Pearson) and exact Markov hitting probabilities and first-passage times.</p>
@@ -1001,7 +1006,7 @@ x&#179; &minus; 1 = 0
         <div class="spec">hm let id = &lambda;x.x in (id 1, id true) &#8594; int &times; bool, id : &forall;&alpha;. &alpha; &rarr; &alpha;</div>
       </a>
       <a class="card" href="tool.html?tool=solve">
-        <h3>Linear programming, interpolation, splines <span class="is-new">New</span></h3>
+        <h3>Linear programming, interpolation, splines</h3>
         <p><code>maximize 3x + 2y subject to x + y &le; 4, x + 3y &le; 6, x, y &ge; 0</code> runs an <b>exact simplex</b> (rational tableau, two-phase, Bland's rule): the optimum, binding constraints, <b>shadow prices</b>, reduced costs and sensitivity ranges, the dual on request, branch-and-bound for small integer programs, and the feasible region drawn with the objective contour. Unbounded and infeasible are verdicts with the ray or the contradicting constraints named. <code>interpolate (1, 2), (2, 3), (4, 7)</code> gives the exact polynomial through every point, cross-checked three ways; <code>natural cubic spline through &hellip;</code> gives one cubic per interval with continuity verified exactly. A least-squares fit is a different thing and is refused by name.</p>
         <div class="spec">maximize 3x + 2y s.t. x + y &le; 4, x + 3y &le; 6, x, y &ge; 0 &#8594; (4, 0), z = 12, shadow prices (3, 0)</div>
       </a>

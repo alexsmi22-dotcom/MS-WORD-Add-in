@@ -569,7 +569,12 @@
           </select>
           <label class="omml-option"><input type="checkbox" id="dna-stopstop" /> Stop at first stop</label>
         </div>
+        <div class="dna-controls">
+          <label class="field-label" for="dna-table">Genetic code</label>
+          <select id="dna-table" class="lib-select" aria-label="NCBI genetic code (translation table)"></select>
+        </div>
         <div id="dna-protein" class="dna-mono" aria-live="polite"></div>
+        <div id="dna-code-note" class="seq-readout hint" aria-live="polite"></div>
         <button id="dna-protein-insert" class="insert-btn secondary" type="button" disabled>
           Insert protein
         </button>
@@ -600,6 +605,15 @@
         <div class="dna-controls">
           <label class="field-label" for="dna-orf-min">Min length (aa)</label>
           <input id="dna-orf-min" type="number" class="rgroup-input num-numeral" value="20" min="1" />
+        </div>
+        <div class="dna-controls">
+          <label class="field-label" for="dna-orf-table">Genetic code</label>
+          <select id="dna-orf-table" class="lib-select" aria-label="NCBI genetic code for the ORF search"></select>
+          <label class="field-label" for="dna-orf-starts">Start codons</label>
+          <select id="dna-orf-starts" class="lib-select">
+            <option value="ATG">ATG only</option>
+            <option value="table">ATG and the table's alternative starts (read as M)</option>
+          </select>
           <button id="dna-orf-btn" class="insert-btn secondary" type="button">Find ORFs</button>
         </div>
         <div id="dna-orf-results" class="dna-orf-results" aria-live="polite"></div>
@@ -611,8 +625,17 @@
         <p class="seq-disclaimer">
           Reactants <code>+</code> reactants <code>&gt;&gt;</code> products, with optional
           <code>; over ; under</code> conditions. Each component is a name or SMILES.
+          Choose <strong>Formulas</strong> to balance an equation of formulas
+          (<code>Fe + O2 -&gt; Fe2O3</code>, ions as <code>MnO4^-</code>, electrons as <code>e-</code>).
           Drafting aid — verify before filing.
         </p>
+        <div class="dna-controls">
+          <label class="field-label" for="reaction-read">Read components as</label>
+          <select id="reaction-read" class="lib-select">
+            <option value="structures">Structures (names / SMILES — drawn)</option>
+            <option value="formulas">Formulas (balance the equation)</option>
+          </select>
+        </div>
         <label class="field-label" for="reaction-input">Reaction</label>
         <textarea
           id="reaction-input"

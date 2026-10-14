@@ -1,5 +1,5 @@
 // DNA/RNA analysis utilities for the task pane's DNA mode: complementary strands,
-// transcription, translation (standard genetic code), base composition / GC, and
+// transcription, translation (any NCBI genetic code; standard by default), base composition / GC, and
 // a six-frame ORF finder. A companion to Sequence mode (which produces the ST.26
 // listing) — this is the analysis side.
 //
@@ -10,6 +10,13 @@
 // strands. Like the rest of the engine, it is a drafting aid — verify downstream.
 
 import { ENZYMES, findSites, summarise } from "./enzymes";
+import {
+  type GeneticCode,
+  GeneticCodeError,
+  contextStopNote,
+  geneticCodeById,
+  geneticCodeLabel,
+} from "./geneticCode";
 export type Strand = "+" | "-";
 
 // IUPAC nucleotide complements (DNA + RNA; U complements to A).
@@ -84,41 +91,52 @@ export function transcribe(dna: string): string {
   return dna.toUpperCase().replace(/T/g, "U");
 }
 
-// Standard genetic code (DNA codons; U is normalized to T before lookup).
-const CODON_TABLE: Record<string, string> = {
-  TTT: "F", TTC: "F", TTA: "L", TTG: "L",
-  CTT: "L", CTC: "L", CTA: "L", CTG: "L",
-  ATT: "I", ATC: "I", ATA: "I", ATG: "M",
-  GTT: "V", GTC: "V", GTA: "V", GTG: "V",
-  TCT: "S", TCC: "S", TCA: "S", TCG: "S",
-  CCT: "P", CCC: "P", CCA: "P", CCG: "P",
-  ACT: "T", ACC: "T", ACA: "T", ACG: "T",
-  GCT: "A", GCC: "A", GCA: "A", GCG: "A",
-  TAT: "Y", TAC: "Y", TAA: "*", TAG: "*",
-  CAT: "H", CAC: "H", CAA: "Q", CAG: "Q",
-  AAT: "N", AAC: "N", AAA: "K", AAG: "K",
-  GAT: "D", GAC: "D", GAA: "E", GAG: "E",
-  TGT: "C", TGC: "C", TGA: "*", TGG: "W",
-  CGT: "R", CGC: "R", CGA: "R", CGG: "R",
-  AGT: "S", AGC: "S", AGA: "R", AGG: "R",
-  GGT: "G", GGC: "G", GGA: "G", GGG: "G",
-};
+// Genetic codes. The standard code used to be a hand-typed 64-entry literal here;
+// every table now comes from geneticCode.ts, which holds the NCBI gc.prt 4.6
+// strings verbatim. Table 1 is byte-for-byte the old literal (pinned in
+// geneticCode.test.ts), so every default-table output is unchanged.
 
-/**
- * Resolves a codon (already T-normalized, uppercase) to a one-letter amino acid.
- * Degenerate codons that map to a single amino acid for every concrete expansion
- * are resolved (e.g. GCN → A, CTN → L); otherwise "X". Unknown letters → "X".
- */
-export function resolveCodon(codon: string): string {
-  if (CODON_TABLE[codon]) return CODON_TABLE[codon];
-  const [a, b, c] = codon.split("");
-  const as = IUPAC[a];
-  const bs = IUPAC[b];
-  const cs = IUPAC[c];
+/** Resolves a codon against an already-looked-up table. */
+function resolveIn(code: GeneticCode, codon: string): string {
+  const direct = code.codons[codon];
+  if (direct) return direct;
+  if (codon.length !== 3) return "X";
+  const as = IUPAC[codon[0]];
+  const bs = IUPAC[codon[1]];
+  const cs = IUPAC[codon[2]];
   if (!as || !bs || !cs) return "X";
   const aas = new Set<string>();
-  for (const x of as) for (const y of bs) for (const z of cs) aas.add(CODON_TABLE[x + y + z] ?? "X");
+  for (const x of as) for (const y of bs) for (const z of cs) aas.add(code.codons[x + y + z] ?? "X");
   return aas.size === 1 ? Array.from(aas)[0] : "X";
+}
+
+/**
+ * True when EVERY concrete expansion of the codon (IUPAC-aware) is an initiation
+ * codon of the table — the initiator-rule test shared by DNA mode and the ST.26
+ * CDS translation. Matches Biopython's ambiguous start sets (ATH is a table-2
+ * start; NTG is a table-11 start but not a table-1 one, GTG not being one there).
+ */
+export function isInitiator(code: GeneticCode, codon: string): boolean {
+  if (codon.length !== 3) return false;
+  const as = IUPAC[codon[0]];
+  const bs = IUPAC[codon[1]];
+  const cs = IUPAC[codon[2]];
+  if (!as || !bs || !cs) return false;
+  for (const x of as) for (const y of bs) for (const z of cs) if (code.starts.indexOf(x + y + z) < 0) return false;
+  return true;
+}
+
+/**
+ * Resolves a codon (already T-normalized, uppercase) to a one-letter amino acid
+ * under NCBI genetic code `table` (default 1, the standard code).
+ * Degenerate codons that map to a single amino acid for every concrete expansion
+ * are resolved (e.g. GCN → A, CTN → L); otherwise "X". Unknown letters → "X".
+ * Resolution is against the CHOSEN table: TRA is "*" under table 1 (TAA, TGA
+ * both stop) but X under table 2 (TGA is Trp there). An unknown table id throws
+ * a GeneticCodeError naming it.
+ */
+export function resolveCodon(codon: string, table: number = 1): string {
+  return resolveIn(geneticCodeById(table), codon);
 }
 
 export interface TranslateOptions {
@@ -126,19 +144,29 @@ export interface TranslateOptions {
   frame?: 1 | 2 | 3;
   /** Stop translating at the first stop codon (omit the "*"). Default false. */
   stopAtStop?: boolean;
+  /** NCBI genetic code (translation table) id. Default 1 (Standard). */
+  table?: number;
+  /**
+   * Initiator rule (the INSDC/NCBI CDS convention): the FIRST codon, when it is an
+   * initiation codon of the table, is read as M (GTG → M under table 11). Only
+   * meaningful for a 5′-complete CDS read from its first base, so it applies at
+   * frame 1 only. Default false — a plain translation reads GTG as V.
+   */
+  initiator?: boolean;
 }
 
-/**
- * Translates a nucleotide sequence to a one-letter amino-acid string using the
- * standard genetic code. Stop codons render as "*" (unless stopAtStop). RNA (U)
- * is accepted. Incomplete trailing bases are ignored.
- */
-export function translate(seq: string, options: TranslateOptions = {}): string {
+function translateWith(code: GeneticCode, seq: string, options: TranslateOptions): { protein: string; initiatorApplied: boolean } {
   const frame = options.frame ?? 1;
   const s = seq.toUpperCase().replace(/U/g, "T");
   let out = "";
+  let initiatorApplied = false;
   for (let i = frame - 1; i + 3 <= s.length; i += 3) {
-    const aa = resolveCodon(s.substring(i, i + 3));
+    const codon = s.substring(i, i + 3);
+    let aa = resolveIn(code, codon);
+    if (i === 0 && options.initiator && isInitiator(code, codon)) {
+      if (aa !== "M") initiatorApplied = true;
+      aa = "M";
+    }
     if (aa === "*") {
       if (options.stopAtStop) break;
       out += "*";
@@ -146,7 +174,52 @@ export function translate(seq: string, options: TranslateOptions = {}): string {
       out += aa;
     }
   }
-  return out;
+  return { protein: out, initiatorApplied };
+}
+
+/**
+ * Translates a nucleotide sequence to a one-letter amino-acid string using NCBI
+ * genetic code `options.table` (default 1, the standard code). Stop codons render
+ * as "*" (unless stopAtStop). RNA (U) and lowercase are accepted. Incomplete
+ * trailing bases are ignored. Tables 27, 28 and 31 read their context-dependent
+ * stops as sense (as NCBI does) — use `translateReport` to get the sentence that
+ * says so. An unknown table id throws a GeneticCodeError naming it.
+ */
+export function translate(seq: string, options: TranslateOptions = {}): string {
+  return translateWith(geneticCodeById(options.table ?? 1), seq, options).protein;
+}
+
+export interface TranslationReport {
+  protein: string;
+  /** The NCBI table used. */
+  table: number;
+  /** "NCBI table 2 (Vertebrate Mitochondrial)". */
+  tableLabel: string;
+  /** True when the initiator rule turned a non-Met first codon into M. */
+  initiatorApplied: boolean;
+  /**
+   * Sentences the output must carry: which table was used (whenever it is not
+   * table 1), the context-stop caveat (27/28/31), and the initiator rule when it
+   * fired or could not apply.
+   */
+  notes: string[];
+}
+
+/** `translate` plus the words that must accompany it in the output. */
+export function translateReport(seq: string, options: TranslateOptions = {}): TranslationReport {
+  const code = geneticCodeById(options.table ?? 1);
+  const { protein, initiatorApplied } = translateWith(code, seq, options);
+  const notes: string[] = [];
+  if (code.id !== 1) notes.push(`Translated with ${geneticCodeLabel(code)}.`);
+  const ctx = contextStopNote(code);
+  if (ctx) notes.push(ctx);
+  if (initiatorApplied) {
+    const first = seq.toUpperCase().replace(/U/g, "T").substring(0, 3);
+    notes.push(`The first codon ${first} is an initiation codon of table ${code.id}, read as M (initiator rule).`);
+  } else if (options.initiator && (options.frame ?? 1) !== 1) {
+    notes.push("The initiator rule applies only to a CDS read from its first base (frame 1); it was not applied.");
+  }
+  return { protein, table: code.id, tableLabel: geneticCodeLabel(code), initiatorApplied, notes };
 }
 
 export interface BaseStats {
@@ -213,18 +286,39 @@ export interface OrfOptions {
   includeReverse?: boolean;
   /** Only report ORFs terminated by a stop codon. Default true. */
   requireStop?: boolean;
+  /** NCBI genetic code id; decides the stop codons (and the starts under "table"). Default 1. */
+  table?: number;
+  /**
+   * Which codons may start an ORF. "ATG" (the default — existing results do not
+   * move) or "table": ATG plus the table's alternative initiation codons, as
+   * NCBI ORFfinder's "ATG and alternative initiation codons"; the start is then
+   * translated as M (GTG-initiated → M…, not V…).
+   */
+  starts?: "ATG" | "table";
 }
 
 /**
- * Finds open reading frames (ATG → in-frame stop) across three forward frames and,
+ * Finds open reading frames (start → in-frame stop) across three forward frames and,
  * by default, three reverse frames. Coordinates are 1-based on the original (+)
- * strand for both strands. Per frame, an ORF runs from the first ATG after the
- * previous stop (or frame start) to the next in-frame stop.
+ * strand for both strands. Per frame, an ORF runs from the first start codon after
+ * the previous stop (or frame start) to the next in-frame stop. Stops come from
+ * genetic code `options.table` (default 1): under table 4, TGA is Trp and does not
+ * end an ORF. Tables 27, 28 and 31 are refused by name (GeneticCodeError): their
+ * stops depend on context, so no ORF boundary can be called from the sequence.
  */
 export function findOrfs(seq: string, options: OrfOptions = {}): Orf[] {
   const minAa = options.minAa ?? 1;
   const includeReverse = options.includeReverse ?? true;
   const requireStop = options.requireStop ?? true;
+  const code = geneticCodeById(options.table ?? 1);
+  if (code.contextStops.length) {
+    throw new GeneticCodeError(
+      `The ORF finder cannot use ${geneticCodeLabel(code)}: ${code.contextStops.join("/")} can be read as sense ` +
+        "or as a stop depending on context, so no ORF boundary can be called from the sequence alone.",
+    );
+  }
+  const tableStarts = options.starts === "table";
+  const isStart = (codon: string): boolean => (tableStarts ? code.starts.indexOf(codon) >= 0 : codon === "ATG");
   const s = seq.toUpperCase().replace(/U/g, "T");
   const len = s.length;
   const orfs: Orf[] = [];
@@ -235,8 +329,8 @@ export function findOrfs(seq: string, options: OrfOptions = {}): Orf[] {
       for (let i = f; i + 3 <= str.length; i += 3) {
         const codon = str.substring(i, i + 3);
         if (startIdx < 0) {
-          if (codon === "ATG") startIdx = i;
-        } else if (resolveCodon(codon) === "*") {
+          if (isStart(codon)) startIdx = i;
+        } else if (resolveIn(code, codon) === "*") {
           pushOrf(str, startIdx, i + 3, strand, f + 1, true);
           startIdx = -1;
         }
@@ -257,7 +351,8 @@ export function findOrfs(seq: string, options: OrfOptions = {}): Orf[] {
     hasStop: boolean,
   ): void => {
     const proteinEnd = hasStop ? endExcl - 3 : endExcl;
-    const protein = translate(str.substring(startIdx, proteinEnd), { frame: 1 });
+    // The start codon is an initiator by construction, so it reads as M.
+    const protein = translateWith(code, str.substring(startIdx, proteinEnd), { frame: 1, initiator: true }).protein;
     if (protein.length < minAa) return;
     // Map [startIdx, endExcl) on the scanned string to original (+) coordinates.
     const start = strand === "+" ? startIdx + 1 : len - endExcl + 1;
@@ -898,9 +993,30 @@ function escapeHtml(s: string): string {
 const CELL = 'style="border:1px solid #000;padding:2px 8px;"';
 const HEAD = 'style="border:1px solid #000;padding:2px 8px;font-weight:bold;"';
 
-/** Renders ORFs as an HTML table for Word.Range.insertHtml(). "" when empty. */
-export function buildOrfTableHtml(orfs: Orf[]): string {
+/** What the ORF search used, for the table caption. */
+export interface OrfSearchInfo {
+  table?: number;
+  starts?: "ATG" | "table";
+}
+
+/** "NCBI table 11 (Bacterial, Archaeal and Plant Plastid) · starts: ATG and alternative initiation codons (…)". */
+export function orfSearchCaption(info: OrfSearchInfo = {}): string {
+  const code = geneticCodeById(info.table ?? 1);
+  const starts =
+    info.starts === "table"
+      ? `starts: ATG and alternative initiation codons (${code.starts.join(", ")}), each read as M`
+      : "starts: ATG only";
+  return `Genetic code: ${geneticCodeLabel(code)} · ${starts}`;
+}
+
+/**
+ * Renders ORFs as an HTML table for Word.Range.insertHtml(). "" when empty.
+ * With `info`, a caption line above the table names the genetic code and the
+ * start-codon rule; without it the output is exactly what it always was.
+ */
+export function buildOrfTableHtml(orfs: Orf[], info?: OrfSearchInfo): string {
   if (!orfs.length) return "";
+  const caption = info ? `<p>${escapeHtml(orfSearchCaption(info))}</p>` : "";
   const rows = orfs
     .map(
       (o) =>
@@ -910,6 +1026,7 @@ export function buildOrfTableHtml(orfs: Orf[]): string {
     )
     .join("");
   return (
+    caption +
     '<table style="border-collapse:collapse;">' +
     `<tr><td ${HEAD}>Strand</td><td ${HEAD}>Frame</td><td ${HEAD}>Location</td>` +
     `<td ${HEAD}>Length (aa)</td><td ${HEAD}>Protein</td></tr>` +

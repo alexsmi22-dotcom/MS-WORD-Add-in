@@ -66,7 +66,9 @@ const BASELINES = {
   analyze: { label: "Analyze", figures: 23, total: 23 },
   // BIO/ASSAY IS COMPLETE: 16 of 16. The eleven that were added are not curve
   // fits, which is why `AssayOutput` grew a raw `svg` route beside `plot`.
-  assay: { label: "Bio/Assay", figures: 16, total: 16 },
+  // v2.137.0: 17 of 17 — Reaction stoichiometry & yield, drawing moles
+  // available vs needed (limiting reagent flagged) from its shipped default.
+  assay: { label: "Bio/Assay", figures: 17, total: 17 },
   // FINANCE IS COMPLETE: 24 of 24, and it was 0 of 24 because FinCalc.compute
   // could return only a bare string - there was nowhere to put a figure. The
   // type change landed with ONE wired calculator so the path was proven before

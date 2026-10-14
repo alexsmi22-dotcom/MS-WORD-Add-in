@@ -85,11 +85,11 @@ import {
   bondPeriodRefusal,
   IRR_SEARCH_RANGE_TEXT,
 } from "../lib/finance";
-import { renderStructure, nameForIdcode, StructureResult } from "../lib/structures";
+import { renderStructure, resolveStructure, lookupSmiles, typesetHill, nameForIdcode, StructureResult } from "../lib/structures";
 import { computeProperties, PhysChemProperties, RuleResult } from "../lib/properties";
 import { predictPka, PkaResult } from "../lib/pka";
 import { resolveNameOnline, OpsinResult } from "../lib/opsin";
-import { computeMassSpec, MassSpecResult } from "../lib/massspec";
+import { resolveMassSpec, MassSpecResult } from "../lib/massspec";
 import { predictNmr, deptBehaviour, DeptClass, NmrResult, Nucleus } from "../lib/nmr";
 import { predictCoupling, predictCosy, predictHsqc, predictHmbc, predictTocsy, Cosy2D, Hsqc2D, Hmbc2D, Tocsy2D } from "../lib/nmr2d";
 import { solveEquation, differentiate, integrate, antiderivative, parseExpr, evalAst } from "../lib/solve";
@@ -101,6 +101,15 @@ import { solveTopology, BUILTIN_NAMES } from "../lib/homology";
 import { solveLambda, LambdaSyntaxError } from "../lib/lambda";
 import { computationKindFor } from "../lib/ctSwitch";
 import { algebraKindFor, algebraSwitchNote } from "../lib/algebraSwitch";
+import { chemistryKindFor, balanceText, balanceReaction } from "../lib/balance";
+import {
+  balanceReport,
+  stoichCalc,
+  GAS_CONDITION_OPTIONS,
+  BalanceReport,
+  peptideSummaryLines,
+  peptideDrawRefusal,
+} from "../lib/chembioCalcs";
 import { solveDiscrete, DiscreteError } from "../lib/discrete";
 import { persistentHomology, barcodeSvg } from "../lib/persistence";
 import { solveWordProblem, WorkStep } from "../lib/wordproblem";
@@ -256,7 +265,7 @@ import { parseDelimited, gridToFieldText, describeGrid, parseCellNumber, isDecim
 import { pca, trapz } from "../lib/pca";
 import { fitCurve } from "../lib/curvefit";
 import { nmrChartSvg, irChartSvg, msChartSvg, cosyChartSvg, hsqcChartSvg, hmbcChartSvg, tocsyChartSvg, jcampChartSvg, decimateTrace, SPECTRUM_CHART_SIZE, SPECTRUM_2D_SIZE } from "../lib/spectraChart";
-import { buildPeptide } from "../lib/peptide";
+import { buildPeptide, readPeptide, PeptideReading } from "../lib/peptide";
 import {
   describe as statDescribe,
   twoSampleTTest,
@@ -302,6 +311,7 @@ import {
   buildSt26Xml,
   cleanResidues,
   featureWarnings,
+  featureNotes,
   st26Exclusions,
   MolType,
   MOL_TYPE_OPTIONS,
@@ -319,7 +329,7 @@ import {
   BUILD_BONDS,
   BUILD_MARKUSH,
   SOLVE_SYMBOLS,
-  SOLVE_EQUATIONS, SOLVE_TRANSFORMS,
+  SOLVE_EQUATIONS, SOLVE_TRANSFORMS, SOLVE_CHEMISTRY,
   SOLVE_SHAPES,
   SOLVE_CALCULUS,
   SOLVE_ODES,
@@ -380,14 +390,23 @@ import {
   cleanDna,
   reverseComplement,
   transcribe,
-  translate,
+  translateReport,
   baseStats,
   findOrfs,
   buildOrfTableHtml,
   primerTm,
   restrictionSites,
   proteinProperties,
+  OrfSearchInfo,
 } from "../lib/dna";
+import {
+  GENETIC_CODES,
+  GENETIC_CODE_LIMITS,
+  GeneticCodeError,
+  geneticCodeLabel,
+  hasContextStops,
+  differencesFromStandard,
+} from "../lib/geneticCode";
 import { auditDocument, AuditReport } from "../lib/audit";
 import { parseReaction, composeReactionScheme, Rendered } from "../lib/reactions";
 import { formatSeqIdRef, formatSeqIdRefs } from "../lib/seqid";
@@ -764,6 +783,13 @@ let dnaOrfMin: HTMLInputElement;
 let dnaOrfBtn: HTMLButtonElement;
 let dnaOrfResults: HTMLElement;
 let dnaOrfInsert: HTMLButtonElement;
+/** v2.137.0: NCBI genetic code for the translation readout, and for the ORF finder. */
+let dnaTableSelect: HTMLSelectElement;
+let dnaCodeNoteEl: HTMLElement;
+let dnaOrfTableSelect: HTMLSelectElement;
+let dnaOrfStartsSelect: HTMLSelectElement;
+/** The table + start rule the SHOWN ORFs were found with — reused at insert so the caption cannot lie. */
+let currentOrfInfo: OrfSearchInfo | null = null;
 let dnaTm: HTMLElement;
 let dnaProteinProps: HTMLElement;
 let dnaRestrictBtn: HTMLButtonElement;
@@ -773,6 +799,8 @@ let reactionInput: HTMLTextAreaElement;
 let reactionDrawBtn: HTMLButtonElement;
 let reactionPreviewEl: HTMLElement;
 let reactionInsertBtn: HTMLButtonElement;
+/** Structures (names/SMILES, drawn) | Formulas (balanced) — never auto-detected. */
+let reactionReadSelect: HTMLSelectElement;
 let auditSection: HTMLElement;
 let auditRunBtn: HTMLButtonElement;
 let auditResults: HTMLElement;
@@ -948,6 +976,8 @@ let pepInfo: HTMLElement;
 let pepInsertBtn: HTMLButtonElement;
 /** Rendered peptide structure for the current sequence, for insertion. */
 let currentPeptideStructure: StructureResult | null = null;
+/** The notation reading the drawn structure came from (masses for the alt text). */
+let currentPeptideReading: PeptideReading | null = null;
 let currentPeptideSeq = "";
 let assaySection: HTMLElement;
 let assayCalcSelect: HTMLSelectElement;
@@ -1424,6 +1454,22 @@ Office.onReady((info) => {
   dnaOrfBtn = document.getElementById("dna-orf-btn") as HTMLButtonElement;
   dnaOrfResults = document.getElementById("dna-orf-results") as HTMLElement;
   dnaOrfInsert = document.getElementById("dna-orf-insert") as HTMLButtonElement;
+  dnaTableSelect = document.getElementById("dna-table") as HTMLSelectElement;
+  dnaCodeNoteEl = document.getElementById("dna-code-note") as HTMLElement;
+  dnaOrfTableSelect = document.getElementById("dna-orf-table") as HTMLSelectElement;
+  dnaOrfStartsSelect = document.getElementById("dna-orf-starts") as HTMLSelectElement;
+  // Built from the gc.prt data, never a hand-typed list: ids 7, 8, 17–20 do
+  // not exist and cannot appear.
+  for (const sel of [dnaTableSelect, dnaOrfTableSelect]) {
+    for (const c of GENETIC_CODES) {
+      const opt = document.createElement("option");
+      opt.value = String(c.id);
+      opt.textContent = `${c.id} — ${c.name}`;
+      sel.appendChild(opt);
+    }
+    sel.value = "1";
+    sel.title = GENETIC_CODE_LIMITS;
+  }
   dnaTm = document.getElementById("dna-tm") as HTMLElement;
   dnaProteinProps = document.getElementById("dna-protein-props") as HTMLElement;
   dnaRestrictBtn = document.getElementById("dna-restrict-btn") as HTMLButtonElement;
@@ -1433,7 +1479,8 @@ Office.onReady((info) => {
   reactionDrawBtn = document.getElementById("reaction-draw-btn") as HTMLButtonElement;
   reactionPreviewEl = document.getElementById("reaction-preview") as HTMLElement;
   reactionInsertBtn = document.getElementById("reaction-insert-btn") as HTMLButtonElement;
-  auditSection = document.getElementById("audit-section") as HTMLElement;
+  reactionReadSelect = document.getElementById("reaction-read") as HTMLSelectElement;
+  auditSection =document.getElementById("audit-section") as HTMLElement;
   auditRunBtn = document.getElementById("audit-run-btn") as HTMLButtonElement;
   auditResults = document.getElementById("audit-results") as HTMLElement;
   unitsSection = document.getElementById("units-section") as HTMLElement;
@@ -1681,6 +1728,22 @@ Office.onReady((info) => {
   dnaInput.addEventListener("input", updateDnaPreview);
   dnaFrameSelect.addEventListener("change", updateDnaPreview);
   dnaStopCheckbox.addEventListener("change", updateDnaPreview);
+  dnaTableSelect.addEventListener("change", updateDnaPreview);
+  // Shown ORFs were found under the OLD settings: clear them rather than let
+  // the table and its caption disagree with the dropdowns.
+  for (const sel of [dnaOrfTableSelect, dnaOrfStartsSelect]) {
+    sel.addEventListener("change", () => {
+      currentOrfs = [];
+      currentOrfInfo = null;
+      dnaOrfResults.replaceChildren();
+      dnaOrfInsert.disabled = true;
+      // Say it up front: the finder refuses 27/28/31 (context-dependent stops).
+      const t = parseInt(dnaOrfTableSelect.value, 10) || 1;
+      if (hasContextStops(t)) {
+        dnaOrfResults.innerHTML = `<span class="hint">${esc(geneticCodeLabel(t))} has context-dependent stop codons, so ORF boundaries cannot be called under it.</span>`;
+      }
+    });
+  }
   dnaRevcompInsert.addEventListener("click", () => insertPlainText(dnaRevcompEl.textContent || "", "Reverse complement"));
   dnaMrnaInsert.addEventListener("click", () => insertPlainText(dnaMrnaEl.textContent || "", "mRNA"));
   dnaProteinInsert.addEventListener("click", () => insertPlainText(dnaProteinEl.textContent || "", "Protein"));
@@ -1689,6 +1752,7 @@ Office.onReady((info) => {
   dnaRestrictBtn.addEventListener("click", findRestrictionSites);
 
   reactionInput.addEventListener("input", updateReactionPreview);
+  reactionReadSelect.addEventListener("change", updateReactionPreview);
   reactionDrawBtn.addEventListener("click", openDrawForReaction);
   reactionInsertBtn.addEventListener("click", insertReaction);
 
@@ -2931,15 +2995,25 @@ function updateChemValidation(): void {
     chemValidateEl.style.display = "none";
     return;
   }
-  const v = validateFormula(raw);
   chemValidateEl.style.display = "block";
+  // A REACTION typed here (v2.137.0) is not a malformed formula: say where it
+  // is balanced instead of "Unexpected character >". Same arrow set as the
+  // balancer; "=" is left alone (it is not an arrow in a formula box).
+  if (/->|→|⟶|⇌|<=>|<->|⇋/.test(raw)) {
+    chemValidateEl.className = "build-readout warn";
+    chemValidateEl.textContent = "This is a reaction — balance it in Reaction mode (read as Formulas), or in Solve.";
+    return;
+  }
+  const v = validateFormula(raw);
   if (v.valid) {
     const charge = v.charge ? `, charge ${v.charge > 0 ? "+" + v.charge : v.charge}` : "";
     chemValidateEl.className = "build-readout";
     // hillFormula() emits ASCII ("H2O"). Displaying that breaks the product's
     // own rule in its flagship chemistry tool, and it is the string the user is
-    // most likely to copy back into the box.
-    chemValidateEl.textContent = `✓ Valid — ${formatFormula(v.hill)}, M = ${v.mass!.toFixed(3)} g/mol${charge}`;
+    // most likely to copy back into the box. v2.137.0: the notes say how a
+    // leading coefficient or a decimal hydrate was read (CaO₄S·½H₂O).
+    chemValidateEl.textContent =
+      `✓ Valid — ${formatFormula(v.hill)}, M = ${v.mass!.toFixed(3)} g/mol${charge}` + (v.notes.length ? ` · ${v.notes.join(" ")}` : "");
   } else {
     chemValidateEl.className = "build-readout warn";
     chemValidateEl.textContent = `⚠ ${v.errors.join("; ")}`;
@@ -3300,6 +3374,10 @@ function makeSequenceFeatureRow(): HTMLElement {
     mk("seq-feat-gene", "/gene"),
     mk("seq-feat-product", "/product"),
     mk("seq-feat-note", "/note"),
+    // v2.137.0: the genetic code of a CDS. Without this box the engine's
+    // /transl_table support was unreachable from the pane. Blank = table 1,
+    // exactly as before (INSDC omits the default).
+    mk("seq-feat-transl", "/transl_table (CDS, e.g. 11)"),
     rm
   );
   return row;
@@ -3322,6 +3400,7 @@ function readSequenceEntries(): SequenceEntry[] {
         [".seq-feat-gene", "gene"],
         [".seq-feat-product", "product"],
         [".seq-feat-note", "note"],
+        [".seq-feat-transl", "transl_table"],
       ] as const) {
         const v = (fr.querySelector(cls) as HTMLInputElement).value.trim();
         if (v) qualifiers.push({ name, value: v });
@@ -3382,10 +3461,15 @@ function generateSequenceXml(): void {
 
   // Soft warnings: things worth knowing that do not make the listing unfilable.
   const warnings: string[] = [];
+  const notes: string[] = [];
   entries.forEach((e, i) => {
     const { invalid } = cleanResidues(e.moltype, e.residues);
     if (invalid.length) warnings.push(`SEQ ${i + 1}: ignored invalid residues (${invalid.join(" ")}).`);
     for (const w of featureWarnings(e)) warnings.push(`SEQ ${i + 1}: ${w}`);
+    // Informational, NOT warnings (v2.137.0): which genetic code an explicit
+    // /transl_table applied, and whether the initiator rule read the first
+    // codon as M. Kept apart so a clean listing is not "generated with warnings".
+    for (const n of featureNotes(e)) notes.push(`SEQ ${i + 1}: ${n}`);
   });
 
   const meta: SequenceListingMeta = {
@@ -3403,9 +3487,11 @@ function generateSequenceXml(): void {
   seqDownloadBtn.disabled = false;
   seqCopyBtn.disabled = false;
   seqWarningsEl.className = warnings.length ? "seq-warnings warn" : "seq-warnings";
-  seqWarningsEl.textContent = warnings.length
-    ? "Generated with warnings — " + warnings.join(" ")
-    : `Generated ST.26 XML for ${entries.length} sequence(s). Validate in WIPO Sequence before filing.`;
+  seqWarningsEl.textContent =
+    (warnings.length
+      ? "Generated with warnings — " + warnings.join(" ")
+      : `Generated ST.26 XML for ${entries.length} sequence(s). Validate in WIPO Sequence before filing.`) +
+    (notes.length ? " Notes — " + notes.join(" ") : "");
 }
 
 /** Downloads the generated XML as a file. */
@@ -4045,6 +4131,37 @@ async function insertTraitTable(): Promise<void> {
   }
 }
 
+/**
+ * True when handing `r.smiles` to the property/pKa engines would make them
+ * read a DIFFERENT compound: they look the string up in the name/formula
+ * dictionary before parsing it as SMILES.
+ */
+function propertiesWouldMisread(r: StructureResult): boolean {
+  const hit = lookupSmiles(r.smiles);
+  if (!hit || hit.smiles === r.smiles) return false;
+  try {
+    return OclMolecule.fromSmiles(hit.smiles).getIDCode() !== r.idcode;
+  } catch {
+    return true;
+  }
+}
+
+/** Properties + pKa for a DRAWN structure, from its SMILES — or withheld by name (see above). */
+function renderPropertiesFor(r: StructureResult): void {
+  if (!propertiesWouldMisread(r)) {
+    renderProperties(r.smiles);
+    return;
+  }
+  structurePropsEl.replaceChildren();
+  currentProperties = null;
+  currentPka = null;
+  insertPropsBtn.disabled = true;
+  const n = document.createElement("div");
+  n.className = "prop-na";
+  n.textContent = `Properties not shown: “${r.smiles}” is also a dictionary entry for a different compound, and the property engine would read that one.`;
+  structurePropsEl.appendChild(n);
+}
+
 /** Attempts to render a 2D structure for the current input and shows it (or a hint). */
 function updateStructurePreview(): void {
   const text = inputEl.value.trim();
@@ -4058,22 +4175,48 @@ function updateStructurePreview(): void {
     return;
   }
 
-  let result: ReturnType<typeof renderStructure> = null;
+  // v2.137.0: typed input is read by the formula-vs-SMILES rule
+  // (structures.resolveStructure): Structure mode is SMILES-first, and when
+  // the formula reading differs it is NAMED in a note ("Co" would be cobalt);
+  // a string that is only a formula (Fe2O3) is said to have no single
+  // structure rather than being drawn as something else.
+  let resolved: ReturnType<typeof resolveStructure>;
   try {
-    result = renderStructure(text, STRUCTURE_W, STRUCTURE_H);
+    resolved = resolveStructure(text, "auto", STRUCTURE_W, STRUCTURE_H);
   } catch {
-    result = null;
+    resolved = { kind: "none", message: "No structure found. Try a common name (aspirin), a known formula (C6H6), or a SMILES string." };
   }
-
-  if (!result) {
-    showStructureHint("No structure found. Try a common name (aspirin), a known formula (C6H6), or a SMILES string.");
+  if (resolved.kind === "formula" || resolved.kind === "none") {
+    showStructureHint(resolved.message);
     return;
   }
+  if (resolved.kind === "ambiguous") {
+    // Both readings shown: the message names them; the SMILES drawing is for
+    // reference only and is NOT offered for insertion.
+    showStructureHint(resolved.message);
+    const ref = document.createElement("div");
+    ref.innerHTML = resolved.smiles.svg;
+    structurePreviewEl.appendChild(ref);
+    return;
+  }
+  const result = resolved.result;
 
   currentStructure = result;
   structurePreviewEl.innerHTML = result.svg;
   renderStructureInfo(result.formula, result.mw, result.smiles, result.source, text);
-  renderProperties(text);
+  if (resolved.note) {
+    const n = document.createElement("span");
+    n.className = "structure-warn";
+    n.textContent = resolved.note;
+    structureInfo.appendChild(n);
+  }
+  // Properties and pKa from the RESOLVED SMILES, never the typed text: the
+  // typed "CO" reads differently in the two dictionaries. computeProperties /
+  // predictPka still run their own dictionary look-up first, so a resolved
+  // SMILES that is ALSO a dictionary key for a different compound (methanol
+  // typed as smiles:CO is "CO", the formula key of carbon monoxide) would get
+  // the OTHER compound's properties — those are withheld by name instead.
+  renderPropertiesFor(result);
   insertStructureBtn.disabled = false;
   editInDrawBtn.disabled = false;
 
@@ -4474,7 +4617,9 @@ async function doOpsinLookup(name: string): Promise<void> {
 function renderResolvedSmiles(result: OpsinResult, name: string): void {
   let structure: ReturnType<typeof renderStructure> = null;
   try {
-    structure = renderStructure(result.smiles, STRUCTURE_W, STRUCTURE_H);
+    // smiles: — OPSIN's output IS a structure; the formula dictionary must not
+    // re-read a short SMILES ("CO") as a different compound.
+    structure = renderStructure(`smiles:${result.smiles}`, STRUCTURE_W, STRUCTURE_H);
   } catch {
     structure = null;
   }
@@ -4485,7 +4630,7 @@ function renderResolvedSmiles(result: OpsinResult, name: string): void {
   currentStructure = structure;
   structurePreviewEl.innerHTML = structure.svg;
   renderStructureInfo(structure.formula, structure.mw, structure.smiles);
-  renderProperties(result.smiles);
+  renderPropertiesFor(structure);
   insertStructureBtn.disabled = false;
   editInDrawBtn.disabled = false;
   // The user typed the name, so offer it for insertion directly.
@@ -5630,6 +5775,7 @@ function updateDnaPreview(): void {
     dnaRevcompEl.textContent = "";
     dnaMrnaEl.textContent = "";
     dnaProteinEl.textContent = "";
+    dnaCodeNoteEl.textContent = "";
     dnaTm.textContent = "";
     dnaProteinProps.textContent = "";
     dnaRevcompInsert.disabled = true;
@@ -5657,8 +5803,20 @@ function updateDnaPreview(): void {
   const reverse = raw < 0;
   const frame = (Math.abs(raw) as 1 | 2 | 3) || 1;
   const source = reverse ? reverseComplement(seq) : seq;
-  const protein = translate(source, { frame, stopAtStop: dnaStopCheckbox.checked });
+  // v2.137.0: the NCBI genetic code is chosen, never assumed beyond table 1.
+  // The report's notes are the sentences the output must carry — which table
+  // was used (whenever it is not 1) and, for 27/28/31, that context-dependent
+  // stops are read as sense. They go BESIDE the protein, not into it, so
+  // "Insert protein" still inserts only residues.
+  const table = parseInt(dnaTableSelect.value, 10) || 1;
+  const report = translateReport(source, { frame, stopAtStop: dnaStopCheckbox.checked, table });
+  const protein = report.protein;
   dnaProteinEl.textContent = protein || "(no residues in this frame)";
+  const diffs = table === 1 ? [] : differencesFromStandard(table);
+  dnaCodeNoteEl.textContent = [
+    ...report.notes,
+    ...(diffs.length ? [`Differs from the standard code at ${diffs.join(", ")}.`] : table === 1 ? [] : ["Same codon assignments as the standard code (start codons differ)."]),
+  ].join(" ");
 
   // Tools readouts: primer Tm of the input, and properties of the translated protein.
   const tm = primerTm(seq);
@@ -6071,20 +6229,38 @@ function findOrfsHandler(): void {
     return;
   }
   const minAa = Math.max(1, parseInt(dnaOrfMin.value, 10) || 1);
-  currentOrfs = findOrfs(seq, { minAa });
-  if (!currentOrfs.length) {
-    dnaOrfResults.innerHTML = `<span class="hint">No ORFs ≥ ${minAa} aa found in any of the six frames.</span>`;
-    dnaOrfInsert.disabled = true;
+  const info: OrfSearchInfo = {
+    table: parseInt(dnaOrfTableSelect.value, 10) || 1,
+    starts: dnaOrfStartsSelect.value === "table" ? "table" : "ATG",
+  };
+  currentOrfs = [];
+  currentOrfInfo = null;
+  dnaOrfInsert.disabled = true;
+  // Tables 27, 28 and 31 have codons that are stop OR sense by context, so
+  // there is no honest ORF boundary: the engine refuses them by name
+  // (GeneticCodeError), and that text is what the user sees.
+  try {
+    currentOrfs = findOrfs(seq, { minAa, table: info.table, starts: info.starts });
+  } catch (e) {
+    const msg = e instanceof GeneticCodeError ? e.message : `Could not search for ORFs: ${(e as Error).message}`;
+    dnaOrfResults.innerHTML = `<span class="hint">${esc(msg)}</span>`;
+    setStatus(msg, "error");
     return;
   }
-  dnaOrfResults.innerHTML = buildOrfTableHtml(currentOrfs);
+  if (!currentOrfs.length) {
+    dnaOrfResults.innerHTML = `<span class="hint">No ORFs ≥ ${minAa} aa found in any of the six frames (${esc(geneticCodeLabel(info.table ?? 1))}).</span>`;
+    return;
+  }
+  currentOrfInfo = info;
+  dnaOrfResults.innerHTML = buildOrfTableHtml(currentOrfs, info);
   dnaOrfInsert.disabled = false;
   setStatus(`Found ${currentOrfs.length} ORF${currentOrfs.length === 1 ? "" : "s"}.`, "success");
 }
 
 /** Inserts the most recent ORF results as a Word table. */
 async function insertOrfTable(): Promise<void> {
-  const html = buildOrfTableHtml(currentOrfs);
+  // The settings the shown ORFs were FOUND with, not the dropdowns' current values.
+  const html = currentOrfInfo ? buildOrfTableHtml(currentOrfs, currentOrfInfo) : "";
   if (!html) {
     setStatus("Run Find ORFs first.", "error");
     return;
@@ -6114,17 +6290,61 @@ async function insertOrfTable(): Promise<void> {
 const REACTION_CW = 130;
 const REACTION_CH = 110;
 
+/** The balanced (or refused) equation shown in Reaction mode's Formulas reading. */
+let currentReactionBalance: BalanceReport | null = null;
+
+/**
+ * Reaction mode, Formulas reading (v2.137.0): balance.ts parses every species
+ * as a FORMULA and balances by the null space; the equation, the conservation
+ * rows and the conservation chart are shown and inserted. The Structures
+ * reading below is unchanged. The two are never auto-detected between: "CO"
+ * is methanol as SMILES and carbon monoxide as a formula.
+ */
+function updateReactionBalance(text: string): void {
+  const rep = balanceReport(balanceReaction(text));
+  currentReactionBalance = rep;
+  reactionPreviewEl.replaceChildren();
+  const head = document.createElement("div");
+  head.className = rep.ok ? "ms-masses" : "hint";
+  head.textContent = rep.headline;
+  reactionPreviewEl.appendChild(head);
+  for (const l of rep.lines) {
+    const d = document.createElement("div");
+    d.className = "hint";
+    d.textContent = l;
+    reactionPreviewEl.appendChild(d);
+  }
+  if (rep.svg) {
+    const fig = document.createElement("div");
+    fig.className = "stats-figure";
+    fig.innerHTML = rep.svg;
+    reactionPreviewEl.appendChild(fig);
+  }
+  if (rep.caveats.length) reactionPreviewEl.appendChild(specCaveats(rep.caveats));
+  // A refusal is shown, not inserted: there is no equation to put in a document.
+  reactionInsertBtn.disabled = !rep.ok;
+}
+
 /** Renders each component and composes the live reaction-scheme preview. */
 function updateReactionPreview(): void {
   currentReactionSvg = null;
+  currentReactionBalance = null;
   reactionInsertBtn.disabled = true;
   const text = reactionInput.value.trim();
+  const formulas = reactionReadSelect.value === "formulas";
+  reactionInsertBtn.textContent = formulas ? "Insert balanced equation" : "Insert reaction scheme";
   if (!text) {
     reactionPreviewEl.replaceChildren();
     const hint = document.createElement("span");
     hint.className = "hint";
-    hint.textContent = "Enter a reaction, e.g. CCO + CC(=O)O >> CC(=O)OCC ; H2SO4 ; reflux";
+    hint.textContent = formulas
+      ? "Enter a reaction of formulas, e.g. Fe + O2 -> Fe2O3 or MnO4^- + Fe^2+ + H^+ -> Mn^2+ + Fe^3+ + H2O"
+      : "Enter a reaction, e.g. CCO + CC(=O)O >> CC(=O)OCC ; H2SO4 ; reflux";
     reactionPreviewEl.appendChild(hint);
+    return;
+  }
+  if (formulas) {
+    updateReactionBalance(text);
     return;
   }
   const spec = parseReaction(text);
@@ -6134,7 +6354,10 @@ function updateReactionPreview(): void {
   }
   const failed: string[] = [];
   const render = (src: string): Rendered | null => {
-    const r = renderStructure(src, REACTION_CW, REACTION_CH);
+    // Structures reading: the legacy name → dictionary → SMILES order (mode
+    // "smiles"), so a component is never read as a bare formula here.
+    const res = resolveStructure(src, "smiles", REACTION_CW, REACTION_CH);
+    const r = res.kind === "ok" ? res.result : null;
     if (!r) {
       failed.push(src);
       return null;
@@ -6146,6 +6369,16 @@ function updateReactionPreview(): void {
     stage.map(render).filter((x): x is Rendered => x !== null),
   );
   if (failed.length) {
+    // A leading COEFFICIENT (3H2, 2 NH3) is not a structure. Checked only on
+    // components that failed to resolve — a name can start with a locant
+    // (1-propanol, 1,3-butadiene) and must still draw.
+    const withCoefficient = failed.filter((c) => /^\d+\s*[A-Z([]/.test(c.trim()));
+    if (withCoefficient.length) {
+      reactionPreviewEl.innerHTML =
+        `<span class="hint">Coefficients are not drawn (${esc(withCoefficient.join(", "))}) — ` +
+        `switch the reading to Formulas to balance the equation.</span>`;
+      return;
+    }
     reactionPreviewEl.innerHTML = `<span class="hint">Couldn't draw: ${esc(failed.join(", "))}. Use a name or SMILES.</span>`;
     return;
   }
@@ -6170,8 +6403,47 @@ function updateReactionPreview(): void {
   reactionInsertBtn.disabled = false;
 }
 
+/**
+ * Formulas reading: the balanced equation and its conservation rows go in as
+ * text (a Word paragraph per line — never OMML, which would re-read Fe₂O₃),
+ * then the conservation chart as a picture, ONLY if the text landed.
+ */
+async function insertReactionBalance(): Promise<void> {
+  const rep = currentReactionBalance;
+  if (!rep || !rep.ok) {
+    setStatus("Nothing to insert — the reaction is not balanced.", "error");
+    return;
+  }
+  const blocks: DerivationBlock[] = [rep.headline, ...rep.lines, ...rep.caveats].map((t) => ({ kind: "text" as const, content: t }));
+  const plain = [rep.headline, ...rep.lines, ...rep.caveats].join("\n");
+  reactionInsertBtn.disabled = true;
+  try {
+    if (!(await insertDerivation(blocks, plain, "Balanced equation"))) return;
+    if (!rep.svg) return;
+    const svg = rep.svg;
+    const { w, h } = readSvgDims(svg, 380, 260);
+    const png = await renderFigurePng(svg, w, h);
+    await Word.run(async (context) => {
+      const range = context.document.getSelection();
+      const pic = range.insertInlinePictureFromBase64(png, Word.InsertLocation.after);
+      sizeFigure(pic, w, h);
+      pic.altTextDescription = rep.alt;
+      await context.sync();
+    });
+    setStatus("Balanced equation and conservation chart inserted.", "success");
+  } catch (error) {
+    setStatus(`Equation inserted, but the figure could not be: ${(error as Error).message}`, "error");
+  } finally {
+    reactionInsertBtn.disabled = false;
+  }
+}
+
 /** Rasterizes the reaction scheme and inserts it as an inline picture. */
 async function insertReaction(): Promise<void> {
+  if (reactionReadSelect.value === "formulas") {
+    await insertReactionBalance();
+    return;
+  }
   if (!currentReactionSvg) {
     setStatus("Nothing to insert.", "error");
     return;
@@ -26252,6 +26524,7 @@ function updatePeptide(): void {
   pepPreview.replaceChildren();
   pepInfo.replaceChildren();
   currentPeptideStructure = null;
+  currentPeptideReading = null;
   currentPeptideSeq = "";
   pepInsertBtn.disabled = true;
 
@@ -26266,15 +26539,61 @@ function updatePeptide(): void {
     return;
   }
 
-  const built = buildPeptide(seq);
-  if (!built || !built.length) {
-    hint("No valid amino acids found. Use one-letter (ACDEFG) or three-letter (Ala-Gly) codes.");
-    return;
+  // v2.137.0: the NOTATION reader decides (cyclo(…), Ac-/-NH2, pGlu-,
+  // S[Phospho], disulfides). Its refusal message is shown as written — it
+  // names the token and its position — never the old letter-by-letter guess
+  // ("cyclo" as Cys-Tyr-Cys-Leu-Pyl). The one legacy path kept: a plain
+  // single-case string with an unknown letter (B, J, X, Z) still builds with
+  // that letter dropped and listed (buildPeptide).
+  const reading = readPeptide(seq);
+  let rd: PeptideReading;
+  let invalid: string[] = [];
+  if (reading.ok) {
+    rd = reading;
+  } else {
+    const built = reading.kind === "unknown-letter" ? buildPeptide(seq) : null;
+    if (!built || !built.reading) {
+      hint(reading.message);
+      return;
+    }
+    rd = built.reading;
+    invalid = built.invalid;
   }
 
+  // Masses, formula and modifications come from the READING (composition ×
+  // NIST / IUPAC), never from OCL's structure.mw: two different averages for
+  // one peptide would otherwise sit side by side in the pane and the alt text.
+  for (const l of peptideSummaryLines(rd)) {
+    const span = document.createElement("span");
+    span.textContent = l;
+    pepInfo.appendChild(span);
+  }
+  if (invalid.length) {
+    const warn = document.createElement("span");
+    warn.textContent = `Ignored unrecognized: ${invalid.join(", ")}`;
+    pepInfo.appendChild(warn);
+  }
+  for (const n of [...rd.notes, rd.stereo]) {
+    const span = document.createElement("span");
+    span.className = "hint";
+    span.textContent = n;
+    pepInfo.appendChild(span);
+  }
+  // pI is NOT shown here: proteinProperties assumes free termini, so it would
+  // be wrong for any acetylated, amidated, pyroGlu or cyclic peptide.
+
+  // THE DRAWING CAP comes BEFORE renderStructure — 2D layout of a long peptide
+  // froze Word for 12.5 s. The masses above stay; only the picture is refused.
+  const refusal = peptideDrawRefusal(rd);
+  if (refusal) {
+    hint(refusal);
+    return;
+  }
   let structure: ReturnType<typeof renderStructure> = null;
   try {
-    structure = renderStructure(built.smiles, STRUCTURE_W, STRUCTURE_H);
+    // smiles: — the generated SMILES must never be re-read through the
+    // name/formula dictionary.
+    structure = renderStructure(`smiles:${rd.smiles}`, STRUCTURE_W, STRUCTURE_H);
   } catch {
     structure = null;
   }
@@ -26283,19 +26602,10 @@ function updatePeptide(): void {
     return;
   }
   currentPeptideStructure = structure;
-  currentPeptideSeq = built.sequence;
+  currentPeptideReading = rd;
+  currentPeptideSeq = rd.display;
   pepPreview.innerHTML = structure.svg;
-
-  const bits = [`${built.length} residue${built.length === 1 ? "" : "s"}`, structure.formula, `MW ${structure.mw}`];
-  const line = document.createElement("span");
-  line.textContent = bits.join(" · ");
-  pepInfo.appendChild(line);
-  if (built.invalid.length) {
-    const warn = document.createElement("span");
-    warn.textContent = `Ignored unrecognized: ${built.invalid.join(", ")}`;
-    pepInfo.appendChild(warn);
-  }
-  if (built.length > 20) {
+  if (rd.length > 20) {
     const dense = document.createElement("span");
     dense.textContent = "Long peptide — the 2D depiction will be dense.";
     pepInfo.appendChild(dense);
@@ -26315,10 +26625,13 @@ async function insertPeptide(): Promise<void> {
   try {
     const d = readSvgDims(structure.svg, STRUCTURE_W, STRUCTURE_H);
     const base64 = await renderFigurePng(structure.svg, d.w, d.h);
+    // Formula and average mass from the READING — the same numbers the pane
+    // shows — not OCL's (a second, different average).
+    const rd = currentPeptideReading;
     const alt = provenanceAltText(
       `Peptide ${currentPeptideSeq}`,
-      structure.formula,
-      structure.mw,
+      rd ? rd.formulaTypeset : structure.formula,
+      rd ? Number(rd.average.toFixed(3)) : structure.mw,
       structure.smiles,
       structure.idcode
     );
@@ -26364,20 +26677,51 @@ function updateMassSpec(): void {
     return;
   }
 
-  let spec: MassSpecResult | null = null;
-  try {
-    spec = computeMassSpec(text);
-  } catch {
-    spec = null;
-  }
-  if (!spec) {
+  // v2.137.0: typed input is read by the formula-vs-SMILES rule
+  // (massspec.resolveMassSpec): "Co" is cobalt, not CH₃O; a formula with no
+  // structure (Fe2O3) still has masses; when both readings are valid and
+  // differ, the one used is said and the other is NAMED in a note.
+  const msHint = (msg: string): void => {
     const hint = document.createElement("div");
     hint.className = "ms-hint";
-    hint.textContent = "No structure found. Try a name (caffeine), a formula (C8H10N4O2), or a SMILES.";
+    hint.textContent = msg;
     msResult.appendChild(hint);
+  };
+  let res: ReturnType<typeof resolveMassSpec>;
+  try {
+    res = resolveMassSpec(text, "auto");
+  } catch {
+    res = { kind: "none", message: "No structure found. Try a name (caffeine), a formula (C8H10N4O2), or a SMILES." };
+  }
+  if (res.kind === "none") {
+    msHint(res.message);
     return;
   }
+  if (res.kind === "ambiguous") {
+    // Both readings, side by side; nothing is offered for insertion until the
+    // user picks one (formula:… or smiles:…).
+    msHint(res.message);
+    const both = document.createElement("div");
+    both.className = "ms-masses";
+    const rows: [string, MassSpecResult | null][] = [
+      ["As a formula", res.readings.formula],
+      ["As SMILES", res.readings.smiles],
+    ];
+    for (const [k, r] of rows) {
+      const kk = document.createElement("span");
+      kk.className = "ms-mass-k";
+      kk.textContent = k;
+      const vv = document.createElement("span");
+      vv.className = "ms-mass-v";
+      vv.textContent = r ? `${typesetHill(r.formula, r.netCharge)} · ${r.monoisotopicMass.toFixed(4)}` : "no molecular ion";
+      both.append(kk, vv);
+    }
+    msResult.appendChild(both);
+    return;
+  }
+  const spec = res.result;
   currentMassSpec = spec;
+  if (res.note) msHint(res.note);
 
   // Exact masses.
   const masses = document.createElement("div");
@@ -26388,7 +26732,9 @@ function updateMassSpec(): void {
     // Typeset, like the INSERT path already was. The pane used to show C7H8
     // while the document received C₇H₈ — preview and insert disagreeing, and
     // the pane half breaking the display rule.
-    ["Formula", formatFormula(spec.formula)],
+    // typesetHill: a formula READING can carry a charge (MnO₄⁻) that the
+    // charge-blind formatFormula would print as MnO₄.
+    ["Formula", typesetHill(spec.formula, spec.netCharge)],
   ] as [string, string][]) {
     const kk = document.createElement("span");
     kk.className = "ms-mass-k";
@@ -26461,7 +26807,7 @@ function updateMassSpec(): void {
 function massSpecAsText(spec: MassSpecResult | null): string {
   if (!spec) return "";
   const lines = [
-    `Mass spectrometry — ${formatFormula(spec.formula)}`,
+    `Mass spectrometry — ${typesetHill(spec.formula, spec.netCharge)}`,
     `Monoisotopic mass: ${spec.monoisotopicMass.toFixed(4)}`,
     `Average mass: ${spec.averageMass.toFixed(2)}`,
     "Isotope pattern (relative intensity):",
@@ -27393,7 +27739,7 @@ function renderSolvePalette(kind: SolveKind): void {
   const snippetGroups: PaletteGroup[] =
     kind === "equation" || kind === "derivative" || kind === "integral" ? SOLVE_SYMBOLS : kind === "lambda" ? SOLVE_LAMBDA_SYMBOLS : [];
   const templateGroups: PaletteGroup[] =
-    kind === "equation" ? [...SOLVE_EQUATIONS, ...SOLVE_TRANSFORMS] : kind === "geometry" ? SOLVE_SHAPES : kind === "derivative" ? SOLVE_CALCULUS : kind === "ode" ? SOLVE_ODES : kind === "lambda" ? SOLVE_LAMBDA : kind === "discrete" ? SOLVE_DISCRETE : [];
+    kind === "equation" ? [...SOLVE_EQUATIONS, ...SOLVE_TRANSFORMS, ...SOLVE_CHEMISTRY] : kind === "geometry" ? SOLVE_SHAPES : kind === "derivative" ? SOLVE_CALCULUS : kind === "ode" ? SOLVE_ODES : kind === "lambda" ? SOLVE_LAMBDA : kind === "discrete" ? SOLVE_DISCRETE : [];
   solvePaletteEl.replaceChildren();
   solvePaletteEl.style.display = snippetGroups.length || templateGroups.length ? "block" : "none";
 
@@ -27852,6 +28198,52 @@ function solveFunctionSvg(o: {
   });
 }
 
+/**
+ * Solve's chemistry answer (v2.137.0): a balanced equation, half-reaction or
+ * redox pair from balance.ts, its conservation rows and the conservation
+ * chart — or the named refusal (with the independent reactions drawn when the
+ * balancing is not unique). The raw text is never folded: the equation is
+ * emitted as TEXT (say), never as math, so OMML cannot re-read Fe₂O₃.
+ */
+function renderSolveChemistry(raw: string): void {
+  solvePasteNoteEl.textContent = "";
+  solveTypesetEl.replaceChildren();
+  solveResult.replaceChildren();
+  currentSolveText = "";
+  currentSolveBlocks = [];
+  currentSolveSvg = null;
+  currentSolveAlt = "";
+  solveInsertBtn.disabled = true;
+  const rep = balanceReport(balanceText(raw));
+  const lines: string[] = [];
+  const blocks: DerivationBlock[] = [];
+  const say = (text: string, k: "text" | "heading" = "text"): void => {
+    lines.push(text);
+    blocks.push({ kind: k, content: text });
+  };
+  solveResult.appendChild(msEyebrow(rep.title));
+  say(rep.title, "heading");
+  solveResult.appendChild(solveLine(rep.headline, rep.ok ? "ms-masses" : "ms-hint"));
+  say(rep.headline);
+  for (const l of rep.lines) {
+    solveResult.appendChild(solveLine(l));
+    say(l);
+  }
+  if (rep.svg) {
+    currentSolveSvg = rep.svg;
+    currentSolveAlt = rep.alt;
+    const fig = document.createElement("div");
+    fig.className = "solve-figure";
+    fig.innerHTML = rep.svg;
+    solveResult.appendChild(fig);
+  }
+  if (rep.caveats.length) solveResult.appendChild(specCaveats(rep.caveats));
+  for (const c of rep.caveats) say(c);
+  currentSolveText = lines.join("\n");
+  currentSolveBlocks = blocks;
+  solveInsertBtn.disabled = !currentSolveText;
+}
+
 function updateSolve(): void {
   const kind = solveKind.value as SolveKind;
   // Fold pasted mathematics FIRST — math-italic 𝑥, Greek θ, LaTeX, the
@@ -27861,6 +28253,21 @@ function updateSolve(): void {
   // lambda (which it is, in an equation), and λx.x would arrive as lambdax.x.
   // The λ-calculus parser owns its own notation.
   // Nor for discrete math: ≡, |, ->, and edge lists are its own grammar.
+  //
+  // CHEMISTRY typed into the default kind (v2.137.0) is decided on the RAW
+  // text, BEFORE the fold: the fold rewrites Fe2O3 as Fe2O³ and 2H2 as 2·H²,
+  // and "->" would reach the inequality refusal. ORDER, pinned by
+  // chembioRouting.test: abstract algebra and computation theory keep
+  // precedence (a two-line edge list "B -> C / C -> N" is a graph, not a pair
+  // of half-reactions), then chemistry, then everything else. One decision
+  // function, shared with the tests (balance.ts chemistryKindFor).
+  if (kind === "equation" && !algebraKindFor(solveInput.value) && !computationKindFor(solveInput.value)) {
+    const chemOwner = chemistryKindFor(solveInput.value);
+    if (chemOwner) {
+      renderSolveChemistry(solveInput.value);
+      return;
+    }
+  }
   const folded = kind === "lambda" || kind === "discrete" ? { text: solveInput.value.trim(), notes: [] as string[] } : foldPastedMath(solveInput.value.trim(), {
     geometry: kind === "geometry",
     ode: kind === "ode",
@@ -29257,7 +29664,10 @@ interface AssayField {
   key: string;
   label: string;
   default: string;
-  kind?: "number" | "list" | "select";
+  // "text" (one line) and "line" (a short multi-line box) arrived with the
+  // stoichiometry calculator (v2.137.0): a reaction and its amount lines are
+  // words, not numbers.
+  kind?: "number" | "list" | "select" | "text" | "line";
   options?: { value: string; label: string }[];
   /**
    * May be left blank without blocking the calculation.
@@ -30269,6 +30679,34 @@ const ASSAY_CALCS: AssayCalc[] = [
         ),
       };
     },
+  },
+  {
+    // v2.137.0. The reaction is balanced first (balance.ts), then stoich.ts
+    // finds the limiting reagent, theoretical and percent yield. Gas
+    // conditions are ALWAYS passed explicitly from the dropdown, which names
+    // both "STP" definitions — they differ by 1.3 %. A liquid volume needs
+    // its density (never an assumed 1 g/mL). The figure is moles available
+    // vs needed at the limiting extent, with the limiting reagent flagged.
+    id: "stoich",
+    name: "Reaction stoichiometry & yield",
+    fields: [
+      { key: "rxn", label: "Reaction (balanced or not)", default: "2 H2 + O2 -> 2 H2O", kind: "text" },
+      {
+        key: "amounts",
+        label: "Amounts, one per line — species: amount [, density 1.08 g/mL | molarity 0.1 M | gas]",
+        default: "H2: 10.0 g\nO2: 10.0 g",
+        kind: "line",
+      },
+      { key: "actual", label: "Actual yield (optional) — product: amount", default: "", optional: true, kind: "text" },
+      {
+        key: "gas",
+        label: "Gas volumes at",
+        default: "IUPAC-STP",
+        kind: "select",
+        options: GAS_CONDITION_OPTIONS,
+      },
+    ],
+    compute: (r) => stoichCalc(r("rxn"), r("amounts"), r("actual"), r("gas")),
   },
 ];
 

@@ -78,7 +78,10 @@ const CORPUS = path.join(__dirname, "figure-layout-run.ts");
 // with complex poles, the Taylor disc, a half-open interval of convergence, the
 // proportion-interval bars twice — p̂ = 0 puts a zero-width Wald bar on the
 // edge — and the Markov diagram with the hitting target ringed).
-const CORPUS_FLOOR = 200;
+// 205 as of 2026-10-14 (v2.137.0): five chemistry figures (conservation bars,
+// neutral and ionic; the non-unique-balancing basis table, short and long;
+// the stoichiometry available-vs-needed chart from the calculator's default).
+const CORPUS_FLOOR = 205;
 
 // --- The allowance ratchet ----------------------------------------------------
 //

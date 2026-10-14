@@ -6,6 +6,70 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.137.0] — 2026-10-14 — Reaction balancing, stoichiometry, genetic codes, peptides, and formula fixes
+
+From `docs/SCOPE-CHEMBIO-BATCH.md` (oracles: chempy, SymPy, Biopython,
+pyteomics, RDKit, NCBI gc.prt 4.6, Unimod). LIVE WRONG ANSWERS fixed first:
+- **Sequence listings wrote the wrong protein**: the auto-generated
+  `/translation` ignored `/transl_table` (a table-2 CDS came out `MR` for
+  `M`; a table-11 CDS starting GTG came out `VKPGFK` for NCBI's `MKPGFK`)
+  and `findOrfs` only ever started at ATG and cut table-4 genes at TGA.
+- **The peptide reader invented residues** from tokens it did not know:
+  `cyclo(GRGDSP)` became Cys-Tyr-Cys-Leu-Pyl…, 1307.5 Da (truth 569.26);
+  `Ac-…-NH2` added Ala-Cys and Asn-His; `M(ox)` read O as pyrrolysine.
+- **Fractional hydrates had the wrong mass**: `CaSO4·0.5H2O` was "✓ Valid,
+  226.209" (truth 145.142); hydrate coefficients were typeset as subscripts
+  (CuSO₄·₅H₂O) in the preview and in Word.
+- **Formulas typed into Mass Spec and Structure mode were read as SMILES**:
+  `Co` (cobalt) became CH₃O; polycyclic SMILES (decalin, adamantane) had
+  their ring-closure digits read as counts in review.
+- **The shared unit converter read mol/L as 1000 M** (`convert(0.08,
+  "mol/L", "M")` = 80): found by the independent review through the new
+  stoichiometry calculator; no shipped calculator default changed.
+
+### Added
+- **Reaction balancing** (`balance.ts`): the exact integer null space of
+  the element + charge matrix, every element and the charge recounted;
+  charges, electrons, states, hydrates; a reaction with TWO OR MORE
+  independent balancings is refused with the independent reactions shown
+  (chempy prints one); an impossible reaction names the conserved quantity
+  that fails; half-reactions in acid or base with the electron count fixed
+  by the oxidation-state change. In Solve (`balance …`) and in Reaction
+  mode's new Structures | Formulas reading (never auto-detected: `CO` is
+  methanol as SMILES and carbon monoxide as a formula).
+- **Stoichiometry** (`stoich.ts`, a Bio/Assay calculator): limiting
+  reagent, excess remaining, theoretical and percent yield from masses,
+  moles, solution volumes × molarity and gases at STATED conditions — both
+  STP definitions named, never assumed.
+- **All 27 NCBI genetic codes** (`geneticCode.ts`, verbatim from gc.prt 4.6
+  and checked cell by cell against Biopython): table and start-codon
+  selectors in DNA translation and the ORF finder, `/transl_table` and
+  `/transl_except` honoured in sequence listings (the initiator rule only
+  with an explicit `/transl_table`; `/transl_except` always wins).
+- **Peptides** (`peptide.ts`, `peptideMods.ts`): cyclic peptides,
+  disulfides, terminal groups and Unimod modifications (each delta
+  re-derived from composition when the module loads); every unknown token
+  refused BY NAME with its position — never mapped to a residue. Peptide
+  structures above 250 heavy atoms (~30 residues) are not drawn — drawing
+  took 12.5 s and would freeze Word — the masses are still given.
+- Formula fixes (`chemValidate.ts`, `chemParser.ts`, `structures.ts`,
+  `massspec.ts`): decimal and fractional hydrate coefficients, full-size
+  hydrate coefficients, reaction `+` and arrows never typeset as charges,
+  and a formula-versus-SMILES resolver that picks by mode and always names
+  the other reading.
+
+### Adversarial pass — independent reviewer (13 defect classes, all closed)
+Found NOTHING wrong in 600 random balancings (SymPy null space), every
+§D stoichiometry row, all 27 genetic codes and 7,200 ORFs vs Biopython,
+or 400 random modified peptides vs pyteomics. Found: the mol/L unit bug
+above; ring-closure digits read as counts; `P1V1 = P2V2` balanced as a
+reaction; I₃⁻ and H₂⁻ read as single atoms; `Cu1.8S` read as a hydrate;
+the new initiator rule overriding an explicit `/transl_except` (a
+regression — VKPG had become MKPG) and a `/transl_except` at a stop codon
+truncating the protein; the 1000-residue peptide cap bounding residues but
+not time (12.6 s); lowercase non-standard codes (`hyp`, `orn`) silently
+split into residues; textbook half-reactions refused.
+
 ## [2.136.0] — 2026-10-14 — Exact cubic and quartic roots, multivariate simplification, radius of convergence, and leftovers
 
 From `docs/SCOPE-SYMBOLIC-BATCH.md` (129 inputs through the Solve chain,

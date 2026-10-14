@@ -58,6 +58,7 @@ const PINNED: Record<string, string> = {
   "Computation theory: grammars, machines, first-order logic, SAT, Hindley–Milner": "2.133.0",
   "Linear programming, interpolation and splines": "2.132.0",
   "Probability and Markov chains": "2.131.0",
+  "Reaction balancing, stoichiometry, genetic codes, peptides, and formula fixes": "2.137.0",
 };
 
 describe("the manual test script's version tags are history, not a moving target", () => {

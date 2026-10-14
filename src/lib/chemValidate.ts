@@ -39,8 +39,21 @@ export interface FormulaValidation {
   charge: number;
   /** Molecular weight in g/mol, or null if the formula is invalid. */
   mass: number | null;
-  /** Normalized Hill-system formula (C, H, then others alphabetical). */
+  /**
+   * Normalized Hill-system formula (C, H, then others alphabetical). When a
+   * coefficient is not a whole number (CaSO4·0.5H2O) the counts are not whole
+   * either, and a merged Hill string ("CaHO4.5S") would not re-parse — so the
+   * parts are kept apart instead: "CaO4S·½H2O", which does.
+   */
   hill: string;
+  /**
+   * True when some element count is not a whole number — a fractional hydrate
+   * or a fractional leading coefficient. Callers that need whole atoms (an
+   * integer composition matrix, a molecular ion) must check this.
+   */
+  fractional: boolean;
+  /** Plain-language notes about how the input was read (e.g. a leading coefficient). */
+  notes: string[];
 }
 
 interface SegmentResult {
@@ -138,6 +151,15 @@ function parseSegment(body: string): SegmentResult {
   const readCount = (): { num: string; sign: number } => {
     let num = "";
     while (i < n && isDigit(body[i])) num += body[i++];
+    // A DECIMAL SUBSCRIPT (nonstoichiometric phase: Cu1.8S, Fe0.95O). Only when
+    // the integer part is 0 or 1: nobody writes an integer count of 0 or 1 before
+    // a hydrate dot, so "Cu1.8S" can only mean Cu₁.₈S (chempy agrees), while
+    // "CuSO4.5H2O" stays the pinned pentahydrate. splitHydrateParts keeps the
+    // same "." unsplit (isDecimalSubscriptDot) so both readers agree.
+    if ((num === "0" || num === "1") && body[i] === "." && isDigit(body[i + 1] ?? "")) {
+      num += body[i++];
+      while (i < n && isDigit(body[i])) num += body[i++];
+    }
     let sign = 0;
     if (i < n && (body[i] === "+" || body[i] === "-")) {
       sign = body[i] === "-" ? -1 : 1;
@@ -164,7 +186,7 @@ function parseSegment(body: string): SegmentResult {
       // A subscript of zero is not chemistry. "H0" used to validate clean with a
       // molar mass of 0 and a Hill formula of "H0", and "C0H4" likewise -- an
       // impossible formula certified as correct, which is worse than a refusal.
-      const count = num ? parseInt(num, 10) : 1;
+      const count = num ? Number(num) : 1;
       if (count === 0) errors.push(`Subscript 0 on “${sym}” is not a formula — remove the element or give it a count of 1 or more`);
       add(top(), sym, count);
       if (sign) charge += sign;
@@ -184,14 +206,17 @@ function parseSegment(body: string): SegmentResult {
       const group = stack.pop() as Record<string, number>;
       i++;
       const { num, sign } = readCount();
-      const mult = sign ? 1 : num ? parseInt(num, 10) : 1;
+      const mult = sign ? 1 : num ? Number(num) : 1;
+      if (sign && num.includes(".")) errors.push(`A charge cannot be a decimal (“${num}”)`);
       if (sign) charge += sign * (num ? parseInt(num, 10) : 1);
+      if (!sign && num && mult === 0) errors.push(`Subscript 0 on a group is not a formula — remove the group`);
       for (const [k, v] of Object.entries(group)) add(top(), k, v * mult);
       continue;
     }
     if (ch === "^") {
       i++;
       const { num, sign } = readCount();
+      if (sign && num.includes(".")) errors.push(`A charge cannot be a decimal (“${num}”)`);
       if (sign) charge += sign * (num ? parseInt(num, 10) : 1);
       else errors.push("“^” must be followed by a charge, e.g. ^2-");
       continue;
@@ -207,8 +232,8 @@ function parseSegment(body: string): SegmentResult {
       errors.push(`Misplaced number “${num}”`);
       continue;
     }
-    if (ch === "=" || ch === "*" || ch === "·") {
-      i++; // bond glyphs / stray middots
+    if (ch === "=" || ch === "*" || ch === "·" || ch === "•") {
+      i++; // bond glyphs / stray middots (hydrate dots are split off before this)
       continue;
     }
     errors.push(`Unexpected character “${ch}”`);
@@ -241,15 +266,14 @@ export function validateFormula(input: string): FormulaValidation {
   const errors: string[] = [];
   // Any superscript that survived the fold was not a charge. Say what it was.
   const supComplaint = superscriptComplaint(src);
-  if (supComplaint) {
-    return { valid: false, errors: [supComplaint], counts: {}, charge: 0, mass: null, hill: "" };
-  }
+  const fail = (errs: string[]): FormulaValidation => ({
+    valid: false, errors: errs, counts: {}, charge: 0, mass: null, hill: "", fractional: false, notes: [],
+  });
+  if (supComplaint) return fail([supComplaint]);
   const counts: Record<string, number> = {};
   let charge = 0;
 
-  if (!src) {
-    return { valid: false, errors: ["Enter a formula."], counts, charge: 0, mass: null, hill: "" };
-  }
+  if (!src) return fail(["Enter a formula."]);
 
   // Monatomic ion (e.g. "Ca2+", "Fe3+"): the digit is the charge, not a count —
   // one atom, charge = ±digits. (Polyatomic ions like NH4+ parse normally.)
@@ -257,21 +281,52 @@ export function validateFormula(input: string): FormulaValidation {
   if (mono && isElement(mono[1])) {
     const el = mono[1];
     const q = (mono[3] === "-" ? -1 : 1) * parseInt(mono[2], 10);
-    return { valid: true, errors: [], counts: { [el]: 1 }, charge: q, mass: PERIODIC[el], hill: el };
+    return { valid: true, errors: [], counts: { [el]: 1 }, charge: q, mass: PERIODIC[el], hill: el, fractional: false, notes: [] };
   }
 
-  // Split on hydrate dots ("·" or "."); each part may carry a leading coefficient.
-  for (const rawSeg of src.split(/[.·]/)) {
-    const seg = rawSeg.trim();
-    if (!seg) continue;
-    let j = 0;
-    let coefStr = "";
-    while (j < seg.length && isDigit(seg[j])) coefStr += seg[j++];
-    const coef = coefStr ? parseInt(coefStr, 10) : 1;
-    const res = parseSegment(seg.slice(j));
+  // HYDRATE PARTS. Each part may carry a leading coefficient, which is a NUMBER
+  // — an integer, a decimal, a fraction a/b, or a vulgar-fraction glyph — that
+  // multiplies the part's composition. The old split on every "." read the
+  // decimal point of CaSO4·0.5H2O as a hydrate dot and the 0 and the 5 as two
+  // integer coefficients: "✓ Valid, 226.209" for plaster of Paris (145.142).
+  const split = splitHydrateParts(src);
+  if (split.error) return fail([split.error]);
+  const notes: string[] = [];
+  const parts: { coef: Rational; counts: Record<string, number> }[] = [];
+  for (const part of split.parts) {
+    const c = readCoefficient(part.text);
+    if (c.error) {
+      errors.push(c.error);
+      continue;
+    }
+    if (part.sep === "." && c.text && c.text.includes(".")) {
+      // chempy reads "CaSO4.0.5H2O" as an O₄.₀ subscript; this parser would read
+      // a hydrate. Two tools, two answers: refuse instead of guessing.
+      return fail([
+        `“${src}” puts a decimal coefficient after a “.” — write the hydrate dot as · ` +
+          `(e.g. CaSO₄·0.5H₂O) so the number cannot be read as part of a subscript.`,
+      ]);
+    }
+    const res = parseSegment(c.rest);
     errors.push(...res.errors);
-    for (const [k, v] of Object.entries(res.counts)) add(counts, k, v * coef);
-    charge += res.charge * coef;
+    for (const [k, v] of Object.entries(res.counts)) {
+      // Only reachable by repeating an element that has a decimal subscript
+      // (Cu1.8SCu); its count could not be printed so that it re-parses.
+      if (!Number.isInteger(v) && v >= 2) errors.push(`“${k}” has a decimal subscript and appears again — write its total count once.`);
+    }
+    const coef = c.coef;
+    const value = coef.n / coef.d;
+    for (const [k, v] of Object.entries(res.counts)) add(counts, k, v * value);
+    const q = res.charge * value;
+    if (!Number.isInteger(q)) errors.push(`A fractional coefficient (${c.text}) on a charged part gives a fractional charge.`);
+    charge += q;
+    parts.push({ coef, counts: res.counts });
+    if (split.parts.length === 1 && c.text) {
+      notes.push(
+        `Leading coefficient ${c.text} read as ${c.text} × ${typesetPlain(hillFormula(res.counts))}: the counts and ` +
+          `mass are for ${c.text} ${typesetPlain(hillFormula(res.counts))}, not one formula unit.`
+      );
+    }
   }
 
   if (!errors.length && !Object.keys(counts).length) errors.push("No elements found.");
@@ -281,7 +336,139 @@ export function validateFormula(input: string): FormulaValidation {
     mass = 0;
     for (const [k, v] of Object.entries(counts)) mass += PERIODIC[k] * v;
   }
-  return { valid, errors: dedupe(errors), counts, charge, mass, hill: hillFormula(counts) };
+  const fractional = Object.values(counts).some((v) => !Number.isInteger(v));
+  // A fractional composition — or a fractional COEFFICIENT, even when the counts
+  // come out whole (1.5O2 is 1½ O₂, not ozone) — keeps its parts apart, so the
+  // shown Hill form re-parses and never names a different molecule.
+  const hill = fractional || parts.some((p) => p.coef.n % p.coef.d !== 0)
+    ? parts.map((p) => coefficientGlyph(p.coef) + hillFormula(p.counts)).join("·")
+    : hillFormula(counts);
+  return { valid, errors: dedupe(errors), counts, charge, mass, hill, fractional, notes: valid ? notes : [] };
+}
+
+/** An exact positive rational coefficient. */
+interface Rational {
+  n: number;
+  d: number;
+}
+
+const VULGAR: Record<string, [number, number]> = {
+  "½": [1, 2], "⅓": [1, 3], "⅔": [2, 3], "¼": [1, 4], "¾": [3, 4], "⅕": [1, 5], "⅖": [2, 5],
+  "⅗": [3, 5], "⅘": [4, 5], "⅙": [1, 6], "⅚": [5, 6], "⅛": [1, 8], "⅜": [3, 8], "⅝": [5, 8], "⅞": [7, 8],
+};
+const VULGAR_BY_VALUE: Record<string, string> = Object.fromEntries(
+  Object.entries(VULGAR).map(([g, [n, d]]) => [`${n}/${d}`, g])
+);
+
+const gcd = (a: number, b: number): number => (b === 0 ? a : gcd(b, a % b));
+
+/** The display form of a coefficient: "" for 1, "5", "½", "1½", "2/7". Every form re-parses. */
+function coefficientGlyph(c: Rational): string {
+  const g = gcd(c.n, c.d);
+  const n = c.n / g;
+  const d = c.d / g;
+  if (d === 1) return n === 1 ? "" : String(n);
+  const whole = Math.floor(n / d);
+  const rem = n - whole * d;
+  const glyph = VULGAR_BY_VALUE[`${rem}/${d}`];
+  if (glyph) return (whole ? String(whole) : "") + glyph;
+  return `${n}/${d}`;
+}
+
+/** Subscripts the digits of a plain Hill string, for messages (display contract). */
+function typesetPlain(hill: string): string {
+  return hill.replace(/\d/g, (ch) => "₀₁₂₃₄₅₆₇₈₉"[Number(ch)]);
+}
+
+/** Longest digit run accepted in one coefficient field — a bound, not a chemistry limit. */
+const MAX_COEF_DIGITS = 9;
+
+/**
+ * Reads a part's leading coefficient. Returns the coefficient (1 when absent),
+ * the text as typed ("" when absent), and the rest of the part; or a named
+ * refusal for a coefficient that is zero, negative, a division by zero, or not
+ * followed by a formula.
+ */
+function readCoefficient(part: string): { coef: Rational; text: string; rest: string; error?: string } {
+  const one: Rational = { n: 1, d: 1 };
+  const neg = /^-\s*[\d.½⅓⅔¼¾⅕⅖⅗⅘⅙⅚⅛⅜⅝⅞]/.exec(part);
+  if (neg) {
+    const m = /^-\s*[\d./½⅓⅔¼¾⅕⅖⅗⅘⅙⅚⅛⅜⅝⅞]+/.exec(part)!;
+    return { coef: one, text: "", rest: part, error: `Negative coefficient “${m[0].replace("-", "−")}” — a hydrate coefficient counts formula units and must be positive.` };
+  }
+  let m: RegExpExecArray | null;
+  let coef: Rational | null = null;
+  let text = "";
+  if ((m = /^(\d*)\s*([½⅓⅔¼¾⅕⅖⅗⅘⅙⅚⅛⅜⅝⅞])/.exec(part))) {
+    const [vn, vd] = VULGAR[m[2]];
+    const whole = m[1] ? Number(m[1]) : 0;
+    coef = { n: whole * vd + vn, d: vd };
+    text = m[0].replace(/\s+/g, "");
+  } else if ((m = /^(\d+)\s*\/\s*(\d+)/.exec(part))) {
+    coef = { n: Number(m[1]), d: Number(m[2]) };
+    text = `${m[1]}/${m[2]}`;
+    if (m[1].length > MAX_COEF_DIGITS || m[2].length > MAX_COEF_DIGITS) {
+      return { coef: one, text: "", rest: part, error: `Coefficient “${text}” is too long.` };
+    }
+    if (coef.d === 0) return { coef: one, text: "", rest: part, error: `Coefficient “${text}” divides by zero.` };
+  } else if ((m = /^(\d*)\.(\d+)/.exec(part))) {
+    if (m[1].length > MAX_COEF_DIGITS || m[2].length > MAX_COEF_DIGITS) {
+      return { coef: one, text: "", rest: part, error: `Coefficient “${m[0]}” is too long.` };
+    }
+    coef = { n: Number((m[1] || "0") + m[2]), d: 10 ** m[2].length };
+    text = m[0];
+  } else if ((m = /^(\d+)/.exec(part))) {
+    if (m[1].length > MAX_COEF_DIGITS) return { coef: one, text: "", rest: part, error: `Coefficient “${m[1]}” is too long.` };
+    coef = { n: Number(m[1]), d: 1 };
+    text = m[1];
+  }
+  if (!coef) return { coef: one, text: "", rest: part };
+  const rest = part.slice(m![0].length).trim();
+  if (coef.n === 0) {
+    return { coef: one, text: "", rest, error: `Coefficient zero (“${text}”) — a part present zero times is not in the formula; remove it.` };
+  }
+  if (!rest) return { coef: one, text: "", rest, error: `Coefficient “${text}” has no formula after it.` };
+  return { coef, text, rest };
+}
+
+/**
+ * Splits a formula into hydrate parts. "·", "•" and "*" always separate. A "."
+ * separates too — EXCEPT where it is the decimal point of a leading coefficient:
+ * the part so far is only digits (or empty) and a digit follows. That keeps
+ * "0.5H2O", "CaSO4·0.5H2O" and "1.5O2" whole while "CuSO4.5H2O" (pinned since
+ * v1) and "MgSO4.H2O" stay hydrates.
+ */
+/**
+ * True when a "." is the decimal point of a SUBSCRIPT (Cu1.8S, Fe0.95O): it
+ * follows an element or group whose count so far is exactly 0 or 1, and a digit
+ * follows. balance.ts's species reader must make the same call (it composes
+ * through validateFormula, so it inherits this reading).
+ */
+function isDecimalSubscriptDot(before: string, next: string): boolean {
+  return /[A-Za-z)\]}][01]$/.test(before) && isDigit(next);
+}
+
+function splitHydrateParts(src: string): { parts: { text: string; sep: string }[]; error?: string } {
+  const parts: { text: string; sep: string }[] = [];
+  let cur = "";
+  let sep = "";
+  for (let i = 0; i < src.length; i++) {
+    const ch = src[i];
+    const isSep =
+      ch === "·" || ch === "•" || ch === "*" ||
+      (ch === "." &&
+        !(/^\s*-?\s*\d*\s*$/.test(cur) && isDigit(src[i + 1] ?? "")) &&
+        !isDecimalSubscriptDot(cur, src[i + 1] ?? ""));
+    if (isSep) {
+      if (cur.trim()) parts.push({ text: cur.trim(), sep });
+      cur = "";
+      sep = ch;
+      continue;
+    }
+    cur += ch;
+  }
+  if (cur.trim()) parts.push({ text: cur.trim(), sep });
+  return { parts };
 }
 
 function dedupe(a: string[]): string[] {

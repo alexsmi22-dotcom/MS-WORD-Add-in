@@ -86,6 +86,8 @@ import { cayleyTableSvg } from "../src/lib/cayleyTableSvg";
 import { dihedralGroup, cosets as cosetsOfGroup, op as groupOp } from "../src/lib/algebraGroups";
 import { tryAlgebra } from "../src/lib/algebra";
 import { solveGrammar } from "../src/lib/grammar";
+import { balanceText } from "../src/lib/balance";
+import { balanceReport, stoichCalc, BalanceReport } from "../src/lib/chembioCalcs";
 import { solvePda } from "../src/lib/pda";
 import { solveTuring } from "../src/lib/turing";
 import { solveFol } from "../src/lib/fol";
@@ -1853,6 +1855,25 @@ ORIGIN
       { log: true, title: "Hazard ratios (95% CI)", xlabel: "Hazard ratio" },
     ),
   ]);
+  // v2.137.0 chemistry batch: the figures Solve / Reaction (Formulas) and the
+  // stoichiometry calculator draw, built by the SAME functions the pane calls.
+  const balanced = (eq: string): BalanceReport => {
+    const rep = balanceReport(balanceText(eq));
+    if (!rep.svg) throw new Error(`${eq}: no figure`);
+    return rep;
+  };
+  figures.push(["balance conservation bars (Fe + O2 -> Fe2O3)", balanced("Fe + O2 -> Fe2O3").svg as string]);
+  // Ionic: a non-zero charge pair (+17 each side) beside six element pairs.
+  figures.push(["balance conservation bars, ionic (MnO4- / Fe2+ in acid)", balanced("MnO4^- + Fe^2+ + H^+ -> Mn^2+ + Fe^3+ + H2O").svg as string]);
+  // Refusal figures: the independent reactions of a non-unique balancing,
+  // short and long (the long one stresses the table column width).
+  figures.push(["balance basis table (C + O2 -> CO + CO2)", balanced("C + O2 -> CO + CO2").svg as string]);
+  figures.push([
+    "balance basis table, long equations (KMnO4 + H2O2 + H2SO4)",
+    balanced("KMnO4 + H2O2 + H2SO4 -> K2SO4 + MnSO4 + O2 + H2O").svg as string,
+  ]);
+  const st = stoichCalc("2 H2 + O2 -> 2 H2O", "H2: 10.0 g\nO2: 10.0 g", "", "IUPAC-STP");
+  figures.push(["stoichiometry available vs needed (shipped default)", svgOf(st, "stoich")]);
   // Log-axis stress: inside ONE decade, so 0.2 and 0.5 are labelled too.
   figures.push([
     "forest plot log axis, one decade",

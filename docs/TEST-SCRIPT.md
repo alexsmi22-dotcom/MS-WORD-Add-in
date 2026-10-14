@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.136.0)
+# JurisLab — Manual Test Script (v2.137.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -7,6 +7,94 @@ covers what neither can reach: insertion into a real document, undo, document
 scanning, and layout. Budget ~30 minutes for the full pass.
 
 Mark each box: ☐ pass · ✗ fail (note what happened).
+
+---
+
+## 0cd. New in v2.137.0 — Reaction balancing, stoichiometry, genetic codes, peptides, and formula fixes
+
+Five modes change: Solve, Reaction, Bio/Assay, DNA (+ Sequence), Peptide — plus Chemical/Structure and
+Mass Spec reading. Everything is offline.
+
+**Solve (Equation kind)**
+- [ ] ★ **`Fe + O2 -> Fe2O3`** → eyebrow **Balanced equation**, `4 Fe + 3 O₂ → 2 Fe₂O₃` (subscripts, full-size
+  coefficients), then `Fe: 4 on the left, 4 on the right ✓`, `O: 6 …`, `Charge: 0 … ✓`, a paired-bar chart
+  "Atoms and charge on each side", and the caveat "Mass and charge conservation only — …". **Insert** →
+  the lines as TEXT (Fe₂O₃ must not turn into an equation object) followed by the chart picture.
+- [ ] **`Fe + O2 = Fe2O3`** and **`2H2 + O2 = 2H2O`** → balanced (they were "more than one unknown").
+  **`MnO4^- + Fe^2+ + H^+ -> Mn^2+ + Fe^3+ + H2O`** → `MnO₄⁻ + 5 Fe²⁺ + 8 H⁺ → Mn²⁺ + 5 Fe³⁺ + 4 H₂O`.
+- [ ] **`half-reaction MnO4- -> Mn2+ in acid`** → `MnO₄⁻ + 8 H⁺ + 5 e⁻ → Mn²⁺ + 4 H₂O` and "Reduction (gains
+  5 e⁻)."; **`half-reaction MnO4- -> MnO2 in base`** → `MnO₄⁻ + 2 H₂O + 3 e⁻ → MnO₂ + 4 OH⁻`;
+  **`MnO4- -> Mn2+; Fe2+ -> Fe3+ in acid`** → `MnO₄⁻ + 8 H⁺ + 5 Fe²⁺ → Mn²⁺ + 4 H₂O + 5 Fe³⁺`.
+- [ ] ★ **`C + O2 -> CO + CO2`** → **No unique balancing**: "This reaction has 2 independent balancings …",
+  then `1. C + O₂ → CO₂`, `2. 2 C + O₂ → 2 CO`, and a figure listing both — never one set of numbers.
+- [ ] Still routed as before (no chemistry): `x + y = 5`, `N + O = 7`, `Co + O2 = 5`, `P1V1 = P2V2`, `H = 2`
+  (→ H = 2), `f(x) -> 0` and `lim x->0 sin(x)/x` (inequality refusal, as before). `S -> B` then a new line
+  `B -> C` → switches to Discrete and draws a **graph** (computation theory keeps precedence).
+- [ ] The palette shows a **Chemistry — balance** group; every button loads an input that balances
+  (the last, `not unique`, loads the refusal).
+
+**Reaction mode**
+- [ ] New **Read components as** dropdown: *Structures* (default — unchanged schemes) | *Formulas*.
+  Never guessed: `CO + O2 -> CO2` in Structures draws the dictionary structures; switch to Formulas and the
+  same text balances to `2 CO + O₂ → 2 CO₂`.
+- [ ] Structures: `1-propanol >> CC=C` still draws (a name may start with a digit).
+- [ ] ★ Formulas: `Fe + O2 -> Fe2O3` → the balanced equation, conservation rows and chart; the button reads
+  **Insert balanced equation** and inserts text + chart. `C + O2 -> CO + CO2` → the refusal with both
+  reactions; Insert stays disabled.
+- [ ] Structures: `N2 + 3H2 >> 2NH3` → "Coefficients are not drawn (3H2, 2NH3) — switch the reading to
+  Formulas to balance the equation." (it was "Couldn't draw: 3H2, 2NH3").
+
+**Bio/Assay → Reaction stoichiometry & yield** (the 17th calculator)
+- [ ] ★ Defaults (`2 H2 + O2 -> 2 H2O`; `H2: 10.0 g` / `O2: 10.0 g`) → "Limiting reagent: O₂ (ξ = 0.313 mol).",
+  "Theoretical H₂O (M = 18.015 g/mol): 0.625 mol = 11.3 g.", "H₂ left over: 4.34 mol = 8.74 g.", and the
+  chart "Moles available vs needed — limiting: O₂ ★". Insert → text + chart.
+- [ ] Reaction `4 Fe + 3 O2 -> 2 Fe2O3`, amounts `O2: 10.0 L, gas`: with **IUPAC STP** → Fe₂O₃ 46.9 g; switch
+  the dropdown to **Older STP (1 atm)** → 47.5 g. Both STP definitions are named in the dropdown.
+- [ ] Amounts `H2: 10.0 mL` → refused: "… a liquid's density is never assumed to be 1 g/mL …". Add an actual
+  yield `H2O: 12 g` to the default → percent yield above 100 % carries "wet or impure product, or the wrong
+  limiting reagent".
+
+**DNA mode and Sequence**
+- [ ] New **Genetic code** dropdown under Frame (27 tables, ids 7, 8, 17–20 absent). `ATGAGATGATGGTAA` with
+  table 2 → protein `M*WW*`, note "Translated with NCBI table 2 (Vertebrate Mitochondrial)." and the codons
+  that differ; table 1 → `MR*W*` with no note. Table 28 → `MRWWQ` and "Table 28: TAA/TAG/TGA are read as
+  Q/Q/W; they can also terminate, depending on context — stops are not called." **Insert protein**
+  inserts only the residues.
+- [ ] ORF finder: new **Genetic code** + **Start codons** selectors. `GTGAAACCCGGGTAA`, min 1 aa: ATG only →
+  "No ORFs"; table 11 + alternative starts → `+ 1 1..15 4 MKPG` with the caption "Genetic code: NCBI table 11
+  (…) · starts: ATG and alternative initiation codons (…), each read as M". Choose table 28 → a hint before
+  you click; Find ORFs → the refusal text, no table. Changing either selector clears shown ORFs; Insert uses
+  the settings the ORFs were found with.
+- [ ] Sequence mode: each feature row has a new **/transl_table** box. Sequence `ATGAGATGATGGAAACCCTAA`, a CDS
+  at `1..21` with `2` in that box → `/translation=M`; the status line
+  ends "Notes — SEQ 1: CDS (1..21): /translation generated with NCBI table 2 …" (a NOTE, not "Generated with
+  warnings"). **Decision pinned:** the initiator rule (alternative start read as M) applies ONLY when
+  `/transl_table` is given explicitly; a CDS without the qualifier is translated exactly as before (table 1,
+  no initiator rule), so no existing listing changes.
+
+**Peptide mode**
+- [ ] ★ `cyclo(GRGDSP)` → "6 residues · C₂₂H₃₅N₉O₉", "Monoisotopic mass 569.2558 Da · average mass 569.576 Da",
+  termini "none (head-to-tail cyclic)", the cyclisation listed with −18.010565, and the macrocycle drawn.
+- [ ] `CYIQNCPLG-NH2; disulfide 1-6` → C₄₃H₆₆N₁₂O₁₂S₂, 1006.4365 Da, "Amidated (C-terminal amidation)
+  (UNIMOD:2) at C-term: +HN −O, −0.984016 mono / −0.9848 avg", "Disulfides: C1–C6", "ε₂₈₀ = 1,615 M⁻¹cm⁻¹
+  (1 cystine as written)"; the S–S bond drawn. Insert → the picture's alt text carries C₄₃H₆₆N₁₂O₁₂S₂ and
+  MW 1007.193 (the reading's average, not a second OCL value).
+- [ ] `cycloGRGDSP` → refused: "… written solid it would read as Cys-Tyr-Cys-Leu-Pyl. Write cyclo(GRGDSP)."
+  `A[Phospho]K` → "Phospho on A at position 2 is not supported …". No mass, no structure.
+- [ ] `CAACGGCAAC; disulfide all` → masses shown (824.2074), drawing refused "4 cysteines admit 3 pairings …".
+- [ ] ★ Paste a 60-residue sequence → masses appear at once, the drawing is refused "Structure not drawn: …
+  heavy atoms is above the 250-atom drawing limit …" — Word must NOT freeze while you type.
+
+**Chemical / Structure / Mass Spec**
+- [ ] Chemical: `CuSO4·5H2O` → preview AND insert CuSO₄·5H₂O (5 full size); validation "M = 249.677 g/mol".
+  `CaSO4·0.5H2O` → "CaO₄S·½H₂O, M = 145.142". `Fe + O2 -> Fe2O3` → "This is a reaction — balance it in
+  Reaction mode (read as Formulas), or in Solve."
+- [ ] Structure: `Fe2O3` → "… is a formula — Fe₂O₃, 159.687 g/mol — and a formula has no single structure
+  to draw …"; `CN` → methylamine drawn with "Read as SMILES: CH₅N. As a formula, “CN” would be CN …";
+  `smiles:CO` → methanol drawn; the property panel says "Properties not shown: “CO” is also a dictionary
+  entry for a different compound …" (never carbon monoxide's numbers under methanol's picture).
+- [ ] Mass Spec: `Co` → monoisotopic 58.9332, formula Co (was CH₃O 31.034); `Fe2O3` → 159.8546; `CO` →
+  27.9949 with "Read as the formula CO. As SMILES, “CO” would be methanol (CH₄O) — write smiles:CO for that."
 
 ---
 
@@ -3504,6 +3592,8 @@ Engineering mode, Energy & power (now 17; the mode must state **101 calculators*
   - `(0,0,0) (1,1,1) (2,2,2)` -> refused as **COLLINEAR**: no plane.
   - `circle r=1/3` -> area **1/9*pi** exactly, and `box 1/2 1/3 1/4` -> volume **1/24**.
     (Typed fractions must stay exact — no long decimals or giant fractions anywhere.)
+- [ ] **Reaction balancing, stoichiometry, genetic codes, peptides, and formula fixes (v2.137.0).** Solve, Reaction, Bio/Assay, DNA, Sequence, Peptide, Chemical, Mass Spec — see §0cd.
+  - `Fe + O2 -> Fe2O3` → `4 Fe + 3 O₂ → 2 Fe₂O₃` in Solve and in Reaction (Formulas); `C + O2 -> CO + CO2` refused with both reactions; stoichiometry default → O₂ limiting, 11.3 g H₂O; `ATGAGATGATGGTAA` table 2 → `M*WW*`; `cyclo(GRGDSP)` → 569.2558 Da; `Co` in Mass Spec → 58.9332.
 - [ ] **Exact cubic and quartic roots, multivariate simplification, radius of convergence, and leftovers (v2.136.0).** Solve — see §0cc.
   - `x^3 - 3x + 1 = 0` → `2*cos(2*pi/9)`, `2*cos(4*pi/9)`, `2*cos(8*pi/9)`, typeset; `simplify (x^2 - y^2)/(x - y)` → `x + y`, the factor named; `radius of convergence of 1/(x^2 + 4) about 1` → `R = sqrt(5)` with the disc; `find the roots of x^3 - 7x + 6` → 2, 1, −3.
 - [ ] **Abstract algebra: groups, permutations, rings and finite fields (v2.135.0).** Solve — see §0cb.

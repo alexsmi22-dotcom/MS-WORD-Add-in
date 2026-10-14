@@ -9,7 +9,7 @@
 // arithmetic on the monoisotopic mass and an ion mass shift.
 
 import { Molecule } from "openchemlib";
-import { lookupSmiles } from "./structures";
+import { lookupSmiles, resolveChemInput, ChemReadMode, FormulaReading } from "./structures";
 
 const ELECTRON = 0.00054858;
 
@@ -288,11 +288,26 @@ export function computeMassSpec(input: string): MassSpecResult | null {
     return null;
   }
   if (mol.getAllAtoms() === 0) return null;
+  return massSpecFromMolecule(mol);
+}
 
+function massSpecFromMolecule(mol: Molecule): MassSpecResult {
   const mf = mol.getMolecularFormula();
-  const monoisotopicMass = mf.absoluteWeight;
-  const averageMass = mf.relativeWeight;
-  const counts = parseFormula(mf.formula);
+  // The ESI adduct m/z table assumes a neutral M. If the drawn structure already
+  // carries a net formal charge, protonation/cationization adducts are physically
+  // meaningless, so omit them (mass and pattern above remain exact).
+  let netCharge = 0;
+  for (let i = 0; i < mol.getAllAtoms(); i++) netCharge += mol.getAtomCharge(i);
+  return assemble(mf.formula, mf.absoluteWeight, mf.relativeWeight, parseFormula(mf.formula), netCharge);
+}
+
+function assemble(
+  formula: string,
+  monoisotopicMass: number,
+  averageMass: number,
+  counts: Record<string, number>,
+  netCharge: number
+): MassSpecResult {
   const { peaks: rawPeaks, unsupported } = isotopePattern(counts);
   // The convolution only sums tabled elements, so anchor the peak masses to the
   // OCL monoisotopic mass (which includes every element) — the M peak lands at
@@ -303,18 +318,13 @@ export function computeMassSpec(input: string): MassSpecResult | null {
     ? rawPeaks.map((p) => ({ ...p, mass: monoisotopicMass + (p.mass - base) }))
     : [{ offset: 0, mass: monoisotopicMass, intensity: 100 }];
 
-  // The ESI adduct m/z table assumes a neutral M. If the drawn structure already
-  // carries a net formal charge, protonation/cationization adducts are physically
-  // meaningless, so omit them (mass and pattern above remain exact).
-  let netCharge = 0;
-  for (let i = 0; i < mol.getAllAtoms(); i++) netCharge += mol.getAtomCharge(i);
   const adducts =
     netCharge === 0
       ? ADDUCTS.map((a) => ({ name: a.name, mz: adductMz(monoisotopicMass, a), charge: a.charge }))
       : [];
 
   return {
-    formula: mf.formula,
+    formula,
     monoisotopicMass,
     averageMass,
     pattern: peaks,
@@ -322,4 +332,123 @@ export function computeMassSpec(input: string): MassSpecResult | null {
     netCharge,
     adducts,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Mode-aware entry point for TYPED input (v2.137.0, §A-18 / §E6)
+// ---------------------------------------------------------------------------
+//
+// computeMassSpec above keeps its legacy order (dictionary → SMILES) because it
+// is fed SMILES by construction elsewhere. resolveMassSpec applies the
+// formula-vs-SMILES rule of structures.resolveChemInput: "Co" is cobalt, not
+// CH₃O; "CN" is ambiguous and BOTH readings are computed so the pane can show
+// them; "Fe2O3", which has no structure, now has masses from its formula.
+
+export type MassSpecResolution =
+  | { kind: "ok"; reading: "dictionary" | "formula" | "smiles"; result: MassSpecResult; note?: string }
+  | {
+      kind: "ambiguous";
+      message: string;
+      /** formula is null only when the formula reading has no molecular ion (fractional). */
+      readings: { formula: MassSpecResult | null; smiles: MassSpecResult };
+    }
+  | { kind: "none"; message: string };
+
+/**
+ * Bounds on a formula reading, set BEFORE any work: the isotope convolution's
+ * time grows with each element's count (its distribution widens), so an atom
+ * cap alone bounds memory, not time. Measured in jest on this machine: Se10000
+ * ≈ 80 ms, five elements × 10000 incl. Se and Br ≈ 160 ms; Se99999 was 640 ms
+ * — a frozen Word pane for a 7-character input.
+ */
+const MAX_FORMULA_ATOMS = 50000;
+const MAX_ATOMS_PER_ELEMENT = 10000;
+
+// Per-element masses from OpenChemLib, so the formula reading and the SMILES
+// reading share ONE mass source. One isolated bracket atom per element, cached.
+// OpenChemLib gives some bracket atoms implicit hydrogens anyway ("[Al]" comes
+// back as AlH₃), so the hydrogens it reports are subtracted out explicitly.
+const elementMassCache: Record<string, { mono: number; avg: number } | null> = {};
+function elementMasses(el: string): { mono: number; avg: number } | null {
+  if (el in elementMassCache) return elementMassCache[el];
+  let out: { mono: number; avg: number } | null = null;
+  try {
+    const h = Molecule.fromSmiles("[H]").getMolecularFormula();
+    const mf = Molecule.fromSmiles(el === "H" ? "[H]" : `[${el}]`).getMolecularFormula();
+    const c = parseFormula(mf.formula);
+    const extraH = el === "H" ? 0 : c.H ?? 0;
+    const others = Object.keys(c).filter((k) => k !== el && k !== "H");
+    if (c[el] === 1 && others.length === 0) {
+      out = { mono: mf.absoluteWeight - extraH * h.absoluteWeight, avg: mf.relativeWeight - extraH * h.relativeWeight };
+    }
+  } catch {
+    out = null;
+  }
+  elementMassCache[el] = out;
+  return out;
+}
+
+function massSpecFromFormula(f: FormulaReading): MassSpecResult | string {
+  if (f.fractional) {
+    return (
+      `${f.display} has a fractional composition, so it is not one molecule and has no molecular ion. ` +
+      `Enter whole formula units — e.g. 2CaSO4·H2O for the hemihydrate.`
+    );
+  }
+  let atoms = 0;
+  for (const [el, n] of Object.entries(f.counts)) {
+    atoms += n;
+    if (n > MAX_ATOMS_PER_ELEMENT) {
+      return `${f.display} has ${n} ${el} atoms — above the ${MAX_ATOMS_PER_ELEMENT}-atom-per-element limit for an isotope pattern.`;
+    }
+  }
+  if (atoms > MAX_FORMULA_ATOMS) return `${f.display} has ${atoms} atoms — above the ${MAX_FORMULA_ATOMS}-atom limit for an isotope pattern.`;
+  let mono = 0;
+  let avg = 0;
+  for (const [el, n] of Object.entries(f.counts)) {
+    const m = elementMasses(el);
+    if (!m) return `No isotope data for ${el}.`;
+    mono += n * m.mono;
+    avg += n * m.avg;
+  }
+  return assemble(f.hill, mono, avg, f.counts, f.charge);
+}
+
+function smilesSpec(smiles: string): MassSpecResult | null {
+  try {
+    const mol = Molecule.fromSmiles(smiles);
+    return mol.getAllAtoms() ? massSpecFromMolecule(mol) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The MS readout for typed input, reading formulas as formulas (see above). */
+export function resolveMassSpec(input: string, mode: ChemReadMode = "auto"): MassSpecResolution {
+  const r = resolveChemInput(input, mode, "massspec");
+  switch (r.kind) {
+    case "none":
+      return r;
+    case "dictionary":
+    case "smiles": {
+      const spec = smilesSpec(r.smiles);
+      if (!spec) return { kind: "none", message: `“${input.trim()}” could not be read as a structure.` };
+      return { kind: "ok", reading: r.kind, result: spec, note: r.note };
+    }
+    case "formula": {
+      const spec = massSpecFromFormula(r.formula);
+      if (typeof spec === "string") return { kind: "none", message: spec };
+      return { kind: "ok", reading: "formula", result: spec, note: r.note };
+    }
+    case "ambiguous": {
+      const smiles = smilesSpec(r.smiles);
+      const formula = massSpecFromFormula(r.formula);
+      if (!smiles) {
+        return typeof formula === "string"
+          ? { kind: "none", message: formula }
+          : { kind: "ok", reading: "formula", result: formula };
+      }
+      return { kind: "ambiguous", message: r.message, readings: { formula: typeof formula === "string" ? null : formula, smiles } };
+    }
+  }
 }

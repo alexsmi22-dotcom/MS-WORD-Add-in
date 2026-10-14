@@ -266,6 +266,7 @@ export const CHEM_PALETTE: PaletteGroup[] = [
       { label: "²⁻", snippet: "^2-", caret: 3, title: "2− charge" },
       { label: "³⁺", snippet: "^3+", caret: 3, title: "3+ charge" },
       { label: ":", snippet: ":", title: "Lone pair" },
+      { label: "·", snippet: "·", title: "Hydrate dot — the coefficient after it stays full size: CuSO₄·5H₂O, CaSO₄·0.5H₂O" },
     ],
   },
   {
@@ -279,6 +280,7 @@ export const CHEM_PALETTE: PaletteGroup[] = [
       { label: "CO₃", snippet: "CO3" },
       { label: "PO₄", snippet: "PO4" },
       { label: "CH₃", snippet: "CH3" },
+      { label: "CuSO₄·5H₂O", snippet: "CuSO4·5H2O", title: "A hydrate: M = 249.677 g/mol" },
     ],
   },
 ];
@@ -473,6 +475,25 @@ export const SOLVE_TRANSFORMS: PaletteGroup[] = [
       { label: "clamped", snippet: "clamped cubic spline through (0, 0), (1, 1), (2, 0) with S'(0) = 1, S'(2) = -1", title: "End slopes verified; also 'with end slopes 0 and 0'" },
       { label: "not-a-knot", snippet: "not-a-knot spline through (0,1), (1,3), (2,2), (3,4)", title: "With 4 points this IS the interpolating cubic — said" },
       { label: "pchip", snippet: "pchip (0, 0), (1, 1), (2, 1), (3, 2)", title: "Monotone cubic (Fritsch–Carlson), the end formula stated" },
+    ],
+  },
+];
+
+/** Chemistry templates for the EQUATION kind (v2.137.0): each one is routed
+ *  by balance.ts chemistryKindFor on the raw text and balanced — pinned by
+ *  chembioRouting.test.ts, which runs every snippet. */
+export const SOLVE_CHEMISTRY: PaletteGroup[] = [
+  {
+    name: "Chemistry — balance",
+    items: [
+      { label: "balance", snippet: "Fe + O2 -> Fe2O3", title: "4 Fe + 3 O₂ → 2 Fe₂O₃ — exact null space, conservation table and chart" },
+      { label: "redox", snippet: "KMnO4 + HCl -> KCl + MnCl2 + Cl2 + H2O", title: "2, 16, 2, 2, 5, 8 — the charge row is always present" },
+      { label: "ionic", snippet: "MnO4^- + Fe^2+ + H^+ -> Mn^2+ + Fe^3+ + H2O", title: "Charges as ^2+ / ^-; electrons as e-" },
+      { label: "half (acid)", snippet: "half-reaction MnO4- -> Mn2+ in acid", title: "H₂O, H⁺ and e⁻ added; 'reduction (gains 5 e⁻)'" },
+      { label: "half (base)", snippet: "half-reaction MnO4- -> MnO2 in base", title: "Balanced directly with OH⁻, never an acid result neutralised afterwards" },
+      { label: "redox pair", snippet: "MnO4- -> Mn2+; Fe2+ -> Fe3+ in acid", title: "Two half-reactions combined so the electrons cancel, cross-checked against the direct balance" },
+      { label: "hydrate", snippet: "CuSO4·5H2O -> CuSO4 + H2O", title: "Hydrate dot · (or •); coefficients are full size" },
+      { label: "not unique", snippet: "C + O2 -> CO + CO2", title: "Two independent balancings — refused by name, both reactions shown" },
     ],
   },
 ];

@@ -54,6 +54,7 @@ import {
   neighbors,
   carbonylKind,
   classifySubstituent,
+  substKeyLabel,
   isFusedAromatic,
   parseToMolecule,
   SubstKey,
@@ -170,7 +171,11 @@ function findEnones(mol: Molecule): Enone[] {
   for (let c = 0; c < mol.getAllAtoms(); c++) {
     const kind = carbonylKind(mol, c);
     if (!kind) continue;
-    if (!["ketone", "aldehyde", "acid", "ester"].includes(kind)) continue;
+    // "carboxylate" is collected so the enone branch can REFUSE it by name:
+    // Woodward-Fieser tabulates a base for α,β-unsaturated acids and esters
+    // (195 nm), not for the COO⁻ anion, and before carboxylates were their own
+    // class they were "ester" and got that base.
+    if (!["ketone", "aldehyde", "acid", "ester", "carboxylate"].includes(kind)) continue;
     // The α carbon is single-bonded to C=O and carries a C=C to the β carbon.
     for (const nb of neighbors(mol, c)) {
       if (nb.order !== 1 || mol.getAtomicNo(nb.atom) !== 6) continue;
@@ -381,6 +386,24 @@ export function predictUvVis(input: string): UvResult | null {
    * about it would swap one false statement for another. And no contributions:
    * there is no arithmetic to audit when there is no answer.
    */
+  /**
+   * A charge-aware substituent (phenoxide O⁻, ammonio NH₃⁺/NR₃⁺, carboxylate,
+   * an imine carbon) sitting on the chromophore. Woodward-Fieser tabulates no
+   * increment for any of them and none is invented: the group is named and the
+   * sum below is explicitly for the chromophore WITHOUT it. (An enolate O⁻ on
+   * a β carbon is a very large effect; silence would have been the worst
+   * possible answer.)
+   */
+  const untabulatedAuxochrome = (key: SubstKey, where: string): void => {
+    const label = substKeyLabel(key);
+    if (!label) return;
+    caveats.add(
+      `${label} on the ${where} position of the chromophore has NO Woodward-Fieser increment tabulated ` +
+        "here and was OMITTED from the sum — the value is for the chromophore without that group, and a " +
+        "charged auxochrome can move λmax by tens of nm."
+    );
+  };
+
   const refuse = (chromophore: string, why: string): UvResult => {
     caveats.add(why);
     caveats.add(
@@ -495,6 +518,15 @@ export function predictUvVis(input: string): UvResult | null {
   }
 
   // --- α,β-unsaturated carbonyl (Woodward-Fieser enone rules) -------------
+  if (enones.some((x) => x.kind === "carboxylate")) {
+    return refuse(
+      "α,β-unsaturated carboxylate, COO⁻ (outside the model's domain)",
+      "A C=C conjugated to a CARBOXYLATE anion (COO⁻). Woodward-Fieser gives a base value for an " +
+        "α,β-unsaturated acid or ester (195 nm), not for the anion, whose two equivalent C-O bonds are a " +
+        "different chromophore. No value is tabulated for it here, so none is predicted rather than the " +
+        "neutral acid's."
+    );
+  }
   if (enones.length) {
     const e = enones[0];
     // Two unsaturations on ONE carbonyl is the cross-conjugated dienone. It is
@@ -572,6 +604,7 @@ export function predictUvVis(input: string): UvResult | null {
         if (skeleton.includes(nb.atom)) continue;
         const key = classifySubstituent(mol, nb.atom, atom);
         const inc = incs[key];
+        if (inc === undefined) untabulatedAuxochrome(key, pos);
         if (inc === undefined || inc === 0) continue;
         contributions.push({ label: `${pos}-${key}`, nm: inc });
         lambda += inc;
@@ -635,6 +668,7 @@ export function predictUvVis(input: string): UvResult | null {
           continue;
         }
         const aux = DIENE_AUX[key];
+        if (!aux) untabulatedAuxochrome(key, "diene");
         if (aux && aux.nm > 0) {
           contributions.push({ label: aux.label, nm: aux.nm });
           lambda += aux.nm;
@@ -682,7 +716,12 @@ export function predictUvVis(input: string): UvResult | null {
 
   // --- Isolated carbonyl ---------------------------------------------------
   let isolatedCarbonyl = false;
-  for (let a = 0; a < mol.getAllAtoms(); a++) if (carbonylKind(mol, a)) isolatedCarbonyl = true;
+  let isolatedCarboxylate = false;
+  for (let a = 0; a < mol.getAllAtoms(); a++) {
+    const k = carbonylKind(mol, a);
+    if (k === "carboxylate") isolatedCarboxylate = true;
+    else if (k) isolatedCarbonyl = true;
+  }
   if (isolatedCarbonyl) {
     caveats.add(
       "An isolated (unconjugated) carbonyl has only a weak n→π* band near 280 nm (ε ≈ 10-20); its strong π→π* band is below 200 nm."
@@ -696,6 +735,19 @@ export function predictUvVis(input: string): UvResult | null {
       outOfDomain: false,
       caveats: [...caveats],
     };
+  }
+
+  // --- Isolated carboxylate: not the 280 nm n→π* of a C=O ------------------
+  // A COO⁻ has no C=O; its two equivalent C-O bonds are a different chromophore
+  // whose n→π* this module does not tabulate. Until carboxylates were their own
+  // class they were "ester" and were handed the 280 nm line above.
+  if (isolatedCarboxylate) {
+    return refuse(
+      "isolated carboxylate, COO⁻ (no tabulated band)",
+      "The only carbonyl-type group here is a carboxylate anion (COO⁻). It is not an isolated C=O, so the " +
+        "tabulated 280 nm n→π* of ketones/aldehydes does not apply, and no value for the anion is " +
+        "tabulated here."
+    );
   }
 
   // --- No chromophore ------------------------------------------------------

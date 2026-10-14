@@ -166,6 +166,12 @@ export interface FoldOptions {
   geometry?: boolean;
   /** ODE inputs READ the prime (y′ is dy/dx) — the no-reading note is false there. */
   ode?: boolean;
+  /** A LINEAR PROGRAM: `maximize 3x1 + 2x2 subject to …`. The degraded-
+   *  superscript rewrite would turn x1 into x^1 (the variables ARE named x1,
+   *  x2 — v2.132.0, SCOPE-LP-SPLINES §E.2), and the prose extraction would
+   *  drop the objective line, which carries no comparator (§E.3). Both are
+   *  skipped; the LP grammar reads the raw text itself. */
+  lp?: boolean;
   /** Reassemble a rendered stacked fraction copied as separate lines
    *  ("3 ⏎ x+3 ⏎ =8" → (3)/(x+3) = 8). Equation-shaped kinds only — a
    *  topology point cloud or simplex list is ALSO multi-line, and must
@@ -377,7 +383,7 @@ export function foldPastedMath(input: string, opts: FoldOptions = {}): FoldedMat
   // Structure recovery LAST, over the cleaned lines (the zero-width strut
   // line a renderer emits has become whitespace by now and drops out):
   // prose stripping first, then stacked-fraction reassembly.
-  if (opts.extractFromProse) {
+  if (opts.extractFromProse && !opts.lp) {
     const extracted = extractEquationsFromProse(s);
     if (extracted.note) {
       s = extracted.text;
@@ -407,7 +413,8 @@ export function foldPastedMath(input: string, opts: FoldOptions = {}): FoldedMat
   // WRONG reading. digit·letter·digit is unambiguous (a coefficient times a
   // variable to a power); it is rewritten with a note. A bare "x2" without a
   // coefficient is left alone — x2 is a legitimate variable name in systems.
-  if (opts.stackedFractions) {
+  // Never under an LP: 3x1 + 2x2 names the decision variables x1 and x2.
+  if (opts.stackedFractions && !opts.lp) {
     let degraded = 0;
     // [ \t]*, NOT \s*: \s crosses newlines, and "… = 3\nx1 …" — a two-line
     // SYSTEM — was welded into "3x^1", destroying both equations at once.

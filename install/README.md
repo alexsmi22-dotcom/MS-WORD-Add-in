@@ -9,8 +9,8 @@ Pick your operating system below.
 
 | Your OS | Download | Quick steps |
 | --- | --- | --- |
-| **Windows** | **[formula-inserter-windows.zip](formula-inserter-windows.zip)** | Unzip → right-click **`install.ps1` → Run with PowerShell** → restart Word |
-| **macOS** | **[formula-inserter-mac.zip](formula-inserter-mac.zip)** | Unzip → **right-click `install.command` → Open → Open** → restart Word |
+| **Windows** | **[jurislab-windows.zip](jurislab-windows.zip)** | Unzip → right-click **`install.ps1` → Run with PowerShell** → restart Word |
+| **macOS** | **[jurislab-mac.zip](jurislab-mac.zip)** | Unzip → **right-click `install.command` → Open → Open** → restart Word |
 
 After installing, open Word → **Insert** tab → **Add-ins** → **JurisLab**
 (or the **Insert Formula** button on the Home tab). The pane opens on the side.
@@ -29,7 +29,7 @@ After installing, open Word → **Insert** tab → **Add-ins** → **JurisLab**
 
 ## Windows — step by step
 
-1. **Download** `formula-inserter-windows.zip` and **unzip** it (keep the files together in one folder).
+1. **Download** `jurislab-windows.zip` and **unzip** it (keep the files together in one folder).
 2. **Right-click `install.ps1` → Run with PowerShell.** (Don't double-click — that just opens Notepad. Or double-click `install.bat`.)
    - If Windows shows a blue **"Windows protected your PC"** box, click **More info → Run anyway** (it's only because the file was downloaded).
    - A window says **"JurisLab installed…"** — press a key to close it.
@@ -48,7 +48,7 @@ Like the Windows installer, with **one extra click the first time** — macOS ma
 you confirm you trust an installer it didn't deliver itself. After that, it's a
 normal double-click.
 
-1. **Download** `formula-inserter-mac.zip` and **unzip** it.
+1. **Download** `jurislab-mac.zip` and **unzip** it.
 2. **Right-click** (Control-click) **`install.command`** → **Open**. You'll get
    one of two boxes:
    - **Has an "Open" button** → click **Open**, skip to step 4.

@@ -91,7 +91,7 @@ large figures.
 The first thing a new user reads, and it undersells the product by twenty-two
 tools. Word of mouth is the only distribution a free tool has.
 
-**Where.** `install/formula-inserter-windows.zip`, `install/formula-inserter-mac.zip`,
+**Where.** `install/jurislab-windows.zip`, `install/jurislab-mac.zip`,
 `scripts/package.ps1` (generates both names), the `INSTALL.md` inside each pack,
 `%LOCALAPPDATA%\FormulaInserter` in `install.ps1`, `DISTRIBUTION.md`, and
 `package.json` `"name": "word-chem-formula"`.

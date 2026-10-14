@@ -1,7 +1,7 @@
 // The install packs users actually download were checked by nothing.
 //
 // WHY THIS EXISTS
-// install/formula-inserter-windows.zip and install/formula-inserter-mac.zip are
+// install/jurislab-windows.zip and install/jurislab-mac.zip are
 // committed to the repo and linked from landing/manual.html — they are the files
 // a non-technical user double-clicks. manifestVersion.test.ts looked like it
 // covered them, but it inspects `release/`, which is gitignored: on a CI checkout
@@ -27,7 +27,7 @@ const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8"))
 };
 
 /** The packs committed to the repo, i.e. the ones a user can download today. */
-const PACKS = ["install/formula-inserter-windows.zip", "install/formula-inserter-mac.zip"];
+const PACKS = ["install/jurislab-windows.zip", "install/jurislab-mac.zip"];
 
 /** Reads one file out of a zip as text, or null when it is absent. */
 async function readFromZip(zipPath: string, name: string): Promise<string | null> {

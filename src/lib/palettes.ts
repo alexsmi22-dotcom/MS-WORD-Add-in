@@ -441,6 +441,28 @@ export const SOLVE_TRANSFORMS: PaletteGroup[] = [
       { label: "∫ F·dr", snippet: "line integral (2 x y, x^2) from (0,0) to (1,2)", title: "Conservative fields only — path-dependent ones refused by name" },
     ],
   },
+  {
+    name: "Optimisation & interpolation",
+    items: [
+      { label: "maximize", snippet: "maximize 3x + 2y subject to x + y <= 4, x + 3y <= 6, x >= 0, y >= 0", title: "Exact simplex: optimum, slacks, shadow prices, reduced costs, ranges; the region drawn" },
+      { label: "minimize", snippet: "minimize 2x + 3y subject to x + y >= 4, x + 3y >= 6, x >= 0, y >= 0", title: "Two-phase (artificial variables named); duals (3/2, 1/2)" },
+      { label: "3 variables", snippet: "maximize 3x1 + 2x2 + 5x3 subject to x1 + 2x2 + x3 <= 430, 3x1 + 2x3 <= 460, x1 + 4x2 <= 420, x1, x2, x3 >= 0", title: "(0, 100, 230), z = 1350; x1 and x_1 both spell the same variable" },
+      { label: "dual", snippet: "dual of maximize 3x + 2y subject to x + y <= 4, x + 3y <= 6, x, y >= 0", title: "The dual LP written and solved; z* = w* shown" },
+      { label: "standard form", snippet: "standard form of maximize 3x + 2y subject to x + y <= 4, x - y >= -2", title: "Slacks/surplus, free variables split, min → −max; stops there" },
+      { label: "integer", snippet: "maximize 5x + 4y subject to 6x + 4y <= 24, x + 2y <= 6, -x + y <= 1, y <= 2, x, y >= 0, x and y integer", title: "LP relaxation labelled, then branch-and-bound (≤ 4 variables)" },
+      { label: "word problem", snippet: "A company makes chairs and tables. Each chair needs 2 hours of labor and 1 unit of wood and earns $30; each table needs 3 hours and 2 units and earns $50. There are 120 hours and 70 units available. How many of each maximize profit?", title: "Products × resources only; the LP it built is printed first" },
+      { label: "interpolate", snippet: "interpolate (1, 2), (2, 3), (4, 7)", title: "The exact polynomial through every point; Lagrange and Newton cross-checked; 'at x = 3' evaluates" },
+      { label: "Lagrange poly", snippet: "lagrange polynomial through (0, 1), (1, 3), (2, 2)", title: "Basis polynomials shown on request ('using lagrange')" },
+      { label: "Newton", snippet: "newton divided differences (1, 1), (2, 8), (3, 27), (4, 64)", title: "The divided-difference table and the nested form" },
+      { label: "Neville", snippet: "neville's method (0, 1), (1, 3), (2, 2) at x = 1.5", title: "The tableau at the query point" },
+      { label: "linear", snippet: "linear interpolation between (1, 10) and (3, 20) at x = 2", title: "The proportion line; also 'estimate f(2.5) given f(2) = 4, f(3) = 9'" },
+      { label: "error bound", snippet: "error bound for interpolating sin(x) at x = 0, 0.5, 1 with a quadratic", title: "|f − p| ≤ M/(n+1)! · max|Π(x − xᵢ)|, M stated" },
+      { label: "natural spline", snippet: "natural cubic spline through (0, 0), (1, 1), (2, 0)", title: "M vector, one piece per interval, continuity verified exactly; 'at x = 0.5'" },
+      { label: "clamped", snippet: "clamped cubic spline through (0, 0), (1, 1), (2, 0) with S'(0) = 1, S'(2) = -1", title: "End slopes verified; also 'with end slopes 0 and 0'" },
+      { label: "not-a-knot", snippet: "not-a-knot spline through (0,1), (1,3), (2,2), (3,4)", title: "With 4 points this IS the interpolating cubic — said" },
+      { label: "pchip", snippet: "pchip (0, 0), (1, 1), (2, 1), (3, 2)", title: "Monotone cubic (Fritsch–Carlson), the end formula stated" },
+    ],
+  },
 ];
 
 /** Whole-input equation templates: click → the input becomes this equation,

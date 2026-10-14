@@ -71,7 +71,7 @@ const CORPUS = path.join(__dirname, "figure-layout-run.ts");
 // highlighted shortest path, the 24-vertex dot-and-radial-label layout, a DFA).
 // 179 as of 2026-10-14 (v2.131.0): four probability figures (two pmf bar
 // charts, a Bayes tree, a Markov state diagram).
-const CORPUS_FLOOR = 179;
+const CORPUS_FLOOR = 183;
 
 // --- The allowance ratchet ----------------------------------------------------
 //

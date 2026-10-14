@@ -332,6 +332,10 @@ import { tryFourierSeries } from "../lib/fourier";
 import { tryMultivar, MULTIVAR_VERB_RE } from "../lib/multivar";
 import { tryProbability, PROB_VERB_RE } from "../lib/probability";
 import { tryMarkov, MARKOV_VERB_RE } from "../lib/markov";
+import { tryLp, LP_VERB_RE, isLpInput } from "../lib/lp";
+import { tryLpWords, LP_WORDS_RE } from "../lib/lpWords";
+import { tryInterpolate, INTERP_VERB_RE } from "../lib/interpolate";
+import { trySpline, SPLINE_VERB_RE } from "../lib/spline";
 import { tryComplex } from "../lib/complexAlgebra";
 import { tryStatsIntent } from "../lib/statsIntent";
 import { solveInputToTypesetLines, solveToTypesetDsl, isProseRequest } from "../lib/solveTypeset";
@@ -27668,6 +27672,9 @@ function updateSolve(): void {
   const folded = kind === "lambda" || kind === "discrete" ? { text: solveInput.value.trim(), notes: [] as string[] } : foldPastedMath(solveInput.value.trim(), {
     geometry: kind === "geometry",
     ode: kind === "ode",
+    // A linear program's x1, x2 are variable NAMES, and its objective line
+    // has no comparator — decided on the RAW input, before any rewrite.
+    lp: kind === "equation" && (isLpInput(solveInput.value) || LP_WORDS_RE.test(solveInput.value)),
     // Stacked-fraction pastes only make sense where a fraction does; a
     // topology point cloud or a word problem is multi-line for its own reasons.
     stackedFractions: kind === "equation" || kind === "derivative" || kind === "integral",
@@ -27747,7 +27754,12 @@ function updateSolve(): void {
         /^\s*(?:inverse\s+)?laplace\b|^\s*(?:ℒ|L)\s*\{|^\s*(?:ℒ|L)\s*(?:\^\s*[({]?\s*-\s*1|⁻¹)|^\s*fourier\s+series\b/i.test(text) ||
         MULTIVAR_VERB_RE.test(text) ||
         PROB_VERB_RE.test(text) ||
-        MARKOV_VERB_RE.test(text);
+        MARKOV_VERB_RE.test(text) ||
+        LP_VERB_RE.test(text) ||
+        isLpInput(text) ||
+        LP_WORDS_RE.test(text) ||
+        INTERP_VERB_RE.test(text) ||
+        SPLINE_VERB_RE.test(text);
       const wantsDerivative = !transformVerb && /\b(derivative|differentiate)\b/i.test(text);
       const wantsIntegral = !transformVerb && /\b(integral|integrate|antiderivative)\b/i.test(text);
       if (wantsDerivative || wantsIntegral) {
@@ -27813,7 +27825,13 @@ function updateSolve(): void {
       // The transform verbs come first: "laplace …" and "fourier series …"
       // are unambiguous prefixes, and nothing else may read "inverse laplace
       // 1/(s(s+1))" as an equation in s.
+      // Point-list verbs (v2.132.0) claim "at x = 1.5" and "find S(0.5)"
+      // before the equation solver can read them as x = 3/2.
       const verb =
+        tryLp(text) ??
+        tryLpWords(text) ??
+        tryInterpolate(text) ??
+        trySpline(text) ??
         tryMarkov(text) ??
         tryProbability(text) ??
         tryProbability(taskText) ??
@@ -27884,6 +27902,16 @@ function updateSolve(): void {
       // An INEQUALITY is unambiguous from its comparison sign.
       if (/[<>≤≥≠]|!=/.test(text) && !text.includes("\n")) {
         const iq = solveInequality(text);
+        // A mixed-direction chain (a <= f >= b) comes back with the internal
+        // sentinel display "refused" and the reason in its caveats. That is a
+        // refusal to print, not a set to print — "x ∈ refused" reached the
+        // pane verbatim (SCOPE-LP-SPLINES §E.4).
+        if (iq && iq.display === "refused") {
+          const head = `Solve ${text.trim()}`;
+          solveResult.appendChild(msEyebrow(head));
+          say(head, "heading");
+          return finish(iq.caveats);
+        }
         if (iq) {
           const head = `Solve ${text.trim()}`;
           solveResult.appendChild(msEyebrow(head));
@@ -28363,6 +28391,20 @@ function updateSolve(): void {
     }
 
     if (kind === "geometry") {
+      // A point list that NAMES an interpolant or a spline is not a polygon
+      // ("polynomial through (0,1), (1,3), (2,2)" was "Polygon from 3 points,
+      // area 3/2"). The equation kind owns those verbs — switch, as the
+      // derivative/limit prose switches do (SCOPE-LP-SPLINES §E.7).
+      if (INTERP_VERB_RE.test(text) || SPLINE_VERB_RE.test(text)) {
+        solveKind.value = "equation";
+        updateSolveUi();
+        updateSolve();
+        solveResult.insertBefore(
+          solveLine(`The line asks for ${SPLINE_VERB_RE.test(text) ? "a SPLINE" : "an INTERPOLATING POLYNOMIAL"} through the points — switched to the Equation kind, which owns it, and answered.`),
+          solveResult.firstChild
+        );
+        return;
+      }
       // Composite figures (a base shape minus/plus other shapes) are tried
       // FIRST: their connective words are unambiguous, and plain solveGeometry
       // has no reading for them.

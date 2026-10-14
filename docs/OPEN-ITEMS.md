@@ -1,5 +1,19 @@
 # JurisLab — Open Items
 
+> ## RE-VERIFIED AT v2.131.0 ON 2026-10-14 — the live work order is in the user's hit list
+>
+> Verified against the code that day. **Since shipped (strike):** symbolic ODEs and
+> units-aware solving (v2.104), cyclic and trig-power integrals (v2.105), partial
+> fractions (v2.126), typed error bars, versioned ribbon icons (§15, v2.35), the
+> `linalg.ts` comment (§6), dedicated suites for `optimize`/`matrixExpr`/`fft`/`ode`
+> (§4), install-pack rename (§14, v2.132.0), and the P1 "symbolic" items down to
+> exact cubic/quartic roots, multivariate GCD and radius of convergence, which are
+> still open. **Still accurate and scheduled:** §2 (`.dna` — waiting on a real file
+> from the user), §3 (`molgraph.ts` direct adversarial suite), §5 (PubChem fixture —
+> refreshed 2026-10-14), §7–§13, §18, and every P1 statistics / numerics /
+> spectroscopy / topology / chemistry item. **On hold by the user (2026-10-14):**
+> §17 Excel, online AI. **Declined:** §16 Word on the web.
+>
 > ## PARTLY SUPERSEDED — re-verified at v2.89.0 on 2026-08-05
 >
 > **See [GAP-ANALYSIS-2026-08-05.md](GAP-ANALYSIS-2026-08-05.md)** for the current

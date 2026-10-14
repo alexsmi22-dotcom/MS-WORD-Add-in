@@ -3,11 +3,11 @@
 #   powershell -ExecutionPolicy Bypass -File scripts\package.ps1 -HostUrl https://your-host/formula-inserter
 #
 # Produces under release\ :
-#   formula-inserter-host\           -> the HTTPS-hosted files (upload ONCE)
+#   jurislab-host\           -> the HTTPS-hosted files (upload ONCE)
 #     web\, manifest.xml, HOST-SETUP.md
-#   formula-inserter-windows\ (.zip) -> emailed to Windows users
+#   jurislab-windows\ (.zip) -> emailed to Windows users
 #     manifest.xml, install.ps1/.bat, uninstall.ps1/.bat, INSTALL.md, FEATURES.md
-#   formula-inserter-mac\ (.zip)     -> emailed to macOS users
+#   jurislab-mac\ (.zip)     -> emailed to macOS users
 #     manifest.xml, install.command, uninstall.command,
 #     START HERE - Install on Mac.txt, INSTALL-MAC.md, FEATURES.md
 #     Double-click install: user right-clicks install.command > Open the FIRST
@@ -30,9 +30,9 @@ $HostUrl = $HostUrl.TrimEnd("/")
 if ($HostUrl -notmatch "^https://") { throw "HostUrl must start with https://" }
 
 $release = Join-Path $root $OutDir
-$hostPack = Join-Path $release "formula-inserter-host"
-$winPack  = Join-Path $release "formula-inserter-windows"
-$macPack  = Join-Path $release "formula-inserter-mac"
+$hostPack = Join-Path $release "jurislab-host"
+$winPack  = Join-Path $release "jurislab-windows"
+$macPack  = Join-Path $release "jurislab-mac"
 
 Write-Host "1/6 Building production bundle..." -ForegroundColor Cyan
 npm run build
@@ -80,8 +80,8 @@ Copy-Item (Join-Path $root "packaging\INSTALL-MAC.md")    $macPack -Force
 Copy-Item (Join-Path $root "FEATURES.md")                 $macPack -Force
 
 Write-Host "6/6 Zipping per-OS packs..." -ForegroundColor Cyan
-$winZip = Join-Path $release "formula-inserter-windows.zip"
-$macZip = Join-Path $release "formula-inserter-mac.zip"
+$winZip = Join-Path $release "jurislab-windows.zip"
+$macZip = Join-Path $release "jurislab-mac.zip"
 foreach ($z in @($winZip, $macZip)) { if (Test-Path $z) { Remove-Item -Force $z } }
 Compress-Archive -Path (Join-Path $winPack "*") -DestinationPath $winZip
 # Mac zip is built by a Node zipper that preserves the Unix executable bit on the
@@ -100,17 +100,17 @@ if ($LASTEXITCODE -ne 0) { throw "Mac zip build failed." }
 # drift. installPacks.test.ts then verifies what is actually committed.
 $installDir = Join-Path $root "install"
 if (-not (Test-Path $installDir)) { New-Item -ItemType Directory $installDir | Out-Null }
-Copy-Item -Force $winZip (Join-Path $installDir "formula-inserter-windows.zip")
-Copy-Item -Force $macZip (Join-Path $installDir "formula-inserter-mac.zip")
+Copy-Item -Force $winZip (Join-Path $installDir "jurislab-windows.zip")
+Copy-Item -Force $macZip (Join-Path $installDir "jurislab-mac.zip")
 
 Write-Host ""
 Write-Host "Done." -ForegroundColor Green
 Write-Host "  Hosting files (upload once): $hostPack\web  ->  $HostUrl"
 Write-Host "  Windows install pack:        $winZip"
 Write-Host "  macOS install pack:          $macZip"
-Write-Host "  Committed downloads updated: install\formula-inserter-{windows,mac}.zip"
+Write-Host "  Committed downloads updated: install\jurislab-{windows,mac}.zip"
 Write-Host ""
-Write-Host "Next: upload 'formula-inserter-host\web' to $HostUrl (one time),"
+Write-Host "Next: upload 'jurislab-host\web' to $HostUrl (one time),"
 Write-Host "then email each user the pack for their OS:"
-Write-Host "  Windows -> formula-inserter-windows.zip"
-Write-Host "  macOS   -> formula-inserter-mac.zip"
+Write-Host "  Windows -> jurislab-windows.zip"
+Write-Host "  macOS   -> jurislab-mac.zip"

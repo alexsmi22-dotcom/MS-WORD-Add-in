@@ -314,9 +314,19 @@ const fmtCoefTerm = (c: Rat, varName: string, k: number, first: boolean): string
   return `${neg ? "- " : "+ "}${body}`;
 };
 
-function polyString(coeffs: Rat[], varName: string): string {
+/**
+ * An exact polynomial (ascending coefficient array) in Solve grammar with ONE
+ * minus convention: `1/3*x^2 + 5/3`, `-3/2*x^2 + 7/2*x + 1`. Descending powers
+ * by default; `ascending` prints spline pieces the textbook way
+ * (`1 - 3/2*(x - 1)^2 + 1/2*(x - 1)^3` — the variable may itself be `(x - 1)`).
+ * Shared by the interpolation and spline verbs so no second printer can drift.
+ */
+export function polyString(coeffs: Rat[], varName: string, ascending = false): string {
   const parts: string[] = [];
-  for (let k = coeffs.length - 1; k >= 0; k--) {
+  const order: number[] = [];
+  for (let k = coeffs.length - 1; k >= 0; k--) order.push(k);
+  if (ascending) order.reverse();
+  for (const k of order) {
     if (ratIsZero(coeffs[k])) continue;
     parts.push(fmtCoefTerm(coeffs[k], varName, k, parts.length === 0));
   }

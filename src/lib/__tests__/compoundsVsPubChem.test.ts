@@ -98,6 +98,13 @@ const EXCEPTIONS: Record<string, string> = {
   "sodium phosphate": "we give trisodium Na3PO4; PubChem's match is the monosodium salt",
   "iron oxide": "we give Fe2O3 (rust, the common meaning); PubChem's match is FeO2",
   "vitamin b6": "we give pyridoxine (the supplement form); PubChem's match is pyridoxal-5'-phosphate",
+  // Found by the 2026-10-14 fixture refresh: PubChem's name match for the bare
+  // "vitamin E" drifted from alpha-tocopherol (CID 14985, C29H50O2) to
+  // d-alpha-tocopherol CALCIUM SUCCINATE (CID 69540411, C33H54CaO6) — a salt
+  // of the vitamer, not the vitamer. The tocopherol half of PubChem's SMILES is
+  // byte-identical to ours; ours stays alpha-tocopherol. ("alpha-tocopherol"
+  // itself still matches exactly and covers the structure.)
+  "vitamin e": "we give alpha-tocopherol; PubChem's bare-name match drifted to its calcium succinate salt (2026-10)",
 
   // Not resolvable by this name in PubChem.
   asprin: "deliberate misspelling alias for aspirin",

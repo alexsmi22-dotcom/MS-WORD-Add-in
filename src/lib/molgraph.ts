@@ -80,17 +80,37 @@ export function isCumulatedCentre(mol: Molecule, a: number): boolean {
 }
 
 /**
- * True for the nitrogen of an ISOCYANIDE (R-N≡C), as against a nitrile's (R-C≡N).
+ * What a nitrogen triple-bonded to carbon IS, decided by the nitrogen's OTHER
+ * partner:
  *
- * The two differ only in which atom carries the R group, and every predictor
- * that sees a C≡N must ask: an isocyanide's carbon is ≈158 ppm in ¹³C and its
- * stretch is near 2150 cm-1, against a nitrile's ≈118 ppm and 2245 cm-1. Shared
- * here so IR and NMR cannot answer the question differently for one structure.
+ *   nitrile      R-C≡N        no other partner
+ *   isocyanide   R-N≡C        the other partner is carbon
+ *   nitrileOxide R-C≡N⁺–O⁻    the other partner is oxygen
+ *   other        anything else (N-silyl, N-metal, two partners ...)
+ *
+ * Returns null when `n` is not a nitrogen carrying a C≡N triple bond.
+ *
+ * Three of these four get a different spectroscopic answer: a nitrile's carbon
+ * is ≈118 ppm / 2245 cm-1, an isocyanide's ≈158 ppm / 2150 cm-1, and a nitrile
+ * oxide's C≡N stretch sits near 2290-2300 cm-1 with a carbon far upfield of a
+ * nitrile's. The old test was "triple-bonded to carbon and has another
+ * partner", which called every nitrile oxide an isocyanide because the partner's
+ * ELEMENT was never read; the consumers then printed an isocyanide's values for
+ * it. Shared here so IR and NMR cannot answer differently for one structure.
  */
-export function isIsocyanideNitrogen(mol: Molecule, n: number): boolean {
-  if (mol.getAtomicNo(n) !== 7) return false;
-  if (mol.getConnAtoms(n) < 2) return false;
-  return neighbors(mol, n).some((nb) => nb.order === 3 && mol.getAtomicNo(nb.atom) === 6);
+export type TripleCNKind = "nitrile" | "isocyanide" | "nitrileOxide" | "other";
+
+export function tripleCNKind(mol: Molecule, n: number): TripleCNKind | null {
+  if (mol.getAtomicNo(n) !== 7) return null;
+  const nbrs = neighbors(mol, n);
+  if (!nbrs.some((nb) => nb.order === 3 && mol.getAtomicNo(nb.atom) === 6)) return null;
+  const others = nbrs.filter((nb) => nb.order !== 3);
+  if (others.length === 0) return "nitrile";
+  if (others.length !== 1) return "other";
+  const z = mol.getAtomicNo(others[0].atom);
+  if (z === 6) return "isocyanide";
+  if (z === 8) return "nitrileOxide";
+  return "other";
 }
 
 /** True if `n` is an amide nitrogen (single-bonded to a carbonyl carbon). */
@@ -106,6 +126,16 @@ export function isAmideN(mol: Molecule, n: number): boolean {
  */
 export type CarbonylKind =
   | "acid"
+  /**
+   * C(=O)-O⁻: the carboxylate ANION. Not an ester and not an acid. The two O
+   * atoms are equivalent by resonance, so there is no C=O band at all (IR shows
+   * COO⁻ asymmetric ≈1550-1610 and symmetric ≈1400-1450 cm-1 instead of an
+   * ester's 1740) and the carbon sits near an acid's shift, not an ester's.
+   * Acetate, benzoate and every amino-acid zwitterion in the dictionary are
+   * this; the acid/ester split used to read only the O-H count and called them
+   * all "ester".
+   */
+  | "carboxylate"
   | "ester"
   | "amide"
   | "aldehyde"
@@ -176,6 +206,9 @@ export function carbonylKind(mol: Molecule, c: number): CarbonylKind | null {
     // -O- bridging to a second carbonyl is an anhydride, not an ester.
     const bridges = neighbors(mol, oAtom).some((nb) => nb.atom !== c && isCarbonyl(mol, nb.atom));
     if (bridges) return "anhydride";
+    // Charge is read BEFORE the hydrogen count: an O⁻ carries no hydrogen, and
+    // "no hydrogen" used to mean "ester". A carboxylate is its own class.
+    if (mol.getAtomCharge(oAtom) < 0) return "carboxylate";
     return mol.getAllHydrogens(oAtom) >= 1 ? "acid" : "ester";
   }
   if (singleN.length === 1) return "amide";
@@ -237,6 +270,11 @@ export function distancesFrom(
 ): number[] {
   const n = mol.getAllAtoms();
   const dist = new Array<number>(n).fill(-1);
+  // An out-of-range start must not write past the array: `dist[99] = 0` on a
+  // 3-atom molecule silently grew the result to 100 entries padded with holes
+  // (`null` under JSON), and OpenChemLib answers getConnAtoms(99) with 0 rather
+  // than throwing, so nothing downstream noticed. Every atom is unreachable.
+  if (from < 0 || from >= n) return dist;
   if (allow && !allow(from)) return dist;
   dist[from] = 0;
   const queue = [from];
@@ -317,6 +355,23 @@ export type SubstKey =
   | "COOH"
   | "COOR"
   | "CONH2"
+  // CHARGE-AWARE classes. The classifier used to ignore charge entirely, so a
+  // phenoxide O⁻ was "OR", an anilinium NH₃⁺ was "NH2" and a trimethylanilinium
+  // NMe₃⁺ was "NR2": a strongly WITHDRAWING cation given the strongest DONATING
+  // increment in the table (wrong sign, ~10-20 ppm out at para). These keys
+  // carry their own table entries where a published value exists and are named
+  // and REFUSED by the consumers where none does — never mapped onto the neutral
+  // parent's number.
+  /** Phenoxide / alkoxide O⁻: donates far more strongly than OH. */
+  | "O-"
+  /** Ammonio NH₃⁺ (anilinium): withdrawing, σ-like. */
+  | "NH3+"
+  /** Fully alkylated ammonio NR₃⁺ (trimethylanilinium): withdrawing, σ-like. */
+  | "NR3+"
+  /** Carboxylate COO⁻. */
+  | "COO-"
+  /** An sp2 carbon whose double bond goes to NITROGEN: imine, amidine, oxime. */
+  | "C=N"
   | "F"
   | "Cl"
   | "Br"
@@ -332,6 +387,7 @@ export type SubstKey =
 export function classifySubstituent(mol: Molecule, atom: number, from: number): SubstKey {
   const z = mol.getAtomicNo(atom);
   const h = mol.getAllHydrogens(atom);
+  const charge = mol.getAtomCharge(atom);
   const nbrs = neighbors(mol, atom).filter((nb) => nb.atom !== from);
 
   if (z === 9) return "F";
@@ -340,6 +396,11 @@ export function classifySubstituent(mol: Molecule, atom: number, from: number): 
   if (z === 53) return "I";
 
   if (z === 8) {
+    // Charge first: an O⁻ has no hydrogen and no second partner, and used to
+    // fall through to "OR" (an ether — a much weaker donor than an oxide).
+    if (charge < 0) return "O-";
+    // An oxonium O⁺ is nothing in the tables.
+    if (charge > 0) return "other";
     if (h >= 1) return "OH";
     // -O-C(=O)R is an acetoxy group; -O-C is an ether.
     if (nbrs.some((nb) => isCarbonyl(mol, nb.atom))) return "OAc";
@@ -347,6 +408,8 @@ export function classifySubstituent(mol: Molecule, atom: number, from: number): 
   }
 
   if (z === 16) {
+    // A sulfonium S⁺ or thiolate S⁻ is not a thioether or a thiol.
+    if (charge !== 0) return "other";
     // Oxidised sulfur is NOT a thioether. -SO3H, -SO2NH2, -SO2R and -S(=O)R are
     // strongly ELECTRON-WITHDRAWING, whereas -SR is weakly DONATING: the increments
     // differ in SIGN, not just magnitude. Returning "SR" for benzenesulfonic acid
@@ -367,11 +430,24 @@ export function classifySubstituent(mol: Molecule, atom: number, from: number): 
     // fall through to "NR2" — a strongly DONATING dialkylamine. Opposite sign,
     // ~19 ppm out at the para position, with nothing on screen to say so.
     if (oxy === 1) return "other";
-    if (isAmideN(mol, atom)) return "NHAc";
     // Any multiple bond from N means azide, imine, diazo, isocyanate — none of
     // which behave like an amine. Measured: phenyl azide and nitrosobenzene both
     // classified as "NR2".
     if (nbrs.some((nb) => nb.order >= 2)) return "other";
+    // A CATIONIC nitrogen is an ammonio group, which WITHDRAWS; the amine keys
+    // below all DONATE. Anilinium used to be "NH2" and trimethylanilinium "NR2".
+    // "NH3+" is the fully protonated primary ammonium; "NR3+" is the fully
+    // alkylated quaternary one. A partly alkylated ammonium (NH₂R⁺, NHR₂⁺) has
+    // no separate table entry anywhere in this codebase and is "other", which
+    // every consumer names rather than prices.
+    if (charge > 0) {
+      if (h >= 3) return "NH3+";
+      if (h === 0 && nbrs.length >= 1 && nbrs.every((nb) => mol.getAtomicNo(nb.atom) === 6)) return "NR3+";
+      return "other";
+    }
+    // An amide anion or other N⁻ is not an amine either.
+    if (charge < 0) return "other";
+    if (isAmideN(mol, atom)) return "NHAc";
     if (h >= 2) return "NH2";
     // A real amine's remaining partners are carbon.
     if (nbrs.every((nb) => mol.getAtomicNo(nb.atom) === 6)) return "NR2";
@@ -379,8 +455,10 @@ export function classifySubstituent(mol: Molecule, atom: number, from: number): 
   }
 
   if (z === 6) {
-    // Nitrile carbon: triple bond to N.
-    if (nbrs.some((nb) => nb.order === 3 && mol.getAtomicNo(nb.atom) === 7)) return "CN";
+    // Nitrile carbon: triple bond to N — but only a TRUE nitrile (terminal N).
+    // A nitrile oxide's carbon (C≡N⁺–O⁻) is not in the CN row of any table.
+    const tripleN = nbrs.find((nb) => nb.order === 3 && mol.getAtomicNo(nb.atom) === 7);
+    if (tripleN) return tripleCNKind(mol, tripleN.atom) === "nitrile" ? "CN" : "other";
     if (nbrs.some((nb) => nb.order === 3 && mol.getAtomicNo(nb.atom) === 6)) return "alkynyl";
     if (mol.isAromaticAtom(atom)) return "Ph";
 
@@ -391,6 +469,8 @@ export function classifySubstituent(mol: Molecule, atom: number, from: number): 
           return "CHO";
         case "acid":
           return "COOH";
+        case "carboxylate":
+          return "COO-";
         case "ester":
           return "COOR";
         case "amide":
@@ -401,12 +481,43 @@ export function classifySubstituent(mol: Molecule, atom: number, from: number): 
     }
     // Plain sp2 carbon (C=C) is a vinyl substituent.
     if (nbrs.some((nb) => nb.order === 2 && mol.getAtomicNo(nb.atom) === 6)) return "vinyl";
+    // An sp2 carbon doubly bonded to NITROGEN (imine, amidine, amidinium, oxime)
+    // used to fall through to the sp3 branch and be called "alkyl" — a donating
+    // class, for a group that withdraws. No benzene increment table in this
+    // codebase carries a C=N row, so the key exists to be NAMED by consumers.
+    if (nbrs.some((nb) => nb.order === 2 && mol.getAtomicNo(nb.atom) === 7)) return "C=N";
     // sp3: methyl vs larger alkyl.
     if (h === 3) return "CH3";
     return "alkyl";
   }
 
   return "other";
+}
+
+/**
+ * Display names for the substituent keys that exist to be REFUSED by name.
+ *
+ * The charge-aware keys and "C=N" have no entry in most of the consumers'
+ * increment tables (none was found in a published table this codebase can
+ * cite). A consumer that meets one must say which group it left out, in the
+ * group's own name — "attached via O" does not tell a reader that a phenoxide
+ * was ignored. Returns null for keys that are not of that kind.
+ */
+export function substKeyLabel(key: SubstKey): string | null {
+  switch (key) {
+    case "O-":
+      return "O⁻ (phenoxide / alkoxide)";
+    case "NH3+":
+      return "NH₃⁺ (ammonio)";
+    case "NR3+":
+      return "NR₃⁺ (quaternary ammonio)";
+    case "COO-":
+      return "COO⁻ (carboxylate)";
+    case "C=N":
+      return "C=N (imine / amidine carbon)";
+    default:
+      return null;
+  }
 }
 
 /** Parses an input (dictionary name, formula-free SMILES, or SMILES) to a Molecule. */

@@ -163,6 +163,15 @@ if (todo.length) {
 // ---------------------------------------------------------------------------
 const REVIEWED = [
   {
+    name: "vitamin e",
+    ours: "CC1=C(C2=C(CC[C@@](O2)(C)CCC[C@H](C)CCC[C@H](C)CCCC(C)C)C(=C1O)C)C",
+    reason:
+      "Found by the 2026-10-14 refresh: PubChem's match for the bare name drifted from " +
+      "alpha-tocopherol (CID 14985, C29H50O2) to d-alpha-tocopherol CALCIUM SUCCINATE " +
+      "(CID 69540411, C33H54CaO6) — a salt of the vitamer, not the vitamer. The tocopherol " +
+      "half of PubChem's SMILES is byte-identical to ours. Ours stays alpha-tocopherol.",
+  },
+  {
     name: "folate",
     ours: "C1=CC(=CC=C1C(=O)N[C@@H](CCC(=O)O)C(=O)O)NCC2=CN=C3C(=N2)C(=O)NC(=N3)N",
     reason:

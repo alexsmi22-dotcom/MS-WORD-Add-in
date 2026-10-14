@@ -6,6 +6,196 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.132.0] — 2026-10-14 — Linear programming, interpolation and splines
+
+The fourth Solve domain on the 2026-10 arc (`docs/SCOPE-LP-SPLINES.md`).
+
+The audit probed 104 curriculum inputs: 0 answered. No LP, interpolation or
+spline engine existed; `optimize.ts`'s "simplex" is Nelder–Mead. The worst
+classes: the Lagrange-multipliers verb stole every `maximize … subject to`
+line and returned an EMPTY result; the solver took `at x = 1.5` inside an
+interpolation request and answered "x = 3/2"; the paste fold rewrote `3x1 +
+2x2` as `3x^1 + 2x^2`; `standard form of … <= 4, … >= -2` printed "x ∈
+refused". An "Optimisation & interpolation" palette group beside Multivariable.
+
+### Added
+- **Point lists** (`src/lib/pointList.ts`), one reader for every shape a
+  human types: `(1, 2), (2, 3)`, `(1,2) (2,3)`, `x: 0, 1, 2; y: 1, 3, 2`,
+  `x = …; y = …`, `x 1 2 4 y 2 3 7`, `f(2) = 4, f(3) = 9`, a pasted two-column
+  table, and `f(x) = 1/x at x = 1, 2, 4` (sampled exactly through the CAS or
+  refused). Coordinates are exact rationals (`0.1` is 1/10); a repeated x with
+  two y's is refused naming both; identical duplicates are dropped and said;
+  unsorted points are sorted and said.
+- **Interpolation** (`src/lib/interpolate.ts`): the polynomial through the
+  points by the Vandermonde solve, cross-checked coefficient by coefficient
+  against the Lagrange basis products AND Newton's divided differences as
+  exact rationals (refused on disagreement), p(xᵢ) = yᵢ verified; the Newton
+  table and nested form; Lagrange basis lines on `using lagrange`; Neville's
+  tableau at a query point (its value checked against p(v)); `at x = 3` exact
+  and ≈ 6 s.f.; "degree 2, not 3" when the leading coefficient vanishes;
+  linear interpolation with the proportion line; the error bound
+  |f − p| ≤ M/(n+1)!·max|Π(x − xᵢ)| with M stated and the product's maximum
+  exact when its critical points are rational. ≤ 12 points (Runge; splines
+  suggested by name). A FIT (`least squares`, `regression`, `best fit`
+  without `through`) is refused by name — it is a different thing — with the
+  pointer to Sketch data → function and Stats regression; `fit … through`
+  interpolates and says so. Figure: the curve through the points, the query
+  point marked.
+- **Splines** (`src/lib/spline.ts`): natural (the default, SAID every time:
+  "natural" is a choice, not a property of the data), clamped (`with S'(0) =
+  1, S'(2) = -1`, `with end slopes 0 and 0`), not-a-knot (4 points = the
+  interpolating cubic, said and cross-checked against the interpolation
+  engine), linear, and PCHIP (Fritsch–Carlson slopes, the MATLAB end formula
+  named). The M-form tridiagonal system is solved over exact rationals; one
+  math line per piece in Solve grammar with its interval; S, S′, S″ agree
+  from both sides at every interior knot EXACTLY, end conditions exact,
+  S(xᵢ) = yᵢ — all verified before anything prints. `at x = 0.5` exact and ≈.
+  Two knots → the chord; quadratic splines, repeated x, > 50 knots, 2-D
+  splines refused by name. Figure: each piece sampled on ITS interval only
+  (a piece drawn across the whole window would look smooth and be wrong),
+  knots marked, clamped end tangents drawn, the query point marked.
+- **Linear programming** (`src/lib/lp.ts`, `lpFigure.ts`, `lpWords.ts`): an
+  EXACT two-phase tableau simplex over rationals with Bland's rule (pivot cap
+  500 → a refusal, never a partial answer); the standard form with slacks;
+  the optimum as math lines; the constraint table (value, bound, slack,
+  binding); shadow prices, reduced costs, objective and right-hand-side
+  ranging for the optimal basis (withheld by name at a degenerate vertex,
+  where they are not unique); alternative optima detected from a zero
+  reduced cost and shown as the edge between two vertices; the unbounded ray
+  from the entering column; infeasibility from the phase-1 optimum with the
+  contradicting constraints named (≤ 3 rows). Verified before anything
+  prints: every constraint re-evaluated at x* exactly, dual feasibility,
+  complementary slackness, strong duality cᵀx* = bᵀy* — and for two
+  variables an independent exact vertex enumeration that must agree.
+  Grammar: `maximize/minimize … subject to | s.t. | st | such that | given |
+  with`, constraints separated by `,` / `;` / newline at depth 0, `x, y >= 0`
+  expanded, `with x, y nonnegative`, `x and y integer`, `=<`/`=>`/`≦`/`≧`
+  normalised first, `maximize z = …` / `Maximize P = …` (the name kept),
+  `$30` stripped and reported, `3x1` and `x_1` (both in one problem is
+  said), `not linear: x*y` by name. Nouns: `dual of` (the dual LP written in
+  Solve grammar and both solved, z* = w*), `standard form of` (conversion
+  only, free variables split, min → −max, then STOP), `simplex tableau`
+  (initial and final, exact), `graphically solve` (2 variables, refuses 3+
+  by name), `shadow prices for` / `sensitivity analysis` / `reduced costs
+  for` (the noun leads). Integer: the LP relaxation always printed and
+  labelled, exact branch-and-bound when ≤ 4 variables and ≤ 50 nodes with
+  the tree summarised, else "LP relaxation only" by name. Non-negativity NOT
+  stated: solved as typed; if that is unbounded, ALSO solved with x ≥ 0 and
+  both printed, labelled — never silently added, never silently dropped.
+  Limits ≤ 12 variables / ≤ 20 constraints (a 12 × 20 exact LP runs in
+  30 ms). One prose template, products × resources (every clause the
+  template did not read is refused naming the clause); transportation,
+  assignment, diet and blending in prose refused by name with the typed LP
+  shown. Figure: the feasible region clipped from the half-planes and
+  shaded, each constraint line labelled, the dashed objective contour
+  through x* with its direction arrow, x* labelled; the alternative-optima
+  edge; the unbounded ray; "feasible region: empty"; bars of x* and the
+  slacks for 3+ variables.
+- Pane: the three verbs are tried FIRST in the equation verb chain and
+  guard the prose switches; a point list that names an interpolant or a
+  spline switches the Geometry kind to the Equation kind instead of reading
+  it as a polygon; `at x = 1.5` is a query, never an equation; a new
+  `lp: true` paste-fold option keeps `3x1 + 2x2` raw and keeps the objective
+  line that has no comparator; the inequality block never prints the
+  internal "refused" sentinel as an answer. Figure corpus +4 (floor 183).
+
+### Honest limits
+- LP: ≤ 12 variables, ≤ 20 constraints; branch-and-bound ≤ 4 variables /
+  50 nodes; sensitivity ranges only at a nondegenerate vertex (said);
+  exactly one prose template; literals over 15 significant digits refused
+  by name (the parser reads doubles); `pi` refused as a coefficient.
+- Interpolation ≤ 12 points; the error bound's M is exact only when the
+  (n+1)-th derivative is monotone on the node interval, else "by sampling,
+  not a proof"; a derivative unbounded on the interval (√x at 0) refuses.
+- Splines ≤ 50 knots; no quadratic, no 2-D/parametric, no B-spline bases
+  (refused by name).
+
+### Adversarial pass — independent reviewer (6 defects + cosmetics, all closed)
+The reviewer's own oracles found NOTHING wrong in the numbers: 250 random
+LPs against exhaustive vertex enumeration (optimum, status, unique /
+alternative / degenerate labels, shadow-price signs by sense, complementary
+slackness, strong duality in both senses), ranging by perturbation inside
+and outside the printed ranges on 114 problems, branch-and-bound against
+lattice brute force on 60, 120 random interpolants and 130 random splines
+with every PRINTED piece re-parsed and checked at interior points, 6,595
+math lines re-parsed. What it did find was in the presentation and the
+grammar — the class a green engine suite cannot see:
+- **The dual vector printed in the wrong order** whenever a right-hand side
+  was 0 or an equality row appeared: `dual of maximize 3x + 2y subject to
+  x - y <= 0, x + y <= 4, …` printed u = 5/2, v = 1/2 while its own
+  shadow-price line said 1/2 and 5/2 — the dual text's objective omitted
+  the zero term, the re-parse ordered names by first appearance, and the
+  solution was printed by position. Strong duality cannot catch a
+  permutation (the value is unchanged), and the mismatch also fired a
+  spurious "the dual has alternative optima". 14 of 40 random `dual of`
+  runs hit it. The solution is now mapped back by NAME and the dual
+  objective carries every variable.
+- A 3-constraint dual named its third variable `w` and its objective `w`,
+  printing `w = 0` and `w = 10` as two math lines.
+- **A trailing word became a free variable and flipped the verdict**:
+  `… x, y >= 0 graphically` (also `please`, `using the simplex method`,
+  `What is the maximum?`) read `graphically` as a third, free, zero-column
+  variable and reported "optimal, not unique — the optimal set is
+  unbounded" for a problem with a unique optimum. Trailing instructions
+  are stripped; a bare unknown word is refused by name, never invented.
+- **A symbolic query point was silently dropped**: `interpolate … at x =
+  pi` printed the polynomial and no p(π); `at x = 1.5 and x = 2.5` answered
+  only the first. Every query point now gets a line, exact through the CAS
+  where it can, refused by name where it cannot.
+- Routing steals: `standard form of x^2 + 6x + 2 = 0`, `graphically solve
+  x^2 - 4 = 0`, `sensitivity 0.9, specificity 0.8, prevalence 0.01` and
+  `dual numbers (1 + 2e)(3 + e)` were claimed by the LP nouns and refused;
+  `line through (1,2) with slope 3` was claimed by interpolation and refused
+  as "one point". A noun with no objective after it, and `through` with one
+  point and a slope clause, now stand aside.
+- Grammar gaps closed: `where/with/for x, y >= 0`, a parenthetical `(x and
+  y are integers)`, `maximize 3x + 2y = z`, `max …: constraints`, `Use the
+  simplex method to maximize …`, `z = 3x + 2y, maximize z subject to …`.
+- Cosmetics: an empty list in the phase-1 caveat; `ln(e)*exp(x)` in an
+  error-bound derivative; a sum without parentheses in the bound's text
+  line; the bound's math line now carries the exact form (√3/216) or the ≈;
+  M = e² stated exactly for exp (monotone on the interval — an endpoint is
+  a proof) rather than "by sampling".
+
+### Maintenance riding along
+- **Install packs renamed** `jurislab-windows.zip` / `jurislab-mac.zip` (were
+  `formula-inserter-*`; open item §14). `scripts/package.ps1`, the manual's
+  download links, `DISTRIBUTION.md`, `install/README.md` and both pack tests
+  follow. The `formula-inserter:*` content-control prefixes are NOT renamed —
+  they identify content in documents users have already saved. Old download
+  links to the previous filenames no longer resolve; installed copies are
+  unaffected (the pane updates from Pages).
+- **PubChem fixture refreshed** (`--refresh`, first since 2026-07-15). Four
+  entries moved upstream; one is a real drift: PubChem's match for the bare
+  name "vitamin E" is now d-alpha-tocopherol CALCIUM SUCCINATE (CID 69540411,
+  C33H54CaO6), a salt of the vitamer. Ours stays alpha-tocopherol (C29H50O2),
+  recorded as a reviewed exception pinned to our SMILES in both the gate and
+  the verify script. Same lesson as folate: the refresh is never automatic.
+- **`molgraph.ts` has a direct adversarial suite** (open item §3) — the
+  structure-detection layer behind NMR, IR, UV-Vis, MS fragmentation, 2-D NMR
+  and pKa was tested only transitively. 176 tests, every claimed atom index
+  re-verified on OpenChemLib primitives. It found seven defects; five fixed:
+  - **Every carboxylate was an "ester"** (acetate, benzoate, the glycine
+    zwitterion in the dictionary): the acid/ester split read the O–H count
+    and was charge-blind. New carbonyl kind `carboxylate`: IR gives the
+    COO⁻ asymmetric 1550–1610 and symmetric 1400–1450 cm⁻¹ stretches and NO
+    C=O band (Silverstein; Pretsch); ¹³C ≈ 182 ppm (BMRB acetate, TMS scale);
+    MS fragmentation skips the ester rules; UV-Vis refuses the conjugated
+    carboxylate by name (no base value); pKa never offers it an acid pKa.
+  - **Charged substituents got the wrong SIGN**: phenoxide read as OR,
+    anilinium as NH₂, trimethylanilinium as NR₂ (a withdrawing cation given
+    the strongest donating increment). New keys O⁻ / NH₃⁺ / NR₃⁺ / COO⁻; where
+    no Pretsch/Silverstein increment exists the predictors now NAME the group
+    as omitted rather than apply the neutral one. Hammett σ added only where
+    two sources agree (NR₃⁺, COO⁻); O⁻ and NH₃⁺ excluded by name.
+  - An imine/amidine carbon was "alkyl"; a nitrile oxide was an isocyanide
+    (partner element never checked); `distancesFrom` wrote past its array on
+    an out-of-range start.
+  - Documented, not changed: typing `CO` means carbon monoxide (the formula
+    table runs first); diastereotopic methyls share one symmetry class.
+- `docs/OPEN-ITEMS.md` re-verified against the code; shipped items struck,
+  on-hold items marked.
+
 ## [2.131.0] — 2026-10-14 — Probability and Markov chains
 
 The third Solve domain on the 2026-10 arc (`docs/SCOPE-PROBABILITY-MARKOV.md`).

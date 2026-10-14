@@ -2043,10 +2043,10 @@
   "notFound": true
  },
  "vitamin e": {
-  "cid": 14985,
-  "formula": "C29H50O2",
-  "smiles": "CC1=C(C2=C(CC[C@@](O2)(C)CCC[C@H](C)CCC[C@H](C)CCCC(C)C)C(=C1O)C)C",
-  "inchikey": "GVJHHUAWPYXKBD-IEOSBIPESA-N"
+  "cid": 69540411,
+  "formula": "C33H54CaO6",
+  "smiles": "CC1=C(C2=C(CC[C@@](O2)(C)CCC[C@H](C)CCC[C@H](C)CCCC(C)C)C(=C1O)C)C.C(CC(=O)[O-])C(=O)[O-].[Ca+2]",
+  "inchikey": "CXJUMRUCKLZKKB-RQGAJXLPSA-L"
  },
  "alpha-tocopherol": {
   "cid": 14985,

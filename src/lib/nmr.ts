@@ -36,8 +36,9 @@ import {
   aromaticRingDistances,
   isFusedAromatic,
   isCumulatedCentre,
-  isIsocyanideNitrogen,
+  tripleCNKind,
   classifySubstituent,
+  substKeyLabel,
   isPlainAlkylCarbon,
   parseToMolecule,
   symmetryClasses,
@@ -253,6 +254,11 @@ const CARBONYL_13C: Record<string, number> = {
   ketone: 205,
   aldehyde: 199,
   acid: 178,
+  // Carboxylate COO⁻ sits near the ACID, not the ester: BMRB bmse000191
+  // (acetate in D₂O, pH 7.4, DSS-referenced) gives 184.25 ppm, and DSS-
+  // referenced ¹³C runs ≈2 ppm high against the TMS scale this table uses,
+  // so ≈182. Typical carboxylate range 175-185 (Pretsch et al.).
+  carboxylate: 182,
   ester: 171,
   amide: 172,
   acidHalide: 170,
@@ -302,7 +308,7 @@ function aromaticCaveats(mol: Molecule, a: number, dist: number[], caveats: Set<
     if (!mol.isAromaticAtom(b) || dist[b] < 0 || dist[b] > 3) continue;
     for (const s of aromaticSubstituents(mol, b)) {
       const key = classifySubstituent(mol, s, b);
-      if (key === "other" || !AR13C[key]) unknown.add(mol.getAtomLabel(s));
+      if (key === "other" || !AR13C[key]) unknown.add(unknownSubstituentName(mol, s, key));
     }
   }
   if (unknown.size) {
@@ -342,6 +348,20 @@ const ISOCYANIDE_OMITTED =
   "An isocyanide carbon (R-N≡C) is OMITTED. It is not a nitrile: the substituent sits on the NITROGEN, and " +
   "the carbon resonates near 158 ppm against a nitrile's ≈118 ppm. No value is tabulated for it here.";
 
+const NITRILE_OXIDE_OMITTED =
+  "A C≡N whose nitrogen carries a further substituent that is not carbon — a nitrile oxide (R-C≡N⁺–O⁻) " +
+  "is the common case — is OMITTED. It is neither a nitrile (≈118 ppm) nor an isocyanide (≈158 ppm), and " +
+  "no value is tabulated for it here.";
+
+/**
+ * The name to print for a substituent this model has no increment for: the
+ * class's own name where the classifier gave it one (a phenoxide must be
+ * reported as a phenoxide, not as "attached via O"), else the atom label.
+ */
+function unknownSubstituentName(mol: Molecule, atom: number, key: SubstKey): string {
+  return substKeyLabel(key) ?? mol.getAtomLabel(atom);
+}
+
 const CUMULATED_H_OMITTED =
   "Proton environment(s) OMITTED from this spectrum: the protons sit on a cumulated double bond (a ketene " +
   "or an allene), where the alkene increments do not apply. No ¹H shift is predicted for them rather than " +
@@ -380,8 +400,16 @@ function shift13C(
       // distinction ir.ts draws for the 2245 cm-1 band. Answering 118 ppm here
       // while IR refused the band would have the two modules disagreeing about
       // one structure.
-      if (isIsocyanideNitrogen(mol, triple.atom)) {
+      const cn = tripleCNKind(mol, triple.atom);
+      if (cn === "isocyanide") {
         caveats.add(ISOCYANIDE_OMITTED);
+        return null;
+      }
+      // A nitrile oxide (C≡N⁺–O⁻) or an N-substituted C≡N of any other kind is
+      // neither a nitrile nor an isocyanide. It used to be given the
+      // isocyanide refusal — wrong class — and before that a nitrile's 118.
+      if (cn !== "nitrile") {
+        caveats.add(NITRILE_OXIDE_OMITTED);
         return null;
       }
       return { shift: 118.0, assignment: "C≡N (nitrile)" };
@@ -415,6 +443,7 @@ function shift13C(
       ketone: "C=O (ketone)",
       aldehyde: "CHO (aldehyde)",
       acid: "COOH (carboxylic acid)",
+      carboxylate: "COO⁻ (carboxylate)",
       ester: "C=O (ester)",
       amide: "C=O (amide)",
       acidHalide: "C=O (acid halide)",
@@ -525,7 +554,7 @@ function shift13C(
       // a ring. A silent omission is worse the further it is from a chemist's
       // expectation, and an unusual group is exactly where they would check.
       if (!inc) {
-        unknownSp3.add(mol.getAtomLabel(nb.atom));
+        unknownSp3.add(unknownSubstituentName(mol, nb.atom, key));
         continue;
       }
       shift += inc[d];
@@ -677,7 +706,7 @@ function shift1HonCarbon(
     // A plain alkane carbon is NOT such a substituent — the base value already
     // accounts for the skeleton, and flagging it would put this warning on
     // ethane. Only groups that were meant to carry an increment are reported.
-    if (!isPlainAlkylCarbon(mol, nb.atom)) unknownAlpha.add(mol.getAtomLabel(nb.atom));
+    if (!isPlainAlkylCarbon(mol, nb.atom)) unknownAlpha.add(unknownSubstituentName(mol, nb.atom, key));
   }
   if (unknownAlpha.size) {
     caveats.add(

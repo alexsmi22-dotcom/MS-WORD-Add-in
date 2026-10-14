@@ -567,9 +567,11 @@ describe("adversarial pass — closed defects", () => {
       const t0 = Date.now();
       const r = solveLambda(s)!;
       const ms = Date.now() - t0;
-      // The claim is "well under a second alone"; the bound is 3 s because a
-      // parallel jest run multiplies wall-clock several-fold (recorded flake class).
-      expect(`${s}: ${ms < 3000 ? "fast" : `SLOW ${ms}ms`}`).toBe(`${s}: fast`);
+      // The claim is "well under a second alone"; the bound is a gross-freeze
+      // bound because a parallel jest run multiplies wall-clock several-fold
+      // (recorded flake class: 3047 ms and 3102 ms under 341- and 352-file
+      // runs on 2026-10-14 against a 3 s bound — raised to 5 s).
+      expect(`${s}: ${ms < 5000 ? "fast" : `SLOW ${ms}ms`}`).toBe(`${s}: fast`);
       expect(r.outcome!.status).not.toBe("normal");
     }
   });

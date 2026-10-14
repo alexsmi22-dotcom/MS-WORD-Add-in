@@ -19,13 +19,13 @@ produces **three separate, labeled outputs** under `release\`:
 
 | Output | Audience | What to do with it |
 | --- | --- | --- |
-| `formula-inserter-host\` (`web\`, `manifest.xml`, `HOST-SETUP.md`) | IT (once) | Upload `web\` to `https://your-host/formula-inserter` |
-| `formula-inserter-windows.zip` | **Windows** users | Email it — they run `install.bat`/`install.ps1` (per-user, no admin) |
-| `formula-inserter-mac.zip` | **macOS** users | Email it — they **right-click `install.command` → Open** (per-user, no admin) |
+| `jurislab-host\` (`web\`, `manifest.xml`, `HOST-SETUP.md`) | IT (once) | Upload `web\` to `https://your-host/formula-inserter` |
+| `jurislab-windows.zip` | **Windows** users | Email it — they run `install.bat`/`install.ps1` (per-user, no admin) |
+| `jurislab-mac.zip` | **macOS** users | Email it — they **right-click `install.command` → Open** (per-user, no admin) |
 
 Each install pack is self-contained: it carries its own copy of the stamped
 `manifest.xml`, the OS installer/uninstaller, the matching INSTALL doc, and
-`FEATURES.md`. So: run the script → upload `formula-inserter-host\web` once → send
+`FEATURES.md`. So: run the script → upload `jurislab-host\web` once → send
 each person the **one zip for their OS**. They run the installer, restart Word,
 and pick **JurisLab** from **Insert → Add-ins**.
 

@@ -981,6 +981,11 @@ x&#179; &minus; 1 = 0
     </div>
     <div class="cards">
       <a class="card" href="tool.html?tool=solve">
+        <h3>Linear programming, interpolation, splines <span class="is-new">New</span></h3>
+        <p><code>maximize 3x + 2y subject to x + y &le; 4, x + 3y &le; 6, x, y &ge; 0</code> runs an <b>exact simplex</b> (rational tableau, two-phase, Bland's rule): the optimum, binding constraints, <b>shadow prices</b>, reduced costs and sensitivity ranges, the dual on request, branch-and-bound for small integer programs, and the feasible region drawn with the objective contour. Unbounded and infeasible are verdicts with the ray or the contradicting constraints named. <code>interpolate (1, 2), (2, 3), (4, 7)</code> gives the exact polynomial through every point, cross-checked three ways; <code>natural cubic spline through &hellip;</code> gives one cubic per interval with continuity verified exactly. A least-squares fit is a different thing and is refused by name.</p>
+        <div class="spec">maximize 3x + 2y s.t. x + y &le; 4, x + 3y &le; 6, x, y &ge; 0 &#8594; (4, 0), z = 12, shadow prices (3, 0)</div>
+      </a>
+      <a class="card" href="tool.html?tool=solve">
         <h3>Probability and Markov chains <span class="is-new">New</span></h3>
         <p>Fifteen named distributions as verbs: <code>binomial n=10 p=0.4 P(X &le; 3)</code> gives the <b>exact fraction</b> and the formula with the pmf drawn and the event shaded; the normal shows z and &Phi; with the tail shaded; quantiles, critical values, moments and mgfs for t, &chi;&sup2;, F, exponential, gamma, beta, geometric and hypergeometric too. Every value is <b>cross-checked by a route that shares no code</b> and withheld on disagreement. Bayes exact with the probability tree (independence never assumed), expected values of listed outcomes, the classic dice/coin/urn/birthday problems exactly, confidence intervals with the z-or-t choice stated, and <b>Markov chains</b>: the stationary distribution exact, classification and period, limits only when they exist, absorbing chains with expected steps, the state diagram drawn.</p>
         <div class="spec">markov [[0.9, 0.1], [0.5, 0.5]] stationary &#8594; &pi; = (5/6, 1/6), irreducible, aperiodic</div>
@@ -1001,7 +1006,7 @@ x&#179; &minus; 1 = 0
         <div class="spec">x = 3/(a + 1), y = (&minus;2a + 1)/(a + 1) for a &ne; &minus;1; a = &minus;1: no solution</div>
       </a>
       <a class="card" href="tool.html?tool=solve">
-        <h3>Discrete math, six engines <span class="is-new">New</span></h3>
+        <h3>Discrete math, six engines</h3>
         <p>One Solve kind reads what you type and routes it: <code>gcd 84 36</code> shows Euclid's steps and the B&eacute;zout coefficients; <code>is 561 prime</code> catches the Carmichael number and says when Miller&ndash;Rabin is a <b>proof</b>; <code>10 choose 3</code> and &ldquo;how many ways to seat 6 around a round table&rdquo; name their model; Fibonacci comes back as Binet's formula, <b>exact in &#8474;(&radic;5)</b> and verified against iteration; <code>T(n) = 2T(n/2) + n</code> is &Theta;(n log n) by the master theorem; <code>p -&gt; q, q |= p</code> is <b>invalid</b>, with the counterexample row; <code>regex (a|b)*abb</code> becomes a minimal DFA, <b>drawn</b>; an edge list under <code>shortest path A to F</code> draws the graph with the path highlighted. Every cap named, every answer that can be checked two ways is.</p>
         <div class="spec">x &equiv; 2 (mod 3), x &equiv; 3 (mod 5), x &equiv; 2 (mod 7) &#8594; x &equiv; 23 (mod 105)</div>
       </a>

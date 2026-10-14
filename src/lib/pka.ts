@@ -11,7 +11,7 @@
 
 import { Molecule } from "openchemlib";
 import { lookupSmiles } from "./structures";
-import { aromaticRingDistances, aromaticSubstituents, classifySubstituent, SubstKey } from "./molgraph";
+import { aromaticRingDistances, aromaticSubstituents, classifySubstituent, substKeyLabel, SubstKey } from "./molgraph";
 
 export interface PkaSite {
   group: string;
@@ -58,6 +58,19 @@ const SIGMA: Partial<Record<SubstKey, { m: number; p: number; pMinus?: number }>
   Ph: { m: 0.06, p: -0.01 },
   vinyl: { m: 0.05, p: -0.02 },
   alkynyl: { m: 0.21, p: 0.23 },
+  // CHARGED groups (the classifier used to map them onto their neutral parents,
+  // so an anilinium NH₃⁺ was priced as a donating NH₂ — wrong sign).
+  // NR₃⁺ (trimethylammonio): σm +0.88, σp +0.82 — Hansch & Leo, "Substituent
+  // Constants for Correlation Analysis in Chemistry and Biology" (Wiley, 1979),
+  // and the same values in Reusch's Virtual Textbook LFER table.
+  "NR3+": { m: 0.88, p: 0.82 },
+  // COO⁻: σm −0.10, σp 0.00 — Reusch, Virtual Textbook of Organic Chemistry
+  // (LFER table; identical to the Hansch–Leo–Taft 1991 compilation).
+  "COO-": { m: -0.1, p: 0.0 },
+  // O⁻ (phenoxide) and NH₃⁺ (ammonio) are deliberately ABSENT: the published
+  // values found disagree with each other (O⁻ σp −1.00 in one table, −0.81 in
+  // another; NH₃⁺ σm 0.98 vs 0.86), so hammettAdjust names them as EXCLUDED
+  // rather than pick one.
 };
 
 const HAMMETT: Record<"phenol" | "benzoic" | "anilinium", { pka0: number; rho: number; minus: boolean }> = {
@@ -76,13 +89,21 @@ function hammettAdjust(mol: Molecule, ipso: number, kind: keyof typeof HAMMETT):
   let sum = 0;
   const parts: string[] = [];
   let ortho = 0;
+  const excluded: string[] = [];
   for (let b = 0; b < mol.getAllAtoms(); b++) {
     const d = dist[b];
     if (d < 1 || d > 3) continue;
     for (const s of aromaticSubstituents(mol, b)) {
       const key = classifySubstituent(mol, s, b);
       const sig = SIGMA[key];
-      if (!sig) continue;
+      if (!sig) {
+        // A NAMED class with no σ here (phenoxide, ammonio, imine carbon) is
+        // said out loud in the note; silently contributing zero would make the
+        // corrected pKa look like a complete calculation.
+        const label = substKeyLabel(key);
+        if (label && d > 1) excluded.push(`${label} ${d === 3 ? "para" : "meta"}`);
+        continue;
+      }
       if (d === 1) { ortho++; continue; } // ortho excluded
       const v = d === 3 ? (p.minus && sig.pMinus !== undefined ? sig.pMinus : sig.p) : sig.m;
       sum += v;
@@ -94,6 +115,7 @@ function hammettAdjust(mol: Molecule, ipso: number, kind: keyof typeof HAMMETT):
   if (parts.length) note += `; Hammett ρ=${p.rho}, Σσ=${sum >= 0 ? "+" : ""}${sum.toFixed(2)} [${parts.join(", ")}]`;
   else note += "; no meta/para substituents";
   if (ortho) note += `; ${ortho} ortho substituent(s) excluded`;
+  if (excluded.length) note += `; EXCLUDED, no σ tabulated here: ${excluded.join(", ")}`;
   return { pka, note };
 }
 

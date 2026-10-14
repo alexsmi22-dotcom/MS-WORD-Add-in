@@ -17,8 +17,8 @@ describe("the pane reaches the probability verbs", () => {
     expect(PANE).toMatch(/import \{ tryProbability, PROB_VERB_RE \} from "\.\.\/lib\/probability";/);
     expect(PANE).toMatch(/import \{ tryMarkov, MARKOV_VERB_RE \} from "\.\.\/lib\/markov";/);
   });
-  it("tries Markov and probability FIRST in the verb chain", () => {
-    expect(PANE).toMatch(/const verb =\s*tryMarkov\(text\) \?\?\s*tryProbability\(text\) \?\?\s*tryProbability\(taskText\) \?\?\s*tryMultivar\(text\)/);
+  it("tries Markov and probability ahead of every older verb in the chain (only the v2.132.0 point-list verbs precede them)", () => {
+    expect(PANE).toMatch(/const verb =\s*tryLp\(text\) \?\?\s*tryLpWords\(text\) \?\?\s*tryInterpolate\(text\) \?\?\s*trySpline\(text\) \?\?\s*tryMarkov\(text\) \?\?\s*tryProbability\(text\) \?\?\s*tryProbability\(taskText\) \?\?\s*tryMultivar\(text\)/);
   });
   it("the prose-switch guard stands aside for both", () => {
     expect(PANE).toMatch(/PROB_VERB_RE\.test\(text\)/);

@@ -329,7 +329,6 @@
   "l-glutathione",
   "vitamin a",
   "vitamin d3",
-  "vitamin e",
   "alpha-tocopherol",
   "vitamin b1",
   "vitamin b2",
@@ -368,6 +367,16 @@
    "cid": 123289,
    "bucket": "WRONG",
    "reason": "Ours is Fe2O3, which is what 'iron oxide' means in ordinary use (hematite, rust). PubChem resolves the ambiguous name to FeO2."
+  },
+  {
+   "name": "vitamin e",
+   "ours": "CC1=C(C2=C(CC[C@@](O2)(C)CCC[C@H](C)CCC[C@H](C)CCCC(C)C)C(=C1O)C)C",
+   "pubchem": "CC1=C(C2=C(CC[C@@](O2)(C)CCC[C@H](C)CCC[C@H](C)CCCC(C)C)C(=C1O)C)C.C(CC(=O)[O-])C(=O)[O-].[Ca+2]",
+   "ourFormula": "C29H50O2",
+   "pcFormula": "C33H54CaO6",
+   "cid": 69540411,
+   "bucket": "WRONG",
+   "reason": "Found by the 2026-10-14 refresh: PubChem's match for the bare name drifted from alpha-tocopherol (CID 14985, C29H50O2) to d-alpha-tocopherol CALCIUM SUCCINATE (CID 69540411, C33H54CaO6) — a salt of the vitamer, not the vitamer. The tocopherol half of PubChem's SMILES is byte-identical to ours. Ours stays alpha-tocopherol."
   },
   {
    "name": "vitamin b6",

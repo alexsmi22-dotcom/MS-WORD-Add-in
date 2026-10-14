@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.131.0)
+# JurisLab — Manual Test Script (v2.132.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -9,6 +9,95 @@ scanning, and layout. Budget ~30 minutes for the full pass.
 Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
+
+## 0by. New in v2.132.0 — Linear programming, interpolation and splines
+
+Solve, Equation kind. The "Optimisation & interpolation" palette group holds every verb.
+
+- [ ] `interpolate (1, 2), (2, 3), (4, 7)` → **p(x) = 1/3*x^2 + 5/3** as a real equation,
+  "Degree 2 through 3 points", the divided-difference table, the Newton form
+  **2 + (x - 1) + 1/3*(x - 1)*(x - 2)**, "Verified: the Vandermonde solve, the Lagrange
+  basis products and Newton's divided differences gave identical coefficients", and the
+  curve drawn through the three points. `interpolate (1, 2), (2, 3), (4, 7) at x = 3` →
+  **p(3) = 14/3 ≈ 4.66667** — NOT "x = 3" (the solver must not steal `at x = 3`).
+- [ ] `lagrange polynomial through (0, 1), (1, 3), (2, 2) at x = 1.5` → **-3/2*x^2 + 7/2*x + 1**,
+  the basis lines L0, L1, L2, p(1.5) = **23/8**. `neville's method (0, 1), (1, 3), (2, 2) at
+  x = 1.5` → 23/8 with the tableau. `newton divided differences (1, 1), (2, 8), (3, 27),
+  (4, 64)` → **x^3**, table 1 · 7, 19, 37 · 6, 9 · 1.
+- [ ] `x: 0, 1, 2, 3; y: 1, 2, 5, 10 interpolating polynomial` → **x^2 + 1**, "degree 2, not 3:
+  the 4 points lie on a parabola". `interpolating polynomial for f(x) = 1/x at x = 1, 2, 4`
+  → **1/8*x^2 - 7/8*x + 7/4** (the function sampled exactly, not "more than one unknown").
+- [ ] `linear interpolation between (1, 10) and (3, 20) at x = 2` → **15** with the proportion
+  line. `error bound for interpolating sin(x) at x = 0, 0.5, 1 with a quadratic` →
+  **√3/216 ≈ 0.00801875**, "M = 1 for sin".
+- [ ] `interpolate (1, 2), (1, 3), (2, 4)` → REFUSED naming x = 1 and both y's.
+  `least squares line through (1,2), (2,3), (3,5)` → REFUSED by name ("a FIT is least
+  squares … Sketch data → function or Stats regression"). `fit a polynomial through (0,1),
+  (1,3), (2,2)` → the interpolant with the caveat saying which was done.
+- [ ] `natural cubic spline through (0, 0), (1, 1), (2, 0)` → "Natural cubic spline, 3 knots,
+  2 pieces", **M = (0, -3, 0)**, **S(x) = 3/2*x - 1/2*x^3** on [0, 1], **S(x) = 1 - 3/2*(x - 1)^2
+  + 1/2*(x - 1)^3** on [1, 2], "Verified: S, S′, S″ agree at x = 1 exactly", the figure with
+  each piece on its own interval and the knots marked. `… evaluate at x = 0.5` → **11/16 =
+  0.6875** — NOT "x = 1/2". `spline (0,0), (1,1), (2,0) at 1.5` → 11/16, "natural assumed".
+- [ ] `clamped cubic spline through (0, 0), (1, 1), (2, 0) with S'(0) = 1, S'(2) = -1` →
+  **M = (2, -4, 2)**, **x + x^2 - x^3**, **1 - 2*(x - 1)^2 + (x - 1)^3**, S(0.5) = 5/8, "end slopes
+  verified: 1 and −1", the end tangents drawn as short segments.
+- [ ] `not-a-knot spline through (0,1), (1,3), (2,2), (3,4)` → the single cubic
+  **x^3 - 9/2*x^2 + 11/2*x + 1**, "not-a-knot with 4 points IS the interpolating cubic".
+  `cubic spline (1, 2), (2, 3), (4, 7) second derivative zero at the ends` → S(3) = **19/4**
+  (the parabola through the same points gives 14/3 — a spline is not the polynomial).
+- [ ] `pchip (0, 0), (1, 1), (2, 1), (3, 2)` → slopes (3/2, 0, 0, 3/2), the MATLAB end formula
+  named, the flat piece **1** on [1, 2]. `cubic spline through (0, 0), (1, 1)` → "the chord
+  y = x". `quadratic spline through (0,0), (1,1), (2,0)` → REFUSED by name. Bare `spline`
+  → the usage line, never "spline = 0".
+- [ ] Geometry kind: type `polynomial through (0,1), (1,3), (2,2)` with the Shape kind selected
+  → the pane switches to the Equation kind and answers **-3/2*x^2 + 7/2*x + 1** (not
+  "Polygon from 3 points, area 3/2").
+- [ ] `maximize 3x + 2y subject to x + y <= 4, x + 3y <= 6, x >= 0, y >= 0` → "Linear program —
+  maximize 3x + 2y (2 variables, 2 constraints + non-negativity)", the standard form with
+  **s1, s2**, **x = 4**, **y = 0**, **z = 12** as real equations, "unique optimum", the
+  constraint table (x + y ≤ 4 binding, slack 0; x + 3y ≤ 6 slack 2), **shadow prices (3, 0)**,
+  reduced cost of y = −1, ranges c_x ∈ [2, ∞), c_y ∈ (−∞, 3], RHS of 4 ∈ [0, 6], "Verified:
+  dual feasibility, complementary slackness, strong duality 12 = 12; the 2-variable vertex
+  enumeration agrees", and the figure: the feasible polygon shaded, both constraint lines
+  labelled, the dashed objective contour through (4, 0) with its arrow. The paste note
+  "Read … powers that lost their superscripts" must NOT appear.
+- [ ] `maximize 3x1 + 2x2 + 5x3 subject to x1 + 2x2 + x3 <= 430, 3x1 + 2x3 <= 460, x1 + 4x2 <=
+  420, x1, x2, x3 >= 0` → **(0, 100, 230), z = 1350**, duals (1, 2, 0), reduced cost of x1 = −4;
+  the typeset preview shows x1, x2, x3 as NAMES (never 3x¹ + 2x² + 5x³). Bars of x* and the
+  slacks instead of a region.
+- [ ] `minimize 2x + 3y subject to x + y >= 4, x + 3y >= 6, x >= 0, y >= 0` → **(3, 1), z = 9**,
+  duals (3/2, 1/2), "phase 1 … artificial variables a1, a2". `dual of maximize 3x + 2y
+  subject to x + y <= 4, x + 3y <= 6, x, y >= 0` → the dual **minimize 4u + 6v subject to
+  u + v >= 3, u + 3v >= 2, u, v >= 0** written out, w* = 12 at (3, 0), "z* = w*".
+- [ ] `maximize x + y subject to x - y <= 1, x >= 0, y >= 0` → **UNBOUNDED**, the ray
+  **x = 1 + t, y = t**, the ray drawn. `maximize x + y subject to x + y <= 1, x + y >= 2, x, y
+  >= 0` → **INFEASIBLE**, "x + y ≤ 1 and x + y ≥ 2 cannot both hold", the half-planes drawn
+  and nothing shaded. `maximize 2x + 2y subject to x + y <= 4, x <= 3, y <= 3, x, y >= 0` →
+  z = 8, "alternative optima along the edge from (1, 3) to (3, 1)", the edge highlighted.
+  `maximize 3x + 9y subject to x + 4y <= 8, x + 2y <= 4, x, y >= 0` → (0, 2), z = 18,
+  "degenerate", "shadow prices are not unique here".
+- [ ] `maximize 3x + 2y subject to x + y <= 4, x + 3y <= 6` (no non-negativity) → BOTH
+  answers labelled: "as stated: unbounded along x = 4 + t, y = −t" AND "with x, y ≥ 0 (the
+  textbook convention, which you did not state): (4, 0), z = 12".
+- [ ] `maximize 5x + 4y subject to 6x + 4y <= 24, x + 2y <= 6, -x + y <= 1, y <= 2, x, y >= 0, x
+  and y integer` → "LP relaxation: (3, 3/2), z = 21", branch-and-bound summarised with the
+  nodes (3, 1) z = 19, (2, 2) z = 18, (4, 0) z = 20, **integer optimum (4, 0), z = 20**.
+- [ ] `standard form of maximize 3x + 2y subject to x + y <= 4, x - y >= -2` → the conversion
+  only (slack, surplus, free variables as x = x' − x''), and NEVER "x ∈ refused".
+  `simplex tableau for …` → initial and final tableaux, numbers exact.
+- [ ] `A company makes chairs and tables. Each chair needs 2 hours of labor and 1 unit of wood
+  and earns $30; each table needs 3 hours and 2 units and earns $50. There are 120 hours and
+  70 units available. How many of each maximize profit?` → the LP it built printed
+  (**maximize 30x + 50y subject to 2x + 3y <= 120, x + 2y <= 70, x, y >= 0**), then
+  **(30, 20), profit 1900**. `transportation problem: supplies 20, 30; demands 25, 25; costs
+  …` → REFUSED by name with the typed-LP form shown.
+- [ ] `maximize 3x + 2y` → the usage line ("an LP needs subject to …"), never "more than one
+  unknown (maximize, x, y)". `maximize x*y subject to x + y <= 4` → "not linear: x*y".
+  `minimize x^2 + y^2 subject to x + y = 1` → still Lagrange multipliers (Multivariable).
+- [ ] Nothing regressed: `lagrange x y subject to x^2 + y^2 = 1` is still Lagrange
+  MULTIPLIERS (Multivariable); `line through (1, 2) and (3, 8)` still gives 3x − 1;
+  `x^2 - 5x + 6 = 0`, `mean of 3, 5, 8`, `binomial n=10 p=0.4 P(X <= 3)` unchanged.
 
 ## 0bx. New in v2.131.0 — Probability and Markov chains
 
@@ -3165,6 +3254,7 @@ Engineering mode, Energy & power (now 17; the mode must state **101 calculators*
   - `(0,0,0) (1,1,1) (2,2,2)` -> refused as **COLLINEAR**: no plane.
   - `circle r=1/3` -> area **1/9*pi** exactly, and `box 1/2 1/3 1/4` -> volume **1/24**.
     (Typed fractions must stay exact — no long decimals or giant fractions anywhere.)
+- [ ] **Linear programming, interpolation and splines (v2.132.0).** Solve — see §0by.
 - [ ] **Probability and Markov chains (v2.131.0).** Solve — see §0bx.
   - `binomial n=10 p=0.4 P(X <= 3)` → 3733209/9765625, exact, pmf drawn.
   - `markov [[0.9, 0.1], [0.5, 0.5]] stationary` → π = (5/6, 1/6), state diagram drawn.

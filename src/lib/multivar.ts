@@ -946,6 +946,12 @@ function sumOfPositiveSquares(g: Expr, vars: string[]): boolean {
 function tryLagrange(input: string): VerbResult | null {
   const m = /^\s*(?:lagrange(?:\s+multipliers?)?|maximi[sz]e|minimi[sz]e|optimi[sz]e|extremi[sz]e)\s+(?:of\s+)?(.+?)\s+(?:subject\s+to|s\.t\.|given|under|with\s+(?:the\s+)?constraint|on)\s+(.+)$/i.exec(input);
   if (!m) return null;
+  // A LINEAR PROGRAM — "maximize 3x + 2y subject to x + y <= 4, x + 3y <= 6" —
+  // has inequality constraints or several of them. That is lp.ts's line
+  // (v2.132.0); this verb used to claim it and return an EMPTY result with
+  // "The constraint must be an equation g(x, y) = c." Stand aside (null, not
+  // a refusal) so the LP verb, which runs first, or the usage refusal owns it.
+  if (/[<>≤≥≦≧]|=<|=>|≠/.test(m[2]) || (m[2].match(/=/g) ?? []).length > 1 || /\b(?:nonnegative|non-negative|integer)\b/i.test(m[2])) return null;
   const title = `Lagrange multipliers: ${m[1].trim()} subject to ${m[2].trim()}`;
   const con = m[2].split("=");
   if (con.length !== 2) return refuse(title, "The constraint must be an equation g(x, y) = c.");

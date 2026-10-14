@@ -32,6 +32,23 @@ describe("degraded superscripts from web copy (3x2 → 3x², user workflow)", ()
     expect(sys.notes.join(" ")).not.toMatch(/superscript/);
   });
 
+  test("under an LP the decision variables x1, x2 are NOT powers and the objective line survives (v2.132.0)", () => {
+    // SCOPE-LP-SPLINES §E.2/E.3: "maximize 3x1 + 2x2 + 5x3 …" was rewritten
+    // to 3x^1 + 2x^2 + 5x^3 (x1 and x^1 then coexisted), and the one-per-line
+    // shape lost its objective — "max 3x + 2y" has no comparator, so the
+    // prose extraction dropped it as prose.
+    const lp = "maximize 3x1 + 2x2 + 5x3 subject to x1 + 2x2 + x3 <= 430, 3x1 + 2x3 <= 460, x1, x2, x3 >= 0";
+    const folded = foldPastedMath(lp, { stackedFractions: true, extractFromProse: true, lp: true });
+    expect(folded.text).toBe(lp);
+    expect(folded.notes.join(" ")).not.toMatch(/superscript/);
+    const lines = foldPastedMath("max 3x + 2y\nx + y <= 4\nx + 3y <= 6\nx, y >= 0", { stackedFractions: true, extractFromProse: true, lp: true });
+    expect(lines.text).toBe("max 3x + 2y\nx + y <= 4\nx + 3y <= 6\nx, y >= 0");
+    expect(lines.notes.join(" ")).not.toMatch(/prose line/);
+    // Without the flag the same text IS rewritten — the flag, not luck, protects it.
+    const without = foldPastedMath(lp, { stackedFractions: true, extractFromProse: true });
+    expect(without.text).not.toBe(lp);
+  });
+
   test("prose without an equals extracts the trailing expression only", () => {
     const t = foldPastedMath("the derivative of 5x3 - 2x2 + 7x - 9", { stackedFractions: true }).text;
     expect(extractExpression(t)).toBe("5x^3 - 2x^2 + 7x - 9");

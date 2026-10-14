@@ -28,7 +28,7 @@ import {
   isAmideN,
   hasCarbonNeighbour,
   isCumulatedCentre,
-  isIsocyanideNitrogen,
+  tripleCNKind,
   parseToMolecule,
 } from "./molgraph";
 
@@ -132,7 +132,21 @@ function unassignedGroupsAt(mol: Molecule, a: number): string[] {
         out.push("azo (N=N)");
       }
     }
-    if (isIsocyanideNitrogen(mol, a)) out.push("isocyanide (N≡C)");
+    // A C≡N whose nitrogen carries a further partner is NOT a nitrile, and only
+    // one such class is an isocyanide. A nitrile oxide (R-C≡N⁺–O⁻, stretch near
+    // 2290-2300 cm-1) used to be announced as an isocyanide here because the
+    // partner's element was never read.
+    switch (tripleCNKind(mol, a)) {
+      case "isocyanide":
+        out.push("isocyanide (N≡C)");
+        break;
+      case "nitrileOxide":
+        out.push("a nitrile oxide (C≡N⁺–O⁻)");
+        break;
+      case "other":
+        out.push("a C≡N whose nitrogen carries a non-carbon substituent");
+        break;
+    }
   }
 
   if (z === 6 && !mol.isAromaticAtom(a)) {
@@ -281,7 +295,22 @@ export function predictIr(input: string): IrResult | null {
 
     // --- Carbonyl ----------------------------------------------------------
     const kind = carbonylKind(mol, a);
-    if (kind) {
+    if (kind === "carboxylate") {
+      // A carboxylate has NO C=O band. Its two oxygens are equivalent by
+      // resonance and the group vibrates as one COO⁻ unit: a strong
+      // ASYMMETRIC stretch and a weaker SYMMETRIC one, both far below an
+      // ester's 1740. Ranges: Silverstein, "Spectrometric Identification of
+      // Organic Compounds" (carboxylate salts: asym. 1650-1550 strong, sym.
+      // near 1400); Pretsch et al., "Structure Determination of Organic
+      // Compounds" (COO⁻ 1610-1550 and 1420-1300). Measured anchors: aqueous
+      // sodium acetate sym. 1413.5 cm-1 (Yang et al., RSC Adv. 2015, 5,
+      // 24180), sodium salicylate asym. 1578 cm-1. The ranges below are the
+      // part of those published ranges that simple carboxylates occupy.
+      // Until this branch existed every carboxylate was an "ester" and got
+      // 1740 cm-1 plus an ester C-O stretch it does not have.
+      add({ wavenumber: 1580, range: [1550, 1610], intensity: "strong", assignment: "COO⁻ asym. stretch (carboxylate)" });
+      add({ wavenumber: 1415, range: [1400, 1450], intensity: "medium", assignment: "COO⁻ sym. stretch (carboxylate)" });
+    } else if (kind) {
       const entry = CARBONYL_IR[kind];
       if (entry) {
         // Conjugation to an aryl ring or C=C lowers C=O by ~20-30 cm-1 — a real,
@@ -326,10 +355,10 @@ export function predictIr(input: string): IrResult | null {
       const nitrogen = z === 7 ? a : zz === 7 ? nb.atom : -1;
       const carbon = z === 6 ? a : zz === 6 ? nb.atom : -1;
       if (carbon >= 0 && nitrogen >= 0) {
-        // Only a TERMINAL nitrogen makes this a nitrile; a substituted one makes
-        // it an isocyanide, whose stretch is ~100 cm-1 lower and is not
-        // tabulated here (unassignedGroupsAt names it instead).
-        if (!isIsocyanideNitrogen(mol, nitrogen)) {
+        // Only a TERMINAL nitrogen makes this a nitrile. A substituted one is an
+        // isocyanide (~100 cm-1 lower), a nitrile oxide (~50 cm-1 higher) or
+        // something rarer — none tabulated here; unassignedGroupsAt names them.
+        if (tripleCNKind(mol, nitrogen) === "nitrile") {
           add({ wavenumber: 2245, range: [2210, 2260], intensity: "medium", assignment: "C≡N stretch (nitrile)" });
         }
       } else if (z === 6 && zz === 6) {

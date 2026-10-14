@@ -167,11 +167,19 @@ describe("every transform, multivariable and probability template is answered by
   const { tryProbability } = require("../probability");
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const { tryMarkov } = require("../markov");
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { tryLp } = require("../lp");
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { tryLpWords } = require("../lpWords");
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { tryInterpolate } = require("../interpolate");
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { trySpline } = require("../spline");
   const all = SOLVE_TRANSFORMS.flatMap((g: { items: { label: string; snippet: string }[] }) => g.items);
   const rows: [string, string][] = all.map((i: { label: string; snippet: string }) => [i.label, i.snippet]);
   test.each(rows)("%s: %s", (_label: string, snippet: string) => {
     const text = foldPastedMath(snippet).text;
-    const v = tryMarkov(text) ?? tryProbability(text) ?? tryMultivar(text) ?? tryLaplace(text) ?? tryFourierSeries(text);
+    const v = tryLp(text) ?? tryLpWords(text) ?? tryInterpolate(text) ?? trySpline(text) ?? tryMarkov(text) ?? tryProbability(text) ?? tryMultivar(text) ?? tryLaplace(text) ?? tryFourierSeries(text);
     expect(v).not.toBeNull();
     // A template must produce a RESULT line, not a refusal.
     expect(v!.lines.length).toBeGreaterThan(0);

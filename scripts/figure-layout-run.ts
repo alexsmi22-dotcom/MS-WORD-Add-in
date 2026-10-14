@@ -73,6 +73,10 @@ import { tryGraph } from "../src/lib/graphs";
 import { tryAutomata } from "../src/lib/automata";
 import { tryProbability } from "../src/lib/probability";
 import { tryMarkov } from "../src/lib/markov";
+import { tryInterpolate } from "../src/lib/interpolate";
+import { trySpline } from "../src/lib/spline";
+import { tryLp } from "../src/lib/lp";
+import { lpRegionSvg } from "../src/lib/lpFigure";
 import { solveComposite } from "../src/lib/compositeGeometry";
 import { compositeShapeSvg, geometryFigureSvg, drawnShapesSvg } from "../src/lib/geometryChart";
 import { solveGeometry } from "../src/lib/geometryParse";
@@ -1616,6 +1620,46 @@ ORIGIN
   if (tree && tree.svg) figures.push(["bayes tree", tree.svg]);
   const chain = tryMarkov("markov [[0.5,0.3,0.2],[0.2,0.6,0.2],[0.1,0.2,0.7]] stationary");
   if (chain && chain.svg) figures.push(["markov state diagram", chain.svg]);
+}
+
+// Interpolation and splines (v2.132.0): a 12-point interpolant (the cap —
+// Runge oscillation is the stress on the y range) and a 4-knot clamped
+// spline with its end tangents drawn and a query point marked.
+{
+  const twelve = tryInterpolate(
+    "interpolate (-5, 1/26), (-4, 1/17), (-3, 1/10), (-2, 1/5), (-1, 1/2), (0, 1), (1, 1/2), (2, 1/5), (3, 1/10), (4, 1/17), (5, 1/26), (6, 1/37) at x = 4.5",
+  );
+  if (twelve && twelve.svg) figures.push(["interpolant 12 points", twelve.svg]);
+  const clamped = trySpline("clamped cubic spline through (0, 0), (1, 1), (2, 0), (3, 2) with S'(0) = 1, S'(3) = -1 at x = 1.5");
+  if (clamped && clamped.svg) figures.push(["clamped spline 4 knots", clamped.svg]);
+}
+
+// Linear programming (v2.132.0): the Taha problem — five constraint lines,
+// their labels crowding the region — and an unbounded LP whose ray must be
+// drawn off the edge of the window without the labels following it.
+{
+  const taha = tryLp("maximize 5x + 4y subject to 6x + 4y <= 24, x + 2y <= 6, -x + y <= 1, y <= 2, x, y >= 0");
+  if (taha && taha.svg) figures.push(["lp region 5 constraints", taha.svg]);
+  const ray = tryLp("maximize x + y subject to x - y <= 1, x >= 0, y >= 0");
+  if (ray && ray.svg) figures.push(["lp unbounded ray", ray.svg]);
+  // The empty region, built directly: two half-planes that do not meet, no
+  // vertices, nothing shaded — the caption is the whole figure.
+  figures.push([
+    "lp infeasible empty",
+    lpRegionSvg({
+      vars: ["x", "y"],
+      rows: [
+        { a: [1, 1], rel: "<=", b: 1, label: "x + y ≤ 1" },
+        { a: [1, 1], rel: ">=", b: 2, label: "x + y ≥ 2" },
+      ],
+      nonneg: [true, true],
+      vertices: [],
+      c: [1, 1],
+      sense: "max",
+      status: "infeasible",
+      caption: "feasible region: empty — x + y ≤ 1 and x + y ≥ 2 cannot both hold",
+    }),
+  ]);
 }
 
 // --- The statistics charts ----------------------------------------------------

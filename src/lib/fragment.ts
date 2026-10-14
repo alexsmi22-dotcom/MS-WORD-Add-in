@@ -234,11 +234,30 @@ export function predictFragments(input: string, opts: { maxFragments?: number } 
   // M+• itself (EI molecular ion = molecule minus one electron).
   const molecularIon = molMass - ELECTRON;
 
+  // A CARBOXYLATE anion (acetate, benzoate, an amino-acid zwitterion) is not a
+  // neutral carbonyl compound and the carbonyl rules below are written for
+  // neutral ones: there is no α-cleavage to an acylium from a COO⁻, no
+  // McLafferty γ-H transfer onto it, no CO₂ loss from a group with no acid H.
+  // Until carboxylates were their own class they were "ester" and were given
+  // all three. The group is excluded from every carbonyl pathway and named.
+  const isCarboxylateC = (a: number): boolean => carbonylKind(mol, a) === "carboxylate";
+  let hasCarboxylate = false;
+  for (let a = 0; a < n; a++) if (isCarboxylateC(a)) hasCarboxylate = true;
+  if (hasCarboxylate) {
+    caveats.add(
+      "A carboxylate anion (COO⁻) is present. EI fragmentation rules describe NEUTRAL molecules — a " +
+        "salt does not give an M⁺• under electron ionisation (it is usually seen as the free acid, or is " +
+        "not volatilised at all) — so no carbonyl pathway (α-cleavage, McLafferty, decarboxylation) is " +
+        "applied to that group, and the molecular-ion m/z is that of the anion exactly as drawn."
+    );
+  }
+
   // --- Single-bond cleavages ---------------------------------------------
   for (let a = 0; a < n; a++) {
     for (const nb of neighbors(mol, a)) {
       if (nb.atom < a) continue;
       if (nb.order !== 1) continue;
+      if (isCarboxylateC(a) || isCarboxylateC(nb.atom)) continue;
       const cut = cutBond(mol, a, nb.atom);
       if (!cut) continue; // ring bond — needs two cleavages, handled separately
       const b = nb.atom;
@@ -347,7 +366,7 @@ export function predictFragments(input: string, opts: { maxFragments?: number } 
   // A carbonyl with a γ-hydrogen: the γ-H transfers to the carbonyl oxygen and
   // the β-C-C bond breaks, expelling a neutral alkene. Classic, high-propensity.
   for (let c = 0; c < n; c++) {
-    if (!isCarbonyl(mol, c)) continue;
+    if (!isCarbonyl(mol, c) || isCarboxylateC(c)) continue;
     // Walk the chain: Cα (bonded to C=O), Cβ, Cγ.
     for (const nbA of neighbors(mol, c)) {
       if (nbA.order !== 1 || mol.getAtomicNo(nbA.atom) !== 6) continue;

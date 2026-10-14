@@ -51,6 +51,7 @@ const PINNED: Record<string, string> = {
   "Offline delivery": "2.127.0",
   "Every statistics calculator reads the table at the cursor; power & sample size": "2.128.0",
   "Laplace transforms, initial-value problems and Fourier series": "2.129.0",
+  "Multivariable calculus": "2.130.0",
 };
 
 describe("the manual test script's version tags are history, not a moving target", () => {

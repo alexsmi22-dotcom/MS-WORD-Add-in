@@ -408,6 +408,22 @@ export const SOLVE_TRANSFORMS: PaletteGroup[] = [
       { label: "square wave", snippet: "fourier series -1 on (-pi, 0); 1 on (0, pi)", title: "Pieces separated by ;" },
     ],
   },
+  {
+    name: "Multivariable",
+    items: [
+      { label: "∇f", snippet: "gradient x^2 y + y^3 at (1,2)", title: "Gradient, each partial checked by central differences; |∇f| exact" },
+      { label: "D_u f", snippet: "directional derivative x^2 y at (1,2) in direction (3,4)", title: "Direction normalised for you" },
+      { label: "Hessian", snippet: "hessian x^3 + x y^2", title: "Second partials and det H" },
+      { label: "Jacobian", snippet: "jacobian (r cos(theta), r sin(theta))", title: "Matrix and determinant — the polar factor r" },
+      { label: "critical pts", snippet: "critical points x^3 - 3x + y^2", title: "∇f = 0 by exact elimination, second-derivative test, saddles named" },
+      { label: "Lagrange", snippet: "lagrange x y subject to x^2 + y^2 = 1", title: "∇f = λ∇g; max/min declared only on a bounded constraint" },
+      { label: "∬", snippet: "double integral x^2 + y^2 over y from 0 to x, x from 0 to 1", title: "Inner integral first, exact where the integrator can; bounds may use outer variables" },
+      { label: "∭", snippet: "triple integral x y z over x from 0 to 1, y from 0 to 1, z from 0 to 1", title: "Three nested integrals" },
+      { label: "div / curl", snippet: "curl (y z, x z, x y)", title: "Also: divergence (P, Q, R)" },
+      { label: "potential", snippet: "potential (2 x + y, x + 2 y)", title: "φ with ∇φ = F, or refused with the curl shown" },
+      { label: "∫ F·dr", snippet: "line integral (2 x y, x^2) from (0,0) to (1,2)", title: "Conservative fields only — path-dependent ones refused by name" },
+    ],
+  },
 ];
 
 /** Whole-input equation templates: click → the input becomes this equation,

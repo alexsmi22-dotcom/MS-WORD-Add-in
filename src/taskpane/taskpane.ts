@@ -329,6 +329,7 @@ import { DrawShape, sanitizeShapes, emitDsl as emitDrawDsl, shapesDescribeEmit }
 import { trySum, tryAlgebraVerb } from "../lib/algebraTools";
 import { tryLaplace, solveIvpLaplace, hasInitialConditions } from "../lib/laplace";
 import { tryFourierSeries } from "../lib/fourier";
+import { tryMultivar, MULTIVAR_VERB_RE } from "../lib/multivar";
 import { tryComplex } from "../lib/complexAlgebra";
 import { tryStatsIntent } from "../lib/statsIntent";
 import { solveInputToTypesetLines, solveToTypesetDsl, isProseRequest } from "../lib/solveTypeset";
@@ -27738,7 +27739,9 @@ function updateSolve(): void {
       // A transform verb owns its whole line: "laplace transform of the
       // derivative of t^2" is a Laplace request, not a derivative request, and
       // no prose switch below may take it first.
-      const transformVerb = /^\s*(?:inverse\s+)?laplace\b|^\s*(?:ℒ|L)\s*\{|^\s*(?:ℒ|L)\s*(?:\^\s*[({]?\s*-\s*1|⁻¹)|^\s*fourier\s+series\b/i.test(text);
+      const transformVerb =
+        /^\s*(?:inverse\s+)?laplace\b|^\s*(?:ℒ|L)\s*\{|^\s*(?:ℒ|L)\s*(?:\^\s*[({]?\s*-\s*1|⁻¹)|^\s*fourier\s+series\b/i.test(text) ||
+        MULTIVAR_VERB_RE.test(text);
       const wantsDerivative = !transformVerb && /\b(derivative|differentiate)\b/i.test(text);
       const wantsIntegral = !transformVerb && /\b(integral|integrate|antiderivative)\b/i.test(text);
       if (wantsDerivative || wantsIntegral) {
@@ -27805,6 +27808,8 @@ function updateSolve(): void {
       // are unambiguous prefixes, and nothing else may read "inverse laplace
       // 1/(s(s+1))" as an equation in s.
       const verb =
+        tryMultivar(text) ??
+        tryMultivar(taskText) ??
         tryLaplace(taskText) ??
         tryLaplace(text) ??
         tryFourierSeries(taskText) ??

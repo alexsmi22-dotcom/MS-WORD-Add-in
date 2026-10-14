@@ -6,6 +6,178 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.130.0] — 2026-10-14 — Multivariable calculus
+
+The second Solve domain on the 2026-10 arc (`docs/SCOPE-LAPLACE-MULTIVAR.md`
+§C). Calculus III, in the equation kind, as verbs — and a "Multivariable"
+palette group beside Transforms so nothing has to be remembered.
+
+### Added
+- **Multivariable calculus** (`src/lib/multivar.ts`, one `tryMultivar` entry
+  tried before the transforms): `gradient f [at (p)] [in x, y]`,
+  `directional derivative f at (p) in direction (v)`, `hessian f` (with det H),
+  `jacobian (f1, f2, …)` (matrix and determinant; a non-square one says so),
+  `critical points f`, `lagrange f subject to g = c` (also
+  maximize/minimize/optimize), `double integral f over x from a to b, y from
+  c to d`, `triple integral …`, `divergence (P, Q[, R])`, `curl` (2-D scalar
+  or 3-D vector), `potential (P, Q[, R])`, `line integral F from (a) to (b)`.
+- **Every partial derivative is checked by central differences** at three
+  points before it is shown; `|∇f|` is exact with its square factors pulled
+  out (`2*sqrt(14)`, never `sqrt(56)` or 7.483), which the exact simplifier
+  now does for every sqrt of a rational (`sqrt(1/2)` → `sqrt(2)/2`).
+- **Critical points by exact elimination**: a gradient component in ONE
+  variable is solved exactly and substituted; a component linear in a
+  variable is substituted the other way. Every point is verified by
+  substituting it into ∇f, then classified by the second-derivative test
+  (D in two variables, Hessian eigenvalues above) — saddle points named,
+  INCONCLUSIVE said when D = 0 (`x^4 + y^4`). Roots the polynomial solver
+  returns numerically (degree ≥ 3) are snapped to a closed form ONLY when
+  substituting that form back makes the component exactly 0, so `(1, 1)` is
+  `(1, 1)`, not `(1.0000000000, 0.99999999997) (numeric)`. The multi-start
+  numerical solver is the fallback, and says its list may be incomplete.
+- **Lagrange multipliers**: ∇f = λ∇g with g = c; candidates from the
+  numerical solver are snapped to closed forms under the same exact check
+  (the unit-circle maximum of xy is `1/2 at (sqrt(2)/2, sqrt(2)/2)`); a
+  maximum and minimum are DECLARED only when the constraint set is provably
+  bounded (a sum of positive squares equal to a positive constant), and
+  otherwise the candidates are listed with "boundedness was not established".
+- **Iterated integrals**: inner integral first through the symbolic
+  integrator, exact where it can (`1/3`), numerical with a stated caveat
+  where it cannot (`exp(-x^2)` → ≈ 0.7468); bounds may depend on OUTER
+  variables only, and the order rule is explained when they do not.
+- **Vector fields**: `potential` returns φ with ∇φ = F (verified) or refuses
+  with the curl shown; `line integral` is evaluated as φ(b) − φ(a) for
+  conservative fields and **refused by name as PATH-dependent** otherwise.
+- Paste notes for `∂` and `∇` now name the verb to type instead of sending
+  the user to the Differentiate kind.
+
+### Honest limits
+- `3xy` is ONE variable named xy in this grammar (as `theta` is one name) and
+  is refused by name with the fix spelled out, rather than silently split.
+- A whole curve of critical points (`x^2 y^2`) is not enumerated; the engine
+  refuses rather than list one point of it as isolated.
+- One constraint only; a constraint with no real points is refused by name.
+- Nothing is optimised over a parameter: a letter in f that is not a
+  coordinate (x, y, z, u, v, w) and not in the constraint is refused.
+
+### Adversarial pass — the author's second probe (6 defects behind a green audit)
+- A circle of degenerate critical points, `(x^2 + y^2 - 1)^2`, came back as
+  FORTY "saddle points" with D ≈ −1e-8: the second-derivative test used an
+  absolute 1e-12 zero test on a floating-point root whose coordinates carry
+  the solver's localisation error. A numeric D is now zero below 1e-6 of
+  the Hessian's scale squared; degenerate numerical roots are dropped and
+  said so, and if nothing else remains the verb refuses rather than list a
+  sample of a continuum.
+- `x^2 y^2` (every point of both axes is critical) was reported as two
+  "points"; a coordinate hyperplane on which ∇f vanishes identically is
+  now refused by name. A dependent linear gradient (`x^2 + y^2 + z^2 -
+  2xy`) refused without a reason; it now names the solution set.
+- `sin(x) + cos(y)` was "solved by exact elimination" with four points and no
+  caveat — a periodic function has infinitely many. Completeness is now
+  claimed only when every eliminated equation is a polynomial; otherwise
+  the header says the roots came from the solver's search range and a
+  caveat says NOT complete. Numeric critical points are snapped to π
+  multiples (`(pi/2, pi/2)`), sorted nearest the origin, with a periodicity
+  caveat for trigonometric gradients, and f and D at a numeric point are
+  evaluated (no more `f = sin(7.853981634)^2`).
+- An empty constraint set (`x^2 + y^2 = -1`) was refused without a reason.
+
+### Adversarial pass — independent reviewer (~290 probes, 20 items, all closed)
+- **HANG**: `iterated integral … w from 0 to 1` with four bounds ran 400⁴
+  midpoint evaluations. Three bounds at most, refused by name.
+- **CRASH**: a parameter in an integrand (`double integral a x y …`) threw
+  an uncaught "Unknown variable" from the numerical cross-check. Parameters
+  are now carried symbolically (`= a/4`) and the cross-check substitutes a
+  stated value for each; `dx dy` are refused as differentials.
+- **Wrong answers with a "Verified" caveat**: vector-field coordinates were
+  chosen by SORTING the letters, so `divergence (a x, b y)` gave `x + y`,
+  `curl (0, 0, B)` printed `(curl F)_undefined`, and `potential (k x, k y)`
+  was refused as "not conservative". The coordinates are x, y[, z] always;
+  other letters are constants, named in a caveat.
+- **Divergent integrals shown as exact finite values** — `1/x` over (−1, 1)
+  "= 0, Exact", `tan(x)` over (0, π), `1/(1−x)` over (0, 2): the midpoint
+  rule never samples the pole and the antisymmetric sum cancels. A
+  structural check now collects every denominator, logarithm and even-root
+  argument of the integrand and sweeps them along the innermost variable:
+  a sign change or zero of a denominator, a non-positive log argument or a
+  negative root argument inside the region refuses the integral as
+  improper, by name and location. An endpoint singularity (`1/sqrt(x)` at
+  0, integrable, = 2) is judged by whether the quadrature error shrinks
+  with resolution; a divergent one (`1/x` over (0, 1), once "≈ 7.95") fails
+  that convergence test and is refused. A non-finite antiderivative at a
+  boundary says DIVERGES.
+- Line integrals: `(1/x, 1/y)` from (−1,−1) to (1,1) returned 0 although
+  every path crosses an axis where the field is non-integrable; now φ must
+  be finite at both end points and F finite along the straight segment, or
+  the verb refuses (the value then depends on how the path goes round the
+  singularity).
+- Values at undefined points: `gradient x/y at (1, 0)` printed `(1/0,
+  −1/0)`; `gradient sqrt(x) + y at (−1, 0)` fabricated `|∇f| = sqrt(3)/2`
+  from (1/(2√−1))² = −1/4; `abs(x)` at 0 folded x/|x| to 0. Any non-finite
+  f, partial or Hessian entry at the point now refuses by name. An
+  overflowing direction (`(1e200, 1e200)` → `2e+200/sqrt(Infinity)`, the one
+  display-contract violation found) is refused.
+- Decimals labelled exact: a bound of `e` folded `exp(2)/2` to
+  3.69452804947 "Exact"; `e^x` differentiated to `ln(e)·exp(x)`. A folded
+  decimal is now shown as "≈ … (numeric)" and ln(e) folds to 1. Numeric
+  integrals are shown to five figures with a four-figure caveat (π/2 came
+  back as 1.5708572 to eight).
+- Lagrange: f constant on the candidates (`x^2 + y^2` on the unit circle)
+  was reported as a distinct maximum 1.00000000117 and minimum
+  0.999999999184; a constant f listed 40 points; a parameter in f (`a x +
+  y`) was silently solved as a coordinate. Now: one value "at every
+  candidate found" with no max/min, constant f refused, parameters refused
+  by name, ties stated in the verdict line, list capped.
+- `2xy` alone (y never standing alone) gave `∇f = (2)`: the fused-name
+  guard now fires whenever every letter is a coordinate letter. `grad
+  school applications` and `del key` produced gradients; multi-letter
+  non-Greek names make the verb stand aside. Underflow "roots" far out
+  under exp(−r²) were dropped with the wrong reason (curve); they are now
+  discarded as flat regions. `x^4 + y^4 + z^4` was refused as a curve; its
+  isolated minimum is reported INCONCLUSIVE.
+
+### Adversarial pass — second independent pass (336 probes): 19 of 20 confirmed closed, 11 new items, all closed
+- **A pole in the OUTER integration variable slipped through**: `1/(y − 0.3)`
+  over the unit square came back "= ln(7/10) − ln(−3/10), Exact" because the
+  sign tracker reset for every inner sweep. The region is connected, so one
+  tracker now runs over the whole sweep (two samples anywhere with a
+  denominator of opposite sign bracket a zero inside); the base of an even
+  power and each factor of a product are tracked too (`1/(y − 0.3)²`).
+- **`exp(−x²) + y²` reported "no critical points"** (the origin is a saddle):
+  the transcendental root scan missed x = 0 in `−2x·e^{−x²} = 0`. A product's
+  roots are now the union of its factors' roots, with exp dropped (never
+  zero); an EMPTY non-polynomial root list no longer counts as "none" and
+  falls through to the numerical solver.
+- `sin(x)² + y²` took 13 s and listed x ≈ 1000π first: the eliminator's
+  non-polynomial root list is capped at the twelve nearest the origin before
+  any exact work, and every path sorts nearest-first.
+- Regressions from the first-pass guards, reverted with care: subscripted
+  names (`x_1`, `k_B`) were treated as prose; symbolic end points and
+  parameters in a line integral (`from (a, b) to (c, d)`, `(a x, a y)`) and
+  symbolic directions (`(a, b)`, `(cos t, sin t)`) were refused — the
+  finiteness checks now give parameters stand-in values and the answers
+  stay symbolic. `xyz` is a fused name, not prose.
+- A field written in other coordinate letters (`divergence (u, v)`,
+  `(r cos θ, r sin θ)`) answered 0; it is refused by name. Constant fields
+  `(a, b)`, `(0, 0, B)` still work.
+- An exact D of 4·10⁻¹⁶ was called zero (absolute 1e-12); exact points now
+  use an exact zero test. Parameters in `critical points` and in a Lagrange
+  CONSTRAINT are refused by name like those in f.
+- Numeric integrals without a closed form are now computed at three
+  resolutions, extrapolated (Aitken), and shown to the digits the estimated
+  error allows — `1/√(x² + y²)` to three, `exp(−x²)` to seven; too slow a
+  convergence (an integrable endpoint singularity with no antiderivative,
+  `1/√(1 − x²)`) is refused with the extrapolated value and an honest
+  reason. The exact path accepts an endpoint singularity when the quadrature
+  error shrinks toward the exact value (`1/√x` over the unit cube = 2).
+- `sqrt(2)³` and `exp(a)²` now fold, so the ±√2/2 extrema of
+  `x y e^{−x²−y²}` are exact; `abs(2)` and `ln(1)` fold too.
+- Still open, honestly: `1/((x − 0.3)² + 10⁻⁸)` (a near-pole) is refused for
+  quadrature disagreement although the exact value is right; cosmetic
+  unsimplified forms (`r cos²θ + r sin²θ`, `1^(1 − 1)`); some ordinary
+  Lagrange problems (`x y` on `x² − y² = 1`, `= π`) still "could not be
+  solved here".
+
 ## [2.129.0] — 2026-10-13 — Laplace transforms, initial-value problems and Fourier series
 
 The first of the Solve domains on the 2026-10 arc (`docs/SCOPE-LAPLACE-MULTIVAR.md`).

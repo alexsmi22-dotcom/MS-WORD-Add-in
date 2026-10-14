@@ -144,18 +144,50 @@ const FOLDABLE = new Set(["sqrt", "cbrt", "exp", "ln", "log", "log10", "log2", "
  * Simplifies with every function-of-a-constant kept symbolic and π kept as
  * π. Falls back to the peephole simplifier when the CAS bails.
  */
-/** A perfect-square rational's root, else null. */
+/** The largest square factor of a positive integer: n = s²·r. */
+function squareFree(n: number): { s: number; r: number } {
+  let s = 1;
+  let r = n;
+  for (let f = 2; f * f <= r && f < 1_000_000; f++) {
+    while (r % (f * f) === 0) {
+      r /= f * f;
+      s *= f;
+    }
+  }
+  return { s, r };
+}
+
+/**
+ * sqrt of a non-negative rational, exact: a rational when it is one, else
+ * with every square factor pulled out — sqrt(56) is 2·sqrt(14), sqrt(1/2) is
+ * sqrt(2)/2, sqrt(3/4) is sqrt(3)/2. Null when `e` is not such a rational.
+ */
 function perfectSqrt(e: Expr): Expr | null {
-  if (e.t === "num" && Number.isInteger(e.v) && e.v >= 0) {
-    const r = Math.round(Math.sqrt(e.v));
-    return r * r === e.v ? N(r) : null;
-  }
-  if (e.t === "div" && e.l.t === "num" && e.r.t === "num") {
-    const a = perfectSqrt(e.l);
-    const b = perfectSqrt(e.r);
-    return a && b ? DIV(a, b) : null;
-  }
-  return null;
+  const asInt = (x: Expr): number | null => (x.t === "num" && Number.isInteger(x.v) && x.v >= 0 && x.v < 1e15 ? x.v : null);
+  let p: number | null = null;
+  let q = 1;
+  if ((p = asInt(e)) !== null) q = 1;
+  else if (e.t === "div" && asInt(e.l) !== null && asInt(e.r) !== null && asInt(e.r)! > 0) {
+    p = asInt(e.l)!;
+    q = asInt(e.r)!;
+  } else return null;
+  if (p === 0) return N(0);
+  // sqrt(p/q) = sqrt(p·q)/q
+  const { s, r } = squareFree(p * q);
+  if (p * q > 1e15) return null;
+  const gcd = (a: number, b: number): number => (b === 0 ? a : gcd(b, a % b));
+  const g = gcd(s, q);
+  const sN = s / g;
+  const qN = q / g;
+  let root: Expr;
+  if (r === 1) root = N(sN);
+  else if (sN === 1) root = FN("sqrt", N(r));
+  else root = { t: "mul", l: N(sN), r: FN("sqrt", N(r)) };
+  if (root.t === "num" && qN === 1) return root;
+  if (r === 1) return qN === 1 ? root : DIV(root, N(qN));
+  // Only report a change when something simplified (sqrt(14) stays sqrt(14)).
+  if (sN === 1 && qN === 1) return null;
+  return DIV(root, N(qN));
 }
 
 /** The trivial folds the masking would otherwise freeze: exp(0), ln(1), sqrt of a

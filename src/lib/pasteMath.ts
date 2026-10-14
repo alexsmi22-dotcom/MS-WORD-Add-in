@@ -117,8 +117,8 @@ function foldMathChar(cp: number): string | null {
 const NAMED_UNREADABLE: Record<string, string> = {
   "±": "± means two expressions (+ and −) — solve each sign separately",
   "∓": "∓ means two expressions — solve each sign separately",
-  "∂": "∂ (partial derivative) isn't solvable notation here — use the Differentiate kind",
-  "∇": "∇ has no reading here",
+  "∂": "∂ (partial derivative) isn't solvable notation here — write it as a verb: gradient f, hessian f, or jacobian (f1, f2)",
+  "∇": "∇ isn't read here — write it as a verb: gradient f, divergence (P, Q), curl (P, Q, R)",
   "∑": "Σ-sum notation isn't solvable here",
   "∏": "Π-product notation isn't solvable here",
   "∫": "∫ belongs to the Integral kind — put the integrand there with its limits",

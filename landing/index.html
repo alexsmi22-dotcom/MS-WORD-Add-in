@@ -981,6 +981,11 @@ x&#179; &minus; 1 = 0
     </div>
     <div class="cards">
       <a class="card" href="tool.html?tool=solve">
+        <h3>Multivariable calculus <span class="is-new">New</span></h3>
+        <p><code>gradient</code>, <code>hessian</code>, <code>jacobian</code>, <code>directional derivative</code>, <code>critical points</code> with the second-derivative test (saddle points named, <b>INCONCLUSIVE</b> said honestly when D = 0), <code>lagrange f subject to g = c</code> with a maximum and minimum declared <b>only when the constraint set is provably bounded</b>, double and triple integrals with bounds that depend on outer variables, <code>divergence</code>, <code>curl</code>, <code>potential</code> and line integrals of conservative fields. Every partial is checked by central differences; every critical point is verified by substitution; numerical candidates are snapped to closed forms only when the exact check passes. Path-dependent line integrals are <b>refused by name</b>.</p>
+        <div class="spec">lagrange x y subject to x&sup2; + y&sup2; = 1 &#8594; max 1/2 at (&radic;2/2, &radic;2/2), min &minus;1/2</div>
+      </a>
+      <a class="card" href="tool.html?tool=solve">
         <h3>Laplace transforms, initial-value problems, Fourier series <span class="is-new">New</span></h3>
         <p><code>laplace t^2 exp(3t)</code> gives <b>2/(s &minus; 3)&sup3; for s &gt; 3</b> with the table rule named for each term and the answer <b>checked against the defining integral</b>; the unit step and the impulse are in the table, and what is not (1/t, exp(t&sup2;)) is refused by name. <code>inverse laplace 1/(s*(s+1))</code> returns 1 &minus; e<sup>&minus;t</sup> by partial fractions, with an irrational &omega; kept as a square root rather than a decimal, and every inverse is transformed forward again before it is shown. In the ODE kind, <code>y'' + 4y = sin(t), y(0) = 0, y'(0) = 0</code> is solved by transform, <b>verified by substitution</b>, and drawn. And <code>fourier series t^2 on (-pi, pi)</code> comes back <b>exact in n</b>: a&#8320;/2 = &pi;&sup2;/3, a<sub>n</sub> = 4(&minus;1)<sup>n</sup>/n&sup2;, with the partial sum drawn over f and every jump named with its Gibbs overshoot.</p>
         <div class="spec">y'' + 4y = sin(t), y(0) = 0, y'(0) = 0 &#8594; y = sin(t)/3 &minus; sin(2t)/6</div>
@@ -1001,7 +1006,7 @@ x&#179; &minus; 1 = 0
         <div class="spec">PLUS 2 3 &#8594; &lambda;f.&lambda;x.f (f (f (f (f x)))) = Church numeral 5, verified</div>
       </a>
       <a class="card" href="tool.html?tool=chemical">
-        <h3>Draw it in 2D, model it in 3D <span class="is-new">New</span></h3>
+        <h3>Draw it in 2D, model it in 3D</h3>
         <p>The drawing canvas gained a <b>3D model tab</b>: a real <b>MMFF94s-minimised conformer</b> of what you drew &mdash; verified in tests against published geometry &mdash; in ball-and-stick, stick or space-filling styles with standard CPK colours. Drag to rotate, and <b>insert the picture in exactly the orientation you composed</b>, captioned honestly as one conformer, not &ldquo;the&rdquo; shape. You can <b>build in 3D</b> too: click an atom to change its element, attach one of <b>27 functional groups</b>, or delete it; click a bond to set its order &mdash; the 2D drawing, the undo stack and the 3D model stay one molecule. <b>33 templates</b> from benzene to adamantane, porphine and 18-crown-6 drop in with one click, and every 3D model is <b>checked against the drawn stereochemistry</b> before it is shown &mdash; a cis bond is never silently rendered trans.</p>
       </a>
       <a class="card" href="tool.html?tool=reaction">

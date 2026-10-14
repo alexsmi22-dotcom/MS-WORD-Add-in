@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.129.0)
+# JurisLab — Manual Test Script (v2.130.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -9,6 +9,49 @@ scanning, and layout. Budget ~30 minutes for the full pass.
 Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
+
+## 0bw. New in v2.130.0 — Multivariable calculus
+
+Solve, Equation kind. The "Multivariable" palette group under Transforms holds every verb.
+
+- [ ] `gradient x^2 y + y^3 at (1,2)` → **∇f = (2*x*y, x^2 + 3*y^2)**, f_x and f_y on
+  their own lines, **∇f(1,2) = (4, 13)**, |∇f| = sqrt(185), "every partial agrees
+  with a central-difference check". `gradient x^2+y^2+z^2 at (1,2,3)` → |∇f| =
+  **2*sqrt(14)** (not sqrt(56)). Insert → the ∇f line lands as a real equation.
+- [ ] `directional derivative x^2 y at (1,2) in direction (3,4)` → **16/5**;
+  `… in direction (0,0)` → REFUSED (zero direction).
+- [ ] `hessian x^3 + x y^2` → f_xx = 6x, f_xy = 2y, f_yy = 2x, **det H = 12x² − 4y²**;
+  `jacobian (r cos(theta), r sin(theta))` → **det J = r**; `jacobian (x + y, x - y, x*y)`
+  → "not square", no determinant.
+- [ ] `critical points x^3 - 3x + y^2` → **(1, 0): local minimum**, **(−1, 0): saddle
+  point**, "solved by exact elimination", NO "(numeric)" tag. `critical points x^4+y^4`
+  → (0, 0): **INCONCLUSIVE** (D = 0). `critical points x^3+y^3-3xy` → REFUSED by name
+  ("xy was read as ONE variable"); `critical points x^3+y^3-3*x*y` → (1, 1) minimum,
+  (0, 0) saddle point. `critical points x^3 - 3x` → sent to the equation kind.
+- [ ] `lagrange x y subject to x^2 + y^2 = 1` → four candidates at **(±sqrt(2)/2,
+  ±sqrt(2)/2)**, exact (no decimals), **Maximum f = 1/2**, **minimum f = −1/2**, "the
+  constraint set is bounded". `lagrange x^2 + y^2 subject to x + y = 1` → (1/2, 1/2):
+  f = 1/2 and NO "Maximum" line (unbounded line — boundedness not established).
+- [ ] `double integral x^2 + y^2 over y from 0 to x, x from 0 to 1` → **= 1/3**, the inner
+  integral shown first; `triple integral x y z over x from 0 to 1, y from 0 to 1, z from
+  0 to 1` → **1/8**; `double integral exp(-x^2) over x from 0 to 1, y from 0 to 1` →
+  ≈ 0.7468 with the numerical caveat; `double integral x y over x from 0 to y, y from
+  0 to x` → REFUSED (bounds may depend on OUTER variables only).
+- [ ] Improper integrals refuse by name: `double integral 1/x over x from -1 to 1, y from
+  0 to 1` → REFUSED "not finite at x ≈ 0" (never "= 0"); `double integral 1/sqrt(x) over
+  x from 0 to 1, y from 0 to 1` → **= 2** (integrable endpoint); `double integral a x y over
+  x from 0 to 1, y from 0 to 1` → **= a/4** with "a is a parameter".
+- [ ] `divergence (a x, b y)` → **a + b** with "a, b are treated as constants";
+  `gradient x/y at (1, 0)` → REFUSED (not defined there); `gradient 2xy` → REFUSED
+  ("xy was read as ONE variable").
+- [ ] `curl (y z, x z, x y)` → **(0, 0, 0)**; `potential (y z, x z, x y)` → **φ = x*y*z + C**;
+  `potential (y, -x)` → REFUSED with the curl shown; `line integral (2 x y, x^2) from
+  (0,0) to (1,2)` → **= 2**; `line integral (y, -x) from (0,0) to (1,1)` → REFUSED as
+  PATH-dependent. `curl (-y, x)` → the 2-D scalar **2**; `divergence (x^2, y^2, z^2)` →
+  2x + 2y + 2z.
+- [ ] Nothing regressed: `gradient descent` is NOT caught (ordinary prose handling);
+  `laplace t^2 exp(3t)` and `fourier series t^2 on (-pi, pi)` unchanged; pasting
+  `∂f/∂x` or `∇f` from a PDF names the verb to type instead.
 
 ## 0bv. New in v2.129.0 — Laplace transforms, initial-value problems and Fourier series
 
@@ -3085,6 +3128,9 @@ Engineering mode, Energy & power (now 17; the mode must state **101 calculators*
   - `(0,0,0) (1,1,1) (2,2,2)` -> refused as **COLLINEAR**: no plane.
   - `circle r=1/3` -> area **1/9*pi** exactly, and `box 1/2 1/3 1/4` -> volume **1/24**.
     (Typed fractions must stay exact — no long decimals or giant fractions anywhere.)
+- [ ] **Multivariable calculus (v2.130.0).** Solve — see §0bw.
+  - `critical points x^3 - 3x + y^2` → (1, 0) local minimum, (−1, 0) saddle point, exact.
+  - `lagrange x y subject to x^2 + y^2 = 1` → ±1/2 at (±sqrt(2)/2, ±sqrt(2)/2), max and min declared.
 - [ ] **Laplace transforms, initial-value problems and Fourier series (v2.129.0).** Solve — see §0bv.
   - `laplace t^2 exp(3t)` → 2/(s − 3)³ for s > 3; `inverse laplace 1/(s*(s+1))` → 1 − e^{−t}.
   - ODE kind with y(0), y'(0) → the single solution, verified, drawn.

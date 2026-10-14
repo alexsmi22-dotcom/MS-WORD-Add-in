@@ -6,6 +6,61 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.135.0] — 2026-10-14 — Abstract algebra: groups, permutations, rings and finite fields
+
+The sixth Solve domain on the 2026-10 arc (`docs/SCOPE-ABSTRACT-ALGEBRA.md`).
+The audit probed 110 inputs: 6 answered (all number theory). 24 were
+answered WRONG in the default Equation kind — `7 * 9 mod 12` → "mod = 0",
+`Z/6` → "Z = 0", `factor x^2 + 1 over F_2` → the answer line "F_2", `D4` in
+the Discrete kind → "D(4) = !4 = 9" (a derangement count).
+
+### Added
+- **Groups** (`algebra.ts`, `algebraGroups.ts`, `algebraGroupVerbs.ts`,
+  `algebraPerm.ts`): ℤ/n, U(n), Sₙ in cycle notation, Dₙ in both naming
+  conventions (the one read is said), direct products, typed Cayley tables
+  — every table checked for closure, associativity, identity and inverses
+  by brute force, a non-group refused naming the failing triple; element
+  orders, generated subgroups, all subgroups (|G| ≤ 24) with the lattice
+  drawn as a Hasse diagram, cosets, normality, quotients (re-checked as
+  groups), centre, conjugacy classes; isomorphism decided by TWO
+  independent invariant sets where they prove it (abelian, |G| ≤ 15) or by
+  a constructed, checked map — "cannot be decided here" otherwise, by name;
+  permutations composed right to left by default (left to right on
+  request, the other reading always shown), inverse, cycle type, sign,
+  order; homomorphisms with kernel and image.
+- **Rings and fields** (`algebraFields.ts`): arithmetic in ℤ/n with any
+  operator before `mod` (division as multiplication by the inverse, said),
+  units, zero divisors; 𝔽ₚ[x] arithmetic, extended Euclid, irreducibility
+  (brute force / Rabin), factoring (multiplied back AND checked by root
+  counting), roots via gcd(f, xᵖ − x); GF(pᵏ) from an irreducible
+  modulus with its element list and table, primitive elements (counted
+  against φ(q − 1)), minimal polynomials; the CRT isomorphism explicit.
+- `cayleyTableSvg.ts` (a text-cell grid, coset bands, never text below 9 px
+  — beyond that the figure is refused by name and the text table kept);
+  `algebraSwitch.ts` hands algebra typed into the Equation kind to the
+  Discrete kind (raw input, before every other switch). The engine is
+  FIRST in the Discrete engine order (number theory strips parentheses,
+  combinatorics read `D4` as a derangement). `tryAlgebraVerb` stands aside
+  for `over F_p` / `mod p`. Palette group "Abstract algebra".
+
+### Adversarial pass — independent reviewer (5 wrong, 2 hangs, refusals and cosmetics, all closed)
+Oracles: its own brute-force groups (≈ 90 groups to order 72), BigInt
+arithmetic, 1,200 random polynomials over 𝔽₂…𝔽₇. Found: a modulus over 40
+digits SILENTLY REPLACED by a 99…9 placeholder (`Z/(2^521 − 1)`, a Mersenne
+prime, was "NOT a field"); `subgroups of D4 of order 4` answered about D₂
+(the order filter read as the naming convention) and `of order 2` listed
+all ten; a Cayley table whose first element is `x` refused as "not a
+group"; `a` meaning 0 in a prime field; root finding costing n × degree
+(`x^1000 + x + 1 = 0 mod 999983`, 23 s) and `(x + 1)^4096 mod 2` expanded
+over ℤ first (7 s, then a 3.5 MB refusal message). Its own brief had one
+wrong example too: x ↦ 3x from ℤ/4 to ℤ/6 IS a homomorphism (3·4 ≡ 0).
+
+### Honest limits
+- |G| ≤ 120; all subgroups for |G| ≤ 24; drawn tables ≤ 20 elements;
+  permutation degree ≤ 30; GF(q) tables q ≤ 1024; isomorphism decided by
+  invariants only to order 15 (ℤ/8 × ℤ/2 and M₁₆ share them at 16).
+- Primality of a huge modulus is probabilistic and said ("probable prime").
+
 ## [2.134.0] — 2026-10-14 — Statistics: exact rank tests, repeated-measures ANOVA, Cox regression, and table-reading fixes
 
 From `docs/SCOPE-STATS-BATCH.md`. The audit found LIVE WRONG ANSWERS in the

@@ -692,6 +692,21 @@ export const SOLVE_DISCRETE: PaletteGroup[] = [
     ],
   },
   {
+    name: "Abstract algebra",
+    items: [
+      { label: "ℤ/n", snippet: "Z/6", title: "Elements, orders, generators, centre, Cayley table drawn" },
+      { label: "U(n) cyclic?", snippet: "is U(8) cyclic", title: "No element of order 4 — U(8) ≅ ℤ/2ℤ × ℤ/2ℤ" },
+      { label: "Cayley table", snippet: "cayley table of S3", title: "Axioms checked by brute force; drawn" },
+      { label: "lattice", snippet: "subgroup lattice of Z/12", title: "Every subgroup, Hasse diagram drawn" },
+      { label: "cosets", snippet: "cosets of <3> in Z/12", title: "|G| = |H| · [G : H]" },
+      { label: "≅ (CRT)", snippet: "Z/6 ≅ Z/2 × Z/3", title: "Isomorphic — the explicit map" },
+      { label: "compose", snippet: "(1 2 3)(1 2)", title: "Right to left, the other order said; cycle diagram" },
+      { label: "a·b mod n", snippet: "7 * 9 mod 12", title: "Arithmetic in ℤ/nℤ" },
+      { label: "factor over 𝔽ₚ", snippet: "factor x^4 + x^2 + 1 over F_2", title: "(x² + x + 1)², multiplied back" },
+      { label: "GF(q)", snippet: "GF(9)", title: "𝔽₃[x]/(x² + 1): orders, primitive elements, × table" },
+    ],
+  },
+  {
     name: "Combinatorics",
     items: [
       { label: "n choose k", snippet: "10 choose 3", title: "Combinations, verified two ways" },

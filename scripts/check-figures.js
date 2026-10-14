@@ -74,7 +74,7 @@ const CORPUS = path.join(__dirname, "figure-layout-run.ts");
 // 189 as of 2026-10-14 (v2.134.0): six statistics figures (RM ANOVA profile,
 // one-way and mixed; the Cox log-axis forest and adjusted survival panels; two
 // log-axis forest stress cases: three decades with long labels, one decade).
-const CORPUS_FLOOR = 189;
+const CORPUS_FLOOR = 194;
 
 // --- The allowance ratchet ----------------------------------------------------
 //

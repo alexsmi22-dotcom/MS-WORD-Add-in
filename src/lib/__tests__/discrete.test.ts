@@ -34,7 +34,7 @@ describe("routing", () => {
   });
   it("engine order is pinned", () => {
     expect(ENGINES.map((e) => e.name)).toEqual([
-      "number theory", "combinatorics", "recurrence",
+      "abstract algebra", "number theory", "combinatorics", "recurrence",
       "grammar", "pushdown", "turing", "first-order logic", "sat",
       "automata", "propositional logic", "graph",
     ]);

@@ -432,6 +432,11 @@ export function tryAlgebraVerb(input: string): VerbResult | null {
   // "factor = 2" is an EQUATION whose variable happens to be named factor —
   // no verb grammar contains "=", so it falls through to the solver.
   if (m[2].includes("=")) return null;
+  // Polynomials over a FINITE ring (v2.135.0): "factor x^2 + 1 over F_2"
+  // extracted the constant "F_2" from the prose and printed it as the
+  // factorisation. Coefficients over 𝔽p / ℤ/n belong to the abstract-algebra
+  // engine (algebra.ts), reached through the Discrete kind and its switch.
+  if (/\b(?:over|in|mod(?:ulo)?)\s+(?:(?:F|𝔽|GF|Z|ℤ)[\s_(\d/₀-₉]|\d)/i.test(m[2])) return null;
   const verb = m[1].toLowerCase();
   const body = m[2].trim();
   const refuse = (why: string): VerbResult => ({

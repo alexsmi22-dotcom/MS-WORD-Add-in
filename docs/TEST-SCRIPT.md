@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.134.0)
+# JurisLab — Manual Test Script (v2.135.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -7,6 +7,56 @@ covers what neither can reach: insertion into a real document, undo, document
 scanning, and layout. Budget ~30 minutes for the full pass.
 
 Mark each box: ☐ pass · ✗ fail (note what happened).
+
+---
+
+## 0cb. New in v2.135.0 — Abstract algebra: groups, permutations, rings and finite fields
+
+Solve mode, **Discrete math** kind (a seventh engine, tried FIRST). Then repeat the starred lines
+in the default **Equation** kind: each must switch to Discrete math with the note **`The question
+is ABSTRACT ALGEBRA — switched to the Discrete math kind and answered.`** (number-theory lines such
+as `7^100 mod 13` switch with `The question is NUMBER THEORY — …`, never "mod = 0"). The palette has
+a new **Abstract algebra** group (10 snippets).
+
+- [ ] ★ **`Z/6`** → title `Group ℤ/6ℤ (order 6, cyclic, abelian)`; `cyclic: yes — generators 1, 5`;
+  a 6 × 6 Cayley table is **drawn** (identity cells outlined). `ℤ/6ℤ`, `Z_6`, `Z6`, `integers mod 6`
+  give the same answer.
+- [ ] ★ **`is U(8) cyclic?`** → `U(8) is NOT cyclic: its elements 1, 3, 5, 7 have orders 1, 2, 2, 2 —
+  none has order 4, so no element of order 4. U(8) ≅ ℤ/2ℤ × ℤ/2ℤ (the Klein four-group) …`
+- [ ] **`D4`** → `Group D₄ (order 8, non-abelian)`, `abelian: NO — rs ≠ sr: rs = rs, sr = r³s`,
+  `Z(D₄) = {e, r²}`, and the caveat `D4 read as the symmetries of the square (order 8);
+  derangements: write derangements 4.` (`D(4)` still → `D(4) = !4 = 9`.)
+- [ ] **`cayley table of S3`** → the text table (`· | e | (1 2) | …`, six rows) AND the drawn grid.
+- [ ] ★ **`subgroup lattice of Z/12`** → `order 3: {0, 4, 8} = ⟨4⟩` …, `6 subgroups — one for each
+  divisor of 12 (cyclic)`, and a **Hasse diagram** with ℤ/12ℤ at the top and {0} at the bottom.
+- [ ] ★ **`cosets of <3> in Z/12`** → `1 + ⟨3⟩ = {1, 4, 7, 10}` … `12 = 4 · 3` (the `<3>` is NOT
+  read as an inequality in the Equation kind).
+- [ ] **`is {e, (1 2)} normal in S3`** → `NOT normal: (1 3)(1 2)(1 3)⁻¹ = (2 3) ∉ H`;
+  **`D4 / <r^2>`** → `D₄ / ⟨r²⟩ ≅ ℤ/2ℤ × ℤ/2ℤ (order 4)` with the quotient's table drawn.
+- [ ] **`conjugacy classes of S4`** → `class equation: 24 = 1 + 6 + 3 + 8 + 6`.
+- [ ] ★ **`Z/6 ≅ Z/2 × Z/3`** → `gcd(2, 3) = 1, so ℤ/6ℤ ≅ ℤ/2ℤ × ℤ/3ℤ by x ↦ (x mod 2, x mod 3)` and the
+  table `0 ↦ (0, 0), 1 ↦ (1, 1), …, 5 ↦ (1, 2)`; **`is Z/8 isomorphic to Z/2 x Z/4`** → `NOT
+  isomorphic: … ℤ/8ℤ has 4 elements of order 8 and ℤ/2ℤ × ℤ/4ℤ has none.`
+- [ ] **`find all groups of order 6`** → `two: ℤ/6ℤ and S₃`; `find all groups of order 16` → refused
+  `… (14 of them, up to isomorphism) are beyond the built-in list …`.
+- [ ] ★ **`(1 2 3)(1 2)`** → `(1 2 3)(1 2) = (1 3)` and `composed right to left: (1 2) is applied first —
+  left to right would give (2 3)`, with the **cycle diagram** drawn; `(1 2 3)(4 5)` → `already a
+  product of disjoint cycles`, `order 6 = lcm(3, 2), odd (3 transpositions: (1 3)(1 2)(4 5))`.
+- [ ] ★ **`7 * 9 mod 12`** → `7 · 9 ≡ 3 (mod 12)`; `3 * 5 = 1 mod 7` → `3 · 5 = 15 ≡ 1 (mod 7): TRUE`;
+  `x^2 = 1 mod 8` → `x = 1, 3, 5, 7 (4 solutions in ℤ/8ℤ)`.
+- [ ] ★ **`factor x^4 + x^2 + 1 over F_2`** → `x^4 + x^2 + 1 = (x^2 + x + 1)^2 over 𝔽₂` (in the Equation
+  kind this used to print "F_2"); `extended euclid x^3 + x + 1, x^2 + 1 over F_2` → `gcd = 1; 1 =
+  (x^3 + x + 1) + (x)·(x^2 + 1)`.
+- [ ] ★ **`GF(9)`** → `𝔽₉ = 𝔽₃[x]/(x² + 1), a = the class of x, a² = 2`, `primitive elements (order 8):
+  a + 1, a + 2, 2a + 1, 2a + 2 — a itself is NOT primitive (order 4)`, the × table drawn;
+  `minimal polynomial of a^3 in GF(8)` → `x^3 + x^2 + 1`; `(a + 1)(2a + 2) in GF(9)` → `= a`.
+- [ ] **Refusals by name:** `GF(6)` → `6 is not a prime power — there is no field with 6 elements.`;
+  `subgroups of S6` → `S₆ has order 720 — above the cap |G| ≤ 120 …`; `a^2 = e, b^3 = e` → `Group
+  presentations ⟨a, b | a² = b³ = e, …⟩ are not read …`; a typed table `group with cayley table ⏎ e a
+  ⏎ a a` → `No inverse for a … so this table is not a group.`
+- [ ] **Insert** one drawn table and one Hasse diagram into the document: the figure lands at the
+  shown size with legible text (no label below ~9 px; long-label tables such as `S3 x Z/2` keep the
+  text table and say why the figure was not drawn).
 
 ---
 
@@ -3374,6 +3424,8 @@ Engineering mode, Energy & power (now 17; the mode must state **101 calculators*
   - `(0,0,0) (1,1,1) (2,2,2)` -> refused as **COLLINEAR**: no plane.
   - `circle r=1/3` -> area **1/9*pi** exactly, and `box 1/2 1/3 1/4` -> volume **1/24**.
     (Typed fractions must stay exact — no long decimals or giant fractions anywhere.)
+- [ ] **Abstract algebra: groups, permutations, rings and finite fields (v2.135.0).** Solve — see §0cb.
+  - `Z/6` → cyclic, generators 1, 5, table drawn; `(1 2 3)(1 2)` → `(1 3)` (right to left); `factor x^4 + x^2 + 1 over F_2` → `(x^2 + x + 1)^2`; typed in the Equation kind each switches with the ABSTRACT ALGEBRA note.
 - [ ] **Statistics: exact rank tests, repeated-measures ANOVA, Cox regression, and table-reading fixes (v2.134.0).** Stats — see §0ca.
   - Mann–Whitney `1, 2, 3` v `4, 5, 6` → `p = 1/10 = 0.100000 … exact`; RM ANOVA default → GG `F(1.60, 11.19) = 3.794, p = 0.0626`; Cox default → `HR = 4.817 (95% CI 2.147 to 10.81)` with a log-axis forest plot.
 - [ ] **Computation theory: grammars, machines, first-order logic, SAT, Hindley–Milner (v2.133.0).** Solve — see §0bz.

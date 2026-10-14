@@ -31,6 +31,7 @@ export interface DiscreteResult {
 /** A recognised request that cannot be answered — the message says why. */
 export class DiscreteError extends Error {}
 
+import { tryAlgebra } from "./algebra";
 import { tryNumberTheory } from "./numtheory";
 import { tryCombinatorics } from "./combinatorics";
 import { tryRecurrence } from "./recurrence";
@@ -62,6 +63,12 @@ export type DiscreteEngine = (input: string) => DiscreteResult | null;
  *  other side has not yet assigned. A closure resolves the binding at call
  *  time, after every module has finished loading. */
 export const ENGINES: { name: string; run: DiscreteEngine }[] = [
+  // Abstract algebra (v2.135.0) FIRST: number theory strips parentheses (cycle
+  // notation and U(8) would never reach it), combinatorics reads D4 as a
+  // derangement count, logic reads -> and ^. Algebra claims only inputs it
+  // parses completely and stands aside for number theory's own forms
+  // (7^100 mod 13, inverse 5 mod 12, …) — pinned in algebraRouting.test.ts.
+  { name: "abstract algebra", run: (s) => tryAlgebra(s) },
   { name: "number theory", run: (s) => tryNumberTheory(s) },
   { name: "combinatorics", run: (s) => tryCombinatorics(s) },
   { name: "recurrence", run: (s) => tryRecurrence(s) },
@@ -109,6 +116,7 @@ export function solveDiscrete(input: string): DiscreteResult | null {
     title: "Not recognised",
     display: ["That is not one of the discrete-mathematics forms this kind reads."],
     steps: [
+      "Abstract algebra: Z/6 · U(8) · S3 · D4 · cayley table of S3 · subgroups of Z/12 · cosets of <3> in Z/12 · is A3 normal in S3 · Z/6 ≅ Z/2 × Z/3 · (1 2 3)(1 2) · 7 * 9 mod 12 · factor x^4 + x^2 + 1 over F_2 · GF(9)",
       "Number theory: gcd 84 36 · lcm 4 6 · 7^100 mod 13 · inverse 3 mod 7 · 3x ≡ 2 mod 7 · x ≡ 2 mod 3, x ≡ 3 mod 5 · factor 360 · is 97 prime · primes to 100 · phi 36 · divisors 36 · order of 2 mod 7 · primitive root mod 7",
       "Combinatorics: 10 choose 3 · C(10,3) · P(10,3) · 10! · multinomial 10: 3 2 5 · arrangements of MISSISSIPPI · derangements 5 · catalan 5 · bell 5 · stirling 5 2 · how many ways to choose 3 of 10",
       "Recurrences: a(n) = a(n-1) + a(n-2), a(0) = 0, a(1) = 1 · a(n) = 2a(n-1) + 3, a(0) = 1 · T(n) = 2T(n/2) + n (master theorem)",

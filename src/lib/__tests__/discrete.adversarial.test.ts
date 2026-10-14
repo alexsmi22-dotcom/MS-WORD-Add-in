@@ -19,6 +19,8 @@ describe("routing", () => {
     // the v2.133.0 computation-theory engines sit before both.
     const names = ENGINES.map((e) => e.name);
     expect(names.indexOf("automata")).toBeLessThan(names.indexOf("propositional logic"));
+    // v2.135.0: abstract algebra is first (number theory strips parentheses; D4 is dihedral).
+    expect(names[0]).toBe("abstract algebra");
   });
   it("a single weighted edge line is a graph, not a formula", () => {
     expect(run("A->B 5").title).not.toBe("Truth table");

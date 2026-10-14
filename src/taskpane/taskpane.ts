@@ -100,6 +100,7 @@ import { solveGeometry } from "../lib/geometryParse";
 import { solveTopology, BUILTIN_NAMES } from "../lib/homology";
 import { solveLambda, LambdaSyntaxError } from "../lib/lambda";
 import { computationKindFor } from "../lib/ctSwitch";
+import { algebraKindFor, algebraSwitchNote } from "../lib/algebraSwitch";
 import { solveDiscrete, DiscreteError } from "../lib/discrete";
 import { persistentHomology, barcodeSvg } from "../lib/persistence";
 import { solveWordProblem, WorkStep } from "../lib/wordproblem";
@@ -27940,6 +27941,24 @@ function updateSolve(): void {
       // A transform verb owns its whole line: "laplace transform of the
       // derivative of t^2" is a Laplace request, not a derivative request, and
       // no prose switch below may take it first.
+      //
+      // ABSTRACT ALGEBRA and NUMBER THEORY typed into the default kind
+      // (v2.135.0). Decided on the RAW input (the fold has already turned ×
+      // into * and ℤ into a note) and BEFORE transformVerb, whose
+      // INTERP_VERB_RE reads "lagrange:" as interpolation; `<3>` would be an
+      // inequality and `7^100 mod 13` was "mod = 0". One decision function,
+      // shared with the tests (algebraSwitch.ts).
+      {
+        const algebraOwner = algebraKindFor(solveInput.value);
+        if (algebraOwner) {
+          const note = algebraSwitchNote(solveInput.value);
+          solveKind.value = algebraOwner;
+          updateSolveUi();
+          updateSolve();
+          if (note) solveResult.insertBefore(solveLine(note), solveResult.firstChild);
+          return;
+        }
+      }
       const transformVerb =
         /^\s*(?:inverse\s+)?laplace\b|^\s*(?:ℒ|L)\s*\{|^\s*(?:ℒ|L)\s*(?:\^\s*[({]?\s*-\s*1|⁻¹)|^\s*fourier\s+series\b/i.test(text) ||
         MULTIVAR_VERB_RE.test(text) ||

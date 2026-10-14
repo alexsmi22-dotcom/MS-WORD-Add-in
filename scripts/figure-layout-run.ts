@@ -80,6 +80,9 @@ import { trySpline } from "../src/lib/spline";
 import { tryLp } from "../src/lib/lp";
 import { lpRegionSvg } from "../src/lib/lpFigure";
 import { treeSvg } from "../src/lib/treeSvg";
+import { cayleyTableSvg } from "../src/lib/cayleyTableSvg";
+import { dihedralGroup, cosets as cosetsOfGroup, op as groupOp } from "../src/lib/algebraGroups";
+import { tryAlgebra } from "../src/lib/algebra";
 import { solveGrammar } from "../src/lib/grammar";
 import { solvePda } from "../src/lib/pda";
 import { solveTuring } from "../src/lib/turing";
@@ -1694,6 +1697,28 @@ ORIGIN
   const nodes = Array.from({ length: 230 }, (_, i) => ({ id: `n${i}`, label: `S${i % 7}` }));
   const edges = nodes.slice(1).map((n, i) => ({ from: `n${Math.floor(i / 3)}`, to: n.id }));
   push("tree at the node cap", treeSvg({ nodes, edges, caption: "230-node tree" }));
+}
+
+// --- Abstract algebra (v2.135.0) --------------------------------------------
+//
+// The Cayley-table grid with coset bands (D₄ by the cosets of ⟨r⟩), the
+// subgroup lattice as a Hasse diagram (S₃: three incomparable order-2
+// subgroups on one row), a permutation's cycle diagram with fixed points as
+// loops, and GF(16)'s × table — the widest labels, drawn as coefficient strings.
+{
+  const push = (name: string, svg: string | undefined): void => {
+    if (svg) figures.push([name, svg]);
+  };
+  const D4 = dihedralGroup(4);
+  const rot = cosetsOfGroup(D4, [0, 1, 2, 3], "left");
+  const band = new Array<number>(D4.n).fill(0);
+  rot.forEach((c, i) => c.forEach((x) => { band[x] = i; }));
+  const d4table = D4.labels.map((_, a) => D4.labels.map((__, b) => groupOp(D4, a, b)));
+  push("cayley table D4 coset bands", cayleyTableSvg(D4.labels, d4table, { caption: "Cayley table of D₄, tinted by the cosets of ⟨r⟩", identity: D4.e, bands: band }));
+  push("subgroup lattice S3", tryAlgebra("subgroup lattice of S3")?.svg);
+  push("subgroup lattice Z/12", tryAlgebra("subgroup lattice of Z/12")?.svg);
+  push("permutation cycle diagram", tryAlgebra("cycle diagram of (1 2 3)(4 5)(6)(7 8 9 10)")?.svg);
+  push("GF(16) multiplication table", tryAlgebra("GF(16) multiplication table")?.svg);
 }
 
 // --- The statistics charts ----------------------------------------------------

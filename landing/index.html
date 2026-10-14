@@ -981,6 +981,11 @@ x&#179; &minus; 1 = 0
     </div>
     <div class="cards">
       <a class="card" href="tool.html?tool=solve">
+        <h3>Exact cubic and quartic roots, radius of convergence <span class="is-new">New</span></h3>
+        <p><code>x^3 = 2</code> now gives <b>&#8731;2</b>, not 1.259921&hellip;: cubics by Cardano (three real roots in the trigonometric form, never a complex radical labelled real), quartics by Ferrari, repeated roots exact with their multiplicity &mdash; every closed form <b>proved by an exact identity</b> before it is shown. Fractions in several variables cancel with the factor named; <code>taylor 1/(1+x^2)</code> states <b>R = 1</b> from the complex poles &plusmn;i, as a theorem; proportion intervals (Wilson, Clopper&ndash;Pearson) and exact Markov hitting probabilities and first-passage times.</p>
+        <div class="spec">solve x^3 - 3x + 1 = 0 &#8594; 2&middot;cos(2&pi;/9), 2&middot;cos(4&pi;/9), 2&middot;cos(8&pi;/9), exact</div>
+      </a>
+      <a class="card" href="tool.html?tool=solve">
         <h3>Groups, permutations, rings and finite fields <span class="is-new">New</span></h3>
         <p>Type <code>subgroups of D4</code>, <code>cosets of &lt;4&gt; in Z/12</code>, <code>is U(8) cyclic</code> or <code>(1 2 3)(1 2)</code>: element orders, the subgroup lattice <b>drawn</b>, cosets, normality, quotients, centres and conjugacy classes, with every Cayley table <b>checked as a group by brute force</b>. Isomorphism is decided only where the invariants prove it, and said otherwise. Arithmetic in &#8484;/n, polynomials over &#120125;<sub>p</sub> &mdash; irreducibility, factoring <b>multiplied back to check</b> &mdash; and the fields GF(p<sup>k</sup>) with their tables, primitive elements and minimal polynomials.</p>
         <div class="spec">factor x^4 + x^2 + 1 over F_2 &#8594; (x&sup2; + x + 1)&sup2;</div>
@@ -1001,7 +1006,7 @@ x&#179; &minus; 1 = 0
         <div class="spec">maximize 3x + 2y s.t. x + y &le; 4, x + 3y &le; 6, x, y &ge; 0 &#8594; (4, 0), z = 12, shadow prices (3, 0)</div>
       </a>
       <a class="card" href="tool.html?tool=solve">
-        <h3>Probability and Markov chains <span class="is-new">New</span></h3>
+        <h3>Probability and Markov chains</h3>
         <p>Fifteen named distributions as verbs: <code>binomial n=10 p=0.4 P(X &le; 3)</code> gives the <b>exact fraction</b> and the formula with the pmf drawn and the event shaded; the normal shows z and &Phi; with the tail shaded; quantiles, critical values, moments and mgfs for t, &chi;&sup2;, F, exponential, gamma, beta, geometric and hypergeometric too. Every value is <b>cross-checked by a route that shares no code</b> and withheld on disagreement. Bayes exact with the probability tree (independence never assumed), expected values of listed outcomes, the classic dice/coin/urn/birthday problems exactly, confidence intervals with the z-or-t choice stated, and <b>Markov chains</b>: the stationary distribution exact, classification and period, limits only when they exist, absorbing chains with expected steps, the state diagram drawn.</p>
         <div class="spec">markov [[0.9, 0.1], [0.5, 0.5]] stationary &#8594; &pi; = (5/6, 1/6), irreducible, aperiodic</div>
       </a>

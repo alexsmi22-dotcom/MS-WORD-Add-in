@@ -101,15 +101,6 @@ export function pieceGlobal(p: SplinePiece): Rat[] {
   return ratPolyTrim(out);
 }
 
-/** Which piece covers x (the end pieces extend outward for extrapolation). */
-export function pieceIndexFor(s: Spline, x: Rat): number {
-  const n = s.pieces.length;
-  if (n === 0) return -1;
-  let i = 0;
-  while (i < n - 1 && ratGt(x, s.pieces[i].x1)) i++;
-  return i;
-}
-
 // ---------------------------------------------------------------------------
 // Construction.
 // ---------------------------------------------------------------------------

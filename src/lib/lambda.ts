@@ -45,6 +45,10 @@
 // X`, and caps that bounded time at four seconds rather than one. All closed
 // below, each with its own pin in lambda.test.ts.
 
+// hm.ts imports from this module too; the cycle is safe because neither
+// module uses the other at top level (only inside functions).
+import { parseHM, showH, isLetIn, solveHM, htermMeasure, HTerm, HMOutcome } from "./hm";
+
 // ---------------------------------------------------------------------------
 // Terms
 
@@ -345,13 +349,13 @@ function termHash(t: Term): number {
 // digits, underscores, primes (' or ′) and subscript digits. Decimal
 // integers are Church numerals.
 
-const IDENT_START = /[A-Za-z_α-κμ-ωΑ-ΚΜ-Ω]/u;
-const IDENT_CHAR = /[A-Za-z0-9_'′₀-₉α-κμ-ωΑ-ΚΜ-Ω]/u;
+export const IDENT_START = /[A-Za-z_α-κμ-ωΑ-ΚΜ-Ω]/u;
+export const IDENT_CHAR = /[A-Za-z0-9_'′₀-₉α-κμ-ωΑ-ΚΜ-Ω]/u;
 /** Negative lookahead: "the keyword ends here" (a variable named fvx is not fv x). */
 const WORD_END = "(?![A-Za-z0-9_'′₀-₉α-κμ-ωΑ-ΚΜ-Ω])";
 /** The λ as it arrives from a rendered equation: mathematical italic/bold/
  *  sans variants of U+03BB, read as the binder they are. */
-const LAMBDA_GLYPHS = new Set(["λ", "\\", "𝛌", "𝜆", "𝝀", "𝝺", "𝞴"]);
+export const LAMBDA_GLYPHS = new Set(["λ", "\\", "𝛌", "𝜆", "𝝀", "𝝺", "𝞴"]);
 
 interface Tok { t: "lam" | "dot" | "lp" | "rp" | "id" | "num" | "lb" | "rb" | "comma"; s: string; pos: number }
 
@@ -1491,14 +1495,22 @@ export interface LambdaResult {
   normalForm?: string;
   decoded?: { numeral?: number; boolean?: boolean };
   type?: string | null;
+  /** hm: the term's type scheme (∀α. α → α), when its type has variables. */
+  scheme?: string;
+  /** hm: the Algorithm W derivation tree (≤ 20 nodes), rendered by the pane like a discrete result's svg. */
+  svg?: string;
+  alt?: string;
   /** true = the independent evaluator agreed; false = it DISAGREED (a defect);
    *  null = it could not decide within its fuel. */
   verified?: boolean | null;
 }
 
 export interface LambdaRequest {
+  /** For the hm verb this is the pure-λ expansion of the hm term when one
+   *  exists (lets substituted; the cross-check's term), else a placeholder
+   *  variable — the hm term itself is `hm.term`. */
   term: Term;
-  verb: "reduce" | "type" | "free" | "alpha" | "eta" | "ski" | "cl";
+  verb: "reduce" | "type" | "free" | "alpha" | "eta" | "ski" | "cl" | "hm";
   strategy: Strategy;
   other?: Term;
   notes: string[];
@@ -1506,11 +1518,77 @@ export interface LambdaRequest {
   defs: Map<string, Binding>;
   /** The term as the user wrote it, after definitions were expanded. */
   shown: string;
+  /** The Hindley–Milner request (verb "hm"): the term of the hm reader. */
+  hm?: { source: string; term: HTerm };
 }
 
 const STEP_LINES_SHOWN = 40;
 
 const DEF_RE = /^(?:let\s+(rec\s+)?)?([A-Za-z_α-κμ-ωΑ-ΚΜ-Ω][A-Za-z0-9_'′₀-₉α-κμ-ωΑ-ΚΜ-Ω]*)\s*(?::=|=)\s*(.+)$/u;
+
+/** The Hindley–Milner verb (SCOPE-COMPUTATION-THEORY §B). A bare `w` counts
+ *  only in lowercase and only before a term — `W f x` is the library's W. */
+export const HM_RE = /^\s*(?:hm|hindley[-\s]milner|algorithm\s+w|w(?=\s+(?:let\b|λ|\\|𝛌|𝜆|𝝀|𝝺|𝞴|lambda\b|\(\s*(?:λ|\\|𝛌|𝜆|𝝀|𝝺|𝞴|lambda\b)))|type\s+scheme(?:\s+of)?|principal\s+type\s+scheme|infer\s+scheme)\b/i;
+
+/** Words that make a λ-kind line prose rather than a term (§E.4). */
+/** Bare English connectives: a line holding one (unbound) is prose. */
+const PROSE_CONNECTIVE = new Set(["with", "of", "for", "and", "the", "is", "on", "into", "from", "than"]);
+/** Other domains' verbs and nouns: a line LED by one is prose (busy beaver 3, unify …). */
+const PROSE_DOMAIN = new Set([
+  "busy", "unify", "mgu", "resolve", "resolution", "prenex", "skolemize", "skolemise", "clausal", "pigeonhole",
+  "dpll", "sat", "unsat", "cnf", "dnf", "cfg", "grammar", "pda", "npda", "dpda", "tm", "dtm", "turing", "halt", "halts", "halting",
+  "derivative", "differentiate", "integral", "integrate", "solve", "simplify", "factor", "factorise", "factorize", "expand",
+  "limit", "gcd", "lcm", "prime", "choose", "regex", "dfa", "nfa", "automaton", "truth", "tautology", "satisfiable",
+]);
+const VERB_LIST = "reduce, type, hm, free, alpha, eta, ski and cl (with the strategies applicative and normal)";
+
+/**
+ * Prose read as free variables is a confident answer to a different question
+ * ("busy beaver 3" reduced as busy applied to beaver applied to Church 3).
+ * A line is prose when an unknown lowercase word leads into a λ-term, when it
+ * carries a stop word (with, of, …), or when two or more unknown lowercase
+ * words stand beside a numeral or a binder. Known definitions and λ-bound
+ * names are never words. Returns the refusal, or null for a term.
+ */
+function proseRefusal(src: string, known: Set<string>): string | null {
+  let toks: Tok[];
+  try { toks = tokenize(src); } catch { return null; } // the parser reports the syntax error itself
+  const bound = new Set<string>();
+  for (let i = 0; i < toks.length; i++) {
+    if (toks[i].t !== "lam") continue;
+    for (let j = i + 1; j < toks.length && toks[j].t === "id"; j++) bound.add(toks[j].s);
+  }
+  const isWord = (t: Tok): boolean => t.t === "id" && /^[a-z][a-z-]+$/.test(t.s) && !known.has(t.s) && !bound.has(t.s);
+  const refuse = (words: string[]): string => {
+    const upper = words.map((w) => w.toUpperCase()).filter((w) => LIBRARY_NAMES.includes(w));
+    const hint = upper.length ? ` Library names are UPPERCASE: ${upper.join(", ")}.` : ` A term is written from variables, λ and parentheses; to use ${words[0]} as a name, define it first (let ${words[0]} = …) on the line above.`;
+    return `"${words.join(" ")}" reads as prose, not as a λ-term: the λ kind's verbs are ${VERB_LIST}; "${words.join(" ")}" is not one of them, so the line was not reduced.${hint}`;
+  };
+  // Narrow on purpose (review regression: `pair a b`, `succ 2`, `map f xs`,
+  // `foo` are ordinary free-variable applications and reduced in v2.132.0).
+  // A line is prose only when (a) it is LED by another domain's verb/noun,
+  // or (b) it carries a bare English connective that is not a bound name.
+  if (!toks.length) return null;
+  const words = toks.filter(isWord).map((t) => t.s);
+  if (isWord(toks[0]) && PROSE_DOMAIN.has(toks[0].s)) {
+    const lead: string[] = [];
+    for (let i = 0; i < toks.length && isWord(toks[i]); i++) lead.push(toks[i].s);
+    return refuse(lead);
+  }
+  if (words.some((w) => PROSE_CONNECTIVE.has(w))) return refuse(words);
+  return null;
+}
+
+/** The "Library names are UPPERCASE" hint, as a CAVEAT on a reduced result
+ *  whose leading free variable is a library name in lowercase (succ → SUCC). */
+function libraryCaseNote(src: string, known: Set<string>): string | null {
+  let toks: Tok[];
+  try { toks = tokenize(src); } catch { return null; }
+  const t = toks[0];
+  if (!t || t.t !== "id" || known.has(t.s) || !/^[a-z]+$/.test(t.s)) return null;
+  const up = t.s.toUpperCase();
+  return LIBRARY_NAMES.includes(up) ? `${t.s} is a free variable here (names are case-sensitive); the library's ${up} is written in UPPERCASE.` : null;
+}
 
 /** Re-throws a syntax error with where it happened, since positions inside
  *  the message count from the start of the TERM being parsed. */
@@ -1557,6 +1635,9 @@ export function parseLambdaRequest(input: string): LambdaRequest | null {
   const pending: { name: string; no: number; isRec: boolean }[] = [];
   for (let i = 0; i < lines.length - 1; i++) {
     const { text, no } = lines[i];
+    // `let x = … in …` is a Hindley–Milner expression, not a definition (§E.3):
+    // read before DEF_RE can swallow it with `in` as a variable.
+    if (isLetIn(text)) throw new LambdaSyntaxError(`Line ${no} is a let … in … expression (Hindley–Milner), which must be the LAST line; a definition on an earlier line is written let NAME = term, without "in".`);
     const m = DEF_RE.exec(text);
     if (!m) throw new LambdaSyntaxError(`Line ${no} is not a definition (write NAME = term); only the last line may be the term.`);
     const isRec = !!m[1];
@@ -1615,7 +1696,11 @@ export function parseLambdaRequest(input: string): LambdaRequest | null {
     return false;
   };
   for (let i = 0; i < 6 && stripOne(); i++) { /* keep stripping */ }
-  if (lead(new RegExp(`^(?:type(?:\\s+of)?|typecheck|infer(?:\\s+the\\s+type\\s+of)?)${WORD_END}\\s*:?\\s*`, "u"))) verb = "type";
+  // hm first: "type scheme of …" starts with "type". The bare-w form needs
+  // lowercase (W f x is the library's W applied).
+  const hmM = HM_RE.exec(last);
+  if (hmM && !/^\s*W\b/.test(last)) { last = last.slice(hmM[0].length).replace(/^\s*:?\s*/, ""); verb = "hm"; }
+  else if (lead(new RegExp(`^(?:type(?:\\s+of)?|typecheck|infer(?:\\s+the\\s+type\\s+of)?)${WORD_END}\\s*:?\\s*`, "u"))) verb = "type";
   else if (lead(new RegExp(`^(?:free(?:\\s+vars?|\\s+variables?)?(?:\\s+of)?|fv)${WORD_END}\\s*:?\\s*`, "u"))) verb = "free";
   else if (lead(new RegExp(`^(?:alpha(?:[\\s-]equivalent)?|α(?:[\\s-]equivalent)?|equivalent|same)${WORD_END}\\s*:?\\s*`, "u"))) verb = "alpha";
   else if (lead(new RegExp(`^(?:eta(?:[\\s-]reduce)?|η(?:[\\s-]reduce)?|beta[\\s-]eta|βη)${WORD_END}\\s*:?\\s*`, "u"))) verb = "eta";
@@ -1624,10 +1709,37 @@ export function parseLambdaRequest(input: string): LambdaRequest | null {
   for (let i = 0; i < 3 && stripOne(); i++) { /* "type of the normal form of X" */ }
 
   if (!last) throw new LambdaSyntaxError("There is no term after the keyword.");
+  // A one-line `let NAME = term in term` is Hindley–Milner whether bare or
+  // under `type` — read BEFORE DEF_RE can call it a definition (§E.3).
+  if ((verb === "reduce" || verb === "type") && isLetIn(last)) verb = "hm";
+  const where = lines.length > 1 ? `Line ${lastNo}` : "In the term";
+  if (verb === "hm") {
+    const ht = located(where, () => parseHM(last));
+    // Depth/size straight after the (partly iterative) parse, before any
+    // recursive walker — showH below is one (the parseChecked pattern).
+    const meas = htermMeasure(ht);
+    if (meas.depth > MAX_TERM_DEPTH) throw new LambdaSyntaxError(`${where}: the term as written nests ${meas.depth} deep, above the ${MAX_TERM_DEPTH}-deep cap.`);
+    if (meas.size > MAX_TERM_SIZE) throw new LambdaSyntaxError(`${where}: the term as written has ${meas.size} nodes, above the ${MAX_TERM_SIZE}-node cap.`);
+    // The reducer never sees the hm forms; `term` is the pure-λ expansion
+    // when there is one (computed by the solver), else a placeholder.
+    return { term: v("hm"), verb, strategy, notes, defs, shown: showH(ht), hm: { source: last, term: ht } };
+  }
+  if (verb !== "alpha" && verb !== "cl") {
+    const prose = proseRefusal(last, known());
+    if (prose) throw new LambdaSyntaxError(prose);
+    const caseNote = libraryCaseNote(last, known());
+    if (caseNote) notes.push(caseNote);
+  }
   if (verb !== "alpha" && verb !== "cl" && DEF_RE.test(last)) {
     throw new LambdaSyntaxError("That line is a definition. Put the term to reduce on the line after it (for example a second line reading TWICE SUCC 0).");
   }
-  const where = lines.length > 1 ? `Line ${lastNo}` : "In the term";
+  if (verb === "type") {
+    // §E.14: a numeral means something else under the other verb — say so.
+    try {
+      const n = tokenize(last).find((t) => t.t === "num");
+      if (n) notes.push(`Under type, ${n.s} is the Church numeral ${show(churchNumeral(Math.min(Number(n.s), 3)))}${Number(n.s) > 3 ? "…" : ""}; under hm, ${n.s} : int (an integer literal).`);
+    } catch { /* the parser reports it */ }
+  }
   const expand = (src: string): Term => {
     const pn: ParseNote[] = [];
     const ex = located(where, () => expandDefs(parseChecked(src, pn), defs));
@@ -1663,6 +1775,18 @@ export function parseLambdaRequest(input: string): LambdaRequest | null {
   return { term, verb, strategy, notes, defs, shown: show(term) };
 }
 
+/** The raw Hindley–Milner outcome for an hm request (tests re-run the
+ *  cross-check on `expansion` themselves); null when the input is not one. */
+export function hmOutcome(input: string): HMOutcome | null {
+  const req = parseLambdaRequest(input);
+  if (!req || req.verb !== "hm" || !req.hm) return null;
+  const defs = req.defs;
+  return solveHM(req.hm.term, {
+    expand: (u) => expandDefs(u, defs).term,
+    defTerm: (name) => (defs.has(name) ? expandDefs(v(name), defs).term : null),
+  });
+}
+
 export function solveLambda(input: string): LambdaResult | null {
   try {
     return solveLambdaInner(input);
@@ -1679,6 +1803,33 @@ function solveLambdaInner(input: string): LambdaResult | null {
   if (!req) return null;
   const caveats: string[] = [...req.notes];
   const t = req.term;
+
+  if (req.verb === "hm" && req.hm) {
+    const defs = req.defs;
+    // One entry point for the outcome, shared with the tests that re-run the
+    // cross-check on `expansion` — the pane and the tests see the same W run.
+    const out = hmOutcome(input)!;
+    // A disagreement between W and its cross-checks is a defect: refuse, never print.
+    if (out.defect) throw new LambdaSyntaxError(out.defect);
+    if (out.expansion) req.term = out.expansion;
+    const lits = /(^|[^A-Za-z0-9_'′₀-₉α-κμ-ωΑ-ΚΜ-Ω])(\d+)/u.exec(req.hm.source);
+    const litNote = lits ? [`Under hm, ${lits[2]} : int (an integer literal); under type, ${lits[2]} is the Church numeral ${show(churchNumeral(Math.min(Number(lits[2]), 3)))}${Number(lits[2]) > 3 ? "…" : ""} : (α → β) → α → β.`] : [];
+    return {
+      title: "Hindley–Milner type",
+      display: out.display,
+      steps: out.steps,
+      caveats: [
+        ...caveats,
+        ...out.caveats,
+        ...litNote,
+        "Hindley–Milner (rank-1): a let-bound name is generalised (∀) over the type variables not free in Γ and instantiated afresh at every use; a λ-bound name is monomorphic; let rec is typed by monomorphic recursion. Library names and definitions on earlier lines keep their λ-types.",
+      ],
+      type: out.type,
+      scheme: out.scheme,
+      svg: out.svg,
+      alt: out.svg ? `Algorithm W derivation tree for ${out.shown}` : undefined,
+    };
+  }
 
   if (req.verb === "free") {
     const fv = [...freeVars(t)];

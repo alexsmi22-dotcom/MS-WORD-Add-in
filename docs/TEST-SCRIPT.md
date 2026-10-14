@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.132.0)
+# JurisLab — Manual Test Script (v2.133.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -9,6 +9,56 @@ scanning, and layout. Budget ~30 minutes for the full pass.
 Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
+
+## 0bz. New in v2.133.0 — Computation theory: grammars, machines, first-order logic, SAT, Hindley–Milner
+
+Solve, Discrete kind (palette groups "Grammars", "Machines", "First-order logic", "SAT") and
+the λ-calculus kind ("Hindley–Milner"). Typed into the default Equation kind, each switches
+kinds by itself with a one-line note.
+
+- [ ] `S -> aSb | ε` ⏎ `test: aabb ab aab` → "Context-free grammar — 1 nonterminal, 2 productions
+  over {a, b}", the grammar echoed as **S → aSb | ε**, `aabb — accepted` with **S ⇒ aSb ⇒ aaSbb ⇒
+  aabb**, `ab — accepted`, `aab — rejected`, the CNF and the CYK table in the working, and the
+  parse tree DRAWN. Typed into the Equation kind instead: the pane switches to Discrete (never
+  "Inequalities are solved exactly…", never a truth table over a variable named aSb).
+- [ ] `S -> S S | a` ⏎ `is it ambiguous` → **AMBIGUOUS: aaa has 2 parse trees**, two different
+  leftmost derivations listed, both trees drawn.
+- [ ] `first and follow` ⏎ the E/E'/T/T'/F grammar → Nullable: E', T'; **FIRST(E) = {(, id}**,
+  **FOLLOW(E) = {), $}**, **FOLLOW(F) = {+, *, ), $}**. `remove left recursion` ⏎ `E -> E + T | T` ⏎
+  `T -> T * F | F` ⏎ `F -> ( E ) | id` → E → T E', E' → + T E' | ε, T → F T', T' → * F T' | ε.
+- [ ] Nothing regressed: `p -> q` is still a truth table; `A -> B` ⏎ `B -> C` is still a graph;
+  `regex (a|b)*abb` still draws its automaton.
+- [ ] The aⁿbⁿ `pda` block (palette "PDA") → "acceptance by final state (accept {q2})" said,
+  `"aabb" → accepted in 5 moves`, `"aab" → rejected: every branch died — stuck at (q1, ε, AZ)…`,
+  the state diagram with labels like `a, Z/AZ` and the stack strip DRAWN. `cfg to pda S -> aSb |
+  ε` ⏎ `test: aabb ab aab ""` → "acceptance by empty stack", ε accepted, **Verified: agrees with
+  CYK on 4 of 4 test strings**.
+- [ ] `tm binary increment 1011` → **Final tape: 1100**, "halted in halt after 8 steps", the
+  machine printed, the tape strip DRAWN step by step. The one-state machine `tm` ⏎ `q0 1 -> q0 1
+  L` ⏎ `q0 _ -> q0 _ R` ⏎ `tape: 1` → **LOOPS: configuration (q0, head 0, tape 1) recurred at step
+  2 — proven non-termination**. `does this turing machine halt on every input` → REFUSED by name
+  (the halting problem). `tm busy beaver 3` → Σ(3) = 6, S(3) = 21, CITED, nothing computed.
+- [ ] `prenex ∀x P(x) → ∃y Q(y)` → **∃x ∃y (P(x) → Q(y))** (the ∀ in the antecedent flips to ∃).
+  `skolemize ∀x ∃y P(x, y)` → **∀x P(x, f₁(x))**. `unify f(x, g(x)) and f(a, y)` → **MGU: {x ↦ a,
+  y ↦ g(a)}**, "Both become f(a, g(a))"; `unify f(x, x) and f(y, g(y))` → "No unifier: occurs
+  check — y would have to contain g(y)".
+- [ ] `resolve ∀x (P(x) → Q(x)), P(a) ⊢ Q(a)` → **REFUTED in 2 resolvents — the argument is
+  VALID**, the numbered derivation, the refutation drawn. `resolve ∀x ∃y P(x, y) ⊢ ∃y ∀x P(x,
+  y)` → **SATURATED … the argument is INVALID** with a countermodel (domain {1, 2}).
+- [ ] `dpll (p ∨ q) ∧ (¬p ∨ q) ∧ (p ∨ ¬q) ∧ (¬p ∨ ¬q)` → **UNSATISFIABLE**, the resolution
+  refutation, the unsat core 4 of 4, "0 models in all (brute force agrees)", the search tree
+  drawn with ⊥ leaves. `2sat (x1 ∨ x2) ∧ (¬x1 ∨ x2) ∧ (¬x2 ∨ x1)` → SATISFIABLE x1=T x2=T, the
+  implication graph drawn. `horn a, a -> b, b -> c, ~c` → "Forced true: a, b, c; clause ¬c
+  violated → UNSATISFIABLE". DIMACS `p cnf 3 2` ⏎ `1 -2 0` ⏎ `2 3 0` → SATISFIABLE, 4 models.
+  `sat (p | q) & (~p | q)` (≤ 10 variables) still gets the truth table.
+- [ ] λ kind: `hm let id = λx.x in (id 1, id true)` → **Type: int × bool**, **Scheme: ∀α. α → α
+  for id**, "Instances of id: α ↦ int …; α ↦ bool …", Algorithm W step by step, the derivation
+  tree DRAWN. `hm (λid. id id) (λx.x)` → "Not typable: occurs check … id is λ-bound, hence
+  MONOMORPHIC; write let id = λx.x in id id for polymorphism". `busy beaver 3` in the λ kind →
+  refused by name, never "reduced". `(λx.x) y`, `x y`, `PLUS 2 3` still reduce as before.
+- [ ] Equation kind, nothing stolen: `does the machine do 500 J of work in 10 s`, `resolve
+  1/(x^2 - 1) into partial fractions`, `x^2 - 4 > 0`, `maximize 3x + 2y subject to x + y <= 4,
+  x, y >= 0` answer exactly as before.
 
 ## 0by. New in v2.132.0 — Linear programming, interpolation and splines
 
@@ -3254,6 +3304,7 @@ Engineering mode, Energy & power (now 17; the mode must state **101 calculators*
   - `(0,0,0) (1,1,1) (2,2,2)` -> refused as **COLLINEAR**: no plane.
   - `circle r=1/3` -> area **1/9*pi** exactly, and `box 1/2 1/3 1/4` -> volume **1/24**.
     (Typed fractions must stay exact — no long decimals or giant fractions anywhere.)
+- [ ] **Computation theory: grammars, machines, first-order logic, SAT, Hindley–Milner (v2.133.0).** Solve — see §0bz.
 - [ ] **Linear programming, interpolation and splines (v2.132.0).** Solve — see §0by.
 - [ ] **Probability and Markov chains (v2.131.0).** Solve — see §0bx.
   - `binomial n=10 p=0.4 P(X <= 3)` → 3733209/9765625, exact, pmf drawn.

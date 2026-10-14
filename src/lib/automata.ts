@@ -61,11 +61,12 @@ export interface Machine {
 // Small helpers
 // ---------------------------------------------------------------------------
 
-const escapeXml = (s: string): string =>
+export const escapeXml = (s: string): string =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
-const setName = (members: string[]): string => (members.length ? `{${members.join(",")}}` : "∅");
-const showStr = (s: string): string => (s === "" ? EPS : `"${s}"`);
+export const setName = (members: string[]): string => (members.length ? `{${members.join(",")}}` : "∅");
+/** A test string for display: ε for the empty string, otherwise quoted. */
+export const showStr = (s: string): string => (s === "" ? EPS : `"${s}"`);
 const alphaName = (a: string[]): string => (a.length ? `{${a.join(",")}}` : "the empty alphabet");
 
 function targets(m: Machine, from: string, sym: string): string[] {
@@ -547,13 +548,14 @@ export function thompson(src: string): { nfa: Machine; transitions: number; epsM
 
 const KEYWORD = /^(dfa|nfa|regex|to\s+dfa|minimi[sz]e|equivalent)\b/i;
 
-function lines(src: string): string[] {
+/** The block grammar's lines: CR stripped, each line trimmed (empty lines kept, so callers can split parts). */
+export function lines(src: string): string[] {
   return src.replace(/\r/g, "").split("\n").map((l) => l.trim());
 }
 
 /** Whitespace-separated tokens; a token without braces splits further at commas, so both
  *  "q0 q1 q2" and "q0, q1, q2" work while a set-name like {q0,q1} stays whole. */
-function tokens(s: string): string[] {
+export function tokens(s: string): string[] {
   const out: string[] = [];
   for (const t of s.split(/\s+/)) {
     if (!t) continue;
@@ -563,12 +565,14 @@ function tokens(s: string): string[] {
   return out;
 }
 
-function normSymbol(t: string): string {
+/** Folds every spelling of the empty string (eps, epsilon, lambda, λ, ε, "", '') to EPS; anything else unchanged. */
+export function normSymbol(t: string): string {
   const l = t.toLowerCase();
   return l === "eps" || l === "epsilon" || l === "lambda" || t === "λ" || t === "ε" || t === '""' || t === "''" ? EPS : t;
 }
 
-function normTest(t: string): string {
+/** One test-string token as typed → the string to run ("" for ε and its spellings; quotes stripped). */
+export function normTest(t: string): string {
   if (t === '""' || t === "''") return "";
   const l = t.toLowerCase();
   if (l === "eps" || l === "epsilon" || t === "ε" || t === "λ") return "";
@@ -601,8 +605,18 @@ function parseTransition(line: string): RawTransition | null {
   return { from: m[1], syms: syms.map(normSymbol), to: m[3], line };
 }
 
-function parseTests(value: string, into: string[]): void {
+/** Appends the test strings on one "test:" value (whitespace-separated; "" or ε is the empty string). */
+export function parseTests(value: string, into: string[]): void {
   for (const t of value.split(/\s+/)) if (t) into.push(normTest(t));
+}
+
+/** The heads every block grammar shares, as `name: value` or `name = value`. A machine reader
+ *  passes its own extra heads (e.g. "stack", "blank", "tape") and gets back the lower-cased
+ *  head and the trimmed value, or null for a line that is not a head line. */
+export function headOf(line: string, extraHeads: string[] = []): { key: string; value: string } | null {
+  const names = ["states?", "alphabet", "sigma", "symbols?", "start", "initial", "accept(?:ing)?", "final", "tests?", "run", "name", "title", ...extraHeads];
+  const m = new RegExp(`^(${names.join("|")})\\s*[:=]\\s*(.*)$`, "i").exec(line);
+  return m ? { key: m[1].toLowerCase(), value: m[2].trim() } : null;
 }
 
 /** A dfa/nfa block. `body` is the lines after the keyword line. */
@@ -698,7 +712,8 @@ function parseBlock(kind: "dfa" | "nfa", name: string, body: string[]): Machine 
   return m;
 }
 
-function checkTests(tests: string[]): void {
+/** The shared test-string caps (count and length), refused by name. */
+export function checkTests(tests: string[]): void {
   if (tests.length > AUTOMATA_CAPS.testCount) throw new DiscreteError(`${tests.length} test strings exceed the cap of ${AUTOMATA_CAPS.testCount}.`);
   for (const t of tests) if (t.length > AUTOMATA_CAPS.testLength) throw new DiscreteError(`Test string "${t.slice(0, 20)}…" is ${t.length} characters; the cap is ${AUTOMATA_CAPS.testLength}.`);
 }
@@ -867,16 +882,38 @@ function pickLabelSpot(cands: { x: number; y: number }[], w: number, h: number, 
   return best;
 }
 
-export function machineSvg(m: Machine, cap: string): string {
+/** One arrow of a state diagram. Edges sharing (from, to) are drawn as ONE arrow carrying every
+ *  label — comma-joined for a finite automaton, or stacked one per line for a PDA/TM move whose
+ *  label is free text such as "a, Z/AZ" or "1/0, L". */
+export interface DiagramEdge { from: string; to: string; label: string }
+
+export interface StateDiagramSpec {
+  /** Declared order — it drives the circular layout (rotated so the start state sits at the left). */
+  states: string[];
+  start: string;
+  accept: string[];
+  /** Drawing order; the first edge between a pair fixes where the merged arrow is listed. */
+  edges: DiagramEdge[];
+  caption: string;
+  /** "join" (default): labels of a merged arrow comma-joined on one line. "stack": one line per label. */
+  labels?: "join" | "stack";
+}
+
+/** Deterministic circular state diagram for ANY state machine: states on a circle in declared
+ *  order, the start arrow from the left, accept states double-ringed, self-loops radially
+ *  outward, opposite-direction pairs curved apart, labels placed where they cross the fewest
+ *  other arrows. machineSvg (dfa/nfa) is a caller; pda/turing pass their own edge lists. */
+export function stateDiagramSvg(spec: StateDiagramSpec): string {
   const INK = "#1A1A1A", ACCENT = "#0C4A6E", LABEL = "#7B8C99", FILL = "#9DB3C4";
-  const n = m.states.length;
-  const longest = Math.max(0, ...m.states.map((s) => [...s].length));
+  const states = spec.states;
+  const n = states.length;
+  const longest = Math.max(0, ...states.map((s) => [...s].length));
   const r = longest > 4 ? 22 : 18;
   const cx = W / 2, cy = 160, R = n <= 2 ? 90 : 96;
-  const startIdx = Math.max(0, m.states.indexOf(m.start));
+  const startIdx = Math.max(0, states.indexOf(spec.start));
   const pos = new Map<string, { x: number; y: number }>();
   for (let i = 0; i < n; i++) {
-    const s = m.states[(startIdx + i) % n];
+    const s = states[(startIdx + i) % n];
     if (n === 1) { pos.set(s, { x: cx, y: cy }); continue; }
     const th = Math.PI + (2 * Math.PI * i) / n;
     pos.set(s, { x: cx + R * Math.cos(th), y: cy + R * Math.sin(th) });
@@ -889,30 +926,40 @@ export function machineSvg(m: Machine, cap: string): string {
   out += `<rect width="${W}" height="${H}" fill="#fff"/>`;
   out += `<defs><marker id="aut-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="${INK}"/></marker></defs>`;
 
-  // Edges, merged per (from, to) with comma-joined labels; ε first, then alphabet order.
-  const symbols = m.kind === "nfa" ? [EPS, ...m.alphabet] : m.alphabet;
+  // Edges, merged per (from, to) in drawing order.
   const edges = new Map<string, { from: string; to: string; labels: string[] }>();
-  for (const s of m.states) for (const a of symbols) for (const t of targets(m, s, a)) {
-    const k = s + "\u0001" + t;
+  for (const d of spec.edges) {
+    if (!pos.has(d.from) || !pos.has(d.to)) continue;
+    const k = d.from + "\u0001" + d.to;
     let e = edges.get(k);
-    if (!e) { e = { from: s, to: t, labels: [] }; edges.set(k, e); }
-    e.labels.push(a);
+    if (!e) { e = { from: d.from, to: d.to, labels: [] }; edges.set(k, e); }
+    e.labels.push(d.label);
   }
-  const label = (x: number, y: number, text: string) => {
-    const w = [...text].length * 6 + 4;
-    return `<rect x="${f(x - w / 2)}" y="${f(y - 9)}" width="${f(w)}" height="12" fill="#fff" fill-opacity="0.85"/>` +
-      `<text x="${f(x)}" y="${f(y)}" text-anchor="middle" font-size="10" fill="${LABEL}">${escapeXml(text)}</text>`;
+  const stacked = spec.labels === "stack";
+  // A merged label: one line (joined) or several (stacked); `h` is the box height either way.
+  const label = (x: number, y: number, texts: string[]) => {
+    const w = Math.max(...texts.map((t) => [...t].length)) * 6 + 4;
+    const h = 12 * texts.length;
+    const y0 = y - (h - 12) / 2;
+    let s = `<rect x="${f(x - w / 2)}" y="${f(y0 - 9)}" width="${f(w)}" height="${h}" fill="#fff" fill-opacity="0.85"/>`;
+    texts.forEach((t, i) => { s += `<text x="${f(x)}" y="${f(y0 + 12 * i)}" text-anchor="middle" font-size="10" fill="${LABEL}">${escapeXml(t)}</text>`; });
+    return s;
   };
   let edgeSvg = "";
   const segs: LabelSeg[] = [];
-  const pending: { owner: string; cands: { x: number; y: number }[]; text: string }[] = [];
+  const pending: { owner: string; cands: { x: number; y: number }[]; texts: string[] }[] = [];
   // The start arrow is a segment too: it comes in from the left.
-  const S0 = pos.get(m.start);
+  const S0 = pos.get(spec.start);
   if (S0) segs.push({ x1: S0.x - r - 40, y1: S0.y, x2: S0.x - r - 2, y2: S0.y, owner: "start" });
   for (const e of edges.values()) {
     const A = pos.get(e.from) as { x: number; y: number };
     const B = pos.get(e.to) as { x: number; y: number };
-    const text = e.labels.join(",");
+    const texts = stacked ? e.labels : [e.labels.join(",")];
+    // Stacked (multi-line) labels are boxes, not one line of text: in that mode every offset is
+    // grown by the box's half-extent along the offset direction, so the box clears its own arrow
+    // (and its loop). The joined mode keeps the original offsets, so dfa/nfa figures are unchanged.
+    const bw = Math.max(...texts.map((t) => [...t].length)) * 6 + 4, bh = 12 * texts.length;
+    const reach = (dx0: number, dy0: number): number => Math.abs(dx0) * bw / 2 + Math.abs(dy0) * bh / 2;
     const owner = e.from + "\u0001" + e.to;
     if (e.from === e.to) {
       // Radially outward from the layout centre, so the loop and its label
@@ -921,7 +968,7 @@ export function machineSvg(m: Machine, cap: string): string {
       // start arrow coming in from the left cannot cross it.
       const dl = Math.hypot(A.x - cx, A.y - cy);
       let ox = dl > 1 ? (A.x - cx) / dl : 0, oy = dl > 1 ? (A.y - cy) / dl : -1;
-      if (e.from === m.start) { const tx0 = -oy, ty0 = ox; const up = ty0 <= 0 ? 1 : -1; ox = tx0 * up; oy = ty0 * up; }
+      if (e.from === spec.start) { const tx0 = -oy, ty0 = ox; const up = ty0 <= 0 ? 1 : -1; ox = tx0 * up; oy = ty0 * up; }
       const tx = -oy, ty = ox;
       const ca = Math.cos(0.42), sa = Math.sin(0.42);
       const sx = A.x + r * (ox * ca - tx * sa), sy = A.y + r * (oy * ca - ty * sa);
@@ -929,7 +976,10 @@ export function machineSvg(m: Machine, cap: string): string {
       const c1x = A.x + (r + 30) * ox - 30 * tx, c1y = A.y + (r + 30) * oy - 30 * ty;
       const c2x = A.x + (r + 30) * ox + 30 * tx, c2y = A.y + (r + 30) * oy + 30 * ty;
       edgeSvg += `<path d="M${f(sx)} ${f(sy)} C${f(c1x)} ${f(c1y)}, ${f(c2x)} ${f(c2y)}, ${f(ex)} ${f(ey)}" fill="none" stroke="${INK}" stroke-width="1.2" marker-end="url(#aut-arrow)"/>`;
-      pending.push({ owner, text, cands: [{ x: A.x + (r + 34) * ox, y: A.y + (r + 34) * oy + 3 }, { x: A.x + (r + 42) * ox, y: A.y + (r + 42) * oy + 3 }] });
+      if (stacked) {
+        const d = r + 32 + reach(ox, oy);
+        pending.push({ owner, texts, cands: [{ x: A.x + d * ox, y: A.y + d * oy + 3 }, { x: A.x + (d + 8) * ox, y: A.y + (d + 8) * oy + 3 }] });
+      } else pending.push({ owner, texts, cands: [{ x: A.x + (r + 34) * ox, y: A.y + (r + 34) * oy + 3 }, { x: A.x + (r + 42) * ox, y: A.y + (r + 42) * oy + 3 }] });
       continue;
     }
     const dx = B.x - A.x, dy = B.y - A.y;
@@ -945,7 +995,8 @@ export function machineSvg(m: Machine, cap: string): string {
       edgeSvg += `<path d="M${f(sx)} ${f(sy)} Q${f(C.x)} ${f(C.y)} ${f(ex)} ${f(ey)}" fill="none" stroke="${INK}" stroke-width="1.2" marker-end="url(#aut-arrow)"/>`;
       const mx = 0.25 * sx + 0.5 * C.x + 0.25 * ex, my = 0.25 * sy + 0.5 * C.y + 0.25 * ey;
       segs.push({ x1: sx, y1: sy, x2: C.x, y2: C.y, owner }); segs.push({ x1: C.x, y1: C.y, x2: ex, y2: ey, owner });
-      pending.push({ owner, text, cands: [{ x: mx + px * 14, y: my + py * 14 + 3 }, { x: mx + px * 22, y: my + py * 22 + 3 }] });
+      const d1 = stacked ? Math.max(14, reach(px, py) + 4) : 14;
+      pending.push({ owner, texts, cands: [{ x: mx + px * d1, y: my + py * d1 + 3 }, { x: mx + px * (d1 + 8), y: my + py * (d1 + 8) + 3 }] });
     } else {
       const sx = A.x + ux * r, sy = A.y + uy * r;
       const ex = B.x - ux * (r + 2), ey = B.y - uy * (r + 2);
@@ -955,25 +1006,31 @@ export function machineSvg(m: Machine, cap: string): string {
       const side = ((sx + ex) / 2 - cx) * px + ((sy + ey) / 2 - cy) * py >= 0 ? 1 : -1;
       segs.push({ x1: sx, y1: sy, x2: ex, y2: ey, owner });
       const at = (frac: number, dist: number, sg: number): { x: number; y: number } => ({ x: sx + (ex - sx) * frac + px * dist * sg, y: sy + (ey - sy) * frac + py * dist * sg + 3 });
-      pending.push({ owner, text, cands: [at(0.5, 14, side), at(0.35, 14, side), at(0.65, 14, side), at(0.5, 22, side), at(0.5, 14, -side), at(0.35, 14, -side), at(0.65, 14, -side)] });
+      const d1 = stacked ? Math.max(14, reach(px, py) + 4) : 14;
+      pending.push({ owner, texts, cands: [at(0.5, d1, side), at(0.35, d1, side), at(0.65, d1, side), at(0.5, d1 + 8, side), at(0.5, d1, -side), at(0.35, d1, -side), at(0.65, d1, -side)] });
     }
   }
   for (const q of pending) {
-    const w = [...q.text].length * 6 + 4;
-    // label() draws the box from y−9 to y+3 around the baseline y: centre y−3.
-    const spot = pickLabelSpot(q.cands.map((c) => ({ x: c.x, y: c.y - 3 })), w, 12, segs, q.owner);
-    edgeSvg += label(spot.x, spot.y + 3, q.text);
+    const w = Math.max(...q.texts.map((t) => [...t].length)) * 6 + 4;
+    const h = 12 * q.texts.length;
+    // label() draws a one-line box from y−9 to y+3 around the baseline y: centre y−3.
+    // A stacked box is kept on the canvas (above the caption band); a joined label is placed as before.
+    const clamp = (c: { x: number; y: number }) => (stacked
+      ? { x: Math.min(Math.max(c.x, w / 2 + 2), W - w / 2 - 2), y: Math.min(Math.max(c.y - 3, h / 2 + 2), H - 30 - h / 2) }
+      : { x: c.x, y: c.y - 3 });
+    const spot = pickLabelSpot(q.cands.map(clamp), w, h, segs, q.owner);
+    edgeSvg += label(spot.x, spot.y + 3, q.texts);
   }
   out += edgeSvg;
 
   // Start arrow from the left.
-  const S = pos.get(m.start);
+  const S = pos.get(spec.start);
   if (S) out += `<path d="M${f(S.x - r - 40)} ${f(S.y)} L${f(S.x - r - 2)} ${f(S.y)}" stroke="${INK}" stroke-width="1.2" marker-end="url(#aut-arrow)"/>`;
 
   // Nodes last so they sit on top of the arrows.
-  for (const s of m.states) {
+  for (const s of states) {
     const P = pos.get(s) as { x: number; y: number };
-    const acc = m.accept.includes(s);
+    const acc = spec.accept.includes(s);
     if (acc) {
       out += `<circle cx="${f(P.x)}" cy="${f(P.y)}" r="${r}" fill="${FILL}" fill-opacity="0.35" stroke="${ACCENT}" stroke-width="1.4"/>`;
       out += `<circle cx="${f(P.x)}" cy="${f(P.y)}" r="${r - 4}" fill="none" stroke="${ACCENT}" stroke-width="1.4"/>`;
@@ -983,9 +1040,156 @@ export function machineSvg(m: Machine, cap: string): string {
     const title = [...s].length > 14 ? `<title>${escapeXml(s)}</title>` : "";
     out += `<text x="${f(P.x)}" y="${f(P.y + font(s) * 0.36)}" text-anchor="middle" font-size="${font(s)}" fill="${INK}">${title}${escapeXml(short(s))}</text>`;
   }
-  out += `<text x="${W / 2}" y="${H - 12}" text-anchor="middle" font-size="11" fill="${INK}">${escapeXml(cap)}</text>`;
+  out += `<text x="${W / 2}" y="${H - 12}" text-anchor="middle" font-size="11" fill="${INK}">${escapeXml(spec.caption)}</text>`;
   out += `</svg>`;
   return out;
+}
+
+/** The dfa/nfa state diagram: the machine's transitions as an edge list (ε first, then
+ *  alphabet order, per state in declared order), labels comma-joined per arrow. */
+export function machineSvg(m: Machine, cap: string): string {
+  const symbols = m.kind === "nfa" ? [EPS, ...m.alphabet] : m.alphabet;
+  const edges: DiagramEdge[] = [];
+  for (const s of m.states) for (const a of symbols) for (const t of targets(m, s, a)) edges.push({ from: s, to: t, label: a });
+  return stateDiagramSvg({ states: m.states, start: m.start, accept: m.accept, edges, caption: cap, labels: "join" });
+}
+
+// ---------------------------------------------------------------------------
+// The configuration strip (tape cells per step for a Turing machine; stack
+// columns per step for a pushdown automaton)
+// ---------------------------------------------------------------------------
+
+/** One configuration of a run. Tape: `cells` left→right with the head at `cells[head]`.
+ *  Stack: `cells` TOP-first (the top is boxed), `input` the unread input written under the column. */
+export interface StripStep {
+  /** The step number (or any short row/column label). */
+  label: string;
+  /** The state — written above the head cell (tape) or at the top of the column (stack). */
+  state: string;
+  cells: string[];
+  head?: number;
+  input?: string;
+}
+
+export interface ConfigStripSpec {
+  kind: "tape" | "stack";
+  steps: StripStep[];
+  caption: string;
+}
+
+/** Which steps a long run shows: the first 12 and the last 3 when there are more than 15. */
+export const STRIP_FIRST = 12, STRIP_LAST = 3;
+export function stripWindow(n: number): { first: number; last: number; omitted: number } {
+  if (n <= STRIP_FIRST + STRIP_LAST) return { first: n, last: 0, omitted: 0 };
+  return { first: STRIP_FIRST, last: STRIP_LAST, omitted: n - STRIP_FIRST - STRIP_LAST };
+}
+
+/** Tape cells shown per row, and the stack cells shown per column, before the strip clips with "…". */
+const STRIP_TAPE_CELLS = 24, STRIP_STACK_CELLS = 8;
+
+/** The run as a figure: a row per step (tape) or a column per step (stack), the head cell boxed
+ *  in the accent colour, the state written above it; long runs show the first 12 and last 3
+ *  steps with the count of omitted steps written between them; a tape wider than 24 cells is
+ *  windowed around the head with "…" marks; a stack deeper than 8 shows its top 7 and "⋮". */
+export function configStripSvg(spec: ConfigStripSpec): string {
+  const INK = "#1A1A1A", ACCENT = "#0C4A6E", LABEL = "#7B8C99", FILL = "#9DB3C4";
+  const f = (v: number) => v.toFixed(1);
+  const win = stripWindow(spec.steps.length);
+  const shown: (StripStep | { gap: number })[] = [...spec.steps.slice(0, win.first)];
+  if (win.omitted) shown.push({ gap: win.omitted }, ...spec.steps.slice(spec.steps.length - win.last));
+  const cellText = (s: string, max: number): string => { const c = [...s]; return c.length > max ? c.slice(0, max - 1).join("") + "…" : s; };
+  let body = "";
+  let height: number;
+
+  if (spec.kind === "tape") {
+    const ROW = 30, GAP = 20, CW = 16, CH = 16, X0 = 52;
+    let y = 10;
+    for (const st of shown) {
+      if ("gap" in st) {
+        body += `<text x="${W / 2}" y="${y + 13}" text-anchor="middle" font-size="10" fill="${LABEL}">… ${st.gap} step${st.gap === 1 ? "" : "s"} not drawn …</text>`;
+        y += GAP;
+        continue;
+      }
+      const head = st.head ?? 0;
+      let start = 0, cells = st.cells;
+      if (cells.length > STRIP_TAPE_CELLS) {
+        start = Math.max(0, Math.min(head - Math.floor(STRIP_TAPE_CELLS / 2) + 1, cells.length - STRIP_TAPE_CELLS));
+        cells = cells.slice(start, start + STRIP_TAPE_CELLS);
+      }
+      body += `<text x="6" y="${y + 23}" font-size="10" fill="${INK}">${escapeXml(st.label)}</text>`;
+      if (start > 0) body += `<text x="44" y="${y + 23}" text-anchor="middle" font-size="10" fill="${LABEL}">…</text>`;
+      if (start + cells.length < st.cells.length) body += `<text x="${X0 + STRIP_TAPE_CELLS * CW + 8}" y="${y + 23}" text-anchor="middle" font-size="10" fill="${LABEL}">…</text>`;
+      cells.forEach((c, i) => {
+        const x = X0 + i * CW;
+        const isHead = start + i === head;
+        body += `<rect x="${x}" y="${y + 11}" width="${CW}" height="${CH}" fill="${isHead ? FILL : "#fff"}" fill-opacity="${isHead ? "0.35" : "1"}" stroke="${isHead ? ACCENT : INK}" stroke-width="${isHead ? 1.6 : 0.8}"/>`;
+        body += `<text x="${x + CW / 2}" y="${y + 23}" text-anchor="middle" font-size="10" fill="${INK}">${escapeXml(cellText(c, 2))}</text>`;
+        if (isHead) body += `<text x="${x + CW / 2}" y="${y + 8}" text-anchor="middle" font-size="9" fill="${ACCENT}">${escapeXml(cellText(st.state, 6))}</text>`;
+      });
+      y += ROW;
+    }
+    height = y + 24;
+  } else {
+    const COL = 26, GAPW = 14, CW = 22, CH = 16, X0 = 20;
+    const depth = Math.min(STRIP_STACK_CELLS, Math.max(1, ...spec.steps.map((s) => s.cells.length)));
+    const base = 50 + depth * CH; // the bottom edge of every column's bottom cell
+    let x = X0;
+    for (const st of shown) {
+      if ("gap" in st) {
+        body += `<text x="${x + GAPW / 2}" y="${base - CH / 2 + 4}" text-anchor="middle" font-size="10" fill="${LABEL}">…</text>`;
+        x += GAPW;
+        continue;
+      }
+      const cx = x + COL / 2;
+      body += `<text x="${cx}" y="14" text-anchor="middle" font-size="8" fill="${LABEL}">${escapeXml(st.label)}</text>`;
+      body += `<text x="${cx}" y="28" text-anchor="middle" font-size="9" fill="${ACCENT}">${escapeXml(cellText(st.state, 3))}</text>`;
+      if (st.input !== undefined) body += `<text x="${cx}" y="42" text-anchor="middle" font-size="8" fill="${INK}">${escapeXml(cellText(st.input === "" ? EPS : st.input, 4))}</text>`;
+      let cells = st.cells;
+      let more = false;
+      if (cells.length > STRIP_STACK_CELLS) { cells = cells.slice(0, STRIP_STACK_CELLS - 1); more = true; }
+      // Bottom-up: the last shown cell sits on the base line; the top cell (cells[0]) is boxed.
+      const shownCount = cells.length + (more ? 1 : 0);
+      cells.forEach((c, i) => {
+        const top = base - (shownCount - i) * CH;
+        const isTop = i === 0;
+        body += `<rect x="${cx - CW / 2}" y="${top}" width="${CW}" height="${CH}" fill="${isTop ? FILL : "#fff"}" fill-opacity="${isTop ? "0.35" : "1"}" stroke="${isTop ? ACCENT : INK}" stroke-width="${isTop ? 1.6 : 0.8}"/>`;
+        body += `<text x="${cx}" y="${top + 12}" text-anchor="middle" font-size="10" fill="${INK}">${escapeXml(cellText(c, 3))}</text>`;
+      });
+      if (more) body += `<text x="${cx}" y="${base - 4}" text-anchor="middle" font-size="10" fill="${LABEL}">⋮</text>`;
+      if (!cells.length) body += `<text x="${cx}" y="${base - 4}" text-anchor="middle" font-size="10" fill="${LABEL}">${EPS}</text>`;
+      x += COL;
+    }
+    body += `<line x1="${X0 - 4}" y1="${base + 0.5}" x2="${x + 4}" y2="${base + 0.5}" stroke="${INK}" stroke-width="0.8"/>`;
+    height = base + (win.omitted ? 44 : 30);
+    if (win.omitted) body += `<text x="${W / 2}" y="${base + 14}" text-anchor="middle" font-size="9" fill="${LABEL}">first ${win.first} and last ${win.last} of ${spec.steps.length} configurations; ${win.omitted} not drawn</text>`;
+  }
+  let out = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${height}" viewBox="0 0 ${W} ${height}" font-family="Georgia,serif">`;
+  out += `<rect width="${W}" height="${height}" fill="#fff"/>`;
+  out += body;
+  out += `<text x="${W / 2}" y="${height - 10}" text-anchor="middle" font-size="11" fill="${INK}">${escapeXml(spec.caption)}</text>`;
+  out += `</svg>`;
+  return out;
+}
+
+/** Stacks whole SVG figures vertically into one SVG (each part in a translated group), so a
+ *  result can carry a state diagram AND a configuration strip in its single `svg` field. */
+export function composeSvgs(parts: string[]): string {
+  const pieces: { w: number; h: number; inner: string }[] = [];
+  for (const p of parts) {
+    const head = /^<svg\b[^>]*\bwidth="([\d.]+)"[^>]*\bheight="([\d.]+)"[^>]*>/.exec(p);
+    if (!head) continue;
+    pieces.push({ w: Number(head[1]), h: Number(head[2]), inner: p.slice(head[0].length).replace(/<\/svg>\s*$/, "") });
+  }
+  if (pieces.length === 1) return parts.find((p) => p.startsWith("<svg")) as string;
+  const w = Math.max(W, ...pieces.map((p) => p.w));
+  const h = pieces.reduce((a, p) => a + p.h, 0);
+  let out = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" font-family="Georgia,serif">`;
+  let y = 0;
+  for (const p of pieces) {
+    out += `<g transform="translate(${(w - p.w) / 2},${y})">${p.inner}</g>`;
+    y += p.h;
+  }
+  return out + "</svg>";
 }
 
 function altText(m: Machine, cap: string): string {

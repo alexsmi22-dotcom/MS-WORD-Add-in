@@ -661,6 +661,16 @@ export const SOLVE_LAMBDA: PaletteGroup[] = [
       { label: "Y", snippet: "Y f", title: "The fixed-point combinator unfolds forever — capped, and says so" },
     ],
   },
+  {
+    name: "Hindley–Milner",
+    items: [
+      { label: "let-poly", snippet: "hm let id = λx.x in (id 1, id true)", title: "int × bool — id generalised to ∀α. α → α, instantiated twice" },
+      { label: "id id", snippet: "hm let id = λx.x in id id", title: "The two instantiations shown" },
+      { label: "scheme", snippet: "hm let compose = λf.λg.λx.f (g x) in compose", title: "Algorithm W step by step, the derivation tree drawn" },
+      { label: "λ-bound", snippet: "hm (λid. id id) (λx.x)", title: "Refused by name: a λ-bound name is monomorphic — the let fix named" },
+      { label: "let rec", snippet: "hm let rec f = λx.f x in f", title: "Monomorphic recursion: ∀α β. α → β" },
+    ],
+  },
 ];
 
 /** Whole-input templates for the Discrete-math kind — one per engine form,
@@ -724,6 +734,45 @@ export const SOLVE_DISCRETE: PaletteGroup[] = [
       { label: "NFA → DFA", snippet: "to dfa\nnfa\nstates: p q r\nalphabet: a b\nstart: p\naccept: r\np a p\np b p\np a q\nq b r", title: "Subset construction" },
       { label: "minimize", snippet: "minimize\ndfa\nstates: A B C D E F\nalphabet: 0 1\nstart: A\naccept: C D E\nA 0 B\nA 1 C\nB 0 A\nB 1 D\nC 0 E\nC 1 F\nD 0 E\nD 1 F\nE 0 E\nE 1 F\nF 0 F\nF 1 F", title: "Partition refinement, cross-checked" },
       { label: "equivalent?", snippet: "equivalent\nregex a*\n---\nregex (aa)*", title: "NO, with the distinguishing string" },
+    ],
+  },
+  {
+    name: "Grammars",
+    items: [
+      { label: "membership", snippet: "S -> aSb | ε\ntest: aabb ab aab", title: "CNF, the CYK table, a leftmost derivation and the parse tree; brute force cross-checks" },
+      { label: "ambiguous?", snippet: "S -> S S | a\nis it ambiguous", title: "Two parse trees for aaa, both drawn; 'not found' is evidence, never proof" },
+      { label: "FIRST/FOLLOW", snippet: "first and follow\nE -> T E'\nE' -> + T E' | ε\nT -> F T'\nT' -> * F T' | ε\nF -> ( E ) | id", title: "Nullable, FIRST and FOLLOW by fixpoint" },
+      { label: "left recursion", snippet: "remove left recursion\nE -> E + T | T\nT -> T * F | F\nF -> ( E ) | id", title: "Immediate and indirect, new names said" },
+      { label: "useless", snippet: "useless symbols\nS -> A B | a\nA -> a\nB -> B b\nC -> c", title: "Unreachable and non-generating, the reduced grammar" },
+    ],
+  },
+  {
+    name: "Machines",
+    items: [
+      { label: "PDA", snippet: "pda\nstates: q0 q1 q2\nalphabet: a b\nstack: Z A\nstart: q0\naccept: q2\nq0 a Z -> q0 AZ\nq0 a A -> q0 AA\nq0 b A -> q1 ε\nq1 b A -> q1 ε\nq1 ε Z -> q2 Z\ntest: aabb ab aab", title: "aⁿbⁿ; the configurations and the stack drawn; acceptance mode said" },
+      { label: "CFG → PDA", snippet: "cfg to pda S -> aSb | ε\ntest: aabb ab aab \"\"", title: "One-state construction, checked against the grammar's CYK" },
+      { label: "TM", snippet: "tm\nstates: q0 q1 halt\nstart: q0\naccept: halt\nblank: _\nq0 0 -> q0 0 R\nq0 1 -> q0 1 R\nq0 _ -> q1 _ L\nq1 1 -> q1 0 L\nq1 0 -> halt 1 R\nq1 _ -> halt 1 R\ntape: 1011", title: "Binary increment; the tape drawn step by step" },
+      { label: "increment", snippet: "tm binary increment 1011", title: "Template, verified as n + 1" },
+      { label: "unary add", snippet: "tm unary add 111+11", title: "Template, verified by counting 1s" },
+    ],
+  },
+  {
+    name: "First-order logic",
+    items: [
+      { label: "prenex", snippet: "prenex ∀x P(x) → ∃y Q(y)", title: "Rectified, quantifiers pulled out, each flip shown" },
+      { label: "Skolem", snippet: "skolemize ∀x ∃y P(x, y)", title: "Skolem functions of the governing ∀-variables" },
+      { label: "unify", snippet: "unify f(x, x) and f(y, g(y))", title: "Robinson with the occurs check, the substitution shown" },
+      { label: "resolution", snippet: "resolve ∀x (P(x) → Q(x)), P(a) ⊢ Q(a)", title: "Refutation, each resolvent verified, the DAG drawn" },
+      { label: "invalid", snippet: "resolve ∀x ∃y P(x, y) ⊢ ∃y ∀x P(x, y)", title: "Saturates without □ — INVALID, said by name" },
+    ],
+  },
+  {
+    name: "SAT",
+    items: [
+      { label: "DPLL", snippet: "dpll (p ∨ q) ∧ (¬p ∨ q) ∧ (p ∨ ¬q) ∧ (¬p ∨ ¬q)", title: "The search tree drawn; UNSAT with a resolution proof and core" },
+      { label: "2-SAT", snippet: "2sat (x1 ∨ x2) ∧ (¬x1 ∨ x2) ∧ (¬x2 ∨ x1)", title: "Implication graph and SCCs — exact, polynomial" },
+      { label: "Horn", snippet: "horn a, a -> b, b -> c, ~c", title: "Unit propagation; the violated clause named" },
+      { label: "DIMACS", snippet: "p cnf 3 2\n1 -2 0\n2 3 0", title: "DIMACS input; the model checked clause by clause" },
     ],
   },
   {

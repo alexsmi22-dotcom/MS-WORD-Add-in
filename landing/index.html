@@ -981,6 +981,11 @@ x&#179; &minus; 1 = 0
     </div>
     <div class="cards">
       <a class="card" href="tool.html?tool=solve">
+        <h3>Grammars, machines, logic, SAT, type inference <span class="is-new">New</span></h3>
+        <p>Type <code>S -&gt; aSb | &epsilon;</code> and the strings to test: the <b>CYK table</b>, a leftmost derivation and the <b>parse tree drawn</b>, each verdict cross-checked by a brute-force search; ambiguity witnesses, FIRST and FOLLOW, left recursion removed. Pushdown automata with the stack drawn and Turing machines with the tape drawn &mdash; <b>"loops" only when a configuration provably repeats</b>, a step cap is "unknown". First-order logic: prenex, Skolem, unification with the occurs check, <b>resolution</b> that says VALID, INVALID with a countermodel, or unknown. DPLL with the search tree, 2-SAT, Horn-SAT. And Hindley&ndash;Milner type inference with let-polymorphism, Algorithm W step by step.</p>
+        <div class="spec">hm let id = &lambda;x.x in (id 1, id true) &#8594; int &times; bool, id : &forall;&alpha;. &alpha; &rarr; &alpha;</div>
+      </a>
+      <a class="card" href="tool.html?tool=solve">
         <h3>Linear programming, interpolation, splines <span class="is-new">New</span></h3>
         <p><code>maximize 3x + 2y subject to x + y &le; 4, x + 3y &le; 6, x, y &ge; 0</code> runs an <b>exact simplex</b> (rational tableau, two-phase, Bland's rule): the optimum, binding constraints, <b>shadow prices</b>, reduced costs and sensitivity ranges, the dual on request, branch-and-bound for small integer programs, and the feasible region drawn with the objective contour. Unbounded and infeasible are verdicts with the ray or the contradicting constraints named. <code>interpolate (1, 2), (2, 3), (4, 7)</code> gives the exact polynomial through every point, cross-checked three ways; <code>natural cubic spline through &hellip;</code> gives one cubic per interval with continuity verified exactly. A least-squares fit is a different thing and is refused by name.</p>
         <div class="spec">maximize 3x + 2y s.t. x + y &le; 4, x + 3y &le; 6, x, y &ge; 0 &#8594; (4, 0), z = 12, shadow prices (3, 0)</div>
@@ -1001,7 +1006,7 @@ x&#179; &minus; 1 = 0
         <div class="spec">y'' + 4y = sin(t), y(0) = 0, y'(0) = 0 &#8594; y = sin(t)/3 &minus; sin(2t)/6</div>
       </a>
       <a class="card" href="tool.html?tool=solve">
-        <h3>Complex numbers, partial fractions, parameters <span class="is-new">New</span></h3>
+        <h3>Complex numbers, partial fractions, parameters</h3>
         <p>Three things Solve used to get wrong or refuse. <code>i</code> is now the imaginary unit: <code>(2+3i)(1-i)</code> is <b>5 + i</b>, exact on Gaussian rationals and cross-checked against floating-point evaluation (it used to be solved <i>for i</i>); <code>z^2 = 2i</code> is solved over &#8450; with every root substituted back. <code>partial fractions 1/(x^2-1)</code> decomposes and is <b>recombined to confirm</b>. And a linear system with one extra letter &mdash; <code>a x + y = 1</code> / <code>x &minus; y = 2</code> &mdash; is solved <b>for every value of a</b>, with the special values (no solution, infinitely many) found and classified from the original equations.</p>
         <div class="spec">x = 3/(a + 1), y = (&minus;2a + 1)/(a + 1) for a &ne; &minus;1; a = &minus;1: no solution</div>
       </a>

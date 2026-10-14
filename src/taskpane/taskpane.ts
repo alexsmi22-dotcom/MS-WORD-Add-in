@@ -99,6 +99,7 @@ import { solveInequality } from "../lib/inequalities";
 import { solveGeometry } from "../lib/geometryParse";
 import { solveTopology, BUILTIN_NAMES } from "../lib/homology";
 import { solveLambda, LambdaSyntaxError } from "../lib/lambda";
+import { computationKindFor } from "../lib/ctSwitch";
 import { solveDiscrete, DiscreteError } from "../lib/discrete";
 import { persistentHomology, barcodeSvg } from "../lib/persistence";
 import { solveWordProblem, WorkStep } from "../lib/wordproblem";
@@ -27760,6 +27761,30 @@ function updateSolve(): void {
         LP_WORDS_RE.test(text) ||
         INTERP_VERB_RE.test(text) ||
         SPLINE_VERB_RE.test(text);
+
+      // COMPUTATION THEORY typed into the default kind (v2.133.0). "->" made
+      // a production an inequality, the fold turned grammar lines into a
+      // fraction, and "pda for a^n b^n" was "more than one unknown". The
+      // decision reads the RAW input (before the fold rewrote it) and lives
+      // in ONE function the tests call too (ctSwitch.ts) — a hand-copied
+      // condition here stole `tm = 5`, `X -> 0` and `w x` in review.
+      if (!transformVerb) {
+        const owner = computationKindFor(solveInput.value);
+        if (owner) {
+          solveKind.value = owner;
+          updateSolveUi();
+          updateSolve();
+          solveResult.insertBefore(
+            solveLine(
+              owner === "discrete"
+                ? "This is computation theory (a grammar, a machine, first-order logic or SAT) — switched to the Discrete kind, which owns it, and answered."
+                : "This is Hindley–Milner type inference — switched to the λ-calculus kind, which owns it, and answered."
+            ),
+            solveResult.firstChild
+          );
+          return;
+        }
+      }
       const wantsDerivative = !transformVerb && /\b(derivative|differentiate)\b/i.test(text);
       const wantsIntegral = !transformVerb && /\b(integral|integrate|antiderivative)\b/i.test(text);
       if (wantsDerivative || wantsIntegral) {
@@ -28645,6 +28670,19 @@ function updateSolve(): void {
         solveResult.appendChild(solveLine(line, "ms-masses"));
         say(line);
       }
+      // The Hindley–Milner derivation tree draws itself (v2.133.0). A result
+      // without a figure must clear the previous one, or a stale figure from
+      // an earlier solve would be the one inserted.
+      if (lr.svg) {
+        currentSolveSvg = lr.svg;
+        currentSolveAlt = lr.alt ?? lr.title;
+        const fig = document.createElement("div");
+        fig.className = "solve-figure";
+        fig.innerHTML = currentSolveSvg;
+        solveResult.appendChild(fig);
+      } else {
+        currentSolveSvg = null;
+      }
       for (const s of lr.steps) {
         solveResult.appendChild(solveLine(s));
         say(s);
@@ -28681,6 +28719,10 @@ function updateSolve(): void {
         fig.className = "solve-figure";
         fig.innerHTML = currentSolveSvg;
         solveResult.appendChild(fig);
+      } else {
+        // FIRST/FOLLOW, prenex and clausal form are text only: a figure left
+        // over from an earlier solve must not be the one inserted.
+        currentSolveSvg = null;
       }
       for (const s of dr.steps) {
         solveResult.appendChild(solveLine(s));

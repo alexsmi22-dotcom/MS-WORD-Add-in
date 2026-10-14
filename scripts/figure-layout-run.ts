@@ -77,6 +77,13 @@ import { tryInterpolate } from "../src/lib/interpolate";
 import { trySpline } from "../src/lib/spline";
 import { tryLp } from "../src/lib/lp";
 import { lpRegionSvg } from "../src/lib/lpFigure";
+import { treeSvg } from "../src/lib/treeSvg";
+import { solveGrammar } from "../src/lib/grammar";
+import { solvePda } from "../src/lib/pda";
+import { solveTuring } from "../src/lib/turing";
+import { solveFol } from "../src/lib/fol";
+import { solveSat } from "../src/lib/sat";
+import { solveLambda } from "../src/lib/lambda";
 import { solveComposite } from "../src/lib/compositeGeometry";
 import { compositeShapeSvg, geometryFigureSvg, drawnShapesSvg } from "../src/lib/geometryChart";
 import { solveGeometry } from "../src/lib/geometryParse";
@@ -1660,6 +1667,31 @@ ORIGIN
       caption: "feasible region: empty — x + y ≤ 1 and x + y ≥ 2 cannot both hold",
     }),
   ]);
+}
+
+// Computation theory (v2.133.0): the stress case of each figure — the deepest
+// parse tree, two ambiguity trees side by side, a DPLL tree with ⊥ leaves, a
+// resolution DAG with shared parents, the 2-SAT implication graph with ¬
+// vertex names, the PDA and TM diagram + configuration strip (the tallest
+// figures in the product, ~800 px), the stacked-label PDA built from the
+// E/T/F grammar (labels that crowd self-loops), and a W derivation tree.
+{
+  const push = (name: string, svg: string | undefined): void => {
+    if (svg) figures.push([name, svg]);
+  };
+  push("parse tree aabb", solveGrammar("S -> aSb | ε\ntest: aaabbb")?.svg);
+  push("ambiguity two trees", solveGrammar("E -> E + E | E * E | id\nis it ambiguous")?.svg);
+  push("dpll tree", solveSat("dpll (a ∨ b ∨ c) ∧ (¬a ∨ b) ∧ (¬b ∨ c) ∧ (¬c ∨ a) ∧ (¬a ∨ ¬b ∨ ¬c)")?.svg);
+  push("resolution dag", solveFol("resolve ∀x (P(x) → Q(x)), ∀x (Q(x) → R(x)), P(a) ⊢ R(a)")?.svg);
+  push("2sat implication graph", solveSat("2sat (x1 ∨ x2) ∧ (¬x1 ∨ x3) ∧ (¬x2 ∨ ¬x3) ∧ (x3 ∨ x4) ∧ (¬x4 ∨ x1)")?.svg);
+  push("pda diagram + stack strip", solvePda("pda\nstates: q0 q1 q2\nalphabet: a b\nstack: Z A\nstart: q0\naccept: q2\nq0 a Z -> q0 AZ\nq0 a A -> q0 AA\nq0 b A -> q1 ε\nq1 b A -> q1 ε\nq1 ε Z -> q2 Z\ntest: aaabbb")?.svg);
+  push("tm diagram + tape strip", solveTuring("tm binary increment 10111")?.svg);
+  push("pda stacked labels", solvePda("cfg to pda E -> E + T | T\nT -> T * F | F\nF -> ( E ) | id\ntest: id+id*id")?.svg);
+  push("hm derivation tree", solveLambda("hm let compose = λf.λg.λx.f (g x) in compose")?.svg);
+  // The bare builder, at its node cap: 230 nodes, so the "not drawn" caption shows.
+  const nodes = Array.from({ length: 230 }, (_, i) => ({ id: `n${i}`, label: `S${i % 7}` }));
+  const edges = nodes.slice(1).map((n, i) => ({ from: `n${Math.floor(i / 3)}`, to: n.id }));
+  push("tree at the node cap", treeSvg({ nodes, edges, caption: "230-node tree" }));
 }
 
 // --- The statistics charts ----------------------------------------------------

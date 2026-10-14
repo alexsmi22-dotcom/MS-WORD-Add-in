@@ -173,13 +173,34 @@ export function parseGraph(input: string): { graph: Graph; question: Question } 
     throw new DiscreteError(`This graph has ${nameSet.size} vertices; the cap is ${MAX_VERTICES} vertices (and ${MAX_EDGES} edges) so the pane can answer on every keystroke.`);
   }
   const names = [...nameSet].sort(cmpName);
+  const graph = buildGraph(names, raws.map((r) => ({ from: r.u, to: r.v, weight: r.w === null ? undefined : r.w, line: r.line })), !!firstDir);
+  return { graph, question };
+}
+
+/** The build half of parseGraph, exported so another engine (the 2-SAT
+ *  implication graph in sat.ts, the Markov chain in markov.ts) can construct a
+ *  Graph record directly instead of printing edge lines and re-parsing them —
+ *  a vertex named "¬a" would never survive EDGE_RE's NAME.
+ *
+ *  `names` is taken in the order given (parseGraph sorts first); every edge
+ *  endpoint must be one of them (DiscreteError names the stray vertex). No cap
+ *  is enforced here — parseGraph checks MAX_VERTICES/MAX_EDGES before calling,
+ *  and other callers state their own caps. */
+export function buildGraph(names: string[], edgeList: { from: string; to: string; weight?: number; line?: number }[], directed: boolean): Graph {
   const index = new Map<string, number>();
   names.forEach((nm, i) => index.set(nm, i));
+  if (index.size !== names.length) {
+    const dup = names.find((nm, i) => names.indexOf(nm) !== i);
+    throw new DiscreteError(`Vertex "${dup}" is listed twice.`);
+  }
+  for (const e of edgeList) {
+    const stray = !index.has(e.from) ? e.from : !index.has(e.to) ? e.to : null;
+    if (stray !== null) throw new DiscreteError(`Edge ${e.from} → ${e.to} names a vertex "${stray}" that is not in the vertex list.`);
+  }
   const n = names.length;
-  const directed = !!firstDir;
-  const weighted = raws.some((r) => r.w !== null);
-  const edges: GEdge[] = raws.map((r, id) => ({
-    id, u: index.get(r.u)!, v: index.get(r.v)!, w: r.w === null ? 1 : r.w, hasWeight: r.w !== null, line: r.line,
+  const weighted = edgeList.some((r) => r.weight !== undefined);
+  const edges: GEdge[] = edgeList.map((r, id) => ({
+    id, u: index.get(r.from)!, v: index.get(r.to)!, w: r.weight === undefined ? 1 : r.weight, hasWeight: r.weight !== undefined, line: r.line ?? id + 1,
   }));
   const adj: number[][] = Array.from({ length: n }, () => []);
   const nbr: number[][] = Array.from({ length: n }, () => []);
@@ -201,11 +222,10 @@ export function parseGraph(input: string): { graph: Graph; question: Question } 
     adj[v].sort((a, b) => nextOf(directed, edges[a], v) - nextOf(directed, edges[b], v) || a - b);
     nbr[v].sort((a, b) => a - b);
   }
-  const graph: Graph = {
+  return {
     names, directed, weighted, negative: edges.some((e) => e.w < 0), edges, adj, nbr, selfLoops, parallel,
     unweightedEdges: weighted ? edges.filter((e) => !e.hasWeight).length : 0,
   };
-  return { graph, question };
 }
 
 /** The vertex reached by travelling edge e away from v. */

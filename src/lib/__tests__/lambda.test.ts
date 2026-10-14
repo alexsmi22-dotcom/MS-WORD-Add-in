@@ -621,3 +621,68 @@ describe("adversarial pass — closed defects", () => {
     expect(() => solveLambda("x^y")).toThrow(/Unexpected character "\^"/);
   });
 });
+
+// ---------------------------------------------------------------------------
+// v2.133.0 (SCOPE-COMPUTATION-THEORY §E.4): prose is refused by name, never
+// reduced as free variables; hm and type scheme of are verbs.
+
+describe("prose guard and the hm verbs", () => {
+  it("hm λf.λx.f (f x) and type scheme of λx.λy.x are verbs, not free variables", () => {
+    const r = solveLambda("hm λf.λx.f (f x)")!;
+    expect(r.title).toBe("Hindley–Milner type");
+    expect(r.display.join(" ")).not.toMatch(/Normal form|Free variable/);
+    expect(solveLambda("type scheme of λx.λy.x")!.scheme).toBe("∀α β. α → β → α");
+  });
+  it("another domain's leading verb, or a bare connective, is refused by name, never reduced", () => {
+    for (const [input, words] of [
+      ["busy beaver 3", "busy beaver"],
+      ["unify f(x) with g(x)", "unify"],
+      ["pigeonhole 3 pigeons 2 holes", "pigeonhole"],
+      ["scheme of λx.λy.x", "scheme of"],
+      ["dpll λx.x", "dpll"],
+      ["reduce foo with bar", "foo with bar"],
+    ]) {
+      expect(() => solveLambda(input)).toThrow(LambdaSyntaxError);
+      expect(() => solveLambda(input)).toThrow(new RegExp(`"${words}" reads as prose, not as a λ-term: the λ kind's verbs are reduce, type, hm`));
+    }
+  });
+  it("ordinary free-variable applications reduce exactly as in v2.132.0 (review regression)", () => {
+    for (const [s, nf] of [["pair a b", "pair a b"], ["fst p", "fst p"], ["plus 2 3", null], ["map f xs", "map f xs"], ["x y", "x y"], ["f x", "f x"], ["s z", "s z"], ["foo", "foo"], ["foo λx.x", "foo (λx.x)"]] as const) {
+      const r = solveLambda(s)!;
+      expect(`${s}: ${r.title}`).toBe(`${s}: β-reduction`);
+      if (nf) expect(r.normalForm).toBe(nf);
+    }
+    // The case hint survives as a CAVEAT, never a refusal.
+    const r = solveLambda("succ 2")!;
+    expect(r.title).toBe("β-reduction");
+    expect(r.caveats.join(" ")).toMatch(/succ is a free variable here .*the library's SUCC is written in UPPERCASE/);
+    // A bound or defined name is never flagged.
+    expect(solveLambda("λsucc.succ 2")!.caveats.join(" ")).not.toMatch(/UPPERCASE/);
+  });
+  it("terms that look wordy but are terms still reduce", () => {
+    expect(solveLambda("fvx")!.normalForm).toBe("fvx");
+    expect(solveLambda("f x")!.normalForm).toBe("f x");
+    expect(solveLambda("W I x")!.normalForm).toBe("x x"); // uppercase W is the library's W
+    expect(solveLambda("let foo = λx.x\nfoo λy.y")!.normalForm).toBe("λy.y"); // a defined word is a name
+    expect(solveLambda("λfoo.foo bar")!.normalForm).toBe("λfoo.foo bar");
+    // Free multi-letter variables beside a λ, not leading: still terms.
+    expect(solveLambda("(λx.x) foo bar")!.normalForm).toBe("foo bar");
+    expect(solveLambda("λx.foo bar")!.normalForm).toBe("λx.foo bar");
+  });
+  it("a lowercase w is the hm verb ONLY before let or a λ-term; otherwise it is a free variable (review regression)", () => {
+    expect(solveLambda("w x")!.normalForm).toBe("w x");
+    expect(solveLambda("w y z")!.normalForm).toBe("w y z");
+    expect(solveLambda("w λx.x")!.title).toBe("Hindley–Milner type");
+    expect(solveLambda("w (λx.x)")!.type).toBe("α → α");
+    expect(solveLambda("w let id = λx.x in id")!.type).toBe("α → α");
+    expect(solveLambda("W I x")!.normalForm).toBe("x x");
+  });
+  it("one-line let … in … is hm, never 'That line is a definition'; a plain definition line still is", () => {
+    expect(solveLambda("let id = λx.x in id 1")!.type).toBe("int");
+    expect(() => solveLambda("TWICE = λf.λx.f (f x)")).toThrow(/line after it/);
+  });
+  it("type 1 and hm 1 each carry the caveat naming the other reading (§E.14)", () => {
+    expect(solveLambda("type 1")!.caveats.join(" ")).toMatch(/under hm, 1 : int/);
+    expect(solveLambda("hm 1")!.caveats.join(" ")).toMatch(/under type, 1 is the Church numeral/);
+  });
+});

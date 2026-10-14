@@ -33,12 +33,32 @@ describe("routing", () => {
     expect(run("A->B\nB->C").title).not.toBe("Truth table");
   });
   it("engine order is pinned", () => {
-    expect(ENGINES.map((e) => e.name)).toEqual(["number theory", "combinatorics", "recurrence", "automata", "propositional logic", "graph"]);
+    expect(ENGINES.map((e) => e.name)).toEqual([
+      "number theory", "combinatorics", "recurrence",
+      "grammar", "pushdown", "turing", "first-order logic", "sat",
+      "automata", "propositional logic", "graph",
+    ]);
   });
   it("superscript digits fold to ^ before routing (display contract)", () => {
     expect(foldSuperscripts("7¹⁰⁰ mod 13")).toBe("7^100 mod 13");
     expect(run("7¹⁰⁰ mod 13").display[0]).toBe("7¹⁰⁰ ≡ 9 (mod 13)");
     expect(run("a(n) = a(n-1) + n², a(0)=0").display.join(" ")).toMatch(/First terms: 0, 1, 5, 14, 30/);
+  });
+  it("a stack overflow inside any engine is a named refusal, never a RangeError that escapes to the pane (v2.133.0)", () => {
+    // 2,000 nested parentheses overflowed proplogic's recursive descent and
+    // the RangeError escaped solveDiscrete; the pane rethrows non-DiscreteErrors.
+    const deep = "(".repeat(2000) + "p" + ")".repeat(2000) + " -> q";
+    let caught: unknown = null;
+    try {
+      run(deep);
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).not.toBeInstanceOf(RangeError);
+    if (caught !== null) {
+      expect(caught).toBeInstanceOf(DiscreteError);
+      expect((caught as Error).message).toMatch(/nests too deeply/);
+    }
   });
   it("a recognised-but-refused request throws DiscreteError with the reason", () => {
     expect(() => run("inverse 6 mod 9")).toThrow(DiscreteError);

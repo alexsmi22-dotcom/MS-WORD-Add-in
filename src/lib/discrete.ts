@@ -36,6 +36,11 @@ import { tryCombinatorics } from "./combinatorics";
 import { tryRecurrence } from "./recurrence";
 import { tryPropLogic } from "./proplogic";
 import { tryAutomata } from "./automata";
+import { solveGrammar } from "./grammar";
+import { solvePda } from "./pda";
+import { solveTuring } from "./turing";
+import { solveFol } from "./fol";
+import { solveSat } from "./sat";
 import { tryGraph } from "./graphs";
 
 /** Superscript digits (and the superscript minus) → ^ digits, so "7¹⁰⁰ mod 13"
@@ -60,6 +65,17 @@ export const ENGINES: { name: string; run: DiscreteEngine }[] = [
   { name: "number theory", run: (s) => tryNumberTheory(s) },
   { name: "combinatorics", run: (s) => tryCombinatorics(s) },
   { name: "recurrence", run: (s) => tryRecurrence(s) },
+  // Computation theory (v2.133.0), before automata, logic and graphs: a
+  // production "S -> aSb" was a truth table over a variable named aSb, and
+  // two productions were a drawn digraph. Grammar claims only an UPPERCASE
+  // left side with a terminal or |; "p -> q" stays logic, "A -> B ⏎ B -> C"
+  // stays a graph. SAT before propositional logic so "dpll …" and CNFs over
+  // 10 variables reach the solver; sat / cnf ≤ 10 variables stay with logic.
+  { name: "grammar", run: (s) => solveGrammar(s) },
+  { name: "pushdown", run: (s) => solvePda(s) },
+  { name: "turing", run: (s) => solveTuring(s) },
+  { name: "first-order logic", run: (s) => solveFol(s) },
+  { name: "sat", run: (s) => solveSat(s) },
   // Automata before logic: a one-line "regex (a|b)*abb" carries the | that
   // logic reads as a strong symbol, and automata claims only keyword-led input.
   { name: "automata", run: (s) => tryAutomata(s) },
@@ -74,7 +90,19 @@ export function solveDiscrete(input: string): DiscreteResult | null {
   const raw = foldSuperscripts(input.replace(/\r/g, "")).trim();
   if (!raw) return null;
   for (const e of ENGINES) {
-    const r = e.run(raw);
+    let r: DiscreteResult | null;
+    try {
+      r = e.run(raw);
+    } catch (err) {
+      // A walker that dies on DEPTH (2,000 nested parentheses overflowed
+      // proplogic's recursive descent) is a refusal, not a crash: the pane
+      // rethrows anything that is not a DiscreteError (v2.133.0, the λ
+      // kind's pattern at lambda.ts).
+      if (err instanceof RangeError) {
+        throw new DiscreteError("That input nests too deeply for this tool to walk (the size caps bound breadth; this bounds depth) — split it into smaller pieces.");
+      }
+      throw err;
+    }
     if (r) return r;
   }
   return {
@@ -84,6 +112,10 @@ export function solveDiscrete(input: string): DiscreteResult | null {
       "Number theory: gcd 84 36 · lcm 4 6 · 7^100 mod 13 · inverse 3 mod 7 · 3x ≡ 2 mod 7 · x ≡ 2 mod 3, x ≡ 3 mod 5 · factor 360 · is 97 prime · primes to 100 · phi 36 · divisors 36 · order of 2 mod 7 · primitive root mod 7",
       "Combinatorics: 10 choose 3 · C(10,3) · P(10,3) · 10! · multinomial 10: 3 2 5 · arrangements of MISSISSIPPI · derangements 5 · catalan 5 · bell 5 · stirling 5 2 · how many ways to choose 3 of 10",
       "Recurrences: a(n) = a(n-1) + a(n-2), a(0) = 0, a(1) = 1 · a(n) = 2a(n-1) + 3, a(0) = 1 · T(n) = 2T(n/2) + n (master theorem)",
+      "Grammars: S -> aSb | ε, one production per line, then test: aabb ab · cnf · cyk aabb · parse tree for aabb · is it ambiguous · first and follow · useless symbols · remove left recursion · cfg to pda",
+      "Machines: pda blocks (states, stack, start, accept or accept: empty stack, q0 a Z -> q0 AZ, test: …) · tm blocks (q0 1 -> q0 1 R, tape: 1011) · tm binary increment 1011 · tm unary add 111+11",
+      "First-order logic: prenex ∀x P(x) → ∃y Q(y) · skolemize ∀x ∃y P(x, y) · unify f(x, x) and f(y, g(y)) · resolve ∀x (P(x) → Q(x)), P(a) ⊢ Q(a) · check φ in domain {1, 2}, R = {(1, 2)}",
+      "SAT: dpll (p ∨ q) ∧ (¬p ∨ q) · 2sat (x1 ∨ x2) ∧ (¬x1 ∨ x2) · horn a, a -> b, ~b · DIMACS p cnf 3 2 ⏎ 1 -2 0 ⏎ 2 3 0",
       "Propositional logic: (p -> q) & ~q -> ~p · p | ~p · p -> q, p |= q · (p & q) == ~(~p | ~q) · dnf (p -> q) & r",
       "Automata: dfa / nfa blocks (states, alphabet, start, accept, transitions, test strings) · regex (a|b)*abb · to dfa · minimize · equivalent",
       "Graphs: an edge list, one edge per line (A-B, A->B, A-B 5), with an optional question first: shortest path A to F · mst · eulerian · bipartite · components · topological order · hamiltonian",

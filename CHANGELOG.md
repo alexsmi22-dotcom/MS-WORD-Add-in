@@ -6,6 +6,93 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.133.0] — 2026-10-14 — Computation theory: grammars, machines, first-order logic, SAT, Hindley–Milner
+
+The fifth Solve domain on the 2026-10 arc (`docs/SCOPE-COMPUTATION-THEORY.md`).
+The audit probed 85 curriculum inputs across three kinds: 7 answered (all
+SAT by truth table), the rest wrong or refused. The worst classes: `S -> aSb`
+was a truth table over a variable named `aSb`; two productions were a drawn
+digraph; the λ kind "reduced" `hm λf.λx.f (f x)` and `busy beaver 3` as free
+variables; `->` was an inequality in the equation kind; `ε`, `∀`, `∃` threw
+"Unexpected character"; 2,000 nested parentheses escaped as a RangeError.
+
+### Added
+- **Context-free grammars** (`src/lib/grammar.ts`, Discrete kind): reader
+  (UPPERCASE nonterminals, `<expr>`/quoted multi-character symbols, `|` at
+  depth 0, `->`/`→`/`::=`, `ε`/`eps`/`λ`), printer that re-parses, ε- and
+  unit-removal, Chomsky normal form (new names said), CYK with the table, a
+  leftmost derivation and the parse tree from the back-pointers — every
+  verdict cross-checked by a SEPARATE brute-force derivation enumerator and
+  withheld on disagreement; ambiguity witnesses (both trees drawn; "not
+  found" is evidence, never proof); nullable / FIRST / FOLLOW; useless
+  symbols; immediate and indirect left recursion; equivalence refused by
+  name with a sample comparison. A seeded 200-grammar check (direct parse,
+  CYK, brute force) found a non-generating nonterminal crashing CYK, and a
+  worst-case grammar ran 29 s — both fixed before review.
+- **Pushdown automata** (`src/lib/pda.ts`): four transition spellings,
+  `stack:`, acceptance by final state / empty stack / both — always said;
+  capped configuration-BFS ("UNKNOWN" when a cap binds, never "rejected");
+  the run as a configuration chain; `cfg to pda` (one-state construction)
+  checked against the grammar's CYK on every test string; one template,
+  aⁿbⁿ (n ≥ 0, so ε is accepted).
+- **Turing machines** (`src/lib/turing.ts`): three rule spellings incl.
+  `δ(q, s) = (q', s', D)`; one line per step; an INDEPENDENT second stepper
+  must agree on every configuration; LOOPS only on a full-configuration
+  repeat (a proof) and a 10,000-step cap reported as UNKNOWN — the two never
+  share a sentence; binary-increment and unary-add templates verified in
+  BigInt; busy-beaver values cited, never computed; the halting problem
+  refused by name.
+- **First-order logic** (`src/lib/fol.ts`): an iterative parser (depth cap
+  checked before any walk), prenex with each quantifier flip shown,
+  Skolemization, clausal form, Robinson unification with the occurs check
+  (both terms shown equal), resolution with factoring — REFUTED/VALID,
+  SATURATED/INVALID with a countermodel, or UNKNOWN within the cap — every
+  resolvent re-verified, the refutation drawn as a DAG; finite-model
+  checking over domains ≤ 6. Found while building: a free variable in a
+  `⊢` goal was negated before its universal closure (`P(a) ⊢ P(x)` said
+  VALID), and a quantified name stayed a variable outside its scope.
+- **SAT** (`src/lib/sat.ts`): DPLL with unit propagation and pure literals,
+  the search tree drawn, a model re-checked clause by clause, UNSAT with a
+  resolution refutation and the unsat core, brute-force agreement whenever
+  ≤ 20 variables; 2-SAT by the implication graph and strongly connected
+  components (`graphs.ts` gained `buildGraph`, so `¬a` is never printed and
+  re-parsed); Horn-SAT; DIMACS. Found while building: DPLL undid a
+  satisfiable branch's propagation and reported a model that failed a
+  clause — the engine's own clause re-check caught it. `sat`/`cnf` ≤ 10
+  variables stay with the truth table.
+- **Hindley–Milner** (`src/lib/hm.ts`, λ kind): `hm …` and one-line `let …
+  in …` (read before the definition rule could call it a definition),
+  int/bool literals, pairs, `if`, `let rec`; Algorithm W with every
+  unification, generalisation and instantiation logged; the derivation tree
+  drawn; every pure-λ type cross-checked against the simple-type checker on
+  the capture-safe let-expansion; λ-bound names monomorphic with the `let`
+  fix named. Unknown leading words in the λ kind (`busy beaver 3`,
+  `unify f(x) with g(x)`) are refused by name instead of "reduced" as free
+  variables.
+- `src/lib/treeSvg.ts`: the shared tree/DAG figure (parse trees, DPLL
+  trees, resolution DAGs, W derivations); `automata.ts` exports its block
+  grammar and a `stateDiagramSvg` / `configStripSvg` pair (the existing
+  DFA/NFA figures byte-identical).
+- Routing: the five engines sit between recurrence and automata; a
+  production is a grammar only with an UPPERCASE left side and a terminal
+  or `|` (`p -> q` stays logic, `A -> B ⏎ B -> C` stays a graph); a stack
+  overflow in ANY discrete engine is a named refusal (2,000 nested
+  parentheses used to escape as a RangeError); the Equation kind switches
+  to Discrete or λ by itself — keyword-led requests (a grammar, `pda`,
+  `tm`, `dpll`) even to show a refusal, word-led ones (`resolve`, `unify`,
+  `exists`, `hm`) only when the engine answers; "does the machine …" is a
+  Turing question only when it asks about halting. Palette groups
+  "Grammars", "Machines", "First-order logic", "SAT", "Hindley–Milner".
+  Figure corpus +10. The engines re-read their own printed configurations,
+  step lines and type schemes at run time (display contract).
+
+### Honest limits
+- Ambiguity, CFG/PDA/TM equivalence and halting are undecidable: bounded
+  evidence only, said. FOL validity is semi-decidable: a refutation is a
+  proof, "not found" is not. DPLL is exponential (a decision budget, by
+  name). HM is rank-1. No equality or arithmetic in FOL. One prose template
+  per machine family.
+
 ## [2.132.0] — 2026-10-14 — Linear programming, interpolation and splines
 
 The fourth Solve domain on the 2026-10 arc (`docs/SCOPE-LP-SPLINES.md`).

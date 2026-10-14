@@ -27,7 +27,7 @@ import {
   Rat, ratMake, ratInt, ratAdd, ratSub, ratMul, ratDiv, ratNeg, ratIsZero, ratIsOne,
   ratToExpr, ratSign, RAT_ZERO, RAT_ONE,
   ratFunctionInVar, ratPolyToExpr, ratPolyAdd, ratPolyMul, ratPolyScale, ratPolyTrim,
-  ratPolyDivMod, ratPolyRoots, ratToNumber, ratEq } from "./cas";
+  ratPolyDivMod, ratPolyRoots, ratToNumber, ratEq, polyInVar, ratPolyEval } from "./cas";
 
 type Deriv = (e: Expr, x: string) => Expr;
 
@@ -433,6 +433,7 @@ function integrateRational(numIn: Rat[], denIn: Rat[], x: string): Expr | null {
 
   // Integrate each basis term.
   let out: Expr = polyPart;
+  const exactAtan: Expr[] = [];
   let si = 0;
   // NO EXTRA SCALING. The leading coefficient is ALREADY ACCOUNTED FOR.
   //
@@ -484,8 +485,19 @@ function integrateRational(numIn: Rat[], denIn: Rat[], x: string): Expr | null {
       const s2 = ratSub(t.c, ratDiv(ratMul(t.b, t.b), ratInt(4)));
       const shift = add(V(x), ratToExpr(ratDiv(t.b, ratInt(2))));
       if (ratSign(s2) > 0) {
-        const s = fn("sqrt", ratToExpr(s2));
-        out = add(out, scale(mul(div(ratToExpr(rest2), s), fn("atan", div(shift, s)))));
+        // (C − Bb/2)/s · atan((x + b/2)/s), s = √s2 — kept EXACT (v2.136.0):
+        // through the simplifier sqrt(2) became 0.707106781187. A rational s
+        // may be simplified; an irrational one is assembled raw and appended
+        // after every simplified piece (exactAtan) so nothing folds it.
+        const inv = ratSqrtExpr(ratDiv(RAT_ONE, s2)); // 1/s
+        if (!hasSqrt(inv)) {
+          out = add(out, scale(mul(mul(ratToExpr(rest2), inv), fn("atan", mul(inv, shift)))));
+        } else {
+          // coefficient rest2/s = ±√(rest2²/s2), one radical rather than (1/2)·sqrt(6)/3
+          const mag = ratSqrtExpr(ratDiv(ratMul(rest2, rest2), s2));
+          const coef: Expr = ratSign(rest2) < 0 ? { t: "neg", e: mag } : mag;
+          exactAtan.push({ t: "mul", l: coef, r: fn("atan", { t: "mul", l: inv, r: shift }) });
+        }
       } else if (ratSign(s2) < 0) {
         // Real distinct irrational roots: (1/2s)·ln|(u − s)/(u + s)|
         const s = fn("sqrt", ratToExpr(ratNeg(s2)));
@@ -499,6 +511,7 @@ function integrateRational(numIn: Rat[], denIn: Rat[], x: string): Expr | null {
       }
     }
   }
+  for (const t of exactAtan) out = isZero(out) ? t : { t: "add", l: out, r: t };
   return out;
 }
 
@@ -557,6 +570,12 @@ function integ(e0: Expr, x: string, deriv: Deriv, depth: number): Expr | null {
         const l = integ(e.l, x, deriv, depth);
         if (l) return div(l, e.r);
       }
+      // An x-free numerator pulls out: y/((x − 0.3)² + ε) is y·∫1/(…) — the
+      // partial-fraction path cannot see past the symbol y in the numerator.
+      if (!mentions(e.l, x) && symbolsOf(e.l).size > 0 && depth < MAX_DEPTH) {
+        const r = integ({ t: "div", l: N(1), r: e.r }, x, deriv, depth + 1);
+        if (r) return mul(e.l, r);
+      }
       break;
     }
     case "pow": {
@@ -589,6 +608,15 @@ function integ(e0: Expr, x: string, deriv: Deriv, depth: number): Expr | null {
     if (viaPF) return viaPF;
   }
 
+  // k/√(A·x² + B·x + C) with A < 0 → an arcsine (v2.136.0; before it, even
+  // ∫ 1/√(1 − x²) fell to numeric quadrature).
+  const viaAsin = tryArcsine(e, x, deriv, depth);
+  if (viaAsin) return viaAsin;
+
+  // k/(A·x² + k′·a²) with a symbol a: the atan twin of √(a² − x²).
+  const viaAtan = tryArctanSymbolic(e, x, deriv);
+  if (viaAtan) return viaAtan;
+
   // Substitution: e = h(g(x))·g'(x).
   const viaSub = trySubstitution(e, x, deriv, depth);
   if (viaSub) return viaSub;
@@ -610,6 +638,345 @@ function integ(e0: Expr, x: string, deriv: Deriv, depth: number): Expr | null {
   if (viaParts) return viaParts;
 
   return null;
+}
+
+// ---------------------------------------------------------------------------
+// The arcsine rule: ∫ k/√(A·x² + B·x + C) dx with A < 0.
+// ---------------------------------------------------------------------------
+
+/**
+ * Notes the rules attach to an antiderivative (a domain of validity, an
+ * equivalent form). Collected per symbolicIntegrate call — the recursion is
+ * synchronous, so a module-level list cannot leak between calls.
+ */
+let pendingNotes: string[] = [];
+/** Parameters a rule ASSUMED positive; the verification gate binds them (and only them). */
+let pendingPositive = new Set<string>();
+/** Sample points inside a rule's stated domain, for the gate's fallback only. */
+let pendingSamples: number[] = [];
+
+/** Free symbols of e other than pi and e. */
+function symbolsOf(e: Expr, out: Set<string> = new Set()): Set<string> {
+  switch (e.t) {
+    case "num": return out;
+    case "var": if (e.name !== "pi" && e.name !== "e") out.add(e.name); return out;
+    case "neg": return symbolsOf(e.e, out);
+    case "fn": return symbolsOf(e.arg, out);
+    default: symbolsOf(e.l, out); return symbolsOf(e.r, out);
+  }
+}
+
+/**
+ * √(k·a² − b·x²) with b, k positive rationals and a ONE symbol: the radicand
+ * of ∫ 1/√(a² − x²) = asin(x/a). Recognised by derivatives (Q″/2 = −b, Q′(0)
+ * = 0, Q(0) = k·a²) and confirmed by exprEqual(Q, k·a² − b·x²).
+ */
+function symbolicRadicand(q: Expr, x: string, deriv: Deriv): { b: Rat; h: Rat; scale: Expr; halfWidth: string; param: string } | null {
+  try {
+    const d1 = simp(deriv(q, x));
+    const d2 = simp(deriv(d1, x));
+    if (symbolsOf(d2).size || mentions(d2, x)) return null;
+    const d2v = evalNumeric(d2, {});
+    if (!Number.isInteger(d2v) || d2v >= 0 || Math.abs(d2v) > 1e9) return null;
+    const b = ratMake(BigInt(-d2v), 2n);
+    if (!isZero(simp(substituteVar(d1, x, ZERO)))) return null;
+    const C = simp(substituteVar(q, x, ZERO));
+    const syms = [...symbolsOf(C)];
+    if (syms.length !== 1 || syms[0] === x) return null;
+    const a = syms[0];
+    const kE0 = simp(div(C, pow(V(a), N(2))));
+    if (symbolsOf(kE0).size) return null;
+    const kv = evalNumeric(kE0, {});
+    if (!Number.isInteger(kv) || kv <= 0 || kv > 1e9) return null;
+    const kE = N(kv);
+    const k = ratInt(kv);
+    if (exprEqual(q, sub(mul(kE, pow(V(a), N(2))), mul(ratToExpr(b), pow(V(x), N(2))))) !== true) return null;
+    const s = ratSqrtExpr(ratDiv(b, k)); // √(b/k); the scale is √(b/k)/a
+    const scale: Expr = hasSqrt(s) ? { t: "div", l: s, r: V(a) } : div(s, V(a));
+    const w = ratSqrtExpr(ratDiv(k, b));
+    const halfWidth = isOne(w) ? a : `${format0(w)}*${a}`;
+    return { b, h: RAT_ZERO, scale, halfWidth, param: a };
+  } catch {
+    return null;
+  }
+}
+
+/** ⌊√n⌋ for a non-negative bigint. */
+function isqrt(n: bigint): bigint {
+  if (n < 2n) return n;
+  let x = BigInt(Math.floor(Math.sqrt(Number(n))));
+  while (x * x > n) x--;
+  while ((x + 1n) * (x + 1n) <= n) x++;
+  return x;
+}
+
+/** n = out²·inside with `inside` free of small square factors (trial division, bounded). */
+function splitSquare(n: bigint): { out: bigint; inside: bigint } {
+  let out = 1n;
+  let inside = n;
+  for (let p = 2n; p * p <= inside && p < 2000n; p++) {
+    while (inside % (p * p) === 0n) {
+      inside /= p * p;
+      out *= p;
+    }
+  }
+  const r = isqrt(inside);
+  if (r * r === inside) {
+    out *= r;
+    inside = 1n;
+  }
+  return { out, inside };
+}
+
+/**
+ * √q for a positive rational, EXACTLY: a rational when q is a square, else
+ * (a/d)·sqrt(m) built from raw nodes. It must NOT pass through casSimplify,
+ * which folds sqrt of a constant into a float-derived rational.
+ */
+function ratSqrtExpr(q: Rat): Expr {
+  // √(n/d) = √(n·d)/d
+  const { out, inside } = splitSquare(q.n * q.d);
+  const coef = ratMake(out, q.d);
+  if (inside === 1n) return ratToExpr(coef);
+  const root: Expr = { t: "fn", name: "sqrt", arg: N(Number(inside)) };
+  if (ratIsOne(coef)) return root;
+  if (coef.n === 1n) return { t: "div", l: root, r: N(Number(coef.d)) };
+  return { t: "div", l: { t: "mul", l: N(Number(coef.n)), r: root }, r: N(Number(coef.d)) };
+}
+
+/** The radicands of x-dependent square roots in e: sqrt(u) and u^(±1/2). */
+function sqrtRadicands(e: Expr, x: string, out: Expr[] = []): Expr[] {
+  const push = (u: Expr) => {
+    if (mentions(u, x) && !out.some((o) => exprEqual(o, u) === true)) out.push(u);
+  };
+  switch (e.t) {
+    case "num": case "var": return out;
+    case "neg": return sqrtRadicands(e.e, x, out);
+    case "fn":
+      if (e.name === "sqrt") push(e.arg);
+      return sqrtRadicands(e.arg, x, out);
+    case "pow": {
+      if (!mentions(e.r, x)) {
+        let p = NaN;
+        try { p = evalNumeric(e.r, {}); } catch { /* not a number */ }
+        if (Math.abs(Math.abs(p) - 0.5) < 1e-15) push(e.l);
+      }
+      sqrtRadicands(e.l, x, out);
+      return sqrtRadicands(e.r, x, out);
+    }
+    default:
+      sqrtRadicands(e.l, x, out);
+      return sqrtRadicands(e.r, x, out);
+  }
+}
+
+/**
+ * ∫ k/√Q(x) dx with Q = A·x² + B·x + C over ℚ, A < 0 and Q positive at its
+ * vertex h = −B/(2A). Completing the square, Q = Q(h) − b·(x − h)² with
+ * b = −A > 0, so
+ *
+ *     ∫ k/√Q dx = (k/√b)·asin(√(b/Q(h))·(x − h)),   valid for |x − h| < √(Q(h)/b).
+ *
+ * k must be free of x. The candidate goes through symbolicIntegrate's
+ * differentiate-back gate like every other one; the radicals are kept exact
+ * (raw sqrt nodes) rather than folded to floats.
+ */
+function tryArcsine(e: Expr, x: string, deriv: Deriv, depth: number): Expr | null {
+  for (const q of sqrtRadicands(e, x)) {
+    let p: Rat[] | null = null;
+    try { p = polyInVar(q, x); } catch { p = null; }
+    // The completed square: b = −A, vertex h, scale = √(b/Q(h)), and the
+    // half-width √(Q(h)/b) of the domain. A symbolic C = k·a² (√(a² − x²))
+    // is taken with a > 0 ASSUMED and said.
+    let form: { b: Rat; h: Rat; scale: Expr; halfWidth: string; param?: string } | null = null;
+    if (p) {
+      p = ratPolyTrim(p);
+      if (p.length !== 3) continue;
+      const [, B, A] = p;
+      if (ratSign(A) >= 0) continue; // A > 0 is the asinh/ln family — not this rule
+      const b0 = ratNeg(A);
+      const h0 = ratDiv(ratNeg(B), ratMul(ratInt(2), A));
+      const Qh = ratPolyEval(p, h0);
+      if (ratSign(Qh) <= 0) continue; // Q < 0 everywhere: no real domain
+      form = { b: b0, h: h0, scale: ratSqrtExpr(ratDiv(b0, Qh)), halfWidth: format0(ratSqrtExpr(ratDiv(Qh, b0))) };
+    } else {
+      form = symbolicRadicand(q, x, deriv);
+    }
+    if (!form) continue;
+    // k = e·√Q, found by naming the radical: every sqrt(Q) becomes r and every
+    // Q^(±1/2) becomes r^(±1), so k = (that)·r must mention neither x nor r.
+    const named = nameRadical(e, q, RAD);
+    const kk = mul(named, V(RAD));
+    if (mentions(kk, x) || mentions(kk, RAD)) {
+      // The simplifier merges x + 1/√Q into ONE fraction, (x·√Q + 1)/√Q, and
+      // (1 + x)/√Q is a classic in its own right: split the numerator into its
+      // terms and integrate each over √Q — every piece must succeed.
+      // A merged fraction (sqrt(4 − x²) + r)/sqrt(4 − x²) — what two arcsines
+      // summed come back as — splits its NUMERATOR over the shared denominator.
+      const terms = kk.t === "div" && additiveTerms(kk.l).length >= 2
+        ? additiveTerms(kk.l).map((t) => ({ t: "div", l: t, r: kk.r }) as Expr)
+        : additiveTerms(kk);
+      if (terms.length < 2 || terms.length > 6 || depth >= MAX_DEPTH) continue;
+      const sq = fn("sqrt", q);
+      let total: Expr | null = ZERO;
+      for (const t of terms) {
+        const piece = div(substituteVar(t, RAD, sq), sq);
+        const Fi = integ(piece, x, deriv, depth + 1);
+        if (!Fi) { total = null; break; }
+        total = add(total, Fi);
+      }
+      if (total) return total;
+      continue;
+    }
+    const k = kk;
+    if (isZero(k)) continue;
+    const { b, h, scale } = form;
+    const outer = ratSqrtExpr(ratDiv(RAT_ONE, b));
+    const shifted: Expr = ratIsZero(h) ? V(x) : sub(V(x), ratToExpr(h));
+    // Rational pieces may go through the simplifier; a piece holding sqrt(m)
+    // is assembled raw so it stays exact.
+    const arg: Expr = hasSqrt(scale) ? { t: "mul", l: scale, r: shifted } : mul(scale, shifted);
+    const coef: Expr = hasSqrt(outer) ? (isOne(k) ? outer : { t: "mul", l: k, r: outer }) : mul(k, outer);
+    const asinPart: Expr = { t: "fn", name: "asin", arg };
+    const negCoef = coef.t === "neg" ? coef.e : coef.t === "num" && coef.v < 0 ? N(-coef.v) : null;
+    const F: Expr = isOne(coef) ? asinPart
+      : negCoef && isOne(negCoef) ? { t: "neg", e: asinPart }
+      : { t: "mul", l: coef, r: asinPart };
+    const hv = ratToNumber(h);
+    const centre = ratIsZero(h) ? x : hv > 0 ? `${x} - ${format0(ratToExpr(h))}` : `${x} + ${format0(ratToExpr(ratNeg(h)))}`;
+    pendingNotes.push(`Valid where the square root is real: |${centre}| < ${form.halfWidth}.`);
+    if (!form.param) {
+      // Points inside THIS rule's domain for the gate's fallback: a shifted
+      // domain (|x + 3| < 2) holds almost none of the fixed samples.
+      const w = Math.sqrt(ratToNumber(ratDiv(ratPolyEval(p ?? [], h), b)));
+      if (Number.isFinite(w) && w > 0) for (const t of [0.13, -0.41, 0.67, -0.83, 0.29]) pendingSamples.push(hv + t * w);
+    }
+    if (form.param) {
+      pendingPositive.add(form.param);
+      pendingNotes.push(`Assumes ${form.param} > 0, as the textbook formula does; for ${form.param} < 0 replace ${form.param} by |${form.param}| (as written, the answer would have the wrong sign there).`);
+    }
+    let kNeg = false;
+    try { kNeg = evalNumeric(k, { pi: Math.PI, e: Math.E }) < 0; } catch { /* symbolic k */ }
+    if (kNeg) {
+      const pos: Expr = negCoef ?? simp({ t: "neg", e: coef });
+      const acosForm = isOne(pos) ? `acos(${format0(arg)})` : `${wrap0(pos)}*acos(${format0(arg)})`;
+      pendingNotes.push(`acos(u) = π/2 − asin(u), so −asin(u) and acos(u) differ only by a constant: ${acosForm} is an equally valid antiderivative.`);
+    }
+    return F;
+  }
+  return null;
+}
+
+const RAD = "_r";
+
+/** Replaces √q (as sqrt(q) or q^(±1/2)) by the symbol `name` (or its reciprocal). */
+function nameRadical(e: Expr, q: Expr, name: string): Expr {
+  switch (e.t) {
+    case "num": case "var": return e;
+    case "neg": return { t: "neg", e: nameRadical(e.e, q, name) };
+    case "fn":
+      if (e.name === "sqrt" && exprEqual(e.arg, q) === true) return V(name);
+      return { t: "fn", name: e.name, arg: nameRadical(e.arg, q, name) };
+    case "pow": {
+      if (exprEqual(e.l, q) === true) {
+        let p = NaN;
+        try { p = evalNumeric(e.r, {}); } catch { /* symbolic */ }
+        if (p === 0.5) return V(name);
+        if (p === -0.5) return { t: "div", l: N(1), r: V(name) };
+      }
+      return { t: "pow", l: nameRadical(e.l, q, name), r: nameRadical(e.r, q, name) };
+    }
+    default:
+      return { t: e.t, l: nameRadical(e.l, q, name), r: nameRadical(e.r, q, name) } as Expr;
+  }
+}
+
+/** The top-level additive terms of e (sub and neg folded into signed terms). */
+function additiveTerms(e: Expr, sign = 1, out: Expr[] = []): Expr[] {
+  if (e.t === "add") {
+    additiveTerms(e.l, sign, out);
+    additiveTerms(e.r, sign, out);
+  } else if (e.t === "sub") {
+    additiveTerms(e.l, sign, out);
+    additiveTerms(e.r, -sign, out);
+  } else if (e.t === "neg") {
+    additiveTerms(e.e, -sign, out);
+  } else {
+    out.push(sign < 0 ? { t: "neg", e } : e);
+  }
+  return out;
+}
+
+const isOne = (e: Expr): boolean => e.t === "num" && e.v === 1;
+function hasSqrt(e: Expr): boolean {
+  switch (e.t) {
+    case "num": case "var": return false;
+    case "neg": return hasSqrt(e.e);
+    case "fn": return e.name === "sqrt" || hasSqrt(e.arg);
+    default: return hasSqrt(e.l) || hasSqrt(e.r);
+  }
+}
+
+/**
+ * ∫ k/(A·x² + c·a²) dx with A, c positive rationals, k free of x, and a ONE
+ * symbol (assumed > 0, and said):  k/(a·√(A·c)) · atan(√(A/c)·x/a).
+ * The rational-coefficient case is integrateRational's (exact since v2.136.0).
+ */
+function tryArctanSymbolic(e: Expr, x: string, deriv: Deriv): Expr | null {
+  if (e.t !== "div" || mentions(e.l, x) || !mentions(e.r, x)) return null;
+  const k = e.l;
+  const q = e.r;
+  try {
+    const d1 = simp(deriv(q, x));
+    const d2 = simp(deriv(d1, x));
+    if (symbolsOf(d2).size || mentions(d2, x)) return null;
+    const d2v = evalNumeric(d2, {});
+    if (!Number.isInteger(d2v) || d2v <= 0 || d2v > 1e9) return null;
+    const A = ratMake(BigInt(d2v), 2n);
+    if (!isZero(simp(substituteVar(d1, x, ZERO)))) return null;
+    const C = simp(substituteVar(q, x, ZERO));
+    const syms = [...symbolsOf(C)];
+    if (syms.length !== 1 || syms[0] === x) return null;
+    const a = syms[0];
+    if (mentions(k, a) && symbolsOf(k).size > 1) return null;
+    const c0 = simp(div(C, pow(V(a), N(2))));
+    if (symbolsOf(c0).size) return null;
+    const cv = evalNumeric(c0, {});
+    if (!Number.isInteger(cv) || cv <= 0 || cv > 1e9) return null;
+    const c = ratInt(cv);
+    if (exprEqual(q, add(mul(ratToExpr(A), pow(V(x), N(2))), mul(N(cv), pow(V(a), N(2))))) !== true) return null;
+    const outer = ratSqrtExpr(ratDiv(RAT_ONE, ratMul(A, c))); // 1/√(A·c)
+    const sc = ratSqrtExpr(ratDiv(A, c)); // √(A/c)
+    const arg: Expr = hasSqrt(sc) ? { t: "mul", l: sc, r: { t: "div", l: V(x), r: V(a) } } : mul(sc, div(V(x), V(a)));
+    const coefBase: Expr = hasSqrt(outer) ? { t: "div", l: outer, r: V(a) } : div(outer, V(a));
+    const coef: Expr = isOne(k) ? coefBase : hasSqrt(outer) ? { t: "mul", l: k, r: coefBase } : mul(k, coefBase);
+    pendingPositive.add(a);
+    // Unlike the arcsine, (1/a)·atan(x/a) is unchanged by a → −a, so it holds for every a ≠ 0.
+    pendingNotes.push(`Stated, as in the textbook, for ${a} > 0 — and valid for every ${a} ≠ 0, since the formula is unchanged under ${a} → −${a}; at ${a} = 0 the integrand is 1/x² (a different integral).`);
+    return { t: "mul", l: coef, r: { t: "fn", name: "atan", arg } };
+  } catch {
+    return null;
+  }
+}
+
+/** A tiny formatter for notes, independent of solve.ts (no runtime cycle). */
+function format0(e: Expr): string {
+  switch (e.t) {
+    case "num": return String(e.v);
+    case "var": return e.name;
+    case "neg": return `-${format0(e.e)}`;
+    case "fn": return `${e.name}(${format0(e.arg)})`;
+    case "add": return `${format0(e.l)} + ${format0(e.r)}`;
+    case "sub": return `${format0(e.l)} - ${e.r.t === "add" || e.r.t === "sub" ? `(${format0(e.r)})` : format0(e.r)}`;
+    case "mul": return `${wrap0(e.l)}*${wrap0(e.r)}`;
+    case "div": return `${wrap0(e.l)}/${wrap0(e.r, true)}`;
+    case "pow": return `${wrap0(e.l, true)}^${wrap0(e.r, true)}`;
+  }
+}
+function wrap0(e: Expr, strict = false): string {
+  const s = format0(e);
+  if (e.t === "add" || e.t === "sub" || (strict && (e.t === "mul" || e.t === "div" || e.t === "neg"))) return `(${s})`;
+  return s;
 }
 
 /** e as a·x + b with both free of x, via differentiation — or null. */
@@ -757,6 +1124,12 @@ export interface AntiderivResult {
   F: Expr;
   /** True when d/dx F was proved canonically equal to the integrand. */
   verified: boolean;
+  /**
+   * What a rule knows about its answer that F alone does not say: a domain of
+   * validity ("|x| < 2" for an arcsine), an equivalent form (acos beside
+   * −asin). Absent when no rule spoke. Callers should show these as caveats.
+   */
+  notes?: string[];
 }
 
 /**
@@ -771,6 +1144,9 @@ export interface AntiderivResult {
  */
 export function symbolicIntegrate(e: Expr, x: string, deriv: Deriv): AntiderivResult | null {
   let F: Expr | null;
+  pendingNotes = [];
+  pendingPositive = new Set();
+  pendingSamples = [];
   try {
     F = integ(e, x, deriv, 0);
   } catch (err) {
@@ -778,6 +1154,20 @@ export function symbolicIntegrate(e: Expr, x: string, deriv: Deriv): AntiderivRe
     throw err;
   }
   if (!F) return null;
+  // A note is kept only when its rule's asin survived into F (a split whose
+  // second piece failed, or an abandoned branch, can leave one behind) and
+  // never when it names an internal substitution symbol (_u, _r).
+  const ruleFnSurvived = hasFnNamed(F, "asin") || hasFnNamed(F, "atan");
+  const notes = ruleFnSurvived ? [...new Set(pendingNotes)].filter((n) => !/\b_[ur]\b/.test(n)) : [];
+  pendingNotes = [];
+  // The same survival test for what a rule ASSUMED: a positivity assumption or
+  // domain samples from an abandoned branch must not verify a different F.
+  const asinSurvived = ruleFnSurvived;
+  const positive = asinSurvived ? [...pendingPositive].filter((p) => mentions(F as Expr, p)) : [];
+  pendingPositive = new Set();
+  const domainSamples = asinSurvived ? pendingSamples : [];
+  pendingSamples = [];
+  const withNotes = (r: AntiderivResult): AntiderivResult => (notes.length ? { ...r, notes } : r);
 
   // Canonical check: d/dx F − f ≡ 0.
   let back: Expr;
@@ -787,7 +1177,7 @@ export function symbolicIntegrate(e: Expr, x: string, deriv: Deriv): AntiderivRe
     return null;
   }
   const eq = exprEqual(simp(back), simp(e));
-  if (eq === true) return { F, verified: true };
+  if (eq === true) return withNotes({ F, verified: true });
 
   // Inconclusive or unequal — decide numerically before discarding, because
   // canonical equality is only as strong as the module's cancellation power
@@ -799,30 +1189,61 @@ export function symbolicIntegrate(e: Expr, x: string, deriv: Deriv): AntiderivRe
   // identically zero" on the strength of it was overclaiming for every answer
   // canonical equality could not settle. tan(x), tanh(x) and sqrt(x) all land
   // here: they survive on eight float samples, which is evidence and not proof.
-  if (numericallyEqual(back, e, x)) return { F, verified: false };
+  if (numericallyEqual(back, e, x, positive, domainSamples)) return withNotes({ F, verified: false });
   return null;
+}
+
+function hasFnNamed(e: Expr, name: string): boolean {
+  switch (e.t) {
+    case "num": case "var": return false;
+    case "neg": return hasFnNamed(e.e, name);
+    case "fn": return e.name === name || hasFnNamed(e.arg, name);
+    default: return hasFnNamed(e.l, name) || hasFnNamed(e.r, name);
+  }
 }
 
 /** Fixed sample points; deterministic, no RNG. */
 const SAMPLES = [0.37, 0.81, 1.23, 1.87, 2.41, -0.53, -1.29, 3.14];
+/**
+ * Consulted ONLY when fewer than three of SAMPLES were usable: an integrand
+ * defined on a narrow interval (1/√(1 − 100x²) lives on |x| < 0.1) would
+ * otherwise be refused for lack of evidence, never for a disagreement. These
+ * cannot loosen a check that already had its three points.
+ */
+const NARROW_SAMPLES = [0.037, 0.081, -0.053, 0.0123, -0.0187, 0.0041, 0.37 + 1 / 3, 1.5 - 0.0137];
 
-/** Numeric identity check of two expressions in one variable. */
-function numericallyEqual(a: Expr, b: Expr, x: string): boolean {
-  let checked = 0;
-  for (const s of SAMPLES) {
-    let va: number, vb: number;
-    try {
-      va = evalNumeric(a, { [x]: s });
-      vb = evalNumeric(b, { [x]: s });
-    } catch {
-      continue;
-    }
-    if (!Number.isFinite(va) || !Number.isFinite(vb)) continue;
-    const tol = 1e-7 * (1 + Math.abs(vb));
-    if (Math.abs(va - vb) > tol) return false;
-    checked++;
-  }
-  return checked >= 3;
+/**
+ * Numeric identity check of two expressions in one variable. `positive`
+ * names parameters a rule has ASSUMED positive (the arcsine rule's a in
+ * √(a² − x²)); only those are bound, at two different positive values, and
+ * the identity must hold at both. Any other free symbol still makes every
+ * sample throw, exactly as before.
+ */
+function numericallyEqual(a: Expr, b: Expr, x: string, positive: string[] = [], extra: number[] = []): boolean {
+  const assignments: Record<string, number>[] = positive.length
+    ? [Object.fromEntries(positive.map((p, i) => [p, 1.7 + 0.6 * i])), Object.fromEntries(positive.map((p, i) => [p, 2.9 + 0.4 * i]))]
+    : [{}];
+  return assignments.every((params) => {
+    let checked = 0;
+    const probe = (s: number): boolean => {
+      let va: number, vb: number;
+      try {
+        va = evalNumeric(a, { ...params, [x]: s });
+        vb = evalNumeric(b, { ...params, [x]: s });
+      } catch {
+        return true;
+      }
+      if (!Number.isFinite(va) || !Number.isFinite(vb)) return true;
+      const tol = 1e-7 * (1 + Math.abs(vb));
+      if (Math.abs(va - vb) > tol) return false;
+      checked++;
+      return true;
+    };
+    for (const s of SAMPLES) if (!probe(s)) return false;
+    if (checked >= 3) return true;
+    for (const s of [...NARROW_SAMPLES, ...extra]) if (!probe(s)) return false;
+    return checked >= 3;
+  });
 }
 
 /** Minimal evaluator — kept local so this module needs nothing from solve.ts at runtime. */

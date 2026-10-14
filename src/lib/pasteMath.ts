@@ -14,7 +14,7 @@
 // silent guess.
 
 import { latexToDsl } from "./latex";
-import { parseExpr, solveEquation } from "./solve";
+import { parseExpr, solveEquation, EquationResult } from "./solve";
 
 export interface FoldedMath {
   text: string;
@@ -376,6 +376,10 @@ export function foldPastedMath(input: string, opts: FoldOptions = {}): FoldedMat
   // ′/″/° natively (feet, inches, degrees), so those notes stay equation-side.
   for (const [ch, why] of Object.entries(NAMED_UNREADABLE)) {
     if ((opts.geometry || opts.ode) && EQUATION_ONLY_NOTES.has(ch)) continue;
+    // "radius of convergence ∑ x^n/n" (v2.136.0): the radius verb reads ∑
+    // (U+2211) as its own grammar, so "Σ-sum notation isn't solvable" would
+    // be a false note beside the answer.
+    if (ch === "∑" && /\b(?:radius|interval)\s+of\s+convergence\b/i.test(s)) continue;
     if (s.includes(ch)) notes.push(why + ".");
   }
   const namedNotes = notes.length - beforeNamed;
@@ -483,14 +487,63 @@ export function foldPastedMath(input: string, opts: FoldOptions = {}): FoldedMat
 export function normalizeTaskProse(text: string): string {
   let s = text.trim();
   for (let i = 0; i < 4; i++) {
-    const next = s.replace(/^(please\s+)?(find|what is|what's|evaluate|compute|calculate|determine|give|state)\s+(the\s+)?(value of\s+)?/i, "");
+    const next = s
+      .replace(/^(please\s+)?(find|what is|what's|evaluate|compute|calculate|determine|give|state)\s+(the\s+)?(value of\s+)?/i, "")
+      // ROOT-FINDING TASK WORDS (v2.136.0). "solve x^2 - 5x + 6 = 0" and
+      // "find the roots of x^3 - 7x + 6" reached the solver with solve / the /
+      // roots / of as UNKNOWNS ("more than one unknown (solve, x)"). Stripped
+      // only when MATHS follows: "solve = 5" and "roots = 3" name variables
+      // called solve and roots, and keep them.
+      .replace(/^solve\s+(?![=<>≤≥≠!:+*/^·×)]|[-−]\s)(?:the\s+)?(?:equation\s+)?/i, "")
+      .replace(/^(?:all\s+)?(?:of\s+)?(?:the\s+)?(?:(?:exact|real|complex)\s+)?(?:roots?|zeros?|zeroes|solutions?)\s+of\s+(?:the\s+)?(?:equation\s+|polynomial\s+)?/i, "");
     if (next === s) break;
     s = next;
   }
   return s
+    .replace(/\s*,?\s+exactly\s*$/i, "")
     .replace(/^limit of\s+/i, "limit ")
     .replace(/\bapproaches\b/gi, "->")
     .replace(/\btends to\b/gi, "->");
+}
+
+/** Words normalizeTaskProse strips that the solver would otherwise read as unknowns. */
+const TASK_WORDS = new Set([
+  "solve", "find", "the", "roots", "root", "zeros", "zero", "zeroes", "solutions", "solution", "of", "all",
+  "exact", "exactly", "real", "complex", "equation", "polynomial", "please", "what", "is", "evaluate",
+  "compute", "calculate", "determine", "give", "state", "value",
+]);
+
+/**
+ * THE TASK-VERB RE-SOLVE (v2.136.0). The pane solves the text as typed, and a
+ * leading "solve" / "find the roots of" or a trailing "exactly" became extra
+ * UNKNOWNS: solveEquation returned a non-null "unsolved" result, so the
+ * extractor (which runs only on null) never fired and the natural phrasing
+ * never reached the root engine. When every extra unknown is a task word that
+ * normalizeTaskProse stripped, re-solve the stripped text. An expression with
+ * no comparison is read as "= 0" (what "the roots of p" means), so the work
+ * lines and the figure see an equation. Returns null when nothing applies —
+ * "solve = 5" (a variable named solve) never gets here: it solves as typed.
+ *
+ * One function, called by the pane and by the tests.
+ */
+export function resolveTaskVerb(text: string, r: EquationResult | null): { result: EquationResult; text: string } | null {
+  if (!r || r.method !== "unsolved" || !r.unknowns || r.unknowns.length < 2) return null;
+  let stripped = normalizeTaskProse(text);
+  if (!stripped || stripped === text.trim()) return null;
+  if (!/[=<>≤≥≠]/.test(stripped)) stripped = `${stripped} = 0`;
+  let r2: EquationResult | null;
+  try {
+    r2 = solveEquation(stripped);
+  } catch {
+    return null;
+  }
+  if (!r2) return null;
+  const kept = new Set(r2.unknowns && r2.unknowns.length ? r2.unknowns : [r2.variable]);
+  const extras = r.unknowns.filter((u) => !kept.has(u));
+  if (!extras.length || !extras.every((u) => TASK_WORDS.has(u.toLowerCase()))) return null;
+  // The re-solve may not INVENT an unknown the original did not have.
+  if ([...kept].some((u) => !r.unknowns!.includes(u))) return null;
+  return { result: r2, text: stripped };
 }
 
 const MATH_WORDS = new Set([

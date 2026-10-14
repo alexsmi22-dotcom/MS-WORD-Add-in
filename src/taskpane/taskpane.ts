@@ -344,8 +344,9 @@ import { tryInterpolate, INTERP_VERB_RE } from "../lib/interpolate";
 import { trySpline, SPLINE_VERB_RE } from "../lib/spline";
 import { tryComplex } from "../lib/complexAlgebra";
 import { tryStatsIntent } from "../lib/statsIntent";
-import { solveInputToTypesetLines, solveToTypesetDsl, isProseRequest } from "../lib/solveTypeset";
-import { foldPastedMath, extractSingleEquation, extractExpression, normalizeTaskProse, hasProseWords } from "../lib/pasteMath";
+import { solveInputToTypesetLines, solveToTypesetDsl, isProseRequest, isSeriesOrRadiusRequest, rootDisplayIsComplex, seriesFailureMessage } from "../lib/solveTypeset";
+import { tryRadius, radiusSvg } from "../lib/radius";
+import { foldPastedMath, extractSingleEquation, extractExpression, normalizeTaskProse, hasProseWords, resolveTaskVerb } from "../lib/pasteMath";
 import { generate3d, isMol3dError, projectScene, opsToSvg, defaultMol3dView, formulaSubscripts, chargeSuperscript, Mol3dView, Mol3dStyle } from "../lib/mol3d";
 import { iupacName } from "../lib/iupacName";
 import { equationWork, derivativeWork, definiteIntegralWork, WorkLine } from "../lib/showWork";
@@ -28020,6 +28021,21 @@ function updateSolve(): void {
         );
         return;
       }
+      // SERIES AND RADIUS OF CONVERGENCE (v2.136.0) route the same way:
+      // "taylor 1/(1-x)" and "radius of convergence of …" in the default kind
+      // were "more than one unknown (taylor, x)". Ahead of trySum, which would
+      // otherwise read "interval of convergence of sum x^n/n^2" as a finite sum.
+      // One decision function, shared with the tests (solveTypeset.ts).
+      if (!transformVerb && isSeriesOrRadiusRequest(taskText)) {
+        solveKind.value = "derivative";
+        updateSolveUi();
+        updateSolve();
+        solveResult.insertBefore(
+          solveLine("The question asks for a SERIES or its RADIUS OF CONVERGENCE — switched to the Derivative kind (which owns series) and answered."),
+          solveResult.firstChild
+        );
+        return;
+      }
 
       // STATISTICS questions pasted as prose ("mean of 3, 5, 8", "is A
       // different from B") answer from the real stats engines, inline.
@@ -28238,6 +28254,19 @@ function updateSolve(): void {
           text = extracted;
         }
       }
+      // TASK WORDS ARE NOT UNKNOWNS (v2.136.0). "solve x^2 - 5x + 6 = 0" and
+      // "find the roots of x^3 - 7x + 6" came back "unsolved" — non-null, so
+      // the extractor above never ran — with solve / the / roots / of as
+      // unknowns. Re-solve the stripped text when every extra unknown is a
+      // stripped task word; one decision function, shared with the tests.
+      if (r && !extracted) {
+        const tv = resolveTaskVerb(text, r);
+        if (tv) {
+          r = tv.result;
+          extracted = tv.text;
+          text = tv.text;
+        }
+      }
       if (!r) return void solveResult.appendChild(solveLine("Couldn't parse that equation. Try e.g. x^2 - 5x + 6 = 0."));
       if (extracted) {
         const note = `Read the equation out of the sentence: ${extracted}`;
@@ -28283,9 +28312,13 @@ function updateSolve(): void {
           solveResult.appendChild(solveLine(`${r.variable} = ${root.display}`, "ms-masses"));
           // A root is an equation — typeset it. Complex roots (0 + 1i) and
           // multiplicity markers (×2) are not linear math, so those stay text.
+          // The test is TOKEN-aware (v2.136.0): the old /[i×]/ matched the i in
+          // `pi`, so 2*cos(2*pi/9) silently lost its typesetting. The typeset
+          // form goes through solveToTypesetDsl, which draws cbrt(u) and
+          // c^(1/4) as real radicals — sayMath alone hands Word the raw text.
           const plain = `${r.variable} = ${root.display}`;
-          if (/[i×]/.test(root.display)) say(plain);
-          else sayMath(plain);
+          if (rootDisplayIsComplex(root.display)) say(plain);
+          else sayMath(solveToTypesetDsl(plain), plain);
         }
         if (r.roots.length > ROOT_LINES_MAX) {
           const more = `… and ${r.roots.length - ROOT_LINES_MAX} more roots in the range searched (${r.roots.length} total) — not listed one per line.`;
@@ -28357,16 +28390,51 @@ function updateSolve(): void {
         for (const st of lr.steps) { solveResult.appendChild(solveLine(st)); say(st); }
         return finish(lr.caveats);
       }
+      // RADIUS / INTERVAL OF CONVERGENCE (v2.136.0): a theorem from the
+      // function's singularities in ℂ (or the exact ratio test on a general
+      // term), never a reading of coefficients — with the disc drawn.
+      const radiusVerb = tryRadius(normalizeTaskProse(text));
+      if (radiusVerb) {
+        solveResult.appendChild(msEyebrow(radiusVerb.title));
+        say(radiusVerb.title, "heading");
+        for (const l of radiusVerb.lines) {
+          solveResult.appendChild(solveLine(l.text, "ms-masses"));
+          if (l.math) sayMath(solveToTypesetDsl(l.text), l.text);
+          else say(l.text);
+        }
+        if (radiusVerb.svg) {
+          currentSolveSvg = radiusVerb.svg;
+          currentSolveAlt = radiusVerb.alt ?? radiusVerb.title;
+          const fig = document.createElement("div");
+          fig.className = "solve-figure";
+          fig.innerHTML = currentSolveSvg;
+          solveResult.appendChild(fig);
+        }
+        return finish(radiusVerb.caveats);
+      }
       const ser = parseSeriesRequest(normalizeTaskProse(text));
       if (ser) {
         const sr = taylorSeries(ser.expr, ser.variable, ser.centre, ser.order);
-        if (!sr) return void solveResult.appendChild(solveLine("Couldn't expand that as a series — check it is differentiable at the centre. Try: taylor exp(x) order 5"));
+        // The reason by name when the radius engine knows it (abs is not
+        // analytic; ln(x) at 0 is a branch point) — not a generic "Couldn't".
+        if (!sr) return void solveResult.appendChild(solveLine(seriesFailureMessage(ser.expr, ser.variable, ser.centre)));
         const head = `${ser.centre === 0 ? "Maclaurin" : "Taylor"} series about ${ser.variable} = ${ser.centre}`;
         solveResult.appendChild(msEyebrow(head));
         say(head, "heading");
         solveResult.appendChild(solveLine(sr.display, "ms-masses"));
         sayMath(sr.display.replace(/ + O(.*)$/, ""), sr.display);
         for (const st of sr.steps) { solveResult.appendChild(solveLine(st)); say(st); }
+        // The disc of convergence (v2.136.0), when R is finite and positive —
+        // radiusSvg returns "" for R = 0, R = ∞ and a refusal.
+        const discSvg = sr.radius ? radiusSvg(sr.radius) : "";
+        if (discSvg) {
+          currentSolveSvg = discSvg;
+          currentSolveAlt = `Complex plane: disc of convergence of the Taylor series of ${sr.expression} about ${ser.variable} = ${ser.centre}${sr.radius?.display ? `, R = ${sr.radius.display}` : ""}.`;
+          const fig = document.createElement("div");
+          fig.className = "solve-figure";
+          fig.innerHTML = currentSolveSvg;
+          solveResult.appendChild(fig);
+        }
         return finish(sr.caveats);
       }
       let r = differentiate(text);

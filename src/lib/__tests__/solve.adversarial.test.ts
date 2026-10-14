@@ -141,7 +141,11 @@ describe("polynomial equations return ALL roots (real and complex)", () => {
     const found = r.roots.map((x) => x.re).sort((a, b) => a - b);
     expect(found.length).toBe(3);
     [1, 2, 3].forEach((want, k) => expect(found[k]).toBeCloseTo(want, 4));
-    expect(r.method).toContain("complete");
+    // v2.136.0: the pin was "complete" (Durand–Kerner, numeric). Rational
+    // coefficients now go to the exact engine (polyRoots.ts), which finds all
+    // three roots by the rational-root test — still ALL roots, now exact.
+    expect(r.method).toBe("exact (factored over ℚ)");
+    expect(r.roots.map((x) => x.display)).toEqual(["3", "2", "1"]);
   });
   it("x^3 - 1 = 0 gives all three roots, not just the real one", () => {
     const r = solveEquation("x^3 - 1 = 0")!;

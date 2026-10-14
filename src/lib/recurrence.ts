@@ -303,7 +303,10 @@ function solveLinear<T>(F: Field<T>, M: T[][], v: T[]): T[] | null {
 // ---------------------------------------------------------------------------
 // Characteristic polynomial and its roots
 
-interface RootInfo { exact?: QN; approx: C; mult: number }
+/** `radical`: the root's exact closed form in radicals from the polynomial
+ *  root engine (cubic/quartic formulas, v2.136.0) when the closed form below
+ *  carries it numerically — shown, never used for arithmetic. */
+interface RootInfo { exact?: QN; approx: C; mult: number; radical?: string }
 
 /** Monic polynomial coefficients, highest degree first, over Rat. */
 function charPoly(coeffs: Rat[]): Rat[] {
@@ -345,13 +348,15 @@ function simplifySqrt(D: Rat): { scale: Rat; d: Rat } | null {
   return { scale: new Rat(prod.sq, D.den), d: Rat.of(prod.rest) };
 }
 
-export function solveCharacteristic(coeffs: Rat[]): { roots: RootInfo[]; D: Rat | null; exactField: boolean } {
+export function solveCharacteristic(coeffs: Rat[]): { roots: RootInfo[]; D: Rat | null; exactField: boolean; numericNotes: string[] } {
   let p = charPoly(coeffs);
   const roots: RootInfo[] = [];
-  const addRoot = (exact: QN | undefined, re: number, im: number): void => {
+  // Why each numerically-carried root is numeric — said, per factor.
+  const numericNotes: string[] = [];
+  const addRoot = (exact: QN | undefined, re: number, im: number, radical?: string): void => {
     const same = roots.find((r) => (exact && r.exact ? r.exact.eq(exact) : Math.abs(r.approx.re - re) < 1e-9 && Math.abs(r.approx.im - im) < 1e-9));
     if (same) same.mult++;
-    else roots.push({ exact, approx: { re, im }, mult: 1 });
+    else roots.push({ exact, approx: { re, im }, mult: 1, ...(radical ? { radical } : {}) });
   };
   const clear = (q: Rat[]): bigint[] => {
     let l = 1n;
@@ -408,6 +413,11 @@ export function solveCharacteristic(coeffs: Rat[]): { roots: RootInfo[]; D: Rat 
         }
       }
       // Complex, or a second surd field: numeric.
+      numericNotes.push(
+        disc.num < 0n
+          ? "a quadratic factor with complex roots is carried numerically (the exact closed form here works in ℚ(√D) with D > 0)"
+          : "a quadratic factor whose square root lies outside the field already in use is carried numerically (one ℚ(√D) per closed form)",
+      );
       const bn = b.toNumber(), cn = c.toNumber();
       const dn = bn * bn - 4 * cn;
       if (dn < 0) { addRoot(undefined, -bn / 2, Math.sqrt(-dn) / 2); addRoot(undefined, -bn / 2, -Math.sqrt(-dn) / 2); }
@@ -421,6 +431,26 @@ export function solveCharacteristic(coeffs: Rat[]): { roots: RootInfo[]; D: Rat 
     const sol = solveEquation(`${expr} = 0`, "r");
     if (!sol || !sol.roots.length) throw new DiscreteError("The characteristic polynomial could not be solved.");
     const pn = p.map((c) => c.toNumber());
+    // v2.136.0: the root engine gives EXACT forms in radicals for degree 3–4
+    // (and anything that factors into such pieces). The closed form below
+    // still computes with the Newton-polished values — ℚ(√D) arithmetic cannot
+    // hold a cube root — so the exact forms are SHOWN beside them, and a root
+    // with no exact form says why.
+    const deg = p.length - 1;
+    const exactCount = sol.roots.filter((r) => r.exact).length;
+    numericNotes.push(
+      exactCount === sol.roots.length
+        ? `the degree-${deg} factor's roots have exact forms in radicals (shown); the closed form carries them numerically, Newton-polished to double precision`
+        : deg >= 5 && exactCount === 0
+          ? `the degree-${deg} factor has no general formula in radicals (Abel–Ruffini; not tested for solvability), so its roots are numeric, Newton-polished`
+          : `${exactCount ? "some of the" : "the"} degree-${deg} factor's roots have no closed form shown (${
+              sol.steps.some((s) => /runs to \d+ characters/.test(s))
+                ? "their closed form runs past the display cap"
+                : sol.caveats.some((c) => /cube root of a complex number/.test(c))
+                  ? "a closed form would need cube roots of complex numbers"
+                  : "the root engine gave none"
+            }), so ${exactCount ? "those are" : "they are"} numeric, Newton-polished`,
+    );
     for (const r of sol.roots) {
       let z: C = { re: r.re, im: r.im };
       for (let it = 0; it < 8; it++) {
@@ -430,14 +460,19 @@ export function solveCharacteristic(coeffs: Rat[]): { roots: RootInfo[]; D: Rat 
         if (CField.isZero(df)) break;
         z = CField.sub(z, CField.div(f, df));
       }
-      addRoot(undefined, z.re, z.im);
+      // v2.136.0: solveEquation now reports a repeated root ONCE with its exact
+      // multiplicity (square-free factorisation) instead of as several shattered
+      // near-copies — so the multiplicity must be carried, or the n·rⁿ terms of
+      // the general solution silently vanish.
+      const radical = r.exact ? r.display.replace(/\s*\(×\d+\)\s*$/, "") : undefined;
+      for (let m = 0; m < (r.mult ?? 1); m++) addRoot(undefined, z.re, z.im, radical);
     }
     p = [R1];
   }
   // Rational roots found alongside a surd pair live in the same field.
   if (D !== null) for (const r of roots) if (r.exact && r.exact.D.isZero()) r.exact = new QN(r.exact.a, r.exact.b, D);
   const exactField = roots.every((r) => r.exact);
-  return { roots, D: exactField ? D : null, exactField };
+  return { roots, D: exactField ? D : null, exactField, numericNotes };
 }
 
 // ---------------------------------------------------------------------------
@@ -565,15 +600,15 @@ function iterate(p: Parsed, count: number): { base: number; vals: Rat[] } | null
 }
 
 function solveLinearRecurrence(p: Parsed): DiscreteResult {
-  const { roots, D, exactField } = solveCharacteristic(p.coeffs);
+  const { roots, D, exactField, numericNotes } = solveCharacteristic(p.coeffs);
   const display: string[] = [];
   const steps: string[] = [];
   const caveats: string[] = [];
   const name = p.name;
   const cp = charPoly(p.coeffs);
   steps.push(`Characteristic equation: ${cp.map((c, i) => { const d = cp.length - 1 - i; if (c.isZero()) return ""; const mag = new Rat(c.num < 0n ? -c.num : c.num, c.den); const body = d === 0 ? showRat(mag) : (mag.eq(R1) ? "" : showRat(mag)) + (d === 1 ? "r" : `r${sup(d)}`); return (c.num < 0n ? "− " : i === 0 ? "" : "+ ") + body; }).filter(Boolean).join(" ")} = 0`);
-  const rootText = roots.map((r) => `${r.exact ? r.exact.toString() : CField.show(r.approx)}${r.mult > 1 ? ` (multiplicity ${r.mult})` : ""}`).join(", ");
-  steps.push(`Roots: ${rootText}${exactField ? "" : " (numeric — no closed form in radicals is attempted beyond quadratics)"}`);
+  const rootText = roots.map((r) => `${r.exact ? r.exact.toString() : CField.show(r.approx)}${r.radical ? ` = ${r.radical}` : ""}${r.mult > 1 ? ` (multiplicity ${r.mult})` : ""}`).join(", ");
+  steps.push(`Roots: ${rootText}${exactField ? "" : ` (${[...new Set(numericNotes)].join("; ")})`}`);
 
   // Homogeneous basis: n^j r^n for each root r and j < mult.
   const basis: { root: RootInfo; j: number }[] = [];

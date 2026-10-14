@@ -123,7 +123,61 @@ describe("Taylor and Maclaurin series", () => {
     const r = T("exp(x)", 0, 4);
     expect(r.display).toMatch(/O\(x\^\d+\)/);
     expect(r.caveats.join(" ")).toMatch(/TRUNCATED series/);
-    expect(r.caveats.join(" ")).toMatch(/radius of convergence is not computed/);
+    // v2.136.0 (radius.ts): this pin used to read "radius of convergence is not
+    // computed". The radius IS computed now, as a theorem about the function's
+    // singularities — eˣ is entire, so R = ∞ — and the truncation is still said.
+    expect(r.radiusLine).toMatch(/^R = ∞/);
+    expect(r.radius?.kind).toBe("infinite");
+  });
+  it("a Taylor series gains its radius line, from the singularities in ℂ", () => {
+    const r = T("1/(1+x^2)", 0, 6);
+    expect(r.radiusLine).toMatch(/^R = 1 — .*x = ±i/);
+    expect(r.steps.join(" ")).toMatch(/R = 1/);
+    const l = T("ln(1+x)", 0, 4);
+    expect(l.radius?.exact).toBe("1");
+    expect(l.radius?.interval?.text).toBe("(-1, 1]");
+  });
+  it("a function outside the singularity rules keeps its series and says R is not determined", () => {
+    const r = T("sin(x)^x", 1, 3);
+    expect(r.radius?.kind).toBe("refused");
+    expect(r.radiusLine).toMatch(/not determined/);
+    expect(r.caveats.join(" ")).toMatch(/TRUNCATED series/);
+  });
+  it("parseSeriesRequest reads the sentence forms", () => {
+    expect(parseSeriesRequest("taylor series of 1/(1+x^2)")?.expr).toBe("1/(1+x^2)");
+    expect(parseSeriesRequest("maclaurin series for exp(x) order 4")).toMatchObject({ expr: "exp(x)", order: 4 });
+    expect(parseSeriesRequest("series of ln(x) about 2")).toMatchObject({ expr: "ln(x)", centre: 2 });
+    expect(parseSeriesRequest("taylor sin(x)")?.expr).toBe("sin(x)");
+    // A bare "expansion of …" is algebra, never claimed as a series.
+    expect(parseSeriesRequest("expansion of (x+1)^3")).toBeNull();
+  });
+  it("§D through the TAYLOR path: the series and its radius together", () => {
+    const rows: [string, string][] = [
+      ["taylor 1/(1-x)", "1"], ["taylor 1/(1+x^2)", "1"], ["taylor ln(1+x)", "1"], ["taylor sqrt(1+x)", "1"],
+      ["taylor atan(x)", "1"], ["taylor 1/(1+x+x^2)", "1"], ["taylor 1/x about 1", "1"], ["taylor 1/(1-x)^2", "1"],
+      ["taylor tan(x)", "pi/2"], ["taylor 1/cos(x)", "pi/2"], ["taylor 1/(2-x)", "2"], ["taylor 1/(x^2 - 5x + 6)", "2"],
+      ["taylor ln(x) about 2", "2"], ["taylor 1/(x^2+4) about 1", "sqrt(5)"], ["taylor x/(exp(x)-1)", "2*pi"],
+    ];
+    for (const [q, R] of rows) {
+      const p = parseSeriesRequest(q)!;
+      const t = taylorSeries(p.expr, p.variable, p.centre, p.order);
+      expect([q, t?.radius?.exact]).toEqual([q, R]);
+    }
+    for (const q of ["taylor exp(x)", "taylor sin(x)", "taylor (x^2-1)/(x-1)", "taylor sin(x)/x"]) {
+      const p = parseSeriesRequest(q)!;
+      expect([q, taylorSeries(p.expr, p.variable, p.centre, p.order)?.radius?.kind]).toEqual([q, "infinite"]);
+    }
+  });
+  it("a removable centre is expanded by power-series division (x/(eˣ − 1): the Bernoulli numbers)", () => {
+    const t = T("x/(exp(x)-1)", 0, 6);
+    expect(t.display).toContain("1 - 1/2*x + 1/12*x^2 - 1/720*x^4");
+    // 1/30240 is past fmtCoeff's denominator search (≤ 5040), so it prints as a decimal.
+    expect(t.coefficients[6]).toBeCloseTo(1 / 30240, 12);
+    expect(t.coefficients[3]).toBeCloseTo(0, 12);
+    expect(T("sin(x)/x", 0, 4).display).toContain("1 - 1/6*x^2 + 1/120*x^4");
+  });
+  it("taylor abs(x) at 0 has no series (pinned: null; the pane's message is F's)", () => {
+    expect(taylorSeries("abs(x)", "x", 0, 4)).toBeNull();
   });
   it("a function with no series at the centre is refused", () => {
     expect(taylorSeries("ln(x)", "x", 0, 3)).toBeNull();

@@ -190,9 +190,13 @@ describe("power isolation in symbolic rearrangement", () => {
   test("numeric-only power equations still go to the complete root finder", () => {
     // x^3 = 8 must keep ALL its roots (one real, two complex) — the monomial
     // path is for SYMBOLIC rearrangement, not a downgrade of Durand–Kerner.
+    // v2.136.0 (§D): rational coefficients now reach the exact engine, so the
+    // three roots are exact — still all three, still no downgrade to the
+    // symbolic path. The pin was "complete (all roots)".
     const r = solveEquation("x^3 = 8")!;
     expect(r.roots).toHaveLength(3);
-    expect(r.method).toBe("complete (all roots)");
+    expect(r.method).toBe("exact (factored over ℚ)");
+    expect(r.roots.map((x) => x.display)).toEqual(["2", "-1 - sqrt(3)*i", "-1 + sqrt(3)*i"]);
   });
 
   test("a middle term disqualifies the monomial path honestly", () => {

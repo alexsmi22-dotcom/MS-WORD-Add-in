@@ -31,6 +31,9 @@ const STAY = [
   "f(x) = x^2 mod 5", "sin(x) = 0.5", "x^2 + y^2 = 25", "factor x^2 + 1", "factor x^2 - 5x + 6", "solve x^2 = 4", "interpolate (1, 2), (2, 3), (4, 7)",
   "derivative of x^3", "limit of sin(x)/x as x -> 0", "F = ma", "V = IR", "PV = nRT", "a + b = c", "(1, 2), (3, 4)", "x = 2 mod",
   "1 0\n0 1", "1 2\n2 1", "0 1 2\n1 2 0\n2 0 1", "(12)", "(1, 2) (2, 3) (4, 7)", "[0, 1]", "klein",
+  // v2.136.0 (SCOPE-SYMBOLIC-BATCH §C): the symbolic batch's inputs stay in the Equation kind.
+  "x^3 = 2", "factor x^3 - 2", "simplify (x^2-y^2)/(x-y)", "find the roots of x^3 - 7x + 6", "x^3 - 2 = 0 exactly",
+  "taylor 1/(1-x)", "radius of convergence of 1/(1-x)", "interval of convergence of sum x^n/n^2", "x^4 + 4x - 1 = 0",
 ];
 
 describe("switches", () => {

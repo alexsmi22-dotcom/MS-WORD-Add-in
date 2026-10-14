@@ -252,10 +252,366 @@ function stationary(c: Chain, states: number[]): Rat[] | null {
 }
 
 // ---------------------------------------------------------------------------
+// Hitting probabilities and expected first-passage times (v2.136.0)
+// ---------------------------------------------------------------------------
+
+/** The unique solution of A·x = b over ℚ by rref; null when A is singular. */
+function solveSquare(A: Rat[][], b: Rat[]): Rat[] | null {
+  const m = A.length;
+  if (!m) return [];
+  const r = rref(A.map((row, i) => [...row, b[i]]));
+  if (r.pivots.length !== m || r.pivots.some((p, i) => p !== i)) return null;
+  return r.rows.slice(0, m).map((row) => row[m]);
+}
+
+/** States from which `target` can be reached by a path that never passes through `stop` before it (target states count as reached). */
+function canReach(c: Chain, target: number[], stop: number[]): boolean[] {
+  const ok = c.names.map((_, i) => target.includes(i));
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (let i = 0; i < c.n; i++) {
+      if (ok[i] || stop.includes(i)) continue;
+      if (c.P[i].some((v, k) => !ratIsZero(v) && ok[k])) {
+        ok[i] = true;
+        changed = true;
+      }
+    }
+  }
+  return ok;
+}
+
+/**
+ * a_i = P(the chain enters `target` before `avoid` | X_0 = i), counting time
+ * 0 (a start in the target is 1, in `avoid` is 0). Target ∪ avoid are made
+ * absorbing; states that cannot reach the target get 0 FIRST, so the system
+ * left over is nonsingular (every remaining state can leave it). Exact over ℚ,
+ * re-substituted into a_i = Σ_k P_ik a_k; null when that check fails.
+ */
+function hittingProbabilities(c: Chain, target: number[], avoid: number[]): Rat[] | null {
+  const reach = canReach(c, target, avoid);
+  const free = c.names.map((_, i) => i).filter((i) => !target.includes(i) && !avoid.includes(i) && reach[i]);
+  const A = free.map((i) => free.map((j) => ratSub(i === j ? RAT_ONE : RAT_ZERO, c.P[i][j])));
+  const b = free.map((i) => target.reduce((s, k) => ratAdd(s, c.P[i][k]), RAT_ZERO));
+  const sol = solveSquare(A, b);
+  if (!sol) return null;
+  const a = c.names.map((_, i) => (target.includes(i) ? RAT_ONE : RAT_ZERO));
+  free.forEach((i, k) => (a[i] = sol[k]));
+  for (let i = 0; i < c.n; i++) {
+    if (target.includes(i) || avoid.includes(i)) continue;
+    let s = RAT_ZERO;
+    for (let k = 0; k < c.n; k++) if (!ratIsZero(c.P[i][k])) s = ratAdd(s, ratMul(c.P[i][k], a[k]));
+    if (!ratEq(s, a[i])) return null;
+  }
+  return a;
+}
+
+/**
+ * h_i = E[steps until the chain first enters `target` | X_0 = i] (0 on the
+ * target). Finite EXACTLY when the hitting probability is 1 (a finite chain);
+ * otherwise null = ∞. Solved over the states with probability 1 only, so the
+ * system is nonsingular by construction; every h_i is re-substituted into
+ * h_i = 1 + Σ_k P_ik h_k exactly. Returns undefined when a check fails.
+ */
+function hittingTimes(c: Chain, target: number[], prob: Rat[]): (Rat | null)[] | undefined {
+  const F = c.names.map((_, i) => i).filter((i) => !target.includes(i) && ratEq(prob[i], RAT_ONE));
+  for (const i of F) for (let k = 0; k < c.n; k++) if (!ratIsZero(c.P[i][k]) && !target.includes(k) && !F.includes(k)) return undefined;
+  const A = F.map((i) => F.map((j) => ratSub(i === j ? RAT_ONE : RAT_ZERO, c.P[i][j])));
+  const sol = solveSquare(A, F.map(() => RAT_ONE));
+  if (!sol) return undefined;
+  const h: (Rat | null)[] = c.names.map((_, i) => (target.includes(i) ? RAT_ZERO : null));
+  F.forEach((i, k) => (h[i] = sol[k]));
+  for (const i of F) {
+    let s = RAT_ONE;
+    for (let k = 0; k < c.n; k++) if (!ratIsZero(c.P[i][k])) s = ratAdd(s, ratMul(c.P[i][k], h[k]!));
+    if (!ratEq(s, h[i]!)) return undefined;
+  }
+  return h;
+}
+
+/** m_jj = 1 + Σ_k P_jk·h_k(→ j): the expected return time by the first-step equation; null = ∞. */
+function returnTime(c: Chain, j: number, hToJ: (Rat | null)[]): Rat | null {
+  let s = RAT_ONE;
+  for (let k = 0; k < c.n; k++) {
+    if (ratIsZero(c.P[j][k])) continue;
+    const hk = hToJ[k];
+    if (hk === null) return null;
+    s = ratAdd(s, ratMul(c.P[j][k], hk));
+  }
+  return s;
+}
+
+const STATE_TOK = "[A-Za-z][\\w']*|\\d+";
+const STATE_LIST = `(?:state\\s+)?(?:${STATE_TOK})(?:\\s*(?:,|\\bor\\b|\\band\\b)\\s*(?:state\\s+)?(?:${STATE_TOK}))*`;
+
+/** A state by name (exact, then case-insensitive), by S<k>, or by 1-based index; -1 when none. */
+function stateIndex(c: Chain, tok: string): number {
+  const t = tok.trim();
+  let i = c.names.indexOf(t);
+  if (i >= 0) return i;
+  i = c.names.findIndex((nm) => nm.toLowerCase() === t.toLowerCase());
+  if (i >= 0) return i;
+  const sm = /^s(\d+)$/i.exec(t);
+  const k = sm ? Number(sm[1]) : /^\d+$/.test(t) ? Number(t) : NaN;
+  return Number.isInteger(k) && k >= 1 && k <= c.n ? k - 1 : -1;
+}
+function stateList(c: Chain, s: string): number[] | null {
+  const toks = s
+    .replace(/\bstate\s+/gi, "")
+    .split(/\s*(?:,|\bor\b|\band\b)\s*/i)
+    .filter(Boolean);
+  const out: number[] = [];
+  for (const t of toks) {
+    const i = stateIndex(c, t);
+    if (i < 0) return null;
+    if (!out.includes(i)) out.push(i);
+  }
+  return out.length ? out : null;
+}
+
+const HIT_TIME_RE = /\b(?:hitting|first[- ]passage|passage|arrival)\s+times?\b|\bfirst[- ]passage\b|\b(?:expected|mean|average)\s+(?:number\s+of\s+)?(?:steps|time|transitions|moves)\b|\bhow\s+(?:many\s+steps|long)\b/i;
+const RETURN_RE = /\breturn\s+times?\b/i;
+const HIT_PROB_RE = /\bhitting\s+probabilit(?:y|ies)\b|\b(?:probability|chance)\s+(?:of\s+|that\s+(?:the\s+chain\s+|it\s+)?)?(?:ever\s+)?(?:reaching|hitting|visiting|getting\s+to|reaches|hits|visits|gets\s+to)\b/i;
+
+/** The hitting / first-passage / return-time questions; null when the text asks none of them. */
+function hittingVerb(c: Chain, S: Structure, text: string, head: VerbResult["lines"], title: string): VerbResult | null {
+  const startM = new RegExp(`\\b(?:from|start(?:ing|s)?\\s+(?:at|in|from))\\s+(?:state\\s+)?(${STATE_TOK})`, "i").exec(text);
+  const start = startM ? stateIndex(c, startM[1]) : -1;
+  const noState = (tok: string): string => `The chain has states ${c.names.join(", ")} — there is no state ${tok.replace(/^state\s+/i, "")} (states are named, or numbered 1..${c.n}).`;
+  if (startM && start < 0 && /^\d+$|^S\d+$/i.test(startM[1])) return refuse(title, `"${startM[1]}" is not a state. ${noState(startM[1])}`);
+  const lines: VerbResult["lines"] = [...head];
+  const caveats: string[] = [];
+  const nm = (i: number): string => c.names[i];
+  const set = (ix: number[]): string => ix.map(nm).join(", ");
+  const val = (r: Rat | null): string => (r === null ? "∞" : fmtWithDec(r));
+  const short = (r: Rat | null): string => (r === null ? "∞" : fmt(r));
+  const classOf = (i: number): number => S.comps.findIndex((comp) => comp.includes(i));
+  /** Why h_i = ∞ (target never reached, or reached with probability < 1). */
+  const whyInfinite = (i: number, target: number[], a: Rat[]): string => {
+    const tName = target.length === 1 ? nm(target[0]) : `{${set(target)}}`;
+    if (ratIsZero(a[i])) {
+      const k = classOf(i);
+      if (S.closed[k]) return `∞ — ${tName} cannot be reached from ${nm(i)} (${nm(i)}'s class {${set(S.comps[k])}} is closed)`;
+      const reachable = c.names.map((_, j) => j).filter((j) => S.reach[i][j]);
+      return `∞ — ${tName} cannot be reached from ${nm(i)} (from ${nm(i)} the chain only ever visits {${set(reachable)}})`;
+    }
+    const traps = S.comps.map((comp, k) => (S.closed[k] && !comp.some((j) => target.includes(j)) && comp.some((j) => S.reach[i][j]) ? `{${set(comp)}}` : "")).filter(Boolean);
+    return `∞ — from ${nm(i)} the chain reaches ${tName} only with probability ${fmtWithDec(a[i])}${traps.length ? ` (otherwise it is trapped in ${traps.join(" or ")})` : ""}, so the expected time to reach it is infinite`;
+  };
+
+  // A finite horizon ("within 3 steps", "by step 4", "in exactly 2 steps")
+  // changes the question: never answer it with the unbounded value.
+  const hzA = /\b(?:within|in\s+at\s+most|at\s+most|in\s+(?:the\s+first\s+)?|in\s+exactly|at\s+exactly|exactly)\s+(\d+)\s+(?:steps?|transitions?|moves?)\b/i.exec(text);
+  const hzB = hzA ? null : /\b(within|by\s+(?:step|time)|before\s+(?:step|time)|no\s+later\s+than\s+(?:step|time)|at\s+(?:step|time))\s+(\d+)\b/i.exec(text);
+  let horizon: { k: number; exactly: boolean } | null = null;
+  if (hzA) horizon = { k: Number(hzA[1]), exactly: /exactly/i.test(hzA[0]) };
+  else if (hzB) {
+    const kw = hzB[1].toLowerCase();
+    const k0 = Number(hzB[2]);
+    horizon = kw.startsWith("before") ? { k: Math.max(0, k0 - 1), exactly: false } : kw.startsWith("at") ? { k: k0, exactly: true } : { k: k0, exactly: false };
+  }
+
+  // --- hitting probability: "probability of reaching 3 before 1 starting from 2" ---
+  if (HIT_PROB_RE.test(text) && !HIT_TIME_RE.test(text.replace(HIT_PROB_RE, " "))) {
+    // The first phrase whose state list resolves ("hitting probability of C": "hitting" is not followed by a state, "of C" is).
+    const pmRe = new RegExp(`(?:reaching|hitting|visiting|getting\\s+to|reaches|hits|visits|gets\\s+to|probabilit(?:y|ies)\\s+of)\\s+(${STATE_LIST})(?:\\s+(?:first\\s+)?before\\s+(?!(?:step|time)\\s+\\d)(${STATE_LIST}))?`, "gi");
+    let pm: RegExpExecArray | null = null;
+    let target: number[] | null = null;
+    for (let m = pmRe.exec(text); m; m = pmRe.exec(text)) {
+      const t = stateList(c, m[1]);
+      if (t) {
+        pm = m;
+        target = t;
+        break;
+      }
+      pmRe.lastIndex = m.index + 1;
+    }
+    const missingP = /(?:reaching|hitting|visiting|getting\s+to|reaches|hits|visits|gets\s+to|of)\s+(?:state\s+)?(S?\d+)\b/i.exec(text);
+    if ((!pm || !target) && missingP && stateIndex(c, missingP[1]) < 0) return refuse(title, noState(missingP[1]));
+    if (!pm || !target) return refuse(title, `Name the target state: "probability of reaching S3 before S1 starting from S2" or "hitting probability of S3 from S1" (states: ${c.names.join(", ")}, or 1..${c.n}).`);
+    const avoid = pm[2] ? stateList(c, pm[2].replace(/\s+(?:from|start\w*)\b.*$/i, "")) : [];
+    if (!avoid) return refuse(title, `"${pm[2]}" is not a list of states (${c.names.join(", ")}).`);
+    const both = target.filter((i) => avoid.includes(i));
+    if (both.length) return refuse(title, `${set(both)} is both the target and a state to avoid — the question has no meaning.`);
+    if (horizon) {
+      // A FINITE horizon is a different question from "ever": target ∪ avoid made absorbing, then the exact k-step power.
+      const { k, exactly } = horizon;
+      const cap = c.n <= 6 ? MAX_STEPS : 50;
+      if (k > cap) return refuse(title, `A horizon of ${k} steps: up to ${cap} here for the exact power with ${c.n} states (drop the horizon for the probability of EVER reaching it).`);
+      if (start < 0) return refuse(title, `Name the starting state for a ${k}-step question: "probability of reaching ${nm(target[0])} within ${k} steps starting from ${nm(target[0] === 0 ? 1 : 0)}".`);
+      const Pa = c.P.map((row, i) => (target.includes(i) || avoid.includes(i) ? row.map((_, j) => (i === j ? RAT_ONE : RAT_ZERO)) : row));
+      const e0 = c.names.map((_, j) => (j === start ? RAT_ONE : RAT_ZERO));
+      const within = (steps: number): Rat | null => {
+        const v = rowVecMul(e0, matPow(Pa, steps));
+        let w = e0;
+        for (let s = 0; s < steps; s++) w = rowVecMul(w, Pa);
+        if (!w.every((x, i) => ratEq(x, v[i]))) return null;
+        return target.reduce((s, j) => ratAdd(s, v[j]), RAT_ZERO);
+      };
+      const hk = within(k);
+      const hk1 = exactly ? within(Math.max(0, k - 1)) : RAT_ZERO;
+      if (!hk || !hk1) return refuse(title, "Cross-check FAILED: the exact matrix power disagreed with step-by-step multiplication — withheld.");
+      const val2 = exactly ? (k === 0 ? hk : ratSub(hk, hk1)) : hk;
+      const tN = target.length === 1 ? nm(target[0]) : `{${set(target)}}`;
+      const avN = avoid.length ? ` before ${avoid.length === 1 ? nm(avoid[0]) : `{${set(avoid)}}`}` : "";
+      lines.push(line(`${tN}${avoid.length ? ` and ${avoid.map(nm).join(", ")}` : ""} made absorbing; P′ is P with ${target.length + avoid.length === 1 ? "that row" : "those rows"} replaced by the identity, so row ${nm(start)} of P′^k gives where the chain is after k steps with the target held once reached.`));
+      lines.push(line(exactly ? `P(first reach ${tN}${avN} at step exactly ${k} | X_0 = ${nm(start)}) = P(within ${k}) − P(within ${k - 1}) = ${fmtWithDec(val2)}` : `P(reach ${tN}${avN} within ${k} step${k === 1 ? "" : "s"} | X_0 = ${nm(start)}) = ${fmtWithDec(val2)}`));
+      lines.push(line(fmt(val2), true));
+      caveats.push(`A finite horizon: this is NOT the probability of ever reaching ${tN} (ask without "within ${k} steps" for that). Verified: the exact power P′^${k} agrees with ${k} successive multiplications.`);
+      return { title, lines, caveats, svg: diagramSvg(c, `P(reach ${tN} within ${k} steps) — target ringed`, target), alt: `State diagram; the target ${tN} is ringed.` };
+    }
+    const a = hittingProbabilities(c, target, avoid);
+    if (!a) return refuse(title, "Cross-check FAILED: the hitting probabilities did not satisfy a_i = Σ_k P_ik a_k exactly — withheld.");
+    const tName = target.length === 1 ? nm(target[0]) : `{${set(target)}}`;
+    const aName = avoid.length === 1 ? nm(avoid[0]) : `{${set(avoid)}}`;
+    const ask = avoid.length ? `reach ${tName} before ${aName}` : `ever reach ${tName}`;
+    lines.push(line(`Hitting probabilities: ${tName}${avoid.length ? ` and ${aName}` : ""} made absorbing; a_i = P(${ask} | start in i) solves a_i = Σ_k P_ik a_k with a = 1 on ${tName}${avoid.length ? `, a = 0 on ${aName}` : ""}, and a = 0 where ${tName} cannot be reached${avoid.length ? ` without passing ${aName}` : ""}.`));
+    if (start >= 0) {
+      const note = target.includes(start) ? ` (the start is already in ${tName}: time 0 counts)` : avoid.includes(start) ? ` (the start is in ${aName}, so it is "reached" first)` : "";
+      lines.push(line(`P(${ask} | X_0 = ${nm(start)}) = ${fmtWithDec(a[start])}${note}`));
+      lines.push(line(fmt(a[start]), true));
+    } else {
+      caveats.push(`No starting state given: the probability is listed from every state (say "starting from ${nm(0)}").`);
+    }
+    lines.push(line(`From each state (${c.names.join(", ")}): ${vecText(a)}`));
+    if (start < 0) a.forEach((x) => lines.push(line(fmt(x), true)));
+    if (!allShort(a)) caveats.push(LONG_NOTE);
+    caveats.push("Verified: every a_i re-substituted into a_i = Σ_k P_ik a_k exactly (rational arithmetic, nothing rounded).");
+    return { title, lines, caveats, svg: diagramSvg(c, `P(${ask}) — target ringed`, target), alt: `State diagram; the target ${tName} is ringed.` };
+  }
+
+  // --- expected first-passage / hitting times, return times ---
+  const tgtRe = new RegExp(`\\b(?:to\\s+(?:reach|hit|get\\s+to|enter)|until\\s+(?:it\\s+)?(?:reaches|hits|enters)|reach(?:es|ing)?|hit(?:s|ting)?|enter(?:s|ing)?|to)\\s+(?:state\\s+)?(${STATE_TOK})`, "gi");
+  let target = -1;
+  let missingTarget: string | null = null;
+  for (let m = tgtRe.exec(text); m; m = tgtRe.exec(text)) {
+    const i = stateIndex(c, m[1]);
+    if (i >= 0 && !/^(?:time|times|probability)$/i.test(m[1])) {
+      target = i;
+      break;
+    }
+    if (i < 0 && missingTarget === null && /^\d+$|^S\d+$/i.test(m[1])) missingTarget = m[1];
+  }
+  const timeAsked = HIT_TIME_RE.test(text);
+  // A numbered target that does not exist is refused BY NAME — never the M matrix (review, v2.136.0).
+  if (target < 0 && missingTarget !== null && (timeAsked || RETURN_RE.test(text))) return refuse(title, noState(missingTarget));
+  const passageWords = /\b(?:hitting|first[- ]passage|passage)\s+times?\b|\bfirst[- ]passage\b/i.test(text);
+  const returnAsked = RETURN_RE.test(text);
+  if (returnAsked) {
+    // "return time to S1" on an irreducible chain keeps its v2.131 answer (1/π) in the stationary block.
+    const rt = /return\s+times?\s+(?:to|of)\s+(?:state\s+)?(\w+)/i.exec(text);
+    if (rt && S.irreducible) return null;
+  }
+  if (!(timeAsked && (target >= 0 || passageWords)) && !returnAsked) return null;
+  if (horizon) return refuse(title, `An expected hitting or return time has no horizon — "within ${horizon.k} steps" belongs to a probability: ask "probability of reaching ${target >= 0 ? nm(target) : nm(0)} within ${horizon.k} steps starting from …", or drop the horizon for the expected time.`);
+
+  // h(→ j) for every target the question needs (all of them for the matrix)
+  const hTo = new Map<number, { a: Rat[]; h: (Rat | null)[] }>();
+  const need = (j: number): { a: Rat[]; h: (Rat | null)[] } | null => {
+    if (hTo.has(j)) return hTo.get(j)!;
+    const a = hittingProbabilities(c, [j], []);
+    if (!a) return null;
+    const h = hittingTimes(c, [j], a);
+    if (!h) return null;
+    hTo.set(j, { a, h });
+    return hTo.get(j)!;
+  };
+  const failed = (): VerbResult => refuse(title, "Cross-check FAILED: a first-passage time did not satisfy h_i = 1 + Σ_k P_ik h_k exactly — withheld.");
+  const kac = (): string | null => {
+    // Kac: on each closed class, m_jj = 1/π_j (π the class's stationary distribution); transient states never certainly return (m_jj = ∞).
+    for (let k = 0; k < S.comps.length; k++) {
+      const comp = S.comps[k];
+      if (!S.closed[k]) {
+        for (const j of comp) {
+          const r = need(j);
+          if (!r) return "first-step";
+          if (returnTime(c, j, r.h) !== null) return `the transient state ${nm(j)} got a finite return time`;
+        }
+        continue;
+      }
+      const pi = stationary(c, comp);
+      if (!pi) return "stationary";
+      for (const j of comp) {
+        const r = need(j);
+        if (!r) return "first-step";
+        const m = returnTime(c, j, r.h);
+        if (m === null || !ratEq(m, ratDiv(RAT_ONE, pi[comp.indexOf(j)]))) return `m_${nm(j)}${nm(j)} ≠ 1/π_${nm(j)}`;
+      }
+    }
+    return null;
+  };
+
+  // "from i to i" is the return time
+  const fromTo = start >= 0 && target >= 0 && start === target;
+  if (returnAsked || fromTo) {
+    const rt = /return\s+times?\s+(?:to|of)\s+(?:state\s+)?(\w+)/i.exec(text);
+    let only = fromTo ? start : -1;
+    if (rt) {
+      only = stateIndex(c, rt[1]);
+      if (only < 0) return refuse(title, `"${rt[1]}" is not a state (${c.names.join(", ")}).`);
+    }
+    const states = only >= 0 ? [only] : c.names.map((_, i) => i);
+    const ms: (Rat | null)[] = [];
+    for (const j of states) {
+      const r = need(j);
+      if (!r) return failed();
+      ms.push(returnTime(c, j, r.h));
+    }
+    const bad = kac();
+    if (bad) return refuse(title, `Cross-check FAILED (Kac's theorem: ${bad}) — withheld.`);
+    if (fromTo) lines.push(line(`From ${nm(start)} to ${nm(start)} is the RETURN time: the first time the chain is back in ${nm(start)} after leaving it (at least one step).`));
+    lines.push(line("Expected return time m_jj = 1 + Σ_k P_jk·h_k(→ j), from the first-step equations (h_k(→ j) = expected steps from k to reach j)."));
+    states.forEach((j, t) => {
+      const m = ms[t];
+      const k = classOf(j);
+      const why = m === null ? ` — ${nm(j)} is transient (its class {${set(S.comps[k])}} is not closed), so the chain may never come back` : "";
+      lines.push(line(`Expected return time to ${nm(j)} = ${val(m)}${m !== null ? (ratEq(m, RAT_ONE) ? " step" : " steps") : ""}${why}`));
+      if (m !== null) lines.push(line(fmt(m), true));
+    });
+    caveats.push("Verified: Kac's theorem — on every closed class each return time equals 1/π_j exactly (π the class's stationary distribution), and every transient state's return time is ∞; every h re-substituted into h_i = 1 + Σ_k P_ik h_k exactly.");
+    return { title, lines, caveats, svg: diagramSvg(c, `Markov chain: expected return times`, only >= 0 ? [only] : []), alt: "State diagram of the chain." };
+  }
+
+  if (target >= 0) {
+    const r = need(target);
+    if (!r) return failed();
+    lines.push(line(`Expected hitting (first-passage) time to ${nm(target)}: ${nm(target)} made absorbing; h_i = expected steps until the chain first enters ${nm(target)}, solving h_i = 1 + Σ_k P_ik h_k (i ≠ ${nm(target)}), h_${nm(target)} = 0, exactly over ℚ.`));
+    if (start >= 0) {
+      const h = r.h[start];
+      lines.push(line(`Expected steps from ${nm(start)} to ${nm(target)}: ${h === null ? whyInfinite(start, [target], r.a) : val(h)}`));
+      if (h !== null) lines.push(line(fmt(h), true));
+    } else {
+      caveats.push(`No starting state given: the expected time is listed from every state (say "from ${nm(target === 0 ? 1 : 0)} to ${nm(target)}").`);
+    }
+    lines.push(line(`From each state (${c.names.join(", ")}): (${r.h.map(short).join(", ")})`));
+    if (start < 0) r.h.forEach((h, i) => (h === null ? lines.push(line(`${nm(i)}: ${whyInfinite(i, [target], r.a)}`)) : lines.push(line(fmt(h), true))));
+    if (!r.h.every((h) => h === null || fmtRat(h).length <= 24)) caveats.push(LONG_NOTE);
+    caveats.push(`Verified: every finite h_i re-substituted into h_i = 1 + Σ_k P_ik h_k exactly; h_i = ∞ exactly where the probability of ever reaching ${nm(target)} (solved first, exactly) is below 1.`);
+    return { title, lines, caveats, svg: diagramSvg(c, `Expected time to reach ${nm(target)} — target ringed`, [target]), alt: `State diagram; the target ${nm(target)} is ringed.` };
+  }
+
+  // "mean first passage time" with no target: the whole matrix M (row = from, column = to); its diagonal is the return times.
+  const M: (Rat | null)[][] = c.names.map(() => c.names.map(() => null));
+  for (let j = 0; j < c.n; j++) {
+    const r = need(j);
+    if (!r) return failed();
+    for (let i = 0; i < c.n; i++) M[i][j] = i === j ? returnTime(c, j, r.h) : r.h[i];
+  }
+  const bad = kac();
+  if (bad) return refuse(title, `Cross-check FAILED (Kac's theorem: ${bad}) — withheld.`);
+  const rows = start >= 0 ? [start] : c.names.map((_, i) => i);
+  lines.push(line(`Mean first-passage times M_ij = expected steps from i to first reach j (row = from, column = to); the diagonal M_jj is the expected RETURN time.`));
+  lines.push(line(`M = [${rows.map((i) => `[${M[i].map(short).join(", ")}]`).join(", ")}]${start >= 0 ? `   (row ${nm(start)}; columns ${c.names.join(", ")})` : `   (rows and columns ${c.names.join(", ")})`}`));
+  if (M.some((row) => row.some((v) => v === null))) lines.push(line("∞ marks a target that is reached with probability below 1 (or never) from that start."));
+  caveats.push("Verified: Kac's theorem — on every closed class M_jj = 1/π_j exactly; every column re-substituted into h_i = 1 + Σ_k P_ik h_k exactly.");
+  return { title, lines, caveats, svg: diagramSvg(c, `Markov chain: mean first-passage times`), alt: "State diagram of the chain." };
+}
+
+// ---------------------------------------------------------------------------
 // Figures
 // ---------------------------------------------------------------------------
 
-function diagramSvg(c: Chain, caption: string): string {
+function diagramSvg(c: Chain, caption: string, ring: number[] = []): string {
   const edges: string[] = [];
   // parseGraph reads decimal weights only; the exact fraction goes on the label.
   for (let i = 0; i < c.n; i++) for (let j = 0; j < c.n; j++) if (!ratIsZero(c.P[i][j])) edges.push(`${c.names[i]}->${c.names[j]} ${sig6(ratToNumber(c.P[i][j]))}`);
@@ -269,8 +625,15 @@ function diagramSvg(c: Chain, caption: string): string {
     const p = c.P[i][j];
     labels.set(e.id, fmtRat(p).length <= 6 ? fmtRat(p) : sig6(ratToNumber(p)));
   }
+  // The target of a hitting question is ringed. graphSvg's vertex indices
+  // follow g.names (its own order), NOT state order — map by name.
+  const highlightVerts = new Set<number>();
+  for (const i of ring) {
+    const v = g.names.indexOf(c.names[i]);
+    if (v >= 0) highlightVerts.add(v);
+  }
   // Self-loop labels sit outside the ring of states: give the canvas room.
-  return graphSvg(g, { caption, edgeLabels: labels }, 520, 400);
+  return graphSvg(g, highlightVerts.size ? { caption, edgeLabels: labels, highlightVerts } : { caption, edgeLabels: labels }, 520, 400);
 }
 
 function stationaryBarsSvg(c: Chain, pi: Rat[], title: string): string {
@@ -295,8 +658,10 @@ export function tryMarkov(input: string): VerbResult | null {
   if (!/\[\[|;|\d\s+\d/.test(text) && !/\bmarkov\b/i.test(text)) return null;
   // Questions this verb does not answer are refused BY NAME, not answered
   // with the stationary distribution.
-  if (/first passage|hitting time|P\s*\(\s*X_|commute time|mixing time|entropy rate|continuous[- ]time|generator/i.test(text)) {
-    return refuse(title, "Not answered here: first-passage / hitting times, P(X_n = j | X_0 = i) for specific n and states, mixing times and continuous-time chains are outside this verb. It gives the stationary distribution, classification, the distribution after k steps (\"after 3 steps from (1, 0)\" — the j-th entry IS P(X_k = j | X_0)), and absorbing-chain expected steps and probabilities.");
+  // (Hitting / first-passage times and hitting probabilities are answered
+  // since v2.136.0 — see hittingVerb.)
+  if (/P\s*\(\s*X_|commute time|mixing time|entropy rate|continuous[- ]time|generator/i.test(text)) {
+    return refuse(title, "Not answered here: P(X_n = j | X_0 = i) for specific n and states, commute times, mixing times, entropy rates and continuous-time chains are outside this verb. It gives the stationary distribution, classification, the distribution after k steps (\"after 3 steps from (1, 0)\" — the j-th entry IS P(X_k = j | X_0)), absorbing-chain expected steps and probabilities, hitting probabilities (\"probability of reaching S3 before S1 starting from S2\"), expected first-passage times (\"expected steps from S1 to S3\", \"mean first passage time\") and expected return times.");
   }
   const chain = readChain(text, title);
   if ("lines" in chain) return chain;
@@ -313,6 +678,13 @@ export function tryMarkov(input: string): VerbResult | null {
   if (S.irreducible) lines.push(line(`Irreducible (every state reaches every other); period ${S.period}${S.period === 1 ? " — aperiodic" : ""}.`));
   else lines.push(line(`Reducible: communicating classes ${classText}.`));
   if (S.absorbing.length) lines.push(line(`Absorbing state${S.absorbing.length > 1 ? "s" : ""}: ${S.absorbing.map((i) => c.names[i]).join(", ")}.`));
+
+  // --- hitting probabilities / first-passage / return times (BEFORE the
+  // n-step and absorbing blocks: "expected steps from 1 to 3" is not an
+  // absorption question, and "probability of reaching 3 before 1" is not the
+  // stationary distribution) ---
+  const hit = hittingVerb(c, S, text, lines, title);
+  if (hit) return hit;
 
   // --- n-step ---
   const WORDS: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 };

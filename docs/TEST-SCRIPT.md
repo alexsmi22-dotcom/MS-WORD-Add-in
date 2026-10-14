@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.135.0)
+# JurisLab — Manual Test Script (v2.136.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -7,6 +7,86 @@ covers what neither can reach: insertion into a real document, undo, document
 scanning, and layout. Budget ~30 minutes for the full pass.
 
 Mark each box: ☐ pass · ✗ fail (note what happened).
+
+---
+
+## 0cc. New in v2.136.0 — Exact cubic and quartic roots, multivariate simplification, radius of convergence, and leftovers
+
+Solve mode, default **Equation** kind unless stated. Every exact root shows `≈` 12 digits beside it in
+the steps and a certificate caveat (`Exact: certified by …; the displayed form re-parses and agrees with
+the numerical root to 1e-9.`). The palette has three new **Algebra** templates (Cubic, exact · Cube
+root · Quartic), a new **Exact roots & simplify** group, two new **Probability** snippets and, in the
+Derivative kind, **radius** and **interval** under Limits & series.
+
+- [ ] ★ **`x^3 = 2`** → method `exact (binomial x^n = c)`; `x = cbrt(2)` drawn as a real **cube-root
+  sign** (∛2) in the pane AND after **Insert**; the pair `x = -1/2*cbrt(2) ± sqrt(3)/2*cbrt(2)*i` stays
+  text. The steps include `x = cbrt(2) ≈ 1.25992104989`.
+- [ ] ★ **`x^3 - 3x + 1 = 0`** → `exact (cubic — trigonometric form, three real roots)`: `x =
+  2*cos(2*pi/9)`, `2*cos(4*pi/9)`, `2*cos(8*pi/9)` — each **typeset** (the `i` in `pi` no longer turns
+  them into plain text), and the step `Cardano would take cube roots of complex numbers here (casus
+  irreducibilis); the trigonometric form gives the same roots as real numbers: cos θ = −1/2, θ = 2π/3.`
+- [ ] **`x^3 - 2x - 5 = 0`** → real root `cbrt(5/2 + sqrt(1929)/18) + cbrt(5/2 - sqrt(1929)/18)` (two
+  stacked cube roots when inserted), and the complex pair EXACT as ω·u + ω̄·v: `(-1/2 - sqrt(3)/2*i)*cbrt(5/2
+  + sqrt(1929)/18) + (-1/2 + sqrt(3)/2*i)*cbrt(5/2 - sqrt(1929)/18) ≈ -1.04727574077 - 1.13593988909i` and its
+  conjugate (text, not typeset). Method `exact (cubic — Cardano, one real root)`. **`x^10 - 1 = 0`** → 10 exact
+  roots, e.g. `1/4 + sqrt(5)/4 + sqrt(5/8 - sqrt(5)/8)*i`.
+- [ ] **`x^4 - 10x^2 + 1 = 0`** → `sqrt(3) + sqrt(2)`, `sqrt(3) - sqrt(2)`, `-sqrt(3) + sqrt(2)`,
+  `-sqrt(3) - sqrt(2)` (denested), method `exact (quartic — biquadratic)`. **`x^4 + 4x - 1 = 0`** →
+  `exact (quartic — Ferrari)`, real roots `-sqrt(2)/2 ± sqrt(sqrt(2) - 1/2)`. **`x^4 + x + 1 = 0`** →
+  numeric, with `a closed form exists (Ferrari) but needs the cube root of a complex number from its
+  resolvent cubic and runs to hundreds of characters.`
+- [ ] ★ **`(x-1)^4 = 0`** → exactly one line `x = 1 (×4)` — no complex near-1 values. **`x^3 + 3x^2 - 4 =
+  0`** → `1`, `-2 (×2)`, and the work `Every root is rational, so the polynomial factors completely (a
+  repeated root appears as a power):` then **(x − 1)(x + 2)² = 0**.
+- [ ] **`x^5 - x - 1 = 0`** → five numeric roots and `Degree 5: no general formula in radicals exists
+  (Abel–Ruffini); this quintic was not tested for solvability by radicals, so its roots are numerical.`
+- [ ] ★ **Task words:** `solve x^2 - 5x + 6 = 0` → the note `Read the equation out of the sentence: x^2 -
+  5x + 6 = 0` then 3, 2 (no "more than one unknown (solve, x)"); `find the roots of x^3 - 7x + 6` → `Read
+  the equation out of the sentence: x^3 - 7x + 6 = 0`, roots 2, 1, −3 with the factoring work and the
+  curve; `exact roots of x^3 - 3x + 1` and `x^3 - 2 = 0 exactly` likewise. **Twins:** `solve = 5` →
+  solve = 5 and `roots = 3` → roots = 3 (variables named solve and roots).
+- [ ] ★ **`simplify (x^2 - y^2)/(x - y)`** → `x + y` and `Cancelled the common factor x - y; equal to the
+  original except where x - y = 0 (there the original is 0/0).`; `simplify (a^3 - b^3)/(a - b)` → `a*b +
+  a^2 + b^2`; `simplify (sin(x)^2 - cos(x)^2)/(sin(x) - cos(x))` → `cos(x) + sin(x)`; `simplify x/y` →
+  `x/y` with **no** "Cancelling a factor can remove points" caveat; `simplify (x^13 - y^13)/(x - y)` →
+  unchanged, caveat `… a common factor may remain: degree cap (above 12 in one symbol)`.
+- [ ] **`simplify cbrt(2)^3 - 2`** and **`simplify (sqrt(2)+sqrt(3))^4 - 10*(sqrt(2)+sqrt(3))^2 + 1`** →
+  `0` (was `1.67785700837e-16`). Derivative kind, `(x^2 - y^2)/(x - y)` → `f'(x) = 1`.
+- [ ] ★ **`taylor 1/(1+x^2)`** typed in the Equation kind → switches with `The question asks for a SERIES or
+  its RADIUS OF CONVERGENCE — switched to the Derivative kind (which owns series) and answered.`; the
+  steps include `R = 1 — the nearest singularity of 1/(1 + x^2) to x = 0 is the pole at x = ±i (distance
+  1); …` and the **disc of convergence** is drawn (poles marked ✕ at ±i, the real interval in green).
+- [ ] ★ **`radius of convergence of 1/(x^2 + 4) about 1`** → `R = sqrt(5)`, `1/(x^2 + 4) is smooth on the
+  whole real line; the radius is set by complex poles.`, the disc drawn. **`interval of convergence of
+  sum (x-3)^n/(n*2^n)`** → `Interval of convergence: [1, 5)`, `At x = 1: converges conditionally —
+  alternating series test …`, `At x = 5: diverges — … (the harmonic series)`; the filled/hollow end dots
+  match. Paste `radius of convergence ∑ x^n/n` (U+2211) → `R = 1`, `[-1, 1)`, and **no** "Σ-sum notation"
+  note above the input.
+- [ ] **Refusals:** `taylor abs(x)` → `Couldn't expand abs(x) as a Taylor series about x = 0: abs(…) is not
+  analytic — it has no complex-analytic extension, so no power series represents it.`; `radius of
+  convergence gamma(x)` → `gamma(…) is outside the singularity table …` and `R not determined — reading
+  it from the computed coefficients would be sampling, not a theorem.`
+- [ ] **Integral kind, both limits blank:** `1/sqrt(4-x^2)` → `asin(x/2) + C` with the caveat `Valid where
+  the square root is real: |x| < 2.`; `1/sqrt(1-100x^2)` → `asin(10*x)/10` (was refused);
+  `-1/sqrt(1-x^2)` → `-asin(x)` and the acos note. **`1/sqrt(1-x^2)` from −1 to 1** → π with `Improper at
+  both endpoints (x = -1 and 1): the integrand is unbounded there, but the antiderivative asin(x) is
+  continuous up to both endpoints, so the integral converges to the value shown.`
+- [ ] **Multivariable:** `maximize x y subject to x^2 + y^2 = pi` → `Maximum f = pi/2 at (sqrt(2*pi)/2,
+  sqrt(2*pi)/2) …; minimum f = -pi/2 …` (not an LP refusal); `lagrange x*y subject to x^2 - y^2 = 1` → `No
+  constrained critical point: …`; `jacobian (r*cos(t), r*sin(t))` → `det J = r`; `hessian x^y at (1, 1)` →
+  `H(1, 1) = [[0, 1], [1, 0]]`. Twin: `maximize 3x + 2y subject to x + y <= pi` → still refused, naming pi.
+- [ ] ★ **`95% confidence interval for a proportion with 12 successes out of 40`** → `Wilson score interval
+  (recommended): [0.180748, 0.4543]`, `Clopper–Pearson exact interval (conservative: coverage ≥ 95%
+  guaranteed): [0.165627, 0.465316]`, `Textbook (Wald) interval … = [0.157987, 0.442013]`, three bars
+  drawn. `confidence interval 95% proportion p = 0 n = 20` → Wilson `[0, 0.161125]` and `… = [0, 0] —
+  zero width: the Wald interval fails here …`.
+- [ ] ★ **`markov [[0.5,0.5,0],[0.25,0.5,0.25],[0,0.5,0.5]] expected hitting time from 1 to 3`** → `Expected
+  steps from S1 to S3: 8`, `From each state (S1, S2, S3): (8, 6, 0)`, the diagram with S3 **ringed**; `…
+  probability of reaching 3 before 1 starting from 2` → `= 1/2`; `… mean first passage time` → `M = [[4,
+  2, 8], [6, 2, 6], [8, 2, 4]]`; `markov [[1,0],[0.5,0.5]] expected hitting time from 1 to 2` → `∞ — S2
+  cannot be reached from S1 (S1's class {S1} is closed)` (as text — the ∞ is never typeset).
+- [ ] **Insert** `x^3 = 2`, `x^4 - 2 = 0` (`2^(1/4)` must land as a 4th-root sign) and one radius result
+  with its disc: radicals are real OMML radicals with a degree, the figure lands at its shown size.
 
 ---
 
@@ -3424,6 +3504,8 @@ Engineering mode, Energy & power (now 17; the mode must state **101 calculators*
   - `(0,0,0) (1,1,1) (2,2,2)` -> refused as **COLLINEAR**: no plane.
   - `circle r=1/3` -> area **1/9*pi** exactly, and `box 1/2 1/3 1/4` -> volume **1/24**.
     (Typed fractions must stay exact — no long decimals or giant fractions anywhere.)
+- [ ] **Exact cubic and quartic roots, multivariate simplification, radius of convergence, and leftovers (v2.136.0).** Solve — see §0cc.
+  - `x^3 - 3x + 1 = 0` → `2*cos(2*pi/9)`, `2*cos(4*pi/9)`, `2*cos(8*pi/9)`, typeset; `simplify (x^2 - y^2)/(x - y)` → `x + y`, the factor named; `radius of convergence of 1/(x^2 + 4) about 1` → `R = sqrt(5)` with the disc; `find the roots of x^3 - 7x + 6` → 2, 1, −3.
 - [ ] **Abstract algebra: groups, permutations, rings and finite fields (v2.135.0).** Solve — see §0cb.
   - `Z/6` → cyclic, generators 1, 5, table drawn; `(1 2 3)(1 2)` → `(1 3)` (right to left); `factor x^4 + x^2 + 1 over F_2` → `(x^2 + x + 1)^2`; typed in the Equation kind each switches with the ABSTRACT ALGEBRA note.
 - [ ] **Statistics: exact rank tests, repeated-measures ANOVA, Cox regression, and table-reading fixes (v2.134.0).** Stats — see §0ca.

@@ -29,12 +29,16 @@
  * candidates, not a declared maximum.
  */
 import { Expr, parseExpr, format, evalAst, freeVars, derivative, solveEquation } from "./solve";
-import { substituteVar, exprEqual, CasBail } from "./cas";
+import {
+  substituteVar, exprEqual, CasBail, ratMake, polyInVar, ratPolyTrim, ratSign, ratSub, ratMul, ratDiv, ratNeg, ratInt, ratToNumber,
+} from "./cas";
+import type { Rat } from "./cas";
 import { symbolicIntegrate } from "./casint";
 import { solveSystem } from "./systems";
 import { eigenSymmetric } from "./linalg";
 import type { VerbResult } from "./algebraTools";
-import { exactSimplify, hasVar, hasFoldableConstant } from "./exact";
+import { exactSimplify, hasVar, hasFoldableConstant, trigPiExact, piMultiple } from "./exact";
+import { polyResultant, ratPolyDivMod, ratPolyToExpr } from "./cas";
 
 const N = (v: number): Expr => ({ t: "num", v });
 const V = (name: string): Expr => ({ t: "var", name });
@@ -49,8 +53,10 @@ const isNum = (e: Expr, v?: number): boolean => e.t === "num" && (v === undefine
 /** exactSimplify, then ln(e) → 1 (e^x differentiates to ln(e)·e^x and the simplifier leaves ln(e) alone). */
 const S = (e: Expr): Expr => {
   const a = exactSimplify(e);
-  const b = foldLnE(a);
-  return format(b) === format(a) ? a : exactSimplify(b);
+  const b = foldRadicals(foldLnE(a));
+  const r = format(b) === format(a) ? a : exactSimplify(b);
+  const p = foldPythagoras(r);
+  return p !== r && format(p).length < format(r).length ? p : r;
 };
 function foldLnE(e: Expr): Expr {
   switch (e.t) {
@@ -65,11 +71,30 @@ function foldLnE(e: Expr): Expr {
       if (e.name === "abs" && arg.t === "num") return N(Math.abs(arg.v));
       if (e.name === "abs" && arg.t === "neg" && arg.e.t === "num") return N(Math.abs(arg.e.v));
       if ((e.name === "ln" || e.name === "log") && arg.t === "num" && arg.v === 1) return N(0);
+      // sqrt(u²) = |u| for a CONSTANT u of known sign: sqrt(ln(2)^2) → ln(2).
+      if (e.name === "sqrt" && arg.t === "pow" && isNum(arg.r, 2) && !freeVars(arg.l).length) {
+        const u = constValue(arg.l);
+        if (u !== null && u > 0) return arg.l;
+        if (u !== null && u < 0) return NEG(arg.l);
+      }
+      if ((e.name === "asin" || e.name === "acos" || e.name === "atan") && !freeVars(arg).length) {
+        const folded = inverseTrigExact(e.name, arg);
+        if (folded) return folded;
+      }
       return { t: "fn", name: e.name, arg };
     }
     case "pow": {
       const l = foldLnE(e.l);
       const r = foldLnE(e.r);
+      // 1^k → 1 and c^0 → 1 (c a nonzero number): "∇f(1, 1) = (1^(1 − 1), 0)"
+      // and "D = −1^(0 − 1)" were printed unfolded before v2.136.0.
+      if (isNum(l, 1)) return N(1);
+      // 2^(3 − 2) → 2^1: a constant integer exponent the simplifier left as a sum.
+      if (l.t === "num" && r.t !== "num" && !freeVars(r).length && !hasVar(r, "pi") && !hasVar(r, "e")) {
+        const rs = exactSimplify(r);
+        if (rs.t === "num" && Number.isInteger(rs.v) && Math.abs(rs.v) <= 64) return { t: "pow", l, r: rs };
+      }
+      if (l.t === "num" && l.v !== 0 && Number.isFinite(l.v) && !freeVars(r).length && exactSimplify(r).t === "num" && (exactSimplify(r) as { v: number }).v === 0) return N(1);
       if (r.t === "num" && Number.isInteger(r.v) && r.v >= 2 && l.t === "fn") {
         // sqrt(2)^3 → 2*sqrt(2); exp(a)^2 → exp(2a) — the simplifier leaves both alone, and
         // an exact cancellation at (√2/2, √2/2) then fails.
@@ -86,6 +111,223 @@ function foldLnE(e: Expr): Expr {
     default:
       return { t: e.t, l: foldLnE(e.l), r: foldLnE(e.r) } as Expr;
   }
+}
+
+/**
+ * asin/acos/atan of a constant whose value is in the special-angle table,
+ * folded to q·π — matched STRUCTURALLY against trigPiExact's own forms
+ * (1/2, sqrt(2)/2, sqrt(3)/2, sqrt(3)/3, 1, …), never by float value, so
+ * asin(0.5000001) stays as written. Principal ranges: asin, atan in
+ * [−π/2, π/2]; acos in [0, π].
+ */
+function inverseTrigExact(name: string, arg: Expr): Expr | null {
+  const fwd = name === "asin" ? "sin" : name === "acos" ? "cos" : "tan";
+  const qs: [number, number][] =
+    name === "acos"
+      ? [[0, 1], [1, 6], [1, 4], [1, 3], [1, 2], [2, 3], [3, 4], [5, 6], [1, 1]]
+      : name === "asin"
+        ? [[-1, 2], [-1, 3], [-1, 4], [-1, 6], [0, 1], [1, 6], [1, 4], [1, 3], [1, 2]]
+        : [[-1, 3], [-1, 4], [-1, 6], [0, 1], [1, 6], [1, 4], [1, 3]];
+  let key: string;
+  try {
+    key = format(exactSimplify(arg));
+  } catch {
+    return null;
+  }
+  for (const [p, q] of qs) {
+    const v = trigPiExact(fwd as "sin" | "cos" | "tan", ratMake(BigInt(p), BigInt(q)));
+    if (!v) continue;
+    let vk: string;
+    try {
+      vk = format(exactSimplify(v));
+    } catch {
+      continue;
+    }
+    if (vk !== key) continue;
+    if (p === 0) return N(0);
+    const mag: Expr = Math.abs(p) === 1 ? V("pi") : MUL(N(Math.abs(p)), V("pi"));
+    const val: Expr = q === 1 ? mag : DIV(mag, N(q));
+    return p < 0 ? NEG(val) : val;
+  }
+  return null;
+}
+
+/**
+ * a·cos(u)² + a·sin(u)² → a, anywhere in a sum: the Pythagorean identity
+ * the canonical form deliberately does not know. Applied only when exprEqual
+ * CONFIRMS both terms have the same cofactor, and kept only when it shortens
+ * the text ("det J = r·cos(t)² + r·sin(t)²" → "det J = r").
+ */
+function foldPythagoras(e: Expr): Expr {
+  const terms = sumTerms(e);
+  if (terms.length < 2) return e;
+  const sq = (t: Expr, fname: string): { u: Expr; a: Expr } | null => {
+    let found: Expr | null = null;
+    const strip = (n: Expr): Expr => {
+      if (!found && n.t === "pow" && isNum(n.r, 2) && n.l.t === "fn" && n.l.name === fname) {
+        found = n.l.arg;
+        return N(1);
+      }
+      if (n.t === "mul") return MUL(strip(n.l), strip(n.r));
+      if (n.t === "div") return DIV(strip(n.l), n.r);
+      if (n.t === "neg") return NEG(strip(n.e));
+      return n;
+    };
+    const a = strip(t);
+    if (!found) return null;
+    return { u: found, a };
+  };
+  for (let i = 0; i < terms.length; i++) {
+    const c = sq(terms[i], "cos");
+    if (!c) continue;
+    for (let j = 0; j < terms.length; j++) {
+      if (j === i) continue;
+      const s = sq(terms[j], "sin");
+      if (!s) continue;
+      let ok = false;
+      try {
+        ok =
+          exprEqual(c.u, s.u) === true &&
+          exprEqual(c.a, s.a) === true &&
+          exprEqual(terms[i], MUL(c.a, POW(FN("cos", c.u), N(2)))) === true &&
+          exprEqual(terms[j], MUL(s.a, POW(FN("sin", s.u), N(2)))) === true;
+      } catch {
+        ok = false;
+      }
+      if (!ok) continue;
+      const rest = terms.filter((_, k) => k !== i && k !== j);
+      const out = exactSimplify(add(c.a, ...rest));
+      return foldPythagoras(out);
+    }
+  }
+  return e;
+}
+
+/** Signed additive terms of a sum. */
+function sumTerms(e: Expr, sign = 1, out: Expr[] = []): Expr[] {
+  if (e.t === "add") {
+    sumTerms(e.l, sign, out);
+    sumTerms(e.r, sign, out);
+  } else if (e.t === "sub") {
+    sumTerms(e.l, sign, out);
+    sumTerms(e.r, -sign, out);
+  } else if (e.t === "neg" && sign !== 0) {
+    sumTerms(e.e, -sign, out);
+  } else out.push(sign < 0 ? NEG(e) : e);
+  return out;
+}
+
+/** n = out²·inside, `inside` free of square factors below 1000² (bounded trial division). */
+function splitSquareInt(n: bigint): { out: bigint; inside: bigint } {
+  let out = 1n;
+  let inside = n;
+  for (let p = 2n; p * p <= inside && p < 1000n; p++) {
+    while (inside % (p * p) === 0n) {
+      inside /= p * p;
+      out *= p;
+    }
+  }
+  return { out, inside };
+}
+
+/**
+ * Products and quotients of integers and square roots of integers, merged
+ * into ONE radical: sqrt(10)*sqrt(30)/12 → 5*sqrt(3)/6 and
+ * sqrt(30)/6/sqrt(10) → sqrt(3)/6. The simplifier masks each sqrt(n) as an
+ * opaque atom, so it never combines two of them. Exact integer arithmetic
+ * only; anything else in the product is carried through untouched.
+ */
+function foldRadicals(e: Expr): Expr {
+  switch (e.t) {
+    case "num":
+    case "var":
+      return e;
+    case "neg":
+      return NEG(foldRadicals(e.e));
+    case "fn":
+      return FN(e.name, foldRadicals(e.arg));
+    case "mul":
+    case "div":
+      return foldProductRadicals(e);
+    default:
+      return { t: e.t, l: foldRadicals(e.l), r: foldRadicals(e.r) } as Expr;
+  }
+}
+function foldProductRadicals(e: Expr): Expr {
+  const num: Expr[] = [];
+  const den: Expr[] = [];
+  let neg = false;
+  const collect = (n: Expr, top: boolean): void => {
+    if (n.t === "mul") {
+      collect(n.l, top);
+      collect(n.r, top);
+    } else if (n.t === "div") {
+      collect(n.l, top);
+      collect(n.r, !top);
+    } else if (n.t === "neg") {
+      neg = !neg;
+      collect(n.e, top);
+    } else (top ? num : den).push(foldRadicals(n));
+  };
+  collect(e, true);
+  const intOf = (f: Expr): bigint | null => (f.t === "num" && Number.isInteger(f.v) && Math.abs(f.v) < 1e9 ? BigInt(f.v) : null);
+  const radOf = (f: Expr): bigint | null => (f.t === "fn" && f.name === "sqrt" && f.arg.t === "num" && Number.isInteger(f.arg.v) && f.arg.v >= 1 && f.arg.v < 1e9 ? BigInt(f.arg.v) : null);
+  let cN = 1n;
+  let cD = 1n;
+  let rN = 1n;
+  let rD = 1n;
+  let radicals = 0;
+  let denRadical = false;
+  const restN: Expr[] = [];
+  const restD: Expr[] = [];
+  for (const f of num) {
+    const i = intOf(f);
+    const r = radOf(f);
+    if (i !== null) {
+      if (i < 0n) neg = !neg;
+      cN *= i < 0n ? -i : i;
+    } else if (r !== null) {
+      rN *= r;
+      radicals++;
+    } else restN.push(f);
+  }
+  for (const f of den) {
+    const i = intOf(f);
+    const r = radOf(f);
+    if (i !== null) {
+      if (i === 0n) return rebuildProduct(e);
+      if (i < 0n) neg = !neg;
+      cD *= i < 0n ? -i : i;
+    } else if (r !== null) {
+      rD *= r;
+      radicals++;
+      denRadical = true;
+    } else restD.push(f);
+  }
+  if (radicals < 2 && !denRadical) return rebuildProduct(e);
+  if (cN === 0n) return N(0);
+  // √(rN/rD) = √(rN·rD)/rD
+  const { out, inside } = splitSquareInt(rN * rD);
+  cN *= out;
+  cD *= rD;
+  const gcd = (a: bigint, b: bigint): bigint => (b === 0n ? a : gcd(b, a % b));
+  const g = gcd(cN, cD);
+  cN /= g;
+  cD /= g;
+  const top: Expr[] = [];
+  if (cN !== 1n) top.push(N(Number(cN)));
+  if (inside !== 1n) top.push(FN("sqrt", N(Number(inside))));
+  top.push(...restN);
+  const bottom: Expr[] = [];
+  if (cD !== 1n) bottom.push(N(Number(cD)));
+  bottom.push(...restD);
+  const numer = top.length ? top.reduce((a, b) => MUL(a, b)) : N(1);
+  const out2 = bottom.length ? DIV(numer, bottom.reduce((a, b) => MUL(a, b))) : numer;
+  return neg ? NEG(out2) : out2;
+}
+function rebuildProduct(e: Expr): Expr {
+  if (e.t === "mul" || e.t === "div") return { t: e.t, l: foldRadicals(e.l), r: foldRadicals(e.r) };
+  return foldRadicals(e);
 }
 
 /** True when the expression carries a decimal (a folded float, not an exact rational). */
@@ -583,7 +825,8 @@ function isPolyIn(e: Expr, v: string): boolean {
   }
 }
 
-type RootList = { roots: { val: Expr; exact: boolean }[]; complete: boolean };
+/** `label`: the solver's exact display for a root carried numerically (a cubic's cbrt/cos form). */
+type RootList = { roots: { val: Expr; exact: boolean; label?: string }[]; complete: boolean };
 
 /**
  * Real roots of a univariate expression. `complete` is true only for a
@@ -626,7 +869,7 @@ function realRootsOne(e: Expr, v: string): RootList | null {
   const r = solveEquation(`${format(e)} = 0`, v);
   if (!r || !r.roots) return null;
   const complete = isPolyIn(e, v) && !/numeric|unsolved|no reliable/i.test(r.method);
-  const out: { val: Expr; exact: boolean }[] = [];
+  const out: { val: Expr; exact: boolean; label?: string }[] = [];
   // cos(x) = 0 has ~1,270 roots in the solver's range; snapping and
   // verifying each exactly once took 13 s. Keep the ones nearest the origin.
   const MAX_NONPOLY_ROOTS = 12;
@@ -635,9 +878,27 @@ function realRootsOne(e: Expr, v: string): RootList | null {
     if (Math.abs(root.im) > 1e-12) continue;
     let val: Expr;
     let exact = !!root.exact;
+    let label: string | undefined;
     try {
+      // v2.136.0: the solver now prints exact cubic/quartic roots as
+      // cbrt(…), 2*cos(2*pi/9), cos(acos(…)/3) or 2^(1/4). S → casSimplify
+      // folds those to float-derived rationals, so an exact check downstream
+      // (isNum(S(…), 0)) would FAIL on a correct root. Such a root is carried
+      // at full double precision and its exact form kept as a label.
+      // Self-verifying: an exact polynomial root is kept as a closed form
+      // only when substituting it makes the polynomial EXACTLY 0 here
+      // (a denested sqrt(3) + sqrt(2) the simplifier cannot reduce is
+      // carried numerically too, never dropped).
+      if (exact && complete && /\b(?:cbrt|acos|cos|sin)\(|\^\(\s*1\s*\/\s*[34]\s*\)/.test(root.display)) {
+        label = root.display;
+        throw new Error("carry numerically");
+      }
       val = parseExpr(root.display);
       if (freeVars(val).length) throw new Error("not a value");
+      if (exact && complete && !isNum(S(substituteVar(e, v, val)), 0)) {
+        label = root.display;
+        throw new Error("carry numerically");
+      }
     } catch {
       val = N(root.re);
       exact = false;
@@ -653,7 +914,7 @@ function realRootsOne(e: Expr, v: string): RootList | null {
       }
     }
     if (out.some((o) => exprEqual(o.val, val))) continue;
-    out.push({ val, exact });
+    out.push(label && !exact ? { val, exact, label } : { val, exact });
   }
   return { roots: out, complete };
 }
@@ -943,6 +1204,286 @@ function sumOfPositiveSquares(g: Expr, vars: string[]): boolean {
   return isNum(diff, 0);
 }
 
+// ---------------------------------------------------------------------------
+// Lagrange in two variables by RESULTANTS (v2.136.0)
+// ---------------------------------------------------------------------------
+//
+// ∇f = λ∇g in two variables is equivalent to the TANGENCY condition
+// T = f_x·g_y − f_y·g_x = 0 (λ eliminated). For polynomial f and g the
+// system {T = 0, g = c} is then solved exactly: the resultant in x,
+// R(y) = res_x(T, g − c), vanishes at the y of every common solution, so the
+// real roots of R (square-free first) are the only y's to try; each is
+// substituted back into g − c, its x-roots kept only where T vanishes too.
+// Every candidate is verified by substitution afterwards like any other.
+// T also vanishes wherever ∇g = 0, so an EMPTY candidate list proves ∇g ≠ 0
+// on the whole curve as well — Lagrange's theorem then rules out any
+// constrained extremum.
+
+/** p′ over ℚ. */
+function ratPolyDeriv(p: Rat[]): Rat[] {
+  return ratPolyTrim(p.slice(1).map((c, i) => ratMul(c, ratInt(i + 1))));
+}
+/** Monic gcd over ℚ (Euclid; the inputs are small — Sylvester ≤ 12). */
+function ratPolyGcd(a: Rat[], b: Rat[]): Rat[] {
+  let x = ratPolyTrim(a);
+  let y = ratPolyTrim(b);
+  while (y.length) {
+    const r = ratPolyTrim(ratPolyDivMod(x, y).r);
+    x = y;
+    y = r;
+  }
+  if (!x.length) return x;
+  const lead = x[x.length - 1];
+  return x.map((c) => ratDiv(c, lead));
+}
+
+/**
+ * The number of DISTINCT real roots of p over ℚ by Sturm's theorem: sign
+ * changes of the Sturm chain at −∞ minus those at +∞. Exact — it certifies
+ * that the numeric root-finder sorted real from complex roots correctly.
+ */
+function sturmRealRootCount(p: Rat[]): number {
+  const chain: Rat[][] = [ratPolyTrim(p)];
+  if (chain[0].length < 2) return 0;
+  chain.push(ratPolyDeriv(chain[0]));
+  while (chain[chain.length - 1].length > 1) {
+    const r = ratPolyTrim(ratPolyDivMod(chain[chain.length - 2], chain[chain.length - 1]).r);
+    if (!r.length) break;
+    chain.push(r.map((c) => ratNeg(c)));
+  }
+  const variations = (signs: number[]): number => {
+    let v = 0;
+    let prev = 0;
+    for (const s of signs) {
+      if (s === 0) continue;
+      if (prev !== 0 && s !== prev) v++;
+      prev = s;
+    }
+    return v;
+  };
+  const atPlus = chain.map((q) => ratSign(q[q.length - 1]));
+  const atMinus = chain.map((q) => ratSign(q[q.length - 1]) * ((q.length - 1) % 2 === 0 ? 1 : -1));
+  return variations(atMinus) - variations(atPlus);
+}
+
+type LagrangeCandidate ={ coords: Expr[]; lam: Expr | null; exact: boolean; labels?: (string | null)[] };
+type ResultantOutcome =
+  | { candidates: LagrangeCandidate[]; how: string; caveats: string[] }
+  | { none: string }
+  | { refusal: string };
+
+/** Total degree when e is homogeneous in vars (Euler: Σ vᵢ·∂e/∂vᵢ = d·e), else null. */
+function homogeneousDegree(e: Expr, vars: string[]): number | null {
+  const euler = S(add(...vars.map((v) => mul(V(v), derivative(e, v)))));
+  for (let d = 1; d <= 12; d++) {
+    if (isNum(S(SUB(euler, mul(N(d), e))), 0)) return d;
+  }
+  return null;
+}
+
+function lagrangeByResultant(f: Expr, g: Expr, c: Expr, vars: string[], gf: Expr[], gg: Expr[]): ResultantOutcome | null {
+  if (vars.length !== 2) return null;
+  const [x, y] = vars;
+  const exactRational = (e: Expr): boolean => !hasVar(e, "pi") && !hasVar(e, "e") && !hasFoldableConstant(e) && !hasDecimal(e);
+  for (const e of [f, g]) {
+    if (!isPolyIn(e, x) || !isPolyIn(e, y)) return null;
+    if (!exactRational(e)) return null;
+  }
+  const cv = constValue(c);
+  if (cv === null) return null;
+  // A constant like pi on the right: carried as a parameter by HOMOGENEITY —
+  // solve g = ±1 exactly, then scale every point by t = |c|^(1/d): g(t·p) = tᵈ·g(p),
+  // f(t·p) = tᵉ·f(p), and λ scales by t^(e−d). Substituted last, exactly.
+  let scaleBy: { t: Expr; e: number; d: number } | null = null;
+  let c0: Expr = c;
+  if (!exactRational(c)) {
+    const d = homogeneousDegree(g, vars);
+    // An additive constant in f changes no gradient: x·y + 1 scales like x·y.
+    const e = homogeneousDegree(S(SUB(f, atPoint(f, vars, vars.map(() => N(0))))), vars);
+    if (d === null || e === null || cv === 0) return null;
+    c0 = N(Math.sign(cv));
+    const absC: Expr = cv < 0 ? S(NEG(c)) : c;
+    scaleBy = { t: d === 1 ? absC : d === 2 ? FN("sqrt", absC) : POW(absC, DIV(N(1), N(d))), e, d };
+  }
+  const G = S(SUB(g, c0));
+  const T = S(SUB(mul(gf[0], gg[1]), mul(gf[1], gg[0])));
+  if (isNum(T, 0)) return null; // ∇f ∥ ∇g everywhere: f constant along the curve — the existing path words that
+  let R: Expr | null = null;
+  try {
+    R = polyResultant(T, G, x);
+  } catch (err) {
+    if (!(err instanceof CasBail)) throw err;
+    R = null;
+  }
+  if (!R) return null;
+  R = S(R);
+  if (isNum(R, 0)) {
+    return {
+      refusal: `The tangency condition T = f_${x}·g_${y} − f_${y}·g_${x} = ${format(T)} and g − c = ${format(S(SUB(g, c)))} share a common factor (their resultant in ${x} is identically 0), so ∇f is parallel to ∇g along a whole arc of the constraint curve — a continuum of critical points, not isolated candidates. Nothing is declared.`,
+    };
+  }
+  let Rp: Rat[] | null = null;
+  try {
+    Rp = polyInVar(R, y);
+  } catch {
+    Rp = null;
+  }
+  if (!Rp) return null;
+  Rp = ratPolyTrim(Rp);
+  // CAP BEFORE THE EXACT WORK. gcd(R, R′), the Sturm chain and the root
+  // engine are all exact over ℚ, and their coefficients grow with the degree:
+  // a degree-52 resultant (x⁴y³ + y⁵ − x on x⁴ + y⁶ + x³y² = 5) ran for more
+  // than nine minutes. Past the cap — or past a coefficient-size cap — the
+  // old multi-start solver takes the problem, exactly as before v2.136.0.
+  const MAX_RESULTANT_DEGREE = 16;
+  const MAX_COEFF_BITS = 400;
+  if (Rp.length - 1 > MAX_RESULTANT_DEGREE) return null;
+  if (Rp.some((q) => q.n.toString(2).length > MAX_COEFF_BITS || q.d.toString(2).length > MAX_COEFF_BITS)) return null;
+  const caveats: string[] = [];
+  let ys: { val: Expr; exact: boolean; label?: string }[] = [];
+  if (Rp.length >= 2) {
+    // Square-free part: a repeated root (R is often a perfect square) would
+    // otherwise reach the numeric root-finder as a near-collision.
+    const sqf = Rp.length > 2 ? ratPolyDivMod(Rp, ratPolyGcd(Rp, ratPolyDeriv(Rp))).q : Rp;
+    const rl = realRootsOne(ratPolyToExpr(sqf, y), y);
+    if (!rl || !rl.complete) return null;
+    // The real/complex split of a numeric root-finder is certified by Sturm:
+    // a mismatch hands the problem back to the old path rather than guess.
+    if (rl.roots.length !== sturmRealRootCount(sqf)) return null;
+    ys = rl.roots;
+  }
+  const candidates: LagrangeCandidate[] = [];
+  const seen = new Set<string>();
+  for (const yr of ys) {
+    let gx = S(substituteVar(G, y, yr.val));
+    let viaT = false;
+    if (!freeVars(gx).includes(x)) {
+      if (!(isNum(gx, 0) || Math.abs(constValue(gx) ?? 1) < 1e-12)) continue; // this y is not on the curve
+      gx = S(substituteVar(T, y, yr.val)); // the whole line y = y₀ lies on the curve: T picks the points
+      viaT = true;
+      if (!freeVars(gx).includes(x)) {
+        if (isNum(gx, 0)) {
+          return { refusal: `The constraint contains the whole line ${y} = ${format(yr.val)}, and T vanishes along all of it: a continuum of critical points, not isolated candidates.` };
+        }
+        continue;
+      }
+    }
+    const xr = realRoots(gx, x);
+    if (!xr || !xr.complete) return null;
+    // Over a NUMERIC y₀ the solver's "exact" x is the closed form of a
+    // decimal (sqrt(218169499022)/500000) — a float in disguise. Carry it as one.
+    if (!yr.exact) xr.roots = xr.roots.map((r) => ({ val: N(constValue(r.val) ?? NaN), exact: false }));
+    for (const xv of xr.roots) {
+      const coords = [xv.val, yr.val];
+      const env = { [x]: constValue(xv.val) ?? NaN, [y]: constValue(yr.val) ?? NaN, pi: Math.PI, e: Math.E };
+      let tv: number;
+      let gv: number;
+      try {
+        tv = evalAst(T, env);
+        gv = evalAst(G, env);
+      } catch {
+        continue;
+      }
+      const scaleT = Math.max(1, ...[...gf, ...gg].map((cmp) => Math.abs(evalAt(cmp, vars, coords))));
+      if (!(Math.abs(tv) <= 1e-7 * scaleT * scaleT) || !(Math.abs(gv) <= 1e-7 * Math.max(1, Math.abs(cv)))) continue;
+      if (viaT && !(Math.abs(gv) <= 1e-9)) continue;
+      const key = coords.map((cc) => (constValue(cc) ?? NaN).toFixed(9)).join(",");
+      if (seen.has(key)) continue;
+      seen.add(key);
+      let point: LagrangeCandidate = { coords, lam: null, exact: xv.exact && yr.exact, labels: [xv.label ?? null, yr.label ?? null] };
+      if (!point.exact) {
+        // A numeric root may still be a simple closed form; accepted only when
+        // T and g − c vanish EXACTLY there.
+        const sp = snapPoint(coords.map((cc) => constValue(cc) ?? NaN), (cs) => isNum(atPoint(G, vars, cs), 0) && isNum(atPoint(T, vars, cs), 0), 1e-7);
+        if (sp.exact) point = { coords: sp.coords, lam: null, exact: true };
+        else {
+          // A half-exact point (exact y, numeric x) prints as a decimal pair;
+          // the exact coordinate is kept as its label.
+          const exactOnes = [xv.exact, yr.exact];
+          point = {
+            coords: coords.map((cc) => N(constValue(cc) ?? NaN)),
+            lam: null,
+            exact: false,
+            labels: coords.map((cc, i) => (exactOnes[i] ? format(cc) : (i === 0 ? xv.label : yr.label) ?? null)),
+          };
+        }
+      }
+      candidates.push(point);
+    }
+  }
+  if (!candidates.length) {
+    const rText = Rp.length >= 2 ? `R(${y}) = ${format(ratPolyToExpr(Rp, y))}` : `R = ${format(R)}`;
+    return {
+      none:
+        `No constrained critical point: the tangency condition T = f_${x}·g_${y} − f_${y}·g_${x} = ${format(T)} = 0 has no real common solution with ${format(g)} = ${format(c)} ` +
+        `(eliminating ${x} by the resultant leaves ${rText}, ${ys.length ? "whose real roots give no real point satisfying both equations" : "which has no real root"}). ` +
+        `T also vanishes wherever ∇g = 0, so ∇g ≠ 0 at every point of the curve; by Lagrange's theorem f has no local extremum on it.`,
+    };
+  }
+  // λ from a component where ∇g ≠ 0; a point with ∇g = 0 is a singular point
+  // of the curve, a candidate Lagrange's condition does not cover.
+  for (const cand of candidates) {
+    for (let i = 0; i < 2; i++) {
+      const gi = evalAt(gg[i], vars, cand.coords);
+      if (Math.abs(gi) > 1e-12) {
+        if (!cand.exact) {
+          cand.lam = N(round9(evalAt(gf[i], vars, cand.coords) / gi));
+          break;
+        }
+        let lam = S(DIV(atPoint(gf[i], vars, cand.coords), atPoint(gg[i], vars, cand.coords)));
+        // 3/2/sqrt(6) reads better as sqrt(6)/4: a snapped closed form replaces
+        // the quotient only when it satisfies ∇f = λ∇g EXACTLY and is shorter.
+        const snapped = snapExact(evalAt(gf[i], vars, cand.coords) / gi, 1e-12);
+        if (snapped && format(snapped).length < format(lam).length && gf.every((comp, k) => isNum(atPoint(SUB(comp, mul(snapped, gg[k])), vars, cand.coords), 0))) lam = snapped;
+        cand.lam = lam;
+        break;
+      }
+    }
+  }
+  if (scaleBy) {
+    const { t, e, d } = scaleBy;
+    // c·√|c| written as one radical: (√2/2)·√π → sqrt(2*pi)/2.
+    const scaleCoord = (cc: Expr): Expr => {
+      const plain = S(mul(cc, t));
+      if (d !== 2) return plain;
+      const sq = S(mul(cc, cc));
+      if (sq.t !== "num" && !(sq.t === "div" && sq.l.t === "num" && sq.r.t === "num")) return plain;
+      const ccv = constValue(cc) ?? 0;
+      const absC = t.t === "fn" ? t.arg : null;
+      if (!absC || ccv === 0) return plain;
+      const num = sq.t === "num" ? sq.v : (sq as { l: { v: number } }).l.v;
+      const den = sq.t === "num" ? 1 : (sq as { r: { v: number } }).r.v;
+      if (!Number.isInteger(num) || !Number.isInteger(den) || num <= 0 || den <= 0 || num * den > 1e6) return plain;
+      let inner: Expr = num * den === 1 ? absC : MUL(N(num * den), absC);
+      let outside = 1;
+      let below = den;
+      // |c| = q·π: fold q in as well, so 2π gives sqrt(pi), not sqrt(2*2*pi)/2.
+      const q = piMultiple(absC);
+      if (q && ratSign(q) > 0) {
+        const rn = BigInt(num) * q.n;
+        const rd = BigInt(den) * q.d; // cc²·|c| = (rn/rd)·π, √ = √(rn·rd·π)/rd
+        const sp = splitSquareInt(rn * rd);
+        const g0 = ((a: bigint, b: bigint): bigint => { while (b) [a, b] = [b, a % b]; return a < 0n ? -a : a; })(sp.out, rd);
+        outside = Number(sp.out / g0);
+        below = Number(rd / g0);
+        inner = sp.inside === 1n ? V("pi") : MUL(N(Number(sp.inside)), V("pi"));
+      }
+      const root: Expr = outside === 1 ? FN("sqrt", inner) : MUL(N(outside), FN("sqrt", inner));
+      const mag: Expr = below === 1 ? root : DIV(root, N(below));
+      const out = ccv < 0 ? NEG(mag) : mag;
+      return Math.abs((constValue(out) ?? NaN) - (constValue(plain) ?? NaN)) <= 1e-12 * Math.max(1, Math.abs(ccv)) ? out : plain;
+    };
+    for (const cand of candidates) {
+      cand.coords = cand.coords.map(scaleCoord);
+      if (cand.lam) cand.lam = e === d ? cand.lam : S(mul(cand.lam, POW(t, N(e - d))));
+      cand.labels = undefined;
+    }
+    caveats.push(`${format(c)} on the right is carried as a parameter: f and g are homogeneous (degrees ${e} and ${d}), so the problem was solved exactly with ${format(g)} = ${format(c0)} and every point scaled by ${format(t)}.`);
+  }
+  const how = `T = f_${x}·g_${y} − f_${y}·g_${x} = ${format(T)} = 0 with ${format(g)} = ${format(c)}, solved by the resultant in ${x}${Rp.length >= 2 ? ` (R(${y}) = ${format(ratPolyToExpr(Rp, y))})` : ""}`;
+  return { candidates, how, caveats };
+}
+
 function tryLagrange(input: string): VerbResult | null {
   const m = /^\s*(?:lagrange(?:\s+multipliers?)?|maximi[sz]e|minimi[sz]e|optimi[sz]e|extremi[sz]e)\s+(?:of\s+)?(.+?)\s+(?:subject\s+to|s\.t\.|given|under|with\s+(?:the\s+)?constraint|on)\s+(.+)$/i.exec(input);
   if (!m) return null;
@@ -981,13 +1522,34 @@ function tryLagrange(input: string): VerbResult | null {
   if (freeVars(c).length) return refuse(title, "The right-hand side of the constraint must be a constant.");
   const gf = gradient(f, vars);
   const gg = gradient(g, vars);
+  const caveats: string[] = [];
+  const candidates: LagrangeCandidate[] = [];
+  {
+    const cv0 = constValue(c);
+    if (cv0 !== null && cv0 < 0 && sumOfPositiveSquares(g, vars)) {
+      return refuse(title, `The constraint ${format(g)} = ${format(c)} has NO real points (a sum of squares cannot be negative), so there is nothing to optimise over.`);
+    }
+  }
+  // Two variables, polynomial f and g: the exact resultant route first.
+  const viaRes = lagrangeByResultant(f, g, c, vars, gf, gg);
+  if (viaRes && "refusal" in viaRes) return refuse(title, viaRes.refusal);
+  if (viaRes && "none" in viaRes) {
+    return {
+      title,
+      lines: [{ text: viaRes.none }],
+      caveats: ["The candidate set comes from a resultant (an elimination, not a numerical search), and the real roots of R were counted exactly by Sturm's theorem — so the empty set is not a solution the search missed."],
+    };
+  }
+  let howLine: string | null = null;
   // ∇f = λ∇g, g = c
   const eqs = vars.map((_, i) => `${format(gf[i])} - lam*(${format(gg[i])}) = 0`);
   eqs.push(`${format(g)} = ${format(c)}`);
-  const sys = solveSystem(eqs, [...vars, "lam"]);
-  const caveats: string[] = [];
-  const candidates: { coords: Expr[]; lam: Expr; exact: boolean }[] = [];
-  if (sys && sys.kind === "unique" && sys.exact) {
+  const sys = viaRes ? null : solveSystem(eqs, [...vars, "lam"]);
+  if (viaRes) {
+    candidates.push(...viaRes.candidates);
+    caveats.push(...viaRes.caveats);
+    howLine = viaRes.how;
+  } else if (sys && sys.kind === "unique" && sys.exact) {
     candidates.push({ coords: vars.map((v) => parseExpr(sys.exact![v])), lam: parseExpr(sys.exact.lam), exact: true });
   } else if (sys && sys.numeric && sys.numeric.length) {
     for (const sol of sys.numeric) {
@@ -1011,19 +1573,20 @@ function tryLagrange(input: string): VerbResult | null {
   }
   // Verify each candidate by substitution, then evaluate f.
   const seen = new Set<string>();
-  const rows: { coords: Expr[]; lam: Expr; value: number; fv: Expr; exact: boolean }[] = [];
+  const rows: { coords: Expr[]; lam: Expr | null; value: number; fv: Expr; exact: boolean; labels?: (string | null)[] }[] = [];
   for (const cand of candidates) {
     const key = cand.coords.map((x) => (constValue(x) ?? NaN).toFixed(8)).join(",");
     if (seen.has(key)) continue;
     seen.add(key);
-    const env: Record<string, number> = {};
+    const env: Record<string, number> = { pi: Math.PI, e: Math.E };
     vars.forEach((v, i) => (env[v] = constValue(cand.coords[i]) ?? NaN));
-    const lamV = constValue(cand.lam) ?? NaN;
+    const lamV = cand.lam ? constValue(cand.lam) ?? NaN : 0;
     let ok = Number.isFinite(lamV);
     try {
       if (Math.abs(evalAst(g, env) - (constValue(c) ?? NaN)) > 1e-7 * Math.max(1, Math.abs(constValue(c) ?? 1))) ok = false;
       for (let i = 0; i < vars.length && ok; i++) {
-        const r = evalAst(gf[i], env) - lamV * evalAst(gg[i], env);
+        // λ undefined (∇g = 0, a singular point of the curve): the check is ∇g = 0 itself.
+        const r = cand.lam ? evalAst(gf[i], env) - lamV * evalAst(gg[i], env) : evalAst(gg[i], env);
         if (Math.abs(r) > 1e-6 * Math.max(1, Math.abs(evalAst(gf[i], env)))) ok = false;
       }
     } catch {
@@ -1033,17 +1596,22 @@ function tryLagrange(input: string): VerbResult | null {
     const fv = atPoint(f, vars, cand.coords);
     const value = constValue(fv);
     if (value === null) continue;
-    rows.push({ coords: cand.coords, lam: cand.lam, value, fv, exact: cand.exact });
+    rows.push({ coords: cand.coords, lam: cand.lam, value, fv, exact: cand.exact, labels: cand.labels });
   }
   if (!rows.length) return refuse(title, "No candidate satisfied ∇f = λ∇g and the constraint on substitution — nothing shown.");
   rows.sort((a, b) => b.value - a.value);
   const bounded = constraintBounded(g, vars, c);
   const lines: VerbResult["lines"] = [{ text: `∇f = λ∇g with ∇f = ${tupleText(gf)}, ∇g = ${tupleText(gg)}; constraint ${format(g)} = ${format(c)}.` }];
+  if (howLine) lines.push({ text: `Tangency: ${howLine}.` });
   const spanAll = rows[0].value - rows[rows.length - 1].value;
   const constantF = rows.length >= 2 && spanAll <= 1e-7 * Math.max(1, Math.abs(rows[0].value));
   const MAX_ROWS = constantF ? 4 : 24;
   rows.slice(0, MAX_ROWS).forEach((r) => {
-    lines.push({ text: `${tupleText(r.coords)}${r.exact ? "" : " (numeric)"}: f = ${format(r.fv)}, λ = ${format(r.lam)}` });
+    const fText = format(r.fv);
+    const exactForms = (r.labels ?? []).map((l, i) => (l ? `${vars[i]} = ${l}` : null)).filter(Boolean);
+    lines.push({
+      text: `${tupleText(r.coords)}${r.exact ? "" : " (numeric)"}: f = ${fText}, λ = ${r.lam ? format(r.lam) : "undefined (∇g = 0 here: a singular point of the curve, a candidate Lagrange's condition does not cover)"}${exactForms.length ? `   [exactly ${exactForms.join(", ")}]` : ""}`,
+    });
   });
   if (rows.length > MAX_ROWS) caveats.push(`${rows.length - MAX_ROWS} further candidates not listed (the first ${MAX_ROWS} by value are shown).`);
   const span = rows[0].value - rows[rows.length - 1].value;
@@ -1142,8 +1710,10 @@ function pushDenominator(d: Expr, out: Expr[]): void {
  * region's boundary is excluded (an endpoint singularity may be integrable,
  * and is judged by the convergence of the quadrature instead).
  */
-function interiorSingularity(f: Expr, bounds: Bound[], env0: Record<string, number>): string | null {
-  const dangers = dangerExprs(f);
+function interiorSingularity(f: Expr, bounds: Bound[], env0: Record<string, number>, certified = false): string | null {
+  // Certified-positive denominators cannot vanish or change sign; only the
+  // integrand's own finiteness is still swept.
+  const dangers = certified ? [] : dangerExprs(f);
   const SAMPLES = 161;
   const env: Record<string, number> = { ...env0 };
   let found: string | null = null;
@@ -1196,6 +1766,135 @@ function interiorSingularity(f: Expr, bounds: Bound[], env0: Record<string, numb
   return found;
 }
 
+/**
+ * The positivity certificate for the near-pole referee: every "danger" of f
+ * (dangerExprs) must be a DENOMINATOR that is a quadratic in a single bound
+ * variable with a positive leading coefficient and a negative discriminant —
+ * so it is ≥ its vertex value > 0 on the whole real line. Any logarithm, even
+ * root, tan/sec, parameter or other denominator → null (no certificate, and
+ * the referee is exactly the old one). Returns the vertices to split at.
+ */
+function positiveDenominators(f: Expr, bounds: Bound[]): { splits: Record<string, number[]>; why: string } | null {
+  const dangers = dangerExprs(f);
+  if (!dangers.length) return null;
+  const boundVars = bounds.map((b) => b.v);
+  const splits: Record<string, number[]> = {};
+  const whys: string[] = [];
+  for (const d of dangers) {
+    if (d.t === "fn" && (d.name === "__pos" || d.name === "__nonneg")) return null;
+    const fv = freeVars(d);
+    if (fv.length !== 1 || !boundVars.includes(fv[0])) return null;
+    const v = fv[0];
+    let p: Rat[] | null = null;
+    try {
+      p = polyInVar(d, v);
+    } catch {
+      p = null;
+    }
+    if (!p) return null;
+    p = ratPolyTrim(p);
+    if (p.length < 2 || p.length > 3) return null;
+    // A factor whose real roots all lie OUTSIDE the variable's (constant)
+    // range cannot vanish on the region either: 1/(x − 2) over 0 ≤ x ≤ 1.
+    const outside = (): string | null => {
+      const bd = bounds.find((bb) => bb.v === v)!;
+      const lo = constValue(bd.lo);
+      const hi = constValue(bd.hi);
+      if (lo === null || hi === null) return null;
+      const [l, h] = lo <= hi ? [lo, hi] : [hi, lo];
+      let roots: number[];
+      if (p!.length === 2) roots = [-ratToNumber(p![0]) / ratToNumber(p![1])];
+      else {
+        const [c0, b0, a0] = p!.map(ratToNumber);
+        const D = b0 * b0 - 4 * a0 * c0;
+        if (D < 0) return null; // handled by the irreducible-quadratic certificate below
+        roots = [(-b0 - Math.sqrt(D)) / (2 * a0), (-b0 + Math.sqrt(D)) / (2 * a0)];
+      }
+      const margin = 1e-9 * Math.max(1, Math.abs(l), Math.abs(h));
+      if (roots.every((r) => r < l - margin || r > h + margin)) return `${format(d)} has its real root${roots.length > 1 ? "s" : ""} (${roots.map((r) => Number(r.toPrecision(10))).join(", ")}) outside ${l} ≤ ${v} ≤ ${h}`;
+      return null;
+    };
+    const out = outside();
+    if (out) {
+      if (!whys.includes(out)) whys.push(out);
+      continue;
+    }
+    if (p.length !== 3) return null;
+    const [c, b, a] = p;
+    if (ratSign(a) <= 0) return null;
+    const disc = ratSub(ratMul(b, b), ratMul(ratInt(4), ratMul(a, c)));
+    if (ratSign(disc) >= 0) return null;
+    const vertex = ratDiv(ratNeg(b), ratMul(ratInt(2), a));
+    const minimum = ratSub(c, ratDiv(ratMul(b, b), ratMul(ratInt(4), a)));
+    (splits[v] ??= []).push(ratToNumber(vertex));
+    const w = `${format(d)} ≥ ${ratToNumber(minimum)} > 0 for every real ${v} (an irreducible quadratic with a positive lead; its minimum is at ${v} = ${ratToNumber(vertex)})`;
+    if (!whys.includes(w)) whys.push(w);
+  }
+  return { splits, why: whys.join("; ") };
+}
+
+/**
+ * Nested adaptive Simpson over the bounds (innermost first), each level split
+ * at the given points so a narrow peak is a sampled endpoint, never stepped
+ * over. Bounded: a budget of integrand evaluations, then NaN.
+ */
+function adaptiveIterated(f: Expr, bounds: Bound[], env0: Record<string, number>, splits: Record<string, number[]>): number {
+  const env: Record<string, number> = { pi: Math.PI, e: Math.E, ...env0 };
+  let budget = 4_000_000;
+  const evalF = (): number => {
+    if (--budget < 0) throw new Error("budget");
+    return evalAst(f, env);
+  };
+  const simpson = (g: (t: number) => number, a: number, b: number): number => {
+    const fa = g(a);
+    const fb = g(b);
+    const m = (a + b) / 2;
+    const fm = g(m);
+    const whole = ((b - a) / 6) * (fa + 4 * fm + fb);
+    // 1e-10 relative: the referee needs 1e-6, and a tighter target chases
+    // ROUNDING noise (an expanded x² − 0.6x + 0.09000001 loses ~9 digits at
+    // its vertex) until the budget runs out. Sub-intervals below 1e-13 of the
+    // width stop refining for the same reason.
+    const eps = Math.max(1e-10 * Math.abs(whole), 1e-300);
+    const minWidth = 1e-13 * Math.abs(b - a);
+    const rec = (a0: number, b0: number, fa0: number, fm0: number, fb0: number, w: number, tol: number, depth: number): number => {
+      const m0 = (a0 + b0) / 2;
+      if (b0 - a0 < minWidth) return w;
+      const lm = (a0 + m0) / 2;
+      const rm = (m0 + b0) / 2;
+      const flm = g(lm);
+      const frm = g(rm);
+      const left = ((m0 - a0) / 6) * (fa0 + 4 * flm + fm0);
+      const right = ((b0 - m0) / 6) * (fm0 + 4 * frm + fb0);
+      const diff = left + right - w;
+      if (depth <= 0 || Math.abs(diff) <= 15 * tol) return left + right + diff / 15;
+      return rec(a0, m0, fa0, flm, fm0, left, tol / 2, depth - 1) + rec(m0, b0, fm0, frm, fb0, right, tol / 2, depth - 1);
+    };
+    return rec(a, b, fa, fm, fb, whole, eps, 60);
+  };
+  const level = (k: number): number => {
+    const b = bounds[bounds.length - 1 - k];
+    const lo = evalAst(b.lo, env);
+    const hi = evalAst(b.hi, env);
+    if (!Number.isFinite(lo) || !Number.isFinite(hi)) return NaN;
+    const [a0, b0, sgn] = lo <= hi ? [lo, hi, 1] : [hi, lo, -1];
+    const pts = [a0, ...(splits[b.v] ?? []).filter((s) => s > a0 && s < b0).sort((p, q) => p - q), b0];
+    const g = (t: number): number => {
+      env[b.v] = t;
+      return k === bounds.length - 1 ? evalF() : level(k + 1);
+    };
+    let sum = 0;
+    for (let i = 0; i + 1 < pts.length; i++) sum += simpson(g, pts[i], pts[i + 1]);
+    delete env[b.v];
+    return sgn * sum;
+  };
+  try {
+    return level(0);
+  } catch {
+    return NaN;
+  }
+}
+
 /** Nested midpoint quadrature over the given bounds (innermost first); NaN on any evaluation failure. */
 function numericIterated(f: Expr, bounds: Bound[], panels: number, env0: Record<string, number> = {}): number {
   const vars = bounds.map((b) => b.v);
@@ -1214,6 +1913,14 @@ function numericIteratedInner(f: Expr, bounds: Bound[], panels: number, env: Rec
     const hi = evalAst(b.hi, env);
     if (!Number.isFinite(lo) || !Number.isFinite(hi)) return NaN;
     const h = (hi - lo) / panels;
+    // The inner integral does not depend on this variable (f and every inner
+    // bound are free of it): evaluate it ONCE — the midpoint sum of a constant
+    // is that constant times the width. 1/√(1 − x²) over a square was
+    // 1600² evaluations for 1600 distinct values.
+    if (k < bounds.length - 1 && !freeVars(f).includes(b.v) && bounds.slice(0, bounds.length - 1 - k).every((ib) => !freeVars(ib.lo).includes(b.v) && !freeVars(ib.hi).includes(b.v))) {
+      env[b.v] = lo + h / 2;
+      return level(k + 1) * (hi - lo);
+    }
     let sum = 0;
     for (let i = 0; i < panels; i++) {
       env[b.v] = lo + (i + 0.5) * h;
@@ -1224,6 +1931,34 @@ function numericIteratedInner(f: Expr, bounds: Bound[], panels: number, env: Rec
   const r = level(0);
   for (const v of vars) delete env[v];
   return r;
+}
+
+/**
+ * Bounds of b at which the integrand is unbounded while the antiderivative is
+ * finite and continuous (an integrable endpoint singularity). Only for
+ * constant bounds and an integrand in b.v alone (plus parameters).
+ */
+function improperEndpoints(integrand: Expr, F: Expr, b: Bound, env: Record<string, number>): string[] {
+  if (freeVars(integrand).some((v) => v !== b.v && !(v in env))) return [];
+  const out: string[] = [];
+  const base = { pi: Math.PI, e: Math.E, ...env };
+  const ev = (e: Expr, t: number): number => {
+    try {
+      return evalAst(e, { ...base, [b.v]: t });
+    } catch {
+      return NaN;
+    }
+  };
+  const lo = constValue(b.lo);
+  const hi = constValue(b.hi);
+  if (lo === null || hi === null || lo === hi) return [];
+  for (const [bound, at, dir] of [[b.lo, lo, Math.sign(hi - lo)], [b.hi, hi, Math.sign(lo - hi)]] as [Expr, number, number][]) {
+    if (Number.isFinite(ev(integrand, at))) continue;
+    const Fat = ev(F, at);
+    const Fnear = ev(F, at + dir * 1e-10 * Math.max(1, Math.abs(at)));
+    if (Number.isFinite(Fat) && Number.isFinite(Fnear) && Math.abs(Fat - Fnear) < 1e-4 * Math.max(1, Math.abs(Fat))) out.push(format(bound));
+  }
+  return out;
 }
 
 function tryIterated(input: string): VerbResult | null {
@@ -1267,18 +2002,35 @@ function tryIterated(input: string): VerbResult | null {
   const lines: VerbResult["lines"] = [];
   let cur: Expr = f;
   let exact = true;
+  const ruleNotes: string[] = [];
   for (const b of bounds) {
     const anti = symbolicIntegrate(cur, b.v, derivative);
     if (!anti) {
       exact = false;
       break;
     }
+    for (const n of anti.notes ?? []) if (!ruleNotes.includes(n)) ruleNotes.push(n);
+    // An endpoint where the integrand is unbounded (1/√(1 − x²) at x = 1) makes
+    // the integral IMPROPER there; it converges exactly when F has a finite
+    // limit — which F continuous at the endpoint provides. Said, not hidden.
+    const improperAt = improperEndpoints(cur, anti.F, b, paramEnv);
+    if (improperAt.length) {
+      ruleNotes.push(
+        `Improper at ${b.v} = ${improperAt.join(" and ")}: the integrand is unbounded there, but the antiderivative ${format(anti.F)} is continuous up to the endpoint${improperAt.length > 1 ? "s" : ""}, so the integral converges to the value shown.`,
+      );
+    }
     const next = S(SUB(substituteVar(anti.F, b.v, b.hi), substituteVar(anti.F, b.v, b.lo)));
     lines.push({ text: `∫ (${format(cur)}) d${b.v} from ${format(b.lo)} to ${format(b.hi)} = ${format(next)}   [F = ${format(anti.F)}]` });
     cur = next;
   }
-  const singular = interiorSingularity(f, bounds, paramEnv);
+  // A POSITIVITY CERTIFICATE (v2.136.0): when every denominator of f is a
+  // quadratic in one bound variable with a positive lead and a negative
+  // discriminant, it cannot vanish anywhere — not merely "was not seen to".
+  // Then a tiny minimum ((x − 0.3)² + 1e-8) is a narrow PEAK, not a pole.
+  const cert = exact ? positiveDenominators(f, bounds) : null;
+  const singular = interiorSingularity(f, bounds, paramEnv, !!cert);
   if (singular) return refuse(title, `Not evaluated: ${singular}. An integral across a singularity is improper and may diverge; split the region at the singular point and treat each piece as a limit.`);
+  const refereeNote: string[] = [];
   const panels = bounds.length === 3 ? 60 : 400;
   const numeric = numericIterated(f, bounds, panels, paramEnv);
   const paramNote = params.length ? ` ${params.join(", ")} ${params.length === 1 ? "is a parameter, carried" : "are parameters, carried"} symbolically; the numerical cross-check used ${params.map((v) => `${v} = ${paramEnv[v]}`).join(", ")}.` : "";
@@ -1321,7 +2073,20 @@ function tryIterated(input: string): VerbResult | null {
     if (stillVars.length) return refuse(title, `The result still contains ${stillVars.join(", ")} — the bounds did not close the integral.`);
     return refuse(title, `The antiderivative is not finite at a boundary (${format(cur)}): the integral is improper there and DIVERGES, or needs a limit this does not take.`);
   }
-  if (!Number.isFinite(numeric) || Math.abs(numeric - value) > 2e-3 * Math.max(1, Math.abs(value))) {
+  if ((!Number.isFinite(numeric) || Math.abs(numeric - value) > 2e-3 * Math.max(1, Math.abs(value))) && cert) {
+    // The midpoint rule's panels are wider than the peak, so it under-samples
+    // it; that is a failure of the REFEREE, not of the exact value. The
+    // replacement referee is adaptive Simpson split at each vertex (the peak
+    // is then a sampled endpoint of a subinterval). It must agree to 1e-6
+    // relative, or the value is withheld exactly as before.
+    const ref = adaptiveIterated(f, bounds, paramEnv, cert.splits);
+    if (!Number.isFinite(ref) || Math.abs(ref - value) > 1e-6 * Math.max(Math.abs(value), 1e-9)) {
+      return refuse(title, `The exact value ${format(cur)} did not agree with numerical quadrature (midpoint ${numeric.toPrecision(6)}; adaptive Simpson split at the peak ${Number.isFinite(ref) ? ref.toPrecision(10) : "did not finish"}) — withheld rather than shown wrong.`);
+    }
+    refereeNote.push(
+      `Narrow peak: ${cert.why}. A fixed-panel midpoint rule under-samples a peak that narrow (it gave ${numeric.toPrecision(6)}), so the referee here is adaptive Simpson split at the peak, which agrees with the exact value to ${Math.max(Math.abs(ref - value) / Math.max(Math.abs(value), 1e-300), 1e-16).toExponential(1)} relative.`,
+    );
+  } else if (!Number.isFinite(numeric) || Math.abs(numeric - value) > 2e-3 * Math.max(1, Math.abs(value))) {
     // An integrable endpoint singularity (1/√x at 0) converges slowly: accept
     // if the error shrinks with resolution and is small at the finer one.
     const finer = numericIterated(f, bounds, bounds.length === 3 ? 120 : 1600, paramEnv);
@@ -1338,12 +2103,12 @@ function tryIterated(input: string): VerbResult | null {
     return {
       title,
       lines: [{ text: `≈ ${value.toPrecision(10)}   (numeric)` }, ...lines],
-      caveats: [`The antiderivatives are exact but a bound or constant was folded to a decimal on substitution, so the value is shown as a decimal rather than claimed exact. It agrees with nested numerical quadrature.${paramNote}`],
+      caveats: [`The antiderivatives are exact but a bound or constant was folded to a decimal on substitution, so the value is shown as a decimal rather than claimed exact. It agrees with ${refereeNote.length ? "an adaptive numerical referee" : "nested numerical quadrature"}.${paramNote}`, ...refereeNote, ...ruleNotes],
     };
   }
   lines.unshift({ text: `= ${format(cur)}`, math: true });
   if (!/^-?\d+(\.\d+)?$/.test(format(cur)) && !params.length) lines.splice(1, 0, { text: `≈ ${value.toPrecision(8)}` });
-  return { title, lines, caveats: [`Exact: each inner antiderivative is verified by differentiation (the integrator's own rule) and the final value agrees with nested numerical quadrature.${paramNote}`] };
+  return { title, lines, caveats: [`Exact: each inner antiderivative is verified by differentiation (the integrator's own rule) and the final value agrees with ${refereeNote.length ? "an adaptive numerical referee" : "nested numerical quadrature"}.${paramNote}`, ...refereeNote, ...ruleNotes] };
 }
 
 // ---------------------------------------------------------------------------

@@ -236,18 +236,31 @@ function polyWork(input: string | null, coeffsIn: number[], result: EquationResu
   }
 
   // Degree ≥ 3: factoring display when every root is a plain rational.
-  if (degree >= 3 && result.roots.length === degree && result.roots.every((r) => rationalDisplay(r.display))) {
+  // REPEATED ROOTS COUNT (v2.136.0): x^3 + 3x^2 - 4 has roots 1 and -2 (×2) —
+  // two displays for degree 3 — and got no work at all. Each root carries its
+  // multiplicity (Root.mult, also printed as " (×m)"); the factor is raised to
+  // it, and the multiplicities must add up to the degree.
+  const plainDisplay = (r: { display: string }): string => r.display.replace(/\s*\(×\d+\)\s*$/, "");
+  const multOf = (r: { display: string; mult?: number }): number => {
+    if (r.mult && r.mult > 1) return r.mult;
+    const m = /\(×(\d+)\)\s*$/.exec(r.display);
+    return m ? Number(m[1]) : 1;
+  };
+  const totalMult = result.roots.reduce((s, r) => s + multOf(r), 0);
+  if (degree >= 3 && totalMult === degree && result.roots.every((r) => rationalDisplay(plainDisplay(r)))) {
     const lead = coeffs[degree];
     const factor = (d: string): string => (d === "0" ? v : d.startsWith("-") ? `(${v} + ${d.slice(1)})` : `(${v} - ${d})`);
-    const shown = `${lead === 1 ? "" : lead === -1 ? "-" : fmtN(lead)}${result.roots.map((r) => factor(r.display)).join("")}`;
+    const power = (f: string, m: number): string => (m > 1 ? `${f}^${m}` : f);
+    const shown = `${lead === 1 ? "" : lead === -1 ? "-" : fmtN(lead)}${result.roots.map((r) => power(factor(plainDisplay(r)), multOf(r))).join("")}`;
+    // Verified by multiplying back at sample points before it is shown.
     const ok = [0.7, 1.3, -2.1].every((x) => {
-      const lhs = lead * result.roots.reduce((acc, r) => acc * (x - rootValue(r)), 1);
+      const lhs = lead * result.roots.reduce((acc, r) => acc * Math.pow(x - rootValue({ re: r.re, display: plainDisplay(r) }), multOf(r)), 1);
       const rhs = coeffs.reduce((acc, c, i) => acc + c * Math.pow(x, i), 0);
       return Math.abs(lhs - rhs) <= 1e-6 * Math.max(1, Math.abs(rhs));
     });
     if (ok) {
       return [
-        { text: "Every root is rational, so the polynomial factors completely:" },
+        { text: totalMult === result.roots.length ? "Every root is rational, so the polynomial factors completely:" : "Every root is rational, so the polynomial factors completely (a repeated root appears as a power):" },
         { math: `${shown} = 0` },
         { text: "A product is zero exactly when one of its factors is zero:" },
       ];

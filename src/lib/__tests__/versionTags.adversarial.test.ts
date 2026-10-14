@@ -52,6 +52,7 @@ const PINNED: Record<string, string> = {
   "Every statistics calculator reads the table at the cursor; power & sample size": "2.128.0",
   "Laplace transforms, initial-value problems and Fourier series": "2.129.0",
   "Multivariable calculus": "2.130.0",
+  "Exact cubic and quartic roots, multivariate simplification, radius of convergence, and leftovers": "2.136.0",
   "Abstract algebra: groups, permutations, rings and finite fields": "2.135.0",
   "Statistics: exact rank tests, repeated-measures ANOVA, Cox regression, and table-reading fixes": "2.134.0",
   "Computation theory: grammars, machines, first-order logic, SAT, Hindley–Milner": "2.133.0",

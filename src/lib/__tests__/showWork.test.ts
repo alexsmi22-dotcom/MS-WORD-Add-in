@@ -64,6 +64,24 @@ describe("full factorisation for higher degrees with rational roots", () => {
     expect(text).toContain("(x - 2)");
     expect(text).toContain("(x - 3)");
   });
+
+  // v2.136.0: a repeated root is ONE display "-2 (×2)" for two factors, so the
+  // old roots.length === degree test gave x^3 + 3x^2 - 4 no work at all.
+  test("a double root factors as a power: x^3 + 3x^2 - 4 → (x - 1)(x + 2)^2 = 0", () => {
+    const r = solveEquation("x^3 + 3x^2 - 4 = 0")!;
+    const work = equationWork("x^3 + 3x^2 - 4 = 0", r);
+    expect(work.map((w) => w.math).filter(Boolean)).toEqual(["(x - 1)(x + 2)^2 = 0"]);
+    expect(joined(work)).toContain("repeated root appears as a power");
+  });
+
+  test("a quadruple root: (x - 1)^4 expanded factors back to (x - 1)^4", () => {
+    const r = solveEquation("x^4 - 4x^3 + 6x^2 - 4x + 1 = 0")!;
+    expect(joined(equationWork("x^4 - 4x^3 + 6x^2 - 4x + 1 = 0", r))).toContain("(x - 1)^4 = 0");
+  });
+
+  test("the power form typesets", () => {
+    expect(() => mathToHtml(solveToTypesetDsl("(x - 1)(x + 2)^2 = 0"))).not.toThrow();
+  });
 });
 
 describe("what gets NO work (better none than wrong)", () => {

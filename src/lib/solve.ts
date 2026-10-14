@@ -29,10 +29,13 @@
 import {
   casSimplify, CasBail, solveRationalInVar,
   Rat, ratMake, ratInt, ratAdd, ratSub, ratMul, ratDiv, ratNeg, ratIsZero, ratSign, ratToNumber,
+  parseRatLiteral,
 } from "./cas";
+import { substituteVar as casSubstitute, ratFromNumber, ratToExpr } from "./cas";
 import { fmtSqrtRat, sqrtRatToNumber, fmtRat } from "./geometry";
 import { symbolicIntegrate } from "./casint";
 import { ambiguousImplicitProduct } from "./ambiguous";
+import { exactPolyRoots } from "./polyRoots";
 
 // ---------------------------------------------------------------------------
 // AST
@@ -157,10 +160,16 @@ const NUM_RE = /\d*\.?\d+(?:[eE][+-]?\d+)?/y;
 const MAX_RADICALS = 1000;
 
 function expandRadicals(s: string): string {
-  if (!s.includes("√")) return s; // the overwhelmingly common case, untouched
+  // ∛ and ∜ are INPUT aliases (v2.136.0): the solver prints cbrt(·) and c^(1/4),
+  // and a reader who retypes a root from a textbook types the glyph.
+  if (!/[√∛∜]/.test(s)) return s; // the overwhelmingly common case, untouched
+  const isRad = (c: string | undefined): boolean => c === "√" || c === "∛" || c === "∜";
+  /** Wraps an already-bracketed radicand in the operator its glyph names. */
+  const wrapRad = (g: string, text: string): string =>
+    g === "√" ? `sqrt${text}` : g === "∛" ? `cbrt${text}` : `(${text}^(1/4))`;
   let radicals = 0;
   for (let k = 0; k < s.length; k++) {
-    if (s[k] === "√" && ++radicals > MAX_RADICALS) return s;
+    if (isRad(s[k]) && ++radicals > MAX_RADICALS) return s;
   }
 
   // MATCHING BRACKETS ARE PRECOMPUTED, ONCE, IN ONE PASS.
@@ -195,17 +204,17 @@ function expandRadicals(s: string): string {
     // smaller than Node's, so the real ceiling is lower. A crash is not a parse
     // error: it escapes as an unhandled exception rather than a message the user
     // can act on. The nesting is regular, so it is counted and wrapped afterwards.
-    let depth = 0;
+    const glyphs: string[] = [];
     while (true) {
       while (s[j] === " ") j++;
-      if (s[j] !== "√") break;
-      depth++;
+      if (!isRad(s[j])) break;
+      glyphs.push(s[j]);
       j++;
     }
     const inner = radicandAtom(j);
     if (!inner) return null;
     let text = inner.text;
-    for (let d = 0; d < depth; d++) text = `(sqrt${text})`;
+    for (let d = glyphs.length - 1; d >= 0; d--) text = `(${wrapRad(glyphs[d], text)})`;
     return { text, next: inner.next };
   };
   /** One radicand with no leading √: a group, a call, a name, or a number. */
@@ -233,10 +242,11 @@ function expandRadicals(s: string): string {
   let out = "";
   let i = 0;
   while (i < s.length) {
-    if (s[i] !== "√") {
+    if (!isRad(s[i])) {
       out += s[i++];
       continue;
     }
+    const glyph = s[i];
     // SEPARATE FROM WHAT PRECEDES IT, exactly as the π fold does, and for the
     // same reason. Without the space, an identifier immediately to the left
     // fused with the substitution: "x√" became the single token "xsqrt", which
@@ -247,11 +257,13 @@ function expandRadicals(s: string): string {
     if (out.length && /[A-Za-z0-9_)\]]$/.test(out)) out += " ";
     const r = radicand(i + 1);
     if (!r) {
-      out += "sqrt"; // nothing usable follows — let atom() say so, by name
+      // Nothing usable follows — let atom() say so, by name. (∜ stays a glyph,
+      // which the parser rejects by name: there is no bare word for it.)
+      out += glyph === "√" ? "sqrt" : glyph === "∛" ? "cbrt" : glyph;
       i++;
       continue;
     }
-    out += `sqrt${r.text}`;
+    out += wrapRad(glyph, r.text);
     i = r.next;
   }
   return out;
@@ -362,7 +374,12 @@ export function normalizeUnicodeMath(input: string): string {
       const trail = str[off + 1] === "_" ? "" : " ";
       return `${lead}pi${trail}`;
     })
-    .replace(/∞/g, " inf ");
+    .replace(/∞/g, " inf ")
+    // arcsin/arccos/arctan are INPUT aliases (the solver prints asin/acos/atan,
+    // e.g. the trigonometric form of a cubic's roots). Whole words only, so
+    // arcsinh and a variable such as "arcsine" are untouched. A captured prefix,
+    // not \b: "2arcsin(x)" has no word boundary between the 2 and the a.
+    .replace(/(^|[^A-Za-z_])arc(sin|cos|tan)(?![A-Za-z_\d])/g, "$1a$2");
   return expandRadicals(folded);
 }
 
@@ -1069,6 +1086,27 @@ function constRat(e: Expr): Rat | null {
 }
 
 /**
+ * Numeric literals in `input` whose double does not round-trip to the typed
+ * decimal (more digits than a double holds). Bounded: at most 200 literals.
+ */
+function lossyLiterals(input: string): string[] {
+  const out: string[] = [];
+  // No lookbehind: this module ships in the pane, and a regex SyntaxError at load
+  // blanks it on WebViews older than Safari 16.4 (§E.8).
+  const re = /(^|[^A-Za-z_\d.])((?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)/g;
+  let m: RegExpExecArray | null;
+  let n = 0;
+  while ((m = re.exec(input)) && n++ < 200) {
+    const lit = m[2];
+    const typed = parseRatLiteral(lit);
+    const read = parseRatLiteral(String(Number(lit)));
+    if (typed && read && !ratEqual(typed, read)) out.push(lit);
+  }
+  return out;
+}
+const ratEqual = (a: Rat, b: Rat): boolean => a.n === b.n && a.d === b.d;
+
+/**
  * Exact rational coefficients [c0, c1, …] when the polynomial's constants are
  * all rational; null otherwise (the float path then handles it). This is what
  * lets x² = 2 answer sqrt(2), and x/3 = 5 answer 15, instead of decimals
@@ -1224,6 +1262,8 @@ export interface Root {
   exact: boolean;
   /** True for a symbolic (rearranged) solution like a = F/m; re/im are NaN then. */
   symbolic?: boolean;
+  /** Multiplicity when > 1 (also shown in `display` as " (×m)"). */
+  mult?: number;
 }
 
 /**
@@ -1491,11 +1531,20 @@ function polyEvalCx(coeffs: number[], z: Cx): Cx {
   return acc;
 }
 
-/** Snaps a value to the nearest integer when it is within tol, else rounds for display. */
+/**
+ * Snaps a value to the nearest NON-ZERO integer when it is within a RELATIVE
+ * tolerance; otherwise leaves it at full precision.
+ *
+ * It used to round to 1e-9 ABSOLUTE (and snap to an integer within 1e-7
+ * absolute), which is a statement about the units, not the root:
+ * x³ − 1234567x + 1 = 0 printed its small root 8.10000591300e-7 as "8.1e-7"
+ * (§A finding 9). Rational-coefficient polynomials no longer come here at all
+ * (polyRoots.ts); this is the π/e-coefficient path.
+ */
 function snap(v: number): number {
   const r = Math.round(v);
-  if (Math.abs(v - r) < 1e-7) return r;
-  return Math.round(v * 1e9) / 1e9;
+  if (r !== 0 && Math.abs(v - r) <= 1e-9 * Math.abs(v)) return r;
+  return v;
 }
 
 /**
@@ -1532,24 +1581,29 @@ function allPolyRoots(coeffs: number[]): Root[] {
   }
 
   // Snap, split real/complex, collapse equal roots into multiplicities.
+  // RELATIVE throughout (§E.2): an imaginary or real part is dust only next to
+  // the root's own size, and two roots are "equal" only relative to theirs.
   const cleaned = roots.map((z) => {
-    const re = snap(z.re);
-    const im = Math.abs(z.im) < 1e-7 ? 0 : snap(z.im);
+    const mag = cAbs(z);
+    const im = Math.abs(z.im) <= 1e-7 * mag ? 0 : snap(z.im);
+    const re = im !== 0 && Math.abs(z.re) <= 1e-12 * mag ? 0 : snap(z.re);
     return { re, im };
   });
   const groups: { re: number; im: number; mult: number }[] = [];
   for (const z of cleaned) {
-    const g = groups.find((h) => Math.abs(h.re - z.re) < 1e-6 && Math.abs(h.im - z.im) < 1e-6);
+    const g = groups.find((h) => cAbs(cSub(h, z)) <= 1e-6 * Math.max(cAbs(h), cAbs(z)));
     if (g) g.mult++;
     else groups.push({ ...z, mult: 1 });
   }
+  const show = (v: number): number => (v === 0 ? 0 : Number(v.toPrecision(10)));
   return groups
     .sort((a, b) => b.re - a.re || a.im - b.im)
     .map((g) => ({
-      display: fmtRoot(g.re, g.im) + (g.mult > 1 ? ` (×${g.mult})` : ""),
+      display: fmtRoot(show(g.re), show(g.im)) + (g.mult > 1 ? ` (×${g.mult})` : ""),
       re: g.re,
       im: g.im,
       exact: false,
+      ...(g.mult > 1 ? { mult: g.mult } : {}),
     }));
 }
 
@@ -2178,11 +2232,62 @@ export function solveEquation(input: string, variable?: string, range = 1000): E
       }
       return { variable: x, roots: exact, method: `exact (${deg === 1 ? "linear" : "quadratic"})`, steps, caveats };
     }
-    // Degree >= 3 polynomial: ALL roots (real and complex) via Durand–Kerner.
+    // Degree >= 3 with RATIONAL coefficients: the exact engine (polyRoots.ts) —
+    // square-free factorisation first, so a repeated root is ONE exact root with
+    // its multiplicity (never four complex values near 1), then rational roots,
+    // the quadratic/cubic/quartic closed forms, each certified, and numerical
+    // roots only for what is left. `re`/`im` stay at full double precision.
+    const ratC = polyCoeffsRat(f, x);
+    const rc = ratC ? trimRat(ratC) : null;
+    if (rc && rc.length - 1 === deg) {
+      const pr = exactPolyRoots(rc, x);
+      if (pr) {
+        // A LITERAL THE PARSER COULD NOT HOLD EXACTLY. Numbers are read as
+        // doubles, so `x - 123456789012345678901234567890` arrives as
+        // x − 123456789012345680000000000000; an "exact" root of THAT is not a
+        // root of what was typed. Multiplicities stay (they are structural), but
+        // every value is shown as a decimal, and the reason is said.
+        const lossy = lossyLiterals(input);
+        const roots: Root[] = pr.roots.map((r) => {
+          const decimal = lossy.length > 0 && r.exact;
+          return {
+            display: (decimal ? fmtRoot(r.re, r.im) : r.display) + (r.mult > 1 ? ` (×${r.mult})` : ""),
+            re: r.re,
+            im: r.im,
+            exact: r.exact && !decimal,
+            ...(r.mult > 1 ? { mult: r.mult } : {}),
+          };
+        });
+        steps.push(`Polynomial of degree ${deg} with rational coefficients; all ${deg} roots counting multiplicity.`, ...pr.steps);
+        if (lossy.length) {
+          return {
+            variable: x, roots, method: "complete (all roots)", steps,
+            caveats: [
+              ...caveats,
+              `Complete: every root is shown, real and complex, with exact multiplicities. ${lossy.join(", ")} has more than the ~16 significant digits a double holds, ` +
+                `so it was read as ${lossy.map((l) => String(Number(l))).join(", ")} and the roots are shown as decimals rather than as exact values of that rounded number.`,
+            ],
+          };
+        }
+        return { variable: x, roots, method: pr.method, steps, caveats: [...caveats, ...pr.caveats] };
+      }
+    }
+    // Otherwise (π, e or a function value among the coefficients, or a cap):
+    // ALL roots (real and complex) via Durand–Kerner, numerically.
     const roots = allPolyRoots(trimmed);
+    // NEVER PRINT NaN. A widely spread polynomial can overflow the iteration;
+    // a refusal by name is an answer, "NaN" twenty times is not.
+    if (roots.some((r) => !Number.isFinite(r.re) || !Number.isFinite(r.im))) {
+      return {
+        variable: x, roots: [], method: "unsolved", steps,
+        caveats: [`The numerical root finder did not converge for this degree-${deg} polynomial (its coefficients span too many orders of magnitude for double precision), so no roots are shown rather than invalid ones.`],
+      };
+    }
     steps.push(`Degree-${deg} polynomial; all ${deg} root${deg === 1 ? "" : "s"} found (Durand–Kerner), counting multiplicity.`);
     caveats.push(
-      `Complete: every root is shown, real and complex. Values are numerical (refined to ~1e-10); an exact closed form is not attempted above the quadratic.`
+      rc && rc.length - 1 === deg
+        ? `Complete: every root is shown, real and complex. Values are numerical (refined to ~1e-10): the polynomial is past the exact engine's size caps (degree 64, coefficient size, or its time budget), so no closed form or exact multiplicity is attempted.`
+        : `Complete: every root is shown, real and complex. Values are numerical (refined to ~1e-10): the coefficients are not all rational (π, e or a function value), so no exact closed form is attempted.`
     );
     return { variable: x, roots, method: "complete (all roots)", steps, caveats };
   }
@@ -2607,19 +2712,31 @@ export function antiderivative(input: string, variable?: string): Antiderivative
   // refuses these by name; the indefinite one must not be more permissive than
   // its own sibling.
   const SAMPLE = [0.37, 0.83, 1.29, 2.11, -0.61, -1.73];
-  const finiteSomewhere = (expr: Expr): boolean => {
+  // A NARROW OR SHIFTED DOMAIN (v2.136.0). 1/sqrt(1 - 100x^2) lives on
+  // |x| < 1/10 and 1/sqrt(4 - (x+3)^2) on (−5, −1): none of the six fixed
+  // points is inside, so a perfectly good integrand was refused before the
+  // integrator ever ran. When the fixed points all miss, scan a grid over
+  // [−10, 10] (step 1/16, exact in binary) for points INSIDE the domain. No
+  // tolerance changes — this only finds where to look.
+  const GRID: number[] = [];
+  for (let k = -160; k <= 160; k++) GRID.push(k / 16);
+  const finitePoints = (expr: Expr, want: number, pts: number[]): number[] => {
     const others = freeVars(expr).filter((v) => v !== x);
-    for (const p of SAMPLE) {
+    const found: number[] = [];
+    for (const p of pts) {
       const env: Record<string, number> = { [x]: p };
       others.forEach((v, i) => { env[v] = 1.7 + i * 0.9; });
       try {
-        if (Number.isFinite(evalAst(expr, env))) return true;
+        if (Number.isFinite(evalAst(expr, env))) found.push(p);
       } catch {
         /* try the next point */
       }
+      if (found.length >= want) break;
     }
-    return false;
+    return found;
   };
+  const finiteSomewhere = (expr: Expr): boolean =>
+    finitePoints(expr, 1, SAMPLE).length > 0 || finitePoints(expr, 1, GRID).length > 0;
   // Not "finite everywhere" — 1/x is a perfectly good integrand that blows up
   // at one point. The test is whether it is finite ANYWHERE.
   if (!finiteSomewhere(simplified)) return null;
@@ -2630,7 +2747,31 @@ export function antiderivative(input: string, variable?: string): Antiderivative
 
   const Fs = simplify(F);
   if (!finiteSomewhere(Fs)) return null;
-  const fs = format(Fs);
+  // EXACT SCALES STAY EXACT (v2.136.0). The CAS hands back
+  // sqrt(2)/2*asin(sqrt(2)*x) for 1/sqrt(1 - 2x^2) (and the atan twin for
+  // 1/(x^2 + 2)), and simplify() folded every function of a constant to a
+  // double: "0.707106781187*asin(1.41421356237*x)", labelled exact. When the
+  // simplified form carries decimals the CAS form does not, print the CAS form
+  // (its value is checked equal at sample points first).
+  const hasDecimals = (s: string): boolean => /\d\.\d{4,}/.test(s);
+  let fs = format(Fs);
+  if (cas?.F && hasDecimals(fs) && !hasDecimals(input)) {
+    const raw = format(cas.F);
+    const pts = finitePoints(Fs, 4, SAMPLE.concat(GRID));
+    const same =
+      !hasDecimals(raw) &&
+      pts.length > 0 &&
+      pts.every((p) => {
+        try {
+          const a = evalAst(cas.F, { [x]: p });
+          const b = evalAst(Fs, { [x]: p });
+          return Number.isFinite(a) && Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(b));
+        } catch {
+          return false;
+        }
+      });
+    if (same) fs = raw;
+  }
   // A belt-and-braces guard on the rendered text: whatever route produced it,
   // a printed NaN or Infinity must never leave this function.
   if (/\bNaN\b|\bInfinity\b/.test(fs)) return null;
@@ -2661,7 +2802,15 @@ export function antiderivative(input: string, variable?: string): Antiderivative
     const others0 = vars.filter((v) => v !== x);
     let agreed = 0;
     let compared = 0;
-    for (const p of [0.37, 0.83, 1.29, 2.11, 3.57, -0.61, -1.73, -2.89]) {
+    // The fixed points first; when fewer than 3 of them lie inside a narrow or
+    // shifted domain (1/sqrt(4 - (x+3)^2) lives on (−5, −1)), add grid points
+    // where the integrand IS defined, so the answer can be checked rather than
+    // reported unverified for want of a place to look.
+    const FIXED = [0.37, 0.83, 1.29, 2.11, 3.57, -0.61, -1.73, -2.89];
+    const verifyAt = finitePoints(simplified, 3, FIXED).length >= 3
+      ? FIXED
+      : FIXED.concat(finitePoints(simplified, 8, GRID));
+    for (const p of verifyAt) {
       const env: Record<string, number> = { [x]: p };
       // Any other symbols are constants; pin them at distinct fixed values so a
       // coincidence at 1 cannot pass for an identity.
@@ -2691,6 +2840,17 @@ export function antiderivative(input: string, variable?: string): Antiderivative
     caveats.push(
       `${others.join(", ")} ${others.length === 1 ? "was" : "were"} treated as a constant, since ` +
         `the integration is with respect to ${x}.`,
+    );
+  }
+  // WHAT THE RULE KNOWS (v2.136.0): a domain of validity ("|x| < 2" for an
+  // arcsine) or an equivalent form (acos beside −asin) — casint's notes.
+  for (const n of cas?.notes ?? []) if (!caveats.includes(n)) caveats.push(n);
+  // Decimals the user did not type are rounded IRRATIONAL constants; the
+  // antiderivative is exact, its printed constants are not — say ≈.
+  if (hasDecimals(fs) && !hasDecimals(input)) {
+    caveats.push(
+      "The decimal coefficients shown are irrational constants (such as sqrt(2)/2) rounded to 12 significant " +
+        "figures — the antiderivative is exact, but those printed constants are ≈.",
     );
   }
   // THE CONSTANT IS NOT ALWAYS ONE CONSTANT. Across a pole the antiderivative
@@ -3234,14 +3394,58 @@ export function integrate(input: string, a: number, b: number, variable?: string
   // self-verifying — it differentiates every candidate back and discards any
   // that does not match, so a miss costs nothing but a fallback. The older
   // rule table below still runs when the CAS finds nothing.
-  const F = symbolicIntegrate(simplify(e), x, derivative)?.F ?? symbolicAntideriv(simplify(e), x);
+  const casResult = symbolicIntegrate(simplify(e), x, derivative);
+  const casNotes = casResult?.notes ?? [];
+  const F = casResult?.F ?? symbolicAntideriv(simplify(e), x);
   if (F) {
     const Fs = simplify(F);
     try {
-      const value = evalAst(Fs, { [x]: b }) - evalAst(Fs, { [x]: a });
+      // F AT AN ENDPOINT, EXACTLY WHEN FLOATS FAIL (v2.136.0). asin(4x/3 − 7/3)
+      // at x = 1 evaluates its argument to −1.0000000000000002 and returns NaN,
+      // and ∫₁^2.5 1/√((x − 1)(5/2 − x)) = π came back "does not exist". The
+      // endpoint is substituted as an exact rational instead (the argument is
+      // then exactly −1), and the value is accepted only if F is CONTINUOUS
+      // there: F just inside the interval must approach it.
+      const inward = (t: number): number => (t === a ? Math.sign(b - a) : Math.sign(a - b));
+      const endpointValue = (t: number): number => {
+        let v = NaN;
+        try { v = evalAst(Fs, { [x]: t }); } catch { v = NaN; }
+        if (Number.isFinite(v)) return v;
+        let exactV = NaN;
+        try {
+          const s = casSimplify(casSubstitute(F, x, ratToExpr(ratFromNumber(t))));
+          exactV = evalAst(s, {});
+        } catch {
+          return NaN;
+        }
+        if (!Number.isFinite(exactV)) return NaN;
+        let near = NaN;
+        try { near = evalAst(Fs, { [x]: t + inward(t) * 1e-12 * Math.max(1, Math.abs(t)) }); } catch { near = NaN; }
+        return Number.isFinite(near) && Math.abs(near - exactV) < 1e-4 * Math.max(1, Math.abs(exactV)) ? exactV : NaN;
+      };
+      const value = endpointValue(b) - endpointValue(a);
       if (Number.isFinite(value)) {
         const caveats: string[] = [];
-        const fs = format(Fs);
+        let fs = format(Fs);
+        // EXACT SCALES STAY EXACT in the definite path too: simplify() folds
+        // sqrt(2)/2 to 0.707106781187, which then sat beside "exact (symbolic)".
+        // The CAS form is printed when it has no decimals the input lacked and
+        // agrees with the simplified form at sample points.
+        const decimals = (s: string): boolean => /\d\.\d{4,}/.test(s);
+        if (casResult?.F && decimals(fs) && !decimals(input)) {
+          const raw = format(casResult.F);
+          const pts = [a + (b - a) * 0.31, a + (b - a) * 0.57, a + (b - a) * 0.83];
+          const agree = !decimals(raw) && pts.every((p) => {
+            try {
+              const u = evalAst(casResult.F, { [x]: p });
+              const w = evalAst(Fs, { [x]: p });
+              return Number.isFinite(u) && Math.abs(u - w) <= 1e-9 * Math.max(1, Math.abs(w));
+            } catch {
+              return false;
+            }
+          });
+          if (agree) fs = raw;
+        }
         // CANONICALISATION CAN WIDEN A DOMAIN. sqrt(x)^2 normalises to x, which
         // is defined for negative x where the original is not — so ∫sqrt(x)² over
         // [−1,1] would otherwise come back as a confident "exact 0" for an
@@ -3298,6 +3502,40 @@ export function integrate(input: string, a: number, b: number, variable?: string
         if (/\bln\b/.test(fs) && a * b < 0) {
           caveats.push("The antiderivative has a singularity at 0, which lies inside the interval — this is the formal value; the integral may be improper.");
         }
+        // AN INTEGRABLE ENDPOINT SINGULARITY IS SAID (v2.136.0). ∫₋₁¹ 1/√(1 − x²)
+        // returned π with no caveat, though the integrand is unbounded at both
+        // ends: the value is the limit of an IMPROPER integral, and it is the
+        // continuity of F up to the endpoint that makes F(b) − F(a) that limit
+        // (the same test as the double-integral twin in multivar.ts).
+        const improperAt: number[] = [];
+        for (const [at, dir] of [[a, Math.sign(b - a)], [b, Math.sign(a - b)]] as [number, number][]) {
+          let fAt: number;
+          let fNear: number;
+          try { fAt = evalAst(e, { [x]: at }); } catch { fAt = NaN; }
+          try { fNear = evalAst(e, { [x]: at + dir * 1e-12 * Math.max(1, Math.abs(at)) }); } catch { fNear = NaN; }
+          if (Number.isFinite(fAt) || dir === 0) continue;
+          // UNBOUNDED, not merely undefined: x/x at 0 is a removable point (its
+          // neighbours are 1), and calling that integral improper would be noise.
+          if (Math.abs(fAt) !== Infinity && !(Math.abs(fNear) > 1e5)) continue;
+          let Fat: number, Fnear: number;
+          try {
+            Fat = endpointValue(at);
+            Fnear = evalAst(Fs, { [x]: at + dir * 1e-10 * Math.max(1, Math.abs(at)) });
+          } catch {
+            continue;
+          }
+          if (Number.isFinite(Fat) && Number.isFinite(Fnear) && Math.abs(Fat - Fnear) < 1e-4 * Math.max(1, Math.abs(Fat))) improperAt.push(at);
+        }
+        if (improperAt.length) {
+          caveats.push(
+            `Improper at ${improperAt.length > 1 ? "both endpoints" : "an endpoint"} (${x} = ${improperAt.map(fmtNum).join(" and ")}): the integrand is ` +
+              `unbounded there, but the antiderivative ${fs} is continuous up to ` +
+              `${improperAt.length > 1 ? "both endpoints" : "that endpoint"}, so the integral converges to the value shown.`,
+          );
+        }
+        // What the rule knows about its answer (casint's notes: the arcsine's
+        // domain of validity, an equivalent acos form).
+        for (const n of casNotes) if (!caveats.includes(n)) caveats.push(n);
         return { variable: x, value, method: "exact (symbolic)", antiderivative: fs, caveats };
       }
     } catch {

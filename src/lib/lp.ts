@@ -557,6 +557,40 @@ function readInput(raw: string): Parsed | VerbResult | null {
     varNames(s.r, names);
   }
   const inequalityPresent = rawRows.some((r) => r.rel !== "=");
+  // Guard ORDER (v2.136.0): a problem that is NONLINEAR even with π read as a
+  // number, and has only equality constraints, is Lagrange's — return null
+  // BEFORE any coefficient refusal. `maximize x y subject to x^2 + y^2 = pi`
+  // was stolen by the π refusal below (v2.132 regression). The test replaces
+  // pi by a rational stand-in, so `maximize pi*x + y subject to x + y <= 4`
+  // (linear once π is a number) still reaches the π refusal by name.
+  // With inequalities, a NONLINEAR OBJECTIVE that mentions π is not a linear
+  // program either (review, v2.136.0): `maximize x^2 subject to x <= pi`
+  // returns null rather than being refused for π.
+  if (names.includes("pi") || names.includes("lambda")) {
+    const PI_STANDIN: Expr = { t: "num", v: 3 };
+    const subPi = (e: Expr): Expr => {
+      switch (e.t) {
+        case "var":
+          return e.name === "pi" ? PI_STANDIN : e;
+        case "neg":
+          return { t: "neg", e: subPi(e.e) };
+        case "add":
+        case "sub":
+        case "mul":
+        case "div":
+        case "pow":
+          return { t: e.t, l: subPi(e.l), r: subPi(e.r) };
+        case "fn":
+          return { t: "fn", name: e.name, arg: subPi(e.arg) };
+        default:
+          return e;
+      }
+    };
+    const varsNoPi = names.filter((n) => n !== "pi");
+    const objNonlinear = !linearCoeffs(subPi(objAst), varsNoPi);
+    const conNonlinear = sides.some((s) => !linearCoeffs(subPi(s.l), varsNoPi) || !linearCoeffs(subPi(s.r), varsNoPi));
+    if (objNonlinear || (!inequalityPresent && conNonlinear)) return null; // not a linear program (Lagrange's, or nonlinear programming)
+  }
   for (const n of names) {
     if (n === "pi") return refuse(nounTitle, "“pi” (the constant π) cannot appear in an exact linear program: every coefficient here is a rational number. Write a decimal such as 3.1416 if an approximation is acceptable, or rename the variable if pi was meant as a name.");
     if (n === "lambda") return refuse(nounTitle, "“lambda” is a reserved name here (the Lagrange multiplier) — rename that variable.");

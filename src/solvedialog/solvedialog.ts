@@ -21,8 +21,9 @@ import {
   PaletteGroup,
 } from "../lib/palettes";
 import { mathToHtml } from "../lib/mathHtml";
-import { solveInputToTypesetLines, solveToTypesetDsl, isProseRequest } from "../lib/solveTypeset";
-import { foldPastedMath, extractSingleEquation, extractExpression, normalizeTaskProse, hasProseWords } from "../lib/pasteMath";
+import { solveInputToTypesetLines, solveToTypesetDsl, isProseRequest, isSeriesOrRadiusRequest, seriesFailureMessage } from "../lib/solveTypeset";
+import { foldPastedMath, extractSingleEquation, extractExpression, normalizeTaskProse, hasProseWords, resolveTaskVerb } from "../lib/pasteMath";
+import { tryRadius, radiusSvg } from "../lib/radius";
 import { solveWordProblem } from "../lib/wordproblem";
 import { graphSeries, GraphWindow } from "../lib/graphCalc";
 import { buildPlotSvg } from "../lib/plot";
@@ -121,6 +122,46 @@ Office.onReady(() => {
       if (w.math) mathLine(parent, w.math, w.math);
       else if (w.text) line(parent, w.text, "result-line");
     }
+  };
+  /**
+   * SERIES AND RADIUS OF CONVERGENCE (v2.136.0), answered inline — the canvas
+   * cannot switch kinds. The SAME shared functions the pane calls: tryRadius
+   * (R, the reasoning, the disc) before parseSeriesRequest/taylorSeries, and
+   * seriesFailureMessage for a series that cannot be expanded (the reason by
+   * name). Returns true when it answered.
+   */
+  const seriesOrRadius = (text: string): boolean => {
+    const rv = tryRadius(text);
+    if (rv) {
+      line(resultEl, rv.title, "result-title");
+      for (const l of rv.lines) {
+        if (l.math) mathLine(resultEl, l.text, l.text);
+        else line(resultEl, l.text, "result-line");
+      }
+      for (const c of rv.caveats.slice(0, 2)) line(resultEl, c, "caveat");
+      if (rv.svg) {
+        figure.innerHTML = rv.svg;
+        figure.style.display = "block";
+      }
+      status.textContent = "Reads as a radius of convergence.";
+      return true;
+    }
+    const ser = parseSeriesRequest(text);
+    if (!ser) return false;
+    const res = taylorSeries(ser.expr, ser.variable, ser.centre, ser.order);
+    if (res) {
+      mathLine(resultEl, res.display, res.display);
+      if (res.radiusLine) line(resultEl, res.radiusLine, "result-line");
+      const disc = res.radius ? radiusSvg(res.radius) : "";
+      if (disc) {
+        figure.innerHTML = disc;
+        figure.style.display = "block";
+      }
+    } else {
+      line(resultEl, seriesFailureMessage(ser.expr, ser.variable, ser.centre), "caveat");
+    }
+    status.textContent = "Reads as a series.";
+    return true;
   };
 
   /** The typeset view: every input line drawn as mathematics. */
@@ -268,6 +309,9 @@ Office.onReady(() => {
             return;
           }
         }
+        // Series and radius of convergence (v2.136.0), same decision as the
+        // pane's switch, ahead of trySum ("interval of convergence of sum …").
+        if (isSeriesOrRadiusRequest(taskText) && seriesOrRadius(taskText)) return;
         // Sums and algebra verbs first — word-led, unambiguous (same order as
         // the pane's dispatch). Task verbiage stripped first.
         const sum = trySum(taskText) ?? trySum(folded);
@@ -355,6 +399,16 @@ Office.onReady(() => {
               line(resultEl, `Read the equation out of the sentence: ${extracted}`, "result-line");
             }
           }
+        } else if (!varChoice) {
+          // TASK WORDS ARE NOT UNKNOWNS (v2.136.0) — the pane's re-solve, by
+          // the same shared function: "solve x^2 - 5x + 6 = 0" and "find the
+          // roots of x^3 - 7x + 6" no longer list solve / the / roots as unknowns.
+          const tv = resolveTaskVerb(dialogText, r);
+          if (tv) {
+            r = tv.result;
+            dialogText = tv.text;
+            line(resultEl, `Read the equation out of the sentence: ${tv.text}`, "result-line");
+          }
         }
         if (!r) {
           // An expression mid-composition is not an error — say what it needs.
@@ -414,13 +468,7 @@ Office.onReady(() => {
           status.textContent = "Reads as a limit.";
           return;
         }
-        const ser = parseSeriesRequest(folded);
-        if (ser) {
-          const res = taylorSeries(ser.expr, ser.variable, ser.centre, ser.order);
-          if (res) mathLine(resultEl, res.display, res.display);
-          status.textContent = "Reads as a series.";
-          return;
-        }
+        if (seriesOrRadius(normalizeTaskProse(folded))) return;
         const d = differentiate(folded);
         if (!d) {
           parseExpr(folded); // throws with the real reason

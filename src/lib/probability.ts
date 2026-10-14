@@ -14,7 +14,7 @@ import { parseExpr, evalAst, format, freeVars, Expr } from "./solve";
 import { exactSimplify } from "./exact";
 import { Rat, ratAdd, ratSub, ratMul, ratDiv, ratToNumber, parseRatLiteral, RAT_ONE, RAT_ZERO, ratInt, ratMake, ratSign, ratEq } from "./cas";
 import { fmtRat } from "./geometry";
-import { binomial as bigBinomial } from "./combinatorics";
+import { binomial as bigBinomial, CAPS } from "./combinatorics";
 import { tCdf } from "./power";
 import type { VerbResult } from "./algebraTools";
 import {
@@ -41,6 +41,7 @@ import {
   query,
   sig6,
   normalQuantile,
+  normalCdfPrecise,
   ratPow,
   ratOfBig,
   ratShort,
@@ -59,7 +60,9 @@ const DIST_WORD =
 export const PROB_VERB_RE = new RegExp(
   "^\\s*(?:(?:X|Y|Z|T)\\s*~\\s*)?(?:" +
     DIST_WORD +
-    ")\\s*[(\\s]|\\bP\\s*\\(|\\bPr\\s*\\(|\\bprob\\s*\\(|^\\s*(?:quantile|inv\\s*norm|invnorm|z-?\\s?score|z\\s+for|critical\\s+value|percentile|cdf\\s+of|pmf\\s+of|pdf\\s+of|mgf\\s+of|moment\\s+generating|bayes|expected\\s+value|E\\s*\\[|clt\\b|central\\s+limit|confidence\\s+interval|probability\\s+(?:of|that)|odds\\s+(?:of|that)|birthday|roll|flip|toss|draw|a\\s+(?:fair\\s+)?(?:die|coin|bag|urn|box)|two\\s+dice|normal\\s+approximation|variance\\s+of\\s+.*equally\\s+likely|mean\\s+of\\s+(?:a\\s+)?(?:fair\\s+)?(?:die|dice|coin|binomial|poisson|normal|geometric|exponential|uniform|gamma|beta)|standard\\s+deviation\\s+of\\s+(?:a\\s+)?(?:binomial|poisson|normal|geometric|exponential|uniform|gamma|beta)|lambda\\s*=|λ\\s*=)",
+    ")\\s*[(\\s]|\\bP\\s*\\(|\\bPr\\s*\\(|\\bprob\\s*\\(|^\\s*(?:quantile|inv\\s*norm|invnorm|z-?\\s?score|z\\s+for|critical\\s+value|percentile|cdf\\s+of|pmf\\s+of|pdf\\s+of|mgf\\s+of|moment\\s+generating|bayes|expected\\s+value|E\\s*\\[|clt\\b|central\\s+limit|confidence\\s+interval|(?:an?\\s+)?(?:\\d+(?:\\.\\d+)?\\s*%\\s*|0?\\.\\d+\\s+)(?:(?:one|two)[- ]sided\\s+|upper\\s+|lower\\s+)?(?:confidence\\s+(?:interval|bound|limit)|ci\\b|wilson\\b|clopper[-\\s]?pearson|exact\\s+binomial\\s+(?:confidence|interval|ci)\\b)|wilson\\s+(?:score\\s+)?(?:interval|ci|confidence|bound)|clopper[-\\s]?pearson\\b|exact\\s+binomial\\s+(?:confidence|interval|ci)\\b|(?:one|two)[- ]sided\\s+(?:\\d+(?:\\.\\d+)?\\s*%\\s*)?(?:confidence|wilson|clopper|upper|lower)|(?:upper|lower)\\s+(?:\\d+(?:\\.\\d+)?\\s*%\\s*)?confidence\\s+(?:bound|limit|interval)|probability\\s+(?:of|that)|odds\\s+(?:of|that)|birthday|roll|flip|toss|draw|a\\s+(?:fair\\s+)?(?:die|coin|bag|urn|box)|two\\s+dice|normal\\s+approximation|variance\\s+of\\s+.*equally\\s+likely|mean\\s+of\\s+(?:a\\s+)?(?:fair\\s+)?(?:die|dice|coin|binomial|poisson|normal|geometric|exponential|uniform|gamma|beta)|standard\\s+deviation\\s+of\\s+(?:a\\s+)?(?:binomial|poisson|normal|geometric|exponential|uniform|gamma|beta)|lambda\\s*=|λ\\s*=)" +
+    // v2.136.0: a proportion CI phrased count-first or CI-later — BOTH a count and a CI word on the line ("12 out of 40 is what percent" stays out).
+    "|\\b\\d+\\s+(?:successes\\s+|success\\s+)?(?:out\\s+of|of)\\s+\\d+\\b.*\\b(?:confidence\\s+(?:interval|bound|limit)|wilson|clopper)|\\b(?:confidence\\s+(?:interval|bound|limit)s?|wilson\\s+interval|clopper[-\\s]?pearson)\\b.*\\b\\d+\\s+(?:successes\\s+|success\\s+)?(?:out\\s+of|of)\\s+\\d+\\b",
   "i",
 );
 
@@ -1274,6 +1277,348 @@ function proseVerb(text: string): VerbResult | null {
 }
 
 // ---------------------------------------------------------------------------
+// Confidence interval for ONE proportion (v2.136.0)
+//
+// Wilson leads (Brown, Cai & DasGupta 2001, Statist. Sci. 16:101), the exact
+// Clopper–Pearson interval beside it, the textbook Wald interval last — with
+// its truncation at 0/1 and its zero width at p̂ = 0 or 1 SAID, never silent
+// (v2.131 clamped −0.0188 to 0 while the printed formula still evaluated to
+// −0.0188, and gave a zero-width [0, 0] "95%" interval for 0 of 20). Every
+// interval is computed two independent ways that must agree to 1e-9, or it
+// is not shown.
+// ---------------------------------------------------------------------------
+
+/** A confidence-interval opener: an optional level / sidedness, then a CI or method word. */
+const CI_OPENER = /^(?:an?\s+|the\s+)?(?:(?:\d+(?:\.\d+)?\s*%|0?\.\d+)\s+)?(?:(?:one|two)[- ]sided\s+|upper\s+|lower\s+)?(?:\d+(?:\.\d+)?\s*%\s+)?(?:wilson|clopper[-\s]?pearson|exact\s+binomial|agresti[-\s]?coull|jeffreys|wald|score\s+interval|confidence\s+(?:interval|bound|limit)|ci\b)(?!\s*=)/i;
+const PROP_METHOD = /\b(?:wilson|clopper[-\s]?pearson|exact\s+binomial|agresti[-\s]?coull|jeffreys|wald)\b/i;
+const PROP_MEAN_WORDS = /\b(?:mean|xbar|sd|sigma|standard\s+deviation|stdev|average)\b|x̄|\bs\s*=/i;
+
+/**
+ * Above CAPS.BINOMIAL_N the beta quantile is Clopper–Pearson's only route.
+ * Probed at 4·10⁴/10⁵, 4·10⁵/10⁶, 3/10⁶ and 4·10⁶/10⁷ against a windowed
+ * (mode ± 40σ) binomial CDF: agreement to every printed digit. Not probed
+ * beyond, so not shown beyond (stats.ts betacf stops at 200 iterations).
+ */
+const CP_BETA_MAX_N = 10_000_000;
+
+/** P(X ≥ x) and P(X ≤ x) for X ~ binomial(n, p), summed in log space — the Clopper–Pearson cross-check (shares no code with the incomplete beta). */
+function binomTails(n: number, x: number, p: number): { ge: number; le: number } {
+  if (p <= 0) return { ge: x <= 0 ? 1 : 0, le: 1 };
+  if (p >= 1) return { ge: 1, le: x >= n ? 1 : 0 };
+  const lp = Math.log(p);
+  const lq = Math.log1p(-p);
+  let lc = 0; // log C(n, k), built incrementally
+  let ge = 0;
+  let le = 0;
+  for (let k = 0; k <= n; k++) {
+    if (k > 0) lc += Math.log(n - k + 1) - Math.log(k);
+    const t = Math.exp(lc + k * lp + (n - k) * lq);
+    if (k >= x) ge += t;
+    if (k <= x) le += t;
+  }
+  return { ge: Math.min(1, ge), le: Math.min(1, le) };
+}
+/** Bisection to 1e-15 on [lo, hi]: `right(mid)` says the root lies to the right of mid. (A sign test fails when f(lo) = 0 exactly — p̂ = 0 — and collapsed the Wilson upper root onto 0; the cross-check caught it.) */
+function bisectRoot(right: (p: number) => boolean, lo: number, hi: number): number {
+  for (let i = 0; i < 200 && hi - lo > 1e-15; i++) {
+    const mid = (lo + hi) / 2;
+    if (right(mid)) lo = mid;
+    else hi = mid;
+  }
+  return (lo + hi) / 2;
+}
+
+function intervalBarsSvg(rows: { label: string; lo: number; hi: number; note?: string }[], phat: number, caption: string): string {
+  const W = 460;
+  const left = 150;
+  const right = 24;
+  const top = 30;
+  const rowH = 34;
+  const H = top + rows.length * rowH + 36;
+  const plotW = W - left - right;
+  const X = (v: number): number => left + Math.max(0, Math.min(1, v)) * plotW;
+  const parts: string[] = [];
+  parts.push(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" font-family="Segoe UI, Arial, sans-serif" font-size="11">`);
+  parts.push(`<rect width="${W}" height="${H}" fill="#fff"/>`);
+  parts.push(`<text x="${W / 2}" y="16" text-anchor="middle" font-size="12" fill="#1A1A1A">${esc(caption)}</text>`);
+  const axisY = top + rows.length * rowH + 4;
+  parts.push(`<line x1="${left}" y1="${axisY}" x2="${left + plotW}" y2="${axisY}" stroke="#1A1A1A"/>`);
+  for (let i = 0; i <= 10; i++) {
+    const x = X(i / 10);
+    parts.push(`<line x1="${x.toFixed(1)}" y1="${axisY}" x2="${x.toFixed(1)}" y2="${axisY + 4}" stroke="#1A1A1A"/>`);
+    if (i % 2 === 0) parts.push(`<text x="${x.toFixed(1)}" y="${axisY + 16}" text-anchor="middle" fill="#1A1A1A">${i / 10}</text>`);
+  }
+  const px = X(phat);
+  parts.push(`<line x1="${px.toFixed(1)}" y1="${top - 4}" x2="${px.toFixed(1)}" y2="${axisY}" stroke="#B91C1C" stroke-dasharray="4 3"/>`);
+  parts.push(`<text x="${px.toFixed(1)}" y="${axisY + 30}" text-anchor="middle" fill="#B91C1C">p̂ = ${sig6(phat)}</text>`);
+  rows.forEach((r, i) => {
+    const y = top + i * rowH + rowH / 2;
+    parts.push(`<text x="${left - 8}" y="${y + 4}" text-anchor="end" fill="#1A1A1A">${esc(r.label)}</text>`);
+    const x1 = X(r.lo);
+    const x2 = X(r.hi);
+    parts.push(`<rect x="${x1.toFixed(1)}" y="${(y - 6).toFixed(1)}" width="${Math.max(1.5, x2 - x1).toFixed(1)}" height="12" fill="${i === 0 ? "#0C4A6E" : "#9DB3C4"}"/>`);
+  });
+  parts.push(`</svg>`);
+  return parts.join("");
+}
+
+/** Count-first or CI-later prose ("12 successes out of 40; find the 95% confidence interval"): BOTH a count form and a CI word must be on the line. */
+const CI_WORD_ANYWHERE = /\bconfidence\s+(?:interval|bound|limit)s?\b|\bwilson\s+(?:score\s+)?interval\b|\bclopper[-\s]?pearson\b|\bexact\s+binomial\s+(?:confidence\s+)?interval\b|\bCI\b/;
+const COUNT_FORM_ANYWHERE = /\b\d+\s+(?:(?:successes|success|yes(?:es)?|positives?|heads|events?|defectives?|cases|people)\s+)?(?:out\s+of|of|in)\s+\d+\b|\b(?:x|k)\s*=\s*\d+\s*,?\s*(?:and\s+)?n\s*=\s*\d+/i;
+
+function proportionCiVerb(text: string): VerbResult | null {
+  if (!CI_OPENER.test(text) && !(CI_WORD_ANYWHERE.test(text) && COUNT_FORM_ANYWHERE.test(text))) return null;
+  const method = PROP_METHOD.exec(text)?.[0].toLowerCase().replace(/[-\s]+/g, " ") ?? null;
+  const countRe = /(\d+(?:\.\d+)?)\s+(?:(?:successes|success|yes(?:es)?|positives?|heads|events?|defectives?|cases|people)\s+)?(?:out\s+of|of|in)\s+(-?\d+(?:\.\d+)?)\b/i;
+  const pRe = new RegExp(`(?:\\bp\\u0302|\\bp\\s*-?\\s*hat\\b|\\bphat\\b|\\bsample\\s+proportion\\b|\\bproportion\\b|\\bp\\b)\\s*(?:=|:|\\bis\\b|\\bof\\b)?\\s*(${NUM})(?![\\d./%])`, "gi");
+  /** A WHOLE number followed by a count phrase is a count, not p̂ ("proportion with 12 successes out of 40"); "proportion 0.3 in 40" is p̂ = 0.3. */
+  const countAfter = /^\s*(?:successes|success|yes(?:es)?|positives?|heads|events?|defectives?|cases|people|out\s+of|of\s+\d|in\s+\d)/i;
+  const findP = (s: string): RegExpExecArray | null => {
+    pRe.lastIndex = 0;
+    for (let m = pRe.exec(s); m; m = pRe.exec(s)) {
+      if (!(/^\d+$/.test(m[1]) && countAfter.test(s.slice(m.index + m[0].length)))) return m;
+      pRe.lastIndex = m.index + 1;
+    }
+    return null;
+  };
+  const xnRe = /\b(?:x|k|successes|count)\s*(?:=|:)\s*(-?\d+(?:\.\d+)?)/i;
+  const fracRe = /(?<![\w.\/])(\d+)\s*\/\s*(\d+)(?![\w.\/])/;
+  const evidence = method || /\bproportion\b/i.test(text) || findP(text) !== null || countRe.test(text) || xnRe.test(text) || fracRe.test(text);
+  if (!evidence) return null;
+  if (PROP_MEAN_WORDS.test(text) && !method && !/\bproportion\b/i.test(text)) return null; // a CI for a MEAN
+  const title0 = "confidence interval for a proportion";
+  if (method === "agresti coull" || method === "jeffreys")
+    return refuse(title0, `The ${method === "jeffreys" ? "Jeffreys" : "Agresti–Coull"} interval is not computed here. The Wilson score interval (shown for any proportion request — "95% confidence interval for 12 successes out of 40") has the same good coverage (Brown, Cai & DasGupta 2001) and is what this verb leads with; the exact Clopper–Pearson interval is shown beside it.`);
+
+  // --- the level (taken out of the text so it is never read as p̂) ---
+  let t = ` ${text} `;
+  let level = 0.95;
+  // The level is read ANYWHERE on the line (review, v2.136.0: "clopper pearson
+  // 80% 4/54" was computed at 95% — the level was read only before the method
+  // name). Every percent that is not the proportion itself ("p = 30%") is a
+  // level candidate, with decimal levels and alpha; two DIFFERENT levels are
+  // refused by name.
+  const pSpan = findP(t);
+  const cands: { value: number; typed: string; at: number; len: number }[] = [];
+  for (const m of t.matchAll(/(\d+(?:\.\d+)?)\s*%/g)) {
+    const at = m.index!;
+    if (pSpan && at >= pSpan.index && at < pSpan.index + pSpan[0].length) continue;
+    cands.push({ value: Number(m[1]) / 100, typed: `${m[1]}%`, at, len: m[0].length });
+  }
+  const lv3 = /(?:confidence\s+level|\blevel)\s*(?:of|=|:)?\s*(0?\.\d+)\b|^\s*(?:an?\s+)?(0?\.\d+)\s+(?:confidence|ci\b)|(?:confidence\s+interval|\bci)\s+(0?\.\d+)(?=\s)/i.exec(t);
+  if (lv3) {
+    const d = lv3[1] ?? lv3[2] ?? lv3[3];
+    cands.push({ value: Number(d), typed: `${Number((Number(d) * 100).toPrecision(12))}%`, at: lv3.index, len: lv3[0].length });
+  }
+  const av = /\balpha\s*(?:=|:|of)?\s*(0?\.\d+)\b/i.exec(t);
+  if (av) cands.push({ value: 1 - Number(av[1]), typed: `${Number(((1 - Number(av[1])) * 100).toPrecision(12))}%`, at: av.index, len: av[0].length });
+  const distinct = [...new Set(cands.map((c0) => Number(c0.value.toPrecision(12))))];
+  if (distinct.length > 1) return refuse(title0, `Two different confidence levels were given: ${[...new Set(cands.map((c0) => c0.typed))].join(" and ")} — give one.`);
+  let levelTyped = "95%";
+  if (cands.length) {
+    level = cands[0].value;
+    levelTyped = cands[0].typed;
+    for (const c0 of [...cands].sort((a, b) => b.at - a.at)) t = t.slice(0, c0.at) + " " + t.slice(c0.at + c0.len);
+  }
+  if (!(level > 0 && level < 1)) return refuse(title0, `The confidence level must be strictly between 0 and 100% (read ${levelTyped}).`);
+  // Printed as typed: "99.9999999%" never becomes "100%".
+  const pct = levelTyped;
+  const title = `${pct} confidence interval for a proportion`;
+  const sides: "two" | "upper" | "lower" | "each" = /\bupper\s+(?:confidence\s+)?(?:bound|limit)|\bupper\s+one[- ]sided|\bone[- ]sided\s+upper/i.test(t)
+    ? "upper"
+    : /\blower\s+(?:confidence\s+)?(?:bound|limit)|\blower\s+one[- ]sided|\bone[- ]sided\s+lower/i.test(t)
+    ? "lower"
+    : /\bone[- ]sided\b/i.test(t)
+    ? "each"
+    : "two";
+  // Strip the method / opener words so their letters are not read as names.
+  t = t.replace(/\b(?:wilson(?:\s+score)?|clopper[-\s]?pearson|exact\s+binomial|wald|score|confidence|interval|bound|limit|upper|lower|(?:one|two)[- ]sided|for|a|an|the|with|ci)\b/gi, " ");
+
+  // --- count and / or proportion ---
+  let xTok: string | null = null;
+  let nTok: string | null = null;
+  let pTok: NumTok | null = null;
+  const pm = findP(t);
+  if (pm) {
+    pTok = readNum(pm[1]);
+    if (!pTok) return refuse(title, `Could not read the proportion "${pm[1]}".`);
+    t = t.slice(0, pm.index) + " " + t.slice(pm.index + pm[0].length);
+  }
+  const cm = countRe.exec(t);
+  if (cm) {
+    xTok = cm[1];
+    nTok = cm[2];
+    t = t.slice(0, cm.index) + " " + t.slice(cm.index + cm[0].length);
+  } else if (pTok) {
+    // "proportion 0.3 in 40 trials": the number after in / of / out of is n.
+    const after = /\b(?:out\s+of|in|of|from)\s+(-?\d+(?:\.\d+)?)\b/i.exec(t);
+    if (after) {
+      nTok = after[1];
+      t = t.slice(0, after.index) + " " + t.slice(after.index + after[0].length);
+    }
+  }
+  const xm = xnRe.exec(t);
+  if (xm) {
+    if (xTok !== null && Number(xTok) !== Number(xm[1])) return refuse(title, `Two different counts were given: ${xTok} and ${xm[1]}.`);
+    xTok = xm[1];
+  }
+  const nm = /\bn\s*(?:=|:|\bis\b)?\s*(-?\d+(?:\.\d+)?)\b|\bsample\s+size\s*(?:of|=|:|is)?\s*(-?\d+(?:\.\d+)?)\b|\b(?:trials|observations)\s*(?:=|:)\s*(-?\d+(?:\.\d+)?)\b/i.exec(t);
+  if (nm) {
+    const v = nm[1] ?? nm[2] ?? nm[3];
+    if (nTok !== null && Number(nTok) !== Number(v)) return refuse(title, `Two different sample sizes were given: ${nTok} and ${v}.`);
+    nTok = v;
+  }
+  if (xTok === null && nTok === null && !pTok) {
+    const fm = fracRe.exec(t);
+    if (fm) {
+      xTok = fm[1];
+      nTok = fm[2];
+    }
+  }
+  // "proportion 12/40" with no n: the fraction IS the count over n.
+  if (pTok && nTok === null && xTok === null) {
+    const fm = /^(\d+)\s*\/\s*(\d+)$/.exec(pTok.text.trim());
+    if (fm) {
+      xTok = fm[1];
+      nTok = fm[2];
+      pTok = null;
+    }
+  }
+  if (nTok === null || (xTok === null && !pTok))
+    return refuse(title, `Give the count and the sample size ("12 successes out of 40", "x = 12, n = 40", "12/40") or the sample proportion and n ("p = 0.4, n = 100").`);
+
+  // --- validation, BY NAME ---
+  const nVal = Number(nTok);
+  if (nVal === 0) return refuse(title, "n = 0: there are no trials, so there is no proportion to estimate.");
+  if (!Number.isInteger(nVal) || nVal < 0) return refuse(title, `n = ${nTok} is not a whole number of trials: the sample size must be a positive integer.`);
+  if (nVal > 1e9) return refuse(title, `n = ${nTok}: up to 10⁹ trials here.`);
+  const nRat = ratInt(nVal);
+  let xVal: number | null = null;
+  if (xTok !== null) {
+    xVal = Number(xTok);
+    if (!Number.isInteger(xVal) || xVal < 0) return refuse(title, `x = ${xTok} is not a whole number of successes: a count must be a non-negative integer.`);
+    if (xVal > nVal) return refuse(title, `x = ${xVal} successes is more than n = ${nVal} trials.`);
+  }
+  let pRat: Rat | null = null;
+  if (pTok) {
+    if (!(pTok.value >= 0 && pTok.value <= 1)) return refuse(title, `The proportion must be in [0, 1] (read ${pTok.text}).`);
+    pRat = pTok.rat;
+    if (xVal !== null) {
+      const fromCount = ratDiv(ratInt(xVal), nRat);
+      const agree = pRat ? ratEq(pRat, fromCount) : Math.abs(pTok.value - xVal / nVal) < 1e-12;
+      if (!agree) return refuse(title, `The count and the proportion disagree: ${xVal}/${nVal} = ${fmtRat(fromCount)}${fmtRat(fromCount).includes("/") ? ` ≈ ${sig6(xVal / nVal)}` : ""}, but p̂ = ${pTok.text} was also given. Give one of them.`);
+    } else if (pRat) {
+      const xr = ratMul(pRat, nRat);
+      if (xr.d === 1n) xVal = Number(xr.n);
+    }
+  }
+  const phat = xVal !== null ? xVal / nVal : pTok!.value;
+  const phatText = xVal !== null ? `${xVal}/${nVal}${xVal === 0 || xVal === nVal ? "" : ` = ${sig6(phat)}`}` : pTok!.text;
+  const n = nVal;
+
+  // --- the critical value ---
+  const alpha = 1 - level;
+  const tail = sides === "two" ? alpha / 2 : alpha;
+  const z = normalQuantile(1 - tail);
+  if (!(Math.abs(normalCdfPrecise(z) - (1 - tail)) < 1e-12)) return refuse(title, "Cross-check FAILED on the normal critical value — withheld.");
+  const wantLo = sides !== "upper";
+  const wantHi = sides !== "lower";
+
+  // --- Wilson: closed form, and the score equation by bisection ---
+  const z2 = z * z;
+  const denom = 1 + z2 / n;
+  const centre = (phat + z2 / (2 * n)) / denom;
+  const half = (z / denom) * Math.sqrt((phat * (1 - phat)) / n + z2 / (4 * n * n));
+  const wLo = phat === 0 ? 0 : Math.max(0, centre - half); // the score interval lies in [0, 1] exactly; max() only removes −1e-17 rounding
+  const wHi = phat === 1 ? 1 : Math.min(1, centre + half);
+  const g = (p: number): number => (phat - p) * (phat - p) - (z2 * p * (1 - p)) / n;
+  // g is a convex quadratic with g(0) = p̂² ≥ 0, g(p̂) ≤ 0, g(1) = (1 − p̂)² ≥ 0: one root on each side of p̂.
+  const wLo2 = phat === 0 ? 0 : bisectRoot((p) => g(p) > 0, 0, phat);
+  const wHi2 = phat === 1 ? 1 : bisectRoot((p) => g(p) <= 0, phat, 1);
+  if (!(Math.abs(wLo - wLo2) <= 1e-9 && Math.abs(wHi - wHi2) <= 1e-9)) return refuse(title, `Cross-check FAILED: the Wilson closed form [${sig6(wLo)}, ${sig6(wHi)}] and the score equation [${sig6(wLo2)}, ${sig6(wHi2)}] disagree — withheld.`);
+
+  // --- Clopper–Pearson: beta quantiles, and bisection on the exact binomial tails ---
+  let cp: { lo: number; hi: number } | null = null;
+  let cpNote: string;
+  if (xVal === null) {
+    cpNote = `Clopper–Pearson needs a whole number of successes: n·p̂ = ${sig6(phat * n)} is not one${pRat ? "" : " (or p̂ was not an exact decimal)"}, so it is not shown — give the count ("x = 12, n = 40").`;
+  } else if (n > CP_BETA_MAX_N) {
+    cpNote = `Clopper–Pearson not shown: n = ${n} is above 10⁷, the largest n at which this verb's beta-quantile route has been verified against an exact binomial tail (it is the only route above n = ${CAPS.BINOMIAL_N}); at this n Wilson and Clopper–Pearson agree closely anyway.`;
+  } else {
+    const x = xVal;
+    const cLo = x === 0 ? 0 : betaDist({ value: x }, { value: n - x + 1 }).quantile(tail);
+    const cHi = x === n ? 1 : betaDist({ value: x + 1 }, { value: n - x }).quantile(1 - tail);
+    if (n <= CAPS.BINOMIAL_N) {
+      // P(X ≥ x | p) increases with p; P(X ≤ x | p) decreases.
+      const cLo2 = x === 0 ? 0 : bisectRoot((p) => binomTails(n, x, p).ge < tail, 0, 1);
+      const cHi2 = x === n ? 1 : bisectRoot((p) => binomTails(n, x, p).le > tail, 0, 1);
+      if (Math.abs(cLo - cLo2) <= 1e-9 && Math.abs(cHi - cHi2) <= 1e-9) {
+        cp = { lo: cLo, hi: cHi };
+        cpNote = `Clopper–Pearson: the beta-quantile route and bisection on the exact binomial tail${wantLo ? ` P(X ≥ ${x} | p_L) = ${sig6(tail)}` : ""}${wantLo && wantHi ? "," : ""}${wantHi ? ` P(X ≤ ${x} | p_U) = ${sig6(tail)}` : ""} agree to 1e-9.`;
+      } else {
+        cpNote = `Clopper–Pearson withheld: the beta-quantile route [${sig6(cLo)}, ${sig6(cHi)}] and the exact binomial tail [${sig6(cLo2)}, ${sig6(cHi2)}] disagree by more than 1e-9.`;
+      }
+    } else {
+      cp = { lo: cLo, hi: cHi };
+      cpNote = `Clopper–Pearson: n = ${n} is above ${CAPS.BINOMIAL_N}, the cap for the exact binomial-tail cross-check, so the beta-quantile route stands alone here (not cross-checked).`;
+    }
+  }
+
+  // --- Wald (textbook), truncation and failure said ---
+  const se = Math.sqrt((phat * (1 - phat)) / n);
+  const dLo = phat - z * se;
+  const dHi = phat + z * se;
+  const minus = (s: string): string => s.replace(/^-/, "−");
+  const iv = (lo: number, hi: number): string => (sides === "upper" ? `[0, ${sig6(hi)}]` : sides === "lower" ? `[${minus(sig6(lo))}, 1]` : `[${minus(sig6(lo))}, ${sig6(hi)}]`);
+  const lines: VerbResult["lines"] = [];
+  const caveats: string[] = [];
+  const sideText = sides === "two" ? "two-sided" : sides === "upper" ? "one-sided upper bound" : sides === "lower" ? "one-sided lower bound" : "one-sided bounds";
+  lines.push(line(`p̂ = ${phatText}${xVal !== null ? ` (x = ${xVal} success${xVal === 1 ? "" : "es"} in n = ${n} trial${n === 1 ? "" : "s"})` : `, n = ${n}`}; ${pct} ${sideText}, z = ${sig6(z)}`));
+  if (sides === "each") caveats.push(`One-sided: the lower bound alone and the upper bound alone each have ${pct} coverage; together they are NOT a ${pct} interval (they form the ${Number(((1 - 2 * alpha) * 100).toPrecision(6))}% two-sided interval).`);
+  const wLine = `Wilson score interval (recommended): ${iv(wLo, wHi)}`;
+  const cpLine = cp ? `Clopper–Pearson exact interval (conservative: coverage ≥ ${pct} guaranteed): ${iv(cp.lo, cp.hi)}` : null;
+  const order: ("w" | "c")[] = method === "clopper pearson" || method === "exact binomial" ? ["c", "w"] : ["w", "c"];
+  for (const k of order) {
+    if (k === "w") {
+      lines.push(line(wLine));
+      if (wantLo) lines.push(line(sig6(wLo), true));
+      if (wantHi) lines.push(line(sig6(wHi), true));
+    } else if (cpLine && cp) {
+      lines.push(line(cpLine));
+      if (wantLo) lines.push(line(sig6(cp.lo), true));
+      if (wantHi) lines.push(line(sig6(cp.hi), true));
+    }
+  }
+  if (!cp) lines.push(line(cpNote));
+  // Wald
+  const waldPieces: string[] = [];
+  let waldText: string;
+  if (phat === 0 || phat === 1) {
+    waldText = `Textbook (Wald) interval p̂ ± z·sqrt(p̂(1 − p̂)/n) = [${sig6(phat)}, ${sig6(phat)}] — zero width: the Wald interval fails here (at p̂ = ${phat} its standard error is 0)`;
+  } else {
+    const below = wantLo && dLo < 0;
+    const above = wantHi && dHi > 1;
+    waldText = `Textbook (Wald) interval p̂ ± z·sqrt(p̂(1 − p̂)/n) = ${iv(dLo, dHi)}`;
+    if (below) waldPieces.push("runs below 0");
+    if (above) waldPieces.push("runs above 1");
+    if (below || above) waldText += ` — ${waldPieces.join(" and ")}; reported as ${iv(Math.max(0, dLo), Math.min(1, dHi))}`;
+  }
+  lines.push(line(waldText));
+  const npq = Math.min(n * phat, n * (1 - phat));
+  if (npq < 10) caveats.push(`np̂ = ${sig6(n * phat)} and n(1 − p̂) = ${sig6(n * (1 - phat))}: ${npq === n * phat ? "np̂" : "n(1 − p̂)"} < 10, so the Wald interval is unreliable here (its actual coverage can fall well below ${pct}) — use Wilson.`);
+  else caveats.push(`np̂ = ${sig6(n * phat)} and n(1 − p̂) = ${sig6(n * (1 - phat))} are both ≥ 10, so the Wald interval is usable here; Wilson is still preferred.`);
+  caveats.push(`Wilson verified two ways: the closed form and the score equation |p̂ − p| = z·sqrt(p(1 − p)/n) solved by bisection agree to 1e-9. Brown, Cai & DasGupta (2001), Statist. Sci. 16:101.`);
+  caveats.push(cp ? cpNote : `Clopper–Pearson not shown (see above).`);
+  caveats.push(`z = ${sig6(z)} = Φ⁻¹(${Number((1 - tail).toPrecision(12))}), verified by evaluating Φ back at it.`);
+  const bars = [
+    { label: "Wilson", lo: wantLo ? wLo : 0, hi: wantHi ? wHi : 1 },
+    ...(cp ? [{ label: "Clopper–Pearson", lo: wantLo ? cp.lo : 0, hi: wantHi ? cp.hi : 1 }] : []),
+    { label: "Wald (textbook)", lo: wantLo ? Math.max(0, dLo) : 0, hi: wantHi ? Math.min(1, dHi) : 1 },
+  ];
+  return { title, lines, caveats, svg: intervalBarsSvg(bars, phat, `${pct} intervals for p, p̂ = ${sig6(phat)}, n = ${n}`), alt: `Interval bars on [0, 1] for the Wilson, Clopper–Pearson and Wald ${pct} intervals, with p̂ marked.` };
+}
+
+// ---------------------------------------------------------------------------
 // CLT and confidence intervals
 // ---------------------------------------------------------------------------
 
@@ -1326,26 +1671,7 @@ function cltVerb(text: string): VerbResult | null {
     const level = levelM ? (Number(levelM) > 1 ? Number(levelM) / 100 : Number(levelM)) : 0.95;
     if (!(level > 0 && level < 1)) return refuse("confidence interval", "The confidence level must be between 0 and 100%.");
     const pct = `${Number((level * 100).toPrecision(6))}%`;
-    // Proportion: p̂ ± z·sqrt(p̂(1 − p̂)/n)
-    const prop = /\bproportion\b/i.test(t) || /\bp\s*(?:=|hat)\s*0?\.\d+/i.test(t);
-    if (prop) {
-      const { named: pn } = readParams(t.replace(/\d+(?:\.\d+)?\s*%/, " ").replace(/\bproportion\b/gi, " "));
-      const ph = pick(pn, ["p", "phat", "proportion", "p hat"]);
-      const nn2 = pick(pn, ["n", "sample size", "size"]);
-      if (!ph || !nn2) return refuse("confidence interval", "Give the sample proportion and n: confidence interval 95% proportion p = 0.4 n = 100.");
-      if (!(ph.value >= 0 && ph.value <= 1)) return refuse("confidence interval", "The proportion must be in [0, 1].");
-      if (!(nn2.value > 0) || !Number.isInteger(nn2.value)) return refuse("confidence interval", "n must be a positive integer.");
-      const zc2 = normalQuantile(1 - (1 - level) / 2);
-      const se2 = Math.sqrt((ph.value * (1 - ph.value)) / nn2.value);
-      const lo2 = ph.value - zc2 * se2;
-      const hi2 = ph.value + zc2 * se2;
-      const okN = nn2.value * ph.value >= 10 && nn2.value * (1 - ph.value) >= 10;
-      return {
-        title: `${pct} confidence interval for a proportion`,
-        lines: [line(`p̂ = ${ph.text}, n = ${nn2.text}; standard error = sqrt(p̂(1 − p̂)/n) ≈ ${fmtNum(se2)}`), line(`${pct} interval: ${ph.text} ± ${fmtNum(zc2)}·${fmtNum(se2)} = [${fmtNum(Math.max(0, lo2))}, ${fmtNum(Math.min(1, hi2))}]`), line(`${ph.text} - ${fmtNum(zc2)}*sqrt(${ph.text}*(1 - ${ph.text})/${nn2.text})`, true), line(`${ph.text} + ${fmtNum(zc2)}*sqrt(${ph.text}*(1 - ${ph.text})/${nn2.text})`, true)],
-        caveats: [okN ? `np̂ = ${fmtNum(nn2.value * ph.value)} and n(1 − p̂) = ${fmtNum(nn2.value * (1 - ph.value))} are both ≥ 10, so the Wald (normal) interval is the textbook choice.` : `np̂ = ${fmtNum(nn2.value * ph.value)} or n(1 − p̂) = ${fmtNum(nn2.value * (1 - ph.value))} is below 10: the Wald interval is unreliable here (a Wilson interval would be better; not provided).`, `z = ${fmtNum(zc2)} (Φ⁻¹(${1 - (1 - level) / 2})), verified by evaluating Φ back at it.`],
-      };
-    }
+    // A proportion is proportionCiVerb's (v2.136.0) — it runs first.
     const { named } = readParams(t.replace(/\d+(?:\.\d+)?\s*%/, " "));
     const nn = pick(named, ["n", "sample size", "size"]);
     const mean = pick(named, ["mean", "xbar", "x̄", "mu", "m", "x"]);
@@ -1446,6 +1772,7 @@ export function tryProbability(input: string): VerbResult | null {
   const text = norm(input);
   if (!text) return null;
   return (
+    proportionCiVerb(text) ??
     normalApproxVerb(text) ??
     cltVerb(text) ??
     quantileVerb(text) ??

@@ -390,6 +390,8 @@ export const SOLVE_CALCULUS: PaletteGroup[] = [
       { label: "Taylor", snippet: "taylor exp(x) order 5", title: "Taylor series, exact coefficients" },
       { label: "Maclaurin", snippet: "maclaurin sin(x)", title: "Series about 0" },
       { label: "series about a", snippet: "series sqrt(x) about 1 order 4", title: "Expansion about a point" },
+      { label: "radius", snippet: "radius of convergence of 1/(x^2 + 4) about 1", title: "R = sqrt(5): the distance to the nearest complex pole — a theorem, never a reading of coefficients; the disc drawn" },
+      { label: "interval", snippet: "interval of convergence of sum (x-3)^n/(n*2^n)", title: "Exact ratio test, R = 2; each endpoint by a named test → [1, 5)" },
     ],
   },
 ];
@@ -423,6 +425,16 @@ export const SOLVE_TRANSFORMS: PaletteGroup[] = [
       { label: "dice / coins", snippet: "probability of at least one six in four rolls", title: "Also: two dice sum 7; flip a fair coin 10 times, exactly 7 heads; a bag has 3 red and 5 blue …; birthday problem 23 people" },
       { label: "CLT / CI", snippet: "confidence interval 95% mean 50 sd 10 n 30", title: "z- and t-intervals, the choice stated; clt n = 30 mean 50 sd 10 P(xbar > 52)" },
       { label: "Markov", snippet: "markov [[0.9, 0.1], [0.5, 0.5]] stationary", title: "Exact π, classification, limit; 'after 3 steps from (1,0)'; absorbing chains" },
+      { label: "proportion CI", snippet: "95% confidence interval for a proportion with 12 successes out of 40", title: "Wilson leads, Clopper–Pearson (exact, conservative) next, Wald last with its failure said; also 'wilson interval 12 of 40'" },
+      { label: "Markov hitting", snippet: "markov [[0.5,0.5,0],[0.25,0.5,0.25],[0,0.5,0.5]] expected hitting time from 1 to 3", title: "Exact over ℚ (8); also 'probability of reaching 3 before 1 starting from 2', 'mean first passage time', 'expected return time'" },
+    ],
+  },
+  {
+    name: "Exact roots & simplify",
+    items: [
+      { label: "roots of", snippet: "find the roots of x^3 - 7x + 6", title: "Task words are read as the task, not as unknowns: 2, 1, −3 with the factorisation" },
+      { label: "simplify x, y", snippet: "simplify (x^2 - y^2)/(x - y)", title: "x + y — the common factor x − y cancelled AND named, with the points where the original is 0/0" },
+      { label: "exact zero", snippet: "simplify cbrt(2)^3 - 2", title: "0 — exact radicals, not float residue" },
     ],
   },
   {
@@ -473,6 +485,9 @@ export const SOLVE_EQUATIONS: PaletteGroup[] = [
     items: [
       { label: "Quadratic", snippet: "x^2 - 5x + 6 = 0", title: "Both roots, exactly" },
       { label: "Cubic", snippet: "x^3 - 6x^2 + 11x - 6 = 0", title: "Every real and complex root" },
+      { label: "Cubic, exact", snippet: "x^3 - 3x + 1 = 0", title: "2*cos(2*pi/9), 2*cos(4*pi/9), 2*cos(8*pi/9) — three real roots in the trigonometric form, never complex radicals" },
+      { label: "Cube root", snippet: "x^3 = 2", title: "cbrt(2) and the exact complex pair; x^3 - 2x - 5 = 0 gives all three by Cardano, the real one in real cube roots" },
+      { label: "Quartic", snippet: "x^4 + 4x - 1 = 0", title: "Ferrari over ℚ(√2), certified by multiplying back; x^4 - 10x^2 + 1 = 0 denests to ±sqrt(3) ± sqrt(2)" },
       { label: "System 2×2", snippet: "2x + y = 7\nx - y = 2", title: "Two equations, one per line" },
       { label: "System 3×3", snippet: "x + y + z = 6\n2x - y + z = 3\nx + 2y - z = 2", title: "Three equations, one per line" },
       { label: "Inequality", snippet: "x^2 - 4 >= 0", title: "Solution intervals" },

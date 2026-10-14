@@ -16,7 +16,7 @@ import { partialFractionDecompose } from "./casint";
 import { parseExpr, evalAst, format, Expr } from "./solve";
 import {
   Rat, ratMake, ratInt, ratAdd, ratMul, ratNeg, ratIsZero, ratToNumber, ratEq, ratSign,
-  ratFunctionInVar, ratPolyRoots, ratPolyTrim, casSimplify, CasBail,
+  ratFunctionInVar, ratPolyRoots, ratPolyTrim, casSimplifyReport, CasBail,
 } from "./cas";
 import { fmtRat } from "./geometry";
 import { extractExpression, hasProseWords } from "./pasteMath";
@@ -462,16 +462,34 @@ export function tryAlgebraVerb(input: string): VerbResult | null {
 
   if (verb === "simplify") {
     try {
-      const s = casSimplify(e);
+      // v2.136.0: the REPORTING simplifier, with exact radicals. exactRadicals
+      // keeps sqrt/cbrt of rationals as algebraic atoms (cbrt(2)^3 - 2 is 0,
+      // not the float residue 1.67785700837e-16) — set here, and in the
+      // verifiers, only: flipping it globally would reprint every sqrt(2) in
+      // the product. The report says which common factor the multivariate GCD
+      // cancelled, or the cap that stopped it, by name.
+      const rep = casSimplifyReport(e, { exactRadicals: true });
+      const s = rep.result;
       const caveats = ["Simplification is the CAS's canonical form — algebraically equal, not necessarily the shortest possible writing."];
-      if (body.includes("/")) {
+      const lines: { text: string; math?: boolean }[] = [{ text: format(s), math: true }];
+      if (rep.cancelled) {
+        const g = format(rep.cancelled);
+        lines.push({ text: `Cancelled the common factor ${g}; equal to the original except where ${g} = 0 (there the original is 0/0).` });
+      }
+      // The point-removal caveat only when something WAS cancelled somewhere
+      // (anyCancellation is conservative: true whenever a factor may have
+      // gone). It used to ride on every "/" — "x/y" carried it, falsely.
+      if (rep.anyCancellation && !rep.cancelled) {
         caveats.push(
           "Cancelling a factor can remove points where the ORIGINAL was undefined (0/0) — the equality is algebraic, not pointwise everywhere."
         );
       }
+      if (rep.refused) {
+        caveats.push(`The multivariate common-factor search did not run, so a common factor may remain: ${rep.refused}`);
+      }
       return {
         title: `simplify ${body}`,
-        lines: [{ text: format(s), math: true }],
+        lines,
         caveats,
       };
     } catch (err) {

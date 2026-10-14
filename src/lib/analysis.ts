@@ -20,6 +20,7 @@
 import { parseExpr, evalAst, format, simplify, derivative, Expr } from "./solve";
 import { casSimplify, CasBail, exprEqual } from "./cas";
 import { minOf, maxOf } from "./minmax";
+import { radiusOfFunction, RadiusResult } from "./radius";
 
 const N = (v: number): Expr => ({ t: "num", v });
 const V = (name: string): Expr => ({ t: "var", name });
@@ -466,6 +467,13 @@ export interface SeriesResult {
   coefficients: number[];
   steps: string[];
   caveats: string[];
+  /**
+   * The radius of convergence, from the function's singularities in ℂ (a
+   * theorem) or refused by name — never read from `coefficients`.
+   */
+  radius?: RadiusResult;
+  /** "R = 1 — the nearest singularity …", or the named refusal. */
+  radiusLine?: string;
 }
 
 const MAX_ORDER = 12;
@@ -488,21 +496,43 @@ export function taylorSeries(input: string, variable = "x", centre = 0, order = 
   const coefficients: number[] = [];
   const terms: string[] = [];
 
+  // THE RADIUS COMES FROM STRUCTURE, NEVER FROM THE COEFFICIENTS BELOW (which
+  // are floats, and which mislead even when exact: the root test on 40 exact
+  // coefficients of ln(1+x) reads 1.097). It is computed from the ORIGINAL text,
+  // as a theorem about the function's singularities, or refused by name.
+  const radius = radiusOfFunction(input, variable, centre);
+
+  // A REMOVABLE centre (x/(eˣ − 1), sin(x)/x at 0) is 0/0 there, so the
+  // derivative loop below cannot start. When the radius engine has PROVED the
+  // centre removable (exactly — see radius.ts), the coefficients come from
+  // power-series division of numerator by denominator instead.
+  const removed = !Number.isFinite(at(e, variable, centre))
+    ? removableCentreSeries(input, variable, centre, n, radius)
+    : null;
+  if (removed) {
+    steps.push(`${variable} = ${centre} is removable (proved exactly), so the coefficients come from dividing the numerator's series by the denominator's.`);
+  }
+
   let d: Expr = e;
   let factorial = 1;
   for (let k = 0; k <= n; k++) {
-    if (k > 0) {
-      d = simp(derivative(d, variable));
-      factorial *= k;
+    let c: number;
+    if (removed) {
+      c = removed[k];
+    } else {
+      if (k > 0) {
+        d = simp(derivative(d, variable));
+        factorial *= k;
+      }
+      const value = at(d, variable, centre);
+      if (!Number.isFinite(value)) {
+        caveats.push(
+          `The ${k}-th derivative is not defined at ${variable} = ${centre}, so the series stops at order ${k - 1}. A Taylor series needs the function to be differentiable at its centre.`
+        );
+        break;
+      }
+      c = value / factorial;
     }
-    const value = at(d, variable, centre);
-    if (!Number.isFinite(value)) {
-      caveats.push(
-        `The ${k}-th derivative is not defined at ${variable} = ${centre}, so the series stops at order ${k - 1}. A Taylor series needs the function to be differentiable at its centre.`
-      );
-      break;
-    }
-    const c = value / factorial;
     coefficients.push(c);
     if (Math.abs(c) < 1e-14) continue; // a genuinely zero term
     const cs = fmtCoeff(c);
@@ -518,12 +548,82 @@ export function taylorSeries(input: string, variable = "x", centre = 0, order = 
     .join("") + ` + O(${centre === 0 ? variable : `(${variable} - ${centre})`}^${coefficients.length})`;
 
   steps.push(`${centre === 0 ? "Maclaurin" : "Taylor"} series of ${format(e)} about ${variable} = ${centre}, to order ${coefficients.length - 1}.`);
-  steps.push(`Coefficients are f⁽ᵏ⁾(${centre})/k!, from repeated differentiation.`);
-  caveats.push(
-    "This is a TRUNCATED series: the O(...) term is real and is not negligible far from the centre. Its radius of convergence is not computed here, so do not assume the series represents the function everywhere."
-  );
+  if (!removed) steps.push(`Coefficients are f⁽ᵏ⁾(${centre})/k!, from repeated differentiation.`);
 
-  return { expression: format(e), variable, centre, order: coefficients.length - 1, terms, display, coefficients, steps, caveats };
+  let radiusLine: string;
+  if (radius.kind === "refused") {
+    radiusLine = `Radius of convergence not determined: ${radius.reason ?? ""} The series is shown truncated.`.replace(/\s+/g, " ");
+    caveats.push(
+      `This is a TRUNCATED series: the O(...) term is real and is not negligible far from the centre. No general term is available and the function is outside the singularity rules, so the radius of convergence is not determined here — do not assume the series represents the function everywhere.`
+    );
+  } else {
+    radiusLine = radius.line;
+    caveats.push(
+      "This is a TRUNCATED series: the O(...) term is real and is not negligible far from the centre, even inside the radius of convergence."
+    );
+    caveats.push(...radius.caveats);
+  }
+  steps.push(radiusLine);
+
+  return { expression: format(e), variable, centre, order: coefficients.length - 1, terms, display, coefficients, steps, caveats, radius, radiusLine };
+}
+
+/**
+ * Coefficients 0…n of N/D about a centre the radius engine PROVED removable:
+ * the series of N and D from their own derivatives, the common zero of order m
+ * divided out, then series division. Cross-checked against f near the centre;
+ * any disagreement returns null (the caller then reports no series, as before).
+ */
+function removableCentreSeries(input: string, x: string, c: number, n: number, radius: RadiusResult): number[] | null {
+  if (radius.kind === "refused" || radius.kind === "centreSingular") return null;
+  if (!radius.removable.includes(`${x} = ${radius.centreDisplay}`)) return null;
+  let raw: Expr;
+  try {
+    raw = parseExpr(input);
+  } catch {
+    return null;
+  }
+  if (raw.t !== "div") return null;
+  const MAX_M = 6;
+  const series = (f: Expr, count: number): number[] | null => {
+    const out: number[] = [];
+    let d = f;
+    let fact = 1;
+    for (let k = 0; k < count; k++) {
+      if (k > 0) {
+        d = simp(derivative(d, x));
+        fact *= k;
+      }
+      const v = at(d, x, c);
+      if (!Number.isFinite(v)) return null;
+      out.push(v / fact);
+    }
+    return out;
+  };
+  const b = series(raw.r, n + MAX_M + 1);
+  if (!b) return null;
+  let m = 0;
+  while (m < b.length && Math.abs(b[m]) < 1e-13) m++;
+  if (m === 0 || m > MAX_M) return null;
+  const a = series(raw.l, n + m + 1);
+  if (!a) return null;
+  for (let k = 0; k < m; k++) if (Math.abs(a[k]) > 1e-12) return null;
+  const q: number[] = [];
+  for (let j = 0; j <= n; j++) {
+    let s = a[j + m];
+    for (let i = 1; i <= j; i++) s -= b[i + m] * q[j - i];
+    q.push(s / b[m]);
+  }
+  // Cross-check against the function itself, close to the centre.
+  const R = radius.value !== undefined && Number.isFinite(radius.value) ? radius.value : 1;
+  const h = 0.02 * Math.min(1, R);
+  for (const t of [h, -h]) {
+    const f = at(raw, x, c + t);
+    let s = 0;
+    for (let j = q.length - 1; j >= 0; j--) s = s * t + q[j];
+    if (!Number.isFinite(f) || Math.abs(s - f) > 1e-7 * (1 + Math.abs(f))) return null;
+  }
+  return q;
 }
 
 function fmtCoeff(c: number): string {
@@ -561,7 +661,14 @@ export function parseLimitRequest(text: string): { expr: string; variable: strin
 
 /** Parses "taylor exp(x) about 0 order 5" / "series sin(x)". */
 export function parseSeriesRequest(text: string): { expr: string; variable: string; centre: number; order: number } | null {
-  const m = /^\s*(?:taylor|maclaurin|series)\s+(.+?)\s*$/i.exec(text);
+  // "taylor f", "series f", and the sentence forms "taylor series of f",
+  // "maclaurin series for f", "taylor expansion of f", "power series of f" —
+  // without the first alternative, "taylor series of 1/(1+x^2)" read the
+  // expression as "series of 1/(1+x^2)". A bare "expansion of …" is NOT
+  // claimed: "expansion of (x+1)^3" is algebra, not a series.
+  const m =
+    /^\s*(?:find\s+|compute\s+)?(?:the\s+)?(?:taylor|maclaurin|power)\s+(?:series|expansion|polynomial)\s+(?:of|for)\s+(.+?)\s*$/i.exec(text) ??
+    /^\s*(?:taylor|maclaurin|series)\s+(?:(?:of|for)\s+)?(.+?)\s*$/i.exec(text);
   if (!m) return null;
   let rest = m[1];
   let centre = 0, order = 6, variable = "x";

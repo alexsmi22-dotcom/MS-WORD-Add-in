@@ -12,6 +12,9 @@
 //             in its grammar. Routing through normalizeUnicodeMath first
 //             turns every Solve-only glyph (√ ² π ∞ × ÷ −) into a spelling
 //             both grammars read.
+//   cbrt(u) — Solve's cube root (the exact cubic roots of v2.136.0 print it);
+//             mathParse knows only root(n, x), so cbrt(u) becomes root(3, u)
+//             and a fourth root c^(1/4) becomes root(4, c).
 //
 // The result feeds mathToHtml (live preview) and mathToOmml (insertion) — the
 // same equation the user typed, drawn with the radical sign, stacked
@@ -19,20 +22,95 @@
 
 import { normalizeUnicodeMath } from "./solve";
 import { parseLimitRequest, parseSeriesRequest } from "./analysis";
+import { parseRadiusRequest, radiusOfFunction } from "./radius";
 
 /**
  * True when the line is limit/series PROSE (`limit sin(x)/x as x -> 0`,
- * `taylor exp(x) order 5`) rather than an expression. Prose must not be
- * typeset — bridging it draws the keywords as juxtaposed variables
- * ("limitsin(x)xasx→0" presented as mathematics), and validating it with
- * parseExpr calls valid input unreadable.
+ * `taylor exp(x) order 5`, `radius of convergence of 1/(1-x)`) rather than an
+ * expression. Prose must not be typeset — bridging it draws the keywords as
+ * juxtaposed variables ("limitsin(x)xasx→0" presented as mathematics), and
+ * validating it with parseExpr calls valid input unreadable.
  */
 export function isProseRequest(line: string): boolean {
   try {
-    return parseLimitRequest(line) !== null || parseSeriesRequest(line) !== null;
+    return parseLimitRequest(line) !== null || parseSeriesRequest(line) !== null || parseRadiusRequest(line) !== null;
   } catch {
     return false;
   }
+}
+
+/**
+ * The equation kind's SERIES / RADIUS switch (v2.136.0): "taylor 1/(1-x)",
+ * "taylor series of f", "radius of convergence of f", "interval of
+ * convergence of sum a_n". `text` is the task-normalised input. A series
+ * request whose expression carries "=" ("series = 5") is an equation in a
+ * variable named series, and stays where it is.
+ */
+export function isSeriesOrRadiusRequest(text: string): boolean {
+  try {
+    if (parseRadiusRequest(text)) return true;
+    const ser = parseSeriesRequest(text);
+    return !!ser && !/[=<>≤≥≠]/.test(ser.expr);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * What the pane says when taylorSeries returns null (v2.136.0). `taylor abs(x)`
+ * printed a generic "Couldn't expand" — the radius engine knows WHY (abs is not
+ * analytic; the centre of ln(x) at 0 is a branch point; 1/x has a pole there),
+ * so the reason is given by name. A table miss ("outside the singularity
+ * table") is about the radius, not the expansion, and keeps the generic line.
+ */
+export function seriesFailureMessage(expr: string, variable: string, centre: number): string {
+  const generic = "Couldn't expand that as a series — check it is differentiable at the centre. Try: taylor exp(x) order 5";
+  try {
+    const r = radiusOfFunction(expr, variable, centre);
+    if (r.kind === "refused" && r.reason && !/outside the singularity table|did not parse|longer than|nests deeper/.test(r.reason)) {
+      return `Couldn't expand ${expr} as a Taylor series about ${variable} = ${centre}: ${r.reason}`;
+    }
+  } catch {
+    /* fall through to the generic line */
+  }
+  return generic;
+}
+
+/**
+ * Does a displayed root carry an imaginary unit or a multiplicity marker (so
+ * it stays text rather than being typeset)? TOKEN-aware: the `i` in `pi`,
+ * `sin` or `acos(…)` is not the imaginary unit. No lookbehind — the pane must
+ * parse on WebKit before Safari 16.4.
+ */
+export function rootDisplayIsComplex(display: string): boolean {
+  return /×/.test(display) || /(^|[^A-Za-z_])i(?![A-Za-z_(])/.test(display);
+}
+
+/** Index of the ")" closing the "(" at `open`, or -1. */
+function closingParen(s: string, open: number): number {
+  let depth = 0;
+  for (let k = open; k < s.length; k++) {
+    if (s[k] === "(") depth++;
+    else if (s[k] === ")" && --depth === 0) return k;
+  }
+  return -1;
+}
+
+/** cbrt(u) → root(3, u), balanced-paren aware (cbrt(5/2 + sqrt(1929)/18)). */
+function cbrtToRoot(s: string): string {
+  let out = "";
+  let i = 0;
+  const re = /\bcbrt\s*\(/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(s))) {
+    const open = m.index + m[0].length - 1;
+    const close = closingParen(s, open);
+    if (close < 0) break;
+    out += s.slice(i, m.index) + `root(3, ${cbrtToRoot(s.slice(open + 1, close))})`;
+    i = close + 1;
+    re.lastIndex = i;
+  }
+  return out + s.slice(i);
 }
 
 /**
@@ -46,6 +124,12 @@ export function solveToTypesetDsl(line: string): string {
   // itself; feeding the raw characters would depend on its tokenizer treating
   // them as text, which is not a contract either grammar makes.
   s = s.replace(/≤/g, " <= ").replace(/≥/g, " >= ").replace(/≠/g, " != ");
+  // Radicals BEFORE the exponent rewrite below, which would otherwise turn
+  // 2^(1/4) into the exponent 2^{1/4}: cbrt(u) → root(3, u) and a number or
+  // name to the 1/4 → root(4, c). Only the positive-base forms the exact root
+  // engine prints (it never writes (neg)^(1/4)).
+  s = cbrtToRoot(s);
+  s = s.replace(/(^|[^A-Za-z0-9_.)])(\d+(?:\.\d+)?|[A-Za-z]\w*)\s*\^\s*\(\s*1\s*\/\s*4\s*\)/g, "$1root(4, $2)");
   // ^(group) → ^{group} so the grouping brackets stay invisible. Handles one
   // level of nesting inside the exponent ((n+1)/2 etc.); deeper nesting falls
   // back to visible brackets, which is displayed-but-ugly rather than wrong.

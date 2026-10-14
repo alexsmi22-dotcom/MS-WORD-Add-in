@@ -263,10 +263,14 @@ describe("the printed antiderivative is the function that was integrated", () =>
 
   test("the coefficient really is 2/sqrt(3), to the precision shown", () => {
     // An external anchor: 2/sqrt(3) = 1.1547005383792515.
+    // v2.136.0: the definite path now prints the EXACT coefficient (2*sqrt(3)/3)
+    // rather than the folded decimal 1.1547005383 (docs/SCOPE-SYMBOLIC-BATCH.md
+    // review: decimals under an "exact" label), so the prefix is evaluated, not parsed as a float.
     const F = M("1/(x^2+x+1)", 0, 1).antiderivative!;
-    const m = /^([\d.]+)\*atan/.exec(F);
+    const m = /^(.+?)\*atan/.exec(F);
     expect(m).not.toBeNull();
-    expect(parseFloat(m![1])).toBeCloseTo(2 / Math.sqrt(3), 11);
+    expect(F).not.toMatch(/\d\.\d{6,}/);
+    expect(evalAst(parseExpr(m![1]), {})).toBeCloseTo(2 / Math.sqrt(3), 11);
   });
 });
 

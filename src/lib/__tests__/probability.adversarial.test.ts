@@ -105,7 +105,10 @@ describe("B: questions answered as asked", () => {
   });
   it("Markov questions outside the verb are refused by name; return time is answered", () => {
     expect(refusal("markov [[0.9,0.1],[0.5,0.5]] P(X_3 = S2 | X_0 = S1)")).toMatch(/Not answered here/);
-    expect(refusal("markov [[0.9,0.1],[0.5,0.5]] mean first passage time from S1 to S2")).toMatch(/first-passage/);
+    // v2.136.0: first-passage times are ANSWERED now (was refused by design).
+    // Oracle: from S1 each step leaves for S2 with probability 1/10, so the
+    // time is geometric with mean 10 (scope §D weather; SymPy Matrix.inv).
+    expect(text("markov [[0.9,0.1],[0.5,0.5]] mean first passage time from S1 to S2")).toMatch(/Expected steps from S1 to S2: 10\b/);
     expect(text("markov [[0.9,0.1],[0.5,0.5]] expected return time to S1")).toMatch(/return time to S1 = 1\/π_1 = 6\/5/);
     expect(text("markov [[0.5,0.5],[0.2,0.8]] P^3")).toMatch(/after 3 steps/);
     expect(text("markov [[0.5,0.5],[0.2,0.8]] after three steps")).toMatch(/\(61\/200, 139\/200\)/);

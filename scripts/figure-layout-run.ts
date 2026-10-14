@@ -75,6 +75,8 @@ import { tryGraph } from "../src/lib/graphs";
 import { tryAutomata } from "../src/lib/automata";
 import { tryProbability } from "../src/lib/probability";
 import { tryMarkov } from "../src/lib/markov";
+import { tryRadius, radiusSvg } from "../src/lib/radius";
+import { taylorSeries } from "../src/lib/analysis";
 import { tryInterpolate } from "../src/lib/interpolate";
 import { trySpline } from "../src/lib/spline";
 import { tryLp } from "../src/lib/lp";
@@ -1719,6 +1721,28 @@ ORIGIN
   push("subgroup lattice Z/12", tryAlgebra("subgroup lattice of Z/12")?.svg);
   push("permutation cycle diagram", tryAlgebra("cycle diagram of (1 2 3)(4 5)(6)(7 8 9 10)")?.svg);
   push("GF(16) multiplication table", tryAlgebra("GF(16) multiplication table")?.svg);
+}
+
+// --- Symbolic batch (v2.136.0) ------------------------------------------------
+//
+// The disc of convergence with complex poles off the axis and an irrational
+// radius (1/(x^2 + 4) about 1: R = sqrt(5), poles at ±2i), the Taylor branch's
+// disc with three labelled singularities near the circle (1/(1 + x + x^2):
+// poles at e^{±2πi/3}), an interval of convergence with one closed and one open
+// end; the proportion-interval bars (three methods; the p̂ = 0 case puts a
+// zero-width Wald bar on the axis edge); and the Markov diagram with the
+// hitting target ringed.
+{
+  const push = (name: string, svg: string | undefined): void => {
+    if (svg) figures.push([name, svg]);
+  };
+  push("radius disc complex poles", tryRadius("radius of convergence of 1/(x^2 + 4) about 1")?.svg);
+  const tay = taylorSeries("1/(1 + x + x^2)");
+  push("taylor disc of convergence", tay?.radius ? radiusSvg(tay.radius) : undefined);
+  push("interval of convergence half-open", tryRadius("interval of convergence of sum (x-3)^n/(n*2^n)")?.svg);
+  push("proportion CI bars", tryProbability("95% confidence interval for a proportion with 12 successes out of 40")?.svg);
+  push("proportion CI bars at p = 0", tryProbability("confidence interval 95% proportion p = 0 n = 20")?.svg);
+  push("markov hitting target ringed", tryMarkov("markov [[0.5,0.5,0],[0.25,0.5,0.25],[0,0.5,0.5]] probability of reaching 3 before 1 starting from 2")?.svg);
 }
 
 // --- The statistics charts ----------------------------------------------------

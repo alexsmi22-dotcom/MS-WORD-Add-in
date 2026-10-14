@@ -11,6 +11,9 @@ import { solveInequality } from "../inequalities";
 import { splitEquations, solveSystem } from "../systems";
 import { solveGeometry } from "../geometryParse";
 import { solveComposite } from "../compositeGeometry";
+import { tryRadius } from "../radius";
+import { tryAlgebraVerb } from "../algebraTools";
+import { normalizeTaskProse, resolveTaskVerb } from "../pasteMath";
 
 describe("every equation-library template solves", () => {
   const all = SOLVE_EQUATIONS.flatMap((g) => g.items.map((i) => ({ group: g.name, ...i })));
@@ -39,6 +42,13 @@ describe("every equation-library template solves", () => {
 describe("every calculus template is read as the prose it is", () => {
   const all = SOLVE_CALCULUS.flatMap((g) => g.items);
   test.each(all.map((i) => [i.label, i.snippet] as const))("%s: %s", (_label, snippet) => {
+    // v2.136.0: the radius/interval templates are answered by the radius verb
+    // (with R, not a refusal) — the Derivative kind tries it before series.
+    const radius = tryRadius(snippet);
+    if (radius) {
+      expect(radius.lines[0].text).toMatch(/^R = /);
+      return;
+    }
     expect(parseLimitRequest(snippet) !== null || parseSeriesRequest(snippet) !== null).toBe(true);
   });
 });
@@ -179,8 +189,16 @@ describe("every transform, multivariable and probability template is answered by
   const rows: [string, string][] = all.map((i: { label: string; snippet: string }) => [i.label, i.snippet]);
   test.each(rows)("%s: %s", (_label: string, snippet: string) => {
     const text = foldPastedMath(snippet).text;
-    const v = tryLp(text) ?? tryLpWords(text) ?? tryInterpolate(text) ?? trySpline(text) ?? tryMarkov(text) ?? tryProbability(text) ?? tryMultivar(text) ?? tryLaplace(text) ?? tryFourierSeries(text);
-    expect(v).not.toBeNull();
+    const task = normalizeTaskProse(text);
+    const v = tryLp(text) ?? tryLpWords(text) ?? tryInterpolate(text) ?? trySpline(text) ?? tryMarkov(text) ?? tryProbability(text) ?? tryMultivar(text) ?? tryLaplace(text) ?? tryFourierSeries(text) ?? tryAlgebraVerb(task) ?? tryAlgebraVerb(text);
+    if (!v) {
+      // v2.136.0 "Exact roots & simplify": a root-finding phrase reaches the
+      // solver through the pane's task-verb re-solve — the same function.
+      const tv = resolveTaskVerb(text, solveEquation(text));
+      expect(tv).not.toBeNull();
+      expect(tv!.result.roots.length).toBeGreaterThan(0);
+      return;
+    }
     // A template must produce a RESULT line, not a refusal.
     expect(v!.lines.length).toBeGreaterThan(0);
   });

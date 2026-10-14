@@ -6,6 +6,59 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.136.0] — 2026-10-14 — Exact cubic and quartic roots, multivariate simplification, radius of convergence, and leftovers
+
+From `docs/SCOPE-SYMBOLIC-BATCH.md` (129 inputs through the Solve chain,
+SymPy as the oracle). Live wrong answers it found and this release fixes:
+repeated roots printed as fake COMPLEX roots under "Complete" (`(x-1)^4 =
+0` → four 1.00004 + 0.000007i values); `simplify cbrt(2)^3 - 2` →
+1.68e-16 instead of 0; "probability of reaching 3 before 1" answered with
+the STATIONARY distribution (truth 1/2); a proportion interval of zero
+width at p = 0 and one silently clamped at 0 while its printed formula
+went negative; `maximize x y subject to x^2 + y^2 = pi` stolen by the LP
+verb (a v2.132.0 regression); `hessian x^y at (1, 1)` withheld as
+"asymmetric"; and "solve x^2 - 5x + 6 = 0" answered "more than one
+unknown (solve, x)".
+
+### Added
+- **Exact polynomial roots** (`polyRoots.ts`): square-free factorisation
+  first (repeated roots exact, with their multiplicity), rational roots,
+  Cardano with the casus irreducibilis in TRIGONOMETRIC form (three real
+  roots as 2√(−p/3)·cos(…), never a complex radical labelled real), Ferrari
+  for quartics, binomials; degree ≥ 5 numeric with Abel–Ruffini said. Every
+  closed form is PROVED by an exact identity in ℚ or ℚ(√s) (factors
+  multiply back; u³ + v³ = −q and u³v³ = −p³/27; the quartic's quadratic
+  factors multiply back) and then re-parsed and matched to a polished
+  numeric root — an unproved form is withheld, factor by factor. `x^3 = 2`
+  → ∛2. Recurrences honour multiplicities (a repeated characteristic root
+  had silently lost its n·rⁿ terms).
+- **Multivariate simplification** (`cas.ts`): polynomial GCD over ℚ in up
+  to 4 symbols with the cancelled factor named (and the "cancelling can
+  remove points" caveat only when a factor was cancelled unnamed), a
+  resultant, an exact-radical mode (cbrt(2)³ = 2, denesting only when it
+  squares back), and `x^y/x` equal to `x^(y−1)`. 210 random identities
+  checked both ways; no existing expectation changed.
+- **Radius of convergence** (`radius.ts`): the distance to the nearest
+  singularity in ℂ with the theorem named (1/(1+x²) → 1 from the poles ±i
+  — no real singularity), the ratio test on a general term, endpoints only
+  where a named test decides, "R ≥ d" where a cancellation is possible;
+  `taylor …` gains its radius line and a disc figure; removable centres
+  (sin x/x, x/(eˣ−1)) are expanded by series division.
+- **Integration and multivariable leftovers** (`casint.ts`, `multivar.ts`):
+  ∫ 1/√(a² − x²) = asin(x/a) and its shifted/scaled forms, ∫ 1/(x² + a²)
+  = atan(x/a)/a — both exact; improper endpoints said; near-pole integrals
+  refereed by an adaptive rule split at the peak (no more refusing a
+  correct exact value); Lagrange by tangency and RESULTANTS with every
+  candidate substituted back; sin² + cos² and 1^k folded.
+- **Probability** (`probability.ts`, `markov.ts`): proportion intervals —
+  Wilson leads, Clopper–Pearson beside it, Wald with its truncation said —
+  each computed two independent ways; Markov hitting probabilities and
+  expected first-passage times exact over ℚ (∞ by name where a target is
+  not reached with certainty), return times checked against 1/π.
+- Solve reads "solve …", "find the roots of …", "taylor …" and "radius of
+  convergence …" typed in the default kind (and in the pop-out canvas);
+  cube and fourth roots typeset as real radicals in Word.
+
 ## [2.135.0] — 2026-10-14 — Abstract algebra: groups, permutations, rings and finite fields
 
 The sixth Solve domain on the 2026-10 arc (`docs/SCOPE-ABSTRACT-ALGEBRA.md`).

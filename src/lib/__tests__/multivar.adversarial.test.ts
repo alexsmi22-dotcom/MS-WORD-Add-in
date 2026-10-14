@@ -274,9 +274,16 @@ describe("second pass: integrals", () => {
     expect(run("triple integral 1/sqrt(x) over x from 0 to 1, y from 0 to 1, z from 0 to 1").lines[0].text).toBe("= 2");
   });
   it("a slowly converging numeric integral is refused with an honest reason and the extrapolated value", () => {
-    const v = run("double integral 1/sqrt(1 - x^2) over x from 0 to 1, y from 0 to 1");
+    // v2.136.0: 1/sqrt(1 - x^2) — the integrand this pin used through v2.135 —
+    // now has an exact antiderivative (asin), and docs/SCOPE-SYMBOLIC-BATCH.md
+    // §D ("Definite and double integrals": ∫₀¹ → pi/2) makes it an ANSWER; that
+    // pin moved to the test below. The intent (no closed form + an endpoint
+    // singularity → refused, with the extrapolated value) keeps a twin with no
+    // elementary antiderivative: ∫₀¹ cos(x)/√(1 − x²) dx = (π/2)·J₀(1) ≈ 1.2020.
+    // (The pi/2 answer itself is pinned in multivarLeftovers.test.ts.)
+    const v = run("double integral cos(x)/sqrt(1 - x^2) over x from 0 to 1, y from 0 to 1");
     expect(v.lines).toHaveLength(0);
-    expect(v.caveats[0]).toMatch(/converges too slowly .* extrapolated ≈ 1\.571/);
+    expect(v.caveats[0]).toMatch(/converges too slowly .* extrapolated ≈ 1\.20/);
     expect(v.caveats[0]).not.toMatch(/likely improper/);
   });
   it("numeric digits come from the convergence estimate: 1/sqrt(x²+y²) shows 3 figures, exp(−x²) seven", () => {

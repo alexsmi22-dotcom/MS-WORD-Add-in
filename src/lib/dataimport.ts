@@ -99,10 +99,66 @@ export function tidyGrid(rows: string[][]): string[][] {
   return cleaned.map((r) => Array.from({ length: width }, (_, i) => r[i] ?? ""));
 }
 
-/** True when the cell reads as a number (allowing thousands separators and %). */
+/**
+ * The number a cell holds, or NaN.
+ *
+ * THE COMMA RULE, because getting it wrong is a wrong number dressed as a
+ * result: "1,5" used to be read as 15 — every comma was stripped as a
+ * thousands separator — so a European decimal became a ten-fold error with
+ * nothing on screen to show it. A thousands separator always has exactly
+ * three digits after it; anything else with a single comma is a decimal
+ * comma. "1,200" is read as twelve hundred (the English reading; a user who
+ * means 1.2 writes 1,2 or 1.20), "1,5" reads as a decimal, "12,345,6" is
+ * neither and is not a number, "1,234.5" has a dot AFTER its comma so the
+ * comma is a separator, and "1.000,5" has a dot BEFORE its comma, which is
+ * never English — it is the German form and reads as 1000.5.
+ * Also normalised: the Unicode minus Word autocorrects to (−, –), a
+ * no-break space as a thousands separator ("1 200"), a trailing %.
+ */
+export function parseCellNumber(s: string): number {
+  let t = s
+    .replace(/[   ]/g, " ")
+    .trim()
+    .replace(/^[−–]/, "-")
+    .replace(/%$/, "")
+    .trim();
+  if (t === "") return NaN;
+  if (/^-?\d{1,3}( \d{3})+([.,]\d+)?$/.test(t)) t = t.replace(/ /g, "");
+  if (/\s/.test(t)) return NaN;
+  if (t.includes(",")) {
+    if (t.includes(".")) {
+      if (/^-?\d{1,3}(\.\d{3})+,\d+$/.test(t)) t = t.replace(/\./g, "").replace(",", "."); // 1.000,5
+      else if (t.indexOf(".") < t.indexOf(",")) return NaN; // a dot before a comma in any other shape
+      else t = t.replace(/,/g, ""); // 1,234.5
+    } else if (/^-?\d{1,3}(,\d{3})+$/.test(t)) t = t.replace(/,/g, "");
+    else if (/^-?\d+,\d+$/.test(t)) t = t.replace(",", ".");
+    else return NaN;
+  }
+  const n = Number(t);
+  return Number.isFinite(n) ? n : NaN;
+}
+
+/** True when the cell reads as a number (see parseCellNumber for the rules). */
 export function isNumericCell(s: string): boolean {
-  const t = s.trim().replace(/,/g, "").replace(/%$/, "");
-  return t !== "" && Number.isFinite(Number(t));
+  return Number.isFinite(parseCellNumber(s));
+}
+
+/**
+ * The cell's number AS TEXT for a field: the user's own spelling when it is
+ * already a plain number ("3.0" stays "3.0", "1e-3" stays "1e-3"), the parsed
+ * value only when the spelling had to change (a comma, a no-break space, a
+ * Unicode minus, a percent sign).
+ */
+export function cellNumberText(s: string): string {
+  const t = s.trim();
+  if (/^-?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?$/.test(t)) return t;
+  return String(parseCellNumber(s));
+}
+
+/** True when the cell is a DECIMAL-comma number ("1,5"): the reading worth telling the user about. */
+export function isDecimalComma(s: string): boolean {
+  const t = s.replace(/[   ]/g, " ").trim();
+  return /^[-−–]?\d+,\d+%?$/.test(t) && !/^[-−–]?\d{1,3}(,\d{3})+%?$/.test(t);
 }
 
 /**
@@ -126,14 +182,14 @@ export function gridToFieldText(rows: string[][], kind: string): string {
 
   if (kind === "list") {
     const body = hasHeaderRow(grid) ? grid.slice(1) : grid;
-    const nums = body.flat().filter(isNumericCell).map((c) => c.trim().replace(/,/g, ""));
+    const nums = body.flat().filter(isNumericCell).map(cellNumberText);
     return nums.join(", ");
   }
 
   if (kind === "matrix") {
     const body = hasHeaderRow(grid) ? grid.slice(1) : grid;
     return body
-      .map((r) => r.filter(isNumericCell).map((c) => c.trim().replace(/,/g, "")).join(" "))
+      .map((r) => r.filter(isNumericCell).map(cellNumberText).join(" "))
       .filter((l) => l !== "")
       .join("\n");
   }

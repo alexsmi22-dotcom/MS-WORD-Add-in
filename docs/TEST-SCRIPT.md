@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.127.0)
+# JurisLab — Manual Test Script (v2.128.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -9,6 +9,33 @@ scanning, and layout. Budget ~30 minutes for the full pass.
 Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
+
+## 0bu. New in v2.128.0 — Every statistics calculator reads the table at the cursor; power & sample size
+
+Stats mode, in a document with real tables.
+
+- [ ] Make a 3-column table with header `Control | Low | High` and a few numbers per
+  column (leave one cell blank). Click inside it. Stats → One-way ANOVA → **Use
+  table at cursor** → the field shows three blank-line-separated groups; the
+  status line names them in order ("1 = Control (n 3)…"); the ANOVA computes.
+  Tukey, Kruskal–Wallis and the assumption check load the same table.
+- [ ] A 2-column table `Group | Value` with labels A/B/A/B… → the same calculators
+  read it as label + value rows (note says so).
+- [ ] A table with `Subject | Before | During | After` → Friedman reads one row per
+  subject; the note says "3 conditions: Before, During, After".
+- [ ] A table `Months | Status` (status as 1/0 or yes/no) → Survival reads it; add
+  an `Arm` column → Survival says the arm column was ignored and points at
+  Log-rank; Log-rank reads it as two blocks.
+- [ ] A crosstab (row labels down the first column, header across, cells like
+  `10, 11`) → Two-way ANOVA expands the replicate lists; the interaction plot
+  draws.
+- [ ] A table with a word in a numeric cell (`n/a`) → Multiple regression REFUSES
+  with "must be a number" rather than shifting the column.
+- [ ] **Power & sample size**: two-sample t, d = 0.5, α 0.05 two-sided, find n →
+  **n = 64 per group (128 in total)**, achieved power 0.802, and the power curve
+  with the red point at 64. Switch to ANOVA, f = 0.25, 3 groups → n = 53. Two
+  proportions `0.5 0.6` → n = 388. Effect 0 → refused as infeasible. "Insert
+  chart" inserts the curve.
 
 ## 0bt. New in v2.127.0 — Offline delivery
 
@@ -3035,6 +3062,9 @@ Engineering mode, Energy & power (now 17; the mode must state **101 calculators*
   - `(0,0,0) (1,1,1) (2,2,2)` -> refused as **COLLINEAR**: no plane.
   - `circle r=1/3` -> area **1/9*pi** exactly, and `box 1/2 1/3 1/4` -> volume **1/24**.
     (Typed fractions must stay exact — no long decimals or giant fractions anywhere.)
+- [ ] **Every statistics calculator reads the table at the cursor; power & sample size (v2.128.0).** Stats — see §0bu.
+  - Any groups-style calculator fills from a Word table (one column per group, or label + value rows) and the status line says how it read it.
+  - Power & sample size: d = 0.5 two-sample → n = 64 per group; the power curve inserts.
 - [ ] **Offline delivery (v2.127.0).** Any mode — see §0bt for the full pass.
   - Online: the line under the title settles on **Offline-ready · v2.127.0** (green dot).
   - Network off, Word restarted: the pane opens and computes; both pop-out canvases open.

@@ -187,6 +187,8 @@ Everything shows a live preview that matches exactly what gets inserted, and the
 - **t-tests** — two-sample (**Welch** or **Student** pooled) and **paired**, each with a real **p-value** and an APA-style report (*t*(18) = 2.41, *p* = .027).
 - **One-way ANOVA** (F, df, p) and **linear regression** (slope, intercept, R², slope SE, slope p).
 - **Uncertainty propagation** — enter a formula and `name = value ± uncertainty` lines; get the result with its **combined 1σ uncertainty** (first-order quadrature) and the dominant contributor.
+- **Power & sample size** — the n per group that reaches a target power, or the power at a given n, for the two-sample and paired/one-sample t-tests (Cohen's *d*), one-way ANOVA (Cohen's *f*) and two proportions, from the **non-central t and F distributions** (verified against G*Power); the answer comes with its assumptions and a power curve with the chosen n marked.
+- **Every calculator reads the table at your cursor.** Click inside a Word table and press **Use table at cursor**: groups one per column (a header row names them) or as label + value rows, repeated measures one row per subject, survival as time and event columns (plus a group column for Log-rank), regression rows with the response first, a contingency table of counts, and two-way ANOVA as factor A / factor B / value rows or a crosstab with replicate lists in the cells. The status line reports which column became what, and an ambiguous layout is refused with the layout that would work — never guessed.
 - p-values use the regularized incomplete beta (Student-t and F distributions). Insert any result at the cursor. Analysis aid — verify before publishing.
 
 ## 📊 Table → Chart — patent figures & PowerPoint from a Word table

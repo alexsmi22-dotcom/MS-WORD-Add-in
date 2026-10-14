@@ -439,6 +439,8 @@ import { spectrum, dominantFrequencies, WindowKind } from "../lib/fft";
 import { solveOde, OdeMethod, OdeEvent } from "../lib/ode";
 import { parseOdeSystem, rewriteStateExpression, parseTimeList } from "../lib/odeParse";
 import { isNewerVersion } from "../lib/version";
+import { feedTable, type TableShape, type TableFeedResult } from "../lib/tableFeed";
+import { powerT, powerAnova, powerProportions, sampleSizeFor, effectLabel, type TTestDesign } from "../lib/power";
 import {
   describeOfflineStatus,
   activatePendingWorker,
@@ -8000,7 +8002,14 @@ function renderCalcFields(
   // `kind` is OPTIONAL: the Finance and Assay registries omit it on plain
   // numeric fields, and an undefined kind falls through to the numeric input
   // exactly as it did in their own renderers.
-  fields: { key: string; label: string; default: string; kind?: string; options?: { value: string; label: string }[] }[],
+  fields: {
+    key: string;
+    label: string;
+    default: string;
+    kind?: string;
+    options?: { value: string; label: string }[];
+    table?: TableShape;
+  }[],
   container: HTMLElement,
   idPrefix: string,
   onChange: () => void,
@@ -8055,6 +8064,15 @@ function renderCalcFields(
     row.append(label, input);
     if (f.kind !== undefined && DATA_FIELD_KINDS.has(f.kind)) {
       row.appendChild(buildDataSourceBar(input as HTMLInputElement | HTMLTextAreaElement, f.kind, onChange));
+    } else if (f.table) {
+      // A group-syntax field with a declared table SHAPE: the bar converts the
+      // grid into that syntax (src/lib/tableFeed.ts) and reports how it read it.
+      const shape = f.table;
+      row.appendChild(
+        buildDataSourceBar(input as HTMLInputElement | HTMLTextAreaElement, f.kind ?? "groups", onChange, (rows) =>
+          feedTable(shape, rows),
+        ),
+      );
     }
     container.appendChild(row);
   }
@@ -8081,11 +8099,26 @@ function buildDataSourceBar(
   input: HTMLInputElement | HTMLTextAreaElement,
   kind: string,
   onChange: () => void,
+  /** For group-syntax fields: the grid → syntax mapping, with its own reading note or refusal. */
+  convert?: (rows: string[][]) => TableFeedResult,
 ): HTMLElement {
   const bar = document.createElement("div");
   bar.className = "data-source-bar";
 
   const fill = (rows: string[][], sourceLabel: string): void => {
+    if (convert) {
+      const fed = convert(rows);
+      if ("error" in fed) {
+        setStatus(`${sourceLabel}: ${fed.error}`, "error");
+        return;
+      }
+      input.value = fed.text;
+      onChange();
+      // The note says WHICH column became what. A silent mapping that reads
+      // the wrong column as the group is a wrong answer dressed as a result.
+      setStatus(`Loaded ${describeGrid(rows)} from ${sourceLabel}. ${fed.note}`, "success");
+      return;
+    }
     const text = gridToFieldText(rows, kind);
     if (!text) {
       setStatus(`${sourceLabel} held no data this field could use.`, "error");
@@ -8244,6 +8277,12 @@ interface StatField {
   default: string;
   kind: "list" | "groups" | "vars" | "text" | "select";
   options?: { value: string; label: string }[];
+  /**
+   * How a Word table maps onto this field's syntax (src/lib/tableFeed.ts).
+   * Present on every `groups` field, so "Use table at cursor" reaches all 21
+   * statistics calculators rather than the ten whose field is a plain list.
+   */
+  table?: TableShape;
 }
 interface StatOutput {
   text: string;
@@ -8593,6 +8632,7 @@ const STAT_CALCS: StatCalc[] = [
         label: "One row per subject: time then 1 (event) or 0 (censored, i.e. event-free when last seen)",
         default: "5 1\n6 1\n6 0\n8 1\n10 0\n12 1\n15 0\n18 1\n20 0\n24 0",
         kind: "groups",
+        table: "survival",
       },
     ],
     compute: (r) => {
@@ -8637,6 +8677,7 @@ const STAT_CALCS: StatCalc[] = [
         label: "One group per block (blank line between). Each row: time then 1 or 0",
         default: "5 1\n8 1\n12 1\n15 0\n20 0\n\n10 1\n14 1\n18 1\n22 0\n28 0",
         kind: "groups",
+        table: "survival-groups",
       },
     ],
     compute: (r) => {
@@ -8704,6 +8745,7 @@ const STAT_CALCS: StatCalc[] = [
         label: "One row per observation: response first, then each predictor",
         default: "12 1 2\n19 2 1\n23 3 4\n31 4 3\n38 5 6\n45 6 5\n52 7 8\n59 8 7",
         kind: "groups",
+        table: "rows",
       },
     ],
     compute: (r) => {
@@ -8765,6 +8807,7 @@ const STAT_CALCS: StatCalc[] = [
         label: "FIRST group is the control; then one group per treatment",
         default: "10 11 12 13 14\n\n12 13 14 15 16\n\n15 16 17 18 19\n\n20 21 22 23 24",
         kind: "groups",
+        table: "groups",
       },
     ],
     compute: (r) => {
@@ -8824,6 +8867,7 @@ const STAT_CALCS: StatCalc[] = [
         label: "Groups (blank line or ; between groups)",
         default: "1 2 3 4\n\n5 6 7 8\n\n9 10 11 12",
         kind: "groups",
+        table: "groups",
       },
     ],
     compute: (r) => {
@@ -8881,6 +8925,7 @@ const STAT_CALCS: StatCalc[] = [
         label: "One row per subject; one value per condition, same order every row",
         default: "10 12 14\n9 11 15\n12 13 16\n8 10 13",
         kind: "groups",
+        table: "subjects",
       },
     ],
     compute: (r) => {
@@ -8925,6 +8970,7 @@ const STAT_CALCS: StatCalc[] = [
         label: "Groups (blank line or ; between groups)",
         default: "1 2 3 4 5\n\n2 3 4 5 6",
         kind: "groups",
+        table: "groups",
       },
     ],
     compute: (r) => {
@@ -9059,6 +9105,7 @@ const STAT_CALCS: StatCalc[] = [
         label: "Groups (blank line or ; between groups)",
         default: "1 2 3\n\n4 5 6\n\n7 8 9",
         kind: "groups",
+        table: "groups",
       },
     ],
     compute: (r) => {
@@ -9127,6 +9174,7 @@ const STAT_CALCS: StatCalc[] = [
         label: "Groups (blank line or ; between groups)",
         default: "5.1 4.9 5.4 5.0\n\n6.3 6.8 6.1 6.5\n\n5.2 5.0 5.5 5.3",
         kind: "groups",
+        table: "groups",
       },
       {
         key: "alpha",
@@ -9430,7 +9478,7 @@ const STAT_CALCS: StatCalc[] = [
     id: "chiind",
     name: "Chi-square test of independence",
     fields: [
-      { key: "table", label: "Contingency table (one row per line)", default: "10, 20, 30\n30, 40, 20", kind: "groups" },
+      { key: "table", label: "Contingency table (one row per line)", default: "10, 20, 30\n30, 40, 20", kind: "groups", table: "counts" },
     ],
     compute: (r) => {
       const table = statTable(r("table"));
@@ -9497,6 +9545,7 @@ const STAT_CALCS: StatCalc[] = [
         label: "Data: A B value (one observation per line)",
         default: "lo x 12\nlo x 14\nlo y 20\nlo y 22\nhi x 30\nhi x 33\nhi y 41\nhi y 39",
         kind: "groups",
+        table: "factorial",
       },
     ],
     compute: (r) => {
@@ -9537,6 +9586,166 @@ const STAT_CALCS: StatCalc[] = [
       } catch (e) {
         return { text: `${(e as Error).message}`, ok: false };
       }
+    },
+  },
+  {
+    id: "power",
+    name: "Power & sample size",
+    fields: [
+      {
+        key: "design",
+        label: "Test",
+        default: "two-sample",
+        kind: "select",
+        options: [
+          { value: "two-sample", label: "Two-sample t (independent groups)" },
+          { value: "paired", label: "Paired t / one-sample t" },
+          { value: "anova", label: "One-way ANOVA (k groups)" },
+          { value: "proportions", label: "Two proportions (z)" },
+        ],
+      },
+      {
+        key: "solve",
+        label: "Find",
+        default: "n",
+        kind: "select",
+        options: [
+          { value: "n", label: "the sample size for a target power" },
+          { value: "power", label: "the power at a given n" },
+        ],
+      },
+      {
+        key: "effect",
+        label: "Effect size: Cohen's d (t-tests), f (ANOVA), or the two proportions p1 p2",
+        default: "0.5",
+        kind: "text",
+      },
+      { key: "k", label: "Number of groups (ANOVA only)", default: "3", kind: "text" },
+      { key: "n", label: "n per group (when finding power)", default: "30", kind: "text" },
+      { key: "target", label: "Target power (when finding n)", default: "0.80", kind: "text" },
+      {
+        key: "alpha",
+        label: "Significance level",
+        default: "0.05",
+        kind: "select",
+        options: [
+          { value: "0.05", label: "α = 0.05" },
+          { value: "0.01", label: "α = 0.01" },
+          { value: "0.10", label: "α = 0.10" },
+        ],
+      },
+      {
+        key: "tails",
+        label: "Tails",
+        default: "2",
+        kind: "select",
+        options: [
+          { value: "2", label: "two-sided" },
+          { value: "1", label: "one-sided" },
+        ],
+      },
+    ],
+    compute: (r) => {
+      const design = r("design");
+      const effect = statList(r("effect"));
+      const alpha = Number(r("alpha"));
+      const tails = (Number(r("tails")) === 1 ? 1 : 2) as 1 | 2;
+      const k = Math.round(Number(r("k")));
+      const nGiven = Math.round(Number(r("n")));
+      const target = Number(r("target"));
+
+      // One power function per design, plus the words that describe it. The
+      // assumptions are part of the ANSWER: a sample size quoted without them
+      // is a number somebody will copy into a grant.
+      let pw: (n: number) => number;
+      let what: string;
+      let assumes: string;
+      let unit = "per group";
+      if (design === "anova") {
+        if (effect.length !== 1 || !(effect[0] >= 0)) return { text: "Enter Cohen's f for the ANOVA (0.10 small, 0.25 medium, 0.40 large).", ok: false };
+        if (!(k >= 2) || k > 50) return { text: "ANOVA needs between 2 and 50 groups.", ok: false };
+        pw = (n) => powerAnova({ k, f: effect[0], n, alpha });
+        what = `one-way ANOVA, ${k} groups, Cohen's f = ${effect[0]} (${effectLabel("f", effect[0])})`;
+        assumes = `equal group sizes, normal residuals with equal variance; α = ${alpha}`;
+      } else if (design === "proportions") {
+        if (effect.length !== 2 || effect.some((p) => !(p > 0 && p < 1)))
+          return { text: "Enter the two proportions as p1 p2, each strictly between 0 and 1 (e.g. 0.5 0.6).", ok: false };
+        if (effect[0] === effect[1]) return { text: "The two proportions are equal: there is no effect to detect.", ok: false };
+        const [p1, p2] = effect;
+        pw = (n) => powerProportions({ p1, p2, n, alpha, tails });
+        what = `two independent proportions, ${p1} vs ${p2}`;
+        assumes =
+          `equal group sizes; large-sample z test without continuity correction, ${tails === 2 ? "two" : "one"}-sided α = ${alpha}. ` +
+          "For small expected counts use Fisher's exact test (Chi-square independence on a 2 × 2 reports it) rather than this approximation";
+      } else {
+        if (effect.length !== 1 || !Number.isFinite(effect[0])) return { text: "Enter Cohen's d (0.2 small, 0.5 medium, 0.8 large).", ok: false };
+        const d = effect[0];
+        const des: TTestDesign = design === "paired" ? "paired" : "two-sample";
+        pw = (n) => powerT({ design: des, d, n, alpha, tails });
+        if (des === "paired") {
+          unit = "pairs (or subjects)";
+          what = `paired / one-sample t-test, Cohen's d = ${d} on the differences (${effectLabel("d", d)})`;
+        } else {
+          what = `two-sample t-test, Cohen's d = ${d} (${effectLabel("d", d)})`;
+        }
+        assumes = `${des === "paired" ? "normal differences" : "equal group sizes, normal data with equal variance"}; ${tails === 2 ? "two" : "one"}-sided α = ${alpha}`;
+      }
+      if (!(alpha > 0 && alpha < 1)) return { text: "α must be between 0 and 1.", ok: false };
+
+      let nStar: number;
+      let headline: string;
+      if (r("solve") === "n") {
+        if (!(target > 0 && target < 1)) return { text: "Target power must be between 0 and 1 (0.80 is the usual choice).", ok: false };
+        const found = sampleSizeFor(pw, target);
+        if (found === null) {
+          const zero = effect.length === 1 ? effect[0] === 0 : effect[0] === effect[1];
+          return {
+            text: zero
+              ? `No feasible sample size: an effect of zero needs an infinite sample.`
+              : `More than 1,000,000 ${unit} would be needed to reach ${target} power for this effect size. ` +
+                "That is beyond what this calculator searches; the effect is too small to design a study around.",
+            ok: false,
+          };
+        }
+        nStar = found;
+        const achieved = pw(nStar);
+        const total = design === "anova" ? ` (${k * nStar} in total)` : design === "paired" ? "" : ` (${2 * nStar} in total)`;
+        headline =
+          `n = ${nStar} ${unit}${total} for power ≥ ${target}\n` +
+          `Achieved power at n = ${nStar}: ${assaySig(achieved, 3)}` +
+          (nStar > 2 ? `; at n = ${nStar - 1} it would be ${assaySig(pw(nStar - 1), 3)}` : "");
+      } else {
+        if (!(nGiven >= 2)) return { text: "n must be at least 2 per group.", ok: false };
+        // Above ~1e9 the incomplete beta loses precision and a zero effect
+        // comes back as power 1. No study has a billion subjects per group.
+        if (nGiven > 1_000_000_000) return { text: "n per group must be at most 1,000,000,000.", ok: false };
+        nStar = nGiven;
+        const p = pw(nStar);
+        if (!Number.isFinite(p)) return { text: "Power is undefined for these inputs.", ok: false };
+        headline = `Power = ${assaySig(p, 3)} at n = ${nStar} ${unit}`;
+      }
+
+      // The power curve: how the answer moves with n, with the chosen point
+      // marked. A sample size is a point on a curve, and the slope at that
+      // point is what tells the reader whether a few more subjects buy much.
+      const nMax = Math.max(10, Math.ceil(nStar * 1.8));
+      const step = Math.max(1, Math.floor(nMax / 48));
+      const curve: { x: number; y: number }[] = [];
+      for (let n = 2; n <= nMax; n += step) {
+        const p = pw(n);
+        if (Number.isFinite(p)) curve.push({ x: n, y: p });
+      }
+      const svg = buildPlotSvg(
+        [
+          { type: "line", points: curve, color: "#0369a1", label: "power" },
+          { type: "scatter", points: [{ x: nStar, y: pw(nStar) }], color: "#b91c1c", label: `n = ${nStar}` },
+        ],
+        { width: 320, height: 200, title: "Power curve", xlabel: `n ${unit}`, ylabel: "power" },
+      );
+      return {
+        text: plainDashes(`Power analysis: ${what}\n${headline}\nAssumes: ${assumes}.`),
+        svg,
+      };
     },
   },
   {

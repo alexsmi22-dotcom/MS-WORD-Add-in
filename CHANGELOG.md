@@ -6,6 +6,110 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.128.0] — 2026-10-13 — Every statistics calculator reads the table at the cursor; power & sample size
+
+### Added
+- **"Use table at cursor" on all 22 statistics calculators.** It reached the
+  ten whose field is a plain list and stopped at the eleven whose field is
+  group syntax — ANOVA, Tukey, Dunnett, Kruskal–Wallis, the assumption check,
+  Friedman, survival, log-rank, multiple regression, the contingency table and
+  two-way ANOVA — on the reasoning that "a group definition takes syntax, not
+  a grid". Each of them has an obvious grid, and for most it is how the data
+  sits in the document. `src/lib/tableFeed.ts` maps a Word table onto each
+  syntax: independent groups one per column (a header row names them) or as
+  label + value rows; repeated measures one row per subject; survival from a
+  time column and an event column found by header name or by content (1/0,
+  yes/no, TRUE/FALSE, event/censored all read), plus a group column for
+  log-rank; regression rows with the response first; a block of counts with
+  row labels and header dropped; two factors as A / B / value rows or as a
+  crosstab whose cells may hold replicate lists. Every load reports in the
+  status line which column became what, and an ambiguous or lossy layout is
+  refused with the layout that would work. The emitted text carries numbers
+  only — a label such as "Dose 10" in the text would inject a value, so names
+  go in the note instead. Fisher's exact for 2 × 2 tables already shipped
+  inside Chi-square independence; it is now reachable from a table too.
+- **Power & sample size** (Stats): n per group for a target power, or the
+  power at a given n, for the two-sample t and paired / one-sample t (Cohen's
+  d), one-way ANOVA with k groups (Cohen's f) and two proportions (large-sample
+  z). `src/lib/power.ts` implements the non-central t (AS 243, the algorithm R
+  uses) and the non-central F (Poisson mixture of betas), each cross-checked
+  in the tests against direct numerical integration of its definition by a
+  different route, and the power figures are pinned to G*Power 3.1: d = 0.5
+  needs n = 64 per group (power 0.8015), paired n = 34 (0.8077), ANOVA
+  k = 3 / f = 0.25 needs 53 (0.805), proportions 0.50 vs 0.60 need 388. The
+  result states its assumptions — equal groups, normality, the z
+  approximation's small-count caveat pointing at Fisher — and draws the power
+  curve with the chosen n marked, because a sample size is a point on a curve
+  and the slope there says whether a few more subjects buy much. An effect of
+  zero is refused as infeasible rather than answered with a huge n.
+
+### Found by the independent adversarial pass (none by the author's own tests)
+The first version read every tidy layout the author designed for and broke
+on the layouts a Word user actually has. All class A, all silent, all fixed
+with a named rule and a test in `tableFeed.adversarial.test.ts`:
+- **A decimal comma was a ten-fold error.** Every comma was stripped as a
+  thousands separator, so `1,5` became 15 — in every shape, and in the older
+  list/matrix feeds too. A thousands separator always has exactly three digits
+  after it; anything else with one comma is now a decimal, and the note says
+  how many cells were read that way. The Unicode minus Word autocorrects to
+  and a no-break-space thousands separator are numbers now rather than
+  silently dropped cells.
+- **A label merged across its rows dropped every row but the first.** Merged
+  cells reach the API as the label on the first row and blanks below it; the
+  blanks are now filled from above and counted in the note. When Word returns
+  such rows ragged instead, the numbers shift into the label column — that
+  table is refused by name rather than read as two nonsense groups.
+- **Numeric ids, arms and years were data.** "A label is a word" made a
+  Subject column of 1..n a Friedman condition, an ID column a regression
+  response, arms coded 1/2 the values of groups called "Group" and "Value".
+  Headers naming an id or category (id, subject, group, arm, year, dose, …)
+  and a bare 1..n row counter now mark label columns whatever their cells
+  hold; three unnamed numeric columns for survival are refused, since which
+  one is time would be a guess; and a wide table with no header says so.
+- **"Age (years)" became survival time** because it mentions a unit. A header
+  that names the time column outright now wins over one that mentions a unit,
+  and a unit word never beats a column named Time.
+- **A "Censored" column was read with 1 = event.** It is inverted now, and
+  the note says the flag was read as censored.
+- **Survival rows with an unexpected status were quietly skipped** (a 0/1/2
+  competing-risk code lost half the subjects). The whole table is refused,
+  naming the value and the row; `1.0`/`0.0` and Deceased are read.
+- A crosstab whose first data row holds only replicate lists lost its header
+  and was told to "lay the table out as a crosstab"; numeric factor levels
+  (dose 10/20) were refused in long form. Both read now.
+- `power.ts`: the sample-size search gave up at 2^19 while claiming a cap of
+  10^6, so d = 0.005 (true n ≈ 628k) came back "cannot reach 0.8 power" — the
+  cap is now searched to the end and the message says "more than 1,000,000";
+  the non-central t underflowed to 0 for every t past |δ| ≈ 37.6 and now
+  takes the normal approximation R uses there; n is capped at 10^9, above
+  which the incomplete beta loses precision and a zero effect reads power 1.
+
+### Found by a SECOND independent pass, over the fixes themselves
+The header-word heuristics added in the first round were a mapping surface of
+their own — four more class-A defects of the shape "a word in a header
+silently changes which column is data", all fixed and pinned:
+- A header merely STARTING with an id word dropped or relabelled real
+  measurement columns: "Sample A | Sample B | Sample C" lost Sample A,
+  "Trial 1..3" lost a Friedman condition, "Run time" stopped being the
+  regression response, "Case fatality | Survival" became label + value
+  groups. A header word now has to be the whole header, the column's content
+  has to agree (ids: text, a row counter or distinct integers; categories:
+  text or repeating integers), sibling headers sharing the word are groups,
+  and a contingency table never loses a column on a header word.
+- "A crosstab's row labels are unique" was false: replicates on separate rows
+  repeat the label, and a 3-column blank-corner crosstab was read as a long
+  table with the first data column as factor B. A blank corner is a crosstab,
+  full stop; three columns are long only when the second holds level names or
+  both factor columns repeat.
+- Log-rank grouped by "Treatment duration (days)" (a `treat` substring hit)
+  ahead of "Arm"; "Progression-free survival (months)" was taken for an event
+  and "Survival status" for a time. Survival headers now get a role by word
+  order: a header naming time, then status/censored, then survival/OS/PFS,
+  then event words, then a bare unit; "age" never.
+- Inside a crosstab cell a comma is always a separator now (the note says to
+  write decimals with a dot there); "1.000,5" reads as the German 1000.5 and
+  any other dot-before-comma is refused; n/a placeholders are blanks.
+
 ## [2.127.0] — 2026-10-13 — Offline delivery
 
 The product's stated core value — "in grad school you can't always connect to

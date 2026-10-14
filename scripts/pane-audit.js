@@ -51,10 +51,11 @@ const DIST = path.join(ROOT, "dist");
 // calculators and still print a tidy "5 of 11 draw" and pass. A field that
 // describes a guarantee nothing implements is worse than no field.
 const BASELINES = {
-  // STATISTICS IS COMPLETE: 21 of 21. Raise this only if a calculator is added,
+  // STATISTICS IS COMPLETE: 22 of 22 (v2.128.0 added power & sample size,
+  // which draws its power curve). Raise this only if a calculator is added,
   // and a new one must ship with a figure or this count passes it silently at
-  // 22 — the same rule the Engineering baseline carries.
-  stats: { label: "Statistics", figures: 21, total: 21 },
+  // 23 — the same rule the Engineering baseline carries.
+  stats: { label: "Statistics", figures: 22, total: 22 },
   // ANALYZE IS COMPLETE: 23 of 23. It measured 8 when this gate was written —
   // a source scan counted 9, because the heat, wave and Laplace solvers each
   // BUILT a figure that an em dash in their own output suppressed before it

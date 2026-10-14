@@ -680,7 +680,14 @@ export const MODE_EXAMPLES: Record<ExampleMode, string> = {
       <li><strong>Chi-square</strong> — goodness of fit and test of independence (contingency table)</li>
       <li><strong>Two-way ANOVA</strong> (enter <code>factorA factorB value</code> per line) and <strong>multiple-comparison correction</strong> (Bonferroni / Holm / Benjamini–Hochberg)</li>
       <li><strong>Uncertainty propagation</strong> — a formula plus <code>a = 10 ± 0.1</code> lines → result ± combined 1σ</li>
+      <li><strong>Power &amp; sample size</strong> — n per group for a target power, or the power at a given n: two-sample / paired t (Cohen's <em>d</em>), one-way ANOVA (Cohen's <em>f</em>), two proportions; drawn as a power curve</li>
     </ul>
+    <p class="examples-note">
+      <strong>Use table at cursor</strong> works on every calculator: click inside a Word table and the field fills itself.
+      Groups go one per column (a header row names them) or as label + value rows; repeated measures one row per subject;
+      survival as time and event (1/0) columns, plus a group column for Log-rank; two-way ANOVA as factor A, factor B, value
+      rows or a crosstab. The status line says how the table was read.
+    </p>
     <p class="examples-note">
       Enter numbers separated by spaces, commas, or new lines. Analysis aid — verify before publishing.
     </p>`,

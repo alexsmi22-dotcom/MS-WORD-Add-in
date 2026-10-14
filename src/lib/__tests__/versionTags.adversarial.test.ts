@@ -49,6 +49,7 @@ const PINNED: Record<string, string> = {
   "Hamiltonian certificates and lazy λ": "2.125.0",
   "Complex numbers, partial fractions, parametric systems": "2.126.0",
   "Offline delivery": "2.127.0",
+  "Every statistics calculator reads the table at the cursor; power & sample size": "2.128.0",
 };
 
 describe("the manual test script's version tags are history, not a moving target", () => {

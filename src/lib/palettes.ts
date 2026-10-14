@@ -369,6 +369,8 @@ export const SOLVE_ODES: PaletteGroup[] = [
       { label: "Separable", snippet: "y' = x/y", title: "Implicit solution shown honestly" },
       { label: "Linear 1st order", snippet: "y' = x - y", title: "Integrating-factor method, worked" },
       { label: "2nd order, real roots", snippet: "y'' + 3y' + 2y = 0", title: "Characteristic equation" },
+      { label: "initial-value problem", snippet: "y'' + 4y = sin(t), y(0) = 0, y'(0) = 0", title: "Solved by Laplace transform; the single solution, verified and drawn" },
+      { label: "step forcing", snippet: "y'' + y = u(t-1), y(0) = 0, y'(0) = 0", title: "A unit-step forcing through the transform" },
       { label: "Oscillator", snippet: "y'' + 4y = 0", title: "Complex roots → cos and sin" },
       { label: "Damped", snippet: "y'' + 2y' + 5y = 0", title: "Envelope × oscillation" },
       { label: "Critical damping", snippet: "y'' - 2y' + y = 0", title: "Repeated root — the x factor" },
@@ -388,6 +390,22 @@ export const SOLVE_CALCULUS: PaletteGroup[] = [
       { label: "Taylor", snippet: "taylor exp(x) order 5", title: "Taylor series, exact coefficients" },
       { label: "Maclaurin", snippet: "maclaurin sin(x)", title: "Series about 0" },
       { label: "series about a", snippet: "series sqrt(x) about 1 order 4", title: "Expansion about a point" },
+    ],
+  },
+];
+
+/** Transform verbs: they run in the EQUATION kind (the verb slot), so they sit
+ *  beside the equation library there, not under limits and series. */
+export const SOLVE_TRANSFORMS: PaletteGroup[] = [
+  {
+    name: "Transforms & Fourier ",
+    items: [
+      { label: "ℒ{f}", snippet: "laplace t^2 exp(3t)", title: "Laplace transform, table rule per term, checked against the defining integral" },
+      { label: "ℒ⁻¹{F}", snippet: "inverse laplace 1/(s*(s+1))", title: "Inverse by partial fractions; write s*(s+1), not s(s+1)" },
+      { label: "step", snippet: "laplace u(t-2)", title: "Unit step: second shift theorem" },
+      { label: "impulse", snippet: "laplace delta(t-3)", title: "Dirac impulse: sifting" },
+      { label: "Fourier series", snippet: "fourier series t^2 on (-pi, pi)", title: "Exact coefficients in n; S₅ drawn" },
+      { label: "square wave", snippet: "fourier series -1 on (-pi, 0); 1 on (0, pi)", title: "Pieces separated by ;" },
     ],
   },
 ];

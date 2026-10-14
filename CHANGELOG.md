@@ -6,6 +6,127 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.129.0] — 2026-10-13 — Laplace transforms, initial-value problems and Fourier series
+
+The first of the Solve domains on the 2026-10 arc (`docs/SCOPE-LAPLACE-MULTIVAR.md`).
+Every second-year engineering course lives on these, and the product had none.
+
+### Added
+- **Laplace transforms** (`src/lib/laplace.ts`, verbs `laplace …` and
+  `inverse laplace …` in the equation kind). Forward: a table applied honestly
+  — tⁿ·e^{at}·{1, sin, cos, sinh, cosh}·u(t−d), with tⁿ handled by the rule
+  tⁿf ↦ (−d/ds)ⁿF differentiated SYMBOLICALLY in s, trig squares and products
+  reduced by the double-angle and product-to-sum identities, phases expanded,
+  the unit step by the second shift theorem and the impulse by sifting. The
+  region of convergence is stated. Anything outside the table — 1/t, ln t,
+  exp(t²), sin·sinh — is refused by name. Inverse: partial fractions (the
+  casint machinery), linear factors of any power, irreducible quadratics
+  completed to (s−p)²+ω² with powers 1 and 2, an irrational ω kept as sqrt
+  with its square factors pulled out (1/(s³+1) carries √3, never 1.732), a
+  constant polynomial part as δ(t), e^{−ds} delays as g(t−d)·u(t−d).
+- **Every transform is cross-checked by a route that shares no code with the
+  table**: the defining integral ∫₀^T e^{−st}f dt, integrated numerically
+  with the panels split at a step's jump, at three s inside the region; an
+  inverse is additionally transformed forward again and compared exactly or
+  at five sample s. A result that fails is withheld, not caveated.
+- **Initial-value problems** (ODE kind): `y'' + 4y = sin(t), y(0) = 0,
+  y'(0) = 0` is solved by transform — Y(s) assembled from a(s²Y − s·y(0) −
+  y'(0)) + b(sY − y(0)) + cY = G(s), inverted, and VERIFIED by substituting
+  y into the original equation at sample points plus the initial conditions
+  (piecewise when the solution carries a step, since u′ = δ has no rule to
+  differentiate through). The single solution is drawn. Constant rational
+  coefficients, order ≤ 2, forcing in the table; conditions at t = 0 only.
+- **Fourier series** (`src/lib/fourier.ts`, verb `fourier series f on (a, b)`,
+  pieces separated by `;`, abs(linear) split for you). Coefficients exact and
+  symbolic in n for polynomial pieces (tabular integration by parts), exp(ct)
+  pieces, and sinusoids at a harmonic (orthogonality — so `cos(t)` is its own
+  series with no 0/0). At the period's ends sin(nπm) = 0 and cos(nπm) =
+  (−1)^{nm} are substituted BEFORE anything is simplified, and π is kept as a
+  symbol throughout, so a₀/2 = π²/3 and aₙ = 4(−1)ⁿ/n², not 0.2122·π³ (the
+  canonical simplifier folds a bare π to a float: the first version printed
+  exactly that). Where a piece boundary is not a whole multiple of the
+  half-period, the first five coefficients are given exactly one by one and
+  the result says why. Verified against numerical integration for n = 0..5;
+  the partial sum S₅ is drawn over f, and the caveats name every jump, the
+  midpoint convergence and the Gibbs overshoot.
+- `u(t−d)` / `heaviside` / `step` and `delta(t−d)` are functions now. A bare
+  `u`, `delta`, `step` or `heaviside` stays a variable (`u + v = 1` still
+  solves in u and v; a pasted δ is still a deflection); only the bracketed
+  form is the function.
+
+### Found by the independent adversarial pass (none by the author's own tests)
+- **A frozen pane on `laplace t^10`.** tⁿ was transformed by differentiating
+  F n times with no simplification between steps, so the tree doubled each
+  time: t^8 took 16 s, t^10 never returned, and `t^7 exp(-t)` came back as a
+  4,313-character degree-120 rational, "verified". Plain tⁿe^{at} now uses
+  the closed form n!/(s−a)^{n+1}; tⁿ·trig differentiates with simplification
+  between steps; powers above 12 are refused by name.
+- **A dropped factor hidden by the impulse** (class A). Reducing a triple trig
+  product removed EVERY sine, not the two being combined; without δ the
+  numeric check withheld the result, with δ the check is skipped and
+  `sin(t) sin(2t) sin(3t) delta(t-1)` showed 0.128·e^{−s} for 0.108·e^{−s}.
+  Factors are now removed by identity.
+- `laplace 10`, `laplace 1 + t`, `laplace 1 - exp(-t)` were read as INVERSE
+  transforms (the pattern matched "laplace" + "1"). The inverse now needs its
+  marker: inverse laplace, laplace^-1, L^-1, ℒ⁻¹.
+- **Decimals in "exact" results.** The canonical simplifier folds every
+  function of a constant to floating point, so `sin(2t+1)` carried 0.8414 for
+  cos 1, `u(t-pi) sin(t)` carried 3141592653589793/10¹⁵ and 1.22e-16 for
+  sin π, `inverse laplace sqrt(2)/(s^2+2)` printed 14142135623730952/10¹⁶,
+  `cos(sqrt(2) t)` printed 1.5625e+30·s/(…). New `src/lib/exact.ts`:
+  functions of constants are masked behind atoms around the simplifier and
+  restored after, sin/cos/tan of rational multiples of π are folded to their
+  exact values first, and π stays π. Fourier's exp pieces keep e too.
+- Fourier refused `(0, 2π)` — the commonest textbook period — because 0 is
+  not "a multiple of π"; it is now. Pieces with a π coefficient (`pi*t`,
+  `t/pi`) are read through a symbolic Taylor expansion instead of the
+  rational-only polynomial reader.
+- Impulse forcing `y'' + y = delta(t-1)` crashed (differentiating the
+  equation's coefficients ran into δ, which has no rule) — a function of
+  something free of the variable now differentiates to 0 without consulting
+  the rule table. A pulse forcing `u(t-1) - u(t-2)` was refused because the
+  inverse split sums only at the top level; sums over a common denominator
+  are distributed first. ℒ⁻¹{1} = δ(t), ℒ⁻¹{5} = 5δ(t), ℒ⁻¹{e^{−2s}} =
+  δ(t−2) invert now (a constant denominator had no decomposition).
+- Correct transforms were withheld by a weak numeric check: a fixed 2000-panel
+  window missed `sin(377t)`, overflowed on `exp(100t)`·e^{−st} evaluated as
+  ∞·0, and ended before t^8's tail. The damping is now folded into every
+  exponential before evaluation, the window and panel count follow the
+  function's own power and frequency, and the four sample points sit off the
+  integers.
+- `inverse laplace 1/(s(s+1))` — "Unknown function s" — now says to write
+  s*(s+1). `delta`, `step`, `heaviside` are variables again when bare;
+  `u(x) = x^2` is read as a definition. `y''(t) + y(t) = 0` is read;
+  duplicate initial conditions are refused; a surplus y'(0) on a first-order
+  equation is reported as unused; an impulse at t = 0 explains that y'(0) is
+  the value before the jump. `laplace t^2 for s > 2.5` drops the condition;
+  `L{t^2}` is a spelling; sin³/cos³/sin⁴/cos⁴ reduce; `u(t-2)u(t-3)` is
+  u(t−3); `exp(a t)` with a symbolic rate transforms with the numeric check
+  honestly skipped; `delta(t)` carries no "for s > −Infinity".
+
+### Found by a SECOND independent pass, over the fixes themselves
+- A symbolic frequency (`laplace sin(w*t)`) was withheld with "did not agree
+  with the defining integral": the region was computed as if w were 0 and the
+  numeric check then failed on the free symbol. A symbolic rate, frequency or
+  coefficient now makes the region unknown and the check skipped by name.
+- A first-order impulse response (`y' + y = delta(t), y(0) = 0` → e^{−t})
+  was withheld because y itself jumps at the impulse: y(0) is now read as the
+  value before the jump, and the caveat says so.
+- The masking simplifier froze everything it masked: `sqrt(2)·sqrt(2)`,
+  `sqrt(4)`, `exp(0)`, `exp(1)·exp(−1)` and `sin(π/4)² + cos(π/4)²` came back
+  unreduced, so `laplace sqrt(2) sin(sqrt(2) t)` printed
+  sqrt(2)·sqrt(2)/(s² + sqrt(2)²) for 2/(s² + 2). Identical constants now
+  share one atom, trivial folds run before and after the simplifier, and a
+  second round runs when the folds exposed numbers. tan(π/4) is 1, not
+  sqrt(2)/sqrt(2). A user variable that happens to be named like a mask atom
+  can no longer be unmasked into someone else's constant.
+- Step lines printed `u(t - --1)`; single-term results printed `10*1/s` and
+  `1/2*1/(s^2 + 1)`; a delay of π was refused by the inverse; `1/exp(t)` was
+  refused as a division; `L^{-1}{…}` and an inverse with a trailing
+  "for s > …" did not parse; a forward transform of a function of s now says
+  to write "inverse laplace". All fixed and pinned in
+  `laplace.adversarial2.test.ts`.
+
 ## [2.128.0] — 2026-10-13 — Every statistics calculator reads the table at the cursor; power & sample size
 
 ### Added

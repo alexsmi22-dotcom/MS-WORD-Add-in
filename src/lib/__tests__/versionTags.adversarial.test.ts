@@ -50,6 +50,7 @@ const PINNED: Record<string, string> = {
   "Complex numbers, partial fractions, parametric systems": "2.126.0",
   "Offline delivery": "2.127.0",
   "Every statistics calculator reads the table at the cursor; power & sample size": "2.128.0",
+  "Laplace transforms, initial-value problems and Fourier series": "2.129.0",
 };
 
 describe("the manual test script's version tags are history, not a moving target", () => {

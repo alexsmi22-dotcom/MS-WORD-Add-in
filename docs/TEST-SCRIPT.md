@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.128.0)
+# JurisLab — Manual Test Script (v2.129.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -9,6 +9,29 @@ scanning, and layout. Budget ~30 minutes for the full pass.
 Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
+
+## 0bv. New in v2.129.0 — Laplace transforms, initial-value problems and Fourier series
+
+Solve. Equation kind unless stated.
+
+- [ ] `laplace t^2 exp(3t)` → **F(s) = 2/(s − 3)³, for s > 3**, one step line per
+  term naming the table rule, and "Verified against the defining integral";
+  f(t) is drawn. Insert → the F line lands as a real equation.
+- [ ] `laplace sin(t)^2` → 2/(s(s² + 4)); `laplace u(t-2)` → e^{−2s}/s;
+  `laplace exp(t^2)` → REFUSED by name (no result line).
+- [ ] `inverse laplace 1/(s*(s+1))` → f(t) = 1 − e^{−t} with the partial fractions
+  shown; `inverse laplace 1/(s^3+1)` keeps **sqrt(3)** exact; `inverse laplace
+  exp(-2s)/s` → u(t − 2) and the plot shows the step at 2.
+- [ ] ODE kind: `y'' + 4y = sin(t), y(0) = 0, y'(0) = 0` → **y = sin(t)/3 −
+  sin(2t)/6**, "initial-value problem, by Laplace transform", Y(s) shown,
+  "Verified by substituting…", and ONE curve drawn (not a family).
+  `y'' + y = u(t-1), y(0) = 0, y'(0) = 0` → (1 − cos(t − 1))·u(t − 1).
+- [ ] `fourier series t^2 on (-pi, pi)` → a₀/2 = pi^2/3, a_n = 4(−1)^n/n^2 (exact,
+  no decimals), S₅ drawn over f. `fourier series -1 on (-pi, 0); 1 on (0, pi)` →
+  b_n = 4/(pi n) for odd n and the Gibbs caveat. `fourier series cos(t) on
+  (-pi, pi)` → "except n = 1: a_1 = 1".
+- [ ] Nothing regressed: `u + v = 1` / `u - v = 3` still solves as a system;
+  `(2+3i)(1-i)` still gives 5 + i; `partial fractions 1/(x^2-1)` unchanged.
 
 ## 0bu. New in v2.128.0 — Every statistics calculator reads the table at the cursor; power & sample size
 
@@ -3062,6 +3085,10 @@ Engineering mode, Energy & power (now 17; the mode must state **101 calculators*
   - `(0,0,0) (1,1,1) (2,2,2)` -> refused as **COLLINEAR**: no plane.
   - `circle r=1/3` -> area **1/9*pi** exactly, and `box 1/2 1/3 1/4` -> volume **1/24**.
     (Typed fractions must stay exact — no long decimals or giant fractions anywhere.)
+- [ ] **Laplace transforms, initial-value problems and Fourier series (v2.129.0).** Solve — see §0bv.
+  - `laplace t^2 exp(3t)` → 2/(s − 3)³ for s > 3; `inverse laplace 1/(s*(s+1))` → 1 − e^{−t}.
+  - ODE kind with y(0), y'(0) → the single solution, verified, drawn.
+  - `fourier series t^2 on (-pi, pi)` → a₀/2 = π²/3, aₙ = 4(−1)ⁿ/n², exact.
 - [ ] **Every statistics calculator reads the table at the cursor; power & sample size (v2.128.0).** Stats — see §0bu.
   - Any groups-style calculator fills from a Word table (one column per group, or label + value rows) and the status line says how it read it.
   - Power & sample size: d = 0.5 two-sample → n = 64 per group; the power curve inserts.

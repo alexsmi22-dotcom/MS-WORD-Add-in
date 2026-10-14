@@ -287,6 +287,12 @@ export interface VerbResult {
   /** Result lines; `math` marks ones worth typesetting. */
   lines: { text: string; math?: boolean }[];
   caveats: string[];
+  /** An optional figure (SVG) and its alt text — the Laplace/Fourier verbs draw. */
+  svg?: string;
+  alt?: string;
+  /** For verbs that draw a function of one variable through the pane's own
+   *  plotter: expressions in Solve grammar, the variable, and the window. */
+  plot?: { exprs: { expr: string; label: string }[]; variable: string; window: { lo: number; hi: number }; title: string };
 }
 
 const fmtCoefTerm = (c: Rat, varName: string, k: number, first: boolean): string => {

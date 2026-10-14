@@ -515,6 +515,11 @@ const FN_NUM: Record<string, (x: number) => number> = {
   sinh: Math.sinh, cosh: Math.cosh, tanh: Math.tanh,
   exp: Math.exp, ln: Math.log, log: Math.log10, log10: Math.log10, log2: Math.log2,
   sqrt: Math.sqrt, cbrt: Math.cbrt, abs: Math.abs,
+  // The unit step folds at a constant (u(3) = 1); the impulse deliberately
+  // does not appear here, so delta(constant) bails rather than folds.
+  u: (v: number) => (v >= 0 ? 1 : 0),
+  heaviside: (v: number) => (v >= 0 ? 1 : 0),
+  step: (v: number) => (v >= 0 ? 1 : 0),
 };
 
 // ---------------------------------------------------------------------------

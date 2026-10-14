@@ -60,10 +60,12 @@ function updateSolveSource(): string {
 describe("Solve draws for every kind that has something to draw", () => {
   test("the equation, derivative and integral branches each produce a figure", () => {
     const src = updateSolveSource();
-    // Four calls to the shared plotter (equation, derivative, integral, and
-    // the ODE solution family), plus the topology barcode elsewhere.
+    // Six calls to the shared plotter: equation, derivative, integral, the
+    // ODE solution family, and (v2.129.0) the verbs that draw — Laplace
+    // plots f(t), Fourier plots f and its partial sum — and the initial-value
+    // problem's single solution curve. Plus the topology barcode elsewhere.
     const produced = (src.match(/currentSolveSvg = solveFunctionSvg\(/g) ?? []).length;
-    expect(produced).toBe(4);
+    expect(produced).toBe(6);
   });
 
   test("the ODE branch draws its solution family with its own caption", () => {

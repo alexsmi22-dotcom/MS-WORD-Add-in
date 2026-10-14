@@ -153,3 +153,31 @@ describe("every Discrete-math template is answered by its engine", () => {
     expect(r!.display.length).toBeGreaterThan(0);
   });
 });
+
+describe("every transform template is answered by its verb (v2.129.0)", () => {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { SOLVE_TRANSFORMS, SOLVE_ODES } = require("../palettes");
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { tryLaplace, solveIvpLaplace, hasInitialConditions } = require("../laplace");
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { tryFourierSeries } = require("../fourier");
+  const all = SOLVE_TRANSFORMS.flatMap((g: { items: { label: string; snippet: string }[] }) => g.items);
+  const rows: [string, string][] = all.map((i: { label: string; snippet: string }) => [i.label, i.snippet]);
+  test.each(rows)("%s: %s", (_label: string, snippet: string) => {
+    const text = foldPastedMath(snippet).text;
+    const v = tryLaplace(text) ?? tryFourierSeries(text);
+    expect(v).not.toBeNull();
+    // A template must produce a RESULT line, not a refusal.
+    expect(v!.lines.length).toBeGreaterThan(0);
+  });
+  const ivps = SOLVE_ODES.flatMap((g: { items: { label: string; snippet: string }[] }) => g.items).filter((i: { snippet: string }) =>
+    hasInitialConditions(i.snippet),
+  );
+  const ivpRows: [string, string][] = ivps.map((i: { label: string; snippet: string }) => [i.label, i.snippet]);
+  test.each(ivpRows)("IVP %s: %s", (_label: string, snippet: string) => {
+    const r = solveIvpLaplace(foldPastedMath(snippet).text);
+    expect(r).not.toBeNull();
+    expect(r!.solution).not.toBe("");
+    expect(r!.verified).toBe("verified");
+  });
+});

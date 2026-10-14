@@ -313,7 +313,7 @@ import {
   BUILD_BONDS,
   BUILD_MARKUSH,
   SOLVE_SYMBOLS,
-  SOLVE_EQUATIONS,
+  SOLVE_EQUATIONS, SOLVE_TRANSFORMS,
   SOLVE_SHAPES,
   SOLVE_CALCULUS,
   SOLVE_ODES,
@@ -327,6 +327,8 @@ import { solveComposite, qtyToNumber, qtyExact } from "../lib/compositeGeometry"
 import { compositeShapeSvg, geometryFigureSvg, geometryFigureAlt, drawnShapesSvg } from "../lib/geometryChart";
 import { DrawShape, sanitizeShapes, emitDsl as emitDrawDsl, shapesDescribeEmit } from "../lib/geometryDraw";
 import { trySum, tryAlgebraVerb } from "../lib/algebraTools";
+import { tryLaplace, solveIvpLaplace, hasInitialConditions } from "../lib/laplace";
+import { tryFourierSeries } from "../lib/fourier";
 import { tryComplex } from "../lib/complexAlgebra";
 import { tryStatsIntent } from "../lib/statsIntent";
 import { solveInputToTypesetLines, solveToTypesetDsl, isProseRequest } from "../lib/solveTypeset";
@@ -27192,7 +27194,7 @@ function renderSolvePalette(kind: SolveKind): void {
   const snippetGroups: PaletteGroup[] =
     kind === "equation" || kind === "derivative" || kind === "integral" ? SOLVE_SYMBOLS : kind === "lambda" ? SOLVE_LAMBDA_SYMBOLS : [];
   const templateGroups: PaletteGroup[] =
-    kind === "equation" ? SOLVE_EQUATIONS : kind === "geometry" ? SOLVE_SHAPES : kind === "derivative" ? SOLVE_CALCULUS : kind === "ode" ? SOLVE_ODES : kind === "lambda" ? SOLVE_LAMBDA : kind === "discrete" ? SOLVE_DISCRETE : [];
+    kind === "equation" ? [...SOLVE_EQUATIONS, ...SOLVE_TRANSFORMS] : kind === "geometry" ? SOLVE_SHAPES : kind === "derivative" ? SOLVE_CALCULUS : kind === "ode" ? SOLVE_ODES : kind === "lambda" ? SOLVE_LAMBDA : kind === "discrete" ? SOLVE_DISCRETE : [];
   solvePaletteEl.replaceChildren();
   solvePaletteEl.style.display = snippetGroups.length || templateGroups.length ? "block" : "none";
 
@@ -27733,8 +27735,12 @@ function updateSolve(): void {
       // pasted into the equation kind was answered by SOLVING the equation —
       // technically responsive, actually wrong. When the prose names the
       // task, switch to that kind and answer the question that was asked.
-      const wantsDerivative = /\b(derivative|differentiate)\b/i.test(text);
-      const wantsIntegral = /\b(integral|integrate|antiderivative)\b/i.test(text);
+      // A transform verb owns its whole line: "laplace transform of the
+      // derivative of t^2" is a Laplace request, not a derivative request, and
+      // no prose switch below may take it first.
+      const transformVerb = /^\s*(?:inverse\s+)?laplace\b|^\s*(?:ℒ|L)\s*\{|^\s*(?:ℒ|L)\s*(?:\^\s*[({]?\s*-\s*1|⁻¹)|^\s*fourier\s+series\b/i.test(text);
+      const wantsDerivative = !transformVerb && /\b(derivative|differentiate)\b/i.test(text);
+      const wantsIntegral = !transformVerb && /\b(integral|integrate|antiderivative)\b/i.test(text);
       if (wantsDerivative || wantsIntegral) {
         const ex = extractSingleEquation(text) ?? extractExpression(text);
         const works = ex && (wantsDerivative ? differentiate(ex) !== null : antiderivative(ex) !== null);
@@ -27750,7 +27756,7 @@ function updateSolve(): void {
       }
       // LIMITS phrased as prose route to the derivative kind, which owns them.
       const taskText = normalizeTaskProse(text);
-      if (/\blim(it)?\b/i.test(taskText) && parseLimitRequest(taskText)) {
+      if (!transformVerb && /\blim(it)?\b/i.test(taskText) && parseLimitRequest(taskText)) {
         solveKind.value = "derivative";
         updateSolveUi();
         updateSolve();
@@ -27764,7 +27770,7 @@ function updateSolve(): void {
       // STATISTICS questions pasted as prose ("mean of 3, 5, 8", "is A
       // different from B") answer from the real stats engines, inline.
       // "average rate of change" is calculus, not statistics — excluded.
-      if (!/\brate of change\b/i.test(text)) {
+      if (!transformVerb && !/\brate of change\b/i.test(text)) {
         const st = tryStatsIntent(text);
         if (st) {
           solveResult.appendChild(msEyebrow(st.title));
@@ -27782,7 +27788,7 @@ function updateSolve(): void {
       // (factor / expand / simplify) are word-led and unambiguous — checked
       // before anything could misread them as equations. Task verbiage
       // ("Find the sum of…", "Factor the expression…") is stripped first.
-      const sum = trySum(taskText) ?? trySum(text);
+      const sum = transformVerb ? null : (trySum(taskText) ?? trySum(text));
       if (sum) {
         solveResult.appendChild(msEyebrow(sum.title));
         say(sum.title, "heading");
@@ -27795,7 +27801,18 @@ function updateSolve(): void {
       }
       // i as the imaginary unit — (2+3i)(1−i), (1+i)z = 2 — is claimed BEFORE
       // the solver, which would otherwise read i as an unknown and "solve" it.
-      const verb = tryComplex(text) ?? tryComplex(taskText) ?? tryAlgebraVerb(taskText) ?? tryAlgebraVerb(text);
+      // The transform verbs come first: "laplace …" and "fourier series …"
+      // are unambiguous prefixes, and nothing else may read "inverse laplace
+      // 1/(s(s+1))" as an equation in s.
+      const verb =
+        tryLaplace(taskText) ??
+        tryLaplace(text) ??
+        tryFourierSeries(taskText) ??
+        tryFourierSeries(text) ??
+        tryComplex(text) ??
+        tryComplex(taskText) ??
+        tryAlgebraVerb(taskText) ??
+        tryAlgebraVerb(text);
       if (verb) {
         solveResult.appendChild(msEyebrow(verb.title));
         say(verb.title, "heading");
@@ -27803,6 +27820,23 @@ function updateSolve(): void {
           solveResult.appendChild(solveLine(l.text, "ms-masses"));
           if (l.math) sayMath(l.text, l.text);
           else say(l.text);
+        }
+        // A verb that draws (the transforms plot f(t); Fourier plots f and
+        // its partial sum) hands its curves to the pane's own plotter.
+        if (verb.plot) {
+          currentSolveSvg = solveFunctionSvg({
+            exprs: verb.plot.exprs.map((e, i) => ({ ...e, color: ["#2563eb", "#b91c1c", "#15803d"][i % 3] })),
+            variable: verb.plot.variable,
+            window: verb.plot.window,
+            title: verb.plot.title,
+          });
+          currentSolveAlt = verb.alt ?? `${verb.title}: ${verb.plot.exprs.map((e) => e.label).join(", ")}.`;
+          if (currentSolveSvg) {
+            const fig = document.createElement("div");
+            fig.className = "stats-figure";
+            fig.innerHTML = currentSolveSvg;
+            solveResult.appendChild(fig);
+          }
         }
         return finish(verb.caveats);
       }
@@ -28222,10 +28256,46 @@ function updateSolve(): void {
     }
 
     if (kind === "ode") {
+      // INITIAL CONDITIONS make it an initial-value problem, solved by the
+      // Laplace transform (laplace.ts) — the one method here that carries
+      // y(0) and y'(0) through the algebra and returns the single solution.
+      if (hasInitialConditions(text)) {
+        const ivp = solveIvpLaplace(text);
+        if (ivp) {
+          solveResult.appendChild(msEyebrow(`ODE — ${ivp.classification}`));
+          say(`ODE — ${ivp.classification}:`, "heading");
+          say(text);
+          sayWork(ivp.steps);
+          if (ivp.solution) {
+            solveResult.appendChild(solveLine(ivp.solution, "ms-masses"));
+            sayMath(ivp.solution);
+            const v = ivp.caveats[0];
+            if (v) {
+              solveResult.appendChild(solveLine(v));
+              say(v);
+            }
+            currentSolveSvg = solveFunctionSvg({
+              exprs: ivp.family.map((f) => ({ expr: f.expr, label: f.label, color: "#2563eb" })),
+              variable: ivp.variable,
+              window: { lo: 0, hi: 8 },
+              title: `y(${ivp.variable}) — the solution of the initial-value problem`,
+            });
+            currentSolveAlt = `Solution of ${text}: ${ivp.solution}.`;
+            if (currentSolveSvg) {
+              const fig = document.createElement("div");
+              fig.className = "stats-figure";
+              fig.innerHTML = currentSolveSvg;
+              solveResult.appendChild(fig);
+            }
+            return finish([]);
+          }
+          return finish(ivp.caveats);
+        }
+      }
       const r = solveOdeSymbolic(text);
       if (!r) {
         return void solveResult.appendChild(
-          solveLine("Type an ODE — y' = x*y, dy/dx = cos(x), or y'' + 3y' + 2y = 0. The unknown is y(x)."),
+          solveLine("Type an ODE — y' = x*y, dy/dx = cos(x), or y'' + 3y' + 2y = 0; add y(0) = 1, y'(0) = 0 for an initial-value problem. The unknown is y(x) or y(t)."),
         );
       }
       solveResult.appendChild(msEyebrow(`ODE — ${r.classification}`));

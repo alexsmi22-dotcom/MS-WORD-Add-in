@@ -69,9 +69,22 @@ const EVAL_FN: Record<string, (x: number) => number> = {
   re: (v: number) => v,
   im: () => 0,
   arg: (v: number) => (v < 0 ? Math.PI : 0),
+  // The unit step and the impulse, for the Laplace work (laplace.ts): u(t-2)
+  // is a function of t here, and a bare `u` with no brackets stays a VARIABLE
+  // (see the parser) because systems name their unknowns u and v.
+  u: (v: number) => (v >= 0 ? 1 : 0),
+  heaviside: (v: number) => (v >= 0 ? 1 : 0),
+  step: (v: number) => (v >= 0 ? 1 : 0),
+  // δ has no pointwise value; evaluating it is a mistake the callers avoid
+  // (numeric checks skip expressions that contain it). Infinity at 0 keeps a
+  // stray evaluation from quietly reading as 0 everywhere.
+  delta: (v: number) => (v === 0 ? Infinity : 0),
 };
 
 const CONSTANTS: Record<string, number> = { pi: Math.PI, e: Math.E };
+
+/** Function names that are also legitimate bare variables (see the parser). */
+const BARE_OK = new Set(["u", "delta", "step", "heaviside"]);
 
 // Unicode super/subscript glyphs, so a pasted or typed x² / x₁ parses like the
 // ASCII forms x^2 / x_1. Superscript runs become an exponent ^(…); subscript runs
@@ -495,7 +508,12 @@ class Parser {
       // sin*x — a product with a variable named "sin". Both are nonsense, and the
       // second is the kind that produces a plausible-looking answer. Say what is
       // actually wrong instead.
-      if (name in EVAL_FN) {
+      // …except the step and impulse names: `u` is the unit step when written
+      // u(t-2) and an ordinary unknown when written bare (systems in u and v,
+      // parametric systems whose unknowns are x, y, z, w, u, v), and `delta`
+      // is what a pasted δ becomes — a deflection, a Kronecker symbol, a
+      // "δ = 0.5". Only the bracketed form is the function.
+      if (name in EVAL_FN && !BARE_OK.has(name)) {
         throw new Error(
           `"${name}" is a function, so it needs brackets around its argument — write ` +
             `${name}(x) rather than ${name} x.`,
@@ -691,6 +709,11 @@ function derivFn(name: string, u: Expr): Expr {
     case "sec": return { t: "mul", l: { t: "fn", name: "sec", arg: u }, r: { t: "fn", name: "tan", arg: u } };
     case "csc": return { t: "neg", e: { t: "mul", l: { t: "fn", name: "csc", arg: u }, r: { t: "fn", name: "cot", arg: u } } };
     case "cot": return { t: "neg", e: { t: "div", l: N(1), r: { t: "pow", l: { t: "fn", name: "sin", arg: u }, r: N(2) } } };
+    // The step's derivative is the impulse (in the distributional sense the
+    // Laplace work needs); the impulse itself has no derivative rule here.
+    case "u":
+    case "heaviside":
+    case "step": return { t: "fn", name: "delta", arg: u };
     default: throw new Error(`No derivative rule for "${name}".`);
   }
 }
@@ -742,6 +765,11 @@ export function derivative(e: Expr, x: string): Expr {
       };
     }
     case "fn": // chain rule
+      // A function of something that does not involve x is a constant: 0,
+      // without asking derivFn — which has no rule for delta, and used to
+      // throw on an impulse forcing term while the ODE's coefficients were
+      // being read off by differentiating with respect to y, y', y''.
+      if (!containsVar(e.arg, x)) return N(0);
       return { t: "mul", l: derivFn(e.name, e.arg), r: derivative(e.arg, x) };
   }
 }
@@ -2053,7 +2081,8 @@ function readFnDefinition(input: string): { rewritten: string; arg: string; body
   // CASE-INSENSITIVE: Word's sentence-start AutoCorrect makes "Sin(x) = 1/2"
   // routine, and reading it as a definition answered y = 1/2 with confidence.
   const lower = name.toLowerCase();
-  if (lower in EVAL_FN || lower === "pi" || lower === "e") return null; // sin(x) = 1/2 is an EQUATION
+  // sin(x) = 1/2 is an EQUATION; u(x) = x^2 is a definition (u is a bare-ok name).
+  if ((lower in EVAL_FN && !BARE_OK.has(lower)) || lower === "pi" || lower === "e") return null;
   if (!body.trim()) return null;
   const out = body.includes("y") || arg === "y" ? name : "y";
   return {

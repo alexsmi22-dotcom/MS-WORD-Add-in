@@ -17,14 +17,16 @@ const ok = <T extends { ok: boolean }>(r: T | { ok: false; error: string }): T =
 };
 
 describe("quantisation", () => {
-  it("16-bit gives the canonical 98.08 dB", () => {
+  it("16-bit gives the EXACT 98.0905 dB, not the rounded rule's 98.08 (brief A1-5)", () => {
     const r = ok(quantisation(16));
-    expect(r.snrDb).toBeCloseTo(98.08, 2);
+    expect(r.snrDb).toBeCloseTo(98.0905, 4);
+    expect(r.snrDb).toBeCloseTo(20 * Math.log10(2) * 16 + 10 * Math.log10(1.5), 12);
+    expect(ok(quantisation(24)).snrDb).toBeCloseTo(146.2553, 4);
     expect(r.levels).toBe(65536);
   });
 
-  it("each bit is worth 6.02 dB", () => {
-    expect(ok(quantisation(17)).snrDb - ok(quantisation(16)).snrDb).toBeCloseTo(6.02, 6);
+  it("each bit is worth exactly 20·log10(2) = 6.0206 dB", () => {
+    expect(ok(quantisation(17)).snrDb - ok(quantisation(16)).snrDb).toBeCloseTo(20 * Math.log10(2), 12);
   });
 
   it("the 1.76 dB term is present, since dropping it is the common error", () => {

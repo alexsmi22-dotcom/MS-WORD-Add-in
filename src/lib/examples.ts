@@ -224,6 +224,19 @@ export const MODE_EXAMPLES: Record<ExampleMode, string> = {
         Once a frequency above Nyquist has folded into the band, no filtering afterwards can
         separate it from real data, which is why the anti-alias filter must be analogue and before
         the converter.</li>
+      <li><strong>Levels &amp; references</strong> &mdash; a decibel is not a unit, so pick its
+        reference: <code>4</code> dBu &rarr; dBFS under EBU R68 reads &minus;14 dBFS. dBFS needs an
+        alignment, and dB SPL reaches volts only through a microphone sensitivity.</li>
+      <li><strong>Level arithmetic</strong> &mdash; <code>80, 80, 74</code> sums to 83.52 dB, not
+        234; a list may carry its reference (<code>0 dBu, 0 dBV</code> is converted first).
+        Band lists take <code>1k</code> for 1000 Hz.</li>
+      <li><strong>Timecode</strong> &mdash; <code>00:10:00;00</code> at 29.97 drop-frame is frame
+        17982; <code>00:01:00;00</code> does not exist and is refused, with the labels either side.</li>
+      <li><strong>Frame sizes and ratios</strong> &mdash; <code>1920&times;1080</code> or
+        <code>1920x1080</code>; <code>4:3</code>, <code>10:11</code> or <code>2.39</code>.
+        Shutter times take fractions: <code>1/125 s</code>, <code>1/48</code>.</li>
+      <li><strong>Light &amp; camera</strong> &mdash; foot-candles <code>50 fc</code>, foot-lamberts
+        <code>14 ftL</code> (never fL, the femtolitre), and f/5.6 counted as 5.657 in stop arithmetic.</li>
       <li>Units are whatever you type, used consistently &mdash; except the cross-section,
         buckling, torsion, pipe-flow and heat tools, which <strong>convert for you</strong>
         (<code>200 GPa</code>, <code>1e6 mm^4</code>, <code>50 ksi</code>, <code>68 &deg;F</code>)

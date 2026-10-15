@@ -93,7 +93,19 @@ const CORPUS = path.join(__dirname, "figure-layout-run.ts");
 // with its M+2 base peak, ferrocene's M−2 below M, chlorophyll a's long
 // formula). overlayChart measures and truncates its title, so the long-title
 // case passes with NO new CLIPPED waiver.
-const CORPUS_FLOOR = 229;
+// 259 as of 2026-10-14 (v2.140.0): thirty audio, video and light figures, each
+// a calculator's shipped default or a named stress case drawn by avFigures.ts
+// (the functions the pane calls): three level ladders (voltage with a dBFS
+// alignment, sound pressure, sound power), level-sum shares, A-weighted
+// octave bands, coherent total against phase, the dither budget, size against
+// duration with the WAV ceiling, loudness bars, the K-weighting curve, gated
+// blocks, loudspeaker SPL, absorption with a target, an LR2 crossover, damping
+// against cable length, timecode drift (29.97 DF and a driftless 25), two
+// pulldown cadences (fields and 60p frames), letterbox and pillarbox frames,
+// BT.1886 and PQ transfer curves, SDI interface bars, and six light figures
+// (illuminance at 30°, cone flux, screen luminance, depth of field, the
+// exposure line, the daylight locus).
+const CORPUS_FLOOR = 259;
 
 // --- The allowance ratchet ----------------------------------------------------
 //

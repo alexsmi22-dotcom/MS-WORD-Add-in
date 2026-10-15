@@ -310,7 +310,7 @@ import {
   CorrectionMethod,
 } from "../lib/stats2";
 import { rankTestLines } from "../lib/exactRank";
-import { readNumberList, decimalCommaNote } from "../lib/numberList";
+import { readNumberList, decimalCommaNote, fieldNumber, trueMinus } from "../lib/numberList";
 import type { CoxInput } from "../lib/cox";
 import { rmAnovaCalc, rmFieldText, coxCalc } from "../lib/statsBatchCalcs";
 import { tukeyHSD } from "../lib/tukey";
@@ -597,9 +597,85 @@ import {
   roomModes,
   combFilter,
   DbQuantity,
+  LEVEL_REFS,
+  LevelRef,
+  DbfsAlignment,
+  parseLevelList,
+  parseBandList,
+  parseSurfaceList,
+  levelConvert,
+  levelSum,
+  levelSubtract,
+  levelAverage,
+  coherentSum,
+  distanceFalloff,
+  bandsToWeighted,
+  WeightCurve,
+  ditherBudget,
+  DitherKind,
+  audioSize,
+  speakerSpl,
+  speedOfSound,
+  absorptionBudget,
+  passiveCrossover,
+  crossoverResponseDb,
+  CrossoverType,
+  cableDamping,
+  fmtNum as avFmt,
+  AudioFigure,
 } from "../lib/audio";
+import {
+  kWeightGainDb,
+  sineLoudness,
+  combineChannels,
+  gatedIntegrated,
+  normaliseGain,
+  programmeLoudnessFromReading,
+  LOUDNESS_TARGETS,
+  CHANNEL_SETS,
+} from "../lib/loudness";
+import {
+  pointIlluminance,
+  coneFlux,
+  screenLuminance,
+  exposureValue,
+  shutterForEv,
+  apertureForEv,
+  evFromIlluminance,
+  evFromLuminance,
+  isoStops,
+  stopsBetween,
+  depthOfField,
+  angleOfView,
+  footcandleToLux,
+  footlambertToNit,
+  fNumberExact,
+} from "../lib/photometry";
+import { tcToFrames, framesToTc, tcDuration, realTimeOf, driftFigure, clockText, ratLabel, parseRate } from "../lib/timecode";
+import {
+  audioFigureSvg,
+  photoFigureSvg,
+  timecodeDriftSvg,
+  cadenceSvg,
+  aspectFrameSvg,
+  transferSvg,
+  interfaceBarsSvg,
+  daylightLocusSvg,
+} from "../lib/avFigures";
 import { samplingCheck as audioSamplingCheck } from "../lib/biomed";
-import { gamutCoverage, gamutAreaUv, GAMUTS, gamutById, xyToUv } from "../lib/colourspace";
+import {
+  gamutCoverage,
+  gamutAreaUv,
+  GAMUTS,
+  gamutById,
+  xyToUv,
+  mired,
+  miredShift,
+  daylightXy,
+  cctMcCamy,
+  daylightLocusFigure,
+  planckianXy,
+} from "../lib/colourspace";
 import {
   bitrate,
   resolution,
@@ -610,6 +686,18 @@ import {
   latencyBudget,
   bitsPerPixel,
   ChromaSubsampling,
+  chromaPlanes,
+  aspect,
+  rateFacts,
+  pulldown,
+  shutter,
+  transfer,
+  TransferCurve,
+  TransferDirection,
+  codeValue,
+  interfaceRate,
+  recordTime,
+  parseFrameSize,
 } from "../lib/video";
 import {
   vacuumShot,
@@ -12067,6 +12155,7 @@ const ENG_GROUP_ORDER = [
   "Energy & power",
   "Audio & acoustics",
   "Video & display",
+  "Light & camera",
   "Electronics",
   "Chips & semiconductors",
   "Aviation & avionics",
@@ -12349,6 +12438,53 @@ const ENG_QUANTUM_UNIT_NOTE =
   "Units: none — every quantity here is dimensionless. Concurrence, entropy in ebits, " +
   "correlation values, CHSH S, the Werner fraction and the key rate are pure numbers, and the " +
   "error rate is a percentage. Nothing is converted because there is nothing to convert.";
+
+/**
+ * Audio levels: a HYBRID contract, like Reliability's. A decibel is not a unit
+ * (it is logarithmic, and no factor converts 94 dB SPL into pascals), so every
+ * level is a bare number whose reference is named on the field. The physical
+ * fields beside the levels — distances, frequencies, power, impedance,
+ * temperature — go through the unit layer as everywhere else.
+ */
+const ENG_LEVEL_UNIT_NOTE =
+  "Units: a decibel is not a unit. Every level is a bare number in dB whose REFERENCE is named on " +
+  "the field (dB SPL re 20 µPa, dBu re 0.7746 V, dBFS re the converter, LUFS re digital full " +
+  "scale), because dB is logarithmic and no factor converts it. Physical fields convert as " +
+  "everywhere else: a bare number is read in the unit the field names, 13 ft or 4 m both work, " +
+  "and a unit of the wrong quantity is refused.";
+
+/** The pure-decibel tools: levels, bit depths and ratios, with nothing physical to convert. */
+const ENG_DB_UNIT_NOTE =
+  "Units: none to convert. Levels are bare decibel numbers with their reference named (dB is " +
+  "logarithmic, never a unit), and bit depths, ratios and counts are pure numbers.";
+
+/**
+ * One figure block for the v2.140.0 audio/video/light tools, sized from the
+ * SVG's OWN width and height (readSvgDims), never from a nominal size: a legend
+ * outside the frame or a note under it grows the canvas, and an insert sized
+ * from the asked-for box squashes it.
+ */
+function avPlot(svg: string, caption: string, alt: string): AnalyzeBlock {
+  const d = readSvgDims(svg, 380, 260);
+  return { kind: "plot", svg, caption, alt, w: d.w, h: d.h };
+}
+
+/**
+ * A typed list of plain numbers (durations, phases) under the product comma
+ * rule. Anything that is not a number is refused by name rather than dropped.
+ */
+function avNumbers(text: string, what: string): { values: number[]; note: string } | { error: string } {
+  const r = readNumberList(text);
+  if (r.dropped.length) return { error: `"${r.dropped[0].trim()}" is not a number (${what}).` };
+  return { values: r.values, note: decimalCommaNote(r) };
+}
+
+/** A signed decibel figure for a report line: +4.000, −14.00 (true minus). */
+function avDb(v: number, places = 3): string {
+  if (!Number.isFinite(v)) return "not finite";
+  const t = Math.abs(v).toFixed(places);
+  return Number(t) === 0 ? t : `${v < 0 ? "−" : "+"}${t}`;
+}
 
 const ENG_CALCS: EngCalc[] = [
   {
@@ -23951,9 +24087,10 @@ const ENG_CALCS: EngCalc[] = [
     name: "Quantisation & dynamic range",
     group: "Audio & acoustics",
     hint:
-      "SNR = 6.02n + 1.76 dB. The 6.02 per bit is 20·log10(2) because a bit halves a VOLTAGE " +
-      "step; the 1.76 dB compares a full-scale sine to uniform quantisation error and is not " +
-      "optional. The figure assumes a full-scale signal.",
+      "SNR = 20·log10(2)·n + 10·log10(1.5) dB, computed exactly; the familiar 6.02n + 1.76 is " +
+      "the same rule with both constants rounded (16-bit: 98.09 dB, not 98.08). The 6.02 per bit " +
+      "is 20·log10(2) because a bit halves a VOLTAGE step; the 1.76 dB compares a full-scale sine " +
+      "to uniform quantisation error and is not optional. The figure assumes a full-scale signal.",
     fields: [
       { key: "bits", label: "Bit depth", default: "16", kind: "text" },
       { key: "vfs", label: "Full-scale voltage, V (blank to skip LSB)", default: "", kind: "text" },
@@ -24012,14 +24149,7 @@ const ENG_CALCS: EngCalc[] = [
             },
           );
           return engReport(lines, [
-            {
-              kind: "plot",
-              svg,
-              caption: "The quantisation SNR line, 6.02 dB per bit, this converter marked",
-              alt: "Theoretical SNR rising linearly with bit depth",
-              w: 380,
-              h: 250,
-            },
+            avPlot(svg, "The quantisation SNR line, 6.02 dB per bit, this converter marked", "Theoretical SNR rising linearly with bit depth"),
           ]);
         }
       }
@@ -24224,6 +24354,7 @@ const ENG_CALCS: EngCalc[] = [
       { key: "v", label: "Room volume, m³", default: "200", kind: "text" },
       { key: "s", label: "Total surface area, m²", default: "240", kind: "text" },
       { key: "a", label: "Average absorption coefficient (0-1)", default: "0.2", kind: "text" },
+      { key: "q", label: "Source directivity Q (1 = omnidirectional; a loudspeaker is 2–10)", default: "1", kind: "text" },
     ],
     compute: (r) => {
       const u = engUnits(r);
@@ -24232,7 +24363,10 @@ const ENG_CALCS: EngCalc[] = [
       if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
       const a = Number(r("a"));
       if (!Number.isFinite(a)) return { text: "The absorption coefficient must be a number between 0 and 1.", ok: false };
-      const res = reverbTime(v, s, a);
+      const qRaw = r("q").trim();
+      const q = qRaw ? Number(qRaw) : 1;
+      if (!Number.isFinite(q)) return { text: "The directivity Q must be a number (1 for an omnidirectional source).", ok: false };
+      const res = reverbTime(v, s, a, q);
       if (!res.ok) return { text: res.error, ok: false };
       const lines = [
         "Reverberation",
@@ -24241,7 +24375,8 @@ const ENG_CALCS: EngCalc[] = [
         `  RT60, Eyring        ${engNum(res.eyringS, 4)} s`,
         `  Total absorption    ${engNum(res.totalAbsorption, 5)} m² sabins`,
         `  Schroeder frequency ${engNum(res.schroederHz, 4)} Hz`,
-        `  Critical distance   ${engNum(res.criticalDistance, 4)} m`,
+        `  Critical distance   ${engNum(res.criticalDistance, 4)} m at Q = ${engNum(res.directivityQ, 4)}` +
+          (res.directivityQ === 1 ? " (Q = 1 is an omnidirectional source)" : ""),
       ];
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
@@ -24280,14 +24415,11 @@ const ENG_CALCS: EngCalc[] = [
           },
         );
         return engReport(lines, [
-          {
-            kind: "plot",
+          avPlot(
             svg,
-            caption: "Sabine and Eyring decay slopes; the -60 dB crossings are the two RT60s",
-            alt: "Two linear decay lines with markers where each reaches minus sixty decibels",
-            w: 380,
-            h: 250,
-          },
+            "Sabine and Eyring decay slopes; the −60 dB crossings are the two RT60s",
+            "Two linear decay lines with markers where each reaches minus sixty decibels",
+          ),
         ]);
       }
       return { text: plainDashes(lines.join("\n")) };
@@ -24447,6 +24579,788 @@ const ENG_CALCS: EngCalc[] = [
     },
   },
   {
+    id: "audio-levels",
+    name: "Levels & references (dBu, dBV, dBFS, SPL)",
+    group: "Audio & acoustics",
+    hint:
+      "One level read in every reference it can reach. dBu, dBV, dBm (600 Ω) and volts convert among " +
+      "themselves; dBFS needs an ALIGNMENT (EBU R68: −18 dBFS = 0 dBu; SMPTE RP 155: −20 dBFS = +4 dBu), " +
+      "and the two put full scale 6 dB apart. dB SPL reaches volts only through a microphone's " +
+      "sensitivity, and sound POWER (dB SWL) never converts to pressure without a distance.",
+    fields: [
+      { key: "val", label: "Value (dB in the reference below, or V, Pa, W, mV/Pa)", default: "4", kind: "text" },
+      {
+        key: "from", label: "Its reference", default: "dBu", kind: "select",
+        options: LEVEL_REFS.map((x) => ({ value: x.id, label: x.label })),
+      },
+      {
+        key: "to", label: "Convert to", default: "dBFS", kind: "select",
+        options: LEVEL_REFS.map((x) => ({ value: x.id, label: x.label })),
+      },
+      {
+        key: "align", label: "dBFS alignment", default: "ebu-r68", kind: "select",
+        options: [
+          { value: "none", label: "None (no dBFS conversion)" },
+          { value: "ebu-r68", label: "EBU R68: −18 dBFS = 0 dBu" },
+          { value: "smpte-rp155", label: "SMPTE RP 155: −20 dBFS = +4 dBu" },
+          { value: "custom", label: "Custom (the two fields below)" },
+        ],
+      },
+      { key: "cdbfs", label: "Custom alignment: this dBFS reading…", default: "", kind: "text" },
+      { key: "cdbu", label: "…equals this many dBu", default: "", kind: "text" },
+      {
+        key: "conv", label: "dBFS convention", default: "sine", kind: "select",
+        options: [
+          { value: "sine", label: "Sine-referenced (AES17): a full-scale sine reads 0 dBFS" },
+          { value: "peak", label: "Peak-referenced: the same sine reads −3.01 dBFS" },
+        ],
+      },
+      { key: "mic", label: "Microphone sensitivity, mV/Pa (only to bridge SPL and volts)", default: "", kind: "text" },
+      { key: "temp", label: "Air temperature, for the speed of sound (blank to skip)", default: "20 °C", kind: "text" },
+      { key: "freq", label: "Frequency, for the wavelength (blank to skip)", default: "1 kHz", kind: "text" },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const tempK = u.optNull("temp", "K", "Air temperature");
+      const freq = u.optNull("freq", "Hz", "Frequency");
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const from = r("from") as LevelRef;
+      const to = r("to") as LevelRef;
+      // A value may carry its own reference or unit ("1.228 V", "4 dBu"), as
+      // long as it is the one chosen; another one is refused by name, never
+      // stripped and ignored.
+      const SUFFIX: Record<string, RegExp> = {
+        dBu: /\s*dBu$/i, dBV: /\s*dBV$/, dBm600: /\s*dBm$/i, Vrms: /\s*V(\s*rms)?$/, dBFS: /\s*dBFS$/i,
+        dBSPL: /\s*dB\s*SPL$/i, Pa: /\s*Pa$/, dBSWL: /\s*dB\s*SWL$/i, W: /\s*W$/, mVPa: /\s*mV\s*\/\s*Pa$/i, dBVPa: /\s*dBV\s*\/\s*Pa$/i,
+      };
+      const valText = r("val").trim();
+      const val = fieldNumber(valText, SUFFIX[from]);
+      if (!valText || !Number.isFinite(val)) {
+        return {
+          text: /[A-Za-z]/.test(valText)
+            ? `"${valText}" is not a value in ${LEVEL_REFS.find((x) => x.id === from)?.label ?? from}; type the number, or choose the reference it is in.`
+            : "The value must be a number: a level in dB, or a linear V, Pa, W or mV/Pa value.",
+          ok: false,
+        };
+      }
+      let alignment: DbfsAlignment | undefined;
+      const al = r("align");
+      if (al === "ebu-r68" || al === "smpte-rp155") alignment = al;
+      else if (al === "custom") {
+        const a = fieldNumber(r("cdbfs"), /\s*dBFS$/i);
+        const b = fieldNumber(r("cdbu"), /\s*dBu$/i);
+        if (!Number.isFinite(a) || !Number.isFinite(b)) {
+          return { text: "A custom alignment needs both numbers: the dBFS reading and the dBu it equals (e.g. −18 and 0).", ok: false };
+        }
+        alignment = { dbfs: a, dbu: b };
+      }
+      const micRaw = r("mic").trim();
+      let mic: number | undefined;
+      if (micRaw) {
+        const m = fieldNumber(micRaw, /\s*mV\s*\/\s*Pa$/i);
+        if (!Number.isFinite(m)) return { text: "The microphone sensitivity must be a number of mV/Pa (e.g. 10).", ok: false };
+        mic = m / 1000;
+      }
+      const res = levelConvert(val, from, to, {
+        alignment,
+        convention: r("conv") === "peak" ? "peak" : "sine",
+        micSensitivityVPerPa: mic,
+      });
+      if (!res.ok) return { text: res.error, ok: false };
+      const info = (id: LevelRef) => LEVEL_REFS.find((x) => x.id === id);
+      const show = (id: LevelRef, v: number): string => {
+        const ref = info(id);
+        if (!ref) return avFmt(v, 6);
+        if (!ref.linear) return `${avDb(v, 4)} ${ref.label}`;
+        const unit = id === "Vrms" ? "V rms" : id === "Pa" ? "Pa" : id === "W" ? "W" : "mV/Pa";
+        return `${avFmt(v, 6)} ${unit}`;
+      };
+      const lines: EngLine[] = [
+        "Level conversion",
+        "",
+        `  ${show(from, val)} = ${show(to, res.value)}`,
+        "",
+        "  The same level in every reference it reaches",
+      ];
+      for (const ref of LEVEL_REFS) {
+        const v = res.all[ref.id];
+        if (v !== undefined) lines.push(`    ${ref.label.padEnd(18)} ${show(ref.id, v)}`);
+      }
+      lines.push(`  Pro +4 dBu over consumer −10 dBV   ${avDb(res.proConsumerGapDb, 4)} dB`);
+      if (res.fullScaleDbu !== null) lines.push(`  0 dBFS under this alignment        ${avDb(res.fullScaleDbu, 3)} dBu`);
+      if (tempK !== null) {
+        const sp = speedOfSound(tempK, freq ?? undefined);
+        if (!sp.ok) return { text: sp.error, ok: false };
+        lines.push(`  Speed of sound at ${engNum(tempK - 273.15, 4)} °C   ${engNum(sp.speed, 5)} m/s`);
+        if (sp.wavelengthM !== null && freq !== null) {
+          lines.push(`  Wavelength at ${engNum(freq, 6)} Hz     ${engNum(sp.wavelengthM, 5)} m (period ${engNum(sp.periodS! * 1000, 5)} ms)`);
+        }
+        for (const note of sp.notes) res.notes.push(note);
+      }
+      u.report(lines as string[]);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_LEVEL_UNIT_NOTE);
+      return engReport(lines.map(trueMinus), [
+        avPlot(
+          audioFigureSvg(res.figure),
+          "The level ladder: the entered level read on every reference scale at once",
+          "Side-by-side reference scales on one decibel axis with the entered level marked on each",
+        ),
+      ]);
+    },
+  },
+  {
+    id: "audio-levelmath",
+    name: "Level arithmetic & weighting",
+    group: "Audio & acoustics",
+    hint:
+      "Levels never add as numbers: unrelated sources add by POWER (80 + 80 = 83.01 dB), the same " +
+      "signal by two paths adds by PRESSURE with its phase, and a background is subtracted by power " +
+      "and refused within 3 dB. Weighting is the IEC 61672-1 formula at the EXACT base-10 band " +
+      "frequency, which is how the standard's table is defined (31.5 Hz is really 31.62 Hz).",
+    fields: [
+      {
+        key: "op", label: "Operation", default: "sum", kind: "select",
+        options: [
+          { value: "sum", label: "Sum of unrelated sources (incoherent)" },
+          { value: "subtract", label: "Subtract a background" },
+          { value: "average", label: "Energy average, Leq (optional durations)" },
+          { value: "coherent", label: "Coherent sum with phase (same signal)" },
+          { value: "weight", label: "Weight band levels (dB(A), dB(C))" },
+        ],
+      },
+      { key: "levels", label: "Levels, dB (comma separated; a reference such as dB SPL or dBu may follow)", default: "80, 80, 74", kind: "text" },
+      { key: "bg", label: "Background level, dB (subtract)", default: "80", kind: "text" },
+      { key: "dur", label: "Durations, one per level, any one time unit (average; blank = equal)", default: "", kind: "text" },
+      { key: "phase", label: "Phases, degrees, one per level (coherent; blank = all in phase)", default: "", kind: "text" },
+      { key: "bands", label: "Band centre frequencies, Hz (weight; 1k = 1000)", default: "63, 125, 250, 500, 1k, 2k, 4k, 8k", kind: "text" },
+      { key: "bandlv", label: "Band levels, dB (one per band, or one for all)", default: "80", kind: "text" },
+      {
+        key: "curve", label: "Weighting", default: "A", kind: "select",
+        options: [
+          { value: "A", label: "A (IEC 61672-1)" },
+          { value: "C", label: "C (IEC 61672-1)" },
+          { value: "Z", label: "Z (flat)" },
+        ],
+      },
+      {
+        key: "src", label: "Distance falloff of the result: source type", default: "point", kind: "select",
+        options: [
+          { value: "point", label: "Point source (−6.02 dB per doubling)" },
+          { value: "line", label: "Line source (−3.01 dB per doubling)" },
+        ],
+      },
+      { key: "d1", label: "…measured at this distance (blank to skip)", default: "", kind: "text" },
+      { key: "d2", label: "…wanted at this distance", default: "", kind: "text" },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const d1 = u.optNull("d1", "m", "Measured distance");
+      const d2 = u.optNull("d2", "m", "Wanted distance");
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const op = r("op");
+      const lines: EngLine[] = [];
+      const notes: string[] = [];
+      let total: number;
+      let fig: AudioFigure;
+      let unit = "dB";
+      if (op === "weight") {
+        const fb = parseBandList(r("bands"));
+        if (!fb.ok) return { text: fb.error, ok: false };
+        const lv = parseLevelList(r("bandlv"));
+        if (!lv.ok) return { text: lv.error, ok: false };
+        const levels = lv.values.length === 1 ? fb.values.map(() => lv.values[0]) : lv.values;
+        const curve = (["A", "C", "Z"].includes(r("curve")) ? r("curve") : "A") as WeightCurve;
+        const res = bandsToWeighted(fb.values, levels, curve);
+        if (!res.ok) return { text: res.error, ok: false };
+        unit = `dB(${curve})`;
+        lines.push(`${curve}-weighted total of ${res.bands.length} bands`, "");
+        lines.push(`  Weighted total      ${res.totalDb.toFixed(3)} ${unit}`);
+        lines.push(`  Unweighted (Z)      ${res.totalZDb.toFixed(3)} dB`);
+        lines.push("", "  Band (Hz)   evaluated at   weighting   weighted level");
+        for (const b of res.bands.slice(0, 40)) {
+          lines.push(
+            `  ${avFmt(b.typedHz, 6).padEnd(10)}  ${b.usedHz.toFixed(2).padEnd(13)}  ${avDb(b.weightDb, 2).padEnd(10)}  ${b.weightedDb.toFixed(2)} ${unit}`,
+          );
+        }
+        notes.push(...res.notes);
+        if (fb.note) notes.push(fb.note);
+        if (lv.note) notes.push(lv.note);
+        total = res.totalDb;
+        fig = res.figure;
+      } else {
+        const lv = parseLevelList(r("levels"));
+        if (!lv.ok) return { text: lv.error, ok: false };
+        if (lv.note) notes.push(lv.note);
+        unit = lv.reference ?? "dB";
+        const values = lv.values;
+        if (op === "subtract") {
+          let measured = values[0];
+          if (values.length > 1) {
+            const s = levelSum(values);
+            if (!s.ok) return { text: s.error, ok: false };
+            measured = s.totalDb;
+            notes.push(`The ${values.length} levels were power-summed to ${measured.toFixed(3)} dB as the measured total.`);
+          }
+          // Read by the same level reader as the list beside it, so "80 dB",
+          // "80 dB SPL" and "79,5" all work.
+          const bgl = parseLevelList(r("bg"));
+          if (!bgl.ok || bgl.values.length !== 1) return { text: "The background must be one level in dB (e.g. 80 or 80 dB).", ok: false };
+          const bg = bgl.values[0];
+          const res = levelSubtract(measured, bg);
+          if (!res.ok) return { text: res.error, ok: false };
+          lines.push("Background subtraction", "");
+          lines.push(`  Measured total      ${measured.toFixed(3)} ${unit}`);
+          lines.push(`  Background          ${bg.toFixed(3)} ${unit}`);
+          lines.push(`  Source alone        ${res.sourceDb.toFixed(3)} ${unit}`);
+          lines.push(`  Correction          ${avDb(res.correctionDb, 3)} dB (Δ = ${res.deltaDb.toFixed(2)} dB)`);
+          notes.push(...res.notes);
+          total = res.sourceDb;
+          fig = res.figure;
+        } else if (op === "average") {
+          let durs: number[] | undefined;
+          if (r("dur").trim()) {
+            const d = avNumbers(r("dur"), "durations");
+            if ("error" in d) return { text: d.error, ok: false };
+            durs = d.values;
+            if (d.note) notes.push(d.note);
+          }
+          const res = levelAverage(values, durs);
+          if (!res.ok) return { text: res.error, ok: false };
+          lines.push("Energy average (Leq)", "");
+          lines.push(`  Leq                 ${res.leqDb.toFixed(4)} ${unit}`);
+          lines.push(`  Arithmetic mean     ${res.arithmeticMeanDb.toFixed(4)} ${unit} (shown only to make the error visible)`);
+          notes.push(...res.notes);
+          total = res.leqDb;
+          fig = res.figure;
+        } else if (op === "coherent") {
+          let phases = values.map(() => 0);
+          if (r("phase").trim()) {
+            const p = avNumbers(r("phase"), "phases in degrees");
+            if ("error" in p) return { text: p.error, ok: false };
+            phases = p.values;
+            if (p.note) notes.push(p.note);
+          } else notes.push("No phases given: every path is taken as in phase, the upper bound.");
+          const res = coherentSum(values, phases);
+          if (!res.ok) return { text: res.error, ok: false };
+          lines.push("Coherent sum", "");
+          lines.push(`  Coherent total      ${res.totalDb.toFixed(4)} ${unit}`);
+          lines.push(`  Incoherent would be ${res.incoherentDb.toFixed(4)} ${unit}`);
+          notes.push(...res.notes);
+          total = res.totalDb;
+          fig = res.figure;
+        } else {
+          const res = levelSum(values);
+          if (!res.ok) return { text: res.error, ok: false };
+          lines.push(`Sum of ${values.length} unrelated sources`, "");
+          lines.push(`  Incoherent total    ${res.totalDb.toFixed(4)} ${unit}`);
+          lines.push(`  Above the loudest   ${avDb(res.aboveLoudestDb, 4)} dB`);
+          notes.push(...res.notes);
+          total = res.totalDb;
+          fig = res.figure;
+        }
+      }
+      if (d1 !== null || d2 !== null) {
+        if (d1 === null || d2 === null) {
+          return { text: "Give both distances for the falloff (where it was measured and where it is wanted), or neither.", ok: false };
+        }
+        const src = r("src") === "line" ? "line" : "point";
+        const fo = distanceFalloff(total, d1, d2, src);
+        if (!fo.ok) return { text: fo.error, ok: false };
+        lines.push(`  At ${engNum(d2, 5)} m (${src} source) ${fo.levelDb.toFixed(3)} ${unit} (${avDb(fo.changeDb, 3)} dB from ${engNum(d1, 5)} m)`);
+        notes.push(...fo.notes);
+      }
+      u.report(lines as string[]);
+      for (const note of notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_LEVEL_UNIT_NOTE);
+      return engReport(lines.map(trueMinus), [
+        avPlot(
+          audioFigureSvg(fig),
+          op === "weight" ? "The weighting curve with the band levels before and after weighting" : "Each entry's share of the result",
+          op === "weight" ? "Weighting curve on a log frequency axis with band levels" : "Bars or a curve showing how the levels combine",
+        ),
+      ]);
+    },
+  },
+  {
+    id: "audio-dither",
+    name: "Dither, oversampling & noise floor",
+    group: "Audio & acoustics",
+    hint:
+      "The ideal SNR, then what dither costs (RPDF 3.01 dB, TPDF 4.77 dB), what backing the signal " +
+      "off costs, and what oversampling buys back (10·log10 of the ratio, in band). Noise shaping is " +
+      "refused by name: its gain depends on the shaping filter, which these inputs do not give.",
+    fields: [
+      { key: "bits", label: "Bit depth", default: "16", kind: "text" },
+      {
+        key: "dither", label: "Dither", default: "tpdf", kind: "select",
+        options: [
+          { value: "none", label: "None" },
+          { value: "rpdf", label: "RPDF (rectangular, 1 LSB p-p)" },
+          { value: "tpdf", label: "TPDF (triangular, 2 LSB p-p)" },
+          { value: "shaped", label: "Noise-shaped (not computable here)" },
+        ],
+      },
+      { key: "osr", label: "Oversampling ratio (1 = none)", default: "1", kind: "text" },
+      { key: "lvl", label: "Signal level, dB re full scale (0 or below)", default: "0", kind: "text" },
+    ],
+    compute: (r) => {
+      const num = (k: string, label: string): number | string => {
+        const x = fieldNumber(r(k), /\s*(dBFS|dB|bits?|×|x)$/i);
+        return Number.isFinite(x) ? x : `${label} must be a number.`;
+      };
+      const bits = num("bits", "Bit depth");
+      const osr = num("osr", "The oversampling ratio");
+      const lvl = num("lvl", "The signal level");
+      for (const v of [bits, osr, lvl]) if (typeof v === "string") return { text: v, ok: false };
+      const res = ditherBudget(bits as number, r("dither") as DitherKind, osr as number, lvl as number);
+      if (!res.ok) return { text: res.error, ok: false };
+      const lines: EngLine[] = [
+        `Noise budget, ${res.bits}-bit`,
+        "",
+        `  Ideal SNR           ${res.idealSnrDb.toFixed(4)} dB`,
+        `  Dither penalty      ${avDb(-res.ditherPenaltyDb, 4)} dB`,
+        `  Oversampling gain   ${avDb(res.oversamplingGainDb, 4)} dB`,
+        `  In-band SNR         ${res.inBandSnrDb.toFixed(4)} dB at ${avDb(lvl as number, 1)} dB re full scale`,
+        `  Noise floor         ${avDb(res.noiseFloorDbfs, 4)} dBFS`,
+      ];
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_DB_UNIT_NOTE);
+      return engReport(lines.map(trueMinus), [
+        avPlot(audioFigureSvg(res.figure), "The SNR budget: ideal, after dither, at the signal level, after oversampling", "Bars of SNR in decibels at each step of the budget"),
+      ]);
+    },
+  },
+  {
+    id: "audio-filesize",
+    name: "Audio data rate & file size",
+    group: "Audio & acoustics",
+    hint:
+      "PCM is fs × bits × channels; a compressed file follows its stated bit rate. Sizes are given in " +
+      "decimal (GB) and binary (GiB) units. A canonical WAV cannot pass 4 GiB because RIFF sizes are " +
+      "32-bit: 4.14 h at 48 kHz/24-bit stereo, beyond which RF64 / BW64 is needed.",
+    fields: [
+      {
+        key: "mode", label: "Format", default: "pcm", kind: "select",
+        options: [
+          { value: "pcm", label: "PCM (WAV, AIFF, uncompressed)" },
+          { value: "compressed", label: "Compressed (a stated bit rate)" },
+        ],
+      },
+      { key: "fs", label: "Sample rate (PCM)", default: "48 kHz", kind: "text" },
+      { key: "bits", label: "Bit depth (PCM)", default: "24", kind: "text" },
+      { key: "ch", label: "Channels (PCM)", default: "2", kind: "text" },
+      { key: "rate", label: "Bit rate (compressed)", default: "320 kbit/s", kind: "text" },
+      { key: "dur", label: "Duration (blank if giving a size)", default: "1 h", kind: "text" },
+      { key: "size", label: "Size (blank if giving a duration)", default: "", kind: "text" },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const mode = r("mode") === "compressed" ? "compressed" : "pcm";
+      const fs = mode === "pcm" ? u.optNull("fs", "Hz", "Sample rate") : null;
+      const rate = mode === "compressed" ? u.optNull("rate", "bit/s", "Bit rate") : null;
+      const dur = u.optNull("dur", "s", "Duration");
+      const size = u.optNull("size", "B", "Size");
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const bits = fieldNumber(r("bits"), /\s*bits?$/i);
+      const ch = fieldNumber(r("ch"), /\s*(ch|channels?)$/i);
+      const res = audioSize({
+        mode,
+        fs: fs ?? undefined,
+        bits: mode === "pcm" ? bits : undefined,
+        channels: mode === "pcm" ? ch : undefined,
+        bitRate: rate ?? undefined,
+        durationS: dur ?? undefined,
+        sizeBytes: size ?? undefined,
+      });
+      if (!res.ok) return { text: res.error, ok: false };
+      const hms = (s: number): string => {
+        const w = Math.round(s);
+        return `${Math.floor(w / 3600)}:${String(Math.floor(w / 60) % 60).padStart(2, "0")}:${String(w % 60).padStart(2, "0")}`;
+      };
+      const lines: EngLine[] = [
+        mode === "pcm" ? `PCM, ${engNum(fs ?? 0, 6)} Hz, ${bits}-bit, ${ch} ch` : `Compressed, ${engNum(res.bitRate / 1000, 6)} kbit/s`,
+        "",
+        `  Data rate           ${avFmt(res.bitRate, 8)} bit/s = ${avFmt(res.bytesPerSecond, 8)} B/s`,
+        `  Per minute          ${engNum(res.mbPerMinute, 6)} MB`,
+        `  Duration            ${hms(res.durationS)} (${engNum(res.durationS, 7)} s)`,
+        `  Size                ${engNum(res.sizeGB, 6)} GB = ${engNum(res.sizeGiB, 6)} GiB`,
+        `                      ${engNum(res.sizeMB, 7)} MB = ${engNum(res.sizeMiB, 7)} MiB`,
+      ];
+      if (res.wavMaxSeconds !== null) {
+        lines.push(
+          `  WAV ceiling         ${engNum(res.wavMaxSeconds, 7)} s (${engNum(res.wavMaxSeconds / 3600, 5)} h)` +
+            (res.exceedsWav ? ", EXCEEDED: use RF64 / BW64" : ""),
+        );
+      }
+      u.report(lines as string[]);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_UNIT_NOTE);
+      return engReport(lines.map(trueMinus), [
+        avPlot(audioFigureSvg(res.figure), "Size against duration for this format, the entered duration marked", "A straight line of file size against hours with markers"),
+      ]);
+    },
+  },
+  {
+    id: "audio-loudness",
+    name: "Loudness (LUFS) normalisation",
+    group: "Audio & acoustics",
+    hint:
+      "Normalisation gain is target minus measured, and the true peak moves with it: a limiter is " +
+      "needed when it crosses the ceiling. Steady-sine loudness goes through the BS.1770 K-filter " +
+      "(48 kHz coefficients). A programme's loudness, LRA or true peak from ONE reading is refused " +
+      "by name: they are gated over the whole waveform.",
+    fields: [
+      {
+        key: "mode", label: "Mode", default: "normalise", kind: "select",
+        options: [
+          { value: "normalise", label: "Normalise a measured programme to a target" },
+          { value: "sine", label: "Loudness of a steady sine (K-weighted)" },
+          { value: "gated", label: "Integrated loudness from typed 400 ms block loudnesses" },
+          { value: "reading-integrated", label: "Programme loudness from one peak/RMS reading (refused)" },
+          { value: "reading-lra", label: "Loudness range from one reading (refused)" },
+          { value: "reading-true-peak", label: "True peak from a sample peak (refused)" },
+        ],
+      },
+      { key: "meas", label: "Measured integrated loudness, LUFS", default: "-16.3", kind: "text" },
+      {
+        key: "target", label: "Target", default: "ebu-r128", kind: "select",
+        options: [
+          ...LOUDNESS_TARGETS.map((t) => ({ value: t.id, label: t.label })),
+          { value: "custom", label: "Custom (the field below)" },
+        ],
+      },
+      { key: "ctarget", label: "Custom target, LUFS", default: "", kind: "text" },
+      { key: "tp", label: "Measured true peak, dBTP (blank if unknown)", default: "-1.5", kind: "text" },
+      { key: "maxtp", label: "True-peak ceiling, dBTP", default: "-1", kind: "text" },
+      { key: "amp", label: "Sine amplitude, dBFS peak (sine)", default: "0", kind: "text" },
+      { key: "freq", label: "Sine frequency (sine)", default: "997 Hz", kind: "text" },
+      {
+        key: "ch", label: "Channels carrying the sine", default: "L", kind: "select",
+        options: Object.keys(CHANNEL_SETS).map((k) => ({ value: k, label: k === "L" ? "L only" : k })),
+      },
+      { key: "rate", label: "Sample rate (the K-filter is published for 48 kHz)", default: "48 kHz", kind: "text" },
+      { key: "blocks", label: "Block loudnesses, LUFS (gated)", default: "-20, -22, -23, -24, -75", kind: "text" },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const f = u.optNull("freq", "Hz", "Sine frequency");
+      const fsr = u.optNull("rate", "Hz", "Sample rate");
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const mode = r("mode");
+      if (mode.startsWith("reading-")) {
+        const what = mode.slice(8) as "integrated" | "lra" | "true-peak";
+        return { text: plainDashes(programmeLoudnessFromReading(what).error), ok: false };
+      }
+      // A loudness may be typed with its scale ("−23 LUFS", "−16,3 LKFS"), a true
+      // peak with "dBTP", an amplitude with "dBFS": the label is read, not refused.
+      const num = (k: string): number => fieldNumber(r(k), /\s*(LUFS|LKFS|LU|dBTP|dBFS|dB)$/i);
+      const lines: EngLine[] = [];
+      const notes: string[] = [];
+      let fig: AudioFigure;
+      let caption: string;
+      if (mode === "sine") {
+        const amp = num("amp");
+        if (!Number.isFinite(amp)) return { text: "The amplitude must be a number of dBFS.", ok: false };
+        const fHz = f ?? 997;
+        const rateHz = fsr ?? 48000;
+        const res = sineLoudness(amp, fHz, r("ch"), rateHz);
+        if (!res.ok) return { text: res.error, ok: false };
+        // Two independent routes to the same numbers, checked every run: the
+        // K-gain by the stand-alone evaluator, and the multi-channel loudness
+        // as a BS.1770 power sum of one-channel readings.
+        const kw = kWeightGainDb(fHz, rateHz);
+        if (!kw.ok) return { text: kw.error, ok: false };
+        const one = sineLoudness(amp, fHz, "L", rateHz);
+        if (!one.ok) return { text: one.error, ok: false };
+        const comb = combineChannels(res.channels.map((c) => ({ channel: c, lufs: one.loudnessLufs })));
+        if (!comb.ok) return { text: comb.error, ok: false };
+        if (Math.abs(kw.gainDb - res.kGainDb) > 1e-9 || Math.abs(comb.loudnessLufs - res.loudnessLufs) > 1e-9) {
+          return { text: "The loudness cross-check disagreed with itself, so no number is given.", ok: false };
+        }
+        lines.push(`Steady sine, ${avDb(amp, 2)} dBFS at ${engNum(fHz, 6)} Hz`, "");
+        lines.push(`  Loudness            ${avDb(res.loudnessLufs, 4)} LUFS`);
+        lines.push(`  K-weighting gain    ${avDb(res.kGainDb, 4)} dB`);
+        lines.push(`  Channels            ${res.channels.join(", ")} (Σ G = ${res.weightSum.toFixed(2)})`);
+        lines.push(`  Cross-check         per-channel power sum ${avDb(comb.loudnessLufs, 4)} LUFS, agrees`);
+        notes.push(...res.notes, ...comb.notes);
+        fig = res.figure;
+        caption = "The BS.1770-4 K-weighting curve, the sine's frequency marked";
+      } else if (mode === "gated") {
+        // Block loudnesses are LUFS (1 LU = 1 dB), so a typed "LUFS"/"LKFS"
+        // after each value is the field's own scale and is read as such.
+        const lv = parseLevelList(r("blocks").replace(/\s*\b(LUFS|LKFS)\b/gi, ""));
+        if (!lv.ok) return { text: lv.error.replace(/is not a level in dB/, "is not a block loudness in LUFS"), ok: false };
+        const res = gatedIntegrated(lv.values);
+        if (!res.ok) return { text: res.error, ok: false };
+        lines.push(`Gated integration of ${res.blocksGiven} blocks`, "");
+        lines.push(`  Integrated          ${avDb(res.integratedLufs, 3)} LUFS`);
+        lines.push(`  Relative gate       ${avDb(res.relativeGateLufs, 3)} LUFS`);
+        lines.push(`  Blocks kept         ${res.passedBoth} of ${res.blocksGiven} (${res.passedAbsolute} above −70 LUFS)`);
+        if (lv.note) notes.push(lv.note);
+        notes.push(...res.notes);
+        fig = res.figure;
+        caption = "Block loudness against the absolute and relative gates";
+      } else {
+        const meas = num("meas");
+        if (!Number.isFinite(meas)) return { text: "The measured loudness must be a number of LUFS.", ok: false };
+        const t = LOUDNESS_TARGETS.find((x) => x.id === r("target"));
+        const target = t ? t.lufs : num("ctarget");
+        if (!Number.isFinite(target)) return { text: "Give the custom target in LUFS.", ok: false };
+        const tpRaw = r("tp").trim();
+        const tp = tpRaw ? num("tp") : null;
+        if (tpRaw && !Number.isFinite(tp as number)) return { text: "The measured true peak must be a number of dBTP.", ok: false };
+        const maxRaw = r("maxtp").trim();
+        const maxtp = maxRaw ? num("maxtp") : (t?.maxTruePeak ?? -1);
+        if (!Number.isFinite(maxtp)) return { text: "The true-peak ceiling must be a number of dBTP.", ok: false };
+        const res = normaliseGain(meas, target, tp, maxtp);
+        if (!res.ok) return { text: res.error, ok: false };
+        lines.push(`Normalising ${avDb(meas, 1)} LUFS to ${avDb(target, 1)} LUFS`, "");
+        lines.push(`  Gain                ${avDb(res.gainDb, 2)} dB`);
+        if (res.resultingTruePeak !== null) {
+          lines.push(`  True peak after     ${avDb(res.resultingTruePeak, 2)} dBTP`);
+          lines.push(`  Limiter required    ${res.limiterRequired ? "YES: over the " + avDb(maxtp, 1) + " dBTP ceiling" : "no"}`);
+        }
+        notes.push(...res.notes);
+        fig = res.figure;
+        caption = "Loudness and true peak before and after the gain, against the target and ceiling";
+      }
+      u.report(lines as string[]);
+      for (const note of notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_LEVEL_UNIT_NOTE);
+      return engReport(lines.map(trueMinus), [avPlot(audioFigureSvg(fig), caption, "Loudness figure for the selected mode")]);
+    },
+  },
+  {
+    id: "audio-speaker",
+    name: "Loudspeaker sensitivity & amplifier power",
+    group: "Audio & acoustics",
+    hint:
+      "SPL = sensitivity + 10·log10(P) − 20·log10(d). The 2.83 V trap: 2.83 V is 1 W only into 8 Ω; " +
+      "into 4 Ω it is 2 W, so a 2.83 V rating reads 3 dB higher than the 1 W rating of the same " +
+      "speaker. Far field, on axis, no power compression and no room gain.",
+    fields: [
+      { key: "sens", label: "Sensitivity, dB SPL at 1 m", default: "88", kind: "text" },
+      {
+        key: "basis", label: "Rated at", default: "1W", kind: "select",
+        options: [
+          { value: "1W", label: "1 W / 1 m" },
+          { value: "2.83V", label: "2.83 V / 1 m" },
+        ],
+      },
+      { key: "z", label: "Nominal impedance", default: "8 Ω", kind: "text" },
+      { key: "p", label: "Amplifier power per box", default: "100 W", kind: "text" },
+      { key: "d", label: "Listening distance", default: "4 m", kind: "text" },
+      { key: "n", label: "Number of boxes", default: "1", kind: "text" },
+      {
+        key: "coh", label: "Several boxes add", default: "incoherent", kind: "select",
+        options: [
+          { value: "incoherent", label: "Incoherently (+10·log10 n, the average)" },
+          { value: "coherent", label: "Coherently (+20·log10 n, an upper bound)" },
+        ],
+      },
+      { key: "crest", label: "Programme crest factor, dB", default: "12", kind: "text" },
+      { key: "target", label: "Target SPL, dB SPL (blank to skip)", default: "", kind: "text" },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const z = u.req("z", "Ω", "Impedance");
+      const p = u.req("p", "W", "Amplifier power");
+      const d = u.req("d", "m", "Distance");
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const DB_SPL = /\s*dB(\s*SPL)?$/i;
+      const sens = fieldNumber(r("sens"), DB_SPL);
+      const n = r("n").trim() ? fieldNumber(r("n")) : 1;
+      const crest = r("crest").trim() ? fieldNumber(r("crest"), /\s*dB$/i) : 0;
+      const tRaw = r("target").trim();
+      const target = tRaw ? fieldNumber(tRaw, DB_SPL) : null;
+      if (!Number.isFinite(sens)) return { text: "The sensitivity must be a number of dB SPL.", ok: false };
+      if (tRaw && !Number.isFinite(target as number)) return { text: "The target must be a number of dB SPL.", ok: false };
+      const res = speakerSpl({
+        sensitivityDb: sens,
+        basis: r("basis") === "2.83V" ? "2.83V" : "1W",
+        impedanceOhm: z,
+        powerW: p,
+        distanceM: d,
+        boxes: n,
+        coherent: r("coh") === "coherent",
+        crestDb: crest,
+        targetSplDb: target,
+      });
+      if (!res.ok) return { text: res.error, ok: false };
+      const lines: EngLine[] = [
+        `Loudspeaker at ${engNum(d, 5)} m`,
+        "",
+        `  Sensitivity (1 W)   ${res.sensitivity1W.toFixed(3)} dB SPL at 1 m`,
+        `  Continuous SPL      ${res.splDb.toFixed(3)} dB SPL`,
+        `  Peak SPL            ${res.peakSplDb.toFixed(3)} dB SPL`,
+        `  Power for peaks     ${engNum(res.peakPowerW, 5)} W per box`,
+        `  2.83 V into ${engNum(z, 4)} Ω   ${res.wattsAt283V.toFixed(5)} W (${avDb(res.basisOffsetDb, 4)} dB against 1 W)`,
+      ];
+      if (res.boxGainDb > 0) lines.push(`  Box gain            ${avDb(res.boxGainDb, 3)} dB`);
+      if (res.powerForTargetW !== null) lines.push(`  Power for ${target} dB SPL ${engNum(res.powerForTargetW, 5)} W per box`);
+      u.report(lines as string[]);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_LEVEL_UNIT_NOTE);
+      return engReport(lines.map(trueMinus), [
+        avPlot(audioFigureSvg(res.figure), "SPL against distance at the rated power and at the peaks, the listener marked", "SPL falling with log distance, continuous and peak"),
+      ]);
+    },
+  },
+  {
+    id: "audio-absorption",
+    name: "Room absorption budget",
+    group: "Audio & acoustics",
+    hint:
+      "Reverberation per surface: Sabine, Eyring and Millington–Sette side by side, the added " +
+      "absorption a target RT60 needs, and which surface dominates. Absorption coefficients and the " +
+      "air attenuation are YOUR measured inputs, one frequency band per run.",
+    fields: [
+      { key: "v", label: "Room volume", default: "200 m³", kind: "text" },
+      { key: "surf", label: "Surfaces: area in m², α — one per line or separated by /", default: "60, 0.02 / 60, 0.6 / 120, 0.1", kind: "block", rows: 3 },
+      { key: "m", label: "Air attenuation m, per metre (blank = none)", default: "", kind: "text" },
+      { key: "target", label: "Target RT60 (blank to skip)", default: "0.5 s", kind: "text" },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const v = u.req("v", "m^3", "Room volume");
+      const target = u.optNull("target", "s", "Target RT60");
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const sl = parseSurfaceList(r("surf"));
+      if (!sl.ok) return { text: sl.error, ok: false };
+      const mRaw = r("m").trim();
+      const m = mRaw ? fieldNumber(mRaw, /\s*(m⁻¹|m\^-1|1\/m|\/m|per\s+m(etre|eter)?)$/i) : 0;
+      if (!Number.isFinite(m)) return { text: "The air attenuation must be a number per metre (e.g. 0.0024).", ok: false };
+      const res = absorptionBudget(v, sl.values, m, target);
+      if (!res.ok) return { text: res.error, ok: false };
+      const lines: EngLine[] = [
+        `Absorption budget, ${engNum(v, 5)} m³`,
+        "",
+        `  Total absorption    ${engNum(res.absorption, 5)} m² sabins (ᾱ = ${engNum(res.meanAlpha, 4)})`,
+        `  RT60, Sabine        ${engNum(res.sabineS, 5)} s`,
+        `  RT60, Eyring        ${engNum(res.eyringS, 5)} s`,
+        `  RT60, Millington–Sette ${engNum(res.millingtonSetteS, 5)} s`,
+      ];
+      if (res.airAbsorption > 0) lines.push(`  Air absorption 4mV ${engNum(res.airAbsorption, 4)} m²`);
+      if (res.requiredAbsorption !== null && res.addedAbsorption !== null) {
+        lines.push(`  Needed for target   ${engNum(res.requiredAbsorption, 5)} m² sabins (${res.addedAbsorption >= 0 ? "add" : "remove"} ${engNum(Math.abs(res.addedAbsorption), 4)} m²)`);
+      }
+      if (sl.note) res.notes.push(sl.note);
+      u.report(lines as string[]);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_UNIT_NOTE);
+      return engReport(lines.map(trueMinus), [
+        avPlot(audioFigureSvg(res.figure), "Absorption per surface, with the total and what the target needs", "Horizontal bars of absorption per surface"),
+      ]);
+    },
+  },
+  {
+    id: "audio-crossover",
+    name: "Passive crossover (1st/2nd order)",
+    group: "Audio & acoustics",
+    hint:
+      "Component values for a two-way passive crossover into a resistive load. The tweeter's polarity " +
+      "decides whether the sum is flat: Linkwitz–Riley 2nd order needs it INVERTED, and Butterworth " +
+      "2nd order inverted gives +3 dB at fc. A real driver's impedance rises with frequency, so " +
+      "without a Zobel network the crossover will not be where these values put it.",
+    fields: [
+      { key: "fc", label: "Crossover frequency", default: "2.5 kHz", kind: "text" },
+      { key: "z", label: "Driver nominal impedance", default: "8 Ω", kind: "text" },
+      {
+        key: "type", label: "Alignment", default: "lr2", kind: "select",
+        options: [
+          { value: "1st", label: "1st order (6 dB/octave)" },
+          { value: "bw2", label: "Butterworth 2nd order" },
+          { value: "lr2", label: "Linkwitz–Riley 2nd order" },
+        ],
+      },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const fc = u.req("fc", "Hz", "Crossover frequency");
+      const z = u.req("z", "Ω", "Driver impedance");
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const type = r("type") as CrossoverType;
+      const res = passiveCrossover(fc, z, type);
+      if (!res.ok) return { text: res.error, ok: false };
+      // The section level at fc asked a second time, through the stand-alone
+      // response evaluator, and the octave either side for the report.
+      const lpAtFc = crossoverResponseDb(fc, type, fc, "lp");
+      const lpOct = crossoverResponseDb(fc, type, 2 * fc, "lp");
+      const hpOct = crossoverResponseDb(fc, type, fc / 2, "hp");
+      for (const x of [lpAtFc, lpOct, hpOct]) if (x !== null && typeof x === "object") return { text: x.error, ok: false };
+      if (typeof lpAtFc !== "number" || Math.abs(lpAtFc - res.sectionAtFcDb) > 1e-9) {
+        return { text: "The crossover cross-check disagreed with itself, so no values are given.", ok: false };
+      }
+      const db = (x: number | null): string => (x === null ? "a null (−∞ dB)" : `${avDb(x, 3)} dB`);
+      const lines: EngLine[] = [
+        `Passive crossover at ${engNum(fc, 5)} Hz into ${engNum(z, 4)} Ω`,
+        "",
+        `  Capacitor C         ${engNum(res.capacitanceF * 1e6, 5)} µF`,
+        `  Inductor L          ${engNum(res.inductanceH * 1e3, 5)} mH`,
+        `  Each section at fc  ${avDb(res.sectionAtFcDb, 3)} dB`,
+        `  Tweeter polarity    ${res.tweeterPolarity} for the flattest sum`,
+        `  Sum at fc           in phase ${db(res.sumAtFcInPhaseDb)}, inverted ${db(res.sumAtFcInvertedDb)}`,
+        `  An octave away      low-pass at 2fc ${db(lpOct as number | null)}, high-pass at fc/2 ${db(hpOct as number | null)}`,
+      ];
+      u.report(lines as string[]);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_UNIT_NOTE);
+      return engReport(lines.map(trueMinus), [
+        avPlot(audioFigureSvg(res.figure), "Low-pass, high-pass and summed magnitude, with both tweeter polarities", "Crossover magnitude responses on a log frequency axis"),
+      ]);
+    },
+  },
+  {
+    id: "audio-damping",
+    name: "Speaker cable & damping factor",
+    group: "Audio & acoustics",
+    hint:
+      "The cable, not the amplifier, usually sets the damping factor at the speaker. Copper is " +
+      "1/58 Ω·mm²/m (IEC 60028, 100% IACS, exact) and the run is counted both ways. Give the " +
+      "conductor area or an AWG number, not both.",
+    fields: [
+      { key: "load", label: "Speaker nominal impedance", default: "8 Ω", kind: "text" },
+      { key: "zout", label: "Amplifier output impedance", default: "0.02 Ω", kind: "text" },
+      { key: "len", label: "Cable length, one way", default: "10 m", kind: "text" },
+      { key: "area", label: "Conductor area (blank if giving AWG)", default: "2.5 mm²", kind: "text" },
+      { key: "awg", label: "AWG gauge (blank if giving the area; 0000 = −3)", default: "", kind: "text" },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const load = u.req("load", "Ω", "Speaker impedance");
+      const zout = u.opt("zout", "Ω", "Amplifier output impedance", 0);
+      const len = u.req("len", "m", "Cable length");
+      const area = u.optNull("area", "m^2", "Conductor area");
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const awgRaw = r("awg").trim();
+      let awg: number | undefined;
+      if (awgRaw) {
+        // 0000 and 4/0 are the same gauge (−3); 00 = 2/0 (−1); "AWG 12" reads 12.
+        const g = awgRaw.replace(/^AWG\s*/i, "").replace(/\s*AWG$/i, "");
+        const slash = /^([1-4])\s*\/\s*0$/.exec(g);
+        awg = /^0{2,4}$/.test(g) ? 1 - g.length : slash ? 1 - Number(slash[1]) : fieldNumber(g);
+        if (!Number.isFinite(awg)) return { text: "The AWG gauge must be a whole number (0000, 000, 00, 0, 1 … 40).", ok: false };
+      }
+      const res = cableDamping({ loadOhm: load, sourceOhm: zout, lengthM: len, areaM2: area ?? undefined, awg });
+      if (!res.ok) return { text: res.error, ok: false };
+      const lines: EngLine[] = [
+        `Speaker cable, ${engNum(len, 5)} m of ${engNum(res.areaMm2, 4)} mm² copper`,
+        "",
+        `  Round-trip resistance ${engNum(res.cableOhm, 6)} Ω`,
+        `  Damping factor      ${engNum(res.dampingFactor, 5)} at the speaker`,
+        `  Amplifier alone     ${res.amplifierDampingFactor === null ? "ideal source (0 Ω)" : engNum(res.amplifierDampingFactor, 5)}`,
+        `  Level at the speaker ${avDb(res.lossDb, 4)} dB (cable's share ${avDb(res.cableInsertionLossDb, 4)} dB)`,
+      ];
+      u.report(lines as string[]);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_UNIT_NOTE);
+      return engReport(lines.map(trueMinus), [
+        avPlot(audioFigureSvg(res.figure), "Damping factor against cable length for three standard areas, the entered length marked", "Damping factor falling with log cable length"),
+      ]);
+    },
+  },
+  {
     id: "video-bitrate",
     name: "Bitrate & storage budget",
     group: "Video & display",
@@ -24483,8 +25397,13 @@ const ENG_CALCS: EngCalc[] = [
       }
       const res = bitrate(nums.w, nums.h, fps, nums.depth, r("chroma") as ChromaSubsampling, nums.ratio, dur ?? undefined);
       if (!res.ok) return { text: res.error, ok: false };
+      // The header must parse back to the rate used: a 1000/1001 rate is named
+      // as its exact fraction, never as a 4-figure decimal (23.98 is not it).
+      const pr = parseRate(fps);
+      const fpsText =
+        pr.ok && pr.fractional && Math.abs(fps - (pr.nominal * 1000) / 1001) < 1e-9 * fps ? `${pr.nominal * 1000}/1001` : engNum(fps, 6);
       const lines = [
-        `Bitrate, ${nums.w}×${nums.h} at ${engNum(fps, 4)} fps`,
+        `Bitrate, ${nums.w}×${nums.h} at ${fpsText} fps`,
         "",
         `  Bits per pixel      ${engNum(res.bitsPerPixel, 4)}`,
         `  Pixel rate          ${engNum(res.pixelRate / 1e6, 5)} Mpixel/s`,
@@ -24493,6 +25412,21 @@ const ENG_CALCS: EngCalc[] = [
       ];
       if (res.sizeBytes !== null) {
         lines.push(`  File size           ${engNum(res.sizeBytes / 1e9, 5)} GB`);
+      }
+      // Samples per plane — the 4:2:0 halving counted, not asserted.
+      const planes =
+        Number.isInteger(nums.w) && Number.isInteger(nums.h) ? chromaPlanes(nums.w, nums.h, r("chroma") as ChromaSubsampling) : null;
+      if (planes && !("error" in planes)) {
+        lines.push(
+          `  Samples per frame   Y′ ${planes.luma}, Cb and Cr ${planes.chromaEach} each ` +
+            `(${engNum(planes.fractionOf444 * 100, 4)}% of 4:4:4)`,
+        );
+      }
+      if (res.sdi) {
+        lines.push(
+          `  On the SDI link     ${engNum(res.sdi.lineRateBps / 1e9, 6)} Gbit/s with blanking ` +
+            `(+${engNum(res.sdi.overheadPct, 4)}%), ${res.sdi.sdiClass}`,
+        );
       }
       u.report(lines);
       for (const note of res.notes) lines.push(`Note: ${note}`);
@@ -24509,18 +25443,15 @@ const ENG_CALCS: EngCalc[] = [
         }));
         if (chromaRows.every((rw) => Number.isFinite(rw.value))) {
           const svg = hBarSvg(chromaRows, {
-            title: `Rate at ${nums.w}×${nums.h}, ${engNum(fps, 4)} fps, ${nums.depth}-bit`,
+            title: `Rate at ${nums.w}×${nums.h}, ${fpsText} fps, ${nums.depth}-bit`,
             unit: "Mbit/s",
           });
           return engReport(lines, [
-            {
-              kind: "plot",
+            avPlot(
               svg,
-              caption: "The three chroma schemes at this format; 4:2:0 halves the data, not quarters it",
-              alt: "Bitrate bars for 4:4:4, 4:2:2 and 4:2:0 chroma subsampling",
-              w: 400,
-              h: 46 + chromaRows.length * HBAR_ROW_H + 18,
-            },
+              "The three chroma schemes at this format; 4:2:0 halves the data, not quarters it",
+              "Bitrate bars for 4:4:4, 4:2:2 and 4:2:0 chroma subsampling",
+            ),
           ]);
         }
       }
@@ -24553,7 +25484,8 @@ const ENG_CALCS: EngCalc[] = [
         `Resolution ${w}×${h}`,
         "",
         `  Pixels              ${engNum(res.megapixels, 5)} Mpixel`,
-        `  Aspect ratio        ${res.aspectLabel}  (${engNum(res.aspectRatio, 5)})`,
+        `  Storage aspect      ${res.storageAspectLabel}  (${engNum(res.aspectRatio, 5)})`,
+        `  Nearest common name ${res.nearestCommon.exact ? res.nearestCommon.name : `≈ ${res.nearestCommon.name} (true ${engNum(res.aspectRatio, 5)})`}`,
       ];
       if (res.ppi !== null) lines.push(`  Pixel density       ${engNum(res.ppi, 4)} PPI`);
       if (res.retinaDistanceM !== null) {
@@ -24589,14 +25521,11 @@ const ENG_CALCS: EngCalc[] = [
             },
           );
           return engReport(lines, [
-            {
-              kind: "plot",
+            avPlot(
               svg,
-              caption: "The retina distance against screen size at this pixel count",
-              alt: "Distance beyond which the pixel grid is unresolvable, against diagonal size",
-              w: 380,
-              h: 250,
-            },
+              "The retina distance against screen size at this pixel count",
+              "Distance beyond which the pixel grid is unresolvable, against diagonal size",
+            ),
           ]);
         }
       }
@@ -24974,6 +25903,599 @@ const ENG_CALCS: EngCalc[] = [
         }
       }
       return { text: plainDashes(lines.join("\n")) };
+    },
+  },
+  {
+    id: "video-timecode",
+    name: "Timecode (SMPTE ST 12-1)",
+    group: "Video & display",
+    hint:
+      "Timecode is a LABEL; real time is frames × 1001/30000 s at 29.97, computed exactly. Drop-frame " +
+      "skips labels ;00 and ;01 at the start of every minute except each tenth (;00–;03 at 59.94), so " +
+      "a label such as 00:01:00;00 does not exist and is refused by name rather than normalised.",
+    fields: [
+      {
+        key: "rate", label: "Rate", default: "29.97 DF", kind: "select",
+        options: ["23.976", "24", "25", "29.97 DF", "29.97 NDF", "30", "50", "59.94 DF", "59.94 NDF", "60"].map((v) => ({
+          value: v,
+          label: v.replace(" DF", " drop-frame").replace(" NDF", " non-drop"),
+        })),
+      },
+      { key: "tca", label: "Timecode A (HH:MM:SS:FF, or ;FF for drop-frame)", default: "00:10:00;00", kind: "text" },
+      { key: "tcb", label: "Timecode B, for the duration A → B (blank to skip)", default: "", kind: "text" },
+      { key: "frames", label: "A frame count to label (0-based; blank to skip)", default: "", kind: "text" },
+    ],
+    compute: (r) => {
+      const rate = r("rate");
+      const a = tcToFrames(r("tca"), rate);
+      if (!a.ok) return { text: `Timecode A: ${a.error}`, ok: false };
+      const rt = realTimeOf(a.frames, a.rate);
+      if (!rt.ok) return { text: rt.error, ok: false };
+      const mode = a.df ? " drop-frame" : a.rate.dropPerMinute ? " non-drop" : "";
+      const lines: EngLine[] = [
+        `Timecode ${a.label} at ${a.rate.id} fps${mode}`,
+        "",
+        `  Frame number        ${a.frames} (0-based)`,
+        `  Real elapsed time   ${rt.clock} (${ratLabel(rt.seconds)} s exactly)`,
+      ];
+      if (a.rate.fractional) {
+        lines.push(`  A non-drop label    ${clockText(rt.ndfLabelSeconds)}, behind real time by ${ratLabel(rt.ndfDriftSeconds)} s`);
+      }
+      const notes = [...a.notes, ...rt.notes];
+      if (r("tcb").trim()) {
+        const d = tcDuration(r("tca"), r("tcb"), rate);
+        if (!d.ok) return { text: d.error, ok: false };
+        lines.push(`  Duration A → B      ${d.durationLabel} = ${d.frames} frame${Math.abs(d.frames) === 1 ? "" : "s"} = ${clockText(d.seconds)} real`);
+        notes.push(...d.notes);
+      }
+      if (r("frames").trim()) {
+        const ft = framesToTc(r("frames"), rate);
+        if (!ft.ok) return { text: `Frame count: ${ft.error}`, ok: false };
+        lines.push(`  Frame ${ft.frames} is labelled ${ft.label}${ft.dayOffset ? ` (day ${ft.dayOffset > 0 ? "+" : ""}${ft.dayOffset})` : ""}`);
+        notes.push(...ft.notes);
+      }
+      for (const note of [...new Set(notes)]) lines.push(`Note: ${note}`);
+      lines.push(ENG_EXACT_UNIT_NOTE);
+      const span = Math.min(1440, Math.max(60, Math.ceil((rt.secondsApprox / 60) * 1.25)));
+      const fig = driftFigure(a.rate, span, a.frames);
+      if (!fig.ok) return engReport(lines.map(trueMinus));
+      return engReport(lines.map(trueMinus), [avPlot(timecodeDriftSvg(fig, a.rate.id), fig.caption, "Label time minus real time against elapsed minutes, non-drop and drop-frame")]);
+    },
+  },
+  {
+    id: "video-framerate",
+    name: "Frame rates, pulldown & shutter",
+    group: "Video & display",
+    hint:
+      "Rates are exact rationals: 23.976 and 29.97 are snapped to 24000/1001 and 30000/1001, and " +
+      "the snap is reported. Audio samples per frame (1601.6 at 29.97 / 48 kHz, so five frames " +
+      "carry 8008), the 2:3 pulldown cadence, the PAL 4% speed-up and its pitch shift, and shutter " +
+      "angle ↔ exposure time.",
+    fields: [
+      { key: "src", label: "Source frame rate", default: "23.976", kind: "text" },
+      { key: "dst", label: "Target frame rate (blank to skip pulldown)", default: "29.97", kind: "text" },
+      { key: "angle", label: "Shutter angle, degrees (blank if giving a time)", default: "180°", kind: "text" },
+      { key: "stime", label: "Shutter time, e.g. 1/48 s (blank if giving an angle)", default: "", kind: "text" },
+      { key: "audio", label: "Audio sample rate", default: "48 kHz", kind: "text" },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const audioHz = u.opt("audio", "Hz", "Audio sample rate", 48000);
+      const stime = u.optNull("stime", "s", "Shutter time");
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const src = r("src").trim();
+      const rf = rateFacts(src, audioHz);
+      if (!rf.ok) return { text: `Source rate: ${rf.error}`, ok: false };
+      const lines: EngLine[] = [
+        `Frame rate ${rf.fpsText} fps`,
+        "",
+        `  Frame duration      ${engNum(rf.frameMs, 7)} ms`,
+        `  Audio per frame     ${rf.samplesPerFrameText} samples at ${engNum(audioHz, 6)} Hz`,
+      ];
+      if (rf.audioSplit && rf.audioCycleFrames !== null) {
+        const s = rf.audioSplit;
+        lines.push(`  Audio sequence      ${rf.audioCycleFrames} frames = ${rf.audioCycleSamples} samples (${s.highCount} × ${s.high} + ${s.lowCount} × ${s.low})`);
+      }
+      if (rf.ndfDriftSPerHour) lines.push(`  Non-drop drift      ${rf.ndfDriftSPerHour} s per hour behind the wall clock`);
+      const notes = [...rf.notes];
+      const angleRaw = r("angle").trim().replace(/\s*(°|deg|degrees?)$/i, "");
+      if (angleRaw || stime !== null) {
+        // An exact typed time ("1/48", "0.02") goes to the engine as TEXT so the
+        // fraction stays exact; anything with another unit arrives in seconds.
+        const stRaw = r("stime").trim().replace(/\s*s$/, "");
+        const timeS: number | string | undefined = stime === null ? undefined : /^[\d.\s/]+$/.test(stRaw) ? stRaw : stime;
+        const angle = angleRaw ? Number(angleRaw) : undefined;
+        if (angleRaw && !Number.isFinite(angle as number)) return { text: "The shutter angle must be a number of degrees.", ok: false };
+        const sh = shutter({ angleDeg: angle, timeS }, src);
+        if (!sh.ok) return { text: sh.error, ok: false };
+        lines.push(`  Shutter             ${engNum(sh.angleDeg, 6)}° = ${sh.timeText} (${engNum(sh.timeMs, 6)} ms)`);
+        notes.push(...sh.notes);
+      }
+      const blocks: AnalyzeBlock[] = [];
+      if (r("dst").trim()) {
+        const pd = pulldown(src, r("dst").trim());
+        if (!pd.ok) {
+          notes.push(pd.error);
+        } else {
+          lines.push(`  ${pd.from.id} → ${pd.to.id}        ${pd.kind}`);
+          lines.push(`  Cadence             ${pd.pattern.join(" ")} (${pd.cycle.sourceFrames} → ${pd.cycle.targetFrames} per cycle)`);
+          if (pd.speedPct !== 0) {
+            lines.push(
+              `  Speed               ${avDb(pd.speedPct, 4)}%, pitch ${avDb(pd.semitones, 5)} semitones (${avDb(pd.cents, 3)} cents); 100 min runs ${engNum(pd.runtimeOf100Min, 6)} min`,
+            );
+          }
+          notes.push(...pd.notes);
+          blocks.push(avPlot(cadenceSvg(pd), "One cycle of the cadence: source frames above the target frames or fields they fill", "Coloured blocks mapping source frames to target frames"));
+        }
+      }
+      u.report(lines as string[]);
+      for (const note of [...new Set(notes)]) lines.push(`Note: ${note}`);
+      lines.push(ENG_UNIT_NOTE);
+      return engReport(lines.map(trueMinus), blocks);
+    },
+  },
+  {
+    id: "video-aspect",
+    name: "Aspect, pixel aspect & framing",
+    group: "Video & display",
+    hint:
+      "Storage aspect × pixel aspect = display aspect. 720×480 stores 3:2 and displays 4:3, and SD " +
+      "has TWO pixel-aspect conventions (8:9 from the 720 line, 10:11 from BT.601's 704 samples); " +
+      "both are named. Plus letterbox or pillarbox in a delivery frame and the SMPTE ST 2046-1 safe areas.",
+    fields: [
+      { key: "w", label: "Width, pixels", default: "720", kind: "text" },
+      { key: "h", label: "Height, pixels", default: "480", kind: "text" },
+      { key: "par", label: "Pixel aspect, e.g. 10:11 (blank if giving the display aspect)", default: "", kind: "text" },
+      { key: "dar", label: "Display aspect, e.g. 4:3 (blank if giving the pixel aspect)", default: "4:3", kind: "text" },
+      { key: "frame", label: "Delivery frame, e.g. 1920×1080 (blank = the picture itself)", default: "1920×1080", kind: "text" },
+      { key: "content", label: "Content aspect to fit, e.g. 2.39 (blank to skip)", default: "2.39", kind: "text" },
+    ],
+    compute: (r) => {
+      const w = fieldNumber(r("w"), /\s*(px|pixels?)$/i);
+      const h = fieldNumber(r("h"), /\s*(px|pixels?)$/i);
+      if (!Number.isFinite(w) || !Number.isFinite(h)) return { text: "Width and height must be whole numbers of pixels.", ok: false };
+      const res = aspect({
+        width: w,
+        height: h,
+        par: r("par").trim() || undefined,
+        dar: r("dar").trim() || undefined,
+        frame: r("frame").trim() || undefined,
+        content: r("content").trim() || undefined,
+      });
+      if (!res.ok) return { text: res.error, ok: false };
+      const lines: EngLine[] = [
+        `Aspect of ${w}×${h}`,
+        "",
+        `  Storage aspect      ${res.sarText}`,
+        `  Pixel aspect        ${res.parText}`,
+        `  Display aspect      ${res.darText} (${engNum(res.dar.num === 0n ? 0 : Number(res.dar.num) / Number(res.dar.den), 5)})`,
+        `  Nearest common name ${res.nearestCommon.exact ? res.nearestCommon.name : `≈ ${res.nearestCommon.name}`}`,
+      ];
+      if (res.sdConventions) {
+        for (const c of res.sdConventions) lines.push(`  PAR, ${c.basis.padEnd(32)} ${c.par}`);
+      }
+      if (res.darOn704) lines.push(`  704-sample picture  displays ${res.darOn704}`);
+      if (res.framing && res.framing.kind !== "none") {
+        const f = res.framing;
+        lines.push(
+          f.kind === "letterbox"
+            ? `  Letterbox           ${engNum(f.activeExact, 6)} lines exact, ${f.activeEven} even; bars ${engNum(f.barEach, 5)} lines each`
+            : `  Pillarbox           ${engNum(f.activeExact, 6)} px exact, ${f.activeEven} even; bars ${engNum(f.barEach, 5)} px each`,
+        );
+      }
+      lines.push(`  Action safe (93%)   ${engNum(res.safe.actionW, 6)}×${engNum(res.safe.actionH, 6)}`);
+      lines.push(`  Title safe (90%)    ${engNum(res.safe.titleW, 6)}×${engNum(res.safe.titleH, 6)}`);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_SAME_UNIT_NOTE);
+      return engReport(lines.map(trueMinus), [avPlot(aspectFrameSvg(res.figure), "The delivery frame to scale: active picture, bars and the safe areas", "Nested rectangles showing the frame, active picture and safe areas")]);
+    },
+  },
+  {
+    id: "video-transfer",
+    name: "Transfer functions & code values",
+    group: "Video & display",
+    hint:
+      "BT.709 is a CAMERA curve (OETF); the display curve is BT.1886. Inverting the 709 OETF to get " +
+      "display light is the commonest error, and the two do not round-trip (the system gamma of " +
+      "about 1.2 is deliberate). PQ is absolute in cd/m²; HLG is relative. The code value is the " +
+      "digital word for the signal, narrow or full range.",
+    fields: [
+      {
+        key: "curve", label: "Curve", default: "bt1886", kind: "select",
+        options: [
+          { value: "bt709", label: "BT.709 OETF (camera)" },
+          { value: "bt1886", label: "BT.1886 EOTF (SDR display)" },
+          { value: "srgb", label: "sRGB EOTF (IEC 61966-2-1)" },
+          { value: "pq", label: "PQ EOTF (SMPTE ST 2084)" },
+          { value: "hlg", label: "HLG OETF (BT.2100)" },
+        ],
+      },
+      {
+        key: "dir", label: "Direction", default: "toLight", kind: "select",
+        options: [
+          { value: "toLight", label: "Signal → light" },
+          { value: "toSignal", label: "Light → signal" },
+        ],
+      },
+      { key: "val", label: "Value (signal 0–1, or light: 0–1 relative, cd/m² for BT.1886 and PQ)", default: "0.5", kind: "text" },
+      { key: "lw", label: "BT.1886 display white", default: "100 nit", kind: "text" },
+      { key: "lb", label: "BT.1886 display black", default: "0", kind: "text" },
+      {
+        key: "bits", label: "Bit depth for the code value", default: "10", kind: "select",
+        options: ["8", "10", "12", "16"].map((b) => ({ value: b, label: `${b}-bit` })),
+      },
+      {
+        key: "range", label: "Range", default: "narrow", kind: "select",
+        options: [
+          { value: "narrow", label: "Narrow (legal, video)" },
+          { value: "full", label: "Full" },
+        ],
+      },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const lw = u.opt("lw", "nit", "Display white", 100);
+      const lb = u.opt("lb", "nit", "Display black", 0);
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const curve = r("curve") as TransferCurve;
+      const dir = (r("dir") === "toSignal" ? "toSignal" : "toLight") as TransferDirection;
+      // Absolute light (BT.1886 and PQ, light → signal) is a luminance and goes
+      // through the unit layer like every other field ("1000 nit", "292 ftL");
+      // a signal or relative light is a pure number, and a unit there is refused
+      // by name rather than stripped.
+      const valText = r("val").trim();
+      let val: number;
+      if (/[A-Za-z°µ]/.test(valText)) {
+        if (dir === "toSignal" && (curve === "pq" || curve === "bt1886")) {
+          const m = parseMeasured(valText, "nit");
+          if ("error" in m) return { text: `Value: ${m.error}`, ok: false };
+          val = m.inTarget;
+        } else {
+          return {
+            text: `"${valText}" carries a unit, but this value is ${dir === "toLight" ? "a signal (0 to 1)" : "relative light (0 to 1)"}, a pure number.`,
+            ok: false,
+          };
+        }
+      } else val = fieldNumber(valText);
+      if (!Number.isFinite(val)) return { text: "The value must be a number.", ok: false };
+      const res = transfer(curve, dir, val, { Lw: lw, Lb: lb });
+      if (!res.ok) return { text: res.error, ok: false };
+      const signal = dir === "toLight" ? val : res.output;
+      const lines: EngLine[] = [
+        res.standard,
+        "",
+        `  Input               ${engNum(val, 7)}`,
+        `  Output, ${res.outputIs}   ${engNum(res.output, 7)}`,
+        `  Formula: ${res.formula}`,
+      ];
+      if (signal >= 0 && signal <= 1) {
+        const cv = codeValue(signal, Number(r("bits")), r("range") === "full" ? "full" : "narrow", "luma");
+        if (!cv.ok) return { text: cv.error, ok: false };
+        lines.push(`  ${cv.bits}-bit ${cv.range} code  ${cv.code} (black ${cv.nominalMin}, white ${cv.nominalMax}; ${cv.formula})`);
+        res.notes.push(...cv.notes);
+      }
+      u.report(lines as string[]);
+      for (const note of res.notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_UNIT_NOTE);
+      return engReport(lines.map(trueMinus), [avPlot(transferSvg(res), "The selected curve with the entered point; the SDR curves faint for comparison", "Transfer curve of light against signal")]);
+    },
+  },
+  {
+    id: "video-interface",
+    name: "Interface bandwidth & recording time",
+    group: "Video & display",
+    hint:
+      "A serial interface carries the WHOLE raster, blanking included: 1080p60 4:2:2 10-bit is " +
+      "2.488 Gbit/s of picture but 2.970 Gbit/s on the link (SMPTE ST 274's 2200×1125 raster, " +
+      "3G-SDI). The total raster is an input, with ST 274's as the default. Recording time is on " +
+      "the card's decimal capacity, with the binary figure beside it.",
+    fields: [
+      { key: "active", label: "Active picture, w×h", default: "1920×1080", kind: "text" },
+      { key: "total", label: "Total raster with blanking, w×h (SMPTE ST 274 for 1080)", default: "2200×1125", kind: "text" },
+      { key: "rate", label: "Frame rate, fps", default: "60", kind: "text" },
+      { key: "bpp", label: "Bits per pixel (4:2:2 10-bit = 20)", default: "20", kind: "text" },
+      { key: "cap", label: "Media capacity", default: "128 GB", kind: "text" },
+      { key: "stream", label: "Recorded stream rate", default: "100 Mbit/s", kind: "text" },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const cap = u.req("cap", "B", "Media capacity");
+      const stream = u.req("stream", "bit/s", "Stream rate");
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const act = parseFrameSize(r("active"));
+      if ("error" in act) return { text: `Active picture: ${act.error}`, ok: false };
+      const tot = parseFrameSize(r("total"));
+      if ("error" in tot) return { text: `Total raster: ${tot.error}`, ok: false };
+      const bpp = fieldNumber(r("bpp"), /\s*(bits?(\s*\/\s*(px|pixel))?|bpp)$/i);
+      const ir = interfaceRate(act.w, act.h, r("rate").trim(), tot.w, tot.h, bpp);
+      if (!ir.ok) return { text: ir.error, ok: false };
+      const rec = recordTime(stream, cap);
+      if (!rec.ok) return { text: rec.error, ok: false };
+      const lines: EngLine[] = [
+        `Interface, ${act.w}×${act.h} in a ${tot.w}×${tot.h} raster`,
+        "",
+        `  Active picture      ${engNum(ir.activeRateBps / 1e9, 6)} Gbit/s`,
+        `  Link with blanking  ${engNum(ir.lineRateBps / 1e9, 6)} Gbit/s (+${engNum(ir.overheadPct, 4)}%)`,
+        `  SDI class           ${ir.sdiClass ? `${ir.sdiClass.name}${ir.sdiClass.exact ? ", exactly" : ", holds it"}` : "above 12G-SDI"}`,
+        "",
+        `  ${engNum(stream / 1e6, 5)} Mbit/s fills   ${engNum(rec.gbPerHour, 5)} GB per hour`,
+        `  ${engNum(cap / 1e9, 5)} GB holds       ${rec.hms} (${engNum(rec.seconds, 6)} s); it is ${engNum(rec.capacityGiB, 6)} GiB`,
+      ];
+      u.report(lines as string[]);
+      for (const note of [...ir.notes, ...rec.notes]) lines.push(`Note: ${note}`);
+      lines.push(ENG_UNIT_NOTE);
+      return engReport(lines.map(trueMinus), [avPlot(interfaceBarsSvg(ir.figure), "Active picture, blanking and the SDI class that carries the link", "Bars of link rate in gigabits per second")]);
+    },
+  },
+  {
+    id: "light-photometry",
+    name: "Illuminance, luminance & beams",
+    group: "Light & camera",
+    hint:
+      "E = I·cos θ / d² for a point source in the far field; the flux of a UNIFORM cone, Φ = I·Ω — " +
+      "the honest route round the refused cd → lm, since the beam angle is the missing input; and a " +
+      "Lambertian screen, L = E·gain/π. Foot-candles and foot-lamberts (ftL, never fL) beside lux and cd/m².",
+    fields: [
+      {
+        key: "mode", label: "Figure", default: "point", kind: "select",
+        options: [
+          { value: "point", label: "Illuminance against distance" },
+          { value: "beam", label: "Flux of the beam against beam angle" },
+          { value: "screen", label: "Screen luminance against area" },
+        ],
+      },
+      { key: "i", label: "Luminous intensity", default: "1000 cd", kind: "text" },
+      { key: "d", label: "Distance to the surface", default: "2 m", kind: "text" },
+      { key: "theta", label: "Incidence angle from the normal, degrees", default: "0", kind: "text" },
+      { key: "beam", label: "Full beam angle, degrees", default: "30", kind: "text" },
+      { key: "flux", label: "Projector flux", default: "5000 lm", kind: "text" },
+      { key: "area", label: "Screen area", default: "10 m²", kind: "text" },
+      { key: "gain", label: "Screen gain", default: "1", kind: "text" },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const I = u.req("i", "cd", "Luminous intensity");
+      const d = u.req("d", "m", "Distance");
+      const flux = u.req("flux", "lm", "Projector flux");
+      const area = u.req("area", "m^2", "Screen area");
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const deg = (k: string): number => fieldNumber(r(k), /\s*(°|deg|degrees?)$/i);
+      const theta = r("theta").trim() ? deg("theta") : 0;
+      const beam = deg("beam");
+      const gain = r("gain").trim() ? fieldNumber(r("gain")) : 1;
+      const pt = pointIlluminance(I, d, theta);
+      if (!pt.ok) return { text: pt.error, ok: false };
+      const cone = coneFlux(I, beam);
+      if (!cone.ok) return { text: cone.error, ok: false };
+      const scr = screenLuminance(flux, area, gain);
+      if (!scr.ok) return { text: scr.error, ok: false };
+      // The foot-candle and foot-lambert figures are converted back and must
+      // land on the SI values: the exact-foot constants checked every run.
+      const back = [footcandleToLux(pt.footcandles) / pt.lux, footlambertToNit(scr.footlamberts) / scr.nits];
+      if (back.some((x) => pt.lux > 0 && Math.abs(x - 1) > 1e-12)) {
+        return { text: "The foot-candle / foot-lambert cross-check disagreed, so no number is given.", ok: false };
+      }
+      const lines: EngLine[] = [
+        "Photometry",
+        "",
+        `  Illuminance at ${engNum(d, 5)} m   ${engNum(pt.lux, 6)} lx (${engNum(pt.footcandles, 5)} fc)` +
+          (theta > 0 ? `; ${engNum(pt.normalLux, 6)} lx facing the source` : ""),
+        `  Beam of ${engNum(beam, 4)}°        Ω = ${engNum(cone.solidAngleSr, 6)} sr, Φ = ${engNum(cone.lumens, 6)} lm (uniform intensity)`,
+        `  Screen illuminance  ${engNum(scr.lux, 6)} lx`,
+        `  Screen luminance    ${engNum(scr.nits, 6)} cd/m² (${engNum(scr.footlamberts, 5)} ftL), ${engNum(scr.ofCinemaReference, 4)} × the 48 cd/m² cinema reference`,
+      ];
+      u.report(lines as string[]);
+      for (const note of [...pt.notes, ...cone.notes, ...scr.notes]) lines.push(`Note: ${note}`);
+      lines.push(ENG_UNIT_NOTE);
+      const mode = r("mode");
+      const fig = mode === "beam" ? cone.figure : mode === "screen" ? scr.figure : pt.figure;
+      return engReport(lines.map(trueMinus), [avPlot(photoFigureSvg(fig), fig.title, "Photometric quantity against the swept input, the entered value marked")]);
+    },
+  },
+  {
+    id: "light-exposure",
+    name: "Exposure, f-stops & depth of field",
+    group: "Light & camera",
+    hint:
+      "EV = log2(N²/t). f-numbers are powers of √2, so f/5.6 is really 5.657 and f/4 → f/11 is " +
+      "exactly 3 stops, not 2.92. The meter constants C and K and the circle of confusion are " +
+      "inputs: ISO 2720 allows a range, and 0.03 mm is a convention for 36×24 mm, not a standard.",
+    fields: [
+      { key: "n", label: "f-number", default: "8", kind: "text" },
+      { key: "t", label: "Shutter time", default: "1/125 s", kind: "text" },
+      { key: "iso", label: "ISO speed", default: "100", kind: "text" },
+      { key: "c", label: "Incident-meter constant C (ISO 2720 allows a range)", default: "250", kind: "text" },
+      { key: "k", label: "Reflected-meter constant K", default: "12.5", kind: "text" },
+      { key: "n2", label: "Compare with f-number (blank to skip)", default: "11", kind: "text" },
+      { key: "iso2", label: "Compare with ISO (blank to skip)", default: "400", kind: "text" },
+      { key: "f", label: "Focal length", default: "50 mm", kind: "text" },
+      { key: "coc", label: "Circle of confusion (a convention)", default: "0.03 mm", kind: "text" },
+      { key: "s", label: "Subject distance", default: "5 m", kind: "text" },
+      { key: "sw", label: "Sensor width", default: "36 mm", kind: "text" },
+      { key: "sh", label: "Sensor height (blank to skip)", default: "24 mm", kind: "text" },
+      {
+        key: "fig", label: "Figure", default: "dof", kind: "select",
+        options: [
+          { value: "dof", label: "Depth of field against subject distance" },
+          { value: "exposure", label: "Shutter time against scene brightness" },
+        ],
+      },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const t = u.req("t", "s", "Shutter time");
+      const f = u.req("f", "m", "Focal length");
+      const coc = u.req("coc", "m", "Circle of confusion");
+      const s = u.req("s", "m", "Subject distance");
+      const sw = u.req("sw", "m", "Sensor width");
+      const sh = u.optNull("sh", "m", "Sensor height");
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const F_PREFIX = /^f\s*\/?\s*/i;
+      const ISO_PREFIX = /^ISO\s*/i;
+      const marked = fieldNumber(r("n"), F_PREFIX);
+      const iso = fieldNumber(r("iso"), ISO_PREFIX);
+      const C = r("c").trim() ? fieldNumber(r("c")) : 250;
+      const K = r("k").trim() ? fieldNumber(r("k")) : 12.5;
+      for (const [v, label] of [[marked, "The f-number"], [iso, "The ISO speed"], [C, "C"], [K, "K"]] as const) {
+        if (!Number.isFinite(v)) return { text: `${label} must be a number.`, ok: false };
+      }
+      // ONE f-number for every line of the report. A marking is the two-figure
+      // rounding of a power of √2, so EV, depth of field and the stops line all
+      // use the exact value it stands for (f/11 = 11.314); the marking is shown
+      // beside it. Computing EV from the marking while counting stops on the
+      // exact values made the same report disagree with itself by 0.08 EV.
+      const fx = fNumberExact(marked);
+      if (!fx.ok) return { text: fx.error, ok: false };
+      const n = fx.exact;
+      const fName = (m: number, x: number): string => (Math.abs(m - x) > 1e-9 ? `f/${engNum(m, 4)} (exactly ${engNum(x, 5)})` : `f/${engNum(m, 4)}`);
+      const ev = exposureValue(n, t, iso, C, K);
+      if (!ev.ok) return { text: ev.error, ok: false };
+      // Four independent inversions of the same EV, checked every run.
+      const inv = [
+        [shutterForEv(ev.evSettings, n), t],
+        [apertureForEv(ev.evSettings, t), n],
+        [evFromIlluminance(ev.incidentLux, iso, C), ev.evSettings],
+        [evFromLuminance(ev.reflectedNit, iso, K), ev.evSettings],
+      ] as const;
+      for (const [got, want] of inv) {
+        if (typeof got !== "number") return { text: got.error, ok: false };
+        if (Math.abs(got - want) > 1e-9 * Math.max(1, Math.abs(want))) {
+          return { text: "The exposure cross-check disagreed with itself, so no number is given.", ok: false };
+        }
+      }
+      const lines: EngLine[] = [
+        `Exposure, ${fName(marked, n)} at ${engNum(t, 6)} s, ISO ${engNum(iso, 6)}`,
+        "",
+        `  EV of the settings  ${engNum(ev.evSettings, 5)}`,
+        `  Scene EV at ISO 100 ${engNum(ev.ev100, 5)}`,
+        `  Incident light      ${engNum(ev.incidentLux, 5)} lx (C = ${engNum(C, 4)})`,
+        `  Subject luminance   ${engNum(ev.reflectedNit, 5)} cd/m² (K = ${engNum(K, 4)})`,
+      ];
+      const notes = [fx.note, ...ev.notes];
+      const stopsWord = (text: string): string => (text === "1" ? "stop" : "stops");
+      if (r("n2").trim()) {
+        const n2 = fieldNumber(r("n2"), F_PREFIX);
+        if (!Number.isFinite(n2)) return { text: "The f-number to compare with must be a number (8, f/8 or F8).", ok: false };
+        const sb = stopsBetween(marked, n2);
+        if (!sb.ok) return { text: sb.error, ok: false };
+        const ex = engNum(sb.exactStops, 4);
+        const nom = engNum(sb.nominalStops, 4);
+        lines.push(
+          `  f/${engNum(marked, 4)} → f/${engNum(n2, 4)}         ${ex} ${stopsWord(ex)} on the exact values (${nom} by the markings); f/${engNum(n2, 4)} is ${engNum(sb.to.exact, 6)}`,
+        );
+        notes.push(...sb.notes);
+      }
+      if (r("iso2").trim()) {
+        const iso2 = fieldNumber(r("iso2"), ISO_PREFIX);
+        if (!Number.isFinite(iso2)) return { text: "The ISO to compare with must be a number (400 or ISO 400).", ok: false };
+        const st = isoStops(iso, iso2);
+        if (typeof st !== "number") return { text: st.error, ok: false };
+        const sx = avDb(st, 3);
+        lines.push(`  ISO ${engNum(iso, 6)} → ${engNum(iso2, 6)}        ${sx} ${Math.abs(st) === 1 ? "stop" : "stops"} of sensitivity`);
+      }
+      const dof = depthOfField(f, n, coc, s);
+      if (!dof.ok) return { text: dof.error, ok: false };
+      lines.push(
+        `  Hyperfocal          ${engNum(dof.hyperfocalM, 5)} m`,
+        `  Sharp from          ${engNum(dof.nearM, 5)} m to ${dof.farM === Infinity ? "∞" : `${engNum(dof.farM, 5)} m`}` +
+          (dof.totalM === Infinity ? "" : ` (${engNum(dof.totalM, 5)} m deep)`),
+      );
+      notes.push(...dof.notes);
+      const aov = angleOfView(sw, f, sh ?? undefined);
+      if (!aov.ok) return { text: aov.error, ok: false };
+      lines.push(
+        `  Angle of view       ${engNum(aov.horizontalDeg, 4)}° horizontal` +
+          (aov.verticalDeg !== null ? `, ${engNum(aov.verticalDeg, 4)}° vertical` : "") +
+          (aov.diagonalDeg !== null ? `, ${engNum(aov.diagonalDeg, 4)}° diagonal` : ""),
+      );
+      notes.push(...aov.notes);
+      u.report(lines as string[]);
+      for (const note of notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_UNIT_NOTE);
+      const fig = r("fig") === "exposure" ? ev.figure : dof.figure;
+      return engReport(lines.map(trueMinus), [avPlot(photoFigureSvg(fig), fig.title, "Exposure or depth-of-field curve with the entered setting marked")]);
+    },
+  },
+  {
+    id: "light-colourtemp",
+    name: "Colour temperature & mired",
+    group: "Light & camera",
+    hint:
+      "Correction filters are rated in mired (10⁶/T) because a filter shifts mired by about the same " +
+      "amount whatever the source. Mired is computed, never a unit. CIE daylight chromaticity is " +
+      "defined for 4000–25000 K; CCT from xy is McCamy's approximation, shown beside Robertson's method.",
+    fields: [
+      { key: "t1", label: "Source colour temperature", default: "3200 K", kind: "text" },
+      { key: "t2", label: "Target colour temperature", default: "5600 K", kind: "text" },
+      { key: "x", label: "Chromaticity x, for CCT (blank to skip)", default: "0.3127", kind: "text" },
+      { key: "y", label: "Chromaticity y", default: "0.3290", kind: "text" },
+    ],
+    compute: (r) => {
+      const u = engUnits(r);
+      const t1 = u.req("t1", "K", "Source colour temperature");
+      const t2 = u.req("t2", "K", "Target colour temperature");
+      if (u.errors.length) return { text: u.errors.join("\n"), ok: false };
+      const m1 = mired(t1);
+      const m2 = mired(t2);
+      if (typeof m1 !== "number") return { text: m1.error, ok: false };
+      if (typeof m2 !== "number") return { text: m2.error, ok: false };
+      const ms = miredShift(t1, t2);
+      if (!ms.ok) return { text: ms.error, ok: false };
+      const lines: EngLine[] = [
+        "Colour temperature",
+        "",
+        `  ${engNum(t1, 6)} K               ${engNum(m1, 5)} mired`,
+        `  ${engNum(t2, 6)} K               ${engNum(m2, 5)} mired`,
+        `  Shift               ${avDb(ms.shift, 1)} mired (${ms.direction === "none" ? "no correction" : `${ms.direction} correction`})`,
+      ];
+      const notes = [...ms.notes];
+      for (const tk of [t1, t2]) {
+        const dl = daylightXy(tk);
+        if (dl.ok) {
+          lines.push(`  CIE daylight ${engNum(tk, 6)} K  x ${dl.xy.x.toFixed(5)}, y ${dl.xy.y.toFixed(5)}`);
+          continue;
+        }
+        // Below 4000 K the D-series is undefined; a tungsten source sits on the
+        // Planckian (blackbody) locus instead, placed from Robertson's table.
+        const pl = planckianXy(tk);
+        lines.push(
+          pl.ok
+            ? `  Planckian ${engNum(tk, 6)} K     x ${pl.xy.x.toFixed(4)}, y ${pl.xy.y.toFixed(4)} (blackbody; daylight is defined only for 4000–25000 K)`
+            : `  ${engNum(tk, 6)} K is on neither locus drawn (daylight 4000–25000 K, Planckian 1667–100000 K)`,
+        );
+      }
+      let entered: { x: number; y: number } | undefined;
+      const xRaw = r("x").trim();
+      const yRaw = r("y").trim();
+      if (xRaw || yRaw) {
+        if (!xRaw || !yRaw) {
+          return { text: `Give both chromaticity coordinates: ${xRaw ? "y" : "x"} is missing (or clear both to skip the CCT).`, ok: false };
+        }
+        const x = fieldNumber(xRaw);
+        const y = fieldNumber(yRaw);
+        if (!Number.isFinite(x) || !Number.isFinite(y)) return { text: "The chromaticity x and y must be numbers (e.g. 0.3127, 0.3290).", ok: false };
+        const cct = cctMcCamy(x, y);
+        if (!cct.ok) return { text: cct.error, ok: false };
+        entered = { x, y };
+        lines.push(
+          `  CCT of (${engNum(x, 6)}, ${engNum(y, 6)})  McCamy ${engNum(cct.cctK, 6)} K (approximation); Robertson ${engNum(cct.robertsonK, 6)} K, Duv ${avDb(cct.duv, 4)}`,
+        );
+        notes.push(...cct.notes);
+      }
+      u.report(lines as string[]);
+      for (const note of notes) lines.push(`Note: ${note}`);
+      lines.push(ENG_UNIT_NOTE);
+      const locus = daylightLocusFigure([t1, t2], entered);
+      // The caption says exactly what is drawn: which temperatures sit on which
+      // locus, any that neither covers, and whether a chromaticity point is shown.
+      const onDaylight = [t1, t2].filter((t) => !locus.onPlanckian.includes(t) && !locus.omitted.includes(t));
+      const caption =
+        "Daylight (D-series) and Planckian loci in xy, sRGB faint for orientation" +
+        (onDaylight.length ? `; ${onDaylight.map((t) => `${engNum(t, 6)} K`).join(" and ")} marked on the daylight locus` : "") +
+        (locus.onPlanckian.length ? `; ${locus.onPlanckian.map((t) => `${engNum(t, 6)} K`).join(" and ")} on the Planckian locus` : "") +
+        (locus.omitted.length ? `; ${locus.omitted.map((t) => `${engNum(t, 6)} K`).join(" and ")} not drawn (on neither locus)` : "") +
+        (entered ? "; the entered x, y in black" : "");
+      return engReport(lines.map(trueMinus), [avPlot(daylightLocusSvg(locus), caption, "Daylight and Planckian loci inside the sRGB triangle with the entered points")]);
     },
   },
   {

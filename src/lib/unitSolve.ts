@@ -37,7 +37,7 @@ export interface UnitSolveResult {
   value: number;
   /** Derived unit, base form: "kg·m/s²" ("" for dimensionless). */
   unit: string;
-  /** Named unit when the signature matches one (N, J, W, Pa, Hz, C, V, Ω). */
+  /** Named unit when the signature matches one (N, J, W, Pa, C, V, Ω, lx, nit). */
   namedUnit: string | null;
   knowns: UnitKnown[];
   steps: Array<{ text?: string; math?: string }>;
@@ -74,7 +74,31 @@ const NAMED: Array<{ dims: Dims; name: string }> = [
   { dims: { current: 1, time: 1 }, name: "C" },
   { dims: { mass: 1, length: 2, time: -3, current: -1 }, name: "V" },
   { dims: { mass: 1, length: 2, time: -3, current: -2 }, name: "Ω" },
+  // lm/m² is unambiguously an illuminance, so it is named lux. cd/m² is NOT
+  // named "nit": the textbook inverse-square law E = I/d² with I in candela
+  // has that same signature, because the steradian (lm = cd·sr) is silent in
+  // the formula — and that E is an ILLUMINANCE in lux, not a luminance. The
+  // signature alone cannot tell the two apart, so cd/m² is printed as is and
+  // a caveat says which quantity each reading would be (CD_PER_M2_CAVEAT).
+  { dims: { luminousflux: 1, length: -2 }, name: "lx" },
 ];
+
+const CD_PER_M2_CAVEAT =
+  "cd/m² is ambiguous here: as a LUMINANCE it is the nit (cd/m²), but an inverse-square " +
+  "illuminance E = I/d² from an intensity in candela is in LUX (1 cd·sr/m² = 1 lx; the " +
+  "steradian is implicit in the formula). Which one this is depends on what the formula computes.";
+
+/**
+ * Unit keys that are ALSO everyday variable names: fc (cutoff frequency, and
+ * the foot-candle), fL (lower band edge, and the femtolitre), S (entropy,
+ * area, and the siemens), nit. Reading one as a unit is never silent.
+ */
+const AMBIGUOUS_UNITS: Record<string, string> = {
+  fc: "the foot-candle (an illuminance, 10.76 lx)",
+  fL: "the femtolitre (a volume, 10⁻¹⁸ m³)",
+  S: "the siemens (a conductance)",
+  nit: "the nit (a luminance, cd/m²)",
+};
 
 function dimsEqual(a: Dims, b: Dims): boolean {
   const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
@@ -86,7 +110,13 @@ function dimsEmpty(d: Dims): boolean {
   return Object.values(d).every((v) => v === 0);
 }
 
-const SUP: Record<string, string> = { "1": "¹", "2": "²", "3": "³", "4": "⁴", "-": "⁻", "0": "⁰", "5": "⁵" };
+// EVERY digit: the table once stopped at 5, so m³·m³ printed "m6" — not a
+// unit, and not parseable back. Multi-digit exponents map digit by digit
+// (m¹², s⁻¹⁰), which units.ts reads back as one ^exponent.
+const SUP: Record<string, string> = {
+  "0": "⁰", "1": "¹", "2": "²", "3": "³", "4": "⁴",
+  "5": "⁵", "6": "⁶", "7": "⁷", "8": "⁸", "9": "⁹", "-": "⁻",
+};
 
 function supExp(n: number): string {
   if (n === 1) return "";
@@ -228,6 +258,25 @@ export function solveWithUnits(input: string): UnitSolveResult | null {
   // carry a unit, or this is an ordinary system.
   const knowns: UnitKnown[] = [];
   let sawUnit = false;
+  // Every name the SYSTEM uses as a variable: the left side of each known
+  // line and the formula's symbols. An ambiguous unit key (fc, fL, S, nit)
+  // that is also one of these names is the VARIABLE — "fH = 8*fL / fL = 2 fL"
+  // must never become 1.6·10⁻¹⁷ m³ — so the input is left to the plain
+  // system path. (The rule is limited to the ambiguous keys on purpose:
+  // "F = m a / a = 2 m/s^2" uses m as both the mass and the metre, and that
+  // is ordinary physics notation that must keep working.)
+  const systemNames = new Set<string>();
+  for (const line of lines.slice(1)) {
+    const lhs = /^([A-Za-z]\w*)\s*=/.exec(line);
+    if (lhs) systemNames.add(lhs[1]);
+  }
+  try {
+    const sides = formula.split("=");
+    if (sides.length === 2) for (const v of freeVars(parseExpr(`(${sides[0]}) - (${sides[1]})`))) systemNames.add(v);
+  } catch {
+    /* an unparseable formula is reported below */
+  }
+  const ambiguityCaveats: string[] = [];
   for (const line of lines.slice(1)) {
     const m = ASSIGN_RE.exec(line);
     if (!m) return null;
@@ -242,7 +291,20 @@ export function solveWithUnits(input: string): UnitSolveResult | null {
     if (unitText.trim()) {
       const cu = parseCompoundUnit(unitText.trim());
       if (!cu) return null; // an unreadable unit word — not this path's input
+      for (const word of unitText.match(/[A-Za-z]+/g) ?? []) {
+        if (!(word in AMBIGUOUS_UNITS)) continue;
+        if (systemNames.has(word)) return null; // it is a variable here, not a unit
+        ambiguityCaveats.push(
+          `"${num} ${unitText.trim()}" for ${symbol} was read as ${AMBIGUOUS_UNITS[word]}. If ${word} ` +
+            `is meant as a symbol (e.g. a frequency), write it as ${num}*${word} and solve it as an ordinary equation.`,
+        );
+      }
       sawUnit = true;
+      // A percentage or ppm is a pure ratio once its factor is applied
+      // (50 % → 0.5). Carrying a "fraction" dim forward printed results in a
+      // pseudo-unit "frac" that no converter reads back — a display-contract
+      // break — and refused to add a percentage to a plain ratio.
+      delete cu.dims.fraction;
       const si = value * cu.factor;
       knowns.push({
         symbol,
@@ -303,7 +365,7 @@ export function solveWithUnits(input: string): UnitSolveResult | null {
 
   const steps: UnitSolveResult["steps"] = [];
   // Dedupe: the rearranger itself sometimes states a ≠ 0 condition twice.
-  const caveats: string[] = [...new Set(rearranged.caveats)];
+  const caveats: string[] = [...new Set([...ambiguityCaveats, ...rearranged.caveats])];
 
   const conversions = knowns.filter((k) => k.converted).map((k) => k.converted as string);
   if (conversions.length) {
@@ -362,6 +424,7 @@ export function solveWithUnits(input: string): UnitSolveResult | null {
 
   const unit = dimsToUnit(q.dims);
   const named = NAMED.find((n) => dimsEqual(n.dims, q.dims))?.name ?? null;
+  if (dimsEqual(q.dims, { luminousintensity: 1, length: -2 })) caveats.push(CD_PER_M2_CAVEAT);
   steps.push({
     text: `${unknown} = ${trim(q.v)}${named ? ` ${named}` : unit ? ` ${unit}` : ""}${named && unit ? ` (= ${trim(q.v)} ${unit})` : ""}`,
   });

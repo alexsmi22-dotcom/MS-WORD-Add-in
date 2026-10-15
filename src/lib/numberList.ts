@@ -96,3 +96,31 @@ export function decimalCommaNote(r: NumberListReading): string {
       : "")
   );
 }
+
+/**
+ * ONE typed number from a single-value field, under the same cell rule as a
+ * list ("−16,3" → −16.3, "1,250" → 1250, "+4" → 4, U+2212 accepted). `strip`
+ * removes a label a person naturally types with the value ("LUFS", "dB",
+ * "ISO", "f/") before reading it. Blank or unreadable → NaN, so a caller can
+ * refuse by name instead of computing on Number("") = 0.
+ */
+export function fieldNumber(text: string, strip?: RegExp): number {
+  let t = (text ?? "").trim();
+  if (strip) t = t.replace(strip, "").trim();
+  t = t.replace(/^\+/, "").replace(/^−/, "-");
+  if (!t) return NaN;
+  const plain = Number(t);
+  if (Number.isFinite(plain) && !t.includes(",")) return plain;
+  return parseCellNumber(t);
+}
+
+/**
+ * The display contract's minus: a hyphen-minus used as a numeric SIGN
+ * (" -3.9", "(-1", "= -7.7") becomes U+2212. Hyphens inside words and ranges
+ * ("0-based", "10-bit", "true-peak") are left alone. Non-strings pass through,
+ * so a list of report lines (text or typeset formulas) maps in one call.
+ */
+export function trueMinus<T>(line: T): T {
+  if (typeof line !== "string") return line;
+  return line.replace(/(^|[\s(=,;:[/×])-(?=\.?\d)/g, "$1−") as unknown as T;
+}

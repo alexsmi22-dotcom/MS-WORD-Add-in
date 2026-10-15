@@ -141,6 +141,10 @@ const UNITS: Record<string, UnitDef> = {
   // volume (base m^3)
   L: { dim: "volume", factor: 0.001 }, mL: { dim: "volume", factor: 1e-6 },
   µL: { dim: "volume", factor: 1e-9 }, nL: { dim: "volume", factor: 1e-12 }, "m^3": { dim: "volume", factor: 1 },
+  // Femtolitre: haematology's unit (mean corpuscular volume ≈ 90 fL). It is a
+  // canonical key so that "fL" is pinned to a VOLUME and can never be reused
+  // for the foot-lambert, which ships as "ftL" (see the photometry block).
+  fL: { dim: "volume", factor: 1e-18 },
   // Cubic decimetre / centimetre: a chemistry text writes mol/dm³ and g/cm³.
   // The ASCII spellings cm3/dm3/m3/cc are aliases (see ALIASES).
   "dm^3": { dim: "volume", factor: 1e-3 }, "cm^3": { dim: "volume", factor: 1e-6 },
@@ -150,6 +154,16 @@ const UNITS: Record<string, UnitDef> = {
   // pressure (base Pa)
   Pa: { dim: "pressure", factor: 1 }, kPa: { dim: "pressure", factor: 1000 },
   bar: { dim: "pressure", factor: 1e5 },
+  // Acoustic pressures: 0 dB SPL is 20 µPa, and a quiet room is a few mPa.
+  // Both are CANONICAL keys, never aliases, and there is deliberately NO
+  // lowercase "mpa" alias anywhere: alias lookup falls back to a lowercased
+  // key, so one would make a typed "MPa" (megapascal, 10⁹ × mPa) or "mPa"
+  // land on the other. Exact-key lookup keeps the two apart by case.
+  µPa: { dim: "pressure", factor: 1e-6 }, mPa: { dim: "pressure", factor: 1e-3 },
+  // Decibar: the oceanographer's pressure unit (1 dbar = 10 kPa ≈ 1 m of
+  // seawater). It starts with "db" but is NOT a decibel; being a key, it is
+  // looked up before the decibel refusal in parseMeasured ever runs.
+  dbar: { dim: "pressure", factor: 1e4 },
   // Aviation and meteorology: a millibar is exactly a hectopascal, and inHg is
   // the conventional 0 °C value used for altimeter settings.
   mbar: { dim: "pressure", factor: 100 }, inHg: { dim: "pressure", factor: 3386.389 },
@@ -191,6 +205,21 @@ const UNITS: Record<string, UnitDef> = {
   TiB: { dim: "information", factor: 8 * 1024 ** 4 },
   kbit: { dim: "information", factor: 1e3 }, Mbit: { dim: "information", factor: 1e6 },
   Gbit: { dim: "information", factor: 1e9 }, Tbit: { dim: "information", factor: 1e12 },
+  // Data RATES in the shorthand every codec, router and streaming spec uses.
+  // These are CANONICAL KEYS on purpose, never aliases: alias lookup falls back
+  // to a lowercased key, so an alias "mbps" would capture a typed "MBps" —
+  // megaBYTES per second — as megabits, an 8× error (the KB/kb trap above).
+  // As exact keys, "Mbps" and "MBps" are distinct strings and cannot meet.
+  // The byte forms are keys too, so MBps converts to 8 Mbit/s rather than
+  // being unknown. "Kbps" (capital K, an everyday spelling) is an explicit
+  // alias for kbps; "KBps" is one for kBps, matching KB → kB.
+  // dim "datarate" decomposes to information/time in BASE, so all of these
+  // convert with the compounds Mbit/s, kB/s and GB/h.
+  bps: { dim: "datarate", factor: 1 },
+  kbps: { dim: "datarate", factor: 1e3 }, Mbps: { dim: "datarate", factor: 1e6 },
+  Gbps: { dim: "datarate", factor: 1e9 }, Tbps: { dim: "datarate", factor: 1e12 },
+  kBps: { dim: "datarate", factor: 8e3 }, MBps: { dim: "datarate", factor: 8e6 },
+  GBps: { dim: "datarate", factor: 8e9 },
   // angular velocity (base rad/s). Motor and wheel speeds are quoted in rpm.
   rpm: { dim: "angularvelocity", factor: (2 * Math.PI) / 60 },
   "rad/s": { dim: "angularvelocity", factor: 1 },
@@ -234,6 +263,8 @@ const UNITS: Record<string, UnitDef> = {
   µV: { dim: "voltage", factor: 1e-6 }, kV: { dim: "voltage", factor: 1e3 }, MV: { dim: "voltage", factor: 1e6 },
   // power (base W)
   W: { dim: "power", factor: 1 }, mW: { dim: "power", factor: 1e-3 }, µW: { dim: "power", factor: 1e-6 },
+  // Acoustic power: sound power level is referenced to 1 pW.
+  nW: { dim: "power", factor: 1e-9 }, pW: { dim: "power", factor: 1e-12 },
   kW: { dim: "power", factor: 1e3 }, MW: { dim: "power", factor: 1e6 }, GW: { dim: "power", factor: 1e9 },
   hp: { dim: "power", factor: 745.699872 },
   // resistance (base Ω)
@@ -293,6 +324,20 @@ const UNITS: Record<string, UnitDef> = {
   lx: { dim: "illuminance", factor: 1 },
   klx: { dim: "illuminance", factor: 1e3 },
   nit: { dim: "luminance", factor: 1 },
+  // US customary photometry, DERIVED from the exact foot (0.3048 m, 1959) and
+  // never retyped (the therm lesson below):
+  //   foot-candle  fc  = 1 lm/ft²        = 10.763910416709722 lx
+  //   foot-lambert ftL = (1/π) cd/ft²    =  3.4262590996353905 cd/m²
+  // The foot-lambert is spelled "ftL" and NEVER "fL": fL is the femtolitre
+  // (a haematology volume, defined above), and a cinema luminance read as a
+  // red-cell volume would be a confident nonsense. "fc" (cutoff frequency) and
+  // "fL" (lower band edge) are ALSO everyday symbols, and "3 fc" after a
+  // number is exactly where a symbol can be misread as a unit. unitSolve
+  // therefore treats these short keys as AMBIGUOUS: a known that uses one
+  // while the same name is a variable in the system is not read as a unit,
+  // and any reading as a unit is disclosed by name (see unitSolve.ts).
+  fc: { dim: "illuminance", factor: 1 / (0.3048 * 0.3048) },
+  ftL: { dim: "luminance", factor: 1 / (Math.PI * 0.3048 * 0.3048) },
   // Frame rate. Dimensionally a per-second count, so it converts with Hz — which
   // is exactly what you want when checking a 60 fps source against a 60 Hz
   // panel. NOTE the collision this deliberately accepts: an aviation reader
@@ -365,6 +410,34 @@ const ALIASES: Record<string, string> = {
   candela: "cd", candelas: "cd", lumen: "lm", lumens: "lm",
   lux: "lx", nits: "nit", luxes: "lx",
   fram: "fps", framespersecond: "fps",
+  // US photometric spellings. "footcandle" is the FOOT-CANDLE (illuminance,
+  // fc) and "footlambert" the FOOT-LAMBERT (luminance, ftL) — two different
+  // quantities that must not be crossed. No "fl"/"fL" spelling anywhere: fL is
+  // the femtolitre.
+  footcandle: "fc", footcandles: "fc", "foot-candle": "fc", "foot-candles": "fc",
+  // "FC" as IES lighting schedules write it. Exact-case alias only: no farad-
+  // coulomb or femtocoulomb key exists, and the lowercase "fc" is the
+  // canonical key itself, so nothing folds onto it by accident.
+  FC: "fc",
+  decibar: "dbar", decibars: "dbar",
+  footlambert: "ftL", footlamberts: "ftL", "foot-lambert": "ftL", "foot-lamberts": "ftL",
+  // Case friction in fields that shipped refusing it ("29.97 FPS", "48 KHz",
+  // "1000 NIT"). These are EXPLICIT aliases, not a case-insensitive lookup:
+  // making lookup ignore case on UNITS would merge mS/MS, mW/MW and mPa/MPa.
+  // "khz" and "hz" are safe lowercase keys (no millihertz sibling can lower
+  // onto them), and there is deliberately NO "mhz": it would turn a typed
+  // "mHz" (millihertz) or "MHz" into the other, 10⁹ apart.
+  // The lowercase SELF-aliases fps/nit make every case spelling fold home
+  // (UNITS is checked first, so they never shadow anything); nothing else in
+  // the tables lowercases to either.
+  FPS: "fps", Fps: "fps", fps: "fps", KHz: "kHz", khz: "kHz", hz: "Hz", NIT: "nit", Nit: "nit", nit: "nit",
+  // Data-rate case variants: explicit, capital-K only. Never a lowercase
+  // "mbps"/"kbps"-style ALIAS (kbps itself is a canonical key), see UNITS.
+  Kbps: "kbps", KBps: "kBps",
+  // Acoustic units, spelled out and in ASCII micro form (uPa, as uJ above).
+  uPa: "µPa", micropascal: "µPa", micropascals: "µPa", millipascal: "mPa",
+  picowatt: "pW", picowatts: "pW", nanowatt: "nW", nanowatts: "nW",
+  femtolitre: "fL", femtoliter: "fL", femtolitres: "fL", femtoliters: "fL",
 };
 
 function lookup(unit: string): UnitDef | null {
@@ -420,6 +493,8 @@ const BASE: Record<string, Record<string, number>> = {
   // compound rad/s and deg/s. Angle itself stays atomic on purpose - folding
   // radians into 1 would let an angle convert silently into a bare number.
   angularvelocity: { angle: 1, time: -1 },
+  // Data rate = information per time, so Mbps ≡ Mbit/s and MBps ≡ MB/s.
+  datarate: { information: 1, time: -1 },
   // Photometric derived quantities. Luminous intensity and luminous flux are
   // NOT decomposed into one another — see the note in UNITS — so a luminance
   // (cd/m^2) and an illuminance (lm/m^2) have different signatures and cannot
@@ -432,12 +507,15 @@ const BASE: Record<string, Record<string, number>> = {
 /** Accumulates one side ("·"/"*"/space-separated factors) into dims & factor. */
 function accumulateFactors(part: string, sign: 1 | -1, out: CompoundUnit): boolean {
   for (const tok of part.split(/[·*\s]+/).filter(Boolean)) {
-    const m = tok.match(/^(.+?)(?:\^(-?\d+))?$/);
+    // A decimal exponent ("m^0.5") is accepted because units-aware Solve
+    // PRINTS one for a square root of a dimensioned quantity, and whatever is
+    // displayed must parse back.
+    const m = tok.match(/^(.+?)(?:\^(-?\d+(?:\.\d+)?))?$/);
     if (!m) return false;
     const def = lookup(m[1]);
     // Compound units must be purely multiplicative (no affine offset like °C).
     if (!def || (def.offset !== undefined && def.offset !== 0)) return false;
-    const exp = (m[2] ? parseInt(m[2], 10) : 1) * sign;
+    const exp = (m[2] ? parseFloat(m[2]) : 1) * sign;
     const decomposed = BASE[def.dim];
     if (decomposed) {
       for (const [b, e] of Object.entries(decomposed)) out.dims[b] = (out.dims[b] ?? 0) + e * exp;
@@ -510,6 +588,12 @@ export function parseCompoundUnit(expr: string): CompoundUnit | null {
 
   const out: CompoundUnit = { dims: {}, factor: 1 };
   for (let i = 0; i < parts.length; i++) {
+    // A bare "1" numerator — "1/s", "1/K", "1/in" — is the reciprocal of
+    // what follows. Units-aware Solve PRINTS "1/s", and a displayed unit that
+    // the converter then refused was a display-contract break. Accepted ONLY
+    // in the numerator and only with a real denominator: "1" alone, or as a
+    // denominator ("m/1"), is still not a unit.
+    if (i === 0 && parts.length > 1 && parts[0].trim() === "1") continue;
     const flat = flatten(parts[i]);
     if (flat === null) return null;
     if (!accumulateFactors(flat, i === 0 ? 1 : -1, out)) return null;
@@ -537,6 +621,16 @@ const SUPERSCRIPT_TO_ASCII: Record<string, string> = {
  * superscript run becomes one ^exponent (⁻¹ → ^-1).
  */
 function normalizeUnitText(expr: string): string {
+  // Two look-alike code points every keyboard and PDF produces: the Greek
+  // small mu (U+03BC) for the micro sign (U+00B5) these tables are keyed on,
+  // and the OHM SIGN (U+2126) for the Greek capital omega (U+03A9). Both are
+  // visually identical to what the pane prints, so refusing them would make
+  // "20 μPa" pasted from a datasheet look like a missing unit.
+  expr = expr.replace(/μ/g, "µ").replace(/Ω/g, "Ω");
+  // "Mb/s", the commonest way a stream rate is written, is megaBITS per
+  // second. Rewritten CASE-SENSITIVELY to the bit form, so "MB/s" (megabytes,
+  // 8× larger) can never be captured by it, and no "b" (barn) key is involved.
+  expr = expr.replace(/(^|[^A-Za-z])([kMGT])b\/s\b/g, "$1$2bit/s");
   return expr.replace(/[⁰¹²³⁴⁵⁶⁷⁸⁹⁻]+/g, (run) => {
     let out = "^";
     for (const ch of run) out += SUPERSCRIPT_TO_ASCII[ch] ?? "";
@@ -590,10 +684,39 @@ export function parseMeasured(text: string, targetUnit: string): Measured | { er
   if (!t) return { error: "This field is empty." };
   const m = /^([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)\s*(.*)$/.exec(t);
   if (!m) return { error: `"${t}" does not start with a number.` };
-  const value = parseFloat(m[1]);
+  let value = parseFloat(m[1]);
   if (!Number.isFinite(value)) return { error: `"${m[1]}" is not a finite number.` };
-  const written = m[2].trim().replace(/·/g, "*");
+  let rest = m[2];
+  // A LEADING SIMPLE FRACTION, "a/b <unit>": the way every camera and light
+  // meter writes a shutter speed ("1/125 s"). The slash must be followed by a
+  // plain number, so "5 1/s" is still 5 in the reciprocal unit 1/s (the unit
+  // path), and "51/s" is not silently a fraction. A second slash in the
+  // number ("1/2/3 s") and a zero denominator are refused by name rather than
+  // guessed at: "1/2/3" has two readings, and 1/0 is not a quantity.
+  const frac = /^\/\s*((?:\d+(?:\.\d*)?|\.\d+))(?![\d.eE])\s*(.*)$/.exec(rest);
+  if (frac && !/[eE]/.test(m[1])) {
+    const den = parseFloat(frac[1]);
+    if (den === 0) return { error: `"${t}" divides by zero: a fraction needs a non-zero denominator.` };
+    if (/^\//.test(frac[2].trim())) {
+      return { error: `"${t}" has more than one slash in the number — write a single fraction such as 1/125.` };
+    }
+    value = value / den;
+    rest = frac[2];
+  }
+  const written = rest.trim().replace(/·/g, "*");
   if (!written) return { value, unit: targetUnit, inTarget: value, assumed: true };
+  // DECIBELS ARE NOT UNITS. dB, dBu, dBV, dBFS, dB SPL and the neper are
+  // logarithmic level statements: converting one by a factor (94 dB SPL ≠ 94 ×
+  // anything Pa, and 80 dB + 80 dB is 83 dB, not 160) would be a confident
+  // wrong answer. They are refused with a pointer to the calculators that do
+  // level arithmetic properly. Only the MESSAGE is special; no key exists.
+  if (/^(dB|Np\b|neper)/i.test(written) && !lookup(written)) {
+    return {
+      error:
+        `"${written}" is a logarithmic level, not a unit — decibels are not converted here. ` +
+        "Use Engineering › Audio & acoustics › Levels & references for dB SPL, dBu, dBV and dBFS.",
+    };
+  }
   const converted = convert(value, written, targetUnit);
   if (converted === null) {
     const known = parseCompoundUnit(written) || lookup(written);

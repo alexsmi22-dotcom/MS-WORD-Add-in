@@ -126,6 +126,40 @@ const EXPECTED: { id: string; calls: string[]; module: string }[] = [
   { id: "video-stream", calls: ["streamBuffer("], module: "../lib/video" },
   { id: "video-latency", calls: ["latencyBudget("], module: "../lib/video" },
   { id: "video-gamut", calls: ["gamutCoverage("], module: "../lib/colourspace" },
+  // v2.140.0 — audio, video and light deepening.
+  { id: "audio-levels", calls: ["levelConvert(", "speedOfSound(", "audioFigureSvg("], module: "../lib/audio" },
+  {
+    id: "audio-levelmath",
+    calls: ["parseLevelList(", "parseBandList(", "levelSum(", "levelSubtract(", "levelAverage(", "coherentSum(", "bandsToWeighted(", "distanceFalloff("],
+    module: "../lib/audio",
+  },
+  { id: "audio-dither", calls: ["ditherBudget("], module: "../lib/audio" },
+  { id: "audio-filesize", calls: ["audioSize("], module: "../lib/audio" },
+  {
+    id: "audio-loudness",
+    calls: ["normaliseGain(", "sineLoudness(", "kWeightGainDb(", "combineChannels(", "gatedIntegrated(", "programmeLoudnessFromReading("],
+    module: "../lib/loudness",
+  },
+  { id: "audio-speaker", calls: ["speakerSpl("], module: "../lib/audio" },
+  { id: "audio-absorption", calls: ["absorptionBudget(", "parseSurfaceList("], module: "../lib/audio" },
+  { id: "audio-crossover", calls: ["passiveCrossover(", "crossoverResponseDb("], module: "../lib/audio" },
+  { id: "audio-damping", calls: ["cableDamping("], module: "../lib/audio" },
+  { id: "video-timecode", calls: ["tcToFrames(", "realTimeOf(", "tcDuration(", "framesToTc(", "driftFigure("], module: "../lib/timecode" },
+  { id: "video-framerate", calls: ["rateFacts(", "pulldown(", "shutter(", "cadenceSvg("], module: "../lib/video" },
+  { id: "video-aspect", calls: ["aspect(", "aspectFrameSvg("], module: "../lib/video" },
+  { id: "video-transfer", calls: ["transfer(", "codeValue(", "transferSvg("], module: "../lib/video" },
+  { id: "video-interface", calls: ["interfaceRate(", "recordTime(", "parseFrameSize("], module: "../lib/video" },
+  {
+    id: "light-photometry",
+    calls: ["pointIlluminance(", "coneFlux(", "screenLuminance(", "footcandleToLux(", "footlambertToNit("],
+    module: "../lib/photometry",
+  },
+  {
+    id: "light-exposure",
+    calls: ["exposureValue(", "shutterForEv(", "apertureForEv(", "evFromIlluminance(", "evFromLuminance(", "stopsBetween(", "isoStops(", "depthOfField(", "angleOfView("],
+    module: "../lib/photometry",
+  },
+  { id: "light-colourtemp", calls: ["mired(", "miredShift(", "daylightXy(", "cctMcCamy(", "daylightLocusFigure("], module: "../lib/colourspace" },
   { id: "traj-vacuum", calls: ["vacuumShot("], module: "../lib/trajectory" },
   { id: "traj-drag", calls: ["dragShot("], module: "../lib/trajectory" },
   { id: "traj-aim", calls: ["aimForRange("], module: "../lib/trajectory" },
@@ -291,6 +325,8 @@ const UNIT_NOTES = [
   "ENG_PHOTON_UNIT_NOTE",
   "ENG_QUANTUM_UNIT_NOTE",
   "ENG_RELIABILITY_UNIT_NOTE",
+  "ENG_LEVEL_UNIT_NOTE",
+  "ENG_DB_UNIT_NOTE",
 ] as const;
 
 /** Which contract each tool is on, asserted rather than inferred. */
@@ -392,6 +428,23 @@ const CONTRACT: Record<string, (typeof UNIT_NOTES)[number]> = {
   "video-stream": "ENG_UNIT_NOTE",
   "video-latency": "ENG_UNIT_NOTE",
   "video-gamut": "ENG_SAME_UNIT_NOTE",
+  "audio-levels": "ENG_LEVEL_UNIT_NOTE",
+  "audio-levelmath": "ENG_LEVEL_UNIT_NOTE",
+  "audio-dither": "ENG_DB_UNIT_NOTE",
+  "audio-filesize": "ENG_UNIT_NOTE",
+  "audio-loudness": "ENG_LEVEL_UNIT_NOTE",
+  "audio-speaker": "ENG_LEVEL_UNIT_NOTE",
+  "audio-absorption": "ENG_UNIT_NOTE",
+  "audio-crossover": "ENG_UNIT_NOTE",
+  "audio-damping": "ENG_UNIT_NOTE",
+  "video-timecode": "ENG_EXACT_UNIT_NOTE",
+  "video-framerate": "ENG_UNIT_NOTE",
+  "video-aspect": "ENG_SAME_UNIT_NOTE",
+  "video-transfer": "ENG_UNIT_NOTE",
+  "video-interface": "ENG_UNIT_NOTE",
+  "light-photometry": "ENG_UNIT_NOTE",
+  "light-exposure": "ENG_UNIT_NOTE",
+  "light-colourtemp": "ENG_UNIT_NOTE",
   "traj-vacuum": "ENG_UNIT_NOTE",
   "traj-drag": "ENG_UNIT_NOTE",
   "traj-aim": "ENG_UNIT_NOTE",
@@ -455,7 +508,10 @@ describe("every Engineering tool declares one unit contract", () => {
   // rather than misread. Naming the converting contracts is the tightening
   // form of that change; exempting the five tools would have been the loosening
   // form, and would have let a reliability tool read hours with Number().
-  const CONVERTING: string[] = ["ENG_UNIT_NOTE", "ENG_RELIABILITY_UNIT_NOTE"];
+  // ENG_LEVEL_UNIT_NOTE (v2.140.0) is hybrid in the same way: a decibel level
+  // is never converted (it is logarithmic), while the distances, frequencies,
+  // powers and temperatures beside it go through the unit layer.
+  const CONVERTING: string[] = ["ENG_UNIT_NOTE", "ENG_RELIABILITY_UNIT_NOTE", "ENG_LEVEL_UNIT_NOTE"];
 
   // A tool that claims to convert must actually read its fields through the
   // unit layer. This is the assertion that would have caught the original bug:

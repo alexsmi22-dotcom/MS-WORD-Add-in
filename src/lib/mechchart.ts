@@ -862,12 +862,14 @@ export function hBarSvg(rows: HBarRow[], opts: { title: string; unit: string; w?
   // n1() rounds to one decimal, and a milliwatt bar labelled "0.0 W" is a
   // lie. Three significant figures, with plain decimals where they stay
   // short and exponent form where they would not.
+  // A negative value carries the true minus (U+2212): display is a contract.
   const fmtVal = (v: number): string => {
     const a = Math.abs(v);
     if (a === 0) return "0";
-    if (a >= 1e5 || a < 1e-3) return v.toExponential(2);
-    if (a >= 100) return v.toFixed(0);
-    return v.toPrecision(3);
+    const sign = v < 0 ? "−" : "";
+    if (a >= 1e5 || a < 1e-3) return sign + a.toExponential(2);
+    if (a >= 100) return sign + a.toFixed(0);
+    return sign + a.toPrecision(3);
   };
 
   const p: string[] = [];

@@ -60,7 +60,9 @@ describe("superscript unit text parses — the display must round-trip", () => {
     expect(convert(1, "m³/s", "L/s")).toBeCloseTo(1000, 9);
     expect(convert(1, "W/m²", "W/m^2")).toBe(1);
     expect(convert(1, "kg/m³", "kg/m^3")).toBe(1);
-    expect(convert(1, "m⁻¹", "1/m")).toBeNull(); // "1" is not a unit — unchanged behaviour
+    // v2.140.0: reciprocal units parse (`1/s`, `1/m`), so Solve's printed
+    // `1/s` reads back — m⁻¹ and 1/m are the same unit (was null before).
+    expect(convert(1, "m⁻¹", "1/m")).toBe(1);
     expect(convert(1, "s⁻¹", "Hz")).toBe(1); // negative superscript exponent
   });
 

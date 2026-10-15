@@ -61,6 +61,7 @@ const PINNED: Record<string, string> = {
   "Reaction balancing, stoichiometry, genetic codes, peptides, and formula fixes": "2.137.0",
   "DAE index reduction, real K-theory, oriented cobordism, and persistence over 𝔽ₚ": "2.138.0",
   "Spectroscopy: JCAMP overlay, exact isotope patterns, diastereotopic NMR, and Woodward–Fieser fixes": "2.139.0",
+  "Audio, video and light: levels, loudness, timecode, transfer curves, photometry and exposure": "2.140.0",
 };
 
 describe("the manual test script's version tags are history, not a moving target", () => {

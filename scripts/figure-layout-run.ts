@@ -112,6 +112,35 @@ import { fitSketch } from "../src/lib/sketchFit";
 import { sketchSurfaceSvg, sketchFitSvg } from "../src/lib/sketchChart";
 import { generate3d, isMol3dError, projectScene, opsToSvg, defaultMol3dView, formulaSubscripts } from "../src/lib/mol3d";
 import { Molecule as OclMoleculeForCorpus } from "openchemlib/full";
+// v2.140.0 audio / video / light: the engines return figure data, avFigures
+// draws it — the same calls the pane makes from each tool's shipped defaults.
+import {
+  audioFigureSvg,
+  photoFigureSvg,
+  timecodeDriftSvg,
+  cadenceSvg,
+  aspectFrameSvg,
+  transferSvg,
+  interfaceBarsSvg,
+  daylightLocusSvg,
+} from "../src/lib/avFigures";
+import {
+  levelConvert,
+  levelSum,
+  bandsToWeighted,
+  coherentSum,
+  ditherBudget,
+  audioSize,
+  speakerSpl,
+  absorptionBudget,
+  passiveCrossover,
+  cableDamping,
+} from "../src/lib/audio";
+import { normaliseGain, sineLoudness, gatedIntegrated } from "../src/lib/loudness";
+import { driftFigure } from "../src/lib/timecode";
+import { pulldown, aspect, transfer, interfaceRate } from "../src/lib/video";
+import { pointIlluminance, coneFlux, screenLuminance, depthOfField, exposureValue } from "../src/lib/photometry";
+import { daylightLocusFigure } from "../src/lib/colourspace";
 
 const figures: [string, string][] = [];
 
@@ -2026,6 +2055,75 @@ ORIGIN
       title: "One protective effect",
       xlabel: "Hazard ratio",
     }),
+  ]);
+}
+
+// v2.140.0 audio, video and light. Each entry is a calculator's shipped default
+// (or a named stress case), drawn by the avFigures function the pane calls.
+{
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const ok = (r: any, what: string): any => {
+    if (!r || r.ok === false) throw new Error(`${what}: ${r ? r.error : "no result"}`);
+    return r;
+  };
+  figures.push(["av level ladder (+4 dBu, EBU R68 alignment)", audioFigureSvg(ok(levelConvert(4, "dBu", "dBFS", { alignment: "ebu-r68" }), "levels").figure)]);
+  figures.push(["av level ladder, sound pressure (94 dB SPL)", audioFigureSvg(ok(levelConvert(94, "dBSPL", "Pa"), "spl ladder").figure)]);
+  figures.push(["av level ladder, sound power (1 W)", audioFigureSvg(ok(levelConvert(1, "W", "dBSWL"), "swl ladder").figure)]);
+  figures.push(["av level sum shares (80, 80, 74)", audioFigureSvg(ok(levelSum([80, 80, 74]), "sum").figure)]);
+  figures.push([
+    "av A-weighting of octave bands at 80 dB",
+    audioFigureSvg(ok(bandsToWeighted([63, 125, 250, 500, 1000, 2000, 4000, 8000], [80, 80, 80, 80, 80, 80, 80, 80], "A"), "weight").figure),
+  ]);
+  figures.push(["av coherent total against phase", audioFigureSvg(ok(coherentSum([80, 80], [0, 90]), "coherent").figure)]);
+  figures.push(["av dither budget (16-bit TPDF)", audioFigureSvg(ok(ditherBudget(16, "tpdf", 1, 0), "dither").figure)]);
+  figures.push([
+    "av file size against duration (48 kHz/24/2, 1 h)",
+    audioFigureSvg(ok(audioSize({ mode: "pcm", fs: 48000, bits: 24, channels: 2, durationS: 3600 }), "size").figure),
+  ]);
+  figures.push(["av loudness normalisation bars (−16.3 → −23 LUFS)", audioFigureSvg(ok(normaliseGain(-16.3, -23, -1.5, -1), "normalise").figure)]);
+  figures.push(["av K-weighting curve (997 Hz sine)", audioFigureSvg(ok(sineLoudness(0, 997, "L"), "sine").figure)]);
+  figures.push(["av gated block loudness", audioFigureSvg(ok(gatedIntegrated([-20, -22, -23, -24, -75]), "gated").figure)]);
+  figures.push([
+    "av loudspeaker SPL against distance",
+    audioFigureSvg(
+      ok(
+        speakerSpl({ sensitivityDb: 88, basis: "1W", impedanceOhm: 8, powerW: 100, distanceM: 4, boxes: 1, coherent: false, crestDb: 12, targetSplDb: null }),
+        "speaker",
+      ).figure,
+    ),
+  ]);
+  figures.push([
+    "av absorption per surface with a 0.5 s target",
+    audioFigureSvg(ok(absorptionBudget(200, [{ area: 60, alpha: 0.02 }, { area: 60, alpha: 0.6 }, { area: 120, alpha: 0.1 }], 0, 0.5), "absorption").figure),
+  ]);
+  figures.push(["av crossover LR2 at 2.5 kHz", audioFigureSvg(ok(passiveCrossover(2500, 8, "lr2"), "crossover").figure)]);
+  figures.push([
+    "av damping factor against cable length",
+    audioFigureSvg(ok(cableDamping({ loadOhm: 8, sourceOhm: 0.02, lengthM: 10, areaM2: 2.5e-6 }), "damping").figure),
+  ]);
+  figures.push(["av timecode drift, 29.97 DF at 00:10:00;00", timecodeDriftSvg(ok(driftFigure("29.97 DF", 60, 17982), "drift"), "29.97")]);
+  figures.push(["av timecode drift, 25 fps (no drift)", timecodeDriftSvg(ok(driftFigure("25", 60, 90000), "drift 25"), "25")]);
+  figures.push(["av pulldown cadence 23.976 → 29.97 (fields)", cadenceSvg(ok(pulldown("23.976", "29.97"), "pulldown"))]);
+  figures.push(["av pulldown cadence 24 → 60 (frame cadence)", cadenceSvg(ok(pulldown("24", "60"), "pulldown 60"))]);
+  figures.push([
+    "av aspect frame, 2.39 letterbox in 1920×1080",
+    aspectFrameSvg(ok(aspect({ width: 720, height: 480, dar: "4:3", frame: "1920×1080", content: "2.39" }), "aspect").figure),
+  ]);
+  figures.push([
+    "av aspect frame, 4:3 pillarbox in 1920×1080",
+    aspectFrameSvg(ok(aspect({ width: 1440, height: 1080, frame: "1920×1080", content: "4:3" }), "pillarbox").figure),
+  ]);
+  figures.push(["av transfer BT.1886 at 0.5", transferSvg(ok(transfer("bt1886", "toLight", 0.5), "1886"))]);
+  figures.push(["av transfer PQ, log luminance axis", transferSvg(ok(transfer("pq", "toLight", 0.5), "pq"))]);
+  figures.push(["av interface bars, 1080p60 4:2:2 10-bit", interfaceBarsSvg(ok(interfaceRate(1920, 1080, "60", 2200, 1125, 20), "interface").figure)]);
+  figures.push(["light illuminance against distance, 30° incidence", photoFigureSvg(ok(pointIlluminance(1000, 2, 30), "point").figure)]);
+  figures.push(["light flux of a uniform cone", photoFigureSvg(ok(coneFlux(1000, 30), "cone").figure)]);
+  figures.push(["light screen luminance against area", photoFigureSvg(ok(screenLuminance(5000, 10, 1), "screen").figure)]);
+  figures.push(["light depth of field (50 mm f/8 at 5 m)", photoFigureSvg(ok(depthOfField(0.05, 8, 0.00003, 5), "dof").figure)]);
+  figures.push(["light exposure line (f/8, 1/125 s, ISO 100)", photoFigureSvg(ok(exposureValue(8, 1 / 125, 100), "ev").figure)]);
+  figures.push([
+    "light daylight and Planckian loci, 3200 K, 5600 K and D65 xy",
+    daylightLocusSvg(daylightLocusFigure([3200, 5600], { x: 0.3127, y: 0.329 })),
   ]);
 }
 

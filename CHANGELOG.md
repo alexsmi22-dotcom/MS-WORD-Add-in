@@ -6,6 +6,131 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.140.0] — 2026-10-14 — Audio, video and light: levels, loudness, timecode, transfer curves, photometry and exposure
+
+From `docs/SCOPE-AUDIO-VIDEO-2026-10.md` (oracles: SMPTE ST 12-1 / 274 /
+424 / 2046-1, ITU-R BS.1770 / BT.709 / BT.1886 / BT.2100 / BT.601, EBU R68
+and R128, SMPTE RP 155, IEC 61672-1:2013, AES17, ISO 1683, scipy,
+pyloudnorm, colour-science). Engineering gains 17 tools (130 → 147) and a
+twenty-first panel, **Light & camera**. LIVE WRONG ANSWERS fixed first:
+- **The bitrate tool said its rate was "what a capture interface must
+  carry"**: a serial digital interface carries the full raster including
+  blanking. 1080p60 4:2:2 10-bit is 2.48832 Gbit/s of active picture and
+  **2.97 Gbit/s on the link** (2200 × 1125 raster, SMPTE ST 274; 3G-SDI,
+  ST 424), +19.36 %. Sizing a link or a recorder from the old number
+  under-provisioned it. The note now says it is the ACTIVE-PICTURE rate.
+- **Latency budgets billed k frames as k + 1**: a stage list summing to
+  exactly k frames in floating point was rounded up a whole frame (one
+  stage of 15 × (1000/23.976) ms at 23.976 Hz was 16 frames, now 15; four
+  stages of 0.1/0.2/0.3/0.4 of a frame at 24 Hz was 2, now 1). Frames are
+  integers now; a real overshoot is still billed (16.67 ms at 60 Hz → 2).
+- **Critical distance silently assumed an omnidirectional source** (Q = 1):
+  0.98420 m for a loudspeaker that, at Q = 2, has 1.39187 m. Reverberation
+  now takes a directivity Q and says which it used.
+- **Quantisation SNR used the rounded 6.02n + 1.76**: 16-bit is 98.0905 dB,
+  not 98.08; 24-bit 146.2553, not 146.24.
+- **Units-aware Solve printed units that do not parse back**: m³ × m³ came
+  out as "m6" (now m⁶, and every multi-digit superscript prints), and a
+  per-second result as "1/s", which the converter refused (it is read now).
+- **720×480 was reported as aspect "3:2"**: that is the storage aspect; the
+  note now says so and points to pixel aspect, and 1366×768 names its
+  nearest common aspect (16:9, true 1.7786) beside 683:384.
+- **Input friction**: `29.97 FPS`, `48 KHz`, `5 Mbps`, `320 kbps`, `1000 NIT`
+  were "not a unit this recognises"; they are read now.
+
+### Added — Audio & acoustics (nine tools)
+- **Levels & references** (`audio-levels`): +4 dBu = 1.2276530 V = +1.7815
+  dBV, 11.7815 dB above consumer −10 dBV; 0 dBFS = +18 dBu under EBU R68,
+  +24 dBu under SMPTE RP 155 (+4 dBu → −14 / −20 dBFS); 94 dB SPL =
+  1.0023745 Pa; 10 mV/Pa = −40.000 dBV/Pa; 1 W = 120.000 dB SWL re 1 pW.
+  dB SPL ↔ dBu only through a microphone sensitivity, refused by name
+  without one. Drawn as a level ladder.
+- **Level arithmetic & weighting** (`audio-levelmath`): 80, 80, 74 →
+  83.5241 dB; 85 total − 80 background → 83.3491 dB, 82 − 80 refused
+  (within 3 dB); Leq of 70, 80, 90 → 85.6820 dB; two coherent 80s → 86.0206
+  dB in phase, 83.0103 dB at 90°; octave bands 63 Hz–8 kHz at 80 dB →
+  86.974 dB(A) (dB(Z) 89.031), each band at its exact base-10 centre — at
+  the nominal 31.5 Hz label the formula gives −39.52, not the table's
+  value. Mixed references are converted and said (`0 dBu, 0 dBV` → 4.2597
+  dBu); mixed weightings are refused.
+- **Dither, oversampling & noise floor** (`audio-dither`): 16-bit ideal /
+  RPDF / TPDF 98.0905 / 95.0802 / 93.3193 dB; 24-bit TPDF 141.4841;
+  oversampling ×4 / ×64 +6.0206 / +18.0618 dB; noise shaping refused by name.
+- **Audio data rate & file size** (`audio-filesize`): 48 kHz/24-bit/2 ch =
+  2,304,000 bit/s, 1.0368 GB per hour; CD 74 min = 783,216,000 B; the WAV
+  ceiling at 48k/24/2 is 14913.08 s (4.1425 h), beyond which RF64/BW64.
+- **Loudness (LUFS) normalisation** (`audio-loudness`, `loudness.ts`):
+  −16.3 → −23 LUFS = −6.7 dB of gain, with the true peak tracked; a 997 Hz
+  sine at 0 dBFS = −3.0103 LUFS in one front channel and 0.0000 in two,
+  through the published 48 kHz BS.1770 K-filter (other rates refused, and
+  1 kHz gives −3.0036 — not interchangeable with 997); a programme's
+  integrated loudness, LRA or true peak from one reading is refused by name.
+- **Loudspeaker sensitivity & amplifier power** (`audio-speaker`): 88 dB/1 W,
+  100 W at 4 m → 95.9588 dB SPL; 100 dB SPL at 4 m needs 253.58 W; 2.83 V
+  into 4 Ω is 2.00223 W, +3.0151 dB against a 1 W rating.
+- **Room absorption budget** (`audio-absorption`): per surface, A 49.2 m²
+  sabins → Sabine 0.65447 s, Eyring 0.58483 s, Millington–Sette 0.46780 s;
+  a 0.5 s target needs 64.4, +15.2 m².
+- **Passive crossover** (`audio-crossover`): LR2 at 2.5 kHz into 8 Ω →
+  3.9789 µF, 1.01859 mH, tweeter inverted for a flat sum (checked against
+  scipy); LR4 and third order refused by name.
+- **Speaker cable & damping factor** (`audio-damping`): 2 × 10 m of 2.5 mm²,
+  8 Ω, 0.02 Ω source → 0.137931 Ω, damping factor 50.655, −0.1698 dB.
+
+### Added — Video & display (five tools)
+- **Timecode** (`video-timecode`, `timecode.ts`), integers and exact
+  rationals: 00:10:00;00 at 29.97 DF is frame 17982; 01:00:00;00 DF is
+  107892 frames = 3599.9964 s exactly, NDF 108000 = 3603.6 s. A label that
+  does not exist is refused, never normalised: `00:01:00;00` at 29.97 DF
+  (the Python `timecode` library returns 1798 for it). Drawn as the NDF
+  drift line against the DF sawtooth.
+- **Frame rates, pulldown & shutter** (`video-framerate`): 23.976 snapped to
+  24000/1001 and said; 29.97 at 48 kHz carries 8008 samples over five frames
+  (3 × 1602 + 2 × 1601); 2:3 pulldown AA BB BC CD DD; 24 → 25 is +4.1667 %,
+  +70.672 cents; 180° at 24 fps = 1/48 s; 25 → 29.97 refused (standards
+  conversion).
+- **Aspect, pixel aspect & framing** (`video-aspect`): 720×480 at 4:3 is PAR
+  8:9 (720 basis) and 10:11 (BT.601, 704 basis); 2.39 in 1920×1080 is
+  803.347 lines (804 even, bars 138); safe areas 1728×972 and 1785.6×1004.4.
+- **Transfer functions & code values** (`video-transfer`): BT.1886 at 0.5 →
+  18.94646 cd/m², 10-bit narrow code 502; BT.709 OETF of 0.18 → 0.409008,
+  labelled an OETF, not an EOTF; PQ 0.5 → 92.24571 cd/m²; HLG per BT.2100.
+- **Interface bandwidth & recording time** (`video-interface`): active,
+  blanking and SDI class as bars; 100 Mbit/s = 45 GB/h, a 128 GB card in
+  2:50:40 (119.209 GiB).
+
+### Added — Light & camera (new panel, three tools)
+- **Illuminance, luminance & beams** (`light-photometry`, `photometry.ts`):
+  1000 cd at 2 m = 250 lx (216.5064 lx at 30°); a uniform 30° cone =
+  214.0943 lm, the honest route round the refused cd → lm; 5000 lm on 10 m²
+  = 159.1549 cd/m² = 46.4515 ftL (never written fL).
+- **Exposure, f-stops & depth of field** (`light-exposure`): f/8 at 1/125 s
+  is EV 12.96578; f/4 → f/11 is exactly 3 stops (2.9189 by the markings);
+  50 mm f/8 at 5 m: hyperfocal 10.4667 m, sharp from 3.38937 m to 9.52744 m;
+  36×24 mm at 50 mm → 39.5978° horizontal, 46.7930° diagonal.
+- **Colour temperature & mired** (`light-colourtemp`, `colourspace.ts`):
+  3200 → 5600 K = −133.9286 mired (a blue correction); D65 (0.3127, 0.3290)
+  → McCamy 6505.08 K beside Robertson 6503.707 K.
+- **Units**: `50 fc`, `14 ftL`, `20 µPa`, `1 pW`, `5 Mbps`, `1/125 s` and
+  `5 1/s` are read; a decibel in a pressure field is refused as a
+  logarithmic level, not a unit. Units-aware Solve names Φ/A as lux.
+
+### Adversarial pass — independent reviewer (all closed)
+Found in the new code: the new `fc` and `fL` unit keys captured the audio
+engineer's cutoff and band-edge symbols, so `f1 = 3 fc` in Solve answered
+in lux, silently; `E = I/d²` with I in candela (250 lx) was named a
+luminance in "nit" — cd/m² is no longer force-named; McCamy was labelled
+±2 K over 2856–6504 K when it is off by up to 10.06 K there (+8.84 K at a
+4000 K blackbody), and it refused a 2700 K lamp and the product's own D75
+point instead of answering, labelled, with Robertson beside it; full-range
+chroma code values of 1024 (10-bit) and 256 (8-bit), outside the word (now
+clipped per H.273 Clip1); a level list mixing dBu with dBV, or dB(A) with
+dB(C), summed silently in no reference at all; an accepted +2 dBFS
+(AES17 sine) input was told it clips the converter; `2 dbar` was called a
+logarithmic level (the decibar is now read, 20 kPa); `50 FC`, as lighting
+schedules write it, was refused (538.2 lx); and the BT.709 formula line
+printed ASCII carets.
+
 ## [2.139.0] — 2026-10-14 — Spectroscopy: JCAMP overlay, exact isotope patterns, diastereotopic NMR, and Woodward–Fieser fixes
 
 From `docs/SCOPE-SPECTROSCOPY-BATCH.md` (oracles: the Python `jcamp` 1.3.2

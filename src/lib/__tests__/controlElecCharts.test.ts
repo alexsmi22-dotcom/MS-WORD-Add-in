@@ -36,7 +36,8 @@ describe("the horizontal bar chart", () => {
       { title: "Power per element", unit: "W" },
     );
     expect(svg).toContain("0.00278 W");
-    expect(svg).toContain("-0.00833 W");
+    // True minus since v2.140.0 (hBarSvg value labels follow the display contract).
+    expect(svg).toContain("−0.00833 W");
     expect(svg).not.toMatch(/>0\.0 W</);
     expect(svg).not.toContain("NaN");
   });

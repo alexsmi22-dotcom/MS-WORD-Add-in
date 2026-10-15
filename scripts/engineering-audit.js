@@ -310,7 +310,11 @@ function run() {
   //
   // Raise this as disciplines are completed. Never lower it without a reason
   // written next to the change.
-  const FIGURE_BASELINE = 130;
+  // 147 as of v2.140.0: seventeen audio, video and light tools (audio-levels …
+  // light-colourtemp, including the new "Light & camera" group), every one
+  // drawing from its shipped defaults. Raised in the same change that added
+  // them, so a tool that stops drawing cannot pass behind the old 130.
+  const FIGURE_BASELINE = 147;
   const withFigure = inserts.filter((l) => /preview\[fig=[1-9]/.test(l));
   console.log("\n--- Figures (ratchet) -----------------------------------------");
   console.log(

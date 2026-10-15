@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.139.0)
+# JurisLab — Manual Test Script (v2.140.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -7,6 +7,77 @@ covers what neither can reach: insertion into a real document, undo, document
 scanning, and layout. Budget ~30 minutes for the full pass.
 
 Mark each box: ☐ pass · ✗ fail (note what happened).
+
+---
+
+## 0cg. New in v2.140.0 — Audio, video and light: levels, loudness, timecode, transfer curves, photometry and exposure
+
+Engineering gains **17 calculators** (130 → 147) and a new panel, **Light & camera**, after *Video & display*.
+Every one inserts its data AND a figure from its shipped defaults. Decibels are never units: each level field
+names its reference.
+
+**Audio & acoustics**
+- [ ] ★ **Levels & references**, defaults (+4 dBu → dBFS, EBU R68) → **−14.0000 dBFS**; the list shows dBV
+  **+1.7815**, V rms **1.22765 V**, "Pro +4 dBu over consumer −10 dBV **+11.7815 dB**", "0 dBFS under this
+  alignment +18.000 dBu", speed of sound **343.2 m/s** at 20 °C. Figure: a **level ladder** (dBu, dBV, dBFS
+  (AES17), V rms side by side) with a red marker on every scale. Switch to SMPTE RP 155 → −20.0000 dBFS.
+  Set *Its reference* to dB SPL, value 94, *Convert to* Pa → **1.00237 Pa**; *Convert to* dBu with no
+  microphone sensitivity → refused ("connected only by a microphone's sensitivity").
+- [ ] **Level arithmetic & weighting**: sum 80, 80, 74 → **83.5241 dB**; *Subtract a background* with levels
+  `85`, background 80 → **83.349 dB**; levels `82` → **refused** ("within 3 dB of the total"). *Weight band
+  levels* (63 … 8k at 80) → **86.974 dB(A)**, Z 89.031 dB, each band "evaluated at" its exact base-10 centre
+  (63 → 63.10 Hz). Levels `0 dBu, 0 dBV` sum (converted, said); `80 dB(A), 80 dB(C)` → refused.
+- [ ] **Dither, oversampling & noise floor** (16-bit TPDF) → ideal **98.0905 dB**, penalty −4.7712 dB, floor
+  **−93.3193 dBFS**; *Noise-shaped* → refused by name.
+- [ ] **Audio data rate & file size** (48 kHz/24/2, 1 h) → **2304000 bit/s**, **1.0368 GB = 0.9656 GiB**,
+  "WAV ceiling 14913.08 s (4.1425 h)"; duration `5 h` → "EXCEEDED: use RF64 / BW64". Compressed `320 kbps` works.
+- [ ] ★ **Loudness (LUFS) normalisation** (−16.3 → EBU R128 −23) → gain **−6.70 dB**, true peak after −8.20 dBTP,
+  limiter no. *Steady sine* 0 dBFS 997 Hz, L only → **−3.0103 LUFS**; L+R → **+0.0000**; sample rate `44.1 kHz`
+  → refused ("BS.1770 publishes 48 kHz coefficients"). Each *…from one reading* mode → refused by name.
+- [ ] **Loudspeaker** (88 dB/1 W, 100 W, 4 m, crest 12) → **95.959 dB SPL**, peak 107.959; target `100` →
+  **253.58 W**; impedance `4 Ω` → 2.83 V is 2.00223 W (**+3.0151 dB** against 1 W).
+- [ ] **Room absorption budget** (defaults) → A **49.2** m² sabins, Sabine **0.65447 s**, Eyring 0.58483 s,
+  Millington–Sette **0.4678 s**; target 0.5 s → needs 64.4, **add 15.2 m²**.
+- [ ] **Passive crossover** (2.5 kHz, 8 Ω, LR2) → C **3.9789 µF**, L **1.0186 mH**, each section −6.021 dB,
+  tweeter **inverted**, sum in phase "a null (−∞ dB)", inverted +0.000 dB.
+- [ ] **Speaker cable & damping factor** (2.5 mm², 10 m, 8 Ω, 0.02 Ω) → **0.137931 Ω**, DF **50.655**, level
+  −0.1698 dB.
+- [ ] **Reverberation time** now has a *Directivity Q* field: Q = 2 → critical distance **1.392 m at Q = 2**;
+  Q = 1 says "(Q = 1 is an omnidirectional source)". **Quantisation** hint: 16-bit is 98.09 dB exactly.
+
+**Video & display**
+- [ ] ★ **Timecode** (29.97 DF, 00:10:00;00) → frame **17982**, real time **0:09:59.9994**; the drift figure
+  shows the non-drop line falling and the drop-frame sawtooth. Timecode A `00:01:00;00` → **refused**: "…The
+  label before it is 00:00:59;29 and the next is 00:01:00;02." Frame count `1800` → **00:01:00;02**. B
+  `01:00:00;00` from A `00:00:00;00` → 107892 frames, real 0:59:59.9964. 25 fps with `;` → refused.
+- [ ] **Frame rates, pulldown & shutter** (23.976 → 29.97, 180°) → "23.976 (24000/1001)", 2002 samples per frame,
+  cadence **AA BB BC CD DD** with a cadence strip; source `29.97` → 8008/5 (1601.6), "5 frames = 8008 samples
+  (3 × 1602 + 2 × 1601)" and the snap note; 24 → 25 → **+4.1667%**, +70.672 cents, 100 min runs 96 min.
+  Source 24 at 180° → **1/48 s**. 25 → 29.97 → "no standard cadence" note, no figure.
+- [ ] **Aspect, pixel aspect & framing** (720×480, 4:3, 2.39 in 1920×1080) → storage 3:2, PAR **8:9** and
+  BT.601 **10:11** both named, letterbox **803.347** lines exact / 804 even, bars 138; title safe 1728×972,
+  action safe 1785.6×1004.4. The frame figure keys every rectangle below it.
+- [ ] **Transfer functions & code values** (BT.1886, 0.5) → **18.94646 cd/m²**, 10-bit narrow code **502**.
+  BT.709 light → signal 0.18 → **0.4090077**, with the OETF/EOTF trap in the notes; PQ 0.5 → 92.2457 cd/m² on a
+  log axis. The formula line shows superscripts (L⁰·⁴⁵), never `^`.
+- [ ] **Interface bandwidth & recording time** (1080p60, 2200×1125, 20 bits) → active **2.48832 Gbit/s**, link
+  **2.97 Gbit/s (+19.36%)**, 3G-SDI exactly; 100 Mbit/s on 128 GB → **2:50:40**, 45 GB per hour, 119.209 GiB.
+- [ ] **Bitrate** (1920×1080, 60, 10-bit, 4:2:2) now shows "On the SDI link 2.97 Gbit/s with blanking", and the
+  samples-per-frame line; **Resolution** 1366×768 says "Storage aspect 683:384" and "≈ 16:9".
+
+**Light & camera** (new panel)
+- [ ] **Illuminance, luminance & beams** (1000 cd, 2 m) → **250 lx** (23.23 fc); angle `30` → 216.506 lx;
+  beam 30° → Ω 0.2141 sr, **214.09 lm (uniform intensity)**; 5000 lm on 10 m² → **159.15 cd/m² (46.452 ftL)**.
+  `1000 lm` in the intensity field → refused (wrong quantity).
+- [ ] ★ **Exposure, f-stops & depth of field** (f/8, `1/125 s`, ISO 100) → EV **12.966**; f/8 → f/11 **1 stop on
+  the exact values (0.9189 by the markings)**, f/11 is 11.3137; hyperfocal **10.467 m**, sharp from **3.3894 m
+  to 9.5274 m**; angle of view **39.6°** horizontal, 27° vertical, **46.79°** diagonal.
+- [ ] **Colour temperature & mired** (3200 → 5600 K) → 312.5 and 178.57 mired, shift **−133.9 mired (blue
+  correction)**; 3200 K daylight "not defined (4000–25000 K)"; (0.3127, 0.3290) → McCamy **6505.1 K**,
+  Robertson 6503.7 K. The figure shows the daylight locus inside a faint sRGB triangle.
+
+**Units** (Units mode / any field): `29.97 FPS`, `48 KHz`, `5 Mbps`, `1000 NIT`, `50 fc`, `14 ftL`, `20 µPa`,
+`1 pW`, `1/125 s` all read; `1/0 s` → "divides by zero"; `94 dB` in a Pa field → refused (decibels are not units).
 
 ---
 
@@ -3726,6 +3797,8 @@ Engineering mode, Energy & power (now 17; the mode must state **101 calculators*
   - `(0,0,0) (1,1,1) (2,2,2)` -> refused as **COLLINEAR**: no plane.
   - `circle r=1/3` -> area **1/9*pi** exactly, and `box 1/2 1/3 1/4` -> volume **1/24**.
     (Typed fractions must stay exact — no long decimals or giant fractions anywhere.)
+- [ ] **Audio, video and light: levels, loudness, timecode, transfer curves, photometry and exposure (v2.140.0).** Engineering (Audio & acoustics, Video & display, Light & camera) — see §0cg.
+  - +4 dBu → −14.0000 dBFS (EBU R68) with a level ladder; −16.3 → −23 LUFS = −6.70 dB; 997 Hz sine → −3.0103 LUFS; `00:01:00;00` at 29.97 DF refused (next label 00:01:00;02); 1080p60 link 2.97 Gbit/s; f/8 → f/11 = 1 stop exactly; 147 of 147 tools draw.
 - [ ] **Spectroscopy: JCAMP overlay, exact isotope patterns, diastereotopic NMR, and Woodward–Fieser fixes (v2.139.0).** Spectra, Mass Spec — see §0cf.
   - `CC(C)CO` ¹H vs `2Methyl1Propanol.jdx` → 4 of 4 within window; `BRUKPAC.DX` ¹³C → "Not assessed … +9.09 ppm" until `86.25 = 77.16`, then 6 of 6; `ibuprofen` ¹H → CH₂ "m (²J 14–18 Hz)" with a note; `C2Cl4` → base peak M+2 165.8725 and an isotope chart; ferrocene → M−2 (never M+-2); `cinnamaldehyde` UV → refused by name.
 - [ ] **DAE index reduction, real K-theory, oriented cobordism, and persistence over 𝔽ₚ (v2.138.0).** Analyze, Solve (Topology) — see §0ce.

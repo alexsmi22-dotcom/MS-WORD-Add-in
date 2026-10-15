@@ -232,8 +232,11 @@ export function jcampChartSvg(s: MeasuredTrace): string | null {
 
   const dir = flip ? "decreases rightward" : "increases rightward";
   const xlabel = `${s.xUnits || "x"} — ${dir}`;
-  // A stick spectrum for MS, a continuous trace for everything else.
-  const type: Series["type"] = s.kind === "ms" ? "scatter" : "line";
+  // Always a line: a trace is drawn as itself, and a peak table (MS included)
+  // arrives from spectroPane.jcampDrawPoints as sticks — (x,base)→(x,y)→(x,base)
+  // — which a line series draws as vertical sticks on a baseline. MS used to be
+  // a scatter of floating dots with no stick and no baseline.
+  const type: Series["type"] = "line";
 
   return buildPlotSvg([{ points: pts, type, color: "#2563eb" }], {
     title: s.title ? `${s.title} (measured)` : "Measured spectrum",

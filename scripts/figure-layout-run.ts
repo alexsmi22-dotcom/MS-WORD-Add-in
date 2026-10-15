@@ -62,6 +62,15 @@ import {
 import { predictNmr } from "../src/lib/nmr";
 import { predictIr } from "../src/lib/ir";
 import { predictFragments } from "../src/lib/fragment";
+import { predictUvVis } from "../src/lib/uvvis";
+import { parseJcamp, JcampSpectrum } from "../src/lib/jcamp";
+import { overlaySpectrum, displayUnits } from "../src/lib/spectrumOverlay";
+import { overlayChartSvg } from "../src/lib/overlayChart";
+import { isotopeChartSvg } from "../src/lib/isotopeChart";
+import { resolveMassSpec } from "../src/lib/massspec";
+import { overlayPrediction, parseReferencePeak, jcampDrawPoints, OverlaySource } from "../src/lib/spectroPane";
+import * as fsForCorpus from "fs";
+import * as pathForCorpus from "path";
 import { predictCosy, predictHsqc, predictHmbc, predictTocsy } from "../src/lib/nmr2d";
 import { beamDiagramSvg } from "../src/lib/beamChart";
 import { analyzeBeam, BeamInput, BeamResult, Support, Load } from "../src/lib/beam";
@@ -1500,6 +1509,95 @@ for (const [name, smiles, nucleus] of [
     points: pts,
   });
   if (s) figures.push(["jcamp measured ir", s]);
+}
+// --- v2.139.0: measured vs predicted, and the isotope stick chart ---------------
+//
+// Built through the SAME calls the pane makes (parseJcamp → its defaultIndex
+// block; spectroPane.overlayPrediction; spectroPane.parseReferencePeak;
+// overlaySpectrum; overlayChartSvg), so the gate sees the inserted figure, not a
+// look-alike. Fixtures are the committed, attributed JCAMP test files plus small
+// synthetic files (no NIST SRD data in the repo, §E10). The long-title case is
+// why overlayChart measures and truncates its title: no CLIPPED waiver is added.
+{
+  const FIX = pathForCorpus.join(__dirname, "..", "src", "lib", "__tests__", "fixtures", "jcamp");
+  const block = (text: string): JcampSpectrum => {
+    const r = parseJcamp(text);
+    if (!r.ok || !r.spectra.length) throw new Error(`corpus JCAMP fixture did not parse: ${r.ok ? "no blocks" : r.error}`);
+    return r.spectra[r.defaultIndex];
+  };
+  const fixture = (f: string): JcampSpectrum => block(fsForCorpus.readFileSync(pathForCorpus.join(FIX, f), "latin1"));
+  const overlay = (name: string, file: JcampSpectrum, src: OverlaySource, refText = ""): void => {
+    const pred = overlayPrediction(src);
+    if ("error" in pred) throw new Error(`${name}: ${pred.error}`);
+    const ref = parseReferencePeak(refText);
+    if (!ref.ok) throw new Error(`${name}: ${ref.error}`);
+    const r = overlaySpectrum(file, pred, ref.reference ? { reference: ref.reference } : {});
+    if (!r.ok) throw new Error(`${name}: ${r.error}`);
+    const svg = overlayChartSvg(r);
+    if (!svg) throw new Error(`${name}: no overlay figure`);
+    figures.push([name, svg]);
+  };
+  const irFile = (title: string): string => {
+    const xs: number[] = [];
+    for (let x = 450; x <= 3966; x += 4) xs.push(x);
+    const peaks: [number, number][] = [[3674, 0.19], [2978, 0.89], [1066, 1]];
+    const lines: string[] = [];
+    for (let i = 0; i < xs.length; i += 8) {
+      lines.push(`${xs[i]} ${xs.slice(i, i + 8).map((x) => Math.round(1e5 * peaks.reduce((t, [c, h]) => t + h / (1 + ((x - c) / 8) ** 2), 0))).join(" ")}`);
+    }
+    return `##TITLE=${title}\n##DATA TYPE=INFRARED SPECTRUM\n##MOLFORM=C 2 H 6 O\n##XUNITS=1/CM\n##YUNITS=ABSORBANCE\n##YFACTOR=0.00001\n##FIRSTX=450\n##LASTX=3966\n##NPOINTS=${xs.length}\n##XYDATA=(X++(Y..Y))\n${lines.join("\n")}\n##END=`;
+  };
+  const uvPts = Array.from({ length: 200 }, (_, i) => {
+    const x = 230 + i * 0.2;
+    return `${x.toFixed(2)},${(1 + 1 / (1 + ((x - 260.6) / 2) ** 2)).toFixed(5)}`;
+  });
+  const uvFile = `##TITLE=Toluene (synthetic)\n##DATA TYPE=UV/VIS SPECTRUM\n##MOLFORM=C7H8\n##XUNITS=NANOMETERS\n##YUNITS=ABSORBANCE\n##XYPOINTS=(XY..XY)\n${uvPts.join("\n")}\n##END=`;
+  const msAcetone = `##TITLE=Acetone (synthetic EI)\n##DATA TYPE=MASS SPECTRUM\n##MOLFORM=C3H6O\n##XUNITS=M/Z\n##YUNITS=RELATIVE INTENSITY\n##PEAK TABLE=(XY..XY)\n15,1201 42,961 43,9999 58,2484\n##END=`;
+  const msC2Cl4 = `##TITLE=Tetrachloroethylene (synthetic, molecular-ion cluster)\n##DATA TYPE=MASS SPECTRUM\n##MOLFORM=C2Cl4\n##XUNITS=M/Z\n##YUNITS=RELATIVE INTENSITY\n##PEAK TABLE=(XY..XY)\n164,7790 166,10000 168,4790 170,1020 172,80\n##END=`;
+
+  const nmr = (smiles: string, nucleus: "1H" | "13C"): OverlaySource => {
+    const r = predictNmr(smiles, nucleus);
+    if (!r) throw new Error(`corpus: no NMR for ${smiles}`);
+    return { kind: nucleus, nmr: r };
+  };
+  overlay("overlay 1H 2-methyl-1-propanol", fixture("2Methyl1Propanol.jdx"), nmr("CC(C)CO", "1H"));
+  overlay("overlay 13C ethylbenzene, user reference", fixture("BRUKPAC.DX"), nmr("CCc1ccccc1", "13C"), "86.25 = 77.16");
+  overlay("overlay ir ethanol", block(irFile("Ethanol (synthetic)")), { kind: "ir", ir: predictIr("CCO")! });
+  overlay(
+    "overlay ir long title",
+    block(irFile("Ethanol, gas phase, 10 cm path, 0.5 cm⁻¹ resolution, averaged over 256 scans at 298 K (synthetic)")),
+    { kind: "ir", ir: predictIr("CCO")! },
+  );
+  overlay("overlay uv toluene", block(uvFile), { kind: "uvvis", uv: predictUvVis("Cc1ccccc1")! });
+  overlay("overlay ms acetone head-to-tail", block(msAcetone), { kind: "ms", ms: predictFragments("CC(C)=O")! });
+  // Mass Spec's comparison: the computed isotope pattern against a measured cluster.
+  const c2cl4 = resolveMassSpec("C2Cl4", "auto");
+  if (c2cl4.kind !== "ok") throw new Error("corpus: C2Cl4 did not resolve");
+  overlay("overlay ms isotope pattern C2Cl4", block(msC2Cl4), { kind: "isotopes", spec: c2cl4.result });
+
+  // The isotope stick chart, built exactly as updateMassSpec builds it.
+  for (const [name, input] of [
+    ["isotope pattern C2Cl4 (M+2 base peak)", "C2Cl4"],
+    ["isotope pattern ferrocene (M−2 below M)", "[CH-]1C=CC=C1.[CH-]1C=CC=C1.[Fe+2]"],
+    ["isotope pattern chlorophyll a (long formula)", "chlorophyll a"],
+  ] as [string, string][]) {
+    const r = resolveMassSpec(input, "auto");
+    if (r.kind !== "ok") throw new Error(`corpus: ${input} did not resolve`);
+    const spec = r.result;
+    const svg = isotopeChartSvg({ formula: spec.formula, netCharge: spec.netCharge, pattern: spec.pattern, patternNote: spec.patternNote });
+    if (!svg) throw new Error(`corpus: no isotope chart for ${input}`);
+    figures.push([name, svg]);
+  }
+
+  // The measured-file chart for an NMR PEAK TABLE, built as showJcampBlock
+  // builds it: sticks (jcampDrawPoints), display units, x leftward.
+  const eth = parseJcamp(fsForCorpus.readFileSync(pathForCorpus.join(FIX, "ethanol_nmr.jdx"), "latin1"));
+  if (!eth.ok) throw new Error(eth.error);
+  const pk = eth.spectra.find((s) => s.form === "peaks");
+  if (!pk) throw new Error("corpus: ethanol_nmr.jdx has no peak-table block");
+  const pkSvg = jcampChartSvg({ title: pk.title, kind: pk.kind, xUnits: displayUnits(pk.xUnits), yUnits: displayUnits(pk.yUnits), points: jcampDrawPoints(pk) });
+  if (!pkSvg) throw new Error("corpus: no chart for the NMR peak table");
+  figures.push(["jcamp measured nmr peak table (sticks)", pkSvg]);
 }
 
 // --- The beam diagram ---------------------------------------------------------

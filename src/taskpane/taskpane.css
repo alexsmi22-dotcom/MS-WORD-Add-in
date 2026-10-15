@@ -1094,6 +1094,14 @@ h1 {
 .spec-head > span {
   color: inherit !important;
 }
+/* NMR with diastereotopic footnotes: a narrow fifth "note" column. */
+.spec-row.spec-noted {
+  grid-template-columns: 4.5em 2.2em 3.2em 1fr 2.4em;
+}
+/* Measured-vs-predicted match table: predicted, assignment, nearest, Δ, within. */
+.spec-row.spec-match {
+  grid-template-columns: 4.2em 1fr 4.2em 3.8em 2.6em;
+}
 /* UV-Vis build-up rows have only two columns. */
 .spec-row:not(.spec-head) > span:nth-child(2):last-child {
   grid-column: 2 / -1;

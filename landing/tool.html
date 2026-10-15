@@ -161,9 +161,9 @@
     massspec: { title:"Mass Spec", tagline:"An offline mass-spectrometry readout for a name, formula, or SMILES — exact masses, the theoretical isotope pattern, and common adduct m/z.",
       does:[
         "<b>Exact masses</b> — monoisotopic (for high-resolution MS) and average molecular weight.",
-        "<b>Isotope pattern</b> — theoretical M, M+1, M+2… peaks with relative intensities (e.g. the tell-tale ~32% M+2 of chlorine), from standard NIST abundances.",
+        "<b>Isotope pattern</b> — theoretical M, M+1, M+2… peaks with relative intensities (e.g. the tell-tale ~32% M+2 of chlorine), from CIAAW 2024 abundances and AME2020 masses.",
         "<b>Adduct m/z</b> — [M+H]⁺, [M+Na]⁺, [M+K]⁺, [M+NH₄]⁺, [M+2H]²⁺, [M−H]⁻, [M+Cl]⁻, [M+HCOO]⁻, [M−2H]²⁻, all computed exactly.",
-        "Elements outside the common organic/bio set are reported, never silently dropped."
+        "An element with no natural isotopic composition (for example Tc, Pm, Po, Rn and Ra, and everything beyond U) is refused by name, never given an invented mass."
       ],
       examples:[
         {in:"C9H8O4 (aspirin)", out:"monoisotopic 180.0423; [M+H]⁺ 181.0495; [M−H]⁻ 179.0350"},
@@ -179,6 +179,7 @@
         "<b>MS fragmentation</b> — exact fragment m/z via α-cleavage, benzylic→tropylium, McLafferty and gated neutral losses. Correctly ranks the real base peak for toluene (m/z 91), ethanol (31) and butylamine (30).",
         "Insert a <b>data table</b> or a <b>spectrum chart</b> — δ increases leftward and wavenumber decreases rightward, per convention.",
         "<b>Open a MEASURED spectrum (JCAMP-DX).</b> Everything above is predicted; this is the opposite. Point it at a <code>.jdx</code>, <code>.dx</code> or <code>.jcm</code> file from your instrument and it plots exactly what the file contains, labelled <i>measured</i> on the chart so the two can never be confused. Read on your machine, nothing uploaded. Long traces are reduced for drawing by keeping the <b>minimum and maximum of every bucket</b>, so a one-point peak survives — the obvious shortcut, keeping every n<sup>th</sup> point, drops narrow bands silently and leaves a tidy spectrum with a band missing.",
+        "<b>Compare with acquired spectrum</b> — the prediction (¹H, ¹³C, IR, UV-Vis or MS) drawn over a loaded JCAMP-DX file, with a match table of each predicted line, the nearest measured peak and Δ; referencing is never shifted silently (an offset is reported until you give a reference peak, e.g. 86.25 = 77.16 for CDCl₃). The reader decodes DIF/DUP exactly, enforces the file's own checks (a failing block cannot be inserted), reads 1D NMR NTUPLES and offers a block picker. Mass Spec isotope patterns cover all 84 elements with a natural isotopic composition (AME2020 masses, CIAAW 2024 abundances; M−2 with a true minus) and draw as a stick chart; diastereotopic methyls and CH₂ are reported as such; Woodward–Fieser scores every enone arm and refuses quinones and aryl enones by name.",
         "<b>Honest by construction.</b> Structure recognition is exact; the values are empirical estimates and every screen says so. Out-of-domain cases are disclosed rather than guessed: an unconjugated molecule reports <i>transparent</i> instead of a fabricated λmax, fused and heteroaromatic rings say they are approximate, and MS “likelihood” is a rule-based <b>ranking, not an intensity</b>."
       ],
       examples:[

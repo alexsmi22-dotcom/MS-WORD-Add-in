@@ -109,7 +109,8 @@ export function renderStructure(input: string, width = 280, height = 220): Struc
 
   if (explicit) {
     const candidate = explicit[1].trim();
-    mol = safeFromSmiles(candidate);
+    // Never draw OpenChemLib's reading of an invalid ring closure (C6Cl6 → CH₃Cl).
+    mol = duplicateRingClosure(candidate) === null ? safeFromSmiles(candidate) : null;
     smiles = candidate;
   } else if (looked) {
     mol = safeFromSmiles(looked.smiles);
@@ -345,10 +346,113 @@ function looksWrittenAsFormula(s: string): boolean {
   return false;
 }
 
+/**
+ * The ring-closure label of the first closure that joins two atoms ALREADY
+ * bonded (or an atom to itself), or null when there is none.
+ *
+ * WHY (v2.138.0, §A-13). OpenChemLib accepts such a closure and silently drops
+ * the duplicate bond, so "C6Cl6" parsed as SMILES — C, ring-open 6, Cl, ring-close
+ * 6 back onto the C it is already bonded to — and came out as CH₃Cl. Mass Spec
+ * then answered chloromethane for hexachlorobenzene's formula (C6F6 → CH₃F,
+ * C6Br6 → CH₃Br). OpenSMILES forbids it and RDKit rejects it ("ring closure 6
+ * duplicates bond between atom 0 and atom 1"), so such a string is NOT SMILES and
+ * the formula reading stands alone.
+ *
+ * A small scanner, not OpenChemLib's bond count (explicit [H] handling makes
+ * that unreliable): atoms (bracket, Cl/Br, the organic subset, aromatic, *),
+ * branches, '.', bond symbols before a label, single digits and %nn, label
+ * reuse after a close, and self-closure (C11). Anything it does not recognise
+ * returns null and is left to the parser.
+ */
+export function duplicateRingClosure(smiles: string): string | null {
+  return scanDuplicateClosure(smiles)?.label ?? null;
+}
+
+/** The refusal for an explicit SMILES request whose ring closure duplicates a bond, or null. */
+export function duplicateClosureRefusal(smiles: string): string | null {
+  const d = scanDuplicateClosure(smiles);
+  if (!d) return null;
+  const s = smiles.trim();
+  const what =
+    d.self
+      ? `ring closure ${d.label} would bond the ${d.a} atom to itself`
+      : `ring closure ${d.label} duplicates the bond ${d.a}–${d.b}, which the chain already makes`;
+  const f = readAsFormula(s);
+  const asFormula = f ? ` As a formula it is ${f.display}; type formula:${s} for that.` : "";
+  return `“${s}” is not valid SMILES: ${what}.${asFormula}`;
+}
+
+function scanDuplicateClosure(smiles: string): { label: string; a: string; b: string; self: boolean } | null {
+  const s = smiles.trim();
+  const sym: string[] = [];
+  const bracketSymbol = (t: string): string => {
+    const m = /^\[\d*([A-Z][a-z]?|[a-z][a-z]?|\*)/.exec(t);
+    return m ? m[1] : t;
+  };
+  const bonded = new Set<string>();
+  const key = (a: number, b: number) => (a < b ? `${a}-${b}` : `${b}-${a}`);
+  const open = new Map<string, number>();
+  const stack: (number | null)[] = [];
+  let prev: number | null = null;
+  let atoms = 0;
+  let i = 0;
+  const atom = (symbol: string) => {
+    const cur = atoms++;
+    sym.push(symbol);
+    if (prev !== null) bonded.add(key(prev, cur));
+    prev = cur;
+  };
+  while (i < s.length) {
+    const c = s[i];
+    if (c === "[") {
+      const j = s.indexOf("]", i);
+      if (j < 0) return null;
+      atom(bracketSymbol(s.slice(i, j + 1)));
+      i = j + 1;
+    } else if (s.startsWith("Cl", i) || s.startsWith("Br", i)) {
+      atom(s.slice(i, i + 2));
+      i += 2;
+    } else if (/[BCNOPSFIbcnops*]/.test(c)) {
+      atom(c);
+      i += 1;
+    } else if (c === "(") {
+      stack.push(prev);
+      i += 1;
+    } else if (c === ")") {
+      if (!stack.length) return null;
+      prev = stack.pop() as number | null;
+      i += 1;
+    } else if (c === ".") {
+      prev = null;
+      i += 1;
+    } else if (/[-=#$:/\\]/.test(c)) {
+      i += 1;
+    } else if (/\d/.test(c) || (c === "%" && /^%\d\d/.test(s.slice(i)))) {
+      const label = c === "%" ? s.slice(i, i + 3) : c;
+      i += label.length;
+      if (prev === null) return null;
+      const other = open.get(label);
+      if (other === undefined) {
+        open.set(label, prev);
+      } else {
+        open.delete(label);
+        if (other === prev || bonded.has(key(other, prev))) {
+          return { label, a: sym[other], b: sym[prev], self: other === prev };
+        }
+        bonded.add(key(other, prev));
+      }
+    } else {
+      return null;
+    }
+  }
+  return null;
+}
+
 /** A valid SMILES reading's molecule, or null. */
 function readAsSmiles(input: string): Molecule | null {
   const s = input.trim();
   if (!s || !aromaticAtomsCanBeInRings(s)) return null;
+  if (duplicateRingClosure(s) !== null) return null;
   return safeFromSmiles(s);
 }
 
@@ -391,6 +495,10 @@ export function resolveChemInput(
   const smilesPrefix = /^smiles:\s*(.+)$/i.exec(raw);
   if (smilesPrefix) {
     const s = smilesPrefix[1].trim();
+    // An explicit SMILES request does not make an invalid SMILES valid: OCL would
+    // silently drop the duplicate bond and draw a different molecule (C6Cl6 → CH₃Cl).
+    const dup = duplicateClosureRefusal(s);
+    if (dup) return { kind: "none", message: dup };
     return safeFromSmiles(s)
       ? { kind: "smiles", smiles: s }
       : { kind: "none", message: `“${s}” is not a SMILES string this tool can read.` };
@@ -417,6 +525,8 @@ export function resolveChemInput(
   }
 
   if (mode === "smiles") {
+    const dup = duplicateClosureRefusal(raw);
+    if (dup) return { kind: "none", message: dup };
     return safeFromSmiles(raw)
       ? { kind: "smiles", smiles: raw }
       : { kind: "none", message: `“${raw}” is not a known name or a SMILES string this tool can read.` };
@@ -456,7 +566,11 @@ export function resolveChemInput(
   }
   if (f) {
     let note: string | undefined;
-    if (safeFromSmiles(raw)) {
+    const dup = duplicateRingClosure(raw);
+    if (dup !== null && safeFromSmiles(raw)) {
+      note =
+        `Read as a formula. “${raw}” is not valid SMILES: ring closure ${dup} would join two atoms that are already bonded.`;
+    } else if (safeFromSmiles(raw)) {
       note = `Read as a formula. “${raw}” is not valid SMILES: a lowercase (aromatic) atom must sit in a ring.`;
     }
     return { kind: "formula", formula: f, note };

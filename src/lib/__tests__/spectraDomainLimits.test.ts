@@ -339,12 +339,18 @@ describe("0.13 UV-Vis refuses outside the Woodward-Fieser domain", () => {
     // name and predictUvVis returned null: the assertion passed having checked
     // nothing at all. An input that does not resolve is a broken test, not a
     // skipped one, so it now fails loudly and chalcone is given as SMILES.
+    //
+    // v2.138.0 PIN CHANGE, against its oracle: chalcone and cinnamaldehyde were
+    // rows here (in domain, 200-400 nm). Both are ARYL-CONJUGATED enones, which
+    // Woodward-Fieser does not cover — they came out at 227 and 222 nm against real
+    // values roughly 60-100 nm higher (docs/SCOPE-SPECTROSCOPY-BATCH.md §A-17,
+    // §D5 row "benzalacetone, chalcone, dibenzylideneacetone → refused"). The
+    // 200-400 window let that wrong number pass. They now refuse by name, and
+    // that is asserted below rather than dropped.
     for (const [name, input, lo, hi] of [
       ["vitamin D3", "vitamin d3", 240, 290],
-      ["chalcone", "O=C(/C=C/c1ccccc1)c1ccccc1", 200, 400],
       ["testosterone", "testosterone", 200, 300],
       ["progesterone", "progesterone", 200, 300],
-      ["cinnamaldehyde", "cinnamaldehyde", 200, 400],
     ] as [string, string, number, number][]) {
       const r = predictUvVis(input);
       expect({ name, resolved: r !== null }).toEqual({ name, resolved: true });
@@ -354,6 +360,26 @@ describe("0.13 UV-Vis refuses outside the Woodward-Fieser domain", () => {
         ok: true,
       });
     }
+  });
+
+  test("v2.138.0: aryl-conjugated enones (chalcone, cinnamaldehyde) are REFUSED, not given 227 / 222 nm", () => {
+    for (const [name, input] of [
+      ["chalcone", "O=C(/C=C/c1ccccc1)c1ccccc1"],
+      ["cinnamaldehyde", "cinnamaldehyde"],
+    ] as [string, string][]) {
+      const r = predictUvVis(input);
+      expect({ name, resolved: r !== null }).toEqual({ name, resolved: true });
+      expect({ name, out: r!.outOfDomain, lambda: r!.lambdaMax }).toEqual({ name, out: true, lambda: null });
+      expect(r!.caveats.join(" ")).toMatch(/Aryl-conjugated enone/);
+    }
+  });
+
+  test("v2.138.0: the cross-conjugated dienone answer no longer depends on which arm is written first", () => {
+    // Androsta-1,4-diene-3,17-dione is prednisone's chromophore; it came out at
+    // 227 (its C1=C2 arm) while prednisone got 239. Max over arms = 215 + 2×12.
+    const r = predictUvVis("O=C1C=CC2(C)C(=C1)CCC1C2CCC2(C)C1CCC2=O")!;
+    expect(r.lambdaMax).toBe(239);
+    expect(r.caveats.join(" ")).toMatch(/cross-conjugated dienone/i);
   });
 
   // -------------------------------------------------------------------------

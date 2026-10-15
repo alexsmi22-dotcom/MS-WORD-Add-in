@@ -26,7 +26,9 @@
 //     defined double-bond configuration we report a nominal value and say so,
 //     rather than guess a configuration the input did not specify.
 //   * Geminal coupling in a CH2 is only observed when the two protons are
-//     diastereotopic; that is not detected here and is called out in caveats.
+//     diastereotopic. That is now DETECTED (diastereotopic.ts, via predictNmr):
+//     such a CH₂ is reported as "m" with a typical ²J range by class, never as a
+//     clean n+1 multiplet. The range is typical, not predicted from geometry.
 //
 // Pure functions; fully offline; no Office.js.
 
@@ -39,6 +41,7 @@ import {
   distancesFrom,
 } from "./molgraph";
 import { predictNmr, NmrResult, NmrSignal } from "./nmr";
+import { GeminalJ } from "./diastereotopic";
 
 // ---------------------------------------------------------------------------
 // Typical coupling constants (Hz), by relationship. Standard textbook figures
@@ -76,6 +79,16 @@ export interface CoupledSignal {
   J: number[];
   couplings: Coupling[];
   variable?: boolean;
+  /**
+   * For a CH₂ whose two protons are DIASTEREOTOPIC: the typical geminal |²J|
+   * range for its class (diastereotopic.ts — typical, not predicted from
+   * geometry). The multiplet is then "m". Deliberately NOT a Coupling entry:
+   * the partner would be the signal itself, and COSY would draw a "cross" peak
+   * on its own diagonal.
+   */
+  geminal?: GeminalJ;
+  /** The signal's diastereotopicity note from predictNmr, carried through. */
+  note?: string;
 }
 
 export interface CouplingResult {
@@ -226,6 +239,8 @@ export function predictCoupling(input: string): CouplingResult | null {
   let sawApprox = false;
   let sawAlkene = false;
   let sawCH2 = false;
+  let sawDiaCH2 = false;
+  let sawDependsCH2 = false;
 
   const signals: CoupledSignal[] = base.signals.map((s) => {
     // Exchangeable protons (OH/NH) are reported as broad singlets: their coupling
@@ -237,23 +252,33 @@ export function predictCoupling(input: string): CouplingResult | null {
     const selfRank = mol.getSymmetryRank(rep);
     if (mol.getAllHydrogens(rep) === 2) sawCH2 = true;
 
-    // Aggregate raw partners into per-environment couplings.
-    const perSignal = new Map<number, { nH: number; J: number; kind: string; approximate?: boolean }>();
+    // Aggregate raw partners into per-environment couplings — per environment
+    // AND RELATIONSHIP. Keying by environment alone was an atom-order defect:
+    // in a para-disubstituted ring one partner environment is both ORTHO (7.8
+    // Hz) and PARA (0.6 Hz) to this proton, the two were summed under whichever
+    // J came first in atom order, and ibuprofen's ring protons came out "t" for
+    // one SMILES ordering and "s" for another. Found by the v2.138.0 random-
+    // atom-order harness. Each relationship now keeps its own J and its own nH.
+    const perSignal = new Map<string, { idx: number; nH: number; J: number; kind: string; approximate?: boolean }>();
     for (const p of rawPartners(mol, rep, selfRank)) {
       const idx = atomToSignal.get(p.atom);
       if (idx === undefined) continue;
+      // A partner inside THIS signal is isochronous (e.g. the mirror-merged
+      // halves of a meso compound, whose simple ranks differ): no splitting.
+      if (s.atoms.includes(p.atom)) continue;
       const h = mol.getAllHydrogens(p.atom);
-      const cur = perSignal.get(idx);
+      const key = `${idx}|${p.kind}`;
+      const cur = perSignal.get(key);
       if (cur) cur.nH += h;
-      else perSignal.set(idx, { nH: h, J: p.J, kind: p.kind, approximate: p.approximate });
+      else perSignal.set(key, { idx, nH: h, J: p.J, kind: p.kind, approximate: p.approximate });
       if (p.approximate) sawApprox = true;
       if (p.kind === "alkene") sawAlkene = true;
     }
 
-    const couplings: Coupling[] = [...perSignal.entries()]
-      .map(([partner, v]) => ({
-        partner,
-        partnerShift: base.signals[partner].shift,
+    const couplings: Coupling[] = [...perSignal.values()]
+      .map((v) => ({
+        partner: v.idx,
+        partnerShift: base.signals[v.idx].shift,
         nH: v.nH,
         J: v.J,
         kind: v.kind,
@@ -262,7 +287,22 @@ export function predictCoupling(input: string): CouplingResult | null {
       .sort((x, y) => y.J - x.J);
 
     const { multiplet, J } = multipletName(couplings);
-    return { ...toCoupled(s), multiplet, J, couplings };
+    const out: CoupledSignal = { ...toCoupled(s), multiplet, J, couplings };
+    const dia = s.diastereotopic;
+    if (dia) out.note = dia.note;
+    if (dia?.kind === "CH2" && dia.geminal) {
+      // The vicinal J values are kept (they are still real couplings, and COSY
+      // and TOCSY read them); only the n+1 letter is withdrawn, because two
+      // inequivalent protons coupled to each other are not a first-order
+      // n+1 multiplet.
+      out.multiplet = "m";
+      out.geminal = dia.geminal;
+      sawDiaCH2 = true;
+    } else if (dia?.kind === "depends" && s.multiplicity === "m" && mol.getAllHydrogens(rep) === 2) {
+      out.multiplet = "m";
+      sawDependsCH2 = true;
+    }
+    return out;
   });
 
   if (sawApprox)
@@ -282,10 +322,30 @@ export function predictCoupling(input: string): CouplingResult | null {
       // claim about their work that happens to be false.
       "Alkene 3J depends on double-bond geometry (cis ~6-12 Hz, trans ~12-18 Hz). This tool does not read double-bond configuration when assigning couplings, so a nominal value is shown for either geometry — check it against the configuration you intend."
     );
-  if (sawCH2)
+  // The CH₂ caveat now reports what WAS found rather than a blanket "not
+  // modelled". Every branch still names diastereotopicity, because that is the
+  // condition under which geminal coupling is observable at all.
+  if (sawDiaCH2)
     caveats.add(
-      "Geminal coupling within a CH2 is only observed when its two protons are diastereotopic; that is not modelled here."
+      "Diastereotopic CH₂: its two protons are not equivalent, so they couple to each other (geminal ²J) as " +
+        "well as to their neighbours, and the signal is reported as m. The ²J shown is a TYPICAL magnitude by " +
+        "class (sp³ CH₂ 12–15 Hz, next to C=O or a π system 14–18 Hz, bearing O/N/halogen 9–12 Hz, three-" +
+        "membered ring 4–9 Hz, terminal =CH₂ 0–3 Hz), not predicted from geometry; the " +
+        "two protons' Δδ and the second-order (AB/ABX) line positions are not predicted."
     );
+  if (sawDependsCH2)
+    caveats.add(
+      "Whether a CH₂ here is diastereotopic depends on the relative configuration of unspecified stereocentres " +
+        "(meso vs (R,R)); it is reported as m and not resolved further."
+    );
+  if (sawCH2 && !sawDiaCH2 && !sawDependsCH2) {
+    const anyLimit = base.caveats.some((c) => /Diastereotopic groups were NOT analysed|could not be analysed|were NOT enumerated/.test(c));
+    caveats.add(
+      anyLimit
+        ? "Geminal coupling within a CH₂ is only observed when its two protons are diastereotopic; that was not analysed for this structure (see the limit above)."
+        : "The CH₂ protons here are homotopic or enantiotopic (none is diastereotopic), so no geminal coupling between them is observed."
+    );
+  }
   caveats.add("First-order analysis assumed (Δδ ≫ J); strongly coupled spins show second-order patterns.");
 
   return { smiles: base.smiles, signals, caveats: [...caveats] };

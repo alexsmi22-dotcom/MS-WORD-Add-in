@@ -21,6 +21,7 @@ import { resolveChemInput, resolveStructure, renderStructure } from "../structur
 import { resolveMassSpec, computeMassSpec } from "../massspec";
 import { formatFormula } from "../energy";
 import { balanceReaction } from "../balance";
+import { isotopeMass } from "../isotopes";
 
 const html = (formula: string) => segmentsToHtml(parseChemical(formula));
 
@@ -172,6 +173,49 @@ describe("live bug 1 — fractional and decimal hydrate coefficients", () => {
     expect(validateFormula("H0").valid).toBe(false);
     expect(validateFormula("¹⁴C").valid).toBe(false);
     expect(validateFormula("C6H12O6")).toMatchObject({ valid: true, hill: "C6H12O6", fractional: false, notes: [] });
+  });
+});
+
+describe("D and T — deuterium and tritium in formulas (NMR solvents)", () => {
+  const D = isotopeMass("H", 2)!;
+  const T = isotopeMass("H", 3)!;
+
+  test("the hardcoded ²H/³H masses are isotopes.ts's AME2020 values", () => {
+    expect(validateFormula("D").mass).toBeCloseTo(D, 10);
+    expect(validateFormula("T").mass).toBeCloseTo(T, 10);
+  });
+
+  test("CDCl3, D2O, C6D6, CD3OD are accepted, kept distinct from H, and the reading is said", () => {
+    const cdcl3 = validateFormula("CDCl3");
+    expect(cdcl3).toMatchObject({ valid: true, counts: { C: 1, D: 1, Cl: 3 } });
+    expect(cdcl3.mass).toBeCloseTo(12.011 + D + 3 * 35.45, 6);
+    expect(cdcl3.notes.join(" ")).toContain("deuterium, ²H");
+    expect(validateFormula("D2O")).toMatchObject({ valid: true, counts: { D: 2, O: 1 } });
+    expect(validateFormula("C6D6")).toMatchObject({ valid: true, counts: { C: 6, D: 6 } });
+    expect(validateFormula("CD3OD")).toMatchObject({ valid: true, counts: { C: 1, D: 4, O: 1 } });
+    expect(validateFormula("HDO")).toMatchObject({ valid: true, counts: { H: 1, D: 1, O: 1 } });
+    const t2o = validateFormula("T2O");
+    expect(t2o).toMatchObject({ valid: true, counts: { T: 2, O: 1 } });
+    expect(t2o.notes.join(" ")).toContain("tritium, ³H");
+    // The displayed Hill form re-parses.
+    for (const s of ["CDCl3", "CD3OD", "HDO", "T2O"]) expect(validateFormula(validateFormula(s).hill).counts).toEqual(validateFormula(s).counts);
+    // Plain hydrogen formulas carry no isotope note.
+    expect(validateFormula("CHCl3").notes).toEqual([]);
+  });
+
+  test("no element symbol collides: Db Ds Dy Ta Tb Tc Te Th Ti Tl Tm Ts are elements, not D/T", () => {
+    for (const el of ["Db", "Ds", "Dy", "Ta", "Tb", "Tc", "Te", "Th", "Ti", "Tl", "Tm", "Ts"]) {
+      const v = validateFormula(`${el}2O`);
+      expect({ el, valid: v.valid, counts: v.counts, notes: v.notes }).toEqual({ el, valid: true, counts: { [el]: 2, O: 1 }, notes: [] });
+    }
+    expect(validateFormula("Dx").valid).toBe(false);
+    expect(validateFormula("Tq").valid).toBe(false);
+  });
+
+  test("Mass Spec / Structure read CDCl3 as a formula (it is not SMILES)", () => {
+    const r = resolveChemInput("CDCl3", "auto", "massspec");
+    expect(r.kind).toBe("formula");
+    if (r.kind === "formula") expect(r.formula.counts).toEqual({ C: 1, D: 1, Cl: 3 });
   });
 });
 
@@ -332,8 +376,10 @@ describe("live bug 3 — a formula is not read as SMILES on a dictionary miss", 
   });
 
   test("No is nobelium, NO is SMILES with nitric oxide named, Hf is hafnium, HF is hydrogen fluoride", () => {
-    const no = resolveMassSpec("No", "auto");
-    expect(no.kind === "ok" && no.result.formula).toBe("No");
+    // Nobelium is read as the element; whether Mass Spec then gives a mass is
+    // isotopes.ts's call (no stable isotope → refused by name there).
+    const no = resolveChemInput("No", "auto", "massspec");
+    expect(no.kind === "formula" && no.formula.elementName).toBe("nobelium");
     const hf = resolveMassSpec("Hf", "auto");
     expect(hf.kind === "ok" && hf.result.averageMass).toBeCloseTo(178.49, 1);
     const HF = resolveMassSpec("HF", "auto");

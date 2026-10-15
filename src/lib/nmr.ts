@@ -44,6 +44,17 @@ import {
   symmetryClasses,
   SubstKey,
 } from "./molgraph";
+import {
+  analyseDiastereotopicity,
+  refineClasses,
+  geminalJ,
+  ch2Note,
+  PAIR_NOTE,
+  DEPENDS_NOTE,
+  DiastereotopicAnalysis,
+  GeminalJ,
+  RefinedGroup,
+} from "./diastereotopic";
 
 export type Nucleus = "1H" | "13C";
 
@@ -103,6 +114,18 @@ export interface NmrSignal {
   dept?: DeptClass;
   /** True when the value is a nominal range rather than an additivity estimate (OH/NH). */
   variable?: boolean;
+  /**
+   * Diastereotopicity of this signal's group, when there is something to say
+   * (see diastereotopic.ts). Absent for homotopic/enantiotopic groups.
+   *
+   *   "pair"    — cut out of a larger symmetry class: a diastereotopic partner
+   *               sits at the SAME predicted δ as a separate row (Δδ not predicted);
+   *   "CH2"     — the CH₂'s own two protons are diastereotopic: one row, count 2,
+   *               multiplicity m, with a typical geminal ²J range;
+   *   "depends" — diastereotopic or not depending on the relative configuration
+   *               of unspecified stereocentres; nothing was split.
+   */
+  diastereotopic?: { kind: "pair" | "CH2" | "depends"; note: string; geminal?: GeminalJ };
 }
 
 export interface NmrResult {
@@ -811,7 +834,7 @@ function heteroCouplersNear(mol: Molecule, a: number): string[] {
  * Records a caveat when a non-exchangeable heteronuclear coupler sits close
  * enough to split this signal — see HETERO_COUPLERS.
  */
-function multiplicity(mol: Molecule, a: number, caveats: Set<string>): string {
+function multiplicity(mol: Molecule, a: number, caveats: Set<string>, groupOf?: Map<number, number>): string {
   mol.ensureHelperArrays(Molecule.cHelperSymmetrySimple);
   const selfRank = mol.getSymmetryRank(a);
   const partners: number[] = [];
@@ -843,6 +866,10 @@ function multiplicity(mol: Molecule, a: number, caveats: Set<string>): string {
     // (all six H equivalent) would be reported as a triplet instead of the
     // singlet it actually is.
     if (mol.getSymmetryRank(nb.atom) === selfRank) continue;
+    // The same for nuclei made one signal by the mirror merge (meso halves):
+    // their simple ranks differ, but they are isochronous and do not split
+    // each other. Without this, meso-tartaric acid's CH was reported as a d.
+    if (groupOf && groupOf.get(nb.atom) !== undefined && groupOf.get(nb.atom) === groupOf.get(a)) continue;
     partners.push(h);
     ranks.add(mol.getSymmetryRank(nb.atom));
   }
@@ -867,6 +894,8 @@ export function predictNmr(input: string, nucleus: Nucleus): NmrResult | null {
   const { mol, smiles } = parsed;
   const caveats = new Set<string>();
   const n = mol.getAllAtoms();
+  const dia = diastereotopicFor(mol);
+  let sawDiastereotopic = false;
 
   if (nucleus === "13C") {
     const carbons: number[] = [];
@@ -874,7 +903,12 @@ export function predictNmr(input: string, nucleus: Nucleus): NmrResult | null {
     if (!carbons.length) return { smiles, nucleus, signals: [], caveats: [] };
 
     const signals: NmrSignal[] = [];
-    for (const group of symmetryClasses(mol, carbons)) {
+    // Symmetry classes, then SPLIT (never merged) by diastereotopicity: the two
+    // methyls of valine's isopropyl are two carbons at the same predicted δ.
+    const classes = symmetryClasses(mol, carbons);
+    const refined: RefinedGroup[] = dia ? refineClasses(classes, dia) : classes.map((atoms) => ({ atoms }));
+    if (refined.some((g) => g.status === "mirror")) caveats.add(MIRROR_CAVEAT);
+    for (const { atoms: group, status } of refined) {
       const rep = group[0];
       // null = this model has no honest shift for that environment. It is left
       // OUT of the signal list and named in the caveats, never filled in with a
@@ -882,16 +916,21 @@ export function predictNmr(input: string, nucleus: Nucleus): NmrResult | null {
       const predicted = shift13C(mol, rep, caveats);
       if (!predicted) continue;
       const { shift, assignment } = predicted;
-      signals.push({
+      const sig: NmrSignal = {
         shift,
         count: group.length,
         multiplicity: "s", // proton-decoupled, the standard 13C experiment
         assignment,
         atoms: group,
         dept: deptClass(mol, rep),
-      });
+      };
+      if (status === "split") sig.diastereotopic = { kind: "pair", note: PAIR_NOTE };
+      else if (status === "depends") sig.diastereotopic = { kind: "depends", note: DEPENDS_NOTE };
+      if (sig.diastereotopic) sawDiastereotopic = true;
+      signals.push(sig);
     }
-    signals.sort((x, y) => y.shift - x.shift);
+    finishDiastereotopicCaveats(dia, sawDiastereotopic, caveats);
+    signals.sort(bySignalOrder);
     return { smiles, nucleus, signals, caveats: [...caveats] };
   }
 
@@ -900,8 +939,19 @@ export function predictNmr(input: string, nucleus: Nucleus): NmrResult | null {
   for (let a = 0; a < n; a++) if (mol.getAllHydrogens(a) > 0) bearers.push(a);
   if (!bearers.length) return { smiles, nucleus, signals: [], caveats: [] };
 
+  // Carbon-bearing classes are refined by diastereotopicity; OH/NH classes are
+  // not — those protons are exchange-averaged, and a split would be fiction.
+  // Mirror-related (meso) classes are merged for every bearer, OH/NH included.
+  const bearerClasses = symmetryClasses(mol, bearers);
+  const groups: RefinedGroup[] = dia
+    ? refineClasses(bearerClasses, dia, (a) => mol.getAtomicNo(a) === 6)
+    : bearerClasses.map((atoms) => ({ atoms }));
+  if (groups.some((g) => g.status === "mirror")) caveats.add(MIRROR_CAVEAT);
+  const groupOf = new Map<number, number>();
+  groups.forEach((g, i) => g.atoms.forEach((a) => groupOf.set(a, i)));
+
   const signals: NmrSignal[] = [];
-  for (const group of symmetryClasses(mol, bearers)) {
+  for (const { atoms: group, status } of groups) {
     const rep = group[0];
     const hPer = mol.getAllHydrogens(rep);
     const count = hPer * group.length;
@@ -909,7 +959,29 @@ export function predictNmr(input: string, nucleus: Nucleus): NmrResult | null {
       const predicted = shift1HonCarbon(mol, rep, caveats);
       if (!predicted) continue; // omitted and caveated, not invented
       const { shift, assignment } = predicted;
-      signals.push({ shift, count, multiplicity: multiplicity(mol, rep, caveats), assignment, atoms: group });
+      const sig: NmrSignal = { shift, count, multiplicity: multiplicity(mol, rep, caveats, groupOf), assignment, atoms: group };
+      const topicity = hPer === 2 && dia ? dia.ch2.get(rep) : undefined;
+      if (topicity === "diastereotopic") {
+        // ONE row, count unchanged, never q/t/quint: the two protons couple to
+        // each other and to their neighbours separately (an ABX-type pattern).
+        const j = geminalJ(mol, rep);
+        sig.multiplicity = "m";
+        sig.diastereotopic = {
+          kind: "CH2",
+          note: status === "split" ? `${ch2Note(j)} Also: ${PAIR_NOTE}` : ch2Note(j),
+          geminal: j,
+        };
+      } else if (topicity === "depends" || status === "depends") {
+        // Not picked: in one configuration this is a clean n+1 multiplet and in
+        // another it is not, so the noncommittal "m" is the only honest letter
+        // for a CH₂; a CH₃/CH pair keeps its own multiplicity, unsplit.
+        if (topicity === "depends") sig.multiplicity = "m";
+        sig.diastereotopic = { kind: "depends", note: DEPENDS_NOTE };
+      } else if (status === "split") {
+        sig.diastereotopic = { kind: "pair", note: PAIR_NOTE };
+      }
+      if (sig.diastereotopic) sawDiastereotopic = true;
+      signals.push(sig);
     } else {
       const het = heteroatomProton(mol, rep);
       if (!het) continue;
@@ -923,8 +995,68 @@ export function predictNmr(input: string, nucleus: Nucleus): NmrResult | null {
       });
     }
   }
-  signals.sort((x, y) => y.shift - x.shift);
+  finishDiastereotopicCaveats(dia, sawDiastereotopic, caveats);
+  signals.sort(bySignalOrder);
   return { smiles, nucleus, signals, caveats: [...caveats] };
+}
+
+/**
+ * Downfield first, as a spectrum is read. Ties keep their class order (the sort
+ * is stable), exactly as before diastereotopic splitting existed — so a molecule
+ * with no diastereotopic group lists its signals in the same order it always did.
+ */
+function bySignalOrder(x: NmrSignal, y: NmrSignal): number {
+  return y.shift - x.shift;
+}
+
+/**
+ * The diastereotopicity analysis, or null when the molecule has nothing it
+ * could change: no symmetry class with two or more carbons and no carbon with
+ * two H. That gate is what keeps the (bounded but real) cost off benzene,
+ * acetone and every other molecule the analysis cannot affect.
+ */
+function diastereotopicFor(mol: Molecule): DiastereotopicAnalysis | null {
+  const carbons: number[] = [];
+  let candidate = false;
+  for (let a = 0; a < mol.getAllAtoms(); a++) {
+    if (mol.getAtomicNo(a) !== 6) continue;
+    carbons.push(a);
+    if (mol.getAllHydrogens(a) === 2) candidate = true;
+  }
+  // Two or more stereocentres can make a meso compound, whose mirror halves
+  // symmetryClasses splits (every class a singleton — meso-tartaric acid), so
+  // that alone is reason to run the analysis.
+  if (!candidate) {
+    mol.ensureHelperArrays(Molecule.cHelperParities);
+    let centres = 0;
+    for (let a = 0; a < mol.getAtoms(); a++) if (mol.isAtomStereoCenter(a)) centres++;
+    if (centres >= 2) candidate = true;
+  }
+  if (!candidate && !symmetryClasses(mol, carbons).some((g) => g.length > 1)) return null;
+  return analyseDiastereotopicity(mol);
+}
+
+const MIRROR_CAVEAT =
+  "Groups related by the molecule's own mirror symmetry (the two halves of a meso compound) are " +
+  "ENANTIOTOPIC, and enantiotopic nuclei are isochronous in an achiral solvent, so each such pair is " +
+  "reported as one signal. In a chiral solvent or with a chiral shift reagent they can separate.";
+
+function finishDiastereotopicCaveats(
+  dia: DiastereotopicAnalysis | null,
+  saw: boolean,
+  caveats: Set<string>
+): void {
+  if (!dia) return;
+  if (dia.limit) caveats.add(dia.limit);
+  if (saw) {
+    caveats.add(
+      "Diastereotopic groups are read from the structure's TOPOLOGY (OpenChemLib's diastereotopic-atom " +
+        "classification): a diastereotopic pair is listed as two rows at the same predicted δ, and a CH₂ whose " +
+        "two protons are diastereotopic is one row reported as m. NOT predicted: the Δδ between diastereotopic " +
+        "partners, second-order (AB/ABX) line positions, and coupling constants from geometry (Karplus). " +
+        "OH and NH protons are exchange-averaged and are never split."
+    );
+  }
 }
 
 /**
@@ -933,9 +1065,18 @@ export function predictNmr(input: string, nucleus: Nucleus): NmrResult | null {
  * sticks are uniform (decoupled 13C intensities are not quantitative).
  */
 export function nmrSticks(result: NmrResult): { x: number; y: number }[][] {
-  const maxCount = Math.max(1, ...result.signals.map((s) => s.count));
+  // COINCIDENT SIGNALS STACK. Two rows at the same δ — a diastereotopic pair
+  // whose Δδ is not predicted, or two environments whose estimates happen to
+  // coincide — draw on top of each other, so each stick is drawn at the SUMMED
+  // integral at its δ. Otherwise valine's two 3H methyl rows would show a 6H
+  // signal as a 3H stick. One series per signal is kept, so index i is still
+  // signal i.
+  const at = new Map<number, number>();
+  const keyOf = (shift: number) => Math.round(shift * 100);
+  for (const s of result.signals) at.set(keyOf(s.shift), (at.get(keyOf(s.shift)) ?? 0) + s.count);
+  const maxCount = Math.max(1, ...at.values());
   return result.signals.map((s) => {
-    const h = result.nucleus === "1H" ? s.count / maxCount : 1;
+    const h = result.nucleus === "1H" ? (at.get(keyOf(s.shift)) ?? s.count) / maxCount : 1;
     return [
       { x: s.shift, y: 0 },
       { x: s.shift, y: h },

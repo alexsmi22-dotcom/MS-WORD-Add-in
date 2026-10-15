@@ -25,6 +25,21 @@ export const PERIODIC: Record<string, number> = {
   Mt: 278, Ds: 281, Rg: 282, Cn: 285, Nh: 286, Fl: 289, Mc: 290, Lv: 293, Ts: 294, Og: 294,
 };
 
+/**
+ * The two hydrogen isotopes with their own symbols — D (²H) and T (³H) — as
+ * written in NMR solvents (CDCl₃, D₂O, C₆D₆, CD₃OD). They are kept as their own
+ * keys in `counts` (never merged into H) and weigh their EXACT isotope mass:
+ * AME2020 ²H 2.014101777844, ³H 3.01604928132 u — the values isotopes.ts stores
+ * (cross-checked in chemLiveBugs.test). Hardcoded rather than imported because
+ * isotopes.ts → periodic.ts → chemValidate.ts would be an import cycle.
+ * They are NOT elements: isElement("D") stays false and PERIODIC stays 118.
+ * Case keeps them apart from Db, Ds, Dy, Ta, Tb, Tc, Te, Th, Ti, Tl, Tm, Ts.
+ */
+const HYDROGEN_ISOTOPE_SYMBOLS: Record<string, { A: number; mass: number; name: string; label: string }> = {
+  D: { A: 2, mass: 2.014101777844, name: "deuterium", label: "²H" },
+  T: { A: 3, mass: 3.01604928132, name: "tritium", label: "³H" },
+};
+
 /** True if `symbol` is a real element symbol (case-sensitive, e.g. Co ≠ CO). */
 export function isElement(symbol: string): boolean {
   return Object.prototype.hasOwnProperty.call(PERIODIC, symbol);
@@ -178,7 +193,7 @@ function parseSegment(body: string): SegmentResult {
       let sym = ch;
       i++;
       while (i < n && isLower(body[i])) sym += body[i++];
-      if (!isElement(sym)) errors.push(`Unknown element “${sym}”`);
+      if (!isElement(sym) && !HYDROGEN_ISOTOPE_SYMBOLS[sym]) errors.push(`Unknown element “${sym}”`);
       const { num, sign } = readCount();
       // Digits after an atom are its subscript count; a bare trailing sign is a
       // ±1 charge (NH4+ → H:4, charge +1; NO3- → O:3, charge −1). A monatomic
@@ -334,7 +349,13 @@ export function validateFormula(input: string): FormulaValidation {
   let mass: number | null = null;
   if (valid) {
     mass = 0;
-    for (const [k, v] of Object.entries(counts)) mass += PERIODIC[k] * v;
+    for (const [k, v] of Object.entries(counts)) mass += (PERIODIC[k] ?? HYDROGEN_ISOTOPE_SYMBOLS[k].mass) * v;
+  }
+  for (const k of Object.keys(HYDROGEN_ISOTOPE_SYMBOLS)) {
+    if (counts[k]) {
+      const iso = HYDROGEN_ISOTOPE_SYMBOLS[k];
+      notes.push(`${k} read as ${iso.name}, ${iso.label} (exact isotope mass ${iso.mass.toFixed(6)} u), not as natural hydrogen.`);
+    }
   }
   const fractional = Object.values(counts).some((v) => !Number.isInteger(v));
   // A fractional composition — or a fractional COEFFICIENT, even when the counts

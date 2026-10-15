@@ -32,7 +32,16 @@
 //       its own base value, and the ordinary-enone arithmetic already lands
 //       within 1 nm for the steroid class (prednisone 239 vs 238 measured). What
 //       this module lacks is the separate base, so it says so.
-//     separate enone systems, aryl enones (Scott's rules) — as before.
+//
+//   REFUSED BY NAME (v2.138.0)
+//     quinone            — a ring of two C=O conjugated through ring C=C
+//     aryl-conjugated enone — an aromatic atom bonded to any atom of an enone
+//                       arm (chalcone, benzalacetone, cinnamaldehyde): these
+//                       absorb ~60-100 nm above the enone arithmetic
+//
+//   EVERY ARM IS SCORED (v2.138.0): each enone C=O–Cα=Cβ path, and each
+//   separate conjugated diene, gets its own ledger; λmax is the maximum, ties
+//   broken by ledger text, so the answer cannot depend on atom order.
 //
 // The domain test is computed over the WHOLE molecule before a chromophore is
 // chosen, so it cannot depend on which branch ran or on SMILES atom ordering.
@@ -137,6 +146,23 @@ export interface UvResult {
    */
   outOfDomain: boolean;
   caveats: string[];
+  /**
+   * Every chromophore arm that was scored, longest wavelength first (enones:
+   * one per C=O–Cα=Cβ path, so a cross-conjugated dienone has two; dienes: one
+   * per separate conjugated system). λmax is arms[0]'s, and `contributions` is
+   * arms[0]'s ledger. Absent on refusals and on the non-Woodward-Fieser
+   * branches. The order is independent of SMILES atom order.
+   */
+  arms?: UvArm[];
+}
+
+/** One scored Woodward-Fieser arm, for listing beside the winning ladder. */
+export interface UvArm {
+  chromophore: string;
+  lambdaMax: number;
+  contributions: UvContribution[];
+  /** The arm's arithmetic as one line, e.g. "… arm: base 215 + β-alkyl ×2 24 = 239 nm". */
+  ledger: string;
 }
 
 /** A C=C double bond between two carbons (excluding aromatic bonds). */
@@ -311,6 +337,292 @@ function alkylSubstituentCount(mol: Molecule, atom: number, exclude: number[]): 
   return n;
 }
 
+/**
+ * The caveat for a charge-aware substituent with no tabulated increment (see
+ * untabulatedAuxochrome in predictUvVis — the same sentence, so an arm scored
+ * here and the diene branch can never word it differently).
+ */
+function untabulatedAuxochromeText(key: SubstKey, where: string): string | null {
+  const label = substKeyLabel(key);
+  if (!label) return null;
+  return (
+    `${label} on the ${where} position of the chromophore has NO Woodward-Fieser increment tabulated ` +
+    "here and was OMITTED from the sum — the value is for the chromophore without that group, and a " +
+    "charged auxochrome can move λmax by tens of nm."
+  );
+}
+
+/** One scored enone arm: its own ledger, kept so every arm can be listed. */
+interface ScoredArm {
+  enone: Enone;
+  lambdaMax: number;
+  contributions: UvContribution[];
+  /** Caveats this arm's arithmetic raised (extension, untabulated groups). */
+  caveats: string[];
+  /** The arm's C=C bonds (α=β and any extension), for the exocyclic count. */
+  cc: [number, number][];
+  chromophore: string;
+  /** "base 215 + β-alkyl / ring residue ×2 24 = 239 nm" — no atom indices. */
+  ledger: string;
+}
+
+/** The base value and label for an enone arm, by carbonyl class and ring size. */
+function enoneBase(mol: Molecule, e: Enone): { base: number; label: string } {
+  if (e.kind === "aldehyde") return { base: 210, label: "α,β-unsaturated aldehyde base" };
+  if (e.kind === "acid" || e.kind === "ester") return { base: 195, label: "α,β-unsaturated acid/ester base" };
+  if (mol.isRingAtom(e.carbonyl) && mol.getAtomRingSize(e.carbonyl) === 5) return { base: 202, label: "5-ring enone base" };
+  return { base: 215, label: "6-ring / acyclic enone base" };
+}
+
+/** The C=C bonds an arm's conjugation runs through: α=β plus every extension. */
+function enoneConjugation(mol: Molecule, e: Enone): { extra: number; cc: [number, number][] } {
+  const visited = new Set<string>([`${Math.min(e.alpha, e.beta)}-${Math.max(e.alpha, e.beta)}`]);
+  const extra = countExtendedConjugation(mol, { a: e.alpha, b: e.beta }, visited);
+  const cc = [...visited].map((k) => k.split("-").map(Number) as [number, number]);
+  return { extra, cc };
+}
+
+/** Next C=C along a chain from `from` (single bond out, then a C=C), excluding `used`. */
+function nextCC(mol: Molecule, from: number, used: Set<number>): [number, number][] {
+  const out: [number, number][] = [];
+  for (const nb of neighbors(mol, from)) {
+    if (nb.order !== 1 || used.has(nb.atom) || mol.getAtomicNo(nb.atom) !== 6 || mol.isAromaticAtom(nb.atom)) continue;
+    if (carbonylKind(mol, nb.atom)) continue;
+    for (const nb2 of neighbors(mol, nb.atom)) {
+      if (nb2.order !== 2 || used.has(nb2.atom) || mol.getAtomicNo(nb2.atom) !== 6 || mol.isAromaticAtom(nb2.atom)) continue;
+      out.push([nb.atom, nb2.atom]);
+    }
+  }
+  return out;
+}
+
+/**
+ * The enone's chromophore chain in Woodward-Fieser order — [α, β, γ, δ, ε, …] —
+ * followed from β. `branched` is set when the extension forks (two ways on
+ * from one atom) and `throughAlpha` when a C=C hangs off α (cross-conjugation
+ * through α): neither is in the enone table, and both are refused by name.
+ */
+function enoneChain(mol: Molecule, e: Enone): { atoms: number[]; branched: boolean; throughAlpha: boolean } {
+  const atoms = [e.alpha, e.beta];
+  const used = new Set<number>([e.carbonyl, e.alpha, e.beta]);
+  let branched = false;
+  let cur = e.beta;
+  for (let guard = 0; guard < 64; guard++) {
+    const next = nextCC(mol, cur, used);
+    if (!next.length) break;
+    if (next.length > 1) {
+      branched = true;
+      break;
+    }
+    const [g, d] = next[0];
+    atoms.push(g, d);
+    used.add(g);
+    used.add(d);
+    cur = d;
+  }
+  const throughAlpha = nextCC(mol, e.alpha, used).length > 0;
+  return { atoms, branched, throughAlpha };
+}
+
+/** Consecutive chain C=C pairs that share one ring: each is a homoannular diene component. */
+function homoannularPairs(mol: Molecule, chain: number[]): number {
+  const rs = mol.getRingSet();
+  let n = 0;
+  for (let i = 0; i + 3 < chain.length; i += 2) {
+    const four = chain.slice(i, i + 4);
+    for (let r = 0; r < rs.getSize(); r++) {
+      const ring = rs.getRingAtoms(r);
+      if (four.every((a) => ring.includes(a))) {
+        n++;
+        break;
+      }
+    }
+  }
+  return n;
+}
+
+/** Every atom of an arm's chromophore: C=O carbon, α, β, and the extension. */
+function enoneChromophoreAtoms(mol: Molecule, e: Enone): Set<number> {
+  const atoms = new Set<number>([e.carbonyl, e.alpha, e.beta]);
+  for (const [x, y] of enoneConjugation(mol, e).cc) {
+    atoms.add(x);
+    atoms.add(y);
+  }
+  return atoms;
+}
+
+/**
+ * True when an aromatic atom is bonded to ANY atom of the chromophore — the C=O
+ * carbon (chalcone's PhC=O), α, β (benzalacetone's styryl), or an extension.
+ * An aromatic ring merely elsewhere in the molecule (a benzyl group on an
+ * enone) is not conjugated to it and does not trigger this.
+ */
+function arylConjugated(mol: Molecule, chromophore: Set<number>): boolean {
+  for (const x of chromophore) {
+    for (const nb of neighbors(mol, x)) {
+      if (chromophore.has(nb.atom)) continue;
+      if (mol.isAromaticAtom(nb.atom)) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * A quinone: a ring holding two or more ketone C=O, every ring atom sp² (a C=O
+ * carbon or a carbon double-bonded to another ring atom, or aromatic), with an
+ * enone arm inside it. p-Benzoquinone, toluquinone, duroquinone. Cyclohexa-2,5-
+ * dienone (one C=O) and cyclohexene-1,4-dione (two sp³ ring carbons) are not.
+ */
+function quinoneRing(mol: Molecule, enones: Enone[]): boolean {
+  const rs = mol.getRingSet();
+  for (let r = 0; r < rs.getSize(); r++) {
+    const ring = rs.getRingAtoms(r);
+    const inRing = new Set(ring);
+    let ketones = 0;
+    let allSp2 = true;
+    for (const a of ring) {
+      if (carbonylKind(mol, a) === "ketone") {
+        ketones++;
+        continue;
+      }
+      const sp2 =
+        mol.isAromaticAtom(a) ||
+        neighbors(mol, a).some((nb) => nb.order === 2 && inRing.has(nb.atom) && mol.getAtomicNo(nb.atom) === 6);
+      if (!sp2) allSp2 = false;
+    }
+    if (ketones >= 2 && allSp2 && enones.some((e) => inRing.has(e.carbonyl) && inRing.has(e.alpha))) return true;
+  }
+  return false;
+}
+
+/**
+ * How many (C=C, ring) pairs are EXOCYCLIC: the double bond has exactly one of
+ * its atoms in that ring. A graph property — testosterone's C4=C5 lies in ring A
+ * and leaves ring B at C5 — so no 3D context is needed to find it.
+ */
+function exocyclicCount(mol: Molecule, cc: [number, number][]): number {
+  const rs = mol.getRingSet();
+  let n = 0;
+  for (const [x, y] of cc) {
+    for (let r = 0; r < rs.getSize(); r++) {
+      const ring = rs.getRingAtoms(r);
+      if (ring.includes(x) !== ring.includes(y)) n++;
+    }
+  }
+  return n;
+}
+
+/**
+ * DECISION D-1 (docs/SCOPE-SPECTROSCOPY-BATCH.md §E7): the +5 nm exocyclic
+ * increment is NOT applied. Applying it moves prednisone from 239 to 244 nm
+ * against a measured 238, outside the ±5 the rules are quoted at, so the
+ * caveat is made true instead. It used to say the increment "requires 3D ring
+ * context", which was false: exocyclicity is read from the bond graph.
+ */
+function exocyclicCaveat(n: number): string {
+  return (
+    `This chromophore has ${n === 1 ? "an exocyclic C=C" : `${n} exocyclic C=C placements`} (a double bond ` +
+    "leaving a ring, found from the bond graph). Woodward-Fieser adds +5 nm for each; that increment is NOT " +
+    "applied here, because on the steroid enones it moves the value away from the measured one (prednisone " +
+    "239 → 244 nm against a measured 238)."
+  );
+}
+
+/** Scores one enone arm with its own ledger. Pure: no shared caveat state. */
+function scoreEnoneArm(mol: Molecule, e: Enone): ScoredArm {
+  const contributions: UvContribution[] = [];
+  const caveats: string[] = [];
+
+  const { base, label } = enoneBase(mol, e);
+  contributions.push({ label, nm: base });
+  let lambda = base;
+
+  // THE CHROMOPHORE CHAIN, in order: α, β, then γ, δ, … along the extension
+  // from β. Every chain atom is PART of the chromophore and is excluded from
+  // the substituent counts — counting the γ carbon as a "β-alkyl" (+12) was the
+  // defect that put hexa-2,4-dienal at 252 instead of 258 and 6,6-dimethyl-
+  // cyclohexa-2,4-dienone 45 nm low.
+  const { cc } = enoneConjugation(mol, e);
+  const chain = enoneChain(mol, e);
+  const skeletonAll = new Set([e.carbonyl, ...chain.atoms]);
+  const extra = chain.atoms.length / 2 - 1;
+  if (extra > 0) {
+    contributions.push({ label: `Extended conjugation ×${extra}`, nm: 30 * extra });
+    lambda += 30 * extra;
+    caveats.push(EXTENDED_ACCURACY);
+  }
+  // Homoannular diene component (+39): two consecutive chain C=C in one ring.
+  const homo = homoannularPairs(mol, chain.atoms);
+  if (homo) {
+    contributions.push({ label: `Homoannular diene component${homo > 1 ? ` ×${homo}` : ""}`, nm: 39 * homo });
+    lambda += 39 * homo;
+  }
+
+  // Alkyl substituents / ring residues by position: α +10, β +12, γ and
+  // higher +18 (Pavia, Lampman & Kriz, "Introduction to Spectroscopy", and
+  // Silverstein, Woodward-Fieser enone table).
+  const posName = (i: number) => (i === 0 ? "α" : i === 1 ? "β" : i === 2 ? "γ" : "δ");
+  const alkylByPos = new Map<string, number>();
+  chain.atoms.forEach((atom, i) => {
+    // At γ and beyond, a C=O carbon is not an "alkyl" (muconic acid's second
+    // COOH sits on the δ carbon); α/β keep their long-standing count.
+    const exclude = [...skeletonAll];
+    if (i >= 2) for (const nb of neighbors(mol, atom)) if (carbonylKind(mol, nb.atom)) exclude.push(nb.atom);
+    const n = alkylSubstituentCount(mol, atom, exclude);
+    if (!n) return;
+    const key = i <= 1 ? posName(i) : "γ/δ";
+    alkylByPos.set(key, (alkylByPos.get(key) ?? 0) + n);
+  });
+  for (const key of ["α", "β", "γ/δ"]) {
+    const n = alkylByPos.get(key);
+    if (!n) continue;
+    const per = key === "α" ? 10 : key === "β" ? 12 : 18;
+    const lbl = key === "γ/δ" ? "γ-or-higher alkyl / ring residue" : `${key}-alkyl / ring residue`;
+    contributions.push({ label: `${lbl} ×${n}`, nm: per * n });
+    lambda += per * n;
+  }
+
+  // Polar auxochromes by position (same table). Within one position they are
+  // sorted by label: a carbon can carry two, and neighbour order is atom order.
+  const POLAR: Record<string, Record<string, number>> = {
+    α: { OH: 35, OR: 35, OAc: 6, Cl: 15, Br: 25, NR2: 0 },
+    β: { OH: 30, OR: 30, OAc: 6, Cl: 12, Br: 30, NR2: 95, SR: 85 },
+    γ: { OR: 17, OAc: 6 },
+    δ: { OH: 50, OR: 31, OAc: 6 },
+  };
+  for (const [pos, atom, incs] of chain.atoms.map(
+    (a, i) => [posName(i), a, POLAR[posName(i)]] as [string, number, Record<string, number>]
+  )) {
+    const here: UvContribution[] = [];
+    const hereCaveats: string[] = [];
+    for (const nb of neighbors(mol, atom)) {
+      if (skeletonAll.has(nb.atom)) continue;
+      const key = classifySubstituent(mol, nb.atom, atom);
+      const inc = incs[key];
+      if (inc === undefined) {
+        const t = untabulatedAuxochromeText(key, pos);
+        if (t) hereCaveats.push(t);
+      }
+      if (inc === undefined || inc === 0) continue;
+      here.push({ label: `${pos}-${key}`, nm: inc });
+      lambda += inc;
+    }
+    here.sort((x, y) => (x.label < y.label ? -1 : x.label > y.label ? 1 : 0));
+    contributions.push(...here);
+    caveats.push(...hereCaveats.sort());
+  }
+
+  const chromophore = `α,β-unsaturated ${e.kind === "acid" || e.kind === "ester" ? "acid/ester" : e.kind}`;
+  const ledger = `${chromophore} arm: ${contributions.map((c) => `${c.label} ${c.nm}`).join(" + ")} = ${lambda} nm`;
+  return { enone: e, lambdaMax: lambda, contributions, caveats, cc, chromophore, ledger };
+}
+
+/** Longest wavelength first; ties by ledger text, which carries no atom index. */
+function compareArms(x: ScoredArm, y: ScoredArm): number {
+  if (y.lambdaMax !== x.lambdaMax) return y.lambdaMax - x.lambdaMax;
+  return x.ledger < y.ledger ? -1 : x.ledger > y.ledger ? 1 : 0;
+}
+
 /** Auxochrome increments for the diene rules. */
 const DIENE_AUX: Partial<Record<SubstKey, { nm: number; label: string }>> = {
   OR: { nm: 6, label: "-OR (alkoxy)" },
@@ -394,16 +706,6 @@ export function predictUvVis(input: string): UvResult | null {
    * a β carbon is a very large effect; silence would have been the worst
    * possible answer.)
    */
-  const untabulatedAuxochrome = (key: SubstKey, where: string): void => {
-    const label = substKeyLabel(key);
-    if (!label) return;
-    caveats.add(
-      `${label} on the ${where} position of the chromophore has NO Woodward-Fieser increment tabulated ` +
-        "here and was OMITTED from the sum — the value is for the chromophore without that group, and a " +
-        "charged auxochrome can move λmax by tens of nm."
-    );
-  };
-
   const refuse = (chromophore: string, why: string): UvResult => {
     caveats.add(why);
     caveats.add(
@@ -528,7 +830,60 @@ export function predictUvVis(input: string): UvResult | null {
     );
   }
   if (enones.length) {
-    const e = enones[0];
+    // REFUSALS FIRST, before anything is added to the caveat set: a refusal must
+    // never carry a caveat written for a value it did not produce.
+    //
+    // And refuse the WHOLE molecule if any arm is out of domain. λmax is the
+    // maximum over the arms, and a maximum cannot be taken over an arm whose
+    // value is unknown — an aryl enone really absorbs 60-100 nm above anything
+    // the enone arithmetic gives, so it would be the maximum.
+    if (quinoneRing(mol, enones)) {
+      return refuse(
+        "quinone chromophore — not a Woodward-Fieser enone",
+        "Quinone chromophore — not a Woodward-Fieser enone. The ring holds two C=O conjugated through the ring " +
+          "C=C (p-benzoquinone, a methyl- or tetramethyl-quinone), which is a single cyclic chromophore with its " +
+          "own bands, not an α,β-unsaturated ketone with a β-alkyl substituent. Scored as one, p-benzoquinone " +
+          "came out at 227 nm and duroquinone at 249 under a ±5 nm caveat, from rules that do not describe them."
+      );
+    }
+    if (enones.some((x) => arylConjugated(mol, enoneChromophoreAtoms(mol, x)))) {
+      return refuse(
+        "aryl-conjugated enone — Woodward-Fieser does not apply",
+        "Aryl-conjugated enone — Woodward-Fieser does not apply; no value is given. An aromatic ring conjugated " +
+          "to the enone (a styryl or aryl-ketone system: benzalacetone, chalcone, cinnamaldehyde, " +
+          "dibenzylideneacetone) is a much longer chromophore than the enone the rules describe, and absorbs " +
+          "roughly 60-100 nm above the enone arithmetic (which gives 227 nm for the three ketones and 222 for " +
+          "cinnamaldehyde). Scott's rules cover " +
+          "aryl carbonyls ArCOX, not styryl systems, and neither is carried here."
+      );
+    }
+
+    // Extensions the enone table does not describe: a fork in the chain, or a
+    // C=C conjugated through α. Refused by name rather than scored under a
+    // ±5 nm label that would not apply.
+    if (enones.some((x) => { const c = enoneChain(mol, x); return c.branched || c.throughAlpha; })) {
+      return refuse(
+        "cross-conjugated extended enone — outside the Woodward-Fieser enone table",
+        "Cross-conjugated extended enone: the conjugation forks, or a C=C is conjugated through the α carbon " +
+          "rather than along the chain from β. The Woodward-Fieser enone increments (+30 per extending C=C, " +
+          "+18 for γ/δ substituents, +39 for a homoannular diene component) are tabulated for a single chain " +
+          "running from β, so no value is given."
+      );
+    }
+
+    // EVERY arm is scored, each with its own ledger, and λmax is the maximum.
+    //
+    // Scoring only enones[0] made the answer depend on SMILES ATOM ORDER — the
+    // header above promised it could not. One molecule with two separate enones
+    // came out 227 nm written one way and 239 the other; androsta-1,4-diene-3,17-
+    // dione got 227 (its C1=C2 arm) while prednisone, the same chromophore, got
+    // 239 (its C4=C5 arm). Arms are sorted by λ, then by their ledger text (which
+    // carries no atom index), so the winner, the tie-break, the arm listing and
+    // the caveat order are all independent of how the input was written.
+    const arms = enones.map((x) => scoreEnoneArm(mol, x)).sort(compareArms);
+    const best = arms[0];
+    const e = best.enone;
+
     // Two unsaturations on ONE carbonyl is the cross-conjugated dienone. It is
     // NOT refused: Woodward-Fieser tabulates that chromophore explicitly, with
     // its own base value, and refusing it threw away answers that were RIGHT —
@@ -545,98 +900,67 @@ export function predictUvVis(input: string): UvResult | null {
           "for this class rather than accurate to the usual ±5 nm."
       );
     }
-    if (enones.length > 1) {
-      // Genuinely separate enones, not cross-conjugation: the rules DO apply to
-      // each, and what is observed is the longest-wavelength one. Say that,
-      // rather than the old text, which called every such molecule
-      // cross-conjugated whether or not it was.
+    if (arms.length > 1) {
+      // Every arm is listed with its own value, so the user can see which one
+      // set λmax and by how much the others fall short.
       caveats.add(
-        `${enones.length} separate enone systems found; λmax is computed for one of them. The observed λmax ` +
-          "is that of the longest-wavelength chromophore, which need not be the one below."
+        `${arms.length} enone arms were each scored (${arms.map((a) => a.lambdaMax).join(", ")} nm); λmax is ` +
+          `the longest-wavelength arm, whose arithmetic is shown. Every arm: ${arms.map((a) => a.ledger).join("; ")}.`
       );
     }
-    const skeleton = [e.carbonyl, e.alpha, e.beta];
+    for (const a of arms) for (const c of a.caveats) caveats.add(c);
 
-    // Base value by carbonyl class and ring size.
-    let base = 215;
-    let baseLabel = "6-ring / acyclic enone base";
-    if (e.kind === "aldehyde") {
-      base = 210;
-      baseLabel = "α,β-unsaturated aldehyde base";
-    } else if (e.kind === "acid" || e.kind === "ester") {
-      base = 195;
-      baseLabel = "α,β-unsaturated acid/ester base";
-    } else if (mol.isRingAtom(e.carbonyl) && mol.getAtomRingSize(e.carbonyl) === 5) {
-      base = 202;
-      baseLabel = "5-ring enone base";
-    }
-    contributions.push({ label: baseLabel, nm: base });
-    let lambda = base;
-
-    // Extended conjugation beyond the enone: +30 nm each.
-    const visited = new Set<string>([`${Math.min(e.alpha, e.beta)}-${Math.max(e.alpha, e.beta)}`]);
-    const extra = countExtendedConjugation(mol, { a: e.alpha, b: e.beta }, visited);
-    // The size limit is enforced above, over the whole molecule.
-    if (extra > 0) {
-      contributions.push({ label: `Extended conjugation ×${extra}`, nm: 30 * extra });
-      lambda += 30 * extra;
-      caveats.add(EXTENDED_ACCURACY);
-    }
-
-    // Alkyl substituents: α +10, β +12, γ and beyond +18.
-    const aAlkyl = alkylSubstituentCount(mol, e.alpha, skeleton);
-    const bAlkyl = alkylSubstituentCount(mol, e.beta, skeleton);
-    if (aAlkyl) {
-      contributions.push({ label: `α-alkyl / ring residue ×${aAlkyl}`, nm: 10 * aAlkyl });
-      lambda += 10 * aAlkyl;
-    }
-    if (bAlkyl) {
-      contributions.push({ label: `β-alkyl / ring residue ×${bAlkyl}`, nm: 12 * bAlkyl });
-      lambda += 12 * bAlkyl;
-    }
-
-    // Polar auxochromes on α / β.
-    for (const [pos, atom, incs] of [
-      ["α", e.alpha, { OH: 35, OR: 35, OAc: 6, Cl: 15, Br: 25, NR2: 0 }],
-      ["β", e.beta, { OH: 30, OR: 30, OAc: 6, Cl: 12, Br: 30, NR2: 95 }],
-    ] as [string, number, Record<string, number>][]) {
-      for (const nb of neighbors(mol, atom)) {
-        if (skeleton.includes(nb.atom)) continue;
-        const key = classifySubstituent(mol, nb.atom, atom);
-        const inc = incs[key];
-        if (inc === undefined) untabulatedAuxochrome(key, pos);
-        if (inc === undefined || inc === 0) continue;
-        contributions.push({ label: `${pos}-${key}`, nm: inc });
-        lambda += inc;
-      }
-    }
+    const exo = exocyclicCount(mol, best.cc);
+    if (exo > 0) caveats.add(exocyclicCaveat(exo));
 
     if (hasAromatic) {
+      // Any ring CONJUGATED to an arm was refused above, so a ring reaching this
+      // point is elsewhere in the molecule.
       caveats.add(
-        "An aromatic ring is conjugated to this system; aryl enones follow Scott's rules rather than Woodward-Fieser, so this value is indicative only."
+        "A benzene ring is present but is not conjugated to the enone; its own weak B-band near 254 nm is a " +
+          "separate absorption and is not part of this λmax."
       );
     }
-    caveats.add("Woodward-Fieser enone rules: typically ±5 nm within their domain (ethanol solution).");
+    // The ±5 nm claim is made only for the simple enones it was fitted to; an
+    // extended (dienone/dienal) arm carries EXTENDED_ACCURACY instead.
+    if (!best.contributions.some((c) => c.label.startsWith("Extended conjugation"))) {
+      caveats.add("Woodward-Fieser enone rules: typically ±5 nm within their domain (ethanol solution).");
+    }
+    contributions.push(...best.contributions);
     return {
       smiles,
-      lambdaMax: lambda,
+      lambdaMax: best.lambdaMax,
       chromophore: `α,β-unsaturated ${e.kind === "acid" || e.kind === "ester" ? "acid/ester" : e.kind}`,
       contributions,
       transparent: false,
       outOfDomain: false,
       caveats: [...caveats],
+      arms: arms.map((a) => ({ chromophore: a.chromophore, lambdaMax: a.lambdaMax, contributions: a.contributions, ledger: a.ledger })),
     };
   }
 
   // --- Conjugated diene (Woodward-Fieser diene rules) ---------------------
   // A diene needs two C=C joined by a single bond.
+  //
+  // EVERY conjugated system is scored and the longest wavelength wins, as for
+  // the enone arms. This loop used to RETURN on the first diene in atom order,
+  // so a molecule with two separate dienes got whichever the SMILES listed first.
+  // Starting from any C=C of one system reaches the same system and the same
+  // sum, so scoring every alkene and sorting is exactly "max over systems".
+  const dienes: ScoredArm[] = [];
+  const seenSystems = new Set<string>();
   for (const alk of alkenes) {
     const visited = new Set<string>();
     const extra = countExtendedConjugation(mol, alk, visited);
     if (extra < 1) continue; // isolated alkene, not a diene
+    const sysKey = [...visited].sort().join("|");
+    if (seenSystems.has(sysKey)) continue;
+    seenSystems.add(sysKey);
 
     const conjAtoms = new Set<number>();
     for (const k of visited) for (const p of k.split("-")) conjAtoms.add(Number(p));
+    const contribs: UvContribution[] = [];
+    const armCaveats: string[] = [];
 
     // Size and branching are enforced above, over the whole molecule.
     // Homoannular (both C=C in the same ring, cisoid) base 253; else 214.
@@ -646,18 +970,21 @@ export function predictUvVis(input: string): UvResult | null {
       new Set(ringAtoms.map((x) => mol.getAtomRingSize(x))).size === 1 &&
       ringAtoms.length === conjAtoms.size;
     const base = homoannular ? 253 : 214;
-    contributions.push({ label: homoannular ? "Homoannular diene base" : "Acyclic/heteroannular diene base", nm: base });
+    contribs.push({ label: homoannular ? "Homoannular diene base" : "Acyclic/heteroannular diene base", nm: base });
     let lambda = base;
 
     if (extra > 1) {
-      contributions.push({ label: `Extended conjugation ×${extra - 1}`, nm: 30 * (extra - 1) });
+      contribs.push({ label: `Extended conjugation ×${extra - 1}`, nm: 30 * (extra - 1) });
       lambda += 30 * (extra - 1);
-      caveats.add(EXTENDED_ACCURACY);
+      armCaveats.push(EXTENDED_ACCURACY);
     }
 
     // +5 nm per alkyl substituent / ring residue on the conjugated system.
+    // Auxochromes are collected and SORTED by label: walking conjAtoms visits
+    // them in atom order, and the ladder must not depend on that.
     let alkyl = 0;
-    const auxSeen: string[] = [];
+    const auxContribs: UvContribution[] = [];
+    const auxCaveats: string[] = [];
     for (const atom of conjAtoms) {
       for (const nb of neighbors(mol, atom)) {
         if (conjAtoms.has(nb.atom)) continue;
@@ -668,32 +995,60 @@ export function predictUvVis(input: string): UvResult | null {
           continue;
         }
         const aux = DIENE_AUX[key];
-        if (!aux) untabulatedAuxochrome(key, "diene");
+        if (!aux) {
+          const t = untabulatedAuxochromeText(key, "diene");
+          if (t) auxCaveats.push(t);
+        }
         if (aux && aux.nm > 0) {
-          contributions.push({ label: aux.label, nm: aux.nm });
+          auxContribs.push({ label: aux.label, nm: aux.nm });
           lambda += aux.nm;
-          auxSeen.push(aux.label);
         }
       }
     }
+    auxContribs.sort((x, y) => (x.label < y.label ? -1 : x.label > y.label ? 1 : 0));
+    contribs.push(...auxContribs);
+    armCaveats.push(...auxCaveats.sort());
     if (alkyl) {
-      contributions.push({ label: `Alkyl / ring residue ×${alkyl}`, nm: 5 * alkyl });
+      contribs.push({ label: `Alkyl / ring residue ×${alkyl}`, nm: 5 * alkyl });
       lambda += 5 * alkyl;
     }
-
+    const chromophore = homoannular ? "homoannular conjugated diene" : "conjugated diene";
+    dienes.push({
+      enone: { carbonyl: -1, alpha: alk.a, beta: alk.b, kind: "diene" },
+      lambdaMax: lambda,
+      contributions: contribs,
+      caveats: armCaveats,
+      cc: [...visited].map((k) => k.split("-").map(Number) as [number, number]),
+      chromophore,
+      ledger: `${chromophore}: ${contribs.map((c) => `${c.label} ${c.nm}`).join(" + ")} = ${lambda} nm`,
+    });
+  }
+  if (dienes.length) {
+    dienes.sort(compareArms);
+    const best = dienes[0];
+    if (dienes.length > 1) {
+      caveats.add(
+        `${dienes.length} separate conjugated dienes were each scored (${dienes.map((d) => d.lambdaMax).join(", ")} nm); ` +
+          `λmax is the longest-wavelength one, whose arithmetic is shown. Every system: ${dienes.map((d) => d.ledger).join("; ")}.`
+      );
+    }
+    for (const d of dienes) for (const c of d.caveats) caveats.add(c);
     if (hasAromatic) {
       caveats.add("An aromatic ring is present; if it is conjugated to the diene the rules do not strictly apply.");
     }
     caveats.add("Woodward-Fieser diene rules: typically ±5 nm within their domain (ethanol solution).");
-    caveats.add("Exocyclic-double-bond (+5 nm) corrections require 3D ring context and are not applied.");
+    const exo = exocyclicCount(mol, best.cc);
+    if (exo > 0) caveats.add(exocyclicCaveat(exo));
+    contributions.push(...best.contributions);
     return {
       smiles,
-      lambdaMax: lambda,
-      chromophore: homoannular ? "homoannular conjugated diene" : "conjugated diene",
+      lambdaMax: best.lambdaMax,
+      chromophore: best.chromophore,
       contributions,
       transparent: false,
       outOfDomain: false,
       caveats: [...caveats],
+      arms: dienes.map((a) => ({ chromophore: a.chromophore, lambdaMax: a.lambdaMax, contributions: a.contributions, ledger: a.ledger })),
     };
   }
 

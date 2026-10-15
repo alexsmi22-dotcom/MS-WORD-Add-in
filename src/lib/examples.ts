@@ -581,13 +581,17 @@ export const MODE_EXAMPLES: Record<ExampleMode, string> = {
     </p>
     <ul>
       <li><strong>Exact masses</strong> — monoisotopic (for high-res MS) and average</li>
-      <li><strong>Isotope pattern</strong> — M, M+1, M+2… peaks with relative intensities (e.g. the ~32% M+2 of a chlorine)</li>
+      <li><strong>Isotope pattern</strong> — every stable isotope of every element, as nominal-mass peaks labelled from M (the most abundant isotope of each element): <code>C2Cl4</code> → base peak <strong>M+2</strong> 165.8725, M 78.1 %, M+4 48.0 %; an iron compound shows its ⁵⁴Fe peak as <strong>M−2</strong>. Drawn as a stick chart you can insert</li>
+      <li><strong>Labelled isotopes</strong> — <code>[13CH3]C</code> → “Labelled isotopes: ¹³C × 1”; <code>CC[2H]</code> → C₂H₅D, ²H × 1</li>
       <li><strong>Adduct m/z</strong> — [M+H]⁺, [M+Na]⁺, [M+K]⁺, [M+NH₄]⁺, [M+2H]²⁺, [M−H]⁻, [M+Cl]⁻, [M+HCOO]⁻, [M−2H]²⁻</li>
       <li><strong>Formula or SMILES?</strong> <code>Co</code> is cobalt (58.9332), not CH₃O; <code>Fe2O3</code> has masses though no structure; when both readings are valid and differ the one used is said and the other named — <code>formula:</code> or <code>smiles:</code> chooses</li>
+      <li><strong>Compare with acquired spectrum</strong> — open a measured JCAMP-DX mass spectrum and see it head-to-tail against the computed pattern, with a match table (proximity, not an assignment)</li>
     </ul>
     <p class="examples-note">
-      Isotope abundances are standard NIST values; the pattern covers the common organic/bio
-      elements (C, H, N, O, S, P, halogens, Si, Se, B, Na, K). Analysis aid — verify before relying.
+      Masses AME2020; compositions CIAAW 2024, covering all 84 elements with a natural isotopic
+      composition (H–U). Natural composition only (no enrichment), no fine structure; an element
+      with no stable isotope (Tc, Pm) is refused unless you name the isotope (<code>[99Tc]</code>).
+      Analysis aid — verify before relying.
     </p>`,
   spectra: `
     <p class="examples-note">
@@ -598,10 +602,12 @@ export const MODE_EXAMPLES: Record<ExampleMode, string> = {
     </p>
     <ul>
       <li><strong>¹H NMR</strong> — shift, integration and <em>n+1</em> multiplicity per signal, with an assignment. Symmetry-aware, so benzene is one 6H singlet. Try <code>toluene</code> (CH₃ ≈ 2.4, 3H, s). Typical <strong>±0.2–0.4 ppm</strong></li>
+      <li><strong>Diastereotopic groups</strong> — read from the structure's topology: <code>valine</code>'s two CH₃ are two rows at δ 0.87 with a note; <code>ibuprofen</code>'s ArCH₂ is <strong>m (²J 14–18 Hz)</strong> — the typical geminal range, not a predicted value. The Δδ between partners is not predicted</li>
       <li><strong>¹³C NMR</strong> — Grant–Paul additivity (sp³) + benzene increments (aromatic); carbonyl classes separate properly (ketone ≈ 205, aldehyde ≈ 199, acid ≈ 178, ester ≈ 171). Typical <strong>±2–4 ppm</strong></li>
       <li><strong>IR</strong> — characteristic group frequencies + a simulated transmittance trace. Ester ≈ 1740 &gt; ketone ≈ 1715 &gt; amide ≈ 1660; conjugation drops C=O ~25 cm⁻¹ (<code>acetophenone</code> ≈ 1690)</li>
-      <li><strong>UV-Vis</strong> — λmax by <strong>Woodward–Fieser</strong> with every increment shown, so you can audit the arithmetic (<code>CC(=O)C=C(C)C</code> → ≈ 237 nm)</li>
+      <li><strong>UV-Vis</strong> — λmax by <strong>Woodward–Fieser</strong> with every increment shown, so you can audit the arithmetic (<code>CC(=O)C=C(C)C</code> → 239 nm). A cross-conjugated dienone scores every enone arm and reports the longest; an extended enone (<code>CC=CC=CC(=O)C</code> → 263 nm) carries an extended-accuracy caveat; aryl enones (<code>cinnamaldehyde</code>, chalcone) and quinones are refused by name</li>
       <li><strong>MS fragmentation</strong> — exact fragment m/z via α-cleavage, benzylic→tropylium, McLafferty and gated neutral losses (<code>toluene</code> → m/z 91 tropylium, its real base peak)</li>
+      <li><strong>Compare with acquired spectrum</strong> — open a measured JCAMP-DX file below the prediction and press <em>Compare</em>: the two are overlaid (sticks for NMR, a curve for IR, a λmax marker for UV, head-to-tail for MS) with a match table — each predicted line, the nearest measured peak and Δ. Give a reference peak (<code>7.36 = 7.26</code>) if the file's referencing is off. A match is proximity, not an assignment</li>
     </ul>
     <p class="examples-note">
       Out-of-domain cases are disclosed, never guessed: an unconjugated molecule reports

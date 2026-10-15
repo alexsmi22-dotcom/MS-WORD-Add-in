@@ -6,6 +6,108 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.139.0] — 2026-10-14 — Spectroscopy: JCAMP overlay, exact isotope patterns, diastereotopic NMR, and Woodward–Fieser fixes
+
+From `docs/SCOPE-SPECTROSCOPY-BATCH.md` (oracles: the Python `jcamp` 1.3.2
+decoder, IsoSpecPy 2.5.0, molmass, RDKit, the CIAAW 2024 isotopic
+compositions, AME2020 masses, the Woodward–Fieser enone tables). LIVE WRONG
+ANSWERS fixed first:
+- **The JCAMP-DX reader corrupted DIFDUP data**: a DUP after a DIF repeated
+  the value instead of the difference, so `compound.jdx` came back with
+  1,083 of its 1,976 points wrong — drawn and offered for insertion with
+  the failed Y-checks listed beneath it. x also slipped one sample after
+  every Y-check line (`compound.jdx` started at 452 cm⁻¹, not 450). AFFN
+  with an exponent was read as SQZ; `(XYW..XYW)` peak tables were read as
+  pairs; every NTUPLES file (and an NMR FID) came back `ok` as a one-point
+  (0, 0) "spectrum"; a LINK file showed its first block, a 4-point peak
+  table drawn as a line, instead of the 16,384-point spectrum.
+- **Isotope patterns were cut, mislabelled or missing elements**: a 6-peak
+  cap dropped C₂Cl₄'s M+6 (10.2 %); labels counted from the lightest
+  isotopologue, so selenomethionine's labels were 6 Da high with its ⁸⁰Se
+  base peak cut, and phenylboronic acid printed the ¹¹B mass against the ¹⁰B
+  peak; HgCl₂, ferrocene, cisplatin and nine other metal compounds were drawn
+  as if the metal had no isotopes (cisplatin's true base peak is M+1, ¹⁹⁵Pt),
+  under "masses and adducts are still exact".
+- **OpenChemLib's masses were wrong**: Cu by +10 mDa (⁶³Cu 62.93960 against
+  62.92960 — Cu(NO₃)₂ 186.9152, now 186.9052), Pa by 15 Da (²¹⁶Pa 216.01896
+  for ²³¹Pa 231.03588), and Tc, Po and Ra given invented masses. Every mass
+  now comes from AME2020; an element with no stable isotope is refused by
+  name ("write the isotope, e.g. [99Tc]").
+- **`C6Cl6` was answered as chloromethane** (CH₃Cl, 49.99) — a v2.137.0
+  regression: OpenChemLib accepted a ring closure that duplicates an
+  existing bond. `C6F6`, `C6Br6`, `C2Cl2`, `C2Br2`, `C3Br3` the same. They
+  are formulas again (C₆Cl₆ M 281.8131); `C1CCCCC1`, decalin and cubane stay
+  SMILES.
+- **UV λmax depended on SMILES atom order**: one molecule with two enones
+  gave 227 nm written one way and 239 nm the other; androsta-1,4-diene-3,17-
+  dione gave 227 where prednisone, the same chromophore, gave 239.
+  p-Benzoquinone (227), duroquinone (249) and benzalacetone, chalcone and
+  dibenzylideneacetone (227 each, really ≈ 60–100 nm higher) were all given
+  numbers. Extended enones were mis-scored: hexa-2,4-dienal 252 (now 258),
+  cholesta-4,6-dien-3-one 269 (now 275).
+- **¹H NMR merged diastereotopic groups**: valine's isopropyl methyls were
+  one 6H d (now 3H d + 3H d at 0.87); `CC(C)C(O)C` had 4 ¹³C signals for 5
+  environments; a diastereotopic CH₂ was a clean q (acetal OCH₂), quint
+  (2-butanol) or d (glycerol). Ibuprofen's ring protons came out t for one
+  atom order and s for another. Meso halves were split (meso-2,4-
+  dichloropentane 5 ¹³C rows, now 3).
+
+### Added
+- **JCAMP-DX reader** (`jcamp.ts`): ASDF DIF/DUP decoded exactly against the
+  independent decoder over the committed test corpus; x positions from
+  FIRSTX + i·ΔX; Y-checks enforced — a block that fails its own checks is
+  shown with the failing line and **cannot be inserted or overlaid**;
+  1D NMR NTUPLES (the real page); peak tables drawn as sticks, never joined
+  into a trace; %T converted to absorbance for peak picking; `$OFFSET`
+  anchored at FIRSTX; a **block picker** for multi-block files, the default
+  a full trace over a peak table, with the reason said. FID, nD NMR and
+  GC-MS NTUPLES are refused by name. Units shown as cm⁻¹, Hz, m/z, with the
+  file's raw string kept as provenance.
+- **Compare with acquired spectrum** (`spectrumOverlay.ts`,
+  `overlayChart.ts`): the prediction drawn over a loaded JCAMP file for ¹H,
+  ¹³C, IR, UV-Vis and MS (sticks, a curve, a λmax marker, head-to-tail),
+  with a match table of each predicted line, the nearest measured peak and
+  Δ. 2-methyl-1-propanol ¹H against its measured spectrum: 4 of 4 inside
+  their window. Referencing is never shifted silently: an ethylbenzene ¹³C
+  file is "Not assessed: the measured axis looks offset by +9.09 ppm" until
+  a **reference peak** is given (`86.25 = 77.16` → 6 of 6). Kind, nucleus,
+  phase (`##STATE=gas`) and `##MOLFORM` mismatches are said. "A prediction
+  is not an assignment: a nearest peak is proximity, not identity."
+- **Exact isotope patterns** (`isotopes.ts`, `isotopeChart.ts`): all 84
+  elements with a natural composition (289 isotopes), CIAAW 2024 abundances
+  and AME2020 masses stored verbatim and hashed; M is the most abundant
+  isotope of every element and labels run M−n … M+n with a true minus
+  (ferrocene M−2 184.0179 for ⁵⁴Fe; C₂Cl₄ base peak M+2 165.8725); no peak
+  cap below 0.1 % of base (what is left out is counted and said); chlorophyll
+  a's magnesium is in its pattern (M+1 74.63, M+2 41.69). D and T are read
+  as ²H and ³H (CDCl₃ = 118.92066). The **isotope stick chart** is the Mass
+  Spec figure, and Mass Spec gets its own comparison against an MS file.
+- **Diastereotopic groups** (`diastereotopic.ts`): from the structure's
+  topology; diastereotopic methyls become two signals at the same δ, a
+  diastereotopic CH₂ is one row "m" with its typical ²J by class (ibuprofen's
+  ArCH₂: m (²J 14–18 Hz)), footnoted in the table and in the inserted text;
+  an unspecified relative configuration is said, not picked; meso halves
+  merged. No Δδ, no second-order patterns, no Karplus.
+- **Woodward–Fieser** (`uvvis.ts`): every enone arm scored and the largest
+  reported, so λmax no longer depends on atom order (prednisone: "2 enone
+  arms were each scored (239, 227 nm)"); extended enones with +30 per
+  extending C=C, γ/δ +18 and homoannular +39, under an EXTENDED caveat in
+  place of ±5 nm; quinones and aryl-conjugated enones refused by name. The
+  exocyclic +5 is held off (prednisone would move to 244 against 238
+  measured) and said as a caveat in both branches.
+
+### Adversarial pass — independent reviewer (all closed)
+Found: XYDATA without `##NPOINTS` stacked every ordinate of a line on one x;
+an NMR or IR peak table was peak-picked as if it were a trace, so listed
+peaks vanished and lines were ticked against the wrong measured peak (the
+1.809 ppm line of `ethanol_nmr.jdx` was discarded); a UV-Vis file in
+transmittance was picked on T, not absorbance; `$OFFSET` was anchored on
+the first LISTED x instead of FIRSTX (a 12,800 Hz peak landed at 200 ppm,
+not 128); a caveat said a file gave no `$OFFSET` when it did; extended enone
+arms counted the in-chain γ carbon as a β substituent and never applied the
++18 or +39 increments (6,6-dimethylcyclohexa-2,4-dienone 257, now 302); and
+D in a typed formula was refused where the answer (CDCl₃ 118.92066) exists.
+
 ## [2.138.0] — 2026-10-14 — DAE index reduction, real K-theory, oriented cobordism, and persistence over 𝔽ₚ
 
 From `docs/SCOPE-NUMERICS-TOPOLOGY.md` (oracles: SciPy, GUDHI 3.13,

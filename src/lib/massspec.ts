@@ -3,63 +3,33 @@
 // adduct m/z values. For proteomics / metabolomics / small-molecule MS work —
 // all computed offline. Pure functions; no Office.js.
 //
-// Monoisotopic & average masses come from OpenChemLib (authoritative, already
-// bundled). The isotope pattern is a discrete convolution over the stable-isotope
-// abundances below (NIST/IUPAC standard values); m/z of each adduct is exact
-// arithmetic on the monoisotopic mass and an ion mass shift.
+// THE MASS REFERENCE IS isotopes.ts (AME2020 masses, CIAAW 2024 compositions),
+// NOT OpenChemLib (v2.138.0). OpenChemLib's per-element masses are wrong for some
+// elements — Cu 10 mDa high (54 ppm on Cu(NO₃)₂), Pa 15 Da low — and it invents
+// masses for Tc, Po and Ra, which have no stable isotope. OpenChemLib is still
+// the SMILES PARSER; every monoisotopic, average and adduct mass, on the formula
+// path and the SMILES path alike, is recomputed here from element counts.
+//
+// The isotope pattern is a pruned discrete convolution over EVERY element with a
+// representative composition (84 elements), keyed by mass number, with M built
+// from each element's MOST ABUNDANT isotope (IUPAC usage) — so peaks lighter than
+// M are labelled M−1, M−2 … (selenium's ⁷⁴Se is M−6; boron's ¹⁰B is M−1). An
+// element with no stable isotope, or Z > 92, is refused by name: no pattern and
+// no monoisotopic mass. m/z of each adduct is exact arithmetic on the
+// monoisotopic mass and an ion mass shift.
 
 import { Molecule } from "openchemlib";
 import { lookupSmiles, resolveChemInput, ChemReadMode, FormulaReading } from "./structures";
+import { ELECTRON_MASS, elementIsotopes, elementRefusal, isotopeLabel, isotopeMass, monoisotopicElementMass } from "./isotopes";
 
-const ELECTRON = 0.00054858;
+const ELECTRON = ELECTRON_MASS;
 
-// Stable isotopes for the elements found in essentially all organic / bio /
-// drug molecules: [nucleon mass, fractional abundance]. Standard NIST values.
-interface Isotope {
-  mass: number;
-  abundance: number;
+/** Most-abundant-isotope mass from isotopes.ts; throws if absent (only for tabled elements). */
+function mono(symbol: string): number {
+  const m = monoisotopicElementMass(symbol);
+  if (m === null) throw new Error(`no composition for ${symbol}`);
+  return m;
 }
-const ISOTOPES: Record<string, Isotope[]> = {
-  H: [{ mass: 1.0078250319, abundance: 0.999885 }, { mass: 2.0141017779, abundance: 0.000115 }],
-  C: [{ mass: 12.0, abundance: 0.9893 }, { mass: 13.0033548378, abundance: 0.0107 }],
-  N: [{ mass: 14.0030740052, abundance: 0.99632 }, { mass: 15.0001088984, abundance: 0.00368 }],
-  O: [
-    { mass: 15.9949146221, abundance: 0.99757 },
-    { mass: 16.9991315, abundance: 0.00038 },
-    { mass: 17.9991604, abundance: 0.00205 },
-  ],
-  F: [{ mass: 18.99840322, abundance: 1.0 }],
-  Na: [{ mass: 22.98976928, abundance: 1.0 }],
-  Si: [
-    { mass: 27.9769265327, abundance: 0.922297 },
-    { mass: 28.97649472, abundance: 0.046832 },
-    { mass: 29.97377022, abundance: 0.030872 },
-  ],
-  P: [{ mass: 30.97376151, abundance: 1.0 }],
-  S: [
-    { mass: 31.97207069, abundance: 0.9493 },
-    { mass: 32.9714585, abundance: 0.0076 },
-    { mass: 33.96786683, abundance: 0.0429 },
-    { mass: 35.96708088, abundance: 0.0002 },
-  ],
-  Cl: [{ mass: 34.96885271, abundance: 0.7578 }, { mass: 36.9659026, abundance: 0.2422 }],
-  K: [
-    { mass: 38.9637069, abundance: 0.932581 },
-    { mass: 39.96399867, abundance: 0.000117 },
-    { mass: 40.96182597, abundance: 0.067302 },
-  ],
-  Br: [{ mass: 78.9183376, abundance: 0.5069 }, { mass: 80.916291, abundance: 0.4931 }],
-  I: [{ mass: 126.904473, abundance: 1.0 }],
-  B: [{ mass: 10.012937, abundance: 0.199 }, { mass: 11.0093055, abundance: 0.801 }],
-  Se: [
-    { mass: 73.9224766, abundance: 0.0089 },
-    { mass: 75.9192141, abundance: 0.0937 },
-    { mass: 76.9199146, abundance: 0.0763 },
-    { mass: 77.9173095, abundance: 0.2377 },
-    { mass: 79.9165218, abundance: 0.4961 },
-    { mass: 81.9167, abundance: 0.0873 },
-  ],
-};
 
 /** Parses a molecular formula ("C9H8O4", "C22H24N2O8") into element→count. */
 export function parseFormula(formula: string): Record<string, number> {
@@ -141,78 +111,145 @@ export function parseFormula(formula: string): Record<string, number> {
 }
 
 export interface IsotopePeak {
-  /** Nucleon offset from the monoisotopic peak (0 = M, 1 = M+1, …). */
+  /**
+   * Nominal-mass offset from M, the peak built from every element's MOST
+   * ABUNDANT isotope (0 = M, −2 = M−2, +1 = M+1). Negative for isotopes lighter
+   * than the most abundant one (⁵⁴Fe, ⁷⁴Se, ¹⁰B, ²⁰⁴Hg …).
+   */
   offset: number;
-  /** Intensity-weighted exact mass of the peak. */
+  /** Intensity-weighted exact mass of the nominal-mass group (no fine structure). */
   mass: number;
   /** Relative intensity, base peak = 100. */
   intensity: number;
+  /** "M", "M−2" (true minus, U+2212), "M+1". */
+  label: string;
 }
 
-// A distribution keyed by integer nucleon count → {probability, Σ exact mass}.
-type Dist = Map<number, { p: number; m: number }>;
+/** "M", "M−6", "M+2" — the display-contract label for an offset. */
+export function peakLabel(offset: number): string {
+  return offset === 0 ? "M" : offset < 0 ? `M−${-offset}` : `M+${offset}`;
+}
+
+/** Peaks kept by default: every one at or above this % of the base peak … */
+export const PATTERN_MIN_INTENSITY = 0.1;
+/** … up to this many (the most intense), with the rest COUNTED, never dropped silently. */
+export const PATTERN_MAX_PEAKS = 60;
+/**
+ * Convolution pruning: after every convolution step, terms below this fraction
+ * of that step's LARGEST term are discarded (relative, not absolute, so a
+ * protein's tiny per-isotopologue probabilities are not all thrown away).
+ * Far below the 0.1 % display cut: it changes no displayed peak.
+ */
+export const PATTERN_PRUNE = 1e-12;
+
+/**
+ * A dense distribution over nominal-mass offsets lo … lo + p.length − 1:
+ * p = probability, m = Σ probability × exact mass (so a group's centroid is m/p).
+ */
+interface Dist {
+  lo: number;
+  p: Float64Array;
+  m: Float64Array;
+}
+
+function prune(d: Dist): Dist {
+  let max = 0;
+  for (let i = 0; i < d.p.length; i++) if (d.p[i] > max) max = d.p[i];
+  const floor = max * PATTERN_PRUNE;
+  let a = 0;
+  let b = d.p.length - 1;
+  while (a < b && d.p[a] < floor) a++;
+  while (b > a && d.p[b] < floor) b--;
+  if (a === 0 && b === d.p.length - 1) return d;
+  return { lo: d.lo + a, p: d.p.slice(a, b + 1), m: d.m.slice(a, b + 1) };
+}
 
 function convolve(a: Dist, b: Dist): Dist {
-  const out: Dist = new Map();
-  for (const [na, va] of a) {
-    for (const [nb, vb] of b) {
-      const n = na + nb;
-      const p = va.p * vb.p;
-      if (p < 1e-12) continue;
-      const cur = out.get(n);
-      if (cur) {
-        cur.p += p;
-        cur.m += p * (va.m / va.p + vb.m / vb.p);
-      } else {
-        out.set(n, { p, m: p * (va.m / va.p + vb.m / vb.p) });
-      }
+  const n = a.p.length + b.p.length - 1;
+  const p = new Float64Array(n);
+  const m = new Float64Array(n);
+  for (let i = 0; i < a.p.length; i++) {
+    const pa = a.p[i];
+    if (pa === 0) continue;
+    const ma = a.m[i];
+    for (let j = 0; j < b.p.length; j++) {
+      const pb = b.p[j];
+      if (pb === 0) continue;
+      p[i + j] += pa * pb;
+      // Σ pa·pb·(mass_a + mass_b) over the pair = pa·mb + pb·ma.
+      m[i + j] += pa * b.m[j] + pb * ma;
     }
   }
-  return out;
+  return prune({ lo: a.lo + b.lo, p, m });
 }
 
-/** Distribution of one element repeated `count` times (exponentiation by squaring). */
-function elementDist(el: string, count: number): Dist | null {
-  const iso = ISOTOPES[el];
-  if (!iso) return null;
-  let base: Dist = new Map();
-  for (const i of iso) {
-    const n = Math.round(i.mass);
-    const cur = base.get(n);
-    if (cur) {
-      cur.p += i.abundance;
-      cur.m += i.abundance * i.mass;
-    } else {
-      base.set(n, { p: i.abundance, m: i.abundance * i.mass });
-    }
+/**
+ * One element repeated `count` times (exponentiation by squaring), keyed by mass
+ * number relative to the element's most abundant isotope — so the LIGHTEST
+ * isotope sits at a negative offset and nothing assumes it is the monoisotopic
+ * one (the v2.137.0 selenium/boron defect).
+ */
+function elementDist(symbol: string, count: number): Dist | null {
+  const el = elementIsotopes(symbol);
+  if (!el) return null;
+  const A0 = el.mostAbundant.A;
+  let lo = Infinity;
+  let hi = -Infinity;
+  for (const i of el.isotopes) {
+    lo = Math.min(lo, i.A - A0);
+    hi = Math.max(hi, i.A - A0);
   }
-  let result: Dist = new Map([[0, { p: 1, m: 0 }]]);
+  const base: Dist = { lo, p: new Float64Array(hi - lo + 1), m: new Float64Array(hi - lo + 1) };
+  for (const i of el.isotopes) {
+    base.p[i.A - A0 - lo] += i.abundance;
+    base.m[i.A - A0 - lo] += i.abundance * i.mass;
+  }
+  let result: Dist = { lo: 0, p: Float64Array.of(1), m: Float64Array.of(0) };
   let b = base;
   let k = count;
   while (k > 0) {
     if (k & 1) result = convolve(result, b);
-    k >>= 1;
+    k = Math.floor(k / 2);
     if (k > 0) b = convolve(b, b);
   }
   return result;
 }
 
+/** A composition: natural-abundance element counts plus explicitly named isotopes. */
+export interface Composition {
+  natural: Record<string, number>;
+  /** Atoms the input NAMED by mass number ([13C], [2H], [99Tc]): each a single isotope. */
+  labelled?: { symbol: string; A: number; count: number }[];
+}
+
+export interface IsotopePatternResult {
+  peaks: IsotopePeak[];
+  /** Elements with no composition in the table (callers refuse these by name). */
+  unsupported: string[];
+  /** Computed peaks below the display threshold, counted rather than dropped silently. */
+  belowThreshold: number;
+  /** Peaks at or above the threshold beyond the peak cap (the least intense), counted. */
+  beyondCap: number;
+  /** What was cut and why, for the pane and the inserted text. */
+  note: string;
+}
+
 /**
- * Theoretical isotope pattern for a formula, as peaks (M, M+1, …) with exact
- * centroid masses and intensities normalized to the base peak (100). Elements
- * outside the built-in isotope table are skipped for the *pattern shape* (their
- * absence is reported via `unsupported`), though masses/adducts remain exact.
+ * Theoretical isotope pattern, as nominal-mass peaks labelled from M (the
+ * most-abundant-isotope peak), with intensity-weighted exact masses and
+ * intensities relative to the base peak (100). Every peak ≥ minIntensity % is
+ * kept up to maxPeaks; what is not shown is counted in the result and the note.
  */
 export function isotopePattern(
   counts: Record<string, number>,
-  opts: { maxPeaks?: number; minIntensity?: number } = {}
-): { peaks: IsotopePeak[]; unsupported: string[] } {
-  const maxPeaks = opts.maxPeaks ?? 6;
-  const minIntensity = opts.minIntensity ?? 0.1;
+  opts: { maxPeaks?: number; minIntensity?: number; labelled?: Composition["labelled"] } = {}
+): IsotopePatternResult {
+  const maxPeaks = opts.maxPeaks ?? PATTERN_MAX_PEAKS;
+  const minIntensity = opts.minIntensity ?? PATTERN_MIN_INTENSITY;
   const unsupported: string[] = [];
-  let total: Dist = new Map([[0, { p: 1, m: 0 }]]);
+  let total: Dist = { lo: 0, p: Float64Array.of(1), m: Float64Array.of(0) };
   for (const [el, n] of Object.entries(counts)) {
-    if (n <= 0) continue;
+    if (!(n > 0)) continue;
     const d = elementDist(el, n);
     if (!d) {
       unsupported.push(el);
@@ -220,16 +257,41 @@ export function isotopePattern(
     }
     total = convolve(total, d);
   }
-  const entries = [...total.entries()].sort((a, b) => a[0] - b[0]);
-  if (!entries.length) return { peaks: [], unsupported };
-  const baseNucleon = entries[0][0];
-  const maxProb = Math.max(...entries.map(([, v]) => v.p));
-  const peaks: IsotopePeak[] = entries
-    .map(([n, v]) => ({ offset: n - baseNucleon, mass: v.m / v.p, intensity: (v.p / maxProb) * 100 }))
-    .filter((pk) => pk.intensity >= minIntensity)
-    .sort((a, b) => a.offset - b.offset)
-    .slice(0, maxPeaks);
-  return { peaks, unsupported };
+  // A named isotope is a single isotope: it shifts every peak's mass by its own
+  // exact mass and does not broaden the pattern.
+  let fixed = 0;
+  for (const l of opts.labelled ?? []) {
+    const m = isotopeMass(l.symbol, l.A);
+    if (m === null) {
+      unsupported.push(isotopeLabel(l.symbol, l.A));
+      continue;
+    }
+    fixed += l.count * m;
+  }
+  let maxP = 0;
+  for (let i = 0; i < total.p.length; i++) if (total.p[i] > maxP) maxP = total.p[i];
+  const all: IsotopePeak[] = [];
+  for (let i = 0; i < total.p.length; i++) {
+    if (!(total.p[i] > 0)) continue;
+    const offset = total.lo + i;
+    all.push({ offset, mass: total.m[i] / total.p[i] + fixed, intensity: (total.p[i] / maxP) * 100, label: peakLabel(offset) });
+  }
+  const shown = all.filter((pk) => pk.intensity >= minIntensity);
+  const belowThreshold = all.length - shown.length;
+  let beyondCap = 0;
+  let peaks = shown;
+  if (shown.length > maxPeaks) {
+    peaks = [...shown].sort((a, b) => b.intensity - a.intensity).slice(0, maxPeaks);
+    beyondCap = shown.length - maxPeaks;
+  }
+  peaks.sort((a, b) => a.offset - b.offset);
+  const parts = [
+    `Nominal-mass peaks (no fine structure), labelled from M = the most abundant isotope of every element; ` +
+      `natural representative composition (CIAAW 2024; AME2020 masses).`,
+  ];
+  if (belowThreshold) parts.push(`${belowThreshold} further peak${belowThreshold === 1 ? "" : "s"} below ${minIntensity} % of the base not listed.`);
+  if (beyondCap) parts.push(`${beyondCap} further peak${beyondCap === 1 ? "" : "s"} at or above ${minIntensity} % beyond the ${maxPeaks}-peak cap not listed.`);
+  return { peaks, unsupported, belowThreshold, beyondCap, note: parts.join(" ") };
 }
 
 export interface Adduct {
@@ -240,17 +302,21 @@ export interface Adduct {
 }
 
 // Common ESI adducts. Mass shifts use the exact ion mass (± electron for the
-// gained/lost charge). m/z = (M + massShift) / |charge|.
+// gained/lost charge), built from isotopes.ts masses — the same reference as M.
+// m/z = (M + massShift) / |charge|.
+const H1 = mono("H");
+const NH4 = mono("N") + 4 * H1;
+const HCOO = H1 + mono("C") + 2 * mono("O");
 export const ADDUCTS: Adduct[] = [
-  { name: "[M+H]+", charge: 1, massShift: 1.0078250319 - ELECTRON },
-  { name: "[M+Na]+", charge: 1, massShift: 22.98976928 - ELECTRON },
-  { name: "[M+K]+", charge: 1, massShift: 38.9637069 - ELECTRON },
-  { name: "[M+NH4]+", charge: 1, massShift: 18.0343741 - ELECTRON },
-  { name: "[M+2H]2+", charge: 2, massShift: 2 * (1.0078250319 - ELECTRON) },
-  { name: "[M-H]-", charge: 1, massShift: -(1.0078250319 - ELECTRON) },
-  { name: "[M+Cl]-", charge: 1, massShift: 34.96885271 + ELECTRON },
-  { name: "[M+HCOO]-", charge: 1, massShift: 44.9976542 + ELECTRON },
-  { name: "[M-2H]2-", charge: 2, massShift: -2 * (1.0078250319 - ELECTRON) },
+  { name: "[M+H]+", charge: 1, massShift: H1 - ELECTRON },
+  { name: "[M+Na]+", charge: 1, massShift: mono("Na") - ELECTRON },
+  { name: "[M+K]+", charge: 1, massShift: mono("K") - ELECTRON },
+  { name: "[M+NH4]+", charge: 1, massShift: NH4 - ELECTRON },
+  { name: "[M+2H]2+", charge: 2, massShift: 2 * (H1 - ELECTRON) },
+  { name: "[M-H]-", charge: 1, massShift: -(H1 - ELECTRON) },
+  { name: "[M+Cl]-", charge: 1, massShift: mono("Cl") + ELECTRON },
+  { name: "[M+HCOO]-", charge: 1, massShift: HCOO + ELECTRON },
+  { name: "[M-2H]2-", charge: 2, massShift: -2 * (H1 - ELECTRON) },
 ];
 
 /** m/z for an adduct given the neutral monoisotopic mass. */
@@ -271,11 +337,25 @@ export interface MassSpecResult {
    */
   netCharge: number;
   adducts: { name: string; mz: number; charge: number }[];
+  /** What the pattern leaves out and why (threshold, cap, no fine structure). */
+  patternNote: string;
+  /** Computed peaks below the display threshold (counted, not shown). */
+  belowThreshold: number;
+  /** Peaks above the threshold beyond the peak cap (counted, not shown). */
+  beyondCap: number;
+  /** Named isotopes in the input ([13C], [99Tc]), typeset: "¹³C × 1". */
+  labelledIsotopes: string[];
+  /** The mass reference, for provenance in the pane and the inserted text. */
+  massSource: string;
 }
+
+/** Provenance line for every MS result. */
+export const MASS_SOURCE = "Masses: AME2020 (Wang et al. 2021); compositions: CIAAW 2024 (interval elements: NIST representative values).";
 
 /**
  * Full MS readout for an input (dictionary name, formula, or SMILES). Returns
- * null if the input can't be resolved to a structure.
+ * null if the input can't be resolved to a structure, OR when it is refused (an
+ * element with no stable isotope, Z > 92) — resolveMassSpec says why by name.
  */
 export function computeMassSpec(input: string): MassSpecResult | null {
   const looked = lookupSmiles(input);
@@ -288,36 +368,110 @@ export function computeMassSpec(input: string): MassSpecResult | null {
     return null;
   }
   if (mol.getAllAtoms() === 0) return null;
-  return massSpecFromMolecule(mol);
+  const r = massSpecFromMolecule(mol);
+  return typeof r === "string" ? null : r;
 }
 
-function massSpecFromMolecule(mol: Molecule): MassSpecResult {
+/**
+ * The composition of a parsed molecule, by WALKING ITS ATOMS — not by re-reading
+ * OpenChemLib's formula string, which drops isotope labels ([13CH4] prints as
+ * CH₄, [2H] as D). A labelled atom is a single named isotope; implicit
+ * hydrogens are natural hydrogen.
+ */
+export function compositionFromMolecule(mol: Molecule): Composition | string {
+  const natural: Record<string, number> = {};
+  const lab = new Map<string, { symbol: string; A: number; count: number }>();
+  const add = (sym: string, n: number) => {
+    if (n > 0) natural[sym] = (natural[sym] ?? 0) + n;
+  };
+  for (let i = 0; i < mol.getAllAtoms(); i++) {
+    const z = mol.getAtomicNo(i);
+    const sym = mol.getAtomLabel(i);
+    if (!(z >= 1) || !/^[A-Z][a-z]?$/.test(sym)) return `The structure contains a non-element atom (“${sym}”), which has no mass.`;
+    const A = mol.getAtomMass(i);
+    if (A > 0) {
+      const key = `${sym}-${A}`;
+      const cur = lab.get(key);
+      if (cur) cur.count++;
+      else lab.set(key, { symbol: sym, A, count: 1 });
+    } else {
+      add(sym, 1);
+    }
+    add("H", mol.getImplicitHydrogens(i));
+  }
+  return { natural, labelled: [...lab.values()] };
+}
+
+function massSpecFromMolecule(mol: Molecule): MassSpecResult | string {
   const mf = mol.getMolecularFormula();
   // The ESI adduct m/z table assumes a neutral M. If the drawn structure already
   // carries a net formal charge, protonation/cationization adducts are physically
   // meaningless, so omit them (mass and pattern above remain exact).
   let netCharge = 0;
   for (let i = 0; i < mol.getAllAtoms(); i++) netCharge += mol.getAtomCharge(i);
-  return assemble(mf.formula, mf.absoluteWeight, mf.relativeWeight, parseFormula(mf.formula), netCharge);
+  const comp = compositionFromMolecule(mol);
+  if (typeof comp === "string") return comp;
+  return assemble(mf.formula, comp, netCharge, mf.formula);
 }
 
-function assemble(
-  formula: string,
-  monoisotopicMass: number,
-  averageMass: number,
-  counts: Record<string, number>,
-  netCharge: number
-): MassSpecResult {
-  const { peaks: rawPeaks, unsupported } = isotopePattern(counts);
-  // The convolution only sums tabled elements, so anchor the peak masses to the
-  // OCL monoisotopic mass (which includes every element) — the M peak lands at
-  // the true mass and each M+n keeps its exact nucleon spacing. Also covers the
-  // all-untabled case, where the raw M peak would otherwise report mass 0.
-  const base = rawPeaks.length ? rawPeaks[0].mass : 0;
-  const peaks = rawPeaks.length
-    ? rawPeaks.map((p) => ({ ...p, mass: monoisotopicMass + (p.mass - base) }))
-    : [{ offset: 0, mass: monoisotopicMass, intensity: 100 }];
+/**
+ * Masses, pattern and adducts from a composition — ONE path for formula and
+ * SMILES readings, with every mass from isotopes.ts. Returns a refusal string
+ * (by name) for an element with no stable isotope, Z > 92, an isotope with no
+ * stored mass, or a composition over the caps.
+ */
+function assemble(formula: string, comp: Composition, netCharge: number, display: string): MassSpecResult | string {
+  // Refusals first, by name, before any work.
+  for (const el of Object.keys(comp.natural)) {
+    if (!(comp.natural[el] > 0)) continue;
+    const why = elementRefusal(el);
+    if (why) return why;
+  }
+  for (const l of comp.labelled ?? []) {
+    if (isotopeMass(l.symbol, l.A) === null) {
+      return (
+        `No AME2020 mass is stored for ${isotopeLabel(l.symbol, l.A)}: the table holds the natural isotopes ` +
+        `of every element up to uranium and a list of common radiolabels.`
+      );
+    }
+  }
+  // Caps, before any work: the convolution's time grows with each element's
+  // count (its distribution widens), so an atom cap alone bounds memory, not time.
+  let atoms = 0;
+  for (const [el, n] of Object.entries(comp.natural)) {
+    atoms += n;
+    const cap = maxAtomsFor(el);
+    if (n > cap) {
+      return `${display} has ${n} ${el} atoms — above the ${cap}-atom-per-element limit for an isotope pattern.`;
+    }
+  }
+  for (const l of comp.labelled ?? []) atoms += l.count;
+  if (atoms > MAX_FORMULA_ATOMS) return `${display} has ${atoms} atoms — above the ${MAX_FORMULA_ATOMS}-atom limit for an isotope pattern.`;
+  const work = patternWorkEstimate(comp.natural);
+  if (work > MAX_PATTERN_WORK) {
+    return (
+      `${display}'s isotope pattern would take about ${Math.round(work / 1e6)} million convolution steps — above the ` +
+      `${MAX_PATTERN_WORK / 1e6}-million limit that keeps the pane responsive (many atoms of several multi-isotope elements).`
+    );
+  }
 
+  let monoisotopicMass = 0;
+  let averageMass = 0;
+  for (const [el, n] of Object.entries(comp.natural)) {
+    const e = elementIsotopes(el);
+    if (!e) return elementRefusal(el) ?? `No isotope data for ${el}.`;
+    monoisotopicMass += n * e.mostAbundant.mass;
+    averageMass += n * e.averageMass;
+  }
+  const labelledIsotopes: string[] = [];
+  for (const l of comp.labelled ?? []) {
+    const m = isotopeMass(l.symbol, l.A) as number;
+    monoisotopicMass += l.count * m;
+    averageMass += l.count * m;
+    labelledIsotopes.push(`${isotopeLabel(l.symbol, l.A)} × ${l.count}`);
+  }
+
+  const pat = isotopePattern(comp.natural, { labelled: comp.labelled });
   const adducts =
     netCharge === 0
       ? ADDUCTS.map((a) => ({ name: a.name, mz: adductMz(monoisotopicMass, a), charge: a.charge }))
@@ -327,10 +481,19 @@ function assemble(
     formula,
     monoisotopicMass,
     averageMass,
-    pattern: peaks,
-    unsupportedInPattern: unsupported,
+    pattern: pat.peaks,
+    unsupportedInPattern: pat.unsupported,
     netCharge,
     adducts,
+    // The natural-composition note is not true of a labelled atom: say that the
+    // named isotopes are fixed (100 %), and that the rest is natural.
+    patternNote: labelledIsotopes.length
+      ? `${pat.note} Labelled atoms (${labelledIsotopes.join(", ")}) are fixed at their named isotope (100 %, no enrichment distribution); only the unlabelled atoms follow natural composition.`
+      : pat.note,
+    belowThreshold: pat.belowThreshold,
+    beyondCap: pat.beyondCap,
+    labelledIsotopes,
+    massSource: MASS_SOURCE,
   };
 }
 
@@ -355,37 +518,57 @@ export type MassSpecResolution =
   | { kind: "none"; message: string };
 
 /**
- * Bounds on a formula reading, set BEFORE any work: the isotope convolution's
- * time grows with each element's count (its distribution widens), so an atom
- * cap alone bounds memory, not time. Measured in jest on this machine: Se10000
- * ≈ 80 ms, five elements × 10000 incl. Se and Br ≈ 160 ms; Se99999 was 640 ms
- * — a frozen Word pane for a 7-character input.
+ * Bounds on a reading, set BEFORE any work: the isotope convolution's time grows
+ * with each element's count (its distribution widens), so an atom cap alone
+ * bounds memory, not time. Se99999 was 640 ms in v2.137.0 — a frozen Word pane
+ * for a 7-character input.
+ *
+ * Elements with 7–10 isotopes (Sn spans 12 Da; Xe, Te, Cd, Hg 8–12 Da) widen the
+ * distribution fastest. ONE element at the per-element cap is cheap (Sn10000
+ * ≈ 35–75 ms), but SEVERAL of them together are not: measured in Node on this
+ * machine, five of the widest × 10000 took 331 ms, twenty × 2500 took 423 ms,
+ * and the spectroscopy review measured 811 ms in jest (10 × 5000) and 1.3 s in
+ * Node (33 × 1515) — atom caps alone do not bound the time. So a THIRD cap,
+ * patternWorkEstimate ≤ MAX_PATTERN_WORK, is checked before any work.
+ * Calibration (2026-10-14, 30 shapes from 1 to 63 elements): time is linear in
+ * the estimate — ≈ 2.7 ms per million on an idle machine and at most 20 ms per
+ * million with the machine saturated by parallel test runs. The 40-million bound
+ * is therefore ≈ 110 ms idle and ≤ 0.8 s saturated; both review inputs (≈ 110 M
+ * and ≈ 100 M) are refused. Ordinary inputs are far below it (insulin ≈ 0.01 M;
+ * Sn10000 ≈ 14 M; Se10000Br10000S10000O10000Cl9999 ≈ 20 M).
  */
 const MAX_FORMULA_ATOMS = 50000;
 const MAX_ATOMS_PER_ELEMENT = 10000;
+const MAX_PATTERN_WORK = 40e6;
 
-// Per-element masses from OpenChemLib, so the formula reading and the SMILES
-// reading share ONE mass source. One isolated bracket atom per element, cached.
-// OpenChemLib gives some bracket atoms implicit hydrogens anyway ("[Al]" comes
-// back as AlH₃), so the hydrogens it reports are subtracted out explicitly.
-const elementMassCache: Record<string, { mono: number; avg: number } | null> = {};
-function elementMasses(el: string): { mono: number; avg: number } | null {
-  if (el in elementMassCache) return elementMassCache[el];
-  let out: { mono: number; avg: number } | null = null;
-  try {
-    const h = Molecule.fromSmiles("[H]").getMolecularFormula();
-    const mf = Molecule.fromSmiles(el === "H" ? "[H]" : `[${el}]`).getMolecularFormula();
-    const c = parseFormula(mf.formula);
-    const extraH = el === "H" ? 0 : c.H ?? 0;
-    const others = Object.keys(c).filter((k) => k !== el && k !== "H");
-    if (c[el] === 1 && others.length === 0) {
-      out = { mono: mf.absoluteWeight - extraH * h.absoluteWeight, avg: mf.relativeWeight - extraH * h.relativeWeight };
-    }
-  } catch {
-    out = null;
+/**
+ * A work estimate for the convolution, computable BEFORE any work, following the
+ * code's own order: an element of n atoms has a distribution about
+ * w = 12·σ·√n + span wide (σ = one atom's mass-number SD; the pruned tails reach
+ * ≈ ±6σ), its squaring steps cost ≈ 2w², and folding it into the running total
+ * costs (running width) × w, where the running width grows like 12·√(Σ n·σ²).
+ */
+export function patternWorkEstimate(counts: Record<string, number>): number {
+  let variance = 0;
+  let work = 0;
+  for (const [el, n] of Object.entries(counts)) {
+    const e = elementIsotopes(el);
+    if (!e || !(n > 0) || e.isotopes.length < 2) continue;
+    const As = e.isotopes.map((i) => i.A);
+    const span = Math.max(...As) - Math.min(...As);
+    const mean = e.isotopes.reduce((s, i) => s + i.abundance * i.A, 0);
+    const v1 = e.isotopes.reduce((s, i) => s + i.abundance * (i.A - mean) ** 2, 0);
+    const w = 12 * Math.sqrt(v1 * n) + span + 1;
+    const running = 12 * Math.sqrt(variance) + 1;
+    work += 2 * w * w + running * w;
+    variance += n * v1;
   }
-  elementMassCache[el] = out;
-  return out;
+  return work;
+}
+
+/** The per-element atom cap for an isotope pattern (see above). */
+export function maxAtomsFor(_symbol: string): number {
+  return MAX_ATOMS_PER_ELEMENT;
 }
 
 function massSpecFromFormula(f: FormulaReading): MassSpecResult | string {
@@ -395,32 +578,47 @@ function massSpecFromFormula(f: FormulaReading): MassSpecResult | string {
       `Enter whole formula units — e.g. 2CaSO4·H2O for the hemihydrate.`
     );
   }
-  let atoms = 0;
-  for (const [el, n] of Object.entries(f.counts)) {
-    atoms += n;
-    if (n > MAX_ATOMS_PER_ELEMENT) {
-      return `${f.display} has ${n} ${el} atoms — above the ${MAX_ATOMS_PER_ELEMENT}-atom-per-element limit for an isotope pattern.`;
-    }
-  }
-  if (atoms > MAX_FORMULA_ATOMS) return `${f.display} has ${atoms} atoms — above the ${MAX_FORMULA_ATOMS}-atom limit for an isotope pattern.`;
-  let mono = 0;
-  let avg = 0;
-  for (const [el, n] of Object.entries(f.counts)) {
-    const m = elementMasses(el);
-    if (!m) return `No isotope data for ${el}.`;
-    mono += n * m.mono;
-    avg += n * m.avg;
-  }
-  return assemble(f.hill, mono, avg, f.counts, f.charge);
+  return assemble(f.hill, formulaComposition(f.counts), f.charge, f.display);
 }
 
-function smilesSpec(smiles: string): MassSpecResult | null {
+/**
+ * D and T in a formula (CDCl₃, D₂O) are NAMED isotopes, ²H and ³H — single
+ * isotopes at their AME2020 masses, never natural hydrogen (chemValidate keeps
+ * them as their own keys). Everything else is natural abundance.
+ */
+const HYDROGEN_ISOTOPE_KEYS: Record<string, number> = { D: 2, T: 3 };
+function formulaComposition(counts: Record<string, number>): Composition {
+  const natural: Record<string, number> = {};
+  const labelled: { symbol: string; A: number; count: number }[] = [];
+  for (const [k, n] of Object.entries(counts)) {
+    const A = HYDROGEN_ISOTOPE_KEYS[k];
+    if (A) labelled.push({ symbol: "H", A, count: n });
+    else natural[k] = n;
+  }
+  return { natural, labelled };
+}
+
+/** The reading said: "D read as deuterium, ²H (2.014102 u), not natural hydrogen." */
+function hydrogenIsotopeNote(counts: Record<string, number>): string | undefined {
+  const parts: string[] = [];
+  if (counts.D) parts.push(`D read as deuterium, ²H (${(isotopeMass("H", 2) as number).toFixed(6)} u)`);
+  if (counts.T) parts.push(`T read as tritium, ³H (${(isotopeMass("H", 3) as number).toFixed(6)} u)`);
+  return parts.length ? `${parts.join("; ")} — a named isotope, not natural hydrogen.` : undefined;
+}
+
+const joinNotes = (...n: (string | undefined)[]): string | undefined => {
+  const kept = n.filter((x): x is string => !!x);
+  return kept.length ? kept.join(" ") : undefined;
+};
+
+function smilesSpec(smiles: string): MassSpecResult | string | null {
+  let mol: Molecule;
   try {
-    const mol = Molecule.fromSmiles(smiles);
-    return mol.getAllAtoms() ? massSpecFromMolecule(mol) : null;
+    mol = Molecule.fromSmiles(smiles);
   } catch {
     return null;
   }
+  return mol.getAllAtoms() ? massSpecFromMolecule(mol) : null;
 }
 
 /** The MS readout for typed input, reading formulas as formulas (see above). */
@@ -433,20 +631,22 @@ export function resolveMassSpec(input: string, mode: ChemReadMode = "auto"): Mas
     case "smiles": {
       const spec = smilesSpec(r.smiles);
       if (!spec) return { kind: "none", message: `“${input.trim()}” could not be read as a structure.` };
+      if (typeof spec === "string") return { kind: "none", message: spec };
       return { kind: "ok", reading: r.kind, result: spec, note: r.note };
     }
     case "formula": {
       const spec = massSpecFromFormula(r.formula);
       if (typeof spec === "string") return { kind: "none", message: spec };
-      return { kind: "ok", reading: "formula", result: spec, note: r.note };
+      return { kind: "ok", reading: "formula", result: spec, note: joinNotes(r.note, hydrogenIsotopeNote(r.formula.counts)) };
     }
     case "ambiguous": {
       const smiles = smilesSpec(r.smiles);
       const formula = massSpecFromFormula(r.formula);
-      if (!smiles) {
-        return typeof formula === "string"
-          ? { kind: "none", message: formula }
-          : { kind: "ok", reading: "formula", result: formula };
+      if (!smiles || typeof smiles === "string") {
+        if (typeof formula !== "string") {
+          return { kind: "ok", reading: "formula", result: formula, note: hydrogenIsotopeNote(r.formula.counts) };
+        }
+        return { kind: "none", message: typeof smiles === "string" ? `${formula} ${smiles}` : formula };
       }
       return { kind: "ambiguous", message: r.message, readings: { formula: typeof formula === "string" ? null : formula, smiles } };
     }

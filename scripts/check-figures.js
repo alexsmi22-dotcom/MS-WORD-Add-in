@@ -85,7 +85,15 @@ const CORPUS = path.join(__dirname, "figure-layout-run.ts");
 // release, the floor had lagged) plus two numerics/topology figures — the
 // 𝔽₂ | 𝔽₃ compare barcode (two stacked panels, censored bars) and the
 // Cartesian pendulum DAE solution (index 3, five series).
-const CORPUS_FLOOR = 218;
+// 229 as of 2026-10-14 (v2.139.0): eleven spectroscopy figures — a measured
+// NMR peak table drawn as sticks (never joined into a trace), seven
+// measured-vs-predicted overlays (¹H, ¹³C with a user reference peak, IR, IR
+// with a very long file title, UV λmax marker, EI MS head-to-tail, and Mass
+// Spec's isotope pattern head-to-tail) and three isotope stick charts (C₂Cl₄
+// with its M+2 base peak, ferrocene's M−2 below M, chlorophyll a's long
+// formula). overlayChart measures and truncates its title, so the long-title
+// case passes with NO new CLIPPED waiver.
+const CORPUS_FLOOR = 229;
 
 // --- The allowance ratchet ----------------------------------------------------
 //

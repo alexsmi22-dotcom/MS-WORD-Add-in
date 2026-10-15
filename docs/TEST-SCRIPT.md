@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.138.0)
+# JurisLab — Manual Test Script (v2.139.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -7,6 +7,87 @@ covers what neither can reach: insertion into a real document, undo, document
 scanning, and layout. Budget ~30 minutes for the full pass.
 
 Mark each box: ☐ pass · ✗ fail (note what happened).
+
+---
+
+## 0cf. New in v2.139.0 — Spectroscopy: JCAMP overlay, exact isotope patterns, diastereotopic NMR, and Woodward–Fieser fixes
+
+Two modes change: **Spectra** (the JCAMP reader, a new *Compare with acquired spectrum* panel, the ¹H
+table, UV-Vis) and **Mass Spec** (every stable isotope, an isotope chart, its own comparison). Everything
+is offline. The measured files below are the committed test files in
+`src\lib\__tests__\fixtures\jcamp\` (attributed in `ATTRIBUTION.txt`).
+
+**Spectra → JCAMP reader**
+- [ ] Open `ethanol_nmr.jdx` (two blocks): a **block picker** appears, block 2 is selected, and the readout
+  says "This file holds 2 blocks; showing block 2 ("Ethanol", NMR, 16,384 points). Earlier block — block 1
+  ("Ethanol", NMR, 4 points) — held fewer points (a peak table or a stub), so the full trace is shown
+  instead." Pick block 1 → "Block 1: Ethanol — NMR, peak table", drawn as sticks.
+- [ ] Open `compound.jdx` → a picker with **5 blocks**; the units read **"cm⁻¹ (file: 1/CM) vs
+  transmittance (file: TRANSMITTANCE)"** — never a bare "1/CM".
+- [ ] Open `TESTFID.DX` → refused by name: ""ETHYLBENZOL/CDCL3": NMR FID — needs Fourier transform and
+  phasing; export the processed spectrum." No chart, both Insert buttons disabled.
+- [ ] (A block that FAILS its own checks — e.g. a hand-edited DIF line — shows "⚠ This block FAILED the
+  file's own checks — …" and both Insert buttons stay **disabled**; nothing from it is inserted or
+  overlaid.)
+
+**Spectra → Compare with acquired spectrum** (the new panel below the reader)
+- [ ] ★ Type `CC(C)CO`, **¹H NMR**, open `2Methyl1Propanol.jdx`, press **Compare with acquired spectrum**:
+  rows 3.70 ↔ 3.40 (+0.30 ✓), 2.00 ↔ 2.11 (−0.11 ✓), 1.85 ↔ 1.76 (+0.09 ✓), 0.87 ↔ 0.92 (−0.05 ✓);
+  "4 of 4 predicted lines have a measured peak inside their window." and "A prediction is not an
+  assignment: a nearest peak is proximity, not identity." The figure has measured and predicted in two
+  colours, δ increasing leftward.
+- [ ] ★ **Referencing is never silent.** Type `CCc1ccccc1`, **¹³C NMR**, open `BRUKPAC.DX`, Compare →
+  every row says **not assessed** and "Not assessed: the measured axis looks offset by +9.09 ppm. Give a
+  reference peak, then compare." Type `86.25 = 77.16` in *Reference peak* → "Measured axis shifted by
+  −9.09 ppm …" and **6 of 6** (144.2 ↔ 144.5, 15.8 ↔ 15.7 …). Type `TMS` → "Reference peak: write it as
+  measured = true …".
+- [ ] Change the input or the spectrum kind after comparing: the overlay **re-computes** at once (never a
+  stale table). With **¹H** selected and an IR file open → "This file is an IR spectrum; the prediction
+  is ¹H NMR." With **COSY** selected → "2D predictions … are not overlaid".
+- [ ] **MS** with `Oc1ccccc1Cl` against `ISAS_MS1.DX` → head-to-tail figure (predicted below the axis);
+  M⁺• 128.002 ↔ 128.000 ✓, "3 of 5 …", "Predicted fragment heights are a likelihood RANKING, not
+  intensities."
+- [ ] **Insert match table** and **Insert overlay chart** both work; the chart arrives at its full size
+  (not squashed), and a very long file title is cut with "…" inside the canvas.
+
+**Spectra → ¹H NMR, diastereotopic groups**
+- [ ] ★ `ibuprofen`, **¹H** → 9 rows and a **note** column: CH₂ (on Ph) is **"m (²J 14–18 Hz)"** with
+  note *a*; the two CH₃ at 0.87 are two rows with note *b*; below the table "a — diastereotopic CH₂ (the AB
+  part of an ABX-type system) …" and "b — diastereotopic: no symmetry operation makes this group
+  equivalent to its partner …". The aromatic CH are two **d (7.8)** rows. The vicinal "m (7.0)" must NOT
+  appear beside that CH₂.
+- [ ] `valine` → 6 rows; both 0.87 CH₃ rows carry note *a* and the note text appears **once**. ¹³C →
+  5 rows, two marked *a*.
+- [ ] **Insert data table** for ibuprofen → "δ 2.70  (2H, m (²J 14–18 Hz))  CH2 (on Ph)  [a]" and a
+  "Diastereotopic notes:" block in the document.
+- [ ] `toluene` ¹H → no note column at all (nothing is diastereotopic); the mult. column still reads
+  t (7.8), dd (7.8, 1.5), tt (7.8, 1.5), s.
+
+**Spectra → UV-Vis (Woodward–Fieser)**
+- [ ] `CC(=O)C=C(C)C` → **239 nm** (215 + 24); `prednisone` → **239 nm** with "2 enone arms were each
+  scored (239, 227 nm) …" and the cross-conjugated-dienone caveat.
+- [ ] `CC=CC=CC(=O)C` → **263 nm** (215 + 30 + 18) with the EXTENDED caveat ("… Treat the value as a
+  region, not a figure."); `C=CC=CC=O` → 240 nm.
+- [ ] Refused by name, no number: `cinnamaldehyde` and `O=C(C=Cc1ccccc1)c1ccccc1` (chalcone) → "aryl-
+  conjugated enone — Woodward-Fieser does not apply"; `O=C1C=CC(=O)C=C1` → "quinone chromophore — not a
+  Woodward-Fieser enone".
+
+**Mass Spec**
+- [ ] Empty input → "Isotope patterns cover all 84 elements with a natural isotopic composition (H–U);
+  masses AME2020, compositions CIAAW 2024."
+- [ ] ★ `C2Cl4` → base peak **M+2 165.8725 (100.0)**, M 163.8754 (78.1), M+4 (48.0); below the bars the
+  pattern note "Nominal-mass peaks (no fine structure) … 2 further peaks below 0.1 % of the base not
+  listed." and "Masses: AME2020 (Wang et al. 2021); compositions: CIAAW 2024 …". An **isotope stick
+  chart** shows (M stick in red). **Insert isotope chart** → picture at full size.
+- [ ] ★ Ferrocene `[CH-]1C=CC=C1.[CH-]1C=CC=C1.[Fe+2]` → first bar **M−2** (6.4) with a true minus;
+  **Insert MS data** → "M−2  184.0179  6.37%" in the document, never "M+-2".
+- [ ] `chlorophyll a` → magnesium is IN the pattern (M+1 74.6, M+2 41.7); no "Pattern excludes" line,
+  and the words "still exact" appear nowhere.
+- [ ] `[13CH3]C` → a **Labelled isotopes: ¹³C × 1** row beside the formula; `C2H5D` → the hint "D read as
+  deuterium, ²H (2.014102 u) — a named isotope, not natural hydrogen." and ²H × 1; `Tc` → "Tc
+  (technetium) has no stable isotope … e.g. [99Tc] for ⁹⁹Tc."; `[99Tc]` → 98.9062.
+- [ ] **Compare with acquired spectrum (.jdx)…** → pick `ISAS_MS1.DX` with `Oc1ccccc1Cl` typed → M, M+1,
+  M+2, M+3 all ✓ (128.003 ↔ 128.000 …), "4 of 5 …". Change the input → the comparison re-runs.
 
 ---
 
@@ -3360,8 +3441,9 @@ Engineering mode, Energy & power (now 17; the mode must state **101 calculators*
 - [ ] Type `caffeine` → **Monoisotopic 194.0804**, **Average 194.19**, formula
   **C8H10N4O2**.
 - [ ] Isotope pattern shows M as the base peak with a small M+1 bar.
-- [ ] Adducts list shows **[M+H]+ 195.0877** and **[M+Na]+ 217.0696**.
-- [ ] Type a chlorinated compound (`ClC(Cl)Cl`) → the **M+2 bar is ~98%** of M
+- [ ] Adducts list shows **[M+H]⁺ 195.0877** and **[M+Na]⁺ 217.0696**; the negative ions read
+  **[M−H]⁻** (true minus, superscript charge) and the ammonium adduct **[M+NH₄]⁺**.
+- [ ] Type a chlorinated compound (`ClC(Cl)Cl`) → the **M+2 bar is ~96%** of M (96.0; M+4 30.7)
   (the chlorine signature) — this is the check that the pattern is real.
 - [ ] **Insert MS data** → text summary lands at the cursor.
 
@@ -3387,7 +3469,7 @@ Engineering mode, Energy & power (now 17; the mode must state **101 calculators*
   → **~1740** (ester sits above ketone); then `acetophenone` → **~1690**, labelled
   *conjugated*.
 - [ ] **UV-Vis** with `butane` → reports **no λmax / transparent** (it must NOT
-  invent a number). Then `CC(=O)C=C(C)C` (mesityl oxide) → **~237 nm** with the
+  invent a number). Then `CC(=O)C=C(C)C` (mesityl oxide) → **239 nm** (215 + 24) with the
   increments listed and summing to the total.
 - [ ] **MS fragmentation** with `toluene` → **91.0542 tropylium ranked high**
   (the real base peak); m/z 77 present but NOT high, and not called "tropylium".
@@ -3644,6 +3726,8 @@ Engineering mode, Energy & power (now 17; the mode must state **101 calculators*
   - `(0,0,0) (1,1,1) (2,2,2)` -> refused as **COLLINEAR**: no plane.
   - `circle r=1/3` -> area **1/9*pi** exactly, and `box 1/2 1/3 1/4` -> volume **1/24**.
     (Typed fractions must stay exact — no long decimals or giant fractions anywhere.)
+- [ ] **Spectroscopy: JCAMP overlay, exact isotope patterns, diastereotopic NMR, and Woodward–Fieser fixes (v2.139.0).** Spectra, Mass Spec — see §0cf.
+  - `CC(C)CO` ¹H vs `2Methyl1Propanol.jdx` → 4 of 4 within window; `BRUKPAC.DX` ¹³C → "Not assessed … +9.09 ppm" until `86.25 = 77.16`, then 6 of 6; `ibuprofen` ¹H → CH₂ "m (²J 14–18 Hz)" with a note; `C2Cl4` → base peak M+2 165.8725 and an isotope chart; ferrocene → M−2 (never M+-2); `cinnamaldehyde` UV → refused by name.
 - [ ] **DAE index reduction, real K-theory, oriented cobordism, and persistence over 𝔽ₚ (v2.138.0).** Analyze, Solve (Topology) — see §0ce.
   - Cartesian pendulum as typed → Index 3, hidden constraint u·x + v·y = 0, drift lines, x(10) ≈ 0.275087; initial values reordered → identical table; `KO of RP^9` → ℤ/32; `does rp^2 # rp^2 bound` → BOUNDS; `klein bottle` → `H₁ = ℤ ⊕ ℤ/2`; `compare` above a ring → two stacked barcodes, inserted at 460 × 600.
 - [ ] **Reaction balancing, stoichiometry, genetic codes, peptides, and formula fixes (v2.137.0).** Solve, Reaction, Bio/Assay, DNA, Sequence, Peptide, Chemical, Mass Spec — see §0cd.

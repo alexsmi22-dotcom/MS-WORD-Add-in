@@ -10,7 +10,27 @@ import { parseMathAst } from "../lib/mathParse";
 import { figureScale, figurePoints } from "../lib/figures";
 import { latexToDsl, astToLatex } from "../lib/latex";
 import { formatQuantityHtml, convert, formatSig, formatUnit } from "../lib/units";
-import { parseJcamp, JcampSpectrum } from "../lib/jcamp";
+import { parseJcamp, JcampSpectrum, JcampRefusal } from "../lib/jcamp";
+import { overlaySpectrum, formatMatchTable, displayUnits, typesetLabel, OverlayOk } from "../lib/spectrumOverlay";
+import { overlayChartSvg, OVERLAY_CHART_SIZE } from "../lib/overlayChart";
+import { isotopeChartSvg, isotopePeakList, ISOTOPE_CHART_SIZE } from "../lib/isotopeChart";
+import {
+  multipletText,
+  diastereotopicNotes,
+  nmrTableText,
+  isotopeCoverage,
+  massSpecText,
+  adductName,
+  chargeText,
+  intensityText,
+  nucleusName,
+  jcampBlockLabel,
+  jcampDrawPoints,
+  jcampSummaryLines,
+  parseReferencePeak,
+  overlayPrediction,
+  OverlaySource,
+} from "../lib/spectroPane";
 import { solveBvp, BvpMethod } from "../lib/bvp";
 import { solveHeat, solveWave, solveLaplace, HeatScheme, PdeOutcome } from "../lib/pde";
 import { parseDaeSystem } from "../lib/daeParse";
@@ -931,6 +951,19 @@ let jcampFile: HTMLInputElement;
 let jcampInfo: HTMLElement;
 let jcampInsertBtn: HTMLButtonElement;
 let jcampInsertChartBtn: HTMLButtonElement;
+let jcampBlockSel: HTMLSelectElement;
+let specCompareBtn: HTMLButtonElement;
+let specOverlayRef: HTMLInputElement;
+let specOverlayOut: HTMLElement;
+let specOverlayInsertBtn: HTMLButtonElement;
+let specOverlayChartBtn: HTMLButtonElement;
+let msInsertChartBtn: HTMLButtonElement;
+let msCompareBtn: HTMLButtonElement;
+let msJcampFile: HTMLInputElement;
+let msOverlayRef: HTMLInputElement;
+let msOverlayOut: HTMLElement;
+let msOverlayInsertBtn: HTMLButtonElement;
+let msOverlayChartBtn: HTMLButtonElement;
 let solveSection: HTMLElement;
 let solveKind: HTMLSelectElement;
 let solveInput: HTMLTextAreaElement;
@@ -1594,7 +1627,20 @@ Office.onReady((info) => {
   jcampInfo = document.getElementById("jcamp-info") as HTMLElement;
   jcampInsertBtn = document.getElementById("jcamp-insert") as HTMLButtonElement;
   jcampInsertChartBtn = document.getElementById("jcamp-insert-chart") as HTMLButtonElement;
-  solveSection = document.getElementById("solve-section") as HTMLElement;
+  jcampBlockSel = document.getElementById("jcamp-block") as HTMLSelectElement;
+  specCompareBtn = document.getElementById("spec-compare") as HTMLButtonElement;
+  specOverlayRef = document.getElementById("spec-overlay-ref") as HTMLInputElement;
+  specOverlayOut = document.getElementById("spec-overlay") as HTMLElement;
+  specOverlayInsertBtn = document.getElementById("spec-overlay-insert") as HTMLButtonElement;
+  specOverlayChartBtn = document.getElementById("spec-overlay-insert-chart") as HTMLButtonElement;
+  msInsertChartBtn = document.getElementById("ms-insert-chart") as HTMLButtonElement;
+  msCompareBtn = document.getElementById("ms-compare") as HTMLButtonElement;
+  msJcampFile = document.getElementById("ms-jcamp-file") as HTMLInputElement;
+  msOverlayRef = document.getElementById("ms-overlay-ref") as HTMLInputElement;
+  msOverlayOut = document.getElementById("ms-overlay") as HTMLElement;
+  msOverlayInsertBtn = document.getElementById("ms-overlay-insert") as HTMLButtonElement;
+  msOverlayChartBtn = document.getElementById("ms-overlay-insert-chart") as HTMLButtonElement;
+  solveSection =document.getElementById("solve-section") as HTMLElement;
   solveKind = document.getElementById("solve-kind") as HTMLSelectElement;
   solveInput = document.getElementById("solve-input") as HTMLTextAreaElement;
   solveInputLabel = document.getElementById("solve-input-label") as HTMLElement;
@@ -1815,15 +1861,63 @@ Office.onReady((info) => {
   finInsertBtn.addEventListener("click", () => void runCompositeInsert(finInsertBtn, insertFinanceResult));
 
   msInput.addEventListener("input", updateMassSpec);
-  msInsertBtn.addEventListener("click", () => insertPlainText(massSpecAsText(currentMassSpec), "MS data"));
+  msInsertBtn.addEventListener("click", () => insertPlainText(massSpecText(currentMassSpec), "MS data"));
+  msInsertChartBtn.addEventListener("click", () => void insertIsotopeChart());
+  msCompareBtn.addEventListener("click", () => msJcampFile.click());
+  msJcampFile.addEventListener("change", () => {
+    readJcampInput(msJcampFile, (text, name) => {
+      const parsed = parseJcamp(text);
+      if (!parsed.ok) {
+        msJcamp = null;
+        msJcampName = "";
+        showOverlayMessage(msPanel, `${name}: ${parsed.error}`);
+        return;
+      }
+      if (!parsed.spectra.length) {
+        msJcamp = null;
+        showOverlayMessage(msPanel, `${name}: every block was refused — ${parsed.refused.map((r) => r.reason).join(" ")}`);
+        return;
+      }
+      // An MS comparison wants the MS block; otherwise the file's own default.
+      const msIdx = parsed.spectra.findIndex((s) => s.kind === "ms" && !s.corrupt);
+      msJcamp = parsed.spectra[msIdx >= 0 ? msIdx : parsed.defaultIndex];
+      msJcampName = name;
+      refreshMsOverlay();
+    }, (msg) => {
+      // A file that cannot be read (too large, a read error) clears the OLD
+      // comparison and disables its Insert buttons — mirroring the Spectra side —
+      // rather than leaving file A's overlay under the attempt to load file B.
+      msJcamp = null;
+      msJcampName = "";
+      showOverlayMessage(msPanel, msg);
+    });
+  });
+  // Debounced: an overlay on a 2²⁰-point file costs ~0.75 s, too much per keystroke.
+  msOverlayRef.addEventListener("input", debounce(refreshMsOverlay, 300));
+  msOverlayInsertBtn.addEventListener("click", () => void insertOverlayTable(msPanel));
+  msOverlayChartBtn.addEventListener("click", () => void insertOverlayChart(msPanel));
   specInput.addEventListener("input", updateSpectra);
   specKind.addEventListener("change", updateSpectra);
   specInsertBtn.addEventListener("click", () => void insertSpectrumResult());
   specInsertChartBtn.addEventListener("click", insertSpectrumChart);
   jcampOpenBtn.addEventListener("click", () => jcampFile.click());
   jcampFile.addEventListener("change", onJcampFile);
+  jcampBlockSel.addEventListener("change", () => showJcampBlock(Number(jcampBlockSel.value)));
   jcampInsertBtn.addEventListener("click", () => insertPlainText(jcampAsText(), "measured spectrum data"));
   jcampInsertChartBtn.addEventListener("click", insertJcampChart);
+  specCompareBtn.addEventListener("click", () => {
+    specOverlayActive = true;
+    if (!currentJcamp) {
+      // No measured file yet: open one, and compare as soon as it is read.
+      jcampFile.click();
+      showOverlayMessage(specPanel, "Choose a measured spectrum (.jdx / .dx); the comparison runs when it is read.");
+      return;
+    }
+    refreshSpecOverlay();
+  });
+  specOverlayRef.addEventListener("input", debounce(refreshSpecOverlay, 300));
+  specOverlayInsertBtn.addEventListener("click", () => void insertOverlayTable(specPanel));
+  specOverlayChartBtn.addEventListener("click", () => void insertOverlayChart(specPanel));
   solveKind.addEventListener("change", () => { solveVarChoice = null; updateSolveUi(); updateSolve(); });
   solveOpenCanvasBtn.addEventListener("click", openSolveDialog);
   solveInput.addEventListener("input", () => { solveVarChoice = null; updateSolve(); });
@@ -26643,12 +26737,20 @@ function updateMassSpec(): void {
   const text = msInput.value.trim();
   msResult.replaceChildren();
   currentMassSpec = null;
+  currentIsotopeSvg = null;
   msInsertBtn.disabled = true;
+  msInsertChartBtn.disabled = true;
   if (!text) {
     const hint = document.createElement("div");
     hint.className = "ms-hint";
     hint.textContent = "Type a name, formula, or SMILES to see its mass spectrum.";
     msResult.appendChild(hint);
+    // Said from the isotope table itself, so the claim cannot drift from the data.
+    const cov = document.createElement("div");
+    cov.className = "ms-note";
+    cov.textContent = isotopeCoverage();
+    msResult.appendChild(cov);
+    refreshMsOverlay();
     return;
   }
 
@@ -26670,12 +26772,14 @@ function updateMassSpec(): void {
   }
   if (res.kind === "none") {
     msHint(res.message);
+    refreshMsOverlay();
     return;
   }
   if (res.kind === "ambiguous") {
     // Both readings, side by side; nothing is offered for insertion until the
     // user picks one (formula:… or smiles:…).
     msHint(res.message);
+    refreshMsOverlay();
     const both = document.createElement("div");
     both.className = "ms-masses";
     const rows: [string, MassSpecResult | null][] = [
@@ -26710,6 +26814,9 @@ function updateMassSpec(): void {
     // typesetHill: a formula READING can carry a charge (MnO₄⁻) that the
     // charge-blind formatFormula would print as MnO₄.
     ["Formula", typesetHill(spec.formula, spec.netCharge)],
+    // A named isotope ([13C], [2H], [99Tc]) sits beside the formula: the
+    // formula alone cannot say that one carbon is ¹³C.
+    ...(spec.labelledIsotopes.length ? [["Labelled isotopes", spec.labelledIsotopes.join(", ")]] : []),
   ] as [string, string][]) {
     const kk = document.createElement("span");
     kk.className = "ms-mass-k";
@@ -26730,7 +26837,8 @@ function updateMassSpec(): void {
     row.className = "ms-peak";
     const label = document.createElement("span");
     label.className = "ms-peak-label";
-    label.textContent = pk.offset === 0 ? "M" : `M+${pk.offset}`;
+    // The engine's own label: "M−2" (true minus) for ⁵⁴Fe, never "M+-2".
+    label.textContent = pk.label;
     const track = document.createElement("div");
     track.className = "ms-bar-track";
     const bar = document.createElement("div");
@@ -26739,16 +26847,30 @@ function updateMassSpec(): void {
     track.appendChild(bar);
     const int = document.createElement("span");
     int.className = "ms-peak-int";
-    int.textContent = `${pk.intensity.toFixed(1)}`;
+    // Same precision as the inserted text (spectroPane.intensityText).
+    int.textContent = intensityText(pk.intensity);
     row.append(label, track, int);
     peaks.appendChild(row);
   }
   msResult.appendChild(peaks);
-  if (spec.unsupportedInPattern.length) {
+  for (const t of [
+    spec.patternNote,
+    spec.unsupportedInPattern.length ? `Pattern excludes ${spec.unsupportedInPattern.join(", ")} (no isotope composition).` : "",
+    spec.massSource,
+  ]) {
+    if (!t) continue;
     const note = document.createElement("div");
     note.className = "ms-note";
-    note.textContent = `Pattern excludes ${spec.unsupportedInPattern.join(", ")} (not in the isotope table); masses and adducts are still exact.`;
+    note.textContent = t;
     msResult.appendChild(note);
+  }
+  // The stick figure: the same SVG the Insert button rasterises.
+  currentIsotopeSvg = isotopeChartSvg({ formula: spec.formula, netCharge: spec.netCharge, pattern: spec.pattern, patternNote: spec.patternNote });
+  if (currentIsotopeSvg) {
+    const holder = document.createElement("div");
+    holder.className = "structure-preview";
+    holder.innerHTML = currentIsotopeSvg;
+    msResult.appendChild(holder);
   }
 
   // Adduct m/z. These assume a neutral precursor; if the structure already
@@ -26757,8 +26879,7 @@ function updateMassSpec(): void {
   if (spec.netCharge !== 0) {
     const note = document.createElement("div");
     note.className = "ms-note";
-    const sign = spec.netCharge > 0 ? `${spec.netCharge}+` : `${-spec.netCharge}−`;
-    note.textContent = `Input carries a net charge (${sign}); ESI adducts assume a neutral molecule, so none are shown. The exact mass above is still valid.`;
+    note.textContent = `Input carries a net charge (${chargeText(spec.netCharge)}); ESI adducts assume a neutral molecule, so none are shown. The exact mass above is still valid.`;
     msResult.appendChild(note);
   } else {
     const adducts = document.createElement("div");
@@ -26766,7 +26887,7 @@ function updateMassSpec(): void {
     for (const a of spec.adducts) {
       const name = document.createElement("span");
       name.className = "ms-adduct-name";
-      name.textContent = a.name;
+      name.textContent = adductName(a.name); // [M−H]⁻, [M+NH₄]⁺ — typeset, true minus
       const mz = document.createElement("span");
       mz.className = "ms-adduct-mz";
       mz.textContent = a.mz.toFixed(4);
@@ -26776,33 +26897,176 @@ function updateMassSpec(): void {
   }
 
   msInsertBtn.disabled = false;
+  msInsertChartBtn.disabled = !currentIsotopeSvg;
+  refreshMsOverlay();
 }
 
-/** Multi-line plain-text MS summary for insertion. */
-function massSpecAsText(spec: MassSpecResult | null): string {
-  if (!spec) return "";
-  const lines = [
-    `Mass spectrometry — ${typesetHill(spec.formula, spec.netCharge)}`,
-    `Monoisotopic mass: ${spec.monoisotopicMass.toFixed(4)}`,
-    `Average mass: ${spec.averageMass.toFixed(2)}`,
-    "Isotope pattern (relative intensity):",
-    ...spec.pattern.map((p) => `  ${p.offset === 0 ? "M" : "M+" + p.offset}  ${p.mass.toFixed(4)}  ${p.intensity.toFixed(1)}%`),
-    // The pane shows this exclusion; the DOCUMENT did not. Chlorophyll a's
-    // pattern is computed as though the magnesium were not there (²⁵Mg 10%,
-    // ²⁶Mg 11% simply missing), and the table landed in a manuscript with
-    // nothing saying so. A caveat that only survives on screen is not a caveat.
-    ...(spec.unsupportedInPattern.length
-      ? [
-          `  Pattern excludes ${spec.unsupportedInPattern.join(", ")} (not in the isotope table); ` +
-            "masses and adducts are still exact.",
-        ]
-      : []),
-    ...(spec.netCharge !== 0
-      ? [`Adducts: n/a (input carries a net charge of ${spec.netCharge > 0 ? "+" : "−"}${Math.abs(spec.netCharge)}; ESI adducts assume a neutral molecule)`]
-      : ["Adducts (m/z):", ...spec.adducts.map((a) => `  ${a.name}  ${a.mz.toFixed(4)}`)]),
-    "Computed offline — verify before relying.",
-  ];
-  return lines.join("\n");
+// The inserted MS text is lib/spectroPane.massSpecText: it prints pk.label
+// (M−2 for ⁵⁴Fe — the old "M+" + offset built "M+-2"), the pattern note, the
+// mass source and any labelled isotopes, so the document carries every caveat
+// the pane shows.
+
+/** The isotope stick figure for the current Mass Spec input, as shown. */
+let currentIsotopeSvg: string | null = null;
+
+async function insertIsotopeChart(): Promise<void> {
+  const spec = currentMassSpec;
+  if (!currentIsotopeSvg || !spec) {
+    setStatus("No isotope pattern to insert.", "error");
+    return;
+  }
+  msInsertChartBtn.disabled = true;
+  setStatus("Inserting isotope pattern…");
+  try {
+    // Intrinsic size: the peak-list notes grow the canvas below the plot.
+    const d = readSvgDims(currentIsotopeSvg, ISOTOPE_CHART_SIZE.width, ISOTOPE_CHART_SIZE.height);
+    const base64 = await renderFigurePng(currentIsotopeSvg, d.w, d.h);
+    await Word.run(async (context) => {
+      const range = context.document.getSelection();
+      const picture = range.insertInlinePictureFromBase64(base64, Word.InsertLocation.after);
+      sizeFigure(picture, d.w, d.h);
+      picture.altTextDescription = `Isotope pattern of ${typesetHill(spec.formula, spec.netCharge)} (computed): ${isotopePeakList(spec.pattern)}`;
+      range.select(Word.SelectionMode.end);
+      await context.sync();
+      await tagInserted(context, picture.getRange(), "formula-inserter:spectrum");
+    });
+    setStatus("Isotope pattern inserted.", "success");
+  } catch (error) {
+    setStatus(`Could not insert isotope pattern: ${(error as Error).message}`, "error");
+  } finally {
+    msInsertChartBtn.disabled = !currentIsotopeSvg;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Compare with acquired spectrum (v2.139.0) — a measured JCAMP-DX file against
+// the current prediction (Spectra) or the computed isotope pattern (Mass Spec).
+//
+// The engine is lib/spectrumOverlay.ts; the figure lib/overlayChart.ts. A match
+// is PROXIMITY, not an assignment, and the engine says so in every table and
+// figure. Each panel recomputes whenever its prediction, its file or its
+// reference peak changes, so the preview and the insert can never disagree.
+// ---------------------------------------------------------------------------
+
+interface OverlayPanel {
+  which: "spec" | "ms";
+  result: OverlayOk | null;
+  svg: string | null;
+}
+const specPanel: OverlayPanel = { which: "spec", result: null, svg: null };
+const msPanel: OverlayPanel = { which: "ms", result: null, svg: null };
+/** Spectra compares only once asked; after that it follows every change. */
+let specOverlayActive = false;
+/** The measured MS file opened from Mass Spec. */
+let msJcamp: JcampSpectrum | null = null;
+let msJcampName = "";
+
+function overlayEls(p: OverlayPanel): { out: HTMLElement; ref: HTMLInputElement; table: HTMLButtonElement; chart: HTMLButtonElement } {
+  return p.which === "spec"
+    ? { out: specOverlayOut, ref: specOverlayRef, table: specOverlayInsertBtn, chart: specOverlayChartBtn }
+    : { out: msOverlayOut, ref: msOverlayRef, table: msOverlayInsertBtn, chart: msOverlayChartBtn };
+}
+
+function clearOverlay(p: OverlayPanel): void {
+  const e = overlayEls(p);
+  p.result = null;
+  p.svg = null;
+  e.out.replaceChildren();
+  e.table.disabled = true;
+  e.chart.disabled = true;
+}
+
+function showOverlayMessage(p: OverlayPanel, msg: string): void {
+  clearOverlay(p);
+  const hint = document.createElement("div");
+  hint.className = "ms-hint";
+  hint.textContent = msg;
+  overlayEls(p).out.appendChild(hint);
+}
+
+/** Runs the overlay and renders it: the verdict, the table, the figure. */
+function runOverlay(p: OverlayPanel, file: JcampSpectrum, src: OverlaySource): void {
+  const e = overlayEls(p);
+  clearOverlay(p);
+  const ref = parseReferencePeak(e.ref.value);
+  if (!ref.ok) return showOverlayMessage(p, ref.error);
+  const pred = overlayPrediction(src);
+  if ("error" in pred) return showOverlayMessage(p, pred.error);
+  const r = overlaySpectrum(file, pred, ref.reference ? { reference: ref.reference } : {});
+  if (!r.ok) return showOverlayMessage(p, r.error);
+  p.result = r;
+  p.svg = overlayChartSvg(r);
+  const lines = formatMatchTable(r).split("\n");
+  e.out.appendChild(msEyebrow(`Measured vs predicted — ${file.title || "measured spectrum"}${r.axis.unit ? ` (${r.axis.unit}; Δ = predicted − measured)` : ""}`));
+  e.out.appendChild(specRow(["predicted", "assignment", "nearest", "Δ", "in window"], "spec-row spec-match spec-head"));
+  for (const ln of lines.slice(1, 1 + r.rows.length)) e.out.appendChild(specRow(ln.split("\t"), "spec-row spec-match"));
+  e.out.appendChild(specCaveats(lines.slice(1 + r.rows.length)));
+  if (p.svg) {
+    const holder = document.createElement("div");
+    holder.className = "structure-preview";
+    holder.innerHTML = p.svg;
+    e.out.appendChild(holder);
+  }
+  e.table.disabled = false;
+  e.chart.disabled = !p.svg;
+}
+
+/** The Spectra panel: the current prediction against the JCAMP block on screen. */
+function refreshSpecOverlay(): void {
+  if (!specOverlayActive) return clearOverlay(specPanel);
+  const cur = currentSpectrum;
+  if (!currentJcamp) return showOverlayMessage(specPanel, "Open a measured spectrum (.jdx / .dx) below to compare.");
+  if (!cur) return showOverlayMessage(specPanel, "Predict a spectrum above first.");
+  if (cur.kind !== "1H" && cur.kind !== "13C" && cur.kind !== "ir" && cur.kind !== "uvvis" && cur.kind !== "ms") {
+    return showOverlayMessage(specPanel, "2D predictions (COSY, HSQC, HMBC, TOCSY) are not overlaid; choose ¹H, ¹³C, IR, UV-Vis or MS.");
+  }
+  runOverlay(specPanel, currentJcamp, cur);
+}
+
+/** The Mass Spec panel: the computed isotope pattern against the opened MS file. */
+function refreshMsOverlay(): void {
+  if (!msJcamp) return clearOverlay(msPanel);
+  if (!currentMassSpec) return showOverlayMessage(msPanel, `${msJcampName}: type a compound above to compare its isotope pattern.`);
+  runOverlay(msPanel, msJcamp, { kind: "isotopes", spec: currentMassSpec });
+}
+
+async function insertOverlayTable(p: OverlayPanel): Promise<void> {
+  if (!p.result) {
+    setStatus("Nothing to insert — compare with a measured spectrum first.", "error");
+    return;
+  }
+  await insertPlainText(`Measured vs predicted — ${p.result.fileTitle}\n${formatMatchTable(p.result)}`, "match table");
+}
+
+async function insertOverlayChart(p: OverlayPanel): Promise<void> {
+  const r = p.result;
+  const svg = p.svg;
+  const btn = overlayEls(p).chart;
+  if (!r || !svg) {
+    setStatus("No overlay chart to insert.", "error");
+    return;
+  }
+  btn.disabled = true;
+  setStatus("Inserting overlay chart…");
+  try {
+    // Sized from the SVG itself — the figure grows for its notes and legend.
+    const d = readSvgDims(svg, OVERLAY_CHART_SIZE.width, OVERLAY_CHART_SIZE.height);
+    const base64 = await renderFigurePng(svg, d.w, d.h);
+    await Word.run(async (context) => {
+      const range = context.document.getSelection();
+      const picture = range.insertInlinePictureFromBase64(base64, Word.InsertLocation.after);
+      sizeFigure(picture, d.w, d.h);
+      picture.altTextDescription = `Measured spectrum (${r.fileTitle}) overlaid with a prediction (estimate) — ${r.matched} of ${r.rows.length} predicted lines within their window. A match is proximity, not an assignment.`;
+      range.select(Word.SelectionMode.end);
+      await context.sync();
+      await tagInserted(context, picture.getRange(), "formula-inserter:spectrum");
+    });
+    setStatus("Overlay chart inserted.", "success");
+  } catch (error) {
+    setStatus(`Could not insert overlay chart: ${(error as Error).message}`, "error");
+  } finally {
+    btn.disabled = !p.svg;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -26909,13 +27173,20 @@ function dedupe(xs: string[]): string[] {
   return xs.filter((x) => (seen.has(x) ? false : (seen.add(x), true)));
 }
 
-/** Formats a refined multiplet with its coupling constants, e.g. "dd (7.8, 1.5)". */
-function formatMultiplet(multiplet: string, J: number[]): string {
-  return J.length ? `${multiplet} (${J.map((j) => j.toFixed(1)).join(", ")})` : multiplet;
+// The multiplet column ("dd (7.8, 1.5)", or "m (²J 12–15 Hz)" for a
+// diastereotopic CH₂) is lib/spectroPane.multipletText, where a test can reach it.
+
+/**
+ * Computes and renders the selected prediction, then re-runs the measured
+ * comparison against it (every exit path, so an overlay can never outlive the
+ * prediction it was computed from).
+ */
+function updateSpectra(): void {
+  renderSpectraPrediction();
+  refreshSpecOverlay();
 }
 
-/** Computes and renders the selected prediction for the current input. */
-function updateSpectra(): void {
+function renderSpectraPrediction(): void {
   const text = specInput.value.trim();
   const kind = specKind.value as SpectrumKind;
   specResult.replaceChildren();
@@ -26956,21 +27227,38 @@ function updateSpectra(): void {
       // predictCoupling align by index with predictNmr's (same input, same order).
       const cpl = kind === "1H" ? predictCoupling(text) : null;
       currentSpectrum = { kind, nmr: r, coupling: cpl ?? undefined };
-      specResult.appendChild(msEyebrow(`Predicted ${kind} NMR — ${r.signals.length} signals`));
-      const head = specRow(["δ (ppm)", kind === "1H" ? "H" : "C", kind === "1H" ? "mult. (J/Hz)" : "", "assignment"], "spec-row spec-head");
+      specResult.appendChild(msEyebrow(`Predicted ${nucleusName(kind)} NMR — ${r.signals.length} signals`));
+      // The note column carries a footnote letter for each diastereotopic
+      // signal; the notes themselves follow the table once each.
+      const dia = diastereotopicNotes(r.signals);
+      const noted = dia.notes.length > 0;
+      const rowClass = noted ? "spec-row spec-noted" : "spec-row";
+      const head = specRow(
+        ["δ (ppm)", kind === "1H" ? "H" : "C", kind === "1H" ? "mult. (J/Hz)" : "", "assignment", ...(noted ? ["note"] : [])],
+        `${rowClass} spec-head`,
+      );
       specResult.appendChild(head);
       r.signals.forEach((s, i) => {
-        const cs = cpl?.signals[i];
-        const mult = cs ? formatMultiplet(cs.multiplet, cs.J) : s.multiplicity;
+        // multipletText: a diastereotopic CH₂ shows "m (²J 12–15 Hz)" — its
+        // geminal range — never the vicinal J beside the "m".
+        const mult = multipletText(cpl?.signals[i], s.multiplicity);
         specResult.appendChild(
-          specRow([
-            s.shift.toFixed(kind === "1H" ? 2 : 1),
-            String(s.count),
-            kind === "1H" ? mult : "",
-            s.assignment,
-          ])
+          specRow(
+            [s.shift.toFixed(kind === "1H" ? 2 : 1), String(s.count), kind === "1H" ? mult : "", typesetLabel(s.assignment), ...(noted ? [dia.marks[i]] : [])],
+            rowClass,
+          ),
         );
       });
+      if (noted) {
+        const wrap = document.createElement("div");
+        wrap.className = "ms-note";
+        for (const n of dia.notes) {
+          const d = document.createElement("div");
+          d.textContent = n;
+          wrap.appendChild(d);
+        }
+        specResult.appendChild(wrap);
+      }
     } else if (kind === "cosy") {
       const cc = predictCoupling(text);
       const r = predictCosy(text);
@@ -27197,7 +27485,7 @@ function spectrumAsText(): string {
       }
       if (!byClass.size) return [];
       const order: DeptClass[] = ["C", "CH", "CH2", "CH3"];
-      const part = (k: DeptClass): string => `${byClass.get(k) ?? 0} ${k}`;
+      const part = (k: DeptClass): string => `${byClass.get(k) ?? 0} ${typesetLabel(k)}`;
       // DERIVED from deptBehaviour rather than restated here. Writing the
       // phases out a second time is how the two copies drift, and it would
       // also have left the exported helper dead — the exact debt the
@@ -27205,7 +27493,7 @@ function spectrumAsText(): string {
       const phase = (which: "dept135" | "dept90"): string =>
         order
           .filter((k) => byClass.has(k))
-          .map((k) => `${k} ${deptBehaviour(k)[which]}`)
+          .map((k) => `${typesetLabel(k)} ${deptBehaviour(k)[which]}`)
           .join(", ");
       return [
         "",
@@ -27215,22 +27503,18 @@ function spectrumAsText(): string {
         "  These classes are exact (counted from the structure); the shifts beside them are not.",
       ];
     };
-    // For 1H, fold the resolved multiplet + J into each line.
-    const cpl = r.nucleus === "1H" ? predictCoupling(r.smiles) : null;
+    // For 1H, fold the resolved multiplet + J into each line (nmrTableText:
+    // the geminal ²J range for a diastereotopic CH₂, the DEPT class for ¹³C —
+    // exact, unlike the shift beside it — and the diastereotopic notes, which
+    // travel into the document with the rows they explain).
+    // The couplings STORED with the on-screen prediction — never a recompute
+    // from r.smiles, whose re-parse can tie-break equal-δ rows differently and
+    // hand a row another row's multiplet (cholesterol: "sept" on screen, "m" in
+    // the document). Preview and insert are the same rows.
+    const cpl = r.nucleus === "1H" ? cur.coupling ?? null : null;
     const lines = [
-      `Predicted ${r.nucleus} NMR — ${r.smiles}`,
-      ...r.signals.map((s, i) => {
-        if (r.nucleus !== "1H") {
-          // DEPT class is EXACT — read off the structure's own hydrogen count —
-          // unlike the shift beside it, and it pins down exactly the
-          // assignments an additivity model is least sure of.
-          const d = s.dept ? `  ${s.dept.padEnd(3)}` : "";
-          return `  δ ${s.shift.toFixed(1)}${d}  ${s.assignment}${s.count > 1 ? `  (${s.count} equivalent C)` : ""}`;
-        }
-        const cs = cpl?.signals[i];
-        const mult = cs ? formatMultiplet(cs.multiplet, cs.J) : s.multiplicity;
-        return `  δ ${s.shift.toFixed(2)}  (${s.count}H, ${mult})  ${s.assignment}`;
-      }),
+      `Predicted ${nucleusName(r.nucleus)} NMR — ${r.smiles}`,
+      ...nmrTableText(r, cpl?.signals),
       ...(r.nucleus === "13C" ? deptSummaryLines(r) : []),
       // The coupling caveats explain the J values printed two lines up, so they
       // travel with them into the document. Without this the inserted table
@@ -27276,7 +27560,7 @@ function spectrumAsText(): string {
       `Predicted IR — ${r.smiles}`,
       ...r.bands.map(
         (b) =>
-          `  ${String(Math.round(b.wavenumber)).padStart(4)} cm-1  (${b.range[0]}-${b.range[1]}, ${b.intensity}${b.broad ? ", broad" : ""})  ${b.assignment}`
+          `  ${String(Math.round(b.wavenumber)).padStart(4)} cm⁻¹  (${b.range[0]}–${b.range[1]}, ${b.intensity}${b.broad ? ", broad" : ""})  ${b.assignment}`
       ),
       ...r.caveats.map((c) => `Note: ${c}`),
       tail,
@@ -27446,69 +27730,118 @@ let currentJcampSvg: string | null = null;
 
 const JCAMP_MAX_BYTES = 16 * 1024 * 1024;
 
+/** The parsed file on screen: every block, the refusals, and the file name. */
+let currentJcampFile: { spectra: JcampSpectrum[]; refused: JcampRefusal[]; defaultReason: string; defaultIndex: number; name: string } | null = null;
+
+/**
+ * Insert is offered only for a block that passed the file's own checks. A
+ * CORRUPT block (DIF y-check, declared point count, unreadable character) is
+ * shown with its reason so the user can see what is wrong — and this is the one
+ * place the reader's y-check reaches the user — but nothing from it is inserted
+ * or overlaid.
+ */
 function setJcampButtons(enabled: boolean): void {
-  jcampInsertBtn.disabled = !enabled;
-  jcampInsertChartBtn.disabled = !enabled || !currentJcampSvg;
+  const ok = enabled && !!currentJcamp && !currentJcamp.corrupt;
+  jcampInsertBtn.disabled = !ok;
+  jcampInsertChartBtn.disabled = !ok || !currentJcampSvg;
 }
 
-function onJcampFile(): void {
-  const file = jcampFile.files && jcampFile.files[0];
+/** Reads a picked .jdx as Latin-1 text (size-capped), then hands it on. */
+function readJcampInput(input: HTMLInputElement, onText: (text: string, name: string) => void, onError?: (msg: string) => void): void {
+  const file = input.files && input.files[0];
   if (!file) return;
+  const report = onError ?? ((msg: string) => setStatus(msg, "error"));
   if (file.size > JCAMP_MAX_BYTES) {
-    currentJcamp = null;
-    currentJcampSvg = null;
-    setJcampButtons(false);
-    jcampInfo.textContent = `That file is ${(file.size / 1e6).toFixed(1)} MB — too large for the pane (limit 16 MB).`;
+    report(`That file is ${(file.size / 1e6).toFixed(1)} MB — too large for the pane (limit 16 MB).`);
+    input.value = "";
     return;
   }
   const reader = new FileReader();
-  reader.onerror = () => {
-    jcampInfo.textContent = "Couldn't read that file.";
-    setJcampButtons(false);
-  };
-  reader.onload = () => {
-    renderJcamp(String(reader.result ?? ""), file.name);
-  };
+  reader.onerror = () => report("Couldn't read that file.");
+  reader.onload = () => onText(String(reader.result ?? ""), file.name);
   // JCAMP-DX is a text format. Latin-1 rather than UTF-8: older instrument files
   // carry degree signs and Greek letters in the high-bit range, and decoding
   // those as UTF-8 turns them into replacement characters inside the metadata.
   reader.readAsText(file, "iso-8859-1");
-  jcampFile.value = ""; // so picking the same file twice still fires
+  input.value = ""; // so picking the same file twice still fires
+}
+
+function onJcampFile(): void {
+  readJcampInput(
+    jcampFile,
+    (text, name) => renderJcamp(text, name),
+    (msg) => {
+      currentJcamp = null;
+      currentJcampSvg = null;
+      currentJcampFile = null;
+      setJcampButtons(false);
+      jcampInfo.textContent = msg;
+      refreshSpecOverlay();
+    },
+  );
 }
 
 function renderJcamp(text: string, filename: string): void {
   currentJcamp = null;
   currentJcampSvg = null;
+  currentJcampFile = null;
   jcampInfo.replaceChildren();
+  jcampBlockSel.replaceChildren();
+  jcampBlockSel.hidden = true;
 
   const parsed = parseJcamp(text);
   if (!parsed.ok) {
+    // A file the reader refuses outright (an FID, nD NMR, a GC-MS NTUPLES …)
+    // says so by name.
     jcampInfo.textContent = `${filename}: ${parsed.error}`;
     setJcampButtons(false);
+    refreshSpecOverlay();
     return;
   }
-  // A file may hold several blocks; show the first and say so rather than
-  // silently picking one.
-  const s = parsed.spectra[0];
-  currentJcamp = s;
-  currentJcampSvg = jcampChartSvg({
-    title: s.title,
-    kind: s.kind,
-    xUnits: s.xUnits,
-    yUnits: s.yUnits,
-    points: s.points,
-  });
-
-  const lines: string[] = [];
-  lines.push(`${s.title || filename} — ${s.dataType || "spectrum"}`);
-  lines.push(`${s.points.length.toLocaleString()} points, ${s.xUnits || "?"} vs ${s.yUnits || "?"}`);
-  if (s.points.length) {
-    const xs = s.points.map((p) => p.x);
-    lines.push(`Range ${minOf(xs).toPrecision(6)} to ${maxOf(xs).toPrecision(6)} ${s.xUnits}`);
+  currentJcampFile = { ...parsed, name: filename };
+  if (!parsed.spectra.length) {
+    jcampInfo.textContent = `${filename}: every block was refused — ${parsed.refused.map((r) => `block ${r.block} (${r.title}): ${r.reason}`).join(" ")}`;
+    setJcampButtons(false);
+    refreshSpecOverlay();
+    return;
   }
+  // Several blocks: the reader's own choice (defaultIndex, with its reason),
+  // and a picker for the rest — never silently the first.
   if (parsed.spectra.length > 1) {
-    lines.push(`This file holds ${parsed.spectra.length} blocks; the first is shown.`);
+    parsed.spectra.forEach((s, i) => {
+      const o = document.createElement("option");
+      o.value = String(i);
+      o.textContent = jcampBlockLabel(s, i);
+      jcampBlockSel.appendChild(o);
+    });
+    jcampBlockSel.value = String(parsed.defaultIndex);
+    jcampBlockSel.hidden = false;
   }
+  showJcampBlock(parsed.defaultIndex);
+}
+
+/** Shows one block of the open file (and re-runs any comparison against it). */
+function showJcampBlock(index: number): void {
+  const f = currentJcampFile;
+  jcampInfo.replaceChildren();
+  if (!f || !f.spectra[index]) return;
+  const s = f.spectra[index];
+  currentJcamp = s;
+  currentJcampSvg = s.corrupt
+    ? null
+    : jcampChartSvg({
+        title: s.title,
+        kind: s.kind,
+        // Display-contract units on the axes (cm⁻¹, Hz, m/z — never "1/CM");
+        // the raw strings stay in the readout as provenance.
+        xUnits: displayUnits(s.xUnits),
+        yUnits: displayUnits(s.yUnits),
+        // A peak table is drawn as sticks, never joined into a trace.
+        points: jcampDrawPoints(s),
+      });
+
+  const lines = jcampSummaryLines(s, f.name);
+  if (f.spectra.length > 1) lines.push(index === f.defaultIndex && f.defaultReason ? f.defaultReason : `This file holds ${f.spectra.length} blocks; block ${s.block ?? index + 1} is shown.`);
   lines.push("This is your measured data — nothing here is predicted.");
 
   const p = document.createElement("div");
@@ -27517,12 +27850,15 @@ function renderJcamp(text: string, filename: string): void {
     d.textContent = ln;
     p.appendChild(d);
   }
-  for (const c of s.caveats) {
+  const warn = (t: string): void => {
     const d = document.createElement("div");
     d.className = "warn-line";
-    d.textContent = `⚠ ${c}`;
+    d.textContent = `⚠ ${t}`;
     p.appendChild(d);
-  }
+  };
+  if (s.corrupt) warn(`This block FAILED the file's own checks — ${s.corruptReason ?? "decode check"}. It is shown for diagnosis only: not inserted, not overlaid.`);
+  for (const r of f.refused) warn(`Block ${r.block} (${r.title || "untitled"}) refused: ${r.reason}`);
+  for (const c of s.caveats) warn(c);
   jcampInfo.appendChild(p);
   if (currentJcampSvg) {
     const holder = document.createElement("div");
@@ -27530,16 +27866,19 @@ function renderJcamp(text: string, filename: string): void {
     jcampInfo.appendChild(holder);
   }
   setJcampButtons(true);
+  refreshSpecOverlay();
 }
 
 /** The measured trace as text, for insertion as a data table. */
 function jcampAsText(): string {
   const s = currentJcamp;
-  if (!s) return "";
+  if (!s || s.corrupt) return "";
   const head = [
     `${s.title || "Measured spectrum"} (${s.dataType || "spectrum"})`,
     `Measured data read from a JCAMP-DX file — not predicted.`,
-    `${s.xUnits}\t${s.yUnits}`,
+    ...jcampSummaryLines(s, currentJcampFile?.name ?? "").slice(1),
+    ...s.caveats.map((c) => `Note: ${c}`),
+    `${displayUnits(s.xUnits) || "x"}\t${displayUnits(s.yUnits) || "y"}`,
   ];
   // A full trace can be 30,000 rows, which is not a table anyone wants in a
   // document. Say what was written rather than truncating silently.
@@ -27573,7 +27912,7 @@ async function insertJcampChart(): Promise<void> {
       sizeFigure(picture, jd.w, jd.h);
       picture.altTextDescription =
         `Measured ${currentJcamp?.dataType || "spectrum"} from a JCAMP-DX file` +
-        ` — ${currentJcamp?.xUnits} vs ${currentJcamp?.yUnits}`;
+        ` — ${displayUnits(currentJcamp?.xUnits ?? "")} vs ${displayUnits(currentJcamp?.yUnits ?? "")}`;
       range.select(Word.SelectionMode.end);
       await context.sync();
       await tagInserted(context, picture.getRange(), "formula-inserter:spectrum");

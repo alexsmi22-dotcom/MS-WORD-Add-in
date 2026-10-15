@@ -980,6 +980,11 @@ x&#179; &minus; 1 = 0
       <p class="lede">Tiles marked <span class="is-new">New</span> are the most recent additions; the rest have grown since you last looked. Every tile opens a full breakdown with worked examples.</p>
     </div>
     <div class="cards">
+      <a class="card" href="tool.html?tool=spectra">
+        <h3>Predicted against measured, exact isotope patterns <span class="is-new">New</span></h3>
+        <p>Open the <b>JCAMP-DX</b> file your instrument wrote and press <b>Compare with acquired spectrum</b>: the predicted ¹H, ¹³C, IR, UV-Vis or MS is drawn over it with a match table of every line, its nearest measured peak and &Delta; &mdash; and a mis-referenced axis is <b>said, never shifted silently</b> (give <code>86.25 = 77.16</code> and it is). Mass Spec patterns now cover <b>all 84 elements with a natural isotopic composition</b>, from AME2020 masses and CIAAW 2024 abundances, labelled from M with a true minus. Diastereotopic methyls are two signals, not one 6H doublet; and Woodward&ndash;Fieser no longer depends on how the SMILES was written &mdash; quinones and aryl enones are refused by name instead of given a number.</p>
+        <div class="spec">C&#8322;Cl&#8324;: M+2 165.8725 is the base peak &middot; &#8310;&#179;Cu 62.92960 (was 62.93960)</div>
+      </a>
       <a class="card" href="tool.html?tool=solve">
         <h3>Constrained dynamics, K-theory, cobordism, persistence <span class="is-new">New</span></h3>
         <p>Type a <b>Cartesian pendulum</b> as written &mdash; <code>x'' = -lam*x</code>, <code>y'' = -lam*y - 9.81</code>, <code>0 = x^2 + y^2 - 1</code> &mdash; and the index-3 system is reduced, its hidden constraints shown and the <b>drift measured</b> against every one (it matches SciPy to about 2&times;10⁻⁸). <code>does rp^2 # rp^2 bound</code> answers by Stiefel&ndash;Whitney numbers (the Klein bottle bounds); real K-theory by Bott periodicity; persistent homology over any prime field, so a Klein bottle and a torus are told apart.</p>
@@ -1001,7 +1006,7 @@ x&#179; &minus; 1 = 0
         <div class="spec">factor x^4 + x^2 + 1 over F_2 &#8594; (x&sup2; + x + 1)&sup2;</div>
       </a>
       <a class="card" href="tool.html?tool=stats">
-        <h3>Cox regression, repeated measures, exact rank tests <span class="is-new">New</span></h3>
+        <h3>Cox regression, repeated measures, exact rank tests</h3>
         <p><b>Cox proportional-hazards regression</b> with hazard ratios, confidence intervals and the proportional-hazards check, drawn as a forest plot on a log axis. <b>Repeated-measures ANOVA</b> with Greenhouse&ndash;Geisser and Huynh&ndash;Feldt corrections. Mann&ndash;Whitney and Wilcoxon now give the <b>exact p</b> at small samples. And the table reader was hardened: a long repeated-measures table, a start/stop survival table, an <code>OS_MONTHS</code> header or a typed <code>1,5</code> used to be misread &mdash; each is now read correctly or refused by name.</p>
         <div class="spec">Mann&ndash;Whitney 3 v 3: p = 1/10 exact (the normal approximation printed 0.081, which is impossible)</div>
       </a>

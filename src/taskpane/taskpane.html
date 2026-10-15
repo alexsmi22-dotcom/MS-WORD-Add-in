@@ -875,7 +875,26 @@
         <input id="ms-input" type="text" class="rgroup-input" autocomplete="off"
           placeholder="e.g. caffeine, C8H10N4O2, or a SMILES" />
         <div id="ms-result" class="ms-result" aria-live="polite"></div>
-        <button id="ms-insert" class="insert-btn" type="button" disabled>Insert MS data</button>
+        <div class="plot-actions">
+          <button id="ms-insert" class="insert-btn" type="button" disabled>Insert MS data</button>
+          <button id="ms-insert-chart" class="insert-btn" type="button" disabled>Insert isotope chart</button>
+        </div>
+
+        <hr class="section-rule" />
+        <p class="seq-disclaimer">
+          <strong>Compare with an acquired mass spectrum.</strong> Opens a measured JCAMP-DX
+          mass spectrum and draws it head-to-tail against the computed isotope pattern, with a
+          match table. A match is <em>proximity, not an assignment</em>; nothing is uploaded.
+        </p>
+        <button id="ms-compare" class="insert-btn" type="button">Compare with acquired spectrum (.jdx)…</button>
+        <input id="ms-jcamp-file" type="file" accept=".jdx,.dx,.jcm,.jcamp,.txt" hidden />
+        <label class="field-label" for="ms-overlay-ref">Reference peak (optional): measured = true</label>
+        <input id="ms-overlay-ref" type="text" class="rgroup-input" autocomplete="off" placeholder="e.g. 165.9 = 165.87" />
+        <div id="ms-overlay" class="ms-result" aria-live="polite"></div>
+        <div class="plot-actions">
+          <button id="ms-overlay-insert" class="insert-btn" type="button" disabled>Insert match table</button>
+          <button id="ms-overlay-insert-chart" class="insert-btn" type="button" disabled>Insert overlay chart</button>
+        </div>
       </section>
 
       <!-- Spectra: predicted 1H/13C NMR, IR, UV-Vis, MS fragmentation -->
@@ -917,10 +936,29 @@
         </p>
         <button id="jcamp-open" class="insert-btn" type="button">Open a .jdx / .dx file…</button>
         <input id="jcamp-file" type="file" accept=".jdx,.dx,.jcm,.jcamp,.txt" hidden />
+        <select id="jcamp-block" class="mode-select" aria-label="Block of the open file" hidden></select>
         <div id="jcamp-info" class="ms-result" aria-live="polite"></div>
         <div class="plot-actions">
           <button id="jcamp-insert" class="insert-btn" type="button" disabled>Insert data table</button>
           <button id="jcamp-insert-chart" class="insert-btn" type="button" disabled>Insert spectrum chart</button>
+        </div>
+
+        <hr class="section-rule" />
+        <p class="seq-disclaimer">
+          <strong>Compare with acquired spectrum.</strong> Overlays the prediction above
+          (¹H, ¹³C, IR, UV-Vis or MS) on the measured file, with a match table: each predicted
+          line, the nearest measured peak, and Δ. A match is <em>proximity, not an
+          assignment</em>. No baseline correction, phasing or integration; referencing is the
+          file's own unless you give a reference peak; a block that fails its own checks is
+          not overlaid.
+        </p>
+        <label class="field-label" for="spec-overlay-ref">Reference peak (optional): measured = true</label>
+        <input id="spec-overlay-ref" type="text" class="rgroup-input" autocomplete="off" placeholder="e.g. 7.36 = 7.26 (TMS or solvent)" />
+        <button id="spec-compare" class="insert-btn" type="button">Compare with acquired spectrum</button>
+        <div id="spec-overlay" class="ms-result" aria-live="polite"></div>
+        <div class="plot-actions">
+          <button id="spec-overlay-insert" class="insert-btn" type="button" disabled>Insert match table</button>
+          <button id="spec-overlay-insert-chart" class="insert-btn" type="button" disabled>Insert overlay chart</button>
         </div>
       </section>
 

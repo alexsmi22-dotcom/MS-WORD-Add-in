@@ -216,9 +216,16 @@ describe("0.20 — caveats reach the screen and the document", () => {
   });
 
   it("the isotope-pattern exclusion is in the inserted text, not just on screen", () => {
-    const i = pane.indexOf("function massSpecAsText");
+    // v2.139.0 moved the inserted MS text out of the pane into
+    // lib/spectroPane.massSpecText (so a test can import it); the pane's Insert
+    // must call it, and it must still carry the exclusion — and now the pattern
+    // note too.
+    expect(pane).toMatch(/insertPlainText\(massSpecText\(currentMassSpec\)/);
+    const lib = read("src/lib/spectroPane.ts");
+    const i = lib.indexOf("export function massSpecText");
     expect(i).toBeGreaterThan(0);
-    expect(pane.slice(i, i + 1800)).toMatch(/unsupportedInPattern/);
+    expect(lib.slice(i, i + 1800)).toMatch(/unsupportedInPattern/);
+    expect(lib.slice(i, i + 1800)).toMatch(/patternNote/);
   });
 
   it("the Table→Chart renderer notes are merged with the parse-time warnings", () => {

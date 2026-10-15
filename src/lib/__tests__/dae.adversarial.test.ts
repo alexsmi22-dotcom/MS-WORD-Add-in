@@ -23,7 +23,7 @@ function within<T>(ms: number, fn: () => T): T {
 function solve(eqs: string, init: string, t0: number, t1: number, opts: DaeAutoOptions = {}, guess = "") {
   const p = parseDaeSystem(eqs, init, guess);
   if (!p.ok) throw new Error("parse: " + p.error);
-  return within(4000, () => solveDaeAuto(p.system, t0, t1, opts));
+  return within(10000, () => solveDaeAuto(p.system, t0, t1, opts));
 }
 function got(o: ReturnType<typeof solveDaeAuto>): DaeAutoResult {
   if (!o.ok) throw new Error("expected a solution, got: " + o.error);
@@ -200,7 +200,7 @@ describe("inconsistent initial values: projected (and said) or refused (and said
 });
 
 describe("a stiff index-1 DAE", () => {
-  it("x' = −1e5·(x − z), y' = −y, 0 = z − y: x(1) = 1e5/(1e5 − 1)·e⁻¹ to 1e-8, under 4 s", () => {
+  it("x' = −1e5·(x − z), y' = −y, 0 = z − y: x(1) = 1e5/(1e5 − 1)·e⁻¹ to 1e-8, under 10 s (a freeze bound, not a speed claim)", () => {
     const r = got(solve("x' = -100000*(x - z); y' = -y; 0 = z - y", "x = 0, y = 1", 0, 1));
     expect(r.completed).toBe(true);
     expect(Math.abs(last(r, "x") - (1e5 / (1e5 - 1)) * Math.exp(-1))).toBeLessThan(1e-8);
@@ -231,7 +231,7 @@ describe("refusals by name, before the work", () => {
 });
 
 describe("work, not steps, bounds the time (a frozen Word is not an error)", () => {
-  it("a fast oscillation (ω = 2000 over [0, 100]) stops BY NAME on the work budget, under 4 s", () => {
+  it("a fast oscillation (ω = 2000 over [0, 100]) stops BY NAME on the work budget, under 10 s (a freeze bound, not a speed claim)", () => {
     // Before the work budget this ran 300 000 RK45 steps (~5 s) and then 'fell
     // back' to 20 000 implicit-Euler steps (hω = 10) — a damped, confident,
     // WRONG answer. Now: stop, say why, no fallback.

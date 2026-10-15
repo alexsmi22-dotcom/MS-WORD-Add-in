@@ -153,7 +153,8 @@ describe("agency & secondary", () => {
       page: "905",
       year: "2013",
     });
-    expect(r.plain).toBe("Mark A. Lemley, Software Patents and the Return of Functional Claiming, 2013 Wis. L. Rev. 905 (2013)");
+    // Volume = year → no date parenthetical (scope §B #14; was "… 905 (2013)").
+    expect(r.plain).toBe("Mark A. Lemley, Software Patents and the Return of Functional Claiming, 2013 Wis. L. Rev. 905");
     expect(r.html).toContain("<i>Software Patents and the Return of Functional Claiming</i>");
   });
   test("treatise", () => {
@@ -244,7 +245,8 @@ describe("paste-and-fix parser", () => {
   test("distinguishes a law-review article from a case", () => {
     const r = roundtrip("Mark A. Lemley, Software Patents, 2013 Wis. L. Rev. 905 (2013)");
     expect(r.typeId).toBe("article");
-    expect(r.plain).toBe("Mark A. Lemley, Software Patents, 2013 Wis. L. Rev. 905 (2013)");
+    // Volume = year → the redundant "(2013)" is dropped (scope §B #14).
+    expect(r.plain).toBe("Mark A. Lemley, Software Patents, 2013 Wis. L. Rev. 905");
   });
 
   test("strips and re-applies a leading signal", () => {
@@ -353,7 +355,7 @@ describe("canonical Bluebook example forms", () => {
         page: "905",
         year: "2013",
       }).plain
-    ).toBe("Mark A. Lemley, Software Patents and the Return of Functional Claiming, 2013 Wis. L. Rev. 905 (2013)");
+    ).toBe("Mark A. Lemley, Software Patents and the Return of Functional Claiming, 2013 Wis. L. Rev. 905"); // §B #14
   });
   test("R.15 / R.3.2 multi-volume treatise (volume before author)", () => {
     expect(fmt("book", { vol: "1", author: "Donald S. Chisum", title: "Chisum on Patents", pin: "§ 3.02", year: "2023" }).plain).toBe(
@@ -406,13 +408,14 @@ describe("id. / supra short forms", () => {
   });
   test("caseShortForm derives the first party + reporter/pincite", () => {
     expect(caseShortForm({ name: "Alice Corp. v. CLS Bank Int’l", vol: "573", reporter: "U.S.", pin: "217" })).toEqual({
-      name: "Alice Corp.",
+      // One short-name rule shared with the TOA (Rule 10.9; scope §B #12) — was "Alice Corp.".
+      name: "Alice",
       vol: "573",
       reporter: "U.S.",
       pin: "217",
     });
-    // In re / Ex parte keep the whole name.
-    expect(caseShortForm({ name: "In re Bilski", vol: "545", reporter: "F.3d", pin: "950" }).name).toBe("In re Bilski");
+    // In re / Ex parte shorten to the party after the procedural phrase (§B #5) — was "In re Bilski".
+    expect(caseShortForm({ name: "In re Bilski", vol: "545", reporter: "F.3d", pin: "950" }).name).toBe("Bilski");
   });
 });
 

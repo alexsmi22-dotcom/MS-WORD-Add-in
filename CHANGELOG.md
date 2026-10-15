@@ -6,6 +6,130 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.141.0] — 2026-10-14 — Table of Authorities and Bluebook fixes
+
+From `docs/SCOPE-CITATIONS-2026-10.md` §B (every row pinned with its exact
+input bytes, curly apostrophes included, in `legalCiteFixes.test.ts`; the
+pane's wiring in `toaPaneRouting.test.ts`). For patent briefs, the defects
+were in what a filed Table of Authorities and a filed citation said.
+LIVE WRONG ANSWERS fixed first:
+- **Pages on the wrong authority.** The field-based TOA re-found each cite
+  with Word's substring search, so `10 F.3d 5` also matched inside
+  `110 F.3d 512` and Doe v. Roe was given every page that cited Smith v.
+  Jones; `35 U.S.C. § 10` matched inside `§ 101`, and `§ 1` inside `§ 103`.
+  The pane now plans every search from the positions the scanner found,
+  searches case-sensitively, runs all searches before inserting any TA
+  field, and marks only the hits it planned (Word's second hit for
+  `10 F.3d 5`, inside `110 F.3d 512`, is skipped).
+- **A bare Id. matched ordinary words.** The `Id.` search ignored case, so
+  the `id.` in `said.` and `paid.` (and `valid.`) gave Alice those pages.
+  No step searches for a lowercase `id.` now; `See id. at 217` after a
+  signal is still an Id. An `Id.` is placed under the authority right
+  before it, so one that means Alice in one place and Mayo in another lands
+  under each. When what comes right before it is not in the table (a record
+  cite such as `See Appx12.`, a column cite, a treatise, or a string cite of
+  several authorities), the `Id.` is left unmarked and named in the message
+  with its reason, never handed to the last case the scanner read.
+- **Curly vs straight apostrophes split one case in two.** `Int’l` (Word's
+  autocorrect) and `Int'l` (pasted) made two rows that shared the locator
+  `573 U.S. 208`, so the pane skipped it and Alice got zero pages. Now one
+  row, `Alice Corp. v. CLS Bank Int’l, 573 U.S. 208 (2014)`, with both
+  pages, and the citation register counts it twice under one entry.
+- **passim was dropped.** Word's `\p` switch prints `passim` for an
+  authority cited on five or more pages; *Insert formatted list* did not
+  read it back and left a blank page slot. `passim` is read now.
+- **In re short forms were never matched.** `Wands, 858 F.2d at 740` and
+  `In re Wands, 858 F.2d at 741` are both found as short cites of *In re
+  Wands*; the short name is the party after *In re* / *Ex parte*.
+- **Wrong text in the table or the citation.**
+  - `eBay Inc. v. MercExchange` was listed as "Bay Inc." and filed under B;
+    `iRobot` as "Robot"; `de Vries v. Doe` as "Vries v. Doe". Each now
+    keeps its lowercase first letter, and prose before the name is not
+    swallowed.
+  - `35 U.S.C. §§ 102, 103` lost § 103 (the obviousness statute). Each
+    listed section now gives the page to its own row, `35 U.S.C. § 102` and
+    `35 U.S.C. § 103`; `§§ 102 and 103` and `§§ 102, 103, and 112` likewise.
+    A list never absorbs a number that is not a section: in `§§ 102, 103,
+    12 claims remain` the `12` is refused by name, never filed as § 12. `37 C.F.R. §§ 1.97–1.98` keeps `§§` before a range
+    (it printed a singular §).
+  - `U.S. Patent No. 7469381` and `7,469,381` were two rows; now one,
+    `U.S. Patent No. 7,469,381`.
+  - The Patent form turned `US10123456B2` into "U.S. Patent No.
+    US10,123,456". `US10123456B2` and `US 10,123,456 B2` now give
+    `U.S. Patent No. 10,123,456`; `RE45,678` and `D123,456` keep their
+    letter prefixes.
+  - The short-form button on *United States v. Alvarez* gave "United
+    States, 567 U.S. at 715". It gives `Alvarez, 567 U.S. at 715` (R10.9),
+    and the form and the TOA now share one short-name implementation.
+  - T6 abbreviation printed "United States of Am. v. Microsoft Corp.". It
+    gives `United States v. Microsoft Corp.` (R10.2.2).
+  - The Law review article placeholders demonstrated a redundant year. A
+    volume that is the year now drops the date: `Mark A. Lemley, Software
+    Patents and the Return of Functional Claiming, 2013 Wis. L. Rev. 905,
+    912`; a numbered volume keeps it (`99 Va. L. Rev. 1 (2013)`).
+  - A Case form with no court or year printed an empty `()`; it no longer
+    does.
+
+### Added — footnotes, existing tables, and more authorities
+- **Footnotes and endnotes are scanned** (Word with WordApi 1.5). Each note
+  is marked on its own; an `Id.` that opens a note is never carried over
+  from another note or the text. On a Word that cannot read notes, the
+  message says so plainly instead of claiming every authority was marked.
+  Headers and footers are not scanned, and the message says that too.
+- **An existing Table of Authorities is left out of the scan:** one Word
+  built (its `TOA` field) and one typed under a "TABLE OF AUTHORITIES"
+  heading, which runs to the next heading. Before, its entries were read as
+  citations and the first `Id.` of the argument went to them.
+- **Authorities that were missing from the table:** `F. App’x` with Word's
+  curly apostrophe; `10 F. 3d 5` written with a space (it was read as a
+  different reporter); Westlaw spellings `F.Supp.2d`, `S.Ct.`, `Fed.Appx.`;
+  `USPQ2d`; `56 U.S. (15 How.) 62`; `RE45,678`, `D789,012`, `U.S. Pat. No.`,
+  and `U.S. Patent Nos. A and B` as two rows; each member of `MPEP §§ 2111,
+  2111.01`; the `Myriad, 569 U.S. at 590` short form.
+- **Case names stop where the sentence does.** A name no longer runs across
+  a paragraph break or a sentence (`ARGUMENT` / `Alice Corp. v. …`, `…by the
+  Supreme Court. Mayo …`) and drops a leading sentence word (`After Alice`).
+  WL cites keep their docket number (R10.8.1(a)), pre-1900 years are kept,
+  and a hyphen range and an en-dash range are one row.
+
+### Fixed — Paste & fix
+- `85 Fed. Reg. 12,345 (Mar. 1, 2020) (to be codified at 37 C.F.R. pt. 1)`
+  is a Federal Register cite (it was read as a C.F.R. section `pt. 1)`),
+  with `codified` = `37 C.F.R. pt. 1`.
+- Parallel cites are not glued into the case name: `Alice Corp. v. CLS Bank
+  Int'l, 573 U.S. 208, 134 S. Ct. 2347 (2014)` fills the name, `573 U.S.
+  208` and parallel `134 S. Ct. 2347`; `In re Fisher, 421 F.3d 1365, 76
+  USPQ2d 1225 (Fed. Cir. 2005)` likewise.
+- `U.S. Pat. No. 7,469,381, col. 3, ll. 15-20` keeps the line range: pin
+  `col. 3 ll. 15–20` (the lines were silently lost).
+- Recognised now (they were "couldn't recognize"): pin `216 n.3`, two
+  pincites `216, 220`, `US 10,123,456 B2`, and Westlaw cites with a docket
+  number. The Case form has a new optional **Docket no.** field, and
+  `Acme Corp. v. Widget Co., No. 13-cv-1, 2015 WL 123456, at *3 (D. Del.
+  Mar. 1, 2015)` round-trips exactly, with only the case name italic.
+- `37 C.F.R. § 1.56 and Rule 132` stops the section at `1.56`.
+
+### Independent adversarial pass (all closed)
+A reviewer wrote 40 tests against real brief text (`toa.review.test.ts`).
+It caught three regressions in the first version of these fixes, all closed
+before release: a `§§` list swallowed claim numbers (`§§ 102, 103, 12` made
+a row for 35 U.S.C. § 12, a real and unrelated section); a combined `§§` row
+took the page away from the § 102 row; and an `Id.` after `See Appx12.` was
+placed under the last case read. Compared on 664 citation texts, no
+authority the previous release found is lost.
+
+### What the tests prove, and what they do not
+The automated tests pin the search plan (which hits each Word search must
+return and which authority owns each one) and the handler's source (one
+case-sensitive search site, every search synced before the first insert,
+per-hit ownership, a rebuild that blanks out the table it built before, and
+an unplaced citation counted in the message as "left unmarked"). They cannot
+run Word. Whether Word's Find returns exactly the planned hits, including
+whether it treats curly and straight quotes alike in a short form such as
+`O'Brien, 12 F.3d at 36`, how non-breaking spaces behave, and whether a
+rebuild leaves the page lists unchanged, is checked by the in-Word pass in
+`docs/TEST-SCRIPT.md` §0ch.
+
 ## [2.140.0] — 2026-10-14 — Audio, video and light: levels, loudness, timecode, transfer curves, photometry and exposure
 
 From `docs/SCOPE-AUDIO-VIDEO-2026-10.md` (oracles: SMPTE ST 12-1 / 274 /

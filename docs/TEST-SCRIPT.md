@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.140.0)
+# JurisLab — Manual Test Script (v2.141.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -7,6 +7,101 @@ covers what neither can reach: insertion into a real document, undo, document
 scanning, and layout. Budget ~30 minutes for the full pass.
 
 Mark each box: ☐ pass · ✗ fail (note what happened).
+
+---
+
+## 0ch. New in v2.141.0 — Table of Authorities and Bluebook fixes
+
+The field-based Table of Authorities (**Citations → Insert with live page numbers (Word field)**) no longer re-finds citations by a
+loose substring search. The pane now plans every Word search from the exact positions the scanner found: it
+searches **case-sensitively**, runs every search **before** inserting any TA field, and marks only the hits it
+planned. Anything it cannot place is **counted in the message** ("N citations could not be placed by Word’s
+search (unattributed) and were left unmarked"), never dropped silently. For each check below, build the table,
+select all, press **F9**, and read the page list.
+
+**Which pages an authority gets**
+- [ ] ★ **Doe/Smith pair.** Page 1: `Doe v. Roe, 10 F.3d 5 (9th Cir. 1993).` Page 3: `Smith v. Jones, 110 F.3d 512
+  (2d Cir. 1997).` → Doe v. Roe lists **1** only, and Smith v. Jones lists **3** only. (Before this release, Doe
+  also got page 3.)
+- [ ] **§ 10 vs § 101.** Page 1: `35 U.S.C. § 10`. Page 2: `35 U.S.C. § 101`. → § 10 lists **1** only.
+- [ ] ★ **Id. and said.** Page 1: `Alice Corp. v. CLS Bank Int'l, 573 U.S. 208 (2014).`, then `Id. at 216.` on page
+  2. Put `The examiner said.`, `The fee was paid.` and `The claim is valid.` on pages 4, 5 and 6. → Alice lists
+  **1, 2** and never 4, 5 or 6. Then add `Mayo Collaborative Servs. v. Prometheus Labs., Inc., 566 U.S. 66
+  (2012).` on page 7 and a bare `Id.` on page 8 → Mayo lists **7, 8**, Alice still lists 1, 2, and the message
+  reports no unattributed citations.
+- [ ] ★ **Curly and straight apostrophes.** Page 1: `Alice Corp. v. CLS Bank Int’l, 573 U.S. 208 (2014)` (curly,
+  as Word autocorrects it). Page 4: paste `Alice Corp. v. CLS Bank Int'l, 573 U.S. 208, 216 (2014)` (straight;
+  undo the autocorrect if needed). → **one** row, pages **1, 4**, no "unattributed" count.
+- [ ] ★ **Word's Find and quotes.** (The Alice step above searches `573 U.S. 208`, which has no apostrophe, so it
+  cannot show this.) Page 1: `O’Brien v. Doe, 12 F.3d 34 (1st Cir. 1994).` Page 2: `O'Brien, 12 F.3d at 36.`
+  (straight). Page 3: `O’Brien, 12 F.3d at 36.` (curly). → O’Brien lists **1, 2, 3** and the message reports no
+  unattributed citations. This confirms that Word's Find treats curly and straight quotes alike. If the message
+  reports **2** unattributed citations instead, note it: Word's Find does NOT fold quotes on this build.
+- [ ] **Non-breaking spaces.** Type `35 U.S.C.` Ctrl+Shift+Space `§` Ctrl+Shift+Space `101` (Mac: ⌥Space). → the
+  statute is listed with its page, or the message names it as unattributed. It is never missing silently.
+- [ ] **Passim.** Cite `35 U.S.C. § 101` on 5 or more pages → Word's table shows **passim** (the `\p` switch).
+  Then **Insert formatted list** → the static list also says **passim**, not a blank page slot.
+- [ ] **In re short form.** `In re Wands, 858 F.2d 731, 737 (Fed. Cir. 1988).` on page 1, `Wands, 858 F.2d at
+  740.` on page 2, `In re Wands, 858 F.2d at 741.` on page 3 → In re Wands lists **1, 2, 3**.
+- [ ] ★ **Building twice changes nothing.** Build, F9, note every page list. Build again (cursor in the same
+  place, after deleting the first table), then F9 → identical page lists. Then build a third time *without*
+  deleting the table (or after **Insert formatted list**) → the page that holds the table is **not** added to
+  every authority. If the message says an existing table "could not be located in the text", note it: that
+  is the fallback, and the table's page may have been marked.
+- [ ] **Scope line.** Every build message ends by saying what was scanned. On current Word it reads "Scanned the
+  main text, N footnotes and M endnotes; …" and "Headers and footers are not scanned." On a Word without
+  WordApi 1.5 it reads "Footnotes and endnotes were NOT scanned (this version of Word cannot read them) …", and
+  "Marked N of M authorities found in the main text" never claims the notes.
+- [ ] ★ **Footnote-only authority.** Cite `Mayo Collaborative Servs. v. Prometheus Labs., Inc., 566 U.S. 66
+  (2012).` ONLY in a footnote on page 3 (References ▸ Insert Footnote). → Mayo is in the table with page **3**.
+  Alt+F9 shows the TA field inside the footnote.
+- [ ] ★ **Id. in a footnote.** Footnote 1 (page 2): Alice's full cite, then `Id. at 216.` in the same footnote →
+  Alice lists 2. Footnote 2 (page 4) begins with `Id. at 217.` → NOT marked for Alice, and the message says
+  "1 citation was deliberately left unmarked rather than guessed (refused): “Id. at 217” — Not placed: no
+  citation precedes it." An Id. is never carried from one note to another, or from the text into a note.
+- [ ] ★ **Word-built TOA.** In a brief with Alice cited on page 5, insert a TOA with Word's own **References ▸
+  Insert Table of Authorities** on page ii (mark Alice with Word's Mark Citation first, F9). Then use this
+  pane's button → Alice lists **5** only, never page ii, and the first `Id.` of the argument is not given to the
+  last entry of Word's table.
+- [ ] ★ **Hand-typed TOA.** Type a paragraph `TABLE OF AUTHORITIES`, then `Cases`, then a few entries such as
+  `Alice Corp. v. CLS Bank Int'l, 573 U.S. 208 (2014) ........ 5`, then an all-capitals heading such as
+  `STATEMENT OF THE ISSUES`. Cite Alice on page 5. → Alice lists **5** only, and the message says "Skipped a
+  typed “TABLE OF AUTHORITIES” up to “STATEMENT OF THE ISSUES”." Change that heading to `Statement of the
+  Issues` (lowercase is not recognised as a heading) and make sure the next paragraph is ordinary prose longer
+  than two lines → the message says "… up to the first paragraph of text", and Alice still lists 5. Then make the typed table the LAST thing in the document → the message says "A typed
+  “TABLE OF AUTHORITIES” was found, but no heading after it marks where it ends …".
+- [ ] **Claim numbers after §§.** `Claims 1-10 were rejected under 35 U.S.C. §§ 102, 103, 12 claims remain.` →
+  the row reads **35 U.S.C. §§ 102, 103**, never "§§ 102, 103, 12" (§ 12 is an unrelated section). If the engine
+  refuses the trailing member, the message lists it under "(refused)".
+- [ ] **Id. after a record cite.** `Alice Corp. v. CLS Bank Int'l, 573 U.S. 208 (2014). See Appx12. Id.` → the
+  `Id.` is NOT marked for Alice (it cites the appendix), and the message lists it under "(refused)" with the
+  reason "the citation right before it (a record cite, …) is what it refers to (Rule 4.1)".
+
+**What the table says**
+- [ ] **eBay, iRobot, de Vries.** `eBay Inc. v. MercExchange, L.L.C., 547 U.S. 388 (2006)`, `iRobot Corp. v.
+  SharkNinja Operating LLC, 19 F.4th 1 (Fed. Cir. 2021)` and `de Vries v. Doe, 1 F.3d 1 (1990)` → each row keeps
+  its lowercase first letter (never `Bay Inc.`, `Robot Corp.` or `Vries v. Doe`), in the table and in the TA
+  field text (Alt+F9 shows the codes).
+- [ ] **§§ 102, 103.** `Rejected under 35 U.S.C. §§ 102, 103.` → one row **35 U.S.C. §§ 102, 103** with that
+  page (§ 103 is not dropped). `37 C.F.R. §§ 1.97–1.98` keeps **§§** before the range.
+- [ ] **One row per patent.** `U.S. Patent No. 7,469,381` and `U.S. Patent No. 7469381` → one row, **U.S. Patent
+  No. 7,469,381**, with both pages.
+
+**Citation form**
+- [ ] **US10123456B2.** Type *Patent* with the number `US10123456B2` (and again with `US 10,123,456 B2`) →
+  **U.S. Patent No. 10,123,456**. Paste `US 10,123,456 B2` into *Paste & fix a messy citation* → detected as a
+  patent.
+- [ ] ★ **Alvarez short form.** Case: name `United States v. Alvarez`, vol 567, reporter U.S., pin 715 → **→
+  Short form of this case** → **Alvarez, 567 U.S. at 715** (not "United States, …").
+- [ ] **Docket no.** The Case form has a new **Docket no. (unreported cases) (optional)** field. Paste `Acme Corp.
+  v. Widget Co., No. 13-cv-1, 2015 WL 123456, at *3 (D. Del. Mar. 1, 2015)` → it fills the docket field, and the
+  preview reproduces the paste exactly with only the case name italic.
+- [ ] **Article year is optional.** *Law review article* with the shipped placeholders → **Mark A. Lemley,
+  Software Patents and the Return of Functional Claiming, 2013 Wis. L. Rev. 905, 912** (no `(2013)`). The Year
+  label reads "(omitted when the volume is the year) (optional)". Volume 99, Va. L. Rev., year 2013 → ends
+  **(2013)**.
+- [ ] **T6 on United States of America.** With the T6 toggle on, `United States of America v. Microsoft
+  Corporation` → **United States v. Microsoft Corp.**
 
 ---
 
@@ -3797,6 +3892,8 @@ Engineering mode, Energy & power (now 17; the mode must state **101 calculators*
   - `(0,0,0) (1,1,1) (2,2,2)` -> refused as **COLLINEAR**: no plane.
   - `circle r=1/3` -> area **1/9*pi** exactly, and `box 1/2 1/3 1/4` -> volume **1/24**.
     (Typed fractions must stay exact — no long decimals or giant fractions anywhere.)
+- [ ] **Table of Authorities and Bluebook fixes (v2.141.0).** Citations (Table of Authorities, Bluebook form) — see §0ch.
+  - Doe v. Roe lists only its own page beside 110 F.3d 512; Alice never gets the pages of `said.`/`paid.`/`valid.`; `Int’l` + `Int'l` = one row with both pages; building twice changes no page list; `35 U.S.C. §§ 102, 103` keeps § 103; `US10123456B2` → U.S. Patent No. 10,123,456; → Short form gives Alvarez, 567 U.S. at 715.
 - [ ] **Audio, video and light: levels, loudness, timecode, transfer curves, photometry and exposure (v2.140.0).** Engineering (Audio & acoustics, Video & display, Light & camera) — see §0cg.
   - +4 dBu → −14.0000 dBFS (EBU R68) with a level ladder; −16.3 → −23 LUFS = −6.70 dB; 997 Hz sine → −3.0103 LUFS; `00:01:00;00` at 29.97 DF refused (next label 00:01:00;02); 1080p60 link 2.97 Gbit/s; f/8 → f/11 = 1 stop exactly; 147 of 147 tools draw.
 - [ ] **Spectroscopy: JCAMP overlay, exact isotope patterns, diastereotopic NMR, and Woodward–Fieser fixes (v2.139.0).** Spectra, Mass Spec — see §0cf.

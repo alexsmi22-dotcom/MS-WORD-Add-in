@@ -468,8 +468,18 @@ import {
   isTaFieldCode,
   isTableFieldCode,
   findPrecedingSecondarySource,
-  toaOccurrences,
+  toaOccurrenceReport,
+  ToaRefusal,
+  taSearchPlan,
+  TaSearchStep,
 } from "../lib/toa";
+import {
+  blankSpans,
+  hasVisibleText,
+  isTableOfAuthoritiesFieldCode,
+  locateBlock,
+  typedToaSpans,
+} from "../lib/toaScope";
 import {
   parseMatrix,
   multiply,
@@ -33055,68 +33065,171 @@ async function buildNativeToaHandler(): Promise<void> {
   try {
     await Word.run(async (context) => {
       const body = context.document.body;
-      body.load("text");
+
+      // THE STORIES TO SCAN. document.body is the MAIN text only: footnotes and
+      // endnotes are separate bodies (WordApi 1.5), and body.text / body.search
+      // never see them. Patent briefs cite heavily in footnotes, so read them
+      // when Word can, and SAY so when it cannot. Headers and footers are never
+      // scanned (a TOA does not list them), and the message says that too.
+      const stories: Array<{ kind: "main" | "footnote" | "endnote"; body: Word.Body }> = [{ kind: "main", body }];
+      let notesScanned = false;
+      if (wordApiSupported("1.5")) {
+        try {
+          const footnotes = body.footnotes;
+          const endnotes = body.endnotes;
+          footnotes.load("items");
+          endnotes.load("items");
+          await context.sync();
+          for (const n of footnotes.items) stories.push({ kind: "footnote", body: n.body });
+          for (const n of endnotes.items) stories.push({ kind: "endnote", body: n.body });
+          notesScanned = true;
+        } catch {
+          notesScanned = false; // the API set is claimed but the call failed: disclose, below
+        }
+      }
+      const footnoteCount = stories.filter((s) => s.kind === "footnote").length;
+      const endnoteCount = stories.filter((s) => s.kind === "endnote").length;
+      const scopeNote =
+        (notesScanned
+          ? `Scanned the main text, ${footnoteCount} footnote${footnoteCount === 1 ? "" : "s"} and ${endnoteCount} endnote${endnoteCount === 1 ? "" : "s"}; an “Id.” that opens a note is never carried over from another note or the text. `
+          : "Footnotes and endnotes were NOT scanned (this version of Word cannot read them): an authority cited only there is missing from the table, and footnote pages are not marked — check them by hand. ") +
+        "Headers and footers are not scanned. ";
+
+      for (const s of stories) s.body.load("text");
       await context.sync();
-      const marks = authoritiesForToa(body.text);
-      if (!marks.length) {
-        toaMsg.textContent = "No citations found to build a Table of Authorities.";
+      if (!authoritiesForToa(stories.map((s) => s.body.text).join("\n\n")).length) {
+        toaMsg.className = notesScanned ? "build-readout" : "build-readout warn";
+        toaMsg.textContent = "No citations found to build a Table of Authorities. " + scopeNote;
         setStatus("No citations found.", "");
         return;
       }
-      // Clear any existing TA marks first, so stale/malformed marks (e.g. a
-      // corrupted "CONCLUSION…" entry) can't survive into the rebuilt table.
+
+      // Clear any existing TA marks first (main text AND notes), so stale or
+      // malformed marks (e.g. a corrupted "CONCLUSION…" entry) can't survive
+      // into the rebuilt table. Word's OWN Table of Authorities (a TOA field,
+      // References ▸ Insert Table of Authorities) is read in the same pass: its
+      // result text is a list of every authority and must not be scanned.
+      const wordToaTexts: string[] = [];
       if (wordApiSupported("1.4")) {
-        const existing = body.fields;
-        existing.load("items/code");
+        const fieldSets = stories.map((s) => {
+          const f = s.body.fields;
+          f.load("items/code");
+          return f;
+        });
         await context.sync();
-        const stale = existing.items.filter((f) => isTaFieldCode(f.code));
-        for (const f of stale) f.delete();
-        if (stale.length) await context.sync();
+        for (const set of fieldSets) for (const f of set.items) if (isTaFieldCode(f.code)) f.delete();
+        const wordToas = fieldSets[0].items.filter((f) => isTableOfAuthoritiesFieldCode(f.code));
+        const results = wordToas.map((f) => {
+          const r = f.result;
+          r.load("text");
+          return r;
+        });
+        await context.sync();
+        for (const r of results) wordToaTexts.push(r.text);
       }
+
+      // Re-read every story AFTER the delete, and derive the marks and the
+      // occurrences from that same text: the search plan below counts Word's
+      // hits against it, so it must be the text Word will now search.
+      for (const s of stories) s.body.load("text");
+      const oldTables = [TOA_FIELD_CC_TAG, "formula-inserter:toa"].map((tag) => {
+        const ccs = body.contentControls.getByTag(tag);
+        ccs.load("items/text");
+        return ccs;
+      });
+      await context.sync();
+      const bodyText = body.text;
+
+      // Blank every earlier table out of the SCANNED main text, keeping every
+      // offset (blankSpans): this pane's tables (tagged content controls),
+      // Word's TOA field result, and a table typed under a "TABLE OF
+      // AUTHORITIES" heading. Their entries must not become marks, nor the
+      // antecedent of the argument's first "Id.". The search plan still counts
+      // Word's hits against the REAL text, table included (those hits get null).
+      // A table that cannot be located is COUNTED and reported, never ignored.
+      const tableSpans: Array<[number, number]> = [];
+      let tablesNotLocated = 0;
+      const tableTexts = [...oldTables.flatMap((ccs) => ccs.items.map((cc) => cc.text)), ...wordToaTexts];
+      for (const t of tableTexts) {
+        if (!hasVisibleText(t)) continue;
+        const span = locateBlock(bodyText, t);
+        if (span) tableSpans.push(span);
+        else tablesNotLocated++;
+      }
+      let scanText = blankSpans(bodyText, tableSpans);
+      const typed = typedToaSpans(scanText);
+      scanText = blankSpans(scanText, typed.spans);
+
+      const scanTexts = stories.map((s, i) => (i === 0 ? scanText : s.body.text));
+      const marks = authoritiesForToa(scanTexts.join("\n\n"));
+      if (!marks.length) {
+        toaMsg.className = "build-readout warn";
+        toaMsg.textContent =
+          "No citations found outside the existing table of authorities — nothing was marked. " + scopeNote;
+        setStatus("No citations found outside the existing table.", "");
+        return;
+      }
+
+      // Word searches by STRING and returns hits in document order, not
+      // offsets. taSearchPlan turns the offsets into an ORDINAL plan: for each
+      // needle, the k-th Word hit belongs to mark assign[k], or is skipped
+      // (null) — the "10 F.3d 5" inside "110 F.3d 512", or a hit another needle
+      // owns. Ownership is per HIT, so an "Id." meaning Alice on one page and
+      // Mayo on another goes under both. Searches are case-sensitive
+      // (TA_SEARCH_OPTIONS), so "Id." never hits the "id." in "said.".
+      // Each story gets its OWN plan and its own searches: an Id. is resolved
+      // only inside its story, so one that opens a footnote has no antecedent
+      // and is refused by the engine ("no citation precedes it") — reported
+      // below, not guessed.
+      let unattributed = 0;
+      const refused: ToaRefusal[] = [];
+      const searches: Array<{ step: TaSearchStep; results: Word.RangeCollection }> = [];
+      stories.forEach((story, i) => {
+        // Full forms AND short forms AND Id. — resolved against the text by
+        // offset, which is the only way "Id. at 79" can be attributed at all.
+        // The engine also returns, by name, what it deliberately did NOT place
+        // (an Id. after a record cite or opening a note, a "§§" member that may
+        // be a claim count); every one of those is reported below.
+        const report = toaOccurrenceReport(scanTexts[i], marks);
+        const occ = report.occurrences;
+        refused.push(...report.refused);
+        const plan = taSearchPlan(story.body.text, occ);
+        unattributed += plan.unplaced.length;
+        // Run EVERY search and load its hits BEFORE the first insert: an
+        // inserted TA field's \l text contains the needle, and a search run
+        // after it would count the field as an extra hit.
+        for (const step of plan.steps) {
+          const results = story.body.search(step.needle, step.options);
+          results.load("items/text");
+          searches.push({ step, results });
+        }
+      });
+      await context.sync();
+
       // Mark every occurrence of each authority with a hidden TA field, so the
       // table shows the full page range (Word aggregates pages by the \l text).
-      let authoritiesMarked = 0;
+      // Citations that cannot be placed are COUNTED and declared, never guessed:
+      // a needle too long for Word's search, or one whose hit count in Word
+      // disagrees with the text it was planned from.
       let occurrences = 0;
-      let unattributed = 0;
       const categoryNums = new Set<number>();
-
-      // Full forms AND short forms AND Id. — resolved against the document text
-      // by offset, which is the only way "Id. at 79" can be attributed at all.
-      const occ = toaOccurrences(body.text, marks);
-
-      // Word searches by STRING, so an occurrence text that means different
-      // authorities in different places cannot be marked: one search would
-      // stamp every hit with one authority and put pages under the wrong case.
-      // Those are counted and declared instead of guessed.
-      const byText = new Map<string, Set<number>>();
-      for (const o of occ) {
-        const set = byText.get(o.text) ?? new Set<number>();
-        set.add(o.markIndex);
-        byText.set(o.text, set);
-      }
-
       const markedAuthorities = new Set<number>();
-      for (const [needle, owners] of byText) {
-        if (owners.size !== 1) {
-          unattributed += occ.filter((o) => o.text === needle).length;
+      for (const { step, results } of searches) {
+        if (results.items.length !== step.expectedHits) {
+          unattributed += step.assign.filter((m) => m !== null).length;
           continue;
         }
-        const markIndex = [...owners][0];
-        const mark = marks[markIndex];
-        // Word's search has a 255-character limit and chokes on some wildcards;
-        // a citation is far shorter, but guard rather than throw mid-pass.
-        if (!needle || needle.length > 240) continue;
-        const results = body.search(needle, { matchCase: false });
-        results.load("items");
-        await context.sync();
-        if (!results.items.length) continue;
-        const ooxml = taFieldOoxml(mark.name, mark.rest, mark.categoryNum);
-        for (const hit of results.items) hit.insertOoxml(ooxml, Word.InsertLocation.before);
-        categoryNums.add(mark.categoryNum);
-        markedAuthorities.add(markIndex);
-        occurrences += results.items.length;
+        results.items.forEach((hit, k) => {
+          const markIndex = step.assign[k];
+          if (markIndex === null) return;
+          const mark = marks[markIndex];
+          hit.insertOoxml(taFieldOoxml(mark.name, mark.rest, mark.categoryNum), Word.InsertLocation.before);
+          categoryNums.add(mark.categoryNum);
+          markedAuthorities.add(markIndex);
+          occurrences++;
+        });
       }
-      authoritiesMarked = markedAuthorities.size;
+      const authoritiesMarked = markedAuthorities.size;
       await context.sync();
       // Insert the TOA fields (one per marked category) at the cursor, wrapped in
       // a tagged content control so the "formatted list" button can find this
@@ -33134,17 +33247,35 @@ async function buildNativeToaHandler(): Promise<void> {
       }
       // Make Word's generated entries Times New Roman 12 (court-brief template).
       await setTableStylesToTimesNewRoman(context, ["Table of Authorities"]);
+      const problems = unattributed + refused.length + tablesNotLocated + typed.unbounded;
+      const shown = refused.slice(0, 3).map((r) => `“${r.text}” — ${r.reason}`);
+      toaMsg.className = problems > 0 || !notesScanned ? "build-readout warn" : "build-readout";
       toaMsg.textContent =
-        `Marked ${authoritiesMarked} of ${marks.length} authorit${marks.length === 1 ? "y" : "ies"} ` +
-        `(${occurrences} citation${occurrences === 1 ? "" : "s"}, including short forms). ` +
-        // Say what was NOT marked. An "Id." that means different cases in
-        // different places cannot be marked by a string search without
-        // attaching pages to the wrong authority, so those are left out — and a
-        // page list that is short by a known amount beats one that is silently
-        // wrong. The user can convert those to a short form and re-run.
+        // "N of M" names what M counts: never a bare "N of N" when the notes
+        // could not be read.
+        `Marked ${authoritiesMarked} of ${marks.length} authorit${marks.length === 1 ? "y" : "ies"} found in ` +
+        (notesScanned ? "the main text, footnotes and endnotes " : "the main text ") +
+        `(${occurrences} citation${occurrences === 1 ? "" : "s"}, including short forms and Id.). ` +
+        // Say what was NOT marked. A page list that is short by a known amount
+        // beats one that is silently wrong.
         (unattributed > 0
-          ? `${unattributed} short reference${unattributed === 1 ? "" : "s"} (e.g. “Id.”) could not be tied to one authority and ${unattributed === 1 ? "was" : "were"} left unmarked — check those pages by hand. `
+          ? `${unattributed} citation${unattributed === 1 ? "" : "s"} could not be placed by Word’s search (unattributed) and ${unattributed === 1 ? "was" : "were"} left unmarked — check those pages by hand. `
           : "") +
+        (refused.length > 0
+          ? `${refused.length} citation${refused.length === 1 ? " was" : "s were"} deliberately left unmarked rather than guessed (refused): ${shown.join("; ")}${refused.length > shown.length ? `; and ${refused.length - shown.length} more` : ""} — check those pages by hand. `
+          : "") +
+        (tablesNotLocated > 0
+          ? `${tablesNotLocated} existing table${tablesNotLocated === 1 ? "" : "s"} of authorities could not be located in the text, so ${tablesNotLocated === 1 ? "its" : "their"} entries may have been read as citations — delete ${tablesNotLocated === 1 ? "it" : "them"} and build again. `
+          : "") +
+        // A typed table is found by its heading text, not by a field, so say
+        // where it was taken to end: the user can see at once if that is wrong.
+        typed.endedBy
+          .map((end) => `Skipped a typed “TABLE OF AUTHORITIES” up to ${end === "the first paragraph of text" ? end : `“${end}”`}. `)
+          .join("") +
+        (typed.unbounded > 0
+          ? "A typed “TABLE OF AUTHORITIES” was found, but no heading after it marks where it ends, so its entries may have been read as citations — delete it and build again. "
+          : "") +
+        scopeNote +
         "Now: select all (Ctrl/⌘+A), press F9 to fill page numbers, then click “Insert formatted list”.";
       setStatus("Field table inserted — press F9, then click “Insert formatted list”.", "success");
     });

@@ -24,8 +24,9 @@ describe("the party name a short form uses", () => {
     expect(caseShortName("Commissioner v. Banks")).toBe("Banks");
   });
 
-  test("returns null for something with no parties", () => {
-    expect(caseShortName("In re Bilski")).toBeNull();
+  test("In re takes the party after the phrase; a non-case has no short name", () => {
+    // "In re Bilski" now shortens to "Bilski" (scope §B #5; was null).
+    expect(caseShortName("In re Bilski")).toBe("Bilski");
     expect(caseShortName("35 U.S.C. § 101")).toBeNull();
   });
 });

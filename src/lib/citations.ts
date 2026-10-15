@@ -92,9 +92,15 @@ function groupDigits(digits: string): string {
   return digits.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 }
 
-/** Formats a U.S. patent number, keeping a letter prefix (D, RE, PP, …). */
+/**
+ * Formats a U.S. patent number, keeping a letter prefix (D, RE, PP, …). The
+ * Google Patents display forms "US10123456B2" / "US 10,123,456 B2" lose their
+ * "US" country prefix and their kind code — a Bluebook patent cite carries
+ * neither ("U.S. Patent No." already names the country).
+ */
 export function formatPatentNumber(input: string): string {
-  const m = /^\s*([A-Za-z]{0,2})\s*([\d,]+)/.exec(input);
+  const s = input.trim().replace(/^U\.?\s?S\.?\s*(?=(?:RE|PP|AI|[DHTX])?\s*\d)/i, "");
+  const m = /^\s*([A-Za-z]{0,2})\s*([\d,]+)/.exec(s);
   if (!m || !m[2]) return input.trim();
   const prefix = m[1].toUpperCase();
   return prefix + groupDigits(m[2].replace(/,/g, ""));
@@ -117,12 +123,16 @@ export function formatPublicationNumber(input: string): string {
  * so the range branch only fires when the digits before the dash are NOT part of
  * a dotted number — otherwise a single tax reg would wrongly read "§§".
  */
-function sectionSymbol(section: string): string {
+export function sectionSymbol(section: string): string {
   // Plural §§ for multiple *sections* — a comma/ampersand/"and"/"to" followed by
   // another section number, or an integer range whose left operand isn't the tail
   // of a dotted compound number. A comma before a subsection like "1.84(a), (b)"
-  // is one section, so it stays singular §.
-  return /,\s*\d|&\s*\d|\s(?:to|and)\s+\d|(?:^|[^.\d])\d+\s*[-–—]\s*\d/.test(section) ? "§§" : "§";
+  // is one section, so it stays singular §. A range between two DOTTED numbers
+  // ("1.97–1.98") is plural too: a Treasury-reg hyphen joins a dotted number to
+  // a plain one ("1.6011-4"), never to another dotted number.
+  return /,\s*\d|&\s*\d|\s(?:to|and)\s+\d|(?:^|[^.\d])\d+\s*[-–—]\s*\d|\d+\.\d+\s*[-–—]\s*\d+\.\d/.test(section)
+    ? "§§"
+    : "§";
 }
 
 /** Joins non-empty pieces with a separator. */
@@ -141,22 +151,40 @@ export const REPORTER_NAMES: string[] = [
   "S.E.", "S.E.2d", "S.W.", "S.W.2d", "S.W.3d", "So.", "So. 2d", "So. 3d", "Cal.", "N.Y.", "N.Y.2d", "N.Y.3d",
 ];
 
+/**
+ * Non-Bluebook spellings that real documents carry, mapped to the Bluebook (T1)
+ * form: Westlaw's "Fed.Appx." and the Federal Circuit / PTAB "USPQ2d".
+ * (Spacing, periods and curly apostrophes are already folded by the key.)
+ */
+export const REPORTER_ALIASES: Record<string, string> = {
+  "Fed. Appx.": "F. App'x",
+  "USPQ2d": "U.S.P.Q.2d",
+  "USPQ": "U.S.P.Q.",
+};
+
+/** The lookup key for a reporter: no spaces or periods, straight apostrophes, lowercase. */
+function reporterKey(raw: string): string {
+  return raw.replace(/[\s.]/g, "").replace(/[’‘]/g, "'").toLowerCase();
+}
+
 /** Canonical reporter spellings, keyed by their despaced/lowercased form. */
 const REPORTERS: Record<string, string> = {};
 for (const r of REPORTER_NAMES) {
-  REPORTERS[r.replace(/[\s.]/g, "").toLowerCase()] = r;
+  REPORTERS[reporterKey(r)] = r;
 }
+for (const [alias, canon] of Object.entries(REPORTER_ALIASES)) REPORTERS[reporterKey(alias)] = canon;
 
-/** Normalizes a captured reporter to its canonical Bluebook form when known. */
+/** Normalizes a captured reporter to its canonical Bluebook form when known
+ *  ("F. 3d", "F.Supp.2d", "S.Ct.", "F. App’x", "Fed.Appx.", "USPQ2d"). */
 export function normalizeReporter(raw: string): string {
-  const key = raw.replace(/[\s.]/g, "").toLowerCase();
+  const key = reporterKey(raw);
   if (REPORTERS[key]) return REPORTERS[key];
   return raw.trim().replace(/\s+/g, " ");
 }
 
 /** True if `raw` matches a known reporter abbreviation (any spacing/casing). */
 export function isKnownReporter(raw: string): boolean {
-  return REPORTERS[raw.replace(/[\s.]/g, "").toLowerCase()] !== undefined;
+  return REPORTERS[reporterKey(raw)] !== undefined;
 }
 
 /** Canonical court abbreviations + a few aliases (CAFC → Fed. Cir.). */
@@ -226,6 +254,9 @@ export const CITATIONS: CitationType[] = [
     name: "Case (full)",
     fields: [
       { key: "name", label: "Case name", placeholder: "Alice Corp. v. CLS Bank Int’l" },
+      // Unreported decisions (Westlaw / Lexis) carry the docket number between
+      // the name and the database cite (Rule 10.8.1). It is roman, not italic.
+      { key: "docket", label: "Docket no. (unreported cases)", placeholder: "No. 13-cv-1", optional: true },
       { key: "vol", label: "Volume", placeholder: "573" },
       { key: "reporter", label: "Reporter", placeholder: "U.S." },
       { key: "page", label: "First page", placeholder: "208" },
@@ -241,12 +272,15 @@ export const CITATIONS: CitationType[] = [
       const withPin = g("pin") ? `${loc}, ${g("pin")}` : loc;
       // Parallel reporters (Rule 10.3.1) follow the primary cite, before the year.
       const withParallel = g("parallel") ? `${withPin}, ${g("parallel")}` : withPin;
-      const paren = `(${join([court, g("year")])})`;
+      const withDocket = g("docket") ? `${g("docket")}, ${withParallel}` : withParallel;
+      // No court and no year: no parenthetical at all, never an empty "()".
+      const inner = join([court, g("year")]);
+      const paren = inner ? ` (${inner})` : "";
       // Practitioner italicizes the case name; academic full citations set it roman.
       const nameHtml = style === "academic" ? esc(g("name")) : it(g("name"));
       return {
-        plain: `${g("name")}, ${withParallel} ${paren}`,
-        html: `${nameHtml}, ${esc(withParallel)} ${esc(paren)}`,
+        plain: `${g("name")}, ${withDocket}${paren}`,
+        html: `${nameHtml}, ${esc(withDocket)}${esc(paren)}`,
       };
     },
   },
@@ -395,7 +429,7 @@ export const CITATIONS: CitationType[] = [
       { key: "journal", label: "Journal", placeholder: "Wis. L. Rev." },
       { key: "page", label: "First page", placeholder: "905" },
       { key: "pin", label: "Pincite", placeholder: "912", optional: true },
-      { key: "year", label: "Year", placeholder: "2013" },
+      { key: "year", label: "Year (omitted when the volume is the year)", placeholder: "2013", optional: true },
     ],
     format: (g, style) => {
       const loc = join([g("vol"), g("journal"), g("page")]);
@@ -405,9 +439,14 @@ export const CITATIONS: CitationType[] = [
         style === "academic"
           ? join([esc(g("vol")), sc(g("journal")), esc(g("page"))]) + (g("pin") ? `, ${esc(g("pin"))}` : "")
           : esc(withPin);
+      // A journal whose volumes are designated by year ("2013 Wis. L. Rev.")
+      // takes no date parenthetical — the year is already the volume (Bluebook
+      // R16; rule number to be confirmed against R16.4 in the current edition).
+      const year = g("year");
+      const showYear = year !== "" && year !== g("vol");
       return {
-        plain: `${g("author")}, ${g("title")}, ${withPin} (${g("year")})`,
-        html: `${esc(g("author"))}, ${it(g("title"))}, ${locHtml} (${esc(g("year"))})`,
+        plain: `${g("author")}, ${g("title")}, ${withPin}${showYear ? ` (${year})` : ""}`,
+        html: `${esc(g("author"))}, ${it(g("title"))}, ${locHtml}${showYear ? ` (${esc(year)})` : ""}`,
       };
     },
   },
@@ -604,29 +643,125 @@ function applyT10Geographic(name: string): string {
     .join("");
 }
 
+/** Abbreviations that end in a period inside a case name — T6, T10 and the
+ *  corporate designators — so a period after them is NOT a sentence end. */
+const NAME_ABBREVIATIONS = new Set<string>(
+  [
+    ...Object.values(T6),
+    ...T10_MULTI.map(([, a]) => a),
+    ...T10_SINGLE.map(([, a]) => a),
+    "Inc.", "Corp.", "Co.", "Cos.", "Ltd.", "Bros.", "Labs.", "Servs.", "Sys.", "Techs.", "Assocs.", "Mfg.",
+    "Pharms.", "Prods.", "Indus.", "Elecs.", "Machs.", "Enters.", "Holdings.", "Grp.", "Ins.", "Fin.",
+    "Sav.", "Mut.", "Coop.", "Ry.", "R.R.", "Mktg.", "Comput.", "Cmty.", "Cnty.", "Twp.", "Hous.",
+    "Ret.", "Sch.", "Sec.", "Admin.", "Ctr.", "Dist.", "Div.", "Gen.", "Hosp.", "Inst.", "Mgmt.",
+    "Org.", "Pub.", "Rsch.", "Res.", "Sci.", "Serv.", "Tel.", "Transp.", "Univ.", "Util.", "Educ.",
+    "Distrib.", "Envtl.", "Equip.", "Found.", "Telecomm.", "Comm.", "Auth.", "Auto.", "Bldg.", "Bus.",
+    "Cent.", "Dev.", "Elec.", "Fed.", "Agric.", "Acad.", "Assoc.", "Mach.", "Med.", "Pharm.", "Bd.",
+    "Jr.", "Sr.", "Mfrs.", "Mfr.", "Bancorp.", "Int'l.", "Nat'l.", "Am.", "Cal.", "No.", "Nos.", "St.",
+  ].map((a) => a.toLowerCase()),
+);
+
+/**
+ * True if `word` (a token ending in ".") is an abbreviation that can sit inside
+ * a case name ("Corp.", "Servs.", "Cal.", "L.L.C.", "Ass'n.", "A."), and false
+ * if its period ends a sentence ("Court.", "Circuit.", "Id."). Short tokens
+ * (≤ 3 letters) and tokens with an inner period or apostrophe are treated as
+ * abbreviations; "Id." never is.
+ */
+export function isCaseNameAbbreviation(word: string): boolean {
+  if (!word.endsWith(".")) return true;
+  const w = word.replace(/[’‘]/g, "'");
+  if (/^id\.$/i.test(w)) return false;
+  if (NAME_ABBREVIATIONS.has(w.toLowerCase())) return true;
+  const core = w.slice(0, -1);
+  if (/[.']/.test(core)) return true;
+  return core.replace(/[^A-Za-zÀ-ÖØ-öø-ÿ]/g, "").length <= 3;
+}
+
 /**
  * Abbreviates a case name per Bluebook Tables T6 (organizational words —
  * Corporation → Corp., and → &) and T10 (U.S. states — California → Cal.),
  * honoring the T10 named-party exception. "United States" stays intact.
  */
 export function abbreviateCaseName(name: string): string {
-  const t6ed = name.replace(/[A-Za-z][A-Za-z'’]*/g, (word) => {
+  // Rule 10.2.2: the United States as a party is "United States", never
+  // "United States of America" — and never "United States of Am." (T6 would
+  // otherwise abbreviate the "America" it should have dropped).
+  const us = name.replace(/\bUnited\s+States\s+of\s+America\b/g, "United States");
+  const t6ed = us.replace(/[A-Za-z][A-Za-z'’]*/g, (word) => {
     const key = word.toLowerCase().replace(/’/g, "'");
     return T6[key] ?? word;
   });
   return applyT10Geographic(t6ed);
 }
 
+/** Name particles that belong to the following surname ("de Vries", "van Gogh"). */
+const NAME_PARTICLE = /^(?:de|del|della|der|den|van|von|du|da|di|dos|das|le|la|ter)$/;
+
 /**
- * Derives the case short-form fields from a full-case field map: the short name
- * is the first party (before " v. "), or the whole name for "In re"/"Ex parte".
- * The drafter reviews/adjusts (Rule 10.9 lets you pick the more distinctive
- * party). Reporter/volume/pincite carry over.
+ * The party name a short-form cite uses — the ONE implementation, shared by the
+ * Citations form's "→ Short form" button ({@link caseShortForm}) and the Table of
+ * Authorities short-form scan (toa.ts re-exports it).
+ *
+ * Bluebook Rule 10.9 uses one party, normally the first — but not when the first
+ * would not distinguish the case, which is why "United States v. Alvarez"
+ * shortens to "Alvarez" and never to "United States". For a procedural caption
+ * ("In re Wands", "Ex parte Jones") the short name is the party after the
+ * procedural phrase: "Wands, 858 F.2d at 740".
+ *
+ * Returns null when the name has no party to shorten to.
+ */
+export function caseShortName(name: string): string | null {
+  const t = name.replace(/\s+/g, " ").trim();
+  const strip = (p: string): string =>
+    p
+      .replace(
+        /,?\s*(Inc\.|LLC|L\.L\.C\.|Ltd\.|Corp\.|Co\.|Corporation|Company|Ass'n|Assoc\.|N\.A\.|P\.C\.|LLP)\.?$/gi,
+        "",
+      )
+      .replace(/[,.]$/, "")
+      .trim();
+
+  let pick: string;
+  const proc = /^(?:In re|Ex parte|In the Matter of|Matter of)\s+(.+)$/i.exec(t);
+  if (proc && !/\sv\.?\s/i.test(proc[1])) {
+    pick = strip(proc[1]);
+  } else {
+    const parts = t.split(/\s+vs?\.?\s+/i);
+    if (parts.length < 2) return null;
+    // Parties too common to identify a case on their own.
+    const GENERIC =
+      /^(united states( of america)?|u\.s\.|state|people|commissioner|comm'r|secretary|sec'y|director|dir\.)$/i;
+    // A first party that OPENS with a generic organisational word ("Ass’n for
+    // Molecular Pathology", "Univ. of Cal.", "Bd. of Regents") is not what a
+    // brief writes either: "Myriad, 569 U.S. at 590", "Bakke, 438 U.S. at 307".
+    const GENERIC_LEAD =
+      /^(?:Ass['’]ns?|Bd\.|Board|Dep['’]t|Comm['’]n|Soc['’]y|Gov['’]t|Univ\.|University|Regents|Trs\.|Trustees)(?:\s|$)/i;
+    const first = strip(parts[0]);
+    const second = strip(parts[1]);
+    pick = (GENERIC.test(first) || GENERIC_LEAD.test(first)) && second ? second : first;
+  }
+  if (!pick) return null;
+  // The distinctive leading word, which is what briefs actually write — kept
+  // together with a lowercase particle ("de Vries", never "de").
+  const words = pick.split(/\s+/);
+  const clean = (w: string): string => w.replace(/[^\wÀ-ÖØ-öø-ÿ'’-]/g, "");
+  let word = clean(words[0]);
+  if (NAME_PARTICLE.test(word) && words.length > 1) word = `${word} ${clean(words[1])}`;
+  return word.length >= 2 ? word : null;
+}
+
+/**
+ * Derives the case short-form fields from a full-case field map, using
+ * {@link caseShortName} (Rule 10.9) so the button and the Table of Authorities
+ * agree. When no short party can be derived, the typed name is kept rather than
+ * blanking the field — the drafter reviews/adjusts. Reporter/volume/pincite
+ * carry over.
  */
 export function caseShortForm(fields: Record<string, string>): Record<string, string> {
   const name = (fields.name ?? "").trim();
-  const first = /\sv\.\s/i.test(name) ? name.split(/\s+v\.\s+/i)[0].trim() : name;
-  return { name: first, vol: (fields.vol ?? "").trim(), reporter: (fields.reporter ?? "").trim(), pin: (fields.pin ?? "").trim() };
+  const short = caseShortName(name) ?? name;
+  return { name: short, vol: (fields.vol ?? "").trim(), reporter: (fields.reporter ?? "").trim(), pin: (fields.pin ?? "").trim() };
 }
 
 // --- paste-and-fix parser ----------------------------------------------------
@@ -660,18 +795,52 @@ function extractSignal(t: string): { signal: string; rest: string } {
 
 type Detector = (t: string) => Omit<ParsedCitation, "signal"> | null;
 
+// A section string: one section number, then more joined by a list connector
+// (", " / " and " / " & " / " to " / a range dash), a subsection list
+// ("1.84(a), (b)") or a paragraph ("§ 112, ¶ 6"). It stops at the first token
+// that is not part of a section — "37 C.F.R. § 1.56 and Rule 132" is § 1.56.
+const SEC_TOK = "\\d[\\w.()\\-–—]*";
+const SECTION_GRAMMAR =
+  `(${SEC_TOK}(?:` +
+  `\\s*(?:,|&)\\s*(?:and\\s+|&\\s*)?(?:§+\\s*)?(?!\\d+\\s+(?:U\\.?\\s*S\\.?\\s*C|C\\.?\\s*F\\.?\\s*R))${SEC_TOK}` +
+  `|\\s+(?:and|to)\\s+(?:§+\\s*)?${SEC_TOK}` +
+  `|\\s*,\\s*¶+\\s*\\d+` +
+  `|\\s*,\\s*\\([a-z0-9]+\\)` +
+  `)*)`;
+const YEAR_TAIL = "(?:\\s*\\((\\d{4}[^)]*)\\))?";
+
+/** Collapses whitespace and drops a sentence period or an unbalanced ")" the
+ *  section token swallowed from surrounding prose ("(see § 101).") */
+function trimSectionTail(raw: string): string {
+  let s = raw.replace(/\s+/g, " ").trim();
+  for (;;) {
+    const before = s;
+    s = s.replace(/\.+$/, "");
+    const opens = (s.match(/\(/g) || []).length;
+    const closes = (s.match(/\)/g) || []).length;
+    if (closes > opens && s.endsWith(")")) s = s.slice(0, -1);
+    if (s === before) return s.trim();
+  }
+}
+
 const detectStatute: Detector = (t) => {
-  const m = /(\d+)\s*u\.?\s*s\.?\s*c\.?(?:a\.?)?\s*(?:§{1,2}|sec(?:tion|s)?\.?\s*)?\s*(.+?)\s*(?:\((\d{4}[^)]*)\))?\s*\.?$/i.exec(t);
+  const m = new RegExp(
+    `(\\d+)\\s*u\\.?\\s*s\\.?\\s*c\\.?(?:a\\.?)?\\s*(?:§{1,2}|sec(?:tion|s)?\\.?\\s*)?\\s*${SECTION_GRAMMAR}${YEAR_TAIL}`,
+    "i",
+  ).exec(t);
   if (!m) return null;
-  const section = m[2].replace(/\s+/g, " ").trim();
+  const section = trimSectionTail(m[2]);
   if (!section) return null;
   return { typeId: "usc", fields: { title: m[1], section, sub: "", year: (m[3] || "").trim() } };
 };
 
 const detectCFR: Detector = (t) => {
-  const m = /(\d+)\s*c\.?\s*f\.?\s*r\.?\s*(?:§{1,2}|sec(?:tion|s)?\.?\s*)?\s*(.+?)\s*(?:\((\d{4}[^)]*)\))?\s*\.?$/i.exec(t);
+  const m = new RegExp(
+    `(\\d+)\\s*c\\.?\\s*f\\.?\\s*r\\.?\\s*(?:§{1,2}|sec(?:tion|s)?\\.?\\s*)?\\s*${SECTION_GRAMMAR}${YEAR_TAIL}`,
+    "i",
+  ).exec(t);
   if (!m) return null;
-  const section = m[2].replace(/\s+/g, " ").trim();
+  const section = trimSectionTail(m[2]);
   if (!section) return null;
   return { typeId: "cfr", fields: { title: m[1], section, year: (m[3] || "").trim() } };
 };
@@ -704,55 +873,125 @@ const detectPatentApp: Detector = (t) => {
   };
 };
 
+/**
+ * A patent pincite in Bluebook form: "col. 3 ll. 15–20" (en-dash range), from
+ * any of "col. 3, ll. 15-20", "column 3 lines 15–20", "col. 3 l. 7".
+ */
+function patentPin(t: string): string {
+  const m = /\bcol(?:umn|s?\.)?\s*(\d+)(?:\s*,?\s*(?:(ll?)\.|(lines?))\s*(\d+)(?:\s*[–—-]\s*(\d+))?)?/i.exec(t);
+  if (!m) return "";
+  let pin = `col. ${m[1]}`;
+  if (m[4]) {
+    const plural = m[5] !== undefined || m[2] === "ll" || /^lines$/i.test(m[3] || "");
+    pin += ` ${plural ? "ll." : "l."} ${m[4]}${m[5] ? `–${m[5]}` : ""}`;
+  }
+  return pin;
+}
+
 const detectPatent: Detector = (t) => {
   const m = /(?:u\.?\s*s\.?\s*)?pat(?:ent)?\.?\s*(?:no\.?|#)?\s*([A-Za-z]{0,2}[\d,]{5,})/i.exec(t);
   if (!m) return null;
-  const pin = /\b(col(?:umn)?\.?\s*\d+(?:\s*ll?\.?\s*[\d–—\-, ]+)?)/i.exec(t.replace(m[0], ""));
+  const pin = patentPin(t.replace(m[0], ""));
   const date = /\(\s*(?:issued\s*)?([A-Za-z0-9.,/\s-]+?)\s*\)\s*\.?$/i.exec(t);
   return {
     typeId: "patent",
-    fields: { number: formatPatentNumber(m[1]), pin: pin ? pin[1].trim() : "", date: date ? date[1].trim() : "" },
+    fields: { number: formatPatentNumber(m[1].replace(/,+$/, "")), pin, date: date ? date[1].trim() : "" },
   };
 };
 
-const CITE_TAIL = /,\s*(\d+)\s+([A-Za-z0-9.'’ ]+?)\s+(\d+)(?:,\s*(\d+(?:[–—-]\d+)?))?\s*\(([^)]*)\)\s*\.?$/;
+/**
+ * A bare Google-Patents-style number with its country code: "US 10,123,456 B2",
+ * "US10123456B2" (a patent) or "US 2020/0123456 A1", "US20200123456A1" (an
+ * application publication). Only the whole pasted string — never prose.
+ */
+const detectBarePatent: Detector = (t): Omit<ParsedCitation, "signal"> | null => {
+  const s = t.replace(/\.$/, "").trim();
+  const pub = /^US\s*(\d{4})\s*\/?\s*(\d{7})\s*([AB]\d)?$/i.exec(s);
+  if (pub) {
+    return { typeId: "patent-app", fields: { number: `${pub[1]}/${pub[2]}`, kind: (pub[3] || "").toUpperCase(), date: "" } };
+  }
+  const pat = /^US\s*((?:RE|PP|AI|[DHTX])?\s*\d{1,2},?\d{3},?\d{3})\s*([A-Z]\d?)?$/i.exec(s);
+  if (pat) return { typeId: "patent", fields: { number: formatPatentNumber(pat[1]), pin: "", date: "" } };
+  return null;
+};
+
+/**
+ * "Name, VOL REPORTER PAGE[, pin…][, parallel cite…] (court year)". The name is
+ * everything before the FIRST "vol reporter page" run, so a parallel cite
+ * ("573 U.S. 208, 134 S. Ct. 2347") is never glued into the italic name. What
+ * sits between the first cite and the parenthetical is split by commas into
+ * pincites ("216", "216 n.3", "at *3") and parallel cites (anything that is
+ * itself "vol Reporter page").
+ */
+const CITE_HEAD = /^(.+?),\s*(\d+)\s+([A-Za-z][A-Za-z0-9.'’ ]*?)\s+(\d+)((?:\s*,\s*[^,()]+?)*)\s*\(([^()]*)\)\s*\.?$/;
+const PARALLEL_TOKEN = /^\d+\s+[A-Z][A-Za-z0-9.'’ ]*?\s+\d+$/;
+
+function splitMiddle(middle: string): { pin: string; parallel: string } {
+  const pins: string[] = [];
+  const parallels: string[] = [];
+  for (const tok of middle.split(",").map((s) => s.trim()).filter(Boolean)) {
+    if (parallels.length || PARALLEL_TOKEN.test(tok)) parallels.push(tok);
+    else pins.push(tok);
+  }
+  return { pin: pins.join(", "), parallel: parallels.join(", ") };
+}
 
 const detectCase: Detector = (t) => {
-  const m = CITE_TAIL.exec(t);
+  const m = CITE_HEAD.exec(t);
   if (!m) return null;
-  const name = t.slice(0, m.index).trim();
-  const reporter = normalizeReporter(m[2]);
-  const known = REPORTERS[m[2].replace(/[\s.]/g, "").toLowerCase()] !== undefined;
+  let name = m[1].trim();
+  // An unreported decision's docket number sits between the name and the
+  // database cite: "Acme Corp. v. Widget Co., No. 13-cv-1, 2015 WL 123456".
+  let docket = "";
+  const dk = /^(.*?),\s*((?:Nos?\.|Civ\.\s*No\.|Civil Action No\.|Case No\.|Appeal No\.)\s.+)$/i.exec(name);
+  if (dk) {
+    name = dk[1].trim();
+    docket = dk[2].trim();
+  }
+  const reporter = normalizeReporter(m[3]);
+  const known = isKnownReporter(m[3]);
   if (!CASE_NAME_SIGNAL.test(name) && !known) return null; // probably an article
-  const { court, year } = splitParen(m[5]);
-  return {
-    typeId: "case",
-    fields: { name, vol: m[1], reporter, page: m[3], pin: m[4] || "", court, year },
-  };
+  const { court, year } = splitParen(m[6]);
+  const { pin, parallel } = splitMiddle(m[5]);
+  const fields: Record<string, string> = { name, vol: m[2], reporter, page: m[4], pin, parallel, court, year };
+  if (docket) fields.docket = docket;
+  return { typeId: "case", fields };
 };
 
 const detectArticle: Detector = (t) => {
-  const m = CITE_TAIL.exec(t);
+  const m = CITE_HEAD.exec(t);
   if (!m) return null;
-  const head = t.slice(0, m.index).trim();
+  const head = m[1].trim();
   const comma = head.indexOf(",");
   if (comma < 0) return null; // need "Author, Title"
-  const { year } = splitParen(m[5]);
+  const { year } = splitParen(m[6]);
   return {
     typeId: "article",
     fields: {
       author: head.slice(0, comma).trim(),
       title: head.slice(comma + 1).trim(),
-      vol: m[1],
-      journal: normalizeReporter(m[2]).replace(/\s+/g, " "),
-      page: m[3],
-      pin: m[4] || "",
+      vol: m[2],
+      journal: normalizeReporter(m[3]).replace(/\s+/g, " "),
+      page: m[4],
+      pin: splitMiddle(m[5]).pin,
       year,
     },
   };
 };
 
-const DETECTORS: Detector[] = [detectStatute, detectCFR, detectFedReg, detectMPEP, detectPatentApp, detectPatent, detectCase, detectArticle];
+// Federal Register runs FIRST: its "(to be codified at 37 C.F.R. pt. 1)"
+// parenthetical would otherwise be read as a C.F.R. (or U.S.C.) cite.
+const DETECTORS: Detector[] = [
+  detectFedReg,
+  detectStatute,
+  detectCFR,
+  detectMPEP,
+  detectPatentApp,
+  detectPatent,
+  detectBarePatent,
+  detectCase,
+  detectArticle,
+];
 
 /**
  * Best-effort parse of a messy pasted citation into a type + field values that

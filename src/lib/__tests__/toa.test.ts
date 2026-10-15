@@ -135,8 +135,10 @@ describe("FRAP 28(a)(3) completeness — rules and unpublished cases", () => {
       "See BlueRadios, Inc. v. Kopin Corp., Inc., No. 16-CV-2052-JLK, 2017 WL 11546716, at *3 (D. Colo. 2017); " +
         "Hilton v. Kerry, No. 13-11710-TSH, 2013 U.S. Dist. LEXIS 169661, at *2 (D. Mass. 2013)."
     );
-    expect(g.cases).toContain("BlueRadios, Inc. v. Kopin Corp., Inc., 2017 WL 11546716 (D. Colo. 2017)");
-    expect(g.cases).toContain("Hilton v. Kerry, 2013 U.S. Dist. LEXIS 169661 (D. Mass. 2013)");
+    // v2.141.0 fix round: the docket number is part of a database cite (Rule
+    // 10.8.1(a)) and is kept — these rows used to drop it.
+    expect(g.cases).toContain("BlueRadios, Inc. v. Kopin Corp., Inc., No. 16-CV-2052-JLK, 2017 WL 11546716 (D. Colo. 2017)");
+    expect(g.cases).toContain("Hilton v. Kerry, No. 13-11710-TSH, 2013 U.S. Dist. LEXIS 169661 (D. Mass. 2013)");
   });
 
   test("captures the F.R.D. reporter", () => {

@@ -838,3 +838,45 @@ export const SOLVE_DISCRETE: PaletteGroup[] = [
     ],
   },
 ];
+
+// Topology kind (v2.138.0). Every snippet here is a phrasing `solveTopology`
+// ROUTES — the bare forms "rp^2 x rp^2" or "K3" are not read as a question, so
+// the cobordism templates carry their verb ("does … bound", "signature of …").
+// numericsTopologyRouting.test.ts runs each one through the engine.
+const RING8 = "1 0\n0.7071 0.7071\n0 1\n-0.7071 0.7071\n-1 0\n-0.7071 -0.7071\n0 -1\n0.7071 -0.7071";
+export const SOLVE_TOPOLOGY: PaletteGroup[] = [
+  {
+    name: "Homology",
+    items: [
+      { label: "torus", snippet: "torus", title: "H₀ = ℤ, H₁ = ℤ², H₂ = ℤ by Smith normal form" },
+      { label: "ℝP²", snippet: "projective plane", title: "H₁ = ℤ/2 — torsion a Betti number loses" },
+      { label: "over 𝔽₃", snippet: "homology of klein bottle over z/3", title: "Universal coefficients: Betti numbers 1, 1, 0 over 𝔽₃" },
+      { label: "mod 2", snippet: "homology of projective plane mod 2", title: "ℝP² over 𝔽₂: 1, 1, 1" },
+    ],
+  },
+  {
+    name: "K-theory",
+    items: [
+      { label: "KO(S¹)", snippet: "KO of S^1", title: "Bott periodicity: K̃O⁰(S¹) = ℤ/2" },
+      { label: "KO(pt)", snippet: "KO-theory of a point", title: "KO⁰(pt) = ℤ, and the eight groups of one Bott period" },
+      { label: "KO(ℝPⁿ)", snippet: "KO of RP^9", title: "Adams 1962: K̃O⁰(ℝP⁹) = ℤ/32" },
+      { label: "K(S¹ × S²)", snippet: "k-theory of s^1 x s^2", title: "Künneth (torsion-free, exact)" },
+    ],
+  },
+  {
+    name: "Cobordism",
+    items: [
+      { label: "bound?", snippet: "does rp^2 # rp^2 bound", title: "The Klein bottle bounds — every Stiefel–Whitney number vanishes" },
+      { label: "σ", snippet: "signature of CP^2 # CP^2bar", title: "p₁ = 0, σ = 0: bounds (oriented)" },
+      { label: "Pontryagin", snippet: "pontryagin numbers of CP^2 x CP^2", title: "p₁² = 18, p₂ = 9, σ = 1" },
+      { label: "Ωₙˢᴼ", snippet: "oriented cobordism group dimension 5", title: "Ω₅ˢᴼ = ℤ/2, the Wu manifold" },
+    ],
+  },
+  {
+    name: "Persistence",
+    items: [
+      { label: "ring over 𝔽₃", snippet: "over F3\n" + RING8, title: "A pasted point cloud with a field header: one long H₁ bar" },
+      { label: "𝔽₂ vs 𝔽₃", snippet: "compare\n" + RING8, title: "Two stacked barcodes; a bar missing over 𝔽₃ is torsion evidence" },
+    ],
+  },
+];

@@ -13,7 +13,8 @@ import { formatQuantityHtml, convert, formatSig, formatUnit } from "../lib/units
 import { parseJcamp, JcampSpectrum } from "../lib/jcamp";
 import { solveBvp, BvpMethod } from "../lib/bvp";
 import { solveHeat, solveWave, solveLaplace, HeatScheme, PdeOutcome } from "../lib/pde";
-import { solveDae } from "../lib/dae";
+import { parseDaeSystem } from "../lib/daeParse";
+import { solveDaeAuto } from "../lib/daeIndex";
 import { RefKind, formatCaption, formatRef, formatEqRef, checkCaptions } from "../lib/refs";
 import {
   Series,
@@ -98,6 +99,7 @@ import { limit, taylorSeries, parseLimitRequest, parseSeriesRequest } from "../l
 import { solveInequality } from "../lib/inequalities";
 import { solveGeometry } from "../lib/geometryParse";
 import { solveTopology, BUILTIN_NAMES } from "../lib/homology";
+import { sub as subDigits, typesetGroup } from "../lib/kReal";
 import { solveLambda, LambdaSyntaxError } from "../lib/lambda";
 import { computationKindFor } from "../lib/ctSwitch";
 import { algebraKindFor, algebraSwitchNote } from "../lib/algebraSwitch";
@@ -336,6 +338,7 @@ import {
   SOLVE_LAMBDA,
   SOLVE_LAMBDA_SYMBOLS,
   SOLVE_DISCRETE,
+  SOLVE_TOPOLOGY,
   PaletteGroup,
   PaletteItem,
 } from "../lib/palettes";
@@ -11789,86 +11792,58 @@ const ANALYZE_CALCS: AnalyzeCalc[] = [
   },
   {
     id: "dae",
-    name: "Differential-algebraic system (index 1)",
+    name: "Differential-algebraic system",
     hint:
-      "Semi-explicit DAE: differential equations y' = f(t, y, z) plus algebraic constraints 0 = g(t, y, z). " +
-      "Index 1 only - ∂g/∂z must be nonsingular. Initial values must satisfy the constraint; inconsistent ones are projected onto it and reported.",
+      "Semi-explicit DAE: differential equations name' = f(t, …) plus constraints 0 = g(t, …). Every name with no ' equation is algebraic. " +
+      "Higher index is reduced automatically (Pantelides; structural index ≤ 5, ≤ 12 unknowns) - the Cartesian pendulum (index 3) is solved as typed. " +
+      "Initial values are bound BY NAME; inconsistent ones are projected onto every original and hidden constraint and reported, and the drift of each constraint is printed.",
     fields: [
       { key: "eqs", label: "Differential equations (one per line)", default: "y' = -z", kind: "block", rows: 3 },
       { key: "cons", label: "Constraints, 0 = … (one per line)", default: "z - y", kind: "block", rows: 3 },
-      { key: "y0", label: "Initial y values", default: "y = 1", kind: "text" },
-      { key: "z0", label: "Initial z values", default: "z = 1", kind: "text" },
+      { key: "y0", label: "Initial values, by name (x = 1, u = 0 …)", default: "y = 1", kind: "text" },
+      { key: "z0", label: "Initial guesses for algebraic variables (optional)", default: "z = 1", kind: "text" },
       { key: "trange", label: "t from, to", default: "0, 2", kind: "text" },
       { key: "steps", label: "Steps", default: "500", kind: "text" },
     ],
     compute: (r) => {
-      const yIn = parseAssignments(r("y0"));
-      const zIn = parseAssignments(r("z0"));
-      if (!yIn.names.length) return { text: "Give at least one initial y value, e.g. y = 1.", ok: false };
-      if (!zIn.names.length) return { text: "Give at least one initial z value, e.g. z = 1.", ok: false };
-
-      const diffLines = r("eqs").split(/[\n;]/).map((s) => s.trim()).filter(Boolean);
-      const consLines = r("cons").split(/[\n;]/).map((s) => s.trim()).filter(Boolean);
-      if (!diffLines.length) return { text: "Enter at least one differential equation, e.g. y' = -z.", ok: false };
-      if (!consLines.length) return { text: "Enter at least one constraint. With none this is an ODE - use the ODE solver.", ok: false };
-
-      // "y' = expr" -> expr, keeping the order the user wrote so it lines up
-      // with the initial values.
-      const rhs: string[] = [];
-      for (const line of diffLines) {
-        const m = /^([A-Za-z_][A-Za-z0-9_]*)\s*'\s*=\s*(.+)$/.exec(line);
-        if (!m) return { text: `Couldn't read "${line}". Write each differential equation as  name' = expression.`, ok: false };
-        rhs.push(m[2].trim());
-      }
-      if (rhs.length !== yIn.names.length) {
-        return { text: `There are ${rhs.length} differential equations but ${yIn.names.length} initial y values. They must match.`, ok: false };
-      }
-      // A constraint may be written "0 = expr", "expr = 0", or bare "expr".
-      const cons = consLines.map((line) => {
-        const m = /^0\s*=\s*(.+)$/.exec(line) ?? /^(.+?)\s*=\s*0$/.exec(line);
-        return m ? m[1].trim() : line;
-      });
-      if (cons.length !== zIn.names.length) {
-        return { text: `There are ${cons.length} constraints but ${zIn.names.length} initial z values. A semi-explicit DAE needs exactly as many of each.`, ok: false };
-      }
-
-      const vars = (t: number, y: number[], z: number[]): Record<string, number> => {
-        const v: Record<string, number> = { t };
-        yIn.names.forEach((n, i) => (v[n] = y[i]));
-        zIn.names.forEach((n, i) => (v[n] = z[i]));
-        return v;
-      };
-      const f = (t: number, y: number[], z: number[]) => rhs.map((e) => evalFormula(e, vars(t, y, z)));
-      const g = (t: number, y: number[], z: number[]) => cons.map((e) => evalFormula(e, vars(t, y, z)));
+      // v2.138.0. ONE parser, every value BOUND BY NAME (daeParse.ts). The old
+      // handler threw each `name' =` away and lined the right-hand sides up
+      // with the initial values IN THE ORDER THEY WERE TYPED, so `x = 1, u = 0`
+      // and `u = 0, x = 1` silently solved different systems (the live bug
+      // pinned in numericsTopologyRouting.test.ts). The equation and constraint
+      // fields are one system to the parser; the second initial-value field is
+      // now optional starting guesses for the algebraic unknowns.
+      const p = parseDaeSystem(r("eqs") + "\n" + r("cons"), r("y0"), r("z0"));
+      if (!p.ok) return { text: plainDashes(p.error), ok: false };
 
       const tr = statList(r("trange"));
       if (tr.length < 2) return { text: "Enter t0 and t1, e.g. 0, 2.", ok: false };
-      try {
-        f(tr[0], yIn.values, zIn.values);
-        g(tr[0], yIn.values, zIn.values);
-      } catch (e) {
-        return { text: `Equation error: ${(e as Error).message}`, ok: false };
-      }
 
-      const out = solveDae(f, g, tr[0], tr[1], yIn.values, zIn.values, { steps: Math.floor(+r("steps") || 500) });
-      if (!out.ok) return { text: out.error, ok: false };
+      // Index reduction, consistent initialisation, integration and the drift
+      // report all happen in daeIndex.ts. `res.steps` already carries the
+      // structural analysis, the reduced system, the hidden constraints, any
+      // projected start and every drift line, so nothing here repeats them.
+      const out = solveDaeAuto(p.system, tr[0], tr[1], { points: Math.floor(+r("steps") || 500) });
+      if (!out.ok) return { text: plainDashes(out.error), ok: false };
       const res = out.result;
 
       const blocks: AnalyzeBlock[] = [];
+      blocks.push({ kind: "line", text: `Index ${res.index} (structural, confirmed numerically at t₀).` });
       for (const s of res.steps) blocks.push({ kind: "line", text: plainDashes(s) });
-      const names = [...yIn.names, ...zIn.names];
+      if (!res.completed) {
+        blocks.push({ kind: "line", text: `! The integration stopped at t = ${formatNum(res.t[res.t.length - 1], 6)}, before t1 - the table and plot end there.` });
+      }
+      const names = res.names;
+      const row = (k: number): number[] => [res.t[k], ...names.map((n) => res.states[n][k])];
       const maxRows = 12;
       const stride = Math.max(1, Math.floor(res.t.length / maxRows));
       const sampled: Matrix = [];
-      for (let i = 0; i < res.t.length; i += stride) sampled.push([res.t[i], ...res.y[i], ...res.z[i]]);
-      if (sampled[sampled.length - 1][0] !== res.t[res.t.length - 1]) {
-        const k = res.t.length - 1;
-        sampled.push([res.t[k], ...res.y[k], ...res.z[k]]);
-      }
+      for (let i = 0; i < res.t.length; i += stride) sampled.push(row(i));
+      if (sampled[sampled.length - 1][0] !== res.t[res.t.length - 1]) sampled.push(row(res.t.length - 1));
       blocks.push({ kind: "matrix", label: `Sampled [t, ${names.join(", ")}]:`, m: sampled });
       const colors = ["#2563eb", "#dc2626", "#059669", "#d97706", "#7c3aed"];
       const series: Series[] = names.map((n, i) => ({
-        points: res.t.map((t, k) => ({ x: t, y: i < yIn.names.length ? res.y[k][i] : res.z[k][i - yIn.names.length] })),
+        points: res.t.map((t, k) => ({ x: t, y: res.states[n][k] })),
         type: "line",
         color: colors[i % colors.length],
         label: n,
@@ -27739,7 +27714,7 @@ function renderSolvePalette(kind: SolveKind): void {
   const snippetGroups: PaletteGroup[] =
     kind === "equation" || kind === "derivative" || kind === "integral" ? SOLVE_SYMBOLS : kind === "lambda" ? SOLVE_LAMBDA_SYMBOLS : [];
   const templateGroups: PaletteGroup[] =
-    kind === "equation" ? [...SOLVE_EQUATIONS, ...SOLVE_TRANSFORMS, ...SOLVE_CHEMISTRY] : kind === "geometry" ? SOLVE_SHAPES : kind === "derivative" ? SOLVE_CALCULUS : kind === "ode" ? SOLVE_ODES : kind === "lambda" ? SOLVE_LAMBDA : kind === "discrete" ? SOLVE_DISCRETE : [];
+    kind === "equation" ? [...SOLVE_EQUATIONS, ...SOLVE_TRANSFORMS, ...SOLVE_CHEMISTRY] : kind === "geometry" ? SOLVE_SHAPES : kind === "derivative" ? SOLVE_CALCULUS : kind === "ode" ? SOLVE_ODES : kind === "lambda" ? SOLVE_LAMBDA : kind === "discrete" ? SOLVE_DISCRETE : kind === "topology" ? SOLVE_TOPOLOGY : [];
   solvePaletteEl.replaceChildren();
   solvePaletteEl.style.display = snippetGroups.length || templateGroups.length ? "block" : "none";
 
@@ -28284,6 +28259,9 @@ function updateSolve(): void {
     // its equation and drops the prose — equation kind only, where prose has
     // no other meaning (word problems ARE prose).
     extractFromProse: kind === "equation",
+    // The topology reader's own notation (𝔑₅, 𝔽₃, Ω₅ˢᴼ) must survive the fold,
+    // or the engine's printed output does not read back (v2.138.0).
+    topology: kind === "topology",
   });
   // `let`, not `const`: the equation branch may narrow this to the equation
   // it extracted from a pasted sentence.
@@ -29251,21 +29229,36 @@ function updateSolve(): void {
 
       if (h.kind === "persistence") {
         // A pasted point cloud: persistent homology and a barcode.
+        // v2.138.0: the header lines the user typed above the cloud (`over F3`,
+        // `scale 2`, `H2`, `compare`) are honoured, never skipped — and any
+        // letter-led line that was NOT recognised is printed, not dropped.
         let pr;
         try {
-          pr = persistentHomology(h.cloud, { maxDim: 1 });
+          pr = persistentHomology(h.cloud, { maxDim: h.maxDim, maxScale: h.maxScale, p: h.p, compare: h.compare });
         } catch (err) {
           return void solveResult.appendChild(solveLine((err as Error).message, "ms-masses"));
         }
-        const title = `Persistent homology of ${pr.points} points in ${pr.dimensions}D`;
+        const fieldLabel = `𝔽${subDigits(pr.field)}`;
+        const title = `Persistent homology of ${pr.points} points in ${pr.dimensions}D over ${fieldLabel}`;
         solveResult.appendChild(msEyebrow(title));
         say(title, "heading");
-        // The headline is the longest-lived feature per dimension — that is the
-        // one that means something; short bars are usually sampling noise.
+        for (const r of h.read) {
+          const line = `Read: ${r}.`;
+          solveResult.appendChild(solveLine(line));
+          say(line);
+        }
+        for (const ig of h.ignored) {
+          const line = `Ignored line (not a recognised header): "${ig}".`;
+          solveResult.appendChild(solveLine(line, "ms-masses"));
+          say(line);
+        }
+        // The headline is the longest-lived FINITE feature per dimension — that
+        // is the one that means something; short bars are usually sampling
+        // noise. Censored and essential bars never appear in `notable`.
         if (pr.notable.length) {
           for (const nb of pr.notable) {
             const line =
-              `Most persistent H${nb.dimension} feature: born ${trimNum(nb.birth)}, dies ${trimNum(nb.death)} ` +
+              `Most persistent H${subDigits(nb.dimension)} feature over ${fieldLabel}: born ${trimNum(nb.birth)}, dies ${trimNum(nb.death)} ` +
               `(lifetime ${trimNum(nb.persistence)})`;
             solveResult.appendChild(solveLine(line, "ms-masses"));
             say(line);
@@ -29275,14 +29268,28 @@ function updateSolve(): void {
           solveResult.appendChild(solveLine(line, "ms-masses"));
           say(line);
         }
-        const counts = `Bars: ${pr.pairs.filter((x) => x.dimension === 0).length} in H0, ` +
-          `${pr.pairs.filter((x) => x.dimension === 1).length} in H1.`;
+        const countIn = (pairs: { dimension: number }[]): string =>
+          Array.from({ length: h.maxDim + 1 }, (_, d) => `${pairs.filter((x) => x.dimension === d).length} in H${subDigits(d)}`).join(", ");
+        const counts = `Bars over ${fieldLabel}: ${countIn(pr.pairs)}.` +
+          (pr.comparison ? ` Over 𝔽${subDigits(pr.comparison.field)}: ${countIn(pr.comparison.pairs)}.` : "");
         solveResult.appendChild(solveLine(counts, "ms-masses"));
         say(counts);
+        if (pr.censored > 0) {
+          const line = `${pr.censored} bar${pr.censored === 1 ? " is" : "s are"} CENSORED: still alive at ${trimNum(pr.scaleUsed)}, below the enclosing radius ${trimNum(pr.enclosingRadius)} — drawn with a dashed end ("≥ ${trimNum(pr.scaleUsed)}"), neither finite nor essential.`;
+          solveResult.appendChild(solveLine(line, "ms-masses"));
+          say(line);
+        }
+        for (const t of pr.torsion) {
+          solveResult.appendChild(solveLine(t, "ms-masses"));
+          say(t);
+        }
         // The barcode itself, drawn in the pane and carried to the document.
-        currentSolveSvg = barcodeSvg(pr);
-        currentSolveAlt =
-          "Persistence barcode: each bar is a topological feature, spanning the range of scales over which it exists.";
+        // With `compare` it is TWO stacked panels (𝔽₂ above 𝔽ₚ, 460 × 600); the
+        // insert path sizes from readSvgDims on this exact SVG, never a nominal size.
+        currentSolveSvg = barcodeSvg(pr, 460, 300, { compare: h.compare });
+        currentSolveAlt = h.compare && pr.comparison
+          ? `Persistence barcodes over 𝔽${subDigits(pr.comparison.field)} (top) and ${fieldLabel} (bottom) on the same scale axis; a bar missing below is torsion evidence.`
+          : "Persistence barcode: each bar is a topological feature, spanning the range of scales over which it exists.";
         const fig = document.createElement("div");
         fig.className = "solve-figure";
         fig.innerHTML = currentSolveSvg;
@@ -29291,7 +29298,8 @@ function updateSolve(): void {
           solveResult.appendChild(solveLine(s));
           say(s);
         }
-        return finish(pr.caveats);
+        // The torsion lines are also in the engine's caveats; printed once, above.
+        return finish(pr.caveats.filter((c) => !pr.torsion.includes(c)));
       }
 
       if (h.kind === "advanced") {
@@ -29313,8 +29321,11 @@ function updateSolve(): void {
       solveResult.appendChild(msEyebrow(h.title));
       say(h.title, "heading");
       // The homology groups are the answer; everything else is supporting work.
+      // TYPESET AT DISPLAY TIME (display is a contract): the engine keeps its
+      // ASCII "Z + Z/2" / "Z^2" as data (tests compare it), the reader sees
+      // H₁ = ℤ ⊕ ℤ/2 and H₁ = ℤ², which kReal.parseGroup reads back.
       for (let k = 0; k <= h.dimension; k++) {
-        const line = `H_${k} = ${h.groups[k]}`;
+        const line = `H${subDigits(k)} = ${typesetGroup(h.groups[k])}`;
         solveResult.appendChild(solveLine(line, "ms-masses"));
         say(line);
       }

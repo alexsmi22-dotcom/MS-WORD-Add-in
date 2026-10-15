@@ -16,7 +16,7 @@
 // the very few equivalence questions in this area that is actually decidable.
 
 import {
-  cellularHomology, CW_BUILTIN, whitneySum, chernOfLineSum, swOfLineSum,
+  cellularHomology, CW_BUILTIN, whitneySum, chernOfLineSum,
   chernComplexProjectiveTangent, swRealProjectiveTangent, binomialMod2, binomial,
   realProjectiveTangentClass, complexProjectiveTangentClass,
   realProjectiveCobordism, partitions, BEYOND,
@@ -89,9 +89,18 @@ describe("characteristic classes — symmetric polynomial algebra, exact", () =>
     // roots 1,2,3 → e1=6, e2=11, e3=6
     expect(chernOfLineSum([1, 2, 3])).toEqual([1, 6, 11, 6]);
   });
+  // REWRITTEN (v2.139.0): swOfLineSum was RETIRED — once cobordism.ts took
+  // over the Stiefel–Whitney computations it had no production caller (the
+  // dead-export ratchet). The fact it pinned — w is the splitting construction
+  // reduced mod 2 — is now pinned on the live paths: chernOfLineSum reduced by
+  // hand, and w(T ℝPⁿ) = (1 + a)ⁿ⁺¹ mod 2 as the engines compute it.
   it("Stiefel–Whitney is the same construction mod 2", () => {
-    expect(swOfLineSum([1, 1, 1])).toEqual([1, 1, 1, 1]);
-    expect(swOfLineSum([1, 1])).toEqual([1, 0, 1]); // 1+2x+x² ≡ 1+x² mod 2
+    const mod2 = (c: number[]) => c.map((v) => ((v % 2) + 2) % 2);
+    expect(mod2(chernOfLineSum([1, 1, 1]))).toEqual([1, 1, 1, 1]);
+    expect(mod2(chernOfLineSum([1, 1]))).toEqual([1, 0, 1]); // 1+2x+x² ≡ 1+x² mod 2
+    // ℝP² has T ⊕ ε = 3L: w = (1 + a)³ = 1 + a + a² (mod 2, a³ = 0).
+    expect(realProjectiveTangentClass(2).display).toBe("1 + a + a²");
+    expect(swRealProjectiveTangent(3)).toEqual(mod2(chernOfLineSum([1, 1, 1, 1])).slice(0, 4));
   });
   it("C(n,k) mod 2 follows Lucas — 1 exactly when k's bits sit inside n's", () => {
     expect(binomialMod2(4, 2)).toBe(0); // C(4,2)=6, even
@@ -173,12 +182,18 @@ describe("unoriented cobordism — a genuinely DECIDABLE equivalence question", 
     expect(r.steps.join(" ")).toMatch(/BOUNDS a compact manifold/);
   });
 
-  it("states that this IS decidable, and that oriented cobordism is not covered", () => {
-    const r = realProjectiveCobordism(4);
-    const all = r.caveats.join(" ");
-    expect(all).toMatch(/COMPLETE invariant/);
-    expect(all).toMatch(/genuinely decidable/);
-    expect(all).toMatch(/ORIENTED cobordism/);
+  // FLIPPED (v2.139.0, §E14): caveat 435 said oriented cobordism "is not
+  // computed here". It now is (cobordism.ts), so the caveat says ℝPⁿ's
+  // orientability decides whether the oriented question even applies, and
+  // points to where it is answered.
+  it("states that this IS decidable, and separates the oriented question", () => {
+    const all4 = realProjectiveCobordism(4).caveats.join(" ");
+    expect(all4).toMatch(/COMPLETE invariant/);
+    expect(all4).toMatch(/genuinely decidable/);
+    expect(all4).toMatch(/ORIENTED cobordism is a different question/);
+    expect(all4).toMatch(/NOT orientable \(n even\)/);
+    expect(realProjectiveCobordism(5).caveats.join(" ")).toMatch(/orientable \(n odd\)/);
+    expect(all4).not.toMatch(/not computed here/);
   });
 });
 

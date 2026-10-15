@@ -89,20 +89,51 @@ function flattenTranslates(svg) {
     return out;
   };
 
+  // A translate group is matched to its BALANCED closing tag, so it may contain
+  // plain (untransformed) groups. The first version required a translate group
+  // with no nested <g> at all, and so silently skipped the v2.138.0 compare
+  // barcode — two panels, each a translated <g> holding a stroke <g> — and read
+  // panel 2's labels at panel 1's coordinates: fourteen phantom COLLISIONs.
+  const OPEN = /<g\b([^>]*\btransform="translate\(\s*(-?[\d.]+)(?:[,\s]+(-?[\d.]+))?\s*\)"[^>]*)>/g;
+  const HAS_TRANSLATE = /<g\b[^>]*\btransform="translate\(/;
+  /** Index of the `</g>` closing the group whose content starts at `from`, or -1. */
+  const closeOf = (str, from) => {
+    const tag = /<g\b[^>]*?(\/?)>|<\/g>/g;
+    tag.lastIndex = from;
+    let depth = 1;
+    let t;
+    while ((t = tag.exec(str))) {
+      if (t[0] === "</g>") {
+        if (--depth === 0) return t.index;
+      } else if (t[1] !== "/") {
+        depth++;
+      }
+    }
+    return -1;
+  };
   let s = svg;
-  for (let pass = 0; pass < 12; pass++) {
-    // The LAST opening <g …translate…> before its matching close is the
-    // innermost one, so scan for a translate group containing no further <g.
-    const re = /<g\b([^>]*\btransform="translate\(\s*(-?[\d.]+)(?:[,\s]+(-?[\d.]+))?\s*\)"[^>]*)>((?:(?!<g\b)[\s\S])*?)<\/g>/;
-    const m = re.exec(s);
-    if (!m) break;
-    const tx = Number(m[2]);
-    const ty = m[3] === undefined ? 0 : Number(m[3]);
-    if (!Number.isFinite(tx) || !Number.isFinite(ty)) break;
-    // Keep the group's other attributes (font-size is inherited by its children)
-    // but drop the transform, since it has now been baked into the coordinates.
-    const attrs = m[1].replace(/\btransform="translate\([^"]*\)"/, "").trim();
-    s = s.slice(0, m.index) + `<g ${attrs}>` + shift(m[4], tx, ty) + "</g>" + s.slice(m.index + m[0].length);
+  for (let pass = 0; pass < 64; pass++) {
+    // Innermost first: a translate group whose balanced content holds no
+    // further translate group. Nested translations then compose pass by pass.
+    const opens = [...s.matchAll(OPEN)];
+    let done = false;
+    for (let i = opens.length - 1; i >= 0 && !done; i--) {
+      const m = opens[i];
+      const contentStart = m.index + m[0].length;
+      const close = closeOf(s, contentStart);
+      if (close < 0) continue;
+      const content = s.slice(contentStart, close);
+      if (HAS_TRANSLATE.test(content)) continue;
+      const tx = Number(m[2]);
+      const ty = m[3] === undefined ? 0 : Number(m[3]);
+      if (!Number.isFinite(tx) || !Number.isFinite(ty)) continue;
+      // Keep the group's other attributes (font-size is inherited by its children)
+      // but drop the transform, since it has now been baked into the coordinates.
+      const attrs = m[1].replace(/\btransform="translate\([^"]*\)"/, "").trim();
+      s = s.slice(0, m.index) + `<g ${attrs}>` + shift(content, tx, ty) + "</g>" + s.slice(close + "</g>".length);
+      done = true;
+    }
+    if (!done) break;
   }
   return s;
 }
@@ -434,6 +465,15 @@ function runAudit(figures) {
         '<g transform="translate(10,20)"><text x="18" y="0">H0</text></g>' +
         '<g transform="translate(10,45)"><text x="18" y="0">H1</text></g>' +
         '<g transform="translate(10,70)"><text x="18" y="0">H2</text></g></g></svg>',
+      null,
+    ],
+    [
+      // Two stacked panels, each a translated group that CONTAINS a plain
+      // group: identical local labels, 50 px apart once translated.
+      "translate with a nested plain group — no phantom collision",
+      '<svg width="200" height="100" viewBox="0 0 200 100"><g font-size="10">' +
+        '<g transform="translate(0,0)"><g stroke="#000"></g><text x="18" y="20">Panel</text></g>' +
+        '<g transform="translate(0,50)"><g stroke="#000"></g><text x="18" y="20">Panel</text></g></g></svg>',
       null,
     ],
     [

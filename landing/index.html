@@ -980,6 +980,11 @@ x&#179; &minus; 1 = 0
       <p class="lede">Tiles marked <span class="is-new">New</span> are the most recent additions; the rest have grown since you last looked. Every tile opens a full breakdown with worked examples.</p>
     </div>
     <div class="cards">
+      <a class="card" href="tool.html?tool=solve">
+        <h3>Constrained dynamics, K-theory, cobordism, persistence <span class="is-new">New</span></h3>
+        <p>Type a <b>Cartesian pendulum</b> as written &mdash; <code>x'' = -lam*x</code>, <code>y'' = -lam*y - 9.81</code>, <code>0 = x^2 + y^2 - 1</code> &mdash; and the index-3 system is reduced, its hidden constraints shown and the <b>drift measured</b> against every one (it matches SciPy to about 2&times;10⁻⁸). <code>does rp^2 # rp^2 bound</code> answers by Stiefel&ndash;Whitney numbers (the Klein bottle bounds); real K-theory by Bott periodicity; persistent homology over any prime field, so a Klein bottle and a torus are told apart.</p>
+        <div class="spec">π₃(KO) = 0 (not the stable stem ℤ/24) &middot; K̃O⁰(ℝP⁴) = ℤ/8</div>
+      </a>
       <a class="card" href="tool.html?tool=chemical">
         <h3>Reaction balancing, genetic codes, peptides <span class="is-new">New</span></h3>
         <p><code>balance KMnO4 + HCl -&gt; KCl + MnCl2 + Cl2 + H2O</code> balances by the exact null space of the element and charge matrix, with every element and the charge recounted &mdash; and a reaction with <b>two independent balancings is refused, with both shown</b>, never one picked silently. Half-reactions in acid or base; limiting reagent and yield with units carried. All 27 <b>NCBI genetic codes</b>, honoured in ORFs, translations and sequence listings (<code>/transl_table</code>, <code>/transl_except</code>). Peptides with disulfides, cyclisation and Unimod modifications &mdash; an unknown token is refused with its position, never turned into a residue.</p>
@@ -1001,7 +1006,7 @@ x&#179; &minus; 1 = 0
         <div class="spec">Mann&ndash;Whitney 3 v 3: p = 1/10 exact (the normal approximation printed 0.081, which is impossible)</div>
       </a>
       <a class="card" href="tool.html?tool=solve">
-        <h3>Grammars, machines, logic, SAT, type inference <span class="is-new">New</span></h3>
+        <h3>Grammars, machines, logic, SAT, type inference</h3>
         <p>Type <code>S -&gt; aSb | &epsilon;</code> and the strings to test: the <b>CYK table</b>, a leftmost derivation and the <b>parse tree drawn</b>, each verdict cross-checked by a brute-force search; ambiguity witnesses, FIRST and FOLLOW, left recursion removed. Pushdown automata with the stack drawn and Turing machines with the tape drawn &mdash; <b>"loops" only when a configuration provably repeats</b>, a step cap is "unknown". First-order logic: prenex, Skolem, unification with the occurs check, <b>resolution</b> that says VALID, INVALID with a countermodel, or unknown. DPLL with the search tree, 2-SAT, Horn-SAT. And Hindley&ndash;Milner type inference with let-polymorphism, Algorithm W step by step.</p>
         <div class="spec">hm let id = &lambda;x.x in (id 1, id true) &#8594; int &times; bool, id : &forall;&alpha;. &alpha; &rarr; &alpha;</div>
       </a>

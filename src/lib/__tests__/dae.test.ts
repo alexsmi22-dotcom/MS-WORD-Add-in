@@ -79,7 +79,15 @@ describe("a nonlinear constraint", () => {
   });
 });
 
-describe("index >= 2 is refused, by name", () => {
+// REWRITTEN BY HAND in v2.139.0 (never jest -u). The pendulum is now SOLVED —
+// by daeIndex.ts, from typed equations (Pantelides + projection; its values are
+// pinned against SciPy in daeIndex.test.ts). solveDae itself still takes opaque
+// closures, cannot see structure, and still refuses. What changed is the
+// wording: it used to say "index 2 or higher", which is FALSE for
+// x' = 1 − z, y' = z, 0 = x + y − t (singular ∂g/∂z, but z is undetermined at
+// every index). A closure-based solver cannot tell those apart, so it now says
+// "NOT index 1" and that it cannot tell which — and never "index 2 or higher".
+describe("singular ∂g/∂z is refused by the closure solver, by name", () => {
   it("the Cartesian pendulum (index 3) is rejected because ∂g/∂λ ≡ 0", () => {
     // states y = [x, y, u, v], algebraic z = [lambda]
     const f: DaeF = (_t, Y, Z) => [Y[2], Y[3], -Z[0] * Y[0], -Z[0] * Y[1] - 9.81];
@@ -88,18 +96,42 @@ describe("index >= 2 is refused, by name", () => {
     expect(r.ok).toBe(false);
     if (!r.ok) {
       expect(r.error).toMatch(/NOT index 1/);
-      expect(r.error).toMatch(/index 2 or higher/);
+      expect(r.error).not.toMatch(/index 2 or higher/);
+      expect(r.error).toMatch(/cannot tell which/);
     }
   });
 
-  it("the refusal names the pendulum and the way out, rather than just failing", () => {
+  it("the refusal names the pendulum and the way out (index reduction from typed equations)", () => {
     const f: DaeF = (_t, Y, Z) => [Y[2], Y[3], -Z[0] * Y[0], -Z[0] * Y[1] - 9.81];
     const g: DaeG = (_t, Y) => [Y[0] * Y[0] + Y[1] * Y[1] - 1];
     const r = solveDae(f, g, 0, 1, [1, 0, 0, 0], [0]);
+    expect(r.ok).toBe(false);
     if (!r.ok) {
       expect(r.error).toMatch(/pendulum/);
       expect(r.error).toMatch(/index reduction/);
+      expect(r.error).toMatch(/Pantelides/);
       expect(r.error).toMatch(/angle/);
+    }
+  });
+
+  it("the undetermined case is not mislabelled 'index 2 or higher' either", () => {
+    // x' = 1 − z, y' = z, 0 = x + y − t: ∂g/∂z ≡ 0 and z is not determined.
+    const f: DaeF = (_t, _y, z) => [1 - z[0], z[0]];
+    const g: DaeG = (t, y) => [y[0] + y[1] - t];
+    const r = solveDae(f, g, 0, 1, [0, 0], [0]);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).not.toMatch(/index 2 or higher/);
+  });
+
+  it("the run report never certifies 'no drift by construction' (grep gate on the output)", () => {
+    const r = solveDae((_t, _y, z) => [-z[0]], (_t, y, z) => [z[0] - y[0]], 0, 1, [1], [1], { steps: 50 });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      const all = [...r.result.steps, ...r.result.caveats].join(" ");
+      expect(all).not.toMatch(/by construction/);
+      expect(all).not.toMatch(/no drift/i);
+      expect(all).not.toMatch(/does not occur here/);
+      expect(all).toMatch(/constraint as entered/);
     }
   });
 

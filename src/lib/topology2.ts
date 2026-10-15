@@ -18,6 +18,10 @@
 // spaces are the same. What it does decide, it decides exactly.
 
 import { smithNormalForm } from "./homology";
+// Import cycle (cobordism.ts reads partitions/binomials from here): every use on
+// both sides is inside a function body, never at module load.
+import { realProjectiveSwNumbers } from "./cobordism";
+import { sup, sub } from "./kReal";
 
 // ---------------------------------------------------------------------------
 // Cellular homology.
@@ -212,14 +216,8 @@ export function chernOfLineSum(roots: number[]): TotalClass {
   return out;
 }
 
-/**
- * Total Stiefel–Whitney class of a sum of line bundles, over 𝔽₂.
- * Same construction, reduced mod 2 — which is why w is 2-torsion and why
- * unoriented cobordism is an 𝔽₂ story.
- */
-export function swOfLineSum(roots: number[]): TotalClass {
-  return chernOfLineSum(roots).map((v) => ((v % 2) + 2) % 2);
-}
+// swOfLineSum (chernOfLineSum mod 2) was RETIRED in v2.139.0: cobordism.ts
+// computes every Stiefel–Whitney class now, and it had no caller left.
 
 /**
  * Total Chern class of the tautological/standard bundle constructions on ℂPⁿ:
@@ -292,7 +290,7 @@ const fmtClass = (c: TotalClass, sym: string): string => {
     if (i === 0) parts.push(String(v));
     else {
       const coeff = v === 1 ? "" : String(v);
-      parts.push(`${coeff}${sym}${i === 1 ? "" : `^${i}`}`);
+      parts.push(`${coeff}${sym}${i === 1 ? "" : sup(i)}`);
     }
   });
   return parts.length ? parts.join(" + ") : "0";
@@ -305,8 +303,9 @@ const fmtClass = (c: TotalClass, sym: string): string => {
  */
 export function realProjectiveTangentClass(n: number): CharClassResult {
   const w = swRealProjectiveTangent(n);
+  const R = `ℝP${sup(n)}`;
   const steps = [
-    `w(T ℝP^${n}) = (1 + a)^${n + 1} truncated at degree ${n}, with coefficients mod 2.`,
+    `w(T${R}) = (1 + a)${sup(n + 1)} truncated at degree ${n}, with coefficients mod 2.`,
     `Coefficients C(${n + 1}, k) mod 2: ${w.join(", ")}.`,
   ];
   const caveats: string[] = [];
@@ -315,8 +314,8 @@ export function realProjectiveTangentClass(n: number): CharClassResult {
   const trivial = w.slice(1).every((v) => v === 0);
   if (trivial) {
     steps.push(
-      `Every coefficient above degree 0 vanishes, so w(T ℝP^${n}) = 1. That happens exactly when ` +
-      `${n + 1} is a power of two — a NECESSARY condition for ℝP^${n} to be parallelisable, though not a sufficient one.`
+      `Every coefficient above degree 0 vanishes, so w(T${R}) = 1. That happens exactly when ` +
+      `${n + 1} is a power of two — a NECESSARY condition for ${R} to be parallelisable, though not a sufficient one.`
     );
     caveats.push(
       "A trivial total Stiefel–Whitney class does not prove parallelisability: it removes the obstruction this invariant can see, and others may remain. Only n = 1, 3 and 7 are actually parallelisable."
@@ -324,24 +323,47 @@ export function realProjectiveTangentClass(n: number): CharClassResult {
   } else {
     const first = w.findIndex((v, i) => i > 0 && v !== 0);
     steps.push(
-      `The first nonvanishing class above degree 0 is w${first} ≠ 0, which OBSTRUCTS parallelisability: ` +
-      `ℝP^${n} is not parallelisable.`
+      `The first nonvanishing class above degree 0 is w${sub(first)} ≠ 0, which OBSTRUCTS parallelisability: ` +
+      `${R} is not parallelisable.`
     );
   }
-  return { name: `w(T ℝP^${n})`, total: w, display: fmtClass(w, "a"), steps, caveats };
+  return { name: `w(T${R})`, total: w, display: fmtClass(w, "a"), steps, caveats };
+}
+
+/**
+ * Total Pontryagin class of T ℂPⁿ: p = (1 + x²)ⁿ⁺¹ truncated at x^{n+1} = 0
+ * (Milnor–Stasheff, Characteristic Classes, 1974). Exact binomials.
+ */
+export function complexProjectivePontryaginClass(n: number): CharClassResult {
+  if (!Number.isFinite(n) || n < 1 || !Number.isInteger(n)) throw new Error(`ℂPⁿ needs a whole number n ≥ 1 (got ${n}).`);
+  n = Math.min(n, MAX_CHAR_CLASS_DIM);
+  // In x-degree units the class has terms x^{2i} for 2i ≤ n.
+  const total: TotalClass = new Array(n + 1).fill(0);
+  for (let i = 0; 2 * i <= n; i++) total[2 * i] = Number(binomial(n + 1, i));
+  const C = `ℂP${sup(n)}`;
+  return {
+    name: `p(T${C})`,
+    total,
+    display: fmtClass(total, "x"),
+    steps: [
+      `p(T${C}) = (1 + x²)${sup(n + 1)}, truncated because x${sup(n + 1)} = 0 in H*(${C}).`,
+      `pᵢ = C(${n + 1}, i)·x²ⁱ for 2i ≤ ${n}: ${total.filter((_, k) => k % 2 === 0).join(", ")}.`,
+    ],
+    caveats: [],
+  };
 }
 
 /** Total Chern class of T ℂPⁿ, exact. */
 export function complexProjectiveTangentClass(n: number): CharClassResult {
   const c = chernComplexProjectiveTangent(n);
   return {
-    name: `c(T ℂP^${n})`,
+    name: `c(TℂP${sup(n)})`,
     total: c,
     display: fmtClass(c, "x"),
     steps: [
-      `c(T ℂP^${n}) = (1 + x)^${n + 1}, truncated at degree ${n} because x^${n + 1} = 0 in H*(ℂP^${n}).`,
+      `c(TℂP${sup(n)}) = (1 + x)${sup(n + 1)}, truncated at degree ${n} because x${sup(n + 1)} = 0 in H*(ℂP${sup(n)}).`,
       `Coefficients C(${n + 1}, k): ${c.join(", ")}.`,
-      `The top class c${n} = ${c[n]} is the Euler characteristic of ℂP^${n}, which is ${n + 1}.`,
+      `The top class c${sub(n)} = ${c[n]} is the Euler characteristic of ℂP${sup(n)}, which is ${n + 1}.`,
     ],
     caveats: [],
   };
@@ -400,30 +422,53 @@ export function partitions(n: number): number[][] {
  * total class w = (1+a)^{n+1} in H*(ℝPⁿ; 𝔽₂) = 𝔽₂[a]/(a^{n+1}).
  */
 export function realProjectiveCobordism(n: number): CobordismResult {
-  const w = swRealProjectiveTangent(n);
-  const steps = [`w(T ℝP^${n}) = ${fmtClass(w, "a")} in F2[a]/(a^${n + 1}).`];
-  const numbers: { partition: number[]; value: 0 | 1 }[] = [];
-
-  // A Stiefel–Whitney number is the top-degree coefficient of a product of
-  // w_i's chosen so the degrees sum to n; in H*(ℝPⁿ) every class is a power of
-  // a, so the product is just the product of the coefficients mod 2.
-  for (const part of partitions(n)) {
-    let v: 0 | 1 = 1;
-    for (const p of part) {
-      const wp = (w[p] ?? 0) % 2;
-      v = ((v * wp) % 2) as 0 | 1;
-      if (v === 0) break;
-    }
-    numbers.push({ partition: part, value: v });
+  // n itself is NEVER clamped — clamping 513 to 512 flips the verdict. Only
+  // the displayed class is capped (swRealProjectiveTangent caps internally).
+  if (!Number.isFinite(n) || n < 0 || !Number.isInteger(n)) {
+    throw new Error(`ℝPⁿ needs a whole number n ≥ 0 (got ${n}).`);
   }
+  if (n === 0) {
+    return {
+      dimension: 0,
+      numbers: [{ partition: [], value: 1 }],
+      boundsAManifold: false,
+      steps: ["ℝP⁰ is a single point; its only Stiefel–Whitney number is the point count mod 2 = 1, so it does NOT bound."],
+      caveats: ["Stiefel–Whitney numbers are a COMPLETE invariant of unoriented cobordism (Thom), so this is genuinely decidable."],
+    };
+  }
+  const w = swRealProjectiveTangent(n);
+  const R = `ℝP${sup(n)}`;
+  const steps = [
+    n <= MAX_CHAR_CLASS_DIM
+      ? `w(T${R}) = ${fmtClass(w, "a")} in 𝔽₂[a]/(a${sup(n + 1)}).`
+      : `w(T${R}) = (1 + a)${sup(n + 1)} in 𝔽₂[a]/(a${sup(n + 1)}) (not expanded above degree ${MAX_CHAR_CLASS_DIM}).`,
+  ];
+  const wName = (part: number[]) => part.map((p) => `w${sub(p)}`).join("");
+  // The numbers come from the cobordism RING engine (cobordism.ts), the same
+  // code that answers products and connected sums — one engine, not two.
+  // Above its dimension cap the verdict is the THEOREM, stated as such: the
+  // old loop returned an EMPTY list there, and "every number vanishes" over an
+  // empty list said "RP^42 bounds".
+  const numbers: { partition: number[]; value: 0 | 1 }[] =
+    n >= 1 && n <= MAX_PARTITION_N ? realProjectiveSwNumbers(n) : [];
 
-  const boundsAManifold = numbers.every((x) => x.value === 0);
-  steps.push(
-    boundsAManifold
-      ? `Every Stiefel–Whitney number vanishes, so ℝP^${n} BOUNDS a compact manifold — it is null-cobordant.`
-      : `At least one Stiefel–Whitney number is nonzero (${numbers.filter((x) => x.value).map((x) => `w${x.partition.join("w")}`).join(", ")}), so ℝP^${n} does NOT bound.`
-  );
-  steps.push(`This matches the classical result that ℝP^n bounds exactly when n is odd: ${n} is ${n % 2 === 0 ? "even" : "odd"}.`);
+  let boundsAManifold: boolean;
+  if (numbers.length) {
+    boundsAManifold = numbers.every((x) => x.value === 0);
+    steps.push(
+      boundsAManifold
+        ? `Every Stiefel–Whitney number vanishes, so ${R} BOUNDS a compact manifold — it is null-cobordant.`
+        : `At least one Stiefel–Whitney number is nonzero (${numbers.filter((x) => x.value).map((x) => wName(x.partition)).join(", ")}), so ${R} does NOT bound.`
+    );
+  } else {
+    boundsAManifold = n % 2 === 1;
+    steps.push(
+      boundsAManifold
+        ? `${R} BOUNDS a compact manifold: for n odd it is the circle bundle of the Hopf map over ℂP${sup((n - 1) / 2)}, hence the boundary of the associated disc bundle. (Above dimension ${MAX_PARTITION_N} the numbers are not enumerated; this is the geometric proof.)`
+        : `${R} does NOT bound: its top number w${sub(n)}[${R}] = χ(${R}) mod 2 = 1. (Above dimension ${MAX_PARTITION_N} only this number is evaluated.)`
+    );
+  }
+  steps.push(`This matches the classical result that ℝPⁿ bounds exactly when n is odd: ${n} is ${n % 2 === 0 ? "even" : "odd"}.`);
 
   return {
     dimension: n,
@@ -432,7 +477,7 @@ export function realProjectiveCobordism(n: number): CobordismResult {
     steps,
     caveats: [
       "Stiefel–Whitney numbers are a COMPLETE invariant of unoriented cobordism (Thom), so two closed manifolds are unorientedly cobordant exactly when all of these agree. That makes this one of the few equivalence questions in algebraic topology that is genuinely decidable — unlike homeomorphism or homotopy equivalence, which are not.",
-      "This says nothing about ORIENTED cobordism, which is a harder invariant and is not computed here.",
+      `ORIENTED cobordism is a different question: ${R} is ${n % 2 === 1 ? "orientable (n odd)" : "NOT orientable (n even), so it has no oriented class at all"}. Oriented cobordism (Pontryagin numbers, signature, the cited Ωₙˢᴼ table for n ≤ 8) is answered separately — ask "oriented cobordism of …".`,
     ],
   };
 }

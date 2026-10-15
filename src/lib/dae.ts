@@ -21,7 +21,11 @@
 // immediate singular Jacobian or, worse, a solution that drifts steadily off
 // the constraint while looking like a plausible pendulum. Solving it properly
 // needs index reduction (differentiate the constraint twice, then stabilise the
-// result — Baumgarte or GGL), which this does not do. It says so instead.
+// result). This file takes OPAQUE CLOSURES, so it cannot see the structure and
+// cannot reduce anything; it refuses. Typed equations go through daeIndex.ts
+// (Pantelides, symbolic differentiation, projection, a drift report on every
+// original and hidden constraint), which uses this file only as the fallback
+// for a stiff index-1 system the ODE integrators could not finish.
 //
 // CONSISTENT INITIAL CONDITIONS. Unlike an ODE, you may not choose y(0) and
 // z(0) freely: they must already satisfy g(t₀, y₀, z₀) = 0. An inconsistent
@@ -31,9 +35,13 @@
 // reports both the original residual and what it moved z₀ to.
 //
 // The method is implicit Euler on the differential part with the constraint
-// imposed at the SAME time level, so g = 0 holds exactly at every step by
-// construction and there is no constraint drift to monitor. It is first-order
-// accurate, which is stated rather than implied.
+// imposed at the SAME time level, so the constraint AS GIVEN is met to Newton
+// tolerance at every step, and that residual is MEASURED and reported. It says
+// nothing about any other constraint: a hand-reduced pendulum (the user typed
+// the differentiated constraint) satisfies its typed constraint to 1e-14 while
+// x² + y² falls to 0.54 by t = 10. So the report names the constraint it
+// measured and never claims the absence of drift. First-order accurate, which
+// is stated.
 
 /** y' = f(t, y, z) — returns the derivative vector, length ny. */
 export type DaeF = (t: number, y: number[], z: number[]) => number[];
@@ -46,7 +54,7 @@ export interface DaeResult {
   y: number[][];
   /** z[k] is the algebraic state at t[k]. */
   z: number[][];
-  /** Max |g| over every step — should be at machine precision by construction. */
+  /** Max |g| over every step, for the constraint AS GIVEN (Newton tolerance). */
   maxConstraintResidual: number;
   /** |g| at the user's original initial values, before any projection. */
   initialResidual: number;
@@ -66,8 +74,11 @@ import { gridSize, guardVec } from "./numguard";
 const MAX_STEPS = 20000;
 const NEWTON_MAX = 50;
 
-/** Dense solve by Gaussian elimination with partial pivoting. Null if singular. */
-function luSolve(A: number[][], b: number[]): number[] | null {
+/**
+ * Dense solve by Gaussian elimination with partial pivoting. Null if singular.
+ * Exported so daeIndex.ts uses the SAME pivot test rather than a drifting copy.
+ */
+export function luSolve(A: number[][], b: number[]): number[] | null {
   const n = b.length;
   const M = A.map((row, i) => [...row, b[i]]);
   for (let col = 0; col < n; col++) {
@@ -91,7 +102,7 @@ function luSolve(A: number[][], b: number[]): number[] | null {
 }
 
 /** Smallest singular value of a small square matrix, by its inverse's growth. */
-function isNearlySingular(A: number[][]): boolean {
+export function isNearlySingular(A: number[][]): boolean {
   const n = A.length;
   if (!n) return true;
   // Solve A x = e_j for each basis vector; if any solve fails or explodes, the
@@ -169,9 +180,11 @@ export function solveDae(
     return {
       ok: false,
       error:
-        "∂g/∂z is singular at the initial point, so this system is NOT index 1 — it is index 2 or higher, and this solver cannot do it. " +
-        "The usual cause is a constraint that does not mention the algebraic variable at all: the Cartesian pendulum, 0 = x² + y² − L², is index 3 for exactly that reason. " +
-        "Solving it needs index reduction (differentiating the constraint, then stabilising), which is not implemented here. Reformulating in a coordinate that makes the constraint depend on z directly — an angle for the pendulum — usually gives an ODE instead.",
+        "∂g/∂z is singular at the initial point, so this system is NOT index 1. Either its index is higher or the equations do not determine z at all — " +
+        "this closure-based solver cannot see the equations' structure, so it cannot tell which. " +
+        "The usual cause is a constraint that does not mention the algebraic variable: the Cartesian pendulum, 0 = x² + y² − L², is index 3 for exactly that reason. " +
+        "Typed as equations, such a system goes through index reduction (Pantelides structural analysis, symbolic differentiation of the constraint, projection back onto it). " +
+        "Reformulating in a coordinate that makes the constraint depend on z directly — an angle for the pendulum — also gives an ODE.",
     };
   }
   steps.push(`Index check: ∂g/∂z is nonsingular at t₀, so the system is index 1 and the constraint determines z from (t, y).`);
@@ -281,14 +294,17 @@ export function solveDae(
   if (keep[keep.length - 1] !== ts.length - 1) keep.push(ts.length - 1);
 
   steps.push(`Implicit Euler with the constraint imposed at the same time level: ${nSteps} steps of h = ${h.toExponential(3)}, each a Newton solve on ${n} unknowns.`);
-  steps.push(`Maximum |g| over the whole run: ${maxRes.toExponential(2)} — the constraint is satisfied at every step by construction, so there is no drift to correct.`);
+  steps.push(
+    `Maximum |g| over the whole run, measured for the constraint as entered: ${maxRes.toExponential(2)}. ` +
+      `This measures only the constraint you typed — if it was obtained by differentiating another constraint by hand, that original constraint is not among the equations and its drift is not checked.`
+  );
   if (!completed) {
     steps.push(`Newton failed to converge before t = ${t1}; the run stopped at t = ${ts[ts.length - 1].toPrecision(6)}.`);
   }
 
   caveats.push("Implicit Euler is FIRST-order accurate. Halving the step size halves the error, rather than quartering it — for a smooth answer use more steps than you would for an ODE of the same size.");
   caveats.push("Semi-explicit INDEX-1 systems only. ∂g/∂z is checked at the initial point; if the index changes along the trajectory the Newton solve fails and says so rather than drifting.");
-  caveats.push("The constraint is enforced at every step, not merely at the start, so the usual DAE failure of slow drift off the manifold does not occur here.");
+  caveats.push("The constraint as entered is enforced at every step and its residual is reported above. A constraint you derived by hand from another (e.g. differentiating x² + y² = L²) can be met exactly while the ORIGINAL one drifts — that drift is not measured here.");
   if (!completed) {
     caveats.push("The run did NOT reach the final time. What is reported ends where Newton stopped converging.");
   }

@@ -71,6 +71,8 @@ import { buildLinearMapSvg } from "../src/lib/seqmap";
 import { buildCircularMapSvg } from "../src/lib/seqmapcirc";
 import { parseGenBank } from "../src/lib/seqio";
 import { persistentHomology, barcodeSvg } from "../src/lib/persistence";
+import { parseDaeSystem } from "../src/lib/daeParse";
+import { solveDaeAuto } from "../src/lib/daeIndex";
 import { tryGraph } from "../src/lib/graphs";
 import { tryAutomata } from "../src/lib/automata";
 import { tryProbability } from "../src/lib/probability";
@@ -1599,6 +1601,50 @@ ORIGIN
     pts.push([Math.cos(a) + 0.03 * Math.sin(7 * a), Math.sin(a) + 0.03 * Math.cos(5 * a)]);
   }
   figures.push(["persistence barcode", barcodeSvg(persistentHomology(pts, { maxDim: 1 }))]);
+}
+
+// --- v2.138.0: the 𝔽₂ | 𝔽₃ compare barcode -----------------------------------
+//
+// The two stacked panels (460 × 600) the pane draws for a `compare` header,
+// on the §D4 klein150 cloud (2-torsion: one long H₁ bar is missing over 𝔽₃).
+// A user scale of 1.5, below the enclosing radius, so long bars are CENSORED
+// and the dashed "≥ s" glyph and its legend are in the figure too.
+{
+  const phi = (1 + Math.sqrt(5)) / 2;
+  const pts: number[][] = [];
+  for (let k = 0; k < 150; k++) {
+    const u = (2 * Math.PI * k) / 150;
+    const v = 2 * Math.PI * ((k * phi) % 1);
+    pts.push([(2 + Math.cos(v)) * Math.cos(u), (2 + Math.cos(v)) * Math.sin(u), Math.sin(v) * Math.cos(u / 2), Math.sin(v) * Math.sin(u / 2)]);
+  }
+  const pr = persistentHomology(pts, { maxDim: 1, maxScale: 1.5, p: 3, compare: true });
+  figures.push(["persistence compare", barcodeSvg(pr, 460, 300, { compare: true })]);
+}
+
+// --- v2.138.0: the Cartesian pendulum, index 3 -----------------------------------
+//
+// Built exactly as the pane's Analyze DAE entry builds it: parseDaeSystem →
+// solveDaeAuto → one line per result.names column. Five series (x, y, u, v,
+// lam) with lam reaching ~28 against |x| ≤ 1, which is where a legend and the
+// y-axis labels compete.
+{
+  const p = parseDaeSystem(
+    "x' = u\ny' = v\nu' = -lam*x\nv' = -lam*y - 9.81\nx^2 + y^2 - 1",
+    "x = 1, y = 0, u = 0, v = 0",
+    "",
+  );
+  if (!p.ok) throw new Error(`figure corpus: pendulum DAE did not parse: ${p.error}`);
+  const out = solveDaeAuto(p.system, 0, 10, { points: 500 });
+  if (!out.ok) throw new Error(`figure corpus: pendulum DAE did not solve: ${out.error}`);
+  const res = out.result;
+  const colors = ["#2563eb", "#dc2626", "#059669", "#d97706", "#7c3aed"];
+  const series: Series[] = res.names.map((n, i) => ({
+    points: res.t.map((t, k) => ({ x: t, y: res.states[n][k] })),
+    type: "line",
+    color: colors[i % colors.length],
+    label: n,
+  }));
+  figures.push(["dae pendulum", buildPlotSvg(series, { title: "DAE solution", xlabel: "t", ylabel: "", width: 380, height: 270 })]);
 }
 
 // --- Discrete math: graphs and state diagrams ----------------------------------

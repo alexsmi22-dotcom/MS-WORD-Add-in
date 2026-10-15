@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.137.0)
+# JurisLab — Manual Test Script (v2.138.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -7,6 +7,59 @@ covers what neither can reach: insertion into a real document, undo, document
 scanning, and layout. Budget ~30 minutes for the full pass.
 
 Mark each box: ☐ pass · ✗ fail (note what happened).
+
+---
+
+## 0ce. New in v2.138.0 — DAE index reduction, real K-theory, oriented cobordism, and persistence over 𝔽ₚ
+
+Two modes change: **Analyze** (the DAE tool) and **Solve → Topology (homology)**. Everything is offline.
+
+**Analyze → Differential-algebraic system** (no longer "(index 1)")
+- [ ] The fields read *Initial values, by name (x = 1, u = 0 …)* and *Initial guesses for algebraic
+  variables (optional)*. The default (y' = -z, 0 = z - y, y = 1) still gives **Index 1** and y(2) = z(2)
+  = 0.135335 (= e⁻²) in the last table row.
+- [ ] ★ **The Cartesian pendulum, as typed.** Equations `x' = u` / `y' = v` / `u' = -lam*x` /
+  `v' = -lam*y - 9.81`, constraint `x^2 + y^2 - 1`, initial values `x = 1, y = 0, u = 0, v = 0`, guesses
+  empty, t `0, 10`. → **Index 3 (structural, confirmed numerically at t₀).**, "0 = x² + y² − 1:
+  differentiated twice.", "Hidden constraints …: u·x + v·y = 0;  −lam·x² − lam·y² + u² + v² − 9.81·y = 0.",
+  a drift line per constraint ("Original constraint x² + y² − 1 = 0: drift before projection 2.9e−12, after
+  2.2e−16.") and "Worst constraint after stabilisation: …". Last table row t = 10: x ≈ 0.275087,
+  y ≈ −0.961419, lam ≈ 28.2946. The plot shows five series (x, y, u, v, lam). **Insert** → lines, table
+  and the plot picture. The words "by construction … no drift" must appear nowhere.
+- [ ] ★ **Order cannot matter (the live bug).** Retype the initial values as `v = 0, u = 0, y = 0, x = 1`:
+  the table must be **identical**. Replace `lam` by `λ` in the equations: identical again, plus the line
+  "λ / lambda was read as the variable lam (the expression grammar reserves both)."
+- [ ] **Inconsistent start:** initial `x = 1, y = 0, u = 1, v = 0` → "The initial values violate the hidden
+  constraint u·x + v·y = 0 …: residual 1 at the values given." and "u₀ = 1 was moved to u₀ = 0."
+- [ ] **Refusal by name:** equations `x' = 1 - z` / `y' = z`, constraint `x + y - t`, initial `x = 0, y = 0`
+  → "Structural analysis (Pantelides) reports index 2, but the differentiated system is numerically singular
+  at t₀ = 0: … loses z by cancellation …". No table. Clearing the constraint field → "There is no constraint
+  (0 = …). Without one this is an ODE - use the ODE solver."
+
+**Solve → Topology (homology)** — the palette now has **Homology · K-theory · Cobordism · Persistence**
+groups; every button loads an input that answers.
+- [ ] **Display contract:** `klein bottle` → `H₀ = ℤ`, `H₁ = ℤ ⊕ ℤ/2`, `H₂ = 0`; `torus` → `H₁ = ℤ²`. No
+  `H_1`, `Z + Z/2` or `Z^2` anywhere in the pane or the inserted text.
+- [ ] **Homology over a field:** `homology of klein bottle over z/3` → "Betti numbers over 𝔽₃: 1, 1, 0";
+  `homology of projective plane mod 2` → "Betti numbers over 𝔽₂: 1, 1, 1".
+- [ ] ★ **Real K-theory:** `KO of S^1` → `K̃O⁰(S¹) = ℤ/2`, `KO⁰(S¹) = ℤ ⊕ ℤ/2`; `KO of S^1000001` → ℤ/2;
+  `KO of RP^9` → `K̃O⁰(ℝP⁹) = ℤ/32`; `KO-theory of a point` → eight lines `KO⁰(pt) = ℤ` … `KO⁻⁷(pt) = 0`;
+  `k-theory of s^1 x s^2` → `K⁰(S¹ × S²) = ℤ²`, `K¹(S¹ × S²) = ℤ²`. Refused by name: `KO^1(RP^3)`
+  (Atiyah–Hirzebruch), `KO of CP^2` (Sanderson 1964), `KO of s^1 x s^1` (Künneth has Tor terms).
+- [ ] ★ **Cobordism:** `does rp^2 # rp^2 bound` → "Unoriented: ℝP² # ℝP² BOUNDS (null-cobordant) — every
+  Stiefel–Whitney number vanishes."; `does rp^2 x rp^2 bound` → does NOT bound (w₄ = 1, w₂² = 1);
+  `signature of CP^2 # CP^2bar` → "Pontryagin numbers: all 0; signature σ = 0." and BOUNDS in Ω₄ˢᴼ;
+  `pontryagin numbers of CP^2 x CP^2` → p₂ = 9, p₁² = 18, σ = 1; `signature of K3` → p₁ = −48, σ = −16;
+  `oriented cobordism group dimension 5` → `Ω₅ˢᴼ = ℤ/2` (the Wu manifold); `does RP^2 # CP^2 bound` →
+  "Dimension 2 vs 4 — a connected sum needs equal dimensions …".
+- [ ] ★ **Persistence over 𝔽ₚ.** Click **Persistence → ring over 𝔽₃**: the eyebrow ends "**over 𝔽₃**",
+  "Read: coefficients 𝔽₃.", "Most persistent H₁ feature over 𝔽₃ …", and "Bars over 𝔽₃: … in H₀, … in H₁.
+  Over 𝔽₂: …". Then **𝔽₂ vs 𝔽₃**: the barcode is **two stacked panels** (ℤ/2 above, ℤ/3 below).
+  **Insert** → the picture arrives at its full **460 × 600** proportion, not squashed to 460 × 300.
+- [ ] Add a line `hello` above the points → "Ignored line (not a recognised header): "hello"." Replace the
+  header with `mod 4` → "ℤ/4 is not a field — a barcode needs field coefficients …". With `scale 1`
+  above the ring → bars alive at 1 are drawn with a dashed end and the foot note "dashed: alive at ≥ 1
+  (censored)", and a "CENSORED" line says how many.
 
 ---
 
@@ -3542,14 +3595,13 @@ Engineering mode, Energy & power (now 17; the mode must state **101 calculators*
     it, unlike heat — and at t = 2 the string should be back to its starting shape.
   - **PDE - Laplace.** The slices must be smooth, and the interior must stay within the
     boundary values (the maximum principle).
-  - **DAE.** Defaults are y' = -z with 0 = z - y, so y = e^-t and z tracks y. Now set the
-    initial z to **5** (inconsistent): it must say the values were **INCONSISTENT**,
-    report the residual, and start from the projected point.
-  - **The refusal that matters:** enter the Cartesian pendulum — equations `x' = u`,
-    `y' = v`, `u' = -L*x`, `v' = -L*y - 9.81`, initial y values `x = 1, y = 0, u = 0,
-    v = 0`, constraint `x^2 + y^2 - 1`, initial z `L = 0`. It must **refuse**, say the
-    system is **not index 1**, and mention index reduction. If it returns a pendulum,
-    that is a serious bug.
+  - **DAE.** Defaults are y' = -z with 0 = z - y, so y = e^-t and z tracks y.
+    *Superseded in v2.138.0 (see §0ce):* the second field is now optional **guesses** for the
+    algebraic unknowns, so `z = 5` is reported as a starting guess and the consistent z₀ is
+    solved, not "INCONSISTENT"; and the Cartesian pendulum is now **solved** (index 3), not
+    refused. The v2.19.0 checks below are kept as history only.
+  - ~~**The refusal that matters:** enter the Cartesian pendulum … It must **refuse**, say the
+    system is **not index 1**.~~ Replaced by the §0ce pendulum check.
 - [ ] **The numerics cannot freeze the pane (v2.20.0).** The v2.19.0 solvers shipped with
   three bugs that the adversarial pass caught only afterwards. Worth confirming in Word:
   - **Analyze -> PDE - Laplace/Poisson.** Set **Intervals each way** to a huge number
@@ -3592,6 +3644,8 @@ Engineering mode, Energy & power (now 17; the mode must state **101 calculators*
   - `(0,0,0) (1,1,1) (2,2,2)` -> refused as **COLLINEAR**: no plane.
   - `circle r=1/3` -> area **1/9*pi** exactly, and `box 1/2 1/3 1/4` -> volume **1/24**.
     (Typed fractions must stay exact — no long decimals or giant fractions anywhere.)
+- [ ] **DAE index reduction, real K-theory, oriented cobordism, and persistence over 𝔽ₚ (v2.138.0).** Analyze, Solve (Topology) — see §0ce.
+  - Cartesian pendulum as typed → Index 3, hidden constraint u·x + v·y = 0, drift lines, x(10) ≈ 0.275087; initial values reordered → identical table; `KO of RP^9` → ℤ/32; `does rp^2 # rp^2 bound` → BOUNDS; `klein bottle` → `H₁ = ℤ ⊕ ℤ/2`; `compare` above a ring → two stacked barcodes, inserted at 460 × 600.
 - [ ] **Reaction balancing, stoichiometry, genetic codes, peptides, and formula fixes (v2.137.0).** Solve, Reaction, Bio/Assay, DNA, Sequence, Peptide, Chemical, Mass Spec — see §0cd.
   - `Fe + O2 -> Fe2O3` → `4 Fe + 3 O₂ → 2 Fe₂O₃` in Solve and in Reaction (Formulas); `C + O2 -> CO + CO2` refused with both reactions; stoichiometry default → O₂ limiting, 11.3 g H₂O; `ATGAGATGATGGTAA` table 2 → `M*WW*`; `cyclo(GRGDSP)` → 569.2558 Da; `Co` in Mass Spec → 58.9332.
 - [ ] **Exact cubic and quartic roots, multivariate simplification, radius of convergence, and leftovers (v2.136.0).** Solve — see §0cc.

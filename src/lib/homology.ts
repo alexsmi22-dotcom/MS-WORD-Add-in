@@ -16,13 +16,15 @@
 // result says so rather than reporting a number that looks fine. This is the
 // same discipline as the CAS differentiating its antiderivatives back.
 
-import { parsePointCloud } from "./persistence";
+import { parsePersistenceRequest, parseFieldSpec, homologyOverField } from "./persistence";
 import { parseBraid, jonesPolynomial, wirtingerPresentation, KNOT_BRAIDS } from "./knots";
 import { alexanderPolynomial, kTheory } from "./alexander";
+import { koTheory, isKoQuery, normaliseTopologyText, typesetGroup, sub, spectrumHomotopy } from "./kReal";
+import { cobordismQuery, isCobordismQuery, manifoldSummary } from "./cobordism";
 import { serreE2, stableStem, SPECTRAL_SPACES, STABLE_RANGE } from "./spectral";
 import {
   cellularHomology, CW_BUILTIN, realProjectiveTangentClass,
-  complexProjectiveTangentClass, realProjectiveCobordism, BEYOND,
+  complexProjectiveTangentClass, complexProjectivePontryaginClass, BEYOND,
 } from "./topology2";
 
 /** A simplicial complex, given by its maximal faces (vertices are integers). */
@@ -400,6 +402,7 @@ export const stripFiller = (s: string): string =>
 /** Friendly aliases for the built-in spaces. */
 const ALIASES: Record<string, string> = {
   "s^1": "circle", "s1": "circle", "s^2": "sphere", "s2": "sphere", "s^3": "s3",
+  "t^2": "torus", "t2": "torus",
   "projective plane": "rp2", "real projective plane": "rp2", "rp^2": "rp2", "p^2": "rp2",
   "klein bottle": "klein", "kleinbottle": "klein",
   "figure eight": "wedge-two-circles", "figure-eight": "wedge-two-circles",
@@ -421,7 +424,26 @@ export interface TopologyReport extends HomologyResult {
 export type TopologyOutcome =
   | { kind: "advanced"; title: string; display: string[]; steps: string[]; caveats: string[] }
   | ({ kind: "homology" } & TopologyReport)
-  | { kind: "persistence"; cloud: number[][] };
+  | {
+      kind: "persistence";
+      cloud: number[][];
+      /** Prime field from a header ("over F3"); 2 when none was given. */
+      p: number;
+      /** The user's scale header, when given; otherwise the engine projects one. */
+      maxScale?: number;
+      maxDim: number;
+      /** "compare": run 𝔽₂ against 𝔽₃ side by side. */
+      compare: boolean;
+      /** Letter-led lines that were not recognised — the pane must PRINT these. */
+      ignored: string[];
+      /** Recognised headers, said back in words. */
+      read: string[];
+    };
+
+/** A coefficient-field phrase in a typed homology question ("over z/3", "mod 2"). */
+const FIELD_PHRASE =
+  /\b(?:with\s+)?(?:coeff(?:icient)?s?\s+(?:in|over)\s+|over\s+(?:the\s+)?(?:field\s+)?|in\s+)(?:f|gf|z)\s*[_/(]?\s*\d+\s*\)?(?:\s*z)?(?:\s+coeff(?:icient)?s)?|;\s*f\s*\d+|\bmod(?:ulo)?\s*\d+|\bfield\s*(?:f\s*)?\d+|\bwith\s+(?:f|z|gf)\s*[_/(]?\s*\d+\s*\)?\s+coeff(?:icient)?s/gi;
+const INTEGER_PHRASE = /\b(?:over|with coefficients in|coefficients in|in)\s+(?:z|the integers)(?![\w/])/gi;
 
 export function solveTopology(input: string): TopologyOutcome | null {
   const raw = input.trim();
@@ -430,30 +452,94 @@ export function solveTopology(input: string): TopologyOutcome | null {
 
   // A pasted POINT CLOUD is persistent homology, not a simplicial complex.
   // Two or more rows of equal-length coordinates is unambiguous: a complex is
-  // typed as bracketed vertex lists, and a space is a single word.
+  // typed as bracketed vertex lists, and a space is a single word. Header lines
+  // ("over F3", "scale 2", "H2", "compare") are read by persistence.ts's
+  // parsePersistenceRequest — never dropped: a coefficient field that was
+  // silently ignored is how "over F3" got answered over 𝔽₂.
+  // …unless it is a typed SIMPLICIAL COMPLEX: integer vertex lists. "homology
+  // of 0,1,2; 1,2,3; 0,2,3; 0,1,3" (the hollow tetrahedron, S²) used to be read
+  // as a 3-point cloud with its first simplex swallowed as a header line.
+  const typed = typedComplexRows(raw);
+  if (typed) {
+    const h = homology({ maximal: typed });
+    return { kind: "homology", ...h, title: `Homology of the complex you gave (${typed.length} maximal simplices)` };
+  }
   if (/[\n;]/.test(raw) && !raw.includes("[")) {
-    const cloud = parsePointCloud(raw);
-    if (cloud) return { kind: "persistence", cloud };
+    const req = parsePersistenceRequest(raw);
+    if (req && req.ok) {
+      return {
+        kind: "persistence", cloud: req.cloud, p: req.p, maxScale: req.maxScale, maxDim: req.maxDim,
+        compare: req.compare, ignored: req.ignored, read: req.read,
+      };
+    }
+    // A refused header is a refusal by name. Rows of unequal length with NO
+    // letters at all are not a cloud — they may be a complex ("0,1,2; 1,2"),
+    // so those fall through, exactly as before.
+    if (req && !req.ok && /[a-z]/i.test(raw)) {
+      return {
+        kind: "advanced",
+        title: "Persistent homology",
+        display: [req.error],
+        steps: [],
+        caveats: ["Nothing was computed: a request that names a field, scale or dimension is never answered with a different one."],
+      };
+    }
   }
 
   const knot = knotQuery(raw, lower);
   if (knot) return knot;
 
+  // π_n of a K-theory SPECTRUM (KO, KU, KSp) is Bott's row, not the sphere's
+  // stable stem: this runs BEFORE the stem branch, whose /pi_?\d|homotopy/
+  // used to answer "pi_3(KO)" with π₃ˢ = ℤ/24 (truth: 0).
+  const spectrum = spectrumHomotopy(raw);
+  if (spectrum) return { kind: "advanced", ...spectrum };
+
+  // REAL K-theory, also before the stem and Serre branches: "KO of RP^4 via
+  // the atiyah-hirzebruch spectral sequence" contains "spectral". And before
+  // complex K: "real k-theory" contains "k-theory", and answering it with
+  // complex K was a live wrong answer (K̃⁰(S¹) = 0 where K̃O⁰(S¹) = ℤ/2).
+  if (isKoQuery(raw)) {
+    const ko = koTheory(raw);
+    if (ko) {
+      return {
+        kind: "advanced",
+        title: ko.refused ? `Real K-theory KO of ${ko.space} — not computed` : `Real K-theory KO of ${ko.space}`,
+        display: ko.display,
+        steps: ko.steps,
+        caveats: ko.caveats,
+      };
+    }
+    return {
+      kind: "advanced",
+      title: "Real K-theory KO",
+      display: ["Name a space — KO is computed here for a point, spheres Sⁿ (any n, by Bott periodicity) and K̃O⁰ of ℝPⁿ (Adams)."],
+      steps: ["Try: \"KO of S¹\", \"KO(ℝP⁴)\", \"KO-theory of a point\", \"π₃(KO)\"."],
+      caveats: ["Products, ℂPⁿ and graded KO of ℝPⁿ are refused by name, not guessed."],
+    };
+  }
+
   // A3: stable homotopy — a CITED table, and it says so.
   // The index gets written several ways in practice — "stable pi_3",
   // "pi_3^s", "stable homotopy 7" — so a keyword decides that a stem is
   // wanted and the first integer near it decides which one.
-  const wantsStem = /\bstable\b|\bstem\b|homotopy|pi[_ ^]?\d|\u03c0/.test(lower);
-  const stem = /(?:pi|\u03c0|stem|stable|homotopy)\D{0,12}?(\d+)/.exec(lower);
+  // The displayed "\u03c0\u2083\u02e2" reads back: sub/superscript digits fold to ASCII here.
+  const lowerDigits = lower
+    .replace(/[\u2080\u2081\u2082\u2083\u2084\u2085\u2086\u2087\u2088\u2089]/g, (d) => String("\u2080\u2081\u2082\u2083\u2084\u2085\u2086\u2087\u2088\u2089".indexOf(d)))
+    .replace(/[\u2070\u00b9\u00b2\u00b3\u2074\u2075\u2076\u2077\u2078\u2079]/g, (d) => String("\u2070\u00b9\u00b2\u00b3\u2074\u2075\u2076\u2077\u2078\u2079".indexOf(d)));
+  const wantsStem = /\bstable\b|\bstem\b|homotopy|pi[_ ^]?\d|\u03c0/.test(lowerDigits);
+  const stem = /(?:pi|\u03c0|stem|stable|homotopy)\D{0,12}?(\d+)/.exec(lowerDigits);
   if (stem && wantsStem) {
     const r = stableStem(parseInt(stem[1], 10));
     if (r) {
       return {
         kind: "advanced",
-        title: `Stable homotopy group pi_${r.n}^s`,
-        display: [`pi_${r.n}^s = ${r.group}`],
-        steps: r.steps,
-        caveats: r.caveats,
+        title: `Stable homotopy group \u03c0${sub(r.n)}\u02e2`,
+        display: [`\u03c0${sub(r.n)}\u02e2 = ${typesetGroup(r.group)}`],
+        // spectral.ts writes "pi_3^s = Z/24"; the display contract is enforced
+        // here, at the one place topology output leaves for the pane.
+        steps: r.steps.map(typesetStemText),
+        caveats: r.caveats.map(typesetStemText),
       };
     }
   }
@@ -494,13 +580,24 @@ export function solveTopology(input: string): TopologyOutcome | null {
   }
 
   // K-theory is keyword-led and cannot be confused with anything else here.
-  if (/k[- ]?theory/.test(lower)) {
-    const kt = kTheory(lower.replace(/k[- ]?theory/, "").trim());
+  // The displayed lines "K⁰(S²) = ℤ ⊕ ℤ" / "K̃⁰(S²) = ℤ" read back too.
+  const kNotation = /^~?k\s*\^\s*-?\d+\s*\(/.test(normaliseTopologyText(raw));
+  if (/k[- ]?theory/.test(lower) || kNotation) {
+    const kt = kTheory(kNotation ? raw : lower.replace(/k[- ]?theory/, "").trim());
+    if (kt && kt.refused) {
+      return {
+        kind: "advanced",
+        title: `K-theory of ${kt.space} — not computed`,
+        display: [kt.refused],
+        steps: kt.steps,
+        caveats: kt.caveats,
+      };
+    }
     if (kt) {
       return {
         kind: "advanced",
         title: `K-theory of ${kt.space}`,
-        display: [`K^0(${kt.space}) = ${kt.k0}`, `K^1(${kt.space}) = ${kt.k1}`, `reduced K^0 = ${kt.reducedK0}`],
+        display: [`K⁰(${kt.space}) = ${kt.k0}`, `K¹(${kt.space}) = ${kt.k1}`, `K̃⁰(${kt.space}) = ${kt.reducedK0}`],
         steps: kt.steps,
         caveats: kt.caveats,
       };
@@ -509,7 +606,7 @@ export function solveTopology(input: string): TopologyOutcome | null {
       kind: "advanced",
       title: "K-theory",
       display: ["Not computed for that space."],
-      steps: ["K-theory is computed here only where Bott periodicity settles it outright: spheres (S^n), complex projective spaces (CP^n), a point, and the torus."],
+      steps: ["K-theory is computed here only where Bott periodicity settles it outright: spheres Sⁿ, complex projective spaces ℂPⁿ, a point, tori, products of these (Künneth), and K̃⁰ of ℝPⁿ (Adams)."],
       caveats: ["Reporting the limit is deliberate — K-theory of an arbitrary space is not a computation this tool can do."],
     };
   }
@@ -517,24 +614,41 @@ export function solveTopology(input: string): TopologyOutcome | null {
   // Knot queries come first: a braid word is unambiguous once the keyword is
   // present, and "trefoil" must not be mistaken for a space name.
 
-  // Advanced (A1) queries: characteristic classes and cobordism.
-  const adv = advancedQuery(lower);
+  // Cobordism, signature, Pontryagin / Stiefel–Whitney NUMBERS, Ω groups: the
+  // ring engine in cobordism.ts. It runs BEFORE the characteristic-class
+  // branch, because "stiefel whitney numbers of rp^2 x rp^2" contains "rp" and
+  // used to be answered for one factor.
+  if (isCobordismQuery(raw)) {
+    const r = cobordismQuery(raw);
+    if (r) return { kind: "advanced", ...r };
+  }
+
+  // Homology with FIELD coefficients ("homology of klein bottle over z/3",
+  // "rp2 mod 2"): the coefficient phrase is read, removed, and the integral
+  // answer converted by the universal coefficient theorem (persistence.ts's
+  // homologyOverField). Never silently answered over ℤ.
+  const fieldOutcome = fieldHomologyQuery(raw, lower);
+  if (fieldOutcome) return fieldOutcome;
+
+  // Advanced (A1) queries: characteristic classes and cellular homology. The
+  // text is normalised (superscripts, ℝ/ℂ, ×) and a displayed "w(TℝP⁵) = …"
+  // reads back by its left side.
+  const adv = advancedQuery(normaliseTopologyText(raw).split("=")[0].trim());
   if (adv) return adv;
 
   // A named space.
-  const bare = stripFiller(lower);
-  const named =
-    ALIASES[lower] ??
-    (lower in BUILTIN ? lower : null) ??
-    ALIASES[bare] ??
-    (bare in BUILTIN ? bare : null) ??
-    ALIASES[bare.replace(/ /g, "")] ??
-    (bare.replace(/ /g, "") in BUILTIN ? bare.replace(/ /g, "") : null);
+  const named = resolveNamedSpace(lower);
   if (named && BUILTIN[named]) {
     const c = BUILTIN[named]();
     const h = homology(c);
     return { kind: "homology", ...h, title: `Homology of ${c.name ?? named}` };
   }
+
+  // A manifold typed ALONE ("K3", "rp^2 x rp^2", "CP^2 # CP^2bar"): its
+  // standard summary. Named spaces with a homology complex ("torus", "rp2",
+  // "klein bottle") were answered above and keep their homology answer.
+  const summary = manifoldSummary(raw);
+  if (summary) return { kind: "advanced", ...summary };
 
   // An explicit complex: bracketed groups, or semicolon/newline-separated rows.
   const groups: number[][] = [];
@@ -556,6 +670,121 @@ export function solveTopology(input: string): TopologyOutcome | null {
   return { kind: "homology", ...h, title: `Homology of the complex you gave (${groups.length} maximal simplices)` };
 }
 
+/**
+ * Integer vertex lists that are a SIMPLICIAL COMPLEX, not a point cloud.
+ * A complex when every row is non-negative integers AND either
+ *   * the text says so ("homology", "complex", "simplices", "simplicial"), or
+ *   * rows are separated by ";" and written with commas ("0,1,2; 1,2,3").
+ * A cloud needs coordinates — any decimal, a negative, or the words "points",
+ * "cloud", "persistence", "barcode" keep it a cloud (so "0 0\n1 0\n1 1" stays
+ * persistence, as before). Null when it is not a typed complex.
+ */
+function typedComplexRows(raw: string): number[][] | null {
+  if (!/[\n;]/.test(raw) || raw.includes("[")) return null;
+  const lower = raw.toLowerCase();
+  if (/\b(points?|cloud|persisten\w*|barcode|scale|over|mod|field|compare)\b/.test(lower)) return null;
+  const keyword = /\b(homology|complex|simplices|simplicial|simplex)\b/.test(lower);
+  // Strip the framing words from the FIRST row only ("homology of 0,1,2").
+  const body = lower.replace(/^\s*(?:(?:compute|find|the|of|for|simplicial|homology|complex|simplices|with|maximal|faces?|h_?\*|:)\s*)+/, "");
+  const rows = body.split(/[;\n]/).map((r) => r.trim()).filter((r) => r.length);
+  if (rows.length < 2) return null;
+  const intRow = /^\d{1,6}(?:\s*,\s*\d{1,6})*$|^\d{1,6}(?:\s+\d{1,6})*$/;
+  if (!rows.every((r) => intRow.test(r))) return null;
+  const commaRows = /;/.test(raw) && rows.every((r) => r.includes(",") || /^\d+$/.test(r));
+  if (!keyword && !commaRows) return null;
+  return rows.map((r) => (r.match(/\d+/g) || []).map(Number));
+}
+
+/** "pi_3^s = Z/24" → "π₃ˢ = ℤ/24" (spectral.ts's ASCII, typeset for display). */
+function typesetStemText(s: string): string {
+  return typesetGroup(s.replace(/\bpi_\{?(\d+)\}?\^s\b/g, (_m, d: string) => `π${sub(d)}ˢ`));
+}
+
+/** The BUILTIN key a typed space name refers to, or null. */
+function resolveNamedSpace(lower: string): string | null {
+  const bare = stripFiller(lower);
+  return (
+    ALIASES[lower] ??
+    (lower in BUILTIN ? lower : null) ??
+    ALIASES[bare] ??
+    (bare in BUILTIN ? bare : null) ??
+    ALIASES[bare.replace(/ /g, "")] ??
+    (bare.replace(/ /g, "") in BUILTIN ? bare.replace(/ /g, "") : null)
+  );
+}
+
+/** Maximal simplices typed as "[0,1,2] [1,2,3]"; null when none are bracketed. */
+function bracketedComplex(text: string): number[][] | null {
+  const bracketed = text.match(/\[[^\]]*\]/g);
+  if (!bracketed) return null;
+  const groups: number[][] = [];
+  for (const b of bracketed) {
+    const nums = (b.match(/-?\d+/g) || []).map(Number);
+    if (nums.length) groups.push(nums);
+  }
+  return groups.length ? groups : null;
+}
+
+/**
+ * Simplicial homology with coefficients: "homology of klein bottle over z/3",
+ * "… with coefficients in F3", "homology of rp2 mod 2", "[0,1,2] [1,2,3] over F5".
+ * Null when the text names no coefficients, or names them for something that
+ * is not a space this file knows (so other branches still get their turn).
+ */
+function fieldHomologyQuery(raw: string, lower: string): TopologyOutcome | null {
+  // 𝔽₃ / ℤ/3 as typed or as displayed: fold to ASCII so one pattern reads both
+  // (𝔽 is outside the BMP, so it never goes inside a character class).
+  // A displayed "H₁(ℝP²; 𝔽₃) = 𝔽₃" reads back by its left side.
+  const norm = lower.split("=")[0]
+    .replace(/𝔽/g, "f").replace(/ℤ/g, "z")
+    .replace(/[₀₁₂₃₄₅₆₇₈₉]/g, (d) => String("₀₁₂₃₄₅₆₇₈₉".indexOf(d)));
+  INTEGER_PHRASE.lastIndex = 0;
+  const integer = INTEGER_PHRASE.test(norm);
+  INTEGER_PHRASE.lastIndex = 0;
+  const fieldPhrase = norm.match(FIELD_PHRASE);
+  if (!fieldPhrase && !integer) return null;
+  const rest = norm.replace(FIELD_PHRASE, " ").replace(INTEGER_PHRASE, " ").replace(/[()]/g, " ").replace(/\s+/g, " ").trim();
+  // The displayed "H₁(ℝP²; 𝔽₃)" reads back: ℝP² folds to rp^2, an alias.
+  const named = resolveNamedSpace(rest) ?? resolveNamedSpace(normaliseTopologyText(rest));
+  const groups = named ? null : bracketedComplex(raw);
+  if (!named && !groups) return null;
+
+  const complex: Complex = named ? BUILTIN[named]() : { maximal: groups! };
+  // The label must read back, so the gloss "(projective plane)" is dropped.
+  const label = named ? (complex.name ?? named).replace(/\s*\(.*\)$/, "") : `the complex you gave (${groups!.length} maximal simplices)`;
+  const h = homology(complex);
+  if (!fieldPhrase) {
+    // "over Z" is the integral answer this file always gives — said so.
+    return { kind: "homology", ...h, title: `Homology of ${label} (over ℤ)` };
+  }
+  const spec = parseFieldSpec(fieldPhrase[0].replace(/^;\s*/, ""));
+  if (!spec) return null;
+  if (!spec.ok) {
+    return { kind: "advanced", title: `Homology of ${label}`, display: [spec.error], steps: [], caveats: [] };
+  }
+  let fh;
+  try {
+    fh = homologyOverField(h, spec.p);
+  } catch (err) {
+    return { kind: "advanced", title: `Homology of ${label}`, display: [(err as Error).message], steps: [], caveats: [] };
+  }
+  const F = `𝔽${sub(spec.p)}`;
+  return {
+    kind: "advanced",
+    title: `Homology of ${label} over ${F}`,
+    display: [
+      ...fh.groups.map((g, k) => `H${sub(k)}(${label}; ${F}) = ${g}`),
+      `Betti numbers over ${F}: ${fh.betti.join(", ")}`,
+      `Over ℤ: ${h.groups.map((g, k) => `H${sub(k)} = ${typesetGroup(g)}`).join(", ")}`,
+    ],
+    steps: [...h.steps, ...fh.steps],
+    caveats: [
+      "Computed from the integral Smith-normal-form answer by the universal coefficient theorem — no second reduction is run.",
+      ...h.caveats,
+    ],
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Advanced (Release A1) queries — characteristic classes and cobordism.
 //
@@ -572,6 +801,28 @@ function advancedQuery(lower: string): TopologyOutcome | null {
     return Number.isFinite(n) && n >= 1 && n <= 200 ? n : null;
   };
 
+  // A product or connected sum must never be answered with one factor's class
+  // (the dimOf regex reads the FIRST rp^n it sees). The total class of a
+  // product is w(M)·w(N) in the tensor product — not reported here; the
+  // NUMBERS are, by the cobordism engine.
+  const charClassAsked =
+    (/\b(w|stiefel|sw)\b/.test(lower) && /rp|projective/.test(lower)) ||
+    (/\b(c|chern)\b/.test(lower) && /cp|complex projective/.test(lower)) ||
+    (/\b(p|pontr[yj]agin)\b/.test(lower) && /cp|complex projective/.test(lower));
+  if (charClassAsked && /\s(x|#)\s|[×#*]|\bx\b(?=\s*[a-z(])|\d\s*x\s*[a-z]/.test(lower)) {
+    return {
+      kind: "advanced",
+      title: "Characteristic class of a product or connected sum — not computed",
+      display: [
+        "The total class of a product lives in the tensor product of the factors' cohomology (w(M × N) = w(M) × w(N)), and is not reported here; one factor's class is never given in its place.",
+      ],
+      steps: [
+        "The characteristic NUMBERS of products and connected sums ARE computed: ask \"stiefel whitney numbers of RP^2 x RP^2\" or \"pontryagin numbers of CP^2 x CP^2\".",
+      ],
+      caveats: [],
+    };
+  }
+
   // Stiefel-Whitney class of a real projective space.
   if (/\b(w|stiefel|sw)\b/.test(lower) && /rp|projective/.test(lower)) {
     const n = dimOf(/(?:rp|p)\s*\^?\s*(\d+)/);
@@ -580,6 +831,22 @@ function advancedQuery(lower: string): TopologyOutcome | null {
       return {
         kind: "advanced",
         title: `Stiefel-Whitney class ${r.name}`,
+        display: [`${r.name} = ${r.display}`],
+        steps: r.steps,
+        caveats: r.caveats,
+      };
+    }
+  }
+
+  // Pontryagin class of a complex projective space (the CLASS — the numbers
+  // and verdicts are cobordism.ts's, reached by "pontryagin numbers of …").
+  if (/\b(p|pontr[yj]agin)\b/.test(lower) && /cp|complex projective/.test(lower) && !/\bnumbers?\b/.test(lower)) {
+    const n = dimOf(/(?:cp|p)\s*\^?\s*(\d+)/);
+    if (n !== null) {
+      const r = complexProjectivePontryaginClass(n);
+      return {
+        kind: "advanced",
+        title: `Pontryagin class ${r.name}`,
         display: [`${r.name} = ${r.display}`],
         steps: r.steps,
         caveats: r.caveats,
@@ -602,41 +869,9 @@ function advancedQuery(lower: string): TopologyOutcome | null {
     }
   }
 
-  // Cobordism.
-  if (/\b(cobord|bound)/.test(lower) && /rp|projective/.test(lower)) {
-    const n = dimOf(/(?:rp|p)\s*\^?\s*(\d+)/);
-    if (n !== null) {
-      const r = realProjectiveCobordism(n);
-      return {
-        kind: "advanced",
-        title: `Unoriented cobordism of RP^${n}`,
-        display: [
-          r.boundsAManifold
-            ? `RP^${n} BOUNDS a compact manifold (null-cobordant).`
-            : `RP^${n} does NOT bound.`,
-          `Stiefel-Whitney numbers: ${r.numbers.map((x) => `w${x.partition.join("w")} = ${x.value}`).join(", ")}`,
-        ],
-        steps: r.steps,
-        caveats: r.caveats,
-      };
-    }
-  }
-
-  // The keyword alone is a question this tool can answer, but not without a
-  // manifold. Say so rather than returning nothing.
-  if (/\b(cobord|null-?cobord)/.test(lower)) {
-    return {
-      kind: "advanced",
-      title: "Cobordism",
-      display: ["Name a manifold — cobordism is computed here for real projective spaces."],
-      steps: [
-        "Try: \"does RP^5 bound\" or \"cobordism of RP^4\". The answer comes from the Stiefel-Whitney numbers, which vanish exactly when the manifold is null-cobordant (Thom).",
-      ],
-      caveats: [
-        "Only UNORIENTED cobordism of RP^n is computed. Oriented cobordism, and other manifolds, are not.",
-      ],
-    };
-  }
+  // Cobordism is answered by cobordism.ts before this function is reached
+  // (solveTopology routes it), so products and connected sums are never read
+  // as their first factor here.
 
   // Cellular homology of a named CW complex.
   if (/^cellular\b/.test(lower)) {
@@ -648,7 +883,7 @@ function advancedQuery(lower: string): TopologyOutcome | null {
       return {
         kind: "advanced",
         title: `Cellular homology of ${cw.name ?? key}`,
-        display: r.groups.map((g, k) => `H_${k} = ${g}`),
+        display: r.groups.map((g, k) => `H${sub(k)} = ${typesetGroup(g)}`),
         steps: [...r.steps, `Only ${cw.cells.reduce((a, b) => a + b, 0)} cells were needed.`],
         caveats: r.caveats,
       };

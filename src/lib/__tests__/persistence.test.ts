@@ -38,8 +38,12 @@ const blob = (n: number, seed = 7): number[][] => {
   return Array.from({ length: n }, () => [rnd() * 2 - 1, rnd() * 2 - 1]);
 };
 
-const h1 = (r: ReturnType<typeof persistentHomology>) =>
-  r.pairs.filter((p) => p.dimension === 1 && Number.isFinite(p.persistence));
+// v2.139.0: `death`/`persistence` are null on a CENSORED bar, so "finite" is
+// now a type guard. The bars these tests read are all finite: each cloud is
+// small enough that the automatic scale reaches the enclosing radius.
+type Finite = ReturnType<typeof persistentHomology>["notable"][number];
+const h1 = (r: ReturnType<typeof persistentHomology>): Finite[] =>
+  r.pairs.filter((p): p is Finite => p.dimension === 1 && p.persistence !== null && Number.isFinite(p.persistence));
 
 describe("the property that justifies the feature", () => {
   it("A CIRCLE shows exactly one long H1 bar", () => {
@@ -86,7 +90,7 @@ describe("H0 behaves like connected components", () => {
     const r = persistentHomology(pts, { maxDim: 1 });
     const h0 = r.pairs.filter((p) => p.dimension === 0);
     // One component survives forever; the rest die as the cloud connects up.
-    const essential = h0.filter((p) => !Number.isFinite(p.death));
+    const essential = h0.filter((p) => p.death === Infinity);
     expect(essential.length).toBe(1);
     expect(h0.length).toBe(10); // 9 deaths + 1 essential
   });
@@ -99,9 +103,10 @@ describe("H0 behaves like connected components", () => {
 describe("bars are well formed", () => {
   it("death is always after birth, and persistence matches", () => {
     const r = persistentHomology(circle(16, 1, 0.05), { maxDim: 1 });
+    expect(r.censored).toBe(0); // the auto scale reached the enclosing radius here
     for (const p of r.pairs) {
       expect(p.death).toBeGreaterThan(p.birth);
-      if (Number.isFinite(p.death)) expect(p.persistence).toBeCloseTo(p.death - p.birth, 12);
+      if (p.death !== null && Number.isFinite(p.death)) expect(p.persistence).toBeCloseTo(p.death - p.birth, 12);
       else expect(p.persistence).toBe(Infinity);
     }
   });
@@ -118,12 +123,20 @@ describe("bars are well formed", () => {
 });
 
 describe("honesty", () => {
-  it("every result states its 𝔽₂, proxy and evidence caveats", () => {
+  // REWRITTEN BY HAND in v2.139.0 (§E #14): the coefficient caveat used to
+  // be pinned to 𝔽₂ because 𝔽₂ was the only field. It must now name the
+  // field that was ACTUALLY used, and the 𝔽₂ one must say how to see torsion.
+  it("every result names the field it used, plus the proxy and evidence caveats", () => {
     const r = persistentHomology(circle(8, 1, 0), { maxDim: 1 });
     const all = r.caveats.join(" ");
-    expect(all).toMatch(/𝔽₂|F2/);
+    expect(r.field).toBe(2);
+    expect(all).toMatch(/Coefficients are 𝔽₂/);
+    expect(all).toMatch(/over F3|compare/);
     expect(all).toMatch(/PROXY/i);
     expect(all).toMatch(/EVIDENCE/i);
+    const r3 = persistentHomology(circle(8, 1, 0), { maxDim: 1, p: 3 });
+    expect(r3.caveats.join(" ")).toMatch(/Coefficients are 𝔽₃/);
+    expect(r3.caveats.join(" ")).not.toMatch(/Coefficients are 𝔽₂/);
   });
   it("a point cap is REPORTED, never silent", () => {
     const many = Array.from({ length: 400 }, (_, i) => [Math.cos(i), Math.sin(i)]);
@@ -132,6 +145,9 @@ describe("honesty", () => {
     expect(r.capped).toMatch(/reported limit, not a silent truncation/);
     expect(r.points).toBeLessThanOrEqual(150);
     expect(r.caveats.some((c) => /capped|cap/i.test(c))).toBe(true);
+    // v2.139.0: a farthest-point subsample, never the first 150 rows.
+    expect(r.capped).toMatch(/farthest-point subsample/);
+    expect(r.subsample).toMatchObject({ from: 400, kept: 150 });
   });
   it("fewer than two points is refused", () => {
     expect(() => persistentHomology([[0, 0]], {})).toThrow(/at least two points/);
@@ -169,7 +185,7 @@ describe("the barcode figure", () => {
   });
   it("an infinite bar is drawn to the edge with an arrow, never clipped silently", () => {
     const r = persistentHomology(circle(8, 1, 0), { maxDim: 1 });
-    expect(r.pairs.some((p) => !Number.isFinite(p.death))).toBe(true);
+    expect(r.pairs.some((p) => p.death === Infinity)).toBe(true);
     const svg = barcodeSvg(r);
     expect(svg).toContain("l6 3 l-6 3"); // the arrowhead
   });

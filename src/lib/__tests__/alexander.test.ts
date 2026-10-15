@@ -108,39 +108,49 @@ describe("Laurent helpers", () => {
   });
 });
 
+// DISPLAY CONTRACT (v2.139.0): every K-theory pin below used to expect the
+// engine's ASCII ("Z + Z", "Z^2", "Z/2"). The product rule is that output is
+// typeset — ℤ ⊕ ℤ, ℤ², ℤ/2 — and reads back (see the round-trip block at the
+// end). The VALUES are unchanged; each pin was rewritten by hand to the
+// typeset spelling of the same group.
 describe("K-theory, where Bott periodicity settles it", () => {
   const K = (q: string) => kTheory(q)!;
-  it("spheres are 2-periodic: even gives Z ⊕ Z, odd gives Z with K¹ = Z", () => {
-    expect(K("S^2").k0).toBe("Z + Z");
+  it("spheres are 2-periodic: even gives ℤ ⊕ ℤ, odd gives ℤ with K¹ = ℤ", () => {
+    expect(K("S^2").k0).toBe("ℤ ⊕ ℤ");
     expect(K("S^2").k1).toBe("0");
-    expect(K("S^4").k0).toBe("Z + Z");
-    expect(K("S^3").k0).toBe("Z");
-    expect(K("S^3").k1).toBe("Z");
-    expect(K("S^1").k1).toBe("Z");
+    expect(K("S^4").k0).toBe("ℤ ⊕ ℤ");
+    expect(K("S^3").k0).toBe("ℤ");
+    expect(K("S^3").k1).toBe("ℤ");
+    expect(K("S^1").k1).toBe("ℤ");
   });
-  it("the reduced K⁰ is Z for even spheres and 0 for odd ones", () => {
-    expect(K("S^2").reducedK0).toBe("Z");
+  it("the reduced K⁰ is ℤ for even spheres and 0 for odd ones", () => {
+    expect(K("S^2").reducedK0).toBe("ℤ");
     expect(K("S^3").reducedK0).toBe("0");
   });
   it("periodicity is named as the reason, not a table lookup", () => {
     expect(K("S^6").steps.join(" ")).toMatch(/2-PERIODIC \(Bott periodicity\)/);
   });
-  it("complex projective spaces: K⁰(ℂPⁿ) = Z^{n+1}, K¹ = 0", () => {
-    expect(K("CP^1").k0).toBe("Z^2");
-    expect(K("CP^3").k0).toBe("Z^4");
+  it("complex projective spaces: K⁰(ℂPⁿ) = ℤⁿ⁺¹, K¹ = 0", () => {
+    expect(K("CP^1").k0).toBe("ℤ²");
+    expect(K("CP^3").k0).toBe("ℤ⁴");
     expect(K("CP^3").k1).toBe("0");
   });
   it("the collapse is explained by the absence of odd cells", () => {
     expect(K("CP^3").steps.join(" ")).toMatch(/no odd cells/);
   });
   it("a point and the torus", () => {
-    expect(K("point").k0).toBe("Z");
-    expect(K("torus").k0).toBe("Z^2");
-    expect(K("torus").k1).toBe("Z^2");
+    expect(K("point").k0).toBe("ℤ");
+    expect(K("torus").k0).toBe("ℤ²");
+    expect(K("torus").k1).toBe("ℤ²");
   });
-  it("says it is COMPLEX K-theory and that KO is not computed", () => {
+  // FLIPPED (v2.139.0, SCOPE-NUMERICS-TOPOLOGY §E14): this pin used to read
+  // "…and that KO is not computed". KO is now computed (kReal.ts), so the
+  // caveat points to it instead; what must stay true is that the complex answer
+  // NAMES itself complex and says KO is a different, 8-periodic theory.
+  it("says it is COMPLEX K-theory and points to KO, which is 8-periodic and computed separately", () => {
     expect(K("S^2").caveats.join(" ")).toMatch(/COMPLEX K-theory/);
     expect(K("S^2").caveats.join(" ")).toMatch(/8-periodic/);
+    expect(K("S^2").caveats.join(" ")).toMatch(/KO of S¹/);
   });
   it("the ring structure is flagged as more than the group", () => {
     expect(K("CP^3").caveats.join(" ")).toMatch(/RING structure/);
@@ -148,7 +158,48 @@ describe("K-theory, where Bott periodicity settles it", () => {
   it("anything else is refused rather than guessed", () => {
     expect(kTheory("nonsense")).toBeNull();
     expect(kTheory("")).toBeNull();
-    expect(kTheory("S^999")).toBeNull();
+  });
+  // FLIPPED (v2.139.0): kTheory("S^999") used to be null because of an n > 64
+  // cap. Bott periodicity makes K*(Sⁿ) depend only on n mod 2, so the cap was a
+  // refusal for the wrong reason (§A "k-theory of s^65"); the brief removes it.
+  it("large spheres are answered by periodicity — S^999 and S^65 are odd spheres", () => {
+    expect(K("S^999").k0).toBe("ℤ");
+    expect(K("S^999").k1).toBe("ℤ");
+    expect(K("s^65").reducedK0).toBe("0");
+    expect(K("s^65").k1).toBe("ℤ");
+  });
+});
+
+describe("§D2 complex K-theory: products, the framing words, ℝPⁿ", () => {
+  const K = (q: string) => kTheory(q)!;
+  it("k-theory of s^1 x s^1 and s^1 x s^2 → K⁰ = ℤ², K¹ = ℤ² (Künneth), never a factor", () => {
+    for (const q of ["of s^1 x s^1", "s^1 x s^2", "S¹ × S¹", "s^1xs^1", "s^1 * s^2"]) {
+      expect(`${q}: ${K(q).k0} | ${K(q).k1}`).toBe(`${q}: ℤ² | ℤ²`);
+    }
+    expect(K("s^1 x s^1").space).toBe("S¹ × S¹");
+  });
+  it("Künneth parity: S² × S² → ℤ⁴, 0; S¹ × S¹ × S¹ → ℤ⁴, ℤ⁴; ℂP² × S¹ → ℤ³, ℤ³", () => {
+    expect([K("s^2 x s^2").k0, K("s^2 x s^2").k1]).toEqual(["ℤ⁴", "0"]);
+    expect([K("s^1 x s^1 x s^1").k0, K("s^1 x s^1 x s^1").k1]).toEqual(["ℤ⁴", "ℤ⁴"]);
+    expect([K("cp^2 x s^1").k0, K("cp^2 x s^1").k1]).toEqual(["ℤ³", "ℤ³"]);
+  });
+  it("S⁰ × S⁰ is four points: K⁰ = ℤ⁴", () => {
+    expect([K("s^0 x s^0").k0, K("s^0 x s^0").k1]).toEqual(["ℤ⁴", "0"]);
+  });
+  it("k-theory of a point / of point → ℤ, 0; of the torus → ℤ², ℤ²", () => {
+    for (const q of ["of a point", "of point", "point", "a point"]) expect(`${q}: ${K(q).k0}, ${K(q).k1}`).toBe(`${q}: ℤ, 0`);
+    expect([K("of the torus").k0, K("of the torus").k1]).toEqual(["ℤ²", "ℤ²"]);
+  });
+  it("K̃⁰(ℝPⁿ) = ℤ/2 to the power ⌊n/2⌋ (Adams): ℝP² → ℤ/2, ℝP⁵ → ℤ/4; K¹ = ℤ exactly for n odd", () => {
+    expect(K("RP^2").reducedK0).toBe("ℤ/2");
+    expect(K("RP^5").reducedK0).toBe("ℤ/4");
+    expect(K("RP^5").k1).toBe("ℤ");
+    expect(K("RP^2").k1).toBe("0");
+    expect(K("RP^1").reducedK0).toBe("0"); // ℝP¹ = S¹, consistent with the sphere answer
+    expect(K("RP^2").caveats.join(" ")).toMatch(/Adams/);
+  });
+  it("a product with ℝPⁿ is refused by name (Tor term), not reduced to a factor", () => {
+    expect(K("rp^2 x s^1").refused).toMatch(/Tor term/);
   });
 });
 

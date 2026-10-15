@@ -29,16 +29,27 @@ describe("the work stays bounded", () => {
   });
   it("a request that would explode combinatorially is capped, not attempted", () => {
     // 150 points at maxDim 2 implies ~20 million 3-simplices if built naively.
+    // v2.139.0: the cap now acts BEFORE building — the scale is lowered to fit
+    // — and that is still reported as a cap, because it changed the answer.
     const t0 = Date.now();
     const r = persistentHomology(ring(150), { maxDim: 2 });
     expect(Date.now() - t0).toBeLessThan(5000);
     expect(r.capped).toBeTruthy();
+    expect(r.scaleSource).toBe("projected simplex cap");
   });
 });
 
+// REWRITTEN BY HAND in v2.139.0. These four pins used to call ring(150) with
+// NO scale, because the old default grew to the diameter and always hit the
+// cap with zero triangles kept. The default scale is now projected before
+// building, so on the automatic route that guard can no longer fire (that was
+// the live defect: H1 was "NOT RELIABLE" on every realistic cloud). The guard
+// is still reachable when the USER names a scale too large to build, and these
+// pins keep it honest there.
 describe("a cap below the killing dimension is reported as UNRELIABLE, not merely incomplete", () => {
+  const DIAMETER = 2; // ring(150) of radius 1
   it("names the affected dimension when triangles were never built", () => {
-    const r = persistentHomology(ring(150), { maxDim: 1 });
+    const r = persistentHomology(ring(150), { maxDim: 1, maxScale: DIAMETER });
     expect(r.capped).toBeTruthy();
     expect(r.capped).toMatch(/NOT RELIABLE/);
     expect(r.capped).toMatch(/H1/);
@@ -46,7 +57,7 @@ describe("a cap below the killing dimension is reported as UNRELIABLE, not merel
     expect(r.cells[2] ?? 0).toBe(0); // no triangles, which is the whole point
   });
   it("names every affected dimension when several are cut off", () => {
-    const r = persistentHomology(ring(150), { maxDim: 2 });
+    const r = persistentHomology(ring(150), { maxDim: 2, maxScale: DIAMETER });
     expect(r.capped).toMatch(/H1, H2 are NOT RELIABLE/);
   });
   it("does NOT cry wolf when the killing dimension was completed", () => {
@@ -55,8 +66,18 @@ describe("a cap below the killing dimension is reported as UNRELIABLE, not merel
     expect(r.cells[2]).toBeGreaterThan(0);
   });
   it("the cap always reaches the caveats, never only the internal field", () => {
-    const r = persistentHomology(ring(150), { maxDim: 1 });
+    const r = persistentHomology(ring(150), { maxDim: 1, maxScale: DIAMETER });
     expect(r.caveats.some((c) => /NOT RELIABLE/.test(c))).toBe(true);
+  });
+  it("NEW: the DEFAULT route on ring(150) builds triangles and never says NOT RELIABLE", () => {
+    const r = persistentHomology(ring(150), { maxDim: 1 });
+    expect(r.cells[2]).toBeGreaterThan(50000);
+    expect(r.caveats.join(" ")).not.toMatch(/NOT RELIABLE/);
+    // The loop is still open at the scale that fits, so it is CENSORED — not
+    // the immortal bar the old cap produced, and not a fake death either.
+    const loop = r.pairs.filter((p) => p.dimension === 1 && p.death === null);
+    expect(loop.length).toBe(1);
+    expect(loop[0].censoredAt).toBe(r.scaleUsed);
   });
 });
 
@@ -80,7 +101,7 @@ describe("degenerate clouds produce well-formed output, never malformed bars", (
         expect(Number.isNaN(p.birth)).toBe(false);
         expect(Number.isNaN(p.persistence)).toBe(false);
       }
-      const essential0 = r.pairs.filter((p) => p.dimension === 0 && !Number.isFinite(p.death));
+      const essential0 = r.pairs.filter((p) => p.dimension === 0 && p.death === Infinity);
       expect(essential0.length).toBe(1);
     });
   }

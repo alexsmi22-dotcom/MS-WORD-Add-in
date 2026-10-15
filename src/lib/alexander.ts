@@ -24,6 +24,10 @@
 // every result.
 
 import { Laurent, lZero, lOne, lMono, lAdd, lMul, lFormat, Braid } from "./knots";
+import {
+  normaliseTopologyText, stripSpaceFiller, splitProduct, parseSpaceFactor,
+  MAX_SPACE_INDEX, SpaceFactor, sup, factorName,
+} from "./kReal";
 
 // ---------------------------------------------------------------------------
 // Laurent matrix helpers
@@ -263,80 +267,210 @@ export interface KTheoryResult {
   reducedK0: string;
   steps: string[];
   caveats: string[];
+  /** Set when the space was read but the answer is refused by name. */
+  refused?: string;
 }
 
+const KO_POINTER =
+  "This is COMPLEX K-theory, 2-periodic. Real K-theory KO is 8-periodic and gives different groups; it is computed separately — ask \"KO of S¹\".";
+
+/** Ranks (K⁰, K¹) of a torsion-free factor, for the Künneth product. */
+function kRanks(f: SpaceFactor): [bigint, bigint] | null {
+  switch (f.kind) {
+    case "point": return [1n, 0n];
+    case "sphere": return f.n === 0 || f.n % 2 === 0 ? [2n, 0n] : [1n, 1n];
+    case "cp": return [BigInt(f.n + 1), 0n];
+    case "hp": return [BigInt(f.n + 1), 0n];
+    case "torus": return f.n > 200 ? null : [1n << BigInt(f.n - 1), 1n << BigInt(f.n - 1)];
+    case "rp": return null; // torsion: the Künneth formula has Tor terms
+  }
+}
+
+// Display contract: every group and space below is TYPESET (ℤ², S², ℝP⁵, ×,
+// ⊕) and reads back through kReal's parseGroup / parseSpaceFactor.
+const zRank = (r: bigint): string => (r === 0n ? "0" : r === 1n ? "ℤ" : `ℤ${sup(String(r))}`);
+
+const asciiName = factorName;
+
 /**
- * K⁰ and K¹ of the spaces where Bott periodicity settles the answer outright.
- * Returns null for anything else rather than guessing — this is deliberately a
- * narrow, honest capability.
+ * K⁰ and K¹ of the spaces where Bott periodicity settles the answer outright,
+ * products of torsion-free ones by Künneth, and K̃⁰(ℝPⁿ) cited from Adams.
+ * Returns null when no space could be read; a space that WAS read but is out
+ * of scope comes back with `refused` set.
  */
 export function kTheory(query: string): KTheoryResult | null {
-  const q = query.toLowerCase().replace(/\s+/g, " ").trim();
+  // "of a point", "of the torus": the framing words are stripped BEFORE the
+  // anchored match — leaving them in is how "k-theory of a point" was refused.
+  // A displayed answer line ("K⁰(S²) = ℤ ⊕ ℤ") reads back by its left side:
+  // the K⁰/K¹/K̃⁰ prefix is stripped like the word "k-theory".
+  const q = stripSpaceFiller(
+    normaliseTopologyText(query).split("=")[0]
+      .replace(/~?\bk\s*\^\s*-?\d+/g, " ")
+      .replace(/\b(complex )?k[- ]?theory\b/g, " ")
+      .replace(/\b(topological )?k-?groups?\b/g, " ")
+  );
+  if (!q) return null;
 
-  // Spheres: complex K-theory is 2-periodic (Bott).
-  const sphere = /(?:^|\s)s\s*\^?\s*(\d+)|sphere\s*\^?\s*(\d+)/.exec(q);
-  if (sphere) {
-    const n = parseInt(sphere[1] ?? sphere[2], 10);
-    if (!Number.isFinite(n) || n < 0 || n > 64) return null;
-    const even = n % 2 === 0;
+  // A PRODUCT is detected before any single-space pattern runs, and is never
+  // answered by one of its factors.
+  const parts = splitProduct(q);
+  if (parts.length > 1) {
+    if (parts.length > 32) return null;
+    const fs = parts.map(parseSpaceFactor);
+    if (fs.some((f) => f === null)) return null;
+    if (fs.some((f) => f === "too-large")) {
+      return {
+        space: parts.join(" × "), k0: "—", k1: "—", reducedK0: "—", steps: [], caveats: [],
+        refused: `An index is above the display limit (${MAX_SPACE_INDEX}).`,
+      };
+    }
+    const factors = fs as SpaceFactor[];
+    const name = factors.map(asciiName).join(" × ");
+    const rp = factors.find((f) => f.kind === "rp");
+    const ranks = factors.map(kRanks);
+    if (rp || ranks.some((r) => r === null)) {
+      return {
+        space: name, k0: "—", k1: "—", reducedK0: "—", steps: [], caveats: [KO_POINTER],
+        refused: rp
+          ? `K-theory of a product with ℝP${sup((rp as { n: number }).n)} is not computed: ℝPⁿ has torsion in K-theory, so the Künneth formula has a Tor term and the answer is not the tensor product of the factors.`
+          : "A torus factor is too large to expand.",
+      };
+    }
+    let a0 = 1n, a1 = 0n;
+    const lines: string[] = [];
+    for (let i = 0; i < factors.length; i++) {
+      const [b0, b1] = ranks[i] as [bigint, bigint];
+      lines.push(`K*(${asciiName(factors[i])}) has ranks (K⁰, K¹) = (${b0}, ${b1}).`);
+      [a0, a1] = [a0 * b0 + a1 * b1, a0 * b1 + a1 * b0];
+    }
     return {
-      space: `S^${n}`,
-      // K⁰(Sⁿ) = Z ⊕ Z for n even, Z for n odd (n > 0).
-      k0: n === 0 ? "Z + Z" : even ? "Z + Z" : "Z",
-      k1: n === 0 ? "0" : even ? "0" : "Z",
-      reducedK0: n === 0 ? "Z" : even ? "Z" : "0",
+      space: name,
+      k0: zRank(a0),
+      k1: zRank(a1),
+      reducedK0: zRank(a0 - 1n),
       steps: [
-        `Complex K-theory is 2-PERIODIC (Bott periodicity), so K*(S^${n}) depends only on ${n} mod 2.`,
-        `${n} is ${even ? "even" : "odd"}, so the reduced K^0 is ${even ? "Z" : "0"} and K^1 is ${even ? "0" : "Z"}.`,
-        `Adding back the trivial summand from a point gives K^0(S^${n}) = ${even ? "Z + Z" : "Z"}.`,
+        ...lines,
+        "Every factor has torsion-free K-theory, so the Künneth formula is EXACT: K*(X × Y) = K*(X) ⊗ K*(Y) as ℤ/2-graded groups (Atiyah, K-Theory, 1967).",
+        "Ranks multiply as (a₀, a₁)·(b₀, b₁) = (a₀b₀ + a₁b₁, a₀b₁ + a₁b₀) — even times odd is odd.",
+        `K⁰(${name}) = ${zRank(a0)}, K¹(${name}) = ${zRank(a1)}.`,
+      ],
+      caveats: [KO_POINTER, "Only the groups are reported; the ring structure carries more."],
+    };
+  }
+
+  const f = parseSpaceFactor(q);
+  if (f === "too-large") {
+    return {
+      space: q, k0: "—", k1: "—", reducedK0: "—", steps: [], caveats: [KO_POINTER],
+      refused: `The index is above the display limit (${MAX_SPACE_INDEX}). Complex K-theory of a sphere depends only on n mod 2.`,
+    };
+  }
+  if (!f) return null;
+
+  // Spheres: complex K-theory is 2-periodic (Bott). No cap on n: n mod 2 is all
+  // that matters, so a cap would be a refusal for the wrong reason.
+  if (f.kind === "sphere") {
+    const n = f.n;
+    const even = n % 2 === 0;
+    const S = `S${sup(n)}`;
+    return {
+      space: S,
+      // K⁰(Sⁿ) = ℤ ⊕ ℤ for n even, ℤ for n odd (n > 0).
+      k0: even ? "ℤ ⊕ ℤ" : "ℤ",
+      k1: even ? "0" : "ℤ",
+      reducedK0: even ? "ℤ" : "0",
+      steps: [
+        `Complex K-theory is 2-PERIODIC (Bott periodicity), so K*(${S}) depends only on ${n} mod 2.`,
+        `${n} is ${even ? "even" : "odd"}, so K̃⁰(${S}) = ${even ? "ℤ" : "0"} and K¹(${S}) = ${even ? "0" : "ℤ"}.`,
+        `Adding back the trivial summand from a point gives K⁰(${S}) = ${even ? "ℤ ⊕ ℤ" : "ℤ"}.`,
       ],
       caveats: [
-        "This is COMPLEX K-theory. Real K-theory KO is 8-periodic instead, and is not computed here.",
+        KO_POINTER,
         "Bott periodicity is what makes this a computation rather than a table: the answer follows from the dimension alone.",
       ],
     };
   }
 
-  // Complex projective spaces: K⁰(ℂPⁿ) = Z^{n+1}, K¹ = 0.
-  const cp = /(?:^|\s)cp\s*\^?\s*(\d+)|complex projective\s*\^?\s*(\d+)/.exec(q);
-  if (cp) {
-    const n = parseInt(cp[1] ?? cp[2], 10);
-    if (!Number.isFinite(n) || n < 1 || n > 64) return null;
+  // Complex projective spaces: K⁰(ℂPⁿ) = ℤⁿ⁺¹, K¹ = 0.
+  if (f.kind === "cp" && f.n >= 1) {
+    const n = f.n;
+    const C = `ℂP${sup(n)}`;
     return {
-      space: `CP^${n}`,
-      k0: n + 1 === 1 ? "Z" : `Z^${n + 1}`,
+      space: C,
+      k0: zRank(BigInt(n + 1)),
       k1: "0",
-      reducedK0: n === 1 ? "Z" : `Z^${n}`,
+      reducedK0: zRank(BigInt(n)),
       steps: [
-        `CP^${n} has a CW structure with one cell in each even dimension 0, 2, ..., ${2 * n} and none in odd dimensions.`,
-        `With no odd cells the Atiyah-Hirzebruch spectral sequence collapses, so K^1 = 0 and K^0 is free of rank ${n + 1}.`,
-        `K^0(CP^${n}) = Z^${n + 1}, generated by powers of (H - 1) where H is the hyperplane bundle.`,
+        `${C} has a CW structure with one cell in each even dimension 0, 2, …, ${2 * n} and none in odd dimensions.`,
+        `With no odd cells the Atiyah–Hirzebruch spectral sequence collapses, so K¹ = 0 and K⁰ is free of rank ${n + 1}.`,
+        `K⁰(${C}) = ${zRank(BigInt(n + 1))}, generated by powers of (H − 1) where H is the hyperplane bundle.`,
       ],
       caveats: [
-        "The RING structure is Z[H]/(H-1)^(n+1), which carries more information than the group alone; only the group is reported here.",
-        "This is COMPLEX K-theory; KO is not computed.",
+        "The RING structure is ℤ[H]/(H − 1)ⁿ⁺¹, which carries more information than the group alone; only the group is reported here.",
+        KO_POINTER,
       ],
     };
   }
 
-  // A point, and the torus, as the two other cases worth answering.
-  if (/^(point|pt)$/.test(q)) {
+  // A point (ℂP⁰ and ℝP⁰ are points too).
+  if (f.kind === "point" || ((f.kind === "cp" || f.kind === "rp" || f.kind === "hp") && f.n === 0)) {
     return {
       space: "a point",
-      k0: "Z", k1: "0", reducedK0: "0",
-      steps: ["K^0 of a point is Z, generated by the trivial line bundle; K^1 is 0."],
-      caveats: ["This is COMPLEX K-theory."],
-    };
-  }
-  if (/^(torus|t\^?2)$/.test(q)) {
-    return {
-      space: "T^2 (torus)",
-      k0: "Z^2", k1: "Z^2", reducedK0: "Z",
+      k0: "ℤ", k1: "0", reducedK0: "0",
       steps: [
-        "The torus is S^1 x S^1; the Kunneth formula for K-theory gives K^0 = Z^2 and K^1 = Z^2.",
+        ...(f.kind !== "point" ? [`${asciiName(f)} is a single point.`] : []),
+        "K⁰ of a point is ℤ, generated by the trivial line bundle; K¹ is 0.",
       ],
-      caveats: ["This is COMPLEX K-theory.", "The torus is torsion-free, so K-theory sees nothing homology does not here."],
+      caveats: [KO_POINTER],
     };
   }
-  return null;
+
+  if (f.kind === "torus") {
+    const n = f.n;
+    if (n > 200) return null;
+    const r = 1n << BigInt(n - 1);
+    return {
+      space: `T${sup(n)}`,
+      k0: zRank(r), k1: zRank(r), reducedK0: zRank(r - 1n),
+      steps: [
+        `The torus T${sup(n)} is a product of ${n} circles, each with K⁰ = K¹ = ℤ.`,
+        `Künneth (exact, everything torsion-free; Atiyah, K-Theory, 1967) gives K⁰ = K¹ = ${zRank(r)} (rank 2${sup(n - 1)}).`,
+      ],
+      caveats: [KO_POINTER, "The torus is torsion-free, so K-theory sees nothing homology does not here."],
+    };
+  }
+
+  if (f.kind === "hp") {
+    const n = f.n;
+    return {
+      space: `ℍP${sup(n)}`,
+      k0: zRank(BigInt(n + 1)), k1: "0", reducedK0: zRank(BigInt(n)),
+      steps: [
+        `ℍP${sup(n)} has one cell in each dimension 0, 4, …, ${4 * n} and none in odd dimensions.`,
+        `With no odd cells the Atiyah–Hirzebruch spectral sequence collapses: K¹ = 0 and K⁰ is free of rank ${n + 1}.`,
+      ],
+      caveats: [KO_POINTER],
+    };
+  }
+
+  // ℝPⁿ, n ≥ 1: K̃⁰ cited (Adams), K¹ from the Atiyah–Hirzebruch argument.
+  const n = f.n;
+  const m = Math.floor(n / 2);
+  const red = m === 0 ? "0" : m <= 30 ? `ℤ/${2 ** m}` : `ℤ/2${sup(m)}`;
+  const odd = n % 2 === 1;
+  const R = `ℝP${sup(n)}`;
+  return {
+    space: R,
+    k0: red === "0" ? "ℤ" : `ℤ ⊕ ${red}`,
+    k1: odd ? "ℤ" : "0",
+    reducedK0: red,
+    steps: [
+      `K̃⁰(${R}) is cyclic of order 2 to the power ⌊${n}/2⌋ = ${m}, generated by L − 1 (L the complexified canonical line bundle): ${red}.`,
+      `K¹: the only odd-degree integral cohomology of ${R} is ${odd ? `the top class H${sup(n)} = ℤ (n odd)` : "zero (n even)"}; in the Atiyah–Hirzebruch spectral sequence ${odd ? "no differential leaves the top degree; none can hit that ℤ from a ℤ/2 (a map ℤ/2 → ℤ is zero); and none starts in column 0, because H⁰ = K(pt) splits off through the basepoint. So the single odd entry survives and" : "there is no odd-degree entry at all, so"} K¹(${R}) = ${odd ? "ℤ" : "0"}.`,
+    ],
+    caveats: [
+      "K̃⁰(ℝPⁿ) = ℤ/2 to the power ⌊n/2⌋: Adams, \"Vector fields on spheres\", Ann. of Math. 75 (1962). CITED, not derived.",
+      KO_POINTER,
+    ],
+  };
 }

@@ -6,6 +6,66 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.138.0] — 2026-10-14 — DAE index reduction, real K-theory, oriented cobordism, and persistence over 𝔽ₚ
+
+From `docs/SCOPE-NUMERICS-TOPOLOGY.md` (oracles: SciPy, GUDHI 3.13,
+Ripser 0.6.15, SymPy, Bott / Adams 1962 / Milnor–Stasheff). LIVE WRONG
+ANSWERS fixed first:
+- **The DAE tool bound initial values BY POSITION**: the same system
+  started from `x = 1, u = 0` gave [0.540, −0.841] and from `u = 0, x = 1`
+  gave [0, 0.368], silently. Values are now bound by name; missing,
+  duplicate, extra and reserved names are refused by name; `1/2`, `pi`,
+  `−1` are read (they were dropped and reported missing).
+- **"No drift by construction" was claimed while the real constraint
+  drifted** (a hand-reduced pendulum: x² + y² → 0.54 at t = 10). Drift is
+  now MEASURED against every original and hidden constraint.
+- **Cobordism verdicts flipped on products and connected sums**: the Klein
+  bottle (`rp^2 # rp^2`) and `rp^2 x s^1` were "does NOT bound" — both
+  bound. `does rp^42 bound` said BOUNDS (the old engine returned nothing
+  above dimension 40).
+- **K-theory answered a different question**: K(S¹ × S¹) was answered as
+  K(S¹); "real K-theory" returned complex K; `π₃(KO)` returned the sphere's
+  stable stem ℤ/24 (truth 0, Bott).
+- **"over F3" on a pasted point cloud was silently answered over 𝔽₂**, and
+  persistence on any cloud over ~70 points hit the cap with no triangles.
+
+### Added
+- **DAE index reduction** (`daeIndex.ts`, `daeParse.ts`): Pantelides
+  structural index, hidden constraints by symbolic differentiation,
+  integration of the reduced system with the existing high-order
+  integrators plus projection onto every constraint, the measured drift
+  before and after projection; the Cartesian pendulum (index 3) solved to
+  ≈ 2e-8 of SciPy; a run stops AT a singular point (∂g/∂z singular — no
+  continuous solution beyond it), even between report points; results are
+  deterministic (a work budget, not the clock); an undetermined algebraic
+  unknown is refused by name.
+- **Real K-theory** (`kReal.ts`): KO of points and spheres by Bott
+  periodicity, K̃O⁰(ℝPⁿ) = ℤ/2^φ(n) (Adams 1962), π_n(KO) and π_n(KU);
+  complex K of products by Künneth.
+- **Cobordism** (`cobordism.ts`): manifolds as ring elements (`#` adds, `×`
+  multiplies, `−` reverses orientation); unoriented verdicts by
+  Stiefel–Whitney numbers, oriented by Pontryagin numbers and the
+  signature theorem, every verdict cross-checked five ways; Ω^SO_n cited
+  to n = 8 (higher torsion refused by name — not verified against a
+  primary source); a manifold typed alone gets its summary.
+- **Persistence over 𝔽ₚ** (`persistence.ts`): any prime field, the
+  Klein bottle, torus and ℝP² distinguished (the torsion the change of
+  field reveals is said), matched to GUDHI/Ripser to < 6e-8; an automatic
+  scale chosen BEFORE building; 𝔽₂ pinned bit for bit to the old engine.
+- Topology output typeset (ℤ ⊕ ℤ/2, ℤ², ℝP⁴, ℂP², K̃O⁰, Ω₅ˢᴼ, Hₖ) and read
+  back; a typed simplicial complex is no longer read as a point cloud.
+
+### Adversarial pass — independent reviewer (all closed)
+Found NOTHING wrong in the DAE numbers against SciPy (pendulum variants,
+double pendulum, index 2–5 chains, 20 random systems — 1.9e-12), 800
+random cobordism classes against its own SW/Pontryagin computation, KO and
+K tables, or 46 persistence jobs against GUDHI. Found: π_n(KO) answered
+with stable stems; a DAE claiming completion through a pole (and the
+authors' own pin passing only because a grid node landed on it); a
+typed complex read as a cloud; display-contract breaks (`ℂP² × −ℂP²`
+refused, `16−ℂP²` re-reading as a subtraction, `𝔑₅` folded to `N₅`); and
+refusals where the answer is known (KO of T¹, ℂP¹, ℍP¹, four points).
+
 ## [2.137.0] — 2026-10-14 — Reaction balancing, stoichiometry, genetic codes, peptides, and formula fixes
 
 From `docs/SCOPE-CHEMBIO-BATCH.md` (oracles: chempy, SymPy, Biopython,

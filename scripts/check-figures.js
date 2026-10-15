@@ -81,7 +81,11 @@ const CORPUS = path.join(__dirname, "figure-layout-run.ts");
 // 205 as of 2026-10-14 (v2.137.0): five chemistry figures (conservation bars,
 // neutral and ionic; the non-unique-balancing basis table, short and long;
 // the stoichiometry available-vs-needed chart from the calculator's default).
-const CORPUS_FLOOR = 205;
+// 218 as of 2026-10-14 (v2.138.0): set to the MEASURED corpus (216 before this
+// release, the floor had lagged) plus two numerics/topology figures — the
+// 𝔽₂ | 𝔽₃ compare barcode (two stacked panels, censored bars) and the
+// Cartesian pendulum DAE solution (index 3, five series).
+const CORPUS_FLOOR = 218;
 
 // --- The allowance ratchet ----------------------------------------------------
 //
@@ -153,9 +157,8 @@ const ALLOWANCES = {
     'CLIPPED  "a rather long coding seque" runs outside the 460x460 canvas',
     'CLIPPED  "reverse element with a lon" runs outside the 460x460 canvas',
   ],
-
-  // persistence.ts — the ε axis line is drawn through its own tick label.
-  "persistence barcode": ['STRIKETHROUGH  a line crosses "2.05"'],
+  // "persistence barcode" (the ε axis line through its own tick label) was
+  // FIXED in v2.138.0 by the barcode redraw in persistence.ts; entry removed.
 };
 
 /** Findings compare without their pixel-area parenthetical. */

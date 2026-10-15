@@ -185,6 +185,20 @@ export interface FoldOptions {
    *  lines have no other reading — but NOT in the canvas, whose graphing
    *  idiom is one curve per line (sin(x) ⏎ cos(x) means two curves). */
   bareStackedPairs?: boolean;
+  /** The TOPOLOGY kind (v2.138.0). Its reader has its own notation built from
+   *  mathematical alphanumerics — 𝔑₅ (unoriented cobordism, FRAKTUR N), 𝔽₃
+   *  (DOUBLE-STRUCK F), Ω₅ˢᴼ, ℤ, ℝPⁿ, ℂPⁿ, ℍPⁿ — and printing then pasting
+   *  must read back (display is a contract). Folding 𝔑₅ to N₅ made the
+   *  engine's own output unreadable. So here fraktur and double-struck letters
+   *  are KEPT, Greek is not renamed (Ω is a group, not a variable), and the
+   *  equation-side notes ("ℝ is a number set, not a variable") are not given.
+   *  Math-italic letters (𝑆¹ from a paper) still fold to plain ones. */
+  topology?: boolean;
+}
+
+/** Fraktur and double-struck runs (plain and bold): the topology reader's own letters. */
+function isTopologyNotation(cp: number): boolean {
+  return cp >= 0x1d504 && cp <= 0x1d59f;
 }
 
 /** Textbook framing that glues onto an equation line and would otherwise
@@ -338,6 +352,7 @@ export function foldPastedMath(input: string, opts: FoldOptions = {}): FoldedMat
   // Styled math alphanumerics → base characters.
   let styled = 0;
   s = s.replace(/[\u{1D400}-\u{1D7FF}]/gu, (ch) => {
+    if (opts.topology && isTopologyNotation(ch.codePointAt(0)!)) return ch;
     const folded = foldMathChar(ch.codePointAt(0)!);
     if (folded === null) return ch;
     styled++;
@@ -357,7 +372,7 @@ export function foldPastedMath(input: string, opts: FoldOptions = {}): FoldedMat
   // binding: θ₁ has already become θ_1 upstream? No — subscript folding
   // happens in solve.ts AFTER this, so θ₁ is still "θ₁" here and pads safely.
   const greekSeen = new Set<string>();
-  s = s.replace(/[Ͱ-Ͽµ]/g, (ch, off: number, str: string) => {
+  if (!opts.topology) s = s.replace(/[Ͱ-Ͽµ]/g, (ch, off: number, str: string) => {
     const name = GREEK_NAMES[ch];
     if (!name) return ch;
     greekSeen.add(`${ch} → ${name}`);
@@ -375,6 +390,7 @@ export function foldPastedMath(input: string, opts: FoldOptions = {}): FoldedMat
   // and the note says why no automatic reading is offered. Geometry reads
   // ′/″/° natively (feet, inches, degrees), so those notes stay equation-side.
   for (const [ch, why] of Object.entries(NAMED_UNREADABLE)) {
+    if (opts.topology) break;
     if ((opts.geometry || opts.ode) && EQUATION_ONLY_NOTES.has(ch)) continue;
     // "radius of convergence ∑ x^n/n" (v2.136.0): the radius verb reads ∑
     // (U+2211) as its own grammar, so "Σ-sum notation isn't solvable" would
@@ -403,7 +419,7 @@ export function foldPastedMath(input: string, opts: FoldOptions = {}): FoldedMat
   // exactly what was read, and only the user knows what the source showed.
   // Armed by REAL transformations (styled letters, Greek, LaTeX, extraction,
   // reassembly) — a named-unreadable character alone is not paste evidence.
-  if (notes.length - namedNotes > 0 && !opts.geometry) {
+  if (notes.length - namedNotes > 0 && !opts.geometry && !opts.topology) {
     const m = /(?<![\d.])([1-9])([1-9])(?=\s*[(A-Za-z])/.exec(s);
     if (m) {
       notes.push(

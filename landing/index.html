@@ -981,6 +981,11 @@ x&#179; &minus; 1 = 0
     </div>
     <div class="cards">
       <a class="card" href="tool.html?tool=citations">
+        <h3>Reference styles, BibTeX import, numbered bibliographies <span class="is-new">New</span></h3>
+        <p>Citations gains a <b>Bibliography</b> panel for papers and theses. Seven styles, each written from its own manual and claiming only the item types it has three or more verbatim manual examples for: <b>IEEE, ACS, Nature</b> (journal articles), <b>Vancouver (NLM)</b> (the one that formats patents), <b>APA&nbsp;7</b>, and <b>Chicago</b> author-date and notes-bibliography, the notes going into Word footnotes. Harvard and MLA are not offered, because no official guide could be verified. Import <b>BibTeX</b> (accents, <code>$H_2O$</code> &#8594; H&#8322;O, <code>{DNA}</code> and <code>{pH}</code> kept, crossref, @string), <b>RIS</b> and <b>CSL-JSON</b>. A pasted DOI is recognised and formatted but <b>never looked up</b>: JurisLab works offline. <b>Update numbering &amp; bibliography</b> renumbers in document order and rebuilds the list, and a second run changes nothing. A citation whose record was deleted shows <code>[?]</code>, never a number that belongs to another reference.</p>
+        <div class="spec">Kwon 2022, p. 1842 &#8594; IEEE [1, p. 1842] &middot; APA (Kwon, 2022, p. 1842) &middot; Chicago (Kwon 2022, 1842)</div>
+      </a>
+      <a class="card" href="tool.html?tool=citations">
         <h3>Table of Authorities and Bluebook fixes <span class="is-new">New</span></h3>
         <p>Fixes for what a filed brief&rsquo;s Table of Authorities said. The page search no longer matches one cite inside another, so <code>10 F.3d 5</code> stops collecting the pages of <code>110 F.3d 512</code>, and <code>&sect;&nbsp;10</code> those of <code>&sect;&nbsp;101</code>; a bare <i>Id.</i> no longer matches the &ldquo;id.&rdquo; in <i>said.</i> or <i>paid.</i> <i>Int&rsquo;l</i> and <i>Int'l</i> are one row, so <i>Alice</i> gets its pages instead of none; <b>passim</b> is kept, and <i>In re</i> short forms are found. <i>eBay</i> and <i>iRobot</i> keep their first letter, <code>35 U.S.C. &sect;&sect; 102, 103</code> marks both sections, footnotes are scanned, and Paste &amp; fix reads Federal Register, parallel, column-and-line and Westlaw cites. Word&rsquo;s own search is checked in a manual in-Word test pass.</p>
         <div class="spec">US10123456B2 &#8594; U.S. Patent No. 10,123,456 &middot; <i>United States v. Alvarez</i> &#8594; <i>Alvarez</i>, 567 U.S. at 715</div>
@@ -1001,7 +1006,7 @@ x&#179; &minus; 1 = 0
         <div class="spec">π₃(KO) = 0 (not the stable stem ℤ/24) &middot; K̃O⁰(ℝP⁴) = ℤ/8</div>
       </a>
       <a class="card" href="tool.html?tool=chemical">
-        <h3>Reaction balancing, genetic codes, peptides <span class="is-new">New</span></h3>
+        <h3>Reaction balancing, genetic codes, peptides</h3>
         <p><code>balance KMnO4 + HCl -&gt; KCl + MnCl2 + Cl2 + H2O</code> balances by the exact null space of the element and charge matrix, with every element and the charge recounted &mdash; and a reaction with <b>two independent balancings is refused, with both shown</b>, never one picked silently. Half-reactions in acid or base; limiting reagent and yield with units carried. All 27 <b>NCBI genetic codes</b>, honoured in ORFs, translations and sequence listings (<code>/transl_table</code>, <code>/transl_except</code>). Peptides with disulfides, cyclisation and Unimod modifications &mdash; an unknown token is refused with its position, never turned into a residue.</p>
         <div class="spec">CaSO&#8324;&middot;0.5H&#8322;O &#8594; 145.142 g/mol (was read as 226.209)</div>
       </a>

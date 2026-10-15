@@ -1,0 +1,49 @@
+% Hand-written LaTeX decoding cases for bibtex.test.ts (NOT an export; the real
+% exports sit beside this file). Kept in a fixture because grave accents and
+% backslash sequences are exactly what a template literal or a shell would corrupt.
+Contact: someone@example.org is not an entry.
+
+@string{jacs = "J. Am. Chem. Soc."}
+@STRING(acs = {American Chemical Society})
+@preamble{"\newcommand{\noop}[1]{}"}
+@comment{ignored, even with @article{inside, title = {x}} in it}
+
+@article{accents,
+  author = {G{\"o}del, Kurt and Erd\H{o}s, Paul and Stra{\ss}er, Hans and Fran\c{c}ois, Jean and S{\o}rensen, S{\o}ren and {\AA}ngstr{\"o}m, Anders and {\L}ukasiewicz, Jan and Dvo\v{r}{\'a}k, Anton\'{\i}n},
+  title = {{\"U}ber formal unentscheidbare S\"atze: ``quoted'' and `single' -- en --- em~nbsp},
+  journal = jacs # { (Washington)},
+  publisher = acs,
+  year = 1931,
+  month = mar,
+  pages = {173--198},
+}
+
+@article{chem,
+  author = {Doe, Jane and others},
+  title = {Measuring {pH} by {NMR} in H$_2$O and $^{13}$C at 25~$^\circ$C: \textit{trans}-stilbene, {DNA}, CO\textsubscript{2}, \ce{SO4^2-}, $\alpha$-helix, $\mu$m and $K_{B}$},
+  journal = {Chem.\ Sci.},
+  year = {2020},
+  month = {May},
+  pages = {e0318239},
+}
+
+@article{mendeley,
+  author = {Roe, Richard},
+  title = {{A Title Mendeley Wrapped In Double Braces}},
+  journal = {Nature},
+  year = {2019},
+  month = {11},
+  pages = {1--10},
+}
+
+@article{zoteroSpan,
+  title = {{\textless}span class="nocase"{\textgreater}tintinnabulum{\textless}/span{\textgreater} \& {\textless}i{\textgreater}Fasciculus{\textless}/i{\textgreater}},
+  journal = {Social \& Cultural Geography},
+  year = {2018},
+}
+
+@article{style,
+  title = {An {\em emphasised} word, a \textbf{bold} one, \emph{E. coli} and {\it {in vivo}} work},
+  journal = {J.},
+  year = {2001},
+}

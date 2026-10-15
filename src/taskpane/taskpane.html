@@ -1201,6 +1201,53 @@
         </button>
         <div id="cite-supradetect-msg" class="build-readout" aria-live="polite"></div>
 
+        <span class="palette-group-label">Bibliography — IEEE, ACS, Nature, Vancouver, APA, Chicago</span>
+        <p class="examples-note">
+          Numbered and author-date reference lists for papers, theses and declarations. Import your
+          references, pick a style, insert citations at the cursor, then <strong>Update numbering &amp;
+          bibliography</strong> after you add, move or delete one. The library is saved inside this document.
+        </p>
+        <label class="field-label" for="bib-paste">Import references (paste BibTeX, RIS, CSL-JSON or DOIs)</label>
+        <textarea
+          id="bib-paste"
+          class="build-input"
+          rows="4"
+          spellcheck="false"
+          placeholder="@article{kwon2022, author = {Kwon, Hyeyoung}, title = {Inclusion Work}, journal = {American Journal of Sociology}, year = {2022}, volume = {127}, number = {6}, pages = {1818--1859}, doi = {10.1086/720277}}"
+        ></textarea>
+        <div class="seq-actions">
+          <button id="bib-import" class="insert-btn secondary" type="button">Import pasted text</button>
+          <button id="bib-open" class="insert-btn secondary" type="button">Open .bib / .ris / .json file…</button>
+          <input id="bib-file" type="file" accept=".bib,.bibtex,.ris,.json,.txt" hidden />
+        </div>
+        <p id="bib-doi-note" class="examples-note"></p>
+        <div id="bib-import-msg" class="build-readout" style="white-space: pre-wrap" aria-live="polite"></div>
+
+        <label class="field-label" for="bib-style">Reference style</label>
+        <select id="bib-style" class="lib-select"></select>
+        <p id="bib-style-note" class="examples-note"></p>
+
+        <label class="field-label" for="bib-library">Library (select one or more to cite)</label>
+        <select id="bib-library" class="lib-select" multiple size="6"></select>
+        <div class="dna-controls">
+          <label class="field-label" for="bib-loc-label">Locator</label>
+          <select id="bib-loc-label" class="lib-select">
+            <option value="page">page</option>
+            <option value="figure">figure</option>
+            <option value="equation">equation</option>
+            <option value="chapter">chapter</option>
+          </select>
+          <input id="bib-locator" class="formula-input" type="text" placeholder="optional, e.g. 45 or 5-10" autocomplete="off" spellcheck="false" />
+        </div>
+        <div class="preview-wrap">
+          <span class="preview-label">How the selected references will print</span>
+          <div id="bib-preview" class="preview" aria-live="polite"></div>
+        </div>
+        <p id="bib-case-note" class="examples-note"></p>
+        <button id="bib-insert" class="insert-btn" type="button">Insert citation</button>
+        <button id="bib-update" class="insert-btn secondary" type="button">Update numbering &amp; bibliography</button>
+        <div id="bib-msg" class="build-readout" style="white-space: pre-wrap" aria-live="polite"></div>
+
         <span class="palette-group-label">Table of Contents</span>
         <p class="examples-note">
           Insert a Table of Contents built from your Heading 1–3 styles, with page references

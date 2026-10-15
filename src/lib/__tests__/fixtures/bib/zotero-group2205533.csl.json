@@ -1,0 +1,199 @@
+{
+    "items": [
+        {
+            "id": "6188419/CMK4ZNS6",
+            "type": "article-journal",
+            "citation-key": "fraser2024",
+            "container-title": "Bodleian Library Record",
+            "DOI": "10.3828/blr.2024.37.1-2.23",
+            "ISSN": "0067-9488, 3029-0465",
+            "issue": "1-2",
+            "journalAbbreviation": "The Bodleian Library Record",
+            "language": "en",
+            "note": "reviewed-title: Write, cut, rewrite\nevent-date: 2024-02-26/2025-01-05\nevent-place: The Treasury, Weston Library",
+            "page": "23-26",
+            "source": "DOI.org (Crossref)",
+            "URL": "http://www.liverpooluniversitypress.co.uk/doi/10.3828/blr.2024.37.1-2.23",
+            "volume": "37",
+            "author": [
+                {
+                    "family": "Fraser",
+                    "given": "Angus"
+                }
+            ],
+            "accessed": {
+                "date-parts": [
+                    [
+                        2026,
+                        5,
+                        16
+                    ]
+                ]
+            },
+            "issued": {
+                "date-parts": [
+                    [
+                        "2024"
+                    ]
+                ]
+            }
+        },
+        {
+            "id": "6188419/HYEYQKKT",
+            "type": "broadcast",
+            "abstract": "The Hidden Brain helps curious people understand the world – and themselves. Using science and storytelling, Hidden Brain's host Shankar Vedantam reveals the unconscious patterns that drive human behavior, the biases that shape our choices, and the triggers that direct the course of our relationships.",
+            "citation-key": "vedantamHiddenBrain2015",
+            "language": "en",
+            "license": "APA7 93",
+            "medium": "audio podcast",
+            "note": "Issued: 2015/2019",
+            "publisher": "NPR",
+            "title": "Hidden brain",
+            "URL": "https://www.npr.org/series/423302056/hidden-brain",
+            "author": [
+                {
+                    "family": "Vedantam",
+                    "given": "Shankar"
+                }
+            ],
+            "accessed": {
+                "date-parts": [
+                    [
+                        2019,
+                        10,
+                        26
+                    ]
+                ]
+            }
+        },
+        {
+            "id": "6188419/VM76QQZ6",
+            "type": "entry-dictionary",
+            "call-number": "480",
+            "citation-key": "Tintinnabulum2018",
+            "container-title": "Dictionary of Medieval Latin from British sources",
+            "ISBN": "978-0-19-726633-5 978-0-19-726630-4 978-0-19-726631-1 978-0-19-726632-8",
+            "language": "en",
+            "publisher": "Published for the British Academy by Oxford University Press",
+            "publisher-place": "Oxford",
+            "source": "BnF ISBN",
+            "title": "<span class=\"nocase\">tintinnabulum</span>",
+            "issued": {
+                "date-parts": [
+                    [
+                        2018
+                    ]
+                ]
+            }
+        },
+        {
+            "id": "6188419/5BI2HC2P",
+            "type": "entry-dictionary",
+            "call-number": "480",
+            "citation-key": "ashdowne2018",
+            "container-title": "Dictionary of Medieval Latin from British sources",
+            "ISBN": "978-0-19-726633-5 978-0-19-726630-4 978-0-19-726631-1 978-0-19-726632-8",
+            "language": "en",
+            "note": "container-title-short: Dictionary of Medieval Latin",
+            "number-of-volumes": "3",
+            "publisher": "Published for the British Academy by Oxford University Press",
+            "publisher-place": "Oxford",
+            "source": "BnF ISBN",
+            "editor": [
+                {
+                    "family": "Ashdowne",
+                    "given": "Richard"
+                },
+                {
+                    "family": "Howlett",
+                    "given": "David R."
+                },
+                {
+                    "family": "Latham",
+                    "given": "Ronald Edward"
+                }
+            ],
+            "issued": {
+                "date-parts": [
+                    [
+                        2018
+                    ]
+                ]
+            }
+        },
+        {
+            "id": "6188419/T52IAELZ",
+            "type": "article-journal",
+            "citation-key": "greenfieldChildrenAdolescentsInternet2006",
+            "container-title": "Developmental Psychology",
+            "DOI": "10.1037/0012-1649.42.3.391",
+            "journalAbbreviation": "Dev. Psychol.",
+            "language": "en",
+            "note": "genre: special section",
+            "page": "391–394",
+            "PMID": "16756431",
+            "title": "Children, adolescents, and the Internet",
+            "volume": "42",
+            "editor": [
+                {
+                    "family": "Greenfield",
+                    "given": "P."
+                },
+                {
+                    "family": "Yan",
+                    "given": "Z."
+                }
+            ],
+            "issued": {
+                "date-parts": [
+                    [
+                        2006
+                    ]
+                ]
+            }
+        },
+        {
+            "id": "6188419/BXL4R6K2",
+            "type": "article-journal",
+            "citation-key": "shoreMarkingTimeLand2014",
+            "container-title": "American Journal of Orthopsychiatry",
+            "DOI": "10.1037/h0100165",
+            "ISSN": "1939-0025, 0002-9432",
+            "issue": "6",
+            "journalAbbreviation": "Am. J. Orthopsychiatry",
+            "language": "en",
+            "license": "APA7 11_alt",
+            "note": "Original date: 1981",
+            "page": "611-618",
+            "PMID": "25545428",
+            "shortTitle": "Marking time in the land of plenty",
+            "source": "Crossref",
+            "title": "Marking time in the land of plenty: reflections on mental health in the United States",
+            "title-short": "Marking time in the land of plenty",
+            "URL": "http://doi.apa.org/getdoi.cfm?doi=10.1037/h0100165",
+            "volume": "84",
+            "author": [
+                {
+                    "family": "Shore",
+                    "given": "Milton F."
+                }
+            ],
+            "accessed": {
+                "date-parts": [
+                    [
+                        2019,
+                        10,
+                        17
+                    ]
+                ]
+            },
+            "issued": {
+                "date-parts": [
+                    [
+                        2014
+                    ]
+                ]
+            }
+        }
+    ]
+}

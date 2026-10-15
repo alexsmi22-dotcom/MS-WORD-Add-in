@@ -481,6 +481,28 @@ import {
   typedToaSpans,
 } from "../lib/toaScope";
 import {
+  CASE_NOTE,
+  collectCitations,
+  doiLibraryLines,
+  importBibText,
+  importSummary,
+  libraryRows,
+  loadBibStore,
+  markerRuns,
+  mergeImport,
+  notOfferedNote,
+  offeredStyles,
+  planInsert,
+  planUpdate,
+  previewRecords,
+  type CiteControl,
+  type MarkerRun,
+} from "../lib/bibPane";
+import { BIB_SETTING_KEY, BIBLIOGRAPHY_TAG, CITE_CONTROL_TITLE, citeTag, serializeStore, type BibStoreData } from "../lib/bibStore";
+import { DOI_OFFLINE_NOTE } from "../lib/doi";
+import { getStyle } from "../lib/bibStyles";
+import type { StyleId } from "../lib/bibRecord";
+import {
   parseMatrix,
   multiply,
   transpose,
@@ -960,6 +982,23 @@ let toaFindBtn: HTMLButtonElement;
 let toaCopyRegisterBtn: HTMLButtonElement;
 let toaRegister: HTMLElement;
 let lastRegisterText = "";
+// Citations ▸ Bibliography (v2.142.0)
+let bibPasteInput: HTMLTextAreaElement;
+let bibImportBtn: HTMLButtonElement;
+let bibOpenBtn: HTMLButtonElement;
+let bibFileInput: HTMLInputElement;
+let bibDoiNote: HTMLElement;
+let bibImportMsg: HTMLElement;
+let bibStyleSelect: HTMLSelectElement;
+let bibStyleNote: HTMLElement;
+let bibLibrarySelect: HTMLSelectElement;
+let bibLocLabelSelect: HTMLSelectElement;
+let bibLocatorInput: HTMLInputElement;
+let bibPreview: HTMLElement;
+let bibCaseNote: HTMLElement;
+let bibInsertBtn: HTMLButtonElement;
+let bibUpdateBtn: HTMLButtonElement;
+let bibMsg: HTMLElement;
 let toaMsg: HTMLElement;
 /** Tag on the content control that wraps the field-based TOA, so the formatted
  *  list can find it, copy its F9'd page numbers, and replace it in one step. */
@@ -1654,6 +1693,22 @@ Office.onReady((info) => {
   citeIdDetectMsg = document.getElementById("cite-iddetect-msg") as HTMLElement;
   citeSupraDetectBtn = document.getElementById("cite-supradetect") as HTMLButtonElement;
   citeSupraDetectMsg = document.getElementById("cite-supradetect-msg") as HTMLElement;
+  bibPasteInput = document.getElementById("bib-paste") as HTMLTextAreaElement;
+  bibImportBtn = document.getElementById("bib-import") as HTMLButtonElement;
+  bibOpenBtn = document.getElementById("bib-open") as HTMLButtonElement;
+  bibFileInput = document.getElementById("bib-file") as HTMLInputElement;
+  bibDoiNote = document.getElementById("bib-doi-note") as HTMLElement;
+  bibImportMsg = document.getElementById("bib-import-msg") as HTMLElement;
+  bibStyleSelect = document.getElementById("bib-style") as HTMLSelectElement;
+  bibStyleNote = document.getElementById("bib-style-note") as HTMLElement;
+  bibLibrarySelect = document.getElementById("bib-library") as HTMLSelectElement;
+  bibLocLabelSelect = document.getElementById("bib-loc-label") as HTMLSelectElement;
+  bibLocatorInput = document.getElementById("bib-locator") as HTMLInputElement;
+  bibPreview = document.getElementById("bib-preview") as HTMLElement;
+  bibCaseNote = document.getElementById("bib-case-note") as HTMLElement;
+  bibInsertBtn = document.getElementById("bib-insert") as HTMLButtonElement;
+  bibUpdateBtn = document.getElementById("bib-update") as HTMLButtonElement;
+  bibMsg = document.getElementById("bib-msg") as HTMLElement;
   refsSection = document.getElementById("refs-section") as HTMLElement;
   refKind = document.getElementById("ref-kind") as HTMLSelectElement;
   refNext = document.getElementById("ref-next") as HTMLElement;
@@ -2088,6 +2143,13 @@ Office.onReady((info) => {
   toaCopyRegisterBtn.addEventListener("click", copyRegister);
   citeIdDetectBtn.addEventListener("click", insertIdForPreceding);
   citeSupraDetectBtn.addEventListener("click", detectSupraSource);
+  bibImportBtn.addEventListener("click", () => void importBibliographyText(bibPasteInput.value));
+  bibOpenBtn.addEventListener("click", () => bibFileInput.click());
+  bibFileInput.addEventListener("change", () => void importBibliographyFile());
+  bibStyleSelect.addEventListener("change", () => void changeBibStyle());
+  bibLibrarySelect.addEventListener("change", renderBibPreview);
+  bibInsertBtn.addEventListener("click", () => void insertBibCitation());
+  bibUpdateBtn.addEventListener("click", () => void updateBibliography(false));
 
   pptLoadBtn.addEventListener("click", loadSelectedTable);
   pptKindSelect.addEventListener("change", updatePptPreview);
@@ -2352,7 +2414,9 @@ const HOME_GROUPS: HomeGroup[] = [
   },
   {
     title: "Legal citations",
-    items: [{ mode: "citations", audience: ["legal"], label: "Citations", desc: "Bluebook — cases, statutes, patents" }],
+    // Science too since v2.142.0: the Bibliography panel (IEEE, ACS, Nature, Vancouver, APA,
+    // Chicago; BibTeX/RIS import) is for papers and theses, not only briefs.
+    items: [{ mode: "citations", audience: ["legal", "science"], label: "Citations", desc: "Bluebook; IEEE/ACS/APA bibliographies" }],
   },
 ];
 
@@ -3050,6 +3114,7 @@ function onInputChanged(): void {
   if (mode === "citations") {
     if (!citeInputs.children.length) renderCitationInputs();
     else updateCitationPreview();
+    refreshBibPanel();
     return;
   }
   if (mode === "plot") {
@@ -33554,6 +33619,357 @@ async function copyCitation(): Promise<void> {
   } catch {
     setStatus("Clipboard unavailable — select the preview text to copy.", "");
   }
+}
+
+// ---------------------------------------------------------------------------
+// Citations ▸ Bibliography (v2.142.0). Every decision is in lib/bibPane.ts (tested in
+// bibPaneRouting.test.ts); this block only reads and writes Word.
+//   - library + style: document settings key BIB_SETTING_KEY (bibStore.ts);
+//   - each citation: a content control tagged formula-inserter:cite:<id>;
+//   - the bibliography: one content control tagged BIBLIOGRAPHY_TAG.
+// Insert and Update each run in ONE Word.run, so one Ctrl+Z reverts the whole pass.
+// ---------------------------------------------------------------------------
+
+/** Why the document's library cannot be edited (newer version, damaged), or null. */
+let bibStoreRefusal: string | null = null;
+/** The style changed since the last update: rewrite every marker, not only changed text. */
+let bibStyleDirty = false;
+
+function readBibStore(): BibStoreData | null {
+  let raw: unknown = null;
+  try {
+    raw = Office.context.document.settings.get(BIB_SETTING_KEY);
+  } catch {
+    raw = null;
+  }
+  const r = loadBibStore(raw, ((bibStyleSelect && bibStyleSelect.value) || "ieee") as StyleId);
+  if (!r.ok) {
+    bibStoreRefusal = r.reason;
+    return null;
+  }
+  bibStoreRefusal = null;
+  return r.store;
+}
+
+/** Saves the store in the document; resolves to a reason when it could not. */
+function writeBibStore(store: BibStoreData): Promise<string | null> {
+  const s = serializeStore(store);
+  if (!s.ok) return Promise.resolve(s.reason);
+  return new Promise((resolve) => {
+    try {
+      Office.context.document.settings.set(BIB_SETTING_KEY, s.json);
+      Office.context.document.settings.saveAsync((res) => {
+        resolve(
+          res.status === Office.AsyncResultStatus.Succeeded
+            ? null
+            : `The reference library could not be saved in the document: ${res.error ? res.error.message : "unknown error"}.`
+        );
+      });
+    } catch (e) {
+      resolve(`The reference library could not be saved in the document: ${(e as Error).message}`);
+    }
+  });
+}
+
+/** Renders formatted html (escaped text + <i>/<b>/<sup>/<sub>) as DOM nodes, never as innerHTML. */
+function appendRuns(parent: HTMLElement, runs: MarkerRun[]): void {
+  for (const r of runs) {
+    let node: Node = document.createTextNode(r.text);
+    for (const [on, tag] of [
+      [r.sup, "sup"],
+      [r.sub, "sub"],
+      [r.italic, "i"],
+      [r.bold, "b"],
+    ] as Array<[boolean, string]>) {
+      if (!on) continue;
+      const el = document.createElement(tag);
+      el.appendChild(node);
+      node = el;
+    }
+    parent.appendChild(node);
+  }
+}
+
+/** Fills the style list, notes and library list from the document's store. */
+function refreshBibPanel(): void {
+  if (!bibStyleSelect) return;
+  bibDoiNote.textContent = DOI_OFFLINE_NOTE;
+  bibCaseNote.textContent = CASE_NOTE;
+  if (!bibStyleSelect.options.length) {
+    for (const s of offeredStyles()) bibStyleSelect.add(new Option(s.name, s.id));
+    bibStyleNote.textContent = notOfferedNote();
+  }
+  const store = readBibStore();
+  const blocked = !store;
+  for (const b of [bibImportBtn, bibOpenBtn, bibInsertBtn, bibUpdateBtn]) b.disabled = blocked;
+  bibStyleSelect.disabled = blocked;
+  if (!store) {
+    bibMsg.textContent = bibStoreRefusal ?? "";
+    return;
+  }
+  if (Array.from(bibStyleSelect.options).some((o) => o.value === store.style)) bibStyleSelect.value = store.style;
+  const selected = new Set(Array.from(bibLibrarySelect.selectedOptions).map((o) => o.value));
+  bibLibrarySelect.textContent = "";
+  for (const row of libraryRows(store)) {
+    const opt = new Option(row.label, row.id);
+    opt.selected = selected.has(row.id);
+    bibLibrarySelect.add(opt);
+  }
+  renderBibPreview();
+}
+
+/** How the selected references print in the chosen style; refusals and recased titles by name. */
+function renderBibPreview(): void {
+  bibPreview.textContent = "";
+  const store = readBibStore();
+  if (!store) return;
+  const ids = Array.from(bibLibrarySelect.selectedOptions).map((o) => o.value);
+  if (!ids.length) {
+    bibPreview.textContent = Object.keys(store.library).length
+      ? "Select references in the library list to see them in this style."
+      : "The library is empty: import BibTeX, RIS or CSL-JSON above.";
+    return;
+  }
+  const recs = ids.map((id) => store.library[id]).filter(Boolean);
+  for (const p of previewRecords(store.style, recs)) {
+    const row = document.createElement("div");
+    row.className = "examples-note";
+    const key = document.createElement("strong");
+    key.textContent = `${p.id}: `;
+    row.appendChild(key);
+    if (p.formatted) appendRuns(row, markerRuns(p.formatted.html));
+    else row.appendChild(document.createTextNode(`refused: ${p.refusal ?? ""}`));
+    if (p.recased) row.appendChild(document.createTextNode(` [title case changed; as imported: “${p.original}”]`));
+    for (const w of p.warnings) row.appendChild(document.createTextNode(` [${w}]`));
+    bibPreview.appendChild(row);
+  }
+}
+
+async function importBibliographyFile(): Promise<void> {
+  const file = bibFileInput.files && bibFileInput.files[0];
+  bibFileInput.value = ""; // so re-choosing the same file fires again
+  if (!file) return;
+  if (file.size > 8 * 1024 * 1024) {
+    bibImportMsg.textContent = `${file.name}: over 8 MB, too large to load into the pane.`;
+    return;
+  }
+  let text: string;
+  try {
+    text = await file.text();
+  } catch {
+    bibImportMsg.textContent = `${file.name}: could not be read.`;
+    return;
+  }
+  await importBibliographyText(text, file.name);
+}
+
+/** Import a paste or a file into the document's library. Nothing is fetched. */
+async function importBibliographyText(text: string, fileName?: string): Promise<void> {
+  const store = readBibStore();
+  if (!store) {
+    bibImportMsg.textContent = bibStoreRefusal ?? "";
+    return;
+  }
+  if (!text.trim()) {
+    bibImportMsg.textContent = "Paste BibTeX, RIS, CSL-JSON or a DOI first, or open a file.";
+    return;
+  }
+  const rep = importBibText(text, fileName);
+  const lines = [(fileName ? `${fileName}: ` : "") + importSummary(rep), ...rep.lines];
+  if (rep.note) lines.push(rep.note);
+  if (rep.format === "doi") lines.push(...doiLibraryLines(rep.dois, store));
+  if (rep.records.length) {
+    const m = mergeImport(store, rep.records);
+    if (m.result.added.length || m.result.renamed.length) {
+      const err = await writeBibStore(m.store);
+      if (err) lines.push(`Nothing was added to the library: ${err}`);
+      else lines.push(...m.lines);
+    } else lines.push(...m.lines);
+  }
+  bibImportMsg.textContent = lines.join("\n");
+  refreshBibPanel();
+}
+
+async function changeBibStyle(): Promise<void> {
+  const store = readBibStore();
+  if (!store) return;
+  const id = bibStyleSelect.value as StyleId;
+  if (id === store.style) return;
+  const err = await writeBibStore({ ...store, style: id });
+  if (err) {
+    bibMsg.textContent = err;
+    bibStyleSelect.value = store.style;
+    return;
+  }
+  bibStyleDirty = true;
+  bibMsg.textContent = `Style: ${bibStyleSelect.selectedOptions[0]?.text ?? id}. Press “Update numbering & bibliography” to restyle the citations already in the document.`;
+  renderBibPreview();
+}
+
+/** Writes a marker's runs into its control, formatting each run explicitly. */
+function writeMarkerRuns(cc: Word.ContentControl, runs: MarkerRun[]): void {
+  const list = runs.length ? runs : [{ text: "", sup: false, sub: false, italic: false, bold: false }];
+  list.forEach((r, i) => {
+    const range = cc.insertText(r.text, i === 0 ? Word.InsertLocation.replace : Word.InsertLocation.end);
+    range.font.superscript = r.sup;
+    range.font.subscript = r.sub;
+    range.font.italic = r.italic;
+    range.font.bold = r.bold;
+  });
+}
+
+/**
+ * Renumbers every citation and rewrites the bibliography inside the caller's Word.run.
+ * Returns the report lines (every problem list by name), or null lines on a refusal.
+ */
+async function applyBibUpdate(
+  context: Word.RequestContext,
+  store: BibStoreData,
+  opts: { rewriteAll: boolean; bibliography: "always" | "if-present" }
+): Promise<{ ok: boolean; lines: string[] }> {
+  const style = getStyle(store.style);
+  const body = context.document.body;
+  const ccs = body.contentControls;
+  ccs.load("items/tag,items/text");
+  await context.sync();
+  // Footnotes are not in body.contentControls (§C4); WordApi 1.5 reads them.
+  let noteControls: Word.ContentControl[] | null = null;
+  if (wordApiSupported("1.5")) {
+    try {
+      const notes = body.footnotes;
+      notes.load("items");
+      await context.sync();
+      const cols = notes.items.map((n) => {
+        const c = n.body.contentControls;
+        c.load("items/tag,items/text");
+        return c;
+      });
+      await context.sync();
+      noteControls = [];
+      for (const c of cols) noteControls.push(...c.items);
+    } catch {
+      noteControls = null;
+    }
+  }
+  const asCite = (c: Word.ContentControl): CiteControl => ({ tag: c.tag, text: c.text });
+  const collected = collectCitations(
+    ccs.items.map(asCite),
+    noteControls ? noteControls.map(asCite) : null,
+    style ? style.kind : "numeric"
+  );
+  const up = planUpdate(collected, store, { rewriteAll: opts.rewriteAll });
+  if (!up.ok) return { ok: false, lines: [up.reason] };
+  for (const rw of up.rewrites) {
+    const w = collected.where[rw.index];
+    const cc = w.in === "body" ? ccs.items[w.index] : noteControls ? noteControls[w.index] : undefined;
+    if (cc) writeMarkerRuns(cc, rw.runs);
+  }
+  const lines: string[] = [];
+  const bibs = ccs.items.filter((c) => c.tag === BIBLIOGRAPHY_TAG);
+  if (bibs.length) {
+    bibs[0].insertOoxml(up.ooxml, Word.InsertLocation.replace);
+    lines.push(`Bibliography replaced: ${up.plan.bibliography.length} reference${up.plan.bibliography.length === 1 ? "" : "s"}.`);
+    if (bibs.length > 1) lines.push(`${bibs.length} bibliography blocks are in the document; only the first was updated. Delete the others.`);
+  } else if (opts.bibliography === "always" && up.plan.entries.length) {
+    const inserted = body.insertOoxml(up.ooxml, Word.InsertLocation.end);
+    const cc = inserted.insertContentControl();
+    cc.tag = BIBLIOGRAPHY_TAG;
+    cc.title = "JurisLab bibliography";
+    lines.push(
+      `Bibliography inserted at the end of the document: ${up.plan.bibliography.length} reference${up.plan.bibliography.length === 1 ? "" : "s"}. ` +
+        "Cut and paste it anywhere; Update finds it by its tag."
+    );
+  }
+  await context.sync();
+  lines.unshift(`Updated ${up.rewrites.length} citation${up.rewrites.length === 1 ? "" : "s"} (${collected.occurrences.length} in the document).`);
+  return { ok: true, lines: [...lines, ...up.report] };
+}
+
+/** Insert citation: a new tagged marker at the cursor, or added to the citation the cursor is in. */
+async function insertBibCitation(): Promise<void> {
+  const store = readBibStore();
+  if (!store) {
+    bibMsg.textContent = bibStoreRefusal ?? "";
+    return;
+  }
+  const ids = Array.from(bibLibrarySelect.selectedOptions).map((o) => o.value);
+  const style = getStyle(store.style);
+  const isNote = !!style && style.kind === "note";
+  if (isNote && !wordApiSupported("1.5")) {
+    bibMsg.textContent = `${style ? style.name : store.style} puts citations in footnotes, and this version of Word cannot insert content into a footnote (WordApi 1.5). Choose a numeric or author-date style.`;
+    return;
+  }
+  let saved: BibStoreData | null = null;
+  let lines: string[] = [];
+  try {
+    await Word.run(async (context) => {
+      const sel = context.document.getSelection();
+      const parent = sel.parentContentControlOrNullObject;
+      parent.load("tag");
+      await context.sync();
+      const plan = planInsert(store, ids, {
+        locator: bibLocatorInput.value,
+        label: bibLocLabelSelect.value,
+        existingTag: parent.isNullObject ? null : parent.tag,
+      });
+      if (!plan.ok) {
+        lines = plan.reasons;
+        return;
+      }
+      // Check that the new store can be saved BEFORE touching the document.
+      const ser = serializeStore(plan.store);
+      if (!ser.ok) {
+        lines = [ser.reason];
+        return;
+      }
+      if (plan.kind === "new") {
+        const t = citeTag(plan.markerId); // refuses a tag over Word's limit, by name
+        if (!t.ok) {
+          lines = [t.reason];
+          return;
+        }
+        const placeholder = "…";
+        const range = isNote
+          ? sel.insertFootnote("").body.insertText(placeholder, Word.InsertLocation.end)
+          : sel.insertText(placeholder, Word.InsertLocation.end);
+        const cc = range.insertContentControl();
+        cc.tag = t.tag;
+        cc.title = CITE_CONTROL_TITLE;
+        await context.sync();
+      }
+      const res = await applyBibUpdate(context, plan.store, { rewriteAll: bibStyleDirty, bibliography: "if-present" });
+      lines = [plan.kind === "new" ? "Citation inserted." : "Added to the citation at the cursor.", ...res.lines];
+      saved = plan.store;
+    });
+  } catch (e) {
+    lines = [`Could not insert the citation: ${(e as Error).message}`];
+  }
+  if (saved) {
+    const err = await writeBibStore(saved);
+    if (err) lines.push(`${err} The citation is in the document but its references were not saved; press Ctrl/⌘+Z.`);
+    else bibStyleDirty = false;
+  }
+  bibMsg.textContent = lines.join("\n");
+}
+
+/** Update numbering & bibliography: one pass over every citation, then the bibliography block. */
+async function updateBibliography(forceAll: boolean): Promise<void> {
+  const store = readBibStore();
+  if (!store) {
+    bibMsg.textContent = bibStoreRefusal ?? "";
+    return;
+  }
+  let lines: string[] = [];
+  try {
+    await Word.run(async (context) => {
+      const res = await applyBibUpdate(context, store, { rewriteAll: forceAll || bibStyleDirty, bibliography: "always" });
+      lines = res.lines;
+      if (res.ok) bibStyleDirty = false;
+    });
+  } catch (e) {
+    lines = [`Could not update the citations: ${(e as Error).message}`];
+  }
+  bibMsg.textContent = lines.join("\n");
 }
 
 /**

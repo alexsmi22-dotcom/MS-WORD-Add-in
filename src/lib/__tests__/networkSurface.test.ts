@@ -137,10 +137,43 @@ describe("network surface — the offline claim is enforceable", () => {
         if (host.endsWith("schemas.microsoft.com")) continue;
         if (host.endsWith("schemas.openxmlformats.org")) continue;
         if (host.endsWith("openchemlib.org") || host.endsWith("opensource.org")) continue; // licence URLs
+        // Printed DOI links (v2.142.0). A reference list prints a DOI as
+        // "https://doi.org/10.…", the form the style guides require, and doi.ts
+        // recognises pasted "dx.doi.org" links. Like the namespaces above, these are
+        // IDENTIFIERS written into the user's text, never dereferenced: the tests
+        // below pin that doi.ts and every bib* module contain no network primitive,
+        // and that no request anywhere is built from a DOI. EXACT host match only,
+        // so "evil-doi.org" or "doi.org.example.com" still fail.
+        if (host === "doi.org" || host === "dx.doi.org") continue;
         external.add(host);
       }
     }
     expect([...external].sort()).toEqual(["www.ebi.ac.uk"]);
+  });
+
+  test("printed DOIs are never fetched: doi.ts and the bib* modules hold no network primitive", () => {
+    // The doi.org exemption above is for TEXT. It holds only while nothing turns a
+    // DOI into a request, so pin that from three directions.
+    const bibFiles = files.filter((f) => /^lib\/(doi|bib[A-Za-z]*|bibliography|bibtex|ris|cslJson|latexUnicode|journalAbbrev)\.ts$/.test(rel(f)));
+    expect(bibFiles.map(rel)).toEqual(expect.arrayContaining(["lib/doi.ts", "lib/bibStyles.ts", "lib/bibPane.ts", "lib/bibtex.ts"]));
+    for (const f of bibFiles) {
+      const code = fs.readFileSync(f, "utf8").split("\n").filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join("\n");
+      for (const re of PRIMITIVES) expect({ file: rel(f), primitive: String(re), found: re.test(code) }).toEqual({ file: rel(f), primitive: String(re), found: false });
+      // No dynamic import of anything at all from these modules.
+      expect({ file: rel(f), dynamicImport: /\bimport\s*\(/.test(code) }).toEqual({ file: rel(f), dynamicImport: false });
+    }
+    // Anywhere in the source: a line that starts a request never mentions a DOI.
+    for (const f of files) {
+      for (const line of fs.readFileSync(f, "utf8").split("\n")) {
+        if (/^\s*(\/\/|\*|<!--)/.test(line)) continue;
+        if (PRIMITIVES.some((re) => re.test(line))) expect(`${rel(f)}: ${line.trim()}`).not.toMatch(/doi/i);
+      }
+    }
+    // The pane is allowlisted wholesale, so pin its fetch call sites by count: a new
+    // one (a DOI lookup, say) has to change this number on purpose.
+    const pane = fs.readFileSync(path.join(SRC, "taskpane", "taskpane.ts"), "utf8");
+    const fetches = pane.split("\n").filter((l) => !/^\s*(\/\/|\*)/.test(l) && /\bfetch\s*\(/.test(l));
+    expect(fetches).toHaveLength(3);
   });
 
   test("the OPSIN call is gated by an explicit consent flag", () => {

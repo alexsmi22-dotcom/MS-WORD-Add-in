@@ -548,6 +548,7 @@ export const MODE_EXAMPLES: Record<ExampleMode, string> = {
       <li><strong>Signals</strong> — optional italicized <em>See</em>, <em>Cf.</em>, <em>But see</em>, … prepended.</li>
       <li><strong>Paste &amp; fix</strong> — paste a messy citation (<code>35 usc 101</code>, <code>alice corp v cls bank, 573 us 208 (2014)</code>) and it detects the type and fills the fields to review.</li>
       <li><strong>Table of Authorities</strong> — scan the document and insert a grouped, alphabetized authorities list (cases, statutes, regs, patents, other); add page numbers before filing.</li>
+      <li><strong>Bibliography</strong> — paste or open BibTeX, RIS or CSL-JSON, pick <em>IEEE, ACS, Nature, Vancouver, APA 7</em> or <em>Chicago</em>, and <em>Insert citation</em>: <code>[1, p. 1842]</code>, <code>(Kwon, 2022, p. 1842)</code>, <code>(Kwon 2022, 1842)</code>. After moving or deleting one, <em>Update numbering &amp; bibliography</em> renumbers every citation and rewrites the reference list. A pasted DOI (<code>doi:10.1086/720277</code>) is recognised but never looked up — JurisLab works offline.</li>
     </ul>
     <p class="examples-note">
       Pick a <strong>Style</strong> — <em>Practitioner</em> (briefs/office actions) or <em>Academic</em>

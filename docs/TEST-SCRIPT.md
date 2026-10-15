@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.141.0)
+# JurisLab — Manual Test Script (v2.142.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -10,7 +10,104 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
 
-## 0ch. New in v2.141.0 — Table of Authorities and Bluebook fixes
+## 0ci. New in v2.142.0 — Citation styles, BibTeX/RIS import and numbered bibliographies
+
+**Citations** has a new **Bibliography** panel below the Bluebook form. Import references, pick one of seven
+styles, insert citations at the cursor, and press **Update numbering & bibliography** after any add, move or
+delete. Nothing is looked up online. The Citations tile now shows under the science filter on Home too.
+
+**Import**
+- [ ] ★ **BibTeX paste.** Paste
+  `@article{Kwon_2022, title={Inclusion Work: Children of Immigrants Claiming Membership in Everyday Life}, volume={127}, DOI={10.1086/720277}, number={6}, journal={American Journal of Sociology}, author={Kwon, Hyeyoung}, year={2022}, pages={1818–1859}}`
+  → **Import pasted text** → "BibTeX: 1 reference read." and "Added (1): Kwon_2022". The library list shows
+  **Kwon_2022 · Kwon 2022 · Inclusion Work: Children of Immigrants Claiming Membership…**.
+- [ ] **Same paste again** → "Skipped as identical to the library copy (1): Kwon_2022". Change the year to 2023
+  and import → "Renamed, because a different reference already uses the key (1): Kwon_2022 → Kwon_2022-2".
+- [ ] **A refusal has a line number.** Paste `@article{a, title={ok}, year={2020}}` then a blank line then
+  `@article{b, title={Unbalanced, year={2020}` → a line starting "Line 3:" names the problem, and record `a` is
+  still added.
+- [ ] **Files.** **Open .bib / .ris / .json file…** with a Zotero .bib export, a Zotero or EndNote .ris export,
+  and a Zotero CSL-JSON export → each reads its references. An EndNote RIS file (one space in `TY - JOUR`) is read
+  as RIS. A RIS podcast entry (`TY  - SOUND`) is refused with its line number, by type.
+- [ ] ★ **DOI paste, offline.** Paste `doi:10.1086/720277.` → "DOI 10.1086/720277 → https://doi.org/10.1086/720277",
+  the line "JurisLab works offline, so it can't look a DOI up. Paste the reference's BibTeX or RIS from the publisher
+  page to fill everything.", and (after the Kwon import) "10.1086/720277 is already in the library as “Kwon_2022”."
+  No record is created. Turn Wi-Fi off and repeat: the same result.
+- [ ] **PubMed .nbib.** Open a PubMed "Citation manager" (.nbib) export, or paste one (it starts `PMID- `) →
+  "This is a PubMed MEDLINE (.nbib) file — not supported yet; export RIS from PubMed instead." Nothing is added,
+  and it is NOT reported as "1 DOI recognised".
+- [ ] **IEEE prints the DOI once.** Choose **IEEE**, import the Crossref Kwon BibTeX with
+  `url={http://dx.doi.org/10.1086/720277}` added → the reference ends `…, May 2022, doi: 10.1086/720277.` with no
+  "[Online]. Available: http://dx.doi.org/…" after it.
+
+**Styles**
+- [ ] **Seven styles.** The Reference style list shows exactly IEEE, ACS, Nature, Vancouver (NLM), APA 7,
+  Chicago author-date (CMOS 18) and Chicago notes-bibliography (CMOS 18). The line under it reads "Harvard (Cite
+  Them Right) and MLA 9 are not offered: no official guide could be verified."
+- [ ] ★ **Refused by name.** Choose **Nature**, select a book in the library → the preview says "refused" and
+  **Insert citation** says "“…” is a book; Nature does not format books here (…). Choose a style that does, or
+  leave it out. It was not formatted in another style." Same for a patent under IEEE; **Vancouver** formats it.
+- [ ] **Converted titles.** Choose **APA 7** and select Kwon → the preview shows "Inclusion work: Children of
+  immigrants claiming membership in everyday life" with "[title case changed; as imported: “Inclusion Work: …”]",
+  and the note under it explains that sentence case can lowercase names such as Raman.
+- [ ] **Vitamin A.** In APA 7, a title `Vitamin A Deficiency in Children` previews as **Vitamin A deficiency in
+  children** and `Protein Kinase A Signaling in Neurons` as **Protein kinase A signaling in neurons**, never
+  "Vitamin a" or "kinase a".
+- [ ] **APA year letters.** In APA 7, cite `Smith, John` (2020) and `Smith, Anna` (2020) → Update → the two
+  markers differ, and neither reads 2020a/2020b (APA tells different authors apart by their initials). Two
+  undated works by the same author → the markers differ (n.d.-a, n.d.-b), and are never two identical "(Smith, n.d.)".
+- [ ] **Chicago short note without a page.** In Chicago notes, cite Kwon twice with no page → the second footnote
+  reads **Kwon, “Inclusion Work.”**, ending in a single period inside the quotes, never `.”.`
+
+**Insert and update**
+- [ ] ★ **IEEE numbering.** Import three references (A, B, C). Choose **IEEE**. Insert A, then B, then C in three
+  paragraphs → **[1]**, **[2]**, **[3]**. Each sits in a content control titled "JurisLab citation".
+- [ ] ★ **Move a citation earlier.** Cut the **[3]** control (click its tab to select the whole control) and paste
+  it into the first paragraph, before [1] → **Update numbering & bibliography** → the moved one reads **[1]**, the
+  others **[2]** and **[3]**, and the References list at the end is in the new order with matching labels.
+  Press Update again → "Updated 0 citations", nothing changes.
+- [ ] ★ **Delete a citation, then Undo.** Delete the [2] control → Update → the list drops that reference, and the
+  message lists it under "Not cited" and its marker under "Deleted citations … (kept so Undo can restore them)".
+  Press **Ctrl/⌘+Z** until the control is back → Update → the original numbering returns.
+- [ ] ★ **One Undo per update.** After an Update that renumbered several citations and rewrote the bibliography,
+  press **Ctrl/⌘+Z once** → note whether ALL of that update is reverted in one step, or how many presses it takes.
+- [ ] **Add to a citation.** Put the cursor inside the [1] control, select a second reference, **Insert citation**
+  → "Added to the citation at the cursor." and the control reads **[1], [2]** (later numbers shift).
+- [ ] **Locator.** Select one reference, type `45` with *page* → IEEE **[n, p. 45]**; APA **(Kwon, 2022, p. 45)**.
+  With two references selected and a locator → refused ("A locator … belongs to one reference").
+- [ ] **ACS / Nature superscripts.** Switch to **ACS** → the message asks you to Update → Update → markers become
+  superscript **¹** style numbers (not "[1]"), and the list labels read **(1)**, **(2)**. Nature: labels **1.**,
+  **2.** (ACS "(1)" and Nature "1." list labels are conventional forms, not pinned by a quoted manual example:
+  note whether they match your target journal.)
+- [ ] **APA order.** Switch to **APA 7** → Update → markers read like **(Kwon, 2022)**, and the list is
+  alphabetical and unnumbered under **References**.
+- [ ] **Chicago notes.** Switch to **Chicago notes-bibliography** and **Insert citation** → a **footnote** is
+  created holding the note. Cite the same source again → the second note is the short form. The list heading reads
+  **Bibliography**. On a Word without WordApi 1.5 the insert is refused by name instead.
+- [ ] **Copied citation.** Copy a citation control and paste the copy elsewhere → Update → "Copied citations (1) …";
+  both copies show the same text.
+- [ ] **Orphan citation (automated only).** The panel has no "remove from library" button, so a citation whose
+  record is gone cannot be produced from the pane. bibPaneRouting.test pins the behaviour: such a citation is
+  rewritten to **[?]**, with "Missing from the library … now shown as “[?]” so its old number cannot point at
+  another reference". It never keeps a number that now belongs to another reference. Tick this box if no
+  Update in this pass ever showed two different citations with the same number.
+- [ ] **Bibliography moves with you.** Cut the inserted bibliography block and paste it mid-document → Update →
+  it is replaced where it now is, not re-added at the end.
+
+**Word limits (unverified in code; record what you see)**
+- [ ] ★ **64-character tag limit.** Insert a citation, then Developer ▸ Properties on the control → the Tag reads
+  `formula-inserter:cite:1` (23 characters). To probe the limit, type a 64-character tag by hand into the Tag box
+  (e.g. `formula-inserter:cite:` followed by 42 `z`) and press OK, then try 65 characters. Record whether Word
+  accepts 64 and refuses or truncates 65. JurisLab never writes a tag over 64 (the id is a short base-36 counter,
+  and citeTag refuses by name any id that would push the tag past 64).
+- [ ] ★ **Document-settings size (1.9 MB budget).** Open a large real library (a Zotero export with several
+  hundred DISTINCT entries; identical entries are skipped, so one entry pasted many times does not grow the store)
+  and import it several times under renamed keys until the message refuses with "The reference library is … bytes;
+  a document can hold about 1,900,000." Before that refusal, save, close and reopen the document → the library is
+  still there. Record the largest size that saved, in Word desktop and in Word Online.
+- [ ] **Newer or damaged store.** (Optional.) A document whose library was written by a newer JurisLab shows
+  "made by a newer JurisLab" and the panel's buttons are disabled; the setting is never overwritten.
+
 
 The field-based Table of Authorities (**Citations → Insert with live page numbers (Word field)**) no longer re-finds citations by a
 loose substring search. The pane now plans every Word search from the exact positions the scanner found: it
@@ -3892,6 +3989,8 @@ Engineering mode, Energy & power (now 17; the mode must state **101 calculators*
   - `(0,0,0) (1,1,1) (2,2,2)` -> refused as **COLLINEAR**: no plane.
   - `circle r=1/3` -> area **1/9*pi** exactly, and `box 1/2 1/3 1/4` -> volume **1/24**.
     (Typed fractions must stay exact — no long decimals or giant fractions anywhere.)
+- [ ] **Citation styles, BibTeX/RIS import and numbered bibliographies (v2.142.0).** Citations (Bibliography panel) — see §0ci.
+  - Kwon BibTeX → "Added (1): Kwon_2022"; DOI paste → https://doi.org/10.1086/720277 + the offline line, no record; 7 styles, Harvard/MLA one-line note; a book under Nature refused by name; move [3] first → Update → [1], [2], [3] in the new order, a second Update changes nothing; delete + Undo restores the numbering; 64-char tag and 1.9 MB store probes recorded.
 - [ ] **Table of Authorities and Bluebook fixes (v2.141.0).** Citations (Table of Authorities, Bluebook form) — see §0ch.
   - Doe v. Roe lists only its own page beside 110 F.3d 512; Alice never gets the pages of `said.`/`paid.`/`valid.`; `Int’l` + `Int'l` = one row with both pages; building twice changes no page list; `35 U.S.C. §§ 102, 103` keeps § 103; `US10123456B2` → U.S. Patent No. 10,123,456; → Short form gives Alvarez, 567 U.S. at 715.
 - [ ] **Audio, video and light: levels, loudness, timecode, transfer curves, photometry and exposure (v2.140.0).** Engineering (Audio & acoustics, Video & display, Light & camera) — see §0cg.

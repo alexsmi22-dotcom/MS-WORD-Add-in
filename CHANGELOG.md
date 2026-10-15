@@ -6,6 +6,109 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.142.0] — 2026-10-15 — Citation styles, BibTeX/RIS import and numbered bibliographies
+
+From `docs/SCOPE-CITATIONS-2026-10.md` §C. Citations gains a **Bibliography**
+panel below the Bluebook form, for grad students writing papers and theses
+and for attorneys citing non-patent literature. Import references, pick a
+style, insert citations at the cursor, and press **Update numbering &
+bibliography** after any add, move or delete. Nothing is looked up online.
+
+### Added — seven reference styles, each from its own manual
+- **IEEE, ACS, Nature, Vancouver (NLM), APA 7, Chicago author-date and
+  Chicago notes-bibliography** (CMOS 18; the notes go into Word footnotes).
+  Each style is written by hand from its manual, and it claims an item type
+  only when at least three verbatim examples from that manual are pinned in
+  `bibStyles.oracle.test.ts`. Nature formats journal articles only.
+  Vancouver (NLM) is the only style that formats patents. Any other type is
+  refused by name, never formatted in another style:
+  `“epsilon” is a book; Nature does not format books here …`.
+- **Harvard and MLA are not offered.** The pane says: “Harvard (Cite Them
+  Right) and MLA 9 are not offered: no official guide could be verified.”
+- The Crossref export of Kwon (2022), cited at page 1842, prints end to end
+  as (`bibPaneRouting.test.ts`):
+  - IEEE: `[1, p. 1842]` and `H. Kwon, “Inclusion Work: Children of
+    Immigrants Claiming Membership in Everyday Life,” American Journal of
+    Sociology, vol. 127, no. 6, pp. 1818–1859, May 2022, doi:
+    10.1086/720277.`
+  - APA 7: `(Kwon, 2022, p. 1842)` and `Kwon, H. (2022). Inclusion work:
+    Children of immigrants claiming membership in everyday life. American
+    Journal of Sociology, 127(6), 1818–1859.
+    https://doi.org/10.1086/720277`
+  - Chicago author-date: `(Kwon 2022, 1842)` and `Kwon, Hyeyoung. 2022.
+    “Inclusion Work: Children of Immigrants Claiming Membership in Everyday
+    Life.” American Journal of Sociology 127 (6): 1818–59.
+    https://doi.org/10.1086/720277.`
+- **APA disambiguation.** Two different authors who share a surname are told
+  apart by their initials, never by 2020a/2020b; year letters are only for
+  the same authors in the same year. Undated works by one author are
+  lettered n.d.-a, n.d.-b.
+- Titles keep formulas through sentence case: `Splitting Of H₂O And CO₂`
+  keeps H₂O and CO₂ in every style, from Unicode or `<sub>` input.
+
+### Added — import, offline
+- **BibTeX:** LaTeX accents to Unicode; `$H_2O$`, `H$_2$O` and
+  `H\textsubscript{2}O` → H₂O; braces protect `{DNA}`, `{pH}` and `{NMR}`
+  from case conversion; `crossref` inheritance; `@string` macros with `#`
+  concatenation. A refusal names its line, and the other entries still
+  import.
+- **RIS** (Zotero, EndNote, Scopus), **CSL-JSON**, and **pasted DOIs**.
+- **Merging never overwrites.** The pane reports `Added (4): alpha, gamma,
+  delta, epsilon`, skips an identical record by name, and renames a
+  different record that reuses a key: `Renamed, because a different
+  reference already uses the key (1): gamma → gamma-2`.
+- **A DOI is recognised, never looked up.** `DOI 10.1086/720277 →
+  https://doi.org/10.1086/720277`, with the line “JurisLab works offline, so
+  it can't look a DOI up. Paste the reference's BibTeX or RIS from the
+  publisher page to fill everything.” No metadata is fetched.
+- A PubMed .nbib file is refused by name: “This is a PubMed MEDLINE (.nbib)
+  file — not supported yet; export RIS from PubMed instead.”
+
+### Added — numbered citations that renumber themselves
+- **Insert citation** places a tagged citation at the cursor, or adds the
+  reference to the citation the cursor is in. In Chicago notes style it
+  creates a footnote, and a repeat cite takes the short form.
+- **Update numbering & bibliography** reads every citation in document
+  order and rewrites the numbers and the reference list in one pass. Move the
+  third IEEE citation first and `[3]`, `[1]`, `[2]` become `[1]`, `[2]`,
+  `[3]`, with the list in the new order. A second Update changes nothing.
+- **Problems are listed by name:** missing references, copied citations,
+  uncited library entries and deleted citations. A citation whose record
+  was deleted is shown as `[?]`, “so its old number cannot point at another
+  reference”, never left with a number that now belongs to another
+  reference.
+- The library is saved inside the document.
+
+### Independent adversarial pass (all closed)
+A reviewer wrote tests against real exports (Crossref, Scopus, Web of
+Science, Google Scholar, arXiv, PubMed) in `bib.review.test.ts`. Fixed
+before release:
+- IEEE printed the DOI twice when a Crossref or Mendeley export carried
+  `url = http://dx.doi.org/…`, and printed a Scopus index page as the
+  article's `[Online]` location. Neither happens now.
+- A Scopus `art_number` was dropped, leaving an article with no locator.
+  APA now prints `142(3), Article e123.` and IEEE `Art. no. e123`.
+- The journal abbreviation supplied by Web of Science (Journal-ISO) and
+  Scopus (abbrev_source_title) was ignored. `J. Am. Chem. Soc.` is used now.
+- Sentence case turned “Vitamin A” into “Vitamin a”. Now `Vitamin A
+  deficiency in children`.
+- The Chicago short note leaked `&amp` and cut the title at its semicolon.
+  It now reads `Lee, “Chemistry & Biology,” 12.`. A short note with no page
+  ends `Kwon, “Inclusion Work.”`, never with a second period.
+- APA year letters on two different Smiths, undated works left identical,
+  and a deleted record's citation keeping a colliding number (all above).
+
+### What the tests prove, and what they do not
+The automated tests pin every style string against its manual, the import
+parsers, the update plan (what each citation and the bibliography become)
+and its idempotence. They cannot run Word. Word's 64-character limit on a
+content-control tag (JurisLab's tags are far shorter and refuse by name past
+64), the roughly 1.9 MB document-settings budget for the library, how many
+Undo presses revert one Update, and footnote insertion for Chicago notes are
+UNVERIFIED in Word and are checked by the in-Word pass in
+`docs/TEST-SCRIPT.md` §0ci. The ACS `(1)` and Nature `1.` list labels are
+conventional forms, not pinned by a quoted manual example.
+
 ## [2.141.0] — 2026-10-14 — Table of Authorities and Bluebook fixes
 
 From `docs/SCOPE-CITATIONS-2026-10.md` §B (every row pinned with its exact

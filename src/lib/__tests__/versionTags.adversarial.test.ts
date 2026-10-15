@@ -63,6 +63,7 @@ const PINNED: Record<string, string> = {
   "Spectroscopy: JCAMP overlay, exact isotope patterns, diastereotopic NMR, and Woodward–Fieser fixes": "2.139.0",
   "Audio, video and light: levels, loudness, timecode, transfer curves, photometry and exposure": "2.140.0",
   "Table of Authorities and Bluebook fixes": "2.141.0",
+  "Citation styles, BibTeX/RIS import and numbered bibliographies": "2.142.0",
 };
 
 describe("the manual test script's version tags are history, not a moving target", () => {

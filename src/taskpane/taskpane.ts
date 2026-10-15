@@ -2416,7 +2416,7 @@ const HOME_GROUPS: HomeGroup[] = [
     title: "Legal citations",
     // Science too since v2.142.0: the Bibliography panel (IEEE, ACS, Nature, Vancouver, APA,
     // Chicago; BibTeX/RIS import) is for papers and theses, not only briefs.
-    items: [{ mode: "citations", audience: ["legal", "science"], label: "Citations", desc: "Bluebook; IEEE/ACS/APA bibliographies" }],
+    items: [{ mode: "citations", audience: ["legal"], label: "Citations", desc: "Bluebook; IEEE/ACS/APA bibliographies" }],
   },
 ];
 

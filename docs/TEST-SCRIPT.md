@@ -14,7 +14,7 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
 
 **Citations** has a new **Bibliography** panel below the Bluebook form. Import references, pick one of seven
 styles, insert citations at the cursor, and press **Update numbering & bibliography** after any add, move or
-delete. Nothing is looked up online. The Citations tile now shows under the science filter on Home too.
+delete. Nothing is looked up online. Citations stays out of the Science filter on Home (it is a legal tool); open it from the full tool list.
 
 **Import**
 - [ ] ★ **BibTeX paste.** Paste

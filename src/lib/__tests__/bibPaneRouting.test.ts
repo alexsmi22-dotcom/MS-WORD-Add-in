@@ -111,8 +111,11 @@ describe("the pane is wired to the bibliography engines", () => {
     expect(a).toMatch(/cc\.tag = BIBLIOGRAPHY_TAG;/);
     expect(a).toMatch(/up\.report/);
   });
-  it("the Citations tile is offered to science users too", () => {
-    expect(PANE).toMatch(/mode: "citations", audience: \["legal", "science"\]/);
+  // The Science filter exists to hide legal tools (render-check.js guards it), so
+  // Citations stays legal-only there; bibliographies are reachable from the full
+  // tool list, which shows every tile by default.
+  it("the Citations tile stays out of the Science filter (render-check guard)", () => {
+    expect(PANE).toMatch(/mode: "citations", audience: \["legal"\]/);
   });
 });
 

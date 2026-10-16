@@ -31,6 +31,25 @@ import {
   overlayPrediction,
   OverlaySource,
 } from "../lib/spectroPane";
+import { bracketedBoxPlot, BracketChoice, BracketFigure } from "../lib/statsBrackets";
+import {
+  HostCapability,
+  FigurePresetChoice,
+  FIGURE_PRESET_CHOICES,
+  figureStyleNote,
+  PictureSignature,
+  findInsertedPicture,
+  prepareFigure,
+  refusalText,
+  decideInsertRoute,
+  insertedDescription,
+  rasterDpi,
+  rasterTarget,
+  pngPixelSize,
+  composePanelFigure,
+  PanelItem,
+} from "../lib/insertCapability";
+import { PresetWidth } from "../lib/figureStyle";
 import { solveBvp, BvpMethod } from "../lib/bvp";
 import { solveHeat, solveWave, solveLaplace, HeatScheme, PdeOutcome } from "../lib/pde";
 import { parseDaeSystem } from "../lib/daeParse";
@@ -1051,6 +1070,8 @@ let plotPreview: HTMLElement;
 let plotInsertBtn: HTMLButtonElement;
 /** The plot SVG from the most recent preview, for insertion. */
 let currentPlotSvg = "";
+/** Re-renders the current plot at a canvas width, keeping its aspect (figure styles, panels). */
+let currentPlotRender: ((w: number) => string) | null = null;
 let financeSection: HTMLElement;
 let finCalcSelect: HTMLSelectElement;
 let finInputs: HTMLElement;
@@ -1128,6 +1149,27 @@ let currentStatsText = "";
 // result" put the text in and silently left the chart on screen. Kept here so it
 // can be inserted as a picture, the same way Spectra does it.
 let currentStatsSvg = "";
+/** Re-renders the current Stats figure at a canvas width (figure styles), when it can. */
+let currentStatsRender: ((w: number) => string) | null = null;
+/** The bracket legend shown under the Stats figure; inserted as its caption. */
+let currentStatsCaption = "";
+let statsBracketsRow: HTMLElement;
+let statsBracketsSelect: HTMLSelectElement;
+let statsBracketsHideNs: HTMLInputElement;
+let statsBracketsTall: HTMLInputElement;
+// The figure style picker (v2.143.0): one control under every figure tool.
+let figStyleRow: HTMLElement;
+let figStyleSelect: HTMLSelectElement;
+let figWidthSelect: HTMLSelectElement;
+let figStyleNote: HTMLElement;
+let figVectorCheckbox: HTMLInputElement;
+// The multi-panel tray: figures added from any figure-style tool, inserted as ONE figure.
+let figPanelAddBtn: HTMLButtonElement;
+let figPanelCols: HTMLSelectElement;
+let figPanelCount: HTMLElement;
+let figPanelInsertBtn: HTMLButtonElement;
+let figPanelClearBtn: HTMLButtonElement;
+const figPanels: PanelItem[] = [];
 let engineeringSection: HTMLElement;
 let engineeringCalcSelect: HTMLSelectElement;
 let engineeringHint: HTMLElement;
@@ -1813,6 +1855,20 @@ Office.onReady((info) => {
   statsResult = document.getElementById("stats-result") as HTMLElement;
   statsInsertBtn = document.getElementById("stats-insert") as HTMLButtonElement;
   statsInsertChartBtn = document.getElementById("stats-insert-chart") as HTMLButtonElement;
+  statsBracketsRow = document.getElementById("stats-brackets-row") as HTMLElement;
+  statsBracketsSelect = document.getElementById("stats-brackets") as HTMLSelectElement;
+  statsBracketsHideNs = document.getElementById("stats-brackets-hidens") as HTMLInputElement;
+  statsBracketsTall = document.getElementById("stats-brackets-tall") as HTMLInputElement;
+  figStyleRow = document.getElementById("figstyle-row") as HTMLElement;
+  figStyleSelect = document.getElementById("figstyle-select") as HTMLSelectElement;
+  figWidthSelect = document.getElementById("figstyle-width") as HTMLSelectElement;
+  figStyleNote = document.getElementById("figstyle-note") as HTMLElement;
+  figVectorCheckbox = document.getElementById("figstyle-vector") as HTMLInputElement;
+  figPanelAddBtn = document.getElementById("figpanel-add") as HTMLButtonElement;
+  figPanelCols = document.getElementById("figpanel-cols") as HTMLSelectElement;
+  figPanelCount = document.getElementById("figpanel-count") as HTMLElement;
+  figPanelInsertBtn = document.getElementById("figpanel-insert") as HTMLButtonElement;
+  figPanelClearBtn = document.getElementById("figpanel-clear") as HTMLButtonElement;
   engineeringSection = document.getElementById("engineering-section") as HTMLElement;
   engineeringCalcSelect = document.getElementById("engineering-calc") as HTMLSelectElement;
   engineeringHint = document.getElementById("engineering-hint") as HTMLElement;
@@ -2107,6 +2163,19 @@ Office.onReady((info) => {
   statsCalcSelect.addEventListener("change", renderStatsInputs);
   statsInsertBtn.addEventListener("click", () => void runCompositeInsert(statsInsertBtn, insertStatsResult));
   statsInsertChartBtn.addEventListener("click", () => void insertStatsChart());
+  statsBracketsSelect.addEventListener("change", updateStatsPreview);
+  statsBracketsHideNs.addEventListener("change", updateStatsPreview);
+  statsBracketsTall.addEventListener("change", updateStatsPreview);
+  figStyleSelect.addEventListener("change", updateFigureStyleNote);
+  figWidthSelect.addEventListener("change", updateFigureStyleNote);
+  figPanelAddBtn.addEventListener("click", addCurrentFigureToPanels);
+  figPanelClearBtn.addEventListener("click", () => {
+    figPanels.length = 0;
+    updatePanelTray();
+  });
+  figPanelInsertBtn.addEventListener("click", () => void insertPanels());
+  updateFigureStyleNote();
+  updatePanelTray();
 
   populateAnalyzeCalcs();
   // The panels follow the select, whatever moved it — a panel click, a restored
@@ -3099,6 +3168,8 @@ function onInputChanged(): void {
   seqmapSection.style.display = mode === "seqmap" ? "block" : "none";
   peptideSection.style.display = mode === "peptide" ? "block" : "none";
   statsSection.style.display = mode === "stats" ? "block" : "none";
+  // The figure-style row shows ONLY where the insert honours it (FIGURE_STYLE_MODES).
+  figStyleRow.hidden = !FIGURE_STYLE_MODES.has(mode);
   analyzeSection.style.display = mode === "analyze" ? "block" : "none";
   engineeringSection.style.display = mode === "engineering" ? "block" : "none";
   pptSection.style.display = mode === "ppt" ? "block" : "none";
@@ -4017,11 +4088,33 @@ async function loadSelectedTable(): Promise<void> {
 
 /** The chart style currently selected in the pane. */
 function currentChartStyle(): ChartStyle {
+  // Under the USPTO figure style the chart IS a patent drawing (black and white,
+  // hatching), whatever the checkbox says; under a journal style the series take
+  // the validated Okabe–Ito palette with a marker and dash each. "As drawn" keeps
+  // the long-standing behaviour exactly (no palette key at all).
+  const preset = currentFigurePreset();
+  const patent = pptPatentCheckbox.checked || preset === "uspto";
   return {
-    patent: pptPatentCheckbox.checked,
+    patent,
     numerals: pptNumeralsCheckbox.checked,
     figLabel: pptFigLabelInput.value.trim(),
+    ...(preset !== "asdrawn" && !patent ? { palette: "okabe-ito" as const } : {}),
   };
+}
+
+/**
+ * The current Table→Chart chart re-rendered at a canvas width (figure styles,
+ * panels), or null for the table figure and the diagrams, which draw at their
+ * own size and are checked as drawn. Captures today's chart, kind and style.
+ */
+function tableGraphicRender(): ((w: number) => string) | null {
+  const kind = pptKindSelect.value as RenderKind;
+  if (kind === "tablefigure" || isRowKind(kind) || !currentTableChart) return null;
+  const chart = currentTableChart;
+  // USPTO 1.84: no title inside the artwork (the preset's allowTitle is false).
+  const title = currentFigurePreset() === "uspto" ? "" : pptTitleInput.value.trim();
+  const style = currentChartStyle();
+  return (w: number): string => buildChartPreviewSvg(chart, kind, title, style, w).svg;
 }
 
 /**
@@ -4030,7 +4123,8 @@ function currentChartStyle(): ChartStyle {
  */
 function renderTableGraphic(): { svg: string; warnings: string[] } | { svg: null; error: string } {
   const kind = pptKindSelect.value as RenderKind;
-  const title = pptTitleInput.value.trim();
+  // USPTO 1.84: no title inside the artwork (the preset's allowTitle is false).
+  const title = currentFigurePreset() === "uspto" ? "" : pptTitleInput.value.trim();
   const style = currentChartStyle();
   if (kind === "tablefigure") {
     if (!currentTableRows) return { svg: null, error: "" };
@@ -4098,32 +4192,35 @@ async function insertTableFigure(): Promise<void> {
     const style = currentChartStyle();
     const kind = pptKindSelect.value as RenderKind;
     const d = readSvgDims(rendered.svg, 380, 260);
-    const base64 = await renderFigurePng(rendered.svg, d.w, d.h);
     const kindLabel = kind === "tablefigure" ? "table figure" : kind;
     const alt = `${style.figLabel ? style.figLabel + " — " : ""}${kindLabel} of table (${currentTableRows?.length ?? 0} rows)${style.patent ? ", patent line-art style" : ""}`;
     const alsoText = pptWithTextCheckbox.checked && !!currentTableRows;
-    await Word.run(async (context) => {
-      const range = context.document.getSelection();
-      const picture = range.insertInlinePictureFromBase64(base64, Word.InsertLocation.after);
-      sizeFigure(picture, d.w, d.h);
-      picture.altTextDescription = alt;
-      // Optionally follow the image with an editable Word table of the data,
-      // so the text is editable even though the figure itself is an image.
-      let tail = picture.getRange(Word.RangeLocation.end);
-      let dataTable: Word.Table | null = null;
-      if (alsoText) {
-        const para = tail.insertParagraph("", Word.InsertLocation.after);
-        dataTable = insertFormattedWordTable(para.getRange(Word.RangeLocation.after), currentTableRows as string[][]);
-        tail = dataTable.getRange(Word.RangeLocation.after);
-      }
-      tail.select(Word.SelectionMode.end);
-      await context.sync();
-      if (dataTable) await clearTableListFormatting(context, dataTable);
-      await tagInserted(context, picture.getRange(), "formula-inserter:tablechart");
+    const how = await insertFigure({
+      svg: rendered.svg,
+      fallbackW: d.w,
+      fallbackH: d.h,
+      alt,
+      render: tableGraphicRender() ?? undefined,
+      chartKind: kind,
+      after: async (context, picture) => {
+        // Optionally follow the image with an editable Word table of the data,
+        // so the text is editable even though the figure itself is an image.
+        let tail = picture.getRange(Word.RangeLocation.end);
+        let dataTable: Word.Table | null = null;
+        if (alsoText) {
+          const para = tail.insertParagraph("", Word.InsertLocation.after);
+          dataTable = insertFormattedWordTable(para.getRange(Word.RangeLocation.after), currentTableRows as string[][]);
+          tail = dataTable.getRange(Word.RangeLocation.after);
+        }
+        tail.select(Word.SelectionMode.end);
+        await context.sync();
+        if (dataTable) await clearTableListFormatting(context, dataTable);
+        await tagInserted(context, picture.getRange(), "formula-inserter:tablechart");
+      },
     });
     // Surface any truncation warning on insert so it isn't missed — a filed
     // figure that silently omits rows/steps/branches would be a drafting error.
-    const base = alsoText ? "Figure + editable table inserted." : "Figure inserted.";
+    const base = alsoText ? `Figure + editable table inserted ${how}.` : `Figure inserted ${how}.`;
     if (rendered.warnings.length) {
       setStatus(`${base} Note: ${rendered.warnings.join(" ")}`, "");
     } else {
@@ -7093,6 +7190,7 @@ function buildPlotSeries(): { series: Series[]; error: string; warning: string }
 /** Live-renders the plot preview. */
 function updatePlotPreview(): void {
   currentPlotSvg = "";
+  currentPlotRender = null;
   plotInsertBtn.disabled = true;
   const { series, error, warning } = buildPlotSeries();
   if (error) {
@@ -7143,6 +7241,8 @@ function updatePlotPreview(): void {
   // The canvas grows to fit them, so the insert path must keep sizing from
   // readSvgDims on the actual SVG rather than from any nominal height.
   const svg = buildPlotSvg(filtered.series, { ...opts, notes });
+  // The same plot at another canvas width, height in proportion (380 × 270 default).
+  currentPlotRender = (w: number): string => buildPlotSvg(filtered.series, { ...opts, notes, width: w, height: Math.round((270 * w) / 380) });
   plotPreview.innerHTML = notes.length
     ? `${svg}<div class="hint" style="margin-top:4px">${esc(notes.join(" "))}</div>`
     : svg;
@@ -7240,17 +7340,15 @@ async function insertPlot(): Promise<void> {
     // grows a legend gutter, and rasterising the wider SVG into the old box
     // squashes the plot area the gutter exists to protect.
     const plotDims = readSvgDims(currentPlotSvg, 380, 270);
-    const base64 = await renderFigurePng(currentPlotSvg, plotDims.w, plotDims.h);
-    await Word.run(async (context) => {
-      const range = context.document.getSelection();
-      const picture = range.insertInlinePictureFromBase64(base64, Word.InsertLocation.after);
-      sizeFigure(picture, plotDims.w, plotDims.h);
-      picture.altTextDescription = `Plot: ${plotFn.value.trim() || "data"}`;
-      range.select(Word.SelectionMode.end);
-      await context.sync();
-      await tagInserted(context, picture.getRange(), "formula-inserter:plot");
+    const how = await insertFigure({
+      svg: currentPlotSvg,
+      fallbackW: plotDims.w,
+      fallbackH: plotDims.h,
+      alt: `Plot: ${plotFn.value.trim() || "data"}`,
+      tag: "formula-inserter:plot",
+      render: currentPlotRender ?? undefined,
     });
-    setStatus("Plot inserted.", "success");
+    setStatus(`Plot inserted ${how}.`, "success");
   } catch (error) {
     setStatus(`Could not insert plot: ${(error as Error).message}`, "error");
   } finally {
@@ -8880,6 +8978,13 @@ interface StatOutput {
    * separate insertion.
    */
   svg?: string;
+  /**
+   * v2.143.0: the same figure with significance brackets, built ONLY from this
+   * result's own engine object (lib/statsBrackets.ts). Present on the two-sample
+   * and paired t-tests, Mann–Whitney, Wilcoxon and Tukey HSD. `w` re-renders at a
+   * canvas width, for the figure styles.
+   */
+  brackets?: (choice: BracketChoice, w?: number) => BracketFigure;
 }
 interface StatCalc {
   id: string;
@@ -9216,6 +9321,17 @@ const STAT_CALCS: StatCalc[] = [
           ],
           { title: `${label} two-sample t-test`, ylabel: "value" },
         ),
+        brackets: (choice, w) =>
+          bracketedBoxPlot(
+            [
+              { label: "group 1", values: a },
+              { label: "group 2", values: b },
+            ],
+            { title: `${label} two-sample t-test`, ylabel: "value" },
+            { kind: "t", result: res },
+            choice,
+            w,
+          ),
       };
     },
   },
@@ -9252,6 +9368,20 @@ const STAT_CALCS: StatCalc[] = [
           ],
           { title: "Paired t-test", ylabel: "value" },
         ),
+        // The bracket joins cond. 1 and cond. 2 (boxes 0 and 1), carrying the
+        // paired test's own p; the difference box is not a group and gets none.
+        brackets: (choice, w) =>
+          bracketedBoxPlot(
+            [
+              { label: "cond. 1", values: a },
+              { label: "cond. 2", values: b },
+              { label: "difference", values: a.map((v, i) => v - b[i]) },
+            ],
+            { title: "Paired t-test", ylabel: "value" },
+            { kind: "t", result: res },
+            choice,
+            w,
+          ),
       };
     },
   },
@@ -9522,8 +9652,11 @@ const STAT_CALCS: StatCalc[] = [
 
       // The post-hoc only makes sense once the omnibus test is significant, and
       // running it anyway is the classic way to manufacture a finding.
+      // Kept for the brackets: they carry THIS run's Holm-adjusted p's, nothing else.
+      let dunn: ReturnType<typeof dunnTest> | null = null;
       if (res.p < 0.05) {
         const d = dunnTest(groups, "holm");
+        dunn = d;
         if (d.ok) {
           lines.push("");
           lines.push("Dunn post-hoc (Holm-adjusted):");
@@ -9552,6 +9685,19 @@ const STAT_CALCS: StatCalc[] = [
           groups.map((g, i) => ({ label: `group ${i + 1}`, values: g })),
           { title: `Kruskal-Wallis (${groups.length} groups)`, ylabel: "value" },
         ),
+        // Dunn brackets exist only when Dunn ran (the omnibus test was significant):
+        // a bracket without a post-hoc behind it would be a claim no test made.
+        brackets:
+          dunn && dunn.ok
+            ? (choice, w) =>
+                bracketedBoxPlot(
+                  groups.map((g, i) => ({ label: `group ${i + 1}`, values: g })),
+                  { title: `Kruskal-Wallis (${groups.length} groups)`, ylabel: "value" },
+                  { kind: "dunn", result: dunn as ReturnType<typeof dunnTest>, k: groups.length, correction: "holm" },
+                  choice,
+                  w,
+                )
+            : undefined,
       };
     },
   },
@@ -9894,7 +10040,10 @@ const STAT_CALCS: StatCalc[] = [
       const alpha = Number(r("alpha")) || 0.05;
       const res = tukeyHSD(groups, alpha);
       if (!res) return { text: "Tukey HSD needs at least two groups with data in each.", ok: false };
-      if (!Number.isFinite(res.qCritical))
+      // The REAL zero-variance condition: tukeyHSD always returns a finite q
+      // critical, so the old `!Number.isFinite(res.qCritical)` never fired and
+      // [[1,1],[2,2]] reported q = Infinity, p = 0 (and could bracket "****").
+      if (!(res.mse > 0))
         return { text: "Tukey HSD is undefined here \u2014 every group has zero within-group variance.", ok: false };
 
       // Report the omnibus test alongside: reading a post-hoc without it invites
@@ -9955,6 +10104,19 @@ const STAT_CALCS: StatCalc[] = [
             zero: 0,
           },
         ),
+        // With brackets on, the figure becomes the groups themselves with the
+        // test's own family-wise p on each pair (never re-corrected). "Off"
+        // keeps the forest plot above, which is what this figure always was.
+        brackets: (choice, w) =>
+          choice.label === "off"
+            ? { ok: true, svg: "", caption: "" }
+            : bracketedBoxPlot(
+                groups.map((g, i) => ({ label: `group ${i + 1}`, values: g })),
+                { title: `Tukey HSD (${res.k} groups)`, ylabel: "value" },
+                { kind: "tukey", result: res },
+                choice,
+                w,
+              ),
       };
     },
   },
@@ -10094,6 +10256,17 @@ const STAT_CALCS: StatCalc[] = [
           ],
           { title: "Mann-Whitney U", ylabel: "value" },
         ),
+        brackets: (choice, w) =>
+          bracketedBoxPlot(
+            [
+              { label: "group 1", values: a },
+              { label: "group 2", values: b },
+            ],
+            { title: "Mann-Whitney U", ylabel: "value" },
+            { kind: "mann-whitney", result: res },
+            choice,
+            w,
+          ),
       };
     },
   },
@@ -10130,6 +10303,18 @@ const STAT_CALCS: StatCalc[] = [
           ],
           { title: "Wilcoxon signed-rank (tied pairs excluded)", ylabel: "value" },
         ),
+        brackets: (choice, w) =>
+          bracketedBoxPlot(
+            [
+              { label: "cond. 1", values: a },
+              { label: "cond. 2", values: b },
+              { label: "difference", values: a.map((v, i) => v - b[i]).filter((d) => d !== 0) },
+            ],
+            { title: "Wilcoxon signed-rank (tied pairs excluded)", ylabel: "value" },
+            { kind: "wilcoxon", result: res },
+            choice,
+            w,
+          ),
       };
     },
   },
@@ -10603,12 +10788,43 @@ function updateStatsPreview(): void {
   // Exclude the "—" no-value sentinel (from a non-finite computation) so a
   // dash placeholder is never inserted into the document.
   const insertable = out.ok !== false && insertableResultText(out.text);
+  // Significance brackets (v2.143.0): offered only where this result carries its
+  // own engine object (out.brackets). A refusal from the bracket builders is shown
+  // with its message and the two remedies it names; the plain figure stays.
+  let figSvg = out.svg ?? "";
+  let caption = "";
+  let bracketErr = "";
+  currentStatsRender = null;
+  const bf = out.ok !== false ? out.brackets : undefined;
+  statsBracketsRow.hidden = !bf;
+  if (bf) {
+    const choice = currentBracketChoice();
+    const fig = bf(choice);
+    if (fig.ok && fig.svg) {
+      figSvg = fig.svg;
+      caption = fig.caption;
+      // A re-render (figure style, panel) whose brackets fail must FAIL, never
+      // fall back to the plain figure: the bracket caption would then go in under
+      // a figure without brackets. The message names the remedy.
+      currentStatsRender = (w: number): string => {
+        const again = bf(choice, w);
+        // The message names only the remedies that can work (statsBrackets.fitRemedy).
+        if (!again.ok) throw new Error(again.error);
+        return again.svg;
+      };
+    } else if (!fig.ok) {
+      bracketErr = `${fig.error} Or turn brackets off.`;
+    }
+  }
   statsResult.innerHTML =
     esc(out.text).replace(/\n/g, "<br>") +
     // The SVG is generated by this code, never from user input.
-    (out.svg ? `<div class="stats-figure">${out.svg}</div>` : "");
+    (figSvg ? `<div class="stats-figure">${figSvg}</div>` : "") +
+    (caption ? `<p class="seq-disclaimer stats-caption">${esc(caption)}</p>` : "") +
+    (bracketErr ? `<p class="seq-warnings warn">${esc(bracketErr)}</p>` : "");
   currentStatsText = insertable ? out.text : "";
-  currentStatsSvg = out.svg ?? "";
+  currentStatsSvg = figSvg;
+  currentStatsCaption = caption;
   statsInsertBtn.disabled = !insertable;
   // THE CHART BUTTON OBEYS THE TEXT GATE TOO.
   //
@@ -10688,18 +10904,17 @@ async function insertFinanceResult(): Promise<void> {
     // legend outside the plot frame widens the canvas, and pinning the nominal
     // size would squash every labelled figure.
     const dims = readSvgDims(currentFinSvg, 380, 250);
-    const base64 = await renderFigurePng(currentFinSvg, dims.w * 2, dims.h * 2);
-    await Word.run(async (context) => {
-      const range = context.document.getSelection();
-      const picture = range.insertInlinePictureFromBase64(base64, Word.InsertLocation.after);
-      sizeFigure(picture, dims.w, dims.h);
-      const calc = FIN_CALCS.find((c) => c.id === finCalcSelect.value);
-      picture.altTextDescription = `Finance chart: ${calc?.name ?? "result"}`;
-      range.select(Word.SelectionMode.end);
-      await context.sync();
-      await tagInserted(context, picture.getRange(), "formula-inserter:finance-chart");
+    const calc = FIN_CALCS.find((c) => c.id === finCalcSelect.value);
+    const how = await insertFigure({
+      svg: currentFinSvg,
+      fallbackW: dims.w,
+      fallbackH: dims.h,
+      alt: `Finance chart: ${calc?.name ?? "result"}`,
+      tag: "formula-inserter:finance-chart",
+      // Finance rendered at 2× its natural size before figureScale; kept.
+      supersample: 2,
     });
-    setStatus("Result and chart inserted.", "success");
+    setStatus(`Result and chart inserted (chart ${how}).`, "success");
   } catch (error) {
     // THE TEXT ALREADY LANDED — say so. "Could not insert chart" on its own
     // reads as "nothing was inserted", and the reasonable response to that is
@@ -10726,27 +10941,30 @@ async function insertStatsChart(): Promise<boolean> {
   try {
     // The figure's OWN aspect, not the spectrum chart's. A stacked diagnostic
     // figure is tall and narrow; rasterising it into a wide spectrum-shaped box
-    // would squash it.
+    // would squash it. (insertFigure sizes from the SVG's own width/height.)
     const natural = svgNaturalSize(currentStatsSvg);
-    const scale = 2; // render above display size so the picture stays sharp
-    const size = { width: natural.width * scale, height: natural.height * scale };
-    const base64 = await renderFigurePng(currentStatsSvg, size.width, size.height);
-    await Word.run(async (context) => {
-      const range = context.document.getSelection();
-      const picture = range.insertInlinePictureFromBase64(base64, Word.InsertLocation.after);
-      sizeFigure(picture, natural.width, natural.height);
-      // THE HUMAN NAME, not the registry slug. `statsCalcSelect.value` is the
-      // entry's `id`, so a screen-reader user was getting "Statistics
-      // diagnostic plot for multiregress". Finance and Bio/Assay both resolve
-      // through their calc table two lines from here; Stats did not, in the
-      // release whose own commit message was about honest alt text.
-      const statsCalc = STAT_CALCS.find((c) => c.id === statsCalcSelect.value);
-      picture.altTextDescription = `Statistics figure: ${statsCalc?.name ?? "diagnostic plot"}`;
-      range.select(Word.SelectionMode.end);
-      await context.sync();
-      await tagInserted(context, picture.getRange(), "formula-inserter:stats-chart");
+    // THE HUMAN NAME, not the registry slug. `statsCalcSelect.value` is the
+    // entry's `id`, so a screen-reader user was getting "Statistics
+    // diagnostic plot for multiregress". Finance and Bio/Assay both resolve
+    // through their calc table two lines from here; Stats did not, in the
+    // release whose own commit message was about honest alt text.
+    const statsCalc = STAT_CALCS.find((c) => c.id === statsCalcSelect.value);
+    const caption = currentStatsCaption;
+    const how = await insertFigure({
+      svg: currentStatsSvg,
+      fallbackW: natural.width,
+      fallbackH: natural.height,
+      alt: `Statistics figure: ${statsCalc?.name ?? "diagnostic plot"}${caption ? `. ${caption}` : ""}`,
+      tag: "formula-inserter:stats-chart",
+      render: currentStatsRender ?? undefined,
+      // Stats rendered at 2× its natural size before figureScale; kept, so an
+      // "As drawn" insert is the same PNG it always was.
+      supersample: 2,
+      // The bracket legend is the figure's caption: what the marks mean, which
+      // test, which correction. It goes in as text under the picture.
+      after: captionAfter(caption),
     });
-    setStatus("Chart inserted.", "success");
+    setStatus(`Chart inserted ${how}.`, "success");
     return true;
   } catch (error) {
     setStatus(`Could not insert chart: ${(error as Error).message}`, "error");
@@ -32865,18 +33083,15 @@ async function insertAssayPlot(): Promise<boolean> {
   try {
     // Intrinsic size — the "data"/"fit" legend widens this SVG past 380.
     const fitDims = readSvgDims(currentAssayPlotSvg, 380, 270);
-    const base64 = await renderFigurePng(currentAssayPlotSvg, fitDims.w, fitDims.h);
-    await Word.run(async (context) => {
-      const range = context.document.getSelection();
-      const picture = range.insertInlinePictureFromBase64(base64, Word.InsertLocation.after);
-      sizeFigure(picture, fitDims.w, fitDims.h);
-      const calc = ASSAY_CALCS.find((c) => c.id === assayCalcSelect.value);
-      picture.altTextDescription = `Assay fit: ${calc?.name ?? "curve"}`;
-      range.select(Word.SelectionMode.end);
-      await context.sync();
-      await tagInserted(context, picture.getRange(), "formula-inserter:assay");
+    const calc = ASSAY_CALCS.find((c) => c.id === assayCalcSelect.value);
+    const how = await insertFigure({
+      svg: currentAssayPlotSvg,
+      fallbackW: fitDims.w,
+      fallbackH: fitDims.h,
+      alt: `Assay fit: ${calc?.name ?? "curve"}`,
+      tag: "formula-inserter:assay",
     });
-    setStatus("Fit plot inserted.", "success");
+    setStatus(`Fit plot inserted ${how}.`, "success");
     return true;
   } catch (error) {
     setStatus(`Could not insert fit plot: ${(error as Error).message}`, "error");
@@ -34058,6 +34273,337 @@ async function renderFigurePng(svg: string, width: number, height: number): Prom
 function sizeFigure(pic: Word.InlinePicture, width: number, height: number): void {
   pic.width = figurePoints(width);
   pic.height = figurePoints(height);
+}
+
+// ---------------------------------------------------------------------------
+// One figure insert path: figure style, vector or PNG, re-find and size (v2.143.0)
+// ---------------------------------------------------------------------------
+
+/** What this host can do, read once per insert. Unknown is never "yes" (unlike wordApiSupported). */
+function hostCapability(): HostCapability {
+  let platform: string | null = null;
+  let imageCoercion12: boolean | null = null;
+  let hasSetSelectedData = false;
+  try {
+    const p = (Office.context as unknown as { platform?: unknown }).platform;
+    platform = typeof p === "string" ? p : null;
+  } catch {
+    platform = null;
+  }
+  try {
+    imageCoercion12 = Office.context.requirements.isSetSupported("ImageCoercion", "1.2") === true;
+  } catch {
+    imageCoercion12 = null;
+  }
+  try {
+    hasSetSelectedData = typeof Office.context.document?.setSelectedDataAsync === "function";
+  } catch {
+    hasSetSelectedData = false;
+  }
+  return { platform, imageCoercion12, hasSetSelectedData, vectorRequested: !!figVectorCheckbox?.checked };
+}
+
+/** The figure style chosen in the pane ("As drawn" unless the user picked one). */
+function currentFigurePreset(): FigurePresetChoice {
+  const v = figStyleSelect?.value as FigurePresetChoice | undefined;
+  return v && (FIGURE_PRESET_CHOICES as readonly string[]).includes(v) ? v : "asdrawn";
+}
+
+function currentFigureWidth(): PresetWidth {
+  const v = figWidthSelect?.value;
+  return v === "oneAndHalf" || v === "double" ? v : "single";
+}
+
+function updateFigureStyleNote(): void {
+  const choice = currentFigurePreset();
+  figWidthSelect.disabled = choice === "asdrawn";
+  figStyleNote.textContent = figureStyleNote(choice, currentFigureWidth());
+  // Table→Chart draws with the style's palette (Okabe–Ito under a journal style,
+  // black-and-white hatching under USPTO), so its preview follows the choice: the
+  // preview is the figure that will be inserted, not a different one.
+  if (currentMode() === "ppt") updatePptPreview();
+}
+
+/** The Stats bracket controls, read as one choice. */
+function currentBracketChoice(): BracketChoice {
+  const v = statsBracketsSelect?.value;
+  return {
+    label: v === "stars" || v === "p" ? v : "off",
+    hideNs: !!statsBracketsHideNs?.checked,
+    tall: !!statsBracketsTall?.checked,
+  };
+}
+
+/**
+ * Modes whose figure inserts go through insertFigure, so the figure-style row is
+ * shown there and ONLY there (onInputChanged). Every other figure tool —
+ * Engineering, Spectra, Sequence Map, Solve, the substituent gallery, the 3D
+ * model — still inserts PNG as drawn through its own path; TEST-SCRIPT §0cj
+ * checks that the row is absent from them. A mode is added here in the same
+ * change that routes its insert through insertFigure (figurePaneRouting.test.ts
+ * pins the pairing).
+ */
+const FIGURE_STYLE_MODES = new Set<string>(["plot", "ppt", "stats", "finance", "assay"]);
+
+interface FigureInsert {
+  svg: string;
+  fallbackW: number;
+  fallbackH: number;
+  alt: string;
+  /** tagInserted tag, if the site tags its picture. */
+  tag?: string;
+  /** Re-render the same figure on a canvas `w` units wide (lets a preset fit it). */
+  render?: (w: number) => string;
+  chartKind?: string;
+  /**
+   * The site's own supersampling before figureScale (Stats and Finance rendered
+   * at 2× their natural size). Kept so an "As drawn" insert is the same PNG as
+   * before figure styles existed.
+   */
+  supersample?: number;
+  /** Runs in the same Word.run, after the picture is sized: legends, tables, selection. */
+  after?: (context: Word.RequestContext, picture: Word.InlinePicture) => Promise<void> | void;
+}
+
+/** An `after` hook that puts a caption paragraph under the picture and leaves the cursor after it. */
+function captionAfter(caption: string): FigureInsert["after"] {
+  if (!caption) return undefined;
+  return (_context, picture) => {
+    picture
+      .getRange(Word.RangeLocation.end)
+      .insertParagraph(caption, Word.InsertLocation.after)
+      .getRange(Word.RangeLocation.end)
+      .select(Word.SelectionMode.end);
+  };
+}
+
+/** setSelectedDataAsync as a promise that always settles (10 s bound on the callback API). */
+function setSelectedSvg(svg: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    // A CALLBACK IS NOT A BOUND (svgToPngBase64 has the same timer, for the same
+    // reason): a host that never calls back would hold the insert open forever.
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      reject(new Error("Word did not answer the vector insert within 10 seconds."));
+    }, 10000);
+    try {
+      // No imageWidth/imageHeight: whether Word reads them as px or pt is not
+      // documented (TEST-SCRIPT §0cj measures it). The picture is found again and
+      // sized in points from the SVG that was sent, which needs neither.
+      Office.context.document.setSelectedDataAsync(svg, { coercionType: Office.CoercionType.XmlSvg }, (res: Office.AsyncResult<void>) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        if (res.status === Office.AsyncResultStatus.Succeeded) resolve();
+        else reject(new Error(res.error?.message || "the vector insert failed"));
+      });
+    } catch (e) {
+      if (!settled) {
+        settled = true;
+        clearTimeout(timer);
+        reject(e as Error);
+      }
+    }
+  });
+}
+
+async function bodyPictureSignatures(context: Word.RequestContext): Promise<{ pics: Word.InlinePictureCollection; sigs: PictureSignature[] }> {
+  const pics = context.document.body.inlinePictures;
+  pics.load("items/width,items/height,items/altTextDescription");
+  await context.sync();
+  return { pics, sigs: pics.items.map((p) => ({ width: p.width, height: p.height, alt: p.altTextDescription ?? "" })) };
+}
+
+/**
+ * Vector route. setSelectedDataAsync REPLACES the selection, so the selection is
+ * collapsed to its end first (or the user's selected text would be deleted). It
+ * returns no picture, so the body's pictures are listed before and after and the
+ * ONE new picture is found (insertCapability.findInsertedPicture) and sized from
+ * the SVG actually sent.
+ *
+ * Returns { fallback } — the reason to insert PNG instead — ONLY when Word
+ * refused the vector insert, i.e. nothing landed. When Word reported success but
+ * the picture cannot be identified (none new inline — it may have landed
+ * floating — or ambiguous), it THROWS and inserts nothing more: a PNG on top of a
+ * vector picture that is somewhere in the document would be two figures, and
+ * sizing a guess is the defect class this step exists to prevent.
+ */
+async function insertFigureVector(o: FigureInsert, svg: string, widthPt: number, heightPt: number): Promise<{ fallback: string | null; format: string | null }> {
+  let before: PictureSignature[] = [];
+  await Word.run(async (context) => {
+    context.document.getSelection().select(Word.SelectionMode.end);
+    await context.sync();
+    before = (await bodyPictureSignatures(context)).sigs;
+  });
+  try {
+    await setSelectedSvg(svg);
+  } catch (e) {
+    return { fallback: `Word refused the vector picture (${(e as Error).message})`, format: null };
+  }
+  let format: string | null = null;
+  await Word.run(async (context) => {
+    const { pics, sigs } = await bodyPictureSignatures(context);
+    const found = findInsertedPicture(before, sigs);
+    if (!found.ok) {
+      throw new Error(
+        `Word reported the vector picture inserted, but ${found.reason}. Nothing else was inserted. ` +
+          `Check the document (press Ctrl/⌘+Z if a picture landed), untick “Insert as vector SVG”, and insert again`,
+      );
+    }
+    const pic = pics.items[found.index];
+    pic.width = widthPt;
+    pic.height = heightPt;
+    pic.altTextDescription = o.alt;
+    // Word for Windows/Mac can say what it stored (WordApiDesktop 1.1). Read, never assumed.
+    let canReadFormat = false;
+    try {
+      canReadFormat = Office.context.requirements.isSetSupported("WordApiDesktop", "1.1") === true;
+    } catch {
+      canReadFormat = false;
+    }
+    if (canReadFormat) pic.load("imageFormat");
+    pic.getRange(Word.RangeLocation.end).select(Word.SelectionMode.end);
+    await context.sync();
+    if (canReadFormat) format = String(pic.imageFormat);
+    if (o.tag) await tagInserted(context, pic.getRange(), o.tag);
+    if (o.after) await o.after(context, pic);
+    await context.sync();
+  });
+  return { fallback: null, format };
+}
+
+/**
+ * Inserts one figure after the selection, under the pane's figure style, as PNG
+ * (or as vector SVG when the user asked for it and Word supports it). Returns the
+ * words for the status line ("as PNG at 384 dpi (Nature, 89 mm, text 5.0–7.0 pt)").
+ * Throws with every violation named when the style refuses the figure.
+ *
+ * "As drawn" with vector off is the pre-v2.143 insert, byte for byte: the same
+ * SVG, rendered at the same px (times the site's own supersampling), pinned to
+ * the same points, with the same alt text and tag.
+ */
+async function insertFigure(o: FigureInsert): Promise<string> {
+  const prepared = prepareFigure(
+    { svg: o.svg, preset: currentFigurePreset(), width: currentFigureWidth(), render: o.render, chartKind: o.chartKind },
+    o.fallbackW,
+    o.fallbackH,
+  );
+  if (!prepared.ok) throw new Error(refusalText(prepared));
+  const route = decideInsertRoute(hostCapability());
+  const style = prepared.presetNote ? ` (${prepared.presetNote})` : "";
+  let rasterWhy = route.reason;
+  if (route.route === "svg") {
+    const v = await insertFigureVector(o, prepared.svg, prepared.widthPt, prepared.heightPt);
+    if (v.fallback === null) {
+      const stored = v.format && v.format.toLowerCase() !== "svg" ? ` — but Word reports it stored the picture as ${v.format}` : "";
+      return `as ${insertedDescription("svg", null)}${style}${stored}`;
+    }
+    rasterWhy = v.fallback;
+  }
+  const t = rasterTarget(prepared, o.supersample ?? 1);
+  const png = await renderFigurePng(prepared.svg, t.w, t.h);
+  await Word.run(async (context) => {
+    const range = context.document.getSelection();
+    const picture = range.insertInlinePictureFromBase64(png, Word.InsertLocation.after);
+    picture.width = prepared.widthPt;
+    picture.height = prepared.heightPt;
+    picture.altTextDescription = o.alt;
+    range.select(Word.SelectionMode.end);
+    await context.sync();
+    if (o.tag) await tagInserted(context, picture.getRange(), o.tag);
+    if (o.after) await o.after(context, picture);
+    await context.sync();
+  });
+  // The dpi of the PNG that was inserted, read from its own header (pngPixelSize),
+  // not the factor that was asked for: the payload loop may have stepped it down.
+  const px = pngPixelSize(png);
+  const dpi = px ? rasterDpi(px.width, prepared.widthPt) : null;
+  return `as ${insertedDescription("png", dpi)}${style}${rasterWhy ? `; not vector: ${rasterWhy}` : ""}`;
+}
+
+// ---------------------------------------------------------------------------
+// The multi-panel tray (v2.143.0)
+// ---------------------------------------------------------------------------
+
+/** At most this many panels in the tray (composePanels allows 52; a column figure does not). */
+const MAX_TRAY_PANELS = 12;
+
+/** The figure the current tool would insert, as a panel — with its re-render where the tool has one. */
+function currentModeFigure(): PanelItem | null {
+  switch (currentMode()) {
+    case "stats":
+      return currentStatsSvg
+        ? { svg: currentStatsSvg, render: currentStatsRender ?? undefined, caption: currentStatsCaption || undefined, source: "Statistics" }
+        : null;
+    case "plot":
+      return currentPlotSvg ? { svg: currentPlotSvg, render: currentPlotRender ?? undefined, source: "Plot" } : null;
+    case "ppt": {
+      const r = renderTableGraphic();
+      return r.svg === null ? null : { svg: r.svg, render: tableGraphicRender() ?? undefined, source: "Table → Chart" };
+    }
+    case "finance":
+      return currentFinSvg ? { svg: currentFinSvg, source: "Finance" } : null;
+    case "assay":
+      return currentAssayPlotSvg ? { svg: currentAssayPlotSvg, source: "Bio/Assay" } : null;
+    default:
+      return null;
+  }
+}
+
+function updatePanelTray(): void {
+  const n = figPanels.length;
+  figPanelCount.textContent =
+    n === 0
+      ? "No panels yet. Add figures from Plot, Table → Chart, Statistics, Finance or Bio/Assay, then insert them as one figure."
+      : `${n} panel${n === 1 ? "" : "s"}: ${figPanels.map((p, i) => `${i + 1}. ${p.source}`).join(" · ")}` +
+        (n < 2 ? ". Add at least one more." : ".");
+  figPanelInsertBtn.disabled = n < 2;
+  figPanelClearBtn.disabled = n === 0;
+  figPanelAddBtn.disabled = n >= MAX_TRAY_PANELS;
+}
+
+function addCurrentFigureToPanels(): void {
+  const item = currentModeFigure();
+  if (!item) {
+    setStatus("There is no figure here to add — compute a result with a chart first.", "error");
+    return;
+  }
+  if (figPanels.length >= MAX_TRAY_PANELS) {
+    setStatus(`The tray holds at most ${MAX_TRAY_PANELS} panels.`, "error");
+    return;
+  }
+  figPanels.push(item);
+  updatePanelTray();
+  setStatus(`Added to the panels (${figPanels.length}).`, "success");
+}
+
+async function insertPanels(): Promise<void> {
+  const cols = Math.min(Number(figPanelCols.value) || 2, figPanels.length);
+  const fig = composePanelFigure(figPanels.slice(), currentFigurePreset(), currentFigureWidth(), cols);
+  if (!fig.ok) {
+    setStatus(`Could not insert the panels: ${refusalText(fig)}`, "error");
+    return;
+  }
+  figPanelInsertBtn.disabled = true;
+  setStatus("Inserting the multi-panel figure…");
+  try {
+    const d = readSvgDims(fig.svg, 380, 260);
+    const how = await insertFigure({
+      svg: fig.svg,
+      fallbackW: d.w,
+      fallbackH: d.h,
+      alt: `Multi-panel figure: ${fig.labels.map((l, i) => `${l} ${figPanels[i].source}`).join("; ")}${fig.caption ? `. ${fig.caption}` : ""}`,
+      tag: "formula-inserter:panels",
+      after: captionAfter(fig.caption),
+    });
+    setStatus(`Multi-panel figure inserted ${how}.`, "success");
+  } catch (error) {
+    setStatus(`Could not insert the panels: ${(error as Error).message}`, "error");
+  } finally {
+    updatePanelTray();
+  }
 }
 
 /**

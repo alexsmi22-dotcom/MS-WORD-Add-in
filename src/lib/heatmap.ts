@@ -40,6 +40,7 @@ import {
   DIVERGING_COOL,
 } from "./chartPalette";
 import { fmtTick } from "./plot";
+import { fmtSig, formatValueRow, trueMinus } from "./axis";
 
 export interface HeatmapOptions {
   /** Sequential (magnitude) or diverging (polarity about a midpoint). */
@@ -65,11 +66,16 @@ const esc = (s: string): string =>
 function cellLabel(v: number): string {
   if (!Number.isFinite(v)) return "";
   const a = Math.abs(v);
-  if (a !== 0 && (a >= 1e5 || a < 1e-3)) return v.toExponential(1).replace("e+", "e");
-  if (Number.isInteger(v)) return String(v);
-  if (a >= 100) return v.toFixed(0);
-  if (a >= 10) return v.toFixed(1);
-  return v.toFixed(2);
+  // Journal notation, never e-notation, and U+2212 for negatives (axis.ts).
+  if (a !== 0 && (a >= 1e5 || a < 1e-3)) return fmtSig(v, 2);
+  let s: string;
+  if (Number.isInteger(v)) s = String(v);
+  else if (a >= 100) s = v.toFixed(0);
+  else if (a >= 10) s = v.toFixed(1);
+  else s = v.toFixed(2);
+  // toFixed can round a small negative to "-0.00"; a signed zero is not a value.
+  if (/^-0(\.0*)?$/.test(s)) s = s.slice(1);
+  return trueMinus(s);
 }
 
 /**
@@ -287,19 +293,33 @@ export function buildHeatmapSvg(
   const tickText = (x: number, label: string, anchor: string): string =>
     `<text x="${x.toFixed(1)}" y="${(barY + barH + 11).toFixed(1)}" text-anchor="${anchor}" ` +
     `font-family="Segoe UI, Arial, sans-serif" font-size="9.5" fill="${INK.muted}">${esc(label)}</text>`;
+  //
+  // The labels are ONE ROW (axis.ts formatValueRow): the same decimals at both
+  // ends, U+2212, and a shared ×10ⁿ written on each label when the scale is
+  // large or small — never e-notation. EXCEPT where shared decimals cannot keep
+  // every end within 1% of its true value (a 0.79 … 9840 bar read "0.8 …
+  // 9840.0"): then each end is labelled on its own ("0.79 … 9840").
+  const barRow = (vals: number[]): string[] => {
+    const r = formatValueRow(vals, 3);
+    return r.labels.map((l) => (r.multiplier ? l + r.multiplier : l));
+  };
+  let midLabel = "";
   if (scale === "diverging") {
     const half = Math.max(Math.abs(max - midpoint), Math.abs(midpoint - min));
-    parts.push(tickText(barX, fmtTick(midpoint - half), "start"));
-    parts.push(tickText(barX + barW / 2, fmtTick(midpoint), "middle"));
-    parts.push(tickText(barX + barW, fmtTick(midpoint + half), "end"));
+    const [l0, l1, l2] = barRow([midpoint - half, midpoint, midpoint + half]);
+    parts.push(tickText(barX, l0, "start"));
+    parts.push(tickText(barX + barW / 2, l1, "middle"));
+    parts.push(tickText(barX + barW, l2, "end"));
+    midLabel = l1;
   } else {
-    parts.push(tickText(barX, fmtTick(min), "start"));
-    parts.push(tickText(barX + barW, fmtTick(max), "end"));
+    const [l0, l1] = barRow([min, max]);
+    parts.push(tickText(barX, l0, "start"));
+    parts.push(tickText(barX + barW, l1, "end"));
   }
   parts.push(
     `<text x="${(barX + barW + 10).toFixed(1)}" y="${(barY + barH - 1).toFixed(1)}" ` +
       `font-family="Segoe UI, Arial, sans-serif" font-size="9.5" fill="${INK.muted}">` +
-      `${esc(scale === "diverging" ? `diverging about ${fmtTick(midpoint)}` : "low to high")}</text>`,
+      `${esc(scale === "diverging" ? `diverging about ${midLabel}` : "low to high")}</text>`,
   );
 
   parts.push("</svg>");

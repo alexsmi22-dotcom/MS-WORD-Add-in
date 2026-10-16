@@ -54,6 +54,8 @@ export interface LayoutText {
   anchor: "start" | "middle" | "end";
   fontPx: number;
   bold?: boolean;
+  /** The figure title (drawn with data-figure-title, so a no-title style can find it). */
+  title?: boolean;
 }
 
 export interface DiagramLayout {
@@ -213,7 +215,7 @@ function layoutSteps(steps: Step[], title: string, style: ChartStyle, opts: Step
   const connR = 10;
 
   if (title) {
-    layout.texts.push({ x: W / 2, y: 17, text: title.length > 48 ? title.slice(0, 47) + "…" : title, anchor: "middle", fontPx: 13, bold: true });
+    layout.texts.push({ x: W / 2, y: 17, text: title.length > 48 ? title.slice(0, 47) + "…" : title, anchor: "middle", fontPx: 13, bold: true, title: true });
   }
 
   let y = title ? 34 : 16;
@@ -459,7 +461,7 @@ function layoutTree(roots: TreeNode[], title: string, style: ChartStyle, warning
   layout.H = top + depth * levelH - (levelH - boxH) + (figLabel ? 36 : 16);
 
   if (title) {
-    layout.texts.push({ x: LW / 2, y: 19, text: title.length > 48 ? title.slice(0, 47) + "…" : title, anchor: "middle", fontPx: 13, bold: true });
+    layout.texts.push({ x: LW / 2, y: 19, text: title.length > 48 ? title.slice(0, 47) + "…" : title, anchor: "middle", fontPx: 13, bold: true, title: true });
   }
 
   let cursor = 10 + (LW - leaves * slotW - 20) / 2 + 10;
@@ -625,7 +627,7 @@ function renderLayoutSvg(layout: DiagramLayout, style: ChartStyle, emptyMessage:
 
   for (const t of layout.texts) {
     parts.push(
-      `<text x="${t.x.toFixed(1)}" y="${t.y.toFixed(1)}" text-anchor="${t.anchor}" font-family="sans-serif" font-size="${t.fontPx}"${t.bold ? ' font-weight="bold"' : ""} fill="${t.fontPx >= 14 ? "#000" : p.ink}">${esc(t.text)}</text>`
+      `<text${t.title ? ' data-figure-title="1"' : ""} x="${t.x.toFixed(1)}" y="${t.y.toFixed(1)}" text-anchor="${t.anchor}" font-family="sans-serif" font-size="${t.fontPx}"${t.bold ? ' font-weight="bold"' : ""} fill="${t.fontPx >= 14 ? "#000" : p.ink}">${esc(t.text)}</text>`
     );
   }
 

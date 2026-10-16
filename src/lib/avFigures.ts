@@ -12,7 +12,7 @@
 // Colours are literal hex: the artwork goes into Word as line art and must not
 // follow the pane's theme.
 
-import { buildPlotSvg, Series, fmtTick } from "./plot";
+import { buildPlotSvg, Series } from "./plot";
 import { hBarSvg, HBarRow } from "./mechchart";
 import type { AudioFigure, FigureMarker } from "./audio";
 import type { PhotoFigure } from "./photometry";
@@ -27,12 +27,10 @@ const INK = "#111111";
 const RULE = "#888888";
 const PAPER = "#ffffff";
 
-/** A linear-axis tick label with the true minus (U+2212). Log axes keep their own decade labels. */
-const tick = (v: number): string => fmtTick(v).replace(/^-/, "−");
-const ticks = (xLog: boolean, yLog: boolean) => ({
-  xTickLabel: xLog ? undefined : tick,
-  yTickLabel: yLog ? undefined : tick,
-});
+// Tick labels are plot.ts's own: it labels each linear axis as an axis.ts ROW
+// (constant decimals, U+2212, ×10ⁿ on the title) and each log axis by decades.
+// This file used to pass a per-value `fmtTick` hook, which gave
+// `−1 −0.5 0 0.5 1` and `0 0.2 … 1` (mixed decimals in one row).
 
 const esc = (s: string): string => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
@@ -102,7 +100,6 @@ export function audioFigureSvg(fig: AudioFigure): string {
     xScale: fig.xLog ? "log" : "linear",
     yScale: fig.yLog ? "log" : "linear",
     notes: fig.note ? [fig.note] : undefined,
-    ...ticks(!!fig.xLog, !!fig.yLog),
   });
 }
 
@@ -172,7 +169,6 @@ export function photoFigureSvg(fig: PhotoFigure): string {
     ylabel: fig.ylabel,
     xScale: fig.xScale,
     yScale: fig.yScale,
-    ...ticks(fig.xScale === "log", fig.yScale === "log"),
   });
 }
 
@@ -195,7 +191,6 @@ export function timecodeDriftSvg(fig: DriftFigure, rateLabel: string): string {
     title: `Label time minus real time, ${rateLabel} fps`,
     xlabel: "real elapsed time (min)",
     ylabel: "label − real time (s)",
-    ...ticks(false, false),
   });
 }
 
@@ -307,7 +302,6 @@ export function transferSvg(r: TransferResult): string {
     xlabel: "signal (0–1)",
     ylabel: yl,
     yScale: r.figure.logY ? "log" : "linear",
-    ...ticks(false, r.figure.logY),
   });
 }
 
@@ -333,5 +327,5 @@ export function daylightLocusSvg(fig: DaylightLocusFigure): string {
     color: s.type === "scatter" ? (/chromaticity/.test(s.label) ? INK : MARK) : lineColours[li++ % lineColours.length],
     label: s.label,
   }));
-  return buildPlotSvg(series, { width: 380, height: 300, title: fig.title, xlabel: fig.xlabel, ylabel: fig.ylabel, ...ticks(false, false) });
+  return buildPlotSvg(series, { width: 380, height: 300, title: fig.title, xlabel: fig.xlabel, ylabel: fig.ylabel });
 }

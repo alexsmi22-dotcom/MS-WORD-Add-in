@@ -52,7 +52,8 @@ describe("well-formed", () => {
   test("centre caption names the construct and its size", () => {
     const svg = buildCircularMapSvg(rec())!;
     expect(svg).toContain("pTEST");
-    expect(svg).toContain("1,200 bp");
+    // SI: no separator below 10 000, and never a locale comma (axis migration, wave 2).
+    expect(svg).toContain("1200 bp");
   });
 
   test("an empty record draws nothing rather than an empty ring", () => {

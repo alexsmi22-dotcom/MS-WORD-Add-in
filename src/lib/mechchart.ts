@@ -14,6 +14,7 @@
 // SOURCE for that, so this comment cannot name the keyword either.
 
 import { xyToUv, Chromaticity } from "./colourspace";
+import { linearAxis, fmtSig, trueMinus } from "./axis";
 
 const INK = "#111111";
 const RULE = "#888888";
@@ -28,49 +29,30 @@ export const GOODMAN_CHART_SIZE = { w: 380, h: 300 };
 const esc = (s: string): string =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-const n1 = (v: number): string => (Math.abs(v) < 1e-9 ? "0" : v.toFixed(1));
+/**
+ * One value annotated on a figure (not a tick row): one decimal, U+2212 for
+ * negatives, and never "-0.0".
+ */
+const n1 = (v: number): string => {
+  const s = v.toFixed(1);
+  return /^-0\.0$/.test(s) || Math.abs(v) < 1e-9 ? "0" : trueMinus(s);
+};
 
 /**
- * A tick step that lands on 1, 2 or 5 times a power of ten.
+ * One axis's ticks from the shared engine (axis.ts `linearAxis`): extended-
+ * Wilkinson positions inside [lo, hi], labels whose decimals come from the step
+ * and are constant along the axis, U+2212, no e-notation. A ×10ⁿ multiplier,
+ * when the row needs one, rides on every label (these figures have no axis
+ * title slot of their own to carry it).
  *
- * IT MUST RETURN A FINITE, STRICTLY POSITIVE NUMBER, and that is a
- * postcondition rather than a hope. The first version could return `Infinity`
- * (from an infinite span) or exactly `0` (from a subnormal one, where
- * `10^floor(log10 x)` underflows), and every caller is a
- * `for (t = lo; t <= hi; t += step)` loop. `t += Infinity` sticks; `t += 0`
- * never advances. Either way the loop does not terminate, and in a Word task
- * pane a loop that does not terminate is a FROZEN WORD, not an error — one of
- * them was reproduced here as a 4 GB heap exhaustion.
+ * This replaces this file's own `niceStep` + `ticks` pair. Their postconditions
+ * — a finite positive step and a BOUNDED ARRAY rather than an open
+ * `t += step` loop (one was once a 4 GB heap exhaustion) — now live in axis.ts:
+ * the row is capped at AXIS_TICK_CAP on Inf, NaN, 1e308 and a zero span.
  */
-export function niceStep(span: number, target: number): number {
-  if (!Number.isFinite(span) || !Number.isFinite(target) || span <= 0 || target <= 0) return 1;
-  const raw = span / target;
-  if (!Number.isFinite(raw) || raw <= 0) return 1;
-  const mag = Math.pow(10, Math.floor(Math.log10(raw)));
-  if (!Number.isFinite(mag) || mag <= 0) return 1;
-  const norm = raw / mag;
-  const mult = norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 5 ? 5 : 10;
-  const step = mult * mag;
-  return Number.isFinite(step) && step > 0 ? step : 1;
-}
-
-/**
- * The tick positions for one axis, as a bounded ARRAY rather than an open loop.
- *
- * `Number.isFinite` on the inputs is not a bound — the repo has learned that
- * before. Even with a sane step, `lo` and `hi` far apart, or a `lo` so large
- * that `lo + step === lo` in floating point, can spin forever. This caps the
- * count outright, so no caller can hang however it is fed.
- */
-export function ticks(lo: number, hi: number, step: number, cap = 200): number[] {
-  const out: number[] = [];
-  if (![lo, hi, step].every(Number.isFinite) || step <= 0 || hi < lo) return out;
-  for (let i = 0; i <= cap; i++) {
-    const t = lo + i * step;
-    if (t > hi + step * 1e-9) break;
-    out.push(t);
-  }
-  return out;
+function axisRow(lo: number, hi: number, target: number): { v: number; text: string }[] {
+  const r = linearAxis(lo, hi, { target });
+  return r.values.map((v, i) => ({ v, text: r.labels[i] + r.multiplier }));
 }
 
 /**
@@ -195,13 +177,12 @@ export function mohrCircleSvg(inp: MohrInput): string {
   // last, because the line joining the applied state to its conjugate sweeps
   // well below the axis and would otherwise strike one of them out. A backing
   // rectangle only hides what was painted before it.
-  const step = niceStep(xHi - xLo, 5);
   const tickLabels: string[] = [];
-  for (const t of ticks(Math.ceil(xLo / step) * step, xHi, step)) {
-    const x = X(t);
+  for (const t of axisRow(xLo, xHi, 5)) {
+    const x = X(t.v);
     if (x < ML - 0.5 || x > W - MR + 0.5) continue;
     p.push(`<line x1="${x.toFixed(1)}" y1="${y0.toFixed(1)}" x2="${x.toFixed(1)}" y2="${(y0 + 4).toFixed(1)}" stroke="${RULE}"/>`);
-    tickLabels.push(labelText(x, y0 + 14, n1(t), { anchor: "middle", size: 9 }));
+    tickLabels.push(labelText(x, y0 + 14, t.text, { anchor: "middle", size: 9 }));
   }
 
   // The circle itself.
@@ -335,19 +316,18 @@ export function goodmanDiagramSvg(inp: GoodmanInput): string {
   p.push(`<line x1="${ML}" y1="${MT + ph}" x2="${(ML + pw).toFixed(1)}" y2="${MT + ph}" stroke="${RULE}"/>`);
   p.push(`<line x1="${ML}" y1="${MT}" x2="${ML}" y2="${MT + ph}" stroke="${RULE}"/>`);
 
-  const sx = niceStep(xHi, 4);
-  for (const t of ticks(0, xHi, sx)) {
-    const x = X(t);
+  // Equal scaling leaves one axis longer than its data: label what is visible.
+  for (const t of axisRow(0, Math.min(xHi, pw / scale), 4)) {
+    const x = X(t.v);
     if (x > ML + pw + 0.5) break;
     p.push(`<line x1="${x.toFixed(1)}" y1="${MT + ph}" x2="${x.toFixed(1)}" y2="${MT + ph + 4}" stroke="${RULE}"/>`);
-    p.push(`<text x="${x.toFixed(1)}" y="${MT + ph + 14}" text-anchor="middle">${esc(n1(t))}</text>`);
+    p.push(`<text x="${x.toFixed(1)}" y="${MT + ph + 14}" text-anchor="middle">${esc(t.text)}</text>`);
   }
-  const sy = niceStep(yHi, 4);
-  for (const t of ticks(0, yHi, sy)) {
-    const y = Y(t);
+  for (const t of axisRow(0, Math.min(yHi, ph / scale), 4)) {
+    const y = Y(t.v);
     if (y < MT - 0.5) break;
     p.push(`<line x1="${ML - 4}" y1="${y.toFixed(1)}" x2="${ML}" y2="${y.toFixed(1)}" stroke="${RULE}"/>`);
-    p.push(`<text x="${ML - 6}" y="${(y + 3).toFixed(1)}" text-anchor="end">${esc(n1(t))}</text>`);
+    p.push(`<text x="${ML - 6}" y="${(y + 3).toFixed(1)}" text-anchor="end">${esc(t.text)}</text>`);
   }
 
   // The criterion loci.
@@ -553,17 +533,17 @@ export function columnCurveSvg(inp: ColumnCurveInput): string {
   p.push(`<line x1="${ML}" y1="${MT + ph}" x2="${(ML + pw).toFixed(1)}" y2="${MT + ph}" stroke="${RULE}"/>`);
   p.push(`<line x1="${ML}" y1="${MT}" x2="${ML}" y2="${MT + ph}" stroke="${RULE}"/>`);
 
-  const sx = niceStep(xHi, 4);
-  for (const t of ticks(0, xHi, sx)) {
-    if (X(t) > ML + pw + 0.5) break;
-    p.push(`<line x1="${X(t).toFixed(1)}" y1="${MT + ph}" x2="${X(t).toFixed(1)}" y2="${MT + ph + 4}" stroke="${RULE}"/>`);
-    p.push(`<text x="${X(t).toFixed(1)}" y="${MT + ph + 14}" text-anchor="middle">${esc(n1(t))}</text>`);
+  for (const t of axisRow(0, xHi, 4)) {
+    if (X(t.v) > ML + pw + 0.5) break;
+    p.push(`<line x1="${X(t.v).toFixed(1)}" y1="${MT + ph}" x2="${X(t.v).toFixed(1)}" y2="${MT + ph + 4}" stroke="${RULE}"/>`);
+    p.push(`<text x="${X(t.v).toFixed(1)}" y="${MT + ph + 14}" text-anchor="middle">${esc(t.text)}</text>`);
   }
-  const syStep = niceStep(yHi / 1e6, 4) * 1e6;
-  for (const t of ticks(0, yHi, syStep)) {
-    if (Y(t) < MT - 0.5) break;
-    p.push(`<line x1="${ML - 4}" y1="${Y(t).toFixed(1)}" x2="${ML}" y2="${Y(t).toFixed(1)}" stroke="${RULE}"/>`);
-    p.push(`<text x="${ML - 6}" y="${(Y(t) + 3).toFixed(1)}" text-anchor="end">${esc(n1(t / 1e6))}</text>`);
+  // Stress ticks are chosen and labelled in MPa (the axis's unit), then placed in Pa.
+  for (const t of axisRow(0, yHi / 1e6, 4)) {
+    const yPa = t.v * 1e6;
+    if (Y(yPa) < MT - 0.5) break;
+    p.push(`<line x1="${ML - 4}" y1="${Y(yPa).toFixed(1)}" x2="${ML}" y2="${Y(yPa).toFixed(1)}" stroke="${RULE}"/>`);
+    p.push(`<text x="${ML - 6}" y="${(Y(yPa) + 3).toFixed(1)}" text-anchor="end">${esc(t.text)}</text>`);
   }
 
   // Euler, sigma = pi^2 E / lambda^2, sampled only where it is on scale —
@@ -719,11 +699,10 @@ export function torsionProfileSvg(
   p.push(labelText(X(ro) - 4, Y(tauMax) - 6, "τmax = " + n1(tauMax), { anchor: "end", fill: POINT, size: 8 }));
   if (ri === 0) p.push(labelText(ML + 4, MT + ph - 6, "zero at the axis", { fill: RULE, size: 7.5 }));
 
-  const st = niceStep(yTop, 4);
-  for (const t of ticks(0, yTop, st)) {
-    if (Y(t) < MT - 0.5) break;
-    p.push(`<line x1="${ML - 4}" y1="${Y(t).toFixed(1)}" x2="${ML}" y2="${Y(t).toFixed(1)}" stroke="${RULE}"/>`);
-    p.push(`<text x="${ML - 6}" y="${(Y(t) + 3).toFixed(1)}" text-anchor="end">${esc(n1(t))}</text>`);
+  for (const t of axisRow(0, yTop, 4)) {
+    if (Y(t.v) < MT - 0.5) break;
+    p.push(`<line x1="${ML - 4}" y1="${Y(t.v).toFixed(1)}" x2="${ML}" y2="${Y(t.v).toFixed(1)}" stroke="${RULE}"/>`);
+    p.push(`<text x="${ML - 6}" y="${(Y(t.v) + 3).toFixed(1)}" text-anchor="end">${esc(t.text)}</text>`);
   }
   p.push(`<text x="${ML}" y="${MT + ph + 14}" text-anchor="middle">0</text>`);
   p.push(`<text x="${X(ro).toFixed(1)}" y="${MT + ph + 14}" text-anchor="middle">${esc(n1(ro))}</text>`);
@@ -787,20 +766,19 @@ export function poleZeroSvg(poles: PoleZeroPoint[], zeros: PoleZeroPoint[]): str
   p.push(`<line x1="${X(0).toFixed(1)}" y1="${MT}" x2="${X(0).toFixed(1)}" y2="${MT + ph}" stroke="${INK}" stroke-width="1"/>`);
   p.push(`<line x1="${ML}" y1="${Y(0).toFixed(1)}" x2="${(ML + pw).toFixed(1)}" y2="${Y(0).toFixed(1)}" stroke="${RULE}"/>`);
 
-  // n1() rounds to one decimal, and a map whose only content sits at the
-  // origin has ticks at ±1e-9 — which n1 prints as "-0.0". Small magnitudes
-  // get exponent form instead.
-  const tickLabel = (t: number): string => (Math.abs(t) >= 0.01 ? n1(t) : t.toExponential(0));
-  const step = niceStep(span, 4);
-  for (const t of ticks(Math.ceil(-span / 2 / step) * step, span / 2, step)) {
-    if (Math.abs(t) < step * 1e-6) continue;
+  // One row for both axes (equal scale). The row's decimals come from its step,
+  // so a map at the origin with ticks at ±1e-9 reads ×10⁻⁹ mantissas, never
+  // "-0.0" and never e-notation. The origin itself is left unlabelled.
+  for (const tk of axisRow(-span / 2, span / 2, 4)) {
+    const t = tk.v;
+    if (t === 0) continue;
     if (X(t) >= ML && X(t) <= ML + pw) {
       p.push(`<line x1="${X(t).toFixed(1)}" y1="${(Y(0) - 3).toFixed(1)}" x2="${X(t).toFixed(1)}" y2="${(Y(0) + 3).toFixed(1)}" stroke="${RULE}"/>`);
-      p.push(`<text x="${X(t).toFixed(1)}" y="${MT + ph + 12}" text-anchor="middle">${esc(tickLabel(t))}</text>`);
+      p.push(`<text x="${X(t).toFixed(1)}" y="${MT + ph + 12}" text-anchor="middle">${esc(tk.text)}</text>`);
     }
     if (Y(t) >= MT && Y(t) <= MT + ph) {
       p.push(`<line x1="${(X(0) - 3).toFixed(1)}" y1="${Y(t).toFixed(1)}" x2="${(X(0) + 3).toFixed(1)}" y2="${Y(t).toFixed(1)}" stroke="${RULE}"/>`);
-      p.push(`<text x="${ML - 4}" y="${(Y(t) + 3).toFixed(1)}" text-anchor="end">${esc(tickLabel(t))}</text>`);
+      p.push(`<text x="${ML - 4}" y="${(Y(t) + 3).toFixed(1)}" text-anchor="end">${esc(tk.text)}</text>`);
     }
   }
 
@@ -863,11 +841,12 @@ export function hBarSvg(rows: HBarRow[], opts: { title: string; unit: string; w?
   // lie. Three significant figures, with plain decimals where they stay
   // short and exponent form where they would not.
   // A negative value carries the true minus (U+2212): display is a contract.
+  // Beyond 10⁻³ … 10⁵: m×10ⁿ (axis.ts fmtSig), never e-notation.
   const fmtVal = (v: number): string => {
     const a = Math.abs(v);
     if (a === 0) return "0";
     const sign = v < 0 ? "−" : "";
-    if (a >= 1e5 || a < 1e-3) return sign + a.toExponential(2);
+    if (a >= 1e5 || a < 1e-3) return fmtSig(v, 3);
     if (a >= 100) return sign + a.toFixed(0);
     return sign + a.toPrecision(3);
   };
@@ -876,7 +855,7 @@ export function hBarSvg(rows: HBarRow[], opts: { title: string; unit: string; w?
   p.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`);
   p.push(`<rect width="${W}" height="${H}" fill="${PAPER}"/>`);
   p.push(`<g font-family="sans-serif" font-size="9" fill="${INK}">`);
-  p.push(`<text x="${(ML + pw / 2).toFixed(1)}" y="15" text-anchor="middle" font-size="11">${esc(opts.title)}</text>`);
+  p.push(`<text data-figure-title="1" x="${(ML + pw / 2).toFixed(1)}" y="15" text-anchor="middle" font-size="11">${esc(opts.title)}</text>`);
   p.push(`<line x1="${X(0).toFixed(1)}" y1="${MT}" x2="${X(0).toFixed(1)}" y2="${MT + shown.length * HBAR_ROW_H}" stroke="${RULE}"/>`);
   shown.forEach((rw, i) => {
     const y = MT + i * HBAR_ROW_H + 4;
@@ -1092,9 +1071,9 @@ export function powerTriangleSvg(pKw: number, qKvar: number, sKva: number, pf: n
   const sig3 = (v: number): string => {
     const a2 = Math.abs(v);
     if (a2 === 0) return "0";
-    if (a2 >= 1e5 || a2 < 1e-3) return v.toExponential(2);
-    if (a2 >= 100) return v.toFixed(0);
-    return v.toPrecision(3);
+    if (a2 >= 1e5 || a2 < 1e-3) return fmtSig(v, 3);
+    if (a2 >= 100) return trueMinus(v.toFixed(0));
+    return trueMinus(v.toPrecision(3));
   };
   p.push(labelText(X(pKw / 2), Y(0) + 13, `P = ${sig3(pKw)} kW`, { anchor: "middle", fill: CIRCLE }));
   // RELATIVE collapse test: a unity power factor entered by POWER round-trips
@@ -1177,7 +1156,7 @@ export function orbitChartSvg(bodyRadiusM: number, conics: OrbitConic[], markers
   p.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`);
   p.push(`<rect width="${W}" height="${H}" fill="${PAPER}"/>`);
   p.push(`<g font-family="sans-serif" font-size="9" fill="${INK}">`);
-  p.push(`<text x="${(W / 2).toFixed(1)}" y="15" text-anchor="middle" font-size="11">${esc(title)}</text>`);
+  p.push(`<text data-figure-title="1" x="${(W / 2).toFixed(1)}" y="15" text-anchor="middle" font-size="11">${esc(title)}</text>`);
 
   // The body, at the focus.
   p.push(`<circle cx="${X(0).toFixed(1)}" cy="${Y(0).toFixed(1)}" r="${Math.max(bodyRadiusM * scale, 2).toFixed(1)}" fill="#d1d5db" stroke="${RULE}"/>`);
@@ -1282,7 +1261,7 @@ export function vectorTriangleSvg(legs: TriangleVector[], resultant: TriangleVec
   p.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`);
   p.push(`<rect width="${W}" height="${H}" fill="${PAPER}"/>`);
   p.push(`<g font-family="sans-serif" font-size="9" fill="${INK}">`);
-  p.push(`<text x="${(W / 2).toFixed(1)}" y="15" text-anchor="middle" font-size="11">${esc(title)}</text>`);
+  p.push(`<text data-figure-title="1" x="${(W / 2).toFixed(1)}" y="15" text-anchor="middle" font-size="11">${esc(title)}</text>`);
 
   // Labels sit OFF their vectors, pushed along each vector's screen-space
   // perpendicular — legs one way, the resultant the other — because a
@@ -1400,7 +1379,7 @@ export function armSvg(
   p.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`);
   p.push(`<rect width="${W}" height="${H}" fill="${PAPER}"/>`);
   p.push(`<g font-family="sans-serif" font-size="9" fill="${INK}">`);
-  p.push(`<text x="${(W / 2).toFixed(1)}" y="15" text-anchor="middle" font-size="11">${esc(opts.title)}</text>`);
+  p.push(`<text data-figure-title="1" x="${(W / 2).toFixed(1)}" y="15" text-anchor="middle" font-size="11">${esc(opts.title)}</text>`);
 
   for (const c of circles) {
     if (!Number.isFinite(c.r) || c.r <= 0) continue;
@@ -1517,12 +1496,14 @@ export function ladderSvg(
   p.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`);
   p.push(`<rect width="${W}" height="${H}" fill="${PAPER}"/>`);
   p.push(`<g font-family="sans-serif" font-size="9" fill="${INK}">`);
-  p.push(`<text x="${(ML + pw / 2).toFixed(1)}" y="15" text-anchor="middle" font-size="11">${esc(opts.title)}</text>`);
+  p.push(`<text data-figure-title="1" x="${(ML + pw / 2).toFixed(1)}" y="15" text-anchor="middle" font-size="11">${esc(opts.title)}</text>`);
 
-  const step = niceStep(hi - lo, 5);
-  for (const t of ticks(Math.ceil(lo / step) * step, hi, step)) {
+  // Positions from the shared engine; the TEXT is the caller's `fmt` (money,
+  // durations…), which owns its own precision.
+  for (const tk of axisRow(lo, hi, 5)) {
+    const t = tk.v;
     p.push(`<line x1="${X(t).toFixed(1)}" y1="${MT}" x2="${X(t).toFixed(1)}" y2="${MT + ph}" stroke="#f0f0f0"/>`);
-    p.push(`<text x="${X(t).toFixed(1)}" y="${MT + ph + 12}" text-anchor="middle">${esc(opts.fmt(t))}</text>`);
+    p.push(`<text x="${X(t).toFixed(1)}" y="${MT + ph + 12}" text-anchor="middle">${esc(trueMinus(opts.fmt(t)))}</text>`);
   }
   p.push(`<line x1="${X(0).toFixed(1)}" y1="${MT}" x2="${X(0).toFixed(1)}" y2="${MT + ph}" stroke="${RULE}"/>`);
 
@@ -1544,7 +1525,8 @@ export function ladderSvg(
     p.push(`<rect x="${x0.toFixed(1)}" y="${y.toFixed(1)}" width="${wBar.toFixed(1)}" height="${h.toFixed(1)}" fill="${fill}" fill-opacity="${b.result ? "1" : "0.75"}"/>`);
     p.push(labelText(ML - 6, y + h / 2 + 3, b.name, { anchor: "end" }));
     const delta = b.result ? b.to : b.to - b.from;
-    const txt = `${delta >= 0 && !b.result ? "+" : ""}${opts.fmt(delta)}`;
+    // The caller's formatter owns the digits; the minus is made true here.
+    const txt = `${delta >= 0 && !b.result ? "+" : ""}${trueMinus(opts.fmt(delta))}`;
     const wantX = Math.max(X(b.from), X(b.to)) + 4;
     const estW = txt.length * 8 * 0.56 + 4;
     if (wantX + estW <= W - 2) p.push(labelText(wantX, y + h / 2 + 3, txt, { size: 8 }));
@@ -1633,10 +1615,10 @@ export function npshLadderSvg(inp: NpshLadderInput): string {
   p.push(`<text x="${(ML + pw / 2).toFixed(1)}" y="15" text-anchor="middle" font-size="11">Where the suction head goes</text>`);
 
   // Axis + gridlines, in metres of head.
-  const step = niceStep(hi - lo, 5);
-  for (const t of ticks(Math.ceil(lo / step) * step, hi, step)) {
+  for (const tk of axisRow(lo, hi, 5)) {
+    const t = tk.v;
     p.push(`<line x1="${X(t).toFixed(1)}" y1="${MT}" x2="${X(t).toFixed(1)}" y2="${MT + ph}" stroke="#f0f0f0"/>`);
-    p.push(`<text x="${X(t).toFixed(1)}" y="${MT + ph + 12}" text-anchor="middle">${esc(n1(t))}</text>`);
+    p.push(`<text x="${X(t).toFixed(1)}" y="${MT + ph + 12}" text-anchor="middle">${esc(tk.text)}</text>`);
   }
   p.push(`<line x1="${X(0).toFixed(1)}" y1="${MT}" x2="${X(0).toFixed(1)}" y2="${MT + ph}" stroke="${RULE}"/>`);
 

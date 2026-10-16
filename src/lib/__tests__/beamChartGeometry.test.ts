@@ -98,7 +98,7 @@ describe("a heave points up and a settlement points down", () => {
   });
 
   test("the label always agrees in sign with the arrow it annotates", () => {
-    expect(svgFor([{ kind: "pin", x: R(0) }, { kind: "roller", x: R(8), settle: X("-0.01") }], X("2.4e5"))).toMatch(/-0\.01/);
+    expect(svgFor([{ kind: "pin", x: R(0) }, { kind: "roller", x: R(8), settle: X("-0.01") }], X("2.4e5"))).toMatch(new RegExp(String.fromCharCode(0x2212) + "0\\.01"));
   });
 });
 

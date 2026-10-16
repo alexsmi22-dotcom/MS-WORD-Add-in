@@ -25,14 +25,89 @@
 // follow the pane's theme. `insertedFiguresIgnoreTheme.test.ts` scans the
 // SOURCE for that, so this comment cannot name the keyword either.
 //
-// `niceStep` and `ticks` are imported rather than reimplemented. Both carry
-// hard-won postconditions — a step that is finite and strictly positive, and a
-// tick list that is a BOUNDED ARRAY rather than an open `t += step` loop. A
-// second copy of that logic is a second chance to get it wrong, and getting it
-// wrong here does not produce a bad chart, it produces a frozen Word.
+// Ticks come from the shared axis engine (axis.ts) rather than a local copy. It
+// carries the hard-won postconditions — a BOUNDED ARRAY rather than an open
+// `t += step` loop, finite on Inf/NaN/1e308 — and labels a row from its step,
+// so decimals are constant and the minus is U+2212. A second copy of that logic
+// is a second chance to get it wrong, and getting it wrong here does not
+// produce a bad chart, it produces a frozen Word.
 
-import { niceStep, ticks } from "./mechchart";
-import { logTicks, fmtLogTick } from "./plot";
+import { linearAxis, logDecades, decadeLabel, fmtValue, fmtSig, trueMinus } from "./axis";
+import { planBrackets, bracketMarkup, type SigBracketSet, type BracketDisplay, type BracketPlan } from "./sigBrackets";
+
+/**
+ * Significance brackets for boxPlotSvg / groupedBarSvg. The set comes ONLY from
+ * sigBrackets' engine-result constructors (bracketsFromTukey / bracketsFromPairwise);
+ * group indices are the chart's group / category order. Absent or empty: the
+ * output is byte-identical to a chart drawn without this option.
+ */
+export interface ChartBrackets {
+  set: SigBracketSet;
+  display?: BracketDisplay;
+}
+
+/**
+ * The y axis extended until `need` px fit between the top of the data and the top
+ * of the plot. Iterates through the shared axis engine (loose ticks round the top
+ * out, so the room is measured on the axis actually drawn, not assumed).
+ */
+/**
+ * The brackets do not fit the plot. A RangeError (callers that catch RangeError
+ * keep working) carrying the numbers, so a caller that knows which remedies are
+ * actually open (statsBrackets: is the figure already tall?) can name only those.
+ */
+/** Brackets may take less than this share of the plot height; above it the data are squashed into a sliver. */
+export const BRACKET_ROOM_SHARE = 0.6;
+
+export class BracketFitError extends RangeError {
+  constructor(
+    readonly needPx: number,
+    readonly plotPx: number,
+  ) {
+    super(`${BracketFitError.findingFor(needPx, plotPx)}; make the chart taller or hide the non-significant brackets`);
+    this.name = "BracketFitError";
+    Object.setPrototypeOf(this, BracketFitError.prototype);
+  }
+  /**
+   * The finding, stated against the REAL limit: brackets must take less than
+   * BRACKET_ROOM_SHARE of the plot height (axisWithHeadroom). It used to quote
+   * the whole plot height — "need 236 px … the plot area is 350 px tall" reads
+   * as if they fit (v2.143.0 second review).
+   */
+  static findingFor(needPx: number, plotPx: number): string {
+    const pct = Math.round(BRACKET_ROOM_SHARE * 100);
+    return (
+      `the significance brackets need ${Math.ceil(needPx)} px above the data, but brackets must stay below ${pct}% ` +
+      `of the ${Math.round(plotPx)} px plot area (${Math.floor(plotPx * BRACKET_ROOM_SHARE)} px)`
+    );
+  }
+  /** The finding without the generic remedy. */
+  get finding(): string {
+    return BracketFitError.findingFor(this.needPx, this.plotPx);
+  }
+}
+
+function axisWithHeadroom(lo: number, hi: number, ph: number, need: number): AxisRange {
+  if (!(need < ph * BRACKET_ROOM_SHARE)) throw new BracketFitError(need, ph);
+  const halfSpan = hi / 2 - lo / 2 > 0 ? hi / 2 - lo / 2 : Math.max((Math.abs(hi) / 2) * 0.1, 0.5);
+  let ax = axisRange(lo, hi, 5);
+  for (let k = 0; k < 40; k++) {
+    const room = ph * (1 - (hi / 2 - ax.mid) / ax.half);
+    if (room >= need) return ax;
+    // Half-space arithmetic: `hi + extra` overflows near 1.8e308.
+    const topHalf = hi / 2 + halfSpan * (need / (ph - need)) * (1 + 0.25 * k);
+    const top = topHalf * 2;
+    if (!Number.isFinite(top)) break;
+    ax = axisRange(lo, top, 5);
+  }
+  throw new RangeError("the y axis cannot be extended to fit the significance brackets (the data are too close to the largest representable number)");
+}
+
+/** Plan brackets only when some are given; null keeps the no-bracket path untouched. */
+function planIfAny(b: ChartBrackets | undefined, groups: number, xOf: (k: number) => number | null): BracketPlan | null {
+  if (!b || !b.set || !b.set.brackets || b.set.brackets.length === 0) return null;
+  return planBrackets(b.set, groups, xOf, b.display);
+}
 
 const INK = "#111111";
 const RULE = "#888888";
@@ -80,8 +155,8 @@ function fmt(v: number): string {
   if (!Number.isFinite(v)) return "";
   if (v === 0) return "0";
   const a = Math.abs(v);
-  if (a >= 1e5 || a < 1e-3) return v.toExponential(1);
-  return String(Number(v.toPrecision(4)));
+  if (a >= 1e5 || a < 1e-3) return fmtSig(v, 2);
+  return trueMinus(String(Number(v.toPrecision(4))));
 }
 
 /**
@@ -135,8 +210,10 @@ interface AxisRange {
   half: number;
   /** Tick positions in ORIGINAL units. */
   tickAt: number[];
-  /** Formats a tick in original units. */
-  label: (v: number) => string;
+  /** The label of each tick, index for index — one row, constant decimals. */
+  tickLabel: string[];
+  /** "" or "×10ⁿ" — belongs on the axis title (titleWithMultiplier). */
+  multiplier: string;
 }
 
 function axisRange(lo: number, hi: number, targetTicks = 5): AxisRange {
@@ -147,47 +224,42 @@ function axisRange(lo: number, hi: number, targetTicks = 5): AxisRange {
     const pad = Math.abs(h) > 0 ? Math.abs(h) * 0.1 : 1;
     l -= pad;
     h += pad;
+    // At ±1.7e308 the pad itself overflows; keep the band finite.
+    if (!Number.isFinite(l) || !Number.isFinite(h)) {
+      l = Number.isFinite(l) ? l : -Number.MAX_VALUE;
+      h = Number.isFinite(h) ? h : Number.MAX_VALUE;
+    }
   }
-  // EVERYTHING IS COMPUTED IN HALF-SPACE, including the tick step.
-  //
-  // Halving only the scale is not enough, and the first version made exactly
-  // that mistake: it derived the step from `half * 2`, which is the overflowing
-  // product again. `niceStep(Infinity, 5)` honours its postcondition and
-  // returns 1 — and a step of 1 across a 3.4e308 span gives 201 gridlines that
-  // are all the same pixel and 201 labels that all read the same number,
-  // because `1.7e308 + 1 === 1.7e308`. A well-formed, insertable, unreadable
-  // figure.
-  const midLo = l / 2;
-  const midHi = h / 2;
-  const spanHalf = midHi - midLo;
-  const stepHalf = niceStep(Number.isFinite(spanHalf) && spanHalf > 0 ? spanHalf : 1, targetTicks);
-  // ROUNDING OUT TO NICE BOUNDS CAN OVERFLOW ALL BY ITSELF. Half the range is
-  // 1.7e308, which is finite; rounding it out to the next 5e307 gives ±1e308,
-  // whose difference is 2e308 = Infinity. Falling back to `half = 1` there is
-  // far worse than not rounding: the scale then explodes and every coordinate
-  // comes out -Infinity, which is how the first version of this fix still
-  // emitted NaN. When the rounded bounds do not fit, use the exact ones.
-  let mid = Math.floor(midLo / stepHalf) * stepHalf;
-  let half = Math.ceil(midHi / stepHalf) * stepHalf - mid;
-  if (!Number.isFinite(half) || half <= 0) {
-    mid = midLo;
-    half = Number.isFinite(spanHalf) && spanHalf > 0 ? spanHalf : 1;
+  // THE STEP IS CHOSEN ON THE FULL SPAN (axis.ts, loose extended Wilkinson),
+  // never in half-space. Choosing a 1/2/5 step on the halved span and doubling
+  // it is what produced steps of 4 (B.6: `0, 4, 8 … 20`). axis.ts normalises
+  // the range by its power of ten before searching, so a 3.4e308 span neither
+  // overflows nor collapses into 201 identical labels — the failure the old
+  // half-space step existed to prevent.
+  const row = linearAxis(l, h, { target: targetTicks, loose: true });
+  // THE SCALE STAYS IN HALF-SPACE: `hi - lo` overflows near ±1.8e308, and
+  // `(v/2 - mid) / half` never re-forms that difference. When the rounded-out
+  // bounds would not fit (±1e308 rounded out is 2e308 = Infinity), linearAxis
+  // keeps the exact ones.
+  const axLo = Number.isFinite(row.lo) ? row.lo : l;
+  const axHi = Number.isFinite(row.hi) ? row.hi : h;
+  const mid = axLo / 2;
+  let half = axHi / 2 - axLo / 2;
+  if (!Number.isFinite(half) || half <= 0) half = 1;
+  if (row.values.length >= 2) {
+    return { mid, half, tickAt: row.values, tickLabel: row.labels, multiplier: row.multiplier };
   }
-  const axLoHalf = mid;
-  const axHiHalf = mid + half;
+  return { mid, half, tickAt: [l, h], tickLabel: [fmtValue(l), fmtValue(h)], multiplier: "" };
+}
 
-  // Ticks live in half-space and are doubled back for their labels. The double
-  // can itself overflow at the very top of the range, so non-finite labels are
-  // dropped rather than printed.
-  const tickAt = ticks(axLoHalf, axHiHalf, stepHalf)
-    .map((t) => t * 2)
-    .filter((v) => Number.isFinite(v));
-  return {
-    mid: axLoHalf,
-    half,
-    tickAt: tickAt.length >= 2 ? tickAt : [l, h],
-    label: (v: number) => fmt(v),
-  };
+/**
+ * The axis title with the row's ×10ⁿ, stated ONCE (never on every tick, where
+ * it widens labels past a fixed margin and into the title). No title → the
+ * multiplier alone takes the title's place.
+ */
+function titleWithMultiplier(title: string | undefined, multiplier: string): string | undefined {
+  if (!multiplier) return title;
+  return title ? `${title} (${multiplier})` : multiplier;
 }
 
 /** The five-number summary, plus whisker ends and the points beyond them. */
@@ -265,7 +337,7 @@ export interface BoxGroup {
  */
 export function boxPlotSvg(
   groups: BoxGroup[],
-  opts: { title?: string; ylabel?: string; w?: number; h?: number },
+  opts: { title?: string; ylabel?: string; w?: number; h?: number; brackets?: ChartBrackets },
 ): string {
   const W = opts.w ?? BOX_CHART_SIZE.w;
   const H = opts.h ?? BOX_CHART_SIZE.h;
@@ -312,7 +384,10 @@ export function boxPlotSvg(
   }
   // Overflow-safe: see axisRange. `v / 2 - ax.mid` never re-forms the
   // difference that would become Infinity.
-  const ax = axisRange(lo, hi, 5);
+  // Brackets (optional): planned on the same slot centres the boxes use; groups
+  // beyond the 12-box cap have no centre and are counted in the clipped note.
+  const bp = planIfAny(opts.brackets, groups.length, (k) => (k < shown.length ? ML + (pw / shown.length) * (k + 0.5) : null));
+  const ax = bp && bp.levels ? axisWithHeadroom(lo, hi, ph, bp.heightPx) : axisRange(lo, hi, 5);
   const y = (v: number): number => MT + ph - ((v / 2 - ax.mid) / ax.half) * ph;
 
   const parts: string[] = [
@@ -321,25 +396,26 @@ export function boxPlotSvg(
   ];
   if (opts.title) {
     parts.push(
-      `<text x="${W / 2}" y="17" text-anchor="middle" font-family="Segoe UI, Arial" ` +
+      `<text data-figure-title="1" x="${W / 2}" y="17" text-anchor="middle" font-family="Segoe UI, Arial" ` +
         `font-size="12" fill="${INK}">${esc(opts.title)}</text>`,
     );
   }
 
-  for (const t of ax.tickAt) {
+  for (const [ti, t] of ax.tickAt.entries()) {
     const yy = y(t);
     parts.push(`<line x1="${ML}" y1="${yy.toFixed(1)}" x2="${ML + pw}" y2="${yy.toFixed(1)}" stroke="${FAINT}" stroke-width="1"/>`);
     parts.push(
       `<text x="${ML - 6}" y="${(yy + 3.5).toFixed(1)}" text-anchor="end" ` +
-        `font-family="Segoe UI, Arial" font-size="10" fill="${GREY}">${esc(fmt(t))}</text>`,
+        `font-family="Segoe UI, Arial" font-size="10" fill="${GREY}">${esc(ax.tickLabel[ti])}</text>`,
     );
   }
   parts.push(`<line x1="${ML}" y1="${MT}" x2="${ML}" y2="${MT + ph}" stroke="${RULE}" stroke-width="1"/>`);
   parts.push(`<line x1="${ML}" y1="${MT + ph}" x2="${ML + pw}" y2="${MT + ph}" stroke="${RULE}" stroke-width="1"/>`);
-  if (opts.ylabel) {
+  const yTitle = titleWithMultiplier(opts.ylabel, ax.multiplier);
+  if (yTitle) {
     parts.push(
       `<text x="12" y="${MT + ph / 2}" text-anchor="middle" font-family="Segoe UI, Arial" ` +
-        `font-size="10" fill="${INK}" transform="rotate(-90 12 ${MT + ph / 2})">${esc(opts.ylabel)}</text>`,
+        `font-size="10" fill="${INK}" transform="rotate(-90 12 ${MT + ph / 2})">${esc(yTitle)}</text>`,
     );
   }
 
@@ -426,10 +502,13 @@ export function boxPlotSvg(
     }
   });
 
+  if (bp && bp.items.length) parts.push(bracketMarkup(bp, y(hi), INK));
+
   if (clipped > 0) {
+    const off = bp && bp.offChart ? `; ${bp.offChart} bracket(s) involve them` : "";
     parts.push(
       `<text x="${W - MR}" y="${H - 6}" text-anchor="end" font-family="Segoe UI, Arial" ` +
-        `font-size="9" fill="${RED}">${clipped} more group(s) not shown</text>`,
+        `font-size="9" fill="${RED}">${clipped} more group(s) not shown${off}</text>`,
     );
   }
   parts.push("</svg>");
@@ -497,16 +576,16 @@ export function forestPlotSvg(
   ];
   if (opts.title) {
     parts.push(
-      `<text x="${W / 2}" y="18" text-anchor="middle" font-family="Segoe UI, Arial" ` +
+      `<text data-figure-title="1" x="${W / 2}" y="18" text-anchor="middle" font-family="Segoe UI, Arial" ` +
         `font-size="12" fill="${INK}">${esc(opts.title)}</text>`,
     );
   }
 
   const yBase = MT + shown.length * ROW_H;
-  for (const t of ax.tickAt) {
+  for (const [ti, t] of ax.tickAt.entries()) {
     parts.push(
       `<text x="${x(t).toFixed(1)}" y="${yBase + 15}" text-anchor="middle" ` +
-        `font-family="Segoe UI, Arial" font-size="10" fill="${GREY}">${esc(fmt(t))}</text>`,
+        `font-family="Segoe UI, Arial" font-size="10" fill="${GREY}">${esc(ax.tickLabel[ti])}</text>`,
     );
   }
   parts.push(`<line x1="${ML}" y1="${yBase}" x2="${ML + pw}" y2="${yBase}" stroke="${RULE}" stroke-width="1"/>`);
@@ -539,10 +618,11 @@ export function forestPlotSvg(
     parts.push(`<circle cx="${x(r.estimate).toFixed(1)}" cy="${cy.toFixed(1)}" r="3" fill="${c}"/>`);
   });
 
-  if (opts.xlabel) {
+  const xTitle = titleWithMultiplier(opts.xlabel, ax.multiplier);
+  if (xTitle) {
     parts.push(
       `<text x="${ML + pw / 2}" y="${H - 8}" text-anchor="middle" ` +
-        `font-family="Segoe UI, Arial" font-size="10" fill="${INK}">${esc(opts.xlabel)}</text>`,
+        `font-family="Segoe UI, Arial" font-size="10" fill="${INK}">${esc(xTitle)}</text>`,
     );
   }
   if (clipped > 0) {
@@ -593,13 +673,20 @@ export function forestLogAxis(lo: number, hi: number): ForestLogAxis | { error: 
   if (decHi - decLo > FOREST_LOG_MAX_DECADES) {
     return { error: `the intervals span ${decHi - decLo} decades (more than ${FOREST_LOG_MAX_DECADES})` };
   }
-  const t = logTicks(decLo, decHi);
+  const t = logDecades(decLo, decHi);
   const fewDecades = decHi - decLo <= 2;
-  const labelled = t.major.map((v) => ({ v, text: fmtLogTick(v) }));
+  // ONE NOTATION PER AXIS (B.7): three decades or more read 10ⁿ throughout,
+  // 10⁰ included, as journals set them; fewer stay plain while every decade is
+  // an ordinary number (10⁻³ … 10³).
+  const uniform = !fewDecades || decLo < -3 || decHi > 3;
+  const labelled = t.major.map((v) => ({ v, text: uniform ? decadeLabel(v) : fmtValue(v) }));
   if (fewDecades) {
     for (const v of t.minor) {
-      const m = Math.round(v / Math.pow(10, Math.floor(Math.log10(v) + 1e-12)));
-      if (m === 2 || m === 5) labelled.push({ v, text: String(Number(v.toPrecision(6))) });
+      const e = Math.floor(Math.log10(v) + 1e-12);
+      const m = Math.round(v / Math.pow(10, e));
+      if (m === 2 || m === 5) {
+        labelled.push({ v, text: uniform ? `${m}${decadeLabel(Math.pow(10, e)).replace(/^10/, "×10")}` : String(Number(v.toPrecision(6))) });
+      }
     }
     labelled.sort((a, b) => a.v - b.v);
   }
@@ -658,7 +745,7 @@ function forestPlotLogSvg(
   ];
   if (opts.title) {
     parts.push(
-      `<text x="${W / 2}" y="18" text-anchor="middle" font-family="Segoe UI, Arial" ` +
+      `<text data-figure-title="1" x="${W / 2}" y="18" text-anchor="middle" font-family="Segoe UI, Arial" ` +
         `font-size="12" fill="${INK}">${esc(opts.title)}</text>`,
     );
   }
@@ -741,7 +828,7 @@ export function groupedBarSvg(
   categories: string[],
   // eslint-disable-next-line prefer-const
   series: BarSeries[],
-  opts: { title?: string; ylabel?: string; w?: number; h?: number },
+  opts: { title?: string; ylabel?: string; w?: number; h?: number; brackets?: ChartBrackets },
 ): string {
   const W = opts.w ?? GROUPED_BAR_SIZE.w;
   const H = opts.h ?? GROUPED_BAR_SIZE.h;
@@ -772,7 +859,10 @@ export function groupedBarSvg(
     if (v > hi) hi = v;
     if (v < lo) lo = v;
   }
-  const ax = axisRange(lo, hi, 5);
+  // Brackets compare CATEGORIES (bars of a one-series means chart); categories
+  // beyond the 16 cap have no centre and are counted in the clipped note.
+  const bp = planIfAny(opts.brackets, categories.length, (k) => (k < cats.length ? ML + (pw / cats.length) * (k + 0.5) : null));
+  const ax = bp && bp.levels ? axisWithHeadroom(lo, hi, ph, bp.heightPx) : axisRange(lo, hi, 5);
   const y = (v: number): number => MT + ph - ((v / 2 - ax.mid) / ax.half) * ph;
 
   const parts: string[] = [
@@ -781,24 +871,25 @@ export function groupedBarSvg(
   ];
   if (opts.title) {
     parts.push(
-      `<text x="${W / 2}" y="17" text-anchor="middle" font-family="Segoe UI, Arial" ` +
+      `<text data-figure-title="1" x="${W / 2}" y="17" text-anchor="middle" font-family="Segoe UI, Arial" ` +
         `font-size="12" fill="${INK}">${esc(opts.title)}</text>`,
     );
   }
-  for (const t of ax.tickAt) {
+  for (const [ti, t] of ax.tickAt.entries()) {
     const yy = y(t);
     parts.push(`<line x1="${ML}" y1="${yy.toFixed(1)}" x2="${ML + pw}" y2="${yy.toFixed(1)}" stroke="${FAINT}" stroke-width="1"/>`);
     parts.push(
       `<text x="${ML - 6}" y="${(yy + 3.5).toFixed(1)}" text-anchor="end" ` +
-        `font-family="Segoe UI, Arial" font-size="10" fill="${GREY}">${esc(fmt(t))}</text>`,
+        `font-family="Segoe UI, Arial" font-size="10" fill="${GREY}">${esc(ax.tickLabel[ti])}</text>`,
     );
   }
   parts.push(`<line x1="${ML}" y1="${MT}" x2="${ML}" y2="${MT + ph}" stroke="${RULE}" stroke-width="1"/>`);
   parts.push(`<line x1="${ML}" y1="${y(0).toFixed(1)}" x2="${ML + pw}" y2="${y(0).toFixed(1)}" stroke="${RULE}" stroke-width="1"/>`);
-  if (opts.ylabel) {
+  const yTitle = titleWithMultiplier(opts.ylabel, ax.multiplier);
+  if (yTitle) {
     parts.push(
       `<text x="12" y="${MT + ph / 2}" text-anchor="middle" font-family="Segoe UI, Arial" ` +
-        `font-size="10" fill="${INK}" transform="rotate(-90 12 ${MT + ph / 2})">${esc(opts.ylabel)}</text>`,
+        `font-size="10" fill="${INK}" transform="rotate(-90 12 ${MT + ph / 2})">${esc(yTitle)}</text>`,
     );
   }
 
@@ -843,8 +934,10 @@ export function groupedBarSvg(
         `fill="${INK}">${esc(s.label.slice(0, 16))}</text>`,
     );
   });
+  if (bp && bp.items.length) parts.push(bracketMarkup(bp, y(hi), INK));
   const notes: string[] = [];
   if (clipped > 0) notes.push(`${clipped} more category(s) not shown`);
+  if (bp && bp.offChart > 0) notes.push(`${bp.offChart} bracket(s) involve them`);
   if (droppedSeries > 0) notes.push(`${droppedSeries} more series not shown`);
   if (notes.length) {
     parts.push(

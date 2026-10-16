@@ -205,7 +205,7 @@ describe("display contract and figure", () => {
   it("a 12-point interpolant's svg title fits the canvas (the figure gate's estimate: chars × 13 px × 0.58, centred on the 380 px frame)", () => {
     const q = "interpolate (-5, 1/26), (-4, 1/17), (-3, 1/10), (-2, 1/5), (-1, 1/2), (0, 1), (1, 1/2), (2, 1/5), (3, 1/10), (4, 1/17), (5, 1/26), (6, 1/37) at x = 4.5";
     const v = run(q);
-    const title = /<text x="190" y="16" text-anchor="middle"[^>]*font-weight="bold"[^>]*>([^<]*)<\/text>/.exec(v.svg!)?.[1];
+    const title = /<text(?: data-figure-title="1")? x="190" y="16" text-anchor="middle"[^>]*font-weight="bold"[^>]*>([^<]*)<\/text>/.exec(v.svg!)?.[1];
     expect(title).toBe("Interpolating polynomial through 12 points");
     expect(title!.length * 13 * 0.58).toBeLessThanOrEqual(380);
     expect(title).not.toContain("p(x) =");
@@ -216,7 +216,7 @@ describe("display contract and figure", () => {
     for (const q of ALL) {
       const v = run(q);
       if (!v.svg) continue;
-      const title = /<text x="190" y="16" text-anchor="middle"[^>]*font-weight="bold"[^>]*>([^<]*)<\/text>/.exec(v.svg)?.[1] ?? "";
+      const title = /<text(?: data-figure-title="1")? x="190" y="16" text-anchor="middle"[^>]*font-weight="bold"[^>]*>([^<]*)<\/text>/.exec(v.svg)?.[1] ?? "";
       expect(title.length * 13 * 0.58).toBeLessThanOrEqual(380);
     }
   });

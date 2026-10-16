@@ -99,6 +99,32 @@ export function tidyGrid(rows: string[][]): string[][] {
   return cleaned.map((r) => Array.from({ length: width }, (_, i) => r[i] ?? ""));
 }
 
+const SUPERSCRIPT_DIGITS = "⁰¹²³⁴⁵⁶⁷⁸⁹";
+
+/**
+ * The "×10ⁿ" tail of a number in scientific notation: × (or x, X, ·), 10, then
+ * a caret exponent (^-5, ^−5, ^+3) or a superscript one (⁻⁵, ⁶). Group 1 is the
+ * caret form, group 2 the superscript form. A bare "× 10" with no exponent is
+ * NOT a tail ("2 × 10" is a product, not a number).
+ */
+export const SCI_TAIL = /\s*[×xX·]\s*10\s*(?:\^\s*([-−–+]?\d{1,3})|([⁻⁺]?[⁰¹²³⁴⁵⁶⁷⁸⁹]{1,3}))$/;
+
+/** "-5", "−5", "⁻⁵", "⁶" → the integer; NaN when unreadable. */
+function sciExponent(s: string | undefined): number {
+  if (!s) return NaN;
+  let t = "";
+  for (const ch of s) {
+    const d = SUPERSCRIPT_DIGITS.indexOf(ch);
+    if (d >= 0) t += String(d);
+    else if (ch === "⁻" || ch === "−" || ch === "–" || ch === "-") t += "-";
+    else if (ch === "⁺" || ch === "+") t += "";
+    else if (/\d/.test(ch)) t += ch;
+    else return NaN;
+  }
+  const n = Number(t);
+  return Number.isInteger(n) ? n : NaN;
+}
+
 /**
  * The number a cell holds, or NaN.
  *
@@ -123,6 +149,40 @@ export function parseCellNumber(s: string): number {
     .replace(/%$/, "")
     .trim();
   if (t === "") return NaN;
+  // "0x10^3" reads as a hexadecimal literal as easily as 0 × 10³: ambiguous, so
+  // refused rather than guessed (v2.143.0 adversarial review).
+  // Binary and octal literals likewise ("0b11" was 3, "0o7" was 7, read only
+  // because Number() accepts them — never as a deliberate feature).
+  if (/^-?0[xXbBoO]/.test(t)) return NaN;
+  // A bare power of ten as a log axis PRINTS it ("10³", "10⁻³", "10⁰"): the
+  // display contract says it must parse back.
+  const bare = /^(-?)10([⁻⁺]?[⁰¹²³⁴⁵⁶⁷⁸⁹]{1,3})$/.exec(t);
+  if (bare) {
+    const exp = sciExponent(bare[2]);
+    const v = Number(`${bare[1]}1e${exp}`);
+    return Number.isFinite(v) && v !== 0 ? v : NaN;
+  }
+  // Scientific notation as the product itself DISPLAYS it (the display
+  // contract: what is shown must parse back): "1.5×10⁻⁵", "2.5 × 10⁶",
+  // "3x10^-4", "1,5×10⁻⁵". The mantissa is read by this same function, so the
+  // comma rule and U+2212 apply to it. Was NaN: a typed stats list silently
+  // lost 1.5×10⁻⁵.
+  const sci = SCI_TAIL.exec(t);
+  if (sci && sci.index > 0) {
+    const mantText = t.slice(0, sci.index);
+    // "2×10³×10²" is two multipliers, not a number in scientific notation.
+    // Nor is "1e5×10³": an e-exponent AND a ×10 multiplier.
+    if (SCI_TAIL.test(mantText) || /^-?10[⁻⁺]?[⁰¹²³⁴⁵⁶⁷⁸⁹]/.test(mantText.trim()) || /[eE]/.test(mantText)) return NaN;
+    const mant = parseCellNumber(mantText);
+    const exp = sciExponent(sci[1] ?? sci[2]);
+    if (!Number.isFinite(mant) || !Number.isFinite(exp)) return NaN;
+    const ms = String(mant);
+    const v = ms.includes("e") ? mant * Math.pow(10, exp) : Number(`${ms}e${exp}`);
+    // Overflow (1×10^999 → ∞) and UNDERFLOW (1×10⁻⁹⁹⁹ → 0) are both refused: a
+    // non-zero literal read as 0 is a silent wrong value.
+    if (!Number.isFinite(v) || (v === 0 && mant !== 0)) return NaN;
+    return v;
+  }
   if (/^-?\d{1,3}( \d{3})+([.,]\d+)?$/.test(t)) t = t.replace(/ /g, "");
   if (/\s/.test(t)) return NaN;
   if (t.includes(",")) {
@@ -135,7 +195,12 @@ export function parseCellNumber(s: string): number {
     else return NaN;
   }
   const n = Number(t);
-  return Number.isFinite(n) ? n : NaN;
+  if (!Number.isFinite(n)) return NaN;
+  // UNDERFLOW, as for "1×10⁻⁹⁹⁹" above: "1e-400" is a non-zero literal that
+  // Number() reads as 0 — a silent wrong value. A mantissa with a non-zero digit
+  // that comes out as exactly 0 is refused ("0e-400" is still 0).
+  if (n === 0 && /[1-9]/.test(t.split(/[eE]/)[0])) return NaN;
+  return n;
 }
 
 /** True when the cell reads as a number (see parseCellNumber for the rules). */
@@ -151,7 +216,8 @@ export function isNumericCell(s: string): boolean {
  */
 export function cellNumberText(s: string): string {
   const t = s.trim();
-  if (/^-?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?$/.test(t)) return t;
+  // The spelling only when it IS a number here ("1e-400" underflows and is refused).
+  if (/^-?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?$/.test(t) && Number.isFinite(parseCellNumber(t))) return t;
   return String(parseCellNumber(s));
 }
 

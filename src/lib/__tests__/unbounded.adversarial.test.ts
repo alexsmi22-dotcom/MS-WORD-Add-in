@@ -21,7 +21,8 @@
 import { amortizationSchedule, decliningBalanceSchedule, MAX_AMORT_PERIODS } from "../finance";
 import { serialDilution, MAX_DILUTION_STEPS } from "../assay";
 import { toRoman } from "../numbering";
-import { logTicks } from "../plot";
+// v2.143.0: plot.logTicks was a pass-through to axis.logDecades and was removed (dead).
+import { logDecades as logTicks } from "../axis";
 import { reconcileSeqIds } from "../seqid";
 import { lPow, lMono } from "../knots";
 import {

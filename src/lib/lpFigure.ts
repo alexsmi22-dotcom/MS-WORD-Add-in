@@ -21,6 +21,8 @@
  * measures the same thing a reader sees.
  */
 
+import { linearAxis } from "./axis";
+
 export type LpRel = "<=" | ">=" | "=";
 
 export interface LpFigureSpec {
@@ -236,25 +238,22 @@ export function lpRegionSvg(spec: LpFigureSpec): string {
   const axisY = X(0) >= ML && X(0) <= ML + pw ? X(0) : ML;
   drawLine(ML, axisX, ML + pw, axisX, 'stroke="#1A1A1A" stroke-width="1"');
   drawLine(axisY, MT, axisY, MT + ph, 'stroke="#1A1A1A" stroke-width="1"');
-  fixedText(ML + pw, H - 8, "end", spec.vars[0], 11, "#7B8C99");
-  fixedText(ML - 40, MT + 10, "start", spec.vars[1], 11, "#7B8C99");
-  // ticks: a handful on each axis
-  const tick = (lo: number, hi: number): number[] => {
-    const raw = (hi - lo) / 5;
-    const mag = Math.pow(10, Math.floor(Math.log10(raw)));
-    const step = [1, 2, 5, 10].map((m) => m * mag).find((s) => s >= raw) ?? mag * 10;
-    const out: number[] = [];
-    for (let v = Math.ceil(lo / step) * step; v <= hi + 1e-9; v += step) out.push(Number(v.toFixed(10)));
-    return out;
-  };
-  for (const v of tick(x0, x1)) {
+  // Ticks: a handful on each axis, as axis.ts ROWS. `String(v)` per value gave
+  // `-1, -0.5` (hyphen-minus), `0, 0.5, 1, 1.5` (mixed decimals) and would give
+  // `1e-7`. A row's ×10ⁿ multiplier goes on the variable's name.
+  const xRow = linearAxis(x0, x1, { target: 5 });
+  const yRow = linearAxis(y0, y1, { target: 5 });
+  const withMult = (name: string, m: string): string => (m ? `${name} (${m})` : name);
+  fixedText(ML + pw, H - 8, "end", withMult(spec.vars[0], xRow.multiplier), 11, "#7B8C99");
+  fixedText(ML - 40, MT + 10, "start", withMult(spec.vars[1], yRow.multiplier), 11, "#7B8C99");
+  xRow.values.forEach((v, i) => {
     drawLine(X(v), axisX - 3, X(v), axisX + 3, 'stroke="#1A1A1A"');
-    fixedText(X(v), H - 22, "middle", String(v), 9, "#7B8C99");
-  }
-  for (const v of tick(y0, y1)) {
+    fixedText(X(v), H - 22, "middle", xRow.labels[i], 9, "#7B8C99");
+  });
+  yRow.values.forEach((v, i) => {
     drawLine(axisY - 3, Y(v), axisY + 3, Y(v), 'stroke="#1A1A1A"');
-    fixedText(ML - 6, Y(v) + 3, "end", String(v), 9, "#7B8C99");
-  }
+    fixedText(ML - 6, Y(v) + 3, "end", yRow.labels[i], 9, "#7B8C99");
+  });
 
   // region
   if (poly.length >= 3 && !hasEquality) {

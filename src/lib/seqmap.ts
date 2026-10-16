@@ -9,6 +9,7 @@
 // SVG→PNG→Word path does the rest.
 
 import { SeqRecord, SeqFeature } from "./seqio";
+import { linearAxis, integerAxis, THIN_SPACE } from "./axis";
 
 export interface MapOptions {
   width?: number;
@@ -56,18 +57,29 @@ function escapeXml(s: string): string {
 /** Rough text width at a given font size — good enough for lane packing. */
 const textWidth = (s: string, px: number): number => s.length * px * 0.55;
 
-/** A "nice" tick step for the bp axis: 1, 2, 5 × 10ⁿ. */
-function tickStep(span: number, target: number): number {
-  const raw = span / Math.max(1, target);
-  const mag = Math.pow(10, Math.floor(Math.log10(raw)));
-  const norm = raw / mag;
-  return (norm < 1.5 ? 1 : norm < 3 ? 2 : norm < 7 ? 5 : 10) * mag;
+/**
+ * The exact end coordinate, digits grouped by thin spaces from 10 000 (SI).
+ * `toLocaleString()` wrote "48,502" — or "48.502", a decimal, in a German locale.
+ */
+export function bpEndLabel(length: number): string {
+  const s = String(Math.trunc(length));
+  return s.length < 5 ? s : s.replace(/\B(?=(\d{3})+(?!\d))/g, THIN_SPACE);
 }
 
-/** Formats a coordinate compactly: 1, 500, 2.5 kb, 48.5 kb. */
-function fmtBp(n: number, span: number): string {
-  if (span >= 10000) return `${(n / 1000).toFixed(n % 1000 === 0 ? 0 : 1)} kb`;
-  return String(n);
+/**
+ * The bp axis ticks over [0, length] as ONE axis.ts row: whole base pairs
+ * below 10 kb, kilobases (constant decimals across the row: `2.5 kb, 5.0 kb`)
+ * from 10 kb up. Shared with seqmapcirc.ts. A per-value `toFixed(n % 1000 ? 1 : 0)`
+ * used to decide decimals tick by tick.
+ */
+export function bpAxisTicks(length: number, target = 8): { bp: number; label: string }[] {
+  if (!(length > 0) || !Number.isFinite(length)) return [];
+  if (length >= 10000) {
+    const row = linearAxis(0, length / 1000, { target });
+    return row.values.map((v, i) => ({ bp: Math.round(v * 1000), label: `${row.labels[i]}${row.multiplier} kb` }));
+  }
+  const row = integerAxis(0, length, { target });
+  return row.values.map((v, i) => ({ bp: v, label: row.labels[i] }));
 }
 
 interface Placed {
@@ -223,7 +235,7 @@ export function buildLinearMapSvg(record: SeqRecord, opts: MapOptions = {}): str
   out.push(`<rect width="${W}" height="${H}" fill="#fff"/>`);
 
   // Title: name, length, topology — the caption a reader needs.
-  const title = opts.title ?? `${record.name} · ${record.length.toLocaleString()} bp · ${record.circular ? "circular" : "linear"}`;
+  const title = opts.title ?? `${record.name} · ${bpEndLabel(record.length)} bp · ${record.circular ? "circular" : "linear"}`;
   out.push(
     `<text x="${ml}" y="14" font-family="sans-serif" font-size="11" font-weight="600" fill="#1b1b1f">${escapeXml(title)}</text>`
   );
@@ -247,19 +259,20 @@ export function buildLinearMapSvg(record: SeqRecord, opts: MapOptions = {}): str
   }
 
   // Axis ticks.
-  const step = tickStep(record.length, 8);
   const tickColor = mono ? "#000" : "#64748b";
-  for (let bp = step; bp < record.length; bp += step) {
+  // Interior ticks only: both ends are labelled below.
+  for (const { bp, label } of bpAxisTicks(record.length)) {
+    if (bp <= 0 || bp >= record.length) continue;
     const x = toX(bp);
     out.push(`<line x1="${x.toFixed(1)}" y1="${backboneY}" x2="${x.toFixed(1)}" y2="${backboneY + 4}" stroke="${tickColor}" stroke-width="1"/>`);
     out.push(
-      `<text x="${x.toFixed(1)}" y="${backboneY + 15}" font-family="sans-serif" font-size="8.5" fill="${tickColor}" text-anchor="middle">${fmtBp(bp, record.length)}</text>`
+      `<text x="${x.toFixed(1)}" y="${backboneY + 15}" font-family="sans-serif" font-size="8.5" fill="${tickColor}" text-anchor="middle">${label}</text>`
     );
   }
   // Always label both ends.
   out.push(`<text x="${ml}" y="${backboneY + 15}" font-family="sans-serif" font-size="8.5" fill="${tickColor}" text-anchor="start">1</text>`);
   out.push(
-    `<text x="${W - mr}" y="${backboneY + 15}" font-family="sans-serif" font-size="8.5" fill="${tickColor}" text-anchor="end">${record.length.toLocaleString()}</text>`
+    `<text x="${W - mr}" y="${backboneY + 15}" font-family="sans-serif" font-size="8.5" fill="${tickColor}" text-anchor="end">${bpEndLabel(record.length)}</text>`
   );
 
   // If a circular plasmid has features crossing the origin, say so rather than

@@ -66,6 +66,17 @@ function sourceFiles(dir: string, out: string[] = []): string[] {
 }
 
 const files = sourceFiles(SRC);
+
+/**
+ * Is the URL at `index` in `text` on a COMMENT line (a citation) rather than a
+ * code line (an address)? The one predicate the host scan below uses, factored
+ * out so it can be tested on known-good and known-bad lines (v2.143.0).
+ */
+function urlIsOnCommentLine(text: string, index: number): boolean {
+  const lines = text.split(String.fromCharCode(10));
+  const line = lines[text.slice(0, index).split(String.fromCharCode(10)).length - 1] ?? "";
+  return /^\s*(\/\/|\*|\/\*)/.test(line);
+}
 const rel = (f: string): string => path.relative(SRC, f).replace(/\\/g, "/");
 
 describe("network surface — the offline claim is enforceable", () => {
@@ -110,22 +121,25 @@ describe("network surface — the offline claim is enforceable", () => {
     const external = new Set<string>();
     for (const f of files) {
       const text = fs.readFileSync(f, "utf8");
-      const lines = text.split(String.fromCharCode(10));
       for (const m of text.matchAll(/https?:\/\/([a-z0-9.-]+)/gi)) {
         const host = m[1].toLowerCase();
         // WHICH LINE IS IT ON? A URL in a comment is a citation; a URL in code is an
         // address. The difference is the whole point of this test, so it is measured
         // rather than assumed — the exemption below applies only to comment lines, so
         // adding a real fetch to the same host still fails.
-        const upto = text.slice(0, m.index ?? 0);
-        const line = lines[upto.split(String.fromCharCode(10)).length - 1] ?? "";
-        const isComment = /^\s*(\/\/|\*|\/\*)/.test(line);
-        // The PROVENANCE of the fetched element data. src/lib/elementData.ts is a
-        // generated file and its header cites the endpoint it came from, which is
-        // exactly the citation this project's data rule demands. It is never
-        // dereferenced at runtime: the fetch lives in scripts/fetch-element-data.mjs,
-        // which is a build-time tool that never ships in the pane bundle.
-        if (host === "pubchem.ncbi.nlm.nih.gov" && isComment) continue;
+        const isComment = urlIsOnCommentLine(text, m.index ?? 0);
+        // A URL on a COMMENT line is a citation, whatever its host (v2.143.0). The
+        // journal-figure modules cite the guides their numbers came from (Nature's
+        // final-artwork PDF, Elsevier's sizing page, eCFR 1.84, Okabe & Ito's J*Fly
+        // page), exactly as elementData.ts cites PubChem — which was the only host
+        // this exemption covered before. A comment cannot start a request, and the
+        // PRIMITIVES scan above (code lines only) still fails any call site, so a
+        // real fetch to one of these hosts is still caught: by that test, and by
+        // this one if the URL appears on the code line that fetches it.
+        if (isComment) continue;
+        // NO string-literal exemption for citations: figureStyle.ts keeps its
+        // presets' `sources` WITHOUT the https:// scheme, so they are not URLs to
+        // this scan, and a URL literal in code anywhere is still an address.
         // The add-in's own host and Microsoft's required office.js CDN.
         if (host.endsWith("github.io") || host.endsWith("github.com")) continue;
         if (host === "appsforoffice.microsoft.com") continue;
@@ -149,6 +163,39 @@ describe("network surface — the offline claim is enforceable", () => {
       }
     }
     expect([...external].sort()).toEqual(["www.ebi.ac.uk"]);
+  });
+
+  test("the comment exemption is for COMMENTS only: a real fetch URL on a code line still counts (self-test)", () => {
+    // Known-good: citations on //, /* and * lines are exempt.
+    const cited = [
+      "// Source: https://www.nature.com/documents/nature-final-artwork.pdf",
+      "  /* https://www.ecfr.gov/x */",
+      "   * (https://www.elsevier.com/about)",
+    ];
+    for (const c of cited) expect({ c, comment: urlIsOnCommentLine(c, c.indexOf("https://")) }).toEqual({ c, comment: true });
+    // Known-bad: the SAME hosts in code — a fetch, a string literal, a URL after code
+    // with a trailing comment — are NOT exempt, so the host scan would report them.
+    const code = [
+      'const r = await fetch("https://www.nature.com/x");',
+      'const u = "https://www.ecfr.gov/y"; // cited',
+      '  img.src = "https://www.elsevier.com/z";',
+    ];
+    for (const c of code) expect({ c, comment: urlIsOnCommentLine(c, c.indexOf("https://")) }).toEqual({ c, comment: false });
+    // Multi-line text: the predicate reads the URL's OWN line, not the first line.
+    const two = "// a citation\nfetch(\"https://www.nature.com/q\");";
+    expect(urlIsOnCommentLine(two, two.indexOf("https://"))).toBe(false);
+    // And the scan reports such a host: run the same host extraction over the probe.
+    const hosts = [...code.join("\n").matchAll(/https?:\/\/([a-z0-9.-]+)/gi)]
+      .filter((m) => !urlIsOnCommentLine(code.join("\n"), m.index ?? 0))
+      .map((m) => m[1]);
+    expect(hosts).toEqual(["www.nature.com", "www.ecfr.gov", "www.elsevier.com"]);
+  });
+
+  test("figureStyle.ts cites its sources without a scheme and holds no network primitive", () => {
+    const fsrc = fs.readFileSync(path.join(SRC, "lib", "figureStyle.ts"), "utf8");
+    const code = fsrc.split("\n").filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join("\n");
+    for (const re of PRIMITIVES) expect({ primitive: String(re), found: re.test(code) }).toEqual({ primitive: String(re), found: false });
+    expect(/https?:\/\//.test(code)).toBe(false);
   });
 
   test("printed DOIs are never fetched: doi.ts and the bib* modules hold no network primitive", () => {

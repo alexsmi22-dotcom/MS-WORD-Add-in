@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.142.0)
+# JurisLab — Manual Test Script (v2.143.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -9,6 +9,127 @@ scanning, and layout. Budget ~30 minutes for the full pass.
 Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
+
+## 0cj. New in v2.143.0 — Journal-grade figures: figure styles, the vector-insert probe, significance brackets, panels
+
+A **Figure style** row now sits under **Plot, Table → Chart, Statistics, Finance and Bio/Assay** (and ONLY those:
+check it is absent from Engineering, Spectra, Sequence Map, Solve and the 3D model, whose figures still insert as
+drawn). It holds the style (**As drawn** / Nature / Elsevier / ACS / Cell Press / Thesis (serif) / USPTO drawing),
+the width (single / 1.5 / double column), an **Insert as vector SVG (experimental)** tick box (OFF by default),
+and the **Multi-panel figure** tray. Every figure insert now says HOW it went in, e.g. "Plot inserted as PNG at
+384 dpi." The dpi is read from the PNG that was inserted, not from what was asked for.
+
+**Vector insert probe — do this FIRST, on Word for Windows, Word for Mac and Word on the web.** The vector route is
+half-documented (brief §A.3/§E1), so it ships OFF and this probe decides whether it can be turned on. Record every
+answer; "it looked fine" is not an answer. Use **Script Lab** (Insert ▸ Add-ins ▸ Script Lab) with a new snippet.
+Put this at the top of the snippet:
+
+```js
+const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100"><rect width="200" height="100" fill="#fff"/>' +
+  '<line x1="0" y1="90" x2="200" y2="90" stroke="#000"/><text x="10" y="50" font-family="Arial" font-size="16">−2.5 ×10⁴ H₂O</text></svg>';
+const svgB64 = btoa(unescape(encodeURIComponent(svg)));
+// A 1×1 PNG. If you SEE a solid little square, Word drew the PNG fallback, not the SVG.
+const png1 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+```
+
+- [ ] ★ **Probe A — `insertInlinePictureFromBase64` with SVG.**
+  `await Word.run(async (c) => { const p = c.document.getSelection().insertInlinePictureFromBase64(svgB64, "After"); p.load("width,height"); await c.sync(); console.log(p.width, p.height); });`
+  Record: an error, nothing, or a picture. If a picture: its width × height in points (200 × 100 px should be
+  **150 × 75 pt**), whether the text is sharp at 400 % zoom, and (Windows/Mac) Picture Format ▸ the picture is an
+  SVG ("Convert to Shape" is offered only for SVG).
+- [ ] ★ **Probe B — `insertOoxml` with an SVG plus a PNG fallback** (how Word itself stores an SVG). Paste this
+  after the lines above and run it:
+
+```js
+const ooxml = `<pkg:package xmlns:pkg="http://schemas.microsoft.com/office/2006/xmlPackage">
+<pkg:part pkg:name="/_rels/.rels" pkg:contentType="application/vnd.openxmlformats-package.relationships+xml"><pkg:xmlData><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships></pkg:xmlData></pkg:part>
+<pkg:part pkg:name="/word/_rels/document.xml.rels" pkg:contentType="application/vnd.openxmlformats-package.relationships+xml"><pkg:xmlData><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdPng" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/f.png"/><Relationship Id="rIdSvg" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/f.svg"/></Relationships></pkg:xmlData></pkg:part>
+<pkg:part pkg:name="/word/document.xml" pkg:contentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"><pkg:xmlData><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture" xmlns:asvg="http://schemas.microsoft.com/office/drawing/2016/SVG/main"><w:body><w:p><w:r><w:drawing><wp:inline><wp:extent cx="1905000" cy="952500"/><wp:docPr id="901" name="svg probe"/><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic><pic:nvPicPr><pic:cNvPr id="901" name="svg probe"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="rIdPng"><a:extLst><a:ext uri="{96DAC541-7B7A-43D3-8B79-37D633B846F1}"><asvg:svgBlip r:embed="rIdSvg"/></a:ext></a:extLst></a:blip><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="1905000" cy="952500"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p></w:body></w:document></pkg:xmlData></pkg:part>
+<pkg:part pkg:name="/word/media/f.png" pkg:contentType="image/png" pkg:compression="store"><pkg:binaryData>${png1}</pkg:binaryData></pkg:part>
+<pkg:part pkg:name="/word/media/f.svg" pkg:contentType="image/svg+xml" pkg:compression="store"><pkg:binaryData>${svgB64}</pkg:binaryData></pkg:part>
+</pkg:package>`;
+await Word.run(async (c) => { c.document.getSelection().insertOoxml(ooxml, "After"); await c.sync(); });
+```
+
+  Record per host: the SVG text ("−2.5 ×10⁴ H₂O", sharp at 400 %) or the solid square (the PNG fallback), or an
+  error. **Word on the web showing the square is the honest-degradation result we want**; the web showing nothing
+  or an error rules this route out. The picture should be 150 × 75 pt (1 905 000 × 952 500 EMU).
+- [ ] ★ **Probe C — the shipped XmlSvg route (Windows and Mac).** In JurisLab, Plot, `sin(x)/x`, tick **Insert as
+  vector SVG**, **Insert**. Record the status line word for word. Then:
+  - It should read "Plot inserted as vector SVG." If it reads "… but Word reports it stored the picture as …",
+    Word did not keep the SVG: record the format.
+  - The picture is **inline** (moves with the text), not floating in front of it. If it floats, record that — the
+    pane then says "no new inline picture is in the document" and inserts nothing else.
+  - Its size (Picture Format ▸ Size) equals the PNG insert of the same plot with the box unticked (as drawn: the
+    SVG's own px × 0.75 pt). Insert both and compare: the widths must match to 0.1 cm.
+  - **imageWidth units.** In Script Lab run
+    `Office.context.document.setSelectedDataAsync(svg, { coercionType: Office.CoercionType.XmlSvg, imageWidth: 150 }, (r) => console.log(r.status));`
+    and record the picture's width in points: 150 means points, 112.5 means px. (JurisLab passes no imageWidth;
+    it finds the picture again and sizes it in points.)
+  - Right-click ▸ **Convert to Shape** (Windows/Mac 365): the tick labels become editable text, not outlines.
+    Nature requires editable text. Record whether the minus signs, ×10ⁿ superscripts and subscripts survive.
+  - In Script Lab: `Word.run(async (c) => { const p = c.document.body.inlinePictures; p.load("items/imageFormat"); await c.sync(); console.log(p.items.map((x) => x.imageFormat)); })`
+    → the vector figure reads **Svg**, the PNG ones **Png**.
+- [ ] **Web and unknown hosts stay PNG.** Word on the web, box ticked → "Plot inserted as PNG at N dpi; not vector:
+  Word on the web cannot insert vector pictures (ImageCoercion 1.2 is not available there)." Box unticked on any
+  host → "Plot inserted as PNG at N dpi." with no vector excuse.
+
+**Figure styles**
+- [ ] ★ **As drawn is unchanged.** Style **As drawn**: insert a Plot, a Table → Chart column chart, a Stats t-test
+  chart, a Finance chart and a Bio/Assay fit. Each is the same size and sharpness as in v2.142.0 (compare against
+  a v2.142.0 document if you have one). The width selector is disabled.
+- [ ] ★ **Nature, single column.** Plot `sin(x)/x` → style **Nature** → Insert → status "Plot inserted as PNG at N dpi
+  (Nature, 89 mm, text a–b pt)" with a and b both inside 5–7 pt. Picture Format ▸ Size: width **8.9 cm**, and the tick labels print small
+  but readable (≈ 2 mm). **Double column** → 18.3 cm.
+- [ ] **Table → Chart under a journal style** uses the Okabe–Ito colours with a different marker and dash per
+  series (the preview changes when you pick the style). Print in greyscale: the series still separate.
+- [ ] ★ **USPTO.** Table → Chart, a two-series column chart with a title → style **USPTO drawing** → the preview
+  is black-and-white hatching and has **no title**; Insert → width **17.0 cm**, status says "characters at least
+  3.5x mm high". Measure a tick numeral on a printout: **≥ 3.2 mm** (1/8 in), with margin. Switch the chart to
+  **Heat map** → Insert is refused: "USPTO drawing (black and white) cannot draw a heat map: … 37 CFR 1.84(a)(1)
+  …". **1.5 column** under USPTO → refused: "has no 1.5-column width".
+- [ ] **A refusal names the rule.** Finance → any chart → style **Nature** → Insert. If the figure cannot meet
+  Nature as drawn, the status names the rule it misses (e.g. "… print below 5.00 pt …") and the RESULT text still
+  went in ("Result inserted, but the chart could not be: …"). Nothing is inserted under a journal's name that
+  does not meet it.
+
+**Significance brackets (Statistics)**
+- [ ] ★ **Two-sample t-test.** Stats → Two-sample t-test (defaults) → the **Significance brackets** row appears →
+  **Stars** → one bracket over the two boxes with the star class of the test's own p, and a caption under the
+  figure: "* p < 0.05; ** p < 0.01; …; ns p ≥ 0.05. t-test." **Exact p values** → the bracket reads the same p as
+  the result text above it. **Insert chart** → the caption goes in as a paragraph under the picture.
+- [ ] **Paired t-test** → the caption says **paired t-test**, and the bracket joins cond. 1 and cond. 2 (not the
+  difference box).
+- [ ] ★ **Tukey HSD** (3+ groups) → brackets on → the figure becomes the box plot of the groups with one bracket per
+  pair; the caption says "Tukey HSD, N pairwise comparisons; p values are family-wise adjusted". **Hide ns** → the
+  ns brackets disappear and the caption counts them (e.g. "2 non-significant comparisons not shown"). Brackets **Off**
+  → the forest plot is back.
+- [ ] **Too many brackets.** Tukey with 6 groups, Exact p, Hide ns off → if they do not fit, the pane says
+  "Significance brackets could not be drawn: …" and names ONLY remedies that can work: **Taller figure** only when
+  the taller figure would fit; otherwise "more height does not help here" with **Hide ns** / fewer groups / a wider
+  figure. The plain figure stays.
+- [ ] **α is the engine's.** Tukey, groups `1 2 3 4 5` / `6 7 8 9 10` / `11 12 13 14 15` / `3 4 5 6 7`, α = 0.01,
+  Stars → pair 2 vs 4 (p ≈ 0.038, no "*" in the text) is drawn **ns**, and **Hide ns** hides it; the caption reads
+  "** p < 0.01; … ns p ≥ 0.01". At α = 0.10 a pair with 0.05 ≤ p < 0.10 that the text stars is drawn "†" and the
+  caption says "† p < 0.1".
+- [ ] **Kruskal–Wallis** with a significant result → brackets on → caption "Dunn; N comparisons, p values adjusted
+  by Holm." With a NON-significant result the bracket row does not appear (no post-hoc ran, so no bracket exists).
+- [ ] **Mann–Whitney** and **Wilcoxon** → the caption names the test. Other Stats tests show no bracket row.
+
+**Multi-panel figures**
+- [ ] ★ **Two panels under Nature.** Style **Nature**, width **Double**. Plot → a figure → **Add this figure to the
+  panels**; Stats → t-test with Stars → **Add**. The tray reads "2 panels: 1. Plot · 2. Statistics." Columns **2** →
+  **Insert the panels as one figure** → one picture 18.3 cm wide, bold lowercase **a** and **b** at the top-left
+  of each panel, the bracket legend as the caption ("b: …").
+- [ ] **Cell / USPTO letters.** The same under **Cell Press** → uppercase **A**, **B**; under **USPTO** (Table → Chart
+  patent charts) → **FIG. 1A**, **FIG. 1B**. USPTO with Columns **1**, if the stack prints taller than 244 mm → refused: "… above the 244 mm maximum
+  height; use more columns or fewer panels".
+- [ ] **As drawn panels** have no letters (a letter style belongs to a figure style), each panel at its own size.
+- [ ] **Clear the panels** empties the tray; Insert is disabled with fewer than two panels.
+
+**Display contract in the figures**
+- [ ] In every inserted figure above: negative tick labels use a true minus (−2.5, not -2.5), large and small
+  values use ×10ⁿ (never 5.0e+5), and every tick row has the same number of decimals (0.0, 0.5, 1.0).
 
 ## 0ci. New in v2.142.0 — Citation styles, BibTeX/RIS import and numbered bibliographies
 
@@ -3989,6 +4110,8 @@ Engineering mode, Energy & power (now 17; the mode must state **101 calculators*
   - `(0,0,0) (1,1,1) (2,2,2)` -> refused as **COLLINEAR**: no plane.
   - `circle r=1/3` -> area **1/9*pi** exactly, and `box 1/2 1/3 1/4` -> volume **1/24**.
     (Typed fractions must stay exact — no long decimals or giant fractions anywhere.)
+- [ ] **Journal-grade figures: figure styles, vector-insert probe, significance brackets, panels (v2.143.0).** Plot, Table → Chart, Statistics, Finance, Bio/Assay — see §0cj.
+  - Probes A/B/C recorded on Windows, Mac and web (SVG via insertInlinePictureFromBase64; insertOoxml svgBlip + PNG fallback; XmlSvg inline, sized, imageFormat Svg, imageWidth units); As drawn unchanged; Nature 8.9 cm with 5–7 pt text; USPTO 17.0 cm, no title, ≥ 3.2 mm numerals, heat map refused; t-test/Tukey/Dunn brackets with the engine's p and the caption; Nature a/b and USPTO FIG. 1A/1B panels.
 - [ ] **Citation styles, BibTeX/RIS import and numbered bibliographies (v2.142.0).** Citations (Bibliography panel) — see §0ci.
   - Kwon BibTeX → "Added (1): Kwon_2022"; DOI paste → https://doi.org/10.1086/720277 + the offline line, no record; 7 styles, Harvard/MLA one-line note; a book under Nature refused by name; move [3] first → Update → [1], [2], [3] in the new order, a second Update changes nothing; delete + Undo restores the numbering; 64-char tag and 1.9 MB store probes recorded.
 - [ ] **Table of Authorities and Bluebook fixes (v2.141.0).** Citations (Table of Authorities, Bluebook form) — see §0ch.

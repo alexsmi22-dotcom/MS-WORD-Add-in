@@ -20,6 +20,7 @@
 
 import { BeamResult, Load, Support } from "./beam";
 import { Rat, ratToNumber } from "./cas";
+import { fmtSig, trueMinus } from "./axis";
 
 const W = 420;
 const PANEL_H = 96;
@@ -68,8 +69,9 @@ const fmt = (v: number): string => {
   if (!Number.isFinite(v)) return "—";
   if (v === 0) return "0";
   const a = Math.abs(v);
-  if (a >= 1e5 || a < 1e-3) return v.toExponential(2);
-  return String(Number(v.toPrecision(4)));
+  // m×10ⁿ, never e-notation, and U+2212 for negatives (axis.ts).
+  if (a >= 1e5 || a < 1e-3) return fmtSig(v, 3);
+  return trueMinus(String(Number(v.toPrecision(4))));
 };
 
 /** Samples of f across the beam, with both sides of every breakpoint. */

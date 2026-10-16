@@ -26,7 +26,7 @@
  * The reading reports how many decimal commas it read, so the caller can SAY
  * so ("1,5 read as 1.5") — a typed comma is never read silently.
  */
-import { parseCellNumber, isDecimalComma } from "./dataimport";
+import { parseCellNumber, isDecimalComma, SCI_TAIL } from "./dataimport";
 
 export interface NumberListReading {
   values: number[];
@@ -45,8 +45,18 @@ export interface NumberListReading {
 /** Whitespace (not the no-break spaces parseCellNumber reads as digit grouping), semicolons, and ", ". */
 const SEP = /,?[ \t\r\n\f\v;]+,?|,(?=[ \t\r\n\f\v])/;
 
+/**
+ * "1.5 × 10⁻⁵" → "1.5×10⁻⁵" before the field is split on whitespace: spaced, the
+ * one number was THREE tokens, and the list silently held 1.5. Joined only
+ * when "10" is followed by an exponent (^ or a superscript), so "2 × 3" and
+ * "2 x 10" stay apart.
+ */
+const SPACED_SCI = /(\d)[ \t]*([×xX·])[ \t]*10[ \t]*(?=\^|[⁻⁺⁰¹²³⁴⁵⁶⁷⁸⁹])/g;
+
 export function readNumberList(text: string): NumberListReading {
   const runs = text
+    .replace(SPACED_SCI, (_m, d: string, times: string) => `${d}${times}10`)
+    .replace(/\^[ \t]+/g, "^")
     .split(SEP)
     .map((t) => t.replace(/^,+|,+$/g, ""))
     .filter((t) => t !== "");
@@ -57,7 +67,9 @@ export function readNumberList(text: string): NumberListReading {
   // not three digits after it), a three-digit "1,250" in the same field is
   // 1.25 too: a field writing decimal commas does not also write thousands
   // commas. Said through `reread`.
-  const decimalField = !commaListing && tokens.some((t) => isDecimalComma(t));
+  // A scientific-notation token's comma is its MANTISSA's ("1,5×10⁻⁵").
+  const mantissa = (t: string): string => t.trim().replace(SCI_TAIL, "");
+  const decimalField = !commaListing && tokens.some((t) => isDecimalComma(mantissa(t)));
   const THOUSANDS_SHAPE = /^([-−–]?\d{1,3}),(\d{3})(%?)$/;
   const GERMAN = /^[-−–]?\d{1,3}(\.\d{3})+,\d+%?$/;
   const values: number[] = [];
@@ -66,14 +78,17 @@ export function readNumberList(text: string): NumberListReading {
   let decimalCommas = 0;
   let example: string | undefined;
   for (const t of tokens) {
-    const asDecimal = decimalField && THOUSANDS_SHAPE.test(t.trim());
-    const v = asDecimal ? parseCellNumber(t.trim().replace(THOUSANDS_SHAPE, "$1.$2$3")) : parseCellNumber(t);
+    // The shape is tested on the MANTISSA, so "1,250×10³" in a decimal-comma
+    // field is 1.25×10³, not 1250×10³ (a silent 1000× error).
+    const m = mantissa(t);
+    const asDecimal = decimalField && THOUSANDS_SHAPE.test(m);
+    const v = asDecimal ? parseCellNumber(m.replace(THOUSANDS_SHAPE, "$1.$2$3") + t.trim().slice(m.length)) : parseCellNumber(t);
     if (!Number.isFinite(v)) {
       dropped.push(t);
       continue;
     }
     values.push(v);
-    if (!commaListing && (isDecimalComma(t) || asDecimal || GERMAN.test(t.trim()))) {
+    if (!commaListing && (isDecimalComma(mantissa(t)) || asDecimal || GERMAN.test(t.trim()))) {
       decimalCommas++;
       if (example === undefined) example = t;
       if (asDecimal) reread.push(t);
@@ -88,8 +103,11 @@ export function decimalCommaNote(r: NumberListReading): string {
   const n = r.decimalCommas;
   const reread = r.reread ?? [];
   const first = reread.includes(r.example) ? r.example.trim().replace(",", ".") : r.example;
+  // "1,5×10⁻⁵ → 1.5×10⁻⁵": String() of the value would print 1.5e-7 for a small one.
+  const ex = r.example.trim();
+  const shown = SCI_TAIL.test(ex) && !ex.replace(SCI_TAIL, "").includes(".") ? r.example.trim().replace(",", ".") : String(parseCellNumber(first));
   return (
-    `${n} decimal comma${n === 1 ? "" : "s"} read as decimal${n === 1 ? "" : "s"} (${r.example} → ${parseCellNumber(first)}).` +
+    `${n} decimal comma${n === 1 ? "" : "s"} read as decimal${n === 1 ? "" : "s"} (${r.example} → ${shown}).` +
     (reread.length
       ? ` ${reread.join(", ")} read as ${reread.map((t) => parseCellNumber(t.trim().replace(",", "."))).join(", ")}, not thousands, ` +
         "because this field writes decimal commas."

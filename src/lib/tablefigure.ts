@@ -237,7 +237,7 @@ export function buildTableFigureSvg(rows: string[][], title = "", style: ChartSt
   const parts: string[] = [];
   if (title) {
     parts.push(
-      `<text x="${LW / 2}" y="17" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="bold" fill="${ink}">${esc(title.length > 60 ? title.slice(0, 59) + "…" : title)}</text>`
+      `<text data-figure-title="1" x="${LW / 2}" y="17" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="bold" fill="${ink}">${esc(title.length > 60 ? title.slice(0, 59) + "…" : title)}</text>`
     );
   }
 

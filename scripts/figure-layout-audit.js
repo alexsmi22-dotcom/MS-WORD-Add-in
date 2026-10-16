@@ -46,10 +46,12 @@ const LINE = 0.78;
  * outside the canvas and produced three COLLISIONs and three CLIPPEDs that do
  * not exist in the rendered figure.
  *
- * Only `translate` is handled, and deliberately: a scale or a matrix would need
- * the font size and stroke widths transformed too, and half-transforming is how
- * you get a checker that is confidently wrong. Anything else is left in place,
- * where it is simply not understood rather than misread.
+ * `translate`, and (v2.143.0) a single-number `scale(s)` whose content can be
+ * scaled COMPLETELY — coordinates, width/height/r, font-size, stroke-width,
+ * points, absolute M/L paths and rotate centres (see SCALE_OPEN below). A matrix,
+ * a non-uniform scale, or a scaled group holding a curved or relative path is
+ * left in place: half-transforming is how you get a checker that is confidently
+ * wrong, so anything else is simply not understood rather than misread.
  *
  * Innermost group first, repeatedly, so nesting composes.
  */
@@ -96,6 +98,53 @@ function flattenTranslates(svg) {
   // panel 2's labels at panel 1's coordinates: fourteen phantom COLLISIONs.
   const OPEN = /<g\b([^>]*\btransform="translate\(\s*(-?[\d.]+)(?:[,\s]+(-?[\d.]+))?\s*\)"[^>]*)>/g;
   const HAS_TRANSLATE = /<g\b[^>]*\btransform="translate\(/;
+
+  // UNIFORM SCALE, v2.143.0. A multi-panel figure (panels.composePanels) places
+  // each panel as <g translate><g transform="scale(s)">…</g></g> when a panel is
+  // drawn wider than its cell, so a figure style can keep the panel's text at
+  // the style's size. Read unscaled, every label of a 0.5-scaled panel lands
+  // twice as far out and is reported CLIPPED. A single-number scale(s) is
+  // handled COMPLETELY or not at all: every coordinate AND every length that
+  // the extractors read (width, height, r, font-size, stroke-width, points,
+  // absolute M/L paths) is multiplied. A group holding anything this cannot
+  // scale (a relative or curved path, a non-uniform scale) is left in place
+  // — not understood rather than half-transformed and misread.
+  const SCALE_OPEN = /<g\b([^>]*\btransform="scale\(\s*([\d.]+(?:[eE][-+]?\d+)?)\s*\)"[^>]*)>/g;
+  const scaleFrag = (frag, k) => {
+    let out = frag.replace(
+      new RegExp(`(?<![\\w-])(x|x1|x2|cx|y|y1|y2|cy|width|height|r|rx|ry|font-size|stroke-width)="${num}"`, "g"),
+      (_m, a, v) => `${a}="${Number(v) * k}"`,
+    );
+    out = out.replace(/\bpoints="([^"]*)"/g, (_m, pts) => {
+      const moved = pts
+        .trim()
+        .split(/\s+/)
+        .map((p) => {
+          const [px, py] = p.split(",").map(Number);
+          return Number.isFinite(px) && Number.isFinite(py) ? `${px * k},${py * k}` : p;
+        })
+        .join(" ");
+      return `points="${moved}"`;
+    });
+    out = out.replace(/\bd="([^"]*)"/g, (_m, d) =>
+      `d="${d.replace(new RegExp(`([ML])\\s*${num}[,\\s]+${num}`, "g"), (_mm, cmd, px, py) => `${cmd}${Number(px) * k},${Number(py) * k}`)}"`,
+    );
+    // A rotated label turns about its own point, which moves with the scale.
+    out = out.replace(
+      new RegExp(`\\brotate\\(\\s*${num}[,\\s]+${num}[,\\s]+${num}\\s*\\)`, "g"),
+      (_m, a, cx, cy) => `rotate(${a} ${Number(cx) * k} ${Number(cy) * k})`,
+    );
+    return out;
+  };
+  /** Can scaleFrag scale everything in `frag` the extractors read? */
+  const scalable = (frag) => {
+    for (const m of frag.matchAll(/\bd="([^"]*)"/g)) if (/[^MLZz0-9.,\-+eE\s]/.test(m[1])) return false;
+    // Only rotations about an explicit point are understood; any other transform is not.
+    for (const m of frag.matchAll(/\btransform="([^"]*)"/g)) {
+      if (!new RegExp(`^\\s*rotate\\(\\s*${num}[,\\s]+${num}[,\\s]+${num}\\s*\\)\\s*$`).test(m[1])) return false;
+    }
+    return !/font-size="[^"\d]/.test(frag);
+  };
   /** Index of the `</g>` closing the group whose content starts at `from`, or -1. */
   const closeOf = (str, from) => {
     const tag = /<g\b[^>]*?(\/?)>|<\/g>/g;
@@ -115,15 +164,38 @@ function flattenTranslates(svg) {
   for (let pass = 0; pass < 64; pass++) {
     // Innermost first: a translate group whose balanced content holds no
     // further translate group. Nested translations then compose pass by pass.
-    const opens = [...s.matchAll(OPEN)];
+    const opens = [...[...s.matchAll(OPEN)].map((m) => ({ m, scale: false })), ...[...s.matchAll(SCALE_OPEN)].map((m) => ({ m, scale: true }))].sort(
+      (a, b) => a.m.index - b.m.index,
+    );
     let done = false;
     for (let i = opens.length - 1; i >= 0 && !done; i--) {
-      const m = opens[i];
+      const m = opens[i].m;
       const contentStart = m.index + m[0].length;
       const close = closeOf(s, contentStart);
       if (close < 0) continue;
       const content = s.slice(contentStart, close);
       if (HAS_TRANSLATE.test(content)) continue;
+      // An outer group waits for a scale group inside it that will be scaled
+      // (translate after scale is T + k·p, never k·(p + T)). A scale group that
+      // cannot be scaled never will be, so it holds nothing up: for it, the
+      // pre-v2.143 behaviour is unchanged.
+      const pendingScale = [...content.matchAll(SCALE_OPEN)].some((sm) => {
+        const cs = sm.index + sm[0].length;
+        const ce = closeOf(content, cs);
+        if (ce < 0) return false;
+        const inner = content.slice(cs, ce);
+        return HAS_TRANSLATE.test(inner) || scalable(inner);
+      });
+      if (pendingScale) continue;
+      if (opens[i].scale) {
+        const k = Number(m[2]);
+        if (!(Number.isFinite(k) && k > 0) || !scalable(content)) continue;
+        // The group's own inherited lengths (font-size) scale with it.
+        const attrs = scaleFrag(m[1].replace(/\btransform="scale\([^"]*\)"/, "").trim(), k);
+        s = s.slice(0, m.index) + `<g ${attrs}>` + scaleFrag(content, k) + "</g>" + s.slice(close + "</g>".length);
+        done = true;
+        continue;
+      }
       const tx = Number(m[2]);
       const ty = m[3] === undefined ? 0 : Number(m[3]);
       if (!Number.isFinite(tx) || !Number.isFinite(ty)) continue;
@@ -468,6 +540,21 @@ function runAudit(figures) {
       null,
     ],
     [
+      // v2.143.0: a panel drawn at twice its cell is placed at scale(0.5). Its
+      // label at local x=300 is at 150 on a 200-wide canvas: NOT clipped.
+      "scale is applied — no phantom clip",
+      '<svg width="200" height="100"><g font-size="10">' +
+        '<g transform="translate(0,0)"><g transform="scale(0.5)"><text x="300" y="100" font-size="10">inside</text></g></g></g></svg>',
+      null,
+    ],
+    [
+      // ...and a scale(2) label at local x=90 is at 180, 20 px font: clipped.
+      "scale is applied — real clip",
+      '<svg width="200" height="100"><g font-size="10">' +
+        '<g transform="translate(0,0)"><g transform="scale(2)"><text x="90" y="40" font-size="10">runs off</text></g></g></g></svg>',
+      /CLIPPED/,
+    ],
+    [
       // Two stacked panels, each a translated group that CONTAINS a plain
       // group: identical local labels, 50 px apart once translated.
       "translate with a nested plain group — no phantom collision",
@@ -528,4 +615,4 @@ function runAudit(figures) {
   return bad;
 }
 
-module.exports = { auditSvg, textBoxes, segments, runAudit };
+module.exports = { auditSvg, textBoxes, segments, runAudit, flattenTranslates, decodeEntities };

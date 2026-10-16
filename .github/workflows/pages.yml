@@ -58,6 +58,12 @@ jobs:
       # no figure in the corpus fails here rather than shipping ungated.
       - name: Figure layout
         run: npm run check:figures
+      # The geometry gate never reads what a label SAYS; twelve ticks reading
+      # "2.0e+4" passed it. This pure-Node gate reads label content (hyphen
+      # minus, e-notation, duplicate and mixed-decimal ticks, preset text size)
+      # and self-tests every predicate on a known-bad SVG first.
+      - name: Figure labels
+        run: npm run check:labels
       # And the third: every getElementById in the pane must have a matching id.
       # A miss is a null at runtime and a control that silently does nothing,
       # which no type check and no unit test can see. This was inline PowerShell

@@ -146,7 +146,8 @@ describe("requests", () => {
   it("the figure labels the singularities within 2R and marks open/closed ends", () => {
     const svg = radiusSvg(F("ln(1+x)"));
     expect(svg).toMatch(/branch pt/);
-    expect(svg).toMatch(/\(-1, 1\]/);
+    // Figure text: U+2212 minus (display contract, v2.143.0 label audit).
+    expect(svg).toContain("(−1, 1]");
     expect(radiusSvg(F("exp(x)"))).toBe("");
     expect(radiusSvg(F("abs(x)"))).toBe("");
   });

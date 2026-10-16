@@ -359,11 +359,12 @@ describe("time budgets — a pane recomputes per keystroke", () => {
     }
     const ms = Date.now() - start;
     expect(sink).toBeGreaterThan(0);
-    // ~370 ms on an idle machine; the budget is 3 s because under the full
-    // suite's parallel workers wall-clock inflates ~4x with nothing actually
-    // slower — the documented beam.adversarial flake. Even at the budget this
-    // pins ≤0.3 ms per keystroke-triggered call.
-    expect(ms).toBeLessThan(3000);
+    // ~370 ms on an idle machine; the budget is ~10x that because under the
+    // full suite's parallel workers wall-clock inflates with nothing actually
+    // slower — the documented beam.adversarial flake (v2.143.0: 3.4 s under
+    // load against the old 3 s bound). Even at the budget this pins ≤0.4 ms
+    // per keystroke-triggered call.
+    expect(ms).toBeLessThan(4000);
   });
 
   it("a 50k-character formula returns promptly rather than hanging the parser path", () => {

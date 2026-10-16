@@ -16,6 +16,7 @@ import { Rat, ratAdd, ratSub, ratMul, ratDiv, ratToNumber, parseRatLiteral, RAT_
 import { fmtRat } from "./geometry";
 import { binomial as bigBinomial, CAPS } from "./combinatorics";
 import { tCdf } from "./power";
+import { linearAxis, integerAxis, formatIntRow } from "./axis";
 import type { VerbResult } from "./algebraTools";
 import {
   Dist,
@@ -417,20 +418,28 @@ export function pmfBarsSvg(d: Dist, region: { lo: number; hi: number } | null, c
   parts.push(`<text x="${W / 2}" y="16" text-anchor="middle" font-size="12" fill="#1A1A1A">${esc(caption)}</text>`);
   parts.push(`<line x1="${left}" y1="${top + plotH}" x2="${left + plotW}" y2="${top + plotH}" stroke="#1A1A1A"/>`);
   parts.push(`<line x1="${left}" y1="${top}" x2="${left}" y2="${top + plotH}" stroke="#1A1A1A"/>`);
-  for (let i = 0; i <= 4; i++) {
-    const y = top + plotH - (i / 4) * plotH;
-    parts.push(`<text x="${left - 4}" y="${y + 4}" text-anchor="end" fill="#7B8C99">${(pmax * (i / 4)).toPrecision(2)}</text>`);
-  }
+  // Both axes are axis.ts ROWS: per-value `toPrecision(2)` gave `0.0, 0.028,
+  // 0.056 …` (mixed decimals), and labelling every ceil(n/16)-th bar stepped
+  // k by 4 on a 61-bar chart. A row's ×10ⁿ multiplier goes on the axis title.
+  const yRow = linearAxis(0, pmax, { target: 5 });
+  yRow.values.forEach((v, i) => {
+    const y = top + plotH - (v / pmax) * plotH;
+    parts.push(`<text x="${left - 4}" y="${(y + 4).toFixed(1)}" text-anchor="end" fill="#7B8C99">${yRow.labels[i]}</text>`);
+  });
+  const xRow = integerAxis(lo, hi, { target: 8 });
+  const xLabel = new Map(xRow.values.map((v, i) => [v, xRow.labels[i]]));
   ks.forEach((k, i) => {
     const h = (ps[i] / pmax) * plotH;
     const x = left + i * bw + bw * 0.12;
     const inEvent = region && k >= region.lo && k <= region.hi;
     parts.push(`<rect x="${x.toFixed(1)}" y="${(top + plotH - h).toFixed(1)}" width="${(bw * 0.76).toFixed(1)}" height="${h.toFixed(1)}" fill="${inEvent ? "#0C4A6E" : "#9DB3C4"}"/>`);
-    const every = Math.max(1, Math.ceil(ks.length / 16));
-    if (i % every === 0) parts.push(`<text x="${(x + bw * 0.38).toFixed(1)}" y="${top + plotH + 14}" text-anchor="middle" fill="#1A1A1A">${k}</text>`);
+    const lab = xLabel.get(k);
+    if (lab !== undefined) parts.push(`<text x="${(x + bw * 0.38).toFixed(1)}" y="${top + plotH + 14}" text-anchor="middle" fill="#1A1A1A">${lab}</text>`);
   });
-  parts.push(`<text x="${left + plotW / 2}" y="${H - 6}" text-anchor="middle" fill="#7B8C99">k</text>`);
-  parts.push(`<text x="11" y="${top + plotH / 2}" text-anchor="middle" fill="#7B8C99" transform="rotate(-90 11 ${top + plotH / 2})">P(X = k)</text>`);
+  const xTitle = xRow.multiplier ? `k (${xRow.multiplier})` : "k";
+  const yTitle = yRow.multiplier ? `P(X = k) (${yRow.multiplier})` : "P(X = k)";
+  parts.push(`<text x="${left + plotW / 2}" y="${H - 6}" text-anchor="middle" fill="#7B8C99">${xTitle}</text>`);
+  parts.push(`<text x="11" y="${top + plotH / 2}" text-anchor="middle" fill="#7B8C99" transform="rotate(-90 11 ${top + plotH / 2})">${yTitle}</text>`);
   parts.push("</svg>");
   return parts.join("");
 }
@@ -1346,8 +1355,12 @@ function intervalBarsSvg(rows: { label: string; lo: number; hi: number; note?: s
   for (let i = 0; i <= 10; i++) {
     const x = X(i / 10);
     parts.push(`<line x1="${x.toFixed(1)}" y1="${axisY}" x2="${x.toFixed(1)}" y2="${axisY + 4}" stroke="#1A1A1A"/>`);
-    if (i % 2 === 0) parts.push(`<text x="${x.toFixed(1)}" y="${axisY + 16}" text-anchor="middle" fill="#1A1A1A">${i / 10}</text>`);
   }
+  // Labels as ONE row (axis.ts): `0.0, 0.2 … 1.0`, not `0, 0.2 … 1`.
+  const pRow = formatIntRow([0, 2, 4, 6, 8, 10], -1);
+  pRow.labels.forEach((lab, i) => {
+    parts.push(`<text x="${X(i / 5).toFixed(1)}" y="${axisY + 16}" text-anchor="middle" fill="#1A1A1A">${lab}</text>`);
+  });
   const px = X(phat);
   parts.push(`<line x1="${px.toFixed(1)}" y1="${top - 4}" x2="${px.toFixed(1)}" y2="${axisY}" stroke="#B91C1C" stroke-dasharray="4 3"/>`);
   parts.push(`<text x="${px.toFixed(1)}" y="${axisY + 30}" text-anchor="middle" fill="#B91C1C">p̂ = ${sig6(phat)}</text>`);

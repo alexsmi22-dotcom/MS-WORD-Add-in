@@ -19,6 +19,7 @@
 
 import { designFilter } from "./filter";
 import { readNumberList, decimalCommaNote } from "./numberList";
+import { linearAxis, decadeLabel, fmtValue, MINUS } from "./axis";
 
 export interface AudioError {
   ok: false;
@@ -1201,29 +1202,43 @@ function ladderRange(at: number, lo0: number, hi0: number): [number, number, num
   return [lo, hi, step];
 }
 
-function linearTicks(lo: number, hi: number, step: number, offset: number, fmt: (v: number) => string) {
-  // label value v sits at position v + offset
-  const ticks: { at: number; label: string }[] = [];
-  const first = Math.ceil((lo - offset) / step) * step;
-  for (let v = first, k = 0; v + offset <= hi + 1e-9 && k < 200; v += step, k++) {
-    ticks.push({ at: v + offset, label: fmt(v) });
-  }
-  return ticks;
+/**
+ * A dB scale of the ladder: label value v sits at position v + offset.
+ *
+ * Positions come from the shared axis engine (axis.ts) at the ladder's fixed
+ * step, so the row is a bounded array and its labels share their decimals;
+ * `signed` then adds the explicit "+" a dB ladder reads with (the minus is
+ * already U+2212).
+ */
+function linearTicks(lo: number, hi: number, step: number, offset: number, fmt: (label: string) => string) {
+  const row = linearAxis(lo - offset, hi - offset, { step });
+  return row.values.map((v, i) => ({ at: v + offset, label: fmt(row.labels[i] + row.multiplier) }));
 }
 
+/**
+ * The decades of a linear-unit companion scale (V, Pa, W…) placed by `posOf`.
+ * One notation per scale: 10ⁿ throughout when the visible decades span three
+ * or more (or leave 10⁻³ … 10³), plain digits otherwise — never the old switch
+ * from `1000` to `10⁴` in the middle of one scale.
+ */
 function decadeTicks(lo: number, hi: number, posOf: (v: number) => number, unit: string) {
-  const ticks: { at: number; label: string }[] = [];
+  const hits: { k: number; at: number }[] = [];
   for (let k = -15; k <= 15; k++) {
-    const v = Math.pow(10, k);
-    const at = posOf(v);
-    if (at >= lo - 1e-9 && at <= hi + 1e-9) {
-      ticks.push({ at, label: `${v >= 1e-3 && v < 1e4 ? String(v) : `10${superscript(k)}`} ${unit}` });
-    }
+    const at = posOf(Math.pow(10, k));
+    if (at >= lo - 1e-9 && at <= hi + 1e-9) hits.push({ k, at });
   }
-  return ticks;
+  if (!hits.length) return [];
+  const k0 = hits[0].k;
+  const k1 = hits[hits.length - 1].k;
+  const uniform = k1 - k0 >= 3 || k0 < -3 || k1 > 3;
+  return hits.map(({ k, at }) => ({
+    at,
+    label: `${uniform ? decadeLabel(Math.pow(10, k)) : fmtValue(Math.pow(10, k))} ${unit}`,
+  }));
 }
 
-const signed = (v: number): string => (v > 0 ? `+${v}` : v < 0 ? `−${-v}` : "0");
+/** A dB row label with its explicit sign: "+10", "−20", "0". */
+const signed = (label: string): string => (/^[0.]+$/.test(label) || label.startsWith(MINUS) ? label : `+${label}`);
 
 function levelLadder(
   all: Partial<Record<LevelRef, number>>,

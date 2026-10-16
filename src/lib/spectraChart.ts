@@ -15,7 +15,8 @@ import { NmrResult, nmrSticks } from "./nmr";
 import { IrBand, irTransmittanceCurve } from "./ir";
 import { FragmentResult, Likelihood } from "./fragment";
 import { Cosy2D, Hsqc2D, Hmbc2D, Tocsy2D } from "./nmr2d";
-import { buildPlotSvg, Series, Point, fmtTick } from "./plot";
+import { buildPlotSvg, Series, Point } from "./plot";
+import { rowLabeller, titleWithMultiplier } from "./flippedAxis";
 import { minOf, maxOf } from "./minmax";
 
 const WIDTH = 380;
@@ -37,11 +38,25 @@ const HEIGHT = 240;
  * negation rather than inside the plotter, because only this module knows the
  * axis was flipped.
  */
-const unflip = (v: number): string => fmtTick(-v);
-/** For 1-D spectra: x is flipped, y is the ordinary direction. */
-const FLIP_X = { xTickLabel: unflip } as const;
-/** For 2-D maps: both shift axes are flipped. */
-const FLIP_BOTH = { xTickLabel: unflip, yTickLabel: unflip } as const;
+//
+// The label is taken from the axis.ts tick ROW for the plotted domain, with its
+// sign toggled (flippedAxis.ts): formatting each tick alone gave `4, 3.5, 3 …`
+// and `10, 7.5, 5, 2.5` — mixed decimals in one row.
+/**
+ * The label options for a negated x (1-D spectra) or negated x and y (2-D
+ * maps), computed from the SAME series handed to buildPlotSvg. A ×10ⁿ row
+ * multiplier, which plot.ts drops when a hook is set, goes on the axis title.
+ */
+function flipped(series: Series[], both: boolean, xlabel: string, ylabel: string) {
+  const x = rowLabeller(series, "x", true);
+  const y = both ? rowLabeller(series, "y", true) : null;
+  return {
+    xlabel: titleWithMultiplier(xlabel, x?.multiplier ?? ""),
+    ylabel: titleWithMultiplier(ylabel, y?.multiplier ?? ""),
+    ...(x ? { xTickLabel: x.label } : {}),
+    ...(y ? { yTickLabel: y.label } : {}),
+  };
+}
 
 /** Stick spectrum for a predicted 1H/13C spectrum, δ increasing leftward. */
 export function nmrChartSvg(r: NmrResult): string | null {
@@ -66,11 +81,9 @@ export function nmrChartSvg(r: NmrResult): string | null {
   });
   return buildPlotSvg(series, {
     title: `Predicted ${r.nucleus} NMR (estimate)`,
-    xlabel: "δ (ppm) — increases leftward",
-    ylabel: r.nucleus === "1H" ? "rel. integration" : "",
     width: WIDTH,
     height: HEIGHT,
-    ...FLIP_X,
+    ...flipped(series, false, "δ (ppm) — increases leftward", r.nucleus === "1H" ? "rel. integration" : ""),
   });
 }
 
@@ -78,13 +91,12 @@ export function nmrChartSvg(r: NmrResult): string | null {
 export function irChartSvg(bands: IrBand[]): string | null {
   if (!bands.length) return null;
   const curve = irTransmittanceCurve(bands);
-  return buildPlotSvg([{ points: curve.map((p) => ({ x: -p.x, y: p.y })), type: "line", color: "#2563eb" }], {
+  const series: Series[] = [{ points: curve.map((p) => ({ x: -p.x, y: p.y })), type: "line", color: "#2563eb" }];
+  return buildPlotSvg(series, {
     title: "Predicted IR (group frequencies)",
-    xlabel: "wavenumber (cm⁻¹) — decreases rightward",
-    ylabel: "transmittance (%)",
     width: WIDTH,
     height: HEIGHT,
-    ...FLIP_X,
+    ...flipped(series, false, "wavenumber (cm⁻¹) — decreases rightward", "transmittance (%)"),
   });
 }
 
@@ -144,11 +156,9 @@ export function cosyChartSvg(r: Cosy2D): string | null {
 
   return buildPlotSvg(series, {
     title: "Predicted ¹H–¹H COSY (estimate)",
-    xlabel: "δ (ppm) — increases leftward",
-    ylabel: "δ (ppm) — increases downward",
     width: SIZE_2D,
     height: SIZE_2D,
-    ...FLIP_BOTH,
+    ...flipped(series, true, "δ (ppm) — increases leftward", "δ (ppm) — increases downward"),
   });
 }
 
@@ -160,13 +170,12 @@ export function cosyChartSvg(r: Cosy2D): string | null {
 export function hsqcChartSvg(r: Hsqc2D): string | null {
   if (!r.peaks.length) return null;
   const points: Point[] = r.peaks.map((p) => ({ x: -p.f2, y: -p.f1 }));
-  return buildPlotSvg([{ points, type: "scatter", color: "#2563eb", label: "¹J(C,H)" }], {
+  const series: Series[] = [{ points, type: "scatter", color: "#2563eb", label: "¹J(C,H)" }];
+  return buildPlotSvg(series, {
     title: "Predicted ¹H–¹³C HSQC (estimate)",
-    xlabel: "δ ¹H (ppm) — increases leftward",
-    ylabel: "δ ¹³C (ppm) — increases downward",
     width: SIZE_2D,
     height: SIZE_2D,
-    ...FLIP_BOTH,
+    ...flipped(series, true, "δ ¹H (ppm) — increases leftward", "δ ¹³C (ppm) — increases downward"),
   });
 }
 
@@ -238,15 +247,16 @@ export function jcampChartSvg(s: MeasuredTrace): string | null {
   // a scatter of floating dots with no stick and no baseline.
   const type: Series["type"] = "line";
 
-  return buildPlotSvg([{ points: pts, type, color: "#2563eb" }], {
+  const series: Series[] = [{ points: pts, type, color: "#2563eb" }];
+  return buildPlotSvg(series, {
     title: s.title ? `${s.title} (measured)` : "Measured spectrum",
     xlabel,
     ylabel: s.yUnits || "",
     width: WIDTH,
     height: HEIGHT,
     // Only the flipped kinds get the label transform; a UV-Vis or MS trace is
-    // plotted in its own direction and its ticks are already the real values.
-    ...(flip ? FLIP_X : {}),
+    // plotted in its own direction and plot.ts labels its ticks as a row.
+    ...(flip ? flipped(series, false, xlabel, s.yUnits || "") : {}),
   });
 }
 
@@ -267,11 +277,9 @@ export function hmbcChartSvg(r: Hmbc2D): string | null {
   if (weak.length) series.push({ points: weak, type: "scatter", color: "#93c5fd", label: "²J (often weak)" });
   return buildPlotSvg(series, {
     title: "Predicted ¹H–¹³C HMBC (estimate)",
-    xlabel: "δ ¹H (ppm) — increases leftward",
-    ylabel: "δ ¹³C (ppm) — increases downward",
     width: SIZE_2D,
     height: SIZE_2D,
-    ...FLIP_BOTH,
+    ...flipped(series, true, "δ ¹H (ppm) — increases leftward", "δ ¹³C (ppm) — increases downward"),
   });
 }
 
@@ -291,10 +299,8 @@ export function tocsyChartSvg(r: Tocsy2D): string | null {
   if (relayed.length) series.push({ points: relayed, type: "scatter", color: "#93c5fd", label: "relayed" });
   return buildPlotSvg(series, {
     title: "Predicted ¹H–¹H TOCSY (estimate)",
-    xlabel: "δ (ppm) — increases leftward",
-    ylabel: "δ (ppm) — increases downward",
     width: SIZE_2D,
     height: SIZE_2D,
-    ...FLIP_BOTH,
+    ...flipped(series, true, "δ (ppm) — increases leftward", "δ (ppm) — increases downward"),
   });
 }

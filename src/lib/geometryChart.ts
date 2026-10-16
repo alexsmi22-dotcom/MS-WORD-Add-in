@@ -212,9 +212,12 @@ function fitBox(
   return { X: (x) => ox + x * s, Y: (y) => oy - y * s, s };
 }
 
+// Figure text only, so the minus is U+2212 (display contract; the label audit's
+// HYPHEN gate). geometryParse reads a U+2212 coordinate back, so a vertex label
+// typed in as shown is the same point. −0 rounds to "0", never "−0".
 const round2 = (n: number): string => {
   const r = Math.round(n * 100) / 100;
-  return String(r);
+  return String(r === 0 ? 0 : r).replace("-", "−");
 };
 
 /**

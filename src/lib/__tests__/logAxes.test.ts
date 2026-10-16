@@ -7,7 +7,10 @@
 // control hits that on the very first attempt. These pin the discarding
 // behaviour as hard as the drawing.
 
-import { buildPlotSvg, dropForScales, logTicks, fmtLogTick, type Series } from "../plot";
+import { buildPlotSvg, dropForScales, type Series } from "../plot";
+// v2.143.0: plot.logTicks / fmtLogTick were dead after the axis migration and were
+// removed; the same placement is axis.logDecades, and labels are axis.logAxis.
+import { logDecades as logTicks, logAxis } from "../axis";
 
 const line = (points: Array<[number, number]>, err?: number): Series => ({
   type: "line",
@@ -68,15 +71,16 @@ describe("decades are placed and labelled correctly", () => {
     expect(logTicks(-500, 500)).toEqual({ major: [], minor: [] });
   });
 
-  test("labels are plain numbers in the readable range", () => {
-    expect(fmtLogTick(1)).toBe("1");
-    expect(fmtLogTick(100)).toBe("100");
-    expect(fmtLogTick(0.01)).toBe("0.01");
+  test("labels are plain numbers in the readable range when the axis spans under three decades", () => {
+    expect(logAxis(0, 2).labelled.map((l) => l.text)).toEqual(["1", "10", "100"]);
+    expect(logAxis(-2, 0).labelled.map((l) => l.text)).toEqual(["0.01", "0.1", "1"]);
   });
 
-  test("labels are 10^n with superscripts outside it", () => {
-    expect(fmtLogTick(1e-9)).toBe("10⁻⁹");
-    expect(fmtLogTick(1e12)).toBe("10¹²");
+  test("labels are 10^n with superscripts, uniformly, across three decades or more (B.7)", () => {
+    const t = logAxis(-9, 12).labelled.map((l) => l.text);
+    expect(t[0]).toBe("10⁻⁹");
+    expect(t[t.length - 1]).toBe("10¹²");
+    expect(t.every((x) => x.startsWith("10"))).toBe(true);
   });
 });
 
@@ -117,9 +121,16 @@ describe("the rendered SVG uses log geometry", () => {
   });
 
   test("log tick labels appear on the axis", () => {
+    // Three decades: axis.ts labels them 10ⁿ uniformly, 10⁰ included (B.7),
+    // where this axis used to read 1, 10, 100, 1000.
     const svg = buildPlotSvg([line([[1, 1], [1000, 4]])], { xScale: "log" });
-    for (const label of ["1", "10", "100", "1000"]) {
+    for (const label of ["10⁰", "10¹", "10²", "10³"]) {
       expect(svg).toContain(`>${label}</text>`);
+    }
+    // Under three decades the plain digits stay.
+    const two = buildPlotSvg([line([[1, 1], [100, 4]])], { xScale: "log" });
+    for (const label of ["1", "10", "100"]) {
+      expect(two).toContain(`>${label}</text>`);
     }
   });
 

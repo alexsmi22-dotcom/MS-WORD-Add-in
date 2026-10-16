@@ -4,7 +4,7 @@
 // plot.ts. Conventions this module owns:
 //   * NMR δ and IR wavenumber increase LEFTWARD. buildPlotSvg draws x ascending
 //     rightward only, so x is negated for drawing and the tick LABELS are
-//     un-negated (spectraChart's FLIP_X rule, rebuilt here from fmtTick).
+//     un-negated from the axis.ts tick row (flippedAxis.ts, as spectraChart).
 //   * MS is head-to-tail: measured sticks UP, predicted sticks DOWN.
 //   * NMR predicted lines are sticks; IR predicted is a curve in the FILE's own y
 //     convention (spectrumOverlay converted it); UV predicted is a λmax marker.
@@ -14,7 +14,9 @@
 //     ranking, "a prediction is not an assignment") are drawn INTO the figure:
 //     the insert path takes the SVG and nothing else.
 
-import { buildPlotSvg, fmtTick, Series } from "./plot";
+import { buildPlotSvg, Series } from "./plot";
+import { MINUS } from "./axis";
+import { rowLabeller, titleWithMultiplier } from "./flippedAxis";
 import { decimateTrace } from "./spectraChart";
 import { OverlayOk, NOT_AN_ASSIGNMENT, matchSummary } from "./spectrumOverlay";
 
@@ -38,9 +40,6 @@ export function fitTitle(title: string, width = WIDTH): string {
   const t = title.replace(/\s+/g, " ").trim();
   return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t;
 }
-
-/** U+2212 for a leading minus (the display contract): "-9" → "−9", "-1.0e-3" → "−1.0e-3". */
-const trueMinus = (s: string): string => s.replace(/^-/, "−");
 
 const TECH_TITLE: Record<OverlayOk["technique"], string> = {
   "1H": "¹H NMR",
@@ -154,17 +153,24 @@ export function overlayChartSvg(r: OverlayOk): string | null {
   }
 
   const title = fitTitle(`${TECH_TITLE[r.technique]} — measured vs predicted: ${r.fileTitle}`);
+  // Tick labels come from the axis.ts ROW (flippedAxis.ts), never per value:
+  // per-value formatting gave `0, 0.25, 0.5, 0.75, 1`. An unflipped x and a
+  // non-MS y need no hook at all — plot.ts labels them as a row itself.
+  //   - a flipped x is the row's labels with the sign toggled;
+  //   - the MS head-to-tail y labels the predicted half by its MAGNITUDE (the
+  //     axis title says it is drawn below), so `100 50 0 50 100` repeats by
+  //     design — the one intended duplicate row in this module.
+  const xl = flip ? rowLabeller(series, "x", true) : null;
+  const yl = r.technique === "ms" ? rowLabeller(series, "y", false) : null;
+  const yTitle = r.technique === "ms" ? "rel. intensity (%) — predicted below" : r.yLabel;
   return buildPlotSvg(series, {
     title,
-    xlabel: r.axis.label,
-    ylabel: r.technique === "ms" ? "rel. intensity (%) — predicted below" : r.yLabel,
+    xlabel: titleWithMultiplier(r.axis.label, xl?.multiplier ?? ""),
+    ylabel: titleWithMultiplier(yTitle, yl?.multiplier ?? ""),
     width: WIDTH,
     height: HEIGHT,
     notes: figureNotes(r),
-    // Tick labels: un-negate a flipped x; a true minus where a value is negative;
-    // and on the MS head-to-tail y axis the predicted half is labelled by its
-    // magnitude (the axis title says it is drawn below).
-    xTickLabel: (v: number) => trueMinus(fmtTick(flip ? -v : v)),
-    yTickLabel: (v: number) => (r.technique === "ms" ? fmtTick(Math.abs(v)) : trueMinus(fmtTick(v))),
+    ...(xl ? { xTickLabel: xl.label } : {}),
+    ...(yl ? { yTickLabel: (v: number) => yl.label(v).replace(MINUS, "") } : {}),
   });
 }

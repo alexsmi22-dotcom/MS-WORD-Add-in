@@ -19,10 +19,14 @@ describe("combineSvgs", () => {
     const out = combineSvgs([plot("a"), plot("b"), plot("c")]).svg;
     expect(out.startsWith("<svg")).toBe(true);
     expect(out.endsWith("</svg>")).toBe(true);
-    // The defect: counting roots. Concatenation gives three; nesting gives one
-    // root with three children, so the string still contains four "<svg".
-    const roots = out.split("</svg>").length - 1;
-    expect(roots).toBe(4); // three children + the wrapper
+    // The defect: counting roots. Concatenation gave three. The first fix nested
+    // the three as child <svg>s (four "<svg" in all); since the journal-figures
+    // work (panels.composePanels) each child is a translate <g>, because the
+    // layout audit follows translate groups and not nested viewports. So the
+    // document now has exactly ONE svg element.
+    expect(out.split("<svg").length - 1).toBe(1);
+    expect(out.split("</svg>").length - 1).toBe(1);
+    expect(out.split('<g transform="translate(').length - 1).toBe(3);
     // And nothing may follow the closing tag of the root.
     expect(out.indexOf("</svg>") + "</svg>".length).toBeLessThanOrEqual(out.length);
   });
@@ -51,8 +55,9 @@ describe("combineSvgs", () => {
 
   test("each child is offset so they do not overlap", () => {
     const out = combineSvgs([plot("a"), plot("b")], 8).svg;
-    expect(out).toContain('y="0"');
-    expect(out).toContain('y="198"');
+    // Offsets are now translate groups (were x/y on nested <svg> tags).
+    expect(out).toContain('<g transform="translate(0,0)"');
+    expect(out).toContain('<g transform="translate(0,198)"');
   });
 
   test("a single figure passes through untouched", () => {
@@ -70,5 +75,22 @@ describe("combineSvgs", () => {
 
   test("the root declares the SVG namespace, which a raster needs", () => {
     expect(combineSvgs([plot("a"), plot("b")]).svg).toContain('xmlns="http://www.w3.org/2000/svg"');
+  });
+
+  test("two plots' clipPath ids no longer collide in one document", () => {
+    // The SAME markup twice: identical clip ids before namespacing. A y limit
+    // that clips data is what makes buildPlotSvg emit a clipPath.
+    const same = buildPlotSvg([{ type: "scatter", points: [{ x: 0, y: 0 }, { x: 1, y: 1 }], color: "#000" }], {
+      width: 300,
+      height: 190,
+      yLimits: { max: 0.5 },
+    });
+    expect(same).toMatch(/\sid="/);
+    const out = combineSvgs([same, same]).svg;
+    const ids = Array.from(out.matchAll(/\sid="([^"]+)"/g), (m) => m[1]);
+    expect(ids.length).toBeGreaterThan(0);
+    expect(new Set(ids).size).toBe(ids.length);
+    // Every url(#…) reference resolves to an id in the document.
+    for (const m of out.matchAll(/url\(#([^)]+)\)/g)) expect(ids).toContain(m[1]);
   });
 });

@@ -180,7 +180,10 @@ describe("the left margin fits the labels that go in it", () => {
       { width: 380, height: 260, xlabel: "Hours", ylabel: "Surviving", title: "t" },
     );
     expect(findings(svg)).toEqual([]);
-    expect(svg).toContain("2.5e+4");
+    // axis.ts (B.2): the last tick is now "25 000" (thin-space grouped), still
+    // the widest label, and the right margin still fits it — no e-notation.
+    expect(svg).toContain(`25${String.fromCharCode(0x2009)}000`);
+    expect(svg).not.toMatch(/\de[+-]\d/);
   });
 
   it("no x tick is clipped over a wide sweep of magnitudes", () => {
@@ -227,13 +230,14 @@ describe("the left margin fits the labels that go in it", () => {
 
   it("the tick slack still includes a tick that floating point landed a hair past the end", () => {
     // The relative epsilon must not have thrown away the tick the absolute one
-    // was there to keep: 0 to 1 in steps of 0.2 must still print a "1".
+    // was there to keep: 0 to 1 in steps of 0.2 must still print the end tick.
+    // axis.ts holds decimals constant along the row (B.4), so it reads "1.0".
     const svg = buildPlotSvg(
       [{ points: [{ x: 0, y: 0 }, { x: 1, y: 1 }], type: "line", color: "#000" }],
       { width: 380, height: 250, xlabel: "x", ylabel: "y" },
     );
-    expect(svg).toMatch(/>1</);
-    expect(svg).toMatch(/>0</);
+    expect(svg).toMatch(/>1\.0</);
+    expect(svg).toMatch(/>0\.0</);
   });
 
   it("the legend sits OUTSIDE the plot frame, so it cannot cover data or be struck by curves", () => {

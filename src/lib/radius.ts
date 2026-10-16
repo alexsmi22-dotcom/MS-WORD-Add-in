@@ -2260,7 +2260,10 @@ export function radiusSvg(r: RadiusResult): string {
       parts.push(`<text x="${px + 7}" y="${py - 7}" font-size="10" ${font} fill="${col}">${escapeXml(`${tag}${s.sure ? "" : "?"}`)}</text>`);
     }
   }
-  const legend = iv ? `Real interval ${iv.text.split(" — ")[0]}` : "";
+  // Figure text: a hyphen-minus used as a minus ("(-1, 1)", "c - R") is set as
+  // U+2212 (display contract). A hyphen inside a word or after an exponent's e is
+  // left alone.
+  const legend = iv ? `Real interval ${iv.text.split(" — ")[0].replace(/(?<![\p{L}\p{N}])-/gu, () => "−")}` : "";
   if (legend) {
     // PLACED BY SCORE, NOT AT A FIXED SPOT: a fixed bottom-centre legend sat on
     // the imaginary axis whenever the centre was near 0. Every drawn segment is

@@ -27,7 +27,8 @@
 
 import { TableChart } from "./tablechart";
 import { INK } from "./chartPalette";
-import { niceStep, fmtTick, TICK_CAP, TICK_EPS } from "./plot";
+import { fmtTick } from "./plot";
+import { linearAxis } from "./axis";
 
 /** Up and down, from the reserved status palette. Never carries meaning alone. */
 const UP = "#0ca30c";
@@ -266,13 +267,13 @@ export function buildCandlestickSvg(
   }
 
   // Price gridlines — recessive, behind the candles.
-  const step = niceStep(hi - lo, 6);
-  const first = Math.ceil(lo / step) * step;
-  // BOUNDED, AND THE SLACK IS RELATIVE — plot.ts's TICK_CAP / TICK_EPS carry the
-  // full explanation. The absolute `1e-9` this used to carry is wider than the
-  // WHOLE AXIS on prices quoted at 1e-15 magnitude, which produced 2,000,014 tick
-  // labels and a 458 MB SVG built synchronously in the task pane.
-  for (let i = 0, v = first; i <= TICK_CAP && v <= hi + step * TICK_EPS; i++, v += step) {
+  // The shared axis engine (axis.ts): extended-Wilkinson ticks, decimals from
+  // the step and constant down the axis (prices quoted to the cent no longer
+  // print 101, 101.5, 102), U+2212, and ×10ⁿ instead of e-notation. BOUNDED
+  // there — a capped array. (The open loop this replaced once produced
+  // 2,000,014 tick labels and a 458 MB SVG on prices at 1e-15 magnitude.)
+  const priceAxis = linearAxis(lo, hi, { target: 6 });
+  priceAxis.values.forEach((v, i) => {
     const y = yOf(v);
     parts.push(
       `<line x1="${plotX}" y1="${y.toFixed(1)}" x2="${(plotX + plotW).toFixed(1)}" y2="${y.toFixed(1)}" ` +
@@ -280,7 +281,14 @@ export function buildCandlestickSvg(
     );
     parts.push(
       `<text x="${(plotX - 6).toFixed(1)}" y="${(y + 3.5).toFixed(1)}" text-anchor="end" ` +
-        `font-family="Segoe UI, Arial, sans-serif" font-size="9.5" fill="${INK.muted}">${esc(fmtTick(v))}</text>`,
+        `font-family="Segoe UI, Arial, sans-serif" font-size="9.5" fill="${INK.muted}">${esc(priceAxis.labels[i])}</text>`,
+    );
+  });
+  if (priceAxis.multiplier) {
+    // Stated once, under the price axis, left of the first candle.
+    parts.push(
+      `<text x="${(plotX - 6).toFixed(1)}" y="${(plotY + plotH + 14).toFixed(1)}" text-anchor="end" ` +
+        `font-family="Segoe UI, Arial, sans-serif" font-size="9" fill="${INK.muted}">${esc(priceAxis.multiplier)}</text>`,
     );
   }
   parts.push(

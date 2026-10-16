@@ -70,7 +70,8 @@ describe("point-set figures", () => {
     isSvg(svg);
     expect(svg).toContain("before → after");
     expect(svg).toContain("(2, 3)");
-    expect(svg).toContain("(-3, 2)");
+    // Figure text: U+2212 minus (display contract, v2.143.0 label audit).
+    expect(svg).toContain("(−3, 2)");
   });
 });
 

@@ -232,7 +232,9 @@ const V = (label: string, value: number, exact?: string): GeoValue => ({ label, 
  * looks like geometry, so the caller can report that rather than guessing.
  */
 export function solveGeometry(input: string): GeoResult | null {
-  const raw = input.trim();
+  // U+2212 is how the figures print a minus (display contract), so it must read
+  // back: "(−1,3)" was silently NOT a point, and the polygon lost a vertex.
+  const raw = input.trim().split("−").join("-");
   if (!raw) return null;
   const lower = raw.toLowerCase();
 

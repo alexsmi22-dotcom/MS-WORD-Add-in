@@ -11,9 +11,10 @@
 //
 // Pure logic — no Office.js, no PptxGenJS — fully unit-testable.
 
-import { niceStep, fmtTick, TICK_CAP, TICK_EPS } from "./plot";
+import { linearAxis } from "./axis";
 import { buildHeatmapSvg } from "./heatmap";
 import { buildCandlestickSvg } from "./candlestick";
+import { CATEGORICAL_PALETTE, seriesStyle, seriesMarkerSvg } from "./categoricalPalette";
 
 export type ChartKind =
   | "column"
@@ -36,6 +37,13 @@ export interface ChartStyle {
   figLabel?: string;
   /** Add patent-style reference numerals to figure elements (diagrams/table figure). */
   numerals?: boolean;
+  /**
+   * "okabe-ito": the validated colour-blind-safe categorical palette
+   * (categoricalPalette.ts), with a marker shape and dash per series so the
+   * series also separate in greyscale. Used under the journal figure styles.
+   * Omitted: the long-standing default colours, byte-identical.
+   */
+  palette?: "okabe-ito";
 }
 
 export interface ChartSeries {
@@ -279,61 +287,19 @@ function truncate(s: string, max: number): string {
   return s.length > max ? s.slice(0, max - 1) + "…" : s;
 }
 
-/**
- * Fills for the patent style: solid black, white, then hatch patterns. Series
- * beyond the list cycle. Bars/slices always get a black outline so white and
- * pattern fills read as closed shapes.
- */
-const PATENT_FILLS = [
-  "#000",
-  "#fff",
-  "url(#fi-diag)",
-  "url(#fi-rdiag)",
-  "url(#fi-cross)",
-  "url(#fi-horiz)",
-  "url(#fi-vert)",
-  "url(#fi-dots)",
-];
-
-/** Dash patterns distinguishing line/area series in the patent style. */
-const PATENT_DASHES = ["", "7 3", "2.5 2.5", "9 3 2.5 3", "12 4", "5 4 1.5 4"];
-
-/** SVG <defs> with the hatch patterns used by PATENT_FILLS. */
-function patentDefs(): string {
-  const line = (rot: number): string =>
-    `<pattern id="fi-${rot === 45 ? "diag" : "rdiag"}" patternUnits="userSpaceOnUse" width="5" height="5" patternTransform="rotate(${rot})"><rect width="5" height="5" fill="#fff"/><line x1="0" y1="0" x2="0" y2="5" stroke="#000" stroke-width="1.1"/></pattern>`;
-  return (
-    "<defs>" +
-    line(45) +
-    line(-45) +
-    `<pattern id="fi-cross" patternUnits="userSpaceOnUse" width="5" height="5" patternTransform="rotate(45)"><rect width="5" height="5" fill="#fff"/><line x1="0" y1="0" x2="0" y2="5" stroke="#000" stroke-width="0.9"/><line x1="0" y1="0" x2="5" y2="0" stroke="#000" stroke-width="0.9"/></pattern>` +
-    `<pattern id="fi-horiz" patternUnits="userSpaceOnUse" width="5" height="5"><rect width="5" height="5" fill="#fff"/><line x1="0" y1="2.5" x2="5" y2="2.5" stroke="#000" stroke-width="1.1"/></pattern>` +
-    `<pattern id="fi-vert" patternUnits="userSpaceOnUse" width="5" height="5"><rect width="5" height="5" fill="#fff"/><line x1="2.5" y1="0" x2="2.5" y2="5" stroke="#000" stroke-width="1.1"/></pattern>` +
-    `<pattern id="fi-dots" patternUnits="userSpaceOnUse" width="6" height="6"><rect width="6" height="6" fill="#fff"/><circle cx="3" cy="3" r="1.1" fill="#000"/></pattern>` +
-    "</defs>"
-  );
-}
-
-/** Marker shape for patent-style line/area series i, centered on (cx, cy). */
-function markerSvg(i: number, cx: number, cy: number): string {
-  const x = cx.toFixed(1);
-  const y = cy.toFixed(1);
-  const r = 3;
-  switch (i % 6) {
-    case 0:
-      return `<circle cx="${x}" cy="${y}" r="${r}" fill="#000"/>`;
-    case 1:
-      return `<circle cx="${x}" cy="${y}" r="${r}" fill="#fff" stroke="#000" stroke-width="1"/>`;
-    case 2:
-      return `<rect x="${(cx - r).toFixed(1)}" y="${(cy - r).toFixed(1)}" width="${2 * r}" height="${2 * r}" fill="#000"/>`;
-    case 3:
-      return `<rect x="${(cx - r).toFixed(1)}" y="${(cy - r).toFixed(1)}" width="${2 * r}" height="${2 * r}" fill="#fff" stroke="#000" stroke-width="1"/>`;
-    case 4:
-      return `<path d="M${x},${(cy - r - 0.5).toFixed(1)} L${(cx + r + 0.5).toFixed(1)},${(cy + r).toFixed(1)} L${(cx - r - 0.5).toFixed(1)},${(cy + r).toFixed(1)} Z" fill="#000"/>`;
-    default:
-      return `<path d="M${x},${(cy - r - 0.5).toFixed(1)} L${(cx + r + 0.5).toFixed(1)},${(cy + r).toFixed(1)} L${(cx - r - 0.5).toFixed(1)},${(cy + r).toFixed(1)} Z" fill="#fff" stroke="#000" stroke-width="1"/>`;
-  }
-}
+// ---- BEGIN Builder 2 (journal figures, brief D): patent style -> USPTO preset ----
+// The patent style's fills (solid black, white, then hatch patterns; bars/slices
+// get a black outline), dash patterns, hatch <defs> and series markers now live in
+// figureStyle.ts as the USPTO preset's own drawing parts, extracted BY FUNCTION and
+// byte-identical (pattern ids fi-diag ... unchanged). The local names are kept so
+// no call site in this file changes.
+import {
+  USPTO_FILLS as PATENT_FILLS,
+  USPTO_DASHES as PATENT_DASHES,
+  usptoPatternDefs as patentDefs,
+  usptoMarkerSvg as markerSvg,
+} from "./figureStyle";
+// ---- END Builder 2 ----
 
 /**
  * Renders the chart as SVG — the task-pane preview, the inserted Word figure,
@@ -393,10 +359,17 @@ export interface ChartPreview {
   warnings: string[];
 }
 
-export function buildChartPreviewSvg(chart: TableChart, kind: ChartKind, title = "", style: ChartStyle = {}): ChartPreview {
-  const W = 380;
+/**
+ * `width` is the canvas width in user units. It used to be fixed at 380, so a
+ * journal or USPTO figure style could not fit the chart to a column: the only
+ * knob that moves every text size together is the canvas width
+ * (figureStyle.renderAtPreset). The height keeps the 380 × 260 aspect, so the
+ * default (380) is byte-identical to before.
+ */
+export function buildChartPreviewSvg(chart: TableChart, kind: ChartKind, title = "", style: ChartStyle = {}, width = 380): ChartPreview {
+  const W = Number.isFinite(width) && width >= 120 && width <= 4000 ? Math.round(width * 100) / 100 : 380;
   const figLabel = (style.figLabel ?? "").trim();
-  const H = 260 + (figLabel ? 26 : 0);
+  const H = Math.round((260 * W) / 380) + (figLabel ? 26 : 0);
   if (kind === "candlestick") {
     // Four numeric columns per row, not one value per series, so it has its own
     // renderer and its own column identification.
@@ -424,24 +397,89 @@ function svgShell(W: number, H: number, style: ChartStyle, inner: string): strin
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${defs}<rect width="${W}" height="${H}" fill="#fff"/>${inner}</svg>`;
 }
 
-function titleText(title: string, W: number, ink: string): string {
-  return title
-    ? `<text x="${W / 2}" y="16" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="bold" fill="${ink}">${esc(truncate(title, 48))}</text>`
-    : "";
+// --- Patent-mode type sizes (v2.143.0) ---------------------------------------
+// 37 CFR 1.84(p)(3): "Numbers, letters, and reference characters must measure at
+// least .32 cm. (1/8 inch) in height." The patent style used 10 px text on a 380-unit
+// canvas, which at the full 170 mm sight width is 3.202 mm of capital — 0.002 mm
+// over the rule, and at Word's natural insert width (100 mm) only 1.9 mm. A
+// LOWERCASE letter is shorter still: "Control" stood 2.3 mm. So the sizes are set
+// per run, by what the run contains, with a 10 % margin at 170 mm (0.4474 mm/unit):
+//   numerals and capitals  12 px: cap 0.7158 em -> 3.84 mm (+20 %)
+//   any lowercase letter   17 px: x-height 0.5186 em -> 3.94 mm (+23 %)
+// (Arial's measured OS/2 heights; figureStyle.ts X_HEIGHT_EM / CAP_HEIGHT_EM.)
+// The user's own text is never re-cased: "mg" in capitals is a megagram.
+const PATENT_CAPS_PX = 12;
+const PATENT_LOWER_PX = 17;
+const HAS_LOWER = /\p{Ll}/u;
+
+/** Font size for a run of `text`: the colour style's own size, or the patent size for what it contains. */
+function runPx(patent: boolean, text: string, base: number): number {
+  if (!patent) return base;
+  return HAS_LOWER.test(text) ? PATENT_LOWER_PX : PATENT_CAPS_PX;
+}
+
+/** Rough advance width of `text` at `px` (sans-serif), for thinning labels. */
+function estW(text: string, px: number): number {
+  return text.length * px * 0.62;
+}
+
+const SUPER_TO_ASCII: Record<string, string> = {
+  "⁰": "0", "¹": "1", "²": "2", "³": "3", "⁴": "4", "⁵": "5", "⁶": "6", "⁷": "7", "⁸": "8", "⁹": "9", "⁻": "−",
+};
+
+/**
+ * The axis multiplier ("×10⁴"). In patent mode the exponent is drawn as full-size
+ * digits raised on a <tspan>, not as Unicode superscript glyphs: those are drawn
+ * smaller than the run's font-size, so a superscript "4" would be the one
+ * character on the sheet under 3.2 mm.
+ */
+function multiplierText(mult: string, patent: boolean, x: number, y: number, anchor: string, ink: string): string {
+  if (!patent) {
+    return `<text x="${x}" y="${y}" text-anchor="${anchor}" font-family="sans-serif" font-size="9" fill="${ink}">${esc(mult)}</text>`;
+  }
+  const m = /^(.*?10)([⁰¹²³⁴⁵⁶⁷⁸⁹⁻]+)$/.exec(mult);
+  if (!m) {
+    return `<text x="${x}" y="${y}" text-anchor="${anchor}" font-family="sans-serif" font-size="${PATENT_CAPS_PX}" fill="${ink}">${esc(mult)}</text>`;
+  }
+  const exp = [...m[2]].map((c) => SUPER_TO_ASCII[c] ?? c).join("");
+  return (
+    `<text x="${x}" y="${y}" text-anchor="${anchor}" font-family="sans-serif" font-size="${PATENT_CAPS_PX}" fill="${ink}">` +
+    `${esc(m[1])}<tspan dy="-5">${esc(exp)}</tspan></text>`
+  );
+}
+
+function titleText(title: string, W: number, ink: string, patent = false): string {
+  if (!title) return "";
+  const t = truncate(title, 48);
+  // data-figure-title: figureStyle finds the title by this mark (USPTO: none in the artwork).
+  return `<text data-figure-title="1" x="${W / 2}" y="16" text-anchor="middle" font-family="sans-serif" font-size="${runPx(patent, t, 13)}" font-weight="bold" fill="${ink}">${esc(t)}</text>`;
 }
 
 /** Centered "FIG. N" label beneath the chart (patent-drawing convention). */
-function figLabelText(figLabel: string, W: number, H: number): string {
-  return figLabel
-    ? `<text x="${W / 2}" y="${H - 9}" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#000">${esc(truncate(figLabel, 24))}</text>`
-    : "";
+function figLabelText(figLabel: string, W: number, H: number, patent = false): string {
+  if (!figLabel) return "";
+  const t = truncate(figLabel, 24);
+  // "FIG. 1" stays 14; a lowercase "Fig. 1" in patent mode gets the lowercase size.
+  const px = patent && HAS_LOWER.test(t) ? PATENT_LOWER_PX : 14;
+  return `<text x="${W / 2}" y="${H - 9}" text-anchor="middle" font-family="sans-serif" font-size="${px}" fill="#000">${esc(t)}</text>`;
 }
 
 /** Per-entry legend swatch: the small graphic left of the legend text. */
 type SwatchFn = (i: number, x: number, cy: number) => string;
 
-function colorSwatch(colors: string[]): SwatchFn {
+function colorSwatch(colors: readonly string[]): SwatchFn {
   return (i, x, cy) => `<rect x="${x}" y="${cy - 7}" width="10" height="10" fill="${colors[i % colors.length]}"/>`;
+}
+
+/** Okabe-Ito line/scatter swatch: the series' dash and marker, so the legend matches the plot. */
+function okabeLineSwatch(markersOnly: boolean): SwatchFn {
+  return (i, x, cy) => {
+    const s = seriesStyle(i);
+    const line = markersOnly
+      ? ""
+      : `<line x1="${x}" y1="${cy - 2}" x2="${x + 14}" y2="${cy - 2}" stroke="${s.color}" stroke-width="1.8"${s.dash ? ` stroke-dasharray="${s.dash}"` : ""}/>`;
+    return line + seriesMarkerSvg(s, x + 7, cy - 2, 2.6);
+  };
 }
 
 function patentFillSwatch(): SwatchFn {
@@ -459,16 +497,28 @@ function patentLineSwatch(): SwatchFn {
   };
 }
 
-function legend(names: string[], swatch: SwatchFn, x: number, y: number, maxRows: number, ink: string): string {
-  const lh = 14;
+/** Legend row pitch: 14 units in the colour style; patent rows are taller (17 px lowercase). */
+function legendPitch(patent: boolean): number {
+  return patent ? 20 : 14;
+}
+
+/** Characters a legend name keeps before the ellipsis. */
+function legendChars(patent: boolean): number {
+  return patent ? 9 : 15;
+}
+
+function legend(names: string[], swatch: SwatchFn, x: number, y: number, maxRows: number, ink: string, patent = false, chars?: number): string {
+  const lh = legendPitch(patent);
   const parts: string[] = [];
   names.slice(0, maxRows).forEach((n, i) => {
     const cy = y + i * lh;
+    const t = truncate(n, chars ?? legendChars(patent));
     parts.push(swatch(i, x, cy));
-    parts.push(`<text x="${x + 18}" y="${cy + 2}" font-family="sans-serif" font-size="10" fill="${ink}">${esc(truncate(n, 15))}</text>`);
+    parts.push(`<text x="${x + 18}" y="${cy + 2}" font-family="sans-serif" font-size="${runPx(patent, t, 10)}" fill="${ink}">${esc(t)}</text>`);
   });
   if (names.length > maxRows) {
-    parts.push(`<text x="${x}" y="${y + maxRows * lh + 2}" font-family="sans-serif" font-size="10" fill="${ink}">+${names.length - maxRows} more</text>`);
+    const t = `+${names.length - maxRows} more`;
+    parts.push(`<text x="${x}" y="${y + maxRows * lh + 2}" font-family="sans-serif" font-size="${runPx(patent, t, 10)}" fill="${ink}">${t}</text>`);
   }
   return parts.join("");
 }
@@ -479,12 +529,15 @@ function buildAxisSvg(chart: TableChart, kind: ChartKind, title: string, style: 
   const frame = patent ? "#000" : "#888";
   const figLabel = (style.figLabel ?? "").trim();
   const showLegend = chart.series.length > 1;
-  const ml = 48;
-  const mr = showLegend ? 100 : 14;
-  const mt = title ? 26 : 12;
-  const mb = 34 + (figLabel ? 26 : 0);
+  // Patent text is larger (see PATENT_CAPS_PX), so its margins are too.
+  const ml = patent ? 62 : 48;
+  const mr = showLegend ? (patent ? 132 : 100) : 14;
+  let mt = title ? (patent ? 30 : 26) : 12;
+  let mb = (patent ? 40 : 34) + (figLabel ? 26 : 0);
+  const okabe = !patent && style.palette === "okabe-ito";
+  const pal: readonly string[] = okabe ? CATEGORICAL_PALETTE : CHART_PALETTE;
   const pw = W - ml - mr;
-  const ph = H - mt - mb;
+  let ph = H - mt - mb;
 
   const stacked = kind === "stacked-column" || kind === "stacked-bar" || kind === "stacked-area";
   const nums: number[] = [];
@@ -532,25 +585,38 @@ function buildAxisSvg(chart: TableChart, kind: ChartKind, title: string, style: 
 
   const n = chart.categories.length;
   const horizontal = kind === "bar" || kind === "stacked-bar";
+  // Value-axis ticks and labels from the shared engine (axis.ts): extended
+  // Wilkinson positions, decimals from the step and constant along the axis,
+  // U+2212, thin-space grouping, and a ×10ⁿ multiplier instead of e-notation
+  // (every Table→Chart kind used to print `5.0e+5`). Bounded there: at most
+  // AXIS_TICK_CAP ticks on any input, femtosecond tables included.
+  // Patent tick labels are 12 px, so a horizontal value axis asks for fewer.
+  const valueAxis = linearAxis(vmin, vmax, { target: horizontal ? (patent ? 4 : 6) : 5 });
+  // The multiplier is stated once, at the end of the value axis, in room made
+  // for it INSIDE the fixed canvas (the canvas size is what Word inserts at).
+  if (valueAxis.multiplier) {
+    if (horizontal) mb += patent ? 16 : 11;
+    else mt += patent ? 16 : 11;
+    ph = H - mt - mb;
+  }
+  const tickDy = patent ? 18 : 15;
   // Value axis maps to y for column/line/area and to x for horizontal bars.
   const vLen = horizontal ? pw : ph;
   const cLen = horizontal ? ph : pw;
   const vPos = (v: number): number => ((v - vmin) / (vmax - vmin)) * vLen;
   const slot = cLen / n;
 
-  const parts: string[] = [titleText(title, W, patent ? "#000" : "#222")];
+  const parts: string[] = [titleText(title, W, patent ? "#000" : "#222", patent)];
   parts.push(`<rect x="${ml}" y="${mt}" width="${pw}" height="${ph}" fill="none" stroke="${frame}" stroke-width="1"/>`);
 
   // Value-axis ticks. The patent style keeps tick marks but drops the interior
   // gridlines — patent drawings want clean line art.
-  const step = niceStep(vmax - vmin, horizontal ? 6 : 5);
-  // BOUNDED, AND THE SLACK IS RELATIVE — the constants and the reasoning are
-  // plot.ts's (see TICK_CAP / TICK_EPS there). This loop had the absolute
-  // `t <= vmax + 1e-9` form with no count cap, so a table of femtosecond pulse
-  // widths or femtofarad capacitances — units this product ships — produced
-  // 2,000,011 tick labels and a 510 MB SVG, assigned to innerHTML on the UI
-  // thread. That is not an ugly chart, it is a frozen Word.
-  for (let i = 0, t = Math.ceil(vmin / step) * step; i <= TICK_CAP && t <= vmax + step * TICK_EPS; i++, t += step) {
+  // BOUNDED: the row is a capped array from axis.ts. (This loop once had the
+  // absolute `t <= vmax + 1e-9` form with no count cap, so a table of
+  // femtosecond pulse widths produced 2,000,011 tick labels and a 510 MB SVG —
+  // not an ugly chart, a frozen Word.)
+  valueAxis.values.forEach((t, ti) => {
+    const tickLabel = esc(valueAxis.labels[ti]);
     if (horizontal) {
       const px = ml + vPos(t);
       if (!patent) {
@@ -559,7 +625,7 @@ function buildAxisSvg(chart: TableChart, kind: ChartKind, title: string, style: 
         parts.push(`<line x1="${px.toFixed(1)}" y1="${mt}" x2="${px.toFixed(1)}" y2="${mt + ph}" stroke="#000" stroke-width="0.7"/>`);
       }
       parts.push(`<line x1="${px.toFixed(1)}" y1="${mt + ph}" x2="${px.toFixed(1)}" y2="${mt + ph + 4}" stroke="${frame}"/>`);
-      parts.push(`<text x="${px.toFixed(1)}" y="${mt + ph + 15}" text-anchor="middle" font-family="sans-serif" font-size="10" fill="${ink}">${fmtTick(t)}</text>`);
+      parts.push(`<text x="${px.toFixed(1)}" y="${mt + ph + tickDy}" text-anchor="middle" font-family="sans-serif" font-size="${runPx(patent, valueAxis.labels[ti], 10)}" fill="${ink}">${tickLabel}</text>`);
     } else {
       const py = mt + ph - vPos(t);
       if (!patent) {
@@ -568,21 +634,37 @@ function buildAxisSvg(chart: TableChart, kind: ChartKind, title: string, style: 
         parts.push(`<line x1="${ml}" y1="${py.toFixed(1)}" x2="${ml + pw}" y2="${py.toFixed(1)}" stroke="#000" stroke-width="0.7"/>`);
       }
       parts.push(`<line x1="${ml - 4}" y1="${py.toFixed(1)}" x2="${ml}" y2="${py.toFixed(1)}" stroke="${frame}"/>`);
-      parts.push(`<text x="${ml - 6}" y="${(py + 3).toFixed(1)}" text-anchor="end" font-family="sans-serif" font-size="10" fill="${ink}">${fmtTick(t)}</text>`);
+      parts.push(`<text x="${ml - 6}" y="${(py + (patent ? 4 : 3)).toFixed(1)}" text-anchor="end" font-family="sans-serif" font-size="${runPx(patent, valueAxis.labels[ti], 10)}" fill="${ink}">${tickLabel}</text>`);
     }
+  });
+  if (valueAxis.multiplier) {
+    parts.push(
+      horizontal
+        ? multiplierText(valueAxis.multiplier, patent, ml + pw, mt + ph + (patent ? 34 : 27), "end", ink)
+        : multiplierText(valueAxis.multiplier, patent, ml, mt - 4, "start", ink),
+    );
   }
 
   // Category tick labels (thinned so they never overlap).
-  const labelEvery = Math.ceil(n / (horizontal ? Math.floor(ph / 14) || 1 : 7));
+  let labelEvery = Math.ceil(n / (horizontal ? Math.floor(ph / 14) || 1 : 7));
+  const catText = (c: string): string => truncate(c, horizontal ? 7 : 9);
+  if (patent) {
+    // Patent labels are 12-17 px, so thin by what they actually need: a row
+    // pitch of 20 across, or the widest label's estimated width along.
+    const need = horizontal ? 20 : Math.max(...chart.categories.map((c) => estW(catText(c), runPx(true, catText(c), 10)) + 6));
+    labelEvery = Math.max(labelEvery, Math.ceil(need / Math.max(1e-9, slot)));
+  }
   chart.categories.forEach((c, i) => {
     if (i % labelEvery) return;
-    const label = esc(truncate(c, horizontal ? 7 : 9));
+    const raw = catText(c);
+    const label = esc(raw);
+    const fsz = runPx(patent, raw, 10);
     if (horizontal) {
       const cy = mt + slot * (i + 0.5);
-      parts.push(`<text x="${ml - 6}" y="${(cy + 3).toFixed(1)}" text-anchor="end" font-family="sans-serif" font-size="10" fill="${ink}">${label}</text>`);
+      parts.push(`<text x="${ml - 6}" y="${(cy + (patent ? 4 : 3)).toFixed(1)}" text-anchor="end" font-family="sans-serif" font-size="${fsz}" fill="${ink}">${label}</text>`);
     } else {
       const cx = ml + slot * (i + 0.5);
-      parts.push(`<text x="${cx.toFixed(1)}" y="${mt + ph + 15}" text-anchor="middle" font-family="sans-serif" font-size="10" fill="${ink}">${label}</text>`);
+      parts.push(`<text x="${cx.toFixed(1)}" y="${mt + ph + tickDy}" text-anchor="middle" font-family="sans-serif" font-size="${fsz}" fill="${ink}">${label}</text>`);
     }
   });
 
@@ -595,7 +677,7 @@ function buildAxisSvg(chart: TableChart, kind: ChartKind, title: string, style: 
       const posOff = new Array<number>(n).fill(0);
       const negOff = new Array<number>(n).fill(0);
       chart.series.forEach((s, si) => {
-        const fill = patent ? PATENT_FILLS[si % PATENT_FILLS.length] : CHART_PALETTE[si % CHART_PALETTE.length];
+        const fill = patent ? PATENT_FILLS[si % PATENT_FILLS.length] : pal[si % pal.length];
         const outline = patent ? ` stroke="#000" stroke-width="1"` : "";
         s.values.forEach((v, i) => {
           if (v === null || v === 0) return;
@@ -622,7 +704,7 @@ function buildAxisSvg(chart: TableChart, kind: ChartKind, title: string, style: 
       const groupW = slot * 0.72;
       const barW = groupW / chart.series.length;
       chart.series.forEach((s, si) => {
-        const fill = patent ? PATENT_FILLS[si % PATENT_FILLS.length] : CHART_PALETTE[si % CHART_PALETTE.length];
+        const fill = patent ? PATENT_FILLS[si % PATENT_FILLS.length] : pal[si % pal.length];
         const outline = patent ? ` stroke="#000" stroke-width="1"` : "";
         s.values.forEach((v, i) => {
           if (v === null) return;
@@ -641,7 +723,7 @@ function buildAxisSvg(chart: TableChart, kind: ChartKind, title: string, style: 
     // Each series' band sits on the running cumulative (nulls treated as 0).
     const cum = new Array<number>(n).fill(0);
     chart.series.forEach((s, si) => {
-      const color = patent ? "#000" : CHART_PALETTE[si % CHART_PALETTE.length];
+      const color = patent ? "#000" : pal[si % pal.length];
       const fill = patent ? PATENT_FILLS[(si + 2) % PATENT_FILLS.length] : color;
       const opacity = patent ? "" : ` fill-opacity="0.35"`;
       const upper: string[] = [];
@@ -659,8 +741,8 @@ function buildAxisSvg(chart: TableChart, kind: ChartKind, title: string, style: 
   } else {
     // line / area (vertical orientation only — kind "bar" handled above).
     chart.series.forEach((s, si) => {
-      const color = patent ? "#000" : CHART_PALETTE[si % CHART_PALETTE.length];
-      const dash = patent ? PATENT_DASHES[si % PATENT_DASHES.length] : "";
+      const color = patent ? "#000" : okabe ? seriesStyle(si).color : CHART_PALETTE[si % CHART_PALETTE.length];
+      const dash = patent ? PATENT_DASHES[si % PATENT_DASHES.length] : okabe ? seriesStyle(si).dash : "";
       const coords: { x: number; y: number }[] = [];
       s.values.forEach((v, i) => {
         if (v !== null) coords.push({ x: ml + slot * (i + 0.5), y: mt + ph - vPos(v) });
@@ -679,11 +761,19 @@ function buildAxisSvg(chart: TableChart, kind: ChartKind, title: string, style: 
       }
       // Patent lines need markers to stay distinguishable; the color style dots
       // sparse series; scatter always dots every point.
-      if (patent || kind === "scatter" || coords.length <= 30) {
+      // The Okabe-Ito style marks every series with its own shape too, so the
+      // series still separate in greyscale and for colour-blind readers.
+      if (patent || okabe || kind === "scatter" || coords.length <= 30) {
         const every = kind === "scatter" ? 1 : Math.ceil(coords.length / 30);
         coords.forEach((p, i) => {
           if (i % every) return;
-          parts.push(patent ? markerSvg(si, p.x, p.y) : `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="2.4" fill="${color}"/>`);
+          parts.push(
+            patent
+              ? markerSvg(si, p.x, p.y)
+              : okabe
+                ? seriesMarkerSvg(seriesStyle(si), p.x, p.y, 2.6)
+                : `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="2.4" fill="${color}"/>`,
+          );
         });
       }
     });
@@ -694,10 +784,12 @@ function buildAxisSvg(chart: TableChart, kind: ChartKind, title: string, style: 
       ? kind === "line"
         ? patentLineSwatch()
         : patentFillSwatch()
-      : colorSwatch(CHART_PALETTE);
-    parts.push(legend(chart.series.map((s) => s.name), swatch, W - mr + 8, mt + 10, Math.floor(ph / 14), ink));
+      : okabe && (kind === "line" || kind === "scatter")
+        ? okabeLineSwatch(kind === "scatter")
+        : colorSwatch(pal);
+    parts.push(legend(chart.series.map((s) => s.name), swatch, W - mr + 8, mt + 10, Math.floor(ph / legendPitch(patent)), ink, patent));
   }
-  parts.push(figLabelText(figLabel, W, H));
+  parts.push(figLabelText(figLabel, W, H, patent));
   return svgShell(W, H, style, parts.join(""));
 }
 
@@ -718,15 +810,21 @@ function buildPieSvg(chart: TableChart, kind: ChartKind, title: string, style: C
     );
   }
   const total = entries.reduce((acc, e) => acc + e.value, 0);
-  const mt = title ? 26 : 12;
+  // Positions scale with the canvas (k = 1 at the default 380, byte-identical).
+  // Patent mode draws the pie smaller and the legend further left, because its
+  // 17 px lowercase legend needs ~160 units for "Housing (40%)".
+  const k = W / 380;
+  const mt = title ? (patent ? 30 : 26) : 12;
   const mb = 12 + (figLabel ? 26 : 0);
-  const cx = 118;
+  const cx = (patent ? 98 : 118) * k;
   const cy = mt + (H - mt - mb) / 2;
-  const R = Math.min(100, (H - mt - mb - 12) / 2);
+  const R = Math.min((patent ? 84 : 100) * k, (H - mt - mb - 12) / 2);
   const r0 = kind === "doughnut" ? R * 0.55 : 0;
   const stroke = patent ? "#000" : "#fff";
+  const okabe = !patent && style.palette === "okabe-ito";
+  const pal: readonly string[] = okabe ? CATEGORICAL_PALETTE : CHART_PALETTE;
 
-  const parts: string[] = [titleText(title, W, patent ? "#000" : "#222")];
+  const parts: string[] = [titleText(title, W, patent ? "#000" : "#222", patent)];
   let angle = -Math.PI / 2;
   entries.forEach((e, i) => {
     const sweep = (e.value / total) * Math.PI * 2;
@@ -736,7 +834,7 @@ function buildPieSvg(chart: TableChart, kind: ChartKind, title: string, style: C
     const y0 = cy + R * Math.sin(angle);
     const x1 = cx + R * Math.cos(a1);
     const y1 = cy + R * Math.sin(a1);
-    const fill = patent ? PATENT_FILLS[i % PATENT_FILLS.length] : CHART_PALETTE[i % CHART_PALETTE.length];
+    const fill = patent ? PATENT_FILLS[i % PATENT_FILLS.length] : pal[i % pal.length];
     if (entries.length === 1) {
       parts.push(`<circle cx="${cx}" cy="${cy}" r="${R}" fill="${fill}" stroke="${stroke}" stroke-width="1"/>`);
     } else if (r0 > 0) {
@@ -758,11 +856,17 @@ function buildPieSvg(chart: TableChart, kind: ChartKind, title: string, style: C
     parts.push(`<circle cx="${cx}" cy="${cy}" r="${r0}" fill="#fff" stroke="${patent ? "#000" : "none"}"/>`);
   }
   const names = entries.map((e) => `${e.label} (${Math.round((e.value / total) * 1000) / 10}%)`);
-  const swatch = patent ? patentFillSwatch() : colorSwatch(CHART_PALETTE);
-  parts.push(legend(names, swatch, 236, mt + 14, Math.floor((H - mt - mb - 8) / 14), ink));
+  const swatch = patent ? patentFillSwatch() : colorSwatch(pal);
+  parts.push(legend(names, swatch, (patent ? 196 : 236) * k, mt + 14, Math.floor((H - mt - mb - 8) / legendPitch(patent)), ink, patent, 15));
   if (chart.series.length > 1) {
-    parts.push(`<text x="${W - 6}" y="${H - 6}" text-anchor="end" font-family="sans-serif" font-size="9" fill="#999">first data column only</text>`);
+    // Patent mode: black and full size — a grey 9 px note was the one mark on the
+    // sheet that broke both 1.84(a)(1) and 1.84(p)(3).
+    parts.push(
+      patent
+        ? `<text x="${W - 6}" y="${H - 6}" text-anchor="end" font-family="sans-serif" font-size="${PATENT_LOWER_PX}" fill="#000">first data column only</text>`
+        : `<text x="${W - 6}" y="${H - 6}" text-anchor="end" font-family="sans-serif" font-size="9" fill="#999">first data column only</text>`,
+    );
   }
-  parts.push(figLabelText(figLabel, W, H));
+  parts.push(figLabelText(figLabel, W, H, patent));
   return svgShell(W, H, style, parts.join(""));
 }

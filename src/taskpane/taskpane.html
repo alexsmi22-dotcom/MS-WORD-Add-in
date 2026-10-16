@@ -796,6 +796,23 @@
           <span class="preview-label">Result</span>
           <div id="stats-result" class="preview" aria-live="polite"></div>
         </div>
+        <!-- Significance brackets (v2.143.0): drawn ONLY from this test's own p values. -->
+        <div id="stats-brackets-row" hidden>
+          <label class="field-label" for="stats-brackets">Significance brackets</label>
+          <select id="stats-brackets" class="lib-select">
+            <option value="off">Off</option>
+            <option value="stars">Stars (* p &lt; 0.05 …), legend in the caption</option>
+            <option value="p">Exact p values</option>
+          </select>
+          <label class="omml-option">
+            <input type="checkbox" id="stats-brackets-hidens" />
+            Hide non-significant (ns) brackets — the caption counts them
+          </label>
+          <label class="omml-option">
+            <input type="checkbox" id="stats-brackets-tall" />
+            Taller figure (room for many brackets)
+          </label>
+        </div>
         <button id="stats-insert" class="insert-btn" type="button" disabled>Insert result</button>
         <button id="stats-insert-chart" class="insert-btn secondary" type="button" disabled>
           Insert chart
@@ -1364,6 +1381,44 @@
         <button id="audit-run-btn" class="insert-btn" type="button">Check this application</button>
         <div id="audit-results" class="audit-results" aria-live="polite"></div>
       </section>
+
+      <!-- Figure style (v2.143.0): one control for every tool whose figure insert honours it. -->
+      <div id="figstyle-row" class="figstyle-row" hidden>
+        <label class="field-label" for="figstyle-select">Figure style</label>
+        <select id="figstyle-select" class="lib-select">
+          <option value="asdrawn" selected>As drawn (natural size, as before)</option>
+          <option value="nature">Nature</option>
+          <option value="elsevier">Elsevier</option>
+          <option value="acs">ACS (secondary source)</option>
+          <option value="cell">Cell Press (secondary source)</option>
+          <option value="thesis">Thesis (serif)</option>
+          <option value="uspto">USPTO drawing (black and white)</option>
+        </select>
+        <label class="field-label" for="figstyle-width">Width</label>
+        <select id="figstyle-width" class="lib-select">
+          <option value="single" selected>Single column</option>
+          <option value="oneAndHalf">1.5 column</option>
+          <option value="double">Double column</option>
+        </select>
+        <p id="figstyle-note" class="seq-disclaimer" aria-live="polite"></p>
+        <label class="omml-option">
+          <input type="checkbox" id="figstyle-vector" />
+          Insert as vector SVG (experimental — Word for Windows or Mac; otherwise PNG)
+        </label>
+        <div class="figpanel-tray">
+          <span class="field-label">Multi-panel figure</span>
+          <button id="figpanel-add" class="insert-btn secondary" type="button">Add this figure to the panels</button>
+          <label class="field-label" for="figpanel-cols">Columns</label>
+          <select id="figpanel-cols" class="lib-select">
+            <option value="1">1</option>
+            <option value="2" selected>2</option>
+            <option value="3">3</option>
+          </select>
+          <p id="figpanel-count" class="seq-disclaimer" aria-live="polite">No panels yet.</p>
+          <button id="figpanel-insert" class="insert-btn secondary" type="button" disabled>Insert the panels as one figure</button>
+          <button id="figpanel-clear" class="insert-btn secondary" type="button" disabled>Clear the panels</button>
+        </div>
+      </div>
 
       <p id="status" class="status" role="status" aria-live="polite"></p>
 

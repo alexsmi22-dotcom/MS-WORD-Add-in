@@ -44,6 +44,7 @@
 //     and torsion read from two fields is evidence by universal coefficients.
 
 import type { HomologyResult } from "./homology";
+import { linearAxis, fmtValue } from "./axis";
 
 export interface PersistencePair {
   dimension: number;
@@ -1189,13 +1190,16 @@ function barcodePanel(
   const rowH = Math.min(12, plotH / bars.length);
   // Axis.
   out += `<g stroke="#1A1A1A" stroke-width="1" fill="none"><path d="M${padL} ${padT + plotH} H${padL + plotW}"/></g>`;
-  for (let k = 0; k <= 4; k++) {
-    const v = (xMax * k) / 4;
-    const px = x(v);
+  // The scale axis is an axis.ts ROW on [0, xMax]: quarters of xMax labelled
+  // one by one read `0 0.487 0.975 1.46 1.95` (mixed decimals, odd values).
+  const row = linearAxis(0, xMax, { target: 5 });
+  row.values.forEach((v, i) => {
+    const px = x(v).toFixed(1);
     out += `<path d="M${px} ${padT + plotH} V${padT + plotH + 5}" stroke="#1A1A1A" stroke-width="1"/>`;
-    out += `<text x="${px}" y="${padT + plotH + 18}" text-anchor="middle" font-family="Georgia,serif" font-size="9" fill="#7B8C99">${Number(v.toPrecision(3))}</text>`;
-  }
-  out += `<text x="${padL + plotW / 2}" y="${height - 6}" text-anchor="middle" font-family="Georgia,serif" font-size="10" fill="#7B8C99">scale (ε)</text>`;
+    out += `<text x="${px}" y="${padT + plotH + 18}" text-anchor="middle" font-family="Georgia,serif" font-size="9" fill="#7B8C99">${row.labels[i]}</text>`;
+  });
+  const axisTitle = row.multiplier ? `scale (ε) (${row.multiplier})` : "scale (ε)";
+  out += `<text x="${padL + plotW / 2}" y="${height - 6}" text-anchor="middle" font-family="Georgia,serif" font-size="10" fill="#7B8C99">${axisTitle}</text>`;
 
   // Bars, darker with increasing dimension so H0 and H1 are distinguishable in
   // black and white — this figure goes into patent-style documents.
@@ -1234,7 +1238,7 @@ function barcodePanel(
     // both found by the figure gate's first censored barcode (v2.138.0
     // compare entry). Left of the axis label there is room for ~30 characters.
     out += `<text x="6" y="${height - 6}" font-family="Georgia,serif" font-size="9" fill="#5b5b66">` +
-      `dashed: alive at ≥ ${escapeXml(String(Number(xMax.toPrecision(3))))} (censored)</text>`;
+      `dashed: alive at ≥ ${escapeXml(fmtValue(xMax))} (censored)</text>`;
   }
   out += `</g>`;
   return out;

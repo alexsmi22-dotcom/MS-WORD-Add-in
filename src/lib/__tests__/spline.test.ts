@@ -223,7 +223,7 @@ describe("display contract, verification and the figure", () => {
   it("no spline figure carries a title wider than the 380 px frame (gate estimate: chars × 13 × 0.58)", () => {
     const knots50 = Array.from({ length: 50 }, (_, i) => `(${i}, ${i % 3})`).join(", ");
     for (const q of [...ALL, `natural cubic spline through ${knots50}`, "monotone cubic interpolation of (0, 0), (1, 1), (2, 1), (3, 2)"]) {
-      const title = /<text x="190" y="16" text-anchor="middle"[^>]*font-weight="bold"[^>]*>([^<]*)<\/text>/.exec(run(q).svg!)?.[1] ?? "";
+      const title = /<text(?: data-figure-title="1")? x="190" y="16" text-anchor="middle"[^>]*font-weight="bold"[^>]*>([^<]*)<\/text>/.exec(run(q).svg!)?.[1] ?? "";
       expect(title.length).toBeGreaterThan(0);
       expect(title.length * 13 * 0.58).toBeLessThanOrEqual(380);
     }

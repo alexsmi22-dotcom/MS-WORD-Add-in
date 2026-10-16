@@ -290,20 +290,22 @@ describe("forestPlotSvg — LOG axis for ratios (hazard ratios; scope finding 7 
     expect(ax.minor.slice(0, 3)).toEqual([0.2, 0.30000000000000004, 0.4]);
     expect(ax.minor).toContain(2);
     expect(ax.minor).toContain(90);
-    expect(ax.labelled.map((l) => l.text)).toEqual(["0.1", "1", "10", "100"]);
+    // Three decades: one notation throughout (axis.ts, B.7) — was 0.1 / 1 / 10 / 100.
+    expect(ax.labelled.map((l) => l.text)).toEqual(["10⁻¹", "10⁰", "10¹", "10²"]);
   });
 
   test("the drawn decades are EQUIDISTANT and the reference line sits at exactly HR = 1", () => {
     const svg = forestPlotSvg(larynx, { log: true, title: "Hazard ratios", xlabel: "Hazard ratio" });
     expect(isRealFigure(svg)).toBe(true);
     const x = tickX(svg);
-    const step = x.get("1")! - x.get("0.1")!;
+    // Three decades, so the labels are 10ⁿ throughout (axis.ts, B.7).
+    const step = x.get("10⁰")! - x.get("10⁻¹")!;
     expect(step).toBeGreaterThan(50);
-    expect(x.get("10")! - x.get("1")!).toBeCloseTo(step, 0);
-    expect(x.get("100")! - x.get("10")!).toBeCloseTo(step, 0);
-    // The dashed reference line is at the "1" label's x.
+    expect(x.get("10¹")! - x.get("10⁰")!).toBeCloseTo(step, 0);
+    expect(x.get("10²")! - x.get("10¹")!).toBeCloseTo(step, 0);
+    // The dashed reference line is at the "10⁰" (HR = 1) label's x.
     const ref = /<line x1="([\d.]+)" y1="[\d.]+" x2="[\d.]+" y2="[\d.]+" stroke="#b91c1c" stroke-width="1" stroke-dasharray="4 3"\/>/.exec(svg);
-    expect(Number(ref![1])).toBeCloseTo(x.get("1")!, 1);
+    expect(Number(ref![1])).toBeCloseTo(x.get("10⁰")!, 1);
     expect(svg).toContain("Hazard ratio (log scale)");
     // HR 0.5 and HR 2 are equidistant from 1 on this axis — the reason it exists.
     const two = forestPlotSvg([{ label: "a", estimate: 2, low: 0.5, high: 4 }], { log: true });
@@ -333,7 +335,8 @@ describe("forestPlotSvg — LOG axis for ratios (hazard ratios; scope finding 7 
       { log: true },
     );
     expect(isRealFigure(svg)).toBe(true);
-    expect(svg).toMatch(/Log axis cannot show Dose difference: -0\.2 is not positive/);
+    // The value is printed with the true minus, U+2212 (axis.ts), not "-0.2".
+    expect(svg).toMatch(new RegExp(`Log axis cannot show Dose difference: ${String.fromCharCode(0x2212)}0\\.2 is not positive`));
     expect(forestPlotSvg([{ label: "z", estimate: 0, low: 0, high: 1 }], { log: true })).toMatch(/z: 0 is not positive/);
     expect("error" in forestLogAxis(0, 1)).toBe(true);
   });

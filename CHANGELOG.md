@@ -6,6 +6,76 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.143.0] — 2026-10-15 — Journal-grade figures
+
+From `docs/SCOPE-JOURNAL-FIGURES-2026-10.md`. Figures from Plot, Table → Chart,
+Stats, Finance and Bio/Assay can now be inserted at a journal's own column
+width and text size, carry significance brackets taken from the test that was
+run, and be combined into lettered panels. **As drawn** (the default) inserts
+exactly what it did before.
+
+### Added — figure styles
+- A **Figure style** picker: As drawn, Nature, Elsevier, ACS, Cell, thesis and
+  **USPTO**, with single, 1.5 and double column widths. Under a style the
+  figure is re-drawn and rasterised at its printed size, and checked against
+  the style's minimum text size; a figure that cannot meet it is refused with
+  the rule it fails, never shrunk past it.
+- **USPTO** is its own style, not a journal style with the colour removed:
+  black only, hatch fills, no title in the artwork, and text that clears
+  37 CFR 1.84(p)(3)'s 0.32 cm minimum by at least 10 % (3.52 mm; 14 pt ticks).
+  Titles are tagged in every chart and stripped in the library, so a panel
+  captured earlier with a title cannot carry it into a USPTO insert.
+- Journal styles use the colour-blind-safe **Okabe–Ito** palette.
+- The status line states the dpi actually achieved, read from the inserted
+  PNG, not the dpi asked for.
+- **Insert as vector SVG (experimental)**, off by default. Capability unknown
+  means PNG. A vector picture Word reports as inserted but that cannot be
+  found again is refused rather than doubled with a PNG. Stays experimental
+  until the in-Word probe (TEST-SCRIPT §0cj) is recorded.
+
+### Added — significance brackets and panels
+- Brackets on box plots from the **t-test, paired t-test, Mann–Whitney,
+  Wilcoxon, Tukey HSD and Dunn** results — only from an engine result, never a
+  typed asterisk. Each result is re-checked against itself (Tukey: p against
+  the studentized range, the significant flag, q-critical and the interval),
+  and an edited one is refused.
+- Brackets follow the **α the test was run at**: at α = 0.01 a pair with
+  p = 0.038 is “ns”, as the result text says. The legend states α, the test
+  and the correction whenever there is more than one comparison. **Hide ns**
+  is an explicit option, and hidden pairs are counted in the caption.
+- Zero within-group variance is refused by name instead of drawing `****`.
+- When brackets do not fit, only remedies that were actually tried and fit
+  are offered (Taller figure, Hide ns, or both).
+- **Panels:** add figures to a tray and insert them as one lettered A/B/C
+  figure; each panel is clipped to its own cell and re-drawn for it under a
+  style.
+
+### Changed — one axis and tick engine for every chart
+- `axis.ts` replaces the per-chart tick code. Labels obey the display
+  contract everywhere: a true minus, `4.00×10⁻⁶` never `4.00e-6`, no duplicate
+  or mixed-decimal labels in a row. Narrow spans at large values get distinct
+  labels (4.5×10¹⁴ Hz + 500 Hz no longer collapses to one tick); constant data
+  at ±1.8×10³⁰⁸ no longer hangs.
+- Heat-map colour bars state the true minimum and maximum (1 … 1×10⁶, not
+  0×10⁶ … 1×10⁶).
+- Number lists and imported cells read `2×10³`, `2x10^3`, `10³` and `10⁻³`, so
+  what an axis prints parses back. Refused instead of misread: `1×10⁻⁹⁹⁹` and
+  `1e-400` (a non-zero number that would become 0), `2×10³×10²`, and `0x…`,
+  `0b…`, `0o…`. `1,5` is still 1.5.
+- Geometry coordinates and the radius-of-convergence interval print a true
+  minus, and geometry input accepts one.
+
+### QC
+- New gate **Figure labels** (`npm run check:labels`, 16 gates): hyphen-minus
+  before a digit, e-notation, duplicate and mixed-decimal labels, and text
+  below a style's minimum. Self-tested on a known-bad figure; every count is
+  at zero, and allowances name the exact labels they cover.
+- Figure corpus 259 → 280 (styles, brackets, panels).
+- Two independent adversarial passes over the diff: 11 defects found and
+  fixed before release, including brackets ignoring α, a USPTO title reaching
+  the artwork through panels, false refusals of genuine Tukey results on
+  large-offset data, and an axis hang near the top of the double range.
+
 ## [2.142.0] — 2026-10-15 — Citation styles, BibTeX/RIS import and numbered bibliographies
 
 From `docs/SCOPE-CITATIONS-2026-10.md` §C. Citations gains a **Bibliography**

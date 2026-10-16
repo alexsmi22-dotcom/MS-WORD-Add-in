@@ -94,6 +94,9 @@ describe("an Analyze figure must be a plot block, never the inherited svg field"
     // The mirror image, so nobody "fixes" Stats to match Analyze.
     const i = PANE.indexOf("statsResult.innerHTML");
     expect(i).toBeGreaterThan(0);
-    expect(PANE.slice(i, i + 260)).toContain("out.svg");
+    // v2.143.0: Stats renders `figSvg`, which starts as out.svg and is replaced only
+    // by the same figure with significance brackets (out.brackets).
+    expect(PANE.slice(i, i + 260)).toContain("figSvg");
+    expect(PANE).toContain('let figSvg = out.svg ?? "";');
   });
 });

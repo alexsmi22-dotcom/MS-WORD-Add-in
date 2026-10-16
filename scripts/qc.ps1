@@ -6,9 +6,9 @@
 #    3. Compound dictionary       7. Headless render check       11. Engineering audit
 #    4. Compound vs PubChem       8. Landing-page layout        12. Task-pane id wiring audit
 #   4b. Figure layout            8b. Pane audit (the other     13. Offline delivery
-#                                    four calculator registries)
+#   4c. Figure labels                four calculator registries)
 #
-# (15 Invoke-Step gates. This list has now gone stale TWICE — it named eight
+# (16 Invoke-Step gates — 4c Figure labels added in v2.143.0. This list has now gone stale TWICE — it named eight
 # steps for a file that ran eleven, was corrected to twelve, and was left at
 # twelve on the day a thirteenth and fourteenth were added, in the very comment
 # that congratulates itself for catching drift. Count the Invoke-Step lines
@@ -119,6 +119,17 @@ Invoke-Step "Pane audit"          { node scripts/pane-audit.js }
 # there is ONE invocation path rather than two that can drift apart, and it
 # loads TypeScript through the `typescript` devDependency already on disk.
 Invoke-Step "Figure layout"       { node scripts/check-figures.js }
+
+# 4c. Figure LABELS — does what a figure SAYS meet the display contract?
+#
+# The geometry gate above never reads label content: twelve tick labels that all
+# read "2.0e+4" pass it as long as they do not overlap (brief B.1). This gate
+# reads every label in the same corpus and fails on a hyphen-minus used as a
+# minus, e-notation, a duplicate or mixed-decimal tick row on a linear axis, and
+# text below a figure style's minimum at that style's printed width. It
+# self-tests each predicate on a known-bad SVG before it reports anything, and
+# ratchets the counts it measured (see BASELINE in the script) downward only.
+Invoke-Step "Figure labels"       { node scripts/figure-label-audit.js }
 
 # 5. Task-pane id wiring audit — every getElementById has a matching HTML id.
 #

@@ -141,6 +141,16 @@ import { driftFigure } from "../src/lib/timecode";
 import { pulldown, aspect, transfer, interfaceRate } from "../src/lib/video";
 import { pointIlluminance, coneFlux, screenLuminance, depthOfField, exposureValue } from "../src/lib/photometry";
 import { daylightLocusFigure } from "../src/lib/colourspace";
+// v2.143.0 journal-grade figures: figure styles, significance brackets, panels.
+// Each figure is built by the SAME lib call the pane makes (prepareFigure,
+// bracketedBoxPlot, composePanelFigure), so the corpus sees what inserts.
+import { getPreset, presetWidthMm, PRESET_IDS } from "../src/lib/figureStyle";
+import { seriesStyle, seriesMarkerSvg, CATEGORICAL_PALETTE } from "../src/lib/categoricalPalette";
+import { prepareFigure, composePanelFigure, type FigurePresetChoice } from "../src/lib/insertCapability";
+import { bracketedBoxPlot } from "../src/lib/statsBrackets";
+import { tukeyHSD } from "../src/lib/tukey";
+import { twoSampleTTest } from "../src/lib/stats";
+import { kruskalWallis, dunnTest } from "../src/lib/nonparametric";
 
 const figures: [string, string][] = [];
 
@@ -2125,6 +2135,97 @@ ORIGIN
     "light daylight and Planckian loci, 3200 K, 5600 K and D65 xy",
     daylightLocusSvg(daylightLocusFigure([3200, 5600], { x: 0.3127, y: 0.329 })),
   ]);
+}
+
+// v2.143.0 journal-grade figures. Names of figures drawn under a style start
+// "preset <id> <mm> mm", which figure-label-audit.js reads to check the text
+// against that style at that printed width (its PRESET predicate).
+{
+  const need = (r: ReturnType<typeof prepareFigure>, what: string): string => {
+    if (!r.ok) throw new Error(`${what}: ${r.reason}: ${r.problems.join("; ")}`);
+    return r.svg;
+  };
+  const presetName = (id: string, width: "single" | "double", what: string): string => {
+    const p = getPreset(id);
+    if (!p) throw new Error(id);
+    return `preset ${id} ${presetWidthMm(p, width)} mm ${what}`;
+  };
+  const sinPlot = (w: number): string =>
+    buildPlotSvg(
+      [
+        { type: "line", label: "sin x", points: Array.from({ length: 61 }, (_, i) => ({ x: i / 6, y: Math.sin(i / 6) })) },
+        { type: "scatter", label: "measured", points: Array.from({ length: 11 }, (_, i) => ({ x: i, y: Math.sin(i) + 0.1 * Math.cos(3 * i) })) },
+      ],
+      { title: "Damped response", xlabel: "Time (s)", ylabel: "Amplitude (mV)", width: w, height: Math.round((270 * w) / 380) },
+    );
+  const table = parseTableData([
+    ["Quarter", "Control", "Treated", "Sham"],
+    ["Q1", "12.5", "14.1", "11.9"],
+    ["Q2", "13.2", "16.8", "12.4"],
+    ["Q3", "15.0", "19.3", "13.0"],
+    ["Q4", "15.8", "21.6", "13.5"],
+  ]);
+  const okabe = (kind: ChartKind) => (w: number): string => buildChartPreviewSvg(table, kind, "Yield by quarter", { palette: "okabe-ito" }, w).svg;
+  const patent = (kind: ChartKind) => (w: number): string => buildChartPreviewSvg(table, kind, "", { patent: true }, w).svg;
+
+  // Every journal style, single column, the Plot tool's figure.
+  for (const id of PRESET_IDS.filter((p) => p !== "uspto")) {
+    figures.push([presetName(id, "single", "plot"), need(prepareFigure({ svg: sinPlot(380), preset: id, width: "single", render: sinPlot }), id)]);
+  }
+  // Double column and the Okabe–Ito Table→Chart series (marker + dash per series).
+  figures.push([presetName("nature", "double", "table column okabe-ito"), need(prepareFigure({ svg: okabe("column")(380), preset: "nature", width: "double", render: okabe("column"), chartKind: "column" }), "okabe column")]);
+  figures.push([presetName("elsevier", "single", "table line okabe-ito"), need(prepareFigure({ svg: okabe("line")(380), preset: "elsevier", width: "single", render: okabe("line"), chartKind: "line" }), "okabe line")]);
+  figures.push([presetName("cell", "single", "table scatter okabe-ito"), need(prepareFigure({ svg: okabe("scatter")(380), preset: "cell", width: "single", render: okabe("scatter"), chartKind: "scatter" }), "okabe scatter")]);
+  // USPTO: the patent drawing at the 170 mm sight, black and white, no title.
+  for (const kind of ["column", "line", "stacked-bar"] as ChartKind[]) {
+    figures.push([presetName("uspto", "single", `table ${kind}`), need(prepareFigure({ svg: patent(kind)(380), preset: "uspto", width: "single", render: patent(kind), chartKind: kind }), `uspto ${kind}`)]);
+  }
+
+  // Significance brackets, from the engines' own results.
+  const A = [5.1, 5.4, 5.0, 5.6, 5.3, 5.2];
+  const B = [6.4, 6.8, 6.1, 6.9, 6.5, 6.6];
+  const C = [5.2, 5.5, 5.1, 5.7, 5.0, 5.4];
+  const D = [7.1, 7.4, 6.9, 7.6, 7.2, 7.0];
+  const g = (xs: number[][]) => xs.map((v, i) => ({ label: `group ${i + 1}`, values: v }));
+  const fig = (r: ReturnType<typeof bracketedBoxPlot>, what: string): string => {
+    if (!r.ok) throw new Error(`${what}: ${r.error}`);
+    return r.svg;
+  };
+  const tk = tukeyHSD([A, B, C, D], 0.05);
+  if (!tk) throw new Error("tukey");
+  figures.push(["brackets t-test stars", fig(bracketedBoxPlot(g([A, B]), { title: "Two-sample t-test", ylabel: "value" }, { kind: "t", result: twoSampleTTest(A, B) }, { label: "stars", hideNs: false, tall: false }), "t")]);
+  figures.push(["brackets tukey 4 groups exact p, taller", fig(bracketedBoxPlot(g([A, B, C, D]), { title: "Tukey HSD (4 groups)", ylabel: "value" }, { kind: "tukey", result: tk }, { label: "p", hideNs: false, tall: true }), "tukey")]);
+  figures.push(["brackets tukey 4 groups stars, ns hidden", fig(bracketedBoxPlot(g([A, B, C, D]), { title: "Tukey HSD (4 groups)", ylabel: "value" }, { kind: "tukey", result: tk }, { label: "stars", hideNs: true, tall: false }), "tukey ns")]);
+  const kw = [A, B, C];
+  if (!(kruskalWallis(kw).p < 0.05)) throw new Error("kruskal not significant");
+  figures.push(["brackets dunn after kruskal-wallis", fig(bracketedBoxPlot(g(kw), { title: "Kruskal-Wallis (3 groups)", ylabel: "value" }, { kind: "dunn", result: dunnTest(kw, "holm"), k: 3, correction: "holm" }, { label: "stars", hideNs: false, tall: false }), "dunn")]);
+  const brRender = (w: number): string => fig(bracketedBoxPlot(g([A, B, C, D]), { title: "Tukey HSD (4 groups)", ylabel: "value" }, { kind: "tukey", result: tk }, { label: "stars", hideNs: false, tall: true }, w), "tukey at width");
+  figures.push([presetName("nature", "single", "brackets tukey"), need(prepareFigure({ svg: brRender(380), preset: "nature", width: "single", render: brRender }), "nature brackets")]);
+
+  // Multi-panel figures from the tray, as drawn and under styles.
+  const panel = (svg: string, render: ((w: number) => string) | undefined, source: string) => ({ svg, render, source });
+  const compose = (choice: FigurePresetChoice, width: "single" | "double", cols: number, items: ReturnType<typeof panel>[], what: string): string => {
+    const r = composePanelFigure(items, choice, width, cols);
+    if (!r.ok) throw new Error(`${what}: ${r.reason}: ${r.problems.join("; ")}`);
+    return r.svg;
+  };
+  // The bracketed panel is a two-group t-test: four groups of Tukey brackets need
+  // more height than a half-column cell has, and the tray refuses that by name
+  // (insertCapability.test.ts), so it cannot be a corpus figure.
+  const ttRender = (w: number): string =>
+    fig(bracketedBoxPlot(g([A, B]), { title: "Two-sample t-test", ylabel: "value" }, { kind: "t", result: twoSampleTTest(A, B) }, { label: "stars", hideNs: false, tall: false }, w), "t at width");
+  const twoUp = [panel(sinPlot(380), sinPlot, "Plot"), panel(ttRender(380), ttRender, "Statistics")];
+  figures.push(["panels as drawn, two across", compose("asdrawn", "single", 2, twoUp, "asdrawn panels")]);
+  figures.push([presetName("nature", "double", "panels a b"), compose("nature", "double", 2, twoUp, "nature panels")]);
+  figures.push([presetName("cell", "double", "panels A B C"), compose("cell", "double", 3, [...twoUp, panel(okabe("column")(380), okabe("column"), "Table → Chart")], "cell panels")]);
+  figures.push([presetName("uspto", "single", "panels FIG. 1A 1B"), compose("uspto", "single", 2, [panel(patent("column")(380), patent("column"), "Table → Chart"), panel(patent("line")(380), patent("line"), "Table → Chart")], "uspto panels")]);
+
+  // The categorical palette's redundant encoding: a marker shape per series.
+  const swatch = CATEGORICAL_PALETTE.map((_, i) => {
+    const st = seriesStyle(i);
+    return seriesMarkerSvg(st, 20, 20 + i * 22, 5) + `<text x="34" y="${24 + i * 22}" font-family="Arial, Helvetica, sans-serif" font-size="11" fill="#111111">series ${i + 1}</text>`;
+  }).join("");
+  figures.push(["okabe-ito series markers", `<svg xmlns="http://www.w3.org/2000/svg" width="160" height="${CATEGORICAL_PALETTE.length * 22 + 20}"><rect width="160" height="${CATEGORICAL_PALETTE.length * 22 + 20}" fill="#fff"/>${swatch}</svg>`]);
 }
 
 export { figures };

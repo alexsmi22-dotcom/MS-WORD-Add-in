@@ -64,6 +64,7 @@ const PINNED: Record<string, string> = {
   "Audio, video and light: levels, loudness, timecode, transfer curves, photometry and exposure": "2.140.0",
   "Table of Authorities and Bluebook fixes": "2.141.0",
   "Citation styles, BibTeX/RIS import and numbered bibliographies": "2.142.0",
+  "Journal-grade figures: figure styles, vector-insert probe, significance brackets, panels": "2.143.0",
 };
 
 describe("the manual test script's version tags are history, not a moving target", () => {

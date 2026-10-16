@@ -5,44 +5,44 @@
 // read "100, 1000, 1.0e+4, 10^5" — plain, plain, exponential, superscript, with
 // the odd one in the middle. Nothing was numerically wrong, which is why it
 // survived: it is a figure-quality defect, and figures are the output.
+//
+// v2.143.0: plot.fmtLogTick (a per-value labeller) was dead after the axis-engine
+// migration and was removed. Log axes are now labelled as a ROW by axis.logAxis,
+// which goes further than "one change of notation": across three decades or more
+// every label is 10ⁿ (journal style, brief B.7). These tests pin that row.
 
-import { fmtLogTick } from "../plot";
+import { logAxis } from "../axis";
 
-const DECADES = [1e-4, 1e-3, 0.01, 0.1, 1, 10, 100, 1000, 1e4, 1e5, 1e6];
+/** Labels of a log axis over [10^lo, 10^hi]. */
+const row = (lo: number, hi: number): string[] => logAxis(lo, hi).labelled.map((l) => l.text);
 
 describe("one notation per axis", () => {
-  test("no decade label uses the e+N form", () => {
-    for (const v of DECADES) {
-      expect({ v, label: fmtLogTick(v) }).toEqual({ v, label: expect.not.stringContaining("e+") });
+  test("no decade label uses an e exponent, on any span from 10⁻⁴ to 10⁶", () => {
+    for (let lo = -4; lo < 6; lo++) {
+      for (let hi = lo + 1; hi <= 6; hi++) {
+        for (const t of row(lo, hi)) expect({ lo, hi, t, e: /\d[eE][+-]?\d/.test(t) }).toEqual({ lo, hi, t, e: false });
+      }
     }
   });
 
-  test("no decade label uses a lowercase e exponent at all", () => {
-    for (const v of DECADES) expect(fmtLogTick(v)).not.toMatch(/\d[eE][+-]?\d/);
+  test("the Bode sweep 1 Hz to 100 kHz reads 10⁰ … 10⁵, uniformly", () => {
+    expect(row(0, 5)).toEqual(["10⁰", "10¹", "10²", "10³", "10⁴", "10⁵"]);
   });
 
-  test("the plain band is contiguous and the superscript band takes over cleanly", () => {
-    expect(fmtLogTick(0.001)).toBe("0.001");
-    expect(fmtLogTick(1)).toBe("1");
-    expect(fmtLogTick(1000)).toBe("1000");
-    // The first decade past the plain band, which is the one that was wrong.
-    expect(fmtLogTick(1e4)).toBe("10⁴");
-    expect(fmtLogTick(1e5)).toBe("10⁵");
-    expect(fmtLogTick(1e-4)).toBe("10⁻⁴");
+  test("under three decades the plain band stays plain", () => {
+    expect(row(-3, -1)).toEqual(["0.001", "0.01", "0.1"]);
+    expect(row(0, 2)).toEqual(["1", "10", "100"]);
   });
 
   test("labels are distinct, so two decades never render the same", () => {
-    const labels = DECADES.map(fmtLogTick);
+    const labels = row(-4, 6);
     expect(new Set(labels).size).toBe(labels.length);
   });
 
-  test("the notation changes exactly once going up the axis", () => {
-    // Classify each label as plain or superscript; the sequence must be a single
-    // run of one followed by a single run of the other on each side of 1.
-    const kinds = [1, 10, 100, 1000, 1e4, 1e5, 1e6].map((v) =>
-      /[⁰-⁹⁻]/.test(fmtLogTick(v)) ? "sup" : "plain",
-    );
-    const changes = kinds.filter((k, i) => i > 0 && k !== kinds[i - 1]).length;
-    expect({ kinds, changes }).toEqual({ kinds, changes: 1 });
+  test("the notation never changes along an axis of three decades or more", () => {
+    for (const [lo, hi] of [[-4, 6], [0, 3], [-2, 4]]) {
+      const kinds = new Set(row(lo, hi).map((t) => (/^10[⁰¹²³⁴⁵⁶⁷⁸⁹⁻]+$/.test(t) ? "sup" : "plain")));
+      expect({ lo, hi, kinds: [...kinds] }).toEqual({ lo, hi, kinds: ["sup"] });
+    }
   });
 });

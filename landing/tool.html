@@ -233,6 +233,7 @@
         "<b>Repeated-measures ANOVA</b> \u2014 one within-subject factor or a mixed design, Mauchly\u2019s test (refused by name when undefined), Greenhouse\u2013Geisser and Huynh\u2013Feldt corrections, partial \u03b7\u00b2, Holm post-hoc, and a profile plot; long or wide tables.",
         "<b>Exact rank tests</b> \u2014 Mann\u2013Whitney and Wilcoxon give the EXACT p (as a fraction) up to 60 observations, conditional on ties, with the normal approximation beside it.",
         "<b>Survival analysis</b> \u2014 Kaplan\u2013Meier with Greenwood intervals, log-rank, hazard ratio. Censored subjects stay at risk up to their time and no further; median survival reads NOT REACHED when the curve never falls to 50%.",
+        "<b>Significance brackets (v2.143.0)</b> — box plots carry brackets from the t-test, paired t-test, Mann–Whitney, Wilcoxon, Tukey HSD or Dunn result just computed, never from a typed asterisk. Each result is re-checked against itself before it is drawn; brackets follow the α the test was run at, the legend names the test, α and the correction, and <b>Hide ns</b> is an explicit choice whose hidden pairs are counted in the caption. Journal figure styles and A/B/C panels apply here too.",
       ],
       examples:[
         {in:"Welch t-test on two groups", out:"t(17.4) = 2.41, p = .027"},
@@ -285,7 +286,8 @@
         "<b>Flowchart</b> — each row a step (decision diamonds for <code>?</code>, reference numerals from a first column) — ideal for method-claim figures.",
         "<b>Block diagram</b> — hierarchy paths merge into a connected box tree — ideal for apparatus figures.",
         "<b>Table figure</b> — draw the table itself as a clean figure (section bands, bold header, right-aligned numbers).",
-        "<b>Reference numerals</b> with lead lines (37 CFR 1.84 style), <b>patent B&amp;W line art</b>, and an <b>editable PowerPoint</b> export that paginates big diagrams across slides."
+        "<b>Reference numerals</b> with lead lines (37 CFR 1.84 style), <b>patent B&amp;W line art</b>, and an <b>editable PowerPoint</b> export that paginates big diagrams across slides.",
+        "<b>Journal-grade figures (v2.143.0)</b> — a <b>Figure style</b> picker (Nature, Elsevier, ACS, Cell, thesis, USPTO; single, 1.5 or double column) re-draws the chart at its printed width and text size, in the colour-blind-safe Okabe–Ito palette, and refuses a figure that would break the style's minimum text size rather than shrinking it. <b>USPTO</b> is its own style: black only, hatch fills, no title in the artwork, text clearing 37 CFR 1.84(p)(3) by 10 %. Combine figures into lettered <b>A/B/C panels</b>. The status line states the dpi actually achieved; vector SVG insert is offered as an experimental option. <b>As drawn</b> inserts exactly what it always did."
       ],
       examples:[
         {note:"A numeric sales table → a stacked column chart, or a black-and-white hatched patent figure with a \"FIG. 2\" label."},

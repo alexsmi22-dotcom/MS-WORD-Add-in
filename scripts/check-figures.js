@@ -105,7 +105,15 @@ const CORPUS = path.join(__dirname, "figure-layout-run.ts");
 // BT.1886 and PQ transfer curves, SDI interface bars, and six light figures
 // (illuminance at 30°, cone flux, screen luminance, depth of field, the
 // exposure line, the daylight locus).
-const CORPUS_FLOOR = 259;
+// 280 as of 2026-10-15 (v2.143.0): twenty-one journal-grade figures, each built
+// by the lib call the pane makes — the Plot figure under all five journal styles,
+// Okabe–Ito Table→Chart series under Nature (double), Elsevier and Cell, three
+// USPTO patent drawings at the 170 mm sight, five significance-bracket figures
+// (t-test, Tukey exact p and stars with ns hidden, Dunn after Kruskal–Wallis,
+// Tukey under Nature), four multi-panel figures (as drawn, Nature a/b, Cell
+// A/B/C, USPTO FIG. 1A/1B) and the Okabe–Ito marker swatch. Panels scaled into
+// their cells are measured through the audit's uniform-scale flattening.
+const CORPUS_FLOOR = 280;
 
 // --- The allowance ratchet ----------------------------------------------------
 //
@@ -139,7 +147,10 @@ const ALLOWANCES = {
   "tablechart stacked-column": ['CLIPPED  "Europe, Middle…" runs outside the 380x260 canvas'],
   "tablechart stacked-bar": ['CLIPPED  "Europe, Middle…" runs outside the 380x260 canvas'],
   "tablechart stacked-area": ['CLIPPED  "Europe, Middle…" runs outside the 380x260 canvas'],
-  "tablechart patent": ['CLIPPED  "Europe, Middle…" runs outside the 380x286 canvas'],
+  // "tablechart patent" REMOVED in v2.143.0, reviewed: patent mode now draws at
+  // the USPTO text size (figureStyle, 1.84(p)(3)), the truncator cuts the name
+  // to "Europe, …", and the shorter label fits. The legend is still drawn (all
+  // five series names are in the figure); the finding went because it was fixed.
 
   // spectraChart.ts — a JCAMP-DX file's own title is placed unmeasured and
   // untruncated, so a real instrument title (which routinely carries sample,
@@ -155,7 +166,10 @@ const ALLOWANCES = {
     'STRIKETHROUGH  a line crosses "33.73 kN"',
     'STRIKETHROUGH  a line crosses "74.15 kN·m"',
   ],
-  "beam micro": ['STRIKETHROUGH  a line crosses "4.00e-6 kN"'],
+  // v2.143.0: the axis engine relabelled the SAME defect "4.00e-6 kN" ->
+  // "4.00×10⁻⁶ kN" (display contract). Same strikethrough, same cause; the
+  // string was updated, the finding was not re-baselined away.
+  "beam micro": ['STRIKETHROUGH  a line crosses "4.00×10⁻⁶ kN"'],
 
   // periodicChart.ts — the Bohr shell labels are end-anchored at x=14, which puts
   // a three-character label 1.7 px off the left edge for EVERY element, and the

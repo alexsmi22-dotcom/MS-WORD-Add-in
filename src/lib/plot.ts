@@ -8,6 +8,7 @@
 // --- Expression evaluator ----------------------------------------------------
 
 import { minOf, maxOf } from "./minmax";
+import { linearAxis, logAxis, fmtValue, resolveLimits, outsideNote, type AxisLimits } from "./axis";
 
 /** Factorial for non-negative integers (else NaN). */
 function factorial(n: number): number {
@@ -18,6 +19,7 @@ function factorial(n: number): number {
 }
 
 import { foldAbsBars } from "./solve";
+import { composePanels } from "./panels";
 
 const FUNCS: Record<string, (x: number) => number> = {
   sin: Math.sin, cos: Math.cos, tan: Math.tan, asin: Math.asin, acos: Math.acos, atan: Math.atan,
@@ -284,6 +286,15 @@ export interface PlotOptions {
    * could otherwise ask for a canvas thousands of pixels tall.
    */
   notes?: string[];
+  /**
+   * User-set axis limits, in DATA units (axis.ts `AxisLimits`; `log` comes from
+   * xScale/yScale, not from here). Invalid limits are refused by axis.ts with a
+   * reason, which is written into the figure's notes, and the axis falls back
+   * to automatic. Points outside valid limits are clipped at the frame and
+   * counted in a note ("n points outside the axis limits").
+   */
+  xLimits?: AxisLimits;
+  yLimits?: AxisLimits;
 }
 
 /** What an error bar represents. `custom` is for a half-width the caller computed. */
@@ -359,72 +370,73 @@ export function dropForScales(series: Series[], options: PlotOptions = {}): Scal
   return { series: out, dropped, axes: [...axes] };
 }
 
+// plot.logTicks and plot.fmtLogTick were REMOVED in v2.143.0: after the axis-engine
+// migration nothing called them (the reachability ratchet flagged both as dead).
+// Log axes are axis.ts `logDecades` (placement) and `logAxis` (labels, as a row).
+
 /**
- * Decade ticks for a log axis, with minor ticks at 2-9 inside each decade.
+ * ONE number, labelled alone — axis.ts `fmtValue`: U+2212 for negatives, thin
+ * spaces in 5-digit-plus integers, ×10ⁿ outside 10⁻³ … 10⁶, never e-notation.
  *
- * The minor ticks are what make a log plot readable — without them a reader
- * cannot tell 2x10^3 from 5x10^3 by eye. They are returned separately because
- * they get a gridline but no label.
+ * A per-value compatibility wrapper for prose and for callers that pass their
+ * own `xTickLabel`. It CANNOT hold decimals constant along an axis (B.4), so the
+ * plotter's default tick labels come from axis.ts `linearAxis` instead.
  */
-export function logTicks(lo: number, hi: number): { major: number[]; minor: number[] } {
-  const major: number[] = [];
-  const minor: number[] = [];
-  const first = Math.floor(lo);
-  const last = Math.ceil(hi);
-  // A guard against a pathological domain producing thousands of ticks.
-  //
-  // Checking only the SPAN is not enough: at a magnitude like 1e308, `d++` is
-  // below the floating-point step size, so d never advances and `d <= last`
-  // loops forever with a span of zero. Bound the magnitude as well — a decade
-  // exponent outside +-320 is past the range of a double anyway.
-  if (
-    !Number.isFinite(first) || !Number.isFinite(last) ||
-    last - first > 40 || Math.abs(first) > 320 || Math.abs(last) > 320
-  ) {
-    return { major: [], minor: [] };
-  }
-  for (let d = first; d <= last; d++) {
-    const decade = Math.pow(10, d);
-    if (d >= lo - 1e-9 && d <= hi + 1e-9) major.push(decade);
-    // Only worth drawing minor ticks when the span is small enough to see them.
-    if (last - first <= 6) {
-      for (let m = 2; m <= 9; m++) {
-        const v = Math.log10(m * decade);
-        if (v >= lo && v <= hi) minor.push(m * decade);
-      }
-    }
-  }
-  return { major, minor };
-}
-
-/** Axis label for a decade: 10^n, or the plain number when it reads better. */
-export function fmtLogTick(v: number): string {
-  const e = Math.round(Math.log10(v));
-  // The band must stop where fmtTick stops being plain. fmtTick switches to
-  // exponential at |v| >= 1e4, and this used to delegate THROUGH e = 4 — so a
-  // decade axis read 100, 1000, 1.0e+4, 10⁵: three different notations in one
-  // row, with the odd one in the middle. An axis that changes notation twice
-  // makes a reader check whether the scale changed too.
-  if (e >= -3 && e <= 3) return fmtTick(v);
-  const sup = String(e)
-    .replace(/-/g, "\u207b")
-    .replace(/[0-9]/g, (d) => "\u2070\u00b9\u00b2\u00b3\u2074\u2075\u2076\u2077\u2078\u2079"[Number(d)]);
-  return "10" + sup;
-}
-
-export function niceStep(range: number, target: number): number {
-  const raw = range / Math.max(1, target);
-  const mag = Math.pow(10, Math.floor(Math.log10(raw)));
-  const norm = raw / mag;
-  const step = norm < 1.5 ? 1 : norm < 3 ? 2 : norm < 7 ? 5 : 10;
-  return step * mag;
-}
-
 export function fmtTick(v: number): string {
-  if (v === 0) return "0";
-  if (Math.abs(v) >= 1e4 || Math.abs(v) < 1e-3) return v.toExponential(1);
-  return String(Math.round(v * 1000) / 1000);
+  return fmtValue(v);
 }
+
+/** One axis's labelled ticks, decided once and shared by the margins and the drawing. */
+interface PlotAxisTicks {
+  ticks: { v: number; text: string }[];
+  /** Log axes: unlabelled decades and 2–9 minors (gridlines only). */
+  minor: number[];
+  /** "" or "×10ⁿ", appended to the axis title. */
+  multiplier: string;
+}
+
+/**
+ * THE ONE DECISION about an axis's ticks. The margins and the drawing code
+ * both consume this, so the column reserved for the labels is sized from
+ * exactly the text drawn in it.
+ *
+ * `lo`/`hi` are in TRANSFORMED units (log10 on a log axis). A caller-supplied
+ * `custom` label function is applied per value, as it always was — those
+ * callers own their precision.
+ */
+function plotAxisTicks(
+  lo: number,
+  hi: number,
+  log: boolean,
+  target: number,
+  custom: ((v: number) => string) | undefined,
+  step: number | undefined,
+): PlotAxisTicks {
+  if (log) {
+    const ax = logAxis(lo, hi);
+    const labelled = new Set(ax.labelled.map((t) => t.v));
+    return {
+      ticks: ax.labelled.map((t) => ({ v: t.v, text: custom ? custom(t.v) : t.text })),
+      minor: [...ax.minor, ...ax.major].filter((v) => !labelled.has(v)),
+      multiplier: "",
+    };
+  }
+  const row = linearAxis(lo, hi, { target, step });
+  return {
+    ticks: row.values.map((v, i) => ({ v, text: custom ? custom(snapNearZero(v, row.step || 1)) : row.labels[i] })),
+    minor: [],
+    multiplier: custom ? "" : row.multiplier,
+  };
+}
+
+/** "Price" + "×10⁶" → "Price (×10⁶)"; no title → the multiplier alone. */
+function withMultiplier(label: string | undefined, mult: string): string | undefined {
+  if (!mult) return label;
+  return label ? `${label} (${mult})` : mult;
+}
+
+/** Unique clipPath ids, for figures that sit side by side in one pane. */
+let clipSeq = 0;
 
 function escapeXml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -441,45 +453,30 @@ function escapeXml(s: string): string {
  * outright with "Could not rasterize the structure image", which meant the
  * regression diagnostic plots could never be inserted at all.
  *
- * SVG nests, so the fix is to make the parts children of one root with a y
- * offset each. Returns the combined markup plus the dimensions a caller needs to
- * size the raster.
+ * The parts become children of one root, each offset in y and centred in x.
+ * Returns the combined markup plus the dimensions a caller needs to size the
+ * raster.
+ *
+ * FLAT SINCE THE JOURNAL-FIGURES WORK: each part is now a
+ * `<g transform="translate(x,y)">`, not a nested <svg> (panels.composePanels,
+ * no preset, one column). The layout audit follows translate groups and not
+ * nested viewports, and each part's ids are namespaced so two panels from the
+ * same builder no longer share a clipPath. Same signature, same dimensions.
  */
 export function combineSvgs(parts: string[], gap = 8): { svg: string; width: number; height: number } {
-  const items = parts
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .map((s) => ({
-      s,
-      w: Number(/^<svg[^>]*\swidth="([\d.]+)"/.exec(s)?.[1] ?? 300),
-      h: Number(/^<svg[^>]*\sheight="([\d.]+)"/.exec(s)?.[1] ?? 190),
-    }));
+  const items = parts.map((s) => s.trim()).filter(Boolean);
   if (items.length === 0) return { svg: "", width: 0, height: 0 };
-  if (items.length === 1) return { svg: items[0].s, width: items[0].w, height: items[0].h };
-
-  const width = Math.max(...items.map((i) => i.w));
-  const height = items.reduce((a, i) => a + i.h, 0) + gap * (items.length - 1);
-
-  let y = 0;
-  const inner = items
-    .map((i) => {
-      // x/y are inserted into the child's own <svg> tag; its width/height/viewBox
-      // are already correct, so nesting needs nothing else.
-      const placed = i.s.replace(/^<svg\b/, `<svg x="${(width - i.w) / 2}" y="${y}"`);
-      y += i.h + gap;
-      return placed;
-    })
-    .join("");
-
-  return {
-    svg:
-      `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" ` +
-      `viewBox="0 0 ${width} ${height}"><rect width="${width}" height="${height}" fill="#fff"/>` +
-      inner +
-      `</svg>`,
-    width,
-    height,
-  };
+  if (items.length === 1) {
+    // Passed through untouched, sized exactly as before (300 × 190 when unstated).
+    const s = items[0];
+    return {
+      svg: s,
+      width: Number(/^<svg[^>]*\swidth="([\d.]+)"/.exec(s)?.[1] ?? 300),
+      height: Number(/^<svg[^>]*\sheight="([\d.]+)"/.exec(s)?.[1] ?? 190),
+    };
+  }
+  const c = composePanels(items, { cols: 1, gap });
+  return { svg: c.svg, width: c.width, height: c.height };
 }
 
 /**
@@ -491,51 +488,14 @@ export function combineSvgs(parts: string[], gap = 8): { svg: string; width: num
  * front. 6 px per character at 10 px sans-serif is a safe over-estimate, and
  * the floor keeps small-number plots looking as they always have.
  */
-function leftMarginFor(series: Series[], options: PlotOptions): number {
-  const logY = options.yScale === "log";
-  const ty = (y: number): number => (logY ? Math.log10(y) : y);
-  // THE SAME DOMAIN THE DRAWING CODE USES, arrived at the same way. The first
-  // version collected only `p.y` and applied its own ±10% expansion, so it
-  // walked a DIFFERENT range: it missed error bars entirely (the drawing code
-  // includes them unconditionally, whatever `options.errorBars` says) and
-  // skipped the 6% padding. Over 20,000 random plots that under-sized 2.6% of
-  // margins and pushed 36 labels off the canvas — the very symptom this
-  // function exists to prevent.
-  const all: Point[] = [];
-  for (const s of series) for (const p of s.points) all.push(p);
-  const finite = all.filter((p) => Number.isFinite(p.y));
-  if (!finite.length) return 48;
-
-  const lowY = (p: Point): number => {
-    const raw = p.y - (p.err ?? 0);
-    if (!logY) return raw;
-    return ty(raw > 0 ? raw : p.y);
-  };
-  let ymin = minOf(finite.map(lowY));
-  let ymax = maxOf(finite.map((p) => ty(p.y + (p.err ?? 0))));
-  if (ymin === ymax) {
-    ymin -= 1;
-    ymax += 1;
-  }
-  const ypad = (ymax - ymin) * 0.06;
-  ymin -= ypad;
-  ymax += ypad;
-  if (!Number.isFinite(ymin) || !Number.isFinite(ymax)) return 48;
-
+function leftMarginFor(yAxis: PlotAxisTicks, options: PlotOptions): number {
+  // THE SAME TICKS THE DRAWING CODE DRAWS — the one PlotAxisTicks decision,
+  // computed once from the drawing domain. (The first version re-derived its
+  // own domain, missed error bars and the 6% padding, and over 20,000 random
+  // plots under-sized 2.6% of margins and pushed 36 labels off the canvas.)
+  if (!yAxis.ticks.length) return 48;
   let widest = 0;
-  // The labels this axis will REALLY carry, transform and all — see xTickLabel.
-  if (logY) {
-    const { major } = logTicks(ymin, ymax);
-    const lab = options.yTickLabel ?? fmtLogTick;
-    for (const v of major) widest = Math.max(widest, lab(v).length);
-  } else {
-    const step = niceStep(ymax - ymin, 5);
-    const lab = options.yTickLabel ?? fmtTick;
-    // Bounded, because `Number.isFinite` on the inputs is not a bound.
-    for (let i = 0, t = Math.ceil(ymin / step) * step; i <= TICK_CAP && t <= ymax + step * TICK_EPS; i++, t += step) {
-      widest = Math.max(widest, lab(snapNearZero(t, step)).length);
-    }
-  }
+  for (const t of yAxis.ticks) widest = Math.max(widest, t.text.length);
   // Label width, the 7 px gap to the axis, and room for the rotated title.
   //
   // THE TITLE RESERVE IS MEASURED, NOT GUESSED. The y title is drawn at x = 14
@@ -563,35 +523,11 @@ function leftMarginFor(series: Series[], options: PlotOptions): number {
  * margin being computed. The cost of the assumption is a few pixels of plot
  * width on the plots that need it and nothing at all on the ones that do not.
  */
-function rightMarginFor(series: Series[], options: PlotOptions): number {
+function rightMarginFor(xAxis: PlotAxisTicks): number {
   const DEFAULT = 14;
-  const logX = options.xScale === "log";
-  const tx = (x: number): number => (logX ? Math.log10(x) : x);
-  const all: Point[] = [];
-  for (const s of series) for (const p of s.points) all.push(p);
-  const xs = all.map((p) => tx(p.x)).filter((v) => Number.isFinite(v));
-  if (!xs.length) return DEFAULT;
-  let xmin = minOf(xs);
-  let xmax = maxOf(xs);
-  if (xmin === xmax) {
-    xmin -= 1;
-    xmax += 1;
-  }
-  if (!Number.isFinite(xmin) || !Number.isFinite(xmax)) return DEFAULT;
-
+  if (!xAxis.ticks.length) return DEFAULT;
   let widest = 0;
-  if (logX) {
-    const { major } = logTicks(xmin, xmax);
-    const lab = options.xTickLabel ?? fmtLogTick;
-    for (const v of major) widest = Math.max(widest, lab(v).length);
-  } else {
-    const step = niceStep(xmax - xmin, 6);
-    const lab = options.xTickLabel ?? fmtTick;
-    // Bounded, for the same reason the left margin's walk is bounded.
-    for (let i = 0, t = Math.ceil(xmin / step) * step; i <= TICK_CAP && t <= xmax + step * TICK_EPS; i++, t += step) {
-      widest = Math.max(widest, lab(snapNearZero(t, step)).length);
-    }
-  }
+  for (const t of xAxis.ticks) widest = Math.max(widest, t.text.length);
   return Math.min(Math.max(DEFAULT, Math.ceil((widest * 6) / 2) + 2), 60);
 }
 
@@ -705,14 +641,130 @@ function layoutNotes(notes: string[] | undefined, width: number): string[] {
 export function buildPlotSvg(series: Series[], options: PlotOptions = {}): string {
   const W = options.width ?? 380;
   const H = options.height ?? 270;
+
+  // ONE NON-FINITE COORDINATE POISONS THE WHOLE PLOT. The domain below is
+  // min/max over every point, and drawing filtered only non-finite y — so an
+  // Infinity that reached x (an overflowed sweep bound; measured twice in one
+  // release) made xmax Infinity and every coordinate NaN. Sanitised HERE, at
+  // the one place all callers share, rather than at each of the fifty call
+  // sites that would otherwise each need the same guard. A non-finite err is
+  // kept as a point but loses its bar, because the point itself is plottable.
+  const all: Point[] = [];
+  for (const s of series)
+    for (const p of s.points) {
+      if (Number.isFinite(p.x) && Number.isFinite(p.y)) {
+        all.push(p.err !== undefined && !Number.isFinite(p.err) ? { x: p.x, y: p.y } : p);
+      }
+    }
+
+  // Everything below works in TRANSFORMED space: on a log axis the domain, the
+  // padding and the tick placement are all computed on log10 values, which is
+  // what makes a decade occupy equal width. Only tick LABELS return to data
+  // space.
+  const logX = options.xScale === "log";
+  const logY = options.yScale === "log";
+  const tx = (x: number): number => (logX ? Math.log10(x) : x);
+  const ty = (y: number): number => (logY ? Math.log10(y) : y);
+
+  // THE DOMAIN, decided once, before the margins: the margins are sized from the
+  // tick labels, and the tick labels come from the domain.
+  let xmin = 0;
+  let xmax = 1;
+  let ymin = 0;
+  let ymax = 1;
+  let xStep: number | undefined;
+  let yStep: number | undefined;
+  let clipped = false;
+  const extraNotes: string[] = [];
+  if (all.length) {
+    xmin = minOf(all.map((p) => tx(p.x)));
+    xmax = maxOf(all.map((p) => tx(p.x)));
+    // On a log y axis an error bar may reach to or below zero, where log is
+    // undefined; clamp its lower end into the domain instead of dropping a point
+    // that is itself perfectly plottable.
+    const lowY = (p: Point): number => {
+      const raw = p.y - (p.err ?? 0);
+      if (!logY) return raw;
+      return ty(raw > 0 ? raw : p.y);
+    };
+    ymin = minOf(all.map(lowY));
+    ymax = maxOf(all.map((p) => ty(p.y + (p.err ?? 0))));
+    if (xmin === xmax) {
+      xmin -= 1;
+      xmax += 1;
+    }
+    if (ymin === ymax) {
+      ymin -= 1;
+      ymax += 1;
+    }
+    const ypad = (ymax - ymin) * 0.06;
+    ymin -= ypad;
+    ymax += ypad;
+
+    // USER LIMITS (axis.ts). Refused limits are reported, with the reason, in
+    // the figure itself — this function has no other channel — and the axis
+    // stays automatic. Valid ones replace the domain exactly (no padding), and
+    // whatever falls outside is clipped at the frame and counted.
+    const applyLimits = (
+      which: "x" | "y",
+      lim: AxisLimits | undefined,
+      log: boolean,
+      vals: number[],
+    ): { lo: number; hi: number; step?: number } | null => {
+      if (!lim || (lim.min === undefined && lim.max === undefined && lim.step === undefined)) return null;
+      const r = resolveLimits(minOf(vals), maxOf(vals), { ...lim, log }, vals);
+      if (!r.ok) {
+        extraNotes.push(`${which}-axis limits not applied: ${r.reason}.`);
+        return null;
+      }
+      return { lo: log ? Math.log10(r.lo) : r.lo, hi: log ? Math.log10(r.hi) : r.hi, step: r.step };
+    };
+    const xl = applyLimits("x", options.xLimits, logX, all.map((p) => p.x));
+    const yl = applyLimits("y", options.yLimits, logY, all.map((p) => p.y));
+    if (xl) {
+      xmin = xl.lo;
+      xmax = xl.hi;
+      xStep = xl.step;
+      clipped = true;
+    }
+    if (yl) {
+      ymin = yl.lo;
+      ymax = yl.hi;
+      yStep = yl.step;
+      clipped = true;
+    }
+    if (xl || yl) {
+      let n = 0;
+      for (const p of all) {
+        const X = tx(p.x);
+        const Y = ty(p.y);
+        if (X < xmin || X > xmax || Y < ymin || Y > ymax) n++;
+      }
+      const note = outsideNote(n);
+      if (note) extraNotes.push(note + ".");
+    }
+  }
+  const xAxis = all.length
+    ? plotAxisTicks(xmin, xmax, logX, 6, options.xTickLabel, xStep)
+    : { ticks: [], minor: [], multiplier: "" };
+  const yAxis = all.length
+    ? plotAxisTicks(ymin, ymax, logY, 5, options.yTickLabel, yStep)
+    : { ticks: [], minor: [], multiplier: "" };
+  // A ×10ⁿ multiplier is stated ONCE, on the axis title — never as e-notation
+  // on every tick.
+  options = {
+    ...options,
+    xlabel: withMultiplier(options.xlabel, xAxis.multiplier),
+    ylabel: withMultiplier(options.ylabel, yAxis.multiplier),
+    notes: extraNotes.length ? [...(options.notes ?? []), ...extraNotes] : options.notes,
+  };
+
   // THE LEFT MARGIN HAS TO FIT THE LABELS THAT GO IN IT. A fixed 48 px is
-  // ample for "0" and "100" and far too little for "1.0e+8", which then ran
+  // ample for "0" and "100" and far too little for a wide label, which then ran
   // back over the rotated y-axis title sitting at x = 12. The margin is
-  // therefore computed from the WIDEST tick label this data will actually
-  // produce, which is knowable before anything is drawn because the tick
-  // values depend only on the data range.
-  const ml = leftMarginFor(series, options);
-  const mr = rightMarginFor(series, options);
+  // therefore computed from the WIDEST tick label actually drawn.
+  const ml = leftMarginFor(yAxis, options);
+  const mr = rightMarginFor(xAxis);
   const mt = options.title ? 26 : 12;
   // The error-bar declaration needs its own line, or it lands on the x label.
   //
@@ -745,20 +797,6 @@ export function buildPlotSvg(series: Series[], options: PlotOptions = {}): strin
       )
       .join("");
 
-  // ONE NON-FINITE COORDINATE POISONS THE WHOLE PLOT. The domain below is
-  // min/max over every point, and drawing filtered only non-finite y — so an
-  // Infinity that reached x (an overflowed sweep bound; measured twice in one
-  // release) made xmax Infinity and every coordinate NaN. Sanitised HERE, at
-  // the one place all callers share, rather than at each of the fifty call
-  // sites that would otherwise each need the same guard. A non-finite err is
-  // kept as a point but loses its bar, because the point itself is plottable.
-  const all: Point[] = [];
-  for (const s of series)
-    for (const p of s.points) {
-      if (Number.isFinite(p.x) && Number.isFinite(p.y)) {
-        all.push(p.err !== undefined && !Number.isFinite(p.err) ? { x: p.x, y: p.y } : p);
-      }
-    }
   if (!all.length) {
     // The notes are drawn HERE TOO. "No data to plot" with the explanation left
     // behind is the worst version of this figure: a log axis that discarded every
@@ -788,39 +826,6 @@ export function buildPlotSvg(series: Series[], options: PlotOptions = {}): strin
   const legendW = legendRows.length ? Math.ceil(14 + maxOf(legendRows.map((s) => legendLabelOf(s).length)) * 7 + 10) : 0;
   const outW = legendRows.length ? W + 4 + legendW + 4 : W;
 
-  // Everything below works in TRANSFORMED space: on a log axis the domain, the
-  // padding and the tick placement are all computed on log10 values, which is
-  // what makes a decade occupy equal width. Only tick LABELS return to data
-  // space.
-  const logX = options.xScale === "log";
-  const logY = options.yScale === "log";
-  const tx = (x: number): number => (logX ? Math.log10(x) : x);
-  const ty = (y: number): number => (logY ? Math.log10(y) : y);
-
-  let xmin = minOf(all.map((p) => tx(p.x)));
-  let xmax = maxOf(all.map((p) => tx(p.x)));
-  // On a log y axis an error bar may reach to or below zero, where log is
-  // undefined; clamp its lower end into the domain instead of dropping a point
-  // that is itself perfectly plottable.
-  const lowY = (p: Point): number => {
-    const raw = p.y - (p.err ?? 0);
-    if (!logY) return raw;
-    return ty(raw > 0 ? raw : p.y);
-  };
-  let ymin = minOf(all.map(lowY));
-  let ymax = maxOf(all.map((p) => ty(p.y + (p.err ?? 0))));
-  if (xmin === xmax) {
-    xmin -= 1;
-    xmax += 1;
-  }
-  if (ymin === ymax) {
-    ymin -= 1;
-    ymax += 1;
-  }
-  const ypad = (ymax - ymin) * 0.06;
-  ymin -= ypad;
-  ymax += ypad;
-
   const sx = (x: number): number => ml + ((tx(x) - xmin) / (xmax - xmin)) * pw;
   const sy = (y: number): number => mt + ph - ((ty(y) - ymin) / (ymax - ymin)) * ph;
 
@@ -828,53 +833,34 @@ export function buildPlotSvg(series: Series[], options: PlotOptions = {}): strin
   // Plot frame.
   parts.push(`<rect x="${ml}" y="${mt}" width="${pw}" height="${ph}" fill="none" stroke="#888" stroke-width="1"/>`);
 
-  // Ticks + gridlines. The label functions are the ones the margin calculation
-  // measured with, so the reserved column always fits the text that lands in it.
-  const xLab = options.xTickLabel ?? fmtTick;
-  const yLab = options.yTickLabel ?? fmtTick;
-  const xLogLab = options.xTickLabel ?? fmtLogTick;
-  const yLogLab = options.yTickLabel ?? fmtLogTick;
-  if (logX) {
-    const { major, minor } = logTicks(xmin, xmax);
-    for (const v of minor) {
-      const px = sx(v);
-      parts.push(`<line x1="${px.toFixed(1)}" y1="${mt}" x2="${px.toFixed(1)}" y2="${mt + ph}" stroke="#f5f5f5"/>`);
-    }
-    for (const v of major) {
-      const px = sx(v);
-      parts.push(`<line x1="${px.toFixed(1)}" y1="${mt}" x2="${px.toFixed(1)}" y2="${mt + ph}" stroke="#eee"/>`);
-      parts.push(`<line x1="${px.toFixed(1)}" y1="${mt + ph}" x2="${px.toFixed(1)}" y2="${mt + ph + 4}" stroke="#888"/>`);
-      parts.push(`<text x="${px.toFixed(1)}" y="${mt + ph + 16}" text-anchor="middle" font-family="sans-serif" font-size="10" fill="#333">${escapeXml(xLogLab(v))}</text>`);
-    }
-  } else {
-    const xstep = niceStep(xmax - xmin, 6);
-    for (let i = 0, t = Math.ceil(xmin / xstep) * xstep; i <= TICK_CAP && t <= xmax + xstep * TICK_EPS; i++, t += xstep) {
-      const px = sx(t);
-      parts.push(`<line x1="${px.toFixed(1)}" y1="${mt}" x2="${px.toFixed(1)}" y2="${mt + ph}" stroke="#eee"/>`);
-      parts.push(`<line x1="${px.toFixed(1)}" y1="${mt + ph}" x2="${px.toFixed(1)}" y2="${mt + ph + 4}" stroke="#888"/>`);
-      parts.push(`<text x="${px.toFixed(1)}" y="${mt + ph + 16}" text-anchor="middle" font-family="sans-serif" font-size="10" fill="#333">${escapeXml(xLab(snapNearZero(t, xstep)))}</text>`);
-    }
+  // Ticks + gridlines: exactly the PlotAxisTicks the margins were sized from.
+  // Tick POSITIONS are data values (log axes included); sx/sy transform them.
+  for (const v of xAxis.minor) {
+    const px = sx(v);
+    parts.push(`<line x1="${px.toFixed(1)}" y1="${mt}" x2="${px.toFixed(1)}" y2="${mt + ph}" stroke="#f5f5f5"/>`);
   }
-  if (logY) {
-    const { major, minor } = logTicks(ymin, ymax);
-    for (const v of minor) {
-      const py = sy(v);
-      parts.push(`<line x1="${ml}" y1="${py.toFixed(1)}" x2="${ml + pw}" y2="${py.toFixed(1)}" stroke="#f5f5f5"/>`);
-    }
-    for (const v of major) {
-      const py = sy(v);
-      parts.push(`<line x1="${ml}" y1="${py.toFixed(1)}" x2="${ml + pw}" y2="${py.toFixed(1)}" stroke="#eee"/>`);
-      parts.push(`<line x1="${ml - 4}" y1="${py.toFixed(1)}" x2="${ml}" y2="${py.toFixed(1)}" stroke="#888"/>`);
-      parts.push(`<text x="${ml - 7}" y="${(py + 3).toFixed(1)}" text-anchor="end" font-family="sans-serif" font-size="10" fill="#333">${escapeXml(yLogLab(v))}</text>`);
-    }
-  } else {
-    const ystep = niceStep(ymax - ymin, 5);
-    for (let i = 0, t = Math.ceil(ymin / ystep) * ystep; i <= TICK_CAP && t <= ymax + ystep * TICK_EPS; i++, t += ystep) {
-      const py = sy(t);
-      parts.push(`<line x1="${ml}" y1="${py.toFixed(1)}" x2="${ml + pw}" y2="${py.toFixed(1)}" stroke="#eee"/>`);
-      parts.push(`<line x1="${ml - 4}" y1="${py.toFixed(1)}" x2="${ml}" y2="${py.toFixed(1)}" stroke="#888"/>`);
-      parts.push(`<text x="${ml - 7}" y="${(py + 3).toFixed(1)}" text-anchor="end" font-family="sans-serif" font-size="10" fill="#333">${escapeXml(yLab(snapNearZero(t, ystep)))}</text>`);
-    }
+  for (const t of xAxis.ticks) {
+    const px = sx(t.v);
+    parts.push(`<line x1="${px.toFixed(1)}" y1="${mt}" x2="${px.toFixed(1)}" y2="${mt + ph}" stroke="#eee"/>`);
+    parts.push(`<line x1="${px.toFixed(1)}" y1="${mt + ph}" x2="${px.toFixed(1)}" y2="${mt + ph + 4}" stroke="#888"/>`);
+    parts.push(`<text x="${px.toFixed(1)}" y="${mt + ph + 16}" text-anchor="middle" font-family="sans-serif" font-size="10" fill="#333">${escapeXml(t.text)}</text>`);
+  }
+  for (const v of yAxis.minor) {
+    const py = sy(v);
+    parts.push(`<line x1="${ml}" y1="${py.toFixed(1)}" x2="${ml + pw}" y2="${py.toFixed(1)}" stroke="#f5f5f5"/>`);
+  }
+  for (const t of yAxis.ticks) {
+    const py = sy(t.v);
+    parts.push(`<line x1="${ml}" y1="${py.toFixed(1)}" x2="${ml + pw}" y2="${py.toFixed(1)}" stroke="#eee"/>`);
+    parts.push(`<line x1="${ml - 4}" y1="${py.toFixed(1)}" x2="${ml}" y2="${py.toFixed(1)}" stroke="#888"/>`);
+    parts.push(`<text x="${ml - 7}" y="${(py + 3).toFixed(1)}" text-anchor="end" font-family="sans-serif" font-size="10" fill="#333">${escapeXml(t.text)}</text>`);
+  }
+
+  // Under user limits the data may run past the frame: clip it there.
+  const clipId = clipped ? `plotclip${++clipSeq}` : "";
+  if (clipped) {
+    parts.push(`<clipPath id="${clipId}"><rect x="${ml}" y="${mt}" width="${pw}" height="${ph}"/></clipPath>`);
+    parts.push(`<g clip-path="url(#${clipId})">`);
   }
 
   // Series.
@@ -916,6 +902,7 @@ export function buildPlotSvg(series: Series[], options: PlotOptions = {}): strin
       }
     }
   });
+  if (clipped) parts.push(`</g>`);
 
   // Legend, in the gutter right of the plot frame — outside the data area, so
   // it can never cover a curve. (Its predecessor sat inside the frame; opacity
@@ -936,7 +923,7 @@ export function buildPlotSvg(series: Series[], options: PlotOptions = {}): strin
 
   // Labels.
   if (options.title) {
-    parts.push(`<text x="${W / 2}" y="16" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="bold" fill="#222">${escapeXml(options.title)}</text>`);
+    parts.push(`<text data-figure-title="1" x="${W / 2}" y="16" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="bold" fill="#222">${escapeXml(options.title)}</text>`);
   }
   if (hasErrNote) {
     parts.push(

@@ -15,6 +15,7 @@
 // Pure: takes a SeqRecord from seqio.ts, returns an SVG string.
 
 import { SeqRecord, SeqFeature } from "./seqio";
+import { bpAxisTicks, bpEndLabel } from "./seqmap";
 
 export interface CircularMapOptions {
   /** Overall square canvas size. */
@@ -54,17 +55,7 @@ function escapeXml(s: string): string {
 
 const textWidth = (s: string, px: number): number => s.length * px * 0.55;
 
-function tickStep(span: number, target: number): number {
-  const raw = span / Math.max(1, target);
-  const mag = Math.pow(10, Math.floor(Math.log10(raw)));
-  const norm = raw / mag;
-  return (norm < 1.5 ? 1 : norm < 3 ? 2 : norm < 7 ? 5 : 10) * mag;
-}
-
-function fmtBp(n: number, span: number): string {
-  if (span >= 10000) return `${(n / 1000).toFixed(n % 1000 === 0 ? 0 : 1)} kb`;
-  return String(n);
-}
+// Tick positions and labels: seqmap.ts bpAxisTicks (one axis.ts row).
 
 /**
  * bp → angle in radians, with 12 o'clock = position 1 and clockwise increasing,
@@ -258,9 +249,13 @@ export function buildCircularMapSvg(record: SeqRecord, opts: CircularMapOptions 
   out.push(`<circle cx="${cx}" cy="${cy}" r="${rRing}" fill="none" stroke="${bb}" stroke-width="2.5"/>`);
 
   // Ticks around the outside of the backbone.
-  const step = tickStep(record.length, 8);
   const tickC = mono ? "#000" : "#64748b";
-  for (let bp = 0; bp < record.length; bp += step) {
+  for (const tick of bpAxisTicks(record.length)) {
+    const bp = tick.bp;
+    // The full length IS the origin on a circle; it is not ticked twice.
+    if (bp < 0 || bp >= record.length) continue;
+    // Coordinates are 1-based: the origin tick reads 1 on a bp axis (a kb axis keeps its row label, 0 kb).
+    const label = bp === 0 && record.length < 10000 ? "1" : tick.label;
     const a = bpToAngle(bp === 0 ? 1 : bp, record.length);
     const p1 = polar(cx, cy, rRing, a);
     const p2 = polar(cx, cy, rRing + 5, a);
@@ -269,7 +264,7 @@ export function buildCircularMapSvg(record: SeqRecord, opts: CircularMapOptions 
     );
     const t = polar(cx, cy, rRing + 12, a);
     out.push(
-      `<text x="${t.x.toFixed(1)}" y="${t.y.toFixed(1)}" font-family="sans-serif" font-size="7.5" fill="${tickC}" text-anchor="middle" dominant-baseline="middle">${fmtBp(bp === 0 ? 1 : bp, record.length)}</text>`
+      `<text x="${t.x.toFixed(1)}" y="${t.y.toFixed(1)}" font-family="sans-serif" font-size="7.5" fill="${tickC}" text-anchor="middle" dominant-baseline="middle">${label}</text>`
     );
   }
 
@@ -308,7 +303,7 @@ export function buildCircularMapSvg(record: SeqRecord, opts: CircularMapOptions 
     `<text x="${cx}" y="${cy - 4}" font-family="sans-serif" font-size="13" font-weight="600" fill="#1b1b1f" text-anchor="middle">${escapeXml(title)}</text>`
   );
   out.push(
-    `<text x="${cx}" y="${cy + 12}" font-family="sans-serif" font-size="10" fill="${mono ? "#000" : "#64748b"}" text-anchor="middle">${record.length.toLocaleString()} bp</text>`
+    `<text x="${cx}" y="${cy + 12}" font-family="sans-serif" font-size="10" fill="${mono ? "#000" : "#64748b"}" text-anchor="middle">${bpEndLabel(record.length)} bp</text>`
   );
 
   // If features ran out of rings, say so rather than silently omitting them.

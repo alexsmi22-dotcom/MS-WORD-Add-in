@@ -482,3 +482,64 @@ describe("real crossings are never hidden by the contact rules (fourth review)",
     expect(gapAt(m, 10)).toBeLessThan(2.5);
   });
 });
+
+describe("interference larger than the facets' error is always found and drawn in full (fifth review)", () => {
+  const crossLen = (m: Mesh, keep: (c: Mesh["crossings"][number]) => boolean = () => true): number =>
+    m.crossings.filter(keep).reduce((s, c) => s + Math.hypot(c.b[0] - c.a[0], c.b[1] - c.a[1], c.b[2] - c.a[2]), 0);
+  const atZ = (z: number) => (c: Mesh["crossings"][number]): boolean => Math.abs(c.a[2] - z) < 1e-6 && Math.abs(c.b[2] - z) < 1e-6;
+
+  it.each([
+    [60, 0.5],
+    [60, 1],
+    [60, 2],
+    [150, 3],
+  ])("a Ø20 boss %p mm long sunk %p mm into a base: overlap, and the whole Ø20 circle (its length did not matter)", (h, dz) => {
+    const m = meshOf(asm(body(box(100, 100, 10), { translate: [-50, -50, -10], rotateDeg: [0, 0, 0] }), body(cylinder(10, h), { translate: [0, 0, -dz], rotateDeg: [0, 0, 0] })));
+    expect(m.overlaps).toEqual([[0, 1]]);
+    expect(crossLen(m, atZ(0)) / (2 * Math.PI * 10)).toBeGreaterThan(0.995);
+  });
+
+  it.each([12, 30, 60, 100])("an r6 pin %p mm long through an r5 bore: the r6 circle on both faces, whatever the length", (L) => {
+    const plate: BodySpec = { kind: "extrude", profile: { outer: rectLoop(-20, -20, 40, 40), holes: [circleLoop(0, 0, 5, true)] }, depth: 10 };
+    const m = meshOf(asm(body(plate), body(cylinder(6, L), { translate: [0, 0, 5 - L / 2], rotateDeg: [0, 0, 0] })));
+    expect(m.overlaps).toEqual([[0, 1]]);
+    for (const z of [0, 10]) expect(crossLen(m, atZ(z)) / (2 * Math.PI * 6)).toBeGreaterThan(0.995);
+  });
+
+  it("twenty pins 0.2 mm over size in a plate's twenty holes: all twenty overlap", () => {
+    const holes = Array.from({ length: 20 }, (_, i) => circleLoop(20 + (i % 5) * 40, 20 + Math.floor(i / 5) * 40, 10, true));
+    const plate = body({ kind: "extrude", profile: { outer: rectLoop(0, 0, 200, 160), holes }, depth: 10 });
+    const pins = Array.from({ length: 20 }, (_, i) => body(cylinder(10.2, 30), { translate: [20 + (i % 5) * 40, 20 + Math.floor(i / 5) * 40, -10], rotateDeg: [0, 0, 0] }));
+    const m = meshOf(asm(plate, ...pins));
+    expect(m.overlaps).toHaveLength(20);
+    expect(crossLen(m) / (20 * 2 * 2 * Math.PI * 10.2)).toBeGreaterThan(0.99);
+  });
+
+  it("a plate sunk 3 mm onto a tall cylinder's top, and a cone's base 0.3 mm into a plate: both overlap", () => {
+    const a = meshOf(asm(body(cylinder(10, 100)), body(box(60, 60, 10), { translate: [-30, -30, 97], rotateDeg: [0, 0, 0] })));
+    expect(a.overlaps).toEqual([[0, 1]]);
+    expect(crossLen(a, atZ(97)) / (2 * Math.PI * 10)).toBeGreaterThan(0.995);
+    const b = meshOf(asm(body(box(60, 60, 10), { translate: [-30, -30, -10], rotateDeg: [0, 0, 0] }), body(cone(10, 20), { translate: [0, 0, -0.3], rotateDeg: [0, 0, 0] })));
+    expect(b.overlaps).toEqual([[0, 1]]);
+  });
+
+  it.each([
+    [5, 0.08],
+    [50, 0.8],
+    [250, 2],
+    [250, 4],
+  ])("an r%p pin %p mm off centre in a bore of its own size (same height): overlap, the two axial crossing lines drawn", (r, e) => {
+    const m = meshOf(asm(body(tube(r + 10, r, 10)), body(cylinder(r, 10), { translate: [e, 0, 0], rotateDeg: [0, 0, 0] })));
+    expect(m.overlaps).toEqual([[0, 1]]);
+    expect(crossLen(m)).toBeGreaterThan(19);
+  });
+
+  it("a sphere 1 mm off centre in a spherical shell of its own size: overlap", () => {
+    const shell: BodySpec = {
+      kind: "revolve",
+      profile: { outer: { start: [0, -60], segs: [{ kind: "arc", to: [0, 60], center: [0, 0] }, { kind: "line", to: [0, 50] }, { kind: "arc", to: [0, -50], center: [0, 0], cw: true }, { kind: "line", to: [0, -60] }] }, holes: [] },
+    };
+    const m = meshOf(asm(body(shell), body(sphere(50), { translate: [1, 0, 0], rotateDeg: [0, 0, 0] })));
+    expect(m.overlaps).toEqual([[0, 1]]);
+  });
+});

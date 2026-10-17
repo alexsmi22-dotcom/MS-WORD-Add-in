@@ -195,6 +195,8 @@ export interface FlatLoop {
   edgeNormals: Array<[Pt2, Pt2]>;
   /** The largest chord error (sagitta) any arc was flattened to; 0 for straight lines only. */
   sag: number;
+  /** For the edge points[i] → points[i+1]: its own chord error (0 on a straight segment). */
+  edgeSag: number[];
 }
 
 /** Segments for an arc so its chord sagitta stays within `tol`; at least 2 per quarter turn, at most 512 per turn. */
@@ -236,6 +238,7 @@ const TANGENT_COS = Math.cos((1 * Math.PI) / 180);
 export function flattenLoop(loop: Loop, tol: number, arcRel = Infinity): FlatLoop {
   const points: Pt2[] = [];
   let sag = 0;
+  const edgeSag: number[] = [];
   const edgeNormals: Array<[Pt2, Pt2]> = [];
   // tangent direction arriving at / leaving each point, for corner detection
   const tanIn: Pt2[] = [];
@@ -250,6 +253,7 @@ export function flattenLoop(loop: Loop, tol: number, arcRel = Infinity): FlatLoo
       tanOut.push(d);
       insideArc.push(false);
       edgeNormals.push([n, n]);
+      edgeSag.push(0);
       tanIn.push(d); // arriving at the NEXT point; aligned below
     } else {
       const cw = !!s.cw;
@@ -273,6 +277,7 @@ export function flattenLoop(loop: Loop, tol: number, arcRel = Infinity): FlatLoo
         const n0: Pt2 = [sg * Math.cos(t0), sg * Math.sin(t0)];
         const n1: Pt2 = [sg * Math.cos(t1), sg * Math.sin(t1)];
         edgeNormals.push([n0, n1]);
+        edgeSag.push(r * (1 - Math.cos(Math.abs(sweep) / n / 2)));
         // The normal is to the RIGHT of travel, so travel = the normal turned left: (-n.y, n.x).
         tanOut.push([-n0[1], n0[0]]);
         tanIn.push([-n1[1], n1[0]]);
@@ -289,7 +294,7 @@ export function flattenLoop(loop: Loop, tol: number, arcRel = Infinity): FlatLoo
     const b = tanOut[i];
     return a[0] * b[0] + a[1] * b[1] < TANGENT_COS;
   });
-  return { points, corner, edgeNormals, sag };
+  return { points, corner, edgeNormals, sag, edgeSag };
 }
 
 /** Signed area (CCW positive) of a flattened loop. */
@@ -318,7 +323,7 @@ export interface Mesh {
   /** Which body each triangle belongs to. */
   triBody: number[];
   /** Drawable edges: vertex pairs, each a crease (between two faces) or a boundary. */
-  edges: Array<{ a: number; b: number; body: number }>;
+  edges: Array<{ a: number; b: number; body: number; sag: number }>;
   /** Size of the model's bounding box diagonal. */
   diag: number;
   /**
@@ -420,8 +425,8 @@ export function tessellate(a: Assembly, opts: TessOptions = DEFAULT_TESS): TessR
       m.cornerNormals.push(...nrm(ni), ...nrm(nj), ...nrm(nk));
       m.triBody.push(bi);
     };
-    const edge = (i: number, j: number): void => {
-      m.edges.push({ a: i, b: j, body: bi });
+    const edge = (i: number, j: number, sag = 0): void => {
+      m.edges.push({ a: i, b: j, body: bi, sag });
     };
     const ft: Fineness = { tol, rel: opts.relTol * ARC_REL_PER_RELTOL, sag: 0 };
     const r = b.spec.kind === "extrude" ? tessExtrude(b.spec, ft, put, tri, edge) : tessRevolve(b.spec, ft, put, tri, edge);
@@ -485,18 +490,16 @@ function findCrossings(m: Mesh, nBodies: number, maxTests: number): [number, num
   // Drawable edges by exact endpoint coordinates (a wall shares its rim's computed positions).
   const ck = (p: Vec3): string => `${p[0]},${p[1]},${p[2]}`;
   // Each drawn edge by its endpoints, to find the drawn edges at a triangle's corners.
-  const drawnAt = new Map<string, Array<[Vec3, Vec3]>>();
+  const drawnAt = new Map<string, Array<[Vec3, Vec3, number]>>();
   for (const e of m.edges) {
     const pa = V(e.a), pb = V(e.b);
     const ka = ck(pa), kb = ck(pb);
     for (const k of [ka, kb]) {
       const list = drawnAt.get(k);
-      if (list) list.push([pa, pb]);
-      else drawnAt.set(k, [[pa, pb]]);
+      if (list) list.push([pa, pb, e.sag]);
+      else drawnAt.set(k, [[pa, pb, e.sag]]);
     }
   }
-  // Triangles by side (exact endpoint coordinates): walls and caps keep separate
-  // vertices with the same positions, so adjacency across a rim is positional.
   /** Triangle k's interpolated (smooth) unit normal at point p on it. */
   const smoothNormal = (k: number, p: Vec3): Vec3 => {
     const a = V(T[3 * k]), b = V(T[3 * k + 1]), c = V(T[3 * k + 2]);
@@ -511,35 +514,27 @@ function findCrossings(m: Mesh, nBodies: number, maxTests: number): [number, num
     const l = Math.hypot(...v) || 1;
     return [v[0] / l, v[1] / l, v[2] / l];
   };
-  /** How far triangle k's facet can sit from its true surface: max over its sides of length × normal turn / 8 (0 when flat). */
-  const localSag = (k: number): number => {
+  /**
+   * Triangle k's facet error and curvature, from its corner normals. Per side p→q:
+   * the sagitta |(q − p)·(n_q − n_p)| / 8 — a chord's on a curve, 0 along a straight
+   * ruling, and only the chord's share on a wall's long diagonal (length × turn counted
+   * the diagonal's whole length: a 60 mm pin got 2.4 mm instead of 0.03, fifth review);
+   * and the curvature |n_q − n_p| / |q − p|. Both 0 on a flat facet.
+   */
+  const facetShape = (k: number): { sag: number; curv: number } => {
     const N = m.cornerNormals;
-    let worst = 0;
+    let sag = 0, curv = 0;
     for (let c = 0; c < 3; c++) {
       const d = (c + 1) % 3;
       const p = V(T[3 * k + c]), q = V(T[3 * k + d]);
       const o1 = 9 * k + 3 * c, o2 = 9 * k + 3 * d;
-      const cosA = Math.max(-1, Math.min(1, N[o1] * N[o2] + N[o1 + 1] * N[o2 + 1] + N[o1 + 2] * N[o2 + 2]));
-      worst = Math.max(worst, (Math.hypot(q[0] - p[0], q[1] - p[1], q[2] - p[2]) * Math.acos(cosA)) / 8);
+      const dn: Vec3 = [N[o2] - N[o1], N[o2 + 1] - N[o1 + 1], N[o2 + 2] - N[o1 + 2]];
+      const e = sub3(q, p);
+      const len = Math.hypot(...e);
+      sag = Math.max(sag, Math.abs(dot3(e, dn)) / 8);
+      if (len > 0) curv = Math.max(curv, Math.hypot(...dn) / len);
     }
-    return worst;
-  };
-  // Built only once some pair of bodies actually meets.
-  let edgeTrisMap: Map<string, number[]> | null = null;
-  const edgeTrisOf = (key: string): number[] => {
-    if (!edgeTrisMap) {
-      edgeTrisMap = new Map();
-      for (let t = 0; t < ntri; t++) {
-        for (let c = 0; c < 3; c++) {
-          const ka = ck(V(T[3 * t + c])), kb = ck(V(T[3 * t + ((c + 1) % 3)]));
-          const k2 = ka < kb ? `${ka}|${kb}` : `${kb}|${ka}`;
-          const list = edgeTrisMap.get(k2);
-          if (list) list.push(t);
-          else edgeTrisMap.set(k2, [t]);
-        }
-      }
-    }
-    return edgeTrisMap.get(key) ?? [];
+    return { sag, curv };
   };
   const seen = new Set<string>();
   let tests = 0;
@@ -563,39 +558,6 @@ function findCrossings(m: Mesh, nBodies: number, maxTests: number): [number, num
       }
       const stamp = new Int32Array(ntri).fill(-1);
       let crossed = false;
-      /**
-       * Does triangle `k` (corners `tri`) pass through the plane of `other`? Yes when
-       * it has corners strictly on both sides. When it only touches the plane with
-       * one side, yes only if the face continues across that side onto the other
-       * side of the plane (a crossing that runs along a facet edge); otherwise the
-       * surface merely meets the plane there.
-       */
-      const thr = tol;
-      const passesThrough = (k: number, tri: Vec3[], other: Vec3[]): boolean => {
-        const nn = cross3(sub3(other[1], other[0]), sub3(other[2], other[0]));
-        const ln = Math.hypot(...nn);
-        if (!(ln > 0)) return false;
-        const u: Vec3 = [nn[0] / ln, nn[1] / ln, nn[2] / ln];
-        const d0 = dot3(u, other[0]);
-        const sd = tri.map((p) => dot3(u, p) - d0);
-        if (sd.some((v) => v > thr) && sd.some((v) => v < -thr)) return true;
-        const on = [0, 1, 2].filter((i) => Math.abs(sd[i]) <= thr);
-        if (on.length !== 2) return false;
-        const off = 3 - on[0] - on[1];
-        const side = Math.sign(sd[off]);
-        const ka = ck(tri[on[0]]), kb = ck(tri[on[1]]);
-        for (const q of edgeTrisOf(ka < kb ? `${ka}|${kb}` : `${kb}|${ka}`)) {
-          if (q === k || m.triBody[q] !== m.triBody[k]) continue;
-          for (let c = 0; c < 3; c++) {
-            const v = V(T[3 * q + c]);
-            const kv = ck(v);
-            if (kv === ka || kv === kb) continue;
-            const sv = dot3(u, v) - d0;
-            if (Math.abs(sv) > thr && Math.sign(sv) === -side) return true;
-          }
-        }
-        return false;
-      };
       for (const s of ta) {
         const [x0, y0, z0] = [0, 1, 2].map((k) => cell(tlo[3 * s + k], k));
         const [x1, y1, z1] = [0, 1, 2].map((k) => cell(thi[3 * s + k], k));
@@ -611,21 +573,29 @@ function findCrossings(m: Mesh, nBodies: number, maxTests: number): [number, num
                 const sb = [V(T[3 * t]), V(T[3 * t + 1]), V(T[3 * t + 2])];
                 const seg = triTriSegment(sa, sb, tol);
                 if (!seg) continue;
-                // Surfaces that only TOUCH (a pin exactly in its bore, a roller on a
-                // plate, a cone's tip) meet along a line without passing through each
-                // other: not a crossing, not an overlap.
-                if (!passesThrough(s, sa, sb) || !passesThrough(t, sb, sa)) continue;
+                // Surfaces that only TOUCH are not crossing: at a point (a cone's tip), along
+                // a line where they face opposite ways (a roller on a plate, a pin exactly in
+                // its bore — the gap test below), or along an edge already drawn (a block
+                // standing on a plate — the rim test below).
+                if (Math.hypot(...sub3(seg[1], seg[0])) <= tol * 1000) continue;
+                const fs_ = facetShape(s), ft_ = facetShape(t);
+                const sagSum = fs_.sag + ft_.sag;
                 // Coincident curved walls (a pin in its bore, turned in it, a near-equal fit):
-                // their facets interleave and "cross", but the true surfaces there face
-                // exactly opposite ways. A real crossing meets at a real angle — a pin 1 mm off
-                // centre in its bore crosses it at about 11°. Judged on the SMOOTH normals at
-                // the crossing, so the facet counts do not matter (fourth review: a whole-part
-                // tolerance hid real crossings).
+                // their facets interleave and "cross" though the true surfaces do not. Judged
+                // by GAP, not angle: two surfaces whose smooth normals at the crossing differ
+                // by α, curving at κ, are offset by about α/κ (an eccentric pin: exactly its
+                // offset). Coincident only when that offset is within the two facets' error —
+                // an interference smaller than the facets can show is not drawn; anything
+                // larger always is, at any radius (fifth review: a fixed 1° hid them).
                 const mid: Vec3 = [(seg[0][0] + seg[1][0]) / 2, (seg[0][1] + seg[1][1]) / 2, (seg[0][2] + seg[1][2]) / 2];
-                if (dot3(smoothNormal(s, mid), smoothNormal(t, mid)) < -COINCIDENT_COS) continue;
+                const curv = Math.max(fs_.curv, ft_.curv);
+                if (curv > 0) {
+                  const cosA = Math.min(1, Math.abs(dot3(smoothNormal(s, mid), smoothNormal(t, mid))));
+                  if (Math.acos(cosA) / curv <= sagSum + tol) continue;
+                }
                 // Slivers along a hole's rim, as wide as the two curved facets are wrong
                 // there: measured on these two triangles, so a flat face (error 0) never hides one.
-                const near = 2 * Math.max(localSag(s), localSag(t));
+                const near = 2 * Math.max(fs_.sag, ft_.sag);
                 if (alongDrawnEdge(seg, sa, drawnAt, ck, tol, near) || alongDrawnEdge(seg, sb, drawnAt, ck, tol, near)) continue;
                 crossed = true; // a real crossing, not contact along an edge already drawn
                 const q = (p: Vec3): string => p.map((v) => Math.round(v / (tol * 1000))).join(",");
@@ -641,9 +611,6 @@ function findCrossings(m: Mesh, nBodies: number, maxTests: number): [number, num
   }
   return null;
 }
-
-/** Surfaces whose smooth normals at a crossing are within 1° of opposite are coincident, not crossing. */
-const COINCIDENT_COS = Math.cos((1 * Math.PI) / 180);
 
 const sub3 = (a: Vec3, b: Vec3): Vec3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
 const dot3 = (a: Vec3, b: Vec3): number => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
@@ -696,14 +663,23 @@ export function triTriSegment(a: Vec3[], b: Vec3[], tol: number): [Vec3, Vec3] |
  * the plate's face in slivers along the hole's rim, as wide as the facets are wrong,
  * some running across a cap triangle past a rim corner (third review).
  */
-function alongDrawnEdge(seg: [Vec3, Vec3], tri: Vec3[], drawnAt: Map<string, Array<[Vec3, Vec3]>>, ck: (p: Vec3) => string, tol: number, near: number): boolean {
+function alongDrawnEdge(
+  seg: [Vec3, Vec3],
+  tri: Vec3[],
+  drawnAt: Map<string, Array<[Vec3, Vec3, number]>>,
+  ck: (p: Vec3) => string,
+  tol: number,
+  near: number,
+): boolean {
   const edges = tri.flatMap((p) => drawnAt.get(ck(p)) ?? []);
   if (!edges.length) return false;
-  const lim = Math.max(tol * 1000, near);
   const nearEdge = (x: Vec3): boolean =>
-    edges.some(([p, q]) => {
+    edges.some(([p, q, edgeSag]) => {
       const e = sub3(q, p);
       const l2 = dot3(e, e);
+      // A drawn rim edge is a chord of its own curve: its own chord error widens the
+      // sliver too, when the hole is faceted coarser than the part in it.
+      const lim = Math.max(tol * 1000, near + edgeSag);
       const t = l2 > 0 ? Math.max(0, Math.min(1, dot3(sub3(x, p), e) / l2)) : 0;
       const c: Vec3 = [p[0] + t * e[0], p[1] + t * e[1], p[2] + t * e[2]];
       return Math.hypot(x[0] - c[0], x[1] - c[1], x[2] - c[2]) <= lim;
@@ -714,7 +690,8 @@ function alongDrawnEdge(seg: [Vec3, Vec3], tri: Vec3[], drawnAt: Map<string, Arr
 
 type Put = (p: Vec3) => number;
 type Tri = (i: number, j: number, k: number, ni: Vec3, nj: Vec3, nk: Vec3) => void;
-type Edge = (i: number, j: number) => void;
+/** A drawn edge; `sag` = how far it, as a chord, can sit from its true curve (0 when straight). */
+type Edge = (i: number, j: number, sag?: number) => void;
 
 /** Chord tolerances for one body: absolute, relative to each arc's radius, and the largest used (out). */
 interface Fineness {
@@ -759,8 +736,8 @@ function tessExtrude(spec: Extract<BodySpec, { kind: "extrude" }>, ft: Fineness,
       tri(a0, a1, b1, N0, N1, N1);
       tri(a0, b1, b0, N0, N1, N0);
       // Rim edges: wall meets cap — always a crease.
-      edge(bi[i], bi[j]);
-      edge(ti[i], ti[j]);
+      edge(bi[i], bi[j], L.edgeSag[i]);
+      edge(ti[i], ti[j], L.edgeSag[i]);
       // Vertical edge at point i: drawn only where the outline has a corner.
       if (L.corner[i]) edge(bi[i], ti[i]);
     }
@@ -840,7 +817,8 @@ function tessRevolve(spec: Extract<BodySpec, { kind: "revolve" }>, ft: Fineness,
   // Parallels: the circle swept by a profile CORNER is a crease. Meridians are smooth.
   for (let i = 0; i < n; i++) {
     if (!L.corner[i] || onAxis(L.points[i])) continue;
-    for (let j = 0; j < steps; j++) edge(ring[i][j], ring[i][(j + 1) % steps]);
+    const chordSag = L.points[i][0] * (1 - Math.cos(Math.PI / steps));
+    for (let j = 0; j < steps; j++) edge(ring[i][j], ring[i][(j + 1) % steps], chordSag);
   }
   return null;
 }

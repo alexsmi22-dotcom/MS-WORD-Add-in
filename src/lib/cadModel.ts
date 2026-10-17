@@ -60,6 +60,12 @@ export interface Body {
   name: string;
   spec: BodySpec;
   placement: Placement;
+  /**
+   * The shape's own orientation (row-major 3×3 rotation), applied BEFORE the
+   * placement: an L-bracket is sketched as its section and swept, and its
+   * frame turns the sweep to run along X so it stands the way it is drawn.
+   */
+  frame?: number[];
 }
 
 export interface Assembly {
@@ -346,7 +352,7 @@ function assemblyDiag(a: Assembly): number {
   let hi: Vec3 = [-Infinity, -Infinity, -Infinity];
   for (const b of a.bodies) {
     const pts = flattenLoop(b.spec.profile.outer, loopExtent(b.spec.profile.outer) * 0.05).points;
-    const R = rotationMatrix(b.placement.rotateDeg);
+    const R = b.frame ? mul3(rotationMatrix(b.placement.rotateDeg), b.frame) : rotationMatrix(b.placement.rotateDeg);
     const corners: Vec3[] = [];
     if (b.spec.kind === "extrude") {
       for (const p of pts) for (const z of [0, b.spec.depth]) corners.push([p[0], p[1], z]);
@@ -374,7 +380,7 @@ export function tessellate(a: Assembly, opts: TessOptions = DEFAULT_TESS): TessR
   const tol = diag * opts.relTol;
   const m: Mesh = { positions: [], triangles: [], cornerNormals: [], triBody: [], edges: [], diag };
   for (const [bi, b] of a.bodies.entries()) {
-    const R = rotationMatrix(b.placement.rotateDeg);
+    const R = b.frame ? mul3(rotationMatrix(b.placement.rotateDeg), b.frame) : rotationMatrix(b.placement.rotateDeg);
     const T = b.placement.translate;
     const put = (p: Vec3): number => {
       const w = apply3(R, p);

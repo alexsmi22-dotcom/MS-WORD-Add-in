@@ -19,7 +19,23 @@ import { drawLines, STANDARD_VIEWS, CadView } from "../lib/cadLines";
 import { fitView, previewOps, paintPreview, pickAt, orbit, Fit } from "../lib/cadPreview";
 import { layoutSheet, ViewSpec } from "../lib/cadSheet";
 import { DRAWING_STANDARDS, DEFAULT_STANDARD, StandardId } from "../lib/cadStandards";
-import { SHAPES, SHAPE_IDS, ShapeId, CadDoc, CadPart, defaultParams, docToAssembly, parseDoc, partProblems, serializeDoc, starterDoc } from "../lib/cadShapes";
+import {
+  SHAPES,
+  SHAPE_IDS,
+  ShapeId,
+  CadDoc,
+  CadPart,
+  attachCallout,
+  defaultParams,
+  docToAssembly,
+  overlapNotes,
+  parseDoc,
+  partProblems,
+  resolveCallouts,
+  serializeDoc,
+  starterDoc,
+} from "../lib/cadShapes";
+import type { Callout } from "../lib/cadSheet";
 
 export interface CadPaneHost {
   setStatus(text: string, kind?: "success" | "error" | ""): void;
@@ -52,12 +68,10 @@ export function initCadPane(host: CadPaneHost): { show(): void } {
   const msgEl = el<HTMLElement>("cad-msg");
   const previewEl = el<HTMLElement>("cad-preview");
   const insertBtn = el<HTMLButtonElement>("cad-insert");
-  const hiddenChk = el<HTMLInputElement>("cad-hidden");
+  const hiddenSel = el<HTMLSelectElement>("cad-hidden");
   const openBtn = el<HTMLButtonElement>("cad-open");
 
   for (const id of Object.keys(DRAWING_STANDARDS) as StandardId[]) standardSel.add(new Option(DRAWING_STANDARDS[id].name, id));
-  // Indeterminate = "as the standard says"; a tick or untick overrides it.
-  hiddenChk.indeterminate = true;
   for (const id of SHAPE_IDS) shapeSel.add(new Option(SHAPES[id].name, id));
 
   let doc: CadDoc = starterDoc(DEFAULT_STANDARD);
@@ -69,6 +83,10 @@ export function initCadPane(host: CadPaneHost): { show(): void } {
   let calloutMode = false;
   let seq = 1;
   let lineTimer = 0;
+  let buildTimer = 0;
+  let inserting = false;
+  /** The callouts where they are now (they follow their parts), and the notes about any not drawn. */
+  let placed: { callouts: Callout[]; notes: string[] } = { callouts: [], notes: [] };
 
   // ---- the model -> mesh -> canvas + sheet --------------------------------------------
 
@@ -94,8 +112,22 @@ export function initCadPane(host: CadPaneHost): { show(): void } {
       return;
     }
     mesh = t.mesh;
+    placed = resolveCallouts(doc, mesh);
     paint(true);
     renderSheet();
+  }
+
+  /** Every keystroke in a dimension lands here: the model is rebuilt once typing pauses (review D6). */
+  function rebuildSoon(): void {
+    window.clearTimeout(buildTimer);
+    insertBtn.disabled = true;
+    buildTimer = window.setTimeout(rebuild, 150);
+  }
+
+  /** The reason the document cannot be inserted as it stands, or null (review D1). */
+  function docProblem(): string | null {
+    const bad = doc.parts.flatMap((p) => partProblems(p).map((r) => `${p.name}: ${r}`));
+    return bad.length ? bad.join("; ") : null;
   }
 
   function canvasSize(): { w: number; h: number; dpr: number } {
@@ -134,7 +166,7 @@ export function initCadPane(host: CadPaneHost): { show(): void } {
     paintPreview(ctx, previewOps(mesh, view, fit), w, h, new Set([selected]));
     // Callout anchors as small dots, so the user sees what they placed.
     ctx.fillStyle = "#b91c1c";
-    for (const c of doc.callouts) {
+    for (const c of placed.callouts) {
       const R = view.rot;
       const x = fit.ox + (R[0] * c.anchor[0] + R[1] * c.anchor[1] + R[2] * c.anchor[2]) * fit.scale;
       const y = fit.oy - (R[3] * c.anchor[0] + R[4] * c.anchor[1] + R[5] * c.anchor[2]) * fit.scale;
@@ -176,11 +208,21 @@ export function initCadPane(host: CadPaneHost): { show(): void } {
   function renderSheet(): void {
     if (!mesh) return;
     doc.views = viewSpecs();
+    // A dimension being typed that cannot be drawn: the sheet below is of the
+    // LAST good model, so Insert stays off until the model is valid again.
+    const problem = docProblem();
+    if (problem) {
+      lastSheet = null;
+      insertBtn.disabled = true;
+      msgEl.className = "build-readout warn";
+      msgEl.textContent = problem;
+      return;
+    }
     const sh = layoutSheet(mesh, {
       standard: doc.standard,
       views: doc.views,
-      callouts: doc.callouts,
-      ...(hiddenChk.indeterminate ? {} : { showHidden: hiddenChk.checked }),
+      callouts: placed.callouts,
+      ...(hiddenSel.value ? { showHidden: hiddenSel.value === "show" } : {}),
     });
     previewEl.innerHTML = sh.svg;
     const svgEl = previewEl.querySelector("svg");
@@ -189,11 +231,13 @@ export function initCadPane(host: CadPaneHost): { show(): void } {
       svgEl.removeAttribute("height");
     }
     lastSheet = sh.svg ? { svg: sh.svg, w: sh.widthPx, h: sh.heightPx, labels: sh.labels } : null;
-    insertBtn.disabled = !lastSheet;
+    insertBtn.disabled = !lastSheet || inserting;
     const std = DRAWING_STANDARDS[doc.standard];
     msgEl.className = "build-readout";
     msgEl.textContent = [
       `${std.name}. Scale ${formatScale(sh.scaleMmPerUnit)} on a ${std.areaMm.w} × ${std.areaMm.h} mm drawing area.`,
+      ...overlapNotes(doc, mesh),
+      ...placed.notes,
       ...sh.notes,
     ].join(" ");
   }
@@ -221,10 +265,15 @@ export function initCadPane(host: CadPaneHost): { show(): void } {
       del.textContent = "×";
       del.title = "Remove this part";
       del.addEventListener("click", () => {
-        doc.parts.splice(i, 1);
+        const [gone] = doc.parts.splice(i, 1);
+        // Its callouts go with it (review D2), and the user is told which.
+        const dropped = doc.callouts.filter((c) => c.part === gone.id);
+        doc.callouts = doc.callouts.filter((c) => c.part !== gone.id);
+        if (dropped.length) host.setStatus(`Removed ${gone.name} and its callout${dropped.length > 1 ? "s" : ""} ${dropped.map((c) => c.label).join(", ")}.`, "");
         selected = Math.max(0, Math.min(selected, doc.parts.length - 1));
         renderParts();
         renderEditor();
+        renderCallouts();
         rebuild();
       });
       row.append(name, del);
@@ -270,12 +319,13 @@ export function initCadPane(host: CadPaneHost): { show(): void } {
           p.params[pd.key] = v;
           const probs = partProblems(p);
           if (probs.length) {
+            window.clearTimeout(buildTimer);
             msgEl.className = "build-readout warn";
             msgEl.textContent = `${p.name}: ${probs.join("; ")}`;
             insertBtn.disabled = true;
             return;
           }
-          rebuild();
+          rebuildSoon();
         }, pd.integer ? "1" : "any"),
       );
     }
@@ -285,14 +335,14 @@ export function initCadPane(host: CadPaneHost): { show(): void } {
       place.appendChild(numberField(`Move ${ax}`, p.placement.translate[k], (v) => {
         if (!Number.isFinite(v)) return;
         p.placement.translate[k] = v;
-        rebuild();
+        rebuildSoon();
       }));
     });
     (["X", "Y", "Z"] as const).forEach((ax, k) => {
       place.appendChild(numberField(`Turn ${ax}°`, p.placement.rotateDeg[k], (v) => {
         if (!Number.isFinite(v)) return;
         p.placement.rotateDeg[k] = v;
-        rebuild();
+        rebuildSoon();
       }));
     });
     editorEl.appendChild(place);
@@ -310,6 +360,7 @@ export function initCadPane(host: CadPaneHost): { show(): void } {
       label.setAttribute("aria-label", "Callout label");
       label.addEventListener("input", () => {
         c.label = label.value;
+        if (mesh) placed = resolveCallouts(doc, mesh);
         renderSheet();
       });
       const del = document.createElement("button");
@@ -318,6 +369,7 @@ export function initCadPane(host: CadPaneHost): { show(): void } {
       del.textContent = "×";
       del.addEventListener("click", () => {
         doc.callouts.splice(i, 1);
+        if (mesh) placed = resolveCallouts(doc, mesh);
         renderCallouts();
         paint(true);
         renderSheet();
@@ -334,7 +386,7 @@ export function initCadPane(host: CadPaneHost): { show(): void } {
     renderSheet();
   });
   viewsEl.addEventListener("change", renderSheet);
-  hiddenChk.addEventListener("change", renderSheet);
+  hiddenSel.addEventListener("change", renderSheet);
   addBtn.addEventListener("click", () => {
     const shape = shapeSel.value as ShapeId;
     // A new part sits beside the drawing so it is never hidden inside what is there.
@@ -409,7 +461,8 @@ export function initCadPane(host: CadPaneHost): { show(): void } {
       const std = DRAWING_STANDARDS[doc.standard];
       const taken = doc.callouts.map((c) => Number(c.label)).filter((n) => Number.isFinite(n));
       const label = std.callouts === "balloon" ? String((taken.length ? Math.max(...taken) : 0) + 1) : String(host.nextNumeral(taken));
-      doc.callouts.push({ anchor: hit.point, label });
+      doc.callouts.push(attachCallout(doc, hit.body, hit.point, label));
+      placed = resolveCallouts(doc, mesh);
       renderCallouts();
       paint(true);
       renderSheet();
@@ -418,6 +471,12 @@ export function initCadPane(host: CadPaneHost): { show(): void } {
     selected = hit.body;
     renderParts();
     renderEditor();
+    paint(true);
+  });
+  // A drag the browser takes over (a touch scroll, a lost capture) ends without a pick.
+  canvas.addEventListener("pointercancel", () => {
+    if (!dragging) return;
+    dragging = false;
     paint(true);
   });
   canvas.addEventListener(
@@ -466,7 +525,13 @@ export function initCadPane(host: CadPaneHost): { show(): void } {
   });
 
   insertBtn.addEventListener("click", async () => {
-    if (!lastSheet) return;
+    if (!lastSheet || inserting) return;
+    const problem = docProblem();
+    if (problem) {
+      host.setStatus(`Fix the drawing first: ${problem}`, "error");
+      return;
+    }
+    inserting = true;
     insertBtn.disabled = true;
     host.setStatus("Inserting drawing…");
     try {
@@ -479,7 +544,8 @@ export function initCadPane(host: CadPaneHost): { show(): void } {
     } catch (e) {
       host.setStatus(`Could not insert the drawing: ${(e as Error).message}`, "error");
     } finally {
-      insertBtn.disabled = !lastSheet;
+      inserting = false;
+      insertBtn.disabled = !lastSheet || docProblem() !== null;
     }
   });
 

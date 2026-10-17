@@ -16,7 +16,7 @@
  * with the view.
  */
 import type { Mesh, Vec3 } from "./cadModel";
-import { drawLines, LineDrawing, STANDARD_VIEWS, viewFromDegrees, CadView, Polyline } from "./cadLines";
+import { baryIn, drawLines, LineDrawing, STANDARD_VIEWS, viewFromDegrees, CadView, Polyline } from "./cadLines";
 import { DRAWING_STANDARDS, DrawingStandard, StandardId, snapScale, scaleLabel } from "./cadStandards";
 import { ptToMm } from "./figureStyle";
 
@@ -100,13 +100,10 @@ export function pointHidden(mesh: Mesh, view: CadView, p: Vec3): boolean {
       const i = 3 * T[t + k];
       c.push(R[0] * P[i] + R[1] * P[i + 1] + R[2] * P[i + 2], R[3] * P[i] + R[4] * P[i + 1] + R[5] * P[i + 2], R[6] * P[i] + R[7] * P[i + 1] + R[8] * P[i + 2]);
     }
-    const det = (c[4] - c[7]) * (c[0] - c[6]) + (c[6] - c[3]) * (c[1] - c[7]);
-    if (Math.abs(det) < 1e-18) continue;
-    const l1 = ((c[4] - c[7]) * (x - c[6]) + (c[6] - c[3]) * (y - c[7])) / det;
-    const l2 = ((c[7] - c[1]) * (x - c[6]) + (c[0] - c[6]) * (y - c[7])) / det;
-    const l3 = 1 - l1 - l2;
-    if (l1 < 1e-9 || l2 < 1e-9 || l3 < 1e-9) continue;
-    if (l1 * c[2] + l2 * c[5] + l3 * c[8] > z + eps) return true;
+    // Inclusive, as the line engine: an anchor exactly behind a face's edge is hidden (review D5).
+    const l = baryIn(c[0], c[1], c[3], c[4], c[6], c[7], x, y, mesh.diag * mesh.diag * 1e-14);
+    if (!l) continue;
+    if (l[0] * c[2] + l[1] * c[5] + l[2] * c[8] > z + eps) return true;
   }
   return false;
 }
@@ -143,7 +140,13 @@ export function layoutSheet(mesh: Mesh, o: SheetOptions): Sheet {
   const colW = cols.map((c) => Math.max(...items.filter((i) => i.cell[0] === c).map((i) => i.d.bounds.maxX - i.d.bounds.minX)));
   const rowH = rows.map((r) => Math.max(...items.filter((i) => i.cell[1] === r).map((i) => i.d.bounds.maxY - i.d.bounds.minY)));
 
-  // One scale for every view, so the orthographic views stay true to each other.
+  // FIG numbers follow the sheet's reading order (top row first, left to
+  // right), not the order the views were asked for.
+  const readingOrder = [...items].sort((p, q) => p.cell[1] - q.cell[1] || p.cell[0] - q.cell[0]);
+  const figOf = new Map(readingOrder.map((it, i) => [it, (o.figStart ?? 1) + i]));
+  const labelOf = (it: (typeof items)[number]): string =>
+    std.viewLabels === "fig" ? `FIG. ${figOf.get(it)}` : std.viewLabels === "name" ? viewName(it.spec) : "";
+
   const textMm = ptToMm(std.textPt);
   const headingMm = ptToMm(std.headingPt);
   const labelMm = std.viewLabels === "none" ? 0 : headingMm * 2.2;
@@ -151,24 +154,58 @@ export function layoutSheet(mesh: Mesh, o: SheetOptions): Sheet {
   // numeral). Two views share every gap, so it holds two columns.
   const balloonMm = Math.max(textMm * 0.95, 4);
   const calloutMm = callouts.length ? 5 + (std.callouts === "balloon" ? 2 * balloonMm : textMm * 1.6) + 1 : 0;
+  const pitchMm = std.callouts === "balloon" ? 2 * balloonMm + 1.5 : textMm * 1.5;
+
+  // Which callouts each view shows, and on which side: decided before the scale,
+  // because a stack of balloons needs height of its own (review D3).
+  const shown = items.map((it) => {
+    const R = it.view.rot;
+    const mid = (it.d.bounds.minX + it.d.bounds.maxX) / 2;
+    const out: Array<{ n: number; x: number; y: number; right: boolean }> = [];
+    callouts.forEach((c, n) => {
+      if (pointHidden(mesh, it.view, c.anchor)) return;
+      const x = R[0] * c.anchor[0] + R[1] * c.anchor[1] + R[2] * c.anchor[2];
+      const y = R[3] * c.anchor[0] + R[4] * c.anchor[1] + R[5] * c.anchor[2];
+      out.push({ n, x, y, right: x >= mid });
+    });
+    return out;
+  });
+  // Each row holds its tallest callout stack; each column its widest title (review D4:
+  // a title wider than a narrow part ran into its neighbour). Upper-case sans ≈ 0.62 em.
+  const needMm = rows.map((r) =>
+    Math.max(0, ...items.flatMap((it, i) => (it.cell[1] !== r ? [] : [true, false].map((side) => shown[i].filter((c) => c.right === side).length * pitchMm)))),
+  );
+  const titleMm = cols.map((c) => Math.max(0, ...items.filter((it) => it.cell[0] === c).map((it) => labelOf(it).length * 0.62 * headingMm)));
+
   // Horizontal room: every gap between two views holds two callout columns,
   // an outer edge holds one. Vertical room needs only the view title.
   const gapMm = 10 + 2 * calloutMm;
   const edgeMm = 6 + calloutMm;
   const rowGapMm = 8;
-  const sumW = colW.reduce((a, b) => a + b, 0) || 1;
-  const sumH = rowH.reduce((a, b) => a + b, 0) || 1;
   const availW = std.areaMm.w - 2 * edgeMm - gapMm * (cols.length - 1);
   const availH = std.areaMm.h - (rowGapMm + labelMm) * rows.length - rowGapMm;
-  const fitS = Math.max(1e-6, Math.min(availW / sumW, availH / sumH)); // mm per model unit
+  // One scale for every view, so the orthographic views stay true to each other:
+  // the largest at which the drawings, their titles and their callout stacks all fit.
+  const colMm = (sc: number): number[] => colW.map((w, i) => Math.max(w * sc, titleMm[i]));
+  const rowMm = (sc: number): number[] => rowH.map((h, i) => Math.max(h * sc, needMm[i]));
+  const sum = (v: number[]): number => v.reduce((a, b) => a + b, 0);
+  let fitS = Math.max(1e-6, Math.min(availW / (sum(colW) || 1), availH / (sum(rowH) || 1))); // mm per model unit
+  for (let k = 0; k < 40; k++) {
+    const ratio = Math.min(availW / sum(colMm(fitS)), availH / sum(rowMm(fitS)));
+    if (!(ratio < 1 - 1e-9)) break;
+    fitS = Math.max(1e-6, fitS * ratio);
+  }
   const s = std.standardScale ? snapScale(fitS) : fitS;
-  if (availW <= 0 || availH <= 0) notes.push("These views leave almost no room on the sheet; choose fewer views.");
+  const cwMm = colMm(s), chMm = rowMm(s);
+  if (availW <= 0 || availH <= 0 || sum(cwMm) > availW * 1.001 || sum(chMm) > availH * 1.001) {
+    notes.push("These views leave almost no room on the sheet; choose fewer views or fewer callouts.");
+  }
 
   const W = std.areaMm.w * PX_PER_MM;
-  const totalH = rowH.reduce((a, b) => a + b, 0) * s + (rowGapMm + labelMm) * rows.length + rowGapMm;
+  const totalH = sum(chMm) + (rowGapMm + labelMm) * rows.length + rowGapMm;
   const H = Math.min(std.areaMm.h, totalH) * PX_PER_MM;
-  const usedW = colW.reduce((a, b) => a + b, 0) * s + 2 * edgeMm + gapMm * (cols.length - 1);
-  const x0 = ((std.areaMm.w - usedW) / 2) * PX_PER_MM;
+  const usedW = sum(cwMm) + 2 * edgeMm + gapMm * (cols.length - 1);
+  const x0 = Math.max(0, ((std.areaMm.w - usedW) / 2) * PX_PER_MM);
 
   const fmt = (v: number): string => (Math.round(v * 100) / 100).toString();
   const strokeV = std.visibleMm * PX_PER_MM;
@@ -180,24 +217,20 @@ export function layoutSheet(mesh: Mesh, o: SheetOptions): Sheet {
   const headingPx = headingMm * PX_PER_MM;
   const parts: string[] = [];
   const labels: string[] = [];
-  // FIG numbers follow the sheet's reading order (top row first, left to
-  // right), not the order the views were asked for.
-  const readingOrder = [...items].sort((p, q) => p.cell[1] - q.cell[1] || p.cell[0] - q.cell[0]);
-  const figOf = new Map(readingOrder.map((it, i) => [it, (o.figStart ?? 1) + i]));
   const calloutSeen = new Array(callouts.length).fill(false);
   const esc = (t: string): string => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
 
-  for (const it of items) {
+  for (const [idx, it] of items.entries()) {
     const ci = cols.indexOf(it.cell[0]);
     const ri = rows.indexOf(it.cell[1]);
     // Cell origin (top-left), px.
-    const cellX = x0 + (edgeMm + gapMm * ci + colW.slice(0, ci).reduce((a, b) => a + b, 0) * s) * PX_PER_MM;
-    const cellY = ((rowGapMm + labelMm) * ri + rowGapMm + rowH.slice(0, ri).reduce((a, b) => a + b, 0) * s) * PX_PER_MM;
+    const cellX = x0 + (edgeMm + gapMm * ci + sum(cwMm.slice(0, ci))) * PX_PER_MM;
+    const cellY = ((rowGapMm + labelMm) * ri + rowGapMm + sum(chMm.slice(0, ri))) * PX_PER_MM;
     const b = it.d.bounds;
     const vw = (b.maxX - b.minX) * s * PX_PER_MM;
     const vh = (b.maxY - b.minY) * s * PX_PER_MM;
-    const cw = colW[ci] * s * PX_PER_MM;
-    const chh = rowH[ri] * s * PX_PER_MM;
+    const cw = cwMm[ci] * PX_PER_MM;
+    const chh = chMm[ri] * PX_PER_MM;
     // Orthographic views align on the shared axes (left edge for a column, bottom
     // edge for a row); a pictorial view is centred in its cell.
     const ox = it.pictorial ? cellX + (cw - vw) / 2 : cellX;
@@ -221,30 +254,27 @@ export function layoutSheet(mesh: Mesh, o: SheetOptions): Sheet {
     // nearer side, each at its part's height and pushed apart so none overlap
     // (the usual drafting arrangement). Placing them radially put the lower
     // ones on top of the view's own label.
-    const cxC = (X(b.minX) + X(b.maxX)) / 2;
-    const r = Math.max(fontPx * 0.95, 4 * PX_PER_MM); // balloon radius
-    const pitch = std.callouts === "balloon" ? 2 * r + 1.5 * PX_PER_MM : fontPx * 1.5;
-    const side: Array<{ n: number; ax: number; ay: number; right: boolean; ly: number }> = [];
-    callouts.forEach((c, n) => {
-      if (pointHidden(mesh, it.view, c.anchor)) return;
-      calloutSeen[n] = true;
-      const R = it.view.rot;
-      const ax = X(R[0] * c.anchor[0] + R[1] * c.anchor[1] + R[2] * c.anchor[2]);
-      const ay = Y(R[3] * c.anchor[0] + R[4] * c.anchor[1] + R[5] * c.anchor[2]);
-      side.push({ n, ax, ay, right: ax >= cxC, ly: ay });
+    const r = balloonMm * PX_PER_MM; // balloon radius
+    const pitch = pitchMm * PX_PER_MM;
+    const side = shown[idx].map((c) => {
+      calloutSeen[c.n] = true;
+      return { n: c.n, ax: X(c.x), ay: Y(c.y), right: c.right, ly: Y(c.y) };
     });
-    const top = oyBottom - vh, bottom = oyBottom;
+    // Each column stays inside its view's own band of the sheet — never above the
+    // sheet, into the row above, or down into the view titles (review D3). The row
+    // was made tall enough for the stack, so it always fits.
+    const top = cellY + pitch / 2, bottom = cellY + chh - pitch / 2;
     for (const right of [true, false]) {
       const col = side.filter((s2) => s2.right === right).sort((p, q) => p.ay - q.ay);
-      // Push down to keep the pitch, then pull the whole column back up if it ran past the view.
+      if (!col.length) continue;
+      // Push down to keep the pitch, pull the column back up if it ran past the band, then hold its top.
+      col[0].ly = Math.max(col[0].ly, top);
       for (let i = 1; i < col.length; i++) col[i].ly = Math.max(col[i].ly, col[i - 1].ly + pitch);
-      const overflow = col.length ? col[col.length - 1].ly - bottom : 0;
+      const overflow = col[col.length - 1].ly - bottom;
       if (overflow > 0) for (const s2 of col) s2.ly -= overflow;
       for (let i = col.length - 2; i >= 0; i--) col[i].ly = Math.min(col[i].ly, col[i + 1].ly - pitch);
-      if (col.length && col[0].ly < top - pitch) {
-        const shift = top - pitch - col[0].ly;
-        for (const s2 of col) s2.ly += shift;
-      }
+      const under = top - col[0].ly;
+      if (under > 0) for (const s2 of col) s2.ly += under;
     }
     for (const sc of side) {
       const c = callouts[sc.n];
@@ -269,11 +299,14 @@ export function layoutSheet(mesh: Mesh, o: SheetOptions): Sheet {
       }
     }
 
-    const label = std.viewLabels === "fig" ? `FIG. ${figOf.get(it)}` : std.viewLabels === "name" ? viewName(it.spec) : "";
+    const label = labelOf(it);
     labels.push(label);
     if (label) {
       const ly = cellY + chh + labelMm * 0.75 * PX_PER_MM;
-      parts.push(`<text x="${fmt(ox + vw / 2)}" y="${fmt(ly)}" text-anchor="middle" font-family="${esc(std.font)}" font-size="${fmt(headingPx)}" fill="#000">${esc(label)}</text>`);
+      // Centred under the view, but kept inside its own column (sized to hold it).
+      const half = (titleMm[ci] / 2) * PX_PER_MM;
+      const tx = Math.max(cellX + half, Math.min(cellX + cw - half, ox + vw / 2));
+      parts.push(`<text x="${fmt(tx)}" y="${fmt(ly)}" text-anchor="middle" font-family="${esc(std.font)}" font-size="${fmt(headingPx)}" fill="#000">${esc(label)}</text>`);
     }
   }
 
@@ -299,7 +332,7 @@ export function layoutSheet(mesh: Mesh, o: SheetOptions): Sheet {
 
 /**
  * The projection symbol (ISO 5456-2 / ASME Y14.3): a truncated cone seen from
- * the side, large end on the left, and its end view as two concentric circles —
+ * the side, narrow end on the left, and its end view as two concentric circles —
  * drawn to the LEFT of the cone for third-angle, to the RIGHT for first-angle.
  * Bottom-right of the sheet.
  */
@@ -315,7 +348,10 @@ function projectionSymbol(std: DrawingStandard, W: number, H: number, thick: num
   const third = std.projection === "third";
   const circlesX = third ? baseX + big : baseX + len + 1.4 * u + big;
   const coneX = third ? baseX + 2 * big + 1.4 * u : baseX;
-  const cone = `M${fmt(coneX)} ${fmt(cy - big)}L${fmt(coneX + len)} ${fmt(cy - small)}L${fmt(coneX + len)} ${fmt(cy + small)}L${fmt(coneX)} ${fmt(cy + big)}Z`;
+  // The same frustum in both symbols, narrow end LEFT; only its end view moves (ISO
+  // 5456-2 / ASME Y14.3): third angle puts the view from the left on the left, so the
+  // short side points TOWARD the circles; first angle puts it on the right, AWAY.
+  const cone = `M${fmt(coneX)} ${fmt(cy - small)}L${fmt(coneX + len)} ${fmt(cy - big)}L${fmt(coneX + len)} ${fmt(cy + big)}L${fmt(coneX)} ${fmt(cy + small)}Z`;
   return (
     `<g fill="none" stroke="#000">` +
     `<path d="${cone}" stroke-width="${fmt(thick)}"/>` +

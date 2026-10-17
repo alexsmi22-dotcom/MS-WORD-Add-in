@@ -97,8 +97,27 @@ export interface LineDrawing {
 interface Seg {
   ax: number; ay: number; az: number;
   bx: number; by: number; bz: number;
-  /** Where the line came from: a mesh edge (its two vertices) or a smooth triangle's outline. */
-  src: { edge: [number, number] } | { tri: number };
+  /** Where the line came from: a mesh edge (its two vertices), a smooth triangle's outline, or two bodies crossing. */
+  src: { edge: [number, number] } | { tri: number } | { cross: [number, number] };
+  /** The body or bodies the line belongs to. */
+  bodies: number[];
+}
+
+/**
+ * Barycentric coordinates of screen point (x, y) in the triangle (x1,y1)(x2,y2)(x3,y3),
+ * or null when the triangle is edge-on (`degen` = the determinant below which it counts
+ * as edge-on). INCLUSIVE: a point on a side or corner is inside — one rule for the hidden-line
+ * test, the piercing test and callout anchors (review D5).
+ */
+export function baryIn(x1: number, y1: number, x2: number, y2: number, x3: number, y3: number, x: number, y: number, degen: number): [number, number, number] | null {
+  const det = (y2 - y3) * (x1 - x3) + (x3 - x2) * (y1 - y3);
+  if (Math.abs(det) < degen) return null;
+  const l1 = ((y2 - y3) * (x - x3) + (x3 - x2) * (y - y3)) / det;
+  const l2 = ((y3 - y1) * (x - x3) + (x1 - x3) * (y - y3)) / det;
+  const l3 = 1 - l1 - l2;
+  const onEdge = -1e-9;
+  if (l1 < onEdge || l2 < onEdge || l3 < onEdge) return null;
+  return [l1, l2, l3];
 }
 
 /** Draws the mesh from the view. */
@@ -120,7 +139,13 @@ export function drawLines(mesh: Mesh, view: CadView): LineDrawing {
   // 1. Feature segments: drawable edges + smooth-surface silhouettes.
   const segs: Seg[] = [];
   for (const e of mesh.edges) {
-    segs.push({ ax: cx[e.a], ay: cy[e.a], az: cz[e.a], bx: cx[e.b], by: cy[e.b], bz: cz[e.b], src: { edge: [e.a, e.b] } });
+    segs.push({ ax: cx[e.a], ay: cy[e.a], az: cz[e.a], bx: cx[e.b], by: cy[e.b], bz: cz[e.b], src: { edge: [e.a, e.b] }, bodies: [e.body] });
+  }
+  // Where overlapping parts cross: a real line, found once per model by tessellate.
+  for (const c of mesh.crossings) {
+    const pr = (p: Vec3): [number, number, number] => [R[0] * p[0] + R[1] * p[1] + R[2] * p[2], R[3] * p[0] + R[4] * p[1] + R[5] * p[2], R[6] * p[0] + R[7] * p[1] + R[8] * p[2]];
+    const [a, b] = [pr(c.a), pr(c.b)];
+    segs.push({ ax: a[0], ay: a[1], az: a[2], bx: b[0], by: b[1], bz: b[2], src: { cross: c.tris }, bodies: [mesh.triBody[c.tris[0]], mesh.triBody[c.tris[1]]] });
   }
   const T = mesh.triangles;
   const N = mesh.cornerNormals;
@@ -150,7 +175,7 @@ export function drawLines(mesh: Mesh, view: CadView): LineDrawing {
     }
     if (pts.length === 2) {
       const [a, b] = pts;
-      if (Math.hypot(a[0] - b[0], a[1] - b[1]) > eps) segs.push({ ax: a[0], ay: a[1], az: a[2], bx: b[0], by: b[1], bz: b[2], src: { tri: t } });
+      if (Math.hypot(a[0] - b[0], a[1] - b[1]) > eps) segs.push({ ax: a[0], ay: a[1], az: a[2], bx: b[0], by: b[1], bz: b[2], src: { tri: t }, bodies: [mesh.triBody[t]] });
     }
   }
 
@@ -197,6 +222,7 @@ export function drawLines(mesh: Mesh, view: CadView): LineDrawing {
    */
   const exclusion = (src: Seg["src"]): Set<number> => {
     const out = new Set<number>();
+    if ("cross" in src) return new Set(src.cross);
     if ("edge" in src) {
       const [a, b] = src.edge;
       for (const t of vertTris[a]) if (vertTris[b].includes(t)) out.add(t);
@@ -217,24 +243,26 @@ export function drawLines(mesh: Mesh, view: CadView): LineDrawing {
   // depth test may tell them apart. A line's own faces are at the same depth
   // and fall under depthEps.
   const depthEps = mesh.diag * 1e-6;
+  const degen = span * span * 1e-14;
   const covered = (x: number, y: number, z: number, skip: Set<number>): boolean => {
     const list = triGrid[gy(y) * cells + gx(x)];
     for (const t of list) {
       if (skip.has(t)) continue;
       const a = T[3 * t], b = T[3 * t + 1], c = T[3 * t + 2];
-      const x1 = cx[a], y1 = cy[a], x2 = cx[b], y2 = cy[b], x3 = cx[c], y3 = cy[c];
-      const det = (y2 - y3) * (x1 - x3) + (x3 - x2) * (y1 - y3);
-      if (Math.abs(det) < span * span * 1e-14) continue; // edge-on in this view
-      const l1 = ((y2 - y3) * (x - x3) + (x3 - x2) * (y - y3)) / det;
-      const l2 = ((y3 - y1) * (x - x3) + (x1 - x3) * (y - y3)) / det;
-      const l3 = 1 - l1 - l2;
-      const onEdge = -1e-9;
-      if (l1 < onEdge || l2 < onEdge || l3 < onEdge) continue;
-      const zt = l1 * cz[a] + l2 * cz[b] + l3 * cz[c];
+      const l = baryIn(cx[a], cy[a], cx[b], cy[b], cx[c], cy[c], x, y, degen);
+      if (!l) continue; // outside, or edge-on in this view
+      const zt = l[0] * cz[a] + l[1] * cz[b] + l[2] * cz[c];
       if (zt > z + depthEps) return true;
     }
     return false;
   };
+
+  // Bodies each body overlaps: a line can only pass into solid where its body's surface crosses another's.
+  const partners: number[][] = [];
+  for (const [p, q] of mesh.overlaps) {
+    (partners[p] ??= []).push(q);
+    (partners[q] ??= []).push(p);
+  }
 
   // 2 + 3. Split at crossings, classify each piece.
   const visible: Array<[number, number, number, number]> = [];
@@ -261,6 +289,33 @@ export function drawLines(mesh: Mesh, view: CadView): LineDrawing {
           const v = ((o.ax - s.ax) * dy - (o.ay - s.ay) * dx) / den;
           if (t > 1e-9 && t < 1 - 1e-9 && v >= -1e-9 && v <= 1 + 1e-9) ts.push(t);
         }
+    // Visibility also changes where the line PIERCES a face of an overlapping body
+    // (it goes into, or comes out of, the other part) — a point no screen crossing marks.
+    const into = new Set<number>();
+    for (const b of s.bodies) for (const q of partners[b] ?? []) if (!s.bodies.includes(q)) into.add(q);
+    if (into.size) {
+      const stamp = new Set<number>();
+      for (let u = x0; u <= x1; u++)
+        for (let w = y0; w <= y1; w++)
+          for (const t of triGrid[w * cells + u]) {
+            if (stamp.has(t) || !into.has(mesh.triBody[t])) continue;
+            stamp.add(t);
+            const a = T[3 * t], b = T[3 * t + 1], c = T[3 * t + 2];
+            const det = (cy[b] - cy[c]) * (cx[a] - cx[c]) + (cx[c] - cx[b]) * (cy[a] - cy[c]);
+            if (Math.abs(det) < degen) continue;
+            // The face's depth is affine on the page, so (line depth − face depth) is linear along the line.
+            const faceZ = (x: number, y: number): number => {
+              const l1 = ((cy[b] - cy[c]) * (x - cx[c]) + (cx[c] - cx[b]) * (y - cy[c])) / det;
+              const l2 = ((cy[c] - cy[a]) * (x - cx[c]) + (cx[a] - cx[c]) * (y - cy[c])) / det;
+              return l1 * cz[a] + l2 * cz[b] + (1 - l1 - l2) * cz[c];
+            };
+            const f0 = s.az - faceZ(s.ax, s.ay), f1 = s.bz - faceZ(s.bx, s.by);
+            if (f0 > 0 === f1 > 0 || Math.abs(f0 - f1) < depthEps * 1e-3) continue;
+            const t0 = f0 / (f0 - f1);
+            if (t0 <= 1e-9 || t0 >= 1 - 1e-9) continue;
+            if (baryIn(cx[a], cy[a], cx[b], cy[b], cx[c], cy[c], s.ax + t0 * dx, s.ay + t0 * dy, degen)) ts.push(t0);
+          }
+    }
     ts.sort((a, b) => a - b);
     const skip = exclusion(s.src);
     for (let i = 0; i + 1 < ts.length; i++) {

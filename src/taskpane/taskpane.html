@@ -1137,10 +1137,12 @@
           <label><input type="checkbox" value="iso" checked /> Isometric</label>
           <label><input type="checkbox" value="orbit" /> This view</label>
         </fieldset>
-        <label class="omml-option">
-          <input type="checkbox" id="cad-hidden" />
-          Hidden lines (unticked = as the standard says)
-        </label>
+        <label class="field-label" for="cad-hidden">Hidden lines</label>
+        <select id="cad-hidden" class="lib-select">
+          <option value="">As the standard says</option>
+          <option value="show">Show (dashed)</option>
+          <option value="hide">Hide</option>
+        </select>
         <div id="cad-msg" class="build-readout" aria-live="polite"></div>
         <div class="preview-wrap">
           <span class="preview-label">Drawing</span>

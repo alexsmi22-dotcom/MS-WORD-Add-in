@@ -1,6 +1,6 @@
 // The CAD canvas part catalogue and drawing document (docs/SCOPE-CAD-CANVAS.md R1b).
-import { SHAPES, SHAPE_IDS, defaultParams, partProblems, docToAssembly, serializeDoc, parseDoc, starterDoc, CadDoc, CadPart, ShapeId } from "../cadShapes";
-import { tessellate } from "../cadModel";
+import { SHAPES, SHAPE_IDS, defaultParams, partProblems, docToAssembly, serializeDoc, parseDoc, starterDoc, CadDoc, CadPart, ShapeId, attachCallout, resolveCallouts, overlapNotes } from "../cadShapes";
+import { tessellate, Mesh, flattenLoop, signedArea, DEFAULT_TESS } from "../cadModel";
 import { drawLines, STANDARD_VIEWS } from "../cadLines";
 import { layoutSheet } from "../cadSheet";
 
@@ -110,6 +110,14 @@ describe("the document round-trips, and damage is refused", () => {
     [JSON.stringify({ v: 1, parts: [{ id: "a", name: "A", shape: "gear", params: {}, placement: { translate: [0, 0, 0], rotateDeg: [0, 0, 0] } }], callouts: [], views: [], standard: "asme" }), "a part in the drawing is damaged"],
     [JSON.stringify({ v: 1, parts: [], callouts: [{ anchor: [0, 0], label: "1" }], views: [], standard: "asme" }), "a callout in the drawing is damaged"],
     [JSON.stringify({ v: 1, parts: [], callouts: [], views: [], standard: "din" }), "the drawing names a standard this release does not have"],
+    // Review D7: a shape name that is a key of every object is not a shape.
+    ...["toString", "__proto__", "constructor", "hasOwnProperty"].map((shape) => [
+      JSON.stringify({ v: 1, parts: [{ id: "a", name: "A", shape, params: {}, placement: { translate: [0, 0, 0], rotateDeg: [0, 0, 0] } }], callouts: [], views: [], standard: "asme" }),
+      "a part in the drawing is damaged",
+    ]),
+    [JSON.stringify({ v: 1, parts: [], callouts: [], views: [{ kind: "sideways" }], standard: "asme" }), "a view in the drawing is damaged"],
+    [JSON.stringify({ v: 1, parts: [], callouts: [], views: [{ kind: "orbit", rot: [1, 0, 0] }], standard: "asme" }), "a view in the drawing is damaged"],
+    [JSON.stringify({ v: 1, parts: [], callouts: [{ anchor: [0, 0, 0], label: "1", part: "p1" }], views: [], standard: "asme" }), "a callout in the drawing is damaged"],
   ])("%s → refused", (text, reason) => {
     expect(parseDoc(text)).toEqual({ ok: false, reason });
   });
@@ -124,5 +132,140 @@ describe("re-opening a drawing from its alt text (Edit drawing at cursor)", () =
     expect(json).not.toBeNull();
     expect(parseDoc(json as string)).toEqual({ ok: true, doc: d });
     expect(modelFromAlt("A photo of a pump")).toBeNull();
+  });
+});
+
+describe("callouts belong to their part (review D2)", () => {
+  const meshOfDoc = (d: CadDoc): Mesh => {
+    const a = docToAssembly(d);
+    if (!a.ok) throw new Error(a.reason);
+    const t = tessellate(a.assembly);
+    if (!t.ok) throw new Error(t.reason);
+    return t.mesh;
+  };
+  const blockDoc = (): CadDoc => ({ ...starterDoc("asme"), parts: [{ ...part("box", { w: 40, d: 30, h: 20 }), id: "blk", name: "Block" }] });
+
+  it("moves and turns with the part", () => {
+    const d = blockDoc();
+    d.callouts = [attachCallout(d, 0, [40, 15, 10], "12")]; // centre of the +X face
+    d.parts[0].placement = { translate: [100, 0, 0], rotateDeg: [0, 0, 90] };
+    const r = resolveCallouts(d, meshOfDoc(d));
+    expect(r.notes).toEqual([]);
+    // Turned 90° about Z then moved: local (40, 15, 10) → (−15, 40, 10) + (100, 0, 0).
+    expect(r.callouts).toHaveLength(1);
+    r.callouts[0].anchor.forEach((v, i) => expect(v).toBeCloseTo([85, 40, 10][i], 9));
+  });
+
+  it("a shape with its own frame (the bracket) keeps the point on the part", () => {
+    const d: CadDoc = { ...starterDoc("asme"), parts: [{ ...part("bracket"), id: "br", name: "Bracket" }] };
+    const m = meshOfDoc(d);
+    // Any vertex of the bracket is on it.
+    const p: [number, number, number] = [m.positions[0], m.positions[1], m.positions[2]];
+    d.callouts = [attachCallout(d, 0, p, "3")];
+    d.parts[0].placement = { translate: [5, 6, 7], rotateDeg: [30, 0, 0] };
+    expect(resolveCallouts(d, meshOfDoc(d)).notes).toEqual([]);
+  });
+
+  it("is dropped, with a note, when its part is removed", () => {
+    const d = blockDoc();
+    d.callouts = [attachCallout(d, 0, [40, 15, 10], "12")];
+    d.parts.push({ ...part("cylinder"), id: "cyl", name: "Pin", placement: { translate: [100, 0, 0], rotateDeg: [0, 0, 0] } });
+    d.parts.shift();
+    const r = resolveCallouts(d, meshOfDoc(d));
+    expect(r.callouts).toEqual([]);
+    expect(r.notes).toEqual(["Callout 12's part was removed, so the callout is not drawn."]);
+  });
+
+  it("is dropped, with a note, when the part is resized away from its point — and kept when the point is still on it", () => {
+    const d = blockDoc();
+    d.callouts = [attachCallout(d, 0, [40, 15, 10], "12"), attachCallout(d, 0, [20, 15, 0], "14")]; // +X face; bottom face
+    d.parts[0].params = { w: 30, d: 30, h: 25 }; // narrower: the +X face moved in; the bottom face is still at z = 0
+    const r = resolveCallouts(d, meshOfDoc(d));
+    expect(r.callouts.map((c) => c.label)).toEqual(["14"]);
+    expect(r.notes).toEqual(["Callout 12 no longer touches Block (its dimensions changed), so it is not drawn — place it again."]);
+  });
+
+  it("round-trips through the alt text with its part", () => {
+    const d = blockDoc();
+    d.callouts = [attachCallout(d, 0, [40, 15, 10], "12")];
+    expect(parseDoc(serializeDoc(d))).toEqual({ ok: true, doc: d });
+  });
+});
+
+describe("overlapping parts are named (review B3)", () => {
+  it("says which parts pass through each other, and how they are drawn", () => {
+    const d: CadDoc = {
+      ...starterDoc("asme"),
+      parts: [
+        { ...part("box", { w: 40, d: 40, h: 10 }), id: "a", name: "Base" },
+        { ...part("cylinder", { dia: 10, h: 30 }), id: "b", name: "Pin", placement: { translate: [20, 20, -10], rotateDeg: [0, 0, 0] } },
+      ],
+    };
+    const a = docToAssembly(d);
+    const t = a.ok ? tessellate(a.assembly) : null;
+    if (!t || !t.ok) throw new Error("no mesh");
+    expect(overlapNotes(d, t.mesh)).toEqual(["Base and Pin overlap: they are drawn as separate parts passing through each other, with the line where their surfaces meet."]);
+  });
+});
+
+describe("the cap triangulation covers exactly the outline minus its holes (review D6)", () => {
+  it.each([
+    [2, 1, 8, 80, 50],
+    [20, 10, 20, 1000, 600],
+    [7, 3, 9, 120, 60],
+  ])("plate with %i × %i holes of Ø%i on %i × %i: top-cap area exact, every triangle wound outward, inside a freeze budget", (n, rows, hd, w, d) => {
+    const p = part("plate", { ...defaultParams("plate"), w, d, t: 8, n, rows, hd, edge: Math.max(12, hd) });
+    expect(partProblems(p)).toEqual([]);
+    const a = docToAssembly(doc(p));
+    if (!a.ok) throw new Error(a.reason);
+    const t0 = Date.now();
+    const t = tessellate(a.assembly);
+    expect(Date.now() - t0).toBeLessThan(5000);
+    if (!t.ok) throw new Error(t.reason);
+    const { positions: P, triangles: T, cornerNormals: N } = t.mesh;
+    let area = 0;
+    for (let k = 0; k < T.length / 3; k++) {
+      if (N[9 * k + 2] !== 1) continue; // top cap triangles only
+      const [i, j, l] = [T[3 * k], T[3 * k + 1], T[3 * k + 2]];
+      const s = ((P[3 * j] - P[3 * i]) * (P[3 * l + 1] - P[3 * i + 1]) - (P[3 * l] - P[3 * i]) * (P[3 * j + 1] - P[3 * i + 1])) / 2;
+      expect(s).toBeGreaterThan(-1e-9); // counter-clockwise seen from above: wound outward
+      area += s;
+    }
+    // Exactly the plate minus the holes AS FLATTENED (the same loops, the same tolerance).
+    const spec = SHAPES.plate.build(p.params);
+    expect(spec.profile.holes).toHaveLength(n * rows);
+    const tol = t.mesh.diag * DEFAULT_TESS.relTol;
+    const holeArea = spec.profile.holes.reduce((sum, h) => sum - signedArea(flattenLoop(h, tol).points), 0);
+    expect(area).toBeCloseTo(w * d - holeArea, 6);
+  });
+});
+
+describe("the catalogue cone, as the user adds it (review B1)", () => {
+  it("defaults (pointed): the front view is the closed triangle, both outlines reaching the apex", () => {
+    const p = part("cone");
+    expect(p.params.d2).toBe(0);
+    const a = docToAssembly(doc(p));
+    if (!a.ok) throw new Error(a.reason);
+    const t = tessellate(a.assembly);
+    if (!t.ok) throw new Error(t.reason);
+    const d = drawLines(t.mesh, STANDARD_VIEWS.front);
+    const pts = d.visible.flat();
+    const { d1, h: hh } = p.params;
+    expect(Math.max(...pts.map((q) => q[1])) - Math.min(...pts.map((q) => q[1]))).toBeCloseTo(hh, 4);
+    const len = d.visible.reduce((s, l) => s + l.slice(1).reduce((u, q, i) => u + Math.hypot(q[0] - l[i][0], q[1] - l[i][1]), 0), 0);
+    expect(len).toBeCloseTo(d1 + 2 * Math.hypot(d1 / 2, hh), 1); // within faceting; a missing outline is ~36 short
+  });
+});
+
+describe("parts that only touch are not called overlapping", () => {
+  it("TEST-SCRIPT §0ck Assemble: the default flange set on the starter plate (Move Z 8, X 40)", () => {
+    const d = starterDoc("asme");
+    d.parts.push({ ...part("flange"), id: "f", name: "Flange", placement: { translate: [40, 0, 8], rotateDeg: [0, 0, 0] } });
+    const a = docToAssembly(d);
+    if (!a.ok) throw new Error(a.reason);
+    const t = tessellate(a.assembly);
+    if (!t.ok) throw new Error(t.reason);
+    expect(overlapNotes(d, t.mesh)).toEqual([]);
+    expect(t.mesh.crossings).toEqual([]);
   });
 });

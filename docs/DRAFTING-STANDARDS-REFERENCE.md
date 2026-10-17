@@ -31,12 +31,23 @@ _Code that uses a value cites this file. A value marked **disputed** or **unveri
 | ISO 3098 type B spacing: a = 2/10 h, b ≥ 14/10 h, e = 6/10 h | **Consistent** with the type-B ratios | Use it for text layout in R2. |
 | ISO note heights by sheet: 1.8 mm (A4), 2.5 mm (A1–A3), 3.5 mm (A0) | **Secondary guidance** | The canvas uses 2.5 mm on A4. ISO allows 1.8; 2.5 is the safer legible choice, marked PRODUCT. |
 
+## Projection symbol
+
+| Value | Status | Notes |
+|---|---|---|
+| Symbol = a truncated cone seen from the side (a trapezoid) plus its end view (two concentric circles, both solid) | **Confirmed** | ISO 5456-2 / ASME Y14.3; ISO 128-3 points to ISO 5456-2 for the methods. |
+| Third angle: the trapezoid's short side points TOWARD the circles; first angle: AWAY from them | **Confirmed** | Wikipedia (Multiview orthographic projection) states it in words. Geometry agrees: the end view showing both circles solid must be the view of the narrow end, and third angle draws the view from the left on the left. |
+| The canvas draws the same frustum in both, narrow end LEFT: circles left (third angle), right (first angle) | **Implemented** | One teaching page (RMIT) draws the first-angle symbol with the cone mirrored and the circles on the right. That arrangement would show the inner circle hidden, so it was not followed. Pinned by an orientation test (cadSheet.test.ts). |
+
 ## Scale factors (from the reference)
 
 CAD text height = paper height × scale denominator. For example, 2.5 mm at 1:5 is 12.5 mm in model space. This is arithmetic, correct by construction. The canvas lays out text in paper space, so it never needs model-space text heights.
 
 ## Sources
 
+- [Wikipedia: Multiview orthographic projection (projection symbols)](https://en.wikipedia.org/wiki/Multiview_orthographic_projection)
+- [RMIT Learning Lab: first- and third-angle symbols](https://learninglab.rmit.edu.au/dlsweb/Toolbox/electrotech/toolbox1204/resources/03workshop/02drawings/03views.htm)
+- [ISO 128-3:2022 (points to ISO 5456-2)](https://iteh.es/catalog/standards/iso/75d888a5-6e9a-4fac-9120-8f2dffc20899/iso-128-3-2022)
 - [Eng-Tips: ASME Y14.2 thread](https://eng-tips.com/threads/asme-y14-2.497711)
 - [Chapter 6 course deck (ASME line conventions)](https://www.slideserve.com/renee/chapter-6)
 - [Machinery's Handbook Pocket Companion: Standards for Drawings](https://www.globalspec.com/reference/68262/203279/Standards-for-Drawings)

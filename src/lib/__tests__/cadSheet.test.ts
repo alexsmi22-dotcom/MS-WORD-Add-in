@@ -51,6 +51,26 @@ describe("projection arrangement", () => {
     expect(layoutSheet(L, { standard: "asme", views }).svg).toMatch(/<g fill="none" stroke="#000"><path d="M[^"]+Z"/);
     expect(layoutSheet(L, { standard: "uspto", views }).svg).not.toMatch(/Z" stroke-width/);
   });
+
+  // ISO 5456-2 / ASME Y14.3 (review B2): the frustum is the same in both symbols; third
+  // angle's short side points TOWARD the circles, first angle's AWAY from them.
+  it.each([["asme", "third"], ["iso", "first"]] as const)("%s (%s angle): the frustum's short side points the right way", (std, angle) => {
+    const svg = layoutSheet(L, { standard: std, views }).svg;
+    const path = /<g fill="none" stroke="#000"><path d="M([^"]+)Z"/.exec(svg)![1];
+    const pts = path.split("L").map((s) => s.split(" ").map(Number));
+    const cx = +/<circle cx="([\d.]+)"/.exec(svg.slice(svg.indexOf('<g fill="none" stroke="#000"><path')))![1];
+    // The frustum's two vertical sides: x of each, and its height.
+    const sides = new Map<number, number[]>();
+    for (const [x, y] of pts) sides.set(x, [...(sides.get(x) ?? []), y]);
+    expect(sides.size).toBe(2);
+    const [[xa, ya], [xb, yb]] = [...sides.entries()].sort((a, b) => a[0] - b[0]);
+    const hA = Math.abs(ya[0] - ya[1]), hB = Math.abs(yb[0] - yb[1]);
+    expect(hA).toBeLessThan(hB); // narrow end on the LEFT in both
+    const shortX = xa, longX = xb;
+    const towardCircles = Math.abs(shortX - cx) < Math.abs(longX - cx);
+    expect(towardCircles).toBe(angle === "third");
+    expect(cx < xa).toBe(angle === "third"); // third: circles on the left; first: on the right
+  });
 });
 
 describe("labels and numbering", () => {
@@ -111,6 +131,13 @@ describe("callouts", () => {
     expect(pointHidden(L, STANDARD_VIEWS.back, onBaseTop)).toBe(true);
   });
 
+  it("a point exactly behind the edge of a nearer face is hidden (inclusive, as the line engine — review D5)", () => {
+    const m = meshOf(body(box(2, 2, 2)), body(box(4, 1, 4), { translate: [-1, 5, -1], rotateDeg: [0, 0, 0] }));
+    // On the rear block's front face, straight behind the near block's left edge (x = 0) in the front view.
+    expect(pointHidden(m, STANDARD_VIEWS.front, [0, 5, 1])).toBe(true);
+    expect(pointHidden(m, STANDARD_VIEWS.front, [-0.5, 5, 1])).toBe(false);
+  });
+
   it("a callout appears in every view that shows its point, and the sheet says when none does", () => {
     const sh = layoutSheet(L, { standard: "asme", views: [{ kind: "top" }, { kind: "iso" }], callouts: [{ anchor: onBaseTop, label: "7" }] });
     expect(sh.svg.match(/>7<\/text>/g) ?? []).toHaveLength(2);
@@ -125,6 +152,66 @@ describe("callouts", () => {
     expect(ys).toHaveLength(3);
     ys.sort((a, b) => a.y - b.y);
     for (let i = 1; i < ys.length; i++) expect(ys[i].y - ys[i - 1].y).toBeGreaterThanOrEqual(2 * ys[i].r);
+  });
+});
+
+/** Balloons and view-title boxes of a sheet (px), for collision checks. */
+function sheetBoxes(svg: string): { balloons: Array<{ x: number; y: number; r: number }>; titles: Array<{ x0: number; x1: number; y0: number; y1: number; t: string }> } {
+  const balloons = [...svg.matchAll(/<circle cx="([\d.]+)" cy="([\d.]+)" r="([\d.]+)" fill="#fff"/g)].map((m) => ({ x: +m[1], y: +m[2], r: +m[3] }));
+  const titles = [...svg.matchAll(/<text x="([\d.]+)" y="([\d.]+)" text-anchor="middle" font-family="[^"]*" font-size="([\d.]+)"[^>]*>([A-Z][A-Z .0-9]+)<\/text>/g)].map((m) => {
+    const x = +m[1], y = +m[2], f = +m[3], w = m[4].length * 0.62 * f;
+    return { x0: x - w / 2, x1: x + w / 2, y0: y - 0.75 * f, y1: y + 0.25 * f, t: m[4] };
+  });
+  return { balloons, titles };
+}
+const sheetSize = (svg: string): { w: number; h: number } => {
+  const m = /<svg [^>]*width="([\d.]+)" height="([\d.]+)"/.exec(svg)!;
+  return { w: +m[1], h: +m[2] };
+};
+
+describe("callouts and titles stay on the sheet and clear of each other (review D3, D4)", () => {
+  // A thin plate: its front view is a sliver, far shorter than a stack of balloons.
+  const plate = meshOf(body(box(40, 30, 1)));
+  const anchors: Array<[number, number, number]> = [0, 1, 2, 3, 4, 5, 6, 7].map((i) => [39.5, 1 + i * 3.5, 1]);
+  it.each(["asme", "iso", "uspto"] as const)("%s: 8 callouts on a thin plate, four views", (std) => {
+    const sh = layoutSheet(plate, { standard: std, views, callouts: anchors.map((a, i) => ({ anchor: a, label: String(10 + 2 * i) })) });
+    const { w, h } = sheetSize(sh.svg);
+    const { balloons, titles } = sheetBoxes(sh.svg);
+    if (std !== "uspto") expect(balloons.length).toBeGreaterThanOrEqual(8);
+    for (const b of balloons) {
+      expect(b.x - b.r).toBeGreaterThanOrEqual(0);
+      expect(b.y - b.r).toBeGreaterThanOrEqual(0);
+      expect(b.x + b.r).toBeLessThanOrEqual(w);
+      expect(b.y + b.r).toBeLessThanOrEqual(h);
+      for (const t of titles) {
+        const clear = b.x + b.r <= t.x0 || b.x - b.r >= t.x1 || b.y + b.r <= t.y0 || b.y - b.r >= t.y1;
+        expect({ balloon: b, title: t.t, clear }).toMatchObject({ clear: true });
+      }
+    }
+    for (let i = 0; i < balloons.length; i++)
+      for (let j = i + 1; j < balloons.length; j++) {
+        const [p, q] = [balloons[i], balloons[j]];
+        expect(Math.hypot(p.x - q.x, p.y - q.y)).toBeGreaterThanOrEqual(p.r + q.r - 1e-6);
+      }
+    // USPTO numerals: every one inside the sheet too.
+    for (const m of sh.svg.matchAll(/<text x="([\d.]+)" y="([\d.]+)"[^>]*>(\d+)<\/text>/g)) {
+      expect(+m[1]).toBeGreaterThanOrEqual(0);
+      expect(+m[1]).toBeLessThanOrEqual(w);
+      expect(+m[2]).toBeGreaterThanOrEqual(0);
+      expect(+m[2]).toBeLessThanOrEqual(h);
+    }
+  });
+
+  it.each(["asme", "iso", "uspto"] as const)("%s: a slender rod's view titles never overlap one another", (std) => {
+    const rod = meshOf(body(box(0.4, 0.4, 20)));
+    const { titles } = sheetBoxes(layoutSheet(rod, { standard: std, views }).svg);
+    expect(titles).toHaveLength(4);
+    for (let i = 0; i < titles.length; i++)
+      for (let j = i + 1; j < titles.length; j++) {
+        const [p, q] = [titles[i], titles[j]];
+        const clear = p.x1 <= q.x0 || q.x1 <= p.x0 || p.y1 <= q.y0 || q.y1 <= p.y0;
+        expect({ a: p.t, b: q.t, clear }).toMatchObject({ clear: true });
+      }
   });
 });
 

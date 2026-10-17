@@ -13,13 +13,17 @@
  * picture's alt text and to and from the large-canvas dialog.
  */
 import {
+  apply3,
   Assembly,
   BodySpec,
   circleLoop,
   Loop,
+  Mesh,
+  mul3,
   Placement,
   Pt2,
   rectLoop,
+  rotationMatrix,
   Vec3,
 } from "./cadModel";
 import type { StandardId } from "./cadStandards";
@@ -259,10 +263,20 @@ export interface CadPart {
   placement: Placement;
 }
 
+/**
+ * A callout in the document. One placed on a part carries the part's id and the
+ * point in the PART'S own coordinates, so it moves and turns with the part
+ * (review D2); `anchor` is where it was when placed.
+ */
+export interface DocCallout extends Callout {
+  part?: string;
+  local?: Vec3;
+}
+
 export interface CadDoc {
   v: 1;
   parts: CadPart[];
-  callouts: Callout[];
+  callouts: DocCallout[];
   standard: StandardId;
   views: ViewSpec[];
 }
@@ -310,6 +324,97 @@ export function docToAssembly(doc: CadDoc): { ok: true; assembly: Assembly } | {
   };
 }
 
+// ---- callouts that belong to parts ------------------------------------------------------------
+
+/** The part's rotation (its shape's frame, then its turn) and translation: world = R·local + T. */
+function partTransform(p: CadPart): { R: number[]; T: Vec3 } {
+  const frame = SHAPES[p.shape].frame;
+  const turn = rotationMatrix(p.placement.rotateDeg);
+  return { R: frame ? mul3(turn, frame) : turn, T: p.placement.translate };
+}
+
+/** A callout on part `partIndex` at world point `world` (from pickAt), stored in the part's coordinates. */
+export function attachCallout(doc: CadDoc, partIndex: number, world: Vec3, label: string): DocCallout {
+  const p = doc.parts[partIndex];
+  if (!p) return { anchor: world, label };
+  const { R, T } = partTransform(p);
+  const d: Vec3 = [world[0] - T[0], world[1] - T[1], world[2] - T[2]];
+  // R is a rotation (orthonormal): its inverse is its transpose.
+  const local: Vec3 = [R[0] * d[0] + R[3] * d[1] + R[6] * d[2], R[1] * d[0] + R[4] * d[1] + R[7] * d[2], R[2] * d[0] + R[5] * d[1] + R[8] * d[2]];
+  return { anchor: world, label, part: p.id, local };
+}
+
+function closestOnTri(p: Vec3, a: Vec3, b: Vec3, c: Vec3): Vec3 {
+  // Ericson, Real-Time Collision Detection §5.1.5.
+  const sub = (u: Vec3, v: Vec3): Vec3 => [u[0] - v[0], u[1] - v[1], u[2] - v[2]];
+  const dot = (u: Vec3, v: Vec3): number => u[0] * v[0] + u[1] * v[1] + u[2] * v[2];
+  const along = (o: Vec3, u: Vec3, t: number): Vec3 => [o[0] + t * u[0], o[1] + t * u[1], o[2] + t * u[2]];
+  const ab = sub(b, a), ac = sub(c, a), ap = sub(p, a);
+  const d1 = dot(ab, ap), d2 = dot(ac, ap);
+  if (d1 <= 0 && d2 <= 0) return a;
+  const bp = sub(p, b), d3 = dot(ab, bp), d4 = dot(ac, bp);
+  if (d3 >= 0 && d4 <= d3) return b;
+  const vc = d1 * d4 - d3 * d2;
+  if (vc <= 0 && d1 >= 0 && d3 <= 0) return along(a, ab, d1 / (d1 - d3));
+  const cp = sub(p, c), d5 = dot(ab, cp), d6 = dot(ac, cp);
+  if (d6 >= 0 && d5 <= d6) return c;
+  const vb = d5 * d2 - d1 * d6;
+  if (vb <= 0 && d2 >= 0 && d6 <= 0) return along(a, ac, d2 / (d2 - d6));
+  const va = d3 * d6 - d5 * d4;
+  if (va <= 0 && d4 - d3 >= 0 && d5 - d6 >= 0) return along(b, sub(c, b), (d4 - d3) / (d4 - d3 + (d5 - d6)));
+  const den = 1 / (va + vb + vc);
+  const v = vb * den, w = vc * den;
+  return [a[0] + ab[0] * v + ac[0] * w, a[1] + ab[1] * v + ac[1] * w, a[2] + ab[2] * v + ac[2] * w];
+}
+
+/**
+ * Where each callout is now (world points for the sheet), and why any is not
+ * drawn: its part was removed, or the part's dimensions changed so the point is
+ * no longer on it — a leader to empty space would be a wrong drawing.
+ * `mesh` must be tessellated from this document (body i = part i).
+ */
+export function resolveCallouts(doc: CadDoc, mesh: Mesh): { callouts: Callout[]; notes: string[] } {
+  const out: Callout[] = [];
+  const notes: string[] = [];
+  const P = mesh.positions, Tr = mesh.triangles;
+  const V = (i: number): Vec3 => [P[3 * i], P[3 * i + 1], P[3 * i + 2]];
+  // Within the tessellation's chord tolerance: a re-built curved part's facets move that much.
+  const tol = mesh.diag * 1e-3;
+  for (const c of doc.callouts) {
+    if (!c.part || !c.local) {
+      out.push({ anchor: c.anchor, label: c.label });
+      continue;
+    }
+    const bi = doc.parts.findIndex((p) => p.id === c.part);
+    if (bi < 0) {
+      notes.push(`Callout ${c.label}'s part was removed, so the callout is not drawn.`);
+      continue;
+    }
+    const { R, T } = partTransform(doc.parts[bi]);
+    const w = apply3(R, c.local);
+    const at: Vec3 = [w[0] + T[0], w[1] + T[1], w[2] + T[2]];
+    let best = Infinity;
+    for (let t = 0; t < Tr.length / 3 && best > tol; t++) {
+      if (mesh.triBody[t] !== bi) continue;
+      const q = closestOnTri(at, V(Tr[3 * t]), V(Tr[3 * t + 1]), V(Tr[3 * t + 2]));
+      best = Math.min(best, Math.hypot(q[0] - at[0], q[1] - at[1], q[2] - at[2]));
+    }
+    if (best > tol) {
+      notes.push(`Callout ${c.label} no longer touches ${doc.parts[bi].name} (its dimensions changed), so it is not drawn — place it again.`);
+      continue;
+    }
+    out.push({ anchor: at, label: c.label });
+  }
+  return { callouts: out, notes };
+}
+
+/** Plain words for parts that pass through each other (cadModel Mesh.overlaps; body i = part i). */
+export function overlapNotes(doc: CadDoc, mesh: Mesh): string[] {
+  return mesh.overlaps.map(
+    ([i, j]) => `${doc.parts[i]?.name ?? "A part"} and ${doc.parts[j]?.name ?? "a part"} overlap: they are drawn as separate parts passing through each other, with the line where their surfaces meet.`,
+  );
+}
+
 const isNum = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
 const isVec = (v: unknown): v is Vec3 => Array.isArray(v) && v.length === 3 && v.every(isNum);
 
@@ -330,11 +435,21 @@ export function parseDoc(text: string): { ok: true; doc: CadDoc } | { ok: false;
   if (!d || typeof d !== "object" || d.v !== 1) return { ok: false, reason: "this drawing was saved by a version this release cannot read" };
   if (!Array.isArray(d.parts) || !Array.isArray(d.callouts) || !Array.isArray(d.views)) return { ok: false, reason: "the drawing is missing its parts, callouts or views" };
   for (const p of d.parts as CadPart[]) {
-    if (!p || typeof p.id !== "string" || typeof p.name !== "string" || !(p.shape in SHAPES)) return { ok: false, reason: "a part in the drawing is damaged" };
+    if (!p || typeof p.id !== "string" || typeof p.name !== "string" || !Object.prototype.hasOwnProperty.call(SHAPES, p.shape)) return { ok: false, reason: "a part in the drawing is damaged" };
     if (!p.placement || !isVec(p.placement.translate) || !isVec(p.placement.rotateDeg)) return { ok: false, reason: `part ${p.name} has a damaged placement` };
     if (!p.params || typeof p.params !== "object") return { ok: false, reason: `part ${p.name} has no dimensions` };
   }
-  for (const c of d.callouts as Callout[]) if (!c || !isVec(c.anchor) || typeof c.label !== "string") return { ok: false, reason: "a callout in the drawing is damaged" };
+  for (const c of d.callouts as DocCallout[]) {
+    if (!c || !isVec(c.anchor) || typeof c.label !== "string") return { ok: false, reason: "a callout in the drawing is damaged" };
+    if ((c.part !== undefined || c.local !== undefined) && (typeof c.part !== "string" || !isVec(c.local))) return { ok: false, reason: "a callout in the drawing is damaged" };
+  }
+  const kinds = ["front", "top", "right", "left", "back", "bottom", "iso", "orbit"];
+  for (const v of d.views as ViewSpec[]) {
+    if (!v || typeof v !== "object" || !kinds.includes(String(v.kind))) return { ok: false, reason: "a view in the drawing is damaged" };
+    if (v.kind === "orbit" && ((v.rot !== undefined && !(Array.isArray(v.rot) && v.rot.length === 9 && v.rot.every(isNum))) || (v.deg !== undefined && !isVec(v.deg)))) {
+      return { ok: false, reason: "a view in the drawing is damaged" };
+    }
+  }
   const stds = ["asme", "iso", "uspto", "journal", "plain"];
   if (!stds.includes(String(d.standard))) return { ok: false, reason: "the drawing names a standard this release does not have" };
   return { ok: true, doc: d as CadDoc };

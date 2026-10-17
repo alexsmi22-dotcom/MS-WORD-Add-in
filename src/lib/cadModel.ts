@@ -313,6 +313,15 @@ export interface Mesh {
   edges: Array<{ a: number; b: number; body: number }>;
   /** Size of the model's bounding box diagonal. */
   diag: number;
+  /**
+   * Where one body's surface crosses another's (world coordinates), each piece
+   * from the two triangles that cross. Parts that overlap are drawn as separate
+   * parts that interfere — not merged — so this curve is a real line of the
+   * drawing, and every line of one part inside the other is hidden.
+   */
+  crossings: Array<{ a: Vec3; b: Vec3; tris: [number, number] }>;
+  /** Pairs of bodies (indices) whose surfaces cross. */
+  overlaps: Array<[number, number]>;
 }
 
 export interface TessOptions {
@@ -320,6 +329,8 @@ export interface TessOptions {
   relTol: number;
   /** Refuse above this many triangles (a work bound: never freeze Word). */
   maxTriangles: number;
+  /** Refuse when finding where overlapping parts cross needs more triangle-pair tests than this. */
+  maxPairTests?: number;
 }
 
 export const DEFAULT_TESS: TessOptions = { relTol: 2e-4, maxTriangles: 200_000 };
@@ -378,7 +389,7 @@ export function tessellate(a: Assembly, opts: TessOptions = DEFAULT_TESS): TessR
   if (problems.length) return { ok: false, reason: problems.map((p) => `${p.body}: ${p.reason}`).join("; ") };
   const diag = assemblyDiag(a);
   const tol = diag * opts.relTol;
-  const m: Mesh = { positions: [], triangles: [], cornerNormals: [], triBody: [], edges: [], diag };
+  const m: Mesh = { positions: [], triangles: [], cornerNormals: [], triBody: [], edges: [], diag, crossings: [], overlaps: [] };
   for (const [bi, b] of a.bodies.entries()) {
     const R = b.frame ? mul3(rotationMatrix(b.placement.rotateDeg), b.frame) : rotationMatrix(b.placement.rotateDeg);
     const T = b.placement.translate;
@@ -396,7 +407,10 @@ export function tessellate(a: Assembly, opts: TessOptions = DEFAULT_TESS): TessR
     const edge = (i: number, j: number): void => {
       m.edges.push({ a: i, b: j, body: bi });
     };
-    const r = b.spec.kind === "extrude" ? tessExtrude(b.spec, tol, put, tri, edge) : tessRevolve(b.spec, tol, put, tri, edge);
+    // A small part beside a large one keeps its own shape: its tolerance never exceeds
+    // ten times the relative tolerance of its OWN size (a 2 mm pin by a 1 m plate was a hexagon).
+    const tolB = Math.min(tol, assemblyDiag({ version: 1, bodies: [b] }) * opts.relTol * 10);
+    const r = b.spec.kind === "extrude" ? tessExtrude(b.spec, tolB, put, tri, edge) : tessRevolve(b.spec, tolB, put, tri, edge);
     if (r) return { ok: false, reason: `${b.name || b.id}: ${r}` };
     if (m.triangles.length / 3 > opts.maxTriangles) {
       return {
@@ -405,7 +419,171 @@ export function tessellate(a: Assembly, opts: TessOptions = DEFAULT_TESS): TessR
       };
     }
   }
+  const bad = findCrossings(m, a.bodies.length, opts.maxPairTests ?? 4_000_000);
+  if (bad) {
+    const nm = (i: number): string => a.bodies[i].name || a.bodies[i].id;
+    return {
+      ok: false,
+      reason: `${nm(bad[0])} and ${nm(bad[1])} overlap over too much curved surface to work out where they cross — move them apart, or overlap them less`,
+    };
+  }
   return { ok: true, mesh: m };
+}
+
+// ---- where overlapping bodies cross ----------------------------------------------------------
+
+/**
+ * Fills m.crossings / m.overlaps. Only bodies whose boxes overlap are compared,
+ * through a 3D grid; the triangle-pair tests are counted against a bound, and
+ * the pair that runs over is returned (the caller refuses by name — a drawing
+ * with its intersection lines silently missing would be a plausible wrong one).
+ * Coplanar contact draws nothing; a crossing that runs along an edge already
+ * drawn (a block standing on a plate) is not drawn twice.
+ */
+function findCrossings(m: Mesh, nBodies: number, maxTests: number): [number, number] | null {
+  if (nBodies < 2) return null;
+  const P = m.positions, T = m.triangles;
+  const ntri = T.length / 3;
+  const tol = m.diag * 1e-9;
+  const V = (i: number): Vec3 => [P[3 * i], P[3 * i + 1], P[3 * i + 2]];
+  // Triangle boxes, body boxes.
+  const tlo = new Float64Array(3 * ntri), thi = new Float64Array(3 * ntri);
+  const blo = Array.from({ length: nBodies }, () => [Infinity, Infinity, Infinity]);
+  const bhi = Array.from({ length: nBodies }, () => [-Infinity, -Infinity, -Infinity]);
+  const byBody: number[][] = Array.from({ length: nBodies }, () => []);
+  for (let t = 0; t < ntri; t++) {
+    const b = m.triBody[t];
+    byBody[b].push(t);
+    for (let k = 0; k < 3; k++) {
+      let lo = Infinity, hi = -Infinity;
+      for (let c = 0; c < 3; c++) {
+        const v = P[3 * T[3 * t + c] + k];
+        if (v < lo) lo = v;
+        if (v > hi) hi = v;
+      }
+      tlo[3 * t + k] = lo;
+      thi[3 * t + k] = hi;
+      if (lo < blo[b][k]) blo[b][k] = lo;
+      if (hi > bhi[b][k]) bhi[b][k] = hi;
+    }
+  }
+  // Drawable edges by exact endpoint coordinates (a wall shares its rim's computed positions).
+  const ck = (p: Vec3): string => `${p[0]},${p[1]},${p[2]}`;
+  const drawn = new Set<string>();
+  for (const e of m.edges) {
+    const ka = ck(V(e.a)), kb = ck(V(e.b));
+    drawn.add(ka < kb ? `${ka}|${kb}` : `${kb}|${ka}`);
+  }
+  const seen = new Set<string>();
+  let tests = 0;
+  for (let A = 0; A < nBodies; A++) {
+    for (let B = A + 1; B < nBodies; B++) {
+      const lo = [0, 1, 2].map((k) => Math.max(blo[A][k], blo[B][k]) - tol);
+      const hi = [0, 1, 2].map((k) => Math.min(bhi[A][k], bhi[B][k]) + tol);
+      if (lo.some((v, k) => v > hi[k])) continue;
+      const inBox = (t: number): boolean => [0, 1, 2].every((k) => tlo[3 * t + k] <= hi[k] && thi[3 * t + k] >= lo[k]);
+      const ta = byBody[A].filter(inBox), tb = byBody[B].filter(inBox);
+      if (!ta.length || !tb.length) continue;
+      // 3D grid over the overlap box holding B's triangles.
+      const res = Math.max(1, Math.min(48, Math.round(Math.cbrt(tb.length))));
+      const size = [0, 1, 2].map((k) => (hi[k] - lo[k]) / res || 1);
+      const cell = (v: number, k: number): number => Math.max(0, Math.min(res - 1, Math.floor((v - lo[k]) / size[k])));
+      const grid: number[][] = Array.from({ length: res * res * res }, () => []);
+      for (const t of tb) {
+        const [x0, y0, z0] = [0, 1, 2].map((k) => cell(tlo[3 * t + k], k));
+        const [x1, y1, z1] = [0, 1, 2].map((k) => cell(thi[3 * t + k], k));
+        for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) for (let z = z0; z <= z1; z++) grid[(x * res + y) * res + z].push(t);
+      }
+      const stamp = new Int32Array(ntri).fill(-1);
+      let crossed = false;
+      for (const s of ta) {
+        const [x0, y0, z0] = [0, 1, 2].map((k) => cell(tlo[3 * s + k], k));
+        const [x1, y1, z1] = [0, 1, 2].map((k) => cell(thi[3 * s + k], k));
+        for (let x = x0; x <= x1; x++)
+          for (let y = y0; y <= y1; y++)
+            for (let z = z0; z <= z1; z++)
+              for (const t of grid[(x * res + y) * res + z]) {
+                if (stamp[t] === s) continue;
+                stamp[t] = s;
+                if ([0, 1, 2].some((k) => tlo[3 * s + k] > thi[3 * t + k] + tol || thi[3 * s + k] < tlo[3 * t + k] - tol)) continue;
+                if (++tests > maxTests) return [A, B];
+                const sa = [V(T[3 * s]), V(T[3 * s + 1]), V(T[3 * s + 2])];
+                const sb = [V(T[3 * t]), V(T[3 * t + 1]), V(T[3 * t + 2])];
+                const seg = triTriSegment(sa, sb, tol);
+                if (!seg) continue;
+                if (alongDrawnEdge(seg, sa, drawn, ck, tol) || alongDrawnEdge(seg, sb, drawn, ck, tol)) continue;
+                crossed = true; // a real crossing, not contact along an edge already drawn
+                const q = (p: Vec3): string => p.map((v) => Math.round(v / (tol * 1000))).join(",");
+                const ka = q(seg[0]), kb = q(seg[1]);
+                const key = ka < kb ? `${ka}|${kb}` : `${kb}|${ka}`;
+                if (seen.has(key)) continue;
+                seen.add(key);
+                m.crossings.push({ a: seg[0], b: seg[1], tris: [s, t] });
+              }
+      }
+      if (crossed) m.overlaps.push([A, B]);
+    }
+  }
+  return null;
+}
+
+const sub3 = (a: Vec3, b: Vec3): Vec3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+const dot3 = (a: Vec3, b: Vec3): number => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const cross3 = (a: Vec3, b: Vec3): Vec3 => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+
+/** Where triangle a crosses the plane (n, d): 0–2 points (a vertex on the plane counts once). */
+function planeCut(a: Vec3[], n: Vec3, d: number, tol: number): Vec3[] {
+  const s = a.map((p) => dot3(n, p) - d);
+  const out: Vec3[] = [];
+  for (let i = 0; i < 3; i++) {
+    const j = (i + 1) % 3;
+    if (Math.abs(s[i]) <= tol) out.push(a[i]);
+    else if (Math.abs(s[j]) > tol && s[i] > 0 !== s[j] > 0) {
+      const f = s[i] / (s[i] - s[j]);
+      out.push([a[i][0] + f * (a[j][0] - a[i][0]), a[i][1] + f * (a[j][1] - a[i][1]), a[i][2] + f * (a[j][2] - a[i][2])]);
+    }
+  }
+  return out;
+}
+
+/** The segment where two triangles cross, or null (apart, touching at a point, or coplanar). */
+export function triTriSegment(a: Vec3[], b: Vec3[], tol: number): [Vec3, Vec3] | null {
+  const na = cross3(sub3(a[1], a[0]), sub3(a[2], a[0]));
+  const nb = cross3(sub3(b[1], b[0]), sub3(b[2], b[0]));
+  const la = Math.hypot(...na), lb = Math.hypot(...nb);
+  if (la < tol * tol || lb < tol * tol) return null;
+  const ua: Vec3 = [na[0] / la, na[1] / la, na[2] / la], ub: Vec3 = [nb[0] / lb, nb[1] / lb, nb[2] / lb];
+  const D = cross3(ua, ub);
+  if (Math.hypot(...D) < 1e-9) return null; // parallel or coplanar: no crossing line
+  const ca = planeCut(a, ub, dot3(ub, b[0]), tol);
+  const cb = planeCut(b, ua, dot3(ua, a[0]), tol);
+  if (ca.length < 2 || cb.length < 2) return null;
+  const pa = [ca[0], ca[ca.length - 1]], pb = [cb[0], cb[cb.length - 1]];
+  const sA = pa.map((p) => dot3(p, D)), sB = pb.map((p) => dot3(p, D));
+  const lo = Math.max(Math.min(...sA), Math.min(...sB));
+  const hiS = Math.min(Math.max(...sA), Math.max(...sB));
+  if (hiS - lo <= tol) return null;
+  const at = (s: number): Vec3 => {
+    const [p, q, s0, s1] = Math.abs(sA[1] - sA[0]) > tol ? [pa[0], pa[1], sA[0], sA[1]] : [pb[0], pb[1], sB[0], sB[1]];
+    const f = (s - s0) / (s1 - s0);
+    return [p[0] + f * (q[0] - p[0]), p[1] + f * (q[1] - p[1]), p[2] + f * (q[2] - p[2])];
+  };
+  return [at(lo), at(hiS)];
+}
+
+/** Does the segment lie along a side of triangle tri that is a drawn edge? */
+function alongDrawnEdge(seg: [Vec3, Vec3], tri: Vec3[], drawn: Set<string>, ck: (p: Vec3) => string, tol: number): boolean {
+  for (let i = 0; i < 3; i++) {
+    const p = tri[i], q = tri[(i + 1) % 3];
+    const e = sub3(q, p);
+    const L = Math.hypot(...e);
+    if (L <= tol) continue;
+    const onSide = (x: Vec3): boolean => Math.hypot(...cross3(sub3(x, p), e)) / L <= tol * 1000;
+    if (!onSide(seg[0]) || !onSide(seg[1])) continue;
+    const ka = ck(p), kb = ck(q);
+    if (drawn.has(ka < kb ? `${ka}|${kb}` : `${kb}|${ka}`)) return true;
+  }
+  return false;
 }
 
 type Put = (p: Vec3) => number;
@@ -482,8 +660,22 @@ function tessRevolve(spec: Extract<BodySpec, { kind: "revolve" }>, tol: number, 
   const onAxis = (p: Pt2): boolean => Math.abs(p[0]) <= rmax * 1e-9;
   // ring[i][j]: vertex of profile point i at angle step j (one vertex on the axis).
   const angle = (j: number): number => (2 * Math.PI * j) / steps;
-  const ring: number[][] = L.points.map((p) => {
+  // A SHARP point on the axis (a cone's apex) has no single normal: one shared vertex
+  // would give each fan triangle a different apex normal and break the outline short
+  // of the apex. It gets a ring of its own vertices instead, at a radius far below any
+  // drawable size, so every meridian keeps its own normal right up to the tip. A
+  // smooth pole (a sphere's, normal along the axis) keeps its single vertex.
+  const sharpApex = (i: number): boolean => {
+    const prev = (i - 1 + n) % n;
+    const ends: Pt2[] = [];
+    if (!onAxis(L.points[prev])) ends.push(L.edgeNormals[prev][1]);
+    if (!onAxis(L.points[(i + 1) % n])) ends.push(L.edgeNormals[i][0]);
+    return ends.some((nn) => Math.abs(nn[0]) > 1e-6);
+  };
+  const apexR = rmax * 1e-7;
+  const ring: number[][] = L.points.map((p, i) => {
     if (onAxis(p)) {
+      if (sharpApex(i)) return Array.from({ length: steps }, (_, j) => put([apexR * Math.cos(angle(j)), apexR * Math.sin(angle(j)), p[1]]));
       const v = put([0, 0, p[1]]);
       return new Array(steps).fill(v);
     }
@@ -500,8 +692,9 @@ function tessRevolve(spec: Extract<BodySpec, { kind: "revolve" }>, tol: number, 
       const j1 = (j + 1) % steps;
       const a0 = ring[i][j], a1 = ring[i][j1], b0 = ring[k][j], b1 = ring[k][j1];
       // Profile runs CCW in (r,z): with outward normals the band's triangles wind outward.
-      if (!axisA) tri(a0, a1, b1, n3(nA, j), n3(nA, j1), n3(nB, j1));
-      if (!axisB) tri(a0, b1, b0, n3(nA, j), n3(nB, j1), n3(nB, j));
+      // (An apex ring has distinct vertices, so both triangles of its band are kept.)
+      if (a0 !== a1) tri(a0, a1, b1, n3(nA, j), n3(nA, j1), n3(nB, j1));
+      if (b0 !== b1) tri(a0, b1, b0, n3(nA, j), n3(nB, j1), n3(nB, j));
     }
   }
   // Parallels: the circle swept by a profile CORNER is a crease. Meridians are smooth.
@@ -526,8 +719,8 @@ function segsIntersect(p1: Pt2, p2: Pt2, q1: Pt2, q2: Pt2): boolean {
 /**
  * Triangles (indices into [outer, ...holes] concatenated) covering the outer
  * polygon minus the holes. Outer CCW, holes CW. Null when it cannot be done
- * (self-intersection), which the caller refuses by name. O(n²): bounded by the
- * triangle cap, which the flattening tolerance keeps small for real profiles.
+ * (self-intersection), which the caller refuses by name. Bounded by the triangle
+ * cap, which the flattening tolerance keeps small for real profiles.
  */
 export function triangulateWithHoles(outer: Pt2[], holes: Pt2[][]): number[] | null {
   const pts: Pt2[] = [...outer, ...holes.flat()];
@@ -547,20 +740,20 @@ export function triangulateWithHoles(outer: Pt2[], holes: Pt2[][]): number[] | n
     let mi = 0;
     for (let k = 1; k < h.length; k++) if (h[k][0] > h[mi][0]) mi = k;
     const M = h[mi];
-    // The closest polygon vertex whose bridge from M crosses no edge.
-    let best = -1;
-    let bestD = Infinity;
+    // The closest polygon vertex whose bridge from M crosses no edge: candidates
+    // nearest first, so the first clear one is the answer (review D6 — testing
+    // every vertex against every edge made a 200-hole plate take a second).
     const holeIdx = h.map((_, k) => base + k);
     const allEdges: Array<[Pt2, Pt2]> = [];
     for (let k = 0; k < poly.length; k++) allEdges.push([pts[poly[k]], pts[poly[(k + 1) % poly.length]]]);
     for (const hh of holes) for (let k = 0; k < hh.length; k++) allEdges.push([hh[k], hh[(k + 1) % hh.length]]);
-    for (let k = 0; k < poly.length; k++) {
+    const byDist = poly.map((q, k) => ({ k, d: (pts[q][0] - M[0]) ** 2 + (pts[q][1] - M[1]) ** 2 })).sort((p, q) => p.d - q.d);
+    let best = -1;
+    for (const { k } of byDist) {
       const P = pts[poly[k]];
-      const d = (P[0] - M[0]) ** 2 + (P[1] - M[1]) ** 2;
-      if (d >= bestD) continue;
       if (allEdges.some(([u, v]) => segsIntersect(M, P, u, v))) continue;
       best = k;
-      bestD = d;
+      break;
     }
     if (best < 0) return null;
     // Splice: ... P, M, (hole from M around back to M), M', P', ...
@@ -568,44 +761,80 @@ export function triangulateWithHoles(outer: Pt2[], holes: Pt2[][]): number[] | n
     const P = poly[best];
     poly = [...poly.slice(0, best + 1), ...holeRing, holeRing[0], P, ...poly.slice(best + 1)];
   }
-  // Ear clipping.
+  // Ear clipping over a linked ring with a pointer that moves on (it no longer
+  // restarts from the first vertex after every ear), testing only REFLEX vertices
+  // for containment — no convex vertex can lie inside an ear unless a reflex one
+  // does (Eberly, "Triangulation by Ear Clipping"). Was O(n³), now O(n·r).
   const out: number[] = [];
-  const isConvex = (a: number, b: number, c: number): boolean => cross2(pts[a], pts[b], pts[c]) > 0;
+  const m = poly.length;
+  const prv = new Int32Array(m), nxt = new Int32Array(m);
+  for (let k = 0; k < m; k++) {
+    prv[k] = (k - 1 + m) % m;
+    nxt[k] = (k + 1) % m;
+  }
+  const at = (k: number): Pt2 => pts[poly[k]];
+  const convexAt = (k: number): boolean => cross2(at(prv[k]), at(k), at(nxt[k])) > 0;
+  const reflex = new Set<number>();
+  for (let k = 0; k < m; k++) if (!convexAt(k)) reflex.add(k);
   const inTri = (p: Pt2, a: Pt2, b: Pt2, c: Pt2): boolean =>
     cross2(a, b, p) >= 0 && cross2(b, c, p) >= 0 && cross2(c, a, p) >= 0;
+  const same = (p: Pt2, q: Pt2): boolean => p[0] === q[0] && p[1] === q[1];
+  const unlink = (k: number): void => {
+    nxt[prv[k]] = nxt[k];
+    prv[nxt[k]] = prv[k];
+    reflex.delete(k);
+    for (const j of [prv[k], nxt[k]]) {
+      if (convexAt(j)) reflex.delete(j);
+      else reflex.add(j);
+    }
+  };
+  let remaining = m;
+  let cur = 0;
+  let sinceClip = 0;
   let guard = 0;
-  const limit = poly.length * poly.length * 4 + 100;
-  while (poly.length > 3) {
+  const limit = m * m * 4 + 100;
+  while (remaining > 3) {
     if (++guard > limit) return null;
-    let clipped = false;
-    for (let k = 0; k < poly.length; k++) {
-      const ia = poly[(k - 1 + poly.length) % poly.length], ib = poly[k], ic = poly[(k + 1) % poly.length];
-      if (!isConvex(ia, ib, ic)) continue;
-      const A = pts[ia], B = pts[ib], C = pts[ic];
-      let empty = true;
-      for (const q of poly) {
-        if (q === ia || q === ib || q === ic) continue;
-        const Q = pts[q];
+    const a = prv[cur], c = nxt[cur];
+    let ear = convexAt(cur);
+    if (ear) {
+      const A = at(a), B = at(cur), C = at(c);
+      for (const q of reflex) {
+        if (q === a || q === cur || q === c) continue;
+        const Q = at(q);
         // Bridge duplicates share coordinates with a corner: not "inside".
-        if ((Q[0] === A[0] && Q[1] === A[1]) || (Q[0] === B[0] && Q[1] === B[1]) || (Q[0] === C[0] && Q[1] === C[1])) continue;
+        if (same(Q, A) || same(Q, B) || same(Q, C)) continue;
         if (inTri(Q, A, B, C)) {
-          empty = false;
+          ear = false;
           break;
         }
       }
-      if (!empty) continue;
-      out.push(ia, ib, ic);
-      poly.splice(k, 1);
-      clipped = true;
-      break;
     }
-    if (!clipped) {
-      // Collinear runs leave zero-area "ears": drop a vertex that lies on its neighbours' line.
-      const k = poly.findIndex((_, k2) => Math.abs(cross2(pts[poly[(k2 - 1 + poly.length) % poly.length]], pts[poly[k2]], pts[poly[(k2 + 1) % poly.length]])) < 1e-18);
-      if (k < 0) return null;
-      poly.splice(k, 1);
+    if (ear) {
+      out.push(poly[a], poly[cur], poly[c]);
+      unlink(cur);
+      remaining--;
+      cur = a;
+      sinceClip = 0;
+      continue;
+    }
+    cur = nxt[cur];
+    if (++sinceClip > remaining) {
+      // A full turn with no ear: collinear runs leave zero-area "ears" — drop a vertex on its neighbours' line.
+      let k = cur, found = -1;
+      for (let n2 = 0; n2 < remaining; n2++, k = nxt[k]) {
+        if (Math.abs(cross2(at(prv[k]), at(k), at(nxt[k]))) < 1e-18) {
+          found = k;
+          break;
+        }
+      }
+      if (found < 0) return null;
+      cur = prv[found];
+      unlink(found);
+      remaining--;
+      sinceClip = 0;
     }
   }
-  if (poly.length === 3 && cross2(pts[poly[0]], pts[poly[1]], pts[poly[2]]) > 0) out.push(poly[0], poly[1], poly[2]);
+  if (cross2(at(prv[cur]), at(cur), at(nxt[cur])) > 0) out.push(poly[prv[cur]], poly[cur], poly[nxt[cur]]);
   return out;
 }

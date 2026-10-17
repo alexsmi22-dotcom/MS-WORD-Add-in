@@ -10,6 +10,56 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
 
+## 0ck. New in v2.147.0 — Drawing (CAD): build in 3D, insert engineering and patent drawings
+
+Home ▸ **Drawing (CAD)** (or the tool menu ▸ Drawing). It opens on a plate with two holes, shaded in the 3D view,
+with an **ASME** sheet previewed below. The automated gates cannot prove what a printed page measures, so this pass
+does that.
+
+- [ ] **Orbit.** Drag on the 3D view: the part turns smoothly, without stutter. Let go: crisp black edges appear on
+  the shading within a moment. The mouse wheel zooms. Front / Top / Right / Isometric snap to those views.
+- [ ] **Edit.** Change Width to 120: the part and the sheet both update. Type 0 in Thickness: a red-orange message
+  names the field ("Thickness (Z) must be greater than 0"), and Insert is disabled. Restore it.
+- [ ] **Refusal.** Add part ▸ Flange; set Bolt circle diameter to 78: the message says "the bolt holes break through
+  the outside edge", and nothing is drawn wrong.
+- [ ] **Assemble.** With the flange selected, set Move Z = 8 and Move X = 40: it sits on the plate. Click the plate in
+  the 3D view: the plate is selected (blue tint) and its fields show.
+- [ ] **Callouts.** Press **Add callout**, click the plate's top face, then the flange's face: balloons **1** and
+  **2** appear on the sheet, in columns beside each view where the point is visible, not over the view titles.
+  Switch the standard to **USPTO**: the balloons become numerals on lead lines (10, 12, … continuing your Numerals
+  table), and the views are labelled FIG. 1–4 in reading order.
+- [ ] ★ **Insert ASME, then MEASURE.** Insert the ASME sheet. In Word: right-click ▸ Size and Position. The picture
+  should be **254 mm** wide (the ASME drawing area). Print it, or zoom to 100 % with a ruler on screen:
+  - view titles (FRONT, TOP…) are about **6 mm** tall;
+  - balloon numbers about **3 mm**;
+  - visible lines clearly about twice as thick as hidden (dashed) lines;
+  - "SCALE 1:1" (or 1:2 …) bottom-left, and the third-angle symbol bottom-right: circles LEFT of the cone, and
+    the cone's NARROW end pointing at the circles.
+  Record any measurement that is off.
+- [ ] ★ **USPTO sheet.** Switch to USPTO and insert. The picture fits the 170 × 244 mm sight, shows no "SCALE" text,
+  and numerals measure at least **3.2 mm** (they are set at ~3.5 mm).
+- [ ] **ISO.** Switch to ISO: the TOP view moves BELOW the front, RIGHT SIDE moves to its LEFT, the symbol flips
+  (circles RIGHT of the cone, its narrow end still on the left, pointing AWAY from them), and the text is smaller
+  (2.5 mm).
+- [ ] **Callouts follow their part.** With callout 2 on the flange, set the flange's Move X to 0: the balloon's
+  leader follows it. Make the flange's outside diameter much smaller so the clicked point is off it: the message says
+  "Callout 2 no longer touches …, so it is not drawn — place it again". Delete the flange (×): the status line says
+  its callout went with it.
+- [ ] **Overlapping parts.** Add part ▸ Cylinder (Ø10 × 40) and move it so it passes through the plate. The message
+  names both parts and says they are drawn as separate parts passing through each other. In the Isometric view the
+  ring where the pin enters the plate is drawn, and no edge of the pin shows through the plate.
+- [ ] **Pointed cone.** Add part ▸ Cone (Top diameter 0): in every view both outlines run all the way to the tip.
+- [ ] **Hidden lines.** The Hidden lines list: "As the standard says" (ASME: dashed in the orthographic views
+  only), "Show (dashed)" (also in the isometric), "Hide" (none). Switch back to "As the standard says": the
+  ASME default returns.
+- [ ] **Edit drawing at cursor.** Click an inserted drawing in the document, then press **Edit drawing at cursor**:
+  the parts, callouts, standard and views come back exactly. Click a photo or a chart instead: it says the picture
+  was not made by the Drawing tool. With nothing selected: it asks you to select a drawing.
+- [ ] **Undo.** Ctrl/⌘+Z after an insert removes the drawing (two presses: the drawing, then its hidden tag).
+- [ ] **Mac.** Repeat Orbit, Callouts and Insert ASME on Word for Mac.
+
+---
+
 ## 0cj. New in v2.143.0 — Journal-grade figures: figure styles, the vector-insert probe, significance brackets, panels
 
 A **Figure style** row now sits under **Plot, Table → Chart, Statistics, Finance and Bio/Assay** (and ONLY those:

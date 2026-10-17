@@ -7,6 +7,7 @@ import {
   BodySpec,
   box,
   cylinder,
+  cone,
   sphere,
   tube,
   rectLoop,
@@ -114,6 +115,33 @@ describe("a sphere: one closed outline of the right radius, no zig-zag", () => {
   });
 });
 
+describe("a pointed cone: the outlines run all the way to the apex (review B1)", () => {
+  const m = meshOf(asm(body(cone(1, 2))));
+
+  it("front view: the closed triangle base 2, height 2 — both outlines, nothing short", () => {
+    const d = drawLines(m, STANDARD_VIEWS.front);
+    expect(length(d.visible)).toBeCloseTo(2 + 2 * Math.hypot(1, 2), 2);
+    const top = Math.max(...d.visible.flat().map((p) => p[1]));
+    expect(top).toBeCloseTo(2, 4);
+  });
+
+  it.each([["iso", STANDARD_VIEWS.iso], ["off-axis", viewFromDegrees([20, 0, 40])]] as Array<[string, CadView]>)(
+    "%s: both outlines reach the apex's projection",
+    (_n, v) => {
+      const d = drawLines(m, v);
+      // The apex (0,0,2) projected: the eye frame is rows of rot.
+      const ax = 2 * v.rot[2], ay = 2 * v.rot[5];
+      const near = d.visible.flat().filter((p) => Math.hypot(p[0] - ax, p[1] - ay) < 1e-3);
+      expect(near.length).toBeGreaterThanOrEqual(1);
+      // Two straight outlines meet there: the polylines touching the apex carry two distinct directions into it.
+      const into = d.visible.flatMap((l) =>
+        l.flatMap((p, i) => (Math.hypot(p[0] - ax, p[1] - ay) < 1e-3 ? [l[i - 1], l[i + 1]].filter(Boolean) : [])),
+      );
+      expect(into.length).toBeGreaterThanOrEqual(2);
+    },
+  );
+});
+
 describe("a plate with a through-hole", () => {
   const plate: BodySpec = { kind: "extrude", profile: { outer: rectLoop(0, 0, 4, 3), holes: [circleLoop(2, 1.5, 0.6, true)] }, depth: 0.5 };
   const m = meshOf(asm(body(plate)));
@@ -174,6 +202,75 @@ describe("a revolved stepped shaft", () => {
   });
 });
 
+/** Does a line of `ls` pass through world point p's projection in view v? */
+function through(ls: Polyline[], v: CadView, p: [number, number, number], tol = 1e-6): boolean {
+  const R = v.rot;
+  const x = R[0] * p[0] + R[1] * p[1] + R[2] * p[2], y = R[3] * p[0] + R[4] * p[1] + R[5] * p[2];
+  return segments(ls).some(([a, b]) => {
+    const dx = b[0] - a[0], dy = b[1] - a[1];
+    const l2 = dx * dx + dy * dy;
+    const t = l2 ? Math.max(0, Math.min(1, ((x - a[0]) * dx + (y - a[1]) * dy) / l2)) : 0;
+    return Math.hypot(a[0] + t * dx - x, a[1] + t * dy - y) < tol;
+  });
+}
+
+describe("overlapping parts: drawn as separate parts that interfere (review B3)", () => {
+  const iso = STANDARD_VIEWS.iso;
+  it("an L of two overlapping blocks, isometric: the inner corner is drawn; the slab's buried edge is not visible", () => {
+    // Slab x 0..4, y 0..2, z 0..1; wall x 0..4, y 1.5..2, z 0..3 — they share the region y 1.5..2, z 0..1.
+    const m = meshOf(asm(body(box(4, 2, 1)), body(box(4, 0.5, 3), { translate: [0, 1.5, 0], rotateDeg: [0, 0, 0] })));
+    expect(m.overlaps).toEqual([[0, 1]]);
+    const d = drawLines(m, iso);
+    // Where the wall's front face rises out of the slab's top: a crossing, no mesh edge of either part.
+    expect(through(d.visible, iso, [2, 1.5, 1])).toBe(true);
+    // The slab's top-back edge runs inside the wall: never a visible line.
+    expect(through(d.visible, iso, [2, 2, 1])).toBe(false);
+  });
+
+  it("a shaft through a block, isometric: the shaft's outline is cut where it goes in, and the entry circle is drawn", () => {
+    const m = meshOf(asm(body(box(4, 4, 2)), body(cylinder(0.5, 6), { translate: [2, 2, -2], rotateDeg: [0, 0, 0] })));
+    expect(m.overlaps).toEqual([[0, 1]]);
+    const d = drawLines(m, iso);
+    // The outline generator facing the isometric eye is at 45° round the shaft.
+    const g = (z: number): [number, number, number] => [2 + 0.5 * Math.SQRT1_2, 2 + 0.5 * Math.SQRT1_2, z];
+    expect(through(d.visible, iso, g(3))).toBe(true); // above the block
+    expect(through(d.visible, iso, g(1))).toBe(false); // inside it
+    // The front of the circle where the shaft enters the top face (θ = −45°, toward the eye).
+    expect(through(d.visible, iso, [2 + 0.5 * Math.SQRT1_2, 2 - 0.5 * Math.SQRT1_2, 2], 1e-3)).toBe(true);
+  });
+
+  it("a block standing on a plate only touches it: no overlap, no extra lines", () => {
+    const plate = body(box(6, 6, 1));
+    const blk = body(box(2, 2, 2), { translate: [1, 1, 1], rotateDeg: [0, 0, 0] });
+    const m = meshOf(asm(plate, blk));
+    expect(m.overlaps).toEqual([]);
+    expect(m.crossings).toEqual([]);
+  });
+
+  it("parts that are apart cost nothing and report nothing", () => {
+    const m = meshOf(asm(body(box(1, 1, 1)), body(box(1, 1, 1), { translate: [3, 0, 0], rotateDeg: [0, 0, 0] })));
+    expect(m.overlaps).toEqual([]);
+  });
+
+  it("an overlap too detailed for the work bound is refused, naming both parts — never drawn without its crossing", () => {
+    const r = tessellate(asm(body(sphere(1), IDENTITY_PLACEMENT, "ball A"), body(sphere(1), { translate: [0.5, 0, 0], rotateDeg: [0, 0, 0] }, "ball B")), {
+      ...DEFAULT_TESS,
+      maxPairTests: 100,
+    });
+    expect(r).toEqual({ ok: false, reason: "ball A and ball B overlap over too much curved surface to work out where they cross — move them apart, or overlap them less" });
+  });
+
+  it("two fine overlapping spheres tessellate and draw within a freeze budget (a bound, not a speed claim)", () => {
+    const t0 = Date.now();
+    const m = meshOf(asm(body(sphere(1)), body(sphere(1), { translate: [0.7, 0.3, 0.2], rotateDeg: [0, 0, 0] })));
+    expect(m.overlaps).toEqual([[0, 1]]);
+    expect(m.crossings.length).toBeGreaterThan(20);
+    const d = drawLines(m, iso);
+    expect(d.visible.length).toBeGreaterThan(0);
+    expect(Date.now() - t0).toBeLessThan(8000);
+  });
+});
+
 describe("refusals by name, and the work bound", () => {
   it("an open outline is refused, naming the body and the fault", () => {
     const bad: BodySpec = { kind: "extrude", profile: { outer: { start: [0, 0], segs: [{ kind: "line", to: [1, 0] }, { kind: "line", to: [1, 1] }] }, holes: [] }, depth: 1 };
@@ -227,3 +324,16 @@ describe("SVG output (through the sheet, the only SVG the canvas makes)", () => 
 });
 
 export type { CadView };
+
+describe("a small part beside a large one keeps its own shape (review nit)", () => {
+  it("a 2 mm pin next to a 1 m plate draws as a circle, not a polygon", () => {
+    const m = meshOf(asm(body(box(1000, 600, 10)), body(cylinder(1, 5), { translate: [-20, 0, 0], rotateDeg: [0, 0, 0] })));
+    const d = drawLines(m, STANDARD_VIEWS.top);
+    // Points of the pin's outline in the top view: on the circle of radius 1 about (−20, 0).
+    const R = STANDARD_VIEWS.top.rot;
+    const c = [R[0] * -20, R[3] * -20 + R[4] * 0];
+    const pts = d.visible.flat().filter(([x, y]) => Math.hypot(x - c[0], y - c[1]) < 2);
+    expect(pts.length).toBeGreaterThan(16); // ~5 at the plate's tolerance
+    for (const [x, y] of pts) expect(Math.abs(Math.hypot(x - c[0], y - c[1]) - 1)).toBeLessThan(0.005);
+  });
+});

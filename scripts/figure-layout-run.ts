@@ -94,6 +94,9 @@ import { tryLp } from "../src/lib/lp";
 import { lpRegionSvg } from "../src/lib/lpFigure";
 import { treeSvg } from "../src/lib/treeSvg";
 import { cayleyTableSvg } from "../src/lib/cayleyTableSvg";
+import { moneyOverTimeSvg, cashFlowLadderSvg, bondPriceCurveSvg, optionCurveSvg } from "../src/lib/financeFigures";
+import { assayLineSvg } from "../src/lib/assayFormat";
+import { bondPrice } from "../src/lib/finance";
 import { dihedralGroup, cosets as cosetsOfGroup, op as groupOp } from "../src/lib/algebraGroups";
 import { tryAlgebra } from "../src/lib/algebra";
 import { solveGrammar } from "../src/lib/grammar";
@@ -1906,6 +1909,33 @@ ORIGIN
   push("subgroup lattice Z/12", tryAlgebra("subgroup lattice of Z/12")?.svg);
   push("permutation cycle diagram", tryAlgebra("cycle diagram of (1 2 3)(4 5)(6)(7 8 9 10)")?.svg);
   push("GF(16) multiplication table", tryAlgebra("GF(16) multiplication table")?.svg);
+}
+
+// --- Figures that moved out of the pane (v2.144.0, host adapter) -------------
+//
+// The Finance and Bio/Assay figure builders lived inside taskpane.ts, where
+// this audit could not import them; the move to src/lib put them in reach, and
+// the coverage check above flagged them the same day. Inputs are each
+// calculator's shipped defaults (FIN_CALCS / ASSAY_CALCS).
+{
+  const push = (name: string, svg: string | undefined): void => {
+    if (svg) figures.push([name, svg]);
+  };
+  push(
+    "finance money over time (compound interest)",
+    moneyOverTimeSvg({ periods: 10, valueAt: (k) => 1000 * Math.pow(1.05, k), title: "Value over time", xlabel: "period", ylabel: "value" }),
+  );
+  const flows = [-1000, 300, 400, 500];
+  push("finance cash-flow ladder (NPV)", cashFlowLadderSvg(flows, flows.map((c, k) => c / Math.pow(1.08, k)), "Discounted cash flows"));
+  push(
+    "finance bond price curve",
+    bondPriceCurveSvg({ face: 1000, coupon: 0.05, ytm: 0.06, years: 10, freq: 2, price: bondPrice(1000, 0.05, 0.06, 10, 2) }),
+  );
+  push("finance option value curve", optionCurveSvg({ type: "call", s: 100, k: 100, t: 1, r: 0.05, sig: 0.2, price: 10.45 }));
+  push(
+    "assay proportional law (Beer-Lambert)",
+    assayLineSvg({ slope: 6220, x: 1e-4, y: 0.622, xlabel: "concentration (M)", ylabel: "absorbance", title: "Beer–Lambert law" }),
+  );
 }
 
 // --- Symbolic batch (v2.136.0) ------------------------------------------------

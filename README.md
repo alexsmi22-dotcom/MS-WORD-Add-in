@@ -9,7 +9,7 @@ citations, and more — and inserts it at the cursor. Everything runs **entirely
 content is sent anywhere** (the one exception is the strictly opt-in online
 name→structure lookup, which prompts before sending).
 
-Pick a tool from the home screen — **26 tools** (grouped STEM + legal):
+Pick a tool from the home screen — **27 tools** (grouped STEM + legal):
 
 | Mode | What it does |
 |---|---|
@@ -29,6 +29,7 @@ Pick a tool from the home screen — **26 tools** (grouped STEM + legal):
 | **Finance** | 24 calculators — TVM / loan / NPV / IRR / DCF / Black–Scholes + Greeks / bond analytics, plus a finance equation library |
 | **Build** | molecules from atom/bond lists or molfiles; Markush/R-group genus + substituent gallery |
 | **Code** | algorithm (bold-keyword) and verbatim code listings |
+| **Drawing (CAD)** | build a part from shapes (plates with hole grids, L-brackets, stepped shafts, bolt-circle flanges, tubes, cylinders, cones, spheres), assemble it, **turn it in 3D like the molecule view**, and insert a drawing with **hidden lines worked out**: **ASME** (third-angle, default) or **ISO** (first-angle) engineering sheets at a standard scale, **USPTO 1.84** patent sheets (FIG. labels, numerals on lead lines), or journal / plain line art. Balloons and numerals anchor to the part and appear only where visible; the model travels in the alt text so **Edit drawing at cursor** reopens it |
 | **Sequence Map** | open a **GenBank** (.gb/.gbk), **FASTA** or **SnapGene .dna** file, or paste one, and insert an **annotated map** at the cursor — a classic **circular plasmid map** or a linear one: features as strand-aware arrows, a joined CDS drawn per exon, a scale bar, and a **black-&-white line-art mode** for patent figures. Read entirely on your machine |
 | **Align** | pairwise sequence alignment — **Needleman–Wunsch** (global) and **Smith–Waterman** (local) with affine gaps, at the costs EMBOSS `needle`/`water` use (BLOSUM62, gap open 10 / extend 0.5 for protein; +5/−4 for DNA); accepts FASTA or plain sequence and auto-detects the type |
 | **Sequence** | WIPO **ST.26** biological sequence listings (DNA/RNA/protein) with CDS/gene annotation |
@@ -63,7 +64,7 @@ _Screenshots coming soon — see [`docs/screenshots/`](docs/screenshots/) for th
 
 ## Documentation
 
-- **[User Manual](https://alexsmi22-dotcom.github.io/MS-WORD-Add-in/manual.html)** — **start here if you're using it**: the core loop, all 26 tools with worked examples, honest limits, troubleshooting. Published from [`landing/manual.html`](landing/manual.html), so it deploys with every release and can't go stale.
+- **[User Manual](https://alexsmi22-dotcom.github.io/MS-WORD-Add-in/manual.html)** — **start here if you're using it**: the core loop, all 27 tools with worked examples, honest limits, troubleshooting. Published from [`landing/manual.html`](landing/manual.html), so it deploys with every release and can't go stale.
 - [Features](FEATURES.md) — the in-repo reference for what every mode does
 - [Install (Windows & macOS)](install/README.md) — for end users
 - [Manual test script](docs/TEST-SCRIPT.md) — in-Word QA checklist
@@ -80,7 +81,7 @@ _Screenshots coming soon — see [`docs/screenshots/`](docs/screenshots/) for th
    (modern WebView2/Edge runtime; legacy IE-based webviews are not supported).
 
 > Verified by the QC gate (`npm run qc`): `npm run lint` (type-check),
-> `npm test` (**10,000+ unit tests** across **476 test files**), `npm run build` (production bundle),
+> `npm test` (**10,000+ unit tests** across **479 test files**), `npm run build` (production bundle),
 > `office-addin-manifest validate`, the task-pane id-wiring audit, a
 > **headless render check** (`npm run render-check`) that boots the real bundle in
 > Chromium — the same engine as Word's WebView2 — and drives every tool, and an

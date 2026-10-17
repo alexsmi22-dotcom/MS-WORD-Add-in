@@ -160,3 +160,20 @@ describe("picking on the orbit canvas", () => {
     for (let i = 1; i < ops.length; i++) expect(ops[i].depth).toBeGreaterThanOrEqual(ops[i - 1].depth);
   });
 });
+
+describe("drawing scale", () => {
+  it("engineering sheets snap DOWN to an ISO 5455 scale and state it; patent and journal sheets do not", async () => {
+    const { snapScale, scaleLabel } = await import("../cadStandards");
+    expect(snapScale(1.35)).toBe(1);
+    expect(snapScale(0.6)).toBe(0.5);
+    expect(snapScale(0.19)).toBe(0.1);
+    expect(snapScale(7)).toBe(5);
+    expect(scaleLabel(0.5)).toBe("1:2");
+    expect(scaleLabel(5)).toBe("5:1");
+    const asme = layoutSheet(L, { standard: "asme", views });
+    expect([1 / 1000, 1 / 500, 1 / 200, 1 / 100, 1 / 50, 1 / 20, 1 / 10, 1 / 5, 1 / 2, 1, 2, 5, 10, 20, 50]).toContain(asme.scaleMmPerUnit);
+    expect(asme.svg).toContain(`>SCALE ${scaleLabel(asme.scaleMmPerUnit)}<`);
+    // 37 CFR 1.84(k): no scale indication on a patent drawing.
+    expect(layoutSheet(L, { standard: "uspto", views }).svg).not.toContain("SCALE");
+  });
+});

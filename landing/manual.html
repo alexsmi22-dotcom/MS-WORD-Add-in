@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>JurisLab — User Manual</title>
-  <meta name="description" content="How to use JurisLab: the core loop, then a full breakdown of all 26 tools with worked examples, exact capabilities, honest limits, and troubleshooting." />
+  <meta name="description" content="How to use JurisLab: the core loop, then a full breakdown of all 27 tools with worked examples, exact capabilities, honest limits, and troubleshooting." />
   <link rel="icon" href="assets/icon-32-v2.png" />
   <style>
     :root { --blue:#2e74b5; --ink:#1b1b1f; --muted:#5b5b66; --bg:#f6f8fb; --card:#fff; --line:#e4e8ef; --warn:#8a5a00; --warnbg:#fff8e6; }
@@ -59,7 +59,7 @@
     <div class="wrap">
       <a class="home" href="index.html">← JurisLab</a>
       <h1>User Manual</h1>
-      <p class="tag">How JurisLab works, then a full breakdown of each of the 26 tools — what it does, every option, a worked example, and what it deliberately doesn’t do. Everything runs on your machine.</p>
+      <p class="tag">How JurisLab works, then a full breakdown of each of the 27 tools — what it does, every option, a worked example, and what it deliberately doesn’t do. Everything runs on your machine.</p>
     </div>
   </header>
 
@@ -74,6 +74,7 @@
         <li><a href="#chemistry">Chemistry &amp; structures (5)</a></li>
         <li><a href="#mathunits">Math &amp; units (6)</a></li>
         <li><a href="#engineering">Engineering (1)</a></li>
+        <li><a href="#drawing">Drawing (1)</a></li>
         <li><a href="#datafig">Data &amp; figures (2)</a></li>
         <li><a href="#biology">Biology (7)</a></li>
         <li><a href="#patent">Patent drafting (4)</a></li>
@@ -122,7 +123,7 @@
     <ol class="steps">
       <li><b>Fully quit Word</b> — every window (on Mac use <b>⌘-Q</b>, not just the red dot). Word only notices a new add-in on a cold start; this is the single most common reason it seems “not installed”.</li>
       <li>Reopen Word and go to the <b>Insert</b> tab → <b>Add-ins</b> (the <i>My Add-ins</i> dropdown) → click <b>JurisLab</b>. On Windows it may sit under <b>Developer Add-ins</b>.</li>
-      <li>The pane opens on the side, on the <b>Home</b> screen showing all 26 tools as cards, grouped by area.</li>
+      <li>The pane opens on the side, on the <b>Home</b> screen showing all 27 tools as cards, grouped by area.</li>
     </ol>
 
     <h3>Step 4 — Run it (a 10-second test)</h3>
@@ -384,6 +385,28 @@
     <p class="out"><b>Inserts:</b> the worked result as text, tables, and figures — shear and bending-moment diagrams, Mohr's circle, Bode plots, step responses and concentration curves. <b>Honest limits:</b> beams are Euler–Bernoulli (no shear deformation) though their supports may be elastic or settling, trusses are pin-jointed, planar and determinate only, torsion is circular shafts only, circuits are linear and lumped with no transient analysis, control is linear time-invariant and single-input single-output, multi-DOF forced response assumes classical (proportional) damping, and every fatigue life is an order of magnitude rather than a figure — identical specimens differ by a factor of three. There is no design code anywhere in this tool: it computes the mechanics, it does not tell you whether a member passes.</p>
 
     <!-- ============================ DATA & FIGURES ============================ -->
+    <h2 id="drawing">Drawing</h2>
+    <p class="lead">One tool — Drawing (CAD).</p>
+
+    <h3>Drawing (CAD) — build in 3D, insert engineering or patent drawings</h3>
+    <p>Build a part from shapes, turn it like the 3D molecule view, and insert a drawing sheet. Every view's hidden lines are computed on your machine from the true surfaces, so a cylinder has two clean outlines and no facet lines.</p>
+    <ul>
+      <li><b>Add part</b> — block, cylinder / pin, tube / bushing, cone, sphere, plate with a hole grid, L-bracket, stepped shaft, flange with a bolt circle. Dimensions are a drafter's: <i>diameters</i>, not radii. An impossible part is refused with the reason (holes through the edge, overlapping holes, a bore wider than the flange).</li>
+      <li><b>Move / Turn</b> each part on X, Y, Z to assemble. <b>Drag</b> the 3D view to orbit, the wheel zooms, click a part to edit it; Front, Top, Right and Isometric snap to the standard views.</li>
+      <li><b>Add callout</b>, then click a surface: a <b>balloon</b> on engineering sheets, a <b>reference numeral on a lead line</b> on patent sheets (continuing your Numerals table). A callout shows in every view where its point is visible.</li>
+      <li><b>Views on the sheet</b> — front, top, right, isometric, and “this view” (the orbit you turned to).</li>
+    </ul>
+    <table>
+      <tr><th>Standard</th><th>What the sheet follows</th></tr>
+      <tr><td><b>ASME</b> (default)</td><td>Third-angle projection: top view above the front, right side to its right. Lines 0.6 / 0.3 mm, text 3 mm, view titles 6 mm, all capitals. Dashed hidden lines in the orthographic views. A standard ISO 5455 scale stated on the sheet, and the third-angle symbol.</td></tr>
+      <tr><td><b>ISO</b></td><td>First-angle projection: top view below the front, the view from the right on its left. Lines 0.5 / 0.25 mm, text 2.5 mm, titles 3.5 mm, the first-angle symbol.</td></tr>
+      <tr><td><b>USPTO</b></td><td>37 CFR 1.84: black only, FIG. 1, FIG. 2 in reading order, numerals and labels at least 3.2 mm, inside the 170 × 244 mm sight, no scale stated (1.84(k)), hidden lines off.</td></tr>
+      <tr><td><b>Journal</b> / <b>Plain</b></td><td>Thin clean line figures; plain has no labels at all.</td></tr>
+    </table>
+    <div class="note"><b>Re-editing.</b> The drawing's model is stored in the picture's alt text. Select the drawing in Word and press <b>Edit drawing at cursor</b> to reopen it; Insert places the edited drawing after it.</div>
+    <div class="note"><b>Honest limits of this release.</b> Parts come from shapes; a 2D sketcher with dimensions and constraints, section and detail views, and CAD-file import (STL/DXF) are next. Parts that touch are separate bodies, so a seam shows where two are meant to be one piece. Line weights and text sizes follow the published values recorded in the project's standards reference; the paywalled standards themselves were not read.</div>
+    <p class="out"><b>Inserts:</b> the whole sheet as one picture at its physical size, so every line weight and text height prints at the standard's millimetres.</p>
+
     <h2 id="datafig">Data &amp; figures</h2>
     <p class="lead">Two tools — Table → Chart, Finance.</p>
 

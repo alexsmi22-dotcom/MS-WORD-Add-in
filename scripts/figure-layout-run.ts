@@ -97,6 +97,10 @@ import { cayleyTableSvg } from "../src/lib/cayleyTableSvg";
 import { moneyOverTimeSvg, cashFlowLadderSvg, bondPriceCurveSvg, optionCurveSvg } from "../src/lib/financeFigures";
 import { assayLineSvg } from "../src/lib/assayFormat";
 import { bondPrice } from "../src/lib/finance";
+import { starterDoc, defaultParams, docToAssembly } from "../src/lib/cadShapes";
+import { tessellate as cadTessellate } from "../src/lib/cadModel";
+import { layoutSheet } from "../src/lib/cadSheet";
+type Vec3c = [number, number, number];
 import { dihedralGroup, cosets as cosetsOfGroup, op as groupOp } from "../src/lib/algebraGroups";
 import { tryAlgebra } from "../src/lib/algebra";
 import { solveGrammar } from "../src/lib/grammar";
@@ -1909,6 +1913,34 @@ ORIGIN
   push("subgroup lattice Z/12", tryAlgebra("subgroup lattice of Z/12")?.svg);
   push("permutation cycle diagram", tryAlgebra("cycle diagram of (1 2 3)(4 5)(6)(7 8 9 10)")?.svg);
   push("GF(16) multiplication table", tryAlgebra("GF(16) multiplication table")?.svg);
+}
+
+// --- CAD drawing sheets (Drawing tool, docs/SCOPE-CAD-CANVAS.md) -----------------
+//
+// layoutSheet returns its SVG inside a result object, so the corpus-coverage
+// scan (which looks for exported *Svg builders) cannot see it; it is added here
+// on purpose. One assembly — plate with holes, flange, L-bracket — on every
+// standard's sheet, with callouts, so view titles, balloons, numerals, the
+// scale note and the projection symbol are all audited.
+{
+  const push = (name: string, svg: string | undefined): void => {
+    if (svg) figures.push([name, svg]);
+  };
+  const doc = {
+    ...starterDoc("asme"),
+    parts: [
+      { id: "a", name: "Plate", shape: "plate" as const, params: defaultParams("plate"), placement: { translate: [0, 0, 0] as Vec3c, rotateDeg: [0, 0, 0] as Vec3c } },
+      { id: "b", name: "Flange", shape: "flange" as const, params: defaultParams("flange"), placement: { translate: [40, 25, 8] as Vec3c, rotateDeg: [0, 0, 0] as Vec3c } },
+    ],
+  };
+  const asmR = docToAssembly(doc);
+  const tess = asmR.ok ? cadTessellate(asmR.assembly) : null;
+  if (tess && tess.ok) {
+    const callouts = [{ anchor: [70, 10, 8] as Vec3c, label: "10" }, { anchor: [40, 25, 18] as Vec3c, label: "12" }];
+    for (const std of ["asme", "iso", "uspto", "journal"] as const) {
+      push(`cad sheet ${std}`, layoutSheet(tess.mesh, { standard: std, views: doc.views, callouts }).svg);
+    }
+  }
 }
 
 // --- Figures that moved out of the pane (v2.144.0, host adapter) -------------

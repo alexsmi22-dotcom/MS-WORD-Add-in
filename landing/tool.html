@@ -481,6 +481,19 @@
         {in:"alexander trefoil", out:"Δ(t) = 1 − t + t², determinant 3, symmetry Δ(t) = Δ(1/t) checked"},
         {note:"An analysis aid — verify before relying."}
       ] },
+    cad: { title:"Drawing (CAD)", tagline:"Build a part from shapes, turn it in 3D like the molecule view, and insert an engineering or patent drawing with every hidden line worked out on your machine.",
+      does:[
+        "<b>Parts</b> in drafting dimensions — diameters, not radii: block, cylinder / pin, tube / bushing, cone, sphere, plate with a hole grid, L-bracket, stepped shaft, flange with a bolt circle. An impossible part (holes through an edge, a bore wider than the flange) is refused with the reason, never drawn wrong.",
+        "<b>Assemble</b> by moving and turning each part; <b>drag</b> to orbit the 3D view, wheel to zoom, click a part to edit it.",
+        "<b>Hidden-line removal</b> on the true surfaces: curved parts get clean outlines, never facet lines, and a hidden line under a visible one is not drawn (ISO 128 / ASME precedence).",
+        "<b>Standards</b>: ASME third-angle (default; 0.6 / 0.3 mm lines, 3 mm text, 6 mm view titles) or ISO first-angle (0.5 / 0.25 mm, 2.5 mm text), each at a standard ISO 5455 scale with the projection symbol; USPTO 1.84 sheets with FIG. labels in reading order and numerals at least 3.2 mm on lead lines; journal and plain line art.",
+        "<b>Callouts</b> anchor to a point on the part — a balloon (engineering) or a reference numeral continuing your Numerals table (patent) — and appear in every view where that point is visible, set in tidy columns beside the view.",
+        "The model is stored in the inserted picture's alt text: select the drawing and <b>Edit drawing at cursor</b> reopens it."
+      ],
+      examples:[
+        {in:"a plate with two holes, an L-bracket and a flange", out:"an ASME sheet: top above front, right side to its right, an isometric, SCALE 1:2"},
+        {note:"This release builds from shapes. A 2D sketcher with dimensions and constraints, section views and CAD-file import are next."}
+      ] },
     seqmap: { title:"Sequence Map", tagline:"Open a GenBank / FASTA / SnapGene file and insert an annotated linear or circular map — read on your machine, nothing uploaded.",
       does:[
         "<b>GenBank</b> (.gb/.gbk/.gbff) draws a real map — it carries the feature annotations (promoters, CDS, resistance markers, origins) and topology, with the full location grammar (ranges, partial bounds, <code>complement</code>, <code>join</code>).",
@@ -507,7 +520,7 @@
       ] }
   };
 
-  const ORDER = ["analyze","engineering","chemical","massspec","spectra","bioassay","peptide","stats","math","solve","units","plot","tablechart","finance","build","code","sequence","botanical","numerals","refs","citations","dna","seqmap","align","reaction","audit"];
+  const ORDER = ["analyze","engineering","chemical","massspec","spectra","bioassay","peptide","stats","math","solve","units","plot","tablechart","finance","build","code","sequence","botanical","numerals","refs","citations","dna","seqmap","align","cad","reaction","audit"];
 
   const params = new URLSearchParams(location.search);
   const id = params.get("tool");
@@ -520,7 +533,7 @@
   if (!t) {
     titleEl.textContent = "Tool not found";
     tagEl.textContent = "";
-    content.innerHTML = '<div class="missing"><p>That tool isn’t recognized. <a href="index.html">See all 26 tools →</a></p></div>';
+    content.innerHTML = '<div class="missing"><p>That tool isn’t recognized. <a href="index.html">See all 27 tools →</a></p></div>';
   } else {
     document.title = t.title + " — JurisLab";
     titleEl.textContent = t.title;

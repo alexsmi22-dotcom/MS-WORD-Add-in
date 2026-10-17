@@ -105,6 +105,9 @@
             <option value="seqmap">Sequence Map</option>
             <option value="align">Align</option>
           </optgroup>
+          <optgroup label="Drawing">
+            <option value="cad">Drawing (CAD)</option>
+          </optgroup>
           <optgroup label="Patent drafting">
             <option value="numerals">Numerals</option>
             <option value="refs">Refs</option>
@@ -1099,6 +1102,52 @@
           <div id="seqmap-preview" class="preview" aria-live="polite"></div>
         </div>
         <button id="seqmap-insert" class="insert-btn" type="button" disabled>Insert map</button>
+      </section>
+
+      <!-- Drawing (CAD): build parts in 3D, orbit them, insert ASME / ISO / USPTO drawings -->
+      <section id="cad-section">
+        <p class="seq-disclaimer">
+          Build a part from shapes, <strong>turn it like the 3D molecule view</strong>, and insert an
+          engineering or patent drawing — every view with its hidden lines worked out on your machine.
+        </p>
+        <label class="field-label" for="cad-standard">Drawing standard</label>
+        <select id="cad-standard" class="lib-select"></select>
+        <div class="cad-add-row">
+          <select id="cad-shape" class="lib-select" aria-label="Shape to add"></select>
+          <button id="cad-add" class="insert-btn secondary" type="button">Add part</button>
+        </div>
+        <div id="cad-parts" class="cad-parts" aria-label="Parts"></div>
+        <div id="cad-editor" class="cad-editor"></div>
+        <div class="cad-canvas-wrap">
+          <canvas id="cad-canvas" class="cad-canvas" aria-label="3D view: drag to turn, wheel to zoom, click a part to edit it"></canvas>
+        </div>
+        <div class="cad-view-btns">
+          <button type="button" class="insert-btn secondary" data-cad-view="front">Front</button>
+          <button type="button" class="insert-btn secondary" data-cad-view="top">Top</button>
+          <button type="button" class="insert-btn secondary" data-cad-view="right">Right</button>
+          <button type="button" class="insert-btn secondary" data-cad-view="iso">Isometric</button>
+          <button id="cad-callout" type="button" class="insert-btn secondary" aria-pressed="false">Add callout</button>
+        </div>
+        <div id="cad-callouts" class="cad-parts" aria-label="Callouts"></div>
+        <fieldset id="cad-views" class="cad-views">
+          <legend>Views on the sheet</legend>
+          <label><input type="checkbox" value="front" checked /> Front</label>
+          <label><input type="checkbox" value="top" checked /> Top</label>
+          <label><input type="checkbox" value="right" checked /> Right</label>
+          <label><input type="checkbox" value="iso" checked /> Isometric</label>
+          <label><input type="checkbox" value="orbit" /> This view</label>
+        </fieldset>
+        <label class="omml-option">
+          <input type="checkbox" id="cad-hidden" />
+          Hidden lines (unticked = as the standard says)
+        </label>
+        <div id="cad-msg" class="build-readout" aria-live="polite"></div>
+        <div class="preview-wrap">
+          <span class="preview-label">Drawing</span>
+          <div id="cad-preview" class="preview" aria-live="polite"></div>
+        </div>
+        <button id="cad-insert" class="insert-btn" type="button" disabled>Insert drawing</button>
+        <button id="cad-open" class="insert-btn secondary" type="button">Edit drawing at cursor</button>
       </section>
 
       <!-- Bio / Assay: kinetics, dose-response, binding, lab math -->

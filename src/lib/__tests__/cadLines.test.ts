@@ -18,7 +18,8 @@ import {
   Placement,
   DEFAULT_TESS,
 } from "../cadModel";
-import { drawLines, STANDARD_VIEWS, viewFromDegrees, lineDrawingSvg, CadView, Polyline } from "../cadLines";
+import { drawLines, STANDARD_VIEWS, viewFromDegrees, CadView, Polyline } from "../cadLines";
+import { layoutSheet } from "../cadSheet";
 
 let seq = 0;
 const body = (spec: BodySpec, placement: Placement = IDENTITY_PLACEMENT, name = `b${++seq}`): Body => ({ id: name, name, spec, placement });
@@ -214,10 +215,9 @@ describe("refusals by name, and the work bound", () => {
   });
 });
 
-describe("SVG output", () => {
-  it("is black-only line art with no fills but the page", () => {
-    const d = drawLines(meshOf(asm(body(box(1, 1, 1)))), STANDARD_VIEWS.iso);
-    const svg = lineDrawingSvg(d, { width: 300, height: 300, margin: 10, stroke: 1.4, caption: "FIG. 1" });
+describe("SVG output (through the sheet, the only SVG the canvas makes)", () => {
+  it("is black-only line art with no fills but the page, and a FIG label", () => {
+    const svg = layoutSheet(meshOf(asm(body(box(1, 1, 1)))), { standard: "uspto", views: [{ kind: "iso" }] }).svg;
     expect(svg).toMatch(/^<svg /);
     expect(svg).toContain('stroke="#000"');
     expect(svg).not.toMatch(/fill="(?!none|#fff|#000)/);

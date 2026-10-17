@@ -114,3 +114,15 @@ describe("the document round-trips, and damage is refused", () => {
     expect(parseDoc(text)).toEqual({ ok: false, reason });
   });
 });
+
+describe("re-opening a drawing from its alt text (Edit drawing at cursor)", () => {
+  it("the model written into the alt text is the model read back", async () => {
+    const { modelFromAlt } = await import("../../taskpane/cadPane");
+    const d: CadDoc = { ...doc(part("flange")), callouts: [{ anchor: [1, 2, 3], label: "10" }] };
+    const alt = `Drawing (Engineering drawing — ASME (third-angle)): FRONT, TOP. Model: ${serializeDoc(d)}`;
+    const json = modelFromAlt(alt);
+    expect(json).not.toBeNull();
+    expect(parseDoc(json as string)).toEqual({ ok: true, doc: d });
+    expect(modelFromAlt("A photo of a pump")).toBeNull();
+  });
+});

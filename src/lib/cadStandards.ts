@@ -61,6 +61,27 @@ export interface DrawingStandard {
   projectionSymbol: boolean;
   /** The figure-style preset the insert goes through (uspto = 1.84 checks enforced). */
   figurePreset: "uspto" | "asdrawn";
+  /**
+   * Snap the drawing scale DOWN to a standard ratio (ISO 5455: 1:1, 1:2, 1:5,
+   * 1:10 … and 2:1, 5:1, 10:1 …) and state it on the sheet. Engineering
+   * drawings are drawn to a stated scale; patent and journal figures are not.
+   */
+  standardScale: boolean;
+}
+
+/** ISO 5455 recommended scales as sheet-mm per model-mm, largest first. */
+export const STANDARD_SCALES: number[] = [50, 20, 10, 5, 2, 1, 1 / 2, 1 / 5, 1 / 10, 1 / 20, 1 / 50, 1 / 100, 1 / 200, 1 / 500, 1 / 1000];
+
+/** The largest standard scale that does not exceed `fit` (the smallest when even that is too big). */
+export function snapScale(fit: number): number {
+  for (const s of STANDARD_SCALES) if (s <= fit * (1 + 1e-9)) return s;
+  return STANDARD_SCALES[STANDARD_SCALES.length - 1];
+}
+
+/** "1:2", "5:1", "1:1". */
+export function scaleLabel(s: number): string {
+  if (s >= 1) return `${+s.toFixed(3)}:1`;
+  return `1:${+(1 / s).toFixed(3)}`;
 }
 
 export const DRAWING_STANDARDS: Record<StandardId, DrawingStandard> = {
@@ -88,6 +109,7 @@ export const DRAWING_STANDARDS: Record<StandardId, DrawingStandard> = {
     areaMm: { w: 254, h: 178 }, // PRODUCT: ANSI A (11 × 8.5 in) landscape inside a border
     projectionSymbol: true,
     figurePreset: "asdrawn",
+    standardScale: true,
   },
   iso: {
     id: "iso",
@@ -110,6 +132,7 @@ export const DRAWING_STANDARDS: Record<StandardId, DrawingStandard> = {
     areaMm: { w: 267, h: 180 }, // A4 landscape inside a 20 mm filing margin and 10 mm borders (ISO 5457)
     projectionSymbol: true,
     figurePreset: "asdrawn",
+    standardScale: true,
   },
   uspto: {
     id: "uspto",
@@ -132,6 +155,7 @@ export const DRAWING_STANDARDS: Record<StandardId, DrawingStandard> = {
     areaMm: { w: 170, h: 244 },
     projectionSymbol: false,
     figurePreset: "uspto",
+    standardScale: false, // 1.84(k): a scale is not to be indicated on patent drawings
   },
   journal: {
     id: "journal",
@@ -151,6 +175,7 @@ export const DRAWING_STANDARDS: Record<StandardId, DrawingStandard> = {
     areaMm: { w: 180, h: 200 },
     projectionSymbol: false,
     figurePreset: "asdrawn",
+    standardScale: false,
   },
   plain: {
     id: "plain",
@@ -170,6 +195,7 @@ export const DRAWING_STANDARDS: Record<StandardId, DrawingStandard> = {
     areaMm: { w: 170, h: 170 },
     projectionSymbol: false,
     figurePreset: "asdrawn",
+    standardScale: false,
   },
 };
 

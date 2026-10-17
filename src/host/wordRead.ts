@@ -27,6 +27,18 @@ export async function readParagraphTexts(): Promise<string[]> {
   return texts;
 }
 
+/** The alt text of the first picture in the selection, or null when no picture is selected. */
+export async function readSelectedPictureAlt(): Promise<string | null> {
+  let alt: string | null = null;
+  await Word.run(async (context) => {
+    const pics = context.document.getSelection().inlinePictures;
+    pics.load("items/altTextDescription");
+    await context.sync();
+    if (pics.items.length) alt = pics.items[0].altTextDescription ?? "";
+  });
+  return alt;
+}
+
 export async function readTableUnderCursor(): Promise<TableUnderCursor> {
   let out: TableUnderCursor = null;
   await Word.run(async (context) => {

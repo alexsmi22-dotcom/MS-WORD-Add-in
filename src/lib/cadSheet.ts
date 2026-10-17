@@ -17,11 +17,12 @@
  */
 import type { Mesh, Vec3 } from "./cadModel";
 import { drawLines, LineDrawing, STANDARD_VIEWS, viewFromDegrees, CadView, Polyline } from "./cadLines";
-import { DRAWING_STANDARDS, DrawingStandard, StandardId } from "./cadStandards";
+import { DRAWING_STANDARDS, DrawingStandard, StandardId, snapScale, scaleLabel } from "./cadStandards";
 import { ptToMm } from "./figureStyle";
 
 export type OrthoKind = "front" | "top" | "right" | "left" | "back" | "bottom";
-export type ViewSpec = { kind: OrthoKind | "iso" } | { kind: "orbit"; deg: Vec3; name?: string };
+/** An orbit view carries either Euler degrees or the exact matrix the user dragged to. */
+export type ViewSpec = { kind: OrthoKind | "iso" } | { kind: "orbit"; deg?: Vec3; rot?: number[]; name?: string };
 
 export interface Callout {
   /** A world point ON the part (from pickAt). */
@@ -64,7 +65,10 @@ const CELLS: Record<"third" | "first", Record<OrthoKind | "pic", [number, number
 };
 
 function viewOf(v: ViewSpec): CadView {
-  if (v.kind === "orbit") return viewFromDegrees(v.deg, v.name ?? "view");
+  if (v.kind === "orbit") {
+    if (v.rot && v.rot.length === 9 && v.rot.every((x) => Number.isFinite(x))) return { name: v.name ?? "view", rot: v.rot };
+    return viewFromDegrees(v.deg ?? [0, 0, 0], v.name ?? "view");
+  }
   return STANDARD_VIEWS[v.kind];
 }
 
@@ -156,7 +160,8 @@ export function layoutSheet(mesh: Mesh, o: SheetOptions): Sheet {
   const sumH = rowH.reduce((a, b) => a + b, 0) || 1;
   const availW = std.areaMm.w - 2 * edgeMm - gapMm * (cols.length - 1);
   const availH = std.areaMm.h - (rowGapMm + labelMm) * rows.length - rowGapMm;
-  const s = Math.max(1e-6, Math.min(availW / sumW, availH / sumH)); // mm per model unit
+  const fitS = Math.max(1e-6, Math.min(availW / sumW, availH / sumH)); // mm per model unit
+  const s = std.standardScale ? snapScale(fitS) : fitS;
   if (availW <= 0 || availH <= 0) notes.push("These views leave almost no room on the sheet; choose fewer views.");
 
   const W = std.areaMm.w * PX_PER_MM;
@@ -277,6 +282,12 @@ export function layoutSheet(mesh: Mesh, o: SheetOptions): Sheet {
   });
 
   if (std.projectionSymbol) parts.push(projectionSymbol(std, W, H, strokeV, strokeH));
+  if (std.standardScale) {
+    // Bottom-left, in the general text size: the stated scale of every view on the sheet.
+    parts.push(
+      `<text x="${fmt(3 * PX_PER_MM)}" y="${fmt(H - 3 * PX_PER_MM)}" font-family="${esc(std.font)}" font-size="${fmt(fontPx)}" fill="#000">SCALE ${scaleLabel(s)}</text>`,
+    );
+  }
 
   const svg =
     `<svg xmlns="http://www.w3.org/2000/svg" width="${fmt(W)}" height="${fmt(H)}" viewBox="0 0 ${fmt(W)} ${fmt(H)}">` +

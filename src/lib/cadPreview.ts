@@ -154,3 +154,32 @@ function norm3(v: Vec3): Vec3 {
   const l = Math.hypot(v[0], v[1], v[2]);
   return [v[0] / l, v[1] / l, v[2] / l];
 }
+
+/**
+ * One drag step of the orbit, as in the 3D molecule view: horizontal motion
+ * turns the model about the screen's vertical axis, vertical motion about its
+ * horizontal axis. Re-orthonormalised (Gram–Schmidt) so rounding never shears
+ * the drawing after a long drag.
+ */
+export function orbit(view: CadView, dxPx: number, dyPx: number, degPerPx = 0.5): CadView {
+  const a = (dxPx * degPerPx * Math.PI) / 180;
+  const b = (dyPx * degPerPx * Math.PI) / 180;
+  const ca = Math.cos(a), sa = Math.sin(a), cb = Math.cos(b), sb = Math.sin(b);
+  // Camera-space rotations: yaw about camera Y, pitch about camera X.
+  const yaw = [ca, 0, sa, 0, 1, 0, -sa, 0, ca];
+  const pitch = [1, 0, 0, 0, cb, -sb, 0, sb, cb];
+  const m = mulRot(pitch, mulRot(yaw, view.rot));
+  // Gram–Schmidt on the rows.
+  const r0 = norm3([m[0], m[1], m[2]]);
+  let r1: Vec3 = [m[3], m[4], m[5]];
+  const d = r1[0] * r0[0] + r1[1] * r0[1] + r1[2] * r0[2];
+  r1 = norm3([r1[0] - d * r0[0], r1[1] - d * r0[1], r1[2] - d * r0[2]]);
+  const r2: Vec3 = [r0[1] * r1[2] - r0[2] * r1[1], r0[2] * r1[0] - r0[0] * r1[2], r0[0] * r1[1] - r0[1] * r1[0]];
+  return { name: "orbit", rot: [...r0, ...r1, ...r2] };
+}
+
+function mulRot(a: number[], b: number[]): number[] {
+  const r = new Array(9).fill(0);
+  for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) for (let k = 0; k < 3; k++) r[i * 3 + j] += a[i * 3 + k] * b[k * 3 + j];
+  return r;
+}

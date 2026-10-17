@@ -237,6 +237,9 @@ export interface Host {
    */
   readTableUnderCursor(): Promise<TableUnderCursor>;
 
+  /** The alt text of the first selected picture (null = none selected): how a CAD drawing is re-opened. */
+  readSelectedPictureAlt(): Promise<string | null>;
+
   // ---- pictures and tables -----------------------------------------------------
 
   insertPictureAtSelection(o: PictureInsert): Promise<void>;

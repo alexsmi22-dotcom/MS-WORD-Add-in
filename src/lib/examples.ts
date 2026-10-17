@@ -661,6 +661,37 @@ export const MODE_EXAMPLES: Record<ExampleMode, string> = {
       there. An optimal alignment is the highest-scoring one under the parameters you
       chose, not necessarily the biologically correct one.
     </p>`,
+  cad: `
+    <p class="examples-note">
+      <strong>Drawing (CAD)</strong> — build a part from shapes, turn it like the 3D molecule
+      view, and insert an engineering or patent drawing. Every view's hidden lines are worked
+      out on your machine; nothing is uploaded.
+    </p>
+    <ul>
+      <li><strong>Add parts</strong>: block, cylinder / pin, tube / bushing, cone, sphere, plate with a
+      hole grid, L-bracket, stepped shaft, flange with a bolt circle. Dimensions are what a drafter
+      writes — <em>diameters</em>, not radii — and an impossible part (holes through the edge, a bore
+      bigger than the flange) is refused with the reason, never drawn wrong</li>
+      <li><strong>Move</strong> and <strong>turn</strong> each part (X, Y, Z) to assemble them</li>
+      <li><strong>Drag</strong> the 3D view to orbit, <strong>wheel</strong> to zoom, click a part to edit it;
+      Front / Top / Right / Isometric snap to the standard views</li>
+      <li><strong>Add callout</strong>, then click a surface: a <strong>balloon</strong> (engineering) or a
+      <strong>reference numeral on a lead line</strong> (patent, continuing your Numerals table). A callout
+      shows in every view where its point is visible, and only there</li>
+    </ul>
+    <p class="examples-note">
+      <strong>Standards.</strong> <em>ASME</em> (third-angle: top view above the front, right side to its
+      right; 0.6 / 0.3 mm lines; 3 mm text, 6 mm view titles) is the default; <em>ISO</em> (first-angle:
+      top view below, the view from the right on the left; 0.5 / 0.25 mm; 2.5 mm text) is one click away;
+      <em>USPTO</em> labels views FIG. 1, FIG. 2 in reading order with numerals at least 3.2 mm high inside
+      the 1.84 sight; <em>Journal</em> and <em>Plain line art</em> for papers. Hidden lines follow the standard
+      (dashed in engineering orthographic views, off elsewhere) unless you tick the box.
+    </p>
+    <p class="examples-note">
+      This release builds parts from shapes; a 2D sketcher with dimensions and constraints, section
+      views and CAD file import are on the way. Touching parts are separate bodies, so a seam shows where
+      two are meant to be one piece. Drafting aid — check every drawing before filing or release.
+    </p>`,
   seqmap: `
     <p class="examples-note">
       <strong>Sequence Map</strong> — open a sequence file and insert an annotated map at the

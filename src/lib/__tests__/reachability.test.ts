@@ -72,6 +72,9 @@ function importsOf(file: string): string[] {
 // host's TOA build since v2.146.0). The walk follows them, or a module shipped
 // through the host reads as dead.
 const HOST = path.join(ROOT, "src", "host");
+// The pane's own helper modules (cadPane.ts, icons.ts) ship in the same bundle;
+// the CAD library is reached ONLY through cadPane.ts.
+const PANE_DIR = path.join(ROOT, "src", "taskpane");
 
 function hostModules(): Set<string> {
   return new Set(
@@ -82,9 +85,19 @@ function hostModules(): Set<string> {
   );
 }
 
+function paneModules(): Set<string> {
+  return new Set(
+    fs
+      .readdirSync(PANE_DIR)
+      .filter((f) => f.endsWith(".ts") && f !== "taskpane.ts")
+      .map((f) => path.basename(f, ".ts")),
+  );
+}
+
 function reachableModules(): Set<string> {
   const all = new Set(listModules());
   const host = hostModules();
+  const pane = paneModules();
   const seen = new Set<string>();
   const queue: string[] = [];
   for (const e of ENTRIES) queue.push(...importsOf(e));
@@ -94,6 +107,7 @@ function reachableModules(): Set<string> {
     seen.add(name);
     if (all.has(name)) queue.push(...importsOf(path.join(LIB, name + ".ts")));
     else if (host.has(name)) queue.push(...importsOf(path.join(HOST, name + ".ts")));
+    else if (pane.has(name)) queue.push(...importsOf(path.join(PANE_DIR, name + ".ts")));
   }
   return seen;
 }

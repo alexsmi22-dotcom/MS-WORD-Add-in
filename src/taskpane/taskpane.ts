@@ -5,6 +5,7 @@
 import { wordHost as docHost } from "../host/word";
 import type { BibUpdateReport, FigureTail, ResultLayoutItem } from "../host/host";
 import { Segment, segmentsToHtml, escapeHtml } from "../lib/segments";
+import { initCadPane } from "./cadPane";
 import { parseChemical } from "../lib/chemParser";
 import { validateFormula } from "../lib/chemValidate";
 import { parseMath } from "../lib/mathFormat";
@@ -1066,6 +1067,8 @@ let alignResult: HTMLElement;
 let alignInsertBtn: HTMLButtonElement;
 let currentAlignText = "";
 let seqmapSection: HTMLElement;
+let cadSection: HTMLElement;
+let cadPane: { show(): void } | null = null;
 let seqmapOpenBtn: HTMLButtonElement;
 let seqmapFile: HTMLInputElement;
 let seqmapInput: HTMLTextAreaElement;
@@ -1779,6 +1782,19 @@ Office.onReady((info) => {
   alignResult = document.getElementById("align-result") as HTMLElement;
   alignInsertBtn = document.getElementById("align-insert") as HTMLButtonElement;
   seqmapSection = document.getElementById("seqmap-section") as HTMLElement;
+  cadSection = document.getElementById("cad-section") as HTMLElement;
+  cadPane = initCadPane({
+    setStatus: (t, k) => setStatus(t, k ?? ""),
+    // Patent numerals continue the document's Numerals table and skip any already on this drawing.
+    nextNumeral: (taken) => {
+      let n = suggestNextNumeral(numeralEntries);
+      const step = n % 2 === 0 ? 2 : 1;
+      while (taken.includes(n)) n += step;
+      return n;
+    },
+    insertPicture: insertCadDrawing,
+    readSelectedAlt: () => docHost.readSelectedPictureAlt(),
+  });
   seqmapOpenBtn = document.getElementById("seqmap-open") as HTMLButtonElement;
   seqmapFile = document.getElementById("seqmap-file") as HTMLInputElement;
   seqmapInput = document.getElementById("seqmap-input") as HTMLTextAreaElement;
@@ -2447,6 +2463,11 @@ const HOME_GROUPS: HomeGroup[] = [
       { mode: "peptide", audience: ["science"], label: "Peptide", desc: "Draw a peptide from its sequence" },
       { mode: "botanical", audience: ["science", "legal"], label: "Botanical", desc: "Plant nomenclature" },
     ],
+  },
+  {
+    title: "Drawing",
+    // Everyone: engineering drawings (ASME/ISO) and patent figures (USPTO) alike.
+    items: [{ mode: "cad", label: "Drawing (CAD)", desc: "Build parts in 3D → ASME, ISO or USPTO drawings" }],
   },
   {
     title: "Patent drafting",
@@ -3142,6 +3163,7 @@ function onInputChanged(): void {
   solveSection.style.display = mode === "solve" ? "block" : "none";
   alignSection.style.display = mode === "align" ? "block" : "none";
   seqmapSection.style.display = mode === "seqmap" ? "block" : "none";
+  cadSection.style.display = mode === "cad" ? "block" : "none";
   peptideSection.style.display = mode === "peptide" ? "block" : "none";
   statsSection.style.display = mode === "stats" ? "block" : "none";
   // The figure-style row shows ONLY where the insert honours it (FIGURE_STYLE_MODES).
@@ -3199,6 +3221,10 @@ function onInputChanged(): void {
   }
   if (mode === "seqmap") {
     updateSeqMap();
+    return;
+  }
+  if (mode === "cad") {
+    cadPane?.show();
     return;
   }
   if (mode === "peptide") {
@@ -29650,6 +29676,23 @@ function openSolveDialog(): void {
     closed: () => {
       solveOpenCanvasBtn.disabled = false;
     },
+  });
+}
+
+/**
+ * Inserts a CAD drawing sheet (cadPane.ts). The sheet is laid out at its
+ * PHYSICAL size (px at 96 per inch), so pinning the picture to figurePoints of
+ * that size prints every line weight and text height at the standard's mm.
+ */
+async function insertCadDrawing(svg: string, widthPx: number, heightPx: number, alt: string): Promise<void> {
+  const base64 = await renderFigurePng(svg, widthPx, heightPx);
+  await docHost.insertPictureAtSelection({
+    base64,
+    widthPt: figurePoints(widthPx),
+    heightPt: figurePoints(heightPx),
+    alt,
+    selectAfter: true,
+    tag: "formula-inserter:cad",
   });
 }
 

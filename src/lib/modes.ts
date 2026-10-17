@@ -29,6 +29,7 @@ export const ALL_MODES = [
   "spectra",
   "seqmap",
   "align",
+  "cad",
   "peptide",
   "stats",
   "analyze",

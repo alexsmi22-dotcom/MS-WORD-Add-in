@@ -44,8 +44,12 @@ function sources(): { lib: Map<string, string>; all: string } {
   const hostFiles = fs.existsSync(hostDir)
     ? fs.readdirSync(hostDir).filter((f) => f.endsWith(".ts")).map((f) => path.join(hostDir, f))
     : [];
+  // ...and the pane's own helper modules (cadPane.ts), which ship in its bundle.
+  const paneDir = path.join(ROOT, "src", "taskpane");
+  const paneFiles = fs.readdirSync(paneDir).filter((f) => f.endsWith(".ts") && f !== "taskpane.ts").map((f) => path.join(paneDir, f));
   const entries = [
     path.join(ROOT, "src", "taskpane", "taskpane.ts"),
+    ...paneFiles,
     path.join(ROOT, "src", "drawdialog", "drawdialog.ts"),
     path.join(ROOT, "src", "solvedialog", "solvedialog.ts"),
     ...hostFiles,

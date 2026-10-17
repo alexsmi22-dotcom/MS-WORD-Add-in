@@ -4,11 +4,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>JurisLab | Word Add-in for STEM &amp; Legal Authoring</title>
-<meta name="description" content="A free Microsoft Word add-in for STEM authoring and patent/legal drafting: numerical workbench, chemistry and 2D structures, predicted NMR/IR/UV-Vis spectra, mass spec, enzyme kinetics, peptides, statistics, equations, plots, finance, DNA and ST.26 sequences, sequence maps, alignment, Bluebook citations and Table of Authorities. 26 tools. 100% offline. Windows &amp; Mac.">
+<meta name="description" content="A free Microsoft Word add-in for STEM authoring and patent/legal drafting: numerical workbench, chemistry and 2D structures, predicted NMR/IR/UV-Vis spectra, mass spec, enzyme kinetics, peptides, statistics, equations, plots, finance, DNA and ST.26 sequences, sequence maps, alignment, Bluebook citations and Table of Authorities. 27 tools. 100% offline. Windows &amp; Mac.">
 <meta name="theme-color" content="#0C4A6E">
 <link rel="icon" href="assets/icon-32-v2.png">
 <meta property="og:title" content="JurisLab: a technical workbench inside Microsoft Word">
-<meta property="og:description" content="26 tools for STEM authoring and patent drafting. Free, open source, and it runs entirely on your machine.">
+<meta property="og:description" content="27 tools for STEM authoring and patent drafting. Free, open source, and it runs entirely on your machine.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://alexsmi22-dotcom.github.io/MS-WORD-Add-in/">
 <link rel="canonical" href="https://alexsmi22-dotcom.github.io/MS-WORD-Add-in/">
@@ -449,7 +449,7 @@ footer{border-top:1px solid var(--rule);background:var(--ground-2);padding:32px 
     </a>
     <nav class="nav">
       <a class="hide-sm" href="#showcase">What it inserts</a>
-      <a class="hide-sm" href="#tools">All 26 tools</a>
+      <a class="hide-sm" href="#tools">All 27 tools</a>
       <a class="hide-sm" href="manual.html">Manual</a>
       <a class="hide-sm" href="https://github.com/alexsmi22-dotcom/MS-WORD-Add-in">GitHub</a>
       <a class="btn-sm" href="https://github.com/alexsmi22-dotcom/MS-WORD-Add-in/tree/main/install">Install</a>
@@ -1172,13 +1172,13 @@ GATTGCAGAT-ACA</span><p class="fig-note">12/14 identity (86%) &#183; 1 mismatch 
   <div class="wrap">
     <div class="band-head">
       <p class="eyebrow">The full set</p>
-      <h2 class="h2">All 26 tools, grouped by bench.</h2>
+      <h2 class="h2">All 27 tools, grouped by bench.</h2>
       <p class="lede">Numbered the way a patent figure is numbered. Open any entry for the full breakdown and examples.</p>
     </div>
       <div class="filter" hidden>
         <input id="tool-q" type="search" autocomplete="off" spellcheck="false"
                aria-label="Filter the tool list"
-               placeholder="Filter 26 tools — try NMR, citation, matrix…">
+               placeholder="Filter 27 tools — try NMR, citation, matrix…">
         <div class="chips" role="group" aria-label="Filter by bench">
           <button type="button" class="chip" data-bench="all" aria-pressed="true">All</button>
           <button type="button" class="chip" data-bench="01" aria-pressed="false">Numerical</button>
@@ -1187,7 +1187,7 @@ GATTGCAGAT-ACA</span><p class="fig-note">12/14 identity (86%) &#183; 1 mismatch 
           <button type="button" class="chip" data-bench="04" aria-pressed="false">Life science</button>
           <button type="button" class="chip" data-bench="05" aria-pressed="false">Patent &amp; legal</button>
         </div>
-        <p class="filter-count" aria-live="polite">26 tools</p>
+        <p class="filter-count" aria-live="polite">27 tools</p>
       </div>
       <p class="no-hits" hidden>Nothing matches that. Try a broader word &mdash; the tools are described in the
         vocabulary of the bench they belong to.</p>
@@ -1222,11 +1222,14 @@ GATTGCAGAT-ACA</span><p class="fig-note">12/14 identity (86%) &#183; 1 mismatch 
 
     <!-- group 2 -->
     <div data-bench="02" class="group">
-      <div class="group-head"><span class="gnum">02</span><h3>Engineering</h3><span class="count">1 tool</span></div>
+      <div class="group-head"><span class="gnum">02</span><h3>Engineering</h3><span class="count">2 tools</span></div>
       <div class="register">
         <a class="row" href="tool.html?tool=engineering"><span class="ref">(11)</span><div>
           <h3>Engineering</h3>
           <p><b>147 calculators across twenty-one disciplines</b>, grouped as panels rather than buried in one dropdown. <b>Structural &amp; solids</b> &mdash; beams (shear, moment, deflection), cross-section properties, principal stresses and failure, trusses, column buckling and shaft torsion. <b>Fatigue &amp; machine design</b> &mdash; endurance limit and notch factor, mean stress and factor of safety, finite life and cumulative damage. <b>Fluids</b> &mdash; pipe flow, open channels, pump NPSH and compressible choking. <b>Thermal</b> &mdash; composite walls, LMTD exchanger sizing, ideal-gas processes and power cycles. <b>Energy &amp; power</b> &mdash; wind with the Betz limit enforced, solar PV with temperature derating, hydro, battery packs, combustion stoichiometry from the fuel's formula, LCOE and capacity factor. <b>Electronics</b> &mdash; DC operating point, AC and Bode, op-amps, filter design, Boolean minimisation. <b>Audio, video &amp; light</b> &mdash; levels with their references named (dBu, dBV, dBFS, dB SPL), LUFS loudness, SMPTE timecode, transfer curves and SDI link rates, illuminance, exposure and colour temperature. Plus <b>control systems</b>, <b>vibration</b>, <b>biomedical</b> and <b>pharmacokinetics</b>. Where the arithmetic can be exact it is: beams and trusses compute over rationals, so a propped cantilever reports 3/8 wL and a DC divider reports 10/3 V, not 3.3333. Statically indeterminate beams need no force method, and supports may be elastic or settling (<code>k=5e4</code>, <code>settle=0.01</code>) while staying exact. Multi-degree-of-freedom forced response reports which mode is actually carrying the load. A floating node, a mechanism and an index-2 system are each named rather than returned as a confident number.</p><div class="spec">propped cantilever, w = 24 kN/m &#183; R = 3/8 wL = 72 kN <span class="dim">&#183; exact, not 71.99999</span></div><div class="spec">2R arm to (0.6, 0.3) &#183; &theta;&#8322; = +84.3&deg; <i>and</i> &minus;84.3&deg; <span class="dim">&#183; both branches, always</span></div><div class="spec">same arm to (2.0, 0) &#183; no solution, outside the workspace by 1.10 m <span class="dim">&#183; refused, not clamped</span></div><div class="spec">1 mJ in 10 ns &#183; peak 93.94 kW <span class="dim">&#183; a Gaussian is 0.939 E/&tau;, not E/&tau; = 100 kW</span></div><div class="spec">+200 ps clock skew &#183; setup +320 ps, hold &minus;90 ps <span class="dim">&#183; opposite signs; slowing the clock cannot fix hold</span></div><div class="spec">CHSH S = 4 &#183; beyond Tsirelson&rsquo;s 2.828 <span class="dim">&#183; reported as an error, not a stronger result</span></div><div class="spec">Cp = 0.62 &#183; refused <span class="dim">&#183; beyond the Betz limit 16/27 &#8776; 0.593 &mdash; no turbine can</span></div><div class="spec">CH&#8324; &#183; AFR 17.12 kg air/kg fuel <span class="dim">&#183; exact from the atomic weights, not a table</span></div></div></a>
+        <a class="row" href="tool.html?tool=cad"><span class="ref">(12)</span><div>
+          <h3>Drawing (CAD)</h3>
+          <p>Build a part from shapes, <b>turn it in 3D</b> like the molecule view, and insert a drawing with every hidden line worked out: <b>ASME</b> or <b>ISO</b> engineering sheets at a standard scale with the projection symbol, or <b>USPTO 1.84</b> patent sheets with FIG. labels and numerals on lead lines.</p><div class="spec">FRONT <span class="dim">&#183;</span> TOP <span class="dim">&#183;</span> RIGHT SIDE <span class="dim">&#183;</span> ISOMETRIC <span class="dim">&#183; SCALE 1:2</span></div></div></a>
       </div>
     </div>
     <div data-bench="03" class="group">

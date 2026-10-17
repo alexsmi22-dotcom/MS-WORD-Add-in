@@ -169,6 +169,7 @@ describe("the user-facing docs are not allowed to rot", () => {
     const NAMES: Record<string, string> = {
       ppt: "table \u2192 chart", seqmap: "sequence map", massspec: "mass spec",
       assay: "bio/assay", sequence: "sequence", align: "align", solve: "solve",
+      cad: "drawing (cad)",
     };
     const missing = modes().filter((m) => !rows.includes(NAMES[m] ?? m));
     expect(missing).toEqual([]);

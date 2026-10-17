@@ -80,6 +80,11 @@ export const TOOL_ICONS: Record<Exclude<Mode, "home">, string> = {
   // A circular plasmid: the backbone ring with feature arcs annotated outside
   // it. An earlier version put a dot at the centre of a plain circle, which read
   // as a target or a record button rather than a map.
+  // An isometric block with one hidden edge dashed: a part, drawn the way an
+  // engineering drawing draws it.
+  cad:
+    '<path d="M4 8 12 4l8 4v8l-8 4-8-4z"/><path d="M4 8l8 4 8-4M12 12v8"/><path d="M4 16l8-4" stroke-dasharray="2 2"/>',
+
   seqmap:
     '<circle cx="12" cy="12" r="6.6"/>' +
     '<path d="M12 2.6a9.4 9.4 0 018.1 4.7"/><path d="M4.7 18.4A9.4 9.4 0 012.7 13.4"/>',

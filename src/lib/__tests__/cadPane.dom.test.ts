@@ -178,3 +178,25 @@ describe("third review: an insert collision is said, and a refused sheet reads a
     expect(t.$<HTMLButtonElement>("cad-insert").disabled).toBe(true);
   });
 });
+
+describe("fourth review: one large canvas at a time", () => {
+  it("a pane insert finishing while the large canvas is open does not re-enable its button", async () => {
+    let close: (v: null) => void = () => undefined;
+    const openLarge = jest.fn(() => new Promise<null>((r) => (close = r)));
+    const t = setup({ openLarge });
+    const pop = t.$<HTMLButtonElement>("cad-popout");
+    pop.click();
+    await flush();
+    t.$<HTMLButtonElement>("cad-insert").click();
+    await flush();
+    t.release();
+    await flush();
+    expect(pop.disabled).toBe(true);
+    pop.click();
+    await flush();
+    expect(openLarge).toHaveBeenCalledTimes(1);
+    close(null); // the large canvas closes: the button comes back
+    await flush();
+    expect(pop.disabled).toBe(false);
+  });
+});

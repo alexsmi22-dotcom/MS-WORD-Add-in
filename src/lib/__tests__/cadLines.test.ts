@@ -410,3 +410,75 @@ describe("coincident walls within the faceting error are contact, whatever the f
     expect(m.overlaps).toEqual([[0, 1]]);
   });
 });
+
+describe("real crossings are never hidden by the contact rules (fourth review)", () => {
+  const crossLen = (m: Mesh): number => m.crossings.reduce((s, c) => s + Math.hypot(c.b[0] - c.a[0], c.b[1] - c.a[1], c.b[2] - c.a[2]), 0);
+  const far = (): Body => body(box(10, 10, 10), { translate: [5000, 0, 0], rotateDeg: [0, 0, 0] });
+  /** Largest angular gap (degrees) round the z axis in the crossings lying in the plane z = zc. */
+  const gapAt = (m: Mesh, zc: number): number => {
+    const ang: number[] = [];
+    for (const c of m.crossings) {
+      if (Math.abs(c.a[2] - zc) > 1e-6 || Math.abs(c.b[2] - zc) > 1e-6) continue;
+      const a0 = Math.atan2(c.a[1], c.a[0]), a1 = Math.atan2(c.b[1], c.b[0]);
+      let d = a1 - a0;
+      if (d > Math.PI) d -= 2 * Math.PI;
+      if (d < -Math.PI) d += 2 * Math.PI;
+      // Sample along the segment so a covered arc counts as covered.
+      for (let k = 0; k <= 8; k++) ang.push(((a0 + (d * k) / 8) * 180) / Math.PI);
+    }
+    if (!ang.length) return 360;
+    ang.sort((p, q) => p - q);
+    let gap = ang[0] + 360 - ang[ang.length - 1];
+    for (let i = 1; i < ang.length; i++) gap = Math.max(gap, ang[i] - ang[i - 1]);
+    return gap;
+  };
+
+  it.each([0.5, 0.6, 1.8, 20, 50, 120])("a sphere R100 rising %p mm above a plate: the intersection circle is closed all round, and drawn unbroken from above", (h) => {
+    const m = meshOf(asm(body(box(400, 400, 10), { translate: [-200, -200, 0], rotateDeg: [0, 0, 0] }), body(sphere(100), { translate: [0, 0, 10 + h - 100], rotateDeg: [0, 0, 0] })));
+    expect(m.overlaps).toEqual([[0, 1]]);
+    // Sampled at an eighth of a segment: a missing segment leaves a gap of a whole facet (≥ 5°).
+    expect(gapAt(m, 10)).toBeLessThan(2.5); // the top face
+    expect(gapAt(m, 0)).toBeLessThan(2.5); // the bottom face
+    if (h >= 100) return; // past its equator the sphere's bulge hides the top-face circle from above
+    const rc = Math.sqrt(100 ** 2 - (100 - h) ** 2);
+    const d = drawLines(m, STANDARD_VIEWS.top);
+    // Its circle is visible all round (radius within the facets' error of the true one).
+    const onCircle = d.visible.filter((l) => l.every(([x, y]) => Math.abs(Math.hypot(x, y) - rc) < rc * 0.05));
+    const runLen = length(onCircle);
+    const exp = crossLen({ ...m, crossings: m.crossings.filter((c) => Math.abs(c.a[2] - 10) < 1e-6) } as Mesh);
+    expect(runLen / exp).toBeGreaterThan(0.999);
+  });
+
+  it.each([0.5, 0.6, 1.8])("a sphere centred on a plate's corner, rising %p mm: from above, the WHOLE quarter circle is visible (it came out in dashes)", (h) => {
+    const m = meshOf(asm(body(box(400, 400, 10)), body(sphere(100), { translate: [0, 0, 10 + h - 100], rotateDeg: [0, 0, 0] })));
+    const top = m.crossings.filter((c) => Math.abs(c.a[2] - 10) < 1e-6 && Math.abs(c.b[2] - 10) < 1e-6);
+    const arc = top.reduce((s, c) => s + Math.hypot(c.b[0] - c.a[0], c.b[1] - c.a[1]), 0);
+    const rc = Math.sqrt(100 ** 2 - (100 - h) ** 2);
+    const d = drawLines(m, STANDARD_VIEWS.top);
+    // The visible segments on that arc (over the plate, at its radius within the facets' error) add up to all of it.
+    const onBand = ([p, q]: [[number, number], [number, number]]): boolean => {
+      const mx = (p[0] + q[0]) / 2, my = (p[1] + q[1]) / 2;
+      return mx > 0 && my > 0 && Math.abs(Math.hypot(mx, my) - rc) < rc * 0.1;
+    };
+    const seen = segments(d.visible).filter(onBand).reduce((t, [p, q]) => t + Math.hypot(q[0] - p[0], q[1] - p[1]), 0);
+    expect(seen / arc).toBeGreaterThan(0.999);
+    // …as one run, not dashes: the visible polylines that touch the arc.
+    expect(d.visible.filter((l) => l.slice(1).some((p, i) => onBand([l[i], p]))).length).toBeLessThanOrEqual(2);
+  });
+
+  it.each([0.05, 0.1, 0.9])("a 10 mm box sunk %p mm into a flat face of a big disc: overlap, and its 40 mm outline", (dz) => {
+    const disc = body({ kind: "extrude", profile: { outer: circleLoop(0, 0, 200), holes: [] }, depth: 20 });
+    const blk = body(box(10, 10, 10), { translate: [0, 0, 20 - dz], rotateDeg: [0, 0, 0] });
+    for (const bodies of [[disc, blk], [disc, blk, far()]]) {
+      const m = meshOf(asm(...bodies));
+      expect(m.overlaps).toEqual([[0, 1]]);
+      expect(crossLen(m)).toBeCloseTo(40, 6);
+    }
+  });
+
+  it("a sphere sunk 1 mm into a plate, with a far part in the model: the circle is there, closed all round", () => {
+    const m = meshOf(asm(body(box(400, 400, 10), { translate: [-200, -200, 0], rotateDeg: [0, 0, 0] }), body(sphere(100), { translate: [0, 0, 109], rotateDeg: [0, 0, 0] }), far()));
+    expect(m.overlaps).toEqual([[0, 1]]);
+    expect(gapAt(m, 10)).toBeLessThan(2.5);
+  });
+});

@@ -108,6 +108,8 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
   let buildTimer = 0;
   /** A rebuild is scheduled and has not run: the mesh is of an older model. */
   let pending = false;
+  /** The large canvas is open (one dialog per window: its button stays off). */
+  let largeOpen = false;
   let nameTimer = 0;
   let inserting = false;
   /** The callouts where they are now (they follow their parts), and the notes about any not drawn. */
@@ -636,7 +638,7 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
       host.setStatus(`Could not insert the drawing: ${(e as Error).message}`, "error");
     } finally {
       inserting = false;
-      if (popBtn) popBtn.disabled = false;
+      if (popBtn) popBtn.disabled = largeOpen; // still off while the large canvas is open (fourth review)
       insertBtn.disabled = !sheetCurrent();
     }
   }
@@ -646,6 +648,7 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
   popBtn?.addEventListener("click", async () => {
     if (!host.openLarge) return;
     popBtn.disabled = true;
+    largeOpen = true;
     try {
       const back = await host.openLarge(serializeDoc(doc));
       if (!back) return;
@@ -660,7 +663,8 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     } catch (e) {
       host.setStatus(`Could not open the large canvas: ${(e as Error).message}`, "error");
     } finally {
-      popBtn.disabled = false;
+      largeOpen = false;
+      popBtn.disabled = inserting;
     }
   });
 

@@ -497,6 +497,33 @@ function findCrossings(m: Mesh, nBodies: number, maxTests: number): [number, num
   }
   // Triangles by side (exact endpoint coordinates): walls and caps keep separate
   // vertices with the same positions, so adjacency across a rim is positional.
+  /** Triangle k's interpolated (smooth) unit normal at point p on it. */
+  const smoothNormal = (k: number, p: Vec3): Vec3 => {
+    const a = V(T[3 * k]), b = V(T[3 * k + 1]), c = V(T[3 * k + 2]);
+    const n = cross3(sub3(b, a), sub3(c, a));
+    const nn = dot3(n, n) || 1;
+    const wa = dot3(cross3(sub3(b, p), sub3(c, p)), n) / nn;
+    const wb = dot3(cross3(sub3(c, p), sub3(a, p)), n) / nn;
+    const wc = 1 - wa - wb;
+    const N = m.cornerNormals;
+    const o = 9 * k;
+    const v: Vec3 = [0, 1, 2].map((d) => wa * N[o + d] + wb * N[o + 3 + d] + wc * N[o + 6 + d]) as Vec3;
+    const l = Math.hypot(...v) || 1;
+    return [v[0] / l, v[1] / l, v[2] / l];
+  };
+  /** How far triangle k's facet can sit from its true surface: max over its sides of length × normal turn / 8 (0 when flat). */
+  const localSag = (k: number): number => {
+    const N = m.cornerNormals;
+    let worst = 0;
+    for (let c = 0; c < 3; c++) {
+      const d = (c + 1) % 3;
+      const p = V(T[3 * k + c]), q = V(T[3 * k + d]);
+      const o1 = 9 * k + 3 * c, o2 = 9 * k + 3 * d;
+      const cosA = Math.max(-1, Math.min(1, N[o1] * N[o2] + N[o1 + 1] * N[o2 + 1] + N[o1 + 2] * N[o2 + 2]));
+      worst = Math.max(worst, (Math.hypot(q[0] - p[0], q[1] - p[1], q[2] - p[2]) * Math.acos(cosA)) / 8);
+    }
+    return worst;
+  };
   // Built only once some pair of bodies actually meets.
   let edgeTrisMap: Map<string, number[]> | null = null;
   const edgeTrisOf = (key: string): number[] => {
@@ -543,11 +570,7 @@ function findCrossings(m: Mesh, nBodies: number, maxTests: number): [number, num
        * side of the plane (a crossing that runs along a facet edge); otherwise the
        * surface merely meets the plane there.
        */
-      // Within the two parts' faceting error a surface has not passed through anything: a
-      // pin in its bore, a stepped shaft in a hole of its small diameter, a pin turned in
-      // its bore — their facet corners poke through the coincident wall by up to that error
-      // whatever the facet counts (third review). A real penetration goes far beyond it.
-      const thr = tol + (m.bodySag[A] ?? 0) + (m.bodySag[B] ?? 0);
+      const thr = tol;
       const passesThrough = (k: number, tri: Vec3[], other: Vec3[]): boolean => {
         const nn = cross3(sub3(other[1], other[0]), sub3(other[2], other[0]));
         const ln = Math.hypot(...nn);
@@ -592,7 +615,18 @@ function findCrossings(m: Mesh, nBodies: number, maxTests: number): [number, num
                 // plate, a cone's tip) meet along a line without passing through each
                 // other: not a crossing, not an overlap.
                 if (!passesThrough(s, sa, sb) || !passesThrough(t, sb, sa)) continue;
-                if (alongDrawnEdge(seg, sa, drawnAt, ck, tol, thr) || alongDrawnEdge(seg, sb, drawnAt, ck, tol, thr)) continue;
+                // Coincident curved walls (a pin in its bore, turned in it, a near-equal fit):
+                // their facets interleave and "cross", but the true surfaces there face
+                // exactly opposite ways. A real crossing meets at a real angle — a pin 1 mm off
+                // centre in its bore crosses it at about 11°. Judged on the SMOOTH normals at
+                // the crossing, so the facet counts do not matter (fourth review: a whole-part
+                // tolerance hid real crossings).
+                const mid: Vec3 = [(seg[0][0] + seg[1][0]) / 2, (seg[0][1] + seg[1][1]) / 2, (seg[0][2] + seg[1][2]) / 2];
+                if (dot3(smoothNormal(s, mid), smoothNormal(t, mid)) < -COINCIDENT_COS) continue;
+                // Slivers along a hole's rim, as wide as the two curved facets are wrong
+                // there: measured on these two triangles, so a flat face (error 0) never hides one.
+                const near = 2 * Math.max(localSag(s), localSag(t));
+                if (alongDrawnEdge(seg, sa, drawnAt, ck, tol, near) || alongDrawnEdge(seg, sb, drawnAt, ck, tol, near)) continue;
                 crossed = true; // a real crossing, not contact along an edge already drawn
                 const q = (p: Vec3): string => p.map((v) => Math.round(v / (tol * 1000))).join(",");
                 const ka = q(seg[0]), kb = q(seg[1]);
@@ -607,6 +641,9 @@ function findCrossings(m: Mesh, nBodies: number, maxTests: number): [number, num
   }
   return null;
 }
+
+/** Surfaces whose smooth normals at a crossing are within 1° of opposite are coincident, not crossing. */
+const COINCIDENT_COS = Math.cos((1 * Math.PI) / 180);
 
 const sub3 = (a: Vec3, b: Vec3): Vec3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
 const dot3 = (a: Vec3, b: Vec3): number => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];

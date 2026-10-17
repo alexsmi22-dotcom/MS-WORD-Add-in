@@ -271,6 +271,8 @@ export interface CadPart {
 export interface DocCallout extends Callout {
   part?: string;
   local?: Vec3;
+  /** The chord error of the part's facets when the point was picked on them (Mesh.bodySag). */
+  sag?: number;
 }
 
 export interface CadDoc {
@@ -279,6 +281,8 @@ export interface CadDoc {
   callouts: DocCallout[];
   standard: StandardId;
   views: ViewSpec[];
+  /** Overrides the standard's hidden-line rule on every view; omitted = as the standard says. */
+  hidden?: "show" | "hide";
 }
 
 export function defaultParams(shape: ShapeId): Record<string, number> {
@@ -333,15 +337,19 @@ function partTransform(p: CadPart): { R: number[]; T: Vec3 } {
   return { R: frame ? mul3(turn, frame) : turn, T: p.placement.translate };
 }
 
-/** A callout on part `partIndex` at world point `world` (from pickAt), stored in the part's coordinates. */
-export function attachCallout(doc: CadDoc, partIndex: number, world: Vec3, label: string): DocCallout {
+/**
+ * A callout on part `partIndex` at world point `world` (from pickAt on `mesh`, the
+ * mesh of this document), stored in the part's coordinates.
+ */
+export function attachCallout(doc: CadDoc, partIndex: number, world: Vec3, label: string, mesh?: Mesh): DocCallout {
   const p = doc.parts[partIndex];
   if (!p) return { anchor: world, label };
   const { R, T } = partTransform(p);
   const d: Vec3 = [world[0] - T[0], world[1] - T[1], world[2] - T[2]];
   // R is a rotation (orthonormal): its inverse is its transpose.
   const local: Vec3 = [R[0] * d[0] + R[3] * d[1] + R[6] * d[2], R[1] * d[0] + R[4] * d[1] + R[7] * d[2], R[2] * d[0] + R[5] * d[1] + R[8] * d[2]];
-  return { anchor: world, label, part: p.id, local };
+  const sag = mesh?.bodySag[partIndex];
+  return { anchor: world, label, part: p.id, local, ...(sag !== undefined ? { sag } : {}) };
 }
 
 function closestOnTri(p: Vec3, a: Vec3, b: Vec3, c: Vec3): Vec3 {
@@ -378,8 +386,6 @@ export function resolveCallouts(doc: CadDoc, mesh: Mesh): { callouts: Callout[];
   const notes: string[] = [];
   const P = mesh.positions, Tr = mesh.triangles;
   const V = (i: number): Vec3 => [P[3 * i], P[3 * i + 1], P[3 * i + 2]];
-  // Within the tessellation's chord tolerance: a re-built curved part's facets move that much.
-  const tol = mesh.diag * 1e-3;
   for (const c of doc.callouts) {
     if (!c.part || !c.local) {
       out.push({ anchor: c.anchor, label: c.label });
@@ -390,6 +396,10 @@ export function resolveCallouts(doc: CadDoc, mesh: Mesh): { callouts: Callout[];
       notes.push(`Callout ${c.label}'s part was removed, so the callout is not drawn.`);
       continue;
     }
+    // The point was on the part's facets when picked, and those were within c.sag of
+    // the true surface; today's facets are within bodySag of it. So a point still on
+    // the part is within the sum of the two (plus rounding) — and one farther is off it.
+    const tol = (c.sag ?? mesh.diag * 1e-3) + (mesh.bodySag[bi] ?? 0) + mesh.diag * 1e-7;
     const { R, T } = partTransform(doc.parts[bi]);
     const w = apply3(R, c.local);
     const at: Vec3 = [w[0] + T[0], w[1] + T[1], w[2] + T[2]];
@@ -417,6 +427,17 @@ export function overlapNotes(doc: CadDoc, mesh: Mesh): string[] {
 
 const isNum = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
 const isVec = (v: unknown): v is Vec3 => Array.isArray(v) && v.length === 3 && v.every(isNum);
+/** A 3×3 rotation (rows orthonormal, determinant +1): a view, not a shear or a mirror. */
+const isRotation = (m: unknown): m is number[] => {
+  if (!Array.isArray(m) || m.length !== 9 || !m.every(isNum)) return false;
+  for (let i = 0; i < 3; i++)
+    for (let j = 0; j < 3; j++) {
+      const d = m[3 * i] * m[3 * j] + m[3 * i + 1] * m[3 * j + 1] + m[3 * i + 2] * m[3 * j + 2];
+      if (Math.abs(d - (i === j ? 1 : 0)) > 1e-6) return false;
+    }
+  const det = m[0] * (m[4] * m[8] - m[5] * m[7]) - m[1] * (m[3] * m[8] - m[5] * m[6]) + m[2] * (m[3] * m[7] - m[4] * m[6]);
+  return det > 0;
+};
 
 /** Compact JSON for the alt text and the dialog. */
 export function serializeDoc(doc: CadDoc): string {
@@ -434,7 +455,12 @@ export function parseDoc(text: string): { ok: true; doc: CadDoc } | { ok: false;
   const d = raw as Partial<CadDoc>;
   if (!d || typeof d !== "object" || d.v !== 1) return { ok: false, reason: "this drawing was saved by a version this release cannot read" };
   if (!Array.isArray(d.parts) || !Array.isArray(d.callouts) || !Array.isArray(d.views)) return { ok: false, reason: "the drawing is missing its parts, callouts or views" };
+  const ids = new Set<string>();
   for (const p of d.parts as CadPart[]) {
+    if (p && typeof p.id === "string") {
+      if (ids.has(p.id)) return { ok: false, reason: "two parts in the drawing share one id" };
+      ids.add(p.id);
+    }
     if (!p || typeof p.id !== "string" || typeof p.name !== "string" || !Object.prototype.hasOwnProperty.call(SHAPES, p.shape)) return { ok: false, reason: "a part in the drawing is damaged" };
     if (!p.placement || !isVec(p.placement.translate) || !isVec(p.placement.rotateDeg)) return { ok: false, reason: `part ${p.name} has a damaged placement` };
     if (!p.params || typeof p.params !== "object") return { ok: false, reason: `part ${p.name} has no dimensions` };
@@ -442,16 +468,18 @@ export function parseDoc(text: string): { ok: true; doc: CadDoc } | { ok: false;
   for (const c of d.callouts as DocCallout[]) {
     if (!c || !isVec(c.anchor) || typeof c.label !== "string") return { ok: false, reason: "a callout in the drawing is damaged" };
     if ((c.part !== undefined || c.local !== undefined) && (typeof c.part !== "string" || !isVec(c.local))) return { ok: false, reason: "a callout in the drawing is damaged" };
+    if (c.sag !== undefined && !(isNum(c.sag) && c.sag >= 0)) return { ok: false, reason: "a callout in the drawing is damaged" };
   }
   const kinds = ["front", "top", "right", "left", "back", "bottom", "iso", "orbit"];
   for (const v of d.views as ViewSpec[]) {
     if (!v || typeof v !== "object" || !kinds.includes(String(v.kind))) return { ok: false, reason: "a view in the drawing is damaged" };
-    if (v.kind === "orbit" && ((v.rot !== undefined && !(Array.isArray(v.rot) && v.rot.length === 9 && v.rot.every(isNum))) || (v.deg !== undefined && !isVec(v.deg)))) {
+    if (v.kind === "orbit" && ((v.rot !== undefined && !isRotation(v.rot)) || (v.deg !== undefined && !isVec(v.deg)))) {
       return { ok: false, reason: "a view in the drawing is damaged" };
     }
   }
   const stds = ["asme", "iso", "uspto", "journal", "plain"];
   if (!stds.includes(String(d.standard))) return { ok: false, reason: "the drawing names a standard this release does not have" };
+  if (d.hidden !== undefined && d.hidden !== "show" && d.hidden !== "hide") return { ok: false, reason: "the drawing's hidden-line setting is damaged" };
   return { ok: true, doc: d as CadDoc };
 }
 
@@ -467,3 +495,16 @@ export function starterDoc(standard: StandardId): CadDoc {
 }
 
 export type { Pt2 };
+
+/**
+ * The next patent reference numeral for a new callout: `base` (the document's
+ * Numerals table suggestion, numerals.suggestNextNumeral) or the first after it,
+ * in its parity's steps, not already on this drawing. One rule for the pane and
+ * the large canvas.
+ */
+export function nextFreeNumeral(base: number, taken: number[]): number {
+  let n = Number.isInteger(base) && base > 0 ? base : 10;
+  const step = n % 2 === 0 ? 2 : 1;
+  while (taken.includes(n)) n += step;
+  return n;
+}

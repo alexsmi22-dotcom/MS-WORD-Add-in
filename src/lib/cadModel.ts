@@ -193,6 +193,8 @@ export interface FlatLoop {
   corner: boolean[];
   /** For the edge points[i] → points[i+1]: the unit normal at its start and at its end (analytic on arcs). */
   edgeNormals: Array<[Pt2, Pt2]>;
+  /** The largest chord error (sagitta) any arc was flattened to; 0 for straight lines only. */
+  sag: number;
 }
 
 /** Segments for an arc so its chord sagitta stays within `tol`; at least 2 per quarter turn, at most 512 per turn. */
@@ -231,8 +233,9 @@ const TANGENT_COS = Math.cos((1 * Math.PI) / 180);
  * (outward for a counter-clockwise outer loop, and also outward from the
  * material for a clockwise hole).
  */
-export function flattenLoop(loop: Loop, tol: number): FlatLoop {
+export function flattenLoop(loop: Loop, tol: number, arcRel = Infinity): FlatLoop {
   const points: Pt2[] = [];
+  let sag = 0;
   const edgeNormals: Array<[Pt2, Pt2]> = [];
   // tangent direction arriving at / leaving each point, for corner detection
   const tanIn: Pt2[] = [];
@@ -252,7 +255,12 @@ export function flattenLoop(loop: Loop, tol: number): FlatLoop {
       const cw = !!s.cw;
       const r = Math.hypot(from[0] - s.center[0], from[1] - s.center[1]);
       const sweep = arcSweep(from, s.to, s.center, cw);
-      const n = arcSteps(r, sweep, tol);
+      // An arc is never coarser than `arcRel` of its OWN radius: two circles of nearly
+      // the same size (a pin in its hole) get the same facets, which nest instead of
+      // crossing, and a small part beside a large one keeps its shape.
+      const tolArc = Math.min(tol, r * arcRel);
+      sag = Math.max(sag, Math.min(tolArc, r));
+      const n = arcSteps(r, sweep, tolArc);
       const a0 = Math.atan2(from[1] - s.center[1], from[0] - s.center[0]);
       for (let k = 0; k < n; k++) {
         const t0 = a0 + (sweep * k) / n;
@@ -281,7 +289,7 @@ export function flattenLoop(loop: Loop, tol: number): FlatLoop {
     const b = tanOut[i];
     return a[0] * b[0] + a[1] * b[1] < TANGENT_COS;
   });
-  return { points, corner, edgeNormals };
+  return { points, corner, edgeNormals, sag };
 }
 
 /** Signed area (CCW positive) of a flattened loop. */
@@ -322,6 +330,8 @@ export interface Mesh {
   crossings: Array<{ a: Vec3; b: Vec3; tris: [number, number] }>;
   /** Pairs of bodies (indices) whose surfaces cross. */
   overlaps: Array<[number, number]>;
+  /** Per body: the largest chord error its curved surfaces were flattened to (0 = all flat). */
+  bodySag: number[];
 }
 
 export interface TessOptions {
@@ -334,6 +344,12 @@ export interface TessOptions {
 }
 
 export const DEFAULT_TESS: TessOptions = { relTol: 2e-4, maxTriangles: 200_000 };
+
+/**
+ * Arcs are flattened to at most relTol × this of their own radius (0.5 % at the
+ * default) as well as to relTol of the model: see flattenLoop's arcRel.
+ */
+export const ARC_REL_PER_RELTOL = 25;
 
 export type TessResult = { ok: true; mesh: Mesh } | { ok: false; reason: string };
 
@@ -389,7 +405,7 @@ export function tessellate(a: Assembly, opts: TessOptions = DEFAULT_TESS): TessR
   if (problems.length) return { ok: false, reason: problems.map((p) => `${p.body}: ${p.reason}`).join("; ") };
   const diag = assemblyDiag(a);
   const tol = diag * opts.relTol;
-  const m: Mesh = { positions: [], triangles: [], cornerNormals: [], triBody: [], edges: [], diag, crossings: [], overlaps: [] };
+  const m: Mesh = { positions: [], triangles: [], cornerNormals: [], triBody: [], edges: [], diag, crossings: [], overlaps: [], bodySag: [] };
   for (const [bi, b] of a.bodies.entries()) {
     const R = b.frame ? mul3(rotationMatrix(b.placement.rotateDeg), b.frame) : rotationMatrix(b.placement.rotateDeg);
     const T = b.placement.translate;
@@ -407,10 +423,9 @@ export function tessellate(a: Assembly, opts: TessOptions = DEFAULT_TESS): TessR
     const edge = (i: number, j: number): void => {
       m.edges.push({ a: i, b: j, body: bi });
     };
-    // A small part beside a large one keeps its own shape: its tolerance never exceeds
-    // ten times the relative tolerance of its OWN size (a 2 mm pin by a 1 m plate was a hexagon).
-    const tolB = Math.min(tol, assemblyDiag({ version: 1, bodies: [b] }) * opts.relTol * 10);
-    const r = b.spec.kind === "extrude" ? tessExtrude(b.spec, tolB, put, tri, edge) : tessRevolve(b.spec, tolB, put, tri, edge);
+    const ft: Fineness = { tol, rel: opts.relTol * ARC_REL_PER_RELTOL, sag: 0 };
+    const r = b.spec.kind === "extrude" ? tessExtrude(b.spec, ft, put, tri, edge) : tessRevolve(b.spec, ft, put, tri, edge);
+    m.bodySag.push(ft.sag);
     if (r) return { ok: false, reason: `${b.name || b.id}: ${r}` };
     if (m.triangles.length / 3 > opts.maxTriangles) {
       return {
@@ -474,6 +489,25 @@ function findCrossings(m: Mesh, nBodies: number, maxTests: number): [number, num
     const ka = ck(V(e.a)), kb = ck(V(e.b));
     drawn.add(ka < kb ? `${ka}|${kb}` : `${kb}|${ka}`);
   }
+  // Triangles by side (exact endpoint coordinates): walls and caps keep separate
+  // vertices with the same positions, so adjacency across a rim is positional.
+  // Built only once some pair of bodies actually meets.
+  let edgeTrisMap: Map<string, number[]> | null = null;
+  const edgeTrisOf = (key: string): number[] => {
+    if (!edgeTrisMap) {
+      edgeTrisMap = new Map();
+      for (let t = 0; t < ntri; t++) {
+        for (let c = 0; c < 3; c++) {
+          const ka = ck(V(T[3 * t + c])), kb = ck(V(T[3 * t + ((c + 1) % 3)]));
+          const k2 = ka < kb ? `${ka}|${kb}` : `${kb}|${ka}`;
+          const list = edgeTrisMap.get(k2);
+          if (list) list.push(t);
+          else edgeTrisMap.set(k2, [t]);
+        }
+      }
+    }
+    return edgeTrisMap.get(key) ?? [];
+  };
   const seen = new Set<string>();
   let tests = 0;
   for (let A = 0; A < nBodies; A++) {
@@ -496,6 +530,38 @@ function findCrossings(m: Mesh, nBodies: number, maxTests: number): [number, num
       }
       const stamp = new Int32Array(ntri).fill(-1);
       let crossed = false;
+      /**
+       * Does triangle `k` (corners `tri`) pass through the plane of `other`? Yes when
+       * it has corners strictly on both sides. When it only touches the plane with
+       * one side, yes only if the face continues across that side onto the other
+       * side of the plane (a crossing that runs along a facet edge); otherwise the
+       * surface merely meets the plane there.
+       */
+      const passesThrough = (k: number, tri: Vec3[], other: Vec3[]): boolean => {
+        const nn = cross3(sub3(other[1], other[0]), sub3(other[2], other[0]));
+        const ln = Math.hypot(...nn);
+        if (!(ln > 0)) return false;
+        const u: Vec3 = [nn[0] / ln, nn[1] / ln, nn[2] / ln];
+        const d0 = dot3(u, other[0]);
+        const sd = tri.map((p) => dot3(u, p) - d0);
+        if (sd.some((v) => v > tol) && sd.some((v) => v < -tol)) return true;
+        const on = [0, 1, 2].filter((i) => Math.abs(sd[i]) <= tol);
+        if (on.length !== 2) return false;
+        const off = 3 - on[0] - on[1];
+        const side = Math.sign(sd[off]);
+        const ka = ck(tri[on[0]]), kb = ck(tri[on[1]]);
+        for (const q of edgeTrisOf(ka < kb ? `${ka}|${kb}` : `${kb}|${ka}`)) {
+          if (q === k || m.triBody[q] !== m.triBody[k]) continue;
+          for (let c = 0; c < 3; c++) {
+            const v = V(T[3 * q + c]);
+            const kv = ck(v);
+            if (kv === ka || kv === kb) continue;
+            const sv = dot3(u, v) - d0;
+            if (Math.abs(sv) > tol && Math.sign(sv) === -side) return true;
+          }
+        }
+        return false;
+      };
       for (const s of ta) {
         const [x0, y0, z0] = [0, 1, 2].map((k) => cell(tlo[3 * s + k], k));
         const [x1, y1, z1] = [0, 1, 2].map((k) => cell(thi[3 * s + k], k));
@@ -511,6 +577,10 @@ function findCrossings(m: Mesh, nBodies: number, maxTests: number): [number, num
                 const sb = [V(T[3 * t]), V(T[3 * t + 1]), V(T[3 * t + 2])];
                 const seg = triTriSegment(sa, sb, tol);
                 if (!seg) continue;
+                // Surfaces that only TOUCH (a pin exactly in its bore, a roller on a
+                // plate, a cone's tip) meet along a line without passing through each
+                // other: not a crossing, not an overlap.
+                if (!passesThrough(s, sa, sb) || !passesThrough(t, sb, sa)) continue;
                 if (alongDrawnEdge(seg, sa, drawn, ck, tol) || alongDrawnEdge(seg, sb, drawn, ck, tol)) continue;
                 crossed = true; // a real crossing, not contact along an edge already drawn
                 const q = (p: Vec3): string => p.map((v) => Math.round(v / (tol * 1000))).join(",");
@@ -590,10 +660,18 @@ type Put = (p: Vec3) => number;
 type Tri = (i: number, j: number, k: number, ni: Vec3, nj: Vec3, nk: Vec3) => void;
 type Edge = (i: number, j: number) => void;
 
-function tessExtrude(spec: Extract<BodySpec, { kind: "extrude" }>, tol: number, put: Put, tri: Tri, edge: Edge): string | null {
-  const outer = flattenLoop(spec.profile.outer, tol);
+/** Chord tolerances for one body: absolute, relative to each arc's radius, and the largest used (out). */
+interface Fineness {
+  tol: number;
+  rel: number;
+  sag: number;
+}
+
+function tessExtrude(spec: Extract<BodySpec, { kind: "extrude" }>, ft: Fineness, put: Put, tri: Tri, edge: Edge): string | null {
+  const outer = flattenLoop(spec.profile.outer, ft.tol, ft.rel);
   if (signedArea(outer.points) < 0) return "the outline must run counter-clockwise";
-  const holes = spec.profile.holes.map((h) => flattenLoop(h, tol));
+  const holes = spec.profile.holes.map((h) => flattenLoop(h, ft.tol, ft.rel));
+  ft.sag = Math.max(outer.sag, ...holes.map((h) => h.sag));
   for (const [i, h] of holes.entries()) if (signedArea(h.points) > 0) return `hole ${i + 1} must run clockwise`;
   const z1 = spec.depth;
   const loops = [outer, ...holes];
@@ -651,11 +729,16 @@ function tessExtrude(spec: Extract<BodySpec, { kind: "extrude" }>, tol: number, 
   return null;
 }
 
-function tessRevolve(spec: Extract<BodySpec, { kind: "revolve" }>, tol: number, put: Put, tri: Tri, edge: Edge): string | null {
-  const L = flattenLoop(spec.profile.outer, tol);
+function tessRevolve(spec: Extract<BodySpec, { kind: "revolve" }>, ft: Fineness, put: Put, tri: Tri, edge: Edge): string | null {
+  const L = flattenLoop(spec.profile.outer, ft.tol, ft.rel);
   if (signedArea(L.points) < 0) return "the profile must run counter-clockwise in the (r, z) plane";
   const rmax = Math.max(...L.points.map((p) => p[0]));
-  const steps = Math.max(24, Math.min(512, arcSteps(rmax, 2 * Math.PI, tol)));
+  // Steps round the axis as an extruded circle of radius rmax takes them (two half
+  // turns at the same tolerance), so a revolved pin and an extruded hole of the same
+  // size have the same facets.
+  const tolTurn = Math.min(ft.tol, rmax * ft.rel);
+  const steps = Math.max(24, Math.min(512, 2 * arcSteps(rmax, Math.PI, tolTurn)));
+  ft.sag = Math.max(L.sag, Math.min(tolTurn, rmax));
   const n = L.points.length;
   const onAxis = (p: Pt2): boolean => Math.abs(p[0]) <= rmax * 1e-9;
   // ring[i][j]: vertex of profile point i at angle step j (one vertex on the axis).

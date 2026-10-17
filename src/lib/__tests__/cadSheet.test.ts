@@ -1,10 +1,10 @@
 // Drawing sheets, standards and picking for the CAD canvas
 // (docs/SCOPE-CAD-CANVAS.md R1b; values: docs/DRAFTING-STANDARDS-REFERENCE.md).
-import { Assembly, Body, BodySpec, box, cylinder, IDENTITY_PLACEMENT, Placement, tessellate, Mesh } from "../cadModel";
+import { Assembly, Body, BodySpec, box, cylinder, circleLoop, rectLoop, IDENTITY_PLACEMENT, Placement, tessellate, Mesh } from "../cadModel";
 import { layoutSheet, pointHidden, ViewSpec } from "../cadSheet";
 import { DRAWING_STANDARDS, capMmToPt } from "../cadStandards";
 import { STANDARD_VIEWS } from "../cadLines";
-import { fitView, pickAt, previewOps } from "../cadPreview";
+import { fitView, pickAt, previewOps, shadeRaster } from "../cadPreview";
 import { ptToMm, CAP_HEIGHT_EM, USPTO_REQUIRED_CHAR_HEIGHT_MM } from "../figureStyle";
 
 let n = 0;
@@ -138,9 +138,15 @@ describe("callouts", () => {
     expect(pointHidden(m, STANDARD_VIEWS.front, [-0.5, 5, 1])).toBe(false);
   });
 
-  it("a callout appears in every view that shows its point, and the sheet says when none does", () => {
+  it("a balloon appears ONCE (pictorial first); a patent numeral in every figure that shows it; the sheet says when none does", () => {
     const sh = layoutSheet(L, { standard: "asme", views: [{ kind: "top" }, { kind: "iso" }], callouts: [{ anchor: onBaseTop, label: "7" }] });
-    expect(sh.svg.match(/>7<\/text>/g) ?? []).toHaveLength(2);
+    expect(sh.svg.match(/>7<\/text>/g) ?? []).toHaveLength(1);
+    // …and in the isometric: its balloon sits right of the top view's column.
+    const iso = titlePositions(sh.svg).get("ISOMETRIC")!;
+    const b = [...sh.svg.matchAll(/<circle cx="([\d.]+)" cy="([\d.]+)" r="([\d.]+)" fill="#fff"/g)][0];
+    expect(Math.abs(+b[1] - iso.x)).toBeLessThan(Math.abs(+b[1] - titlePositions(sh.svg).get("TOP")!.x));
+    const pat = layoutSheet(L, { standard: "uspto", views: [{ kind: "top" }, { kind: "iso" }], callouts: [{ anchor: onBaseTop, label: "7" }] });
+    expect(pat.svg.match(/>7<\/text>/g) ?? []).toHaveLength(2);
     const hiddenOnly = layoutSheet(L, { standard: "asme", views: [{ kind: "back" }], callouts: [{ anchor: onBaseTop, label: "7" }] });
     expect(hiddenOnly.notes).toContain("Callout 7 is hidden in every view on this sheet, so it is not drawn.");
   });
@@ -215,6 +221,26 @@ describe("callouts and titles stay on the sheet and clear of each other (review 
   });
 });
 
+describe("many callouts never collapse the scale (second review)", () => {
+  const blk = meshOf(body(box(40, 30, 10)));
+  const many = (k: number) => Array.from({ length: k }, (_, i) => ({ anchor: [40, 1 + (28 * i) / k, 10] as [number, number, number], label: String(i + 1) }));
+  it.each([8, 9, 10, 14])("ASME, %i callouts: still 1:1, every balloon on the sheet", (k) => {
+    const sh = layoutSheet(blk, { standard: "asme", views, callouts: many(k) });
+    expect(sh.scaleMmPerUnit).toBe(1);
+    const { w, h } = sheetSize(sh.svg);
+    for (const b of sheetBoxes(sh.svg).balloons) {
+      expect(b.x - b.r).toBeGreaterThanOrEqual(0);
+      expect(b.y + b.r).toBeLessThanOrEqual(h);
+      expect(b.x + b.r).toBeLessThanOrEqual(w);
+    }
+  });
+  it("too many to set beside a view: refused with the reason, nothing to insert — never shrunk to 1:1000", () => {
+    const sh = layoutSheet(blk, { standard: "uspto", views, callouts: many(40) });
+    expect(sh.svg).toBe("");
+    expect(sh.notes[0]).toMatch(/^\d+ callouts beside one view do not fit on the sheet; use fewer callouts or fewer views\.$/);
+  });
+});
+
 describe("the SVG is clean", () => {
   it.each(["asme", "iso", "uspto", "journal", "plain"] as const)("%s: no NaN, black only", (std) => {
     const sh = layoutSheet(L, { standard: std, views, callouts: [{ anchor: [3, 0.5, 1], label: "10" }] });
@@ -245,6 +271,39 @@ describe("picking on the orbit canvas", () => {
     const ops = previewOps(m, STANDARD_VIEWS.iso, fitView(m, STANDARD_VIEWS.iso, 300, 300));
     expect(ops.length).toBe(6); // 3 visible faces × 2 triangles
     for (let i = 1; i < ops.length; i++) expect(ops[i].depth).toBeGreaterThanOrEqual(ops[i - 1].depth);
+  });
+});
+
+describe("the shaded preview shows the NEAREST surface at every pixel", () => {
+  it("a pin through a plate: pin colour exactly where the exact picker finds the pin (the painter showed it through the plate)", () => {
+    const m = meshOf(body(box(80, 50, 8)), body(cylinder(5, 40), { translate: [40, 25, -10], rotateDeg: [0, 0, 0] }));
+    for (const v of [STANDARD_VIEWS.iso, STANDARD_VIEWS.front]) {
+      const fit = fitView(m, v, 200, 160);
+      const img = shadeRaster(previewOps(m, v, fit), 200, 160, 1, new Set([1]));
+      let tested = 0, wrong = 0;
+      for (let py = 2; py < 160; py += 3)
+        for (let px = 2; px < 200; px += 3) {
+          const k = 4 * (py * 200 + px);
+          const shadedPin = img.data[k] !== img.data[k + 2]; // the tint makes the pin bluish
+          const hit = pickAt(m, v, fit, px + 0.5, py + 0.5);
+          if (!hit) continue;
+          tested++;
+          if (shadedPin !== (hit.body === 1)) wrong++;
+        }
+      expect(tested).toBeGreaterThan(300);
+      expect(wrong / tested).toBeLessThan(0.02); // pixel edges only
+    }
+  });
+
+  it("a 200-hole plate shades a large high-DPI canvas inside a freeze budget (a bound, not a speed claim)", () => {
+    const holes = [];
+    for (let r = 0; r < 10; r++) for (let c = 0; c < 20; c++) holes.push(circleLoop(40 + c * 48, 40 + r * 57, 10, true));
+    const m = meshOf(body({ kind: "extrude", profile: { outer: rectLoop(0, 0, 1000, 600), holes }, depth: 8 }));
+    const fit = fitView(m, STANDARD_VIEWS.iso, 900, 760);
+    const t0 = Date.now();
+    const img = shadeRaster(previewOps(m, STANDARD_VIEWS.iso, fit), 900, 760, 2);
+    expect(img.width).toBe(1800);
+    expect(Date.now() - t0).toBeLessThan(3000);
   });
 });
 

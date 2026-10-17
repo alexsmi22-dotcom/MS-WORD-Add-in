@@ -55,5 +55,17 @@ module.exports = {
     "drawdialog.html": JSON.stringify({
       mol3d: { idcode: "eMHAIh@", style: "ballstick", showH: true, showLabels: true, rot: [1, 0, 0, 0, 1, 0, 0, 0, 1], zoom: 1 },
     }),
+    // The large Drawing (CAD) canvas hands back a model with "Insert": the pane
+    // loads it and inserts the sheet (a dialog has no document access).
+    "caddialog.html": JSON.stringify({
+      doc: JSON.stringify({
+        v: 1,
+        parts: [{ id: "p1", name: "Block", shape: "box", params: { w: 40, d: 30, h: 20 }, placement: { translate: [0, 0, 0], rotateDeg: [0, 0, 0] } }],
+        callouts: [],
+        standard: "asme",
+        views: [{ kind: "front" }, { kind: "top" }],
+      }),
+      insert: true,
+    }),
   },
 };

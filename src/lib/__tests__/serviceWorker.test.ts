@@ -34,6 +34,7 @@ describe("sw-manifest — which files the pane needs offline", () => {
     "commands.html",
     "drawdialog.html",
     "solvedialog.html",
+    "caddialog.html",
     "taskpane.11dbe936eeda3aa5c0cc.js",
     "791.2a088e7e9a0fa0477df0.js",
     "ppt.90ee716840d17eb50afe.js",

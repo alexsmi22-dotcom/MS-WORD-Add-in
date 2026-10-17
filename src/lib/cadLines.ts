@@ -157,10 +157,13 @@ export function drawLines(mesh: Mesh, view: CadView): LineDrawing {
       const o = 9 * t + 3 * c;
       // Symbolic perturbation: an EXACT zero (the outline passing through a
       // vertex, as a front view of a cylinder does at its seam) counts as a
-      // tiny positive, so the crossing falls consistently on the edges beside
-      // that vertex instead of vanishing between two triangles.
+      // tiny NEGATIVE, so the crossing falls consistently on the edges beside
+      // that vertex instead of vanishing between two triangles. Negative, so
+      // the outline is the edge of the strictly front-facing surface: a wall
+      // seen exactly edge-on (a bullet's cylinder from above) puts its outline
+      // where the nose begins, not against the hidden bottom (second review).
       const gi = N[o] * toEye[0] + N[o + 1] * toEye[1] + N[o + 2] * toEye[2];
-      g.push(Math.abs(gi) < 1e-12 ? 1e-12 : gi);
+      g.push(Math.abs(gi) < 1e-12 ? -1e-12 : gi);
     }
     // A planar face has identical corner normals: no crossing inside it.
     if ((g[0] > 0) === (g[1] > 0) && (g[1] > 0) === (g[2] > 0)) continue;

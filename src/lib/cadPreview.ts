@@ -2,7 +2,10 @@
  * The CAD canvas's live preview and picking (docs/SCOPE-CAD-CANVAS.md, R1b).
  *
  * While the user drags to orbit (as in the 3D molecule view), the canvas paints
- * flat-shaded faces back to front — cheap enough for every pointer move. When
+ * flat-shaded faces through a per-pixel depth buffer — painting whole triangles
+ * back to front showed a pin THROUGH the plate it passes into, because one tall
+ * wall triangle cannot be both behind and in front. Cheap enough for every
+ * pointer move at canvas size. When
  * the drag ends, the exact hidden-line drawing (cadLines.ts) is laid over it,
  * and THAT drawing, not this shading, is what gets inserted.
  *
@@ -39,9 +42,10 @@ export function fitView(mesh: Mesh, view: CadView, w: number, h: number, margin 
   return { scale, ox: w / 2 - ((minX + maxX) / 2) * scale, oy: h / 2 + ((minY + maxY) / 2) * scale };
 }
 
-/** One filled face for the painter: canvas-space corners, a grey level, its body. */
+/** One filled face: canvas-space corners, their camera depths (larger = nearer), a grey level, its body. */
 export interface ShadeOp {
   pts: [number, number, number, number, number, number];
+  z: [number, number, number];
   depth: number;
   grey: number;
   body: number;
@@ -80,6 +84,7 @@ export function previewOps(mesh: Mesh, view: CadView, fit: Fit): ShadeOp[] {
         fit.ox + c[3] * fit.scale, fit.oy - c[4] * fit.scale,
         fit.ox + c[6] * fit.scale, fit.oy - c[7] * fit.scale,
       ],
+      z: [c[2], c[5], c[8]],
       depth: (c[2] + c[5] + c[8]) / 3,
       grey: Math.round(150 + 95 * lambert),
       body: mesh.triBody[t / 3],
@@ -89,23 +94,80 @@ export function previewOps(mesh: Mesh, view: CadView, fit: Fit): ShadeOp[] {
   return ops;
 }
 
-/** Paints the preview. `selected` bodies are tinted blue so the user sees what an edit will change. */
-export function paintPreview(ctx: CanvasRenderingContext2D, ops: ShadeOp[], w: number, h: number, selected: ReadonlySet<number> = new Set()): void {
-  ctx.fillStyle = "#ffffff";
-  ctx.fillRect(0, 0, w, h);
+/**
+ * The shaded picture as RGBA pixels, `pxScale` device pixels per canvas unit:
+ * each pixel takes the NEAREST face covering its centre (a depth buffer), so
+ * parts that pass through each other, and a part's own recesses, shade right.
+ * `selected` bodies are tinted blue so the user sees what an edit will change.
+ */
+export function shadeRaster(ops: ShadeOp[], w: number, h: number, pxScale = 1, selected: ReadonlySet<number> = new Set()): { data: Uint8ClampedArray; width: number; height: number } {
+  const W = Math.max(1, Math.round(w * pxScale)), H = Math.max(1, Math.round(h * pxScale));
+  const data = new Uint8ClampedArray(W * H * 4).fill(255);
+  const depth = new Float32Array(W * H).fill(-Infinity);
   for (const o of ops) {
+    const x0 = o.pts[0] * pxScale, y0 = o.pts[1] * pxScale;
+    const x1 = o.pts[2] * pxScale, y1 = o.pts[3] * pxScale;
+    const x2 = o.pts[4] * pxScale, y2 = o.pts[5] * pxScale;
+    const area = (x1 - x0) * (y2 - y0) - (x2 - x0) * (y1 - y0);
+    if (Math.abs(area) < 1e-12) continue;
     const g = o.grey;
-    ctx.fillStyle = selected.has(o.body) ? `rgb(${Math.round(g * 0.62)},${Math.round(g * 0.78)},${g})` : `rgb(${g},${g},${g})`;
-    ctx.strokeStyle = ctx.fillStyle; // hairline seams between triangles disappear
-    ctx.lineWidth = 0.6;
-    ctx.beginPath();
-    ctx.moveTo(o.pts[0], o.pts[1]);
-    ctx.lineTo(o.pts[2], o.pts[3]);
-    ctx.lineTo(o.pts[4], o.pts[5]);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
+    const [r, gg, b] = selected.has(o.body) ? [Math.round(g * 0.62), Math.round(g * 0.78), g] : [g, g, g];
+    const minX = Math.max(0, Math.floor(Math.min(x0, x1, x2))), maxX = Math.min(W - 1, Math.ceil(Math.max(x0, x1, x2)));
+    const minY = Math.max(0, Math.floor(Math.min(y0, y1, y2))), maxY = Math.min(H - 1, Math.ceil(Math.max(y0, y1, y2)));
+    // A hair of overlap so shared edges leave no seam.
+    const eps = -1e-3;
+    const inv = 1 / area;
+    // The weights are linear across the page: step them along each row.
+    const d0 = (y1 - y2) * inv, d1 = (y2 - y0) * inv;
+    const [z0, z1, z2] = o.z;
+    for (let py = minY; py <= maxY; py++) {
+      const cy = py + 0.5;
+      const cx0 = minX + 0.5;
+      let l0 = ((x1 - cx0) * (y2 - cy) - (x2 - cx0) * (y1 - cy)) * inv;
+      let l1 = ((x2 - cx0) * (y0 - cy) - (x0 - cx0) * (y2 - cy)) * inv;
+      for (let px = minX; px <= maxX; px++, l0 += d0, l1 += d1) {
+        const l2 = 1 - l0 - l1;
+        if (l0 < eps || l1 < eps || l2 < eps) continue;
+        const z = l0 * z0 + l1 * z1 + l2 * z2;
+        const k = py * W + px;
+        if (z <= depth[k]) continue;
+        depth[k] = z;
+        data[4 * k] = r;
+        data[4 * k + 1] = gg;
+        data[4 * k + 2] = b;
+      }
+    }
   }
+  return { data, width: W, height: H };
+}
+
+/**
+ * Paints the preview at the canvas's device resolution (`dpr` device pixels per
+ * CSS pixel). `fast` (while dragging) shades at most ~350,000 pixels and scales
+ * the picture up, so a large window stays smooth; the drag's end repaints sharp.
+ */
+export function paintPreview(
+  ctx: CanvasRenderingContext2D,
+  ops: ShadeOp[],
+  w: number,
+  h: number,
+  selected: ReadonlySet<number> = new Set(),
+  dpr = 1,
+  fast = false,
+): void {
+  const scale = fast ? Math.min(dpr, Math.sqrt(350_000 / Math.max(1, w * h))) : dpr;
+  const img = shadeRaster(ops, w, h, scale, selected);
+  const out = ctx.createImageData(img.width, img.height);
+  out.data.set(img.data);
+  if (scale === dpr) {
+    ctx.putImageData(out, 0, 0); // device pixels: unaffected by the context's transform
+    return;
+  }
+  const tmp = ctx.canvas.ownerDocument.createElement("canvas");
+  tmp.width = img.width;
+  tmp.height = img.height;
+  tmp.getContext("2d")?.putImageData(out, 0, 0);
+  ctx.drawImage(tmp, 0, 0, w, h); // through the context's transform: CSS pixels
 }
 
 /** What a click hit: the body and the WORLD point on its surface. */

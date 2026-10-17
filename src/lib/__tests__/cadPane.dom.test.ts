@@ -1,0 +1,152 @@
+/**
+ * @jest-environment jsdom
+ */
+// The Drawing (CAD) controller over the pane's real markup: the Insert guards
+// (reviews D1 and the second review's stale-sheet finding) and the large-canvas
+// round trip. jsdom has no canvas, so painting is skipped; the sheet is real.
+import * as fs from "fs";
+import * as path from "path";
+import { initCadPane, CadPaneHost } from "../../taskpane/cadPane";
+import { serializeDoc, starterDoc, CadDoc } from "../cadShapes";
+
+// jsdom has no canvas: the controller paints nothing when getContext gives none.
+Object.defineProperty(HTMLCanvasElement.prototype, "getContext", { value: () => null });
+
+const PANE_HTML = fs.readFileSync(path.join(__dirname, "..", "..", "taskpane", "taskpane.html"), "utf8");
+const SECTION = /<section id="cad-section">[\s\S]*?<\/section>/.exec(PANE_HTML)![0];
+
+function setup(extra: Partial<CadPaneHost> = {}, initial?: CadDoc) {
+  document.body.innerHTML = SECTION;
+  const inserted: Array<{ alt: string; svg: string }> = [];
+  let release: () => void = () => undefined;
+  const host: CadPaneHost = {
+    setStatus: jest.fn(),
+    nextNumeral: () => 10,
+    insertPicture: jest.fn((svg: string, _w: number, _h: number, alt: string) => {
+      inserted.push({ svg, alt });
+      return new Promise<void>((r) => (release = r));
+    }),
+    readSelectedAlt: async () => null,
+    ...extra,
+  };
+  const pane = initCadPane(host, initial);
+  pane.show();
+  const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
+  const field = (label: string): HTMLInputElement => {
+    const l = Array.from(document.querySelectorAll<HTMLElement>(".cad-field")).find((e) => e.querySelector("span")?.textContent === label);
+    if (!l) throw new Error(`no field ${label}`);
+    return l.querySelector("input") as HTMLInputElement;
+  };
+  const type = (el: HTMLInputElement | HTMLSelectElement, v: string): void => {
+    el.value = v;
+    el.dispatchEvent(new Event(el.tagName === "SELECT" ? "change" : "input"));
+  };
+  return { pane, host, inserted, release: () => release(), $, field, type };
+}
+
+const flush = async (): Promise<void> => {
+  for (let i = 0; i < 5; i++) await Promise.resolve();
+};
+
+beforeEach(() => jest.useFakeTimers());
+afterEach(() => jest.useRealTimers());
+
+describe("Insert inserts only the sheet of the model as it stands", () => {
+  it("a valid drawing inserts its sheet, with that model in the alt text", async () => {
+    const t = setup();
+    const insert = t.$<HTMLButtonElement>("cad-insert");
+    expect(insert.disabled).toBe(false);
+    insert.click();
+    await flush();
+    expect(t.inserted).toHaveLength(1);
+    expect(t.inserted[0].svg).toMatch(/^<svg/);
+    expect(t.inserted[0].alt).toContain(`Model: ${t.pane.getDoc()}`);
+  });
+
+  it("an invalid dimension keeps Insert off, even after the standard or views change (D1)", () => {
+    const t = setup();
+    t.type(t.field("Thickness (Z)"), "0");
+    expect(t.$<HTMLButtonElement>("cad-insert").disabled).toBe(true);
+    t.type(t.$<HTMLSelectElement>("cad-standard"), "iso");
+    expect(t.$<HTMLButtonElement>("cad-insert").disabled).toBe(true);
+    t.type(t.$<HTMLSelectElement>("cad-hidden"), "show");
+    expect(t.$<HTMLButtonElement>("cad-insert").disabled).toBe(true);
+  });
+
+  it("an edit while an insert is in flight does not re-enable Insert on the old sheet", async () => {
+    const t = setup();
+    const insert = t.$<HTMLButtonElement>("cad-insert");
+    insert.click();
+    await flush();
+    t.type(t.field("Width (X)"), "120"); // rebuild scheduled, not run
+    t.release(); // the insert finishes while the rebuild is still waiting
+    await flush();
+    expect(insert.disabled).toBe(true);
+    insert.click(); // and a click cannot insert the old sheet under the new model
+    await flush();
+    expect(t.inserted).toHaveLength(1);
+    jest.advanceTimersByTime(200); // the rebuild runs: the new sheet is current
+    expect(insert.disabled).toBe(false);
+    insert.click();
+    await flush();
+    expect(t.inserted).toHaveLength(2);
+    expect(t.inserted[1].alt).toContain('"w":120');
+  });
+
+  it("a second click during an insert does nothing", async () => {
+    const t = setup();
+    const insert = t.$<HTMLButtonElement>("cad-insert");
+    insert.click();
+    insert.disabled = false; // even if the button were somehow live
+    insert.click();
+    await flush();
+    expect(t.inserted).toHaveLength(1);
+  });
+
+  it("renaming a part: Insert waits for the sheet to catch up, then carries the new name", async () => {
+    const t = setup();
+    const name = document.querySelector<HTMLInputElement>("#cad-editor > input.formula-input")!;
+    t.type(name, "Base plate");
+    expect(t.$<HTMLButtonElement>("cad-insert").disabled).toBe(true);
+    jest.advanceTimersByTime(400);
+    expect(t.$<HTMLButtonElement>("cad-insert").disabled).toBe(false);
+    t.$<HTMLButtonElement>("cad-insert").click();
+    await flush();
+    expect(t.inserted[0].alt).toContain('"name":"Base plate"');
+  });
+});
+
+describe("the large canvas round trip (pane side)", () => {
+  it("Open large canvas sends the model; what comes back with Insert is loaded and inserted", async () => {
+    const back: CadDoc = { ...starterDoc("iso"), hidden: "hide" };
+    const openLarge = jest.fn(async () => ({ doc: serializeDoc(back), insert: true }));
+    const t = setup({ openLarge });
+    const pop = t.$<HTMLButtonElement>("cad-popout");
+    expect(pop.hidden).toBe(false);
+    pop.click();
+    await flush();
+    expect(openLarge).toHaveBeenCalledWith(serializeDoc(starterDoc("asme")));
+    expect(t.$<HTMLSelectElement>("cad-standard").value).toBe("iso");
+    expect(t.$<HTMLSelectElement>("cad-hidden").value).toBe("hide");
+    expect(t.inserted).toHaveLength(1);
+    expect(t.inserted[0].alt).toContain('"standard":"iso"');
+  });
+
+  it("Cancel leaves the pane's drawing untouched; a damaged return is refused by name", async () => {
+    const t = setup({ openLarge: jest.fn().mockResolvedValueOnce(null).mockResolvedValueOnce({ doc: "{oops", insert: false }) });
+    const before = t.pane.getDoc();
+    t.$<HTMLButtonElement>("cad-popout").click();
+    await flush();
+    expect(t.pane.getDoc()).toBe(before);
+    t.$<HTMLButtonElement>("cad-popout").click();
+    await flush();
+    expect(t.pane.getDoc()).toBe(before);
+    expect(t.host.setStatus).toHaveBeenCalledWith("Could not bring the drawing back: this is not a drawing this canvas saved (not JSON).", "error");
+  });
+
+  it("in the pop-out (no openLarge, no document access) those two buttons are hidden", () => {
+    const t = setup({ openLarge: undefined, readSelectedAlt: undefined });
+    expect(t.$<HTMLButtonElement>("cad-popout").hidden).toBe(true);
+    expect(t.$<HTMLButtonElement>("cad-open").hidden).toBe(true);
+  });
+});

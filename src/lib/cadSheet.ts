@@ -17,7 +17,7 @@
  */
 import type { Mesh, Vec3 } from "./cadModel";
 import { baryIn, drawLines, LineDrawing, STANDARD_VIEWS, viewFromDegrees, CadView, Polyline } from "./cadLines";
-import { DRAWING_STANDARDS, DrawingStandard, StandardId, snapScale, scaleLabel } from "./cadStandards";
+import { DRAWING_STANDARDS, DrawingStandard, StandardId, STANDARD_SCALES, snapScale, scaleLabel } from "./cadStandards";
 import { ptToMm } from "./figureStyle";
 
 export type OrthoKind = "front" | "top" | "right" | "left" | "back" | "bottom";
@@ -170,11 +170,28 @@ export function layoutSheet(mesh: Mesh, o: SheetOptions): Sheet {
     });
     return out;
   });
+  // A balloon identifies its item ONCE on a sheet (the drafting convention): in the
+  // first view that shows its point — the pictorial, else front, top, right, then
+  // the rest. Repeating every balloon in every view also made the stacks too tall
+  // to fit any sheet (second review). Patent numerals stay in every figure: each
+  // figure is read on its own.
+  if (std.callouts === "balloon") {
+    const rank = (it: (typeof items)[number]): number =>
+      it.pictorial ? 0 : (["front", "top", "right", "left", "back", "bottom"] as string[]).indexOf(it.spec.kind) + 1;
+    const order = items.map((_, i) => i).sort((p, q) => rank(items[p]) - rank(items[q]) || p - q);
+    const placed = new Set<number>();
+    for (const i of order) {
+      shown[i] = shown[i].filter((c) => !placed.has(c.n));
+      for (const c of shown[i]) placed.add(c.n);
+    }
+  }
   // Each row holds its tallest callout stack; each column its widest title (review D4:
   // a title wider than a narrow part ran into its neighbour). Upper-case sans ≈ 0.62 em.
-  const needMm = rows.map((r) =>
-    Math.max(0, ...items.flatMap((it, i) => (it.cell[1] !== r ? [] : [true, false].map((side) => shown[i].filter((c) => c.right === side).length * pitchMm)))),
-  );
+  const needOf = (): number[] =>
+    rows.map((r) =>
+      Math.max(0, ...items.flatMap((it, i) => (it.cell[1] !== r ? [] : [true, false].map((side) => shown[i].filter((c) => c.right === side).length * pitchMm)))),
+    );
+  let needMm = needOf();
   const titleMm = cols.map((c) => Math.max(0, ...items.filter((it) => it.cell[0] === c).map((it) => labelOf(it).length * 0.62 * headingMm)));
 
   // Horizontal room: every gap between two views holds two callout columns,
@@ -189,17 +206,38 @@ export function layoutSheet(mesh: Mesh, o: SheetOptions): Sheet {
   const colMm = (sc: number): number[] => colW.map((w, i) => Math.max(w * sc, titleMm[i]));
   const rowMm = (sc: number): number[] => rowH.map((h, i) => Math.max(h * sc, needMm[i]));
   const sum = (v: number[]): number => v.reduce((a, b) => a + b, 0);
-  let fitS = Math.max(1e-6, Math.min(availW / (sum(colW) || 1), availH / (sum(rowH) || 1))); // mm per model unit
-  for (let k = 0; k < 40; k++) {
-    const ratio = Math.min(availW / sum(colMm(fitS)), availH / sum(rowMm(fitS)));
-    if (!(ratio < 1 - 1e-9)) break;
-    fitS = Math.max(1e-6, fitS * ratio);
+  const refuse = (why: string): Sheet => ({ svg: "", widthPx: 0, heightPx: 0, labels: [], scaleMmPerUnit: 0, notes: [why] });
+  // Titles and callout stacks do not shrink with the drawing: if they alone do not
+  // fit, no scale does — refuse rather than shrink the views to dots (second review).
+  if (availW <= 0 || availH <= 0 || sum(titleMm) > availW) return refuse("These views do not fit on the sheet with their titles; choose fewer views.");
+  if (sum(needMm) > availH) {
+    // Too tall as anchored: use both sides of each view, the nearer half to each.
+    for (const v of shown) {
+      const byX = [...v].sort((p, q) => p.x - q.x);
+      byX.forEach((c, i) => (c.right = i >= byX.length / 2));
+    }
+    needMm = needOf();
+  }
+  if (sum(needMm) > availH) {
+    const most = Math.max(...shown.flatMap((v) => [true, false].map((side) => v.filter((c) => c.right === side).length)));
+    return refuse(`${most} callouts beside one view do not fit on the sheet; use fewer callouts or fewer views.`);
+  }
+  const fits = (sc: number): boolean => sum(colMm(sc)) <= availW * (1 + 1e-9) && sum(rowMm(sc)) <= availH * (1 + 1e-9);
+  // The largest scale that fits, by bisection (the fit is monotone in the scale).
+  let lo = 0;
+  let hi = Math.min(availW / (sum(colW) || 1), availH / (sum(rowH) || 1)); // drawings alone: an upper bound
+  if (fits(hi)) lo = hi;
+  else for (let k = 0; k < 60; k++) {
+    const mid = (lo + hi) / 2;
+    if (fits(mid)) lo = mid;
+    else hi = mid;
+  }
+  const fitS = lo; // mm per model unit
+  if (std.standardScale && fitS < STANDARD_SCALES[STANDARD_SCALES.length - 1]) {
+    return refuse(`The drawing does not fit the sheet at any standard scale (the smallest is ${scaleLabel(STANDARD_SCALES[STANDARD_SCALES.length - 1])}).`);
   }
   const s = std.standardScale ? snapScale(fitS) : fitS;
   const cwMm = colMm(s), chMm = rowMm(s);
-  if (availW <= 0 || availH <= 0 || sum(cwMm) > availW * 1.001 || sum(chMm) > availH * 1.001) {
-    notes.push("These views leave almost no room on the sheet; choose fewer views or fewer callouts.");
-  }
 
   const W = std.areaMm.w * PX_PER_MM;
   const totalH = sum(chMm) + (rowGapMm + labelMm) * rows.length + rowGapMm;

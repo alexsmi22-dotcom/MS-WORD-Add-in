@@ -419,7 +419,7 @@ async function run() {
       }
       else console.log(`offline: taskpane.html served from cache; Office.js delivered; status "${pane.statusText}"`);
 
-      for (const page of ["drawdialog.html", "solvedialog.html?kind=equation"]) {
+      for (const page of ["drawdialog.html", "solvedialog.html?kind=equation", "caddialog.html"]) {
         const v = await observe(b.cdp, base + page, expr, (x) => x.readyState === "complete" && x.version, 20_000);
         if (!v || v.version !== pkg.version) dumpOn(`offline ${page}: bundle did not execute`, v);
         else console.log(`offline: ${page.split("?")[0]} served from cache and executed`);

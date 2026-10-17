@@ -194,8 +194,11 @@ export interface SettingsSaveResult {
 export interface DialogHandlers {
   /** The dialog did not open; Office's error object, as reported (may be undefined). */
   failed(error: { message?: string } | undefined): void;
-  /** A message from the dialog page; `dialog.close()` closes it. */
-  message(arg: unknown, dialog: { close(): void }): void;
+  /**
+   * A message from the dialog page; `dialog.close()` closes it. `dialog.messageChild(text)`
+   * sends text TO the page and says whether this host could (DialogApi 1.2).
+   */
+  message(arg: unknown, dialog: { close(): void; messageChild(message: string): boolean }): void;
   /** The user closed the dialog window. */
   closed(): void;
 }

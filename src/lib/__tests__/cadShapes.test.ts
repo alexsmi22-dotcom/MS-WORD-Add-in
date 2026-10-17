@@ -1,6 +1,6 @@
 // The CAD canvas part catalogue and drawing document (docs/SCOPE-CAD-CANVAS.md R1b).
 import { SHAPES, SHAPE_IDS, defaultParams, partProblems, docToAssembly, serializeDoc, parseDoc, starterDoc, CadDoc, CadPart, ShapeId, attachCallout, resolveCallouts, overlapNotes } from "../cadShapes";
-import { tessellate, Mesh, flattenLoop, signedArea, DEFAULT_TESS } from "../cadModel";
+import { tessellate, Mesh, flattenLoop, signedArea, DEFAULT_TESS, ARC_REL_PER_RELTOL } from "../cadModel";
 import { drawLines, STANDARD_VIEWS } from "../cadLines";
 import { layoutSheet } from "../cadSheet";
 
@@ -235,7 +235,7 @@ describe("the cap triangulation covers exactly the outline minus its holes (revi
     const spec = SHAPES.plate.build(p.params);
     expect(spec.profile.holes).toHaveLength(n * rows);
     const tol = t.mesh.diag * DEFAULT_TESS.relTol;
-    const holeArea = spec.profile.holes.reduce((sum, h) => sum - signedArea(flattenLoop(h, tol).points), 0);
+    const holeArea = spec.profile.holes.reduce((sum, h) => sum - signedArea(flattenLoop(h, tol, DEFAULT_TESS.relTol * ARC_REL_PER_RELTOL).points), 0);
     expect(area).toBeCloseTo(w * d - holeArea, 6);
   });
 });
@@ -267,5 +267,71 @@ describe("parts that only touch are not called overlapping", () => {
     if (!t.ok) throw new Error(t.reason);
     expect(overlapNotes(d, t.mesh)).toEqual([]);
     expect(t.mesh.crossings).toEqual([]);
+  });
+});
+
+describe("a callout's on-the-part test uses the facets' real error (second review)", () => {
+  const meshFor = (d: CadDoc): Mesh => {
+    const a = docToAssembly(d);
+    if (!a.ok) throw new Error(a.reason);
+    const t = tessellate(a.assembly);
+    if (!t.ok) throw new Error(t.reason);
+    return t.mesh;
+  };
+  /** The centroid of the first wall facet of body `bi` (the farthest a facet point sits from the true surface). */
+  const facetCentroid = (m: Mesh, bi: number): [number, number, number] => {
+    for (let t = 0; t < m.triangles.length / 3; t++) {
+      if (m.triBody[t] !== bi || Math.abs(m.cornerNormals[9 * t + 2]) > 1e-9) continue; // a wall: horizontal normal
+      const c = [0, 1, 2].map((k) => (m.positions[3 * m.triangles[3 * t] + k] + m.positions[3 * m.triangles[3 * t + 1] + k] + m.positions[3 * m.triangles[3 * t + 2] + k]) / 3);
+      return c as [number, number, number];
+    }
+    throw new Error("no wall facet");
+  };
+  const assembly = (): CadDoc => ({
+    ...starterDoc("asme"),
+    parts: [
+      { ...part("box", { w: 2000, d: 1000, h: 50 }), id: "big", name: "Big" },
+      { ...part("cylinder", { dia: 20, h: 20 }), id: "pin", name: "Pin", placement: { translate: [3000, 0, 0], rotateDeg: [0, 0, 0] } },
+    ],
+  });
+
+  it("removing an unrelated part (the pin re-faceted finer) keeps the pin's callout", () => {
+    const d = assembly();
+    d.callouts = [attachCallout(d, 1, facetCentroid(meshFor(d), 1), "5", meshFor(d))];
+    d.parts.shift();
+    const r = resolveCallouts(d, meshFor(d));
+    expect(r.notes).toEqual([]);
+    expect(r.callouts).toHaveLength(1);
+  });
+
+  it("in a large assembly, a 2 mm pin halved drops its callout (the old 0.1 %-of-model tolerance, 2.2 mm, kept it)", () => {
+    const d = assembly();
+    d.parts[1].params = { dia: 2, h: 20 };
+    d.callouts = [attachCallout(d, 1, facetCentroid(meshFor(d), 1), "5", meshFor(d))];
+    expect(resolveCallouts(d, meshFor(d)).callouts).toHaveLength(1); // on it before the change
+    d.parts[1].params = { dia: 1, h: 20 };
+    const r = resolveCallouts(d, meshFor(d));
+    expect(r.callouts).toEqual([]);
+    expect(r.notes).toEqual(["Callout 5 no longer touches Pin (its dimensions changed), so it is not drawn — place it again."]);
+  });
+});
+
+describe("damaged documents the second review found accepted", () => {
+  const withViews = (views: unknown[]) => JSON.stringify({ ...starterDoc("asme"), views });
+  it.each([
+    [[0, 0, 0, 0, 0, 0, 0, 0, 0], "all zeros"],
+    [[5, 0, 0, 0, 5, 0, 0, 0, 5], "a scaling"],
+    [[-1, 0, 0, 0, 1, 0, 0, 0, 1], "a mirror"],
+  ])("an orbit view that is not a rotation (%j, %s) is refused", (rot) => {
+    expect(parseDoc(withViews([{ kind: "orbit", rot }]))).toEqual({ ok: false, reason: "a view in the drawing is damaged" });
+  });
+  it("a turned view is accepted", () => {
+    const c = Math.SQRT1_2;
+    expect(parseDoc(withViews([{ kind: "orbit", rot: [c, -c, 0, c, c, 0, 0, 0, 1] }])).ok).toBe(true);
+  });
+  it("two parts with one id are refused (callouts could not tell them apart)", () => {
+    const d = { ...starterDoc("asme") };
+    d.parts = [d.parts[0], { ...d.parts[0] }];
+    expect(parseDoc(JSON.stringify(d))).toEqual({ ok: false, reason: "two parts in the drawing share one id" });
   });
 });

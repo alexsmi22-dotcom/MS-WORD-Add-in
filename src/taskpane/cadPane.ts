@@ -43,8 +43,25 @@ export interface CadPaneHost {
   nextNumeral(taken: number[]): number;
   /** Inserts the sheet SVG as a picture at the cursor (rasterised by the pane at its physical size). */
   insertPicture(svg: string, widthPx: number, heightPx: number, alt: string): Promise<void>;
-  /** The alt text of the selected picture (null = none selected), to re-open a drawing. */
-  readSelectedAlt(): Promise<string | null>;
+  /** The alt text of the selected picture (null = none selected), to re-open a drawing. Absent in the pop-out window, which cannot read the document. */
+  readSelectedAlt?(): Promise<string | null>;
+  /**
+   * Opens the large canvas on this model (serializeDoc) and resolves with what it hands back:
+   * the model, and whether the user pressed Insert there. Null = closed or cancelled. Absent
+   * in the pop-out itself.
+   */
+  openLarge?(docJson: string): Promise<{ doc: string; insert: boolean } | null>;
+}
+
+export interface CadPaneApi {
+  /** Builds on first show; rebuilds after. */
+  show(): void;
+  /** Loads a saved model (serializeDoc); returns the reason it was refused, or null. */
+  load(json: string): string | null;
+  /** The model as it stands (serializeDoc). */
+  getDoc(): string;
+  /** Inserts the current sheet, as the Insert button does. */
+  insert(): Promise<void>;
 }
 
 /** The model stored in a drawing's alt text ("… Model: {json}"), or null. */
@@ -55,7 +72,7 @@ export function modelFromAlt(alt: string): string | null {
 
 const el = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
 
-export function initCadPane(host: CadPaneHost): { show(): void } {
+export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
   const standardSel = el<HTMLSelectElement>("cad-standard");
   const shapeSel = el<HTMLSelectElement>("cad-shape");
   const addBtn = el<HTMLButtonElement>("cad-add");
@@ -70,12 +87,17 @@ export function initCadPane(host: CadPaneHost): { show(): void } {
   const insertBtn = el<HTMLButtonElement>("cad-insert");
   const hiddenSel = el<HTMLSelectElement>("cad-hidden");
   const openBtn = el<HTMLButtonElement>("cad-open");
+  const popBtn = el<HTMLButtonElement>("cad-popout") as HTMLButtonElement | null;
+  // Each window shows only what it can do: the pop-out cannot read the document or pop out again.
+  if (!host.readSelectedAlt) openBtn.hidden = true;
+  if (popBtn && !host.openLarge) popBtn.hidden = true;
 
   for (const id of Object.keys(DRAWING_STANDARDS) as StandardId[]) standardSel.add(new Option(DRAWING_STANDARDS[id].name, id));
   for (const id of SHAPE_IDS) shapeSel.add(new Option(SHAPES[id].name, id));
 
-  let doc: CadDoc = starterDoc(DEFAULT_STANDARD);
+  let doc: CadDoc = initial ?? starterDoc(DEFAULT_STANDARD);
   standardSel.value = doc.standard;
+  hiddenSel.value = doc.hidden ?? "";
   let selected = 0;
   let view: CadView = STANDARD_VIEWS.iso;
   let zoom = 1;
@@ -84,6 +106,9 @@ export function initCadPane(host: CadPaneHost): { show(): void } {
   let seq = 1;
   let lineTimer = 0;
   let buildTimer = 0;
+  /** A rebuild is scheduled and has not run: the mesh is of an older model. */
+  let pending = false;
+  let nameTimer = 0;
   let inserting = false;
   /** The callouts where they are now (they follow their parts), and the notes about any not drawn. */
   let placed: { callouts: Callout[]; notes: string[] } = { callouts: [], notes: [] };
@@ -91,12 +116,14 @@ export function initCadPane(host: CadPaneHost): { show(): void } {
   // ---- the model -> mesh -> canvas + sheet --------------------------------------------
 
   function rebuild(): void {
+    pending = false;
     const a = docToAssembly(doc);
     if (!a.ok) {
       mesh = null;
       msgEl.className = "build-readout warn";
       msgEl.textContent = a.reason;
       insertBtn.disabled = true;
+      lastSheet = null; // nothing current to insert
       paintEmpty();
       previewEl.replaceChildren();
       return;
@@ -107,6 +134,7 @@ export function initCadPane(host: CadPaneHost): { show(): void } {
       msgEl.className = "build-readout warn";
       msgEl.textContent = t.reason;
       insertBtn.disabled = true;
+      lastSheet = null; // nothing current to insert
       paintEmpty();
       previewEl.replaceChildren();
       return;
@@ -120,8 +148,18 @@ export function initCadPane(host: CadPaneHost): { show(): void } {
   /** Every keystroke in a dimension lands here: the model is rebuilt once typing pauses (review D6). */
   function rebuildSoon(): void {
     window.clearTimeout(buildTimer);
+    pending = true;
     insertBtn.disabled = true;
     buildTimer = window.setTimeout(rebuild, 150);
+  }
+
+  /**
+   * Is the sheet on screen the drawing of the model AS IT STANDS? Insert inserts
+   * only that (second review: an edit during an insert, or a rebuild still
+   * waiting, re-enabled Insert on the previous sheet under the new model's alt text).
+   */
+  function sheetCurrent(): boolean {
+    return !!lastSheet && !pending && mesh !== null && docProblem() === null && lastSheet.model === serializeDoc(doc);
   }
 
   /** The reason the document cannot be inserted as it stands, or null (review D1). */
@@ -163,7 +201,7 @@ export function initCadPane(host: CadPaneHost): { show(): void } {
     if (!ctx || !mesh || !fit) return;
     const { w, h, dpr } = canvasSize();
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    paintPreview(ctx, previewOps(mesh, view, fit), w, h, new Set([selected]));
+    paintPreview(ctx, previewOps(mesh, view, fit), w, h, new Set([selected]), dpr, !withLines);
     // Callout anchors as small dots, so the user sees what they placed.
     ctx.fillStyle = "#b91c1c";
     for (const c of placed.callouts) {
@@ -204,7 +242,7 @@ export function initCadPane(host: CadPaneHost): { show(): void } {
     return out;
   }
 
-  let lastSheet: { svg: string; w: number; h: number; labels: string[] } | null = null;
+  let lastSheet: { svg: string; w: number; h: number; labels: string[]; model: string; stdName: string } | null = null;
   function renderSheet(): void {
     if (!mesh) return;
     doc.views = viewSpecs();
@@ -222,7 +260,7 @@ export function initCadPane(host: CadPaneHost): { show(): void } {
       standard: doc.standard,
       views: doc.views,
       callouts: placed.callouts,
-      ...(hiddenSel.value ? { showHidden: hiddenSel.value === "show" } : {}),
+      ...(doc.hidden ? { showHidden: doc.hidden === "show" } : {}),
     });
     previewEl.innerHTML = sh.svg;
     const svgEl = previewEl.querySelector("svg");
@@ -230,8 +268,9 @@ export function initCadPane(host: CadPaneHost): { show(): void } {
       svgEl.setAttribute("width", "100%");
       svgEl.removeAttribute("height");
     }
-    lastSheet = sh.svg ? { svg: sh.svg, w: sh.widthPx, h: sh.heightPx, labels: sh.labels } : null;
-    insertBtn.disabled = !lastSheet || inserting;
+    const std0 = DRAWING_STANDARDS[doc.standard];
+    lastSheet = sh.svg ? { svg: sh.svg, w: sh.widthPx, h: sh.heightPx, labels: sh.labels, model: serializeDoc(doc), stdName: std0.name } : null;
+    insertBtn.disabled = !sheetCurrent() || inserting;
     const std = DRAWING_STANDARDS[doc.standard];
     msgEl.className = "build-readout";
     msgEl.textContent = [
@@ -311,6 +350,10 @@ export function initCadPane(host: CadPaneHost): { show(): void } {
     nameIn.addEventListener("input", () => {
       p.name = nameIn.value || p.name;
       renderParts();
+      // The name is part of the model the sheet carries (and of its notes): redraw once typing pauses.
+      insertBtn.disabled = true;
+      window.clearTimeout(nameTimer);
+      nameTimer = window.setTimeout(renderSheet, 300);
     });
     editorEl.appendChild(nameIn);
     for (const pd of SHAPES[p.shape].params) {
@@ -320,6 +363,7 @@ export function initCadPane(host: CadPaneHost): { show(): void } {
           const probs = partProblems(p);
           if (probs.length) {
             window.clearTimeout(buildTimer);
+            pending = false;
             msgEl.className = "build-readout warn";
             msgEl.textContent = `${p.name}: ${probs.join("; ")}`;
             insertBtn.disabled = true;
@@ -386,7 +430,19 @@ export function initCadPane(host: CadPaneHost): { show(): void } {
     renderSheet();
   });
   viewsEl.addEventListener("change", renderSheet);
-  hiddenSel.addEventListener("change", renderSheet);
+  hiddenSel.addEventListener("change", () => {
+    if (hiddenSel.value === "show" || hiddenSel.value === "hide") doc.hidden = hiddenSel.value;
+    else delete doc.hidden;
+    renderSheet();
+  });
+  // The canvas follows its window (the pop-out is resizable; the pane can be widened).
+  let resizeTimer = 0;
+  window.addEventListener("resize", () => {
+    window.clearTimeout(resizeTimer);
+    resizeTimer = window.setTimeout(() => {
+      if (mesh) paint(true);
+    }, 100);
+  });
   addBtn.addEventListener("click", () => {
     const shape = shapeSel.value as ShapeId;
     // A new part sits beside the drawing so it is never hidden inside what is there.
@@ -458,10 +514,15 @@ export function initCadPane(host: CadPaneHost): { show(): void } {
     const hit = pickAt(mesh, view, fit, e.clientX - r.left, e.clientY - r.top);
     if (!hit) return;
     if (calloutMode) {
+      // The shading under the cursor must be the model as it stands, or the point lands in the wrong place.
+      if (pending || docProblem() !== null) {
+        host.setStatus("Finish the dimension being edited (the drawing must update) before placing a callout.", "error");
+        return;
+      }
       const std = DRAWING_STANDARDS[doc.standard];
       const taken = doc.callouts.map((c) => Number(c.label)).filter((n) => Number.isFinite(n));
       const label = std.callouts === "balloon" ? String((taken.length ? Math.max(...taken) : 0) + 1) : String(host.nextNumeral(taken));
-      doc.callouts.push(attachCallout(doc, hit.body, hit.point, label));
+      doc.callouts.push(attachCallout(doc, hit.body, hit.point, label, mesh));
       placed = resolveCallouts(doc, mesh);
       renderCallouts();
       paint(true);
@@ -490,7 +551,24 @@ export function initCadPane(host: CadPaneHost): { show(): void } {
   );
 
   // Re-open a drawing this canvas inserted: its model travels in the alt text.
+  /** Puts a parsed model on the canvas, the parts list, the views and the sheet. */
+  function loadDoc(d: CadDoc): void {
+    doc = d;
+    standardSel.value = doc.standard;
+    hiddenSel.value = doc.hidden ?? "";
+    const kinds = new Set(doc.views.map((v) => v.kind));
+    for (const box of Array.from(viewsEl.querySelectorAll<HTMLInputElement>("input[type=checkbox]"))) box.checked = kinds.has(box.value as never);
+    const orbitView = doc.views.find((v) => v.kind === "orbit" && "rot" in v && v.rot);
+    if (orbitView && orbitView.kind === "orbit" && orbitView.rot) view = { name: "orbit", rot: orbitView.rot };
+    selected = 0;
+    renderParts();
+    renderEditor();
+    renderCallouts();
+    rebuild();
+  }
+
   openBtn.addEventListener("click", async () => {
+    if (!host.readSelectedAlt) return;
     try {
       const alt = await host.readSelectedAlt();
       if (alt === null) {
@@ -507,50 +585,76 @@ export function initCadPane(host: CadPaneHost): { show(): void } {
         host.setStatus(`Could not open the drawing: ${r.reason}.`, "error");
         return;
       }
-      doc = r.doc;
-      standardSel.value = doc.standard;
-      const kinds = new Set(doc.views.map((v) => v.kind));
-      for (const box of Array.from(viewsEl.querySelectorAll<HTMLInputElement>("input[type=checkbox]"))) box.checked = kinds.has(box.value as never);
-      const orbitView = doc.views.find((v) => v.kind === "orbit" && "rot" in v && v.rot);
-      if (orbitView && orbitView.kind === "orbit" && orbitView.rot) view = { name: "orbit", rot: orbitView.rot };
-      selected = 0;
-      renderParts();
-      renderEditor();
-      renderCallouts();
-      rebuild();
+      loadDoc(r.doc);
       host.setStatus("Drawing opened. Insert places the edited drawing after the selected one; delete the old one when you are happy.", "success");
     } catch (e) {
       host.setStatus(`Could not read the selected picture: ${(e as Error).message}`, "error");
     }
   });
 
-  insertBtn.addEventListener("click", async () => {
-    if (!lastSheet || inserting) return;
+  async function insertNow(): Promise<void> {
+    if (inserting) return;
     const problem = docProblem();
     if (problem) {
       host.setStatus(`Fix the drawing first: ${problem}`, "error");
+      return;
+    }
+    const sheet = lastSheet;
+    if (!sheet || !sheetCurrent()) {
+      host.setStatus("The drawing is still updating; press Insert again in a moment.", "error");
       return;
     }
     inserting = true;
     insertBtn.disabled = true;
     host.setStatus("Inserting drawing…");
     try {
-      const std = DRAWING_STANDARDS[doc.standard];
-      const views = lastSheet.labels.filter(Boolean).join(", ");
-      // Provenance: the model travels with the figure, so it can be redrawn later.
-      const alt = `Drawing (${std.name})${views ? `: ${views}` : ""}. Model: ${serializeDoc(doc)}`;
-      await host.insertPicture(lastSheet.svg, lastSheet.w, lastSheet.h, alt);
-      host.setStatus(`Drawing inserted — ${std.name}.`, "success");
+      const views = sheet.labels.filter(Boolean).join(", ");
+      // Provenance: the model the SHEET was drawn from travels with it, so it can be redrawn later.
+      const alt = `Drawing (${sheet.stdName})${views ? `: ${views}` : ""}. Model: ${sheet.model}`;
+      await host.insertPicture(sheet.svg, sheet.w, sheet.h, alt);
+      host.setStatus(`Drawing inserted — ${sheet.stdName}.`, "success");
     } catch (e) {
       host.setStatus(`Could not insert the drawing: ${(e as Error).message}`, "error");
     } finally {
       inserting = false;
-      insertBtn.disabled = !lastSheet || docProblem() !== null;
+      insertBtn.disabled = !sheetCurrent();
+    }
+  }
+  insertBtn.addEventListener("click", () => void insertNow());
+
+  // The large canvas: the same model, at working size, in its own window.
+  popBtn?.addEventListener("click", async () => {
+    if (!host.openLarge) return;
+    popBtn.disabled = true;
+    try {
+      const back = await host.openLarge(serializeDoc(doc));
+      if (!back) return;
+      const r = parseDoc(back.doc);
+      if (!r.ok) {
+        host.setStatus(`Could not bring the drawing back: ${r.reason}.`, "error");
+        return;
+      }
+      loadDoc(r.doc);
+      if (back.insert) await insertNow();
+      else host.setStatus("Drawing brought back from the large canvas.", "success");
+    } catch (e) {
+      host.setStatus(`Could not open the large canvas: ${(e as Error).message}`, "error");
+    } finally {
+      popBtn.disabled = false;
     }
   });
 
   let shown = false;
   return {
+    load(json: string): string | null {
+      const r = parseDoc(json);
+      if (!r.ok) return r.reason;
+      shown = true;
+      loadDoc(r.doc);
+      return null;
+    },
+    getDoc: () => serializeDoc(doc),
+    insert: insertNow,
     show(): void {
       // The canvas has no size until its section is visible: build on first show.
       if (!shown) {

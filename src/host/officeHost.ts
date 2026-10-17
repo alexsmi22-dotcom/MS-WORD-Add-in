@@ -45,7 +45,16 @@ export function openDialog(url: string, opts: { height: number; width: number },
       return;
     }
     const dialog = result.value;
-    dialog.addEventHandler(Office.EventType.DialogMessageReceived, (arg) => h.message(arg, dialog));
+    // Sending to the page needs DialogApi 1.2; asked only when a pane actually sends.
+    const handle = {
+      close: (): void => dialog.close(),
+      messageChild: (message: string): boolean => {
+        if (Office.context.requirements.isSetSupported("DialogApi", "1.2") !== true || typeof dialog.messageChild !== "function") return false;
+        dialog.messageChild(message);
+        return true;
+      },
+    };
+    dialog.addEventHandler(Office.EventType.DialogMessageReceived, (arg) => h.message(arg, handle));
     // The user closing the dialog window (X) arrives here.
     dialog.addEventHandler(Office.EventType.DialogEventReceived, () => h.closed());
   });

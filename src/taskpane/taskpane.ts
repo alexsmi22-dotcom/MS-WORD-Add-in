@@ -5,7 +5,8 @@
 import { wordHost as docHost } from "../host/word";
 import type { BibUpdateReport, FigureTail, ResultLayoutItem } from "../host/host";
 import { Segment, segmentsToHtml, escapeHtml } from "../lib/segments";
-import { initCadPane } from "./cadPane";
+import { initCadPane, CadPaneApi } from "./cadPane";
+import { nextFreeNumeral } from "../lib/cadShapes";
 import { parseChemical } from "../lib/chemParser";
 import { validateFormula } from "../lib/chemValidate";
 import { parseMath } from "../lib/mathFormat";
@@ -1068,7 +1069,7 @@ let alignInsertBtn: HTMLButtonElement;
 let currentAlignText = "";
 let seqmapSection: HTMLElement;
 let cadSection: HTMLElement;
-let cadPane: { show(): void } | null = null;
+let cadPane: CadPaneApi | null = null;
 let seqmapOpenBtn: HTMLButtonElement;
 let seqmapFile: HTMLInputElement;
 let seqmapInput: HTMLTextAreaElement;
@@ -1786,14 +1787,10 @@ Office.onReady((info) => {
   cadPane = initCadPane({
     setStatus: (t, k) => setStatus(t, k ?? ""),
     // Patent numerals continue the document's Numerals table and skip any already on this drawing.
-    nextNumeral: (taken) => {
-      let n = suggestNextNumeral(numeralEntries);
-      const step = n % 2 === 0 ? 2 : 1;
-      while (taken.includes(n)) n += step;
-      return n;
-    },
+    nextNumeral: (taken) => nextFreeNumeral(suggestNextNumeral(numeralEntries), taken),
     insertPicture: insertCadDrawing,
     readSelectedAlt: () => docHost.readSelectedPictureAlt(),
+    openLarge: openCadDialog,
   });
   seqmapOpenBtn = document.getElementById("seqmap-open") as HTMLButtonElement;
   seqmapFile = document.getElementById("seqmap-file") as HTMLInputElement;
@@ -29676,6 +29673,63 @@ function openSolveDialog(): void {
     closed: () => {
       solveOpenCanvasBtn.disabled = false;
     },
+  });
+}
+
+/**
+ * Opens the Drawing (CAD) model in the large canvas (caddialog.html) and
+ * resolves with what comes back: the model, and whether Insert was pressed
+ * there (the pane inserts it — a dialog has no document access). The model
+ * rides in the URL when it fits the hosts' length limit; a larger one is sent
+ * after the page says it is ready (DialogApi 1.2). A host that can do neither
+ * is told so — the canvas never opens blank, because "Use this drawing" from
+ * a blank canvas would replace the pane's model.
+ */
+function openCadDialog(docJson: string): Promise<{ doc: string; insert: boolean } | null> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const done = (v: { doc: string; insert: boolean } | null): void => {
+      if (!settled) {
+        settled = true;
+        resolve(v);
+      }
+    };
+    if (!docHost.dialogsSupported()) {
+      setStatus("This Word host does not support pop-out dialog windows.", "error");
+      done(null);
+      return;
+    }
+    const base = new URL("caddialog.html", window.location.href).href;
+    // Patent numerals placed in the large canvas continue the document's Numerals table.
+    const n0 = suggestNextNumeral(numeralEntries);
+    const seeded = `${base}?n0=${n0}&doc=${encodeURIComponent(docJson)}`;
+    const url = seeded.length < 1800 ? seeded : `${base}?n0=${n0}&wait=1`;
+    docHost.openDialog(url, { height: 90, width: 90 }, {
+      failed: (error) => {
+        setStatus(`Could not open the large canvas: ${error?.message ?? "unknown error"}`, "error");
+        done(null);
+      },
+      message: (arg, dialog) => {
+        const msg = (arg as { message?: string }).message;
+        let data: { ready?: boolean; doc?: unknown; insert?: boolean; cancel?: boolean } = {};
+        try {
+          data = JSON.parse(msg ?? "{}");
+        } catch {
+          /* not ours: treated as a cancel below */
+        }
+        if (data.ready) {
+          if (!dialog.messageChild(docJson)) {
+            dialog.close();
+            setStatus("This drawing is too large to carry into the large canvas on this version of Word.", "error");
+            done(null);
+          }
+          return;
+        }
+        dialog.close();
+        done(!data.cancel && typeof data.doc === "string" ? { doc: data.doc, insert: data.insert === true } : null);
+      },
+      closed: () => done(null),
+    });
   });
 }
 

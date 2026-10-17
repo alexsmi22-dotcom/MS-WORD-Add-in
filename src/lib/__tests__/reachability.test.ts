@@ -30,6 +30,7 @@ const ENTRIES = [
   // (graphCalc, from the equation canvas) are shipped, not orphaned.
   path.join(ROOT, "src", "drawdialog", "drawdialog.ts"),
   path.join(ROOT, "src", "solvedialog", "solvedialog.ts"),
+  path.join(ROOT, "src", "caddialog", "caddialog.ts"),
 ];
 
 /**

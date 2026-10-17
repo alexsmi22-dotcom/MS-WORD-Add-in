@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>JurisLab — Large drawing canvas</title>
+    <script type="text/javascript" src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+    <!-- The pane's own styles: the controls look and behave exactly as in the pane. -->
+    <link rel="stylesheet" href="../taskpane/taskpane.css" />
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+      }
+      /* Controls | the 3D canvas | the sheet and its buttons. */
+      #cad-section {
+        display: grid;
+        grid-template-columns: minmax(240px, 300px) minmax(0, 1fr) minmax(280px, 34%);
+        gap: 12px;
+        height: 100vh;
+        padding: 12px;
+        box-sizing: border-box;
+      }
+      .cad-col {
+        min-height: 0;
+        overflow: auto;
+      }
+      .cad-col.canvas-col {
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+      .canvas-col .cad-canvas-wrap {
+        flex: 1 1 auto;
+        min-height: 0;
+        margin: 0 0 6px;
+      }
+      .canvas-col .cad-canvas {
+        height: 100%;
+        resize: none;
+      }
+      #cad-error {
+        display: none;
+        margin: 0 0 8px;
+        padding: 8px 10px;
+        border: 1px solid #c2410c;
+        border-radius: 4px;
+        color: #9a3412;
+        background: #fff7ed;
+      }
+      .dlg-btns {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+        margin-top: 8px;
+      }
+      /* One column on a narrow window: everything still reachable by scrolling. */
+      @media (max-width: 760px) {
+        html,
+        body {
+          overflow: auto;
+        }
+        #cad-section {
+          display: block;
+          height: auto;
+        }
+        .canvas-col .cad-canvas {
+          height: 60vh;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <section id="cad-section">
+      <div class="cad-col">
+        <div id="cad-error" role="alert"></div>
+        <label class="field-label" for="cad-standard">Drawing standard</label>
+        <select id="cad-standard" class="lib-select"></select>
+        <div class="cad-add-row">
+          <select id="cad-shape" class="lib-select" aria-label="Shape to add"></select>
+          <button id="cad-add" class="insert-btn secondary" type="button">Add part</button>
+        </div>
+        <div id="cad-parts" class="cad-parts" aria-label="Parts"></div>
+        <div id="cad-editor" class="cad-editor"></div>
+        <div id="cad-callouts" class="cad-parts" aria-label="Callouts"></div>
+        <fieldset id="cad-views" class="cad-views">
+          <legend>Views on the sheet</legend>
+          <label><input type="checkbox" value="front" checked /> Front</label>
+          <label><input type="checkbox" value="top" checked /> Top</label>
+          <label><input type="checkbox" value="right" checked /> Right</label>
+          <label><input type="checkbox" value="iso" checked /> Isometric</label>
+          <label><input type="checkbox" value="orbit" /> This view</label>
+        </fieldset>
+        <label class="field-label" for="cad-hidden">Hidden lines</label>
+        <select id="cad-hidden" class="lib-select">
+          <option value="">As the standard says</option>
+          <option value="show">Show (dashed)</option>
+          <option value="hide">Hide</option>
+        </select>
+      </div>
+      <div class="cad-col canvas-col">
+        <div class="cad-canvas-wrap">
+          <canvas id="cad-canvas" class="cad-canvas" aria-label="3D view: drag to turn, wheel to zoom, click a part to edit it"></canvas>
+        </div>
+        <div class="cad-view-btns">
+          <button type="button" class="insert-btn secondary" data-cad-view="front">Front</button>
+          <button type="button" class="insert-btn secondary" data-cad-view="top">Top</button>
+          <button type="button" class="insert-btn secondary" data-cad-view="right">Right</button>
+          <button type="button" class="insert-btn secondary" data-cad-view="iso">Isometric</button>
+          <button id="cad-callout" type="button" class="insert-btn secondary" aria-pressed="false">Add callout</button>
+        </div>
+        <p id="cad-status" class="build-readout" role="status"></p>
+      </div>
+      <div class="cad-col">
+        <div id="cad-msg" class="build-readout" aria-live="polite"></div>
+        <div class="preview-wrap">
+          <span class="preview-label">Drawing</span>
+          <div id="cad-preview" class="preview" aria-live="polite"></div>
+        </div>
+        <div class="dlg-btns">
+          <button id="cad-insert" class="insert-btn" type="button" disabled>Insert drawing</button>
+          <button id="cad-use" class="insert-btn secondary" type="button">Use this drawing</button>
+          <button id="cad-cancel" class="insert-btn secondary" type="button">Cancel</button>
+          <!-- Re-opening a drawing reads the document, which a dialog cannot: hidden here. -->
+          <button id="cad-open" class="insert-btn secondary" type="button" hidden>Edit drawing at cursor</button>
+        </div>
+      </div>
+    </section>
+  </body>
+</html>

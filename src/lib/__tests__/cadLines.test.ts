@@ -337,3 +337,45 @@ describe("a small part beside a large one keeps its own shape (review nit)", () 
     for (const [x, y] of pts) expect(Math.abs(Math.hypot(x - c[0], y - c[1]) - 1)).toBeLessThan(0.005);
   });
 });
+
+describe("parts that only touch are not overlapping (second review)", () => {
+  const bore: BodySpec = { kind: "extrude", profile: { outer: rectLoop(0, 0, 40, 30), holes: [circleLoop(20, 15, 5, true)] }, depth: 10 };
+  it("a pin exactly in its bore (same diameter): no overlap, no stray lines", () => {
+    const m = meshOf(asm(body(bore), body(cylinder(5, 30), { translate: [20, 15, -10], rotateDeg: [0, 0, 0] })));
+    expect(m.overlaps).toEqual([]);
+    expect(m.crossings).toEqual([]);
+  });
+  it("a clearance pin (Ø9.98 in Ø10) in a large plate: no overlap — the two circles get the same facets and nest", () => {
+    const plate: BodySpec = { kind: "extrude", profile: { outer: rectLoop(0, 0, 1000, 600), holes: [circleLoop(500, 300, 5, true)] }, depth: 20 };
+    const m = meshOf(asm(body(plate), body(cylinder(4.99, 40), { translate: [500, 300, -10], rotateDeg: [0, 0, 0] })));
+    expect(m.overlaps).toEqual([]);
+    expect(m.crossings).toEqual([]);
+  });
+  it("a roller lying on a plate: no overlap", () => {
+    const m = meshOf(asm(body(box(40, 40, 5)), body(cylinder(5, 30), { translate: [20, 5, 10], rotateDeg: [0, 90, 0] })));
+    expect(m.overlaps).toEqual([]);
+  });
+  it("a cone standing on its tip on a plate: no overlap", () => {
+    const m = meshOf(asm(body(box(40, 40, 5)), body(cone(5, 10), { translate: [20, 20, 15], rotateDeg: [180, 0, 0] })));
+    expect(m.overlaps).toEqual([]);
+  });
+  it("…while a pin that really passes through still overlaps (the rule did not switch crossings off)", () => {
+    const m = meshOf(asm(body(bore), body(cylinder(6, 30), { translate: [20, 15, -10], rotateDeg: [0, 0, 0] })));
+    expect(m.overlaps).toEqual([[0, 1]]);
+    expect(m.crossings.length).toBeGreaterThan(0);
+  });
+});
+
+describe("a bullet nose (cylinder + hemisphere, revolved) from above: its outline circle is visible (pre-existing, second review)", () => {
+  it("top view: the full circle visible, nothing hidden that shows", () => {
+    const bullet: BodySpec = {
+      kind: "revolve",
+      profile: {
+        outer: { start: [0, 0], segs: [{ kind: "line", to: [1, 0] }, { kind: "line", to: [1, 2] }, { kind: "arc", to: [0, 3], center: [0, 2] }, { kind: "line", to: [0, 0] }] },
+        holes: [],
+      },
+    };
+    const d = drawLines(meshOf(asm(body(bullet))), STANDARD_VIEWS.top);
+    expect(length(d.visible)).toBeCloseTo(2 * Math.PI, 1);
+  });
+});

@@ -25,9 +25,19 @@ does that.
 - [ ] **Assemble.** With the flange selected, set Move Z = 8 and Move X = 40: it sits on the plate. Click the plate in
   the 3D view: the plate is selected (blue tint) and its fields show.
 - [ ] **Callouts.** Press **Add callout**, click the plate's top face, then the flange's face: balloons **1** and
-  **2** appear on the sheet, in columns beside each view where the point is visible, not over the view titles.
-  Switch the standard to **USPTO**: the balloons become numerals on lead lines (10, 12, … continuing your Numerals
-  table), and the views are labelled FIG. 1–4 in reading order.
+  **2** appear on the sheet ONCE each — in the isometric view, in columns beside it, not over the view titles (a
+  balloon identifies its part once per sheet). Switch the standard to **USPTO**: the balloons become numerals on
+  lead lines (10, 12, … continuing your Numerals table) in EVERY figure that shows the point, and the views are
+  labelled FIG. 1–4 in reading order.
+- [ ] ★ **Large canvas.** Press **Open large canvas ⤢**: a big window opens with the same parts, callouts,
+  standard, views and hidden-line choice — controls on the left, a large 3D view in the middle, the sheet on the
+  right. Drag to turn it: smooth, and the pin of the overlap step (below) never shows through the plate. Change a
+  dimension there and press **Use this drawing**: the window closes and the pane shows the change. Open it again
+  and press **Insert drawing**: the window closes and the drawing is inserted at the cursor. Open it once more and
+  press **Cancel** (or close the window): the pane is unchanged. Resize the window: the 3D view follows.
+- [ ] **Large canvas, big model.** Add parts until the model is large (e.g. six flanges, each with 12 bolt holes),
+  then open the large canvas: it still opens on the model (a long model is handed over after the window opens). If
+  it cannot be handed over, the pane says so — the window never opens blank.
 - [ ] ★ **Insert ASME, then MEASURE.** Insert the ASME sheet. In Word: right-click ▸ Size and Position. The picture
   should be **254 mm** wide (the ASME drawing area). Print it, or zoom to 100 % with a ruler on screen:
   - view titles (FRONT, TOP…) are about **6 mm** tall;
@@ -56,7 +66,7 @@ does that.
   the parts, callouts, standard and views come back exactly. Click a photo or a chart instead: it says the picture
   was not made by the Drawing tool. With nothing selected: it asks you to select a drawing.
 - [ ] **Undo.** Ctrl/⌘+Z after an insert removes the drawing (two presses: the drawing, then its hidden tag).
-- [ ] **Mac.** Repeat Orbit, Callouts and Insert ASME on Word for Mac.
+- [ ] **Mac.** Repeat Orbit, Callouts, Large canvas and Insert ASME on Word for Mac.
 
 ---
 

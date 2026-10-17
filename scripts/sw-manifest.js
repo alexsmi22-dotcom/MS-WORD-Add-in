@@ -26,7 +26,7 @@ const CDN_ORIGINS = ["https://appsforoffice.microsoft.com"];
  * served from cache: version.json (the update trigger) and sw.js itself.
  */
 const SITE_PAGES = new Set(["index.html", "tool.html", "science.html", "students.html", "legal.html", "manual.html"]);
-const ADDIN_PAGES = new Set(["taskpane.html", "commands.html", "drawdialog.html", "solvedialog.html"]);
+const ADDIN_PAGES = new Set(["taskpane.html", "commands.html", "drawdialog.html", "solvedialog.html", "caddialog.html"]);
 
 function isPrecacheAsset(name) {
   if (typeof name !== "string" || !name) return false;

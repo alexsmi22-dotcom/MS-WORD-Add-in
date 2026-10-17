@@ -30,6 +30,7 @@ module.exports = async (env, options) => {
       commands: ["./src/commands/commands.ts"],
       drawdialog: ["./src/drawdialog/drawdialog.ts"],
       solvedialog: ["./src/solvedialog/solvedialog.ts"],
+      caddialog: ["./src/caddialog/caddialog.ts"],
     },
     output: {
       clean: true,
@@ -147,6 +148,11 @@ module.exports = async (env, options) => {
         filename: "solvedialog.html",
         template: "./src/solvedialog/solvedialog.html",
         chunks: ["solvedialog"],
+      }),
+      new HtmlWebpackPlugin({
+        filename: "caddialog.html",
+        template: "./src/caddialog/caddialog.html",
+        chunks: ["caddialog"],
       }),
       new CopyWebpackPlugin({
         patterns: [

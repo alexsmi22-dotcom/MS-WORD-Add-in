@@ -52,6 +52,7 @@ function sources(): { lib: Map<string, string>; all: string } {
     ...paneFiles,
     path.join(ROOT, "src", "drawdialog", "drawdialog.ts"),
     path.join(ROOT, "src", "solvedialog", "solvedialog.ts"),
+    path.join(ROOT, "src", "caddialog", "caddialog.ts"),
     ...hostFiles,
   ]
     .filter((p) => fs.existsSync(p))

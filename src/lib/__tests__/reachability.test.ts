@@ -67,8 +67,24 @@ function importsOf(file: string): string[] {
   return [...out];
 }
 
+// The pane delegates every document batch to src/host (docs/SCOPE-HOST-ADAPTER.md),
+// and those modules import src/lib in turn (toaScope is reached ONLY through the
+// host's TOA build since v2.146.0). The walk follows them, or a module shipped
+// through the host reads as dead.
+const HOST = path.join(ROOT, "src", "host");
+
+function hostModules(): Set<string> {
+  return new Set(
+    fs
+      .readdirSync(HOST)
+      .filter((f) => f.endsWith(".ts"))
+      .map((f) => path.basename(f, ".ts")),
+  );
+}
+
 function reachableModules(): Set<string> {
   const all = new Set(listModules());
+  const host = hostModules();
   const seen = new Set<string>();
   const queue: string[] = [];
   for (const e of ENTRIES) queue.push(...importsOf(e));
@@ -77,6 +93,7 @@ function reachableModules(): Set<string> {
     if (seen.has(name)) continue;
     seen.add(name);
     if (all.has(name)) queue.push(...importsOf(path.join(LIB, name + ".ts")));
+    else if (host.has(name)) queue.push(...importsOf(path.join(HOST, name + ".ts")));
   }
   return seen;
 }

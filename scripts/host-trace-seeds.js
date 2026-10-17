@@ -12,6 +12,7 @@ const fs = require("fs");
 const path = require("path");
 
 const JDX = fs.readFileSync(path.join(__dirname, "..", "src", "lib", "__tests__", "fixtures", "jcamp", "2Methyl1Propanol.jdx"), "utf8");
+const BIB = fs.readFileSync(path.join(__dirname, "..", "src", "lib", "__tests__", "fixtures", "bib", "crossref-kwon2022.bib"), "utf8");
 const DNA = "ATGGCTAGCAAAGGAGAAGAACTTTTCACTGGAGTTGTCCCAATTCTTGTTGAATTAGATGGTGATGTTAATGGGCACAAATTTTCTGTCTAA";
 
 module.exports = {
@@ -62,5 +63,10 @@ module.exports = {
   "numerals/num-insert-list-btn": [["click", "num-add-btn"], ["q:#num-list .num-row:last-child .rgroup-input:not(.num-numeral)", "housing"], ["qclick", "#num-list .num-callout-btn"]],
   "numerals/para-apply-btn": [["para-renumber", true], ["click", "para-preview-btn"]],
   "code/insert-code-btn": [["code-input", "for i in 1..n:\n    total = total + a[i]\nreturn total"]],
+  // A real Crossref BibTeX export into the document's library, the reference
+  // selected, then Insert citation: the marker, the renumbering batch, and the
+  // settings save (writeBibStore) all run, and Update then has a citation to
+  // renumber and a bibliography to write.
+  "citations/bib-insert": [["bib-paste", BIB], ["click", "bib-import"], ["bib-library", "Kwon_2022"]],
   "citations/cite-insert": [["cite-paste", "Brown v. Board of Education, 347 U.S. 483 (1954)."], ["click", "cite-parse"]],
 };

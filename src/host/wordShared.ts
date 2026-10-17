@@ -33,3 +33,17 @@ export async function tagInserted(context: Word.RequestContext, range: Word.Rang
     // Content controls unsupported here — the inserted content remains in place.
   }
 }
+
+/**
+ * True if a WordApi requirement-set version is available on this host. Used to
+ * gate the OOXML/OMML inserts that older Word (or some web/Mac hosts) lack, so
+ * they degrade gracefully instead of throwing a raw exception. Optimistic if the
+ * capability can't be determined.
+ */
+export function wordApiSupported(version: string): boolean {
+  try {
+    return Office.context.requirements.isSetSupported("WordApi", version);
+  } catch {
+    return true;
+  }
+}

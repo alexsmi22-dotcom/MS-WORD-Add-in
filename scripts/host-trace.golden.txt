@@ -1146,47 +1146,79 @@ RUN R76 {
    status: Found 3 authorities in 3 citations.
 == citations/bib-insert
 OFFICE settings.get("jurislab.bib.v1") -> null
+OFFICE settings.set("jurislab.bib.v1", s480:f80824a4)
+OFFICE settings.saveAsync()
+OFFICE settings.get("jurislab.bib.v1") -> s480:f80824a4
+OFFICE settings.get("jurislab.bib.v1") -> s480:f80824a4
+OFFICE settings.get("jurislab.bib.v1") -> s480:f80824a4
+OFFICE settings.get("jurislab.bib.v1") -> s480:f80824a4
 RUN R77 {
   #441 = R77.document.getSelection()
   #442 = #441.parentContentControlOrNullObject.load("tag")
   R77.sync()
+  #443 = #441.insertText("…", "end")
+  #444 = #443.insertContentControl()
+  set #444.tag = "formula-inserter:cite:1"
+  set #444.title = "JurisLab citation"
+  R77.sync()
+  #445 = R77.document.body.contentControls.load("items/tag,items/text")
+  R77.sync()
+  #446 = R77.document.body.footnotes.load("items")
+  R77.sync()
+  #447 = R77.document.body.footnotes.items[0].body.contentControls.load("items/tag,items/text")
+  R77.sync()
+  #448 = R77.document.body.contentControls.items[0].insertText("[1]", "replace")
+  set #448.font.superscript = false
+  set #448.font.subscript = false
+  set #448.font.italic = false
+  set #448.font.bold = false
+  #449 = R77.document.body.contentControls.items[1].insertOoxml(s1492:45c351d8, "replace")
+  R77.sync()
 } R77
+OFFICE settings.set("jurislab.bib.v1", s504:c0513ad2)
+OFFICE settings.saveAsync()
    status: 
 == citations/bib-update
-OFFICE settings.get("jurislab.bib.v1") -> null
+OFFICE settings.get("jurislab.bib.v1") -> s504:c0513ad2
 RUN R78 {
-  #443 = R78.document.body.contentControls.load("items/tag,items/text")
+  #450 = R78.document.body.contentControls.load("items/tag,items/text")
   R78.sync()
-  #444 = R78.document.body.footnotes.load("items")
+  #451 = R78.document.body.footnotes.load("items")
   R78.sync()
-  #445 = R78.document.body.footnotes.items[0].body.contentControls.load("items/tag,items/text")
+  #452 = R78.document.body.footnotes.items[0].body.contentControls.load("items/tag,items/text")
   R78.sync()
+  #453 = R78.document.body.contentControls.items[0].insertText("[1]", "replace")
+  set #453.font.superscript = false
+  set #453.font.subscript = false
+  set #453.font.italic = false
+  set #453.font.bold = false
+  #454 = R78.document.body.contentControls.items[1].insertOoxml(s1492:45c351d8, "replace")
   R78.sync()
 } R78
    status: 
 == (hidden)/cite-iddetect
 RUN R79 {
-  #446 = R79.document.getSelection()
-  #447 = R79.document.body.getRange("start")
-  #448 = #447.expandTo(#446)
-  #449 = #448.load("text")
+  #455 = R79.document.getSelection()
+  #456 = R79.document.body.getRange("start")
+  #457 = #456.expandTo(#455)
+  #458 = #457.load("text")
   R79.sync()
-  #450 = #446.insertHtml("<i>Id.</i>", "replace")
-  #451 = #450.select("end")
+  #459 = #455.insertHtml("<i>Id.</i>", "replace")
+  #460 = #459.select("end")
   R79.sync()
-  #452 = #450.insertContentControl()
-  set #452.tag = "formula-inserter:citation"
-  set #452.title = "JurisLab"
-  set #452.appearance = "hidden"
+  #461 = #459.insertContentControl()
+  set #461.tag = "formula-inserter:citation"
+  set #461.title = "JurisLab"
+  set #461.appearance = "hidden"
   R79.sync()
 } R79
    status: Id. inserted.
 == (hidden)/cite-supradetect
 RUN R80 {
-  #453 = R80.document.getSelection()
-  #454 = R80.document.body.getRange("start")
-  #455 = #454.expandTo(#453)
-  #456 = #455.load("text")
+  #462 = R80.document.getSelection()
+  #463 = R80.document.body.getRange("start")
+  #464 = #463.expandTo(#462)
+  #465 = #464.load("text")
   R80.sync()
 } R80
    status: Earlier source detected.

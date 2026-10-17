@@ -6,6 +6,43 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.146.0] — 2026-10-17 — Host adapter, part 3: the task pane holds no document code (no visible change)
+
+From `docs/SCOPE-HOST-ADAPTER.md`, completing hit-list item 13. The last ten
+document batches move to `src/host/wordDocument.ts`: both Tables of Authorities,
+the Table of Contents, the TA/TOC/TOA field clean-up, Id. and supra detection,
+paragraph numbering, and Insert citation with Update numbering & bibliography.
+The document settings, the three pop-out dialogs and the WordApi check move to
+`src/host/officeHost.ts`. **Nothing a user sees or inserts changes.** Every
+message is worded exactly as before, and the host-trace gate proves the
+document calls are identical.
+
+### Changed — internal
+- **The pane has no Word.run left** (52 at v2.143.0), and no Word API at all.
+  `Office` appears only as the boot handshake. `hostLayer.test.ts` now enforces
+  this as a wall rather than a count.
+- **The field-based TOA build and the bibliography renumbering moved verbatim.**
+  Each is still one batch and one Ctrl+Z, with its library decisions running
+  between the reads and the writes as before. The host returns a report and the
+  pane words it.
+- **Form values read mid-batch are still read mid-batch.** The Id. pin and the
+  citation locator are read through callbacks the host calls inside its batch,
+  exactly where the old code read them.
+- **The trace covers Office calls too:** settings, dialogs and capability
+  probes record their own stacks, so every pane call into the host is a measured
+  site, 90 of 90. A new seed imports a real Crossref BibTeX export, so Insert
+  citation's marker, renumbering pass and settings save are traced. The golden
+  was re-recorded from released v2.145.0.
+- **The import-graph and unused-export gates follow `src/host`.** A library
+  module reached only through the host (`toaScope`) would otherwise read as dead.
+- **What the independent review changed:**
+  - Insert citation's "style changed" flag is now also read inside the batch,
+    where the renumbering starts.
+  - The end-state wall strips comments with TypeScript itself. A string
+    containing `/*` fooled the regex stripper into deleting real code.
+  - The mock document now holds a citation marker and a bibliography block, so
+    marker rewriting and the bibliography replace are traced as well.
+
 ## [2.145.0] — 2026-10-17 — Host adapter, part 2: pictures and figures (no visible change)
 
 From `docs/SCOPE-HOST-ADAPTER.md`. Every picture and figure insert now goes

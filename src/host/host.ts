@@ -120,6 +120,86 @@ export interface FigureVectorResult {
   format: string | null;
 }
 
+// ---- document-wide edits (Kind 4) -------------------------------------------
+
+/** One paragraph's numbering mark (lib/paragraphs.ts ParagraphPlanItem, the fields the write needs). */
+export interface ParagraphMark {
+  index: number;
+  mark: string;
+  removeExisting: boolean;
+}
+
+/** Where the field-based TOA scan looked: the pane says so in every outcome. */
+interface ToaScope {
+  notesScanned: boolean;
+  footnoteCount: number;
+  endnoteCount: number;
+}
+
+/** What the field-based TOA build did, for the pane to report. */
+export type NativeToaReport =
+  | ({ kind: "noCitations" } & ToaScope)
+  | ({ kind: "noCitationsOutsideTable" } & ToaScope)
+  | ({
+      kind: "built";
+      authoritiesMarked: number;
+      marksFound: number;
+      occurrences: number;
+      unattributed: number;
+      refused: Array<{ index: number; text: string; reason: string }>;
+      tablesNotLocated: number;
+      typedEndedBy: string[];
+      typedUnbounded: number;
+    } & ToaScope);
+
+/** What the formatted TOA insert did; total 0 = no citations, nothing inserted. */
+export type StaticToaReport =
+  | { total: 0 }
+  | { total: number; groups: Array<{ heading: string; count: number }>; pagesFilled: number; replacedField: boolean };
+
+export interface BibUpdateOpts {
+  rewriteAll: boolean;
+  bibliography: "always" | "if-present";
+}
+
+/** What renumbering did (lib/bibPane.ts planUpdate), or why it refused. */
+export type BibUpdateReport =
+  | { ok: false; reason: string }
+  | {
+      ok: true;
+      rewrites: number;
+      occurrences: number;
+      bibliography: { kind: "replaced"; references: number; blocks: number } | { kind: "inserted"; references: number } | null;
+      report: string[];
+    };
+
+/**
+ * The pane's decision for Insert citation, made INSIDE the batch from the tag
+ * of the citation control the cursor is in. A refusal inserts nothing.
+ */
+export type BibInsertPlan<S = import("../lib/bibStore").BibStoreData> =
+  | { ok: false; lines: string[] }
+  | { ok: true; kind: "new"; tag: string; title: string; store: S }
+  | { ok: true; kind: "add"; store: S };
+
+// ---- Office outside Word.run (Kind 5) ------------------------------------------
+
+/** settings.saveAsync's result, reduced to what the pane reads. */
+export interface SettingsSaveResult {
+  succeeded: boolean;
+  error: { message: string } | null;
+}
+
+/** A pop-out dialog's events, handled by the pane. */
+export interface DialogHandlers {
+  /** The dialog did not open; Office's error object, as reported (may be undefined). */
+  failed(error: { message?: string } | undefined): void;
+  /** A message from the dialog page; `dialog.close()` closes it. */
+  message(arg: unknown, dialog: { close(): void }): void;
+  /** The user closed the dialog window. */
+  closed(): void;
+}
+
 /** What the host can do for figures. Unknown is never "yes". */
 export interface HostCaps {
   platform: string | null;
@@ -170,4 +250,33 @@ export interface Host {
   /** Vector SVG via setSelectedDataAsync, re-found and sized. Throws when Word says yes but the picture cannot be found. */
   insertFigureVector(o: FigureInsertWord & { svg: string }): Promise<FigureVectorResult>;
   capability(): HostCaps;
+
+  // ---- document-wide edits ----------------------------------------------------
+
+  applyParagraphMarks(items: ParagraphMark[]): Promise<void>;
+  readTextBeforeCursor(): Promise<string>;
+  /** Reads the text before the cursor and, in the same batch, replaces the selection with what `decide` returns (null = nothing). */
+  replaceSelectionFromTextBefore(decide: (textBefore: string) => { html: string; tag: string } | null): Promise<boolean>;
+  insertTocField(): Promise<void>;
+  /** Deletes the body's TA fields or its TOC/TOA fields; returns how many (0 = none found). */
+  deleteBodyFields(kind: "citationMarks" | "tables"): Promise<number>;
+  buildNativeToa(): Promise<NativeToaReport>;
+  buildStaticToa(): Promise<StaticToaReport>;
+  updateBibliography(store: import("../lib/bibStore").BibStoreData, opts: BibUpdateOpts): Promise<BibUpdateReport>;
+  insertBibCitation(o: {
+    isNote: boolean;
+    plan: (existingTag: string | null) => BibInsertPlan;
+    /** Called inside the batch, where the renumbering starts, so a flag the pane may change mid-insert is read then (as before). */
+    update: () => BibUpdateOpts;
+  }): Promise<{ refused: string[] } | { kind: "new" | "add"; store: import("../lib/bibStore").BibStoreData; update: BibUpdateReport }>;
+
+  // ---- Office outside Word.run ---------------------------------------------------
+
+  /** A WordApi requirement set; optimistic (true) when the host cannot say. */
+  wordApiSupported(version: string): boolean;
+  getSetting(key: string): unknown;
+  setSetting(key: string, value: unknown): void;
+  saveSettings(done?: (r: SettingsSaveResult) => void): void;
+  dialogsSupported(): boolean;
+  openDialog(url: string, opts: { height: number; width: number }, h: DialogHandlers): void;
 }

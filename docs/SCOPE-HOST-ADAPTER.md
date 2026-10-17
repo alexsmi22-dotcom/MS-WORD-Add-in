@@ -95,6 +95,14 @@ What the pane keeps: status text, busy flags, button state, and every message. W
 - **`insertResultBlocks`** now PLANS the report (runs, flushes, which formulas typeset, intrinsic sizes in points). The host's `insertResultLayout` PLAYS it in one batch and returns Word's own picture count.
 - **The trace drive gained second branches:** the vector success path (mock pictures now have distinct signatures), Table → Chart with its data table, a labelled editable table, and an Engineering report with equations. The golden was re-recorded from the released v2.144.0 code. The legend, gallery and vector-refusal branches are pinned by unit tests in `hostLayer.test.ts`.
 
+**As shipped in (c), v2.146.0. This reaches the end state.**
+- **Moves:** the last 10 batches went to `src/host/wordDocument.ts`, and settings, dialogs and the `WordApi` probe to `src/host/officeHost.ts`.
+- **Moved verbatim:** the field-based TOA (one batch, one undo) and the bibliography renumbering pass. The library decisions inside them (`toa.ts`, `toaScope.ts`, `bibPane.ts`) still run between the reads and the writes.
+- **Reports, not messages:** the host returns reports (`NativeToaReport`, `StaticToaReport`, `BibUpdateReport`), and the pane words every message from them, byte for byte as before.
+- **Decisions that read the form mid-batch stay inside it.** Two pane decisions read the form in the middle of the batch: the Id. pin, and Insert citation's locator and plan. They are passed as callbacks that the host calls inside the batch, at the moment the old code ran them.
+- **`hostLayer.test.ts` is now a wall, not a count.** In the pane's code (comments stripped) there is no `Word.*` API and no `Word.run`, and `Office` appears only as `Office.onReady` and `Office.HostType`.
+- **The trace now records a stack for every Office call too** (settings, dialogs, probes), so a pane call to a synchronous host method is a measured site. The total is **90 of 90**. A seed imports a real Crossref BibTeX export, so Insert citation's marker, renumbering pass and settings save all run. The golden was re-recorded from released v2.145.0, and (c) diffs clean against it.
+
 **Out of scope:**
 - **`src/commands/commands.ts`** (10 lines, `Office.onReady` only).
 - **`src/drawdialog/drawdialog.ts`** (`messageParent`). That is a dialog page talking to its parent, not document access.
@@ -134,7 +142,7 @@ Both go to the user.
 |---|---|
 | v2.144.0 (a) | The instrument, `Host` skeleton, Kind 1 + Kind 2, harness enum fix, test-source helper, ratchet test, first parser batch |
 | v2.145.0 (b) | Kind 3, pictures and figures (shipped; see §C) |
-| v2.146.0 (c) | Kind 4 + Kind 5; ratchet reaches the boot allowlist |
+| v2.146.0 (c) | Kind 4 + Kind 5; the pane holds no document code (shipped; see §C) |
 
 Each release gets the full QC, an independent adversarial pass aimed at batch boundaries, selection placement and anything the trace cannot see (Word's behaviour itself), then push and live-verify.
 

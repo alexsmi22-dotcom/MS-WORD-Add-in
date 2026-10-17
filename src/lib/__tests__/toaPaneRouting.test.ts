@@ -33,21 +33,42 @@ function handlerSource(): string {
   return next < 0 ? "" : src.slice(start, start + 1 + next);
 }
 
+// THE BATCH MOVED (v2.146.0, docs/SCOPE-HOST-ADAPTER.md): the Word half of the
+// build — stories, deletes, re-read, plan, searches, marks, fields — is now
+// src/host/wordDocument.ts buildNativeToa, moved verbatim; the pane's handler
+// words its report. Every assertion below reads BOTH, host first, so order
+// checks across the batch still run inside the batch, and message checks
+// (which follow it) still find the pane's text after it.
+const HOST = fs.readFileSync(path.join(__dirname, "..", "..", "host", "wordDocument.ts"), "utf8").replace(/\r\n/g, "\n");
+
+/** The host's buildNativeToa, up to the next top-level declaration. */
+function hostBuildSource(): string {
+  const start = HOST.indexOf("export async function buildNativeToa(");
+  if (start < 0) return "";
+  const rest = HOST.slice(start + 1);
+  const next = rest.search(/\n(?:export |async |function |\/\/ ----)/);
+  return next < 0 ? "" : HOST.slice(start, start + 1 + next);
+}
+
 /** Strips // line comments so a comment cannot satisfy or trip an assertion. */
 const code = (s: string): string => s.replace(/^\s*\/\/.*$/gm, "").replace(/\s\/\/.*$/gm, "");
 
 const BEL = String.fromCharCode(7);
 
 describe("native TOA handler wiring", () => {
-  const body = handlerSource();
+  const hostBody = hostBuildSource();
+  const paneBody = handlerSource();
+  const body = hostBody + "\n" + paneBody;
   const live = code(body);
 
-  test("the slice is the real handler (self-check: it cannot pass vacuously)", () => {
-    expect(body.length).toBeGreaterThan(1500);
-    expect(body.length).toBeLessThan(30000);
-    expect(live).toContain("toaFieldsOoxml(");
-    expect(live).toContain("taFieldOoxml(");
-    expect(live).not.toContain("async function buildTocHandler");
+  test("the slices are the real batch and the real handler (self-check: they cannot pass vacuously)", () => {
+    expect(hostBody.length).toBeGreaterThan(1500);
+    expect(hostBody.length).toBeLessThan(30000);
+    expect(code(hostBody)).toContain("toaFieldsOoxml(");
+    expect(code(hostBody)).toContain("taFieldOoxml(");
+    expect(code(hostBody)).not.toContain("buildStaticToa");
+    expect(code(paneBody)).toContain("await docHost.buildNativeToa()");
+    expect(code(paneBody)).not.toContain("async function buildTocHandler");
   });
 
   test("the search options are case-sensitive", () => {
@@ -112,8 +133,9 @@ describe("native TOA handler wiring", () => {
     expect(live).toMatch(/stories\.forEach\(\(story, i\)/);
     expect(live).toContain("Footnotes and endnotes were NOT scanned");
     expect(live).toContain("Headers and footers are not scanned.");
-    // "N of M" always says what M counted.
-    expect(live).toMatch(/authorit\$\{marks\.length === 1 \? "y" : "ies"\} found in `/);
+    // "N of M" always says what M counted (M = the host's marks.length, reported as marksFound).
+    expect(live).toMatch(/marksFound: marks\.length/);
+    expect(live).toMatch(/authorit\$\{marksFound === 1 \? "y" : "ies"\} found in `/);
     expect(live).toContain('"the main text, footnotes and endnotes "');
     // Stale TA fields are deleted in every story, not only the main text.
     expect(live).toMatch(/stories\.map\(\(s\)\s*=>\s*\{\s*const f = s\.body\.fields/);
@@ -157,10 +179,11 @@ describe("native TOA handler wiring", () => {
   });
 
   test("the pane imports taSearchPlan and the scope helpers", () => {
-    const imp = /import\s*\{([^}]*)\}\s*from\s*"\.\.\/lib\/toa"/.exec(src);
+    // The batch that uses them lives in the host now (v2.146.0).
+    const imp = /import\s*\{([^}]*)\}\s*from\s*"\.\.\/lib\/toa"/.exec(HOST);
     expect(imp).not.toBeNull();
     expect(imp![1]).toMatch(/\btaSearchPlan\b/);
-    expect(src).toMatch(/from\s*"\.\.\/lib\/toaScope"/);
+    expect(HOST).toMatch(/from\s*"\.\.\/lib\/toaScope"/);
   });
 });
 

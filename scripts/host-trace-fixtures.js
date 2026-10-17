@@ -39,6 +39,16 @@ module.exports = {
   },
   [String.raw`\.tables\.items$`]: { __items: [{ values: [["x", "y"], ["1", "2.1"], ["2", "3.9"], ["3", "6.2"]], rowCount: 4 }] },
   [String.raw`\.footnotes\.items$`]: { __items: [{}] },
+  // An existing citation marker and a bibliography block in the main text, so
+  // the renumbering pass has a marker to REWRITE and a block to REPLACE (the
+  // v2.146.0 review found both untraced). Only the body's own controls match:
+  // getByTag results and footnote bodies are named differently.
+  [String.raw`document\.body\.contentControls\.items$`]: {
+    __items: [
+      { tag: "formula-inserter:cite:1", text: "[9]" },
+      { tag: "formula-inserter:bibliography", text: "References (stale)" },
+    ],
+  },
   // What each Office dialog sends back, by page. The large canvas returns a 3D
   // model of ethanol (OCL idcode), which inserts through insertDraw3d.
   __dialogs: {

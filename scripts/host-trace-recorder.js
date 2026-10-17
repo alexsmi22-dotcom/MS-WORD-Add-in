@@ -214,59 +214,88 @@
   // ---- Office ---------------------------------------------------------------
   var ok = function (v) { return { status: "succeeded", value: v }; };
   var settingsStore = {};
+
+  // Office calls are coverage sites too: settings, dialogs and capability
+  // probes never run inside a Word.run, so without their own stacks the pane
+  // calls that reach them (docHost.getSetting, openDialog…) could never show
+  // as reached. Stacks are not part of the trace text.
+  var site = function () {
+    callSites.push(String(new Error().stack || "").split("\n").slice(2, 14).join("\n"));
+  };
+
+  var ui = {
+    displayDialogAsync: function (url, opts, cb) {
+      site();
+      var file = String(url).replace(/^.*\//, "").replace(/\?.*$/, "");
+      log("OFFICE displayDialogAsync(" + summ(file) + ", " + summ(opts) + ")");
+      // A dialog fixture answers with the message the real dialog would
+      // send (e.g. the large canvas handing back a 3D model); without one
+      // the dialog fails to open, which is a path the pane also handles.
+      var msg = (window.__HT_DIALOGS || {})[file];
+      if (!cb) return;
+      if (msg === undefined) return cb({ status: "failed", error: { message: "harness: no dialogs" } });
+      var dialog = {
+        addEventHandler: function (type, h) {
+          if (type === "dialogMessageReceived") setTimeout(function () { h({ message: msg }); }, 0);
+        },
+        close: function () { log("OFFICE dialog.close()"); },
+        messageChild: function () {},
+      };
+      cb({ status: "succeeded", value: dialog });
+    },
+  };
+
+  var context = {
+    platform: "PC",
+    requirements: {
+      isSetSupported: function () {
+        site();
+        return true;
+      },
+    },
+    document: {
+      settings: {
+        get: function (k) {
+          site();
+          var v = Object.prototype.hasOwnProperty.call(settingsStore, k) ? settingsStore[k] : null;
+          log("OFFICE settings.get(" + summ(k) + ") -> " + summ(v));
+          return v;
+        },
+        set: function (k, v) {
+          site();
+          log("OFFICE settings.set(" + summ(k) + ", " + summ(v) + ")");
+          settingsStore[k] = v;
+        },
+        saveAsync: function (a, b) {
+          site();
+          log("OFFICE settings.saveAsync()");
+          var cb = typeof a === "function" ? a : b;
+          if (cb) cb(ok());
+        },
+      },
+      setSelectedDataAsync: function (data, opts, cb) {
+        site();
+        log("OFFICE setSelectedDataAsync(" + summ(data) + ", " + summ(opts) + ")");
+        window.__ht.bodyPics++;
+        var f = typeof opts === "function" ? opts : cb;
+        if (f) f(ok());
+      },
+    },
+  };
+  // A getter, so "can this host open dialogs?" — a property read — counts as a site.
+  Object.defineProperty(context, "ui", {
+    get: function () {
+      site();
+      return ui;
+    },
+  });
+
   window.Office = {
     HostType: { Word: "Word" },
     AsyncResultStatus: { Succeeded: "succeeded", Failed: "failed" },
     CoercionType: { XmlSvg: "XmlSvg", Ooxml: "ooxml", Html: "html", Text: "text" },
     EventType: { DialogMessageReceived: "dialogMessageReceived", DialogEventReceived: "dialogEventReceived" },
     onReady: function (cb) { window.__officeCb = cb; return Promise.resolve({ host: "Word" }); },
-    context: {
-      platform: "PC",
-      requirements: { isSetSupported: function () { return true; } },
-      ui: {
-        displayDialogAsync: function (url, opts, cb) {
-          var file = String(url).replace(/^.*\//, "").replace(/\?.*$/, "");
-          log("OFFICE displayDialogAsync(" + summ(file) + ", " + summ(opts) + ")");
-          // A dialog fixture answers with the message the real dialog would
-          // send (e.g. the large canvas handing back a 3D model); without one
-          // the dialog fails to open, which is a path the pane also handles.
-          var msg = (window.__HT_DIALOGS || {})[file];
-          if (!cb) return;
-          if (msg === undefined) return cb({ status: "failed", error: { message: "harness: no dialogs" } });
-          var dialog = {
-            addEventHandler: function (type, h) {
-              if (type === "dialogMessageReceived") setTimeout(function () { h({ message: msg }); }, 0);
-            },
-            close: function () { log("OFFICE dialog.close()"); },
-            messageChild: function () {},
-          };
-          cb({ status: "succeeded", value: dialog });
-        },
-      },
-      document: {
-        settings: {
-          get: function (k) {
-            var v = Object.prototype.hasOwnProperty.call(settingsStore, k) ? settingsStore[k] : null;
-            log("OFFICE settings.get(" + summ(k) + ") -> " + summ(v));
-            return v;
-          },
-          set: function (k, v) {
-            log("OFFICE settings.set(" + summ(k) + ", " + summ(v) + ")");
-            settingsStore[k] = v;
-          },
-          saveAsync: function (a, b) {
-            log("OFFICE settings.saveAsync()");
-            var cb = typeof a === "function" ? a : b;
-            if (cb) cb(ok());
-          },
-        },
-        setSelectedDataAsync: function (data, opts, cb) {
-          log("OFFICE setSelectedDataAsync(" + summ(data) + ", " + summ(opts) + ")");
-          window.__ht.bodyPics++;
-          var f = typeof opts === "function" ? opts : cb;
-          if (f) f(ok());
-        },
-      },
-    },
+    context: context,
   };
 })();

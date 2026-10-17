@@ -30,6 +30,22 @@ function fnBody(name: string): string {
   return PANE.slice(at, end);
 }
 
+// THE WORD HALF MOVED (v2.146.0, docs/SCOPE-HOST-ADAPTER.md): applyBibUpdate,
+// writeMarkerRuns and the insert batch are in src/host/wordDocument.ts, the
+// settings calls in src/host/officeHost.ts. Word-side assertions read there;
+// the pane's decisions (planInsert, serializeStore, citeTag) still read here.
+const HOST_DOC = fs.readFileSync(path.join(__dirname, "..", "..", "host", "wordDocument.ts"), "utf8");
+const HOST_OFFICE = fs.readFileSync(path.join(__dirname, "..", "..", "host", "officeHost.ts"), "utf8");
+
+/** A function's body in a host file, up to the next top-level declaration. */
+function hostFn(src: string, name: string): string {
+  const m = new RegExp(`\\n(?:export )?(?:async )?function ${name}\\(`).exec(src);
+  expect(m).not.toBeNull();
+  const at = m!.index;
+  const next = src.slice(at + 10).search(/\n(?:export |async |function |\/\*\*|\/\/ ----)/);
+  return next < 0 ? src.slice(at) : src.slice(at, at + 10 + next);
+}
+
 const BIB = `
 @article{alpha, author = {Alpha, Ann and Beta, Bob}, title = {First paper on {NMR}}, journal = {Journal of Tests},
   shortjournal = {J. Tests}, year = {2020}, volume = {1}, number = {2}, pages = {10--20}}
@@ -52,9 +68,16 @@ function docControls(order: string[], texts: Record<string, string> = {}): Array
 describe("the pane is wired to the bibliography engines", () => {
   it("imports the panel's decisions from lib/bibPane", () => {
     expect(PANE).toMatch(/from "\.\.\/lib\/bibPane";/);
+    // planUpdate and collectCitations are used by the host's renumbering batch
+    // (v2.146.0). Both files' bibPane imports are stripped, so an import is
+    // never mistaken for a use.
+    // Stripped PER FILE: one global pass over the concatenation let the lazy
+    // match run from a pane import to the host's import and delete the pane.
+    const strip = (src: string): string => src.replace(/import \{[^}]*\} from "\.\.\/lib\/bibPane";/, "");
+    const shipped = strip(PANE) + "\n" + strip(HOST_DOC);
     for (const name of ["importBibText", "mergeImport", "planInsert", "planUpdate", "collectCitations", "previewRecords",
       "offeredStyles", "notOfferedNote", "loadBibStore", "doiLibraryLines", "libraryRows", "markerRuns", "CASE_NOTE"]) {
-      expect({ name, used: new RegExp(`\\b${name}\\(|\\b${name}\\b[^,\\n]*;`).test(PANE.replace(/import \{[\s\S]*?\} from "\.\.\/lib\/bibPane";/, "")) })
+      expect({ name, used: new RegExp(`\\b${name}\\(|\\b${name}\\b[^,\\n]*;`).test(shipped) })
         .toEqual({ name, used: true });
     }
   });
@@ -76,30 +99,41 @@ describe("the pane is wired to the bibliography engines", () => {
   });
   it("shows DOI_OFFLINE_NOTE verbatim, and the pane never fetches for a DOI", () => {
     expect(PANE).toMatch(/bibDoiNote\.textContent = DOI_OFFLINE_NOTE;/);
-    for (const line of PANE.split("\n")) {
+    for (const line of (PANE + "\n" + HOST_DOC + "\n" + HOST_OFFICE).split("\n")) {
       if (/\bfetch\s*\(|XMLHttpRequest|WebSocket/.test(line)) expect(line).not.toMatch(/doi/i);
     }
   });
   it("the library lives in the document settings store, refused stores are never overwritten", () => {
-    expect(fnBody("readBibStore")).toMatch(/Office\.context\.document\.settings\.get\(BIB_SETTING_KEY\)/);
+    // Through the host's pass-through settings calls (v2.146.0).
+    expect(fnBody("readBibStore")).toMatch(/docHost\.getSetting\(BIB_SETTING_KEY\)/);
+    expect(hostFn(HOST_OFFICE, "getSetting")).toMatch(/Office\.context\.document\.settings\.get\(key\)/);
     const w = fnBody("writeBibStore");
     expect(w).toMatch(/serializeStore\(store\)/);
-    expect(w.indexOf("serializeStore(store)")).toBeLessThan(w.indexOf("settings.set(BIB_SETTING_KEY"));
-    expect(w).toMatch(/saveAsync/);
+    expect(w.indexOf("serializeStore(store)")).toBeLessThan(w.indexOf("setSetting(BIB_SETTING_KEY"));
+    expect(w).toMatch(/docHost\.saveSettings\(/);
+    expect(hostFn(HOST_OFFICE, "saveSettings")).toMatch(/saveAsync/);
     expect(fnBody("refreshBibPanel")).toMatch(/b\.disabled = blocked/);
   });
   it("Insert: checks the tag via citeTag and the store size BEFORE touching Word; one Word.run", () => {
+    // The pane's plan decides every refusal; the host calls it INSIDE its one
+    // batch, after reading the cursor's control and before any insert.
     const b = fnBody("insertBibCitation");
-    expect(b.match(/Word\.run\(/g)).toHaveLength(1);
+    expect(b.match(/docHost\.insertBibCitation\(/g)).toHaveLength(1);
     expect(b).toMatch(/const t = citeTag\(plan\.markerId\);/);
-    expect(b.indexOf("serializeStore(plan.store)")).toBeLessThan(b.indexOf("insertContentControl()"));
-    expect(b.indexOf("citeTag(plan.markerId)")).toBeLessThan(b.indexOf("insertContentControl()"));
-    expect(b).toMatch(/cc\.title = CITE_CONTROL_TITLE;/);
-    expect(b).toMatch(/applyBibUpdate\(context, plan\.store/);
+    expect(b.indexOf("serializeStore(plan.store)")).toBeLessThan(b.indexOf("citeTag(plan.markerId)"));
+    expect(b).toMatch(/title: CITE_CONTROL_TITLE/);
+    const h = hostFn(HOST_DOC, "insertBibCitation");
+    expect(h.match(/Word\.run\(/g)).toHaveLength(1);
+    expect(h.indexOf("o.plan(")).toBeGreaterThan(h.indexOf('parent.load("tag")'));
+    expect(h.indexOf("o.plan(")).toBeLessThan(h.indexOf("insertContentControl()"));
+    expect(h).toMatch(/if \(!plan\.ok\) \{\s*out = \{ refused: plan\.lines \};\s*return;/);
+    expect(h).toMatch(/cc\.title = plan\.title;/);
+    expect(h).toMatch(/applyBibUpdate\(context, plan\.store/);
   });
   it("Update: enumerates cite controls (body + footnotes), rewrites markers, replaces the bibliography; one Word.run", () => {
-    expect(fnBody("updateBibliography").match(/Word\.run\(/g)).toHaveLength(1);
-    const a = fnBody("applyBibUpdate");
+    expect(fnBody("updateBibliography").match(/docHost\.updateBibliography\(/g)).toHaveLength(1);
+    expect(hostFn(HOST_DOC, "updateBibliography").match(/Word\.run\(/g)).toHaveLength(1);
+    const a = hostFn(HOST_DOC, "applyBibUpdate");
     expect(a).toMatch(/ccs\.load\("items\/tag,items\/text"\)/);
     expect(a).toMatch(/body\.footnotes/);
     expect(a).toMatch(/wordApiSupported\("1\.5"\)/);

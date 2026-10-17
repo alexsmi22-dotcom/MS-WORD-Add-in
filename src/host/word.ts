@@ -15,6 +15,19 @@ import {
   insertPictureWithLegend,
   insertResultLayout,
 } from "./wordFigures";
+import {
+  applyParagraphMarks,
+  buildNativeToa,
+  buildStaticToa,
+  deleteBodyFields,
+  insertBibCitation,
+  insertTocField,
+  readTextBeforeCursor,
+  replaceSelectionFromTextBefore,
+  updateBibliography,
+} from "./wordDocument";
+import { wordApiSupported } from "./wordShared";
+import { dialogsSupported, getSetting, openDialog, saveSettings, setSetting } from "./officeHost";
 
 export const wordHost: Host = {
   insertAtSelection,
@@ -31,4 +44,19 @@ export const wordHost: Host = {
   insertFigurePng,
   insertFigureVector,
   capability,
+  applyParagraphMarks,
+  readTextBeforeCursor,
+  replaceSelectionFromTextBefore,
+  insertTocField,
+  deleteBodyFields,
+  buildNativeToa,
+  buildStaticToa,
+  updateBibliography,
+  insertBibCitation,
+  wordApiSupported,
+  getSetting,
+  setSetting,
+  saveSettings,
+  dialogsSupported,
+  openDialog,
 };

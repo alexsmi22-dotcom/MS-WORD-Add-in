@@ -260,11 +260,13 @@ describe("wrong page / wrong authority", () => {
   // Correct: scan footnotes/endnotes, or at least declare that they were not.
   // Owner: src/taskpane/taskpane.ts (buildNativeToaHandler).
   it("buildNativeToaHandler scans or at least discloses footnote / endnote citations", () => {
-    const src = fs.readFileSync(path.join(__dirname, "..", "..", "taskpane", "taskpane.ts"), "utf8").replace(/\r\n/g, "\n");
-    const start = src.indexOf("async function buildNativeToaHandler(");
+    // The batch moved to the host in v2.146.0 (docs/SCOPE-HOST-ADAPTER.md); the
+    // scan it pins is src/host/wordDocument.ts buildNativeToa.
+    const src = fs.readFileSync(path.join(__dirname, "..", "..", "host", "wordDocument.ts"), "utf8").replace(/\r\n/g, "\n");
+    const start = src.indexOf("export async function buildNativeToa(");
     expect(start).toBeGreaterThan(0);
     const rest = src.slice(start + 1);
-    const end = rest.search(/\n(?:async\s+)?function\s+[A-Za-z0-9_]+\s*\(/);
+    const end = rest.search(/\n(?:export |async |function |\/\/ ----)/);
     // Strip full-line AND trailing // comments, so "// TODO footnotes" cannot pass it.
     const body = src
       .slice(start, start + 1 + end)

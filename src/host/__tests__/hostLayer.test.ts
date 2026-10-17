@@ -10,6 +10,7 @@
  */
 import * as fs from "fs";
 import * as path from "path";
+import * as ts from "typescript";
 
 // ---- a recording Word -------------------------------------------------------
 //
@@ -363,35 +364,196 @@ describe("pictures (v2.145.0)", () => {
   });
 });
 
+describe("document-wide edits (v2.146.0)", () => {
+  const withWord = (): void => {
+    const W = (globalThis as unknown as { Word: Record<string, unknown> }).Word;
+    W.RangeLocation = { end: "End", after: "After", start: "Start" };
+    W.InsertLocation = { replace: "Replace", after: "After", before: "Before", end: "End", start: "Start" };
+  };
+
+  it("paragraph marks: one read, one insertText per marked paragraph (replace when renumbering), one closing sync", async () => {
+    withWord();
+    reads["ctx.document.body.paragraphs.items"] = [obj("P0"), obj("P1"), obj("P2")];
+    reads["P1.text"] = "[0007] Old text";
+    await wordHost.applyParagraphMarks([
+      { index: 0, mark: "[0001]", removeExisting: false },
+      { index: 1, mark: "[0002]", removeExisting: true },
+      { index: 2, mark: "", removeExisting: false }, // skipped: no mark
+    ]);
+    expect(log).toEqual([
+      "RUN {",
+      '#1 = ctx.document.body.paragraphs.load("items/text")',
+      "ctx.sync()",
+      '#2 = P0.insertText("[0001] ", "Start")',
+      '#3 = P1.insertText("[0002] Old text", "Replace")',
+      "ctx.sync()",
+      "}",
+    ]);
+  });
+
+  it("Id.: when the pane's decision is null (no antecedent), NOTHING is written", async () => {
+    withWord();
+    reads["#3.text"] = "No authority here.";
+    let seen = "";
+    const inserted = await wordHost.replaceSelectionFromTextBefore((t) => { seen = t; return null; });
+    expect(inserted).toBe(false);
+    expect(seen).toBe("No authority here.");
+    expect(log.some((l) => l.includes("insertHtml"))).toBe(false);
+  });
+
+  it("Id.: the decision runs between the read and the write, in ONE batch, and the insert is tagged", async () => {
+    withWord();
+    const inserted = await wordHost.replaceSelectionFromTextBefore(() => ({ html: "<i>Id.</i>", tag: "formula-inserter:citation" }));
+    expect(inserted).toBe(true);
+    expect(log.filter((l) => l === "RUN {")).toHaveLength(1);
+    const read = log.findIndex((l) => l.includes('.load("text")'));
+    const write = log.findIndex((l) => l.includes('insertHtml("<i>Id.</i>", "Replace")'));
+    expect(write).toBeGreaterThan(read);
+    expect(log.slice(write).some((l) => l.endsWith(".insertContentControl()"))).toBe(true);
+  });
+
+  it("field clean-up deletes only the matching fields and reports 0 (no second sync) when there are none", async () => {
+    withWord();
+    reads["ctx.document.body.fields.items"] = [obj("F0"), obj("F1")];
+    reads["F0.code"] = ' TA \\l "Brown" \\c 1 ';
+    reads["F1.code"] = " DATE ";
+    await expect(wordHost.deleteBodyFields("citationMarks")).resolves.toBe(1);
+    expect(log).toContain("#2 = F0.delete()");
+    expect(log.some((l) => l.includes("F1.delete"))).toBe(false);
+    log = [];
+    next = 1;
+    reads["F0.code"] = " DATE ";
+    await expect(wordHost.deleteBodyFields("citationMarks")).resolves.toBe(0);
+    expect(log.filter((l) => l === "ctx.sync()")).toHaveLength(1);
+  });
+
+  it("Insert citation: a plan refusal comes back BEFORE anything is inserted", async () => {
+    withWord();
+    const r = await wordHost.insertBibCitation({
+      isNote: false,
+      plan: (tag) => ({ ok: false, lines: [`refused (cursor tag ${tag})`] }),
+      update: () => ({ rewriteAll: false, bibliography: "if-present" }),
+    });
+    expect(r).toEqual({ refused: ["refused (cursor tag null)"] }); // the empty document's cursor is in no control
+    expect(log.some((l) => /insert(Text|Footnote|ContentControl)/.test(l))).toBe(false);
+  });
+});
+
+describe("Office outside Word.run (v2.146.0)", () => {
+  let saved: Array<unknown[]>;
+  let dialogCb: ((r: unknown) => void) | null;
+  let handlers: Record<string, (a?: unknown) => void>;
+  beforeEach(() => {
+    saved = [];
+    dialogCb = null;
+    handlers = {};
+    (globalThis as unknown as { Office: unknown }).Office = {
+      AsyncResultStatus: { Succeeded: "succeeded" },
+      EventType: { DialogMessageReceived: "msg", DialogEventReceived: "evt" },
+      context: {
+        requirements: { isSetSupported: (_s: string, v: string) => v === "1.3" },
+        ui: { displayDialogAsync: (_u: string, _o: unknown, cb: (r: unknown) => void) => { dialogCb = cb; } },
+        document: {
+          settings: {
+            get: (k: string) => `value of ${k}`,
+            set: (...a: unknown[]) => saved.push(["set", ...a]),
+            saveAsync: (...a: unknown[]) => {
+              saved.push(["save", a.length]);
+              if (typeof a[0] === "function") (a[0] as (r: unknown) => void)({ status: "failed", error: { message: "disk" } });
+            },
+          },
+        },
+      },
+    };
+  });
+
+  it("settings pass straight through; a save without a callback is fire-and-forget, as before", () => {
+    expect(wordHost.getSetting("k")).toBe("value of k");
+    wordHost.setSetting("k", "v");
+    wordHost.saveSettings();
+    expect(saved).toEqual([["set", "k", "v"], ["save", 0]]);
+  });
+
+  it("a failed save reports Office's own error to the pane", () => {
+    let got: unknown = null;
+    wordHost.saveSettings((r) => { got = r; });
+    expect(got).toEqual({ succeeded: false, error: { message: "disk" } });
+  });
+
+  it("WordApi probe: the host's answer, and OPTIMISTIC (true) when the probe throws", () => {
+    expect(wordHost.wordApiSupported("1.3")).toBe(true);
+    expect(wordHost.wordApiSupported("1.5")).toBe(false);
+    (globalThis as unknown as { Office: { context: { requirements: unknown } } }).Office.context.requirements = {
+      isSetSupported: () => { throw new Error("no"); },
+    };
+    expect(wordHost.wordApiSupported("1.5")).toBe(true);
+  });
+
+  it("dialogs: failure hands back Office's error; messages carry the dialog; closing is its own event", () => {
+    const got: string[] = [];
+    wordHost.openDialog("x.html", { height: 1, width: 1 }, {
+      failed: (e) => got.push(`failed:${e?.message}`),
+      message: (arg, d) => { got.push(`msg:${(arg as { message: string }).message}`); d.close(); },
+      closed: () => got.push("closed"),
+    });
+    dialogCb!({ status: "failed", error: { message: "blocked" } });
+    const dialog = { close: () => got.push("close()"), addEventHandler: (t: string, h: (a?: unknown) => void) => { handlers[t] = h; } };
+    dialogCb!({ status: "succeeded", value: dialog });
+    handlers.msg({ message: "hi" });
+    handlers.evt();
+    expect(got).toEqual(["failed:blocked", "msg:hi", "close()", "closed"]);
+  });
+});
+
 // ---- the ratchet ---------------------------------------------------------------
 
 const ROOT = path.join(__dirname, "..", "..", "..");
 const PANE = fs.readFileSync(path.join(ROOT, "src", "taskpane", "taskpane.ts"), "utf8");
-const count = (re: RegExp): number => (PANE.match(re) || []).length;
 
-describe("the ratchet: document code only ever LEAVES the pane", () => {
-  // A COUNT, not a list of names, like every other ratchet in this repo: a list
-  // stops covering whatever is written after it. LOWER these as sites move —
-  // the target is zero Word.run and the boot handshake for Office.
-  // v2.144.0: 52 -> 29 Word.run (Kinds 1 and 2 moved to src/host).
-  // v2.145.0: 29 -> 10 (Kind 3, pictures and figures; the vector route took
-  // setSelectedDataAsync and the capability probes with it).
-  const WORD_RUN_MAX = 10;
-  const WORD_REF_MAX = 52;
-  const OFFICE_REF_MAX = 35;
+describe("the end state: the pane holds no document code", () => {
+  // The ratchet reached its target in v2.146.0 (docs/SCOPE-HOST-ADAPTER.md):
+  //   v2.144.0  52 -> 29 Word.run (inserts at the selection, document reads)
+  //   v2.145.0  29 -> 10 (pictures and figures, the vector route)
+  //   v2.146.0  10 -> 0  (TOA, TOC, citations, numbering; settings, dialogs)
+  // From here it is a WALL, not a count: in the pane's CODE (comments
+  // stripped) there is no Word API at all, and Office appears only as the boot
+  // handshake. Prose that mentions Word ("discarded by Word.") is not code.
+  // Comments removed by TypeScript itself, not by a regex: a string such as
+  // "…/*, OR/|/+…" opened a fake block comment for the regex stripper and
+  // silently deleted the real code after it (independent review, v2.146.0).
+  const code = ts.transpileModule(PANE, {
+    compilerOptions: { removeComments: true, target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.ESNext },
+  }).outputText;
 
-  it(`taskpane.ts has at most ${WORD_RUN_MAX} Word.run batches`, () => {
-    expect(count(/\bWord\.run\(/g)).toBeLessThanOrEqual(WORD_RUN_MAX);
+  it("the stripped pane is still the pane (self-check: known code from start, middle and end survives)", () => {
+    for (const piece of ["Office.onReady((info) =>", "docHost.insertAtSelection(", "docHost.buildNativeToa()", "docHost.updateBibliography(store"]) {
+      expect({ piece, present: code.includes(piece) }).toEqual({ piece, present: true });
+    }
+    expect(code.length).toBeGreaterThan(PANE.length * 0.4);
   });
-  it(`taskpane.ts names Word. at most ${WORD_REF_MAX} times and Office. at most ${OFFICE_REF_MAX}`, () => {
-    expect(count(/\bWord\./g)).toBeLessThanOrEqual(WORD_REF_MAX);
-    expect(count(/\bOffice\./g)).toBeLessThanOrEqual(OFFICE_REF_MAX);
+
+  // The word boundary is built with new RegExp from a doubled backslash: a
+  // literal backslash-b written through a shell once landed in this file as a
+  // 0x08 control character, and the scan could never match anything.
+  const B = String.fromCharCode(92) + "b";
+  const wordRun = new RegExp(B + "Word\\.run\\(", "g");
+  const wordApi = new RegExp(B + "Word\\.[A-Za-z_]+", "g");
+  const officeApi = new RegExp(B + "Office\\.[A-Za-z_]+", "g");
+
+  it("no Word.run, and no Word.* API, anywhere in taskpane.ts", () => {
+    expect(code.match(wordRun) ?? []).toEqual([]);
+    expect(code.match(wordApi) ?? []).toEqual([]);
   });
-  it("the ratchet is TIGHT — a count that drops must be lowered here in the same change", () => {
-    // Otherwise the slack lets a site move back into the pane unnoticed.
-    expect(count(/\bWord\.run\(/g)).toBe(WORD_RUN_MAX);
-    expect(count(/\bWord\./g)).toBe(WORD_REF_MAX);
-    expect(count(/\bOffice\./g)).toBe(OFFICE_REF_MAX);
+  it("Office only for the boot handshake: Office.onReady and Office.HostType", () => {
+    const uses = [...new Set(code.match(officeApi) ?? [])].sort();
+    expect(uses).toEqual(["Office.HostType", "Office.onReady"]);
+  });
+  it("the wall can fail: the same scans find Word and Office calls in the host", () => {
+    const host = fs.readFileSync(path.join(ROOT, "src", "host", "wordInsert.ts"), "utf8");
+    expect(host.match(wordRun)?.length).toBeGreaterThan(0);
+    expect(host.match(wordApi)?.length).toBeGreaterThan(0);
+    const office = fs.readFileSync(path.join(ROOT, "src", "host", "officeHost.ts"), "utf8");
+    expect(office.match(officeApi)?.length).toBeGreaterThan(0);
   });
 });
 

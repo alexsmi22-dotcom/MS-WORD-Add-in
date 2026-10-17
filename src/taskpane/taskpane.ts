@@ -3,8 +3,7 @@
 // Every read and write of the document goes through the host (src/host,
 // docs/SCOPE-HOST-ADAPTER.md); the pane keeps messages and state.
 import { wordHost as docHost } from "../host/word";
-import { tagInserted } from "../host/wordShared";
-import type { FigureTail, ResultLayoutItem } from "../host/host";
+import type { BibUpdateReport, FigureTail, ResultLayoutItem } from "../host/host";
 import { Segment, segmentsToHtml, escapeHtml } from "../lib/segments";
 import { parseChemical } from "../lib/chemParser";
 import { validateFormula } from "../lib/chemValidate";
@@ -196,7 +195,6 @@ import {
   GAMUT_CHART_SIZE,
   gamutTriangleSvg,
   ladderSvg,
-  LadderRow,
   ORBIT_CHART_SIZE,
   orbitChartSvg,
   VECTOR_TRIANGLE_SIZE,
@@ -477,36 +475,15 @@ import {
   CitationStyle,
 } from "../lib/citations";
 import {
-  buildTableOfAuthorities,
-  toaToHtml,
-  toaStaticOoxml,
   findPrecedingAuthority,
-  authoritiesForToa,
-  taFieldOoxml,
-  toaFieldsOoxml,
-  tocFieldOoxml,
   citationRegister,
   CitationRegister,
   parseToaPages,
   toaEntryKey,
-  isTaFieldCode,
-  isTableFieldCode,
   findPrecedingSecondarySource,
-  toaOccurrenceReport,
-  ToaRefusal,
-  taSearchPlan,
-  TaSearchStep,
 } from "../lib/toa";
 import {
-  blankSpans,
-  hasVisibleText,
-  isTableOfAuthoritiesFieldCode,
-  locateBlock,
-  typedToaSpans,
-} from "../lib/toaScope";
-import {
   CASE_NOTE,
-  collectCitations,
   doiLibraryLines,
   importBibText,
   importSummary,
@@ -517,12 +494,10 @@ import {
   notOfferedNote,
   offeredStyles,
   planInsert,
-  planUpdate,
   previewRecords,
-  type CiteControl,
   type MarkerRun,
 } from "../lib/bibPane";
-import { BIB_SETTING_KEY, BIBLIOGRAPHY_TAG, CITE_CONTROL_TITLE, citeTag, serializeStore, type BibStoreData } from "../lib/bibStore";
+import { BIB_SETTING_KEY, CITE_CONTROL_TITLE, citeTag, serializeStore, type BibStoreData } from "../lib/bibStore";
 import { DOI_OFFLINE_NOTE } from "../lib/doi";
 import { getStyle } from "../lib/bibStyles";
 import type { StyleId } from "../lib/bibRecord";
@@ -778,7 +753,6 @@ import { statVars, statVarLineProblem } from "../lib/uncertaintyParse";
 import {
   planParagraphNumbering,
   describeParagraphPlan,
-  stripParagraphNumber,
   type ParagraphPlan,
 } from "../lib/paragraphs";
 
@@ -1024,9 +998,6 @@ let bibInsertBtn: HTMLButtonElement;
 let bibUpdateBtn: HTMLButtonElement;
 let bibMsg: HTMLElement;
 let toaMsg: HTMLElement;
-/** Tag on the content control that wraps the field-based TOA, so the formatted
- *  list can find it, copy its F9'd page numbers, and replace it in one step. */
-const TOA_FIELD_CC_TAG = "jurislab:toafield";
 let citeIdDetectBtn: HTMLButtonElement;
 let citeIdDetectMsg: HTMLElement;
 let citeSupraDetectBtn: HTMLButtonElement;
@@ -4902,11 +4873,7 @@ function provenanceAltText(label: string, formula: string, mw: number, smiles: s
  * capability can't be determined.
  */
 function wordApiSupported(version: string): boolean {
-  try {
-    return Office.context.requirements.isSetSupported("WordApi", version);
-  } catch {
-    return true;
-  }
+  return docHost.wordApiSupported(version);
 }
 
 /** Inserts the formula at the selection — as a native equation, or as formatted text. */
@@ -5244,8 +5211,7 @@ function updateDrawPreview(preserveStatus = false): void {
  * "Use this drawing" in the dialog hands the result back the same way.
  */
 function openDrawDialog(): void {
-  const ui = Office.context?.ui;
-  if (!ui || typeof ui.displayDialogAsync !== "function") {
+  if (!docHost.dialogsSupported()) {
     setStatus("This Word host does not support pop-out dialog windows.", "error");
     return;
   }
@@ -5275,14 +5241,12 @@ function openDrawDialog(): void {
     }
   }
   openDrawDialogBtn.disabled = true;
-  ui.displayDialogAsync(url, { height: 85, width: 85 }, (result) => {
-    if (result.status !== Office.AsyncResultStatus.Succeeded) {
+  docHost.openDialog(url, { height: 85, width: 85 }, {
+    failed: (error) => {
       openDrawDialogBtn.disabled = false;
-      setStatus(`Could not open the large canvas: ${result.error?.message ?? "unknown error"}`, "error");
-      return;
-    }
-    const dialog = result.value;
-    dialog.addEventHandler(Office.EventType.DialogMessageReceived, (arg) => {
+      setStatus(`Could not open the large canvas: ${error?.message ?? "unknown error"}`, "error");
+    },
+    message: (arg, dialog) => {
       dialog.close();
       openDrawDialogBtn.disabled = false;
       const msg = (arg as { message?: string }).message;
@@ -5305,11 +5269,11 @@ function openDrawDialog(): void {
       } catch (error) {
         setStatus(`Could not read the drawing back: ${(error as Error).message}`, "error");
       }
-    });
+    },
     // The user closing the dialog window (X) arrives here — re-arm the button.
-    dialog.addEventHandler(Office.EventType.DialogEventReceived, () => {
+    closed: () => {
       openDrawDialogBtn.disabled = false;
-    });
+    },
   });
 }
 
@@ -5320,21 +5284,18 @@ function openDrawDialog(): void {
  * a scheme must never silently show a different molecule than was drawn).
  */
 function openDrawForReaction(): void {
-  const ui = Office.context?.ui;
-  if (!ui || typeof ui.displayDialogAsync !== "function") {
+  if (!docHost.dialogsSupported()) {
     setStatus("This Word host does not support pop-out dialog windows.", "error");
     return;
   }
   const url = new URL("drawdialog.html", window.location.href).href;
   reactionDrawBtn.disabled = true;
-  ui.displayDialogAsync(url, { height: 85, width: 85 }, (result) => {
-    if (result.status !== Office.AsyncResultStatus.Succeeded) {
+  docHost.openDialog(url, { height: 85, width: 85 }, {
+    failed: (error) => {
       reactionDrawBtn.disabled = false;
-      setStatus(`Could not open the drawing canvas: ${result.error?.message ?? "unknown error"}`, "error");
-      return;
-    }
-    const dialog = result.value;
-    dialog.addEventHandler(Office.EventType.DialogMessageReceived, (arg) => {
+      setStatus(`Could not open the drawing canvas: ${error?.message ?? "unknown error"}`, "error");
+    },
+    message: (arg, dialog) => {
       dialog.close();
       reactionDrawBtn.disabled = false;
       const msg = (arg as { message?: string }).message;
@@ -5379,10 +5340,10 @@ function openDrawForReaction(): void {
       } catch (error) {
         setStatus(`Could not read the drawing back: ${(error as Error).message}`, "error");
       }
-    });
-    dialog.addEventHandler(Office.EventType.DialogEventReceived, () => {
+    },
+    closed: () => {
       reactionDrawBtn.disabled = false;
-    });
+    },
   });
 }
 
@@ -5740,7 +5701,7 @@ const NUMERALS_SETTING = "formula-inserter.numerals";
 /** Loads the numeral table from this document's settings (best-effort). */
 function loadNumerals(): void {
   try {
-    const raw = Office.context.document.settings.get(NUMERALS_SETTING) as string | null;
+    const raw = docHost.getSetting(NUMERALS_SETTING) as string | null;
     const parsed = raw ? JSON.parse(raw) : [];
     numeralEntries = Array.isArray(parsed)
       ? parsed
@@ -5755,8 +5716,8 @@ function loadNumerals(): void {
 /** Persists the numeral table into this document's settings (best-effort). */
 function saveNumerals(): void {
   try {
-    Office.context.document.settings.set(NUMERALS_SETTING, JSON.stringify(numeralEntries));
-    Office.context.document.settings.saveAsync();
+    docHost.setSetting(NUMERALS_SETTING, JSON.stringify(numeralEntries));
+    docHost.saveSettings();
   } catch {
     // Settings unavailable (e.g. unsupported host) — table stays in memory only.
   }
@@ -6843,7 +6804,7 @@ const REFS_SETTING = "formula-inserter.refs";
 /** Loads per-document caption counters (best-effort). */
 function loadRefCounters(): void {
   try {
-    const raw = Office.context.document.settings.get(REFS_SETTING) as string | null;
+    const raw = docHost.getSetting(REFS_SETTING) as string | null;
     const p = raw ? JSON.parse(raw) : {};
     refCounters = {
       figure: Number.isFinite(p?.figure) && p.figure > 0 ? Math.floor(p.figure) : 1,
@@ -6857,8 +6818,8 @@ function loadRefCounters(): void {
 /** Persists caption counters into document settings (best-effort). */
 function saveRefCounters(): void {
   try {
-    Office.context.document.settings.set(REFS_SETTING, JSON.stringify(refCounters));
-    Office.context.document.settings.saveAsync();
+    docHost.setSetting(REFS_SETTING, JSON.stringify(refCounters));
+    docHost.saveSettings();
   } catch {
     // best-effort
   }
@@ -7089,26 +7050,8 @@ async function applyParagraphNumbers(): Promise<void> {
   paraApplyBtn.disabled = true;
   paraFindings.textContent = "Numbering…";
   try {
-    await Word.run(async (context) => {
-      const paras = context.document.body.paragraphs;
-      paras.load("items/text");
-      await context.sync();
-
-      for (const item of plan.items) {
-        if (!item.mark) continue;
-        const p = paras.items[item.index];
-        if (!p) continue;
-        if (item.removeExisting) {
-          // Renumbering: rewrite the paragraph without its old mark rather than
-          // stacking a second one in front of it.
-          p.insertText(item.mark + " " + stripParagraphNumber(p.text), Word.InsertLocation.replace);
-        } else {
-          p.insertText(item.mark + " ", Word.InsertLocation.start);
-        }
-      }
-      await context.sync();
-      paraFindings.textContent = `Numbered ${plan.numbered} paragraph${plan.numbered === 1 ? "" : "s"}. Undo (Ctrl+Z) reverses it.`;
-    });
+    await docHost.applyParagraphMarks(plan.items);
+    paraFindings.textContent = `Numbered ${plan.numbered} paragraph${plan.numbered === 1 ? "" : "s"}. Undo (Ctrl+Z) reverses it.`;
   } catch (e) {
     // This runs AFTER a flush that queued one insertText per paragraph, so a
     // mid-batch host failure leaves some marks applied. The old text said
@@ -29651,8 +29594,7 @@ function renderSolveTypeset(kind: SolveKind, text: string): void {
  * equation" hands the text back and the pane solves it.
  */
 function openSolveDialog(): void {
-  const ui = Office.context?.ui;
-  if (!ui || typeof ui.displayDialogAsync !== "function") {
+  if (!docHost.dialogsSupported()) {
     setStatus("This Word host does not support pop-out dialog windows.", "error");
     return;
   }
@@ -29671,14 +29613,12 @@ function openSolveDialog(): void {
     setStatus("Input too large to carry into the equation canvas — it opens blank.", "error");
   }
   solveOpenCanvasBtn.disabled = true;
-  ui.displayDialogAsync(url, { height: 75, width: 70 }, (result) => {
-    if (result.status !== Office.AsyncResultStatus.Succeeded) {
+  docHost.openDialog(url, { height: 75, width: 70 }, {
+    failed: (error) => {
       solveOpenCanvasBtn.disabled = false;
-      setStatus(`Could not open the equation canvas: ${result.error?.message ?? "unknown error"}`, "error");
-      return;
-    }
-    const dialog = result.value;
-    dialog.addEventHandler(Office.EventType.DialogMessageReceived, (arg) => {
+      setStatus(`Could not open the equation canvas: ${error?.message ?? "unknown error"}`, "error");
+    },
+    message: (arg, dialog) => {
       dialog.close();
       solveOpenCanvasBtn.disabled = false;
       const msg = (arg as { message?: string }).message;
@@ -29705,11 +29645,11 @@ function openSolveDialog(): void {
       } catch (error) {
         setStatus(`Could not read the equation back: ${(error as Error).message}`, "error");
       }
-    });
+    },
     // The user closing the dialog window (X) arrives here — re-arm the button.
-    dialog.addEventHandler(Office.EventType.DialogEventReceived, () => {
+    closed: () => {
       solveOpenCanvasBtn.disabled = false;
-    });
+    },
   });
 }
 
@@ -32721,28 +32661,25 @@ async function insertIdForPreceding(): Promise<void> {
   citeIdDetectMsg.className = "build-readout";
   setStatus("Finding the preceding authority…");
   try {
-    await Word.run(async (context) => {
-      const selection = context.document.getSelection();
-      const before = context.document.body.getRange(Word.RangeLocation.start).expandTo(selection);
-      before.load("text");
-      await context.sync();
-      const authority = findPrecedingAuthority(before.text);
-      if (!authority) {
-        citeIdDetectMsg.className = "build-readout warn";
-        citeIdDetectMsg.textContent = "No preceding authority found above the cursor — “Id.” needs one.";
-        setStatus("No preceding authority found.", "");
-        return;
-      }
+    // The decision runs INSIDE the host's batch, between the read and the write,
+    // as it always did (the pin is read from the form at that moment too).
+    let authority: ReturnType<typeof findPrecedingAuthority> = null;
+    await docHost.replaceSelectionFromTextBefore((textBefore) => {
+      authority = findPrecedingAuthority(textBefore);
+      if (!authority) return null;
       const pin = (citeInputs.querySelector<HTMLInputElement>('[data-key="pin"]')?.value ?? "").trim();
-      const html = pin ? `<i>Id.</i> at ${esc(pin)}` : "<i>Id.</i>";
-      const inserted = selection.insertHtml(html, Word.InsertLocation.replace);
-      inserted.select(Word.SelectionMode.end);
-      await context.sync();
-      await tagInserted(context, inserted, "formula-inserter:citation");
-      citeIdDetectMsg.className = "build-readout";
-      citeIdDetectMsg.textContent = `Inserted “Id.” — refers to ${authority.plain}.`;
-      setStatus("Id. inserted.", "success");
+      return { html: pin ? `<i>Id.</i> at ${esc(pin)}` : "<i>Id.</i>", tag: "formula-inserter:citation" };
     });
+    const found = authority as ReturnType<typeof findPrecedingAuthority>;
+    if (!found) {
+      citeIdDetectMsg.className = "build-readout warn";
+      citeIdDetectMsg.textContent = "No preceding authority found above the cursor — “Id.” needs one.";
+      setStatus("No preceding authority found.", "");
+      return;
+    }
+    citeIdDetectMsg.className = "build-readout";
+    citeIdDetectMsg.textContent = `Inserted “Id.” — refers to ${found.plain}.`;
+    setStatus("Id. inserted.", "success");
   } catch (error) {
     setStatus(`Could not insert Id.: ${(error as Error).message}`, "error");
   } finally {
@@ -32756,25 +32693,19 @@ async function detectSupraSource(): Promise<void> {
   citeSupraDetectMsg.className = "build-readout";
   setStatus("Looking for an earlier source above the cursor…");
   try {
-    await Word.run(async (context) => {
-      const selection = context.document.getSelection();
-      const before = context.document.body.getRange(Word.RangeLocation.start).expandTo(selection);
-      before.load("text");
-      await context.sync();
-      const source = findPrecedingSecondarySource(before.text);
-      if (!source) {
-        citeSupraDetectMsg.className = "build-readout warn";
-        citeSupraDetectMsg.textContent = "No earlier law-review article found above the cursor — enter the author manually.";
-        setStatus("No earlier source found.", "");
-        return;
-      }
-      const nameEl = citeInputs.querySelector<HTMLInputElement>('[data-key="name"]');
-      if (nameEl) nameEl.value = source.short;
-      updateCitationPreview();
-      citeSupraDetectMsg.className = "build-readout";
-      citeSupraDetectMsg.textContent = `Found ${source.plain} — filled “${source.short}”. Add the footnote no. / pincite.`;
-      setStatus("Earlier source detected.", "success");
-    });
+    const source = findPrecedingSecondarySource(await docHost.readTextBeforeCursor());
+    if (!source) {
+      citeSupraDetectMsg.className = "build-readout warn";
+      citeSupraDetectMsg.textContent = "No earlier law-review article found above the cursor — enter the author manually.";
+      setStatus("No earlier source found.", "");
+      return;
+    }
+    const nameEl = citeInputs.querySelector<HTMLInputElement>('[data-key="name"]');
+    if (nameEl) nameEl.value = source.short;
+    updateCitationPreview();
+    citeSupraDetectMsg.className = "build-readout";
+    citeSupraDetectMsg.textContent = `Found ${source.plain} — filled “${source.short}”. Add the footnote no. / pincite.`;
+    setStatus("Earlier source detected.", "success");
   } catch (error) {
     setStatus(`Could not detect an earlier source: ${(error as Error).message}`, "error");
   } finally {
@@ -32800,222 +32731,60 @@ async function buildNativeToaHandler(): Promise<void> {
   toaMsg.className = "build-readout";
   setStatus("Marking citations for Word’s Table of Authorities…");
   try {
-    await Word.run(async (context) => {
-      const body = context.document.body;
-
-      // THE STORIES TO SCAN. document.body is the MAIN text only: footnotes and
-      // endnotes are separate bodies (WordApi 1.5), and body.text / body.search
-      // never see them. Patent briefs cite heavily in footnotes, so read them
-      // when Word can, and SAY so when it cannot. Headers and footers are never
-      // scanned (a TOA does not list them), and the message says that too.
-      const stories: Array<{ kind: "main" | "footnote" | "endnote"; body: Word.Body }> = [{ kind: "main", body }];
-      let notesScanned = false;
-      if (wordApiSupported("1.5")) {
-        try {
-          const footnotes = body.footnotes;
-          const endnotes = body.endnotes;
-          footnotes.load("items");
-          endnotes.load("items");
-          await context.sync();
-          for (const n of footnotes.items) stories.push({ kind: "footnote", body: n.body });
-          for (const n of endnotes.items) stories.push({ kind: "endnote", body: n.body });
-          notesScanned = true;
-        } catch {
-          notesScanned = false; // the API set is claimed but the call failed: disclose, below
-        }
-      }
-      const footnoteCount = stories.filter((s) => s.kind === "footnote").length;
-      const endnoteCount = stories.filter((s) => s.kind === "endnote").length;
-      const scopeNote =
-        (notesScanned
-          ? `Scanned the main text, ${footnoteCount} footnote${footnoteCount === 1 ? "" : "s"} and ${endnoteCount} endnote${endnoteCount === 1 ? "" : "s"}; an “Id.” that opens a note is never carried over from another note or the text. `
-          : "Footnotes and endnotes were NOT scanned (this version of Word cannot read them): an authority cited only there is missing from the table, and footnote pages are not marked — check them by hand. ") +
-        "Headers and footers are not scanned. ";
-
-      for (const s of stories) s.body.load("text");
-      await context.sync();
-      if (!authoritiesForToa(stories.map((s) => s.body.text).join("\n\n")).length) {
-        toaMsg.className = notesScanned ? "build-readout" : "build-readout warn";
-        toaMsg.textContent = "No citations found to build a Table of Authorities. " + scopeNote;
-        setStatus("No citations found.", "");
-        return;
-      }
-
-      // Clear any existing TA marks first (main text AND notes), so stale or
-      // malformed marks (e.g. a corrupted "CONCLUSION…" entry) can't survive
-      // into the rebuilt table. Word's OWN Table of Authorities (a TOA field,
-      // References ▸ Insert Table of Authorities) is read in the same pass: its
-      // result text is a list of every authority and must not be scanned.
-      const wordToaTexts: string[] = [];
-      if (wordApiSupported("1.4")) {
-        const fieldSets = stories.map((s) => {
-          const f = s.body.fields;
-          f.load("items/code");
-          return f;
-        });
-        await context.sync();
-        for (const set of fieldSets) for (const f of set.items) if (isTaFieldCode(f.code)) f.delete();
-        const wordToas = fieldSets[0].items.filter((f) => isTableOfAuthoritiesFieldCode(f.code));
-        const results = wordToas.map((f) => {
-          const r = f.result;
-          r.load("text");
-          return r;
-        });
-        await context.sync();
-        for (const r of results) wordToaTexts.push(r.text);
-      }
-
-      // Re-read every story AFTER the delete, and derive the marks and the
-      // occurrences from that same text: the search plan below counts Word's
-      // hits against it, so it must be the text Word will now search.
-      for (const s of stories) s.body.load("text");
-      const oldTables = [TOA_FIELD_CC_TAG, "formula-inserter:toa"].map((tag) => {
-        const ccs = body.contentControls.getByTag(tag);
-        ccs.load("items/text");
-        return ccs;
-      });
-      await context.sync();
-      const bodyText = body.text;
-
-      // Blank every earlier table out of the SCANNED main text, keeping every
-      // offset (blankSpans): this pane's tables (tagged content controls),
-      // Word's TOA field result, and a table typed under a "TABLE OF
-      // AUTHORITIES" heading. Their entries must not become marks, nor the
-      // antecedent of the argument's first "Id.". The search plan still counts
-      // Word's hits against the REAL text, table included (those hits get null).
-      // A table that cannot be located is COUNTED and reported, never ignored.
-      const tableSpans: Array<[number, number]> = [];
-      let tablesNotLocated = 0;
-      const tableTexts = [...oldTables.flatMap((ccs) => ccs.items.map((cc) => cc.text)), ...wordToaTexts];
-      for (const t of tableTexts) {
-        if (!hasVisibleText(t)) continue;
-        const span = locateBlock(bodyText, t);
-        if (span) tableSpans.push(span);
-        else tablesNotLocated++;
-      }
-      let scanText = blankSpans(bodyText, tableSpans);
-      const typed = typedToaSpans(scanText);
-      scanText = blankSpans(scanText, typed.spans);
-
-      const scanTexts = stories.map((s, i) => (i === 0 ? scanText : s.body.text));
-      const marks = authoritiesForToa(scanTexts.join("\n\n"));
-      if (!marks.length) {
-        toaMsg.className = "build-readout warn";
-        toaMsg.textContent =
-          "No citations found outside the existing table of authorities — nothing was marked. " + scopeNote;
-        setStatus("No citations found outside the existing table.", "");
-        return;
-      }
-
-      // Word searches by STRING and returns hits in document order, not
-      // offsets. taSearchPlan turns the offsets into an ORDINAL plan: for each
-      // needle, the k-th Word hit belongs to mark assign[k], or is skipped
-      // (null) — the "10 F.3d 5" inside "110 F.3d 512", or a hit another needle
-      // owns. Ownership is per HIT, so an "Id." meaning Alice on one page and
-      // Mayo on another goes under both. Searches are case-sensitive
-      // (TA_SEARCH_OPTIONS), so "Id." never hits the "id." in "said.".
-      // Each story gets its OWN plan and its own searches: an Id. is resolved
-      // only inside its story, so one that opens a footnote has no antecedent
-      // and is refused by the engine ("no citation precedes it") — reported
-      // below, not guessed.
-      let unattributed = 0;
-      const refused: ToaRefusal[] = [];
-      const searches: Array<{ step: TaSearchStep; results: Word.RangeCollection }> = [];
-      stories.forEach((story, i) => {
-        // Full forms AND short forms AND Id. — resolved against the text by
-        // offset, which is the only way "Id. at 79" can be attributed at all.
-        // The engine also returns, by name, what it deliberately did NOT place
-        // (an Id. after a record cite or opening a note, a "§§" member that may
-        // be a claim count); every one of those is reported below.
-        const report = toaOccurrenceReport(scanTexts[i], marks);
-        const occ = report.occurrences;
-        refused.push(...report.refused);
-        const plan = taSearchPlan(story.body.text, occ);
-        unattributed += plan.unplaced.length;
-        // Run EVERY search and load its hits BEFORE the first insert: an
-        // inserted TA field's \l text contains the needle, and a search run
-        // after it would count the field as an extra hit.
-        for (const step of plan.steps) {
-          const results = story.body.search(step.needle, step.options);
-          results.load("items/text");
-          searches.push({ step, results });
-        }
-      });
-      await context.sync();
-
-      // Mark every occurrence of each authority with a hidden TA field, so the
-      // table shows the full page range (Word aggregates pages by the \l text).
-      // Citations that cannot be placed are COUNTED and declared, never guessed:
-      // a needle too long for Word's search, or one whose hit count in Word
-      // disagrees with the text it was planned from.
-      let occurrences = 0;
-      const categoryNums = new Set<number>();
-      const markedAuthorities = new Set<number>();
-      for (const { step, results } of searches) {
-        if (results.items.length !== step.expectedHits) {
-          unattributed += step.assign.filter((m) => m !== null).length;
-          continue;
-        }
-        results.items.forEach((hit, k) => {
-          const markIndex = step.assign[k];
-          if (markIndex === null) return;
-          const mark = marks[markIndex];
-          hit.insertOoxml(taFieldOoxml(mark.name, mark.rest, mark.categoryNum), Word.InsertLocation.before);
-          categoryNums.add(mark.categoryNum);
-          markedAuthorities.add(markIndex);
-          occurrences++;
-        });
-      }
-      const authoritiesMarked = markedAuthorities.size;
-      await context.sync();
-      // Insert the TOA fields (one per marked category) at the cursor, wrapped in
-      // a tagged content control so the "formatted list" button can find this
-      // exact block, copy its F9'd page numbers, and replace it cleanly.
-      const selection = context.document.getSelection();
-      const toaRange = selection.insertOoxml(toaFieldsOoxml([...categoryNums]), Word.InsertLocation.replace);
-      await context.sync();
-      try {
-        const cc = toaRange.insertContentControl();
-        cc.tag = TOA_FIELD_CC_TAG;
-        cc.title = "JurisLab TOA (field — will be replaced)";
-        await context.sync();
-      } catch {
-        // Content controls unsupported here — the field table is still usable.
-      }
-      // Make Word's generated entries Times New Roman 12 (court-brief template).
-      await setTableStylesToTimesNewRoman(context, ["Table of Authorities"]);
-      const problems = unattributed + refused.length + tablesNotLocated + typed.unbounded;
-      const shown = refused.slice(0, 3).map((r) => `“${r.text}” — ${r.reason}`);
-      toaMsg.className = problems > 0 || !notesScanned ? "build-readout warn" : "build-readout";
+    const rep = await docHost.buildNativeToa();
+    const { notesScanned, footnoteCount, endnoteCount } = rep;
+    const scopeNote =
+      (notesScanned
+        ? `Scanned the main text, ${footnoteCount} footnote${footnoteCount === 1 ? "" : "s"} and ${endnoteCount} endnote${endnoteCount === 1 ? "" : "s"}; an “Id.” that opens a note is never carried over from another note or the text. `
+        : "Footnotes and endnotes were NOT scanned (this version of Word cannot read them): an authority cited only there is missing from the table, and footnote pages are not marked — check them by hand. ") +
+      "Headers and footers are not scanned. ";
+    if (rep.kind === "noCitations") {
+      toaMsg.className = notesScanned ? "build-readout" : "build-readout warn";
+      toaMsg.textContent = "No citations found to build a Table of Authorities. " + scopeNote;
+      setStatus("No citations found.", "");
+      return;
+    }
+    if (rep.kind === "noCitationsOutsideTable") {
+      toaMsg.className = "build-readout warn";
       toaMsg.textContent =
-        // "N of M" names what M counts: never a bare "N of N" when the notes
-        // could not be read.
-        `Marked ${authoritiesMarked} of ${marks.length} authorit${marks.length === 1 ? "y" : "ies"} found in ` +
-        (notesScanned ? "the main text, footnotes and endnotes " : "the main text ") +
-        `(${occurrences} citation${occurrences === 1 ? "" : "s"}, including short forms and Id.). ` +
-        // Say what was NOT marked. A page list that is short by a known amount
-        // beats one that is silently wrong.
-        (unattributed > 0
-          ? `${unattributed} citation${unattributed === 1 ? "" : "s"} could not be placed by Word’s search (unattributed) and ${unattributed === 1 ? "was" : "were"} left unmarked — check those pages by hand. `
-          : "") +
-        (refused.length > 0
-          ? `${refused.length} citation${refused.length === 1 ? " was" : "s were"} deliberately left unmarked rather than guessed (refused): ${shown.join("; ")}${refused.length > shown.length ? `; and ${refused.length - shown.length} more` : ""} — check those pages by hand. `
-          : "") +
-        (tablesNotLocated > 0
-          ? `${tablesNotLocated} existing table${tablesNotLocated === 1 ? "" : "s"} of authorities could not be located in the text, so ${tablesNotLocated === 1 ? "its" : "their"} entries may have been read as citations — delete ${tablesNotLocated === 1 ? "it" : "them"} and build again. `
-          : "") +
-        // A typed table is found by its heading text, not by a field, so say
-        // where it was taken to end: the user can see at once if that is wrong.
-        typed.endedBy
-          .map((end) => `Skipped a typed “TABLE OF AUTHORITIES” up to ${end === "the first paragraph of text" ? end : `“${end}”`}. `)
-          .join("") +
-        (typed.unbounded > 0
-          ? "A typed “TABLE OF AUTHORITIES” was found, but no heading after it marks where it ends, so its entries may have been read as citations — delete it and build again. "
-          : "") +
-        scopeNote +
-        "Now: select all (Ctrl/⌘+A), press F9 to fill page numbers, then click “Insert formatted list”.";
-      setStatus("Field table inserted — press F9, then click “Insert formatted list”.", "success");
-    });
+        "No citations found outside the existing table of authorities — nothing was marked. " + scopeNote;
+      setStatus("No citations found outside the existing table.", "");
+      return;
+    }
+    const { authoritiesMarked, occurrences, unattributed, refused, tablesNotLocated } = rep;
+    const marksFound = rep.marksFound;
+    const typed = { endedBy: rep.typedEndedBy, unbounded: rep.typedUnbounded };
+    const problems = unattributed + refused.length + tablesNotLocated + typed.unbounded;
+    const shown = refused.slice(0, 3).map((r) => `“${r.text}” — ${r.reason}`);
+    toaMsg.className = problems > 0 || !notesScanned ? "build-readout warn" : "build-readout";
+    toaMsg.textContent =
+      // "N of M" names what M counts: never a bare "N of N" when the notes
+      // could not be read.
+      `Marked ${authoritiesMarked} of ${marksFound} authorit${marksFound === 1 ? "y" : "ies"} found in ` +
+      (notesScanned ? "the main text, footnotes and endnotes " : "the main text ") +
+      `(${occurrences} citation${occurrences === 1 ? "" : "s"}, including short forms and Id.). ` +
+      // Say what was NOT marked. A page list that is short by a known amount
+      // beats one that is silently wrong.
+      (unattributed > 0
+        ? `${unattributed} citation${unattributed === 1 ? "" : "s"} could not be placed by Word’s search (unattributed) and ${unattributed === 1 ? "was" : "were"} left unmarked — check those pages by hand. `
+        : "") +
+      (refused.length > 0
+        ? `${refused.length} citation${refused.length === 1 ? " was" : "s were"} deliberately left unmarked rather than guessed (refused): ${shown.join("; ")}${refused.length > shown.length ? `; and ${refused.length - shown.length} more` : ""} — check those pages by hand. `
+        : "") +
+      (tablesNotLocated > 0
+        ? `${tablesNotLocated} existing table${tablesNotLocated === 1 ? "" : "s"} of authorities could not be located in the text, so ${tablesNotLocated === 1 ? "its" : "their"} entries may have been read as citations — delete ${tablesNotLocated === 1 ? "it" : "them"} and build again. `
+        : "") +
+      // A typed table is found by its heading text, not by a field, so say
+      // where it was taken to end: the user can see at once if that is wrong.
+      typed.endedBy
+        .map((end) => `Skipped a typed “TABLE OF AUTHORITIES” up to ${end === "the first paragraph of text" ? end : `“${end}”`}. `)
+        .join("") +
+      (typed.unbounded > 0
+        ? "A typed “TABLE OF AUTHORITIES” was found, but no heading after it marks where it ends, so its entries may have been read as citations — delete it and build again. "
+        : "") +
+      scopeNote +
+      "Now: select all (Ctrl/⌘+A), press F9 to fill page numbers, then click “Insert formatted list”.";
+    setStatus("Field table inserted — press F9, then click “Insert formatted list”.", "success");
   } catch (error) {
     setStatus(`Could not build the field-based Table of Authorities: ${(error as Error).message}`, "error");
   } finally {
@@ -33039,18 +32808,12 @@ async function buildTocHandler(): Promise<void> {
   }
   setStatus("Inserting a Table of Contents field…");
   try {
-    await Word.run(async (context) => {
-      const selection = context.document.getSelection();
-      selection.insertOoxml(tocFieldOoxml(3), Word.InsertLocation.replace);
-      await context.sync();
-      // Make Word's generated TOC entries Times New Roman 12 (court-brief template).
-      await setTableStylesToTimesNewRoman(context, ["TOC 1", "TOC 2", "TOC 3"]);
-      toaMsg.textContent =
-        "Table of Contents inserted from your heading styles (Heading 1–3). " +
-        "Select all (Ctrl/⌘+A) and press F9 to fill in the page numbers. " +
-        "Make sure your section titles use Word’s Heading styles so they appear.";
-      setStatus("Table of Contents (field) inserted — press F9 to update.", "success");
-    });
+    await docHost.insertTocField();
+    toaMsg.textContent =
+      "Table of Contents inserted from your heading styles (Heading 1–3). " +
+      "Select all (Ctrl/⌘+A) and press F9 to fill in the page numbers. " +
+      "Make sure your section titles use Word’s Heading styles so they appear.";
+    setStatus("Table of Contents (field) inserted — press F9 to update.", "success");
   } catch (error) {
     setStatus(`Could not insert the Table of Contents: ${(error as Error).message}`, "error");
   } finally {
@@ -33145,24 +32908,17 @@ async function clearCitationMarksHandler(): Promise<void> {
   toaMsg.className = "build-readout";
   setStatus("Removing citation (TA) marks…");
   try {
-    await Word.run(async (context) => {
-      const fields = context.document.body.fields;
-      fields.load("items/code");
-      await context.sync();
-      const taFields = fields.items.filter((f) => isTaFieldCode(f.code));
-      if (!taFields.length) {
-        toaMsg.textContent = "No citation (TA) marks found in the document.";
-        setStatus("No citation marks found.", "");
-        return;
-      }
-      for (const f of taFields) f.delete();
-      await context.sync();
-      toaMsg.textContent =
-        `Removed ${taFields.length} citation mark${taFields.length === 1 ? "" : "s"}. ` +
-        "Rebuild with “Insert with page numbers”, then select all (Ctrl/⌘+A) and press F9. " +
-        "(Ctrl/⌘+Z undoes this.)";
-      setStatus(`Removed ${taFields.length} citation marks.`, "success");
-    });
+    const removed = await docHost.deleteBodyFields("citationMarks");
+    if (!removed) {
+      toaMsg.textContent = "No citation (TA) marks found in the document.";
+      setStatus("No citation marks found.", "");
+      return;
+    }
+    toaMsg.textContent =
+      `Removed ${removed} citation mark${removed === 1 ? "" : "s"}. ` +
+      "Rebuild with “Insert with page numbers”, then select all (Ctrl/⌘+A) and press F9. " +
+      "(Ctrl/⌘+Z undoes this.)";
+    setStatus(`Removed ${removed} citation marks.`, "success");
   } catch (error) {
     setStatus(`Could not remove citation marks: ${(error as Error).message}`, "error");
   } finally {
@@ -33187,23 +32943,16 @@ async function clearTablesHandler(): Promise<void> {
   toaMsg.className = "build-readout";
   setStatus("Removing Table of Contents / Authorities fields…");
   try {
-    await Word.run(async (context) => {
-      const fields = context.document.body.fields;
-      fields.load("items/code");
-      await context.sync();
-      const tables = fields.items.filter((f) => isTableFieldCode(f.code));
-      if (!tables.length) {
-        toaMsg.textContent = "No Table of Contents or Table of Authorities fields found.";
-        setStatus("No table fields found.", "");
-        return;
-      }
-      for (const f of tables) f.delete();
-      await context.sync();
-      toaMsg.textContent =
-        `Removed ${tables.length} table field${tables.length === 1 ? "" : "s"} (TOC/TOA). ` +
-        "Re-insert with the buttons above. (Ctrl/⌘+Z undoes this.)";
-      setStatus(`Removed ${tables.length} table fields.`, "success");
-    });
+    const removed = await docHost.deleteBodyFields("tables");
+    if (!removed) {
+      toaMsg.textContent = "No Table of Contents or Table of Authorities fields found.";
+      setStatus("No table fields found.", "");
+      return;
+    }
+    toaMsg.textContent =
+      `Removed ${removed} table field${removed === 1 ? "" : "s"} (TOC/TOA). ` +
+      "Re-insert with the buttons above. (Ctrl/⌘+Z undoes this.)";
+    setStatus(`Removed ${removed} table fields.`, "success");
   } catch (error) {
     setStatus(`Could not remove the table fields: ${(error as Error).message}`, "error");
   } finally {
@@ -33217,60 +32966,21 @@ async function buildToaHandler(): Promise<void> {
   toaMsg.className = "build-readout";
   setStatus("Scanning document for citations…");
   try {
-    await Word.run(async (context) => {
-      const body = context.document.body;
-      body.load("text");
-      await context.sync();
-      const toa = buildTableOfAuthorities(body.text);
-      if (!toa.total) {
-        toaMsg.textContent = "No citations found to build a Table of Authorities.";
-        setStatus("No citations found.", "");
-        return;
-      }
-      // Pull page numbers from an existing built field-TOA, if present.
-      const pages = parseToaPages(body.text);
-      const ooxml = wordApiSupported("1.3") ? toaStaticOoxml(toa, pages) : null;
-
-      // If a field table from "Insert with live page numbers" is present, replace
-      // that exact block (its title, headings, and fields) with the formatted
-      // list — so nothing is left behind to clean up.
-      let replacedField = false;
-      const ccs = context.document.contentControls.getByTag(TOA_FIELD_CC_TAG);
-      ccs.load("items");
-      await context.sync();
-      const fieldCc = ccs.items[0];
-
-      let inserted: Word.Range;
-      if (fieldCc && ooxml) {
-        inserted = fieldCc.insertOoxml(ooxml, Word.InsertLocation.replace);
-        await context.sync();
-        try {
-          fieldCc.delete(true); // remove the wrapper, keep the new formatted content
-          await context.sync();
-        } catch {
-          /* wrapper removal best-effort */
-        }
-        replacedField = true;
-      } else {
-        const range = context.document.getSelection();
-        inserted = ooxml
-          ? range.insertOoxml(ooxml, Word.InsertLocation.replace)
-          : range.insertHtml(toaToHtml(toa), Word.InsertLocation.replace);
-        inserted.select(Word.SelectionMode.end);
-        await context.sync();
-        await tagInserted(context, inserted, "formula-inserter:toa");
-      }
-
-      const summary = toa.groups.map((g) => `${g.entries.length} ${g.heading.toLowerCase()}`).join(", ");
-      let pageNote: string;
-      if (pages.size) pageNote = `Page numbers filled in (${pages.size}).` + (replacedField ? " The field table was replaced." : "");
-      else
-        pageNote =
-          "Page slots are blank — Word can only compute pages through a field. To fill them: click " +
-          "“Insert with live page numbers”, select all (Ctrl/⌘+A) and press F9, then click “Insert formatted list”.";
-      toaMsg.textContent = `Inserted ${toa.total} authorit${toa.total === 1 ? "y" : "ies"} (${summary}), Times New Roman, italic names. ${pageNote}`;
-      setStatus("Formatted Table of Authorities inserted.", pages.size ? "success" : "");
-    });
+    const rep = await docHost.buildStaticToa();
+    if (!("groups" in rep)) {
+      toaMsg.textContent = "No citations found to build a Table of Authorities.";
+      setStatus("No citations found.", "");
+      return;
+    }
+    const summary = rep.groups.map((g) => `${g.count} ${g.heading.toLowerCase()}`).join(", ");
+    let pageNote: string;
+    if (rep.pagesFilled) pageNote = `Page numbers filled in (${rep.pagesFilled}).` + (rep.replacedField ? " The field table was replaced." : "");
+    else
+      pageNote =
+        "Page slots are blank — Word can only compute pages through a field. To fill them: click " +
+        "“Insert with live page numbers”, select all (Ctrl/⌘+A) and press F9, then click “Insert formatted list”.";
+    toaMsg.textContent = `Inserted ${rep.total} authorit${rep.total === 1 ? "y" : "ies"} (${summary}), Times New Roman, italic names. ${pageNote}`;
+    setStatus("Formatted Table of Authorities inserted.", rep.pagesFilled ? "success" : "");
   } catch (error) {
     setStatus(`Could not build the Table of Authorities: ${(error as Error).message}`, "error");
   } finally {
@@ -33306,7 +33016,7 @@ let bibStyleDirty = false;
 function readBibStore(): BibStoreData | null {
   let raw: unknown = null;
   try {
-    raw = Office.context.document.settings.get(BIB_SETTING_KEY);
+    raw = docHost.getSetting(BIB_SETTING_KEY);
   } catch {
     raw = null;
   }
@@ -33325,10 +33035,10 @@ function writeBibStore(store: BibStoreData): Promise<string | null> {
   if (!s.ok) return Promise.resolve(s.reason);
   return new Promise((resolve) => {
     try {
-      Office.context.document.settings.set(BIB_SETTING_KEY, s.json);
-      Office.context.document.settings.saveAsync((res) => {
+      docHost.setSetting(BIB_SETTING_KEY, s.json);
+      docHost.saveSettings((res) => {
         resolve(
-          res.status === Office.AsyncResultStatus.Succeeded
+          res.succeeded
             ? null
             : `The reference library could not be saved in the document: ${res.error ? res.error.message : "unknown error"}.`
         );
@@ -33474,83 +33184,25 @@ async function changeBibStyle(): Promise<void> {
   renderBibPreview();
 }
 
-/** Writes a marker's runs into its control, formatting each run explicitly. */
-function writeMarkerRuns(cc: Word.ContentControl, runs: MarkerRun[]): void {
-  const list = runs.length ? runs : [{ text: "", sup: false, sub: false, italic: false, bold: false }];
-  list.forEach((r, i) => {
-    const range = cc.insertText(r.text, i === 0 ? Word.InsertLocation.replace : Word.InsertLocation.end);
-    range.font.superscript = r.sup;
-    range.font.subscript = r.sub;
-    range.font.italic = r.italic;
-    range.font.bold = r.bold;
-  });
-}
-
 /**
- * Renumbers every citation and rewrites the bibliography inside the caller's Word.run.
- * Returns the report lines (every problem list by name), or null lines on a refusal.
+ * The renumbering report, worded for the pane. The renumbering itself runs in
+ * the host (src/host/wordDocument.ts applyBibUpdate), inside the caller's batch.
  */
-async function applyBibUpdate(
-  context: Word.RequestContext,
-  store: BibStoreData,
-  opts: { rewriteAll: boolean; bibliography: "always" | "if-present" }
-): Promise<{ ok: boolean; lines: string[] }> {
-  const style = getStyle(store.style);
-  const body = context.document.body;
-  const ccs = body.contentControls;
-  ccs.load("items/tag,items/text");
-  await context.sync();
-  // Footnotes are not in body.contentControls (§C4); WordApi 1.5 reads them.
-  let noteControls: Word.ContentControl[] | null = null;
-  if (wordApiSupported("1.5")) {
-    try {
-      const notes = body.footnotes;
-      notes.load("items");
-      await context.sync();
-      const cols = notes.items.map((n) => {
-        const c = n.body.contentControls;
-        c.load("items/tag,items/text");
-        return c;
-      });
-      await context.sync();
-      noteControls = [];
-      for (const c of cols) noteControls.push(...c.items);
-    } catch {
-      noteControls = null;
-    }
-  }
-  const asCite = (c: Word.ContentControl): CiteControl => ({ tag: c.tag, text: c.text });
-  const collected = collectCitations(
-    ccs.items.map(asCite),
-    noteControls ? noteControls.map(asCite) : null,
-    style ? style.kind : "numeric"
-  );
-  const up = planUpdate(collected, store, { rewriteAll: opts.rewriteAll });
-  if (!up.ok) return { ok: false, lines: [up.reason] };
-  for (const rw of up.rewrites) {
-    const w = collected.where[rw.index];
-    const cc = w.in === "body" ? ccs.items[w.index] : noteControls ? noteControls[w.index] : undefined;
-    if (cc) writeMarkerRuns(cc, rw.runs);
-  }
+function bibUpdateLines(r: BibUpdateReport): string[] {
+  if (!r.ok) return [r.reason];
   const lines: string[] = [];
-  const bibs = ccs.items.filter((c) => c.tag === BIBLIOGRAPHY_TAG);
-  if (bibs.length) {
-    bibs[0].insertOoxml(up.ooxml, Word.InsertLocation.replace);
-    lines.push(`Bibliography replaced: ${up.plan.bibliography.length} reference${up.plan.bibliography.length === 1 ? "" : "s"}.`);
-    if (bibs.length > 1) lines.push(`${bibs.length} bibliography blocks are in the document; only the first was updated. Delete the others.`);
-  } else if (opts.bibliography === "always" && up.plan.entries.length) {
-    const inserted = body.insertOoxml(up.ooxml, Word.InsertLocation.end);
-    const cc = inserted.insertContentControl();
-    cc.tag = BIBLIOGRAPHY_TAG;
-    cc.title = "JurisLab bibliography";
+  const b = r.bibliography;
+  if (b && b.kind === "replaced") {
+    lines.push(`Bibliography replaced: ${b.references} reference${b.references === 1 ? "" : "s"}.`);
+    if (b.blocks > 1) lines.push(`${b.blocks} bibliography blocks are in the document; only the first was updated. Delete the others.`);
+  } else if (b && b.kind === "inserted") {
     lines.push(
-      `Bibliography inserted at the end of the document: ${up.plan.bibliography.length} reference${up.plan.bibliography.length === 1 ? "" : "s"}. ` +
+      `Bibliography inserted at the end of the document: ${b.references} reference${b.references === 1 ? "" : "s"}. ` +
         "Cut and paste it anywhere; Update finds it by its tag."
     );
   }
-  await context.sync();
-  lines.unshift(`Updated ${up.rewrites.length} citation${up.rewrites.length === 1 ? "" : "s"} (${collected.occurrences.length} in the document).`);
-  return { ok: true, lines: [...lines, ...up.report] };
+  lines.unshift(`Updated ${r.rewrites} citation${r.rewrites === 1 ? "" : "s"} (${r.occurrences} in the document).`);
+  return [...lines, ...r.report];
 }
 
 /** Insert citation: a new tagged marker at the cursor, or added to the citation the cursor is in. */
@@ -33570,45 +33222,35 @@ async function insertBibCitation(): Promise<void> {
   let saved: BibStoreData | null = null;
   let lines: string[] = [];
   try {
-    await Word.run(async (context) => {
-      const sel = context.document.getSelection();
-      const parent = sel.parentContentControlOrNullObject;
-      parent.load("tag");
-      await context.sync();
-      const plan = planInsert(store, ids, {
-        locator: bibLocatorInput.value,
-        label: bibLocLabelSelect.value,
-        existingTag: parent.isNullObject ? null : parent.tag,
-      });
-      if (!plan.ok) {
-        lines = plan.reasons;
-        return;
-      }
-      // Check that the new store can be saved BEFORE touching the document.
-      const ser = serializeStore(plan.store);
-      if (!ser.ok) {
-        lines = [ser.reason];
-        return;
-      }
-      if (plan.kind === "new") {
+    // The plan is made INSIDE the host's batch, from the tag of the citation the
+    // cursor is in; every refusal (an unsaveable store, a tag over Word's limit)
+    // is decided BEFORE anything touches the document.
+    const res = await docHost.insertBibCitation({
+      isNote,
+      plan: (existingTag) => {
+        const plan = planInsert(store, ids, {
+          locator: bibLocatorInput.value,
+          label: bibLocLabelSelect.value,
+          existingTag,
+        });
+        if (!plan.ok) return { ok: false, lines: plan.reasons };
+        // Check that the new store can be saved BEFORE touching the document.
+        const ser = serializeStore(plan.store);
+        if (!ser.ok) return { ok: false, lines: [ser.reason] };
+        if (plan.kind !== "new") return { ok: true, kind: "add", store: plan.store };
         const t = citeTag(plan.markerId); // refuses a tag over Word's limit, by name
-        if (!t.ok) {
-          lines = [t.reason];
-          return;
-        }
-        const placeholder = "…";
-        const range = isNote
-          ? sel.insertFootnote("").body.insertText(placeholder, Word.InsertLocation.end)
-          : sel.insertText(placeholder, Word.InsertLocation.end);
-        const cc = range.insertContentControl();
-        cc.tag = t.tag;
-        cc.title = CITE_CONTROL_TITLE;
-        await context.sync();
-      }
-      const res = await applyBibUpdate(context, plan.store, { rewriteAll: bibStyleDirty, bibliography: "if-present" });
-      lines = [plan.kind === "new" ? "Citation inserted." : "Added to the citation at the cursor.", ...res.lines];
-      saved = plan.store;
+        if (!t.ok) return { ok: false, lines: [t.reason] };
+        return { ok: true, kind: "new", tag: t.tag, title: CITE_CONTROL_TITLE, store: plan.store };
+      },
+      // Read when the renumbering starts, inside the batch, as before (the style
+      // may change while an insert is in flight).
+      update: () => ({ rewriteAll: bibStyleDirty, bibliography: "if-present" }),
     });
+    if ("refused" in res) lines = res.refused;
+    else {
+      lines = [res.kind === "new" ? "Citation inserted." : "Added to the citation at the cursor.", ...bibUpdateLines(res.update)];
+      saved = res.store;
+    }
   } catch (e) {
     lines = [`Could not insert the citation: ${(e as Error).message}`];
   }
@@ -33629,42 +33271,13 @@ async function updateBibliography(forceAll: boolean): Promise<void> {
   }
   let lines: string[] = [];
   try {
-    await Word.run(async (context) => {
-      const res = await applyBibUpdate(context, store, { rewriteAll: forceAll || bibStyleDirty, bibliography: "always" });
-      lines = res.lines;
-      if (res.ok) bibStyleDirty = false;
-    });
+    const res = await docHost.updateBibliography(store, { rewriteAll: forceAll || bibStyleDirty, bibliography: "always" });
+    lines = bibUpdateLines(res);
+    if (res.ok) bibStyleDirty = false;
   } catch (e) {
     lines = [`Could not update the citations: ${(e as Error).message}`];
   }
   bibMsg.textContent = lines.join("\n");
-}
-
-/**
- * Best-effort: set the given built-in style names to Times New Roman 12 pt so
- * Word's generated TOC/TOA entries match the court-brief template. Word builds
- * field entries with these styles, so direct formatting on the field alone
- * won't reach them — the style font must be set. Isolated + guarded: if styles
- * aren't accessible on this build, the tables are left in the default font.
- */
-async function setTableStylesToTimesNewRoman(context: Word.RequestContext, styleNames: string[]): Promise<void> {
-  if (!wordApiSupported("1.5")) return;
-  try {
-    const styles = context.document.getStyles();
-    styles.load("items/nameLocal");
-    await context.sync();
-    let changed = false;
-    for (const name of styleNames) {
-      const style = styles.items.find((s) => s.nameLocal === name);
-      if (!style) continue;
-      style.font.name = "Times New Roman";
-      style.font.size = 12;
-      changed = true;
-    }
-    if (changed) await context.sync();
-  } catch {
-    // Styles not accessible here — leave the tables in the default font.
-  }
 }
 
 /** Reads an SVG's intrinsic width/height (px), falling back to the given box. */

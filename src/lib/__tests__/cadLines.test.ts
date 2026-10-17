@@ -18,6 +18,7 @@ import {
   Mesh,
   Placement,
   DEFAULT_TESS,
+  rotationMatrix,
 } from "../cadModel";
 import { drawLines, STANDARD_VIEWS, viewFromDegrees, CadView, Polyline } from "../cadLines";
 import { layoutSheet } from "../cadSheet";
@@ -540,6 +541,85 @@ describe("interference larger than the facets' error is always found and drawn i
       profile: { outer: { start: [0, -60], segs: [{ kind: "arc", to: [0, 60], center: [0, 0] }, { kind: "line", to: [0, 50] }, { kind: "arc", to: [0, -50], center: [0, 0], cw: true }, { kind: "line", to: [0, -60] }] }, holes: [] },
     };
     const m = meshOf(asm(body(shell), body(sphere(50), { translate: [1, 0, 0], rotateDeg: [0, 0, 0] })));
+    expect(m.overlaps).toEqual([[0, 1]]);
+  });
+});
+
+describe("overlap means a point inside both solids (sixth review)", () => {
+  const crossLen = (m: Mesh): number => m.crossings.reduce((s, c) => s + Math.hypot(c.b[0] - c.a[0], c.b[1] - c.a[1], c.b[2] - c.a[2]), 0);
+  /** Ramanujan's perimeter of an ellipse with semi-axes a, b. */
+  const ellipse = (a: number, b: number): number => Math.PI * (3 * (a + b) - Math.sqrt((3 * a + b) * (a + 3 * b)));
+
+  it.each([
+    [0.2, 0],
+    [0.2, 30],
+    [0.5, 45],
+    [0.5, 55],
+    [0.5, 70],
+    [0.5, 80],
+  ])("a wire r%p through a 1 m tank's wall at %p° from its normal: overlap, and the whole crossing loop", (r, beta) => {
+    // The wire runs through the wall at x = 500 (the tank's surface), tilted by beta about z.
+    const tank = body(cylinder(500, 1000));
+    const wire = body(cylinder(r, 40), { translate: [500 - 20 * Math.cos((beta * Math.PI) / 180), -20 * Math.sin((beta * Math.PI) / 180), 500], rotateDeg: [0, 90, beta] });
+    const m = meshOf(asm(tank, wire));
+    expect(m.overlaps).toEqual([[0, 1]]);
+    expect(crossLen(m) / ellipse(r, r / Math.cos((beta * Math.PI) / 180))).toBeGreaterThan(0.97);
+  });
+
+  it("a wire r0.2 at 45° — thinner than the tank's facet error (0.22 mm): the overlap is still named (resolution limit)", () => {
+    const b = (45 * Math.PI) / 180;
+    const m = meshOf(asm(body(cylinder(500, 1000)), body(cylinder(0.2, 40), { translate: [500 - 20 * Math.cos(b), -20 * Math.sin(b), 500], rotateDeg: [0, 90, 45] })));
+    expect(m.overlaps).toEqual([[0, 1]]);
+  });
+
+  it.each([
+    [400, 0],
+    [400, 33],
+    [600, 0],
+  ])("a %p-sided prism (sides too short to draw) lying on a plate, turned %p°: contact, not overlap", (sides, turn) => {
+    const pts: Array<[number, number]> = Array.from({ length: sides }, (_, i) => {
+      const a = Math.PI / 2 + (2 * Math.PI * i) / sides;
+      return [10 * Math.cos(a), 10 * Math.sin(a)];
+    });
+    const prism: BodySpec = { kind: "extrude", profile: { outer: { start: pts[0], segs: [...pts.slice(1), pts[0]].map((to) => ({ kind: "line" as const, to })) }, holes: [] }, depth: 30 };
+    // Laid down along y with its lowest vertex exactly on the plate's top (z = 0).
+    const m = meshOf(asm(body(box(100, 100, 5), { translate: [-50, -50, -5], rotateDeg: [0, 0, 0] }), body(prism, { translate: [0, 0, 10], rotateDeg: [-90, 0, turn] })));
+    expect(m.overlaps).toEqual([]);
+  });
+
+  it("a cone lying on its side on a plate: contact, not overlap", () => {
+    // Choose the turn that lays a generator flat (tip and a base-rim point both lowest), then set it on z = 0.
+    const lay = (deg: number): Mesh => meshOf(asm(body(cone(5, 10), { translate: [0, 0, 0], rotateDeg: [0, deg, 0] })));
+    const half = (Math.atan(5 / 10) * 180) / Math.PI;
+    const turn = [90 - half, -(90 - half), 90 + half, -(90 + half)].find((d) => {
+      const zs = lay(d).positions.filter((_, i) => i % 3 === 2);
+      const lo = Math.min(...zs);
+      return zs.filter((z) => Math.abs(z - lo) < 1e-6).length >= 2 && Math.abs(Math.max(...zs) - lo) > 5;
+    })!;
+    // Set the TRUE cone on the plate: its tip and base rim, not the tessellation's own vertices
+    // near the tip (where the old apex ring stuck out of the true cone).
+    const R = rotationMatrix([0, turn, 0]);
+    const tipZ = R[6] * 0 + R[7] * 0 + R[8] * 10;
+    const rimZ = Math.min(...Array.from({ length: 360 }, (_, i) => R[6] * 5 * Math.cos((i * Math.PI) / 180) + R[7] * 5 * Math.sin((i * Math.PI) / 180)));
+    const lo = Math.min(tipZ, rimZ);
+    const m = meshOf(asm(body(box(60, 60, 5), { translate: [-30, -30, -5], rotateDeg: [0, 0, 0] }), body(cone(5, 10), { translate: [0, 0, -lo], rotateDeg: [0, turn, 0] })));
+    expect(m.overlaps).toEqual([]);
+  });
+
+  it("a small interference in a very large model is still found (no model-size floor)", () => {
+    const plate: BodySpec = { kind: "extrude", profile: { outer: rectLoop(-2, -2, 4, 4), holes: [circleLoop(0, 0, 0.5, true)] }, depth: 1 };
+    const near = meshOf(asm(body(plate), body(cylinder(0.6, 3), { translate: [0, 0, -1], rotateDeg: [0, 0, 0] })));
+    const far = meshOf(asm(body(plate), body(cylinder(0.6, 3), { translate: [0, 0, -1], rotateDeg: [0, 0, 0] }), body(box(1, 1, 1), { translate: [1e5, 0, 0], rotateDeg: [0, 0, 0] })));
+    expect(far.overlaps).toEqual([[0, 1]]);
+    expect(crossLen(far) / crossLen(near)).toBeGreaterThan(0.98);
+  });
+
+  it.each([
+    ["the same block placed twice", box(10, 10, 10), [0, 0, 0]],
+    ["a block shifted 3 along x only", box(10, 10, 10), [3, 0, 0]],
+    ["a cylinder stacked 5 into another on the same axis", cylinder(10, 10), [0, 0, 5]],
+  ] as Array<[string, BodySpec, [number, number, number]]>)("%s: overlap (bounded only by coincident faces — no crossing line, but named)", (_n, spec, tr) => {
+    const m = meshOf(asm(body(spec), body(spec, { translate: tr, rotateDeg: [0, 0, 0] })));
     expect(m.overlaps).toEqual([[0, 1]]);
   });
 });

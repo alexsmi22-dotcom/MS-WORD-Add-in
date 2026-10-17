@@ -536,6 +536,111 @@ function findCrossings(m: Mesh, nBodies: number, maxTests: number): [number, num
     }
     return { sag, curv };
   };
+  // ---- inside-a-body, by ray casting (the meshes are closed) ----
+  // Per body, a grid over its x–y extent of the triangles that can block a ray along +z.
+  const rayGrids = new Map<number, { cells: number[][]; n: number; x0: number; y0: number; sx: number; sy: number }>();
+  const rayGrid = (bi: number) => {
+    let g = rayGrids.get(bi);
+    if (g) return g;
+    const tris = byBody[bi];
+    const n = Math.max(1, Math.min(64, Math.round(Math.sqrt(tris.length / 4))));
+    const x0 = blo[bi][0], y0 = blo[bi][1];
+    const sx = (bhi[bi][0] - x0) / n || 1, sy = (bhi[bi][1] - y0) / n || 1;
+    const cells: number[][] = Array.from({ length: n * n }, () => []);
+    const cx = (v: number): number => Math.max(0, Math.min(n - 1, Math.floor((v - x0) / sx)));
+    const cy = (v: number): number => Math.max(0, Math.min(n - 1, Math.floor((v - y0) / sy)));
+    for (const t of tris) {
+      for (let i = cx(tlo[3 * t]); i <= cx(thi[3 * t]); i++) for (let j = cy(tlo[3 * t + 1]); j <= cy(thi[3 * t + 1]); j++) cells[j * n + i].push(t);
+    }
+    g = { cells, n, x0, y0, sx, sy };
+    rayGrids.set(bi, g);
+    return g;
+  };
+  /** Is p inside body bi? Parity of a +z ray's crossings (p nudged off any edge it might graze). */
+  const inside = (bi: number, p0: Vec3): boolean => {
+    if ([0, 1, 2].some((k) => p0[k] < blo[bi][k] - tol || p0[k] > bhi[bi][k] + tol)) return false;
+    const p: Vec3 = [p0[0] + tol * 0.7071, p0[1] + tol * 0.3183, p0[2]];
+    const g = rayGrid(bi);
+    const i = Math.max(0, Math.min(g.n - 1, Math.floor((p[0] - g.x0) / g.sx)));
+    const j = Math.max(0, Math.min(g.n - 1, Math.floor((p[1] - g.y0) / g.sy)));
+    let hits = 0;
+    for (const t of g.cells[j * g.n + i]) {
+      const a = V(T[3 * t]), b = V(T[3 * t + 1]), c = V(T[3 * t + 2]);
+      const det = (b[1] - c[1]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[1] - c[1]);
+      if (Math.abs(det) < 1e-300) continue; // a wall, seen edge-on from below
+      const l1 = ((b[1] - c[1]) * (p[0] - c[0]) + (c[0] - b[0]) * (p[1] - c[1])) / det;
+      const l2 = ((c[1] - a[1]) * (p[0] - c[0]) + (a[0] - c[0]) * (p[1] - c[1])) / det;
+      const l3 = 1 - l1 - l2;
+      if (l1 < 0 || l2 < 0 || l3 < 0) continue;
+      if (l1 * a[2] + l2 * b[2] + l3 * c[2] > p[2]) hits++;
+    }
+    return hits % 2 === 1;
+  };
+  const bodySize = (bi: number): number => Math.hypot(bhi[bi][0] - blo[bi][0], bhi[bi][1] - blo[bi][1], bhi[bi][2] - blo[bi][2]);
+  /**
+   * Do the two bodies really share volume next to this crossing? Probe points step
+   * into BOTH solids from the crossing — into one past its own facet error, into the
+   * other past BOTH errors (how deep a facet can poke through a coincident or tangent
+   * surface), each way round — and along the bisector of the two surfaces (the wedge
+   * a shallow crossing makes).
+   * One probe inside both = a crossing; none = the surfaces only touch (sixth review:
+   * each proxy rule before this was eventually fooled by some shape).
+   */
+  const sharesVolume = (A: number, B: number, mid: Vec3, nA: Vec3, nB: Vec3, eA: number, eB: number, kA: number, kB: number): boolean => {
+    const cap = 0.25 * Math.min(bodySize(A), bodySize(B));
+    const probes: Vec3[] = [];
+    for (const [da, db] of [[eA, eA + eB], [eA + eB, eB]]) {
+      for (const k of [1, 4, 16, 64]) {
+        const a = Math.min(cap, k * da), b = Math.min(cap, k * db);
+        probes.push([mid[0] - a * nA[0] - b * nB[0], mid[1] - a * nA[1] - b * nB[1], mid[2] - a * nA[2] - b * nB[2]]);
+      }
+    }
+    // Along one surface into the other (then a hair inside the first): how a thin part
+    // crossing a coarsely faceted wall at a slant actually sits in it — a step straight
+    // into the wall by the wall's error would leave the thin part.
+    for (const [n1, n2, e1, e2, k1] of [[nA, nB, eA, eB, kA], [nB, nA, eB, eA, kB]] as Array<[Vec3, Vec3, number, number, number]>) {
+      const d = dot3(n2, n1);
+      const tg: Vec3 = [-n2[0] + d * n1[0], -n2[1] + d * n1[1], -n2[2] + d * n1[2]];
+      const lt = Math.hypot(...tg);
+      if (lt < 1e-6) continue; // the surfaces face straight at each other: no slant to follow
+      for (const k of [1, 2, 4, 16]) {
+        // Slide far enough to be (e1 + e2) deep in the other part, and step back in by the
+        // first surface's fall-away over that slide (b²κ/2), so the probe follows it.
+        const b = Math.min(cap, (k * (e1 + e2)) / lt);
+        const a = Math.min(cap, e1 + (b * b * k1) / 2);
+        probes.push([mid[0] + (b * tg[0]) / lt - a * n1[0], mid[1] + (b * tg[1]) / lt - a * n1[1], mid[2] + (b * tg[2]) / lt - a * n1[2]]);
+      }
+    }
+    const bis: Vec3 = [nA[0] + nB[0], nA[1] + nB[1], nA[2] + nB[2]];
+    const L = Math.hypot(...bis);
+    if (L > 1e-6) {
+      const h = L / 2; // a point ρ along the bisector is ρ·h from each surface
+      for (const k of [1, 4, 16, 64]) {
+        const r = Math.min(cap, (k * Math.max(eA, eB)) / h);
+        probes.push([mid[0] - (r * bis[0]) / L, mid[1] - (r * bis[1]) / L, mid[2] - (r * bis[2]) / L]);
+      }
+    }
+    return probes.some((q) => inside(A, q) && inside(B, q));
+  };
+  /** Do points just inside A's faces (a sample of them, near B) lie inside B? */
+  const sampledOverlap = (A: number, B: number, tris: number[]): boolean => {
+    const step = Math.max(1, Math.floor(tris.length / 64));
+    for (let i = 0; i < tris.length; i += step) {
+      const k = tris[i];
+      const a = V(T[3 * k]), b = V(T[3 * k + 1]), c = V(T[3 * k + 2]);
+      const n = cross3(sub3(b, a), sub3(c, a));
+      const ln = Math.hypot(...n);
+      if (!(ln > 0)) continue;
+      const e = 1e-3 * triSize(k) + 2 * facetShape(k).sag + tol;
+      const g: Vec3 = [(a[0] + b[0] + c[0]) / 3 - (e * n[0]) / ln, (a[1] + b[1] + c[1]) / 3 - (e * n[1]) / ln, (a[2] + b[2] + c[2]) / 3 - (e * n[2]) / ln];
+      if (inside(A, g) && inside(B, g)) return true;
+    }
+    return false;
+  };
+  const triSize = (k: number): number => {
+    const a = V(T[3 * k]), b = V(T[3 * k + 1]), c = V(T[3 * k + 2]);
+    return Math.max(Math.hypot(...sub3(b, a)), Math.hypot(...sub3(c, b)), Math.hypot(...sub3(a, c)));
+  };
   const seen = new Set<string>();
   let tests = 0;
   for (let A = 0; A < nBodies; A++) {
@@ -577,7 +682,10 @@ function findCrossings(m: Mesh, nBodies: number, maxTests: number): [number, num
                 // a line where they face opposite ways (a roller on a plate, a pin exactly in
                 // its bore — the gap test below), or along an edge already drawn (a block
                 // standing on a plate — the rim test below).
-                if (Math.hypot(...sub3(seg[1], seg[0])) <= tol * 1000) continue;
+                // A point's worth of segment, judged against these triangles, not the whole model
+                // (a 1 mm pin 100 m from another part lost its crossings to a model-size floor).
+                const floor = 1e-6 * Math.max(triSize(s), triSize(t)) + tol;
+                if (Math.hypot(...sub3(seg[1], seg[0])) <= floor) continue;
                 const fs_ = facetShape(s), ft_ = facetShape(t);
                 const sagSum = fs_.sag + ft_.sag;
                 // Coincident curved walls (a pin in its bore, turned in it, a near-equal fit):
@@ -588,17 +696,22 @@ function findCrossings(m: Mesh, nBodies: number, maxTests: number): [number, num
                 // an interference smaller than the facets can show is not drawn; anything
                 // larger always is, at any radius (fifth review: a fixed 1° hid them).
                 const mid: Vec3 = [(seg[0][0] + seg[1][0]) / 2, (seg[0][1] + seg[1][1]) / 2, (seg[0][2] + seg[1][2]) / 2];
-                const curv = Math.max(fs_.curv, ft_.curv);
-                if (curv > 0) {
-                  const cosA = Math.min(1, Math.abs(dot3(smoothNormal(s, mid), smoothNormal(t, mid))));
-                  if (Math.acos(cosA) / curv <= sagSum + tol) continue;
-                }
+                const nS = smoothNormal(s, mid), nT = smoothNormal(t, mid);
                 // Slivers along a hole's rim, as wide as the two curved facets are wrong
                 // there: measured on these two triangles, so a flat face (error 0) never hides one.
                 const near = 2 * Math.max(fs_.sag, ft_.sag);
-                if (alongDrawnEdge(seg, sa, drawnAt, ck, tol, near) || alongDrawnEdge(seg, sb, drawnAt, ck, tol, near)) continue;
+                if (alongDrawnEdge(seg, sa, drawnAt, ck, floor, near) || alongDrawnEdge(seg, sb, drawnAt, ck, floor, near)) continue;
+                // That offset estimate holds only for walls curving alike (a pin and its bore);
+                // a thin wire through a big tank's wall is not coincident with it.
+                const similar = fs_.curv > 0 && ft_.curv > 0 && Math.min(fs_.curv, ft_.curv) >= 0.5 * Math.max(fs_.curv, ft_.curv);
+                if (similar) {
+                  const cosA = Math.min(1, Math.abs(dot3(nS, nT)));
+                  if (Math.acos(cosA) / Math.max(fs_.curv, ft_.curv) <= sagSum + tol) continue;
+                } else if (!sharesVolume(A, B, mid, nS, nT, fs_.sag + floor, ft_.sag + floor, fs_.curv, ft_.curv)) {
+                  continue;
+                }
                 crossed = true; // a real crossing, not contact along an edge already drawn
-                const q = (p: Vec3): string => p.map((v) => Math.round(v / (tol * 1000))).join(",");
+                const q = (p: Vec3): string => p.map((v) => Math.round(v / (tol * 10))).join(",");
                 const ka = q(seg[0]), kb = q(seg[1]);
                 const key = ka < kb ? `${ka}|${kb}` : `${kb}|${ka}`;
                 if (seen.has(key)) continue;
@@ -606,6 +719,9 @@ function findCrossings(m: Mesh, nBodies: number, maxTests: number): [number, num
                 m.crossings.push({ a: seg[0], b: seg[1], tris: [s, t] });
               }
       }
+      // Overlap bounded only by coincident faces (the same block placed twice, cylinders
+      // stacked into each other) draws no crossing line; it is still an overlap to name.
+      if (!crossed) crossed = sampledOverlap(A, B, ta) || sampledOverlap(B, A, tb);
       if (crossed) m.overlaps.push([A, B]);
     }
   }
@@ -679,7 +795,7 @@ function alongDrawnEdge(
       const l2 = dot3(e, e);
       // A drawn rim edge is a chord of its own curve: its own chord error widens the
       // sliver too, when the hole is faceted coarser than the part in it.
-      const lim = Math.max(tol * 1000, near + edgeSag);
+      const lim = Math.max(tol, near + edgeSag);
       const t = l2 > 0 ? Math.max(0, Math.min(1, dot3(sub3(x, p), e) / l2)) : 0;
       const c: Vec3 = [p[0] + t * e[0], p[1] + t * e[1], p[2] + t * e[2]];
       return Math.hypot(x[0] - c[0], x[1] - c[1], x[2] - c[2]) <= lim;
@@ -789,10 +905,21 @@ function tessRevolve(spec: Extract<BodySpec, { kind: "revolve" }>, ft: Fineness,
     if (!onAxis(L.points[(i + 1) % n])) ends.push(L.edgeNormals[i][0]);
     return ends.some((nn) => Math.abs(nn[0]) > 1e-6);
   };
-  const apexR = rmax * 1e-7;
+  // The ring sits ON the profile, a hair down the neighbouring segment from the tip, so it
+  // is inside the true cone (at the tip's height it stuck out: a cone lying on its side
+  // "overlapped" the plate under it all along its length — sixth review).
+  const apexPoint = (i: number): Pt2 => {
+    const prev = L.points[(i - 1 + n) % n], next = L.points[(i + 1) % n];
+    const q = !onAxis(next) ? next : prev;
+    const p = L.points[i];
+    return [p[0] + (q[0] - p[0]) * 1e-7, p[1] + (q[1] - p[1]) * 1e-7];
+  };
   const ring: number[][] = L.points.map((p, i) => {
     if (onAxis(p)) {
-      if (sharpApex(i)) return Array.from({ length: steps }, (_, j) => put([apexR * Math.cos(angle(j)), apexR * Math.sin(angle(j)), p[1]]));
+      if (sharpApex(i)) {
+        const [ar, az] = apexPoint(i);
+        return Array.from({ length: steps }, (_, j) => put([ar * Math.cos(angle(j)), ar * Math.sin(angle(j)), az]));
+      }
       const v = put([0, 0, p[1]]);
       return new Array(steps).fill(v);
     }

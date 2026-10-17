@@ -42,7 +42,13 @@ module.exports = {
   "solve/solve-insert#3": [["solve-kind", "equation"], ["solve-input", "x^2 - 4 = 0"]],
   "units/unit-insert": [["unit-input", "9.81 m/s^2"]],
   "units/conv-insert": [["conv-value", "100"], ["conv-from", "km/h"], ["conv-to", "m/s"], ["click", "conv-btn"]],
-  "plot/plot-insert": [["plot-fn", "sin(x)/x"], ["figstyle-vector", true]],
+  // Second branches the review found untraced: Table → Chart WITH its editable
+  // data table (the tableChart tail), the editable table WITH a label, and an
+  // Engineering report that contains equations (the OOXML layout item).
+  "ppt/ppt-insert-fig#2": [["ppt-with-text", true]],
+  "ppt/ppt-insert-table#2": [["ppt-figlabel", "FIG. 1"]],
+  "engineering/engineering-insert#2": [["engineering-calc", "control-tf"]],
+  "plot/plot-insert":[["plot-fn", "sin(x)/x"], ["figstyle-vector", true]],
   "dna/dna-revcomp-insert": [["dna-input", DNA]],
   "dna/dna-mrna-insert": [["dna-input", DNA]],
   "dna/dna-protein-insert": [["dna-input", DNA]],

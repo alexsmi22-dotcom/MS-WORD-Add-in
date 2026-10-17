@@ -37,10 +37,18 @@ function sources(): { lib: Map<string, string>; all: string } {
   for (const f of fs.readdirSync(LIB)) {
     if (f.endsWith(".ts")) lib.set(f.replace(/\.ts$/, ""), read(path.join(LIB, f)));
   }
+  // src/host is shipped code the pane delegates to (docs/SCOPE-HOST-ADAPTER.md):
+  // findInsertedPicture moved there with the vector route in v2.145.0 and read
+  // as "dead" to an audit that only knew the pane.
+  const hostDir = path.join(ROOT, "src", "host");
+  const hostFiles = fs.existsSync(hostDir)
+    ? fs.readdirSync(hostDir).filter((f) => f.endsWith(".ts")).map((f) => path.join(hostDir, f))
+    : [];
   const entries = [
     path.join(ROOT, "src", "taskpane", "taskpane.ts"),
     path.join(ROOT, "src", "drawdialog", "drawdialog.ts"),
     path.join(ROOT, "src", "solvedialog", "solvedialog.ts"),
+    ...hostFiles,
   ]
     .filter((p) => fs.existsSync(p))
     .map(read)

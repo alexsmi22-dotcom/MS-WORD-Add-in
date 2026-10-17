@@ -122,7 +122,10 @@
           // the "Word kept N of M figures" check and the vector route's
           // before/after diff see a document that behaves like Word's.
           var pics = [];
-          for (var pi = 0; pi < window.__ht.bodyPics; pi++) pics.push(obj(name + "[" + pi + "]"));
+          // Each picture has its OWN width, as real pictures do: identical
+          // signatures made the vector route's "find the one new picture"
+          // ambiguous, so its success path was never traced (review, v2.145.0).
+          for (var pi = 0; pi < window.__ht.bodyPics; pi++) pics.push(obj(name + "[" + pi + "]", { width: 100 + pi }));
           return pics; // not cached: a later load must see later inserts
         }
         if (k === "items") return (store[k] = []);

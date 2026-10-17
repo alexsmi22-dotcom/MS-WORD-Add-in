@@ -32,6 +32,7 @@ function obj(name: string): unknown {
       const key = `${name}.${String(k)}`;
       if (key in reads) return reads[key];
       if (k === "sync") return () => { log.push(`${name}.sync()`); return Promise.resolve(); };
+      if (k === "items") return (store.items = []); // an empty collection, as in an empty document
       return (store[k as string] = method(name, String(k)));
     },
     set(_t, k, v) {
@@ -208,6 +209,160 @@ describe("reads", () => {
   });
 });
 
+describe("pictures (v2.145.0)", () => {
+  it("one picture: insert after, width then height in POINTS, alt, caret on the selection, sync, then the tag", async () => {
+    await wordHost.insertPictureAtSelection({ base64: "B64", widthPt: 120, heightPt: 90, alt: "a", selectAfter: true, tag: "formula-inserter:peptide" });
+    expect(log.slice(0, 9)).toEqual([
+      "RUN {",
+      "#1 = ctx.document.getSelection()",
+      '#2 = #1.insertInlinePictureFromBase64("B64", "After")',
+      "set #2.width = 120",
+      "set #2.height = 90",
+      'set #2.altTextDescription = "a"',
+      '#3 = #1.select("End")',
+      "ctx.sync()",
+      "#4 = #2.getRange()",
+    ]);
+  });
+
+  it("no caret move and no tag when the site asked for neither (Solve's figure, the balance chart)", async () => {
+    await wordHost.insertPictureAtSelection({ base64: "B", widthPt: 1, heightPt: 2, alt: "x", selectAfter: false });
+    expect(log.some((l) => l.includes(".select("))).toBe(false);
+    expect(log.some((l) => l.includes("getRange"))).toBe(false);
+  });
+
+  it("result layout: each picture paragraph chains from RangeLocation.END, text from .after, and Word's count is returned", async () => {
+    let n = 0;
+    reads["ctx.document.body.inlinePictures.items"] = { get length() { return n; } };
+    (globalThis as unknown as { Word: Record<string, unknown> }).Word.RangeLocation = { end: "End", after: "After", start: "Start" };
+    // The count Word reports grows by one per picture call.
+    const count = log.push.bind(log);
+    log.push = (...a: string[]): number => {
+      for (const l of a) if (l.includes("insertInlinePictureFromBase64")) n++;
+      return count(...a);
+    };
+    const kept = await wordHost.insertResultLayout([
+      { kind: "paragraph", text: "Line" },
+      { kind: "picture", caption: "Fig 1", base64: "P1", widthPt: 10, heightPt: 20, alt: "one" },
+      { kind: "picture", caption: "Fig 2", base64: "P2", widthPt: 10, heightPt: 20, alt: "two" },
+    ]);
+    expect(kept).toBe(2);
+    const getRanges = log.filter((l) => l.includes(".getRange("));
+    expect(getRanges).toEqual([
+      '#3 = #2.getRange("End")', // the selection's end — the first anchor
+      '#5 = #4.getRange("After")', // after a TEXT paragraph
+      '#8 = #6.getRange("End")', // after a PICTURE paragraph
+      '#11 = #9.getRange("End")',
+    ]);
+    // No sync between the first content call and the closing selection.
+    const first = log.findIndex((l) => l.includes("insertParagraph"));
+    const sel = log.findIndex((l) => l.includes('.select("End")'));
+    expect(log.slice(first, sel)).not.toContain("ctx.sync()");
+  });
+
+  it("a figure's caption tail goes under the picture with the cursor after it, inside the same batch", async () => {
+    (globalThis as unknown as { Word: Record<string, unknown> }).Word.RangeLocation = { end: "End", after: "After" };
+    await wordHost.insertFigurePng({ base64: "P", widthPt: 5, heightPt: 6, alt: "f", tag: "formula-inserter:stats-chart", tail: { kind: "caption", text: "Legend" } });
+    const runs = log.filter((l) => l === "RUN {").length;
+    expect(runs).toBe(1);
+    const i = log.findIndex((l) => l.includes('insertParagraph("Legend", "After")'));
+    const tagAt = log.findIndex((l) => l.includes("set #") && l.includes(".tag ="));
+    expect(tagAt).toBeGreaterThan(-1); // the tag is there at all…
+    expect(i).toBeGreaterThan(tagAt); // …and the caption comes after it
+    expect(log[log.length - 2]).toBe("ctx.sync()"); // insertFigure's closing sync
+  });
+
+  const withRange = (): void => {
+    (globalThis as unknown as { Word: Record<string, unknown> }).Word.RangeLocation = { end: "End", after: "After", start: "Start" };
+    (globalThis as unknown as { Word: Record<string, unknown> }).Word.Alignment = { right: "Right", centered: "Centered" };
+    (globalThis as unknown as { Word: Record<string, unknown> }).Word.BuiltInStyleName = { normal: "Normal", heading2: "Heading2", caption: "Caption" };
+  };
+
+  it.each([
+    ["table", { kind: "table" as const, html: "<table/>" }, ['#4 = #3.insertParagraph("", "After")', "#5 = #4.getRange()", '#6 = #5.insertHtml("<table/>", "Replace")']],
+    ["line", { kind: "line" as const, text: "R1 = Me" }, ['#4 = #3.insertParagraph("R1 = Me", "After")', "#5 = #4.getRange()", '#6 = #5.select("End")']],
+    ["none", null, ['#4 = #3.select("End")']],
+  ])("the structure legend (%s) follows the picture's END, and the picture is tagged after the sync", async (_n, legend, expected) => {
+    withRange();
+    await wordHost.insertPictureWithLegend({ base64: "S", widthPt: 1, heightPt: 2, alt: "a", legend, tag: "formula-inserter:structure" });
+    expect(log).toContain('#3 = #2.getRange("End")');
+    for (const e of expected) expect(log).toContain(e);
+    const sync = log.indexOf("ctx.sync()");
+    expect(log.indexOf(expected[expected.length - 1])).toBeLessThan(sync);
+    expect(log.slice(sync).some((l) => l.endsWith(".insertContentControl()"))).toBe(true);
+  });
+
+  it("the gallery chains each paragraph from the previous one's END, then selects once and syncs once", async () => {
+    withRange();
+    await wordHost.insertPictureParagraphs([
+      { text: "R1 = ", base64: "A", widthPt: 1, heightPt: 1, alt: "a" },
+      { text: "R2 = ", base64: "B", widthPt: 2, heightPt: 2, alt: "b" },
+    ]);
+    expect(log.filter((l) => l.includes(".getRange(")).every((l) => l.endsWith('.getRange("End")'))).toBe(true);
+    expect(log.filter((l) => l === "ctx.sync()")).toHaveLength(1);
+    expect(log).toContain('#5 = #4.insertParagraph("R2 = ", "After")'); // anchored on the first paragraph's END (#4)
+  });
+
+  it("an editable table with a label: centred Normal caption after the table, then the list clean-up", async () => {
+    withRange();
+    reads["#3.getCell()"] = undefined;
+    await wordHost.insertEditableTable({ rows: [["x", "y"], ["1", "2"]], label: "FIG. 1" });
+    const cap = log.findIndex((l) => l.includes('insertParagraph("FIG. 1", "After")'));
+    expect(cap).toBeGreaterThan(log.findIndex((l) => l.includes(".insertTable(")));
+    expect(log).toContain(`set #${log[cap].split(" ")[0].slice(1)}.alignment = "Centered"`);
+    expect(log.some((l) => l.includes('.load("items")'))).toBe(true); // clearTableListFormatting ran
+  });
+
+  it("Table → Chart reads its rows INSIDE the batch, after the picture has synced (not when the insert began)", async () => {
+    withRange();
+    let readAt = -1;
+    await wordHost.insertFigurePng({
+      base64: "P",
+      widthPt: 1,
+      heightPt: 1,
+      alt: "chart",
+      tail: { kind: "tableChart", rows: () => { readAt = log.length; return [["a", "b"], ["1", "2"]]; }, tag: "formula-inserter:tablechart" },
+    });
+    expect(readAt).toBeGreaterThan(log.indexOf("ctx.sync()")); // after the picture's own sync
+    expect(log.some((l) => l.includes(".insertTable("))).toBe(true);
+  });
+
+  describe("the vector route", () => {
+    let svgResult: { status: string; error?: { message: string } };
+    beforeEach(() => {
+      withRange();
+      svgResult = { status: "succeeded" };
+      (globalThis as unknown as { Office: unknown }).Office = {
+        CoercionType: { XmlSvg: "XmlSvg" },
+        AsyncResultStatus: { Succeeded: "succeeded" },
+        context: {
+          requirements: { isSetSupported: () => false },
+          document: {
+            setSelectedDataAsync: (_s: string, _o: unknown, cb: (r: unknown) => void) => {
+              log.push("OFFICE setSelectedDataAsync");
+              cb(svgResult);
+            },
+          },
+        },
+      };
+    });
+
+    it("Word refusing the SVG returns a fallback reason and inserts nothing more", async () => {
+      svgResult = { status: "failed", error: { message: "nope" } };
+      const r = await wordHost.insertFigureVector({ svg: "<svg/>", widthPt: 1, heightPt: 1, alt: "v" });
+      expect(r).toEqual({ fallback: "Word refused the vector picture (nope)", format: null });
+      expect(log.filter((l) => l === "RUN {")).toHaveLength(1); // only the "before" listing
+    });
+
+    it("Word saying yes but no new picture can be found THROWS — never a PNG on top of a picture somewhere", async () => {
+      reads["ctx.document.body.inlinePictures.items"] = []; // nothing new appeared
+      await expect(wordHost.insertFigureVector({ svg: "<svg/>", widthPt: 1, heightPt: 1, alt: "v" })).rejects.toThrow(
+        /Word reported the vector picture inserted, but/,
+      );
+    });
+  });
+});
+
 // ---- the ratchet ---------------------------------------------------------------
 
 const ROOT = path.join(__dirname, "..", "..", "..");
@@ -219,9 +374,11 @@ describe("the ratchet: document code only ever LEAVES the pane", () => {
   // stops covering whatever is written after it. LOWER these as sites move —
   // the target is zero Word.run and the boot handshake for Office.
   // v2.144.0: 52 -> 29 Word.run (Kinds 1 and 2 moved to src/host).
-  const WORD_RUN_MAX = 29;
-  const WORD_REF_MAX = 153;
-  const OFFICE_REF_MAX = 43;
+  // v2.145.0: 29 -> 10 (Kind 3, pictures and figures; the vector route took
+  // setSelectedDataAsync and the capability probes with it).
+  const WORD_RUN_MAX = 10;
+  const WORD_REF_MAX = 52;
+  const OFFICE_REF_MAX = 35;
 
   it(`taskpane.ts has at most ${WORD_RUN_MAX} Word.run batches`, () => {
     expect(count(/\bWord\.run\(/g)).toBeLessThanOrEqual(WORD_RUN_MAX);

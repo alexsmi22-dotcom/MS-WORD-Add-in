@@ -105,7 +105,9 @@ function sitesInSource() {
     // callers share one host transaction.
     lines.forEach((l, i) => {
       if (/^\s*(\/\/|\*)/.test(l)) return;
-      if (/Word\.run\(/.test(l) || /\bdocHost\.\w+\(/.test(l)) {
+      // (capability() is a synchronous probe that opens no batch, so no stack
+      // can ever reach it; it is not a document site.)
+      if (/Word\.run\(/.test(l) || /\bdocHost\.(?!capability\()\w+\(/.test(l)) {
         sites.push({ file: path.relative(ROOT, f).replace(/\\/g, "/"), line: i + 1 });
       }
     });

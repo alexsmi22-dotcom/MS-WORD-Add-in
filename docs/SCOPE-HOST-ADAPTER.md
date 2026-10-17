@@ -87,8 +87,13 @@ What the pane keeps: status text, busy flags, button state, and every message. W
 **Kind 5. Office, outside `Word.run`.** Release (c).
 - `document.settings`: numerals, refs, bibliography
 - the three dialog openers
-- `setSelectedDataAsync`
-- `isSetSupported` probes
+- the `WordApi` `isSetSupported` probe (`wordApiSupported`)
+- `setSelectedDataAsync` and the `ImageCoercion`/`WordApiDesktop` probes already moved in (b), with the vector route
+
+**As shipped in (b), v2.145.0.** 19 batches moved to `src/host/wordFigures.ts`, leaving 10 `Word.run` in the pane, all Kind 4.
+- **`insertFigure`'s `after(context, picture)` hook** became a declarative `FigureTail`: a caption line, or Table → Chart's data table. The table rows are passed as a FUNCTION the host calls inside the batch, at the moment the old hook read them. The independent review caught the first version capturing them seconds earlier.
+- **`insertResultBlocks`** now PLANS the report (runs, flushes, which formulas typeset, intrinsic sizes in points). The host's `insertResultLayout` PLAYS it in one batch and returns Word's own picture count.
+- **The trace drive gained second branches:** the vector success path (mock pictures now have distinct signatures), Table → Chart with its data table, a labelled editable table, and an Engineering report with equations. The golden was re-recorded from the released v2.144.0 code. The legend, gallery and vector-refusal branches are pinned by unit tests in `hostLayer.test.ts`.
 
 **Out of scope:**
 - **`src/commands/commands.ts`** (10 lines, `Office.onReady` only).
@@ -128,7 +133,7 @@ Both go to the user.
 | Release | Content |
 |---|---|
 | v2.144.0 (a) | The instrument, `Host` skeleton, Kind 1 + Kind 2, harness enum fix, test-source helper, ratchet test, first parser batch |
-| v2.145.0 (b) | Kind 3, pictures and figures |
+| v2.145.0 (b) | Kind 3, pictures and figures (shipped; see §C) |
 | v2.146.0 (c) | Kind 4 + Kind 5; ratchet reaches the boot allowlist |
 
 Each release gets the full QC, an independent adversarial pass aimed at batch boundaries, selection placement and anything the trace cannot see (Word's behaviour itself), then push and live-verify.

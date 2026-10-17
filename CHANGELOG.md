@@ -6,6 +6,34 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.145.0] — 2026-10-17 — Host adapter, part 2: pictures and figures (no visible change)
+
+From `docs/SCOPE-HOST-ADAPTER.md`. Every picture and figure insert now goes
+through `src/host/wordFigures.ts`: structures, 3D models, reactions, peptides,
+spectra, sequence maps, the substituent gallery, Engineering/Analyze reports,
+editable tables, and the one figure path with its vector and PNG routes. The
+task pane goes from 29 `Word.run` batches to 10. **Nothing a user sees or
+inserts changes.** The host-trace gate proves it call by call.
+
+### Changed — internal
+- **19 more batches moved.** Sizes reach the host in points, as computed by the
+  pane, so the rasterise-then-pin pairing is unchanged.
+- **Figure tails are now plain data.** The figure path's `after` hook, which ran
+  Word code inside the batch, became a declarative tail: a caption line, or
+  Table → Chart's editable data table. The data table's rows are still read
+  inside the batch, after the picture lands, exactly when they were read before.
+- **The report insert is split into plan and play.** `insertResultBlocks` builds
+  a layout; the host plays it in ONE batch and returns Word's own count of the
+  pictures it kept. The anchor rules (.end after a picture paragraph, .after
+  after text) and the no-sync-in-the-loop rule are unchanged and still pinned
+  by their tests, which now read the host file.
+- **More branches traced.** The drive now runs the vector route's success path,
+  Table → Chart with its data table, a labelled editable table, and a report
+  containing equations. The golden was re-recorded from the released v2.144.0
+  code, and this release diffs clean against it. 65 of 65 sites are reached.
+- **The unused-export gate reads `src/host`.** Code that moved there would
+  otherwise read as dead.
+
 ## [2.144.0] — 2026-10-17 — Host adapter, part 1 (no visible change)
 
 From `docs/SCOPE-HOST-ADAPTER.md`, hit-list item 13. Every read and write of the

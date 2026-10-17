@@ -13,6 +13,17 @@ import { FIGURE_PRESET_CHOICES } from "../insertCapability";
 const PANE = fs.readFileSync(path.join(__dirname, "..", "..", "taskpane", "taskpane.ts"), "utf8");
 const HTML = fs.readFileSync(path.join(__dirname, "..", "..", "taskpane", "taskpane.html"), "utf8");
 
+const HOST_FIGURES = fs.readFileSync(path.join(__dirname, "..", "..", "host", "wordFigures.ts"), "utf8");
+
+/** The body of an exported function in src/host/wordFigures.ts, where the figure's Word half lives. */
+function hostBody(name: string): string {
+  const m = new RegExp(`\\nexport (async )?function ${name}\\(`).exec(HOST_FIGURES);
+  if (!m) throw new Error(`${name} not found in src/host/wordFigures.ts`);
+  const at = m.index;
+  const next = HOST_FIGURES.slice(at + 10).search(/\n(export |async |function |\/\*\*)/);
+  return next < 0 ? HOST_FIGURES.slice(at) : HOST_FIGURES.slice(at, at + 10 + next);
+}
+
 /** The body of a top-level pane function. */
 function fnBody(name: string): string {
   const a1 = PANE.indexOf(`\nasync function ${name}(`);
@@ -56,15 +67,20 @@ describe("the figure-style picker reaches prepareFigure", () => {
     expect(b).toMatch(/decideInsertRoute\(hostCapability\(\)\)/);
     expect(b).toMatch(/rasterTarget\(prepared, o\.supersample \?\? 1\)/);
     expect(b).toMatch(/pngPixelSize\(png\)/);
-    expect(b).toMatch(/picture\.width = prepared\.widthPt;\s*picture\.height = prepared\.heightPt;/);
+    // v2.145.0: the Word half moved to src/host (docs/SCOPE-HOST-ADAPTER.md). The
+    // pane hands the host the points it computed; the host pins the picture to them.
+    expect(b).toMatch(/docHost\.insertFigurePng\(\{\s*base64: png,\s*widthPt: prepared\.widthPt,\s*heightPt: prepared\.heightPt,/);
+    expect(hostBody("insertFigurePng")).toMatch(/picture\.width = o\.widthPt;\s*picture\.height = o\.heightPt;/);
   });
   test("capability detection uses ImageCoercion 1.2 and a throw is null (never optimistic)", () => {
-    const b = fnBody("hostCapability");
+    const b = hostBody("capability");
     expect(b).toMatch(/isSetSupported\("ImageCoercion", "1\.2"\) === true/);
     expect(b).toMatch(/catch \{\s*imageCoercion12 = null;/);
+    // …and the pane's capability IS the host's, plus only the user's own choice.
+    expect(fnBody("hostCapability")).toMatch(/\.\.\.docHost\.capability\(\)/);
   });
   test("the vector route re-finds its picture with findInsertedPicture and never adds a PNG after Word reported success", () => {
-    const b = fnBody("insertFigureVector");
+    const b = hostBody("insertFigureVector");
     expect(b).toMatch(/findInsertedPicture\(before, sigs\)/);
     expect(b).toMatch(/if \(!found\.ok\) \{\s*throw new Error/);
     // The only fallback return is the one where setSelectedSvg itself failed.
@@ -83,7 +99,9 @@ describe("the figure-style picker reaches prepareFigure", () => {
     expect(modes.sort()).toEqual(Object.keys(insertFnFor).sort());
     for (const mode of modes) {
       const b = fnBody(insertFnFor[mode]);
-      expect({ mode, viaInsertFigure: /await insertFigure\(\{/.test(b), ownPng: /insertInlinePictureFromBase64/.test(b) }).toEqual({
+      // "Its own PNG" is now a direct host picture call as much as a raw Word one
+      // (v2.145.0) — matching only the Word call would make this check vacuous.
+      expect({ mode, viaInsertFigure: /await insertFigure\(\{/.test(b), ownPng: /insertInlinePictureFromBase64|docHost\.insertPicture/.test(b) }).toEqual({
         mode,
         viaInsertFigure: true,
         ownPng: false,
@@ -141,7 +159,9 @@ describe("significance brackets: the Stats pane reaches bracketedBoxPlot, from e
     expect(HTML).toMatch(/<input type="checkbox" id="stats-brackets-hidens" \/>/);
   });
   test("the bracket legend (test, correction, hidden ns count) is inserted as the caption", () => {
-    expect(fnBody("insertStatsChart")).toMatch(/after: captionAfter\(caption\)/);
+    expect(fnBody("insertStatsChart")).toMatch(/tail: captionTail\(caption\)/);
+    // The caption tail inserts a paragraph under the picture and puts the cursor after it.
+    expect(fnBody("captionTail")).toMatch(/caption \? \{ kind: "caption", text: caption \} : undefined/);
   });
 });
 

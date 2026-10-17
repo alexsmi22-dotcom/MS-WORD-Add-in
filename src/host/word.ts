@@ -5,6 +5,16 @@
 import type { Host } from "./host";
 import { insertAtSelection, insertCaptionParagraph, insertHeadedBlockBefore } from "./wordInsert";
 import { readBodyText, readParagraphTexts, readTableUnderCursor } from "./wordRead";
+import {
+  capability,
+  insertEditableTable,
+  insertFigurePng,
+  insertFigureVector,
+  insertPictureAtSelection,
+  insertPictureParagraphs,
+  insertPictureWithLegend,
+  insertResultLayout,
+} from "./wordFigures";
 
 export const wordHost: Host = {
   insertAtSelection,
@@ -13,4 +23,12 @@ export const wordHost: Host = {
   readBodyText,
   readParagraphTexts,
   readTableUnderCursor,
+  insertPictureAtSelection,
+  insertPictureWithLegend,
+  insertPictureParagraphs,
+  insertEditableTable,
+  insertResultLayout,
+  insertFigurePng,
+  insertFigureVector,
+  capability,
 };

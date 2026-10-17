@@ -618,6 +618,37 @@ function insertBlocksBody(): string {
   return body;
 }
 
+// THE WORD HALF MOVED (v2.145.0, docs/SCOPE-HOST-ADAPTER.md). insertResultBlocks
+// now PLANS the report (runs, flushes, which formulas typeset, intrinsic picture
+// sizes) and src/host/wordFigures.ts PLAYS it in one batch. Every gate below
+// that pinned a Word call now reads the host function where that call lives;
+// every gate that pinned a planning decision still reads the pane. Neither half
+// may be pinned against the other's file — that is how a gate goes vacuous.
+const HOST_FIGURES = fs
+  .readFileSync(path.join(__dirname, "..", "..", "host", "wordFigures.ts"), "utf8")
+  .replace(/\r\n/g, "\n");
+
+/** A host function's body, comments stripped, failing loudly if it is not found whole. */
+function hostFnBody(name: string, mustContain: string): string {
+  const start = HOST_FIGURES.indexOf(`export async function ${name}(`);
+  if (start < 0) throw new Error(`${name} not found in src/host/wordFigures.ts`);
+  const end = HOST_FIGURES.indexOf("\n}", start);
+  const body = HOST_FIGURES.slice(start, end)
+    .split("\n")
+    .filter((l) => {
+      const t = l.trim();
+      return !t.startsWith("//") && !t.startsWith("*") && !t.startsWith("/*");
+    })
+    .join("\n");
+  if (!body.includes(mustContain)) throw new Error(`${name} body looks truncated`);
+  return body;
+}
+
+/** The Word batch that plays a result report. */
+function hostLayoutBody(): string {
+  return hostFnBody("insertResultLayout", "for (const item of items)");
+}
+
 describe("every non-text block kind reaches the rich insert path", () => {
   test("the dispatch lists every rich kind", () => {
     const i = PANE.indexOf("const RICH_KINDS");
@@ -674,9 +705,11 @@ describe("every non-text block kind reaches the rich insert path", () => {
     const body = insertBlocksBody();
     // Once before the plot/matrix branches, once after the loop.
     expect(body.split("flushRun()").length - 1).toBeGreaterThanOrEqual(2);
-    // The final flush must come immediately before the selection is moved.
+    // The final flush must come immediately before the layout is handed to Word
+    // (the host then moves the selection after the last item).
     const tail = body.slice(body.lastIndexOf("flushRun()"));
-    expect(tail).toMatch(/^flushRun\(\);[\s]*anchor\.select/);
+    expect(tail).toMatch(/^flushRun\(\);[\s]*picturesConfirmed = await docHost\.insertResultLayout\(layout\)/);
+    expect(hostLayoutBody()).toMatch(/\n\s*\}\n\s*anchor\.select\(Word\.SelectionMode\.end\);/);
   });
 
   // The batching must not change how the rest of the product inserts. A run with
@@ -689,8 +722,10 @@ describe("every non-text block kind reaches the rich insert path", () => {
     const body = PANE.slice(i, i + 1600);
     expect(body).toContain("if (runHasMath)");
     expect(body).toContain("buildDerivationOoxml(run)");
-    // The else branch is the old behaviour, unchanged.
-    expect(body).toContain("insertParagraph(b.content");
+    // The else branch is the old behaviour, unchanged: one paragraph per line,
+    // which the host inserts with insertParagraph (inheriting the cursor style).
+    expect(body).toContain('layout.push({ kind: "paragraph", text: b.content })');
+    expect(hostLayoutBody()).toContain("anchor.insertParagraph(item.text, Word.InsertLocation.after)");
   });
 
   test("only a formula that actually typesets switches the run to the package path", () => {
@@ -713,9 +748,10 @@ describe("every non-text block kind reaches the rich insert path", () => {
   // that remain in this routine are the picture-count probes and the single
   // closing sync, all outside the loop.
   test("the block loop does not sync while it is building content", () => {
-    const routine = insertBlocksBody();
-    const loopStart = routine.indexOf("for (let i = 0; i < blocks.length; i++)", routine.indexOf("const flushRun"));
-    const loopEnd = routine.indexOf("anchor.select(");
+    // The host's item loop: from the first item to the closing selection.
+    const routine = hostLayoutBody();
+    const loopStart = routine.indexOf("for (const item of items)");
+    const loopEnd = routine.indexOf("anchor.select(", loopStart);
     expect(loopStart).toBeGreaterThan(-1);
     expect(loopEnd).toBeGreaterThan(loopStart);
     const loop = routine.slice(loopStart, loopEnd);
@@ -724,20 +760,20 @@ describe("every non-text block kind reaches the rich insert path", () => {
 
   test("the routine still closes with a sync", () => {
     // Removing the mid-loop syncs must not remove the one that commits the batch.
-    const routine = insertBlocksBody();
+    const routine = hostLayoutBody();
     expect(routine).toMatch(/anchor\.select\([\s\S]{0,120}await context\.sync\(\)/);
   });
 
-  /** The plot branch, bounded by its own `continue` rather than a byte count. */
+  /** The host's picture branch, bounded by the next branch rather than a byte count. */
   function figureBranch(): string {
-    const body = insertBlocksBody();
-    const i = body.indexOf('block.kind === "plot"');
-    if (i < 0) throw new Error("plot branch not found");
-    const end = body.indexOf("continue;", i);
-    if (end < 0) throw new Error("end of plot branch not found");
+    const body = hostLayoutBody();
+    const i = body.indexOf('item.kind === "picture"');
+    if (i < 0) throw new Error("picture branch not found");
+    const end = body.indexOf("} else {", i);
+    if (end < 0) throw new Error("end of picture branch not found");
     const branch = body.slice(i, end);
     if (!branch.includes("insertInlinePictureFromBase64")) {
-      throw new Error("plot branch looks truncated");
+      throw new Error("picture branch looks truncated");
     }
     return branch;
   }
@@ -763,8 +799,10 @@ describe("every non-text block kind reaches the rich insert path", () => {
     // An empty paragraph is where the figures went missing. Word accepts a
     // picture destined for one, reports no error, and keeps nothing.
     const body = figureBranch();
-    expect(body).toContain("anchor.insertParagraph(block.caption");
+    expect(body).toContain("anchor.insertParagraph(item.caption");
     expect(body).not.toMatch(/insertParagraph\(""/);
+    // …and that text is the block's caption, carried by the pane's plan.
+    expect(insertBlocksBody()).toContain("caption: block.caption,");
   });
 
   test("the picture is inserted at the END of the caption paragraph", () => {
@@ -808,9 +846,8 @@ describe("every non-text block kind reaches the rich insert path", () => {
   test("the gallery this is modelled on still uses the same anchor rule", () => {
     // If insertGallery ever changes, the justification above is stale and this
     // suite is asserting a shape nothing corroborates any more.
-    const g = PANE.indexOf("insertInlinePictureFromBase64(item.base64");
-    expect(g).toBeGreaterThan(-1);
-    const loop = PANE.slice(g, g + 400);
+    // The gallery moved to the host too (insertPictureParagraphs).
+    const loop = hostFnBody("insertPictureParagraphs", "insertInlinePictureFromBase64(item.base64");
     expect(loop).toContain("para.getRange(Word.RangeLocation.end)");
   });
 
@@ -819,7 +856,9 @@ describe("every non-text block kind reaches the rich insert path", () => {
     // rule — chain .end off a picture, .after off text. That claim is the whole
     // justification for the token, so it is gated rather than asserted. The
     // table-figure and structure inserts each take their tail from a picture.
-    const sites = PANE.split("\n")
+    // Those sites moved to the host with the rest of the picture code.
+    const sites = (PANE + "\n" + HOST_FIGURES)
+      .split("\n")
       .map((l) => l.trim())
       .filter((l) => /^(let|const)\s+tail = picture\.getRange\(/.test(l));
     expect(sites.length).toBeGreaterThanOrEqual(2);
@@ -833,7 +872,7 @@ describe("every non-text block kind reaches the rich insert path", () => {
     // reported to lose it. If someone later changes this to .end as well, the
     // next picture count stops being a single-variable measurement — so this
     // pins the NON-change until Bode has been confirmed at 2 of 2.
-    const routine = insertBlocksBody();
+    const routine = hostLayoutBody();
     expect(routine).toContain("inserted.getRange(Word.RangeLocation.after)");
   });
 
@@ -847,19 +886,29 @@ describe("every non-text block kind reaches the rich insert path", () => {
     // the picture is sized from the rasterised intrinsic dimensions
     // (imageDims, read where the PNG is rendered) — sizing it from block.w
     // squashed the plot area horizontally.
+    //
+    // v2.145.0: the Word statements moved to the host verbatim, with sizeFigure
+    // unrolled into its two assignments (the pane converts px to points with
+    // figurePoints, exactly as sizeFigure did). The intrinsic-size rule stays in
+    // the pane, which is where the dimensions are known — pinned below.
     const body = figureBranch();
     const code = body
       .split("\n")
       .map((l) => l.trim())
-      .filter((l) => l && !l.includes('block.kind === "plot"'));
+      .filter((l) => l && !l.includes('item.kind === "picture"'));
     expect(code).toEqual([
-      "const para = anchor.insertParagraph(block.caption, Word.InsertLocation.after);",
-      "const pic = para.insertInlinePictureFromBase64(images[i], Word.InsertLocation.end);",
-      "const dims = imageDims[i] ?? { w: block.w, h: block.h };",
-      "sizeFigure(pic, dims.w, dims.h);",
-      "pic.altTextDescription = block.alt;",
+      "const para = anchor.insertParagraph(item.caption, Word.InsertLocation.after);",
+      "const pic = para.insertInlinePictureFromBase64(item.base64, Word.InsertLocation.end);",
+      "pic.width = item.widthPt;",
+      "pic.height = item.heightPt;",
+      "pic.altTextDescription = item.alt;",
       "anchor = para.getRange(Word.RangeLocation.end);",
     ]);
+    const plan = insertBlocksBody();
+    expect(plan).toContain("const dims = imageDims[i] ?? { w: block.w, h: block.h };");
+    expect(plan).toContain("widthPt: figurePoints(dims.w),");
+    expect(plan).toContain("heightPt: figurePoints(dims.h),");
+    expect(plan).toContain("alt: block.alt,");
   });
 
   test("properties may be set in the same batch as the insert", () => {
@@ -869,7 +918,7 @@ describe("every non-text block kind reaches the rich insert path", () => {
     // diagnosis that cost a release, and it should not come back by imitation.
     const body = figureBranch();
     const insert = body.indexOf("insertInlinePictureFromBase64");
-    const sized = body.indexOf("sizeFigure(");
+    const sized = body.indexOf("pic.width =");
     expect(sized).toBeGreaterThan(insert);
     expect(body.slice(insert, sized)).not.toContain("await context.sync()");
   });
@@ -878,9 +927,12 @@ describe("every non-text block kind reaches the rich insert path", () => {
     // The pane's own count is what it rasterised, not what the host stored, and
     // the two disagreeing silently is the entire bug. Word has to be the
     // witness.
-    const body = insertBlocksBody();
-    expect(body).toContain("body.inlinePictures");
-    expect(body).toContain("picturesConfirmed");
+    // The host takes Word's count around the insert, in the same batch; the pane
+    // compares it with what it sent.
+    const host = hostLayoutBody();
+    expect(host).toContain("body.inlinePictures");
+    expect(host).toContain("picturesConfirmed = after.items.length - picturesBefore");
+    expect(insertBlocksBody()).toContain("picturesConfirmed");
     expect(PANE).toContain("but Word kept");
   });
 
@@ -903,8 +955,9 @@ describe("every non-text block kind reaches the rich insert path", () => {
     expect(body).toContain('kind: "math"');
     // The whole run is inserted as one OOXML package.
     const routine = PANE.slice(PANE.indexOf("const RICH_KINDS"), PANE.indexOf("const RICH_KINDS") + 8000);
-    expect(routine).toContain("buildDerivationOoxml(run)");
-    expect(routine).toContain("insertOoxml(");
+    expect(routine).toContain('layout.push({ kind: "ooxml", ooxml: buildDerivationOoxml(run) })');
+    // …which the host inserts as one OOXML package.
+    expect(hostLayoutBody()).toContain("anchor.insertOoxml(item.ooxml, Word.InsertLocation.after)");
   });
 });
 

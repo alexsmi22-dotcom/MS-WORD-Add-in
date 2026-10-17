@@ -123,8 +123,10 @@ describe("Solve draws for every kind that has something to draw", () => {
     const altAssignments = (PANE.match(/currentSolveAlt =\s*$|currentSolveAlt =[^;]*;/gm) ?? []).length;
     // One reset (to "") plus one per producing branch.
     expect(altAssignments).toBeGreaterThanOrEqual(svgAssignments + 1);
-    expect(PANE).toContain("pic.altTextDescription = currentSolveAlt");
-    expect(PANE).not.toContain('pic.altTextDescription = "Persistence barcode');
+    // v2.145.0: the picture call moved to the host; the alt text is still chosen
+    // here and handed over as `alt`, which the host assigns verbatim.
+    expect(PANE).toContain('alt: currentSolveAlt || "Figure for the solution above."');
+    expect(PANE).not.toMatch(/alt(TextDescription)?\s*[:=]\s*"Persistence barcode/);
   });
 
   test("the status message no longer claims a barcode for every figure", () => {

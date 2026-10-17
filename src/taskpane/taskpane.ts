@@ -4,6 +4,7 @@
 // docs/SCOPE-HOST-ADAPTER.md); the pane keeps messages and state.
 import { wordHost as docHost } from "../host/word";
 import { tagInserted } from "../host/wordShared";
+import type { FigureTail, ResultLayoutItem } from "../host/host";
 import { Segment, segmentsToHtml, escapeHtml } from "../lib/segments";
 import { parseChemical } from "../lib/chemParser";
 import { validateFormula } from "../lib/chemValidate";
@@ -41,8 +42,6 @@ import {
   FigurePresetChoice,
   FIGURE_PRESET_CHOICES,
   figureStyleNote,
-  PictureSignature,
-  findInsertedPicture,
   prepareFigure,
   refusalText,
   decideInsertRoute,
@@ -3467,18 +3466,15 @@ async function insertGallery(): Promise<void> {
   insertGalleryBtn.disabled = true;
   setStatus("Inserting substituent gallery…");
   try {
-    await Word.run(async (context) => {
-      let anchor: Word.Range = context.document.getSelection();
-      for (const item of rendered) {
-        const para = anchor.insertParagraph(item.label ? `${item.label} = ` : "", Word.InsertLocation.after);
-        const pic = para.insertInlinePictureFromBase64(item.base64, Word.InsertLocation.end);
-        sizeFigure(pic, item.w, item.h);
-        pic.altTextDescription = item.alt;
-        anchor = para.getRange(Word.RangeLocation.end);
-      }
-      anchor.select(Word.SelectionMode.end);
-      await context.sync();
-    });
+    await docHost.insertPictureParagraphs(
+      rendered.map((item) => ({
+        text: item.label ? `${item.label} = ` : "",
+        base64: item.base64,
+        widthPt: figurePoints(item.w),
+        heightPt: figurePoints(item.h),
+        alt: item.alt,
+      })),
+    );
     setStatus(`Inserted ${rendered.length} substituent(s).`, "success");
   } catch (error) {
     setStatus(`Could not insert: ${(error as Error).message}`, "error");
@@ -3967,16 +3963,15 @@ async function insertPeriodic(): Promise<void> {
       // the picture Word reserves matches what was drawn rather than a guess.
       const d = readSvgDims(item.svg, 420, 360);
       const base64 = await renderFigurePng(item.svg, d.w, d.h);
-      await Word.run(async (context) => {
-        const range = context.document.getSelection();
-        const picture = range.insertInlinePictureFromBase64(base64, Word.InsertLocation.after);
-        sizeFigure(picture, d.w, d.h);
-        // The alt text carries the caveats, so they survive into the document for a
-        // reader using a screen reader — the diagram is a PREDICTION, and that has to
-        // travel with it.
-        picture.altTextDescription = `${item.label}. ${item.notes.join(" ")}`;
-        range.select(Word.SelectionMode.end);
-        await context.sync();
+      // The alt text carries the caveats, so they survive into the document for a
+      // reader using a screen reader — the diagram is a PREDICTION, and that has to
+      // travel with it.
+      await docHost.insertPictureAtSelection({
+        base64: base64,
+        widthPt: figurePoints(d.w),
+        heightPt: figurePoints(d.h),
+        alt: `${item.label}. ${item.notes.join(" ")}`,
+        selectAfter: true,
       });
       setStatus(`${item.label} inserted.`, "success");
     } else {
@@ -4177,20 +4172,14 @@ async function insertTableFigure(): Promise<void> {
       alt,
       render: tableGraphicRender() ?? undefined,
       chartKind: kind,
-      after: async (context, picture) => {
-        // Optionally follow the image with an editable Word table of the data,
-        // so the text is editable even though the figure itself is an image.
-        let tail = picture.getRange(Word.RangeLocation.end);
-        let dataTable: Word.Table | null = null;
-        if (alsoText) {
-          const para = tail.insertParagraph("", Word.InsertLocation.after);
-          dataTable = insertFormattedWordTable(para.getRange(Word.RangeLocation.after), currentTableRows as string[][]);
-          tail = dataTable.getRange(Word.RangeLocation.after);
-        }
-        tail.select(Word.SelectionMode.end);
-        await context.sync();
-        if (dataTable) await clearTableListFormatting(context, dataTable);
-        await tagInserted(context, picture.getRange(), "formula-inserter:tablechart");
+      // Optionally follow the image with an editable Word table of the data,
+      // so the text is editable even though the figure itself is an image.
+      // The rows are read INSIDE the batch, after the picture lands — as the old
+      // in-batch hook did — not captured here, seconds earlier.
+      tail: {
+        kind: "tableChart",
+        rows: alsoText ? () => currentTableRows as string[][] : null,
+        tag: "formula-inserter:tablechart",
       },
     });
     // Surface any truncation warning on insert so it isn't missed — a filed
@@ -4208,67 +4197,6 @@ async function insertTableFigure(): Promise<void> {
   }
 }
 
-/**
- * Inserts a formatted, editable Word table after `anchor` and returns it —
- * header row and section-band rows bolded and shaded, numeric columns
- * right-aligned. Only queues operations; the caller syncs.
- */
-function insertFormattedWordTable(anchor: Word.Range, rows: string[][]): Word.Table {
-  const prepared = prepareTableFigure(rows);
-  const grid = prepared.grid;
-  const nRows = grid.length;
-  const nCols = nRows ? grid[0].length : 0;
-  if (!nRows || !nCols) throw new Error("The table is empty.");
-  // Band rows are all-empty in the prepared grid (the section text lives in
-  // bandText) — put the section text back into the first cell for insertion.
-  const insertGrid = grid.map((r, i) => (prepared.kinds[i] === "band" ? [prepared.bandText[i], ...r.slice(1)] : r));
-  const table = anchor.insertTable(nRows, nCols, Word.InsertLocation.after, insertGrid);
-  for (let i = 0; i < nRows; i++) {
-    const kind = prepared.kinds[i];
-    for (let j = 0; j < nCols; j++) {
-      const cell = table.getCell(i, j);
-      if (kind === "header") {
-        cell.body.font.bold = true;
-        cell.shadingColor = "#E7EEF6";
-      } else if (kind === "band") {
-        cell.body.font.bold = true;
-        cell.shadingColor = "#DBE6F2";
-      } else if (prepared.numericCol[j]) {
-        cell.body.paragraphs.getFirst().alignment = Word.Alignment.right;
-      }
-    }
-  }
-  return table;
-}
-
-/**
- * Removes any list/auto-numbering the inserted table cells inherited from the
- * surrounding paragraph (e.g. when the cursor sat in a numbered list), which
- * otherwise shows a "1." etc. in every cell. Sets each cell paragraph to
- * Normal and detaches it from any list.
- */
-async function clearTableListFormatting(context: Word.RequestContext, table: Word.Table): Promise<void> {
-  const paras = table.getRange().paragraphs;
-  paras.load("items");
-  await context.sync();
-  for (const p of paras.items) p.styleBuiltIn = Word.BuiltInStyleName.normal;
-  await context.sync();
-  const listFlags = paras.items.map((p) => {
-    const li = p.listItemOrNullObject;
-    li.load("isNullObject");
-    return li;
-  });
-  await context.sync();
-  let detached = false;
-  paras.items.forEach((p, i) => {
-    if (!listFlags[i].isNullObject) {
-      p.detachFromList();
-      detached = true;
-    }
-  });
-  if (detached) await context.sync();
-}
-
 /** Inserts the read table as a native, fully-editable Word table at the cursor. */
 async function insertEditableWordTable(): Promise<void> {
   if (!currentTableRows) return;
@@ -4276,20 +4204,7 @@ async function insertEditableWordTable(): Promise<void> {
   setStatus("Inserting editable table…");
   try {
     const figLabel = pptFigLabelInput.value.trim();
-    await Word.run(async (context) => {
-      const range = context.document.getSelection();
-      const table = insertFormattedWordTable(range, currentTableRows as string[][]);
-      let tail = table.getRange(Word.RangeLocation.after);
-      if (figLabel) {
-        const cap = tail.insertParagraph(figLabel, Word.InsertLocation.after);
-        cap.alignment = Word.Alignment.centered;
-        cap.styleBuiltIn = Word.BuiltInStyleName.normal;
-        tail = cap.getRange(Word.RangeLocation.after);
-      }
-      tail.select(Word.SelectionMode.end);
-      await context.sync();
-      await clearTableListFormatting(context, table);
-    });
+    await docHost.insertEditableTable({ rows: currentTableRows as string[][], label: figLabel });
     setStatus("Editable Word table inserted — the text can be edited normally.", "success");
   } catch (error) {
     setStatus(`Could not insert the table: ${(error as Error).message}`, "error");
@@ -5096,14 +5011,13 @@ async function insertStructure(): Promise<void> {
       structure.smiles,
       structure.idcode,
     );
-    await Word.run(async (context) => {
-      const range = context.document.getSelection();
-      const picture = range.insertInlinePictureFromBase64(base64, Word.InsertLocation.after);
-      sizeFigure(picture, d.w, d.h);
-      picture.altTextDescription = alt;
-      range.select(Word.SelectionMode.end);
-      await context.sync();
-      await tagInserted(context, picture.getRange(), "formula-inserter:structure");
+    await docHost.insertPictureAtSelection({
+      base64: base64,
+      widthPt: figurePoints(d.w),
+      heightPt: figurePoints(d.h),
+      alt: alt,
+      selectAfter: true,
+      tag: "formula-inserter:structure",
     });
     setStatus("Structure inserted.", "success");
     if (label) recordInsert("chemical", label, label);
@@ -5530,14 +5444,13 @@ async function insertDraw3d(payload: Draw3dPayload): Promise<void> {
       "",
       payload.idcode,
     );
-    await Word.run(async (context) => {
-      const range = context.document.getSelection();
-      const picture = range.insertInlinePictureFromBase64(base64, Word.InsertLocation.after);
-      sizeFigure(picture, d.w / 2, d.h / 2);
-      picture.altTextDescription = alt;
-      range.select(Word.SelectionMode.end);
-      await context.sync();
-      await tagInserted(context, picture.getRange(), "formula-inserter:structure3d");
+    await docHost.insertPictureAtSelection({
+      base64: base64,
+      widthPt: figurePoints(d.w / 2),
+      heightPt: figurePoints(d.h / 2),
+      alt: alt,
+      selectAfter: true,
+      tag: "formula-inserter:structure3d",
     });
     setStatus("3D model inserted.", "success");
     recordInsert("chemical", `3D ${model.formula}`, `3D ${model.formula}`);
@@ -5796,22 +5709,18 @@ async function insertBuild(): Promise<void> {
     const legendLine = buildLegendText(entries);
     const legendTable = legendFormat === "table" ? buildLegendTableHtml(entries) : "";
     const hasLegend = legendFormat === "table" ? !!legendTable : !!legendLine;
-    await Word.run(async (context) => {
-      const range = context.document.getSelection();
-      const picture = range.insertInlinePictureFromBase64(base64, Word.InsertLocation.after);
-      sizeFigure(picture, d.w, d.h);
-      picture.altTextDescription = alt;
-      const tail = picture.getRange(Word.RangeLocation.end);
-      if (legendFormat === "table" && legendTable) {
-        const para = tail.insertParagraph("", Word.InsertLocation.after);
-        para.getRange().insertHtml(legendTable, Word.InsertLocation.replace);
-      } else if (legendLine) {
-        tail.insertParagraph(legendLine, Word.InsertLocation.after).getRange().select(Word.SelectionMode.end);
-      } else {
-        tail.select(Word.SelectionMode.end);
-      }
-      await context.sync();
-      await tagInserted(context, picture.getRange(), "formula-inserter:structure");
+    await docHost.insertPictureWithLegend({
+      base64,
+      widthPt: figurePoints(d.w),
+      heightPt: figurePoints(d.h),
+      alt,
+      legend:
+        legendFormat === "table" && legendTable
+          ? { kind: "table", html: legendTable }
+          : legendLine
+            ? { kind: "line", text: legendLine }
+            : null,
+      tag: "formula-inserter:structure",
     });
     setStatus(hasLegend ? "Structure + R-group legend inserted." : "Structure inserted.", "success");
     recordInsert("build", recorded, label);
@@ -6485,14 +6394,14 @@ async function insertSolveResult(): Promise<void> {
     const svg = currentSolveSvg;
     const { w, h } = readSvgDims(svg, 460, 300);
     const png = await renderFigurePng(svg, w, h);
-    await Word.run(async (context) => {
-      const range = context.document.getSelection();
-      const pic = range.insertInlinePictureFromBase64(png, Word.InsertLocation.after);
-      sizeFigure(pic, w, h);
-      // The caption the producing branch set, never a hardcoded one: Solve now
-      // draws four different figures through this single path.
-      pic.altTextDescription = currentSolveAlt || "Figure for the solution above.";
-      await context.sync();
+    // The caption the producing branch set, never a hardcoded one: Solve now
+    // draws four different figures through this single path.
+    await docHost.insertPictureAtSelection({
+      base64: png,
+      widthPt: figurePoints(w),
+      heightPt: figurePoints(h),
+      alt: currentSolveAlt || "Figure for the solution above.",
+      selectAfter: false,
     });
     // Two separate Word.run batches (derivation, then figure), and the
     // derivation itself commits twice — so this needs several undos.
@@ -6699,12 +6608,12 @@ async function insertReactionBalance(): Promise<void> {
     const svg = rep.svg;
     const { w, h } = readSvgDims(svg, 380, 260);
     const png = await renderFigurePng(svg, w, h);
-    await Word.run(async (context) => {
-      const range = context.document.getSelection();
-      const pic = range.insertInlinePictureFromBase64(png, Word.InsertLocation.after);
-      sizeFigure(pic, w, h);
-      pic.altTextDescription = rep.alt;
-      await context.sync();
+    await docHost.insertPictureAtSelection({
+      base64: png,
+      widthPt: figurePoints(w),
+      heightPt: figurePoints(h),
+      alt: rep.alt,
+      selectAfter: false,
     });
     setStatus("Balanced equation and conservation chart inserted.", "success");
   } catch (error) {
@@ -6729,14 +6638,13 @@ async function insertReaction(): Promise<void> {
   try {
     const { svg, width, height } = currentReactionSvg;
     const base64 = await renderFigurePng(svg, width, height);
-    await Word.run(async (context) => {
-      const range = context.document.getSelection();
-      const picture = range.insertInlinePictureFromBase64(base64, Word.InsertLocation.after);
-      sizeFigure(picture, width, height);
-      picture.altTextDescription = `Reaction scheme: ${reactionInput.value.trim()}`;
-      range.select(Word.SelectionMode.end);
-      await context.sync();
-      await tagInserted(context, picture.getRange(), "formula-inserter:reaction");
+    await docHost.insertPictureAtSelection({
+      base64: base64,
+      widthPt: figurePoints(width),
+      heightPt: figurePoints(height),
+      alt: `Reaction scheme: ${reactionInput.value.trim()}`,
+      selectAfter: true,
+      tag: "formula-inserter:reaction",
     });
     setStatus("Reaction scheme inserted.", "success");
   } catch (error) {
@@ -10626,7 +10534,7 @@ async function insertStatsChart(): Promise<boolean> {
       supersample: 2,
       // The bracket legend is the figure's caption: what the marks mean, which
       // test, which correction. It goes in as text under the picture.
-      after: captionAfter(caption),
+      tail: captionTail(caption),
     });
     setStatus(`Chart inserted ${how}.`, "success");
     return true;
@@ -27806,230 +27714,201 @@ async function insertResultBlocks(text: string, blocksIn: AnalyzeBlock[] | null,
       }
     }
     let picturesConfirmed: number | null = null;
-    await Word.run(async (context) => {
-      // ASK WORD WHAT IT ACTUALLY HAS, RATHER THAN WHAT WE ASKED IT FOR.
-      //
-      // The pane reported "inserted — 2 figures" beside a page containing none,
-      // and that count came from the images successfully RASTERISED — it says
-      // nothing about what Word kept. Word accepted every picture call and
-      // raised no error, so from inside the add-in success and silent discard
-      // are identical.
-      //
-      // Counting the document's inline pictures before and after makes Word the
-      // witness instead of us. A delta of 0 against two attempts is proof the
-      // host dropped them, and no amount of reasoning from this side could
-      // establish that.
-      // WRAPPED, BECAUSE INSTRUMENTATION MAY NEVER BREAK WHAT IT MEASURES.
-      // This is a diagnostic on the critical path of every rich insert. A host
-      // that does not expose body.inlinePictures would otherwise throw here and
-      // take the whole insert down — trading a missing figure for a missing
-      // document. Caught by the Engineering audit, which drives a Word mock
-      // that has no body: every rich tool failed with "Cannot read properties".
-      let picturesBefore: number | null = null;
-      try {
-        const before = context.document.body.inlinePictures;
-        before.load("items");
-        await context.sync();
-        picturesBefore = before.items.length;
-      } catch {
-        picturesBefore = null; // no confirmation available; the insert proceeds
+    // ASK WORD WHAT IT ACTUALLY HAS, RATHER THAN WHAT WE ASKED IT FOR.
+    //
+    // The pane reported "inserted — 2 figures" beside a page containing none,
+    // and that count came from the images successfully RASTERISED — it says
+    // nothing about what Word kept. Word accepted every picture call and
+    // raised no error, so from inside the add-in success and silent discard
+    // are identical.
+    //
+    // Counting the document's inline pictures before and after makes Word the
+    // witness instead of us. A delta of 0 against two attempts is proof the
+    // host dropped them, and no amount of reasoning from this side could
+    // establish that.
+    // WRAPPED, BECAUSE INSTRUMENTATION MAY NEVER BREAK WHAT IT MEASURES.
+    // This is a diagnostic on the critical path of every rich insert. A host
+    // that does not expose body.inlinePictures would otherwise throw here and
+    // take the whole insert down — trading a missing figure for a missing
+    // document. Caught by the Engineering audit, which drives a Word mock
+    // that has no body: every rich tool failed with "Cannot read properties".
+    //
+    // (The count itself is taken by the host, in the same batch as the
+    // insert: docHost.insertResultLayout returns Word's own delta. The pane
+    // builds the layout here and the host plays it.)
+    const layout: ResultLayoutItem[] = [];
+    // TEXT AND EQUATIONS GO IN AS ONE PACKAGE PER RUN, NOT ONE CALL PER LINE.
+    //
+    // mathToOoxml builds a COMPLETE flat-OPC document, and inserting one of
+    // those in the middle of a sequence breaks the anchor chain — the range it
+    // returns is not a usable insertion point for the paragraphs that follow,
+    // so everything after the first equation silently failed to land. With the
+    // formula as the first line of the poles/zeros report, the result was that
+    // ONLY the formula was inserted. Reported from real use.
+    //
+    // buildDerivationOoxml already solves exactly this for Solve's
+    // derivations: it puts every paragraph, prose and equation alike, into a
+    // SINGLE package that is inserted once. So consecutive line/math blocks
+    // are batched into one such package here, and only genuinely different
+    // objects — pictures and tables — break the run.
+    let run: DerivationBlock[] = [];
+    let runHasMath = false;
+    const flushRun = (): void => {
+      if (!run.length) return;
+      if (runHasMath) {
+        // One package for the whole run — the only way an equation and the
+        // lines around it can go in together.
+        layout.push({ kind: "ooxml", ooxml: buildDerivationOoxml(run) });
+      } else {
+        // NO FORMULAS IN THIS RUN, SO NOTHING CHANGES FOR IT. Plain paragraphs
+        // still go in one at a time, exactly as before, because
+        // insertParagraph inherits the style at the cursor while an OOXML
+        // package brings its own. Every tool without equations — beam,
+        // sections, stats, the whole rest of the product — therefore inserts
+        // identically to how it did before this change. Only the reports that
+        // genuinely need an equation take the different path.
+        for (const b of run) layout.push({ kind: "paragraph", text: b.content });
       }
+      run = [];
+      runHasMath = false;
+    };
 
-      let anchor = context.document.getSelection().getRange(Word.RangeLocation.end);
-      // TEXT AND EQUATIONS GO IN AS ONE PACKAGE PER RUN, NOT ONE CALL PER LINE.
-      //
-      // mathToOoxml builds a COMPLETE flat-OPC document, and inserting one of
-      // those in the middle of a sequence breaks the anchor chain — the range it
-      // returns is not a usable insertion point for the paragraphs that follow,
-      // so everything after the first equation silently failed to land. With the
-      // formula as the first line of the poles/zeros report, the result was that
-      // ONLY the formula was inserted. Reported from real use.
-      //
-      // buildDerivationOoxml already solves exactly this for Solve's
-      // derivations: it puts every paragraph, prose and equation alike, into a
-      // SINGLE package that is inserted once. So consecutive line/math blocks
-      // are batched into one such package here, and only genuinely different
-      // objects — pictures and tables — break the run.
-      let run: DerivationBlock[] = [];
-      let runHasMath = false;
-      const flushRun = (): void => {
-        if (!run.length) return;
-        if (runHasMath) {
-          // One package for the whole run — the only way an equation and the
-          // lines around it can go in together.
-          const ooxml = buildDerivationOoxml(run);
-          const inserted = anchor.insertOoxml(ooxml, Word.InsertLocation.after);
-          anchor = inserted.getRange(Word.RangeLocation.after);
-        } else {
-          // NO FORMULAS IN THIS RUN, SO NOTHING CHANGES FOR IT. Plain paragraphs
-          // still go in one at a time, exactly as before, because
-          // insertParagraph inherits the style at the cursor while an OOXML
-          // package brings its own. Every tool without equations — beam,
-          // sections, stats, the whole rest of the product — therefore inserts
-          // identically to how it did before this change. Only the reports that
-          // genuinely need an equation take the different path.
-          for (const b of run) {
-            const para = anchor.insertParagraph(b.content, Word.InsertLocation.after);
-            anchor = para.getRange(Word.RangeLocation.after);
-          }
+    for (let i = 0; i < blocks.length; i++) {
+      const block = blocks[i];
+      if (block.kind === "line") {
+        run.push({ kind: "text", content: block.text });
+        continue;
+      }
+      if (block.kind === "math") {
+        // Parseability is checked HERE rather than left to the builder, so an
+        // expression that will not typeset falls back to the readable text
+        // this tool wrote rather than to its own math source.
+        let parses = true;
+        try {
+          mathToOmml(block.math);
+        } catch {
+          parses = false;
         }
-        run = [];
-        runHasMath = false;
-      };
-
-      for (let i = 0; i < blocks.length; i++) {
-        const block = blocks[i];
-        if (block.kind === "line") {
-          run.push({ kind: "text", content: block.text });
-          continue;
-        }
-        if (block.kind === "math") {
-          // Parseability is checked HERE rather than left to the builder, so an
-          // expression that will not typeset falls back to the readable text
-          // this tool wrote rather than to its own math source.
-          let parses = true;
-          try {
-            mathToOmml(block.math);
-          } catch {
-            parses = false;
-          }
-          run.push(parses ? { kind: "math", content: block.math } : { kind: "text", content: block.fallback });
-          if (parses) runHasMath = true;
-          continue;
-        }
-        flushRun();
-        if (block.kind === "plot") {
-          // THE ANCHOR AFTER A FIGURE MUST BE RangeLocation.end, NOT .after.
-          //
-          // Five releases went into this because the first "measurement" was an
-          // inference. A user's remark that two Bode plots "are not aligned even
-          // though they are the same size" was read as proof both had been
-          // inserted. It is not proof of anything: v2.31.0 predates the picture
-          // counter entirely (`git show d561229 | grep -c picturesBefore` = 0),
-          // so THE FIGURE COUNT AT v2.31.0 IS SIMPLY UNKNOWN. Do not replace
-          // that with a better story. An earlier draft of this comment guessed
-          // the remark was about the pane's preview; a later one asserted there
-          // is no plot preview at all, which is wrong — updateEngineeringPreview
-          // renders every block through analyzeBlocksToPreviewHtml into
-          // #engineering-result, and the audit counts two <svg> there for
-          // frequency response. (The claim was about previewEl, a different
-          // element.) So the remark could have been about either the preview or
-          // the page, and which one it was remains unknown. Leave it unknown.
-          //
-          // So the ladder is three measurements and one inference, and the
-          // inference is the only rung this token disagrees with.
-          //
-          // Everything else fits that. Every other figure-bearing report — beam,
-          // step response, all three PK tools, both vibration tools — carries
-          // exactly ONE figure and has always worked. Frequency response is the
-          // only report with two, and it is the only one that loses one. A
-          // single figure never chains an anchor; a second one does.
-          //
-          // insertGallery is the corroboration. It has shipped untouched for
-          // years, it inserts N pictures in one loop in one Word.run, and it
-          // differed from this branch in exactly one token: it takes its next
-          // anchor from getRange(RangeLocation.END) rather than .after. It is
-          // not the only site — the table-figure and structure inserts BOTH
-          // chain .end off a picture, while the same routines chain .after off
-          // ordinary text paragraphs. Three shipped sites, one rule.
-          //
-          // MEASURED IN REAL WORD, v2.31.9: the frequency-response report reads
-          // "2 figures" on the status line with both plots on the page. That
-          // count is Word's own — picturesConfirmed compares
-          // document.body.inlinePictures before and after — and the user
-          // verified the page matched it. It is the first hard number in this
-          // story and it promotes the rule below from corroboration to a result.
-          //
-          // A note for any automated reviewer that reads only this repository:
-          // an earlier reviewer deleted this paragraph as "fabricated" because
-          // no count appears in the source. It does not — the count is taken at
-          // RUNTIME, in Word, and reported to the user, so the repo cannot
-          // contain it. Absence of a number in the code is not absence of a
-          // measurement. Do not delete this again; ask instead.
-          //
-          // The proposed rule: chaining .after off a paragraph that CONTAINS AN
-          // INLINE PICTURE does not yield a usable insertion point — Word
-          // accepts the next picture against it and keeps nothing, with no
-          // error.
-          //
-          // One honest gap in that rule. The prose which "always landed" was
-          // chained off TEXT paragraphs, so it says nothing about what a
-          // picture-derived range accepts. The untested case is caption 2,
-          // which at v2.31.1 and v2.31.7 was inserted against exactly that bad
-          // range. Nobody ever asked whether it appeared. So: if the next
-          // frequency-response insert still reads 1 of 2, ASK WHETHER THE
-          // SECOND CAPTION'S TEXT IS THERE. Caption present but figure absent
-          // means the range takes paragraphs and drops pictures, and the
-          // suspect is the picture call rather than the anchor; both absent
-          // means the anchor is simply dead.
-          //
-          // Refuted along the way, recorded so none of it is rediscovered:
-          //   - that properties set on a picture pre-sync are discarded with it
-          //     (insertGallery, the table-figure and structure inserts all do
-          //     this and have shipped for years);
-          //   - that a sync between hops is the remedy. This is the one CLEAN
-          //     inference in the dataset: beam carries a single figure and no
-          //     math, and it kept that figure until the release that added a
-          //     sync per hop, which took it to none. Syncs in this loop cost
-          //     figures.
-          //   - that an OOXML package upstream is what eats the figure. The
-          //     step-response report is tfLine (math, hence insertOoxml) plus
-          //     exactly ONE plot, and it has never been reported to lose it,
-          //     while Bode with the same upstream loses one of two. That is
-          //     absence-of-complaint rather than a count, so it is weaker than
-          //     the rungs above — but the recorded OOXML failure mode is total
-          //     downstream loss ("only the formula was inserted"), and what was
-          //     actually seen is prose plus the FIRST figure landing. A cause
-          //     that has to spare figure one and kill figure two is a free
-          //     parameter. flushRun's own anchor is deliberately left on .after.
-          //
-          // NOT refuted, only never tested cleanly:
-          //   - InsertLocation.start. It shipped in v2.31.7 and gave 1 of 2, but
-          //     that build also had OOXML upstream and a sync in-branch, and it
-          //     chained .after off a picture paragraph like every other rung. It
-          //     is unconvicted, not exonerated. It also aligns every picture at
-          //     the margin for free, at the cost of the caption sitting to the
-          //     right of the figure — worth a look AFTER a confirmed 2 of 2.
-          //
-          // THE COSMETIC DEBT that started this is still here: the picture sits
-          // after the caption text, so captions of different lengths push their
-          // figures to different x. Fix it by declaring layout in a single OOXML
-          // package, never by chaining more ranges — and prove it against the
-          // picture count before shipping it.
-          const para = anchor.insertParagraph(block.caption, Word.InsertLocation.after);
-          const pic = para.insertInlinePictureFromBase64(images[i], Word.InsertLocation.end);
-          const dims = imageDims[i] ?? { w: block.w, h: block.h };
-          sizeFigure(pic, dims.w, dims.h);
-          pic.altTextDescription = block.alt;
-          anchor = para.getRange(Word.RangeLocation.end);
-          continue;
-        }
-        if (block.label) {
-          const labelPara = anchor.insertParagraph(block.label, Word.InsertLocation.after);
-          anchor = labelPara.getRange(Word.RangeLocation.after);
-        }
-        const values = block.m.map((row) => row.map((v) => formatNum(v, 6)));
-        const table = anchor.insertTable(block.m.length, block.m[0].length, Word.InsertLocation.after, values);
-        for (let i2 = 0; i2 < block.m.length; i2++)
-          for (let j = 0; j < block.m[0].length; j++)
-            table.getCell(i2, j).body.paragraphs.getFirst().alignment = Word.Alignment.right;
-        anchor = table.getRange(Word.RangeLocation.after);
+        run.push(parses ? { kind: "math", content: block.math } : { kind: "text", content: block.fallback });
+        if (parses) runHasMath = true;
+        continue;
       }
       flushRun();
-      anchor.select(Word.SelectionMode.end);
-      await context.sync();
-
-      if (picturesBefore !== null) {
-        try {
-          const after = context.document.body.inlinePictures;
-          after.load("items");
-          await context.sync();
-          picturesConfirmed = after.items.length - picturesBefore;
-        } catch {
-          picturesConfirmed = null; // stay quiet rather than report a wrong count
-        }
+      if (block.kind === "plot") {
+        // THE ANCHOR AFTER A FIGURE MUST BE RangeLocation.end, NOT .after.
+        //
+        // Five releases went into this because the first "measurement" was an
+        // inference. A user's remark that two Bode plots "are not aligned even
+        // though they are the same size" was read as proof both had been
+        // inserted. It is not proof of anything: v2.31.0 predates the picture
+        // counter entirely (`git show d561229 | grep -c picturesBefore` = 0),
+        // so THE FIGURE COUNT AT v2.31.0 IS SIMPLY UNKNOWN. Do not replace
+        // that with a better story. An earlier draft of this comment guessed
+        // the remark was about the pane's preview; a later one asserted there
+        // is no plot preview at all, which is wrong — updateEngineeringPreview
+        // renders every block through analyzeBlocksToPreviewHtml into
+        // #engineering-result, and the audit counts two <svg> there for
+        // frequency response. (The claim was about previewEl, a different
+        // element.) So the remark could have been about either the preview or
+        // the page, and which one it was remains unknown. Leave it unknown.
+        //
+        // So the ladder is three measurements and one inference, and the
+        // inference is the only rung this token disagrees with.
+        //
+        // Everything else fits that. Every other figure-bearing report — beam,
+        // step response, all three PK tools, both vibration tools — carries
+        // exactly ONE figure and has always worked. Frequency response is the
+        // only report with two, and it is the only one that loses one. A
+        // single figure never chains an anchor; a second one does.
+        //
+        // insertGallery is the corroboration. It has shipped untouched for
+        // years, it inserts N pictures in one loop in one Word.run, and it
+        // differed from this branch in exactly one token: it takes its next
+        // anchor from getRange(RangeLocation.END) rather than .after. It is
+        // not the only site — the table-figure and structure inserts BOTH
+        // chain .end off a picture, while the same routines chain .after off
+        // ordinary text paragraphs. Three shipped sites, one rule.
+        //
+        // MEASURED IN REAL WORD, v2.31.9: the frequency-response report reads
+        // "2 figures" on the status line with both plots on the page. That
+        // count is Word's own — picturesConfirmed compares
+        // document.body.inlinePictures before and after — and the user
+        // verified the page matched it. It is the first hard number in this
+        // story and it promotes the rule below from corroboration to a result.
+        //
+        // A note for any automated reviewer that reads only this repository:
+        // an earlier reviewer deleted this paragraph as "fabricated" because
+        // no count appears in the source. It does not — the count is taken at
+        // RUNTIME, in Word, and reported to the user, so the repo cannot
+        // contain it. Absence of a number in the code is not absence of a
+        // measurement. Do not delete this again; ask instead.
+        //
+        // The proposed rule: chaining .after off a paragraph that CONTAINS AN
+        // INLINE PICTURE does not yield a usable insertion point — Word
+        // accepts the next picture against it and keeps nothing, with no
+        // error.
+        //
+        // One honest gap in that rule. The prose which "always landed" was
+        // chained off TEXT paragraphs, so it says nothing about what a
+        // picture-derived range accepts. The untested case is caption 2,
+        // which at v2.31.1 and v2.31.7 was inserted against exactly that bad
+        // range. Nobody ever asked whether it appeared. So: if the next
+        // frequency-response insert still reads 1 of 2, ASK WHETHER THE
+        // SECOND CAPTION'S TEXT IS THERE. Caption present but figure absent
+        // means the range takes paragraphs and drops pictures, and the
+        // suspect is the picture call rather than the anchor; both absent
+        // means the anchor is simply dead.
+        //
+        // Refuted along the way, recorded so none of it is rediscovered:
+        //   - that properties set on a picture pre-sync are discarded with it
+        //     (insertGallery, the table-figure and structure inserts all do
+        //     this and have shipped for years);
+        //   - that a sync between hops is the remedy. This is the one CLEAN
+        //     inference in the dataset: beam carries a single figure and no
+        //     math, and it kept that figure until the release that added a
+        //     sync per hop, which took it to none. Syncs in this loop cost
+        //     figures.
+        //   - that an OOXML package upstream is what eats the figure. The
+        //     step-response report is tfLine (math, hence insertOoxml) plus
+        //     exactly ONE plot, and it has never been reported to lose it,
+        //     while Bode with the same upstream loses one of two. That is
+        //     absence-of-complaint rather than a count, so it is weaker than
+        //     the rungs above — but the recorded OOXML failure mode is total
+        //     downstream loss ("only the formula was inserted"), and what was
+        //     actually seen is prose plus the FIRST figure landing. A cause
+        //     that has to spare figure one and kill figure two is a free
+        //     parameter. flushRun's own anchor is deliberately left on .after.
+        //
+        // NOT refuted, only never tested cleanly:
+        //   - InsertLocation.start. It shipped in v2.31.7 and gave 1 of 2, but
+        //     that build also had OOXML upstream and a sync in-branch, and it
+        //     chained .after off a picture paragraph like every other rung. It
+        //     is unconvicted, not exonerated. It also aligns every picture at
+        //     the margin for free, at the cost of the caption sitting to the
+        //     right of the figure — worth a look AFTER a confirmed 2 of 2.
+        //
+        // THE COSMETIC DEBT that started this is still here: the picture sits
+        // after the caption text, so captions of different lengths push their
+        // figures to different x. Fix it by declaring layout in a single OOXML
+        // package, never by chaining more ranges — and prove it against the
+        // picture count before shipping it.
+        // (The host chains its next anchor from the picture paragraph's
+        // RangeLocation.END, per the rule above — see wordFigures.ts.)
+        const dims = imageDims[i] ?? { w: block.w, h: block.h };
+        layout.push({
+          kind: "picture",
+          caption: block.caption,
+          base64: images[i],
+          widthPt: figurePoints(dims.w),
+          heightPt: figurePoints(dims.h),
+          alt: block.alt,
+        });
+        continue;
       }
-    });
+      layout.push({ kind: "matrix", label: block.label ?? "", values: block.m.map((row) => row.map((v) => formatNum(v, 6))) });
+    }
+    flushRun();
+    picturesConfirmed = await docHost.insertResultLayout(layout);
     // SAY WHAT WENT IN, NOT JUST THAT SOMETHING DID.
     //
     // "Beam analysis inserted." is true of a report that arrived without its
@@ -28183,14 +28062,13 @@ async function insertPeptide(): Promise<void> {
       structure.smiles,
       structure.idcode
     );
-    await Word.run(async (context) => {
-      const range = context.document.getSelection();
-      const picture = range.insertInlinePictureFromBase64(base64, Word.InsertLocation.after);
-      sizeFigure(picture, d.w, d.h);
-      picture.altTextDescription = alt;
-      range.select(Word.SelectionMode.end);
-      await context.sync();
-      await tagInserted(context, picture.getRange(), "formula-inserter:peptide");
+    await docHost.insertPictureAtSelection({
+      base64: base64,
+      widthPt: figurePoints(d.w),
+      heightPt: figurePoints(d.h),
+      alt: alt,
+      selectAfter: true,
+      tag: "formula-inserter:peptide",
     });
     setStatus("Peptide structure inserted.", "success");
   } catch (error) {
@@ -28400,14 +28278,13 @@ async function insertIsotopeChart(): Promise<void> {
     // Intrinsic size: the peak-list notes grow the canvas below the plot.
     const d = readSvgDims(currentIsotopeSvg, ISOTOPE_CHART_SIZE.width, ISOTOPE_CHART_SIZE.height);
     const base64 = await renderFigurePng(currentIsotopeSvg, d.w, d.h);
-    await Word.run(async (context) => {
-      const range = context.document.getSelection();
-      const picture = range.insertInlinePictureFromBase64(base64, Word.InsertLocation.after);
-      sizeFigure(picture, d.w, d.h);
-      picture.altTextDescription = `Isotope pattern of ${typesetHill(spec.formula, spec.netCharge)} (computed): ${isotopePeakList(spec.pattern)}`;
-      range.select(Word.SelectionMode.end);
-      await context.sync();
-      await tagInserted(context, picture.getRange(), "formula-inserter:spectrum");
+    await docHost.insertPictureAtSelection({
+      base64: base64,
+      widthPt: figurePoints(d.w),
+      heightPt: figurePoints(d.h),
+      alt: `Isotope pattern of ${typesetHill(spec.formula, spec.netCharge)} (computed): ${isotopePeakList(spec.pattern)}`,
+      selectAfter: true,
+      tag: "formula-inserter:spectrum",
     });
     setStatus("Isotope pattern inserted.", "success");
   } catch (error) {
@@ -28531,14 +28408,13 @@ async function insertOverlayChart(p: OverlayPanel): Promise<void> {
     // Sized from the SVG itself — the figure grows for its notes and legend.
     const d = readSvgDims(svg, OVERLAY_CHART_SIZE.width, OVERLAY_CHART_SIZE.height);
     const base64 = await renderFigurePng(svg, d.w, d.h);
-    await Word.run(async (context) => {
-      const range = context.document.getSelection();
-      const picture = range.insertInlinePictureFromBase64(base64, Word.InsertLocation.after);
-      sizeFigure(picture, d.w, d.h);
-      picture.altTextDescription = `Measured spectrum (${r.fileTitle}) overlaid with a prediction (estimate) — ${r.matched} of ${r.rows.length} predicted lines within their window. A match is proximity, not an assignment.`;
-      range.select(Word.SelectionMode.end);
-      await context.sync();
-      await tagInserted(context, picture.getRange(), "formula-inserter:spectrum");
+    await docHost.insertPictureAtSelection({
+      base64: base64,
+      widthPt: figurePoints(d.w),
+      heightPt: figurePoints(d.h),
+      alt: `Measured spectrum (${r.fileTitle}) overlaid with a prediction (estimate) — ${r.matched} of ${r.rows.length} predicted lines within their window. A match is proximity, not an assignment.`,
+      selectAfter: true,
+      tag: "formula-inserter:spectrum",
     });
     setStatus("Overlay chart inserted.", "success");
   } catch (error) {
@@ -29172,14 +29048,13 @@ async function insertSpectrumChart(): Promise<void> {
     const size = currentChartSize();
     const specDims = readSvgDims(currentSpectrumSvg, size.width, size.height);
     const base64 = await renderFigurePng(currentSpectrumSvg, specDims.w, specDims.h);
-    await Word.run(async (context) => {
-      const range = context.document.getSelection();
-      const picture = range.insertInlinePictureFromBase64(base64, Word.InsertLocation.after);
-      sizeFigure(picture, specDims.w, specDims.h);
-      picture.altTextDescription = `Predicted spectrum (${specKind.value}) for ${specInput.value.trim()} — estimate from additivity rules`;
-      range.select(Word.SelectionMode.end);
-      await context.sync();
-      await tagInserted(context, picture.getRange(), "formula-inserter:spectrum");
+    await docHost.insertPictureAtSelection({
+      base64: base64,
+      widthPt: figurePoints(specDims.w),
+      heightPt: figurePoints(specDims.h),
+      alt: `Predicted spectrum (${specKind.value}) for ${specInput.value.trim()} — estimate from additivity rules`,
+      selectAfter: true,
+      tag: "formula-inserter:spectrum",
     });
     setStatus("Spectrum inserted.", "success");
   } catch (error) {
@@ -29379,16 +29254,15 @@ async function insertJcampChart(): Promise<void> {
     // own has eventually inserted a squashed figure).
     const jd = readSvgDims(currentJcampSvg, SPECTRUM_CHART_SIZE.width, SPECTRUM_CHART_SIZE.height);
     const base64 = await renderFigurePng(currentJcampSvg, jd.w, jd.h);
-    await Word.run(async (context) => {
-      const range = context.document.getSelection();
-      const picture = range.insertInlinePictureFromBase64(base64, Word.InsertLocation.after);
-      sizeFigure(picture, jd.w, jd.h);
-      picture.altTextDescription =
+    await docHost.insertPictureAtSelection({
+      base64,
+      widthPt: figurePoints(jd.w),
+      heightPt: figurePoints(jd.h),
+      alt:
         `Measured ${currentJcamp?.dataType || "spectrum"} from a JCAMP-DX file` +
-        ` — ${displayUnits(currentJcamp?.xUnits ?? "")} vs ${displayUnits(currentJcamp?.yUnits ?? "")}`;
-      range.select(Word.SelectionMode.end);
-      await context.sync();
-      await tagInserted(context, picture.getRange(), "formula-inserter:spectrum");
+        ` — ${displayUnits(currentJcamp?.xUnits ?? "")} vs ${displayUnits(currentJcamp?.yUnits ?? "")}`,
+      selectAfter: true,
+      tag: "formula-inserter:spectrum",
     });
     setStatus("Measured spectrum inserted.", "success");
   } catch (error) {
@@ -31460,16 +31334,15 @@ async function insertSeqMap(): Promise<void> {
     const h = Number(/height="(\d+)"/.exec(currentSeqMapSvg)?.[1] ?? 200);
     const base64 = await renderFigurePng(currentSeqMapSvg, w, h);
     const rec = currentSeqRecord;
-    await Word.run(async (context) => {
-      const range = context.document.getSelection();
-      const picture = range.insertInlinePictureFromBase64(base64, Word.InsertLocation.after);
-      sizeFigure(picture, w, h);
-      picture.altTextDescription =
+    await docHost.insertPictureAtSelection({
+      base64,
+      widthPt: figurePoints(w),
+      heightPt: figurePoints(h),
+      alt:
         `Sequence map: ${rec.name}, ${rec.length} bp, ${rec.circular ? "circular" : "linear"}, ` +
-        `${rec.features.length} features`;
-      range.select(Word.SelectionMode.end);
-      await context.sync();
-      await tagInserted(context, picture.getRange(), "formula-inserter:seqmap");
+        `${rec.features.length} features`,
+      selectAfter: true,
+      tag: "formula-inserter:seqmap",
     });
     setStatus("Map inserted.", "success");
   } catch (error) {
@@ -33803,7 +33676,7 @@ function readSvgDims(svg: string, fallbackW: number, fallbackH: number): { w: nu
   return { w: w > 0 ? w : fallbackW, h: h > 0 ? h : fallbackH };
 }
 
-/** Rasterises at the supersampled size. Pair with sizeFigure() at the insert. */
+/** Rasterises at the supersampled size. Pair with figurePoints() sizing at the insert (lib/figures.ts). */
 async function renderFigurePng(svg: string, width: number, height: number): Promise<string> {
   // A PIXEL BUDGET IS NOT A BYTE BUDGET.
   //
@@ -33826,42 +33699,13 @@ async function renderFigurePng(svg: string, width: number, height: number): Prom
   return png;
 }
 
-/**
- * Pins an inserted picture to its natural physical size, so the extra pixels
- * from renderFigurePng() become resolution instead of size. See lib/figures.ts
- * for why this pairing is mandatory.
- */
-function sizeFigure(pic: Word.InlinePicture, width: number, height: number): void {
-  pic.width = figurePoints(width);
-  pic.height = figurePoints(height);
-}
-
 // ---------------------------------------------------------------------------
 // One figure insert path: figure style, vector or PNG, re-find and size (v2.143.0)
 // ---------------------------------------------------------------------------
 
 /** What this host can do, read once per insert. Unknown is never "yes" (unlike wordApiSupported). */
 function hostCapability(): HostCapability {
-  let platform: string | null = null;
-  let imageCoercion12: boolean | null = null;
-  let hasSetSelectedData = false;
-  try {
-    const p = (Office.context as unknown as { platform?: unknown }).platform;
-    platform = typeof p === "string" ? p : null;
-  } catch {
-    platform = null;
-  }
-  try {
-    imageCoercion12 = Office.context.requirements.isSetSupported("ImageCoercion", "1.2") === true;
-  } catch {
-    imageCoercion12 = null;
-  }
-  try {
-    hasSetSelectedData = typeof Office.context.document?.setSelectedDataAsync === "function";
-  } catch {
-    hasSetSelectedData = false;
-  }
-  return { platform, imageCoercion12, hasSetSelectedData, vectorRequested: !!figVectorCheckbox?.checked };
+  return { ...docHost.capability(), vectorRequested: !!figVectorCheckbox?.checked };
 }
 
 /** The figure style chosen in the pane ("As drawn" unless the user picked one). */
@@ -33922,117 +33766,13 @@ interface FigureInsert {
    * before figure styles existed.
    */
   supersample?: number;
-  /** Runs in the same Word.run, after the picture is sized: legends, tables, selection. */
-  after?: (context: Word.RequestContext, picture: Word.InlinePicture) => Promise<void> | void;
+  /** What follows the picture in the same batch: a caption line, or Table → Chart's data table. */
+  tail?: FigureTail;
 }
 
-/** An `after` hook that puts a caption paragraph under the picture and leaves the cursor after it. */
-function captionAfter(caption: string): FigureInsert["after"] {
-  if (!caption) return undefined;
-  return (_context, picture) => {
-    picture
-      .getRange(Word.RangeLocation.end)
-      .insertParagraph(caption, Word.InsertLocation.after)
-      .getRange(Word.RangeLocation.end)
-      .select(Word.SelectionMode.end);
-  };
-}
-
-/** setSelectedDataAsync as a promise that always settles (10 s bound on the callback API). */
-function setSelectedSvg(svg: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    // A CALLBACK IS NOT A BOUND (svgToPngBase64 has the same timer, for the same
-    // reason): a host that never calls back would hold the insert open forever.
-    let settled = false;
-    const timer = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      reject(new Error("Word did not answer the vector insert within 10 seconds."));
-    }, 10000);
-    try {
-      // No imageWidth/imageHeight: whether Word reads them as px or pt is not
-      // documented (TEST-SCRIPT §0cj measures it). The picture is found again and
-      // sized in points from the SVG that was sent, which needs neither.
-      Office.context.document.setSelectedDataAsync(svg, { coercionType: Office.CoercionType.XmlSvg }, (res: Office.AsyncResult<void>) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        if (res.status === Office.AsyncResultStatus.Succeeded) resolve();
-        else reject(new Error(res.error?.message || "the vector insert failed"));
-      });
-    } catch (e) {
-      if (!settled) {
-        settled = true;
-        clearTimeout(timer);
-        reject(e as Error);
-      }
-    }
-  });
-}
-
-async function bodyPictureSignatures(context: Word.RequestContext): Promise<{ pics: Word.InlinePictureCollection; sigs: PictureSignature[] }> {
-  const pics = context.document.body.inlinePictures;
-  pics.load("items/width,items/height,items/altTextDescription");
-  await context.sync();
-  return { pics, sigs: pics.items.map((p) => ({ width: p.width, height: p.height, alt: p.altTextDescription ?? "" })) };
-}
-
-/**
- * Vector route. setSelectedDataAsync REPLACES the selection, so the selection is
- * collapsed to its end first (or the user's selected text would be deleted). It
- * returns no picture, so the body's pictures are listed before and after and the
- * ONE new picture is found (insertCapability.findInsertedPicture) and sized from
- * the SVG actually sent.
- *
- * Returns { fallback } — the reason to insert PNG instead — ONLY when Word
- * refused the vector insert, i.e. nothing landed. When Word reported success but
- * the picture cannot be identified (none new inline — it may have landed
- * floating — or ambiguous), it THROWS and inserts nothing more: a PNG on top of a
- * vector picture that is somewhere in the document would be two figures, and
- * sizing a guess is the defect class this step exists to prevent.
- */
-async function insertFigureVector(o: FigureInsert, svg: string, widthPt: number, heightPt: number): Promise<{ fallback: string | null; format: string | null }> {
-  let before: PictureSignature[] = [];
-  await Word.run(async (context) => {
-    context.document.getSelection().select(Word.SelectionMode.end);
-    await context.sync();
-    before = (await bodyPictureSignatures(context)).sigs;
-  });
-  try {
-    await setSelectedSvg(svg);
-  } catch (e) {
-    return { fallback: `Word refused the vector picture (${(e as Error).message})`, format: null };
-  }
-  let format: string | null = null;
-  await Word.run(async (context) => {
-    const { pics, sigs } = await bodyPictureSignatures(context);
-    const found = findInsertedPicture(before, sigs);
-    if (!found.ok) {
-      throw new Error(
-        `Word reported the vector picture inserted, but ${found.reason}. Nothing else was inserted. ` +
-          `Check the document (press Ctrl/⌘+Z if a picture landed), untick “Insert as vector SVG”, and insert again`,
-      );
-    }
-    const pic = pics.items[found.index];
-    pic.width = widthPt;
-    pic.height = heightPt;
-    pic.altTextDescription = o.alt;
-    // Word for Windows/Mac can say what it stored (WordApiDesktop 1.1). Read, never assumed.
-    let canReadFormat = false;
-    try {
-      canReadFormat = Office.context.requirements.isSetSupported("WordApiDesktop", "1.1") === true;
-    } catch {
-      canReadFormat = false;
-    }
-    if (canReadFormat) pic.load("imageFormat");
-    pic.getRange(Word.RangeLocation.end).select(Word.SelectionMode.end);
-    await context.sync();
-    if (canReadFormat) format = String(pic.imageFormat);
-    if (o.tag) await tagInserted(context, pic.getRange(), o.tag);
-    if (o.after) await o.after(context, pic);
-    await context.sync();
-  });
-  return { fallback: null, format };
+/** A caption line under the figure, with the cursor after it — or no tail when there is no caption. */
+function captionTail(caption: string): FigureTail | undefined {
+  return caption ? { kind: "caption", text: caption } : undefined;
 }
 
 /**
@@ -34056,7 +33796,14 @@ async function insertFigure(o: FigureInsert): Promise<string> {
   const style = prepared.presetNote ? ` (${prepared.presetNote})` : "";
   let rasterWhy = route.reason;
   if (route.route === "svg") {
-    const v = await insertFigureVector(o, prepared.svg, prepared.widthPt, prepared.heightPt);
+    const v = await docHost.insertFigureVector({
+      svg: prepared.svg,
+      widthPt: prepared.widthPt,
+      heightPt: prepared.heightPt,
+      alt: o.alt,
+      tag: o.tag,
+      tail: o.tail,
+    });
     if (v.fallback === null) {
       const stored = v.format && v.format.toLowerCase() !== "svg" ? ` — but Word reports it stored the picture as ${v.format}` : "";
       return `as ${insertedDescription("svg", null)}${style}${stored}`;
@@ -34065,17 +33812,13 @@ async function insertFigure(o: FigureInsert): Promise<string> {
   }
   const t = rasterTarget(prepared, o.supersample ?? 1);
   const png = await renderFigurePng(prepared.svg, t.w, t.h);
-  await Word.run(async (context) => {
-    const range = context.document.getSelection();
-    const picture = range.insertInlinePictureFromBase64(png, Word.InsertLocation.after);
-    picture.width = prepared.widthPt;
-    picture.height = prepared.heightPt;
-    picture.altTextDescription = o.alt;
-    range.select(Word.SelectionMode.end);
-    await context.sync();
-    if (o.tag) await tagInserted(context, picture.getRange(), o.tag);
-    if (o.after) await o.after(context, picture);
-    await context.sync();
+  await docHost.insertFigurePng({
+    base64: png,
+    widthPt: prepared.widthPt,
+    heightPt: prepared.heightPt,
+    alt: o.alt,
+    tag: o.tag,
+    tail: o.tail,
   });
   // The dpi of the PNG that was inserted, read from its own header (pngPixelSize),
   // not the factor that was asked for: the payload loop may have stepped it down.
@@ -34157,7 +33900,7 @@ async function insertPanels(): Promise<void> {
       fallbackH: d.h,
       alt: `Multi-panel figure: ${fig.labels.map((l, i) => `${l} ${figPanels[i].source}`).join("; ")}${fig.caption ? `. ${fig.caption}` : ""}`,
       tag: "formula-inserter:panels",
-      after: captionAfter(fig.caption),
+      tail: captionTail(fig.caption),
     });
     setStatus(`Multi-panel figure inserted ${how}.`, "success");
   } catch (error) {

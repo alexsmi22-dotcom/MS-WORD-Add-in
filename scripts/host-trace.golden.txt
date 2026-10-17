@@ -956,7 +956,7 @@ RUN R59 {
 == cad/cad-insert
 RUN R60 {
   #376 = R60.document.getSelection()
-  #377 = #376.insertInlinePictureFromBase64(s439908:09ad1433, "after")
+  #377 = #376.insertInlinePictureFromBase64(s439772:adc2fcbe, "after")
   set #377.width = 720.0000000000001
   set #377.height = 364.20948961328395
   set #377.altTextDescription = s377:e3645ce2
@@ -970,203 +970,222 @@ RUN R60 {
   R60.sync()
 } R60
    status: Drawing inserted — Engineering drawing — ASME (third-angle).
+== cad/cad-popout
+OFFICE displayDialogAsync("caddialog.html", {height:90,width:90})
+OFFICE dialog.close()
+RUN R61 {
+  #381 = R61.document.getSelection()
+  #382 = #381.insertInlinePictureFromBase64(s182528:eb99f323, "after")
+  set #382.width = 720.0000000000001
+  set #382.height = 456.0399608984757
+  set #382.altTextDescription = s289:c2a826f5
+  #383 = #381.select("end")
+  R61.sync()
+  #384 = #382.getRange()
+  #385 = #384.insertContentControl()
+  set #385.tag = "formula-inserter:cad"
+  set #385.title = "JurisLab"
+  set #385.appearance = "hidden"
+  R61.sync()
+} R61
+   status: Drawing inserted — Engineering drawing — ASME (third-angle).
 == numerals/num-add-btn
 OFFICE settings.set("formula-inserter.numerals", "[{\"numeral\":10,\"element\":\"\"}]")
 OFFICE settings.saveAsync()
    status: 
 == numerals/num-scan-btn
-RUN R61 {
-  #381 = R61.document.body.load("text")
-  R61.sync()
-} R61
+RUN R62 {
+  #386 = R62.document.body.load("text")
+  R62.sync()
+} R62
    status: Scan complete.
 == numerals/num-insert-list-btn
 OFFICE settings.set("formula-inserter.numerals", s57:6803f055)
 OFFICE settings.saveAsync()
 OFFICE settings.set("formula-inserter.numerals", s64:844daa0a)
 OFFICE settings.saveAsync()
-RUN R62 {
-  #382 = R62.document.getSelection()
-  #383 = #382.insertText("(10)", "replace")
-  #384 = #383.select("end")
-  R62.sync()
-  #385 = #383.insertContentControl()
-  set #385.tag = "formula-inserter:callout:10"
-  set #385.title = "JurisLab"
-  set #385.appearance = "hidden"
-  R62.sync()
-} R62
 RUN R63 {
-  #386 = R63.document.getSelection()
-  #387 = #386.insertParagraph("List of Reference Numerals", "before")
-  set #387.styleBuiltIn = undefined
-  #388 = #386.insertParagraph("", "before")
-  #389 = #388.getRange()
-  #390 = #389.insertHtml(s358:c5224305, "replace")
+  #387 = R63.document.getSelection()
+  #388 = #387.insertText("(10)", "replace")
+  #389 = #388.select("end")
   R63.sync()
-  #391 = #390.insertContentControl()
-  set #391.tag = "formula-inserter:numeral-list"
-  set #391.title = "JurisLab"
-  set #391.appearance = "hidden"
+  #390 = #388.insertContentControl()
+  set #390.tag = "formula-inserter:callout:10"
+  set #390.title = "JurisLab"
+  set #390.appearance = "hidden"
   R63.sync()
 } R63
-   status: List of Reference Numerals inserted.
-== numerals/para-preview-btn
 RUN R64 {
-  #392 = R64.document.body.paragraphs.load("items/text")
+  #391 = R64.document.getSelection()
+  #392 = #391.insertParagraph("List of Reference Numerals", "before")
+  set #392.styleBuiltIn = undefined
+  #393 = #391.insertParagraph("", "before")
+  #394 = #393.getRange()
+  #395 = #394.insertHtml(s358:c5224305, "replace")
+  R64.sync()
+  #396 = #395.insertContentControl()
+  set #396.tag = "formula-inserter:numeral-list"
+  set #396.title = "JurisLab"
+  set #396.appearance = "hidden"
   R64.sync()
 } R64
-   status: 
-== numerals/para-apply-btn
+   status: List of Reference Numerals inserted.
+== numerals/para-preview-btn
 RUN R65 {
-  #393 = R65.document.body.paragraphs.load("items/text")
+  #397 = R65.document.body.paragraphs.load("items/text")
   R65.sync()
 } R65
+   status: 
+== numerals/para-apply-btn
 RUN R66 {
-  #394 = R66.document.body.paragraphs.load("items/text")
-  R66.sync()
-  #395 = R66.document.body.paragraphs.items[1].insertText("[0001] ", "start")
-  #396 = R66.document.body.paragraphs.items[2].insertText("[0002] ", "start")
-  #397 = R66.document.body.paragraphs.items[3].insertText("[0003] ", "start")
-  #398 = R66.document.body.paragraphs.items[4].insertText("[0004] ", "start")
-  #399 = R66.document.body.paragraphs.items[5].insertText("[0005] ", "start")
-  #400 = R66.document.body.paragraphs.items[6].insertText("[0006] ", "start")
-  #401 = R66.document.body.paragraphs.items[7].insertText("[0007] ", "start")
-  #402 = R66.document.body.paragraphs.items[8].insertText("[0008] ", "start")
-  #403 = R66.document.body.paragraphs.items[9].insertText("[0009] The invention relates to housings.", "replace")
-  #404 = R66.document.body.paragraphs.items[10].insertText("[0010] The lid 12 is hinged.", "replace")
+  #398 = R66.document.body.paragraphs.load("items/text")
   R66.sync()
 } R66
+RUN R67 {
+  #399 = R67.document.body.paragraphs.load("items/text")
+  R67.sync()
+  #400 = R67.document.body.paragraphs.items[1].insertText("[0001] ", "start")
+  #401 = R67.document.body.paragraphs.items[2].insertText("[0002] ", "start")
+  #402 = R67.document.body.paragraphs.items[3].insertText("[0003] ", "start")
+  #403 = R67.document.body.paragraphs.items[4].insertText("[0004] ", "start")
+  #404 = R67.document.body.paragraphs.items[5].insertText("[0005] ", "start")
+  #405 = R67.document.body.paragraphs.items[6].insertText("[0006] ", "start")
+  #406 = R67.document.body.paragraphs.items[7].insertText("[0007] ", "start")
+  #407 = R67.document.body.paragraphs.items[8].insertText("[0008] ", "start")
+  #408 = R67.document.body.paragraphs.items[9].insertText("[0009] The invention relates to housings.", "replace")
+  #409 = R67.document.body.paragraphs.items[10].insertText("[0010] The lid 12 is hinged.", "replace")
+  R67.sync()
+} R67
    status: 
 == refs/ref-reset
 OFFICE settings.set("formula-inserter.refs", "{\"figure\":1,\"table\":1}")
 OFFICE settings.saveAsync()
    status: 
 == refs/ref-insert-caption
-RUN R67 {
-  #405 = R67.document.getSelection()
-  #406 = #405.insertParagraph("Figure 1", "after")
-  set #406.styleBuiltIn = "caption"
-  #407 = #406.getRange()
-  #408 = #407.select("end")
-  R67.sync()
-  #409 = #406.getRange()
-  #410 = #409.insertContentControl()
-  set #410.tag = "formula-inserter:caption:figure"
-  set #410.title = "JurisLab"
-  set #410.appearance = "hidden"
-  R67.sync()
-} R67
+RUN R68 {
+  #410 = R68.document.getSelection()
+  #411 = #410.insertParagraph("Figure 1", "after")
+  set #411.styleBuiltIn = "caption"
+  #412 = #411.getRange()
+  #413 = #412.select("end")
+  R68.sync()
+  #414 = #411.getRange()
+  #415 = #414.insertContentControl()
+  set #415.tag = "formula-inserter:caption:figure"
+  set #415.title = "JurisLab"
+  set #415.appearance = "hidden"
+  R68.sync()
+} R68
 OFFICE settings.set("formula-inserter.refs", "{\"figure\":2,\"table\":1}")
 OFFICE settings.saveAsync()
    status: Inserted "Figure 1".
 == refs/ref-insert-xref
-RUN R68 {
-  #411 = R68.document.getSelection()
-  #412 = #411.insertText("Fig. 1", "after")
-  #413 = #411.select("end")
-  R68.sync()
-} R68
-   status: Cross-reference inserted. Ctrl/⌘+Z undoes it.
-== refs/ref-check
 RUN R69 {
-  #414 = R69.document.body.load("text")
+  #416 = R69.document.getSelection()
+  #417 = #416.insertText("Fig. 1", "after")
+  #418 = #416.select("end")
   R69.sync()
 } R69
-   status: Check complete.
-== code/insert-code-btn
+   status: Cross-reference inserted. Ctrl/⌘+Z undoes it.
+== refs/ref-check
 RUN R70 {
-  #415 = R70.document.getSelection()
-  #416 = #415.insertHtml(s996:ceb8597c, "replace")
-  #417 = #416.select("end")
+  #419 = R70.document.body.load("text")
   R70.sync()
 } R70
-   status: Block inserted.
-== audit/audit-run-btn
+   status: Check complete.
+== code/insert-code-btn
 RUN R71 {
-  #418 = R71.document.body.load("text")
+  #420 = R71.document.getSelection()
+  #421 = #420.insertHtml(s996:ceb8597c, "replace")
+  #422 = #421.select("end")
   R71.sync()
 } R71
-   status: Audit complete.
-== citations/cite-insert
+   status: Block inserted.
+== audit/audit-run-btn
 RUN R72 {
-  #419 = R72.document.getSelection()
-  #420 = #419.insertHtml(s49:b967615d, "replace")
-  #421 = #420.select("end")
-  R72.sync()
-  #422 = #420.insertContentControl()
-  set #422.tag = "formula-inserter:citation"
-  set #422.title = "JurisLab"
-  set #422.appearance = "hidden"
+  #423 = R72.document.body.load("text")
   R72.sync()
 } R72
-   status: Citation inserted.
-== citations/toa-build
+   status: Audit complete.
+== citations/cite-insert
 RUN R73 {
-  #423 = R73.document.body.load("text")
+  #424 = R73.document.getSelection()
+  #425 = #424.insertHtml(s49:b967615d, "replace")
+  #426 = #425.select("end")
   R73.sync()
-  #424 = R73.document.contentControls.getByTag("jurislab:toafield")
-  #425 = #424.load("items")
-  R73.sync()
-  #426 = R73.document.getSelection()
-  #427 = #426.insertOoxml(s4663:131d388c, "replace")
-  #428 = #427.select("end")
-  R73.sync()
-  #429 = #427.insertContentControl()
-  set #429.tag = "formula-inserter:toa"
-  set #429.title = "JurisLab"
-  set #429.appearance = "hidden"
+  #427 = #425.insertContentControl()
+  set #427.tag = "formula-inserter:citation"
+  set #427.title = "JurisLab"
+  set #427.appearance = "hidden"
   R73.sync()
 } R73
+   status: Citation inserted.
+== citations/toa-build
+RUN R74 {
+  #428 = R74.document.body.load("text")
+  R74.sync()
+  #429 = R74.document.contentControls.getByTag("jurislab:toafield")
+  #430 = #429.load("items")
+  R74.sync()
+  #431 = R74.document.getSelection()
+  #432 = #431.insertOoxml(s4663:131d388c, "replace")
+  #433 = #432.select("end")
+  R74.sync()
+  #434 = #432.insertContentControl()
+  set #434.tag = "formula-inserter:toa"
+  set #434.title = "JurisLab"
+  set #434.appearance = "hidden"
+  R74.sync()
+} R74
    status: Formatted Table of Authorities inserted.
 == citations/toa-native
-RUN R74 {
-  #430 = R74.document.body.footnotes.load("items")
-  #431 = R74.document.body.endnotes.load("items")
-  R74.sync()
-  #432 = R74.document.body.load("text")
-  #433 = R74.document.body.footnotes.items[0].body.load("text")
-  R74.sync()
-  #434 = R74.document.body.fields.load("items/code")
-  #435 = R74.document.body.footnotes.items[0].body.fields.load("items/code")
-  R74.sync()
-  #436 = R74.document.body.fields.items[0].delete()
-  #437 = R74.document.body.footnotes.items[0].body.fields.items[0].delete()
+RUN R75 {
+  #435 = R75.document.body.footnotes.load("items")
+  #436 = R75.document.body.endnotes.load("items")
+  R75.sync()
+  #437 = R75.document.body.load("text")
+  #438 = R75.document.body.footnotes.items[0].body.load("text")
+  R75.sync()
+  #439 = R75.document.body.fields.load("items/code")
+  #440 = R75.document.body.footnotes.items[0].body.fields.load("items/code")
+  R75.sync()
+  #441 = R75.document.body.fields.items[0].delete()
+  #442 = R75.document.body.footnotes.items[0].body.fields.items[0].delete()
   THREW n.load is not a function
-} R74
+} R75
    status: Could not build the field-based Table of Authorities: n.load is not a function
 == citations/toa-clearmarks
-RUN R75 {
-  #438 = R75.document.body.fields.load("items/code")
-  R75.sync()
-  #439 = R75.document.body.fields.items[0].delete()
-  R75.sync()
-} R75
-   status: Removed 1 citation marks.
-== citations/toa-cleartables
 RUN R76 {
-  #440 = R76.document.body.fields.load("items/code")
+  #443 = R76.document.body.fields.load("items/code")
   R76.sync()
-  #441 = R76.document.body.fields.items[1].delete()
-  #442 = R76.document.body.fields.items[2].delete()
+  #444 = R76.document.body.fields.items[0].delete()
   R76.sync()
 } R76
-   status: Removed 2 table fields.
-== citations/toc-build
+   status: Removed 1 citation marks.
+== citations/toa-cleartables
 RUN R77 {
-  #443 = R77.document.getSelection()
-  #444 = #443.insertOoxml(s2056:901fd238, "replace")
+  #445 = R77.document.body.fields.load("items/code")
   R77.sync()
-  #445 = R77.document.getStyles()
-  #446 = #445.load("items/nameLocal")
+  #446 = R77.document.body.fields.items[1].delete()
+  #447 = R77.document.body.fields.items[2].delete()
   R77.sync()
 } R77
-   status: Table of Contents (field) inserted — press F9 to update.
-== citations/toa-find
+   status: Removed 2 table fields.
+== citations/toc-build
 RUN R78 {
-  #447 = R78.document.body.load("text")
+  #448 = R78.document.getSelection()
+  #449 = #448.insertOoxml(s2056:901fd238, "replace")
+  R78.sync()
+  #450 = R78.document.getStyles()
+  #451 = #450.load("items/nameLocal")
   R78.sync()
 } R78
+   status: Table of Contents (field) inserted — press F9 to update.
+== citations/toa-find
+RUN R79 {
+  #452 = R79.document.body.load("text")
+  R79.sync()
+} R79
    status: Found 3 authorities in 3 citations.
 == citations/bib-insert
 OFFICE settings.get("jurislab.bib.v1") -> null
@@ -1176,35 +1195,15 @@ OFFICE settings.get("jurislab.bib.v1") -> s480:f80824a4
 OFFICE settings.get("jurislab.bib.v1") -> s480:f80824a4
 OFFICE settings.get("jurislab.bib.v1") -> s480:f80824a4
 OFFICE settings.get("jurislab.bib.v1") -> s480:f80824a4
-RUN R79 {
-  #448 = R79.document.getSelection()
-  #449 = #448.parentContentControlOrNullObject.load("tag")
-  R79.sync()
-  #450 = #448.insertText("…", "end")
-  #451 = #450.insertContentControl()
-  set #451.tag = "formula-inserter:cite:1"
-  set #451.title = "JurisLab citation"
-  R79.sync()
-  #452 = R79.document.body.contentControls.load("items/tag,items/text")
-  R79.sync()
-  #453 = R79.document.body.footnotes.load("items")
-  R79.sync()
-  #454 = R79.document.body.footnotes.items[0].body.contentControls.load("items/tag,items/text")
-  R79.sync()
-  #455 = R79.document.body.contentControls.items[0].insertText("[1]", "replace")
-  set #455.font.superscript = false
-  set #455.font.subscript = false
-  set #455.font.italic = false
-  set #455.font.bold = false
-  #456 = R79.document.body.contentControls.items[1].insertOoxml(s1492:45c351d8, "replace")
-  R79.sync()
-} R79
-OFFICE settings.set("jurislab.bib.v1", s504:c0513ad2)
-OFFICE settings.saveAsync()
-   status: 
-== citations/bib-update
-OFFICE settings.get("jurislab.bib.v1") -> s504:c0513ad2
 RUN R80 {
+  #453 = R80.document.getSelection()
+  #454 = #453.parentContentControlOrNullObject.load("tag")
+  R80.sync()
+  #455 = #453.insertText("…", "end")
+  #456 = #455.insertContentControl()
+  set #456.tag = "formula-inserter:cite:1"
+  set #456.title = "JurisLab citation"
+  R80.sync()
   #457 = R80.document.body.contentControls.load("items/tag,items/text")
   R80.sync()
   #458 = R80.document.body.footnotes.load("items")
@@ -1219,30 +1218,50 @@ RUN R80 {
   #461 = R80.document.body.contentControls.items[1].insertOoxml(s1492:45c351d8, "replace")
   R80.sync()
 } R80
+OFFICE settings.set("jurislab.bib.v1", s504:c0513ad2)
+OFFICE settings.saveAsync()
    status: 
-== (hidden)/cite-iddetect
+== citations/bib-update
+OFFICE settings.get("jurislab.bib.v1") -> s504:c0513ad2
 RUN R81 {
-  #462 = R81.document.getSelection()
-  #463 = R81.document.body.getRange("start")
-  #464 = #463.expandTo(#462)
-  #465 = #464.load("text")
+  #462 = R81.document.body.contentControls.load("items/tag,items/text")
   R81.sync()
-  #466 = #462.insertHtml("<i>Id.</i>", "replace")
-  #467 = #466.select("end")
+  #463 = R81.document.body.footnotes.load("items")
   R81.sync()
-  #468 = #466.insertContentControl()
-  set #468.tag = "formula-inserter:citation"
-  set #468.title = "JurisLab"
-  set #468.appearance = "hidden"
+  #464 = R81.document.body.footnotes.items[0].body.contentControls.load("items/tag,items/text")
+  R81.sync()
+  #465 = R81.document.body.contentControls.items[0].insertText("[1]", "replace")
+  set #465.font.superscript = false
+  set #465.font.subscript = false
+  set #465.font.italic = false
+  set #465.font.bold = false
+  #466 = R81.document.body.contentControls.items[1].insertOoxml(s1492:45c351d8, "replace")
   R81.sync()
 } R81
-   status: Id. inserted.
-== (hidden)/cite-supradetect
+   status: 
+== (hidden)/cite-iddetect
 RUN R82 {
-  #469 = R82.document.getSelection()
-  #470 = R82.document.body.getRange("start")
-  #471 = #470.expandTo(#469)
-  #472 = #471.load("text")
+  #467 = R82.document.getSelection()
+  #468 = R82.document.body.getRange("start")
+  #469 = #468.expandTo(#467)
+  #470 = #469.load("text")
+  R82.sync()
+  #471 = #467.insertHtml("<i>Id.</i>", "replace")
+  #472 = #471.select("end")
+  R82.sync()
+  #473 = #471.insertContentControl()
+  set #473.tag = "formula-inserter:citation"
+  set #473.title = "JurisLab"
+  set #473.appearance = "hidden"
   R82.sync()
 } R82
+   status: Id. inserted.
+== (hidden)/cite-supradetect
+RUN R83 {
+  #474 = R83.document.getSelection()
+  #475 = R83.document.body.getRange("start")
+  #476 = #475.expandTo(#474)
+  #477 = #476.load("text")
+  R83.sync()
+} R83
    status: Earlier source detected.

@@ -90,12 +90,12 @@ function deriveTargets() {
     for (const mm of src.matchAll(/\b(\w+) = document\.getElementById\("([^"]+)"\)/g)) idOf[mm[1]] = mm[2];
     for (const mm of src.matchAll(/\b(\w+) = el<[^>]+>\("([^"]+)"\)/g)) idOf[mm[1]] = mm[2];
     const lines = src.split("\n");
-    const re = /\b(\w+)\.addEventListener\("click",/;
+    const re = /\b(\w+)\??\.addEventListener\("click",/;
     for (let i = 0; i < lines.length; i++) {
       const m = re.exec(lines[i]);
       if (!m || !idOf[m[1]]) continue;
       const ctx = lines.slice(i, i + 3).join(" ");
-      if (/insert|Insert|Handler|apply|Apply|scan|Scan|runAudit|update|Update|readTable|detect|Detect|preview|Preview|Table|Citation|Dialog|readSelected/.test(ctx)) {
+      if (/insert|Insert|Handler|apply|Apply|scan|Scan|runAudit|update|Update|readTable|detect|Detect|preview|Preview|Table|Citation|Dialog|readSelected|openLarge/.test(ctx)) {
         if (!ids.includes(idOf[m[1]])) ids.push(idOf[m[1]]);
       }
     }

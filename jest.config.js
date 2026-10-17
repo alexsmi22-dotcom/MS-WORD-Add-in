@@ -8,7 +8,7 @@
 // the manual pass (docs/TEST-SCRIPT.md), not here.
 module.exports = {
   testEnvironment: "node",
-  roots: ["<rootDir>/src/lib", "<rootDir>/src/taskpane"],
+  roots: ["<rootDir>/src/lib", "<rootDir>/src/taskpane", "<rootDir>/src/host"],
   testMatch: ["**/*.test.ts"],
   transform: {
     "^.+\\.ts$": [
@@ -20,6 +20,8 @@ module.exports = {
           esModuleInterop: true,
           // Base tsconfig restricts types to office-js; tests need the jest
           // globals, plus node for the static-asset tests that read markup.
+          // (src/host's Word files reference office-js themselves, so the Word
+          // types reach only the code that is allowed to use them.)
           types: ["jest", "node"],
         },
       },

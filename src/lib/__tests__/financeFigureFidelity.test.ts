@@ -7,11 +7,12 @@
 // with the text beside it", and the audit agreed, because the audit was
 // counting whether an <svg> existed.
 
-import * as fs from "fs";
-import * as path from "path";
 import { amortizationSchedule, bondPrice, bondYTM, dcf } from "../finance";
+import { paneCode } from "./paneCode";
 
-const PANE = fs.readFileSync(path.join(__dirname, "..", "..", "taskpane", "taskpane.ts"), "utf8");
+// The figure helpers moved to lib/financeFigures.ts in v2.144.0; paneCode()
+// follows them (and the FIN_CALCS registry, which stays in the pane).
+const PANE = paneCode();
 
 /**
  * A whole top-level function body: from its `function` keyword to the closing

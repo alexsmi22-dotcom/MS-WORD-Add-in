@@ -106,7 +106,8 @@ function writeHarness() {
   // first line of every insert handler and the audit reported all 36 tools as
   // inserting nothing — a harness gap that reads as a product-wide catastrophe.
   // So the enum list is DERIVED from the source rather than remembered.
-  const paneSrc = fs.readFileSync(path.join(ROOT, "src", "taskpane", "taskpane.ts"), "utf8");
+  // The pane AND the host layer it delegates to (scripts/host-sources.js).
+  const paneSrc = require("./host-sources.js").hostSourceText();
   const enums = new Set();
   for (const mm of paneSrc.matchAll(/\bWord\.([A-Z][A-Za-z]*)\.([A-Za-z]+)/g)) {
     enums.add(mm[1] + "." + mm[2]);

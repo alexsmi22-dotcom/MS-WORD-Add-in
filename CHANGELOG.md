@@ -6,6 +6,51 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.144.0] — 2026-10-17 — Host adapter, part 1 (no visible change)
+
+From `docs/SCOPE-HOST-ADAPTER.md`, hit-list item 13. Every read and write of the
+document is moving out of the 34,000-line task-pane file into one `Host`
+interface (`src/host`), so the code that puts results into Word can be tested,
+and a second host or a workspace has one seam to build on. **Nothing a user sees
+or inserts changes.** This release is a pure move, and the new gate below proves
+that call by call.
+
+### Added — the host-trace gate (QC gate 8c; 17 gates)
+- `scripts/host-trace.js` drives every Word-facing button in every tool through the
+  real production bundle, against a recording Word/Office mock. The mock document
+  is populated: brief text with authorities, captions, numerals, TA/TOA fields, a
+  table under the cursor, and a dialog that returns a 3D model. The gate records
+  every call, argument, property set, sync and batch boundary, and diffs the
+  result with a golden trace.
+- **Coverage is per caller.** Each batch's stack is mapped back through the source
+  map. 52 of 52 document sites were reached before the move; 58 of 58 after it,
+  counting both the host batches and every pane call into them.
+- **Proved before it was trusted.** Three runs under parallel load were
+  byte-identical. A negative control was caught at the exact line. The golden
+  was recorded from the untouched v2.143.0 code in a separate worktree.
+
+### Changed — internal
+- **23 of the 52 document batches moved to `src/host`:** every insert at the
+  selection, and every whole-document read. The ratchet in `hostLayer.test.ts`
+  takes `Word.run` in the pane from 52 to 29 and may only go down. The batches
+  are unchanged: the same calls, in the same order, at the same insert
+  locations, with the same caret placement, the same `formula-inserter:*` tags
+  and the same one-batch-one-undo boundaries.
+- **The finance formatters and figures** moved to `lib/financeFigures.ts`, and
+  **the assay formatters and proportional-law figure** to `lib/assayFormat.ts`.
+  Both are now tested by calling them, not by reading the pane's source text.
+- **The audit harnesses** derive their Word-enum stubs from the pane AND the host
+  layer (`scripts/host-sources.js`). A stub missing an enum that lives only in
+  `src/host` would have read as "every tool broken".
+
+### Found, not changed (a pure-move release changes no behaviour)
+- Finance and Bio/Assay number lists split on commas, so "1,5" reads as two
+  values, not the product's decimal comma.
+- `readSvgDims` would match a `stroke-width` attribute if a root `<svg>` carried
+  no width of its own.
+- Solve on a quadratic such as `x^2 - 4 = 0` inserts no curve, although that
+  branch's comment says equations draw one.
+
 ## [2.143.0] — 2026-10-15 — Journal-grade figures
 
 From `docs/SCOPE-JOURNAL-FIGURES-2026-10.md`. Figures from Plot, Table → Chart,

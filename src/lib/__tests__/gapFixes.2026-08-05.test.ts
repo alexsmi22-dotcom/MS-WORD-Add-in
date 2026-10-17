@@ -14,6 +14,7 @@ import * as path from "path";
 import { validateFormula, normalizeFormulaText } from "../chemValidate";
 import { bondPeriodRefusal, bondPrice, bondYTM } from "../finance";
 import { auditDocument } from "../audit";
+import { finPct } from "../financeFigures";
 
 const ROOT = path.join(__dirname, "..", "..", "..");
 const read = (p: string): string => fs.readFileSync(path.join(ROOT, p), "utf8").replace(/\r\n/g, "\n");
@@ -151,9 +152,11 @@ describe("0.5 — a refused integral never inserts a number", () => {
 
 describe("0.6 — Finance cannot insert a non-finite number", () => {
   it("finPct guards non-finite values, as finMoney always did", () => {
-    const i = pane.indexOf("function finPct(");
-    expect(i).toBeGreaterThan(0);
-    expect(pane.slice(i, i + 400)).toMatch(/if \(!Number\.isFinite\(x\)\) return "—";/);
+    // finPct moved to lib/financeFigures.ts (v2.144.0), so it is now CALLED, not read.
+    expect(finPct(NaN)).toBe("—");
+    expect(finPct(Infinity)).toBe("—");
+    expect(finPct(-Infinity)).toBe("—");
+    expect(finPct(0.1234)).toBe("12.34%");
   });
 
   it("the insertability gate blocks NaN and Infinity", () => {

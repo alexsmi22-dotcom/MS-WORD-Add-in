@@ -1,5 +1,9 @@
 /* global Office, Word, document, localStorage, navigator, URL, Blob, FileReader, TextDecoder, ArrayBuffer, Uint8Array, HTMLInputElement, HTMLButtonElement, HTMLSelectElement, HTMLTextAreaElement, HTMLElement, Image, TextEncoder, btoa */
 
+// Every read and write of the document goes through the host (src/host,
+// docs/SCOPE-HOST-ADAPTER.md); the pane keeps messages and state.
+import { wordHost as docHost } from "../host/word";
+import { tagInserted } from "../host/wordShared";
 import { Segment, segmentsToHtml, escapeHtml } from "../lib/segments";
 import { parseChemical } from "../lib/chemParser";
 import { validateFormula } from "../lib/chemValidate";
@@ -125,6 +129,8 @@ import {
   bondPeriodRefusal,
   IRR_SEARCH_RANGE_TEXT,
 } from "../lib/finance";
+import { finMoney, finPct, finFixed, moneyOverTimeSvg, cashFlowLadderSvg, bondPriceCurveSvg, optionCurveSvg } from "../lib/financeFigures";
+import { assaySig, assayValSE, assayPairXY, assayLineSvg } from "../lib/assayFormat";
 import { renderStructure, resolveStructure, lookupSmiles, typesetHill, nameForIdcode, StructureResult } from "../lib/structures";
 import { computeProperties, PhysChemProperties, RuleResult } from "../lib/properties";
 import { predictPka, PkaResult } from "../lib/pka";
@@ -3384,12 +3390,7 @@ async function insertCodeBlock(): Promise<void> {
   insertCodeBtn.disabled = true;
   setStatus("Inserting block…");
   try {
-    await Word.run(async (context) => {
-      const range = context.document.getSelection();
-      const inserted = range.insertHtml(html, Word.InsertLocation.replace);
-      inserted.select(Word.SelectionMode.end);
-      await context.sync();
-    });
+    await docHost.insertAtSelection({ kind: "html", content: html, at: "replace", select: "inserted" });
     setStatus("Block inserted.", "success");
   } catch (error) {
     setStatus(`Could not insert: ${(error as Error).message}`, "error");
@@ -3979,12 +3980,8 @@ async function insertPeriodic(): Promise<void> {
       });
       setStatus(`${item.label} inserted.`, "success");
     } else {
-      await Word.run(async (context) => {
-        const range = context.document.getSelection();
-        const body = [...item.text, "", ...item.notes.map((n) => `Note: ${n}`)].join("\n");
-        range.insertText(body, Word.InsertLocation.after);
-        await context.sync();
-      });
+      const body = [...item.text, "", ...item.notes.map((n) => `Note: ${n}`)].join("\n");
+      await docHost.insertAtSelection({ kind: "text", content: body, at: "after", select: null });
       setStatus(`${item.label} inserted.`, "success");
     }
   } catch (e) {
@@ -4013,33 +4010,11 @@ function isPictureKind(kind: RenderKind): boolean {
  * in their document could not run statistics on it without copying it out.
  */
 async function readTableUnderCursor(): Promise<{ rows: string[][] } | { error: string }> {
-  let out: { rows: string[][] } | { error: string } = {
-    error: "Click anywhere inside a table in your document first, then try again.",
-  };
-  await Word.run(async (context) => {
-    const selection = context.document.getSelection();
-    const tables = selection.tables;
-    tables.load("items");
-    const parent = selection.parentTableOrNullObject;
-    parent.load("isNullObject");
-    await context.sync();
-
-    // A collapsed cursor inside a table reports no tables in the range but
-    // does have a parent table; a dragged selection reports the former.
-    let table: Word.Table | null = tables.items.length ? tables.items[0] : null;
-    if (!table && !parent.isNullObject) table = parent;
-    if (!table) return;
-
-    table.load("values");
-    await context.sync();
-    const rows = cleanTableRows(table.values);
-    if (!rows.length || !rows[0].length) {
-      out = { error: "That table is empty." };
-      return;
-    }
-    out = { rows };
-  });
-  return out;
+  const table = await docHost.readTableUnderCursor();
+  if (!table) return { error: "Click anywhere inside a table in your document first, then try again." };
+  const rows = cleanTableRows(table.values);
+  if (!rows.length || !rows[0].length) return { error: "That table is empty." };
+  return { rows };
 }
 
 async function loadSelectedTable(): Promise<void> {
@@ -4448,11 +4423,7 @@ async function insertBotanicalName(): Promise<void> {
   botNameInsert.disabled = true;
   setStatus("Inserting name…");
   try {
-    await Word.run(async (context) => {
-      const range = context.document.getSelection();
-      range.insertHtml(html, Word.InsertLocation.replace).select(Word.SelectionMode.end);
-      await context.sync();
-    });
+    await docHost.insertAtSelection({ kind: "html", content: html, at: "replace", select: "inserted" });
     setStatus("Name inserted.", "success");
   } catch (error) {
     setStatus(`Could not insert: ${(error as Error).message}`, "error");
@@ -4475,11 +4446,7 @@ async function insertTraitTable(): Promise<void> {
   botTraitsInsert.disabled = true;
   setStatus("Inserting table…");
   try {
-    await Word.run(async (context) => {
-      const range = context.document.getSelection();
-      range.insertHtml(html, Word.InsertLocation.replace).select(Word.SelectionMode.end);
-      await context.sync();
-    });
+    await docHost.insertAtSelection({ kind: "html", content: html, at: "replace", select: "inserted" });
     setStatus("Characteristics table inserted.", "success");
   } catch (error) {
     setStatus(`Could not insert: ${(error as Error).message}`, "error");
@@ -5062,12 +5029,7 @@ async function insertFormattedText(text: string): Promise<void> {
   insertBtn.disabled = true;
 
   try {
-    await Word.run(async (context) => {
-      const range = context.document.getSelection();
-      const inserted = range.insertHtml(html, Word.InsertLocation.replace);
-      inserted.select(Word.SelectionMode.end);
-      await context.sync();
-    });
+    await docHost.insertAtSelection({ kind: "html", content: html, at: "replace", select: "inserted" });
     setStatus("Inserted.", "success");
     recordInsert(currentMode() as HistoryKind, text, text);
   } catch (error) {
@@ -5096,12 +5058,7 @@ async function insertEquation(text: string): Promise<boolean> {
   insertBtn.disabled = true;
   setStatus("Inserting equation…");
   try {
-    await Word.run(async (context) => {
-      const range = context.document.getSelection();
-      const inserted = range.insertOoxml(ooxml, Word.InsertLocation.replace);
-      await context.sync();
-      await tagInserted(context, inserted, "formula-inserter:equation");
-    });
+    await docHost.insertAtSelection({ kind: "ooxml", content: ooxml, at: "replace", select: null, tag: "formula-inserter:equation" });
     if (numbered) {
       nextFormulaNumber(); // consume the number now that it's placed
       updateNumberLabel();
@@ -5978,12 +5935,12 @@ async function insertCallout(idx: number): Promise<void> {
   }
   const text = formatCallout(entry.element, entry.numeral, numParensCheckbox.checked);
   try {
-    await Word.run(async (context) => {
-      const range = context.document.getSelection();
-      const inserted = range.insertText(text, Word.InsertLocation.replace);
-      inserted.select(Word.SelectionMode.end);
-      await context.sync();
-      await tagInserted(context, inserted, `formula-inserter:callout:${entry.numeral}`);
+    await docHost.insertAtSelection({
+      kind: "text",
+      content: text,
+      at: "replace",
+      select: "inserted",
+      tag: `formula-inserter:callout:${entry.numeral}`,
     });
     setStatus(`Inserted “${text}”.`, "success");
   } catch (error) {
@@ -5996,15 +5953,11 @@ async function scanDocumentNumerals(): Promise<void> {
   numScanBtn.disabled = true;
   setStatus("Scanning document…");
   try {
-    await Word.run(async (context) => {
-      const body = context.document.body;
-      body.load("text");
-      await context.sync();
-      // The table bounds what counts as a callout: a citation year or a
-      // list marker far outside the numbering range is not one.
-      const docNumerals = extractNumerals(body.text, numeralEntries.map((e) => e.numeral));
-      renderNumeralFindings(reconcileNumerals(numeralEntries, docNumerals, body.text), docNumerals.length);
-    });
+    const bodyText = await docHost.readBodyText();
+    // The table bounds what counts as a callout: a citation year or a
+    // list marker far outside the numbering range is not one.
+    const docNumerals = extractNumerals(bodyText, numeralEntries.map((e) => e.numeral));
+    renderNumeralFindings(reconcileNumerals(numeralEntries, docNumerals, bodyText), docNumerals.length);
     setStatus("Scan complete.", "success");
   } catch (error) {
     setStatus(`Could not scan the document: ${(error as Error).message}`, "error");
@@ -6072,19 +6025,7 @@ async function insertNumeralList(): Promise<void> {
   numInsertListBtn.disabled = true;
   setStatus("Inserting list…");
   try {
-    await Word.run(async (context) => {
-      const sel = context.document.getSelection();
-      const heading = sel.insertParagraph(NUMERAL_LIST_HEADING, Word.InsertLocation.before);
-      try {
-        heading.styleBuiltIn = Word.BuiltInStyleName.heading2;
-      } catch {
-        // Style not available on this build — leave default paragraph styling.
-      }
-      const tablePara = sel.insertParagraph("", Word.InsertLocation.before);
-      const tableRange = tablePara.getRange().insertHtml(html, Word.InsertLocation.replace);
-      await context.sync();
-      await tagInserted(context, tableRange, "formula-inserter:numeral-list");
-    });
+    await docHost.insertHeadedBlockBefore({ heading: NUMERAL_LIST_HEADING, html, tag: "formula-inserter:numeral-list" });
     setStatus("List of Reference Numerals inserted.", "success");
   } catch (error) {
     setStatus(`Could not insert the list: ${(error as Error).message}`, "error");
@@ -6393,12 +6334,7 @@ async function insertAlignmentText(): Promise<void> {
     const html =
       `<pre style="font-family:Consolas,'Courier New',monospace;font-size:9pt;` +
       `white-space:pre;margin:0">${esc(currentAlignText)}</pre>`;
-    await Word.run(async (context) => {
-      const range = context.document.getSelection();
-      range.insertHtml(html, Word.InsertLocation.replace);
-      range.select(Word.SelectionMode.end);
-      await context.sync();
-    });
+    await docHost.insertAtSelection({ kind: "html", content: html, at: "replace", select: "selection" });
     setStatus("Alignment inserted.", "success");
   } catch (e) {
     setStatus(`Could not insert the alignment: ${(e as Error).message}`, "error");
@@ -6478,17 +6414,12 @@ async function insertPlainText(text: string, label: string): Promise<boolean> {
   insertTextBusy = true;
   setStatus(`Inserting ${label.toLowerCase()}…`);
   try {
-    await Word.run(async (context) => {
-      const range = context.document.getSelection();
-      // AFTER, not replace. This is the insert path for mass spec, spectra,
-      // properties, stats, finance, assay, solve, analyze, cross-references and
-      // SEQ ID refs, and it used to overwrite whatever the user had selected —
-      // every other insert in the product appends. Losing a selected word to a
-      // button labelled "Insert" is not a trade anyone agreed to.
-      range.insertText(text, Word.InsertLocation.after);
-      range.select(Word.SelectionMode.end);
-      await context.sync();
-    });
+    // AFTER, not replace. This is the insert path for mass spec, spectra,
+    // properties, stats, finance, assay, solve, analyze, cross-references and
+    // SEQ ID refs, and it used to overwrite whatever the user had selected —
+    // every other insert in the product appends. Losing a selected word to a
+    // button labelled "Insert" is not a trade anyone agreed to.
+    await docHost.insertAtSelection({ kind: "text", content: text, at: "after", select: "selection" });
     setStatus(`${label} inserted. Ctrl/⌘+Z undoes it.`, "success");
     return true;
   } catch (error) {
@@ -6517,14 +6448,8 @@ async function insertDerivation(blocks: DerivationBlock[], plain: string, label:
   setStatus(`Inserting ${label.toLowerCase()}…`);
   try {
     const ooxml = buildDerivationOoxml(blocks);
-    await Word.run(async (context) => {
-      const range = context.document.getSelection();
-      // AFTER, matching every other insert path — never overwrite a selection.
-      const inserted = range.insertOoxml(ooxml, Word.InsertLocation.after);
-      range.select(Word.SelectionMode.end);
-      await context.sync();
-      await tagInserted(context, inserted, "formula-inserter:solution");
-    });
+    // AFTER, matching every other insert path — never overwrite a selection.
+    await docHost.insertAtSelection({ kind: "ooxml", content: ooxml, at: "after", select: "selection", tag: "formula-inserter:solution" });
     // "more than once": the content flushes, then tagInserted() commits the
     // tracking content control in a SECOND flush, so one Ctrl+Z strips the tag
     // and leaves the equations behind. Promising single-step undo was wrong.
@@ -6625,13 +6550,7 @@ async function insertOrfTable(): Promise<void> {
   dnaOrfInsert.disabled = true;
   setStatus("Inserting ORF table…");
   try {
-    await Word.run(async (context) => {
-      const range = context.document.getSelection();
-      const inserted = range.insertHtml(html, Word.InsertLocation.replace);
-      inserted.select(Word.SelectionMode.end);
-      await context.sync();
-      await tagInserted(context, inserted, "formula-inserter:orf-table");
-    });
+    await docHost.insertAtSelection({ kind: "html", content: html, at: "replace", select: "inserted", tag: "formula-inserter:orf-table" });
     setStatus("ORF table inserted.", "success");
   } catch (error) {
     setStatus(`Could not insert the ORF table: ${(error as Error).message}`, "error");
@@ -6836,17 +6755,13 @@ async function runAudit(): Promise<void> {
   auditRunBtn.disabled = true;
   setStatus("Checking the application…");
   try {
-    await Word.run(async (context) => {
-      const body = context.document.body;
-      body.load("text");
-      await context.sync();
-      const report = auditDocument({
-        documentText: body.text,
-        numerals: numeralEntries,
-        listingCount: readSequenceEntries().length,
-      });
-      renderAuditReport(report);
+    const bodyText = await docHost.readBodyText();
+    const report = auditDocument({
+      documentText: bodyText,
+      numerals: numeralEntries,
+      listingCount: readSequenceEntries().length,
     });
+    renderAuditReport(report);
     setStatus("Audit complete.", "success");
   } catch (error) {
     setStatus(`Could not run the audit: ${(error as Error).message}`, "error");
@@ -6943,13 +6858,7 @@ async function insertQuantity(): Promise<void> {
   unitInsertBtn.disabled = true;
   setStatus("Inserting quantity…");
   try {
-    await Word.run(async (context) => {
-      const range = context.document.getSelection();
-      const inserted = range.insertHtml(html, Word.InsertLocation.replace);
-      inserted.select(Word.SelectionMode.end);
-      await context.sync();
-      await tagInserted(context, inserted, "formula-inserter:quantity");
-    });
+    await docHost.insertAtSelection({ kind: "html", content: html, at: "replace", select: "inserted", tag: "formula-inserter:quantity" });
     setStatus("Quantity inserted.", "success");
   } catch (error) {
     setStatus(`Could not insert quantity: ${(error as Error).message}`, "error");
@@ -7002,12 +6911,12 @@ async function insertConversion(): Promise<void> {
   convInsertBtn.disabled = true;
   setStatus("Inserting result…");
   try {
-    await Word.run(async (context) => {
-      const range = context.document.getSelection();
-      const inserted = range.insertHtml(currentConvHtml, Word.InsertLocation.replace);
-      inserted.select(Word.SelectionMode.end);
-      await context.sync();
-      await tagInserted(context, inserted, "formula-inserter:quantity");
+    await docHost.insertAtSelection({
+      kind: "html",
+      content: currentConvHtml,
+      at: "replace",
+      select: "inserted",
+      tag: "formula-inserter:quantity",
     });
     setStatus("Result inserted.", "success");
   } catch (error) {
@@ -7068,18 +6977,7 @@ async function insertCaption(): Promise<void> {
   refInsertCaption.disabled = true;
   setStatus("Inserting caption…");
   try {
-    await Word.run(async (context) => {
-      const sel = context.document.getSelection();
-      const para = sel.insertParagraph(text, Word.InsertLocation.after);
-      try {
-        para.styleBuiltIn = Word.BuiltInStyleName.caption;
-      } catch {
-        // Caption style unavailable on this build — leave default styling.
-      }
-      para.getRange().select(Word.SelectionMode.end);
-      await context.sync();
-      await tagInserted(context, para.getRange(), `formula-inserter:caption:${kind}`);
-    });
+    await docHost.insertCaptionParagraph({ text, tag: `formula-inserter:caption:${kind}` });
     refCounters[kind] = n + 1;
     saveRefCounters();
     updateRefNext();
@@ -7109,12 +7007,8 @@ async function checkCaptionsHandler(): Promise<void> {
   refCheck.disabled = true;
   setStatus("Checking captions…");
   try {
-    await Word.run(async (context) => {
-      const body = context.document.body;
-      body.load("text");
-      await context.sync();
-      renderRefFindings(checkCaptions(body.text, "figure"), checkCaptions(body.text, "table"));
-    });
+    const bodyText = await docHost.readBodyText();
+    renderRefFindings(checkCaptions(bodyText, "figure"), checkCaptions(bodyText, "table"));
     setStatus("Check complete.", "success");
   } catch (error) {
     setStatus(`Could not check captions: ${(error as Error).message}`, "error");
@@ -7256,26 +7150,21 @@ async function previewParagraphNumbers(): Promise<void> {
   paraApplyBtn.disabled = true;
   paraFindings.textContent = "Reading the document…";
   try {
-    await Word.run(async (context) => {
-      const paras = context.document.body.paragraphs;
-      paras.load("items/text");
-      await context.sync();
-      const texts = paras.items.map((p) => p.text);
-      const plan = planParagraphNumbering(texts, {
-        start: Number(paraStart.value) || 1,
-        renumber: paraRenumber.checked,
-      });
-      paraFindings.textContent = describeParagraphPlan(plan);
-      // A collision would put two identical numbers in a filed specification.
-      // Refuse to apply rather than letting the user click past the warning.
-      if (plan.collisions.length) {
-        paraApplyBtn.disabled = true;
-        currentParaPlan = null;
-      } else if (plan.numbered > 0) {
-        currentParaPlan = plan;
-        paraApplyBtn.disabled = false;
-      }
+    const texts = await docHost.readParagraphTexts();
+    const plan = planParagraphNumbering(texts, {
+      start: Number(paraStart.value) || 1,
+      renumber: paraRenumber.checked,
     });
+    paraFindings.textContent = describeParagraphPlan(plan);
+    // A collision would put two identical numbers in a filed specification.
+    // Refuse to apply rather than letting the user click past the warning.
+    if (plan.collisions.length) {
+      paraApplyBtn.disabled = true;
+      currentParaPlan = null;
+    } else if (plan.numbered > 0) {
+      currentParaPlan = plan;
+      paraApplyBtn.disabled = false;
+    }
   } catch (e) {
     // Deliberately not Word's raw exception text: it is not actionable, and
     // leaking it is a defect the evaluation already logged elsewhere.
@@ -7399,237 +7288,12 @@ interface FinCalc {
   assumes?: string;
 }
 
-function finMoney(x: number): string {
-  if (!Number.isFinite(x)) return "—";
-  return x.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
-function finPct(x: number): string {
-  // Same non-finite guard as finMoney. Without it, a constant return series
-  // (sharpeRatio divides by a zero standard deviation) rendered "NaN%", and the
-  // insertability gate below only blocked on the em dash — so "Sharpe ratio NaN"
-  // went into the user's document as though it were a number.
-  if (!Number.isFinite(x)) return "—";
-  return (x * 100).toFixed(2) + "%";
-}
-/** Fixed-decimal formatting that cannot emit "NaN" or "Infinity". */
-function finFixed(x: number, dp: number): string {
-  if (!Number.isFinite(x)) return "—";
-  return x.toFixed(dp);
-}
 function finList(s: string): number[] {
   return s
     .split(/[\s,;]+/)
     .filter(Boolean)
     .map(Number)
     .filter((n) => !Number.isNaN(n));
-}
-
-/**
- * A money-over-time curve: one point per period, drawn from a closed-form
- * valuation the caller supplies.
- *
- * WHY A HELPER. Six Finance calculators answer "what is this worth after n
- * periods", and the picture that makes each of them useful is the same one —
- * the path, not just the endpoint. Compounding is the case in point: "Amount =
- * 1,647" gives no sense that the curve bends, and the bend is the entire
- * subject. A shared builder also means these six cannot drift into drawing the
- * same idea six slightly different ways.
- *
- * THE PERIOD COUNT IS A USER NUMBER, so it is clamped. A pane that recomputes
- * on every keystroke and is asked for 1e9 periods is a frozen Word, not a slow
- * chart; and past a couple of hundred points the curve gains nothing a reader
- * can see. `valueAt` is called per point rather than the result being scaled,
- * so the curve is the engine's own arithmetic at every step.
- */
-function moneyOverTimeSvg(o: {
-  periods: number;
-  valueAt: (k: number) => number;
-  title: string;
-  xlabel: string;
-  ylabel?: string;
-  label?: string;
-}): string | undefined {
-  // THE EXACT FINAL PERIOD, NOT ITS FLOOR. Flooring meant the curve stopped
-  // short of the printed answer whenever the horizon was fractional — and on
-  // straight-line depreciation over 7.5 years it stopped at a book value of
-  // 1,600 directly beneath a sentence saying the book value reaches salvage at
-  // the end of the useful life. The figure denied the prose beside it.
-  const end = o.periods;
-  if (!Number.isFinite(end) || !(end > 0)) return undefined;
-  const CAP = 200;
-  const whole = Math.floor(end);
-  const stride = Math.max(1, Math.ceil(whole / Math.min(Math.max(whole, 1), CAP)));
-  const pts: Point[] = [];
-  for (let k = 0; k <= whole; k += stride) {
-    const y = o.valueAt(k);
-    if (Number.isFinite(y)) pts.push({ x: k, y });
-  }
-  // Land on the real end, whether or not it is a whole period.
-  if (!pts.length || pts[pts.length - 1].x !== end) {
-    const y = o.valueAt(end);
-    if (Number.isFinite(y)) pts.push({ x: end, y });
-  }
-  if (pts.length < 2) return undefined;
-  return buildPlotSvg(
-    [{ points: pts, type: "line", color: "#2563eb", label: o.label ?? "value" }],
-    {
-      width: 360,
-      height: 240,
-      title: o.title,
-      xlabel: o.xlabel,
-      ylabel: o.ylabel ?? "amount",
-    },
-  );
-}
-
-/**
- * A discounted cash-flow ledger: what each flow contributes in today's money,
- * with the resulting total as the last bar.
- *
- * THE DISCOUNTED BARS, NOT THE RAW FLOWS. The raw numbers are already on the
- * user's screen — they typed them. What the calculation adds is how much each
- * one is actually WORTH once discounting is applied, and the shrinking of the
- * later bars is the finding: a project carried by year-eight cash is a very
- * different proposition from one carried by year-one cash, and both can share
- * an NPV.
- *
- * `ladderSvg` keeps the result row whatever the row cap does, so the bottom
- * line of the ledger can never be the thing that gets sliced off.
- */
-function cashFlowLadderSvg(
-  flows: number[],
-  discounted: number[],
-  title: string,
-  opts: { resultLabel?: string; firstPeriod?: number } = {},
-): string | undefined {
-  if (!flows.length || flows.length !== discounted.length) return undefined;
-  if (!discounted.every((v) => Number.isFinite(v))) return undefined;
-  const total = discounted.reduce((a, v) => a + v, 0);
-  if (!Number.isFinite(total)) return undefined;
-
-  // THE FIRST PERIOD IS A PARAMETER, because it is not the same for every
-  // caller. NPV and IRR take `cf[0]` as the t=0 flow; DCF's own field says
-  // "Cash flows (t=1 first)" and its engine discounts flow k at exponent k+1.
-  // Hardcoding `t=${k}` labelled every DCF bar one period early — the figure
-  // agreed with the arithmetic and lied about the dates.
-  const t0 = opts.firstPeriod ?? 0;
-
-  // AND THE ROWS ARE CAPPED HERE, VISIBLY, rather than left to ladderSvg's
-  // silent slice at ten. That cap drops the tenth flow onward with no ellipsis
-  // and no note, while the total keeps summing all of them — so an eleven-flow
-  // project drew nine bars ending at -105 above a total bar sitting at zero.
-  // A waterfall whose bars do not reach its own total is worse than no
-  // waterfall: it looks like an arithmetic error in the product.
-  const ROOM = 8;
-  const rows: LadderRow[] = [];
-  if (discounted.length <= ROOM + 1) {
-    discounted.forEach((v, k) => rows.push({ name: `t=${t0 + k}`, delta: v, gain: v >= 0 }));
-  } else {
-    discounted.slice(0, ROOM).forEach((v, k) => rows.push({ name: `t=${t0 + k}`, delta: v, gain: v >= 0 }));
-    const restFrom = t0 + ROOM;
-    const restTo = t0 + discounted.length - 1;
-    const rest = discounted.slice(ROOM).reduce((a, v) => a + v, 0);
-    rows.push({ name: `t=${restFrom}..${restTo}`, delta: rest, gain: rest >= 0 });
-  }
-  rows.push({
-    name: opts.resultLabel ?? "total",
-    delta: total,
-    gain: total >= 0,
-    result: true,
-  });
-  return ladderSvg(rows, { title, axisLabel: "present value", fmt: (v) => finMoney(v) });
-}
-
-/**
- * Price against yield — the curve every bond calculator is really about.
- *
- * A price is one point on it, and the point tells you nothing about the two
- * things that matter: that the relationship is INVERSE (a fact people
- * reliably get backwards) and that it is CONVEX, so a fall in yield helps more
- * than the same rise hurts. Duration and convexity are numerical summaries of
- * this shape; drawing it makes them legible.
- *
- * The yield window is a fixed span around the quoted yield rather than
- * anything derived from an unbounded user number, and the engine is re-called
- * per point rather than the price being scaled by an approximation.
- */
-function bondPriceCurveSvg(o: {
-  face: number;
-  coupon: number;
-  ytm: number;
-  years: number;
-  freq: number;
-  price: number;
-}): string | undefined {
-  if (![o.face, o.coupon, o.ytm, o.years, o.freq, o.price].every(Number.isFinite)) return undefined;
-  // WHOLE COUPON PERIODS, because `bondPrice` refuses a partial one and returns
-  // NaN. `bondYTM` already rounds internally, so a 10.25-year bond solved
-  // against 10.5 years produced a perfectly good yield and then a curve of
-  // sixty NaNs — no figure at all, and nothing said why.
-  const years = o.freq > 0 ? Math.round(o.years * o.freq) / o.freq : o.years;
-  // THE WINDOW IS CENTRED ON THE QUOTED YIELD AND NOT CLAMPED AT ZERO. Clamping
-  // `lo` while leaving the marked point at the real yield put the point outside
-  // the curve entirely for a negative-yielding bond, which is an ordinary
-  // instrument rather than a corner case.
-  const lo = o.ytm - 0.05;
-  const hi = o.ytm + 0.05;
-  const pts: Point[] = [];
-  for (let k = 0; k <= 60; k++) {
-    const y = lo + ((hi - lo) * k) / 60;
-    const v = bondPrice(o.face, o.coupon, y, years, o.freq);
-    if (Number.isFinite(v)) pts.push({ x: y * 100, y: v });
-  }
-  if (pts.length < 2) return undefined;
-  return buildPlotSvg(
-    [
-      { points: pts, type: "line", color: "#2563eb", label: "price" },
-      { points: [{ x: o.ytm * 100, y: o.price }], type: "scatter", color: "#b91c1c", label: "this bond" },
-    ],
-    { width: 360, height: 240, title: "Price against yield", xlabel: "yield to maturity (%)", ylabel: "price" },
-  );
-}
-
-/**
- * Option value against the underlying price, with the position marked.
- *
- * A Black-Scholes price is one point on a curve whose SHAPE is the whole
- * subject: how far the option is from the money, how much of its value is
- * intrinsic versus time value, and how sharply the payoff turns. The intrinsic
- * line is drawn alongside so the gap between the two IS the time value — the
- * quantity people ask about and no single number shows.
- *
- * The spot window is a fixed proportion of the strike, so no user number
- * becomes a loop bound, and the engine is re-called per point.
- */
-function optionCurveSvg(o: {
-  type: OptionType;
-  s: number;
-  k: number;
-  t: number;
-  r: number;
-  sig: number;
-  price: number;
-}): string | undefined {
-  if (![o.s, o.k, o.t, o.r, o.sig, o.price].every(Number.isFinite) || !(o.k > 0)) return undefined;
-  const lo = o.k * 0.5;
-  const hi = o.k * 1.5;
-  const value: Point[] = [];
-  const intrinsic: Point[] = [];
-  for (let i = 0; i <= 60; i++) {
-    const x = lo + ((hi - lo) * i) / 60;
-    const v = blackScholes(o.type, x, o.k, o.t, o.r, o.sig);
-    if (Number.isFinite(v)) value.push({ x, y: v });
-    intrinsic.push({ x, y: o.type === "call" ? Math.max(0, x - o.k) : Math.max(0, o.k - x) });
-  }
-  if (value.length < 2) return undefined;
-  return buildPlotSvg(
-    [
-      { points: value, type: "line", color: "#2563eb", label: "option value" },
-      { points: intrinsic, type: "line", color: "#6b7280", label: "intrinsic" },
-      { points: [{ x: o.s, y: o.price }], type: "scatter", color: "#b91c1c", label: "this option" },
-    ],
-    { width: 380, height: 250, title: "Value against the underlying", xlabel: "spot price", ylabel: "option value" },
-  );
 }
 
 const FIN_CALCS: FinCalc[] = [
@@ -29483,13 +29147,7 @@ async function insertSpectrumResult(): Promise<void> {
   specInsertBtn.disabled = true;
   setStatus("Inserting spectrum data…");
   try {
-    await Word.run(async (context) => {
-      const range = context.document.getSelection();
-      const inserted = range.insertHtml(html, Word.InsertLocation.after);
-      range.select(Word.SelectionMode.end);
-      await context.sync();
-      await tagInserted(context, inserted, "formula-inserter:spectrum-data");
-    });
+    await docHost.insertAtSelection({ kind: "html", content: html, at: "after", select: "selection", tag: "formula-inserter:spectrum-data" });
     setStatus("Spectrum data inserted.", "success");
   } catch (error) {
     setStatus(`Could not insert spectrum data: ${(error as Error).message}`, "error");
@@ -31912,74 +31570,6 @@ function assayList(s: string): number[] {
     .map(Number)
     .filter((n) => !Number.isNaN(n));
 }
-/** Formats to `sig` significant figures without trailing-zero noise. */
-function assaySig(x: number, sig = 4): string {
-  if (!Number.isFinite(x)) return "—";
-  if (x === 0) return "0";
-  return Number(x.toPrecision(sig)).toString();
-}
-/** "value ± se", dropping the ± part when the standard error is unavailable. */
-function assayValSE(val: number, se: number): string {
-  return Number.isFinite(se) ? `${assaySig(val)} ± ${assaySig(se, 2)}` : assaySig(val);
-}
-/** Pairs two equal-length lists into plot points, or null if they can't fit. */
-function assayPairXY(xs: number[], ys: number[], minPts: number): Point[] | null {
-  if (xs.length < minPts || xs.length !== ys.length) return null;
-  return xs.map((x, i) => ({ x, y: ys[i] }));
-}
-
-/**
- * A proportional law drawn as a line, with the user's own measurement on it.
- *
- * Shared by the assays that are a single multiplication — Beer-Lambert, A260
- * nucleic acid, and anything else of the form y = slope·x. The value of the
- * picture is not the number, which is already printed beside it, but WHERE the
- * measurement sits: an absorbance up at 2 is off the linear range of most
- * instruments and one at 0.005 is in the noise, and neither is visible from
- * "c = 1e-4 M".
- *
- * The line is the USER'S calibration (their ε, their path length, their
- * dilution), not a generic illustration — so what is drawn is the assumption
- * their number rests on.
- *
- * The window is anchored on the measurement itself and clamped, because it is
- * built from a user number: an absorbance of 1e300 must not produce a sweep
- * that never returns. A non-finite slope or point draws nothing rather than a
- * misleading straight line through the origin.
- */
-function assayLineSvg(o: {
-  slope: number;
-  x: number;
-  y: number;
-  xlabel: string;
-  ylabel: string;
-  title: string;
-}): string | undefined {
-  if (!Number.isFinite(o.slope) || !Number.isFinite(o.x) || !Number.isFinite(o.y)) return undefined;
-  // Span a little past the measurement so the point is not on the frame edge.
-  // `Math.abs(o.x) || 1` keeps a zero measurement drawable.
-  const hi = Math.min(1e12, Math.abs(o.x) * 1.6 || 1);
-  const pts: Point[] = [];
-  const N = 60;
-  for (let i = 0; i <= N; i++) {
-    const x = (hi * i) / N;
-    const y = o.slope * x;
-    if (Number.isFinite(y)) pts.push({ x, y });
-  }
-  if (pts.length < 2) return undefined;
-  const series: Series[] = [
-    { points: pts, type: "line", color: "#2563eb", label: "the law" },
-    { points: [{ x: o.x, y: o.y }], type: "scatter", color: "#b91c1c", label: "your reading" },
-  ];
-  return buildPlotSvg(series, {
-    width: 360,
-    height: 240,
-    title: o.title,
-    xlabel: o.xlabel,
-    ylabel: o.ylabel,
-  });
-}
-
 const ASSAY_CALCS: AssayCalc[] = [
   {
     id: "mm",
@@ -33243,13 +32833,7 @@ async function insertCitation(): Promise<void> {
   citeInsertBtn.disabled = true;
   setStatus("Inserting citation…");
   try {
-    await Word.run(async (context) => {
-      const range = context.document.getSelection();
-      const inserted = range.insertHtml(html, Word.InsertLocation.replace);
-      inserted.select(Word.SelectionMode.end);
-      await context.sync();
-      await tagInserted(context, inserted, "formula-inserter:citation");
-    });
+    await docHost.insertAtSelection({ kind: "html", content: html, at: "replace", select: "inserted", tag: "formula-inserter:citation" });
     setStatus("Citation inserted.", "success");
   } catch (error) {
     setStatus(`Could not insert citation: ${(error as Error).message}`, "error");
@@ -33634,29 +33218,25 @@ async function findCitationsHandler(): Promise<void> {
   toaFindBtn.disabled = true;
   setStatus("Scanning document for citations…");
   try {
-    await Word.run(async (context) => {
-      const body = context.document.body;
-      body.load("text");
-      await context.sync();
-      const reg = citationRegister(body.text);
-      if (!reg.authorities) {
-        toaRegister.textContent = "No citations found in the document.";
-        toaCopyRegisterBtn.style.display = "none";
-        setStatus("No citations found.", "");
-        return;
-      }
-      // Page numbers, if a native TOA has already been built and updated (F9).
-      const pages = parseToaPages(body.text);
-      lastRegisterText = registerToText(reg, pages);
-      toaRegister.textContent = lastRegisterText;
-      toaCopyRegisterBtn.style.display = "";
-      const rep = reg.repeated.length;
-      setStatus(
-        `Found ${reg.authorities} authorities in ${reg.citations} citations` +
-          (rep ? `; ${rep} cited more than once.` : "."),
-        "success"
-      );
-    });
+    const bodyText = await docHost.readBodyText();
+    const reg = citationRegister(bodyText);
+    if (!reg.authorities) {
+      toaRegister.textContent = "No citations found in the document.";
+      toaCopyRegisterBtn.style.display = "none";
+      setStatus("No citations found.", "");
+      return;
+    }
+    // Page numbers, if a native TOA has already been built and updated (F9).
+    const pages = parseToaPages(bodyText);
+    lastRegisterText = registerToText(reg, pages);
+    toaRegister.textContent = lastRegisterText;
+    toaCopyRegisterBtn.style.display = "";
+    const rep = reg.repeated.length;
+    setStatus(
+      `Found ${reg.authorities} authorities in ${reg.citations} citations` +
+        (rep ? `; ${rep} cited more than once.` : "."),
+      "success"
+    );
   } catch (error) {
     setStatus(`Could not scan for citations: ${(error as Error).message}`, "error");
   } finally {
@@ -34185,25 +33765,6 @@ async function updateBibliography(forceAll: boolean): Promise<void> {
     lines = [`Could not update the citations: ${(e as Error).message}`];
   }
   bibMsg.textContent = lines.join("\n");
-}
-
-/**
- * Wraps an already-inserted, already-synced range in a hidden, tagged content
- * control so the artifact can be re-found and updated later (e.g. renumbering
- * callouts, refreshing a list). Best-effort and isolated in its own sync: if
- * content controls aren't supported on this build, the inserted content is left
- * exactly as-is. The "hidden" appearance keeps the document visually unchanged.
- */
-async function tagInserted(context: Word.RequestContext, range: Word.Range, tag: string): Promise<void> {
-  try {
-    const cc = range.insertContentControl();
-    cc.tag = tag;
-    cc.title = "JurisLab";
-    cc.appearance = Word.ContentControlAppearance.hidden;
-    await context.sync();
-  } catch {
-    // Content controls unsupported here — the inserted content remains in place.
-  }
 }
 
 /**

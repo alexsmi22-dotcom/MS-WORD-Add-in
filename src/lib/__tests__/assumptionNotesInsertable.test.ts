@@ -23,6 +23,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import { describeAssumptions } from "../diagnostics";
+import { assaySig } from "../assayFormat";
 
 const PANE = fs.readFileSync(path.join(__dirname, "..", "..", "taskpane", "taskpane.ts"), "utf8");
 const EM_DASH = "—";
@@ -79,7 +80,10 @@ describe("prose spliced into a result cannot disable Insert", () => {
   // to "-" and inserted into a document as though it were a number. The dash is
   // made plain only where it is punctuation.
   test("the sentinel survives: assaySig still marks a non-finite value with it", () => {
-    expect(PANE).toContain('if (!Number.isFinite(x)) return "' + EM_DASH + '"');
+    // assaySig moved to lib/assayFormat.ts (v2.144.0), so it is CALLED now.
+    expect(assaySig(NaN)).toBe(EM_DASH);
+    expect(assaySig(Infinity)).toBe(EM_DASH);
+    expect(assaySig(1.23456)).toBe("1.235");
   });
 
   // THERE IS NO "DOES A CALL SITE LAUNDER THE NUMBERS" TEST HERE, and the two

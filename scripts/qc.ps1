@@ -7,8 +7,9 @@
 #    4. Compound vs PubChem       8. Landing-page layout        12. Task-pane id wiring audit
 #   4b. Figure layout            8b. Pane audit (the other     13. Offline delivery
 #   4c. Figure labels                four calculator registries)
+#                                8c. Host trace (every Word call, diffed)
 #
-# (16 Invoke-Step gates — 4c Figure labels added in v2.143.0. This list has now gone stale TWICE — it named eight
+# (17 Invoke-Step gates — 8c Host trace added in v2.144.0, 4c Figure labels in v2.143.0. This list has now gone stale TWICE — it named eight
 # steps for a file that ran eleven, was corrected to twelve, and was left at
 # twelve on the day a thirteenth and fourteenth were added, in the very comment
 # that congratulates itself for catching drift. Count the Invoke-Step lines
@@ -103,6 +104,17 @@ Invoke-Step "Engineering audit"   { node scripts/engineering-audit.js }
 # It carries a per-registry figure ratchet for the chart campaign; raise the
 # baselines in the script as each batch lands.
 Invoke-Step "Pane audit"          { node scripts/pane-audit.js }
+
+# 8c. Host trace — does every insert still make the SAME calls on the document?
+#
+# Records every Word/Office call the real bundle makes, tool by tool, against a
+# populated mock document, and diffs it with scripts/host-trace.golden.txt. It
+# also reports which Word.run sites the drive reached (all of them, or it says
+# so). Built for the host-adapter refactor (docs/SCOPE-HOST-ADAPTER.md), which
+# moves every document batch out of taskpane.ts and must change none of them.
+# A DELIBERATE change to what an insert does needs `--write` and a CHANGELOG
+# line saying why; an accidental one fails here, before it reaches a document.
+Invoke-Step "Host trace"          { node scripts/host-trace.js }
 
 # 4b. Figure layout — do the figures we insert actually READ?
 #

@@ -49,7 +49,8 @@ function writeHarness() {
   // tools as inserting nothing. A harness that is missing a constant reports
   // a product-wide catastrophe, so the enum list is derived from the source
   // rather than remembered.
-  const paneSrc = fs.readFileSync(path.join(ROOT, "src", "taskpane", "taskpane.ts"), "utf8");
+  // The pane AND the host layer it delegates to (scripts/host-sources.js).
+  const paneSrc = require("./host-sources.js").hostSourceText();
   const enums = new Set();
   for (const mm of paneSrc.matchAll(/\bWord\.([A-Z][A-Za-z]*)\.([A-Za-z]+)/g)) {
     enums.add(mm[1] + "." + mm[2]);

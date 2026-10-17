@@ -82,3 +82,20 @@ describe("the large canvas page", () => {
     }
   });
 });
+
+describe("the large canvas keeps the sheet's views (third review)", () => {
+  it("a model with only a FRONT view and a custom angle comes back with exactly those", async () => {
+    const c = Math.SQRT1_2;
+    const rot = [1, 0, 0, 0, c, -c, 0, c, c]; // 45° about X
+    const model = serializeDoc({ ...starterDoc("asme"), views: [{ kind: "front" }, { kind: "orbit", rot, name: "VIEW" }] });
+    const { sent } = await open(`?n0=10&doc=${encodeURIComponent(model)}`);
+    const boxes = Array.from(document.querySelectorAll<HTMLInputElement>("#cad-views input[type=checkbox]")).filter((b) => b.checked).map((b) => b.value);
+    expect(boxes).toEqual(["front", "orbit"]);
+    $<HTMLButtonElement>("cad-use").click();
+    const back = parseDoc(String(sent[0].doc));
+    if (!back.ok) throw new Error(back.reason);
+    expect(back.doc.views.map((v) => v.kind)).toEqual(["front", "orbit"]);
+    const o = back.doc.views[1];
+    expect(o.kind === "orbit" && o.rot).toEqual(rot);
+  });
+});

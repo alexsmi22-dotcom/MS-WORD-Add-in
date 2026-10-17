@@ -200,7 +200,8 @@ export interface DialogHandlers {
    */
   message(arg: unknown, dialog: { close(): void; messageChild(message: string): boolean }): void;
   /** The user closed the dialog window. */
-  closed(): void;
+  /** `code`: Office's event code (12006 = the user closed it; others = the page failed to load). */
+  closed(code?: number): void;
 }
 
 /** What the host can do for figures. Unknown is never "yes". */

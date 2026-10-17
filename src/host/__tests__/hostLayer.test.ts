@@ -494,14 +494,15 @@ describe("Office outside Word.run (v2.146.0)", () => {
     wordHost.openDialog("x.html", { height: 1, width: 1 }, {
       failed: (e) => got.push(`failed:${e?.message}`),
       message: (arg, d) => { got.push(`msg:${(arg as { message: string }).message}`); d.close(); },
-      closed: () => got.push("closed"),
+      closed: (code) => got.push(code === undefined ? "closed" : `closed:${code}`),
     });
     dialogCb!({ status: "failed", error: { message: "blocked" } });
     const dialog = { close: () => got.push("close()"), addEventHandler: (t: string, h: (a?: unknown) => void) => { handlers[t] = h; } };
     dialogCb!({ status: "succeeded", value: dialog });
     handlers.msg({ message: "hi" });
     handlers.evt();
-    expect(got).toEqual(["failed:blocked", "msg:hi", "close()", "closed"]);
+    handlers.evt({ error: 12002 }); // the page failed to load: the code reaches the pane
+    expect(got).toEqual(["failed:blocked", "msg:hi", "close()", "closed", "closed:12002"]);
   });
 });
 

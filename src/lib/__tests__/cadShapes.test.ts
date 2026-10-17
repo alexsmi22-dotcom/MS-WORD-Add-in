@@ -335,3 +335,36 @@ describe("damaged documents the second review found accepted", () => {
     expect(parseDoc(JSON.stringify(d))).toEqual({ ok: false, reason: "two parts in the drawing share one id" });
   });
 });
+
+describe("a callout on a doubly curved part survives an unrelated edit (third review)", () => {
+  it("sphere Ø30 + a far box; callout at a facet centre; delete the box: still drawn", () => {
+    const d: CadDoc = {
+      ...starterDoc("asme"),
+      parts: [
+        { ...part("sphere", { dia: 30 }), id: "ball", name: "ball" },
+        { ...part("box", { w: 20, d: 20, h: 20 }), id: "b", name: "Box", placement: { translate: [300, 0, 0], rotateDeg: [0, 0, 0] } },
+      ],
+    };
+    const mesh = (): Mesh => {
+      const a = docToAssembly(d);
+      if (!a.ok) throw new Error(a.reason);
+      const t = tessellate(a.assembly);
+      if (!t.ok) throw new Error(t.reason);
+      return t.mesh;
+    };
+    const m = mesh();
+    // The centroid of the facet farthest from the true sphere.
+    let best: [number, number, number] = [0, 0, 0], off = -1;
+    for (let t = 0; t < m.triangles.length / 3; t++) {
+      if (m.triBody[t] !== 0) continue;
+      const c = [0, 1, 2].map((k) => (m.positions[3 * m.triangles[3 * t] + k] + m.positions[3 * m.triangles[3 * t + 1] + k] + m.positions[3 * m.triangles[3 * t + 2] + k]) / 3) as [number, number, number];
+      const e = 15 - Math.hypot(...c);
+      if (e > off) [best, off] = [c, e];
+    }
+    d.callouts = [attachCallout(d, 0, best, "3", m)];
+    d.parts.pop();
+    const r = resolveCallouts(d, mesh());
+    expect(r.notes).toEqual([]);
+    expect(r.callouts).toHaveLength(1);
+  });
+});

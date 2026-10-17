@@ -29728,7 +29728,11 @@ function openCadDialog(docJson: string): Promise<{ doc: string; insert: boolean 
         dialog.close();
         done(!data.cancel && typeof data.doc === "string" ? { doc: data.doc, insert: data.insert === true } : null);
       },
-      closed: () => done(null),
+      closed: (code) => {
+        // 12006 is the user closing the window; any other code means the page never ran.
+        if (code !== undefined && code !== 12006) setStatus(`The large canvas could not open (Office error ${code}).`, "error");
+        done(null);
+      },
     });
   });
 }

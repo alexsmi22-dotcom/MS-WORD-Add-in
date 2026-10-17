@@ -271,6 +271,12 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     const std0 = DRAWING_STANDARDS[doc.standard];
     lastSheet = sh.svg ? { svg: sh.svg, w: sh.widthPx, h: sh.heightPx, labels: sh.labels, model: serializeDoc(doc), stdName: std0.name } : null;
     insertBtn.disabled = !sheetCurrent() || inserting;
+    if (!sh.svg) {
+      // Refused (the views or callouts do not fit): the reason, as a warning, and nothing else.
+      msgEl.className = "build-readout warn";
+      msgEl.textContent = [...overlapNotes(doc, mesh), ...placed.notes, ...sh.notes].join(" ");
+      return;
+    }
     const std = DRAWING_STANDARDS[doc.standard];
     msgEl.className = "build-readout";
     msgEl.textContent = [
@@ -551,15 +557,24 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
   );
 
   // Re-open a drawing this canvas inserted: its model travels in the alt text.
-  /** Puts a parsed model on the canvas, the parts list, the views and the sheet. */
-  function loadDoc(d: CadDoc): void {
-    doc = d;
+  /**
+   * Sets every control from the model: standard, hidden lines, the views on the
+   * sheet and the custom view's angle. The pop-out starts here too — it lost the
+   * views when only loadDoc did this (third review).
+   */
+  function controlsFromDoc(): void {
     standardSel.value = doc.standard;
     hiddenSel.value = doc.hidden ?? "";
     const kinds = new Set(doc.views.map((v) => v.kind));
     for (const box of Array.from(viewsEl.querySelectorAll<HTMLInputElement>("input[type=checkbox]"))) box.checked = kinds.has(box.value as never);
     const orbitView = doc.views.find((v) => v.kind === "orbit" && "rot" in v && v.rot);
     if (orbitView && orbitView.kind === "orbit" && orbitView.rot) view = { name: "orbit", rot: orbitView.rot };
+  }
+
+  /** Puts a parsed model on the canvas, the parts list, the views and the sheet. */
+  function loadDoc(d: CadDoc): void {
+    doc = d;
+    controlsFromDoc();
     selected = 0;
     renderParts();
     renderEditor();
@@ -593,7 +608,10 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
   });
 
   async function insertNow(): Promise<void> {
-    if (inserting) return;
+    if (inserting) {
+      host.setStatus("Another insert is still running; press Insert again when it finishes.", "error");
+      return;
+    }
     const problem = docProblem();
     if (problem) {
       host.setStatus(`Fix the drawing first: ${problem}`, "error");
@@ -606,6 +624,7 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     }
     inserting = true;
     insertBtn.disabled = true;
+    if (popBtn) popBtn.disabled = true; // a pop-out returning with Insert would collide with this one
     host.setStatus("Inserting drawing…");
     try {
       const views = sheet.labels.filter(Boolean).join(", ");
@@ -617,6 +636,7 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
       host.setStatus(`Could not insert the drawing: ${(e as Error).message}`, "error");
     } finally {
       inserting = false;
+      if (popBtn) popBtn.disabled = false;
       insertBtn.disabled = !sheetCurrent();
     }
   }
@@ -659,6 +679,7 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
       // The canvas has no size until its section is visible: build on first show.
       if (!shown) {
         shown = true;
+        if (initial) controlsFromDoc();
         renderParts();
         renderEditor();
         renderCallouts();

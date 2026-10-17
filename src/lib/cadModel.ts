@@ -484,10 +484,16 @@ function findCrossings(m: Mesh, nBodies: number, maxTests: number): [number, num
   }
   // Drawable edges by exact endpoint coordinates (a wall shares its rim's computed positions).
   const ck = (p: Vec3): string => `${p[0]},${p[1]},${p[2]}`;
-  const drawn = new Set<string>();
+  // Each drawn edge by its endpoints, to find the drawn edges at a triangle's corners.
+  const drawnAt = new Map<string, Array<[Vec3, Vec3]>>();
   for (const e of m.edges) {
-    const ka = ck(V(e.a)), kb = ck(V(e.b));
-    drawn.add(ka < kb ? `${ka}|${kb}` : `${kb}|${ka}`);
+    const pa = V(e.a), pb = V(e.b);
+    const ka = ck(pa), kb = ck(pb);
+    for (const k of [ka, kb]) {
+      const list = drawnAt.get(k);
+      if (list) list.push([pa, pb]);
+      else drawnAt.set(k, [[pa, pb]]);
+    }
   }
   // Triangles by side (exact endpoint coordinates): walls and caps keep separate
   // vertices with the same positions, so adjacency across a rim is positional.
@@ -537,6 +543,11 @@ function findCrossings(m: Mesh, nBodies: number, maxTests: number): [number, num
        * side of the plane (a crossing that runs along a facet edge); otherwise the
        * surface merely meets the plane there.
        */
+      // Within the two parts' faceting error a surface has not passed through anything: a
+      // pin in its bore, a stepped shaft in a hole of its small diameter, a pin turned in
+      // its bore — their facet corners poke through the coincident wall by up to that error
+      // whatever the facet counts (third review). A real penetration goes far beyond it.
+      const thr = tol + (m.bodySag[A] ?? 0) + (m.bodySag[B] ?? 0);
       const passesThrough = (k: number, tri: Vec3[], other: Vec3[]): boolean => {
         const nn = cross3(sub3(other[1], other[0]), sub3(other[2], other[0]));
         const ln = Math.hypot(...nn);
@@ -544,8 +555,8 @@ function findCrossings(m: Mesh, nBodies: number, maxTests: number): [number, num
         const u: Vec3 = [nn[0] / ln, nn[1] / ln, nn[2] / ln];
         const d0 = dot3(u, other[0]);
         const sd = tri.map((p) => dot3(u, p) - d0);
-        if (sd.some((v) => v > tol) && sd.some((v) => v < -tol)) return true;
-        const on = [0, 1, 2].filter((i) => Math.abs(sd[i]) <= tol);
+        if (sd.some((v) => v > thr) && sd.some((v) => v < -thr)) return true;
+        const on = [0, 1, 2].filter((i) => Math.abs(sd[i]) <= thr);
         if (on.length !== 2) return false;
         const off = 3 - on[0] - on[1];
         const side = Math.sign(sd[off]);
@@ -557,7 +568,7 @@ function findCrossings(m: Mesh, nBodies: number, maxTests: number): [number, num
             const kv = ck(v);
             if (kv === ka || kv === kb) continue;
             const sv = dot3(u, v) - d0;
-            if (Math.abs(sv) > tol && Math.sign(sv) === -side) return true;
+            if (Math.abs(sv) > thr && Math.sign(sv) === -side) return true;
           }
         }
         return false;
@@ -581,7 +592,7 @@ function findCrossings(m: Mesh, nBodies: number, maxTests: number): [number, num
                 // plate, a cone's tip) meet along a line without passing through each
                 // other: not a crossing, not an overlap.
                 if (!passesThrough(s, sa, sb) || !passesThrough(t, sb, sa)) continue;
-                if (alongDrawnEdge(seg, sa, drawn, ck, tol) || alongDrawnEdge(seg, sb, drawn, ck, tol)) continue;
+                if (alongDrawnEdge(seg, sa, drawnAt, ck, tol, thr) || alongDrawnEdge(seg, sb, drawnAt, ck, tol, thr)) continue;
                 crossed = true; // a real crossing, not contact along an edge already drawn
                 const q = (p: Vec3): string => p.map((v) => Math.round(v / (tol * 1000))).join(",");
                 const ka = q(seg[0]), kb = q(seg[1]);
@@ -641,19 +652,27 @@ export function triTriSegment(a: Vec3[], b: Vec3[], tol: number): [Vec3, Vec3] |
   return [at(lo), at(hiS)];
 }
 
-/** Does the segment lie along a side of triangle tri that is a drawn edge? */
-function alongDrawnEdge(seg: [Vec3, Vec3], tri: Vec3[], drawn: Set<string>, ck: (p: Vec3) => string, tol: number): boolean {
-  for (let i = 0; i < 3; i++) {
-    const p = tri[i], q = tri[(i + 1) % 3];
-    const e = sub3(q, p);
-    const L = Math.hypot(...e);
-    if (L <= tol) continue;
-    const onSide = (x: Vec3): boolean => Math.hypot(...cross3(sub3(x, p), e)) / L <= tol * 1000;
-    if (!onSide(seg[0]) || !onSide(seg[1])) continue;
-    const ka = ck(p), kb = ck(q);
-    if (drawn.has(ka < kb ? `${ka}|${kb}` : `${kb}|${ka}`)) return true;
-  }
-  return false;
+/**
+ * Does the segment lie along drawn edges at triangle tri's corners — every point of it
+ * within `near` (the two parts' faceting error) of one of them? Such a crossing is
+ * contact, and the edge is drawn already: a shaft in a hole of its own diameter meets
+ * the plate's face in slivers along the hole's rim, as wide as the facets are wrong,
+ * some running across a cap triangle past a rim corner (third review).
+ */
+function alongDrawnEdge(seg: [Vec3, Vec3], tri: Vec3[], drawnAt: Map<string, Array<[Vec3, Vec3]>>, ck: (p: Vec3) => string, tol: number, near: number): boolean {
+  const edges = tri.flatMap((p) => drawnAt.get(ck(p)) ?? []);
+  if (!edges.length) return false;
+  const lim = Math.max(tol * 1000, near);
+  const nearEdge = (x: Vec3): boolean =>
+    edges.some(([p, q]) => {
+      const e = sub3(q, p);
+      const l2 = dot3(e, e);
+      const t = l2 > 0 ? Math.max(0, Math.min(1, dot3(sub3(x, p), e) / l2)) : 0;
+      const c: Vec3 = [p[0] + t * e[0], p[1] + t * e[1], p[2] + t * e[2]];
+      return Math.hypot(x[0] - c[0], x[1] - c[1], x[2] - c[2]) <= lim;
+    });
+  const mid: Vec3 = [(seg[0][0] + seg[1][0]) / 2, (seg[0][1] + seg[1][1]) / 2, (seg[0][2] + seg[1][2]) / 2];
+  return nearEdge(seg[0]) && nearEdge(seg[1]) && nearEdge(mid);
 }
 
 type Put = (p: Vec3) => number;
@@ -738,7 +757,8 @@ function tessRevolve(spec: Extract<BodySpec, { kind: "revolve" }>, ft: Fineness,
   // size have the same facets.
   const tolTurn = Math.min(ft.tol, rmax * ft.rel);
   const steps = Math.max(24, Math.min(512, 2 * arcSteps(rmax, Math.PI, tolTurn)));
-  ft.sag = Math.max(L.sag, Math.min(tolTurn, rmax));
+  // Doubly curved: a facet's middle can be off by the profile's chord error AND the turn's.
+  ft.sag = L.sag + Math.min(tolTurn, rmax);
   const n = L.points.length;
   const onAxis = (p: Pt2): boolean => Math.abs(p[0]) <= rmax * 1e-9;
   // ring[i][j]: vertex of profile point i at angle step j (one vertex on the axis).

@@ -150,3 +150,31 @@ describe("the large canvas round trip (pane side)", () => {
     expect(t.$<HTMLButtonElement>("cad-open").hidden).toBe(true);
   });
 });
+
+describe("third review: an insert collision is said, and a refused sheet reads as a refusal", () => {
+  it("the large canvas returning with Insert while a pane insert runs: one insert, and the pane says the second did not happen", async () => {
+    let backNow: (v: { doc: string; insert: boolean }) => void = () => undefined;
+    const t = setup({ openLarge: () => new Promise((r) => (backNow = r)) });
+    t.$<HTMLButtonElement>("cad-popout").click(); // the large canvas is open…
+    await flush();
+    t.$<HTMLButtonElement>("cad-insert").click(); // …and the user inserts from the pane under it
+    await flush();
+    backNow({ doc: serializeDoc(starterDoc("iso")), insert: true });
+    await flush();
+    expect(t.inserted).toHaveLength(1);
+    expect(t.host.setStatus).toHaveBeenCalledWith("Another insert is still running; press Insert again when it finishes.", "error");
+  });
+
+  it("a sheet that cannot hold its callouts: the reason as a warning, no scale line, Insert off", () => {
+    const d: CadDoc = {
+      ...starterDoc("uspto"),
+      parts: [{ id: "b", name: "Block", shape: "box", params: { w: 40, d: 30, h: 10 }, placement: { translate: [0, 0, 0], rotateDeg: [0, 0, 0] } }],
+      callouts: Array.from({ length: 40 }, (_, i) => ({ anchor: [40, 1 + (28 * i) / 40, 10] as [number, number, number], label: String(10 + 2 * i) })),
+    };
+    const t = setup({}, d);
+    const msg = t.$<HTMLElement>("cad-msg");
+    expect(msg.className).toContain("warn");
+    expect(msg.textContent).toMatch(/^\d+ callouts beside one view do not fit on the sheet/);
+    expect(t.$<HTMLButtonElement>("cad-insert").disabled).toBe(true);
+  });
+});

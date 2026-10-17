@@ -379,3 +379,34 @@ describe("a bullet nose (cylinder + hemisphere, revolved) from above: its outlin
     expect(length(d.visible)).toBeCloseTo(2 * Math.PI, 1);
   });
 });
+
+describe("coincident walls within the faceting error are contact, whatever the facet counts (third review)", () => {
+  it.each([6, 8, 10, 12, 16, 20])("the catalogue stepped shaft through a Ø%i hole of its small diameter (and 0.02 under): no overlap", async (hd) => {
+    const { SHAPES } = await import("../cadShapes");
+    const plate: BodySpec = { kind: "extrude", profile: { outer: rectLoop(0, 0, 80, 50), holes: [circleLoop(40, 25, hd / 2, true)] }, depth: 8 };
+    for (const d2 of [hd, hd - 0.02]) {
+      const shaft = SHAPES.shaft.build({ d1: hd * 2, l1: 10, d2, l2: 30 });
+      // Large step below the plate, the small step up through the hole.
+      const m = meshOf(asm(body(plate), body(shaft, { translate: [40, 25, -10], rotateDeg: [0, 0, 0] })));
+      expect({ hd, d2, overlaps: m.overlaps }).toEqual({ hd, d2, overlaps: [] });
+    }
+  });
+  it.each([
+    [21.1, 21.08],
+    [25.54, 25.52],
+  ])("a large near-equal fit (hole r %p, pin r %p in a 100 mm plate): no overlap", (rh, rp) => {
+    const plate: BodySpec = { kind: "extrude", profile: { outer: rectLoop(0, 0, 100, 100), holes: [circleLoop(50, 50, rh, true)] }, depth: 10 };
+    const m = meshOf(asm(body(plate), body(cylinder(rp, 30), { translate: [50, 50, -10], rotateDeg: [0, 0, 0] })));
+    expect(m.overlaps).toEqual([]);
+  });
+  it("an exact pin turned 7° about its own axis in its bore: no overlap", () => {
+    const bore: BodySpec = { kind: "extrude", profile: { outer: rectLoop(-20, -15, 40, 30), holes: [circleLoop(0, 0, 5, true)] }, depth: 10 };
+    const m = meshOf(asm(body(bore), body(cylinder(5, 30), { translate: [0, 0, -10], rotateDeg: [0, 0, 7] })));
+    expect(m.overlaps).toEqual([]);
+  });
+  it("…and a 0.5 mm interference still overlaps", () => {
+    const bore: BodySpec = { kind: "extrude", profile: { outer: rectLoop(-20, -15, 40, 30), holes: [circleLoop(0, 0, 5, true)] }, depth: 10 };
+    const m = meshOf(asm(body(bore), body(cylinder(5.5, 30), { translate: [0, 0, -10], rotateDeg: [0, 0, 0] })));
+    expect(m.overlaps).toEqual([[0, 1]]);
+  });
+});

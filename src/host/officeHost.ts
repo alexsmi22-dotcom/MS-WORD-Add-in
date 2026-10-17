@@ -56,6 +56,6 @@ export function openDialog(url: string, opts: { height: number; width: number },
     };
     dialog.addEventHandler(Office.EventType.DialogMessageReceived, (arg) => h.message(arg, handle));
     // The user closing the dialog window (X) arrives here.
-    dialog.addEventHandler(Office.EventType.DialogEventReceived, () => h.closed());
+    dialog.addEventHandler(Office.EventType.DialogEventReceived, (arg) => h.closed((arg as { error?: number } | undefined)?.error));
   });
 }

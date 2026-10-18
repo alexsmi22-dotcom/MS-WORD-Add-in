@@ -22,11 +22,12 @@ import {
   describe,
   DIMENSION_KINDS,
 } from "./sketch";
+import { polygon, slot, centreRectangle, arc3, trim } from "./sketchTools";
 
 /** A relation or dimension before it has an id (distributive, unlike Omit on a union). */
 export type ConstraintSpec = SConstraint extends infer T ? (T extends unknown ? Omit<T, "id"> : never) : never;
 
-export type SketchTool = "select" | "line" | "rectangle" | "circle" | "arc" | "point";
+export type SketchTool = "select" | "line" | "rectangle" | "circle" | "arc" | "point" | "polygon" | "slot" | "centreRectangle" | "arc3" | "trim";
 
 export interface EditState {
   sketch: Sketch;
@@ -37,6 +38,8 @@ export interface EditState {
   selection: string[];
   /** Whether new geometry is construction. */
   construction: boolean;
+  /** Sides for the polygon tool. */
+  sides?: number;
   /** Counter for fresh ids. */
   seq: number;
 }
@@ -134,6 +137,25 @@ export function click(st0: EditState, x: number, y: number, tol: number): EditRe
   const st = { ...st0 };
   const snap = snapPoint(st.sketch, x, y, tol) ?? undefined;
   const here = { x: snap ? P(st.sketch, snap).x : x, y: snap ? P(st.sketch, snap).y : y, snap };
+  // The tools in sketchTools take their clicks here and build when they have them all.
+  const need: Partial<Record<SketchTool, number>> = { polygon: 2, slot: 3, centreRectangle: 2, arc3: 3 };
+  const n = need[st.tool];
+  if (n) {
+    const pend = [...st.pending, here];
+    if (pend.length < n) return { ok: true, state: { ...st, pending: pend } };
+    const [p0, p1, p2] = pend;
+    const r =
+      st.tool === "polygon" ? polygon(st, p0.x, p0.y, p1.x, p1.y, st.sides ?? 6)
+      : st.tool === "slot" ? slot(st, p0.x, p0.y, p1.x, p1.y, p2.x, p2.y)
+      : st.tool === "centreRectangle" ? centreRectangle(st, p0.x, p0.y, p1.x, p1.y)
+      : arc3(st, p0.x, p0.y, p1.x, p1.y, p2.x, p2.y);
+    return r.ok ? r : { ok: false, state: { ...st, pending: [] }, reason: r.reason };
+  }
+  if (st.tool === "trim") {
+    const hit = pick(st.sketch, x, y, tol);
+    if (!hit || !st.sketch.entities.some((e) => e.id === hit)) return { ok: false, state: st, reason: "click on the part of a line to trim away" };
+    return trim(st, hit, x, y);
+  }
   switch (st.tool) {
     case "select": {
       const hit = pick(st.sketch, x, y, tol);
@@ -210,6 +232,8 @@ export function click(st0: EditState, x: number, y: number, tol: number): EditRe
       [id, s2] = nid(s2, "A");
       return { ok: true, state: addEntity(s2, withCon({ id, kind: "arc", c, a, b }, s2.construction)) };
     }
+    default:
+      return { ok: true, state: st }; // handled above (the sketchTools tools)
   }
 }
 

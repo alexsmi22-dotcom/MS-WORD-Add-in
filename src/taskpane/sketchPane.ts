@@ -24,6 +24,7 @@ import {
 } from "../lib/sketchEdit";
 import { SketchView, frameSketch, sketchOps, toSketch } from "../lib/sketchRender";
 import { SketchOp, sketchBody } from "../lib/sketchDoc";
+import { fillet, chamfer, offset, mirror, linearPattern, circularPattern, clearSketch } from "../lib/sketchTools";
 
 export interface SketchPanelHost {
   /** The sketch is done and makes a valid solid. */
@@ -52,6 +53,51 @@ export function initSketchPanel(host: SketchPanelHost): { open(sketch?: Sketch, 
   const undoBtn = el<HTMLButtonElement>("cad-sketch-undo")!;
   const deleteBtn = el<HTMLButtonElement>("cad-sketch-delete")!;
   const dimBtn = el<HTMLButtonElement>("cad-sketch-dimension")!;
+  const sidesIn = el<HTMLInputElement>("cad-sketch-sides");
+  const countIn = el<HTMLInputElement>("cad-sketch-count");
+
+  /** A number typed in the value box (comma decimal accepted; sign allowed), or null. */
+  const valueBox = (): number | null => {
+    const t = dimIn.value.trim().replace(",", ".").replace(/^(R|r|Ø|⌀)/, "").replace(/(°|mm)$/i, "");
+    return /^[+-]?(\d+(\.\d*)?|\.\d+)$/.test(t) ? Number(t) : null;
+  };
+  const selectedLines = (): string[] => st.selection.filter((id) => st.sketch.entities.some((e) => e.id === id && e.kind === "line"));
+  const onClick = (id: string, run: () => void): void => el<HTMLButtonElement>(id)?.addEventListener("click", run);
+  onClick("cad-sketch-fillet", () => {
+    const r = valueBox();
+    const ls = selectedLines();
+    if (ls.length !== 2) return say("Select the two lines that meet at the corner, type the radius, then Fillet.", true);
+    if (r === null) return say("Type the fillet radius in the value box (for example 5 or R5).", true);
+    apply(fillet(st, ls[0], ls[1], r));
+  });
+  onClick("cad-sketch-chamfer", () => {
+    const d = valueBox();
+    const ls = selectedLines();
+    if (ls.length !== 2) return say("Select the two lines that meet at the corner, type the distance, then Chamfer.", true);
+    if (d === null) return say("Type the chamfer distance in the value box.", true);
+    apply(chamfer(st, ls[0], ls[1], d));
+  });
+  onClick("cad-sketch-offset", () => {
+    const d = valueBox();
+    if (d === null) return say("Type the offset distance in the value box (negative goes the other way).", true);
+    apply(offset(st, d));
+  });
+  onClick("cad-sketch-mirror", () => apply(mirror(st)));
+  onClick("cad-sketch-pattern", () => {
+    const parts = dimIn.value.split(/[;,\s]+/).filter(Boolean).map((t) => Number(t.replace(",", ".")));
+    const [dx, dy] = parts.length >= 2 ? parts : [parts[0], 0];
+    if (!Number.isFinite(dx) || !Number.isFinite(dy ?? 0)) return say("Type the spacing in the value box: dx, or dx dy (for example 20, or 0 15).", true);
+    apply(linearPattern(st, Number(countIn?.value ?? 3), dx, dy ?? 0));
+  });
+  onClick("cad-sketch-circular", () => {
+    const total = dimIn.value.trim() ? valueBox() : 360;
+    if (total === null) return say("Type the pattern's total angle (for example 180°), or leave the box empty for all the way round.", true);
+    apply(circularPattern(st, Number(countIn?.value ?? 3), total));
+  });
+  onClick("cad-sketch-clear", () => apply(clearSketch(st)));
+  sidesIn?.addEventListener("change", () => {
+    st = { ...st, sides: Number(sidesIn.value) };
+  });
 
   let st: EditState = startEdit();
   let view: SketchView = { ox: 0, oy: 0, s: 1 };
@@ -122,8 +168,8 @@ export function initSketchPanel(host: SketchPanelHost): { open(sketch?: Sketch, 
     paint();
   }
 
-  function apply(r: { ok: boolean; state: EditState; reason?: string }): void {
-    if (r.ok) commit(r.state);
+  function apply(r: { ok: boolean; state: EditState; reason?: string; note?: string }): void {
+    if (r.ok) commit(r.state, r.note);
     else say(r.reason ?? "", true);
   }
 

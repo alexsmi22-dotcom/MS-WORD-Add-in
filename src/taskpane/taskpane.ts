@@ -1791,6 +1791,7 @@ Office.onReady((info) => {
     insertPicture: insertCadDrawing,
     readSelectedAlt: () => docHost.readSelectedPictureAlt(),
     openLarge: openCadDialog,
+    exportPpt: exportCadPpt,
   });
   seqmapOpenBtn = document.getElementById("seqmap-open") as HTMLButtonElement;
   seqmapFile = document.getElementById("seqmap-file") as HTMLInputElement;
@@ -29674,6 +29675,22 @@ function openSolveDialog(): void {
       solveOpenCanvasBtn.disabled = false;
     },
   });
+}
+
+/**
+ * The Drawing (CAD) sheet as a PowerPoint slide: rendered at three times its
+ * physical size and placed, aspect kept, on a titled slide (the PptxGenJS
+ * builder the Table → Chart export uses, loaded only when asked for).
+ */
+async function exportCadPpt(svg: string, widthPx: number, heightPx: number, title: string): Promise<void> {
+  const base64 = await svgToPngBase64(svg, widthPx * 3, heightPx * 3);
+  const { buildTablePptx } = await import(/* webpackChunkName: "ppt" */ "../lib/ppt");
+  const blob = await buildTablePptx(
+    { categories: [], series: [], categoryLabel: "", hasHeader: false, rows: [], warnings: [] },
+    "column",
+    { title, includeTable: false, chartImage: { dataUrl: `data:image/png;base64,${base64}`, wPx: widthPx, hPx: heightPx } },
+  );
+  triggerDownload(blob, suggestPptFileName(title));
 }
 
 /**

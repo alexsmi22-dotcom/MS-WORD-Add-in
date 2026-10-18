@@ -200,3 +200,67 @@ describe("fourth review: one large canvas at a time", () => {
     expect(pop.disabled).toBe(false);
   });
 });
+
+describe("New drawing, PowerPoint, and the sketch tools through the pane", () => {
+  it("New drawing: the first click arms it, the second clears every part, and Undo clear brings them back", () => {
+    const t = setup();
+    const btn = t.$<HTMLButtonElement>("cad-new");
+    const before = t.pane.getDoc();
+    btn.click();
+    expect(btn.textContent).toBe("Click again to clear everything");
+    expect(t.pane.getDoc()).toBe(before);
+    btn.click();
+    expect(JSON.parse(t.pane.getDoc()).parts).toEqual([]);
+    expect(btn.textContent).toBe("Undo clear");
+    btn.click();
+    expect(t.pane.getDoc()).toBe(before);
+    expect(btn.textContent).toBe("New drawing");
+  });
+
+  it("an armed New drawing that is not confirmed lets go after a few seconds", () => {
+    const t = setup();
+    const btn = t.$<HTMLButtonElement>("cad-new");
+    btn.click();
+    jest.advanceTimersByTime(4500);
+    expect(btn.textContent).toBe("New drawing");
+    btn.click();
+    expect(JSON.parse(t.pane.getDoc()).parts.length).toBeGreaterThan(0); // only armed again, not cleared
+  });
+
+  it("Export to PowerPoint hands the current sheet to the host; with no exporter (the pop-out) the button is hidden", async () => {
+    const exportPpt = jest.fn(async () => undefined);
+    const t = setup({ exportPpt });
+    t.$<HTMLButtonElement>("cad-ppt").click();
+    await flush();
+    expect(exportPpt).toHaveBeenCalledTimes(1);
+    const [svg, w, h, title] = (exportPpt.mock.calls[0] as unknown) as [string, number, number, string];
+    expect(svg).toMatch(/^<svg/);
+    expect(w).toBeGreaterThan(0);
+    expect(h).toBeGreaterThan(0);
+    expect(title).toContain("Plate");
+    const bare = setup();
+    expect(bare.$<HTMLButtonElement>("cad-ppt").hidden).toBe(true);
+  });
+
+  it("a fillet from the sketch editor's buttons: two lines selected, a radius typed", () => {
+    const t = setup();
+    const canvas = t.$<HTMLCanvasElement>("cad-sketch-canvas");
+    const tap = (x: number, y: number): void => {
+      canvas.dispatchEvent(new MouseEvent("pointerdown", { clientX: 190 + (x * 8) / 3, clientY: 160 - (y * 8) / 3, bubbles: true }));
+    };
+    t.$<HTMLSelectElement>("cad-shape").value = "sketch";
+    t.$<HTMLButtonElement>("cad-add").click();
+    document.querySelector<HTMLButtonElement>('[data-sk-tool="rectangle"]')!.click();
+    tap(0, 0);
+    tap(30, 20);
+    document.querySelector<HTMLButtonElement>('[data-sk-tool="select"]')!.click();
+    tap(15, 0); // bottom
+    tap(30, 10); // right
+    t.$<HTMLInputElement>("cad-sketch-dim").value = "R4";
+    t.$<HTMLButtonElement>("cad-sketch-fillet").click();
+    expect(t.$<HTMLElement>("cad-sketch-msg").textContent).toBe("Rounded with R4; the corner is kept as a construction point, so dimensions to it still hold.");
+    t.$<HTMLButtonElement>("cad-sketch-done").click();
+    const part = JSON.parse(t.pane.getDoc()).parts.find((p: { shape: string }) => p.shape === "sketch");
+    expect(part.sketch.entities.filter((e: { kind: string }) => e.kind === "arc")).toHaveLength(1);
+  });
+});

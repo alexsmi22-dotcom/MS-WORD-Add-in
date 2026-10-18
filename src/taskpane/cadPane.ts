@@ -53,6 +53,8 @@ export interface CadPaneHost {
    * in the pop-out itself.
    */
   openLarge?(docJson: string): Promise<{ doc: string; insert: boolean } | null>;
+  /** Downloads the sheet as a PowerPoint slide. Absent in the pop-out (a dialog cannot save files). */
+  exportPpt?(svg: string, widthPx: number, heightPx: number, title: string): Promise<void>;
 }
 
 export interface CadPaneApi {
@@ -89,6 +91,9 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
   const insertBtn = el<HTMLButtonElement>("cad-insert");
   const hiddenSel = el<HTMLSelectElement>("cad-hidden");
   const openBtn = el<HTMLButtonElement>("cad-open");
+  const newBtn = el<HTMLButtonElement>("cad-new") as HTMLButtonElement | null;
+  const pptBtn = el<HTMLButtonElement>("cad-ppt") as HTMLButtonElement | null;
+  if (pptBtn && !host.exportPpt) pptBtn.hidden = true;
   const popBtn = el<HTMLButtonElement>("cad-popout") as HTMLButtonElement | null;
   // Each window shows only what it can do: the pop-out cannot read the document or pop out again.
   if (!host.readSelectedAlt) openBtn.hidden = true;
@@ -517,6 +522,41 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     sketchPanel.open(p?.sketch, p?.op);
   };
 
+  // New drawing: the first click arms it, the second clears every part and callout; the button
+  // then offers Undo for a while. No modal dialog (a blocking dialog would stall the pane).
+  let armed = 0, undoDoc: CadDoc | null = null, newTimer = 0;
+  const newLabel = "New drawing";
+  const resetNewBtn = (): void => {
+    armed = 0;
+    undoDoc = null;
+    if (newBtn) newBtn.textContent = newLabel;
+  };
+  newBtn?.addEventListener("click", () => {
+    window.clearTimeout(newTimer);
+    if (undoDoc) {
+      loadDoc(undoDoc);
+      host.setStatus("The drawing is back.", "success");
+      return resetNewBtn();
+    }
+    if (!armed) {
+      if (!doc.parts.length && !doc.callouts.length) return host.setStatus("The drawing is already blank — add a part or a sketch.", "");
+      armed = 1;
+      newBtn.textContent = "Click again to clear everything";
+      newTimer = window.setTimeout(resetNewBtn, 4000);
+      return;
+    }
+    undoDoc = JSON.parse(serializeDoc(doc)) as CadDoc;
+    doc = { ...doc, parts: [], callouts: [] };
+    selected = 0;
+    renderParts();
+    renderEditor();
+    renderCallouts();
+    rebuild();
+    newBtn.textContent = "Undo clear";
+    host.setStatus("Drawing cleared. Add a part or a sketch to start — or Undo clear.", "");
+    newTimer = window.setTimeout(resetNewBtn, 20000);
+  });
+
   addBtn.addEventListener("click", () => {
     if (shapeSel.value === "sketch") return openSketch(null);
     const shape = shapeSel.value as ShapeId;
@@ -704,6 +744,23 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     }
   }
   insertBtn.addEventListener("click", () => void insertNow());
+
+  // PowerPoint: the sheet as it stands (the same check as Insert: never a stale sheet).
+  pptBtn?.addEventListener("click", async () => {
+    if (!host.exportPpt) return;
+    const sheet = lastSheet;
+    if (!sheet || !sheetCurrent()) return host.setStatus("The drawing is still updating (or has a problem) — try again in a moment.", "error");
+    pptBtn.disabled = true;
+    try {
+      const title = `${doc.parts.map((p) => p.name).slice(0, 3).join(", ")}${doc.parts.length > 3 ? ", …" : ""} — ${sheet.stdName}`;
+      await host.exportPpt(sheet.svg, sheet.w, sheet.h, title);
+      host.setStatus("PowerPoint downloaded — check your Downloads folder.", "success");
+    } catch (e) {
+      host.setStatus(`Could not build the PowerPoint file: ${(e as Error).message}`, "error");
+    } finally {
+      pptBtn.disabled = false;
+    }
+  });
 
   // The large canvas: the same model, at working size, in its own window.
   popBtn?.addEventListener("click", async () => {

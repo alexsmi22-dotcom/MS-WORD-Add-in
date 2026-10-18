@@ -158,32 +158,75 @@ export function pointHidden(mesh: Mesh, view: CadView, p: Vec3): boolean {
   return false;
 }
 
-/** Lays out the sheet. */
 /**
  * Lays out the sheet. Hand-drawn text is sized on paper, so the room it needs in model units
- * depends on the scale — which that room changes. The layout is repeated with the room the last
- * scale asks for until it holds (review: text sized by a first estimate ran over the neighbouring
- * figure); a mark that still does not fit its figure's cell is refused by name.
+ * depends on the scale — and that room changes the scale. The scale used is the LARGEST at which
+ * the room the text needs there still fits: searched over the standard scales on an engineering
+ * sheet, by bisection otherwise. (Repeating the layout with the room the last scale asked for
+ * ratcheted down through the standard scales and shrank a drawing twentyfold — the figure-layout
+ * audit caught it.) The figures' lines are drawn once and reused by every pass. A mark that does
+ * not fit its figure's cell even so is refused by name.
  */
 export function layoutSheet(mesh: Mesh, o: SheetOptions): Sheet {
-  const textMm = ptToMm(DRAWING_STANDARDS[o.standard].textPt);
-  const info: LayoutInfo = { textUnits: 0, overflow: null };
-  let sheet = layoutCore(mesh, o, undefined, info);
-  for (let i = 0; i < 6 && info.textUnits > 0 && sheet.scaleMmPerUnit > 0 && (textMm * 1.1) / sheet.scaleMmPerUnit > info.textUnits * (1 + 1e-9); i++) {
-    sheet = layoutCore(mesh, o, (textMm * 1.15) / sheet.scaleMmPerUnit, info);
+  const std = DRAWING_STANDARDS[o.standard];
+  const room = ptToMm(std.textPt) * 1.15; // mm of paper per em of text, with a margin
+  const info: LayoutInfo = { textUnits: 0, overflow: null, fitS: 0, drawn: new Map() };
+  const first = layoutCore(mesh, o, undefined, info);
+  if (!info.textUnits) return first; // no hand-drawn text or numerals to make room for
+  const fitAt = (s: number): number => {
+    layoutCore(mesh, o, room / s, info);
+    return info.fitS;
+  };
+  let best = 0;
+  if (std.standardScale) {
+    for (const s of STANDARD_SCALES) {
+      if (fitAt(s) >= s * (1 - 1e-9)) {
+        best = s;
+        break;
+      }
+    }
+  } else {
+    const hi = fitAt(1e12); // the text taking no room: an upper bound
+    if (hi > 0 && fitAt(hi) >= hi * (1 - 1e-9)) best = hi;
+    else if (hi > 0) {
+      let lo = hi * 1e-6, up = hi;
+      if (fitAt(lo) >= lo) {
+        for (let k = 0; k < 40; k++) {
+          const mid = Math.sqrt(lo * up);
+          if (fitAt(mid) >= mid) lo = mid;
+          else up = mid;
+        }
+        best = lo;
+      }
+    }
   }
+  if (!(best > 0)) return { svg: "", widthPx: 0, heightPx: 0, labels: [], scaleMmPerUnit: 0, notes: ["The hand-drawn text and numerals do not fit on this sheet at any scale — shorten the text, or choose a larger sheet."] };
+  // Notes that would shrink the drawing to under a third of its size are refused, not obeyed: a
+  // part drawn at 1:20 to make room for a sentence is a drawing nobody can read.
+  const plain = std.standardScale ? snapScale(fitAt(1e12)) : fitAt(1e12);
+  if (best * 3 < plain) {
+    return { svg: "", widthPx: 0, heightPx: 0, labels: [], scaleMmPerUnit: 0, notes: [`The hand-drawn text would shrink the drawing from ${scaleLabel(plain)} to ${scaleLabel(best)} to make room — shorten the notes, put them on fewer figures, or choose a larger sheet.`] };
+  }
+  const sheet = layoutCore(mesh, o, room / best, info);
   return info.overflow ? { svg: "", widthPx: 0, heightPx: 0, labels: [], scaleMmPerUnit: 0, notes: [info.overflow] } : sheet;
 }
 
-/** What one layout pass reports back: the text room it used, and a mark that ran out of its cell. */
+/** What one layout pass reports back, and the figures' lines it shares with the next pass. */
 interface LayoutInfo {
+  /** The room given to text (model units per em); 0 when there is no hand-drawn text. */
   textUnits: number;
+  /** A mark that ran out of its figure's cell. */
   overflow: string | null;
+  /** The largest scale that fit, before any snapping to a standard scale (0 when refused earlier). */
+  fitS: number;
+  /** Each view's line drawing, drawn on the first pass. */
+  drawn: Map<string, LineDrawing>;
 }
 
 function layoutCore(mesh: Mesh, o: SheetOptions, textUnitsIn: number | undefined, info: LayoutInfo): Sheet {
   info.textUnits = 0;
   info.overflow = null;
+  info.fitS = 0;
   const std: DrawingStandard = DRAWING_STANDARDS[o.standard];
   // A layer switched off takes no room on the sheet: hidden callouts are not laid out at all.
   const callouts = o.layers?.callouts === false ? [] : (o.callouts ?? []);
@@ -212,7 +255,14 @@ function layoutCore(mesh: Mesh, o: SheetOptions, textUnitsIn: number | undefined
   const BLANK_EMPTY: LineDrawing = { visible: [], hidden: [], bounds: { minX: 0, minY: 0, maxX: 100, maxY: 70 }, stats: { triangles: 0, featureSegments: 0, pieces: 0 } };
   const cellsFor = CELLS[std.projection];
   const used = new Set<string>();
-  const drawings = views.map((spec) => (spec.kind === "blank" ? null : drawLines(mesh, viewOf(spec))));
+  const drawings = views.map((spec): LineDrawing | null => {
+    if (spec.kind === "blank") return null;
+    const key = JSON.stringify(spec);
+    let d = info.drawn.get(key);
+    if (!d) info.drawn.set(key, (d = drawLines(mesh, viewOf(spec))));
+    // Each pass grows its own copy's box (marks): the drawing itself is shared.
+    return { ...d, bounds: { ...d.bounds } };
+  });
   let blankW = 0, blankH = 0;
   for (const d of drawings) {
     if (!d) continue;
@@ -406,6 +456,7 @@ function layoutCore(mesh: Mesh, o: SheetOptions, textUnitsIn: number | undefined
     else hi = mid;
   }
   const fitS = lo; // mm per model unit
+  info.fitS = fitS;
   if (std.standardScale && fitS < STANDARD_SCALES[STANDARD_SCALES.length - 1]) {
     return refuse(`The drawing does not fit the sheet at any standard scale (the smallest is ${scaleLabel(STANDARD_SCALES[STANDARD_SCALES.length - 1])}).`);
   }

@@ -46,6 +46,10 @@ points of it, how each piece intersects and connects".
 - New drawing kept the hand-drawn marks (and could not clear a drawing of marks alone).
 - A sheet of blank figures printed a SCALE for a figure with no model.
 - Saved points are rounded to 1/1000 of a unit, so a stroke adds far less to the picture's alt text.
+- Found by the figure-layout audit after the review: making room for text by repeating the layout ratcheted an
+  engineering sheet down through the standard scales (1:2 → 1:20). The scale is now the largest at which the
+  text's room fits, searched directly; notes that would shrink the drawing to under a third of its size are
+  refused by name ("shorten the notes, put them on fewer figures, or choose a larger sheet").
 
 Still open: a blank figure beside the isometric view can make a patent sheet with callouts refuse, and the
 message blames the callouts; a damaged model that lists a view twice draws its marks on both; a second finger

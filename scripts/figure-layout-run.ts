@@ -100,6 +100,7 @@ import { bondPrice } from "../src/lib/finance";
 import { starterDoc, defaultParams, docToAssembly } from "../src/lib/cadShapes";
 import { tessellate as cadTessellate } from "../src/lib/cadModel";
 import { layoutSheet } from "../src/lib/cadSheet";
+import type { SheetMark } from "../src/lib/cadMarks";
 type Vec3c = [number, number, number];
 import { dihedralGroup, cosets as cosetsOfGroup, op as groupOp } from "../src/lib/algebraGroups";
 import { tryAlgebra } from "../src/lib/algebra";
@@ -1940,6 +1941,21 @@ ORIGIN
     for (const std of ["asme", "iso", "uspto", "journal"] as const) {
       push(`cad sheet ${std}`, layoutSheet(tess.mesh, { standard: std, views: doc.views, callouts }).svg);
     }
+    // Hand-drawn marks (cadMarks): a wrapped note, a numeral, an arrow and a stroke, plus a blank figure.
+    const marks: SheetMark[] = [
+      { kind: "text", view: "front", at: [0, -20], text: "THE FLANGE SITS ON THE PLATE OVER ITS CENTRE HOLE" },
+      { kind: "numeral", view: "iso", tip: [40, 10], at: [70, 40], label: "14" },
+      { kind: "line", view: "top", a: [-10, 60], b: [20, 40], arrow: true },
+      { kind: "pen", view: "blank", pts: [[10, 10], [30, 25], [50, 15], [70, 30]] },
+      { kind: "text", view: "blank", at: [10, 50], text: "SKETCH" },
+    ];
+    // A long note and a numeral on a two-figure patent sheet; short marks on the engineering sheet (a long
+    // note there would shrink the drawing past a third and is refused); a blank figure with no model.
+    const on = (vs: string[]): SheetMark[] => marks.filter((m) => vs.includes(m.view));
+    push("cad sheet uspto with marks", layoutSheet(tess.mesh, { standard: "uspto", views: [{ kind: "front" }, { kind: "iso" }], callouts, marks: on(["front", "iso"]) }).svg);
+    push("cad sheet asme with marks", layoutSheet(tess.mesh, { standard: "asme", views: doc.views, callouts, marks: on(["top", "iso"]) }).svg);
+    const empty = { ...tess.mesh, positions: [], triangles: [], cornerNormals: [], triBody: [], edges: [], crossings: [], overlaps: [], bodySag: [] };
+    push("cad sheet blank figure", layoutSheet(empty, { standard: "uspto", views: [{ kind: "blank" }], marks: on(["blank"]) }).svg);
   }
 }
 

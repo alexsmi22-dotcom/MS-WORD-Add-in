@@ -8,7 +8,7 @@ import { layoutSheet } from "../cadSheet";
 import { parseMarks, MARK_LIMITS, SheetMark } from "../cadMarks";
 import { tessellate, box, IDENTITY_PLACEMENT, Mesh } from "../cadModel";
 import { initCadPane, CadPaneHost } from "../../taskpane/cadPane";
-import { parseDoc, serializeDoc, starterDoc, CadDoc } from "../cadShapes";
+import { parseDoc, serializeDoc, starterDoc, defaultParams, docToAssembly, CadDoc } from "../cadShapes";
 
 Object.defineProperty(HTMLCanvasElement.prototype, "getContext", { value: () => null });
 Element.prototype.setPointerCapture = () => undefined;
@@ -35,7 +35,7 @@ describe("D1: text is sized at the scale the sheet really gets", () => {
   test("one word too long to wrap, wider than the sheet's room: refused, not drawn over the page edge", () => {
     const sh = layoutSheet(plateMesh(), { standard: "uspto", views: FOUR, marks: [{ kind: "text", view: "front", at: [0, 0], text: "W".repeat(60) }] });
     expect(sh.svg).toBe("");
-    expect(sh.notes[0]).toMatch(/^The text "W{30}…" does not fit beside its figure on this sheet — shorten it, move it closer, or choose a larger sheet\.$/);
+    expect(sh.notes[0]).toMatch(/^The text "W{30}…" does not fit beside its figure on this sheet|^The hand-drawn text and numerals do not fit on this sheet at any scale — shorten the text, or choose a larger sheet\.$/);
   });
 });
 
@@ -190,5 +190,36 @@ describe("D11: a sheet of blank figures states no scale", () => {
     const EMPTY: Mesh = { positions: [], triangles: [], cornerNormals: [], triBody: [], edges: [], diag: 1, crossings: [], overlaps: [], bodySag: [] };
     const sh = layoutSheet(EMPTY, { standard: "asme", views: [{ kind: "blank" }] });
     expect(sh.svg).not.toContain("SCALE");
+  });
+});
+
+describe("the scale search (found by the figure-layout audit)", () => {
+  test("an engineering sheet steps down through standard scales only as far as the text needs", () => {
+    const sh = layoutSheet(plateMesh(), { standard: "asme", views: FOUR, marks: [{ kind: "text", view: "front", at: [0, -10], text: "SEE NOTE 1" }] });
+    expect(sh.notes).toEqual([]);
+    expect(sh.scaleMmPerUnit).toBeGreaterThanOrEqual(0.5);
+  });
+  test("notes that would shrink the drawing to under a third of its size are refused by name", () => {
+    // The audit's case: plate and flange, five figures on an engineering sheet with no sheet size.
+    const doc = {
+      ...starterDoc("asme"),
+      parts: [
+        { id: "a", name: "Plate", shape: "plate" as const, params: defaultParams("plate"), placement: { translate: [0, 0, 0] as [number, number, number], rotateDeg: [0, 0, 0] as [number, number, number] } },
+        { id: "b", name: "Flange", shape: "flange" as const, params: defaultParams("flange"), placement: { translate: [40, 25, 8] as [number, number, number], rotateDeg: [0, 0, 0] as [number, number, number] } },
+      ],
+    };
+    const a = docToAssembly(doc);
+    const t = a.ok ? tessellate(a.assembly) : null;
+    if (!t || !t.ok) throw new Error("model");
+    const marks: SheetMark[] = [
+      { kind: "text", view: "front", at: [0, -20], text: "THE FLANGE SITS ON THE PLATE OVER ITS CENTRE HOLE" },
+      { kind: "numeral", view: "iso", tip: [40, 10], at: [70, 40], label: "14" },
+      { kind: "line", view: "top", a: [-10, 60], b: [20, 40], arrow: true },
+      { kind: "pen", view: "blank", pts: [[10, 10], [30, 25], [50, 15], [70, 30]] },
+      { kind: "text", view: "blank", at: [10, 50], text: "SKETCH" },
+    ];
+    const sh = layoutSheet(t.mesh, { standard: "asme", views: [...FOUR, { kind: "blank" }], callouts: [{ anchor: [40, 25, 18], label: "12" }], marks });
+    expect(sh.svg).toBe("");
+    expect(sh.notes).toEqual(["The hand-drawn text would shrink the drawing from 1:5 to 1:20 to make room — shorten the notes, put them on fewer figures, or choose a larger sheet."]);
   });
 });

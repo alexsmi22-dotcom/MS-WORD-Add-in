@@ -1785,7 +1785,7 @@ Office.onReady((info) => {
   alignInsertBtn = document.getElementById("align-insert") as HTMLButtonElement;
   seqmapSection = document.getElementById("seqmap-section") as HTMLElement;
   cadSection = document.getElementById("cad-section") as HTMLElement;
-  initChemdrawPane({ setStatus: (t, k) => setStatus(t, k ?? ""), insertPicture: insertChemdrawDrawing, downloadFile: (blob, name) => triggerDownload(blob, name) });
+  initChemdrawPane({ setStatus: (t, k) => setStatus(t, k ?? ""), insertPicture: insertChemdrawDrawing, downloadFile: (blob, name) => triggerDownload(blob, name), readSelectionOoxml: () => docHost.readSelectionOoxml() });
   cadPane = initCadPane({
     setStatus: (t, k) => setStatus(t, k ?? ""),
     // Patent numerals continue the document's Numerals table and skip any already on this drawing.

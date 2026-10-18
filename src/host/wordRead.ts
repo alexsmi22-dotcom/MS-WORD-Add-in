@@ -39,6 +39,18 @@ export async function readSelectedPictureAlt(): Promise<string | null> {
   return alt;
 }
 
+/** The selection as Flat OPC (its pictures in it, base64): how a ChemDraw picture is opened. Null = nothing selected. */
+export async function readSelectionOoxml(): Promise<string | null> {
+  let out: string | null = null;
+  await Word.run(async (context) => {
+    const sel = context.document.getSelection();
+    const ooxml = sel.getOoxml();
+    await context.sync();
+    out = ooxml.value || null;
+  });
+  return out;
+}
+
 export async function readTableUnderCursor(): Promise<TableUnderCursor> {
   let out: TableUnderCursor = null;
   await Word.run(async (context) => {

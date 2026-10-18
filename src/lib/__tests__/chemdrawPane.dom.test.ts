@@ -282,3 +282,39 @@ describe("the Ring tool", () => {
     expect(lines()).toBeGreaterThan(after1 + 5);
   });
 });
+
+describe("Open ChemDraw picture (a ChemDraw picture in the document)", () => {
+  const cdx = new Uint8Array(fs.readFileSync(path.join(__dirname, "fixtures", "US12128110-C00013.cdx")));
+  const le32 = (v: number): number[] => [v & 0xff, (v >> 8) & 0xff, (v >> 16) & 0xff, (v >>> 24) & 0xff];
+  function emfWith(data: number[]): Uint8Array {
+    const header = new Array(108).fill(0);
+    header.splice(0, 8, ...le32(1), ...le32(108));
+    header.splice(40, 4, 0x20, 0x45, 0x4d, 0x46);
+    const body = data.length % 4 ? [...data, ...new Array(4 - (data.length % 4)).fill(0)] : data;
+    const comment = [...le32(70), ...le32(12 + body.length), ...le32(data.length), ...body];
+    return Uint8Array.from([...header, ...comment, ...le32(14), ...le32(20), ...new Array(8).fill(0), ...le32(20)]);
+  }
+  const opcOf = (emf: Uint8Array): string =>
+    `<pkg:package xmlns:pkg="http://schemas.microsoft.com/office/2006/xmlPackage"><pkg:part pkg:name="/word/media/image1.emf" pkg:contentType="image/x-emf"><pkg:binaryData>${Buffer.from(emf).toString("base64")}</pkg:binaryData></pkg:part></pkg:package>`;
+  async function run(selection: string | null) {
+    document.body.innerHTML = BUILD;
+    const status: Array<[string, string]> = [];
+    initChemdrawPane({ setStatus: (m, k) => void status.push([m, k ?? ""]), insertPicture: async () => undefined, readSelectionOoxml: async () => selection });
+    document.getElementById("chemdraw-from-doc")!.click();
+    await new Promise((r) => setTimeout(r, 10));
+    return status;
+  }
+  test("the selected picture opens as its drawing", async () => {
+    const status = await run(opcOf(emfWith([0x43, 0x44, 0x49, 0x46, 0, ...cdx])));
+    expect(document.getElementById("chemdraw-panel")!.hidden).toBe(false);
+    expect(document.getElementById("chemdraw-preview")!.innerHTML).toContain(">Gln</tspan>");
+    expect(status[status.length - 1][1]).toBe("success");
+  });
+  test("nothing selected, or a picture not from ChemDraw: said by name", async () => {
+    expect((await run(null)).pop()).toEqual(["Select a ChemDraw picture in the document first (click it), then Open ChemDraw picture.", "error"]);
+    expect((await run(opcOf(emfWith([1, 2, 3])))).pop()).toEqual([
+      "The selected picture holds no ChemDraw drawing — it was not pasted from ChemDraw, or it was saved as a plain image.",
+      "error",
+    ]);
+  });
+});

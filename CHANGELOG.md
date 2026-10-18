@@ -6,9 +6,14 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
-## [2.153.0] — 2026-10-18 — ChemDraw .cdx files and ring tools
+## [2.153.0] — 2026-10-18 — ChemDraw pictures in documents, .cdx files, ring tools
 
 ### Added
+- **Open ChemDraw picture**: click a picture pasted from ChemDraw in the document, then Open ChemDraw picture — it
+  opens as the drawing it was made from, ready to edit (no separate file). ChemDraw's clipboard picture carries the
+  whole drawing as CDX in its EMF / WMF comment records (chunks starting "CDIF"); src/lib/emfCdx.ts joins them,
+  whether in EMF+ comments, GDI comments or a metafile inside an EMF+ image. Verified on a real document: all 41
+  ChemDraw pictures in it open (ChemDraw 23). Insert puts the edited drawing in; delete the old picture after.
 - **Binary ChemDraw files (.cdx)** open in the same panel as .cdxml (known by their first bytes, whatever they are
   called): drawn, picked, edited and inserted the same way; **Save as .cdxml** gives the CDXML ChemDraw itself would
   write for them. The CDX tag, attribute and enum names are generated from Revvity's open-source ChemDraw

@@ -244,6 +244,9 @@ export interface Host {
   /** The alt text of the first selected picture (null = none selected): how a CAD drawing is re-opened. */
   readSelectedPictureAlt(): Promise<string | null>;
 
+  /** The selection as Flat OPC, pictures included (null = nothing selected): how a ChemDraw picture is opened. */
+  readSelectionOoxml(): Promise<string | null>;
+
   // ---- pictures and tables -----------------------------------------------------
 
   insertPictureAtSelection(o: PictureInsert): Promise<void>;

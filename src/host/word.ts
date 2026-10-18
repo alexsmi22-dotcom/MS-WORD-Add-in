@@ -4,7 +4,7 @@
  */
 import type { Host } from "./host";
 import { insertAtSelection, insertCaptionParagraph, insertHeadedBlockBefore } from "./wordInsert";
-import { readBodyText, readParagraphTexts, readSelectedPictureAlt, readTableUnderCursor } from "./wordRead";
+import { readBodyText, readParagraphTexts, readSelectedPictureAlt, readSelectionOoxml, readTableUnderCursor } from "./wordRead";
 import {
   capability,
   insertEditableTable,
@@ -37,6 +37,7 @@ export const wordHost: Host = {
   readParagraphTexts,
   readTableUnderCursor,
   readSelectedPictureAlt,
+  readSelectionOoxml,
   insertPictureAtSelection,
   insertPictureWithLegend,
   insertPictureParagraphs,

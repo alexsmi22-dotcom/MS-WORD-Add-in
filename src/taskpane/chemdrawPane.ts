@@ -7,6 +7,7 @@
  */
 import { readCdxml, readCdxmlTree, CdxDoc, Box, Pt } from "../lib/cdxml";
 import { readCdx } from "../lib/cdx";
+import { cdxFromFlatOpc } from "../lib/emfCdx";
 import { renderCdx } from "../lib/cdxmlRender";
 import { atomAt, bondAt, captionAt, objectAt, objectBoxes, withCompanions } from "../lib/cdxmlSelect";
 import { addRingAt, addRingAtAtom, addRingOnBond, RingKind, addBondFrom, cloneTree, deleteInStructure, deleteObjects, findById, moveObjects, namesTiedTo, setAtomLabel, setBond, setCharge, setText, writeCdxml } from "../lib/cdxmlEdit";
@@ -18,6 +19,8 @@ export interface ChemdrawHost {
   insertPicture(svg: string, widthPx: number, heightPx: number, alt: string): Promise<void>;
   /** Saves a file for the user (Save as .cdxml). */
   downloadFile?(blob: Blob, name: string): void;
+  /** The document's selection as Flat OPC (Open ChemDraw picture). */
+  readSelectionOoxml?(): Promise<string | null>;
 }
 
 /** Room on a Word page for a picture: 6.5 × 9 in, in points. */
@@ -80,6 +83,7 @@ const TOOL_HELP: Record<Tool, string> = {
 export function initChemdrawPane(host: ChemdrawHost): void {
   const $ = <T extends HTMLElement>(id: string): T | null => document.getElementById(id) as T | null;
   const openBtn = $<HTMLButtonElement>("chemdraw-open");
+  const fromDocBtn = $<HTMLButtonElement>("chemdraw-from-doc");
   const fileIn = $<HTMLInputElement>("chemdraw-file");
   const panel = $<HTMLElement>("chemdraw-panel");
   const info = $<HTMLElement>("chemdraw-info");
@@ -260,19 +264,42 @@ export function initChemdrawPane(host: ChemdrawHost): void {
       window.setTimeout(() => {
         const r = openChemdrawFile(file.name, new Uint8Array(reader.result as ArrayBuffer));
         if (!r.ok) return host.setStatus(r.reason, "error");
-        doc = r.doc;
-        name = file.name;
-        boxes = objectBoxes(doc);
-        selected = new Set();
-        undo = [];
-        redo = [];
-        stale = new Set();
-        setTool("select");
-        show();
+        load(r.doc, file.name);
         host.setStatus(`${file.name} opened — click a structure to select it (with its brackets, labels and charges), then Insert selected; the tools above the page edit it.`, "success");
       }, 0);
     };
     reader.readAsArrayBuffer(file);
+  });
+  /** Puts a document on the page (from a file or a picture), fresh: no selection, no undo. */
+  const load = (d: CdxDoc, label: string): void => {
+    doc = d;
+    name = label;
+    boxes = objectBoxes(doc);
+    selected = new Set();
+    undo = [];
+    redo = [];
+    stale = new Set();
+    setTool("select");
+    show();
+  };
+  // A ChemDraw picture in the document carries its drawing (emfCdx): it opens as that drawing.
+  fromDocBtn?.addEventListener("click", async () => {
+    if (inserting || !host.readSelectionOoxml) return;
+    try {
+      const opc = await host.readSelectionOoxml();
+      if (!opc) return host.setStatus("Select a ChemDraw picture in the document first (click it), then Open ChemDraw picture.", "error");
+      const c = cdxFromFlatOpc(opc);
+      if (!c.ok) return host.setStatus(c.reason.charAt(0).toUpperCase() + c.reason.slice(1) + ".", "error");
+      const b = readCdx(c.cdx);
+      if (!b.ok) return host.setStatus(`The picture's ChemDraw drawing could not be read: ${b.reason}.`, "error");
+      const r = readCdxmlTree(b.root);
+      if (!r.ok) return host.setStatus(`The picture's ChemDraw drawing could not be read: ${r.reason}.`, "error");
+      r.doc.notes = [...b.notes, ...r.doc.notes];
+      load(r.doc, "ChemDraw picture");
+      host.setStatus("The ChemDraw picture opened as its drawing — edit it here, then Insert selected (or the whole page) puts the edited drawing in; delete the old picture when you are happy. Save as .cdxml keeps it as a ChemDraw file.", "success");
+    } catch (e) {
+      host.setStatus(`Could not read the selected picture: ${(e as Error).message}`, "error");
+    }
   });
   zoomSel?.addEventListener("change", applyZoom);
 

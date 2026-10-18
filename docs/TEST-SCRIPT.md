@@ -10,8 +10,11 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
 
-## 0cq. New in v2.153.0 — ChemDraw .cdx files and ring tools
+## 0cq. New in v2.153.0 — ChemDraw pictures in documents, .cdx files and ring tools
 
+- [ ] ★ **A ChemDraw picture in Word.** In a document with structures pasted from ChemDraw, click one, then Structure
+  ▸ Draw ▸ **Open ChemDraw picture**: the drawing opens in the panel (bonds, labels, brackets as in ChemDraw). Edit
+  an atom, **Insert selected**: the edited drawing goes in after it. A picture not from ChemDraw: it says so.
 - [ ] ★ **A .cdx file.** Structure ▸ Draw ▸ **Open ChemDraw file…**, pick a .cdx (ChemDraw's default format): it
   opens like a .cdxml. Compare with ChemDraw. **Save as .cdxml**: the saved file opens in ChemDraw.
 - [ ] **Ring.** Choose **Ring**, Benzene: click empty paper — a benzene; click one of its single bonds — naphthalene

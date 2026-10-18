@@ -274,6 +274,11 @@ export function renderCdx(doc: CdxDoc, o: RenderOptions = {}): RenderedCdx | nul
           path += `Q${f2(mid[0])} ${f2(mid[1])} ${f2(c[0])} ${f2(c[1])}`;
         }
         parts.push(`<path d="${path}" fill="none" stroke="${col}" stroke-width="${f2(lw)}"/>`);
+      } else if (order === "2" && bd.el.attrs.JurisLabEitherGeometry === "yes") {
+        // A double bond of unknown geometry (cdxmlMol EITHER): drawn crossed, as the crossed double bond
+        // is drawn for an unspecified E/Z configuration.
+        parts.push(line(addp(p0, mul(n, gap / 2)), addp(p1, mul(n, -gap / 2))));
+        parts.push(line(addp(p0, mul(n, -gap / 2)), addp(p1, mul(n, gap / 2))));
       } else if (order === "2" || order === "1.5" || order === "3") {
         if (order === "3") {
           styled(p0, p1, disp);

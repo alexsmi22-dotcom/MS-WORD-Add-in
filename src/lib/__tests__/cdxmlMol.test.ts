@@ -8,6 +8,7 @@ import { readCdxml, readCdxmlTree, CdxDoc } from "../cdxml";
 import { readCdx } from "../cdx";
 import { moleculeToPage, pageToMolecule } from "../cdxmlMol";
 import { NAME_TO_SMILES } from "../compounds";
+import { renderCdx } from "../cdxmlRender";
 
 const EMPTY = `<CDXML BondLength="30" LabelSize="10" LabelFont="3" CaptionSize="12"><fonttable><font id="3" name="Arial"/></fonttable><page id="1" BoundingBox="0 0 540 720"></page></CDXML>`;
 const blank = (): CdxDoc => {
@@ -135,5 +136,23 @@ describe("ChemDraw drawings filed with USPTO patents (public fixtures)", () => {
     }
     const r = roundTrip(first.value.mol);
     expect(r.ok && r.id).toBe(idOf(first.value.mol));
+  });
+});
+
+describe("a double bond of unknown geometry", () => {
+  test("OCL's crossed double bond survives the page and is drawn crossed", () => {
+    // Heme's porphyrin ring holds four of them.
+    const m = Molecule.fromSmiles("CC1=C(C2=CC3=NC(=CC4=C(C(=C([N-]4)C=C5C(=C(C(=N5)C=C1[N-]2)C)C=C)C)C=C)C(=C3CCC(=O)O)C)CCC(=O)O.[Fe+2]");
+    m.inventCoordinates();
+    const d = blank();
+    expect(moleculeToPage(d, m).ok).toBe(true);
+    const again = reread(d);
+    const r = pageToMolecule(again);
+    expect(r.ok && r.value.mol.getIDCode()).toBe(m.getIDCode());
+    const crossed = again.objects.flatMap((o) => o.items.flatMap((it) => (it.kind === "fragment" ? it.v.bonds : []))).filter((b) => b.el.attrs.JurisLabEitherGeometry === "yes");
+    expect(crossed).toHaveLength(4);
+    // Each drawn as two crossing lines.
+    const svg = renderCdx(again)!.svg;
+    expect((svg.match(/<line /g) ?? []).length).toBeGreaterThan(0);
   });
 });

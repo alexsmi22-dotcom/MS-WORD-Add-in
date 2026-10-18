@@ -45,13 +45,11 @@ export function faceAt(mesh: Mesh, tri: number, point: Vec3, snapDist: number): 
   }
   if (dot(cn(0), n) < 0) n = scale(n, -1);
   const body = mesh.triBody[tri];
-  // The face: this body's triangles in the same plane facing the same way.
+  // The face: this body's triangles in the same plane facing the same way, CONNECTED to the one picked
+  // (a U-shaped part's two arm tops are one plane but two faces: its centre is never in the gap).
   const d0 = dot(n, a);
   const eps = Math.max(1e-9, mesh.diag * 1e-9);
-  const corners: Vec3[] = [];
-  const seen = new Set<number>();
-  let area = 0;
-  let cx = 0, cy = 0, cz = 0;
+  const cand: number[] = [];
   for (let t = 0; t < T.length / 3; t++) {
     if (mesh.triBody[t] !== body) continue;
     const p = v(T[3 * t]), q = v(T[3 * t + 1]), r = v(T[3 * t + 2]);
@@ -59,11 +57,35 @@ export function faceAt(mesh: Mesh, tri: number, point: Vec3, snapDist: number): 
     const ml = norm(m);
     if (!(ml > 0) || dot(m, n) / ml < 1 - 1e-9) continue;
     if (Math.abs(dot(n, p) - d0) > eps || Math.abs(dot(n, q) - d0) > eps || Math.abs(dot(n, r) - d0) > eps) continue;
+    cand.push(t);
+  }
+  // Triangles touch where they share a corner (by position: faces may not share vertex indices).
+  const key = (i: number): string => [0, 1, 2].map((k) => Math.round(P[3 * i + k] / eps)).join(",");
+  const byCorner = new Map<string, number[]>();
+  for (const t of cand) for (let k = 0; k < 3; k++) (byCorner.get(key(T[3 * t + k])) ?? byCorner.set(key(T[3 * t + k]), []).get(key(T[3 * t + k]))!).push(t);
+  const face = new Set<number>([tri]);
+  const queue = [tri];
+  while (queue.length) {
+    const t = queue.pop()!;
+    for (let k = 0; k < 3; k++)
+      for (const u of byCorner.get(key(T[3 * t + k])) ?? [])
+        if (!face.has(u)) {
+          face.add(u);
+          queue.push(u);
+        }
+  }
+  const corners: Vec3[] = [];
+  const seen = new Set<string>();
+  let area = 0;
+  let cx = 0, cy = 0, cz = 0;
+  for (const t of face) {
+    const p = v(T[3 * t]), q = v(T[3 * t + 1]), r = v(T[3 * t + 2]);
+    const ml = norm(cross(sub(q, p), sub(r, p)));
     area += ml;
     cx += (ml * (p[0] + q[0] + r[0])) / 3;
     cy += (ml * (p[1] + q[1] + r[1])) / 3;
     cz += (ml * (p[2] + q[2] + r[2])) / 3;
-    for (const i of [T[3 * t], T[3 * t + 1], T[3 * t + 2]]) if (!seen.has(i)) (seen.add(i), corners.push(v(i)));
+    for (const i of [T[3 * t], T[3 * t + 1], T[3 * t + 2]]) if (!seen.has(key(i))) (seen.add(key(i)), corners.push(v(i)));
   }
   let best: Vec3 = point, snap: FaceHit["snap"] = "none", bestD = snapDist;
   for (const k of corners) {

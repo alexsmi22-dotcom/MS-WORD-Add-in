@@ -86,7 +86,7 @@ describe("the exploded view", () => {
     const t = setup();
     const box = t.$("cad-views").querySelector<HTMLInputElement>("input[value=exploded]")!;
     box.checked = true;
-    t.$("cad-views").dispatchEvent(new Event("change", { bubbles: true }));
+    box.dispatchEvent(new Event("change", { bubbles: true }));
     expect(t.doc().explode).toEqual({ top: [0, 0, 29.6] });
     expect(t.doc().views.map((v) => v.kind)).toEqual(["front", "iso", "exploded"]);
     const labels = Array.from(document.querySelectorAll("#cad-preview text")).map((x) => x.textContent).filter((x) => /^FIG\./.test(x ?? ""));
@@ -110,11 +110,18 @@ describe("detail views", () => {
     t.$<HTMLButtonElement>("cad-detail").click();
     expect(t.$("cad-detail").getAttribute("aria-pressed")).toBe("true");
     sizeSvg();
-    // The front view's cell: inside the only figure, a little above its title.
-    const title = Array.from(document.querySelectorAll("#cad-preview text")).find((x) => /^FIG\./.test(x.textContent ?? ""))!;
-    const x = Number(title.getAttribute("x")), y = Number(title.getAttribute("y")) - 40;
-    const e = new MouseEvent("pointerdown", { clientX: x, clientY: y, button: 0, bubbles: true });
-    t.$("cad-preview").dispatchEvent(e);
+    const click = (x: number, y: number): void => void t.$("cad-preview").dispatchEvent(new MouseEvent("pointerdown", { clientX: x, clientY: y, button: 0, bubbles: true }));
+    // The empty middle of the front view (between the legs) holds nothing: refused by name.
+    const title = Array.from(document.querySelectorAll("#cad-preview text")).find((q) => /^FIG\./.test(q.textContent ?? ""))!;
+    click(Number(title.getAttribute("x")), Number(title.getAttribute("y")) - 40);
+    expect(t.last()[0]).toBe("Detail A's circle holds nothing of the figure, so it is not drawn: take it again on the part to enlarge.");
+    // The table top's left end: the first corner of the visible outline.
+    t.$<HTMLButtonElement>("cad-detail").click();
+    const d = document.querySelector("#cad-preview g#visible path, #cad-preview path")!.getAttribute("d")!;
+    const pts = [...d.matchAll(/([\d.]+) ([\d.]+)/g)].map((m) => [Number(m[1]), Number(m[2])]);
+    const x0 = Math.min(...pts.map((p) => p[0])), y0 = Math.min(...pts.map((p) => p[1]));
+    sizeSvg(); // the sheet was drawn again after the refusal
+    click(x0 + 2, y0 + 2);
     const det = t.doc().views.find((v) => v.kind === "detail");
     expect(det && det.kind === "detail" && [det.letter, det.of, det.factor]).toEqual(["A", "front", 2]);
     expect(t.last()[1]).toBe("success");
@@ -131,5 +138,37 @@ describe("detail views", () => {
     sizeSvg();
     t.$("cad-preview").dispatchEvent(new MouseEvent("pointerdown", { clientX: 1, clientY: 1, button: 0, bubbles: true }));
     expect(t.last()).toEqual(["Click on a front, top, side, isometric or exploded figure: a detail enlarges part of one of those.", "error"]);
+  });
+});
+
+describe("review fixes", () => {
+  const tick = (t: ReturnType<typeof setup>): void => {
+    const box = t.$("cad-views").querySelector<HTMLInputElement>("input[value=exploded]")!;
+    box.checked = true;
+    box.dispatchEvent(new Event("change", { bubbles: true }));
+  };
+  test("legs at one height: ticking Exploded shows the Explode fields at once (nothing to auto-explode)", () => {
+    const d = TABLE();
+    d.parts = d.parts.slice(1);
+    const t = setup(d);
+    tick(t);
+    expect(t.doc().explode).toBeUndefined();
+    const fields = Array.from(document.querySelectorAll("#cad-editor .cad-field span")).map((s) => s.textContent);
+    expect(fields).toEqual(expect.arrayContaining(["Explode X", "Explode Y", "Explode Z"]));
+  });
+  test("setting the last explode distance to 0 keeps it 0 (no re-explode) and keeps the field being typed in", () => {
+    const t = setup();
+    tick(t);
+    const z = Array.from(document.querySelectorAll<HTMLLabelElement>("#cad-editor .cad-field")).find((l) => l.textContent?.startsWith("Explode Z"))!.querySelector("input")!;
+    z.value = "0";
+    z.dispatchEvent(new Event("input"));
+    expect(t.doc().explode).toBeUndefined();
+    expect(document.body.contains(z)).toBe(true);
+  });
+  test("removing a detail removes the marks drawn on it", () => {
+    const d: CadDoc = { ...TABLE(), views: [{ kind: "front" }, { kind: "detail", letter: "A", of: "front", at: [2.5, 74], r: 6, factor: 2 }], marks: [{ kind: "text", view: "detail:A", at: [2.5, 74], text: "JOINT" }, { kind: "text", view: "front", at: [50, 74], text: "TOP" }] };
+    const t = setup(d);
+    t.$("cad-details").querySelector<HTMLButtonElement>("button")!.click();
+    expect(t.doc().marks?.map((m) => m.view)).toEqual(["front"]);
   });
 });

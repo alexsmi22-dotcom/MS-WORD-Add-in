@@ -386,6 +386,7 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     });
     previewEl.innerHTML = sh.svg;
     sheetFrames = sh.frames ?? [];
+    lastNotes = sh.notes;
     sheetW = sh.widthPx;
     const svgEl = previewEl.querySelector("svg");
     if (svgEl) {
@@ -440,13 +441,8 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
   let explodedCache: { key: string; data: SheetOptions["exploded"] | null } | null = null;
   function explodedFor(): SheetOptions["exploded"] | undefined {
     if (!mesh || !wantsExploded()) return undefined;
-    if (!doc.explode || !Object.keys(doc.explode).length) {
-      // Ticking Exploded explodes the parts the first time: an exploded view with nothing apart is no view.
-      const auto = autoExplode(doc, mesh);
-      if (!Object.keys(auto).length) return undefined;
-      doc.explode = auto;
-      renderEditor();
-    }
+    // Nothing apart: the sheet says so (the parts are exploded when Exploded is ticked, or by Auto explode).
+    if (!doc.explode || !Object.keys(doc.explode).length) return undefined;
     const offsets = doc.explode;
     const key = JSON.stringify([doc.parts, offsets, placed.callouts]);
     if (explodedCache?.key === key) return explodedCache.data ?? undefined;
@@ -502,8 +498,15 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     const factor = Number(detailFactorSel?.value ?? 2);
     doc.views.push({ kind: "detail", letter, of: f.view as DetailSpec["of"], at, r, factor: DETAIL_FACTORS.includes(factor) ? factor : 2 });
     setDetailMode(false);
-    renderDetails();
     renderSheet();
+    // The sheet refuses a detail it cannot draw (its circle holds nothing, or is larger than the figure): say why, keep nothing.
+    if (!sheetFrames.some((q) => q.view === `detail:${letter}`)) {
+      const why = lastNotes.find((n) => n.startsWith(`Detail ${letter}`)) ?? `Detail ${letter} could not be drawn on this sheet.`;
+      doc.views = doc.views.filter((v) => !(v.kind === "detail" && v.letter === letter));
+      renderSheet();
+      return host.setStatus(why, "error");
+    }
+    renderDetails();
     host.setStatus(`Detail ${letter} added: the circle on the figure shows what it enlarges. Change its size or enlargement in the list.`, "success");
   });
   function renderDetails(): void {
@@ -534,6 +537,11 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
       del.textContent = "Remove";
       del.addEventListener("click", () => {
         doc.views = doc.views.filter((q) => q !== v);
+        // Its marks go with it: a later detail taking the same letter must not inherit them.
+        if (doc.marks) {
+          doc.marks = doc.marks.filter((m) => m.view !== `detail:${v.letter}`);
+          if (!doc.marks.length) delete doc.marks;
+        }
         renderDetails();
         renderSheet();
       });
@@ -546,6 +554,8 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
   // What the user draws is kept as drawn (cadMarks): no snapping, no profile rules. Each mark
   // belongs to the figure it was started on, in that view's own plane, so it follows the figure.
   let sheetFrames: SheetFrame[] = [];
+  /** The last sheet's notes (what it left out, and why). */
+  let lastNotes: string[] = [];
   let sheetW = 0;
   type MarkTool = "pen" | "line" | "arrow" | "numeral" | "text" | "erase";
   let markTool: MarkTool | null = null;
@@ -923,7 +933,18 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     renderSheet();
   });
   // With no parts, ticking or clearing Blank figure decides whether there is a sheet at all.
-  viewsEl.addEventListener("change", () => (doc.parts.length ? renderSheet() : rebuild()));
+  viewsEl.addEventListener("change", (e) => {
+    // Ticking Exploded explodes the parts the first time (an exploded view with nothing apart is no view);
+    // the parts' explode distances then show under each part.
+    const box = e.target as HTMLInputElement | null;
+    if (box?.value === "exploded" && box.checked && mesh && (!doc.explode || !Object.keys(doc.explode).length)) {
+      const auto = autoExplode(doc, mesh);
+      if (Object.keys(auto).length) doc.explode = auto;
+    }
+    if (doc.parts.length) renderSheet();
+    else rebuild();
+    renderEditor();
+  });
   hiddenSel.addEventListener("change", () => {
     if (hiddenSel.value === "show" || hiddenSel.value === "hide") doc.hidden = hiddenSel.value;
     else delete doc.hidden;

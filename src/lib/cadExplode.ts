@@ -115,7 +115,8 @@ export function explodeTrails(doc: CadDoc, mesh: Mesh, offsets: Offsets): Array<
     // The face the part moved away from: the box's centre, back along the move to the box's edge.
     const u: Vec3 = [v[0] / len, v[1] / len, v[2] / len];
     const c: Vec3 = [(b.lo[0] + b.hi[0]) / 2, (b.lo[1] + b.hi[1]) / 2, (b.lo[2] + b.hi[2]) / 2];
-    const half = [0, 1, 2].reduce((a, k) => a + (Math.abs(u[k]) * (b.hi[k] - b.lo[k])) / 2, 0);
+    // Where a ray from the centre, back along the move, leaves the box.
+    const half = Math.min(...[0, 1, 2].filter((k) => Math.abs(u[k]) > 1e-12).map((k) => (b.hi[k] - b.lo[k]) / 2 / Math.abs(u[k])));
     const back: Vec3 = [c[0] - u[0] * half, c[1] - u[1] * half, c[2] - u[2] * half];
     out.push([[back[0] + v[0], back[1] + v[1], back[2] + v[2]], back]);
   });

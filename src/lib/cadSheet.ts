@@ -94,8 +94,10 @@ export interface SheetOptions {
    * moved with its part (parallel to `callouts`), and the trail lines (world).
    */
   exploded?: { mesh: Mesh; anchors: Vec3[]; trails: Array<[Vec3, Vec3]> };
-  /** Internal: the details' enlargements are already the standard ones (the second layout pass). */
-  detailScalesSet?: boolean;
+  /** Internal: the enlargement each detail asked for (letter → factor), while the sheet settles its standard scales. */
+  detailAsked?: Record<string, number>;
+  /** Internal: the sheet scale this pass must use (the detail-scale search). */
+  forceScale?: number;
 }
 
 /** Where a view was put: sheet px = (ox + (x − minX)·k, oyBottom − (y − minY)·k); its cell, px. */
@@ -281,12 +283,20 @@ function layoutCore(mesh: Mesh, o: SheetOptions, textUnitsIn: number | undefined
   const noModel = !mesh.triangles.length;
   const needsExploded = (v: ViewSpec): boolean => v.kind === "exploded" || (v.kind === "detail" && v.of === "exploded");
   let views = noModel ? o.views.filter((v) => v.kind === "blank") : o.views;
+  if (noModel && views.length && views.length < o.views.length) notes.push("There are no parts yet, so only the blank figure is drawn.");
   if (!o.exploded && views.some(needsExploded)) {
     views = views.filter((v) => !needsExploded(v));
     notes.push("The exploded view needs the parts apart: press Auto explode, or give a part an explode distance.");
   }
-  if (!views.length) return { svg: "", widthPx: 0, heightPx: 0, labels: [], scaleMmPerUnit: 0, notes: ["Add a part, or tick Blank figure to draw freehand."] };
-  if (views.length < o.views.length) notes.push("There are no parts yet, so only the blank figure is drawn.");
+  // 1.84(h)(2): the enlarged view and the view it enlarges are both shown — a detail of a view not on the
+  // sheet is left out (and said), never drawn on its own.
+  const keys = new Set(views.map(viewKey));
+  views = views.filter((v) => {
+    if (v.kind !== "detail" || keys.has(v.of)) return true;
+    notes.push(`Detail ${v.letter} is of the ${v.of === "iso" ? "isometric" : v.of} view, which is not on this sheet, so it is not drawn: tick that view too.`);
+    return false;
+  });
+  if (!views.length) return { svg: "", widthPx: 0, heightPx: 0, labels: [], scaleMmPerUnit: 0, notes: notes.length ? notes : ["Add a part, or tick Blank figure to draw freehand."] };
   // A blank figure is as large as the largest model view (so marks keep their size when parts come
   // and go), or 100 × 70 units with no model.
   const BLANK_EMPTY: LineDrawing = { visible: [], hidden: [], bounds: { minX: 0, minY: 0, maxX: 100, maxY: 70 }, stats: { triangles: 0, featureSegments: 0, pieces: 0 } };
@@ -327,6 +337,21 @@ function layoutCore(mesh: Mesh, o: SheetOptions, textUnitsIn: number | undefined
     info.drawn.set(key, d);
     return d;
   };
+  views = views.filter((v) => {
+    if (v.kind !== "detail") return true;
+    const parent = drawingOf({ kind: v.of });
+    const pb = parent.bounds, span = Math.max(pb.maxX - pb.minX, pb.maxY - pb.minY);
+    if (v.r > span / 2) {
+      notes.push(`Detail ${v.letter}'s circle is larger than the figure it enlarges, so it is not drawn: make its radius smaller.`);
+      return false;
+    }
+    const dd = drawingOf(v);
+    if (!dd.visible.length && !dd.hidden.length) {
+      notes.push(`Detail ${v.letter}'s circle holds nothing of the figure, so it is not drawn: take it again on the part to enlarge.`);
+      return false;
+    }
+    return true;
+  });
   const drawings = views.map((spec): SheetDrawing | null => {
     if (spec.kind === "blank") return null;
     const d = drawingOf(spec);
@@ -365,10 +390,7 @@ function layoutCore(mesh: Mesh, o: SheetOptions, textUnitsIn: number | undefined
   const details = items.filter((i): i is (typeof items)[number] & { spec: DetailSpec } => i.spec.kind === "detail");
   for (const dt of details) {
     const parent = items.find((i) => viewKey(i.spec) === dt.spec.of);
-    if (!parent) {
-      notes.push(`Detail ${dt.spec.letter} is of the ${dt.spec.of === "iso" ? "isometric" : dt.spec.of} view, which is not on this sheet: its circle is not drawn — the enlarged view and the view it enlarges must both be shown.`);
-      continue;
-    }
+    if (!parent) continue; // left out above
     const b = parent.d.bounds, [cx, cy] = dt.spec.at, r = dt.spec.r;
     parent.d.bounds = { minX: Math.min(b.minX, cx - r), minY: Math.min(b.minY, cy - r), maxX: Math.max(b.maxX, cx + r), maxY: Math.max(b.maxY, cy + r) };
   }
@@ -385,9 +407,22 @@ function layoutCore(mesh: Mesh, o: SheetOptions, textUnitsIn: number | undefined
   // angle would point at nothing at another (review). Marks far outside their figure (a damaged
   // model) are not drawn either: they would shrink the drawing to a dot.
   const onSheet = new Set(items.map((i) => viewKey(i.spec)));
+  // A detail's marks are kept in its parent view's plane (so they stay on what they point at when the
+  // enlargement changes); here they are enlarged with the detail.
+  const growOf = new Map(details.map((dt) => [viewKey(dt.spec), (p: [number, number]): [number, number] => [dt.spec.at[0] + (p[0] - dt.spec.at[0]) * dt.spec.factor, dt.spec.at[1] + (p[1] - dt.spec.at[1]) * dt.spec.factor]]));
+  const marksIn = (o.marks ?? []).map((m) => {
+    const g = growOf.get(m.view);
+    if (!g) return m;
+    switch (m.kind) {
+      case "pen": return { ...m, pts: m.pts.map(g) };
+      case "line": return { ...m, a: g(m.a), b: g(m.b) };
+      case "text": return { ...m, at: g(m.at) };
+      case "numeral": return { ...m, tip: g(m.tip), at: g(m.at) };
+    }
+  }) as SheetMark[];
   const strays = new Map<string, number>();
   let orbitMarks = 0, farMarks = 0;
-  const marks = (o.marks ?? []).filter((m) => {
+  const marks = marksIn.filter((m) => {
     if (m.view === "orbit") {
       orbitMarks++;
       return false;
@@ -405,7 +440,7 @@ function layoutCore(mesh: Mesh, o: SheetOptions, textUnitsIn: number | undefined
     }
     return true;
   });
-  for (const [v, n] of strays) notes.push(`${n} hand-drawn mark${n === 1 ? " belongs" : "s belong"} to the ${v === "iso" ? "isometric" : v} view, which is not on this sheet.`);
+  for (const [v, n] of strays) notes.push(`${n} hand-drawn mark${n === 1 ? " belongs" : "s belong"} to ${v.startsWith("detail:") ? `detail ${v.slice(7)}` : `the ${v === "iso" ? "isometric" : v} view`}, which is not on this sheet.`);
   if (orbitMarks) notes.push(`${orbitMarks} hand-drawn mark${orbitMarks === 1 ? " is" : "s are"} on "This view", which turns with the model, so ${orbitMarks === 1 ? "it is" : "they are"} not drawn — draw on a standard view or the isometric.`);
   if (farMarks) notes.push(`${farMarks} hand-drawn mark${farMarks === 1 ? " lies" : "s lie"} far outside ${farMarks === 1 ? "its" : "their"} figure and ${farMarks === 1 ? "is" : "are"} not drawn.`);
   if (marks.length) {
@@ -492,7 +527,7 @@ function layoutCore(mesh: Mesh, o: SheetOptions, textUnitsIn: number | undefined
   // figure is read on its own.
   if (std.callouts === "balloon") {
     const rank = (it: (typeof items)[number]): number =>
-      it.pictorial ? 0 : (["front", "top", "right", "left", "back", "bottom"] as string[]).indexOf(it.spec.kind) + 1;
+      it.spec.kind === "detail" ? 99 : it.pictorial ? 0 : (["front", "top", "right", "left", "back", "bottom"] as string[]).indexOf(it.spec.kind) + 1;
     const order = items.map((_, i) => i).sort((p, q) => rank(items[p]) - rank(items[q]) || p - q);
     const placed = new Set<number>();
     for (const i of order) {
@@ -569,24 +604,36 @@ function layoutCore(mesh: Mesh, o: SheetOptions, textUnitsIn: number | undefined
   if (std.standardScale && fitS < STANDARD_SCALES[STANDARD_SCALES.length - 1]) {
     return refuse(`The drawing does not fit the sheet at any standard scale (the smallest is ${scaleLabel(STANDARD_SCALES[STANDARD_SCALES.length - 1])}).`);
   }
-  const s = std.standardScale ? snapScale(fitS) : fitS;
-  // A detail on a sheet of standard scales is drawn at the standard scale nearest its enlargement (one
-  // larger than the sheet's): "SCALE 2:1", never "1.5:1". Laid out once more with those enlargements.
-  if (std.standardScale && !o.detailScalesSet && items.some((i) => i.spec.kind === "detail")) {
-    const adjusted = o.views.map((v) => {
-      if (v.kind !== "detail") return v;
-      const want = s * v.factor;
-      const above = STANDARD_SCALES.filter((x) => x > s * (1 + 1e-9));
-      const best = above.reduce((a, x) => (Math.abs(Math.log(x / want)) < Math.abs(Math.log(a / want)) ? x : a), above[above.length - 1] ?? want);
-      return { ...v, factor: best / s };
-    });
-    const sheet = layoutCore(mesh, { ...o, views: adjusted, detailScalesSet: true }, textUnitsIn, info);
-    for (const v of adjusted) {
-      const asked = o.views.find((q) => q.kind === "detail" && v.kind === "detail" && q.letter === v.letter);
-      if (v.kind === "detail" && asked?.kind === "detail" && Math.abs(v.factor - asked.factor) > 1e-9 && sheet.svg)
-        sheet.notes.push(`Detail ${v.letter} is drawn at ${scaleLabel(s * v.factor)}, the standard scale nearest ${asked.factor}× this sheet's ${scaleLabel(s)}.`);
+  // A detail on a sheet of standard scales is drawn at a standard scale too ("SCALE 2:1", never "1.5:1"):
+  // each standard sheet scale that could fit is tried, largest first, with every detail at the standard
+  // scale nearest the enlargement asked; the first layout that fits at exactly that scale is the sheet.
+  // (Fixing the sheet scale first makes this end: at most one try per standard scale.)
+  if (std.standardScale && details.length && o.forceScale === undefined) {
+    const asked = Object.fromEntries(details.map((d) => [d.spec.letter, d.spec.factor]));
+    for (const sc of STANDARD_SCALES) {
+      if (sc > snapScale(fitS) * (1 + 1e-9)) continue;
+      const above = STANDARD_SCALES.filter((x) => x > sc * (1 + 1e-9));
+      if (!above.length) continue;
+      const adjusted = o.views.map((v) => {
+        if (v.kind !== "detail") return v;
+        const want = sc * (asked[v.letter] ?? v.factor);
+        const best = above.reduce((p, x) => (Math.abs(Math.log(x / want)) < Math.abs(Math.log(p / want)) ? x : p), above[above.length - 1]);
+        return { ...v, factor: best / sc };
+      });
+      const sheet = layoutCore(mesh, { ...o, views: adjusted, forceScale: sc, detailAsked: asked }, textUnitsIn, info);
+      if (sheet.svg) return sheet;
     }
-    return sheet;
+    return refuse("The views and their detail views do not fit the sheet at any standard scale; choose a larger sheet or fewer views.");
+  }
+  let s = std.standardScale ? snapScale(fitS) : fitS;
+  if (o.forceScale !== undefined) {
+    if (fitS < o.forceScale * (1 - 1e-9)) return refuse("does not fit at this scale");
+    s = o.forceScale;
+    for (const dt of details) {
+      const want = o.detailAsked?.[dt.spec.letter] ?? dt.spec.factor;
+      if (Math.abs(dt.spec.factor - want) > 1e-9)
+        notes.push(`Detail ${dt.spec.letter} is drawn at ${scaleLabel(s * dt.spec.factor)}, the standard scale nearest ${want}× this sheet's ${scaleLabel(s)}.`);
+    }
   }
   const cwMm = colMm(s), chMm = rowMm(s);
 
@@ -629,7 +676,10 @@ function layoutCore(mesh: Mesh, o: SheetOptions, textUnitsIn: number | undefined
     const X = (x: number): number => ox + (x - b.minX) * k;
     const Y = (y: number): number => oyBottom - (y - b.minY) * k;
     const path = (lines: Polyline[]): string => lines.map((l) => "M" + l.map(([x, y]) => `${fmt(X(x))} ${fmt(Y(y))}`).join("L")).join("");
-    frames.push({ view: viewKey(it.spec), ox, oyBottom, minX: b.minX, minY: b.minY, k, cell: { x: cellX, y: cellY, w: cw, h: chh } });
+    if (it.spec.kind === "detail") {
+      const [cx, cy] = it.spec.at, fct = it.spec.factor;
+      frames.push({ view: viewKey(it.spec), ox, oyBottom, minX: cx - (cx - b.minX) / fct, minY: cy - (cy - b.minY) / fct, k: k * fct, cell: { x: cellX, y: cellY, w: cw, h: chh } });
+    } else frames.push({ view: viewKey(it.spec), ox, oyBottom, minX: b.minX, minY: b.minY, k, cell: { x: cellX, y: cellY, w: cw, h: chh } });
     for (const m of marks) {
       if (m.view !== viewKey(it.spec)) continue;
       const ms = { X, Y, strokePx: types.visible.widthMm * PX_PER_MM, fontPx: textMm * PX_PER_MM, font: std.font };
@@ -644,7 +694,8 @@ function layoutCore(mesh: Mesh, o: SheetOptions, textUnitsIn: number | undefined
       }
     }
 
-    const showHidden = o.showHidden ?? (it.pictorial ? std.hiddenInPictorial : std.hiddenInOrthographic);
+    const pictorialRule = it.spec.kind === "detail" ? !ORTHO.has(it.spec.of) : it.pictorial;
+    const showHidden = o.showHidden ?? (pictorialRule ? std.hiddenInPictorial : std.hiddenInOrthographic);
     if (showHidden && it.d.hidden.length) layer.hidden.push(`<path d="${path(it.d.hidden)}" ${strokeAttrs(types.hidden, PX_PER_MM)}/>`);
     if (it.d.visible.length) layer.visible.push(`<path d="${path(it.d.visible)}" ${strokeAttrs(types.visible, PX_PER_MM)}/>`);
     // Trail lines of an exploded view: phantom lines (ASME Y14.2 / ISO 128 type 05: alternate positions).
@@ -657,13 +708,18 @@ function layoutCore(mesh: Mesh, o: SheetOptions, textUnitsIn: number | undefined
       const [cx, cy] = dt.spec.at, rr = dt.spec.r;
       layer.visible.push(`<path d="${path([circlePolyline([cx, cy], rr)])}" ${strokeAttrs(thin, PX_PER_MM)}/>`);
       const tag = std.viewLabels === "fig" ? `FIG. ${figOf.get(dt)}` : dt.spec.letter;
-      const lx = X(cx + rr * Math.SQRT1_2) + fontPx * 0.4, ly = Y(cy + rr * Math.SQRT1_2) - fontPx * 0.4;
+      const tagW = tag.length * fontPx * 0.62;
+      const lx = Math.max(cellX, Math.min(cellX + cw - tagW, X(cx + rr * Math.SQRT1_2) + fontPx * 0.4));
+      const ly = Math.max(cellY + fontPx, Math.min(cellY + chh, Y(cy + rr * Math.SQRT1_2) - fontPx * 0.4));
       layer.titles.push(`<text x="${fmt(lx)}" y="${fmt(ly)}" font-family="${esc(std.font)}" font-size="${fmt(fontPx)}" fill="#000">${esc(tag)}</text>`);
     }
     // 37 CFR 1.84(h)(1): an exploded view on a sheet with another figure is placed in brackets.
     if (it.spec.kind === "exploded" && o.standard === "uspto" && items.length > 1) {
       const m = 2 * PX_PER_MM, lip = 2 * PX_PER_MM;
-      const xl = ox - m, xr = ox + vw + m, yt = oyBottom - vh - m, yb = oyBottom + m;
+      // Beyond the callout columns beside the view, so no lead line crosses it.
+      const reach = 5 * PX_PER_MM + fontPx * 1.6;
+      const hasL = shown[idx].some((c) => !c.right), hasR = shown[idx].some((c) => c.right);
+      const xl = ox - m - (hasL ? reach : 0), xr = ox + vw + m + (hasR ? reach : 0), yt = Math.min(oyBottom - vh, cellY) - m, yb = Math.max(oyBottom, cellY + chh) + m;
       layer.visible.push(`<path d="M${fmt(xl + lip)} ${fmt(yt)}L${fmt(xl)} ${fmt(yt)}L${fmt(xl)} ${fmt(yb)}L${fmt(xl + lip)} ${fmt(yb)}M${fmt(xr - lip)} ${fmt(yt)}L${fmt(xr)} ${fmt(yt)}L${fmt(xr)} ${fmt(yb)}L${fmt(xr - lip)} ${fmt(yb)}" ${strokeAttrs(thin, PX_PER_MM)}/>`);
     }
     parts = layer.callouts;

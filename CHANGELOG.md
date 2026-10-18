@@ -26,6 +26,21 @@ All notable changes to JurisLab. Dates are release/pilot dates.
   callouts inside the circle show enlarged; marks can be drawn on a detail. Size and enlargement change in the
   list; Remove takes a detail away.
 
+### Fixed before release (adversarial review: 11 findings, pinned in cadTableReview.test.ts, cadAssemblyPane.dom.test.ts)
+- A detail's scale could read 1.25:1 or 1:2.5 with a note naming the wrong sheet scale: the sheet now tries each
+  standard scale, largest first, with every detail at the standard scale nearest its enlargement, and keeps the
+  first that fits — every detail label is a standard scale, every note names the real one.
+- An exploded view with nothing apart also said "no parts yet" (or "add a part" with five parts); ticking
+  Exploded did not show the explode distances; setting the last distance to 0 exploded the parts again and
+  dropped the field being typed in.
+- A detail of an orthographic view lost its hidden lines; ASME balloons went into the detail instead of the
+  front; a detail's marks stayed after it was removed (and moved when its enlargement changed — marks are now
+  kept in the parent view's plane); a stray-mark note showed "detail:A".
+- A diagonal move's trail floated off the part; the circle's FIG tag could run off the sheet; a circle larger
+  than its figure shrank the sheet to dots and one over empty paper drew nothing — both refused by name; a
+  detail of a view not on the sheet is left out (1.84(h)(2)); the USPTO bracket now stands beyond the callout
+  column; a face's centre snap stays on the face clicked (a U's two arm tops are two faces).
+
 ## [2.154.0] — 2026-10-18 — ChemDraw: chains, polymer brackets, arrows, replace in place
 
 ### Added

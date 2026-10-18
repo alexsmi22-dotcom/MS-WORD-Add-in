@@ -5,7 +5,7 @@ import { CadDoc, CadPart, defaultParams, docToAssembly, parseDoc, resolveCallout
 import { autoExplode, explodedAnchors, explodedDoc, explodeTrails } from "../cadExplode";
 import { clipPolyline, detailDrawing, nextDetailLetter } from "../cadDetail";
 import { layoutSheet, ViewSpec } from "../cadSheet";
-import { STANDARD_SCALES } from "../cadStandards";
+import { STANDARD_SCALES, scaleLabel as scaleLabelOf } from "../cadStandards";
 import { drawLines, STANDARD_VIEWS } from "../cadLines";
 
 const box = (id: string, w: number, d: number, h: number, t: Vec3): CadPart => ({ id, name: id, shape: "box", params: { ...defaultParams("box"), w, d, h }, placement: { translate: t, rotateDeg: [0, 0, 0] } });
@@ -133,11 +133,35 @@ describe("detail views", () => {
   test("ISO: A (k:1)", () => {
     expect(withDetail("iso").labels[1]).toMatch(/^A \([\d.]+:[\d.]+\)$/);
   });
-  test("a detail of a view not on the sheet is drawn, and the missing circle is said", () => {
+  test("a detail of a view not on the sheet is left out and said (1.84(h)(2): both views are shown)", () => {
     const d = TABLE();
-    const sh = layoutSheet(meshOf(d), { standard: "uspto", views: [{ kind: "detail", letter: "A", of: "top", at: [2.5, 2.5], r: 8, factor: 2 }] });
+    const sh = layoutSheet(meshOf(d), { standard: "uspto", views: [{ kind: "front" }, { kind: "detail", letter: "A", of: "top", at: [2.5, 2.5], r: 8, factor: 2 }] });
     expect(sh.labels).toEqual(["FIG. 1"]);
-    expect(sh.notes.join(" ")).toContain("Detail A is of the top view, which is not on this sheet");
+    expect(sh.notes).toContain("Detail A is of the top view, which is not on this sheet, so it is not drawn: tick that view too.");
+  });
+  test("a circle larger than its figure, or one holding nothing of it, is refused by name (it would shrink the sheet, or show nothing)", () => {
+    const d = TABLE();
+    const m = meshOf(d);
+    const big = layoutSheet(m, { standard: "uspto", views: [{ kind: "front" }, { kind: "detail", letter: "A", of: "front", at: [50, 37], r: 500, factor: 2 }] });
+    expect(big.notes).toContain("Detail A's circle is larger than the figure it enlarges, so it is not drawn: make its radius smaller.");
+    expect(big.labels).toEqual(["FIG. 1"]);
+    const empty = layoutSheet(m, { standard: "uspto", views: [{ kind: "front" }, { kind: "detail", letter: "A", of: "front", at: [50, 30], r: 5, factor: 2 }] });
+    expect(empty.notes).toContain("Detail A's circle holds nothing of the figure, so it is not drawn: take it again on the part to enlarge.");
+  });
+  test("ASME, ISO: the sheet settles on a standard scale and the detail's label is a standard scale too (several sizes)", () => {
+    const d = TABLE();
+    const m = meshOf(d);
+    for (const standard of ["asme", "iso"] as const)
+      for (const r of [3, 5, 12, 25])
+        for (const factor of [2, 3, 4, 5, 10]) {
+          const sh = layoutSheet(m, { standard, views: [{ kind: "front" }, { kind: "top" }, { kind: "right" }, { kind: "detail", letter: "A", of: "front", at: [2.5, 70], r, factor }] });
+          if (!sh.svg) continue;
+          const k = /([\d.]+):([\d.]+)/.exec(sh.labels[3])!;
+          const val = Number(k[1]) / Number(k[2]);
+          expect([standard, r, factor, STANDARD_SCALES.some((x) => Math.abs(x - val) < 1e-9)]).toEqual([standard, r, factor, true]);
+          // Any note names the sheet's real scale.
+          for (const n of sh.notes.filter((q) => q.startsWith("Detail A is drawn at"))) expect(n).toContain(`this sheet's ${scaleLabelOf(sh.scaleMmPerUnit)}`);
+        }
   });
   test("marks drawn on a detail belong to it (by its letter)", () => {
     const d = TABLE();

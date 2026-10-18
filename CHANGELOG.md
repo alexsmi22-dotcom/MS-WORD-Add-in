@@ -11,11 +11,16 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 ### Fixed (in-Word report: "not able to insert an arrow or text box", "the self draw is still acting up", "callouts … some missing")
 - In the large canvas the drawing tools (Pencil, Line, Arrow, Numeral, Text, Erase) worked only on the small
   sheet at the side; dragging on the big view turned the 3D model and drew nothing. Now a drawing tool (or Add
-  detail view) gives the sheet the big area, so it is drawn on at size; switching the tool off — or pressing
-  Add callout or Mate faces, which work on the 3D view — brings the 3D view back.
+  detail view) gives the sheet the big area, so it is drawn on at size, with the status line beside it; switching
+  the tool off (click it again, or Esc) brings the 3D view back. Marks land where clicked however the sheet is
+  fitted (a portrait sheet sits centred in the space); starting a sketch ends drawing on the sheet first.
 - A callout placed on a spot no view on the sheet shows (the underside, with only Front and Isometric ticked) was
-  left off the sheet with only a note; placing it now says so at once and what to do (tick a view that shows
-  it, or click a face the views show).
+  left off the sheet with only a note; placing it now says so at once and what to do (turn the 3D view until the
+  spot faces you and tick This view, or click a face the ticked views show).
+- Update: on a PC, Reload on the "Update available" bar said "could not be downloaded — check your connection"
+  although the release was live (the new offline copy never installed, or the browser had already moved on).
+  When the release cannot come in through the offline copy but the server answers with it, the stale copy is
+  now dropped and the pane loads the release from the server; offline, nothing is dropped.
 
 ## [2.155.0] — 2026-10-18 — Drawing (CAD): mate faces, exploded views, detail views (the table release)
 

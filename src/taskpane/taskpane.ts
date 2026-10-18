@@ -536,6 +536,7 @@ import { powerT, powerAnova, powerProportions, sampleSizeFor, effectLabel, type 
 import {
   describeOfflineStatus,
   activatePendingWorker,
+  dropStaleCopyIfOnline,
   cdnResourcesToWarm,
   type OfflineProbe,
 } from "../lib/offline";
@@ -1494,7 +1495,14 @@ async function reloadIntoVersion(newVersion: string): Promise<boolean> {
   await offlineStarted;
   if (swSupported) {
     const swapped = await activatePendingWorker(swRegistration, { waitForControllerChange });
-    if (!swapped) return false;
+    if (!swapped) {
+      // Not through the worker: with the server answering, drop the stale offline copy and load fresh.
+      const fresh = await dropStaleCopyIfOnline(swRegistration, async () => {
+        const r = await fetch(`version.json?t=${Date.now()}`, { cache: "no-store" });
+        return r.ok && ((await r.json()) as { version?: string }).version === newVersion;
+      });
+      if (!fresh) return false;
+    }
   }
   const url = new URL(window.location.href);
   url.searchParams.set("v", newVersion);

@@ -211,3 +211,26 @@ function waitForInstalled(
     check();
   });
 }
+
+/**
+ * When a release cannot be brought in through the worker (it never installed — one file of the release
+ * failed to download — or the browser already moved on, so nothing is pending), but the server answers:
+ * the stale offline copy is dropped so the next load comes from the server. Reported from a PC whose
+ * Reload said "could not be downloaded" while the release was live. Only when `serverAnswers()` says
+ * the server is reachable — dropping the copy offline would leave nothing to load.
+ */
+export async function dropStaleCopyIfOnline(reg: { unregister(): Promise<boolean> } | null | undefined, serverAnswers: () => Promise<boolean>): Promise<boolean> {
+  if (!reg) return false;
+  let online = false;
+  try {
+    online = await serverAnswers();
+  } catch {
+    online = false;
+  }
+  if (!online) return false;
+  try {
+    return await reg.unregister();
+  } catch {
+    return false;
+  }
+}

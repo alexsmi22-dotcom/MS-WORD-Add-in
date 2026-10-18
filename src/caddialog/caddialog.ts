@@ -68,8 +68,12 @@ Office.onReady(() => {
     pane = initCadPane(
       {
         setStatus: (text, kind) => {
-          statusEl.textContent = text;
-          statusEl.className = kind === "error" ? "build-readout warn" : "build-readout";
+          // Two copies: under the 3D view, and by the sheet (shown while drawing on it).
+          for (const el of [statusEl, byId<HTMLElement>("cad-status-sheet")]) {
+            if (!el) continue;
+            el.textContent = text;
+            el.className = kind === "error" ? "build-readout warn" : "build-readout";
+          }
         },
         nextNumeral: (taken) => nextFreeNumeral(base, taken),
         // The pane does the insert: hand it the model, with the instruction.

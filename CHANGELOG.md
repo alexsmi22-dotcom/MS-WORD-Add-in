@@ -6,6 +6,30 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.151.0] — 2026-10-18 — Drawing (CAD): draw on the drawing — pencil, arrows, text, numerals anywhere
+
+From the user's first pass in Word: "the free hand drawing is frustrating to use … what i draw is what i want",
+"when i try to add reference numbers, they do not all show up", "i also want the ability to add text",
+"also need the ability to add arrows to point to a particular point" — for a patent on a table, "showing all
+points of it, how each piece intersects and connects".
+
+### Added
+- **Draw on the drawing** — a toolbar above the sheet, in the pane and the large window: **Pencil** (a freehand
+  stroke, kept as drawn), **Line**, **Arrow** (drag from the tail to the point it shows), **Numeral** (drag from
+  the point it names to where the number goes, or click the point; continues the numbering), **Text** (type it,
+  click where it goes), **Erase** (click a mark) and **Undo mark**. No snapping and no profile rules. Each mark
+  belongs to the figure it was drawn on, in that view's own plane, so it moves and scales with the figure when the
+  sheet is laid out again, and it reopens with the drawing (saved in the model; a damaged one refuses the drawing
+  by its number). The sheet leaves room for marks drawn beyond a figure; front, top and side views stay aligned.
+- **Blank figure** (Views on the sheet) — a figure with no parts, to draw freehand. With no parts at all the
+  sheet holds only blank figures, and the message says so.
+
+### Fixed
+- **Callouts that "do not all show up".** Add callout was an on/off switch: pressing it before each numeral turned
+  it OFF every other time, so the next click selected a part and no callout was made, with nothing said. It now
+  stays on until **Stop placing callouts** or **Esc**, looks on, names each callout it places, and a click off the
+  model says so. The canvas now shows each callout's number beside its point, not only a dot.
+
 ## [2.150.0] — 2026-10-18 — Drawing (CAD): import DXF drawings (Solid Edge, AutoCAD)
 
 The firm uses Solid Edge for most drawings: "we would want the ability to import solid edge and cad files".

@@ -88,7 +88,7 @@ describe("impossible dimensions are refused by name, never drawn", () => {
 
   it("an empty drawing says how to start", () => {
     const a = docToAssembly(doc());
-    expect(a).toEqual({ ok: false, reason: "Add a part to start a drawing." });
+    expect(a).toEqual({ ok: false, reason: "Add a part to start a drawing, or tick Blank figure (under Views on the sheet) to draw freehand." });
   });
 });
 

@@ -12,6 +12,7 @@
  * read, refused by name when it cannot be drawn — it travels in the inserted
  * picture's alt text and to and from the large-canvas dialog.
  */
+import { parseMarks, SheetMark } from "./cadMarks";
 import {
   apply3,
   Assembly,
@@ -299,6 +300,8 @@ export interface CadDoc {
   sheet?: DocSheet;
   /** Layers switched off (false); omitted = all on. */
   layers?: Partial<Record<"frame" | "titleBlock" | "callouts" | "titles", boolean>>;
+  /** Hand-drawn marks on the figures (cadMarks); omitted = none. */
+  marks?: SheetMark[];
 }
 
 export interface DocSheet {
@@ -386,7 +389,7 @@ export function partProblems(part: CadPart): string[] {
 export function docToAssembly(doc: CadDoc): { ok: true; assembly: Assembly } | { ok: false; reason: string } {
   const bad = doc.parts.flatMap((p) => partProblems(p).map((r) => `${p.name}: ${r}`));
   if (bad.length) return { ok: false, reason: bad.join("; ") };
-  if (!doc.parts.length) return { ok: false, reason: "Add a part to start a drawing." };
+  if (!doc.parts.length) return { ok: false, reason: "Add a part to start a drawing, or tick Blank figure (under Views on the sheet) to draw freehand." };
   return {
     ok: true,
     assembly: {
@@ -556,7 +559,7 @@ export function parseDoc(text: string): { ok: true; doc: CadDoc } | { ok: false;
     if ((c.part !== undefined || c.local !== undefined) && (typeof c.part !== "string" || !isVec(c.local))) return { ok: false, reason: "a callout in the drawing is damaged" };
     if (c.sag !== undefined && !(isNum(c.sag) && c.sag >= 0)) return { ok: false, reason: "a callout in the drawing is damaged" };
   }
-  const kinds = ["front", "top", "right", "left", "back", "bottom", "iso", "orbit"];
+  const kinds = ["front", "top", "right", "left", "back", "bottom", "iso", "orbit", "blank"];
   for (const v of d.views as ViewSpec[]) {
     if (!v || typeof v !== "object" || !kinds.includes(String(v.kind))) return { ok: false, reason: "a view in the drawing is damaged" };
     if (v.kind === "orbit" && ((v.rot !== undefined && !isRotation(v.rot)) || (v.deg !== undefined && !isVec(v.deg)))) {
@@ -568,6 +571,10 @@ export function parseDoc(text: string): { ok: true; doc: CadDoc } | { ok: false;
   if (d.hidden !== undefined && d.hidden !== "show" && d.hidden !== "hide") return { ok: false, reason: "the drawing's hidden-line setting is damaged" };
   const sheetWhy = parseSheetAndLayers(d);
   if (sheetWhy) return { ok: false, reason: sheetWhy };
+  const mk = parseMarks(d.marks);
+  if (!mk.ok) return { ok: false, reason: mk.reason };
+  if (mk.marks.length) d.marks = mk.marks;
+  else delete d.marks;
   return { ok: true, doc: d as CadDoc };
 }
 

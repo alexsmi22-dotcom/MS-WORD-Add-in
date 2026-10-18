@@ -2486,3 +2486,23 @@ select {
   word-break: normal;
   overflow-wrap: anywhere;
 }
+
+/* Drawing on the sheet: pencil, lines, arrows, numerals, text. */
+.cad-mark-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+  margin: 6px 0 4px;
+}
+.cad-mark-bar .preview-label { width: 100%; }
+.cad-mark-bar .insert-btn { width: auto; flex: 0 0 auto; padding: 4px 10px; margin: 0; }
+.cad-mark-bar .insert-btn.active {
+  background: var(--accent, #2563eb);
+  border-color: var(--accent, #2563eb);
+  color: #fff;
+}
+.cad-mark-bar input { flex: 1 1 100%; }
+#cad-preview.cad-marking { cursor: crosshair; touch-action: none; user-select: none; }
+/* Placing callouts is a mode that stays on: it must look on. */
+.cad-view-btns #cad-callout.active { background: var(--accent, #2563eb); border-color: var(--accent, #2563eb); color: #fff; }

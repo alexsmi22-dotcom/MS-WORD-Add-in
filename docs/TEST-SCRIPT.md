@@ -10,6 +10,25 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
 
+## 0co. New in v2.151.0 — Drawing (CAD): draw on the drawing
+
+Home ▸ **Drawing (CAD)**, **Drawing standard: Patent drawing**. Build a table: **Block** 120 × 60 × 4 moved to Z 70
+(the top) and four **Blocks** 5 × 5 × 70 at the corners (the legs).
+
+- [ ] ★ **Numerals stay on.** Press **Add callout** once: it turns solid and reads **Stop placing callouts**. Click
+  the top, then each leg: every click places the next numeral (10, 12, 14 …), its number shows on the canvas, and
+  the status names the part. **Esc** ends it. Every numeral is on the sheet in the views where its point is seen.
+- [ ] ★ **Draw on the drawing.** Under **Draw on the drawing**: **Arrow** — drag from empty space to a leg in the
+  isometric figure; **Numeral** — drag from a joint to the side (the number goes where you let go); **Text** — type
+  `TABLE TOP`, click beside the figure; **Pencil** — draw a wavy line. Each appears on the sheet as drawn.
+  **Erase** a mark, **Undo mark** brings it back.
+- [ ] **Marks follow their figure.** Untick **Top**: the remaining figures are laid out again and every mark
+  stays on its own figure. Tick it back.
+- [ ] **Insert, then Edit drawing at cursor**: the marks come back with the drawing.
+- [ ] **Blank figure.** **New drawing** (twice), untick every view, tick **Blank figure**: an empty FIG. 1. Draw on
+  it with the Pencil and add a Numeral and Text; **Insert drawing** puts it in.
+- [ ] **Large window** (Open large canvas): the same tools draw on the larger sheet.
+
 ## 0cn. New in v2.150.0 — Drawing (CAD): import DXF drawings
 
 Home ▸ **Drawing (CAD)** ▸ **Import DXF…** (under New drawing). For a test file, open a Solid Edge draft and

@@ -1238,6 +1238,7 @@
           <label><input type="checkbox" value="right" checked /> Right</label>
           <label><input type="checkbox" value="iso" checked /> Isometric</label>
           <label><input type="checkbox" value="orbit" /> This view</label>
+          <label title="A figure with no parts in it: draw on it with the tools above the drawing"><input type="checkbox" value="blank" /> Blank figure</label>
         </fieldset>
         <label class="field-label" for="cad-hidden">Hidden lines</label>
         <select id="cad-hidden" class="lib-select">
@@ -1262,6 +1263,17 @@
           </details>
         </div>
         <div id="cad-msg" class="build-readout" aria-live="polite"></div>
+        <div id="cad-mark-bar" class="cad-mark-bar" role="toolbar" aria-label="Draw on the drawing">
+          <span class="preview-label">Draw on the drawing</span>
+          <button type="button" class="insert-btn secondary" data-mark-tool="pen" aria-pressed="false" title="Pencil: drag on a figure to draw, exactly as you move">Pencil</button>
+          <button type="button" class="insert-btn secondary" data-mark-tool="line" aria-pressed="false" title="Line: drag from one end to the other">Line</button>
+          <button type="button" class="insert-btn secondary" data-mark-tool="arrow" aria-pressed="false" title="Arrow: drag from the tail to the point it shows">Arrow</button>
+          <button type="button" class="insert-btn secondary" data-mark-tool="numeral" aria-pressed="false" title="Numeral: drag from the point it names to where the number goes (a click puts it beside the point)">Numeral</button>
+          <button type="button" class="insert-btn secondary" data-mark-tool="text" aria-pressed="false" title="Text: type it in the box, then click where it goes">Text</button>
+          <button type="button" class="insert-btn secondary" data-mark-tool="erase" aria-pressed="false" title="Erase: click a mark you drew">Erase</button>
+          <button id="cad-mark-undo" type="button" class="insert-btn secondary" disabled title="Take back the last mark drawn or erased">Undo mark</button>
+          <input id="cad-mark-text" type="text" class="formula-input" maxlength="200" placeholder="Text to place, then click on the drawing" aria-label="Text to place" hidden>
+        </div>
         <div class="preview-wrap">
           <span class="preview-label">Drawing</span>
           <div id="cad-preview" class="preview" aria-live="polite"></div>

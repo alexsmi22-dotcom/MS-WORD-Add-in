@@ -28,9 +28,10 @@ import { DRAWING_STANDARDS, DrawingStandard, StandardId, STANDARD_SCALES, snapSc
 import { ptToMm } from "./figureStyle";
 import { buildFrame, Frame, Orientation, SheetSizeId, sheetRefusal, TitleValues } from "./cadFormats";
 import { LineType, lineTypesFor, strokeAttrs } from "./cadLineTypes";
+import { markSvg, marksExtent, SheetMark } from "./cadMarks";
 
 /** The sheet's layers. The user may switch off frame, titleBlock, callouts and titles. */
-export type LayerId = "visible" | "hidden" | "callouts" | "titles" | "frame" | "titleBlock" | "info";
+export type LayerId = "visible" | "hidden" | "callouts" | "markup" | "titles" | "frame" | "titleBlock" | "info";
 export const SWITCHABLE_LAYERS: Array<{ id: LayerId; name: string }> = [
   { id: "frame", name: "Frame and grid" },
   { id: "titleBlock", name: "Title block" },
@@ -46,7 +47,8 @@ export interface SheetFormat {
 
 export type OrthoKind = "front" | "top" | "right" | "left" | "back" | "bottom";
 /** An orbit view carries either Euler degrees or the exact matrix the user dragged to. */
-export type ViewSpec = { kind: OrthoKind | "iso" } | { kind: "orbit"; deg?: Vec3; rot?: number[]; name?: string };
+/** "blank": a figure with no model in it, only what is drawn on it by hand (cadMarks). */
+export type ViewSpec = { kind: OrthoKind | "iso" | "blank" } | { kind: "orbit"; deg?: Vec3; rot?: number[]; name?: string };
 
 export interface Callout {
   /** A world point ON the part (from pickAt). */
@@ -67,6 +69,19 @@ export interface SheetOptions {
   format?: SheetFormat;
   /** Layers switched off (false). */
   layers?: Partial<Record<LayerId, boolean>>;
+  /** Hand-drawn marks, each on the view of its kind (cadMarks). */
+  marks?: SheetMark[];
+}
+
+/** Where a view was put: sheet px = (ox + (x − minX)·k, oyBottom − (y − minY)·k); its cell, px. */
+export interface SheetFrame {
+  view: string;
+  ox: number;
+  oyBottom: number;
+  minX: number;
+  minY: number;
+  k: number;
+  cell: { x: number; y: number; w: number; h: number };
 }
 
 export interface Sheet {
@@ -79,6 +94,8 @@ export interface Sheet {
   scaleMmPerUnit: number;
   /** Plain-language notes the pane shows (a callout hidden in every view, …). */
   notes: string[];
+  /** Each view's placement, for mapping a click on the sheet back into the view. */
+  frames?: SheetFrame[];
   /** The sheet in mm (the trimmed sheet when framed), and its size designation. */
   widthMm?: number;
   heightMm?: number;
@@ -101,7 +118,7 @@ function viewOf(v: ViewSpec): CadView {
     if (v.rot && v.rot.length === 9 && v.rot.every((x) => Number.isFinite(x))) return { name: v.name ?? "view", rot: v.rot };
     return viewFromDegrees(v.deg ?? [0, 0, 0], v.name ?? "view");
   }
-  return STANDARD_VIEWS[v.kind];
+  return v.kind === "blank" ? STANDARD_VIEWS.front : STANDARD_VIEWS[v.kind];
 }
 
 function viewName(v: ViewSpec): string {
@@ -113,6 +130,7 @@ function viewName(v: ViewSpec): string {
     case "back": return "REAR";
     case "bottom": return "BOTTOM";
     case "iso": return "ISOMETRIC";
+    case "blank": return "";
     default: return (v.name ?? "VIEW").toUpperCase();
   }
 }
@@ -160,12 +178,26 @@ export function layoutSheet(mesh: Mesh, o: SheetOptions): Sheet {
   // Where the views go (mm): the frame's view area, or the standard's drawing area from the origin.
   const area = frame ? frame.viewArea : { x: 0, y: 0, w: std.areaMm.w, h: std.areaMm.h };
 
-  // Each view's drawing, and its cell.
+  // Each view's drawing, and its cell. With no parts at all, only blank figures can be drawn.
+  const noModel = !mesh.triangles.length;
+  const views = noModel ? o.views.filter((v) => v.kind === "blank") : o.views;
+  if (!views.length) return { svg: "", widthPx: 0, heightPx: 0, labels: [], scaleMmPerUnit: 0, notes: ["Add a part, or tick Blank figure to draw freehand."] };
+  if (views.length < o.views.length) notes.push("There are no parts yet, so only the blank figure is drawn.");
+  // A blank figure is as large as the largest model view (so marks keep their size when parts come
+  // and go), or 100 × 70 units with no model.
+  const BLANK_EMPTY: LineDrawing = { visible: [], hidden: [], bounds: { minX: 0, minY: 0, maxX: 100, maxY: 70 }, stats: { triangles: 0, featureSegments: 0, pieces: 0 } };
   const cellsFor = CELLS[std.projection];
   const used = new Set<string>();
-  const items = o.views.map((spec) => {
+  const drawings = views.map((spec) => (spec.kind === "blank" ? null : drawLines(mesh, viewOf(spec))));
+  let blankW = 0, blankH = 0;
+  for (const d of drawings) {
+    if (!d) continue;
+    blankW = Math.max(blankW, d.bounds.maxX - d.bounds.minX);
+    blankH = Math.max(blankH, d.bounds.maxY - d.bounds.minY);
+  }
+  const items = views.map((spec, vi) => {
     const view = viewOf(spec);
-    const d = drawLines(mesh, view);
+    const d: LineDrawing = drawings[vi] ?? (blankW > 0 ? { ...BLANK_EMPTY, bounds: { minX: 0, minY: 0, maxX: blankW, maxY: Math.max(blankH, blankW * 0.5) } } : { ...BLANK_EMPTY, bounds: { ...BLANK_EMPTY.bounds } });
     let cell: [number, number];
     if (ORTHO.has(spec.kind)) cell = cellsFor[spec.kind as OrthoKind];
     else cell = cellsFor.pic;
@@ -182,6 +214,38 @@ export function layoutSheet(mesh: Mesh, o: SheetOptions): Sheet {
   // Compact the grid: only columns / rows that hold a view.
   const cols = [...new Set(items.map((i) => i.cell[0]))].sort((a, b) => a - b);
   const rows = [...new Set(items.map((i) => i.cell[1]))].sort((a, b) => a - b);
+
+  // Hand-drawn marks: each view's box grows to hold its own. Text is sized on paper, so its
+  // extent in model units uses the scale the drawings alone would get (an estimate that errs
+  // on the side of room). Orthographic views in one column share their X extent, and in one
+  // row their Y extent, so the projections stay aligned.
+  const marks = o.marks ?? [];
+  const onSheet = new Set(items.map((i) => i.spec.kind as string));
+  const strays = new Map<string, number>();
+  for (const m of marks) if (!onSheet.has(m.view)) strays.set(m.view, (strays.get(m.view) ?? 0) + 1);
+  for (const [v, n] of strays) notes.push(`${n} hand-drawn mark${n === 1 ? " belongs" : "s belong"} to the ${v === "orbit" ? "custom" : v === "iso" ? "isometric" : v} view, which is not on this sheet.`);
+  if (marks.length) {
+    const spanW = cols.reduce((a, c) => a + Math.max(...items.filter((i) => i.cell[0] === c).map((i) => i.d.bounds.maxX - i.d.bounds.minX)), 0);
+    const spanH = rows.reduce((a, r) => a + Math.max(...items.filter((i) => i.cell[1] === r).map((i) => i.d.bounds.maxY - i.d.bounds.minY)), 0);
+    const sEst = Math.min(area.w / (spanW || 1), area.h / (spanH || 1)) * 0.8;
+    const textUnits = (ptToMm(std.textPt) * 1.1) / (sEst || 1);
+    for (const it of items) {
+      const ext = marksExtent(marks.filter((m) => m.view === it.spec.kind), textUnits);
+      if (!ext) continue;
+      const b = it.d.bounds;
+      it.d.bounds = { minX: Math.min(b.minX, ext.minX), minY: Math.min(b.minY, ext.minY), maxX: Math.max(b.maxX, ext.maxX), maxY: Math.max(b.maxY, ext.maxY) };
+    }
+    for (const c of cols) {
+      const col = items.filter((i) => !i.pictorial && i.cell[0] === c);
+      const lo = Math.min(...col.map((i) => i.d.bounds.minX)), hi = Math.max(...col.map((i) => i.d.bounds.maxX));
+      for (const i of col) i.d.bounds = { ...i.d.bounds, minX: lo, maxX: hi };
+    }
+    for (const r of rows) {
+      const row = items.filter((i) => !i.pictorial && i.cell[1] === r);
+      const lo = Math.min(...row.map((i) => i.d.bounds.minY)), hi = Math.max(...row.map((i) => i.d.bounds.maxY));
+      for (const i of row) i.d.bounds = { ...i.d.bounds, minY: lo, maxY: hi };
+    }
+  }
   const colW = cols.map((c) => Math.max(...items.filter((i) => i.cell[0] === c).map((i) => i.d.bounds.maxX - i.d.bounds.minX)));
   const rowH = rows.map((r) => Math.max(...items.filter((i) => i.cell[1] === r).map((i) => i.d.bounds.maxY - i.d.bounds.minY)));
 
@@ -209,7 +273,7 @@ export function layoutSheet(mesh: Mesh, o: SheetOptions): Sheet {
     const mid = (it.d.bounds.minX + it.d.bounds.maxX) / 2;
     const out: Array<{ n: number; x: number; y: number; right: boolean }> = [];
     callouts.forEach((c, n) => {
-      if (pointHidden(mesh, it.view, c.anchor)) return;
+      if (it.spec.kind === "blank" || pointHidden(mesh, it.view, c.anchor)) return;
       const x = R[0] * c.anchor[0] + R[1] * c.anchor[1] + R[2] * c.anchor[2];
       const y = R[3] * c.anchor[0] + R[4] * c.anchor[1] + R[5] * c.anchor[2];
       out.push({ n, x, y, right: x >= mid });
@@ -314,7 +378,8 @@ export function layoutSheet(mesh: Mesh, o: SheetOptions): Sheet {
   const fontPx = textMm * PX_PER_MM;
   const headingPx = headingMm * PX_PER_MM;
   // Each layer collects its own elements; the SVG puts them in a named group, in drawing order.
-  const layer: Record<LayerId, string[]> = { frame: [], titleBlock: [], hidden: [], visible: [], callouts: [], titles: [], info: [] };
+  const layer: Record<LayerId, string[]> = { frame: [], titleBlock: [], hidden: [], visible: [], callouts: [], markup: [], titles: [], info: [] };
+  const frames: SheetFrame[] = [];
   let parts: string[] = layer.visible;
   const labels: string[] = [];
   const calloutSeen = new Array(callouts.length).fill(false);
@@ -339,6 +404,8 @@ export function layoutSheet(mesh: Mesh, o: SheetOptions): Sheet {
     const X = (x: number): number => ox + (x - b.minX) * k;
     const Y = (y: number): number => oyBottom - (y - b.minY) * k;
     const path = (lines: Polyline[]): string => lines.map((l) => "M" + l.map(([x, y]) => `${fmt(X(x))} ${fmt(Y(y))}`).join("L")).join("");
+    frames.push({ view: it.spec.kind, ox, oyBottom, minX: b.minX, minY: b.minY, k, cell: { x: cellX, y: cellY, w: cw, h: chh } });
+    for (const m of marks) if (m.view === it.spec.kind) layer.markup.push(markSvg(m, { X, Y, strokePx: types.visible.widthMm * PX_PER_MM, fontPx: textMm * PX_PER_MM, font: std.font }));
 
     const showHidden = o.showHidden ?? (it.pictorial ? std.hiddenInPictorial : std.hiddenInOrthographic);
     if (showHidden && it.d.hidden.length) layer.hidden.push(`<path d="${path(it.d.hidden)}" ${strokeAttrs(types.hidden, PX_PER_MM)}/>`);
@@ -438,13 +505,13 @@ export function layoutSheet(mesh: Mesh, o: SheetOptions): Sheet {
     layer.info.push(`<text ${at} font-family="${esc(std.font)}" font-size="${fmt(fontPx)}" fill="#000">SCALE ${scaleLabel(s)}</text>`);
   }
 
-  const order: LayerId[] = ["frame", "titleBlock", "hidden", "visible", "callouts", "titles", "info"];
+  const order: LayerId[] = ["frame", "titleBlock", "hidden", "visible", "callouts", "markup", "titles", "info"];
   const svg =
     `<svg xmlns="http://www.w3.org/2000/svg" width="${fmt(W)}" height="${fmt(H)}" viewBox="0 0 ${fmt(W)} ${fmt(H)}">` +
     `<rect width="${fmt(W)}" height="${fmt(H)}" fill="#fff"/>` +
     order.filter((id) => layer[id].length && on(id)).map((id) => `<g data-layer="${id}">${layer[id].join("")}</g>`).join("") +
     `</svg>`;
-  const out: Sheet = { svg, widthPx: W, heightPx: H, labels, scaleMmPerUnit: s, notes, widthMm: W / PX_PER_MM, heightMm: H / PX_PER_MM };
+  const out: Sheet = { svg, widthPx: W, heightPx: H, labels, scaleMmPerUnit: s, notes, frames, widthMm: W / PX_PER_MM, heightMm: H / PX_PER_MM };
   if (frame) out.sizeName = frame.size.designation;
   return out;
 }

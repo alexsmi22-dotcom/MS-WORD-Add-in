@@ -17,7 +17,8 @@
 import { tessellate, Mesh } from "../lib/cadModel";
 import { drawLines, STANDARD_VIEWS, CadView } from "../lib/cadLines";
 import { fitView, previewOps, paintPreview, pickAt, orbit, Fit } from "../lib/cadPreview";
-import { layoutSheet, ViewSpec } from "../lib/cadSheet";
+import { layoutSheet, SheetFrame, ViewSpec } from "../lib/cadSheet";
+import { ptToMm } from "../lib/figureStyle";
 import { DRAWING_STANDARDS, DEFAULT_STANDARD, StandardId } from "../lib/cadStandards";
 import {
   SHAPES,
@@ -40,6 +41,7 @@ import { SWITCHABLE_LAYERS, type Callout } from "../lib/cadSheet";
 import { checkTitleFields, SHEET_SIZES, SheetSizeId, sheetRefusal, sheetsFor, TitleFieldId, titleFieldsFor, TitleValues } from "../lib/cadFormats";
 import { lineTypesFor } from "../lib/cadLineTypes";
 import { DxfDrawing } from "../lib/dxf";
+import { markDistance, MarkPt, MarkStyle, SheetMark, simplifyStroke } from "../lib/cadMarks";
 import { IMPORTED_ALT_PREFIX, IMPORT_UNITS, importedFigure, importedSketch, openDxfFile, sizeRefusal } from "../lib/dxfImport";
 import type { Sketch } from "../lib/sketch";
 import { parseSketch } from "../lib/sketchDoc";
@@ -121,6 +123,9 @@ export function fitNote(sheet: { standard: StandardId; wMm: number; hMm: number;
     : { k, note: `The drawing is inserted at ${pct} % to fit the page; SCALE ${scale} holds at full size (${fmtMm(sheet.wMm)} mm wide).` };
 }
 
+/** The model of a drawing with no parts (its blank figures are drawn on by hand). */
+const EMPTY_MESH: Mesh = { positions: [], triangles: [], cornerNormals: [], triBody: [], edges: [], diag: 1, crossings: [], overlaps: [], bodySag: [] };
+
 export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
   const standardSel = el<HTMLSelectElement>("cad-standard");
   const shapeSel = el<HTMLSelectElement>("cad-shape");
@@ -192,6 +197,14 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
 
   function rebuild(): void {
     pending = false;
+    // No parts: a sheet of blank figures can still be drawn on by hand.
+    if (!doc.parts.length && viewSpecs().some((v) => v.kind === "blank")) {
+      mesh = EMPTY_MESH;
+      placed = resolveCallouts(doc, mesh);
+      paintEmpty();
+      renderSheet();
+      return;
+    }
     const a = docToAssembly(doc);
     if (!a.ok) {
       mesh = null;
@@ -255,7 +268,7 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
   }
 
   function currentFit(): Fit | null {
-    if (!mesh) return null;
+    if (!mesh || !mesh.triangles.length) return null;
     const { w, h } = canvasSize();
     return fitView(mesh, view, w, h, 20, zoom);
   }
@@ -277,18 +290,9 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     const { w, h, dpr } = canvasSize();
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     paintPreview(ctx, previewOps(mesh, view, fit), w, h, new Set([selected]), dpr, !withLines);
-    // Callout anchors as small dots, so the user sees what they placed.
-    ctx.fillStyle = "#b91c1c";
-    for (const c of placed.callouts) {
-      const R = view.rot;
-      const x = fit.ox + (R[0] * c.anchor[0] + R[1] * c.anchor[1] + R[2] * c.anchor[2]) * fit.scale;
-      const y = fit.oy - (R[3] * c.anchor[0] + R[4] * c.anchor[1] + R[5] * c.anchor[2]) * fit.scale;
-      ctx.beginPath();
-      ctx.arc(x, y, 3, 0, 2 * Math.PI);
-      ctx.fill();
-    }
     window.clearTimeout(lineTimer);
     if (!withLines) {
+      paintCallouts(ctx, fit);
       lineTimer = window.setTimeout(() => paint(true), 180);
       return;
     }
@@ -305,6 +309,27 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
       });
     }
     ctx.stroke();
+    paintCallouts(ctx, fit);
+  }
+
+  /** Each callout's point, with its numeral beside it, so the user sees what they placed. */
+  function paintCallouts(ctx: CanvasRenderingContext2D, fit: Fit): void {
+    const R = view.rot;
+    ctx.font = "bold 12px system-ui, sans-serif";
+    ctx.textBaseline = "middle";
+    ctx.lineJoin = "round";
+    for (const c of placed.callouts) {
+      const x = fit.ox + (R[0] * c.anchor[0] + R[1] * c.anchor[1] + R[2] * c.anchor[2]) * fit.scale;
+      const y = fit.oy - (R[3] * c.anchor[0] + R[4] * c.anchor[1] + R[5] * c.anchor[2]) * fit.scale;
+      ctx.fillStyle = "#b91c1c";
+      ctx.beginPath();
+      ctx.arc(x, y, 3, 0, 2 * Math.PI);
+      ctx.fill();
+      ctx.strokeStyle = "#fff";
+      ctx.lineWidth = 3;
+      ctx.strokeText(c.label, x + 6, y - 7);
+      ctx.fillText(c.label, x + 6, y - 7);
+    }
   }
 
   function viewSpecs(): ViewSpec[] {
@@ -347,11 +372,14 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
       standard: doc.standard,
       views: doc.views,
       callouts: placed.callouts,
+      ...(doc.marks?.length ? { marks: doc.marks } : {}),
       ...(doc.hidden ? { showHidden: doc.hidden === "show" } : {}),
       ...(doc.sheet ? { format: doc.sheet } : {}),
       ...(doc.layers ? { layers: doc.layers } : {}),
     });
     previewEl.innerHTML = sh.svg;
+    sheetFrames = sh.frames ?? [];
+    sheetW = sh.widthPx;
     const svgEl = previewEl.querySelector("svg");
     if (svgEl) {
       svgEl.setAttribute("width", "100%");
@@ -394,6 +422,192 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
       ...sh.notes,
     ].join(" ");
   }
+
+  // ---- drawing on the sheet: pencil, lines, arrows, numerals, text ----------------------
+  // What the user draws is kept as drawn (cadMarks): no snapping, no profile rules. Each mark
+  // belongs to the figure it was started on, in that view's own plane, so it follows the figure.
+  let sheetFrames: SheetFrame[] = [];
+  let sheetW = 0;
+  type MarkTool = "pen" | "line" | "arrow" | "numeral" | "text" | "erase";
+  let markTool: MarkTool | null = null;
+  const markBtns = Array.from(document.querySelectorAll<HTMLButtonElement>("[data-mark-tool]"));
+  const markUndoBtn = el<HTMLButtonElement>("cad-mark-undo") as HTMLButtonElement | null;
+  const markText = el<HTMLInputElement>("cad-mark-text") as HTMLInputElement | null;
+  const markUndo: Array<{ add: SheetMark } | { erased: SheetMark; at: number }> = [];
+  const MARK_HELP: Record<MarkTool, string> = {
+    pen: "Pencil: drag on a figure to draw. Esc stops.",
+    line: "Line: drag from one end to the other. Esc stops.",
+    arrow: "Arrow: drag from the tail to the point it shows. Esc stops.",
+    numeral: "Numeral: drag from the point it names to where the number goes, or click the point. Esc stops.",
+    text: "Text: type it in the box, then click where it starts. Esc stops.",
+    erase: "Erase: click a mark you drew. Esc stops.",
+  };
+  function setMarkTool(t: MarkTool | null): void {
+    markTool = t;
+    for (const b of markBtns) {
+      const on = b.dataset.markTool === t;
+      b.classList.toggle("active", on);
+      b.setAttribute("aria-pressed", String(on));
+    }
+    if (markText) markText.hidden = t !== "text";
+    previewEl.classList.toggle("cad-marking", t !== null);
+    if (t && calloutMode) setCalloutMode(false, false);
+    host.setStatus(t ? MARK_HELP[t] : "", "");
+    if (t === "text") markText?.focus();
+  }
+  for (const b of markBtns) b.addEventListener("click", () => setMarkTool(markTool === b.dataset.markTool ? null : (b.dataset.markTool as MarkTool)));
+  /** Preview px → sheet px (the preview is drawn at 100 % width). */
+  function previewScale(): number {
+    const w = previewEl.querySelector("svg")?.getBoundingClientRect().width ?? 0;
+    return w && sheetW ? sheetW / w : 0;
+  }
+  /** The mouse in sheet px. */
+  function sheetPoint(e: PointerEvent): [number, number] | null {
+    const svg = previewEl.querySelector("svg");
+    const f = previewScale();
+    if (!svg || !f) return null;
+    const r = svg.getBoundingClientRect();
+    return [(e.clientX - r.left) * f, (e.clientY - r.top) * f];
+  }
+  /** The figure under a sheet point: the one whose cell holds it, else the nearest cell. */
+  function frameAt(x: number, y: number): SheetFrame | null {
+    let best: SheetFrame | null = null, bestD = Infinity;
+    for (const f of sheetFrames) {
+      const d = Math.hypot(Math.max(0, f.cell.x - x, x - f.cell.x - f.cell.w), Math.max(0, f.cell.y - y, y - f.cell.y - f.cell.h));
+      if (d < bestD) {
+        bestD = d;
+        best = f;
+      }
+    }
+    return best;
+  }
+  const toView = (f: SheetFrame, x: number, y: number): MarkPt => [(x - f.ox) / f.k + f.minX, (f.oyBottom - y) / f.k + f.minY];
+  const styleOf = (f: SheetFrame): MarkStyle => {
+    const std = DRAWING_STANDARDS[doc.standard];
+    return { X: (x) => f.ox + (x - f.minX) * f.k, Y: (y) => f.oyBottom - (y - f.minY) * f.k, strokePx: 1, fontPx: ptToMm(std.textPt) * (96 / 25.4), font: std.font };
+  };
+  function commitMarks(): void {
+    if (markUndoBtn) markUndoBtn.disabled = !markUndo.length;
+    renderSheet();
+  }
+  function addMark(m: SheetMark): void {
+    (doc.marks ??= []).push(m);
+    markUndo.push({ add: m });
+    commitMarks();
+  }
+  markUndoBtn?.addEventListener("click", () => {
+    const u = markUndo.pop();
+    if (!u) return;
+    const list = (doc.marks ??= []);
+    if ("add" in u) {
+      const i = list.lastIndexOf(u.add);
+      if (i >= 0) list.splice(i, 1);
+    } else list.splice(Math.min(u.at, list.length), 0, u.erased);
+    if (!list.length) delete doc.marks;
+    commitMarks();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && markTool && !sketching()) setMarkTool(null);
+  });
+  // A drag in progress: its figure, its points (view plane, and sheet px) and a live line on the preview.
+  let markDrag: { f: SheetFrame; pts: MarkPt[]; px: Array<[number, number]>; live: SVGPathElement | null } | null = null;
+  previewEl.addEventListener("pointerdown", (e) => {
+    if (!markTool || e.button !== 0) return;
+    const p = sheetPoint(e);
+    if (!p) return;
+    if (!lastSheet) return host.setStatus("The drawing must be showing before you can draw on it.", "error");
+    const f = frameAt(p[0], p[1]);
+    if (!f) return;
+    e.preventDefault();
+    const v = toView(f, p[0], p[1]);
+    if (markTool === "erase") {
+      const st = styleOf(f);
+      const list = doc.marks ?? [];
+      let best = -1, bestD = 8 * previewScale();
+      list.forEach((m, i) => {
+        if (m.view !== f.view) return;
+        const d = markDistance(m, st, p[0], p[1]);
+        if (d < bestD) {
+          bestD = d;
+          best = i;
+        }
+      });
+      if (best < 0) return host.setStatus("No mark you drew is there — Erase removes the pencil lines, lines, arrows, text and numerals drawn on the drawing.", "error");
+      const [gone] = list.splice(best, 1);
+      if (!list.length) delete doc.marks;
+      markUndo.push({ erased: gone, at: best });
+      commitMarks();
+      return;
+    }
+    if (markTool === "text") {
+      const t = (markText?.value ?? "").trim();
+      if (!t) {
+        markText?.focus();
+        return host.setStatus("Type the text in the box first, then click where it goes.", "error");
+      }
+      addMark({ kind: "text", view: f.view, at: v, text: t });
+      return;
+    }
+    const svg = previewEl.querySelector("svg");
+    const live = svg ? (document.createElementNS("http://www.w3.org/2000/svg", "path") as SVGPathElement) : null;
+    if (live && svg) {
+      live.setAttribute("fill", "none");
+      live.setAttribute("stroke", "#2563eb");
+      live.setAttribute("stroke-width", String(1.5 * Math.max(1, previewScale())));
+      live.setAttribute("stroke-linecap", "round");
+      live.setAttribute("stroke-linejoin", "round");
+      svg.appendChild(live);
+    }
+    markDrag = { f, pts: [v], px: [p], live };
+    previewEl.setPointerCapture(e.pointerId);
+  });
+  previewEl.addEventListener("pointermove", (e) => {
+    if (!markDrag) return;
+    const p = sheetPoint(e);
+    if (!p) return;
+    const v = toView(markDrag.f, p[0], p[1]);
+    if (markTool === "pen") {
+      markDrag.pts.push(v);
+      markDrag.px.push(p);
+    } else {
+      markDrag.pts[1] = v;
+      markDrag.px[1] = p;
+    }
+    markDrag.live?.setAttribute("d", "M" + markDrag.px.map((q) => `${q[0].toFixed(1)} ${q[1].toFixed(1)}`).join("L"));
+  });
+  const endDrag = (e: PointerEvent, keep: boolean): void => {
+    if (!markDrag) return;
+    const d = markDrag;
+    markDrag = null;
+    d.live?.remove();
+    if (!keep || !markTool) return;
+    const p = sheetPoint(e);
+    if (p && markTool !== "pen") {
+      d.pts[1] = toView(d.f, p[0], p[1]);
+      d.px[1] = p;
+    }
+    const a = d.px[0], b = d.px[d.px.length - 1];
+    const dragged = d.px.length > 1 && Math.hypot(b[0] - a[0], b[1] - a[1]) > 4 * Math.max(1, previewScale());
+    const view = d.f.view;
+    if (markTool === "pen") {
+      if (d.pts.length < 2) return;
+      addMark({ kind: "pen", view, pts: simplifyStroke(d.pts, (0.75 * Math.max(1, previewScale())) / d.f.k) });
+    } else if (markTool === "line" || markTool === "arrow") {
+      if (!dragged) return host.setStatus(markTool === "arrow" ? "Drag from the tail of the arrow to the point it shows." : "Drag from one end of the line to the other.", "error");
+      addMark({ kind: "line", view, a: d.pts[0], b: d.pts[1], ...(markTool === "arrow" ? { arrow: true } : {}) });
+    } else if (markTool === "numeral") {
+      // A click puts the number up and to the right of the point, 8 mm away on paper.
+      const off = (8 * (96 / 25.4)) / d.f.k;
+      const at: MarkPt = dragged ? d.pts[1] : [d.pts[0][0] + off, d.pts[0][1] + off];
+      const std = DRAWING_STANDARDS[doc.standard];
+      const taken = [...doc.callouts.map((c) => Number(c.label)), ...(doc.marks ?? []).flatMap((m) => (m.kind === "numeral" ? [Number(m.label)] : []))].filter((n) => Number.isFinite(n));
+      const label = std.callouts === "balloon" ? String((taken.length ? Math.max(...taken) : 0) + 1) : String(host.nextNumeral(taken));
+      addMark({ kind: "numeral", view, tip: d.pts[0], at, label });
+      host.setStatus(`Numeral ${label} placed. Drag or click again for the next; Esc stops.`, "success");
+    }
+  };
+  previewEl.addEventListener("pointerup", (e) => endDrag(e, true));
+  previewEl.addEventListener("pointercancel", (e) => endDrag(e, false));
 
   // ---- parts list and editor ------------------------------------------------------------
 
@@ -564,7 +778,8 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     renderSheetControls();
     renderSheet();
   });
-  viewsEl.addEventListener("change", renderSheet);
+  // With no parts, ticking or clearing Blank figure decides whether there is a sheet at all.
+  viewsEl.addEventListener("change", () => (doc.parts.length ? renderSheet() : rebuild()));
   hiddenSel.addEventListener("change", () => {
     if (hiddenSel.value === "show" || hiddenSel.value === "hide") doc.hidden = hiddenSel.value;
     else delete doc.hidden;
@@ -724,11 +939,19 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     renderEditor();
     rebuild();
   });
-  calloutBtn.addEventListener("click", () => {
-    calloutMode = !calloutMode;
-    calloutBtn.classList.toggle("active", calloutMode);
-    calloutBtn.setAttribute("aria-pressed", String(calloutMode));
-    host.setStatus(calloutMode ? "Click a visible surface on the drawing to place a callout." : "", "");
+  // Placing callouts stays on until the user stops it: each click on a part places the next
+  // numeral (pressing the button before every numeral used to switch it off every other time).
+  const calloutLabel = calloutBtn.textContent ?? "Add callout";
+  function setCalloutMode(on: boolean, status = true): void {
+    calloutMode = on;
+    calloutBtn.classList.toggle("active", on);
+    calloutBtn.setAttribute("aria-pressed", String(on));
+    calloutBtn.textContent = on ? "Stop placing callouts" : calloutLabel;
+    if (status) host.setStatus(on ? "Click on a part to place a callout; keep clicking for more. Esc or Stop placing callouts ends it." : "", "");
+  }
+  calloutBtn.addEventListener("click", () => setCalloutMode(!calloutMode));
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && calloutMode && !sketching()) setCalloutMode(false);
   });
   for (const b of Array.from(document.querySelectorAll<HTMLButtonElement>("[data-cad-view]"))) {
     b.addEventListener("click", () => {
@@ -771,7 +994,10 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     if (!mesh || !fit) return;
     const r = canvas.getBoundingClientRect();
     const hit = pickAt(mesh, view, fit, e.clientX - r.left, e.clientY - r.top);
-    if (!hit) return;
+    if (!hit) {
+      if (calloutMode) host.setStatus("That spot is not on a part — click on a part's surface to place the callout there.", "error");
+      return;
+    }
     if (calloutMode) {
       // The shading under the cursor must be the model as it stands, or the point lands in the wrong place.
       if (pending || docProblem() !== null) {
@@ -786,6 +1012,7 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
       renderCallouts();
       paint(true);
       renderSheet();
+      host.setStatus(`Callout ${label} placed on ${doc.parts[hit.body]?.name ?? "the part"}. Click again for the next; Esc ends it.`, "success");
       return;
     }
     selected = hit.body;

@@ -158,7 +158,7 @@ describe("saved and read back", () => {
       const q = parseDoc(JSON.stringify(x));
       return q.ok ? "ok" : q.reason;
     };
-    expect(bad((x) => ((x.views as ViewSpec[])[2] = { ...(x.views as never[])[2], factor: 7 } as never))).toBe("a detail view in the drawing is damaged");
+    expect(bad((x) => (((x.views as Array<Record<string, unknown>>)[2]).factor = 7))).toBe("a detail view in the drawing is damaged");
     expect(bad((x) => (x.views as unknown[]).push({ kind: "detail", letter: "A", of: "front", at: [0, 0], r: 1, factor: 2 }))).toBe("a detail view in the drawing is damaged");
     expect(bad((x) => (x.explode = { top: [0, "up", 0] }))).toBe("the drawing's exploded view is damaged");
     // A key that names no part is dropped; "__proto__" is never a part.

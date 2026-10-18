@@ -6,6 +6,26 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.155.0] — 2026-10-18 — Drawing (CAD): mate faces, exploded views, detail views (the table release)
+
+### Added
+- **Mate faces**: click a flat face of the part to move, then the face it goes against — the part turns so the
+  faces look at each other and moves so they lie flush, the two clicked points meeting; a click near a face's
+  corner or centre snaps to it (corners meet corners). Stays on for the next pair (four legs under a top) until
+  Stop or Esc; **Undo mate** takes each back. A curved surface, or two faces of one part, is refused by name.
+  Pinned on the table: a top mated onto four legs, corner to corner, is flush with no overlap and no crossing
+  line along any joint.
+- **Exploded view** (tick Exploded under Views): the parts drawn apart — **Auto explode** lifts them in levels
+  (a table's top off its legs), and every part's distance can be set under the part — with phantom trail lines
+  showing where each goes (to each leg a top sits on). On a USPTO sheet with another figure the exploded view is
+  placed in brackets (37 CFR 1.84(h)(1)). Callouts move with their parts.
+- **Detail views**: **Add detail view**, then click a spot on a figure — that part is drawn again 2×, 3×, 4×, 5×
+  or 10× larger as a view of its own, its circle drawn on the figure it enlarges. Labelled as each standard asks:
+  USPTO a FIG. of its own with the circle marked by that figure (1.84(h)(2)); ASME "DETAIL A SCALE 2:1"; ISO
+  "A (2:1)"; letters skip I, O and Q (ASME Y14.3). Details sit below the other views, read after their figure;
+  callouts inside the circle show enlarged; marks can be drawn on a detail. Size and enlargement change in the
+  list; Remove takes a detail away.
+
 ## [2.154.0] — 2026-10-18 — ChemDraw: chains, polymer brackets, arrows, replace in place
 
 ### Added

@@ -328,6 +328,8 @@ function layoutCore(mesh: Mesh, o: SheetOptions, textUnitsIn: number | undefined
     const d: SheetDrawing = drawings[vi] ?? (blankW > 0 ? { ...BLANK_EMPTY, bounds: { minX: 0, minY: 0, maxX: blankW, maxY: Math.max(blankH, blankW * 0.5) } } : { ...BLANK_EMPTY, bounds: { ...BLANK_EMPTY.bounds } });
     let cell: [number, number];
     if (ORTHO.has(spec.kind)) cell = cellsFor[spec.kind as OrthoKind];
+    // A detail goes in a row below every other view: read after the figure it enlarges (1.84(u)(1)).
+    else if (spec.kind === "detail") cell = [0, 3];
     else cell = cellsFor.pic;
     // A second pictorial view (or a repeat) goes to the next free cell along the top row.
     let key = cell.join(",");

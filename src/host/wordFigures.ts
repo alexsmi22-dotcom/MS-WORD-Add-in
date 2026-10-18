@@ -50,7 +50,19 @@ export async function replaceSelectedPicture(o: PictureInsert): Promise<boolean>
     picture.altTextDescription = o.alt;
     await context.sync();
     replaced = true;
-    if (o.tag) await tagInserted(context, picture.getRange(), o.tag);
+    if (!o.tag) return;
+    // A picture JurisLab tagged before sits in its hidden content control already: the new one
+    // takes its place inside it, so tagging again would nest a second control each time.
+    let tagged = false;
+    try {
+      const cc = picture.parentContentControlOrNullObject;
+      cc.load("tag");
+      await context.sync();
+      tagged = !cc.isNullObject && cc.tag === o.tag;
+    } catch {
+      // Older Word: no way to ask; tag as for a new picture.
+    }
+    if (!tagged) await tagInserted(context, picture.getRange(), o.tag);
   });
   return replaced;
 }

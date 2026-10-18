@@ -10,7 +10,7 @@ import { readCdx } from "../lib/cdx";
 import { cdxFromFlatOpc } from "../lib/emfCdx";
 import { renderCdx } from "../lib/cdxmlRender";
 import { atomAt, bondAt, captionAt, objectAt, objectBoxes, withCompanions } from "../lib/cdxmlSelect";
-import { addArrow, addBrackets, addChain, ArrowKind, chainLength, chainPoints, addRingAt, addRingAtAtom, addRingOnBond, RingKind, addBondFrom, cloneTree, deleteInStructure, deleteObjects, findById, moveObjects, namesTiedTo, setAtomLabel, setBond, setCharge, setText, writeCdxml } from "../lib/cdxmlEdit";
+import { addArrow, addBrackets, addChain, ArrowKind, chainLength, chainPath, fragmentsInBox, addRingAt, addRingAtAtom, addRingOnBond, RingKind, addBondFrom, cloneTree, deleteInStructure, deleteObjects, findById, moveObjects, namesTiedTo, setAtomLabel, setBond, setCharge, setText, writeCdxml } from "../lib/cdxmlEdit";
 import type { XNode } from "../lib/xmlLite";
 
 export interface ChemdrawHost {
@@ -121,6 +121,9 @@ export function initChemdrawPane(host: ChemdrawHost): void {
   let redo: XNode[] = [];
   /** Names ChemDraw computed from structures changed since (text object ids). */
   let stale = new Set<string>();
+  /** The page came from a ChemDraw picture in the document (its only editable copy), and whether it was saved since. */
+  let fromPicture = false;
+  let saved = false;
 
   const setButtons = (): void => {
     insertBtn.disabled = inserting || !selected.size;
@@ -252,6 +255,8 @@ export function initChemdrawPane(host: ChemdrawHost): void {
   };
 
   const setTool = (t: Tool): void => {
+    cancelSketch();
+    if (t !== tool && valueIn) valueIn.value = "";
     tool = t;
     for (const b of toolBtns) {
       const on = b.dataset.cdxTool === t;
@@ -302,11 +307,14 @@ export function initChemdrawPane(host: ChemdrawHost): void {
   const load = (d: CdxDoc, label: string): void => {
     doc = d;
     name = label;
+    fromPicture = false;
+    saved = false;
     boxes = objectBoxes(doc);
     selected = new Set();
     undo = [];
     redo = [];
     stale = new Set();
+    cancelSketch();
     setTool("select");
     show();
   };
@@ -325,6 +333,7 @@ export function initChemdrawPane(host: ChemdrawHost): void {
       if (!r.ok) return host.setStatus(`The picture's ChemDraw drawing could not be read: ${r.reason}.`, "error");
       r.doc.notes = [...b.notes, ...r.doc.notes];
       load(r.doc, "ChemDraw picture");
+      fromPicture = true;
       host.setStatus("The ChemDraw picture opened as its drawing — edit it here; Replace selected picture puts the edited drawing in its place (Insert adds it after). What goes in is a picture JurisLab drew: Save as .cdxml to keep the drawing editable.", "success");
     } catch (e) {
       host.setStatus(`Could not read the selected picture: ${(e as Error).message}`, "error");
@@ -345,6 +354,11 @@ export function initChemdrawPane(host: ChemdrawHost): void {
   // Chain, Brackets, Arrow: a drag, drawn live as a light ghost, made on release.
   let sketch: { tool: Tool; from: Pt; atom: string | null; to: Pt } | null = null;
   const SVGNS = "http://www.w3.org/2000/svg";
+  /** Bonds a chain drag asks for: one per L·cos 30° from its start atom (or point). */
+  const chainOf = (s: { from: Pt; atom: string | null; to: Pt }): number => {
+    const p = s.atom ? (findById(doc!.root, s.atom)?.el.attrs.p ?? "").split(/\s+/).map(Number) : s.from;
+    return chainLength(doc!, Math.hypot(s.to[0] - Number(p[0]), s.to[1] - Number(p[1])));
+  };
   const ghost = (): void => {
     const svg = preview.querySelector("svg");
     svg?.querySelector("#chemdraw-ghost")?.remove();
@@ -357,9 +371,9 @@ export function initChemdrawPane(host: ChemdrawHost): void {
     g.setAttribute("stroke-width", String(Math.max(0.6, doc.style.lineWidth)));
     const { from, to } = sketch;
     if (sketch.tool === "chain") {
-      const start = sketch.atom ? (findById(doc.root, sketch.atom)?.el.attrs.p ?? "").split(/\s+/).map(Number) : from;
-      const p0: Pt = [Number(start[0]) || from[0], Number(start[1]) || from[1]];
-      const pts = [p0, ...chainPoints(doc, p0, to, chainLength(doc, Math.hypot(to[0] - p0[0], to[1] - p0[1])))];
+      const path = chainPath(doc, sketch.atom ? { nodeId: sketch.atom } : { at: from }, to, chainOf(sketch));
+      if (!path) return;
+      const pts = [path.start, ...path.points];
       const line = document.createElementNS(SVGNS, "polyline");
       line.setAttribute("points", pts.map((q) => `${q[0]},${q[1]}`).join(" "));
       g.appendChild(line);
@@ -381,7 +395,12 @@ export function initChemdrawPane(host: ChemdrawHost): void {
     }
     svg.appendChild(g);
   };
+  const cancelSketch = (): void => {
+    sketch = null;
+    preview.querySelector("#chemdraw-ghost")?.remove();
+  };
   preview.addEventListener("pointerdown", (e) => {
+    suppressClick = false;
     if (!doc || !DRAG_TOOLS.has(tool) || e.button !== 0) return;
     const p = pagePoint(e);
     if (!p) return;
@@ -391,6 +410,7 @@ export function initChemdrawPane(host: ChemdrawHost): void {
   });
   preview.addEventListener("pointermove", (e) => {
     if (!sketch || !doc) return;
+    if (e.buttons === 0) return cancelSketch();
     const p = pagePoint(e);
     if (!p) return;
     sketch.to = p;
@@ -399,9 +419,7 @@ export function initChemdrawPane(host: ChemdrawHost): void {
   preview.addEventListener("pointerup", (e) => {
     if (!sketch || !doc) return;
     const s = sketch;
-    sketch = null;
-    preview.querySelector("#chemdraw-ghost")?.remove();
-    suppressClick = true;
+    cancelSketch();
     const p = pagePoint(e) ?? s.to;
     const L = doc.style.bondLength;
     const far = Math.hypot(p[0] - s.from[0], p[1] - s.from[1]) > L * 0.25;
@@ -416,8 +434,7 @@ export function initChemdrawPane(host: ChemdrawHost): void {
         }, [holder]);
         return;
       }
-      const start = s.atom ? (findById(doc.root, s.atom)?.el.attrs.p ?? "").split(/\s+/).map(Number) : s.from;
-      const n = chainLength(doc, Math.hypot(p[0] - Number(start[0]), p[1] - Number(start[1])));
+      const n = chainOf({ ...s, to: p });
       const holder = s.atom ? objectHolding(s.atom) ?? "" : "";
       if (edit(() => addChain(doc!, s.atom ? { nodeId: s.atom } : { at: s.from }, p, n), holder ? [holder] : []))
         host.setStatus(`Chain of ${n} bond${n === 1 ? "" : "s"} drawn.`, "success");
@@ -426,7 +443,8 @@ export function initChemdrawPane(host: ChemdrawHost): void {
     if (!far) return host.setStatus(TOOL_HELP[s.tool], "error");
     if (s.tool === "bracket") {
       const label = (valueIn?.value ?? "").trim() || "n";
-      if (edit(() => addBrackets(doc!, [s.from[0], s.from[1], p[0], p[1]], label))) host.setStatus(`Brackets drawn round the repeat unit, labelled ${label}.`, "success");
+      const box: [number, number, number, number] = [s.from[0], s.from[1], p[0], p[1]];
+      if (edit(() => addBrackets(doc!, box, label), fragmentsInBox(doc, box))) host.setStatus(`Brackets drawn round the repeat unit, labelled ${label}.`, "success");
       return;
     }
     const kind = (arrowSel?.value || "reaction") as ArrowKind;
@@ -599,6 +617,7 @@ export function initChemdrawPane(host: ChemdrawHost): void {
     if (!doc || !host.downloadFile) return;
     const out = name.replace(/\.(cdxml|cdx|xml)$/i, "") + (undo.length ? " (edited)" : "") + ".cdxml";
     host.downloadFile(new Blob([writeCdxml(doc.root)], { type: "chemical/x-cdxml" }), out);
+    saved = true;
     host.setStatus(`Saved ${out} — it opens in ChemDraw.`, "success");
   });
 
@@ -623,7 +642,8 @@ export function initChemdrawPane(host: ChemdrawHost): void {
           return host.setStatus("Select the picture to replace in the document first (click it; it must sit in line with the text), then Replace selected picture.", "error");
       } else await host.insertPicture(r.svg, w, h, alt);
       const warn = staleWords.length ? ` Check ${staleWords.map((w) => `“${w}”`).join(", ")}: ChemDraw computed ${staleWords.length === 1 ? "that name" : "those names"} before the structure changed.` : "";
-      host.setStatus(`${replace ? "Replaced the selected picture with" : "Inserted"} ${what} from ${name}. ${fit.note}${warn}`, warn ? "" : "success");
+      const keep = replace && fromPicture && !saved ? " The new picture does not carry a ChemDraw drawing as the old one did — Save as .cdxml to keep this drawing editable." : "";
+      host.setStatus(`${replace ? "Replaced the selected picture with" : "Inserted"} ${what} from ${name}. ${fit.note}${warn}${keep}`, warn || keep ? "" : "success");
     } catch (err) {
       host.setStatus(`Could not ${replace ? "replace the picture" : "insert the drawing"}: ${(err as Error).message}`, "error");
     } finally {
@@ -637,6 +657,7 @@ export function initChemdrawPane(host: ChemdrawHost): void {
   replaceBtn?.addEventListener("click", () => void insert(selected.size ? new Set(selected) : null, true));
   closeBtn.addEventListener("click", () => {
     if (inserting) return;
+    cancelSketch();
     doc = null;
     selected = new Set();
     show();

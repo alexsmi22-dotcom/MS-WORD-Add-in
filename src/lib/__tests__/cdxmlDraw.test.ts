@@ -1,7 +1,8 @@
 // Drawing on a ChemDraw page (C4): chains, polymer brackets and arrows. Each is written into the
-// document itself, read back as ChemDraw would read it, and saved. Documents are written by hand.
+// document itself, read back as ChemDraw would read it, and saved. Documents are written by hand;
+// the bracket form is the one ChemDraw writes (seen in ChemDraw files filed with USPTO patents).
 import { readCdxml, readCdxmlTree, CdxDoc } from "../cdxml";
-import { addArrow, addBrackets, addChain, chainLength, chainPoints, findById, writeCdxml } from "../cdxmlEdit";
+import { addArrow, addBondFrom, addBrackets, addChain, chainLength, chainPath, findById, fragmentsInBox, namesTiedTo, writeCdxml } from "../cdxmlEdit";
 import { renderCdx } from "../cdxmlRender";
 
 // Propane (11–12–13) beside an empty stretch of page.
@@ -26,43 +27,69 @@ const frag = (d: CdxDoc, id: string) => {
   throw new Error("no fragment " + id);
 };
 const dist = (a: number[], b: number[]): number => Math.hypot(a[0] - b[0], a[1] - b[1]);
+const angle = (a: number[], v: number[], b: number[]): number => {
+  const p = [a[0] - v[0], a[1] - v[1]], q = [b[0] - v[0], b[1] - v[1]];
+  return (Math.acos((p[0] * q[0] + p[1] * q[1]) / (Math.hypot(p[0], p[1]) * Math.hypot(q[0], q[1]))) * 180) / Math.PI;
+};
 
 describe("chains", () => {
-  test("from an atom: n bonds, each a bond length, 120° apart, zig-zagging along the drag", () => {
+  test("from an atom: n bonds, a bond length each, 120° at every carbon — the junction too — running along the drag", () => {
     const d = open();
     expect(addChain(d, { nodeId: "13" }, [300, 100], 4)).toBeNull();
     const f = frag(reread(d), "10");
-    expect(f.nodes).toHaveLength(7);
-    expect(f.bonds).toHaveLength(6);
-    const pts = ["13", ...f.nodes.slice(3).map((n) => n.id)].map((id) => f.nodes.find((n) => n.id === id)!.p);
-    for (let i = 1; i < pts.length; i++) expect(dist(pts[i], pts[i - 1])).toBeCloseTo(30, 1);
-    for (let i = 2; i < pts.length; i++) {
-      const a = [pts[i - 2][0] - pts[i - 1][0], pts[i - 2][1] - pts[i - 1][1]], b = [pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]];
-      expect((Math.acos((a[0] * b[0] + a[1] * b[1]) / 900) * 180) / Math.PI).toBeCloseTo(120, 0);
-    }
-    // It runs along the drag: the end is to the right, the zig-zag stays within half a bond of the line.
-    expect(pts[4][0]).toBeGreaterThan(pts[0][0] + 90);
-    for (const p of pts) expect(Math.abs(p[1] - 100)).toBeLessThan(16);
+    expect([f.nodes.length, f.bonds.length]).toEqual([7, 6]);
+    const at = (id: string) => f.nodes.find((n) => n.id === id)!.p;
+    const pts = ["12", "13", ...f.nodes.slice(3).map((n) => n.id)].map(at);
+    for (let i = 2; i < pts.length; i++) expect(dist(pts[i], pts[i - 1])).toBeCloseTo(30, 1);
+    // 12–13–new is 120° (it was drawn straight, 180°, before the review), and so is every bend after.
+    for (let i = 2; i < pts.length; i++) expect(angle(pts[i - 2], pts[i - 1], pts[i])).toBeCloseTo(120, 0);
+    expect(pts[5][0]).toBeGreaterThan(pts[1][0] + 90);
   });
   test("from empty space: a structure of its own (n + 1 atoms)", () => {
     const d = open();
     expect(addChain(d, { at: [300, 300] }, [300, 400], 3)).toBeNull();
-    const r = reread(d);
-    const f = r.objects.flatMap((o) => o.items).filter((it) => it.kind === "fragment");
+    const f = reread(d).objects.flatMap((o) => o.items).filter((it) => it.kind === "fragment");
     expect(f).toHaveLength(2);
     expect(f[1].kind === "fragment" && [f[1].v.nodes.length, f[1].v.bonds.length]).toEqual([4, 3]);
   });
-  test("the drag's length sets the bond count (L · cos 30° each), 1 to 50", () => {
+  test("the drag's length sets the bond count (L · cos 30° each), 1 to 50; the path is the one drawn", () => {
     const d = open();
-    expect(chainLength(d, 0)).toBe(1);
-    expect(chainLength(d, 26 * 3)).toBe(3);
-    expect(chainLength(d, 1e9)).toBe(50);
-    expect(chainLength(d, NaN)).toBe(1);
-    expect(chainPoints(d, [0, 0], [100, 0], 2)).toHaveLength(2);
+    expect([chainLength(d, 0), chainLength(d, 26 * 3), chainLength(d, 1e9), chainLength(d, NaN)]).toEqual([1, 3, 50, 1]);
+    expect(chainPath(d, { at: [0, 0] }, [100, 0], 2)?.points).toHaveLength(2);
+    expect(chainPath(d, { nodeId: "99" }, [100, 0], 2)).toBeNull();
   });
-  test("refused by name: a carbon with four bonds, no direction, a bad count, a gone atom", () => {
-    const d = open(SRC.replace('<b id="15" B="12" E="13"/>', '<b id="15" B="12" E="13"/><n id="16" p="126 145"/><n id="17" p="110 140"/><b id="18" B="12" E="16"/><b id="19" B="12" E="17"/>'));
-    expect(addChain(d, { nodeId: "12" }, [126, 200], 2)).toBe("that C has no bond to spare");
+  test("a chain that would run onto atoms already drawn is refused — they would stack, unjoined", () => {
+    // An atom of another structure exactly where the chain's first new atom would go.
+    const p = chainPath(open(), { nodeId: "13" }, [300, 100], 1)!.points[0];
+    const d = open(SRC.replace("</page>", `<fragment id="60"><n id="61" p="${p[0]} ${p[1]}"/></fragment></page>`));
+    const before = writeCdxml(d.root);
+    expect(addChain(d, { nodeId: "13" }, [300, 100], 3)).toBe("the chain would run onto atoms already drawn — drag another way, or make it shorter");
+    expect(addChain(d, { at: [100, 100] }, [100, 200], 2)).toBe("the chain would run onto atoms already drawn — drag another way, or make it shorter");
+    expect(writeCdxml(d.root)).toBe(before);
+  });
+  test.each([
+    ["a carbon with four bonds", '<n id="16" p="126 145"/><n id="17" p="110 140"/><b id="18" B="12" E="16"/><b id="19" B="12" E="17"/>', "12", "that C has no bond to spare"],
+    ["N⁺ with four bonds", '<n id="16" p="126 145"/><n id="17" p="110 140"/><b id="18" B="12" E="16"/><b id="19" B="12" E="17"/>', "12", "that N⁺ has no bond to spare"],
+    ["C⁺ with three bonds", '<n id="16" p="126 145"/><b id="18" B="12" E="16"/>', "12", "that C⁺ has no bond to spare"],
+    ["O⁻ with one bond", "", "13", "that O⁻ has no bond to spare"],
+  ])("refused by name: %s (its charge shifts its valence)", (_what, extra, atom, why) => {
+    let src = SRC.replace('<b id="15" B="12" E="13"/>', '<b id="15" B="12" E="13"/>' + extra);
+    if (why.includes("N⁺")) src = src.replace('<n id="12" p="126 115"/>', '<n id="12" p="126 115" Element="7" Charge="1"/>');
+    if (why.includes("C⁺")) src = src.replace('<n id="12" p="126 115"/>', '<n id="12" p="126 115" Charge="1"/>');
+    if (why.includes("O⁻")) src = src.replace('<n id="13" p="152 100"/>', '<n id="13" p="152 100" Element="8" Charge="-1"/>');
+    const d = open(src);
+    expect(addChain(d, { nodeId: atom }, [200, 250], 2)).toBe(why);
+    // Add bond keeps the same rule.
+    expect(addBondFrom(d, atom)).toEqual({ ok: false, reason: why });
+  });
+  test("a label that has its bond (Ph, OMe) takes no chain; an N with room does", () => {
+    const ph = open(SRC.replace('<n id="13" p="152 100"/>', '<n id="13" p="152 100" NodeType="Nickname"><t p="149 103"><s font="3" size="10">Ph</s></t></n>'));
+    expect(addChain(ph, { nodeId: "13" }, [300, 100], 2)).toBe("Ph is a label that already has its bond — a new bond starts from an atom");
+    const n = open(SRC.replace('<n id="12" p="126 115"/>', '<n id="12" p="126 115" Element="7"/>'));
+    expect(addChain(n, { nodeId: "12" }, [126, 250], 1)).toBeNull();
+  });
+  test("other refusals: no direction, a bad count, a gone atom", () => {
+    const d = open();
     expect(addChain(d, { nodeId: "13" }, [152, 100], 2)).toBe("drag away from the atom to show which way the chain goes");
     expect(addChain(d, { nodeId: "13" }, [300, 100], 0)).toBe("a chain is 1 to 50 bonds long");
     expect(addChain(d, { nodeId: "99" }, [300, 100], 2)).toBe("that atom is no longer in the document");
@@ -76,43 +103,86 @@ describe("chains", () => {
 });
 
 describe("polymer brackets", () => {
-  // Butane 11–12–13–14 in a row; the box round 12–13 cuts bonds 21 (left) and 23 (right).
+  // Butane 11–12–13–14 in a row; the box round 12–13 cuts bonds 21 (left side) and 23 (right).
   const ROW = `<CDXML BondLength="30" CaptionSize="12" CaptionFont="3"><fonttable><font id="3" name="Arial"/></fonttable><page id="1">
 <fragment id="10"><n id="11" p="100 100"/><n id="12" p="130 100"/><n id="13" p="160 100"/><n id="14" p="190 100"/><b id="21" B="11" E="12"/><b id="22" B="12" E="13"/><b id="23" B="13" E="14"/></fragment>
 </page></CDXML>`;
-  test("square brackets on the box's sides, the label at the right foot, a repeat unit naming its atoms and crossing bonds", () => {
+  const BOX: [number, number, number, number] = [115, 85, 175, 115];
+  test("written as ChemDraw writes them: the right bracket carries the italic label; an SRU names its atoms, label and crossings", () => {
     const d = open(ROW);
-    expect(addBrackets(d, [115, 85, 175, 115], "n")).toBeNull();
+    expect(addBrackets(d, BOX, "n")).toBeNull();
     const r = reread(d);
     expect(r.brackets).toHaveLength(1);
     const b = r.brackets[0];
-    expect(b.usage).toBe("SRU");
+    expect([b.usage, b.el.attrs.RepeatCount, b.el.attrs.SRULabel]).toEqual(["SRU", "2", "n"]);
     expect(b.objectIds).toEqual(["12", "13"]);
-    expect(b.attachments.map((a) => [a.bondId, a.innerAtomId])).toEqual([["21", "12"], ["23", "13"]]);
-    const graphics = r.objects.flatMap((o) => o.items).filter((it) => it.kind === "graphic");
-    expect(graphics.map((g) => g.kind === "graphic" && [g.v.kind, g.v.p1[0]])).toEqual([["Bracket", 115], ["Bracket", 175]]);
-    // Each crossing bond's attachment names the bracket it crosses.
-    const left = graphics[0].kind === "graphic" ? graphics[0].v.id : "";
-    expect(b.attachments[0].graphicId).toBe(left);
+    const graphics = r.objects.flatMap((o) => o.items).flatMap((it) => (it.kind === "graphic" ? [it.v] : []));
+    expect(graphics.map((g) => [g.kind, g.p1[0], g.el.attrs.BracketUsage ?? ""])).toEqual([["Bracket", 115, ""], ["Bracket", 175, "SRU"]]);
+    const [left, right] = graphics;
+    const tag = right.el.children.find((c) => c.name === "objecttag")!;
+    expect(tag.attrs).toEqual({ TagType: "Unknown", Name: "bracketusage" });
+    expect(tag.children[0].children[0].attrs.face).toBe("2");
+    // Each bracket's crossing bonds, by bracket.
+    const by = Object.fromEntries(b.attachments.map((a) => [a.graphicId, [a.bondId, a.innerAtomId]]));
+    expect(by).toEqual({ [right.id]: ["23", "13"], [left.id]: ["21", "12"] });
+    // Drawn: the label, and the lips turned in toward the atoms (none beyond the brackets' x).
     const svg = renderCdx(r)!.svg;
     expect(svg).toContain(">n</tspan>");
-    // Saved and read again it is the same repeat unit.
+    const paths = [...svg.matchAll(/<path d="M([\d. L-]+)"/g)].map((m) => m[1].split("L").map((p) => p.trim().split(" ").map(Number)));
+    const bracketPaths = paths.filter((pp) => pp.some(([x]) => x === 115 || x === 175));
+    expect(bracketPaths).toHaveLength(2);
+    for (const pp of bracketPaths) {
+      const xs = pp.map(([x]) => x);
+      if (xs.includes(175)) expect(Math.max(...xs)).toBe(175);
+      else expect(Math.min(...xs)).toBe(115);
+    }
     const again = readCdxml(writeCdxml(d.root));
-    expect(again.ok && again.doc.brackets[0].attachments).toHaveLength(2);
+    expect(again.ok && again.doc.brackets[0].attachments.map((a) => a.bondId)).toEqual(["23", "21"]);
   });
-  test("a number label is the repeat count too", () => {
+  test("an end group: one bond leaves the box — one bracket crosses it, the other has its attachment with none (as ChemDraw)", () => {
     const d = open(ROW);
-    expect(addBrackets(d, [115, 85, 175, 115], "3")).toBeNull();
-    expect(reread(d).brackets[0].el.attrs.RepeatCount).toBe("3");
+    expect(addBrackets(d, [85, 85, 145, 115])).toBeNull();
+    const b = reread(d).brackets[0];
+    expect(b.attachments.map((a) => a.bondId)).toEqual(["22", ""]);
   });
-  test("refused by name: nothing inside, nothing leaving it, a tiny box, a bad label", () => {
+  test("bracketing a structure makes ChemDraw's computed name for it out of date (it named the monomer)", () => {
+    const d = open(ROW.replace("</page>", '<t id="30" p="100 160"><s font="3" size="12">butane</s></t><chemicalproperty id="31" ChemicalPropertyDisplayID="30" ChemicalPropertyType="1" BasisObjects="10"/></page>'));
+    expect(fragmentsInBox(d, BOX)).toEqual(["10"]);
+    expect(namesTiedTo(d, fragmentsInBox(d, BOX))).toEqual(["30"]);
+  });
+  test("a number label is the SRU's label; the repeat count stays ChemDraw's 2", () => {
+    const d = open(ROW);
+    expect(addBrackets(d, BOX, "3")).toBeNull();
+    expect([reread(d).brackets[0].el.attrs.SRULabel, reread(d).brackets[0].el.attrs.RepeatCount]).toEqual(["3", "2"]);
+  });
+  test("a bond leaving through the box's top is refused: no bracket crosses it", () => {
+    const d = open(ROW.replace('<b id="23"', '<n id="15" p="130 70"/><b id="24" B="12" E="15"/><b id="23"'));
+    expect(addBrackets(d, BOX)).toBe("a bond leaves the box through its top or bottom, where no bracket crosses it — make the box taller, so only its sides cut the bonds that leave the repeat unit");
+  });
+  test("atoms of two structures in one box are refused; an abbreviation's own atoms are not the structure's", () => {
+    const two = open(ROW.replace("</page>", '<fragment id="40"><n id="41" p="150 110"/><n id="42" p="300 110"/><b id="43" B="41" E="42"/></fragment></page>'));
+    expect(addBrackets(two, BOX)).toBe("the box takes in atoms of more than one structure — drag it round one repeat unit");
+    const abbr = open(ROW.replace('<n id="13" p="160 100"/>', '<n id="13" p="160 100" NodeType="Fragment"><fragment id="50"><n id="51" p="160 100"/><n id="52" p="165 105"/></fragment><t p="157 103"><s font="3" size="10">Et</s></t></n>'));
+    expect(addBrackets(abbr, BOX)).toBeNull();
+    expect(reread(abbr).brackets[0].objectIds).toEqual(["12", "13"]);
+  });
+  test("refused by name: nothing inside, nothing leaving it, a tiny box, a bad label — and nothing written", () => {
     const d = open(ROW);
     expect(addBrackets(d, [300, 300, 340, 340])).toBe("no atom is inside the box — drag it round the repeat unit");
-    expect(addBrackets(d, [80, 80, 210, 120])).toBe("no bond leaves the box — a repeat unit is bonded to the chain on each side");
+    expect(addBrackets(d, [80, 80, 210, 120])).toBe("no bond leaves the box — a repeat unit is bonded on, through the brackets");
     expect(addBrackets(d, [115, 85, 116, 86])).toBe("drag a box round the repeat unit");
-    expect(addBrackets(d, [115, 85, 175, 115], "  ")).toBe("the bracket's label must be 1 to 20 characters");
-    expect(addBrackets(d, [115, 85, 175, 115], "n\u0007")).toBe("the bracket's label must be 1 to 20 characters");
+    expect(addBrackets(d, BOX, "  ")).toBe("the bracket's label must be 1 to 20 characters");
+    expect(addBrackets(d, BOX, "n\u0007")).toBe("the bracket's label must be 1 to 20 characters");
     expect(reread(d).brackets).toHaveLength(0);
+  });
+  test("a ChemDraw file's bracket label (text in the bracket's object tag) is drawn", () => {
+    const d = open(`<CDXML BondLength="30"><fonttable><font id="4" name="Arial"/></fonttable><page id="1">
+<fragment id="10"><n id="11" p="10 40"/><n id="12" p="40 40"/><n id="13" p="70 40"/><n id="14" p="100 40"/><b id="15" B="11" E="12"/><b id="16" B="12" E="13"/><b id="17" B="13" E="14"/></fragment>
+<graphic id="22" BoundingBox="25 50 25 30" GraphicType="Bracket" BracketType="Round"/>
+<graphic id="23" BoundingBox="85 30 85 50" GraphicType="Bracket" BracketType="Round" BracketUsage="SRU"><objecttag TagType="Unknown" Name="bracketusage"><t p="87 52" BoundingBox="87 49 90 52"><s font="4" size="5.25" face="2">n</s></t></objecttag></graphic>
+<bracketedgroup id="35" BracketedObjectIDs="12 13" BracketUsage="SRU" RepeatCount="2" SRULabel="n"><bracketattachment id="36" GraphicID="23"><crossingbond id="37" BondID="17" InnerAtomID="13"/></bracketattachment><bracketattachment id="38" GraphicID="22"><crossingbond id="39" BondID="15" InnerAtomID="12"/></bracketattachment></bracketedgroup>
+</page></CDXML>`);
+    expect(renderCdx(d)!.svg).toContain(">n</tspan>");
   });
 });
 
@@ -121,21 +191,21 @@ describe("arrows", () => {
     const d = open();
     expect(addArrow(d, [200, 300], [300, 300])).toBeNull();
     const a = reread(d).objects.flatMap((o) => o.items).find((it) => it.kind === "arrow");
-    expect(a?.kind === "arrow" && [a.v.tail, a.v.head]).toEqual([[200, 300], [300, 300]]);
-    expect(a?.kind === "arrow" && a.v.el.attrs.ArrowheadHead).toBe("Full");
+    expect(a?.kind === "arrow" && [a.v.tail, a.v.head, a.v.el.attrs.ArrowheadHead]).toEqual([[200, 300], [300, 300], "Full"]);
     // The head (10 pt long, 2.5 pt each side at a 1 pt line: ChemDraw's 1000 / 250 hundredths) ends at the drop point.
     expect(renderCdx(reread(d))!.svg).toContain('<path d="M300 300L290 302.5L291.25 300L290 297.5Z"');
   });
-  test("an equilibrium arrow: half heads at both ends, two shafts", () => {
+  test("an equilibrium arrow (⇌): two shafts, each ending in a half head whose barb points outward", () => {
     const d = open();
     expect(addArrow(d, [200, 300], [300, 300], "equilibrium")).toBeNull();
     const el = reread(d).objects.flatMap((o) => o.items).find((it) => it.kind === "arrow");
     expect(el?.kind === "arrow" && [el.v.el.attrs.ArrowheadHead, el.v.el.attrs.ArrowheadTail]).toEqual(["HalfLeft", "HalfLeft"]);
     const svg = renderCdx(reread(d))!.svg;
-    // Two shafts, one above the other, between the arrow's ends.
-    const shafts = [...svg.matchAll(/<line x1="([\d.]+)" y1="([\d.]+)" x2="([\d.]+)" y2="([\d.]+)"/g)].filter((m) => Number(m[2]) > 250);
-    expect(shafts).toHaveLength(2);
-    expect(new Set(shafts.map((m) => m[2])).size).toBe(2);
+    // Upper shaft (y 297.5) ends at the head, its barb above it; lower (y 302.5) at the tail, barb below.
+    expect(svg).toContain('<path d="M300 297.5L290 295L291.25 297.5Z"');
+    expect(svg).toContain('<path d="M200 302.5L210 305L208.75 302.5Z"');
+    expect(svg).toContain('<line x1="200" y1="297.5" x2="291.25" y2="297.5"');
+    expect(svg).toContain('<line x1="208.75" y1="302.5" x2="300" y2="302.5"');
   });
   test("refused by name: too short, or not on the page", () => {
     const d = open();

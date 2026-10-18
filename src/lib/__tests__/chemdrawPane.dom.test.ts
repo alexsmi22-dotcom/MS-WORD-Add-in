@@ -344,9 +344,9 @@ describe("Chain, Brackets, Arrow and Replace selected picture (C4)", () => {
     const drag = (from: [number, number], to: [number, number]): void => {
       pv.dispatchEvent(new MouseEvent("pointerdown", { ...at(...from), button: 0, bubbles: true }));
       const mid: [number, number] = [(from[0] + to[0]) / 2, (from[1] + to[1]) / 2];
-      pv.dispatchEvent(new MouseEvent("pointermove", { ...at(...mid), bubbles: true }));
+      pv.dispatchEvent(new MouseEvent("pointermove", { ...at(...mid), buttons: 1, bubbles: true }));
       expect(pv.querySelector("#chemdraw-ghost")).not.toBeNull(); // drawn live while dragging
-      pv.dispatchEvent(new MouseEvent("pointermove", { ...at(...to), bubbles: true }));
+      pv.dispatchEvent(new MouseEvent("pointermove", { ...at(...to), buttons: 1, bubbles: true }));
       pv.dispatchEvent(new MouseEvent("pointerup", { ...at(...to), bubbles: true }));
       pv.dispatchEvent(new MouseEvent("click", { ...at(...to), bubbles: true }));
     };
@@ -407,6 +407,47 @@ describe("Chain, Brackets, Arrow and Replace selected picture (C4)", () => {
     await new Promise((r) => setTimeout(r, 0));
     expect(t.replaced[1]).toBe("ChemDraw drawing from figure.cdxml (the whole page).");
     expect(last(t.status)).toEqual(["Replaced the selected picture with the whole page from figure.cdxml. It is inserted at ChemDraw's size.", "success"]);
+  });
+
+  test("a drag ends cleanly: Escape mid-drag draws nothing; a move with no button held (a lost release) drops it", async () => {
+    const t = await setup();
+    t.tool("chain");
+    const before = t.pv.querySelectorAll("line").length;
+    t.pv.dispatchEvent(new MouseEvent("pointerdown", { clientX: 0, clientY: 0, button: 0, bubbles: true }));
+    t.pv.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    t.pv.dispatchEvent(new MouseEvent("pointerup", { clientX: 200, clientY: 0, bubbles: true }));
+    expect(t.pv.querySelectorAll("line").length).toBe(before);
+    expect(t.pv.querySelector("#chemdraw-ghost")).toBeNull();
+    t.tool("arrow");
+    t.pv.dispatchEvent(new MouseEvent("pointerdown", { clientX: 0, clientY: 0, button: 0, bubbles: true }));
+    t.pv.dispatchEvent(new MouseEvent("pointermove", { clientX: 100, clientY: 0, buttons: 0, bubbles: true }));
+    t.pv.dispatchEvent(new MouseEvent("pointerup", { clientX: 100, clientY: 0, bubbles: true }));
+    expect(t.pv.querySelectorAll("line").length).toBe(before);
+  });
+
+  test("a drag-tool release with no click after it does not swallow the next click", async () => {
+    const t = await setup();
+    t.tool("arrow");
+    t.pv.dispatchEvent(new MouseEvent("pointerdown", { clientX: 0, clientY: 0, button: 0, bubbles: true }));
+    t.pv.dispatchEvent(new MouseEvent("pointerup", { clientX: 0, clientY: 0, bubbles: true }));
+    t.tool("select");
+    const svg = t.pv.querySelector("svg")!;
+    const [vx, vy, vw, vh] = svg.getAttribute("viewBox")!.split(" ").map(Number);
+    svg.getBoundingClientRect = () => ({ left: 0, top: 0, width: vw, height: vh, right: vw, bottom: vh, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+    t.pv.dispatchEvent(new MouseEvent("pointerdown", { clientX: 415 - vx, clientY: 600 - vy, button: 0, bubbles: true }));
+    t.pv.dispatchEvent(new MouseEvent("click", { clientX: 415 - vx, clientY: 600 - vy, bubbles: true }));
+    expect((document.getElementById("chemdraw-insert") as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  test("the box is emptied on a tool change: an Atom label never becomes a bracket label", async () => {
+    const t = await setup();
+    t.tool("atom");
+    const v = document.getElementById("chemdraw-value") as HTMLInputElement;
+    v.value = "Cl";
+    t.tool("bracket");
+    expect(v.value).toBe("");
+    t.drag([390, 590], [415, 610]);
+    expect(last(t.status)).toEqual(["Brackets drawn round the repeat unit, labelled n.", "success"]);
   });
 
   test("with no Word to replace in, the button stays off", async () => {

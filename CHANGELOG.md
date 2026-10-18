@@ -10,20 +10,42 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 
 ### Added
 - **Chain** tool: drag from an atom (or from empty paper) and a zig-zag chain follows the mouse — one bond per
-  L·cos 30° of drag (L = the document's bond length), 120° between bonds, as ChemDraw draws a chain; a click on an
-  atom adds one bond. A drawn atom with no valence to spare (a carbon with four bonds) is refused by name.
-- **Brackets** tool: drag a box round a repeat unit — square brackets on its sides, the label (the box above; blank
-  = n; a number is also written as the repeat count) at the right bracket's foot, and the structural repeat unit
-  ChemDraw reads (bracketedgroup, SRU) naming the atoms inside and the bonds the brackets cross. A box with no atom
-  inside, or no bond leaving it, is refused by name.
+  L·cos 30° of drag (L = the document's bond length), 120° at every carbon including the one it starts from, as
+  ChemDraw draws a chain; a click on an atom adds one bond. Refused by name: an atom with no valence to spare (its
+  charge counted: N⁺ takes four bonds, C⁺ three, O⁻ one), a label that has its bond (Ph, OMe), and a chain that
+  would run onto atoms already drawn. Add bond follows the same valence rule now.
+- **Brackets** tool: drag a box round a repeat unit — polymer brackets written as ChemDraw writes them (checked
+  against ChemDraw files filed with USPTO patents): square brackets on the box's sides, the label (the box above;
+  blank = n) in italics at the right bracket's foot, held in that bracket, and a structural repeat unit (SRU)
+  naming the atoms inside, its label and the bonds each bracket crosses (an end group crosses one). Refused by
+  name: no atom inside, atoms of two structures, no bond leaving the box, or a bond leaving through its top or
+  bottom (no bracket would cross it). A name ChemDraw computed for the structure is outlined as out of date.
 - **Arrow** tool: drag from tail to head — a reaction arrow (full solid head, ChemDraw's default size) or an
-  equilibrium arrow (two half-headed shafts).
+  equilibrium arrow (⇌: two shafts, each ending in a half head).
 - **Replace selected picture**: click the picture in the document (for instance the ChemDraw picture you opened),
   then Replace selected picture — the edited drawing (the selection, or the whole page when nothing is selected)
   goes in its place, instead of a second copy after it. A floating (wrapped) picture is not in Word's selection of
-  in-line pictures: it is said, and nothing changes.
+  in-line pictures: it is said, and nothing changes. The new picture does not carry a ChemDraw drawing as the old
+  one did: replacing a picture opened from the document says so until the drawing is saved as .cdxml, and Open
+  ChemDraw picture on a picture JurisLab drew says to open the saved .cdxml.
 - While dragging, the chain, box or arrow is drawn as a light outline; all three are written into the document
-  itself, so Save as .cdxml keeps them and ChemDraw opens them.
+  itself, so Save as .cdxml keeps them.
+- ChemDraw files whose bracket labels ("n", "m") are kept in the bracket's object tag now draw the label (it
+  was left out before).
+
+### Fixed before release (adversarial review: 10 findings, pinned in cdxmlDraw.test.ts, chemdrawPane.dom.test.ts)
+- A chain from an atom met its existing bond at 180° (drawn straight); a chain could land on atoms already drawn
+  (stacked, unjoined); any charged atom skipped the valence check (N⁺ took a fifth bond); a label with its bond
+  (Ph) took a chain; a refused chain from empty paper still left an atom in the document.
+- Brackets: a bond leaving through the box's top was attached to a side bracket it never crosses; atoms of a
+  second structure in the box joined the repeat unit; the label was a loose caption with a made-up repeat count —
+  now ChemDraw's own form; bracketing did not mark the structure's computed name as out of date.
+- Escape, a tool change, opening a file or Close in the middle of a drag left it live (the release still drew);
+  a release with no click after it swallowed the next click; Atom-tool text became the bracket label.
+- The equilibrium arrow's half heads sat between the shafts (pre-existing in the renderer; first written by C4).
+- Replacing a picture JurisLab had inserted wrapped it in a second content control each time.
+
+Not yet: ChemDraw objects embedded as OLE objects are not in-line pictures, so Replace cannot reach them.
 
 ## [2.153.0] — 2026-10-18 — ChemDraw pictures in documents, .cdx files, ring tools
 

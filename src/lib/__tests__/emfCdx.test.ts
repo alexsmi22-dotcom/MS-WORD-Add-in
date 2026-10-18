@@ -88,6 +88,14 @@ describe("from Word's selection (Flat OPC)", () => {
       reason: "the selected picture is a PNG, which carries no ChemDraw drawing (Word on a Mac pastes ChemDraw as PDF) — open the .cdx or .cdxml file instead",
     });
   });
+  test("a picture JurisLab drew (its alt text says so) is named as such, not as a Mac paste", () => {
+    const doc = `<pkg:part pkg:name="/word/document.xml"><pkg:xmlData><w:document><wp:inline><wp:docPr id="1" name="Picture 1" descr="ChemDraw drawing from figure.cdxml (the whole page)."/></wp:inline></w:document></pkg:xmlData></pkg:part>`;
+    const png = `<pkg:part pkg:name="/word/media/image1.png" pkg:contentType="image/png"><pkg:binaryData>iVBORw0KGgo=</pkg:binaryData></pkg:part>`;
+    expect(cdxFromFlatOpc(opc(doc + png))).toEqual({
+      ok: false,
+      reason: "the selected picture was drawn by JurisLab and holds no ChemDraw drawing — open the .cdxml you saved (Save as .cdxml) to edit it again",
+    });
+  });
   test("base64 decoding ignores line breaks and refuses what is not base64", () => {
     expect([...fromBase64("AQID\nBA==")!]).toEqual([1, 2, 3, 4]);
     expect(fromBase64("not base64!")).toBeNull();

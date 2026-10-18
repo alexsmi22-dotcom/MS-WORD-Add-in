@@ -29,6 +29,7 @@ import { ptToMm } from "./figureStyle";
 import { buildFrame, Frame, Orientation, SheetSizeId, sheetRefusal, TitleValues } from "./cadFormats";
 import { LineType, lineTypesFor, strokeAttrs } from "./cadLineTypes";
 import { markSvg, marksExtent, SheetMark } from "./cadMarks";
+import { circlePolyline, detailDrawing } from "./cadDetail";
 
 /** The sheet's layers. The user may switch off frame, titleBlock, callouts and titles. */
 export type LayerId = "visible" | "hidden" | "callouts" | "markup" | "titles" | "frame" | "titleBlock" | "info";
@@ -48,7 +49,22 @@ export interface SheetFormat {
 export type OrthoKind = "front" | "top" | "right" | "left" | "back" | "bottom";
 /** An orbit view carries either Euler degrees or the exact matrix the user dragged to. */
 /** "blank": a figure with no model in it, only what is drawn on it by hand (cadMarks). */
-export type ViewSpec = { kind: OrthoKind | "iso" | "blank" } | { kind: "orbit"; deg?: Vec3; rot?: number[]; name?: string };
+/** "exploded": the isometric view of the exploded assembly (SheetOptions.exploded). */
+export type ViewSpec = { kind: OrthoKind | "iso" | "blank" | "exploded" } | { kind: "orbit"; deg?: Vec3; rot?: number[]; name?: string } | DetailSpec;
+/**
+ * A detail view (cadDetail): the circle of radius `r` about `at` on view `of` (in that view's plane,
+ * model units), drawn again `factor` times larger, named by `letter`.
+ */
+export interface DetailSpec {
+  kind: "detail";
+  letter: string;
+  of: OrthoKind | "iso" | "exploded";
+  at: [number, number];
+  r: number;
+  factor: number;
+}
+/** What names a view on the sheet (marks and frames): its kind, or "detail:A" for a detail. */
+export const viewKey = (v: ViewSpec): string => (v.kind === "detail" ? `detail:${v.letter}` : v.kind);
 
 export interface Callout {
   /** A world point ON the part (from pickAt). */
@@ -71,6 +87,11 @@ export interface SheetOptions {
   layers?: Partial<Record<LayerId, boolean>>;
   /** Hand-drawn marks, each on the view of its kind (cadMarks). */
   marks?: SheetMark[];
+  /**
+   * The exploded assembly (cadExplode), for an "exploded" view: its mesh, each callout's anchor
+   * moved with its part (parallel to `callouts`), and the trail lines (world).
+   */
+  exploded?: { mesh: Mesh; anchors: Vec3[]; trails: Array<[Vec3, Vec3]> };
 }
 
 /** Where a view was put: sheet px = (ox + (x − minX)·k, oyBottom − (y − minY)·k); its cell, px. */
@@ -118,6 +139,8 @@ function viewOf(v: ViewSpec): CadView {
     if (v.rot && v.rot.length === 9 && v.rot.every((x) => Number.isFinite(x))) return { name: v.name ?? "view", rot: v.rot };
     return viewFromDegrees(v.deg ?? [0, 0, 0], v.name ?? "view");
   }
+  if (v.kind === "detail") return v.of === "exploded" ? STANDARD_VIEWS.iso : STANDARD_VIEWS[v.of];
+  if (v.kind === "exploded") return STANDARD_VIEWS.iso;
   return v.kind === "blank" ? STANDARD_VIEWS.front : STANDARD_VIEWS[v.kind];
 }
 
@@ -131,6 +154,8 @@ function viewName(v: ViewSpec): string {
     case "bottom": return "BOTTOM";
     case "iso": return "ISOMETRIC";
     case "blank": return "";
+    case "exploded": return "EXPLODED VIEW";
+    case "detail": return `DETAIL ${v.letter}`;
     default: return (v.name ?? "VIEW").toUpperCase();
   }
 }
@@ -211,6 +236,9 @@ export function layoutSheet(mesh: Mesh, o: SheetOptions): Sheet {
   return info.overflow ? { svg: "", widthPx: 0, heightPx: 0, labels: [], scaleMmPerUnit: 0, notes: [info.overflow] } : sheet;
 }
 
+/** A view's lines on the sheet: an exploded view adds its trail lines; a detail, its boundary circle. */
+type SheetDrawing = LineDrawing & { trails?: Polyline[]; boundary?: Polyline };
+
 /** What one layout pass reports back, and the figures' lines it shares with the next pass. */
 interface LayoutInfo {
   /** The room given to text (model units per em); 0 when there is no hand-drawn text. */
@@ -247,7 +275,12 @@ function layoutCore(mesh: Mesh, o: SheetOptions, textUnitsIn: number | undefined
 
   // Each view's drawing, and its cell. With no parts at all, only blank figures can be drawn.
   const noModel = !mesh.triangles.length;
-  const views = noModel ? o.views.filter((v) => v.kind === "blank") : o.views;
+  const needsExploded = (v: ViewSpec): boolean => v.kind === "exploded" || (v.kind === "detail" && v.of === "exploded");
+  let views = noModel ? o.views.filter((v) => v.kind === "blank") : o.views;
+  if (!o.exploded && views.some(needsExploded)) {
+    views = views.filter((v) => !needsExploded(v));
+    notes.push("The exploded view needs the parts apart: press Auto explode, or give a part an explode distance.");
+  }
   if (!views.length) return { svg: "", widthPx: 0, heightPx: 0, labels: [], scaleMmPerUnit: 0, notes: ["Add a part, or tick Blank figure to draw freehand."] };
   if (views.length < o.views.length) notes.push("There are no parts yet, so only the blank figure is drawn.");
   // A blank figure is as large as the largest model view (so marks keep their size when parts come
@@ -255,11 +288,30 @@ function layoutCore(mesh: Mesh, o: SheetOptions, textUnitsIn: number | undefined
   const BLANK_EMPTY: LineDrawing = { visible: [], hidden: [], bounds: { minX: 0, minY: 0, maxX: 100, maxY: 70 }, stats: { triangles: 0, featureSegments: 0, pieces: 0 } };
   const cellsFor = CELLS[std.projection];
   const used = new Set<string>();
-  const drawings = views.map((spec): LineDrawing | null => {
-    if (spec.kind === "blank") return null;
+  const project = (view: CadView, p: Vec3): [number, number] => {
+    const R = view.rot;
+    return [R[0] * p[0] + R[1] * p[1] + R[2] * p[2], R[3] * p[0] + R[4] * p[1] + R[5] * p[2]];
+  };
+  /** A view's lines: the model's; the exploded assembly's with its trails; a detail's from its parent's. */
+  const drawingOf = (spec: ViewSpec): SheetDrawing => {
     const key = JSON.stringify(spec);
-    let d = info.drawn.get(key);
-    if (!d) info.drawn.set(key, (d = drawLines(mesh, viewOf(spec))));
+    let d = info.drawn.get(key) as SheetDrawing | undefined;
+    if (d) return d;
+    if (spec.kind === "detail") d = detailDrawing(drawingOf({ kind: spec.of }), spec.at, spec.r, spec.factor);
+    else if (spec.kind === "exploded") {
+      const view = viewOf(spec);
+      const base = drawLines(o.exploded!.mesh, view);
+      const trails: Polyline[] = o.exploded!.trails.map(([a, b]) => [project(view, a), project(view, b)]);
+      const bd = { ...base.bounds };
+      for (const l of trails) for (const [x, y] of l) (bd.minX = Math.min(bd.minX, x)), (bd.maxX = Math.max(bd.maxX, x)), (bd.minY = Math.min(bd.minY, y)), (bd.maxY = Math.max(bd.maxY, y));
+      d = { ...base, bounds: bd, trails };
+    } else d = drawLines(mesh, viewOf(spec));
+    info.drawn.set(key, d);
+    return d;
+  };
+  const drawings = views.map((spec): SheetDrawing | null => {
+    if (spec.kind === "blank") return null;
+    const d = drawingOf(spec);
     // Each pass grows its own copy's box (marks): the drawing itself is shared.
     return { ...d, bounds: { ...d.bounds } };
   });
@@ -271,7 +323,7 @@ function layoutCore(mesh: Mesh, o: SheetOptions, textUnitsIn: number | undefined
   }
   const items = views.map((spec, vi) => {
     const view = viewOf(spec);
-    const d: LineDrawing = drawings[vi] ?? (blankW > 0 ? { ...BLANK_EMPTY, bounds: { minX: 0, minY: 0, maxX: blankW, maxY: Math.max(blankH, blankW * 0.5) } } : { ...BLANK_EMPTY, bounds: { ...BLANK_EMPTY.bounds } });
+    const d: SheetDrawing = drawings[vi] ?? (blankW > 0 ? { ...BLANK_EMPTY, bounds: { minX: 0, minY: 0, maxX: blankW, maxY: Math.max(blankH, blankW * 0.5) } } : { ...BLANK_EMPTY, bounds: { ...BLANK_EMPTY.bounds } });
     let cell: [number, number];
     if (ORTHO.has(spec.kind)) cell = cellsFor[spec.kind as OrthoKind];
     else cell = cellsFor.pic;
@@ -285,6 +337,18 @@ function layoutCore(mesh: Mesh, o: SheetOptions, textUnitsIn: number | undefined
     return { spec, view, d, cell, pictorial: !ORTHO.has(spec.kind) };
   });
 
+  // Each detail's circle is drawn on its parent view (when that view is on the sheet): its box holds it.
+  const details = items.filter((i): i is (typeof items)[number] & { spec: DetailSpec } => i.spec.kind === "detail");
+  for (const dt of details) {
+    const parent = items.find((i) => viewKey(i.spec) === dt.spec.of);
+    if (!parent) {
+      notes.push(`Detail ${dt.spec.letter} is of the ${dt.spec.of === "iso" ? "isometric" : dt.spec.of} view, which is not on this sheet: its circle is not drawn — the enlarged view and the view it enlarges must both be shown.`);
+      continue;
+    }
+    const b = parent.d.bounds, [cx, cy] = dt.spec.at, r = dt.spec.r;
+    parent.d.bounds = { minX: Math.min(b.minX, cx - r), minY: Math.min(b.minY, cy - r), maxX: Math.max(b.maxX, cx + r), maxY: Math.max(b.maxY, cy + r) };
+  }
+
   // Compact the grid: only columns / rows that hold a view.
   const cols = [...new Set(items.map((i) => i.cell[0]))].sort((a, b) => a - b);
   const rows = [...new Set(items.map((i) => i.cell[1]))].sort((a, b) => a - b);
@@ -296,7 +360,7 @@ function layoutCore(mesh: Mesh, o: SheetOptions, textUnitsIn: number | undefined
   // Marks on "This view" are not drawn: that view turns with the model, and a mark drawn at one
   // angle would point at nothing at another (review). Marks far outside their figure (a damaged
   // model) are not drawn either: they would shrink the drawing to a dot.
-  const onSheet = new Set(items.map((i) => i.spec.kind as string));
+  const onSheet = new Set(items.map((i) => viewKey(i.spec)));
   const strays = new Map<string, number>();
   let orbitMarks = 0, farMarks = 0;
   const marks = (o.marks ?? []).filter((m) => {
@@ -308,7 +372,7 @@ function layoutCore(mesh: Mesh, o: SheetOptions, textUnitsIn: number | undefined
       strays.set(m.view, (strays.get(m.view) ?? 0) + 1);
       return false;
     }
-    const it = items.find((i) => i.spec.kind === m.view)!;
+    const it = items.find((i) => viewKey(i.spec) === m.view)!;
     const b = it.d.bounds, span = Math.max(b.maxX - b.minX, b.maxY - b.minY, 1e-9);
     const e = marksExtent([m], 0)!;
     if (e.minX < b.minX - 3 * span || e.maxX > b.maxX + 3 * span || e.minY < b.minY - 3 * span || e.maxY > b.maxY + 3 * span) {
@@ -327,7 +391,7 @@ function layoutCore(mesh: Mesh, o: SheetOptions, textUnitsIn: number | undefined
     const textUnits = textUnitsIn ?? (ptToMm(std.textPt) * 1.1) / (sEst || 1);
     info.textUnits = textUnits;
     for (const it of items) {
-      const ext = marksExtent(marks.filter((m) => m.view === it.spec.kind), textUnits);
+      const ext = marksExtent(marks.filter((m) => m.view === viewKey(it.spec)), textUnits);
       if (!ext) continue;
       const b = it.d.bounds;
       it.d.bounds = { minX: Math.min(b.minX, ext.minX), minY: Math.min(b.minY, ext.minY), maxX: Math.max(b.maxX, ext.maxX), maxY: Math.max(b.maxY, ext.maxY) };
@@ -350,8 +414,14 @@ function layoutCore(mesh: Mesh, o: SheetOptions, textUnitsIn: number | undefined
   // right), not the order the views were asked for.
   const readingOrder = [...items].sort((p, q) => p.cell[1] - q.cell[1] || p.cell[0] - q.cell[0]);
   const figOf = new Map(readingOrder.map((it, i) => [it, (o.figStart ?? 1) + i]));
-  const labelOf = (it: (typeof items)[number]): string =>
-    std.viewLabels === "fig" ? `FIG. ${figOf.get(it)}` : std.viewLabels === "name" ? viewName(it.spec) : "";
+  /** A view's title; a detail's names its scale (ASME "DETAIL A SCALE 2:1", ISO "A (2:1)") at sheet scale `sc`. */
+  const labelOf = (it: (typeof items)[number], sc = 1): string => {
+    if (std.viewLabels === "fig") return `FIG. ${figOf.get(it)}`;
+    if (std.viewLabels !== "name") return "";
+    if (it.spec.kind !== "detail") return viewName(it.spec);
+    const k = scaleLabel(sc * it.spec.factor);
+    return o.standard === "iso" ? `${it.spec.letter} (${k})` : `DETAIL ${it.spec.letter} SCALE ${k}`;
+  };
 
   const textMm = ptToMm(std.textPt);
   const headingMm = ptToMm(std.headingPt);
@@ -369,10 +439,19 @@ function layoutCore(mesh: Mesh, o: SheetOptions, textUnitsIn: number | undefined
     const R = it.view.rot;
     const mid = (it.d.bounds.minX + it.d.bounds.maxX) / 2;
     const out: Array<{ n: number; x: number; y: number; right: boolean }> = [];
+    const sp = it.spec;
+    const ex = needsExploded(sp);
     callouts.forEach((c, n) => {
-      if (it.spec.kind === "blank" || pointHidden(mesh, it.view, c.anchor)) return;
-      const x = R[0] * c.anchor[0] + R[1] * c.anchor[1] + R[2] * c.anchor[2];
-      const y = R[3] * c.anchor[0] + R[4] * c.anchor[1] + R[5] * c.anchor[2];
+      if (sp.kind === "blank") return;
+      const anchor = ex ? (o.exploded!.anchors[n] ?? c.anchor) : c.anchor;
+      if (pointHidden(ex ? o.exploded!.mesh : mesh, it.view, anchor)) return;
+      let x = R[0] * anchor[0] + R[1] * anchor[1] + R[2] * anchor[2];
+      let y = R[3] * anchor[0] + R[4] * anchor[1] + R[5] * anchor[2];
+      if (sp.kind === "detail") {
+        if (Math.hypot(x - sp.at[0], y - sp.at[1]) > sp.r) return;
+        x = sp.at[0] + (x - sp.at[0]) * sp.factor;
+        y = sp.at[1] + (y - sp.at[1]) * sp.factor;
+      }
       out.push({ n, x, y, right: x >= mid });
     });
     return out;
@@ -399,7 +478,8 @@ function layoutCore(mesh: Mesh, o: SheetOptions, textUnitsIn: number | undefined
       Math.max(0, ...items.flatMap((it, i) => (it.cell[1] !== r ? [] : [true, false].map((side) => shown[i].filter((c) => c.right === side).length * pitchMm)))),
     );
   let needMm = needOf();
-  const titleMm = cols.map((c) => (titlesOn ? Math.max(0, ...items.filter((it) => it.cell[0] === c).map((it) => labelOf(it).length * 0.62 * headingMm)) : 0));
+  // (A detail's scale is not known yet: room for the longest, "10:1" or "1:200".)
+  const titleMm = cols.map((c) => (titlesOn ? Math.max(0, ...items.filter((it) => it.cell[0] === c).map((it) => (labelOf(it).length + (it.spec.kind === "detail" ? 3 : 0)) * 0.62 * headingMm)) : 0));
 
   // Horizontal room: every gap between two views holds two callout columns,
   // an outer edge holds one. Vertical room needs only the view title.
@@ -502,9 +582,9 @@ function layoutCore(mesh: Mesh, o: SheetOptions, textUnitsIn: number | undefined
     const X = (x: number): number => ox + (x - b.minX) * k;
     const Y = (y: number): number => oyBottom - (y - b.minY) * k;
     const path = (lines: Polyline[]): string => lines.map((l) => "M" + l.map(([x, y]) => `${fmt(X(x))} ${fmt(Y(y))}`).join("L")).join("");
-    frames.push({ view: it.spec.kind, ox, oyBottom, minX: b.minX, minY: b.minY, k, cell: { x: cellX, y: cellY, w: cw, h: chh } });
+    frames.push({ view: viewKey(it.spec), ox, oyBottom, minX: b.minX, minY: b.minY, k, cell: { x: cellX, y: cellY, w: cw, h: chh } });
     for (const m of marks) {
-      if (m.view !== it.spec.kind) continue;
+      if (m.view !== viewKey(it.spec)) continue;
       const ms = { X, Y, strokePx: types.visible.widthMm * PX_PER_MM, fontPx: textMm * PX_PER_MM, font: std.font };
       layer.markup.push(markSvg(m, ms));
       // Every mark must sit in its own figure's cell (with a little slack): one that does not
@@ -520,6 +600,25 @@ function layoutCore(mesh: Mesh, o: SheetOptions, textUnitsIn: number | undefined
     const showHidden = o.showHidden ?? (it.pictorial ? std.hiddenInPictorial : std.hiddenInOrthographic);
     if (showHidden && it.d.hidden.length) layer.hidden.push(`<path d="${path(it.d.hidden)}" ${strokeAttrs(types.hidden, PX_PER_MM)}/>`);
     if (it.d.visible.length) layer.visible.push(`<path d="${path(it.d.visible)}" ${strokeAttrs(types.visible, PX_PER_MM)}/>`);
+    // Trail lines of an exploded view: phantom lines (ASME Y14.2 / ISO 128 type 05: alternate positions).
+    if (it.d.trails?.length) layer.visible.push(`<path d="${path(it.d.trails)}" ${strokeAttrs(types.phantom, PX_PER_MM)}/>`);
+    const thin = { ...types.hidden, dashMm: [], cap: "round" as const };
+    if (it.d.boundary) layer.visible.push(`<path d="${path([it.d.boundary])}" ${strokeAttrs(thin, PX_PER_MM)}/>`);
+    // The circle of each detail taken from this view, named as the detail is.
+    for (const dt of details) {
+      if (dt.spec.of !== viewKey(it.spec)) continue;
+      const [cx, cy] = dt.spec.at, rr = dt.spec.r;
+      layer.visible.push(`<path d="${path([circlePolyline([cx, cy], rr)])}" ${strokeAttrs(thin, PX_PER_MM)}/>`);
+      const tag = std.viewLabels === "fig" ? `FIG. ${figOf.get(dt)}` : dt.spec.letter;
+      const lx = X(cx + rr * Math.SQRT1_2) + fontPx * 0.4, ly = Y(cy + rr * Math.SQRT1_2) - fontPx * 0.4;
+      layer.titles.push(`<text x="${fmt(lx)}" y="${fmt(ly)}" font-family="${esc(std.font)}" font-size="${fmt(fontPx)}" fill="#000">${esc(tag)}</text>`);
+    }
+    // 37 CFR 1.84(h)(1): an exploded view on a sheet with another figure is placed in brackets.
+    if (it.spec.kind === "exploded" && o.standard === "uspto" && items.length > 1) {
+      const m = 2 * PX_PER_MM, lip = 2 * PX_PER_MM;
+      const xl = ox - m, xr = ox + vw + m, yt = oyBottom - vh - m, yb = oyBottom + m;
+      layer.visible.push(`<path d="M${fmt(xl + lip)} ${fmt(yt)}L${fmt(xl)} ${fmt(yt)}L${fmt(xl)} ${fmt(yb)}L${fmt(xl + lip)} ${fmt(yb)}M${fmt(xr - lip)} ${fmt(yt)}L${fmt(xr)} ${fmt(yt)}L${fmt(xr)} ${fmt(yb)}L${fmt(xr - lip)} ${fmt(yb)}" ${strokeAttrs(thin, PX_PER_MM)}/>`);
+    }
     parts = layer.callouts;
 
     // Callouts visible in this view, set in a COLUMN beside the view on the
@@ -571,7 +670,7 @@ function layoutCore(mesh: Mesh, o: SheetOptions, textUnitsIn: number | undefined
       }
     }
 
-    const label = labelOf(it);
+    const label = labelOf(it, s);
     labels.push(label);
     parts = layer.titles;
     if (label) {

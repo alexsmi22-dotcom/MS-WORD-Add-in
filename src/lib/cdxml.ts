@@ -215,7 +215,11 @@ export function readCdxml(text: string): { ok: true; doc: CdxDoc } | { ok: false
   if (text.length > CDXML_LIMITS.bytes) return { ok: false, reason: `the file is larger than ${CDXML_LIMITS.bytes / 1048576} MB` };
   const x = parseXml(text);
   if (!x.ok) return x;
-  const root = x.root;
+  return readCdxmlTree(x.root);
+}
+
+/** Reads a parsed CDXML tree (after an edit, the same tree is read again: the model always follows it). */
+export function readCdxmlTree(root: XNode): { ok: true; doc: CdxDoc } | { ok: false; reason: string } {
   if (root.name !== "CDXML") return { ok: false, reason: `it is not a ChemDraw CDXML file (its root element is <${root.name}>, not <CDXML>)` };
   const pages = root.children.filter((c) => c.name === "page");
   if (!pages.length) return { ok: false, reason: "it has no page" };

@@ -890,3 +890,150 @@ export function addArrow(doc: CdxDoc, tail: P2, head: P2, kind: ArrowKind = "rea
   page.children.push({ name: "arrow", attrs, children: [], text: "", line: 0 });
   return null;
 }
+
+// ---- drawing from a blank page (docs/SCOPE-CHEM-CANVAS.md, stage 2) ---------------------------
+
+/**
+ * A blank page in ChemDraw's "ACS Document 1996" style (the journals' and the USPTO filings' usual
+ * style): bond length 14.4 pt, line 0.6 pt, bold 2 pt, hash spacing 2.5 pt, Arial 10 pt labels.
+ */
+export function blankPageCdxml(): string {
+  return (
+    '<?xml version="1.0" encoding="UTF-8" ?>\n' +
+    '<CDXML CreationProgram="JurisLab" BondLength="14.4" LineWidth="0.6" BoldWidth="2" HashSpacing="2.5" MarginWidth="1.6" BondSpacing="18" ' +
+    'LabelFont="3" LabelSize="10" LabelFace="96" CaptionFont="3" CaptionSize="10" ChainAngle="120">' +
+    '<fonttable><font id="3" charset="iso-8859-1" name="Arial"/></fonttable>' +
+    '<page id="1" BoundingBox="0 0 540 720" HeaderPosition="36" FooterPosition="36" PrintTrimMarks="yes" HeightPages="1" WidthPages="1"/>' +
+    "</CDXML>"
+  );
+}
+
+const newFragment = (doc: CdxDoc, id: () => string): XNode | null => {
+  const page = pageOf(doc.root);
+  if (!page) return null;
+  const frag: XNode = { name: "fragment", attrs: { id: id() }, children: [], text: "", line: 0 };
+  page.children.push(frag);
+  return frag;
+};
+
+/**
+ * A new atom on empty paper: a structure of its own. A carbon alone is shown as ChemDraw shows it
+ * (CH₄, a label, since a bare vertex with no bonds would be invisible); any other label as setAtomLabel
+ * sets it (N → NH₃, R1, X …).
+ */
+export function addAtomAt(doc: CdxDoc, at: P2, label: string): { ok: true; nodeId: string } | { ok: false; reason: string } {
+  if (!at.every(Number.isFinite)) return { ok: false, reason: "that is not a place on the page" };
+  const text = label.trim() || "C";
+  const id = nextIdFrom(doc.root);
+  const frag = newFragment(doc, id);
+  if (!frag) return { ok: false, reason: "the document has no page" };
+  const node: XNode = { name: "n", attrs: { id: id(), p: `${fmt(at[0])} ${fmt(at[1])}` }, children: [], text: "", line: 0 };
+  frag.children.push(node);
+  if (text === "C") {
+    node.children.push(labelText(doc, node, "CH4"));
+    node.attrs.NumHydrogens = "4";
+    return { ok: true, nodeId: node.attrs.id! };
+  }
+  const r = setAtomLabel(doc, node.attrs.id!, text);
+  if (!r.ok) {
+    page0(doc).children.pop();
+    return { ok: false, reason: r.reason };
+  }
+  return { ok: true, nodeId: node.attrs.id! };
+}
+const page0 = (doc: CdxDoc): XNode => pageOf(doc.root)!;
+
+/** A new single bond on empty paper (two carbons), drawn up and to the right at 30°, as ChemDraw's bond tool draws it. */
+export function addBondAt(doc: CdxDoc, at: P2): { ok: true; bondId: string } | { ok: false; reason: string } {
+  if (!at.every(Number.isFinite)) return { ok: false, reason: "that is not a place on the page" };
+  const L = doc.style.bondLength;
+  const id = nextIdFrom(doc.root);
+  const frag = newFragment(doc, id);
+  if (!frag) return { ok: false, reason: "the document has no page" };
+  const a: XNode = { name: "n", attrs: { id: id(), p: `${fmt(at[0])} ${fmt(at[1])}` }, children: [], text: "", line: 0 };
+  const b: XNode = { name: "n", attrs: { id: id(), p: `${fmt(at[0] + L * Math.cos(Math.PI / 6))} ${fmt(at[1] - L * Math.sin(Math.PI / 6))}` }, children: [], text: "", line: 0 };
+  const bond: XNode = { name: "b", attrs: { id: id(), B: a.attrs.id!, E: b.attrs.id! }, children: [], text: "", line: 0 };
+  frag.children.push(a, b, bond);
+  return { ok: true, bondId: bond.attrs.id! };
+}
+
+/** Is there a bond between these two atoms already? */
+const bondBetween = (frag: XNode, a: string, b: string): boolean => frag.children.some((c) => c.name === "b" && ((c.attrs.B === a && c.attrs.E === b) || (c.attrs.B === b && c.attrs.E === a)));
+
+/**
+ * A bond between two atoms already drawn (closing a ring, or joining two structures into one). Refused
+ * by name: the same atom, a bond already there, or an atom with no bond to spare.
+ */
+export function addBondBetween(doc: CdxDoc, a: string, b: string): { ok: true; bondId: string } | { ok: false; reason: string } {
+  if (a === b) return { ok: false, reason: "a bond joins two different atoms" };
+  const ha = fragmentOf(doc.root, a), hb = fragmentOf(doc.root, b);
+  if (!ha || !hb) return { ok: false, reason: "that atom is no longer in the document" };
+  if (ha.frag === hb.frag && bondBetween(ha.frag, a, b)) return { ok: false, reason: "those atoms are bonded already — click the bond to change its order" };
+  for (const h of [ha, hb]) {
+    const why = bondRoomRefusal(h.frag, h.node);
+    if (why) return { ok: false, reason: why };
+  }
+  if (ha.frag !== hb.frag) {
+    // Two structures become one: the second's atoms and bonds move into the first.
+    for (const c of hb.frag.children) ha.frag.children.push(c);
+    hb.frag.children = [];
+    deleteObjects(doc, [hb.frag.attrs.id ?? ""]);
+  }
+  const id = nextIdFrom(doc.root)();
+  ha.frag.children.push({ name: "b", attrs: { id, B: a, E: b }, children: [], text: "", line: 0 });
+  relabel(doc, ha.node);
+  relabel(doc, hb.node);
+  return { ok: true, bondId: id };
+}
+
+/**
+ * A bond from an atom toward a page point (the bond tool dragged from an atom): to an atom already
+ * near the point, or to a new carbon one bond length away, its direction snapped to 30° as ChemDraw
+ * snaps it.
+ */
+export function addBondToward(doc: CdxDoc, nodeId: string, to: P2, near: string | null): { ok: true; bondId: string; nodeId: string } | { ok: false; reason: string } {
+  if (near && near !== nodeId) {
+    const r = addBondBetween(doc, nodeId, near);
+    return r.ok ? { ok: true, bondId: r.bondId, nodeId: near } : r;
+  }
+  const hit = fragmentOf(doc.root, nodeId);
+  if (!hit) return { ok: false, reason: "that atom is no longer in the document" };
+  if (!to.every(Number.isFinite)) return { ok: false, reason: "that is not a place on the page" };
+  const why = bondRoomRefusal(hit.frag, hit.node);
+  if (why) return { ok: false, reason: why };
+  const p0 = posOf(hit.node);
+  const raw = Math.atan2(to[1] - p0[1], to[0] - p0[0]);
+  if (!Number.isFinite(raw) || Math.hypot(to[0] - p0[0], to[1] - p0[1]) < 1e-6) return { ok: false, reason: "drag away from the atom to show which way the bond goes" };
+  const step = Math.PI / 6;
+  const dir = Math.round(raw / step) * step;
+  const L = doc.style.bondLength;
+  const p: P2 = [p0[0] + L * Math.cos(dir), p0[1] + L * Math.sin(dir)];
+  const id = nextIdFrom(doc.root);
+  const nn: XNode = { name: "n", attrs: { id: id(), p: `${fmt(p[0])} ${fmt(p[1])}` }, children: [], text: "", line: 0 };
+  const bond: XNode = { name: "b", attrs: { id: id(), B: nodeId, E: nn.attrs.id! }, children: [], text: "", line: 0 };
+  hit.frag.children.push(nn, bond);
+  relabel(doc, hit.node);
+  return { ok: true, bondId: bond.attrs.id!, nodeId: nn.attrs.id! };
+}
+
+/** A new caption on the page (the Text tool clicked on empty paper). */
+export function addCaption(doc: CdxDoc, at: P2, text: string): { ok: true; textId: string } | { ok: false; reason: string } {
+  if (!at.every(Number.isFinite)) return { ok: false, reason: "that is not a place on the page" };
+  const words = text.replace(/\r/g, "");
+  if (!words.trim()) return { ok: false, reason: "type the words first" };
+  if (words.length > 2000 || CONTROL.test(words.replace(/\n/g, ""))) return { ok: false, reason: "a caption holds up to 2,000 characters of text" };
+  const page = pageOf(doc.root);
+  if (!page) return { ok: false, reason: "the document has no page" };
+  const size = doc.style.captionSize;
+  const lines = words.split("\n");
+  const w = Math.max(...lines.map((l) => l.length)) * size * 0.55;
+  const id = nextIdFrom(doc.root)();
+  page.children.push({
+    name: "t",
+    attrs: { id, p: `${fmt(at[0])} ${fmt(at[1])}`, BoundingBox: `${fmt(at[0])} ${fmt(at[1] - size * 0.8)} ${fmt(at[0] + w)} ${fmt(at[1] + size * (lines.length - 1) * 1.2 + size * 0.25)}`, CaptionJustification: "Left" },
+    children: [{ name: "s", attrs: { font: String(doc.style.captionFont), size: fmt(size), face: "0" }, children: [], text: words, line: 0 }],
+    text: "",
+    line: 0,
+  });
+  return { ok: true, textId: id };
+}

@@ -80,8 +80,10 @@ describe("corners", () => {
     const far = lineIds(st.sketch)[3];
     st = { ...st, sketch: { ...st.sketch, constraints: [...st.sketch.constraints, { id: "w", kind: "length", line: l1, value: 40 }, { id: "h", kind: "length", line: far, value: 20 }] } };
     st = ok(fillet(st, l1, l2, 5));
-    const w = st.sketch.constraints.find((c) => c.id === "w")!;
-    expect(w.kind).toBe("distance");
+    // The width now sits on the construction line that carries the original edge to the virtual sharp.
+    const w = st.sketch.constraints.find((c) => c.id === "w") as { kind: string; line: string };
+    expect(w.kind).toBe("length");
+    expect(st.sketch.entities.find((e) => e.id === w.line)).toMatchObject({ construction: true });
     const r = setDimension(st.sketch, "w", 60);
     if (!r.ok) throw new Error(r.reason);
     expect(area(r.sketch)).toBeCloseTo(60 * 20 - (25 - (Math.PI * 25) / 4), 2);
@@ -157,5 +159,88 @@ describe("offset, mirror, patterns, trim, clear", () => {
     expect(r.ok).toBe(true);
     expect(r.state.sketch.points).toHaveLength(0);
     expect(clearSketch(startEdit())).toMatchObject({ ok: false, reason: "the sketch is already empty" });
+  });
+});
+
+describe("sketcher review — every finding pinned", () => {
+  const len = (sk: Sketch, id: string): number => {
+    const l = sk.entities.find((e) => e.id === id) as { a: string; b: string };
+    return Math.hypot(P(sk, l.b).x - P(sk, l.a).x, P(sk, l.b).y - P(sk, l.a).y);
+  };
+  it("D1: a fillet on one corner of a hexagon leaves its other sides' equal relation meaning the full sides (the untouched four stay 10)", () => {
+    let st = ok(polygon(startEdit(), 0, 0, 10, 0, 6));
+    const sides = st.sketch.entities.filter((e) => e.kind === "line" && !e.construction).map((e) => e.id);
+    st = ok(fillet(st, sides[0], sides[1], 1));
+    for (const id of sides.slice(2, 5)) expect(len(st.sketch, id)).toBeCloseTo(10, 9);
+  });
+  it("D1: a midpoint on an edge stays at the middle of the FULL edge after the next corner is filleted", () => {
+    let st = rect();
+    const [l1, l2, l3] = lineIds(st.sketch);
+    st = { ...st, sketch: { ...st.sketch, points: [...st.sketch.points, { id: "m", x: 20, y: 20 }] } };
+    st = { ...st, sketch: { ...st.sketch, constraints: [...st.sketch.constraints, { id: "mid", kind: "midpoint", p: "m", line: l3 }] } };
+    const before = P(st.sketch, "m").x;
+    st = ok(fillet(st, l2, l3, 4));
+    expect(P(st.sketch, "m").x).toBeCloseTo(before, 9);
+    void l1;
+  });
+  it("D1: trimming a line with an equal relation drops that relation by name and does not distort the shape", () => {
+    let st = rect();
+    const [bottom, right] = lineIds(st.sketch);
+    st = { ...st, sketch: { ...st.sketch, constraints: [...st.sketch.constraints, { id: "eq", kind: "equal", e1: bottom, e2: right }] } };
+    st = clicks({ ...st, pending: [] }, "circle", [[0, 0], [8, 0]]);
+    const r = trim(st, bottom, 2, 0);
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.note).toMatch(/^Trimmed; relations that depended on the line's full length went with it \(equal\)\.$/);
+      expect(r.state.sketch.constraints.some((c) => c.id === "eq")).toBe(false);
+    }
+  });
+  it("D2: an inward offset larger than the outline is refused, not drawn reversed", () => {
+    const sq = clicks(startEdit(), "rectangle", [[0, 0], [10, 10]]);
+    expect(offset({ ...sq, selection: lineIds(sq.sketch) }, -6)).toMatchObject({ ok: false, reason: "an offset of -6 is larger than this outline allows" });
+  });
+  it("D3: a circle centred on the mirror line, and a line lying on it, are their own images (not duplicated)", () => {
+    let st = clicks(startEdit(), "circle", [[0, 0], [3, 0]]);
+    st = clicks({ ...st, pending: [] }, "line", [[0, -2], [0, 8]]);
+    st = { ...st, pending: [], construction: true };
+    st = clicks(st, "line", [[0, -10], [0, 10]]);
+    const ids = st.sketch.entities.map((e) => e.id);
+    const r = mirror({ ...st, pending: [], selection: [ids[0], ids[1], ids[2]] });
+    expect(r).toMatchObject({ ok: false, reason: "everything selected lies on the mirror line — it is its own mirror image" });
+  });
+  it("D4: a 3-point arc started and ended on existing points uses them (the outline really closes)", () => {
+    let st = clicks(startEdit(), "line", [[0, 0], [10, 0]]);
+    st = clicks({ ...st, pending: [] }, "arc3", [[10, 0], [0, 0], [5, 4]]);
+    // Two line ends + the arc's centre: 3 points, and a closed profile.
+    expect(st.sketch.points).toHaveLength(3);
+    expect(sketchToProfile(st.sketch).ok).toBe(true);
+  });
+  it("D6: a line trimmed through the middle stays one straight line in two pieces", () => {
+    let st = clicks(startEdit(), "line", [[0, 0], [30, 0]]);
+    st = clicks({ ...st, pending: [] }, "line", [[10, -5], [10, 5]]);
+    st = clicks({ ...st, pending: [] }, "line", [[20, -5], [20, 5]]);
+    const h = st.sketch.entities[0].id;
+    st = ok(trim(st, h, 15, 0));
+    const ons = st.sketch.constraints.filter((c) => c.kind === "onLine" && c.line === h);
+    expect(ons.length).toBeGreaterThanOrEqual(2);
+  });
+  it("D8: an offset circle keeps its distance when the original changes size", () => {
+    let st = clicks(startEdit(), "circle", [[0, 0], [5, 0]]);
+    const orig = st.sketch.entities[0].id;
+    st = ok(offset({ ...st, selection: [orig] }, 2));
+    const copy = st.sketch.entities.find((e) => e.kind === "circle" && e.id !== orig)!.id;
+    st = { ...st, sketch: { ...st.sketch, constraints: [...st.sketch.constraints, { id: "r0", kind: "radius", curve: orig, value: 5 }] } };
+    const r = setDimension(st.sketch, "r0", 8);
+    if (!r.ok) throw new Error(r.reason);
+    expect(radiusOf(r.sketch, copy)).toBeCloseTo(10, 9);
+  });
+  it("nits: trimming a line that meets nothing removes its ends too; a corner already rounded is named", () => {
+    const st = clicks(startEdit(), "line", [[0, 0], [10, 0]]);
+    const r = ok(trim(st, st.sketch.entities[0].id, 5, 0));
+    expect(r.sketch.points).toHaveLength(0);
+    let rr = rect();
+    const [a, b] = lineIds(rr.sketch);
+    rr = ok(fillet(rr, a, b, 3));
+    expect(fillet(rr, a, b, 2)).toMatchObject({ ok: false, reason: "that corner is already rounded — change its R dimension instead" });
   });
 });

@@ -64,7 +64,7 @@ const GLYPH: Partial<Record<SConstraint["kind"], string>> = {
 };
 
 /** The draw list. `free` = entity ids still free (from freedom()); `pending` = the tool's clicks so far + hover. */
-export function sketchOps(sk: Sketch, v: SketchView, opts: { selection?: string[]; free?: string[]; pending?: Array<{ x: number; y: number }>; tool?: string } = {}): SketchOp[] {
+export function sketchOps(sk: Sketch, v: SketchView, opts: { selection?: string[]; free?: string[]; pending?: Array<{ x: number; y: number }>; tool?: string; sides?: number } = {}): SketchOp[] {
   const sel = new Set(opts.selection ?? []);
   const free = new Set(opts.free ?? []);
   const P = (id: string) => sk.points.find((p) => p.id === id)!;
@@ -140,6 +140,28 @@ export function sketchOps(sk: Sketch, v: SketchView, opts: { selection?: string[
       const [[ax, ay], [bx, by]] = [pts[0], pts[pts.length - 1]];
       for (const [x1, y1, x2, y2] of [[ax, ay, bx, ay], [bx, ay, bx, by], [bx, by, ax, by], [ax, by, ax, ay]])
         ops.push({ op: "line", x1, y1, x2, y2, style: "pending", id: "_pending" });
+    } else if (opts.tool === "centreRectangle") {
+      const [[cx, cy], [bx, by]] = [pts[0], pts[pts.length - 1]];
+      const [ax, ay] = [2 * cx - bx, 2 * cy - by];
+      for (const [x1, y1, x2, y2] of [[ax, ay, bx, ay], [bx, ay, bx, by], [bx, by, ax, by], [ax, by, ax, ay]])
+        ops.push({ op: "line", x1, y1, x2, y2, style: "pending", id: "_pending" });
+    } else if (opts.tool === "polygon") {
+      const n = Math.max(3, Math.min(64, Math.round(opts.sides ?? 6)));
+      const [[cx, cy], [bx, by]] = [pts[0], pts[pts.length - 1]];
+      const R = Math.hypot(bx - cx, by - cy), t0 = Math.atan2(by - cy, bx - cx);
+      const at = (k: number): [number, number] => [cx + R * Math.cos(t0 + (2 * Math.PI * k) / n), cy + R * Math.sin(t0 + (2 * Math.PI * k) / n)];
+      for (let k = 0; k < n; k++) {
+        const [x1, y1] = at(k), [x2, y2] = at(k + 1);
+        ops.push({ op: "line", x1, y1, x2, y2, style: "pending", id: "_pending" });
+      }
+    } else if (opts.tool === "slot" && pts.length >= 3) {
+      const [[x1, y1], [x2, y2], [wx, wy]] = pts;
+      const L = Math.hypot(x2 - x1, y2 - y1) || 1, nx = -(y2 - y1) / L, ny = (x2 - x1) / L;
+      const w = Math.abs((wx - x1) * nx + (wy - y1) * ny);
+      ops.push({ op: "line", x1: x1 + nx * w, y1: y1 + ny * w, x2: x2 + nx * w, y2: y2 + ny * w, style: "pending", id: "_pending" });
+      ops.push({ op: "line", x1: x1 - nx * w, y1: y1 - ny * w, x2: x2 - nx * w, y2: y2 - ny * w, style: "pending", id: "_pending" });
+      ops.push({ op: "arc", cx: x1, cy: y1, r: w, a0: 0, a1: 2 * Math.PI, style: "pending", id: "_pending" });
+      ops.push({ op: "arc", cx: x2, cy: y2, r: w, a0: 0, a1: 2 * Math.PI, style: "pending", id: "_pending" });
     } else if (opts.tool === "circle") {
       const [[ax, ay], [bx, by]] = [pts[0], pts[pts.length - 1]];
       ops.push({ op: "arc", cx: ax, cy: ay, r: Math.hypot(bx - ax, by - ay), a0: 0, a1: 2 * Math.PI, style: "pending", id: "_pending" });

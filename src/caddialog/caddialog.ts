@@ -41,7 +41,13 @@ Office.onReady(() => {
   cancelBtn.addEventListener("click", () => send({ cancel: true }));
   useBtn.disabled = true;
   useBtn.addEventListener("click", () => {
-    if (pane) send({ doc: pane.getDoc() });
+    if (!pane) return;
+    if (pane.isSketching()) {
+      statusEl.textContent = "Finish the sketch first (Done or Cancel) — the drawing does not include it yet.";
+      statusEl.className = "build-readout warn";
+      return;
+    }
+    send({ doc: pane.getDoc() });
   });
 
   /** Starts the editor on the pane's model — never on a blank one ("Use" would replace the pane's drawing). */

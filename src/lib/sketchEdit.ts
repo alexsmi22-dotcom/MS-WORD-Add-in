@@ -21,6 +21,7 @@ import {
   sketchScale,
   describe,
   DIMENSION_KINDS,
+  Freedom,
 } from "./sketch";
 import { polygon, slot, centreRectangle, arc3, trim } from "./sketchTools";
 
@@ -144,11 +145,12 @@ export function click(st0: EditState, x: number, y: number, tol: number): EditRe
     const pend = [...st.pending, here];
     if (pend.length < n) return { ok: true, state: { ...st, pending: pend } };
     const [p0, p1, p2] = pend;
+    const snaps = pend.map((q) => q.snap);
     const r =
-      st.tool === "polygon" ? polygon(st, p0.x, p0.y, p1.x, p1.y, st.sides ?? 6)
-      : st.tool === "slot" ? slot(st, p0.x, p0.y, p1.x, p1.y, p2.x, p2.y)
-      : st.tool === "centreRectangle" ? centreRectangle(st, p0.x, p0.y, p1.x, p1.y)
-      : arc3(st, p0.x, p0.y, p1.x, p1.y, p2.x, p2.y);
+      st.tool === "polygon" ? polygon(st, p0.x, p0.y, p1.x, p1.y, st.sides ?? 6, snaps)
+      : st.tool === "slot" ? slot(st, p0.x, p0.y, p1.x, p1.y, p2.x, p2.y, snaps)
+      : st.tool === "centreRectangle" ? centreRectangle(st, p0.x, p0.y, p1.x, p1.y, snaps)
+      : arc3(st, p0.x, p0.y, p1.x, p1.y, p2.x, p2.y, snaps);
     return r.ok ? r : { ok: false, state: { ...st, pending: [] }, reason: r.reason };
   }
   if (st.tool === "trim") {
@@ -386,7 +388,7 @@ export function editDimension(st: EditState, id: string, text: string): EditResu
 
 /** "20", "Ø20", "R5", "45°" — what a dimension shows (4 significant decimals at most). */
 export function formatDimension(c: SConstraint, value = "value" in c ? c.value : NaN): string {
-  const n = (v: number): string => `${+v.toFixed(4)}`;
+  const n = (v: number): string => (Math.abs(v) > 0 && Math.abs(v) < 0.001 ? `${+v.toPrecision(6)}` : `${+v.toFixed(4)}`);
   const tail = "driven" in c && c.driven ? "" : "";
   switch (c.kind) {
     case "diameter": return `Ø${n(value)}${tail}`;
@@ -466,9 +468,9 @@ export function resolve(st: EditState): EditResult {
 }
 
 /** The status line: how defined the sketch is, and what is still free. */
-export function statusLine(sk: Sketch): string {
+export function statusLine(sk: Sketch, known?: Freedom): string {
   if (!sk.points.length) return "Draw lines, rectangles, circles or arcs. Click a tool, then click on the canvas.";
-  const f = freedom(sk);
+  const f = known ?? freedom(sk);
   if (f.dof === 0) return "Fully defined.";
   if (f.rigidOnly) return "Fully defined apart from position — fix a point to anchor it.";
   const names = f.free.slice(0, 6).join(", ") + (f.free.length > 6 ? ", …" : "");

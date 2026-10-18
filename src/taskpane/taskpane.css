@@ -2424,3 +2424,17 @@ select {
 #cad-section.cad-sketching #cad-popout {
   display: none;
 }
+
+/* While a sketch is open, what would act on the drawing waits (the code refuses too). */
+#cad-section.cad-sketching #cad-parts,
+#cad-section.cad-sketching #cad-editor,
+#cad-section.cad-sketching #cad-add,
+#cad-section.cad-sketching #cad-shape,
+#cad-section.cad-sketching #cad-new,
+#cad-section.cad-sketching #cad-insert,
+#cad-section.cad-sketching #cad-open,
+#cad-section.cad-sketching #cad-ppt,
+#cad-section.cad-sketching #cad-use {
+  opacity: 0.45;
+  pointer-events: none;
+}

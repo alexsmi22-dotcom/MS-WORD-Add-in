@@ -126,3 +126,84 @@ describe("a sketched part, end to end in the pane", () => {
     expect(sketched[0].sketch!.entities[0]).toMatchObject({ kind: "circle", r: expect.closeTo(15, 9) });
   });
 });
+
+describe("sketcher review — the pane findings pinned", () => {
+  const release = (x: number, y: number): void => {
+    const cx = 190 + (x * 8) / 3, cy = 160 - (y * 8) / 3;
+    document.getElementById("cad-sketch-canvas")!.dispatchEvent(new MouseEvent("pointerup", { clientX: cx, clientY: cy, bubbles: true }));
+  };
+  const sketchDoc = (t: ReturnType<typeof setup>) => {
+    const d = parseDoc(t.pane.getDoc());
+    if (!d.ok) throw new Error(d.reason);
+    return d.doc;
+  };
+  it("B1: a click on a point (press, release, no move) SELECTS it — Fix then applies — and leaves no empty undo step", () => {
+    const t = setup();
+    t.$<HTMLSelectElement>("cad-shape").value = "sketch";
+    t.$<HTMLButtonElement>("cad-add").click();
+    t.toolBtn("rectangle").click();
+    t.tap(0, 0);
+    t.tap(30, 20);
+    t.toolBtn("select").click();
+    t.tap(0, 0);
+    release(0, 0);
+    document.querySelector<HTMLButtonElement>('[data-sk-rel="fix"]')!.click();
+    expect(t.$<HTMLElement>("cad-sketch-msg").textContent).toBe("");
+    // One undo takes the Fix away, the next the rectangle: the click itself added no step.
+    t.$<HTMLButtonElement>("cad-sketch-undo").click();
+    t.$<HTMLButtonElement>("cad-sketch-undo").click();
+    expect(t.$<HTMLElement>("cad-sketch-status").textContent).toMatch(/^Draw lines/);
+  });
+  it("D7: the editor reads the Sides box when it opens — a 5 set before opening draws a pentagon", () => {
+    const t = setup();
+    t.$<HTMLInputElement>("cad-sketch-sides").value = "5";
+    t.$<HTMLSelectElement>("cad-shape").value = "sketch";
+    t.$<HTMLButtonElement>("cad-add").click();
+    t.toolBtn("polygon").click();
+    t.tap(0, 0);
+    t.tap(10, 0);
+    t.$<HTMLButtonElement>("cad-sketch-done").click();
+    const part = sketchDoc(t).parts.find((p) => p.shape === "sketch")!;
+    expect(part.sketch!.entities.filter((e) => e.kind === "line" && !e.construction)).toHaveLength(5);
+  });
+  it("D5: after an earlier part is removed, Edit sketch then Done replaces the sketched part (no duplicate)", () => {
+    const t = setup();
+    t.$<HTMLSelectElement>("cad-shape").value = "sketch";
+    t.$<HTMLButtonElement>("cad-add").click();
+    t.toolBtn("circle").click();
+    t.tap(0, 0);
+    t.tap(10, 0);
+    t.$<HTMLButtonElement>("cad-sketch-done").click();
+    // Remove every part before the sketched one, so its index changes.
+    for (;;) {
+      const names = Array.from(document.querySelectorAll<HTMLButtonElement>(".cad-part-name"));
+      if (names[0].textContent!.includes("Sketch")) break;
+      (names[0].parentElement!.querySelector(".num-remove-btn") as HTMLButtonElement).click();
+    }
+    const before = sketchDoc(t).parts.length;
+    Array.from(document.querySelectorAll<HTMLButtonElement>(".cad-part-name"))[0].click();
+    Array.from(document.querySelectorAll<HTMLButtonElement>("#cad-editor button")).find((b) => b.textContent === "Edit sketch")!.click();
+    t.$<HTMLButtonElement>("cad-sketch-done").click();
+    expect(sketchDoc(t).parts).toHaveLength(before);
+  });
+  it("D5: while a sketch is open, Insert, Add and New drawing wait — refused by name, the drawing untouched", async () => {
+    const t = setup();
+    const before = t.pane.getDoc();
+    t.$<HTMLSelectElement>("cad-shape").value = "sketch";
+    t.$<HTMLButtonElement>("cad-add").click();
+    expect(t.pane.isSketching()).toBe(true);
+    await t.pane.insert();
+    await flush();
+    expect(t.inserted).toHaveLength(0);
+    expect(t.host.setStatus).toHaveBeenLastCalledWith("Finish the sketch first (Done or Cancel) — the drawing does not include it yet.", "error");
+    t.$<HTMLButtonElement>("cad-add").click();
+    t.$<HTMLButtonElement>("cad-new").click();
+    expect(t.host.setStatus).toHaveBeenLastCalledWith("Finish the sketch first (Done or Cancel).", "error");
+    // Removing a part mid-sketch (what once left Done aiming at the wrong part) waits too.
+    document.querySelector<HTMLButtonElement>("#cad-parts .num-remove-btn")!.click();
+    expect(t.host.setStatus).toHaveBeenLastCalledWith("Finish the sketch first (Done or Cancel).", "error");
+    t.$<HTMLButtonElement>("cad-sketch-cancel").click();
+    expect(t.pane.isSketching()).toBe(false);
+    expect(t.pane.getDoc()).toBe(before);
+  });
+});

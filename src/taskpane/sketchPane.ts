@@ -6,7 +6,7 @@
  * sketchRender, sketch, sketchDoc). Used by the pane and the large canvas
  * alike (cadPane.ts opens it).
  */
-import { Sketch, freedom } from "../lib/sketch";
+import { Sketch, Freedom, freedom } from "../lib/sketch";
 import {
   EditState,
   RelationKind,
@@ -21,7 +21,9 @@ import {
   pick,
   startEdit,
   statusLine,
+  formatDimension,
 } from "../lib/sketchEdit";
+import { measure } from "../lib/sketch";
 import { SketchView, frameSketch, sketchOps, toSketch } from "../lib/sketchRender";
 import { SketchOp, sketchBody } from "../lib/sketchDoc";
 import { fillet, chamfer, offset, mirror, linearPattern, circularPattern, clearSketch } from "../lib/sketchTools";
@@ -57,17 +59,19 @@ export function initSketchPanel(host: SketchPanelHost): { open(sketch?: Sketch, 
   const countIn = el<HTMLInputElement>("cad-sketch-count");
 
   /** A number typed in the value box (comma decimal accepted; sign allowed), or null. */
-  const valueBox = (): number | null => {
-    const t = dimIn.value.trim().replace(",", ".").replace(/^(R|r|Ø|⌀)/, "").replace(/(°|mm)$/i, "");
+  const valueBox = (allowR = false): number | null => {
+    let t = dimIn.value.trim().replace(",", ".").replace(/(mm)$/i, "");
+    if (allowR) t = t.replace(/^(R|r)/, "");
+    // A Ø (a diameter) is not a radius or a distance: refused rather than stripped.
     return /^[+-]?(\d+(\.\d*)?|\.\d+)$/.test(t) ? Number(t) : null;
   };
   const selectedLines = (): string[] => st.selection.filter((id) => st.sketch.entities.some((e) => e.id === id && e.kind === "line"));
   const onClick = (id: string, run: () => void): void => el<HTMLButtonElement>(id)?.addEventListener("click", run);
   onClick("cad-sketch-fillet", () => {
-    const r = valueBox();
+    const r = valueBox(true);
     const ls = selectedLines();
     if (ls.length !== 2) return say("Select the two lines that meet at the corner, type the radius, then Fillet.", true);
-    if (r === null) return say("Type the fillet radius in the value box (for example 5 or R5).", true);
+    if (r === null) return say("Type the fillet radius in the value box (for example 5 or R5 — a radius, not Ø).", true);
     apply(fillet(st, ls[0], ls[1], r));
   });
   onClick("cad-sketch-chamfer", () => {
@@ -84,9 +88,10 @@ export function initSketchPanel(host: SketchPanelHost): { open(sketch?: Sketch, 
   });
   onClick("cad-sketch-mirror", () => apply(mirror(st)));
   onClick("cad-sketch-pattern", () => {
-    const parts = dimIn.value.split(/[;,\s]+/).filter(Boolean).map((t) => Number(t.replace(",", ".")));
+    // dx, or dx and dy, separated by a space or ";" — a comma is a decimal ("2,5" = 2.5).
+    const parts = dimIn.value.trim().split(/[;\s]+/).filter(Boolean).map((t) => Number(t.replace(",", ".")));
     const [dx, dy] = parts.length >= 2 ? parts : [parts[0], 0];
-    if (!Number.isFinite(dx) || !Number.isFinite(dy ?? 0)) return say("Type the spacing in the value box: dx, or dx dy (for example 20, or 0 15).", true);
+    if (!Number.isFinite(dx) || !Number.isFinite(dy ?? 0)) return say("Type the spacing in the value box: dx, or dx and dy with a space between (for example 20, or 0 15).", true);
     apply(linearPattern(st, Number(countIn?.value ?? 3), dx, dy ?? 0));
   });
   onClick("cad-sketch-circular", () => {
@@ -123,18 +128,29 @@ export function initSketchPanel(host: SketchPanelHost): { open(sketch?: Sketch, 
     return { w, h, dpr };
   }
 
+  /** freedom() once per sketch: hover repaints reuse it (it costs tens of ms on a big sketch). */
+  let freeFor: Sketch | null = null;
+  let freeCache: Freedom = { dof: 0, rigidOnly: false, free: [] };
+  const freedomOf = (sk: Sketch): Freedom => {
+    if (freeFor !== sk) {
+      freeCache = sk.points.length ? freedom(sk) : { dof: 0, rigidOnly: false, free: [] };
+      freeFor = sk;
+    }
+    return freeCache;
+  };
+
   function paint(): void {
     // The status line first: it is the text of the sketch's state, canvas or no canvas.
-    statusEl.textContent = statusLine(st.sketch) + (axis ? ` Revolve axis: ${axis}.` : "");
+    statusEl.textContent = statusLine(st.sketch, freedomOf(st.sketch)) + (axis ? ` Revolve axis: ${axis}.` : "");
     const ctx = canvas!.getContext("2d");
     if (!ctx) return;
     const { w, h, dpr } = size();
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.fillStyle = "#fff";
     ctx.fillRect(0, 0, w, h);
-    const free = st.sketch.points.length ? freedom(st.sketch).free : [];
+    const free = freedomOf(st.sketch).free;
     const pending = hover && st.pending.length ? [...st.pending, hover] : st.pending;
-    for (const o of sketchOps(st.sketch, view, { selection: st.selection, free, pending, tool: st.tool })) {
+    for (const o of sketchOps(st.sketch, view, { selection: st.selection, free, pending, tool: st.tool, sides: st.sides })) {
       if (o.op === "text") {
         ctx.fillStyle = o.kind === "glyph" ? "#6b7280" : o.kind === "driven" ? "#6b7280" : "#111";
         ctx.font = o.kind === "glyph" ? "11px sans-serif" : "13px sans-serif";
@@ -222,22 +238,28 @@ export function initSketchPanel(host: SketchPanelHost): { open(sketch?: Sketch, 
     const r = canvas.getBoundingClientRect();
     return toSketch(view, e.clientX - r.left, e.clientY - r.top);
   };
+  /** A press on a point in Select: a CLICK selects it; it becomes a drag only once the pointer moves. */
+  let pressed: { point: string; cx: number; cy: number; x: number; y: number } | null = null;
+  let dragFrame = 0, dragTo: [number, number] | null = null;
   canvas.addEventListener("pointerdown", (e) => {
     const [x, y] = at(e);
     if (st.tool === "select") {
       const hit = pick(st.sketch, x, y, tolerance());
       if (hit && st.sketch.points.some((p) => p.id === hit)) {
-        dragging = hit;
-        history = [...history.slice(-49), st.sketch];
-        canvas.setPointerCapture(e.pointerId);
+        pressed = { point: hit, cx: e.clientX, cy: e.clientY, x, y };
+        try {
+          canvas.setPointerCapture(e.pointerId);
+        } catch {
+          /* no capture (a synthetic event): the drag still works inside the canvas */
+        }
         return;
       }
-      // A dimension's label: select it (to edit its value).
+      // A dimension's label: select it, its value in the box exactly as displayed (45°, Ø20, R5).
       const label = labelAt(e);
       if (label) {
         st = { ...st, selection: [label] };
-        const c = st.sketch.constraints.find((k) => k.id === label) as { value?: number } | undefined;
-        dimIn.value = c && typeof c.value === "number" ? String(+c.value.toFixed(4)) : "";
+        const c = st.sketch.constraints.find((k) => k.id === label);
+        dimIn.value = c ? formatDimension(c, "driven" in c && c.driven ? measure(st.sketch, c) : (c as { value: number }).value) : "";
         say("Type the new value, then Dimension (or Enter).");
         return paint();
       }
@@ -247,20 +269,40 @@ export function initSketchPanel(host: SketchPanelHost): { open(sketch?: Sketch, 
   canvas.addEventListener("pointermove", (e) => {
     const [x, y] = at(e);
     hover = { x, y };
+    if (pressed && !dragging && Math.hypot(e.clientX - pressed.cx, e.clientY - pressed.cy) > 3) {
+      dragging = pressed.point;
+      history = [...history.slice(-49), st.sketch];
+    }
     if (dragging) {
-      const r = drag(st, dragging, x, y);
-      if (r.ok) st = r.state;
+      // One solve per frame at most, whatever the pointer's event rate.
+      dragTo = [x, y];
+      if (!dragFrame) {
+        dragFrame = window.setTimeout(() => {
+          dragFrame = 0;
+          if (dragging && dragTo) {
+            const r = drag(st, dragging, dragTo[0], dragTo[1]);
+            if (r.ok) st = r.state;
+            paint();
+          }
+        }, 16);
+      }
+      return;
     }
     paint();
   });
-  const endDrag = (): void => {
+  const endDrag = (e?: { clientX: number; clientY: number }): void => {
+    if (pressed && !dragging && e) {
+      // It was a click on the point: select it.
+      apply(click(st, pressed.x, pressed.y, tolerance()));
+    }
+    pressed = null;
     if (dragging) {
       dragging = null;
       paint();
     }
   };
-  canvas.addEventListener("pointerup", endDrag);
-  canvas.addEventListener("pointercancel", endDrag);
+  canvas.addEventListener("pointerup", (e) => endDrag(e));
+  canvas.addEventListener("pointercancel", () => endDrag());
   canvas.addEventListener("pointerleave", () => {
     hover = null;
     paint();
@@ -324,6 +366,8 @@ export function initSketchPanel(host: SketchPanelHost): { open(sketch?: Sketch, 
       depthIn.value = String(op?.kind === "extrude" ? op.depth : 10);
       depthIn.disabled = opSel.value !== "extrude";
       constructionChk.checked = false;
+      drivenChk.checked = false;
+      st = { ...st, sides: Number(sidesIn?.value ?? 6) };
       open = true;
       panel.hidden = false;
       const { w, h } = size();

@@ -165,3 +165,11 @@ describe("dimension text: display is a contract", () => {
     }
   });
 });
+
+describe("sketcher review B2: a dimension's label shows its value as typed", () => {
+  it("a 45° angle shows as 45° (not 0.7854) and parses back", () => {
+    const c = { id: "a", kind: "angle", value: Math.PI / 4, l1: "a", l2: "b", sign: 1 } as never;
+    expect(formatDimension(c)).toBe("45°");
+    expect(parseDimension("45°", "angle")).toBeCloseTo(Math.PI / 4, 12);
+  });
+});

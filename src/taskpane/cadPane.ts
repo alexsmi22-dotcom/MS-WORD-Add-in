@@ -66,6 +66,8 @@ export interface CadPaneApi {
   getDoc(): string;
   /** Inserts the current sheet, as the Insert button does. */
   insert(): Promise<void>;
+  /** A sketch is open (its edits are not in the drawing yet). */
+  isSketching(): boolean;
 }
 
 /** The model stored in a drawing's alt text ("… Model: {json}"), or null. */
@@ -321,6 +323,7 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
       del.textContent = "×";
       del.title = "Remove this part";
       del.addEventListener("click", () => {
+        if (sketching()) return host.setStatus("Finish the sketch first (Done or Cancel).", "error");
         const [gone] = doc.parts.splice(i, 1);
         // Its callouts go with it (review D2), and the user is told which.
         const dropped = doc.callouts.filter((c) => c.part === gone.id);
@@ -483,14 +486,18 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
   };
 
   // The sketch editor: a new sketched part is added only on Done, when its sketch makes a solid.
-  let sketchTarget: number | null = null; // the part being re-sketched; null = a new part
+  // The part being re-sketched, BY ID (an index went stale when parts were removed); null = a new part.
+  let sketchTarget: string | null = null;
   const section = document.getElementById("cad-section");
+  const sketching = (): boolean => section?.classList.contains("cad-sketching") ?? false;
   const sketchPanel = initSketchPanel({
     done: (sketch, op) => {
       section?.classList.remove("cad-sketching");
-      if (sketchTarget !== null && doc.parts[sketchTarget]) {
-        doc.parts[sketchTarget] = { ...doc.parts[sketchTarget], sketch, op };
-        selected = sketchTarget;
+      resetNewBtn();
+      const at = sketchTarget === null ? -1 : doc.parts.findIndex((p) => p.id === sketchTarget);
+      if (at >= 0) {
+        doc.parts[at] = { ...doc.parts[at], sketch, op };
+        selected = at;
       } else {
         doc.parts.push({
           id: `p${Date.now().toString(36)}${seq++}`,
@@ -516,9 +523,10 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
   });
   const openSketch = (target: number | null): void => {
     if (!sketchPanel) return;
-    sketchTarget = target;
-    section?.classList.add("cad-sketching");
+    if (sketching()) return host.setStatus("A sketch is already open — press Done or Cancel first.", "error");
     const p = target !== null ? doc.parts[target] : undefined;
+    sketchTarget = p ? p.id : null;
+    section?.classList.add("cad-sketching");
     sketchPanel.open(p?.sketch, p?.op);
   };
 
@@ -532,6 +540,7 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     if (newBtn) newBtn.textContent = newLabel;
   };
   newBtn?.addEventListener("click", () => {
+    if (sketching()) return host.setStatus("Finish the sketch first (Done or Cancel).", "error");
     window.clearTimeout(newTimer);
     if (undoDoc) {
       loadDoc(undoDoc);
@@ -558,6 +567,8 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
   });
 
   addBtn.addEventListener("click", () => {
+    if (sketching()) return host.setStatus("Finish the sketch first (Done or Cancel).", "error");
+    resetNewBtn(); // the drawing changes: an Undo clear would now throw this part away
     if (shapeSel.value === "sketch") return openSketch(null);
     const shape = shapeSel.value as ShapeId;
     const x = besideX();
@@ -711,6 +722,10 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
   });
 
   async function insertNow(): Promise<void> {
+    if (sketching()) {
+      host.setStatus("Finish the sketch first (Done or Cancel) — the drawing does not include it yet.", "error");
+      return;
+    }
     if (inserting) {
       host.setStatus("Another insert is still running; press Insert again when it finishes.", "error");
       return;
@@ -748,6 +763,7 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
   // PowerPoint: the sheet as it stands (the same check as Insert: never a stale sheet).
   pptBtn?.addEventListener("click", async () => {
     if (!host.exportPpt) return;
+    if (sketching()) return host.setStatus("Finish the sketch first (Done or Cancel).", "error");
     const sheet = lastSheet;
     if (!sheet || !sheetCurrent()) return host.setStatus("The drawing is still updating (or has a problem) — try again in a moment.", "error");
     pptBtn.disabled = true;
@@ -796,6 +812,7 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
       return null;
     },
     getDoc: () => serializeDoc(doc),
+    isSketching: sketching,
     insert: insertNow,
     show(): void {
       // The canvas has no size until its section is visible: build on first show.

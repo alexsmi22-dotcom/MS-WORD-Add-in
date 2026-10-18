@@ -34,6 +34,10 @@ class Builder {
     this.sk.points.push({ id, x, y });
     return id;
   }
+  /** An existing point when the click snapped to one (so outlines really join), else a new one. */
+  ptOr(x: number, y: number, snap?: string): string {
+    return snap && this.sk.points.some((p) => p.id === snap) ? snap : this.pt(x, y);
+  }
   line(a: string, b: string, construction = false): string {
     const id = this.id("L");
     this.sk.entities.push({ id, kind: "line", a, b, ...(construction ? { construction: true } : {}) });
@@ -57,7 +61,8 @@ class Builder {
   }
   /** Solves and verifies; the new state, or the refusal. */
   done(st: EditState, note?: string): EditResult {
-    const r = solve(this.sk, {}, this.sk);
+    // Checked against the sketch AS IT WAS: nothing may turn over or newly cross what was there.
+    const r = solve(this.sk, {}, st.sketch);
     if (!r.ok) return { ok: false, state: st, reason: r.reason };
     return { ok: true, state: { ...st, sketch: r.sketch, seq: this.seq, pending: [], selection: [] }, note };
   }
@@ -69,12 +74,12 @@ const E = (sk: Sketch, id: string): SEntity | undefined => sk.entities.find((e) 
 // ---- drawing tools -------------------------------------------------------------------------
 
 /** A regular polygon: centre, one vertex, n sides — vertices on a construction circle, sides equal. */
-export function polygon(st: EditState, cx: number, cy: number, vx: number, vy: number, sides: number): EditResult {
+export function polygon(st: EditState, cx: number, cy: number, vx: number, vy: number, sides: number, snaps: Array<string | undefined> = []): EditResult {
   if (!Number.isInteger(sides) || sides < 3 || sides > 64) return { ok: false, state: st, reason: "a polygon needs a whole number of sides from 3 to 64" };
   const R = Math.hypot(vx - cx, vy - cy);
   if (!(R > 0)) return { ok: false, state: st, reason: "a polygon needs a size — click farther from the centre" };
   const b = new Builder(st);
-  const c = b.pt(cx, cy);
+  const c = b.ptOr(cx, cy, snaps[0]);
   const circ = b.circle(c, R, true);
   const t0 = Math.atan2(vy - cy, vx - cx);
   const v = Array.from({ length: sides }, (_, k) => b.pt(cx + R * Math.cos(t0 + (2 * Math.PI * k) / sides), cy + R * Math.sin(t0 + (2 * Math.PI * k) / sides)));
@@ -85,14 +90,14 @@ export function polygon(st: EditState, cx: number, cy: number, vx: number, vy: n
 }
 
 /** A slot: the two end centres, then a point giving the half-width — two lines tangent to two end arcs. */
-export function slot(st: EditState, x1: number, y1: number, x2: number, y2: number, wx: number, wy: number): EditResult {
+export function slot(st: EditState, x1: number, y1: number, x2: number, y2: number, wx: number, wy: number, snaps: Array<string | undefined> = []): EditResult {
   const L = Math.hypot(x2 - x1, y2 - y1);
   if (!(L > 0)) return { ok: false, state: st, reason: "a slot needs two different end centres" };
   const ux = (x2 - x1) / L, uy = (y2 - y1) / L, nx = -uy, ny = ux;
   const w = Math.abs((wx - x1) * nx + (wy - y1) * ny);
   if (!(w > 0)) return { ok: false, state: st, reason: "a slot needs a width — click to the side of the centre line" };
   const b = new Builder(st);
-  const c1 = b.pt(x1, y1), c2 = b.pt(x2, y2);
+  const c1 = b.ptOr(x1, y1, snaps[0]), c2 = b.ptOr(x2, y2, snaps[1]);
   const a1 = b.pt(x1 + nx * w, y1 + ny * w), b1 = b.pt(x2 + nx * w, y2 + ny * w);
   const a2 = b.pt(x2 - nx * w, y2 - ny * w), b2 = b.pt(x1 - nx * w, y1 - ny * w);
   const top = b.line(a1, b1, st.construction), bottom = b.line(a2, b2, st.construction);
@@ -108,11 +113,11 @@ export function slot(st: EditState, x1: number, y1: number, x2: number, y2: numb
 }
 
 /** A rectangle from its centre and a corner: H/V sides, its centre at the middle of a construction diagonal. */
-export function centreRectangle(st: EditState, cx: number, cy: number, x: number, y: number): EditResult {
+export function centreRectangle(st: EditState, cx: number, cy: number, x: number, y: number, snaps: Array<string | undefined> = []): EditResult {
   const dx = Math.abs(x - cx), dy = Math.abs(y - cy);
   if (!(dx > 0 && dy > 0)) return { ok: false, state: st, reason: "a rectangle needs width and height — click a corner away from the centre" };
   const b = new Builder(st);
-  const c = b.pt(cx, cy);
+  const c = b.ptOr(cx, cy, snaps[0]);
   const p = [b.pt(cx - dx, cy - dy), b.pt(cx + dx, cy - dy), b.pt(cx + dx, cy + dy), b.pt(cx - dx, cy + dy)];
   const l = p.map((q, i) => b.line(q, p[(i + 1) % 4], st.construction));
   b.con({ kind: "horizontal", line: l[0] });
@@ -125,7 +130,7 @@ export function centreRectangle(st: EditState, cx: number, cy: number, x: number
 }
 
 /** An arc through three points: start, end, and a point it passes through. */
-export function arc3(st: EditState, ax: number, ay: number, bx: number, by: number, mx: number, my: number): EditResult {
+export function arc3(st: EditState, ax: number, ay: number, bx: number, by: number, mx: number, my: number, snaps: Array<string | undefined> = []): EditResult {
   const d = 2 * (ax * (by - my) + bx * (my - ay) + mx * (ay - by));
   if (Math.abs(d) < 1e-12 * (Math.abs(ax) + Math.abs(bx) + Math.abs(mx) + 1)) return { ok: false, state: st, reason: "those three points are in a line — an arc needs them to bend" };
   const a2 = ax * ax + ay * ay, b2 = bx * bx + by * by, m2 = mx * mx + my * my;
@@ -136,7 +141,7 @@ export function arc3(st: EditState, ax: number, ay: number, bx: number, by: numb
   const norm = (t: number): number => ((t % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
   const ccwPasses = norm(ang(mx, my) - ang(ax, ay)) < norm(ang(bx, by) - ang(ax, ay));
   const b = new Builder(st);
-  const o = b.pt(ox, oy), pa = b.pt(ax, ay), pb = b.pt(bx, by);
+  const o = b.pt(ox, oy), pa = b.ptOr(ax, ay, snaps[0]), pb = b.ptOr(bx, by, snaps[1]);
   if (ccwPasses) b.arc(o, pa, pb, st.construction);
   else b.arc(o, pb, pa, st.construction);
   return b.done(st);
@@ -152,31 +157,36 @@ function corner(sk: Sketch, l1: string, l2: string): { line1: Line; line2: Line;
   for (const p of [e1.a, e1.b]) for (const q of [e2.a, e2.b]) {
     if (root(p) === root(q)) return { line1: e1, line2: e2, P: p, A: p === e1.a ? e1.b : e1.a, B: q === e2.a ? e2.b : e2.a };
   }
+  // Already rounded: both lines end on one arc they are tangent to.
+  const arcs = sk.constraints.filter((k) => k.kind === "tangent").map((k) => k as { e1: string; e2: string });
+  const curveOf = (l: string): string[] => arcs.filter((k) => k.e1 === l || k.e2 === l).map((k) => (k.e1 === l ? k.e2 : k.e1));
+  if (curveOf(l1).some((c) => curveOf(l2).includes(c) && E(sk, c)?.kind === "arc")) return "that corner is already rounded — change its R dimension instead";
   return "those two lines do not meet at a corner — join them first";
 }
 
 /**
- * Rewires a corner: each line's corner end moves to its new point; the corner
- * itself stays as a VIRTUAL SHARP (a point still on both lines), and a length on
- * either line becomes the distance from its far end to the sharp — the
- * dimension keeps meaning what it meant.
+ * Rewires a corner: each line's corner end moves to its new point. The ORIGINAL
+ * lines live on as construction lines from their far ends to the corner (the
+ * virtual sharp), and every relation that was on a line now names its
+ * construction line — so a length, an equal, a midpoint keeps exactly what it
+ * meant (third review: converting only lengths changed equal and midpoint).
  */
 function cutCorner(b: Builder, c: { line1: Line; line2: Line; P: string; A: string; B: string }, T1: string, T2: string): void {
   const root = unionCoincident(b.sk);
+  const C1 = b.line(c.A, c.P, true), C2 = b.line(c.B, c.P, true);
+  const swap: Record<string, string> = { [c.line1.id]: C1, [c.line2.id]: C2 };
+  b.sk.constraints = b.sk.constraints.map((k) => {
+    const out: Record<string, unknown> = { ...k };
+    for (const [f, v] of Object.entries(k)) if (f !== "id" && f !== "kind" && typeof v === "string" && swap[v]) out[f] = swap[v];
+    return out as unknown as SConstraint;
+  });
   b.sk.entities = b.sk.entities.map((e) => {
     if (e.id === c.line1.id) return { ...e, ...(root(c.line1.a) === root(c.P) ? { a: T1 } : { b: T1 }) } as SEntity;
     if (e.id === c.line2.id) return { ...e, ...(root(c.line2.a) === root(c.P) ? { a: T2 } : { b: T2 }) } as SEntity;
     return e;
   });
-  b.sk.constraints = b.sk.constraints.map((k) => {
-    if (k.kind === "length" && (k.line === c.line1.id || k.line === c.line2.id)) {
-      const far = k.line === c.line1.id ? c.A : c.B;
-      return { id: k.id, kind: "distance", p: far, q: c.P, value: k.value, ...(k.driven ? { driven: true } : {}) } as SConstraint;
-    }
-    return k;
-  });
-  b.con({ kind: "onLine", p: c.P, line: c.line1.id });
-  b.con({ kind: "onLine", p: c.P, line: c.line2.id });
+  b.con({ kind: "onLine", p: T1, line: C1 });
+  b.con({ kind: "onLine", p: T2, line: C2 });
 }
 
 function cornerGeometry(sk: Sketch, c: { P: string; A: string; B: string }): { px: number; py: number; u1: [number, number]; u2: [number, number]; d1: number; d2: number; theta: number } | string {
@@ -251,15 +261,29 @@ export function offset(st: EditState, d: number): EditResult {
     const e = sel[0];
     const r = radiusOf(st.sketch, e.id) + d;
     if (!(r > 0)) return { ok: false, state: st, reason: "that offset would shrink the curve to nothing" };
+    const o = b.P(e.c);
     if (e.kind === "circle") {
+      // A horizontal construction ray from the centre meets the original at q and the copy at
+      // q'; |q q'| = |d| holds the copy d away whatever the original's size becomes.
+      const r0 = radiusOf(st.sketch, e.id);
       const nc = b.circle(e.c, r);
-      b.con({ kind: "diameter", curve: nc, value: 2 * r });
+      const q = b.pt(o.x + r0, o.y), q2 = b.pt(o.x + r, o.y);
+      const ray = b.line(e.c, q2, true);
+      b.con({ kind: "horizontal", line: ray });
+      b.con({ kind: "onCircle", p: q, curve: e.id });
+      b.con({ kind: "onLine", p: q, line: ray });
+      b.con({ kind: "onCircle", p: q2, curve: nc });
+      b.con({ kind: "distance", p: q, q: q2, value: Math.abs(d) });
     } else {
-      const o = b.P(e.c), a = b.P(e.a), q = b.P(e.b);
+      // The copy's ends lie on rays from the centre through the original's ends, |d| beyond them.
+      const a = b.P(e.a), q = b.P(e.b);
       const s = r / radiusOf(st.sketch, e.id);
       const na = b.pt(o.x + (a.x - o.x) * s, o.y + (a.y - o.y) * s), nb = b.pt(o.x + (q.x - o.x) * s, o.y + (q.y - o.y) * s);
-      const narc = b.arc(e.c, na, nb);
-      b.con({ kind: "radius", curve: narc, value: r });
+      b.arc(e.c, na, nb);
+      const ra = b.line(e.c, na, true), rb = b.line(e.c, nb, true);
+      b.con({ kind: "onLine", p: e.a, line: ra });
+      b.con({ kind: "onLine", p: e.b, line: rb });
+      b.con({ kind: "distance", p: e.a, q: na, value: Math.abs(d) });
     }
     return b.done(st);
   }
@@ -315,6 +339,12 @@ export function offset(st: EditState, d: number): EditResult {
     const u = ((s.ax - t.ax) * d2y - (s.ay - t.ay) * d2x) / den;
     return [t.ax + u * d1x, t.ay + u * d1y];
   });
+  // Every side of the copy must run the same way as its original: one that turned round means
+  // the offset is larger than the outline allows (an inward 6 on a 10 × 10 square).
+  for (let i = 0; i < n; i++) {
+    const p = pts[i], q = pts[(i + 1) % n], [x1, y1] = corners[i], [x2, y2] = corners[(i + 1) % n];
+    if ((q.x - p.x) * (x2 - x1) + (q.y - p.y) * (y2 - y1) <= 0) return { ok: false, state: st, reason: `an offset of ${+d.toFixed(4)} is larger than this outline allows` };
+  }
   const ids = corners.map(([x, y]) => b.pt(x, y));
   const newLines = ids.map((p, i) => b.line(p, ids[(i + 1) % n]));
   order.forEach((l, i) => b.con({ kind: "parallel", l1: l.id, l2: newLines[i] }));
@@ -365,6 +395,13 @@ export function mirror(st: EditState): EditResult {
     return nid;
   };
   for (const e of items) {
+    // Geometry that is its own mirror image (on the line, or centred on it and symmetric) is not copied.
+    if (e.kind === "line" && onAxis(P(st.sketch, e.a)) && onAxis(P(st.sketch, e.b))) continue;
+    if (e.kind === "circle" && onAxis(P(st.sketch, e.c))) continue;
+    if (e.kind === "arc" && onAxis(P(st.sketch, e.c))) {
+      const [rx, ry] = reflect(P(st.sketch, e.a)), pb = P(st.sketch, e.b);
+      if (Math.hypot(rx - pb.x, ry - pb.y) <= 1e-9 * len) continue;
+    }
     if (e.kind === "line") b.line(mp(e.a), mp(e.b), !!e.construction);
     else if (e.kind === "circle") {
       const nc = b.circle(mp(e.c), e.r, !!e.construction);
@@ -374,6 +411,7 @@ export function mirror(st: EditState): EditResult {
       b.arc(mp(e.c), mp(e.b), mp(e.a), !!e.construction);
     }
   }
+  if (b.sk.entities.length === st.sketch.entities.length) return { ok: false, state: st, reason: "everything selected lies on the mirror line — it is its own mirror image" };
   return b.done(st);
 }
 
@@ -415,8 +453,10 @@ function pattern(st: EditState, count: number, place: (p: SPoint, k: number) => 
       return copy.get(id)!;
     };
     for (const e of items) {
-      if (e.kind === "line") b.line(mp(e.a), mp(e.b), !!e.construction);
-      else if (e.kind === "circle") {
+      if (e.kind === "line") {
+        const nl = b.line(mp(e.a), mp(e.b), !!e.construction);
+        b.con({ kind: "equal", e1: e.id, e2: nl });
+      } else if (e.kind === "circle") {
         const nc = b.circle(mp(e.c), e.r, !!e.construction);
         b.con({ kind: "equal", e1: e.id, e2: nc });
       } else {
@@ -486,23 +526,34 @@ export function trim(st: EditState, lineId: string, x: number, y: number): EditR
   if (!cs.length) {
     b.sk.entities = b.sk.entities.filter((e) => e.id !== lineId);
     b.sk.constraints = b.sk.constraints.filter((k) => !refersTo(k, lineId));
+    // Its ends go too, unless something else uses them.
+    const usedNow = new Set(b.sk.entities.flatMap((e) => (e.kind === "line" ? [e.a, e.b] : e.kind === "circle" ? [e.c] : [e.c, e.a, e.b])));
+    const gone = new Set([line.a, line.b].filter((p) => !usedNow.has(p)));
+    b.sk.points = b.sk.points.filter((p) => !gone.has(p.id));
+    b.sk.constraints = b.sk.constraints.filter((k) => ![...gone].some((id) => refersTo(k, id)));
     return b.done(st, "That line met nothing, so it was deleted.");
   }
   const before = [...cs].reverse().find((c) => c.t < tc);
   const after = cs.find((c) => c.t > tc);
   const at = (t: number): [number, number] => [a.x + t * dx, a.y + t * dy];
   const hold = (p: string, c: { with: string; curve: boolean }): void => b.con(c.curve ? { kind: "onCircle", p, curve: c.with } : { kind: "onLine", p, line: c.with });
-  // Relations that only make sense for the whole line (its length) go; direction relations stay.
-  const keep = (k: SConstraint): boolean => !(refersTo(k, lineId) && (k.kind === "length" || k.kind === "midpoint" || k.kind === "symmetric"));
-  b.sk.constraints = b.sk.constraints.filter(keep);
+  // Relations that depend on the line's EXTENT (its length, an equal length, its midpoint) no
+  // longer mean what they did: they go, and the note says which. Direction relations, and the
+  // line as a mirror axis (an infinite line, unchanged), stay.
+  const extent = (k: SConstraint): boolean =>
+    refersTo(k, lineId) && (k.kind === "length" || k.kind === "midpoint" || (k.kind === "equal" && (k.e1 === lineId || k.e2 === lineId)));
+  const droppedRel = b.sk.constraints.filter(extent);
+  b.sk.constraints = b.sk.constraints.filter((k) => !extent(k));
+  const keep = (k: SConstraint): boolean => !extent(k);
   if (before && after) {
     // The middle piece goes: the line keeps its start up to `before`, a new line runs from `after` to its end.
     const [x1, y1] = at(before.t), [x2, y2] = at(after.t);
     const p1 = b.pt(x1, y1), p2 = b.pt(x2, y2);
     b.sk.entities = b.sk.entities.map((e) => (e.id === lineId ? { ...e, b: p1 } as SEntity : e));
-    const second = b.line(p2, line.b, !!line.construction);
-    for (const k of st.sketch.constraints.filter((k) => keep(k) && (k.kind === "horizontal" || k.kind === "vertical") && k.line === lineId)) b.con({ kind: k.kind, line: second });
-    if (st.sketch.constraints.some((k) => (k.kind === "horizontal" || k.kind === "vertical") && k.line === lineId) === false) b.con({ kind: "parallel", l1: lineId, l2: second });
+    b.line(p2, line.b, !!line.construction);
+    // The second piece stays ON the first's line: both its ends held to it.
+    b.con({ kind: "onLine", p: p2, line: lineId });
+    b.con({ kind: "onLine", p: line.b, line: lineId });
     hold(p1, before);
     hold(p2, after);
   } else if (before) {
@@ -521,7 +572,8 @@ export function trim(st: EditState, lineId: string, x: number, y: number): EditR
   const dropped = new Set(b.sk.points.filter((p) => !used.has(p.id) && (p.id === line.a || p.id === line.b)).map((p) => p.id));
   b.sk.points = b.sk.points.filter((p) => !dropped.has(p.id));
   b.sk.constraints = b.sk.constraints.filter((k) => ![...dropped].some((id) => refersTo(k, id)));
-  return b.done(st);
+  void keep;
+  return b.done(st, droppedRel.length ? `Trimmed; relations that depended on the line's full length went with it (${droppedRel.map((k) => k.kind).join(", ")}).` : undefined);
 }
 
 /** Empties the sketch (the editor keeps the old one for Undo). */

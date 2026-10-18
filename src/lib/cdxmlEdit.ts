@@ -645,22 +645,26 @@ const SUPER: Record<string, string> = { "0": "⁰", "1": "¹", "2": "²", "3": "
 const atomName = (sym: string, q: number): string => sym + (q ? (Math.abs(q) === 1 ? "" : [...String(Math.abs(q))].map((d) => SUPER[d]).join("")) + (q > 0 ? "⁺" : "⁻") : "");
 
 /**
- * Why a new single bond cannot start at this atom, or null: an element with no valence to spare
- * (its valences shifted by its charge), or a label (Ph, OMe, R) that already has its bond.
+ * Why a new single bond cannot start at this atom, or null. Only what is certain is refused: a
+ * carbon with no valence to spare (four bonds; three when charged), and an abbreviation (Ph,
+ * OMe) that already has its bond. Other elements are left to the chemist — hypervalent iodine,
+ * perchlorate chlorine, a nitro N drawn neutral, a dative bond to a metal are all drawn in
+ * ChemDraw files.
  */
 function bondRoomRefusal(frag: XNode, node: XNode): string | null {
   const id = node.attrs.id ?? "";
   const bonds = bondOrderSum(frag, id);
   const type = node.attrs.NodeType;
-  if (type && type !== "Element") {
+  if (type === "Nickname" || type === "Fragment") {
     if (!bonds) return null;
-    const words = node.children.find((c) => c.name === "t")?.children.map((c) => c.text).join("") || "that label";
-    return `${words} is a label that already has its bond — a new bond starts from an atom`;
+    const words = node.children.find((c) => c.name === "t")?.children.map((c) => c.text).join("").trim();
+    return `${words || "that abbreviation"} is an abbreviation that already has its bond — a new bond starts from an atom`;
   }
-  const sym = symbolFor(Number(node.attrs.Element ?? 6)) ?? "";
+  if (type && type !== "Element") return null;
+  const z = Number(node.attrs.Element ?? 6);
+  if (z !== 6) return null;
   const q = Number(node.attrs.Charge ?? 0) || 0;
-  const vals = allowedValences(sym, q);
-  if (vals && bonds + 1 > Math.max(-1, ...vals) + 1e-9) return `that ${atomName(sym, q)} has no bond to spare`;
+  if (bonds + 1 > 4 - Math.abs(q) + 1e-9) return `that ${atomName("C", q)} has no bond to spare`;
   return null;
 }
 
@@ -814,6 +818,9 @@ export function addBrackets(doc: CdxDoc, box: [number, number, number, number], 
   const f = frags[0];
   const atoms = new Map<string, P2>();
   for (const c of f.children) if (c.name === "n" && c.attrs.id) atoms.set(c.attrs.id, posOf(c));
+  const L = doc.style.bondLength;
+  if ([...atoms.values()].some((p) => p[1] >= y0 && p[1] <= y1 && (Math.abs(p[0] - x0) < L * 0.1 || Math.abs(p[0] - x1) < L * 0.1)))
+    return "a side of the box runs through an atom — a bracket crosses bonds, so put each side between two atoms";
   const insideIds = [...atoms].filter(([, p]) => inside(p)).map(([aid]) => aid);
   const crossings: Array<{ bond: string; inner: string; left: boolean }> = [];
   let throughEnds = false;

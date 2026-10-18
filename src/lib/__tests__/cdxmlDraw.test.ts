@@ -68,23 +68,28 @@ describe("chains", () => {
     expect(writeCdxml(d.root)).toBe(before);
   });
   test.each([
-    ["a carbon with four bonds", '<n id="16" p="126 145"/><n id="17" p="110 140"/><b id="18" B="12" E="16"/><b id="19" B="12" E="17"/>', "12", "that C has no bond to spare"],
-    ["N⁺ with four bonds", '<n id="16" p="126 145"/><n id="17" p="110 140"/><b id="18" B="12" E="16"/><b id="19" B="12" E="17"/>', "12", "that N⁺ has no bond to spare"],
-    ["C⁺ with three bonds", '<n id="16" p="126 145"/><b id="18" B="12" E="16"/>', "12", "that C⁺ has no bond to spare"],
-    ["O⁻ with one bond", "", "13", "that O⁻ has no bond to spare"],
-  ])("refused by name: %s (its charge shifts its valence)", (_what, extra, atom, why) => {
-    let src = SRC.replace('<b id="15" B="12" E="13"/>', '<b id="15" B="12" E="13"/>' + extra);
-    if (why.includes("N⁺")) src = src.replace('<n id="12" p="126 115"/>', '<n id="12" p="126 115" Element="7" Charge="1"/>');
-    if (why.includes("C⁺")) src = src.replace('<n id="12" p="126 115"/>', '<n id="12" p="126 115" Charge="1"/>');
-    if (why.includes("O⁻")) src = src.replace('<n id="13" p="152 100"/>', '<n id="13" p="152 100" Element="8" Charge="-1"/>');
-    const d = open(src);
-    expect(addChain(d, { nodeId: atom }, [200, 250], 2)).toBe(why);
+    ["a carbon with four bonds", '<n id="16" p="126 145"/><n id="17" p="110 140"/><b id="18" B="12" E="16"/><b id="19" B="12" E="17"/>', "", "that C has no bond to spare"],
+    ["C⁺ with three bonds", '<n id="16" p="126 145"/><b id="18" B="12" E="16"/>', ' Charge="1"', "that C⁺ has no bond to spare"],
+  ])("refused by name: %s (a carbon's valence is certain; a charge takes one)", (_what, extra, attrs, why) => {
+    const d = open(SRC.replace('<b id="15" B="12" E="13"/>', '<b id="15" B="12" E="13"/>' + extra).replace('<n id="12" p="126 115"/>', `<n id="12" p="126 115"${attrs}/>`));
+    expect(addChain(d, { nodeId: "12" }, [200, 250], 2)).toBe(why);
     // Add bond keeps the same rule.
-    expect(addBondFrom(d, atom)).toEqual({ ok: false, reason: why });
+    expect(addBondFrom(d, "12")).toEqual({ ok: false, reason: why });
   });
-  test("a label that has its bond (Ph, OMe) takes no chain; an N with room does", () => {
+  test.each([
+    ["N⁺ with four bonds", ' Element="7" Charge="1"', '<n id="16" p="126 145"/><n id="17" p="110 140"/><b id="18" B="12" E="16"/><b id="19" B="12" E="17"/>'],
+    ["hypervalent I (two bonds, as in PhI(OAc)₂)", ' Element="53"', ""],
+    ["I⁺ (an iodonium)", ' Element="53" Charge="1"', ""],
+    ["N drawn neutral as a nitro N(=O)=O", ' Element="7"', '<n id="16" p="126 145" Element="8"/><n id="17" p="110 140" Element="8"/><b id="18" B="12" E="16" Order="2"/><b id="19" B="12" E="17" Order="2"/>'],
+  ])("left to the chemist (as ChemDraw draws them): %s takes another bond", (_what, attrs, extra) => {
+    const d = open(SRC.replace('<b id="15" B="12" E="13"/>', '<b id="15" B="12" E="13"/>' + extra).replace('<n id="12" p="126 115"/>', `<n id="12" p="126 115"${attrs}/>`));
+    expect(addBondFrom(d, "12").ok).toBe(true);
+  });
+  test("an abbreviation that has its bond (Ph) takes no chain; a generic ring atom and an N do", () => {
     const ph = open(SRC.replace('<n id="13" p="152 100"/>', '<n id="13" p="152 100" NodeType="Nickname"><t p="149 103"><s font="3" size="10">Ph</s></t></n>'));
-    expect(addChain(ph, { nodeId: "13" }, [300, 100], 2)).toBe("Ph is a label that already has its bond — a new bond starts from an atom");
+    expect(addChain(ph, { nodeId: "13" }, [300, 100], 2)).toBe("Ph is an abbreviation that already has its bond — a new bond starts from an atom");
+    const ga = open(SRC.replace('<n id="12" p="126 115"/>', '<n id="12" p="126 115" NodeType="GenericNickname" GenericNickname="A"><t p="123 118"><s font="3" size="10">A</s></t></n>'));
+    expect(addBondFrom(ga, "12").ok).toBe(true);
     const n = open(SRC.replace('<n id="12" p="126 115"/>', '<n id="12" p="126 115" Element="7"/>'));
     expect(addChain(n, { nodeId: "12" }, [126, 250], 1)).toBeNull();
   });
@@ -166,6 +171,9 @@ describe("polymer brackets", () => {
     expect(addBrackets(abbr, BOX)).toBeNull();
     expect(reread(abbr).brackets[0].objectIds).toEqual(["12", "13"]);
   });
+  test("a box whose side runs through an atom is refused: the bracket would be drawn over it", () => {
+    expect(addBrackets(open(ROW), [130, 85, 175, 115])).toBe("a side of the box runs through an atom — a bracket crosses bonds, so put each side between two atoms");
+  });
   test("refused by name: nothing inside, nothing leaving it, a tiny box, a bad label — and nothing written", () => {
     const d = open(ROW);
     expect(addBrackets(d, [300, 300, 340, 340])).toBe("no atom is inside the box — drag it round the repeat unit");
@@ -206,6 +214,10 @@ describe("arrows", () => {
     expect(svg).toContain('<path d="M200 302.5L210 305L208.75 302.5Z"');
     expect(svg).toContain('<line x1="200" y1="297.5" x2="291.25" y2="297.5"');
     expect(svg).toContain('<line x1="208.75" y1="302.5" x2="300" y2="302.5"');
+    // The page holds the barbs (they reach 5 pt off the axis).
+    const vb = /viewBox="([^"]+)"/.exec(renderCdx(reread(d), { pad: 0 })!.svg)![1].split(" ").map(Number);
+    expect(vb[1]).toBeLessThanOrEqual(295);
+    expect(vb[1] + vb[3]).toBeGreaterThanOrEqual(305);
   });
   test("refused by name: too short, or not on the page", () => {
     const d = open();

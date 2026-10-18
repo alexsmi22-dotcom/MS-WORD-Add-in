@@ -491,8 +491,10 @@ export function renderCdx(doc: CdxDoc, o: RenderOptions = {}): RenderedCdx | nul
         const m = mul(addp(ar.head, ar.tail), 0.5), u = unit(dir), nn = right(u), s = W * 2;
         parts.push(`<path d="M${f2(m[0] - u[0] * s - nn[0] * s)} ${f2(m[1] - u[1] * s - nn[1] * s)}L${f2(m[0] + u[0] * s + nn[0] * s)} ${f2(m[1] + u[1] * s + nn[1] * s)}M${f2(m[0] - u[0] * s + nn[0] * s)} ${f2(m[1] - u[1] * s + nn[1] * s)}L${f2(m[0] + u[0] * s - nn[0] * s)} ${f2(m[1] + u[1] * s - nn[1] * s)}" stroke="${col}" stroke-width="${f2(lw)}"/>`);
       }
-      grow(ar.head, W + lw);
-      grow(ar.tail, W + lw);
+      // Room for the heads: an equilibrium's sit a shaft's half spacing off the axis.
+      const off = ar.shaftSpacing > 0 ? (ar.shaftSpacing / 100) * lw * 0.5 + lw : 0;
+      grow(ar.head, W + lw + off);
+      grow(ar.tail, W + lw + off);
     }
     prims.push({ z: ar.z, svg: parts.join("") });
   };

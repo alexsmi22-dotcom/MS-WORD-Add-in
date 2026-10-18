@@ -11,9 +11,10 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 ### Added
 - **Chain** tool: drag from an atom (or from empty paper) and a zig-zag chain follows the mouse — one bond per
   L·cos 30° of drag (L = the document's bond length), 120° at every carbon including the one it starts from, as
-  ChemDraw draws a chain; a click on an atom adds one bond. Refused by name: an atom with no valence to spare (its
-  charge counted: N⁺ takes four bonds, C⁺ three, O⁻ one), a label that has its bond (Ph, OMe), and a chain that
-  would run onto atoms already drawn. Add bond follows the same valence rule now.
+  ChemDraw draws a chain; a click on an atom adds one bond. Refused by name: a carbon with no valence to spare (four
+  bonds; three when charged), an abbreviation that has its bond (Ph, OMe), and a chain that would run onto atoms
+  already drawn. Add bond follows the same rule now. Other elements are left to the chemist (hypervalent iodine,
+  perchlorate chlorine, a nitro N drawn neutral and dative bonds all appear in ChemDraw files).
 - **Brackets** tool: drag a box round a repeat unit — polymer brackets written as ChemDraw writes them (checked
   against ChemDraw files filed with USPTO patents): square brackets on the box's sides, the label (the box above;
   blank = n) in italics at the right bracket's foot, held in that bracket, and a structural repeat unit (SRU)
@@ -35,8 +36,8 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 
 ### Fixed before release (adversarial review: 10 findings, pinned in cdxmlDraw.test.ts, chemdrawPane.dom.test.ts)
 - A chain from an atom met its existing bond at 180° (drawn straight); a chain could land on atoms already drawn
-  (stacked, unjoined); any charged atom skipped the valence check (N⁺ took a fifth bond); a label with its bond
-  (Ph) took a chain; a refused chain from empty paper still left an atom in the document.
+  (stacked, unjoined); a charged carbon skipped the valence check (C⁺ took a fourth bond); an abbreviation with its
+  bond (Ph) took a chain; a refused chain from empty paper still left an atom in the document.
 - Brackets: a bond leaving through the box's top was attached to a side bracket it never crosses; atoms of a
   second structure in the box joined the repeat unit; the label was a loose caption with a made-up repeat count —
   now ChemDraw's own form; bracketing did not mark the structure's computed name as out of date.
@@ -44,6 +45,13 @@ All notable changes to JurisLab. Dates are release/pilot dates.
   a release with no click after it swallowed the next click; Atom-tool text became the bracket label.
 - The equilibrium arrow's half heads sat between the shafts (pre-existing in the renderer; first written by C4).
 - Replacing a picture JurisLab had inserted wrapped it in a second content control each time.
+
+### Fixed before release (second review — of the first fixes: 4 findings)
+- The shared valence check refused Add bond on hypervalent and cationic atoms it had always allowed (I, I⁺ even
+  with no bonds, Cl=O, a neutral-drawn nitro N, an amine bonded to a metal); it now refuses only what is certain
+  (carbon, abbreviations), and a generic ring atom (A, X) takes a substituent again.
+- The equilibrium arrow's offset heads reached past the drawing's box (clipped with a thick line or wide spacing).
+- A box whose side ran through an atom drew the bracket over it; it is refused by name.
 
 Not yet: ChemDraw objects embedded as OLE objects are not in-line pictures, so Replace cannot reach them.
 

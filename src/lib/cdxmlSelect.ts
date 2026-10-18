@@ -95,19 +95,6 @@ export function withCompanions(doc: CdxDoc, boxes: Map<string, Box>, id: string)
   return out;
 }
 
-/** The union box of a set of objects. */
-export function unionBox(boxes: Map<string, Box>, ids: Iterable<string>): Box | null {
-  let l = Infinity, t = Infinity, r = -Infinity, b = -Infinity;
-  for (const id of ids) {
-    const q = boxes.get(id);
-    if (!q) continue;
-    l = Math.min(l, q[0]);
-    t = Math.min(t, q[1]);
-    r = Math.max(r, q[2]);
-    b = Math.max(b, q[3]);
-  }
-  return l <= r ? [l, t, r, b] : null;
-}
 
 /** The atom nearest a point, within `r` points (in any structure). */
 export function atomAt(doc: CdxDoc, p: Pt, r: number): string | null {

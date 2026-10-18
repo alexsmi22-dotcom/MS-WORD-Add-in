@@ -159,6 +159,10 @@ describe("network surface — the offline claim is enforceable", () => {
         // and that no request anywhere is built from a DOI. EXACT host match only,
         // so "evil-doi.org" or "doi.org.example.com" still fail.
         if (host === "doi.org" || host === "dx.doi.org") continue;
+        // The CDXML DOCTYPE's system identifier (v2.152.0), written into a saved ChemDraw file so
+        // ChemDraw recognises it. An identifier, never dereferenced: xmlLite skips every DOCTYPE
+        // without resolving it, and cdxmlEdit.ts holds no network primitive (the scan above).
+        if (host === "www.cambridgesoft.com") continue;
         external.add(host);
       }
     }

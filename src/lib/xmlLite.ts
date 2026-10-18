@@ -184,5 +184,3 @@ export function parseXml(src: string, limits: XmlLimits = XML_LIMITS): { ok: tru
 
 /** The first child element with this name. */
 export const child = (n: XNode, name: string): XNode | undefined => n.children.find((c) => c.name === name);
-/** All child elements with this name. */
-export const childrenNamed = (n: XNode, name: string): XNode[] => n.children.filter((c) => c.name === name);

@@ -174,11 +174,18 @@ export function placeTyped(st: EditState, typed: Array<number | null>, at: { x: 
     if (!(d > 0)) return { ok: true, state: s };
     to = { x: a0.x + d / 2, y: a0.y };
   }
-  if (!(Math.abs(to.x) <= 1e6 && Math.abs(to.y) <= 1e6)) return { ok: false, state: st, reason: "the shape would reach beyond ±1 000 000 mm — a sketch is drawn within that" };
+  // Every extreme of the shape stays inside the sketch's range, not just its typed corner.
+  const reach =
+    tool === "circle" ? [a0.x - Math.hypot(to.x - a0.x, to.y - a0.y), a0.x + Math.hypot(to.x - a0.x, to.y - a0.y), a0.y - Math.hypot(to.x - a0.x, to.y - a0.y), a0.y + Math.hypot(to.x - a0.x, to.y - a0.y)]
+    : tool === "centreRectangle" ? [2 * a0.x - to.x, to.x, 2 * a0.y - to.y, to.y]
+    : [a0.x, to.x, a0.y, to.y];
+  if (!reach.every((v) => Math.abs(v) <= 1e6)) return { ok: false, state: st, reason: "the shape would reach beyond ±1 000 000 mm — a sketch is drawn within that" };
   const before = new Set(s.sketch.entities.map((e) => e.id));
   // A typed angle that is not a multiple of 90° keeps its exact direction (no automatic H / V).
   const keepAngle = tool === "line" && t1 !== null && t1 !== undefined && Math.abs(Math.round(t1 / 90) * 90 - t1) > 1e-12;
-  const r = click(keepAngle ? { ...s, noAutoHV: true } : s, to.x, to.y, 1e-9 * Math.max(1, Math.abs(to.x), Math.abs(to.y)));
+  const sizes = typed.filter((v): v is number => v !== null && v !== undefined && v > 0);
+  const tolTyped = sizes.length ? Math.min(...sizes) * 1e-6 : 1e-9 * Math.max(1, Math.abs(to.x), Math.abs(to.y));
+  const r = click(keepAngle ? { ...s, noAutoHV: true } : s, to.x, to.y, tolTyped);
   if (!r.ok) return { ok: false, state: st, reason: r.reason };
   let out: EditState = { ...r.state };
   delete out.noAutoHV;
@@ -187,7 +194,11 @@ export function placeTyped(st: EditState, typed: Array<number | null>, at: { x: 
   const dim = (id: string | undefined, text: string): void => {
     if (!id || refused) return;
     const d = applyDimension({ ...out, selection: [id] }, text);
-    if (d.ok) out = { ...d.state, selection: [], pending: out.pending };
+    if (d.ok) return void (out = { ...d.state, selection: [], pending: out.pending });
+    // Already fixed by the shape's other relations (the edge closing a typed square): the geometry
+    // has the typed value exactly, so it is shown as a reference (driven) dimension, as Solid Edge does.
+    const ref = applyDimension({ ...out, selection: [id] }, text, true);
+    if (ref.ok) out = { ...ref.state, selection: [], pending: out.pending };
     else refused = d.reason;
   };
   // Construction geometry is dimensioned too (as a typed circle always was).

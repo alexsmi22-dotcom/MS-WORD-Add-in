@@ -205,3 +205,84 @@ describe("nits", () => {
     expect(t.host.setStatus).toHaveBeenLastCalledWith("That part is no longer in the drawing — its sketch cannot be opened.", "error");
   });
 });
+
+describe("the fix round's own review — pinned", () => {
+  it("1: a square closed by typed lengths: the last edge is placed, its length shown as a reference (driven) dimension", () => {
+    let st = ok(click({ ...startEdit(), tool: "line" }, 0, 0, 1));
+    st = ok(placeTyped(st, [10, 0], { x: 0, y: 0 }, 1));
+    st = ok(placeTyped(st, [10, 90], { x: 0, y: 0 }, 1));
+    st = ok(placeTyped(st, [10, 180], { x: 0, y: 0 }, 1));
+    st = ok(placeTyped(st, [10, 270], { x: 0, y: 0 }, 1));
+    expect(st.sketch.entities.filter((e) => e.kind === "line")).toHaveLength(4);
+    expect(st.sketch.constraints.some((c) => c.kind === "length" && "driven" in c && c.driven)).toBe(true);
+  });
+  it("2: after clicking a tool button, Space pans (the keyboard is back on the drawing)", () => {
+    const t = setup();
+    t.open();
+    document.querySelector<HTMLButtonElement>('[data-sk-tool="point"]')!.click();
+    expect(document.activeElement).toBe(t.$("cad-sketch"));
+    t.key(" ");
+    t.ev("pointerdown", 10, 10);
+    t.ev("pointerup", 10, 10);
+    expect(t.$("cad-sketch-status").textContent).toMatch(/^Draw lines/); // a pan, not a point
+  });
+  it("3: a cursor remembered from another tool or another sketch is never used", () => {
+    const t = setup();
+    t.open();
+    t.key("l");
+    t.ev("pointermove", 30, 30);
+    t.$("cad-sketch-canvas").dispatchEvent(new MouseEvent("pointerleave"));
+    t.key("c");
+    const d = t.$<HTMLInputElement>("cad-sketch-in1");
+    d.value = "10";
+    d.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    expect(t.$("cad-sketch-msg").textContent).toBe("Click on the canvas where the shape goes.");
+  });
+  it("4 / 5: parallel edges clicked in either order edit the same distance; collinear lines are named", () => {
+    const t = setup();
+    t.open();
+    t.key("l");
+    t.ev("pointerdown", 0, 0);
+    t.ev("pointerdown", 30, 0);
+    t.key("Escape");
+    t.ev("pointerdown", 0, 20);
+    t.ev("pointerdown", 30, 20);
+    t.key("Escape");
+    t.key("d");
+    t.ev("pointerdown", 15, 0);
+    t.ev("pointerdown", 15, 20);
+    const box = t.$<HTMLInputElement>("cad-sketch-dim");
+    box.value = "25";
+    box.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    t.ev("pointerdown", 15, 25);
+    t.ev("pointerdown", 15, 0);
+    expect(box.value).toBe("25");
+    box.value = "30";
+    box.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    expect(t.$("cad-sketch-msg").textContent).toBe("");
+  });
+  it("5: collinear lines say so", () => {
+    const t = setup();
+    t.open();
+    t.key("l");
+    t.ev("pointerdown", 0, 0);
+    t.ev("pointerdown", 10, 0);
+    t.key("Escape");
+    t.ev("pointerdown", 20, 0);
+    t.ev("pointerdown", 30, 0);
+    t.key("Escape");
+    t.key("d");
+    t.ev("pointerdown", 5, 0);
+    t.ev("pointerdown", 25, 0);
+    expect(t.$("cad-sketch-msg").textContent).toBe("Those lines are collinear — there is no distance between them to dimension.");
+  });
+  it("6: the range check covers the whole shape (a centre rectangle, a circle)", () => {
+    const c = ok(click({ ...startEdit(), tool: "centreRectangle" }, -999999, 0, 1));
+    expect(placeTyped(c, [10, 10], { x: -999990, y: 5 }, 1)).toMatchObject({ ok: false });
+    expect(placeTyped({ ...startEdit(), tool: "circle" }, [1000000], { x: -999000, y: 0 }, 1)).toMatchObject({ ok: false });
+  });
+  it("7: a tiny typed length far from the origin is placed (the tolerance follows the size)", () => {
+    const s1 = ok(click({ ...startEdit(), tool: "line" }, -500000, 0, 1));
+    expect(placeTyped(s1, [0.000001, 0], { x: -499999, y: 0 }, 1)).toMatchObject({ ok: true });
+  });
+});

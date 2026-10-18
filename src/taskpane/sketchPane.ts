@@ -280,6 +280,7 @@ export function initSketchPanel(host: SketchPanelHost): { open(sketch?: Sketch, 
     });
   }
   function setTool(tool: string): void {
+    lastSnap = null;
     dimTool = tool === "dimension";
     st = { ...cancel(st), tool: (dimTool ? "select" : tool) as SketchTool, ...(dimTool ? { selection: [] } : {}) };
     for (const o of Array.from(panel!.querySelectorAll<HTMLButtonElement>("[data-sk-tool]"))) o.classList.toggle("active", o.dataset.skTool === tool);
@@ -288,7 +289,12 @@ export function initSketchPanel(host: SketchPanelHost): { open(sketch?: Sketch, 
     paint();
   }
   for (const b of Array.from(panel.querySelectorAll<HTMLButtonElement>("[data-sk-tool]"))) {
-    b.addEventListener("click", () => setTool(b.dataset.skTool!));
+    b.addEventListener("click", () => {
+      setTool(b.dataset.skTool!);
+      // The keyboard goes back to the drawing: Space pans, the letters pick tools (a focused button
+      // would take Space as a click and swallow it).
+      panel.focus({ preventScroll: true });
+    });
   }
   /** The typed sizes, or the first refusal (named). */
   function typedSizes(): Array<number | null> | string {
@@ -421,10 +427,21 @@ export function initSketchPanel(host: SketchPanelHost): { open(sketch?: Sketch, 
       if (typeof spec !== "string" && spec.kind === "angle") {
         const v = (spec as { value: number }).value;
         if (Math.abs(Math.sin(v)) < 1e-9) {
-          // Parallel: the distance from the second line's end to the first.
-          const second = st.sketch.entities.find((k) => k.id === hit) as { a: string };
-          st = { ...st, selection: [second.a, prev!] };
+          // Parallel: the distance between them — the one already there, whichever was clicked first.
+          const ends = (id: string): string[] => {
+            const l = st.sketch.entities.find((k) => k.id === id) as { a: string; b: string };
+            return [l.a, l.b];
+          };
+          const there = st.sketch.constraints.find(
+            (c) => c.kind === "pointLine" && ((c.line === prev && ends(hit).includes(c.p)) || (c.line === hit && ends(prev!).includes(c.p))),
+          );
+          if (there) return offerDimension(there.id);
+          st = { ...st, selection: [ends(hit)[0], prev!] };
           spec = dimensionFor(st.sketch, st.selection);
+          if (typeof spec !== "string" && Math.abs((spec as { value: number }).value) < 1e-9) {
+            st = { ...st, selection: [] };
+            return say("Those lines are collinear — there is no distance between them to dimension.", true);
+          }
         }
       }
       if (typeof spec === "string") {
@@ -707,6 +724,7 @@ export function initSketchPanel(host: SketchPanelHost): { open(sketch?: Sketch, 
       say(sketch ? "" : "Pick a tool and click on the canvas. Relations and dimensions keep the shape; drag a point to see what is still free.");
       dimTool = false;
       hoverSnap = null;
+      lastSnap = null;
       for (const o of Array.from(panel.querySelectorAll<HTMLButtonElement>("[data-sk-tool]"))) o.classList.toggle("active", o.dataset.skTool === st.tool);
       showSizeFields();
       paint();

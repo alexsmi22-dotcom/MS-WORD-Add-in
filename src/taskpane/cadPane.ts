@@ -14,9 +14,10 @@
  * shading; when the drag ends it overlays the exact line drawing, and the
  * sheet below is what will be inserted.
  */
-import { tessellate, Mesh } from "../lib/cadModel";
+import { tessellate, Mesh, Placement, Vec3 } from "../lib/cadModel";
+import { faceAt, FaceHit, mate } from "../lib/cadMate";
 import { drawLines, STANDARD_VIEWS, CadView } from "../lib/cadLines";
-import { fitView, previewOps, paintPreview, pickAt, orbit, Fit } from "../lib/cadPreview";
+import { fitView, previewOps, paintPreview, pickAt, orbit, Fit, Pick as FacePick } from "../lib/cadPreview";
 import { layoutSheet, SheetFrame, ViewSpec } from "../lib/cadSheet";
 import { ptToMm } from "../lib/figureStyle";
 import { DRAWING_STANDARDS, DEFAULT_STANDARD, StandardId } from "../lib/cadStandards";
@@ -134,6 +135,8 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
   const editorEl = el<HTMLElement>("cad-editor");
   const canvas = el<HTMLCanvasElement>("cad-canvas");
   const calloutBtn = el<HTMLButtonElement>("cad-callout");
+  const mateBtn = el<HTMLButtonElement>("cad-mate") as HTMLButtonElement | null;
+  const mateUndoBtn = el<HTMLButtonElement>("cad-mate-undo") as HTMLButtonElement | null;
   const calloutsEl = el<HTMLElement>("cad-callouts");
   const viewsEl = el<HTMLElement>("cad-views");
   const msgEl = el<HTMLElement>("cad-msg");
@@ -959,10 +962,87 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     calloutBtn.textContent = on ? "Stop placing callouts" : calloutLabel;
     if (status) host.setStatus(on ? "Click on a part to place a callout; keep clicking for more. Esc or Stop placing callouts ends it." : "", "");
   }
-  calloutBtn.addEventListener("click", () => setCalloutMode(!calloutMode));
+  calloutBtn.addEventListener("click", () => {
+    if (!calloutMode) setMateMode(false, false);
+    setCalloutMode(!calloutMode);
+  });
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && calloutMode && !sketching()) setCalloutMode(false);
+    if (e.key === "Escape" && mateMode && !sketching()) setMateMode(false);
   });
+
+  // Mates: a face of the part to move, then the face it goes against (cadMate). Stays on for the
+  // next pair (four legs under a top) until Esc or Stop; each mate can be undone.
+  let mateMode = false;
+  let mateFirst: FaceHit | null = null;
+  const mateUndo: Array<{ id: string; placement: Placement }> = [];
+  const mateLabel = mateBtn?.textContent ?? "Mate faces";
+  function setMateMode(on: boolean, status = true): void {
+    mateMode = on;
+    mateFirst = null;
+    if (!mateBtn) return;
+    mateBtn.classList.toggle("active", on);
+    mateBtn.setAttribute("aria-pressed", String(on));
+    mateBtn.textContent = on ? "Stop mating" : mateLabel;
+    if (status) host.setStatus(on ? "Mate: click a flat face of the part to MOVE (near a corner or the centre to snap to it)." : "", "");
+  }
+  mateBtn?.addEventListener("click", () => {
+    if (!mateMode) setCalloutMode(false, false);
+    setMateMode(!mateMode);
+  });
+  mateUndoBtn?.addEventListener("click", () => {
+    const u = mateUndo.pop();
+    if (mateUndoBtn) mateUndoBtn.disabled = !mateUndo.length;
+    const p = u && doc.parts.find((q) => q.id === u.id);
+    if (!u || !p) return;
+    p.placement = u.placement;
+    renderEditor();
+    rebuild();
+    host.setStatus(`${p.name} is back where it was before the mate.`, "");
+  });
+  /** A click in mate mode: the first face, then the second (the mate). */
+  function mateClick(hit: FacePick, fit: Fit): void {
+    if (!mesh) return;
+    if (pending || docProblem() !== null) {
+      host.setStatus("Finish the dimension being edited (the drawing must update) before mating.", "error");
+      return;
+    }
+    // Snap within about 10 screen pixels of a corner or the face's centre.
+    const f = faceAt(mesh, hit.tri, hit.point, 10 / fit.scale);
+    if (!f.ok) {
+      host.setStatus(f.reason.charAt(0).toUpperCase() + f.reason.slice(1) + ".", "error");
+      return;
+    }
+    const where = (h: FaceHit): string => (h.snap === "corner" ? "a corner of " : h.snap === "centre" ? "the centre of " : "") + "that face";
+    if (!mateFirst) {
+      mateFirst = f.hit;
+      selected = f.hit.body;
+      renderParts();
+      renderEditor();
+      paint(true);
+      host.setStatus(`Moving ${doc.parts[f.hit.body]?.name ?? "the part"} from ${where(f.hit)}. Now click the face it goes against, on another part.`, "");
+      return;
+    }
+    const first = mateFirst;
+    const part = doc.parts[first.body];
+    if (!part) return setMateMode(false);
+    const frame = part.shape === "sketch" ? undefined : SHAPES[part.shape].frame;
+    const r = mate(first, f.hit, part.placement, frame);
+    if (!r.ok) {
+      mateFirst = null;
+      host.setStatus(r.reason.charAt(0).toUpperCase() + r.reason.slice(1) + ". Click a face of the part to move again.", "error");
+      return;
+    }
+    mateUndo.push({ id: part.id, placement: { translate: [...part.placement.translate] as Vec3, rotateDeg: [...part.placement.rotateDeg] as Vec3 } });
+    if (mateUndoBtn) mateUndoBtn.disabled = false;
+    part.placement = r.placement;
+    mateFirst = null;
+    selected = first.body;
+    renderParts();
+    renderEditor();
+    rebuild();
+    host.setStatus(`${part.name} mated to ${doc.parts[f.hit.body]?.name ?? "the part"} at ${where(f.hit)}, flush. Click the next part to move, or Esc to stop.`, "success");
+  }
   for (const b of Array.from(document.querySelectorAll<HTMLButtonElement>("[data-cad-view]"))) {
     b.addEventListener("click", () => {
       const v = b.dataset.cadView as keyof typeof STANDARD_VIEWS;
@@ -1006,6 +1086,11 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     const hit = pickAt(mesh, view, fit, e.clientX - r.left, e.clientY - r.top);
     if (!hit) {
       if (calloutMode) host.setStatus("That spot is not on a part — click on a part's surface to place the callout there.", "error");
+      if (mateMode) host.setStatus("That spot is not on a part — click a flat face of a part.", "error");
+      return;
+    }
+    if (mateMode) {
+      mateClick(hit, fit);
       return;
     }
     if (calloutMode) {

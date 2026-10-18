@@ -174,6 +174,8 @@ export function paintPreview(
 export interface Pick {
   body: number;
   point: Vec3;
+  /** The triangle under the cursor (cadMate reads its face). */
+  tri: number;
 }
 
 /** The nearest front-facing surface under canvas pixel (px, py), or null over empty space. */
@@ -206,6 +208,7 @@ export function pickAt(mesh: Mesh, view: CadView, fit: Fit, px: number, py: numb
     bestZ = z;
     best = {
       body: mesh.triBody[t / 3],
+      tri: t / 3,
       point: [l1 * w[0][0] + l2 * w[1][0] + l3 * w[2][0], l1 * w[0][1] + l2 * w[1][1] + l3 * w[2][1], l1 * w[0][2] + l2 * w[1][2] + l3 * w[2][2]],
     };
   }

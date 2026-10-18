@@ -108,7 +108,20 @@
           <label><input type="checkbox" value="iso" checked /> Isometric</label>
           <label><input type="checkbox" value="orbit" /> This view</label>
           <label title="A figure with no parts in it: draw on it with the tools above the drawing"><input type="checkbox" value="blank" /> Blank figure</label>
+          <label title="The parts drawn apart, with phantom trail lines showing where each one goes"><input type="checkbox" value="exploded" /> Exploded</label>
         </fieldset>
+        <div class="cad-assembly-views" role="group" aria-label="Exploded and detail views">
+          <button id="cad-explode-auto" type="button" class="insert-btn secondary" title="Lift the parts apart in levels (the lowest stay put); change any part's distance under the part">Auto explode</button>
+          <button id="cad-detail" type="button" class="insert-btn secondary" aria-pressed="false" title="Then click a spot on a figure in the drawing: that part is drawn again, larger, as a detail view">Add detail view</button>
+          <select id="cad-detail-factor" class="lib-select" aria-label="How much larger a new detail view is">
+            <option value="2">2× larger</option>
+            <option value="3">3× larger</option>
+            <option value="4">4× larger</option>
+            <option value="5">5× larger</option>
+            <option value="10">10× larger</option>
+          </select>
+          <div id="cad-details" class="cad-parts" aria-label="Detail views"></div>
+        </div>
         <label class="field-label" for="cad-hidden">Hidden lines</label>
         <select id="cad-hidden" class="lib-select">
           <option value="">As the standard says</option>

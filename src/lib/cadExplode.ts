@@ -68,9 +68,9 @@ export function explodedDoc(doc: CadDoc, offsets: Offsets): CadDoc {
 }
 
 /** Callout anchors in the exploded assembly: each moves with its part (one with no part stays). */
-export function explodedAnchors(doc: CadDoc, callouts: Array<{ anchor: Vec3 }>, offsets: Offsets): Vec3[] {
+export function explodedAnchors(doc: CadDoc, callouts: Array<{ anchor: Vec3; src?: number }>, offsets: Offsets): Vec3[] {
   return callouts.map((c, n) => {
-    const part = (doc.callouts[n] as DocCallout | undefined)?.part;
+    const part = (doc.callouts[c.src ?? n] as DocCallout | undefined)?.part;
     const o = part ? offsets[part] : undefined;
     return o ? [c.anchor[0] + o[0], c.anchor[1] + o[1], c.anchor[2] + o[2]] : c.anchor;
   });

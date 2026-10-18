@@ -71,6 +71,8 @@ export interface Callout {
   anchor: Vec3;
   /** What the callout says: a reference numeral, a balloon number, a part letter. */
   label: string;
+  /** Its place in the document's callout list (resolveCallouts may leave some out). */
+  src?: number;
 }
 
 export interface SheetOptions {

@@ -10,6 +10,44 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
 
+## 0cl. New in v2.148.0 — Drawing (CAD): sketch your own parts, the full toolset, New drawing, PowerPoint
+
+Home ▸ **Drawing (CAD)**. In the shape list choose **Sketch (draw your own)** and press **Add part**: the sketch
+editor opens (in the pane, or bigger in **Open large canvas ⤢**). Free geometry draws **blue**, fully defined
+geometry **black**; the line under the canvas says how many degrees of freedom are left and what is still free.
+
+- [ ] ★ **Draw and dimension a plate.** **Rectangle**: click two corners. The status says 4 degrees of freedom.
+  **Select**, click the bottom edge, type `60` in the value box, **Dimension**; click the left edge, type `40`,
+  **Dimension**. It reads "Fully defined apart from position"; click a corner, **Fix**: "Fully defined", and the
+  lines turn black. Click the `60` label, type `80`, **Dimension**: the plate widens, the 40 stays.
+- [ ] **A hole and a fillet.** **Circle**: centre, then a point on it. Select it, type `Ø10`, **Dimension** (the
+  label reads Ø10). Select the bottom and right edges, type `R6`, **Fillet**: the corner rounds; the message says
+  the corner is kept as a construction point. Change the 80 again: the fillet follows.
+- [ ] **Make the part.** Depth `8`, **Done**: the plate with its hole and rounded corner appears in 3D and on the
+  sheet. **Edit sketch** re-opens it exactly as left.
+- [ ] **The rest of the toolset** — each makes what its name says, and refuses by name when it cannot:
+  **Centre rect**, **Polygon** (set Sides first), **Slot** (two end centres, then the width), **3-pt arc**,
+  **Chamfer** (two lines, a distance), **Offset** (a line, a circle, or every line of a closed outline; negative
+  goes inward), **Mirror** (select what to mirror, then the mirror line LAST), **Pattern** (Count, and spacing in
+  the value box: `20` or `0 15`), **Circular** (select the copies' source and a centre point; empty box = 360°),
+  **Trim** (click the part of a line to cut away), **Clear sketch** (then **Undo** brings it back).
+- [ ] **Relations.** H, V, ∥, ⊥, Tangent, =, ◎, Join, On, Mid, Sym, Fix each work on the right selection, and say
+  what to select otherwise. A third dimension on a fully defined rectangle is refused as already fixed and offered
+  as **Driven** (tick Driven, Dimension: it shows in parentheses).
+- [ ] **Refusals.** **Done** on an open outline says where it is open. A value the shape cannot take ("turn an
+  outline inside out") leaves the sketch as it was.
+- [ ] **Revolve.** Draw half a shaft profile beside a construction line, select the line, choose **Revolve about
+  the selected line**, **Done**: a turned part.
+- [ ] ★ **New drawing.** Press **New drawing**: it asks you to click again. Click again: every part and callout is
+  gone. The button now says **Undo clear**: press it and everything comes back, standard and views too.
+- [ ] ★ **Export to PowerPoint.** Press **Export to PowerPoint**: a .pptx downloads with the sheet on a titled
+  slide; open it in PowerPoint and check the drawing is sharp when zoomed.
+- [ ] **Alt-text size probe.** Make a big sketch (a polygon of 40 sides, patterned 3 times), insert it, then
+  **Edit drawing at cursor**: the sketch comes back whole. Record the drawing's model size if it fails.
+- [ ] **Mac.** Repeat the plate, New drawing and Export to PowerPoint on Word for Mac.
+
+---
+
 ## 0ck. New in v2.147.0 — Drawing (CAD): build in 3D, insert engineering and patent drawings
 
 Home ▸ **Drawing (CAD)** (or the tool menu ▸ Drawing). It opens on a plate with two holes, shaded in the 3D view,

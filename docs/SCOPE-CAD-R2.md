@@ -10,9 +10,9 @@ an independent adversarial review before it ships.
 | **R2a — sketcher + solver** | 2D sketch canvas (lines, arcs, circles, rectangles, points), geometric relationships, driving dimensions, a verified solver with degrees-of-freedom reporting; **any closed sketch becomes a 3D part** (extrude / revolve) in the R1b drawing. |
 | R2b — sheets | Sheet sizes (ISO A4–A0, ANSI A–E), borders and zones, title blocks (ISO 7200 fields / ASME Y14.1), line types and layers as style objects. |
 | R2c — dimensions on drawings | Linear, aligned, angular, radial and diameter dimensions and leaders on the drawing views, under ISO 129 / ASME Y14.5 styles, with tolerances; hatching of closed regions. |
-| R2d — sketch editing | Fillet, chamfer, offset, trim / extend, mirror, rectangular and circular pattern. |
+| R2d — sketch editing | **Brought into R2a at the user's request** ("I want to be able to actually draw with a full suite of tools"): fillet, chamfer, offset, trim, mirror, linear and circular pattern, plus polygon, slot, centre rectangle and 3-point arc. Still to come: extend, trimming circles and arcs, offsetting outlines that contain arcs. |
 
-Order: R2a first — every later release sits on the sketch model and the solver.
+Order: R2a first — every later release sits on the sketch model and the solver. Also added to R2a at the user's request: **New drawing** (clear with confirm and undo) and **Export to PowerPoint**.
 
 ## R2a design
 
@@ -45,7 +45,7 @@ Analytic Jacobian for every residual, checked against finite differences in the 
   triangle inside out") and the old sketch kept.
 
 ### Degrees of freedom — by definition
-- DOF = variables − rank(J) at the solution (SVD of J padded square, so the null space is complete). Free
+- DOF = variables − rank(J) at the solution, by a column-pivoted Householder QR of Jᵀ (cross-checked against linalg.svd in the tests; much faster than Jacobi SVD at sketch sizes). Free
   entities are named from the null space (variables with a component there).
 - **Position policy**: an unanchored sketch is reported "fully defined apart from position" at 3 DOF; fixing a
   point or dimensioning to the origin removes those.

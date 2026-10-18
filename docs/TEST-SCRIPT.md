@@ -10,6 +10,25 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
 
+## 0cp. New in v2.152.0 — Open and edit ChemDraw files
+
+Home ▸ **Structure** ▸ **Draw** ▸ **Open ChemDraw file…**. Use a ChemDraw file you have (File ▸ Save As ▸ ChemDraw
+XML, .cdxml).
+
+- [ ] ★ **It looks like ChemDraw.** The page appears with a line such as "… 93 structures and 339 other objects (made
+  by ChemDraw 23 …)". Compare with the same file in ChemDraw: bonds, wedges, ring double bonds, labels (R₁, CH₃),
+  polymer brackets with n / x, ⊕ / ⊖, arrows and captions.
+- [ ] ★ **Pick and insert.** Click a polymer: it is outlined with its brackets, its n and its charges. **Insert
+  selected**: it goes into the document at ChemDraw's size, crisp. **Insert whole page** on a long file is
+  refused with its size in inches.
+- [ ] **Edit.** **Atom**, type `N`, click a ring carbon: the ring becomes a pyridine (N, no H). Click a chain carbon:
+  NH. **Bond**: click a bond — double, triple, single. Style **Wedge**, click a bond; click again — it turns round.
+  **Add bond** on an end atom: a zig-zag continues. **Erase** an atom. **Undo**, **Redo**.
+- [ ] **Names.** Change a structure that has a ChemDraw name under it: the name is outlined in orange; Insert says
+  "Check “…”: ChemDraw computed that name before the structure changed".
+- [ ] **Save as .cdxml**, open the saved file in ChemDraw: your edits are there and nothing else changed.
+- [ ] **Refusals.** A .cdx file: "binary ChemDraw files (.cdx) are not read yet — … Save As ▸ ChemDraw XML".
+
 ## 0co. New in v2.151.0 — Drawing (CAD): draw on the drawing
 
 Home ▸ **Drawing (CAD)**, **Drawing standard: Patent drawing**. Build a table: **Block** 120 × 60 × 4 moved to Z 70

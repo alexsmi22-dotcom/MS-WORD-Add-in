@@ -131,3 +131,101 @@ describe("the pane", () => {
     expect(t.status[t.status.length - 1][1]).toBe("error");
   });
 });
+
+describe("editing on the page", () => {
+  // A propane with a ChemDraw-computed name under it.
+  const NAMED = `<?xml version="1.0" encoding="UTF-8" ?>
+<CDXML CreationProgram="Test" BondLength="30" LineWidth="1" LabelSize="10" LabelFont="3" LabelFace="96" CaptionSize="12">
+<fonttable><font id="3" name="Arial"/></fonttable>
+<page id="1" BoundingBox="0 0 540 720">
+<fragment id="10"><n id="11" p="100 100"/><n id="12" p="126 115"/><n id="13" p="152 100"/><b id="14" B="11" E="12"/><b id="15" B="12" E="13"/></fragment>
+<t id="30" p="100 150" BoundingBox="100 140 150 153"><s font="3" size="12">propane</s></t>
+<chemicalproperty id="31" ChemicalPropertyDisplayID="30" ChemicalPropertyType="1" BasisObjects="10"/>
+</page></CDXML>`;
+  function setup2() {
+    document.body.innerHTML = BUILD;
+    const status: Array<[string, string]> = [];
+    const inserted: string[] = [];
+    const saved: Array<{ name: string; text: Promise<string> }> = [];
+    initChemdrawPane({
+      setStatus: (m, k) => void status.push([m, k ?? ""]),
+      insertPicture: async (svg) => void inserted.push(svg),
+      downloadFile: (blob, name) =>
+        void saved.push({
+          name,
+          text: new Promise<string>((res) => {
+            const r = new FileReader();
+            r.onload = () => res(String(r.result));
+            r.readAsText(blob);
+          }),
+        }),
+    });
+    const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
+    const open = async (): Promise<void> => {
+      const input = $<HTMLInputElement>("chemdraw-file");
+      Object.defineProperty(input, "files", { value: [new File([NAMED], "propane.cdxml")], configurable: true });
+      input.dispatchEvent(new Event("change"));
+      await new Promise((r) => setTimeout(r, 30));
+    };
+    const clickAt = (x: number, y: number): void => {
+      const svg = $("chemdraw-preview").querySelector("svg")!;
+      const [vx, vy, vw, vh] = svg.getAttribute("viewBox")!.split(" ").map(Number);
+      svg.getBoundingClientRect = () => ({ left: 0, top: 0, width: vw, height: vh, right: vw, bottom: vh, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+      $("chemdraw-preview").dispatchEvent(new MouseEvent("click", { clientX: x - vx, clientY: y - vy, bubbles: true }));
+    };
+    const tool = (t: string): void => document.querySelector<HTMLButtonElement>(`[data-cdx-tool="${t}"]`)!.click();
+    const page = (): string => $("chemdraw-preview").innerHTML;
+    return { status, inserted, saved, $, open, clickAt, tool, page };
+  }
+
+  test("Atom: N on the middle carbon shows NH; the name ChemDraw computed is outlined as out of date", async () => {
+    const t = setup2();
+    await t.open();
+    t.tool("atom");
+    t.$<HTMLInputElement>("chemdraw-value").value = "N";
+    t.clickAt(126, 115);
+    expect(t.page()).toContain(">NH</tspan>");
+    expect(t.page()).toContain('id="chemdraw-stale"');
+    expect(t.$("chemdraw-info").textContent).toContain("1 name ChemDraw computed is outlined in orange");
+  });
+
+  test("Inserting a structure with an out-of-date name says the name, by its words", async () => {
+    const t = setup2();
+    await t.open();
+    t.tool("bond");
+    t.clickAt(113, 107.5); // bond 11–12: single → double
+    t.tool("select");
+    t.clickAt(126, 110); // the structure, with its name beside it
+    t.$<HTMLButtonElement>("chemdraw-insert").click();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(t.inserted).toHaveLength(1);
+    expect(t.status[t.status.length - 1][0]).toMatch(/Check “propane”: ChemDraw computed that name before the structure changed\.$/);
+  });
+
+  test("Erase, Undo, Redo; Save writes a file ChemDraw opens, with the edit and nothing else lost", async () => {
+    const t = setup2();
+    await t.open();
+    t.tool("erase");
+    t.clickAt(152, 100); // the end atom
+    expect(t.page()).not.toContain('x2="152"');
+    t.$<HTMLButtonElement>("chemdraw-undo").click();
+    expect(t.$<HTMLButtonElement>("chemdraw-redo").disabled).toBe(false);
+    t.$<HTMLButtonElement>("chemdraw-redo").click();
+    t.$<HTMLButtonElement>("chemdraw-save").click();
+    expect(t.saved[0].name).toBe("propane (edited).cdxml");
+    const text = await t.saved[0].text;
+    expect(text).toMatch(/^<\?xml version="1.0" encoding="UTF-8" \?>/);
+    expect(text).not.toContain('<n id="13"');
+    expect(text).toContain('<chemicalproperty id="31"'); // its basis (the structure) is still there
+  });
+
+  test("a click that misses an atom says so; Atom with no label asks for one", async () => {
+    const t = setup2();
+    await t.open();
+    t.tool("atom");
+    t.clickAt(300, 300);
+    expect(t.status[t.status.length - 1]).toEqual(["Click on an atom (a corner or end of the structure, or a label).", "error"]);
+    t.clickAt(126, 115);
+    expect(t.status[t.status.length - 1]).toEqual(["Type an element or label in the box first (N, O, Cl, R1, X …), then click the atom.", "error"]);
+  });
+});

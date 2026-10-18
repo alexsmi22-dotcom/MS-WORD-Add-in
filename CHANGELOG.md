@@ -6,6 +6,30 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.152.0] — 2026-10-18 — Open and edit ChemDraw files
+
+"Open chemdraw files in jurislab with the ability to be able to edit those files and not have to use chemdraw"
+— "cut as many limitations as possible between jurislab and chemdraw". Plan: docs/SCOPE-CHEMDRAW.md.
+
+### Added
+- **Open ChemDraw file…** (Structure ▸ Draw): a ChemDraw XML file (.cdxml), read on this machine, drawn as
+  ChemDraw draws it — the file's own bond length, line widths and fonts; wedges, hashes, wavy and bold bonds;
+  double bonds on ChemDraw's side; labels with formula subscripts (R₁, CH₃, F₃C) and stacked labels (NH); polymer
+  brackets with their n / x / 100−n labels; ⊕ / ⊖ charges; arrows (with ChemDraw's arrowheads), captions and
+  reaction schemes. What is not drawn is named, by kind.
+- **Pick and insert**: a click picks a structure with its brackets, labels, charges and counter-ion (they are
+  separate objects in a ChemDraw file); Shift+click adds or removes one. **Insert selected** or **Insert whole
+  page** puts it into Word at ChemDraw's size (fitted to the page when wider; refused by name when it would be
+  too small to read).
+- **Edit**: Select and drag to move; **Atom** (an element — implicit hydrogens shown as ChemDraw shows them, NH,
+  OH — or a label: R1, X, Ar …), **Bond** (single → double → triple, or wedge / hashed wedge / wavy / bold /
+  dashed; a wedge clicked again turns round), **Add bond**, **+ / −** charge, **Text**, **Erase**, Delete key,
+  **Undo / Redo**. A name ChemDraw computed for a structure you change is outlined as out of date, and an insert
+  names it.
+- **Save as .cdxml**: the page with your edits, as a file ChemDraw opens — everything JurisLab does not edit is
+  kept as it was.
+- Refused by name: binary .cdx (with how to save as .cdxml), malformed files (with the line), files over 40 MB.
+
 ## [2.151.0] — 2026-10-18 — Drawing (CAD): draw on the drawing — pencil, arrows, text, numerals anywhere
 
 From the user's first pass in Word: "the free hand drawing is frustrating to use … what i draw is what i want",

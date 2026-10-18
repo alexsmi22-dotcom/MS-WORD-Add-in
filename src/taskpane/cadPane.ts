@@ -431,6 +431,20 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     ].join(" ");
   }
 
+  /** Marks the section as drawing-on-the-sheet (the large window lays itself out for it; the pane ignores it). */
+  function sectionMarking(on: boolean): void {
+    document.getElementById("cad-section")?.classList.toggle("cad-marking", on);
+    // The sheet was laid out for the old width: draw it again at the new one.
+    if (lastSheet) window.requestAnimationFrame?.(() => sizePreviewSvg());
+  }
+  function sizePreviewSvg(): void {
+    const svgEl = previewEl.querySelector("svg");
+    if (svgEl) {
+      svgEl.setAttribute("width", "100%");
+      svgEl.removeAttribute("height");
+    }
+  }
+
   // ---- exploded and detail views -----------------------------------------------------------
   const explodeAutoBtn = el<HTMLButtonElement>("cad-explode-auto") as HTMLButtonElement | null;
   const detailBtn = el<HTMLButtonElement>("cad-detail") as HTMLButtonElement | null;
@@ -473,6 +487,7 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     detailBtn.classList.toggle("active", on);
     detailBtn.setAttribute("aria-pressed", String(on));
     previewEl.classList.toggle("cad-marking", on || markTool !== null);
+    sectionMarking(on || markTool !== null);
     if (on) host.setStatus("Click the spot on a figure in the drawing below that the detail view shows. Esc cancels.", "");
   }
   detailBtn?.addEventListener("click", () => {
@@ -587,6 +602,8 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     }
     if (markText) markText.hidden = t !== "text";
     previewEl.classList.toggle("cad-marking", t !== null);
+    // The large window gives the sheet the 3D view's room while drawing on it (caddialog.html).
+    sectionMarking(t !== null || detailMode);
     if (t && calloutMode) setCalloutMode(false, false);
     if (t && detailMode) setDetailMode(false);
     host.setStatus(t ? MARK_HELP[t] : "", "");
@@ -1132,7 +1149,11 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     if (status) host.setStatus(on ? "Click on a part to place a callout; keep clicking for more. Esc or Stop placing callouts ends it." : "", "");
   }
   calloutBtn.addEventListener("click", () => {
-    if (!calloutMode) setMateMode(false, false);
+    // Callouts are placed on the 3D view: a drawing tool (which gives the sheet the 3D view's room) goes off.
+    if (!calloutMode) {
+      setMateMode(false, false);
+      setMarkTool(null);
+    }
     setCalloutMode(!calloutMode);
   });
   document.addEventListener("keydown", (e) => {
@@ -1156,7 +1177,10 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     if (status) host.setStatus(on ? "Mate: click a flat face of the part to MOVE (near a corner or the centre to snap to it)." : "", "");
   }
   mateBtn?.addEventListener("click", () => {
-    if (!mateMode) setCalloutMode(false, false);
+    if (!mateMode) {
+      setCalloutMode(false, false);
+      setMarkTool(null);
+    }
     setMateMode(!mateMode);
   });
   mateUndoBtn?.addEventListener("click", () => {
@@ -1277,6 +1301,10 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
       renderCallouts();
       paint(true);
       renderSheet();
+      if (lastNotes.some((m) => m.startsWith(`Callout ${label} is hidden in every view`))) {
+        host.setStatus(`Callout ${label} is placed on ${doc.parts[hit.body]?.name ?? "the part"}, but no view on the sheet shows that spot, so the sheet leaves it out — tick a view that shows it (Top, Right, This view …), or click a face the sheet's views show.`, "error");
+        return;
+      }
       host.setStatus(`Callout ${label} placed on ${doc.parts[hit.body]?.name ?? "the part"}. Click again for the next; Esc ends it.`, "success");
       return;
     }

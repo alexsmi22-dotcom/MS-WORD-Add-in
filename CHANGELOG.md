@@ -6,6 +6,17 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.155.1] — 2026-10-18 — Drawing (CAD): drawing on the sheet in the large canvas
+
+### Fixed (in-Word report: "not able to insert an arrow or text box", "the self draw is still acting up", "callouts … some missing")
+- In the large canvas the drawing tools (Pencil, Line, Arrow, Numeral, Text, Erase) worked only on the small
+  sheet at the side; dragging on the big view turned the 3D model and drew nothing. Now a drawing tool (or Add
+  detail view) gives the sheet the big area, so it is drawn on at size; switching the tool off — or pressing
+  Add callout or Mate faces, which work on the 3D view — brings the 3D view back.
+- A callout placed on a spot no view on the sheet shows (the underside, with only Front and Isometric ticked) was
+  left off the sheet with only a note; placing it now says so at once and what to do (tick a view that shows
+  it, or click a face the views show).
+
 ## [2.155.0] — 2026-10-18 — Drawing (CAD): mate faces, exploded views, detail views (the table release)
 
 ### Added

@@ -197,3 +197,29 @@ test("second review: removing a detail also drops its marks from the mark undo h
   expect(t.doc().marks).toBeUndefined();
   expect(t.$<HTMLButtonElement>("cad-mark-undo").disabled).toBe(true);
 });
+
+describe("the large window while drawing on the sheet (in-Word report: arrow / text did nothing there)", () => {
+  test("a drawing tool or Add detail view marks the section (the sheet takes the 3D view's room); off, or a callout / mate, gives it back", () => {
+    const t = setup();
+    const section = document.getElementById("cad-section")!;
+    const tool = (name: string): HTMLButtonElement => document.querySelector<HTMLButtonElement>(`[data-mark-tool="${name}"]`)!;
+    tool("arrow").click();
+    expect(section.classList.contains("cad-marking")).toBe(true);
+    tool("arrow").click();
+    expect(section.classList.contains("cad-marking")).toBe(false);
+    t.$<HTMLButtonElement>("cad-detail").click();
+    expect(section.classList.contains("cad-marking")).toBe(true);
+    t.$<HTMLButtonElement>("cad-detail").click();
+    expect(section.classList.contains("cad-marking")).toBe(false);
+    tool("text").click();
+    t.$<HTMLButtonElement>("cad-callout").click();
+    expect(section.classList.contains("cad-marking")).toBe(false);
+    expect(tool("text").getAttribute("aria-pressed")).toBe("false");
+    tool("pen").click();
+    t.$<HTMLButtonElement>("cad-mate").click();
+    expect(section.classList.contains("cad-marking")).toBe(false);
+  });
+  test("the large window's page lays the sheet out in the 3D view's place while marking", () => {
+    expect(DIALOG_HTML).toContain("#cad-section.cad-marking > .cad-col.canvas-col");
+  });
+});

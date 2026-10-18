@@ -1,0 +1,521 @@
+/**
+ * ChemDraw CDXML documents (docs/SCOPE-CHEMDRAW.md, C1): read the file into a model the renderer
+ * draws faithfully and the editor changes. The XML tree is KEPT (`root`): every object the model
+ * reads points back at its element, so an edit changes the element and a saved file still holds
+ * everything this release does not understand. Nothing is dropped silently: objects that are not
+ * drawn are counted in `notes`, by kind.
+ *
+ * Format facts (CDX SDK, cdxml.dtd; measured on ChemDraw 23 files):
+ *   - coordinates are points, y down (SVG's own axes); a `BoundingBox` is "left top right bottom",
+ *     except on a `graphic`, where it is two points whose meaning depends on GraphicType;
+ *   - colours are 2-based: 0 black, 1 white, n ≥ 2 the colour table's entry n − 2; absent = 3;
+ *   - `s@font` is a font-table id; face bits 1 bold, 2 italic, 4 underline, 0x20 subscript,
+ *     0x40 superscript, 0x60 formula;
+ *   - a label's `p` and `BoundingBox` are page coordinates, not offsets from its atom;
+ *   - an object with `SupersededBy` is an old copy kept for old readers (an arrow drawn as a line):
+ *     never drawn;
+ *   - `scheme`, `step`, `chemicalproperty`, `bracketedgroup` and `represent` add meaning, not ink.
+ */
+import { child, parseXml, XNode } from "./xmlLite";
+
+export type Pt = [number, number];
+export type Box = [number, number, number, number]; // left top right bottom
+
+export interface CdxStyle {
+  bondLength: number;
+  lineWidth: number;
+  boldWidth: number;
+  hashSpacing: number;
+  marginWidth: number;
+  /** Gap between the lines of a multiple bond, in points (BondSpacingAbs, or BondSpacing % of BondLength). */
+  bondGap: number;
+  labelFont: number;
+  labelSize: number;
+  labelFace: number;
+  captionFont: number;
+  captionSize: number;
+  captionFace: number;
+}
+
+export interface CdxRun {
+  text: string;
+  font: number;
+  size: number;
+  face: number;
+  color: number;
+}
+
+export interface CdxText {
+  el: XNode;
+  id: string;
+  p: Pt | null;
+  box: Box | null;
+  runs: CdxRun[];
+  /** Left / Center / Right / Auto … as written (LabelJustification, CaptionJustification or Justification). */
+  justify: string;
+  /** Above / Below / … for a multi-line atom label. */
+  align: string;
+  /** Line pitch in points, or null for the font's own ("variable", "auto"). */
+  lineHeight: number | null;
+  z: number;
+  color: number;
+}
+
+export interface CdxNode {
+  el: XNode;
+  id: string;
+  p: Pt;
+  element: number;
+  charge: number;
+  numH: number | null;
+  isotope: number;
+  nodeType: string;
+  label: CdxText | null;
+  /** ExternalConnectionPoint style (Diamond, Star, PolymerBead, Wavy …). */
+  extType: string;
+  z: number;
+}
+
+export interface CdxBond {
+  el: XNode;
+  id: string;
+  b: string;
+  e: string;
+  order: string;
+  display: string;
+  display2: string;
+  doublePosition: string;
+  beginAttach: number | null;
+  endAttach: number | null;
+  z: number;
+  color: number;
+}
+
+export interface CdxFragment {
+  el: XNode;
+  id: string;
+  nodes: CdxNode[];
+  bonds: CdxBond[];
+  z: number;
+}
+
+export interface CdxGraphic {
+  el: XNode;
+  id: string;
+  kind: string; // GraphicType
+  p1: Pt;
+  p2: Pt;
+  lineType: string;
+  arrowType: string;
+  bracketType: string;
+  symbolType: string;
+  rectType: string;
+  ovalType: string;
+  angularSize: number;
+  z: number;
+  color: number;
+}
+
+export interface CdxArrow {
+  el: XNode;
+  id: string;
+  head: Pt;
+  tail: Pt;
+  center: Pt | null;
+  major: Pt | null;
+  minor: Pt | null;
+  angularSize: number;
+  headEnd: string; // ArrowheadHead: Full | HalfLeft | HalfRight | None
+  tailEnd: string; // ArrowheadTail
+  headType: string; // Solid | Hollow | Angle
+  headSize: number;
+  centerSize: number;
+  headWidth: number;
+  shaftSpacing: number;
+  noGo: string;
+  lineType: string;
+  z: number;
+  color: number;
+}
+
+export interface CdxCurve {
+  el: XNode;
+  id: string;
+  points: Pt[];
+  curveType: number;
+  z: number;
+  color: number;
+}
+
+export type CdxItem =
+  | { kind: "fragment"; v: CdxFragment }
+  | { kind: "text"; v: CdxText }
+  | { kind: "graphic"; v: CdxGraphic }
+  | { kind: "arrow"; v: CdxArrow }
+  | { kind: "curve"; v: CdxCurve };
+
+/** One thing on the page a user picks as a whole: a fragment, a group, a caption, a graphic, an arrow. */
+export interface CdxObject {
+  el: XNode;
+  id: string;
+  kind: string;
+  items: CdxItem[];
+}
+
+export interface CdxBracketGroup {
+  el: XNode;
+  id: string;
+  usage: string;
+  objectIds: string[];
+  attachments: Array<{ graphicId: string; bondId: string; innerAtomId: string }>;
+}
+
+export interface CdxDoc {
+  root: XNode;
+  program: string;
+  style: CdxStyle;
+  /** Colour table (CSS colours), index n − 2 for colour n. */
+  colors: string[];
+  fonts: Map<number, string>;
+  /** The page's own box, and the box of what is drawn on it. */
+  pageBox: Box | null;
+  drawnBox: Box | null;
+  objects: CdxObject[];
+  brackets: CdxBracketGroup[];
+  /** Chemical-property displays (ChemDraw-computed names): display text id → the objects it was computed from. */
+  properties: Array<{ displayId: string; basis: string[]; type: string }>;
+  notes: string[];
+}
+
+export const CDXML_LIMITS = { bytes: 40 * 1024 * 1024 };
+
+const num = (v: string | undefined, d: number): number => {
+  if (v === undefined) return d;
+  const x = Number(v.trim());
+  return Number.isFinite(x) ? x : d;
+};
+const pt = (v: string | undefined): Pt | null => {
+  if (!v) return null;
+  const a = v.trim().split(/\s+/).map(Number);
+  return a.length >= 2 && Number.isFinite(a[0]) && Number.isFinite(a[1]) ? [a[0], a[1]] : null;
+};
+const box = (v: string | undefined): Box | null => {
+  if (!v) return null;
+  const a = v.trim().split(/\s+/).map(Number);
+  return a.length === 4 && a.every(Number.isFinite) ? [a[0], a[1], a[2], a[3]] : null;
+};
+/** Colour index as written; absent = 3 (the foreground). */
+const colorOf = (el: XNode): number => num(el.attrs.color, 3);
+
+/**
+ * Reads a CDXML document. Refusals name what is wrong ("it is not well-formed XML (line 12: …)",
+ * "it is not a ChemDraw CDXML file"); never a partial drawing presented as the whole.
+ */
+export function readCdxml(text: string): { ok: true; doc: CdxDoc } | { ok: false; reason: string } {
+  if (text.length > CDXML_LIMITS.bytes) return { ok: false, reason: `the file is larger than ${CDXML_LIMITS.bytes / 1048576} MB` };
+  const x = parseXml(text);
+  if (!x.ok) return x;
+  const root = x.root;
+  if (root.name !== "CDXML") return { ok: false, reason: `it is not a ChemDraw CDXML file (its root element is <${root.name}>, not <CDXML>)` };
+  const pages = root.children.filter((c) => c.name === "page");
+  if (!pages.length) return { ok: false, reason: "it has no page" };
+
+  const a = root.attrs;
+  const bondLength = num(a.BondLength, 30);
+  const style: CdxStyle = {
+    bondLength,
+    lineWidth: num(a.LineWidth, 1),
+    boldWidth: num(a.BoldWidth, 4),
+    hashSpacing: num(a.HashSpacing, 2.7),
+    marginWidth: num(a.MarginWidth, 2),
+    bondGap: a.BondSpacingAbs !== undefined ? num(a.BondSpacingAbs, 3.6) : (num(a.BondSpacing, 12) / 100) * bondLength,
+    labelFont: num(a.LabelFont, -1),
+    labelSize: num(a.LabelSize, 10),
+    labelFace: num(a.LabelFace, 0x60),
+    captionFont: num(a.CaptionFont, -1),
+    captionSize: num(a.CaptionSize, 12),
+    captionFace: num(a.CaptionFace, 0),
+  };
+  const colors: string[] = [];
+  const ct = child(root, "colortable");
+  for (const c of ct?.children ?? []) {
+    if (c.name !== "color") continue;
+    const v = (k: string): number => Math.round(Math.max(0, Math.min(1, num(c.attrs[k], 0))) * 255);
+    colors.push(`rgb(${v("r")},${v("g")},${v("b")})`);
+  }
+  const fonts = new Map<number, string>();
+  for (const f of child(root, "fonttable")?.children ?? []) if (f.name === "font" && f.attrs.id !== undefined) fonts.set(num(f.attrs.id, -1), f.attrs.name ?? "Arial");
+
+  const notes = new Map<string, number>();
+  const note = (k: string): void => void notes.set(k, (notes.get(k) ?? 0) + 1);
+  // Superseded objects: their replacement is drawn instead.
+  const ids = new Set<string>();
+  const walk = (n: XNode): void => {
+    if (n.attrs.id) ids.add(n.attrs.id);
+    n.children.forEach(walk);
+  };
+  walk(root);
+  const skip = (el: XNode): boolean => el.attrs.Visible === "no" || (el.attrs.SupersededBy !== undefined && ids.has(el.attrs.SupersededBy));
+
+  const readText = (el: XNode, label: boolean): CdxText => {
+    const runs: CdxRun[] = [];
+    for (const s of el.children) {
+      if (s.name !== "s") continue;
+      runs.push({
+        text: s.text,
+        font: num(s.attrs.font, label ? style.labelFont : style.captionFont),
+        size: num(s.attrs.size, label ? style.labelSize : style.captionSize),
+        face: num(s.attrs.face, label ? style.labelFace : style.captionFace),
+        color: num(s.attrs.color, 3),
+      });
+    }
+    const lh = el.attrs.CaptionLineHeight ?? el.attrs.LabelLineHeight ?? el.attrs.LineHeight;
+    return {
+      el,
+      id: el.attrs.id ?? "",
+      p: pt(el.attrs.p),
+      box: box(el.attrs.BoundingBox),
+      runs,
+      justify: el.attrs.LabelJustification ?? el.attrs.CaptionJustification ?? el.attrs.Justification ?? (label ? "Auto" : "Left"),
+      align: el.attrs.LabelAlignment ?? "Auto",
+      lineHeight: lh === undefined || lh === "variable" || lh === "auto" || lh === "0" || lh === "1" ? null : num(lh, 0) || null,
+      z: num(el.attrs.Z, 0),
+      color: colorOf(el),
+    };
+  };
+
+  const readFragment = (el: XNode): CdxFragment => {
+    const nodes: CdxNode[] = [];
+    const bonds: CdxBond[] = [];
+    for (const c of el.children) {
+      if (c.name === "n") {
+        const p = pt(c.attrs.p);
+        if (!p) {
+          note("atoms with no position (ChemDraw would clean them up) were not drawn");
+          continue;
+        }
+        const t = child(c, "t");
+        nodes.push({
+          el: c,
+          id: c.attrs.id ?? "",
+          p,
+          element: num(c.attrs.Element, 6),
+          charge: num(c.attrs.Charge, 0),
+          numH: c.attrs.NumHydrogens !== undefined ? num(c.attrs.NumHydrogens, 0) : null,
+          isotope: num(c.attrs.Isotope, 0),
+          nodeType: c.attrs.NodeType ?? "Element",
+          label: t ? readText(t, true) : null,
+          extType: c.attrs.ExternalConnectionType ?? "",
+          z: num(c.attrs.Z, 0),
+        });
+      } else if (c.name === "b") {
+        if (!c.attrs.B || !c.attrs.E) {
+          note("bonds missing an end were not drawn");
+          continue;
+        }
+        bonds.push({
+          el: c,
+          id: c.attrs.id ?? "",
+          b: c.attrs.B,
+          e: c.attrs.E,
+          order: c.attrs.Order ?? "1",
+          display: c.attrs.Display ?? "Solid",
+          display2: c.attrs.Display2 ?? c.attrs.Display ?? "Solid",
+          doublePosition: c.attrs.DoublePosition ?? "",
+          beginAttach: c.attrs.BeginAttach !== undefined ? num(c.attrs.BeginAttach, 0) : null,
+          endAttach: c.attrs.EndAttach !== undefined ? num(c.attrs.EndAttach, 0) : null,
+          z: num(c.attrs.Z, 0),
+          color: colorOf(c),
+        });
+      } else if (c.name === "t" || c.name === "graphic" || c.name === "curve") {
+        // Rare inside a fragment; drawn by the caller's item walk below.
+      } else if (c.name !== "objecttag") note(`<${c.name}> inside a structure`);
+    }
+    return { el, id: el.attrs.id ?? "", nodes, bonds, z: num(el.attrs.Z, 0) };
+  };
+
+  const readGraphic = (el: XNode): CdxGraphic | null => {
+    const v = (el.attrs.BoundingBox ?? "").trim().split(/\s+/).map(Number);
+    if (v.length !== 4 || !v.every(Number.isFinite)) {
+      note("graphics with no position were not drawn");
+      return null;
+    }
+    return {
+      el,
+      id: el.attrs.id ?? "",
+      kind: el.attrs.GraphicType ?? "Undefined",
+      p1: [v[0], v[1]],
+      p2: [v[2], v[3]],
+      lineType: el.attrs.LineType ?? "Solid",
+      arrowType: el.attrs.ArrowType ?? "",
+      bracketType: el.attrs.BracketType ?? "RoundPair",
+      symbolType: el.attrs.SymbolType ?? "LonePair",
+      rectType: el.attrs.RectangleType ?? "",
+      ovalType: el.attrs.OvalType ?? "",
+      angularSize: num(el.attrs.AngularSize, 0),
+      z: num(el.attrs.Z, 0),
+      color: colorOf(el),
+    };
+  };
+
+  const readArrow = (el: XNode): CdxArrow | null => {
+    const head = pt(el.attrs.Head3D), tail = pt(el.attrs.Tail3D);
+    if (!head || !tail) {
+      note("arrows with no ends were not drawn");
+      return null;
+    }
+    const at = (k1: string, k2: string): string | undefined => el.attrs[k1] ?? el.attrs[k2];
+    return {
+      el,
+      id: el.attrs.id ?? "",
+      head,
+      tail,
+      center: pt(el.attrs.Center3D),
+      major: pt(el.attrs.MajorAxisEnd3D),
+      minor: pt(el.attrs.MinorAxisEnd3D),
+      angularSize: num(el.attrs.AngularSize, 0),
+      headEnd: at("ArrowheadHead", "ArrowHeadHead") ?? "None",
+      tailEnd: at("ArrowheadTail", "ArrowHeadTail") ?? "None",
+      headType: at("ArrowheadType", "ArrowHeadType") ?? "Solid",
+      headSize: num(el.attrs.HeadSize, 1000),
+      centerSize: num(at("ArrowheadCenterSize", "HeadCenterSize"), 875),
+      headWidth: num(at("ArrowheadWidth", "HeadWidth"), 250),
+      shaftSpacing: num(el.attrs.ArrowShaftSpacing, 0),
+      noGo: el.attrs.NoGo ?? "",
+      lineType: el.attrs.LineType ?? "Solid",
+      z: num(el.attrs.Z, 0),
+      color: colorOf(el),
+    };
+  };
+
+  const readCurve = (el: XNode): CdxCurve | null => {
+    const v = (el.attrs.CurvePoints ?? "").trim().split(/\s+/).map(Number);
+    if (v.length < 4 || v.length % 2 || !v.every(Number.isFinite)) {
+      note("curves with no points were not drawn");
+      return null;
+    }
+    const points: Pt[] = [];
+    for (let i = 0; i < v.length; i += 2) points.push([v[i], v[i + 1]]);
+    return { el, id: el.attrs.id ?? "", points, curveType: num(el.attrs.CurveType, 0), z: num(el.attrs.Z, 0), color: colorOf(el) };
+  };
+
+  /** Every drawable item under `el` (a group's members, a fragment's own captions …). */
+  const itemsOf = (el: XNode, out: CdxItem[], depth: number): void => {
+    if (skip(el) || depth > 32) return;
+    switch (el.name) {
+      case "fragment":
+        out.push({ kind: "fragment", v: readFragment(el) });
+        for (const c of el.children) if (c.name === "t" || c.name === "graphic" || c.name === "curve") itemsOf(c, out, depth + 1);
+        return;
+      case "t":
+        out.push({ kind: "text", v: readText(el, false) });
+        return;
+      case "graphic": {
+        const g = readGraphic(el);
+        if (g) out.push({ kind: "graphic", v: g });
+        return;
+      }
+      case "arrow": {
+        const r = readArrow(el);
+        if (r) out.push({ kind: "arrow", v: r });
+        return;
+      }
+      case "curve": {
+        const c = readCurve(el);
+        if (c) out.push({ kind: "curve", v: c });
+        return;
+      }
+      case "group":
+      case "altgroup":
+        for (const c of el.children) itemsOf(c, out, depth + 1);
+        return;
+      case "scheme":
+      case "step":
+      case "chemicalproperty":
+      case "bracketedgroup":
+      case "bracketattachment":
+      case "crossingbond":
+      case "represent":
+      case "objecttag":
+      case "regnum":
+      case "templategrid":
+      case "splitter":
+      case "sequence":
+      case "crossreference":
+        return; // meaning, not ink
+      default:
+        note(`<${el.name}> objects`);
+    }
+  };
+
+  const objects: CdxObject[] = [];
+  const brackets: CdxBracketGroup[] = [];
+  const properties: CdxDoc["properties"] = [];
+  const page = pages[0];
+  if (pages.length > 1) notes.set(`pages after the first (${pages.length - 1}) were not read`, 1);
+  for (const c of page.children) {
+    if (c.name === "bracketedgroup") {
+      const atts = c.children.filter((k) => k.name === "bracketattachment").map((k) => {
+        const cb = child(k, "crossingbond");
+        return { graphicId: k.attrs.GraphicID ?? "", bondId: cb?.attrs.BondID ?? "", innerAtomId: cb?.attrs.InnerAtomID ?? "" };
+      });
+      brackets.push({ el: c, id: c.attrs.id ?? "", usage: c.attrs.BracketUsage ?? "", objectIds: (c.attrs.BracketedObjectIDs ?? "").split(/\s+/).filter(Boolean), attachments: atts });
+      continue;
+    }
+    if (c.name === "chemicalproperty") {
+      properties.push({ displayId: c.attrs.ChemicalPropertyDisplayID ?? "", basis: (c.attrs.BasisObjects ?? "").split(/\s+/).filter(Boolean), type: c.attrs.ChemicalPropertyType ?? "" });
+      continue;
+    }
+    const items: CdxItem[] = [];
+    itemsOf(c, items, 0);
+    if (items.length) objects.push({ el: c, id: c.attrs.id ?? "", kind: c.name, items });
+  }
+
+  // The box of what is drawn: every node, text box, graphic point and arrow end.
+  let l = Infinity, t = Infinity, r = -Infinity, b = -Infinity;
+  const add = (p: Pt | null): void => {
+    if (!p) return;
+    l = Math.min(l, p[0]);
+    r = Math.max(r, p[0]);
+    t = Math.min(t, p[1]);
+    b = Math.max(b, p[1]);
+  };
+  const addBox = (q: Box | null): void => {
+    if (!q) return;
+    add([q[0], q[1]]);
+    add([q[2], q[3]]);
+  };
+  for (const o of objects)
+    for (const it of o.items) {
+      if (it.kind === "fragment") for (const n of it.v.nodes) add(n.p), addBox(n.label?.box ?? null);
+      else if (it.kind === "text") addBox(it.v.box), add(it.v.p);
+      else if (it.kind === "graphic") add(it.v.p1), add(it.v.p2);
+      else if (it.kind === "arrow") add(it.v.head), add(it.v.tail);
+      else for (const p of it.v.points) add(p);
+    }
+  const drawnBox: Box | null = l <= r ? [l, t, r, b] : null;
+
+  return {
+    ok: true,
+    doc: {
+      root,
+      program: a.CreationProgram ?? "",
+      style,
+      colors,
+      fonts,
+      pageBox: box(page.attrs.BoundingBox),
+      drawnBox,
+      objects,
+      brackets,
+      properties,
+      notes: [...notes].map(([k, n]) => (n > 1 && !/^pages after/.test(k) ? `${n} ${k}` : k)),
+    },
+  };
+}
+
+/** A colour index as CSS: 0 black, 1 white, n ≥ 2 the table's entry n − 2 (default foreground black). */
+export function cssColor(doc: CdxDoc, index: number): string {
+  if (index === 0) return "#000";
+  if (index === 1) return "#fff";
+  return doc.colors[index - 2] ?? (index === 2 ? "#fff" : "#000");
+}

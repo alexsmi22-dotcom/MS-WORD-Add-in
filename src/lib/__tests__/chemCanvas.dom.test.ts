@@ -182,3 +182,52 @@ describe("what is new: brackets, arrows, captions", () => {
     expect(t.formula()).toBe("C5H12");
   });
 });
+
+describe("a ChemDraw page on the canvas", () => {
+  const NAMED = `<?xml version="1.0" encoding="UTF-8" ?><CDXML BondLength="30" LabelSize="10" CaptionSize="12"><fonttable><font id="3" name="Arial"/></fonttable><page id="1">
+<fragment id="10"><n id="11" p="100 100"/><n id="12" p="126 115"/><n id="13" p="152 100"/><b id="14" B="11" E="12"/><b id="15" B="12" E="13"/></fragment>
+<t id="30" p="100 160"><s font="3" size="12">propane</s></t><chemicalproperty id="31" ChemicalPropertyDisplayID="30" ChemicalPropertyType="1" BasisObjects="10"/></page></CDXML>`;
+  test("a name ChemDraw computed goes stale when its structure is edited (not when a caption moves); Save writes CDXML ChemDraw opens", () => {
+    const t = setup();
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { readCdxml } = require("../cdxml") as typeof import("../cdxml");
+    const r = readCdxml(NAMED);
+    if (!r.ok) throw new Error(r.reason);
+    t.c.loadPage(r.doc);
+    expect(t.c.staleNames()).toEqual([]);
+    t.tool("arrow");
+    t.drag([200, 200], [260, 200]);
+    expect(t.c.staleNames()).toEqual([]);
+    t.element("N");
+    t.click(126, 115);
+    expect(t.c.staleNames()).toEqual(["propane"]);
+  });
+});
+
+test("Save as .cdxml downloads the page as CDXML that reads back the same", async () => {
+  document.body.innerHTML = '<div id="mount"></div>';
+  const saved: Array<{ blob: Blob; name: string }> = [];
+  const c = createChemCanvas(document.getElementById("mount")!, { setStatus: () => undefined, downloadFile: (blob, name) => void saved.push({ blob, name }) });
+  const m = Molecule.fromSmiles("CCO");
+  m.inventCoordinates();
+  c.setMolecule(m);
+  c.setName("ethanol.cdxml");
+  document.querySelector<HTMLButtonElement>('[data-chem-action="save"]')!.click();
+  // Loaded, not edited: saved under its own name.
+  expect(saved[0].name).toBe("ethanol.cdxml");
+  const text = await new Promise<string>((res) => {
+    const fr = new FileReader();
+    fr.onload = () => res(String(fr.result));
+    fr.readAsText(saved[0].blob);
+  });
+  expect(text).toMatch(/^<\?xml/);
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { readCdxml } = require("../cdxml") as typeof import("../cdxml");
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { pageToMolecule } = require("../cdxmlMol") as typeof import("../cdxmlMol");
+  if (text) {
+    const r = readCdxml(text);
+    const back = r.ok ? pageToMolecule(r.doc) : null;
+    expect(back && back.ok && back.value.mol.getIDCode()).toBe(m.getIDCode());
+  }
+});

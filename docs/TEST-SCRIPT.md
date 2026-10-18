@@ -10,6 +10,18 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
 
+## 0ct. New in v2.156.0 — one chemistry canvas
+
+- [ ] ★ **Draw from scratch.** Structure ▸ Draw: the page is blank, Bond ready. Click: a bond. Drag from its end:
+  the chain grows. Pick O, click the end atom: ethanol — Formula C₂H₆O, SMILES CCO. Click a bond twice: triple.
+  Insert 2D structure: the picture is what the page shows.
+- [ ] ★ **A ChemDraw file on the canvas.** Open ChemDraw file… (a .cdx or .cdxml): it opens on the same page, no
+  separate panel. Change an atom; Insert; Save as .cdxml and open the file in ChemDraw.
+- [ ] **Ring, chain, charge, brackets, arrow, text, select / move / delete, undo** — each on the page. Zoom + / −
+  and Ctrl+wheel; Fit.
+- [ ] **Markush.** Draw with an R1 (Atom: type R1): the readout says generic; the box ticks.
+- [ ] **Large canvas.** Open large canvas / 3D: the same canvas, larger; Use this drawing brings it back.
+
 ## 0cs. New in v2.155.0 — Drawing (CAD): the table — mates, exploded and detail views
 
 - [ ] ★ **Mate the table.** Drawing (CAD): Add part Block, set 100 × 60 × 4 (the top); add four Blocks 5 × 5 × 70

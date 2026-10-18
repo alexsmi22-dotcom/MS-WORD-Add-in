@@ -57,7 +57,7 @@ Every number the pane shows passes through them, so they come first, pinned agai
 New beyond today: polymer brackets (ChemDraw's SRU form), reaction and equilibrium arrows, text / captions,
 a blank page by default, several structures laid out on one page, ChemDraw files and pictures opened in place.
 
-## Stages
+## Stages (1–3 shipped in v2.156.0)
 
 1. Converters + oracles (no UI change).
 2. The canvas as a DOM-only controller (like cadPane): mounted in the pane and in the large canvas, the five

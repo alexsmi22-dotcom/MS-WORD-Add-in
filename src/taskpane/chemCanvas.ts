@@ -15,7 +15,7 @@ import { atomAt, bondAt, captionAt, objectAt, objectBoxes, withCompanions } from
 import {
   addArrow, addAtomAt, addBondAt, addBondBetween, addBondFrom, addBondToward, addBrackets, addCaption, addChain, addRingAt, addRingAtAtom, addRingOnBond,
   ArrowKind, blankPageCdxml, chainLength, chainPath, cloneTree, deleteInStructure, deleteObjects, findById, moveObjects, RingKind,
-  setAtomLabel, setBond, setCharge, setText,
+  namesTiedTo, setAtomLabel, setBond, setCharge, setText, writeCdxml,
 } from "../lib/cdxmlEdit";
 import { moleculeToPage, pageToMolecule } from "../lib/cdxmlMol";
 import type { XNode } from "../lib/xmlLite";
@@ -24,6 +24,8 @@ export type CanvasTool = "select" | "atom" | "bond" | "chain" | "ring" | "charge
 
 export interface ChemCanvasHost {
   setStatus(text: string, kind?: "success" | "error" | ""): void;
+  /** Saves a file for the user (Save as .cdxml); without it the button is not shown. */
+  downloadFile?(blob: Blob, name: string): void;
 }
 
 /** Why the canvas changed: a user edit, or a programmatic load (the pane keeps its status for the latter). */
@@ -55,6 +57,10 @@ export interface ChemCanvas {
   render(selectionOnly: boolean): { svg: string; widthPt: number; heightPt: number } | null;
   selection(): Set<string>;
   setTool(t: CanvasTool): void;
+  /** Names ChemDraw computed for structures changed since (their words): to check before inserting. */
+  staleNames(): string[];
+  /** The name the page is saved under (a ChemDraw file's name). */
+  setName(name: string): void;
 }
 
 const UNDO_DEPTH = 100;
@@ -112,6 +118,8 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
   const zoomOutBtn = el("button", { type: "button", class: "insert-btn secondary", "data-chem-action": "zoom-out", title: "Zoom out (Ctrl+wheel)" }, "Zoom −");
   const fitBtn = el("button", { type: "button", class: "insert-btn secondary", "data-chem-action": "fit", title: "Fit the drawing in view" }, "Fit");
   bar.append(undoBtn, redoBtn, zoomInBtn, zoomOutBtn, fitBtn);
+  const saveBtn = el("button", { type: "button", class: "insert-btn secondary", "data-chem-action": "save", title: "Download the page as a ChemDraw XML file (ChemDraw opens it)" }, "Save as .cdxml");
+  if (host.downloadFile) bar.append(saveBtn);
   const opts = el("div", { class: "chem-canvas-options" });
   const palette = el("div", { class: "chem-canvas-palette", role: "group", "aria-label": "Element" });
   for (const sym of ELEMENTS) {
@@ -147,6 +155,17 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
   const START_VIEW: Box = [0, 0, 180, 120];
   let view: Box = [...START_VIEW] as Box;
   let suppressClick = false;
+  let pageName = "drawing";
+  /** Changed by the user since it was loaded (Save names an edited file so). */
+  let edited = false;
+  /** Names ChemDraw computed (text object ids) whose structure changed since. */
+  let stale = new Set<string>();
+  /** Each structure as written, to see which ones an edit changed. */
+  const signatures = (): Map<string, string> => {
+    const m = new Map<string, string>();
+    for (const o of doc.objects) for (const it of o.items) if (it.kind === "fragment") m.set(o.id, writeCdxml(it.v.el));
+    return m;
+  };
 
   const fire = (isUserEvent: boolean): void => onChange?.({ isUserEvent });
   const contentBox = (): Box | null => {
@@ -223,6 +242,8 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
   /** Runs an edit with an undo step; a refusal (string) leaves the page as it was and says why. */
   function edit(f: () => string | null): boolean {
     const before = cloneTree(doc.root);
+    const sigBefore = signatures();
+    const propsBefore = doc.properties;
     const why = f();
     if (why) {
       doc.root = before;
@@ -233,6 +254,12 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
     if (undo.length > UNDO_DEPTH) undo.shift();
     redo = [];
     reread();
+    edited = true;
+    // A name ChemDraw computed for a structure that changed (or went) no longer describes it.
+    const sigAfter = signatures();
+    const changed = [...sigBefore.keys()].filter((id) => sigAfter.get(id) !== sigBefore.get(id));
+    for (const id of namesTiedTo({ ...doc, root: before, properties: propsBefore } as CdxDoc, changed)) stale.add(id);
+    stale = new Set([...stale].filter((id) => !!findById(doc.root, id)));
     fire(true);
     return true;
   }
@@ -617,6 +644,7 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
       if (undo.length > UNDO_DEPTH) undo.shift();
       redo = [];
       doc = fresh;
+      edited = false;
       fragmentFlag = mol.isFragment();
       selected = new Set();
       const r = readCdxmlTree(doc.root);
@@ -651,6 +679,8 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
       redo = [];
       doc = d;
       selected = new Set();
+      stale = new Set();
+      edited = false;
       boxes = objectBoxes(doc);
       view = [...START_VIEW] as Box;
       growView(true);
@@ -664,7 +694,15 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
     },
     selection: () => new Set(selected),
     setTool,
+    staleNames: () => [...stale].map((id) => (findById(doc.root, id)?.el.children.filter((c) => c.name === "s").map((s) => s.text).join("") ?? "").trim()).filter(Boolean),
+    setName: (n) => void (pageName = n.replace(/\.(cdxml|cdx|xml)$/i, "") || "drawing"),
   };
+  saveBtn.addEventListener("click", () => {
+    if (!host.downloadFile) return;
+    const out = `${pageName}${edited ? " (edited)" : ""}.cdxml`;
+    host.downloadFile(new Blob([writeCdxml(doc.root)], { type: "chemical/x-cdxml" }), out);
+    host.setStatus(`Saved ${out} — it opens in ChemDraw.`, "success");
+  });
   setTool("bond");
   draw();
   return api;

@@ -1793,7 +1793,8 @@ Office.onReady((info) => {
     ensureDrawEditor();
     if (!drawEditor) return false;
     drawEditor.loadPage(page);
-    setStatus(`${name} opened on the canvas — edit it with the tools above; Insert puts it in as drawn.`, "success");
+    drawEditor.setName(name);
+    setStatus(`${name} opened on the canvas — edit it with the tools above; Insert puts it in as drawn; Save as .cdxml keeps it editable.`, "success");
     return true;
   } });
   cadPane = initCadPane({
@@ -5070,7 +5071,7 @@ function ensureDrawEditor(): void {
   const host = document.getElementById("build-editor") as HTMLElement;
   try {
     // JurisLab's own canvas (chemCanvas.ts): structures, brackets, arrows and text on one page.
-    drawEditor = createChemCanvas(host, { setStatus: (m, k) => setStatus(m, k ?? "") });
+    drawEditor = createChemCanvas(host, { setStatus: (m, k) => setStatus(m, k ?? ""), downloadFile: (blob, name) => triggerDownload(blob, name) });
     drawEditor.setOnChangeListener((event) => {
       // A programmatic change (Clean, the large canvas's return, Edit in Draw, a ChemDraw file) keeps
       // the status that path just set.
@@ -5768,7 +5769,9 @@ async function insertBuild(): Promise<void> {
             : null,
       tag: "formula-inserter:structure",
     });
-    setStatus(hasLegend ? "Structure + R-group legend inserted." : "Structure inserted.", "success");
+    const staleNow = buildTab === "draw" && drawEditor ? drawEditor.staleNames() : [];
+    const warnNow = staleNow.length ? ` Check ${staleNow.map((w) => `“${w}”`).join(", ")}: ChemDraw computed ${staleNow.length === 1 ? "that name" : "those names"} before the structure changed.` : "";
+    setStatus((hasLegend ? "Structure + R-group legend inserted." : "Structure inserted.") + warnNow, warnNow ? "" : "success");
     recordInsert("build", recorded, label);
   } catch (error) {
     setStatus(`Could not insert structure: ${(error as Error).message}`, "error");
@@ -29885,7 +29888,9 @@ async function insertDrawingOnly(selectionOnly: boolean, replace = false): Promi
     if (replace) {
       if (!(await docHost.replaceSelectedPicture(pic))) return setStatus("Select the picture to replace in the document first (click it; it must sit in line with the text).", "error");
     } else await docHost.insertPictureAtSelection(pic);
-    setStatus(`${replace ? "Replaced the selected picture with" : "Inserted"} ${selectionOnly ? "the selection" : "the drawing"}. ${fit.note}`, "success");
+    const stale = drawEditor.staleNames();
+    const warn = stale.length ? ` Check ${stale.map((w) => `“${w}”`).join(", ")}: ChemDraw computed ${stale.length === 1 ? "that name" : "those names"} before the structure changed.` : "";
+    setStatus(`${replace ? "Replaced the selected picture with" : "Inserted"} ${selectionOnly ? "the selection" : "the drawing"}. ${fit.note}${warn}`, warn ? "" : "success");
     recordInsert("build", chem.ok ? `idcode: ${chem.mol.getIDCode()}` : "drawing", label);
   } catch (error) {
     setStatus(`Could not ${replace ? "replace the picture" : "insert the drawing"}: ${(error as Error).message}`, "error");

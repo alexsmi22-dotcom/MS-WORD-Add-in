@@ -6,6 +6,31 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.156.0] — 2026-10-18 — One chemistry canvas
+
+### Changed
+- **The Structure ▸ Draw canvas is JurisLab's own** (it replaces the OpenChemLib editor, in the pane and in
+  the large canvas): one page holding structures, polymer brackets, arrows and text, kept as ChemDraw keeps
+  them. Everything chemistry-building is on it — atoms with an element palette (C H N O S P F Cl Br I, or any
+  label typed: N, Cl, R1, OMe …), bonds (click empty paper for a bond, drag from an atom to grow it, to another
+  atom to close a ring or join two structures; click a bond for double / triple; wedge, hashed wedge, wavy,
+  bold, dashed), rings, chains, charges, brackets, arrows, captions, select / box-select / move / delete,
+  undo / redo, zoom (buttons, Ctrl+wheel, Fit), Save as .cdxml.
+- **ChemDraw files and pictures open on this canvas** (Open ChemDraw file…, Open ChemDraw picture) — no separate
+  panel. Insert puts the page in as drawn (Insert selected: only what is selected; Replace selected picture:
+  in place of the picture clicked in the document). A name ChemDraw computed for a structure you change is
+  named on insert, to check.
+- Formula, SMILES, Markush / R-groups, Clean, compliance notes, Edit in Draw, Draw a component and the large
+  canvas's 3D tab work as before: the page's structures are converted to OpenChemLib's molecule exactly —
+  every compound in the 359-compound dictionary round-trips to the same idcode, stereo included — or the
+  readout says why there is no single formula (a generic X, a label the file does not define).
+- Labels standing for groups (OMe, CO₂H, Ph, Boc, NO₂, CF₃ … 154 forms, leftward ones too) are expanded the way
+  ChemDraw's Expand Label does, so a ChemDraw drawing's formula is the one drawn; every group's formula is
+  pinned. A hypervalent atom keeps the hydrogens it is drawn with.
+
+Not yet: the large canvas takes structures only (a page with brackets, arrows or text is edited in the pane,
+and it says so); Clean lays out pages of structures only.
+
 ## [2.155.0] — 2026-10-18 — Drawing (CAD): mate faces, exploded views, detail views (the table release)
 
 ### Added

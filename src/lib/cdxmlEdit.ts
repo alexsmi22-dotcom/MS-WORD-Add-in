@@ -418,3 +418,140 @@ export function namesTiedTo(doc: CdxDoc, objectIds: Iterable<string>): string[] 
   }
   return doc.properties.filter((p) => p.basis.some((b) => inside.has(b))).map((p) => p.displayId);
 }
+
+// ---- rings --------------------------------------------------------------------------------
+
+export type RingKind = "benzene" | "cyclohexane" | "cyclopentane" | "cyclopropane" | "cyclobutane" | "cycloheptane";
+const RING_SIZE: Record<RingKind, number> = { cyclopropane: 3, cyclobutane: 4, cyclopentane: 5, benzene: 6, cyclohexane: 6, cycloheptane: 7 };
+
+type P2 = [number, number];
+const posOf = (n: XNode): P2 => (n.attrs.p ?? "0 0").split(/\s+/).map(Number) as P2;
+
+/**
+ * Puts a regular ring through the given vertices (in order) on a fragment, re-using any existing
+ * atom within a fifth of a bond length of a vertex (so a ring fused onto a bond shares that bond,
+ * and one closing onto an existing atom joins it), and adds the bonds that are not already there.
+ * Benzene alternates double bonds where neither atom already has one.
+ */
+function placeRing(doc: CdxDoc, frag: XNode, verts: P2[], kind: RingKind, keep: string[] = []): string[] {
+  const id = nextIdFrom(doc.root);
+  const L = doc.style.bondLength;
+  const atoms = frag.children.filter((c) => c.name === "n");
+  const ids = verts.map((v, i) => {
+    if (keep[i]) return keep[i];
+    const near = atoms.find((a) => {
+      const p = posOf(a);
+      return Math.hypot(p[0] - v[0], p[1] - v[1]) < L * 0.2;
+    });
+    if (near) return near.attrs.id!;
+    const nid = id();
+    const n: XNode = { name: "n", attrs: { id: nid, p: `${fmt(v[0])} ${fmt(v[1])}` }, children: [], text: "", line: 0 };
+    frag.children.push(n);
+    atoms.push(n);
+    return nid;
+  });
+  const bondBetween = (a: string, b: string): XNode | undefined =>
+    frag.children.find((c) => c.name === "b" && ((c.attrs.B === a && c.attrs.E === b) || (c.attrs.B === b && c.attrs.E === a)));
+  const hasDouble = (a: string): boolean => frag.children.some((c) => c.name === "b" && (c.attrs.B === a || c.attrs.E === a) && c.attrs.Order === "2");
+  for (let i = 0; i < ids.length; i++) {
+    const a = ids[i], b = ids[(i + 1) % ids.length];
+    let bd = bondBetween(a, b);
+    if (!bd) {
+      bd = { name: "b", attrs: { id: id(), B: a, E: b }, children: [], text: "", line: 0 };
+      frag.children.push(bd);
+    }
+  }
+  if (kind === "benzene") {
+    // Alternate double bonds round the ring. A bond of the plan may already be double, or have both
+    // ends free of one; a bond the ring shares with a structure already there may also have both
+    // ends already double-bonded (fusing onto a ring's single bond: naphthalene), and stays single.
+    for (let start = 0; start < 2; start++) {
+      const plan = [0, 2, 4].map((k) => [ids[(k + start) % 6], ids[(k + start + 1) % 6]]);
+      const shared = (a: string, b: string): boolean => keep.includes(a) && keep.includes(b);
+      const ok = plan.every(([a, b]) => bondBetween(a, b)!.attrs.Order === "2" || (!hasDouble(a) && !hasDouble(b)) || (shared(a, b) && hasDouble(a) && hasDouble(b)));
+      if (ok) {
+        for (const [a, b] of plan) if (!hasDouble(a) && !hasDouble(b)) bondBetween(a, b)!.attrs.Order = "2";
+        break;
+      }
+    }
+  }
+  for (const a of new Set(ids)) {
+    const n = atoms.find((x) => x.attrs.id === a);
+    if (n) relabel(doc, n);
+  }
+  return ids;
+}
+
+/** The vertices of a regular ring with side A→B, on the side `sign` (+1 right of A→B, y down). */
+function ringVerts(a: P2, b: P2, size: number, sign: number): P2[] {
+  const out: P2[] = [a, b];
+  const ang = (2 * Math.PI) / size;
+  let p = b, dir = Math.atan2(b[1] - a[1], b[0] - a[0]);
+  const L = Math.hypot(b[0] - a[0], b[1] - a[1]);
+  for (let i = 2; i < size; i++) {
+    dir += sign * ang;
+    p = [p[0] + L * Math.cos(dir), p[1] + L * Math.sin(dir)];
+    out.push(p);
+  }
+  return out;
+}
+
+/** Fuses a ring onto a bond, on the side away from the bond's other neighbours. */
+export function addRingOnBond(doc: CdxDoc, bondId: string, kind: RingKind): string | null {
+  const hit = findById(doc.root, bondId);
+  if (!hit || hit.el.name !== "b" || !hit.parent || hit.parent.name !== "fragment") return "that bond is no longer in the document";
+  const frag = hit.parent;
+  const na = frag.children.find((c) => c.name === "n" && c.attrs.id === hit.el.attrs.B);
+  const nb = frag.children.find((c) => c.name === "n" && c.attrs.id === hit.el.attrs.E);
+  if (!na || !nb) return "that bond's atoms are not in the document";
+  const a = posOf(na), b = posOf(nb);
+  if (!(Math.hypot(b[0] - a[0], b[1] - a[1]) > 0)) return "that bond has no length";
+  // Which side has more of the structure: the ring goes on the other.
+  const d: P2 = [b[0] - a[0], b[1] - a[1]];
+  let s = 0;
+  for (const c of frag.children) {
+    if (c.name !== "n" || c === na || c === nb) continue;
+    const p = posOf(c);
+    s += Math.sign(d[0] * (p[1] - a[1]) - d[1] * (p[0] - a[0]));
+  }
+  const sign = s > 0 ? -1 : 1;
+  placeRing(doc, frag, ringVerts(a, b, RING_SIZE[kind], sign), kind, [na.attrs.id!, nb.attrs.id!]);
+  return null;
+}
+
+/** Attaches a ring to an atom by a new single bond, pointing away from the atom's other bonds. */
+export function addRingAtAtom(doc: CdxDoc, nodeId: string, kind: RingKind): string | null {
+  const r = addBondFrom(doc, nodeId);
+  if (!r.ok) return r.reason;
+  const hit = fragmentOf(doc.root, r.nodeId);
+  if (!hit) return "the new atom was not placed";
+  const base = fragmentOf(doc.root, nodeId)!.node;
+  const p0 = posOf(base), p1 = posOf(hit.node);
+  // The ring's first side runs from the new atom, turned half a ring angle off the new bond.
+  const size = RING_SIZE[kind];
+  const L = doc.style.bondLength;
+  const dir = Math.atan2(p1[1] - p0[1], p1[0] - p0[0]) - (Math.PI / 2 - Math.PI / size);
+  const second: P2 = [p1[0] + L * Math.cos(dir), p1[1] + L * Math.sin(dir)];
+  placeRing(doc, hit.frag, ringVerts(p1, second, size, 1), kind, [r.nodeId]);
+  return null;
+}
+
+/** A new ring as a structure of its own, centred on a page point. */
+export function addRingAt(doc: CdxDoc, at: P2, kind: RingKind): string | null {
+  const page = doc.root.children.find((c) => c.name === "page");
+  if (!page) return "the document has no page";
+  if (!at.every(Number.isFinite)) return "that is not a place on the page";
+  const size = RING_SIZE[kind];
+  const L = doc.style.bondLength;
+  const R = L / (2 * Math.sin(Math.PI / size));
+  const id = nextIdFrom(doc.root);
+  const frag: XNode = { name: "fragment", attrs: { id: id() }, children: [], text: "", line: 0 };
+  page.children.push(frag);
+  const verts: P2[] = [];
+  for (let i = 0; i < size; i++) {
+    const a = -Math.PI / 2 + Math.PI / size + (2 * Math.PI * i) / size;
+    verts.push([at[0] + R * Math.cos(a), at[1] + R * Math.sin(a)]);
+  }
+  placeRing(doc, frag, verts, kind);
+  return null;
+}

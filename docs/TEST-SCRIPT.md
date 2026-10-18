@@ -10,6 +10,13 @@ Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
 
+## 0cq. New in v2.153.0 — ChemDraw .cdx files and ring tools
+
+- [ ] ★ **A .cdx file.** Structure ▸ Draw ▸ **Open ChemDraw file…**, pick a .cdx (ChemDraw's default format): it
+  opens like a .cdxml. Compare with ChemDraw. **Save as .cdxml**: the saved file opens in ChemDraw.
+- [ ] **Ring.** Choose **Ring**, Benzene: click empty paper — a benzene; click one of its single bonds — naphthalene
+  with alternating double bonds. Choose Cyclohexane, click a chain's end atom — a ring on a new bond.
+
 ## 0cp. New in v2.152.0 — Open and edit ChemDraw files
 
 Home ▸ **Structure** ▸ **Draw** ▸ **Open ChemDraw file…**. Use a ChemDraw file you have (File ▸ Save As ▸ ChemDraw

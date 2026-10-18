@@ -9,7 +9,7 @@ import { readCdxml, readCdxmlTree, CdxDoc, Box, Pt } from "../lib/cdxml";
 import { readCdx } from "../lib/cdx";
 import { renderCdx } from "../lib/cdxmlRender";
 import { atomAt, bondAt, captionAt, objectAt, objectBoxes, withCompanions } from "../lib/cdxmlSelect";
-import { addBondFrom, cloneTree, deleteInStructure, deleteObjects, findById, moveObjects, namesTiedTo, setAtomLabel, setBond, setCharge, setText, writeCdxml } from "../lib/cdxmlEdit";
+import { addRingAt, addRingAtAtom, addRingOnBond, RingKind, addBondFrom, cloneTree, deleteInStructure, deleteObjects, findById, moveObjects, namesTiedTo, setAtomLabel, setBond, setCharge, setText, writeCdxml } from "../lib/cdxmlEdit";
 import type { XNode } from "../lib/xmlLite";
 
 export interface ChemdrawHost {
@@ -64,12 +64,13 @@ export function chemdrawFit(widthPt: number, heightPt: number): { ok: true; k: n
   return { ok: true, k, note: k < 1 ? `It is inserted at ${Math.round(k * 100)} % to fit the page.` : "It is inserted at ChemDraw's size." };
 }
 
-type Tool = "select" | "atom" | "bond" | "add" | "charge+" | "charge-" | "text" | "erase";
+type Tool = "select" | "atom" | "bond" | "add" | "ring" | "charge+" | "charge-" | "text" | "erase";
 const TOOL_HELP: Record<Tool, string> = {
   select: "Select: click a structure (with its brackets, labels and charges); Shift+click adds or removes; drag a selection to move it.",
   atom: "Atom: type an element or label (N, O, Cl, R1, X …) in the box, then click atoms.",
   bond: "Bond: click a bond to make it single → double → triple; choose a style to wedge, hash or wave it instead.",
   add: "Add bond: click an atom to draw a new bond from it.",
+  ring: "Ring: click a bond to fuse the ring onto it, an atom to attach it, or empty space to place it.",
   "charge+": "Charge +: click an atom to raise its charge by one.",
   "charge-": "Charge −: click an atom to lower its charge by one.",
   text: "Text: type the new words in the box, then click a caption or name.",
@@ -90,6 +91,7 @@ export function initChemdrawPane(host: ChemdrawHost): void {
   const toolBtns = Array.from(document.querySelectorAll<HTMLButtonElement>("[data-cdx-tool]"));
   const valueIn = $<HTMLInputElement>("chemdraw-value");
   const styleSel = $<HTMLSelectElement>("chemdraw-bondstyle");
+  const ringSel = $<HTMLSelectElement>("chemdraw-ring");
   const undoBtn = $<HTMLButtonElement>("chemdraw-undo");
   const redoBtn = $<HTMLButtonElement>("chemdraw-redo");
   const saveBtn = $<HTMLButtonElement>("chemdraw-save");
@@ -236,6 +238,7 @@ export function initChemdrawPane(host: ChemdrawHost): void {
       valueIn.placeholder = t === "atom" ? "Element or label, e.g. N, Cl, R1" : t === "text" ? "New words for a caption or name" : "(Atom and Text tools)";
     }
     if (styleSel) styleSel.disabled = t !== "bond";
+    if (ringSel) ringSel.disabled = t !== "ring";
     host.setStatus(TOOL_HELP[t], "");
   };
   for (const b of toolBtns) b.addEventListener("click", () => setTool(b.dataset.cdxTool as Tool));
@@ -369,6 +372,13 @@ export function initChemdrawPane(host: ChemdrawHost): void {
         const q = (Number(n?.attrs.Charge ?? 0) || 0) + (tool === "charge+" ? 1 : -1);
         edit(() => setCharge(doc!, atom, q), [holder]);
       }
+      return;
+    }
+    if (tool === "ring") {
+      const kind = (ringSel?.value || "benzene") as RingKind;
+      if (bond) edit(() => addRingOnBond(doc!, bond, kind), [objectHolding(bond) ?? ""]);
+      else if (atom) edit(() => addRingAtAtom(doc!, atom, kind), [objectHolding(atom) ?? ""]);
+      else edit(() => addRingAt(doc!, p, kind));
       return;
     }
     if (tool === "bond") {

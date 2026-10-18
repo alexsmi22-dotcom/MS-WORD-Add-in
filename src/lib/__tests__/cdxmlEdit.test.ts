@@ -1,7 +1,7 @@
 // Editing ChemDraw CDXML: every edit changes the tree, the model is read again from it, and the
 // saved file holds the edit and everything else untouched. Documents are written by hand here.
 import { readCdxml, readCdxmlTree, CdxDoc } from "../cdxml";
-import { writeCdxml, cloneTree, moveObjects, deleteObjects, setText, setAtomLabel, setBond, addBondFrom, deleteInStructure, setCharge, namesTiedTo, findById } from "../cdxmlEdit";
+import { writeCdxml, cloneTree, moveObjects, deleteObjects, setText, setAtomLabel, setBond, addBondFrom, deleteInStructure, setCharge, namesTiedTo, findById, addRingAt, addRingOnBond, addRingAtAtom } from "../cdxmlEdit";
 
 const SRC = `<?xml version="1.0" encoding="UTF-8" ?>
 <CDXML CreationProgram="Test" BondLength="30" LabelSize="10" LabelFont="3" LabelFace="96" CaptionSize="12" SomethingNew="kept">
@@ -149,5 +149,60 @@ describe("ChemDraw-computed names", () => {
     expect(setText(d, "30", "  ")).toBe("the text is empty — delete the object instead");
     expect(setText(d, "30", "a\u0001b")).toBe("the text contains a control character");
     expect(setText(d, "99", "x")).toBe("that text is no longer in the document");
+  });
+});
+
+describe("rings", () => {
+  const counts = (d: CdxDoc, fragId: string): [number, number, number] => {
+    const f = findById(d.root, fragId)!.el;
+    const bonds = f.children.filter((c) => c.name === "b");
+    return [f.children.filter((c) => c.name === "n").length, bonds.length, bonds.filter((b) => b.attrs.Order === "2").length];
+  };
+  test("a free benzene: six atoms one bond length apart, three double bonds", () => {
+    const d = open();
+    expect(addRingAt(d, [300, 300], "benzene")).toBeNull();
+    const fr = d.root.children.find((c) => c.name === "page")!.children.slice(-1)[0];
+    const atoms = fr.children.filter((c) => c.name === "n").map((n) => n.attrs.p!.split(" ").map(Number));
+    expect(atoms).toHaveLength(6);
+    for (let i = 0; i < 6; i++) {
+      const [a, b] = [atoms[i], atoms[(i + 1) % 6]];
+      expect(Math.hypot(a[0] - b[0], a[1] - b[1])).toBeCloseTo(30, 1);
+    }
+    expect(counts(d, fr.attrs.id!)).toEqual([6, 6, 3]);
+  });
+  test("benzene fused onto a benzene bond: naphthalene (10 atoms, 11 bonds, the bond shared, 5 double bonds)", () => {
+    const d = open();
+    addRingAt(d, [300, 300], "benzene");
+    const fr = d.root.children.find((c) => c.name === "page")!.children.slice(-1)[0];
+    const single = fr.children.find((c) => c.name === "b" && c.attrs.Order !== "2")!;
+    expect(addRingOnBond(d, single.attrs.id!, "benzene")).toBeNull();
+    expect(counts(d, fr.attrs.id!)).toEqual([10, 11, 5]);
+    // No two double bonds share an atom.
+    const dbl = fr.children.filter((c) => c.name === "b" && c.attrs.Order === "2").flatMap((b) => [b.attrs.B, b.attrs.E]);
+    expect(new Set(dbl).size).toBe(dbl.length);
+  });
+  test("a ring on a chain bond goes on the side away from the rest of the chain", () => {
+    const d = open(); // propane 11–12–13 (12 below the line 11–13)
+    expect(addRingOnBond(d, "15", "cyclopentane")).toBeNull();
+    const f = findById(d.root, "10")!.el;
+    const added = f.children.filter((c) => c.name === "n" && !["11", "12", "13"].includes(c.attrs.id!)).map((n) => n.attrs.p!.split(" ").map(Number));
+    expect(added).toHaveLength(3);
+    // Atom 11 lies left/below of 12→13; the new atoms lie on the other side.
+    const side = (p: number[]): number => Math.sign((152 - 126) * (p[1] - 115) - (100 - 115) * (p[0] - 126));
+    for (const p of added) expect(side(p)).toBe(-side([100, 100]));
+  });
+  test("a ring attached to an atom: one new bond, the ring centred on its line", () => {
+    const d = open();
+    expect(addRingAtAtom(d, "13", "cyclohexane")).toBeNull();
+    const f = findById(d.root, "10")!.el;
+    expect(f.children.filter((c) => c.name === "n")).toHaveLength(3 + 6);
+    expect(f.children.filter((c) => c.name === "b")).toHaveLength(2 + 1 + 6);
+    // The ring's centre lies on the line from atom 13 through the attachment atom.
+    const atoms = f.children.filter((c) => c.name === "n").map((n) => n.attrs.p!.split(" ").map(Number));
+    const ring = atoms.slice(4);
+    const attach = atoms[3];
+    const ctr = [ring.reduce((s, p) => s + p[0], attach[0]) / 6, ring.reduce((s, p) => s + p[1], attach[1]) / 6];
+    const v1 = [attach[0] - 152, attach[1] - 100], v2 = [ctr[0] - 152, ctr[1] - 100];
+    expect(Math.abs(v1[0] * v2[1] - v1[1] * v2[0]) / (Math.hypot(...v1) * Math.hypot(...v2))).toBeLessThan(0.02);
   });
 });

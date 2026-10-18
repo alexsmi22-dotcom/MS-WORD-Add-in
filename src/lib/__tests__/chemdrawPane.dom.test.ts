@@ -254,3 +254,31 @@ describe("review D7: keys reach the ChemDraw page only when it has focus", () =>
     expect(pv.innerHTML).not.toContain('x1="400"');
   });
 });
+
+describe("the Ring tool", () => {
+  test("a click on empty paper places a benzene; on one of its bonds, a fused ring (naphthalene)", async () => {
+    document.body.innerHTML = BUILD;
+    initChemdrawPane({ setStatus: () => undefined, insertPicture: async () => undefined });
+    const input = document.getElementById("chemdraw-file") as HTMLInputElement;
+    Object.defineProperty(input, "files", { value: [new File([CDXML], "figure.cdxml")], configurable: true });
+    input.dispatchEvent(new Event("change"));
+    await new Promise((r) => setTimeout(r, 30));
+    const pv = document.getElementById("chemdraw-preview")!;
+    const clickAt = (x: number, y: number): void => {
+      const svg = pv.querySelector("svg")!;
+      const [vx, vy, vw, vh] = svg.getAttribute("viewBox")!.split(" ").map(Number);
+      svg.getBoundingClientRect = () => ({ left: 0, top: 0, width: vw, height: vh, right: vw, bottom: vh, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+      pv.dispatchEvent(new MouseEvent("click", { clientX: x - vx, clientY: y - vy, bubbles: true }));
+    };
+    document.querySelector<HTMLButtonElement>('[data-cdx-tool="ring"]')!.click();
+    expect((document.getElementById("chemdraw-ring") as HTMLSelectElement).disabled).toBe(false);
+    clickAt(300, 400);
+    const lines = (): number => pv.querySelectorAll("line").length;
+    const after1 = lines();
+    // A benzene: 6 bonds, 3 of them drawn as two lines (9 lines more than before).
+    expect(after1).toBeGreaterThan(9);
+    // Its bottom bond (between the two lowest atoms, around y = 415) gets a fused ring.
+    clickAt(300, 415);
+    expect(lines()).toBeGreaterThan(after1 + 5);
+  });
+});

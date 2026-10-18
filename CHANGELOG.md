@@ -6,6 +6,20 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.153.0] — 2026-10-18 — ChemDraw .cdx files and ring tools
+
+### Added
+- **Binary ChemDraw files (.cdx)** open in the same panel as .cdxml (known by their first bytes, whatever they are
+  called): drawn, picked, edited and inserted the same way; **Save as .cdxml** gives the CDXML ChemDraw itself would
+  write for them. The CDX tag, attribute and enum names are generated from Revvity's open-source ChemDraw
+  file-format code (BSD 3-Clause; notice in src/lib/cdxTags.ts and THIRD_PARTY_LICENSES.md), so values carry
+  ChemDraw's own names and units (points from 1/65536 pt, y then x; angles; bond spacing; 20ths-of-a-point sizes;
+  text in each font's code page). Verified on ChemDraw's SDK example (matching its published CDXML) and on 117
+  USPTO patent drawings (ChemDraw 7–23), all read and drawn; what is not read is named.
+- **Ring tool**: benzene, cyclohexane, cyclopentane, cyclobutane, cyclopropane, cycloheptane — click a bond to fuse
+  the ring onto it (on the side away from the structure; a benzene fused onto a benzene's single bond gives a
+  correct Kekulé naphthalene), an atom to attach it by a new bond, or empty paper to place it.
+
 ## [2.152.0] — 2026-10-18 — Open and edit ChemDraw files
 
 "Open chemdraw files in jurislab with the ability to be able to edit those files and not have to use chemdraw"

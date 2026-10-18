@@ -218,7 +218,8 @@ describe("sketcher re-review — the pane findings pinned", () => {
     t.$<HTMLButtonElement>("cad-add").click();
     t.toolBtn("rectangle").click();
     t.tap(0, 0);
-    t.tap(30, 20);
+    // y = 15 lands on a whole pixel (jsdom truncates mouse coordinates; a 20 would arrive as 20.25).
+    t.tap(30, 15);
     t.toolBtn("select").click();
   };
   const cornerX = (t: ReturnType<typeof setup>): number => {
@@ -233,28 +234,28 @@ describe("sketcher re-review — the pane findings pinned", () => {
     jest.useFakeTimers();
     const t = setup();
     rectangle(t);
-    ev("pointerdown", 30, 20);
-    ev("pointermove", 35, 20);
+    ev("pointerdown", 30, 15);
+    ev("pointermove", 35, 15);
     jest.advanceTimersByTime(20);
-    ev("pointermove", 45, 20);
-    ev("pointerup", 45, 20);
+    ev("pointermove", 45, 15);
+    ev("pointerup", 45, 15);
     expect(cornerX(t)).toBeCloseTo(45, 6);
   });
   it("5: a quick flick moves the point and one undo takes it back; a press that wanders back adds no undo step", () => {
     jest.useFakeTimers();
     const t = setup();
     rectangle(t);
-    ev("pointerdown", 30, 20);
-    ev("pointermove", 40, 20);
-    ev("pointerup", 40, 20);
+    ev("pointerdown", 30, 15);
+    ev("pointermove", 40, 15);
+    ev("pointerup", 40, 15);
     t.$<HTMLButtonElement>("cad-sketch-undo").click(); // the flick only: the rectangle is still there
     expect(t.$<HTMLElement>("cad-sketch-status").textContent).toMatch(/^4 degrees of freedom left/);
-    ev("pointerdown", 30, 20);
-    ev("pointermove", 32, 20);
+    ev("pointerdown", 30, 15);
+    ev("pointermove", 32, 15);
     jest.advanceTimersByTime(20);
-    ev("pointermove", 30, 20);
+    ev("pointermove", 30, 15);
     jest.advanceTimersByTime(20);
-    ev("pointerup", 30, 20);
+    ev("pointerup", 30, 15);
     t.$<HTMLButtonElement>("cad-sketch-undo").click(); // straight to before the rectangle
     expect(t.$<HTMLElement>("cad-sketch-status").textContent).toMatch(/^Draw lines/);
   });
@@ -352,9 +353,34 @@ describe("sketcher third review — the pane findings pinned", () => {
     expect(t.host.setStatus).toHaveBeenLastCalledWith("The drawing is open in the large canvas — sketch there, or close it first.", "error");
     finish(null);
     await flush();
+    // With the large window available, a new sketch opens THERE (room to draw), not in the pane.
     t.$<HTMLButtonElement>("cad-add").click();
+    expect(t.pane.isSketching()).toBe(false);
+    expect(openLarge).toHaveBeenLastCalledWith(expect.any(String), { sketch: "new" });
+    finish(null);
+    await flush();
+    // Where it cannot open (no dialogs), the sketch opens in the pane, and the canvas waits for it.
+    const u = setup({ openLarge: jest.fn(async () => null), largeAvailable: () => false } as Partial<CadPaneHost>);
+    u.$<HTMLSelectElement>("cad-shape").value = "sketch";
+    u.$<HTMLButtonElement>("cad-add").click();
+    expect(u.pane.isSketching()).toBe(true);
+    u.$<HTMLButtonElement>("cad-popout").click();
+    expect(u.host.openLarge).not.toHaveBeenCalled();
+    expect(u.host.setStatus).toHaveBeenLastCalledWith("Finish the sketch first (Done or Cancel).", "error");
+  });
+  it("the large window opened to sketch: Done takes the drawing back, Cancel closes it (sketchClosed)", () => {
+    const sketchClosed = jest.fn();
+    const t = setup({ sketchClosed } as Partial<CadPaneHost>);
+    t.pane.startSketch(null);
     expect(t.pane.isSketching()).toBe(true);
-    t.$<HTMLButtonElement>("cad-popout").click();
-    expect(openLarge).toHaveBeenCalledTimes(1);
+    t.$<HTMLButtonElement>("cad-sketch-cancel").click();
+    expect(sketchClosed).toHaveBeenLastCalledWith(false);
+    t.pane.startSketch(null);
+    t.toolBtn("circle").click();
+    t.tap(0, 0);
+    t.tap(10, 0);
+    t.$<HTMLButtonElement>("cad-sketch-done").click();
+    expect(sketchClosed).toHaveBeenLastCalledWith(true);
+    expect(JSON.parse(t.pane.getDoc()).parts.some((p: { shape: string }) => p.shape === "sketch")).toBe(true);
   });
 });

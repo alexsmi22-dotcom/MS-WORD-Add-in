@@ -61,7 +61,11 @@ export interface CadPaneHost {
    * the model, and whether the user pressed Insert there. Null = closed or cancelled. Absent
    * in the pop-out itself.
    */
-  openLarge?(docJson: string): Promise<{ doc: string; insert: boolean } | null>;
+  openLarge?(docJson: string, opts?: { sketch?: string }): Promise<{ doc: string; insert: boolean } | null>;
+  /** Whether the large window can open here (Office dialogs supported); absent = assume it can. */
+  largeAvailable?(): boolean;
+  /** A sketch was closed: kept (Done) or not (Cancel). The large window, opened to sketch, returns on it. */
+  sketchClosed?(kept: boolean): void;
   /** Downloads the sheet as a PowerPoint slide. Absent in the pop-out (a dialog cannot save files). */
   exportPpt?(svg: string, widthPx: number, heightPx: number, title: string): Promise<void>;
   /** Saves a file to the user's downloads (the true-size sheet SVG). Absent in the pop-out. */
@@ -79,6 +83,8 @@ export interface CadPaneApi {
   insert(): Promise<void>;
   /** A sketch is open (its edits are not in the drawing yet). */
   isSketching(): boolean;
+  /** Opens the sketch editor here on a part (by id), or on a new part (null). */
+  startSketch(partId: string | null): void;
 }
 
 /** The model stored in a drawing's alt text ("… Model: {json}"), or null. */
@@ -595,11 +601,13 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
       renderParts();
       renderEditor();
       rebuild();
+      host.sketchClosed?.(true);
     },
     cancelled: () => {
       section?.classList.remove("cad-sketching");
       sketchTarget = null;
       paint(true);
+      host.sketchClosed?.(false);
     },
   });
   const openSketch = (target: number | null): void => {
@@ -607,10 +615,22 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     if (sketching()) return host.setStatus("A sketch is already open — press Done or Cancel first.", "error");
     if (largeOpen) return host.setStatus("The drawing is open in the large canvas — sketch there, or close it first.", "error");
     const p = target !== null ? doc.parts[target] : undefined;
+    // Room to draw: where the large window can open, the sketch opens there (90 % of the screen);
+    // Done brings the part back here. Without it (the pop-out itself, or no dialogs), it opens here.
+    if (host.openLarge && (host.largeAvailable?.() ?? true)) {
+      void openLargeWith({ sketch: p ? p.id : "new" });
+      return;
+    }
+    sketchHere(p ? p.id : null);
+  };
+  /** The sketch editor in this window, on a part (by id) or a new one. */
+  function sketchHere(partId: string | null): void {
+    if (!sketchPanel) return;
+    const p = partId === null ? undefined : doc.parts.find((q) => q.id === partId);
     sketchTarget = p ? p.id : null;
     section?.classList.add("cad-sketching");
     sketchPanel.open(p?.sketch, p?.op);
-  };
+  }
 
   // New drawing: the first click arms it, the second clears every part and callout; the button
   // then offers Undo for a while. No modal dialog (a blocking dialog would stall the pane).
@@ -980,14 +1000,14 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     }
   });
 
-  // The large canvas: the same model, at working size, in its own window.
-  popBtn?.addEventListener("click", async () => {
-    if (!host.openLarge) return;
-    if (sketching()) return host.setStatus("Finish the sketch first (Done or Cancel).", "error");
-    popBtn.disabled = true;
+  // The large canvas: the same model, at working size, in its own window — or opened straight
+  // into a sketch (opts.sketch: a part id, or "new").
+  async function openLargeWith(opts?: { sketch?: string }): Promise<void> {
+    if (!host.openLarge || largeOpen) return;
+    if (popBtn) popBtn.disabled = true;
     largeOpen = true;
     try {
-      const back = await host.openLarge(serializeDoc(doc));
+      const back = opts ? await host.openLarge(serializeDoc(doc), opts) : await host.openLarge(serializeDoc(doc));
       if (!back) return;
       const r = parseDoc(back.doc);
       if (!r.ok) {
@@ -996,13 +1016,18 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
       }
       loadDoc(r.doc);
       if (back.insert) await insertNow();
-      else host.setStatus("Drawing brought back from the large canvas.", "success");
+      else host.setStatus(opts?.sketch ? "Sketch brought back from the large window." : "Drawing brought back from the large canvas.", "success");
     } catch (e) {
       host.setStatus(`Could not open the large canvas: ${(e as Error).message}`, "error");
     } finally {
       largeOpen = false;
-      popBtn.disabled = inserting;
+      if (popBtn) popBtn.disabled = inserting;
     }
+  }
+  popBtn?.addEventListener("click", () => {
+    if (!host.openLarge) return;
+    if (sketching()) return host.setStatus("Finish the sketch first (Done or Cancel).", "error");
+    void openLargeWith();
   });
 
   let shown = false;
@@ -1016,6 +1041,7 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
       return null;
     },
     getDoc: () => serializeDoc(doc),
+    startSketch: (partId) => sketchHere(partId),
     isSketching: sketching,
     insert: insertNow,
     show(): void {

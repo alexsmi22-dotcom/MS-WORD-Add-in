@@ -1791,6 +1791,7 @@ Office.onReady((info) => {
     insertPicture: insertCadDrawing,
     readSelectedAlt: () => docHost.readSelectedPictureAlt(),
     openLarge: openCadDialog,
+    largeAvailable: () => docHost.dialogsSupported(),
     exportPpt: exportCadPpt,
     downloadFile: (blob, name) => triggerDownload(blob, name),
   });
@@ -29706,7 +29707,7 @@ async function exportCadPpt(svg: string, widthPx: number, heightPx: number, titl
  * is told so — the canvas never opens blank, because "Use this drawing" from
  * a blank canvas would replace the pane's model.
  */
-function openCadDialog(docJson: string): Promise<{ doc: string; insert: boolean } | null> {
+function openCadDialog(docJson: string, opts?: { sketch?: string }): Promise<{ doc: string; insert: boolean } | null> {
   return new Promise((resolve) => {
     let settled = false;
     const done = (v: { doc: string; insert: boolean } | null): void => {
@@ -29723,8 +29724,10 @@ function openCadDialog(docJson: string): Promise<{ doc: string; insert: boolean 
     const base = new URL("caddialog.html", window.location.href).href;
     // Patent numerals placed in the large canvas continue the document's Numerals table.
     const n0 = suggestNextNumeral(numeralEntries);
-    const seeded = `${base}?n0=${n0}&doc=${encodeURIComponent(docJson)}`;
-    const url = seeded.length < 1800 ? seeded : `${base}?n0=${n0}&wait=1`;
+    // Opened to sketch: the window starts in the sketch editor ("new", or the part's id).
+    const sk = opts?.sketch ? `&sketch=${encodeURIComponent(opts.sketch)}` : "";
+    const seeded = `${base}?n0=${n0}${sk}&doc=${encodeURIComponent(docJson)}`;
+    const url = seeded.length < 1800 ? seeded : `${base}?n0=${n0}${sk}&wait=1`;
     docHost.openDialog(url, { height: 90, width: 90 }, {
       failed: (error) => {
         setStatus(`Could not open the large canvas: ${error?.message ?? "unknown error"}`, "error");

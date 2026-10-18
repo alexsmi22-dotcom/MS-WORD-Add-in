@@ -1126,54 +1126,76 @@
           Open large canvas ⤢
         </button>
         <div id="cad-sketch" class="cad-sketch" hidden tabindex="-1" aria-label="Sketch editor">
-          <div class="cad-sketch-tools" role="toolbar" aria-label="Sketch tools">
-            <button type="button" class="insert-btn secondary" data-sk-tool="select" title="Select, and drag points">Select</button>
-            <button type="button" class="insert-btn secondary" data-sk-tool="line" title="Lines: click, click — the next starts where the last ended">Line</button>
-            <button type="button" class="insert-btn secondary" data-sk-tool="rectangle" title="Two opposite corners">Rectangle</button>
-            <button type="button" class="insert-btn secondary" data-sk-tool="circle" title="Centre, then a point on it">Circle</button>
-            <button type="button" class="insert-btn secondary" data-sk-tool="arc" title="Centre, start, then the end (counter-clockwise)">Arc</button>
-            <button type="button" class="insert-btn secondary" data-sk-tool="point" title="A point">Point</button>
-            <button type="button" class="insert-btn secondary" data-sk-tool="centreRectangle" title="Rectangle from its centre, then a corner">Centre rect</button>
-            <button type="button" class="insert-btn secondary" data-sk-tool="polygon" title="Regular polygon: centre, then a corner (sides in the box)">Polygon</button>
-            <label class="cad-sketch-check" title="Polygon sides">Sides <input id="cad-sketch-sides" class="rgroup-input" type="number" min="3" max="64" step="1" value="6" style="width:4em" /></label>
-            <button type="button" class="insert-btn secondary" data-sk-tool="slot" title="Slot: one end centre, the other, then the width">Slot</button>
-            <button type="button" class="insert-btn secondary" data-sk-tool="arc3" title="Arc through three points: start, end, a point on it">3-pt arc</button>
-            <button type="button" class="insert-btn secondary" data-sk-tool="trim" title="Click the piece of a line to cut away (back to where it meets other lines)">Trim</button>
-            <label class="cad-sketch-check"><input type="checkbox" id="cad-sketch-construction" /> Construction</label>
+          <div class="cad-sketch-ribbon" role="toolbar" aria-label="Sketch tools">
+            <div class="sk-group" aria-label="Draw">
+              <span class="sk-group-name">Draw</span>
+              <button type="button" class="insert-btn secondary" data-sk-tool="select" title="Select (S): click to select, drag a point to move it">Select</button>
+              <button type="button" class="insert-btn secondary" data-sk-tool="line" title="Line (L): click, click — the chain continues; type the length and angle; right-click or Esc ends it">Line</button>
+              <button type="button" class="insert-btn secondary" data-sk-tool="rectangle" title="Rectangle (R): two opposite corners — or type W and H, then click">Rectangle</button>
+              <button type="button" class="insert-btn secondary" data-sk-tool="centreRectangle" title="Rectangle from its centre, then a corner — or type W and H">Centre rect</button>
+              <button type="button" class="insert-btn secondary" data-sk-tool="circle" title="Circle (C): centre, then a point on it — or type the diameter">Circle</button>
+              <button type="button" class="insert-btn secondary" data-sk-tool="arc" title="Arc (A): centre, start, then the end (counter-clockwise)">Arc</button>
+              <button type="button" class="insert-btn secondary" data-sk-tool="arc3" title="Arc through three points: start, end, a point on it">3-pt arc</button>
+              <button type="button" class="insert-btn secondary" data-sk-tool="polygon" title="Regular polygon: centre, then a corner (sides in the box)">Polygon</button>
+              <label class="cad-sketch-check" title="Polygon sides">Sides <input id="cad-sketch-sides" class="rgroup-input" type="number" min="3" max="64" step="1" value="6" style="width:4em" /></label>
+              <button type="button" class="insert-btn secondary" data-sk-tool="slot" title="Slot: one end centre, the other, then the width">Slot</button>
+              <button type="button" class="insert-btn secondary" data-sk-tool="point" title="Point (P)">Point</button>
+              <label class="cad-sketch-check" title="New geometry is construction (thin, dashed; not part of the solid)"><input type="checkbox" id="cad-sketch-construction" /> Construction</label>
+            </div>
+            <div class="sk-group" aria-label="Dimension">
+              <span class="sk-group-name">Dimension</span>
+              <button type="button" class="insert-btn secondary" data-sk-tool="dimension" title="Smart Dimension (D): click a line, circle or arc (or two lines for an angle), type the value, Enter">Smart Dimension</button>
+            </div>
+            <div class="sk-group" role="toolbar" aria-label="Modify the selection">
+              <span class="sk-group-name">Modify</span>
+              <button type="button" class="insert-btn secondary" data-sk-tool="trim" title="Trim (T): click the piece of a line to cut away (back to where it meets other lines)">Trim</button>
+              <button id="cad-sketch-fillet" type="button" class="insert-btn secondary" title="Round the corner of two selected lines (radius in the value box)">Fillet</button>
+              <button id="cad-sketch-chamfer" type="button" class="insert-btn secondary" title="Cut the corner of two selected lines (distance in the value box)">Chamfer</button>
+              <button id="cad-sketch-offset" type="button" class="insert-btn secondary" title="Offset the selection (distance in the value box; negative = the other way / inward)">Offset</button>
+              <button id="cad-sketch-mirror" type="button" class="insert-btn secondary" title="Mirror the selection about the line selected last">Mirror</button>
+              <label class="cad-sketch-check" title="How many in a pattern">Count <input id="cad-sketch-count" class="rgroup-input" type="number" min="2" max="100" step="1" value="3" style="width:4em" /></label>
+              <button id="cad-sketch-pattern" type="button" class="insert-btn secondary" title="Copy the selection in a row: spacing in the value box (dx, or dx dy)">Pattern</button>
+              <button id="cad-sketch-circular" type="button" class="insert-btn secondary" title="Copy the selection round a selected point (total angle in the value box; empty = 360°)">Circular</button>
+              <button id="cad-sketch-clear" type="button" class="insert-btn secondary" title="Empty the sketch (Undo brings it back)">Clear sketch</button>
+            </div>
+            <div class="sk-group" aria-label="View">
+              <span class="sk-group-name">View</span>
+              <button id="cad-sketch-fit" type="button" class="insert-btn secondary" title="Fit (F): the whole sketch in view">Fit</button>
+              <label class="cad-sketch-check" title="Snap to the grid (G); points and alignments still win"><input type="checkbox" id="cad-sketch-grid" checked /> Grid snap</label>
+              <span id="cad-sketch-gridlabel" class="sk-grid-label"></span>
+            </div>
           </div>
-          <canvas id="cad-sketch-canvas" class="cad-sketch-canvas" aria-label="Sketch: click with a tool; in Select, drag points; wheel zooms"></canvas>
+          <div class="cad-sketch-inputbar">
+            <span id="cad-sketch-prompt" class="sk-prompt" role="status"></span>
+            <label id="cad-sketch-in1-label" class="cad-sketch-check" hidden><span id="cad-sketch-in1-name">W</span> <input id="cad-sketch-in1" class="rgroup-input sk-size" type="text" inputmode="decimal" autocomplete="off" /></label>
+            <label id="cad-sketch-in2-label" class="cad-sketch-check" hidden><span id="cad-sketch-in2-name">H</span> <input id="cad-sketch-in2" class="rgroup-input sk-size" type="text" inputmode="decimal" autocomplete="off" /></label>
+          </div>
+          <canvas id="cad-sketch-canvas" class="cad-sketch-canvas" aria-label="Sketch: click with a tool; wheel zooms; middle-drag or Space + drag pans"></canvas>
           <p id="cad-sketch-status" class="build-readout" role="status"></p>
-          <div class="cad-sketch-rels" role="toolbar" aria-label="Relations for the selection">
-            <button type="button" class="insert-btn secondary" data-sk-rel="horizontal" title="Horizontal (a line)">H</button>
-            <button type="button" class="insert-btn secondary" data-sk-rel="vertical" title="Vertical (a line)">V</button>
-            <button type="button" class="insert-btn secondary" data-sk-rel="parallel" title="Parallel (two lines)">∥</button>
-            <button type="button" class="insert-btn secondary" data-sk-rel="perpendicular" title="Perpendicular (two lines)">⊥</button>
-            <button type="button" class="insert-btn secondary" data-sk-rel="tangent" title="Tangent (a line and a circle / arc, or two circles / arcs)">Tangent</button>
-            <button type="button" class="insert-btn secondary" data-sk-rel="equal" title="Equal (two lines, or two circles / arcs)">=</button>
-            <button type="button" class="insert-btn secondary" data-sk-rel="concentric" title="Concentric (two circles / arcs)">◎</button>
-            <button type="button" class="insert-btn secondary" data-sk-rel="coincident" title="Coincident (two points)">Join</button>
-            <button type="button" class="insert-btn secondary" data-sk-rel="onCurve" title="A point on a line, circle or arc">On</button>
-            <button type="button" class="insert-btn secondary" data-sk-rel="midpoint" title="A point at the middle of a line">Mid</button>
-            <button type="button" class="insert-btn secondary" data-sk-rel="symmetric" title="Two points symmetric about a line (select the line last)">Sym</button>
-            <button type="button" class="insert-btn secondary" data-sk-rel="fix" title="Fix a point where it is">Fix</button>
-          </div>
           <div class="cad-sketch-row">
             <input id="cad-sketch-dim" class="rgroup-input" type="text" placeholder="20, Ø20, R5, 45°" aria-label="Dimension value" />
             <button id="cad-sketch-dimension" type="button" class="insert-btn secondary" title="Dimension the selection (or change the selected dimension)">Dimension</button>
             <label class="cad-sketch-check" title="Shown, but not solved for (a reference dimension)"><input type="checkbox" id="cad-sketch-driven" /> Driven</label>
-            <button id="cad-sketch-delete" type="button" class="insert-btn secondary">Delete</button>
-            <button id="cad-sketch-undo" type="button" class="insert-btn secondary">Undo</button>
+            <button id="cad-sketch-delete" type="button" class="insert-btn secondary" title="Delete (Del)">Delete</button>
+            <button id="cad-sketch-undo" type="button" class="insert-btn secondary" title="Undo (Ctrl+Z)">Undo</button>
           </div>
-          <div class="cad-sketch-row" role="toolbar" aria-label="Modify the selection">
-            <button id="cad-sketch-fillet" type="button" class="insert-btn secondary" title="Round the corner of two selected lines (radius in the value box)">Fillet</button>
-            <button id="cad-sketch-chamfer" type="button" class="insert-btn secondary" title="Cut the corner of two selected lines (distance in the value box)">Chamfer</button>
-            <button id="cad-sketch-offset" type="button" class="insert-btn secondary" title="Offset the selection (distance in the value box; negative = the other way / inward)">Offset</button>
-            <button id="cad-sketch-mirror" type="button" class="insert-btn secondary" title="Mirror the selection about the line selected last">Mirror</button>
-            <label class="cad-sketch-check" title="How many in a pattern">Count <input id="cad-sketch-count" class="rgroup-input" type="number" min="2" max="100" step="1" value="3" style="width:4em" /></label>
-            <button id="cad-sketch-pattern" type="button" class="insert-btn secondary" title="Copy the selection in a row: spacing in the value box (dx, or dx, dy)">Pattern</button>
-            <button id="cad-sketch-circular" type="button" class="insert-btn secondary" title="Copy the selection round a selected point (total angle in the value box; empty = 360°)">Circular</button>
-            <button id="cad-sketch-clear" type="button" class="insert-btn secondary" title="Empty the sketch (Undo brings it back)">Clear sketch</button>
-          </div>
+          <details class="cad-details sk-relations">
+            <summary>Relations</summary>
+            <div class="cad-sketch-rels" role="toolbar" aria-label="Relations for the selection">
+              <button type="button" class="insert-btn secondary" data-sk-rel="horizontal" title="Horizontal (a line)">H</button>
+              <button type="button" class="insert-btn secondary" data-sk-rel="vertical" title="Vertical (a line)">V</button>
+              <button type="button" class="insert-btn secondary" data-sk-rel="parallel" title="Parallel (two lines)">∥</button>
+              <button type="button" class="insert-btn secondary" data-sk-rel="perpendicular" title="Perpendicular (two lines)">⊥</button>
+              <button type="button" class="insert-btn secondary" data-sk-rel="tangent" title="Tangent (a line and a circle / arc, or two circles / arcs)">Tangent</button>
+              <button type="button" class="insert-btn secondary" data-sk-rel="equal" title="Equal (two lines, or two circles / arcs)">=</button>
+              <button type="button" class="insert-btn secondary" data-sk-rel="concentric" title="Concentric (two circles / arcs)">◎</button>
+              <button type="button" class="insert-btn secondary" data-sk-rel="coincident" title="Connect (two points)">Connect</button>
+              <button type="button" class="insert-btn secondary" data-sk-rel="onCurve" title="A point on a line, circle or arc">On</button>
+              <button type="button" class="insert-btn secondary" data-sk-rel="midpoint" title="A point at the middle of a line">Mid</button>
+              <button type="button" class="insert-btn secondary" data-sk-rel="symmetric" title="Two points symmetric about a line (select the line last)">Sym</button>
+              <button type="button" class="insert-btn secondary" data-sk-rel="fix" title="Fix a point where it is (Rigid)">Fix</button>
+            </div>
+          </details>
           <div id="cad-sketch-msg" class="build-readout" aria-live="polite"></div>
           <div class="cad-sketch-row">
             <select id="cad-sketch-op" class="lib-select" aria-label="Make the solid by">

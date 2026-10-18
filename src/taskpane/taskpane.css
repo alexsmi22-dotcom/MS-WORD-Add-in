@@ -2381,7 +2381,7 @@ select {
   margin: 8px 0;
   outline: none;
 }
-.cad-sketch-tools,
+.cad-sketch-ribbon,
 .cad-sketch-rels,
 .cad-sketch-row {
   display: flex;
@@ -2390,14 +2390,14 @@ select {
   align-items: center;
   margin: 4px 0;
 }
-.cad-sketch-tools .insert-btn,
+.cad-sketch-ribbon .insert-btn,
 .cad-sketch-rels .insert-btn,
 .cad-sketch-row .insert-btn {
   width: auto;
   padding: 4px 8px;
   margin: 0;
 }
-.cad-sketch-tools .insert-btn.active {
+.cad-sketch-ribbon .insert-btn.active {
   outline: 2px solid var(--accent, #2563eb);
 }
 .cad-sketch-check {
@@ -2409,7 +2409,8 @@ select {
 .cad-sketch-canvas {
   display: block;
   width: 100%;
-  height: 320px;
+  /* Room to draw: most of the window, never less than 380 px (it was a fixed 320 px). */
+  height: max(380px, 62vh);
   border: 1px solid var(--border);
   border-radius: 4px;
   background: #fff;
@@ -2444,3 +2445,14 @@ select {
 .cad-titleblock { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 8px; }
 .cad-titleblock .field-label { display: flex; flex-direction: column; font-size: 11px; }
 .cad-linetypes { font-size: 11px; line-height: 1.5; }
+
+/* Usability round: a ribbon of tool groups, a prompt bar with typed sizes. */
+.cad-sketch-ribbon { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
+.sk-group { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; padding: 2px 6px 2px 0; border-right: 1px solid var(--border); }
+.sk-group:last-child { border-right: 0; }
+.sk-group-name { font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; color: #6b7280; width: 100%; }
+.cad-sketch-inputbar { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; margin: 6px 0 4px; min-height: 28px; }
+.sk-prompt { flex: 1 1 220px; font-size: 12px; color: #374151; }
+.sk-size { width: 6em; }
+.sk-grid-label { font-size: 11px; color: #6b7280; }
+.cad-sketch-ribbon .insert-btn.active { outline: 2px solid var(--accent, #2563eb); }

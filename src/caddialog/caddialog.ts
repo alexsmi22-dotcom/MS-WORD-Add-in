@@ -31,6 +31,8 @@ function showError(text: string): void {
 Office.onReady(() => {
   const params = new URLSearchParams(window.location.search);
   const base = Number(params.get("n0"));
+  /** Opened to sketch: "new", or the id of the part whose sketch to edit. */
+  const sketchParam = params.get("sketch");
   const statusEl = byId<HTMLElement>("cad-status");
   const useBtn = byId<HTMLButtonElement>("cad-use");
   const cancelBtn = byId<HTMLButtonElement>("cad-cancel");
@@ -72,10 +74,16 @@ Office.onReady(() => {
         insertPicture: async () => {
           if (pane) send({ doc: pane.getDoc(), insert: true });
         },
+        // Opened to sketch: Done takes the drawing back to the pane, Cancel closes the window.
+        sketchClosed: (kept) => {
+          if (!sketchParam || !pane) return;
+          send(kept ? { doc: pane.getDoc() } : { cancel: true });
+        },
       },
       r.doc,
     );
     pane.show();
+    if (sketchParam) pane.startSketch(sketchParam === "new" ? null : sketchParam);
     useBtn.disabled = false;
   };
 

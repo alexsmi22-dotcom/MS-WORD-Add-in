@@ -22,7 +22,9 @@ import {
   startEdit,
   statusLine,
   formatDimension,
+  dimensionFor,
 } from "../lib/sketchEdit";
+import { Snapped, fmt, gridLabel, gridStep, liveSize, parseTyped, placeTyped, promptFor, snapCursor, typedFields } from "../lib/sketchInput";
 import { measure } from "../lib/sketch";
 import { SketchView, frameSketch, sketchOps, toSketch } from "../lib/sketchRender";
 import { SketchOp, sketchBody } from "../lib/sketchDoc";
@@ -57,6 +59,14 @@ export function initSketchPanel(host: SketchPanelHost): { open(sketch?: Sketch, 
   const dimBtn = el<HTMLButtonElement>("cad-sketch-dimension")!;
   const sidesIn = el<HTMLInputElement>("cad-sketch-sides");
   const countIn = el<HTMLInputElement>("cad-sketch-count");
+  // The usability round: prompt bar, typed sizes, grid, fit.
+  const promptEl = el<HTMLElement>("cad-sketch-prompt");
+  const sizeIn = [el<HTMLInputElement>("cad-sketch-in1"), el<HTMLInputElement>("cad-sketch-in2")];
+  const sizeLabel = [el<HTMLElement>("cad-sketch-in1-label"), el<HTMLElement>("cad-sketch-in2-label")];
+  const sizeName = [el<HTMLElement>("cad-sketch-in1-name"), el<HTMLElement>("cad-sketch-in2-name")];
+  const gridChk = el<HTMLInputElement>("cad-sketch-grid");
+  const gridLabelEl = el<HTMLElement>("cad-sketch-gridlabel");
+  const fitBtn = el<HTMLButtonElement>("cad-sketch-fit");
 
   /** A number typed in the value box (comma decimal accepted; sign allowed), or null. */
   const valueBox = (allowR = false, allowDeg = false): number | null => {
@@ -107,6 +117,14 @@ export function initSketchPanel(host: SketchPanelHost): { open(sketch?: Sketch, 
   let st: EditState = startEdit();
   let view: SketchView = { ox: 0, oy: 0, s: 1 };
   let hover: { x: number; y: number } | null = null;
+  /** Where a click at the cursor would land (grid, points, alignment), with its guides. */
+  let hoverSnap: Snapped | null = null;
+  /** Smart Dimension is on (the engine's tool is Select underneath). */
+  let dimTool = false;
+  /** Panning: the press and the view it started from. */
+  let panFrom: { cx: number; cy: number; view: SketchView } | null = null;
+  let spaceDown = false;
+  const gridOn = (): boolean => gridChk?.checked ?? false;
   let history: Sketch[] = [];
   let open = false;
   /** The revolve axis: a line chosen with "Revolve about the selected line". */
@@ -142,14 +160,73 @@ export function initSketchPanel(host: SketchPanelHost): { open(sketch?: Sketch, 
   function paint(): void {
     // The status line first: it is the text of the sketch's state, canvas or no canvas.
     statusEl.textContent = statusLine(st.sketch, freedomOf(st.sketch)) + (axis ? ` Revolve axis: ${axis}.` : "");
+    if (promptEl) promptEl.textContent = promptFor(st, dimTool);
+    const step = gridStep(view.s);
+    if (gridLabelEl) gridLabelEl.textContent = gridOn() ? gridLabel(step) : "grid off";
+    // The size fields show what the cursor would make, until something is typed.
+    const live = liveSize(st.tool, st.pending[0], hoverSnap);
+    sizeIn.forEach((inp, i) => {
+      if (inp) inp.placeholder = live[i] !== undefined ? fmt(live[i]) : "";
+    });
     const ctx = canvas!.getContext("2d");
     if (!ctx) return;
     const { w, h, dpr } = size();
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.fillStyle = "#fff";
     ctx.fillRect(0, 0, w, h);
+    // The grid: faint lines every step, the axes through the origin a little darker.
+    if (step * view.s >= 8) {
+      const [x0, y1] = toSketch(view, 0, 0), [x1, y0] = toSketch(view, w, h);
+      ctx.lineWidth = 1;
+      for (let gx = Math.ceil(x0 / step) * step; gx <= x1; gx += step) {
+        const px = Math.round(view.ox + gx * view.s) + 0.5;
+        ctx.strokeStyle = Math.abs(gx) < step / 2 ? "#c7cdd6" : "#eef0f3";
+        ctx.beginPath();
+        ctx.moveTo(px, 0);
+        ctx.lineTo(px, h);
+        ctx.stroke();
+      }
+      for (let gy = Math.ceil(y0 / step) * step; gy <= y1; gy += step) {
+        const py = Math.round(view.oy - gy * view.s) + 0.5;
+        ctx.strokeStyle = Math.abs(gy) < step / 2 ? "#c7cdd6" : "#eef0f3";
+        ctx.beginPath();
+        ctx.moveTo(0, py);
+        ctx.lineTo(w, py);
+        ctx.stroke();
+      }
+    }
+    // Inference: alignment guides and the snap marker.
+    if (hoverSnap && st.tool !== "select") {
+      ctx.strokeStyle = "#16a34a";
+      ctx.setLineDash([4, 3]);
+      for (const g of hoverSnap.guides) {
+        ctx.beginPath();
+        ctx.moveTo(view.ox + g.x1 * view.s, view.oy - g.y1 * view.s);
+        ctx.lineTo(view.ox + g.x2 * view.s, view.oy - g.y2 * view.s);
+        ctx.stroke();
+      }
+      ctx.setLineDash([]);
+      const mx = view.ox + hoverSnap.x * view.s, my = view.oy - hoverSnap.y * view.s;
+      if (hoverSnap.kind === "point") ctx.strokeRect(mx - 5, my - 5, 10, 10);
+      else if (hoverSnap.kind === "midpoint") {
+        ctx.beginPath();
+        ctx.moveTo(mx, my - 6);
+        ctx.lineTo(mx + 6, my + 4);
+        ctx.lineTo(mx - 6, my + 4);
+        ctx.closePath();
+        ctx.stroke();
+      }
+      // The size under the cursor, beside it.
+      if (live.length) {
+        ctx.fillStyle = "#1f2937";
+        ctx.font = "12px sans-serif";
+        const text = st.tool === "line" ? `${fmt(live[0])} mm  ${fmt(live[1])}°` : st.tool === "circle" ? `Ø${fmt(live[0])}` : `${fmt(live[0])} × ${fmt(live[1])}`;
+        ctx.fillText(text, mx + 12, my - 10);
+      }
+    }
     const free = freedomOf(st.sketch).free;
-    const pending = hover && st.pending.length ? [...st.pending, hover] : st.pending;
+    const at0 = hoverSnap ?? hover;
+    const pending = at0 && st.pending.length ? [...st.pending, at0] : st.pending;
     for (const o of sketchOps(st.sketch, view, { selection: st.selection, free, pending, tool: st.tool, sides: st.sides })) {
       if (o.op === "text") {
         ctx.fillStyle = o.kind === "glyph" ? "#6b7280" : o.kind === "driven" ? "#6b7280" : "#111";
@@ -190,12 +267,71 @@ export function initSketchPanel(host: SketchPanelHost): { open(sketch?: Sketch, 
   }
 
   // Tools.
+  /** Shows the size fields the tool takes (W and H, length and angle, Ø), emptied. */
+  function showSizeFields(): void {
+    const fields = dimTool ? [] : typedFields(st.tool);
+    sizeIn.forEach((inp, i) => {
+      if (!inp) return;
+      inp.value = "";
+      if (sizeLabel[i]) sizeLabel[i]!.hidden = !fields[i];
+      if (sizeName[i] && fields[i]) sizeName[i]!.textContent = fields[i].label;
+    });
+  }
+  function setTool(tool: string): void {
+    dimTool = tool === "dimension";
+    st = { ...cancel(st), tool: (dimTool ? "select" : tool) as SketchTool, ...(dimTool ? { selection: [] } : {}) };
+    for (const o of Array.from(panel!.querySelectorAll<HTMLButtonElement>("[data-sk-tool]"))) o.classList.toggle("active", o.dataset.skTool === tool);
+    showSizeFields();
+    say("");
+    paint();
+  }
   for (const b of Array.from(panel.querySelectorAll<HTMLButtonElement>("[data-sk-tool]"))) {
-    b.addEventListener("click", () => {
-      st = { ...cancel(st), tool: b.dataset.skTool as SketchTool };
-      for (const o of Array.from(panel.querySelectorAll<HTMLButtonElement>("[data-sk-tool]"))) o.classList.toggle("active", o === b);
-      say("");
-      paint();
+    b.addEventListener("click", () => setTool(b.dataset.skTool!));
+  }
+  /** The typed sizes, or the first refusal (named). */
+  function typedSizes(): Array<number | null> | string {
+    const fields = typedFields(st.tool);
+    const out: Array<number | null> = [];
+    for (let i = 0; i < fields.length; i++) {
+      const v = parseTyped(sizeIn[i]?.value ?? "", fields[i].kind, fields[i].label);
+      if (typeof v === "string") return v;
+      out.push(v);
+    }
+    return out;
+  }
+  /** Draws at (x, y) with the typed sizes (if any): the one place a drawing click goes through. */
+  function drawAt(x: number, y: number): void {
+    const sizes = typedSizes();
+    if (typeof sizes === "string") return say(sizes, true);
+    if (sizes.some((v) => v !== null)) {
+      const before = st.sketch;
+      const r = placeTyped(st, sizes, { x, y }, tolerance());
+      apply(r);
+      // Once the shape is made, the fields are cleared for the next one.
+      if (r.ok && r.state.sketch !== before && r.state.sketch.entities.length > before.entities.length) showSizeFields();
+      return;
+    }
+    apply(click(st, x, y, tolerance()));
+  }
+  fitBtn?.addEventListener("click", () => {
+    const { w, h } = size();
+    view = frameSketch(st.sketch, w, h);
+    paint();
+  });
+  gridChk?.addEventListener("change", () => paint());
+  // Enter in a size field places the shape toward the cursor (or at it, before the first click).
+  for (const inp of sizeIn) {
+    inp?.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        const target = hoverSnap ?? (st.pending[0] ? { x: st.pending[0].x + 1, y: st.pending[0].y + 1 } : null);
+        if (!target) return say("Click on the canvas where the shape goes.", true);
+        drawAt(target.x, target.y);
+        panel.focus();
+      } else if (e.key === "Escape") {
+        showSizeFields();
+        panel.focus();
+      }
     });
   }
   constructionChk.addEventListener("change", () => {
@@ -249,7 +385,35 @@ export function initSketchPanel(host: SketchPanelHost): { open(sketch?: Sketch, 
     }
   };
   canvas.addEventListener("pointerdown", (e) => {
+    // Pan: the middle button, or Space held with the left.
+    if (e.button === 1 || spaceDown) {
+      e.preventDefault();
+      panFrom = { cx: e.clientX, cy: e.clientY, view };
+      return;
+    }
+    if (e.button === 2) return; // the context menu ends the tool (below)
     const [x, y] = at(e);
+    if (dimTool) {
+      // Smart Dimension: the clicked element (a second line for an angle, a second point for a distance).
+      const hit = pick(st.sketch, x, y, tolerance());
+      if (!hit || st.sketch.constraints.some((c) => c.id === hit)) return say("Click a line, circle or arc — or two lines for an angle, two points for a distance.", true);
+      // It pairs with the element clicked before when the two make a dimension and the first could
+      // not stand alone (a point), or both are lines (an angle); otherwise it starts afresh.
+      const prev = st.selection.length === 1 ? st.selection[0] : null;
+      const pairs = !!prev && prev !== hit && typeof dimensionFor(st.sketch, [prev, hit]) !== "string" && (typeof dimensionFor(st.sketch, [prev]) === "string" || (kindIsLine(prev) && kindIsLine(hit)));
+      st = { ...st, selection: pairs ? [prev!, hit] : [hit] };
+      const spec = dimensionFor(st.sketch, st.selection);
+      if (typeof spec === "string") {
+        say("Click the second point (or line).");
+        return paint();
+      }
+      dimIn.value = formatDimension({ ...spec, id: "_" } as never, (spec as { value: number }).value);
+      say("Type the value and press Enter.");
+      paint();
+      dimIn.focus();
+      dimIn.select();
+      return;
+    }
     if (st.tool === "select") {
       const hit = pick(st.sketch, x, y, tolerance());
       if (hit && st.sketch.points.some((p) => p.id === hit)) {
@@ -271,11 +435,18 @@ export function initSketchPanel(host: SketchPanelHost): { open(sketch?: Sketch, 
         return paint();
       }
     }
-    apply(click(st, x, y, tolerance()));
+    const s = snapCursor(st.sketch, x, y, view.s, { grid: gridOn(), ...(st.pending[0] ? { anchor: st.pending[0] } : {}) });
+    drawAt(s.x, s.y);
   });
+  const kindIsLine = (id: string): boolean => st.sketch.entities.some((e) => e.id === id && e.kind === "line");
   canvas.addEventListener("pointermove", (e) => {
+    if (panFrom) {
+      view = { ...panFrom.view, ox: panFrom.view.ox + e.clientX - panFrom.cx, oy: panFrom.view.oy + e.clientY - panFrom.cy };
+      return paint();
+    }
     const [x, y] = at(e);
     hover = { x, y };
+    hoverSnap = st.tool === "select" || dimTool ? null : snapCursor(st.sketch, x, y, view.s, { grid: gridOn(), ...(st.pending[0] ? { anchor: st.pending[0] } : {}) });
     if (pressed && !dragging && Math.hypot(e.clientX - pressed.cx, e.clientY - pressed.cy) > 3) {
       dragging = pressed.point;
       // The undo step goes on now (so an Undo or Delete mid-drag stays in order); taken off at release if nothing moved.
@@ -333,11 +504,35 @@ export function initSketchPanel(host: SketchPanelHost): { open(sketch?: Sketch, 
       paint();
     }
   };
-  canvas.addEventListener("pointerup", (e) => endDrag(e));
-  canvas.addEventListener("pointercancel", () => endDrag());
+  canvas.addEventListener("pointerup", (e) => {
+    if (panFrom) {
+      panFrom = null;
+      return;
+    }
+    endDrag(e);
+  });
+  canvas.addEventListener("pointercancel", () => {
+    panFrom = null;
+    endDrag();
+  });
   canvas.addEventListener("pointerleave", () => {
     hover = null;
+    hoverSnap = null;
     paint();
+  });
+  // Right-click (or a double-click) ends the tool in progress — a line chain ends there.
+  canvas.addEventListener("contextmenu", (e) => {
+    e.preventDefault();
+    if (st.pending.length) {
+      st = cancel(st);
+      paint();
+    }
+  });
+  canvas.addEventListener("dblclick", () => {
+    if (st.tool === "line" && st.pending.length) {
+      st = cancel(st);
+      paint();
+    }
   });
   canvas.addEventListener(
     "wheel",
@@ -352,12 +547,41 @@ export function initSketchPanel(host: SketchPanelHost): { open(sketch?: Sketch, 
     },
     { passive: false },
   );
+  /** Solid Edge-style keys (never while a box has the typing focus). */
+  const KEY_TOOL: Record<string, string> = { s: "select", l: "line", r: "rectangle", c: "circle", a: "arc", p: "point", t: "trim", d: "dimension" };
   panel.addEventListener("keydown", (e: KeyboardEvent) => {
-    if ((e.target as HTMLElement).tagName === "INPUT") return;
+    const tag = (e.target as HTMLElement).tagName;
+    if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
+    if (e.key === " ") {
+      spaceDown = true;
+      e.preventDefault();
+      return;
+    }
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
+      e.preventDefault();
+      undoBtn.click();
+      return;
+    }
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
     if (e.key === "Escape") {
-      st = cancel(st);
+      // First Esc ends what is in progress; the next goes back to Select.
+      if (st.pending.length || st.selection.length) st = { ...cancel(st), selection: [] };
+      else if (st.tool !== "select" || dimTool) return setTool("select");
       paint();
     } else if (e.key === "Delete" || e.key === "Backspace") apply(deleteSelection(st));
+    else if (/^[0-9.]$/.test(e.key) && typedFields(st.tool).length && !dimTool && sizeIn[0]) {
+      // Typing a size goes straight into the first size field.
+      e.preventDefault();
+      sizeIn[0].focus();
+      sizeIn[0].value = e.key;
+    } else if (e.key.toLowerCase() === "f") fitBtn?.click();
+    else if (e.key.toLowerCase() === "g" && gridChk) {
+      gridChk.checked = !gridChk.checked;
+      paint();
+    } else if (KEY_TOOL[e.key.toLowerCase()]) setTool(KEY_TOOL[e.key.toLowerCase()]);
+  });
+  panel.addEventListener("keyup", (e: KeyboardEvent) => {
+    if (e.key === " ") spaceDown = false;
   });
 
   /** A dimension label under the cursor (from the same draw list the canvas paints). */
@@ -405,7 +629,10 @@ export function initSketchPanel(host: SketchPanelHost): { open(sketch?: Sketch, 
       const { w, h } = size();
       view = frameSketch(st.sketch, w, h);
       say(sketch ? "" : "Pick a tool and click on the canvas. Relations and dimensions keep the shape; drag a point to see what is still free.");
+      dimTool = false;
+      hoverSnap = null;
       for (const o of Array.from(panel.querySelectorAll<HTMLButtonElement>("[data-sk-tool]"))) o.classList.toggle("active", o.dataset.skTool === st.tool);
+      showSizeFields();
       paint();
       panel.focus();
     },

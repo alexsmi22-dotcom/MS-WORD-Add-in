@@ -183,7 +183,8 @@ export function initChemdrawPane(host: ChemdrawHost): void {
     }
     let r: ReturnType<typeof renderCdx> = null;
     try {
-      r = renderCdx(doc, { pad: 6 });
+      // Two bond lengths of paper round the drawing: room to drag a chain, an arrow or a box into.
+      r = renderCdx(doc, { pad: Math.max(6, doc.style.bondLength * 2) });
     } catch (e) {
       // A damaged document must never leave the pane half-set: say so and close it.
       host.setStatus(`${name}: the drawing could not be drawn (${(e as Error).message}).`, "error");

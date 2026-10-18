@@ -6,6 +6,55 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.148.0] — 2026-10-17 — Drawing (CAD): sketch your own parts, New drawing, export to PowerPoint
+
+From `docs/SCOPE-CAD-R2.md` (R2a). Before this release a part could only come from the preset catalogue. Now you
+can **draw your own**: choose **Sketch (draw your own)**, draw with a full set of 2D drafting tools, give it
+relations and dimensions as you would in Solid Edge 2D, then extrude or revolve it into a solid that drops into
+the same drawing sheet as every other part.
+
+### Added
+- **A constraint sketcher.** Drawing tools: line, rectangle, centre rectangle, polygon (3–64 sides), slot,
+  circle, centre-point arc, 3-point arc, point, construction geometry. Modify tools: trim, fillet, chamfer,
+  offset, mirror, linear and circular patterns. Relations: horizontal, vertical, coincident, parallel,
+  perpendicular, tangent, concentric, equal, midpoint, symmetric, point-on-curve, fix. Dimensions: length,
+  distance, angle, radius and diameter, typed as a drafter writes them (`50`, `Ø20`, `R5`, `45°`, `2,5`). What a
+  dimension shows parses back to the same value. Driven (reference) dimensions measure without constraining.
+- **An honest solver.** The status line says how many degrees of freedom are left, and free geometry is drawn
+  blue while fully defined geometry is drawn black. A relation that conflicts with the others is refused by name
+  ("… conflicts with the sketch's other relations"). A redundant one is refused too. A change that would flip
+  the shape inside out or make edges cross is refused rather than drawn. A big dimension change is reached in
+  small steps, so the shape keeps its form. Points drag live.
+- **Sketch → solid.** **Done** extrudes the closed outline to a depth, or revolves it about a construction line.
+  Holes nested inside the outline are kept. An open outline is refused with the place it is open. **Edit
+  sketch** re-opens a sketched part on its own sketch, and the sketch travels in the inserted picture's alt text.
+- **New drawing.** Clears every part and callout. It asks first (a second click confirms) and offers **Undo
+  clear** until the drawing changes again.
+- **Export to PowerPoint.** Saves the current sheet as a slide: a high-resolution picture with the drawing's title.
+
+### Fixed (found by the independent review before release)
+- Clicking a point in Select now selects it; only a real drag moves it, and a click leaves no empty undo step.
+- Clicking a dimension's label puts its value in the box as shown (`45°`, not `0.7854`).
+- A fillet or chamfer no longer changes what the corner's other relations mean: a width still measures the full
+  width to the virtual sharp, an equal still means the full sides, a midpoint stays at the middle of the full edge.
+- Trim drops the relations that depended on the line's full length, and says which. A line trimmed through the
+  middle stays one straight line in two pieces.
+- An inward offset larger than the outline is refused ("an offset of −6 is larger than this outline allows")
+  rather than drawn reversed. Offset circles and arcs keep their distance when the original changes size.
+- Mirror no longer duplicates geometry that is its own image.
+- The polygon, slot, centre rectangle and 3-point arc tools snap to existing points, so outlines really close.
+- While a sketch is open, Insert, Add, New drawing, Remove, PowerPoint and **Use this drawing** wait, each
+  refused by name, and Done always replaces the part being edited.
+- Hover and drag stay responsive on large sketches.
+
+### Honest limits
+- There is no Extend tool yet. Trimming a circle or arc, and offsetting an outline that contains arcs, are
+  refused by name ("trimming circles and arcs comes later"; "offset one curve at a time, or a closed outline
+  made of lines").
+- Word does not document a size limit for a picture's alt text. A very large sketch is untested against it;
+  `TEST-SCRIPT.md` §0cl has a probe step.
+- A sketch holds at most 150 points.
+
 ## [2.147.0] — 2026-10-17 — Drawing (CAD): build parts in 3D, insert engineering and patent drawing sheets
 
 From `docs/SCOPE-CAD-CANVAS.md` (hit-list item 15, R1b). A new tool, **Drawing (CAD)**, under Home ▸ Drawing.

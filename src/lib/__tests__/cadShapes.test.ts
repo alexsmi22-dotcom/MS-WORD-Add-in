@@ -368,3 +368,27 @@ describe("a callout on a doubly curved part survives an unrelated edit (third re
     expect(r.callouts).toHaveLength(1);
   });
 });
+
+describe("R2b: the sheet and layers read back field by field", () => {
+  const base = (extra: Record<string, unknown>): string => JSON.stringify({ ...starterDoc("iso"), ...extra });
+  it("a sheet with a title block and layers round-trips; unknown fields are dropped", () => {
+    const r = parseDoc(base({ sheet: { size: "A3", title: { title: "Bracket", evil: "x" }, junk: 1 }, layers: { frame: false, nope: true } }));
+    expect(r.ok && r.doc.sheet).toEqual({ size: "A3", title: { title: "Bracket" } });
+    expect(r.ok && r.doc.layers).toEqual({ frame: false });
+  });
+  it.each([
+    [{ sheet: { size: "A5" } }, "the drawing names a sheet size this release does not have"],
+    [{ sheet: { size: "A3", orientation: "sideways" } }, "the drawing's sheet orientation is damaged"],
+    [{ sheet: "A3" }, "the drawing's sheet is damaged"],
+    [{ sheet: { size: "A3", title: { title: 5 } } }, "the drawing's title block is damaged"],
+    [{ sheet: { size: "A3", title: { title: "x".repeat(201) } } }, "the drawing's title block is damaged"],
+    [{ layers: { frame: "off" } }, "the drawing's layers are damaged"],
+  ])("%j is refused: %s", (extra, why) => {
+    expect(parseDoc(base(extra))).toEqual({ ok: false, reason: why });
+  });
+  it("a drawing saved before R2b (no sheet, no layers) reads back unchanged", () => {
+    const old = JSON.stringify(starterDoc("asme"));
+    const r = parseDoc(old);
+    expect(r.ok && JSON.stringify(r.doc)).toBe(old);
+  });
+});

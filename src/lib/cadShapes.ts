@@ -30,6 +30,7 @@ import type { StandardId } from "./cadStandards";
 import type { Sketch } from "./sketch";
 import { SketchOp, sketchBody, parseSketch, parseOp } from "./sketchDoc";
 import type { Callout, ViewSpec } from "./cadSheet";
+import { Orientation, SHEET_SIZES, SheetSizeId, TitleFieldId, TitleValues } from "./cadFormats";
 
 export interface ParamDef {
   key: string;
@@ -294,6 +295,58 @@ export interface CadDoc {
   views: ViewSpec[];
   /** Overrides the standard's hidden-line rule on every view; omitted = as the standard says. */
   hidden?: "show" | "hide";
+  /** A framed sheet (R2b): size, orientation and the title block's fields; omitted = no frame. */
+  sheet?: DocSheet;
+  /** Layers switched off (false); omitted = all on. */
+  layers?: Partial<Record<"frame" | "titleBlock" | "callouts" | "titles", boolean>>;
+}
+
+export interface DocSheet {
+  size: SheetSizeId;
+  orientation?: Orientation;
+  title?: TitleValues;
+}
+
+const TITLE_KEYS: TitleFieldId[] = [
+  "owner", "title", "subtitle", "number", "rev", "date", "sheetNo", "sheets", "lang", "creator", "approver",
+  "docType", "status", "dept", "techRef", "cage", "checker", "creatorDate", "checkerDate", "approverDate",
+];
+const LAYER_KEYS = ["frame", "titleBlock", "callouts", "titles"] as const;
+
+/** The sheet and layers of a document read back: checked field by field, unknown fields dropped. */
+function parseSheetAndLayers(d: Record<string, unknown>): string | null {
+  if (d.sheet !== undefined) {
+    const s = d.sheet as Record<string, unknown>;
+    if (!s || typeof s !== "object" || Array.isArray(s)) return "the drawing's sheet is damaged";
+    if (typeof s.size !== "string" || !(s.size in SHEET_SIZES)) return "the drawing names a sheet size this release does not have";
+    if (s.orientation !== undefined && s.orientation !== "landscape" && s.orientation !== "portrait") return "the drawing's sheet orientation is damaged";
+    const out: DocSheet = { size: s.size as SheetSizeId, ...(s.orientation ? { orientation: s.orientation as Orientation } : {}) };
+    if (s.title !== undefined) {
+      const t = s.title as Record<string, unknown>;
+      if (!t || typeof t !== "object" || Array.isArray(t)) return "the drawing's title block is damaged";
+      const title: TitleValues = {};
+      for (const k of TITLE_KEYS) {
+        if (t[k] === undefined) continue;
+        // Bounded so a damaged picture cannot carry pages of text; the lengths the fields hold are checked when drawn.
+        if (typeof t[k] !== "string" || (t[k] as string).length > 200) return "the drawing's title block is damaged";
+        title[k] = t[k] as string;
+      }
+      out.title = title;
+    }
+    d.sheet = out;
+  }
+  if (d.layers !== undefined) {
+    const l = d.layers as Record<string, unknown>;
+    if (!l || typeof l !== "object" || Array.isArray(l)) return "the drawing's layers are damaged";
+    const out: Partial<Record<(typeof LAYER_KEYS)[number], boolean>> = {};
+    for (const k of LAYER_KEYS) {
+      if (l[k] === undefined) continue;
+      if (typeof l[k] !== "boolean") return "the drawing's layers are damaged";
+      out[k] = l[k] as boolean;
+    }
+    d.layers = out;
+  }
+  return null;
 }
 
 export function defaultParams(shape: ShapeId): Record<string, number> {
@@ -508,6 +561,8 @@ export function parseDoc(text: string): { ok: true; doc: CadDoc } | { ok: false;
   const stds = ["asme", "iso", "uspto", "journal", "plain"];
   if (!stds.includes(String(d.standard))) return { ok: false, reason: "the drawing names a standard this release does not have" };
   if (d.hidden !== undefined && d.hidden !== "show" && d.hidden !== "hide") return { ok: false, reason: "the drawing's hidden-line setting is damaged" };
+  const sheetWhy = parseSheetAndLayers(d);
+  if (sheetWhy) return { ok: false, reason: sheetWhy };
   return { ok: true, doc: d as CadDoc };
 }
 

@@ -129,7 +129,9 @@ export const DRAWING_STANDARDS: Record<StandardId, DrawingStandard> = {
     headingPt: capMmToPt(3.5), // ISO 3098 secondary titles
     viewLabels: "name",
     callouts: "balloon",
-    areaMm: { w: 267, h: 180 }, // A4 landscape inside a 20 mm filing margin and 10 mm borders (ISO 5457)
+    // PRODUCT: an A4-landscape drawing area for the unframed sheet. ISO 5457 frames A4 PORTRAIT
+    // (Sheet: A4 gives that framed sheet); see docs/DRAFTING-STANDARDS-REFERENCE.md.
+    areaMm: { w: 267, h: 180 },
     projectionSymbol: true,
     figurePreset: "asdrawn",
     standardScale: true,

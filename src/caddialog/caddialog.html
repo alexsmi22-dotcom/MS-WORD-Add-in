@@ -107,6 +107,22 @@
           <option value="show">Show (dashed)</option>
           <option value="hide">Hide</option>
         </select>
+        <div id="cad-sheet-block" class="cad-sheet-block">
+          <label class="field-label" for="cad-sheet">Sheet</label>
+          <select id="cad-sheet" class="lib-select"></select>
+          <select id="cad-orient" class="lib-select" aria-label="Sheet orientation" hidden></select>
+          <details id="cad-titleblock-wrap" class="cad-details" hidden>
+            <summary>Title block</summary>
+            <div id="cad-titleblock" class="cad-titleblock"></div>
+          </details>
+          <fieldset id="cad-layers" class="cad-views">
+            <legend>Layers</legend>
+          </fieldset>
+          <details class="cad-details">
+            <summary>Line types</summary>
+            <div id="cad-linetypes" class="cad-linetypes"></div>
+          </details>
+        </div>
       </div>
       <div class="cad-col canvas-col">
         <div class="cad-canvas-wrap">

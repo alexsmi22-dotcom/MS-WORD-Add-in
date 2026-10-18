@@ -14,11 +14,35 @@
  * CALLOUTS are anchored to 3D surface points (picked on the canvas), so each
  * view shows a part's callout only where that point is visible, and moves it
  * with the view.
+ *
+ * SHEET FORMATS (R2b). With a format (ISO 5457 / ANSI) the views are laid out in
+ * the frame's view area, clear of the title block; the scale and the projection
+ * symbol go beside the block (ISO 7200: outside it), or in its SCALE field for
+ * ASME. Every stroke names a line type (cadLineTypes) and every element sits in
+ * a named LAYER group; a layer switched off is left out of the SVG entirely, so
+ * what inserts is what shows.
  */
 import type { Mesh, Vec3 } from "./cadModel";
 import { baryIn, drawLines, LineDrawing, STANDARD_VIEWS, viewFromDegrees, CadView, Polyline } from "./cadLines";
 import { DRAWING_STANDARDS, DrawingStandard, StandardId, STANDARD_SCALES, snapScale, scaleLabel } from "./cadStandards";
 import { ptToMm } from "./figureStyle";
+import { buildFrame, Frame, Orientation, SheetSizeId, sheetRefusal, TitleValues } from "./cadFormats";
+import { LineType, lineTypesFor, strokeAttrs } from "./cadLineTypes";
+
+/** The sheet's layers. The user may switch off frame, titleBlock, callouts and titles. */
+export type LayerId = "visible" | "hidden" | "callouts" | "titles" | "frame" | "titleBlock" | "info";
+export const SWITCHABLE_LAYERS: Array<{ id: LayerId; name: string }> = [
+  { id: "frame", name: "Frame and grid" },
+  { id: "titleBlock", name: "Title block" },
+  { id: "callouts", name: "Callouts" },
+  { id: "titles", name: "View titles" },
+];
+
+export interface SheetFormat {
+  size: SheetSizeId;
+  orientation?: Orientation;
+  title?: TitleValues;
+}
 
 export type OrthoKind = "front" | "top" | "right" | "left" | "back" | "bottom";
 /** An orbit view carries either Euler degrees or the exact matrix the user dragged to. */
@@ -39,6 +63,10 @@ export interface SheetOptions {
   figStart?: number;
   /** Override the standard's hidden-line rule for every view. */
   showHidden?: boolean;
+  /** A framed sheet (ISO / ASME); none = the drawing area alone, as before R2b. */
+  format?: SheetFormat;
+  /** Layers switched off (false). */
+  layers?: Partial<Record<LayerId, boolean>>;
 }
 
 export interface Sheet {
@@ -51,6 +79,10 @@ export interface Sheet {
   scaleMmPerUnit: number;
   /** Plain-language notes the pane shows (a callout hidden in every view, …). */
   notes: string[];
+  /** The sheet in mm (the trimmed sheet when framed), and its size designation. */
+  widthMm?: number;
+  heightMm?: number;
+  sizeName?: string;
 }
 
 const PX_PER_MM = 96 / 25.4;
@@ -114,6 +146,18 @@ export function layoutSheet(mesh: Mesh, o: SheetOptions): Sheet {
   const callouts = o.callouts ?? [];
   const notes: string[] = [];
   if (!o.views.length) return { svg: "", widthPx: 0, heightPx: 0, labels: [], scaleMmPerUnit: 0, notes: ["Choose at least one view."] };
+  const types = lineTypesFor(std);
+  const on = (id: LayerId): boolean => o.layers?.[id] !== false;
+  let frame: Frame | null = null;
+  if (o.format) {
+    const why = sheetRefusal(o.standard, o.format.size, o.format.orientation);
+    if (why) return { svg: "", widthPx: 0, heightPx: 0, labels: [], scaleMmPerUnit: 0, notes: [why[0].toUpperCase() + why.slice(1) + "."] };
+    const fr = buildFrame(o.standard as "iso" | "asme", o.format.size, o.format.orientation, o.format.title ?? {}, null);
+    if (!fr.ok) return { svg: "", widthPx: 0, heightPx: 0, labels: [], scaleMmPerUnit: 0, notes: [fr.reason[0].toUpperCase() + fr.reason.slice(1) + "."] };
+    frame = fr.frame;
+  }
+  // Where the views go (mm): the frame's view area, or the standard's drawing area from the origin.
+  const area = frame ? frame.viewArea : { x: 0, y: 0, w: std.areaMm.w, h: std.areaMm.h };
 
   // Each view's drawing, and its cell.
   const cellsFor = CELLS[std.projection];
@@ -199,8 +243,8 @@ export function layoutSheet(mesh: Mesh, o: SheetOptions): Sheet {
   const gapMm = 10 + 2 * calloutMm;
   const edgeMm = 6 + calloutMm;
   const rowGapMm = 8;
-  const availW = std.areaMm.w - 2 * edgeMm - gapMm * (cols.length - 1);
-  const availH = std.areaMm.h - (rowGapMm + labelMm) * rows.length - rowGapMm;
+  const availW = area.w - 2 * edgeMm - gapMm * (cols.length - 1);
+  const availH = area.h - (rowGapMm + labelMm) * rows.length - rowGapMm;
   // One scale for every view, so the orthographic views stay true to each other:
   // the largest at which the drawings, their titles and their callout stacks all fit.
   const colMm = (sc: number): number[] => colW.map((w, i) => Math.max(w * sc, titleMm[i]));
@@ -239,21 +283,21 @@ export function layoutSheet(mesh: Mesh, o: SheetOptions): Sheet {
   const s = std.standardScale ? snapScale(fitS) : fitS;
   const cwMm = colMm(s), chMm = rowMm(s);
 
-  const W = std.areaMm.w * PX_PER_MM;
+  const W = (frame ? frame.W : area.w) * PX_PER_MM;
   const totalH = sum(chMm) + (rowGapMm + labelMm) * rows.length + rowGapMm;
-  const H = Math.min(std.areaMm.h, totalH) * PX_PER_MM;
+  const H = (frame ? frame.H : Math.min(area.h, totalH)) * PX_PER_MM;
   const usedW = sum(cwMm) + 2 * edgeMm + gapMm * (cols.length - 1);
-  const x0 = Math.max(0, ((std.areaMm.w - usedW) / 2) * PX_PER_MM);
+  const x0 = (area.x + Math.max(0, (area.w - usedW) / 2)) * PX_PER_MM;
+  const y0 = area.y * PX_PER_MM;
 
   const fmt = (v: number): string => (Math.round(v * 100) / 100).toString();
-  const strokeV = std.visibleMm * PX_PER_MM;
-  const strokeH = std.hiddenMm * PX_PER_MM;
-  const dashArray = std.dashMm
-    ? `${fmt(std.dashMm[0] * PX_PER_MM)} ${fmt(std.dashMm[1] * PX_PER_MM)}`
-    : `${fmt(strokeH * std.dash[0])} ${fmt(strokeH * std.dash[1])}`;
+  const strokeV = types.visible.widthMm * PX_PER_MM;
+  const strokeH = types.hidden.widthMm * PX_PER_MM;
   const fontPx = textMm * PX_PER_MM;
   const headingPx = headingMm * PX_PER_MM;
-  const parts: string[] = [];
+  // Each layer collects its own elements; the SVG puts them in a named group, in drawing order.
+  const layer: Record<LayerId, string[]> = { frame: [], titleBlock: [], hidden: [], visible: [], callouts: [], titles: [], info: [] };
+  let parts: string[] = layer.visible;
   const labels: string[] = [];
   const calloutSeen = new Array(callouts.length).fill(false);
   const esc = (t: string): string => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
@@ -263,7 +307,7 @@ export function layoutSheet(mesh: Mesh, o: SheetOptions): Sheet {
     const ri = rows.indexOf(it.cell[1]);
     // Cell origin (top-left), px.
     const cellX = x0 + (edgeMm + gapMm * ci + sum(cwMm.slice(0, ci))) * PX_PER_MM;
-    const cellY = ((rowGapMm + labelMm) * ri + rowGapMm + sum(chMm.slice(0, ri))) * PX_PER_MM;
+    const cellY = y0 + ((rowGapMm + labelMm) * ri + rowGapMm + sum(chMm.slice(0, ri))) * PX_PER_MM;
     const b = it.d.bounds;
     const vw = (b.maxX - b.minX) * s * PX_PER_MM;
     const vh = (b.maxY - b.minY) * s * PX_PER_MM;
@@ -279,14 +323,9 @@ export function layoutSheet(mesh: Mesh, o: SheetOptions): Sheet {
     const path = (lines: Polyline[]): string => lines.map((l) => "M" + l.map(([x, y]) => `${fmt(X(x))} ${fmt(Y(y))}`).join("L")).join("");
 
     const showHidden = o.showHidden ?? (it.pictorial ? std.hiddenInPictorial : std.hiddenInOrthographic);
-    if (showHidden && it.d.hidden.length) {
-      parts.push(
-        `<path d="${path(it.d.hidden)}" fill="none" stroke="#000" stroke-width="${fmt(strokeH)}" stroke-dasharray="${dashArray}"/>`,
-      );
-    }
-    if (it.d.visible.length) {
-      parts.push(`<path d="${path(it.d.visible)}" fill="none" stroke="#000" stroke-width="${fmt(strokeV)}" stroke-linecap="round" stroke-linejoin="round"/>`);
-    }
+    if (showHidden && it.d.hidden.length) layer.hidden.push(`<path d="${path(it.d.hidden)}" ${strokeAttrs(types.hidden, PX_PER_MM)}/>`);
+    if (it.d.visible.length) layer.visible.push(`<path d="${path(it.d.visible)}" ${strokeAttrs(types.visible, PX_PER_MM)}/>`);
+    parts = layer.callouts;
 
     // Callouts visible in this view, set in a COLUMN beside the view on the
     // nearer side, each at its part's height and pushed apart so none overlap
@@ -339,6 +378,7 @@ export function layoutSheet(mesh: Mesh, o: SheetOptions): Sheet {
 
     const label = labelOf(it);
     labels.push(label);
+    parts = layer.titles;
     if (label) {
       const ly = cellY + chh + labelMm * 0.75 * PX_PER_MM;
       // Centred under the view, but kept inside its own column (sized to hold it).
@@ -352,21 +392,47 @@ export function layoutSheet(mesh: Mesh, o: SheetOptions): Sheet {
     if (!calloutSeen[n]) notes.push(`Callout ${c.label} is hidden in every view on this sheet, so it is not drawn.`);
   });
 
-  if (std.projectionSymbol) parts.push(projectionSymbol(std, W, H, strokeV, strokeH));
-  if (std.standardScale) {
-    // Bottom-left, in the general text size: the stated scale of every view on the sheet.
-    parts.push(
-      `<text x="${fmt(3 * PX_PER_MM)}" y="${fmt(H - 3 * PX_PER_MM)}" font-family="${esc(std.font)}" font-size="${fmt(fontPx)}" fill="#000">SCALE ${scaleLabel(s)}</text>`,
-    );
+  if (frame) {
+    // The frame again, now with the scale (ASME prints it in the title block's SCALE field).
+    const fr = buildFrame(o.standard as "iso" | "asme", o.format!.size, o.format!.orientation, o.format!.title ?? {}, std.standardScale ? scaleLabel(s) : null);
+    if (!fr.ok) return refuse(fr.reason[0].toUpperCase() + fr.reason.slice(1) + ".");
+    frame = fr.frame;
+    const lt = (t: string): LineType => types[t as keyof typeof types];
+    // Lines of one type in one path, by layer (tb* = title block).
+    const byType = new Map<string, string[]>();
+    for (const l of frame.lines) (byType.get(l.type) ?? byType.set(l.type, []).get(l.type)!).push(`M${fmt(l.x1 * PX_PER_MM)} ${fmt(l.y1 * PX_PER_MM)}L${fmt(l.x2 * PX_PER_MM)} ${fmt(l.y2 * PX_PER_MM)}`);
+    for (const [t, segs] of byType) (t.startsWith("tb") ? layer.titleBlock : layer.frame).push(`<path d="${segs.join("")}" ${strokeAttrs(lt(t), PX_PER_MM)}/>`);
+    for (const t of frame.texts)
+      layer[t.layer].push(
+        `<text x="${fmt(t.x * PX_PER_MM)}" y="${fmt(t.y * PX_PER_MM)}" text-anchor="${t.anchor}" font-family="${esc(std.font)}" font-size="${fmt(t.sizeMm * PX_PER_MM)}" fill="#000">${esc(t.text)}</text>`,
+      );
+  }
+  // The projection symbol and the scale: bottom corners of the drawing area, or — framed — beside the
+  // title block (outside it, ISO 7200), the scale to the symbol's left (ASME: in the block).
+  const symRight = frame ? frame.infoAt.x * PX_PER_MM : W - 3 * PX_PER_MM;
+  const symBottom = frame ? frame.infoAt.y * PX_PER_MM : H - 3 * PX_PER_MM;
+  if (std.projectionSymbol) layer.info.push(projectionSymbol(std, symRight, symBottom, types.visible, types.centre));
+  if (std.standardScale && !(frame && o.standard === "asme")) {
+    const at = frame
+      ? `x="${fmt(symRight - (std.projectionSymbol ? SYMBOL_W_MM + 4 : 0) * PX_PER_MM)}" y="${fmt(symBottom - 1 * PX_PER_MM)}" text-anchor="end"`
+      : `x="${fmt(3 * PX_PER_MM)}" y="${fmt(H - 3 * PX_PER_MM)}"`;
+    // In the general text size: the stated scale of every view on the sheet.
+    layer.info.push(`<text ${at} font-family="${esc(std.font)}" font-size="${fmt(fontPx)}" fill="#000">SCALE ${scaleLabel(s)}</text>`);
   }
 
+  const order: LayerId[] = ["frame", "titleBlock", "hidden", "visible", "callouts", "titles", "info"];
   const svg =
     `<svg xmlns="http://www.w3.org/2000/svg" width="${fmt(W)}" height="${fmt(H)}" viewBox="0 0 ${fmt(W)} ${fmt(H)}">` +
     `<rect width="${fmt(W)}" height="${fmt(H)}" fill="#fff"/>` +
-    parts.join("") +
+    order.filter((id) => layer[id].length && on(id)).map((id) => `<g data-layer="${id}">${layer[id].join("")}</g>`).join("") +
     `</svg>`;
-  return { svg, widthPx: W, heightPx: H, labels, scaleMmPerUnit: s, notes };
+  const out: Sheet = { svg, widthPx: W, heightPx: H, labels, scaleMmPerUnit: s, notes, widthMm: W / PX_PER_MM, heightMm: H / PX_PER_MM };
+  if (frame) out.sizeName = frame.size.designation;
+  return out;
 }
+
+/** The projection symbol's width, mm (its module is 2.2 mm). */
+const SYMBOL_W_MM = 2.2 * (2 * 2 + 1.4 + 2.6);
 
 /**
  * The projection symbol (ISO 5456-2 / ASME Y14.3): a truncated cone seen from
@@ -374,14 +440,14 @@ export function layoutSheet(mesh: Mesh, o: SheetOptions): Sheet {
  * drawn to the LEFT of the cone for third-angle, to the RIGHT for first-angle.
  * Bottom-right of the sheet.
  */
-function projectionSymbol(std: DrawingStandard, W: number, H: number, thick: number, thin: number): string {
+function projectionSymbol(std: DrawingStandard, right: number, bottom: number, outline: LineType, centre: LineType): string {
   const u = 2.2 * PX_PER_MM; // module
   const big = 2 * u, small = u; // radii
   const len = 2.6 * u;
-  const pad = 3 * PX_PER_MM;
   const totalW = 2 * big + 1.4 * u + len;
-  const baseX = W - pad - totalW;
-  const cy = H - pad - big;
+  const baseX = right - totalW;
+  const cy = bottom - big;
+  const thick = outline.widthMm * PX_PER_MM;
   const fmt = (v: number): string => (Math.round(v * 100) / 100).toString();
   const third = std.projection === "third";
   const circlesX = third ? baseX + big : baseX + len + 1.4 * u + big;
@@ -395,7 +461,8 @@ function projectionSymbol(std: DrawingStandard, W: number, H: number, thick: num
     `<path d="${cone}" stroke-width="${fmt(thick)}"/>` +
     `<circle cx="${fmt(circlesX)}" cy="${fmt(cy)}" r="${fmt(big)}" stroke-width="${fmt(thick)}"/>` +
     `<circle cx="${fmt(circlesX)}" cy="${fmt(cy)}" r="${fmt(small)}" stroke-width="${fmt(thick)}"/>` +
-    `<path d="M${fmt(baseX - u * 0.5)} ${fmt(cy)}L${fmt(baseX + totalW + u * 0.5)} ${fmt(cy)}" stroke-width="${fmt(thin)}" stroke-dasharray="${fmt(thin * 12)} ${fmt(thin * 3)} ${fmt(thin)} ${fmt(thin * 3)}"/>` +
+    // The axis: a centre line (ISO 128-20 type 04 / ASME center).
+    `<path d="M${fmt(baseX - u * 0.5)} ${fmt(cy)}L${fmt(baseX + totalW + u * 0.5)} ${fmt(cy)}" ${strokeAttrs(centre, PX_PER_MM).replace('fill="none" stroke="#000" ', "")}/>` +
     `</g>`
   );
 }

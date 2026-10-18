@@ -2438,3 +2438,9 @@ select {
   opacity: 0.45;
   pointer-events: none;
 }
+
+/* R2b: sheet format, title block, line types. */
+.cad-sheet-block .cad-details { margin: 6px 0; }
+.cad-titleblock { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 8px; }
+.cad-titleblock .field-label { display: flex; flex-direction: column; font-size: 11px; }
+.cad-linetypes { font-size: 11px; line-height: 1.5; }

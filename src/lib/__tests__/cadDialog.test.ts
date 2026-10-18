@@ -17,7 +17,7 @@ const PANE_TS = read("taskpane", "taskpane.ts");
 
 /** Element ids the controller looks up with el<…>("id"). */
 const controllerIds = [...CONTROLLER.matchAll(/el<\w+>\("([\w-]+)"\)/g)].map((m) => m[1]);
-const OPTIONAL = new Set(["cad-popout", "cad-ppt"]); // pane-only: the pop-out cannot pop out again or save files (the controller allows null)
+const OPTIONAL = new Set(["cad-popout", "cad-ppt", "cad-svg"]); // pane-only: the pop-out cannot pop out again or save files (the controller allows null)
 const hasId = (html: string, id: string): boolean => new RegExp(`id="${id}"`).test(html);
 
 describe("the pop-out and the pane carry the controls the controller needs", () => {

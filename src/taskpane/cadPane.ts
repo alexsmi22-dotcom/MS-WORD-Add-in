@@ -36,7 +36,16 @@ import {
   serializeDoc,
   starterDoc,
 } from "../lib/cadShapes";
-import type { Callout } from "../lib/cadSheet";
+import { SWITCHABLE_LAYERS, type Callout } from "../lib/cadSheet";
+import { checkTitleFields, SHEET_SIZES, SheetSizeId, sheetRefusal, sheetsFor, TitleFieldId, titleFieldsFor, TitleValues } from "../lib/cadFormats";
+import { lineTypesFor } from "../lib/cadLineTypes";
+
+/**
+ * Engineering sheets go into Word fitted to a page's text column (PRODUCT: 159 × 229 mm fits
+ * both Letter and A4 with 1-inch margins); the true-size sheet is the SVG download. The stated
+ * scale holds on the sheet's own paper size, and the status and alt text say so.
+ */
+export const FIT_MM = { w: 159, h: 229 };
 import { initSketchPanel } from "./sketchPane";
 
 export interface CadPaneHost {
@@ -55,6 +64,8 @@ export interface CadPaneHost {
   openLarge?(docJson: string): Promise<{ doc: string; insert: boolean } | null>;
   /** Downloads the sheet as a PowerPoint slide. Absent in the pop-out (a dialog cannot save files). */
   exportPpt?(svg: string, widthPx: number, heightPx: number, title: string): Promise<void>;
+  /** Saves a file to the user's downloads (the true-size sheet SVG). Absent in the pop-out. */
+  downloadFile?(blob: Blob, name: string): void;
 }
 
 export interface CadPaneApi {
@@ -72,11 +83,32 @@ export interface CadPaneApi {
 
 /** The model stored in a drawing's alt text ("… Model: {json}"), or null. */
 export function modelFromAlt(alt: string): string | null {
-  const at = alt.lastIndexOf("Model: ");
+  // The FIRST "Model: ": what comes before it is the pane's own words, while the model after it may
+  // carry the words "Model: " in a part name or a title block field.
+  const at = alt.indexOf("Model: ");
   return at < 0 ? null : alt.slice(at + "Model: ".length).trim();
 }
 
 const el = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
+
+/** Millimetres as the pane shows them: up to two decimals, no trailing zeros. */
+const fmtMm = (v: number): string => String(+v.toFixed(2));
+
+/**
+ * How an engineering sheet goes into Word: the factor that fits it to the page (1 = as drawn)
+ * and the sentence that says what the stated scale then means. Patent, journal and plain
+ * figures are sized by their own rules and go in as drawn.
+ */
+export function fitNote(sheet: { standard: StandardId; wMm: number; hMm: number; sizeName?: string; scale: number }): { k: number; note: string } {
+  const engineering = sheet.standard === "asme" || sheet.standard === "iso";
+  const k = engineering ? Math.min(1, FIT_MM.w / sheet.wMm, FIT_MM.h / sheet.hMm) : 1;
+  if (k >= 1) return { k: 1, note: "" };
+  const pct = Math.round(k * 100);
+  const scale = sheet.scale >= 1 ? `${+sheet.scale.toFixed(3)}:1` : `1:${+(1 / sheet.scale).toFixed(3)}`;
+  return sheet.sizeName
+    ? { k, note: `The ${sheet.sizeName} sheet is inserted at ${pct} % to fit the page; SCALE ${scale} holds when it is printed on ${sheet.sizeName}.` }
+    : { k, note: `The drawing is inserted at ${pct} % to fit the page; SCALE ${scale} holds at full size (${fmtMm(sheet.wMm)} mm wide).` };
+}
 
 export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
   const standardSel = el<HTMLSelectElement>("cad-standard");
@@ -97,6 +129,15 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
   const pptBtn = el<HTMLButtonElement>("cad-ppt") as HTMLButtonElement | null;
   if (pptBtn && !host.exportPpt) pptBtn.hidden = true;
   const popBtn = el<HTMLButtonElement>("cad-popout") as HTMLButtonElement | null;
+  // R2b: the sheet format, title block, layers and line types.
+  const sheetSel = el<HTMLSelectElement>("cad-sheet") as HTMLSelectElement | null;
+  const orientSel = el<HTMLSelectElement>("cad-orient") as HTMLSelectElement | null;
+  const tbWrap = el<HTMLElement>("cad-titleblock-wrap") as HTMLElement | null;
+  const tbEl = el<HTMLElement>("cad-titleblock") as HTMLElement | null;
+  const layersEl = el<HTMLElement>("cad-layers") as HTMLElement | null;
+  const ltEl = el<HTMLElement>("cad-linetypes") as HTMLElement | null;
+  const svgBtn = el<HTMLButtonElement>("cad-svg") as HTMLButtonElement | null;
+  if (svgBtn && !host.downloadFile) svgBtn.hidden = true;
   // Each window shows only what it can do: the pop-out cannot read the document or pop out again.
   if (!host.readSelectedAlt) openBtn.hidden = true;
   if (popBtn && !host.openLarge) popBtn.hidden = true;
@@ -255,7 +296,19 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     return out;
   }
 
-  let lastSheet: { svg: string; w: number; h: number; labels: string[]; model: string; stdName: string } | null = null;
+  let lastSheet: {
+    svg: string;
+    w: number;
+    h: number;
+    labels: string[];
+    model: string;
+    stdName: string;
+    standard: StandardId;
+    wMm: number;
+    hMm: number;
+    sizeName?: string;
+    scale: number;
+  } | null = null;
   function renderSheet(): void {
     if (!mesh) return;
     doc.views = viewSpecs();
@@ -274,6 +327,8 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
       views: doc.views,
       callouts: placed.callouts,
       ...(doc.hidden ? { showHidden: doc.hidden === "show" } : {}),
+      ...(doc.sheet ? { format: doc.sheet } : {}),
+      ...(doc.layers ? { layers: doc.layers } : {}),
     });
     previewEl.innerHTML = sh.svg;
     const svgEl = previewEl.querySelector("svg");
@@ -282,7 +337,21 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
       svgEl.removeAttribute("height");
     }
     const std0 = DRAWING_STANDARDS[doc.standard];
-    lastSheet = sh.svg ? { svg: sh.svg, w: sh.widthPx, h: sh.heightPx, labels: sh.labels, model: serializeDoc(doc), stdName: std0.name } : null;
+    lastSheet = sh.svg
+      ? {
+          svg: sh.svg,
+          w: sh.widthPx,
+          h: sh.heightPx,
+          labels: sh.labels,
+          model: serializeDoc(doc),
+          stdName: std0.name,
+          standard: doc.standard,
+          wMm: sh.widthMm ?? sh.widthPx / (96 / 25.4),
+          hMm: sh.heightMm ?? sh.heightPx / (96 / 25.4),
+          ...(sh.sizeName ? { sizeName: sh.sizeName } : {}),
+          scale: sh.scaleMmPerUnit,
+        }
+      : null;
     insertBtn.disabled = !sheetCurrent() || inserting;
     if (!sh.svg) {
       // Refused (the views or callouts do not fit): the reason, as a warning, and nothing else.
@@ -292,8 +361,13 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     }
     const std = DRAWING_STANDARDS[doc.standard];
     msgEl.className = "build-readout";
+    // Mandatory ISO 7200 fields left empty: named, never filled in for the user.
+    const missing = doc.sheet && doc.standard === "iso" ? checkTitleFields("iso", doc.sheet.title ?? {}).missing : [];
     msgEl.textContent = [
-      `${std.name}. Scale ${formatScale(sh.scaleMmPerUnit)} on a ${std.areaMm.w} × ${std.areaMm.h} mm drawing area.`,
+      sh.sizeName
+        ? `${std.name}. Scale ${formatScale(sh.scaleMmPerUnit)} on an ${sh.sizeName} sheet (${fmtMm(sh.widthMm ?? 0)} × ${fmtMm(sh.heightMm ?? 0)} mm).`
+        : `${std.name}. Scale ${formatScale(sh.scaleMmPerUnit)} on a ${std.areaMm.w} × ${std.areaMm.h} mm drawing area.`,
+      ...(missing.length ? [`ISO 7200 asks the title block for: ${missing.join(", ")}.`] : []),
       ...overlapNotes(doc, mesh),
       ...placed.notes,
       ...sh.notes,
@@ -460,6 +534,13 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
 
   standardSel.addEventListener("change", () => {
     doc.standard = standardSel.value as StandardId;
+    if (doc.sheet && !sheetsFor(doc.standard).includes(doc.sheet.size)) {
+      const why = sheetRefusal(doc.standard, doc.sheet.size) ?? "";
+      if (doc.sheet.title) stashTitle = doc.sheet.title;
+      host.setStatus(`The ${SHEET_SIZES[doc.sheet.size].designation} sheet was taken off: ${why}.`, "");
+      delete doc.sheet;
+    }
+    renderSheetControls();
     renderSheet();
   });
   viewsEl.addEventListener("change", renderSheet);
@@ -678,6 +759,7 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
    * views when only loadDoc did this (third review).
    */
   function controlsFromDoc(): void {
+    renderSheetControls();
     standardSel.value = doc.standard;
     hiddenSel.value = doc.hidden ?? "";
     const kinds = new Set(doc.views.map((v) => v.kind));
@@ -748,10 +830,11 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     host.setStatus("Inserting drawing…");
     try {
       const views = sheet.labels.filter(Boolean).join(", ");
+      const fit = fitNote(sheet);
       // Provenance: the model the SHEET was drawn from travels with it, so it can be redrawn later.
-      const alt = `Drawing (${sheet.stdName})${views ? `: ${views}` : ""}. Model: ${sheet.model}`;
-      await host.insertPicture(sheet.svg, sheet.w, sheet.h, alt);
-      host.setStatus(`Drawing inserted — ${sheet.stdName}.`, "success");
+      const alt = `Drawing (${sheet.stdName})${views ? `: ${views}` : ""}.${fit.note ? " " + fit.note : ""} Model: ${sheet.model}`;
+      await host.insertPicture(sheet.svg, sheet.w * fit.k, sheet.h * fit.k, alt);
+      host.setStatus(`Drawing inserted — ${sheet.stdName}.${fit.note ? " " + fit.note : ""}`, "success");
     } catch (e) {
       host.setStatus(`Could not insert the drawing: ${(e as Error).message}`, "error");
     } finally {
@@ -763,6 +846,123 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
   insertBtn.addEventListener("click", () => void insertNow());
 
   // PowerPoint: the sheet as it stands (the same check as Insert: never a stale sheet).
+  // ---- R2b: sheet format, title block, layers, line types -----------------------------------
+
+  /** The title block fields typed before the sheet was taken off (a standard change), restored with the next sheet. */
+  let stashTitle: TitleValues = {};
+  let tbTimer = 0;
+  const PANE_LABEL: Partial<Record<TitleFieldId, string>> = {
+    sheets: "Number of sheets",
+    creatorDate: "Drawn — date",
+    checkerDate: "Checked — date",
+    approverDate: "Approved — date",
+  };
+  function renderSheetControls(): void {
+    if (!sheetSel) return;
+    const offered = sheetsFor(doc.standard);
+    sheetSel.replaceChildren(new Option(offered.length ? "None (the drawing area only)" : "None — this style has no sheet format", ""));
+    for (const id of offered) sheetSel.add(new Option(SHEET_SIZES[id].name, id));
+    sheetSel.disabled = !offered.length;
+    sheetSel.title = offered.length ? "" : sheetRefusal(doc.standard, "A4") ?? "";
+    sheetSel.value = doc.sheet?.size ?? "";
+    const size = doc.sheet ? SHEET_SIZES[doc.sheet.size] : null;
+    if (orientSel) {
+      orientSel.replaceChildren(...(size?.orientations ?? []).map((o) => new Option(o === "landscape" ? "Landscape" : "Portrait (vertical)", o)));
+      orientSel.hidden = !size || size.orientations.length < 2;
+      orientSel.value = doc.sheet?.orientation ?? size?.orientations[0] ?? "";
+    }
+    if (tbWrap && tbEl) {
+      tbWrap.hidden = !doc.sheet;
+      tbEl.replaceChildren();
+      for (const f of doc.sheet ? titleFieldsFor(doc.standard) : []) {
+        const lab = document.createElement("label");
+        lab.className = "field-label";
+        lab.textContent = `${PANE_LABEL[f.id] ?? f.label}${f.mandatory ? " (required by ISO 7200)" : ""}`;
+        const inp = document.createElement("input");
+        inp.type = "text";
+        inp.className = "lib-input";
+        inp.maxLength = f.max;
+        inp.dataset.field = f.id;
+        inp.value = doc.sheet?.title?.[f.id] ?? "";
+        lab.appendChild(inp);
+        tbEl.appendChild(lab);
+      }
+    }
+    if (layersEl) {
+      for (const old of Array.from(layersEl.querySelectorAll("label"))) old.remove();
+      for (const l of SWITCHABLE_LAYERS) {
+        const lab = document.createElement("label");
+        const box = document.createElement("input");
+        box.type = "checkbox";
+        box.value = l.id;
+        box.checked = doc.layers?.[l.id as keyof NonNullable<CadDoc["layers"]>] !== false;
+        lab.append(box, ` ${l.name}`);
+        layersEl.appendChild(lab);
+      }
+    }
+    if (ltEl) {
+      ltEl.replaceChildren();
+      for (const t of Object.values(lineTypesFor(DRAWING_STANDARDS[doc.standard]))) {
+        const row = document.createElement("div");
+        const pattern = t.dashMm.length ? `, pattern ${t.dashMm.map(fmtMm).join(" · ")} mm` : ", continuous";
+        row.textContent = `${t.name} — ${t.designation}: ${fmtMm(t.widthMm)} mm${pattern}${t.product ? " (product choice)" : ""}`;
+        ltEl.appendChild(row);
+      }
+    }
+  }
+  sheetSel?.addEventListener("change", () => {
+    if (!sheetSel.value) {
+      if (doc.sheet?.title) stashTitle = doc.sheet.title;
+      delete doc.sheet;
+    } else {
+      const size = sheetSel.value as SheetSizeId;
+      const title = doc.sheet?.title ?? stashTitle;
+      doc.sheet = { size, ...(Object.keys(title).length ? { title } : {}) };
+    }
+    renderSheetControls();
+    renderSheet();
+  });
+  orientSel?.addEventListener("change", () => {
+    if (!doc.sheet) return;
+    const size = SHEET_SIZES[doc.sheet.size];
+    if (orientSel.value === size.orientations[0]) delete doc.sheet.orientation;
+    else doc.sheet.orientation = orientSel.value as "landscape" | "portrait";
+    renderSheet();
+  });
+  tbEl?.addEventListener("input", (e) => {
+    const inp = e.target as HTMLInputElement;
+    const k = inp.dataset.field as TitleFieldId | undefined;
+    if (!k || !doc.sheet) return;
+    const title: TitleValues = { ...(doc.sheet.title ?? {}) };
+    if (inp.value.trim()) title[k] = inp.value;
+    else delete title[k];
+    doc.sheet.title = title;
+    // Typing redraws the sheet once it pauses (a sheet is the hidden-line engine on every view).
+    window.clearTimeout(tbTimer);
+    tbTimer = window.setTimeout(renderSheet, 250);
+  });
+  layersEl?.addEventListener("change", (e) => {
+    const box = e.target as HTMLInputElement;
+    if (box.type !== "checkbox") return;
+    const layers = { ...(doc.layers ?? {}) } as Record<string, boolean>;
+    if (box.checked) delete layers[box.value];
+    else layers[box.value] = false;
+    if (Object.keys(layers).length) doc.layers = layers;
+    else delete doc.layers;
+    renderSheet();
+  });
+  svgBtn?.addEventListener("click", () => {
+    if (!host.downloadFile) return;
+    if (sketching()) return host.setStatus("Finish the sketch first (Done or Cancel).", "error");
+    const sheet = lastSheet;
+    if (!sheet || !sheetCurrent()) return host.setStatus("The drawing is still updating (or has a problem) — try again in a moment.", "error");
+    // The same drawing at its true printed size: the SVG states its size in millimetres.
+    const svg = sheet.svg.replace(/^<svg([^>]*?) width="[^"]*" height="[^"]*"/, `<svg$1 width="${fmtMm(sheet.wMm)}mm" height="${fmtMm(sheet.hMm)}mm"`);
+    const base = (doc.sheet?.title?.number || doc.sheet?.title?.title || "drawing").replace(/[^\w.-]+/g, "_").slice(0, 60);
+    host.downloadFile(new Blob([svg], { type: "image/svg+xml" }), `${base}${sheet.sizeName ? "-" + sheet.sizeName : ""}.svg`);
+    host.setStatus(`Sheet saved at true size (${fmtMm(sheet.wMm)} × ${fmtMm(sheet.hMm)} mm) — check your Downloads folder.`, "success");
+  });
+
   pptBtn?.addEventListener("click", async () => {
     if (!host.exportPpt) return;
     if (sketching()) return host.setStatus("Finish the sketch first (Done or Cancel).", "error");

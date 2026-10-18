@@ -1792,6 +1792,7 @@ Office.onReady((info) => {
     readSelectedAlt: () => docHost.readSelectedPictureAlt(),
     openLarge: openCadDialog,
     exportPpt: exportCadPpt,
+    downloadFile: (blob, name) => triggerDownload(blob, name),
   });
   seqmapOpenBtn = document.getElementById("seqmap-open") as HTMLButtonElement;
   seqmapFile = document.getElementById("seqmap-file") as HTMLInputElement;
@@ -29683,7 +29684,10 @@ function openSolveDialog(): void {
  * builder the Table → Chart export uses, loaded only when asked for).
  */
 async function exportCadPpt(svg: string, widthPx: number, heightPx: number, title: string): Promise<void> {
-  const base64 = await svgToPngBase64(svg, widthPx * 3, heightPx * 3);
+  // 3× for a crisp slide, but no side past 4000 px: an A0 sheet at 3× would be a 13 000-px canvas,
+  // past what a webview will draw (R2b).
+  const k = Math.min(3, 4000 / Math.max(widthPx, heightPx));
+  const base64 = await svgToPngBase64(svg, Math.round(widthPx * k), Math.round(heightPx * k));
   const { buildTablePptx } = await import(/* webpackChunkName: "ppt" */ "../lib/ppt");
   const blob = await buildTablePptx(
     { categories: [], series: [], categoryLabel: "", hasHeader: false, rows: [], warnings: [] },

@@ -1209,6 +1209,22 @@
           <option value="show">Show (dashed)</option>
           <option value="hide">Hide</option>
         </select>
+        <div id="cad-sheet-block" class="cad-sheet-block">
+          <label class="field-label" for="cad-sheet">Sheet</label>
+          <select id="cad-sheet" class="lib-select"></select>
+          <select id="cad-orient" class="lib-select" aria-label="Sheet orientation" hidden></select>
+          <details id="cad-titleblock-wrap" class="cad-details" hidden>
+            <summary>Title block</summary>
+            <div id="cad-titleblock" class="cad-titleblock"></div>
+          </details>
+          <fieldset id="cad-layers" class="cad-views">
+            <legend>Layers</legend>
+          </fieldset>
+          <details class="cad-details">
+            <summary>Line types</summary>
+            <div id="cad-linetypes" class="cad-linetypes"></div>
+          </details>
+        </div>
         <div id="cad-msg" class="build-readout" aria-live="polite"></div>
         <div class="preview-wrap">
           <span class="preview-label">Drawing</span>
@@ -1217,6 +1233,7 @@
         <button id="cad-insert" class="insert-btn" type="button" disabled>Insert drawing</button>
         <button id="cad-open" class="insert-btn secondary" type="button">Edit drawing at cursor</button>
         <button id="cad-ppt" class="insert-btn secondary" type="button">Export to PowerPoint</button>
+        <button id="cad-svg" class="insert-btn secondary" type="button" title="The sheet at its true printed size (an A3 sheet is 420 × 297 mm), to print or send">Save sheet (SVG, true size)</button>
       </section>
 
       <!-- Bio / Assay: kinetics, dose-response, binding, lab math -->

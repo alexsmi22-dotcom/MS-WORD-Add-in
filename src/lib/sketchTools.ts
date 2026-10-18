@@ -60,10 +60,11 @@ class Builder {
     return this.sk.points.find((p) => p.id === id)!;
   }
   /** Solves and verifies; the new state, or the refusal. */
-  done(st: EditState, note?: string): EditResult {
-    // Checked against the geometry as BUILT: existing points are where they were, and what the tool
-    // drew on purpose (a mirrored diagonal across another line, a trimmed piece) is not a new crossing.
-    const r = solve(this.sk, {}, this.sk);
+  done(st: EditState, note?: string, crossesOnPurpose = false): EditResult {
+    // Flips are checked against the geometry as BUILT (existing points are where they were; new
+    // geometry is checked too). Crossings are checked against the sketch as it WAS, except for the tools
+    // whose result may cross on purpose (a trimmed piece, a mirrored diagonal, a pattern copy).
+    const r = solve(this.sk, crossesOnPurpose ? {} : { crossingReference: st.sketch }, this.sk);
     if (!r.ok) return { ok: false, state: st, reason: r.reason };
     return { ok: true, state: { ...st, sketch: r.sketch, seq: this.seq, pending: [], selection: [] }, note };
   }
@@ -186,7 +187,8 @@ function corner(sk: Sketch, l1: string, l2: string): { line1: Line; line2: Line;
  */
 function cutCorner(b: Builder, c: { line1: Line; line2: Line; P: string; A: string; B: string }, T1: string, T2: string): void {
   const root = unionCoincident(b.sk);
-  const C1 = b.line(c.A, c.P, true), C2 = b.line(c.B, c.P, true);
+  const twin = (l: Line, far: string): string => (root(l.a) === root(c.P) ? b.line(c.P, far, true) : b.line(far, c.P, true));
+  const C1 = twin(c.line1, c.A), C2 = twin(c.line2, c.B);
   const swap: Record<string, string> = { [c.line1.id]: C1, [c.line2.id]: C2 };
   b.sk.constraints = b.sk.constraints.map((k) => {
     const out: Record<string, unknown> = { ...k };
@@ -432,7 +434,7 @@ export function mirror(st: EditState): EditResult {
     }
   }
   if (b.sk.entities.length === st.sketch.entities.length) return { ok: false, state: st, reason: "everything selected lies on the mirror line — it is its own mirror image" };
-  return b.done(st);
+  return b.done(st, undefined, true);
 }
 
 /** Copies the selection `count − 1` more times, each (dx, dy) further on. */
@@ -485,7 +487,7 @@ function pattern(st: EditState, count: number, place: (p: SPoint, k: number) => 
       }
     }
   }
-  return b.done(st);
+  return b.done(st, undefined, true);
 }
 
 // ---- trim -----------------------------------------------------------------------------------------
@@ -593,7 +595,7 @@ export function trim(st: EditState, lineId: string, x: number, y: number): EditR
   b.sk.points = b.sk.points.filter((p) => !dropped.has(p.id));
   b.sk.constraints = b.sk.constraints.filter((k) => ![...dropped].some((id) => refersTo(k, id)));
   void keep;
-  return b.done(st, droppedRel.length ? `Trimmed; relations that depended on the line's full length went with it (${droppedRel.map((k) => k.kind).join(", ")}).` : undefined);
+  return b.done(st, droppedRel.length ? `Trimmed; relations that depended on the line's full length went with it (${droppedRel.map((k) => k.kind).join(", ")}).` : undefined, true);
 }
 
 /** Empties the sketch (the editor keeps the old one for Undo). */

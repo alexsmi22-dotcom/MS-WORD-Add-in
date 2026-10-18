@@ -524,6 +524,7 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
   const openSketch = (target: number | null): void => {
     if (!sketchPanel) return;
     if (sketching()) return host.setStatus("A sketch is already open — press Done or Cancel first.", "error");
+    if (largeOpen) return host.setStatus("The drawing is open in the large canvas — sketch there, or close it first.", "error");
     const p = target !== null ? doc.parts[target] : undefined;
     sketchTarget = p ? p.id : null;
     section?.classList.add("cad-sketching");
@@ -782,6 +783,7 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
   // The large canvas: the same model, at working size, in its own window.
   popBtn?.addEventListener("click", async () => {
     if (!host.openLarge) return;
+    if (sketching()) return host.setStatus("Finish the sketch first (Done or Cancel).", "error");
     popBtn.disabled = true;
     largeOpen = true;
     try {

@@ -278,3 +278,29 @@ describe("sketcher re-review — every finding pinned", () => {
     expect(pg.sketch.points).toHaveLength(7); // 6 vertices (one is the old point) + the centre
   });
 });
+
+describe("sketcher third review — every finding pinned", () => {
+  it("blocker: all four corners of a rectangle fillet (the twins keep their lines' direction)", () => {
+    let st = clicks(startEdit(), "rectangle", [[0, 0], [40, 20]]);
+    const [b, r, t, l] = lineIds(st.sketch);
+    for (const [x, y] of [[b, r], [r, t], [t, l], [l, b]]) st = ok(fillet(st, x, y, 3));
+    expect(st.sketch.entities.filter((e) => e.kind === "arc")).toHaveLength(4);
+    expect(sketchToProfile(st.sketch).ok).toBe(true);
+  });
+  it("blocker: a corner whose line was offset still fillets", () => {
+    let st = clicks(startEdit(), "rectangle", [[0, 0], [40, 20]]);
+    const [b, , , l] = lineIds(st.sketch);
+    st = ok(offset({ ...st, selection: [b] }, -4));
+    expect(fillet(st, l, b, 3)).toMatchObject({ ok: true });
+  });
+  it("a chamfer or offset that would cross a line the user drew is still refused", () => {
+    let st = clicks(startEdit(), "rectangle", [[0, 0], [20, 20]]);
+    const [b, r] = lineIds(st.sketch);
+    st = clicks({ ...st, pending: [] }, "line", [[16.2, 0.5], [19, 0.5]]);
+    expect(chamfer(st, b, r, 4)).toMatchObject({ ok: false, reason: expect.stringMatching(/^that would make L\d+ cross L\d+/) });
+    let sq = clicks(startEdit(), "rectangle", [[0, 0], [20, 20]]);
+    const sides = lineIds(sq.sketch);
+    sq = clicks({ ...sq, pending: [] }, "line", [[22, -10], [22, 30]]);
+    expect(offset({ ...sq, pending: [], selection: sides }, 4)).toMatchObject({ ok: false });
+  });
+});

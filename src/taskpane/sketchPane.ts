@@ -60,7 +60,7 @@ export function initSketchPanel(host: SketchPanelHost): { open(sketch?: Sketch, 
 
   /** A number typed in the value box (comma decimal accepted; sign allowed), or null. */
   const valueBox = (allowR = false, allowDeg = false): number | null => {
-    let t = dimIn.value.trim().replace(",", ".").replace(allowDeg ? /°$/ : /(mm)$/i, "");
+    let t = dimIn.value.trim().replace(",", ".").replace(allowDeg ? /\s*(°|º|deg)$/i : /(mm)$/i, "");
     if (allowR) t = t.replace(/^(R|r)/, "");
     // A Ø (a diameter) is not a radius or a distance: refused rather than stripped.
     return /^[+-]?(\d+(\.\d*)?|\.\d+)$/.test(t) ? Number(t) : null;
@@ -277,7 +277,9 @@ export function initSketchPanel(host: SketchPanelHost): { open(sketch?: Sketch, 
     hover = { x, y };
     if (pressed && !dragging && Math.hypot(e.clientX - pressed.cx, e.clientY - pressed.cy) > 3) {
       dragging = pressed.point;
+      // The undo step goes on now (so an Undo or Delete mid-drag stays in order); taken off at release if nothing moved.
       dragFrom = st.sketch;
+      history = [...history.slice(-49), st.sketch];
     }
     if (dragging) {
       // One solve per frame at most, whatever the pointer's event rate.
@@ -314,7 +316,7 @@ export function initSketchPanel(host: SketchPanelHost): { open(sketch?: Sketch, 
         const o = from.points.find((k) => k.id === q.id);
         return !o || Math.abs(o.x - q.x) > 1e-12 || Math.abs(o.y - q.y) > 1e-12;
       });
-      if (from && moved) history = [...history.slice(-49), from];
+      if (from && !moved && history[history.length - 1] === from) history = history.slice(0, -1);
       dragging = null;
       dragFrom = null;
       dragTo = null;

@@ -612,6 +612,8 @@ export interface SolveOptions {
   /** Residual tolerance, relative to the sketch's size (and absolute for angles). */
   tol?: number;
   maxIterations?: number;
+  /** Crossings already here are allowed; any other is refused (default: the flip reference). */
+  crossingReference?: Sketch;
 }
 
 export type SolveResult =
@@ -885,7 +887,7 @@ export function solve(sk: Sketch, opts: SolveOptions = {}, reference: Sketch = s
   for (const [k, v] of t0) if (v !== 0 && t1.has(k) && t1.get(k) !== 0 && t1.get(k) !== v) flipped++;
   if (flipped >= 2) return { ok: false, reason: "that would turn an outline inside out — the shape cannot take those values" };
   // No new crossings: an outline that starts clean stays clean.
-  const x0 = lineCrossings(reference);
+  const x0 = lineCrossings(opts.crossingReference ?? reference);
   for (const k of lineCrossings(out)) if (!x0.has(k)) return { ok: false, reason: `that would make ${k.replace("|", " cross ")} — the shape cannot take those values` };
   const a0 = arcSweeps(reference), a1 = arcSweeps(out);
   for (const [id, sw] of a0) {

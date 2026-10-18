@@ -287,3 +287,52 @@ describe("sketcher re-review — the pane findings pinned", () => {
     expect(t.pane.load(before)).toBe("Finish the sketch first (Done or Cancel).");
   });
 });
+
+describe("sketcher third review — the pane findings pinned", () => {
+  const ev = (type: string, x: number, y: number): void => {
+    document.getElementById("cad-sketch-canvas")!.dispatchEvent(new MouseEvent(type, { clientX: 190 + (x * 8) / 3, clientY: 160 - (y * 8) / 3, bubbles: true }));
+  };
+  afterEach(() => jest.useRealTimers());
+  it("Undo pressed mid-drag goes back to before the drag, and the rectangle survives", () => {
+    jest.useFakeTimers();
+    const t = setup();
+    t.$<HTMLSelectElement>("cad-shape").value = "sketch";
+    t.$<HTMLButtonElement>("cad-add").click();
+    t.toolBtn("rectangle").click();
+    t.tap(0, 0);
+    t.tap(30, 20);
+    t.toolBtn("select").click();
+    ev("pointerdown", 30, 20);
+    ev("pointermove", 40, 20);
+    jest.advanceTimersByTime(20);
+    t.$<HTMLButtonElement>("cad-sketch-undo").click();
+    ev("pointerup", 40, 20);
+    expect(t.$<HTMLElement>("cad-sketch-status").textContent).toMatch(/^4 degrees of freedom left/);
+  });
+  it("Circular takes 180 °, 180º and 180deg as well as 180°", () => {
+    const t = setup();
+    t.$<HTMLSelectElement>("cad-shape").value = "sketch";
+    t.$<HTMLButtonElement>("cad-add").click();
+    for (const v of ["180 °", "180º", "180deg"]) {
+      t.$<HTMLInputElement>("cad-sketch-dim").value = v;
+      t.$<HTMLButtonElement>("cad-sketch-circular").click();
+      expect(t.$<HTMLElement>("cad-sketch-msg").textContent).not.toMatch(/^Type the pattern's total angle/);
+    }
+  });
+  it("no sketch opens while the large canvas is out, and the canvas does not open mid-sketch", async () => {
+    let finish: (v: null) => void = () => undefined;
+    const openLarge = jest.fn(() => new Promise<null>((res) => (finish = res)));
+    const t = setup({ openLarge } as Partial<CadPaneHost>);
+    t.$<HTMLButtonElement>("cad-popout").click();
+    t.$<HTMLSelectElement>("cad-shape").value = "sketch";
+    t.$<HTMLButtonElement>("cad-add").click();
+    expect(t.pane.isSketching()).toBe(false);
+    expect(t.host.setStatus).toHaveBeenLastCalledWith("The drawing is open in the large canvas — sketch there, or close it first.", "error");
+    finish(null);
+    await flush();
+    t.$<HTMLButtonElement>("cad-add").click();
+    expect(t.pane.isSketching()).toBe(true);
+    t.$<HTMLButtonElement>("cad-popout").click();
+    expect(openLarge).toHaveBeenCalledTimes(1);
+  });
+});

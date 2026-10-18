@@ -41,6 +41,21 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 - Ring tool: a benzene that could not alternate was silently drawn as a cyclohexane, or put a double bond on a
   saturated N — both refused by name now; a ring already there is refused; a labelled CH3 re-counts (CH2).
 
+### Fixed before release (second review — pictures and the first fixes: 12 findings, pinned in cdxReview.test.ts)
+- The Ring tool closed a ring through a substituent sitting where a vertex fell (a carbonyl O, an OMe), drawing an
+  over-bonded atom; it now refuses by name. Benzene fused onto an aromatic (1.5) ring bond is drawn aromatic.
+- Re-counting a labelled carbon rewrote H3C as CH2 (left-justified, over the bond) and dropped isotope runs
+  (13CH3); labels now keep their own form (H first, stacked) and a label with an isotope or radical is left as drawn.
+- Flags ChemDraw writes with no data (Closed, Dipole, Transparent …) read "no"; a query "any" bond became single.
+- A crafted picture with empty continued records threw; a continued object whose last record has no flag was
+  missed; a picture carrying the drawing twice could join the two copies — now one copy is read; more data after
+  a drawing's end is named; PDF / PNG / SVG pictures, bad data and over-large selections each get their own reason.
+- Plasmid-map values were scaled as coordinates; the success message now says the inserted drawing is a picture
+  JurisLab drew (keep the original, or Save as .cdxml, to edit it again).
+
+Not yet: ChemDraw objects embedded as OLE objects (their drawing is in an oleObject part, not the preview picture);
+floating (wrapped) pictures may not be in Word's selection. Both need a real sample.
+
 ## [2.152.0] — 2026-10-18 — Open and edit ChemDraw files
 
 "Open chemdraw files in jurislab with the ability to be able to edit those files and not have to use chemdraw"

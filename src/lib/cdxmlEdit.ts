@@ -380,22 +380,46 @@ export function deleteInStructure(doc: CdxDoc, id: string): string | null {
 }
 
 /** Re-sets a labelled element atom's hydrogens after its bonds changed (generic and text labels stay). */
+/**
+ * Re-counts a labelled atom's hydrogens after its bonds or charge changed, keeping the label as it is
+ * drawn: H first where it was (H3C, HO), stacked where it was, the same run's font and position. A
+ * label that says more than its element and hydrogens (an isotope, a radical, other text) is left as
+ * drawn — rewriting it would lose what it says.
+ */
 function relabel(doc: CdxDoc, node: XNode): void {
-  // A labelled carbon (CH3, no Element attribute) re-counts too.
-  const z = node.attrs.Element ?? "6";
-  if (node.attrs.NodeType || !node.children.some((c) => c.name === "t")) return;
-  if (z === "6") {
-    // A labelled carbon keeps its label, with its hydrogens re-counted (CH3 → CH2).
-    const frag = fragmentOf(doc.root, node.attrs.id ?? "")?.frag;
-    if (!frag) return;
-    const h = implicitH("C", Number(node.attrs.Charge ?? 0) || 0, bondOrderSum(frag, node.attrs.id ?? "")) ?? 0;
-    node.attrs.NumHydrogens = String(h);
-    node.children = node.children.filter((c) => c.name !== "t");
-    node.children.push(labelText(doc, node, "C" + (h ? "H" + (h > 1 ? h : "") : "")));
-    return;
+  if (node.attrs.NodeType && node.attrs.NodeType !== "Element") return;
+  if (node.attrs.Isotope || node.attrs.Radical) return;
+  const t = node.children.find((c) => c.name === "t");
+  if (!t) return;
+  const sym = symbolFor(Number(node.attrs.Element ?? 6));
+  if (!sym || VALENCE[sym] === undefined) return;
+  const runs = t.children.filter((c) => c.name === "s");
+  if (!runs.length) return;
+  const text = runs.map((r) => r.text).join("");
+  const flat = text.replace(/\n/g, "");
+  const m = new RegExp(`^(H\\d*)?${sym}(H\\d*)?$`).exec(flat);
+  if (!m || (m[1] && m[2])) return;
+  const frag = fragmentOf(doc.root, node.attrs.id ?? "")?.frag;
+  if (!frag) return;
+  const h = implicitH(sym, Number(node.attrs.Charge ?? 0) || 0, bondOrderSum(frag, node.attrs.id ?? ""));
+  if (h === null) return;
+  const hs = h ? "H" + (h > 1 ? h : "") : "";
+  const hFirst = !!m[1] || (!m[2] && t.attrs.LabelJustification === "Right");
+  const sep = text.includes("\n") ? "\n" : "";
+  const next = !hs ? sym : hFirst ? hs + sep + sym : sym + sep + hs;
+  node.attrs.NumHydrogens = String(h);
+  if (next === text) return;
+  // The box grows or shrinks on the side away from the atom.
+  const size = Number(runs[0].attrs.size) || doc.style.labelSize;
+  const delta = (next.replace(/\n/g, "").length - flat.length) * size * 0.6;
+  const box = (t.attrs.BoundingBox ?? "").split(/\s+/).map(Number);
+  if (box.length === 4 && box.every(Number.isFinite) && !sep) {
+    if (hFirst) box[0] -= delta;
+    else box[2] += delta;
+    t.attrs.BoundingBox = box.map(fmt).join(" ");
   }
-  const sym = symbolFor(Number(z));
-  if (sym && VALENCE[sym] !== undefined) setAtomLabel(doc, node.attrs.id ?? "", sym);
+  runs[0].text = next;
+  t.children = t.children.filter((c) => c.name !== "s" || c === runs[0]);
 }
 
 /** Sets an atom's charge (−9…9); a labelled atom's hydrogens follow. */
@@ -448,13 +472,18 @@ function placeRing(doc: CdxDoc, frag: XNode, verts: P2[], kind: RingKind, keep: 
   const id = nextIdFrom(doc.root);
   const L = doc.style.bondLength;
   const atoms = frag.children.filter((c) => c.name === "n");
+  // Existing atoms a new vertex lands on: they become ring atoms, and are checked below.
+  const snapped: XNode[] = [];
   const ids = verts.map((v, i) => {
     if (keep[i]) return keep[i];
     const near = atoms.find((a) => {
       const p = posOf(a);
       return Math.hypot(p[0] - v[0], p[1] - v[1]) < L * 0.2;
     });
-    if (near) return near.attrs.id!;
+    if (near) {
+      snapped.push(near);
+      return near.attrs.id!;
+    }
     const nid = id();
     const n: XNode = { name: "n", attrs: { id: nid, p: `${fmt(v[0])} ${fmt(v[1])}` }, children: [], text: "", line: 0 };
     frag.children.push(n);
@@ -474,6 +503,14 @@ function placeRing(doc: CdxDoc, frag: XNode, verts: P2[], kind: RingKind, keep: 
     }
   }
   if (frag.children.length === before) return "that ring is already there";
+  // A ring may close onto a bare carbon where a vertex falls; never onto a labelled atom (a carbonyl O,
+  // an OMe) — that would draw a ring through a substituent — nor onto a carbon with no bond to spare.
+  for (const n of snapped) {
+    if (n.children.some((c) => c.name === "t") || (n.attrs.Element && n.attrs.Element !== "6") || n.attrs.NodeType) {
+      return "the ring would run into an atom already there (a labelled atom or a substituent) — fuse it onto another bond, or move that atom first";
+    }
+    if (bondOrderSum(frag, n.attrs.id ?? "") > 4) return "the ring would give a carbon already there more than four bonds — fuse it onto another bond";
+  }
   /** Can this atom take one more bond order (a double instead of a single)? Generic labels cannot. */
   const canDouble = (a: string): boolean => {
     const n = atoms.find((x) => x.attrs.id === a);
@@ -487,7 +524,15 @@ function placeRing(doc: CdxDoc, frag: XNode, verts: P2[], kind: RingKind, keep: 
     return bondOrderSum(frag, a) + 1 <= max;
   };
   let placed = false;
-  if (kind === "benzene") {
+  // Fused onto an aromatic (1.5) bond: the new ring is drawn aromatic too, as the structure it joins.
+  const sharedBond = keep.length === 2 ? bondBetween(keep[0], keep[1]) : undefined;
+  if (kind === "benzene" && sharedBond?.attrs.Order === "1.5") {
+    for (let i = 0; i < ids.length; i++) {
+      const bd = bondBetween(ids[i], ids[(i + 1) % ids.length])!;
+      if (bd !== sharedBond) bd.attrs.Order = "1.5";
+    }
+    placed = true;
+  } else if (kind === "benzene") {
     // Alternate double bonds round the ring. A bond of the plan may already be double, or have both
     // ends free of one; a bond the ring shares with a structure already there may also have both
     // ends already double-bonded (fusing onto a ring's single bond: naphthalene), and stays single.

@@ -139,6 +139,7 @@ export function readCdx(bytes: Uint8Array): { ok: true; root: XNode; notes: stri
     if (r) note(r);
   }
   if (stack.length > 1 && pos >= end) note("objects the file did not close (it may be cut short)");
+  else if (end - pos > 2 && bytes.subarray(pos).some((b) => b !== 0)) note("more data after the drawing's end (a second drawing?) was not read");
 
   /** Reads one property onto its object; a returned string names something not read. */
   function property(tag: number, d: Uint8Array, at: number, owner: XNode): string | null {
@@ -222,8 +223,8 @@ export function readCdx(bytes: Uint8Array): { ok: true; root: XNode; notes: stri
         // Flag enums (BondOrder: 0x8000 is "threecenter") are read unsigned.
         const n = int(type.startsWith("INT") && !(en && CDX_FLAG_ENUMS.has(en)));
         if (n === null) return `${name} values of an unexpected size`;
-        // Bond order all-ones = "any" (CDXBond.cpp): CDXML omits it.
-        if (tag === 0x0600 && ((d.length === 1 && n === 0xff) || (d.length === 2 && n === 0xffff))) return null;
+        // Bond order all-ones = "any" (a query bond, CDXBond.cpp).
+        if (tag === 0x0600 && ((d.length === 1 && n === 0xff) || (d.length === 2 && n === 0xffff) || (d.length === 4 && n === 0xffffffff))) return set("any");
         // A 4-byte charge is the charge × 2^24 (fractional charges, CDXNode.cpp).
         if (tag === 0x0421 && d.length === 4) return set(fmt(v.getInt32(0, true) / 16777216));
         // Units CDX and CDXML write differently (as Revvity's own writer converts them).
@@ -248,7 +249,8 @@ export function readCdx(bytes: Uint8Array): { ok: true; root: XNode; notes: stri
         if (d.length < 16) return `damaged ${name} boxes`;
         return set([4, 0, 12, 8].map((k) => coord(v.getInt32(k, true))).join(" "));
       case "CDXBoolean":
-        return set(d.length && d[0] ? "yes" : "no");
+        // Present with no data means true (ChemDraw writes some flags that way).
+        return set(!d.length || d[0] ? "yes" : "no");
       case "CDXBooleanImplied":
         return set("yes");
       case "CDXObjectID": {

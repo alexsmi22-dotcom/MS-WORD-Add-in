@@ -85,7 +85,7 @@ describe("from Word's selection (Flat OPC)", () => {
     expect(cdxFromFlatOpc(opc(`<pkg:part pkg:name="/word/document.xml"><pkg:xmlData/></pkg:part>`))).toEqual({ ok: false, reason: "select a ChemDraw picture in the document first (click it)" });
     expect(cdxFromFlatOpc(opc(`<pkg:part pkg:name="/word/media/image1.png" pkg:contentType="image/png"><pkg:binaryData>iVBORw0KGgo=</pkg:binaryData></pkg:part>`))).toEqual({
       ok: false,
-      reason: "the selected picture holds no ChemDraw drawing — it was not pasted from ChemDraw, or it was saved as a plain image",
+      reason: "the selected picture is a PNG, which carries no ChemDraw drawing (Word on a Mac pastes ChemDraw as PDF) — open the .cdx or .cdxml file instead",
     });
   });
   test("base64 decoding ignores line breaks and refuses what is not base64", () => {

@@ -76,7 +76,7 @@ describe("reading .cdx as ChemDraw does", () => {
     walk(root);
     expect(ns).toEqual(["1", "-2"]);
   });
-  test("bond order 0x8000 is threecenter; all-ones (any) is left out (CDXBond.cpp)", () => {
+  test("bond order 0x8000 is threecenter; all-ones is \"any\", a query bond (CDXBond.cpp)", () => {
     const root = read(new W().obj(0x8001, 1).obj(0x8003, 2).obj(0x8005, 5).prop(0x0600, i16(0x8000)).end().obj(0x8005, 6).prop(0x0600, i16(0xffff)).end().end().end().end());
     const bonds: XNode[] = [];
     const walk = (n: XNode): void => {
@@ -84,7 +84,7 @@ describe("reading .cdx as ChemDraw does", () => {
       n.children.forEach(walk);
     };
     walk(root);
-    expect(bonds.map((b) => b.attrs.Order)).toEqual(["threecenter", undefined]);
+    expect(bonds.map((b) => b.attrs.Order)).toEqual(["threecenter", "any"]);
   });
   test("RepeatCount is an 8-byte float (CDXBracketedGroup.cpp); RotationAngle is written as stored", () => {
     const root = read(new W().obj(0x8001, 1).obj(0x8017, 2).prop(0x0a28, f64(2)).end().obj(0x8006, 3).prop(0x0205, i32(90)).end().end().end());
@@ -146,3 +146,102 @@ function reread(d: CdxDoc): CdxDoc {
   if (!r.ok) throw new Error(r.reason);
   return r.doc;
 }
+
+// ---- the second review (picture reading and the first fixes) -----------------------------------
+import { cdxFromMetafile, cdxFromFlatOpc } from "../emfCdx";
+import { setBond, setCharge } from "../cdxmlEdit";
+
+describe("review 2: rings never run through a substituent; aromatic rings fuse aromatic", () => {
+  const doc2 = (frag: string): CdxDoc => {
+    const r = readCdxml(`<CDXML BondLength="30" LabelSize="10" LabelFont="3" LabelFace="96"><page id="1"><fragment id="10">${frag}</fragment></page></CDXML>`);
+    if (!r.ok) throw new Error(r.reason);
+    return r.doc;
+  };
+  test("a ring whose vertex lands on a carbonyl O is refused by name", () => {
+    // C1=O7 with the O exactly where a fused ring's vertex falls (one bond length from C1, 120° round).
+    const d = doc2(`<n id="1" p="0 0"/><n id="2" p="30 0"/><n id="7" p="-15 25.98" Element="8"><t p="-18 29"><s font="3" size="10" face="96">O</s></t></n><b id="3" B="1" E="2"/><b id="8" B="1" E="7" Order="2"/>`);
+    const r = addRingOnBond(d, "3", "cyclohexane");
+    expect(r === null ? "placed" : r).toMatch(/^(placed|the ring would run into an atom already there)/);
+    if (r === null) {
+      // Placed on the other side: the O still has its one double bond.
+      const o = findById(d.root, "10")!.el.children.filter((c) => c.name === "b" && (c.attrs.B === "7" || c.attrs.E === "7"));
+      expect(o).toHaveLength(1);
+    }
+  });
+  test("benzene onto an aromatic (1.5) ring bond: the new ring is aromatic too", () => {
+    let frag = "";
+    for (let i = 0; i < 6; i++) frag += `<n id="${i + 1}" p="${30 * Math.cos((Math.PI / 3) * i)} ${30 * Math.sin((Math.PI / 3) * i)}"/>`;
+    for (let i = 0; i < 6; i++) frag += `<b id="${20 + i}" B="${i + 1}" E="${((i + 1) % 6) + 1}" Order="1.5"/>`;
+    const d = doc2(frag);
+    expect(addRingOnBond(d, "20", "benzene")).toBeNull();
+    const orders = findById(d.root, "10")!.el.children.filter((c) => c.name === "b").map((b) => b.attrs.Order);
+    expect(orders).toHaveLength(11);
+    expect(orders.every((o) => o === "1.5")).toBe(true);
+  });
+});
+
+describe("review 2: a label keeps its own form when its hydrogens are re-counted", () => {
+  const doc2 = (frag: string): CdxDoc => {
+    const r = readCdxml(`<CDXML BondLength="30" LabelSize="10" LabelFont="3" LabelFace="96"><page id="1"><fragment id="10">${frag}</fragment></page></CDXML>`);
+    if (!r.ok) throw new Error(r.reason);
+    return r.doc;
+  };
+  const labelOf = (d: CdxDoc, id: string): string => findById(d.root, id)!.el.children.find((c) => c.name === "t")!.children.map((s) => s.text).join("");
+  test("H3C (right-justified) made a double bond reads H2C, still right-justified", () => {
+    const d = doc2(`<n id="1" p="30 0"/><n id="2" p="0 0" NumHydrogens="3"><t p="-14 3" BoundingBox="-14 -6 4 4" LabelJustification="Right"><s font="3" size="10" face="96">H3C</s></t></n><b id="5" B="1" E="2"/>`);
+    setBond(d, "5", { order: "2" });
+    expect(labelOf(d, "2")).toBe("H2C");
+    expect(findById(d.root, "2")!.el.children.find((c) => c.name === "t")!.attrs.LabelJustification).toBe("Right");
+  });
+  test("a 13CH3 label (isotope) or a radical is left as drawn", () => {
+    const d = doc2(`<n id="1" p="30 0"/><n id="2" p="0 0" Isotope="13" NumHydrogens="3"><t p="-3 3"><s font="3" size="10" face="96">13CH3</s></t></n><b id="5" B="1" E="2"/>`);
+    addBondFrom(d, "2");
+    expect(labelOf(d, "2")).toBe("13CH3");
+  });
+  test("HO stays HO when nothing changes its count (setCharge 0 on an uncharged atom)", () => {
+    const d = doc2(`<n id="1" p="30 0"/><n id="2" p="0 0" Element="8" NumHydrogens="1"><t p="-10 3" LabelJustification="Right"><s font="3" size="10" face="96">HO</s></t></n><b id="5" B="1" E="2"/>`);
+    setCharge(d, "2", 0);
+    expect(labelOf(d, "2")).toBe("HO");
+  });
+});
+
+describe("review 2: reading", () => {
+  test("a flag written with no data reads yes (Closed, Dipole …)", () => {
+    const root = read(new W().obj(0x8001, 1).obj(0x8008, 2).prop(0x0a39, []).end().end().end());
+    expect(find(root, "curve")!.attrs.Closed).toBe("yes");
+  });
+  test("more data after the drawing's end is named", () => {
+    const w = new W().obj(0x8001, 1).end().end();
+    const b = Uint8Array.from([...w.bytes(), 1, 2, 3, 4]);
+    const r = readCdx(b);
+    expect(r.ok && r.notes).toEqual(["more data after the drawing's end (a second drawing?) was not read"]);
+  });
+});
+
+describe("review 2: pictures", () => {
+  const le32 = (v: number): number[] => [v & 0xff, (v >> 8) & 0xff, (v >> 16) & 0xff, (v >>> 24) & 0xff];
+  const le16 = (v: number): number[] => [v & 0xff, (v >> 8) & 0xff];
+  const pad4 = (a: number[]): number[] => (a.length % 4 ? [...a, ...new Array(4 - (a.length % 4)).fill(0)] : a);
+  const emf = (records: number[][]): Uint8Array => {
+    const header = new Array(108).fill(0);
+    header.splice(0, 8, ...le32(1), ...le32(108));
+    header.splice(40, 4, 0x20, 0x45, 0x4d, 0x46);
+    return Uint8Array.from([...header, ...records.flat(), ...le32(14), ...le32(20), ...new Array(8).fill(0), ...le32(20)]);
+  };
+  const gdi = (data: number[]): number[] => {
+    const body = pad4(data);
+    return [...le32(70), ...le32(12 + body.length), ...le32(data.length), ...body];
+  };
+  const plus = (type: number, flags: number, data: number[]): number[] => {
+    const body = pad4(data);
+    return [...le16(type), ...le16(flags), ...le32(12 + body.length), ...le32(data.length), ...body];
+  };
+  test("continued object records with no data never throw", () => {
+    const pic = emf([gdi([0x45, 0x4d, 0x46, 0x2b, ...plus(0x4008, 0x8501, []), ...plus(0x4008, 0x8501, [8, 0, 0, 0, 1, 2, 3, 4])])]);
+    expect(() => cdxFromMetafile(pic)).not.toThrow();
+  });
+  test("a PDF picture is named as such", () => {
+    const opc = `<pkg:package xmlns:pkg="x"><pkg:part pkg:name="/word/media/image1.pdf" pkg:contentType="application/pdf"><pkg:binaryData>JVBERg==</pkg:binaryData></pkg:part></pkg:package>`;
+    expect(cdxFromFlatOpc(opc)).toEqual({ ok: false, reason: "the selected picture is a PDF, which carries no ChemDraw drawing (Word on a Mac pastes ChemDraw as PDF) — open the .cdx or .cdxml file instead" });
+  });
+});

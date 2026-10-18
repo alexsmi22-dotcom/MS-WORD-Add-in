@@ -126,6 +126,10 @@ for tag in attr:
 # Where Revvity's reader disagrees with its header comment, the reader wins.
 types[values["kCDXProp_Bracket_RepeatCount"]] = "FLOAT64"  # CDXBracketedGroup.cpp reads an 8-byte float
 types[values["kCDXProp_Atom_Charge"]] = "INT8"  # 4-byte form (charge × 2^24) handled in cdx.ts
+# Plasmid-map values are written to CDXML as raw integers (CDXPlasmidMap.cpp), not as coordinates.
+for k, v in values.items():
+    if k.startswith("kCDXProp_PlasmidMap_") and types.get(v) == "CDXCoordinate":
+        types[v] = "INT32"
 if "kCDXProp_UTF8Text" in values:
     attr[values["kCDXProp_UTF8Text"]] = ("kCDXProp_UTF8Text", "UTF8Text")
     types[values["kCDXProp_UTF8Text"]] = "CDXString"

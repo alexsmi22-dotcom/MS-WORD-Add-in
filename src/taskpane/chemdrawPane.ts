@@ -117,6 +117,7 @@ export function initChemdrawPane(host: ChemdrawHost): void {
     insertBtn.disabled = inserting || !selected.size;
     insertAllBtn.disabled = inserting || !doc;
     openBtn.disabled = inserting;
+    if (fromDocBtn) fromDocBtn.disabled = inserting;
     closeBtn.disabled = inserting;
     if (undoBtn) undoBtn.disabled = !undo.length;
     if (redoBtn) redoBtn.disabled = !redo.length;
@@ -301,6 +302,7 @@ export function initChemdrawPane(host: ChemdrawHost): void {
   // A ChemDraw picture in the document carries its drawing (emfCdx): it opens as that drawing.
   fromDocBtn?.addEventListener("click", async () => {
     if (inserting || !host.readSelectionOoxml) return;
+    host.setStatus("Reading the selected picture…", "");
     try {
       const opc = await host.readSelectionOoxml();
       if (!opc) return host.setStatus("Select a ChemDraw picture in the document first (click it), then Open ChemDraw picture.", "error");
@@ -312,7 +314,7 @@ export function initChemdrawPane(host: ChemdrawHost): void {
       if (!r.ok) return host.setStatus(`The picture's ChemDraw drawing could not be read: ${r.reason}.`, "error");
       r.doc.notes = [...b.notes, ...r.doc.notes];
       load(r.doc, "ChemDraw picture");
-      host.setStatus("The ChemDraw picture opened as its drawing — edit it here, then Insert selected (or the whole page) puts the edited drawing in; delete the old picture when you are happy. Save as .cdxml keeps it as a ChemDraw file.", "success");
+      host.setStatus("The ChemDraw picture opened as its drawing — edit it here; Insert puts the edited drawing in after it. The inserted drawing is a picture JurisLab drew: keep the original (or Save as .cdxml) to edit it again.", "success");
     } catch (e) {
       host.setStatus(`Could not read the selected picture: ${(e as Error).message}`, "error");
     }

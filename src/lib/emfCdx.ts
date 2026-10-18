@@ -20,7 +20,8 @@ const u32 = (b: Uint8Array, o: number): number => (b[o] | (b[o + 1] << 8) | (b[o
 const EMF_PLUS = [0x45, 0x4d, 0x46, 0x2b]; // "EMF+"
 
 /** Comment payloads in drawing order (EMF: GDI comments, EMF+ comments, and metafiles inside EMF+ images). */
-function emfChunks(b: Uint8Array, depth: number, out: Uint8Array[]): void {
+type Chunk = { kind: string; data: Uint8Array };
+function emfChunks(b: Uint8Array, depth: number, out: Chunk[]): void {
   let pos = 0;
   while (pos + 8 <= b.length) {
     const type = u32(b, pos), size = u32(b, pos + 4);
@@ -30,27 +31,31 @@ function emfChunks(b: Uint8Array, depth: number, out: Uint8Array[]): void {
       const ds = Math.min(u32(b, pos + 8), size - 12);
       const data = b.subarray(pos + 12, pos + 12 + ds);
       if (startsWith(data, EMF_PLUS)) plusChunks(data.subarray(4), depth, out);
-      else out.push(data);
+      else out.push({ kind: "gdi" + depth, data });
     }
     if (type === 14) return; // EMR_EOF
     pos += size;
   }
 }
 
-function plusChunks(d: Uint8Array, depth: number, out: Uint8Array[]): void {
+function plusChunks(d: Uint8Array, depth: number, out: Chunk[]): void {
   let p = 0;
   const pending = new Map<number, { total: number; parts: Uint8Array[]; have: number }>();
   while (p + 12 <= d.length) {
     const rt = u16(d, p), fl = u16(d, p + 2), rs = u32(d, p + 4), ds = u32(d, p + 8);
     if (rs < 12 || p + rs > d.length) return;
     let data = d.subarray(p + 12, p + 12 + Math.min(ds, rs - 12));
-    if (rt === 0x4003) out.push(data); // EmfPlusComment
+    if (rt === 0x4003) out.push({ kind: "plus" + depth, data }); // EmfPlusComment
     else if (rt === 0x4008 && depth < MAX_DEPTH) {
       // EmfPlusObject; a large one comes in continued records (flag 0x8000, total size first).
       const type = (fl >> 8) & 0x7f, id = fl & 0xff;
       let whole: Uint8Array | null = data;
       if (fl & 0x8000) {
         whole = null;
+        if (data.length < 4) {
+          p += rs;
+          continue;
+        }
         const total = u32(data, 0);
         const cur = pending.get(id) ?? { total, parts: [], have: 0 };
         cur.parts.push(data.subarray(4));
@@ -65,6 +70,18 @@ function plusChunks(d: Uint8Array, depth: number, out: Uint8Array[]): void {
           }
           whole = buf;
         } else pending.set(id, cur);
+      } else if (pending.has(id)) {
+        // The last piece of a continued object may come without the flag (MS-EMFPLUS).
+        const cur = pending.get(id)!;
+        pending.delete(id);
+        cur.parts.push(data);
+        const buf = new Uint8Array(cur.parts.reduce((a, q) => a + q.length, 0));
+        let k = 0;
+        for (const part of cur.parts) {
+          buf.set(part, k);
+          k += part.length;
+        }
+        whole = buf;
       }
       // An image object (type 5) holding a metafile (image type 2): its EMF or WMF.
       if (whole && type === 5 && whole.length >= 16 && u32(whole, 4) === 2) {
@@ -72,7 +89,7 @@ function plusChunks(d: Uint8Array, depth: number, out: Uint8Array[]): void {
         const msize = Math.min(u32(data, 12), data.length - 16);
         const meta = data.subarray(16, 16 + msize);
         if (u32(meta, 0) === 1 && meta[40] === 0x20 && meta[41] === 0x45 && meta[42] === 0x4d && meta[43] === 0x46) emfChunks(meta, depth + 1, out);
-        else wmfChunks(meta, out);
+        else wmfChunks(meta, out, depth + 1);
       }
     }
     p += rs;
@@ -80,7 +97,7 @@ function plusChunks(d: Uint8Array, depth: number, out: Uint8Array[]): void {
 }
 
 /** WMF comments: META_ESCAPE (0x0626) with MFCOMMENT (15). */
-function wmfChunks(b: Uint8Array, out: Uint8Array[]): void {
+function wmfChunks(b: Uint8Array, out: Chunk[], depth = 0): void {
   let pos = u32(b, 0) === 0x9ac6cdd7 ? 22 : 0; // a placeable header first
   if (pos + 18 > b.length) return;
   pos += u16(b, pos + 2) * 2;
@@ -89,7 +106,7 @@ function wmfChunks(b: Uint8Array, out: Uint8Array[]): void {
     if (size < 6 || pos + size > b.length) return;
     if (fn === 0x0626 && size >= 10 && u16(b, pos + 6) === 15) {
       const cnt = Math.min(u16(b, pos + 8), size - 10);
-      out.push(b.subarray(pos + 10, pos + 10 + cnt));
+      out.push({ kind: "wmf" + depth, data: b.subarray(pos + 10, pos + 10 + cnt) });
     }
     if (fn === 0) return;
     pos += size;
@@ -98,11 +115,15 @@ function wmfChunks(b: Uint8Array, out: Uint8Array[]): void {
 
 /** The .cdx bytes inside a ChemDraw picture (EMF or WMF), or null when it holds none. */
 export function cdxFromMetafile(b: Uint8Array): Uint8Array | null {
-  const chunks: Uint8Array[] = [];
+  const chunks: Chunk[] = [];
   if (u32(b, 0) === 1 && b.length > 44 && b[40] === 0x20 && b[41] === 0x45) emfChunks(b, 0, chunks);
-  else wmfChunks(b, chunks);
-  const parts = chunks.filter((c) => startsWith(c, CDIF)).map((c) => c.subarray(5));
-  if (!parts.length) return null;
+  else wmfChunks(b, chunks, 0);
+  // One source only: a picture may carry the drawing twice (in EMF+ and in plain GDI comments);
+  // chunks of the two are never joined into one.
+  const tagged = chunks.filter((c) => startsWith(c.data, CDIF));
+  if (!tagged.length) return null;
+  const kind = tagged[0].kind;
+  const parts = tagged.filter((c) => c.kind === kind).map((c) => c.data.subarray(5));
   const total = parts.reduce((a, c) => a + c.length, 0);
   const buf = new Uint8Array(total);
   let k = 0;
@@ -145,8 +166,8 @@ export function fromBase64(s: string): Uint8Array | null {
  */
 export function cdxFromFlatOpc(flatOpc: string): { ok: true; cdx: Uint8Array } | { ok: false; reason: string } {
   const x = parseXml(flatOpc);
-  if (!x.ok) return { ok: false, reason: "Word gave the selection in a form this cannot read" };
-  let pictures = 0;
+  if (!x.ok) return { ok: false, reason: `Word gave the selection in a form this cannot read (${x.reason})` };
+  let pictures = 0, otherKind = "", badData = false;
   let found: Uint8Array | null = null;
   const walk = (n: XNode): void => {
     if (found) return;
@@ -157,8 +178,12 @@ export function cdxFromFlatOpc(flatOpc: string): { ok: true; cdx: Uint8Array } |
         pictures++;
         const bin = n.children.find((c) => c.name === "pkg:binaryData");
         const bytes = bin ? fromBase64(bin.text) : null;
+        if (bin && !bytes) badData = true;
         if (bytes) found = cdxFromMetafile(bytes);
-      } else if (/\.(png|jpe?g|gif|bmp|tiff?)$/.test(name)) pictures++;
+      } else if (/\.(png|jpe?g|gif|bmp|tiff?|pdf|svg|emz|wmz)$/.test(name) || /^image\//.test(type) || type === "application/pdf") {
+        pictures++;
+        if (!otherKind) otherKind = (/\.([a-z]+)$/.exec(name)?.[1] ?? "").toUpperCase();
+      }
       return;
     }
     n.children.forEach(walk);
@@ -166,5 +191,8 @@ export function cdxFromFlatOpc(flatOpc: string): { ok: true; cdx: Uint8Array } |
   walk(x.root);
   if (found) return { ok: true, cdx: found };
   if (!pictures) return { ok: false, reason: "select a ChemDraw picture in the document first (click it)" };
+  if (badData) return { ok: false, reason: "the selected picture's data could not be read" };
+  if (otherKind && otherKind !== "EMF" && otherKind !== "WMF")
+    return { ok: false, reason: `the selected picture is a ${otherKind}, which carries no ChemDraw drawing (Word on a Mac pastes ChemDraw as PDF) — open the .cdx or .cdxml file instead` };
   return { ok: false, reason: "the selected picture holds no ChemDraw drawing — it was not pasted from ChemDraw, or it was saved as a plain image" };
 }

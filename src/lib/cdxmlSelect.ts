@@ -71,14 +71,21 @@ export function withCompanions(doc: CdxDoc, boxes: Map<string, Box>, id: string)
       const rep = it.v.el.children.find((c) => c.name === "represent");
       if (rep && atoms.has(rep.attrs.object ?? "")) out.add(o.id);
     }
-  // Captions and symbols by place: against the structure's box.
+  // Captions and symbols by place: against the structure's box — except text a reaction step names
+  // as the conditions on its arrow ("(1) CH3I" under the arrow belongs to the arrow, not the product).
+  const onArrows = new Set<string>();
+  const visit = (x: typeof doc.root): void => {
+    if (x.name === "step") for (const k of ["ReactionStepObjectsAboveArrow", "ReactionStepObjectsBelowArrow"]) for (const i of (x.attrs[k] ?? "").split(/\s+/)) if (i) onArrows.add(i);
+    x.children.forEach(visit);
+  };
+  visit(doc.root);
   const fb = boxes.get(id);
   if (fb) {
     const reach = doc.style.bondLength * 1.25;
     for (const o of doc.objects) {
       // Other structures stay out, except a counter-ion or lone label (a structure of one or two atoms, such as X⊖).
       const big = o.items.some((it) => it.kind === "arrow" || (it.kind === "fragment" && it.v.nodes.length > 2));
-      if (out.has(o.id) || big) continue;
+      if (out.has(o.id) || big || onArrows.has(o.id)) continue;
       const b = boxes.get(o.id);
       if (!b) continue;
       const centre: Pt = [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2];
@@ -100,4 +107,51 @@ export function unionBox(boxes: Map<string, Box>, ids: Iterable<string>): Box | 
     b = Math.max(b, q[3]);
   }
   return l <= r ? [l, t, r, b] : null;
+}
+
+/** The atom nearest a point, within `r` points (in any structure). */
+export function atomAt(doc: CdxDoc, p: Pt, r: number): string | null {
+  let best: string | null = null, bestD = r;
+  for (const o of doc.objects)
+    for (const it of o.items) {
+      if (it.kind !== "fragment") continue;
+      for (const n of it.v.nodes) {
+        const d = Math.hypot(n.p[0] - p[0], n.p[1] - p[1]);
+        if (d < bestD) {
+          bestD = d;
+          best = n.id;
+        }
+      }
+    }
+  return best;
+}
+
+/** The bond nearest a point, within `r` points of its line. */
+export function bondAt(doc: CdxDoc, p: Pt, r: number): string | null {
+  let best: string | null = null, bestD = r;
+  for (const o of doc.objects)
+    for (const it of o.items) {
+      if (it.kind !== "fragment") continue;
+      const pos = new Map(it.v.nodes.map((n) => [n.id, n.p]));
+      for (const b of it.v.bonds) {
+        const a = pos.get(b.b), c = pos.get(b.e);
+        if (!a || !c) continue;
+        const dx = c[0] - a[0], dy = c[1] - a[1], L2 = dx * dx + dy * dy || 1;
+        const t = Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / L2));
+        const d = Math.hypot(p[0] - (a[0] + t * dx), p[1] - (a[1] + t * dy));
+        if (d < bestD) {
+          bestD = d;
+          best = b.id;
+        }
+      }
+    }
+  return best;
+}
+
+/** A caption (a text object on the page) whose box holds the point. */
+export function captionAt(doc: CdxDoc, p: Pt, slop: number): string | null {
+  for (const o of doc.objects)
+    for (const it of o.items)
+      if (it.kind === "text" && it.v.box && inside(it.v.box, p, slop) && it.v.id) return it.v.id;
+  return null;
 }

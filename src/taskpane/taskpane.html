@@ -295,11 +295,34 @@
                 <option value="3">3×</option>
               </select>
             </div>
+            <div class="chemdraw-tools" role="toolbar" aria-label="Edit the ChemDraw page">
+              <button type="button" class="insert-btn secondary active" data-cdx-tool="select" aria-pressed="true" title="Select and move">Select</button>
+              <button type="button" class="insert-btn secondary" data-cdx-tool="atom" aria-pressed="false" title="Set an atom: N, O, Cl, R1, X …">Atom</button>
+              <button type="button" class="insert-btn secondary" data-cdx-tool="bond" aria-pressed="false" title="Bond order, or a wedge / hash / wavy style">Bond</button>
+              <button type="button" class="insert-btn secondary" data-cdx-tool="add" aria-pressed="false" title="Draw a new bond from an atom">Add bond</button>
+              <button type="button" class="insert-btn secondary" data-cdx-tool="charge+" aria-pressed="false" title="Raise an atom's charge">+</button>
+              <button type="button" class="insert-btn secondary" data-cdx-tool="charge-" aria-pressed="false" title="Lower an atom's charge">−</button>
+              <button type="button" class="insert-btn secondary" data-cdx-tool="text" aria-pressed="false" title="Change a caption's or name's words">Text</button>
+              <button type="button" class="insert-btn secondary" data-cdx-tool="erase" aria-pressed="false" title="Remove an atom, a bond or an object">Erase</button>
+              <button id="chemdraw-undo" type="button" class="insert-btn secondary" disabled>Undo</button>
+              <button id="chemdraw-redo" type="button" class="insert-btn secondary" disabled>Redo</button>
+              <input id="chemdraw-value" type="text" class="formula-input" maxlength="200" aria-label="Atom label or text" placeholder="(Atom and Text tools)" disabled />
+              <select id="chemdraw-bondstyle" aria-label="Bond style" disabled>
+                <option value="">Order: single → double → triple</option>
+                <option value="WedgeBegin">Wedge (click again to turn it round)</option>
+                <option value="WedgedHashBegin">Hashed wedge</option>
+                <option value="Wavy">Wavy</option>
+                <option value="Bold">Bold</option>
+                <option value="Dash">Dashed</option>
+                <option value="Solid">Plain</option>
+              </select>
+            </div>
             <div id="chemdraw-preview" class="chemdraw-preview" aria-label="ChemDraw page — click a structure to select it"></div>
             <p class="build-draw-hint">Click a structure to select it with its brackets, labels and charges; Shift+click adds or removes one object.</p>
             <div class="draw-btn-row">
               <button id="chemdraw-insert" class="insert-btn" type="button" disabled>Insert selected</button>
               <button id="chemdraw-insert-all" class="insert-btn secondary" type="button">Insert whole page</button>
+              <button id="chemdraw-save" class="insert-btn secondary" type="button" disabled title="Download the page, with your edits, as a ChemDraw XML file">Save as .cdxml</button>
               <button id="chemdraw-close" class="insert-btn secondary" type="button">Close</button>
             </div>
           </div>

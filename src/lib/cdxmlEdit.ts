@@ -76,11 +76,9 @@ const POSITIONAL = ["p", "BoundingBox", "Head3D", "Tail3D", "Center3D", "MajorAx
 
 /** Moves top-level objects (by id) by (dx, dy) points: every position inside them, labels included. */
 export function moveObjects(doc: CdxDoc, ids: Iterable<string>, dx: number, dy: number): void {
-  const want = new Set(ids);
-  const page = pageOf(doc.root);
-  if (!page) return;
-  for (const top of page.children) {
-    if (!want.has(top.attrs.id ?? "")) continue;
+  for (const id of new Set(ids)) {
+    const top = findById(doc.root, id)?.el;
+    if (!top) continue;
     walk(top, (x) => {
       for (const k of POSITIONAL) {
         const v = x.attrs[k];
@@ -101,15 +99,19 @@ export function moveObjects(doc: CdxDoc, ids: Iterable<string>, dx: number, dy: 
  * would describe something no longer drawn).
  */
 export function deleteObjects(doc: CdxDoc, ids: Iterable<string>): void {
-  const page = pageOf(doc.root);
-  if (!page) return;
-  const want = new Set(ids);
   const gone = new Set<string>();
-  page.children = page.children.filter((c) => {
-    if (!want.has(c.attrs.id ?? "")) return true;
-    walk(c, (x) => void (x.attrs.id && gone.add(x.attrs.id)));
-    return false;
-  });
+  for (const id of new Set(ids)) {
+    const hit = findById(doc.root, id);
+    if (!hit || !hit.parent) continue;
+    walk(hit.el, (x) => void (x.attrs.id && gone.add(x.attrs.id)));
+    hit.parent.children = hit.parent.children.filter((c) => c !== hit.el);
+  }
+  // A group left empty goes too.
+  const prune = (n: XNode): void => {
+    n.children = n.children.filter((c) => !((c.name === "group" || c.name === "altgroup") && (prune(c), !c.children.length)));
+  };
+  const page = pageOf(doc.root);
+  if (page) prune(page);
   dropReferences(doc.root, gone);
 }
 

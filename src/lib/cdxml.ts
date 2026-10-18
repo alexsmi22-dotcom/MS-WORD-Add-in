@@ -160,6 +160,8 @@ export interface CdxObject {
   id: string;
   kind: string;
   items: CdxItem[];
+  /** The ChemDraw group it belongs to (the outermost), if any. */
+  group?: string;
 }
 
 export interface CdxBracketGroup {
@@ -457,7 +459,17 @@ export function readCdxmlTree(root: XNode): { ok: true; doc: CdxDoc } | { ok: fa
   const properties: CdxDoc["properties"] = [];
   const page = pages[0];
   if (pages.length > 1) notes.set(`pages after the first (${pages.length - 1}) were not read`, 1);
-  for (const c of page.children) {
+  // A group's members are objects of their own (a whole page drawn as one group is common: picking
+  // the group would pick everything); each remembers its group.
+  const pageItems: Array<{ el: XNode; group: string }> = [];
+  const flatten = (n: XNode, group: string, depth: number): void => {
+    for (const c of n.children) {
+      if ((c.name === "group" || c.name === "altgroup") && depth < 16 && !skip(c)) flatten(c, group || (c.attrs.id ?? ""), depth + 1);
+      else pageItems.push({ el: c, group });
+    }
+  };
+  flatten(page, "", 0);
+  for (const { el: c, group } of pageItems) {
     if (c.name === "bracketedgroup") {
       const atts = c.children.filter((k) => k.name === "bracketattachment").map((k) => {
         const cb = child(k, "crossingbond");
@@ -472,7 +484,7 @@ export function readCdxmlTree(root: XNode): { ok: true; doc: CdxDoc } | { ok: fa
     }
     const items: CdxItem[] = [];
     itemsOf(c, items, 0);
-    if (items.length) objects.push({ el: c, id: c.attrs.id ?? "", kind: c.name, items });
+    if (items.length) objects.push({ el: c, id: c.attrs.id ?? "", kind: c.name, items, ...(group ? { group } : {}) });
   }
 
   // The box of what is drawn: every node, text box, graphic point and arrow end.

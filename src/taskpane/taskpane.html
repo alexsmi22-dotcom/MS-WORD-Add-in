@@ -308,6 +308,9 @@
               <button type="button" class="insert-btn secondary" data-cdx-tool="charge-" aria-pressed="false" title="Lower an atom's charge">−</button>
               <button type="button" class="insert-btn secondary" data-cdx-tool="text" aria-pressed="false" title="Change a caption's or name's words">Text</button>
               <button type="button" class="insert-btn secondary" data-cdx-tool="erase" aria-pressed="false" title="Remove an atom, a bond or an object">Erase</button>
+              <button type="button" class="insert-btn secondary" data-cdx-tool="chain" aria-pressed="false" title="Drag from an atom (or empty space) to draw a zig-zag chain">Chain</button>
+              <button type="button" class="insert-btn secondary" data-cdx-tool="bracket" aria-pressed="false" title="Drag a box round a repeat unit: polymer brackets with n">Brackets</button>
+              <button type="button" class="insert-btn secondary" data-cdx-tool="arrow" aria-pressed="false" title="Drag from tail to head: a reaction or equilibrium arrow">Arrow</button>
               <button id="chemdraw-undo" type="button" class="insert-btn secondary" disabled>Undo</button>
               <button id="chemdraw-redo" type="button" class="insert-btn secondary" disabled>Redo</button>
               <input id="chemdraw-value" type="text" class="formula-input" maxlength="200" aria-label="Atom label or text" placeholder="(Atom and Text tools)" disabled />
@@ -318,6 +321,10 @@
                 <option value="cyclobutane">Cyclobutane</option>
                 <option value="cyclopropane">Cyclopropane</option>
                 <option value="cycloheptane">Cycloheptane</option>
+              </select>
+              <select id="chemdraw-arrow" aria-label="Arrow" disabled>
+                <option value="reaction">Reaction arrow</option>
+                <option value="equilibrium">Equilibrium arrow</option>
               </select>
               <select id="chemdraw-bondstyle" aria-label="Bond style" disabled>
                 <option value="">Order: single → double → triple</option>
@@ -334,6 +341,7 @@
             <div class="draw-btn-row">
               <button id="chemdraw-insert" class="insert-btn" type="button" disabled>Insert selected</button>
               <button id="chemdraw-insert-all" class="insert-btn secondary" type="button">Insert whole page</button>
+              <button id="chemdraw-replace" class="insert-btn secondary" type="button" disabled title="Put the drawing (the selection, or the whole page) in place of the picture selected in the document">Replace selected picture</button>
               <button id="chemdraw-save" class="insert-btn secondary" type="button" disabled title="Download the page, with your edits, as a ChemDraw XML file">Save as .cdxml</button>
               <button id="chemdraw-close" class="insert-btn secondary" type="button">Close</button>
             </div>

@@ -33,6 +33,40 @@ export async function insertPictureAtSelection(o: PictureInsert): Promise<void> 
   });
 }
 
+/**
+ * The first selected in-line picture replaced, in place, by a new one: sized, alt text set, then
+ * tagged. False (nothing changed) when no in-line picture is selected.
+ */
+export async function replaceSelectedPicture(o: PictureInsert): Promise<boolean> {
+  let replaced = false;
+  await Word.run(async (context) => {
+    const pics = context.document.getSelection().inlinePictures;
+    pics.load("items");
+    await context.sync();
+    if (!pics.items.length) return;
+    const picture = pics.items[0].insertInlinePictureFromBase64(o.base64, Word.InsertLocation.replace);
+    picture.width = o.widthPt;
+    picture.height = o.heightPt;
+    picture.altTextDescription = o.alt;
+    await context.sync();
+    replaced = true;
+    if (!o.tag) return;
+    // A picture JurisLab tagged before sits in its hidden content control already: the new one
+    // takes its place inside it, so tagging again would nest a second control each time.
+    let tagged = false;
+    try {
+      const cc = picture.parentContentControlOrNullObject;
+      cc.load("tag");
+      await context.sync();
+      tagged = !cc.isNullObject && cc.tag === o.tag;
+    } catch {
+      // Older Word: no way to ask; tag as for a new picture.
+    }
+    if (!tagged) await tagInserted(context, picture.getRange(), o.tag);
+  });
+  return replaced;
+}
+
 /** A structure picture followed by its R-group legend (a table, or one line), then tagged. */
 export async function insertPictureWithLegend(o: LegendedPictureInsert): Promise<void> {
   await Word.run(async (context) => {

@@ -10,7 +10,7 @@ and not have to use chemdraw" — "cut as many limitations as possible between j
 | C1 | Open a .cdxml file and see it exactly as ChemDraw draws it; pick structures; insert into Word | **v2.152.0** |
 | C2 | Edit the file: atoms, bonds, charges, text; move, delete; undo; Save as .cdxml | **v2.152.0** (first tools) |
 | C3 | Binary .cdx; ring tools; ChemDraw pictures in documents (the CDX in their EMF) | **v2.153.0** |
-| C4 | Chain, bracket and arrow tools; replacing the picture in place | planned |
+| C4 | Chain, bracket and arrow tools; replacing the picture in place | **v2.154.0** |
 
 ## Design
 

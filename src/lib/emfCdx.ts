@@ -167,7 +167,7 @@ export function fromBase64(s: string): Uint8Array | null {
 export function cdxFromFlatOpc(flatOpc: string): { ok: true; cdx: Uint8Array } | { ok: false; reason: string } {
   const x = parseXml(flatOpc);
   if (!x.ok) return { ok: false, reason: `Word gave the selection in a form this cannot read (${x.reason})` };
-  let pictures = 0, otherKind = "", badData = false;
+  let pictures = 0, otherKind = "", badData = false, descr = "";
   let found: Uint8Array | null = null;
   const walk = (n: XNode): void => {
     if (found) return;
@@ -184,14 +184,19 @@ export function cdxFromFlatOpc(flatOpc: string): { ok: true; cdx: Uint8Array } |
         pictures++;
         if (!otherKind) otherKind = (/\.([a-z]+)$/.exec(name)?.[1] ?? "").toUpperCase();
       }
+      n.children.forEach(walk);
       return;
     }
+    // A picture's alt text (wp:docPr descr): how a picture JurisLab drew is known.
+    if (n.name === "wp:docPr" && !descr) descr = n.attrs.descr ?? "";
     n.children.forEach(walk);
   };
   walk(x.root);
   if (found) return { ok: true, cdx: found };
   if (!pictures) return { ok: false, reason: "select a ChemDraw picture in the document first (click it)" };
   if (badData) return { ok: false, reason: "the selected picture's data could not be read" };
+  if (descr.startsWith("ChemDraw drawing from "))
+    return { ok: false, reason: "the selected picture was drawn by JurisLab and holds no ChemDraw drawing — open the .cdxml you saved (Save as .cdxml) to edit it again" };
   if (otherKind && otherKind !== "EMF" && otherKind !== "WMF")
     return { ok: false, reason: `the selected picture is a ${otherKind}, which carries no ChemDraw drawing (Word on a Mac pastes ChemDraw as PDF) — open the .cdx or .cdxml file instead` };
   return { ok: false, reason: "the selected picture holds no ChemDraw drawing — it was not pasted from ChemDraw, or it was saved as a plain image" };

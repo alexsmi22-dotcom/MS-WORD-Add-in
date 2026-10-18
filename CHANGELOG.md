@@ -6,6 +6,55 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.154.0] — 2026-10-18 — ChemDraw: chains, polymer brackets, arrows, replace in place
+
+### Added
+- **Chain** tool: drag from an atom (or from empty paper) and a zig-zag chain follows the mouse — one bond per
+  L·cos 30° of drag (L = the document's bond length), 120° at every carbon including the one it starts from, as
+  ChemDraw draws a chain; a click on an atom adds one bond. Refused by name: a carbon with no valence to spare (four
+  bonds; three when charged), an abbreviation that has its bond (Ph, OMe), and a chain that would run onto atoms
+  already drawn. Add bond follows the same rule now. Other elements are left to the chemist (hypervalent iodine,
+  perchlorate chlorine, a nitro N drawn neutral and dative bonds all appear in ChemDraw files).
+- **Brackets** tool: drag a box round a repeat unit — polymer brackets written as ChemDraw writes them (checked
+  against ChemDraw files filed with USPTO patents): square brackets on the box's sides, the label (the box above;
+  blank = n) in italics at the right bracket's foot, held in that bracket, and a structural repeat unit (SRU)
+  naming the atoms inside, its label and the bonds each bracket crosses (an end group crosses one). Refused by
+  name: no atom inside, atoms of two structures, no bond leaving the box, or a bond leaving through its top or
+  bottom (no bracket would cross it). A name ChemDraw computed for the structure is outlined as out of date.
+- **Arrow** tool: drag from tail to head — a reaction arrow (full solid head, ChemDraw's default size) or an
+  equilibrium arrow (⇌: two shafts, each ending in a half head).
+- **Replace selected picture**: click the picture in the document (for instance the ChemDraw picture you opened),
+  then Replace selected picture — the edited drawing (the selection, or the whole page when nothing is selected)
+  goes in its place, instead of a second copy after it. A floating (wrapped) picture is not in Word's selection of
+  in-line pictures: it is said, and nothing changes. The new picture does not carry a ChemDraw drawing as the old
+  one did: replacing a picture opened from the document says so until the drawing is saved as .cdxml, and Open
+  ChemDraw picture on a picture JurisLab drew says to open the saved .cdxml.
+- While dragging, the chain, box or arrow is drawn as a light outline; all three are written into the document
+  itself, so Save as .cdxml keeps them.
+- ChemDraw files whose bracket labels ("n", "m") are kept in the bracket's object tag now draw the label (it
+  was left out before).
+
+### Fixed before release (adversarial review: 10 findings, pinned in cdxmlDraw.test.ts, chemdrawPane.dom.test.ts)
+- A chain from an atom met its existing bond at 180° (drawn straight); a chain could land on atoms already drawn
+  (stacked, unjoined); a charged carbon skipped the valence check (C⁺ took a fourth bond); an abbreviation with its
+  bond (Ph) took a chain; a refused chain from empty paper still left an atom in the document.
+- Brackets: a bond leaving through the box's top was attached to a side bracket it never crosses; atoms of a
+  second structure in the box joined the repeat unit; the label was a loose caption with a made-up repeat count —
+  now ChemDraw's own form; bracketing did not mark the structure's computed name as out of date.
+- Escape, a tool change, opening a file or Close in the middle of a drag left it live (the release still drew);
+  a release with no click after it swallowed the next click; Atom-tool text became the bracket label.
+- The equilibrium arrow's half heads sat between the shafts (pre-existing in the renderer; first written by C4).
+- Replacing a picture JurisLab had inserted wrapped it in a second content control each time.
+
+### Fixed before release (second review — of the first fixes: 4 findings)
+- The shared valence check refused Add bond on hypervalent and cationic atoms it had always allowed (I, I⁺ even
+  with no bonds, Cl=O, a neutral-drawn nitro N, an amine bonded to a metal); it now refuses only what is certain
+  (carbon, abbreviations), and a generic ring atom (A, X) takes a substituent again.
+- The equilibrium arrow's offset heads reached past the drawing's box (clipped with a thick line or wide spacing).
+- A box whose side ran through an atom drew the bracket over it; it is refused by name.
+
+Not yet: ChemDraw objects embedded as OLE objects are not in-line pictures, so Replace cannot reach them.
+
 ## [2.153.0] — 2026-10-18 — ChemDraw pictures in documents, .cdx files, ring tools
 
 ### Added

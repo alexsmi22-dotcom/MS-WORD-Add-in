@@ -232,6 +232,38 @@ describe("pictures (v2.145.0)", () => {
     expect(log.some((l) => l.includes("getRange"))).toBe(false);
   });
 
+  it("replace (v2.154.0): the first selected in-line picture replaced in place, then sized, alt, sync, tagged; true", async () => {
+    reads["#1.inlinePictures.items"] = [obj("pic")];
+    await expect(wordHost.replaceSelectedPicture({ base64: "B64", widthPt: 120, heightPt: 90, alt: "a", selectAfter: false, tag: "formula-inserter:chemdraw" })).resolves.toBe(true);
+    expect(log.slice(0, 12)).toEqual([
+      "RUN {",
+      "#1 = ctx.document.getSelection()",
+      '#2 = #1.inlinePictures.load("items")',
+      "ctx.sync()",
+      '#3 = pic.insertInlinePictureFromBase64("B64", "Replace")',
+      "set #3.width = 120",
+      "set #3.height = 90",
+      'set #3.altTextDescription = "a"',
+      "ctx.sync()",
+      '#4 = #3.parentContentControlOrNullObject.load("tag")',
+      "ctx.sync()",
+      "#5 = #3.getRange()",
+    ]);
+  });
+
+  it("replace inside JurisLab's own content control (a picture it inserted): no second, nested control", async () => {
+    reads["#1.inlinePictures.items"] = [obj("pic")];
+    reads["#3.parentContentControlOrNullObject.isNullObject"] = false;
+    reads["#3.parentContentControlOrNullObject.tag"] = "formula-inserter:chemdraw";
+    await wordHost.replaceSelectedPicture({ base64: "B64", widthPt: 1, heightPt: 1, alt: "a", selectAfter: false, tag: "formula-inserter:chemdraw" });
+    expect(log.some((l) => l.includes("insertContentControl"))).toBe(false);
+  });
+
+  it("replace with no picture selected: false, and nothing is written", async () => {
+    await expect(wordHost.replaceSelectedPicture({ base64: "B", widthPt: 1, heightPt: 2, alt: "x", selectAfter: false })).resolves.toBe(false);
+    expect(log.some((l) => l.includes("insertInlinePicture") || l.startsWith("set "))).toBe(false);
+  });
+
   it("result layout: each picture paragraph chains from RangeLocation.END, text from .after, and Word's count is returned", async () => {
     let n = 0;
     reads["ctx.document.body.inlinePictures.items"] = { get length() { return n; } };

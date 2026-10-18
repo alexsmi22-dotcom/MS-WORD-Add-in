@@ -469,20 +469,32 @@ export function renderCdx(doc: CdxDoc, o: RenderOptions = {}): RenderedCdx | nul
       const tl = head(ar.tail, mul(dir, -1), ar.tailEnd);
       const dash = ar.lineType === "Dashed" ? ` stroke-dasharray="${f2(st.hashSpacing)} ${f2(st.hashSpacing)}"` : "";
       const w = ar.lineType === "Bold" ? st.boldWidth : lw;
-      if (ar.shaftSpacing > 0) {
+      const shaft = (a: Pt, c: Pt): string => `<line x1="${f2(a[0])}" y1="${f2(a[1])}" x2="${f2(c[0])}" y2="${f2(c[1])}" stroke="${col}" stroke-width="${f2(w)}"${dash}/>`;
+      // A half head's barb side, as a multiple of right(dir): HalfLeft at the head is on −right; at
+      // the tail (pointing back) on +right.
+      const hs = ar.headEnd === "HalfLeft" ? -1 : ar.headEnd === "HalfRight" ? 1 : 0;
+      const ts = ar.tailEnd === "HalfLeft" ? 1 : ar.tailEnd === "HalfRight" ? -1 : 0;
+      if (ar.shaftSpacing > 0 && hs && ts && hs !== ts) {
+        // Equilibrium (⇌): each shaft carries one half head, its barb on the outside.
         const nn = right(unit(dir)), half = (ar.shaftSpacing / 100) * lw * 0.5 + lw;
-        for (const s of [1, -1]) {
-          const a = addp(tl.back, mul(nn, s * half)), c = addp(h.back, mul(nn, s * half));
-          parts.push(`<line x1="${f2(a[0])}" y1="${f2(a[1])}" x2="${f2(c[0])}" y2="${f2(c[1])}" stroke="${col}" stroke-width="${f2(w)}"${dash}/>`);
-        }
-      } else parts.push(`<line x1="${f2(tl.back[0])}" y1="${f2(tl.back[1])}" x2="${f2(h.back[0])}" y2="${f2(h.back[1])}" stroke="${col}" stroke-width="${f2(w)}"${dash}/>`);
-      parts.push(h.svg, tl.svg);
+        const oh = mul(nn, hs * half), ot = mul(nn, ts * half);
+        const h2 = head(addp(ar.head, oh), dir, ar.headEnd), t2 = head(addp(ar.tail, ot), mul(dir, -1), ar.tailEnd);
+        parts.push(shaft(addp(ar.tail, oh), h2.back), shaft(t2.back, addp(ar.head, ot)), h2.svg, t2.svg);
+      } else {
+        if (ar.shaftSpacing > 0) {
+          const nn = right(unit(dir)), half = (ar.shaftSpacing / 100) * lw * 0.5 + lw;
+          for (const s of [1, -1]) parts.push(shaft(addp(tl.back, mul(nn, s * half)), addp(h.back, mul(nn, s * half))));
+        } else parts.push(shaft(tl.back, h.back));
+        parts.push(h.svg, tl.svg);
+      }
       if (ar.noGo === "Cross") {
         const m = mul(addp(ar.head, ar.tail), 0.5), u = unit(dir), nn = right(u), s = W * 2;
         parts.push(`<path d="M${f2(m[0] - u[0] * s - nn[0] * s)} ${f2(m[1] - u[1] * s - nn[1] * s)}L${f2(m[0] + u[0] * s + nn[0] * s)} ${f2(m[1] + u[1] * s + nn[1] * s)}M${f2(m[0] - u[0] * s + nn[0] * s)} ${f2(m[1] - u[1] * s + nn[1] * s)}L${f2(m[0] + u[0] * s - nn[0] * s)} ${f2(m[1] + u[1] * s - nn[1] * s)}" stroke="${col}" stroke-width="${f2(lw)}"/>`);
       }
-      grow(ar.head, W + lw);
-      grow(ar.tail, W + lw);
+      // Room for the heads: an equilibrium's sit a shaft's half spacing off the axis.
+      const off = ar.shaftSpacing > 0 ? (ar.shaftSpacing / 100) * lw * 0.5 + lw : 0;
+      grow(ar.head, W + lw + off);
+      grow(ar.tail, W + lw + off);
     }
     prims.push({ z: ar.z, svg: parts.join("") });
   };

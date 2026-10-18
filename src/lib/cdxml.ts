@@ -421,6 +421,8 @@ export function readCdxmlTree(root: XNode): { ok: true; doc: CdxDoc } | { ok: fa
       case "graphic": {
         const g = readGraphic(el);
         if (g) out.push({ kind: "graphic", v: g });
+        // A bracket's label ("n", "m", a count) is text inside its object tag, drawn by ChemDraw.
+        for (const tag of el.children) if (tag.name === "objecttag") for (const t of tag.children) if (t.name === "t" && !skip(t)) out.push({ kind: "text", v: readText(t, false) });
         return;
       }
       case "arrow": {

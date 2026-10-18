@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.153.0)
+# JurisLab — Manual Test Script (v2.154.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -9,6 +9,16 @@ scanning, and layout. Budget ~30 minutes for the full pass.
 Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
+
+## 0cr. New in v2.154.0 — ChemDraw chains, brackets, arrows, replace in place
+
+- [ ] ★ **Replace in place.** Click a ChemDraw picture in the document, **Open ChemDraw picture**, change an atom, then
+  (with the picture still selected in the document) **Replace selected picture**: the edited drawing is where the old
+  one was — no second copy. Click in plain text instead and press it: it says to select the picture first.
+- [ ] **Chain.** Choose **Chain**, drag from a chain's end atom: the chain grows along the mouse, a bond per step.
+- [ ] **Brackets.** Choose **Brackets**, drag a box round one repeat unit of a chain: square brackets with an italic n.
+  **Save as .cdxml** and open it in ChemDraw: ChemDraw shows the polymer brackets as its own.
+- [ ] **Arrow.** Choose **Arrow**, drag left to right: a reaction arrow; choose Equilibrium arrow and drag again.
 
 ## 0cq. New in v2.153.0 — ChemDraw pictures in documents, .cdx files and ring tools
 

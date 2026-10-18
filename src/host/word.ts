@@ -12,6 +12,7 @@ import {
   insertFigureVector,
   insertPictureAtSelection,
   insertPictureParagraphs,
+  replaceSelectedPicture,
   insertPictureWithLegend,
   insertResultLayout,
 } from "./wordFigures";
@@ -39,6 +40,7 @@ export const wordHost: Host = {
   readSelectedPictureAlt,
   readSelectionOoxml,
   insertPictureAtSelection,
+  replaceSelectedPicture,
   insertPictureWithLegend,
   insertPictureParagraphs,
   insertEditableTable,

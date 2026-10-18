@@ -53,7 +53,24 @@ export type BodySpec =
    * The profile, drawn in the (r, z) half-plane with r ≥ 0, turned a full
    * turn about the Z axis. One loop, no holes; a loop may touch the axis.
    */
-  | { kind: "revolve"; profile: Profile };
+  | { kind: "revolve"; profile: Profile }
+  /** Triangles read from a file (an imported STL): drawn as they are, with the edges found in them. */
+  | { kind: "mesh"; mesh: SolidMesh };
+
+/**
+ * A body given as triangles. Unlike a generated body, nothing here is analytic:
+ * the importer decides which edges are drawn (where facets meet at a crease, and
+ * open boundaries) and smooths the corner normals across the rest.
+ */
+export interface SolidMesh {
+  positions: number[]; // xyz per vertex
+  triangles: number[]; // 3 vertex indices per triangle
+  cornerNormals: number[]; // xyz per triangle corner (9 per triangle)
+  /** Drawable edges: vertex index pairs. */
+  edges: number[];
+  /** The largest chord error estimated for its smooth regions (from the corner normals). */
+  sag: number;
+}
 
 export interface Body {
   id: string;
@@ -137,6 +154,13 @@ export function modelProblems(a: Assembly): ModelProblem[] {
     const p = (reason: string): void => {
       out.push({ body: b.name || b.id, reason });
     };
+    if (b.spec.kind === "mesh") {
+      const why = meshProblem(b.spec.mesh);
+      if (why) p(why);
+      const pl = b.placement;
+      if ([...pl.translate, ...pl.rotateDeg].some((v) => !Number.isFinite(v))) p("its placement has a value that is not a number");
+      continue;
+    }
     const loops = [b.spec.profile.outer, ...b.spec.profile.holes];
     const size = loopExtent(b.spec.profile.outer);
     if (!(size > 0) || !Number.isFinite(size)) {
@@ -170,6 +194,22 @@ export function modelProblems(a: Assembly): ModelProblem[] {
     if ([...pl.translate, ...pl.rotateDeg].some((v) => !Number.isFinite(v))) p("its placement has a value that is not a number");
   }
   return out;
+}
+
+/** Why a triangle body cannot be drawn (or null): every index in range, every number finite. */
+function meshProblem(m: SolidMesh): string | null {
+  const nv = m.positions.length / 3, nt = m.triangles.length / 3;
+  if (!nt || !Number.isInteger(nv) || !Number.isInteger(nt)) return "it has no triangles";
+  if (m.cornerNormals.length !== 9 * nt || m.edges.length % 2) return "its triangles are damaged";
+  if (!m.positions.every(Number.isFinite) || !m.cornerNormals.every(Number.isFinite)) return "it has a point that is not a number";
+  const inRange = (i: number): boolean => Number.isInteger(i) && i >= 0 && i < nv;
+  if (!m.triangles.every(inRange) || !m.edges.every(inRange)) return "its triangles are damaged";
+  let lo = Infinity, hi = -Infinity;
+  for (const v of m.positions) {
+    if (v < lo) lo = v;
+    if (v > hi) hi = v;
+  }
+  return hi - lo > 0 ? null : "it has no size";
 }
 
 function loopExtent(loop: Loop): number {
@@ -383,10 +423,13 @@ function assemblyDiag(a: Assembly): number {
   let lo: Vec3 = [Infinity, Infinity, Infinity];
   let hi: Vec3 = [-Infinity, -Infinity, -Infinity];
   for (const b of a.bodies) {
-    const pts = flattenLoop(b.spec.profile.outer, loopExtent(b.spec.profile.outer) * 0.05).points;
     const R = b.frame ? mul3(rotationMatrix(b.placement.rotateDeg), b.frame) : rotationMatrix(b.placement.rotateDeg);
     const corners: Vec3[] = [];
-    if (b.spec.kind === "extrude") {
+    const pts = b.spec.kind === "mesh" ? [] : flattenLoop(b.spec.profile.outer, loopExtent(b.spec.profile.outer) * 0.05).points;
+    if (b.spec.kind === "mesh") {
+      const P = b.spec.mesh.positions;
+      for (let i = 0; i < P.length; i += 3) corners.push([P[i], P[i + 1], P[i + 2]]);
+    } else if (b.spec.kind === "extrude") {
       for (const p of pts) for (const z of [0, b.spec.depth]) corners.push([p[0], p[1], z]);
     } else {
       const rmax = Math.max(...pts.map((p) => p[0]));
@@ -429,7 +472,10 @@ export function tessellate(a: Assembly, opts: TessOptions = DEFAULT_TESS): TessR
       m.edges.push({ a: i, b: j, body: bi, sag });
     };
     const ft: Fineness = { tol, rel: opts.relTol * ARC_REL_PER_RELTOL, sag: 0 };
-    const r = b.spec.kind === "extrude" ? tessExtrude(b.spec, ft, put, tri, edge) : tessRevolve(b.spec, ft, put, tri, edge);
+    const r =
+      b.spec.kind === "mesh" ? tessMesh(b.spec.mesh, ft, put, tri, edge, opts.maxTriangles, m.triangles.length / 3)
+      : b.spec.kind === "extrude" ? tessExtrude(b.spec, ft, put, tri, edge)
+      : tessRevolve(b.spec, ft, put, tri, edge);
     m.bodySag.push(ft.sag);
     if (r) return { ok: false, reason: `${b.name || b.id}: ${r}` };
     if (m.triangles.length / 3 > opts.maxTriangles) {
@@ -854,6 +900,21 @@ interface Fineness {
   tol: number;
   rel: number;
   sag: number;
+}
+
+/** A triangle body: its vertices, triangles and edges as they are (the count is checked first). */
+function tessMesh(sm: SolidMesh, ft: Fineness, put: Put, tri: Tri, edge: Edge, max: number, used: number): string | null {
+  const nt = sm.triangles.length / 3;
+  const n0 = (v: number): string => v.toLocaleString("en-US");
+  if (used + nt > max) return `it has ${n0(nt)} triangles — a drawing holds at most ${n0(max)} in all${used ? `, and the other parts use ${n0(used)}` : ""}`;
+  const P = sm.positions, N = sm.cornerNormals, T = sm.triangles;
+  const idx: number[] = [];
+  for (let i = 0; i < P.length; i += 3) idx.push(put([P[i], P[i + 1], P[i + 2]]));
+  const n = (o: number): Vec3 => [N[o], N[o + 1], N[o + 2]];
+  for (let t = 0; t < nt; t++) tri(idx[T[3 * t]], idx[T[3 * t + 1]], idx[T[3 * t + 2]], n(9 * t), n(9 * t + 3), n(9 * t + 6));
+  for (let e = 0; e < sm.edges.length; e += 2) edge(idx[sm.edges[e]], idx[sm.edges[e + 1]]);
+  ft.sag = sm.sag;
+  return null;
 }
 
 function tessExtrude(spec: Extract<BodySpec, { kind: "extrude" }>, ft: Fineness, put: Put, tri: Tri, edge: Edge): string | null {

@@ -30,6 +30,25 @@ All notable changes to JurisLab. Dates are release/pilot dates.
   kept as it was.
 - Refused by name: binary .cdx (with how to save as .cdxml), malformed files (with the line), files over 40 MB.
 
+### Fixed before release (adversarial review: 16 findings — 15 fixed, each with a test in cdxmlReview.test.ts / chemdrawPane.dom.test.ts)
+- A damaged HashSpacing (0) froze the pane drawing a hashed, hashed-wedge or wavy bond; strokes are now bounded.
+- Charges: a charge set with + / − was saved but not drawn, and a ⊕ stayed when the charge went to 0 or its atom
+  was erased. A charge with no symbol is now drawn by its atom; a ⊕ / ⊖ follows the charge (removed at 0, or when
+  |charge| > 1, where the atom draws "2+"); erasing an atom takes its symbol.
+- Hydrogens: a bond-order change left the old count (C–OH made C=O still read "OH"); charged O, S and B, P(V),
+  and hydrogen / ionic bonds counted wrongly (O⁺ "O" for OH2, B⁻ "BH2" for BH4, P=O "P" for PH).
+- Save dropped a style run of a single space ("Compound 1" saved as "Compound1"); a line break in an attribute was
+  saved raw; a reference to a character XML forbids (&#x1;) was accepted and saved invalid.
+- Delete / Backspace anywhere on the page (even in another tool) deleted the ChemDraw selection; keys now reach
+  the ChemDraw page only when it has focus.
+- A caption could be edited only once (its box was dropped); its box now follows its words.
+- Slow edits with many brackets (7 s for 5,000); an atom with thousands of bonds; 200,000 runs in one caption threw
+  instead of drawing; a bond order drawn as a single line is now named; ids past 2^53 could repeat; SymbolType
+  "constructor" printed JavaScript text; a [ or > inside a DOCTYPE's quoted identifier was refused.
+
+Not changed: "Ca2+" in a formula label is drawn Ca₂⁺. Reading the digit as part of the charge would break NH4+
+(NH₄⁺), and ChemDraw's own rule has not been checked.
+
 ## [2.151.0] — 2026-10-18 — Drawing (CAD): draw on the drawing — pencil, arrows, text, numerals anywhere
 
 From the user's first pass in Word: "the free hand drawing is frustrating to use … what i draw is what i want",

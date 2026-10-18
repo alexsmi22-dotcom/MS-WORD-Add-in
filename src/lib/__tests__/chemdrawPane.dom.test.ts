@@ -229,3 +229,25 @@ describe("editing on the page", () => {
     expect(t.status[t.status.length - 1]).toEqual(["Type an element or label in the box first (N, O, Cl, R1, X …), then click the atom.", "error"]);
   });
 });
+
+describe("review D7: keys reach the ChemDraw page only when it has focus", () => {
+  test("Backspace pressed elsewhere in the pane deletes nothing; on the page it deletes the selection", async () => {
+    document.body.innerHTML = BUILD + '<input id="elsewhere">';
+    initChemdrawPane({ setStatus: () => undefined, insertPicture: async () => undefined });
+    const input = document.getElementById("chemdraw-file") as HTMLInputElement;
+    Object.defineProperty(input, "files", { value: [new File([CDXML], "figure.cdxml")], configurable: true });
+    input.dispatchEvent(new Event("change"));
+    await new Promise((r) => setTimeout(r, 30));
+    const pv = document.getElementById("chemdraw-preview")!;
+    const svg = pv.querySelector("svg")!;
+    const [vx, vy, vw, vh] = svg.getAttribute("viewBox")!.split(" ").map(Number);
+    svg.getBoundingClientRect = () => ({ left: 0, top: 0, width: vw, height: vh, right: vw, bottom: vh, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+    pv.dispatchEvent(new MouseEvent("click", { clientX: 400 - vx, clientY: 600 - vy, bubbles: true })); // the far structure
+    expect(pv.querySelectorAll("#chemdraw-sel rect").length).toBe(1);
+    document.getElementById("elsewhere")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Backspace", bubbles: true }));
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Delete", bubbles: true }));
+    expect(pv.innerHTML).toContain('x1="400"');
+    pv.dispatchEvent(new KeyboardEvent("keydown", { key: "Delete", bubbles: true }));
+    expect(pv.innerHTML).not.toContain('x1="400"');
+  });
+});

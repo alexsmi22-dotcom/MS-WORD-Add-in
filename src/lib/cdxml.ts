@@ -319,6 +319,8 @@ export function readCdxmlTree(root: XNode): { ok: true; doc: CdxDoc } | { ok: fa
           note("bonds missing an end were not drawn");
           continue;
         }
+        const ord = (c.attrs.Order ?? "1").trim();
+        if (!["1", "2", "3", "1.5", "dative", "hydrogen", "0.5", "ionic"].includes(ord)) note(`bonds of order "${ord.length > 12 ? ord.slice(0, 12) + "…" : ord}" are drawn as single lines`);
         bonds.push({
           el: c,
           id: c.attrs.id ?? "",

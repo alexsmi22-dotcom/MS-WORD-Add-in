@@ -50,7 +50,9 @@ function decode(s: string): { ok: true; text: string } | { ok: false; bad: strin
     const ref = s.slice(amp + 1, semi);
     if (ref[0] === "#") {
       const code = ref[1] === "x" || ref[1] === "X" ? parseInt(ref.slice(2), 16) : parseInt(ref.slice(1), 10);
-      const valid = Number.isInteger(code) && code > 0 && code <= 0x10ffff && !(code >= 0xd800 && code <= 0xdfff) && /^#(x[0-9a-fA-F]+|X[0-9a-fA-F]+|[0-9]+)$/.test(ref);
+      // XML 1.0 Char: tab, LF, CR, and U+0020 up (no surrogates, no U+FFFE / U+FFFF).
+      const xmlChar = code === 9 || code === 10 || code === 13 || (code >= 0x20 && code <= 0xd7ff) || (code >= 0xe000 && code <= 0xfffd) || (code >= 0x10000 && code <= 0x10ffff);
+      const valid = Number.isInteger(code) && xmlChar && /^#(x[0-9a-fA-F]+|X[0-9a-fA-F]+|[0-9]+)$/.test(ref);
       if (!valid) return { ok: false, bad: "&" + ref + ";" };
       out += String.fromCodePoint(code);
     } else if (Object.prototype.hasOwnProperty.call(PREDEFINED, ref)) out += PREDEFINED[ref];
@@ -117,9 +119,19 @@ export function parseXml(src: string, limits: XmlLimits = XML_LIMITS): { ok: tru
       advance(end + 2);
     } else if (src.startsWith("<!DOCTYPE", pos)) {
       // Skipped, never resolved. An internal subset ([ … ]) could declare entities: refused.
-      const end = src.indexOf(">", pos);
+      let end = -1, quote = "";
+      for (let k = pos + 9; k < src.length; k++) {
+        const ch = src[k];
+        if (quote) {
+          if (ch === quote) quote = "";
+        } else if (ch === '"' || ch === "'") quote = ch;
+        else if (ch === "[") return fail("the DOCTYPE declares its own entities, which this reader does not accept");
+        else if (ch === ">") {
+          end = k;
+          break;
+        }
+      }
       if (end < 0) return fail("the DOCTYPE is never closed");
-      if (src.slice(pos, end).indexOf("[") >= 0) return fail("the DOCTYPE declares its own entities, which this reader does not accept");
       if (root || stack.length) return fail("a DOCTYPE after the root element");
       advance(end + 1);
     } else if (src.startsWith("</", pos)) {

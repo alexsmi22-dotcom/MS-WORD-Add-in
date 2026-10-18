@@ -12,6 +12,8 @@
 import { Box, CdxArrow, CdxBond, CdxDoc, CdxFragment, CdxGraphic, CdxItem, CdxNode, CdxRun, CdxText, cssColor, Pt } from "./cdxml";
 
 const f2 = (v: number): string => (Math.round(v * 100) / 100).toString();
+/** Hash marks or wave segments on one bond, at most. */
+const MAX_STROKES = 200;
 const esc = (t: string): string => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const sub = (a: Pt, b: Pt): Pt => [a[0] - b[0], a[1] - b[1]];
 const addp = (a: Pt, b: Pt): Pt => [a[0] + b[0], a[1] + b[1]];
@@ -121,7 +123,7 @@ export function renderCdx(doc: CdxDoc, o: RenderOptions = {}): RenderedCdx | nul
   const drawText = (tx: CdxText, z: number, node?: CdxNode): void => {
     let lines = linesOf(tx.runs);
     if (!lines.some((ln) => ln.length)) return;
-    const size = Math.max(...tx.runs.map((q) => q.size), 1);
+    const size = tx.runs.reduce((m, q) => Math.max(m, q.size), 1);
     const pitch = tx.lineHeight ?? size * 1.15;
     // A stacked atom label ("NH" with its H below, "H2C" above): the element symbol's line and the
     // rest, the element's line on the baseline at p (as ChemDraw places it on its atom).
@@ -156,6 +158,13 @@ export function renderCdx(doc: CdxDoc, o: RenderOptions = {}): RenderedCdx | nul
   };
 
   // ---- structures -------------------------------------------------------------------------
+  /** Hash marks along a bond: one per HashSpacing (at least 0.1 pt), never more than MAX_STROKES (a damaged spacing must not freeze Word). */
+  const hashSteps = (L: number): number => Math.min(MAX_STROKES, Math.max(2, Math.floor(L / Math.max(st.hashSpacing, 0.1))));
+  /** Atoms whose charge a symbol on the page already draws (a graphic that represents it). */
+  const chargeDrawn = new Set<string>();
+  for (const ob of doc.objects)
+    for (const it of ob.items)
+      if (it.kind === "graphic") for (const c of it.v.el.children) if (c.name === "represent" && c.attrs.attribute === "Charge" && c.attrs.object) chargeDrawn.add(c.attrs.object);
   const drawFragment = (fr: CdxFragment): void => {
     const byId = new Map(fr.nodes.map((n) => [n.id, n]));
     const nbrs = new Map<string, string[]>();
@@ -235,7 +244,7 @@ export function renderCdx(doc: CdxDoc, o: RenderOptions = {}): RenderedCdx | nul
         const half = (st.boldWidth * 1.5) / 2;
         const dn = right(unit(sub(wa, na)));
         if (/Hash/.test(disp)) {
-          const L = len(sub(wa, na)), steps = Math.max(2, Math.floor(L / st.hashSpacing));
+          const L = len(sub(wa, na)), steps = hashSteps(L);
           for (let i = 1; i <= steps; i++) {
             const f = i / steps, c = addp(na, mul(sub(wa, na), f));
             parts.push(line(addp(c, mul(dn, half * f)), addp(c, mul(dn, -half * f)), lw, ' stroke-linecap="butt"'));
@@ -246,14 +255,14 @@ export function renderCdx(doc: CdxDoc, o: RenderOptions = {}): RenderedCdx | nul
           parts.push(`<path d="M${f2(na[0])} ${f2(na[1])}L${f2(w1[0])} ${f2(w1[1])}L${f2(w2[0])} ${f2(w2[1])}Z" ${fill} stroke-linejoin="round"/>`);
         }
       } else if (disp === "Hash") {
-        const L = len(sub(p1, p0)), steps = Math.max(2, Math.floor(L / st.hashSpacing));
+        const L = len(sub(p1, p0)), steps = hashSteps(L);
         for (let i = 0; i <= steps; i++) {
           const c = addp(p0, mul(sub(p1, p0), i / steps));
           parts.push(line(addp(c, mul(n, st.boldWidth / 2)), addp(c, mul(n, -st.boldWidth / 2)), lw, ' stroke-linecap="butt"'));
         }
       } else if (/Wavy/.test(disp) && order === "1") {
         // Half-waves of HashSpacing × 2, amplitude BoldWidth.
-        const L = len(sub(p1, p0)), k = Math.max(2, Math.round(L / (st.hashSpacing * 2)));
+        const L = len(sub(p1, p0)), k = Math.min(MAX_STROKES, Math.max(2, Math.round(L / (Math.max(st.hashSpacing, 0.1) * 2))));
         let path = `M${f2(p0[0])} ${f2(p0[1])}`;
         for (let i = 0; i < k; i++) {
           const a = addp(p0, mul(sub(p1, p0), i / k)), c = addp(p0, mul(sub(p1, p0), (i + 1) / k));
@@ -274,9 +283,11 @@ export function renderCdx(doc: CdxDoc, o: RenderOptions = {}): RenderedCdx | nul
           if (bd.doublePosition === "Right") side = 1;
           else if (bd.doublePosition === "Left") side = -1;
           else if (bd.doublePosition !== "Center") {
-            const ring = ringSide(bd);
+            // An atom with more than 12 bonds (a damaged file) is not searched: the line is centred.
+            const crowded = (nbrs.get(bd.b)?.length ?? 0) > 12 || (nbrs.get(bd.e)?.length ?? 0) > 12;
+            const ring = crowded ? null : ringSide(bd);
             if (ring) side = cross(d, sub(ring, nb.p)) > 0 ? 1 : -1;
-            else {
+            else if (!crowded) {
               const others = (v: CdxNode, w: CdxNode): CdxNode[] => (nbrs.get(v.id) ?? []).filter((k) => k !== w.id).map((k) => byId.get(k)!).filter(Boolean);
               const ob = others(nb, ne), oe = others(ne, nb);
               const terminalLabel = (ob.length === 0 && !!cb) || (oe.length === 0 && !!ce);
@@ -315,6 +326,16 @@ export function renderCdx(doc: CdxDoc, o: RenderOptions = {}): RenderedCdx | nul
     for (const nd of fr.nodes) {
       grow(nd.p);
       if (nd.label) drawText(nd.label, nd.z + 0.5, nd);
+      if (nd.charge && !chargeDrawn.has(nd.id)) {
+        // ChemDraw draws a charge as a symbol tied to the atom; where the file has none (or after an
+        // edit) it is set as a superscript after the label, or up and right of a bare vertex.
+        const q = nd.charge, txt = (Math.abs(q) > 1 ? String(Math.abs(q)) : "") + (q > 0 ? "+" : "−");
+        const size = st.labelSize * 0.75;
+        const bx = nd.label?.box;
+        const at: Pt = bx ? [bx[2] + size * 0.1, bx[1] + size * 0.6] : [nd.p[0] + st.bondLength * 0.25, nd.p[1] - st.bondLength * 0.2];
+        prims.push({ z: nd.z + 0.6, svg: `<text x="${f2(at[0])}" y="${f2(at[1])}" font-family="${esc(fontName(st.labelFont))}" font-size="${f2(size)}" fill="#000">${txt}</text>` });
+        grow(at, size);
+      }
       else if (nd.nodeType === "ExternalConnectionPoint") {
         // A small diamond where no other mark is given.
         const s = st.boldWidth;
@@ -326,9 +347,9 @@ export function renderCdx(doc: CdxDoc, o: RenderOptions = {}): RenderedCdx | nul
   // ---- graphics ----------------------------------------------------------------------------
   /** For a bracket: the inside (the bracketed atoms' side), from the bracketed group that names it. */
   const bracketInside = new Map<string, Pt>();
+  const nodePos = new Map<string, Pt>();
+  if (doc.brackets.length) for (const ob of doc.objects) for (const it of ob.items) if (it.kind === "fragment") for (const nd of it.v.nodes) nodePos.set(nd.id, nd.p);
   for (const bg of doc.brackets) {
-    const nodePos = new Map<string, Pt>();
-    for (const ob of doc.objects) for (const it of ob.items) if (it.kind === "fragment") for (const nd of it.v.nodes) nodePos.set(nd.id, nd.p);
     for (const at of bg.attachments) {
       const p = nodePos.get(at.innerAtomId);
       if (p) bracketInside.set(at.graphicId, p);
@@ -384,7 +405,7 @@ export function renderCdx(doc: CdxDoc, o: RenderOptions = {}): RenderedCdx | nul
         RadicalAnion: dot([c[0] - rr, c[1]]) + plus,
         LonePair: dot([c[0] - rr * 0.5, c[1]]) + dot([c[0] + rr * 0.5, c[1]]),
       };
-      prims.push({ z: g.z, svg: map[g.symbolType] ?? "" });
+      prims.push({ z: g.z, svg: Object.prototype.hasOwnProperty.call(map, g.symbolType) ? map[g.symbolType] : "" });
       grow(c, rr + lw);
     } else if (g.kind === "Rectangle") {
       const x = Math.min(g.p1[0], g.p2[0]), y = Math.min(g.p1[1], g.p2[1]), w = Math.abs(g.p2[0] - g.p1[0]), h = Math.abs(g.p2[1] - g.p1[1]);

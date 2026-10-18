@@ -139,6 +139,11 @@ export function bondAt(doc: CdxDoc, p: Pt, r: number): string | null {
 export function captionAt(doc: CdxDoc, p: Pt, slop: number): string | null {
   for (const o of doc.objects)
     for (const it of o.items)
-      if (it.kind === "text" && it.v.box && inside(it.v.box, p, slop) && it.v.id) return it.v.id;
+      if (it.kind === "text" && it.v.id) {
+        const size = it.v.runs[0]?.size ?? 12;
+        const words = it.v.runs.map((r) => r.text).join("");
+        const b = it.v.box ?? (it.v.p ? ([it.v.p[0], it.v.p[1] - size, it.v.p[0] + words.length * size * 0.6, it.v.p[1] + size * 0.3] as Box) : null);
+        if (b && inside(b, p, slop)) return it.v.id;
+      }
   return null;
 }

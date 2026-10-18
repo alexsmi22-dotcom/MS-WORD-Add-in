@@ -14,7 +14,8 @@ import { atomicNumber, symbolFor } from "./periodic";
 
 // ---- the tree --------------------------------------------------------------------------------
 
-const escAttr = (v: string): string => v.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+const escAttr = (v: string): string =>
+  v.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/\t/g, "&#9;").replace(/\n/g, "&#10;").replace(/\r/g, "&#13;");
 const escText = (v: string): string => v.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 /** The tree as a CDXML file. Text is written only where it carries content (in `s` elements). */
@@ -23,13 +24,14 @@ export function writeCdxml(root: XNode): string {
   const write = (n: XNode, depth: number): void => {
     const pad = depth < 12 ? "\n" + " ".repeat(depth) : "";
     const attrs = Object.entries(n.attrs).map(([k, v]) => ` ${k}="${escAttr(v)}"`).join("");
-    const text = n.text.trim() ? escText(n.text) : "";
+    // A style run's text is written exactly (a run of one space is a space); elsewhere only content.
+    const text = n.name === "s" ? escText(n.text) : n.text.trim() ? escText(n.text) : "";
     if (!n.children.length && !text) {
       out.push(`${pad}<${n.name}${attrs}/>`);
       return;
     }
     out.push(`${pad}<${n.name}${attrs}>`);
-    if (text) out.push(n.name === "s" ? escText(n.text) : text);
+    if (text) out.push(text);
     for (const c of n.children) write(c, depth + 1);
     out.push(`${n.children.length ? pad : ""}</${n.name}>`);
   };
@@ -58,10 +60,14 @@ export function findById(root: XNode, id: string): { el: XNode; parent: XNode | 
 
 /** The next free numeric id in the document. */
 export function nextIdFrom(root: XNode): () => string {
-  let max = 0;
+  // BigInt: an id past 2^53 would otherwise give two new objects the same id.
+  let max = 0n;
   walk(root, (x) => {
-    const v = Number(x.attrs.id);
-    if (Number.isInteger(v) && v > max) max = v;
+    const v = x.attrs.id;
+    if (v && /^\d{1,30}$/.test(v)) {
+      const b = BigInt(v);
+      if (b > max) max = b;
+    }
   });
   return () => String(++max);
 }
@@ -72,7 +78,7 @@ const fmt = (v: number): string => String(Math.round(v * 100) / 100);
 // ---- moving and deleting ------------------------------------------------------------------
 
 /** Attributes holding positions: points ("x y" / "x y z"), boxes and point lists, moved alike. */
-const POSITIONAL = ["p", "BoundingBox", "Head3D", "Tail3D", "Center3D", "MajorAxisEnd3D", "MinorAxisEnd3D", "CurvePoints", "xyz"];
+const POSITIONAL = ["p", "BoundingBox", "Head3D", "Tail3D", "Center3D", "MajorAxisEnd3D", "MinorAxisEnd3D", "CurvePoints", "CurvePoints3D", "xyz"];
 
 /** Moves top-level objects (by id) by (dx, dy) points: every position inside them, labels included. */
 export function moveObjects(doc: CdxDoc, ids: Iterable<string>, dx: number, dy: number): void {
@@ -136,6 +142,9 @@ function dropReferences(root: XNode, gone: Set<string>): void {
         if (x.attrs[k] !== undefined) x.attrs[k] = keep(x.attrs[k]);
     } else if (x.name === "chemicalproperty") {
       if (list(x.attrs.BasisObjects).some((i) => gone.has(i)) || gone.has(x.attrs.ChemicalPropertyDisplayID ?? "")) removeIds.add(x.attrs.id ?? "\u0000");
+    } else if (x.name === "graphic" && x.children.some((c) => c.name === "represent" && gone.has(c.attrs.object ?? ""))) {
+      // A ⊕ that showed a removed atom's charge would read as a charge on whatever is near it.
+      removeIds.add(x.attrs.id ?? "\u0000");
     }
   });
   const prune = (n: XNode): void => {
@@ -156,8 +165,14 @@ export function setText(doc: CdxDoc, textId: string, text: string): string | nul
   const first = hit.el.children.find((c) => c.name === "s");
   const s: XNode = { name: "s", attrs: { ...(first?.attrs ?? {}) }, children: [], text, line: 0 };
   hit.el.children = [...hit.el.children.filter((c) => c.name !== "s"), s];
-  // The old box no longer fits the words: the renderer places by p; a stale box would mislead.
-  if (hit.el.attrs.p) delete hit.el.attrs.BoundingBox;
+  // The box is re-estimated for the new words from p (the left end of the first baseline).
+  const p = (hit.el.attrs.p ?? "").split(/\s+/).map(Number);
+  if (p.length >= 2 && p.every(Number.isFinite)) {
+    const size = Number(s.attrs.size) || doc.style.captionSize;
+    const lines = text.split(/\r\n|\r|\n/);
+    const em = Math.max(...lines.map((l) => [...l].reduce((w, ch) => w + (/[A-Z0-9]/.test(ch) ? 0.72 : ch === " " ? 0.28 : 0.56), 0)));
+    hit.el.attrs.BoundingBox = [p[0], p[1] - size * 0.8, p[0] + em * size, p[1] + size * 0.25 + (lines.length - 1) * size * 1.15].map(fmt).join(" ");
+  }
   return null;
 }
 
@@ -166,14 +181,29 @@ export function setText(doc: CdxDoc, textId: string, text: string): string | nul
 /** Generic labels ChemDraw treats as generic nicknames (R groups and the usual variables). */
 const GENERIC = /^(R\d{0,2}|R'{1,3}|X|Y|Z|Q|A|G|Ar|M|E|L)$/;
 /** Standard valences used to show implicit hydrogens on a labelled atom (as ChemDraw shows NH, OH). */
-const VALENCE: Record<string, number> = { B: 3, C: 4, N: 3, O: 2, P: 3, S: 2, F: 1, Cl: 1, Br: 1, I: 1, Si: 4, Se: 2 };
+const VALENCE: Record<string, number[]> = { B: [3], C: [4], N: [3], O: [2], P: [3, 5], S: [2, 4, 6], F: [1], Cl: [1], Br: [1], I: [1], Si: [4], Se: [2, 4, 6] };
+/**
+ * Hydrogens a labelled atom shows: its allowed valences shifted by its charge (an N⁺ or O⁺ takes
+ * one more bond — NH4⁺, H3O⁺; an O⁻ or S⁻ one fewer; B⁻ one more — BH4⁻; C keeps 4 − |q|), the
+ * smallest that holds its bonds, less those bonds.
+ */
+function implicitH(sym: string, charge: number, bonds: number): number | null {
+  const base = VALENCE[sym];
+  if (!base) return null;
+  const shift = sym === "C" || sym === "Si" ? -Math.abs(charge) : sym === "B" ? -charge : ["F", "Cl", "Br", "I"].includes(sym) ? -Math.abs(charge) : charge;
+  const vals = base.map((v) => v + shift).filter((v) => v >= 0);
+  const v = vals.find((x) => x >= bonds - 1e-9) ?? vals[vals.length - 1] ?? 0;
+  return Math.max(0, Math.round(v - bonds));
+}
 
 /** The sum of bond orders at an atom (aromatic 1.5; unknown orders count 1). */
 function bondOrderSum(frag: XNode, nodeId: string): number {
   let s = 0;
   for (const b of frag.children)
     if (b.name === "b" && (b.attrs.B === nodeId || b.attrs.E === nodeId)) {
-      const o = Number((b.attrs.Order ?? "1").split(/\s+/)[0]);
+      // Hydrogen and ionic bonds hold no valence; a dative bond holds one; an unknown order, one.
+      const w = (b.attrs.Order ?? "1").split(/\s+/)[0];
+      const o = w === "hydrogen" || w === "ionic" ? 0 : w === "dative" ? 1 : Number(w);
       s += Number.isFinite(o) ? o : 1;
     }
   return s;
@@ -227,12 +257,9 @@ export function setAtomLabel(doc: CdxDoc, nodeId: string, label: string): { ok: 
     if (z !== 6) node.attrs.Element = String(z);
     if (z === 6) return { ok: true, note: null }; // a carbon: a bare vertex
     const sym = symbolFor(z)!;
-    const v = VALENCE[sym];
     const charge = Number(node.attrs.Charge ?? 0) || 0;
-    // N⁺ takes one more bond (NH4⁺), O⁻ one fewer: valence + charge for N, P; valence − |charge| otherwise.
-    const val = v === undefined ? 0 : sym === "N" || sym === "P" ? v + charge : v - Math.abs(charge);
-    const h = Math.max(0, Math.round(val - bondOrderSum(frag, nodeId)));
-    if (v !== undefined) node.attrs.NumHydrogens = String(h);
+    const h = implicitH(sym, charge, bondOrderSum(frag, nodeId));
+    if (h !== null) node.attrs.NumHydrogens = String(h);
     node.children.push(labelText(doc, node, sym + (h ? "H" + (h > 1 ? h : "") : "")));
     return { ok: true, note: null };
   }
@@ -266,6 +293,12 @@ export function setBond(doc: CdxDoc, bondId: string, change: { order?: string; d
     const B = b.attrs.B;
     b.attrs.B = b.attrs.E;
     b.attrs.E = B;
+  }
+  if (change.order !== undefined && hit.parent) {
+    for (const id of [b.attrs.B, b.attrs.E]) {
+      const n = hit.parent.children.find((c) => c.name === "n" && c.attrs.id === id);
+      if (n) relabel(doc, n);
+    }
   }
   return null;
 }
@@ -361,6 +394,15 @@ export function setCharge(doc: CdxDoc, nodeId: string, charge: number): string |
   if (!Number.isInteger(charge) || Math.abs(charge) > 9) return "a charge is a whole number from −9 to 9";
   if (charge) hit.node.attrs.Charge = String(charge);
   else delete hit.node.attrs.Charge;
+  const symbols: Array<{ el: XNode; parent: XNode | null }> = [];
+  walk(doc.root, (x, p) => {
+    if (x.name === "graphic" && x.children.some((c) => c.name === "represent" && c.attrs.attribute === "Charge" && c.attrs.object === nodeId)) symbols.push({ el: x, parent: p });
+  });
+  for (const s of symbols) {
+    if (charge === 1 || charge === -1) {
+      s.el.attrs.SymbolType = charge > 0 ? "CirclePlus" : "CircleMinus";
+    } else if (s.parent) s.parent.children = s.parent.children.filter((c) => c !== s.el); // drawn by the atom instead
+  }
   relabel(doc, hit.node);
   return null;
 }

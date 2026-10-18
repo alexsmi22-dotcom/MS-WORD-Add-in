@@ -174,8 +174,14 @@ export function initChemdrawPane(host: ChemdrawHost): void {
   const reread = (): void => {
     if (!doc) return;
     const r = readCdxmlTree(doc.root);
-    if (!r.ok) return host.setStatus(`The edit left the document unreadable (${r.reason}) — it was undone.`, "error");
-    doc = r.doc;
+    if (!r.ok) {
+      // Back to the state before the edit (its undo step), and say so.
+      if (undo.length) doc.root = undo.pop()!;
+      host.setStatus(`The edit left the document unreadable (${r.reason}) — it was undone.`, "error");
+      const again = readCdxmlTree(doc.root);
+      if (!again.ok) return;
+      doc = again.doc;
+    } else doc = r.doc;
     boxes = objectBoxes(doc);
     selected = new Set([...selected].filter((id) => boxes.has(id)));
     stale = new Set([...stale].filter((id) => !!findById(doc!.root, id)));
@@ -299,7 +305,12 @@ export function initChemdrawPane(host: ChemdrawHost): void {
   });
   let suppressClick = false;
 
+  preview.addEventListener("pointercancel", () => {
+    drag = null;
+    preview.querySelector("#chemdraw-sel")?.removeAttribute("transform");
+  });
   preview.addEventListener("click", (e) => {
+    preview.focus({ preventScroll: true });
     if (suppressClick) {
       suppressClick = false;
       return;
@@ -391,10 +402,11 @@ export function initChemdrawPane(host: ChemdrawHost): void {
     }
   });
 
-  document.addEventListener("keydown", (e) => {
+  // Keys act only on the page itself (it takes focus when clicked): Delete pressed in the structure
+  // canvas beside it, or in another tool, must never reach this document.
+  preview.tabIndex = 0;
+  preview.addEventListener("keydown", (e) => {
     if (!doc || panel.hidden) return;
-    const target = e.target as HTMLElement | null;
-    if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT")) return;
     if ((e.key === "Delete" || e.key === "Backspace") && selected.size) {
       const ids = [...selected];
       if (edit(() => (deleteObjects(doc!, ids), null), ids)) selected = new Set();

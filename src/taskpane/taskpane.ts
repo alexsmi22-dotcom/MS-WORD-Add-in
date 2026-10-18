@@ -1491,6 +1491,20 @@ function waitForControllerChange(ms: number): Promise<void> {
  * release, and the banner would come straight back — a loop that never says
  * what went wrong. The caller tells the user instead.
  */
+/** The release the server says is live (version.json, never cached), or null; bounded by `timeoutMs` when given. */
+async function serverVersion(timeoutMs?: number): Promise<string | null> {
+  const ctl = timeoutMs && typeof AbortController === "function" ? new AbortController() : null;
+  const timer = ctl ? window.setTimeout(() => ctl.abort(), timeoutMs) : 0;
+  try {
+    const res = await fetch(`version.json?t=${Date.now()}`, { cache: "no-store", ...(ctl ? { signal: ctl.signal } : {}) });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { version?: string };
+    return data && typeof data.version === "string" ? data.version : null;
+  } finally {
+    if (timer) window.clearTimeout(timer);
+  }
+}
+
 async function reloadIntoVersion(newVersion: string, recover = false): Promise<boolean> {
   await offlineStarted;
   if (swSupported) {
@@ -1499,16 +1513,7 @@ async function reloadIntoVersion(newVersion: string, recover = false): Promise<b
       // Not through the worker. Only on the user's Reload (never the silent self-heal at open): with the
       // server answering with this release, drop the stale offline copy and load fresh.
       if (!recover) return false;
-      const fresh = await dropStaleCopyIfOnline(swRegistration, async () => {
-        const ctl = typeof AbortController === "function" ? new AbortController() : null;
-        const timer = window.setTimeout(() => ctl?.abort(), 10_000);
-        try {
-          const r = await fetch(`version.json?t=${Date.now()}`, { cache: "no-store", ...(ctl ? { signal: ctl.signal } : {}) });
-          return r.ok && ((await r.json()) as { version?: string }).version === newVersion;
-        } finally {
-          window.clearTimeout(timer);
-        }
-      });
+      const fresh = await dropStaleCopyIfOnline(swRegistration, async () => (await serverVersion(10_000)) === newVersion);
       if (!fresh) return false;
     }
   }
@@ -2284,10 +2289,9 @@ const UPDATE_RELOAD_KEY = "jurislab-update-reload";
 
 async function checkForUpdate(): Promise<void> {
   try {
-    const res = await fetch(`version.json?t=${Date.now()}`, { cache: "no-store" });
-    if (!res.ok) return;
-    const data = (await res.json()) as { version?: string };
-    if (data && data.version && isNewerVersion(data.version, __APP_VERSION__)) {
+    const live = await serverVersion();
+    const data = { version: live ?? undefined };
+    if (data.version && isNewerVersion(data.version, __APP_VERSION__)) {
       // SELF-HEAL ONCE, THEN ASK.
       //
       // The banner puts the fix one click away, but it still needs someone to

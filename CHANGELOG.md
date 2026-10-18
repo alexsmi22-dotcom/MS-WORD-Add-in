@@ -6,6 +6,79 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.147.0] — 2026-10-17 — Drawing (CAD): build parts in 3D, insert engineering and patent drawing sheets
+
+From `docs/SCOPE-CAD-CANVAS.md` (hit-list item 15, R1b). A new tool, **Drawing (CAD)**, under Home ▸ Drawing.
+Build a part from a catalogue (block, cylinder, tube, cone, sphere, plate with holes, L-bracket, stepped shaft,
+flange), set its dimensions as a drafter writes them (diameters, not radii), place several parts, and orbit them
+in 3D like the molecule view. Below the canvas is the sheet that inserts: up to four views at one scale, arranged
+for the chosen standard, with hidden lines, view titles and callouts.
+
+### Added
+- **Five drawing standards**, with values validated against sources (`docs/DRAFTING-STANDARDS-REFERENCE.md`):
+  **ASME** (the default: third-angle, 0.6 / 0.3 mm lines, 3 mm text, 6 mm view titles, ISO 5455 scale stated on
+  the sheet), **ISO** (first-angle, 0.5 / 0.25 mm, 2.5 / 3.5 mm text), **USPTO** (37 CFR 1.84: FIG. labels in
+  reading order, numerals on lead lines continuing the document's Numerals table, no scale shown, the 170 × 244 mm
+  sight), **Journal** and **Plain line art**. The ASME and ISO sheets carry the projection symbol.
+- **An exact hidden-line engine.** Silhouettes of curved surfaces come from the surface normals, not the facets,
+  so a cylinder draws two clean outlines at any precision. Visible lines take precedence over hidden ones (ISO 128
+  / ASME Y14.2). Parts that overlap are drawn as separate parts passing through each other: the curve where their
+  surfaces meet is drawn, nothing of one shows through the other, and the pane names the parts. Parts that only
+  touch are not overlapping.
+- **The large canvas.** "Open large canvas ⤢" pops the drawing out into its own window: controls, a large 3D view
+  and the sheet side by side. **Use this drawing** brings the edit back to the pane; **Insert drawing** inserts it.
+  It is the pane's own editor, so every rule is the same. A model too long for a dialog URL is handed over after
+  the window opens; a host that cannot do that is told so, and the window never opens blank.
+- **Shading that respects depth.** The 3D view shades through a per-pixel depth buffer, so a pin passing into a
+  plate stops at its surface. While you drag, a large window shades at reduced resolution and sharpens when you
+  let go.
+- **Callouts anchored to the part.** Click a surface to place a balloon (ASME / ISO: once per sheet, in the view
+  that shows it best) or a reference numeral (USPTO: in every figure that shows it). A callout follows its part
+  when the part moves, goes with it when the part is deleted, and is not drawn, with a note, when a resize leaves
+  it off the part.
+- **Edit drawing at cursor.** The model travels in the inserted picture's alt text, so a drawing re-opens with its
+  parts, callouts, standard, views and hidden-line choice.
+- **Refusals by name.** Impossible dimensions ("the bolt holes break through the outside edge"), a model over the
+  triangle bound, overlaps too detailed to resolve within the work bound, and sheets that cannot hold their callouts
+  are refused in words, never drawn wrong.
+
+### What the independent reviews changed
+- Pointed cones: the outlines stopped short of the tip. A sharp apex now has its own vertices for each meridian.
+- The projection symbols were mirrored. Both now draw the same frustum, narrow end left, with the circles left
+  (third angle) or right (first angle); an orientation test pins it.
+- Overlapping parts drew lines through solid material (see Added). Then the second review found parts that only
+  touch (a pin exactly in its bore, a roller on a plate, a cone on its tip) called overlapping, and a clearance pin
+  poking through a coarsely faceted hole; the next two fixes then hid real crossings (a sphere through a plate drawn
+  in dashes, a boss sunk into a base lost). Six review rounds later, overlap is decided by its definition: **a
+  point inside both solids** (exact ray casting on the closed meshes), probed next to each candidate crossing past
+  the facets' own error. Walls that curve alike (a pin and its bore) are compared by the offset their normals
+  imply, and a sliver along a hole's rim by that rim's own chord error. Arcs are faceted relative to their own
+  radius. Overlaps bounded only by coincident faces (a block placed twice, cylinders stacked into each other), and
+  a part sitting wholly inside another, draw no crossing line but are still named. **Resolution, stated plainly:** an interference smaller than the facets'
+  error (about 0.5 % of a radius at the default precision), or a part thinner than the facet error of a part it
+  crosses, is not drawn in full; anything larger is found and drawn in full.
+- Insert could be re-enabled while a dimension was invalid, a second Insert could start during the first, and an
+  edit during an insert re-enabled Insert on the previous sheet. Insert now inserts only the sheet of the model as
+  it stands, with that model in the alt text.
+- Balloons ran off the sheet and into view titles; long titles overlapped on slender parts; nine balloons
+  collapsed the sheet to 1:100. Rows now hold their callout stacks and columns their titles, a view uses both sides
+  for a long stack, and the scale is the largest that fits, found by bisection.
+- A callout's "still on its part" check used a blanket tolerance: removing an unrelated part could orphan it, and
+  halving a small pin left its leader in the air. It now uses the facets' actual error. A callout point exactly
+  behind a face's edge counted as visible.
+- Typing a dimension rebuilt the model on every keystroke, and a 200-hole plate took about a second to
+  triangulate. Rebuilds wait for a pause, and the triangulation is about 4× faster, with its area pinned exactly.
+- Saved drawings naming a shape such as "toString", with duplicate part ids, or with a view that is not a
+  rotation were accepted.
+- **Found by the second review, already in the engine:** a bullet nose seen from above drew its outline circle
+  hidden. An exactly edge-on wall now puts its outline where the front-facing surface ends.
+
+### Changed — internal
+- A fourth add-in page, `caddialog.html`, is built, precached for offline use and opened by the offline gate.
+- The host's dialog handle can send to the page (`messageChild`, DialogApi 1.2, asked only when used).
+- The host-trace golden was re-recorded deliberately: the new tool adds traced pane sites (the drawing insert,
+  reading the selected picture's alt text, and the large canvas round trip). The normalised diff is only those.
+
 ## [2.146.0] — 2026-10-17 — Host adapter, part 3: the task pane holds no document code (no visible change)
 
 From `docs/SCOPE-HOST-ADAPTER.md`, completing hit-list item 13. The last ten

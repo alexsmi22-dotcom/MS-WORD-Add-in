@@ -159,7 +159,31 @@ export function pointHidden(mesh: Mesh, view: CadView, p: Vec3): boolean {
 }
 
 /** Lays out the sheet. */
+/**
+ * Lays out the sheet. Hand-drawn text is sized on paper, so the room it needs in model units
+ * depends on the scale — which that room changes. The layout is repeated with the room the last
+ * scale asks for until it holds (review: text sized by a first estimate ran over the neighbouring
+ * figure); a mark that still does not fit its figure's cell is refused by name.
+ */
 export function layoutSheet(mesh: Mesh, o: SheetOptions): Sheet {
+  const textMm = ptToMm(DRAWING_STANDARDS[o.standard].textPt);
+  const info: LayoutInfo = { textUnits: 0, overflow: null };
+  let sheet = layoutCore(mesh, o, undefined, info);
+  for (let i = 0; i < 6 && info.textUnits > 0 && sheet.scaleMmPerUnit > 0 && (textMm * 1.1) / sheet.scaleMmPerUnit > info.textUnits * (1 + 1e-9); i++) {
+    sheet = layoutCore(mesh, o, (textMm * 1.15) / sheet.scaleMmPerUnit, info);
+  }
+  return info.overflow ? { svg: "", widthPx: 0, heightPx: 0, labels: [], scaleMmPerUnit: 0, notes: [info.overflow] } : sheet;
+}
+
+/** What one layout pass reports back: the text room it used, and a mark that ran out of its cell. */
+interface LayoutInfo {
+  textUnits: number;
+  overflow: string | null;
+}
+
+function layoutCore(mesh: Mesh, o: SheetOptions, textUnitsIn: number | undefined, info: LayoutInfo): Sheet {
+  info.textUnits = 0;
+  info.overflow = null;
   const std: DrawingStandard = DRAWING_STANDARDS[o.standard];
   // A layer switched off takes no room on the sheet: hidden callouts are not laid out at all.
   const callouts = o.layers?.callouts === false ? [] : (o.callouts ?? []);
@@ -219,16 +243,39 @@ export function layoutSheet(mesh: Mesh, o: SheetOptions): Sheet {
   // extent in model units uses the scale the drawings alone would get (an estimate that errs
   // on the side of room). Orthographic views in one column share their X extent, and in one
   // row their Y extent, so the projections stay aligned.
-  const marks = o.marks ?? [];
+  // Marks on "This view" are not drawn: that view turns with the model, and a mark drawn at one
+  // angle would point at nothing at another (review). Marks far outside their figure (a damaged
+  // model) are not drawn either: they would shrink the drawing to a dot.
   const onSheet = new Set(items.map((i) => i.spec.kind as string));
   const strays = new Map<string, number>();
-  for (const m of marks) if (!onSheet.has(m.view)) strays.set(m.view, (strays.get(m.view) ?? 0) + 1);
-  for (const [v, n] of strays) notes.push(`${n} hand-drawn mark${n === 1 ? " belongs" : "s belong"} to the ${v === "orbit" ? "custom" : v === "iso" ? "isometric" : v} view, which is not on this sheet.`);
+  let orbitMarks = 0, farMarks = 0;
+  const marks = (o.marks ?? []).filter((m) => {
+    if (m.view === "orbit") {
+      orbitMarks++;
+      return false;
+    }
+    if (!onSheet.has(m.view)) {
+      strays.set(m.view, (strays.get(m.view) ?? 0) + 1);
+      return false;
+    }
+    const it = items.find((i) => i.spec.kind === m.view)!;
+    const b = it.d.bounds, span = Math.max(b.maxX - b.minX, b.maxY - b.minY, 1e-9);
+    const e = marksExtent([m], 0)!;
+    if (e.minX < b.minX - 3 * span || e.maxX > b.maxX + 3 * span || e.minY < b.minY - 3 * span || e.maxY > b.maxY + 3 * span) {
+      farMarks++;
+      return false;
+    }
+    return true;
+  });
+  for (const [v, n] of strays) notes.push(`${n} hand-drawn mark${n === 1 ? " belongs" : "s belong"} to the ${v === "iso" ? "isometric" : v} view, which is not on this sheet.`);
+  if (orbitMarks) notes.push(`${orbitMarks} hand-drawn mark${orbitMarks === 1 ? " is" : "s are"} on "This view", which turns with the model, so ${orbitMarks === 1 ? "it is" : "they are"} not drawn — draw on a standard view or the isometric.`);
+  if (farMarks) notes.push(`${farMarks} hand-drawn mark${farMarks === 1 ? " lies" : "s lie"} far outside ${farMarks === 1 ? "its" : "their"} figure and ${farMarks === 1 ? "is" : "are"} not drawn.`);
   if (marks.length) {
     const spanW = cols.reduce((a, c) => a + Math.max(...items.filter((i) => i.cell[0] === c).map((i) => i.d.bounds.maxX - i.d.bounds.minX)), 0);
     const spanH = rows.reduce((a, r) => a + Math.max(...items.filter((i) => i.cell[1] === r).map((i) => i.d.bounds.maxY - i.d.bounds.minY)), 0);
     const sEst = Math.min(area.w / (spanW || 1), area.h / (spanH || 1)) * 0.8;
-    const textUnits = (ptToMm(std.textPt) * 1.1) / (sEst || 1);
+    const textUnits = textUnitsIn ?? (ptToMm(std.textPt) * 1.1) / (sEst || 1);
+    info.textUnits = textUnits;
     for (const it of items) {
       const ext = marksExtent(marks.filter((m) => m.view === it.spec.kind), textUnits);
       if (!ext) continue;
@@ -405,7 +452,19 @@ export function layoutSheet(mesh: Mesh, o: SheetOptions): Sheet {
     const Y = (y: number): number => oyBottom - (y - b.minY) * k;
     const path = (lines: Polyline[]): string => lines.map((l) => "M" + l.map(([x, y]) => `${fmt(X(x))} ${fmt(Y(y))}`).join("L")).join("");
     frames.push({ view: it.spec.kind, ox, oyBottom, minX: b.minX, minY: b.minY, k, cell: { x: cellX, y: cellY, w: cw, h: chh } });
-    for (const m of marks) if (m.view === it.spec.kind) layer.markup.push(markSvg(m, { X, Y, strokePx: types.visible.widthMm * PX_PER_MM, fontPx: textMm * PX_PER_MM, font: std.font }));
+    for (const m of marks) {
+      if (m.view !== it.spec.kind) continue;
+      const ms = { X, Y, strokePx: types.visible.widthMm * PX_PER_MM, fontPx: textMm * PX_PER_MM, font: std.font };
+      layer.markup.push(markSvg(m, ms));
+      // Every mark must sit in its own figure's cell (with a little slack): one that does not
+      // would run over a neighbour or off the sheet.
+      const e = marksExtent([m], textMm / s)!;
+      const slack = 2 * PX_PER_MM;
+      if (!info.overflow && (X(e.minX) < cellX - slack || X(e.maxX) > cellX + cw + slack || Y(e.maxY) < cellY - slack || Y(e.minY) > cellY + chh + slack)) {
+        const what = m.kind === "text" ? `The text "${m.text.length > 30 ? m.text.slice(0, 30) + "…" : m.text}"` : m.kind === "numeral" ? `Numeral ${m.label}` : "A hand-drawn mark";
+        info.overflow = `${what} does not fit beside its figure on this sheet — shorten it, move it closer, or choose a larger sheet.`;
+      }
+    }
 
     const showHidden = o.showHidden ?? (it.pictorial ? std.hiddenInPictorial : std.hiddenInOrthographic);
     if (showHidden && it.d.hidden.length) layer.hidden.push(`<path d="${path(it.d.hidden)}" ${strokeAttrs(types.hidden, PX_PER_MM)}/>`);
@@ -497,7 +556,8 @@ export function layoutSheet(mesh: Mesh, o: SheetOptions): Sheet {
   const symRight = frame ? frame.infoAt.x * PX_PER_MM : W - 3 * PX_PER_MM;
   const symBottom = frame ? frame.infoAt.y * PX_PER_MM : H - 3 * PX_PER_MM;
   if (std.projectionSymbol) layer.info.push(projectionSymbol(std, symRight, symBottom, types.visible, types.centre));
-  if (std.standardScale && !(frame && o.standard === "asme" && on("titleBlock"))) {
+  // A sheet of blank figures has no model, so it has no scale to state.
+  if (std.standardScale && !noModel && !(frame && o.standard === "asme" && on("titleBlock"))) {
     const at = frame
       ? `x="${fmt(symRight - (std.projectionSymbol ? SYMBOL_W_MM + 4 : 0) * PX_PER_MM)}" y="${fmt(symBottom - 1 * PX_PER_MM)}" text-anchor="end"`
       : `x="${fmt(3 * PX_PER_MM)}" y="${fmt(H - 3 * PX_PER_MM)}"`;

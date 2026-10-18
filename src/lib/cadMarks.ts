@@ -21,11 +21,14 @@ export type SheetMark =
   /** A reference numeral at `at`, with a lead line to the point `tip` it names. */
   | { kind: "numeral"; view: string; tip: MarkPt; at: MarkPt; label: string };
 
-export const MARK_LIMITS = { marks: 2000, points: 5000, text: 200 };
+export const MARK_LIMITS = { marks: 2000, points: 5000, totalPoints: 100_000, text: 200 };
+
+/** A control character (or a non-character) makes the sheet's SVG unreadable, as in cadFormats. */
+export const CONTROL_CHAR = /[\u0000-\u001f\u007f-\u009f\ufffe\uffff]/;
 
 const isNum = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v) && Math.abs(v) <= 1e7;
 const isPt = (v: unknown): v is MarkPt => Array.isArray(v) && v.length === 2 && isNum(v[0]) && isNum(v[1]);
-const isStr = (v: unknown, max: number): v is string => typeof v === "string" && v.length > 0 && v.length <= max;
+const isStr = (v: unknown, max: number): v is string => typeof v === "string" && v.length > 0 && v.length <= max && !CONTROL_CHAR.test(v);
 
 /** Reads saved marks field by field; a damaged one refuses the drawing (by its number). */
 export function parseMarks(raw: unknown): { ok: true; marks: SheetMark[] } | { ok: false; reason: string } {
@@ -33,6 +36,7 @@ export function parseMarks(raw: unknown): { ok: true; marks: SheetMark[] } | { o
   if (!Array.isArray(raw)) return { ok: false, reason: "its hand-drawn marks are damaged" };
   if (raw.length > MARK_LIMITS.marks) return { ok: false, reason: `it has more than ${MARK_LIMITS.marks} hand-drawn marks` };
   const out: SheetMark[] = [];
+  let points = 0;
   for (const [i, m] of raw.entries()) {
     const bad = { ok: false as const, reason: `hand-drawn mark ${i + 1} is damaged` };
     if (!m || typeof m !== "object" || !isStr((m as { view?: unknown }).view, 20)) return bad;
@@ -40,6 +44,8 @@ export function parseMarks(raw: unknown): { ok: true; marks: SheetMark[] } | { o
     const view = v.view as string;
     if (v.kind === "pen") {
       if (!Array.isArray(v.pts) || v.pts.length < 2 || v.pts.length > MARK_LIMITS.points || !v.pts.every(isPt)) return bad;
+      points += v.pts.length;
+      if (points > MARK_LIMITS.totalPoints) return { ok: false, reason: `its hand-drawn strokes have more than ${MARK_LIMITS.totalPoints.toLocaleString("en-US")} points in all` };
       out.push({ kind: "pen", view, pts: v.pts.map((p) => [p[0], p[1]]) });
     } else if (v.kind === "line") {
       if (!isPt(v.a) || !isPt(v.b) || (v.arrow !== undefined && typeof v.arrow !== "boolean")) return bad;
@@ -60,6 +66,9 @@ export function parseMarks(raw: unknown): { ok: true; marks: SheetMark[] } | { o
  * to the last kept point. The ends are always kept. Capped at MARK_LIMITS.points by
  * keeping every k-th point (a very long stroke, never refused).
  */
+/** A point rounded for saving: 1/1000 of a model unit (a micrometre in a drawing in mm) — the alt text grows by every digit. */
+export const roundPt = (p: MarkPt): MarkPt => [Math.round(p[0] * 1000) / 1000, Math.round(p[1] * 1000) / 1000];
+
 export function simplifyStroke(pts: MarkPt[], minStep: number): MarkPt[] {
   if (pts.length < 2) return pts.slice();
   const out: MarkPt[] = [pts[0]];
@@ -82,6 +91,26 @@ export function textEm(t: string): number {
   return w;
 }
 
+/** Text wraps at this many em (about 55 mm at a patent drawing's 12 pt): a long note is set as a short paragraph. */
+export const WRAP_EM = 14;
+/** Line pitch, in em. */
+const LINE_EM = 1.25;
+
+/** Text broken into lines of at most WRAP_EM, at spaces; a single longer word keeps its own line. */
+export function wrapText(t: string): string[] {
+  const out: string[] = [];
+  let line = "";
+  for (const w of t.split(/ +/)) {
+    const next = line ? line + " " + w : w;
+    if (line && textEm(next) > WRAP_EM) {
+      out.push(line);
+      line = w;
+    } else line = next;
+  }
+  if (line) out.push(line);
+  return out.length ? out : [t];
+}
+
 /**
  * The extent of a view's marks in its plane (model units), so the sheet leaves room
  * for them. Text needs its size in model units: `textUnits` = the font size (em)
@@ -102,8 +131,9 @@ export function marksExtent(marks: SheetMark[], textUnits: number): { minX: numb
       add(m.a[0], m.a[1]);
       add(m.b[0], m.b[1]);
     } else if (m.kind === "text") {
-      add(m.at[0], m.at[1] - 0.25 * textUnits);
-      add(m.at[0] + textEm(m.text) * textUnits, m.at[1] + 0.8 * textUnits);
+      const lines = wrapText(m.text);
+      add(m.at[0], m.at[1] - (0.25 + (lines.length - 1) * LINE_EM) * textUnits);
+      add(m.at[0] + Math.max(...lines.map(textEm)) * textUnits, m.at[1] + 0.8 * textUnits);
     } else {
       add(m.tip[0], m.tip[1]);
       const half = (textEm(m.label) * textUnits) / 2;
@@ -147,7 +177,11 @@ export function markSvg(m: SheetMark, s: MarkStyle): string {
     }
     return out;
   }
-  if (m.kind === "text") return text(s.X(m.at[0]), s.Y(m.at[1]), m.text, "start");
+  if (m.kind === "text") {
+    const x = f2(s.X(m.at[0]));
+    const body = wrapText(m.text).map((l, i) => `<tspan x="${x}" dy="${i ? f2(s.fontPx * LINE_EM) : 0}">${esc(l)}</tspan>`).join("");
+    return `<text x="${x}" y="${f2(s.Y(m.at[1]))}" font-family="${esc(s.font)}" font-size="${f2(s.fontPx)}" fill="#000">${body}</text>`;
+  }
   // A numeral: centred on `at`, its lead line stopping short of the text (37 CFR 1.84(q)).
   const ax = s.X(m.at[0]), ay = s.Y(m.at[1]);
   const tx = s.X(m.tip[0]), ty = s.Y(m.tip[1]);
@@ -175,8 +209,9 @@ export function markDistance(m: SheetMark, s: MarkStyle, x: number, y: number): 
   }
   if (m.kind === "line") return seg(m.a, m.b);
   if (m.kind === "text") {
-    const w = textEm(m.text) * s.fontPx;
-    return box(s.X(m.at[0]) + w / 2, s.Y(m.at[1]) - s.fontPx * 0.3, w, s.fontPx);
+    const lines = wrapText(m.text);
+    const w = Math.max(...lines.map(textEm)) * s.fontPx, h = (1 + (lines.length - 1) * LINE_EM) * s.fontPx;
+    return box(s.X(m.at[0]) + w / 2, s.Y(m.at[1]) - s.fontPx * 0.8 + h / 2, w, h);
   }
   const w = textEm(m.label) * s.fontPx;
   return Math.min(seg(m.tip, m.at), box(s.X(m.at[0]), s.Y(m.at[1]), w, s.fontPx));

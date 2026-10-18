@@ -66,7 +66,7 @@ describe("marks as SVG", () => {
     expect(svg).toContain(">10</text>");
   });
   test("text is escaped", () => {
-    expect(markSvg({ kind: "text", view: "front", at: [0, 0], text: 'A<B & "C"' }, style)).toContain(">A&lt;B &amp; &quot;C&quot;</text>");
+    expect(markSvg({ kind: "text", view: "front", at: [0, 0], text: 'A<B & "C"' }, style)).toContain(">A&lt;B &amp; &quot;C&quot;</tspan></text>");
   });
   test("the eraser finds a mark by its distance on the sheet", () => {
     const m: SheetMark = { kind: "pen", view: "front", pts: [[0, 0], [10, 0]] };
@@ -85,7 +85,7 @@ describe("marks on the sheet", () => {
   test("drawn in their own layer, on their own view, with each view's frame returned", () => {
     const sh = layoutSheet(blockMesh(), { standard: "uspto", views, marks: [{ kind: "text", view: "iso", at: [0, 0], text: "TOP" }] });
     expect(sh.svg).toContain('<g data-layer="markup">');
-    expect(sh.svg).toContain(">TOP</text>");
+    expect(sh.svg).toContain(">TOP</tspan></text>");
     expect(sh.frames!.map((f) => f.view).sort()).toEqual(["front", "iso", "top"]);
   });
   test("a click on the sheet maps into the view and back to the same place", () => {

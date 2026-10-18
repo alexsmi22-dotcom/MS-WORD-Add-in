@@ -30,6 +30,23 @@ points of it, how each piece intersects and connects".
   stays on until **Stop placing callouts** or **Esc**, looks on, names each callout it places, and a click off the
   model says so. The canvas now shows each callout's number beside its point, not only a dot.
 
+### Fixed before release (adversarial review: 11 defects, each pinned in cadMarksReview.test.ts)
+- Text was given room from a first guess at the scale, so a long note ran over the next figure or off the
+  sheet. Long text now wraps into lines (about 55 mm on a patent sheet), the layout is repeated until the room
+  holds, and a mark that still does not fit its figure is refused by name.
+- Marks on "This view" pointed at nothing once the model was turned: nothing can be drawn on that view now, and
+  a saved one is left out with a note.
+- Undo mark carried one drawing's marks into the next (after Open, the large window, Undo clear); its history
+  now belongs to one drawing.
+- The pane could save a drawing it would refuse to reopen (past 2,000 marks, or with a control character in
+  text); both limits are now checked as marks are drawn, and strokes are capped at 100,000 points in all.
+- A drag that left the preview shrank the drawing to a dot; the pointer is held on the sheet, and a saved mark
+  far outside its figure is left out with a note.
+- A callout placed after a drawn numeral reused its number; callouts and drawn numerals share one numbering.
+- New drawing kept the hand-drawn marks (and could not clear a drawing of marks alone).
+- A sheet of blank figures printed a SCALE for a figure with no model.
+- Saved points are rounded to 1/1000 of a unit, so a stroke adds far less to the picture's alt text.
+
 ## [2.150.0] — 2026-10-18 — Drawing (CAD): import DXF drawings (Solid Edge, AutoCAD)
 
 The firm uses Solid Edge for most drawings: "we would want the ability to import solid edge and cad files".

@@ -41,7 +41,7 @@ import { SWITCHABLE_LAYERS, type Callout } from "../lib/cadSheet";
 import { checkTitleFields, SHEET_SIZES, SheetSizeId, sheetRefusal, sheetsFor, TitleFieldId, titleFieldsFor, TitleValues } from "../lib/cadFormats";
 import { lineTypesFor } from "../lib/cadLineTypes";
 import { DxfDrawing } from "../lib/dxf";
-import { markDistance, MarkPt, MarkStyle, SheetMark, simplifyStroke } from "../lib/cadMarks";
+import { CONTROL_CHAR, MARK_LIMITS, markDistance, MarkPt, MarkStyle, roundPt, SheetMark, simplifyStroke } from "../lib/cadMarks";
 import { IMPORTED_ALT_PREFIX, IMPORT_UNITS, importedFigure, importedSketch, openDxfFile, sizeRefusal } from "../lib/dxfImport";
 import type { Sketch } from "../lib/sketch";
 import { parseSketch } from "../lib/sketchDoc";
@@ -461,13 +461,14 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     const w = previewEl.querySelector("svg")?.getBoundingClientRect().width ?? 0;
     return w && sheetW ? sheetW / w : 0;
   }
-  /** The mouse in sheet px. */
+  /** The mouse in sheet px, held on the sheet (a drag that leaves the preview shrank the drawing to a dot). */
   function sheetPoint(e: PointerEvent): [number, number] | null {
     const svg = previewEl.querySelector("svg");
     const f = previewScale();
     if (!svg || !f) return null;
     const r = svg.getBoundingClientRect();
-    return [(e.clientX - r.left) * f, (e.clientY - r.top) * f];
+    const sheetH = r.height * f || Infinity;
+    return [Math.max(0, Math.min(sheetW, (e.clientX - r.left) * f)), Math.max(0, Math.min(sheetH, (e.clientY - r.top) * f))];
   }
   /** The figure under a sheet point: the one whose cell holds it, else the nearest cell. */
   function frameAt(x: number, y: number): SheetFrame | null {
@@ -481,7 +482,7 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     }
     return best;
   }
-  const toView = (f: SheetFrame, x: number, y: number): MarkPt => [(x - f.ox) / f.k + f.minX, (f.oyBottom - y) / f.k + f.minY];
+  const toView = (f: SheetFrame, x: number, y: number): MarkPt => roundPt([(x - f.ox) / f.k + f.minX, (f.oyBottom - y) / f.k + f.minY]);
   const styleOf = (f: SheetFrame): MarkStyle => {
     const std = DRAWING_STANDARDS[doc.standard];
     return { X: (x) => f.ox + (x - f.minX) * f.k, Y: (y) => f.oyBottom - (y - f.minY) * f.k, strokePx: 1, fontPx: ptToMm(std.textPt) * (96 / 25.4), font: std.font };
@@ -491,6 +492,11 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     renderSheet();
   }
   function addMark(m: SheetMark): void {
+    // The limits a saved drawing is read back with: a drawing past them could never be reopened.
+    const list = doc.marks ?? [];
+    const pts = list.reduce((a, q) => a + (q.kind === "pen" ? q.pts.length : 0), 0) + (m.kind === "pen" ? m.pts.length : 0);
+    if (list.length >= MARK_LIMITS.marks) return host.setStatus(`A drawing holds at most ${MARK_LIMITS.marks} hand-drawn marks — erase some first.`, "error");
+    if (pts > MARK_LIMITS.totalPoints) return host.setStatus(`The pencil strokes on this drawing would pass ${MARK_LIMITS.totalPoints.toLocaleString("en-US")} points — erase some first.`, "error");
     (doc.marks ??= []).push(m);
     markUndo.push({ add: m });
     commitMarks();
@@ -519,6 +525,7 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     const f = frameAt(p[0], p[1]);
     if (!f) return;
     e.preventDefault();
+    if (f.view === "orbit") return host.setStatus('"This view" turns with the model, so nothing can be drawn on it — draw on a standard view or the isometric.', "error");
     const v = toView(f, p[0], p[1]);
     if (markTool === "erase") {
       const st = styleOf(f);
@@ -540,7 +547,7 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
       return;
     }
     if (markTool === "text") {
-      const t = (markText?.value ?? "").trim();
+      const t = (markText?.value ?? "").replace(new RegExp(CONTROL_CHAR.source, "g"), " ").trim();
       if (!t) {
         markText?.focus();
         return host.setStatus("Type the text in the box first, then click where it goes.", "error");
@@ -902,7 +909,7 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
       return resetNewBtn();
     }
     if (!armed) {
-      if (!doc.parts.length && !doc.callouts.length) return host.setStatus("The drawing is already blank — add a part or a sketch.", "");
+      if (!doc.parts.length && !doc.callouts.length && !doc.marks?.length) return host.setStatus("The drawing is already blank — add a part or a sketch.", "");
       armed = 1;
       newBtn.textContent = "Click again to clear everything";
       newTimer = window.setTimeout(resetNewBtn, 4000);
@@ -910,6 +917,9 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     }
     undoDoc = JSON.parse(serializeDoc(doc)) as CadDoc;
     doc = { ...doc, parts: [], callouts: [] };
+    delete doc.marks;
+    markUndo.length = 0;
+    if (markUndoBtn) markUndoBtn.disabled = true;
     selected = 0;
     renderParts();
     renderEditor();
@@ -1005,7 +1015,8 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
         return;
       }
       const std = DRAWING_STANDARDS[doc.standard];
-      const taken = doc.callouts.map((c) => Number(c.label)).filter((n) => Number.isFinite(n));
+      // Numerals drawn by hand are taken too: one numeral never names two things.
+      const taken = [...doc.callouts.map((c) => Number(c.label)), ...(doc.marks ?? []).flatMap((m) => (m.kind === "numeral" ? [Number(m.label)] : []))].filter((n) => Number.isFinite(n));
       const label = std.callouts === "balloon" ? String((taken.length ? Math.max(...taken) : 0) + 1) : String(host.nextNumeral(taken));
       doc.callouts.push(attachCallout(doc, hit.body, hit.point, label, mesh));
       placed = resolveCallouts(doc, mesh);
@@ -1055,6 +1066,9 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
   /** Puts a parsed model on the canvas, the parts list, the views and the sheet. */
   function loadDoc(d: CadDoc): void {
     doc = d;
+    // Mark undo belongs to the drawing it was made on (review: it put one drawing's marks into the next).
+    markUndo.length = 0;
+    if (markUndoBtn) markUndoBtn.disabled = true;
     // Title block fields typed for another drawing never come back into this one (review D1).
     stashTitle = {};
     controlsFromDoc();

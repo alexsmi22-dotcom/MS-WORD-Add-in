@@ -130,7 +130,7 @@ describe("drawing on the sheet", () => {
     t.$<HTMLInputElement>("cad-mark-text").value = "TABLE TOP";
     t.ptr("pointerdown", x, y);
     expect(t.doc().marks).toEqual([expect.objectContaining({ kind: "text", view: "front", text: "TABLE TOP" })]);
-    expect(t.preview.innerHTML).toContain(">TABLE TOP</text>");
+    expect(t.preview.innerHTML).toContain(">TABLE TOP</tspan></text>");
   });
 
   it("erase removes the mark clicked; undo puts it back, and takes back a drawn one", () => {

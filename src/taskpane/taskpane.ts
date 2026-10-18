@@ -1491,15 +1491,23 @@ function waitForControllerChange(ms: number): Promise<void> {
  * release, and the banner would come straight back — a loop that never says
  * what went wrong. The caller tells the user instead.
  */
-async function reloadIntoVersion(newVersion: string): Promise<boolean> {
+async function reloadIntoVersion(newVersion: string, recover = false): Promise<boolean> {
   await offlineStarted;
   if (swSupported) {
     const swapped = await activatePendingWorker(swRegistration, { waitForControllerChange });
     if (!swapped) {
-      // Not through the worker: with the server answering, drop the stale offline copy and load fresh.
+      // Not through the worker. Only on the user's Reload (never the silent self-heal at open): with the
+      // server answering with this release, drop the stale offline copy and load fresh.
+      if (!recover) return false;
       const fresh = await dropStaleCopyIfOnline(swRegistration, async () => {
-        const r = await fetch(`version.json?t=${Date.now()}`, { cache: "no-store" });
-        return r.ok && ((await r.json()) as { version?: string }).version === newVersion;
+        const ctl = typeof AbortController === "function" ? new AbortController() : null;
+        const timer = window.setTimeout(() => ctl?.abort(), 10_000);
+        try {
+          const r = await fetch(`version.json?t=${Date.now()}`, { cache: "no-store", ...(ctl ? { signal: ctl.signal } : {}) });
+          return r.ok && ((await r.json()) as { version?: string }).version === newVersion;
+        } finally {
+          window.clearTimeout(timer);
+        }
       });
       if (!fresh) return false;
     }
@@ -2348,7 +2356,7 @@ function showUpdateBanner(newVersion: string): void {
   reload.addEventListener("click", () => {
     reload.disabled = true;
     msg.textContent = `Downloading v${newVersion}…`;
-    void reloadIntoVersion(newVersion).then((ok) => {
+    void reloadIntoVersion(newVersion, true).then((ok) => {
       if (ok) return; // navigating
       msg.textContent = `v${newVersion} could not be downloaded — check your connection and try again.`;
       reload.disabled = false;

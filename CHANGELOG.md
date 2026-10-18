@@ -20,7 +20,9 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 - Update: on a PC, Reload on the "Update available" bar said "could not be downloaded — check your connection"
   although the release was live (the new offline copy never installed, or the browser had already moved on).
   When the release cannot come in through the offline copy but the server answers with it, the stale copy is
-  now dropped and the pane loads the release from the server; offline, nothing is dropped.
+  now dropped and the pane loads the release from the server; offline, nothing is dropped. (Only on Reload;
+  in the minutes right after a release, before every server has it, the offline copy may need a later session
+  to be made again.)
 
 ## [2.155.0] — 2026-10-18 — Drawing (CAD): mate faces, exploded views, detail views (the table release)
 

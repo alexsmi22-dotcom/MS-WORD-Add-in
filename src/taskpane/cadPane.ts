@@ -501,6 +501,7 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
   previewEl.addEventListener("pointerdown", (e) => {
     if (!detailMode || e.button !== 0) return;
     e.preventDefault();
+    if (!onSheet(e)) return;
     const p = sheetPoint(e);
     if (!p || !lastSheet) return host.setStatus("The drawing must be showing before a detail can be taken from it.", "error");
     const f = sheetFrames.find((q) => p[0] >= q.cell.x && p[0] <= q.cell.x + q.cell.w && p[1] >= q.cell.y && p[1] <= q.cell.y + q.cell.h);
@@ -694,8 +695,19 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
   });
   // A drag in progress: its figure, its points (view plane, and sheet px) and a live line on the preview.
   let markDrag: { f: SheetFrame; pts: MarkPt[]; px: Array<[number, number]>; live: SVGPathElement | null } | null = null;
+  /** A press on the sheet itself (not the blank band beside a sheet fitted to the height). */
+  function onSheet(e: PointerEvent): boolean {
+    const svg = previewEl.querySelector("svg");
+    const t = svg && screenToSheet(svg);
+    if (!svg || !t) return false;
+    const [x, y] = t.x(e.clientX, e.clientY);
+    const vb = (svg.getAttribute("viewBox") ?? "").split(" ").map(Number);
+    const h = vb.length === 4 && vb[3] > 0 ? vb[3] : Infinity;
+    return x >= 0 && x <= sheetW && y >= 0 && y <= h;
+  }
   previewEl.addEventListener("pointerdown", (e) => {
     if (!markTool || e.button !== 0) return;
+    if (!onSheet(e)) return;
     const p = sheetPoint(e);
     if (!p) return;
     if (!lastSheet) return host.setStatus("The drawing must be showing before you can draw on it.", "error");
@@ -1075,9 +1087,10 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
   };
   /** The sketch editor in this window, on a part (by id) or a new one. */
   function sketchHere(partId: string | null, seed?: Sketch): boolean {
-    // The sketch takes the canvas: drawing on the sheet (which gives the sheet the canvas's room) ends first.
-    setMarkTool(null);
-    setDetailMode(false);
+    // The sketch takes the canvas: drawing on the sheet (which gives the sheet the canvas's room) ends first —
+    // only if it was on, so a status just set (why the large window did not open) is not wiped.
+    if (markTool !== null) setMarkTool(null);
+    if (detailMode) setDetailMode(false);
     if (!sketchPanel) return false;
     const p = partId === null ? undefined : doc.parts.find((q) => q.id === partId);
     if (partId !== null && !p) {

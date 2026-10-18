@@ -1,7 +1,7 @@
 // The sketch's full toolset (polygon, slot, centre rectangle, 3-point arc, fillet,
 // chamfer, offset, mirror, patterns, trim), checked by the geometry they make.
 import { startEdit, click, EditState, SketchTool } from "../sketchEdit";
-import { polygon, fillet, chamfer, offset, mirror, linearPattern, circularPattern, trim, clearSketch } from "../sketchTools";
+import { polygon, slot, centreRectangle, fillet, chamfer, offset, mirror, linearPattern, circularPattern, trim, clearSketch } from "../sketchTools";
 import { Sketch, freedom, setDimension, radiusOf } from "../sketch";
 import { sketchToProfile } from "../sketchProfile";
 import { flattenLoop, signedArea, Profile } from "../cadModel";
@@ -293,14 +293,17 @@ describe("sketcher third review — every finding pinned", () => {
     st = ok(offset({ ...st, selection: [b] }, -4));
     expect(fillet(st, l, b, 3)).toMatchObject({ ok: true });
   });
-  it("a chamfer or offset that would cross a line the user drew is still refused", () => {
+  it("a tool may draw across a line already there, as the line tool may (polygon, slot, centre rectangle, offset, chamfer)", () => {
+    const base = clicks(startEdit(), "line", [[-20, 0], [20, 0]]);
+    const at = { ...base, pending: [] };
+    expect(polygon(at, 0, 0, 5, 5, 6)).toMatchObject({ ok: true });
+    expect(slot(at, 0, -5, 0, 5, 2, 0)).toMatchObject({ ok: true });
+    expect(centreRectangle(at, 0, 0, 5, 5)).toMatchObject({ ok: true });
+    const v = clicks(at, "line", [[5, -10], [5, 10]]);
+    expect(offset({ ...v, pending: [], selection: [v.sketch.entities[1].id] }, 3)).toMatchObject({ ok: true });
     let st = clicks(startEdit(), "rectangle", [[0, 0], [20, 20]]);
     const [b, r] = lineIds(st.sketch);
     st = clicks({ ...st, pending: [] }, "line", [[16.2, 0.5], [19, 0.5]]);
-    expect(chamfer(st, b, r, 4)).toMatchObject({ ok: false, reason: expect.stringMatching(/^that would make L\d+ cross L\d+/) });
-    let sq = clicks(startEdit(), "rectangle", [[0, 0], [20, 20]]);
-    const sides = lineIds(sq.sketch);
-    sq = clicks({ ...sq, pending: [] }, "line", [[22, -10], [22, 30]]);
-    expect(offset({ ...sq, pending: [], selection: sides }, 4)).toMatchObject({ ok: false });
+    expect(chamfer(st, b, r, 4)).toMatchObject({ ok: true });
   });
 });

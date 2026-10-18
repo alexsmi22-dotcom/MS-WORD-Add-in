@@ -60,11 +60,11 @@ class Builder {
     return this.sk.points.find((p) => p.id === id)!;
   }
   /** Solves and verifies; the new state, or the refusal. */
-  done(st: EditState, note?: string, crossesOnPurpose = false): EditResult {
-    // Flips are checked against the geometry as BUILT (existing points are where they were; new
-    // geometry is checked too). Crossings are checked against the sketch as it WAS, except for the tools
-    // whose result may cross on purpose (a trimmed piece, a mirrored diagonal, a pattern copy).
-    const r = solve(this.sk, crossesOnPurpose ? {} : { crossingReference: st.sketch }, this.sk);
+  done(st: EditState, note?: string): EditResult {
+    // Checked against the geometry as BUILT (existing points are where they were; new geometry is
+    // checked too). A crossing the tool drew is meant, as with the line tool; one only the solve
+    // made — by moving geometry — is refused.
+    const r = solve(this.sk, { crossingReference: st.sketch }, this.sk);
     if (!r.ok) return { ok: false, state: st, reason: r.reason };
     return { ok: true, state: { ...st, sketch: r.sketch, seq: this.seq, pending: [], selection: [] }, note };
   }
@@ -434,7 +434,7 @@ export function mirror(st: EditState): EditResult {
     }
   }
   if (b.sk.entities.length === st.sketch.entities.length) return { ok: false, state: st, reason: "everything selected lies on the mirror line — it is its own mirror image" };
-  return b.done(st, undefined, true);
+  return b.done(st);
 }
 
 /** Copies the selection `count − 1` more times, each (dx, dy) further on. */
@@ -487,7 +487,7 @@ function pattern(st: EditState, count: number, place: (p: SPoint, k: number) => 
       }
     }
   }
-  return b.done(st, undefined, true);
+  return b.done(st);
 }
 
 // ---- trim -----------------------------------------------------------------------------------------
@@ -595,7 +595,7 @@ export function trim(st: EditState, lineId: string, x: number, y: number): EditR
   b.sk.points = b.sk.points.filter((p) => !dropped.has(p.id));
   b.sk.constraints = b.sk.constraints.filter((k) => ![...dropped].some((id) => refersTo(k, id)));
   void keep;
-  return b.done(st, droppedRel.length ? `Trimmed; relations that depended on the line's full length went with it (${droppedRel.map((k) => k.kind).join(", ")}).` : undefined, true);
+  return b.done(st, droppedRel.length ? `Trimmed; relations that depended on the line's full length went with it (${droppedRel.map((k) => k.kind).join(", ")}).` : undefined);
 }
 
 /** Empties the sketch (the editor keeps the old one for Undo). */

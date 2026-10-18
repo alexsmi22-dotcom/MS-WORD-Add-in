@@ -216,6 +216,7 @@ export function initSketchPanel(host: SketchPanelHost): { open(sketch?: Sketch, 
   });
   deleteBtn.addEventListener("click", () => apply(deleteSelection(st)));
   undoBtn.addEventListener("click", () => {
+    endDragNow(); // an Undo mid-drag ends the drag: the point no longer follows the pointer
     const prev = history.pop();
     if (!prev) return say("Nothing to undo.");
     st = { ...st, sketch: prev, selection: [], pending: [] };
@@ -297,6 +298,15 @@ export function initSketchPanel(host: SketchPanelHost): { open(sketch?: Sketch, 
     }
     paint();
   });
+  /** Stops a drag where it is, without a further step (Undo pressed mid-drag). */
+  const endDragNow = (): void => {
+    if (dragFrame) window.clearTimeout(dragFrame);
+    dragFrame = 0;
+    pressed = null;
+    dragging = null;
+    dragFrom = null;
+    dragTo = null;
+  };
   const endDrag = (e?: { clientX: number; clientY: number }): void => {
     if (pressed && !dragging && e) {
       // It was a click on the point: select it.

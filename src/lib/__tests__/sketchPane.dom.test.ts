@@ -309,6 +309,28 @@ describe("sketcher third review — the pane findings pinned", () => {
     ev("pointerup", 40, 20);
     expect(t.$<HTMLElement>("cad-sketch-status").textContent).toMatch(/^4 degrees of freedom left/);
   });
+  it("Undo mid-drag ENDS the drag: further moves do not move the point, and the rectangle survives the next Undo", () => {
+    jest.useFakeTimers();
+    const t = setup();
+    t.$<HTMLSelectElement>("cad-shape").value = "sketch";
+    t.$<HTMLButtonElement>("cad-add").click();
+    t.toolBtn("rectangle").click();
+    t.tap(0, 0);
+    t.tap(30, 20);
+    t.toolBtn("select").click();
+    ev("pointerdown", 30, 20);
+    ev("pointermove", 40, 20);
+    jest.advanceTimersByTime(20);
+    t.$<HTMLButtonElement>("cad-sketch-undo").click();
+    ev("pointermove", 45, 25);
+    jest.advanceTimersByTime(20);
+    ev("pointerup", 45, 25);
+    t.$<HTMLButtonElement>("cad-sketch-done").click();
+    const d = parseDoc(t.pane.getDoc());
+    if (!d.ok) throw new Error(d.reason);
+    const sk = d.doc.parts.find((p) => p.shape === "sketch")!.sketch!;
+    expect(Math.max(...sk.points.map((q) => q.x))).toBeCloseTo(30, 9);
+  });
   it("Circular takes 180 °, 180º and 180deg as well as 180°", () => {
     const t = setup();
     t.$<HTMLSelectElement>("cad-shape").value = "sketch";

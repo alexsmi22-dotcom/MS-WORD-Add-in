@@ -32,9 +32,10 @@ the same drawing sheet as every other part.
   clear** until the drawing changes again.
 - **Export to PowerPoint.** Saves the current sheet as a slide: a high-resolution picture with the drawing's title.
 
-### Fixed (found by three independent review rounds before release)
+### Fixed (found by four independent review rounds before release)
 - Clicking a point in Select now selects it; only a real drag moves it. A drag ends exactly where the pointer
-  is let go, and one Undo takes it back; a click, or a press that wanders back, leaves no undo step.
+  is let go, and one Undo takes it back; a click, or a press that wanders back, leaves no undo step. Undo during
+  a drag ends the drag. All four corners of a rectangle fillet.
 - Clicking a dimension's label puts its value in the box as shown (`45°`, not `0.7854`).
 - A fillet or chamfer no longer changes what the corner's other relations mean: a width still measures the full
   width to the virtual sharp, an equal still means the full sides, a midpoint stays at the middle of the full edge.
@@ -42,9 +43,9 @@ the same drawing sheet as every other part.
   middle stays one straight line in two pieces.
 - An inward offset larger than the outline is refused ("an offset of −6 is larger than this outline allows")
   rather than drawn reversed. Offset circles and arcs keep their distance when the original changes size.
-- Mirror no longer duplicates geometry that is its own image. Trim, Mirror and patterns may leave lines
-  crossing on purpose (a trimmed piece, a mirrored diagonal); only a change that makes a crossing nobody drew is
-  refused. An inward offset that would make the outline cross itself is refused in plain words.
+- Mirror no longer duplicates geometry that is its own image. A tool may draw across a line that is
+  already there, as the line tool may (a trimmed piece, a mirrored diagonal, a polygon over a centre line); only
+  a crossing the solver would create by moving geometry is refused. An inward offset that would make the outline cross itself is refused in plain words.
 - Circular pattern takes its angle as shown: `180°`, `180 °`, `180º` or `180deg`.
 - The polygon, slot, centre rectangle and 3-point arc tools snap to existing points on every click, so outlines
   really close.

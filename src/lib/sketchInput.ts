@@ -8,8 +8,9 @@
  *     lines up horizontally / vertically with points already drawn, each shown
  *     with a guide — points beat alignment, alignment beats the grid;
  *   - TYPED SIZES while drawing: a rectangle's W and H, a line's length and
- *     angle, a circle's Ø — typed values place the shape exactly and become its
- *     driving dimensions, in ONE undo step;
+ *     angle, a circle's Ø — typed values place the shape exactly; W, H, a line's
+ *     length and Ø become its driving dimensions, in ONE undo step (a typed angle
+ *     places the line but is not a dimension: an angle dimension needs a second line);
  *   - a LIVE readout of the size under the cursor, and a PROMPT saying what to
  *     click next.
  * Pure functions over the sketch and the view scale; the pane only wires them.
@@ -108,6 +109,8 @@ export function parseTyped(text: string, kind: "length" | "angle", label: string
   if (!/^[+-]?(\d+(\.\d*)?|\.\d+)$/.test(t)) return `${label}: "${text.trim()}" is not a number`;
   const v = Number(t);
   if (kind === "length" && !(v > 0)) return `${label} must be greater than 0`;
+  if (kind === "length" && v < 1e-6) return `${label} must be at least 0.000001 mm`;
+  if (Math.abs(v) > 1e6) return `${label} must be at most 1 000 000${kind === "angle" ? "°" : " mm"}`;
   return v;
 }
 
@@ -163,6 +166,7 @@ export function placeTyped(st: EditState, typed: Array<number | null>, at: { x: 
   } else if (tool === "line") {
     const ang = t1 !== null && t1 !== undefined ? (t1 * Math.PI) / 180 : first ? Math.atan2(at.y - a0.y, at.x - a0.x) : 0;
     const len = t0 ?? (first ? (at.x - a0.x) * Math.cos(ang) + (at.y - a0.y) * Math.sin(ang) : NaN);
+    if (first && t0 === null && !(len > 0)) return { ok: false, state: st, reason: "that click is behind the typed angle — click on the side it points to, or type the length" };
     if (!(len > 0)) return { ok: true, state: s };
     to = { x: a0.x + len * Math.cos(ang), y: a0.y + len * Math.sin(ang) };
   } else {
@@ -170,24 +174,32 @@ export function placeTyped(st: EditState, typed: Array<number | null>, at: { x: 
     if (!(d > 0)) return { ok: true, state: s };
     to = { x: a0.x + d / 2, y: a0.y };
   }
+  if (!(Math.abs(to.x) <= 1e6 && Math.abs(to.y) <= 1e6)) return { ok: false, state: st, reason: "the shape would reach beyond ±1 000 000 mm — a sketch is drawn within that" };
   const before = new Set(s.sketch.entities.map((e) => e.id));
-  const r = click(s, to.x, to.y, 1e-9 * Math.max(1, Math.abs(to.x), Math.abs(to.y)));
+  // A typed angle that is not a multiple of 90° keeps its exact direction (no automatic H / V).
+  const keepAngle = tool === "line" && t1 !== null && t1 !== undefined && Math.abs(Math.round(t1 / 90) * 90 - t1) > 1e-12;
+  const r = click(keepAngle ? { ...s, noAutoHV: true } : s, to.x, to.y, 1e-9 * Math.max(1, Math.abs(to.x), Math.abs(to.y)));
   if (!r.ok) return { ok: false, state: st, reason: r.reason };
-  let out = r.state;
+  let out: EditState = { ...r.state };
+  delete out.noAutoHV;
   const made = out.sketch.entities.filter((e) => !before.has(e.id));
+  let refused: string | null = null;
   const dim = (id: string | undefined, text: string): void => {
-    if (!id) return;
+    if (!id || refused) return;
     const d = applyDimension({ ...out, selection: [id] }, text);
     if (d.ok) out = { ...d.state, selection: [], pending: out.pending };
+    else refused = d.reason;
   };
-  const lines = made.filter((e): e is Extract<typeof e, { kind: "line" }> => e.kind === "line" && !e.construction);
+  // Construction geometry is dimensioned too (as a typed circle always was).
+  const lines = made.filter((e): e is Extract<typeof e, { kind: "line" }> => e.kind === "line");
   const isH = (l: (typeof lines)[number]): boolean => Math.abs(P(out.sketch, l.a).y - P(out.sketch, l.b).y) < 1e-9;
   if (tool === "rectangle" || tool === "centreRectangle") {
-    if (t0 !== null && t0 !== undefined) dim(lines.find(isH)?.id, fmt(t0));
-    if (t1 !== null && t1 !== undefined) dim(lines.find((l) => !isH(l))?.id, fmt(t1));
+    if (t0 !== null && t0 !== undefined) dim(lines.find(isH)?.id, exact(t0));
+    if (t1 !== null && t1 !== undefined) dim(lines.find((l) => !isH(l))?.id, exact(t1));
   } else if (tool === "line") {
-    if (t0 !== null && t0 !== undefined) dim(lines[0]?.id, fmt(t0));
-  } else if (t0 !== null && t0 !== undefined) dim(made.find((e) => e.kind === "circle")?.id, `Ø${fmt(t0)}`);
+    if (t0 !== null && t0 !== undefined) dim(lines[0]?.id, exact(t0));
+  } else if (t0 !== null && t0 !== undefined) dim(made.find((e) => e.kind === "circle")?.id, `Ø${exact(t0)}`);
+  if (refused) return { ok: false, state: st, reason: refused };
   return { ok: true, state: out };
 }
 
@@ -224,5 +236,7 @@ export function promptFor(st: EditState, dimensionTool = false): string {
 }
 
 const P = (sk: Sketch, id: string): SPoint => sk.points.find((p) => p.id === id)!;
-/** Up to 4 decimals, no trailing zeros. */
+/** Up to 4 decimals, no trailing zeros (for display). */
 export const fmt = (v: number): string => String(+v.toFixed(4));
+/** The value as typed, to 12 significant digits: what a typed size's dimension holds (not rounded to 4 decimals). */
+const exact = (v: number): string => String(+v.toPrecision(12));

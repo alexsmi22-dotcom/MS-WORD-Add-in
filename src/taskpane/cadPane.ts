@@ -61,7 +61,7 @@ export interface CadPaneHost {
    * the model, and whether the user pressed Insert there. Null = closed or cancelled. Absent
    * in the pop-out itself.
    */
-  openLarge?(docJson: string, opts?: { sketch?: string }): Promise<{ doc: string; insert: boolean } | null>;
+  openLarge?(docJson: string, opts?: { sketch?: string }): Promise<{ doc: string; insert: boolean } | null | "failed">;
   /** Whether the large window can open here (Office dialogs supported); absent = assume it can. */
   largeAvailable?(): boolean;
   /** A sketch was closed: kept (Done) or not (Cancel). The large window, opened to sketch, returns on it. */
@@ -627,6 +627,7 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
   function sketchHere(partId: string | null): void {
     if (!sketchPanel) return;
     const p = partId === null ? undefined : doc.parts.find((q) => q.id === partId);
+    if (partId !== null && !p) return host.setStatus("That part is no longer in the drawing — its sketch cannot be opened.", "error");
     sketchTarget = p ? p.id : null;
     section?.classList.add("cad-sketching");
     sketchPanel.open(p?.sketch, p?.op);
@@ -1010,7 +1011,18 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     largeOpen = true;
     try {
       const back = opts ? await host.openLarge(serializeDoc(doc), opts) : await host.openLarge(serializeDoc(doc));
-      if (!back) return;
+      if (back === "failed") {
+        // The window could not open (the host said why): a sketch opens here instead (review D11).
+        if (opts?.sketch) {
+          largeOpen = false;
+          sketchHere(opts.sketch === "new" ? null : opts.sketch);
+        }
+        return;
+      }
+      if (!back) {
+        if (opts?.sketch) host.setStatus("The large window was closed without Done — the sketch was not kept.", "");
+        return;
+      }
       const r = parseDoc(back.doc);
       if (!r.ok) {
         host.setStatus(`Could not bring the drawing back: ${r.reason}.`, "error");

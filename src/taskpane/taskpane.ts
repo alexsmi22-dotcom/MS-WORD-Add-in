@@ -29707,10 +29707,11 @@ async function exportCadPpt(svg: string, widthPx: number, heightPx: number, titl
  * is told so — the canvas never opens blank, because "Use this drawing" from
  * a blank canvas would replace the pane's model.
  */
-function openCadDialog(docJson: string, opts?: { sketch?: string }): Promise<{ doc: string; insert: boolean } | null> {
+function openCadDialog(docJson: string, opts?: { sketch?: string }): Promise<{ doc: string; insert: boolean } | null | "failed"> {
+  // "failed": the window never opened (the reason is in the status); null: closed or cancelled.
   return new Promise((resolve) => {
     let settled = false;
-    const done = (v: { doc: string; insert: boolean } | null): void => {
+    const done = (v: { doc: string; insert: boolean } | null | "failed"): void => {
       if (!settled) {
         settled = true;
         resolve(v);
@@ -29718,7 +29719,7 @@ function openCadDialog(docJson: string, opts?: { sketch?: string }): Promise<{ d
     };
     if (!docHost.dialogsSupported()) {
       setStatus("This Word host does not support pop-out dialog windows.", "error");
-      done(null);
+      done("failed");
       return;
     }
     const base = new URL("caddialog.html", window.location.href).href;
@@ -29731,7 +29732,7 @@ function openCadDialog(docJson: string, opts?: { sketch?: string }): Promise<{ d
     docHost.openDialog(url, { height: 90, width: 90 }, {
       failed: (error) => {
         setStatus(`Could not open the large canvas: ${error?.message ?? "unknown error"}`, "error");
-        done(null);
+        done("failed");
       },
       message: (arg, dialog) => {
         const msg = (arg as { message?: string }).message;
@@ -29754,7 +29755,11 @@ function openCadDialog(docJson: string, opts?: { sketch?: string }): Promise<{ d
       },
       closed: (code) => {
         // 12006 is the user closing the window; any other code means the page never ran.
-        if (code !== undefined && code !== 12006) setStatus(`The large canvas could not open (Office error ${code}).`, "error");
+        if (code !== undefined && code !== 12006) {
+          setStatus(`The large canvas could not open (Office error ${code}).`, "error");
+          done("failed");
+          return;
+        }
         done(null);
       },
     });

@@ -41,6 +41,8 @@ export interface EditState {
   construction: boolean;
   /** Sides for the polygon tool. */
   sides?: number;
+  /** The next line keeps its exact direction (a typed angle): no automatic H / V. */
+  noAutoHV?: boolean;
   /** Counter for fresh ids. */
   seq: number;
 }
@@ -178,7 +180,7 @@ export function click(st0: EditState, x: number, y: number, tol: number): EditRe
       let id: string;
       [id, s2] = nid(s2, "L");
       s2 = addEntity(s2, withCon({ id, kind: "line", a, b }, s2.construction));
-      s2 = autoHV(s2, id);
+      if (!s2.noAutoHV) s2 = autoHV(s2, id);
       // Chain: the next line starts where this one ended.
       return { ok: true, state: { ...s2, pending: [{ x: here.x, y: here.y, snap: b }] } };
     }

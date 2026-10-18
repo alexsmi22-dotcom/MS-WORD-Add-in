@@ -199,7 +199,7 @@ describe("Solid Edge conventions", () => {
     t.panel.focus();
     t.key("r");
     t.ev("pointerdown", 0, 0, { button: 1 });
-    t.ev("pointermove", 30, 0); // the view moves 30 mm (80 px) to the right
+    t.ev("pointermove", 30, 0, { buttons: 4 }); // middle button held: the view moves 30 mm (80 px) to the right
     t.ev("pointerup", 30, 0);
     // The canvas spots that showed (30, 0) and (60, 15) now show (0, 0) and (30, 15).
     t.ev("pointerdown", 30, 0);

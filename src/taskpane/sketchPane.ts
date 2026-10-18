@@ -119,6 +119,8 @@ export function initSketchPanel(host: SketchPanelHost): { open(sketch?: Sketch, 
   let hover: { x: number; y: number } | null = null;
   /** Where a click at the cursor would land (grid, points, alignment), with its guides. */
   let hoverSnap: Snapped | null = null;
+  /** Where the cursor last was on the canvas (Enter after it has left). */
+  let lastSnap: Snapped | null = null;
   /** Smart Dimension is on (the engine's tool is Select underneath). */
   let dimTool = false;
   /** Panning: the press and the view it started from. */
@@ -324,7 +326,7 @@ export function initSketchPanel(host: SketchPanelHost): { open(sketch?: Sketch, 
     inp?.addEventListener("keydown", (e) => {
       if (e.key === "Enter") {
         e.preventDefault();
-        const target = hoverSnap ?? (st.pending[0] ? { x: st.pending[0].x + 1, y: st.pending[0].y + 1 } : null);
+        const target = hoverSnap ?? lastSnap ?? (st.pending[0] ? { x: st.pending[0].x + 1, y: st.pending[0].y + 1 } : null);
         if (!target) return say("Click on the canvas where the shape goes.", true);
         drawAt(target.x, target.y);
         panel.focus();
@@ -348,7 +350,11 @@ export function initSketchPanel(host: SketchPanelHost): { open(sketch?: Sketch, 
     else apply(applyDimension(st, dimIn.value, drivenChk.checked));
   });
   dimIn.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") dimBtn.click();
+    if (e.key === "Enter") {
+      dimBtn.click();
+      // Back to the drawing: Esc and the tool letters work again (review D6).
+      panel.focus({ preventScroll: true });
+    }
   });
   deleteBtn.addEventListener("click", () => apply(deleteSelection(st)));
   undoBtn.addEventListener("click", () => {
@@ -389,6 +395,11 @@ export function initSketchPanel(host: SketchPanelHost): { open(sketch?: Sketch, 
     if (e.button === 1 || spaceDown) {
       e.preventDefault();
       panFrom = { cx: e.clientX, cy: e.clientY, view };
+      try {
+        canvas.setPointerCapture(e.pointerId);
+      } catch {
+        /* a synthetic event: no capture */
+      }
       return;
     }
     if (e.button === 2) return; // the context menu ends the tool (below)
@@ -406,7 +417,16 @@ export function initSketchPanel(host: SketchPanelHost): { open(sketch?: Sketch, 
       const prev = st.selection.length === 1 ? st.selection[0] : null;
       const pairs = !!prev && prev !== hit && typeof dimensionFor(st.sketch, [prev, hit]) !== "string" && (typeof dimensionFor(st.sketch, [prev]) === "string" || (kindIsLine(prev) && kindIsLine(hit)));
       st = { ...st, selection: pairs ? [prev!, hit] : [hit] };
-      const spec = dimensionFor(st.sketch, st.selection);
+      let spec = dimensionFor(st.sketch, st.selection);
+      if (typeof spec !== "string" && spec.kind === "angle") {
+        const v = (spec as { value: number }).value;
+        if (Math.abs(Math.sin(v)) < 1e-9) {
+          // Parallel: the distance from the second line's end to the first.
+          const second = st.sketch.entities.find((k) => k.id === hit) as { a: string };
+          st = { ...st, selection: [second.a, prev!] };
+          spec = dimensionFor(st.sketch, st.selection);
+        }
+      }
       if (typeof spec === "string") {
         say("Click the second point (or line).");
         return paint();
@@ -441,12 +461,20 @@ export function initSketchPanel(host: SketchPanelHost): { open(sketch?: Sketch, 
         return paint();
       }
     }
+    // Select and Trim act on what is under the pointer — never on a grid point near it (review B1).
+    if (st.tool === "select" || st.tool === "trim") return apply(click(st, x, y, tolerance()));
     const s = snapCursor(st.sketch, x, y, view.s, { grid: gridOn(), ...(st.pending[0] ? { anchor: st.pending[0] } : {}) });
     drawAt(s.x, s.y);
   });
   const kindIsLine = (id: string): boolean => st.sketch.entities.some((e) => e.id === id && e.kind === "line");
   /** A dimension of the same kind on the same elements (either order for two), or null. */
   function existingDimension(spec: Record<string, unknown>): string | null {
+    if (spec.kind === "distance") {
+      // The distance between a line's own two ends is that line's length.
+      const line = st.sketch.entities.find((e) => e.kind === "line" && [e.a, e.b].sort().join("|") === [spec.p, spec.q].sort().join("|"));
+      const len = line && st.sketch.constraints.find((c) => c.kind === "length" && (c as { line: string }).line === line.id);
+      if (len) return len.id;
+    }
     const keys = ["line", "curve", "p", "q", "l1", "l2"].filter((k) => typeof spec[k] === "string");
     const want = keys.map((k) => spec[k]).sort().join("|");
     const c = st.sketch.constraints.find((k) => {
@@ -476,8 +504,13 @@ export function initSketchPanel(host: SketchPanelHost): { open(sketch?: Sketch, 
   }
   canvas.addEventListener("pointermove", (e) => {
     if (panFrom) {
-      view = { ...panFrom.view, ox: panFrom.view.ox + e.clientX - panFrom.cx, oy: panFrom.view.oy + e.clientY - panFrom.cy };
-      return paint();
+      // No button held any more (released somewhere this window never heard): the pan is over.
+      if (e.buttons === 0 && !spaceDown) {
+        panFrom = null;
+      } else {
+        view = { ...panFrom.view, ox: panFrom.view.ox + e.clientX - panFrom.cx, oy: panFrom.view.oy + e.clientY - panFrom.cy };
+        return paint();
+      }
     }
     const [x, y] = at(e);
     hover = { x, y };
@@ -552,6 +585,7 @@ export function initSketchPanel(host: SketchPanelHost): { open(sketch?: Sketch, 
   });
   canvas.addEventListener("pointerleave", () => {
     hover = null;
+    if (hoverSnap) lastSnap = hoverSnap; // Enter in a size field still goes toward it (review D9)
     hoverSnap = null;
     paint();
   });
@@ -566,6 +600,7 @@ export function initSketchPanel(host: SketchPanelHost): { open(sketch?: Sketch, 
   canvas.addEventListener("dblclick", () => {
     if (st.tool === "line" && st.pending.length) {
       st = cancel(st);
+      say("");
       paint();
     }
   });
@@ -587,7 +622,7 @@ export function initSketchPanel(host: SketchPanelHost): { open(sketch?: Sketch, 
   panel.addEventListener("keydown", (e: KeyboardEvent) => {
     const tag = (e.target as HTMLElement).tagName;
     if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
-    if (e.key === " ") {
+    if (e.key === " " && (e.target === panel || e.target === canvas)) {
       spaceDown = true;
       e.preventDefault();
       return;
@@ -607,16 +642,22 @@ export function initSketchPanel(host: SketchPanelHost): { open(sketch?: Sketch, 
     else if (/^[0-9.]$/.test(e.key) && typedFields(st.tool).length && !dimTool && sizeIn[0]) {
       // Typing a size goes straight into the first size field.
       e.preventDefault();
-      sizeIn[0].focus({ preventScroll: true });
-      sizeIn[0].value = e.key;
+      const into = sizeIn[0].value && sizeIn[1] && sizeLabel[1] && !sizeLabel[1].hidden && !sizeIn[1].value ? sizeIn[1] : sizeIn[0];
+      into.focus({ preventScroll: true });
+      into.value = e.key;
     } else if (e.key.toLowerCase() === "f") fitBtn?.click();
     else if (e.key.toLowerCase() === "g" && gridChk) {
       gridChk.checked = !gridChk.checked;
       paint();
     } else if (KEY_TOOL[e.key.toLowerCase()]) setTool(KEY_TOOL[e.key.toLowerCase()]);
   });
-  panel.addEventListener("keyup", (e: KeyboardEvent) => {
+  // Space is let go wherever focus went (review D8): the window hears it, and losing focus ends it.
+  window.addEventListener("keyup", (e: KeyboardEvent) => {
     if (e.key === " ") spaceDown = false;
+  });
+  window.addEventListener("blur", () => {
+    spaceDown = false;
+    panFrom = null;
   });
 
   /** A dimension label under the cursor (from the same draw list the canvas paints). */

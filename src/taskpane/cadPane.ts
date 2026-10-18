@@ -791,6 +791,8 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
   /** Puts a parsed model on the canvas, the parts list, the views and the sheet. */
   function loadDoc(d: CadDoc): void {
     doc = d;
+    // Title block fields typed for another drawing never come back into this one (review D1).
+    stashTitle = {};
     controlsFromDoc();
     selected = 0;
     renderParts();

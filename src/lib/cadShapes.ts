@@ -30,7 +30,7 @@ import type { StandardId } from "./cadStandards";
 import type { Sketch } from "./sketch";
 import { SketchOp, sketchBody, parseSketch, parseOp } from "./sketchDoc";
 import type { Callout, ViewSpec } from "./cadSheet";
-import { Orientation, SHEET_SIZES, SheetSizeId, TitleFieldId, TitleValues } from "./cadFormats";
+import { Orientation, SHEET_SIZES, SheetSizeId, sheetRefusal, TitleFieldId, TitleValues } from "./cadFormats";
 
 export interface ParamDef {
   key: string;
@@ -318,7 +318,8 @@ function parseSheetAndLayers(d: Record<string, unknown>): string | null {
   if (d.sheet !== undefined) {
     const s = d.sheet as Record<string, unknown>;
     if (!s || typeof s !== "object" || Array.isArray(s)) return "the drawing's sheet is damaged";
-    if (typeof s.size !== "string" || !(s.size in SHEET_SIZES)) return "the drawing names a sheet size this release does not have";
+    // Own keys only: "__proto__", "constructor" or "toString" are not sheet sizes (review B1).
+    if (typeof s.size !== "string" || !Object.prototype.hasOwnProperty.call(SHEET_SIZES, s.size)) return "the drawing names a sheet size this release does not have";
     if (s.orientation !== undefined && s.orientation !== "landscape" && s.orientation !== "portrait") return "the drawing's sheet orientation is damaged";
     const out: DocSheet = { size: s.size as SheetSizeId, ...(s.orientation ? { orientation: s.orientation as Orientation } : {}) };
     if (s.title !== undefined) {
@@ -328,11 +329,15 @@ function parseSheetAndLayers(d: Record<string, unknown>): string | null {
       for (const k of TITLE_KEYS) {
         if (t[k] === undefined) continue;
         // Bounded so a damaged picture cannot carry pages of text; the lengths the fields hold are checked when drawn.
-        if (typeof t[k] !== "string" || (t[k] as string).length > 200) return "the drawing's title block is damaged";
+        // eslint-disable-next-line no-control-regex
+        if (typeof t[k] !== "string" || (t[k] as string).length > 200 || /[\u0000-\u001f\u007f-\u009f\ufffe\uffff]/.test(t[k] as string)) return "the drawing's title block is damaged";
         title[k] = t[k] as string;
       }
       out.title = title;
     }
+    // A sheet its standard cannot draw would leave the pane stuck with it (review D9): refused by name.
+    const why = sheetRefusal(d.standard as StandardId, out.size, out.orientation);
+    if (why) return `the drawing's ${SHEET_SIZES[out.size].designation} sheet does not suit its standard (${why})`;
     d.sheet = out;
   }
   if (d.layers !== undefined) {

@@ -110,18 +110,21 @@ export const ISO_TITLE_FIELDS: TitleField[] = [
   { id: "techRef", label: "Technical reference", max: 20, mandatory: false },
 ];
 
-/** The ASME title block (fields per DOD-STD-100D App. A; lengths PRODUCT except the 5-character CAGE code). */
+/**
+ * The ASME title block (fields per DOD-STD-100D App. A). ASME sets no lengths: each maximum is what
+ * its cell holds in capitals (PRODUCT), except the 5-character CAGE code.
+ */
 export const ASME_TITLE_FIELDS: TitleField[] = [
-  { id: "owner", label: "Design activity", max: 40, mandatory: false },
-  { id: "title", label: "Title", max: 32, mandatory: false },
-  { id: "number", label: "Dwg no.", max: 16, mandatory: false },
+  { id: "owner", label: "Design activity", max: 26, mandatory: false },
+  { id: "title", label: "Title", max: 26, mandatory: false },
+  { id: "number", label: "Dwg no.", max: 14, mandatory: false },
   { id: "rev", label: "Rev", max: 2, mandatory: false },
   { id: "cage", label: "CAGE code", max: 5, mandatory: false },
-  { id: "creator", label: "Drawn", max: 20, mandatory: false },
+  { id: "creator", label: "Drawn", max: 16, mandatory: false },
   { id: "creatorDate", label: "Date", max: 10, mandatory: false },
-  { id: "checker", label: "Checked", max: 20, mandatory: false },
+  { id: "checker", label: "Checked", max: 16, mandatory: false },
   { id: "checkerDate", label: "Date", max: 10, mandatory: false },
-  { id: "approver", label: "Approved", max: 20, mandatory: false },
+  { id: "approver", label: "Approved", max: 16, mandatory: false },
   { id: "approverDate", label: "Date", max: 10, mandatory: false },
   { id: "sheetNo", label: "Sheet", max: 4, mandatory: false },
   { id: "sheets", label: "of", max: 4, mandatory: false },
@@ -143,6 +146,9 @@ export function checkTitleFields(std: StandardId, values: TitleValues): { proble
       if (f.mandatory) missing.push(f.label);
       continue;
     }
+    // A control character (or a non-character) makes the sheet's SVG unreadable.
+    // eslint-disable-next-line no-control-regex
+    if (/[\u0000-\u001f\u007f-\u009f\ufffe\uffff]/.test(v)) problems.push(`${f.label} contains a control character`);
     if ([...v].length > f.max) problems.push(`${f.label} is ${[...v].length} characters — the field holds ${f.max}`);
     if (f.id === "cage" && !/^[A-Z0-9]{5}$/.test(v)) problems.push("a CAGE code is five letters or digits");
     if ((f.id === "sheetNo" || f.id === "sheets") && !/^[1-9]\d*$/.test(v)) problems.push(`${f.label === "of" ? "Number of sheets" : "Sheet"} must be a whole number from 1`);
@@ -373,10 +379,11 @@ export function buildFrame(
         x += w;
       }
     };
-    put(0, [[35, "Responsible dept.", v("dept")], [45, "Technical reference", v("techRef")], [50, "Created by", v("creator")], [50, "Approved by", v("approver")]]);
-    put(1, [[80, "Document type", v("docType")], [50, "Document status", v("status")], [15, "Rev.", v("rev")], [35, "Date of issue", v("date")]]);
-    put(2, [[60, "Legal owner", v("owner"), false, false, true], [120, "Title", [v("title"), v("subtitle")].filter(Boolean).join("\n"), true, true]]);
-    put(3, [[80, "Identification number", v("number"), true], [20, "Lang.", v("lang")], [40, "Sheet", sheetOf()], [40, "Paper size", size.designation]]);
+    // Widths hold each field's ISO 7200 length in capitals (2.72 mm a capital at 2.5 mm; 3.81 at 3.5 mm).
+    put(0, [[60, "Created by", v("creator")], [60, "Approved by", v("approver")], [60, "Technical reference", v("techRef")]]);
+    put(1, [[90, "Document type", v("docType")], [60, "Document status", v("status")], [15, "Rev.", v("rev")], [15, "Lang.", v("lang")]]);
+    put(2, [[80, "Legal owner", v("owner"), false, false, true], [100, "Title", v("title") || v("subtitle") ? `${v("title")}\n${v("subtitle")}` : "", true, true]]);
+    put(3, [[65, "Identification number", v("number"), true], [35, "Responsible dept.", v("dept")], [35, "Date of issue", v("date")], [25, "Sheet", sheetOf()], [20, "Paper size", size.designation]]);
   } else {
     const r = [9, 9, 9, 9];
     tbH = 36;
@@ -385,18 +392,18 @@ export function buildFrame(
     const c = (x: number, k: number, w: number, label: string, value: string, big?: boolean): void => {
       cells.push({ r: { x: x0 + x, y: at(k), w, h: r[k] }, label, value, big });
     };
-    c(0, 0, 45, "Drawn", v("creator"));
-    c(45, 0, 25, "Date", v("creatorDate"));
-    c(0, 1, 45, "Checked", v("checker"));
-    c(45, 1, 25, "Date", v("checkerDate"));
-    c(0, 2, 45, "Approved", v("approver"));
-    c(45, 2, 25, "Date", v("approverDate"));
-    c(70, 0, 110, "Design activity", v("owner"), true);
-    c(70, 1, 110, "Title", v("title"), true);
-    c(70, 2, 15, "Size", size.designation);
-    c(85, 2, 25, "CAGE code", v("cage"));
-    c(110, 2, 55, "Dwg no.", v("number"), true);
-    c(165, 2, 15, "Rev", v("rev"));
+    c(0, 0, 50, "Drawn", v("creator"));
+    c(50, 0, 25, "Date", v("creatorDate"));
+    c(0, 1, 50, "Checked", v("checker"));
+    c(50, 1, 25, "Date", v("checkerDate"));
+    c(0, 2, 50, "Approved", v("approver"));
+    c(50, 2, 25, "Date", v("approverDate"));
+    c(75, 0, 105, "Design activity", v("owner"), true);
+    c(75, 1, 105, "Title", v("title"), true);
+    c(75, 2, 13, "Size", size.designation);
+    c(88, 2, 22, "CAGE code", v("cage"));
+    c(110, 2, 58, "Dwg no.", v("number"), true);
+    c(168, 2, 12, "Rev", v("rev"));
     c(0, 3, 90, "Scale", scaleText ?? "");
     c(90, 3, 90, "Sheet", sheetOf());
   }
@@ -413,14 +420,16 @@ export function buildFrame(
     const room = w - 2 * pad;
     if (cell.lines2) {
       // Title on the first line (large), the supplementary title in up to two smaller lines.
-      const [title, sub] = cell.value.split("\n");
+      // The title, then the supplementary title — each in its own place, either may be empty.
+      const nl = cell.value.indexOf("\n");
+      const title = cell.value.slice(0, nl), sub = cell.value.slice(nl + 1);
       const subFs = em(VALUE_EM);
       const subLines = sub ? wrap(sub, room, subFs, 2) : [];
       if (subLines === null) return { ok: false, reason: `Supplementary title does not fit its two lines` };
       if (textWidthMm(title, vs) > room) return { ok: false, reason: `Title does not fit its field` };
       // Baselines from capital heights: the label, 0.6 mm, the title's capitals, then lines 1.4 × their height apart.
       const yTitle = y + pad + LABEL_EM + 0.6 + BIG_EM;
-      texts.push({ x: x + pad, y: yTitle, text: title, sizeMm: vs, anchor: "start", layer: "titleBlock" });
+      if (title) texts.push({ x: x + pad, y: yTitle, text: title, sizeMm: vs, anchor: "start", layer: "titleBlock" });
       // The first smaller line clears the title's descenders (0.25 em) by 0.4 mm.
       const ySub = yTitle + 0.25 * vs + 0.4 + VALUE_EM;
       (subLines ?? []).forEach((ln, i) => texts.push({ x: x + pad, y: ySub + i * VALUE_EM * 1.4, text: ln, sizeMm: subFs, anchor: "start", layer: "titleBlock" }));
@@ -434,17 +443,29 @@ export function buildFrame(
     }
     if (textWidthMm(cell.value, vs) > room) return { ok: false, reason: `${cell.label} does not fit its field` };
     // The baseline a descender (0.25 em) above the cell's foot; its capitals clear the label (checked in the tests).
-    texts.push({ x: x + pad, y: y + h - 0.25 * vs, text: cell.value, sizeMm: vs, anchor: "start", layer: "titleBlock" });
+    texts.push({ x: x + pad, y: y + h - 0.25 * vs - 0.4, text: cell.value, sizeMm: vs, anchor: "start", layer: "titleBlock" });
   }
 
+  // A centring mark never runs into the title block (on A4 the block spans the sheet's axis).
+  for (const l of lines) {
+    if (l.type !== "centring" || l.x1 !== l.x2) continue;
+    const bottom = Math.max(l.y1, l.y2) > H / 2;
+    if (bottom && l.x1 >= titleBlock.x && l.x1 <= titleBlock.x + titleBlock.w) {
+      if (l.y1 > l.y2) l.y2 = frame.y + frame.h;
+      else l.y1 = frame.y + frame.h;
+    }
+  }
   // Room for the scale and the projection symbol, OUTSIDE the block (ISO 7200 4): beside it if the
-  // band to its left is wide enough, else a strip above it.
-  const clear = 4; // PRODUCT: the views keep 4 mm from the frame and the block
+  // band to its left is wide enough, else a strip above it. Beside it, they sit above the 10 mm
+  // the bottom centring mark reaches into the frame.
+  // PRODUCT: the views keep 4 mm from the frame and the block — 11 mm on ISO sheets, whose centring
+  // marks reach 10 mm into the drawing space.
+  const clear = std === "iso" ? 11 : 4;
   let infoAt: Frame["infoAt"];
   let viewArea: Rect;
   const besideW = titleBlock.x - frame.x;
   if (besideW >= 60) {
-    infoAt = { x: titleBlock.x - 2, y: frame.y + frame.h - 2, w: besideW - 4, h: tbH - 4 };
+    infoAt = { x: titleBlock.x - 2, y: frame.y + frame.h - 12, w: besideW - 4, h: tbH - 14 };
     viewArea = { x: frame.x + clear, y: frame.y + clear, w: frame.w - 2 * clear, h: frame.h - tbH - 2 * clear };
   } else {
     const strip = 16;

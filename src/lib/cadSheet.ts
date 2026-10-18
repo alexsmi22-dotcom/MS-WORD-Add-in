@@ -143,7 +143,8 @@ export function pointHidden(mesh: Mesh, view: CadView, p: Vec3): boolean {
 /** Lays out the sheet. */
 export function layoutSheet(mesh: Mesh, o: SheetOptions): Sheet {
   const std: DrawingStandard = DRAWING_STANDARDS[o.standard];
-  const callouts = o.callouts ?? [];
+  // A layer switched off takes no room on the sheet: hidden callouts are not laid out at all.
+  const callouts = o.layers?.callouts === false ? [] : (o.callouts ?? []);
   const notes: string[] = [];
   if (!o.views.length) return { svg: "", widthPx: 0, heightPx: 0, labels: [], scaleMmPerUnit: 0, notes: ["Choose at least one view."] };
   const types = lineTypesFor(std);
@@ -193,7 +194,8 @@ export function layoutSheet(mesh: Mesh, o: SheetOptions): Sheet {
 
   const textMm = ptToMm(std.textPt);
   const headingMm = ptToMm(std.headingPt);
-  const labelMm = std.viewLabels === "none" ? 0 : headingMm * 2.2;
+  const titlesOn = o.layers?.titles !== false;
+  const labelMm = std.viewLabels === "none" || !titlesOn ? 0 : headingMm * 2.2;
   // A callout column beside a view: 5 mm of leader, then the balloon (or the
   // numeral). Two views share every gap, so it holds two columns.
   const balloonMm = Math.max(textMm * 0.95, 4);
@@ -236,14 +238,21 @@ export function layoutSheet(mesh: Mesh, o: SheetOptions): Sheet {
       Math.max(0, ...items.flatMap((it, i) => (it.cell[1] !== r ? [] : [true, false].map((side) => shown[i].filter((c) => c.right === side).length * pitchMm)))),
     );
   let needMm = needOf();
-  const titleMm = cols.map((c) => Math.max(0, ...items.filter((it) => it.cell[0] === c).map((it) => labelOf(it).length * 0.62 * headingMm)));
+  const titleMm = cols.map((c) => (titlesOn ? Math.max(0, ...items.filter((it) => it.cell[0] === c).map((it) => labelOf(it).length * 0.62 * headingMm)) : 0));
 
   // Horizontal room: every gap between two views holds two callout columns,
   // an outer edge holds one. Vertical room needs only the view title.
   const gapMm = 10 + 2 * calloutMm;
   const edgeMm = 6 + calloutMm;
   const rowGapMm = 8;
-  const availW = area.w - 2 * edgeMm - gapMm * (cols.length - 1);
+  // A framed sheet's room is tighter: there, a column of callouts is reserved only on a side of a
+  // view that has callouts (review D4 — one callout made A4 refuse). Unframed sheets keep the
+  // uniform reservation they have always had (their output is pinned).
+  const sideHas = (ci: number, right: boolean): boolean => items.some((it, i) => cols.indexOf(it.cell[0]) === ci && shown[i].some((c) => c.right === right));
+  const gapsMm = (): number[] => cols.slice(1).map((_, ci) => (frame ? 10 + (sideHas(ci, true) ? calloutMm : 0) + (sideHas(ci + 1, false) ? calloutMm : 0) : gapMm));
+  const edgesMm = (): [number, number] => (frame ? [6 + (sideHas(0, false) ? calloutMm : 0), 6 + (sideHas(cols.length - 1, true) ? calloutMm : 0)] : [edgeMm, edgeMm]);
+  const horizMm = (): number => (frame ? edgesMm()[0] + edgesMm()[1] + gapsMm().reduce((a, b) => a + b, 0) : 2 * edgeMm + gapMm * (cols.length - 1));
+  let availW = area.w - horizMm();
   const availH = area.h - (rowGapMm + labelMm) * rows.length - rowGapMm;
   // One scale for every view, so the orthographic views stay true to each other:
   // the largest at which the drawings, their titles and their callout stacks all fit.
@@ -253,7 +262,15 @@ export function layoutSheet(mesh: Mesh, o: SheetOptions): Sheet {
   const refuse = (why: string): Sheet => ({ svg: "", widthPx: 0, heightPx: 0, labels: [], scaleMmPerUnit: 0, notes: [why] });
   // Titles and callout stacks do not shrink with the drawing: if they alone do not
   // fit, no scale does — refuse rather than shrink the views to dots (second review).
-  if (availW <= 0 || availH <= 0 || sum(titleMm) > availW) return refuse("These views do not fit on the sheet with their titles; choose fewer views.");
+  if (availW <= 0 || availH <= 0 || sum(titleMm) > availW) {
+    // Name what does not fit: the titles, or the room the callout columns take.
+    const withoutCallouts = area.w - (12 + 10 * (cols.length - 1));
+    return refuse(
+      calloutMm && sum(titleMm) <= withoutCallouts && availH > 0
+        ? "These views and their callout columns do not fit on the sheet; choose a larger sheet, fewer views or fewer callouts."
+        : "These views do not fit on the sheet with their titles; choose fewer views.",
+    );
+  }
   if (sum(needMm) > availH) {
     // Too tall as anchored: use both sides of each view, the nearer half to each.
     for (const v of shown) {
@@ -261,6 +278,7 @@ export function layoutSheet(mesh: Mesh, o: SheetOptions): Sheet {
       byX.forEach((c, i) => (c.right = i >= byX.length / 2));
     }
     needMm = needOf();
+    if (frame) availW = area.w - horizMm(); // the sides changed, and with them the room they take
   }
   if (sum(needMm) > availH) {
     const most = Math.max(...shown.flatMap((v) => [true, false].map((side) => v.filter((c) => c.right === side).length)));
@@ -286,7 +304,7 @@ export function layoutSheet(mesh: Mesh, o: SheetOptions): Sheet {
   const W = (frame ? frame.W : area.w) * PX_PER_MM;
   const totalH = sum(chMm) + (rowGapMm + labelMm) * rows.length + rowGapMm;
   const H = (frame ? frame.H : Math.min(area.h, totalH)) * PX_PER_MM;
-  const usedW = sum(cwMm) + 2 * edgeMm + gapMm * (cols.length - 1);
+  const usedW = sum(cwMm) + horizMm();
   const x0 = (area.x + Math.max(0, (area.w - usedW) / 2)) * PX_PER_MM;
   const y0 = area.y * PX_PER_MM;
 
@@ -306,7 +324,7 @@ export function layoutSheet(mesh: Mesh, o: SheetOptions): Sheet {
     const ci = cols.indexOf(it.cell[0]);
     const ri = rows.indexOf(it.cell[1]);
     // Cell origin (top-left), px.
-    const cellX = x0 + (edgeMm + gapMm * ci + sum(cwMm.slice(0, ci))) * PX_PER_MM;
+    const cellX = x0 + (frame ? edgesMm()[0] + sum(gapsMm().slice(0, ci)) + sum(cwMm.slice(0, ci)) : edgeMm + gapMm * ci + sum(cwMm.slice(0, ci))) * PX_PER_MM;
     const cellY = y0 + ((rowGapMm + labelMm) * ri + rowGapMm + sum(chMm.slice(0, ri))) * PX_PER_MM;
     const b = it.d.bounds;
     const vw = (b.maxX - b.minX) * s * PX_PER_MM;
@@ -412,7 +430,7 @@ export function layoutSheet(mesh: Mesh, o: SheetOptions): Sheet {
   const symRight = frame ? frame.infoAt.x * PX_PER_MM : W - 3 * PX_PER_MM;
   const symBottom = frame ? frame.infoAt.y * PX_PER_MM : H - 3 * PX_PER_MM;
   if (std.projectionSymbol) layer.info.push(projectionSymbol(std, symRight, symBottom, types.visible, types.centre));
-  if (std.standardScale && !(frame && o.standard === "asme")) {
+  if (std.standardScale && !(frame && o.standard === "asme" && on("titleBlock"))) {
     const at = frame
       ? `x="${fmt(symRight - (std.projectionSymbol ? SYMBOL_W_MM + 4 : 0) * PX_PER_MM)}" y="${fmt(symBottom - 1 * PX_PER_MM)}" text-anchor="end"`
       : `x="${fmt(3 * PX_PER_MM)}" y="${fmt(H - 3 * PX_PER_MM)}"`;
@@ -448,6 +466,11 @@ function projectionSymbol(std: DrawingStandard, right: number, bottom: number, o
   const baseX = right - totalW;
   const cy = bottom - big;
   const thick = outline.widthMm * PX_PER_MM;
+  // Its axis: the centre line's pattern, scaled down when one period would not fit twice along it.
+  const axisMm = (totalW + u) / PX_PER_MM;
+  const period = centre.dashMm.reduce((a, b) => a + b, 0);
+  const k = period > axisMm / 2 ? axisMm / 2 / period : 1;
+  const axis: LineType = { ...centre, dashMm: centre.dashMm.map((d) => d * k) };
   const fmt = (v: number): string => (Math.round(v * 100) / 100).toString();
   const third = std.projection === "third";
   const circlesX = third ? baseX + big : baseX + len + 1.4 * u + big;
@@ -462,7 +485,7 @@ function projectionSymbol(std: DrawingStandard, right: number, bottom: number, o
     `<circle cx="${fmt(circlesX)}" cy="${fmt(cy)}" r="${fmt(big)}" stroke-width="${fmt(thick)}"/>` +
     `<circle cx="${fmt(circlesX)}" cy="${fmt(cy)}" r="${fmt(small)}" stroke-width="${fmt(thick)}"/>` +
     // The axis: a centre line (ISO 128-20 type 04 / ASME center).
-    `<path d="M${fmt(baseX - u * 0.5)} ${fmt(cy)}L${fmt(baseX + totalW + u * 0.5)} ${fmt(cy)}" ${strokeAttrs(centre, PX_PER_MM).replace('fill="none" stroke="#000" ', "")}/>` +
+    `<path d="M${fmt(baseX - u * 0.5)} ${fmt(cy)}L${fmt(baseX + totalW + u * 0.5)} ${fmt(cy)}" ${strokeAttrs(axis, PX_PER_MM).replace('fill="none" stroke="#000" ', "")}/>` +
     `</g>`
   );
 }

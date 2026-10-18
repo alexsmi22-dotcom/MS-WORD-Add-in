@@ -956,10 +956,10 @@ RUN R59 {
 == cad/cad-insert
 RUN R60 {
   #376 = R60.document.getSelection()
-  #377 = #376.insertInlinePictureFromBase64(s439772:adc2fcbe, "after")
-  set #377.width = 720.0000000000001
-  set #377.height = 364.20948961328395
-  set #377.altTextDescription = s377:e3645ce2
+  #377 = #376.insertInlinePictureFromBase64(s221724:7e869ad1, "after")
+  set #377.width = 450.7086614173229
+  set #377.height = 227.9894049154022
+  set #377.altTextDescription = s470:723c92d7
   #378 = #376.select("end")
   R60.sync()
   #379 = #377.getRange()
@@ -969,16 +969,16 @@ RUN R60 {
   set #380.appearance = "hidden"
   R60.sync()
 } R60
-   status: Drawing inserted — Engineering drawing — ASME (third-angle).
+   status: Drawing inserted — Engineering drawing — ASME (third-angle). The drawing is inserted at 63 % to fit the page; SCALE 1:1 holds at full size (254 mm wide).
 == cad/cad-popout
 OFFICE displayDialogAsync("caddialog.html", {height:90,width:90})
 OFFICE dialog.close()
 RUN R61 {
   #381 = R61.document.getSelection()
-  #382 = #381.insertInlinePictureFromBase64(s182528:eb99f323, "after")
-  set #382.width = 720.0000000000001
-  set #382.height = 456.0399608984757
-  set #382.altTextDescription = s289:c2a826f5
+  #382 = #381.insertInlinePictureFromBase64(s133776:2a691b26, "after")
+  set #382.width = 450.7086614173229
+  set #382.height = 285.47383379077814
+  set #382.altTextDescription = s382:8bb7b0af
   #383 = #381.select("end")
   R61.sync()
   #384 = #382.getRange()
@@ -988,7 +988,7 @@ RUN R61 {
   set #385.appearance = "hidden"
   R61.sync()
 } R61
-   status: Drawing inserted — Engineering drawing — ASME (third-angle).
+   status: Drawing inserted — Engineering drawing — ASME (third-angle). The drawing is inserted at 63 % to fit the page; SCALE 2:1 holds at full size (254 mm wide).
 == numerals/num-add-btn
 OFFICE settings.set("formula-inserter.numerals", "[{\"numeral\":10,\"element\":\"\"}]")
 OFFICE settings.saveAsync()

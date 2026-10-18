@@ -179,3 +179,32 @@ describe("into Word, and out at true size", () => {
     expect(text).toMatch(/^<svg xmlns="http:\/\/www\.w3\.org\/2000\/svg" width="420mm" height="297mm" viewBox=/);
   });
 });
+
+describe("R2b review — the pane findings pinned", () => {
+  const docWith = (std: string, sheet: unknown): string => {
+    const d = JSON.parse(JSON.stringify(starterDoc(std as never)));
+    d.sheet = sheet;
+    return JSON.stringify(d);
+  };
+  it("B1: loading a model whose sheet size is __proto__ (or constructor) is refused by name, not a crash", () => {
+    const t = setup();
+    const before = t.pane.getDoc();
+    expect(t.pane.load(docWith("iso", { size: "__proto__" }))).toBe("the drawing names a sheet size this release does not have");
+    expect(t.pane.load(docWith("iso", { size: "constructor" }))).toBe("the drawing names a sheet size this release does not have");
+    expect(t.pane.getDoc()).toBe(before);
+  });
+  it("D1: title block fields typed for one drawing never reappear in another loaded drawing", () => {
+    const t = setup();
+    t.pick("cad-sheet", "A3");
+    t.typeField("number", "SECRET-1");
+    t.pick("cad-sheet", "");
+    expect(t.pane.load(JSON.stringify(starterDoc("iso")))).toBeNull();
+    t.pick("cad-sheet", "A2");
+    expect(t.field("number").value).toBe("");
+  });
+  it("D9: a model carrying a sheet its standard cannot draw is refused at load, so the pane is never stuck with it", () => {
+    const t = setup();
+    expect(t.pane.load(docWith("iso", { size: "ANSI-B" }))).toMatch(/^the drawing's B sheet does not suit its standard/);
+    expect(t.pane.load(docWith("uspto", { size: "A3" }))).toMatch(/^the drawing's A3 sheet does not suit its standard \(37 CFR 1\.84\(g\)/);
+  });
+});

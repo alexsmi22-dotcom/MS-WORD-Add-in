@@ -30,7 +30,7 @@ points of it, how each piece intersects and connects".
   stays on until **Stop placing callouts** or **Esc**, looks on, names each callout it places, and a click off the
   model says so. The canvas now shows each callout's number beside its point, not only a dot.
 
-### Fixed before release (adversarial review: 11 defects, each pinned in cadMarksReview.test.ts)
+### Fixed before release (adversarial review: 11 findings — 9 fixed, each with a test in cadMarksReview.test.ts; the rest listed below as open)
 - Text was given room from a first guess at the scale, so a long note ran over the next figure or off the
   sheet. Long text now wraps into lines (about 55 mm on a patent sheet), the layout is repeated until the room
   holds, and a mark that still does not fit its figure is refused by name.
@@ -46,6 +46,10 @@ points of it, how each piece intersects and connects".
 - New drawing kept the hand-drawn marks (and could not clear a drawing of marks alone).
 - A sheet of blank figures printed a SCALE for a figure with no model.
 - Saved points are rounded to 1/1000 of a unit, so a stroke adds far less to the picture's alt text.
+
+Still open: a blank figure beside the isometric view can make a patent sheet with callouts refuse, and the
+message blames the callouts; a damaged model that lists a view twice draws its marks on both; a second finger
+on a touch screen can leave a stray preview line until the next redraw.
 
 ## [2.150.0] — 2026-10-18 — Drawing (CAD): import DXF drawings (Solid Edge, AutoCAD)
 

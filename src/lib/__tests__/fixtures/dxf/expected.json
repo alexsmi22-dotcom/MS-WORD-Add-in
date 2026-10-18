@@ -1434,5 +1434,34 @@
    "LINE": 1
   },
   "arcs": []
+ },
+ "profile": {
+  "bounds": [
+   0.0,
+   0.0,
+   50.0,
+   20.0
+  ],
+  "kinds": {
+   "LWPOLYLINE": 1,
+   "CIRCLE": 1
+  },
+  "arcs": [],
+  "splinePts": [],
+  "ellipsePts": []
+ },
+ "ltype": {
+  "bounds": [
+   0.0,
+   0.0,
+   50.0,
+   10.0
+  ],
+  "kinds": {
+   "LINE": 2
+  },
+  "arcs": [],
+  "splinePts": [],
+  "ellipsePts": []
  }
 }

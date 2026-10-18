@@ -27,6 +27,8 @@ import {
   Vec3,
 } from "./cadModel";
 import type { StandardId } from "./cadStandards";
+import type { Sketch } from "./sketch";
+import { SketchOp, sketchBody, parseSketch, parseOp } from "./sketchDoc";
 import type { Callout, ViewSpec } from "./cadSheet";
 
 export interface ParamDef {
@@ -258,9 +260,18 @@ export const SHAPE_IDS = Object.keys(SHAPES) as ShapeId[];
 export interface CadPart {
   id: string;
   name: string;
-  shape: ShapeId;
+  /** A catalogue shape, or "sketch": a part made from its own sketch (R2a). */
+  shape: ShapeId | "sketch";
   params: Record<string, number>;
   placement: Placement;
+  /** A sketched part's sketch and how it becomes a solid. */
+  sketch?: Sketch;
+  op?: SketchOp;
+}
+
+/** What a part is called in the parts list. */
+export function shapeName(p: CadPart): string {
+  return p.shape === "sketch" ? (p.op?.kind === "revolve" ? "Sketch, revolved" : "Sketch, extruded") : SHAPES[p.shape].name;
 }
 
 /**
@@ -291,6 +302,11 @@ export function defaultParams(shape: ShapeId): Record<string, number> {
 
 /** Every reason a part's dimensions cannot be drawn, in words. */
 export function partProblems(part: CadPart): string[] {
+  if (part.shape === "sketch") {
+    if (!part.sketch || !part.op) return ["the sketch is missing"];
+    const r = sketchBody(part.sketch, part.op);
+    return r.ok ? [] : [r.reason];
+  }
   const def = SHAPES[part.shape];
   if (!def) return [`"${part.shape}" is not a shape this release knows`];
   const out: string[] = [];
@@ -317,13 +333,15 @@ export function docToAssembly(doc: CadDoc): { ok: true; assembly: Assembly } | {
     ok: true,
     assembly: {
       version: 1,
-      bodies: doc.parts.map((p) => ({
-        id: p.id,
-        name: p.name,
-        spec: SHAPES[p.shape].build(p.params),
-        placement: p.placement,
-        ...(SHAPES[p.shape].frame ? { frame: SHAPES[p.shape].frame } : {}),
-      })),
+      bodies: doc.parts.map((p) => {
+        if (p.shape === "sketch") {
+          const r = sketchBody(p.sketch!, p.op!);
+          if (!r.ok) throw new Error(r.reason); // partProblems refused it above
+          return { id: p.id, name: p.name, spec: r.spec, placement: p.placement };
+        }
+        const def = SHAPES[p.shape];
+        return { id: p.id, name: p.name, spec: def.build(p.params), placement: p.placement, ...(def.frame ? { frame: def.frame } : {}) };
+      }),
     },
   };
 }
@@ -332,7 +350,7 @@ export function docToAssembly(doc: CadDoc): { ok: true; assembly: Assembly } | {
 
 /** The part's rotation (its shape's frame, then its turn) and translation: world = R·local + T. */
 function partTransform(p: CadPart): { R: number[]; T: Vec3 } {
-  const frame = SHAPES[p.shape].frame;
+  const frame = p.shape === "sketch" ? undefined : SHAPES[p.shape].frame;
   const turn = rotationMatrix(p.placement.rotateDeg);
   return { R: frame ? mul3(turn, frame) : turn, T: p.placement.translate };
 }
@@ -461,9 +479,19 @@ export function parseDoc(text: string): { ok: true; doc: CadDoc } | { ok: false;
       if (ids.has(p.id)) return { ok: false, reason: "two parts in the drawing share one id" };
       ids.add(p.id);
     }
-    if (!p || typeof p.id !== "string" || typeof p.name !== "string" || !Object.prototype.hasOwnProperty.call(SHAPES, p.shape)) return { ok: false, reason: "a part in the drawing is damaged" };
+    const known = p && (p.shape === "sketch" || Object.prototype.hasOwnProperty.call(SHAPES, p.shape));
+    if (!p || typeof p.id !== "string" || typeof p.name !== "string" || !known) return { ok: false, reason: "a part in the drawing is damaged" };
     if (!p.placement || !isVec(p.placement.translate) || !isVec(p.placement.rotateDeg)) return { ok: false, reason: `part ${p.name} has a damaged placement` };
     if (!p.params || typeof p.params !== "object") return { ok: false, reason: `part ${p.name} has no dimensions` };
+    if (p.shape === "sketch") {
+      // Read field by field: a damaged sketch is refused here, never handed to the solver.
+      const sk = parseSketch(p.sketch);
+      if (!sk.ok) return { ok: false, reason: `part ${p.name}: ${sk.reason}` };
+      const op = parseOp(p.op, sk.sketch);
+      if (!op) return { ok: false, reason: `part ${p.name} has a damaged extrude or revolve` };
+      p.sketch = sk.sketch;
+      p.op = op;
+    }
   }
   for (const c of d.callouts as DocCallout[]) {
     if (!c || !isVec(c.anchor) || typeof c.label !== "string") return { ok: false, reason: "a callout in the drawing is damaged" };

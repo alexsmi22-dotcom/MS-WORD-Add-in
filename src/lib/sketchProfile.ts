@@ -213,8 +213,9 @@ export function sketchToRevolve(sk: Sketch, axis: string): ProfileResult {
   const L = Math.hypot(B.x - A.x, B.y - A.y);
   if (!(L > 0)) return { ok: false, reason: "the axis line has no length" };
   const ux = (B.x - A.x) / L, uy = (B.y - A.y) / L;
-  // The axis itself is not part of the profile, construction or not.
-  const body: Sketch = { ...sk, entities: sk.entities.filter((e) => e.id !== axis) };
+  // A construction axis is not part of the profile (construction never is); a solid edge ON the axis is
+  // — revolving a rectangle about one of its own sides is how a cylinder is drawn.
+  const body: Sketch = sk;
   const r = sketchLoops(body);
   if (!r.ok) return r;
   const scale = sketchScale(sk);

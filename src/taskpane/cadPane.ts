@@ -32,6 +32,7 @@ import {
   parseDoc,
   partProblems,
   resolveCallouts,
+  shapeName,
   serializeDoc,
   starterDoc,
 } from "../lib/cadShapes";
@@ -299,7 +300,7 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
       const name = document.createElement("button");
       name.type = "button";
       name.className = "cad-part-name";
-      name.textContent = `${p.name} — ${SHAPES[p.shape].name}`;
+      name.textContent = `${p.name} — ${shapeName(p)}`;
       name.addEventListener("click", () => {
         selected = i;
         renderParts();
@@ -364,7 +365,7 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
       nameTimer = window.setTimeout(renderSheet, 300);
     });
     editorEl.appendChild(nameIn);
-    for (const pd of SHAPES[p.shape].params) {
+    for (const pd of p.shape === "sketch" ? [] : SHAPES[p.shape].params) {
       editorEl.appendChild(
         numberField(pd.label, p.params[pd.key], (v) => {
           p.params[pd.key] = v;

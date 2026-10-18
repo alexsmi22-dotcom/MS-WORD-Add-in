@@ -140,6 +140,13 @@ describe("revolve profiles", () => {
     b.size.forEach((v) => expect(v).toBeCloseTo(20, 1));
     expect(areaOf(r.profile, 1e-6)).toBeCloseTo((Math.PI * 100) / 2, 2);
   });
+  it("a rectangle revolved about one of its own sides (a solid edge, not construction): a Ø20 × 30 cylinder", () => {
+    const r = sketchToRevolve(sk(rectPts(10, 30), rectLines()), "L4");
+    if (!r.ok) throw new Error(r.reason);
+    const b = body(r.profile, "revolve");
+    expect(b.size[0]).toBeCloseTo(20, 6);
+    expect(b.size[2]).toBeCloseTo(30, 6);
+  });
   it("crossing the axis, lying on it, holes, and a missing axis are refused by name", () => {
     const crossing = sk([pt("ax1", 0, -5), pt("ax2", 0, 60), ...rectPts(10, 10).map((p) => ({ ...p, x: p.x - 5 }))], [line("axis", "ax1", "ax2", true), ...rectLines()]);
     expect(sketchToRevolve(crossing, "axis")).toEqual({ ok: false, reason: "the profile crosses the axis — it must lie on one side of it (touching is fine)" });

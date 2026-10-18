@@ -455,3 +455,27 @@ describe("Chain, Brackets, Arrow and Replace selected picture (C4)", () => {
     expect((document.getElementById("chemdraw-replace") as HTMLButtonElement).disabled).toBe(true);
   });
 });
+
+describe("one canvas: the panel hands pages and structures to the Draw canvas", () => {
+  test("a ChemDraw file opens through openPage (the panel stays closed); a JurisLab structure picture through openIdcode", async () => {
+    document.body.innerHTML = BUILD;
+    const pages: string[] = [], ids: string[] = [];
+    initChemdrawPane({
+      setStatus: () => undefined,
+      insertPicture: async () => undefined,
+      openPage: (_d, name) => (pages.push(name), true),
+      openIdcode: (id) => (ids.push(id), true),
+      readSelectionOoxml: async () =>
+        `<pkg:package xmlns:pkg="http://schemas.microsoft.com/office/2006/xmlPackage"><pkg:part pkg:name="/word/document.xml"><pkg:xmlData><w:document><wp:docPr id="1" descr="2D structure (C2H6O) — C2H6O; OCL-ID gC\x60@Dij@@"/></w:document></pkg:xmlData></pkg:part><pkg:part pkg:name="/word/media/image1.png" pkg:contentType="image/png"><pkg:binaryData>iVBORw0KGgo=</pkg:binaryData></pkg:part></pkg:package>`,
+    });
+    const input = document.getElementById("chemdraw-file") as HTMLInputElement;
+    Object.defineProperty(input, "files", { value: [new File([CDXML], "figure.cdxml")], configurable: true });
+    input.dispatchEvent(new Event("change"));
+    await new Promise((r) => setTimeout(r, 30));
+    expect(pages).toEqual(["figure.cdxml"]);
+    expect(document.getElementById("chemdraw-panel")!.hidden).toBe(true);
+    document.getElementById("chemdraw-from-doc")!.click();
+    await new Promise((r) => setTimeout(r, 10));
+    expect(ids).toEqual(["gC`@Dij@@"]);
+  });
+});

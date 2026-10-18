@@ -3,7 +3,7 @@
 // EMF+ image object, a WMF), around a published USPTO drawing (fixtures/).
 import * as fs from "fs";
 import * as path from "path";
-import { cdxFromMetafile, cdxFromFlatOpc, fromBase64 } from "../emfCdx";
+import { cdxFromMetafile, cdxFromFlatOpc, fromBase64, idcodeFromAlt } from "../emfCdx";
 import { readCdx } from "../cdx";
 
 const CDX = new Uint8Array(fs.readFileSync(path.join(__dirname, "fixtures", "US12128110-C00013.cdx")));
@@ -93,8 +93,18 @@ describe("from Word's selection (Flat OPC)", () => {
     const png = `<pkg:part pkg:name="/word/media/image1.png" pkg:contentType="image/png"><pkg:binaryData>iVBORw0KGgo=</pkg:binaryData></pkg:part>`;
     expect(cdxFromFlatOpc(opc(doc + png))).toEqual({
       ok: false,
+      alt: "ChemDraw drawing from figure.cdxml (the whole page).",
       reason: "the selected picture was drawn by JurisLab and holds no ChemDraw drawing — open the .cdxml you saved (Save as .cdxml) to edit it again",
     });
+  });
+  test("a structure picture JurisLab drew (Draw tab) is known by its alt text, and carries its idcode", () => {
+    const alt = "2D structure (C2H6O) — C2H6O; MW 46.07; SMILES CCO; OCL-ID gC`@Dij@@";
+    const doc = `<pkg:part pkg:name="/word/document.xml"><pkg:xmlData><w:document><wp:inline><wp:docPr id="1" name="Picture 1" descr="${alt.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}"/></wp:inline></w:document></pkg:xmlData></pkg:part>`;
+    const png = `<pkg:part pkg:name="/word/media/image1.png" pkg:contentType="image/png"><pkg:binaryData>iVBORw0KGgo=</pkg:binaryData></pkg:part>`;
+    const r = cdxFromFlatOpc(opc(doc + png));
+    expect(!r.ok && r.alt).toBe(alt);
+    expect(idcodeFromAlt(alt)).toBe("gC`@Dij@@");
+    expect(idcodeFromAlt("Structure drawing (no single formula: …).")).toBeNull();
   });
   test("base64 decoding ignores line breaks and refuses what is not base64", () => {
     expect([...fromBase64("AQID\nBA==")!]).toEqual([1, 2, 3, 4]);

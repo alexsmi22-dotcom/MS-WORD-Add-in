@@ -499,7 +499,16 @@ Office.onReady(() => {
   // Buttons
   // -------------------------------------------------------------------------
   cleanBtn.addEventListener("click", () => {
-    const mol = editor.getMolecule();
+    if (editor.hasDrawing()) {
+      showError("Clean lays out a page of structures only — this one also has brackets, arrows or text.");
+      return;
+    }
+    const chem = editor.chemistry();
+    if (!chem.ok) {
+      showError(`Clean needs the structure as chemistry: ${chem.reason}.`);
+      return;
+    }
+    const mol = chem.mol;
     if (mol.getAllAtoms() === 0) {
       showError("Nothing to clean — the canvas is empty.");
       return;
@@ -516,7 +525,17 @@ Office.onReady(() => {
   });
 
   useBtn.addEventListener("click", () => {
-    const mol = editor.getMolecule();
+    // This window hands back a structure (its idcode): what it cannot carry is refused by name, never dropped.
+    if (editor.hasDrawing()) {
+      showError("This window brings back structures only — the brackets, arrows or text on it would be lost. Remove them here (Erase), or draw them in the pane.");
+      return;
+    }
+    const chem = editor.chemistry();
+    if (!chem.ok) {
+      showError(`This drawing has no exact structure to bring back: ${chem.reason}.`);
+      return;
+    }
+    const mol = chem.mol;
     if (mol.getAllAtoms() === 0) {
       showError("Nothing drawn yet — draw a structure, or Cancel.");
       return;

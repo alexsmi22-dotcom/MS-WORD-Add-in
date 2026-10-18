@@ -164,7 +164,16 @@ export function fromBase64(s: string): Uint8Array | null {
  * part that carries one. A refusal says whether there was no picture at all, or pictures without
  * a ChemDraw drawing in them.
  */
-export function cdxFromFlatOpc(flatOpc: string): { ok: true; cdx: Uint8Array } | { ok: false; reason: string } {
+/** Alt texts JurisLab writes on the pictures it draws (structures and ChemDraw drawings). */
+const JURISLAB_ALT = /^(ChemDraw drawing from |2D structure \(|Structure drawing)/;
+
+/** The structure's idcode a JurisLab structure picture carries in its alt text (OCL-ID …), or null. */
+export function idcodeFromAlt(alt: string): string | null {
+  const m = /(?:^|; | — )OCL-ID (\S+)/.exec(alt);
+  return m ? m[1] : null;
+}
+
+export function cdxFromFlatOpc(flatOpc: string): { ok: true; cdx: Uint8Array } | { ok: false; reason: string; alt?: string } {
   const x = parseXml(flatOpc);
   if (!x.ok) return { ok: false, reason: `Word gave the selection in a form this cannot read (${x.reason})` };
   let pictures = 0, otherKind = "", badData = false, descr = "";
@@ -195,8 +204,8 @@ export function cdxFromFlatOpc(flatOpc: string): { ok: true; cdx: Uint8Array } |
   if (found) return { ok: true, cdx: found };
   if (!pictures) return { ok: false, reason: "select a ChemDraw picture in the document first (click it)" };
   if (badData) return { ok: false, reason: "the selected picture's data could not be read" };
-  if (descr.startsWith("ChemDraw drawing from "))
-    return { ok: false, reason: "the selected picture was drawn by JurisLab and holds no ChemDraw drawing — open the .cdxml you saved (Save as .cdxml) to edit it again" };
+  if (JURISLAB_ALT.test(descr))
+    return { ok: false, alt: descr, reason: "the selected picture was drawn by JurisLab and holds no ChemDraw drawing — open the .cdxml you saved (Save as .cdxml) to edit it again" };
   if (otherKind && otherKind !== "EMF" && otherKind !== "WMF")
     return { ok: false, reason: `the selected picture is a ${otherKind}, which carries no ChemDraw drawing (Word on a Mac pastes ChemDraw as PDF) — open the .cdx or .cdxml file instead` };
   return { ok: false, reason: "the selected picture holds no ChemDraw drawing — it was not pasted from ChemDraw, or it was saved as a plain image" };

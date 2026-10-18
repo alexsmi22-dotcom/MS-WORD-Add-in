@@ -61,6 +61,8 @@ export interface ChemCanvas {
   staleNames(): string[];
   /** The name the page is saved under (a ChemDraw file's name). */
   setName(name: string): void;
+  /** Saved as .cdxml since it was loaded and not changed since. */
+  wasSaved(): boolean;
 }
 
 const UNDO_DEPTH = 100;
@@ -158,6 +160,7 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
   let pageName = "drawing";
   /** Changed by the user since it was loaded (Save names an edited file so). */
   let edited = false;
+  let saved = false;
   /** Names ChemDraw computed (text object ids) whose structure changed since. */
   let stale = new Set<string>();
   /** Each structure as written, to see which ones an edit changed. */
@@ -255,6 +258,7 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
     redo = [];
     reread();
     edited = true;
+    saved = false;
     // A name ChemDraw computed for a structure that changed (or went) no longer describes it.
     const sigAfter = signatures();
     const changed = [...sigBefore.keys()].filter((id) => sigAfter.get(id) !== sigBefore.get(id));
@@ -583,6 +587,8 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
     redo.push(cloneTree(doc.root));
     doc.root = undo.pop()!;
     reread();
+    edited = true;
+    saved = false;
     fire(true);
   }
   function doRedo(): void {
@@ -590,6 +596,8 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
     undo.push(cloneTree(doc.root));
     doc.root = redo.pop()!;
     reread();
+    edited = true;
+    saved = false;
     fire(true);
   }
   undoBtn.addEventListener("click", doUndo);
@@ -621,7 +629,13 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
 
   // ---- API ------------------------------------------------------------------------------------
   const chemistry = (selectionOnly = false): { ok: true; mol: Molecule } | { ok: false; reason: string } => {
-    const r = pageToMolecule(doc, selectionOnly && selected.size ? selected : undefined);
+    let r: ReturnType<typeof pageToMolecule>;
+    try {
+      r = pageToMolecule(doc, selectionOnly && selected.size ? selected : undefined);
+    } catch (e) {
+      // A structure the chemistry library cannot take is a refusal, never a crash in the pane.
+      return { ok: false, reason: `the structure could not be read as chemistry (${(e as Error).message})` };
+    }
     if (!r.ok) return r;
     r.value.mol.setFragment(fragmentFlag);
     return { ok: true, mol: r.value.mol };
@@ -638,6 +652,14 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
     setMolecule: (mol) => {
       const before = cloneTree(doc.root);
       const fresh = blankDoc();
+      // The page keeps its own style (a ChemDraw file's bond length, fonts): only its content is replaced.
+      if (doc.objects.length) {
+        fresh.root.attrs = { ...doc.root.attrs };
+        const keep = doc.root.children.filter((c) => c.name === "fonttable" || c.name === "colortable").map(cloneTree);
+        fresh.root.children = [...keep, ...fresh.root.children.filter((c) => c.name !== "fonttable" && c.name !== "colortable")];
+        const re = readCdxmlTree(fresh.root);
+        if (re.ok) Object.assign(fresh, re.doc);
+      }
       const w = moleculeToPage(fresh, mol);
       if (!w.ok) return host.setStatus(`The structure could not be put on the page: ${w.reason}.`, "error");
       undo.push(before);
@@ -681,6 +703,7 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
       selected = new Set();
       stale = new Set();
       edited = false;
+      saved = false;
       boxes = objectBoxes(doc);
       view = [...START_VIEW] as Box;
       growView(true);
@@ -695,12 +718,14 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
     selection: () => new Set(selected),
     setTool,
     staleNames: () => [...stale].map((id) => (findById(doc.root, id)?.el.children.filter((c) => c.name === "s").map((s) => s.text).join("") ?? "").trim()).filter(Boolean),
+    wasSaved: () => saved,
     setName: (n) => void (pageName = n.replace(/\.(cdxml|cdx|xml)$/i, "") || "drawing"),
   };
   saveBtn.addEventListener("click", () => {
     if (!host.downloadFile) return;
     const out = `${pageName}${edited ? " (edited)" : ""}.cdxml`;
     host.downloadFile(new Blob([writeCdxml(doc.root)], { type: "chemical/x-cdxml" }), out);
+    saved = true;
     host.setStatus(`Saved ${out} — it opens in ChemDraw.`, "success");
   });
   setTool("bond");

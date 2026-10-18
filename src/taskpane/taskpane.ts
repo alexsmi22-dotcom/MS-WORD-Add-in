@@ -870,6 +870,8 @@ let buildTab: "draw" | "text" = "draw";
 /** The interactive structure editor — created lazily on first use, because it
  *  measures its host element and so must be constructed while visible. */
 let drawEditor: ChemCanvas | null = null;
+/** The Draw page came from a ChemDraw picture in the document (whose drawing the replacement picture will not carry). */
+let drawFromPicture = false;
 
 /** While true, an empty structure does NOT wipe stored R-group definitions —
  *  set around transient refreshes (tab peeks, mid-drawing states) where the
@@ -1794,7 +1796,27 @@ Office.onReady((info) => {
     if (!drawEditor) return false;
     drawEditor.loadPage(page);
     drawEditor.setName(name);
+    drawFromPicture = /picture/i.test(name);
     setStatus(`${name} opened on the canvas — edit it with the tools above; Insert puts it in as drawn; Save as .cdxml keeps it editable.`, "success");
+    return true;
+  }, openIdcode: (idcode) => {
+    // The decoded structure must encode back to the same idcode: a damaged code decodes to a confident
+    // invented molecule (OCL), and that is never put on the page.
+    let mol: OclMolecule;
+    try {
+      mol = OclMolecule.fromIDCode(idcode);
+    } catch {
+      return false;
+    }
+    if (!mol.getAllAtoms() || mol.getIDCode() !== idcode) return false;
+    mol.inventCoordinates();
+    setMode("build");
+    setBuildTab("draw");
+    ensureDrawEditor();
+    if (!drawEditor) return false;
+    drawEditor.setMolecule(mol);
+    drawFromPicture = false;
+    setStatus("The structure picture opened on the canvas from the structure it carries (its OCL-ID) — edit it; Replace selected picture puts the edited one in its place.", "success");
     return true;
   } });
   cadPane = initCadPane({
@@ -5142,6 +5164,17 @@ function onCleanStructure(): void {
   const chem = drawEditor.chemistry();
   if (!chem.ok) {
     setStatus(`Clean needs the structure as chemistry: ${chem.reason}.`, "error");
+    return;
+  }
+  // Clean lays the structure out again from its chemistry: labels standing for groups (OMe, Ph …) would
+  // become their atoms. Refused by name rather than rewriting what the drawing says.
+  const groupLabels: string[] = [];
+  for (const o of drawEditor.page().objects)
+    for (const it of o.items)
+      if (it.kind === "fragment")
+        for (const n of it.v.nodes) if (n.nodeType === "Unspecified" || n.nodeType === "Nickname" || n.nodeType === "Fragment") groupLabels.push(n.label?.runs.map((r) => r.text).join("") || "a label");
+  if (groupLabels.length) {
+    setStatus(`Clean would replace ${[...new Set(groupLabels)].slice(0, 4).join(", ")} with ${groupLabels.length === 1 ? "its" : "their"} atoms, so it is not done — move atoms by hand (Select, then drag).`, "error");
     return;
   }
   const mol = chem.mol;
@@ -29872,11 +29905,13 @@ async function insertDrawingOnly(selectionOnly: boolean, replace = false): Promi
   const chem = drawEditor.chemistry(selectionOnly);
   let alt = "Structure drawing.";
   let label = "drawing";
+  let generic = false;
   if (chem.ok && chem.mol.getAllAtoms()) {
     try {
       const res = resultFromMolecule(chem.mol, STRUCTURE_W, STRUCTURE_H);
       alt = provenanceAltText(`2D structure (${res.formula || "molecule"})`, res.formula, res.mw, res.smiles, res.idcode);
       label = res.formula || label;
+      generic = res.generic;
     } catch {
       /* the drawing alone */
     }
@@ -29890,8 +29925,14 @@ async function insertDrawingOnly(selectionOnly: boolean, replace = false): Promi
     } else await docHost.insertPictureAtSelection(pic);
     const stale = drawEditor.staleNames();
     const warn = stale.length ? ` Check ${stale.map((w) => `“${w}”`).join(", ")}: ChemDraw computed ${stale.length === 1 ? "that name" : "those names"} before the structure changed.` : "";
-    setStatus(`${replace ? "Replaced the selected picture with" : "Inserted"} ${selectionOnly ? "the selection" : "the drawing"}. ${fit.note}${warn}`, warn ? "" : "success");
-    recordInsert("build", chem.ok ? `idcode: ${chem.mol.getIDCode()}` : "drawing", label);
+    const keep = replace && drawFromPicture && !drawEditor.wasSaved() ? " The new picture does not carry a ChemDraw drawing as the old one did — Save as .cdxml to keep this drawing editable." : "";
+    setStatus(`${replace ? "Replaced the selected picture with" : "Inserted"} ${selectionOnly ? "the selection" : "the drawing"}. ${fit.note}${warn}${keep}`, warn || keep ? "" : "success");
+    if (chem.ok && chem.mol.getAllAtoms()) {
+      const rec = chem.mol.getCompactCopy();
+      if (generic) rec.setFragment(true);
+      const enc = rec.getIDCodeAndCoordinates();
+      recordInsert("build", `idcode: ${enc.idCode} ${enc.coordinates}`, label);
+    }
   } catch (error) {
     setStatus(`Could not ${replace ? "replace the picture" : "insert the drawing"}: ${(error as Error).message}`, "error");
   }

@@ -7,7 +7,7 @@
  */
 import { readCdxml, readCdxmlTree, CdxDoc, Box, Pt } from "../lib/cdxml";
 import { readCdx } from "../lib/cdx";
-import { cdxFromFlatOpc } from "../lib/emfCdx";
+import { cdxFromFlatOpc, idcodeFromAlt } from "../lib/emfCdx";
 import { renderCdx } from "../lib/cdxmlRender";
 import { atomAt, bondAt, captionAt, objectAt, objectBoxes, withCompanions } from "../lib/cdxmlSelect";
 import { addArrow, addBrackets, addChain, ArrowKind, chainLength, chainPath, fragmentsInBox, addRingAt, addRingAtAtom, addRingOnBond, RingKind, addBondFrom, cloneTree, deleteInStructure, deleteObjects, findById, moveObjects, namesTiedTo, setAtomLabel, setBond, setCharge, setText, writeCdxml } from "../lib/cdxmlEdit";
@@ -25,6 +25,8 @@ export interface ChemdrawHost {
   replacePicture?(svg: string, widthPx: number, heightPx: number, alt: string): Promise<boolean>;
   /** One canvas: put an opened ChemDraw page on the Draw canvas (true = done; the panel stays closed). */
   openPage?(doc: CdxDoc, name: string): boolean;
+  /** A structure picture JurisLab drew opens again from the idcode in its alt text (true = done). */
+  openIdcode?(idcode: string): boolean;
 }
 
 /** Room on a Word page for a picture: 6.5 × 9 in, in points. */
@@ -309,7 +311,11 @@ export function initChemdrawPane(host: ChemdrawHost): void {
   });
   /** Puts a document on the page (from a file or a picture), fresh: no selection, no undo. */
   const load = (d: CdxDoc, label: string): void => {
-    if (host.openPage?.(d, label)) return;
+    // One canvas: with a Draw canvas to open it on, this panel never opens (no second builder).
+    if (host.openPage) {
+      if (!host.openPage(d, label)) host.setStatus(`${label} could not be opened on the drawing canvas here.`, "error");
+      return;
+    }
     doc = d;
     name = label;
     fromPicture = false;
@@ -331,7 +337,12 @@ export function initChemdrawPane(host: ChemdrawHost): void {
       const opc = await host.readSelectionOoxml();
       if (!opc) return host.setStatus("Select a ChemDraw picture in the document first (click it), then Open ChemDraw picture.", "error");
       const c = cdxFromFlatOpc(opc);
-      if (!c.ok) return host.setStatus(c.reason.charAt(0).toUpperCase() + c.reason.slice(1) + ".", "error");
+      if (!c.ok) {
+        // A structure JurisLab drew carries its structure (the idcode) in its alt text: it opens from that.
+        const id = c.alt ? idcodeFromAlt(c.alt) : null;
+        if (id && host.openIdcode?.(id)) return;
+        return host.setStatus(c.reason.charAt(0).toUpperCase() + c.reason.slice(1) + ".", "error");
+      }
       const b = readCdx(c.cdx);
       if (!b.ok) return host.setStatus(`The picture's ChemDraw drawing could not be read: ${b.reason}.`, "error");
       const r = readCdxmlTree(b.root);

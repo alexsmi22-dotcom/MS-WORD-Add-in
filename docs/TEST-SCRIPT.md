@@ -1,4 +1,4 @@
-# JurisLab — Manual Test Script (v2.154.0)
+# JurisLab — Manual Test Script (v2.155.0)
 
 A step-by-step smoke test to verify the add-in works end-to-end **inside Word**.
 The engine is covered by 3,200+ automated unit tests, and `npm run qc` now also
@@ -9,6 +9,17 @@ scanning, and layout. Budget ~30 minutes for the full pass.
 Mark each box: ☐ pass · ✗ fail (note what happened).
 
 ---
+
+## 0cs. New in v2.155.0 — Drawing (CAD): the table — mates, exploded and detail views
+
+- [ ] ★ **Mate the table.** Drawing (CAD): Add part Block, set 100 × 60 × 4 (the top); add four Blocks 5 × 5 × 70
+  (legs). **Mate faces**: click a leg's top face near a corner, then the top's underside near the matching corner —
+  the leg hangs flush under the corner. Repeat for the other legs (it stays on); **Undo mate** once, then again.
+- [ ] ★ **Exploded view.** Tick **Exploded** under Views: a third figure with the top lifted off the legs and dashed
+  trail lines down to each leg, in brackets on the patent sheet. Change the top's **Explode Z**: the gap follows.
+- [ ] ★ **Detail view.** **Add detail view**, choose 3× larger, click a leg-to-top joint on the front figure: a new
+  FIG. below with that joint enlarged, the circle on the front figure marked with the new FIG. number. Insert: one
+  picture with all figures. Switch the standard to ASME: the detail reads "DETAIL A SCALE …".
 
 ## 0cr. New in v2.154.0 — ChemDraw chains, brackets, arrows, replace in place
 

@@ -14,10 +14,13 @@
  * shading; when the drag ends it overlays the exact line drawing, and the
  * sheet below is what will be inserted.
  */
-import { tessellate, Mesh } from "../lib/cadModel";
+import { tessellate, Mesh, Placement, Vec3 } from "../lib/cadModel";
+import { faceAt, FaceHit, mate } from "../lib/cadMate";
 import { drawLines, STANDARD_VIEWS, CadView } from "../lib/cadLines";
-import { fitView, previewOps, paintPreview, pickAt, orbit, Fit } from "../lib/cadPreview";
-import { layoutSheet, SheetFrame, ViewSpec } from "../lib/cadSheet";
+import { fitView, previewOps, paintPreview, pickAt, orbit, Fit, Pick as FacePick } from "../lib/cadPreview";
+import { DetailSpec, layoutSheet, SheetFrame, SheetOptions, ViewSpec } from "../lib/cadSheet";
+import { autoExplode, explodedAnchors, explodedDoc, explodeTrails } from "../lib/cadExplode";
+import { DETAIL_FACTORS, nextDetailLetter } from "../lib/cadDetail";
 import { ptToMm } from "../lib/figureStyle";
 import { DRAWING_STANDARDS, DEFAULT_STANDARD, StandardId } from "../lib/cadStandards";
 import {
@@ -134,6 +137,8 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
   const editorEl = el<HTMLElement>("cad-editor");
   const canvas = el<HTMLCanvasElement>("cad-canvas");
   const calloutBtn = el<HTMLButtonElement>("cad-callout");
+  const mateBtn = el<HTMLButtonElement>("cad-mate") as HTMLButtonElement | null;
+  const mateUndoBtn = el<HTMLButtonElement>("cad-mate-undo") as HTMLButtonElement | null;
   const calloutsEl = el<HTMLElement>("cad-callouts");
   const viewsEl = el<HTMLElement>("cad-views");
   const msgEl = el<HTMLElement>("cad-msg");
@@ -339,7 +344,7 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
       if (box.value === "orbit") out.push({ kind: "orbit", rot: view.rot.slice(), name: "VIEW" });
       else out.push({ kind: box.value as ViewSpec["kind"] } as ViewSpec);
     }
-    return out;
+    return [...out, ...doc.views.filter((v): v is DetailSpec => v.kind === "detail")];
   }
 
   let lastSheet: {
@@ -368,10 +373,12 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
       msgEl.textContent = problem;
       return;
     }
+    const exploded = explodedFor();
     const sh = layoutSheet(mesh, {
       standard: doc.standard,
       views: doc.views,
       callouts: placed.callouts,
+      ...(exploded ? { exploded } : {}),
       ...(doc.marks?.length ? { marks: doc.marks } : {}),
       ...(doc.hidden ? { showHidden: doc.hidden === "show" } : {}),
       ...(doc.sheet ? { format: doc.sheet } : {}),
@@ -379,6 +386,7 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     });
     previewEl.innerHTML = sh.svg;
     sheetFrames = sh.frames ?? [];
+    lastNotes = sh.notes;
     sheetW = sh.widthPx;
     const svgEl = previewEl.querySelector("svg");
     if (svgEl) {
@@ -423,10 +431,138 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     ].join(" ");
   }
 
+  // ---- exploded and detail views -----------------------------------------------------------
+  const explodeAutoBtn = el<HTMLButtonElement>("cad-explode-auto") as HTMLButtonElement | null;
+  const detailBtn = el<HTMLButtonElement>("cad-detail") as HTMLButtonElement | null;
+  const detailFactorSel = el<HTMLSelectElement>("cad-detail-factor") as HTMLSelectElement | null;
+  const detailsEl = el<HTMLElement>("cad-details") as HTMLElement | null;
+  const wantsExploded = (): boolean => doc.views.some((v) => v.kind === "exploded" || (v.kind === "detail" && v.of === "exploded"));
+  /** The exploded assembly for the sheet, tessellated once per change of parts, offsets or callouts. */
+  let explodedCache: { key: string; data: SheetOptions["exploded"] | null } | null = null;
+  function explodedFor(): SheetOptions["exploded"] | undefined {
+    if (!mesh || !wantsExploded()) return undefined;
+    // Nothing apart: the sheet says so (the parts are exploded when Exploded is ticked, or by Auto explode).
+    if (!doc.explode || !Object.keys(doc.explode).length) return undefined;
+    const offsets = doc.explode;
+    const key = JSON.stringify([doc.parts, offsets, placed.callouts]);
+    if (explodedCache?.key === key) return explodedCache.data ?? undefined;
+    let data: SheetOptions["exploded"] | null = null;
+    const a = docToAssembly(explodedDoc(doc, offsets));
+    if (a.ok) {
+      const t = tessellate(a.assembly);
+      if (t.ok) data = { mesh: t.mesh, anchors: explodedAnchors(doc, placed.callouts, offsets), trails: explodeTrails(doc, mesh, offsets) };
+    }
+    explodedCache = { key, data };
+    return data ?? undefined;
+  }
+  explodeAutoBtn?.addEventListener("click", () => {
+    if (!mesh || !doc.parts.length) return host.setStatus("Add the parts first: Auto explode moves them apart.", "error");
+    const auto = autoExplode(doc, mesh);
+    if (!Object.keys(auto).length) return host.setStatus("Auto explode lifts parts that sit above others; these parts are all at one height — give a part its own explode distance under the part instead.", "error");
+    doc.explode = auto;
+    const box = viewsEl.querySelector<HTMLInputElement>("input[value=exploded]");
+    if (box) box.checked = true;
+    renderEditor();
+    renderSheet();
+    host.setStatus(`${Object.keys(auto).length} part${Object.keys(auto).length === 1 ? "" : "s"} lifted apart for the exploded view; change any part's distance under the part.`, "success");
+  });
+  let detailMode = false;
+  function setDetailMode(on: boolean): void {
+    detailMode = on;
+    if (!detailBtn) return;
+    detailBtn.classList.toggle("active", on);
+    detailBtn.setAttribute("aria-pressed", String(on));
+    previewEl.classList.toggle("cad-marking", on || markTool !== null);
+    if (on) host.setStatus("Click the spot on a figure in the drawing below that the detail view shows. Esc cancels.", "");
+  }
+  detailBtn?.addEventListener("click", () => {
+    if (!detailMode) setMarkTool(null);
+    setDetailMode(!detailMode);
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && detailMode && !sketching()) setDetailMode(false);
+  });
+  const DETAIL_OF = new Set(["front", "top", "right", "left", "back", "bottom", "iso", "exploded"]);
+  previewEl.addEventListener("pointerdown", (e) => {
+    if (!detailMode || e.button !== 0) return;
+    e.preventDefault();
+    const p = sheetPoint(e);
+    if (!p || !lastSheet) return host.setStatus("The drawing must be showing before a detail can be taken from it.", "error");
+    const f = sheetFrames.find((q) => p[0] >= q.cell.x && p[0] <= q.cell.x + q.cell.w && p[1] >= q.cell.y && p[1] <= q.cell.y + q.cell.h);
+    if (!f || !DETAIL_OF.has(f.view)) return host.setStatus("Click on a front, top, side, isometric or exploded figure: a detail enlarges part of one of those.", "error");
+    const at = toView(f, p[0], p[1]);
+    const letter = nextDetailLetter(doc.views.flatMap((v) => (v.kind === "detail" ? [v.letter] : [])));
+    if (!letter) return host.setStatus("Every detail letter is in use: remove a detail view first.", "error");
+    // A circle an eighth of the figure across to start with; its size can be changed in the list.
+    const r = +((Math.min(f.cell.w, f.cell.h) / f.k) * 0.12).toPrecision(3);
+    const factor = Number(detailFactorSel?.value ?? 2);
+    doc.views.push({ kind: "detail", letter, of: f.view as DetailSpec["of"], at, r, factor: DETAIL_FACTORS.includes(factor) ? factor : 2 });
+    setDetailMode(false);
+    renderSheet();
+    // The sheet refuses a detail it cannot draw (its circle holds nothing, or is larger than the figure): say why, keep nothing.
+    if (!sheetFrames.some((q) => q.view === `detail:${letter}`)) {
+      // Its own reason, or (the whole sheet refused) the sheet's.
+      const why = lastNotes.find((n) => n.startsWith(`Detail ${letter}`)) ?? (sheetFrames.length ? `Detail ${letter} could not be drawn on this sheet.` : lastNotes[0] ?? `Detail ${letter} could not be drawn on this sheet.`);
+      doc.views = doc.views.filter((v) => !(v.kind === "detail" && v.letter === letter));
+      renderSheet();
+      return host.setStatus(why, "error");
+    }
+    renderDetails();
+    host.setStatus(`Detail ${letter} added: the circle on the figure shows what it enlarges. Change its size or enlargement in the list.`, "success");
+  });
+  function renderDetails(): void {
+    if (!detailsEl) return;
+    detailsEl.replaceChildren();
+    for (const v of doc.views) {
+      if (v.kind !== "detail") continue;
+      const row = document.createElement("div");
+      row.className = "cad-part";
+      const name = document.createElement("span");
+      name.textContent = `Detail ${v.letter} (of the ${v.of === "iso" ? "isometric" : v.of} view)`;
+      const size = numberField("Circle radius", v.r, (x) => {
+        if (!(x > 0) || !Number.isFinite(x)) return;
+        v.r = x;
+        renderSheet();
+      });
+      const fac = document.createElement("select");
+      fac.className = "lib-select";
+      fac.setAttribute("aria-label", `How much larger detail ${v.letter} is`);
+      for (const k of DETAIL_FACTORS) fac.add(new Option(`${k}×`, String(k), false, k === v.factor));
+      fac.addEventListener("change", () => {
+        v.factor = Number(fac.value);
+        renderSheet();
+      });
+      const del = document.createElement("button");
+      del.type = "button";
+      del.className = "insert-btn secondary";
+      del.textContent = "Remove";
+      del.addEventListener("click", () => {
+        doc.views = doc.views.filter((q) => q !== v);
+        // Its marks go with it: a later detail taking the same letter must not inherit them.
+        if (doc.marks) {
+          doc.marks = doc.marks.filter((m) => m.view !== `detail:${v.letter}`);
+          if (!doc.marks.length) delete doc.marks;
+        }
+        // …and out of the mark undo history (an undo must not bring one back onto a later detail A).
+        for (let i = markUndo.length - 1; i >= 0; i--) {
+          const u = markUndo[i];
+          if (("add" in u ? u.add : u.erased).view === `detail:${v.letter}`) markUndo.splice(i, 1);
+        }
+        if (markUndoBtn) markUndoBtn.disabled = !markUndo.length;
+        renderDetails();
+        renderSheet();
+      });
+      row.append(name, size, fac, del);
+      detailsEl.appendChild(row);
+    }
+  }
+
   // ---- drawing on the sheet: pencil, lines, arrows, numerals, text ----------------------
   // What the user draws is kept as drawn (cadMarks): no snapping, no profile rules. Each mark
   // belongs to the figure it was started on, in that view's own plane, so it follows the figure.
   let sheetFrames: SheetFrame[] = [];
+  /** The last sheet's notes (what it left out, and why). */
+  let lastNotes: string[] = [];
   let sheetW = 0;
   type MarkTool = "pen" | "line" | "arrow" | "numeral" | "text" | "erase";
   let markTool: MarkTool | null = null;
@@ -452,6 +588,7 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     if (markText) markText.hidden = t !== "text";
     previewEl.classList.toggle("cad-marking", t !== null);
     if (t && calloutMode) setCalloutMode(false, false);
+    if (t && detailMode) setDetailMode(false);
     host.setStatus(t ? MARK_HELP[t] : "", "");
     if (t === "text") markText?.focus();
   }
@@ -482,7 +619,13 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     }
     return best;
   }
-  const toView = (f: SheetFrame, x: number, y: number): MarkPt => roundPt([(x - f.ox) / f.k + f.minX, (f.oyBottom - y) / f.k + f.minY]);
+  // Kept to 0.001 unit — finer where a figure is drawn large (a detail of a small part), so a mark never
+  // lands on a grid coarser than a quarter of a pixel on the sheet.
+  const toView = (f: SheetFrame, x: number, y: number): MarkPt => {
+    const p: MarkPt = [(x - f.ox) / f.k + f.minX, (f.oyBottom - y) / f.k + f.minY];
+    const step = Math.min(0.001, Math.pow(10, Math.floor(Math.log10(0.25 / f.k))));
+    return step >= 0.001 ? roundPt(p) : [Math.round(p[0] / step) * step, Math.round(p[1] / step) * step];
+  };
   const styleOf = (f: SheetFrame): MarkStyle => {
     const std = DRAWING_STANDARDS[doc.standard];
     return { X: (x) => f.ox + (x - f.minX) * f.k, Y: (y) => f.oyBottom - (y - f.minY) * f.k, strokePx: 1, fontPx: ptToMm(std.textPt) * (96 / 25.4), font: std.font };
@@ -739,6 +882,23 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
       }));
     });
     editorEl.appendChild(place);
+    if (wantsExploded() || doc.explode?.[p.id]) {
+      const ex = document.createElement("div");
+      ex.className = "cad-place";
+      const off = doc.explode?.[p.id] ?? [0, 0, 0];
+      (["X", "Y", "Z"] as const).forEach((ax, k) => {
+        ex.appendChild(numberField(`Explode ${ax}`, off[k], (v) => {
+          if (!Number.isFinite(v)) return;
+          const cur = (doc.explode ??= {})[p.id] ?? [0, 0, 0];
+          cur[k] = v;
+          if (cur.every((x) => x === 0)) delete doc.explode[p.id];
+          else doc.explode[p.id] = cur;
+          if (!Object.keys(doc.explode).length) delete doc.explode;
+          renderSheet();
+        }));
+      });
+      editorEl.appendChild(ex);
+    }
   }
 
   function renderCallouts(): void {
@@ -786,7 +946,19 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     renderSheet();
   });
   // With no parts, ticking or clearing Blank figure decides whether there is a sheet at all.
-  viewsEl.addEventListener("change", () => (doc.parts.length ? renderSheet() : rebuild()));
+  viewsEl.addEventListener("change", (e) => {
+    // Ticking Exploded explodes the parts the first time (an exploded view with nothing apart is no view);
+    // the parts' explode distances then show under each part.
+    const box = e.target as HTMLInputElement | null;
+    if (box?.value === "exploded" && box.checked && mesh && (!doc.explode || !Object.keys(doc.explode).length)) {
+      const auto = autoExplode(doc, mesh);
+      if (Object.keys(auto).length) doc.explode = auto;
+    }
+    if (doc.parts.length) renderSheet();
+    else rebuild();
+    // Only Exploded changes what the part editor shows (its explode distances).
+    if (box?.value === "exploded") renderEditor();
+  });
   hiddenSel.addEventListener("change", () => {
     if (hiddenSel.value === "show" || hiddenSel.value === "hide") doc.hidden = hiddenSel.value;
     else delete doc.hidden;
@@ -959,10 +1131,87 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     calloutBtn.textContent = on ? "Stop placing callouts" : calloutLabel;
     if (status) host.setStatus(on ? "Click on a part to place a callout; keep clicking for more. Esc or Stop placing callouts ends it." : "", "");
   }
-  calloutBtn.addEventListener("click", () => setCalloutMode(!calloutMode));
+  calloutBtn.addEventListener("click", () => {
+    if (!calloutMode) setMateMode(false, false);
+    setCalloutMode(!calloutMode);
+  });
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && calloutMode && !sketching()) setCalloutMode(false);
+    if (e.key === "Escape" && mateMode && !sketching()) setMateMode(false);
   });
+
+  // Mates: a face of the part to move, then the face it goes against (cadMate). Stays on for the
+  // next pair (four legs under a top) until Esc or Stop; each mate can be undone.
+  let mateMode = false;
+  let mateFirst: FaceHit | null = null;
+  const mateUndo: Array<{ id: string; placement: Placement }> = [];
+  const mateLabel = mateBtn?.textContent ?? "Mate faces";
+  function setMateMode(on: boolean, status = true): void {
+    mateMode = on;
+    mateFirst = null;
+    if (!mateBtn) return;
+    mateBtn.classList.toggle("active", on);
+    mateBtn.setAttribute("aria-pressed", String(on));
+    mateBtn.textContent = on ? "Stop mating" : mateLabel;
+    if (status) host.setStatus(on ? "Mate: click a flat face of the part to MOVE (near a corner or the centre to snap to it)." : "", "");
+  }
+  mateBtn?.addEventListener("click", () => {
+    if (!mateMode) setCalloutMode(false, false);
+    setMateMode(!mateMode);
+  });
+  mateUndoBtn?.addEventListener("click", () => {
+    const u = mateUndo.pop();
+    if (mateUndoBtn) mateUndoBtn.disabled = !mateUndo.length;
+    const p = u && doc.parts.find((q) => q.id === u.id);
+    if (!u || !p) return;
+    p.placement = u.placement;
+    renderEditor();
+    rebuild();
+    host.setStatus(`${p.name} is back where it was before the mate.`, "");
+  });
+  /** A click in mate mode: the first face, then the second (the mate). */
+  function mateClick(hit: FacePick, fit: Fit): void {
+    if (!mesh) return;
+    if (pending || docProblem() !== null) {
+      host.setStatus("Finish the dimension being edited (the drawing must update) before mating.", "error");
+      return;
+    }
+    // Snap within about 10 screen pixels of a corner or the face's centre.
+    const f = faceAt(mesh, hit.tri, hit.point, 10 / fit.scale);
+    if (!f.ok) {
+      host.setStatus(f.reason.charAt(0).toUpperCase() + f.reason.slice(1) + ".", "error");
+      return;
+    }
+    const where = (h: FaceHit): string => (h.snap === "corner" ? "a corner of " : h.snap === "centre" ? "the centre of " : "") + "that face";
+    if (!mateFirst) {
+      mateFirst = f.hit;
+      selected = f.hit.body;
+      renderParts();
+      renderEditor();
+      paint(true);
+      host.setStatus(`Moving ${doc.parts[f.hit.body]?.name ?? "the part"} from ${where(f.hit)}. Now click the face it goes against, on another part.`, "");
+      return;
+    }
+    const first = mateFirst;
+    const part = doc.parts[first.body];
+    if (!part) return setMateMode(false);
+    const frame = part.shape === "sketch" ? undefined : SHAPES[part.shape].frame;
+    const r = mate(first, f.hit, part.placement, frame);
+    if (!r.ok) {
+      mateFirst = null;
+      host.setStatus(r.reason.charAt(0).toUpperCase() + r.reason.slice(1) + ". Click a face of the part to move again.", "error");
+      return;
+    }
+    mateUndo.push({ id: part.id, placement: { translate: [...part.placement.translate] as Vec3, rotateDeg: [...part.placement.rotateDeg] as Vec3 } });
+    if (mateUndoBtn) mateUndoBtn.disabled = false;
+    part.placement = r.placement;
+    mateFirst = null;
+    selected = first.body;
+    renderParts();
+    renderEditor();
+    rebuild();
+    host.setStatus(`${part.name} mated to ${doc.parts[f.hit.body]?.name ?? "the part"} at ${where(f.hit)}, flush. Click the next part to move, or Esc to stop.`, "success");
+  }
   for (const b of Array.from(document.querySelectorAll<HTMLButtonElement>("[data-cad-view]"))) {
     b.addEventListener("click", () => {
       const v = b.dataset.cadView as keyof typeof STANDARD_VIEWS;
@@ -1006,6 +1255,11 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     const hit = pickAt(mesh, view, fit, e.clientX - r.left, e.clientY - r.top);
     if (!hit) {
       if (calloutMode) host.setStatus("That spot is not on a part — click on a part's surface to place the callout there.", "error");
+      if (mateMode) host.setStatus("That spot is not on a part — click a flat face of a part.", "error");
+      return;
+    }
+    if (mateMode) {
+      mateClick(hit, fit);
       return;
     }
     if (calloutMode) {
@@ -1059,6 +1313,7 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     hiddenSel.value = doc.hidden ?? "";
     const kinds = new Set(doc.views.map((v) => v.kind));
     for (const box of Array.from(viewsEl.querySelectorAll<HTMLInputElement>("input[type=checkbox]"))) box.checked = kinds.has(box.value as never);
+    renderDetails();
     const orbitView = doc.views.find((v) => v.kind === "orbit" && "rot" in v && v.rot);
     if (orbitView && orbitView.kind === "orbit" && orbitView.rot) view = { name: "orbit", rot: orbitView.rot };
   }
@@ -1071,6 +1326,9 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     if (markUndoBtn) markUndoBtn.disabled = true;
     // Title block fields typed for another drawing never come back into this one (review D1).
     stashTitle = {};
+    mateUndo.length = 0;
+    if (mateUndoBtn) mateUndoBtn.disabled = true;
+    explodedCache = null;
     controlsFromDoc();
     selected = 0;
     renderParts();

@@ -13,6 +13,7 @@
  * picture's alt text and to and from the large-canvas dialog.
  */
 import { parseMarks, SheetMark } from "./cadMarks";
+import { DETAIL_FACTORS } from "./cadDetail";
 import {
   apply3,
   Assembly,
@@ -302,6 +303,8 @@ export interface CadDoc {
   layers?: Partial<Record<"frame" | "titleBlock" | "callouts" | "titles", boolean>>;
   /** Hand-drawn marks on the figures (cadMarks); omitted = none. */
   marks?: SheetMark[];
+  /** How far each part is moved apart in the exploded view (part id → [dx, dy, dz]); omitted = not exploded. */
+  explode?: Record<string, Vec3>;
 }
 
 export interface DocSheet {
@@ -465,9 +468,9 @@ export function resolveCallouts(doc: CadDoc, mesh: Mesh): { callouts: Callout[];
   const notes: string[] = [];
   const P = mesh.positions, Tr = mesh.triangles;
   const V = (i: number): Vec3 => [P[3 * i], P[3 * i + 1], P[3 * i + 2]];
-  for (const c of doc.callouts) {
+  for (const [src, c] of doc.callouts.entries()) {
     if (!c.part || !c.local) {
-      out.push({ anchor: c.anchor, label: c.label });
+      out.push({ anchor: c.anchor, label: c.label, src });
       continue;
     }
     const bi = doc.parts.findIndex((p) => p.id === c.part);
@@ -492,7 +495,7 @@ export function resolveCallouts(doc: CadDoc, mesh: Mesh): { callouts: Callout[];
       notes.push(`Callout ${c.label} no longer touches ${doc.parts[bi].name} (its dimensions changed), so it is not drawn — place it again.`);
       continue;
     }
-    out.push({ anchor: at, label: c.label });
+    out.push({ anchor: at, label: c.label, src });
   }
   return { callouts: out, notes };
 }
@@ -559,12 +562,35 @@ export function parseDoc(text: string): { ok: true; doc: CadDoc } | { ok: false;
     if ((c.part !== undefined || c.local !== undefined) && (typeof c.part !== "string" || !isVec(c.local))) return { ok: false, reason: "a callout in the drawing is damaged" };
     if (c.sag !== undefined && !(isNum(c.sag) && c.sag >= 0)) return { ok: false, reason: "a callout in the drawing is damaged" };
   }
-  const kinds = ["front", "top", "right", "left", "back", "bottom", "iso", "orbit", "blank"];
+  const kinds = ["front", "top", "right", "left", "back", "bottom", "iso", "orbit", "blank", "exploded", "detail"];
+  const letters = new Set<string>();
   for (const v of d.views as ViewSpec[]) {
     if (!v || typeof v !== "object" || !kinds.includes(String(v.kind))) return { ok: false, reason: "a view in the drawing is damaged" };
     if (v.kind === "orbit" && ((v.rot !== undefined && !isRotation(v.rot)) || (v.deg !== undefined && !isVec(v.deg)))) {
       return { ok: false, reason: "a view in the drawing is damaged" };
     }
+    if (v.kind === "detail") {
+      const ok =
+        typeof v.letter === "string" && /^[A-Z]$/.test(v.letter) && !letters.has(v.letter) &&
+        ["front", "top", "right", "left", "back", "bottom", "iso", "exploded"].includes(String(v.of)) &&
+        Array.isArray(v.at) && v.at.length === 2 && v.at.every(isNum) && Math.abs(v.at[0]) <= 1e7 && Math.abs(v.at[1]) <= 1e7 &&
+        isNum(v.r) && v.r > 0 && v.r <= 1e7 && DETAIL_FACTORS.includes(v.factor);
+      if (!ok) return { ok: false, reason: "a detail view in the drawing is damaged" };
+      letters.add(v.letter);
+    }
+  }
+  if (d.explode !== undefined) {
+    const e = d.explode as unknown;
+    if (!e || typeof e !== "object" || Array.isArray(e)) return { ok: false, reason: "the drawing's exploded view is damaged" };
+    const out: Record<string, Vec3> = {};
+    for (const [k, v] of Object.entries(e as Record<string, unknown>)) {
+      // Own keys naming a part only ("__proto__" is not a part).
+      if (k === "__proto__" || !ids.has(k)) continue;
+      if (!isVec(v) || v.some((x) => Math.abs(x) > 1e7)) return { ok: false, reason: "the drawing's exploded view is damaged" };
+      out[k] = [v[0], v[1], v[2]];
+    }
+    if (Object.keys(out).length) d.explode = out;
+    else delete d.explode;
   }
   const stds = ["asme", "iso", "uspto", "journal", "plain"];
   if (!stds.includes(String(d.standard))) return { ok: false, reason: "the drawing names a standard this release does not have" };

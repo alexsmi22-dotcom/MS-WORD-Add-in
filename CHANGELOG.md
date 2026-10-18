@@ -6,6 +6,49 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.155.0] — 2026-10-18 — Drawing (CAD): mate faces, exploded views, detail views (the table release)
+
+### Added
+- **Mate faces**: click a flat face of the part to move, then the face it goes against — the part turns so the
+  faces look at each other and moves so they lie flush, the two clicked points meeting; a click near a face's
+  corner or centre snaps to it (corners meet corners). Stays on for the next pair (four legs under a top) until
+  Stop or Esc; **Undo mate** takes each back. A curved surface, or two faces of one part, is refused by name.
+  Pinned on the table: a top mated onto four legs, corner to corner, is flush with no overlap and no crossing
+  line along any joint.
+- **Exploded view** (tick Exploded under Views): the parts drawn apart — **Auto explode** lifts them in levels
+  (a table's top off its legs), and every part's distance can be set under the part — with phantom trail lines
+  showing where each goes (to each leg a top sits on). On a USPTO sheet with another figure the exploded view is
+  placed in brackets (37 CFR 1.84(h)(1)). Callouts move with their parts.
+- **Detail views**: **Add detail view**, then click a spot on a figure — that part is drawn again 2×, 3×, 4×, 5×
+  or 10× larger as a view of its own, its circle drawn on the figure it enlarges. Labelled as each standard asks:
+  USPTO a FIG. of its own with the circle marked by that figure (1.84(h)(2)); ASME "DETAIL A SCALE 2:1"; ISO
+  "A (2:1)"; letters skip I, O and Q (ASME Y14.3). Details sit below the other views, read after their figure;
+  callouts inside the circle show enlarged; marks can be drawn on a detail. Size and enlargement change in the
+  list; Remove takes a detail away.
+
+### Fixed before release (adversarial review: 11 findings, pinned in cadTableReview.test.ts, cadAssemblyPane.dom.test.ts)
+- A detail's scale could read 1.25:1 or 1:2.5 with a note naming the wrong sheet scale: the sheet now tries each
+  standard scale, largest first, with every detail at the standard scale nearest its enlargement, and keeps the
+  first that fits — every detail label is a standard scale, every note names the real one.
+- An exploded view with nothing apart also said "no parts yet" (or "add a part" with five parts); ticking
+  Exploded did not show the explode distances; setting the last distance to 0 exploded the parts again and
+  dropped the field being typed in.
+- A detail of an orthographic view lost its hidden lines; ASME balloons went into the detail instead of the
+  front; a detail's marks stayed after it was removed (and moved when its enlargement changed — marks are now
+  kept in the parent view's plane); a stray-mark note showed "detail:A".
+- A diagonal move's trail floated off the part; the circle's FIG tag could run off the sheet; a circle larger
+  than its figure shrank the sheet to dots and one over empty paper drew nothing — both refused by name; a
+  detail of a view not on the sheet is left out (1.84(h)(2)); the USPTO bracket now stands beyond the callout
+  column; a face's centre snap stays on the face clicked (a U's two arm tops are two faces).
+
+### Fixed before release (second review — of the first fixes: 6 findings)
+- Hand-written text on an ISO / ASME sheet with a detail could make the sheet refuse (the detail-scale search
+  told the text fitting a larger scale than it drew); the search now reports the scale it drew, starts one
+  standard step higher, and a refusal keeps its real reason.
+- Marks on a detail of a small part landed on a coarse grid (rounded in the parent's plane); they are rounded to
+  a quarter pixel of the figure as drawn. Removing a detail also takes its marks out of the mark undo history;
+  ticking a view no longer refreshes the part editor (only Exploded does).
+
 ## [2.154.0] — 2026-10-18 — ChemDraw: chains, polymer brackets, arrows, replace in place
 
 ### Added

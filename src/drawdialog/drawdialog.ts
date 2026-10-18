@@ -1,4 +1,4 @@
-// The pop-out drawing window: the OpenChemLib canvas editor at dialog size,
+// The pop-out drawing window: JurisLab's chemistry canvas (chemCanvas.ts, the pane's own) at dialog size,
 // plus a 3D MODEL tab — a real MMFF94s-minimised conformer of the drawn
 // molecule (see src/lib/mol3d.ts), rotatable by drag, zoomable by wheel, in
 // ball-and-stick / stick / space-filling styles.
@@ -13,7 +13,8 @@
 //     figure. The message stays small and the idcode stays the single source
 //     of truth.
 
-import { CanvasEditor, Molecule } from "openchemlib/full";
+import { Molecule } from "openchemlib/full";
+import { createChemCanvas, ChemCanvas } from "../taskpane/chemCanvas";
 import { rgroupLabels, cleanedCopy } from "../lib/builder";
 import {
   generate3d, isMol3dError, Mol3dModel, Mol3dView, Mol3dStyle, DrawOp,
@@ -45,9 +46,12 @@ declare const __APP_VERSION__: string;
 document.documentElement.dataset.jurislabVersion = __APP_VERSION__;
 
 Office.onReady(() => {
-  let editor: CanvasEditor;
+  let editor: ChemCanvas;
   try {
-    editor = new CanvasEditor(byId<HTMLElement>("editor"), { initialMode: "molecule" });
+    editor = createChemCanvas(byId<HTMLElement>("editor"), {
+      // The window's one message line: refusals show; tool help stays quiet.
+      setStatus: (m, k) => (k === "error" ? showError(m) : clearError()),
+    });
   } catch (error) {
     showError(`The drawing canvas could not start here: ${(error as Error).message}`);
     return;
@@ -99,9 +103,7 @@ Office.onReady(() => {
     }
   }
   updateInfo();
-  editor.setOnChangeListener((event) => {
-    if (event.type === "molecule") updateInfo();
-  });
+  editor.setOnChangeListener(() => updateInfo());
 
   // -------------------------------------------------------------------------
   // 3D model tab

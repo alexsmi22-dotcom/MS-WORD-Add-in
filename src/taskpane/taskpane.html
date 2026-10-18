@@ -266,8 +266,8 @@
           </button>
         </div>
 
-        <!-- Interactive drawing surface (OpenChemLib canvas editor): drag-and-drop
-             atoms, bonds, ring templates, chains, charges, wedge/hash stereo. -->
+        <!-- JurisLab's own drawing page (chemCanvas.ts): structures, brackets, arrows and text as
+             ChemDraw keeps them; ChemDraw files and pictures open on it. -->
         <div id="build-draw-wrap">
           <div id="build-editor" aria-label="Structure drawing canvas"></div>
           <div class="draw-btn-row">
@@ -348,11 +348,11 @@
           </div>
           <p id="draw-compliance" class="draw-compliance" role="status" aria-live="polite"></p>
           <p class="build-draw-hint">
-            <b>Pick a tool on the left, then click or drag on the canvas.</b>
-            E.g. choose a ring and click where it goes; with the bond tool, drag to draw
-            bonds; click an atom with an element symbol selected to change it. Drag the
-            handle at the canvas's bottom-right corner to grow it, or use the large
-            canvas for room to work.
+            <b>Pick a tool above the page, then click or drag on it.</b>
+            Bond: click empty paper for a bond, drag from an atom to grow the structure (to another
+            atom to close a ring); click a bond to make it double or triple. Atom: pick an element,
+            click an atom. Open ChemDraw file… puts a ChemDraw drawing on this page to edit. Drag the
+            page's bottom edge to make it taller.
           </p>
           <label class="build-markush-toggle" for="build-draw-fragment">
             <input type="checkbox" id="build-draw-fragment" />
@@ -400,6 +400,10 @@
         <button id="insert-build-btn" class="insert-btn" type="button" disabled>
           Insert 2D structure
         </button>
+        <div class="draw-btn-row" id="draw-insert-more">
+          <button id="draw-insert-selected" class="insert-btn secondary" type="button" title="Insert only what is selected on the canvas (Select tool, click a structure)">Insert selected</button>
+          <button id="draw-replace-picture" class="insert-btn secondary" type="button" title="Put the drawing in place of the picture selected in the document (click the picture first)">Replace selected picture</button>
+        </div>
 
         <span class="palette-group-label">Substituent gallery (drawn R-group alternatives)</span>
         <textarea

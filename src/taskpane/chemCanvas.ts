@@ -34,8 +34,8 @@ export interface CanvasChange {
 export interface ChemCanvas {
   /** The page's structures as one OCL Molecule (empty when there are none, or when they cannot be one — see chemistry()). */
   getMolecule(): Molecule;
-  /** The page's structures as a Molecule, or why they have no exact Molecule form. */
-  chemistry(): { ok: true; mol: Molecule } | { ok: false; reason: string };
+  /** The page's structures (or the selection's) as a Molecule, or why they have no exact Molecule form. */
+  chemistry(selectionOnly?: boolean): { ok: true; mol: Molecule } | { ok: false; reason: string };
   /** Replaces the page with this structure. */
   setMolecule(mol: Molecule): void;
   /** Empties the page (one undo step). */
@@ -108,7 +108,10 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
   }
   const undoBtn = el("button", { type: "button", class: "insert-btn secondary", "data-chem-action": "undo", title: "Undo (Ctrl+Z)" }, "Undo");
   const redoBtn = el("button", { type: "button", class: "insert-btn secondary", "data-chem-action": "redo", title: "Redo (Ctrl+Y)" }, "Redo");
-  bar.append(undoBtn, redoBtn);
+  const zoomInBtn = el("button", { type: "button", class: "insert-btn secondary", "data-chem-action": "zoom-in", title: "Zoom in (Ctrl+wheel)" }, "Zoom +");
+  const zoomOutBtn = el("button", { type: "button", class: "insert-btn secondary", "data-chem-action": "zoom-out", title: "Zoom out (Ctrl+wheel)" }, "Zoom −");
+  const fitBtn = el("button", { type: "button", class: "insert-btn secondary", "data-chem-action": "fit", title: "Fit the drawing in view" }, "Fit");
+  bar.append(undoBtn, redoBtn, zoomInBtn, zoomOutBtn, fitBtn);
   const opts = el("div", { class: "chem-canvas-options" });
   const palette = el("div", { class: "chem-canvas-palette", role: "group", "aria-label": "Element" });
   for (const sym of ELEMENTS) {
@@ -141,7 +144,8 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
   let fragmentFlag = false;
   let onChange: ((e: CanvasChange) => void) | null = null;
   /** The page area in view (points). It only grows to take in what is drawn, so the page never jumps under the mouse. */
-  let view: Box = [0, 0, 360, 240];
+  const START_VIEW: Box = [0, 0, 180, 120];
+  let view: Box = [...START_VIEW] as Box;
   let suppressClick = false;
 
   const fire = (isUserEvent: boolean): void => onChange?.({ isUserEvent });
@@ -155,7 +159,11 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
     const c = contentBox();
     const pad = doc.style.bondLength * 2;
     if (!c) return;
-    const want: Box = [c[0] - pad, c[1] - pad, c[2] + pad, c[3] + pad];
+    let want: Box = [c[0] - pad, c[1] - pad, c[2] + pad, c[3] + pad];
+    // Never closer than 120 × 80 pt of paper (a lone bond must not fill the window).
+    const minW = 120, minH = 80;
+    if (want[2] - want[0] < minW) want = [(want[0] + want[2]) / 2 - minW / 2, want[1], (want[0] + want[2]) / 2 + minW / 2, want[3]];
+    if (want[3] - want[1] < minH) want = [want[0], (want[1] + want[3]) / 2 - minH / 2, want[2], (want[1] + want[3]) / 2 + minH / 2];
     view = fit ? want : [Math.min(view[0], want[0]), Math.min(view[1], want[1]), Math.max(view[2], want[2]), Math.max(view[3], want[3])];
   };
 
@@ -559,10 +567,34 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
   }
   undoBtn.addEventListener("click", doUndo);
   redoBtn.addEventListener("click", doRedo);
+  /** Zoom about a page point: k < 1 shows less paper (closer), > 1 more. Bounded, so it never runs away. */
+  const zoom = (k: number, about?: Pt): void => {
+    const w = view[2] - view[0], h = view[3] - view[1];
+    const nw = Math.min(5000, Math.max(30, w * k)), f = nw / w;
+    const c = about ?? [(view[0] + view[2]) / 2, (view[1] + view[3]) / 2];
+    view = [c[0] - (c[0] - view[0]) * f, c[1] - (c[1] - view[1]) * f, c[0] + (view[2] - c[0]) * f, c[1] + (view[3] - c[1]) * f];
+    draw();
+  };
+  zoomInBtn.addEventListener("click", () => zoom(1 / 1.25));
+  zoomOutBtn.addEventListener("click", () => zoom(1.25));
+  fitBtn.addEventListener("click", () => {
+    if (!contentBox()) view = [...START_VIEW] as Box;
+    else growView(true);
+    draw();
+  });
+  surface.addEventListener(
+    "wheel",
+    (e) => {
+      if (!e.ctrlKey) return; // plain wheel scrolls the page
+      e.preventDefault();
+      zoom(e.deltaY < 0 ? 1 / 1.15 : 1.15, pagePoint(e) ?? undefined);
+    },
+    { passive: false },
+  );
 
   // ---- API ------------------------------------------------------------------------------------
-  const chemistry = (): { ok: true; mol: Molecule } | { ok: false; reason: string } => {
-    const r = pageToMolecule(doc);
+  const chemistry = (selectionOnly = false): { ok: true; mol: Molecule } | { ok: false; reason: string } => {
+    const r = pageToMolecule(doc, selectionOnly && selected.size ? selected : undefined);
     if (!r.ok) return r;
     r.value.mol.setFragment(fragmentFlag);
     return { ok: true, mol: r.value.mol };
@@ -601,7 +633,7 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
       doc = blankDoc();
       boxes = new Map();
       selected = new Set();
-      view = [0, 0, 360, 240];
+      view = [...START_VIEW] as Box;
       draw();
       fire(true);
     },
@@ -620,7 +652,7 @@ export function createChemCanvas(mount: HTMLElement, host: ChemCanvasHost): Chem
       doc = d;
       selected = new Set();
       boxes = objectBoxes(doc);
-      view = [0, 0, 360, 240];
+      view = [...START_VIEW] as Box;
       growView(true);
       draw();
       fire(false);

@@ -6,7 +6,7 @@ import { wordHost as docHost } from "../host/word";
 import type { BibUpdateReport, FigureTail, ResultLayoutItem } from "../host/host";
 import { Segment, segmentsToHtml, escapeHtml } from "../lib/segments";
 import { initCadPane, CadPaneApi } from "./cadPane";
-import { initChemdrawPane } from "./chemdrawPane";
+import { chemdrawFit, initChemdrawPane } from "./chemdrawPane";
 import { nextFreeNumeral } from "../lib/cadShapes";
 import { parseChemical } from "../lib/chemParser";
 import { validateFormula } from "../lib/chemValidate";
@@ -352,7 +352,8 @@ import {
 } from "../lib/builder";
 // The full OCL build (aliased over "openchemlib" in webpack, so this adds no
 // second copy) — the only build that ships the interactive canvas editor.
-import { CanvasEditor, Molecule as OclMolecule } from "openchemlib/full";
+import { Molecule as OclMolecule } from "openchemlib/full";
+import { createChemCanvas, ChemCanvas } from "./chemCanvas";
 import { formatCodeBlock, CodeStyle } from "../lib/codeblock";
 import {
   buildSt26Xml,
@@ -868,7 +869,7 @@ let buildTab: "draw" | "text" = "draw";
 
 /** The interactive structure editor — created lazily on first use, because it
  *  measures its host element and so must be constructed while visible. */
-let drawEditor: CanvasEditor | null = null;
+let drawEditor: ChemCanvas | null = null;
 
 /** While true, an empty structure does NOT wipe stored R-group definitions —
  *  set around transient refreshes (tab peeks, mid-drawing states) where the
@@ -1785,7 +1786,16 @@ Office.onReady((info) => {
   alignInsertBtn = document.getElementById("align-insert") as HTMLButtonElement;
   seqmapSection = document.getElementById("seqmap-section") as HTMLElement;
   cadSection = document.getElementById("cad-section") as HTMLElement;
-  initChemdrawPane({ setStatus: (t, k) => setStatus(t, k ?? ""), insertPicture: insertChemdrawDrawing, downloadFile: (blob, name) => triggerDownload(blob, name), readSelectionOoxml: () => docHost.readSelectionOoxml(), replacePicture: replaceWithChemdrawDrawing });
+  initChemdrawPane({ setStatus: (t, k) => setStatus(t, k ?? ""), insertPicture: insertChemdrawDrawing, downloadFile: (blob, name) => triggerDownload(blob, name), readSelectionOoxml: () => docHost.readSelectionOoxml(), replacePicture: replaceWithChemdrawDrawing, openPage: (page, name) => {
+    // One canvas: a ChemDraw file or picture opens on the Draw page itself.
+    setMode("build");
+    setBuildTab("draw");
+    ensureDrawEditor();
+    if (!drawEditor) return false;
+    drawEditor.loadPage(page);
+    setStatus(`${name} opened on the canvas — edit it with the tools above; Insert puts it in as drawn.`, "success");
+    return true;
+  } });
   cadPane = initCadPane({
     setStatus: (t, k) => setStatus(t, k ?? ""),
     // Patent numerals continue the document's Numerals table and skip any already on this drawing.
@@ -1941,6 +1951,8 @@ Office.onReady((info) => {
   buildInput.addEventListener("input", updateBuildPreview);
   buildFormatSelect.addEventListener("change", updateBuildPreview);
   insertBuildBtn.addEventListener("click", insertBuild);
+  document.getElementById("draw-insert-selected")?.addEventListener("click", () => void insertDrawingOnly(true));
+  document.getElementById("draw-replace-picture")?.addEventListener("click", () => void insertDrawingOnly(!!drawEditor?.selection().size, true));
   buildTabDrawBtn.addEventListener("click", () => setBuildTab("draw"));
   buildTabTextBtn.addEventListener("click", () => setBuildTab("text"));
   buildFragmentToggle.addEventListener("change", onFragmentToggle);
@@ -5033,6 +5045,8 @@ function setBuildTab(tab: "draw" | "text"): void {
   buildTabTextBtn.setAttribute("aria-selected", String(!draw));
   buildDrawWrap.style.display = draw ? "block" : "none";
   buildTextWrap.style.display = draw ? "none" : "block";
+  const more = document.getElementById("draw-insert-more");
+  if (more) more.style.display = draw ? "flex" : "none";
   if (draw) {
     ensureDrawEditor();
     // Creation can fail and fall back to the Text tab; only refresh if it stuck.
@@ -5055,12 +5069,12 @@ function ensureDrawEditor(): void {
   if (drawEditor) return;
   const host = document.getElementById("build-editor") as HTMLElement;
   try {
-    drawEditor = new CanvasEditor(host, { initialMode: "molecule" });
+    // JurisLab's own canvas (chemCanvas.ts): structures, brackets, arrows and text on one page.
+    drawEditor = createChemCanvas(host, { setStatus: (m, k) => setStatus(m, k ?? "") });
     drawEditor.setOnChangeListener((event) => {
-      // Programmatic changes (setMolecule after Clean / dialog return / Edit in
-      // Draw) fire a DEFERRED non-user event; the status those paths just set
-      // must survive that late refresh, or it is wiped one frame later.
-      if (event.type === "molecule") updateDrawPreview(!event.isUserEvent);
+      // A programmatic change (Clean, the large canvas's return, Edit in Draw, a ChemDraw file) keeps
+      // the status that path just set.
+      updateDrawPreview(!event.isUserEvent);
     });
   } catch (error) {
     drawEditor = null;
@@ -5087,8 +5101,7 @@ function refreshBuildPreview(): void {
 /** Marks the drawn structure generic (a Markush query) or specific again. */
 function onFragmentToggle(): void {
   if (!drawEditor) return;
-  const mol = drawEditor.getMolecule();
-  mol.setFragment(buildFragmentToggle.checked);
+  drawEditor.setFragment(buildFragmentToggle.checked);
   // moleculeChanged() fires the change listener (deferred, as a NON-user
   // event), which refreshes the preview — no explicit refresh here or it runs
   // twice. Non-user refreshes preserve the status line, but this toggle IS a
@@ -5106,7 +5119,7 @@ function onResetCanvas(): void {
   // wiped: undo restores only the molecule, so deleting them here would make a
   // mis-click permanently destroy typed legend text — they stay, invisible,
   // exactly as when the R1 atom itself is erased and redrawn.
-  drawEditor.getMolecule().setFragment(false);
+  drawEditor.setFragment(false);
   // clearAll's own change event is deferred — and absent on an already-empty
   // canvas — so reflect the reset now (unchecks the Markush box).
   updateDrawPreview();
@@ -5120,7 +5133,17 @@ function onResetCanvas(): void {
  */
 function onCleanStructure(): void {
   if (!drawEditor) return;
-  const mol = drawEditor.getMolecule();
+  // Clean lays out the structures again; a page that also holds brackets, arrows or text keeps its layout.
+  if (drawEditor.hasDrawing()) {
+    setStatus("Clean lays out a page of structures only — this page also has brackets, arrows or text, which keep their places. Move the structures by hand (Select, then drag).", "error");
+    return;
+  }
+  const chem = drawEditor.chemistry();
+  if (!chem.ok) {
+    setStatus(`Clean needs the structure as chemistry: ${chem.reason}.`, "error");
+    return;
+  }
+  const mol = chem.mol;
   if (mol.getAllAtoms() === 0) {
     setStatus("Nothing to clean — the canvas is empty.", "error");
     return;
@@ -5169,13 +5192,30 @@ function renderCompliance(issues: ComplianceIssue[]): void {
 function updateDrawPreview(preserveStatus = false): void {
   currentBuild = null;
   insertBuildBtn.disabled = true;
-  const mol = drawEditor ? drawEditor.getMolecule() : null;
+  const pageEmpty = !drawEditor || !drawEditor.page().objects.length;
+  const chem = drawEditor && !pageEmpty ? drawEditor.chemistry() : null;
+  const mol = drawEditor ? (chem?.ok ? chem.mol : drawEditor.getMolecule()) : null;
+  // What inserts from the Draw tab is the page as drawn; the preview shows it.
+  const drawn = drawEditor && !pageEmpty ? drawEditor.render(false) : null;
 
   // Canvas editing is fluid — deleting an R1 atom to redraw it must not throw
   // away the definition the user typed for it, so R-group values persist
   // through every transient state of the drawing.
   keepRgroupValues = true;
   try {
+    if (!pageEmpty && drawn && (!chem?.ok || !mol || mol.getAllAtoms() === 0)) {
+      // A page with no structure as chemistry (only arrows and text, or labels with no exact form): it
+      // inserts as drawn, and says why there is no formula.
+      buildFragmentToggle.checked = !!drawEditor?.isFragment();
+      buildPreviewEl.innerHTML = drawn.svg;
+      buildFormulaEl.textContent = chem && !chem.ok ? `— (${chem.reason})` : "—";
+      buildSmilesEl.textContent = "—";
+      renderRgroupInputs([]);
+      renderCompliance([]);
+      insertBuildBtn.disabled = false;
+      if (!preserveStatus) setStatus("");
+      return;
+    }
     if (!mol || mol.getAllAtoms() === 0) {
       // The box MIRRORS the molecule's fragment flag, so ticking it on an
       // empty canvas pre-arms Markush for the drawing about to happen (a real
@@ -5187,7 +5227,7 @@ function updateDrawPreview(preserveStatus = false): void {
       const hint = document.createElement("span");
       hint.className = "hint";
       hint.textContent =
-        "Draw a structure on the canvas above — the toolbar has atom, bond, ring and template tools.";
+        "Draw on the canvas above — click for a bond, drag from an atom to grow it; the toolbar has atoms, rings, chains, charges, brackets, arrows and text.";
       buildPreviewEl.appendChild(hint);
       buildFormulaEl.textContent = "—";
       buildSmilesEl.textContent = "—";
@@ -5198,11 +5238,13 @@ function updateDrawPreview(preserveStatus = false): void {
     }
 
     try {
-      const result = resultFromMolecule(mol, STRUCTURE_W, STRUCTURE_H);
+      let result = resultFromMolecule(mol, STRUCTURE_W, STRUCTURE_H);
       currentBuild = result;
       // Reflect the result, not just the flag: a drawn R-group makes the
       // structure generic even when the user never ticked the box.
       buildFragmentToggle.checked = result.generic;
+      // The page as drawn is what inserts (the chemistry gives the formula, SMILES and alt text).
+      if (drawn) currentBuild = result = { ...result, svg: drawn.svg };
       buildPreviewEl.innerHTML = result.svg;
       buildFormulaEl.textContent = result.formula + (result.mw ? ` (MW ${result.mw})` : "");
       buildSmilesEl.textContent = result.smiles || "—";
@@ -5244,6 +5286,10 @@ function openDrawDialog(): void {
     return;
   }
   let url = new URL("drawdialog.html", window.location.href).href;
+  if (drawEditor?.hasDrawing()) {
+    setStatus("The large canvas takes structures only for now — this page also has brackets, arrows or text, which would be lost there. Edit it here (drag the canvas's corner to make it taller).", "error");
+    return;
+  }
   if (drawEditor) {
     const mol = drawEditor.getMolecule();
     if (mol.getAllAtoms() > 0) {
@@ -5660,6 +5706,8 @@ function currentLegendEntries(): LegendEntry[] {
 
 /** Inserts the built molecule's structure as an inline picture, plus an R-group legend if defined. */
 async function insertBuild(): Promise<void> {
+  // A drawn page with no structure as chemistry (arrows, text, labels with no exact form) inserts as drawn.
+  if (!currentBuild && buildTab === "draw" && drawEditor?.page().objects.length) return insertDrawingOnly(false);
   const molecule = currentBuild;
   if (!molecule) {
     setStatus("Nothing built to insert.", "error");
@@ -5690,7 +5738,16 @@ async function insertBuild(): Promise<void> {
   setStatus("Inserting structure…");
 
   try {
-    const d = readSvgDims(molecule.svg, STRUCTURE_W, STRUCTURE_H);
+    // From the Draw tab the picture is the page as drawn, at ChemDraw's size (fitted to the page).
+    let d = readSvgDims(molecule.svg, STRUCTURE_W, STRUCTURE_H);
+    if (buildTab === "draw" && drawEditor) {
+      const r = drawEditor.render(false);
+      if (r) {
+        const fit = chemdrawFit(r.widthPt, r.heightPt);
+        if (!fit.ok) throw new Error(fit.reason);
+        d = { w: (r.widthPt * 96 * fit.k) / 72, h: (r.heightPt * 96 * fit.k) / 72 };
+      }
+    }
     const base64 = await renderFigurePng(molecule.svg, d.w, d.h);
     const label = molecule.formula || "molecule";
     const alt = provenanceAltText(`2D structure (${label})`, molecule.formula, molecule.mw, molecule.smiles, molecule.idcode);
@@ -29796,6 +29853,43 @@ async function insertCadDrawing(svg: string, widthPx: number, heightPx: number, 
     selectAfter: true,
     tag: "formula-inserter:cad",
   });
+}
+
+/**
+ * The Draw page (or its selection) inserted, or put in place of the picture selected in the document,
+ * as drawn. The alt text carries the chemistry when the drawing has an exact one (formula, SMILES, idcode
+ * — how a structure opens again), else says why it has none.
+ */
+async function insertDrawingOnly(selectionOnly: boolean, replace = false): Promise<void> {
+  if (!drawEditor) return;
+  const r = drawEditor.render(selectionOnly);
+  if (!r) return setStatus(selectionOnly ? "Nothing is selected — click a structure first." : "Nothing drawn to insert.", "error");
+  const fit = chemdrawFit(r.widthPt, r.heightPt);
+  if (!fit.ok) return setStatus(`${selectionOnly ? "The selection" : "The page"}: ${fit.reason}.`, "error");
+  const chem = drawEditor.chemistry(selectionOnly);
+  let alt = "Structure drawing.";
+  let label = "drawing";
+  if (chem.ok && chem.mol.getAllAtoms()) {
+    try {
+      const res = resultFromMolecule(chem.mol, STRUCTURE_W, STRUCTURE_H);
+      alt = provenanceAltText(`2D structure (${res.formula || "molecule"})`, res.formula, res.mw, res.smiles, res.idcode);
+      label = res.formula || label;
+    } catch {
+      /* the drawing alone */
+    }
+  } else if (!chem.ok) alt = `Structure drawing (no single formula: ${chem.reason}).`;
+  const w = (r.widthPt * 96 * fit.k) / 72, h = (r.heightPt * 96 * fit.k) / 72;
+  try {
+    const base64 = await renderFigurePng(r.svg, w, h);
+    const pic = { base64, widthPt: figurePoints(w), heightPt: figurePoints(h), alt, selectAfter: !replace, tag: "formula-inserter:structure" };
+    if (replace) {
+      if (!(await docHost.replaceSelectedPicture(pic))) return setStatus("Select the picture to replace in the document first (click it; it must sit in line with the text).", "error");
+    } else await docHost.insertPictureAtSelection(pic);
+    setStatus(`${replace ? "Replaced the selected picture with" : "Inserted"} ${selectionOnly ? "the selection" : "the drawing"}. ${fit.note}`, "success");
+    recordInsert("build", chem.ok ? `idcode: ${chem.mol.getIDCode()}` : "drawing", label);
+  } catch (error) {
+    setStatus(`Could not ${replace ? "replace the picture" : "insert the drawing"}: ${(error as Error).message}`, "error");
+  }
 }
 
 /** Formats a number for the pane: up to 8 significant digits, no trailing zeros. */

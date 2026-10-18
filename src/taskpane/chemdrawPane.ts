@@ -23,6 +23,8 @@ export interface ChemdrawHost {
   readSelectionOoxml?(): Promise<string | null>;
   /** Puts an SVG in place of the picture selected in the document; false = no picture selected. */
   replacePicture?(svg: string, widthPx: number, heightPx: number, alt: string): Promise<boolean>;
+  /** One canvas: put an opened ChemDraw page on the Draw canvas (true = done; the panel stays closed). */
+  openPage?(doc: CdxDoc, name: string): boolean;
 }
 
 /** Room on a Word page for a picture: 6.5 × 9 in, in points. */
@@ -298,6 +300,7 @@ export function initChemdrawPane(host: ChemdrawHost): void {
           return host.setStatus(`${file.name}: the file could not be read (${(e as Error).message}).`, "error");
         }
         if (!r.ok) return host.setStatus(r.reason, "error");
+        if (host.openPage) return void load(r.doc, file.name);
         load(r.doc, file.name);
         host.setStatus(`${file.name} opened — click a structure to select it (with its brackets, labels and charges), then Insert selected; the tools above the page edit it.`, "success");
       }, 0);
@@ -306,6 +309,7 @@ export function initChemdrawPane(host: ChemdrawHost): void {
   });
   /** Puts a document on the page (from a file or a picture), fresh: no selection, no undo. */
   const load = (d: CdxDoc, label: string): void => {
+    if (host.openPage?.(d, label)) return;
     doc = d;
     name = label;
     fromPicture = false;
@@ -333,6 +337,7 @@ export function initChemdrawPane(host: ChemdrawHost): void {
       const r = readCdxmlTree(b.root);
       if (!r.ok) return host.setStatus(`The picture's ChemDraw drawing could not be read: ${r.reason}.`, "error");
       r.doc.notes = [...b.notes, ...r.doc.notes];
+      if (host.openPage) return void load(r.doc, "The ChemDraw picture");
       load(r.doc, "ChemDraw picture");
       fromPicture = true;
       host.setStatus("The ChemDraw picture opened as its drawing — edit it here; Replace selected picture puts the edited drawing in its place (Insert adds it after). What goes in is a picture JurisLab drew: Save as .cdxml to keep the drawing editable.", "success");

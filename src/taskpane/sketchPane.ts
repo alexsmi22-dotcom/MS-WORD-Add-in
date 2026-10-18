@@ -394,6 +394,10 @@ export function initSketchPanel(host: SketchPanelHost): { open(sketch?: Sketch, 
     if (e.button === 2) return; // the context menu ends the tool (below)
     const [x, y] = at(e);
     if (dimTool) {
+      e.preventDefault(); // no mouse-down focus change: the value box keeps the typing
+      // Smart Dimension on a dimension's own label: edit that dimension.
+      const label = labelAt(e);
+      if (label) return offerDimension(label);
       // Smart Dimension: the clicked element (a second line for an angle, a second point for a distance).
       const hit = pick(st.sketch, x, y, tolerance());
       if (!hit || st.sketch.constraints.some((c) => c.id === hit)) return say("Click a line, circle or arc — or two lines for an angle, two points for a distance.", true);
@@ -407,11 +411,13 @@ export function initSketchPanel(host: SketchPanelHost): { open(sketch?: Sketch, 
         say("Click the second point (or line).");
         return paint();
       }
+      // Already dimensioned the same way: edit that dimension (a second one would only conflict).
+      const same = existingDimension(spec as unknown as Record<string, unknown>);
+      if (same) return offerDimension(same);
       dimIn.value = formatDimension({ ...spec, id: "_" } as never, (spec as { value: number }).value);
       say("Type the value and press Enter.");
       paint();
-      dimIn.focus();
-      dimIn.select();
+      focusValueBox();
       return;
     }
     if (st.tool === "select") {
@@ -439,6 +445,35 @@ export function initSketchPanel(host: SketchPanelHost): { open(sketch?: Sketch, 
     drawAt(s.x, s.y);
   });
   const kindIsLine = (id: string): boolean => st.sketch.entities.some((e) => e.id === id && e.kind === "line");
+  /** A dimension of the same kind on the same elements (either order for two), or null. */
+  function existingDimension(spec: Record<string, unknown>): string | null {
+    const keys = ["line", "curve", "p", "q", "l1", "l2"].filter((k) => typeof spec[k] === "string");
+    const want = keys.map((k) => spec[k]).sort().join("|");
+    const c = st.sketch.constraints.find((k) => {
+      const r = k as unknown as Record<string, unknown>;
+      return k.kind === spec.kind && keys.map((key) => r[key]).sort().join("|") === want;
+    });
+    return c ? c.id : null;
+  }
+  /** The value box, focused and selected once the click that asked for it has finished. */
+  function focusValueBox(): void {
+    const go = (): void => {
+      dimIn.focus({ preventScroll: true });
+      dimIn.select();
+    };
+    go();
+    window.setTimeout(go, 0);
+  }
+  /** Selects a dimension and puts its value in the box, as shown (45°, Ø20, R5), ready to retype. */
+  function offerDimension(id: string): void {
+    const c = st.sketch.constraints.find((k) => k.id === id);
+    if (!c) return;
+    st = { ...st, selection: [id] };
+    dimIn.value = formatDimension(c, "driven" in c && c.driven ? measure(st.sketch, c) : (c as { value: number }).value);
+    say("Type the new value and press Enter.");
+    paint();
+    focusValueBox();
+  }
   canvas.addEventListener("pointermove", (e) => {
     if (panFrom) {
       view = { ...panFrom.view, ox: panFrom.view.ox + e.clientX - panFrom.cx, oy: panFrom.view.oy + e.clientY - panFrom.cy };
@@ -572,7 +607,7 @@ export function initSketchPanel(host: SketchPanelHost): { open(sketch?: Sketch, 
     else if (/^[0-9.]$/.test(e.key) && typedFields(st.tool).length && !dimTool && sizeIn[0]) {
       // Typing a size goes straight into the first size field.
       e.preventDefault();
-      sizeIn[0].focus();
+      sizeIn[0].focus({ preventScroll: true });
       sizeIn[0].value = e.key;
     } else if (e.key.toLowerCase() === "f") fitBtn?.click();
     else if (e.key.toLowerCase() === "g" && gridChk) {

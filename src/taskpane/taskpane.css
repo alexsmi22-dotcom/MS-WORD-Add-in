@@ -2450,9 +2450,20 @@ select {
 .cad-sketch-ribbon { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
 .sk-group { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; padding: 2px 6px 2px 0; border-right: 1px solid var(--border); }
 .sk-group:last-child { border-right: 0; }
-.sk-group-name { font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; color: #6b7280; width: 100%; }
+.sk-group-name { font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); width: 100%; }
 .cad-sketch-inputbar { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; margin: 6px 0 4px; min-height: 28px; }
-.sk-prompt { flex: 1 1 220px; font-size: 12px; color: #374151; }
+.sk-prompt { flex: 1 1 220px; font-size: 12px; color: var(--text); }
 .sk-size { width: 6em; }
-.sk-grid-label { font-size: 11px; color: #6b7280; }
+.sk-grid-label { font-size: 11px; color: var(--muted); }
 .cad-sketch-ribbon .insert-btn.active { outline: 2px solid var(--accent, #2563eb); }
+
+/* Finishing the sketch (Extrude / Revolve, Done, Cancel) sits at the TOP, as Solid Edge's Close
+   Sketch does: below a tall canvas it was out of sight. */
+.cad-sketch:not([hidden]) { display: flex; flex-direction: column; }
+.cad-sketch .sk-finish { order: -1; }
+.cad-sketch-inputbar .cad-sketch-check { color: var(--text); }
+.cad-sketch > .cad-sketch-canvas,
+.cad-sketch > #cad-sketch-status,
+.cad-sketch > .sk-relations { order: 1; }
+/* The message line keeps its place, so the canvas does not jump when a message appears. */
+.cad-sketch > #cad-sketch-msg { min-height: 1.4em; }

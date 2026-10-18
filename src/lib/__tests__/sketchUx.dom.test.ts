@@ -209,3 +209,25 @@ describe("Solid Edge conventions", () => {
     expect(lens(sk)).toEqual([15, 15, 30, 30]);
   });
 });
+
+describe("found in the real browser", () => {
+  it("Smart Dimension on an edge that already has a dimension edits it (no second, conflicting one)", () => {
+    const t = setup();
+    t.openSketch();
+    t.panel.focus();
+    t.key("r");
+    t.$<HTMLInputElement>("cad-sketch-in1").value = "40";
+    t.$<HTMLInputElement>("cad-sketch-in2").value = "20";
+    t.ev("pointerdown", 0, 0);
+    t.key("d");
+    t.ev("pointerdown", 20, 0);
+    const box = t.$<HTMLInputElement>("cad-sketch-dim");
+    expect(box.value).toBe("40");
+    box.value = "50";
+    box.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    expect(t.$("cad-sketch-msg").textContent).toBe("");
+    const sk = t.sketchOf();
+    expect(sk.constraints.filter((c) => c.kind === "length").map((c) => (c as { value: number }).value).sort()).toEqual([20, 50]);
+    expect(lens(sk)).toEqual([20, 20, 50, 50]);
+  });
+});

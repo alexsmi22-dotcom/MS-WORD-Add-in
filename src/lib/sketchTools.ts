@@ -61,14 +61,22 @@ class Builder {
   }
   /** Solves and verifies; the new state, or the refusal. */
   done(st: EditState, note?: string): EditResult {
-    // Checked against the sketch AS IT WAS: nothing may turn over or newly cross what was there.
-    const r = solve(this.sk, {}, st.sketch);
+    // Checked against the geometry as BUILT: existing points are where they were, and what the tool
+    // drew on purpose (a mirrored diagonal across another line, a trimmed piece) is not a new crossing.
+    const r = solve(this.sk, {}, this.sk);
     if (!r.ok) return { ok: false, state: st, reason: r.reason };
     return { ok: true, state: { ...st, sketch: r.sketch, seq: this.seq, pending: [], selection: [] }, note };
   }
 }
 
 const P = (sk: Sketch, id: string): SPoint => sk.points.find((p) => p.id === id)!;
+
+/** Two segments cross at an interior point of both (touching ends do not count). */
+function segmentsCross([ax, ay, bx, by]: [number, number, number, number], [cx, cy, dx, dy]: [number, number, number, number]): boolean {
+  const o = (px: number, py: number, qx: number, qy: number, rx: number, ry: number): number => (qx - px) * (ry - py) - (qy - py) * (rx - px);
+  const d1 = o(cx, cy, dx, dy, ax, ay), d2 = o(cx, cy, dx, dy, bx, by), d3 = o(ax, ay, bx, by, cx, cy), d4 = o(ax, ay, bx, by, dx, dy);
+  return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
+}
 const E = (sk: Sketch, id: string): SEntity | undefined => sk.entities.find((e) => e.id === id);
 
 // ---- drawing tools -------------------------------------------------------------------------
@@ -82,7 +90,9 @@ export function polygon(st: EditState, cx: number, cy: number, vx: number, vy: n
   const c = b.ptOr(cx, cy, snaps[0]);
   const circ = b.circle(c, R, true);
   const t0 = Math.atan2(vy - cy, vx - cx);
-  const v = Array.from({ length: sides }, (_, k) => b.pt(cx + R * Math.cos(t0 + (2 * Math.PI * k) / sides), cy + R * Math.sin(t0 + (2 * Math.PI * k) / sides)));
+  const v = Array.from({ length: sides }, (_, k) =>
+    k === 0 ? b.ptOr(vx, vy, snaps[1]) : b.pt(cx + R * Math.cos(t0 + (2 * Math.PI * k) / sides), cy + R * Math.sin(t0 + (2 * Math.PI * k) / sides)),
+  );
   const lines = v.map((p, k) => b.line(p, v[(k + 1) % sides], st.construction));
   for (const p of v) b.con({ kind: "onCircle", p, curve: circ });
   for (let k = 1; k < sides; k++) b.con({ kind: "equal", e1: lines[0], e2: lines[k] });
@@ -118,7 +128,10 @@ export function centreRectangle(st: EditState, cx: number, cy: number, x: number
   if (!(dx > 0 && dy > 0)) return { ok: false, state: st, reason: "a rectangle needs width and height — click a corner away from the centre" };
   const b = new Builder(st);
   const c = b.ptOr(cx, cy, snaps[0]);
-  const p = [b.pt(cx - dx, cy - dy), b.pt(cx + dx, cy - dy), b.pt(cx + dx, cy + dy), b.pt(cx - dx, cy + dy)];
+  // The clicked corner is the one on its side of the centre; it uses the snapped point.
+  const hit = y < cy ? (x < cx ? 0 : 1) : x > cx ? 2 : 3;
+  const at: Array<[number, number]> = [[cx - dx, cy - dy], [cx + dx, cy - dy], [cx + dx, cy + dy], [cx - dx, cy + dy]];
+  const p = at.map(([px, py], i) => (i === hit ? b.ptOr(x, y, snaps[1]) : b.pt(px, py)));
   const l = p.map((q, i) => b.line(q, p[(i + 1) % 4], st.construction));
   b.con({ kind: "horizontal", line: l[0] });
   b.con({ kind: "vertical", line: l[1] });
@@ -344,6 +357,13 @@ export function offset(st: EditState, d: number): EditResult {
   for (let i = 0; i < n; i++) {
     const p = pts[i], q = pts[(i + 1) % n], [x1, y1] = corners[i], [x2, y2] = corners[(i + 1) % n];
     if ((q.x - p.x) * (x2 - x1) + (q.y - p.y) * (y2 - y1) <= 0) return { ok: false, state: st, reason: `an offset of ${+d.toFixed(4)} is larger than this outline allows` };
+  }
+  const segs: Array<[number, number, number, number]> = [];
+  for (let i = 0; i < n; i++) segs.push([corners[i][0], corners[i][1], corners[(i + 1) % n][0], corners[(i + 1) % n][1]]);
+  const orig: Array<[number, number, number, number]> = pts.map((p, i) => [p.x, p.y, pts[(i + 1) % n].x, pts[(i + 1) % n].y]);
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 2; j < n; j++) if (!(i === 0 && j === n - 1) && segmentsCross(segs[i], segs[j])) return { ok: false, state: st, reason: `an offset of ${+d.toFixed(4)} is larger than this outline allows` };
+    for (const o of orig) if (segmentsCross(segs[i], o)) return { ok: false, state: st, reason: `an offset of ${+d.toFixed(4)} is larger than this outline allows` };
   }
   const ids = corners.map(([x, y]) => b.pt(x, y));
   const newLines = ids.map((p, i) => b.line(p, ids[(i + 1) % n]));

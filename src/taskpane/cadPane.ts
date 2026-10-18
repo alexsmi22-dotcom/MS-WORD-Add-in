@@ -698,6 +698,7 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
 
   openBtn.addEventListener("click", async () => {
     if (!host.readSelectedAlt) return;
+    if (sketching()) return host.setStatus("Finish the sketch first (Done or Cancel).", "error");
     try {
       const alt = await host.readSelectedAlt();
       if (alt === null) {
@@ -805,6 +806,7 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
   let shown = false;
   return {
     load(json: string): string | null {
+      if (sketching()) return "Finish the sketch first (Done or Cancel).";
       const r = parseDoc(json);
       if (!r.ok) return r.reason;
       shown = true;

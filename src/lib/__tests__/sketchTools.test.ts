@@ -244,3 +244,37 @@ describe("sketcher review — every finding pinned", () => {
     expect(fillet(rr, a, b, 2)).toMatchObject({ ok: false, reason: "that corner is already rounded — change its R dimension instead" });
   });
 });
+
+describe("sketcher re-review — every finding pinned", () => {
+  it("1: trimming the middle piece of a line that crosses three others removes just that piece", () => {
+    let st = clicks(startEdit(), "line", [[0, 0], [30, 0]]);
+    for (const x of [5, 12, 20]) st = clicks({ ...st, pending: [] }, "line", [[x, -5], [x, 5]]);
+    const r = trim(st, st.sketch.entities[0].id, 8, 0);
+    expect(r).toMatchObject({ ok: true });
+  });
+  it("2: a diagonal mirrored about a line it crosses, and a rectangle patterned onto itself, are allowed", () => {
+    let st = clicks(startEdit(), "line", [[-5, -3], [5, 3]]);
+    st = { ...st, pending: [], construction: true };
+    st = clicks(st, "line", [[0, -10], [0, 10]]);
+    const [d, ax] = st.sketch.entities.map((e) => e.id);
+    expect(mirror({ ...st, pending: [], construction: false, selection: [d, ax] })).toMatchObject({ ok: true });
+    const sq = clicks(startEdit(), "rectangle", [[0, 0], [10, 10]]);
+    expect(linearPattern({ ...sq, selection: lineIds(sq.sketch) }, 2, 5, 5)).toMatchObject({ ok: true });
+  });
+  it("2: an inward offset that would make an hourglass outline cross itself is refused in plain words", () => {
+    // A bow-tie-ish concave outline: a narrow waist.
+    let st = startEdit();
+    const pts: Array<[number, number]> = [[0, 0], [20, 0], [11, 5], [20, 10], [0, 10], [9, 5]];
+    for (let i = 0; i < pts.length; i++) st = clicks({ ...st, pending: [] }, "line", [pts[i], pts[(i + 1) % pts.length]]);
+    const r = offset({ ...st, pending: [], selection: lineIds(st.sketch) }, -2);
+    expect(r).toMatchObject({ ok: false, reason: "an offset of -2 is larger than this outline allows" });
+  });
+  it("7: the second click of a centre rectangle and of a polygon snaps to an existing point", () => {
+    let st = clicks(startEdit(), "point", [[10, 5]]);
+    st = clicks({ ...st, pending: [] }, "centreRectangle", [[0, 0], [10, 5]]);
+    expect(st.sketch.points).toHaveLength(5); // 4 corners (one is the old point) + the centre
+    let pg = clicks(startEdit(), "point", [[10, 0]]);
+    pg = clicks({ ...pg, pending: [] }, "polygon", [[0, 0], [10, 0]]);
+    expect(pg.sketch.points).toHaveLength(7); // 6 vertices (one is the old point) + the centre
+  });
+});

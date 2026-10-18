@@ -18,7 +18,7 @@ const flush = async (): Promise<void> => {
   for (let i = 0; i < 5; i++) await Promise.resolve();
 };
 
-function setup() {
+function setup(extra: Partial<CadPaneHost> = {}) {
   document.body.innerHTML = SECTION;
   const inserted: string[] = [];
   const host: CadPaneHost = {
@@ -27,6 +27,7 @@ function setup() {
     insertPicture: jest.fn(async (_svg: string, _w: number, _h: number, alt: string) => {
       inserted.push(alt);
     }),
+    ...extra,
   };
   const pane = initCadPane(host);
   pane.show();
@@ -205,5 +206,84 @@ describe("sketcher review — the pane findings pinned", () => {
     t.$<HTMLButtonElement>("cad-sketch-cancel").click();
     expect(t.pane.isSketching()).toBe(false);
     expect(t.pane.getDoc()).toBe(before);
+  });
+});
+
+describe("sketcher re-review — the pane findings pinned", () => {
+  const ev = (type: string, x: number, y: number): void => {
+    document.getElementById("cad-sketch-canvas")!.dispatchEvent(new MouseEvent(type, { clientX: 190 + (x * 8) / 3, clientY: 160 - (y * 8) / 3, bubbles: true }));
+  };
+  const rectangle = (t: ReturnType<typeof setup>): void => {
+    t.$<HTMLSelectElement>("cad-shape").value = "sketch";
+    t.$<HTMLButtonElement>("cad-add").click();
+    t.toolBtn("rectangle").click();
+    t.tap(0, 0);
+    t.tap(30, 20);
+    t.toolBtn("select").click();
+  };
+  const cornerX = (t: ReturnType<typeof setup>): number => {
+    t.$<HTMLButtonElement>("cad-sketch-done").click();
+    const d = parseDoc(t.pane.getDoc());
+    if (!d.ok) throw new Error(d.reason);
+    const sk = d.doc.parts.find((p) => p.shape === "sketch")!.sketch!;
+    return Math.max(...sk.points.map((q) => q.x));
+  };
+  afterEach(() => jest.useRealTimers());
+  it("4: a drag released before its next frame still lands where the pointer let go", () => {
+    jest.useFakeTimers();
+    const t = setup();
+    rectangle(t);
+    ev("pointerdown", 30, 20);
+    ev("pointermove", 35, 20);
+    jest.advanceTimersByTime(20);
+    ev("pointermove", 45, 20);
+    ev("pointerup", 45, 20);
+    expect(cornerX(t)).toBeCloseTo(45, 6);
+  });
+  it("5: a quick flick moves the point and one undo takes it back; a press that wanders back adds no undo step", () => {
+    jest.useFakeTimers();
+    const t = setup();
+    rectangle(t);
+    ev("pointerdown", 30, 20);
+    ev("pointermove", 40, 20);
+    ev("pointerup", 40, 20);
+    t.$<HTMLButtonElement>("cad-sketch-undo").click(); // the flick only: the rectangle is still there
+    expect(t.$<HTMLElement>("cad-sketch-status").textContent).toMatch(/^4 degrees of freedom left/);
+    ev("pointerdown", 30, 20);
+    ev("pointermove", 32, 20);
+    jest.advanceTimersByTime(20);
+    ev("pointermove", 30, 20);
+    jest.advanceTimersByTime(20);
+    ev("pointerup", 30, 20);
+    t.$<HTMLButtonElement>("cad-sketch-undo").click(); // straight to before the rectangle
+    expect(t.$<HTMLElement>("cad-sketch-status").textContent).toMatch(/^Draw lines/);
+  });
+  it("3: Circular takes the angle as shown — 180° — not only a bare number", () => {
+    const t = setup();
+    t.$<HTMLSelectElement>("cad-shape").value = "sketch";
+    t.$<HTMLButtonElement>("cad-add").click();
+    t.toolBtn("circle").click();
+    t.tap(10, 0);
+    t.tap(12, 0);
+    t.toolBtn("point").click();
+    t.tap(0, 0);
+    t.toolBtn("select").click();
+    t.tap(12, 0);
+    t.tap(0, 0);
+    t.$<HTMLInputElement>("cad-sketch-dim").value = "180°";
+    t.$<HTMLButtonElement>("cad-sketch-circular").click();
+    expect(t.$<HTMLElement>("cad-sketch-msg").textContent).not.toMatch(/^Type the pattern's total angle/);
+  });
+  it("6: Edit drawing at cursor and load() wait while a sketch is open", async () => {
+    const readSelectedAlt = jest.fn(async () => "x");
+    const t = setup({ readSelectedAlt });
+    const before = t.pane.getDoc();
+    t.$<HTMLSelectElement>("cad-shape").value = "sketch";
+    t.$<HTMLButtonElement>("cad-add").click();
+    t.$<HTMLButtonElement>("cad-open").click();
+    await flush();
+    expect(readSelectedAlt).not.toHaveBeenCalled();
+    expect(t.host.setStatus).toHaveBeenLastCalledWith("Finish the sketch first (Done or Cancel).", "error");
+    expect(t.pane.load(before)).toBe("Finish the sketch first (Done or Cancel).");
   });
 });

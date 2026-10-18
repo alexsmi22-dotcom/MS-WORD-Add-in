@@ -59,8 +59,8 @@ export function initSketchPanel(host: SketchPanelHost): { open(sketch?: Sketch, 
   const countIn = el<HTMLInputElement>("cad-sketch-count");
 
   /** A number typed in the value box (comma decimal accepted; sign allowed), or null. */
-  const valueBox = (allowR = false): number | null => {
-    let t = dimIn.value.trim().replace(",", ".").replace(/(mm)$/i, "");
+  const valueBox = (allowR = false, allowDeg = false): number | null => {
+    let t = dimIn.value.trim().replace(",", ".").replace(allowDeg ? /°$/ : /(mm)$/i, "");
     if (allowR) t = t.replace(/^(R|r)/, "");
     // A Ø (a diameter) is not a radius or a distance: refused rather than stripped.
     return /^[+-]?(\d+(\.\d*)?|\.\d+)$/.test(t) ? Number(t) : null;
@@ -95,7 +95,7 @@ export function initSketchPanel(host: SketchPanelHost): { open(sketch?: Sketch, 
     apply(linearPattern(st, Number(countIn?.value ?? 3), dx, dy ?? 0));
   });
   onClick("cad-sketch-circular", () => {
-    const total = dimIn.value.trim() ? valueBox() : 360;
+    const total = dimIn.value.trim() ? valueBox(false, true) : 360;
     if (total === null) return say("Type the pattern's total angle (for example 180°), or leave the box empty for all the way round.", true);
     apply(circularPattern(st, Number(countIn?.value ?? 3), total));
   });
@@ -240,7 +240,13 @@ export function initSketchPanel(host: SketchPanelHost): { open(sketch?: Sketch, 
   };
   /** A press on a point in Select: a CLICK selects it; it becomes a drag only once the pointer moves. */
   let pressed: { point: string; cx: number; cy: number; x: number; y: number } | null = null;
-  let dragFrame = 0, dragTo: [number, number] | null = null;
+  let dragFrame = 0, dragTo: [number, number] | null = null, dragFrom: Sketch | null = null;
+  const dragStep = (): void => {
+    if (dragging && dragTo) {
+      const r = drag(st, dragging, dragTo[0], dragTo[1]);
+      if (r.ok) st = r.state;
+    }
+  };
   canvas.addEventListener("pointerdown", (e) => {
     const [x, y] = at(e);
     if (st.tool === "select") {
@@ -271,7 +277,7 @@ export function initSketchPanel(host: SketchPanelHost): { open(sketch?: Sketch, 
     hover = { x, y };
     if (pressed && !dragging && Math.hypot(e.clientX - pressed.cx, e.clientY - pressed.cy) > 3) {
       dragging = pressed.point;
-      history = [...history.slice(-49), st.sketch];
+      dragFrom = st.sketch;
     }
     if (dragging) {
       // One solve per frame at most, whatever the pointer's event rate.
@@ -280,8 +286,7 @@ export function initSketchPanel(host: SketchPanelHost): { open(sketch?: Sketch, 
         dragFrame = window.setTimeout(() => {
           dragFrame = 0;
           if (dragging && dragTo) {
-            const r = drag(st, dragging, dragTo[0], dragTo[1]);
-            if (r.ok) st = r.state;
+            dragStep();
             paint();
           }
         }, 16);
@@ -297,7 +302,22 @@ export function initSketchPanel(host: SketchPanelHost): { open(sketch?: Sketch, 
     }
     pressed = null;
     if (dragging) {
+      // The pending step runs now, so the point ends where the pointer let go.
+      if (dragFrame) {
+        window.clearTimeout(dragFrame);
+        dragFrame = 0;
+        if (e) dragStep();
+      }
+      // An undo step only when a point really moved (a press that wandered back moved nothing).
+      const from = dragFrom;
+      const moved = !!from && st.sketch.points.some((q) => {
+        const o = from.points.find((k) => k.id === q.id);
+        return !o || Math.abs(o.x - q.x) > 1e-12 || Math.abs(o.y - q.y) > 1e-12;
+      });
+      if (from && moved) history = [...history.slice(-49), from];
       dragging = null;
+      dragFrom = null;
+      dragTo = null;
       paint();
     }
   };

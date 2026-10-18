@@ -6,6 +6,7 @@
  * into Word at ChemDraw's own size. The file is read on this machine and nothing of it leaves it.
  */
 import { readCdxml, readCdxmlTree, CdxDoc, Box, Pt } from "../lib/cdxml";
+import { readCdx } from "../lib/cdx";
 import { renderCdx } from "../lib/cdxmlRender";
 import { atomAt, bondAt, captionAt, objectAt, objectBoxes, withCompanions } from "../lib/cdxmlSelect";
 import { addBondFrom, cloneTree, deleteInStructure, deleteObjects, findById, moveObjects, namesTiedTo, setAtomLabel, setBond, setCharge, setText, writeCdxml } from "../lib/cdxmlEdit";
@@ -31,9 +32,19 @@ const UNDO_DEPTH = 50;
 export function openChemdrawFile(name: string, bytes: Uint8Array): { ok: true; doc: CdxDoc } | { ok: false; reason: string } {
   const ext = (/\.([a-z0-9]+)$/i.exec(name)?.[1] ?? "").toLowerCase();
   const magic = String.fromCharCode(...bytes.subarray(0, 8));
-  if (ext === "cdx" || magic === "VjCD0100")
-    return { ok: false, reason: `${name}: binary ChemDraw files (.cdx) are not read yet — in ChemDraw, use File ▸ Save As ▸ ChemDraw XML (.cdxml) and open that` };
-  if (ext !== "cdxml" && ext !== "xml") return { ok: false, reason: `${name}: this opens ChemDraw XML files (.cdxml)` };
+  // A binary ChemDraw file is known by its first bytes, whatever it is called.
+  if (magic === "VjCD0100") {
+    if (bytes.length > CHEMDRAW_MAX_BYTES) return { ok: false, reason: `${name}: the file is ${Math.ceil((bytes.length / 1048576) * 10) / 10} MB — this reads ChemDraw files up to 40 MB` };
+    const b = readCdx(bytes);
+    if (!b.ok) return { ok: false, reason: `${name}: ${b.reason}` };
+    const r = readCdxmlTree(b.root);
+    if (!r.ok) return { ok: false, reason: `${name}: ${r.reason}` };
+    r.doc.notes = [...b.notes.map((n) => `${n} (in the .cdx)`), ...r.doc.notes];
+    if (!r.doc.objects.length) return { ok: false, reason: `${name}: the page has nothing drawn on it` };
+    return r;
+  }
+  if (ext === "cdx") return { ok: false, reason: `${name}: it is not a ChemDraw CDX file (it does not start with VjCD0100)` };
+  if (ext !== "cdxml" && ext !== "xml") return { ok: false, reason: `${name}: this opens ChemDraw files (.cdx and .cdxml)` };
   if (bytes.length > CHEMDRAW_MAX_BYTES) return { ok: false, reason: `${name}: the file is ${Math.ceil((bytes.length / 1048576) * 10) / 10} MB — this reads ChemDraw files up to 40 MB` };
   const r = readCdxml(new TextDecoder("utf-8").decode(bytes));
   if (!r.ok) return { ok: false, reason: `${name}: ${r.reason}` };
@@ -427,7 +438,7 @@ export function initChemdrawPane(host: ChemdrawHost): void {
   });
   saveBtn?.addEventListener("click", () => {
     if (!doc || !host.downloadFile) return;
-    const out = name.replace(/\.(cdxml|xml)$/i, "") + (undo.length ? " (edited)" : "") + ".cdxml";
+    const out = name.replace(/\.(cdxml|cdx|xml)$/i, "") + (undo.length ? " (edited)" : "") + ".cdxml";
     host.downloadFile(new Blob([writeCdxml(doc.root)], { type: "chemical/x-cdxml" }), out);
     host.setStatus(`Saved ${out} — it opens in ChemDraw.`, "success");
   });

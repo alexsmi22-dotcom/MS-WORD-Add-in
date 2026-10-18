@@ -34,16 +34,19 @@ describe("opening a file", () => {
     expect(r.ok && r.doc.objects.length).toBe(5);
   });
   test.each([
-    ["figure.cdx", bytes("VjCD0100\u0004\u0003\u0002\u0001"), "figure.cdx: binary ChemDraw files (.cdx) are not read yet — in ChemDraw, use File ▸ Save As ▸ ChemDraw XML (.cdxml) and open that"],
-    ["figure.mol", bytes("x"), "figure.mol: this opens ChemDraw XML files (.cdxml)"],
+    ["figure.cdx", bytes("not a chemdraw file at all, just text"), "figure.cdx: it is not a ChemDraw CDX file (it does not start with VjCD0100)"],
+    ["cut.cdx", bytes("VjCD0100\u0004\u0003\u0002\u0001"), "cut.cdx: it is not a ChemDraw CDX file (it does not start with VjCD0100)"],
+    ["figure.mol", bytes("x"), "figure.mol: this opens ChemDraw files (.cdx and .cdxml)"],
     ["broken.cdxml", bytes("<CDXML><page>"), "broken.cdxml: it is not well-formed XML (line 1: <page> (line 1) is never closed)"],
     ["empty.cdxml", bytes('<CDXML><page id="1"/></CDXML>'), "empty.cdxml: the page has nothing drawn on it"],
   ])("%s is refused by name", (name, b, why) => {
     expect(openChemdrawFile(name, b)).toEqual({ ok: false, reason: why });
   });
-  test("a binary file is refused by its first bytes, whatever it is called", () => {
-    const r = openChemdrawFile("renamed.cdxml", bytes("VjCD0100rest"));
-    expect(r.ok).toBe(false);
+  test("a binary ChemDraw file opens by its first bytes, whatever it is called (a USPTO drawing)", () => {
+    const cdx = new Uint8Array(fs.readFileSync(path.join(__dirname, "fixtures", "US12128110-C00013.cdx")));
+    const r = openChemdrawFile("renamed.cdxml", cdx);
+    expect(r.ok && r.doc.program).toBe("ChemDraw 12.0.2.1039");
+    expect(openChemdrawFile("drawing.cdx", cdx).ok).toBe(true);
   });
 });
 

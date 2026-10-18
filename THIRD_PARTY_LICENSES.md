@@ -7,11 +7,14 @@ may be redistributed internally and externally.
 | ------------ | ------- | ------------ | --- |
 | openchemlib  | 8.x     | BSD-3-Clause | 2D structure rendering, molecule building, SMILES/IDCode |
 | core-js      | 3.x     | MIT          | JavaScript polyfills |
+| Revvity ChemDraw file-format tables | 2025 | BSD-3-Clause | `src/lib/cdxTags.ts`: CDX tag, attribute and enum names, generated from github.com/Glysade/chemdraw (Revvity's open-source ChemDraw format code); its copyright and licence notice is kept at the head of that file |
 
 Development-only dependencies (webpack, TypeScript, ts-loader, Jest, ts-jest,
 office-addin-* tooling, etc.) are **not** shipped in the `dist/` bundle and do not
 affect distribution licensing. Run `npx license-checker --production` to
 regenerate a full list of bundled-license texts if required by policy.
+
+Test fixtures `src/lib/__tests__/fixtures/US*.cdx` are drawings from published US patents (public documents), as used in RDKit's ChemDraw test data (BSD-3-Clause).
 
 ## License texts
 

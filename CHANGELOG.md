@@ -41,6 +41,14 @@ All notable changes to JurisLab. Dates are release/pilot dates.
   detail of a view not on the sheet is left out (1.84(h)(2)); the USPTO bracket now stands beyond the callout
   column; a face's centre snap stays on the face clicked (a U's two arm tops are two faces).
 
+### Fixed before release (second review — of the first fixes: 6 findings)
+- Hand-written text on an ISO / ASME sheet with a detail could make the sheet refuse (the detail-scale search
+  told the text fitting a larger scale than it drew); the search now reports the scale it drew, starts one
+  standard step higher, and a refusal keeps its real reason.
+- Marks on a detail of a small part landed on a coarse grid (rounded in the parent's plane); they are rounded to
+  a quarter pixel of the figure as drawn. Removing a detail also takes its marks out of the mark undo history;
+  ticking a view no longer refreshes the part editor (only Exploded does).
+
 ## [2.154.0] — 2026-10-18 — ChemDraw: chains, polymer brackets, arrows, replace in place
 
 ### Added

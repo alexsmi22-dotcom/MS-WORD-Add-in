@@ -172,3 +172,28 @@ describe("review fixes", () => {
     expect(t.doc().marks?.map((m) => m.view)).toEqual(["front"]);
   });
 });
+
+test("second review: removing a detail also drops its marks from the mark undo history", () => {
+  const d: CadDoc = { ...TABLE(), views: [{ kind: "front" }, { kind: "detail", letter: "A", of: "front", at: [2.5, 74], r: 6, factor: 2 }] };
+  const t = setup(d);
+  // A text mark drawn on the detail with the real tool, a little above its title.
+  document.querySelector<HTMLButtonElement>('[data-mark-tool="text"]')!.click();
+  (document.getElementById("cad-mark-text") as HTMLInputElement).value = "JOINT";
+  sizeSvg();
+  // "FIG. 2" is both the tag beside the circle on the front and the detail's own title (the last one).
+  const title = Array.from(document.querySelectorAll("#cad-preview text")).filter((q) => q.textContent === "FIG. 2").pop()!;
+  const x = Number(title.getAttribute("x")), y = Number(title.getAttribute("y")) - 30;
+  const ev = (type: string): void => {
+    const e = new MouseEvent(type, { clientX: x, clientY: y, button: 0, bubbles: true });
+    Object.defineProperty(e, "pointerId", { value: 1 });
+    t.$("cad-preview").dispatchEvent(e);
+  };
+  ev("pointerdown");
+  ev("pointerup");
+  expect(t.doc().marks?.map((m) => m.view)).toEqual(["detail:A"]);
+  expect(t.$<HTMLButtonElement>("cad-mark-undo").disabled).toBe(false);
+  document.querySelector<HTMLButtonElement>('[data-mark-tool="text"]')!.click(); // tool off
+  t.$("cad-details").querySelector<HTMLButtonElement>("button")!.click();
+  expect(t.doc().marks).toBeUndefined();
+  expect(t.$<HTMLButtonElement>("cad-mark-undo").disabled).toBe(true);
+});

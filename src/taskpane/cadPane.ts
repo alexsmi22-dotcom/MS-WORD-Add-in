@@ -501,7 +501,8 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     renderSheet();
     // The sheet refuses a detail it cannot draw (its circle holds nothing, or is larger than the figure): say why, keep nothing.
     if (!sheetFrames.some((q) => q.view === `detail:${letter}`)) {
-      const why = lastNotes.find((n) => n.startsWith(`Detail ${letter}`)) ?? `Detail ${letter} could not be drawn on this sheet.`;
+      // Its own reason, or (the whole sheet refused) the sheet's.
+      const why = lastNotes.find((n) => n.startsWith(`Detail ${letter}`)) ?? (sheetFrames.length ? `Detail ${letter} could not be drawn on this sheet.` : lastNotes[0] ?? `Detail ${letter} could not be drawn on this sheet.`);
       doc.views = doc.views.filter((v) => !(v.kind === "detail" && v.letter === letter));
       renderSheet();
       return host.setStatus(why, "error");
@@ -542,6 +543,12 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
           doc.marks = doc.marks.filter((m) => m.view !== `detail:${v.letter}`);
           if (!doc.marks.length) delete doc.marks;
         }
+        // …and out of the mark undo history (an undo must not bring one back onto a later detail A).
+        for (let i = markUndo.length - 1; i >= 0; i--) {
+          const u = markUndo[i];
+          if (("add" in u ? u.add : u.erased).view === `detail:${v.letter}`) markUndo.splice(i, 1);
+        }
+        if (markUndoBtn) markUndoBtn.disabled = !markUndo.length;
         renderDetails();
         renderSheet();
       });
@@ -612,7 +619,13 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     }
     return best;
   }
-  const toView = (f: SheetFrame, x: number, y: number): MarkPt => roundPt([(x - f.ox) / f.k + f.minX, (f.oyBottom - y) / f.k + f.minY]);
+  // Kept to 0.001 unit — finer where a figure is drawn large (a detail of a small part), so a mark never
+  // lands on a grid coarser than a quarter of a pixel on the sheet.
+  const toView = (f: SheetFrame, x: number, y: number): MarkPt => {
+    const p: MarkPt = [(x - f.ox) / f.k + f.minX, (f.oyBottom - y) / f.k + f.minY];
+    const step = Math.min(0.001, Math.pow(10, Math.floor(Math.log10(0.25 / f.k))));
+    return step >= 0.001 ? roundPt(p) : [Math.round(p[0] / step) * step, Math.round(p[1] / step) * step];
+  };
   const styleOf = (f: SheetFrame): MarkStyle => {
     const std = DRAWING_STANDARDS[doc.standard];
     return { X: (x) => f.ox + (x - f.minX) * f.k, Y: (y) => f.oyBottom - (y - f.minY) * f.k, strokePx: 1, fontPx: ptToMm(std.textPt) * (96 / 25.4), font: std.font };
@@ -943,7 +956,8 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     }
     if (doc.parts.length) renderSheet();
     else rebuild();
-    renderEditor();
+    // Only Exploded changes what the part editor shows (its explode distances).
+    if (box?.value === "exploded") renderEditor();
   });
   hiddenSel.addEventListener("change", () => {
     if (hiddenSel.value === "show" || hiddenSel.value === "hide") doc.hidden = hiddenSel.value;

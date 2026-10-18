@@ -610,8 +610,11 @@ function layoutCore(mesh: Mesh, o: SheetOptions, textUnitsIn: number | undefined
   // (Fixing the sheet scale first makes this end: at most one try per standard scale.)
   if (std.standardScale && details.length && o.forceScale === undefined) {
     const asked = Object.fromEntries(details.map((d) => [d.spec.letter, d.spec.factor]));
-    for (const sc of STANDARD_SCALES) {
-      if (sc > snapScale(fitS) * (1 + 1e-9)) continue;
+    // From one standard step above the scale the asked enlargements fit at (rounding a detail down can
+    // free room for the next scale up), downward.
+    const start = Math.max(0, STANDARD_SCALES.indexOf(snapScale(fitS)) - 1);
+    let why = "";
+    for (const sc of STANDARD_SCALES.slice(start)) {
       const above = STANDARD_SCALES.filter((x) => x > sc * (1 + 1e-9));
       if (!above.length) continue;
       const adjusted = o.views.map((v) => {
@@ -621,9 +624,17 @@ function layoutCore(mesh: Mesh, o: SheetOptions, textUnitsIn: number | undefined
         return { ...v, factor: best / sc };
       });
       const sheet = layoutCore(mesh, { ...o, views: adjusted, forceScale: sc, detailAsked: asked }, textUnitsIn, info);
-      if (sheet.svg) return sheet;
+      if (sheet.svg) {
+        // The scale this sheet IS (layoutSheet's text-fit search reads it; the forced pass's own fit may be larger).
+        info.fitS = sc;
+        return sheet;
+      }
+      // The first real reason (the largest scale's), kept for the refusal.
+      const r = sheet.notes.find((n) => n !== "does not fit at this scale");
+      if (r && !why) why = r;
     }
-    return refuse("The views and their detail views do not fit the sheet at any standard scale; choose a larger sheet or fewer views.");
+    info.fitS = 0;
+    return refuse(why || "The views and their detail views do not fit the sheet at any standard scale; choose a larger sheet or fewer views.");
   }
   let s = std.standardScale ? snapScale(fitS) : fitS;
   if (o.forceScale !== undefined) {

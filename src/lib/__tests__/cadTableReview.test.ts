@@ -117,3 +117,14 @@ test("the USPTO bracket round an exploded view stands beyond its callout column 
   // The exploded figure's numeral (the right-most one) is inside the bracket.
   expect(Math.max(...numerals)).toBeLessThan(xr);
 });
+
+test("second review: text on a standard-scale sheet with a detail fits as it did (the scale search reports the scale it drew)", () => {
+  const d: CadDoc = { ...TABLE(), parts: [box("top", 54, 32.4, 2.16, [0, 0, 37.8]), box("leg1", 2.7, 2.7, 37.8, [0, 0, 0])] };
+  const m = meshOf(d);
+  const views = [{ kind: "front" as const }, { kind: "top" as const }, { kind: "detail" as const, letter: "A", of: "front" as const, at: [1.35, 37.8] as [number, number], r: 4.32, factor: 4 }];
+  for (const text of ["NOTE TEXT HERE", "A LONGER NOTE ON THE JOINT BETWEEN THE TOP AND THE LEG"]) {
+    const sh = layoutSheet(m, { standard: "iso", views, marks: [{ kind: "text", view: "front", at: [27, 43.2], text }] });
+    expect([text, sh.notes.filter((n) => /does not fit/.test(n))]).toEqual([text, []]);
+    expect(sh.svg).toContain(text.split(" ")[0]);
+  }
+});

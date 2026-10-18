@@ -6,6 +6,7 @@ import {
   OFFICE_JS_URL,
   type MinimalRegistration,
 } from "../offline";
+import { dropStaleCopyIfOnline } from "../offline";
 
 describe("describeOfflineStatus — says only what the worker can verify", () => {
   const v = "9.9.9";
@@ -245,5 +246,19 @@ describe("activatePendingWorker — the update handshake", () => {
     const reg = fakeReg({ installing: true });
     const ok = await activatePendingWorker(reg, { waitForControllerChange: () => Promise.resolve() }, 20);
     expect(ok).toBe(false);
+  });
+});
+
+describe("Reload when the release cannot come in through the worker (PC report: 'could not be downloaded')", () => {
+  test("the stale copy is dropped only when the server answers", async () => {
+    let dropped = 0;
+    const reg = { unregister: async () => (dropped++, true) };
+    expect(await dropStaleCopyIfOnline(reg, async () => true)).toBe(true);
+    expect(dropped).toBe(1);
+    expect(await dropStaleCopyIfOnline(reg, async () => false)).toBe(false);
+    expect(await dropStaleCopyIfOnline(reg, async () => { throw new Error("offline"); })).toBe(false);
+    expect(dropped).toBe(1);
+    expect(await dropStaleCopyIfOnline(null, async () => true)).toBe(false);
+    expect(await dropStaleCopyIfOnline({ unregister: async () => { throw new Error("denied"); } }, async () => true)).toBe(false);
   });
 });

@@ -431,6 +431,20 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     ].join(" ");
   }
 
+  /** Marks the section as drawing-on-the-sheet (the large window lays itself out for it; the pane ignores it). */
+  function sectionMarking(on: boolean): void {
+    document.getElementById("cad-section")?.classList.toggle("cad-marking", on);
+    // The sheet was laid out for the old width: draw it again at the new one.
+    if (lastSheet) window.requestAnimationFrame?.(() => sizePreviewSvg());
+  }
+  function sizePreviewSvg(): void {
+    const svgEl = previewEl.querySelector("svg");
+    if (svgEl) {
+      svgEl.setAttribute("width", "100%");
+      svgEl.removeAttribute("height");
+    }
+  }
+
   // ---- exploded and detail views -----------------------------------------------------------
   const explodeAutoBtn = el<HTMLButtonElement>("cad-explode-auto") as HTMLButtonElement | null;
   const detailBtn = el<HTMLButtonElement>("cad-detail") as HTMLButtonElement | null;
@@ -473,7 +487,8 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     detailBtn.classList.toggle("active", on);
     detailBtn.setAttribute("aria-pressed", String(on));
     previewEl.classList.toggle("cad-marking", on || markTool !== null);
-    if (on) host.setStatus("Click the spot on a figure in the drawing below that the detail view shows. Esc cancels.", "");
+    sectionMarking(on || markTool !== null);
+    if (on) host.setStatus("Click the spot on a figure in the drawing that the detail view shows. Esc cancels.", "");
   }
   detailBtn?.addEventListener("click", () => {
     if (!detailMode) setMarkTool(null);
@@ -486,6 +501,7 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
   previewEl.addEventListener("pointerdown", (e) => {
     if (!detailMode || e.button !== 0) return;
     e.preventDefault();
+    if (!onSheet(e)) return;
     const p = sheetPoint(e);
     if (!p || !lastSheet) return host.setStatus("The drawing must be showing before a detail can be taken from it.", "error");
     const f = sheetFrames.find((q) => p[0] >= q.cell.x && p[0] <= q.cell.x + q.cell.w && p[1] >= q.cell.y && p[1] <= q.cell.y + q.cell.h);
@@ -587,6 +603,8 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     }
     if (markText) markText.hidden = t !== "text";
     previewEl.classList.toggle("cad-marking", t !== null);
+    // The large window gives the sheet the 3D view's room while drawing on it (caddialog.html).
+    sectionMarking(t !== null || detailMode);
     if (t && calloutMode) setCalloutMode(false, false);
     if (t && detailMode) setDetailMode(false);
     host.setStatus(t ? MARK_HELP[t] : "", "");
@@ -594,18 +612,35 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
   }
   for (const b of markBtns) b.addEventListener("click", () => setMarkTool(markTool === b.dataset.markTool ? null : (b.dataset.markTool as MarkTool)));
   /** Preview px → sheet px (the preview is drawn at 100 % width). */
+  /**
+   * Screen → sheet px through the drawing's own on-screen transform: right wherever the sheet sits in its box
+   * (fitted to a height, it is centred with blank bands at the sides — the box's edges are not the sheet's).
+   * Without one (no layout, as in tests) the box is taken as the sheet.
+   */
+  function screenToSheet(svg: SVGSVGElement): { x: (cx: number, cy: number) => [number, number]; scale: number } | null {
+    const m = typeof svg.getScreenCTM === "function" ? svg.getScreenCTM() : null;
+    if (m && m.a) {
+      const inv = m.inverse();
+      return { x: (cx, cy) => [inv.a * cx + inv.c * cy + inv.e, inv.b * cx + inv.d * cy + inv.f], scale: 1 / m.a };
+    }
+    const r = svg.getBoundingClientRect();
+    if (!r.width || !sheetW) return null;
+    const f = sheetW / r.width;
+    return { x: (cx, cy) => [(cx - r.left) * f, (cy - r.top) * f], scale: f };
+  }
   function previewScale(): number {
-    const w = previewEl.querySelector("svg")?.getBoundingClientRect().width ?? 0;
-    return w && sheetW ? sheetW / w : 0;
+    const svg = previewEl.querySelector("svg");
+    return (svg && screenToSheet(svg)?.scale) || 0;
   }
   /** The mouse in sheet px, held on the sheet (a drag that leaves the preview shrank the drawing to a dot). */
   function sheetPoint(e: PointerEvent): [number, number] | null {
     const svg = previewEl.querySelector("svg");
-    const f = previewScale();
-    if (!svg || !f) return null;
-    const r = svg.getBoundingClientRect();
-    const sheetH = r.height * f || Infinity;
-    return [Math.max(0, Math.min(sheetW, (e.clientX - r.left) * f)), Math.max(0, Math.min(sheetH, (e.clientY - r.top) * f))];
+    const t = svg && screenToSheet(svg);
+    if (!svg || !t) return null;
+    const vb = (svg.getAttribute("viewBox") ?? "").split(/\s+/).map(Number);
+    const sheetH = vb.length === 4 && vb[3] > 0 ? vb[3] : Infinity;
+    const [x, y] = t.x(e.clientX, e.clientY);
+    return [Math.max(0, Math.min(sheetW, x)), Math.max(0, Math.min(sheetH, y))];
   }
   /** The figure under a sheet point: the one whose cell holds it, else the nearest cell. */
   function frameAt(x: number, y: number): SheetFrame | null {
@@ -660,8 +695,19 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
   });
   // A drag in progress: its figure, its points (view plane, and sheet px) and a live line on the preview.
   let markDrag: { f: SheetFrame; pts: MarkPt[]; px: Array<[number, number]>; live: SVGPathElement | null } | null = null;
+  /** A press on the sheet itself (not the blank band beside a sheet fitted to the height). */
+  function onSheet(e: PointerEvent): boolean {
+    const svg = previewEl.querySelector("svg");
+    const t = svg && screenToSheet(svg);
+    if (!svg || !t) return false;
+    const [x, y] = t.x(e.clientX, e.clientY);
+    const vb = (svg.getAttribute("viewBox") ?? "").split(" ").map(Number);
+    const h = vb.length === 4 && vb[3] > 0 ? vb[3] : Infinity;
+    return x >= 0 && x <= sheetW && y >= 0 && y <= h;
+  }
   previewEl.addEventListener("pointerdown", (e) => {
     if (!markTool || e.button !== 0) return;
+    if (!onSheet(e)) return;
     const p = sheetPoint(e);
     if (!p) return;
     if (!lastSheet) return host.setStatus("The drawing must be showing before you can draw on it.", "error");
@@ -1041,6 +1087,10 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
   };
   /** The sketch editor in this window, on a part (by id) or a new one. */
   function sketchHere(partId: string | null, seed?: Sketch): boolean {
+    // The sketch takes the canvas: drawing on the sheet (which gives the sheet the canvas's room) ends first —
+    // only if it was on, so a status just set (why the large window did not open) is not wiped.
+    if (markTool !== null) setMarkTool(null);
+    if (detailMode) setDetailMode(false);
     if (!sketchPanel) return false;
     const p = partId === null ? undefined : doc.parts.find((q) => q.id === partId);
     if (partId !== null && !p) {
@@ -1132,7 +1182,11 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     if (status) host.setStatus(on ? "Click on a part to place a callout; keep clicking for more. Esc or Stop placing callouts ends it." : "", "");
   }
   calloutBtn.addEventListener("click", () => {
-    if (!calloutMode) setMateMode(false, false);
+    // Callouts are placed on the 3D view: a drawing tool (which gives the sheet the 3D view's room) goes off.
+    if (!calloutMode) {
+      setMateMode(false, false);
+      setMarkTool(null);
+    }
     setCalloutMode(!calloutMode);
   });
   document.addEventListener("keydown", (e) => {
@@ -1156,7 +1210,10 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
     if (status) host.setStatus(on ? "Mate: click a flat face of the part to MOVE (near a corner or the centre to snap to it)." : "", "");
   }
   mateBtn?.addEventListener("click", () => {
-    if (!mateMode) setCalloutMode(false, false);
+    if (!mateMode) {
+      setCalloutMode(false, false);
+      setMarkTool(null);
+    }
     setMateMode(!mateMode);
   });
   mateUndoBtn?.addEventListener("click", () => {
@@ -1277,6 +1334,10 @@ export function initCadPane(host: CadPaneHost, initial?: CadDoc): CadPaneApi {
       renderCallouts();
       paint(true);
       renderSheet();
+      if (lastNotes.some((m) => m.startsWith(`Callout ${label} is hidden in every view`))) {
+        host.setStatus(`Callout ${label} is placed on ${doc.parts[hit.body]?.name ?? "the part"}, but no view on the sheet shows that spot, so the sheet leaves it out — turn the 3D view until that spot faces you and tick "This view", or click a face the ticked views show.`, "error");
+        return;
+      }
       host.setStatus(`Callout ${label} placed on ${doc.parts[hit.body]?.name ?? "the part"}. Click again for the next; Esc ends it.`, "success");
       return;
     }

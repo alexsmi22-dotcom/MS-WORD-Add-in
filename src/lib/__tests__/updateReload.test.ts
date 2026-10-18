@@ -61,7 +61,9 @@ describe("the scan is not vacuous", () => {
   test("the pane still checks a cache-busted version.json", () => {
     // If this ever stops being cache-busted, the check itself goes stale and
     // every test below is guarding a path that never runs.
-    const body = functionBody("checkForUpdate");
+    // Since v2.155.1 the check goes through serverVersion (shared with Reload's recovery).
+    expect(functionBody("checkForUpdate")).toContain("serverVersion()");
+    const body = functionBody("serverVersion");
     expect(body).toContain("version.json?t=");
     expect(body).toContain('cache: "no-store"');
   });
@@ -81,7 +83,8 @@ describe("reloading for an update cannot be served from cache", () => {
   // and it must do both things in the right order.
   test("the banner button navigates through reloadIntoVersion with the new version", () => {
     const body = functionBody("showUpdateBanner");
-    expect(body).toContain("reloadIntoVersion(newVersion)");
+    // The button (only the button — v2.155.1) may recover a stale offline copy: the second argument.
+    expect(body).toContain("reloadIntoVersion(newVersion, true)");
     expect(body).not.toContain("window.location.replace(");
   });
 

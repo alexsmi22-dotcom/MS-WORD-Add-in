@@ -41,6 +41,24 @@
         height: 100%;
         resize: none;
       }
+      /* Drawing on the sheet (Pencil, Line, Arrow, Numeral, Text, Erase, Add detail view): the sheet takes the
+         room the 3D view had, so it is drawn on at size; the 3D view comes back when the tool is off. */
+      #cad-section.cad-marking {
+        grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
+      }
+      #cad-section.cad-marking > .cad-col.canvas-col {
+        display: none;
+      }
+      #cad-section.cad-marking #cad-preview svg {
+        max-height: calc(100vh - 230px);
+      }
+      /* A sketch always has its canvas (never both hidden). */
+      #cad-section.cad-sketching.cad-marking > .cad-col.canvas-col {
+        display: flex;
+      }
+      /* The status line under the 3D view is hidden while marking: its copy by the sheet shows instead. */
+      #cad-status-sheet { display: none; }
+      #cad-section.cad-marking #cad-status-sheet { display: block; }
       /* Sketching: the column scrolls, and the sketch gets the room the 3D view had. */
       #cad-section.cad-sketching .cad-col.canvas-col {
         overflow: auto;
@@ -246,6 +264,7 @@
       </div>
       <div class="cad-col">
         <div id="cad-msg" class="build-readout" aria-live="polite"></div>
+        <p id="cad-status-sheet" class="build-readout" role="status"></p>
         <div id="cad-mark-bar" class="cad-mark-bar" role="toolbar" aria-label="Draw on the drawing">
           <span class="preview-label">Draw on the drawing</span>
           <button type="button" class="insert-btn secondary" data-mark-tool="pen" aria-pressed="false" title="Pencil: drag on a figure to draw, exactly as you move">Pencil</button>

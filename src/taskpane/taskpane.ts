@@ -1785,7 +1785,7 @@ Office.onReady((info) => {
   alignInsertBtn = document.getElementById("align-insert") as HTMLButtonElement;
   seqmapSection = document.getElementById("seqmap-section") as HTMLElement;
   cadSection = document.getElementById("cad-section") as HTMLElement;
-  initChemdrawPane({ setStatus: (t, k) => setStatus(t, k ?? ""), insertPicture: insertChemdrawDrawing, downloadFile: (blob, name) => triggerDownload(blob, name), readSelectionOoxml: () => docHost.readSelectionOoxml() });
+  initChemdrawPane({ setStatus: (t, k) => setStatus(t, k ?? ""), insertPicture: insertChemdrawDrawing, downloadFile: (blob, name) => triggerDownload(blob, name), readSelectionOoxml: () => docHost.readSelectionOoxml(), replacePicture: replaceWithChemdrawDrawing });
   cadPane = initCadPane({
     setStatus: (t, k) => setStatus(t, k ?? ""),
     // Patent numerals continue the document's Numerals table and skip any already on this drawing.
@@ -29779,6 +29779,11 @@ function openCadDialog(docJson: string, opts?: { sketch?: string; seed?: string 
 async function insertChemdrawDrawing(svg: string, widthPx: number, heightPx: number, alt: string): Promise<void> {
   const base64 = await renderFigurePng(svg, widthPx, heightPx);
   await docHost.insertPictureAtSelection({ base64, widthPt: figurePoints(widthPx), heightPt: figurePoints(heightPx), alt, selectAfter: true, tag: "formula-inserter:chemdraw" });
+}
+
+async function replaceWithChemdrawDrawing(svg: string, widthPx: number, heightPx: number, alt: string): Promise<boolean> {
+  const base64 = await renderFigurePng(svg, widthPx, heightPx);
+  return docHost.replaceSelectedPicture({ base64, widthPt: figurePoints(widthPx), heightPt: figurePoints(heightPx), alt, selectAfter: false, tag: "formula-inserter:chemdraw" });
 }
 
 async function insertCadDrawing(svg: string, widthPx: number, heightPx: number, alt: string): Promise<void> {

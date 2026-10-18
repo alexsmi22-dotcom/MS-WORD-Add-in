@@ -627,3 +627,154 @@ export function addRingAt(doc: CdxDoc, at: P2, kind: RingKind): string | null {
   }
   return placeRing(doc, frag, verts, kind);
 }
+
+// ---- chains, brackets, arrows ----------------------------------------------------------------
+
+const MAX_CHAIN = 50;
+const CONTROL = /[\u0000-\u001f\u007f]/;
+
+/** How many chain bonds a drag of `dist` points asks for (each bond advances L · cos 30° along the drag). */
+export function chainLength(doc: CdxDoc, dist: number): number {
+  if (!Number.isFinite(dist)) return 1;
+  return Math.max(1, Math.min(MAX_CHAIN, Math.round(dist / (doc.style.bondLength * Math.cos(Math.PI / 6)))));
+}
+
+/** The chain's new atom positions: a zig-zag from `p0` toward `toward`, turning ±30° off the heading in turn (120° between bonds). */
+export function chainPoints(doc: CdxDoc, p0: P2, toward: P2, n: number): P2[] {
+  const L = doc.style.bondLength;
+  const head = Math.atan2(toward[1] - p0[1], toward[0] - p0[0]);
+  const out: P2[] = [];
+  let p = p0;
+  for (let i = 0; i < n; i++) {
+    const dir = head + (i % 2 === 0 ? -1 : 1) * (Math.PI / 6);
+    p = [p[0] + L * Math.cos(dir), p[1] + L * Math.sin(dir)];
+    out.push(p);
+  }
+  return out;
+}
+
+/**
+ * A zig-zag chain of `n` carbons from an atom, or (with `from` a page point) as a structure of its
+ * own, heading toward `toward`. Refused from an atom with no valence to spare.
+ */
+export function addChain(doc: CdxDoc, from: { nodeId: string } | { at: P2 }, toward: P2, n: number): string | null {
+  if (!Number.isInteger(n) || n < 1 || n > MAX_CHAIN) return `a chain is 1 to ${MAX_CHAIN} bonds long`;
+  if (!toward.every(Number.isFinite)) return "that is not a place on the page";
+  const id = nextIdFrom(doc.root);
+  let frag: XNode, start: XNode;
+  if ("nodeId" in from) {
+    const hit = fragmentOf(doc.root, from.nodeId);
+    if (!hit) return "that atom is no longer in the document";
+    ({ frag, node: start } = hit);
+    if (!start.attrs.NodeType || start.attrs.NodeType === "Element") {
+      const sym = symbolFor(Number(start.attrs.Element ?? 6)) ?? "";
+      const base = VALENCE[sym];
+      if (base && !Number(start.attrs.Charge ?? 0) && bondOrderSum(frag, from.nodeId) + 1 > Math.max(...base)) return `that ${sym} has no bond to spare`;
+    }
+  } else {
+    const page = pageOf(doc.root);
+    if (!page) return "the document has no page";
+    if (!from.at.every(Number.isFinite)) return "that is not a place on the page";
+    frag = { name: "fragment", attrs: { id: id() }, children: [], text: "", line: 0 };
+    start = { name: "n", attrs: { id: id(), p: `${fmt(from.at[0])} ${fmt(from.at[1])}` }, children: [], text: "", line: 0 };
+    frag.children.push(start);
+    page.children.push(frag);
+  }
+  const p0 = posOf(start);
+  if (Math.hypot(toward[0] - p0[0], toward[1] - p0[1]) < 1e-6) return "drag away from the atom to show which way the chain goes";
+  let prev = start;
+  for (const p of chainPoints(doc, p0, toward, n)) {
+    const nn: XNode = { name: "n", attrs: { id: id(), p: `${fmt(p[0])} ${fmt(p[1])}` }, children: [], text: "", line: 0 };
+    frag.children.push(nn, { name: "b", attrs: { id: id(), B: prev.attrs.id!, E: nn.attrs.id! }, children: [], text: "", line: 0 });
+    prev = nn;
+  }
+  relabel(doc, start);
+  return null;
+}
+
+/**
+ * Polymer brackets round the atoms inside a page box: a square bracket on its left and right
+ * edges, a bracketed group (a structural repeat unit) naming those atoms and the bonds the
+ * brackets cross, and a label ("n") at the right bracket's foot. Refused when no atom is inside
+ * or no bond leaves the box (nothing repeats).
+ */
+export function addBrackets(doc: CdxDoc, box: [number, number, number, number], label = "n"): string | null {
+  if (!box.every(Number.isFinite)) return "that is not a place on the page";
+  const x0 = Math.min(box[0], box[2]), y0 = Math.min(box[1], box[3]), x1 = Math.max(box[0], box[2]), y1 = Math.max(box[1], box[3]);
+  if (!(x1 - x0 > 2 && y1 - y0 > 2)) return "drag a box round the repeat unit";
+  const text = label.trim();
+  if (!text || text.length > 20 || CONTROL.test(text)) return "the bracket's label must be 1 to 20 characters";
+  const page = pageOf(doc.root);
+  if (!page) return "the document has no page";
+  const inside = (p: P2): boolean => p[0] >= x0 && p[0] <= x1 && p[1] >= y0 && p[1] <= y1;
+  const insideIds: string[] = [];
+  const crossings: Array<{ bond: string; inner: string; left: boolean }> = [];
+  walk(doc.root, (f) => {
+    if (f.name !== "fragment") return;
+    const atoms = new Map<string, P2>();
+    for (const c of f.children) if (c.name === "n" && c.attrs.id) atoms.set(c.attrs.id, posOf(c));
+    for (const [aid, p] of atoms) if (inside(p)) insideIds.push(aid);
+    for (const b of f.children) {
+      if (b.name !== "b" || !b.attrs.id) continue;
+      const pa = atoms.get(b.attrs.B), pb = atoms.get(b.attrs.E);
+      if (!pa || !pb || inside(pa) === inside(pb)) continue;
+      const out = inside(pa) ? pb : pa;
+      crossings.push({ bond: b.attrs.id, inner: inside(pa) ? b.attrs.B : b.attrs.E, left: out[0] < (x0 + x1) / 2 });
+    }
+  });
+  if (!insideIds.length) return "no atom is inside the box — drag it round the repeat unit";
+  if (!crossings.length) return "no bond leaves the box — a repeat unit is bonded to the chain on each side";
+  const id = nextIdFrom(doc.root);
+  const bracket = (x: number, top: number, bottom: number): XNode => ({
+    name: "graphic",
+    attrs: { id: id(), BoundingBox: `${fmt(x)} ${fmt(top)} ${fmt(x)} ${fmt(bottom)}`, GraphicType: "Bracket", BracketType: "Square" },
+    children: [],
+    text: "",
+    line: 0,
+  });
+  const left = bracket(x0, y0, y1), right = bracket(x1, y1, y0);
+  const size = doc.style.captionSize;
+  const tx = x1 + size * 0.25, ty = y1 + size * 0.35;
+  const caption: XNode = {
+    name: "t",
+    attrs: { id: id(), p: `${fmt(tx)} ${fmt(ty)}`, BoundingBox: `${fmt(tx)} ${fmt(ty - size * 0.75)} ${fmt(tx + text.length * size * 0.6)} ${fmt(ty + size * 0.25)}` },
+    children: [{ name: "s", attrs: { font: String(doc.style.captionFont), size: fmt(size), face: "2" }, children: [], text, line: 0 }],
+    text: "",
+    line: 0,
+  };
+  const group: XNode = { name: "bracketedgroup", attrs: { id: id(), BracketUsage: "SRU", BracketedObjectIDs: insideIds.join(" ") }, children: [], text: "", line: 0 };
+  if (/^\d+$/.test(text)) group.attrs.RepeatCount = text;
+  for (const c of crossings)
+    group.children.push({
+      name: "bracketattachment",
+      attrs: { id: id(), GraphicID: (c.left ? left : right).attrs.id! },
+      children: [{ name: "crossingbond", attrs: { id: id(), BondID: c.bond, InnerAtomID: c.inner }, children: [], text: "", line: 0 }],
+      text: "",
+      line: 0,
+    });
+  page.children.push(left, right, caption, group);
+  return null;
+}
+
+export type ArrowKind = "reaction" | "equilibrium";
+
+/** A reaction arrow from tail to head (a full solid head), or an equilibrium arrow (two half-headed shafts). */
+export function addArrow(doc: CdxDoc, tail: P2, head: P2, kind: ArrowKind = "reaction"): string | null {
+  if (![...tail, ...head].every(Number.isFinite)) return "that is not a place on the page";
+  if (Math.hypot(head[0] - tail[0], head[1] - tail[1]) < doc.style.bondLength * 0.5) return "drag further: an arrow needs some length";
+  const page = pageOf(doc.root);
+  if (!page) return "the document has no page";
+  const attrs: Record<string, string> = {
+    id: nextIdFrom(doc.root)(),
+    Head3D: `${fmt(head[0])} ${fmt(head[1])} 0`,
+    Tail3D: `${fmt(tail[0])} ${fmt(tail[1])} 0`,
+    ArrowheadType: "Solid",
+    HeadSize: "1000",
+    ArrowheadCenterSize: "875",
+    ArrowheadWidth: "250",
+  };
+  if (kind === "equilibrium") Object.assign(attrs, { ArrowheadHead: "HalfLeft", ArrowheadTail: "HalfLeft", ArrowShaftSpacing: "300" });
+  else attrs.ArrowheadHead = "Full";
+  page.children.push({ name: "arrow", attrs, children: [], text: "", line: 0 });
+  return null;
+}

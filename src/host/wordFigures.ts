@@ -33,6 +33,28 @@ export async function insertPictureAtSelection(o: PictureInsert): Promise<void> 
   });
 }
 
+/**
+ * The first selected in-line picture replaced, in place, by a new one: sized, alt text set, then
+ * tagged. False (nothing changed) when no in-line picture is selected.
+ */
+export async function replaceSelectedPicture(o: PictureInsert): Promise<boolean> {
+  let replaced = false;
+  await Word.run(async (context) => {
+    const pics = context.document.getSelection().inlinePictures;
+    pics.load("items");
+    await context.sync();
+    if (!pics.items.length) return;
+    const picture = pics.items[0].insertInlinePictureFromBase64(o.base64, Word.InsertLocation.replace);
+    picture.width = o.widthPt;
+    picture.height = o.heightPt;
+    picture.altTextDescription = o.alt;
+    await context.sync();
+    replaced = true;
+    if (o.tag) await tagInserted(context, picture.getRange(), o.tag);
+  });
+  return replaced;
+}
+
 /** A structure picture followed by its R-group legend (a table, or one line), then tagged. */
 export async function insertPictureWithLegend(o: LegendedPictureInsert): Promise<void> {
   await Word.run(async (context) => {

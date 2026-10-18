@@ -318,3 +318,99 @@ describe("Open ChemDraw picture (a ChemDraw picture in the document)", () => {
     ]);
   });
 });
+
+describe("Chain, Brackets, Arrow and Replace selected picture (C4)", () => {
+  async function setup(replace?: (alt: string) => boolean) {
+    document.body.innerHTML = BUILD;
+    const status: Array<[string, string]> = [];
+    const replaced: string[] = [];
+    initChemdrawPane({
+      setStatus: (m, k) => void status.push([m, k ?? ""]),
+      insertPicture: async () => undefined,
+      ...(replace ? { replacePicture: async (_svg: string, _w: number, _h: number, alt: string) => (replaced.push(alt), replace(alt)) } : {}),
+    });
+    const input = document.getElementById("chemdraw-file") as HTMLInputElement;
+    Object.defineProperty(input, "files", { value: [new File([CDXML], "figure.cdxml")], configurable: true });
+    input.dispatchEvent(new Event("change"));
+    await new Promise((r) => setTimeout(r, 30));
+    const pv = document.getElementById("chemdraw-preview")!;
+    const at = (x: number, y: number): { clientX: number; clientY: number } => {
+      const svg = pv.querySelector("svg")!;
+      const [vx, vy, vw, vh] = svg.getAttribute("viewBox")!.split(" ").map(Number);
+      svg.getBoundingClientRect = () => ({ left: 0, top: 0, width: vw, height: vh, right: vw, bottom: vh, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+      return { clientX: x - vx, clientY: y - vy };
+    };
+    /** A drag as the browser sends it: down, moves, up, then the click that follows. */
+    const drag = (from: [number, number], to: [number, number]): void => {
+      pv.dispatchEvent(new MouseEvent("pointerdown", { ...at(...from), button: 0, bubbles: true }));
+      const mid: [number, number] = [(from[0] + to[0]) / 2, (from[1] + to[1]) / 2];
+      pv.dispatchEvent(new MouseEvent("pointermove", { ...at(...mid), bubbles: true }));
+      expect(pv.querySelector("#chemdraw-ghost")).not.toBeNull(); // drawn live while dragging
+      pv.dispatchEvent(new MouseEvent("pointermove", { ...at(...to), bubbles: true }));
+      pv.dispatchEvent(new MouseEvent("pointerup", { ...at(...to), bubbles: true }));
+      pv.dispatchEvent(new MouseEvent("click", { ...at(...to), bubbles: true }));
+    };
+    const tool = (t: string): void => document.querySelector<HTMLButtonElement>(`[data-cdx-tool="${t}"]`)!.click();
+    return { status, replaced, pv, drag, tool };
+  }
+  const last = (s: Array<[string, string]>): [string, string] => s[s.length - 1];
+
+  test("Chain: a drag from an end atom grows a chain along it, one bond per step; the ghost goes on release", async () => {
+    const t = await setup();
+    t.tool("chain");
+    const before = t.pv.querySelectorAll("line").length;
+    t.drag([400, 600], [500, 600]);
+    expect(last(t.status)).toEqual(["Chain of 4 bonds drawn.", "success"]);
+    expect(t.pv.querySelectorAll("line").length).toBe(before + 4);
+    expect(t.pv.querySelector("#chemdraw-ghost")).toBeNull();
+    // A drag from empty paper starts a chain of its own; Undo takes it away again.
+    t.drag([300, 300], [300, 360]);
+    expect(t.pv.querySelectorAll("line").length).toBe(before + 6);
+    (document.getElementById("chemdraw-undo") as HTMLButtonElement).click();
+    expect(t.pv.querySelectorAll("line").length).toBe(before + 4);
+  });
+
+  test("Brackets: a box round one end of the far structure brackets it with n; a box round nothing is refused by name", async () => {
+    const t = await setup();
+    t.tool("bracket");
+    expect((document.getElementById("chemdraw-value") as HTMLInputElement).disabled).toBe(false);
+    t.drag([390, 590], [415, 610]);
+    expect(last(t.status)).toEqual(["Brackets drawn round the repeat unit, labelled n.", "success"]);
+    t.drag([250, 250], [300, 300]);
+    expect(last(t.status)).toEqual(["No atom is inside the box — drag it round the repeat unit.", "error"]);
+  });
+
+  test("Arrow: reaction or equilibrium, by the list; a click with no drag says how", async () => {
+    const t = await setup();
+    t.tool("arrow");
+    t.drag([200, 300], [300, 300]);
+    expect(last(t.status)).toEqual(["Reaction arrow drawn.", "success"]);
+    const sel = document.getElementById("chemdraw-arrow") as HTMLSelectElement;
+    expect(sel.disabled).toBe(false);
+    sel.value = "equilibrium";
+    t.drag([200, 400], [300, 400]);
+    expect(last(t.status)).toEqual(["Equilibrium arrow drawn.", "success"]);
+    t.drag([200, 500], [201, 500]);
+    expect(last(t.status)[1]).toBe("error");
+  });
+
+  test("Replace selected picture: the whole page (nothing selected) in place of the picture; no picture selected is said", async () => {
+    let ok = false;
+    const t = await setup(() => ok);
+    const btn = document.getElementById("chemdraw-replace") as HTMLButtonElement;
+    expect(btn.disabled).toBe(false);
+    btn.click();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(last(t.status)).toEqual(["Select the picture to replace in the document first (click it; it must sit in line with the text), then Replace selected picture.", "error"]);
+    ok = true;
+    btn.click();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(t.replaced[1]).toBe("ChemDraw drawing from figure.cdxml (the whole page).");
+    expect(last(t.status)).toEqual(["Replaced the selected picture with the whole page from figure.cdxml. It is inserted at ChemDraw's size.", "success"]);
+  });
+
+  test("with no Word to replace in, the button stays off", async () => {
+    await setup();
+    expect((document.getElementById("chemdraw-replace") as HTMLButtonElement).disabled).toBe(true);
+  });
+});

@@ -250,6 +250,8 @@ export interface Host {
   // ---- pictures and tables -----------------------------------------------------
 
   insertPictureAtSelection(o: PictureInsert): Promise<void>;
+  /** The first selected in-line picture replaced in place (false = none selected, nothing changed). */
+  replaceSelectedPicture(o: PictureInsert): Promise<boolean>;
   insertPictureWithLegend(o: LegendedPictureInsert): Promise<void>;
   /** Pictures one per paragraph, each anchored at the END of the previous paragraph. */
   insertPictureParagraphs(items: GalleryItem[]): Promise<void>;

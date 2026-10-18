@@ -6,6 +6,25 @@ All notable changes to JurisLab. Dates are release/pilot dates.
 > v2.52.0 and v2.59.0. Those releases are recorded in the git history rather
 > than here.
 
+## [2.154.0] — 2026-10-18 — ChemDraw: chains, polymer brackets, arrows, replace in place
+
+### Added
+- **Chain** tool: drag from an atom (or from empty paper) and a zig-zag chain follows the mouse — one bond per
+  L·cos 30° of drag (L = the document's bond length), 120° between bonds, as ChemDraw draws a chain; a click on an
+  atom adds one bond. A drawn atom with no valence to spare (a carbon with four bonds) is refused by name.
+- **Brackets** tool: drag a box round a repeat unit — square brackets on its sides, the label (the box above; blank
+  = n; a number is also written as the repeat count) at the right bracket's foot, and the structural repeat unit
+  ChemDraw reads (bracketedgroup, SRU) naming the atoms inside and the bonds the brackets cross. A box with no atom
+  inside, or no bond leaving it, is refused by name.
+- **Arrow** tool: drag from tail to head — a reaction arrow (full solid head, ChemDraw's default size) or an
+  equilibrium arrow (two half-headed shafts).
+- **Replace selected picture**: click the picture in the document (for instance the ChemDraw picture you opened),
+  then Replace selected picture — the edited drawing (the selection, or the whole page when nothing is selected)
+  goes in its place, instead of a second copy after it. A floating (wrapped) picture is not in Word's selection of
+  in-line pictures: it is said, and nothing changes.
+- While dragging, the chain, box or arrow is drawn as a light outline; all three are written into the document
+  itself, so Save as .cdxml keeps them and ChemDraw opens them.
+
 ## [2.153.0] — 2026-10-18 — ChemDraw pictures in documents, .cdx files, ring tools
 
 ### Added
